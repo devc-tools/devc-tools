@@ -13,7 +13,7 @@ its container.
 ## Install
 
 ```sh
-curl -fsSL https://github.com/bmingles/devc-tools/releases/latest/download/install.sh | sh
+curl -fsSL https://github.com/devc-tools/devc-tools/releases/latest/download/install.sh | sh
 ```
 
 That drops a prebuilt `devc` into `~/.local/bin` (macOS and Linux, Intel and
@@ -385,7 +385,7 @@ same both-are-first-class rule as the overlay itself:
 ```
 
 It runs via the
-[`devc-config` Feature](https://github.com/bmingles/devc-tools/tree/main/features/devc-config),
+[`devc-config` Feature](https://github.com/devc-tools/devc-tools/tree/main/features/devc-config),
 which devc contributes to **every** container it starts — it is the lowest layer
 of the merge that produces the effective config, with no configuration from you. That reaches every project devc starts, including one
 with its own hand-written `.devcontainer/devcontainer.json` that devc has never
@@ -481,7 +481,7 @@ replaces the same-named bundled one — everywhere the bundle is used:
 Anything you want the in-container agent to see goes in
 `~/.config/devc/.claude` — **you put it there, and nothing else gets in.** The
 directory is bind-mounted read-only onto the
-[`agents`](https://github.com/bmingles/devc-tools/tree/main/features/agents)
+[`agents`](https://github.com/devc-tools/devc-tools/tree/main/features/agents)
 Feature's fixed seed path, and on every container create that Feature's own
 `post-create.sh` symlinks each entry into the container's `~/.claude`:
 
@@ -605,7 +605,7 @@ so add it by hand to pick up the user layer:
 
 `~/.gitconfig` is container-local and wiped on every rebuild, while the working
 tree and `.git` are host bind mounts. The
-[`git-container-config`](https://github.com/bmingles/devc-tools/tree/main/features/git-container-config)
+[`git-container-config`](https://github.com/devc-tools/devc-tools/tree/main/features/git-container-config)
 Feature re-applies the user-scope settings git needs each create:
 
 - **Your identity.** `initialize-command.sh` extracts `user.name` / `user.email`
@@ -649,7 +649,7 @@ Opt in for **every project** (user level, `~/.config/devc/devc.json`) or for
 ```jsonc
 {
   "features": {
-    "ghcr.io/bmingles/devc-tools/devc-bridge:0": {}
+    "ghcr.io/devc-tools/devc-bridge:0": {}
   }
 }
 ```

@@ -288,7 +288,7 @@ otherwise unchanged. Contract:
 - Resolve arch from `uname -m`: `x86_64|amd64` → `x86_64`, `arm64|aarch64` →
   `aarch64`, anything else a hard failure. Triple is `<arch>-unknown-linux-gnu`.
 - Fetch `checksums.txt` and `devc-bridge-client-<bare>-<triple>.tar.gz` from
-  `${DEVC_RELEASE_BASE:-https://github.com/bmingles/devc-tools/releases}/download/v<bare>/`.
+  `${DEVC_RELEASE_BASE:-https://github.com/devc-tools/devc-tools/releases}/download/v<bare>/`.
   Honoring `DEVC_RELEASE_BASE` is what lets tests point at a `file://` fixture,
   as `install.sh:257` does.
 - Verify sha256 before anything leaves the temp dir; mismatch aborts the build.

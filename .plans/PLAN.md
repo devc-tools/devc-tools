@@ -936,7 +936,7 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
   asserted offline instead.
 - [feature-bash-config](archived/feature-bash-config.md) — **Supersedes
   `shell-dirs`**, and the one plan here that is not a split of devc's baseline:
-  `ghcr.io/bmingles/devc-tools/bash-config` sources every `bashrc_*.sh` from
+  `ghcr.io/devc-tools/bash-config` sources every `bashrc_*.sh` from
   `~/.bashrc` and every `profile_*.sh` from the login profile, out of **two fixed
   container directories**. `shell-dirs` keeps its whole sourcing loop _inside_
   `~/.bashrc`, parameterized by two assignments in the middle of it, so both halves of
@@ -1021,7 +1021,7 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
   unchanged, per copy-don't-move. Retiring `shell-dirs` and swapping devc onto this
   Feature are later plans.
 - [feature-shell-dirs](archived/feature-shell-dirs.md) — Publish
-  `ghcr.io/bmingles/devc-tools/shell-dirs`: every `*.sh` in one or two directories
+  `ghcr.io/devc-tools/shell-dirs`: every `*.sh` in one or two directories
   sourced by every interactive shell, in a defined order, **live** — sourced from
   `~/.bashrc` rather than appended into it, so a file added after the build is
   picked up by the next shell. A bare `{}` is the project layer (the repo's own
@@ -1173,7 +1173,7 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
   Until a stable `v0.1.0` exists, `devc-bridge`'s job is expected to be red; that
   is the pin guard working, and it no longer holds `node-nvmrc` back.
 - [feature-node-nvmrc](archived/feature-node-nvmrc.md) — Publish
-  `ghcr.io/bmingles/devc-tools/node-nvmrc`: the Node version a workspace pins in
+  `ghcr.io/devc-tools/node-nvmrc`: the Node version a workspace pins in
   `.nvmrc`, installed at create time and selected in every interactive shell,
   including on `cd`. The first of the four splits and the only one with **no host
   coupling at all** — it reads the workspace, writes the container, declares no

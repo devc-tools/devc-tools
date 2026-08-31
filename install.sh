@@ -2,7 +2,7 @@
 # devc-tools installer — fetch the prebuilt binaries for this machine and put them
 # where devc and devc-bridge expect to find each other.
 #
-#   curl -fsSL https://github.com/bmingles/devc-tools/releases/latest/download/install.sh | sh
+#   curl -fsSL https://github.com/devc-tools/devc-tools/releases/latest/download/install.sh | sh
 #
 # This file is the source of truth and is edited here, but it is *shipped as a release
 # asset*, not run from `main`: the copy GitHub serves at .../releases/latest/download/
@@ -42,7 +42,7 @@ set -eu
 DEVC_RELEASE_VERSION=''
 # devc:stamp (end)
 
-DEVC_REPO='bmingles/devc-tools'
+DEVC_REPO='devc-tools/devc-tools'
 
 # --- output --------------------------------------------------------------------------
 

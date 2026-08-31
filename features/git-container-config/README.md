@@ -6,7 +6,7 @@ needs and cannot keep. It installs neither git nor git-lfs — see
 
 ```jsonc
 "features": {
-  "ghcr.io/bmingles/devc-tools/git-container-config:0": {}
+  "ghcr.io/devc-tools/git-container-config:0": {}
 }
 ```
 
@@ -122,7 +122,7 @@ which your own `initializeCommand` + mount produces a file inside of.
   "type=bind,source=${localEnv:HOME}/.config/gitid,target=/usr/local/share/devc-features/git-container-config/identity/gitconfig,readonly"
 ],
 "features": {
-  "ghcr.io/bmingles/devc-tools/git-container-config:0": {}
+  "ghcr.io/devc-tools/git-container-config:0": {}
 }
 ```
 

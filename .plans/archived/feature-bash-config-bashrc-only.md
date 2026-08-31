@@ -119,7 +119,7 @@ copy of this logic to leave alone.
   "version": "0.2.0",
   "name": "Bash config directories",
   "description": "Sources every bashrc_*.sh from ~/.bashrc out of two fixed container directories: dirs/user (empty, yours to mount or fill) and dirs/project (a symlink a create-time hook points at your workspace). The block appended to ~/.bashrc is a static one line naming a fixed path, so nothing ever rewrites it; both directories are read fresh by every shell, so a file added after the build applies to the next shell with no rebuild.",
-  "documentationURL": "https://github.com/bmingles/devc-tools/tree/main/features/bash-config",
+  "documentationURL": "https://github.com/devc-tools/devc-tools/tree/main/features/bash-config",
   "options": {
     "projectDir": {
       "type": "string",

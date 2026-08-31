@@ -10,7 +10,7 @@
 
 ## Goal
 
-Publish `ghcr.io/bmingles/devc-tools/claude-config`: install the Claude Code CLI
+Publish `ghcr.io/devc-tools/claude-config`: install the Claude Code CLI
 (and optionally the GitHub Copilot CLI) at build time, and at create time wire
 `~/.claude` and `~/.claude.json` to whatever persistence and seed the consumer
 has mounted.
@@ -142,7 +142,7 @@ is one paste, and none of them mentions devc:
 ],
 "initializeCommand": "mkdir -p ${localEnv:HOME}/.config/claude-seed",
 "features": {
-  "ghcr.io/bmingles/devc-tools/claude-config:0": {
+  "ghcr.io/devc-tools/claude-config:0": {
     "seedDir": "/usr/local/share/claude-seed",
     "claudeJsonDir": "/usr/local/share/claude-json"
   }

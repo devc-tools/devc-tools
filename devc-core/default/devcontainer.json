@@ -30,20 +30,20 @@
     // as of agents 0.2.0 — ~/.claude is derived from the remote user's home, and the seed
     // path is fixed. Preserves current behavior: devc's own Dockerfile used to install
     // Copilot unconditionally, and the Feature's own default is false.
-    "ghcr.io/bmingles/devc-tools/agents:0": {
+    "ghcr.io/devc-tools/agents:0": {
       "installClaudeCli": true,
       "installCopilotCli": false,
       "installHerdr": true,
       "installPiCli": true,
       "piPackages": "npm:@andrewjacop/pi-herdr"
     },
-    "ghcr.io/bmingles/devc-tools/bash-config:0": {},
+    "ghcr.io/devc-tools/bash-config:0": {},
     // Bare {}, like bash-config's. There is no identityIncludePath left to pass —
     // lfsFilters, lfsSkipSmudge, worktreeRelativePaths, safeDirectory all left at their
     // defaults, which already match git-setup.sh's old behavior exactly. The identity bind
     // is retargeted in `mounts` below.
-    "ghcr.io/bmingles/devc-tools/git-container-config:0": {},
-    "ghcr.io/bmingles/devc-tools/node-nvmrc:0": {}
+    "ghcr.io/devc-tools/git-container-config:0": {},
+    "ghcr.io/devc-tools/node-nvmrc:0": {}
   },
   "remoteEnv": {
     "LANG": "en_US.utf8",

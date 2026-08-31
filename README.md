@@ -6,7 +6,7 @@ self-contained in its own subfolder, with its own docs and build tasks.
 ## Install
 
 ```sh
-curl -fsSL https://github.com/bmingles/devc-tools/releases/latest/download/install.sh | sh
+curl -fsSL https://github.com/devc-tools/devc-tools/releases/latest/download/install.sh | sh
 ```
 
 Installs the prebuilt binaries for your machine into `~/.local/bin` — **no Deno
@@ -128,7 +128,7 @@ To cut a release:
    stay version-free: the former is served from `releases/latest/download/`, so
    its name cannot move. It publishes no Features —
    [`publish-feature.yml`](.github/workflows/publish-feature.yml) does that on a
-   push to `main`, one job per Feature, to `ghcr.io/bmingles/devc-tools/<id>`.
+   push to `main`, one job per Feature, to `ghcr.io/devc-tools/<id>`.
 
 Neither workflow has ever run, and the release path crosses machines this repo
 is not developed on. Before the first real tag, work through

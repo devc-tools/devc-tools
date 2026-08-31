@@ -282,12 +282,12 @@ Deno.test('a config declaring devc-config itself suppresses the injected one', a
       `${dirs.project}/.devcontainer/devcontainer.json`,
       JSON.stringify({
         image: 'x',
-        features: { 'ghcr.io/bmingles/devc-tools/devc-config:0': {} },
+        features: { 'ghcr.io/devc-tools/devc-config:0': {} },
       }),
     );
     assertEquals(
       Object.keys((await merge(dirs)).config.features as object),
-      ['ghcr.io/bmingles/devc-tools/devc-config:0'],
+      ['ghcr.io/devc-tools/devc-config:0'],
     );
   });
 });
@@ -320,7 +320,7 @@ Deno.test('a devc-bridge opt-in gets the token mount in project mode', async () 
     await write(
       `${dirs.project}/.devc/devc.json`,
       JSON.stringify({
-        features: { 'ghcr.io/bmingles/devc-tools/devc-bridge:0': {} },
+        features: { 'ghcr.io/devc-tools/devc-bridge:0': {} },
       }),
     );
     const mounts = (await merge(dirs)).config.mounts as string[];

@@ -8,7 +8,7 @@ half is unconditional (see [Bash prompt/title](#bash-prompttitle-devcbashrc-addi
 
 ```jsonc
 "features": {
-  "ghcr.io/bmingles/devc-tools/devc-config:0": {}
+  "ghcr.io/devc-tools/devc-config:0": {}
 }
 ```
 
@@ -136,10 +136,10 @@ Feature needs an option for.
 
 **`devc up` contributes this Feature to every container it starts, with no
 configuration from you.** It adds
-`"ghcr.io/bmingles/devc-tools/devc-config:0.2.0": {}` to whatever
+`"ghcr.io/devc-tools/devc-config:0.2.0": {}` to whatever
 `devcontainer.json` is in play via `--additional-features` — a project with
 its own hand-written `.devcontainer/devcontainer.json` that has never heard
-of devc included. See `devc/README.md`'s [Project post-create hook](https://github.com/bmingles/devc-tools/blob/main/devc/README.md#project-post-create-hook-devc-post-createsh)
+of devc included. See `devc/README.md`'s [Project post-create hook](https://github.com/devc-tools/devc-tools/blob/main/devc/README.md#project-post-create-hook-devc-post-createsh)
 section.
 
 **This is a reach extension, not just for the hook.** Before this Feature
@@ -201,7 +201,7 @@ order (hook first) in one process. See
 [`.plans/archived/devc-swap-baseline-features.md`](../../.plans/archived/devc-swap-baseline-features.md).
 
 **Originally published as `project-hook`.** The Feature was renamed before
-anything depended on the old id — `ghcr.io/bmingles/devc-tools/project-hook`
+anything depended on the old id — `ghcr.io/devc-tools/project-hook`
 was published briefly but is no longer referenced anywhere in this repo;
 `devc-config` is the current and only supported id, following the same
 directory-plus-every-reference rename this collection already did for
@@ -280,6 +280,6 @@ cases are exactly what `devc_config_test.sh` covers offline above.
 
 ## Publishing
 
-Published at `ghcr.io/bmingles/devc-tools/devc-config`, on
+Published at `ghcr.io/devc-tools/devc-config`, on
 [`features/PUBLISH_ALLOWLIST.txt`](../PUBLISH_ALLOWLIST.txt) — see
 [../README.md#the-publish-allowlist](../README.md#the-publish-allowlist).

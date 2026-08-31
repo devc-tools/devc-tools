@@ -71,7 +71,7 @@ except for the `cp` list. Two things this plan owns:
 - `features/README.md` (new) — what the collection is, the one-file-per-Feature
   layout, the `run-features-test.sh` convention, the version rule (**every**
   Feature carries the repo's version and moves with the repo tag), and a table of
-  the published Features with their `ghcr.io/bmingles/devc-tools/<id>` refs.
+  the published Features with their `ghcr.io/devc-tools/<id>` refs.
 
 ### Guard test
 

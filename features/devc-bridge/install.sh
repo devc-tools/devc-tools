@@ -64,7 +64,7 @@ esac
 TRIPLE="$arch-unknown-linux-gnu"
 ASSET="devc-bridge-client-$BARE_VERSION-$TRIPLE.tar.gz"
 
-RELEASE_BASE="${DEVC_RELEASE_BASE:-https://github.com/bmingles/devc-tools/releases}"
+RELEASE_BASE="${DEVC_RELEASE_BASE:-https://github.com/devc-tools/devc-tools/releases}"
 URL_DIR="$RELEASE_BASE/download/v$BARE_VERSION"
 
 # --- fetch + verify --------------------------------------------------------------------

@@ -102,7 +102,7 @@ power _and_ an external display to avoid. Verify what is held with
 # 1. Install. Puts the host `devc-bridge` in ~/.local/bin, plus a copy of the Linux
 #    *container client* in ~/.config/devc-bridge/client/ (a developer override —
 #    containers get their own from the Feature). No Deno, no sudo.
-curl -fsSL https://github.com/bmingles/devc-tools/releases/latest/download/install.sh | sh
+curl -fsSL https://github.com/devc-tools/devc-tools/releases/latest/download/install.sh | sh
 
 # 2. Start it in the background. First run auto-creates ~/.config/devc-bridge/ (run/,
 #    state/, commands/, client/), seeds the example command scripts, and writes the token.
@@ -184,7 +184,7 @@ line:
 
 ```jsonc
 "features": {
-  "ghcr.io/bmingles/devc-tools/devc-bridge:0": {}
+  "ghcr.io/devc-tools/devc-bridge:0": {}
 }
 ```
 

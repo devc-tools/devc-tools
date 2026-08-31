@@ -6,7 +6,7 @@ terminal, and it is there — the directories are read fresh by every shell, so
 nothing is rebuilt and nothing is baked.
 
 ```jsonc
-"features": { "ghcr.io/bmingles/devc-tools/bash-config:0": {} }
+"features": { "ghcr.io/devc-tools/bash-config:0": {} }
 ```
 
 That one line is the whole setup for the part most people want: every
@@ -120,7 +120,7 @@ published Feature schema's `Mount` cannot express `readonly`
   "type=bind,source=${localEnv:HOME}/.config/myshell,target=/usr/local/share/devc-features/bash-config/dirs/user,readonly"
 ],
 "features": {
-  "ghcr.io/bmingles/devc-tools/bash-config:0": {}
+  "ghcr.io/devc-tools/bash-config:0": {}
 }
 ```
 

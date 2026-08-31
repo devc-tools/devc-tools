@@ -5,7 +5,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/bmingles/devc-tools.git",
+    "url": "git+https://github.com/devc-tools/devc-tools.git",
     "directory": "devc-core"
   },
   "type": "module",

@@ -2,7 +2,7 @@
 
 ## Goal
 
-Publish `ghcr.io/bmingles/devc-tools/node-nvmrc`: given a `.nvmrc` in the
+Publish `ghcr.io/devc-tools/node-nvmrc`: given a `.nvmrc` in the
 workspace, install that Node at create time and select it in every interactive
 shell. One line in any `devcontainer.json`, devc or not.
 
@@ -39,7 +39,7 @@ is devc-shaped only because it happens to live in devc.
   "version": "<the repo's current version — same as every other Feature>",
   "name": "Node from .nvmrc",
   "description": "...",
-  "documentationURL": "https://github.com/bmingles/devc-tools/tree/main/features/node-nvmrc",
+  "documentationURL": "https://github.com/devc-tools/devc-tools/tree/main/features/node-nvmrc",
   "options": {
     "nvmDir": { "type": "string", "default": "/usr/local/share/nvm" },
     "installOnCreate": { "type": "boolean", "default": true },

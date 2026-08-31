@@ -3,8 +3,8 @@
   "version": "0.2.1",
   "name": "Node from .nvmrc",
   "description": "Makes the Node version your workspace pins in .nvmrc the version every process in the container gets — `bash -c`, `sh -c`, `docker exec`, an agent CLI, a task runner, an editor extension. A create-time hook runs `nvm install` for your .nvmrc and points a symlink at it; this Feature's own containerEnv puts that symlink ahead of everything else on PATH. It installs neither Node nor nvm — pair it with ghcr.io/devcontainers/features/node or anything else that provides nvm.",
-  "documentationURL": "https://github.com/bmingles/devc-tools/tree/main/features/node-nvmrc",
-  "licenseURL": "https://github.com/bmingles/devc-tools/blob/main/LICENSE",
+  "documentationURL": "https://github.com/devc-tools/devc-tools/tree/main/features/node-nvmrc",
+  "licenseURL": "https://github.com/devc-tools/devc-tools/blob/main/LICENSE",
   "options": {
     "nvmDir": {
       "type": "string",

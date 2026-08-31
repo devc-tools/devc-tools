@@ -6,7 +6,7 @@ Tag a version, have CI publish every binary this repo produces, and let anyone
 install the right ones for their machine with one command:
 
 ```sh
-curl -fsSL https://github.com/bmingles/devc-tools/releases/latest/download/install.sh | sh
+curl -fsSL https://github.com/devc-tools/devc-tools/releases/latest/download/install.sh | sh
 ```
 
 After this, nobody needs Deno to _use_ these tools — only to develop them.

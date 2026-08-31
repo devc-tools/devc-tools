@@ -398,8 +398,7 @@ export async function loadOverlays(
  * Guarded by `tests/workflow_guards_test.sh` against `features/devc-config/devcontainer-feature.json`'s
  * own `version` — a comment saying "keep these in step" is how pins drift.
  */
-export const DEVC_CONFIG_FEATURE =
-  'ghcr.io/bmingles/devc-tools/devc-config:0.2.0';
+export const DEVC_CONFIG_FEATURE = 'ghcr.io/devc-tools/devc-config:0.2.0';
 
 /**
  * The Features devc contributes to every container it starts, id paired with the bare name

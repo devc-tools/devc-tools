@@ -9,15 +9,15 @@ publish matrix from the collection rather than naming its members, and so does
 
 ## Published Features
 
-| Feature                                                | Ref                                                | What it does                                                                                                                                                                                                                        |
-| ------------------------------------------------------ | -------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [agents](agents/README.md)                             | `ghcr.io/bmingles/devc-tools/agents`               | Installs coding-agent CLIs (Claude Code, optionally Copilot); links a host config seed into `~/.claude` and folds `~/.claude.json` into it, so one volume holds all Claude state. No path options — mount onto the fixed seed path. |
-| [bash-config](bash-config/README.md)                   | `ghcr.io/bmingles/devc-tools/bash-config`          | Sources `bashrc_*.sh` from `~/.bashrc` out of two fixed directories.                                                                                                                                                                |
-| [devc-bridge](devc-bridge/README.md)                   | `ghcr.io/bmingles/devc-tools/devc-bridge`          | Installs the devc-bridge client so container code can invoke host commands.                                                                                                                                                         |
-| [devc-config](devc-config/README.md)                   | `ghcr.io/bmingles/devc-tools/devc-config`          | On every container create, runs the project's own `devc-post-create.sh` if it has one — `.devc/` first, then `.devcontainer/`, first hit wins. **devc contributes this one to every container it starts by default** — see below.   |
-| [git-container-config](git-container-config/README.md) | `ghcr.io/bmingles/devc-tools/git-container-config` | Re-applies the user-scope git settings a devcontainer needs and cannot keep — LFS filters, `worktree.useRelativePaths`, `safe.directory`, and an identity include.                                                                  |
-| [node-nvmrc](node-nvmrc/README.md)                     | `ghcr.io/bmingles/devc-tools/node-nvmrc`           | Makes the Node version a workspace pins in `.nvmrc` the one every process in the container gets.                                                                                                                                    |
-| [shell-dirs](shell-dirs/README.md)                     | `ghcr.io/bmingles/devc-tools/shell-dirs`           | Sources every `*.sh` in a project (and optionally a personal) directory in every interactive shell.                                                                                                                                 |
+| Feature                                                | Ref                                       | What it does                                                                                                                                                                                                                        |
+| ------------------------------------------------------ | ----------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [agents](agents/README.md)                             | `ghcr.io/devc-tools/agents`               | Installs coding-agent CLIs (Claude Code, optionally Copilot); links a host config seed into `~/.claude` and folds `~/.claude.json` into it, so one volume holds all Claude state. No path options — mount onto the fixed seed path. |
+| [bash-config](bash-config/README.md)                   | `ghcr.io/devc-tools/bash-config`          | Sources `bashrc_*.sh` from `~/.bashrc` out of two fixed directories.                                                                                                                                                                |
+| [devc-bridge](devc-bridge/README.md)                   | `ghcr.io/devc-tools/devc-bridge`          | Installs the devc-bridge client so container code can invoke host commands.                                                                                                                                                         |
+| [devc-config](devc-config/README.md)                   | `ghcr.io/devc-tools/devc-config`          | On every container create, runs the project's own `devc-post-create.sh` if it has one — `.devc/` first, then `.devcontainer/`, first hit wins. **devc contributes this one to every container it starts by default** — see below.   |
+| [git-container-config](git-container-config/README.md) | `ghcr.io/devc-tools/git-container-config` | Re-applies the user-scope git settings a devcontainer needs and cannot keep — LFS filters, `worktree.useRelativePaths`, `safe.directory`, and an identity include.                                                                  |
+| [node-nvmrc](node-nvmrc/README.md)                     | `ghcr.io/devc-tools/node-nvmrc`           | Makes the Node version a workspace pins in `.nvmrc` the one every process in the container gets.                                                                                                                                    |
+| [shell-dirs](shell-dirs/README.md)                     | `ghcr.io/devc-tools/shell-dirs`           | Sources every `*.sh` in a project (and optionally a personal) directory in every interactive shell.                                                                                                                                 |
 
 The tag tracks **each Feature's own** version line: `:0` while that Feature is
 pre-1.0, `:1` at its first 1.x release. It is not the repo's version — see
@@ -68,7 +68,7 @@ yourself, under any tag, replaces devc's injected entry rather than adding a
 second one — see
 [devc-config/README.md](devc-config/README.md#devc-includes-this-automatically--dynamically-not-baked-in)
 and `devc/README.md`'s
-[Project post-create hook](https://github.com/bmingles/devc-tools/blob/main/devc/README.md#project-post-create-hook-devc-post-createsh)
+[Project post-create hook](https://github.com/devc-tools/devc-tools/blob/main/devc/README.md#project-post-create-hook-devc-post-createsh)
 section.
 
 ## Layout
@@ -182,30 +182,28 @@ Feature otherwise, far from the cause). It walks the collection, reports every
 offender, and fails on an empty glob — a guard that finds nothing to check must
 not pass.
 
-`publish-feature.yml` runs it three times: once over the whole collection before
-the matrix, once per Feature with `--feature` so one Feature's failed guard
-cannot fail another Feature's publish, and once more in the `collection-index`
-job below.
+`publish-feature.yml` runs it twice: once over the whole collection before the
+matrix, and once per Feature with `--feature` so one Feature's failed guard
+cannot fail another Feature's publish.
 
-## The collection index package
+## No collection index is published
 
-`ghcr.io/bmingles/devc-tools` — no trailing `/<id>` — is **not** a Feature and
-not an image. It is a metadata-only OCI artifact holding one
-`devcontainer-collection.json` layer that lists what is in this collection.
-`devcontainer features publish` pushes it on every run and there is no flag to
-suppress it.
+`devcontainer features publish` also pushes a metadata-only artifact — one
+`devcontainer-collection.json` layer listing what is in the collection — to the
+namespace itself, with no trailing `/<id>`. There is no flag to suppress it, and
+this repo does not have anywhere to put it.
 
-Because each Feature publishes from its own job, every one of those runs would
-otherwise overwrite that document with a one-Feature view — so it would name
-whichever Feature published last as the whole collection. The `collection-index`
-job repairs it: it runs after the matrix, `needs: publish` so it is skipped
-unless **every** Feature published cleanly, and re-publishes the whole
-collection. Every Feature is already at its current version by then, so the CLI
-skips them all and only the index document is rewritten.
+Features publish under `--namespace <owner>`, so they land on
+`ghcr.io/devc-tools/<id>`. The index ref the CLI derives from that same namespace
+is `ghcr.io/devc-tools`: a registry and an owner with no package name, which GHCR
+rejects. (The CLI's own path validation accepts a single segment, so the failure
+comes from the registry, not from packaging.) Publishing the index would require
+`--namespace <owner>/<repo>`, which would push every Feature one segment deeper,
+at `ghcr.io/devc-tools/devc-tools/<id>`.
 
-Nothing in this repo reads it — `devc` never resolves a Feature version, and
-`devcontainer features info` goes through a Feature's own OCI annotations. It is
-kept honest because it is visible on the repo's Packages page.
+Nothing in this repo read it anyway — `devc` never resolves a Feature version,
+and `devcontainer features info` goes through a Feature's own OCI annotations.
+Each run still pushes its own one-Feature view of that document; it is inert.
 
 ## Running a Feature's tests
 

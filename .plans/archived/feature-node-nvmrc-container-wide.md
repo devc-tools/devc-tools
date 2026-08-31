@@ -112,7 +112,7 @@ turn out to be false, and a cold reader will otherwise re-litigate them.
   "version": "0.2.0",
   "name": "Node from .nvmrc",
   "description": "...",
-  "documentationURL": "https://github.com/bmingles/devc-tools/tree/main/features/node-nvmrc",
+  "documentationURL": "https://github.com/devc-tools/devc-tools/tree/main/features/node-nvmrc",
   "options": {
     "nvmDir": { "type": "string", "default": "/usr/local/share/nvm" },
     "projectDir": { "type": "string", "default": "" },

@@ -16,7 +16,7 @@ network-required-or-fail-the-build) is meant to take a fifth without a rename.
 
 ```jsonc
 "features": {
-  "ghcr.io/bmingles/devc-tools/agents:0": {}
+  "ghcr.io/devc-tools/agents:0": {}
 }
 ```
 
@@ -171,12 +171,12 @@ installs itself with `npm`**, so `installPiCli: true` requires **Node.js
 ```jsonc
 "features": {
   "ghcr.io/devcontainers/features/node:1": { "version": "lts" },
-  "ghcr.io/bmingles/devc-tools/agents:0": { "installPiCli": true }
+  "ghcr.io/devc-tools/agents:0": { "installPiCli": true }
 }
 ```
 
 This Feature's `installsAfter` already names `ghcr.io/devcontainers/features/node`
-and `ghcr.io/bmingles/devc-tools/node-nvmrc`, so ordering is handled for you.
+and `ghcr.io/devc-tools/node-nvmrc`, so ordering is handled for you.
 Without a node Feature the build fails naming the requirement, rather than
 producing a container that looks fine until the first `pi`.
 
@@ -273,7 +273,7 @@ silently dropped, so a messy value is harmless rather than a build failure):
 ```jsonc
 "features": {
   "ghcr.io/devcontainers/features/node:1": { "version": "lts" },
-  "ghcr.io/bmingles/devc-tools/agents:0": {
+  "ghcr.io/devc-tools/agents:0": {
     "installPiCli": true,
     "piPackages": "npm:@andrewjacop/pi-herdr,git:github.com/bmingles/pi-dev-extensions@main",
     "installHerdr": true,
@@ -330,7 +330,7 @@ your own `devcontainer.json` — but neither needs a matching option any more:
 ],
 "initializeCommand": "mkdir -p ${localEnv:HOME}/.config/claude-seed",
 "features": {
-  "ghcr.io/bmingles/devc-tools/agents:0": {}
+  "ghcr.io/devc-tools/agents:0": {}
 }
 ```
 

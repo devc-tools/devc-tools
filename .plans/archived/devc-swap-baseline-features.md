@@ -51,7 +51,7 @@ The lever that _does_ apply between Features in one phase is `installsAfter`:
 the CLI resolves Feature-to-Feature order (both image-layer order and,
 consequently, lifecycle-command order) from each Feature's own
 `installsAfter`. `devc-config`'s manifest gains
-`"installsAfter": ["ghcr.io/bmingles/devc-tools/agents", "ghcr.io/bmingles/devc-tools/git-container-config"]`
+`"installsAfter": ["ghcr.io/devc-tools/agents", "ghcr.io/devc-tools/git-container-config"]`
 so its hook still runs after both, restoring the same guarantee the
 `onCreateCommand` trick gave before — but only among Features devc itself
 knows to name. See [Concept boundaries](#concept-boundaries) for why this does
@@ -216,7 +216,7 @@ not (and cannot) extend to a project's own, unrelated Features.
 ```jsonc
 "features": {
   // … existing entries …
-  "ghcr.io/bmingles/devc-tools/agents:0": {
+  "ghcr.io/devc-tools/agents:0": {
     // The only option this Feature still takes that devc needs. There are no
     // path options as of agents 0.2.0 — ~/.claude is derived from the remote
     // user's home, and the seed path is fixed. Preserves current behavior:
@@ -231,7 +231,7 @@ not (and cannot) extend to a project's own, unrelated Features.
   // already match git-setup.sh's behavior exactly (confirmed by reading both
   // side by side). Do not restate defaults. The identity bind is retargeted
   // in `mounts` below.
-  "ghcr.io/bmingles/devc-tools/git-container-config:0": {}
+  "ghcr.io/devc-tools/git-container-config:0": {}
 }
 ```
 
@@ -394,8 +394,8 @@ unfenced code — precedent for more than one named fence per file.
   "version": "0.2.0",
   // … unchanged …
   "installsAfter": [
-    "ghcr.io/bmingles/devc-tools/agents",
-    "ghcr.io/bmingles/devc-tools/git-container-config"
+    "ghcr.io/devc-tools/agents",
+    "ghcr.io/devc-tools/git-container-config"
   ],
   "postCreateCommand": "bash /usr/local/share/devc-features/devc-config/post-create.sh"
 }

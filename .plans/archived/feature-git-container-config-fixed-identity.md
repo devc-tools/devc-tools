@@ -164,7 +164,7 @@ this option: nothing else catches a rename that silently un-wires the path.
 Two edits, in the same commit that lands this:
 
 1. Its `features` Contracts block drops the `identityIncludePath` line, leaving
-   `"ghcr.io/bmingles/devc-tools/git-container-config:0": {}` — a bare `{}`,
+   `"ghcr.io/devc-tools/git-container-config:0": {}` — a bare `{}`,
    like `bash-config`'s.
 2. Its mounts section currently says "`git-container-config` needs no mount
    change: its `identityIncludePath` still names the `gitconfig-identity` bind

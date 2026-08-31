@@ -1,6 +1,6 @@
 name: Publish devcontainer Features
 
-# Publishes every allowlisted Feature in features/ to ghcr.io/bmingles/devc-tools/<id>. The
+# Publishes every allowlisted Feature in features/ to ghcr.io/devc-tools/<id>. The
 # collection is walked, never enumerated: adding a directory under features/ is the whole of
 # adding a Feature to this workflow — see features/README.md. Whether it *publishes* is a
 # separate question, answered by features/PUBLISH_ALLOWLIST.txt (below).
@@ -112,10 +112,15 @@ jobs:
   # to remove, so `fail-fast: false` here is load-bearing rather than hygiene.
   #
   # `features publish <one Feature dir>` lands on the identical ghcr.io/<ns>/<id> ref the
-  # collection publish would produce; nothing about the published artifact changes. Its one
-  # cost is that every run also pushes a devcontainer-collection.json describing only what
-  # *that* run packaged — so each job here overwrites the shared collection index with a
-  # one-Feature view of it. That is what the collection-index job below exists to repair.
+  # collection publish would produce; nothing about the published artifact changes.
+  #
+  # No collection index is published. `--namespace` is the *owner* alone, so the index ref the
+  # CLI derives from it — `ghcr.io/<namespace>`, with no `/<id>` — would be `ghcr.io/devc-tools`:
+  # a registry and an owner with no package name, which GHCR rejects. The CLI's own path
+  # validation accepts a single segment, so this fails at the registry rather than locally.
+  # Each run still pushes a devcontainer-collection.json layer describing only what that run
+  # packaged; nothing reads it. `devc` never did, and `devcontainer features info` resolves a
+  # Feature through its own OCI annotations. See features/README.md.
   publish:
     needs: discover
     runs-on: ubuntu-latest
@@ -151,7 +156,7 @@ jobs:
         if: ${{ github.ref == 'refs/heads/main' && !inputs.dry_run }}
         run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
 
-      # → ghcr.io/bmingles/devc-tools/<id>, tagged latest / <major> / <major>.<minor> /
+      # → ghcr.io/devc-tools/<id>, tagged latest / <major> / <major>.<minor> /
       # <version> from this Feature's own version. A version already in the registry is
       # skipped, so re-running this on a push that changed nothing pushes nothing.
       - name: Publish Feature
@@ -160,82 +165,4 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           npx --yes "$DEVCONTAINERS_CLI" features publish "./features/${{ matrix.feature }}" \
-            --namespace "${{ github.repository }}"
-
-  # Repairs the shared collection index at ghcr.io/bmingles/devc-tools — a metadata-only
-  # artifact (one `devcontainer-collection.json` layer) that lists what is in the collection.
-  # `features publish` pushes it on every run and there is no flag to suppress it, so each
-  # per-Feature job above leaves it describing only that Feature. Left alone it does not just
-  # go stale, it *alternates*: whichever Feature published last is the whole collection
-  # according to it. It is decorative — `devc` never reads it and `devcontainer features
-  # info` resolves a Feature through its own OCI annotations — but it is visible on the
-  # repo's Packages page, so wrong-and-alternating is worth one more job.
-  #
-  # "the whole collection" here means the whole *allowlisted* subset, not every directory
-  # under features/: a Feature features/PUBLISH_ALLOWLIST.txt holds back must not show up in the
-  # index either, or this repair job would be the one place that quietly bypasses the gate
-  # `discover` enforces everywhere else.
-  #
-  # `needs: publish` is the safety, not a convenience: a job whose needs did not all succeed
-  # is skipped, so this runs only when EVERY allowlisted Feature published cleanly. That
-  # matters because the repair is a whole-collection publish, which would otherwise push a
-  # Feature whose release pin the matrix just rejected. When it is skipped the index simply
-  # keeps its previous value — stale, which is what it already was. `needs: discover` is
-  # added alongside it only to read discover's own output; it adds no new skip condition
-  # `needs: publish` did not already give, since publish itself needs discover.
-  #
-  # By the time this runs every allowlisted Feature is already published at its current
-  # version, so the CLI skips all of them and only the collection document is rewritten —
-  # this time listing the whole allowlisted collection.
-  collection-index:
-    needs: [discover, publish]
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
-
-      # Redundant *only* because `needs: publish` holds: every pin was already checked
-      # per-Feature above, and this job is skipped unless those passed. That is exactly why
-      # it stays — the redundancy rests on one `needs:` line, and an `if: always()` added
-      # here later would silently turn this into an unguarded whole-collection publish,
-      # which is the one operation in this file that can push a Feature whose release does
-      # not exist. Cheap, and it fails closed if the reasoning above ever stops being true.
-      #
-      # One `--feature` call per allowlisted id, not a bare whole-tree check: a Feature held
-      # back by PUBLISH_ALLOWLIST (in development, possibly with no release pin decided yet)
-      # must not be able to fail this job — it isn't publishing, so its pin is not this job's
-      # business. This is the same invocation the matrix above already ran per Feature.
-      - name: Release pin guard (collection)
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set -euo pipefail
-          for id in $(echo '${{ needs.discover.outputs.features }}' | jq -r '.[]'); do
-            bash tests/features_test.sh --check-release-pins --feature "$id"
-          done
-
-      # `features publish` packages whatever directory it is pointed at wholesale — it has no
-      # flag to publish a subset of a collection — so the allowlisted Features are copied out
-      # to a directory of their own rather than pointing the command at ./features directly.
-      # Pointing it at ./features here would publish every Feature's index entry regardless
-      # of PUBLISH_ALLOWLIST, silently undoing the gate this whole workflow exists to add.
-      - name: Stage the allowlisted collection
-        run: |
-          set -euo pipefail
-          rm -rf /tmp/publishable-features
-          mkdir -p /tmp/publishable-features
-          for id in $(echo '${{ needs.discover.outputs.features }}' | jq -r '.[]'); do
-            cp -R "features/$id" "/tmp/publishable-features/$id"
-          done
-          ls /tmp/publishable-features
-
-      - name: Log in to ghcr.io (collection)
-        if: ${{ github.ref == 'refs/heads/main' && !inputs.dry_run }}
-        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
-
-      - name: Publish collection index
-        if: ${{ github.ref == 'refs/heads/main' && !inputs.dry_run }}
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          npx --yes "$DEVCONTAINERS_CLI" features publish /tmp/publishable-features \
-            --namespace "${{ github.repository }}"
+            --namespace "${{ github.repository_owner }}"

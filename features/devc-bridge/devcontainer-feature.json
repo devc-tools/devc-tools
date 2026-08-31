@@ -3,8 +3,8 @@
   "version": "0.1.0",
   "name": "devc-bridge (container client)",
   "description": "Installs the devc-bridge client so a devcontainer can invoke allowlisted commands on the host. Downloads the Linux client from the matching devc-tools release and puts `devc-bridge` on PATH. The host bridge must be installed, and the token bind mount is declared by your devcontainer.json — see the README.",
-  "documentationURL": "https://github.com/bmingles/devc-tools/tree/main/features/devc-bridge",
-  "licenseURL": "https://github.com/bmingles/devc-tools/blob/main/LICENSE",
+  "documentationURL": "https://github.com/devc-tools/devc-tools/tree/main/features/devc-bridge",
+  "licenseURL": "https://github.com/devc-tools/devc-tools/blob/main/LICENSE",
   "options": {
     "clientVersion": {
       "type": "string",

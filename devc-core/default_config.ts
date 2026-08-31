@@ -486,7 +486,7 @@ export async function ensureDefaultConfig(
  *
  * Matched on the id's last path segment with the tag stripped, so `…/<name>`, `…/<name>:0`,
  * `:1`, a pinned `:0.1.0` and a local `./features/<name>` all count. A registry other than
- * ghcr.io/bmingles counts too — a Feature *named* `name` means the same thing whoever
+ * ghcr.io/devc-tools counts too — a Feature *named* `name` means the same thing whoever
  * published it, and guessing otherwise would silently miss it.
  */
 export function declaresFeatureNamed(

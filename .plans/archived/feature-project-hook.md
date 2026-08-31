@@ -2,7 +2,7 @@
 
 ## Goal
 
-Publish `ghcr.io/bmingles/devc-tools/project-hook`: on every container create,
+Publish `ghcr.io/devc-tools/project-hook`: on every container create,
 run the project's own `devc-post-create.sh` if it has one. `.devc/` first, then
 `.devcontainer/`, first hit wins; existence selects and executability is
 enforced.
@@ -60,8 +60,8 @@ None of that happens here. This plan produces one publishable Feature.
   "version": "0.1.0",
   "name": "Project create-time hook",
   "description": "<non-empty; see the guard below>",
-  "documentationURL": "https://github.com/bmingles/devc-tools/tree/main/features/project-hook",
-  "licenseURL": "https://github.com/bmingles/devc-tools/blob/main/LICENSE",
+  "documentationURL": "https://github.com/devc-tools/devc-tools/tree/main/features/project-hook",
+  "licenseURL": "https://github.com/devc-tools/devc-tools/blob/main/LICENSE",
   "postCreateCommand": "bash /usr/local/share/devc-features/project-hook/post-create.sh"
 }
 ```

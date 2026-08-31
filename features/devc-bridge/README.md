@@ -8,7 +8,7 @@ Two lines, and **both are required**:
 
 ```jsonc
 "features": {
-  "ghcr.io/bmingles/devc-tools/devc-bridge:0": {}
+  "ghcr.io/devc-tools/devc-bridge:0": {}
 },
 "mounts": [
   "type=bind,source=${localEnv:HOME}/.config/devc-bridge/run,target=/run/devc-bridge,readonly"
@@ -169,7 +169,7 @@ bash features/devc-bridge/test/run-features-test.sh
 ### Publishing
 
 `.github/workflows/publish-feature.yml` publishes this folder to
-`ghcr.io/bmingles/devc-tools/devc-bridge` on a push to `main` that touches
+`ghcr.io/devc-tools/devc-bridge` on a push to `main` that touches
 `features/`, in its own matrix job. Bump `version` in
 `devcontainer-feature.json` in the same commit as the change, or the publish is
 a no-op: the CLI skips a version already in the registry, so nothing is pushed
