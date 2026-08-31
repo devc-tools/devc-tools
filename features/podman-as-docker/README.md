@@ -212,6 +212,29 @@ overrode `mounts` yourself), or set `storageDriver: vfs`.
   `slirp4netns`) and podman 5.7.0 (Ubuntu 26.04, default `pasta`) — both packages are
   always installed regardless of which one is the upstream default, so setting
   `rootlessNetworkCmd` explicitly works on either.
+- **SELinux is untested.** Some upstream "podman in a devcontainer" examples also
+  carry `--security-opt label=disable`. That is SELinux-specific and irrelevant on
+  Docker Desktop or plain Ubuntu — everything this Feature has been tested on — but
+  would matter on a Fedora/RHEL/CentOS host running SELinux in enforcing mode. If you
+  hit an `avc: denied` in `dmesg`/`audit.log` on such a host, that flag is the
+  starting point; nobody has confirmed whether it is actually needed.
+
+### What *is* tested, and what closed the seccomp/AppArmor gap
+
+Every claim above about `SYS_ADMIN` + `systempaths=unconfined` being *sufficient*
+(no `seccomp=unconfined`, no `apparmor=unconfined`) was originally measured only on
+**Docker Desktop's LinuxKit VM**, which — unlike a normal Linux Docker Engine host —
+already runs with no seccomp filter and no AppArmor profile applied. That made the
+finding true but untested against the two restrictions a stock Linux host adds on
+top of Docker Desktop's baseline.
+
+[`.github/workflows/test-podman-as-docker.yml`](../../.github/workflows/test-podman-as-docker.yml)
+(`workflow_dispatch`, manual) closes that gap: it runs on a GitHub-hosted
+`ubuntu-latest` runner — a real Linux Docker Engine host with the `docker-default`
+seccomp and AppArmor profiles actually enforced, the case that matters for anyone
+running this Feature on Linux rather than Docker Desktop — and asserts that
+enforcement is really in effect before running all five Docker scenarios. Run it
+from the Actions tab, or `gh workflow run test-podman-as-docker.yml`.
 
 ## Concept boundaries
 
