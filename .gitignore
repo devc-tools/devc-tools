@@ -4,3 +4,8 @@
 # devcontainer CLI writes this next to any devcontainer.json it resolves Features for,
 # including the mount-substitution-spike fixture — regenerated on every `devcontainer up`
 tests/fixtures/mount-substitution/.devcontainer/devcontainer-lock.json
+# declared-volume-spike's node-modules-volume fixture: produced by the M3/M4 measurement
+# itself (npm install/ci inside the container), not committed
+tests/fixtures/node-modules-volume/node_modules/
+tests/fixtures/node-modules-volume/package-lock.json
+tests/fixtures/node-modules-volume/.devcontainer/devcontainer-lock.json

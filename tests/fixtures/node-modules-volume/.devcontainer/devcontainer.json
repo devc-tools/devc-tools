@@ -1,0 +1,11 @@
+{
+  "name": "node-modules-volume",
+  "image": "mcr.microsoft.com/devcontainers/javascript-node:22",
+  "mounts": [
+    {
+      "type": "volume",
+      "source": "node-modules-volume-spike",
+      "target": "${containerWorkspaceFolder}/node_modules"
+    }
+  ]
+}

@@ -628,29 +628,80 @@ without starting anything — use it to see what each check is actually running.
 
 ## 12. Mount substitution inside a Feature's `mounts` — Docker host
 
-From `mount-substitution-spike`. Answers
-`.plans/design/devc-feature-split.md` open question 2: which
-`devcontainer.json` variables substitute inside a Feature's own `mounts`
-array. Measured once with `@devcontainers/cli 0.89.0`; re-run this after a CLI
-upgrade to confirm the answer still holds.
+From `mount-substitution-spike`, extended by `declared-volume-spike` (M1, M2).
+Answers `.plans/design/devc-feature-split.md` open question 2 and
+`feature-declared-volumes`'s Step 1: which `devcontainer.json` variables
+substitute inside a Feature's own `mounts` array. Measured once with
+`@devcontainers/cli 0.89.0`; re-run this after a CLI upgrade to confirm the
+answer still holds.
+
+The fixture (`tests/fixtures/mount-substitution/`) declares five mounts and
+one Feature option:
+
+```jsonc
+"mounts": [
+  { "type": "volume", "source": "volspike-id-${devcontainerId}", "target": "/var/lib/volspike-id" },
+  { "type": "volume", "source": "volspike-base-${localWorkspaceFolderBasename}", "target": "/var/lib/volspike-base" },
+  { "type": "volume", "source": "volspike-target", "target": "${containerWorkspaceFolder}/.volspike-target" },
+  { "type": "volume", "source": "volspike-home", "target": "${containerEnv:HOME}/.volspike-home" },
+  { "type": "volume", "source": "volspike-opt-${probe}", "target": "/var/lib/volspike-opt" }
+],
+"options": { "probe": { "type": "string", "default": "volspike-opt-default" } }
+```
+
+**Running `devcontainer up` against the fixture as committed fails outright** —
+this is itself the M1 answer, not a broken fixture. The CLI logs the fully
+resolved `docker run` command before invoking it, so a single failed attempt
+is enough to read every variable's substitution at once:
 
 ```sh
 devcontainer up --workspace-folder tests/fixtures/mount-substitution
-docker volume ls | grep volspike
 ```
 
-Expected: three volumes exist —
+The printed command line contains (abbreviated to the `--mount` flags):
 
-- `volspike-id-<opaque id>` (`${devcontainerId}`)
-- `volspike-base-mount-substitution` (`${localWorkspaceFolderBasename}`)
-- `volspike-target` (`${containerWorkspaceFolder}` substitutes in the mount
-  *target*, not the source — confirm with
-  `devcontainer exec --workspace-folder tests/fixtures/mount-substitution findmnt | grep volspike`
-  and check the target lands under the workspace folder)
+```
+--mount type=volume,src=volspike-id-13gra4npo69h23i10h25gq869gjtjet092p9ushcd11d6sdutp0c,dst=/var/lib/volspike-id
+--mount type=volume,src=volspike-base-mount-substitution,dst=/var/lib/volspike-base
+--mount type=volume,src=volspike-target,dst=/workspaces/devc-tools/tests/fixtures/mount-substitution/.volspike-target
+--mount type=volume,src=volspike-home,dst=${containerEnv:HOME}/.volspike-home
+--mount type=volume,src=volspike-opt-${probe},dst=/var/lib/volspike-opt
+```
 
-Clean up after: `docker rm -f` the container (`devcontainer up`'s output
-prints its id), then `docker volume rm` the three volumes above, so a re-run
-starts from nothing.
+then Docker rejects it before creating anything (`docker volume ls | grep
+volspike` afterward shows nothing — no container, no volumes):
+
+```
+docker: Error response from daemon: invalid mount config for type "volume": invalid mount path: '${containerEnv:HOME}/.volspike-home' mount path must be absolute.
+```
+
+| Variable | Where | Substitutes? | Evidence |
+| --- | --- | --- | --- |
+| `${devcontainerId}` | mount *source* | yes | `volspike-id-13gra4npo69h23i10h25gq869gjtjet092p9ushcd11d6sdutp0c` |
+| `${localWorkspaceFolderBasename}` | mount *source* | yes | `volspike-base-mount-substitution` |
+| `${containerWorkspaceFolder}` | mount *target* | yes | `dst=/workspaces/devc-tools/tests/fixtures/mount-substitution/.volspike-target` |
+| **M1** `${containerEnv:HOME}` | mount *target* | **no** | literal `dst=${containerEnv:HOME}/.volspike-home` — and unlike a merely-cosmetic miss, Docker's mount-path validator then refuses it outright (`mount path must be absolute`), so this is **fatal to `devcontainer up`**, not just a wrongly-placed directory |
+| **M2** a Feature option (`${probe}`, set to `SUBSTITUTED`) | mount *source* | **no** | literal `src=volspike-opt-${probe}` — also fatal on its own: with M1's mount removed so the CLI reaches this one, Docker's *volume-name* validator (a separate check from the path one above) rejects it too: `create volspike-opt-${probe}: "volspike-opt-${probe}" includes invalid characters for a local volume name` |
+
+To reconfirm the three non-M1/M2 answers (or M2's error specifically) against
+a **running** container, comment out mounts 4 and/or 5 in
+`.devcontainer/volspike/devcontainer-feature.json`, `devcontainer up`, then:
+
+```sh
+docker volume ls | grep volspike
+devcontainer exec --workspace-folder tests/fixtures/mount-substitution findmnt | grep volspike
+```
+
+Expected with mounts 4 and 5 both removed: three volumes exist —
+`volspike-id-<opaque id>`, `volspike-base-mount-substitution`,
+`volspike-target` (target lands under the workspace folder — confirmed by
+`findmnt` above). Restore the fixture to all five mounts afterward; that is
+the form it is committed in.
+
+Clean up after any run: `docker rm -f` the container if one started
+(`devcontainer up`'s output prints its id), then `docker volume rm` whatever
+`docker volume ls | grep volspike` still shows, so a re-run starts from
+nothing.
 
 ---
 
@@ -766,3 +817,90 @@ The default scenario needs the explicit `--base-image` — the test command's ow
 default, `ubuntu:focal` (20.04), predates Ubuntu's own `podman` package and
 fails the install outright, correctly (a failed install fails the build, same
 as every other Feature here).
+
+---
+
+## 14. `npm ci` over a volume-mounted `node_modules` — Docker host
+
+From `declared-volume-spike` (M3, M4). Answers `feature-declared-volumes`'s
+Step 1: whether `node-nvmrc` can declare a `node_modules` volume at all —
+does `npm ci` survive a **named volume** mounted at `node_modules`, run
+twice, and what trace does that mount leave in the host checkout. Measured
+once with `@devcontainers/cli 0.89.0` / `npm 10.9.8`
+(`mcr.microsoft.com/devcontainers/javascript-node:22`); re-run after a CLI or
+npm upgrade to confirm the answer still holds.
+
+A different fixture from §12 — no Feature involved, so a failure here cannot
+be blamed on one: `tests/fixtures/node-modules-volume/` mounts a plain named
+volume at `${containerWorkspaceFolder}/node_modules` over one small, stable
+dependency (`ms`).
+
+```sh
+devcontainer up --workspace-folder tests/fixtures/node-modules-volume
+F=tests/fixtures/node-modules-volume
+
+devcontainer exec --workspace-folder $F npm --version
+devcontainer exec --workspace-folder $F npm install            # creates the lockfile
+devcontainer exec --workspace-folder $F npm ci                 # first ci
+devcontainer exec --workspace-folder $F npm ci                 # the one that matters
+devcontainer exec --workspace-folder $F sh -c 'mountpoint -q node_modules && echo STILL-MOUNTED'
+devcontainer exec --workspace-folder $F sh -c 'ls node_modules | wc -l'
+```
+
+**A step before any of this, not anticipated by the plan: the bare `npm
+install` fails first**, with `node_modules` not yet touched by npm at all:
+
+```
+npm error code EACCES
+npm error syscall mkdir
+npm error path /workspaces/devc-tools/tests/fixtures/node-modules-volume/node_modules/ms
+```
+
+Docker auto-creates a named volume that does not exist yet, owned
+`root:root`; nothing in this bare (no-Feature, no `postCreateCommand`)
+fixture chowns it, and the image's `remoteUser` is `node` (uid 1000) — not
+root, so it cannot write into its own project's `node_modules`. Confirm with
+`devcontainer exec --workspace-folder $F sh -c 'ls -la .'` — `node_modules` is
+`root root` where every sibling is `node node`. Worked around here only to
+reach M3/M4, via `docker exec -u root <container> chown node:node
+.../node_modules`.
+
+**Not a new problem — already known and already handled**:
+`features/node-nvmrc/post-create.sh` already carries a `FIX_NODE_MODULES_OWNERSHIP`
+repair (`sudo -n chown -R "$(id -u):$(id -g)" ./node_modules`, gated on
+`[ -d node_modules ]`) with a comment describing this exact mechanism —
+"a named volume first mounts root-owned — after which an `npm ci` as the
+remote user cannot write into it." This fixture reproduces, standalone, the
+condition that comment was already written against; it does not surface a
+gap in `node-nvmrc`.
+
+With ownership fixed, `npm install` then both `npm ci` runs succeed
+(`added 1 package`, exit 0 each time) — **M3: succeeds, no `EBUSY`.**
+`mountpoint -q` still reports `STILL-MOUNTED` afterward and `node_modules`
+holds 2 entries (`ms/`, `.package-lock.json`): the volume was emptied and
+refilled by the second `npm ci` without detaching.
+
+Then, **on the host, outside the container** (Docker Desktop on macOS):
+
+```sh
+ls -la tests/fixtures/node-modules-volume/
+stat -c '%U %u %G %g %a' tests/fixtures/node-modules-volume/node_modules
+git status --short tests/fixtures/node-modules-volume/
+rmdir tests/fixtures/node-modules-volume/node_modules   # as the normal host user, no sudo
+```
+
+**M4:** `node_modules` appears in the host checkout as an **empty** directory
+— the workspace bind mount and the volume mount are two different views of
+that path, so the volume's contents (`ms/`, `.package-lock.json`) never
+reach the host side, only an auto-created stub. That stub is owned by the
+**host user** (`bingles staff 755`, not root, and not the container's uid
+1000 `node`) and `rmdir` succeeds with no `sudo` — the better of the two
+traces the parent plan graded on. `.gitignore` covers it
+(`tests/fixtures/node-modules-volume/node_modules/`, its `package-lock.json`,
+and `.devcontainer/devcontainer-lock.json`), confirmed with `git check-ignore
+-v` on all three.
+
+Clean up after: `docker rm -f` the container (`devcontainer up`'s output
+prints its id), `docker volume rm node-modules-volume-spike`, and
+`rm -rf tests/fixtures/node-modules-volume/node_modules` on the host if the
+`rmdir` step above was skipped.

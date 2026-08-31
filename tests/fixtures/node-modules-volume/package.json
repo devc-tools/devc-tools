@@ -1,0 +1,8 @@
+{
+  "name": "node-modules-volume-spike",
+  "private": true,
+  "description": "Fixture for declared-volume-spike M3/M4: one small, stable dependency so node_modules has real content to delete and rebuild. Never published.",
+  "dependencies": {
+    "ms": "2.1.3"
+  }
+}
