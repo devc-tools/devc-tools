@@ -290,12 +290,14 @@ Deno.test('materialized (zero-config) devcontainer.json has no local Feature, ke
       true,
     );
     // ...the agents/git-container-config Features declared statically, with the options
-    // Contracts specify (agents' installClaudeCli/installCopilotCli/installPiCli; a bare {}
-    // for git-container-config)...
+    // Contracts specify (agents' installClaudeCli/installCopilotCli/installHerdr/
+    // installPiCli/piPackages; a bare {} for git-container-config)...
     assertEquals(dc.features['ghcr.io/devc-tools/agents:0'], {
       installClaudeCli: true,
       installCopilotCli: false,
+      installHerdr: true,
       installPiCli: true,
+      piPackages: 'npm:@andrewjacop/pi-herdr',
     });
     assertEquals(
       dc.features['ghcr.io/devc-tools/git-container-config:0'],
