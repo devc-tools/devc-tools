@@ -46,7 +46,7 @@
     }
   },
   "capAdd": ["SYS_ADMIN"],
-  "securityOpt": ["systempaths=unconfined", "apparmor=unconfined"],
+  "securityOpt": ["systempaths=unconfined", "apparmor=unconfined", "seccomp=unconfined"],
   "containerEnv": {
     "DOCKER_HOST": "unix:///run/devc-features/podman-as-docker/podman.sock"
   },
