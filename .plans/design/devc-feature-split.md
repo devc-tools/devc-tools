@@ -199,11 +199,11 @@ all block calling it done.
    [`mount-substitution-spike`](../implemented/mount-substitution-spike.md) for
    the fixture and full method. Measured with `@devcontainers/cli 0.89.0`:
 
-   | Variable | Substitutes to |
-   | --- | --- |
-   | `${devcontainerId}` | `volspike-id-13gra4npo69h23i10h25gq869gjtjet092p9ushcd11d6sdutp0c` |
-   | `${localWorkspaceFolderBasename}` | `volspike-base-mount-substitution` |
-   | `${containerWorkspaceFolder}` | mount landed under the workspace folder — `findmnt` showed `/workspaces/devc-tools/tests/fixtures/mount-substitution/.volspike-target` |
+   | Variable                          | Substitutes to                                                                                                                         |
+   | --------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+   | `${devcontainerId}`               | `volspike-id-13gra4npo69h23i10h25gq869gjtjet092p9ushcd11d6sdutp0c`                                                                     |
+   | `${localWorkspaceFolderBasename}` | `volspike-base-mount-substitution`                                                                                                     |
+   | `${containerWorkspaceFolder}`     | mount landed under the workspace folder — `findmnt` showed `/workspaces/devc-tools/tests/fixtures/mount-substitution/.volspike-target` |
 
    All three built cleanly; no create failure, no silent shared-volume
    collapse. Re-run with `tests/fixtures/mount-substitution/` if the CLI

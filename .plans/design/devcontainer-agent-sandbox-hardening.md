@@ -153,10 +153,10 @@ does not: it costs `CAP_SYS_ADMIN` plus three Docker/runc flags
 container — measured required, not optional — so the agent container itself is no
 longer unprivileged. Compare honestly:
 
-| Approach | Where the privilege lives | Cost of abuse |
-| --- | --- | --- |
-| dind-rootless sidecar (above) | a separate `dind` service | Confined to that service's own daemon; the agent container stays unprivileged |
-| `podman-as-docker` | **the agent container itself** | `CAP_SYS_ADMIN` + `systempaths=unconfined` + `apparmor=unconfined` + `seccomp=unconfined` there — a real kernel/mount exploit surface, but no host Docker API and no `--privileged` |
+| Approach                      | Where the privilege lives      | Cost of abuse                                                                                                                                                                       |
+| ----------------------------- | ------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| dind-rootless sidecar (above) | a separate `dind` service      | Confined to that service's own daemon; the agent container stays unprivileged                                                                                                       |
+| `podman-as-docker`            | **the agent container itself** | `CAP_SYS_ADMIN` + `systempaths=unconfined` + `apparmor=unconfined` + `seccomp=unconfined` there — a real kernel/mount exploit surface, but no host Docker API and no `--privileged` |
 
 Prefer the dind-rootless sidecar when the agent container being unprivileged is
 itself the property you want (this doc's whole thesis). Prefer `podman-as-docker`
@@ -164,7 +164,7 @@ when a second service is the wrong shape for the workflow — a single-container
 devcontainer with no compose file to add a sidecar to — and the narrower, measured
 `SYS_ADMIN`+`systempaths=unconfined`+`apparmor=unconfined`+`seccomp=unconfined` cost
 is an acceptable trade there. Never reach for it as "the secure Docker option"; it
-is the *less bad* option when a sidecar is not available, not a way to avoid this
+is the _less bad_ option when a sidecar is not available, not a way to avoid this
 section's trade-off entirely.
 
 ---

@@ -7,10 +7,30 @@
     "probe": { "type": "string", "default": "volspike-opt-default" }
   },
   "mounts": [
-    { "type": "volume", "source": "volspike-id-${devcontainerId}", "target": "/var/lib/volspike-id" },
-    { "type": "volume", "source": "volspike-base-${localWorkspaceFolderBasename}", "target": "/var/lib/volspike-base" },
-    { "type": "volume", "source": "volspike-target", "target": "${containerWorkspaceFolder}/.volspike-target" },
-    { "type": "volume", "source": "volspike-home", "target": "${containerEnv:HOME}/.volspike-home" },
-    { "type": "volume", "source": "volspike-opt-${probe}", "target": "/var/lib/volspike-opt" }
+    {
+      "type": "volume",
+      "source": "volspike-id-${devcontainerId}",
+      "target": "/var/lib/volspike-id"
+    },
+    {
+      "type": "volume",
+      "source": "volspike-base-${localWorkspaceFolderBasename}",
+      "target": "/var/lib/volspike-base"
+    },
+    {
+      "type": "volume",
+      "source": "volspike-target",
+      "target": "${containerWorkspaceFolder}/.volspike-target"
+    },
+    {
+      "type": "volume",
+      "source": "volspike-home",
+      "target": "${containerEnv:HOME}/.volspike-home"
+    },
+    {
+      "type": "volume",
+      "source": "volspike-opt-${probe}",
+      "target": "/var/lib/volspike-opt"
+    }
   ]
 }

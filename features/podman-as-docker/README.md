@@ -9,11 +9,11 @@ privileged sibling container.
 **This is not the secure option.** It is a meaningfully better trade than the
 alternatives, not a free one:
 
-| Approach | What it grants | Cost of abuse |
-| --- | --- | --- |
-| `docker-outside-of-docker` | the host Docker API | **Immediate, trivial, total.** `docker run -v /:/host alpine chroot /host sh`. No exploit required. |
-| `docker-in-docker` | `--privileged` — all caps, all devices | Immediate and total, by a slightly longer road. |
-| **`podman-as-docker`** | **`CAP_SYS_ADMIN`** plus three Docker/runc `securityOpt` flags (below) | Escape requires an actual kernel/mount exploit, and on Docker Desktop lands in the LinuxKit VM, not on macOS. Nothing on the host is reachable *by design*. |
+| Approach                   | What it grants                                                         | Cost of abuse                                                                                                                                               |
+| -------------------------- | ---------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `docker-outside-of-docker` | the host Docker API                                                    | **Immediate, trivial, total.** `docker run -v /:/host alpine chroot /host sh`. No exploit required.                                                         |
+| `docker-in-docker`         | `--privileged` — all caps, all devices                                 | Immediate and total, by a slightly longer road.                                                                                                             |
+| **`podman-as-docker`**     | **`CAP_SYS_ADMIN`** plus three Docker/runc `securityOpt` flags (below) | Escape requires an actual kernel/mount exploit, and on Docker Desktop lands in the LinuxKit VM, not on macOS. Nothing on the host is reachable _by design_. |
 
 This Feature declares all four **unconditionally**, the moment you add it:
 
@@ -43,7 +43,7 @@ failure rather than added speculatively:
   `keyctl()` syscall, which that filter blocks. Also invisible on Docker Desktop
   (`Seccomp: 0` there — no filter to begin with).
 
-The last two were found *after* the Feature's initial release, by
+The last two were found _after_ the Feature's initial release, by
 [`.github/workflows/test-podman-as-docker.yml`](../../.github/workflows/test-podman-as-docker.yml)
 running on a real Linux Docker Engine host (a GitHub-hosted `ubuntu-latest`
 runner) — see [What's actually been tested](#whats-actually-been-tested) below for
@@ -101,15 +101,15 @@ CLI shim works without it; only a `DOCKER_HOST` consumer needs it.
 
 ## Options
 
-| Option | Type | Default | Meaning |
-| --- | --- | --- | --- |
-| `dockerShim` | boolean | `true` | Install `podman-docker`, providing `/usr/bin/docker`. Also pulls in Compose v1 (`docker-compose` 1.29.2, the abandoned Python implementation) as a package dependency on Ubuntu — see `composeProvider`. |
-| `storageDriver` | enum `auto`\|`vfs`\|`overlay` | `auto` | `auto` probes the graphroot's **backing filesystem** at create time. A real filesystem (the normal case — this Feature declares its own volume there) gets plain `overlay`: native kernel overlay, no `/dev/fuse`, no `mount_program`. An overlay-on-overlay backing (no volume present) gets `vfs`, because `overlay` there does not merely get slow — it fails every container start outright. `overlay` forces the driver regardless of the probe: safe when a volume is present, a hard failure (`exec ...: Invalid argument`) otherwise. `vfs` always works but copies every layer. |
-| `rootlessNetworkCmd` | enum `host`\|`slirp4netns`\|`pasta` | `host` | Rootless network backend. Defaults to `host` — the nested container shares the devcontainer's own network namespace — because both userspace backends need `/dev/net/tun`, which is absent by default and **not grantable by a Feature**; defaulting to either would fail every `docker run` out of the box, with no `runArgs` line to search for. See [Networking](#networking) for the opt-in. |
-| `unqualifiedSearchRegistries` | string | `"docker.io"` | Comma-separated. Written to a `registries.conf` drop-in so `docker run ubuntu` resolves the way Docker does. Stock Podman leaves this unset and a bare image name then fails or prompts. |
-| `dockerApiSocket` | boolean | `true` | Run `podman system service` at start time on the fixed socket path, and export `DOCKER_HOST` naming it. `false` skips starting the service; `DOCKER_HOST` is still exported (`containerEnv` cannot be conditional on an option) and names a path nothing serves — unset it in your own `remoteEnv` if you turn this off. |
-| `composeProvider` | enum `none`\|`podman-compose`\|`docker-compose` | `none` | What backs `docker compose`. `none` installs nothing extra — `dockerShim` already pulls in Compose v1 as a package dependency on Ubuntu, so `docker compose`/`docker-compose` may already work even at `none`. |
-| `silenceEmulationNotice` | boolean | `true` | Create `/etc/containers/nodocker`, suppressing the `Emulate Docker CLI using podman` banner `podman-docker` prints on every `docker` invocation. Scripts that parse `docker` output break without it. |
+| Option                        | Type                                            | Default       | Meaning                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| ----------------------------- | ----------------------------------------------- | ------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `dockerShim`                  | boolean                                         | `true`        | Install `podman-docker`, providing `/usr/bin/docker`. Also pulls in Compose v1 (`docker-compose` 1.29.2, the abandoned Python implementation) as a package dependency on Ubuntu — see `composeProvider`.                                                                                                                                                                                                                                                                                                                                                                                 |
+| `storageDriver`               | enum `auto`\|`vfs`\|`overlay`                   | `auto`        | `auto` probes the graphroot's **backing filesystem** at create time. A real filesystem (the normal case — this Feature declares its own volume there) gets plain `overlay`: native kernel overlay, no `/dev/fuse`, no `mount_program`. An overlay-on-overlay backing (no volume present) gets `vfs`, because `overlay` there does not merely get slow — it fails every container start outright. `overlay` forces the driver regardless of the probe: safe when a volume is present, a hard failure (`exec ...: Invalid argument`) otherwise. `vfs` always works but copies every layer. |
+| `rootlessNetworkCmd`          | enum `host`\|`slirp4netns`\|`pasta`             | `host`        | Rootless network backend. Defaults to `host` — the nested container shares the devcontainer's own network namespace — because both userspace backends need `/dev/net/tun`, which is absent by default and **not grantable by a Feature**; defaulting to either would fail every `docker run` out of the box, with no `runArgs` line to search for. See [Networking](#networking) for the opt-in.                                                                                                                                                                                         |
+| `unqualifiedSearchRegistries` | string                                          | `"docker.io"` | Comma-separated. Written to a `registries.conf` drop-in so `docker run ubuntu` resolves the way Docker does. Stock Podman leaves this unset and a bare image name then fails or prompts.                                                                                                                                                                                                                                                                                                                                                                                                 |
+| `dockerApiSocket`             | boolean                                         | `true`        | Run `podman system service` at start time on the fixed socket path, and export `DOCKER_HOST` naming it. `false` skips starting the service; `DOCKER_HOST` is still exported (`containerEnv` cannot be conditional on an option) and names a path nothing serves — unset it in your own `remoteEnv` if you turn this off.                                                                                                                                                                                                                                                                 |
+| `composeProvider`             | enum `none`\|`podman-compose`\|`docker-compose` | `none`        | What backs `docker compose`. `none` installs nothing extra — `dockerShim` already pulls in Compose v1 as a package dependency on Ubuntu, so `docker compose`/`docker-compose` may already work even at `none`.                                                                                                                                                                                                                                                                                                                                                                           |
+| `silenceEmulationNotice`      | boolean                                         | `true`        | Create `/etc/containers/nodocker`, suppressing the `Emulate Docker CLI using podman` banner `podman-docker` prints on every `docker` invocation. Scripts that parse `docker` output break without it.                                                                                                                                                                                                                                                                                                                                                                                    |
 
 ## Storage
 
@@ -183,10 +183,14 @@ file instead:
 ```yaml
 services:
   app:
-    cap_add: ["SYS_ADMIN"]
-    security_opt: ["systempaths=unconfined", "apparmor=unconfined", "seccomp=unconfined"]
+    cap_add: ['SYS_ADMIN']
+    security_opt: [
+      'systempaths=unconfined',
+      'apparmor=unconfined',
+      'seccomp=unconfined',
+    ]
     # Only if you also want real network isolation (see Networking above):
-    devices: ["/dev/net/tun"]
+    devices: ['/dev/net/tun']
 ```
 
 Without this, the failure mode is "I added the Feature and nothing changed" — no
@@ -203,7 +207,7 @@ causes that print the identical string:
    `capsh --decode=$(cat /proc/self/status | grep CapBnd | cut -f2)` and look for
    `cap_sys_admin`.
 2. `/etc/subuid`/`/etc/subgid` has no range for the remote user. `install.sh` adds
-   one at build time, but a base image that renumbers the remote user's UID *after*
+   one at build time, but a base image that renumbers the remote user's UID _after_
    the image builds (the devcontainer CLI's UID-remap step) can orphan that range.
    Check `grep "^$(id -un):" /etc/subuid /etc/subgid`.
 
@@ -235,7 +239,7 @@ overrode `mounts` yourself), or set `storageDriver: vfs`.
 appears — `/run/devc-features/podman-as-docker` is owned by a UID that no longer
 matches the remote user. `install.sh` chowns it once at build time; the devcontainer
 CLI's UID-remap step (the normal case on a Linux host whose UID differs from the
-image's baked-in one) renumbers the remote user *after* the image builds and repairs
+image's baked-in one) renumbers the remote user _after_ the image builds and repairs
 only `$HOME`, orphaning this directory. `post-start.sh` repairs it on every start, so
 this should self-heal — if it doesn't, `sudo` may not be available or may require a
 password (the repair is `sudo -n`, so it skips rather than hangs). Check ownership
@@ -293,7 +297,7 @@ there, before running all five Docker scenarios. **It did its job, twice**:
 
 All five scenarios pass on that runner as of 0.1.2. Each addition above was found
 by actually hitting its specific failure, not added on suspicion — worth noting
-since it means the manifest could plausibly need a *fourth* thing on some other
+since it means the manifest could plausibly need a _fourth_ thing on some other
 environment neither Docker Desktop nor a GitHub Actions runner represents; nothing
 found so far, but "measured on two hosts" is not "proven for all hosts." Run the
 workflow yourself against your own hosts if that matters to you: from the Actions
@@ -309,9 +313,9 @@ above.
 - **`DOCKER_HOST`.** The sandbox-hardening design doc uses `tcp://dind:2375` for its
   sidecar recipe; this Feature sets a unix socket. Two strategies for one variable;
   they cannot both be in effect.
-- **`devc-bridge`.** Reaching the *host's* Docker through the bridge is a different,
+- **`devc-bridge`.** Reaching the _host's_ Docker through the bridge is a different,
   unrelated answer. This Feature is entirely container-local.
-- **"rootless"** here means rootless *inside the container*, as the remote user. It
+- **"rootless"** here means rootless _inside the container_, as the remote user. It
   does not mean rootless Docker on the host, and — given `capAdd` — it does not mean
   the devcontainer itself is unprivileged.
 - **`/etc/containers/nodocker`** is `podman-docker`'s own convention, not a

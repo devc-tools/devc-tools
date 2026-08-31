@@ -675,13 +675,13 @@ volspike` afterward shows nothing — no container, no volumes):
 docker: Error response from daemon: invalid mount config for type "volume": invalid mount path: '${containerEnv:HOME}/.volspike-home' mount path must be absolute.
 ```
 
-| Variable | Where | Substitutes? | Evidence |
-| --- | --- | --- | --- |
-| `${devcontainerId}` | mount *source* | yes | `volspike-id-13gra4npo69h23i10h25gq869gjtjet092p9ushcd11d6sdutp0c` |
-| `${localWorkspaceFolderBasename}` | mount *source* | yes | `volspike-base-mount-substitution` |
-| `${containerWorkspaceFolder}` | mount *target* | yes | `dst=/workspaces/devc-tools/tests/fixtures/mount-substitution/.volspike-target` |
-| **M1** `${containerEnv:HOME}` | mount *target* | **no** | literal `dst=${containerEnv:HOME}/.volspike-home` — and unlike a merely-cosmetic miss, Docker's mount-path validator then refuses it outright (`mount path must be absolute`), so this is **fatal to `devcontainer up`**, not just a wrongly-placed directory |
-| **M2** a Feature option (`${probe}`, set to `SUBSTITUTED`) | mount *source* | **no** | literal `src=volspike-opt-${probe}` — also fatal on its own: with M1's mount removed so the CLI reaches this one, Docker's *volume-name* validator (a separate check from the path one above) rejects it too: `create volspike-opt-${probe}: "volspike-opt-${probe}" includes invalid characters for a local volume name` |
+| Variable                                                   | Where          | Substitutes? | Evidence                                                                                                                                                                                                                                                                                                                  |
+| ---------------------------------------------------------- | -------------- | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `${devcontainerId}`                                        | mount _source_ | yes          | `volspike-id-13gra4npo69h23i10h25gq869gjtjet092p9ushcd11d6sdutp0c`                                                                                                                                                                                                                                                        |
+| `${localWorkspaceFolderBasename}`                          | mount _source_ | yes          | `volspike-base-mount-substitution`                                                                                                                                                                                                                                                                                        |
+| `${containerWorkspaceFolder}`                              | mount _target_ | yes          | `dst=/workspaces/devc-tools/tests/fixtures/mount-substitution/.volspike-target`                                                                                                                                                                                                                                           |
+| **M1** `${containerEnv:HOME}`                              | mount _target_ | **no**       | literal `dst=${containerEnv:HOME}/.volspike-home` — and unlike a merely-cosmetic miss, Docker's mount-path validator then refuses it outright (`mount path must be absolute`), so this is **fatal to `devcontainer up`**, not just a wrongly-placed directory                                                             |
+| **M2** a Feature option (`${probe}`, set to `SUBSTITUTED`) | mount _source_ | **no**       | literal `src=volspike-opt-${probe}` — also fatal on its own: with M1's mount removed so the CLI reaches this one, Docker's _volume-name_ validator (a separate check from the path one above) rejects it too: `create volspike-opt-${probe}: "volspike-opt-${probe}" includes invalid characters for a local volume name` |
 
 To reconfirm the three non-M1/M2 answers (or M2's error specifically) against
 a **running** container, comment out mounts 4 and/or 5 in
@@ -735,12 +735,12 @@ docker rm -f podman-spike; docker volume rm podman-spike-storage
 Expected: `overlay` (native, no `/dev/fuse` anywhere in the command above), and
 the `podman run` exits 0.
 
-| Question | Answer |
-| --- | --- |
-| `SYS_ADMIN` alone? | No — clears the `newuidmap` wall completely, but every run then fails on Docker's default read-only masking of `/proc/sys` until `securityOpt: ["systempaths=unconfined"]` is also added. `CAP_NET_ADMIN` was tried too and made no difference either way. |
-| `/dev/fuse` needed for `overlay`? | No, at all — not tried in the command above and `podman info` still reports native `overlay`. The dividing line is the graphroot's *backing filesystem*: real (the `-v podman-spike-storage:…` above) → native overlay works with zero devices; overlay-on-overlay (drop the `-v`) → every run fails with `exec ...: Invalid argument`, and forcing `mount_program = fuse-overlayfs` with `--device=/dev/fuse` does not rescue that case either (tried, same failure). |
-| `/dev/net/tun` needed? | Only for the default userspace network backend (`slirp4netns` on podman 4.9.3, `pasta` on 5.7.0). `--network=host` in the command above needs no device and works once `systempaths=unconfined` is set. |
-| Read-only `/sys/fs/cgroup`? | Not a hard problem rootless — `conmon` logs a warning (`failed to add … to cgroupfs sandbox cgroup`) and the container still starts. |
+| Question                          | Answer                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| --------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `SYS_ADMIN` alone?                | No — clears the `newuidmap` wall completely, but every run then fails on Docker's default read-only masking of `/proc/sys` until `securityOpt: ["systempaths=unconfined"]` is also added. `CAP_NET_ADMIN` was tried too and made no difference either way.                                                                                                                                                                                                             |
+| `/dev/fuse` needed for `overlay`? | No, at all — not tried in the command above and `podman info` still reports native `overlay`. The dividing line is the graphroot's _backing filesystem_: real (the `-v podman-spike-storage:…` above) → native overlay works with zero devices; overlay-on-overlay (drop the `-v`) → every run fails with `exec ...: Invalid argument`, and forcing `mount_program = fuse-overlayfs` with `--device=/dev/fuse` does not rescue that case either (tried, same failure). |
+| `/dev/net/tun` needed?            | Only for the default userspace network backend (`slirp4netns` on podman 4.9.3, `pasta` on 5.7.0). `--network=host` in the command above needs no device and works once `systempaths=unconfined` is set.                                                                                                                                                                                                                                                                |
+| Read-only `/sys/fs/cgroup`?       | Not a hard problem rootless — `conmon` logs a warning (`failed to add … to cgroupfs sandbox cgroup`) and the container still starts.                                                                                                                                                                                                                                                                                                                                   |
 
 ### 13.2 The five Docker scenarios
 
@@ -802,7 +802,7 @@ podman-as-docker: API socket did not appear at /run/devc-features/podman-as-dock
 Not a privilege gap — `SOCKET_DIR` is chowned to the remote user once at build
 time, but the devcontainer CLI's UID-remap step (the normal case on a Linux host
 whose UID differs from the image's baked-in one; this GitHub runner, not Docker
-Desktop) renumbers the remote user *after* the image builds and repairs only
+Desktop) renumbers the remote user _after_ the image builds and repairs only
 `$HOME`, orphaning `/run/devc-features/podman-as-docker`. `post-start.sh` (0.1.2)
 now repairs it, same shape as the repair `node-nvmrc`'s `post-create.sh` already
 does for its own directory.
