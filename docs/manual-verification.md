@@ -727,13 +727,40 @@ Error: mount /var/lib/devc-features/podman-as-docker/storage/overlay:/var/lib/de
 The `docker-default` AppArmor profile carries a blanket `deny mount,` rule — no
 exception for `CAP_SYS_ADMIN` — which blocked the self-bind-mount Podman's rootless
 overlay setup does as part of making the graphroot a private mount point. Adding
-`securityOpt: ["apparmor=unconfined"]` (0.1.1) fixed it; **`seccomp=unconfined` was
-not needed** — Docker's default seccomp profile already permits `mount`/`umount2`,
-so AppArmor was the actual (and only) additional blocker on a stock Linux host.
+`securityOpt: ["apparmor=unconfined"]` (0.1.1) cleared it — but re-running surfaced
+a **second** wall immediately behind the first:
 
-Reproduce with the CI workflow (`gh workflow run test-podman-as-docker.yml`, or the
-Actions tab) — it needs a real Linux Docker host, which is exactly why it runs in
-CI rather than being folded into §13.1's `docker run` matrix.
+```
+Error: crun: create keyring `ecc71c50b11e9b53aced7f06162c7b93f8a56ce67468023d05efdb94a867e87d`: Operation not permitted: OCI permission denied
+```
+
+`crun` creates a session keyring for the container via `keyctl()`, which the
+`docker-default` **seccomp** profile blocks. So the 0.1.1 conclusion above —
+"`seccomp=unconfined` was not needed" — was wrong, reached by stopping at the
+first wall cleared rather than testing past it: `mount`/`umount2` genuinely are
+permitted by the default seccomp profile, but `keyctl()` is not, and Podman needs
+both. `securityOpt: ["seccomp=unconfined"]` (0.1.2) cleared this one too.
+
+With both privilege walls down, a **third**, unrelated bug then surfaced:
+
+```
+/usr/local/share/devc-features/podman-as-docker/post-start.sh: line 61: /run/devc-features/podman-as-docker/service.log: Permission denied
+podman-as-docker: API socket did not appear at /run/devc-features/podman-as-docker/podman.sock after starting the service
+```
+
+Not a privilege gap — `SOCKET_DIR` is chowned to the remote user once at build
+time, but the devcontainer CLI's UID-remap step (the normal case on a Linux host
+whose UID differs from the image's baked-in one; this GitHub runner, not Docker
+Desktop) renumbers the remote user *after* the image builds and repairs only
+`$HOME`, orphaning `/run/devc-features/podman-as-docker`. `post-start.sh` (0.1.2)
+now repairs it, same shape as the repair `node-nvmrc`'s `post-create.sh` already
+does for its own directory.
+
+All five scenarios pass on the same runner as of 0.1.2, confirmed by re-running
+after each fix rather than assumed. Reproduce with the CI workflow
+(`gh workflow run test-podman-as-docker.yml`, or the Actions tab) — it needs a real
+Linux Docker host, which is exactly why it runs in CI rather than being folded
+into §13.1's `docker run` matrix.
 
 The default scenario needs the explicit `--base-image` — the test command's own
 default, `ubuntu:focal` (20.04), predates Ubuntu's own `podman` package and
