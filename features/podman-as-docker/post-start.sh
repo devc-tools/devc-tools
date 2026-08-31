@@ -40,6 +40,20 @@ mkdir -p "$SOCKET_DIR" 2> /dev/null || {
   exit 0
 }
 
+# Ownership repair, belt-and-braces — same reasoning as node-nvmrc's post-create.sh for
+# its pin/ directory: install.sh chowns $SOCKET_DIR to $_REMOTE_USER at *build* time, but
+# the devcontainer CLI's default UID remap — on a Linux host whose UID differs from the
+# image's baked-in one, which is the normal case on a CI runner — renumbers the remote
+# user's UID *after* the image is built, and chowns only $HOME doing it. That orphans
+# $SOCKET_DIR from the renumbered user, and every write below (the log file, the socket
+# itself) then fails with Permission denied. sudo -n so a passworded sudo cannot hang
+# this on a prompt nobody can answer; best-effort, since this must never fail the start.
+owner="$(stat -c '%U' "$SOCKET_DIR" 2> /dev/null || true)"
+if [ -n "$owner" ] && [ "$owner" != "$(id -un)" ] && command -v sudo > /dev/null 2>&1; then
+  sudo -n chown "$(id -un)" "$SOCKET_DIR" 2> /dev/null ||
+    warn "$SOCKET_DIR is owned by $owner and could not be repaired"
+fi
+
 SOCK="$SOCKET_DIR/podman.sock"
 
 # Idempotent: if the socket already answers, do nothing. This is what makes it safe to
