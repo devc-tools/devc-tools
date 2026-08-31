@@ -1,0 +1,5 @@
+{
+  "name": "mount-substitution",
+  "image": "mcr.microsoft.com/devcontainers/base:ubuntu",
+  "features": { "./volspike": {} }
+}

@@ -188,10 +188,26 @@ all block calling it done.
    `features/node-nvmrc/test/scenarios.json`'s `with_nvmrc` scenario is what will
    actually measure it: its first check fails if the hook did not find the `.nvmrc`
    an `onCreateCommand` wrote at the workspace root.
-2. **Substitution inside Feature `mounts`.** `${localEnv:HOME}` is measured
-   working (devc-bridge-feature findings). `${localWorkspaceFolderBasename}` and
-   `${containerWorkspaceFolder}` are **not** — and the `agents` volumes
-   need them for per-workspace isolation.
+2. **Substitution inside Feature `mounts`.** ~~`${localEnv:HOME}` is measured
+   working (devc-bridge-feature findings). `${localWorkspaceFolderBasename}`,
+   `${containerWorkspaceFolder}` and `${devcontainerId}` are **not** — and the
+   `agents` volumes need them for per-workspace isolation.~~ **Closed —
+   measured, all four substitute.** `${devcontainerId}` is the variable the
+   spec added for exactly this purpose (a stable unique id for Features naming
+   their own volumes) and was folded into this question rather than left
+   unasked. See
+   [`mount-substitution-spike`](../implemented/mount-substitution-spike.md) for
+   the fixture and full method. Measured with `@devcontainers/cli 0.89.0`:
+
+   | Variable | Substitutes to |
+   | --- | --- |
+   | `${devcontainerId}` | `volspike-id-13gra4npo69h23i10h25gq869gjtjet092p9ushcd11d6sdutp0c` |
+   | `${localWorkspaceFolderBasename}` | `volspike-base-mount-substitution` |
+   | `${containerWorkspaceFolder}` | mount landed under the workspace folder — `findmnt` showed `/workspaces/devc-tools/tests/fixtures/mount-substitution/.volspike-target` |
+
+   All three built cleanly; no create failure, no silent shared-volume
+   collapse. Re-run with `tests/fixtures/mount-substitution/` if the CLI
+   version moves.
 3. **Named-volume ownership seeding.** If `install.sh` creates
    `$_REMOTE_USER_HOME/.claude` owned by the remote user at build time, Docker
    should initialize a first-use empty named volume from that directory's
@@ -202,14 +218,19 @@ all block calling it done.
    including after the `DEVC_ATTACH` `PROMPT_COMMAND` snapshot that today runs
    last. Matters for `shell-dirs`; see that plan.
 
-**Questions 2 and 3 remain unmeasured as of `feature-claude-config`.** No Docker
-in the environment that plan was implemented in either — the same constraint
-every other plan here has hit, just fatal to these two specifically instead of
-merely postponing a container scenario. The Feature it produced — published as
-`claude-config`, renamed to `agents` shortly after (see its README's
-"Relationship to devc") — took the safe path the
-plan itself specifies for the unmeasured case: it declares **no** `mounts`, and
-its README carries the two-volume recipe as a consumer paste instead. Question
-3's `sudo chown` stays in `post-create.sh` regardless, per the plan (cheap,
-belt-and-braces either way). Both questions are still open for whoever next has
-a Docker daemon.
+**Questions 2 and 3 were both unmeasured as of `feature-claude-config`.** No
+Docker in the environment that plan was implemented in either — the same
+constraint every other plan here has hit, just fatal to these two specifically
+instead of merely postponing a container scenario. The Feature it produced —
+published as `claude-config`, renamed to `agents` shortly after (see its
+README's "Relationship to devc") — took the safe path the plan itself
+specifies for the unmeasured case: it declares **no** `mounts`, and its README
+carries the two-volume recipe as a consumer paste instead. Question 3's `sudo
+chown` stays in `post-create.sh` regardless, per the plan (cheap,
+belt-and-braces either way).
+
+Question 2 is now closed (above), by `mount-substitution-spike`. Declaring the
+`~/.claude` volume in the Feature instead of pasting it is a follow-up with its
+own version bump and scenarios, not done by that measurement alone — see
+`features/agents/README.md` § The volume question. Question 3 is still open
+for whoever next has a Docker daemon.

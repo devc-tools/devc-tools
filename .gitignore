@@ -1,3 +1,6 @@
 *.local.code-workspace
 # Release build output (see .plans/release-and-installer.md)
 /dist/
+# devcontainer CLI writes this next to any devcontainer.json it resolves Features for,
+# including the mount-substitution-spike fixture — regenerated on every `devcontainer up`
+tests/fixtures/mount-substitution/.devcontainer/devcontainer-lock.json

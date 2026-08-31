@@ -354,25 +354,22 @@ devc's baseline names its volumes per workspace — and a Feature _can_ declare
 published Feature schema). Doing so would make this Feature self-sufficient for
 persistence, with no paste required.
 
-It turns on one fact nobody has measured yet: **does
-`${localWorkspaceFolderBasename}` substitute inside a Feature's own `mounts`
-array?** `${localEnv:HOME}` is measured working (see
-[`.plans/archived/devc-bridge-feature.md`](../../.plans/archived/devc-bridge-feature.md)),
-but that is a different variable class, and nobody has run a container to
-check this one — no Docker in the environment this Feature was written in.
-
-If it substitutes, declaring the volume here is strictly better and a later
-version of this Feature should do it. If it does not, declaring it anyway
-would silently give **every project one shared volume** — worse than declaring
-nothing, since two unrelated repos would share Claude auth and history with no
-way to tell. That asymmetry is why this version takes the safe path: **no
-`mounts` are declared**, and the line above is a paste instead of a default.
-See
+**Measured, and it substitutes.** `mount-substitution-spike` built a fixture
+Feature declaring `${localWorkspaceFolderBasename}` (and
+`${containerWorkspaceFolder}`, `${devcontainerId}`) inside its own `mounts`
+array and confirmed all three resolve correctly — see
 [`.plans/design/devc-feature-split.md`](../../.plans/design/devc-feature-split.md)
-(open question 2) for the note recording this as still unmeasured, and open
-question 3 for a related, also-unmeasured question about first-use volume
-ownership — which is why the ownership-repair step in `post-create.sh` stays,
-belt-and-braces, regardless of how question 2 eventually lands.
+(formerly open question 2, now closed) for the measured names and CLI
+version. `${localEnv:HOME}` was already known to work (see
+[`.plans/archived/devc-bridge-feature.md`](../../.plans/archived/devc-bridge-feature.md)).
+
+So declaring the volume here instead of pasting it into every consumer's
+config is now a viable follow-up, not an open question. It is **not done by
+this measurement alone** — it is its own change to this Feature, with its own
+version bump and its own scenarios, deliberately left for later so this
+version's behaviour does not shift underneath it. Open question 3 (first-use
+volume ownership) is still unmeasured and separate — the ownership-repair step
+in `post-create.sh` stays regardless.
 
 Note that this question got **cheaper** at `0.2.0`, not harder: there is one
 volume to declare now instead of two.

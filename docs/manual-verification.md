@@ -625,3 +625,29 @@ without starting anything — use it to see what each check is actually running.
 - [ ] **VS Code interop.** "Reopen in Container" on the devc-started `$PROJ`
       container attaches to the _same_ container rather than building its own.
       Follows from the first check, but worth seeing.
+
+## 12. Mount substitution inside a Feature's `mounts` — Docker host
+
+From `mount-substitution-spike`. Answers
+`.plans/design/devc-feature-split.md` open question 2: which
+`devcontainer.json` variables substitute inside a Feature's own `mounts`
+array. Measured once with `@devcontainers/cli 0.89.0`; re-run this after a CLI
+upgrade to confirm the answer still holds.
+
+```sh
+devcontainer up --workspace-folder tests/fixtures/mount-substitution
+docker volume ls | grep volspike
+```
+
+Expected: three volumes exist —
+
+- `volspike-id-<opaque id>` (`${devcontainerId}`)
+- `volspike-base-mount-substitution` (`${localWorkspaceFolderBasename}`)
+- `volspike-target` (`${containerWorkspaceFolder}` substitutes in the mount
+  *target*, not the source — confirm with
+  `devcontainer exec --workspace-folder tests/fixtures/mount-substitution findmnt | grep volspike`
+  and check the target lands under the workspace folder)
+
+Clean up after: `docker rm -f` the container (`devcontainer up`'s output
+prints its id), then `docker volume rm` the three volumes above, so a re-run
+starts from nothing.
