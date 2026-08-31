@@ -1,0 +1,33 @@
+{
+  "with_tun": {
+    "image": "mcr.microsoft.com/devcontainers/base:ubuntu",
+    "runArgs": ["--device=/dev/net/tun"],
+    "features": {
+      "podman-as-docker": {
+        "rootlessNetworkCmd": "slirp4netns"
+      }
+    }
+  },
+  "with_socket": {
+    "image": "mcr.microsoft.com/devcontainers/base:ubuntu",
+    "features": {
+      "podman-as-docker": {
+        "dockerApiSocket": true
+      }
+    }
+  },
+  "with_volume": {
+    "image": "mcr.microsoft.com/devcontainers/base:ubuntu",
+    "features": {
+      "podman-as-docker": {}
+    }
+  },
+  "no_shim": {
+    "image": "mcr.microsoft.com/devcontainers/base:ubuntu",
+    "features": {
+      "podman-as-docker": {
+        "dockerShim": false
+      }
+    }
+  }
+}

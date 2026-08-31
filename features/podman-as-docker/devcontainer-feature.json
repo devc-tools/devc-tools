@@ -1,0 +1,62 @@
+{
+  "id": "podman-as-docker",
+  "version": "0.1.0",
+  "name": "Podman as Docker",
+  "description": "Makes `docker` commands work inside a devcontainer by installing Podman and the podman-docker shim — no Docker daemon, no /var/run/docker.sock bind mount, no privileged sibling container. NOT the secure option: it costs CAP_SYS_ADMIN and Docker's systempaths=unconfined (removes the default read-only masking of /proc/sys and neighbours), both declared unconditionally by this Feature and both measured load-bearing — see the README's privilege-cost section before enabling this. Declares its own per-devcontainer storage volume, so a bare `{}` container already gets native overlay storage and survives a rebuild; networking defaults to --network=host (no device needed) unless rootlessNetworkCmd is changed and --device=/dev/net/tun is pasted into runArgs.",
+  "documentationURL": "https://github.com/devc-tools/devc-tools/tree/main/features/podman-as-docker",
+  "licenseURL": "https://github.com/devc-tools/devc-tools/blob/main/LICENSE",
+  "options": {
+    "dockerShim": {
+      "type": "boolean",
+      "default": true,
+      "description": "Install podman-docker, providing /usr/bin/docker as a podman wrapper. Also pulls in Compose v1 (docker-compose 1.29.2) as a package dependency on Ubuntu — see composeProvider."
+    },
+    "storageDriver": {
+      "type": "string",
+      "enum": ["auto", "vfs", "overlay"],
+      "default": "auto",
+      "description": "Podman's storage driver, decided at container-create time. 'auto' probes the graphroot's backing filesystem: a real filesystem (the normal case — this Feature declares its own volume there) gets plain 'overlay', no device and no mount_program needed; an overlay-on-overlay backing (no volume present) gets 'vfs', because 'overlay' there does not merely get slow, it fails every container start outright. 'overlay' forces the driver regardless of what the probe would choose — safe when a volume is present, a hard failure otherwise. 'vfs' always works but is slow and disk-hungry."
+    },
+    "rootlessNetworkCmd": {
+      "type": "string",
+      "enum": ["host", "slirp4netns", "pasta"],
+      "default": "host",
+      "description": "Rootless network backend. Defaults to 'host' — the nested container shares the devcontainer's own network namespace (no isolation between nested containers, real port collisions) — because that is the only mode needing zero devices, and a Feature cannot grant /dev/net/tun. Both 'slirp4netns' and 'pasta' need /dev/net/tun pasted into your own devcontainer.json's runArgs (`--device=/dev/net/tun`); set without it, every `docker run` fails loudly rather than silently falling back."
+    },
+    "unqualifiedSearchRegistries": {
+      "type": "string",
+      "default": "docker.io",
+      "description": "Comma-separated registries to try for a bare image name (e.g. `docker run ubuntu`), same as Docker's own default resolution. Stock Podman leaves this unset, and a bare name then fails or prompts."
+    },
+    "dockerApiSocket": {
+      "type": "boolean",
+      "default": true,
+      "description": "Run `podman system service` at container-start time on a fixed unix socket, and export DOCKER_HOST naming it. Off skips starting the service; DOCKER_HOST is still exported (containerEnv cannot be conditional on an option) and names a path nothing serves — unset it in your own remoteEnv if you turn this off."
+    },
+    "composeProvider": {
+      "type": "string",
+      "enum": ["none", "podman-compose", "docker-compose"],
+      "default": "none",
+      "description": "What backs `docker compose`. 'none' installs nothing extra — note that dockerShim already pulls in Compose v1 (docker-compose 1.29.2, the abandoned Python implementation) as a package dependency on Ubuntu, so `docker compose`/`docker-compose` may already exist even at 'none'. 'podman-compose' or 'docker-compose' (a newer one, if available) installs that package explicitly."
+    },
+    "silenceEmulationNotice": {
+      "type": "boolean",
+      "default": true,
+      "description": "Create /etc/containers/nodocker, suppressing the 'Emulate Docker CLI using podman' banner podman-docker prints on every `docker` invocation. Off leaves the banner in place; scripts that parse `docker` output can break without this."
+    }
+  },
+  "capAdd": ["SYS_ADMIN"],
+  "securityOpt": ["systempaths=unconfined"],
+  "containerEnv": {
+    "DOCKER_HOST": "unix:///run/devc-features/podman-as-docker/podman.sock"
+  },
+  "mounts": [
+    {
+      "type": "volume",
+      "source": "podman-storage-${devcontainerId}",
+      "target": "/var/lib/devc-features/podman-as-docker/storage"
+    }
+  ],
+  "postCreateCommand": "bash /usr/local/share/devc-features/podman-as-docker/post-create.sh",
+  "postStartCommand": "bash /usr/local/share/devc-features/podman-as-docker/post-start.sh"
+}
