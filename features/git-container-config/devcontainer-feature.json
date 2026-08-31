@@ -1,6 +1,6 @@
 {
   "id": "git-container-config",
-  "version": "0.2.0",
+  "version": "0.1.0",
   "name": "Git container config",
   "description": "Re-applies, on every container create, the user-scope git settings a devcontainer needs and cannot keep: LFS filters for the remote user, worktree.useRelativePaths, safe.directory, and an include.path to an identity file — read from one fixed mount point, /usr/local/share/devc-features/git-container-config/identity/gitconfig, if a consumer has bind-mounted one there. No path option: that mount point is the one thing a consumer decides is what to bind onto. ~/.gitconfig is container-local and wiped on every rebuild, while the repo's working tree and .git are host bind mounts, so anything git needs at user scope has to be re-applied on every create. Installs neither git nor git-lfs — it configures a git that is already there.",
   "documentationURL": "https://github.com/devc-tools/devc-tools/tree/main/features/git-container-config",

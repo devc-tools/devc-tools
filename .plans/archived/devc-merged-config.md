@@ -236,7 +236,7 @@ absorbs:
 - **Baseline Features** — `DEVC_CONFIG_FEATURE` today. Skipped when
   `baselineFeatures` is false, or when anything above declares a Feature of the
   same _name_ (`declaresFeatureNamed`). The name check is still required: merging
-  by feature id would install `…/devc-config:0` and `…/devc-config:0.2.0` twice.
+  by feature id would install `…/devc-config:0` and `…/devc-config:0.1.0` twice.
 - **The bridge token mount** — `type=bind,source=${localEnv:HOME}/.config/devc-bridge/run,target=/run/devc-bridge,readonly`,
   contributed when the merged Features declare a Feature named `devc-bridge`.
   This replaces `injectBridgeMount`'s JSONC fence-splicing into the materialized

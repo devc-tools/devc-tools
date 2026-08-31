@@ -26,8 +26,8 @@
     //   "installTools": true,
     //   "version": "3.12"
     // }
-    // The only option this Feature still takes that devc needs. There are no path options
-    // as of agents 0.2.0 — ~/.claude is derived from the remote user's home, and the seed
+    // The only option this Feature still takes that devc needs. The agents Feature has no
+    // path options — ~/.claude is derived from the remote user's home, and the seed
     // path is fixed. Preserves current behavior: devc's own Dockerfile used to install
     // Copilot unconditionally, and the Feature's own default is false.
     "ghcr.io/devc-tools/agents:0": {
@@ -60,8 +60,8 @@
     "type=volume,source=claude-code-config-${localWorkspaceFolderBasename},target=/home/vscode/.claude",
 
     // Host ~/.claude config seed, onto the agents Feature's fixed seed path. The Feature's
-    // own post-create.sh symlinks every top-level *file* from here into ~/.claude — and, as
-    // of agents 0.2.0, folds ~/.claude.json into the same volume, so there is no second
+    // own post-create.sh symlinks every top-level *file* from here into ~/.claude, and folds
+    // ~/.claude.json into the same volume, so there is no second
     // volume to mount for it.
     "type=bind,source=${localEnv:HOME}/.config/devc/.claude,target=/usr/local/share/devc-features/agents/claude-seed,consistency=cached,readonly",
 

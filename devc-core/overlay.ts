@@ -398,7 +398,7 @@ export async function loadOverlays(
  * Guarded by `tests/workflow_guards_test.sh` against `features/devc-config/devcontainer-feature.json`'s
  * own `version` — a comment saying "keep these in step" is how pins drift.
  */
-export const DEVC_CONFIG_FEATURE = 'ghcr.io/devc-tools/devc-config:0.2.0';
+export const DEVC_CONFIG_FEATURE = 'ghcr.io/devc-tools/devc-config:0.1.0';
 
 /**
  * The Features devc contributes to every container it starts, id paired with the bare name
@@ -436,7 +436,7 @@ export const BRIDGE_MOUNT =
  * - **Baseline Features.** Skipped when `baselineFeatures` is false, or when `config` already
  *   declares a Feature of that name by *any* spelling ({@link declaresFeatureNamed}). Matching
  *   by name rather than id is what stops a consumer's `…/devc-config:0` and devc's
- *   `…/devc-config:0.2.0` from both installing — two ids are two Features to the CLI, and the
+ *   `…/devc-config:0.1.0` from both installing — two ids are two Features to the CLI, and the
  *   hook would run twice.
  * - **The bridge token mount**, when the merged Features opt into a Feature named `devc-bridge`.
  *   A mount the user declared on the same target wins through the merge's own target dedupe, so

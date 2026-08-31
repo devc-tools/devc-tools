@@ -419,7 +419,7 @@ real daemon.
       ordered ahead of `devc-config` via `installsAfter`. This item still
       measures the same guarantee, just not the mechanism named here.
 - [ ] **The double-install case.** A project declaring
-      `"ghcr.io/devc-tools/devc-config:0.2.0": {}` in its own
+      `"ghcr.io/devc-tools/devc-config:0.1.0": {}` in its own
       `features` while devc injects `:0.1.0`. The hook runs **once**, and
       `devcontainer up`'s output installs exactly one `devc-config`. (This is
       the case that proves `withBaselineFeatures`' name-match skip is doing

@@ -184,7 +184,7 @@ check "no devc:nvm-use fence in any shipped file" bash -c \
      '$FEATURE_DIR/README.md'"
 check "no cd() override is written" bash -c "! grep -q 'builtin cd' '$INSTALL'"
 check "and nvm_use_test.sh is gone" test ! -e "$FEATURE_DIR/test/nvm_use_test.sh"
-check "the manifest is 0.2.1" grep -qF '"version": "0.2.1"' "$MANIFEST"
+check "the manifest is 0.1.0" grep -qF '"version": "0.1.0"' "$MANIFEST"
 
 echo
 if [ "$fails" -eq 0 ]; then echo "ALL PASS"; else echo "$fails FAILED"; exit 1; fi

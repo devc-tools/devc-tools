@@ -136,7 +136,7 @@ Feature needs an option for.
 
 **`devc up` contributes this Feature to every container it starts, with no
 configuration from you.** It adds
-`"ghcr.io/devc-tools/devc-config:0.2.0": {}` to whatever
+`"ghcr.io/devc-tools/devc-config:0.1.0": {}` to whatever
 `devcontainer.json` is in play via `--additional-features` — a project with
 its own hand-written `.devcontainer/devcontainer.json` that has never heard
 of devc included. See `devc/README.md`'s [Project post-create hook](https://github.com/devc-tools/devc-tools/blob/main/devc/README.md#project-post-create-hook-devc-post-createsh)
@@ -172,7 +172,7 @@ project. If you want the behavior without `devc` installed, declare
 one.** devc matches by this Feature's _name_, not by exact id string: if your
 own `devcontainer.json` `features`, or a `devc.json` overlay's
 `additionalFeatures`, already names `devc-config` under any tag (`:0`, a
-pinned `:0.2.0`, …), devc steps aside rather than installing both — which
+pinned `:0.1.0`, …), devc steps aside rather than installing both — which
 matters because the devcontainer CLI itself dedupes `--additional-features`
 against a config's `features` by **exact id string**, so two different tags of
 the same Feature would otherwise both install and your hook would run twice.

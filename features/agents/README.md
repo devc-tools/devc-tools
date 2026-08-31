@@ -481,8 +481,8 @@ scenario only by what it writes into the seed.
 
 This Feature **is** on
 [`features/PUBLISH_ALLOWLIST.txt`](../PUBLISH_ALLOWLIST.txt) and publishes to
-ghcr.io. `0.2.0` removes three options, which is breaking for anyone who set
-them — the floating `:0` tag carries it. `0.4.0` adds `installHerdr`,
-`piPackages` and `herdrPlugins` — backwards compatible, so a minor bump. See
+ghcr.io. `0.1.0` is the first version published under this org — the version
+history from before the move does not exist in this registry, so there is no
+earlier tag to upgrade from. See
 [../README.md#the-publish-allowlist](../README.md#the-publish-allowlist) for
 what that gate is and isn't.

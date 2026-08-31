@@ -312,7 +312,7 @@ Deno.test('materialized (zero-config) devcontainer.json has no local Feature, ke
     assertEquals(
       Object.hasOwn(
         dc.features,
-        'ghcr.io/devc-tools/devc-config:0.2.0',
+        'ghcr.io/devc-tools/devc-config:0.1.0',
       ),
       false,
     );
