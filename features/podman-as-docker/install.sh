@@ -9,11 +9,16 @@
 # search path, the network backend default, and the fixed directories this Feature's
 # manifest names.
 #
-# The manifest declares capAdd:["SYS_ADMIN"] and securityOpt:["systempaths=unconfined"]
-# unconditionally — see README.md's privilege-cost section, and the devc-dev sibling
-# repo's .plans/implemented/feature-podman-as-docker.md § Step 1 for what was actually
-# measured and why both are required, not just SYS_ADMIN alone. Nothing in this script
-# grants privilege; it only consumes what the manifest already declared.
+# The manifest declares capAdd:["SYS_ADMIN"] and
+# securityOpt:["systempaths=unconfined", "apparmor=unconfined"] unconditionally — see
+# README.md's privilege-cost section, and the devc-dev sibling repo's
+# .plans/implemented/feature-podman-as-docker.md § Step 1 for what was originally
+# measured. apparmor=unconfined was added in 0.1.1, after 0.1.0's own CI (a real Linux
+# Docker Engine host, unlike the Docker Desktop VM Step 1 was measured on) found the
+# docker-default AppArmor profile's blanket "deny mount" rule blocking Podman's own
+# mount setup with `permission denied` — invisible on Docker Desktop, which enforces no
+# AppArmor profile at all. Nothing in this script grants privilege; it only consumes
+# what the manifest already declared.
 set -e
 
 die() {

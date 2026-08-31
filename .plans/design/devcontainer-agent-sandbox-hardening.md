@@ -148,20 +148,21 @@ replacement for the dind sidecar above — it is a fourth option with a differen
 shape of cost, worth naming here because it is easy to mistake for "the secure one"
 if you only skim its pitch. It installs Podman in the agent container itself (no
 daemon, no `docker.sock`), which sounds like it sidesteps this whole section. It
-does not: it costs `CAP_SYS_ADMIN` plus Docker's `systempaths=unconfined` on the
-agent container — measured required, not optional — so the agent container itself
-is no longer unprivileged. Compare honestly:
+does not: it costs `CAP_SYS_ADMIN` plus two Docker/runc flags
+(`systempaths=unconfined`, `apparmor=unconfined`) on the agent container — measured
+required, not optional — so the agent container itself is no longer unprivileged.
+Compare honestly:
 
 | Approach | Where the privilege lives | Cost of abuse |
 | --- | --- | --- |
 | dind-rootless sidecar (above) | a separate `dind` service | Confined to that service's own daemon; the agent container stays unprivileged |
-| `podman-as-docker` | **the agent container itself** | `CAP_SYS_ADMIN` + `systempaths=unconfined` there — a real kernel/mount exploit surface, but no host Docker API and no `--privileged` |
+| `podman-as-docker` | **the agent container itself** | `CAP_SYS_ADMIN` + `systempaths=unconfined` + `apparmor=unconfined` there — a real kernel/mount exploit surface, but no host Docker API and no `--privileged` |
 
 Prefer the dind-rootless sidecar when the agent container being unprivileged is
 itself the property you want (this doc's whole thesis). Prefer `podman-as-docker`
 when a second service is the wrong shape for the workflow — a single-container
 devcontainer with no compose file to add a sidecar to — and the narrower,
-measured `SYS_ADMIN`+`systempaths=unconfined` cost is an acceptable trade there.
+measured `SYS_ADMIN`+`systempaths=unconfined`+`apparmor=unconfined` cost is an acceptable trade there.
 Never reach for it as "the secure Docker option"; it is the *less bad* option when
 a sidecar is not available, not a way to avoid this section's trade-off entirely.
 

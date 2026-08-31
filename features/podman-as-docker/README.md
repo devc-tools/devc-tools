@@ -13,29 +13,43 @@ alternatives, not a free one:
 | --- | --- | --- |
 | `docker-outside-of-docker` | the host Docker API | **Immediate, trivial, total.** `docker run -v /:/host alpine chroot /host sh`. No exploit required. |
 | `docker-in-docker` | `--privileged` — all caps, all devices | Immediate and total, by a slightly longer road. |
-| **`podman-as-docker`** | **`CAP_SYS_ADMIN`** plus Docker's `systempaths=unconfined` | Escape requires an actual kernel/mount exploit, and on Docker Desktop lands in the LinuxKit VM, not on macOS. Nothing on the host is reachable *by design*. |
+| **`podman-as-docker`** | **`CAP_SYS_ADMIN`** plus two Docker/runc `securityOpt` flags (below) | Escape requires an actual kernel/mount exploit, and on Docker Desktop lands in the LinuxKit VM, not on macOS. Nothing on the host is reachable *by design*. |
 
-This Feature declares both **unconditionally**, the moment you add it:
+This Feature declares all three **unconditionally**, the moment you add it:
 
 ```jsonc
 "capAdd": ["SYS_ADMIN"],
-"securityOpt": ["systempaths=unconfined"]
+"securityOpt": ["systempaths=unconfined", "apparmor=unconfined"]
 ```
 
-`SYS_ADMIN` is a Linux capability. `systempaths=unconfined` is not — it is a
-Docker/runc flag that removes the default read-only bind-mount Docker applies over
-`/proc/asound`, `/proc/bus`, `/proc/fs`, `/proc/irq`, `/proc/sys` and
-`/proc/sysrq-trigger` inside any non-privileged container. Neither adds capabilities
-beyond `SYS_ADMIN`, neither touches seccomp, neither touches AppArmor — but both are
-**measured required**, not defensive boilerplate: every `podman run`, in every network
-mode including `--network=host`, fails without `systempaths=unconfined`, and every
-rootless container fails to even map its own user namespace without `SYS_ADMIN`. See
+`SYS_ADMIN` is a Linux capability. The other two are not capabilities and add no
+capability beyond `SYS_ADMIN`, don't touch seccomp — they are Docker/runc flags
+that each remove one specific piece of Docker's default hardening, and both are
+**measured required**, not defensive boilerplate:
+
+- **`systempaths=unconfined`** removes the default read-only bind-mount Docker
+  applies over `/proc/asound`, `/proc/bus`, `/proc/fs`, `/proc/irq`, `/proc/sys` and
+  `/proc/sysrq-trigger`. Without it, every `podman run` — in every network mode,
+  `--network=host` included — fails immediately trying to write a network sysctl.
+- **`apparmor=unconfined`** removes the `docker-default` AppArmor profile, which
+  carries a blanket `deny mount,` rule with no exception for `CAP_SYS_ADMIN`.
+  Without it, Podman's own storage setup fails with
+  `mount ...: permission denied` — on a **native Linux Docker host**, specifically.
+  This one was found *after* the Feature's initial release, by
+  [`.github/workflows/test-podman-as-docker.yml`](../../.github/workflows/test-podman-as-docker.yml)
+  running on a real Linux Docker Engine host (a GitHub-hosted `ubuntu-latest`
+  runner) — see [What's actually been tested](#whats-actually-been-tested) below for
+  why the original measurement missed it.
+
+And `SYS_ADMIN` itself: every rootless container fails to even map its own user
+namespace without it. See
 [`feature-podman-as-docker`](https://github.com/devc-tools/devc-dev/blob/main/.plans/implemented/feature-podman-as-docker.md)
-§ Step 1, in the sibling `devc-dev` repo, for the measurements — this Feature's plan
-lives there, not in this repo, since `devc-dev` is where this workspace's plans are
-indexed. This repo's own
+§ Step 1, in the sibling `devc-dev` repo, for those original measurements — this
+Feature's plan lives there, not in this repo, since `devc-dev` is where this
+workspace's plans are indexed. This repo's own
 [`docs/manual-verification.md`](../../docs/manual-verification.md) §13 has the
-reproduction commands.
+reproduction commands for `SYS_ADMIN`/`systempaths`; the CI workflow above is the
+reproduction for `apparmor=unconfined`.
 
 **`privileged` is never declared.** That is the line this Feature exists not to cross.
 If that trade is still unacceptable for a given container, put the privilege in a
@@ -162,7 +176,7 @@ file instead:
 services:
   app:
     cap_add: ["SYS_ADMIN"]
-    security_opt: ["systempaths=unconfined"]
+    security_opt: ["systempaths=unconfined", "apparmor=unconfined"]
     # Only if you also want real network isolation (see Networking above):
     devices: ["/dev/net/tun"]
 ```
@@ -189,6 +203,14 @@ causes that print the identical string:
 is set to `slirp4netns`/`pasta` without the matching `--device=/dev/net/tun` in your
 own `runArgs`. See [Networking](#networking).
 
+**`mount ...: permission denied`** during Podman's own storage setup — the
+`docker-default` AppArmor profile is enforced and `apparmor=unconfined` from the
+manifest did not reach the running container. This shows up if something strips or
+overrides Feature-declared `securityOpt` (some CI runners and older Docker versions
+do this to `capAdd` too — see the `newuidmap` entry above). Confirm with
+`cat /proc/self/attr/current` inside the container; `docker-default (enforce)`
+there means the flag did not take.
+
 **A container starts but every `docker run` fails with
 `exec container process: Invalid argument`** — `storageDriver` is forced to
 `overlay` (or was auto-chosen before a volume existed) while the graphroot sits on
@@ -197,8 +219,8 @@ overrode `mounts` yourself), or set `storageDriver: vfs`.
 
 ## What this deliberately does not solve
 
-- **It costs `CAP_SYS_ADMIN` and `systempaths=unconfined`.** See the top of this
-  file.
+- **It costs `CAP_SYS_ADMIN`, `systempaths=unconfined`, and `apparmor=unconfined`.**
+  See the top of this file.
 - **Not a Docker daemon.** Anything talking to `dockerd` internals rather than the
   REST API may not work; Buildx is the usual casualty.
 - **Not host Docker.** Containers here are invisible to the host's `docker ps` and
@@ -219,22 +241,30 @@ overrode `mounts` yourself), or set `storageDriver: vfs`.
   hit an `avc: denied` in `dmesg`/`audit.log` on such a host, that flag is the
   starting point; nobody has confirmed whether it is actually needed.
 
-### What *is* tested, and what closed the seccomp/AppArmor gap
+### What's actually been tested
 
-Every claim above about `SYS_ADMIN` + `systempaths=unconfined` being *sufficient*
-(no `seccomp=unconfined`, no `apparmor=unconfined`) was originally measured only on
-**Docker Desktop's LinuxKit VM**, which — unlike a normal Linux Docker Engine host —
-already runs with no seccomp filter and no AppArmor profile applied. That made the
-finding true but untested against the two restrictions a stock Linux host adds on
-top of Docker Desktop's baseline.
+0.1.0's manifest (`capAdd:["SYS_ADMIN"]`, `securityOpt:["systempaths=unconfined"]`,
+nothing else) was measured entirely on **Docker Desktop's LinuxKit VM**, which —
+unlike a normal Linux Docker Engine host — already runs with no seccomp filter and
+no AppArmor profile applied. That made the 0.1.0 finding true on Docker Desktop and
+silently untested against the two restrictions a stock Linux host adds on top.
 
 [`.github/workflows/test-podman-as-docker.yml`](../../.github/workflows/test-podman-as-docker.yml)
-(`workflow_dispatch`, manual) closes that gap: it runs on a GitHub-hosted
-`ubuntu-latest` runner — a real Linux Docker Engine host with the `docker-default`
-seccomp and AppArmor profiles actually enforced, the case that matters for anyone
-running this Feature on Linux rather than Docker Desktop — and asserts that
-enforcement is really in effect before running all five Docker scenarios. Run it
-from the Actions tab, or `gh workflow run test-podman-as-docker.yml`.
+(`workflow_dispatch`, manual) exists to close exactly that gap: it runs on a
+GitHub-hosted `ubuntu-latest` runner — a real Linux Docker Engine host — and first
+asserts the `docker-default` seccomp and AppArmor profiles are actually enforced
+there, before running all five Docker scenarios. **It did its job on the first
+run**: 0.1.0 failed there with `mount ...: permission denied` — the
+`docker-default` AppArmor profile's blanket `deny mount,` rule, invisible on Docker
+Desktop, blocking Podman's own storage setup on a real Linux host. `apparmor=unconfined`
+(0.1.1) fixed it; re-run confirmed all five scenarios pass with that one addition —
+`seccomp=unconfined` was not needed, since Docker's default seccomp profile already
+permits the `mount`/`umount2` syscalls Podman uses (AppArmor was the actual blocker,
+not seccomp). Run the workflow from the Actions tab, or
+`gh workflow run test-podman-as-docker.yml`.
+
+**Still not run against:** SELinux (a Fedora/RHEL/CentOS host) — see the bullet
+above.
 
 ## Concept boundaries
 
@@ -274,8 +304,11 @@ bash features/podman-as-docker/test/run-features-test.sh \
 
 The default scenario is the strongest claim this Feature makes: `docker run` has to
 work with **zero** `runArgs`. `test/scenarios.json` adds `with_tun` (real network
-isolation), `with_socket`, `with_volume`, and `no_shim`. All five were run against
-real Docker as part of writing this Feature — see the commit for which.
+isolation), `with_socket`, `with_volume`, and `no_shim`. All five ran on Docker
+Desktop while writing this Feature, and again on a native Linux Docker host via
+[the CI workflow](../../.github/workflows/test-podman-as-docker.yml) — which is
+where 0.1.1's `apparmor=unconfined` came from; see
+[What's actually been tested](#whats-actually-been-tested).
 
 ## Publishing
 

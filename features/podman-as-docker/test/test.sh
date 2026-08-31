@@ -4,7 +4,7 @@
 #
 # That combination is the point of this file, and it is a stronger claim than most
 # Features' bare-{} case: per the plan's § Step 1, both things that gate a working
-# `docker run` — capAdd:["SYS_ADMIN"]+securityOpt:["systempaths=unconfined"], and a
+# `docker run` — capAdd:["SYS_ADMIN"]+securityOpt (systempaths and apparmor unconfined), and a
 # real-filesystem volume at the graphroot — are unconditional Feature declarations, not a
 # runArgs paste. So this scenario is also the proof the Feature does anything at all:
 # `docker run` has to actually work here, with zero extra flags.
