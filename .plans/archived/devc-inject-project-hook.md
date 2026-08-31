@@ -72,7 +72,8 @@ that raises four questions a manual swap never has to answer:
 
 ```ts
 /** The `project-hook` Feature devc contributes to every container it starts. */
-export const PROJECT_HOOK_FEATURE = 'ghcr.io/devc-tools/project-hook:0.1.0';
+export const PROJECT_HOOK_FEATURE =
+  'ghcr.io/devc-tools/features/project-hook:0.1.0';
 ```
 
 **Exact version, not the floating `:0`** — and this is a departure from the
@@ -211,7 +212,7 @@ injected value is `{}` and why this Feature has no options.
 
 ### `devc-core/default/` — the swap
 
-- `devcontainer.json` `features` gains `"ghcr.io/devc-tools/project-hook:0.1.0": {}`.
+- `devcontainer.json` `features` gains `"ghcr.io/devc-tools/features/project-hook:0.1.0": {}`.
   **Not redundant with the injection**, and this is the reason: the bundled
   config is also what `devc init` copies into a project, and
   `overlay.ts`'s governing invariant is that _whatever lands in `.devcontainer/`

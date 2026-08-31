@@ -39,7 +39,7 @@
   },
   "installsAfter": [
     "ghcr.io/devcontainers/features/node",
-    "ghcr.io/devc-tools/node-nvmrc"
+    "ghcr.io/devc-tools/features/node-nvmrc"
   ],
   "postCreateCommand": "bash /usr/local/share/devc-features/agents/post-create.sh"
 }

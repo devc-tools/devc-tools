@@ -2,7 +2,7 @@
 
 ## Goal
 
-Publish `ghcr.io/devc-tools/bash-config`: source every `bashrc_*.sh` from
+Publish `ghcr.io/devc-tools/features/bash-config`: source every `bashrc_*.sh` from
 `~/.bashrc` and every `profile_*.sh` from the login profile, out of **two fixed
 container directories** — one the consumer populates (a mount, a copy, anything),
 one a symlink to the workspace that a create-time hook points at the project.

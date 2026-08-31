@@ -461,9 +461,9 @@ Deno.test('devcContributions: baselineFeatures false contributes no Feature', ()
 Deno.test('a devc-config Feature at any tag or registry suppresses the injected one', () => {
   for (
     const id of [
-      'ghcr.io/devc-tools/devc-config',
-      'ghcr.io/devc-tools/devc-config:0',
-      'ghcr.io/devc-tools/devc-config:0.1.0',
+      'ghcr.io/devc-tools/features/devc-config',
+      'ghcr.io/devc-tools/features/devc-config:0',
+      'ghcr.io/devc-tools/features/devc-config:0.1.0',
       './features/devc-config',
       'ghcr.io/someone-else/devc-config:2',
     ]
@@ -488,7 +488,7 @@ Deno.test('an unrelated declared Feature does not suppress the baseline', () => 
 // still writes nothing into the project.
 Deno.test('opting into devc-bridge contributes the read-only token mount', () => {
   const layer = devcContributions({
-    features: { 'ghcr.io/devc-tools/devc-bridge:0': {} },
+    features: { 'ghcr.io/devc-tools/features/devc-bridge:0': {} },
   }, true);
   assertEquals(layer.mounts, [BRIDGE_MOUNT]);
 
@@ -511,7 +511,7 @@ Deno.test('no bridge opt-in, no token mount', () => {
 Deno.test("a hand-written /run/devc-bridge mount wins over devc's", () => {
   const own = 'type=bind,source=/custom/run,target=/run/devc-bridge';
   const provisional = {
-    features: { 'ghcr.io/devc-tools/devc-bridge:0': {} },
+    features: { 'ghcr.io/devc-tools/features/devc-bridge:0': {} },
     mounts: [own],
   };
   const merged = mergeConfigs([

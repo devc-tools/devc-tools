@@ -2,7 +2,7 @@
 
 ## Goal
 
-Publish `ghcr.io/devc-tools/node-nvmrc`: given a `.nvmrc` in the
+Publish `ghcr.io/devc-tools/features/node-nvmrc`: given a `.nvmrc` in the
 workspace, install that Node at create time and select it in every interactive
 shell. One line in any `devcontainer.json`, devc or not.
 

@@ -22,7 +22,7 @@ Make the container half of devc-bridge a published devcontainer Feature, so any
 project — devc or not — opts in with one line:
 
 ```jsonc
-"features": { "ghcr.io/devc-tools/devc-bridge:1": {} }
+"features": { "ghcr.io/devc-tools/features/devc-bridge:1": {} }
 ```
 
 devc's bundled config consumes the same Feature rather than carrying its own
@@ -200,7 +200,7 @@ deliberately, not from `deno task test`.
 ### Publishing
 
 A GitHub Action publishing `features/devc-bridge/` to
-`ghcr.io/devc-tools/devc-bridge`, using the devcontainers publish
+`ghcr.io/devc-tools/features/devc-bridge`, using the devcontainers publish
 tooling. Separate workflow from the binary release, same tag trigger, and the
 same version guard: the Feature's `version` is bumped with the repo tag and the
 workflow fails if the two disagree — identical in spirit to

@@ -2,7 +2,7 @@
 
 ## Goal
 
-Publish `ghcr.io/devc-tools/project-hook`: on every container create,
+Publish `ghcr.io/devc-tools/features/project-hook`: on every container create,
 run the project's own `devc-post-create.sh` if it has one. `.devc/` first, then
 `.devcontainer/`, first hit wins; existence selects and executability is
 enforced.

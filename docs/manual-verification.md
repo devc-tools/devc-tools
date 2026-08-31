@@ -275,7 +275,7 @@ The regression that matters most: devc must not depend on any of the above.
 - [ ] **Opting in works.** In `~/.config/devc/devc.json` (all projects) or a
       project's `devc.json`:
 
-      { "additionalFeatures": { "ghcr.io/devc-tools/devc-bridge:0": {} } }
+      { "additionalFeatures": { "ghcr.io/devc-tools/features/devc-bridge:0": {} } }
 
       then `devc up` → `devc-bridge ping test` → `pong`, with no
       `Duplicate mount point` error.
@@ -419,7 +419,7 @@ real daemon.
       ordered ahead of `devc-config` via `installsAfter`. This item still
       measures the same guarantee, just not the mechanism named here.
 - [ ] **The double-install case.** A project declaring
-      `"ghcr.io/devc-tools/devc-config:0.1.0": {}` in its own
+      `"ghcr.io/devc-tools/features/devc-config:0.1.0": {}` in its own
       `features` while devc injects `:0.1.0`. The hook runs **once**, and
       `devcontainer up`'s output installs exactly one `devc-config`. (This is
       the case that proves `withBaselineFeatures`' name-match skip is doing
@@ -601,7 +601,7 @@ without starting anything — use it to see what each check is actually running.
       govern, but the round-robin fallback is order-sensitive).
 - [ ] **The bridge token mount reaches project mode.** With the host bridge
       seeded (`devc-bridge start` once), add
-      `"features": { "ghcr.io/devc-tools/devc-bridge:0": {} }` to
+      `"features": { "ghcr.io/devc-tools/features/devc-bridge:0": {} }` to
       `$PROJ`'s `devc.json` and nothing to its `devcontainer.json`. **Pass:**
       `devc mounts` shows `/run/devc-bridge`, read-only, and the client works
       from inside. On main this required hand-copying the mount line into the

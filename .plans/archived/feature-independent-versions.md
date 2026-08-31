@@ -70,8 +70,8 @@ Two further reads from the same source, both of which decision 6 depends on:
   branches on `isSingle` — true when `devcontainer-feature.json` sits directly in
   the target folder — and then publishes each packaged Feature to
   `${registry}/${namespace}/${id}`. So `features publish ./features/node-nvmrc
-  --namespace devc-tools` lands on **the identical ref** the collection
-  publish would produce, `ghcr.io/devc-tools/node-nvmrc`. Nothing about
+  --namespace devc-tools/features` lands on **the identical ref** the collection
+  publish would produce, `ghcr.io/devc-tools/features/node-nvmrc`. Nothing about
   the published artifact changes; only what one invocation covers.
 - **Every run also pushes the collection document.** After the per-Feature loop,
   publish unconditionally pushes `devcontainer-collection.json` to
@@ -168,7 +168,7 @@ guard failure from cancelling the others. Steps:
    ./dist/features`
 4. **Log in to ghcr.io** — plain `docker login`, as today.
 5. **Publish** — `features publish ./features/${{ matrix.feature }} --namespace
-   "${{ github.repository }}"`
+   "${{ github.repository_owner }}/features"`
 
 Steps 4 and 5 are gated on
 `${{ github.ref == 'refs/heads/main' && !inputs.dry_run }}`. Both conditions, for
@@ -286,7 +286,7 @@ devc-tools release this Feature pins.
 
    1. **"Nothing reads it" was true of tooling and false of people.** The
       artifact is listed on the repo's Packages page as
-      `ghcr.io/devc-tools`, and it was found there and had to be
+      `ghcr.io/devc-tools/features`, and it was found there and had to be
       explained. Being decorative to `devc` is not the same as being invisible.
    2. **"Stale" understated it — it _alternates_.** Whichever Feature published
       last becomes the entire collection according to the document. It was

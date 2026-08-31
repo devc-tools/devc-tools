@@ -2,7 +2,7 @@
 
 ## Goal
 
-Publish `ghcr.io/devc-tools/shell-dirs`: every `*.sh` in one or more
+Publish `ghcr.io/devc-tools/features/shell-dirs`: every `*.sh` in one or more
 directories is sourced by every interactive container shell, in a defined order,
 live (sourced from `~/.bashrc`, not appended into it).
 
@@ -101,7 +101,7 @@ The README must carry both halves, ready to copy. Layer one needs nothing but
 the Feature and `PROJECT_PATH`:
 
 ```jsonc
-"features": { "ghcr.io/devc-tools/shell-dirs:0": {} },
+"features": { "ghcr.io/devc-tools/features/shell-dirs:0": {} },
 "remoteEnv": { "PROJECT_PATH": "${containerWorkspaceFolder}" }
 ```
 
@@ -113,7 +113,7 @@ Layer two is three lines the consumer owns, with no devc anywhere in them:
   "type=bind,source=${localEnv:HOME}/.config/myshell,target=/usr/local/share/myshell,readonly"
 ],
 "features": {
-  "ghcr.io/devc-tools/shell-dirs:0": { "userDir": "/usr/local/share/myshell" }
+  "ghcr.io/devc-tools/features/shell-dirs:0": { "userDir": "/usr/local/share/myshell" }
 }
 ```
 

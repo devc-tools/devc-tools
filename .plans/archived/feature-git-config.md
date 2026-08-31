@@ -2,7 +2,7 @@
 
 ## Goal
 
-Publish `ghcr.io/devc-tools/git-container-config`: re-apply, on every
+Publish `ghcr.io/devc-tools/features/git-container-config`: re-apply, on every
 container create, the **user-scope** git settings a devcontainer needs and cannot
 keep — LFS filters for the remote user, `worktree.useRelativePaths`,
 `safe.directory`, and an `include.path` to an identity file if one has been
@@ -108,7 +108,7 @@ paths removed — the consumer owns all of it:
   "type=bind,source=${localEnv:HOME}/.config/gitid,target=/usr/local/share/gitid,readonly"
 ],
 "features": {
-  "ghcr.io/devc-tools/git-container-config:0": {
+  "ghcr.io/devc-tools/features/git-container-config:0": {
     "identityIncludePath": "/usr/local/share/gitid"
   }
 }

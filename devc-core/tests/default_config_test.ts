@@ -292,7 +292,7 @@ Deno.test('materialized (zero-config) devcontainer.json has no local Feature, ke
     // ...the agents/git-container-config Features declared statically, with the options
     // Contracts specify (agents' installClaudeCli/installCopilotCli/installHerdr/
     // installPiCli/piPackages; a bare {} for git-container-config)...
-    assertEquals(dc.features['ghcr.io/devc-tools/agents:0'], {
+    assertEquals(dc.features['ghcr.io/devc-tools/features/agents:0'], {
       installClaudeCli: true,
       installCopilotCli: false,
       installHerdr: true,
@@ -300,7 +300,7 @@ Deno.test('materialized (zero-config) devcontainer.json has no local Feature, ke
       piPackages: 'npm:@andrewjacop/pi-herdr',
     });
     assertEquals(
-      dc.features['ghcr.io/devc-tools/git-container-config:0'],
+      dc.features['ghcr.io/devc-tools/features/git-container-config:0'],
       {},
     );
     // ...and the devc-config Feature is deliberately absent here too — devc contributes it
@@ -312,7 +312,7 @@ Deno.test('materialized (zero-config) devcontainer.json has no local Feature, ke
     assertEquals(
       Object.hasOwn(
         dc.features,
-        'ghcr.io/devc-tools/devc-config:0.1.0',
+        'ghcr.io/devc-tools/features/devc-config:0.1.0',
       ),
       false,
     );
@@ -854,17 +854,17 @@ Deno.test('ensureClaudeSeedDir rejects a dangling symlink at the seed path', asy
 
 Deno.test('declaresBridgeFeature matches the Feature by id, whatever the tag', async (t) => {
   const yes = [
-    'ghcr.io/devc-tools/devc-bridge',
-    'ghcr.io/devc-tools/devc-bridge:0',
-    'ghcr.io/devc-tools/devc-bridge:1',
-    'ghcr.io/devc-tools/devc-bridge:0.1.0',
+    'ghcr.io/devc-tools/features/devc-bridge',
+    'ghcr.io/devc-tools/features/devc-bridge:0',
+    'ghcr.io/devc-tools/features/devc-bridge:1',
+    'ghcr.io/devc-tools/features/devc-bridge:0.1.0',
     // A local path reference — how this repo consumes its own Feature in development.
     './features/devc-bridge',
     '../devc-tools/features/devc-bridge',
   ];
   const no = [
     'ghcr.io/devcontainers/features/node:1',
-    'ghcr.io/devc-tools/devc-bridge-client:0', // near-miss, different Feature
+    'ghcr.io/devc-tools/features/devc-bridge-client:0', // near-miss, different Feature
     './features/devc',
     '',
   ];
@@ -885,7 +885,7 @@ Deno.test('declaresBridgeFeature matches the Feature by id, whatever the tag', a
   assertEquals(
     declaresBridgeFeature({
       'ghcr.io/devcontainers/features/go:1': {},
-      'ghcr.io/devc-tools/devc-bridge:0': {},
+      'ghcr.io/devc-tools/features/devc-bridge:0': {},
     }),
     true,
   );
@@ -894,7 +894,7 @@ Deno.test('declaresBridgeFeature matches the Feature by id, whatever the tag', a
 // declaresBridgeFeature is now a one-line wrapper over the general form; this asserts that
 // wrapping held, not the matching logic itself (already covered above).
 Deno.test('declaresBridgeFeature: an alias for declaresFeatureNamed(_, "devc-bridge")', () => {
-  const features = { 'ghcr.io/devc-tools/devc-bridge:0': {} };
+  const features = { 'ghcr.io/devc-tools/features/devc-bridge:0': {} };
   assertEquals(
     declaresBridgeFeature(features),
     declaresFeatureNamed(features, 'devc-bridge'),
@@ -903,15 +903,15 @@ Deno.test('declaresBridgeFeature: an alias for declaresFeatureNamed(_, "devc-bri
 
 Deno.test('declaresFeatureNamed matches by name, whatever the tag or registry', async (t) => {
   const yes = [
-    'ghcr.io/devc-tools/devc-config',
-    'ghcr.io/devc-tools/devc-config:0',
-    'ghcr.io/devc-tools/devc-config:0.1.0',
+    'ghcr.io/devc-tools/features/devc-config',
+    'ghcr.io/devc-tools/features/devc-config:0',
+    'ghcr.io/devc-tools/features/devc-config:0.1.0',
     'ghcr.io/someone-else/devc-config:1',
     './features/devc-config',
   ];
   const no = [
     'ghcr.io/devcontainers/features/node:1',
-    'ghcr.io/devc-tools/devc-config-extra:0', // near-miss, different Feature
+    'ghcr.io/devc-tools/features/devc-config-extra:0', // near-miss, different Feature
     './features/devc',
     '',
   ];

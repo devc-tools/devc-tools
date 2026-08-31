@@ -649,7 +649,7 @@ Opt in for **every project** (user level, `~/.config/devc/devc.json`) or for
 ```jsonc
 {
   "features": {
-    "ghcr.io/devc-tools/devc-bridge:0": {}
+    "ghcr.io/devc-tools/features/devc-bridge:0": {}
   }
 }
 ```

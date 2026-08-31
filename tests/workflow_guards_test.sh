@@ -67,6 +67,12 @@ check 'publish-feature.yml — Publish Feature' \
 check 'publish-feature.yml — Log in to ghcr.io (Feature)' \
   guards_both .github/workflows/publish-feature.yml 'Log in to ghcr.io (Feature)' \
   "github.ref == 'refs/heads/main'"
+check 'publish-feature.yml — Publish collection index' \
+  guards_both .github/workflows/publish-feature.yml 'Publish collection index' \
+  "github.ref == 'refs/heads/main'"
+check 'publish-feature.yml — Log in to ghcr.io (collection)' \
+  guards_both .github/workflows/publish-feature.yml 'Log in to ghcr.io (collection)' \
+  "github.ref == 'refs/heads/main'"
 
 echo
 echo 'every `features publish` invocation is one of the steps checked above'
@@ -78,7 +84,7 @@ echo 'every `features publish` invocation is one of the steps checked above'
 # adds a guards_both check for it and bumps the count deliberately.
 # Comment lines are stripped first: this file explains itself at length, and the prose names
 # the command it is explaining. Counting those would make the check fail on a docs edit.
-GUARDED_PUBLISH_STEPS=1
+GUARDED_PUBLISH_STEPS=2
 publish_invocations_are_all_guarded() {
   local n
   n="$(grep -vE '^[[:space:]]*#' .github/workflows/publish-feature.yml \
@@ -90,6 +96,32 @@ publish_invocations_are_all_guarded() {
 }
 check 'publish-feature.yml — no unguarded `features publish`' \
   publish_invocations_are_all_guarded
+
+echo
+echo 'collection-index publishes the allowlisted staging dir, not the raw features/ tree'
+# A regression back to `features publish ./features` here would silently bypass
+# PUBLISH_ALLOWLIST — every Feature under features/ would reappear in the collection index
+# regardless of whether discover's matrix actually published it.
+check 'publish-feature.yml — Publish collection index targets the staged dir' \
+  grep -q 'features publish /tmp/publishable-features' .github/workflows/publish-feature.yml
+
+echo
+echo 'every --namespace has at least two segments'
+# A single-segment namespace publishes Features fine and then fails the unconditional
+# collection-metadata push with NAME_INVALID — GHCR has no such repository — so the CLI
+# exits 1 *after* the Feature is already in the registry. That failure mode cost a full
+# publish run once; it is cheap to assert the shape here instead.
+namespaces_have_two_segments() {
+  local bad
+  bad="$(grep -oE '\-\-namespace "[^"]*"' .github/workflows/publish-feature.yml \
+         | grep -vE '\-\-namespace "[^"]*\}\}/[a-z]' || true)"
+  [ -z "$bad" ] && return 0
+  echo "       (single-segment namespace: $bad)"
+  echo '       (a namespace with no `/<segment>` cannot carry the collection index)'
+  return 1
+}
+check 'publish-feature.yml — no single-segment --namespace' \
+  namespaces_have_two_segments
 
 echo
 echo 'the devcontainer CLI is pinned to one version repo-wide'
@@ -125,7 +157,7 @@ echo 'the devc-config Feature devc injects is pinned to its own manifest version
 devc_config_pin_agrees() {
   local overlay manifest
   overlay="$(grep -A1 '^export const DEVC_CONFIG_FEATURE' devc-core/overlay.ts \
-    | sed -n "s/.*ghcr.io\/devc-tools\/devc-config:\([^']*\)'.*/\1/p")"
+    | sed -n "s/.*ghcr.io\/devc-tools\/features\/devc-config:\([^']*\)'.*/\1/p")"
   manifest="$(sed -n 's/.*"version": *"\([^"]*\)".*/\1/p' \
     features/devc-config/devcontainer-feature.json)"
   [ -n "$overlay" ] || { echo '       (no DEVC_CONFIG_FEATURE pin in devc-core/overlay.ts)'; return 1; }

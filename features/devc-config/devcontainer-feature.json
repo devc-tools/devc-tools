@@ -6,8 +6,8 @@
   "documentationURL": "https://github.com/devc-tools/devc-tools/tree/main/features/devc-config",
   "licenseURL": "https://github.com/devc-tools/devc-tools/blob/main/LICENSE",
   "installsAfter": [
-    "ghcr.io/devc-tools/agents",
-    "ghcr.io/devc-tools/git-container-config"
+    "ghcr.io/devc-tools/features/agents",
+    "ghcr.io/devc-tools/features/git-container-config"
   ],
   "postCreateCommand": "bash /usr/local/share/devc-features/devc-config/post-create.sh"
 }

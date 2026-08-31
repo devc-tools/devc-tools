@@ -128,7 +128,7 @@ To cut a release:
    stay version-free: the former is served from `releases/latest/download/`, so
    its name cannot move. It publishes no Features —
    [`publish-feature.yml`](.github/workflows/publish-feature.yml) does that on a
-   push to `main`, one job per Feature, to `ghcr.io/devc-tools/<id>`.
+   push to `main`, one job per Feature, to `ghcr.io/devc-tools/features/<id>`.
 
 Neither workflow has ever run, and the release path crosses machines this repo
 is not developed on. Before the first real tag, work through

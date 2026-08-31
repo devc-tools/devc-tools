@@ -10,7 +10,7 @@ see [What this is not](#what-this-is-not).
 ```jsonc
 "features": {
   "ghcr.io/devcontainers/features/node:1": {},
-  "ghcr.io/devc-tools/node-nvmrc:0": {}
+  "ghcr.io/devc-tools/features/node-nvmrc:0": {}
 }
 ```
 
@@ -174,7 +174,7 @@ it is where `.nvmrc` is looked for and where `node_modules` is repaired. One
 directory, one `cd`, both halves following it.
 
 ```jsonc
-"ghcr.io/devc-tools/node-nvmrc:0": { "projectDir": "packages/app" }
+"ghcr.io/devc-tools/features/node-nvmrc:0": { "projectDir": "packages/app" }
 ```
 
 - Workspace-relative by default; an **absolute** value is used as-is. Empty (the
@@ -301,7 +301,7 @@ is what measures it: if the cwd were anything else, the hook would have found no
 ## Publishing
 
 `.github/workflows/publish-feature.yml` publishes this folder to
-`ghcr.io/devc-tools/node-nvmrc` on a push to `main` that touches
+`ghcr.io/devc-tools/features/node-nvmrc` on a push to `main` that touches
 `features/`, in its own matrix job. `version` is this Feature's own — bump it in
 the commit that changes this Feature, and nothing else in the repo has to move;
 leave it and the publish is a no-op, since the CLI skips a version already in
