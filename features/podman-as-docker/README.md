@@ -349,7 +349,13 @@ socket-ownership fix came from; see
 
 ## Publishing
 
-**Not on `features/PUBLISH_ALLOWLIST.txt` yet.** That file is the gate for a Feature
-under active development and fails safe: this Feature is built and its Docker
-scenarios have run green, but it has not yet accumulated real-world use. It will be
-added in a follow-up commit.
+On `features/PUBLISH_ALLOWLIST.txt` as of 0.1.2, once all five Docker scenarios ran
+green on both Docker Desktop and a native Linux Docker host (see
+[What's actually been tested](#whats-actually-been-tested)). Publishes to
+`ghcr.io/devc-tools/features/podman-as-docker` on the next push to `main` that
+touches `features/`, from `publish-feature.yml`'s own matrix job.
+
+A newly published GHCR package is **private** by default — an anonymous
+`devcontainer up` cannot pull it until it is made public in the repo's Packages
+settings. That is a one-time, manual step; check the package's visibility before
+assuming a fresh publish is actually reachable.
