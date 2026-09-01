@@ -40,7 +40,9 @@
   "remoteEnv": {
     "LANG": "en_US.utf8",
     "PROJECT_PATH": "${containerWorkspaceFolder}",
-    "TZ": "America/Chicago",
+    "SHELL": "/bin/bash",
+    // Provided by host $TZ, or defaults to America/New_York if not set.
+    "TZ": "${localEnv:TZ:America/New_York}",
     // Stop the Claude CLI from overwriting the terminal title with the current task, so the
     // project-name title stays put.
     "CLAUDE_CODE_DISABLE_TERMINAL_TITLE": "1"
