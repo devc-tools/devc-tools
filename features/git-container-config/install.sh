@@ -9,12 +9,8 @@
 # config happens in post-create.sh, which the manifest's postCreateCommand runs **as the remote
 # user** at create time.
 #
-# Copied out of devc's baseline — devc-core/default/scripts/git-setup.sh, which keeps running
-# unchanged — and generalized: nothing here assumes a devc identity file exists, a `vscode`
-# user, or any mount at all. See README.md's "Relationship to devc" for which file is which.
-#
-# No network, so nothing to verify and no DEVC_TOOLS_RELEASE to pin: this Feature fetches no
-# release asset (see features/README.md).
+# Nothing here assumes a `vscode` user, that any identity file exists, or that anything is
+# mounted at all.
 set -e
 
 die() {
@@ -28,8 +24,7 @@ die() {
 #
 # `${VAR-default}` rather than `${VAR:-default}` for the string option: an explicitly empty
 # value means something different from "unset" — safeDirectory disables the setting entirely —
-# and must not fall back to a non-empty default. node-nvmrc and shell-dirs make the same
-# distinction for the same reason.
+# and must not fall back to a non-empty default.
 LFS_FILTERS_OPT="${LFSFILTERS:-true}"
 LFS_SKIP_SMUDGE_OPT="${LFSSKIPSMUDGE:-true}"
 WORKTREE_RELATIVE_PATHS_OPT="${WORKTREERELATIVEPATHS:-true}"
@@ -37,9 +32,8 @@ SAFE_DIRECTORY_OPT="${SAFEDIRECTORY-*}"
 
 # The string option is pasted into a double-quoted shell assignment in post-create.sh, so
 # anything that could end that string, start an expansion or add a line is rejected outright
-# rather than silently producing a script that does something else. Same policy, wording and
-# character set as node-nvmrc/shell-dirs/bash-config. This is a git safe.directory pattern;
-# none of this is a real restriction.
+# rather than silently producing a script that does something else. This is a git safe.directory
+# pattern; none of this is a real restriction.
 check_opt() { # check_opt <option name> <value>
   case "$2" in
     *'"'*) die "$1 may not contain a double quote: $2" ;;
@@ -53,9 +47,9 @@ check_opt() { # check_opt <option name> <value>
 }
 check_opt safeDirectory "$SAFE_DIRECTORY_OPT"
 
-# /usr/local/share/devc-features/<id>/ is the Feature namespace. /usr/local/share/devc/ is
-# devc's own baseline namespace and no Feature writes into it — not sharing the prefix is what
-# keeps "did devc put this here, or a Feature?" answerable. Overridable for the test harness.
+# /usr/local/share/devc-features/<id>/ is the Feature namespace, kept separate from devc's own
+# /usr/local/share/devc/ so "did devc put this here, or a Feature?" stays answerable.
+# Overridable for the test harness.
 SHARE_DIR="${SHARE_DIR:-/usr/local/share/devc-features/git-container-config}"
 
 FEATURE_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -86,8 +80,7 @@ mkdir -p "$SHARE_DIR"
 
 # identity/ stays root-owned and is never written to by this Feature: a consumer bind-mounts
 # their own identity file onto identity/gitconfig, read-only, and post-create.sh only ever
-# reads it. Left empty when nobody mounts anything, which is the bare `{}` case — same shape
-# as agents' claude-seed.
+# reads it. Left empty when nobody mounts anything, which is the bare `{}` case.
 mkdir -p "$SHARE_DIR/identity"
 
 # Plain cp rather than `install -o root`: this runs as root, so the copy is root-owned either

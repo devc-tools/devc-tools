@@ -40,8 +40,7 @@ mkdir -p "$SOCKET_DIR" 2> /dev/null || {
   exit 0
 }
 
-# Ownership repair, belt-and-braces — same reasoning as node-nvmrc's post-create.sh for
-# its pin/ directory: install.sh chowns $SOCKET_DIR to $_REMOTE_USER at *build* time, but
+# Ownership repair: install.sh chowns $SOCKET_DIR to $_REMOTE_USER at *build* time, but
 # the devcontainer CLI's default UID remap — on a Linux host whose UID differs from the
 # image's baked-in one, which is the normal case on a CI runner — renumbers the remote
 # user's UID *after* the image is built, and chowns only $HOME doing it. That orphans

@@ -1,28 +1,17 @@
 #!/bin/sh
 # bash-config Feature install — place the three scripts and the two fixed directories, then
-# append one static block to ~/.bashrc. That is the Feature's whole audience as of 0.2.0; it
-# used to also append a block to the login profile, dropped because it was reaching neither a
-# real terminal (plain interactive, non-login) nor an agent/scripted invocation (which reaches
-# neither startup file at all). See README.md.
+# append one static block to ~/.bashrc.
 #
 # Runs as root at image *build* time, and its whole job is to put files somewhere. Nothing is
-# resolved here because nothing here needs resolving: the blocks it appends name a fixed path
-# that never changes, so there is no option to substitute into them, nothing for a create-time
-# hook to rewrite afterwards, and therefore no rewrite to verify. That is the difference from
-# shell-dirs, which this Feature supersedes — its sourcing logic lives *inside* ~/.bashrc and
-# carries the options, so both halves of that Feature have to patch lines in it.
+# resolved here because nothing here needs resolving: the block it appends names a fixed path
+# that never changes, so there is no option to substitute into it, nothing for a create-time
+# hook to rewrite afterwards, and therefore no rewrite that can silently stop matching.
 #
 # The one option crosses into post-create.sh through config.sh, a file written here and sourced
-# there. Not a `sed` bake of post-create.sh like node-nvmrc's: a sourced config file has no
-# rewrite that could silently stop matching, and no replacement-side escaping hazard (in a sed
-# replacement an `&` back-references the match and a `|` ends the expression — both confirmed
-# against shell-dirs' bake()).
+# there — rather than by rewriting a line of post-create.sh, which would reintroduce exactly
+# that class of drift.
 #
-# bash only. zsh and fish get nothing — deliberately unwritten rather than half-written. See
-# README.md.
-#
-# No network, so nothing to verify and no DEVC_TOOLS_RELEASE to pin: this Feature fetches no
-# release asset (see features/README.md).
+# bash only. zsh and fish get nothing — deliberately unwritten rather than half-written.
 set -e
 
 die() {
@@ -50,10 +39,9 @@ case "$PROJECT_DIR_OPT" in
 '*) die "projectDir may not contain a newline: $PROJECT_DIR_OPT" ;;
 esac
 
-# /usr/local/share/devc-features/<id>/ is the Feature namespace, the same one node-nvmrc and
-# shell-dirs use. /usr/local/share/devc/ is devc's own baseline namespace and no Feature writes
-# into it — not sharing the prefix is what keeps "did devc put this here, or a Feature?"
-# answerable. Overridable for the test harness.
+# /usr/local/share/devc-features/<id>/ is the Feature namespace, kept separate from devc's own
+# /usr/local/share/devc/ so "did devc put this here, or a Feature?" stays answerable.
+# Overridable for the test harness.
 SHARE_DIR="${SHARE_DIR:-/usr/local/share/devc-features/bash-config}"
 
 FEATURE_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -62,8 +50,7 @@ FEATURE_DIR="$(cd "$(dirname "$0")" && pwd)"
 #
 # dirs/user is this Feature's published surface: the consumer bind-mounts onto it, copies into
 # it, or leaves it empty. It is created here and **never written to again** — the Feature never
-# learns where its contents came from, which is exactly what keeps devc a consumer of this
-# Feature rather than a thing it knows about.
+# learns where its contents came from.
 #
 # dirs/project is not created here at all. post-create.sh makes it a *symlink* into the
 # workspace, and a symlinked directory globs live, so the workspace stays the source of truth
@@ -102,7 +89,7 @@ fi
 
 echo "bash-config: installed into $SHARE_DIR (projectDir='$PROJECT_DIR_OPT')"
 
-# --- the two blocks ------------------------------------------------------------------------
+# --- the ~/.bashrc block ---------------------------------------------------------------------
 
 USER_HOME="${_REMOTE_USER_HOME:-$HOME}"
 [ -n "$USER_HOME" ] || die 'no _REMOTE_USER_HOME and no HOME — nowhere to append a block'
@@ -110,8 +97,7 @@ START_MARKER='# >>> bash-config >>>'
 END_MARKER='# <<< bash-config <<<'
 
 append_block() { # append_block <file>
-  # Marker-guarded so a rebuild does not double-append — the same shape devc-core/default/Dockerfile
-  # uses for its own bashrc-additions block.
+  # Marker-guarded so a rebuild does not double-append.
   if grep -qF "$START_MARKER" "$1" 2> /dev/null; then
     echo "bash-config: $1 already has the block — left alone"
     return 0
@@ -137,9 +123,8 @@ append_block() { # append_block <file>
 }
 
 # ~/.bashrc reaches **interactive** shells only: the stock `case $- in *i*) ;; *) return;; esac`
-# guard sits at the top of it and this block lands at the bottom. Measured: `bash -c` gets
-# nothing, `bash -ic` gets everything. That is this Feature's whole audience as of 0.2.0 — no
-# block is appended anywhere else. A login profile (`~/.bash_profile` / `~/.bash_login` /
-# `~/.profile`) is never touched, and the destructive question of which of those three bash would
-# actually read no longer has to be answered here. See README.md for what that gives up.
+# guard sits at the top of it and this block lands at the bottom, so `bash -c` gets nothing and
+# `bash -ic` gets everything. That is this Feature's whole audience — no block is appended
+# anywhere else, and a login profile (~/.bash_profile / ~/.bash_login / ~/.profile) is never
+# touched. See README.md for what that gives up.
 append_block "$USER_HOME/.bashrc"

@@ -1,40 +1,27 @@
 #!/bin/sh
-# agents Feature install — install the agent CLIs at build time, install any declared pi
-# packages and Herdr plugins, pre-create ~/.claude and the seed mount point, and place the
-# create-time script.
+# agents Feature install — install the agent CLIs, install any declared pi packages and Herdr
+# plugins, pre-create ~/.claude and the seed mount point, and place the create-time script.
 #
-# Runs as root at image *build* time. Several things happen here that post-create.sh cannot:
+# Runs as root at image *build* time. Four things happen here that post-create.sh cannot:
 #
-#   - The CLI installs. Copied from devc-core/default/Dockerfile's two guards, run as the remote
-#     user (not root) so the binaries land under a directory that user can later update
-#     (`claude`/`copilot`/`pi update`/`herdr update`) instead of one only root can write. Network
-#     is required when any install option is true: a failed download fails the build, matching
-#     devc-bridge/install.sh's stance (better than a container that looks fine until the first
-#     `claude`). An npm-installed CLI (pi) additionally needs Node.js visible to a
-#     non-interactive shell, which at build time it is not — see node_prelude.
-#   - piPackages/herdrPlugins: pi packages and Herdr plugins named in those options, installed
-#     the same way and for the same reason as the CLIs themselves — see install_pi_packages,
-#     install_herdr_plugins, and README.md's "Why piPackages/herdrPlugins run at build time".
-#     Each requires its CLI's own install option (installPiCli/installHerdr); a non-empty value
-#     without it is a build-time `die`, not a silent skip.
-#   - Pre-creating ~/.claude owned by the remote user, so a first-use empty named volume a
-#     consumer mounts there (see README) starts from a real, owned directory rather than one
-#     mounted root-owned. post-create.sh's ownership repair (a non-recursive `sudo chown`) is
-#     kept anyway as belt-and-braces — whether Docker actually seeds a fresh volume's ownership
-#     from what was already at that path is unmeasured (no Docker in the environment this
-#     Feature was written in; see .plans/design/devc-feature-split.md, open question 3).
+#   - The CLI installs, run as the remote user rather than root, so the binaries land under a
+#     directory that user can later update (`claude`/`copilot`/`pi update`/`herdr update`).
+#     Network is required when any install option is true: a failed download fails the build,
+#     rather than leaving a container that looks fine until the first `claude`. An npm-installed
+#     CLI (pi) additionally needs Node.js visible to a non-interactive shell, which at build
+#     time it is not — see node_prelude.
+#   - piPackages/herdrPlugins, installed the same way and for the same reason as the CLIs: what
+#     either CLI writes in a running container is lost on the next rebuild. Each requires its
+#     CLI's own install option; a non-empty value without it is a build-time `die`, not a
+#     silent skip.
+#   - Pre-creating ~/.claude owned by the remote user, so the volume the manifest declares there
+#     comes up owned correctly rather than root-owned.
 #   - Pre-creating the seed directory, empty. It is this Feature's published surface: a consumer
-#     bind-mounts their own host config onto it, exactly as bash-config's dirs/user works. Empty
-#     is a working state, not a broken one — post-create.sh's seed-link step finds nothing to
-#     link and moves on, which is what the bare `{}` case is.
-#
-# Installing the CLIs as root would put them somewhere the remote user cannot update — the exact
-# reason devc-core/default/Dockerfile switches USER before its own two RUN lines.
+#     bind-mounts their own host config onto it. Empty is a working state, not a broken one —
+#     the seed-link step finds nothing to link and moves on, which is the bare `{}` case.
 #
 # There are no path options to validate or bake. Every path this Feature touches is either fixed
-# (the seed) or derived from the remote user's own home (~/.claude), so the option-injection
-# guard and the bake() rewriting that earlier versions carried have nothing left to guard or
-# rewrite — see README.md's "Why there are no path options".
+# (the seed) or derived from the remote user's own home (~/.claude).
 set -e
 
 die() {
@@ -65,9 +52,9 @@ if [ -n "$HERDR_PLUGINS_OPT" ] && [ "$INSTALL_HERDR_OPT" != true ]; then
     "with. Set installHerdr: true, or clear herdrPlugins."
 fi
 
-# /usr/local/share/devc-features/<id>/ is the Feature namespace. /usr/local/share/devc/ is
-# devc's own baseline namespace and no Feature writes into it — not sharing the prefix is what
-# keeps "did devc put this here, or a Feature?" answerable. Overridable for the test harness.
+# /usr/local/share/devc-features/<id>/ is the Feature namespace, kept separate from devc's own
+# /usr/local/share/devc/ so "did devc put this here, or a Feature?" stays answerable.
+# Overridable for the test harness.
 SHARE_DIR="${SHARE_DIR:-/usr/local/share/devc-features/agents}"
 
 FEATURE_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -83,10 +70,9 @@ CLAUDE_DIR="$REMOTE_USER_HOME/.claude"
 # --- CLI installs, as the remote user, not root -------------------------------------------------
 #
 # `su -`/`runuser -l` resolve $HOME to $_REMOTE_USER_HOME for the installer script, without which
-# the installers would drop their binaries under root's own ~/.local/bin instead. The installer
-# body itself (the `[ ! -x ... ] && ! command -v ...` guard, then `curl -fsSL <url> | bash`) is
-# the Dockerfile's two RUN lines, copied verbatim. Written to a temp script and run by path,
-# rather than passed as a `-c` string, so nothing here has to reason about nested quoting.
+# the installers would drop their binaries under root's own ~/.local/bin instead. Written to a
+# temp script and run by path, rather than passed as a `-c` string, so nothing here has to
+# reason about nested quoting.
 have() { command -v "$1" > /dev/null 2>&1; }
 
 run_as_remote_user() { # run_as_remote_user <script-path>
@@ -232,13 +218,13 @@ EOF
 
 # install_pi_packages <comma-separated pi package sources> — installs each with `pi install`, as
 # the remote user, through the same node prelude installPiCli needs (pi is a Node CLI and
-# build-time PATH does not have node on it). Belongs at build time, not post-create.sh: pi install
-# writes ~/.pi/agent/settings.json and clones/links the package, ~/.pi is not a mount, so anything
-# installed in a live container is lost on the next rebuild.
+# build-time PATH does not have node on it). Belongs at build time, not create time: `pi install`
+# writes ~/.pi, which is not a mount, so anything installed in a live container is lost on the
+# next rebuild.
 #
-# No `pi list` presence guard: verified against a real `pi install`, reinstalling an
-# already-installed source is a genuine no-op (npm reports "up to date"; settings.json gains no
-# duplicate entry), not a re-download, so a rebuild does not pay for one.
+# No `pi list` presence guard: reinstalling an already-installed source is a genuine no-op (npm
+# reports "up to date"; settings.json gains no duplicate entry), so a rebuild does not pay for
+# one.
 install_pi_packages() { # install_pi_packages <comma-separated pi package sources>
   _entries="$(csv_quoted_entries "$1")"
   [ -n "$_entries" ] || return 0
@@ -271,13 +257,11 @@ EOF
 # shows a trust preview in an interactive terminal, and there is no terminal at build time.
 #
 # GitHub shorthand only (owner/repo[/subdir]) — Herdr's installer accepts nothing else, so a
-# non-shorthand entry fails with Herdr's own error rather than one from this script; that is
-# intentional; see the herdrPlugins option description. Needs git and network at build time —
-# both are asserted in the failure message. Plugin registration is global to the user rather than
-# per session, so one build-time install covers every session in the container. A plugin whose
-# min_herdr_version exceeds the installed Herdr version fails here too, and therefore fails the
-# build — the desired behaviour, noted so a build failure here is diagnosable rather than
-# confusing.
+# non-shorthand entry fails with Herdr's own error rather than one from this script. Needs git
+# and network at build time; both are named in the failure message. Plugin registration is
+# global to the user rather than per session, so one build-time install covers every session in
+# the container. A plugin whose min_herdr_version exceeds the installed Herdr fails the build
+# too — expected, and named here so that failure is diagnosable.
 install_herdr_plugins() { # install_herdr_plugins <comma-separated GitHub-shorthand plugins>
   _entries="$(csv_quoted_entries "$1")"
   [ -n "$_entries" ] || return 0
@@ -331,8 +315,8 @@ if [ -n "$HERDR_PLUGINS_OPT" ]; then
 fi
 
 # --- pre-create ~/.claude, owned by the remote user ---------------------------------------------
-# See the top-of-file comment on open question 3. Runs even when CLAUDE_DIR will be immediately
-# mounted over by a consumer's own volume — belt-and-braces either way, and cheap.
+# Docker seeds a first-use empty named volume from whatever is already at the mount point, so
+# creating it owned here is what makes the declared volume come up owned by the remote user.
 mkdir -p "$CLAUDE_DIR"
 if [ "$(id -un)" != "$REMOTE_USER" ]; then
   chown "$REMOTE_USER" "$CLAUDE_DIR" 2> /dev/null ||

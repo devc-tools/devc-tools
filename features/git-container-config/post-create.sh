@@ -18,10 +18,7 @@
 # principle that a devcontainer's own requirements (worktree paths, safe.directory) must never
 # be overridable by whatever happens to be in a mounted identity file.
 #
-# Copied from devc's baseline — devc-core/default/scripts/git-setup.sh, which keeps running
-# unchanged — with the devc-specific identity path replaced by this Feature's own fixed mount
-# point, and nothing here assuming a `vscode` user or that any mount exists at all. See
-# README.md's "Relationship to devc" for which file is which.
+# Nothing here assumes a `vscode` user or that any mount exists at all.
 #
 # The script must exit 0 in every path except a genuine `git config` failure: a
 # postCreateCommand that fails aborts container creation, and none of the warnings below is

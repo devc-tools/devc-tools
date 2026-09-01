@@ -3,24 +3,15 @@
 # create-time/start-time scripts.
 #
 # Runs as root at image *build* time. The workspace is not mounted yet and neither is the
-# graphroot volume, so nothing here can decide the storage driver (Step 4/post-create.sh
-# does, once the volume is real) or start anything (post-start.sh, every start). What
-# lands here is everything that is a build-time fact: which packages exist, the registry
-# search path, the network backend default, and the fixed directories this Feature's
-# manifest names.
+# graphroot volume, so nothing here can decide the storage driver (post-create.sh does,
+# once the volume is real) or start anything (post-start.sh, every start). What lands here
+# is everything that is a build-time fact: which packages exist, the registry search path,
+# the network backend default, and the fixed directories this Feature's manifest names.
 #
 # The manifest declares capAdd:["SYS_ADMIN"] and securityOpt:["systempaths=unconfined",
 # "apparmor=unconfined", "seccomp=unconfined"] unconditionally — see README.md's
-# privilege-cost section, and the devc-dev sibling repo's
-# .plans/implemented/feature-podman-as-docker.md § Step 1 for what was originally
-# measured (SYS_ADMIN + systempaths=unconfined only). The other two securityOpt flags
-# were added by 0.1.0's own CI (a real Linux Docker Engine host, unlike the Docker
-# Desktop VM Step 1 was measured on) hitting two walls in sequence, each invisible on
-# Docker Desktop: apparmor=unconfined (0.1.1) — the docker-default AppArmor profile's
-# blanket "deny mount" rule blocking Podman's own mount setup; then
-# seccomp=unconfined (0.1.2) — the docker-default seccomp profile blocking crun's
-# keyctl() session-keyring creation. Nothing in this script grants privilege; it only
-# consumes what the manifest already declared.
+# privilege-cost section for what each one buys. Nothing in this script grants privilege;
+# it only consumes what the manifest already declared.
 set -e
 
 die() {
@@ -66,11 +57,11 @@ esac
 
 # --- mutual exclusion with docker-in-docker / docker-outside-of-docker --------------------
 #
-# All three provide /usr/bin/docker, and whichever Feature installs last wins silently —
-# see the plan's Concept boundaries. installsAfter cannot express "never run alongside X",
-# so this is the next best thing: refuse a build that already has a non-podman docker on
-# PATH, naming the conflict rather than leaving a container where `docker` quietly runs
-# something other than what this Feature configured.
+# All three provide /usr/bin/docker, and whichever Feature installs last wins silently.
+# installsAfter cannot express "never run alongside X", so this is the next best thing:
+# refuse a build that already has a non-podman docker on PATH, naming the conflict rather
+# than leaving a container where `docker` quietly runs something other than what this
+# Feature configured.
 if have docker && ! docker --version 2> /dev/null | grep -qi podman; then
   die "/usr/bin/docker already exists and is not the podman-docker shim." \
     "podman-as-docker is mutually exclusive with docker-in-docker and" \
@@ -81,8 +72,8 @@ fi
 #
 # Do not add containers-common: it does not exist on Ubuntu, podman pulls what it needs.
 # fuse-overlayfs is installed defensively even though the default path never invokes it —
-# native kernel overlay needs no mount_program once the graphroot is a real filesystem
-# (measured; see the plan). A failed install fails the build, as every Feature here does.
+# native kernel overlay needs no mount_program once the graphroot is a real filesystem.
+# A failed install fails the build.
 PACKAGES="podman uidmap slirp4netns fuse-overlayfs"
 [ "$DOCKER_SHIM_OPT" = true ] && PACKAGES="$PACKAGES podman-docker"
 case "$COMPOSE_PROVIDER_OPT" in
@@ -101,8 +92,8 @@ echo "podman-as-docker: installed: $PACKAGES"
 
 # --- subuid/subgid ---------------------------------------------------------------------
 #
-# Measured present in this repo's own base image; absent in some slim images. Getting this
-# wrong produces the exact same string a missing SYS_ADMIN produces
+# Present in most devcontainer base images; absent in some slim ones. Getting this wrong
+# produces the exact same string a missing SYS_ADMIN produces
 # (`newuidmap: write to uid_map failed`) — see README.md's troubleshooting section, which
 # is the only place the two are told apart.
 REMOTE_USER="${_REMOTE_USER:-root}"
@@ -140,9 +131,7 @@ echo "podman-as-docker: subuid/subgid confirmed for $REMOTE_USER"
 #
 # csv_to_toml_array <comma-separated string> — splits on `,`, trims whitespace from each
 # entry, drops empty entries, and prints a TOML string array literal (e.g.
-# ["docker.io", "quay.io"]). Same split/trim/drop-empty shape as agents/install.sh's
-# csv_quoted_entries — copied, not shared (features/README.md: no features/common/) — but
-# quoted for TOML rather than for a shell word, since that is what this value becomes.
+# ["docker.io", "quay.io"]).
 csv_to_toml_array() {
   _csv="$1"
   _out=""
@@ -189,8 +178,7 @@ fi
 # no runArgs to search for. default_rootless_network_cmd only matters once netns is
 # private, i.e. once a consumer opts in to slirp4netns/pasta.
 #
-# Key names confirmed against both podman major versions this Feature was measured on:
-# 4.9.3 (Ubuntu 24.04) and 5.7.0 (Ubuntu 26.04) — [containers] netns and
+# Key names are the same on podman 4.x and 5.x: [containers] netns and
 # [network] default_rootless_network_cmd exist, unchanged, on both.
 mkdir -p "$CONTAINERS_ETC_DIR/containers.conf.d"
 {
@@ -221,8 +209,7 @@ GRAPHROOT_DIR="${GRAPHROOT_DIR:-/var/lib/devc-features/podman-as-docker/storage}
 # bake <file> <var> <value> — the manifest's postCreateCommand/postStartCommand take no
 # arguments, so options cross into the copied scripts by rewriting their own
 # `VAR="${VAR:-default}"` lines. awk -v, not sed: a `&` or `|` in a value must not be
-# treated as a back-reference or an expression terminator. Copied from node-nvmrc's
-# install.sh — same shape, not shared (features/README.md: no features/common/).
+# treated as a back-reference or an expression terminator.
 bake() {
   _bake_tmp="$1.bake.$$"
   awk -v var="$2" -v line="$2=\"$3\"" '
@@ -252,10 +239,10 @@ if [ -n "${_REMOTE_USER:-}" ]; then
   chown "$_REMOTE_USER" "$SOCKET_DIR" 2> /dev/null || true
 fi
 
-# The graphroot directory. Must exist and be owned before anything mounts onto it — same
-# belt-and-braces the agents Feature applies to ~/.claude, for the same unmeasured reason
-# (whether Docker seeds a first-use volume's ownership from what was already at the path).
-# post-create.sh's ownership repair stays regardless of how that lands.
+# The graphroot directory. Must exist and be owned before anything mounts onto it: Docker
+# seeds a first-use empty volume from whatever is already at the mount point, which is what
+# makes the declared volume come up owned by the remote user. post-create.sh repairs the
+# ownership anyway, for a volume a consumer mounted themselves.
 mkdir -p "$GRAPHROOT_DIR"
 if [ -n "${_REMOTE_USER:-}" ]; then
   chown "$_REMOTE_USER" "$GRAPHROOT_DIR" 2> /dev/null || true

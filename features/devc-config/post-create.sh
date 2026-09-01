@@ -12,11 +12,9 @@
 # declares — so this hook's exit code can fail create before the project's own
 # postCreateCommand, if any, ever starts.
 #
-# devc/tests/devc_config_test.sh and devc/tests/bashrc_additions_test.sh each extract their own
-# fence below and run it — unmodified — against this file directly, so neither test can drift
-# from the implementation. Nothing inside either fence may be reformatted, reworded, or have a
-# comment dropped for tidiness; every line inside them is load-bearing for one of the cases
-# those harnesses assert.
+# Each fence below is extracted and run on its own by a test harness, so neither test can drift
+# from the implementation. Nothing inside a fence may be reformatted or reworded — see
+# features/CONTRIBUTING.md before editing one.
 set -e
 
 # devc:devc-config (start)
@@ -41,18 +39,15 @@ for candidate in \
 done
 # devc:devc-config (end)
 
-# devc:bashrc-additions (start) — devc/tests/bashrc_additions_test.sh runs everything between
-# these two markers against a temp $HOME, so keep the block self-contained. BASHRC= is this
-# fence's one parameter, and the harness re-points it with `sed -e "s#^BASHRC=.*#…#"` — it must
-# stay a bare assignment at the start of a line for that to keep working.
+# devc:bashrc-additions (start) — a test harness runs everything between these two markers
+# against a temp $HOME, so keep the block self-contained. BASHRC= is this fence's one parameter
+# and must stay a bare assignment at the start of a line; see features/CONTRIBUTING.md.
 #
-# Moved here from devc's own scripts/bashrc-additions.sh (retired) — this is what makes devc's
-# prompt/title/attach-clear behavior reach a project-mode repo for the first time, since
-# devc-config is the one Feature devc dynamically injects into every container it starts. See
-# .plans/archived/devc-swap-baseline-features.md.
+# devc's own prompt, terminal title and attach-clear behavior. It lives here because devc
+# injects this Feature into every container it starts, which is what makes it reach a repo with
+# its own hand-written devcontainer.json too.
 #
-# `exit 0` would end devc-config's whole post-create.sh, not just this block — guard with `if`
-# instead, the same shape the devc:seed-link fence above (in the agents Feature) uses.
+# `exit 0` would end this whole post-create.sh, not just this block — guard with `if` instead.
 BASHRC="$HOME/.bashrc"
 MARKER="# >>> devc bashrc-additions >>>"
 if ! grep -qF "$MARKER" "$BASHRC" 2>/dev/null; then

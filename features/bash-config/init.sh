@@ -5,21 +5,16 @@
 #
 # install.sh ships this file **verbatim** and nothing — not install.sh, not post-create.sh —
 # ever rewrites a line of it. That is the whole reason the two directories below are fixed
-# paths: the thing that made shell-dirs expensive was that its sourcing logic lived inside
-# ~/.bashrc and carried the options, so both halves of the Feature had to patch lines in it.
-# Here the configuration lives in files this Feature owns (dirs/project is a symlink, dirs/env.sh
-# is written at create time) and the code is a constant.
+# paths: the configuration lives in files this Feature owns (dirs/project is a symlink,
+# dirs/env.sh is written at create time) and the code is a constant.
 #
-# **`~/.bashrc` only, deliberately.** This Feature used to also append a block to the login
-# profile and source a second, `profile_`-prefixed set of scripts from it — dropped in 0.2.0.
-# Measured: a real terminal in a devcontainer starts a plain interactive, non-login bash, and an
-# agent or scripted tool invocation typically reaches neither `~/.bashrc` nor the login profile
-# at all (`bash -c` reads no startup file). The login profile was reaching neither audience this
-# Feature exists for, at the cost of the one genuinely hazardous choice in install.sh — which of
-# ~/.bash_profile / ~/.bash_login / ~/.profile to append to. See README.md.
+# **`~/.bashrc` only, deliberately.** A real terminal in a devcontainer starts a plain
+# interactive, non-login bash, and an agent or scripted tool invocation typically reaches
+# neither ~/.bashrc nor a login profile at all (`bash -c` reads no startup file). So a login
+# profile would reach neither audience this Feature exists for, at the cost of having to pick
+# which of ~/.bash_profile / ~/.bash_login / ~/.profile to append to. See README.md.
 #
-# Written in POSIX `sh` style out of habit, not requirement — ~/.bashrc is read only by bash, so
-# there is no dash constraint on this file anymore.
+# Written in POSIX `sh` style out of habit, not requirement — ~/.bashrc is read only by bash.
 
 # The one path in this file. Overridable only for the offline harness — a Feature that is
 # published cannot have its fixed paths depend on the environment of the shell that reads it.

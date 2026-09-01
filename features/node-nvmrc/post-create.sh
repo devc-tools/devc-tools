@@ -10,9 +10,8 @@
 #
 # Why create time rather than build time: the workspace is not mounted while the image builds,
 # so there is no .nvmrc to read then — and the node_modules repair below needs whatever is
-# mounted there to actually be mounted. Copied from devc-core/default/scripts/node-setup.sh, which
-# keeps running unchanged; the differences are that nothing here assumes a `vscode` user, a
-# passwordless `sudo`, or that nvm exists at all.
+# mounted there to actually be mounted. Nothing here assumes a `vscode` user, a passwordless
+# `sudo`, or that nvm exists at all.
 #
 # The symlink this writes is $SHARE_DIR/pin/bin, **not** $NVM_DIR/current. They are both "the
 # symlink" and they are not interchangeable: nvm's is container-global and is rewritten by *any*
@@ -46,7 +45,7 @@ SHARE_DIR="${SHARE_DIR:-/usr/local/share/devc-features/node-nvmrc}"
 # consumer has no such variable, so the fallback carries the weight: the devcontainer CLI runs
 # every lifecycle hook — Feature-declared ones included — with cwd set to the remote workspace
 # folder, falling back to the remote user's home when there is none. Both spellings therefore
-# land on the workspace; see the README for how far that is verified.
+# land on the workspace.
 #
 # The workspace root is used for nothing but resolving a relative projectDir. $TARGET is the
 # only directory ever entered, and the two are identical whenever projectDir is left alone.
@@ -61,9 +60,8 @@ esac
 
 # This Feature's manifest declares a node_modules volume at ${containerWorkspaceFolder}/node_modules
 # — the workspace root, and only ever the workspace root. A Feature option cannot substitute into
-# that Feature's own `mounts` (measured: .plans/implemented/declared-volume-spike.md, M2 — the
-# literal `${projectDir}` reaches Docker and is rejected), so the declared target cannot follow
-# PROJECT_DIR the way the cd below does.
+# that Feature's own `mounts` (the literal `${projectDir}` would reach Docker and be rejected),
+# so the declared target cannot follow PROJECT_DIR the way the cd below does.
 #
 # The consequence is worth saying out loud rather than leaving to be discovered: with projectDir
 # set, the declared volume sits at the workspace root where nothing writes, and the project's own
@@ -87,10 +85,9 @@ cd "$TARGET" 2> /dev/null || {
 # enabled in a repo that pins nothing, which is the whole reason it is a one-line opt-in — so
 # the *default* location misses silently. A miss under an explicitly named projectDir warns
 # instead: the consumer asked for a directory, and silence would send them hunting for where
-# Node came from. The empty default is the only thing that tells the two apart; no extra flag
-# is baked for it.
+# Node came from.
 #
-# This check is load-bearing, not belt-and-braces. `nvm install` with no arguments walks *up*
+# This check is load-bearing, not defensive. `nvm install` with no arguments walks *up*
 # the tree (nvm_find_nvmrc → nvm_find_up), so with projectDir naming a subdirectory that has no
 # .nvmrc, nvm would silently fall back to the workspace root's — the option would appear to work
 # while pinning something else entirely.
@@ -114,15 +111,14 @@ export NVM_DIR
 # shellcheck source=/dev/null
 . "$NVM_DIR/nvm.sh"
 
-# devc mounts a named volume at ${containerWorkspaceFolder}/node_modules, and a named volume
-# first mounts root-owned — after which an `npm ci` as the remote user cannot write into it.
-# This Feature declares no such volume (devc keeps it), but the repair is portable: anyone who
-# mounts a volume there hits the same thing.
+# A named volume mounted at node_modules first comes up root-owned — after which an `npm ci` as
+# the remote user cannot write into it. That volume is this Feature's own declaration in the
+# normal case, and the repair is portable to anyone who mounts one there themselves.
 #
 # Deliberately narrow. Only node_modules, only when it already exists, never the workspace
 # itself. `sudo -n` because an image whose sudo wants a password would otherwise hang create
 # forever on a prompt nobody can answer; `id -u`/`id -g` because whoever this hook runs as is
-# the right owner, whereas devc's copy hardcodes `vscode`.
+# the right owner.
 #
 # It follows projectDir, because the cwd does: the volume belongs where the project is. A
 # consumer who sets projectDir and leaves a volume mounted at the workspace root gets nothing
@@ -144,12 +140,11 @@ nvm install
 # directory outright — so no version string is ever extracted here.
 [ -n "${NVM_BIN:-}" ] || die 'nvm install succeeded but NVM_BIN is unset'
 
-# Ownership repair, belt-and-braces — same reasoning as bash-config/post-create.sh: install.sh
-# chowns $SHARE_DIR/pin to $_REMOTE_USER at *build* time, but the devcontainer CLI's default UID
-# remap — on, in practice, any Linux host whose UID differs from the image's baked-in one —
-# renumbers the remote user's UID *after* the image is built, and chowns only $HOME doing it
-# (see @devcontainers/cli's updateUID.Dockerfile). That orphans $SHARE_DIR/pin from the
-# renumbered user, and the ln -sfn below would fail with a permission error.
+# Ownership repair: install.sh chowns $SHARE_DIR/pin to $_REMOTE_USER at *build* time, but the
+# devcontainer CLI's default UID remap — on, in practice, any Linux host whose UID differs from
+# the image's baked-in one — renumbers the remote user's UID *after* the image is built, and
+# chowns only $HOME doing it. That orphans $SHARE_DIR/pin from the renumbered user, and the
+# ln -sfn below would fail with a permission error.
 #
 # sudo -n, matching the node_modules repair above: an image whose sudo wants a password must not
 # hang create on a prompt nobody can answer.

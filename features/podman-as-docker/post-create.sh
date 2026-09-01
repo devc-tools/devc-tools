@@ -1,9 +1,8 @@
 #!/bin/sh
 # podman-as-docker create-time step — repair the graphroot's ownership, then write
 # ~/.config/containers/storage.conf: the relocated graphroot path, and the storage driver
-# actually decided at create time (§ Step 4 of the plan — this is a run-time fact the
-# build-time install.sh cannot know, because the graphroot volume is not mounted until
-# create time).
+# actually decided at create time — a run-time fact the build-time install.sh cannot know,
+# because the graphroot volume is not mounted until create time.
 #
 # install.sh copies this file to
 # /usr/local/share/devc-features/podman-as-docker/post-create.sh at image build time and
@@ -34,8 +33,7 @@ mkdir -p "$GRAPHROOT_DIR" || {
 # case — arrives root-owned on first use, and rootless Podman cannot write there; it fails
 # with a permission error naming the storage directory rather than the mount, so the cause
 # is not obvious without this. Non-recursive: on a rebuild the volume is already
-# populated, and a recursive chown over an image store is slow and pointless. Same repair
-# node-nvmrc does for a node_modules volume and agents does for ~/.claude.
+# populated, and a recursive chown over an image store is slow and pointless.
 owner="$(stat -c '%U' "$GRAPHROOT_DIR" 2> /dev/null || true)"
 if [ -n "$owner" ] && [ "$owner" != "$(id -un)" ]; then
   if command -v sudo > /dev/null 2>&1; then
@@ -48,8 +46,8 @@ fi
 
 # --- 2. decide the driver ------------------------------------------------------------
 #
-# The dividing line is not /dev/fuse — measured not to matter (see the plan). It is
-# whether $GRAPHROOT_DIR's *backing filesystem* is itself overlay. On a real filesystem
+# The dividing line is not /dev/fuse, which turns out not to matter. It is whether
+# $GRAPHROOT_DIR's *backing filesystem* is itself overlay. On a real filesystem
 # (the normal case: the Feature's own volume, or any host bind), plain `overlay` works
 # with no mount_program and no device — native kernel overlay. On an overlay backing (no
 # volume present, graphroot sitting in the container's own writable layer), `overlay`

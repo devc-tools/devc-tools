@@ -9,27 +9,23 @@
     "ghcr.io/devcontainers/features/git-lfs:1": {
       "autoPull": false
     },
+    // Uncomment if your project needs Go.
     // "ghcr.io/devcontainers/features/go:1": { "version": "latest" },
     "ghcr.io/devcontainers/features/node:1": {
       "nodeGypDependencies": true,
-      // "latest" floats onto whatever nodejs.org's index currently resolves as newest —
-      // including, on at least one build, an unreleased vNext alpha whose own `node --version`
-      // disagreed with the directory name nvm installed it under, which broke nvm's
-      // auto-use-on-source logic (node-nvmrc's postCreateCommand failing before it ever reaches
-      // .nvmrc-specific logic). "lts" is what upstream's own docs recommend over "latest" for
-      // exactly this reason.
+      // Prefer "lts" over "latest". "latest" floats onto whatever nodejs.org currently
+      // resolves as newest, which has included an unreleased alpha whose own `node --version`
+      // disagreed with the directory nvm installed it under — enough to break nvm.
       "version": "lts",
       "pnpmVersion": "none",
       "nvmVersion": "latest"
     },
+    // Uncomment if your project needs Python.
     // "ghcr.io/devcontainers/features/python:1": {
     //   "installTools": true,
     //   "version": "3.12"
     // }
-    // The only option this Feature still takes that devc needs. The agents Feature has no
-    // path options — ~/.claude is derived from the remote user's home, and the seed
-    // path is fixed. Preserves current behavior: devc's own Dockerfile used to install
-    // Copilot unconditionally, and the Feature's own default is false.
+    // Coding-agent CLIs. Set any of these to false to skip installing it.
     "ghcr.io/devc-tools/features/agents:0": {
       "installClaudeCli": true,
       "installCopilotCli": false,
@@ -38,10 +34,6 @@
       "piPackages": "npm:@andrewjacop/pi-herdr"
     },
     "ghcr.io/devc-tools/features/bash-config:0": {},
-    // Bare {}, like bash-config's. There is no identityIncludePath left to pass —
-    // lfsFilters, lfsSkipSmudge, worktreeRelativePaths, safeDirectory all left at their
-    // defaults, which already match git-setup.sh's old behavior exactly. The identity bind
-    // is retargeted in `mounts` below.
     "ghcr.io/devc-tools/features/git-container-config:0": {},
     "ghcr.io/devc-tools/features/node-nvmrc:0": {}
   },
@@ -49,27 +41,23 @@
     "LANG": "en_US.utf8",
     "PROJECT_PATH": "${containerWorkspaceFolder}",
     "TZ": "America/Chicago",
-    // Stop the Claude CLI from overwriting the terminal title with the current
-    // task, so the project-name title set by the devc-config Feature's
-    // devc:bashrc-additions fence persists.
+    // Stop the Claude CLI from overwriting the terminal title with the current task, so the
+    // project-name title stays put.
     "CLAUDE_CODE_DISABLE_TERMINAL_TITLE": "1"
   },
   "initializeCommand": "bash \"${localWorkspaceFolder}/.devcontainer/initialize-command.sh\"",
   "mounts": [
-    // Host ~/.claude config seed, onto the agents Feature's fixed seed path. The Feature's
-    // own post-create.sh symlinks every top-level *file* from here into ~/.claude, and folds
-    // ~/.claude.json into the same volume, so there is no second
-    // volume to mount for it.
+    // Your Claude Code config, read-only and live. The agents Feature links every file here
+    // into ~/.claude. Put CLAUDE.md, settings.json, statusline.sh in ~/.config/devc/.claude.
     "type=bind,source=${localEnv:HOME}/.config/devc/.claude,target=/usr/local/share/devc-features/agents/claude-seed,consistency=cached,readonly",
 
-    // Git identity extracted from the host by initialize-command.sh, onto the
-    // git-container-config Feature's fixed identity path. Read-only, and deliberately not the
-    // host's ~/.gitconfig — see that script for why.
+    // Your git name and email, extracted from the host by initialize-command.sh.
     "type=bind,source=${localEnv:HOME}/.config/devc/gitconfig-identity,target=/usr/local/share/devc-features/git-container-config/identity/gitconfig,consistency=cached,readonly",
 
-    // bash-config feature user config
+    // Your personal shell scripts — every bashrc_*.sh in ~/.config/devc/shell.
     "type=bind,source=${localEnv:HOME}/.config/devc/shell,target=/usr/local/share/devc-features/bash-config/dirs/user,readonly",
 
+    // Go build caches, kept out of the workspace so they survive a rebuild.
     "type=volume,source=go-cache-${localWorkspaceFolderBasename},target=/home/vscode/go/pkg",
     "type=volume,source=go-build-cache-${localWorkspaceFolderBasename},target=/root/.cache/go-build"
   ],

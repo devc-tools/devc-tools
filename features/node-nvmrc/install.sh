@@ -7,20 +7,11 @@
 # be installed by a Feature ordered after this one on some other consumer's config. Everything
 # that needs either of those things happens in post-create.sh.
 #
-# Nothing is appended to any startup file. As of 0.2.0 the Feature reaches every process through
-# a static `containerEnv` PATH entry naming $SHARE_DIR/pin/bin, which post-create.sh points at
-# the pinned version — so nothing depends on a shell being interactive, being bash, or existing
-# at all. The ~/.bashrc block and the `cd` override 0.1.0 appended are **removed, not
-# deprecated**; see README.md.
+# Nothing is appended to any startup file. The Feature reaches every process through a static
+# `containerEnv` PATH entry naming $SHARE_DIR/pin/bin, which post-create.sh points at the pinned
+# version — so nothing depends on a shell being interactive, being bash, or existing at all.
 #
-# Copied out of devc's baseline — devc-core/default/scripts/node-setup.sh and the nvm lines in
-# scripts/bashrc-additions.sh — and generalized for an image that has never heard of devc.
-# Both devc copies keep running exactly as they do today, devc's own unconditional `cd` override
-# included; swapping devc onto this Feature is a separate plan. Nothing here assumes a `vscode`
-# user, a PROJECT_PATH, or a `sudo`.
-#
-# No network, so nothing to verify and no DEVC_TOOLS_RELEASE to pin: this Feature fetches no
-# release asset (see features/README.md).
+# Nothing here assumes a `vscode` user, a PROJECT_PATH, or a `sudo`.
 set -e
 
 die() {
@@ -34,8 +25,7 @@ die() {
 # ghcr.io/devcontainers/features/node puts nvm, not a devc invention.
 #
 # `${VAR-default}` rather than `${VAR:-default}` for projectDir: an explicitly empty value means
-# the workspace root and must not fall back to anything. shell-dirs makes the same distinction
-# for the same reason.
+# the workspace root and must not fall back to anything.
 NVM_DIR_OPT="${NVMDIR:-/usr/local/share/nvm}"
 PROJECT_DIR_OPT="${PROJECTDIR-}"
 INSTALL_ON_CREATE="${INSTALLONCREATE:-true}"
@@ -45,9 +35,8 @@ FIX_NODE_MODULES_OWNERSHIP="${FIXNODEMODULESOWNERSHIP:-true}"
 # anything that could end that string, start an expansion or add a line is rejected outright
 # rather than silently producing a script that does something else. Without this,
 # nvmDir='/opt/n"; touch /tmp/PWNED; :"' bakes to a line that runs that command *and passes the
-# verify grep*, because the grep is built from the same unescaped value. Same policy, wording and
-# character set as shell-dirs/bash-config. These are container paths; none of it is a real
-# restriction.
+# verify grep*, because the grep is built from the same unescaped value. These are container
+# paths; none of it is a real restriction.
 check_path_opt() { # check_path_opt <option name> <value>
   case "$2" in
     *'"'*) die "$1 may not contain a double quote: $2" ;;
@@ -62,13 +51,13 @@ check_path_opt() { # check_path_opt <option name> <value>
 check_path_opt nvmDir "$NVM_DIR_OPT"
 check_path_opt projectDir "$PROJECT_DIR_OPT"
 
-# /usr/local/share/devc-features/<id>/ is the Feature namespace. /usr/local/share/devc/ is
-# devc's own baseline namespace and no Feature writes into it — not sharing the prefix is what
-# keeps "did devc put this here, or a Feature?" answerable. Overridable for the test harness.
+# /usr/local/share/devc-features/<id>/ is the Feature namespace, kept separate from devc's own
+# /usr/local/share/devc/ so "did devc put this here, or a Feature?" stays answerable.
+# Overridable for the test harness.
 #
 # This literal also appears in the manifest twice (containerEnv's PATH entry and the
-# postCreateCommand) and in post-create.sh's own default. Four places, one path; nothing but
-# test/install_options_test.sh catches a rename.
+# postCreateCommand) and in post-create.sh's own default. Four places, one path — see
+# features/CONTRIBUTING.md before renaming it.
 SHARE_DIR="${SHARE_DIR:-/usr/local/share/devc-features/node-nvmrc}"
 
 FEATURE_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -82,8 +71,7 @@ FEATURE_DIR="$(cd "$(dirname "$0")" && pwd)"
 bake() { # bake <file> <var> <value>
   _bake_tmp="$1.bake.$$"
   # awk with the replacement passed as a -v value, rather than sed: a `&` in a path is a
-  # back-reference in a sed replacement and a `|` would end the expression. shell-dirs already
-  # made this change after copying this Feature's sed; this closes the loop.
+  # back-reference in a sed replacement and a `|` would end the expression.
   awk -v var="$2" -v line="$2=\"$3\"" '
     index($0, var "=") == 1 { print line; next }
                             { print }
@@ -119,10 +107,9 @@ echo "node-nvmrc: create-time script installed at $SHARE_DIR/post-create.sh"
 # silently skipped by every shell and by execvp, so lookup falls through to whatever else
 # provides node. That is what keeps this Feature safe to leave enabled in a repo pinning nothing.
 #
-# A separate, user-owned subdirectory rather than chowning $SHARE_DIR itself, exactly as
-# bash-config does with dirs/: the create-time hook runs unprivileged and has to create a symlink
-# under a root-owned /usr/local/share, while post-create.sh must stay root-owned. A
-# non-recursive chown of one subdirectory satisfies both.
+# A separate, user-owned subdirectory rather than chowning $SHARE_DIR itself: the create-time
+# hook runs unprivileged and has to create a symlink under a root-owned /usr/local/share, while
+# post-create.sh must stay root-owned. A non-recursive chown of one subdirectory satisfies both.
 #
 # Not named current/. $NVM_DIR/current is nvm's own container-global symlink, rewritten by *any*
 # `nvm use` in *any* shell; this one is moved only by this Feature's create-time hook. Two

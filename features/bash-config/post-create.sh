@@ -12,7 +12,7 @@
 # and neither is a rewrite of anything: the project directory is a **symlink** (a symlinked
 # directory globs live, so the workspace stays the source of truth and an edit after create is
 # picked up by the next shell), and env.sh is a whole file, written fresh. Nothing here touches
-# ~/.bashrc, the login profile, or init.sh — those are static by construction.
+# ~/.bashrc or init.sh — those are static by construction.
 set -e
 
 # Same default as install.sh's, so this file is readable and runnable straight out of the repo.
@@ -46,12 +46,11 @@ fi
 mkdir -p "$DIRS"
 
 # --- ownership repair -----------------------------------------------------------------------
-# Belt-and-braces, same pattern as agents/post-create.sh: install.sh already chowns $DIRS to
-# $_REMOTE_USER at *build* time, but the devcontainer CLI's default UID remap — on, in practice,
-# any Linux host whose UID differs from the image's baked-in one — renumbers the remote user's
-# UID *after* the image is built, and chowns only $HOME_FOLDER doing it (see @devcontainers/cli's
-# updateUID.Dockerfile). That orphans $DIRS from the renumbered user, and the `ln -sfn` below
-# fails with a permission error.
+# install.sh already chowns $DIRS to $_REMOTE_USER at *build* time, but the devcontainer CLI's
+# default UID remap — on, in practice, any Linux host whose UID differs from the image's
+# baked-in one — renumbers the remote user's UID *after* the image is built, and chowns only
+# $HOME doing it. That orphans $DIRS from the renumbered user, and the `ln -sfn` below would
+# fail with a permission error.
 #
 # Non-recursive: dirs/user may already carry a host bind mount, which must not be chowned.
 owner="$(stat -c '%U' "$DIRS" 2> /dev/null || true)"
