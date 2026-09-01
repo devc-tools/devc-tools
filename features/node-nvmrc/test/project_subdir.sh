@@ -41,4 +41,17 @@ check "pin/bin points into that version" bash -c \
   "case \"\$(readlink -f $SHARE/pin/bin)\" in */versions/node/v$PINNED.*/bin) exit 0 ;;
      *) exit 1 ;; esac"
 
+# --- the declared volume does NOT follow projectDir --------------------------------------------
+# A Feature option cannot substitute into that Feature's own mounts (declared-volume-spike, M2),
+# so the declared volume is at the workspace root while this project is in packages/app. That is
+# a documented limitation, not a bug, and the create-time warning is its entire mitigation.
+#
+# The warning text itself is asserted offline, in post_create_test.sh case 17, not here: it goes
+# to the create-time hook's stderr, which lands in the build log and is gone by the time a
+# scenario runs inside the finished container. What IS observable here is the shape the warning
+# describes, so that is what this asserts.
+check "the volume landed at the workspace root, as declared" mountpoint -q "$PWD/node_modules"
+check "and NOT at the project directory, which is where npm would use it" \
+  bash -c "! mountpoint -q '$PWD/packages/app/node_modules' 2> /dev/null"
+
 reportResults

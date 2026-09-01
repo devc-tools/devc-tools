@@ -68,7 +68,8 @@ At **build time** (as root):
    [Why `piPackages`/`herdrPlugins` run at build
    time](#why-pipackagesherdrplugins-run-at-build-time).
 3. Pre-creates `$_REMOTE_USER_HOME/.claude` owned by the remote user. See
-   [The volume question](#the-volume-question) for why.
+   [The `~/.claude` volume](#the-claude-volume--declared-not-pasted) for why: it is what makes the declared volume come up
+   owned by the remote user rather than root.
 4. Pre-creates the seed directory, empty. It is this Feature's published
    surface — the same shape as `bash-config`'s `dirs/user`.
 
@@ -80,7 +81,7 @@ At **create time** (as the remote user, before any user `postCreateCommand`),
    warns). Non-recursive is a hard requirement, not a style choice — subpaths
    like `skills/` may be host bind mounts and must not be chowned. Expected to
    be a no-op given step 2 above; kept because it is cheap and the alternative
-   is unverified — see [The volume question](#the-volume-question).
+   is unverified — see [The `~/.claude` volume](#the-claude-volume--declared-not-pasted).
 2. **Seed links.** Every top-level _file_ in the seed directory is symlinked
    into `~/.claude` — host edits are live, host file modes (the statusline exec
    bit) survive, deletions on the host prune the link on the next create.
@@ -311,7 +312,7 @@ pay for one.
 
 **A volume mounted at `~/.pi` (or `~/.config/herdr`) shadows whatever this
 installed**, the same footgun this Feature already documents for `~/.claude`
-in [The volume question](#the-volume-question) — there is no `piDir` or
+in [The `~/.claude` volume](#the-claude-volume--declared-not-pasted) — there is no `piDir` or
 equivalent option to point either install somewhere else.
 
 ## What a consumer mounts
@@ -322,10 +323,8 @@ your own `devcontainer.json` — but neither needs a matching option any more:
 
 ```jsonc
 "mounts": [
-  // persistence: per-workspace Claude state that survives a rebuild — one volume,
-  // and ~/.claude.json rides along inside it
-  "type=volume,source=claude-config-${localWorkspaceFolderBasename},target=/home/vscode/.claude",
-  // seed: your own host config, read-only and live
+  // seed: your own host config, read-only and live. The only mount left — the
+  // ~/.claude volume is declared by the Feature itself (see below).
   "type=bind,source=${localEnv:HOME}/.config/claude-seed,target=/usr/local/share/devc-features/agents/claude-seed,readonly"
 ],
 "initializeCommand": "mkdir -p ${localEnv:HOME}/.config/claude-seed",
@@ -334,45 +333,79 @@ your own `devcontainer.json` — but neither needs a matching option any more:
 }
 ```
 
-Each piece is independent — mount only the volume you want, or only the seed,
-or neither. `${localWorkspaceFolderBasename}` substitution inside a
-**consumer's own** `mounts` (as above) is ordinary, documented devcontainer
-behavior — nothing about the open question below affects it. So per-workspace
-isolation is available to every consumer **today**, however that question
-eventually lands; it costs one line in your own config, not a missing
-capability.
+The seed is optional — omit it and the Feature links nothing and moves on.
+Persistence is not optional in the same way: the Feature declares that volume
+whether you want it or not, which is the trade a declared mount makes. See
+[The `~/.claude` volume](#the-claude-volume--declared-not-pasted) for how to
+override it.
 
 The seed bind is `readonly` on purpose, and that has one edge: seeded files are
 symlinked into `~/.claude`, so Claude Code writing to one of them (a `/config`
 change, a plugin install touching `settings.json`) fails. Host edits reaching
 the container live, with no rebuild, is the trade that buys.
 
-## The volume question
+## The `~/.claude` volume — declared, not pasted
 
-devc's baseline names its volumes per workspace — and a Feature _can_ declare
-`type=volume` mounts (no `readonly` needed, so the object form is legal in the
-published Feature schema). Doing so would make this Feature self-sufficient for
-persistence, with no paste required.
+**This Feature declares its own volume.** Persistence needs no mount line in
+your `devcontainer.json` any more:
 
-**Measured, and it substitutes.** `mount-substitution-spike` built a fixture
-Feature declaring `${localWorkspaceFolderBasename}` (and
-`${containerWorkspaceFolder}`, `${devcontainerId}`) inside its own `mounts`
-array and confirmed all three resolve correctly — see
-[`.plans/design/devc-feature-split.md`](../../.plans/design/devc-feature-split.md)
-(formerly open question 2, now closed) for the measured names and CLI
-version. `${localEnv:HOME}` was already known to work (see
-[`.plans/archived/devc-bridge-feature.md`](../../.plans/archived/devc-bridge-feature.md)).
+```jsonc
+{
+  "type": "volume",
+  "source": "claude-code-config-${devcontainerId}",
+  "target": "/home/vscode/.claude"
+}
+```
 
-So declaring the volume here instead of pasting it into every consumer's
-config is now a viable follow-up, not an open question. It is **not done by
-this measurement alone** — it is its own change to this Feature, with its own
-version bump and its own scenarios, deliberately left for later so this
-version's behaviour does not shift underneath it. Open question 3 (first-use
-volume ownership) is still unmeasured and separate — the ownership-repair step
-in `post-create.sh` stays regardless.
+Three things about it are not guessable, so they are spelled out here.
 
-Note that this question got **cheaper** at `0.2.0`, not harder: there is one
-volume to declare now instead of two.
+### It is keyed on `${devcontainerId}`, not the workspace folder name
+
+Earlier versions of this README told you to paste
+`claude-code-config-${localWorkspaceFolderBasename}`. That is a **collision
+risk**, and not a theoretical one: a `<repo>.worktrees/<branch>` layout names
+the workspace folder after the _branch_, so worktrees called `main` in three
+different repos share one basename — and would have shared one `~/.claude`
+volume. `${devcontainerId}` is what the spec added for Features naming their
+own volumes, and it is unique per devcontainer.
+
+The trade: the volume name is opaque, so `docker volume ls` no longer tells you
+which workspace a volume belongs to, and **moving a workspace on disk changes
+the id** — the old volume is left behind untouched and you log in to Claude
+once more. To map volumes back to workspaces, ask the container rather than the
+name:
+
+```sh
+docker inspect $(docker ps -q) \
+  --format '{{index .Config.Labels "devcontainer.local_folder"}} {{json .Mounts}}'
+```
+
+### The target is the literal `/home/vscode/.claude`
+
+No `devcontainer.json` substitution variable names the remote user's home.
+`${containerEnv:HOME}` is **measured not to work** inside a Feature's own
+`mounts` — the literal string reaches Docker, which refuses the mount and fails
+`devcontainer up` outright
+([`declared-volume-spike`](../../.plans/implemented/declared-volume-spike.md),
+M1). So the target is a fixed path, exactly as the paste it replaces always was.
+
+On an image whose remote user is not `vscode`, the declared volume is therefore
+mounted somewhere Claude Code never reads. `post-create.sh` **warns** when that
+is the case, naming your real home and the mount line that fixes it, and still
+exits 0 — a wrong-home warning is not worth an uncreatable container.
+
+### You cannot remove a declared mount — only override it
+
+A Feature-declared mount has no off switch. What it has is a merge rule: mounts
+are keyed on **target**, and the consumer's own `devcontainer.json` is merged
+last, so declaring the same target yourself wins with no duplicate and no
+error. That is the opt-out, and it is also how you point `~/.claude` at
+something else entirely.
+
+First-use ownership needs no action from you: `install.sh` pre-creates
+`~/.claude` in the image owned by the remote user, so Docker seeds the empty
+volume from it and it comes up owned correctly rather than root-owned. The
+non-recursive repair in `post-create.sh` stays as belt-and-braces.
 
 ## Relationship to devc
 

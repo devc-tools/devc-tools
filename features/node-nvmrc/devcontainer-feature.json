@@ -1,8 +1,8 @@
 {
   "id": "node-nvmrc",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "name": "Node from .nvmrc",
-  "description": "Makes the Node version your workspace pins in .nvmrc the version every process in the container gets — `bash -c`, `sh -c`, `docker exec`, an agent CLI, a task runner, an editor extension. A create-time hook runs `nvm install` for your .nvmrc and points a symlink at it; this Feature's own containerEnv puts that symlink ahead of everything else on PATH. It installs neither Node nor nvm — pair it with ghcr.io/devcontainers/features/node or anything else that provides nvm.",
+  "description": "Makes the Node version your workspace pins in .nvmrc the version every process in the container gets — `bash -c`, `sh -c`, `docker exec`, an agent CLI, a task runner, an editor extension. A create-time hook runs `nvm install` for your .nvmrc and points a symlink at it; this Feature's own containerEnv puts that symlink ahead of everything else on PATH. It installs neither Node nor nvm — pair it with ghcr.io/devcontainers/features/node or anything else that provides nvm. Declares its own per-devcontainer node_modules volume, keyed on ${devcontainerId}, at the workspace root; a Feature option cannot substitute into a Feature's own mounts, so that target cannot follow projectDir, and the create-time hook warns when projectDir points somewhere else.",
   "documentationURL": "https://github.com/devc-tools/devc-tools/tree/main/features/node-nvmrc",
   "licenseURL": "https://github.com/devc-tools/devc-tools/blob/main/LICENSE",
   "options": {
@@ -27,6 +27,13 @@
       "description": "Before installing, chown an existing ./node_modules to the create-time user. Repairs a named volume mounted there, which first mounts root-owned."
     }
   },
+  "mounts": [
+    {
+      "type": "volume",
+      "source": "node-modules-${devcontainerId}",
+      "target": "${containerWorkspaceFolder}/node_modules"
+    }
+  ],
   "installsAfter": ["ghcr.io/devcontainers/features/node"],
   "containerEnv": {
     "PATH": "/usr/local/share/devc-features/node-nvmrc/pin/bin:${PATH}"

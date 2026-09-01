@@ -56,9 +56,6 @@
   },
   "initializeCommand": "bash \"${localWorkspaceFolder}/.devcontainer/initialize-command.sh\"",
   "mounts": [
-    // ~/.claude folder
-    "type=volume,source=claude-code-config-${localWorkspaceFolderBasename},target=/home/vscode/.claude",
-
     // Host ~/.claude config seed, onto the agents Feature's fixed seed path. The Feature's
     // own post-create.sh symlinks every top-level *file* from here into ~/.claude, and folds
     // ~/.claude.json into the same volume, so there is no second
@@ -74,8 +71,7 @@
     "type=bind,source=${localEnv:HOME}/.config/devc/shell,target=/usr/local/share/devc-features/bash-config/dirs/user,readonly",
 
     "type=volume,source=go-cache-${localWorkspaceFolderBasename},target=/home/vscode/go/pkg",
-    "type=volume,source=go-build-cache-${localWorkspaceFolderBasename},target=/root/.cache/go-build",
-    "type=volume,source=node-modules-${localWorkspaceFolderBasename},target=${containerWorkspaceFolder}/node_modules"
+    "type=volume,source=go-build-cache-${localWorkspaceFolderBasename},target=/root/.cache/go-build"
   ],
   "customizations": {
     "vscode": {

@@ -103,13 +103,37 @@ append to `~/.bashrc` duplicate those lines instead of sharing them; a shared
 directory would either be missing from both artifacts or duplicated into both,
 and the second is at least honest about it.
 
-A Feature declares **no host bind mounts**. It cannot declare a read-only one
-(the published Feature schema's `Mount` has no `readonly`), and it cannot create
-a bind source (Features cannot declare `initializeCommand`). Anything
-host-coupled belongs to the consumer's `devcontainer.json`, so each Feature's
-README carries the mount line to paste. See
+A Feature declares **no host bind mounts** — but it may declare **named
+volumes**, and two do.
+
+No bind mounts, because it cannot declare a read-only one (the published Feature
+schema's `Mount` has no `readonly`) and cannot create a bind source (Features
+cannot declare `initializeCommand`). Anything host-coupled belongs to the
+consumer's `devcontainer.json`, so each Feature's README carries the bind line to
+paste. See
 [../.plans/design/devc-feature-split.md](../.plans/design/devc-feature-split.md)
 for the reasoning, and `devc-bridge/README.md` for the shape.
+
+Named volumes are different: nothing host-side has to exist first, and
+`${devcontainerId}` keys one per devcontainer. `agents` declares its `~/.claude`
+volume and `node-nvmrc` its `node_modules` volume, so neither needs a pasted
+mount line any more.
+
+Three constraints govern any Feature that wants to join them, all measured in
+[../.plans/implemented/declared-volume-spike.md](../.plans/implemented/declared-volume-spike.md):
+
+- **Only `devcontainer.json` variables substitute** — `${devcontainerId}`,
+  `${localWorkspaceFolderBasename}`, `${containerWorkspaceFolder}`,
+  `${localEnv:*}`. A Feature's **own option** does not, and neither does
+  `${containerEnv:*}`. Both fail _hard_: the literal string reaches Docker, which
+  rejects it and fails `devcontainer up`. Loud, not silent — but it means a mount
+  target can never depend on how the Feature was configured.
+- **A declared mount is unconditional.** There is no way to gate one on an
+  option, so declare a volume only where every consumer of the Feature wants it.
+- **A consumer cannot remove one, only override it.** Mounts merge keyed on
+  **target**, consumer config last, so the same target in a `devcontainer.json`
+  wins with no duplicate and no error. Say so in the Feature's README; it is the
+  only opt-out there is.
 
 ## Versions
 

@@ -6,6 +6,12 @@
       "agents": {}
     }
   },
+  "with_declared_volume": {
+    "image": "mcr.microsoft.com/devcontainers/base:ubuntu",
+    "features": {
+      "agents": {}
+    }
+  },
   "with_copilot": {
     "image": "mcr.microsoft.com/devcontainers/base:ubuntu",
     "features": {

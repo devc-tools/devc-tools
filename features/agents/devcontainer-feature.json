@@ -1,8 +1,8 @@
 {
   "id": "agents",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "name": "Agent CLI config",
-  "description": "Installs coding-agent CLIs at build time — the Claude Code CLI, and optionally the GitHub Copilot CLI, the pi coding agent CLI and the Herdr terminal multiplexer, with room for more to join the same install-guard shape later — and at create time points ~/.claude at one fixed seed directory and folds ~/.claude.json into ~/.claude so a single volume captures all of Claude Code's state. Also optionally installs a declared set of pi packages and Herdr plugins at build time, since neither ~/.pi nor ~/.config/herdr is a mount. No path options: the seed is always /usr/local/share/devc-features/agents/claude-seed, the one thing a consumer decides is what to bind-mount onto it. Declares no mounts: whether `${localWorkspaceFolderBasename}` substitutes inside a Feature's own `mounts` is unmeasured, so the per-workspace volume stays a one-line paste from the README rather than a Feature declaration that risks one shared volume across every project.",
+  "description": "Installs coding-agent CLIs at build time — the Claude Code CLI, and optionally the GitHub Copilot CLI, the pi coding agent CLI and the Herdr terminal multiplexer, with room for more to join the same install-guard shape later — and at create time points ~/.claude at one fixed seed directory and folds ~/.claude.json into ~/.claude so a single volume captures all of Claude Code's state. Also optionally installs a declared set of pi packages and Herdr plugins at build time, since neither ~/.pi nor ~/.config/herdr is a mount. No path options: the seed is always /usr/local/share/devc-features/agents/claude-seed, the one thing a consumer decides is what to bind-mount onto it. Declares its own per-devcontainer ~/.claude volume, keyed on ${devcontainerId}, so persistence needs no mount line in the consumer's config; the target is necessarily the literal /home/vscode/.claude, because no substitution variable names the remote user's home, and post-create.sh warns when that is not this user's home.",
   "documentationURL": "https://github.com/devc-tools/devc-tools/tree/main/features/agents",
   "licenseURL": "https://github.com/devc-tools/devc-tools/blob/main/LICENSE",
   "options": {
@@ -37,6 +37,13 @@
       "description": "Comma-separated Herdr plugins to install at build time, in GitHub shorthand only (owner/repo[/subdir]), e.g. 'bmingles/herdr-plugins/agent-caffeinate'. Requires installHerdr — a non-empty value with installHerdr false fails the build. Empty (the default) installs nothing. Installed with `herdr plugin install <entry> --yes`; needs git and network at build time. Plugin registration is global to the user, not per session, so a build-time install is well-defined — one registration, every session in the container. A plugin whose min_herdr_version exceeds the installed Herdr version fails the install, and therefore the build."
     }
   },
+  "mounts": [
+    {
+      "type": "volume",
+      "source": "claude-code-config-${devcontainerId}",
+      "target": "/home/vscode/.claude"
+    }
+  ],
   "installsAfter": [
     "ghcr.io/devcontainers/features/node",
     "ghcr.io/devc-tools/features/node-nvmrc"

@@ -21,6 +21,29 @@ warn() {
   echo "agents: $*" >&2
 }
 
+# --- 0. declared-volume home check ----------------------------------------------------------
+# This Feature's manifest declares a named volume at DECLARED_CLAUDE_DIR — a literal path,
+# because no devcontainer.json substitution variable names the remote user's home. Measured, not
+# assumed: `${containerEnv:HOME}` does not substitute inside a Feature's own `mounts` (Docker is
+# handed the literal string and refuses the mount outright). See
+# .plans/implemented/declared-volume-spike.md, M1.
+#
+# So on an image whose remote user is not `vscode`, the volume is mounted somewhere Claude Code
+# never reads, and this user's ~/.claude is an ordinary directory that does not survive a
+# rebuild. Nothing here can fix that — a mount target cannot be chosen at create time — so it
+# warns and names the one-line fix.
+#
+# Warn, never fail: exit 0 on every skip path is this script's rule (see the header), and a
+# wrong-home warning is emphatically not worth an uncreatable container.
+DECLARED_CLAUDE_DIR=/home/vscode/.claude
+
+if [ "$HOME/.claude" != "$DECLARED_CLAUDE_DIR" ]; then
+  warn "this Feature declares its ~/.claude volume at $DECLARED_CLAUDE_DIR, but your home is $HOME."
+  warn "$HOME/.claude is therefore NOT backed by that volume and will not survive a rebuild."
+  warn "add this to your devcontainer.json's mounts to fix it:"
+  warn "  type=volume,source=claude-code-config-\${devcontainerId},target=$HOME/.claude"
+fi
+
 # --- 1. ownership repair -------------------------------------------------------------------
 # Belt-and-braces: install.sh already pre-creates ~/.claude owned by the remote user at build
 # time, and whether a first-use empty named volume mounted over it at create time inherits that

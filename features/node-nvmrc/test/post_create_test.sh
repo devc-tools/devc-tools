@@ -305,5 +305,30 @@ echo 20 > "$OTHER/packages/app/.nvmrc"
 run_hook PROJECT_PATH="$OTHER"
 check "the variable is preferred over the cwd" test "$(install_cwd)" = "$OTHER/packages/app"
 
+echo "case 17: the declared-volume mismatch warning — projectDir only"
+# This Feature's manifest declares a node_modules volume at the workspace root, and a Feature
+# option cannot substitute into that Feature's own mounts (declared-volume-spike, M2), so the
+# target cannot follow projectDir. The warning is the whole mitigation, which makes "does it
+# actually fire, and only then" worth asserting rather than assuming.
+setup c17 PROJECTDIR=packages/app
+mkdir -p "$WS/packages/app"
+echo 20 > "$WS/packages/app/.nvmrc"
+run_hook
+check "the hook still succeeds" test "$status" -eq 0
+check "it warns that the declared volume is at the workspace root" \
+  grep -qF 'declares a node_modules volume at the workspace root' "$WORK/hook.err"
+check "naming where this project's node_modules actually is" \
+  grep -qF "$WS/packages/app/node_modules and is NOT backed by it" "$WORK/hook.err"
+check "and giving a mount line targeting the project directory" \
+  grep -qF "target=$WS/packages/app/node_modules" "$WORK/hook.err"
+check "the mount line keeps \${devcontainerId} unexpanded for the consumer to paste" \
+  grep -qF 'source=node-modules-${devcontainerId}' "$WORK/hook.err"
+
+setup c17b
+echo 20 > "$WS/.nvmrc"
+run_hook
+check "with the default projectDir the declaration is correct, so nothing is said" bash -c \
+  "! grep -q 'declares a node_modules volume' '$WORK/hook.err'"
+
 echo
 if [ "$fails" -eq 0 ]; then echo "ALL PASS"; else echo "$fails FAILED"; exit 1; fi

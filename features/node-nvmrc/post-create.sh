@@ -59,6 +59,23 @@ case "$PROJECT_DIR" in
   *) TARGET="$WORKSPACE/$PROJECT_DIR" ;;
 esac
 
+# This Feature's manifest declares a node_modules volume at ${containerWorkspaceFolder}/node_modules
+# — the workspace root, and only ever the workspace root. A Feature option cannot substitute into
+# that Feature's own `mounts` (measured: .plans/implemented/declared-volume-spike.md, M2 — the
+# literal `${projectDir}` reaches Docker and is rejected), so the declared target cannot follow
+# PROJECT_DIR the way the cd below does.
+#
+# The consequence is worth saying out loud rather than leaving to be discovered: with projectDir
+# set, the declared volume sits at the workspace root where nothing writes, and the project's own
+# node_modules is an ordinary directory that does not survive a rebuild. Only the explicitly-set
+# case warns — the empty default is the case the declaration is exactly right for.
+if [ -n "$PROJECT_DIR" ]; then
+  echo "node-nvmrc: this Feature declares a node_modules volume at the workspace root," >&2
+  echo "node-nvmrc: but projectDir is '$PROJECT_DIR', so your project's node_modules is at" >&2
+  echo "node-nvmrc: $TARGET/node_modules and is NOT backed by it. Add to your mounts:" >&2
+  echo "node-nvmrc:   type=volume,source=node-modules-\${devcontainerId},target=$TARGET/node_modules" >&2
+fi
+
 # A projectDir that does not exist is a misconfiguration, not a reason to make the container
 # uncreatable — same grading as the missing-nvm path below.
 cd "$TARGET" 2> /dev/null || {

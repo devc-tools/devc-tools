@@ -61,4 +61,33 @@ check "nvm's default alias names the pinned version" bash -c \
   ". \"\${NVM_DIR:-/usr/local/share/nvm}/nvm.sh\" &&
    [ \"\$(nvm version default | cut -d. -f1)\" = 'v$PINNED' ]"
 
+# --- the Feature's own declared node_modules volume -------------------------------------------
+# New in 0.2.0: this Feature declares the volume rather than asking every consumer to paste a
+# mount line. Nothing offline can see it — the mount only exists once the CLI has merged this
+# Feature's metadata into `docker run`.
+check "node_modules is a mount point, not a plain directory" mountpoint -q "$PWD/node_modules"
+
+# The ownership repair, observed against a real volume for the first time. A named volume mounted
+# over a path with nothing behind it in the image comes up root-owned; without the repair, the
+# npm run below fails EACCES. This is the condition declared-volume-spike M4 reproduced
+# standalone, and the repair predates it — see post-create.sh's FIX_NODE_MODULES_OWNERSHIP.
+check "and the create-time repair left it writable by the remote user" \
+  bash -c "touch '$PWD/node_modules/.write-probe' && rm '$PWD/node_modules/.write-probe'"
+
+# The regression guard for declared-volume-spike M3. `npm ci` removes node_modules before
+# installing, and a mount point's contents can be emptied but the directory itself cannot be
+# unlinked — so the failure to watch for is EBUSY. Measured to pass on npm 10.9.8; nothing pins
+# npm, which is exactly why this runs on every scenario run rather than once in a spike.
+#
+# Twice, deliberately: the first `ci` has an empty directory to work with, the second has a
+# populated one, and only the second exercises the removal path.
+printf '{"name":"nvmrc-scenario","version":"1.0.0","private":true,"dependencies":{"is-number":"7.0.0"}}\n' \
+  > "$PWD/package.json"
+check "npm install populates the volume" bash -c "cd '$PWD' && npm install --silent"
+check "npm ci succeeds over the mounted volume" bash -c "cd '$PWD' && npm ci --silent"
+check "and again, with a populated node_modules to remove first — no EBUSY" \
+  bash -c "cd '$PWD' && npm ci --silent"
+check "the volume is still mounted afterwards" mountpoint -q "$PWD/node_modules"
+check "and was refilled, not left empty" test -d "$PWD/node_modules/is-number"
+
 reportResults

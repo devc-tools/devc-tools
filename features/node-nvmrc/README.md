@@ -14,14 +14,28 @@ see [What this is not](#what-this-is-not).
 }
 ```
 
-No mounts, no options, nothing host-side. `.nvmrc` is read from the workspace, and
-everything else is written inside the container.
+No options, nothing host-side. `.nvmrc` is read from the workspace, and everything
+else is written inside the container. One mount, which the Feature declares itself
+— see [The `node_modules` volume](#the-node_modules-volume).
 
 > The tag tracks **this Feature's** version line, not the repo's — Features
 > version independently of the devc-tools release tag. It is `:0` while this
 > Feature is pre-1.0; it becomes `:1` at its first 1.x release.
 
-## Changed in 0.2.0 (breaking)
+## New in 0.2.0: the `node_modules` volume is declared, not pasted
+
+This Feature now declares its own `node_modules` volume, so persistence needs no
+mount line in your `devcontainer.json`. It is keyed on `${devcontainerId}` and sits
+at the workspace root — it **cannot** follow `projectDir`, and the create-time hook
+warns when you set one. Full detail:
+[The `node_modules` volume](#the-node_modules-volume).
+
+## Earlier: the `autoUseOnCd` removal (breaking)
+
+> Numbering note: the prose below calls this "0.2.0", which is what it was named
+> before this Feature moved repos and was renumbered — it shipped as **0.1.0**, the
+> first version published under `ghcr.io/devc-tools`. The section above is the real
+> 0.2.0. `projectDir`, introduced with the removal, is 0.1.0 too.
 
 **`autoUseOnCd` is gone, along with the `~/.bashrc` block it appended and the `cd`
 override inside it.** Not deprecated, not defaulted to `false` — removed. A config
@@ -45,8 +59,8 @@ a symlink at the pinned version. **Per-directory switching is dropped as a goal*
 not half-served — see [projectDir](#projectdir--which-project-is-the-pin) for what
 replaces it in the case that actually comes up.
 
-New in 0.2.0: **`projectDir`**, for a repo whose Node project is not at the
-workspace root.
+Introduced alongside it: **`projectDir`**, for a repo whose Node project is not at
+the workspace root.
 
 ## Prerequisite: something has to provide nvm
 
@@ -194,11 +208,59 @@ time; `projectDir` chooses **which one**. A monorepo whose packages pin _differe
 versions is out of scope — this Feature pins one version container-wide and does not
 make it vary by directory.
 
-**If you set it, mount your `node_modules` volume where the project is.** The repair
-below follows `projectDir`, so a volume left mounted at the workspace root while
-`projectDir` points elsewhere is repaired by nothing. It is also a volume nothing
-writes to, since your `npm ci` runs in the project directory — moving the mount is
-the fix, and there is deliberately no second option and no second chown target.
+**If you set it, mount your own `node_modules` volume where the project is.** The
+Feature's declared volume cannot follow `projectDir` (see
+[The `node_modules` volume](#the-node_modules-volume)), and the repair below does
+follow it — so the declared volume at the workspace root is repaired by nothing
+and written to by nothing, while your project's `node_modules` is an ordinary
+directory. The create-time hook warns and prints the mount line. There is
+deliberately no second option and no second chown target.
+
+### The `node_modules` volume
+
+**New in 0.2.0: this Feature declares it.** You no longer paste a mount line for
+it:
+
+```jsonc
+{
+  "type": "volume",
+  "source": "node-modules-${devcontainerId}",
+  "target": "${containerWorkspaceFolder}/node_modules"
+}
+```
+
+Keeping `node_modules` in a named volume rather than the bind-mounted workspace
+is what makes installs fast and keeps a Linux `node_modules` from colliding with
+whatever your host put there. `${devcontainerId}` keys it per devcontainer — not
+`${localWorkspaceFolderBasename}`, which collides whenever two workspaces share a
+folder name (a `<repo>.worktrees/<branch>` layout names the folder after the
+branch, so `main` in three repos is one name). The trade is that the volume name
+is opaque and **moving the workspace on disk starts a fresh one** — one `npm ci`,
+and the old volume is left behind untouched.
+
+**It does not follow `projectDir`.** A Feature option cannot substitute into that
+Feature's own `mounts` — measured, and it fails hard rather than silently: the
+literal `${projectDir}` would reach Docker and be rejected
+([`declared-volume-spike`](../../.plans/implemented/declared-volume-spike.md),
+M2). So the volume is always at the workspace root. With `projectDir` set, the
+create-time hook warns and gives you the line to paste:
+
+```jsonc
+"mounts": ["type=volume,source=node-modules-${devcontainerId},target=${containerWorkspaceFolder}/packages/app/node_modules"]
+```
+
+The one the Feature declares still lands at the root, where nothing writes to it.
+That is the cost of a static manifest, and it is a warning rather than an error
+because it is a misconfiguration, not an unbootable container.
+
+**You cannot remove a declared mount — only override it.** Mounts merge keyed on
+**target**, with your own `devcontainer.json` merged last, so declaring the same
+target yourself wins with no duplicate and no error.
+
+`npm ci` over the mounted volume is measured to work — it removes `node_modules`
+before installing, and a mount point can be emptied but not unlinked, so `EBUSY`
+was the risk. Two consecutive `npm ci` runs pass on npm 10.9.8, and the
+`with_nvmrc` scenario keeps checking it, since nothing pins npm.
 
 ### The `node_modules` chown
 
@@ -207,8 +269,12 @@ and `[ -d node_modules ]`, and best-effort (`2>/dev/null || true`).
 
 It exists because a **named volume** mounted at the project's `node_modules` first
 mounts root-owned, after which `npm ci` as the remote user cannot write into it.
-This Feature does not declare that volume — devc does, for its own containers — but
-the repair is portable: anyone who mounts a volume there hits the same thing.
+As of 0.2.0 that volume is **this Feature's own**, so the repair is no longer
+belt-and-braces for someone else's mount — it is what makes the Feature's own
+declaration usable. (It stays portable: anyone who mounts a volume there, at a
+`projectDir` path for instance, hits the same thing.) `declared-volume-spike`
+reproduced the unrepaired case standalone: a bare mount comes up `root:root` and
+`npm install` fails `EACCES` before it can get anywhere near the `EBUSY` question.
 
 A volume is not the only way that directory can exist, and this is worth knowing
 before you enable the option: a bind-mounted workspace can already carry a
@@ -309,6 +375,7 @@ the registry. There is no `DEVC_TOOLS_RELEASE` in `install.sh` — this Feature
 downloads no release asset, so it pins none, and nothing here is coupled to a
 devc-tools release at all.
 
-0.2.0 is a **breaking** change to a published Feature. The `:0` tag is the
-documented license for that while this Feature is pre-1.0
+0.2.0 adds a mount to a published Feature — new behaviour every consumer gets
+whether or not they ask, which is why it is a version bump rather than a silent
+edit. The `:0` tag is the documented license for that while this Feature is pre-1.0
 ([features/README.md](../README.md#versions)).

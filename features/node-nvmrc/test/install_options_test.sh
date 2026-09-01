@@ -174,6 +174,19 @@ check "post-create.sh links into \$SHARE_DIR/pin/bin" \
 check "install.sh creates that same pin/ directory" \
   grep -qF 'mkdir -p "$SHARE_DIR/pin"' "$INSTALL"
 
+echo "case 8b: the declared node_modules volume"
+# The mount is static — a Feature option cannot substitute into a Feature's own mounts
+# (declared-volume-spike, M2) — so the target is only ever the workspace root, and the hook's
+# warning is the only thing that tells a projectDir consumer so. Assert the pair together: a
+# declaration without the warning, or a warning naming a different path, is the drift this
+# catches.
+check "the manifest declares the volume at the workspace root" \
+  grep -qF '"target": "${containerWorkspaceFolder}/node_modules"' "$MANIFEST"
+check "keyed on \${devcontainerId}, not the workspace basename" \
+  grep -qF '"source": "node-modules-${devcontainerId}"' "$MANIFEST"
+check "and post-create.sh warns when projectDir moves the project off that target" \
+  grep -qF 'declares a node_modules volume at the workspace root' "$FEATURE_DIR/post-create.sh"
+
 echo "case 9: what 0.2.0 removed stays removed"
 check "no autoUseOnCd option in the manifest" bash -c "! grep -q autoUseOnCd '$MANIFEST'"
 check "install.sh never mentions it" bash -c "! grep -q AUTOUSEONCD '$INSTALL'"
@@ -184,7 +197,11 @@ check "no devc:nvm-use fence in any shipped file" bash -c \
      '$FEATURE_DIR/README.md'"
 check "no cd() override is written" bash -c "! grep -q 'builtin cd' '$INSTALL'"
 check "and nvm_use_test.sh is gone" test ! -e "$FEATURE_DIR/test/nvm_use_test.sh"
-check "the manifest is 0.1.0" grep -qF '"version": "0.1.0"' "$MANIFEST"
+# NB: this case's title tracks the README's *historical* numbering (the prose calls the
+# autoUseOnCd removal "0.2.0"), which commit ae6ba59 renumbered the manifest out of sync with.
+# They coincide again from here: 0.2.0 is now also the real manifest version, the one that
+# declares the node_modules volume.
+check "the manifest is 0.2.0" grep -qF '"version": "0.2.0"' "$MANIFEST"
 
 echo
 if [ "$fails" -eq 0 ]; then echo "ALL PASS"; else echo "$fails FAILED"; exit 1; fi
