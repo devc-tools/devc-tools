@@ -399,7 +399,7 @@ export async function loadOverlays(
  * own `version` — a comment saying "keep these in step" is how pins drift.
  */
 export const DEVC_CONFIG_FEATURE =
-  'ghcr.io/devc-tools/features/devc-config:0.1.0';
+  'ghcr.io/devc-tools/features/devc-config:0.1.1';
 
 /**
  * The Features devc contributes to every container it starts, id paired with the bare name

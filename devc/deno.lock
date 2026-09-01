@@ -42,7 +42,7 @@
       "npm:@devcontainers/cli@0.88.0"
     ],
     "links": {
-      "npm:@devc-tools/core@0.1.1": {
+      "npm:@devc-tools/core@0.1.2": {
         "dependencies": [
           "npm:@devcontainers/cli@0.88.0",
           "npm:jsonc-parser@^3.3.1"

@@ -26,7 +26,7 @@
 #
 # It also asserts every features/PUBLISH_ALLOWLIST.txt entry names a real Feature — the one
 # static list in this collection, and the gate that keeps a Feature under active development
-# off ghcr.io. See features/README.md#the-publish-allowlist.
+# off ghcr.io. See features/CONTRIBUTING.md#the-publish-allowlist.
 set -uo pipefail
 
 cd "$(dirname "$0")/.." || exit 1

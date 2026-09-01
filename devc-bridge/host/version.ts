@@ -11,4 +11,4 @@
 // the source of truth, and nothing rewrites these files during a build.
 
 /** CLI version. Single source of truth — the compiled binary cannot read `deno.json`. */
-export const VERSION = '0.1.0';
+export const VERSION = '0.1.1';

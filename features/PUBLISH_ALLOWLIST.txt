@@ -7,7 +7,7 @@
 #
 # Source-only: `devcontainer features publish` packages one Feature's own `features/<id>/`
 # directory, and this file lives at the collection root, outside every Feature directory — it
-# is never part of a published artifact. See features/README.md#the-publish-allowlist.
+# is never part of a published artifact. See features/CONTRIBUTING.md#the-publish-allowlist.
 
 agents
 bash-config

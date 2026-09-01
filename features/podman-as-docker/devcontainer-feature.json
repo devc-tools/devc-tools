@@ -1,6 +1,6 @@
 {
   "id": "podman-as-docker",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "name": "Podman as Docker",
   "description": "Makes `docker` commands work inside a devcontainer by installing Podman and the podman-docker shim — no Docker daemon, no /var/run/docker.sock bind mount, no privileged sibling container. NOT the secure option: it costs CAP_SYS_ADMIN plus three Docker/runc securityOpt flags — systempaths=unconfined (removes the default read-only masking of /proc/sys and neighbours), apparmor=unconfined (the docker-default AppArmor profile's blanket 'deny mount' rule otherwise blocks Podman's own mount setup), and seccomp=unconfined (the docker-default seccomp profile otherwise blocks crun's session-keyring creation) — all measured required on a native Linux Docker host specifically, invisible on Docker Desktop, which enforces none of the three by default. See the README's privilege-cost section before enabling this. Declares its own per-devcontainer storage volume, so a bare `{}` container already gets native overlay storage and survives a rebuild; networking defaults to --network=host (no device needed) unless rootlessNetworkCmd is changed and --device=/dev/net/tun is pasted into runArgs.",
   "documentationURL": "https://github.com/devc-tools/devc-tools/tree/main/features/podman-as-docker",

@@ -1,6 +1,6 @@
 {
   "id": "devc-config",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "name": "devc config hook",
   "description": "On every container create, runs the project's own devc-post-create.sh if it has one — first .devc/devc-post-create.sh, then .devcontainer/devc-post-create.sh, first hit wins. Existence selects and executability is enforced: a hook that exists either runs or fails the create, never silently skipped. Also appends devc's own prompt/title/attach-clear ~/.bashrc block, marker-guarded. No mount, no host state, no network, no options — \"devc-config\": {} is the complete install; the whole of what a consumer adds is a committed, executable script in their own repo.",
   "documentationURL": "https://github.com/devc-tools/devc-tools/tree/main/features/devc-config",

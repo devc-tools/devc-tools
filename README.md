@@ -100,12 +100,18 @@ compiled.
 not installed by `install.sh`, so a one-line fix to one ships without a binary
 release and an untouched Feature never gets a new digest. Bump the `version` of
 whatever Feature you changed, in the same commit; anything you do not bump simply
-does not publish. See [`features/README.md`](features/README.md#versions).
+does not publish. See
+[`features/CONTRIBUTING.md`](features/CONTRIBUTING.md#versions).
+
+One exception: `devc-config` is pinned at an exact version by
+`devc-core/overlay.ts`'s `DEVC_CONFIG_FEATURE`, since devc injects it into every
+container it starts. Bumping that Feature means bumping the pin in the same
+commit — and only a devc release delivers it.
 
 **A Feature also has to be on the allowlist to publish at all.**
 [`features/PUBLISH_ALLOWLIST.txt`](features/PUBLISH_ALLOWLIST.txt) is what keeps a
 Feature under active development off ghcr.io until it's ready — see
-[The publish allowlist](features/README.md#the-publish-allowlist).
+[The publish allowlist](features/CONTRIBUTING.md#the-publish-allowlist).
 
 To cut a release:
 

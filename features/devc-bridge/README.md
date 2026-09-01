@@ -42,7 +42,7 @@ Features cannot declare an `initializeCommand`, the one hook that runs on the ho
 
 devc projects have the same prerequisite — devc creates no bridge directories either. What
 devc does do is write the mount line for you, in zero-config mode only; see
-[devc and the bridge](../../devc/README.md#the-token-mount-and-the-one-place-devc-does-something-for-you).
+[The token mount](../../devc/README.md#the-token-mount).
 
 **If you omit the mount line entirely,** the container builds fine and `devc-bridge` is on
 PATH, but the first call fails with:

@@ -141,8 +141,10 @@ place.
 
 All seven Features are currently allowlisted. Two caveats:
 
-- **`devc-bridge` does not publish yet.** It pins `DEVC_TOOLS_RELEASE='v0.1.0'`, and
-  until that release is tagged its publish job fails the pin guard by design.
+- **`devc-bridge` publishes only once its pinned release exists.** It pins
+  `DEVC_TOOLS_RELEASE='v0.1.0'`; the guard runs `gh release view` on that tag, so a tag
+  without a published GitHub release still fails it. Check with
+  `bash tests/features_test.sh --check-release-pins` before assuming it will publish.
 - **A newly created GHCR package is private.** Each has to be made public in the repo's
   Packages settings before an anonymous `devcontainer up` can pull it. Check the
   package's visibility before assuming a fresh publish is reachable.
@@ -153,10 +155,12 @@ Orphaned namespaces, referenced nowhere in this repo: everything under
 and then failed on the collection index, and `ghcr.io/devc-tools/features/project-hook`
 from before `devc-config` was renamed.
 
-When devc injects `devc-config` it is pinned at an exact version (`0.1.0`) rather than
-`:0` — see `devc-core/overlay.ts`'s `DEVC_CONFIG_FEATURE` — because that injection
-reaches every container devc starts, with no opt-in anywhere. A manual
-`"devc-config": {}` in your own config still floats on `:0` like any other Feature here.
+When devc injects `devc-config` it is pinned at an **exact** version rather than `:0` — see
+`devc-core/overlay.ts`'s `DEVC_CONFIG_FEATURE` — because that injection reaches every
+container devc starts, with no opt-in anywhere. Bumping `devc-config`'s version therefore
+means bumping that pin in the same commit, and shipping a devc release to deliver it;
+`tests/workflow_guards_test.sh` asserts the two agree. A manual `"devc-config": {}` in your
+own config still floats on `:0` like any other Feature here.
 
 ## Guarding the collection
 

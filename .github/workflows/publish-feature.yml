@@ -24,7 +24,7 @@ name: Publish devcontainer Features
 # Reaching the tree is not enough to publish: `discover` narrows the matrix to the ids listed
 # in features/PUBLISH_ALLOWLIST.txt, so a Feature under active development sits in features/
 # fully guarded and still does not ship until it is added there. See
-# features/README.md#the-publish-allowlist.
+# features/CONTRIBUTING.md#the-publish-allowlist.
 
 on:
   push:
