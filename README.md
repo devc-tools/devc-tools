@@ -113,6 +113,20 @@ commit — and only a devc release delivers it.
 Feature under active development off ghcr.io until it's ready — see
 [The publish allowlist](features/CONTRIBUTING.md#the-publish-allowlist).
 
+**`@devc-tools/core` is not published by any workflow.** It is a manual
+`npm publish`, and `devc-core/package.json` has no `prepublishOnly` hook while
+its `files` is `["dist"]` — so an unbuilt `dist/` publishes an empty package.
+Run [`scripts/preflight-core-publish.sh`](scripts/preflight-core-publish.sh)
+**on the host** first: it checks the same preconditions `release.yml` would
+refuse a tag over, runs the guards below, builds and smoke-tests the real
+tarball, and prints the two commands left — the tag, then the publish. It never
+tags, pushes or publishes.
+
+**Tag before you `npm publish`.** The two are independent (`devc` imports
+`devc-core` from source, not from the registry), so the only question is which
+is recoverable: a tag and its release can be deleted and re-cut, an npm version
+can never be republished. Let `release.yml` go green first.
+
 To cut a release:
 
 1. Bump the version in **all three binaries** — `VERSION` in `devc/help.ts`,
