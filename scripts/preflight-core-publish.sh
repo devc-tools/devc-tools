@@ -32,7 +32,13 @@ while [ "$#" -gt 0 ]; do
   case "$1" in
     --skip-install) skip_install=1; shift ;;
     --allow-container) allow_container=1; shift ;;
-    -h | --help) sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    # Prints the header block above — everything from line 2 until the first line that is not
+    # a comment. Derived rather than a fixed line range, which silently truncates the help the
+    # moment the header grows a paragraph.
+    -h | --help)
+      awk 'NR > 1 { if ($0 !~ /^#/) exit; sub(/^# ?/, ""); print }' "$0"
+      exit 0
+      ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
 done
@@ -92,8 +98,16 @@ in_sync() {
 }
 check 'HEAD is level with its upstream (nothing unpushed)' in_sync
 
-read_const() { sed -n "s/^export const VERSION = '\(.*\)';$/\1/p" "$1" | head -1; }
-read_json() { sed -n '0,/"version"/s/.*"version": *"\([^"]*\)".*/\1/p' "$1" | head -1; }
+# Both are POSIX BRE with no GNU extensions, because this script's whole point is that it runs
+# on the host — which is macOS, where sed is BSD. In particular: do NOT reach for a `0,/re/`
+# address to take the first match. That form is GNU-only; BSD sed rejects a line address of 0,
+# so it silently yields an empty version and every comparison below "fails" for the wrong
+# reason. Anchoring the key at the start of a line and taking `head -1` is portable and gets
+# the top-level `"version"` in both a package.json and a deno.json.
+read_const() { sed -n "s/^export const VERSION = '\(.*\)';\$/\1/p" "$1" | head -1; }
+read_json() {
+  sed -n 's/^[[:space:]]*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$1" | head -1
+}
 
 devc_v="$(read_const devc/help.ts)"
 host_v="$(read_const devc-bridge/host/version.ts)"
@@ -105,11 +119,28 @@ core_deno_v="$(read_json devc-core/deno.json)"
 echo "       binaries    devc=$devc_v host=$host_v client=$client_v (devc/deno.json=$devc_json_v)"
 echo "       devc-core   package.json=$core_pkg_v deno.json=$core_deno_v"
 
-nonempty() { [ -n "$1" ]; }
+# Each value is checked on its own, never concatenated: one unreadable version among several
+# good ones has to be reported as unreadable, not hidden by its neighbours in a joined string.
+# An empty value here means the file's shape changed or the read is not portable — either way
+# it is a different problem from two versions genuinely disagreeing, and must not be reported
+# as one.
+# Reported inline rather than through check(), which sends a condition's own output to
+# /dev/null to keep the test-suite lines clean — and the diagnostic is the entire value here.
+unreadable=0
+for pair in "devc/help.ts=$devc_v" "devc-bridge/host/version.ts=$host_v" \
+  "devc-bridge/client/version.ts=$client_v" "devc/deno.json=$devc_json_v" \
+  "devc-core/package.json=$core_pkg_v" "devc-core/deno.json=$core_deno_v"; do
+  if [ -n "${pair#*=}" ]; then continue; fi
+  echo "  FAIL read a version from ${pair%%=*}"
+  echo "       (empty — the file's shape changed, or this sed is not portable here)"
+  fails=$((fails + 1))
+  unreadable=1
+done
+[ "$unreadable" -eq 1 ] || echo '  ok   every version string was readable'
+
 binaries_agree() { [ "$devc_v" = "$host_v" ] && [ "$devc_v" = "$client_v" ]; }
 devc_json_agrees() { [ -n "$devc_json_v" ] && [ "$devc_json_v" = "$devc_v" ]; }
 core_agrees() { [ -n "$core_pkg_v" ] && [ "$core_pkg_v" = "$core_deno_v" ]; }
-check 'every version string was readable' nonempty "$devc_v$host_v$client_v$core_pkg_v"
 check 'the three binary VERSION consts agree (release.yml requires this of a tag)' binaries_agree
 check 'devc/deno.json matches devc/help.ts' devc_json_agrees
 check 'devc-core package.json and deno.json agree' core_agrees
