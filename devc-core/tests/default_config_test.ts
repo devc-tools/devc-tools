@@ -113,6 +113,91 @@ Deno.test('substituteVars resolves an arbitrary ${localEnv:VAR}', () => {
   }
 });
 
+Deno.test('substituteVars resolves ${containerEnv:VAR} against the given env', () => {
+  assertEquals(
+    substituteVars(
+      '/venv/bin:${containerEnv:PATH}',
+      '/workspaces/x',
+      undefined,
+      {
+        PATH: '/usr/local/bin:/usr/bin:/bin',
+      },
+    ),
+    '/venv/bin:/usr/local/bin:/usr/bin:/bin',
+  );
+});
+
+// A missing variable is the empty string, exactly as the CLI substitutes it — not the token.
+Deno.test('substituteVars resolves an unset ${containerEnv:VAR} to empty', () => {
+  assertEquals(
+    substituteVars('a:${containerEnv:NOPE}', '/workspaces/x', undefined, {
+      PATH: '/bin',
+    }),
+    'a:',
+  );
+});
+
+// The token has to survive a caller that has no container to read: substituting the empty
+// string would silently truncate PATH instead of leaving evidence of what went wrong.
+Deno.test('substituteVars leaves ${containerEnv:VAR} alone with no env supplied', () => {
+  assertEquals(
+    substituteVars('/venv/bin:${containerEnv:PATH}', '/workspaces/x'),
+    '/venv/bin:${containerEnv:PATH}',
+  );
+});
+
+// `${localEnv:TZ:America/New_York}` is real usage; before the fallback was parsed out, the
+// whole `TZ:America/New_York` was looked up as one name, missed, and produced `-e TZ=`.
+Deno.test('substituteVars uses the ${…:default} fallback only when unset', () => {
+  const prev = Deno.env.get('DEVC_TZ_TEST');
+  Deno.env.delete('DEVC_TZ_TEST');
+  try {
+    assertEquals(
+      substituteVars('${localEnv:DEVC_TZ_TEST:America/New_York}', '/w'),
+      'America/New_York',
+    );
+    Deno.env.set('DEVC_TZ_TEST', 'UTC');
+    assertEquals(
+      substituteVars('${localEnv:DEVC_TZ_TEST:America/New_York}', '/w'),
+      'UTC',
+    );
+    assertEquals(
+      substituteVars('${containerEnv:NOPE:fallback}', '/w', undefined, {}),
+      'fallback',
+    );
+  } finally {
+    if (prev === undefined) Deno.env.delete('DEVC_TZ_TEST');
+    else Deno.env.set('DEVC_TZ_TEST', prev);
+  }
+});
+
+// An empty value is set, so it wins over the fallback — `${…:default}` keys off presence.
+Deno.test('substituteVars prefers an empty set value over the fallback', () => {
+  assertEquals(
+    substituteVars('${containerEnv:EMPTY:fallback}', '/w', undefined, {
+      EMPTY: '',
+    }),
+    '',
+  );
+});
+
+Deno.test('resolveRemoteEnv resolves ${containerEnv:VAR} through to each value', () => {
+  assertEquals(
+    resolveRemoteEnv(
+      {
+        remoteEnv: {
+          PATH: '/venv/bin:${containerEnv:PATH}',
+          VIRTUAL_ENV: '/venv',
+        },
+      },
+      '/workspaces/x',
+      undefined,
+      { PATH: '/usr/bin:/bin' },
+    ),
+    { PATH: '/venv/bin:/usr/bin:/bin', VIRTUAL_ENV: '/venv' },
+  );
+});
+
 Deno.test('substituteVars resolves both variables in one value', () => {
   const home = Deno.env.get('HOME') ?? Deno.env.get('USERPROFILE') ?? '.';
   assertEquals(

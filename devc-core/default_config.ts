@@ -563,11 +563,24 @@ export async function installBundledAssets(
 
 /**
  * Substitutes `devcontainer.json`-style variables in a string value:
- * `${containerWorkspaceFolder}`, `${localEnv:VARNAME}`, and — when
- * `localWorkspaceFolder` is supplied — `${localWorkspaceFolder}` and
- * `${localWorkspaceFolderBasename}`. Anything else (`${containerEnv:...}`,
- * `${devcontainerId}`, …) is left as-is: values passed directly to Docker (e.g. `-e`) are
- * never processed by the `devcontainer` CLI, and the rest cannot be resolved host-side.
+ * `${containerWorkspaceFolder}`, `${localEnv:VARNAME}`, — when `localWorkspaceFolder` is
+ * supplied — `${localWorkspaceFolder}` and `${localWorkspaceFolderBasename}`, and — when
+ * `containerEnv` is supplied — `${containerEnv:VARNAME}`. Anything else
+ * (`${devcontainerId}`, …) is left as-is.
+ *
+ * Both env forms take the spec's optional fallback, `${localEnv:TZ:America/New_York}`, and
+ * follow the CLI in reading only the *first* `:`-separated segment after the name as the
+ * default (so a default cannot itself contain a colon). Without this, such a value resolved
+ * to the empty string here — the whole `TZ:America/New_York` was looked up as one variable
+ * name, missed, and became `-e TZ=`.
+ *
+ * `${containerEnv:…}` is resolvable host-side despite what its name suggests, and has to be
+ * resolved here: these values become `docker exec -e` flags, which the `devcontainer` CLI
+ * never sees or processes. The CLI resolves the token in its own second pass, against the
+ * started container; `containerEnv` is that same environment, read back with `docker
+ * inspect` by the caller — see `startContainer`. Leaving it unresolved is not inert: the
+ * literal `${containerEnv:PATH}` lands in the exec's PATH and every binary lookup in that
+ * shell fails, `bash` included.
  *
  * `containerWorkspaceFolder` is the caller-supplied container-side mount path — the
  * `remoteWorkspaceFolder` reported by `devcontainer up`, which accounts for both plain
@@ -577,6 +590,7 @@ export function substituteVars(
   value: string,
   containerWorkspaceFolder: string,
   localWorkspaceFolder?: string,
+  containerEnv?: Record<string, string>,
 ): string {
   let out = value.replaceAll(
     '${containerWorkspaceFolder}',
@@ -593,9 +607,33 @@ export function substituteVars(
       )
       .replaceAll('${localWorkspaceFolder}', localWorkspaceFolder);
   }
-  return out.replace(/\$\{localEnv:([^}]+)\}/g, (_, varName: string) => {
-    return varName === 'HOME' ? homeDir() : process.env[varName] ?? '';
-  });
+  return out.replace(
+    /\$\{(localEnv|containerEnv):([^}]+)\}/g,
+    (token: string, scope: string, arg: string) => {
+      // `containerEnv` is optional, and an unresolved token is better than a wrong one: a
+      // caller with no container to read cannot know what PATH would have been.
+      if (scope === 'containerEnv' && containerEnv === undefined) return token;
+      const [name, fallback] = splitVarArg(arg);
+      const value = scope === 'containerEnv'
+        ? containerEnv![name]
+        : name === 'HOME'
+        ? homeDir()
+        : process.env[name];
+      return value ?? fallback;
+    },
+  );
+}
+
+/**
+ * `NAME` or `NAME:default` from inside a `${localEnv:…}` / `${containerEnv:…}` token, as
+ * `[name, fallback]`. `fallback` is `''` when none is given, which is what both the spec and
+ * the CLI substitute for a variable that is not set.
+ */
+function splitVarArg(arg: string): [string, string] {
+  const i = arg.indexOf(':');
+  if (i === -1) return [arg, ''];
+  // Only the first segment is the default; the CLI ignores anything past a second colon.
+  return [arg.slice(0, i), arg.slice(i + 1).split(':')[0]];
 }
 
 /**
@@ -652,11 +690,16 @@ export async function loadConfigStrict(
  *
  * This is the one place devc still substitutes `${…}` itself, because these values are handed to
  * `docker exec` rather than to the devcontainer CLI, which never sees them.
+ *
+ * `containerEnv` is the started container's own environment, and is what
+ * `${containerEnv:VAR}` resolves against — the CLI's own second-pass semantics. Omit it only
+ * when there is no container to read; those tokens are then left unresolved.
  */
 export function resolveRemoteEnv(
   config: Record<string, unknown>,
   containerWorkspaceFolder: string,
   localWorkspaceFolder?: string,
+  containerEnv?: Record<string, string>,
 ): Record<string, string> {
   const baseEnv = config.remoteEnv;
   if (
@@ -671,7 +714,12 @@ export function resolveRemoteEnv(
       )
       .map(([k, v]) => [
         k,
-        substituteVars(v, containerWorkspaceFolder, localWorkspaceFolder),
+        substituteVars(
+          v,
+          containerWorkspaceFolder,
+          localWorkspaceFolder,
+          containerEnv,
+        ),
       ]),
   );
 }

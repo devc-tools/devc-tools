@@ -333,6 +333,42 @@ export async function containerNameForLocalFolder(
   return `devc-${await projectKey(localFolder)}`;
 }
 
+/**
+ * The started container's own environment (its image `ENV` plus the `devcontainer.json`
+ * `containerEnv` that `docker run -e` applied), as a `NAME -> value` record.
+ *
+ * This is what `${containerEnv:VAR}` in `remoteEnv` resolves against. The devcontainer CLI
+ * does the equivalent from the inside; devc runs `exec`/`attach` through `docker exec`, which
+ * carries `containerEnv` but never `remoteEnv`, so it has to read the same environment back
+ * out here — see `resolveRemoteEnv`.
+ *
+ * Best-effort, matching {@link dockerInspect}: `{}` when the container cannot be inspected or
+ * reports no env, which leaves the tokens unresolved rather than substituting a wrong value.
+ */
+async function inspectContainerEnv(
+  containerId: string,
+): Promise<Record<string, string>> {
+  const json = await dockerInspect(containerId, '{{json .Config.Env}}');
+  if (json === null) return {};
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(json);
+  } catch {
+    return {};
+  }
+  // `.Config.Env` is null, not [], on a container that declares none.
+  if (!Array.isArray(parsed)) return {};
+  const env: Record<string, string> = {};
+  for (const entry of parsed) {
+    if (typeof entry !== 'string') continue;
+    const eq = entry.indexOf('=');
+    // Docker writes `NAME=value`; a bare `NAME` (no `=`) is not a value to substitute.
+    if (eq === -1) continue;
+    env[entry.slice(0, eq)] = entry.slice(eq + 1);
+  }
+  return env;
+}
+
 async function dockerInspect(
   containerId: string,
   format: string,
@@ -684,11 +720,13 @@ export async function startContainer(
   // Re-derive `remoteEnv` from the merged config — `docker exec` (how exec/attach run) never
   // sees it otherwise. One call over one object: the overlay's own `remoteEnv` is already folded
   // into it, so there is no second layer to apply. Done after the `up` so
-  // `${containerWorkspaceFolder}` resolves against the CLI's own `remoteWorkspaceFolder`.
+  // `${containerWorkspaceFolder}` resolves against the CLI's own `remoteWorkspaceFolder`, and
+  // so `${containerEnv:…}` has a started container to read its environment back from.
   const remoteEnv = resolveRemoteEnv(
     merged.config,
     result.remoteWorkspaceFolder,
     localFolder,
+    await inspectContainerEnv(result.containerId),
   );
 
   return {
