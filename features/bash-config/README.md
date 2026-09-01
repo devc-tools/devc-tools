@@ -81,7 +81,7 @@ be reliable.
 
 **User directory first, project second**, so a project's committed settings win on
 conflict — the same `system → global → local` order git uses. A project file that
-*assigns* rather than appends to a shared variable (`PS1`, `PATH`) therefore overrides your
+_assigns_ rather than appends to a shared variable (`PS1`, `PATH`) therefore overrides your
 personal one.
 
 **Within a directory**, glob (name) order. Prefix with `bashrc_10-`, `bashrc_20-`, … to

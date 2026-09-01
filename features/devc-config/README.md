@@ -83,7 +83,7 @@ Two things follow from that:
   project-hook runner.
 
 **Declaring it yourself replaces devc's entry, it does not add a second one.** devc matches
-by this Feature's *name*, not by exact id string, so naming `devc-config` under any tag
+by this Feature's _name_, not by exact id string, so naming `devc-config` under any tag
 (`:0`, a pinned `:0.1.0`, …) makes devc step aside rather than installing both — which
 matters, because the devcontainer CLI dedupes `--additional-features` against a config's
 `features` by exact id string, and two different tags would otherwise both install and run

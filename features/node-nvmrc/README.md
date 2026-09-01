@@ -41,12 +41,12 @@ That is deliberate: failing the create over a missing prerequisite turns a one-l
 misconfiguration into a container you cannot open to fix it. No symlink is created, so the
 PATH entry is inert and `node` resolves to whatever else provides it.
 
-`nvm install` **failing** is a different matter and *is* fatal. Your `.nvmrc` asked for a
+`nvm install` **failing** is a different matter and _is_ fatal. Your `.nvmrc` asked for a
 version that could not be installed, and a container that quietly comes up on the wrong Node
 is worse than one that fails while you are still watching the log.
 
 The prerequisite is documented rather than imposed with `dependsOn`, because `dependsOn`
-would install the node Feature for you with *this* Feature choosing its `version`,
+would install the node Feature for you with _this_ Feature choosing its `version`,
 `pnpmVersion` and `nvmVersion` — exactly the things you want to choose. `installsAfter` only
 orders this Feature behind the node Feature when you have asked for both.
 
@@ -73,7 +73,7 @@ Nothing is appended to `~/.bashrc`.
 - **Container-wide, the pin wins.** `pin/bin` sits ahead of `$NVM_DIR/current/bin`, so
   nothing a human's `nvm use` does to nvm's global symlink can override the workspace pin
   for other processes.
-- **Inside one interactive shell, you still win.** `nvm use` prepends the *versioned*
+- **Inside one interactive shell, you still win.** `nvm use` prepends the _versioned_
   directory to that shell's own PATH, ahead of `pin/bin`. It affects that shell and nothing
   else.
 - **Interactive shells agree by default.** Images that source `nvm.sh` from
@@ -146,7 +146,7 @@ where `.nvmrc` is looked for and where `node_modules` is repaired.
   directory and silence would send you hunting for where Node came from.
 
 **This is not monorepo support.** Exactly one `.nvmrc` is read, once, at create time;
-`projectDir` chooses **which one**. A monorepo whose packages pin *different* versions is
+`projectDir` chooses **which one**. A monorepo whose packages pin _different_ versions is
 out of scope — this Feature pins one version container-wide and does not make it vary by
 directory.
 
@@ -215,5 +215,5 @@ version you actually get. An issue that says "the node feature" could mean eithe
 two are worth naming in full.
 
 **`pin/bin` is not `$NVM_DIR/current`.** Both are "the symlink". nvm's is container-global
-and is moved by *any* `nvm use` in *any* shell; this Feature's is moved only by its own
+and is moved by _any_ `nvm use` in _any_ shell; this Feature's is moved only by its own
 create-time step. That is why the directory is called `pin/` and not `current/`.

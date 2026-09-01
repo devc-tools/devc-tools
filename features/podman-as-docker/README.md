@@ -28,7 +28,7 @@ not a free one:
 | -------------------------- | ---------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `docker-outside-of-docker` | the host Docker API                                                    | **Immediate, trivial, total.** `docker run -v /:/host alpine chroot /host sh`. No exploit required.                                                         |
 | `docker-in-docker`         | `--privileged` — all caps, all devices                                 | Immediate and total, by a slightly longer road.                                                                                                             |
-| **`podman-as-docker`**     | **`CAP_SYS_ADMIN`** plus three Docker/runc `securityOpt` flags (below) | Escape requires an actual kernel/mount exploit, and on Docker Desktop lands in the LinuxKit VM, not on macOS. Nothing on the host is reachable *by design*. |
+| **`podman-as-docker`**     | **`CAP_SYS_ADMIN`** plus three Docker/runc `securityOpt` flags (below) | Escape requires an actual kernel/mount exploit, and on Docker Desktop lands in the LinuxKit VM, not on macOS. Nothing on the host is reachable _by design_. |
 
 This Feature declares all four **unconditionally**, the moment you add it:
 
@@ -104,15 +104,15 @@ idempotent. Never fails the start — the `docker` CLI shim works without it; on
 
 ## Options
 
-| Option                        | Type                                            | Default       | Meaning                                                                                                                                                                                                                                                                                                                                                                                                     |
-| ----------------------------- | ----------------------------------------------- | ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `dockerShim`                  | boolean                                         | `true`        | Install `podman-docker`, providing `/usr/bin/docker`. Also pulls in Compose v1 (`docker-compose` 1.29.2, the abandoned Python implementation) as a package dependency on Ubuntu — see `composeProvider`.                                                                                                                                                                                                    |
+| Option                        | Type                                            | Default       | Meaning                                                                                                                                                                                                                                                                                                                                                                                                    |
+| ----------------------------- | ----------------------------------------------- | ------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `dockerShim`                  | boolean                                         | `true`        | Install `podman-docker`, providing `/usr/bin/docker`. Also pulls in Compose v1 (`docker-compose` 1.29.2, the abandoned Python implementation) as a package dependency on Ubuntu — see `composeProvider`.                                                                                                                                                                                                   |
 | `storageDriver`               | enum `auto`\|`vfs`\|`overlay`                   | `auto`        | `auto` probes the graphroot's **backing filesystem** at create time. A real filesystem (the normal case) gets plain `overlay`: native kernel overlay, no `/dev/fuse`, no `mount_program`. An overlay-on-overlay backing (no volume present) gets `vfs`, because `overlay` there fails every container start outright. `overlay` forces the driver regardless of the probe. `vfs` always works but is slow. |
-| `rootlessNetworkCmd`          | enum `host`\|`slirp4netns`\|`pasta`             | `host`        | Rootless network backend. Defaults to `host` — the nested container shares the devcontainer's own network namespace — because both userspace backends need `/dev/net/tun`, which is absent by default and **not grantable by a Feature**. See [Networking](#networking).                                                                                                                                     |
-| `unqualifiedSearchRegistries` | string                                          | `"docker.io"` | Comma-separated. Written to a `registries.conf` drop-in so `docker run ubuntu` resolves the way Docker does. Stock Podman leaves this unset and a bare image name then fails or prompts.                                                                                                                                                                                                                    |
-| `dockerApiSocket`             | boolean                                         | `true`        | Run `podman system service` at start time on the fixed socket path, and export `DOCKER_HOST` naming it. `false` skips starting the service; `DOCKER_HOST` is still exported (`containerEnv` cannot be conditional on an option) and names a path nothing serves — unset it in your own `remoteEnv` if you turn this off.                                                                                     |
-| `composeProvider`             | enum `none`\|`podman-compose`\|`docker-compose` | `none`        | What backs `docker compose`. `none` installs nothing extra — `dockerShim` already pulls in Compose v1 as a package dependency on Ubuntu, so `docker compose` may already work even at `none`.                                                                                                                                                                                                               |
-| `silenceEmulationNotice`      | boolean                                         | `true`        | Create `/etc/containers/nodocker`, suppressing the `Emulate Docker CLI using podman` banner `podman-docker` prints on every `docker` invocation. Scripts that parse `docker` output break without it.                                                                                                                                                                                                       |
+| `rootlessNetworkCmd`          | enum `host`\|`slirp4netns`\|`pasta`             | `host`        | Rootless network backend. Defaults to `host` — the nested container shares the devcontainer's own network namespace — because both userspace backends need `/dev/net/tun`, which is absent by default and **not grantable by a Feature**. See [Networking](#networking).                                                                                                                                   |
+| `unqualifiedSearchRegistries` | string                                          | `"docker.io"` | Comma-separated. Written to a `registries.conf` drop-in so `docker run ubuntu` resolves the way Docker does. Stock Podman leaves this unset and a bare image name then fails or prompts.                                                                                                                                                                                                                   |
+| `dockerApiSocket`             | boolean                                         | `true`        | Run `podman system service` at start time on the fixed socket path, and export `DOCKER_HOST` naming it. `false` skips starting the service; `DOCKER_HOST` is still exported (`containerEnv` cannot be conditional on an option) and names a path nothing serves — unset it in your own `remoteEnv` if you turn this off.                                                                                   |
+| `composeProvider`             | enum `none`\|`podman-compose`\|`docker-compose` | `none`        | What backs `docker compose`. `none` installs nothing extra — `dockerShim` already pulls in Compose v1 as a package dependency on Ubuntu, so `docker compose` may already work even at `none`.                                                                                                                                                                                                              |
+| `silenceEmulationNotice`      | boolean                                         | `true`        | Create `/etc/containers/nodocker`, suppressing the `Emulate Docker CLI using podman` banner `podman-docker` prints on every `docker` invocation. Scripts that parse `docker` output break without it.                                                                                                                                                                                                      |
 
 ## Storage
 
@@ -180,7 +180,7 @@ print the identical string:
    `capsh --decode=$(cat /proc/self/status | grep CapBnd | cut -f2)` and look for
    `cap_sys_admin`.
 2. `/etc/subuid`/`/etc/subgid` has no range for the remote user. A range is added at build
-   time, but a base image that renumbers the remote user's UID *after* the image builds (the
+   time, but a base image that renumbers the remote user's UID _after_ the image builds (the
    devcontainer CLI's UID-remap step) can orphan it. Check
    `grep "^$(id -un):" /etc/subuid /etc/subgid`.
 
@@ -205,7 +205,7 @@ unless you overrode `mounts` yourself), or set `storageDriver: vfs`.
 
 **`.../podman-as-docker/service.log: Permission denied`**, and the API socket never appears
 — `/run/devc-features/podman-as-docker` is owned by a UID that no longer matches the remote
-user. The devcontainer CLI's UID-remap step renumbers the remote user *after* the image
+user. The devcontainer CLI's UID-remap step renumbers the remote user _after_ the image
 builds and repairs only `$HOME`, orphaning this directory. The start-time step repairs it on
 every start, so this should self-heal — if it doesn't, `sudo` may be missing or may require
 a password (the repair is `sudo -n`, so it skips rather than hangs). Check with
@@ -236,9 +236,9 @@ on a native Linux Docker Engine host.
 - **`DOCKER_HOST`.** This Feature sets a unix socket. A dind-sidecar setup uses
   `tcp://dind:2375` instead — two strategies for one variable, and they cannot both be in
   effect.
-- **`devc-bridge`.** Reaching the *host's* Docker through the bridge is a different,
+- **`devc-bridge`.** Reaching the _host's_ Docker through the bridge is a different,
   unrelated answer. This Feature is entirely container-local.
-- **"rootless"** here means rootless *inside the container*, as the remote user. It does not
+- **"rootless"** here means rootless _inside the container_, as the remote user. It does not
   mean rootless Docker on the host, and — given `capAdd` — it does not mean the devcontainer
   itself is unprivileged.
 - **`/etc/containers/nodocker`** is `podman-docker`'s own convention, not a `devc-features`

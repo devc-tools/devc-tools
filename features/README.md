@@ -12,15 +12,15 @@ declared in your `devcontainer.json`:
 Every Feature here works from a bare `{}` — no required options. Some want a mount from
 your own `devcontainer.json` to be useful; each README carries the exact line to paste.
 
-| Feature                                                | Ref                                                | What it does                                                                                                                                        |
+| Feature                                                | Ref                                                | What it does                                                                                                                                          |
 | ------------------------------------------------------ | -------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [agents](agents/README.md)                             | `ghcr.io/devc-tools/features/agents`               | Installs coding-agent CLIs — Claude Code, and optionally Copilot, pi and Herdr — and keeps all of Claude Code's state in one place.                 |
-| [bash-config](bash-config/README.md)                   | `ghcr.io/devc-tools/features/bash-config`          | Sources your project's and your personal `bashrc_*.sh` scripts in every interactive shell.                                                          |
-| [devc-bridge](devc-bridge/README.md)                   | `ghcr.io/devc-tools/features/devc-bridge`          | Installs the devc-bridge client, so code in the container can run allowlisted commands on your host.                                                |
-| [devc-config](devc-config/README.md)                   | `ghcr.io/devc-tools/features/devc-config`          | Runs your own `devc-post-create.sh` on every container create, and adds devc's bash prompt and terminal title.                                      |
+| [agents](agents/README.md)                             | `ghcr.io/devc-tools/features/agents`               | Installs coding-agent CLIs — Claude Code, and optionally Copilot, pi and Herdr — and keeps all of Claude Code's state in one place.                   |
+| [bash-config](bash-config/README.md)                   | `ghcr.io/devc-tools/features/bash-config`          | Sources your project's and your personal `bashrc_*.sh` scripts in every interactive shell.                                                            |
+| [devc-bridge](devc-bridge/README.md)                   | `ghcr.io/devc-tools/features/devc-bridge`          | Installs the devc-bridge client, so code in the container can run allowlisted commands on your host.                                                  |
+| [devc-config](devc-config/README.md)                   | `ghcr.io/devc-tools/features/devc-config`          | Runs your own `devc-post-create.sh` on every container create, and adds devc's bash prompt and terminal title.                                        |
 | [git-container-config](git-container-config/README.md) | `ghcr.io/devc-tools/features/git-container-config` | Re-applies the user-scope git settings a container needs and cannot keep — LFS filters, `worktree.useRelativePaths`, `safe.directory`, your identity. |
-| [node-nvmrc](node-nvmrc/README.md)                     | `ghcr.io/devc-tools/features/node-nvmrc`           | Makes the Node version your workspace pins in `.nvmrc` the one every process in the container gets.                                                 |
-| [podman-as-docker](podman-as-docker/README.md)         | `ghcr.io/devc-tools/features/podman-as-docker`     | Makes `docker` commands work via Podman — no Docker daemon, no socket mount. **Read its privilege cost before enabling it.**                        |
+| [node-nvmrc](node-nvmrc/README.md)                     | `ghcr.io/devc-tools/features/node-nvmrc`           | Makes the Node version your workspace pins in `.nvmrc` the one every process in the container gets.                                                   |
+| [podman-as-docker](podman-as-docker/README.md)         | `ghcr.io/devc-tools/features/podman-as-docker`     | Makes `docker` commands work via Podman — no Docker daemon, no socket mount. **Read its privilege cost before enabling it.**                          |
 
 ## Version tags
 

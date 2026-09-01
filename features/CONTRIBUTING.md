@@ -1,6 +1,6 @@
 # Contributing to the Features collection
 
-Maintainer notes for `features/`. Everything a *consumer* of a Feature needs is in
+Maintainer notes for `features/`. Everything a _consumer_ of a Feature needs is in
 [README.md](README.md) and each Feature's own README; everything about building,
 testing and publishing them is here.
 
@@ -384,7 +384,7 @@ through an option here even if one existed.
 `devc up` contributes this Feature to every container it starts via
 `--additional-features`; devc's bundled `devcontainer.json` does not declare it. See
 `devc-core/overlay.ts`'s `DEVC_CONFIG_FEATURE` and `withBaselineFeatures`. devc matches
-by Feature *name*, not exact id string, so a consumer declaring it under any tag replaces
+by Feature _name_, not exact id string, so a consumer declaring it under any tag replaces
 devc's entry rather than adding a second — which matters because the devcontainer CLI
 dedupes `--additional-features` against a config's `features` by exact id string, and two
 tags of the same Feature would both install.
@@ -397,7 +397,7 @@ manifest's `containerEnv` PATH entry, the manifest's `postCreateCommand`, `insta
 `test/install_options_test.sh` catches a rename.
 
 `installsAfter` names the node Feature rather than `dependsOn`, because `dependsOn` would
-install it with *this* Feature choosing its `version`, `pnpmVersion` and `nvmVersion`.
+install it with _this_ Feature choosing its `version`, `pnpmVersion` and `nvmVersion`.
 The ordering also puts this Feature's `ENV` line after the node Feature's, which is what
 lands `pin/bin` ahead of `$NVM_DIR/current/bin` — `pin_outranks_current` is the only test
 that catches a regression there.

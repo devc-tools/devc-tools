@@ -22,7 +22,7 @@ It installs neither git nor git-lfs — see [What this is not](#what-this-is-not
 ## Why every create, not just the first
 
 `~/.gitconfig` is container-local and wiped on every rebuild, while the repo's working tree
-and `.git` are host bind mounts. Anything git needs at *user* scope therefore has to be
+and `.git` are host bind mounts. Anything git needs at _user_ scope therefore has to be
 re-applied every time the container is (re)created — that is why this is a
 `postCreateCommand` rather than something baked into the image.
 

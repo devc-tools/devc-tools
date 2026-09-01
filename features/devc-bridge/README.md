@@ -29,7 +29,7 @@ the address and the mount target above.
 soon as you have run `devc-bridge start` once — see
 [devc-bridge Setup](../../devc-bridge/README.md#setup-macos-host).
 
-If it does not, container creation **fails** on *your* mount with a Docker error like:
+If it does not, container creation **fails** on _your_ mount with a Docker error like:
 
 ```
 Error response from daemon: invalid mount config ...
@@ -37,7 +37,7 @@ bind source path does not exist: /Users/you/.config/devc-bridge/run
 ```
 
 `--mount type=bind` errors on a missing source rather than creating it, and nothing in the
-container can fix that: a Feature's lifecycle hooks all run *inside* the container, and
+container can fix that: a Feature's lifecycle hooks all run _inside_ the container, and
 Features cannot declare an `initializeCommand`, the one hook that runs on the host.
 
 devc projects have the same prerequisite — devc creates no bridge directories either. What
@@ -68,7 +68,7 @@ Two details worth knowing:
 - **A failed or unverifiable download fails the build.** Better than a container that looks
   fine until the first `devc-bridge` call.
 - **You can shadow the client with a local build.** Bind-mount a locally built client
-  *directory* over `/usr/local/share/devc-bridge/client` and it replaces the downloaded
+  _directory_ over `/usr/local/share/devc-bridge/client` and it replaces the downloaded
   copy, live — the symlink follows it.
 
 Smoke test, from inside the container:
@@ -87,7 +87,7 @@ The CLI matches: an object mount is re-serialized as `type=…,src=…,dst=…`,
 everything else.
 
 `devcontainer.json` is different, and says so: its schema takes `anyOf: [Mount, string]`
-and defers to *"Docker's documentation for the --mount option"*. There, `readonly` is
+and defers to _"Docker's documentation for the --mount option"_. There, `readonly` is
 specified rather than accidental. So the mount belongs to you.
 
 Two bonuses: you can adjust the mount without fighting the Feature (a Feature-declared

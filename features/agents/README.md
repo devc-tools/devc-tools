@@ -20,14 +20,14 @@ empty seed directory for you to mount onto, and points `~/.claude.json` at
 
 ## Options
 
-| Option              | Default | Meaning                                                                                                                                 |
-| ------------------- | ------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
-| `installClaudeCli`  | `true`  | Install the Claude Code CLI.                                                                                                            |
-| `installCopilotCli` | `false` | Install the GitHub Copilot CLI too.                                                                                                     |
-| `installPiCli`      | `false` | Install the pi coding agent CLI too. **Requires Node.js in the image** — see [Node.js and pi](#nodejs-and-pi).                          |
-| `installHerdr`      | `false` | Install the Herdr terminal multiplexer too. Ships a static binary — no extra prerequisite.                                              |
-| `piPackages`        | `""`    | Comma-separated pi package sources to install. **Requires `installPiCli: true`** — see [Packages and plugins](#packages-and-plugins).   |
-| `herdrPlugins`      | `""`    | Comma-separated Herdr plugins, in GitHub shorthand (`owner/repo[/subdir]`). **Requires `installHerdr: true`**.                          |
+| Option              | Default | Meaning                                                                                                                               |
+| ------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| `installClaudeCli`  | `true`  | Install the Claude Code CLI.                                                                                                          |
+| `installCopilotCli` | `false` | Install the GitHub Copilot CLI too.                                                                                                   |
+| `installPiCli`      | `false` | Install the pi coding agent CLI too. **Requires Node.js in the image** — see [Node.js and pi](#nodejs-and-pi).                        |
+| `installHerdr`      | `false` | Install the Herdr terminal multiplexer too. Ships a static binary — no extra prerequisite.                                            |
+| `piPackages`        | `""`    | Comma-separated pi package sources to install. **Requires `installPiCli: true`** — see [Packages and plugins](#packages-and-plugins). |
+| `herdrPlugins`      | `""`    | Comma-separated Herdr plugins, in GitHub shorthand (`owner/repo[/subdir]`). **Requires `installHerdr: true`**.                        |
 
 That is the whole option surface — there are no path options. Every path this Feature
 touches is either fixed (the seed) or derived from the remote user's own home
@@ -44,11 +44,11 @@ defaults true.
 Three paths, three lifetimes. Getting one confused for another is the whole failure mode
 this Feature exists to prevent:
 
-| Path                                                | What it is                                                                                                        | Lifetime                                                       |
-| --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------- |
-| `~/.claude`                                         | Claude Code's own state — `projects/`, `todos/`, credentials, settings, and `.claude.json`.                        | Backed by a volume this Feature declares, so it survives a rebuild. |
-| `/usr/local/share/devc-features/agents/claude-seed` | **Fixed.** Where you bind-mount your own host config. Created empty; this Feature only ever reads it.             | Same as your bind mount; empty and harmless if you mount none. |
-| a host seed directory                               | **Your** config — `CLAUDE.md`, `settings.json`, `statusline.sh`. The one thing you decide, with a mount.          | Lives on your host; the container only ever reads it.          |
+| Path                                                | What it is                                                                                               | Lifetime                                                            |
+| --------------------------------------------------- | -------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- |
+| `~/.claude`                                         | Claude Code's own state — `projects/`, `todos/`, credentials, settings, and `.claude.json`.              | Backed by a volume this Feature declares, so it survives a rebuild. |
+| `/usr/local/share/devc-features/agents/claude-seed` | **Fixed.** Where you bind-mount your own host config. Created empty; this Feature only ever reads it.    | Same as your bind mount; empty and harmless if you mount none.      |
+| a host seed directory                               | **Your** config — `CLAUDE.md`, `settings.json`, `statusline.sh`. The one thing you decide, with a mount. | Lives on your host; the container only ever reads it.               |
 
 `~/.claude.json` is a symlink into `~/.claude`, with no lifetime of its own — see
 [`~/.claude.json`](#claudejson).
@@ -66,7 +66,7 @@ At **create time**, before any `postCreateCommand` of your own:
 1. **Ownership repair.** If `~/.claude` is not owned by you, a non-recursive `sudo chown`
    fixes it. Non-recursive on purpose — subpaths like `skills/` may be host bind mounts
    and must not be chowned.
-2. **Seed links.** Every top-level *file* in the seed directory is symlinked into
+2. **Seed links.** Every top-level _file_ in the seed directory is symlinked into
    `~/.claude` — host edits are live, host file modes (the statusline exec bit) survive,
    and deletions on the host prune the link on the next create. Directories are ignored by
    design: a `~/.claude/skills/` mount point would either get a nested `skills/skills` or
@@ -147,7 +147,7 @@ owned by the remote user, so Docker seeds the empty volume from it.
 
 Claude Code resolves its config and auth file as `$CLAUDE_CONFIG_DIR/.claude.json`,
 falling back to `$HOME/.claude.json`. It is therefore a **sibling** of `~/.claude`, not a
-member of it — and a volume can only mount at a *directory*, so it cannot be a mount
+member of it — and a volume can only mount at a _directory_, so it cannot be a mount
 target on its own. Symlinking it into `~/.claude` is what lets one mount capture
 everything, and puts it next to the `.credentials.json` and `history.jsonl` it belongs
 with.
@@ -208,7 +208,7 @@ via a wrapper on `PATH` ahead of `pin/bin`.
 ## Packages and plugins
 
 `piPackages` and `herdrPlugins` install at **build time**, because neither `~/.pi` nor
-`~/.config/herdr` is a mount: anything either CLI installs in a *running* container lives
+`~/.config/herdr` is a mount: anything either CLI installs in a _running_ container lives
 only in that container's writable layer and is gone on the next rebuild.
 
 ```jsonc
