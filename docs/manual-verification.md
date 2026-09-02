@@ -975,10 +975,39 @@ Also ruled out:
 - Note `cgroups = "disabled"` is actively harmful with `runc` — it breaks the **working**
   non-root configuration too. Do not add it to a shared drop-in.
 
-**Untested, and the only direction left:** run the podman service as a dedicated **non-root**
-user and have the uid-0 remote user drive it over its socket (the Feature's `dockerApiSocket`
-option is the existing machinery). `podman run` invoked directly as root would still fail, so the
-`docker` shim would have to route through the socket.
+#### The socket-service arrangement — works, with a real boundary
+
+Measured. Run the podman API service as a dedicated **non-root** user and have the uid-0 remote
+user drive it over that socket (`podman system service unix:///run/podman/podman.sock` as
+`vscode`; client sets `DOCKER_HOST`/`CONTAINER_HOST` to it). The Feature's `dockerApiSocket`
+option is the existing machinery for this.
+
+| Check (client is uid 0, service is `vscode`) | Result |
+| --- | --- |
+| service reachable, reports `rootless=true` | OK |
+| `podman --remote run`, and plain `docker run` via `DOCKER_HOST` | OK |
+| default (private) netns | OK |
+| `docker build` (with `BUILDAH_ISOLATION=chroot`) | OK |
+| created network + container-name DNS | OK |
+| bind-mount a project file **in, read-only** | OK |
+
+So container *execution* is fully recovered. The boundary is that **the service user is a
+different identity from the remote user**, and it shows up the moment a nested container writes
+into the workspace:
+
+| | Service user (`vscode`) |
+| --- | --- |
+| read a `644` project file | **yes** — world-readable |
+| write into a `755` project directory owned by the remote user | **no** |
+| where a write does land (e.g. a `777` directory) | file is owned by `vscode` → host subuid **101000**, orphaned for the developer |
+
+Both measured directly. So this arrangement suits a workload that **reads** the project and talks
+over the network — a server container under test, say — and does **not** suit one that writes
+build output back into the workspace. Anything doing that needs the service user and the remote
+user to be the same identity, which is the thing rootless makes impossible.
+
+Loosening workspace permissions (group-writable dirs, a shared gid) would trade the write failure
+for the orphaned-ownership problem, not remove it. Not measured, and not obviously worth it.
 
 ### 13.7 The toolchain at uid 0 — no problems found
 
