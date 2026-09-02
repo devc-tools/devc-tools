@@ -1131,7 +1131,7 @@ No `capAdd`, no `containerEnv`, `updateRemoteUserUID` at its default. What the t
 | --- | --- | --- |
 | V-2 `docker inspect … .HostConfig.CapAdd` | `[]` | `[]` |
 | V-2 `CapBnd` inside, `capsh --decode` | `00000000a80425fb`, no `cap_sys_admin` | same |
-| V-2 `SecurityOpt` entries / `MaskedPaths` | 2 (seccomp JSON, apparmor — measured before its removal, see V-9) / 0 | 2 / 0 |
+| V-2 `SecurityOpt` entries / `MaskedPaths` | 2 (seccomp JSON, apparmor) / 0 | 2 / 0 |
 | `id` under `devcontainer exec` | `uid=0(vscode) gid=0(root)`, `HOME=/home/vscode` | `uid=1000(vscode)` |
 | build log | `rootless-remap: vscode remapped to uid 0/gid 0 (was 1000); home /home/vscode kept` · `uid 1000 held by devc-uid-hold` · `podman-as-docker: nested on a rootless daemon (container uid 0 is host uid 1000)` | `rootless-remap: rootful daemon (identity uid map) — nothing to remap` |
 | `podman info` | `rootless=true runtime=runc driver=overlay` | `rootless=true runtime=runc driver=overlay` |

@@ -1,7 +1,7 @@
 #!/bin/bash
 # Scenario: the claim this Feature makes since 0.2.0 — nested podman with NO added capability.
 # The scenario's runArgs carry only the seccomp profile and /dev/net/tun; the Feature declares
-# systempaths=unconfined and nothing else. Private networking
+# systempaths=unconfined and apparmor=unconfined and nothing else. Private networking
 # (slirp4netns) is on, so this also exercises the network path the old SYS_ADMIN grant used
 # to cover. See docs/manual-verification.md §13.9 and devc-dev's rootless findings § Zero
 # capabilities for the measurements behind every check here.

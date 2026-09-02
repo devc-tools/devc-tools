@@ -2,7 +2,7 @@
   "id": "podman-as-docker",
   "version": "0.2.0",
   "name": "Podman as Docker",
-  "description": "Makes `docker` commands work inside a devcontainer by installing Podman and the podman-docker shim — no Docker daemon, no /var/run/docker.sock bind mount, no privileged sibling container, and since 0.2.0 NO added capability: capAdd is empty. What it still costs is two things. (1) securityOpt systempaths=unconfined (declared here): without it a nested container cannot mount its own /proc. (2) A seccomp profile YOU commit to your repo and reference from runArgs: Docker's default profile gates the namespace and mount syscalls rootless Podman needs behind CAP_SYS_ADMIN, and a Feature cannot supply a seccomp file (the Docker CLI reads it on the host). Copy this Feature's seccomp-podman.json into .devcontainer/ and add `--security-opt seccomp=${localWorkspaceFolder}/.devcontainer/seccomp-podman.json` to runArgs — the README has the exact lines and the privilege analysis. Inside the image newuidmap/newgidmap carry file capabilities instead of setuid, which is what lets an unprivileged user map its own namespace. Declares its own per-devcontainer storage volume, so a bare `{}` already gets native overlay storage that survives a rebuild; networking defaults to --network=host (no device needed) unless rootlessNetworkCmd is changed and --device=/dev/net/tun is added to runArgs. On a rootless Docker host (detected from /proc/self/uid_map at build time) it also configures itself for nesting — pair it with the rootless-remap Feature to keep the workspace writable there.",
+  "description": "Makes `docker` commands work inside a devcontainer by installing Podman and the podman-docker shim — no Docker daemon, no /var/run/docker.sock bind mount, no privileged sibling container, and since 0.2.0 NO added capability: capAdd is empty. What it still costs is two things. (1) securityOpt systempaths=unconfined (declared here): without it a nested container cannot mount its own /proc. apparmor=unconfined is also declared for rootful native Linux hosts, where the docker-default profile blocks Podman's mounts; it is a no-op on Docker Desktop and on rootless daemons. (2) A seccomp profile YOU commit to your repo and reference from runArgs: Docker's default profile gates the namespace and mount syscalls rootless Podman needs behind CAP_SYS_ADMIN, and a Feature cannot supply a seccomp file (the Docker CLI reads it on the host). Copy this Feature's seccomp-podman.json into .devcontainer/ and add `--security-opt seccomp=${localWorkspaceFolder}/.devcontainer/seccomp-podman.json` to runArgs — the README has the exact lines and the privilege analysis. Inside the image newuidmap/newgidmap carry file capabilities instead of setuid, which is what lets an unprivileged user map its own namespace. Declares its own per-devcontainer storage volume, so a bare `{}` already gets native overlay storage that survives a rebuild; networking defaults to --network=host (no device needed) unless rootlessNetworkCmd is changed and --device=/dev/net/tun is added to runArgs. On a rootless Docker host (detected from /proc/self/uid_map at build time) it also configures itself for nesting — pair it with the rootless-remap Feature to keep the workspace writable there.",
   "documentationURL": "https://github.com/devc-tools/devc-tools/tree/main/features/podman-as-docker",
   "licenseURL": "https://github.com/devc-tools/devc-tools/blob/main/LICENSE",
   "options": {
@@ -13,21 +13,13 @@
     },
     "storageDriver": {
       "type": "string",
-      "enum": [
-        "auto",
-        "vfs",
-        "overlay"
-      ],
+      "enum": ["auto", "vfs", "overlay"],
       "default": "auto",
       "description": "Podman's storage driver, decided at container-create time. 'auto' probes the graphroot's backing filesystem: a real filesystem (the normal case — this Feature declares its own volume there) gets plain 'overlay', no device and no mount_program needed; an overlay-on-overlay backing (no volume present) gets 'vfs', because 'overlay' there does not merely get slow, it fails every container start outright. 'overlay' forces the driver regardless of what the probe would choose — safe when a volume is present, a hard failure otherwise. 'vfs' always works but is slow and disk-hungry."
     },
     "rootlessNetworkCmd": {
       "type": "string",
-      "enum": [
-        "host",
-        "slirp4netns",
-        "pasta"
-      ],
+      "enum": ["host", "slirp4netns", "pasta"],
       "default": "host",
       "description": "Rootless network backend. Defaults to 'host' — the nested container shares the devcontainer's own network namespace (no isolation between nested containers, real port collisions) — because that is the only mode needing zero devices, and a Feature cannot grant /dev/net/tun. Both 'slirp4netns' and 'pasta' need /dev/net/tun pasted into your own devcontainer.json's runArgs (`--device=/dev/net/tun`); set without it, every `docker run` fails loudly rather than silently falling back."
     },
@@ -43,11 +35,7 @@
     },
     "composeProvider": {
       "type": "string",
-      "enum": [
-        "none",
-        "podman-compose",
-        "docker-compose"
-      ],
+      "enum": ["none", "podman-compose", "docker-compose"],
       "default": "none",
       "description": "What backs `docker compose`. 'none' installs nothing extra — note that dockerShim already pulls in Compose v1 (docker-compose 1.29.2, the abandoned Python implementation) as a package dependency on Ubuntu, so `docker compose`/`docker-compose` may already exist even at 'none'. 'podman-compose' or 'docker-compose' (a newer one, if available) installs that package explicitly."
     },
@@ -57,9 +45,7 @@
       "description": "Create /etc/containers/nodocker, suppressing the 'Emulate Docker CLI using podman' banner podman-docker prints on every `docker` invocation. Off leaves the banner in place; scripts that parse `docker` output can break without this."
     }
   },
-  "securityOpt": [
-    "systempaths=unconfined"
-  ],
+  "securityOpt": ["systempaths=unconfined", "apparmor=unconfined"],
   "containerEnv": {
     "DOCKER_HOST": "unix:///run/devc-features/podman-as-docker/podman.sock"
   },
