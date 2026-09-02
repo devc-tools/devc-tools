@@ -53,9 +53,13 @@ What the Feature still declares, and what each costs:
 | Declared | Needed on | What it opens |
 | --- | --- | --- |
 | `securityOpt: systempaths=unconfined` | every host | Removes Docker's read-only masking of `/proc/sys` and neighbours. Required: without it the nested runtime cannot mount a fresh `proc` (the kernel only allows an unprivileged `proc` mount when an existing one is fully visible). With no capability in the container this is mostly information exposure — the kernel's own permission checks on `/proc/sys` remain, and nothing here can pass them. |
-| `securityOpt: apparmor=unconfined` | rootful native Linux only | Removes the `docker-default` AppArmor profile, whose blanket `deny mount` blocks Podman's storage setup there. A no-op on Docker Desktop (no AppArmor) and on rootless daemons. |
 | your `runArgs`: the seccomp profile | every host | Allows user-namespace creation and the mount syscalls **inside** namespaces the container owns — what any unprivileged user on a stock Linux desktop can do. It is a larger kernel attack surface than a default devcontainer (unprivileged user namespaces have been the entry point for several past kernel privilege-escalation bugs, which is why some distributions restrict them), but an escape once again needs a kernel bug rather than a known technique. |
 | your `runArgs`: `--device=/dev/net/tun` | only with private nested networking | A tun device. Low risk. |
+
+Earlier versions also declared `apparmor=unconfined` for rootful native Linux hosts, where the
+`docker-default` profile's `deny mount` blocked Podman's storage setup when it ran with
+`CAP_SYS_ADMIN`. 0.2.0 does not declare it; the CI workflow on a rootful `ubuntu-latest` runner is
+the check that it is not needed now that Podman mounts inside a user namespace of its own.
 
 The honest comparison, then:
 
@@ -81,7 +85,6 @@ services:
   app:
     security_opt:
       - 'systempaths=unconfined'
-      - 'apparmor=unconfined'
       - 'seccomp=./.devcontainer/seccomp-podman.json'
     # Only if you also want real network isolation (see Networking below):
     devices: ['/dev/net/tun']
@@ -246,10 +249,10 @@ to `slirp4netns`/`pasta` without the matching `--device=/dev/net/tun` in your ow
 See [Networking](#networking).
 
 **`mount ...: permission denied`** during Podman's own storage setup, on a native Linux Docker
-host — the `docker-default` AppArmor profile is enforced and `apparmor=unconfined` did not
-reach the running container. This shows up if something strips or overrides Feature-declared
-`securityOpt`. Confirm with `cat /proc/self/attr/current`; `docker-default (enforce)` means the
-flag did not take.
+host — the `docker-default` AppArmor profile is enforced and its blanket `deny mount` reached
+Podman. Confirm with `cat /proc/self/attr/current`; `docker-default (enforce)` means so. Add
+`--security-opt apparmor=unconfined` to your `runArgs` as the workaround, and please report it:
+0.2.0 stopped declaring it, on the strength of the CI run on a rootful `ubuntu-latest` runner.
 
 **`crun: mount `proc` to `proc`: Operation not permitted`** (or runc's `error mounting "proc"`)
 — `systempaths=unconfined` did not reach the container. Same diagnosis: something stripped the
@@ -274,9 +277,8 @@ a password (the repair is `sudo -n`, so it skips rather than hangs). Check with
 
 ## What this deliberately does not solve
 
-- **It costs `systempaths=unconfined`, a seccomp allowance for the namespace and mount
-  syscalls, and (on rootful native Linux) `apparmor=unconfined`.** No capability, but not
-  nothing — see the top of this file.
+- **It costs `systempaths=unconfined` and a seccomp allowance for the namespace and mount
+  syscalls.** No capability, but not nothing — see the top of this file.
 - **Not a Docker daemon.** Anything talking to `dockerd` internals rather than the REST API
   may not work; Buildx is the usual casualty.
 - **Not host Docker.** Containers here are invisible to the host's `docker ps` and vice
