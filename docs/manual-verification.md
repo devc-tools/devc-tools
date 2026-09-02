@@ -1102,6 +1102,124 @@ devcontainer will not resolve (this is why `devcontainer features test` cannot r
 socket-mounted container); published ports land on the host; and containers outlive the
 devcontainer. Nested podman has none of these problems.
 
+### 13.9 Zero capabilities — `podman-as-docker` 0.2.0 and `rootless-remap` 0.1.0
+
+From `devc-dev`: `.plans/pending/nested-podman-zero-caps.md`; the measurements it rests on are in
+`devc-dev`: `docs/rootless-linux-findings.md` § Disproof. Run 2026-09-02 on two hosts, the same
+files on both: **macOS Docker Desktop 29.7.2** (`npx @devcontainers/cli@0.89.0`) and the
+**rootless Docker 29.7.2 VM** (Ubuntu 24.04 arm64, `devcontainer` 0.89.0, host user `ubuntu`
+uid 1000). Both Features from the `nested-podman-zero-caps` branch working tree, referenced as
+local Features.
+
+The fixture (`devc-dev`: `docs/rootless-nested-e2e/zero-caps/devcontainer.json` with
+`./rootless-remap` and `./podman-as-docker` in place of the prototype):
+
+```jsonc
+{
+  "image": "mcr.microsoft.com/devcontainers/base:ubuntu-24.04",
+  "remoteUser": "vscode",
+  "features": { "./rootless-remap": {}, "./podman-as-docker": { "rootlessNetworkCmd": "slirp4netns" } },
+  "runArgs": ["--security-opt", "seccomp=${localWorkspaceFolder}/.devcontainer/seccomp-podman.json",
+              "--device=/dev/net/tun"]
+}
+```
+
+No `capAdd`, no `containerEnv`, `updateRemoteUserUID` at its default. What the two hosts showed
+(V-numbers are the plan's):
+
+| Check | rootless VM | macOS Docker Desktop |
+| --- | --- | --- |
+| V-2 `docker inspect … .HostConfig.CapAdd` | `[]` | `[]` |
+| V-2 `CapBnd` inside, `capsh --decode` | `00000000a80425fb`, no `cap_sys_admin` | same |
+| V-2 `SecurityOpt` entries / `MaskedPaths` | 2 (seccomp JSON, apparmor) / 0 | 2 / 0 |
+| `id` under `devcontainer exec` | `uid=0(vscode) gid=0(root)`, `HOME=/home/vscode` | `uid=1000(vscode)` |
+| build log | `rootless-remap: vscode remapped to uid 0/gid 0 (was 1000); home /home/vscode kept` · `uid 1000 held by devc-uid-hold` · `podman-as-docker: nested on a rootless daemon (container uid 0 is host uid 1000)` | `rootless-remap: rootful daemon (identity uid map) — nothing to remap` |
+| `podman info` | `rootless=true runtime=runc driver=overlay` | `rootless=true runtime=runc driver=overlay` |
+| V-3 (1) edit an existing `644` workspace file | OK | OK |
+| V-3 (2) file created by the remote user, on the host | `ubuntu:ubuntu` | the Mac user |
+| V-3 (3) `docker run` private netns; nested `uid_map` | OK; `0 1000 1 / 1 10000 50001` | OK; `0 1000 1 / 1 100000 65536` |
+| V-3 (3) egress; run via `podman --url $DOCKER_HOST` | OK; `0` | OK; `0` |
+| V-3 (4) nested write into a `755` dir, shim and socket; host owner; `chmod`/`rm` on host | OK; `ubuntu:ubuntu`; OK | OK; the Mac user; OK |
+| V-3 `docker build`; created network + name DNS | `built`; nginx title | `built`; nginx title |
+| V-4 second `devcontainer exec` sees the first's container; runs | yes; OK | — |
+| V-4 `docker stop`/`start`, `devcontainer up`, run + socket | OK, holder pid re-created | — |
+| runc state dir in the nested config | `/run/user/1000/runc` only (the wrapper drops `USER`; see V-5) | n/a |
+
+**V-5** — `remoteUser: root`, `podman-as-docker` alone (no remap), rootless VM: the first run
+failed every `docker run` with `` `/usr/bin/runc start …` failed: exit status 1 `` and
+`container does not exist`; `find / -name state.json` showed `/run/runc/<id>/state.json`, i.e.
+`runc create` used `/run/runc` while `runc start` looked under `$XDG_RUNTIME_DIR`. Cause: podman
+runs conmon and `runc create` inside its own user namespace as in-namespace root with the caller's
+environment (`USER=root`), and runc's heuristic (`shouldHonorXDGRuntimeDir`: euid 0 in a userns
+honours XDG unless `USER=root`) then differs between create and start. First fix tried: a wrapper
+pinning `--root /run/runc-nested` — worked here, then failed the scenario suite for a non-root
+remote user (`mkdir /run/runc-nested: permission denied`). Final: the nested drop-in names a
+wrapper `env -u USER /usr/bin/runc "$@"`, so both sides honour `XDG_RUNTIME_DIR`. Rerun: every
+V-3 line OK, `CapAdd=[]`, host owner `ubuntu:ubuntu`, state under `/run/user/1000/runc`.
+
+**Subordinate ranges** — found by the VM scenario suite: `with_volume`'s `docker pull busybox`
+failed (quietly, the check was weak) with `potentially insufficient UIDs or GIDs available in
+user namespace (requested 65534:65534 for /home)`: a nested range of `10000:50001` cannot map
+uid 65534 (`nobody`), which many images carry. Both Features now write two lines per name
+covering 1–65535 minus uid 1000 (`1:999`, `1001:64535`), and the shim writes the level-1
+holder's map directly (`1000 0 1 / 1 1 999 / 1001 1001 64535`) because `unshare --map-users`
+does not accumulate. A first cut gave root and the remapped user `1:65535` and podman refused
+it — `the specified mapping 1:65535 in "/etc/subuid" includes the user UID` — because podman
+looks the lines up by `$USER` before `getpwuid`, so at level 1 (uid 1000) it read the remote
+user's lines. Every name excludes 1000 now. Measured after: nested `uid_map`
+`0 1000 1 / 1 1 999 / 1000 1001 64535` on both V-3 and V-5, `docker pull busybox` and
+`docker run busybox ls -ln /home` OK, `with_volume` (now failing on a failed pull) passes.
+
+**V-6** — `rootless-remap` alone, no podman, rootless VM: `uid=0(vscode) gid=0(root)`,
+`HOME=/home/vscode`, `sudo -n true` OK, a created file is `ubuntu:ubuntu` on the host and the host
+can edit and delete it; the container's image is tagged `-uid` (the CLI's update layer ran) and the
+remap survived it.
+
+**V-7** — macOS, the seccomp line removed from `runArgs`: `podman run` → `Error: cannot re-exec
+process` (`cannot clone: Operation not permitted` in `service.log`) — **not** the `newuidmap`
+string the plan predicted, because with file-capability `newuidmap` the filter now bites at
+`clone(CLONE_NEWUSER)` first. `post-start.sh` printed:
+
+```
+podman-as-docker: podman cannot create its user namespace (cannot clone: Operation not permitted).
+podman-as-docker: Almost always: the seccomp profile is not reaching this container. Copy this Feature's
+podman-as-docker: seccomp-podman.json into your repo's .devcontainer/ and add to devcontainer.json:
+podman-as-docker:   "runArgs": ["--security-opt", "seccomp=${localWorkspaceFolder}/.devcontainer/seccomp-podman.json"]
+podman-as-docker: then rebuild. See the podman-as-docker README, § Read this before enabling it.
+```
+
+**V-1 / V-10** — `bash features/podman-as-docker/test/install_options_test.sh` and
+`bash features/rootless-remap/test/install_options_test.sh`: ALL PASS. `cd devc && deno task check &&
+deno task test`: 132 passed. `bash tests/features_test.sh`: ALL PASS. `features/agents`' harness:
+13 failures, identical on `main` (Copilot/pi install cases), untouched.
+
+**Two things found only by running it.** `installsAfter: ["ghcr.io/devc-tools/features/rootless-remap"]`
+made every `devcontainer up` fail with `installsAfter dependency … could not be processed` (the
+CLI fetches the ref's metadata; 403 for an unpublished package) — removed, and not needed since
+both Features write the same subordinate ranges whichever runs first. And the shims were first
+written with an empty holder directory because `SOCKET_DIR` was defined further down `install.sh`
+— the holder worked out of `/holder.pid` by accident; fixed, and pinned by an offline case.
+
+**V-8** — `bash features/podman-as-docker/test/run-features-test.sh --skip-autogenerated`
+(scenarios: `with_tun`, `with_socket`, `with_volume`, `no_shim` on `base:ubuntu`, `zero_caps` on
+`base:ubuntu-24.04`, all with the profile at `/tmp/devc-podman-as-docker-seccomp.json`), then
+`… --base-image mcr.microsoft.com/devcontainers/base:ubuntu-24.04 --skip-scenarios`, then
+`bash features/rootless-remap/test/run-features-test.sh --base-image …ubuntu-24.04`:
+
+| Suite | macOS Docker Desktop | rootless VM |
+| --- | --- | --- |
+| five scenarios | ✅ all five (`zero_caps`: bounding set without `cap_sys_admin`, `CapEff 0`, `Seccomp: 2`, run/egress/build/name DNS/API socket) | ✅ all five (the non-root nested path: remote user uid 1000, no remap) |
+| default scenario (build-only checks) | ✅ | ✅ |
+| `rootless-remap` default scenario | ✅ rootful branch: no marker, not uid 0, no placeholder, silent guard | ✅ rootless branch: marker, `uid 0`, own name and home, placeholder holds host uid, guard exits 0 |
+
+The VM `rootless-remap` scenario first failed `owned by root`: with the remapped user first in
+`/etc/passwd`, `stat -c %U` on a root-owned file prints `vscode`. Both default scenarios compare
+uids now. The macOS CLI was `npx --yes @devcontainers/cli@0.89.0` through a one-line wrapper,
+since `run-features-test.sh` execs `$DEVCONTAINER_CLI` as a single word.
+
+**V-9** (rootful native Linux, `.github/workflows/test-podman-as-docker.yml`) was **not run** — it
+needs the branch pushed. It decides whether `apparmor=unconfined` stays declared.
+
 ## 14. `npm ci` over a volume-mounted `node_modules` — Docker host
 
 From `declared-volume-spike` (M3, M4). Answers `feature-declared-volumes`'s
