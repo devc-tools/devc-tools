@@ -246,10 +246,11 @@ check "  which exists, is executable, and drops USER from runc's environment" ba
   "[ -x '$bindir/runc-nested' ] && grep -qxF 'exec env -u USER /usr/bin/runc \"\$@\"' '$bindir/runc-nested'"
 check "subuid: the remote user (uid 1000 here) gets the outer namespace's range minus its own uid, as two lines" bash -c \
   "grep -qxF 'vscode:1:999' '$subuid' && grep -qxF 'vscode:1001:64535' '$subuid' && ! grep -q '^vscode:100000' '$subuid'"
-check "subuid: root gets the whole range" grep -qxF 'root:1:65535' "$subuid"
+check "subuid: root gets the same two lines (podman reads \$USER's lines, so every name must exclude 1000)" bash -c \
+  "grep -qxF 'root:1:999' '$subuid' && grep -qxF 'root:1001:64535' '$subuid'"
 check "subuid: the name holding uid 1000 is covered exactly twice (two ranges), no duplicates" bash -c \
   "[ \"\$(grep -c '^vscode:' '$subuid')\" -eq 2 ]"
-check "subgid mirrors it" bash -c "grep -qxF 'vscode:1:999' '$subgid' && grep -qxF 'root:1:65535' '$subgid'"
+check "subgid mirrors it" bash -c "grep -qxF 'vscode:1:999' '$subgid' && grep -qxF 'root:1001:64535' '$subgid'"
 check "the rootful default scenario's 100000 range is gone from both files" bash -c \
   "! grep -q ':100000:' '$subuid' && ! grep -q ':100000:' '$subgid'"
 

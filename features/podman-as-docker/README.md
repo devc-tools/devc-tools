@@ -188,8 +188,8 @@ the identity map) that it is nested inside a user namespace, and configures itse
 
 - `runc` with `no_pivot_root` and `keyring = false` in a `containers.conf` drop-in — crun
   cannot create its keyring there and `pivot_root` is refused;
-- subordinate ranges covering the ids the outer namespace actually owns (1–65535, minus each
-  user's own uid) instead of `100000:65536`, which it does not own. Nearly the whole range,
+- subordinate ranges covering the ids the outer namespace actually owns (1–65535, minus uid
+  1000, which podman itself runs as one level down) instead of `100000:65536`, which it does not own. Nearly the whole range,
   because images routinely carry uid 65534 (`nobody`) and a smaller block fails `docker pull`
   with `potentially insufficient UIDs or GIDs available in user namespace`;
 - runc invoked through a wrapper that removes `USER` from its environment. runc keeps

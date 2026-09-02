@@ -276,8 +276,8 @@ EOF
   sed "s#BIN_DIR_PLACEHOLDER#$BIN_DIR#" "$CONTAINERS_ETC_DIR/containers.conf.d/50-devc-podman-nested-rootless.conf" > "$CONTAINERS_ETC_DIR/containers.conf.d/50-devc-podman-nested-rootless.conf.tmp" &&
     mv -f "$CONTAINERS_ETC_DIR/containers.conf.d/50-devc-podman-nested-rootless.conf.tmp" "$CONTAINERS_ETC_DIR/containers.conf.d/50-devc-podman-nested-rootless.conf"
 
-  # Subordinate ranges: nearly every id the outer namespace owns (1-65535), minus the user's
-  # own uid, as two lines. Not the 100000+ default (the outer namespace does not own it) and
+  # Subordinate ranges: nearly every id the outer namespace owns (1-65535), minus uid 1000
+  # (and the user's own uid), as two lines. Not the 100000+ default (the outer namespace does not own it) and
   # not a small block either — images commonly carry uid 65534 (nobody), and a range that
   # cannot map it fails `docker pull` with "potentially insufficient UIDs". Two names: the
   # remote user (level 1 of the shim's two-level launch is written by it directly) and
@@ -286,10 +286,18 @@ EOF
   # it writes identical lines for the same names. (No installsAfter: the CLI fetches an
   # installsAfter ref's metadata from the registry, and an unpublished ref fails every build.)
   ranges_for_uid() { # ranges_for_uid <uid> — prints the range suffixes, one per line
-    case "$1" in
-      0) echo "1:65535" ;;
-      *) [ "$1" -gt 1 ] && echo "1:$(( $1 - 1 ))"; [ "$1" -lt 65535 ] && echo "$(( $1 + 1 )):$(( 65535 - $1 ))" ;;
-    esac
+    # Always excludes 1000: podman runs as uid 1000 one namespace down and reads the lines of
+    # whatever name $USER holds (podman prefers $USER over getpwuid), so every name's lines
+    # must exclude 1000 or podman refuses them ("includes the user UID"). A non-root remote
+    # user with some other uid also excludes its own.
+    _u="$1"
+    if [ "$_u" -eq 0 ] || [ "$_u" -eq 1000 ]; then
+      echo "1:999"; echo "1001:64535"
+    elif [ "$_u" -lt 1000 ]; then
+      [ "$_u" -gt 1 ] && echo "1:$(( _u - 1 ))"; echo "$(( _u + 1 )):$(( 999 - _u ))"; echo "1001:64535"
+    else
+      echo "1:999"; echo "1001:$(( _u - 1001 ))"; [ "$_u" -lt 65535 ] && echo "$(( _u + 1 )):$(( 65535 - _u ))"
+    fi
   }
   _names="$REMOTE_USER"
   [ "$REMOTE_USER" != root ] && _names="$_names root"
@@ -305,7 +313,7 @@ EOF
     done
     cat "$_tmp" > "$_file"; rm -f "$_tmp"
   done
-  echo "podman-as-docker: subuid/subgid set to the outer namespace's full range (minus each user's own uid) for: $_names"
+  echo "podman-as-docker: subuid/subgid set to the outer namespace's range minus uid 1000 for: $_names"
 fi
 
 # --- registry search path ---------------------------------------------------------------

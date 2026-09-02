@@ -46,8 +46,8 @@ some user already holds the target uid, that step logs `User with UID exists` an
 Measured: the update layer is built, and the remap survives.
 
 Finally it writes `/etc/subuid` and `/etc/subgid` ranges for the remote user and for the
-placeholder covering the ids the outer namespace actually owns (1–65535, minus each user's own
-uid) — nearly all of them, because images routinely carry uid 65534. Nested rootless podman
+placeholder covering the ids the outer namespace actually owns (1–65535, minus uid 1000, which
+podman itself runs as one level down) — nearly all of them, because images routinely carry uid 65534. Nested rootless podman
 needs them — see [podman-as-docker](../podman-as-docker/README.md).
 
 **At create time**, a guard asserts that a remapped user really is uid 0. If it is not,
