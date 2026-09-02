@@ -240,8 +240,8 @@ check "  keyring = false" grep -qxF 'keyring = false' "$etcdir/containers.conf.d
 check "  runtime = runc" grep -qxF 'runtime = "runc"' "$etcdir/containers.conf.d/50-devc-podman-nested-rootless.conf"
 check "  no_pivot_root = true" grep -qxF 'no_pivot_root = true' "$etcdir/containers.conf.d/50-devc-podman-nested-rootless.conf"
 check "  runc is the --root-pinning wrapper" grep -qxF "runc = [\"$bindir/runc-nested\"]" "$etcdir/containers.conf.d/50-devc-podman-nested-rootless.conf"
-check "  which exists, is executable, and pins --root" bash -c \
-  "[ -x '$bindir/runc-nested' ] && grep -qxF 'exec /usr/bin/runc --root /run/runc-nested \"\$@\"' '$bindir/runc-nested'"
+check "  which exists, is executable, and drops USER from runc's environment" bash -c \
+  "[ -x '$bindir/runc-nested' ] && grep -qxF 'exec env -u USER /usr/bin/runc \"\$@\"' '$bindir/runc-nested'"
 check "subuid: the remote user gets the in-namespace range, not 100000" bash -c \
   "grep -qxF 'vscode:10000:50001' '$subuid' && ! grep -q '^vscode:100000' '$subuid'"
 check "subuid: so does root" grep -qxF 'root:10000:50001' "$subuid"

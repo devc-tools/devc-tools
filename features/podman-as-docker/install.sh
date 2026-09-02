@@ -190,18 +190,20 @@ SHIM
 done
 echo "podman-as-docker: shims installed in $BIN_DIR: $_shims"
 
-# --- runc with a fixed state directory (used only by the nested drop-in) -------------------------
+# --- runc without USER in its environment (used only by the nested drop-in) --------------------
 #
 # runc decides where to keep container state from a heuristic: euid 0 inside a user namespace
 # honours $XDG_RUNTIME_DIR *unless* $USER is "root". Rootless podman runs conmon and `runc
 # create` inside its own user namespace as in-namespace root with the caller's environment,
 # and `runc start` with only XDG_RUNTIME_DIR and PATH — so when the remote user is literally
 # `root` (USER=root, as VS Code and `devcontainer exec` set it) the two disagree, and every
-# start fails with "container does not exist". Measured (devc-dev findings B-3). Pinning
-# --root sidesteps the heuristic. Written always, referenced only when nested.
+# start fails with "container does not exist". Measured (devc-dev findings B-3). Dropping USER
+# makes both sides honour XDG_RUNTIME_DIR, which podman sets to the same value for both — and
+# that directory is the user's own, so this works for a non-root remote user too (a fixed
+# --root under /run did not). Written always, referenced only when nested.
 cat > "$BIN_DIR/runc-nested" << 'W'
 #!/bin/sh
-exec /usr/bin/runc --root /run/runc-nested "$@"
+exec env -u USER /usr/bin/runc "$@"
 W
 chmod 0755 "$BIN_DIR/runc-nested"
 
