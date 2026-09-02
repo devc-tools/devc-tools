@@ -190,6 +190,21 @@ SHIM
 done
 echo "podman-as-docker: shims installed in $BIN_DIR: $_shims"
 
+# --- runc with a fixed state directory (used only by the nested drop-in) -------------------------
+#
+# runc decides where to keep container state from a heuristic: euid 0 inside a user namespace
+# honours $XDG_RUNTIME_DIR *unless* $USER is "root". Rootless podman runs conmon and `runc
+# create` inside its own user namespace as in-namespace root with the caller's environment,
+# and `runc start` with only XDG_RUNTIME_DIR and PATH — so when the remote user is literally
+# `root` (USER=root, as VS Code and `devcontainer exec` set it) the two disagree, and every
+# start fails with "container does not exist". Measured (devc-dev findings B-3). Pinning
+# --root sidesteps the heuristic. Written always, referenced only when nested.
+cat > "$BIN_DIR/runc-nested" << 'W'
+#!/bin/sh
+exec /usr/bin/runc --root /run/runc-nested "$@"
+W
+chmod 0755 "$BIN_DIR/runc-nested"
+
 # --- subuid/subgid ---------------------------------------------------------------------
 #
 # Present in most devcontainer base images; absent in some slim ones. Getting this wrong
@@ -248,7 +263,12 @@ keyring = false
 [engine]
 runtime = "runc"
 no_pivot_root = true
+
+[engine.runtimes]
+runc = ["BIN_DIR_PLACEHOLDER/runc-nested"]
 EOF
+  sed "s#BIN_DIR_PLACEHOLDER#$BIN_DIR#" "$CONTAINERS_ETC_DIR/containers.conf.d/50-devc-podman-nested-rootless.conf" > "$CONTAINERS_ETC_DIR/containers.conf.d/50-devc-podman-nested-rootless.conf.tmp" &&
+    mv -f "$CONTAINERS_ETC_DIR/containers.conf.d/50-devc-podman-nested-rootless.conf.tmp" "$CONTAINERS_ETC_DIR/containers.conf.d/50-devc-podman-nested-rootless.conf"
 
   # Subordinate ranges inside the 0-65536 the outer namespace owns, clear of real users. Two
   # names: the remote user (level 1 of the shim's two-level launch is created by it, looked

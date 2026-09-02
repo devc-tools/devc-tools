@@ -107,6 +107,7 @@ check "the shims exec the real binaries by absolute path" bash -c \
 check "the shims keep the holder state next to the API socket" grep -qF "d=$sockdir" "$bindir/podman"
 check "the holder does not inherit the lock descriptor" grep -qF '9>&- &' "$bindir/podman"
 check "and is re-entered with credentials preserved" grep -qF 'nsenter --user --target "$pid" --preserve-credentials' "$bindir/podman"
+check "the runc wrapper is written on every host (only the nested drop-in references it)" test -x "$bindir/runc-nested"
 check "on a rootful daemon no nested drop-in is written" \
   test ! -e "$etcdir/containers.conf.d/50-devc-podman-nested-rootless.conf"
 check "  and the subuid range is the conventional 100000 one" grep -qxF 'root:100000:65536' "$subuid"
@@ -238,6 +239,9 @@ check "the nested drop-in is written" test -f "$etcdir/containers.conf.d/50-devc
 check "  keyring = false" grep -qxF 'keyring = false' "$etcdir/containers.conf.d/50-devc-podman-nested-rootless.conf"
 check "  runtime = runc" grep -qxF 'runtime = "runc"' "$etcdir/containers.conf.d/50-devc-podman-nested-rootless.conf"
 check "  no_pivot_root = true" grep -qxF 'no_pivot_root = true' "$etcdir/containers.conf.d/50-devc-podman-nested-rootless.conf"
+check "  runc is the --root-pinning wrapper" grep -qxF "runc = [\"$bindir/runc-nested\"]" "$etcdir/containers.conf.d/50-devc-podman-nested-rootless.conf"
+check "  which exists, is executable, and pins --root" bash -c \
+  "[ -x '$bindir/runc-nested' ] && grep -qxF 'exec /usr/bin/runc --root /run/runc-nested \"\$@\"' '$bindir/runc-nested'"
 check "subuid: the remote user gets the in-namespace range, not 100000" bash -c \
   "grep -qxF 'vscode:10000:50001' '$subuid' && ! grep -q '^vscode:100000' '$subuid'"
 check "subuid: so does root" grep -qxF 'root:10000:50001' "$subuid"

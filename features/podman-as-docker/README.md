@@ -189,7 +189,12 @@ the identity map) that it is nested inside a user namespace, and configures itse
 - `runc` with `no_pivot_root` and `keyring = false` in a `containers.conf` drop-in — crun
   cannot create its keyring there and `pivot_root` is refused;
 - subordinate ranges of `10000:50001` instead of `100000:65536`, because the outer namespace
-  only owns ids 0–65536.
+  only owns ids 0–65536;
+- runc invoked through a wrapper that pins `--root /run/runc-nested`. runc keeps container
+  state under `$XDG_RUNTIME_DIR` for in-namespace root *unless* `$USER` is `root`, and podman
+  hands `runc create` the caller's environment but `runc start` a minimal one — so with a
+  remote user literally named `root` (VS Code sets `USER=root`) every start failed with
+  `container does not exist`. A fixed root sidesteps the heuristic.
 
 Pair it with [rootless-remap](../rootless-remap/README.md), which makes the remote user uid 0
 (keeping its name and home) so the bind-mounted workspace is writable there at all. With a
