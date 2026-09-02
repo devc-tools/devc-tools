@@ -20,7 +20,8 @@ your own `devcontainer.json` to be useful; each README carries the exact line to
 | [devc-config](devc-config/README.md)                   | `ghcr.io/devc-tools/features/devc-config`          | Runs your own `devc-post-create.sh` on every container create, and adds devc's bash prompt and terminal title.                                        |
 | [git-container-config](git-container-config/README.md) | `ghcr.io/devc-tools/features/git-container-config` | Re-applies the user-scope git settings a container needs and cannot keep — LFS filters, `worktree.useRelativePaths`, `safe.directory`, your identity. |
 | [node-nvmrc](node-nvmrc/README.md)                     | `ghcr.io/devc-tools/features/node-nvmrc`           | Makes the Node version your workspace pins in `.nvmrc` the one every process in the container gets.                                                   |
-| [podman-as-docker](podman-as-docker/README.md)         | `ghcr.io/devc-tools/features/podman-as-docker`     | Makes `docker` commands work via Podman — no Docker daemon, no socket mount. **Read its privilege cost before enabling it.**                          |
+| [podman-as-docker](podman-as-docker/README.md)         | `ghcr.io/devc-tools/features/podman-as-docker`     | Makes `docker` commands work via Podman — no Docker daemon, no socket mount, no added capability. **Needs one seccomp file in your repo; read its privilege section.** |
+| [rootless-remap](rootless-remap/README.md)             | `ghcr.io/devc-tools/features/rootless-remap`       | On a rootless Linux Docker host, makes the workspace writable by making the remote user uid 0 while keeping its name and home. A no-op everywhere else.                |
 
 ## Version tags
 
