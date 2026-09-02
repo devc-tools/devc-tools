@@ -25,7 +25,6 @@ SUBGID_FILE="${SUBGID_FILE:-/etc/subgid}"
 SHARE_DIR="${SHARE_DIR:-/usr/local/share/devc-features/rootless-remap}"
 CHOWN_HOME="${CHOWN_HOME:-true}"   # the harness turns the recursive chown off
 HOLD_USER="devc-uid-hold"
-SUB_RANGE="10000:50001"            # inside the 0-65536 the outer namespace owns, clear of real users
 
 REMOTE_USER="${_REMOTE_USER:-}"
 
@@ -98,18 +97,27 @@ if ! awk -F: -v g="$host_gid" '$3 == g { f = 1 } END { exit !f }' "$GROUP_FILE";
   echo "$HOLD_USER:x:$host_gid:" >> "$GROUP_FILE"
 fi
 
-# Subordinate ranges for nested rootless podman (podman-as-docker's two-level launch): level 1
-# is created by the uid-0 remote user, level 2 by podman running as uid 1000 — each looked up
-# by the name holding that uid. Inside the 0-65536 the outer namespace owns. podman-as-docker
-# writes the same values if it runs later, so the order of the two Features does not matter.
+# Subordinate ranges for nested rootless podman (podman-as-docker's two-level launch): nearly
+# every id the outer namespace owns (1-65535) minus the user's own uid, as two lines — a small
+# block cannot map uid 65534 (nobody), which many images carry, and `docker pull` then fails
+# with "potentially insufficient UIDs". Written for the remapped user (uid 0: 1:65535) and for
+# whoever holds uid 1000 (podman runs as 1000 one level down). podman-as-docker writes
+# identical lines if it runs later, so the order of the two Features does not matter.
+ranges_for_uid() { # ranges_for_uid <uid> — prints the range suffixes, one per line
+  case "$1" in
+    0) echo "1:65535" ;;
+    *) [ "$1" -gt 1 ] && echo "1:$(( $1 - 1 ))"; [ "$1" -lt 65535 ] && echo "$(( $1 + 1 )):$(( 65535 - $1 ))" ;;
+  esac
+}
 holder="$(awk -F: '$3 == 1000 { print $1; exit }' "$PASSWD_FILE")"
 for f in "$SUBUID_FILE" "$SUBGID_FILE"; do
   [ -f "$f" ] || : > "$f"
   tmp="$f.tmp.$$"
   grep -v -E "^($REMOTE_USER${holder:+|$holder}):" "$f" > "$tmp" || true
-  for n in "$REMOTE_USER" $holder; do echo "$n:$SUB_RANGE" >> "$tmp"; done
+  for r in $(ranges_for_uid 0); do echo "$REMOTE_USER:$r" >> "$tmp"; done
+  [ -n "$holder" ] && for r in $(ranges_for_uid 1000); do echo "$holder:$r" >> "$tmp"; done
   cat "$tmp" > "$f"; rm -f "$tmp"
 done
-echo "rootless-remap: subuid/subgid set to $SUB_RANGE for $REMOTE_USER${holder:+ and $holder}"
+echo "rootless-remap: subuid/subgid set to the outer namespace's full range for $REMOTE_USER${holder:+ and $holder}"
 
 : > "$SHARE_DIR/remapped"

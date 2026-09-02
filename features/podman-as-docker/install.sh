@@ -174,12 +174,16 @@ if [ "\$(id -u)" = 0 ] && ! awk '\$1==0 && \$2==0 && \$3==4294967295 {f=1} END {
     [ -r "/proc/\$pid/ns/user" ] && grep -qs '^sleep' "/proc/\$pid/comm" || pid=""
   fi
   if [ -z "\$pid" ]; then
-    setsid unshare --user --map-user=1000 --map-group=1000 \\
-      --map-users=10000:10000:50001 --map-groups=10000:10000:50001 -- sleep infinity \\
-      < /dev/null > /dev/null 2>&1 9>&- &
+    setsid unshare --user -- sleep infinity < /dev/null > /dev/null 2>&1 9>&- &
     pid=\$!
+    # wait for the holder to be in its own user namespace, then write its maps ourselves:
+    # inner 1000 is outer 0 (this user), and every other id the outer namespace owns is
+    # passed straight through, so nested images may use any uid up to 65535 (nobody is 65534).
+    # unshare's --map-users does not accumulate, and root can write a multi-line map directly.
+    i=0; while [ \$i -lt 50 ] && [ "\$(readlink /proc/\$pid/ns/user 2>/dev/null)" = "\$(readlink /proc/self/ns/user)" ]; do sleep 0.05; i=\$((i+1)); done
+    printf '1000 0 1\\n1 1 999\\n1001 1001 64535\\n' > "/proc/\$pid/uid_map"
+    printf '1000 0 1\\n1 1 999\\n1001 1001 64535\\n' > "/proc/\$pid/gid_map"
     echo "\$pid" > "\$d/holder.pid"
-    i=0; while [ \$i -lt 50 ] && ! grep -qs '^ *1000 ' "/proc/\$pid/uid_map"; do sleep 0.1; i=\$((i+1)); done
   fi
   exec 9>&-
   exec nsenter --user --target "\$pid" --preserve-credentials -- /usr/bin/$_b "\$@"
@@ -272,15 +276,21 @@ EOF
   sed "s#BIN_DIR_PLACEHOLDER#$BIN_DIR#" "$CONTAINERS_ETC_DIR/containers.conf.d/50-devc-podman-nested-rootless.conf" > "$CONTAINERS_ETC_DIR/containers.conf.d/50-devc-podman-nested-rootless.conf.tmp" &&
     mv -f "$CONTAINERS_ETC_DIR/containers.conf.d/50-devc-podman-nested-rootless.conf.tmp" "$CONTAINERS_ETC_DIR/containers.conf.d/50-devc-podman-nested-rootless.conf"
 
-  # Subordinate ranges inside the 0-65536 the outer namespace owns, clear of real users. Two
-  # names: the remote user (level 1 of the shim's two-level launch is created by it, looked
-  # up by name) and whichever name holds uid 1000 (podman runs as 1000 at level 1 and is
-  # looked up by that name). Also root, in case the remote user is root itself. Order-
-  # independent with rootless-remap: run first, "whoever holds 1000" is still the remote
-  # user and rootless-remap later adds its placeholder with the same range; run second, it is
-  # the placeholder. (No installsAfter: the CLI fetches an installsAfter ref's metadata from
-  # the registry, and a ref that is not published yet fails every build — measured.)
-  _range="10000:50001"
+  # Subordinate ranges: nearly every id the outer namespace owns (1-65535), minus the user's
+  # own uid, as two lines. Not the 100000+ default (the outer namespace does not own it) and
+  # not a small block either — images commonly carry uid 65534 (nobody), and a range that
+  # cannot map it fails `docker pull` with "potentially insufficient UIDs". Two names: the
+  # remote user (level 1 of the shim's two-level launch is written by it directly) and
+  # whoever holds uid 1000 (podman runs as 1000 at level 1 and is looked up by that name);
+  # also root, in case the remote user is root itself. Order-independent with rootless-remap:
+  # it writes identical lines for the same names. (No installsAfter: the CLI fetches an
+  # installsAfter ref's metadata from the registry, and an unpublished ref fails every build.)
+  ranges_for_uid() { # ranges_for_uid <uid> — prints the range suffixes, one per line
+    case "$1" in
+      0) echo "1:65535" ;;
+      *) [ "$1" -gt 1 ] && echo "1:$(( $1 - 1 ))"; [ "$1" -lt 65535 ] && echo "$(( $1 + 1 )):$(( 65535 - $1 ))" ;;
+    esac
+  }
   _names="$REMOTE_USER"
   [ "$REMOTE_USER" != root ] && _names="$_names root"
   _holder="$(awk -F: '$3 == 1000 { print $1; exit }' "$PASSWD_FILE" 2> /dev/null)"
@@ -288,10 +298,14 @@ EOF
   for _file in "$SUBUID_FILE" "$SUBGID_FILE"; do
     _tmp="$_file.tmp.$$"
     grep -v -E "^($(echo "$_names" | tr ' ' '|')):" "$_file" > "$_tmp" || true
-    for _n in $_names; do echo "$_n:$_range" >> "$_tmp"; done
+    for _n in $_names; do
+      _uid="$(awk -F: -v n="$_n" '$1 == n { print $3; exit }' "$PASSWD_FILE" 2> /dev/null)"
+      [ -n "$_uid" ] || _uid=0
+      for _r in $(ranges_for_uid "$_uid"); do echo "$_n:$_r" >> "$_tmp"; done
+    done
     cat "$_tmp" > "$_file"; rm -f "$_tmp"
   done
-  echo "podman-as-docker: subuid/subgid set to $_range for: $_names"
+  echo "podman-as-docker: subuid/subgid set to the outer namespace's full range (minus each user's own uid) for: $_names"
 fi
 
 # --- registry search path ---------------------------------------------------------------

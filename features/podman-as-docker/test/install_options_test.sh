@@ -106,6 +106,8 @@ check "the shims exec the real binaries by absolute path" bash -c \
   "grep -qxF 'exec /usr/bin/podman \"\$@\"' '$bindir/podman' && grep -qxF 'exec /usr/bin/docker \"\$@\"' '$bindir/docker'"
 check "the shims keep the holder state next to the API socket" grep -qF "d=$sockdir" "$bindir/podman"
 check "the holder does not inherit the lock descriptor" grep -qF '9>&- &' "$bindir/podman"
+check "the holder's maps pass the outer namespace through, with inner 1000 as outer 0" bash -c \
+  "grep -qF \"printf '1000 0 1\\\\n1 1 999\\\\n1001 1001 64535\\\\n' > \\\"/proc/\\\$pid/uid_map\\\"\" '$bindir/podman'"
 check "and is re-entered with credentials preserved" grep -qF 'nsenter --user --target "$pid" --preserve-credentials' "$bindir/podman"
 check "the runc wrapper is written on every host (only the nested drop-in references it)" test -x "$bindir/runc-nested"
 check "on a rootful daemon no nested drop-in is written" \
@@ -242,12 +244,12 @@ check "  no_pivot_root = true" grep -qxF 'no_pivot_root = true' "$etcdir/contain
 check "  runc is the --root-pinning wrapper" grep -qxF "runc = [\"$bindir/runc-nested\"]" "$etcdir/containers.conf.d/50-devc-podman-nested-rootless.conf"
 check "  which exists, is executable, and drops USER from runc's environment" bash -c \
   "[ -x '$bindir/runc-nested' ] && grep -qxF 'exec env -u USER /usr/bin/runc \"\$@\"' '$bindir/runc-nested'"
-check "subuid: the remote user gets the in-namespace range, not 100000" bash -c \
-  "grep -qxF 'vscode:10000:50001' '$subuid' && ! grep -q '^vscode:100000' '$subuid'"
-check "subuid: so does root" grep -qxF 'root:10000:50001' "$subuid"
-check "subuid: the name holding uid 1000 is covered exactly once" bash -c \
-  "[ \"\$(grep -c '^vscode:' '$subuid')\" -eq 1 ]"
-check "subgid mirrors it" bash -c "grep -qxF 'vscode:10000:50001' '$subgid' && grep -qxF 'root:10000:50001' '$subgid'"
+check "subuid: the remote user (uid 1000 here) gets the outer namespace's range minus its own uid, as two lines" bash -c \
+  "grep -qxF 'vscode:1:999' '$subuid' && grep -qxF 'vscode:1001:64535' '$subuid' && ! grep -q '^vscode:100000' '$subuid'"
+check "subuid: root gets the whole range" grep -qxF 'root:1:65535' "$subuid"
+check "subuid: the name holding uid 1000 is covered exactly twice (two ranges), no duplicates" bash -c \
+  "[ \"\$(grep -c '^vscode:' '$subuid')\" -eq 2 ]"
+check "subgid mirrors it" bash -c "grep -qxF 'vscode:1:999' '$subgid' && grep -qxF 'root:1:65535' '$subgid'"
 check "the rootful default scenario's 100000 range is gone from both files" bash -c \
   "! grep -q ':100000:' '$subuid' && ! grep -q ':100000:' '$subgid'"
 

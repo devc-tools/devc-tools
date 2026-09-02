@@ -45,9 +45,10 @@ undoing the remap and leaving a user whose new files are owned by an unmapped su
 some user already holds the target uid, that step logs `User with UID exists` and skips.
 Measured: the update layer is built, and the remap survives.
 
-Finally it writes `/etc/subuid` and `/etc/subgid` ranges (`10000:50001`) for the remote user
-and for the placeholder, inside the ids the outer namespace actually owns. Nested rootless
-podman needs them — see [podman-as-docker](../podman-as-docker/README.md).
+Finally it writes `/etc/subuid` and `/etc/subgid` ranges for the remote user and for the
+placeholder covering the ids the outer namespace actually owns (1–65535, minus each user's own
+uid) — nearly all of them, because images routinely carry uid 65534. Nested rootless podman
+needs them — see [podman-as-docker](../podman-as-docker/README.md).
 
 **At create time**, a guard asserts that a remapped user really is uid 0. If it is not,
 something renumbered the user after the build, and the guard **fails the create** — the one

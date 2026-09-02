@@ -27,7 +27,7 @@ check "and chose overlay, not vfs" grep -qxF 'driver = "overlay"' \
 
 check "docker pull actually writes into the mounted graphroot" bash -c "
   before=\$(du -s $GRAPHROOT 2>/dev/null | cut -f1)
-  docker pull docker.io/library/busybox >/dev/null
+  docker pull docker.io/library/busybox >/dev/null || exit 1
   after=\$(du -s $GRAPHROOT 2>/dev/null | cut -f1)
   [ \"\$after\" -gt \"\$before\" ]
 "

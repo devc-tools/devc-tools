@@ -71,10 +71,11 @@ check "the placeholder holds host uid 1000" bash -c "grep -q '^devc-uid-hold:x:1
 check "  with a nologin shell and no home" bash -c "grep '^devc-uid-hold:' '$passwd' | grep -q ':/nonexistent:/usr/sbin/nologin$'"
 check "  gid 1000 already has a group, so none is added" bash -c \
   "grep -q ':x:1000:' '$group' && ! grep -q '^devc-uid-hold:' '$group'"
-check "subuid: vscode gets the in-namespace range, the 100000 one is gone" bash -c \
-  "grep -qxF 'vscode:10000:50001' '$subuid' && ! grep -q '100000' '$subuid'"
-check "subuid: the placeholder (holder of uid 1000) too" grep -qxF 'devc-uid-hold:10000:50001' "$subuid"
-check "subgid mirrors it" bash -c "grep -qxF 'vscode:10000:50001' '$subgid' && grep -qxF 'devc-uid-hold:10000:50001' '$subgid'"
+check "subuid: vscode (now uid 0) gets the whole outer range, the 100000 line is gone" bash -c \
+  "grep -qxF 'vscode:1:65535' '$subuid' && ! grep -q '100000' '$subuid'"
+check "subuid: the placeholder (holder of uid 1000) gets the range minus 1000, as two lines" bash -c \
+  "grep -qxF 'devc-uid-hold:1:999' '$subuid' && grep -qxF 'devc-uid-hold:1001:64535' '$subuid'"
+check "subgid mirrors it" bash -c "grep -qxF 'vscode:1:65535' '$subgid' && grep -qxF 'devc-uid-hold:1001:64535' '$subgid'"
 check "the remap marker exists" test -e "$share/remapped"
 
 echo "case 2b: an image with no uid/gid 1000 at all — the placeholder brings both"
@@ -88,7 +89,7 @@ check "install.sh succeeds" test $? -eq 0
 check "the placeholder user is added at uid 1000" grep -q '^devc-uid-hold:x:1000:1000:' "$passwd"
 check "  and a matching group at gid 1000" grep -qxF 'devc-uid-hold:x:1000:' "$group"
 check "  subuid covers vscode and the placeholder" bash -c \
-  "grep -qxF 'vscode:10000:50001' '$subuid' && grep -qxF 'devc-uid-hold:10000:50001' '$subuid'"
+  "grep -qxF 'vscode:1:65535' '$subuid' && grep -qxF 'devc-uid-hold:1:999' '$subuid'"
 
 echo "case 3: running twice is idempotent"
 run_install c3 "$WORK/uid_map.rootless" _REMOTE_USER=vscode
@@ -99,7 +100,7 @@ env -u _REMOTE_USER UID_MAP_FILE="$WORK/uid_map.rootless" GID_MAP_FILE="$WORK/gi
 check "second run succeeds" test $? -eq 0
 check "  and says vscode is already uid 0" grep -q 'already uid 0' "$WORK/c3b.log"
 check "  passwd unchanged by the second run" cmp -s "$passwd" "$WORK/c3.passwd.once"
-check "  subuid has exactly one line per name" bash -c "[ \"\$(grep -c '^vscode:' '$subuid')\" -eq 1 ] && [ \"\$(grep -c '^devc-uid-hold:' '$subuid')\" -eq 1 ]"
+check "  subuid has no duplicate lines" bash -c "[ \"\$(grep -c '^vscode:' '$subuid')\" -eq 1 ] && [ \"\$(grep -c '^devc-uid-hold:' '$subuid')\" -eq 2 ]"
 
 echo "case 4: skip paths"
 run_install c4a "$WORK/uid_map.rootless"
