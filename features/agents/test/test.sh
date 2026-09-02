@@ -62,6 +62,12 @@ check "the seed was empty, so ~/.claude has nothing linked into it" bash -c \
 check "~/.claude.json is a symlink" test -L "$HOME/.claude.json"
 check "it points inside ~/.claude" \
   test "$(readlink "$HOME/.claude.json")" = "$HOME/.claude/.claude.json"
-check "and reads back the seeded {}" test "$(cat "$HOME/.claude.json")" = '{}'
+# Claude Code owns this file's contents and writes real state into it at install time
+# (installMethod, firstStartVersion, migrationVersion, a machine id...). Pinning `{}` pinned a
+# value that belonged to an external tool, and it went stale the moment the CLI started
+# seeding itself. What this Feature is responsible for is the *fold* — that the path is a link
+# into the volume (asserted above) and that reading through it yields a JSON object.
+check "and reads back a JSON object through the link" \
+  bash -c "test -s \"$HOME/.claude.json\" && test \"\$(head -c1 \"$HOME/.claude.json\")\" = '{'"
 
 reportResults
