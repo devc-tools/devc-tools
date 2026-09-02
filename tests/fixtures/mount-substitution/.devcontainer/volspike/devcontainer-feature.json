@@ -1,8 +1,8 @@
 {
   "id": "volspike",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "name": "mount substitution spike",
-  "description": "Declares five mounts to measure which devcontainer.json variables substitute inside a Feature's own mounts array. Never published.",
+  "description": "Declares six mounts to measure which devcontainer.json variables substitute inside a Feature's own mounts array. Never published.",
   "options": {
     "probe": { "type": "string", "default": "volspike-opt-default" }
   },
@@ -31,6 +31,11 @@
       "type": "volume",
       "source": "volspike-opt-${probe}",
       "target": "/var/lib/volspike-opt"
+    },
+    {
+      "type": "volume",
+      "source": "volspike-localenv",
+      "target": "${localEnv:VOLSPIKE_HOME:/var/lib/volspike-localenv-default}/.volspike-localenv"
     }
   ]
 }
