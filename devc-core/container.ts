@@ -61,7 +61,11 @@ export interface ExecResult {
 
 export interface ContainerMount {
   type: 'bind' | 'volume';
-  /** Host-side path. For volumes, the docker-managed `/var/lib/docker/...` dir. */
+  /**
+   * Host-side path, as the host itself would name it — Docker Desktop's `/host_mnt` graft
+   * point is stripped on the way in (see `hostSourceFromMount`). For volumes, the
+   * docker-managed `/var/lib/docker/...` dir.
+   */
   source: string;
   /** Container-side mount point. */
   destination: string;
@@ -234,11 +238,51 @@ export async function execInContainer(
   return { code };
 }
 
+/** Docker Desktop's graft point for the host filesystem inside its own Linux VM. */
+const HOST_MNT_PREFIX = '/host_mnt';
+
+/**
+ * The real host path behind a `docker inspect` bind `Source`.
+ *
+ * Docker Desktop runs the daemon in a Linux VM and reports a bind mount's source as a path
+ * *in that VM*, where the host filesystem is grafted under `/host_mnt`. Measured on Docker
+ * Desktop for macOS (2026-09-02): both forms appear in one table —
+ *
+ *   /host_mnt/Users/me/code/tools/devc-tools -> /workspaces/tools/devc-tools   (devcontainer.json `mounts`, and Feature mounts)
+ *   /Users/me/code/tools/devc-dev            -> /workspaces/devc-dev           (the workspace folder mount)
+ *
+ * — so the prefix has to be stripped when present rather than assumed either way.
+ *
+ * This matters well beyond cosmetics: `/host_mnt/...` does not exist *on* the host, so every
+ * consumer that asks a filesystem question about a source (does it exist, is this path
+ * inside it, what container path does it correspond to) silently gets the wrong answer for
+ * exactly the mounts a user declared themselves.
+ *
+ * Stripping is unconditional when the prefix is present. A Linux host with a genuine
+ * `/host_mnt` bind would be mis-translated, which is judged the far less likely error — and
+ * on such a host Docker reports host-real sources anyway, so the prefix would not appear.
+ *
+ * Windows/WSL2 is **unverified**: Docker Desktop is believed to report a different graft
+ * point there (`/run/desktop/mnt/host/...`), so add it here if it turns up rather than
+ * guessing at it now. Note that a stripped `/host_mnt/c/Users/...` becomes `/c/Users/...`,
+ * which `paths.ts`'s `normalizePath` already turns into `C:/Users/...` on win32 — also
+ * unverified, and not relied on anywhere.
+ */
+export function hostSourceFromMount(source: string): string {
+  if (typeof source !== 'string') return source;
+  if (source === HOST_MNT_PREFIX) return '/';
+  if (!source.startsWith(HOST_MNT_PREFIX + '/')) return source;
+  return source.slice(HOST_MNT_PREFIX.length);
+}
+
 /**
  * Parses the JSON emitted by `docker inspect --format '{{json .Mounts}}'` into a
  * `ContainerMount[]`. Maps `Type → type`, `Source → source`, `Destination →
  * destination`, `RW → rw`. `null`/empty/unparseable input → `[]`. Pure/exported
  * for unit testing.
+ *
+ * `source` is the **host** path, per `ContainerMount`'s own contract — see
+ * {@link hostSourceFromMount} for why that is not simply what Docker reports.
  */
 export function parseMounts(json: string | null): ContainerMount[] {
   if (!json) return [];
@@ -252,7 +296,7 @@ export function parseMounts(json: string | null): ContainerMount[] {
   if (!Array.isArray(raw)) return [];
   return raw.map((m) => ({
     type: m.Type === 'volume' ? 'volume' : 'bind',
-    source: m.Source,
+    source: hostSourceFromMount(m.Source),
     destination: m.Destination,
     rw: m.RW === true,
   }));
@@ -262,7 +306,9 @@ export function parseMounts(json: string | null): ContainerMount[] {
  * Returns the mount table for `localFolder`'s container (found via
  * `findContainer(localFolder, true)` — running or stopped, never started), from
  * `docker inspect --format '{{json .Mounts}}'`. Returns `null` if no container
- * matches. Does not resolve symlinks in `source` (the caller does).
+ * matches. Does not resolve symlinks in `source` (the caller does), but does
+ * normalize Docker Desktop's `/host_mnt` sources back to host paths, so a caller
+ * may stat a bind `source` or compare a host path against it.
  */
 export async function getContainerMounts(
   localFolder: string,

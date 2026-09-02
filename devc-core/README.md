@@ -63,6 +63,18 @@ path; inside a container the same mount reports a source like
 `/run/host_mark/Users`, so a container cannot derive host paths at all. Reach for
 this rather than `/proc/mounts` — and only from the host.
 
+"Real host path" takes one step of work that `docker inspect` does not do for
+you. Docker Desktop runs the daemon in a Linux VM and reports bind sources as
+paths in _that_ VM, grafted under `/host_mnt` — and it does so inconsistently:
+on macOS, `devcontainer.json` `mounts` entries come back as
+`/host_mnt/Users/me/...` while the workspace folder mount comes back host-real
+as `/Users/me/...`, both in the same table. `parseMounts` strips the prefix
+(`hostSourceFromMount`), so `ContainerMount.source` is always a path the host
+would recognize and a caller may safely `stat` it or compare a host path against
+it. Anything reading `.Mounts` without going through core has to do this itself,
+and the failure is silent: a `/host_mnt/...` source simply matches nothing and
+does not exist.
+
 ### The devcontainer CLI seam
 
 `startContainer`/`rebuildContainer`/`execInContainer` accept an optional
