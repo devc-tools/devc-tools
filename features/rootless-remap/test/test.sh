@@ -12,7 +12,9 @@ source dev-container-features-test-lib
 SHARE=/usr/local/share/devc-features/rootless-remap
 
 check "the create-time guard is installed" test -f "$SHARE/post-create.sh"
-check "and owned by root" bash -c "[ \"\$(stat -c '%U' $SHARE/post-create.sh)\" = root ]"
+# By uid: on a rootless daemon the remote user is remapped to uid 0 and sits first in /etc/passwd,
+# so `stat -c %U` on a root-owned file prints *its* name, not "root".
+check "and owned by uid 0" bash -c "[ \"\$(stat -c '%u' $SHARE/post-create.sh)\" = 0 ]"
 
 if awk '$1 == 0 && $2 == 0 && $3 == 4294967295 { f = 1 } END { exit !f }' /proc/self/uid_map; then
   check "rootful daemon: no remap marker was left" test ! -e "$SHARE/remapped"

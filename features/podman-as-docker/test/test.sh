@@ -28,9 +28,9 @@ GRAPHROOT=/var/lib/devc-features/podman-as-docker/storage
 
 check "create-time script is installed" test -f "$SHARE/post-create.sh"
 check "start-time script is installed" test -f "$SHARE/post-start.sh"
-check "both are owned by root" bash -c \
-  "[ \"\$(stat -c '%U:%G' $SHARE/post-create.sh)\" = 'root:root' ] &&
-   [ \"\$(stat -c '%U:%G' $SHARE/post-start.sh)\" = 'root:root' ]"
+check "both are owned by uid 0 (by uid: with rootless-remap the name for uid 0 is the remote user's)" bash -c \
+  "[ \"\$(stat -c '%u:%g' $SHARE/post-create.sh)\" = '0:0' ] &&
+   [ \"\$(stat -c '%u:%g' $SHARE/post-start.sh)\" = '0:0' ]"
 
 check "docker is on PATH" bash -c "command -v docker"
 check "docker --version names podman, not a real Docker Engine" bash -c \
