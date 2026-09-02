@@ -49,6 +49,7 @@ assert.deepEqual(
     'up',
     '--workspace-folder',
     '/home/me/src/p',
+    '--no-lockfile',
     '--config',
     '/home/me/.cache/devc/projects/p-0badf00d/devcontainer.json',
   ],

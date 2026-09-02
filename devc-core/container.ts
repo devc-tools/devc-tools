@@ -654,13 +654,34 @@ export interface StartOptions {
  * - **`project`** → `--override-config`. The CLI takes the config's *content* from this file but
  *   still records the project's own `.devcontainer/devcontainer.json` as `configFilePath`, so
  *   relative `build.dockerfile`/`context`/`dockerComposeFile` and local Features resolve where
- *   the project meant them to, `.devcontainer-lock.json` is still found beside it, and the
- *   container keeps the identity labels it has always had (so VS Code still matches it).
+ *   the project meant them to, and the container keeps the identity labels it has always had
+ *   (so VS Code still matches it).
  * - **`zero-config`** → `--config`. There is no project config to anchor to, and the merged file
  *   is the config path for every purpose. Deliberately *not* `--override-config` here: that
  *   would record `<project>/.devcontainer/devcontainer.json` — the same identity a later
  *   `devc init` produces — so devc would silently reuse this container for a project that had
  *   since gained its own config.
+ *
+ * **`--no-lockfile` is unconditional**, and it is load-bearing in both modes. The CLI otherwise
+ * writes a `devcontainer-lock.json` beside whatever it recorded as `configFilePath`, pins every
+ * floating Feature reference (`agents:0`) to the digest it first resolved, and honours that pin
+ * forever after. Neither place that file lands is one devc may leave it in:
+ *
+ * - `zero-config` → `~/.cache/devc/projects/<key>/`, which no user ever looks in. A Feature that
+ *   later gains a `mounts`/`containerEnv`/anything declaration is still fetched at its old
+ *   version, silently and permanently. That is the whole of the
+ *   `.plans/pending/zero-config-feature-mounts.md` bug: `agents`' and `node-nvmrc`'s declared
+ *   volumes never reached the container because a lock written before they existed kept
+ *   resolving `0.1.0`.
+ * - `project` → the user's own `.devcontainer/`, which makes devc write a generated file into a
+ *   repo that need not know devc exists — the exact thing
+ *   {@link import("./merged_config.ts").ensureMergedConfig}'s header refuses to do — and the
+ *   Features it locks are devc's injected ones, not the project's.
+ *
+ * The pinning is no loss: the effective config is recomputed from its layers on every run, so a
+ * lock is the one thing that made a devc container *not* a pure function of its current inputs.
+ * Anyone who wants a version pinned writes it in the reference (`agents:0.2.2`), which devc
+ * passes through untouched.
  */
 export function buildUpArgs(input: {
   localFolder: string;
@@ -672,7 +693,7 @@ export function buildUpArgs(input: {
   /** Which flag carries it — see above. */
   mode: ConfigMode;
 }): string[] {
-  const args = ['up', '--workspace-folder', input.localFolder];
+  const args = ['up', '--workspace-folder', input.localFolder, '--no-lockfile'];
   if (input.worktree) args.push('--mount-git-worktree-common-dir');
   if (input.rebuild) args.push('--remove-existing-container');
   if (input.noCache) args.push('--build-no-cache');

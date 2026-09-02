@@ -93,6 +93,22 @@ export async function mergedConfigPath(
 }
 
 /**
+ * The Feature lockfile `@devcontainers/cli` writes beside a config named `devcontainer.json`.
+ * Nothing devc runs produces one any more — `buildUpArgs` passes `--no-lockfile` — so this only
+ * ever finds one left by a devc old enough to have allowed it.
+ *
+ * Deleted rather than tolerated. With `--no-lockfile` the file is inert, but an inert file that
+ * *looks* authoritative is worse than none: a stale one here is what silently pinned `agents`
+ * and `node-nvmrc` to `0.1.0` long after they had declared their volumes, and it cost a whole
+ * investigation pass to find (`.plans/pending/zero-config-feature-mounts.md`).
+ *
+ * Only devc's own per-project cache directory is ever touched. A `devcontainer-lock.json` in a
+ * project's `.devcontainer/` belongs to that project — devc does not remove it, exactly as it
+ * does not write one there.
+ */
+const LOCKFILE_NAME = 'devcontainer-lock.json';
+
+/**
  * Path keys resolved relative to the config file's own directory by the devcontainer CLI
  * (`path.posix.resolve(dirname(configFilePath), value)` in 0.88.0), listed as
  * `[containing object, key]`.
@@ -205,6 +221,11 @@ export async function ensureMergedConfig(
 
   const path = await mergedConfigPath(localFolder, cacheRoot);
   await writeAtomic(path, `${JSON.stringify(config, null, 2)}\n`);
+  // See LOCKFILE_NAME. `force` so the (overwhelmingly common) already-absent case is not an
+  // error, and so two concurrent devc processes cannot lose the race to each other.
+  await rm(`${dirnamePosix(path)}/${LOCKFILE_NAME}`, { force: true }).catch(
+    () => {},
+  );
 
   return { path, config, mode, baseConfigPath };
 }

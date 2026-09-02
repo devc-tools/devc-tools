@@ -390,3 +390,47 @@ Deno.test('merging writes nothing into the project', async () => {
     assertEquals(entries.sort(), ['.devc', '.devcontainer']);
   });
 });
+
+// ── the Feature lockfile ────────────────────────────────────────────────────────────────────
+
+// A `devcontainer-lock.json` left in devc's own cache directory pins every floating Feature
+// reference forever — which is how `agents` and `node-nvmrc` kept resolving 0.1.0 long after
+// they had declared their volumes. `buildUpArgs` passes `--no-lockfile` so no new one is ever
+// written; this clears the ones an older devc already left behind.
+Deno.test('a stale lockfile in the cache directory is removed', async () => {
+  await withProject(async (dirs) => {
+    const first = await merge(dirs);
+    const lock = `${
+      first.path.slice(0, first.path.lastIndexOf('/'))
+    }/devcontainer-lock.json`;
+    await Deno.writeTextFile(lock, '{"features":{"x:0":{"version":"0.1.0"}}}');
+
+    await merge(dirs);
+
+    await assertRejects(() => Deno.stat(lock), Deno.errors.NotFound);
+  });
+});
+
+Deno.test('no lockfile to remove is not an error', async () => {
+  await withProject(async (dirs) => {
+    const merged = await merge(dirs);
+    assert(merged.path.endsWith('/devcontainer.json'), merged.path);
+  });
+});
+
+// devc removes its own; a project's lockfile is the project's, exactly as devc never writes one
+// there in the first place.
+Deno.test('a lockfile in the project is left alone', async () => {
+  await withProject(async (dirs) => {
+    await write(
+      `${dirs.project}/.devcontainer/devcontainer.json`,
+      '{"image":"x"}',
+    );
+    const projectLock = `${dirs.project}/.devcontainer/devcontainer-lock.json`;
+    await Deno.writeTextFile(projectLock, '{"features":{}}');
+
+    await merge(dirs);
+
+    assertEquals(await Deno.readTextFile(projectLock), '{"features":{}}');
+  });
+});
