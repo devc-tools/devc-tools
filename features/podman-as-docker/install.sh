@@ -248,7 +248,11 @@ EOF
   # Subordinate ranges inside the 0-65536 the outer namespace owns, clear of real users. Two
   # names: the remote user (level 1 of the shim's two-level launch is created by it, looked
   # up by name) and whichever name holds uid 1000 (podman runs as 1000 at level 1 and is
-  # looked up by that name). Also root, in case the remote user is root itself.
+  # looked up by that name). Also root, in case the remote user is root itself. Order-
+  # independent with rootless-remap: run first, "whoever holds 1000" is still the remote
+  # user and rootless-remap later adds its placeholder with the same range; run second, it is
+  # the placeholder. (No installsAfter: the CLI fetches an installsAfter ref's metadata from
+  # the registry, and a ref that is not published yet fails every build — measured.)
   _range="10000:50001"
   _names="$REMOTE_USER"
   [ "$REMOTE_USER" != root ] && _names="$_names root"

@@ -46,7 +46,6 @@
     }
   },
   "securityOpt": ["systempaths=unconfined", "apparmor=unconfined"],
-  "installsAfter": ["ghcr.io/devc-tools/features/rootless-remap"],
   "containerEnv": {
     "DOCKER_HOST": "unix:///run/devc-features/podman-as-docker/podman.sock"
   },
