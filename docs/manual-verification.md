@@ -1006,8 +1006,26 @@ over the network — a server container under test, say — and does **not** sui
 build output back into the workspace. Anything doing that needs the service user and the remote
 user to be the same identity, which is the thing rootless makes impossible.
 
-Loosening workspace permissions (group-writable dirs, a shared gid) would trade the write failure
-for the orphaned-ownership problem, not remove it. Not measured, and not obviously worth it.
+Loosening workspace permissions (group-writable dirs, a shared gid, `vscode` in group 0) would
+trade the write failure for the orphaned-ownership problem rather than remove it: files would
+carry a usable *group* but a bogus owner, so `ls -l` misreports them and the developer could not
+`chmod`/`chown` their own build output. Not measured, and not attractive.
+
+#### Conclusion: nested podman cannot support a rootless host
+
+A read-only workspace is not an acceptable devcontainer, so this arrangement does not rescue
+`podman-as-docker` on rootless Linux. Combined with 13.4–13.6 the position is closed:
+
+| Approach | Workspace writable by the developer | Nested container can write the workspace |
+| --- | --- | --- |
+| nested podman, remote user non-root | **no** — the bind mount is unwritable | n/a |
+| nested podman, remote user uid 0 | yes | **no** — podman goes rootful and cannot run at all |
+| nested podman + socket service (13.6) | yes | **no** — service user is a different identity |
+| **sibling containers via the host socket (13.8)** | **yes** | **yes** |
+
+`podman-as-docker`'s value is children-not-siblings, and on a rootless host that is not
+achievable while keeping a writable workspace. The Feature should **detect a rootless outer
+daemon and say so plainly**, rather than install into a configuration that cannot work.
 
 ### 13.7 The toolchain at uid 0 — no problems found
 
@@ -1042,9 +1060,19 @@ host's Docker socket (sibling containers rather than nested ones) also works on 
 | `docker build` | OK |
 | user-defined network + container-name DNS | OK |
 
-It is **not** the preferred route: the point of `podman-as-docker` is a self-contained
-devcontainer that needs no host socket and whose containers are children, not siblings. 13.5
-delivers that, so this is a fallback, not a recommendation.
+**On a rootless host this is the only arrangement that works**, and it is better here than it is
+on a rootful one. Because the outer daemon is rootless, a sibling container's root maps to the
+developer's own host uid, so a container writing into the workspace produces files owned by the
+developer:
+
+```
+out.jar on the host : ubuntu:ubuntu (uid=1000)   # written by a sibling container
+host user can edit it : OK
+```
+
+On a *rootful* daemon the same write would produce root-owned files. So the usual objection to
+socket-mounting is weaker on exactly the platform that needs it. 13.6 explains why the nested
+alternative is unavailable here.
 
 Two rootless-specific gotchas if you do reach for it:
 
