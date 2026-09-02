@@ -59,5 +59,12 @@
         "herdrPlugins": "bmingles/herdr-plugins/agent-caffeinate"
       }
     }
+  },
+  "with_mismatched_home": {
+    "image": "mcr.microsoft.com/devcontainers/base:ubuntu",
+    "remoteUser": "root",
+    "features": {
+      "agents": {}
+    }
   }
 }

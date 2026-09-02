@@ -173,13 +173,14 @@ check "the hook derives CLAUDE_DIR from \$HOME rather than a baked path" \
 check "the hook names the same seed path install.sh creates" \
   grep -qxF 'SEED=/usr/local/share/devc-features/agents/claude-seed' "$HOOK"
 # The manifest declares a volume at a literal target (no substitution variable names the remote
-# user's home — see declared-volume-spike M1), and the hook warns when that target is not this
-# user's home. Two files, one string: this is the guard that stops them drifting, exactly as the
-# seed-path pair above does. If you change the target, change it in both.
-check "the hook names the same ~/.claude target the manifest declares" \
-  grep -qxF 'DECLARED_CLAUDE_DIR=/home/vscode/.claude' "$HOOK"
-check "the manifest declares that same target" \
+# user's home — see declared-volume-spike M1). The hook does not compare paths against that
+# literal: it asks whether ~/.claude is genuinely a mount point, which is also correct when a
+# consumer declared the mount themselves. These assertions stop the two drifting apart.
+check "the manifest declares the literal conventional target" \
   grep -qF '"target": "/home/vscode/.claude"' "$FEATURE_DIR/devcontainer-feature.json"
+check "the hook decides by testing the mount, not by comparing to a path" \
+  grep -qF 'claude_dir_is_mounted "$HOME/.claude"' "$HOOK"
+check "the hook pins no literal home" bash -c "! grep -q 'DECLARED_CLAUDE_DIR' \"$HOOK\""
 check "the manifest keys its volume on \${devcontainerId}, not the workspace basename" \
   grep -qF '"source": "claude-code-config-${devcontainerId}"' "$FEATURE_DIR/devcontainer-feature.json"
 check "the seed mount point was created, empty" test -d "$CASE/share/claude-seed"

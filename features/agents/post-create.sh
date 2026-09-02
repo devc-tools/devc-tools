@@ -17,20 +17,32 @@ warn() {
 }
 
 # --- 0. declared-volume home check ----------------------------------------------------------
-# The manifest declares a named volume at DECLARED_CLAUDE_DIR — a literal path, because no
+# The manifest declares a named volume at the literal /home/vscode/.claude — a literal because no
 # devcontainer.json variable names the remote user's home inside a Feature's own `mounts`
-# (`${containerEnv:HOME}` is handed to Docker as a literal string and the mount is refused).
+# (`${containerEnv:HOME}` reaches Docker as a literal string and the mount is refused; measured,
+# docs/manual-verification.md §12 M1).
 #
 # So on an image whose remote user is not `vscode`, the volume is mounted somewhere Claude Code
-# never reads, and this user's ~/.claude is an ordinary directory that does not survive a
-# rebuild. Nothing here can fix that — a mount target cannot be chosen at create time — so it
-# warns and names the one-line fix.
-DECLARED_CLAUDE_DIR=/home/vscode/.claude
+# never reads. Nothing here can fix that — a mount target cannot be chosen at create time — so it
+# warns and names the one-line fix. It decides by asking the real question — is this user's
+# ~/.claude actually a mount point? — rather than by comparing paths, so a consumer who declared
+# the mount themselves is recognised as correct instead of reported as a mismatch.
 
-if [ "$HOME/.claude" != "$DECLARED_CLAUDE_DIR" ]; then
-  warn "this Feature declares its ~/.claude volume at $DECLARED_CLAUDE_DIR, but your home is $HOME."
-  warn "$HOME/.claude is therefore NOT backed by that volume and will not survive a rebuild."
-  warn "add this to your devcontainer.json's mounts to fix it:"
+# Is $1 the target of a mount? Prefers util-linux's mountpoint(1) and falls back to
+# /proc/self/mountinfo (field 5 is the mount point) on an image that lacks it.
+claude_dir_is_mounted() {
+  if command -v mountpoint > /dev/null 2>&1; then
+    mountpoint -q "$1"
+  else
+    awk -v p="$1" '$5 == p { found = 1 } END { exit !found }' /proc/self/mountinfo 2> /dev/null
+  fi
+}
+
+if ! claude_dir_is_mounted "$HOME/.claude"; then
+  warn "$HOME/.claude is NOT backed by this Feature's named volume, so anything Claude Code"
+  warn "writes there will be lost on the next rebuild."
+  warn "the volume's target is /home/vscode/.claude; this container's home is $HOME."
+  warn "declare the mount yourself in devcontainer.json to fix it:"
   warn "  type=volume,source=claude-code-config-\${devcontainerId},target=$HOME/.claude"
 fi
 

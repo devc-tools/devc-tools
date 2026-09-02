@@ -18,10 +18,9 @@ source dev-container-features-test-lib
 
 check "~/.claude is a mount point, not a plain directory" mountpoint -q "$HOME/.claude"
 
-# The declared target is a literal /home/vscode/.claude; this image's remote user is vscode, so
-# the two agree and no warning should have fired. The mismatch path is covered by reading, not by
-# a scenario — building an image with a differently-named remote user to assert a warning costs a
-# whole scenario for one echo.
+# The declared target is the literal /home/vscode/.claude and this image's remote user is `vscode`,
+# so the two agree and no warning should have fired. The mismatch path has its own scenario
+# (`with_mismatched_home`).
 check "the remote user's home is the one the manifest targets" test "$HOME" = /home/vscode
 
 # The volume seeds itself from what install.sh pre-created in the image, which is what keeps it
@@ -35,6 +34,12 @@ check "and is writable" bash -c "touch \"$HOME/.claude/.write-probe\" && rm \"$H
 check "~/.claude.json is a symlink into the volume" test -L "$HOME/.claude.json"
 check "it points inside ~/.claude" \
   test "$(readlink "$HOME/.claude.json")" = "$HOME/.claude/.claude.json"
-check "and reads back the seeded {}" test "$(cat "$HOME/.claude.json")" = '{}'
+# Claude Code owns this file's contents and writes real state into it at install time
+# (installMethod, firstStartVersion, migrationVersion, a machine id...). Pinning `{}` pinned a
+# value that belonged to an external tool, and it went stale the moment the CLI started
+# seeding itself. What this Feature is responsible for is the *fold* — that the path is a link
+# into the volume (asserted above) and that reading through it yields a JSON object.
+check "and reads back a JSON object through the link" \
+  bash -c "test -s \"$HOME/.claude.json\" && test \"\$(head -c1 \"$HOME/.claude.json\")\" = '{'"
 
 reportResults
