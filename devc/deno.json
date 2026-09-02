@@ -1,5 +1,5 @@
 {
-  "version": "0.1.1",
+  "version": "0.2.0",
   "tasks": {
     "run": "deno run --allow-run --allow-read --allow-write --allow-env --allow-sys --allow-net main.ts",
     "check": "deno check main.ts args.ts attach.ts container.ts devcontainer_selfexec.ts help.ts herdr.ts tui/keys.ts tui/term.ts tui/folder_picker.ts tui/prompts.ts tui/config_flow.ts",

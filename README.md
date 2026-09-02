@@ -130,13 +130,17 @@ can never be republished. Let `release.yml` go green first.
 To cut a release:
 
 1. Bump the version in **all three binaries** — `VERSION` in `devc/help.ts`,
-   `devc-bridge/host/version.ts` and `devc-bridge/client/version.ts` — guarded by
-   `release.yml`. Prereleases are no exception: to tag `v0.1.0-rc.1`, every one of
-   those versions must be `0.1.0-rc.1`, so nothing claims a version its release
-   does not have. Nothing under `features/` moves for a release; if a Feature
-   pins a devc-tools release in its `install.sh` (`DEVC_TOOLS_RELEASE`, only
-   `devc-bridge` today), pointing it at a newer one is a change to that Feature,
-   with its own version bump, on its own schedule.
+   `devc-bridge/host/version.ts` and `devc-bridge/client/version.ts`, plus
+   `devc/deno.json`'s `"version"` — guarded by `release.yml` (the three `VERSION`
+   consts) and by `preflight-core-publish.sh` (`devc/deno.json` matching them).
+   [`scripts/bump-version.sh`](scripts/bump-version.sh) does all four in one
+   step: `bash scripts/bump-version.sh 0.2.0`. Prereleases are no exception: to
+   tag `v0.1.0-rc.1`, every one of those versions must be `0.1.0-rc.1`, so
+   nothing claims a version its release does not have. Nothing under
+   `features/` moves for a release; if a Feature pins a devc-tools release in
+   its `install.sh` (`DEVC_TOOLS_RELEASE`, only `devc-bridge` today), pointing
+   it at a newer one is a change to that Feature, with its own version bump, on
+   its own schedule.
 2. Commit, then `git tag v0.1.0 && git push --tags`.
 3. [`release.yml`](.github/workflows/release.yml) builds each of the eight
    archives on a runner of its own architecture, runs `--version` on what it

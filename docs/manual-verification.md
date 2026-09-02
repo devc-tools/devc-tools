@@ -678,21 +678,21 @@ volspike` afterward shows nothing — no container, no volumes):
 docker: Error response from daemon: invalid mount config for type "volume": invalid mount path: '${containerEnv:HOME}/.volspike-home' mount path must be absolute.
 ```
 
-| Variable                                                   | Where          | Substitutes? | Evidence                                                                                                                                                                                                                                                                                                                  |
-| ---------------------------------------------------------- | -------------- | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `${devcontainerId}`                                        | mount _source_ | yes          | `volspike-id-13gra4npo69h23i10h25gq869gjtjet092p9ushcd11d6sdutp0c`                                                                                                                                                                                                                                                        |
-| `${localWorkspaceFolderBasename}`                          | mount _source_ | yes          | `volspike-base-mount-substitution`                                                                                                                                                                                                                                                                                        |
-| `${containerWorkspaceFolder}`                              | mount _target_ | yes          | `dst=/workspaces/devc-tools/tests/fixtures/mount-substitution/.volspike-target`                                                                                                                                                                                                                                           |
-| **M1** `${containerEnv:HOME}`                              | mount _target_ | **no**       | literal `dst=${containerEnv:HOME}/.volspike-home` — and unlike a merely-cosmetic miss, Docker's mount-path validator then refuses it outright (`mount path must be absolute`), so this is **fatal to `devcontainer up`**, not just a wrongly-placed directory                                                             |
-| **M2** a Feature option (`${probe}`, set to `SUBSTITUTED`) | mount _source_ | **no**       | literal `src=volspike-opt-${probe}` — also fatal on its own: with M1's mount removed so the CLI reaches this one, Docker's _volume-name_ validator (a separate check from the path one above) rejects it too: `create volspike-opt-${probe}: "volspike-opt-${probe}" includes invalid characters for a local volume name` |
-| **M5** `${localEnv:VAR:default}`                           | mount _target_ | **yes**      | `dst=/var/lib/volspike-localenv-default/.volspike-localenv` with `VOLSPIKE_HOME` unset (the `:default` fallback is applied), and `dst=/opt/volspike-set/.volspike-localenv` with `VOLSPIKE_HOME=/opt/volspike-set`. Measured twice on two hosts — Docker Desktop/macOS 29.7.2 and rootless Docker 29.7.2 on Ubuntu 24.04 — both `@devcontainers/cli 0.89.0`                                                                              |
+| Variable                                                   | Where          | Substitutes? | Evidence                                                                                                                                                                                                                                                                                                                                                    |
+| ---------------------------------------------------------- | -------------- | ------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `${devcontainerId}`                                        | mount _source_ | yes          | `volspike-id-13gra4npo69h23i10h25gq869gjtjet092p9ushcd11d6sdutp0c`                                                                                                                                                                                                                                                                                          |
+| `${localWorkspaceFolderBasename}`                          | mount _source_ | yes          | `volspike-base-mount-substitution`                                                                                                                                                                                                                                                                                                                          |
+| `${containerWorkspaceFolder}`                              | mount _target_ | yes          | `dst=/workspaces/devc-tools/tests/fixtures/mount-substitution/.volspike-target`                                                                                                                                                                                                                                                                             |
+| **M1** `${containerEnv:HOME}`                              | mount _target_ | **no**       | literal `dst=${containerEnv:HOME}/.volspike-home` — and unlike a merely-cosmetic miss, Docker's mount-path validator then refuses it outright (`mount path must be absolute`), so this is **fatal to `devcontainer up`**, not just a wrongly-placed directory                                                                                               |
+| **M2** a Feature option (`${probe}`, set to `SUBSTITUTED`) | mount _source_ | **no**       | literal `src=volspike-opt-${probe}` — also fatal on its own: with M1's mount removed so the CLI reaches this one, Docker's _volume-name_ validator (a separate check from the path one above) rejects it too: `create volspike-opt-${probe}: "volspike-opt-${probe}" includes invalid characters for a local volume name`                                   |
+| **M5** `${localEnv:VAR:default}`                           | mount _target_ | **yes**      | `dst=/var/lib/volspike-localenv-default/.volspike-localenv` with `VOLSPIKE_HOME` unset (the `:default` fallback is applied), and `dst=/opt/volspike-set/.volspike-localenv` with `VOLSPIKE_HOME=/opt/volspike-set`. Measured twice on two hosts — Docker Desktop/macOS 29.7.2 and rootless Docker 29.7.2 on Ubuntu 24.04 — both `@devcontainers/cli 0.89.0` |
 
 ### What M1 does **not** imply
 
 M1's "no" is about `${containerEnv:…}` specifically, and does not generalise to
 "a Feature's mounts cannot follow the remote user's home". M5 shows the
 pre-container resolver does handle `${localEnv:…}`, including its `:default`
-fallback — so a Feature's own mount target *can* be pointed at the remote
+fallback — so a Feature's own mount target _can_ be pointed at the remote
 user's home, provided the value is supplied **from the host** rather than named
 by a built-in variable. `${containerEnv:HOME}` fails because container env does
 not exist yet when mounts are consumed at `docker run`; a `localEnv` value is
@@ -860,12 +860,12 @@ inside a user namespace and podman would be a second.
 correctly but cannot run a nested container; the scenario results below are the as-shipped
 state, and the four blockers that follow are each resolved in 13.5.
 
-| Scenario | Passed | Failed |
-| --- | --- | --- |
-| `no_shim` | podman present, docker absent, podman-docker not installed | "podman itself still works" |
-| `with_socket` | — | the socket never comes up |
+| Scenario      | Passed                                                                                     | Failed                                  |
+| ------------- | ------------------------------------------------------------------------------------------ | --------------------------------------- |
+| `no_shim`     | podman present, docker absent, podman-docker not installed                                 | "podman itself still works"             |
+| `with_socket` | —                                                                                          | the socket never comes up               |
 | `with_volume` | graphroot is a mount point, ownership repair, `storage.conf` points at it, chose `overlay` | `docker pull` writes into the graphroot |
-| `with_tun` | `netns=private`, `slirp4netns`, `/dev/net/tun` present, container gets its own netns | real egress through it |
+| `with_tun`    | `netns=private`, `slirp4netns`, `/dev/net/tun` present, container gets its own netns       | real egress through it                  |
 
 13.1's privilege matrix reproduces this with no devcontainer, and separates three blockers:
 
@@ -904,14 +904,14 @@ state, and the four blockers that follow are each resolved in 13.5.
 
 All four blockers resolved. Verified end to end on the rootless VM:
 
-| Capability | Result |
-| --- | --- |
-| `podman run`, default (private) netns | OK |
-| egress from a nested container | OK |
-| bind-mounting a host path in | OK |
-| the `docker` shim | OK |
-| `podman build` (with `BUILDAH_ISOLATION=chroot`) | OK |
-| created network + **container-name DNS** | OK — `srv` resolved to `10.89.0.2`, HTTP succeeded |
+| Capability                                       | Result                                             |
+| ------------------------------------------------ | -------------------------------------------------- |
+| `podman run`, default (private) netns            | OK                                                 |
+| egress from a nested container                   | OK                                                 |
+| bind-mounting a host path in                     | OK                                                 |
+| the `docker` shim                                | OK                                                 |
+| `podman build` (with `BUILDAH_ISOLATION=chroot`) | OK                                                 |
+| created network + **container-name DNS**         | OK — `srv` resolved to `10.89.0.2`, HTTP succeeded |
 
 **Outer container** (the consumer's `runArgs`, unchanged from the rootful requirements except
 that `/dev/net/tun` is now load-bearing rather than optional):
@@ -954,10 +954,10 @@ From `podman-nested-rootless` § V7. Everything in 13.5 was measured with podman
 hosts, and podman selects rootless-vs-rootful by **euid**, so in the combined configuration it
 takes the rootful path. Two further blockers appear there, and they are mutually exclusive:
 
-| Runtime | `no_pivot_root` (needed: `pivot_root` is denied) | `cgroups = "disabled"` (needed: `/sys/fs/cgroup` is read-only) |
-| --- | --- | --- |
-| `runc` | **supported** | rejected — `requested OCI runtime runc is not compatible with NoCgroups` |
-| `crun` | **not implemented** — silently ignored | supported |
+| Runtime | `no_pivot_root` (needed: `pivot_root` is denied) | `cgroups = "disabled"` (needed: `/sys/fs/cgroup` is read-only)           |
+| ------- | ------------------------------------------------ | ------------------------------------------------------------------------ |
+| `runc`  | **supported**                                    | rejected — `requested OCI runtime runc is not compatible with NoCgroups` |
+| `crun`  | **not implemented** — silently ignored           | supported                                                                |
 
 As root you need both at once, and no runtime provides both. Measured errors:
 
@@ -982,24 +982,24 @@ user drive it over that socket (`podman system service unix:///run/podman/podman
 `vscode`; client sets `DOCKER_HOST`/`CONTAINER_HOST` to it). The Feature's `dockerApiSocket`
 option is the existing machinery for this.
 
-| Check (client is uid 0, service is `vscode`) | Result |
-| --- | --- |
-| service reachable, reports `rootless=true` | OK |
-| `podman --remote run`, and plain `docker run` via `DOCKER_HOST` | OK |
-| default (private) netns | OK |
-| `docker build` (with `BUILDAH_ISOLATION=chroot`) | OK |
-| created network + container-name DNS | OK |
-| bind-mount a project file **in, read-only** | OK |
+| Check (client is uid 0, service is `vscode`)                    | Result |
+| --------------------------------------------------------------- | ------ |
+| service reachable, reports `rootless=true`                      | OK     |
+| `podman --remote run`, and plain `docker run` via `DOCKER_HOST` | OK     |
+| default (private) netns                                         | OK     |
+| `docker build` (with `BUILDAH_ISOLATION=chroot`)                | OK     |
+| created network + container-name DNS                            | OK     |
+| bind-mount a project file **in, read-only**                     | OK     |
 
-So container *execution* is fully recovered. The boundary is that **the service user is a
+So container _execution_ is fully recovered. The boundary is that **the service user is a
 different identity from the remote user**, and it shows up the moment a nested container writes
 into the workspace:
 
-| | Service user (`vscode`) |
-| --- | --- |
-| read a `644` project file | **yes** — world-readable |
-| write into a `755` project directory owned by the remote user | **no** |
-| where a write does land (e.g. a `777` directory) | file is owned by `vscode` → host subuid **101000**, orphaned for the developer |
+|                                                               | Service user (`vscode`)                                                        |
+| ------------------------------------------------------------- | ------------------------------------------------------------------------------ |
+| read a `644` project file                                     | **yes** — world-readable                                                       |
+| write into a `755` project directory owned by the remote user | **no**                                                                         |
+| where a write does land (e.g. a `777` directory)              | file is owned by `vscode` → host subuid **101000**, orphaned for the developer |
 
 Both measured directly. So this arrangement suits a workload that **reads** the project and talks
 over the network — a server container under test, say — and does **not** suit one that writes
@@ -1008,7 +1008,7 @@ user to be the same identity, which is the thing rootless makes impossible.
 
 Loosening workspace permissions (group-writable dirs, a shared gid, `vscode` in group 0) would
 trade the write failure for the orphaned-ownership problem rather than remove it: files would
-carry a usable *group* but a bogus owner, so `ls -l` misreports them and the developer could not
+carry a usable _group_ but a bogus owner, so `ls -l` misreports them and the developer could not
 `chmod`/`chown` their own build output. Not measured, and not attractive.
 
 #### Conclusion: nested podman cannot support a rootless host
@@ -1026,12 +1026,12 @@ carry a usable *group* but a bogus owner, so `ls -l` misreports them and the dev
 A read-only workspace is not an acceptable devcontainer, so this arrangement does not rescue
 `podman-as-docker` on rootless Linux. Combined with 13.4–13.6 the position is closed:
 
-| Approach | Workspace writable by the developer | Nested container can write the workspace |
-| --- | --- | --- |
-| nested podman, remote user non-root | **no** — the bind mount is unwritable | n/a |
-| nested podman, remote user uid 0 | yes | **no** — podman goes rootful and cannot run at all |
-| nested podman + socket service (13.6) | yes | **no** — service user is a different identity |
-| **sibling containers via the host socket (13.8)** | **yes** | **yes** |
+| Approach                                          | Workspace writable by the developer   | Nested container can write the workspace           |
+| ------------------------------------------------- | ------------------------------------- | -------------------------------------------------- |
+| nested podman, remote user non-root               | **no** — the bind mount is unwritable | n/a                                                |
+| nested podman, remote user uid 0                  | yes                                   | **no** — podman goes rootful and cannot run at all |
+| nested podman + socket service (13.6)             | yes                                   | **no** — service user is a different identity      |
+| **sibling containers via the host socket (13.8)** | **yes**                               | **yes**                                            |
 
 `podman-as-docker`'s value is children-not-siblings, and on a rootless host that is not
 achievable while keeping a writable workspace. The Feature should **detect a rootless outer
@@ -1044,31 +1044,31 @@ mechanisms: each makes the container user uid 0, so anything refusing to run as 
 them equally. Measured on the rootless VM with `remoteUser: root` and the `java`, `node` and
 `python` Features:
 
-| Check | Result |
-| --- | --- |
-| `java -version`, `javac` + run | OK — Temurin 21.0.12 |
-| `gradle --version` (SDKMAN install) | OK — Gradle 9.7.1 |
-| `node --version` | OK — v24.20.0 |
-| `npm install` incl. a postinstall-built native binary | OK — `esbuild` installs **and executes** |
-| `python3 -m venv` + `pip install` + import | OK — Python 3.12.14 |
-| every file written back to the host | `ubuntu:ubuntu` (`1000:1000`), zero exceptions |
-| host can delete what the container built | OK |
+| Check                                                 | Result                                         |
+| ----------------------------------------------------- | ---------------------------------------------- |
+| `java -version`, `javac` + run                        | OK — Temurin 21.0.12                           |
+| `gradle --version` (SDKMAN install)                   | OK — Gradle 9.7.1                              |
+| `node --version`                                      | OK — v24.20.0                                  |
+| `npm install` incl. a postinstall-built native binary | OK — `esbuild` installs **and executes**       |
+| `python3 -m venv` + `pip install` + import            | OK — Python 3.12.14                            |
+| every file written back to the host                   | `ubuntu:ubuntu` (`1000:1000`), zero exceptions |
+| host can delete what the container built              | OK                                             |
 
 So the uid-0 requirement is not, by itself, a problem for a normal JVM/Node/Python toolchain.
 This does **not** cover the second half of `feature-rootless-remap`'s question — two uid-0 entries
-in `/etc/passwd`, where the user is uid 0 but *named* `vscode` — which remains untested.
+in `/etc/passwd`, where the user is uid 0 but _named_ `vscode` — which remains untested.
 
 ### 13.8 The socket-mount alternative, and why it is not the answer here
 
 Recorded for completeness, and because it was measured before 13.5 was found. Mounting the
 host's Docker socket (sibling containers rather than nested ones) also works on a rootless host:
 
-| Check | Result |
-| --- | --- |
-| talks to the host daemon | OK (29.7.2) |
-| `docker run` | OK |
-| `docker build` | OK |
-| user-defined network + container-name DNS | OK |
+| Check                                     | Result      |
+| ----------------------------------------- | ----------- |
+| talks to the host daemon                  | OK (29.7.2) |
+| `docker run`                              | OK          |
+| `docker build`                            | OK          |
+| user-defined network + container-name DNS | OK          |
 
 **On a rootless host this is the only arrangement that works**, and it is better here than it is
 on a rootful one. Because the outer daemon is rootless, a sibling container's root maps to the
@@ -1080,7 +1080,7 @@ out.jar on the host : ubuntu:ubuntu (uid=1000)   # written by a sibling containe
 host user can edit it : OK
 ```
 
-On a *rootful* daemon the same write would produce root-owned files. So the usual objection to
+On a _rootful_ daemon the same write would produce root-owned files. So the usual objection to
 socket-mounting is weaker on exactly the platform that needs it. 13.6 explains why the nested
 alternative is unavailable here.
 

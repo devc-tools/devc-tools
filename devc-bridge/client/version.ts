@@ -7,4 +7,4 @@
 // apart across a release.
 
 /** Client version. Single source of truth — the compiled binary cannot read `deno.json`. */
-export const VERSION = '0.1.1';
+export const VERSION = '0.2.0';
