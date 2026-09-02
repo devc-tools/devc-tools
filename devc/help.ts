@@ -103,6 +103,9 @@ export const COMMAND_HELP: Record<string, string> = {
     'Options:',
     '      --build      Force a rebuild before attaching',
     '      --no-clear   Do not clear the screen before starting the TUI',
+    '      --cwd <PATH> Start in PATH instead of the workspace folder — a',
+    '                   container path, or a host path, which wins when a',
+    '                   value could be read as either',
     '  -h, --help       Print help',
   ].join('\n'),
 
@@ -114,7 +117,10 @@ export const COMMAND_HELP: Record<string, string> = {
     '  [EXTRA_ARGS]   Additional arguments forwarded to Claude',
     '',
     'Options:',
-    '  -h, --help     Print help',
+    '      --cwd <PATH>  Start in PATH instead of the workspace folder — a',
+    '                    container path, or a host path, which wins when a',
+    '                    value could be read as either',
+    '  -h, --help        Print help',
   ].join('\n'),
 
   copilot: [
@@ -125,7 +131,10 @@ export const COMMAND_HELP: Record<string, string> = {
     '  [EXTRA_ARGS]   Additional arguments forwarded to Copilot',
     '',
     'Options:',
-    '  -h, --help     Print help',
+    '      --cwd <PATH>  Start in PATH instead of the workspace folder — a',
+    '                    container path, or a host path, which wins when a',
+    '                    value could be read as either',
+    '  -h, --help        Print help',
   ].join('\n'),
 
   pi: [
@@ -136,7 +145,10 @@ export const COMMAND_HELP: Record<string, string> = {
     '  [EXTRA_ARGS]   Additional arguments forwarded to pi',
     '',
     'Options:',
-    '  -h, --help     Print help',
+    '      --cwd <PATH>  Start in PATH instead of the workspace folder — a',
+    '                    container path, or a host path, which wins when a',
+    '                    value could be read as either',
+    '  -h, --help        Print help',
   ].join('\n'),
 
   up: [

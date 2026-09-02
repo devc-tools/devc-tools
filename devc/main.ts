@@ -1,5 +1,6 @@
 import {
   attachToContainer,
+  type ContainerMount,
   downContainer,
   execInContainer,
   getContainerMounts,
@@ -10,6 +11,7 @@ import {
   startContainer,
   stopContainer,
 } from './container.ts';
+import { resolveAttachCwd } from './attach.ts';
 import { parseAttachArgs, parseBuildArgs, parseUpArgs } from './args.ts';
 import {
   DEVCONTAINER_SUBCOMMAND,
@@ -60,12 +62,48 @@ function fail(e: unknown): never {
 }
 
 /**
+ * Turns a `--cwd` value into the container path `attachToContainer` wants. A host path is
+ * translated through the container's own mount table; anything else passes through as a
+ * container path. The decision itself is `resolveAttachCwd`'s — this only supplies the two
+ * impure inputs it needs.
+ *
+ * A host path that no bind mount covers is fatal *before* the attach: the container cannot
+ * see that directory, and attaching to a same-looking container path instead would be worse
+ * than refusing. A container path that does not exist in the container is not checked here —
+ * `docker exec` already reports a bad `-w` well, and a stat would cost a second round trip.
+ */
+async function resolveCwdArg(target: string, cwd: string): Promise<string> {
+  // `null` when no container matches — startContainer just succeeded, so in practice this is
+  // only a race. Treat it as "no table to translate against" and pass the value through.
+  const mounts: ContainerMount[] | null = await getContainerMounts(target)
+    .catch(() => null);
+  const resolved = resolveAttachCwd(cwd, mounts, () => {
+    try {
+      Deno.statSync(cwd);
+      return true;
+    } catch {
+      return false;
+    }
+  });
+  if (resolved.kind === 'unmounted') {
+    fail(
+      `--cwd ${resolved.hostPath} is a host path, but no mount of this container covers it, ` +
+        `so the container cannot see it. Add a mount for it with \`devc config\`, or pass ` +
+        `the container-side path instead.`,
+    );
+  }
+  return resolved.containerPath;
+}
+
+/**
  * Shared `devc attach` / `devc claude` / `devc copilot` / `devc pi` flow: start (or rebuild) the
  * container for `target`, then attach. When `command` is given (`devc claude`/`devc copilot`/
  * `devc pi`), it runs inside a login shell instead of dropping into an interactive shell.
  */
 async function attach(rawArgs: string[], command?: string): Promise<void> {
-  const { target: rawTarget, rebuild, noClear } = parseAttachArgs(rawArgs);
+  const { target: rawTarget, rebuild, noClear, cwd: rawCwd } = parseAttachArgs(
+    rawArgs,
+  );
   const target = resolveLocalFolder(rawTarget);
   const what = command ? `${target} and running \`${command}\`` : `${target}`;
   console.log(
@@ -74,6 +112,13 @@ async function attach(rawArgs: string[], command?: string): Promise<void> {
       : `Attaching to ${what}...`,
   );
   const info = await startContainer(target, rebuild).catch(fail);
+
+  // `--cwd` takes a container path or a host path. Translation needs the container's live
+  // mount table, so it happens here — `attach.ts` takes a container path and stays free of
+  // I/O, the same division `herdr` below already follows.
+  const cwd = rawCwd === undefined
+    ? undefined
+    : await resolveCwdArg(target, rawCwd);
 
   // Derive session name from the git root of the local folder so it matches
   // $PROJECT_PATH basename in the container, even when devc is run on a subfolder.
@@ -102,6 +147,7 @@ async function attach(rawArgs: string[], command?: string): Promise<void> {
       sessionName,
       command,
       herdr,
+      cwd,
     });
     Deno.exit(code);
   } catch (e) {

@@ -33,10 +33,10 @@ devc init    [PATH]                                   Scaffold the default `.dev
 devc config  [PATH]                                   Configure the project's source/skills mounts (TUI)
 devc up      [PATH] [--json]                          Create/start the container; print its status
 devc build   [PATH] [--no-cache] [--json]             Recreate the container from scratch
-devc attach  [PATH] [--build] [--no-clear]            Start (creating if needed) and attach a login shell
-devc claude  [PATH] [EXTRA_ARGS...]                   Start and run `claude` (+ forwarded args) in a login shell
-devc copilot [PATH] [EXTRA_ARGS...]                   Start and run `copilot` (+ forwarded args) in a login shell
-devc pi      [PATH] [EXTRA_ARGS...]                   Start and run `pi` (+ forwarded args) in a login shell
+devc attach  [PATH] [--build] [--no-clear] [--cwd DIR] Start (creating if needed) and attach a login shell
+devc claude  [PATH] [--cwd DIR] [EXTRA_ARGS...]       Start and run `claude` (+ forwarded args) in a login shell
+devc copilot [PATH] [--cwd DIR] [EXTRA_ARGS...]       Start and run `copilot` (+ forwarded args) in a login shell
+devc pi      [PATH] [--cwd DIR] [EXTRA_ARGS...]       Start and run `pi` (+ forwarded args) in a login shell
 devc exec    [PATH] [--cwd DIR] [--env K=V]... -- CMD Start and run CMD directly (no shell)
 devc mounts  [PATH] [--json]                          List the container's mounts
 devc stop    [PATH]                                   Stop the container
@@ -75,6 +75,16 @@ Notes:
   `attach`/`claude`/`copilot`/`pi` exit with the attached shell/command's own
   exit code (e.g. 130 on a signal-driven detach); `devc`/`docker` infra
   failures exit 125.
+- `--cwd DIR` on `attach`/`claude`/`copilot`/`pi` starts in `DIR` instead of the
+  container's workspace folder — how you attach into a git worktree under a
+  `.worktrees` mount. It takes either a **container** path or a **host** one: a
+  host path is translated through the container's own mount table
+  (`docker inspect`, the same table `devc mounts` prints). When a value could be
+  read either way, the host reading wins, because that is the one you cannot
+  express any other way; a host path that no mount covers is refused before the
+  attach starts rather than silently landing somewhere else. Both `--cwd DIR`
+  and `--cwd=DIR` are accepted. Note `devc exec --cwd` is the older, narrower
+  flag: it is a container path only, and does not translate.
 - `exec` runs the command after `--` directly (no shell) and exits with the
   command's own exit code; `devc`/`docker` infra failures exit 125. `--env` is
   repeatable and a value without `=` is an error (exit 125).

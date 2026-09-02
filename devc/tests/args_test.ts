@@ -99,3 +99,91 @@ Deno.test('parseUpArgs parses a path and both flags in any order', () => {
     json: true,
   });
 });
+
+Deno.test('parseAttachArgs leaves cwd absent when --cwd is not given', () => {
+  assertEquals(parseAttachArgs(['/some/path', '--build']).cwd, undefined);
+  assertEquals('cwd' in parseAttachArgs(['/some/path']), false);
+});
+
+Deno.test('parseAttachArgs: --cwd <path> does not become the target', () => {
+  assertEquals(parseAttachArgs(['--cwd', '/x']), {
+    target: undefined,
+    rebuild: false,
+    noClear: false,
+    cwd: '/x',
+  });
+});
+
+Deno.test('parseAttachArgs parses --cwd=<path>', () => {
+  assertEquals(parseAttachArgs(['--cwd=/x']), {
+    target: undefined,
+    rebuild: false,
+    noClear: false,
+    cwd: '/x',
+  });
+});
+
+Deno.test('parseAttachArgs assigns a path and a --cwd separately', () => {
+  assertEquals(
+    parseAttachArgs(['/project', '--cwd', '/workspaces/tools/x']),
+    {
+      target: '/project',
+      rebuild: false,
+      noClear: false,
+      cwd: '/workspaces/tools/x',
+    },
+  );
+  // …and in the other order, where the naive positional scan would take the cwd value.
+  assertEquals(
+    parseAttachArgs(['--cwd', '/workspaces/tools/x', '/project']),
+    {
+      target: '/project',
+      rebuild: false,
+      noClear: false,
+      cwd: '/workspaces/tools/x',
+    },
+  );
+  assertEquals(
+    parseAttachArgs(['--cwd=/workspaces/tools/x', '/project']),
+    {
+      target: '/project',
+      rebuild: false,
+      noClear: false,
+      cwd: '/workspaces/tools/x',
+    },
+  );
+});
+
+Deno.test('parseAttachArgs: --cwd with no value neither throws nor eats a flag', () => {
+  assertEquals(parseAttachArgs(['--cwd']), {
+    target: undefined,
+    rebuild: false,
+    noClear: false,
+  });
+  assertEquals(parseAttachArgs(['--cwd', '--build', '/project']), {
+    target: '/project',
+    rebuild: true,
+    noClear: false,
+  });
+  assertEquals(parseAttachArgs(['--cwd=']), {
+    target: undefined,
+    rebuild: false,
+    noClear: false,
+  });
+});
+
+Deno.test('parseAttachArgs keeps the first positional as the target', () => {
+  assertEquals(parseAttachArgs(['/first', '/second']).target, '/first');
+});
+
+Deno.test('parseAttachArgs: --cwd alongside every other flag', () => {
+  assertEquals(
+    parseAttachArgs(['--no-clear', '--cwd', '/w', '--build', '/project']),
+    {
+      target: '/project',
+      rebuild: true,
+      noClear: true,
+      cwd: '/w',
+    },
+  );
+});
