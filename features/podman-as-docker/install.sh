@@ -36,6 +36,11 @@ SETCAP="${SETCAP:-setcap}"                           # the harness stubs this
 CNI_DIR="${CNI_DIR:-/var/lib/cni}"
 UID_MAP_FILE="${UID_MAP_FILE:-/proc/self/uid_map}"   # the nesting probe reads this
 PASSWD_FILE="${PASSWD_FILE:-/etc/passwd}"
+# The Feature namespace, and the two directories the manifest names directly (containerEnv
+# and mounts cannot reference SHARE_DIR's own default) — see the "fixed paths" section below.
+SHARE_DIR="${SHARE_DIR:-/usr/local/share/devc-features/podman-as-docker}"
+SOCKET_DIR="${SOCKET_DIR:-/run/devc-features/podman-as-docker}"
+GRAPHROOT_DIR="${GRAPHROOT_DIR:-/var/lib/devc-features/podman-as-docker/storage}"
 
 # Options reach install.sh uppercased with non-word characters stripped (the CLI's
 # getSafeId), and booleans arrive as the strings "true"/"false". Defaults are repeated
@@ -345,9 +350,8 @@ echo "podman-as-docker: network default rootlessNetworkCmd='$ROOTLESS_NETWORK_CM
 # harness. The socket and graphroot directories are under /run and /var/lib respectively —
 # not under SHARE_DIR — because those two are named directly in the manifest's
 # containerEnv and mounts, which cannot reference SHARE_DIR's own default.
-SHARE_DIR="${SHARE_DIR:-/usr/local/share/devc-features/podman-as-docker}"
-SOCKET_DIR="${SOCKET_DIR:-/run/devc-features/podman-as-docker}"
-GRAPHROOT_DIR="${GRAPHROOT_DIR:-/var/lib/devc-features/podman-as-docker/storage}"
+# SHARE_DIR, SOCKET_DIR and GRAPHROOT_DIR are defined with the other overridable paths at the top;
+# the shims above bake SOCKET_DIR in, so it has to exist before they are written.
 
 # bake <file> <var> <value> — the manifest's postCreateCommand/postStartCommand take no
 # arguments, so options cross into the copied scripts by rewriting their own

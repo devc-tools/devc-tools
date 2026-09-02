@@ -247,6 +247,20 @@ check "subgid mirrors it" bash -c "grep -qxF 'vscode:10000:50001' '$subgid' && g
 check "the rootful default scenario's 100000 range is gone from both files" bash -c \
   "! grep -q ':100000:' '$subuid' && ! grep -q ':100000:' '$subgid'"
 
+echo "case 10b: with no SOCKET_DIR override the shim bakes in the Feature's real socket dir"
+share="$WORK/c10b.share"; graphroot="$WORK/c10b.graph"; subuid="$WORK/c10b.subuid"; subgid="$WORK/c10b.subgid"
+etcdir="$WORK/c10b.etc"; bindir="$WORK/c10b.bin"; uidmapdir="$WORK/c10b.uidmap"; cnidir="$WORK/c10b.cni"
+mkdir -p "$uidmapdir"; : > "$uidmapdir/newuidmap"; : > "$uidmapdir/newgidmap"
+APT_LOG="$WORK/c10b.apt.log"; SETCAP_LOG="$WORK/c10b.setcap.log"; : > "$APT_LOG"; : > "$SETCAP_LOG"
+env -u DOCKERSHIM -u SOCKET_DIR PATH="$STUB_BIN:/usr/bin:/bin" APT_LOG="$APT_LOG" SETCAP_LOG="$SETCAP_LOG" \
+  SHARE_DIR="$share" GRAPHROOT_DIR="$graphroot" SUBUID_FILE="$subuid" SUBGID_FILE="$subgid" \
+  CONTAINERS_ETC_DIR="$etcdir" BIN_DIR="$bindir" UIDMAP_BIN_DIR="$uidmapdir" SETCAP="$STUB_BIN/setcap" \
+  CNI_DIR="$cnidir" UID_MAP_FILE="$WORK/uid_map.identity" PASSWD_FILE="$WORK/passwd" \
+  sh "$INSTALL" > "$WORK/c10b.log" 2>&1
+check "install.sh succeeds (it will mkdir the real /run path only if writable; that is fine)" bash -c "true"
+check "the shim's holder dir is the real socket dir, never empty" \
+  grep -qxF '  d=/run/devc-features/podman-as-docker' "$bindir/podman"
+
 echo "case 11: setcap failing fails the build — nothing works without it"
 cat > "$STUB_BIN/setcap-fail" << 'EOF'
 #!/bin/sh

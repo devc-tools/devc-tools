@@ -63,8 +63,8 @@ SOCK="$SOCKET_DIR/podman.sock"
 # and say what it means. Best-effort and never fatal.
 _probe="$(podman info --format '{{.Host.Security.Rootless}}' 2>&1 > /dev/null || true)"
 case "$_probe" in
-  *"newuidmap: write to uid_map failed"*)
-    warn "podman cannot create its user namespace (newuidmap: write to uid_map failed)."
+  *"cannot clone: Operation not permitted"* | *"cannot re-exec process"* | *"newuidmap: write to uid_map failed"*)
+    warn "podman cannot create its user namespace ($(echo "$_probe" | grep -oE 'cannot clone: Operation not permitted|cannot re-exec process|newuidmap: write to uid_map failed' | head -1))."
     warn "Almost always: the seccomp profile is not reaching this container. Copy this Feature's"
     warn "seccomp-podman.json into your repo's .devcontainer/ and add to devcontainer.json:"
     warn '  "runArgs": ["--security-opt", "seccomp=${localWorkspaceFolder}/.devcontainer/seccomp-podman.json"]'

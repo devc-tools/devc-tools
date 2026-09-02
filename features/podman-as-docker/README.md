@@ -87,8 +87,8 @@ services:
     devices: ['/dev/net/tun']
 ```
 
-Without this, the failure mode is `newuidmap: write to uid_map failed: Operation not
-permitted` on every `docker run` — the start-time step recognises that string and prints the
+Without this, the failure mode is `cannot clone: Operation not permitted` / `cannot re-exec
+process` on every `docker run` — the start-time step recognises that string and prints the
 fix.
 
 ## What it does
@@ -214,19 +214,21 @@ exists, naming the conflict rather than letting one Feature silently shadow anot
 
 ## Troubleshooting
 
-**`newuidmap: write to uid_map failed: Operation not permitted`** — three causes print the
-identical string:
+**`cannot clone: Operation not permitted` / `Error: cannot re-exec process`** on every
+`podman` command — the seccomp profile did not reach the container, so Docker's default filter
+still blocks `clone(CLONE_NEWUSER)` and podman cannot create its user namespace. The
+`runArgs` line is missing, points at a path that does not exist on the host, or was dropped
+(Compose-file consumers, some CI runners). The start-time step probes for this and prints the
+fix in the create log. Measured: this is the exact failure with the line removed.
 
-1. The seccomp profile did not reach the container: the `runArgs` line is missing, points at
-   a path that does not exist on the host, or was dropped (Compose-file consumers, some CI
-   runners). Confirm with `grep Seccomp: /proc/self/status` — `2` with a filter that still
-   blocks `unshare` looks exactly like this. The start-time step probes for it and prints the
-   fix in the create log.
-2. `newuidmap` lost its file capabilities — `getcap /usr/bin/newuidmap` should print
+**`newuidmap: write to uid_map failed: Operation not permitted`** — the namespace was created
+but its map could not be written. Two causes:
+
+1. `newuidmap` lost its file capabilities — `getcap /usr/bin/newuidmap` should print
    `cap_setuid=ep`. A later Feature or a `RUN` step that reinstalled `uidmap` puts the setuid
    bit back; rebuild with this Feature ordered after it, or run
    `setcap cap_setuid+ep /usr/bin/newuidmap; setcap cap_setgid+ep /usr/bin/newgidmap`.
-3. `/etc/subuid`/`/etc/subgid` has no range for the remote user. A range is added at build
+2. `/etc/subuid`/`/etc/subgid` has no range for the remote user. A range is added at build
    time, but a base image that renumbers the remote user's UID _after_ the image builds (the
    devcontainer CLI's UID-remap step) can orphan it. Check
    `grep "^$(id -un):" /etc/subuid /etc/subgid`.
