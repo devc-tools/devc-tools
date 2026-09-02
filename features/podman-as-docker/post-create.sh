@@ -34,8 +34,10 @@ mkdir -p "$GRAPHROOT_DIR" || {
 # with a permission error naming the storage directory rather than the mount, so the cause
 # is not obvious without this. Non-recursive: on a rebuild the volume is already
 # populated, and a recursive chown over an image store is slow and pointless.
-owner="$(stat -c '%U' "$GRAPHROOT_DIR" 2> /dev/null || true)"
-if [ -n "$owner" ] && [ "$owner" != "$(id -un)" ]; then
+# Compared by uid, not name: with the rootless-remap Feature the remote user is uid 0 and
+# `stat -c %U` may print either its name or `root` for the same files.
+owner="$(stat -c '%u' "$GRAPHROOT_DIR" 2> /dev/null || true)"
+if [ -n "$owner" ] && [ "$owner" != "$(id -u)" ]; then
   if command -v sudo > /dev/null 2>&1; then
     sudo -n chown "$(id -un)" "$GRAPHROOT_DIR" 2> /dev/null ||
       warn "$GRAPHROOT_DIR is owned by $owner and could not be repaired (no passwordless sudo)"

@@ -47,13 +47,30 @@ mkdir -p "$SOCKET_DIR" 2> /dev/null || {
 # $SOCKET_DIR from the renumbered user, and every write below (the log file, the socket
 # itself) then fails with Permission denied. sudo -n so a passworded sudo cannot hang
 # this on a prompt nobody can answer; best-effort, since this must never fail the start.
-owner="$(stat -c '%U' "$SOCKET_DIR" 2> /dev/null || true)"
-if [ -n "$owner" ] && [ "$owner" != "$(id -un)" ] && command -v sudo > /dev/null 2>&1; then
+owner="$(stat -c '%u' "$SOCKET_DIR" 2> /dev/null || true)"
+if [ -n "$owner" ] && [ "$owner" != "$(id -u)" ] && command -v sudo > /dev/null 2>&1; then
   sudo -n chown "$(id -un)" "$SOCKET_DIR" 2> /dev/null ||
     warn "$SOCKET_DIR is owned by $owner and could not be repaired"
 fi
 
 SOCK="$SOCKET_DIR/podman.sock"
+
+# --- the one failure that needs a diagnosis, not a stack trace ----------------------------------
+#
+# This Feature grants no capability; rootless podman works because the consumer's runArgs
+# carry a seccomp profile that lets it create its own user namespace. Leave that line out and
+# every `podman run` fails with a string that says nothing about seccomp. Probe once per start
+# and say what it means. Best-effort and never fatal.
+_probe="$(podman info --format '{{.Host.Security.Rootless}}' 2>&1 > /dev/null || true)"
+case "$_probe" in
+  *"cannot clone: Operation not permitted"* | *"cannot re-exec process"* | *"newuidmap: write to uid_map failed"*)
+    warn "podman cannot create its user namespace ($(echo "$_probe" | grep -oE 'cannot clone: Operation not permitted|cannot re-exec process|newuidmap: write to uid_map failed' | head -1))."
+    warn "Almost always: the seccomp profile is not reaching this container. Copy this Feature's"
+    warn "seccomp-podman.json into your repo's .devcontainer/ and add to devcontainer.json:"
+    warn '  "runArgs": ["--security-opt", "seccomp=${localWorkspaceFolder}/.devcontainer/seccomp-podman.json"]'
+    warn "then rebuild. See the podman-as-docker README, § Read this before enabling it."
+    ;;
+esac
 
 # Idempotent: if the socket already answers, do nothing. This is what makes it safe to
 # run on every start and every restart-after-attach, not just the first one.

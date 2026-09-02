@@ -1,8 +1,8 @@
 {
   "id": "podman-as-docker",
-  "version": "0.1.3",
+  "version": "0.2.0",
   "name": "Podman as Docker",
-  "description": "Makes `docker` commands work inside a devcontainer by installing Podman and the podman-docker shim — no Docker daemon, no /var/run/docker.sock bind mount, no privileged sibling container. NOT the secure option: it costs CAP_SYS_ADMIN plus three Docker/runc securityOpt flags — systempaths=unconfined (removes the default read-only masking of /proc/sys and neighbours), apparmor=unconfined (the docker-default AppArmor profile's blanket 'deny mount' rule otherwise blocks Podman's own mount setup), and seccomp=unconfined (the docker-default seccomp profile otherwise blocks crun's session-keyring creation) — all measured required on a native Linux Docker host specifically, invisible on Docker Desktop, which enforces none of the three by default. See the README's privilege-cost section before enabling this. Declares its own per-devcontainer storage volume, so a bare `{}` container already gets native overlay storage and survives a rebuild; networking defaults to --network=host (no device needed) unless rootlessNetworkCmd is changed and --device=/dev/net/tun is pasted into runArgs.",
+  "description": "Makes `docker` commands work inside a devcontainer by installing Podman and the podman-docker shim — no Docker daemon, no /var/run/docker.sock bind mount, no privileged sibling container, and since 0.2.0 NO added capability: capAdd is empty. What it still costs is two things. (1) securityOpt systempaths=unconfined (declared here): without it a nested container cannot mount its own /proc. apparmor=unconfined is also declared for rootful native Linux hosts, where the docker-default profile blocks Podman's mounts; it is a no-op on Docker Desktop and on rootless daemons. (2) A seccomp profile YOU commit to your repo and reference from runArgs: Docker's default profile gates the namespace and mount syscalls rootless Podman needs behind CAP_SYS_ADMIN, and a Feature cannot supply a seccomp file (the Docker CLI reads it on the host). Copy this Feature's seccomp-podman.json into .devcontainer/ and add `--security-opt seccomp=${localWorkspaceFolder}/.devcontainer/seccomp-podman.json` to runArgs — the README has the exact lines and the privilege analysis. Inside the image newuidmap/newgidmap carry file capabilities instead of setuid, which is what lets an unprivileged user map its own namespace. Declares its own per-devcontainer storage volume, so a bare `{}` already gets native overlay storage that survives a rebuild; networking defaults to --network=host (no device needed) unless rootlessNetworkCmd is changed and --device=/dev/net/tun is added to runArgs. On a rootless Docker host (detected from /proc/self/uid_map at build time) it also configures itself for nesting — pair it with the rootless-remap Feature to keep the workspace writable there.",
   "documentationURL": "https://github.com/devc-tools/devc-tools/tree/main/features/podman-as-docker",
   "licenseURL": "https://github.com/devc-tools/devc-tools/blob/main/LICENSE",
   "options": {
@@ -45,12 +45,7 @@
       "description": "Create /etc/containers/nodocker, suppressing the 'Emulate Docker CLI using podman' banner podman-docker prints on every `docker` invocation. Off leaves the banner in place; scripts that parse `docker` output can break without this."
     }
   },
-  "capAdd": ["SYS_ADMIN"],
-  "securityOpt": [
-    "systempaths=unconfined",
-    "apparmor=unconfined",
-    "seccomp=unconfined"
-  ],
+  "securityOpt": ["systempaths=unconfined", "apparmor=unconfined"],
   "containerEnv": {
     "DOCKER_HOST": "unix:///run/devc-features/podman-as-docker/podman.sock"
   },

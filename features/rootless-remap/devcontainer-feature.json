@@ -1,0 +1,10 @@
+{
+  "id": "rootless-remap",
+  "version": "0.1.0",
+  "name": "Rootless Linux workspace remap",
+  "description": "Makes a devcontainer's workspace writable on a rootless Linux Docker host without changing the config: when the image is built on a rootless daemon (detected from /proc/self/uid_map — container uid 0 is the host user there, so the bind-mounted workspace is root-owned inside and the conventional vscode user cannot write it), the remote user is remapped to uid 0 and gid 0 while keeping its name, home and shell, so `id` prints uid=0(vscode) and $HOME stays /home/vscode. A placeholder user then holds the host's uid so the devcontainer CLI's default updateRemoteUserUID step is a no-op instead of silently undoing the remap — no consumer setting needed. On a rootful daemon (Docker Desktop, native Linux Docker) it detects the identity map and does nothing at all. No options. Pairs with podman-as-docker, which runs nested podman one user namespace down for a uid-0 remote user.",
+  "documentationURL": "https://github.com/devc-tools/devc-tools/tree/main/features/rootless-remap",
+  "licenseURL": "https://github.com/devc-tools/devc-tools/blob/main/LICENSE",
+  "options": {},
+  "postCreateCommand": "bash /usr/local/share/devc-features/rootless-remap/post-create.sh"
+}
