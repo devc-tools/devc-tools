@@ -16,3 +16,4 @@ devc-config
 git-container-config
 node-nvmrc
 podman-as-docker
+rootless-remap
