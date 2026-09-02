@@ -628,14 +628,15 @@ without starting anything — use it to see what each check is actually running.
 
 ## 12. Mount substitution inside a Feature's `mounts` — Docker host
 
-From `mount-substitution-spike`, extended by `declared-volume-spike` (M1, M2).
+From `mount-substitution-spike`, extended by `declared-volume-spike` (M1, M2)
+and by `rootless-remote-user` (M5).
 Answers `.plans/design/devc-feature-split.md` open question 2 and
 `feature-declared-volumes`'s Step 1: which `devcontainer.json` variables
 substitute inside a Feature's own `mounts` array. Measured once with
 `@devcontainers/cli 0.89.0`; re-run this after a CLI upgrade to confirm the
 answer still holds.
 
-The fixture (`tests/fixtures/mount-substitution/`) declares five mounts and
+The fixture (`tests/fixtures/mount-substitution/`) declares six mounts and
 one Feature option:
 
 ```jsonc
@@ -644,7 +645,8 @@ one Feature option:
   { "type": "volume", "source": "volspike-base-${localWorkspaceFolderBasename}", "target": "/var/lib/volspike-base" },
   { "type": "volume", "source": "volspike-target", "target": "${containerWorkspaceFolder}/.volspike-target" },
   { "type": "volume", "source": "volspike-home", "target": "${containerEnv:HOME}/.volspike-home" },
-  { "type": "volume", "source": "volspike-opt-${probe}", "target": "/var/lib/volspike-opt" }
+  { "type": "volume", "source": "volspike-opt-${probe}", "target": "/var/lib/volspike-opt" },
+  { "type": "volume", "source": "volspike-localenv", "target": "${localEnv:VOLSPIKE_HOME:/var/lib/volspike-localenv-default}/.volspike-localenv" }
 ],
 "options": { "probe": { "type": "string", "default": "volspike-opt-default" } }
 ```
@@ -666,6 +668,7 @@ The printed command line contains (abbreviated to the `--mount` flags):
 --mount type=volume,src=volspike-target,dst=/workspaces/devc-tools/tests/fixtures/mount-substitution/.volspike-target
 --mount type=volume,src=volspike-home,dst=${containerEnv:HOME}/.volspike-home
 --mount type=volume,src=volspike-opt-${probe},dst=/var/lib/volspike-opt
+--mount type=volume,src=volspike-localenv,dst=/var/lib/volspike-localenv-default/.volspike-localenv
 ```
 
 then Docker rejects it before creating anything (`docker volume ls | grep
@@ -682,6 +685,32 @@ docker: Error response from daemon: invalid mount config for type "volume": inva
 | `${containerWorkspaceFolder}`                              | mount _target_ | yes          | `dst=/workspaces/devc-tools/tests/fixtures/mount-substitution/.volspike-target`                                                                                                                                                                                                                                           |
 | **M1** `${containerEnv:HOME}`                              | mount _target_ | **no**       | literal `dst=${containerEnv:HOME}/.volspike-home` — and unlike a merely-cosmetic miss, Docker's mount-path validator then refuses it outright (`mount path must be absolute`), so this is **fatal to `devcontainer up`**, not just a wrongly-placed directory                                                             |
 | **M2** a Feature option (`${probe}`, set to `SUBSTITUTED`) | mount _source_ | **no**       | literal `src=volspike-opt-${probe}` — also fatal on its own: with M1's mount removed so the CLI reaches this one, Docker's _volume-name_ validator (a separate check from the path one above) rejects it too: `create volspike-opt-${probe}: "volspike-opt-${probe}" includes invalid characters for a local volume name` |
+| **M5** `${localEnv:VAR:default}`                           | mount _target_ | **yes**      | `dst=/var/lib/volspike-localenv-default/.volspike-localenv` with `VOLSPIKE_HOME` unset (the `:default` fallback is applied), and `dst=/opt/volspike-set/.volspike-localenv` with `VOLSPIKE_HOME=/opt/volspike-set`. Measured twice on two hosts — Docker Desktop/macOS 29.7.2 and rootless Docker 29.7.2 on Ubuntu 24.04 — both `@devcontainers/cli 0.89.0`                                                                              |
+
+### What M1 does **not** imply
+
+M1's "no" is about `${containerEnv:…}` specifically, and does not generalise to
+"a Feature's mounts cannot follow the remote user's home". M5 shows the
+pre-container resolver does handle `${localEnv:…}`, including its `:default`
+fallback — so a Feature's own mount target *can* be pointed at the remote
+user's home, provided the value is supplied **from the host** rather than named
+by a built-in variable. `${containerEnv:HOME}` fails because container env does
+not exist yet when mounts are consumed at `docker run`; a `localEnv` value is
+known before that.
+
+This is what lets `features/agents` stop hardcoding `/home/vscode/.claude`.
+See `rootless-remote-user` § Step 2.
+
+M5 needs two runs, since the point is that both the fallback and the supplied
+value work:
+
+```sh
+devcontainer up --workspace-folder tests/fixtures/mount-substitution
+VOLSPIKE_HOME=/opt/volspike-set devcontainer up --workspace-folder tests/fixtures/mount-substitution
+```
+
+Read `dst=` on the `volspike-localenv` mount in each printed command line. Both
+runs still die on M1's mount, which is expected and is not the M5 answer.
 
 To reconfirm the three non-M1/M2 answers (or M2's error specifically) against
 a **running** container, comment out mounts 4 and/or 5 in
@@ -692,11 +721,11 @@ docker volume ls | grep volspike
 devcontainer exec --workspace-folder tests/fixtures/mount-substitution findmnt | grep volspike
 ```
 
-Expected with mounts 4 and 5 both removed: three volumes exist —
+Expected with mounts 4 and 5 both removed: four volumes exist —
 `volspike-id-<opaque id>`, `volspike-base-mount-substitution`,
 `volspike-target` (target lands under the workspace folder — confirmed by
-`findmnt` above). Restore the fixture to all five mounts afterward; that is
-the form it is committed in.
+`findmnt` above) and `volspike-localenv`. Restore the fixture to all six
+mounts afterward; that is the form it is committed in.
 
 Clean up after any run: `docker rm -f` the container if one started
 (`devcontainer up`'s output prints its id), then `docker volume rm` whatever
@@ -819,6 +848,137 @@ fails the install outright, correctly (a failed install fails the build, same
 as every other Feature here).
 
 ---
+
+### 13.4 Under **rootless** Docker — the four blockers, all fixable
+
+From `rootless-remote-user` § Step 4. Measured on Ubuntu 24.04 / rootless Docker 29.7.2 /
+podman 4.9.3 / `@devcontainers/cli` 0.89.0. Everything in 13.1–13.3 above was measured on a
+**rootful** daemon; this is the same Feature on a rootless one, where the devcontainer is already
+inside a user namespace and podman would be a second.
+
+**Read 13.5 for the working configuration.** As shipped, the Feature installs and configures
+correctly but cannot run a nested container; the scenario results below are the as-shipped
+state, and the four blockers that follow are each resolved in 13.5.
+
+| Scenario | Passed | Failed |
+| --- | --- | --- |
+| `no_shim` | podman present, docker absent, podman-docker not installed | "podman itself still works" |
+| `with_socket` | — | the socket never comes up |
+| `with_volume` | graphroot is a mount point, ownership repair, `storage.conf` points at it, chose `overlay` | `docker pull` writes into the graphroot |
+| `with_tun` | `netns=private`, `slirp4netns`, `/dev/net/tun` present, container gets its own netns | real egress through it |
+
+13.1's privilege matrix reproduces this with no devcontainer, and separates three blockers:
+
+1. **subuid range outside the outer namespace.** Rootless Docker gives the container a `uid_map`
+   of `0→1000 (1)` and `1→100000 (65536)` — only ids 0–65536 exist inside. The Feature allocates
+   `vscode` subuids at 100000–165535, which the parent namespace does not own:
+
+   ```
+   running `/usr/bin/newuidmap 1747 0 1000 1 1 100000 65536`:
+     newuidmap: write to uid_map failed: Operation not permitted
+   Error: cannot set up namespace using "/usr/bin/newuidmap": exit status 1
+   ```
+
+   **Fixable.** A range inside 0–65536 that excludes the user's own uid works — `10000–60000`
+   verified; a range spanning uid 1000 is rejected outright (`the specified mapping 1:60000 in
+   "/etc/subuid" includes the user UID`). With it, `podman info` reports `overlay` and
+   `podman unshare` succeeds.
+
+2. **crun cannot create its keyring** — `crun: create keyring …: Operation not permitted`.
+   **Fixable** with `[containers] keyring = false` in `~/.config/containers/containers.conf`
+   (confirmed read: the error changes rather than repeating).
+
+3. **`crun: pivot_root: Operation not permitted`.** **Fixable**, but not by anything in the
+   storage layer — identical on `overlay` and `vfs`, which is what first made this look
+   fundamental. The fix is two settings: **`runc` as the runtime** and **`no_pivot_root`**.
+   `no_pivot_root` is a `runc` feature that **crun does not implement**, so setting it alone
+   changes nothing; the runtime has to move with it. It also lives under **`[engine]`**, not
+   `[containers]` — putting it in the wrong section fails silently.
+
+4. **`podman build` fails** where `podman run` succeeds:
+   `did not get container create message from subprocess: EOF`. buildah runs the `RUN` step
+   itself and does **not** read podman's `[engine]` config. **Fixable** with
+   `BUILDAH_ISOLATION=chroot` in the environment (equivalently `podman build --isolation=chroot`).
+
+### 13.5 The working nested-rootless configuration
+
+All four blockers resolved. Verified end to end on the rootless VM:
+
+| Capability | Result |
+| --- | --- |
+| `podman run`, default (private) netns | OK |
+| egress from a nested container | OK |
+| bind-mounting a host path in | OK |
+| the `docker` shim | OK |
+| `podman build` (with `BUILDAH_ISOLATION=chroot`) | OK |
+| created network + **container-name DNS** | OK — `srv` resolved to `10.89.0.2`, HTTP succeeded |
+
+**Outer container** (the consumer's `runArgs`, unchanged from the rootful requirements except
+that `/dev/net/tun` is now load-bearing rather than optional):
+
+```
+--cap-add=SYS_ADMIN --security-opt systempaths=unconfined --device=/dev/net/tun
+```
+
+**Inside the container** (the Feature's job):
+
+1. Allocate the remote user's subuid/subgid **inside the range the outer namespace owns** —
+   `10000-60000`, not `100000-165535`, and never a range spanning the user's own uid.
+2. `~/.config/containers/containers.conf`:
+
+   ```toml
+   [containers]
+   keyring = false
+
+   [engine]
+   runtime = "runc"
+   no_pivot_root = true
+   ```
+
+3. `BUILDAH_ISOLATION=chroot` exported for builds.
+
+**How the Feature can tell it is nested**, without any host coordination: read
+`/proc/self/uid_map` inside the container. Rootful Docker gives the identity map
+`0 0 4294967295`; a rootless outer daemon gives something else (`0 1000 1` / `1 100000 65536`
+here). That is a clean, in-container signal, so the settings above can be applied only when
+nested and rootful consumers stay untouched — `runc`-instead-of-`crun` in particular should not
+be imposed on hosts that do not need it.
+
+Not established: whether `/dev/fuse` matters (13.1 previously found it did not; it was present
+during these runs), and whether a subuid range narrower than 50000 ids is sufficient.
+
+### 13.6 The socket-mount alternative, and why it is not the answer here
+
+Recorded for completeness, and because it was measured before 13.5 was found. Mounting the
+host's Docker socket (sibling containers rather than nested ones) also works on a rootless host:
+
+| Check | Result |
+| --- | --- |
+| talks to the host daemon | OK (29.7.2) |
+| `docker run` | OK |
+| `docker build` | OK |
+| user-defined network + container-name DNS | OK |
+
+It is **not** the preferred route: the point of `podman-as-docker` is a self-contained
+devcontainer that needs no host socket and whose containers are children, not siblings. 13.5
+delivers that, so this is a fallback, not a recommendation.
+
+Two rootless-specific gotchas if you do reach for it:
+
+- **The socket is not at `/var/run/docker.sock`.** Rootless puts it at
+  `$XDG_RUNTIME_DIR/docker.sock` (`/run/user/1000/docker.sock`). The upstream
+  `ghcr.io/devcontainers/features/docker-outside-of-docker` Feature **hardcodes the rootful
+  path** and fails at create time with `bind source path does not exist: /var/run/docker.sock`.
+  A plain `mounts` entry pointing at the real socket works; the Feature does not.
+- **The remote user has to be `root`.** The socket is owned by the host user, which maps to
+  container uid 0 — the same mapping that makes this whole section necessary. `DEVC_REMOTE_USER`
+  already arranges that, so the two fixes compose.
+
+And the sibling-container caveats that make it second-best are not rootless-specific:
+bind-mount paths are resolved by the **host** daemon, so a path that exists only inside the
+devcontainer will not resolve (this is why `devcontainer features test` cannot run inside a
+socket-mounted container); published ports land on the host; and containers outlive the
+devcontainer. Nested podman has none of these problems.
 
 ## 14. `npm ci` over a volume-mounted `node_modules` — Docker host
 
