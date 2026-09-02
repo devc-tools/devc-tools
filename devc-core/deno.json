@@ -1,10 +1,10 @@
 {
-  "version": "0.1.2",
+  "version": "0.1.3",
   "compilerOptions": {
     "lib": ["deno.window", "esnext"]
   },
   "tasks": {
-    "check": "deno check mod.ts container.ts merge.ts merged_config.ts devcontainer.ts exec.ts errors.ts config.ts overlay.ts worktree.ts mounts.ts wizard_apply.ts init.ts default_config.ts log.ts posix.ts paths.ts jsonc_edit.ts",
+    "check": "deno check mod.ts container.ts mount_paths.ts merge.ts merged_config.ts devcontainer.ts exec.ts errors.ts config.ts overlay.ts worktree.ts mounts.ts wizard_apply.ts init.ts default_config.ts log.ts posix.ts paths.ts jsonc_edit.ts",
     // `--allow-net` is the devcontainer CLI's own (Features fetched from OCI registries during
     // `up`), exercised by `devcontainer.ts`'s runner tests; `--allow-run` spawns it (and `docker`
     // /`git`) via `exec.ts`.

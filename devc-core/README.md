@@ -50,11 +50,18 @@ Everything importable is re-exported from the package root (`mod.ts` /
 `dist/mod.js`) — see that file for the full surface, grouped by module:
 `container.ts` (lifecycle), `overlay.ts` (`devc.json`), `merge.ts` +
 `merged_config.ts` (the layer merge and the effective config it produces),
-`config.ts` (global user config), `worktree.ts` + `mounts.ts` +
+`config.ts` (global user config), `mount_paths.ts` (host ↔ container path
+translation over a container's mount table), `worktree.ts` + `mounts.ts` +
 `wizard_apply.ts` (the config wizard's pure helpers), `init.ts` (scaffold the
 bundled default `.devcontainer/`), `default_config.ts` (the bundled default and
 `devcontainer.json` variable substitution), and `jsonc_edit.ts` / `posix.ts` /
 `paths.ts` (small primitives the rest is built on).
+
+`mount_paths.ts` works **host-side only**. It reads the table `getContainerMounts`
+returns from `docker inspect`, where a bind mount's `source` is the real host
+path; inside a container the same mount reports a source like
+`/run/host_mark/Users`, so a container cannot derive host paths at all. Reach for
+this rather than `/proc/mounts` — and only from the host.
 
 ### The devcontainer CLI seam
 

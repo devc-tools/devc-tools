@@ -5,6 +5,10 @@
 // Container lifecycle: start/rebuild/stop/down, status, mounts, exec.
 export * from './container.ts';
 
+// Host ↔ container path translation over a container's live mount table (the
+// `ContainerMount[]` `getContainerMounts` returns). Host-side only.
+export * from './mount_paths.ts';
+
 // The devcontainer CLI seam — swap in a different `DevcontainerRunner` (the CLI binds its own
 // self-exec one; a consumer normally wants the default Node one and never touches this).
 export * from './devcontainer.ts';
