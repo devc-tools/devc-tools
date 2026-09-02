@@ -1013,6 +1013,16 @@ carry a usable *group* but a bogus owner, so `ls -l` misreports them and the dev
 
 #### Conclusion: nested podman cannot support a rootless host
 
+> **Superseded (2026-09-02).** This conclusion was wrong, in the same way § 13.4's first
+> reading of `pivot_root` was: it ruled out one mechanism and called the position closed. Podman
+> decides rootless-vs-rootful from `_CONTAINERS_ROOTLESS_UID` before the euid, and — more
+> usefully — nested podman needs **no capability at all** once Docker's seccomp profile stops
+> gating the namespace and mount syscalls and `newuidmap` carries file capabilities instead of
+> setuid. Both were measured end to end on a rootless host and on Docker Desktop, with a writable
+> workspace and nested writes owned by the developer. See `devc-dev`:
+> `docs/rootless-linux-findings.md` § Disproof and `.plans/pending/nested-podman-zero-caps.md`.
+> The measurements in §§ 13.4–13.8 stand; the table and the recommendation below do not.
+
 A read-only workspace is not an acceptable devcontainer, so this arrangement does not rescue
 `podman-as-docker` on rootless Linux. Combined with 13.4–13.6 the position is closed:
 
@@ -1082,8 +1092,9 @@ Two rootless-specific gotchas if you do reach for it:
   path** and fails at create time with `bind source path does not exist: /var/run/docker.sock`.
   A plain `mounts` entry pointing at the real socket works; the Feature does not.
 - **The remote user has to be `root`.** The socket is owned by the host user, which maps to
-  container uid 0 — the same mapping that makes this whole section necessary. `DEVC_REMOTE_USER`
-  already arranges that, so the two fixes compose.
+  container uid 0 — the same mapping that makes this whole section necessary. The
+  `rootless-remap` Feature planned in `nested-podman-zero-caps` makes the remote user uid 0 while
+  keeping its name, so the two fixes compose.
 
 And the sibling-container caveats that make it second-best are not rootless-specific:
 bind-mount paths are resolved by the **host** daemon, so a path that exists only inside the
