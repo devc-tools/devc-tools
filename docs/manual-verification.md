@@ -1220,6 +1220,15 @@ since `run-features-test.sh` execs `$DEVCONTAINER_CLI` as a single word.
 **V-9** (rootful native Linux, `.github/workflows/test-podman-as-docker.yml`) was **not run** — it
 needs the branch pushed. It decides whether `apparmor=unconfined` stays declared.
 
+**Result (2026-09-02).** Run `33665320494` (branch commit `1be537e`, declaration present):
+**passed**. Run `33666929655` (commit `6dd9758`, declaration removed): **failed**, every
+scenario, at Podman's storage setup —
+`configure storage: overlay: failed to make mount private: mount …/storage/overlay: permission denied`
+— the `docker-default` AppArmor `deny mount` of § 13.3. So `apparmor=unconfined` stays declared:
+AppArmor mediates `mount` inside a user namespace too, and dropping `CAP_SYS_ADMIN` did not remove
+the need on a rootful native Linux host. It remains a no-op on Docker Desktop and on rootless
+daemons, where no profile is applied.
+
 ## 14. `npm ci` over a volume-mounted `node_modules` — Docker host
 
 From `declared-volume-spike` (M3, M4). Answers `feature-declared-volumes`'s
