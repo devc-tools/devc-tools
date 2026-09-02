@@ -947,7 +947,61 @@ be imposed on hosts that do not need it.
 Not established: whether `/dev/fuse` matters (13.1 previously found it did not; it was present
 during these runs), and whether a subuid range narrower than 50000 ids is sufficient.
 
-### 13.6 The socket-mount alternative, and why it is not the answer here
+### 13.6 Why uid 0 and nested podman cannot currently be combined
+
+From `podman-nested-rootless` § V7. Everything in 13.5 was measured with podman running as a
+**non-root** container user. `rootless-remote-user` makes the remote user **root** on the same
+hosts, and podman selects rootless-vs-rootful by **euid**, so in the combined configuration it
+takes the rootful path. Two further blockers appear there, and they are mutually exclusive:
+
+| Runtime | `no_pivot_root` (needed: `pivot_root` is denied) | `cgroups = "disabled"` (needed: `/sys/fs/cgroup` is read-only) |
+| --- | --- | --- |
+| `runc` | **supported** | rejected — `requested OCI runtime runc is not compatible with NoCgroups` |
+| `crun` | **not implemented** — silently ignored | supported |
+
+As root you need both at once, and no runtime provides both. Measured errors:
+
+```
+runc + no_pivot_root : unable to apply cgroup configuration:
+                       mkdir /sys/fs/cgroup/libpod_parent: read-only file system
+crun + NoCgroups     : crun: pivot_root: Operation not permitted
+```
+
+Also ruled out:
+
+- **`--cgroupns=private`** on the outer container. `/sys/fs/cgroup` stays read-only; no change.
+- **`--tmpfs /sys/fs/cgroup:rw`.** Now writable, but it is not a real hierarchy:
+  `runc create failed: no cgroup mount found in mountinfo`.
+- Note `cgroups = "disabled"` is actively harmful with `runc` — it breaks the **working**
+  non-root configuration too. Do not add it to a shared drop-in.
+
+**Untested, and the only direction left:** run the podman service as a dedicated **non-root**
+user and have the uid-0 remote user drive it over its socket (the Feature's `dockerApiSocket`
+option is the existing machinery). `podman run` invoked directly as root would still fail, so the
+`docker` shim would have to route through the socket.
+
+### 13.7 The toolchain at uid 0 — no problems found
+
+From `feature-rootless-remap` § Validation, pulled forward because it de-risks **both** rootless
+mechanisms: each makes the container user uid 0, so anything refusing to run as root would break
+them equally. Measured on the rootless VM with `remoteUser: root` and the `java`, `node` and
+`python` Features:
+
+| Check | Result |
+| --- | --- |
+| `java -version`, `javac` + run | OK — Temurin 21.0.12 |
+| `gradle --version` (SDKMAN install) | OK — Gradle 9.7.1 |
+| `node --version` | OK — v24.20.0 |
+| `npm install` incl. a postinstall-built native binary | OK — `esbuild` installs **and executes** |
+| `python3 -m venv` + `pip install` + import | OK — Python 3.12.14 |
+| every file written back to the host | `ubuntu:ubuntu` (`1000:1000`), zero exceptions |
+| host can delete what the container built | OK |
+
+So the uid-0 requirement is not, by itself, a problem for a normal JVM/Node/Python toolchain.
+This does **not** cover the second half of `feature-rootless-remap`'s question — two uid-0 entries
+in `/etc/passwd`, where the user is uid 0 but *named* `vscode` — which remains untested.
+
+### 13.8 The socket-mount alternative, and why it is not the answer here
 
 Recorded for completeness, and because it was measured before 13.5 was found. Mounting the
 host's Docker socket (sibling containers rather than nested ones) also works on a rootless host:
