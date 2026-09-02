@@ -29,6 +29,20 @@ echo "apt-get $*" >> "$APT_LOG"
 exit 0
 EOF
 chmod +x "$STUB_BIN/apt-get"
+# setcap is stubbed the same way: no root, no real file capabilities here. install.sh takes
+# the binary from $SETCAP so the stub does not even need to be on PATH.
+cat > "$STUB_BIN/setcap" << 'EOF'
+#!/bin/sh
+echo "setcap $*" >> "$SETCAP_LOG"
+exit 0
+EOF
+chmod +x "$STUB_BIN/setcap"
+# The nesting probe reads $UID_MAP_FILE. Two fixtures: rootful Docker's identity map, and the
+# map a rootless daemon gives its containers (M-1 in devc-dev's rootless findings).
+printf '         0          0 4294967295\n' > "$WORK/uid_map.identity"
+printf '         0       1000          1\n         1     100000      65536\n' > "$WORK/uid_map.rootless"
+# A passwd with a user holding uid 1000, for the nested branch's holder lookup.
+printf 'root:x:0:0:root:/root:/bin/bash\nvscode:x:1000:1000::/home/vscode:/bin/bash\n' > "$WORK/passwd"
 
 # run_install <name> [VAR=value ...] — sets $share, $sockdir, $graphroot, $subuid, $subgid,
 # $etcdir, $status, $log. Nothing here is a real system path.
@@ -40,18 +54,27 @@ run_install() {
   subuid="$WORK/$name.subuid"
   subgid="$WORK/$name.subgid"
   etcdir="$WORK/$name.etc"
+  bindir="$WORK/$name.bin"
+  uidmapdir="$WORK/$name.uidmap"
+  cnidir="$WORK/$name.cni"
   log="$WORK/$name.log"
   APT_LOG="$WORK/$name.apt.log"
-  : > "$APT_LOG"
+  SETCAP_LOG="$WORK/$name.setcap.log"
+  : > "$APT_LOG"; : > "$SETCAP_LOG"
+  # Stand-ins for the binaries the uidmap package would have installed.
+  mkdir -p "$uidmapdir"; : > "$uidmapdir/newuidmap"; : > "$uidmapdir/newgidmap"
+  chmod 4755 "$uidmapdir/newuidmap" "$uidmapdir/newgidmap"
   # A minimal PATH, not the host's own: on a dev machine with real Docker installed,
   # prepending the stub dir to $PATH still leaves the host's real `docker` reachable,
   # which trips the mutual-exclusion guard even in cases that have nothing to do with it.
   # /usr/bin:/bin carries every POSIX utility this script needs and no `docker`.
   env -u DOCKERSHIM -u STORAGEDRIVER -u ROOTLESSNETWORKCMD -u UNQUALIFIEDSEARCHREGISTRIES \
     -u DOCKERAPISOCKET -u COMPOSEPROVIDER -u SILENCEEMULATIONNOTICE \
-    PATH="$STUB_BIN:/usr/bin:/bin" APT_LOG="$APT_LOG" \
+    PATH="$STUB_BIN:/usr/bin:/bin" APT_LOG="$APT_LOG" SETCAP_LOG="$SETCAP_LOG" \
     SHARE_DIR="$share" SOCKET_DIR="$sockdir" GRAPHROOT_DIR="$graphroot" \
     SUBUID_FILE="$subuid" SUBGID_FILE="$subgid" CONTAINERS_ETC_DIR="$etcdir" \
+    BIN_DIR="$bindir" UIDMAP_BIN_DIR="$uidmapdir" SETCAP="$STUB_BIN/setcap" CNI_DIR="$cnidir" \
+    UID_MAP_FILE="$WORK/uid_map.identity" PASSWD_FILE="$WORK/passwd" \
     "$@" sh "$INSTALL" > "$log" 2>&1
   status=$?
 }
@@ -67,6 +90,26 @@ check "both still parse as shell" bash -c "sh -n '$share/post-create.sh' && sh -
 check "apt-get install requested podman" grep -q 'install.*podman' "$WORK/c1.apt.log"
 check "  and podman-docker (dockerShim defaults true)" grep -q 'podman-docker' "$WORK/c1.apt.log"
 check "  and fuse-overlayfs (defensive, unconditional)" grep -q 'fuse-overlayfs' "$WORK/c1.apt.log"
+check "  and the netavark stack — netavark, aardvark-dns, iptables (name DNS needs all three)" bash -c \
+  "grep -q 'netavark' '$WORK/c1.apt.log' && grep -q 'aardvark-dns' '$WORK/c1.apt.log' && grep -q 'iptables' '$WORK/c1.apt.log'"
+check "  and libcap2-bin + runc" bash -c "grep -q 'libcap2-bin' '$WORK/c1.apt.log' && grep -q ' runc' '$WORK/c1.apt.log'"
+check "newuidmap/newgidmap lose their setuid bit" bash -c \
+  "[ -z \"\$(find '$uidmapdir' -perm -4000)\" ]"
+check "  and get file capabilities: cap_setuid on newuidmap, cap_setgid on newgidmap" bash -c \
+  "grep -qF 'cap_setuid+ep $uidmapdir/newuidmap' '$WORK/c1.setcap.log' &&
+   grep -qF 'cap_setgid+ep $uidmapdir/newgidmap' '$WORK/c1.setcap.log'"
+check "/var/lib/cni (its stand-in) exists" test -d "$cnidir"
+check "the podman shim is installed and executable" test -x "$bindir/podman"
+check "the docker shim too (dockerShim defaults true)" test -x "$bindir/docker"
+check "both parse as shell" bash -c "sh -n '$bindir/podman' && sh -n '$bindir/docker'"
+check "the shims exec the real binaries by absolute path" bash -c \
+  "grep -qxF 'exec /usr/bin/podman \"\$@\"' '$bindir/podman' && grep -qxF 'exec /usr/bin/docker \"\$@\"' '$bindir/docker'"
+check "the shims keep the holder state next to the API socket" grep -qF "d=$sockdir" "$bindir/podman"
+check "the holder does not inherit the lock descriptor" grep -qF '9>&- &' "$bindir/podman"
+check "and is re-entered with credentials preserved" grep -qF 'nsenter --user --target "$pid" --preserve-credentials' "$bindir/podman"
+check "on a rootful daemon no nested drop-in is written" \
+  test ! -e "$etcdir/containers.conf.d/50-devc-podman-nested-rootless.conf"
+check "  and the subuid range is the conventional 100000 one" grep -qxF 'root:100000:65536' "$subuid"
 check "  and no compose package (composeProvider defaults none)" bash -c \
   "! grep -qE 'podman-compose|docker-compose' '$WORK/c1.apt.log'"
 
@@ -150,6 +193,8 @@ echo "case 7: dockerShim false installs no shim, silenceEmulationNotice false sk
 run_install c7 DOCKERSHIM=false SILENCEEMULATIONNOTICE=false
 check "podman-docker not requested" bash -c "! grep -q 'podman-docker' '$WORK/c7.apt.log'"
 check "nodocker not created" test ! -e "$etcdir/nodocker"
+check "no docker shim either — nothing would be behind it" test ! -e "$bindir/docker"
+check "the podman shim is still there" test -x "$bindir/podman"
 
 echo "case 8: mutual exclusion with an existing non-podman docker"
 FAKE_DOCKER_BIN="$WORK/fake-docker-bin"
@@ -184,6 +229,33 @@ check "post-start.sh writes to that same socket file" \
 check "the manifest's postCreateCommand/postStartCommand name where install.sh puts them" \
   bash -c "grep -qF '/usr/local/share/devc-features/podman-as-docker/post-create.sh' '$MANIFEST' &&
             grep -qF '/usr/local/share/devc-features/podman-as-docker/post-start.sh' '$MANIFEST'"
+
+echo "case 10: nested on a rootless daemon — the probe sees a non-identity uid map"
+run_install c10 UID_MAP_FILE="$WORK/uid_map.rootless" _REMOTE_USER=vscode
+check "install.sh succeeds" test "$status" -eq 0
+check "it says so, naming the host uid" grep -q 'nested on a rootless daemon (container uid 0 is host uid 1000)' "$log"
+check "the nested drop-in is written" test -f "$etcdir/containers.conf.d/50-devc-podman-nested-rootless.conf"
+check "  keyring = false" grep -qxF 'keyring = false' "$etcdir/containers.conf.d/50-devc-podman-nested-rootless.conf"
+check "  runtime = runc" grep -qxF 'runtime = "runc"' "$etcdir/containers.conf.d/50-devc-podman-nested-rootless.conf"
+check "  no_pivot_root = true" grep -qxF 'no_pivot_root = true' "$etcdir/containers.conf.d/50-devc-podman-nested-rootless.conf"
+check "subuid: the remote user gets the in-namespace range, not 100000" bash -c \
+  "grep -qxF 'vscode:10000:50001' '$subuid' && ! grep -q '^vscode:100000' '$subuid'"
+check "subuid: so does root" grep -qxF 'root:10000:50001' "$subuid"
+check "subuid: the name holding uid 1000 is covered exactly once" bash -c \
+  "[ \"\$(grep -c '^vscode:' '$subuid')\" -eq 1 ]"
+check "subgid mirrors it" bash -c "grep -qxF 'vscode:10000:50001' '$subgid' && grep -qxF 'root:10000:50001' '$subgid'"
+check "the rootful default scenario's 100000 range is gone from both files" bash -c \
+  "! grep -q ':100000:' '$subuid' && ! grep -q ':100000:' '$subgid'"
+
+echo "case 11: setcap failing fails the build — nothing works without it"
+cat > "$STUB_BIN/setcap-fail" << 'EOF'
+#!/bin/sh
+exit 1
+EOF
+chmod +x "$STUB_BIN/setcap-fail"
+run_install c11 SETCAP="$STUB_BIN/setcap-fail"
+check "install.sh fails" test "$status" -ne 0
+check "  naming setcap and newuidmap" bash -c "grep -q 'setcap on newuidmap failed' '$log'"
 
 echo
 if [ "$fails" -eq 0 ]; then echo "ALL PASS"; else echo "$fails FAILED"; exit 1; fi

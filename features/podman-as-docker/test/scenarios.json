@@ -1,7 +1,11 @@
 {
   "with_tun": {
     "image": "mcr.microsoft.com/devcontainers/base:ubuntu",
-    "runArgs": ["--device=/dev/net/tun"],
+    "runArgs": [
+      "--security-opt",
+      "seccomp=/tmp/devc-podman-as-docker-seccomp.json",
+      "--device=/dev/net/tun"
+    ],
     "features": {
       "podman-as-docker": {
         "rootlessNetworkCmd": "slirp4netns"
@@ -14,19 +18,44 @@
       "podman-as-docker": {
         "dockerApiSocket": true
       }
-    }
+    },
+    "runArgs": [
+      "--security-opt",
+      "seccomp=/tmp/devc-podman-as-docker-seccomp.json"
+    ]
   },
   "with_volume": {
     "image": "mcr.microsoft.com/devcontainers/base:ubuntu",
     "features": {
       "podman-as-docker": {}
-    }
+    },
+    "runArgs": [
+      "--security-opt",
+      "seccomp=/tmp/devc-podman-as-docker-seccomp.json"
+    ]
   },
   "no_shim": {
     "image": "mcr.microsoft.com/devcontainers/base:ubuntu",
     "features": {
       "podman-as-docker": {
         "dockerShim": false
+      }
+    },
+    "runArgs": [
+      "--security-opt",
+      "seccomp=/tmp/devc-podman-as-docker-seccomp.json"
+    ]
+  },
+  "zero_caps": {
+    "image": "mcr.microsoft.com/devcontainers/base:ubuntu-24.04",
+    "runArgs": [
+      "--security-opt",
+      "seccomp=/tmp/devc-podman-as-docker-seccomp.json",
+      "--device=/dev/net/tun"
+    ],
+    "features": {
+      "podman-as-docker": {
+        "rootlessNetworkCmd": "slirp4netns"
       }
     }
   }

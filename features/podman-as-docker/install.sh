@@ -8,10 +8,12 @@
 # is everything that is a build-time fact: which packages exist, the registry search path,
 # the network backend default, and the fixed directories this Feature's manifest names.
 #
-# The manifest declares capAdd:["SYS_ADMIN"] and securityOpt:["systempaths=unconfined",
-# "apparmor=unconfined", "seccomp=unconfined"] unconditionally — see README.md's
-# privilege-cost section for what each one buys. Nothing in this script grants privilege;
-# it only consumes what the manifest already declared.
+# The manifest declares NO capability. It declares securityOpt:["systempaths=unconfined",
+# "apparmor=unconfined"], and the consumer supplies a seccomp profile through runArgs — see
+# README.md's privilege-cost section for what each one buys and why. Nothing in this script
+# grants privilege: the one privilege-adjacent thing it does is give newuidmap/newgidmap file
+# capabilities (cap_setuid/cap_setgid) in place of their setuid bit, which is what lets an
+# unprivileged user write its own namespace's uid map without root holding CAP_SYS_ADMIN.
 set -e
 
 die() {
@@ -28,6 +30,12 @@ have() { command -v "$1" > /dev/null 2>&1; }
 SUBUID_FILE="${SUBUID_FILE:-/etc/subuid}"
 SUBGID_FILE="${SUBGID_FILE:-/etc/subgid}"
 CONTAINERS_ETC_DIR="${CONTAINERS_ETC_DIR:-/etc/containers}"
+BIN_DIR="${BIN_DIR:-/usr/local/bin}"                 # where the podman/docker shims land
+UIDMAP_BIN_DIR="${UIDMAP_BIN_DIR:-/usr/bin}"         # where uidmap put newuidmap/newgidmap
+SETCAP="${SETCAP:-setcap}"                           # the harness stubs this
+CNI_DIR="${CNI_DIR:-/var/lib/cni}"
+UID_MAP_FILE="${UID_MAP_FILE:-/proc/self/uid_map}"   # the nesting probe reads this
+PASSWD_FILE="${PASSWD_FILE:-/etc/passwd}"
 
 # Options reach install.sh uppercased with non-word characters stripped (the CLI's
 # getSafeId), and booleans arrive as the strings "true"/"false". Defaults are repeated
@@ -73,8 +81,15 @@ fi
 # Do not add containers-common: it does not exist on Ubuntu, podman pulls what it needs.
 # fuse-overlayfs is installed defensively even though the default path never invokes it —
 # native kernel overlay needs no mount_program once the graphroot is a real filesystem.
+#
+# netavark, aardvark-dns and iptables are Recommends of podman/netavark, which
+# --no-install-recommends drops. Without netavark podman silently falls back to CNI and
+# containers on a created network cannot resolve each other by name; with netavark but no
+# iptables binary, netavark fails at firewall setup ("No such file or directory"). Measured.
+# libcap2-bin provides setcap (below). runc is what the nested-rootless drop-in names as the
+# runtime; installing it here rather than only when nested keeps that drop-in always valid.
 # A failed install fails the build.
-PACKAGES="podman uidmap slirp4netns fuse-overlayfs"
+PACKAGES="podman uidmap slirp4netns fuse-overlayfs libcap2-bin runc netavark aardvark-dns iptables"
 [ "$DOCKER_SHIM_OPT" = true ] && PACKAGES="$PACKAGES podman-docker"
 case "$COMPOSE_PROVIDER_OPT" in
   podman-compose) PACKAGES="$PACKAGES podman-compose" ;;
@@ -89,6 +104,86 @@ apt-get install -y --no-install-recommends $PACKAGES ||
 rm -rf /var/lib/apt/lists/*
 
 echo "podman-as-docker: installed: $PACKAGES"
+
+# --- newuidmap/newgidmap as file-capability binaries ---------------------------------------
+#
+# Writing a user namespace's uid_map needs CAP_SYS_ADMIN *over that namespace*. Its creator
+# has it as the owner; a setuid-root helper — which is how Ubuntu ships newuidmap — runs as
+# root instead, and container root only has CAP_SYS_ADMIN over the child if the container was
+# granted SYS_ADMIN. That single fact is why this Feature used to declare capAdd:["SYS_ADMIN"].
+# With cap_setuid/cap_setgid as file capabilities the helper keeps the caller's uid, owns the
+# namespace, and the same kernel check passes with no capability anywhere in the container.
+# Fail the build if this does not take: every later `podman run` would fail with the opaque
+# "newuidmap: write to uid_map failed: Operation not permitted".
+for _tool in newuidmap newgidmap; do
+  [ -e "$UIDMAP_BIN_DIR/$_tool" ] || die "$UIDMAP_BIN_DIR/$_tool is missing — did the uidmap package install?"
+  chmod u-s "$UIDMAP_BIN_DIR/$_tool"
+done
+"$SETCAP" cap_setuid+ep "$UIDMAP_BIN_DIR/newuidmap" ||
+  die "setcap on newuidmap failed — rootless podman cannot map a user namespace without it"
+"$SETCAP" cap_setgid+ep "$UIDMAP_BIN_DIR/newgidmap" ||
+  die "setcap on newgidmap failed — rootless podman cannot map a user namespace without it"
+echo "podman-as-docker: newuidmap/newgidmap carry file capabilities (setuid bit removed)"
+
+# --- /var/lib/cni --------------------------------------------------------------------------
+#
+# Rootless podman's network setup bind-mounts an empty directory over /var/lib/cni — or, when
+# that path does not exist, over its nearest existing parent, which is /var/lib. This
+# Feature's graphroot lives under /var/lib, so without the directory the mount hides
+# <graphroot>/networks and every `podman run --network <created>` fails with "network not
+# found" while `podman network ls` still lists it. Measured. An empty directory is the fix.
+mkdir -p "$CNI_DIR"
+
+# --- the podman/docker shims -----------------------------------------------------------------
+#
+# Two tiny wrappers ahead of /usr/bin on PATH. Everywhere except one case they are a plain
+# exec of the real binary. The one case: euid 0 on a rootless outer daemon (non-identity
+# /proc/self/uid_map) — the rootless-remap Feature's arrangement, where the remote user is uid
+# 0 so it can write the workspace. Podman run directly as uid 0 re-execs into a 0->0 user
+# namespace and then takes its rootful path, which needs cgroups a devcontainer cannot give
+# it. So the shim runs it one user namespace down, as uid 1000, where it is an ordinary
+# rootless podman again; the nested container's root then maps 0 -> 1000 -> outer 0 -> the
+# developer on the host. That namespace is created once and re-entered on every call: podman
+# keeps a pause process per user namespace and later invocations join it, and a process in a
+# *sibling* namespace is not privileged over it. The decision is made at run time from
+# in-container facts, so this needs no containerEnv and is inert everywhere else.
+#
+# The holder is `unshare --user … sleep infinity`; its pid is recorded next to the API socket.
+# nsenter --preserve-credentials is load-bearing (inner uid 0 is unmapped, so the default
+# setuid(0) would fail), and the lock descriptor must not leak into the holder (9>&-), or every
+# later call blocks on it.
+mkdir -p "$BIN_DIR"
+_shims="podman"
+[ "$DOCKER_SHIM_OPT" = true ] && _shims="podman docker"
+for _b in $_shims; do
+  cat > "$BIN_DIR/$_b" << SHIM
+#!/bin/sh
+# podman-as-docker shim — see install.sh. Plain exec unless uid 0 on a rootless outer daemon.
+if [ "\$(id -u)" = 0 ] && ! awk '\$1==0 && \$2==0 && \$3==4294967295 {f=1} END {exit !f}' /proc/self/uid_map; then
+  d=$SOCKET_DIR
+  mkdir -p "\$d"
+  pid=""
+  exec 9> "\$d/holder.lock"; flock 9
+  if [ -r "\$d/holder.pid" ]; then
+    pid=\$(cat "\$d/holder.pid")
+    [ -r "/proc/\$pid/ns/user" ] && grep -qs '^sleep' "/proc/\$pid/comm" || pid=""
+  fi
+  if [ -z "\$pid" ]; then
+    setsid unshare --user --map-user=1000 --map-group=1000 \\
+      --map-users=10000:10000:50001 --map-groups=10000:10000:50001 -- sleep infinity \\
+      < /dev/null > /dev/null 2>&1 9>&- &
+    pid=\$!
+    echo "\$pid" > "\$d/holder.pid"
+    i=0; while [ \$i -lt 50 ] && ! grep -qs '^ *1000 ' "/proc/\$pid/uid_map"; do sleep 0.1; i=\$((i+1)); done
+  fi
+  exec 9>&-
+  exec nsenter --user --target "\$pid" --preserve-credentials -- /usr/bin/$_b "\$@"
+fi
+exec /usr/bin/$_b "\$@"
+SHIM
+  chmod 0755 "$BIN_DIR/$_b"
+done
+echo "podman-as-docker: shims installed in $BIN_DIR: $_shims"
 
 # --- subuid/subgid ---------------------------------------------------------------------
 #
@@ -123,6 +218,50 @@ ensure_id_range() { # ensure_id_range <file> <user>
 ensure_id_range "$SUBUID_FILE" "$REMOTE_USER"
 ensure_id_range "$SUBGID_FILE" "$REMOTE_USER"
 echo "podman-as-docker: subuid/subgid confirmed for $REMOTE_USER"
+
+# --- nested on a rootless daemon --------------------------------------------------------------
+#
+# Rootful Docker gives a container the identity uid map `0 0 4294967295`; a rootless daemon
+# gives something else (`0 1000 1` / `1 100000 65536`, say), and the map is visible during
+# `docker build`, so this Feature can tell at build time whether it is nested. When it is:
+# the outer namespace owns only ids 0-65536, so the 100000+ subordinate range above is not
+# usable and is replaced; crun cannot create its keyring and pivot_root is refused, so runc
+# with no_pivot_root and keyring=false are set. Rootful consumers are untouched.
+is_identity_map() {
+  awk '$1 == 0 && $2 == 0 && $3 == 4294967295 { f = 1 } END { exit !f }' "$UID_MAP_FILE" 2> /dev/null
+}
+if ! is_identity_map; then
+  _host_uid="$(awk '$1 == 0 { print $2; exit }' "$UID_MAP_FILE" 2> /dev/null)"
+  echo "podman-as-docker: nested on a rootless daemon (container uid 0 is host uid ${_host_uid:-?}) — configuring for it"
+
+  mkdir -p "$CONTAINERS_ETC_DIR/containers.conf.d"
+  cat > "$CONTAINERS_ETC_DIR/containers.conf.d/50-devc-podman-nested-rootless.conf" << 'EOF'
+# Written by podman-as-docker because this image was built on a rootless Docker daemon.
+[containers]
+keyring = false
+
+[engine]
+runtime = "runc"
+no_pivot_root = true
+EOF
+
+  # Subordinate ranges inside the 0-65536 the outer namespace owns, clear of real users. Two
+  # names: the remote user (level 1 of the shim's two-level launch is created by it, looked
+  # up by name) and whichever name holds uid 1000 (podman runs as 1000 at level 1 and is
+  # looked up by that name). Also root, in case the remote user is root itself.
+  _range="10000:50001"
+  _names="$REMOTE_USER"
+  [ "$REMOTE_USER" != root ] && _names="$_names root"
+  _holder="$(awk -F: '$3 == 1000 { print $1; exit }' "$PASSWD_FILE" 2> /dev/null)"
+  case " $_names " in *" $_holder "*) ;; *) [ -n "$_holder" ] && _names="$_names $_holder" ;; esac
+  for _file in "$SUBUID_FILE" "$SUBGID_FILE"; do
+    _tmp="$_file.tmp.$$"
+    grep -v -E "^($(echo "$_names" | tr ' ' '|')):" "$_file" > "$_tmp" || true
+    for _n in $_names; do echo "$_n:$_range" >> "$_tmp"; done
+    cat "$_tmp" > "$_file"; rm -f "$_tmp"
+  done
+  echo "podman-as-docker: subuid/subgid set to $_range for: $_names"
+fi
 
 # --- registry search path ---------------------------------------------------------------
 #

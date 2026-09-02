@@ -10,10 +10,18 @@ sibling container.
 }
 ```
 
-That's it — no `runArgs`, no mount to paste. A bare `{}` container already gets a working
-`docker run`, because the two things that gate it are both Feature-declared: the privilege
-below, and a per-devcontainer storage volume. The only thing you might add is a `runArgs`
-device grant, and only if you want real network isolation for nested containers — see
+Plus **one file and one line**: copy this Feature's
+[`seccomp-podman.json`](seccomp-podman.json) into your repo's `.devcontainer/` and reference it
+from `runArgs`:
+
+```jsonc
+"runArgs": ["--security-opt", "seccomp=${localWorkspaceFolder}/.devcontainer/seccomp-podman.json"]
+```
+
+That is the whole cost. Since 0.2.0 this Feature grants the devcontainer **no capability** —
+`capAdd` is empty — and a bare `{}` plus that line gets a working `docker run`, with storage
+on a per-devcontainer volume the Feature declares itself. The only other thing you might add
+is a device grant, and only if you want real network isolation for nested containers — see
 [Networking](#networking).
 
 > The tag tracks **this Feature's own** version line, not the devc-tools release. It is
@@ -21,75 +29,83 @@ device grant, and only if you want real network isolation for nested containers 
 
 ## Read this before enabling it: the privilege cost
 
-**This is not the secure option.** It is a meaningfully better trade than the alternatives,
-not a free one:
+**This grants no capability.** Rootless Podman runs on any Linux desktop with an empty
+capability set: it creates its own user namespace and is privileged only inside it. Inside a
+Docker container it used to need `CAP_SYS_ADMIN` for two reasons that were Docker's defaults,
+not Podman's requirements, and 0.2.0 removes both:
 
-| Approach                   | What it grants                                                         | Cost of abuse                                                                                                                                               |
-| -------------------------- | ---------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `docker-outside-of-docker` | the host Docker API                                                    | **Immediate, trivial, total.** `docker run -v /:/host alpine chroot /host sh`. No exploit required.                                                         |
-| `docker-in-docker`         | `--privileged` — all caps, all devices                                 | Immediate and total, by a slightly longer road.                                                                                                             |
-| **`podman-as-docker`**     | **`CAP_SYS_ADMIN`** plus three Docker/runc `securityOpt` flags (below) | Escape requires an actual kernel/mount exploit, and on Docker Desktop lands in the LinuxKit VM, not on macOS. Nothing on the host is reachable _by design_. |
+- **Docker's default seccomp profile** refuses the namespace and mount syscalls
+  (`unshare`, `mount`, `pivot_root`, `setns`, `sethostname`, the new mount API) by name unless
+  the container already holds `CAP_SYS_ADMIN` — before the kernel gets to check that a
+  process inside its own user namespace is allowed to use them. **The profile you commit** is
+  Docker's own default with one rule prepended that allows exactly those syscalls. Every
+  other rule stays. A Feature cannot apply it for you: the Docker CLI reads the file on the
+  host, which is why it lives in your repo and in your `runArgs`.
+- **Ubuntu's `newuidmap` is setuid root.** Writing a namespace's uid map needs
+  `CAP_SYS_ADMIN` *over that namespace*; its creator has that as the owner, but a setuid-root
+  helper runs as root, and container root only has it if the container was granted
+  `SYS_ADMIN`. `install.sh` gives `newuidmap`/`newgidmap` file capabilities
+  (`cap_setuid`/`cap_setgid`) and removes the setuid bit, so they keep the caller's uid and
+  the same check passes with no capability anywhere.
 
-This Feature declares all four **unconditionally**, the moment you add it:
+What the Feature still declares, and what each costs:
 
-```jsonc
-"capAdd": ["SYS_ADMIN"],
-"securityOpt": ["systempaths=unconfined", "apparmor=unconfined", "seccomp=unconfined"]
-```
+| Declared | Needed on | What it opens |
+| --- | --- | --- |
+| `securityOpt: systempaths=unconfined` | every host | Removes Docker's read-only masking of `/proc/sys` and neighbours. Required: without it the nested runtime cannot mount a fresh `proc` (the kernel only allows an unprivileged `proc` mount when an existing one is fully visible). With no capability in the container this is mostly information exposure — the kernel's own permission checks on `/proc/sys` remain, and nothing here can pass them. |
+| `securityOpt: apparmor=unconfined` | rootful native Linux only | Removes the `docker-default` AppArmor profile, whose blanket `deny mount` blocks Podman's storage setup there. A no-op on Docker Desktop (no AppArmor) and on rootless daemons. |
+| your `runArgs`: the seccomp profile | every host | Allows user-namespace creation and the mount syscalls **inside** namespaces the container owns — what any unprivileged user on a stock Linux desktop can do. It is a larger kernel attack surface than a default devcontainer (unprivileged user namespaces have been the entry point for several past kernel privilege-escalation bugs, which is why some distributions restrict them), but an escape once again needs a kernel bug rather than a known technique. |
+| your `runArgs`: `--device=/dev/net/tun` | only with private nested networking | A tun device. Low risk. |
 
-`SYS_ADMIN` is a Linux capability. The other three are not capabilities and add no
-capability beyond `SYS_ADMIN` — they are Docker/runc flags that each remove one specific
-piece of Docker's default hardening, and all three are **required**, not defensive
-boilerplate:
+The honest comparison, then:
 
-- **`systempaths=unconfined`** removes the default read-only bind-mount Docker applies over
-  `/proc/asound`, `/proc/bus`, `/proc/fs`, `/proc/irq`, `/proc/sys` and
-  `/proc/sysrq-trigger`. Without it, every `podman run` — in every network mode,
-  `--network=host` included — fails immediately trying to write a network sysctl.
-- **`apparmor=unconfined`** removes the `docker-default` AppArmor profile, which carries a
-  blanket `deny mount,` rule with no exception for `CAP_SYS_ADMIN`. Without it, Podman's own
-  storage setup fails with `mount ...: permission denied` — on a **native Linux Docker
-  host** specifically; invisible on Docker Desktop, which enforces no AppArmor profile.
-- **`seccomp=unconfined`** removes the `docker-default` seccomp filter. With just the two
-  flags above, Podman gets past its own mount setup and then `crun` fails creating the
-  container's session keyring — `Operation not permitted` on the `keyctl()` syscall. Also
-  invisible on Docker Desktop.
+| Approach | What it grants | Cost of abuse |
+| --- | --- | --- |
+| `docker-outside-of-docker` | the host Docker API | **Immediate, trivial, total.** `docker run -v /:/host alpine chroot /host sh`. No exploit required. |
+| `docker-in-docker` | `--privileged` — all caps, all devices, no seccomp, no AppArmor | Immediate and total, by a slightly longer road. |
+| `podman-as-docker` ≤ 0.1.x | `CAP_SYS_ADMIN` + `seccomp=unconfined` + the two above | Escape by known technique; the devcontainer should be treated as running as you on the machine. |
+| **`podman-as-docker` 0.2.0** | **no capability**; the seccomp allowance and `systempaths` above | Escape needs a kernel bug. Roughly a plain devcontainer's boundary, with unprivileged user namespaces enabled inside it. |
 
-And `SYS_ADMIN` itself: every rootless container fails to even map its own user namespace
-without it.
+`seccomp=unconfined` is gone: the profile keeps Docker's filter for everything Podman does
+not need. **`privileged` is never declared.** That is the line this Feature exists not to
+cross.
 
-**`privileged` is never declared.** That is the line this Feature exists not to cross.
+### Compose-file consumers get neither the securityOpt nor the runArgs
 
-### Compose-file consumers get neither the capabilities nor the runArgs
-
-A `dockerComposeFile`-based devcontainer gets **neither** this Feature's
-`capAdd`/`securityOpt` **nor** any `runArgs` you paste — both are `docker run` flags with
-nowhere to go under Compose. Set the equivalents on the service in your own compose file
-instead:
+A `dockerComposeFile`-based devcontainer gets **neither** this Feature's `securityOpt` **nor**
+any `runArgs` you paste — both are `docker run` flags with nowhere to go under Compose. Set
+the equivalents on the service in your own compose file instead:
 
 ```yaml
 services:
   app:
-    cap_add: ['SYS_ADMIN']
-    security_opt: [
-      'systempaths=unconfined',
-      'apparmor=unconfined',
-      'seccomp=unconfined',
-    ]
+    security_opt:
+      - 'systempaths=unconfined'
+      - 'apparmor=unconfined'
+      - 'seccomp=./.devcontainer/seccomp-podman.json'
     # Only if you also want real network isolation (see Networking below):
     devices: ['/dev/net/tun']
 ```
 
-Without this, the failure mode is "I added the Feature and nothing changed" — no error to
-search for, because the container this Feature configured never gets the privilege it needs.
+Without this, the failure mode is `newuidmap: write to uid_map failed: Operation not
+permitted` on every `docker run` — the start-time step recognises that string and prints the
+fix.
 
 ## What it does
 
-**At build time:** installs `podman`, `uidmap`, `slirp4netns`, `fuse-overlayfs`, and
-`podman-docker` (unless `dockerShim: false`); ensures `/etc/subuid`/`/etc/subgid` carry a
-range for the remote user; writes the registry search path and network-backend defaults
-under `/etc/containers/`; refuses the build if a non-podman `/usr/bin/docker` already exists
-(see [Mutual exclusion](#mutual-exclusion-with-docker-in-docker--docker-outside-of-docker)).
+**At build time:** installs `podman`, `uidmap`, `slirp4netns`, `fuse-overlayfs`, `runc`, the
+netavark stack (`netavark`, `aardvark-dns`, `iptables` — name resolution between containers on
+a created network needs all three, and `--no-install-recommends` would otherwise drop them),
+and `podman-docker` (unless `dockerShim: false`); gives `newuidmap`/`newgidmap` file
+capabilities in place of setuid; ensures `/etc/subuid`/`/etc/subgid` carry a range for the
+remote user; creates `/var/lib/cni` (rootless podman's network setup otherwise bind-mounts
+over `/var/lib` and hides this Feature's own graphroot); installs thin `podman` and `docker`
+shims in `/usr/local/bin` (see [Rootless Linux hosts](#rootless-linux-hosts)); writes the
+registry search path and network-backend defaults under `/etc/containers/`; refuses the build
+if a non-podman `/usr/bin/docker` already exists (see
+[Mutual exclusion](#mutual-exclusion-with-docker-in-docker--docker-outside-of-docker)). When
+the image is being built on a **rootless** Docker daemon it also writes the nested-podman
+configuration described below.
 
 **At create time:** repairs the graphroot volume's ownership (a first-use named volume
 mounts root-owned), then writes `~/.config/containers/storage.conf` — this is where the
@@ -164,6 +180,32 @@ Both — the option and the device. The option alone fails every `docker run` lo
 Both backend packages are always installed regardless of which is your base image's default,
 so setting `rootlessNetworkCmd` explicitly works either way.
 
+## Rootless Linux hosts
+
+On a host running **rootless Docker**, this Feature detects at build time (from
+`/proc/self/uid_map`, which a rootless daemon shows as `0 1000 1 / 1 100000 65536` rather than
+the identity map) that it is nested inside a user namespace, and configures itself for it:
+
+- `runc` with `no_pivot_root` and `keyring = false` in a `containers.conf` drop-in — crun
+  cannot create its keyring there and `pivot_root` is refused;
+- subordinate ranges of `10000:50001` instead of `100000:65536`, because the outer namespace
+  only owns ids 0–65536.
+
+Pair it with [rootless-remap](../rootless-remap/README.md), which makes the remote user uid 0
+(keeping its name and home) so the bind-mounted workspace is writable there at all. With a
+uid-0 remote user, podman run directly would re-exec into a `0→0` namespace and take its
+rootful path, which needs cgroups a devcontainer cannot provide — so the `podman` and `docker`
+shims run it **one user namespace down**, as uid 1000, where it is an ordinary rootless podman
+again. That namespace is created once per container (a `sleep infinity` holder, its pid kept
+next to the API socket) and re-entered on every call, so every shell, the API service and
+every `docker` invocation share one podman state. The nested container's root then maps
+`0 → 1000 → outer 0 → you` on the host, which is why files a nested container writes into the
+workspace come back owned by you.
+
+All of this is decided from in-container facts. On Docker Desktop and on native rootful Linux
+the shims are a plain `exec` and none of the above is written. Nothing in your
+`devcontainer.json` changes between the hosts.
+
 ## Mutual exclusion with docker-in-docker / docker-outside-of-docker
 
 All three Features provide `/usr/bin/docker`, and whichever installs last wins silently.
@@ -172,14 +214,19 @@ exists, naming the conflict rather than letting one Feature silently shadow anot
 
 ## Troubleshooting
 
-**`newuidmap: write to uid_map failed: Operation not permitted`** — two distinct causes
-print the identical string:
+**`newuidmap: write to uid_map failed: Operation not permitted`** — three causes print the
+identical string:
 
-1. `capAdd: ["SYS_ADMIN"]` is missing or was stripped (some CI runners and older Docker
-   versions ignore Feature-declared `capAdd`). Confirm with
-   `capsh --decode=$(cat /proc/self/status | grep CapBnd | cut -f2)` and look for
-   `cap_sys_admin`.
-2. `/etc/subuid`/`/etc/subgid` has no range for the remote user. A range is added at build
+1. The seccomp profile did not reach the container: the `runArgs` line is missing, points at
+   a path that does not exist on the host, or was dropped (Compose-file consumers, some CI
+   runners). Confirm with `grep Seccomp: /proc/self/status` — `2` with a filter that still
+   blocks `unshare` looks exactly like this. The start-time step probes for it and prints the
+   fix in the create log.
+2. `newuidmap` lost its file capabilities — `getcap /usr/bin/newuidmap` should print
+   `cap_setuid=ep`. A later Feature or a `RUN` step that reinstalled `uidmap` puts the setuid
+   bit back; rebuild with this Feature ordered after it, or run
+   `setcap cap_setuid+ep /usr/bin/newuidmap; setcap cap_setgid+ep /usr/bin/newgidmap`.
+3. `/etc/subuid`/`/etc/subgid` has no range for the remote user. A range is added at build
    time, but a base image that renumbers the remote user's UID _after_ the image builds (the
    devcontainer CLI's UID-remap step) can orphan it. Check
    `grep "^$(id -un):" /etc/subuid /etc/subgid`.
@@ -188,15 +235,19 @@ print the identical string:
 to `slirp4netns`/`pasta` without the matching `--device=/dev/net/tun` in your own `runArgs`.
 See [Networking](#networking).
 
-**`mount ...: permission denied`** during Podman's own storage setup — the `docker-default`
-AppArmor profile is enforced and `apparmor=unconfined` did not reach the running container.
-This shows up if something strips or overrides Feature-declared `securityOpt`. Confirm with
-`cat /proc/self/attr/current`; `docker-default (enforce)` means the flag did not take.
+**`mount ...: permission denied`** during Podman's own storage setup, on a native Linux Docker
+host — the `docker-default` AppArmor profile is enforced and `apparmor=unconfined` did not
+reach the running container. This shows up if something strips or overrides Feature-declared
+`securityOpt`. Confirm with `cat /proc/self/attr/current`; `docker-default (enforce)` means the
+flag did not take.
 
-**`crun: create keyring '...': Operation not permitted`** — the `docker-default` seccomp
-profile is enforced and `seccomp=unconfined` did not reach the container. Same diagnosis;
-confirm with `grep Seccomp: /proc/self/status` — `1` or `2` means a filter is active and the
-flag did not take (`0` is what you want).
+**`crun: mount `proc` to `proc`: Operation not permitted`** (or runc's `error mounting "proc"`)
+— `systempaths=unconfined` did not reach the container. Same diagnosis: something stripped the
+Feature's `securityOpt`.
+
+**`network not found` for a network `podman network ls` lists** — `/var/lib/cni` is missing
+(a `RUN` step removed it?). Rootless podman bind-mounts over `/var/lib` during network setup
+when that directory is absent, hiding the graphroot's `networks/`. `mkdir -p /var/lib/cni`.
 
 **Every `docker run` fails with `exec container process: Invalid argument`** —
 `storageDriver` is forced to `overlay` (or was auto-chosen before a volume existed) while
@@ -213,8 +264,9 @@ a password (the repair is `sudo -n`, so it skips rather than hangs). Check with
 
 ## What this deliberately does not solve
 
-- **It costs `CAP_SYS_ADMIN`, `systempaths=unconfined`, `apparmor=unconfined` and
-  `seccomp=unconfined`.** See the top of this file.
+- **It costs `systempaths=unconfined`, a seccomp allowance for the namespace and mount
+  syscalls, and (on rootful native Linux) `apparmor=unconfined`.** No capability, but not
+  nothing — see the top of this file.
 - **Not a Docker daemon.** Anything talking to `dockerd` internals rather than the REST API
   may not work; Buildx is the usual casualty.
 - **Not host Docker.** Containers here are invisible to the host's `docker ps` and vice
@@ -229,7 +281,17 @@ a password (the repair is `sudo -n`, so it skips rather than hangs). Check with
   flag is the starting point; nobody has confirmed whether it is actually needed.
 
 Tested against podman 4.9.3 (Ubuntu 24.04) and 5.7.0 (Ubuntu 26.04), on Docker Desktop and
-on a native Linux Docker Engine host.
+on a native Linux Docker Engine host; the no-capability configuration (0.2.0) was measured on
+Docker Desktop and on a rootless Docker 29 host — `docs/manual-verification.md` § 13.9.
+
+## The seccomp profile
+
+[`seccomp-podman.json`](seccomp-podman.json) is Docker's default profile
+(`github.com/moby/profiles`, `seccomp/default.json`, Apache-2.0) with one rule prepended:
+`SCMP_ACT_ALLOW` for `unshare mount umount2 pivot_root setns clone clone3 keyctl sethostname
+setdomainname mount_setattr open_tree move_mount fsopen fsconfig fsmount fspick
+open_tree_attr`. Nothing else is changed. Diff it against upstream whenever Docker updates its
+default; the Feature's scenario tests run against this exact file.
 
 ## Related, but not this
 
@@ -239,7 +301,8 @@ on a native Linux Docker Engine host.
 - **`devc-bridge`.** Reaching the _host's_ Docker through the bridge is a different,
   unrelated answer. This Feature is entirely container-local.
 - **"rootless"** here means rootless _inside the container_, as the remote user. It does not
-  mean rootless Docker on the host, and — given `capAdd` — it does not mean the devcontainer
-  itself is unprivileged.
+  by itself mean rootless Docker on the host — though since 0.2.0 that host is supported too
+  (see [Rootless Linux hosts](#rootless-linux-hosts)), and the devcontainer itself holds no
+  capability on any host.
 - **`/etc/containers/nodocker`** is `podman-docker`'s own convention, not a `devc-features`
   invention.
