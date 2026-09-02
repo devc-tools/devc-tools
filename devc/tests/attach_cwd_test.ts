@@ -1,5 +1,9 @@
 import { assertEquals } from 'jsr:@std/assert@^1';
-import { attachExecArgs, resolveAttachCwd } from '../attach.ts';
+import {
+  attachExecArgs,
+  describeBindMounts,
+  resolveAttachCwd,
+} from '../attach.ts';
 import type { ContainerMount } from '@devc-tools/core/container.ts';
 
 const mounts: ContainerMount[] = [
@@ -124,4 +128,46 @@ Deno.test('attachExecArgs uses cwd for -w when given', () => {
     '-lc',
     'exec claude',
   ]);
+});
+
+// ---- describeBindMounts ------------------------------------------------------
+// The first real failure of `--cwd` was caused by the mount sources themselves being
+// surprising (Docker Desktop reported `/host_mnt/...` VM paths), and the error named only
+// the rejected path — so there was no way to see that from the message. These lines are
+// the diagnosis, which is why they are in the error rather than behind `devc mounts`.
+
+Deno.test('describeBindMounts lists source -> destination, one per line', () => {
+  assertEquals(
+    describeBindMounts(mounts),
+    '  /Users/me/code/tools/devc-tools -> /workspaces/tools/devc-tools\n' +
+      '  /Users/me/code/tools/devc-tools.worktrees -> /workspaces/tools/devc-tools.worktrees',
+  );
+});
+
+Deno.test('describeBindMounts omits volumes', () => {
+  const withVolume: ContainerMount[] = [
+    ...mounts,
+    {
+      type: 'volume',
+      source: '/var/lib/docker/volumes/node-modules/_data',
+      destination: '/workspaces/x/node_modules',
+      rw: true,
+    },
+  ];
+  const described = describeBindMounts(withVolume);
+  assertEquals(described.includes('/var/lib/docker'), false);
+  assertEquals(described.split('\n').length, 2);
+});
+
+Deno.test('describeBindMounts is empty when there is nothing to list', () => {
+  assertEquals(describeBindMounts([]), '');
+  assertEquals(
+    describeBindMounts([{
+      type: 'volume',
+      source: '/var/lib/docker/volumes/v/_data',
+      destination: '/data',
+      rw: true,
+    }]),
+    '',
+  );
 });

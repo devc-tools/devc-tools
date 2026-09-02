@@ -11,7 +11,7 @@ import {
   startContainer,
   stopContainer,
 } from './container.ts';
-import { resolveAttachCwd } from './attach.ts';
+import { describeBindMounts, resolveAttachCwd } from './attach.ts';
 import { parseAttachArgs, parseBuildArgs, parseUpArgs } from './args.ts';
 import {
   DEVCONTAINER_SUBCOMMAND,
@@ -86,10 +86,23 @@ async function resolveCwdArg(target: string, cwd: string): Promise<string> {
     }
   });
   if (resolved.kind === 'unmounted') {
+    // Two different failures, and conflating them is what made the first real one hard to
+    // diagnose: "we looked and it is not there" is not "we could not look".
+    if (mounts === null) {
+      fail(
+        `--cwd ${resolved.hostPath} looks like a host path, but this container's mount ` +
+          `table could not be read, so it cannot be translated. Check \`devc status\` and ` +
+          `\`devc mounts\`, or pass the container-side path instead.`,
+      );
+    }
+    const bindMounts = describeBindMounts(mounts);
     fail(
-      `--cwd ${resolved.hostPath} is a host path, but no mount of this container covers it, ` +
-        `so the container cannot see it. Add a mount for it with \`devc config\`, or pass ` +
-        `the container-side path instead.`,
+      `--cwd ${resolved.hostPath} is a host path, but no bind mount of this container ` +
+        `covers it, so the container cannot see it.\n\n` +
+        (bindMounts
+          ? `Bind mounts checked (host source -> container path):\n${bindMounts}\n\n`
+          : `This container has no bind mounts.\n\n`) +
+        `Add a mount for it with \`devc config\`, or pass the container-side path instead.`,
     );
   }
   return resolved.containerPath;

@@ -166,6 +166,25 @@ export function resolveAttachCwd(
 }
 
 /**
+ * The bind mounts a rejected `--cwd` host path was actually compared against, one
+ * `source -> destination` line each, for an error message.
+ *
+ * Listing them rather than pointing at `devc mounts` is deliberate. The first real failure
+ * of this flag was caused by the *sources themselves* being surprising — Docker Desktop
+ * reported them as `/host_mnt/...` VM paths — and a message that named only the rejected
+ * path gave no way to see that. The values are the diagnosis.
+ *
+ * Volumes are omitted: they have no host path a user could have meant, and including them
+ * would pad the list with `/var/lib/docker/volumes/...` noise.
+ */
+export function describeBindMounts(mounts: ContainerMount[]): string {
+  return mounts
+    .filter((m) => m.type === 'bind')
+    .map((m) => `  ${m.source} -> ${m.destination}`)
+    .join('\n');
+}
+
+/**
  * The `docker exec` argv for an attach. Split out from {@link attachToContainer} — which is
  * otherwise all TTY and environment side effects — so the one part with a decision in it is
  * directly testable: `-w` is `cwd` when the caller gave one, and the container's own
