@@ -11,7 +11,15 @@
 
 ### Pending
 
-Nothing pending right now.
+- [keepawake-ping-telemetry](keepawake-ping-telemetry.md) — record every keepawake ping
+  and report the distribution of gaps between them, so
+  `DEVC_BRIDGE_KEEPAWAKE_IDLE_MS` can be set from measurement rather than the
+  inherited 300 000. Opt-in via `DEVC_BRIDGE_PING_LOG`; unset means no file is
+  created and the ping path is unchanged. Prompted by `bridge-keepawake` (a second
+  client pinging every 2 s, whose cadence the 300 s was never sized for) and by the
+  observation that the default does not cover Claude Code's own 10-minute `Bash` cap.
+  The per-ping lease model is documented as a follow-on and deliberately **not**
+  built until the data exists.
 
 ### Standing rules for Feature work
 
@@ -1734,3 +1742,4 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
 | devc injects `devc-config` — the baseline reaches project-mode containers too (renamed from `project-hook`) | [devc-inject-project-hook](archived/devc-inject-project-hook.md)                   | complete |
 | `node-nvmrc` 0.2.0 — `containerEnv` PATH pin for every process; drop the `cd` hook                          | [feature-node-nvmrc-container-wide](archived/feature-node-nvmrc-container-wide.md) | complete |
 | devc surfaces the container's agent to Herdr — rotating `HERDR_AGENT` sidecar                               | [herdr-agent-sidecar](archived/herdr-agent-sidecar.md)                             | complete |
+| Keepawake ping telemetry — measure inter-ping gaps before touching the idle timeout                        | [keepawake-ping-telemetry](keepawake-ping-telemetry.md)                            |          |
