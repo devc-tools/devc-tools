@@ -66,5 +66,28 @@
     "features": {
       "agents": {}
     }
+  },
+  "with_agent_browser": {
+    "image": "mcr.microsoft.com/devcontainers/base:ubuntu",
+    "features": {
+      "ghcr.io/devcontainers/features/node:1": {
+        "version": "lts"
+      },
+      "agents": {
+        "installAgentBrowser": true,
+        "agentBrowserChrome": "none"
+      }
+    }
+  },
+  "with_agent_browser_chrome": {
+    "image": "mcr.microsoft.com/devcontainers/base:ubuntu",
+    "features": {
+      "ghcr.io/devcontainers/features/node:1": {
+        "version": "lts"
+      },
+      "agents": {
+        "installAgentBrowser": true
+      }
+    }
   }
 }

@@ -5,15 +5,16 @@
 # Runs as root at image *build* time. Four things happen here that post-create.sh cannot:
 #
 #   - The CLI installs, run as the remote user rather than root, so the binaries land under a
-#     directory that user can later update (`claude`/`copilot`/`pi update`/`herdr update`).
-#     Network is required when any install option is true: a failed download fails the build,
-#     rather than leaving a container that looks fine until the first `claude`. An npm-installed
-#     CLI (pi) additionally needs Node.js visible to a non-interactive shell, which at build
-#     time it is not — see node_prelude.
+#     directory that user can later update (`claude`/`copilot`/`pi update`/`herdr update`/
+#     `agent-browser` via npm). Network is required when any install option is true: a failed
+#     download fails the build, rather than leaving a container that looks fine until the first
+#     `claude`. An npm-installed CLI (pi, agent-browser) additionally needs Node.js visible to a
+#     non-interactive shell, which at build time it is not — see node_prelude.
 #   - piPackages/herdrPlugins, installed the same way and for the same reason as the CLIs: what
 #     either CLI writes in a running container is lost on the next rebuild. Each requires its
 #     CLI's own install option; a non-empty value without it is a build-time `die`, not a
-#     silent skip.
+#     silent skip. agentBrowserChrome (Chrome for Testing plus its Linux system libraries) is
+#     the one exception to that pairing — see install_agent_browser_chrome.
 #   - Pre-creating ~/.claude owned by the remote user, so the volume the manifest declares there
 #     comes up owned correctly rather than root-owned.
 #   - Pre-creating the seed directory, empty. It is this Feature's published surface: a consumer
@@ -38,6 +39,12 @@ INSTALL_PI_CLI_OPT="${INSTALLPICLI:-false}"
 INSTALL_HERDR_OPT="${INSTALLHERDR:-false}"
 PI_PACKAGES_OPT="${PIPACKAGES:-}"
 HERDR_PLUGINS_OPT="${HERDRPLUGINS:-}"
+INSTALL_AGENT_BROWSER_OPT="${INSTALLAGENTBROWSER:-false}"
+# agentBrowserChrome has a non-empty default ("with-deps"), unlike piPackages/herdrPlugins'
+# empty one — so, unlike those two, install.sh cannot tell an explicit value from the default it
+# was handed, and there is no die guard here. It is read only when installAgentBrowser is true
+# and silently ignored otherwise; see the option's own description and the README.
+AGENT_BROWSER_CHROME_OPT="${AGENTBROWSERCHROME:-with-deps}"
 
 # A non-empty list option with its CLI option left off is a hard error, not a silent skip — a
 # silent skip would produce a container that looks configured (the option is set) but installs
@@ -216,6 +223,41 @@ EOF
   echo "agents: $_name CLI installed for $REMOTE_USER"
 }
 
+# install_npm_cli <display name> <binary name> <npm package> <min node version> — install_cli's
+# sibling for a CLI that installs itself with `npm install -g`, rather than `curl | bash`. Kept
+# separate rather than growing a mode flag onto install_cli: pi still uses the curl installer
+# (https://pi.dev/install.sh, which itself invokes npm internally) and stays on that untouched
+# path; this is for a CLI published as a plain npm package.
+#
+# Same contract as install_cli end to end: the node prelude, the same idempotency guard, run as
+# the remote user, the same two failure reports (Node.js missing vs. network). `npm install -g`
+# under the prelude's pinned npm_config_prefix=$HOME/.local is what lands the binary in
+# ~/.local/bin instead of the active nvm version's own directory.
+install_npm_cli() { # install_npm_cli <display name> <binary name> <npm package> <min node version>
+  _name="$1"; _bin="$2"; _pkg="$3"; _node_min="$4"
+  _script="$(mktemp)"
+  {
+    echo 'set -e'
+    echo 'set -o pipefail'
+    node_prelude "$_node_min"
+    cat << EOF
+if [ ! -x "\$HOME/.local/bin/$_bin" ] && ! command -v $_bin > /dev/null 2>&1; then
+  npm install -g $_pkg
+fi
+EOF
+  } > "$_script"
+  chmod 0755 "$_script"
+  _status=0
+  run_as_remote_user "$_script" || _status=$?
+  rm -f "$_script"
+  if [ "$_status" -eq "$NODE_MISSING_STATUS" ]; then
+    die "$_name CLI install failed — see the Node.js requirement above"
+  elif [ "$_status" -ne 0 ]; then
+    die "$_name CLI install failed (network required)"
+  fi
+  echo "agents: $_name CLI installed for $REMOTE_USER"
+}
+
 # install_pi_packages <comma-separated pi package sources> — installs each with `pi install`, as
 # the remote user, through the same node prelude installPiCli needs (pi is a Node CLI and
 # build-time PATH does not have node on it). Belongs at build time, not create time: `pi install`
@@ -290,6 +332,62 @@ EOF
   echo "agents: herdr plugins installed for $REMOTE_USER: $1"
 }
 
+# install_agent_browser_chrome <with-deps|browser-only|none> — runs `agent-browser install
+# [--with-deps]`, which downloads Chrome for Testing into ~/.agent-browser and, for
+# "with-deps", apt-installs the ~36 shared libraries and fonts Chrome needs on Linux.
+#
+# The one place in this Feature that does not use run_as_remote_user. `--with-deps` shells out
+# to literally `sudo apt-get update && sudo apt-get install -y <packages>`, and:
+#
+#   - the remote user may have no sudo, or no passwordless sudo, on an arbitrary base image;
+#   - running the whole command as the remote user would also mean running apt as that user,
+#     which fails outright without real sudo privileges.
+#
+# So this runs as root — which this whole script already is — with HOME repointed at the remote
+# user's home (so the one download lands where the remote user will find it, not in
+# /root/.agent-browser) and a passthrough `sudo` shim first on PATH (we are already root, so
+# `exec "$@"` is the correct no-op; this removes sudo from the Feature's dependency set entirely
+# rather than adding a `sudo -n true` precheck and a fifth way to fail the build).
+install_agent_browser_chrome() { # install_agent_browser_chrome <with-deps|browser-only|none>
+  _mode="$1"
+  if [ "$_mode" = none ]; then
+    return 0
+  fi
+
+  # agent-browser is on PATH at this point only via $REMOTE_USER_HOME/.local/bin, which root's
+  # own PATH does not include — invoke it by absolute path instead.
+  _bin="$REMOTE_USER_HOME/.local/bin/agent-browser"
+
+  _shim_dir="$(mktemp -d)"
+  cat > "$_shim_dir/sudo" << 'SUDO_SHIM'
+#!/bin/sh
+exec "$@"
+SUDO_SHIM
+  chmod 0755 "$_shim_dir/sudo"
+
+  _flag=""
+  if [ "$_mode" = with-deps ]; then
+    _flag="--with-deps"
+  fi
+
+  _status=0
+  HOME="$REMOTE_USER_HOME" PATH="$_shim_dir:$PATH" "$_bin" install $_flag || _status=$?
+  rm -rf "$_shim_dir"
+  if [ "$_status" -ne 0 ]; then
+    die "agent-browser install ($_mode) failed (network required, or apt could not satisfy" \
+      "the library list on this base image)"
+  fi
+
+  # Safe only here, unlike the ~/.claude chown above: this directory was just created, at build
+  # time, by the command that just ran, with nothing mounted under it. post-create.sh's
+  # non-recursive chown of ~/.claude exists precisely because subpaths there may be host bind
+  # mounts; that concern does not apply to a directory this step owns end to end.
+  if [ -d "$REMOTE_USER_HOME/.agent-browser" ]; then
+    chown -R "$REMOTE_USER" "$REMOTE_USER_HOME/.agent-browser"
+  fi
+  echo "agents: agent-browser Chrome installed ($_mode) for $REMOTE_USER"
+}
+
 if [ "$INSTALL_CLAUDE_CLI_OPT" = true ]; then
   install_cli Claude claude https://claude.ai/install.sh
 fi
@@ -312,6 +410,17 @@ fi
 if [ -n "$HERDR_PLUGINS_OPT" ]; then
   # The die guard above already ensures INSTALL_HERDR_OPT is true whenever this is reached.
   install_herdr_plugins "$HERDR_PLUGINS_OPT"
+fi
+if [ "$INSTALL_AGENT_BROWSER_OPT" = true ]; then
+  # 22.19.0 — deliberately pi's existing floor above, not the package's declared engines >= 24:
+  # that floor covers building the Rust CLI from source, npm does not enforce engines without
+  # engine-strict, a global install is measured working on Node 22.23.2, and the artifact this
+  # installs is a native binary with no Node dependency at run time at all. Raising it to 24
+  # would refuse the build for every consumer pinned to Node 22 LTS for no measured reason.
+  install_npm_cli "agent-browser" agent-browser agent-browser 22.19.0
+  # agentBrowserChrome is read only in here — see its own assignment above for why there is no
+  # die guard pairing it with this option the way piPackages/herdrPlugins pair with theirs.
+  install_agent_browser_chrome "$AGENT_BROWSER_CHROME_OPT"
 fi
 
 # --- pre-create ~/.claude, owned by the remote user ---------------------------------------------
@@ -339,4 +448,5 @@ echo "agents: create-time script installed at $SHARE_DIR/post-create.sh"
 echo "agents: claudeDir='$CLAUDE_DIR' seedDir='$SHARE_DIR/claude-seed'" \
   "installClaudeCli=$INSTALL_CLAUDE_CLI_OPT installCopilotCli=$INSTALL_COPILOT_CLI_OPT" \
   "installPiCli=$INSTALL_PI_CLI_OPT installHerdr=$INSTALL_HERDR_OPT" \
-  "piPackages='$PI_PACKAGES_OPT' herdrPlugins='$HERDR_PLUGINS_OPT'"
+  "piPackages='$PI_PACKAGES_OPT' herdrPlugins='$HERDR_PLUGINS_OPT'" \
+  "installAgentBrowser=$INSTALL_AGENT_BROWSER_OPT agentBrowserChrome='$AGENT_BROWSER_CHROME_OPT'"

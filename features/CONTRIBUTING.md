@@ -249,16 +249,23 @@ for first.
 
 **agents** — offline: `devc/tests/seed_link_test.sh features/agents/post-create.sh` (the
 shared harness, run against the `devc:seed-link` fence),
-`features/agents/test/install_options_test.sh` (the real `install.sh` with `curl` and
-`runuser` stubbed: the two fixed paths, the already-installed idempotent skip, a failed
-download failing the build, `piPackages`/`herdrPlugins` comma-splitting, and both `die`
-paths), `features/agents/test/claude_json_test.sh` (the real `post-create.sh` against a
-temp `HOME` with `stat`/`sudo` stubbed: ownership repair and every `~/.claude.json` case
+`features/agents/test/install_options_test.sh` (the real `install.sh` with `curl`,
+`runuser` and `npm` stubbed: the two fixed paths, the already-installed idempotent skip, a
+failed download or `npm install` failing the build, `piPackages`/`herdrPlugins`
+comma-splitting, both `die` paths, and `agentBrowserChrome`'s three values reaching the
+fake `agent-browser` binary — or not, when `installAgentBrowser` is left at its default
+false, which is a documented ignore rather than a `die`),
+`features/agents/test/claude_json_test.sh` (the real `post-create.sh` against a temp
+`HOME` with `stat`/`sudo` stubbed: ownership repair and every `~/.claude.json` case
 including move-don't-delete and repoint-a-stale-link).
 
 With Docker: the default scenario is the bare `{}` case. `scenarios.json` adds
-`with_seed`, `with_copilot`, `with_pi`, `with_herdr`, `with_pi_packages` and
-`with_herdr_plugins`. The last three hit the network by design.
+`with_seed`, `with_copilot`, `with_pi`, `with_herdr`, `with_pi_packages`,
+`with_herdr_plugins`, `with_agent_browser` and `with_agent_browser_chrome`. The last four
+hit the network by design; `with_agent_browser_chrome` is by far the slowest in the
+collection — it downloads ~185 MB of Chrome for Testing and apt-installs ~36 packages, and
+also runs a live headless-launch check (`agent-browser doctor`) to settle whether Chrome's
+sandbox needs `--no-sandbox` in an unprivileged container, rather than guessing.
 
 Two `grep`s in `install_options_test.sh` assert that the seed path `install.sh` creates
 and the one `post-create.sh` reads are still the same string — that is what replaced the
