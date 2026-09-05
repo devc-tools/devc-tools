@@ -258,12 +258,21 @@ for first.
 
 **agents** — offline: `devc/tests/seed_link_test.sh features/agents/post-create.sh` (the
 shared harness, run against the `devc:seed-link` fence),
+`features/agents/test/herdr_seed_link_test.sh` (the same technique, against this
+Feature's own `devc:herdr-seed-link` fence — no second copy elsewhere to share a harness
+with, unlike claude-seed),
 `features/agents/test/install_options_test.sh` (the real `install.sh` with `curl`,
 `runuser` and `npm` stubbed: the two fixed paths, the already-installed idempotent skip, a
-failed download or `npm install` failing the build, `piPackages`/`herdrPlugins`
-comma-splitting, both `die` paths, and `agentBrowserChrome`'s three values reaching the
+failed download or `npm install` failing the build, both `piPackages`/`herdrPlugins` `die`
+paths, that a non-empty value is persisted verbatim to its `.conf` file for post-create.sh
+rather than installed at build time, and `agentBrowserChrome`'s three values reaching the
 fake `agent-browser` binary — or not, when `installAgentBrowser` is left at its default
 false, which is a documented ignore rather than a `die`),
+`features/agents/test/create_time_plugins_test.sh` (the real `create-time-plugins.sh`
+sourced directly against fake `pi`/`herdr` binaries: comma-splitting/trimming, the
+`--yes` flag, a failed entry warning and continuing rather than aborting, and the
+missing-binary skips — this is what `install_options_test.sh` used to cover before
+`piPackages`/`herdrPlugins` moved from build time to create time),
 `features/agents/test/claude_json_test.sh` (the real `post-create.sh` against a temp
 `HOME` with `stat`/`sudo` stubbed: ownership repair and every `~/.claude.json` case
 including move-don't-delete and repoint-a-stale-link).

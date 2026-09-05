@@ -12,6 +12,10 @@ set -e
 # is linked into ~/.claude in the container. Edits on your host take effect live.
 mkdir -p "$HOME/.config/devc/.claude"
 
+# Herdr config seed, same idea — a config.toml here (the tab_bar_right entry a plugin's
+# status indicator needs, say) is linked into ~/.config/herdr in the container.
+mkdir -p "$HOME/.config/devc/herdr"
+
 # Your personal shell customization. Every bashrc_*.sh here is sourced by every interactive
 # shell in the container. Created empty; nothing writes into it for you.
 mkdir -p "$HOME/.config/devc/shell"

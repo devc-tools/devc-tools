@@ -57,10 +57,11 @@ esac
 # ~/.local — get asserted without a real installer.
 #
 # The fake binary it drops also logs its own future invocations to $CLI_INVOKE_LOG (when set)
-# and exits with $FAKE_BIN_EXIT (default 0) — reused by the piPackages/herdrPlugins cases below
-# as the `pi`/`herdr` that install_pi_packages/install_herdr_plugins go on to invoke by bare name
-# in a *later*, separate run_as_remote_user call, once this one has dropped it into
-# $HOME/.local/bin.
+# and exits with $FAKE_BIN_EXIT (default 0). install.sh itself never invokes pi/herdr by bare
+# name any more — piPackages/herdrPlugins installs moved to create time (see
+# create_time_plugins_test.sh) — so nothing here currently sets FAKE_BIN_EXIT; the mechanism is
+# kept generic rather than stripped, since agent-browser's own invoke-log cases below still rely
+# on the same fake-binary shape.
 cat << SCRIPT
 printf '$bin npm_config_prefix=%s\\n' "\$npm_config_prefix" >> "\$INSTALLER_ENV_LOG"
 printf '$bin node=%s\\n' "\$(command -v node || echo none)" >> "\$INSTALLER_ENV_LOG"
@@ -372,42 +373,41 @@ check "the error names herdrPlugins" grep -q 'herdrPlugins' "$WORK/c9/install.er
 check "and names installHerdr" grep -q 'installHerdr' "$WORK/c9/install.err"
 check "the gate ran before any download" test ! -s "$WORK/c9/curl.log"
 
-echo "case 10: piPackages with installPiCli=true — comma-split, trimmed, empties dropped, each installed"
-# Deliberately messy: leading/trailing whitespace around entries, a doubled comma, and a
-# trailing comma — all of which must collapse to exactly the two real entries, in order. The
-# runuser stub's ~/.local/bin addition (see its definition above) is what lets the pi installed
-# by this same install.sh run be found by bare name for the piPackages step that follows it.
+echo "case 10: piPackages with installPiCli=true — persisted verbatim, not installed at build time"
+# The actual `pi install` no longer happens here at all — see create-time-plugins.sh, tested
+# separately in create_time_plugins_test.sh. What install.sh still owns is validating the
+# installPiCli pairing (case 8) and persisting the raw, un-comma-split option string for
+# post-create.sh to read later — comma-splitting and trimming happen at create time now.
 setup c10 INSTALLPICLI=true \
   PIPACKAGES=" npm:@andrewjacop/pi-herdr ,,git:github.com/bmingles/pi-dev-extensions@main, "
 check "install.sh exits 0" test "$status" -eq 0
-check "pi CLI itself was installed first" test -x "$WORK/c10/home/.local/bin/pi"
-check "exactly two pi installs ran — the empty/whitespace-only entries were dropped" \
-  test "$(grep -c '^pi ' "$INVOKE_LOG")" -eq 2
-check "the first entry was trimmed before reaching pi" \
-  grep -qxF 'pi install npm:@andrewjacop/pi-herdr' "$INVOKE_LOG"
-check "the second entry was trimmed too, as one argument" \
-  grep -qxF 'pi install git:github.com/bmingles/pi-dev-extensions@main' "$INVOKE_LOG"
+check "pi CLI itself was installed" test -x "$WORK/c10/home/.local/bin/pi"
+check "no pi install invocation happened at build time" \
+  test ! -s "$INVOKE_LOG"
+check "the raw option string was persisted verbatim, for post-create.sh to parse" \
+  test "$(cat "$WORK/c10/share/pi-packages.conf")" = \
+  " npm:@andrewjacop/pi-herdr ,,git:github.com/bmingles/pi-dev-extensions@main, "
 
-echo "case 11: piPackages install fails — the build fails, naming it"
-setup c11 FAKE_BIN_EXIT=1 INSTALLPICLI=true PIPACKAGES=npm:whatever
-check "install.sh exits non-zero" test "$status" -ne 0
-check "it names piPackages in the failure" grep -q 'piPackages install failed' "$WORK/c11/install.err"
+echo "case 11: piPackages empty — no pi-packages.conf is written at all"
+setup c11 INSTALLPICLI=true
+check "install.sh exits 0" test "$status" -eq 0
+check "no conf file for an empty option" test ! -e "$WORK/c11/share/pi-packages.conf"
 
-echo "case 12: herdrPlugins with installHerdr=true — comma-split, trimmed, each installed with --yes"
+echo "case 12: herdrPlugins with installHerdr=true — persisted verbatim, not installed at build time"
 setup c12 INSTALLHERDR=true \
   HERDRPLUGINS=" bmingles/herdr-plugins/agent-caffeinate , owner/repo/sub,"
 check "install.sh exits 0" test "$status" -eq 0
-check "herdr CLI itself was installed first" test -x "$WORK/c12/home/.local/bin/herdr"
-check "exactly two plugin installs ran" test "$(grep -c '^herdr ' "$INVOKE_LOG")" -eq 2
-check "the first plugin was trimmed and installed with --yes" \
-  grep -qxF 'herdr plugin install bmingles/herdr-plugins/agent-caffeinate --yes' "$INVOKE_LOG"
-check "the second plugin was trimmed too" \
-  grep -qxF 'herdr plugin install owner/repo/sub --yes' "$INVOKE_LOG"
+check "herdr CLI itself was installed" test -x "$WORK/c12/home/.local/bin/herdr"
+check "no herdr plugin install invocation happened at build time" \
+  test ! -s "$INVOKE_LOG"
+check "the raw option string was persisted verbatim, for post-create.sh to parse" \
+  test "$(cat "$WORK/c12/share/herdr-plugins.conf")" = \
+  " bmingles/herdr-plugins/agent-caffeinate , owner/repo/sub,"
 
-echo "case 13: herdrPlugins install fails — the build fails, naming it"
-setup c13 FAKE_BIN_EXIT=1 INSTALLHERDR=true HERDRPLUGINS=owner/repo
-check "install.sh exits non-zero" test "$status" -ne 0
-check "it names herdrPlugins in the failure" grep -q 'herdrPlugins install failed' "$WORK/c13/install.err"
+echo "case 13: herdrPlugins empty — no herdr-plugins.conf is written at all"
+setup c13 INSTALLHERDR=true
+check "install.sh exits 0" test "$status" -eq 0
+check "no conf file for an empty option" test ! -e "$WORK/c13/share/herdr-plugins.conf"
 
 echo "case 14: installAgentBrowser=true — installed with npm, under the node prelude"
 # agentBrowserChrome=none isolates install_npm_cli from install_agent_browser_chrome, so this

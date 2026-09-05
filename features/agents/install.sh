@@ -1,8 +1,9 @@
 #!/bin/sh
-# agents Feature install — install the agent CLIs, install any declared pi packages and Herdr
-# plugins, pre-create ~/.claude and the seed mount point, and place the create-time script.
+# agents Feature install — install the agent CLIs, validate and persist any declared pi packages
+# and Herdr plugins for post-create.sh to actually install, pre-create ~/.claude and the two seed
+# mount points, and place the create-time scripts.
 #
-# Runs as root at image *build* time. Four things happen here that post-create.sh cannot:
+# Runs as root at image *build* time. These things happen here rather than in post-create.sh:
 #
 #   - The CLI installs, run as the remote user rather than root, so the binaries land under a
 #     directory that user can later update (`claude`/`copilot`/`pi update`/`herdr update`/
@@ -10,16 +11,22 @@
 #     download fails the build, rather than leaving a container that looks fine until the first
 #     `claude`. An npm-installed CLI (pi, agent-browser) additionally needs Node.js visible to a
 #     non-interactive shell, which at build time it is not — see node_prelude.
-#   - piPackages/herdrPlugins, installed the same way and for the same reason as the CLIs: what
-#     either CLI writes in a running container is lost on the next rebuild. Each requires its
-#     CLI's own install option; a non-empty value without it is a build-time `die`, not a
-#     silent skip. agentBrowserChrome (Chrome for Testing plus its Linux system libraries) is
-#     the one exception to that pairing — see install_agent_browser_chrome.
+#   - piPackages/herdrPlugins validation: each requires its CLI's own install option, and a
+#     non-empty value without it is a build-time `die`, not a silent skip — a skip would leave a
+#     container that looks configured (the option is set) but installs nothing.
+#     agentBrowserChrome (Chrome for Testing plus its Linux system libraries) is the one
+#     exception to that pairing — see install_agent_browser_chrome.
+#   - The *actual* piPackages/herdrPlugins installs do NOT happen here any more — see
+#     create-time-plugins.sh. What happens here is validating them (above) and persisting the raw
+#     option strings to fixed files under SHARE_DIR, because postCreateCommand does not receive a
+#     Feature's own options as environment variables; only install.sh does.
 #   - Pre-creating ~/.claude owned by the remote user, so the volume the manifest declares there
 #     comes up owned correctly rather than root-owned.
-#   - Pre-creating the seed directory, empty. It is this Feature's published surface: a consumer
-#     bind-mounts their own host config onto it. Empty is a working state, not a broken one —
-#     the seed-link step finds nothing to link and moves on, which is the bare `{}` case.
+#   - Pre-creating the two seed directories, empty. claude-seed is this Feature's published
+#     surface for Claude Code's own config; herdr-seed is the equivalent for Herdr's
+#     ~/.config/herdr — a consumer bind-mounts their own host config onto either. Empty is a
+#     working state, not a broken one — the seed-link steps find nothing to link and move on,
+#     which is the bare `{}` case.
 #
 # There are no path options to validate or bake. Every path this Feature touches is either fixed
 # (the seed) or derived from the remote user's own home (~/.claude).
@@ -154,37 +161,6 @@ export npm_config_prefix="$HOME/.local"
 NODE_PRELUDE
 }
 
-# sh_quote <string> — prints a single-quoted, safely-escaped version of <string> to stdout, for
-# embedding a value that comes from Feature options (so, in principle, from a consumer's
-# devcontainer.json) as a single literal shell word inside a generated script, without word
-# splitting, globbing, or the value breaking out of its quotes.
-sh_quote() {
-  printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"
-}
-
-# csv_quoted_entries <comma-separated string> — splits on `,`, trims leading/trailing whitespace
-# from each entry, drops empty entries (so a leading/trailing/doubled comma is harmless and an
-# all-empty input yields nothing), and prints the survivors on stdout, each pre-quoted with
-# sh_quote and space-separated, ready to splice into a generated `for x in <this>; do` line.
-# Shared by install_pi_packages and install_herdr_plugins — piPackages and herdrPlugins parse
-# identically; only what they do with each entry differs.
-csv_quoted_entries() {
-  _csv="$1"
-  _out=""
-  _old_ifs="$IFS"
-  IFS=','
-  for _raw in $_csv; do
-    IFS="$_old_ifs"
-    _trimmed="$(printf '%s' "$_raw" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
-    if [ -n "$_trimmed" ]; then
-      _out="$_out$(sh_quote "$_trimmed") "
-    fi
-    IFS=','
-  done
-  IFS="$_old_ifs"
-  printf '%s' "$_out"
-}
-
 install_cli() { # install_cli <display name> <binary name> <install script URL> [min node version]
   # A 4th argument means "this installer runs on Node.js", and its value is the minimum version
   # that installer needs — see node_prelude above.
@@ -258,80 +234,6 @@ EOF
   echo "agents: $_name CLI installed for $REMOTE_USER"
 }
 
-# install_pi_packages <comma-separated pi package sources> — installs each with `pi install`, as
-# the remote user, through the same node prelude installPiCli needs (pi is a Node CLI and
-# build-time PATH does not have node on it). Belongs at build time, not create time: `pi install`
-# writes ~/.pi, which is not a mount, so anything installed in a live container is lost on the
-# next rebuild.
-#
-# No `pi list` presence guard: reinstalling an already-installed source is a genuine no-op (npm
-# reports "up to date"; settings.json gains no duplicate entry), so a rebuild does not pay for
-# one.
-install_pi_packages() { # install_pi_packages <comma-separated pi package sources>
-  _entries="$(csv_quoted_entries "$1")"
-  [ -n "$_entries" ] || return 0
-  _script="$(mktemp)"
-  {
-    echo 'set -e'
-    echo 'set -o pipefail'
-    node_prelude 22.19.0
-    cat << EOF
-for _pkg in $_entries; do
-  echo "agents: pi install \$_pkg"
-  pi install "\$_pkg"
-done
-EOF
-  } > "$_script"
-  chmod 0755 "$_script"
-  _status=0
-  run_as_remote_user "$_script" || _status=$?
-  rm -f "$_script"
-  if [ "$_status" -eq "$NODE_MISSING_STATUS" ]; then
-    die "piPackages install failed — see the Node.js requirement above"
-  elif [ "$_status" -ne 0 ]; then
-    die "piPackages install failed (network required, or pi rejected one of the sources)"
-  fi
-  echo "agents: pi packages installed for $REMOTE_USER: $1"
-}
-
-# install_herdr_plugins <comma-separated GitHub-shorthand plugin sources> — installs each with
-# `herdr plugin install <entry> --yes`, as the remote user. `--yes` is required: `plugin install`
-# shows a trust preview in an interactive terminal, and there is no terminal at build time.
-#
-# GitHub shorthand only (owner/repo[/subdir]) — Herdr's installer accepts nothing else, so a
-# non-shorthand entry fails with Herdr's own error rather than one from this script. Needs git
-# and network at build time; both are named in the failure message. Plugin registration is
-# global to the user rather than per session, so one build-time install covers every session in
-# the container. A plugin whose min_herdr_version exceeds the installed Herdr fails the build
-# too — expected, and named here so that failure is diagnosable.
-install_herdr_plugins() { # install_herdr_plugins <comma-separated GitHub-shorthand plugins>
-  _entries="$(csv_quoted_entries "$1")"
-  [ -n "$_entries" ] || return 0
-  if ! have git; then
-    die "herdrPlugins is set but git is not present at build time — herdr plugin install needs" \
-      "it. Add git to the image ahead of this Feature."
-  fi
-  _script="$(mktemp)"
-  {
-    echo 'set -e'
-    cat << EOF
-for _plugin in $_entries; do
-  echo "agents: herdr plugin install \$_plugin"
-  herdr plugin install "\$_plugin" --yes
-done
-EOF
-  } > "$_script"
-  chmod 0755 "$_script"
-  _status=0
-  run_as_remote_user "$_script" || _status=$?
-  rm -f "$_script"
-  if [ "$_status" -ne 0 ]; then
-    die "herdrPlugins install failed (network required, git required, or a plugin's" \
-      "min_herdr_version exceeds the installed Herdr version)"
-  fi
-  echo "agents: herdr plugins installed for $REMOTE_USER: $1"
-}
-
 # install_agent_browser_chrome <with-deps|browser-only|none> — runs `agent-browser install
 # [--with-deps]`, which downloads Chrome for Testing into ~/.agent-browser and, for
 # "with-deps", apt-installs the ~36 shared libraries and fonts Chrome needs on Linux.
@@ -403,13 +305,16 @@ if [ "$INSTALL_HERDR_OPT" = true ]; then
   # Herdr ships a static binary — no node prelude, unlike pi above.
   install_cli Herdr herdr https://herdr.dev/install.sh
 fi
+# piPackages/herdrPlugins are NOT installed here — see create-time-plugins.sh for why (in
+# short: a build-time RUN layer is subject to Docker's layer cache, so a plain "rebuild" with an
+# unchanged option value can silently skip re-fetching a source whose upstream tip moved). The
+# die guards above already ensure each list's own CLI option is true whenever its file is
+# written, so create-time-plugins.sh does not need to re-check installPiCli/installHerdr itself.
 if [ -n "$PI_PACKAGES_OPT" ]; then
-  # The die guard above already ensures INSTALL_PI_CLI_OPT is true whenever this is reached.
-  install_pi_packages "$PI_PACKAGES_OPT"
+  printf '%s' "$PI_PACKAGES_OPT" > "$SHARE_DIR/pi-packages.conf"
 fi
 if [ -n "$HERDR_PLUGINS_OPT" ]; then
-  # The die guard above already ensures INSTALL_HERDR_OPT is true whenever this is reached.
-  install_herdr_plugins "$HERDR_PLUGINS_OPT"
+  printf '%s' "$HERDR_PLUGINS_OPT" > "$SHARE_DIR/herdr-plugins.conf"
 fi
 if [ "$INSTALL_AGENT_BROWSER_OPT" = true ]; then
   # 22.19.0 — deliberately pi's existing floor above, not the package's declared engines >= 24:
@@ -432,21 +337,29 @@ if [ "$(id -un)" != "$REMOTE_USER" ]; then
     echo "agents: could not chown $CLAUDE_DIR to $REMOTE_USER (post-create.sh repairs this)"
 fi
 
-# --- the create-time script, and the seed mount point -------------------------------------------
+# --- the create-time scripts, and the two seed mount points --------------------------------------
 #
-# claude-seed stays root-owned and is never written to by this Feature: a consumer mounts their
-# own host directory onto it read-only, and post-create.sh only ever reads it. Left empty when
-# nobody mounts anything, which is the bare `{}` case.
+# claude-seed and herdr-seed both stay root-owned and are never written to by this Feature: a
+# consumer mounts their own host directory onto either, and post-create.sh only ever reads them.
+# Left empty when nobody mounts anything, which is the bare `{}` case.
 mkdir -p "$SHARE_DIR/claude-seed"
+mkdir -p "$SHARE_DIR/herdr-seed"
 
 # Plain cp rather than `install -o root`: this runs as root, so the copy is root-owned either
 # way, and no ownership flag means the script still runs unprivileged in the test harness.
 cp "$FEATURE_DIR/post-create.sh" "$SHARE_DIR/post-create.sh"
 chmod 0755 "$SHARE_DIR/post-create.sh"
 
-echo "agents: create-time script installed at $SHARE_DIR/post-create.sh"
-echo "agents: claudeDir='$CLAUDE_DIR' seedDir='$SHARE_DIR/claude-seed'" \
+# Sourced by post-create.sh, not run standalone — see its own header. Copied the same way and
+# for the same reason as post-create.sh itself: whatever install.sh ships is what create time
+# gets, regardless of what the working tree looks like by the time a container is created.
+cp "$FEATURE_DIR/create-time-plugins.sh" "$SHARE_DIR/create-time-plugins.sh"
+chmod 0755 "$SHARE_DIR/create-time-plugins.sh"
+
+echo "agents: create-time scripts installed at $SHARE_DIR/{post-create,create-time-plugins}.sh"
+echo "agents: claudeDir='$CLAUDE_DIR' claudeSeedDir='$SHARE_DIR/claude-seed'" \
+  "herdrSeedDir='$SHARE_DIR/herdr-seed'" \
   "installClaudeCli=$INSTALL_CLAUDE_CLI_OPT installCopilotCli=$INSTALL_COPILOT_CLI_OPT" \
   "installPiCli=$INSTALL_PI_CLI_OPT installHerdr=$INSTALL_HERDR_OPT" \
-  "piPackages='$PI_PACKAGES_OPT' herdrPlugins='$HERDR_PLUGINS_OPT'" \
+  "piPackages='$PI_PACKAGES_OPT' herdrPlugins='$HERDR_PLUGINS_OPT' (installed at create time)" \
   "installAgentBrowser=$INSTALL_AGENT_BROWSER_OPT agentBrowserChrome='$AGENT_BROWSER_CHROME_OPT'"

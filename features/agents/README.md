@@ -26,8 +26,8 @@ empty seed directory for you to mount onto, and points `~/.claude.json` at
 | `installCopilotCli`   | `false`       | Install the GitHub Copilot CLI too.                                                                                                                                                                                                                                                                                                                 |
 | `installPiCli`        | `false`       | Install the pi coding agent CLI too. **Requires Node.js in the image** — see [Node.js and pi](#nodejs-and-pi).                                                                                                                                                                                                                                      |
 | `installHerdr`        | `false`       | Install the Herdr terminal multiplexer too. Ships a static binary — no extra prerequisite.                                                                                                                                                                                                                                                          |
-| `piPackages`          | `""`          | Comma-separated pi package sources to install. **Requires `installPiCli: true`** — see [Packages and plugins](#packages-and-plugins).                                                                                                                                                                                                               |
-| `herdrPlugins`        | `""`          | Comma-separated Herdr plugins, in GitHub shorthand (`owner/repo[/subdir]`). **Requires `installHerdr: true`**.                                                                                                                                                                                                                                      |
+| `piPackages`          | `""`          | Comma-separated pi package sources to install at container **create** time. **Requires `installPiCli: true`** — see [Packages and plugins](#packages-and-plugins).                                                                                                                                                                                 |
+| `herdrPlugins`        | `""`          | Comma-separated Herdr plugins, in GitHub shorthand (`owner/repo[/subdir]`), installed at container **create** time. **Requires `installHerdr: true`**.                                                                                                                                                                                             |
 | `installAgentBrowser` | `false`       | Install the [agent-browser](https://agent-browser.dev) CLI too. Installs with npm — see [Node.js and pi](#nodejs-and-pi); unlike pi, what lands on `PATH` is a native binary, not a node script — see [Why agent-browser does not have pi's `.nvmrc` problem](#why-agent-browser-does-not-have-pis-nvmrc-problem).                                  |
 | `agentBrowserChrome`  | `"with-deps"` | What `agent-browser install` does at build time: also apt-install the Linux libraries Chrome needs (`"with-deps"`), download Chrome only (`"browser-only"`), or install no browser (`"none"`). **Read only when `installAgentBrowser: true`**, silently ignored otherwise — see [agent-browser's Chrome download](#agent-browsers-chrome-download). |
 
@@ -68,42 +68,62 @@ At **create time**, before any `postCreateCommand` of your own:
 1. **Ownership repair.** If `~/.claude` is not owned by you, a non-recursive `sudo chown`
    fixes it. Non-recursive on purpose — subpaths like `skills/` may be host bind mounts
    and must not be chowned.
-2. **Seed links.** Every top-level _file_ in the seed directory is symlinked into
-   `~/.claude` — host edits are live, host file modes (the statusline exec bit) survive,
-   and deletions on the host prune the link on the next create. Directories are ignored by
-   design: a `~/.claude/skills/` mount point would either get a nested `skills/skills` or
-   fail on a busy mountpoint. An empty seed links nothing and moves on.
+2. **Seed links**, run twice — once for `claude-seed` → `~/.claude`, once for
+   `herdr-seed` → `~/.config/herdr`. Every top-level _file_ in a seed directory is
+   symlinked into its destination — host edits are live, host file modes (the statusline
+   exec bit) survive, and deletions on the host prune the link on the next create.
+   Directories are ignored by design: a `~/.claude/skills/` mount point would either get a
+   nested `skills/skills` or fail on a busy mountpoint. An empty seed links nothing and
+   moves on.
 3. **`~/.claude.json`** is replaced with a symlink to `~/.claude/.claude.json`, seeded
    with `{}` if nothing is there yet.
+4. **`piPackages`/`herdrPlugins`** are installed here, not at build time — see
+   [Packages and plugins](#packages-and-plugins) for why. A failed entry warns and moves
+   on rather than aborting.
 
-Every skip path exits `0`. A failing `postCreateCommand` aborts container creation, and
-none of these skips is worth an unbootable container.
+Every skip path in steps 1-3 exits `0`. A failing `postCreateCommand` aborts container
+creation, and none of those skips is worth an unbootable container. Step 4 is the one
+exception with teeth: install.sh still hard-fails the *build* if `piPackages`/
+`herdrPlugins` is set without its CLI option, exactly as before — only the actual fetch
+moved, not the validation.
 
 ## What you mount
 
-A Feature cannot declare a read-only bind mount or an `initializeCommand`, so the seed
-mount belongs to your own `devcontainer.json`:
+A Feature cannot declare a read-only bind mount or an `initializeCommand`, so both seed
+mounts belong to your own `devcontainer.json`:
 
 ```jsonc
-"initializeCommand": "mkdir -p ${localEnv:HOME}/.config/claude-seed",
+"initializeCommand": "mkdir -p ${localEnv:HOME}/.config/claude-seed ${localEnv:HOME}/.config/herdr-seed",
 "mounts": [
-  "type=bind,source=${localEnv:HOME}/.config/claude-seed,target=/usr/local/share/devc-features/agents/claude-seed,readonly"
+  "type=bind,source=${localEnv:HOME}/.config/claude-seed,target=/usr/local/share/devc-features/agents/claude-seed,readonly",
+  "type=bind,source=${localEnv:HOME}/.config/herdr-seed,target=/usr/local/share/devc-features/agents/herdr-seed,readonly"
 ],
 "features": {
   "ghcr.io/devc-tools/features/agents:0": {}
 }
 ```
 
-The host path is yours — pick anything. The `initializeCommand` is what makes the mount
-source exist; a bind mount with a missing source is a hard error, not an auto-created
-directory.
+The host paths are yours — pick anything. The `initializeCommand` is what makes each
+mount source exist; a bind mount with a missing source is a hard error, not an
+auto-created directory.
 
-The seed is optional. Omit it and the Feature links nothing and moves on.
+Both seeds are optional and independent — mount either, both, or neither. An unmounted
+seed links nothing and moves on. `herdr-seed` is what you'd put a Herdr `config.toml` in
+— e.g. the `tab_bar_right` entry a plugin's status indicator needs — so it survives a
+rebuild without living in a volume:
 
-`readonly` has one edge worth knowing: seeded files are symlinked into `~/.claude`, so
-Claude Code writing to one of them (a `/config` change, a plugin install touching
-`settings.json`) fails. Host edits reaching the container live, with no rebuild, is the
-trade that buys.
+```jsonc
+// ~/.config/herdr-seed/config.toml, linked to ~/.config/herdr/config.toml
+[ui]
+tab_bar_right = [
+  { type = "command", command = "~/.local/state/herdr/plugins/bridge-keepawake/bridge-keepawake indicator", interval_seconds = 5, timeout_seconds = 2 },
+]
+```
+
+`readonly` has one edge worth knowing: seeded files are symlinked into their
+destination, so anything that writes to one of them in place (Claude Code's `/config`
+changing `settings.json`, say) fails. Host edits reaching the container live, with no
+rebuild, is the trade that buys.
 
 ## The `~/.claude` volume
 
@@ -267,9 +287,8 @@ the build of every consumer who enables neither option. It is silently ignored i
 
 ## Packages and plugins
 
-`piPackages` and `herdrPlugins` install at **build time**, because neither `~/.pi` nor
-`~/.config/herdr` is a mount: anything either CLI installs in a _running_ container lives
-only in that container's writable layer and is gone on the next rebuild.
+`piPackages` and `herdrPlugins` install at **container create time** — every container
+creation, including a plain "Rebuild Container", not just an image build.
 
 ```jsonc
 "features": {
@@ -286,8 +305,36 @@ only in that container's writable layer and is gone on the next rebuild.
 Both are plain comma-separated lists. Empty entries — from a leading, trailing or doubled
 comma, or stray whitespace — are dropped, so a messy value is harmless.
 
-Setting either without its CLI's install option is a **build failure**, not a silent
-skip — a skip would leave a container that looks configured and installed nothing.
+### Why create time, not build time
+
+Neither `~/.pi` nor `~/.config/herdr` is a mount — that part hasn't changed, and still
+means anything either CLI writes is gone on the next full rebuild either way. What moved
+is *when* the actual install runs, because build time had a real staleness bug: a
+build-time install sits inside a Docker `RUN` layer, and Docker's build cache keys that
+layer on the instruction text and the option value. An unchanged `herdrPlugins`/
+`piPackages` string on a plain "Rebuild Container" (not "Rebuild Without Cache") is a
+cache hit — Docker never re-executes the layer, so you silently keep whatever commit was
+cloned the *last time that layer actually ran*, even if a `git:` source's default branch
+(or an `npm:` source floating on `latest`) has moved on since. `postCreateCommand` is not
+a Docker layer at all — it unconditionally reruns on every container *creation*, which is
+exactly what "Rebuild Container" performs (destroy the container, create a new one from
+the image) — so a create-time install always re-resolves each source's current tip, with
+no ref to pin and no `--no-cache` rebuild needed to see it.
+
+This Feature still validates both options at **build** time, exactly as before: setting
+either without its CLI's install option is a **build failure**, not a silent skip — a skip
+would leave a container that looks configured and installed nothing. `install.sh`
+persists the raw, validated strings to two fixed files under
+`/usr/local/share/devc-features/agents/` for `post-create.sh` to read later, because
+`postCreateCommand` does not receive a Feature's own options as environment variables —
+only `install.sh`, at build time, does.
+
+One consequence of moving to create time: a **failed** entry now warns and moves on to
+the next one, rather than failing the build the way it used to. That's deliberate, not a
+downgrade — this now runs on every container creation instead of only when you choose to
+rebuild the image, so a transient network blip at create time no longer costs you the
+ability to open the container at all. Check `herdr plugin list` / `pi list`, or a
+plugin's own `doctor` command, to notice a skip after the fact.
 
 - `piPackages` entries are passed to `pi install <entry>` unparsed. pi accepts `npm:`,
   `git:`, `https://`, `ssh://` and local-path sources; this option does not validate the
@@ -295,9 +342,10 @@ skip — a skip would leave a container that looks configured and installed noth
 - `herdrPlugins` entries are installed with `herdr plugin install <entry> --yes` and are
   **GitHub shorthand only** (`owner/repo[/subdir]`) — Herdr's installer accepts nothing
   else, so a `git:`-style entry fails with Herdr's own error. Needs `git` and network in
-  the image. Plugin registration is global to the user, so one build-time install covers
-  every session in the container. A plugin declaring a `min_herdr_version` newer than the
-  installed Herdr fails the build, which is expected rather than a bug.
+  the running container. Plugin registration is global to the user, so one create-time
+  install covers every session in the container until the next create. A plugin declaring
+  a `min_herdr_version` newer than the installed Herdr fails that one entry (warn and
+  move on), which is expected rather than a bug.
 
 Reinstalling an already-installed pi package is a genuine no-op, so a rebuild does not pay
 for one.

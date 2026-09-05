@@ -112,6 +112,50 @@ if [ -d "$SEED" ]; then
 fi
 # devc:seed-link (end)
 
+# --- 2b. herdr-seed -> ~/.config/herdr -----------------------------------------------------
+# Same idea as the claude-seed block above — a consumer's own Herdr config.toml (the
+# tab_bar_right entry a plugin's status indicator needs, say) lives on the host and gets linked
+# in live — but kept as its own block, not a shared function, and not folded into the
+# devc:seed-link fence above: that fence is extracted verbatim by
+# devc/tests/seed_link_test.sh via `SEED=`/`CLAUDE_DIR=` sed substitution, so it has to stay
+# exactly self-contained and exactly two variables. A separate block with its own two variables
+# is simpler than teaching that test a third parameter.
+#
+# devc:herdr-seed-link (start)
+HERDR_SEED=/usr/local/share/devc-features/agents/herdr-seed
+HERDR_CONFIG_DIR="$HOME/.config/herdr"
+
+mkdir -p "$HERDR_CONFIG_DIR" || warn "could not create $HERDR_CONFIG_DIR"
+
+if [ -d "$HERDR_CONFIG_DIR" ]; then
+  while IFS= read -r -d '' link; do
+    case "$(readlink "$link")" in
+      "$HERDR_SEED"/*) rm -f "$link" ;;
+    esac
+  done < <(find "$HERDR_CONFIG_DIR" -mindepth 1 -maxdepth 1 -type l -print0)
+fi
+
+if [ -d "$HERDR_SEED" ]; then
+  while IFS= read -r -d '' src; do
+    name="$(basename "$src")"
+    dest="$HERDR_CONFIG_DIR/$name"
+    if [ -L "$src" ] && [ ! -e "$src" ]; then
+      echo "devc: skipping $name — host symlink dangles in the container; use a real file"
+      continue
+    fi
+    [ -f "$src" ] || continue
+    if [ -e "$dest" ] && [ ! -L "$dest" ] && [ ! -f "$dest" ]; then
+      echo "devc: skipping $name — $dest exists and is not a regular file"
+      continue
+    fi
+    if [ -f "$dest" ] && [ ! -L "$dest" ]; then
+      echo "devc: replacing volume-local $name with the host seed copy"
+    fi
+    ln -sfn "$src" "$dest" || echo "devc: could not link $dest (bind-mounted?)"
+  done < <(find "$HERDR_SEED" -mindepth 1 -maxdepth 1 -print0)
+fi
+# devc:herdr-seed-link (end)
+
 # --- 3. ~/.claude.json ---------------------------------------------------------------------
 # Claude Code resolves its config/auth file as "$CLAUDE_CONFIG_DIR/.claude.json", falling back to
 # "$HOME/.claude.json" when that variable is unset. So it is a *sibling* of ~/.claude, not a
@@ -148,4 +192,23 @@ if [ -d "$HOME/.claude.json" ] && [ ! -L "$HOME/.claude.json" ]; then
 elif [ -e "$JSON_TARGET" ] && [ "$(readlink "$HOME/.claude.json" 2> /dev/null)" != "$JSON_TARGET" ]; then
   rm -f "$HOME/.claude.json" 2> /dev/null || true
   ln -sfn "$JSON_TARGET" "$HOME/.claude.json" || warn "could not link ~/.claude.json"
+fi
+
+# --- 4. pi packages / Herdr plugins ---------------------------------------------------------
+# Deferred here from build time — see create-time-plugins.sh's own header for the full reason
+# (short version: a Docker build-layer cache can silently keep serving a stale `git clone` from
+# the last time the image's RUN layer actually executed; postCreateCommand has no layer to go
+# stale, so it re-resolves each source's current tip on every container creation instead).
+#
+# install.sh persisted the raw, already-validated option strings to these two fixed files; a
+# missing file (an image built by an older version of this Feature, before this moved) reads as
+# empty via the `2> /dev/null` fallback, which is a no-op for both installers below — not a
+# warning-worthy state, since nothing was ever promised to a container built before the option
+# existed.
+CREATE_TIME_PLUGINS=/usr/local/share/devc-features/agents/create-time-plugins.sh
+if [ -f "$CREATE_TIME_PLUGINS" ]; then
+  # shellcheck source=create-time-plugins.sh
+  . "$CREATE_TIME_PLUGINS"
+  install_pi_packages "$(cat /usr/local/share/devc-features/agents/pi-packages.conf 2> /dev/null || true)"
+  install_herdr_plugins "$(cat /usr/local/share/devc-features/agents/herdr-plugins.conf 2> /dev/null || true)"
 fi
