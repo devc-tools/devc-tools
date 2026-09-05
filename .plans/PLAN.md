@@ -11,6 +11,13 @@
 
 ### Pending
 
+- [feature-godot](feature-godot.md) — new `godot` Feature: installs the latest stable
+  Godot engine at build time (version resolved from `godotengine/godot`'s own releases,
+  not tracked by this repo) and declares a `${devcontainerId}`-keyed volume for the
+  project's `.godot/` cache directory, the Godot 4 equivalent of `node_modules`. Follows
+  `node-nvmrc`'s volume shape and `devc-bridge`'s download-and-verify shape; no devc
+  baseline change.
+
 - [keepawake-ping-telemetry](keepawake-ping-telemetry.md) — record every keepawake ping
   and report the distribution of gaps between them, so
   `DEVC_BRIDGE_KEEPAWAKE_IDLE_MS` can be set from measurement rather than the
