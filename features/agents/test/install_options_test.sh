@@ -71,6 +71,32 @@ SCRIPT
 CURL
 chmod +x "$STUBS/curl"
 
+# install_npm_cli (agent-browser) runs `npm install -g <pkg>` directly, not piped into a second
+# shell the way curl's installer scripts are — so, unlike the curl stub above, this one performs
+# its side effects itself rather than printing a script for something else to execute.
+cat > "$STUBS/npm" << 'NPM'
+#!/bin/sh
+echo "npm $*" >> "$NPM_LOG"
+[ "${NPM_FAIL:-}" = 1 ] && exit 1
+pkg=""
+for a in "$@"; do case "$a" in -*|install) ;; *) pkg="$a" ;; esac; done
+case "$pkg" in
+  agent-browser) bin=agent-browser ;;
+  *) bin=unknown ;;
+esac
+# Same two prelude guarantees the curl stub records: npm's global prefix pinned, node found.
+printf '%s npm_config_prefix=%s\n' "$bin" "$npm_config_prefix" >> "$INSTALLER_ENV_LOG"
+printf '%s node=%s\n' "$bin" "$(command -v node || echo none)" >> "$INSTALLER_ENV_LOG"
+mkdir -p "$HOME/.local/bin"
+cat > "$HOME/.local/bin/$bin" << FAKEBIN
+#!/bin/sh
+echo "$bin \$*" >> "\${CLI_INVOKE_LOG:-/dev/null}"
+exit "\${FAKE_BIN_EXIT:-0}"
+FAKEBIN
+chmod +x "$HOME/.local/bin/$bin"
+NPM
+chmod +x "$STUBS/npm"
+
 cat > "$STUBS/runuser" << 'RUNUSER'
 #!/bin/sh
 echo "runuser $*" >> "$RUNUSER_LOG"
@@ -149,14 +175,16 @@ setup() {
   rm -rf "$CASE"
   mkdir -p "$CASE/share" "$CASE/home"
   : > "$CASE/curl.log"; : > "$CASE/runuser.log"; : > "$CASE/runuser_user.log"
-  : > "$CASE/installer_env.log"
+  : > "$CASE/installer_env.log"; : > "$CASE/npm.log"
   env -u INSTALLCLAUDECLI -u INSTALLCOPILOTCLI -u INSTALLPICLI \
     -u INSTALLHERDR -u PIPACKAGES -u HERDRPLUGINS \
+    -u INSTALLAGENTBROWSER -u AGENTBROWSERCHROME \
     SHARE_DIR="$CASE/share" \
     _REMOTE_USER="$(id -un)" _REMOTE_USER_HOME="$CASE/home" \
     FAKE_REMOTE_HOME="$CASE/home" \
     CURL_LOG="$CASE/curl.log" RUNUSER_LOG="$CASE/runuser.log" RUNUSER_USER_LOG="$CASE/runuser_user.log" \
     INSTALLER_ENV_LOG="$CASE/installer_env.log" CLI_INVOKE_LOG="$CASE/invoke.log" \
+    NPM_LOG="$CASE/npm.log" \
     PATH="${CASE_PATH:-$STUBS:$CLEAN_PATH}" \
     "$@" sh "$FEATURE_DIR/install.sh" > "$CASE/install.log" 2> "$CASE/install.err"
   status=$?
@@ -193,6 +221,10 @@ check "copilot was NOT installed — installCopilotCli defaults false" \
   test ! -e "$WORK/c1/home/.local/bin/copilot"
 check "pi was NOT installed — installPiCli defaults false" \
   test ! -e "$WORK/c1/home/.local/bin/pi"
+check "agent-browser was NOT installed — installAgentBrowser defaults false" \
+  test ! -e "$WORK/c1/home/.local/bin/agent-browser"
+check "no npm invocation happened — agentBrowserChrome's non-empty default is ignored" \
+  test ! -s "$WORK/c1/npm.log"
 check "the CLI install ran as the configured remote user" \
   grep -qxF "$(id -un)" "$WORK/c1/runuser_user.log"
 
@@ -376,6 +408,102 @@ echo "case 13: herdrPlugins install fails — the build fails, naming it"
 setup c13 FAKE_BIN_EXIT=1 INSTALLHERDR=true HERDRPLUGINS=owner/repo
 check "install.sh exits non-zero" test "$status" -ne 0
 check "it names herdrPlugins in the failure" grep -q 'herdrPlugins install failed' "$WORK/c13/install.err"
+
+echo "case 14: installAgentBrowser=true — installed with npm, under the node prelude"
+# agentBrowserChrome=none isolates install_npm_cli from install_agent_browser_chrome, so this
+# case pins down only the CLI install half.
+setup c14 INSTALLAGENTBROWSER=true AGENTBROWSERCHROME=none
+check "install.sh exits 0" test "$status" -eq 0
+check "npm install -g agent-browser ran" grep -qxF 'npm install -g agent-browser' "$WORK/c14/npm.log"
+check "under the fake remote ~/.local prefix" \
+  grep -qxF "agent-browser npm_config_prefix=$WORK/c14/home/.local" "$WORK/c14/installer_env.log"
+check "with node on PATH" \
+  bash -c "! grep -qxF 'agent-browser node=none' '$WORK/c14/installer_env.log'"
+check "agent-browser landed under the fake remote HOME" \
+  test -x "$WORK/c14/home/.local/bin/agent-browser"
+check "no browser-install invocation reached the fake binary — agentBrowserChrome=none" \
+  test ! -s "$WORK/c14/invoke.log"
+
+echo "case 15: agent-browser already installed — the idempotent guard skips npm entirely"
+rm -rf "${WORK:?}/c15"
+mkdir -p "$WORK/c15/share" "$WORK/c15/home/.local/bin"
+printf '#!/bin/sh\necho already-there\n' > "$WORK/c15/home/.local/bin/agent-browser"
+chmod +x "$WORK/c15/home/.local/bin/agent-browser"
+env -u INSTALLCLAUDECLI -u INSTALLCOPILOTCLI -u INSTALLPICLI -u INSTALLHERDR \
+  SHARE_DIR="$WORK/c15/share" _REMOTE_USER="$(id -un)" _REMOTE_USER_HOME="$WORK/c15/home" \
+  FAKE_REMOTE_HOME="$WORK/c15/home" CURL_LOG="$WORK/c15/curl.log" RUNUSER_LOG="$WORK/c15/runuser.log" \
+  RUNUSER_USER_LOG="$WORK/c15/runuser_user.log" INSTALLER_ENV_LOG="$WORK/c15/installer_env.log" \
+  NPM_LOG="$WORK/c15/npm.log" \
+  INSTALLCLAUDECLI=false INSTALLAGENTBROWSER=true AGENTBROWSERCHROME=none \
+  PATH="$STUBS:$CLEAN_PATH" \
+  sh "$FEATURE_DIR/install.sh" > "$WORK/c15/install.log" 2> "$WORK/c15/install.err"
+status=$?
+check "install.sh exits 0" test "$status" -eq 0
+check "npm was never invoked — already installed" test ! -s "$WORK/c15/npm.log"
+check "the pre-existing binary is untouched" \
+  test "$(cat "$WORK/c15/home/.local/bin/agent-browser")" = "$(printf '#!/bin/sh\necho already-there')"
+
+echo "case 16: npm install fails — the build fails, naming it (not the network)"
+setup c16 NPM_FAIL=1 INSTALLAGENTBROWSER=true AGENTBROWSERCHROME=none
+check "install.sh exits non-zero" test "$status" -ne 0
+check "it names the failure" grep -q 'network required' "$WORK/c16/install.err"
+
+echo "case 17: node too old for agent-browser — the build fails naming the version, not the network"
+# Same shape as case 2d/2e for pi: install_npm_cli shares node_prelude, so a too-old Node hits
+# the identical gate before npm is ever invoked.
+rm -rf "${WORK:?}/c17"
+mkdir -p "$WORK/c17/share" "$WORK/c17/home/.nvm"
+: > "$WORK/c17/curl.log"; : > "$WORK/c17/runuser.log"; : > "$WORK/c17/runuser_user.log"
+: > "$WORK/c17/installer_env.log"; : > "$WORK/c17/npm.log"
+printf 'export PATH="%s:$PATH"\n' "$NODE_STUBS" > "$WORK/c17/home/.nvm/nvm.sh"
+env -u INSTALLCLAUDECLI -u INSTALLCOPILOTCLI -u INSTALLPICLI \
+  SHARE_DIR="$WORK/c17/share" _REMOTE_USER="$(id -un)" _REMOTE_USER_HOME="$WORK/c17/home" \
+  FAKE_REMOTE_HOME="$WORK/c17/home" CURL_LOG="$WORK/c17/curl.log" \
+  RUNUSER_LOG="$WORK/c17/runuser.log" RUNUSER_USER_LOG="$WORK/c17/runuser_user.log" \
+  INSTALLER_ENV_LOG="$WORK/c17/installer_env.log" NPM_LOG="$WORK/c17/npm.log" \
+  NVM_DIR="$WORK/c17/home/.nvm" FAKE_NODE_TOO_OLD=1 FAKE_NODE_VERSION=v20.20.2 \
+  INSTALLCLAUDECLI=false INSTALLAGENTBROWSER=true AGENTBROWSERCHROME=none \
+  PATH="$STUBS:$NO_NODE_PATH" \
+  sh "$FEATURE_DIR/install.sh" > "$WORK/c17/install.log" 2> "$WORK/c17/install.err"
+status=$?
+check "install.sh exits non-zero" test "$status" -ne 0
+check "it names the version it needs and the one it found" \
+  grep -q 'needs Node.js 22.19.0 or newer; the container has v20.20.2' "$WORK/c17/install.err"
+check "it does NOT blame the network" \
+  bash -c "! grep -q 'network required' '$WORK/c17/install.err'"
+check "npm was never invoked — the gate ran first" test ! -s "$WORK/c17/npm.log"
+
+echo "case 18: agentBrowserChrome=with-deps (the default) — installed with --with-deps"
+setup c18 INSTALLAGENTBROWSER=true AGENTBROWSERCHROME=with-deps
+check "install.sh exits 0" test "$status" -eq 0
+check "the browser install ran with --with-deps" \
+  grep -qxF 'agent-browser install --with-deps' "$WORK/c18/invoke.log"
+check "exactly one browser-install invocation reached the fake binary" \
+  test "$(grep -c '^agent-browser install' "$WORK/c18/invoke.log")" -eq 1
+
+echo "case 19: agentBrowserChrome=browser-only — installed with no flag"
+setup c19 INSTALLAGENTBROWSER=true AGENTBROWSERCHROME=browser-only
+check "install.sh exits 0" test "$status" -eq 0
+check "the browser install ran with no flag" \
+  grep -qxF 'agent-browser install' "$WORK/c19/invoke.log"
+check "with-deps was NOT passed" \
+  bash -c "! grep -q -- '--with-deps' '$WORK/c19/invoke.log'"
+
+echo "case 20: agentBrowserChrome=none — no browser install at all"
+setup c20 INSTALLAGENTBROWSER=true AGENTBROWSERCHROME=none
+check "install.sh exits 0" test "$status" -eq 0
+check "no browser-install invocation reached the fake binary" test ! -s "$WORK/c20/invoke.log"
+
+echo "case 21: agentBrowserChrome set, installAgentBrowser left at its default false — the" \
+  "documented ignore, not a die"
+# Unlike piPackages/herdrPlugins, this option has a non-empty default, so install.sh cannot tell
+# an explicit value from the default it was handed — it is read only when installAgentBrowser is
+# true and silently ignored otherwise (see the option's own description and the README), so this
+# must exit 0 with no npm or agent-browser invocation at all rather than a build failure.
+setup c21 AGENTBROWSERCHROME=with-deps
+check "install.sh exits 0 — not a die" test "$status" -eq 0
+check "no npm invocation happened" test ! -s "$WORK/c21/npm.log"
+check "agent-browser was not installed" test ! -e "$WORK/c21/home/.local/bin/agent-browser"
 
 # Not covered here: herdrPlugins with git absent from PATH. install_herdr_plugins's `have git`
 # guard is straightforward to read, but faking "no git" offline is not: this container's PATH

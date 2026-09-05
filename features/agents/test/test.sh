@@ -32,10 +32,15 @@ check "and is empty — nothing was mounted onto it" bash -c \
 check "claude is on PATH" bash -c "command -v claude"
 check "claude is executable by the remote user" test -x "$(command -v claude)"
 
-# --- Copilot, pi and Herdr stay absent — their install options all default false -------------
+# --- Copilot, pi, Herdr and agent-browser stay absent — their install options all default
+# false ------------------------------------------------------------------------------------
 check "copilot is NOT on PATH" bash -c "! command -v copilot"
 check "pi is NOT on PATH" bash -c "! command -v pi"
 check "herdr is NOT on PATH" bash -c "! command -v herdr"
+check "agent-browser is NOT on PATH — installAgentBrowser defaults false" \
+  bash -c "! command -v agent-browser"
+check "~/.agent-browser does not exist — agentBrowserChrome's non-empty default is ignored" \
+  test ! -e "$HOME/.agent-browser"
 
 # --- piPackages/herdrPlugins stay empty by default — the assertion that catches a default
 # flipping and silently installing something nobody asked for --------------------------------

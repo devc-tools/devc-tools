@@ -1,9 +1,9 @@
 # agents (devcontainer Feature)
 
 Installs coding-agent CLIs — the **Claude Code CLI**, and optionally the **GitHub Copilot
-CLI**, the **pi coding agent CLI** and the **Herdr terminal multiplexer** — and keeps all
-of Claude Code's state in one place, so one volume survives a rebuild and one host
-directory supplies your config.
+CLI**, the **pi coding agent CLI**, the **Herdr terminal multiplexer** and the
+**agent-browser** browser-automation CLI — and keeps all of Claude Code's state in one
+place, so one volume survives a rebuild and one host directory supplies your config.
 
 ```jsonc
 "features": {
@@ -20,14 +20,16 @@ empty seed directory for you to mount onto, and points `~/.claude.json` at
 
 ## Options
 
-| Option              | Default | Meaning                                                                                                                               |
-| ------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| `installClaudeCli`  | `true`  | Install the Claude Code CLI.                                                                                                          |
-| `installCopilotCli` | `false` | Install the GitHub Copilot CLI too.                                                                                                   |
-| `installPiCli`      | `false` | Install the pi coding agent CLI too. **Requires Node.js in the image** — see [Node.js and pi](#nodejs-and-pi).                        |
-| `installHerdr`      | `false` | Install the Herdr terminal multiplexer too. Ships a static binary — no extra prerequisite.                                            |
-| `piPackages`        | `""`    | Comma-separated pi package sources to install. **Requires `installPiCli: true`** — see [Packages and plugins](#packages-and-plugins). |
-| `herdrPlugins`      | `""`    | Comma-separated Herdr plugins, in GitHub shorthand (`owner/repo[/subdir]`). **Requires `installHerdr: true`**.                        |
+| Option                | Default       | Meaning                                                                                                                                                                                                                                                                                                                                             |
+| --------------------- | ------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `installClaudeCli`    | `true`        | Install the Claude Code CLI.                                                                                                                                                                                                                                                                                                                        |
+| `installCopilotCli`   | `false`       | Install the GitHub Copilot CLI too.                                                                                                                                                                                                                                                                                                                 |
+| `installPiCli`        | `false`       | Install the pi coding agent CLI too. **Requires Node.js in the image** — see [Node.js and pi](#nodejs-and-pi).                                                                                                                                                                                                                                      |
+| `installHerdr`        | `false`       | Install the Herdr terminal multiplexer too. Ships a static binary — no extra prerequisite.                                                                                                                                                                                                                                                          |
+| `piPackages`          | `""`          | Comma-separated pi package sources to install. **Requires `installPiCli: true`** — see [Packages and plugins](#packages-and-plugins).                                                                                                                                                                                                               |
+| `herdrPlugins`        | `""`          | Comma-separated Herdr plugins, in GitHub shorthand (`owner/repo[/subdir]`). **Requires `installHerdr: true`**.                                                                                                                                                                                                                                      |
+| `installAgentBrowser` | `false`       | Install the [agent-browser](https://agent-browser.dev) CLI too. Installs with npm — see [Node.js and pi](#nodejs-and-pi); unlike pi, what lands on `PATH` is a native binary, not a node script — see [Why agent-browser does not have pi's `.nvmrc` problem](#why-agent-browser-does-not-have-pis-nvmrc-problem).                                  |
+| `agentBrowserChrome`  | `"with-deps"` | What `agent-browser install` does at build time: also apt-install the Linux libraries Chrome needs (`"with-deps"`), download Chrome only (`"browser-only"`), or install no browser (`"none"`). **Read only when `installAgentBrowser: true`**, silently ignored otherwise — see [agent-browser's Chrome download](#agent-browsers-chrome-download). |
 
 That is the whole option surface — there are no path options. Every path this Feature
 touches is either fixed (the seed) or derived from the remote user's own home
@@ -36,7 +38,7 @@ or, unset, `$HOME/.claude` — so there is exactly one correct answer and the Fe
 derives it.
 
 Each CLI is opt-in on its own. Enabling this Feature for Claude should not silently
-install a second, third or fourth vendor's CLI, which is why only `installClaudeCli`
+install a second, third, fourth or fifth vendor's CLI, which is why only `installClaudeCli`
 defaults true.
 
 ## Where Claude Code's state lives
@@ -204,6 +206,64 @@ intercepts this with a readable message. In practice every current LTS line sati
 (`lts/jod` is 22.23.2, `lts/krypton` is 24.20.0) — a project would have to pin Node 20 or
 older to hit it. If yours must, run pi from outside the container, or give it its own Node
 via a wrapper on `PATH` ahead of `pin/bin`.
+
+## agent-browser
+
+[`agent-browser`](https://agent-browser.dev) is the browser-automation CLI for coding
+agents. `installAgentBrowser: true` installs it with npm, the same shape as `installPiCli`:
+
+```jsonc
+"features": {
+  "ghcr.io/devcontainers/features/node:1": { "version": "lts" },
+  "ghcr.io/devc-tools/features/agents:0": { "installAgentBrowser": true }
+}
+```
+
+It requires a node Feature in the image for the same reason `installPiCli` does — see
+[Node.js and pi](#nodejs-and-pi) — and the minimum Node version enforced at build time is
+the same `22.19.0` floor, not the `24.0.0` the package's own `engines` field declares:
+that floor covers building the Rust CLI from source, `npm install -g` is measured working
+on Node 22.23.2, `engine-strict` is off by default so npm does not enforce `engines`
+anyway, and the artifact this installs has no Node dependency at run time at all (see
+below). Raising the floor to match the package would refuse the build for every consumer
+pinned to Node 22 LTS for no measured reason.
+
+### Why agent-browser does not have pi's `.nvmrc` problem
+
+The npm tarball **bundles** every platform's native Rust binary, and its postinstall step
+replaces npm's own bin symlink with a direct symlink to the one matching this machine:
+`~/.local/bin/agent-browser` → `~/.local/lib/node_modules/agent-browser/bin/agent-browser-linux-<arch>`.
+
+Contrast that with `pi`'s own [`.nvmrc` problem](#pi-and-a-projects-nvmrc) above: `pi`'s
+entry point is a script whose shebang is `#!/usr/bin/env node`, so which `pi` you get
+depends on whichever `node` is first on `PATH` at the moment you run it. **agent-browser's
+entry point is a native binary** — there is no shebang, no interpreter to resolve, and no
+version to get wrong. [`node-nvmrc`](../node-nvmrc/README.md) switching the container's
+active Node version between projects has no effect on it at all.
+
+### agent-browser's Chrome download
+
+`agentBrowserChrome` controls what `agent-browser install` does at build time:
+
+| Value                   | What it installs                                                                                                             |
+| ----------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| `"with-deps"` (default) | Chrome for Testing, plus the ~36 shared libraries and fonts it needs on Linux.                                               |
+| `"browser-only"`        | Chrome for Testing only — use this when the base image already has the libraries, or you would rather manage them yourself.  |
+| `"none"`                | No browser at all — the right value when you drive a remote browser over `--cdp` or a cloud provider instead of a local one. |
+
+Chrome for Testing is about **390 MB on disk** (185 MB downloaded) and lands in
+`~/.agent-browser/browsers/`, alongside `agent-browser`'s daemon sockets, saved sessions,
+auth vault and auto-generated encryption key. Like [`~/.pi`](#packages-and-plugins) and
+`~/.claude` without its declared volume, **`~/.agent-browser` is not a mount** — it is
+baked into the image at build time and is container-local at run time. A volume later
+mounted at `~/.agent-browser` **shadows** this install and costs a fresh 185 MB re-fetch
+on first use; there is no option to point it somewhere else.
+
+`agentBrowserChrome` is read only when `installAgentBrowser: true`. Unlike `piPackages`/
+`herdrPlugins`, setting it with `installAgentBrowser` left at its default `false` is
+**not** a build failure — it has a non-empty default (`"with-deps"`), so this Feature
+cannot tell an explicit value from the default it was handed, and a `die` here would fail
+the build of every consumer who enables neither option. It is silently ignored instead.
 
 ## Packages and plugins
 
