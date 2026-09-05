@@ -158,6 +158,9 @@ Deno.test('update preserves hand-written mounts, keys and comments', async () =>
     "type=bind,source=/host/mine,target=/mnt/mine"
   ],
   "remoteEnv": { "MY_VAR": "value" },
+  // Deliberately the retired \`additionalFeatures\` name, not \`features\`: this asserts
+  // that keys devc does NOT manage survive byte-for-byte. Swapping it for a known key
+  // would weaken the test.
   "additionalFeatures": { "ghcr.io/x/y:1": { "version": "latest" } }
 }
 `,

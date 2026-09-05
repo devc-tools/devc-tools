@@ -275,7 +275,7 @@ The regression that matters most: devc must not depend on any of the above.
 - [ ] **Opting in works.** In `~/.config/devc/devc.json` (all projects) or a
       project's `devc.json`:
 
-      { "additionalFeatures": { "ghcr.io/devc-tools/features/devc-bridge:0": {} } }
+      { "features": { "ghcr.io/devc-tools/features/devc-bridge:0": {} } }
 
       then `devc up` → `devc-bridge ping test` → `pong`, with no
       `Duplicate mount point` error.

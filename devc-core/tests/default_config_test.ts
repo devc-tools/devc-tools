@@ -434,7 +434,7 @@ Deno.test('canonical default devcontainer.json does not install devc-bridge', as
   // so an unpublished (or renamed, or yanked) Feature breaks devc for everyone. Second,
   // carrying mounts here as well as in the Feature would collide for anyone who did opt
   // in — Docker fails a create with `Duplicate mount point` on the same target twice.
-  // Opting in is `additionalFeatures` in a user- or project-level devc.json.
+  // Opting in is `features` in a user- or project-level devc.json.
   const text = await Deno.readTextFile(
     new URL('../default/devcontainer.json', import.meta.url),
   );

@@ -1,7 +1,7 @@
 // Applying a project wizard selection to the project's `devc.json` overlay.
 //
 // The wizard owns exactly two regions of the overlay's `mounts` array: the `devc:source` and
-// `devc:skills` fences. Everything else in that file — hand-written mounts, `additionalFeatures`,
+// `devc:skills` fences. Everything else in that file — hand-written mounts, `features`,
 // `remoteEnv`, comments — is preserved byte-for-byte by `writeBlocks`, so the file stays a
 // perfectly good hand-edited overlay that devc happens to also write two blocks into.
 //
@@ -43,7 +43,7 @@ const MOUNTS_KEY = 'mounts';
  */
 const NEW_OVERLAY_TEXT = `{
   // Machine-specific devc overlay, managed by \`devc config\`.
-  // Also supports "additionalFeatures" and "remoteEnv" — see devc's README.
+  // Also supports "features" and "remoteEnv" — see devc's README.
   "mounts": []
 }
 `;

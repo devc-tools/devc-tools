@@ -210,7 +210,7 @@ The mount lives in your `devcontainer.json` because a Feature **cannot** express
 full rationale, including the Docker Compose caveat.
 
 [devc](../devc/README.md#devc-bridge-the-opt-in-feature) projects opt in the same way,
-with `additionalFeatures` in a devc.json — the bridge is not part of devc's
+with `features` in a devc.json — the bridge is not part of devc's
 baseline, so a devc container comes up on a host that never heard of it. One
 mechanism, not two.
 
