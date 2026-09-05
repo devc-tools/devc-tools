@@ -593,6 +593,7 @@ Commands:
   claude   Launch Claude inside the dev container for the current project
   copilot  Launch GitHub Copilot CLI inside the dev container for the current project
   pi       Launch pi inside the dev container for the current project
+  herdr    Launch herdr inside the dev container for the current project
   up       Start the dev container for the current project
   build    Rebuild the dev container for the current project
   exec     Execute a command inside the dev container for the current project
@@ -731,6 +732,25 @@ Usage: devc pi [PATH] [EXTRA_ARGS...]
 Arguments:
   [PATH]         Path to the project (default: current directory)
   [EXTRA_ARGS]   Additional arguments forwarded to pi
+
+Options:
+  -h, --help     Print help
+```
+
+## `herdr`
+
+Launch the Herdr terminal multiplexer inside the dev container for the project
+in the current working directory, creating/starting the container if
+necessary. Same shape as [`claude`](#claude), for the `herdr` binary the
+[`agents` Feature](../../features/agents/README.md) optionally installs
+(`installHerdr`).
+
+```text
+Usage: devc herdr [PATH] [EXTRA_ARGS...]
+
+Arguments:
+  [PATH]         Path to the project (default: current directory)
+  [EXTRA_ARGS]   Additional arguments forwarded to herdr
 
 Options:
   -h, --help     Print help

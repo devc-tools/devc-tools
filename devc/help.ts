@@ -5,7 +5,7 @@
 /** CLI version. Single source of truth — the compiled binary cannot read `deno.json` at runtime. */
 export const VERSION = '0.2.0';
 
-/** The thirteen subcommands, in the order they appear in the top-level `Commands:` list. */
+/** The fourteen subcommands, in the order they appear in the top-level `Commands:` list. */
 export const COMMANDS: { name: string; summary: string }[] = [
   {
     name: 'init',
@@ -31,6 +31,10 @@ export const COMMANDS: { name: string; summary: string }[] = [
   {
     name: 'pi',
     summary: 'Launch pi inside the dev container for the current project',
+  },
+  {
+    name: 'herdr',
+    summary: 'Launch herdr inside the dev container for the current project',
   },
   { name: 'up', summary: 'Start the dev container for the current project' },
   {
@@ -143,6 +147,20 @@ export const COMMAND_HELP: Record<string, string> = {
     'Arguments:',
     '  [PATH]         Path to the project (default: current directory)',
     '  [EXTRA_ARGS]   Additional arguments forwarded to pi',
+    '',
+    'Options:',
+    '      --cwd <PATH>  Start in PATH instead of the workspace folder — a',
+    '                    container path, or a host path, which wins when a',
+    '                    value could be read as either',
+    '  -h, --help        Print help',
+  ].join('\n'),
+
+  herdr: [
+    'Usage: devc herdr [PATH] [EXTRA_ARGS...]',
+    '',
+    'Arguments:',
+    '  [PATH]         Path to the project (default: current directory)',
+    '  [EXTRA_ARGS]   Additional arguments forwarded to herdr',
     '',
     'Options:',
     '      --cwd <PATH>  Start in PATH instead of the workspace folder — a',

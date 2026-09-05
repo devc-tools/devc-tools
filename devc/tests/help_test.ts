@@ -23,8 +23,8 @@ Deno.test('topLevelHelp lists every command, the version option, and the footer'
   );
 });
 
-Deno.test('COMMAND_HELP has a Usage block for each of the thirteen commands', () => {
-  assertEquals(COMMANDS.length, 13);
+Deno.test('COMMAND_HELP has a Usage block for each of the fourteen commands', () => {
+  assertEquals(COMMANDS.length, 14);
   for (const { name } of COMMANDS) {
     const block = COMMAND_HELP[name];
     assert(block !== undefined, `missing help block for ${name}`);

@@ -109,9 +109,10 @@ async function resolveCwdArg(target: string, cwd: string): Promise<string> {
 }
 
 /**
- * Shared `devc attach` / `devc claude` / `devc copilot` / `devc pi` flow: start (or rebuild) the
- * container for `target`, then attach. When `command` is given (`devc claude`/`devc copilot`/
- * `devc pi`), it runs inside a login shell instead of dropping into an interactive shell.
+ * Shared `devc attach` / `devc claude` / `devc copilot` / `devc pi` / `devc herdr` flow: start
+ * (or rebuild) the container for `target`, then attach. When `command` is given (`devc claude`/
+ * `devc copilot`/`devc pi`/`devc herdr`), it runs inside a login shell instead of dropping into
+ * an interactive shell.
  */
 async function attach(rawArgs: string[], command?: string): Promise<void> {
   const { target: rawTarget, rebuild, noClear, cwd: rawCwd } = parseAttachArgs(
@@ -257,6 +258,10 @@ if (subcommand === 'copilot') {
 
 if (subcommand === 'pi') {
   await attach(Deno.args.slice(1), 'pi');
+}
+
+if (subcommand === 'herdr') {
+  await attach(Deno.args.slice(1), 'herdr');
 }
 
 if (subcommand === 'stop') {

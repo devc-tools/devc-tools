@@ -12,7 +12,7 @@ export interface AttachArgs {
 }
 
 /**
- * Parses `devc attach` / `devc claude` / `devc copilot` / `devc pi` arguments.
+ * Parses `devc attach` / `devc claude` / `devc copilot` / `devc pi` / `devc herdr` arguments.
  *
  * Unlike the other parsers here this one cannot use a plain
  * `args.find((a) => !a.startsWith('--'))` for the positional path: `--cwd` takes a value, and
