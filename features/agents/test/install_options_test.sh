@@ -169,12 +169,17 @@ for real_bin in node npm; do
 done
 
 # setup <name> [VAR=value ...] — run the real install.sh with this case's env, into a fresh
-# SHARE_DIR and a fresh fake remote-user HOME.
+# SHARE_DIR and a fresh fake remote-user HOME. $CASE/share itself is deliberately NOT
+# pre-created: on a real image, /usr/local/share/devc-features/agents does not exist before
+# install.sh runs, and install.sh is the one that has to create it before writing anything
+# under it (a real bug: it once wrote pi-packages.conf/herdr-plugins.conf straight into
+# SHARE_DIR with no mkdir -p first, which every case here missed because this pre-created the
+# directory for it).
 setup() {
   local name="$1"; shift
   CASE="$WORK/$name"
   rm -rf "$CASE"
-  mkdir -p "$CASE/share" "$CASE/home"
+  mkdir -p "$CASE/home"
   : > "$CASE/curl.log"; : > "$CASE/runuser.log"; : > "$CASE/runuser_user.log"
   : > "$CASE/installer_env.log"; : > "$CASE/npm.log"
   env -u INSTALLCLAUDECLI -u INSTALLCOPILOTCLI -u INSTALLPICLI \
@@ -259,7 +264,7 @@ echo "case 2c: node is not on PATH — the prelude sources nvm and finds it"
 # installer's never sources. Point NVM_DIR at a fake nvm.sh (the first entry the prelude probes)
 # and hand install.sh a PATH with no node on it at all.
 rm -rf "${WORK:?}/c2c"
-mkdir -p "$WORK/c2c/share" "$WORK/c2c/home/.nvm"
+mkdir -p "$WORK/c2c/home/.nvm"
 : > "$WORK/c2c/curl.log"; : > "$WORK/c2c/runuser.log"; : > "$WORK/c2c/runuser_user.log"
 : > "$WORK/c2c/installer_env.log"
 printf 'export PATH="%s:$PATH"\n' "$NODE_STUBS" > "$WORK/c2c/home/.nvm/nvm.sh"
@@ -280,7 +285,7 @@ echo "case 2d: node is present but too old — the build fails naming the versio
 # Without this gate the installer's own preflight would fail, exit 1, and install_cli could only
 # report it as "network required" — the misleading message the whole prelude exists to stop.
 rm -rf "${WORK:?}/c2e"
-mkdir -p "$WORK/c2e/share" "$WORK/c2e/home/.nvm"
+mkdir -p "$WORK/c2e/home/.nvm"
 : > "$WORK/c2e/curl.log"; : > "$WORK/c2e/runuser.log"; : > "$WORK/c2e/runuser_user.log"
 : > "$WORK/c2e/installer_env.log"
 printf 'export PATH="%s:$PATH"\n' "$NODE_STUBS" > "$WORK/c2e/home/.nvm/nvm.sh"
@@ -328,7 +333,7 @@ echo "case 4: the CLI is already installed — the idempotent guard skips curl e
 # would install the fake claude first and make "curl was never invoked" pass for the wrong
 # reason. Build this case's directories by hand instead, so install.sh runs exactly once.
 rm -rf "${WORK:?}/c4"
-mkdir -p "$WORK/c4/share" "$WORK/c4/home/.local/bin"
+mkdir -p "$WORK/c4/home/.local/bin"
 printf '#!/bin/sh\necho already-there\n' > "$WORK/c4/home/.local/bin/claude"
 chmod +x "$WORK/c4/home/.local/bin/claude"
 env -u INSTALLCLAUDECLI -u INSTALLCOPILOTCLI -u INSTALLPICLI \
@@ -426,7 +431,7 @@ check "no browser-install invocation reached the fake binary — agentBrowserChr
 
 echo "case 15: agent-browser already installed — the idempotent guard skips npm entirely"
 rm -rf "${WORK:?}/c15"
-mkdir -p "$WORK/c15/share" "$WORK/c15/home/.local/bin"
+mkdir -p "$WORK/c15/home/.local/bin"
 printf '#!/bin/sh\necho already-there\n' > "$WORK/c15/home/.local/bin/agent-browser"
 chmod +x "$WORK/c15/home/.local/bin/agent-browser"
 env -u INSTALLCLAUDECLI -u INSTALLCOPILOTCLI -u INSTALLPICLI -u INSTALLHERDR \
@@ -452,7 +457,7 @@ echo "case 17: node too old for agent-browser — the build fails naming the ver
 # Same shape as case 2d/2e for pi: install_npm_cli shares node_prelude, so a too-old Node hits
 # the identical gate before npm is ever invoked.
 rm -rf "${WORK:?}/c17"
-mkdir -p "$WORK/c17/share" "$WORK/c17/home/.nvm"
+mkdir -p "$WORK/c17/home/.nvm"
 : > "$WORK/c17/curl.log"; : > "$WORK/c17/runuser.log"; : > "$WORK/c17/runuser_user.log"
 : > "$WORK/c17/installer_env.log"; : > "$WORK/c17/npm.log"
 printf 'export PATH="%s:$PATH"\n' "$NODE_STUBS" > "$WORK/c17/home/.nvm/nvm.sh"

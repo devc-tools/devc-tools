@@ -310,6 +310,11 @@ fi
 # unchanged option value can silently skip re-fetching a source whose upstream tip moved). The
 # die guards above already ensure each list's own CLI option is true whenever its file is
 # written, so create-time-plugins.sh does not need to re-check installPiCli/installHerdr itself.
+#
+# $SHARE_DIR itself does not exist yet at this point in the script — the seed directories below
+# are its first mkdir -- so it has to be created here too, before either file can be written
+# into it.
+mkdir -p "$SHARE_DIR"
 if [ -n "$PI_PACKAGES_OPT" ]; then
   printf '%s' "$PI_PACKAGES_OPT" > "$SHARE_DIR/pi-packages.conf"
 fi
