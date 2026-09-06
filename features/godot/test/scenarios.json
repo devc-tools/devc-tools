@@ -1,0 +1,19 @@
+{
+  "pinned_version": {
+    "image": "mcr.microsoft.com/devcontainers/base:ubuntu",
+    "features": {
+      "godot": {
+        "version": "4.7.2"
+      }
+    }
+  },
+  "project_dir": {
+    "image": "mcr.microsoft.com/devcontainers/base:ubuntu",
+    "onCreateCommand": "mkdir -p ${containerWorkspaceFolder}/games/app",
+    "features": {
+      "godot": {
+        "projectDir": "games/app"
+      }
+    }
+  }
+}

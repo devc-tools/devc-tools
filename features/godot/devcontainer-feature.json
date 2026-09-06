@@ -1,0 +1,38 @@
+{
+  "id": "godot",
+  "version": "0.1.0",
+  "name": "Godot engine",
+  "description": "Installs the Godot engine at build time — by default the latest stable release, resolved from godotengine/godot's own GitHub releases rather than a version this repo tracks — and declares a per-devcontainer volume for the project's .godot/ cache directory, the Godot 4 equivalent of node_modules. No editor GUI is required to use it: the same binary runs headless (`godot --headless ...`) for imports, exports and tests.",
+  "documentationURL": "https://github.com/devc-tools/devc-tools/tree/main/features/godot",
+  "licenseURL": "https://github.com/devc-tools/devc-tools/blob/main/LICENSE",
+  "options": {
+    "version": {
+      "type": "string",
+      "default": "latest",
+      "description": "Godot version to install. 'latest' resolves the newest stable release from godotengine/godot at build time — this repo does not pin or track a version. Otherwise accepts a bare version ('4.7.2') or a full release tag ('4.7.2-stable'); both resolve to the same asset. Only 'stable' releases are ever selected — there is no option to install a beta/RC."
+    },
+    "installDependencies": {
+      "type": "boolean",
+      "default": true,
+      "description": "apt-get install the shared libraries Godot dlopens at runtime and silently does without when absent — fontconfig, confirmed by this plan's own measurement to be missing from mcr.microsoft.com/devcontainers/base:ubuntu. Godot's Linux binary is otherwise statically linked (confirmed with ldd: only libc/libm/libpthread/librt/libdl) and dlopens X11/Wayland/ALSA/PulseAudio only when not running --headless, so this option does not chase every optional library — only the one shown to matter for headless import/export."
+    },
+    "projectDir": {
+      "type": "string",
+      "default": "",
+      "description": "Workspace-relative directory that is the Godot project — where its .godot/ cache lives. Workspace-relative; an absolute value is used as-is; empty (the default) is the workspace root. The declared volume cannot follow this option (see node-nvmrc's own projectDir for why); a non-empty value makes the create-time step warn and print the mount line to paste into your own devcontainer.json instead of chowning a .godot the volume isn't actually backing."
+    },
+    "fixGodotDirOwnership": {
+      "type": "boolean",
+      "default": true,
+      "description": "chown an existing ./.godot to the create-time user before Godot ever runs. Repairs the named volume mounted there, which first comes up root-owned — same rationale as node-nvmrc's fixNodeModulesOwnership."
+    }
+  },
+  "mounts": [
+    {
+      "type": "volume",
+      "source": "godot-project-cache-${devcontainerId}",
+      "target": "${containerWorkspaceFolder}/.godot"
+    }
+  ],
+  "postCreateCommand": "bash /usr/local/share/devc-features/godot/post-create.sh"
+}

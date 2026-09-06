@@ -39,7 +39,7 @@ copied, not extracted.
 ## Mounts a Feature may and may not declare
 
 A Feature declares **no host bind mounts** — but it may declare **named volumes**, and
-three do (`agents`, `node-nvmrc`, `podman-as-docker`).
+four do (`agents`, `godot`, `node-nvmrc`, `podman-as-docker`).
 
 No bind mounts, because a Feature cannot declare a read-only one (the published Feature
 schema's `Mount` has no `readonly`) and cannot create a bind source (Features cannot
@@ -333,6 +333,25 @@ the other settings still apply.
 With Docker: the bare `{}` case asserting the settings land in the **remote user's**
 `~/.gitconfig` and not `/root/`'s, plus `with_git_lfs` and `mounted_identity`.
 
+**godot** — offline: `install_options_test.sh` (version resolution — latest via a
+non-redirecting `file://` fixture standing in for the releases/latest redirect, a bare version
+and its `-stable` tag resolving identically, architecture mapping for both arches from one
+host — the values that must fail the build, a checksum mismatch aborting with nothing
+installed, an asset or checksums-entry missing aborting the same way, `installDependencies`
+toggling the `fontconfig` install, and every option's bake into `post-create.sh` including the
+values a sed bake would corrupt), `post_create_test.sh` (the `.godot` chown and its
+`fixGodotDirOwnership`/no-`sudo` edge cases, and the `projectDir` warn-with-mount-line path,
+against a hand-baked hook rather than a real `install.sh` run — the real run needs a network
+download this harness deliberately does not perform).
+
+With Docker: the default scenario is the bare `{}` case, resolving `"latest"` for real and
+asserting `godot --version`/`godot --headless --version` succeed identically with no display
+server in the image, `fontconfig` installed, and the `.godot` volume mounted and chowned.
+`scenarios.json` adds `pinned_version` (a bare `4.7.2`, asserting the _installed_ binary reports
+exactly that version regardless of what "latest" resolves to that day) and `project_dir` (the
+volume staying at the workspace root rather than following `projectDir`, mirroring
+node-nvmrc's `project_subdir` scenario).
+
 **node-nvmrc** — offline: `install_options_test.sh` (all four options through to the baked
 `post-create.sh`, the values that must fail the build, the ones that must survive
 verbatim, the empty-`projectDir` distinction, the user-owned `pin/`, that no startup file
@@ -413,6 +432,26 @@ by Feature _name_, not exact id string, so a consumer declaring it under any tag
 devc's entry rather than adding a second — which matters because the devcontainer CLI
 dedupes `--additional-features` against a config's `features` by exact id string, and two
 tags of the same Feature would both install.
+
+### godot
+
+The `"latest"` resolution deliberately follows the `releases/latest` redirect
+(`curl -fsSL -o /dev/null -w '%{url_effective}'`) rather than calling
+`api.github.com/.../releases/latest`: the redirect needs no auth and does not share GitHub's
+much lower unauthenticated API rate limit, which every image build on a shared CI runner would
+otherwise compete for. Do not "simplify" this to the API call without re-deriving that trade.
+
+This Feature has **no `DEVC_TOOLS_RELEASE`-style pin**. That convention names a _devc-tools_
+release this repo controls; `version: "latest"` here tracks an _upstream_ project's own
+releases instead, which is what the `version` option is for — see "Release pins" above. It also
+declares no `installsAfter`: unlike `node-nvmrc` (which orders behind a Node Feature it does not
+install), this Feature installs the one thing it needs itself and has nothing else to order
+behind.
+
+`SHA512-SUMS.txt`'s format was confirmed against the `4.7.2-stable` release: two-space
+separated, no `sha512sum -b`-style `*` prefix. The `*` is stripped defensively anyway, the way
+`devc-bridge/install.sh`'s `checksums.txt` parse already does, in case a future release changes
+that.
 
 ### node-nvmrc
 

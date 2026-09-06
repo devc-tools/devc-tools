@@ -199,48 +199,51 @@ fi
 
 ## Checklist
 
-- [ ] `features/godot/devcontainer-feature.json` — id/version/name, four options,
+- [x] `features/godot/devcontainer-feature.json` — id/version/name, four options,
       declared `.godot` volume, `postCreateCommand`
-- [ ] `features/godot/install.sh` — version validation, `latest` resolution via the
+- [x] `features/godot/install.sh` — version validation, `latest` resolution via the
       release-page redirect (not the GitHub API), arch mapping, SHA-512
       verify-before-install, `unzip` self-heal, `installDependencies`, the `bin/godot`
       fixed path, `/usr/local/bin/godot` symlink, baking
       `PROJECT_DIR`/`FIX_GODOT_DIR_OWNERSHIP` into `post-create.sh`
-- [ ] `features/godot/post-create.sh` (the file `install.sh` installs) — `.godot` chown when
+- [x] `features/godot/post-create.sh` (the file `install.sh` installs) — `.godot` chown when
       `projectDir` is empty, warn-with-mount-line when it isn't
-- [ ] `features/godot/README.md` — what a bare `{}` gives you, the `.godot` volume recipe
+- [x] `features/godot/README.md` — what a bare `{}` gives you, the `.godot` volume recipe
       (copy node-nvmrc's `node_modules` section's structure), the options table, "what this
       is not" (no export templates, no C# support, no editor GUI dependencies installed),
       the `--headless` usage note
-- [ ] `features/godot/test/test.sh` — the default `{}` scenario
-- [ ] `features/godot/test/scenarios.json` + one script each: a pinned `version` (so the
+- [x] `features/godot/test/test.sh` — the default `{}` scenario
+- [x] `features/godot/test/scenarios.json` + one script each: a pinned `version` (so the
       test is not itself pinned to whatever "latest" happens to be on the day it runs), a
       `projectDir` case (mirrors node-nvmrc's `project_subdir`)
-- [ ] `features/godot/test/run-features-test.sh` — the verbatim wrapper, copied per
+- [x] `features/godot/test/run-features-test.sh` — the verbatim wrapper, copied per
       `features/CONTRIBUTING.md`
-- [ ] `features/godot/test/install_options_test.sh` — offline, real `install.sh` with
+- [x] `features/godot/test/install_options_test.sh` — offline, real `install.sh` with
       `curl`/`unzip`/`apt-get` stubbed: version validation's reject/accept cases, `latest`
       vs. pinned vs. `X.Y.Z-stable` all resolving the tag the same way, a checksum mismatch
       aborting with nothing installed, the option bake into `post-create.sh`
-- [ ] `features/godot/test/post_create_test.sh` — offline, real `post-create.sh` against a
+- [x] `features/godot/test/post_create_test.sh` — offline, real `post-create.sh` against a
       temp `HOME`/workspace: chown fires when `.godot` exists and `projectDir` is empty,
       warns instead when `projectDir` is set, both are no-ops when `.godot` does not exist
-- [ ] `features/README.md` — row for this Feature (alphabetical slot: after
+- [x] `features/README.md` — row for this Feature (alphabetical slot: after
       `git-container-config`, before `node-nvmrc`)
 - [ ] `features/PUBLISH_ALLOWLIST.txt` — add `godot` (same alphabetical slot) once the
       Feature is ready to publish — see `features/CONTRIBUTING.md`'s "publish allowlist" for
-      why this is a separate, deliberate step from everything else in this checklist
-- [ ] `features/CONTRIBUTING.md` — "Per-Feature test inventory" entry; a "Per-Feature
+      why this is a separate, deliberate step from everything else in this checklist —
+      **withheld**: no Docker in this environment, so none of the container-dependent
+      validation below has run
+- [x] `features/CONTRIBUTING.md` — "Per-Feature test inventory" entry; a "Per-Feature
       maintainer notes" subsection if the redirect-not-API resolution is worth flagging for
       a future maintainer touching this Feature without having just re-derived it
-- [ ] `.plans/PLAN.md` — register under `### Pending`, then move to Completed per this
+- [x] `.plans/PLAN.md` — register under `### Pending`, then move to Completed per this
       repo's existing convention when done
 
 ## Validation
 
-- [ ] `bash features/godot/test/install_options_test.sh` — offline
-- [ ] `bash features/godot/test/post_create_test.sh` — offline
-- [ ] `bash tests/features_test.sh --feature godot` — id/version/name/description guard
+- [x] `bash features/godot/test/install_options_test.sh` — offline (ALL PASS)
+- [x] `bash features/godot/test/post_create_test.sh` — offline (ALL PASS)
+- [x] `bash tests/features_test.sh --feature godot` — id/version/name/description guard
+      (ALL PASS)
 - [ ] (needs Docker + network) `bash features/godot/test/run-features-test.sh` — default
       scenario: `"godot": {}` on `mcr.microsoft.com/devcontainers/base:ubuntu`, asserting
       `godot --version` succeeds, `godot --headless --version` succeeds with no display, the
@@ -253,7 +256,7 @@ fi
       subdirectory is chowned correctly is **not** claimed (the volume can't follow
       `projectDir` — see Concept boundaries); assert instead that create emits the warning
       and the exact mount line on stderr
-- [ ] Already measured in this session (recorded here so a future re-verification has a
+- [x] Already measured in this session (recorded here so a future re-verification has a
       baseline, not to be re-run as part of this plan): against the `4.7.2-stable` release,
       `ldd Godot_v4.7.2-stable_linux.x86_64` showed only `libc`/`libm`/`libpthread`/
       `librt`/`libdl`; `--version` printed `4.7.2.stable.official.<hash>` on exit 0 with a

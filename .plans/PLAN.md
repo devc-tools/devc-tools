@@ -11,13 +11,6 @@
 
 ### Pending
 
-- [feature-godot](feature-godot.md) — new `godot` Feature: installs the latest stable
-  Godot engine at build time (version resolved from `godotengine/godot`'s own releases,
-  not tracked by this repo) and declares a `${devcontainerId}`-keyed volume for the
-  project's `.godot/` cache directory, the Godot 4 equivalent of `node_modules`. Follows
-  `node-nvmrc`'s volume shape and `devc-bridge`'s download-and-verify shape; no devc
-  baseline change.
-
 - [keepawake-ping-telemetry](keepawake-ping-telemetry.md) — record every keepawake ping
   and report the distribution of gaps between them, so
   `DEVC_BRIDGE_KEEPAWAKE_IDLE_MS` can be set from measurement rather than the
@@ -70,6 +63,66 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
   take it too.
 
 ### Completed
+
+- [feature-godot](archived/feature-godot.md) — ✅ Done, code complete and offline-tested;
+  every Docker-needed item in the plan's own Validation list is unrun (no Docker in this
+  environment), same standing as other entries below.
+
+  New `features/godot/` installs the Godot engine at build time — by default the latest
+  stable release, resolved at build time from `godotengine/godot`'s own releases via the
+  `releases/latest` redirect rather than the GitHub API (which would share the much lower
+  unauthenticated rate limit across every image build on a shared CI runner) — and declares
+  a `${devcontainerId}`-keyed `.godot` volume for the project's Godot 4 cache directory, the
+  Godot 4 equivalent of `node_modules`. Follows `node-nvmrc`'s volume shape (including its
+  `projectDir`-can't-move-the-mount caveat and warn-with-mount-line recipe) and
+  `devc-bridge`'s download-and-verify shape, with `sha512sum` in place of `sha256sum` since
+  Godot's own release checksums are SHA-512. Four options (`version`, `installDependencies`,
+  `projectDir`, `fixGodotDirOwnership`); no `installsAfter` (nothing else to order behind)
+  and no `DEVC_TOOLS_RELEASE`-style pin (this Feature tracks an upstream project's own
+  releases, not a devc-tools release). `installDependencies` installs only `fontconfig` —
+  confirmed by this plan's own measurement to be the one shared library that matters for
+  headless import/export on `mcr.microsoft.com/devcontainers/base:ubuntu`, Godot's Linux
+  binary otherwise being statically linked. No devc baseline change: this is an opt-in
+  Feature, not bundled.
+
+  Verified here, offline: `features/godot/test/install_options_test.sh` (new — the real
+  `install.sh` run against local `file://` release fixtures, with `apt-get` and `uname`
+  stubbed on PATH and `curl`/`unzip`/`sha512sum` left real: version validation's reject
+  cases, a bare version and its `-stable` tag resolving to the same asset, both
+  architectures reachable from one host, `"latest"` resolving via a non-redirecting
+  `file://` URL standing in for the GitHub redirect — `%{url_effective}` on a URL that
+  doesn't redirect is just the URL itself, so no HTTP server was needed — a checksum
+  mismatch and a missing asset/checksum-entry each aborting with nothing installed, and
+  every option's bake into `post-create.sh` including the values a sed-based bake would
+  corrupt), `features/godot/test/post_create_test.sh` (new — the real `post-create.sh`
+  baked by hand the way `install.sh`'s own `bake()` would and run against a temp
+  workspace with `sudo` stubbed: the `.godot` chown firing/not firing across
+  `fixGodotDirOwnership` and existence combinations, the `projectDir` warn-with-mount-line
+  path, and a `sudo`-free PATH built from named real binaries rather than a directory
+  exclusion, since the real `sudo` shares a directory with coreutils the hook also needs),
+  `bash tests/features_test.sh --feature godot` and the whole-collection run (9 Features in
+  scope — the collection walk picked up the new directory with no edit), `deno fmt --check`.
+
+  **Not verified here (no Docker):** every `devcontainer features test` scenario — the
+  default bare `{}` case (assertions: `godot --version` and `godot --headless --version`
+  succeed identically with no display server anywhere in the image, `fontconfig` installed,
+  the `.godot` volume mounted and chowned) and `test/scenarios.json`'s `pinned_version`
+  (`version: "4.7.2"`, asserting the *installed* binary reports exactly that version
+  independent of whatever `"latest"` resolves to that day) and `project_dir` (the volume
+  staying at the workspace root rather than following `projectDir`, mirroring
+  node-nvmrc's `project_subdir` scenario — the create-time warning's exact text is asserted
+  offline instead, in `post_create_test.sh`, since it lands in the build log and is gone by
+  the time a scenario's own assertions run inside the finished container). The offline
+  harness's own unzip-self-heal case is a static source check rather than a dynamic one, for
+  the same reason: this devcontainer's own PATH already has a real `unzip` on it, sharing a
+  directory with every other tool `install.sh` needs, so there is no way to hide it from
+  `command -v` without also hiding those.
+
+  **`features/PUBLISH_ALLOWLIST.txt` is deliberately not touched** — the plan's own
+  checklist adds it "once the Feature is ready to publish," and it is not: every
+  Docker-dependent scenario above is unrun. Same reasoning `features/README.md` and
+  `features/CONTRIBUTING.md` already give for holding back other Features before their own
+  container scenarios were green.
 
 - [devc-merged-config](archived/devc-merged-config.md) — ✅ Done, code
   complete and offline-tested; the nine Docker-needed items in
