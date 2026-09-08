@@ -823,9 +823,11 @@ export async function stopContainer(localFolder: string): Promise<void> {
   const found = await findContainer(localFolder, false);
   if (found === null) return;
 
+  // `docker stop`/`docker rm` echo the container id they acted on; discard that so the
+  // caller's own "Stopped/Removed container for <folder>" line is the only output.
   await output('docker', {
     args: ['stop', found.id],
-    stdout: 'inherit',
+    stdout: 'null',
     stderr: 'inherit',
   });
 }
@@ -842,14 +844,14 @@ export async function downContainer(localFolder: string): Promise<void> {
   if (found.state === 'running') {
     await output('docker', {
       args: ['stop', found.id],
-      stdout: 'inherit',
+      stdout: 'null',
       stderr: 'inherit',
     });
   }
 
   await output('docker', {
     args: ['rm', found.id],
-    stdout: 'inherit',
+    stdout: 'null',
     stderr: 'inherit',
   });
 }
