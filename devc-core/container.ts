@@ -819,9 +819,14 @@ export function rebuildContainer(
   return startContainer(localFolder, true, opts);
 }
 
-export async function stopContainer(localFolder: string): Promise<void> {
+/**
+ * Stops the running container for `localFolder`. Resolves `true` when one was
+ * stopped, `false` when no running container matched — so the caller can report
+ * "stopped" and "there was nothing to stop" differently.
+ */
+export async function stopContainer(localFolder: string): Promise<boolean> {
   const found = await findContainer(localFolder, false);
-  if (found === null) return;
+  if (found === null) return false;
 
   // `docker stop`/`docker rm` echo the container id they acted on; discard that so the
   // caller's own "Stopped/Removed container for <folder>" line is the only output.
@@ -830,16 +835,20 @@ export async function stopContainer(localFolder: string): Promise<void> {
     stdout: 'null',
     stderr: 'inherit',
   });
+  return true;
 }
 
 /**
- * Stops (if running) and removes the container for `localFolder`. No-op if no
- * container (running or stopped) matches. After this, the next `devc attach` for
- * `localFolder` creates a brand-new container.
+ * Stops (if running) and removes the container for `localFolder`. After this, the
+ * next `devc attach` for `localFolder` creates a brand-new container.
+ *
+ * Resolves `true` when a container was removed, `false` when no container (running
+ * or stopped) matched — so the caller can report "removed" and "there was nothing
+ * to remove" differently.
  */
-export async function downContainer(localFolder: string): Promise<void> {
+export async function downContainer(localFolder: string): Promise<boolean> {
   const found = await findContainer(localFolder, true);
-  if (found === null) return;
+  if (found === null) return false;
 
   if (found.state === 'running') {
     await output('docker', {
@@ -854,4 +863,5 @@ export async function downContainer(localFolder: string): Promise<void> {
     stdout: 'null',
     stderr: 'inherit',
   });
+  return true;
 }

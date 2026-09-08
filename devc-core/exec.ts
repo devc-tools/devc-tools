@@ -4,6 +4,7 @@
 // Nothing more; this is not a general subprocess library.
 
 import { spawn } from 'node:child_process';
+import { isNotFound } from './errors.ts';
 
 /** Per-stream disposition, matching the vocabulary that old `Command` API used. */
 export type Stdio = 'piped' | 'inherit' | 'null';
@@ -45,6 +46,17 @@ function toNodeStdio(mode: Stdio | undefined): 'pipe' | 'inherit' | 'ignore' {
 }
 
 /**
+ * Maps a spawn failure to the error the caller should see. A missing binary arrives as an
+ * `ENOENT` whose stock message (`spawn docker ENOENT`) reads as an internal fault; this states
+ * the actual problem instead. Every other failure passes through untouched.
+ */
+function spawnFailure(cmd: string, err: unknown): unknown {
+  return isNotFound(err)
+    ? new Error(`${cmd} not found on PATH — install it and try again`)
+    : err;
+}
+
+/**
  * Runs `cmd` to completion, mirroring the old `Command(cmd, opts).output()`: resolves with the
  * exit code and whichever of stdout/stderr were `'piped'` (empty otherwise).
  *
@@ -75,7 +87,7 @@ export function output(
       stderrChunks.push(chunk);
       opts.onStderr?.(chunk);
     });
-    child.on('error', reject);
+    child.on('error', (err) => reject(spawnFailure(cmd, err)));
     child.on('close', (code) => {
       resolve({
         code: code ?? -1,
@@ -104,7 +116,7 @@ export function status(
         toNodeStdio(opts.stderr),
       ],
     });
-    child.on('error', reject);
+    child.on('error', (err) => reject(spawnFailure(cmd, err)));
     child.on('close', (code) => resolve({ code: code ?? -1 }));
   });
 }

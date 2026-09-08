@@ -266,21 +266,27 @@ if (subcommand === 'herdr') {
 
 if (subcommand === 'stop') {
   const target = resolveLocalFolder(Deno.args[1]);
-  await stopContainer(target);
-  console.log(`Stopped container for ${target}`);
+  const stopped = await stopContainer(target).catch(fail);
+  console.log(
+    stopped
+      ? `Stopped container for ${target}`
+      : `No running container for ${target}`,
+  );
   Deno.exit(0);
 }
 
 if (subcommand === 'down') {
   const target = resolveLocalFolder(Deno.args[1]);
-  await downContainer(target);
-  console.log(`Removed container for ${target}`);
+  const removed = await downContainer(target).catch(fail);
+  console.log(
+    removed ? `Removed container for ${target}` : `No container for ${target}`,
+  );
   Deno.exit(0);
 }
 
 if (subcommand === 'status') {
   const target = resolveLocalFolder(Deno.args[1]);
-  console.log(await getContainerStatus(target));
+  console.log(await getContainerStatus(target).catch(fail));
   Deno.exit(0);
 }
 
@@ -382,7 +388,7 @@ if (subcommand === 'mounts') {
   const rest = Deno.args.slice(1);
   const json = rest.includes('--json');
   const target = resolveLocalFolder(rest.find((a) => !a.startsWith('--')));
-  const m = await getContainerMounts(target);
+  const m = await getContainerMounts(target).catch(fail);
   if (json) {
     console.log(JSON.stringify(m ?? []));
   } else if (m === null) {

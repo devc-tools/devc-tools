@@ -13,7 +13,10 @@ function hasCode(err: unknown, code: string): boolean {
     (err as ErrnoException).code === code;
 }
 
-/** True when `err` is a `node:fs` "no such file or directory" error. */
+/**
+ * True when `err` is a "no such file or directory" error — from `node:fs`, or from a
+ * `child_process` spawn of a binary that is not on `PATH` (same `ENOENT` code).
+ */
 export function isNotFound(err: unknown): boolean {
   return hasCode(err, 'ENOENT');
 }

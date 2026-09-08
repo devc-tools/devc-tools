@@ -92,8 +92,14 @@ Notes:
 - `mounts` prints `type\tsource -> destination\trw|ro` rows, or the
   `ContainerMount[]` JSON with `--json`. With no container it prints
   `No container for <path>` (text) / `[]` (json).
+- `stop` prints `Stopped container for <path>`, or `No running container for
+  <path>` when nothing was running. `down` prints `Removed container for
+  <path>`, or `No container for <path>` when there was nothing to remove. Both
+  exit 0 either way — neither is an error.
 - Lookup commands (`status`/`stop`/`down`/`mounts`) locate the container by its
-  `devcontainer.local_folder` label and never start anything.
+  `devcontainer.local_folder` label and never start anything. With `docker`
+  itself missing from `PATH` they fail hard — `devc: docker not found on PATH`,
+  exit 1 — rather than reporting the container as absent.
 
 ## How it works
 
