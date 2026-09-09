@@ -493,30 +493,34 @@ replaces the same-named bundled one — everywhere the bundle is used:
   into every repo you scaffold. For mounts that apply to every project, the file
   goes one level up, at `~/.config/devc/devc.jsonc`.
 
-## Claude config: `~/.config/devc/.claude`
+## Claude config: `~/.config/devc/.claude` and `~/.config/devc/claude-seed`
 
-Anything you want the in-container agent to see goes in
-`~/.config/devc/.claude` — **you put it there, and nothing else gets in.** The
-directory is bind-mounted read-only onto the
-[`agents`](https://github.com/devc-tools/devc-tools/tree/main/features/agents)
-Feature's fixed seed path, and on every container create that Feature's own
-`post-create.sh` symlinks each entry into the container's `~/.claude`:
+devc creates two host directories and mounts both. They do very different
+things, and only the first is the one you normally use:
+
+| Host directory               | Where it lands in the container                          | What it is                                                                    |
+| ---------------------------- | -------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| `~/.config/devc/.claude`     | `~/.claude` — bind, read-write                           | **Your Claude home.** Whatever is here _is_ `~/.claude` in every container.   |
+| `~/.config/devc/claude-seed` | the `agents` Feature's fixed seed path — bind, read-only | Inert unless you set that Feature's `"claudeSeed": true`. Usually left empty. |
+
+### The normal shape: one Claude home, shared
+
+`~/.config/devc/.claude` is bind-mounted **as** the container's `~/.claude`.
+Nothing is linked, nothing is copied, nothing runs at create time:
 
 ```text
-~/.config/devc/.claude/CLAUDE.md      →  /home/vscode/.claude/CLAUDE.md
-~/.config/devc/.claude/settings.json  →  /home/vscode/.claude/settings.json
-~/.config/devc/.claude/statusline.sh  →  /home/vscode/.claude/statusline.sh
+~/.config/devc/.claude/CLAUDE.md      is  /home/vscode/.claude/CLAUDE.md
+~/.config/devc/.claude/settings.json  is  /home/vscode/.claude/settings.json
+~/.config/devc/.claude/statusline.sh  is  /home/vscode/.claude/statusline.sh
 ```
 
-- **Top-level files only.** Directories are ignored — the `devc:skills` fence
-  owns `~/.claude/skills/`, and per-skill mounts are configured through
-  `devc config` instead.
-- **Read-only, and live.** Edits on the host show up immediately; no rebuild, no
-  recreate. File modes carry over, so `statusline.sh` keeps its exec bit.
-- **Deletions are honored.** Remove a file here and its link disappears on the
-  next container create.
+- **Every file, not just the top level**, and writable rather than read-only —
+  Claude Code writes its own state back into it, including your login, so **one
+  login covers every container on the machine**.
+- **Live.** Host edits show up immediately; no rebuild, no recreate. File modes
+  carry over, so `statusline.sh` keeps its exec bit.
 - **Missing is fine.** `devc` creates the directory if absent, and says so the
-  once. An empty one is valid — files that aren't there simply aren't linked.
+  once. An empty one is valid.
 - **Nothing is copied in for you**, and in particular your host `~/.claude` is
   never read. Whether your personal `CLAUDE.md`, `settings.json` or
   `statusline.sh` should reach every container is a decision only you can make,
@@ -526,40 +530,71 @@ Feature's fixed seed path, and on every container create that Feature's own
   cp ~/.claude/CLAUDE.md ~/.config/devc/.claude/
   ```
 
-  Copy, and the container gets a snapshot you can diverge from the host's. Symlink
-  (`ln -s`), and the two stay identical — the seed mount is live, so either way
-  edits land without a rebuild.
-- The container's own `~/.claude` stays a per-workspace volume, so `projects/`,
-  `todos/`, and credentials persist per project and are never touched by this —
-  and, as of `agents` `0.2.0`, that is now the whole story: `~/.claude.json`
-  (auth) is symlinked into the same volume rather than living in a second one,
-  so one volume captures all of Claude Code's state. **One cost from that
-  fold, once:** an existing workspace's `~/.claude.json` was in its own
-  `claude-json-*` volume before this change, and nothing migrates its
-  contents across, so you re-login to Claude Code once per workspace on the
-  first container create after upgrading. The orphaned `claude-json-*`
-  volumes are left on disk — `docker volume prune` to reclaim them.
+What you give up, so it is a decision and not a surprise: `.claude.json`'s
+`projects` entries are keyed on the container path, and devc lands every project
+at `/workspaces/<folder basename>` — so two host projects sharing a basename
+share one entry, and with it `hasTrustDialogAccepted`, `allowedTools` and
+`mcpServers`. `docker volume rm` no longer resets one container's Claude state
+either. If either matters to you, take the isolated shape below.
 
-Migrating from an older `devc`: nothing is migrated automatically. Copy in
-whichever of `~/.claude/CLAUDE.md`, `~/.claude/settings.devc.json` (→
-`settings.json`) and `~/.claude/statusline.sh` you actually want — the `.devc`
-suffix existed only to avoid colliding with the real `~/.claude/settings.json`,
-and a dedicated directory removes the collision. Projects whose
-`.devcontainer/devcontainer.json` was written by an earlier `devc` also still
-carry three per-file binds — `devc` writes infra mounts once at creation and
-never re-asserts them, so replace them by hand with:
+### The four shapes
+
+| `~/.claude` mount       | `claudeSeed`          | Result                                                                                           |
+| ----------------------- | --------------------- | ------------------------------------------------------------------------------------------------ |
+| bind — **devc default** | `false` — **default** | One shared `~/.claude` across every container. Host files appear directly; no seed, no symlinks. |
+| bind                    | `true`                | Shared `~/.claude` **plus** seed links written into it. Legal, rarely wanted.                    |
+| volume — one added line | `false`               | Isolated per-container state, no shared config. This is the bare `agents` Feature's own shape.   |
+| volume                  | `true`                | Isolated state, shared config via read-only links — what devc did before `devc-core` `0.2.0`.    |
+
+Rows 3 and 4 are reached by adding **one** `mounts` entry to the project's
+`devc.jsonc` naming the **same target** as devc's bundled bind:
 
 ```jsonc
-"initializeCommand": "mkdir -p \"$HOME/.config/devc/.claude\"",
-// …and in "mounts", replacing the three ~/.claude/* bind lines:
-"type=bind,source=${localEnv:HOME}/.config/devc/.claude,target=/usr/local/share/devc-features/agents/claude-seed,consistency=cached,readonly",
+"type=volume,source=claude-code-config-${devcontainerId},target=/home/vscode/.claude"
 ```
 
-The `initializeCommand` is what creates the mount source on a machine without
+Same-target mount entries collapse keeping the later layer, so your overlay's
+volume **replaces** the bundled bind. Add the line; do not try to delete the
+inherited one.
+
+Row 2 is legal but rarely wanted. The seed never overwrites a real file, so with
+a bind in place it can only supply names that are _not_ already in your Claude
+home — and since the bind _is_ your Claude home, a seed `CLAUDE.md` is skipped
+every time. The links it does create point at a container path, so they read as
+broken symlinks when you open the host directory.
+
+### Migrating
+
+**No files move.** `~/.config/devc/.claude` used to be the read-only seed source
+and is now the container's real `~/.claude`, at the same path, and its contents
+(`CLAUDE.md`, `settings.json`, `statusline.sh`) are already the right ones.
+`~/.config/devc/claude-seed` is created empty. A `statusLine.command` pointing at
+`"$HOME/.claude/statusline.sh"` resolves to a real file at the same container
+path instead of a symlink into the seed.
+
+**What is left behind:** the old per-devcontainer `claude-code-config-*` volume,
+and with it `.credentials.json`, `.claude.json`, `projects/` and
+`history.jsonl`. That means **one re-login per machine**, and the loss of
+in-container prompt history. The volume is orphaned rather than deleted, so
+anything you want back can be copied out by hand; `docker volume prune` reclaims
+the rest.
+
+Projects whose `.devcontainer/devcontainer.json` was written by an earlier `devc`
+carry the old mount line — `devc` writes infra mounts once at creation and never
+re-asserts them, so replace it by hand with:
+
+```jsonc
+"initializeCommand": "mkdir -p \"$HOME/.config/devc/.claude\" \"$HOME/.config/devc/claude-seed\"",
+// …and in "mounts":
+"type=bind,source=${localEnv:HOME}/.config/devc/.claude,target=/home/vscode/.claude,consistency=cached",
+"type=bind,source=${localEnv:HOME}/.config/devc/claude-seed,target=/usr/local/share/devc-features/agents/claude-seed,consistency=cached,readonly",
+```
+
+The `initializeCommand` is what creates the mount sources on a machine without
 `devc` installed (a bind mount with a missing source is a hard error, not an
 auto-created directory). It has to be top-level — it is the only host-side
-lifecycle hook — so a project that needs its own `initializeCommand` should
-either keep the `mkdir -p` in it or drop the seed mount alongside it.
+lifecycle hook — so a project that needs its own `initializeCommand` should keep
+the `mkdir -p` in it.
 
 ## Shell setup: `shell/` folders
 
@@ -770,6 +805,10 @@ bash tests/bashrc_additions_test.sh ../features/devc-config/post-create.sh  # de
 # seed_link_test.sh takes the script path too — devc's own agents-setup.sh is gone, so the
 # agents Feature's post-create.sh is the only copy left to test:
 bash tests/seed_link_test.sh ../features/agents/post-create.sh         # devc:seed-link
+
+# The seed fence is wrapped by the agents Feature's claudeSeed guard, and the cleanup that
+# runs whether or not the guard is true sits outside it — that half has its own harness:
+bash ../features/agents/test/post_create_test.sh       # devc:seed-cleanup + the guard
 
 # The bridge's PATH symlink is no longer devc's — it lives in the devc-bridge Feature:
 bash ../features/devc-bridge/test/install_link_test.sh   # devc:bridge-client-link

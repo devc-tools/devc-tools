@@ -59,14 +59,19 @@ check "volume dir survives" test -d "$C/projects"
 check "dotfile survives" test -f "$C/.credentials.json"
 check "seed file linked" test -L "$C/CLAUDE.md"
 
-echo "case 4: pre-existing plain file at the destination is replaced"
+echo "case 4: pre-existing REAL file at the destination is never overwritten"
+# The block creates links and replaces its own links; it never replaces a file. This matters most
+# when ~/.claude is itself a bind mount of a host directory — $dest is then a live host file, and
+# an earlier version of this block clobbered it with no backup.
 S="$WORK/c4/seed"; C="$WORK/c4/claude"; mkdir -p "$S" "$C"
-echo "host wins" > "$S/settings.json"
-echo "volume loses" > "$C/settings.json"
+echo "seed copy" > "$S/settings.json"
+echo "the real file" > "$C/settings.json"
 run_block "$S" "$C"
-check "destination is now a link" test -L "$C/settings.json"
-check "content comes from the seed" test "$(cat "$C/settings.json")" = "host wins"
-check "replacement was logged" grep -q "replacing volume-local settings.json" "$WORK/out.log"
+check "destination is still a regular file" bash -c \
+  "test -f \"$C/settings.json\" && test ! -L \"$C/settings.json\""
+check "its content is untouched" test "$(cat "$C/settings.json")" = "the real file"
+check "the skip was logged, naming the file" \
+  grep -q "skipping settings.json .* already exists and is not a link into the seed" "$WORK/out.log"
 
 echo "case 5: dotfiles in the seed are linked, empty seed is a no-op"
 S="$WORK/c5/seed"; C="$WORK/c5/claude"; mkdir -p "$S" "$C"
@@ -81,7 +86,22 @@ S="$WORK/c6/seed"; C="$WORK/c6/claude"; mkdir -p "$S" "$C/notes"
 echo "file" > "$S/notes"   # seed has a FILE where the volume has a DIRECTORY
 run_block "$S" "$C"
 check "existing directory not clobbered" test -d "$C/notes"
-check "skip was logged" grep -q "is not a regular file" "$WORK/out.log"
+check "skip was logged" grep -q "already exists and is not a link into the seed" "$WORK/out.log"
+
+echo "case 7: .claude.json and .credentials.json are skipped by name — Claude Code owns them"
+# They are real files in ~/.claude (CLAUDE_CONFIG_DIR points there), and the CLI rewrites them
+# whole. Case 4's rule already covers them once they exist; this pins the by-name skip, which
+# also covers the window where they are momentarily absent.
+S="$WORK/c7/seed"; C="$WORK/c7/claude"; mkdir -p "$S" "$C"
+echo '{"seed":1}' > "$S/.claude.json"
+echo '{"seed":1}' > "$S/.credentials.json"
+echo "# md" > "$S/CLAUDE.md"
+run_block "$S" "$C"
+check ".claude.json was not linked" test ! -e "$C/.claude.json"
+check ".credentials.json was not linked" test ! -e "$C/.credentials.json"
+check "the by-name skip names Claude Code" \
+  grep -q "Claude Code owns that file" "$WORK/out.log"
+check "an ordinary seed file in the same run still links" test -L "$C/CLAUDE.md"
 
 echo
 if [ "$fails" -eq 0 ]; then echo "ALL PASS"; else echo "$fails FAILED"; exit 1; fi

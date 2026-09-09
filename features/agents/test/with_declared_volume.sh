@@ -12,6 +12,12 @@
 # one — a volume mounted over a build-time directory is exactly the case the ownership repair was
 # written against, and this is the first scenario where it runs against a real one. It is also
 # where CLAUDE_CONFIG_DIR and the declared volume are checked to name the same path.
+#
+# This is the *bare Feature's* shape, and it is not vestigial even though devc's own bundled
+# config overrides it: devc bind-mounts a host directory at the same target, and `dedupeMounts`
+# keeps the later layer, so under devc ~/.claude is a bind rather than this volume. What this
+# scenario pins is what a non-devc consumer gets from `"agents": {}` alone — the case the
+# collection's standing rule requires to keep working on its own.
 set -e
 
 source dev-container-features-test-lib

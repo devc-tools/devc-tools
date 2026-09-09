@@ -61,22 +61,38 @@ const TEMPLATE_OVERLAY_FILENAMES: readonly string[] = [
 ];
 
 /**
- * Host directory holding the user's `~/.claude` config for containers. Bind-mounted read-only
- * onto the `agents` Feature's fixed seed path
- * (`/usr/local/share/devc-features/agents/claude-seed`); that Feature's own `post-create.sh`
- * symlinks every top-level *file* from it into the `~/.claude` volume (directories are ignored
- * — the `devc:skills` fence owns `~/.claude/skills/`).
+ * Host directory bind-mounted as the container's `~/.claude` — one Claude home shared by every
+ * devc container on this machine. Whatever is here *is* `~/.claude` in the container: `CLAUDE.md`,
+ * `settings.json`, `statusline.sh`, and the login Claude Code itself writes on first start.
+ *
+ * A project that wants per-container isolation instead replaces the bundled bind with a volume at
+ * the same target — `dedupeMounts` keeps the later layer — see the devc README.
  */
-export const CLAUDE_SEED_HOST_DIR = `${CONFIG_DIR}/.claude`;
+export const CLAUDE_HOME_HOST_DIR = `${CONFIG_DIR}/.claude`;
 
-/** Outcome of `ensureClaudeSeedDir`. */
+/**
+ * Host directory bind-mounted read-only onto the `agents` Feature's fixed seed path
+ * (`/usr/local/share/devc-features/agents/claude-seed`).
+ *
+ * **Inert unless the Feature's `claudeSeed` option is `true`**, which it is not by default: only
+ * then does that Feature's `post-create.sh` symlink every top-level *file* from the seed into
+ * `~/.claude` (directories are ignored — the `devc:skills` fence owns `~/.claude/skills/`). devc
+ * declares the mount unconditionally anyway, so turning the option on is a one-line change with
+ * no host preparation; with the option off it is an empty read-only bind onto a path nothing
+ * reads.
+ */
+export const CLAUDE_SEED_HOST_DIR = `${CONFIG_DIR}/claude-seed`;
+
+/** Outcome of `ensureClaudeConfigDir`. */
 export interface ClaudeSeedResult {
   /** True when this call created the directory (false when it already existed). */
   created: boolean;
 }
 
 /**
- * Create the host seed directory if absent, and report whether this call is what created it.
+ * Create one of devc's two host Claude directories if absent, and report whether this call is
+ * what created it. Serves both {@link CLAUDE_HOME_HOST_DIR} and {@link CLAUDE_SEED_HOST_DIR};
+ * `label` is the human name used in the not-a-directory error.
  *
  * The directory starts and stays **empty** — what reaches the container is whatever the user
  * puts here, and nothing else. Nothing is ever copied out of the host's real `~/.claude`: those
@@ -85,14 +101,16 @@ export interface ClaudeSeedResult {
  * creation, as a migration off the per-file bind mounts; that is gone, and a setup still on the
  * old shape moves its files across by hand (see the README).
  *
- * The bundled default's `initializeCommand` also creates this directory, so a project config
+ * The bundled default's `initializeCommand` also creates both directories, so a project config
  * works without `devc` installed. This function still runs on every `up` because it owns the one
  * thing a shell one-liner cannot: the not-a-directory guard.
  *
- * `seedDir` defaults to the real path and only needs overriding in tests.
+ * `seedDir` defaults to the real seed path and only needs overriding in tests — and by the
+ * `~/.claude` caller, which passes its own directory and label.
  */
-export async function ensureClaudeSeedDir(
+export async function ensureClaudeConfigDir(
   seedDir: string = CLAUDE_SEED_HOST_DIR,
+  label = 'devc agents seed folder',
 ): Promise<ClaudeSeedResult> {
   // Whether we created it has to be decided before the mkdir: recursive mkdir succeeds
   // silently on an existing directory, so it cannot report the difference. lstat (not stat) so
@@ -112,7 +130,7 @@ export async function ensureClaudeSeedDir(
   const info = await stat(seedDir).catch(() => null);
   if (info === null || !info.isDirectory()) {
     throw new Error(
-      `${seedDir} exists but is not a directory (expected the devc ~/.claude config folder)`,
+      `${seedDir} exists but is not a directory (expected the ${label})`,
     );
   }
   return { created };

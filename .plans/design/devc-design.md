@@ -282,15 +282,39 @@ Consequences for the generated config:
   removing it later (a manual step, not scheduled) changes only which base
   image is used.
 
-### Host `~/.claude` config: the seed directory
+### Host `~/.claude` config: the bind, and the optional seed
 
-The user's Claude config reaches the container through **one read-only directory
-bind mount** of `~/.config/devc/.claude` onto the `agents` Feature's fixed
-seed path, not through per-file bind mounts of `~/.claude/*`. That Feature's
-own `post-create.sh` then symlinks every top-level _file_ from the seed into
-the `~/.claude` volume, pruning links whose seed file has gone away.
+The user's Claude config reaches the container through **one read-write
+directory bind mount** of `~/.config/devc/.claude` onto `/home/vscode/.claude`,
+not through per-file bind mounts of `~/.claude/*` and not through the seed. The
+host directory simply _is_ the container's `~/.claude`: every file rather than
+top-level files only, writable rather than read-only, live rather than re-linked
+at create time, and one Claude login shared by every container on the machine.
+It supersedes the `agents` Feature's own declared per-devcontainer volume, which
+targets the same path — `dedupeMounts` keeps the later layer — and a project
+that wants per-container isolation back adds one `mounts` line naming a volume
+at that same target.
 
-Why a directory plus symlinks rather than per-file binds or a copy:
+devc still declares the **seed** mount as well, of `~/.config/devc/claude-seed`
+onto the `agents` Feature's fixed seed path, read-only. It is **inert** unless
+that Feature's `claudeSeed` option is set to `true`, which it is not by default:
+only then does its `post-create.sh` symlink every top-level _file_ from the seed
+into `~/.claude`, pruning links whose seed file has gone away. Declaring the
+mount unconditionally is what makes turning the option on a one-line change with
+no host preparation; a directory devc created but did not mount would be an
+orphan.
+
+The costs of preferring the bind, recorded as a decision rather than an
+oversight: `.claude.json`'s `projects` entries are keyed on the container path,
+so two host projects sharing a workspace-folder basename share one entry (and
+with it `hasTrustDialogAccepted`, `allowedTools`, `mcpServers`) — the same
+collision shape the bundled `go-cache-${localWorkspaceFolderBasename}` volume
+already has; `docker volume rm` no longer resets one container's Claude state;
+and concurrent whole-file `.claude.json` writes are now the default rather than
+opt-in.
+
+Why the seed, when it is used, is a directory plus symlinks rather than per-file
+binds or a copy:
 
 - **Per-file binds assume the files exist.** `mounts` takes Docker `--mount`
   semantics, where a missing bind source is a hard create-time error (unlike
@@ -311,8 +335,8 @@ Why a directory plus symlinks rather than per-file binds or a copy:
   here.
 
 The part of the baseline that has to run **before** mounts are established is
-`initializeCommand`, which runs `initialize-command.sh` to create the seed mount
-source on machines without `devc` (`--mount type=bind` errors on a missing
+`initializeCommand`, which runs `initialize-command.sh` to create **both** mount
+sources on machines without `devc` (`--mount type=bind` errors on a missing
 source). It is the only host-side lifecycle hook — the container-side hooks all
 run after mounts are established, structurally too late — so it sits top-level
 in the bundled default and is single-valued (a `devcontainer.json` key, not a
@@ -325,12 +349,15 @@ workspace is the user's project (no `.devcontainer/`),
 `materializeDefaultConfig` rewrites that one host path to the cache copy (the
 keyed one it will end up in, not the staging directory it is written to). This
 is the _only_ transform applied to the materialized config. `devc` also calls
-`ensureClaudeSeedDir` on every `up`, which owns what a shell one-liner cannot:
-the not-a-directory guard and the created-it-just-now notice — so in the
-`devc`-driven path the hook is belt-and-suspenders. The directory is created
-empty and nothing is ever copied into it from the host's real `~/.claude`:
-whether a machine's personal `CLAUDE.md`/`settings.json` should reach every
-container is the user's decision, expressed by putting the file there.
+`ensureClaudeConfigDir` for each of the two directories on every `up`, which
+owns what a shell one-liner cannot: the not-a-directory guard and the
+created-it-just-now notice — so in the `devc`-driven path the hook is
+belt-and-suspenders. The notices are separate, because the two directories do
+different things and this is the only place a user is told either exists. Both
+are created empty and nothing is ever copied into either from the host's real
+`~/.claude`: whether a machine's personal `CLAUDE.md`/`settings.json` should
+reach every container is the user's decision, expressed by putting the file
+there.
 
 ## Global user configuration
 

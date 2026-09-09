@@ -1,6 +1,14 @@
 #!/bin/bash
-# agents create-time step — links the host config seed into ~/.claude, and the Herdr config
-# seed into ~/.config/herdr, then installs any declared pi packages and Herdr plugins.
+# agents create-time step — optionally links the host config seed into ~/.claude (opt-in via the
+# claudeSeed option; see step 2b), always links the Herdr config seed into ~/.config/herdr, then
+# installs any declared pi packages and Herdr plugins.
+#
+# The two seeds are deliberately asymmetric. ~/.claude is a mount — the Feature's own declared
+# volume, or whatever a consumer put there, possibly a bind of a real host directory — so writing
+# symlinks into it is something to ask for rather than assume, and the flag exists to protect it.
+# ~/.config/herdr is not a mount and holds live per-container runtime state, so binding it would
+# be actively harmful and there is nothing there for a flag to protect: that half stays
+# unconditional.
 #
 # Nothing here relocates Claude Code's config/auth file any more: the manifest's containerEnv
 # sets CLAUDE_CONFIG_DIR=/home/vscode/.claude, so Claude Code writes that file inside the volume
@@ -76,6 +84,43 @@ if [ -d "$HOME/.claude" ]; then
   fi
 fi
 
+# --- 2a. drop seed links a previous create left behind ----------------------------------------
+# Unconditional — it runs whether or not the seed itself is enabled below, and that is the whole
+# point. A container built by an older agents Feature (<= 0.5.0, when the seed was unconditional)
+# comes back with symlinks in ~/.claude pointing into the seed path; with claudeSeed off and
+# nothing bind-mounted onto that path those links dangle, and a dangling ~/.claude/CLAUDE.md is
+# worse than no CLAUDE.md at all. The same applies to flipping the option from true back to false.
+#
+# This DUPLICATES roughly six lines from inside the devc:seed-link fence below. The duplication is
+# deliberate — do not "deduplicate" it. The fence is extracted verbatim by
+# devc/tests/seed_link_test.sh and re-pointed with `sed` on exactly two line-start assignments
+# (SEED= and CLAUDE_DIR=); hoisting this out of the fence and sharing it would need a third
+# parameterized variable, which breaks that harness and the contract in features/CONTRIBUTING.md.
+#
+# It uses $HOME/.claude and the literal seed path directly rather than $CLAUDE_DIR/$SEED: those
+# two are assigned *inside* the fence and are unset whenever the guard below is false.
+# devc:seed-cleanup (start)
+if [ -d "$HOME/.claude" ]; then
+  while IFS= read -r -d '' link; do
+    case "$(readlink "$link")" in
+      /usr/local/share/devc-features/agents/claude-seed/*) rm -f "$link" ;;
+    esac
+  done < <(find "$HOME/.claude" -mindepth 1 -maxdepth 1 -type l -print0)
+fi
+# devc:seed-cleanup (end)
+
+# --- 2b. the ~/.claude seed, opt-in -----------------------------------------------------------
+# install.sh writes claude-seed.conf holding the exact string `true` when claudeSeed is on, and
+# `rm -f`s it otherwise, so an absent or empty file reads as false and the fence never runs. Read
+# the same way pi-packages.conf/herdr-plugins.conf are read further down.
+#
+# The `if`/`fi` sit OUTSIDE the devc:seed-link markers and the fence body below stays
+# UNINDENTED. Both are requirements, not style: devc/tests/seed_link_test.sh extracts everything
+# strictly between the markers and re-points it with `sed -e 's#^SEED=...#' -e
+# 's#^CLAUDE_DIR=...#'`, so an indented body would stop matching those line-start anchors and an
+# `if` inside the markers would be extracted without its `fi`. An unindented `if` body is valid
+# bash; leave it alone.
+if [ "$(cat /usr/local/share/devc-features/agents/claude-seed.conf 2> /dev/null || true)" = true ]; then
 # devc:seed-link (start) — a test harness runs everything between these two markers on its
 # own, so keep the block self-contained (see features/CONTRIBUTING.md).
 #
@@ -107,25 +152,36 @@ if [ -d "$SEED" ]; then
   while IFS= read -r -d '' src; do
     name="$(basename "$src")"
     dest="$CLAUDE_DIR/$name"
+    # Claude Code owns these two inside CLAUDE_CONFIG_DIR (=~/.claude) and rewrites them whole.
+    # The never-overwrite rule below already covers them whenever they exist, but naming them
+    # gives a message that says why, and covers the window where they are momentarily absent —
+    # a seed link there would be overwritten by the CLI's next write anyway.
+    case "$name" in
+      .claude.json | .credentials.json)
+        echo "devc: skipping $name — Claude Code owns that file in ~/.claude"
+        continue
+        ;;
+    esac
     if [ -L "$src" ] && [ ! -e "$src" ]; then
       echo "devc: skipping $name — host symlink dangles in the container; use a real file"
       continue
     fi
     # -f follows symlinks; skips directories and anything else non-regular.
     [ -f "$src" ] || continue
-    if [ -e "$dest" ] && [ ! -L "$dest" ] && [ ! -f "$dest" ]; then
-      echo "devc: skipping $name — $dest exists and is not a regular file"
+    # The seed creates links and replaces its own links; it never replaces a file. ~/.claude may
+    # be a bind mount of a real host directory, in which case $dest is a live host file and the
+    # old "replace volume-local state" behaviour destroyed it with no backup.
+    if [ -e "$dest" ] && [ ! -L "$dest" ]; then
+      echo "devc: skipping $name — $dest already exists and is not a link into the seed"
       continue
-    fi
-    if [ -f "$dest" ] && [ ! -L "$dest" ]; then
-      echo "devc: replacing volume-local $name with the host seed copy"
     fi
     ln -sfn "$src" "$dest" || echo "devc: could not link $dest (bind-mounted?)"
   done < <(find "$SEED" -mindepth 1 -maxdepth 1 -print0)
 fi
 # devc:seed-link (end)
+fi
 
-# --- 2b. herdr-seed -> ~/.config/herdr -----------------------------------------------------
+# --- 2c. herdr-seed -> ~/.config/herdr -----------------------------------------------------
 # Same idea as the claude-seed block above — a consumer's own Herdr config.toml (the
 # tab_bar_right entry a plugin's status indicator needs, say) lives on the host and gets linked
 # in live — but kept as its own block, not a shared function, and not folded into the

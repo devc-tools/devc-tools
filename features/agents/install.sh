@@ -26,7 +26,10 @@
 #     surface for Claude Code's own config; herdr-seed is the equivalent for Herdr's
 #     ~/.config/herdr — a consumer bind-mounts their own host config onto either. Empty is a
 #     working state, not a broken one — the seed-link steps find nothing to link and move on,
-#     which is the bare `{}` case.
+#     which is the bare `{}` case. claude-seed is created unconditionally even though the
+#     claudeSeed option defaults false: it is a bind-mount target and a Docker bind whose
+#     container-side path is missing is not an error, but the directory has to be there for the
+#     option to be a one-line flip rather than a rebuild plus host prep.
 #
 # There are no path options to validate or bake. Every path this Feature touches is either fixed
 # (the seed) or derived from the remote user's own home (~/.claude).
@@ -47,6 +50,7 @@ INSTALL_HERDR_OPT="${INSTALLHERDR:-false}"
 PI_PACKAGES_OPT="${PIPACKAGES:-}"
 HERDR_PLUGINS_OPT="${HERDRPLUGINS:-}"
 INSTALL_AGENT_BROWSER_OPT="${INSTALLAGENTBROWSER:-false}"
+CLAUDE_SEED_OPT="${CLAUDESEED:-false}"
 # agentBrowserChrome has a non-empty default ("with-deps"), unlike piPackages/herdrPlugins'
 # empty one — so, unlike those two, install.sh cannot tell an explicit value from the default it
 # was handed, and there is no die guard here. It is read only when installAgentBrowser is true
@@ -65,6 +69,11 @@ if [ -n "$HERDR_PLUGINS_OPT" ] && [ "$INSTALL_HERDR_OPT" != true ]; then
   die "herdrPlugins is set but installHerdr is false, so there is no herdr to install them" \
     "with. Set installHerdr: true, or clear herdrPlugins."
 fi
+
+# claudeSeed deliberately has no die guard of its own: unlike the two list options above there is
+# nothing to pair it with. The seed path is a fixed mount point this Feature always creates, and
+# `claudeSeed: true` over an empty seed is a legitimate state — it links nothing and says nothing,
+# exactly as the bare Feature already does.
 
 # /usr/local/share/devc-features/<id>/ is the Feature namespace, kept separate from devc's own
 # /usr/local/share/devc/ so "did devc put this here, or a Feature?" stays answerable.
@@ -333,6 +342,14 @@ fi
 if [ -n "$HERDR_PLUGINS_OPT" ]; then
   printf '%s' "$HERDR_PLUGINS_OPT" > "$SHARE_DIR/herdr-plugins.conf"
 fi
+# claudeSeed, persisted the same way and read at create time by post-create.sh. The removal arm
+# is load-bearing, not tidiness: a rebuild that flips the option back to false must not leave the
+# file an earlier build wrote, or the seed would stay on with the option off.
+if [ "$CLAUDE_SEED_OPT" = true ]; then
+  printf '%s' true > "$SHARE_DIR/claude-seed.conf"
+else
+  rm -f "$SHARE_DIR/claude-seed.conf"
+fi
 if [ "$INSTALL_AGENT_BROWSER_OPT" = true ]; then
   # 22.19.0 — deliberately pi's existing floor above, not the package's declared engines >= 24:
   # that floor covers building the Rust CLI from source, npm does not enforce engines without
@@ -379,4 +396,5 @@ echo "agents: claudeDir='$CLAUDE_DIR' claudeSeedDir='$SHARE_DIR/claude-seed'" \
   "installClaudeCli=$INSTALL_CLAUDE_CLI_OPT installCopilotCli=$INSTALL_COPILOT_CLI_OPT" \
   "installPiCli=$INSTALL_PI_CLI_OPT installHerdr=$INSTALL_HERDR_OPT" \
   "piPackages='$PI_PACKAGES_OPT' herdrPlugins='$HERDR_PLUGINS_OPT' (installed at create time)" \
-  "installAgentBrowser=$INSTALL_AGENT_BROWSER_OPT agentBrowserChrome='$AGENT_BROWSER_CHROME_OPT'"
+  "installAgentBrowser=$INSTALL_AGENT_BROWSER_OPT agentBrowserChrome='$AGENT_BROWSER_CHROME_OPT'" \
+  "claudeSeed=$CLAUDE_SEED_OPT"

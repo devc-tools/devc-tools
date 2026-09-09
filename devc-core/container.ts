@@ -3,8 +3,9 @@ import { statSync } from 'node:fs';
 import { normalizePath as _normalizePath } from './paths.ts';
 import { resolvePosix } from './posix.ts';
 import {
+  CLAUDE_HOME_HOST_DIR,
   CLAUDE_SEED_HOST_DIR,
-  ensureClaudeSeedDir,
+  ensureClaudeConfigDir,
   resolveRemoteEnv,
 } from './default_config.ts';
 import {
@@ -713,17 +714,31 @@ export async function startContainer(
   // instead of spinning up a container for it.
   assertLocalFolderExists(localFolder);
 
-  // The ~/.claude seed mount's source must exist before `devcontainer up` runs: a bind mount
-  // with a missing source is a hard error, not an auto-created directory.
-  // Announced on creation only: the directory is empty and stays that way until the user puts
-  // something in it, so without this the one place their own CLAUDE.md/settings.json can reach
-  // the container is a path they have to already know about.
-  const seed = await ensureClaudeSeedDir();
+  // Both mount sources must exist before `devcontainer up` runs: a bind mount with a missing
+  // source is a hard error, not an auto-created directory.
+  //
+  // Announced on creation only, and separately — this is the one place a devc user is told these
+  // directories exist, so the notice has to distinguish them. They do very different things:
+  // `.claude` IS the container's ~/.claude, while `claude-seed` does nothing at all until the
+  // agents Feature's `claudeSeed` option is turned on.
+  const claudeHome = await ensureClaudeConfigDir(
+    CLAUDE_HOME_HOST_DIR,
+    'devc container ~/.claude directory',
+  );
+  if (claudeHome.created) {
+    logNotice(
+      `devc: created ${
+        displayPath(CLAUDE_HOME_HOST_DIR)
+      } — this directory IS the container's ~/.claude, shared by every devc container on this machine. Put CLAUDE.md, settings.json, statusline.sh here; Claude Code writes its login here too.`,
+    );
+  }
+
+  const seed = await ensureClaudeConfigDir();
   if (seed.created) {
     logNotice(
       `devc: created ${
         displayPath(CLAUDE_SEED_HOST_DIR)
-      } — files you drop in here (CLAUDE.md, settings.json, statusline.sh, …) are linked into the container's ~/.claude`,
+      } — the agents Feature's optional seed. It does nothing unless you set "claudeSeed": true; the directory above is where your Claude config normally goes.`,
     );
   }
 

@@ -20,6 +20,9 @@ bash tests/install_test.sh install.sh                              # ALL PASS
 bash tests/workflow_guards_test.sh                                 # ALL PASS
 bash tests/features_test.sh                                        # ALL PASS
 bash devc/tests/seed_link_test.sh features/agents/post-create.sh           # ALL PASS
+bash features/agents/test/post_create_test.sh                              # ALL PASS
+bash features/agents/test/herdr_seed_link_test.sh                          # ALL PASS
+bash features/agents/test/install_options_test.sh                          # ALL PASS
 bash devc/tests/devc_config_test.sh features/devc-config/post-create.sh    # all cases ok
 bash devc/tests/bashrc_additions_test.sh features/devc-config/post-create.sh # all cases ok
 bash features/devc-bridge/test/install_link_test.sh                # ALL PASS
@@ -1313,3 +1316,80 @@ Clean up after: `docker rm -f` the container (`devcontainer up`'s output
 prints its id), `docker volume rm node-modules-volume-spike`, and
 `rm -rf tests/fixtures/node-modules-volume/node_modules` on the host if the
 `rmdir` step above was skipped.
+
+---
+
+## 15. A consumer mount overriding a Feature-declared one — Docker host
+
+**Status: NOT YET MEASURED.** This section is the agreed home for the result;
+it is written out so the procedure is fixed before anyone runs it, and so the
+two questions it answers are not re-derived. Fill in the observed output under
+each M below and drop this status line when it is done.
+
+From `agents-seed-opt-in`, which made devc bind-mount `~/.config/devc/.claude`
+onto `/home/vscode/.claude` — the **same target** the `agents` Feature's own
+declared volume names. `devc-core`'s `dedupeMounts` (`merge.ts`) collapses
+same-target entries keeping the later layer, so the consumer's bind is expected
+to supersede the Feature's volume. §12 measured what *substitutes* inside a
+Feature's `mounts`; nothing has yet measured what happens when a consumer and a
+Feature both claim one target, which is the shape every one of devc's four
+Claude-home configurations now rests on.
+
+### 15.1 Row 1 — the devc default: bind wins
+
+`devc up` on a project with no `agents` options, then inside the container:
+
+```sh
+findmnt -no SOURCE,TARGET /home/vscode/.claude
+find ~/.claude -maxdepth 1 -type l          # expect: empty — the seed is off
+touch ~/.claude/.write-probe && rm ~/.claude/.write-probe   # expect: succeeds as vscode
+```
+
+and on the host, from `devcontainer up`'s printed `docker run` line:
+
+```sh
+devcontainer up --workspace-folder <project> 2>&1 | grep -o -- '--mount [^ ]*claude[^ ]*'
+```
+
+- **M1** `findmnt` shows the **bind**, not a volume.
+- **M2** Exactly **one** `--mount` names `/home/vscode/.claude`. Two would mean
+  the dedupe did not fire and Docker picked one arbitrarily.
+- **M3** `~/.claude` is writable by the remote user and `post-create.sh` logged
+  no `chown` — a host-owned bind arriving with the right uid is not guaranteed
+  and is the thing most likely to differ between Docker Desktop and rootless
+  Docker on Linux.
+- **M4** File round trip: a `CLAUDE.md` created on the host in
+  `~/.config/devc/.claude` is readable in the container as `vscode` with no
+  create-time step.
+- **M5** Sharing: a login written by `claude` in one container is present in a
+  second container brought up from a **different** project.
+
+### 15.2 Row 3 — a volume at the same target replaces the bind
+
+Add to the project's `devc.jsonc`:
+
+```jsonc
+"type=volume,source=claude-code-config-${devcontainerId},target=/home/vscode/.claude"
+```
+
+- **M6** `findmnt` shows the **volume**; the bind is gone.
+- **M7** Still exactly one `--mount` for that target.
+
+### 15.3 The nested `skills/` bind — the one write-back into the host tree
+
+With row 1 active and a `devc:skills` mount at
+`/home/vscode/.claude/skills/<name>`, Docker materializes the intermediate
+`skills/` directory *inside the bind*, which means inside the host directory.
+
+- **M8** On the **host**, `~/.config/devc/.claude/skills/` is owned by the host
+  user, not root, and `rmdir` removes it without `sudo`. §14's M4 is the
+  precedent for why this is worth measuring rather than assuming.
+
+### 15.4 Upgrade from `agents` 0.5.0
+
+Bring a container up on `agents` `0.5.0` with a populated seed so symlinks
+exist, then rebuild onto `0.6.0`.
+
+- **M9** `find ~/.claude -maxdepth 1 -xtype l` is empty — the unconditional
+  `devc:seed-cleanup` block removed every now-dangling seed link.
+- **M10** The host `~/.config/devc/.claude` contains no container-path symlinks.

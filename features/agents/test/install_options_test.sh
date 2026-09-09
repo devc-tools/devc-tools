@@ -185,7 +185,7 @@ setup() {
   : > "$CASE/installer_env.log"; : > "$CASE/npm.log"
   env -u INSTALLCLAUDECLI -u INSTALLCOPILOTCLI -u INSTALLPICLI \
     -u INSTALLHERDR -u PIPACKAGES -u HERDRPLUGINS \
-    -u INSTALLAGENTBROWSER -u AGENTBROWSERCHROME \
+    -u INSTALLAGENTBROWSER -u AGENTBROWSERCHROME -u CLAUDESEED \
     SHARE_DIR="$CASE/share" \
     _REMOTE_USER="$(id -un)" _REMOTE_USER_HOME="$CASE/home" \
     FAKE_REMOTE_HOME="$CASE/home" \
@@ -225,8 +225,18 @@ check "the manifest keys its volume on \${devcontainerId}, not the workspace bas
 # a Feature's containerEnv is baked as a build-time Dockerfile ENV, so no substitution reaches it.
 check "the manifest declares containerEnv with the same literal the mount targets" \
   grep -qF '"CLAUDE_CONFIG_DIR": "/home/vscode/.claude"' "$FEATURE_DIR/devcontainer-feature.json"
+# The hook still *names* .claude.json — the seed skips it by name, because Claude Code owns that
+# file inside CLAUDE_CONFIG_DIR and rewrites it whole. What must stay gone is the old fold: any
+# reference to ~/.claude.json as a path beside the volume.
 check "the hook no longer folds ~/.claude.json — nothing left to relocate" \
-  bash -c "! grep -q 'claude.json' \"$HOOK\""
+  bash -c "! grep -q '\$HOME/.claude.json' \"$HOOK\""
+check "and the only mention left is the seed's by-name skip" \
+  bash -c "[ \"\$(grep -c 'claude.json' \"$HOOK\")\" -le 2 ]"
+# claudeSeed defaults false, so a bare build leaves no conf file for post-create.sh to find.
+check "no claude-seed.conf — claudeSeed defaults false" \
+  test ! -e "$CASE/share/claude-seed.conf"
+check "the hook gates the seed fence on that file" \
+  grep -qF 'claude-seed.conf 2> /dev/null' "$HOOK"
 check "the seed mount point was created, empty" test -d "$CASE/share/claude-seed"
 check "the seed mount point really is empty" \
   test -z "$(ls -A "$CASE/share/claude-seed")"
@@ -431,6 +441,64 @@ echo "case 13: herdrPlugins empty — no herdr-plugins.conf is written at all"
 setup c13 INSTALLHERDR=true
 check "install.sh exits 0" test "$status" -eq 0
 check "no conf file for an empty option" test ! -e "$WORK/c13/share/herdr-plugins.conf"
+
+echo "case 13a: claudeSeed absent (the default) — no claude-seed.conf, and the seed path still exists"
+# The seed directory is created unconditionally: it is a bind-mount target, so turning the option
+# on has to be a one-line flip rather than a rebuild plus host prep.
+setup c13a
+check "install.sh exits 0" test "$status" -eq 0
+check "no claude-seed.conf is written" test ! -e "$WORK/c13a/share/claude-seed.conf"
+check "the seed mount point exists anyway" test -d "$WORK/c13a/share/claude-seed"
+
+echo "case 13b: claudeSeed=false explicitly — same as absent"
+setup c13b CLAUDESEED=false
+check "install.sh exits 0" test "$status" -eq 0
+check "no claude-seed.conf is written" test ! -e "$WORK/c13b/share/claude-seed.conf"
+
+echo "case 13c: claudeSeed=true — exactly the string true, no trailing newline"
+setup c13c CLAUDESEED=true
+check "install.sh exits 0" test "$status" -eq 0
+check "claude-seed.conf exists" test -f "$WORK/c13c/share/claude-seed.conf"
+check "and holds exactly 'true'" \
+  test "$(cat "$WORK/c13c/share/claude-seed.conf")" = true
+check "with no trailing newline — post-create.sh compares the whole file to 'true'" \
+  test "$(wc -c < "$WORK/c13c/share/claude-seed.conf")" -eq 4
+# post-create.sh reads it with `[ "$(cat ...)" = true ]`, so the two have to agree on the literal.
+check "the hook reads the same fixed path install.sh writes" \
+  grep -qF '/usr/local/share/devc-features/agents/claude-seed.conf' "$HOOK"
+
+echo "case 13d: a build with claudeSeed=false after one with true — the stale file is removed"
+# Not "don't write": explicit removal. install.sh writes into a SHARE_DIR that a rebuild can
+# inherit from a cached layer, and a stale conf would leave the seed on with the option off.
+CASE_KEEP="$WORK/c13d"
+setup c13d CLAUDESEED=true
+check "the first build wrote it" test -f "$CASE_KEEP/share/claude-seed.conf"
+# Re-run install.sh over the SAME share dir rather than a fresh one — setup() rm -rf's the case
+# directory, so the second run is driven by hand here.
+env -u INSTALLCLAUDECLI -u INSTALLCOPILOTCLI -u INSTALLPICLI \
+  -u INSTALLHERDR -u PIPACKAGES -u HERDRPLUGINS \
+  -u INSTALLAGENTBROWSER -u AGENTBROWSERCHROME \
+  CLAUDESEED=false \
+  SHARE_DIR="$CASE_KEEP/share" \
+  _REMOTE_USER="$(id -un)" _REMOTE_USER_HOME="$CASE_KEEP/home" \
+  FAKE_REMOTE_HOME="$CASE_KEEP/home" \
+  CURL_LOG="$CASE_KEEP/curl.log" RUNUSER_LOG="$CASE_KEEP/runuser.log" \
+  RUNUSER_USER_LOG="$CASE_KEEP/runuser_user.log" \
+  INSTALLER_ENV_LOG="$CASE_KEEP/installer_env.log" CLI_INVOKE_LOG="$CASE_KEEP/invoke.log" \
+  NPM_LOG="$CASE_KEEP/npm.log" \
+  CLAUDE_CONFIG_DIR=/decoy/inherited-from-the-build-env \
+  PATH="$STUBS:$CLEAN_PATH" \
+  sh "$FEATURE_DIR/install.sh" > "$CASE_KEEP/install2.log" 2> "$CASE_KEEP/install2.err"
+check "the second build exits 0" test "$?" -eq 0
+check "and the stale conf file is gone" test ! -e "$CASE_KEEP/share/claude-seed.conf"
+
+echo "case 13e: the manifest and install.sh agree on the option's name and default"
+check "the manifest declares claudeSeed" \
+  grep -qF '"claudeSeed": {' "$FEATURE_DIR/devcontainer-feature.json"
+check "with default false" bash -c \
+  "grep -A2 -F '\"claudeSeed\": {' \"$FEATURE_DIR/devcontainer-feature.json\" | grep -qF '\"default\": false'"
+check "install.sh reads the getSafeId form of that name" \
+  grep -qF 'CLAUDESEED:-false' "$FEATURE_DIR/install.sh"
 
 echo "case 14: installAgentBrowser=true — installed with npm, under the node prelude"
 # agentBrowserChrome=none isolates install_npm_cli from install_agent_browser_chrome, so this

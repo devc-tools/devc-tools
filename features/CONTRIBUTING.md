@@ -261,6 +261,10 @@ shared harness, run against the `devc:seed-link` fence),
 `features/agents/test/herdr_seed_link_test.sh` (the same technique, against this
 Feature's own `devc:herdr-seed-link` fence — no second copy elsewhere to share a harness
 with, unlike claude-seed),
+`features/agents/test/post_create_test.sh` (the whole `post-create.sh` against a fake
+`$HOME`: the unconditional `devc:seed-cleanup` block, which lives outside the
+`devc:seed-link` fence and so is unreachable from the shared harness, and the `claudeSeed`
+guard's default-off arm — with no `claude-seed.conf` installed the script links nothing),
 `features/agents/test/install_options_test.sh` (the real `install.sh` with `curl`,
 `runuser` and `npm` stubbed: the two fixed paths, the already-installed idempotent skip, a
 failed download or `npm install` failing the build, both `piPackages`/`herdrPlugins` `die`
@@ -389,6 +393,19 @@ and `no_shim`.
 its two parameterizing assignments, which is what lets `devc/tests/seed_link_test.sh` run
 against both unmodified. Keep it self-contained: parameterized only by `SEED` and
 `CLAUDE_DIR`, no `sudo`, no paths outside them.
+
+A fence may be **wrapped by a guard from outside the markers** — `agents`' `claudeSeed`
+option does exactly that, with `if`/`fi` above the `(start)` and below the `(end)` line.
+Two rules follow, and both are requirements rather than style. The `if` and its `fi` must
+sit _outside_ the markers, or `awk` extracts a block with no `fi`. And the fence body
+stays **unindented**, because the harness re-points it with `sed` on the line-start
+anchors `^SEED=` / `^CLAUDE_DIR=`. An unindented `if` body is valid `bash`; leave a
+comment saying why, or the next reader reindents it.
+
+Logic that has to run whether or not the guard is true goes in its own block _above_ the
+fence, even when that duplicates a few lines from inside it — `agents`' `devc:seed-cleanup`
+block is the worked example. Hoisting shared code out of a fence would need a third
+parameterized variable, which breaks the two-variable contract above.
 
 The declared `~/.claude` volume targets the literal `/home/vscode/.claude`, because no
 `devcontainer.json` variable names the remote user's home. `post-create.sh` warns when

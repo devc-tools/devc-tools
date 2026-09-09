@@ -5,9 +5,11 @@ import {
 } from 'jsr:@std/assert@^1';
 import { fromFileUrl } from 'jsr:@std/path@^1';
 import {
+  CLAUDE_HOME_HOST_DIR,
+  CLAUDE_SEED_HOST_DIR,
   declaresBridgeFeature,
   declaresFeatureNamed,
-  ensureClaudeSeedDir,
+  ensureClaudeConfigDir,
   findOwnDevcontainerConfig,
   installBundledAssets,
   loadConfigStrict,
@@ -860,20 +862,20 @@ Deno.test('materializeDefaultConfig also refuses a templates devc.json', async (
   });
 });
 
-Deno.test('ensureClaudeSeedDir creates the directory and reports it', async () => {
+Deno.test('ensureClaudeConfigDir creates the directory and reports it', async () => {
   await withTempDir(async (tmp) => {
     const seed = `${tmp}/seed`;
-    const result = await ensureClaudeSeedDir(seed);
+    const result = await ensureClaudeConfigDir(seed);
     assertEquals(result.created, true);
     assertEquals((await Deno.stat(seed)).isDirectory, true);
   });
 });
 
-Deno.test('ensureClaudeSeedDir is idempotent on an existing directory', async () => {
+Deno.test('ensureClaudeConfigDir is idempotent on an existing directory', async () => {
   await withTempDir(async (tmp) => {
     const seed = `${tmp}/seed`;
-    await ensureClaudeSeedDir(seed);
-    assertEquals((await ensureClaudeSeedDir(seed)).created, false);
+    await ensureClaudeConfigDir(seed);
+    assertEquals((await ensureClaudeConfigDir(seed)).created, false);
   });
 });
 
@@ -881,7 +883,7 @@ Deno.test('ensureClaudeSeedDir is idempotent on an existing directory', async ()
 // created *empty* and nothing is ever copied out of the host's real `~/.claude`. Publishing a
 // machine's personal CLAUDE.md/settings into every container is the user's decision to make by
 // putting the file here, so a regression that "helpfully" seeds it must fail.
-Deno.test('ensureClaudeSeedDir creates an empty directory, copying nothing from ~/.claude', async () => {
+Deno.test('ensureClaudeConfigDir creates an empty directory, copying nothing from ~/.claude', async () => {
   await withTempDir(async (tmp) => {
     const home = `${tmp}/home/.claude`;
     await mkdir(home);
@@ -897,31 +899,60 @@ Deno.test('ensureClaudeSeedDir creates an empty directory, copying nothing from 
     }
 
     const seed = `${tmp}/seed`;
-    assertEquals((await ensureClaudeSeedDir(seed)).created, true);
+    assertEquals((await ensureClaudeConfigDir(seed)).created, true);
     assertEquals([...Deno.readDirSync(seed)], []);
   });
 });
 
-Deno.test('ensureClaudeSeedDir rejects a seed path that is not a directory', async () => {
+Deno.test('ensureClaudeConfigDir rejects a seed path that is not a directory', async () => {
   await withTempDir(async (tmp) => {
     const seed = `${tmp}/seed`;
     await Deno.writeTextFile(seed, 'oops\n');
     await assertRejects(
-      () => ensureClaudeSeedDir(seed),
+      () => ensureClaudeConfigDir(seed),
       Error,
       'is not a directory',
     );
   });
 });
 
-Deno.test('ensureClaudeSeedDir rejects a dangling symlink at the seed path', async () => {
+// The two host directories devc creates and mounts. Pinned to their literal values because
+// each is one half of a mount pair that must line up: `.claude` is bind-mounted as the
+// container's ~/.claude, and `claude-seed` onto the agents Feature's fixed seed path. The
+// bundled devcontainer.json and initialize-command.sh name the same two paths as literals — a
+// silent rename here would leave `devc up` creating one directory and Docker binding another.
+Deno.test('the two host Claude directories are pinned to their literal paths', () => {
+  assertEquals(CLAUDE_HOME_HOST_DIR.endsWith('/.config/devc/.claude'), true);
+  assertEquals(
+    CLAUDE_SEED_HOST_DIR.endsWith('/.config/devc/claude-seed'),
+    true,
+  );
+  // They are siblings, not nested — an earlier shape had the seed AT ~/.config/devc/.claude.
+  assertEquals(CLAUDE_HOME_HOST_DIR === CLAUDE_SEED_HOST_DIR, false);
+});
+
+// One function serves both directories, so the not-a-directory error has to say which one it
+// is talking about rather than always naming the seed.
+Deno.test('ensureClaudeConfigDir names the directory it was given in its error', async () => {
+  await withTempDir(async (tmp) => {
+    const dir = `${tmp}/claude-home`;
+    await Deno.writeTextFile(dir, 'oops\n');
+    await assertRejects(
+      () => ensureClaudeConfigDir(dir, 'devc container ~/.claude directory'),
+      Error,
+      'expected the devc container ~/.claude directory',
+    );
+  });
+});
+
+Deno.test('ensureClaudeConfigDir rejects a dangling symlink at the seed path', async () => {
   await withTempDir(async (tmp) => {
     const seed = `${tmp}/seed`;
     // Recursive mkdir reports AlreadyExists here rather than following through, so the
     // not-a-directory guard is what turns this into a readable error.
     await Deno.symlink(`${tmp}/nonexistent`, seed);
     await assertRejects(
-      () => ensureClaudeSeedDir(seed),
+      () => ensureClaudeConfigDir(seed),
       Error,
       'is not a directory',
     );

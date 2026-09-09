@@ -8,9 +8,15 @@
 # Runs again on every subsequent start, and is safe to re-run.
 set -e
 
-# Claude Code config seed. Whatever you put here — CLAUDE.md, settings.json, statusline.sh —
-# is linked into ~/.claude in the container. Edits on your host take effect live.
+# Your Claude home. This directory IS ~/.claude in the container — whatever you put here
+# (CLAUDE.md, settings.json, statusline.sh) appears there directly, and Claude Code writes its
+# own state, including your login, back into it. Shared by every devc container on this machine.
 mkdir -p "$HOME/.config/devc/.claude"
+
+# The agents Feature's optional config seed. Inert unless that Feature's "claudeSeed" option is
+# true; created regardless, because the mount that points at it is declared unconditionally and
+# a bind mount with a missing source is a hard error.
+mkdir -p "$HOME/.config/devc/claude-seed"
 
 # Herdr config seed, same idea — a config.toml here (the tab_bar_right entry a plugin's
 # status indicator needs, say) is linked into ~/.config/herdr in the container.

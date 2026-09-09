@@ -49,9 +49,17 @@
   },
   "initializeCommand": "bash \"${localWorkspaceFolder}/.devcontainer/initialize-command.sh\"",
   "mounts": [
-    // Your Claude Code config, read-only and live. The agents Feature links every file here
-    // into ~/.claude. Put CLAUDE.md, settings.json, statusline.sh in ~/.config/devc/.claude.
-    "type=bind,source=${localEnv:HOME}/.config/devc/.claude,target=/usr/local/share/devc-features/agents/claude-seed,consistency=cached,readonly",
+    // Your Claude home, shared by every devc container on this machine. Whatever is here is
+    // ~/.claude in the container — CLAUDE.md, settings.json, statusline.sh, and the login
+    // Claude Code writes on first start. Replace this line with a volume at the same target
+    // for per-container isolation; see the README.
+    "type=bind,source=${localEnv:HOME}/.config/devc/.claude,target=/home/vscode/.claude,consistency=cached",
+
+    // The agents Feature's optional config seed, read-only and live. It does nothing unless
+    // you also set that Feature's "claudeSeed" option to true; with the option off this is an
+    // empty read-only bind onto a path nothing reads. Declared unconditionally so turning the
+    // option on needs no host preparation.
+    "type=bind,source=${localEnv:HOME}/.config/devc/claude-seed,target=/usr/local/share/devc-features/agents/claude-seed,consistency=cached,readonly",
 
     // Your Herdr config, same idea. The agents Feature links every file here into
     // ~/.config/herdr. Put config.toml in ~/.config/devc/herdr — this is where a plugin's

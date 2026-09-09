@@ -11,9 +11,11 @@ place, so one volume survives a rebuild and one host directory supplies your con
 }
 ```
 
-No mounts, no options you have to set. A bare `{}` installs the Claude CLI, leaves an
-empty seed directory for you to mount onto, and points `CLAUDE_CONFIG_DIR` at
-`~/.claude` so `.claude.json` lands inside the volume with everything else.
+No mounts, no options you have to set. A bare `{}` installs the Claude CLI, declares a
+`~/.claude` volume that survives a rebuild, leaves an empty seed directory for you to
+mount onto, and points `CLAUDE_CONFIG_DIR` at `~/.claude` so `.claude.json` lands inside
+the volume with everything else. The seed itself is **opt-in** — see
+[`claudeSeed`](#the-config-seed-claudeseed).
 
 > The tag tracks **this Feature's own** version line, not the devc-tools release. It is
 > `:0` while this Feature is pre-1.0.
@@ -29,6 +31,7 @@ empty seed directory for you to mount onto, and points `CLAUDE_CONFIG_DIR` at
 | `piPackages`          | `""`          | Comma-separated pi package sources to install at container **create** time. **Requires `installPiCli: true`** — see [Packages and plugins](#packages-and-plugins).                                                                                                                                                                                 |
 | `herdrPlugins`        | `""`          | Comma-separated Herdr plugins, in GitHub shorthand (`owner/repo[/subdir]`), installed at container **create** time. **Requires `installHerdr: true`**.                                                                                                                                                                                             |
 | `installAgentBrowser` | `false`       | Install the [agent-browser](https://agent-browser.dev) CLI too. Installs with npm — see [Node.js and pi](#nodejs-and-pi); unlike pi, what lands on `PATH` is a native binary, not a node script — see [Why agent-browser does not have pi's `.nvmrc` problem](#why-agent-browser-does-not-have-pis-nvmrc-problem).                                  |
+| `claudeSeed`          | `false`       | Link every top-level file from the fixed seed directory into `~/.claude` at create time. Off by default — see [The config seed](#the-config-seed-claudeseed). |
 | `agentBrowserChrome`  | `"with-deps"` | What `agent-browser install` does at build time: also apt-install the Linux libraries Chrome needs (`"with-deps"`), download Chrome only (`"browser-only"`), or install no browser (`"none"`). **Read only when `installAgentBrowser: true`**, silently ignored otherwise — see [agent-browser's Chrome download](#agent-browsers-chrome-download). |
 
 That is the whole option surface — there are no path options. Every path this Feature
@@ -49,7 +52,7 @@ this Feature exists to prevent:
 | Path                                                | What it is                                                                                               | Lifetime                                                            |
 | --------------------------------------------------- | -------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- |
 | `~/.claude`                                         | Claude Code's own state — `projects/`, `todos/`, credentials, settings, and `.claude.json`.              | Backed by a volume this Feature declares, so it survives a rebuild. |
-| `/usr/local/share/devc-features/agents/claude-seed` | **Fixed.** Where you bind-mount your own host config. Created empty; this Feature only ever reads it.    | Same as your bind mount; empty and harmless if you mount none.      |
+| `/usr/local/share/devc-features/agents/claude-seed` | **Fixed.** Where you bind-mount your own host config, if you opt into `claudeSeed`. Created empty; this Feature only ever reads it. | Same as your bind mount; empty and harmless if you mount none.      |
 | a host seed directory                               | **Your** config — `CLAUDE.md`, `settings.json`, `statusline.sh`. The one thing you decide, with a mount. | Lives on your host; the container only ever reads it.               |
 
 `.claude.json` lives _inside_ `~/.claude`, not beside it, because this Feature sets
@@ -68,25 +71,72 @@ At **create time**, before any `postCreateCommand` of your own:
 1. **Ownership repair.** If `~/.claude` is not owned by you, a non-recursive `sudo chown`
    fixes it. Non-recursive on purpose — subpaths like `skills/` may be host bind mounts
    and must not be chowned.
-2. **Seed links**, run twice — once for `claude-seed` → `~/.claude`, once for
-   `herdr-seed` → `~/.config/herdr`. Every top-level _file_ in a seed directory is
+2. **Stale seed-link cleanup**, always. Any symlink directly in `~/.claude` whose target
+   points into the seed directory is removed. Unconditional on purpose: it is what keeps a
+   container upgraded from `0.5.0`, or flipped back to `claudeSeed: false`, from coming up
+   with dangling links where its `CLAUDE.md` and `settings.json` used to be.
+3. **Seed links.** `herdr-seed` → `~/.config/herdr` always; `claude-seed` → `~/.claude`
+   **only when `claudeSeed: true`**. Every top-level _file_ in a seed directory is
    symlinked into its destination — host edits are live, host file modes (the statusline
    exec bit) survive, and deletions on the host prune the link on the next create.
    Directories are ignored by design: a `~/.claude/skills/` mount point would either get a
    nested `skills/skills` or fail on a busy mountpoint. An empty seed links nothing and
    moves on.
-3. **`piPackages`/`herdrPlugins`** are installed here, not at build time — see
+4. **`piPackages`/`herdrPlugins`** are installed here, not at build time — see
    [Packages and plugins](#packages-and-plugins) for why. A failed entry warns and moves
    on rather than aborting.
 
 Nothing here relocates `.claude.json` — the `CLAUDE_CONFIG_DIR` image `ENV` means Claude
 Code writes it inside `~/.claude` on its own.
 
-Every skip path in steps 1-2 exits `0`. A failing `postCreateCommand` aborts container
-creation, and none of those skips is worth an unbootable container. Step 3 is the one
+Every skip path in steps 1-3 exits `0`. A failing `postCreateCommand` aborts container
+creation, and none of those skips is worth an unbootable container. Step 4 is the one
 exception with teeth: install.sh still hard-fails the *build* if `piPackages`/
 `herdrPlugins` is set without its CLI option, exactly as before — only the actual fetch
 moved, not the validation.
+
+## The config seed (`claudeSeed`)
+
+`claudeSeed` defaults **`false`**, and that is the recommended shape. The declared
+`~/.claude` volume already captures everything Claude Code writes, so with nothing
+bind-mounted onto the seed path there is nothing to link and the option would only ever
+be a no-op. Turn it on when you bind-mount your own host config directory onto the seed
+path and want its files to appear in `~/.claude` as live symlinks:
+
+```jsonc
+"features": {
+  "ghcr.io/devc-tools/features/agents:0": { "claudeSeed": true }
+}
+```
+
+Two rules govern what it does:
+
+- **It never overwrites a real file.** It creates links, and replaces links it created
+  itself. A name already present in `~/.claude` as a regular file or a directory is
+  skipped, with a message naming it. `.claude.json` and `.credentials.json` are skipped
+  by name as well — Claude Code owns those and rewrites them whole.
+- **Turning it back off cleans up after itself.** Seed links left in `~/.claude` by an
+  earlier create are removed unconditionally on every create, whether the option is on or
+  not, so flipping it to `false` (or upgrading from `0.5.0`, where the seed was
+  unconditional) leaves no dangling links behind.
+
+One caveat if `~/.claude` is itself a bind mount of a host directory: the links this
+writes point at a **container** path, so they show up as broken symlinks when you open
+that directory on your host. That combination is legal but rarely what you want — with a
+bind in place, the host directory *is* your Claude home, and a seed can only supply names
+that are not already in it.
+
+### The `claude-seed` / `herdr` naming asymmetry is deliberate
+
+`claudeSeed` gates the `claude-seed` half only. The `herdr-seed` → `~/.config/herdr` half
+is **unconditional and has no option**, and the two are named differently on the host side
+in devc's own config (`~/.config/devc/claude-seed` beside `~/.config/devc/herdr`). This is
+not an oversight to tidy up later. `~/.claude` is a mount — a volume, or whatever a
+consumer put there — so writing symlinks into it is something to ask permission for.
+`~/.config/herdr` is deliberately *not* a mount: it holds live per-container runtime state
+(`herdr.sock`, `herdr-client.sock`, `herdr-server.log`, `plugins/`, `plugins.json`,
+`session.json`), so binding a host directory over it would be actively harmful, and a flag
+there would have nothing to protect.
 
 ## What you mount
 
@@ -100,13 +150,14 @@ mounts belong to your own `devcontainer.json`:
   "type=bind,source=${localEnv:HOME}/.config/herdr-seed,target=/usr/local/share/devc-features/agents/herdr-seed,readonly"
 ],
 "features": {
-  "ghcr.io/devc-tools/features/agents:0": {}
+  "ghcr.io/devc-tools/features/agents:0": { "claudeSeed": true }
 }
 ```
 
 The host paths are yours — pick anything. The `initializeCommand` is what makes each
 mount source exist; a bind mount with a missing source is a hard error, not an
-auto-created directory.
+auto-created directory. Note the `claudeSeed: true`: without it the first of those two
+mounts is inert.
 
 Both seeds are optional and independent — mount either, both, or neither. An unmounted
 seed links nothing and moves on. `herdr-seed` is what you'd put a Herdr `config.toml` in

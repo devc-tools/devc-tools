@@ -3,6 +3,15 @@
     "image": "mcr.microsoft.com/devcontainers/base:ubuntu",
     "onCreateCommand": "sudo mkdir -p /usr/local/share/devc-features/agents/claude-seed/skills && sudo chmod -R 777 /usr/local/share/devc-features/agents/claude-seed && printf '# md\\n' > /usr/local/share/devc-features/agents/claude-seed/CLAUDE.md && printf '{}\\n' > /usr/local/share/devc-features/agents/claude-seed/settings.json && echo 'a skill' > /usr/local/share/devc-features/agents/claude-seed/skills/inner.md",
     "features": {
+      "agents": {
+        "claudeSeed": true
+      }
+    }
+  },
+  "with_seed_disabled": {
+    "image": "mcr.microsoft.com/devcontainers/base:ubuntu",
+    "onCreateCommand": "sudo mkdir -p /usr/local/share/devc-features/agents/claude-seed/skills && sudo chmod -R 777 /usr/local/share/devc-features/agents/claude-seed && printf '# md\\n' > /usr/local/share/devc-features/agents/claude-seed/CLAUDE.md && printf '{}\\n' > /usr/local/share/devc-features/agents/claude-seed/settings.json && echo 'a skill' > /usr/local/share/devc-features/agents/claude-seed/skills/inner.md",
+    "features": {
       "agents": {}
     }
   },
