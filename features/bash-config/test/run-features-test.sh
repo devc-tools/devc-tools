@@ -26,20 +26,34 @@ ID="$(basename "$FEATURE_DIR")"
 #      (.github/workflows/test-podman-as-docker.yml installs it globally before calling this
 #      script), so PATH must keep beating the fallback below — otherwise CI would silently
 #      start testing against a different CLI than the one it asked for.
-#   3. `devc __devcontainer` — the hidden subcommand that turns devc into the devcontainer CLI
-#      it embeds (see devc/devcontainer_selfexec.ts). devc exists so that "neither
-#      `devcontainer` nor `node` has to exist on the host"; without this rung these tests were
-#      the one thing in the repo that still demanded a separate global install. The embedded
-#      CLI is version-pinned in devc/deno.json, and that pin is the version devc's own users
-#      get — so this rung tests against the CLI that actually matters.
+#   3. `$DEVC_BIN __devcontainer`. Sourcing scripts/bash_aliases.sh runs devc from source as a
+#      shell *function*, which a script like this one can never see — functions are not
+#      inherited by child processes and a non-interactive shell loads no aliases. That file
+#      exports $DEVC_BIN for exactly this reason ("lets any such consumer run devc from source
+#      too, with no separate setup"), and it is multi-word, which is why DEVCONTAINER_CLI is
+#      split rather than used whole. It is checked before a PATH `devc` because it is the
+#      deliberate signal — it exists only if you sourced this repo's own integration, and it
+#      points at this working tree rather than at whatever release was installed.
+#   4. `devc` on PATH — a compiled install.
+#
+# Rungs 3 and 4 both use `__devcontainer`, the hidden subcommand that turns devc into the
+# devcontainer CLI it embeds (devc/devcontainer_selfexec.ts). devc exists so that "neither
+# `devcontainer` nor `node` has to exist on the host"; without these rungs these tests were the
+# one thing in the repo that still demanded a separate global install. The embedded CLI is
+# version-pinned in devc/deno.json, and that pin is the version devc's own users get — so this
+# tests against the CLI that actually matters.
 if [ -n "${DEVCONTAINER_CLI:-}" ]; then
   read -r -a CLI_CMD <<< "$DEVCONTAINER_CLI"
 elif command -v devcontainer > /dev/null 2>&1; then
   CLI_CMD=(devcontainer)
+elif [ -n "${DEVC_BIN:-}" ]; then
+  read -r -a CLI_CMD <<< "$DEVC_BIN"
+  CLI_CMD+=(__devcontainer)
 elif command -v devc > /dev/null 2>&1; then
   CLI_CMD=(devc __devcontainer)
 else
   echo "run-features-test.sh: no devcontainer CLI found. Any one of these fixes it:" >&2
+  echo "  - source scripts/bash_aliases.sh — exports \$DEVC_BIN, runs devc from source" >&2
   echo "  - install devc — it embeds the CLI, nothing else to install" >&2
   echo "  - npm install --global @devcontainers/cli" >&2
   echo "  - set DEVCONTAINER_CLI to the command to run (may be multi-word)" >&2

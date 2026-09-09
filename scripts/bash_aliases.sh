@@ -16,7 +16,16 @@
 
 # Permissions every tool here runs with. Kept in one variable so the shell functions and
 # the exported $DEVC_BIN invocation below can't drift apart.
-_DEVC_TOOLS_PERMS="--allow-read --allow-write --allow-run --allow-env --allow-net"
+#
+# This set must stay in step with SOURCE_CHILD_PERMISSIONS in devc/devcontainer_selfexec.ts,
+# whose own doc comment says so — they are the same permissions for the same code. `--allow-sys`
+# is here for the embedded devcontainer CLI: it calls `os.release()` while starting any real
+# subcommand, and without the permission dies on a bare `Object.release (ext:deno_node/os.ts)`
+# stack. It surfaces only when the CLI runs in *this* process (`devc __devcontainer …`, which
+# `features/*/test/run-features-test.sh` uses); devc's own `up` path spawns a child carrying
+# SOURCE_CHILD_PERMISSIONS instead, which is why the drift went unnoticed. `--version` and
+# `--help` short-circuit ahead of the call, so neither is a test of it.
+_DEVC_TOOLS_PERMS="--allow-read --allow-write --allow-run --allow-env --allow-net --allow-sys"
 
 # Resolve the repo root from THIS file, at source time, so the functions work regardless
 # of the caller's cwd. Guarded so a bad path fails loudly, not silently.
