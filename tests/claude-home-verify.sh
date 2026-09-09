@@ -151,10 +151,11 @@ do_row1() {
   check "  ...and is visible there" test -f "$HOST_DIR/claude/FROM-CONTAINER"
 
   banner "Row 1 — nested skills mountpoint ownership (the unmeasured one)"
-  # Two directories, not one. Docker creates BOTH `skills/` and `skills/probe/` inside the bind
-  # to hold the nested mount, and they can differ: the leaf came out owned by the user while the
-  # intermediate did not, which surfaced only as `clean` failing with EACCES — removing the leaf
-  # needs write permission on its parent, not on itself.
+  # Docker creates BOTH `skills/` and `skills/probe/` inside the bind to hold the nested mount,
+  # so both are reported. Measured on Docker Desktop/macOS: all of it comes out owned by the
+  # host user, mode 0755, and removable with no sudo. An earlier `clean` failure here looked
+  # like an ownership problem and was not — it was this script removing the tree before the VM
+  # had released the mount (see do_clean).
   local me leaf mid
   me="$(id -un)"
   mid="$(host_owner "$HOST_DIR/claude/skills")"
@@ -162,8 +163,8 @@ do_row1() {
   note "host owner of claude/skills:       ${mid:-<missing>} (you are $me)"
   note "host owner of claude/skills/probe: ${leaf:-<missing>}"
   check "the skills mountpoint is owned by you, not root" test "$leaf" = "$me"
-  check "its parent skills/ is too — else you cannot remove it without sudo" test "$mid" = "$me"
-  check "  ...and the parent is writable, so cleanup needs no sudo" test -w "$HOST_DIR/claude/skills"
+  check "its parent skills/ is owned by you too" test "$mid" = "$me"
+  check "  ...and is writable" test -w "$HOST_DIR/claude/skills"
 }
 
 do_row2() {
@@ -241,15 +242,22 @@ do_clean() {
   [ -n "$ids" ] && docker rm -f $ids > /dev/null 2>&1
   docker volume rm "$VOLUME" > /dev/null 2>&1
   rm -rf "$PROJECT" 2> /dev/null
-  # Reported honestly rather than assumed: Docker creates the nested skills mountpoint
-  # directories inside the bind, and if it owns one of them this rm fails with EACCES. Claiming
-  # success there leaves the next run reusing dirt it was told had been removed.
-  if rm -rf "$HOST_DIR" 2> /dev/null && [ ! -e "$HOST_DIR" ]; then
+  # `docker rm -f` returns before the VM has released the bind, and removing a nested mountpoint
+  # while it is still held fails with EACCES on macOS — which reads exactly like an ownership
+  # problem and is not one (measured: the same rm succeeds moments later, unchanged). So retry
+  # briefly rather than either racing it or reporting a permissions failure that is not real.
+  local i
+  for i in 1 2 3 4 5 6 7 8 9 10; do
+    rm -rf "$HOST_DIR" 2> /dev/null
+    [ ! -e "$HOST_DIR" ] && break
+    sleep 1
+  done
+  if [ ! -e "$HOST_DIR" ]; then
     echo "  removed containers, the $VOLUME volume, $PROJECT and $HOST_DIR"
   else
     echo "  removed containers, the $VOLUME volume and $PROJECT"
-    echo "  COULD NOT remove $HOST_DIR — Docker owns a directory in it:" >&2
-    ls -ld "$HOST_DIR"/claude/skills* 2> /dev/null >&2
+    echo "  COULD NOT remove $HOST_DIR after 10s of retries:" >&2
+    ls -lde "$HOST_DIR"/claude/skills* 2> /dev/null >&2
     echo "    sudo rm -rf $HOST_DIR" >&2
     return 1
   fi
