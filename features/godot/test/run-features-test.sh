@@ -9,13 +9,42 @@
 # throwaway copy in the layout it expects.
 #
 # Needs Docker and a network (a Feature may download things, and the scenarios pull images), so
-# this is run deliberately, not from `deno task test`. It needs no host-side prerequisite: no
-# Feature in this collection declares a mount, so there are no bind sources to exist.
+# this is run deliberately, not from `deno task test`. It needs no host-side prerequisite: the
+# only mounts any Feature in this collection declares are *volumes*, which Docker creates on
+# demand, so there is no bind source that has to exist first.
 set -euo pipefail
 
 FEATURE_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 ID="$(basename "$FEATURE_DIR")"
-CLI="${DEVCONTAINER_CLI:-devcontainer}"
+
+# The devcontainer CLI to drive. `DEVCONTAINER_CLI` may name a *multi-word* command — it is
+# split on whitespace — which is what lets devc's own embedded CLI be named as one.
+#
+# Resolution order, and why each rung sits where it does:
+#   1. An explicit DEVCONTAINER_CLI always wins.
+#   2. A `devcontainer` on PATH. This is what CI installs and version-pins
+#      (.github/workflows/test-podman-as-docker.yml installs it globally before calling this
+#      script), so PATH must keep beating the fallback below — otherwise CI would silently
+#      start testing against a different CLI than the one it asked for.
+#   3. `devc __devcontainer` — the hidden subcommand that turns devc into the devcontainer CLI
+#      it embeds (see devc/devcontainer_selfexec.ts). devc exists so that "neither
+#      `devcontainer` nor `node` has to exist on the host"; without this rung these tests were
+#      the one thing in the repo that still demanded a separate global install. The embedded
+#      CLI is version-pinned in devc/deno.json, and that pin is the version devc's own users
+#      get — so this rung tests against the CLI that actually matters.
+if [ -n "${DEVCONTAINER_CLI:-}" ]; then
+  read -r -a CLI_CMD <<< "$DEVCONTAINER_CLI"
+elif command -v devcontainer > /dev/null 2>&1; then
+  CLI_CMD=(devcontainer)
+elif command -v devc > /dev/null 2>&1; then
+  CLI_CMD=(devc __devcontainer)
+else
+  echo "run-features-test.sh: no devcontainer CLI found. Any one of these fixes it:" >&2
+  echo "  - install devc — it embeds the CLI, nothing else to install" >&2
+  echo "  - npm install --global @devcontainers/cli" >&2
+  echo "  - set DEVCONTAINER_CLI to the command to run (may be multi-word)" >&2
+  exit 1
+fi
 
 STAGE="$(mktemp -d)"
 trap 'rm -rf "$STAGE"' EXIT
@@ -23,7 +52,9 @@ mkdir -p "$STAGE/src/$ID" "$STAGE/test/$ID"
 # The whole Feature directory minus its tests, rather than a list of files to keep in step
 # with the Feature — a Feature that ships scripts/ alongside install.sh would otherwise stage
 # an incomplete copy and fail inside the container, far from the omission. This file is
-# identical in every Feature; copy it as-is.
+# identical in every Feature; copy it as-is. (The two nesting Features, podman-as-docker and
+# rootless-remap, add one further step of their own below — a seccomp profile the scenarios'
+# runArgs name by absolute path. Everything else is shared verbatim.)
 cp -R "$FEATURE_DIR"/. "$STAGE/src/$ID/"
 rm -rf "$STAGE/src/$ID/test"
 # And the whole test directory, for the same reason in the other direction: the command reads
@@ -48,5 +79,5 @@ if [ "$_has_base_image" -eq 0 ]; then
   BASE_IMAGE_ARGS=(--base-image mcr.microsoft.com/devcontainers/base:ubuntu)
 fi
 
-exec "$CLI" features test --project-folder "$STAGE" --features "$ID" \
+exec "${CLI_CMD[@]}" features test --project-folder "$STAGE" --features "$ID" \
   "${BASE_IMAGE_ARGS[@]}" "$@"
