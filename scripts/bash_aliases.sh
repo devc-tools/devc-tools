@@ -38,11 +38,25 @@ if _devc_tools_root="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")/.." 2>/dev/null &&
   # `devc` below is a bash function — invisible to anything that spawns child processes
   # directly (e.g. Node's child_process.spawn, which resolves commands from PATH only and
   # never sees shell functions). Exporting the same invocation as $DEVC_BIN lets any such
-  # consumer run devc from source too, with no separate setup: sourcing this file is
-  # enough. `:=` only assigns when unset/empty, so an explicit `export DEVC_BIN=...`
-  # elsewhere (e.g. pointing at a compiled binary) still wins.
-  : "${DEVC_BIN:="deno run $_DEVC_TOOLS_PERMS $DEVC_MAIN"}"
+  # consumer run devc from source too, with no separate setup: sourcing this file is enough.
+  #
+  # An explicit `export DEVC_BIN=...` from elsewhere (e.g. pointing at a compiled binary)
+  # still wins — but a value *this file* set on an earlier source does not. That distinction
+  # is the whole point of the marker below. This used to be a plain `:=`, which assigns only
+  # when unset, so re-sourcing after editing _DEVC_TOOLS_PERMS above left the old string in
+  # place and the change appeared not to work: the shell kept a DEVC_BIN missing the new
+  # flag, and only a brand-new terminal picked it up. Comparing against the marker lets a
+  # re-source update its own value while still yielding to anyone else's.
+  _devc_bin_default="deno run $_DEVC_TOOLS_PERMS $DEVC_MAIN"
+  if [ -z "${DEVC_BIN:-}" ] || [ "${DEVC_BIN:-}" = "${DEVC_BIN_FROM_ALIASES:-}" ]; then
+    DEVC_BIN="$_devc_bin_default"
+  fi
+  unset _devc_bin_default
   export DEVC_BIN
+  # Exported so a subshell that re-sources this file can still tell "we set this" from
+  # "someone else set this" — without it, any nested source would treat our own value as
+  # foreign and refuse to refresh it.
+  export DEVC_BIN_FROM_ALIASES="$DEVC_BIN"
 else
   echo "devc-tools: could not locate the repo root above ${BASH_SOURCE[0]:-$0}" >&2
 fi
