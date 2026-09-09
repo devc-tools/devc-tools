@@ -151,11 +151,19 @@ do_row1() {
   check "  ...and is visible there" test -f "$HOST_DIR/claude/FROM-CONTAINER"
 
   banner "Row 1 — nested skills mountpoint ownership (the unmeasured one)"
-  local owner me
-  owner="$(host_owner "$HOST_DIR/claude/skills/probe")"
+  # Two directories, not one. Docker creates BOTH `skills/` and `skills/probe/` inside the bind
+  # to hold the nested mount, and they can differ: the leaf came out owned by the user while the
+  # intermediate did not, which surfaced only as `clean` failing with EACCES — removing the leaf
+  # needs write permission on its parent, not on itself.
+  local me leaf mid
   me="$(id -un)"
-  note "host owner of ~/devc-claude-test/claude/skills/probe: ${owner:-<missing>} (you are $me)"
-  check "skills mountpoint on the host is owned by you, not root" test "$owner" = "$me"
+  mid="$(host_owner "$HOST_DIR/claude/skills")"
+  leaf="$(host_owner "$HOST_DIR/claude/skills/probe")"
+  note "host owner of claude/skills:       ${mid:-<missing>} (you are $me)"
+  note "host owner of claude/skills/probe: ${leaf:-<missing>}"
+  check "the skills mountpoint is owned by you, not root" test "$leaf" = "$me"
+  check "its parent skills/ is too — else you cannot remove it without sudo" test "$mid" = "$me"
+  check "  ...and the parent is writable, so cleanup needs no sudo" test -w "$HOST_DIR/claude/skills"
 }
 
 do_row2() {
@@ -232,8 +240,19 @@ do_clean() {
     --filter "label=devcontainer.local_folder=${real:-$PROJECT}" 2> /dev/null | sort -u)"
   [ -n "$ids" ] && docker rm -f $ids > /dev/null 2>&1
   docker volume rm "$VOLUME" > /dev/null 2>&1
-  rm -rf "$PROJECT" "$HOST_DIR"
-  echo "  removed containers, the $VOLUME volume, $PROJECT and $HOST_DIR"
+  rm -rf "$PROJECT" 2> /dev/null
+  # Reported honestly rather than assumed: Docker creates the nested skills mountpoint
+  # directories inside the bind, and if it owns one of them this rm fails with EACCES. Claiming
+  # success there leaves the next run reusing dirt it was told had been removed.
+  if rm -rf "$HOST_DIR" 2> /dev/null && [ ! -e "$HOST_DIR" ]; then
+    echo "  removed containers, the $VOLUME volume, $PROJECT and $HOST_DIR"
+  else
+    echo "  removed containers, the $VOLUME volume and $PROJECT"
+    echo "  COULD NOT remove $HOST_DIR — Docker owns a directory in it:" >&2
+    ls -ld "$HOST_DIR"/claude/skills* 2> /dev/null >&2
+    echo "    sudo rm -rf $HOST_DIR" >&2
+    return 1
+  fi
 }
 
 usage() { sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//'; }
@@ -259,7 +278,7 @@ case "${1:-}" in
   row4) do_row4 ;;
   upgrade) do_upgrade ;;
   all) do_scenarios; do_row1; do_row2; do_row3; do_row4; do_upgrade ;;
-  clean) do_clean; exit 0 ;;
+  clean) do_clean; exit $? ;;
 esac
 
 banner "$pass passed, $fail failed"
