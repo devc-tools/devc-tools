@@ -15,8 +15,8 @@
 # The identity path is no longer an option: it is a fixed literal
 # (/usr/local/share/devc-features/.../identity/gitconfig) install.sh copies through unbaked.
 # setup() below rewrites that one line to point at this case's own temp SHARE/identity/gitconfig
-# instead — created empty by the same install.sh run — the same technique agents'
-# claude_json_test.sh uses to re-point SEED.
+# instead — created empty by the same install.sh run — the same technique devc's
+# seed_link_test.sh uses to re-point SEED.
 set -uo pipefail
 
 FEATURE_DIR="$(cd "$(dirname "$0")/.." && pwd)"

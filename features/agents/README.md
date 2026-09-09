@@ -12,8 +12,8 @@ place, so one volume survives a rebuild and one host directory supplies your con
 ```
 
 No mounts, no options you have to set. A bare `{}` installs the Claude CLI, leaves an
-empty seed directory for you to mount onto, and points `~/.claude.json` at
-`~/.claude/.claude.json`.
+empty seed directory for you to mount onto, and points `CLAUDE_CONFIG_DIR` at
+`~/.claude` so `.claude.json` lands inside the volume with everything else.
 
 > The tag tracks **this Feature's own** version line, not the devc-tools release. It is
 > `:0` while this Feature is pre-1.0.
@@ -33,9 +33,9 @@ empty seed directory for you to mount onto, and points `~/.claude.json` at
 
 That is the whole option surface — there are no path options. Every path this Feature
 touches is either fixed (the seed) or derived from the remote user's own home
-(`~/.claude`), because Claude Code resolves its state directory as `$CLAUDE_CONFIG_DIR`
-or, unset, `$HOME/.claude` — so there is exactly one correct answer and the Feature
-derives it.
+(`~/.claude`), because Claude Code resolves its state directory as `$CLAUDE_CONFIG_DIR` —
+which this Feature sets, to the same literal its declared volume targets — so there is
+exactly one correct answer and the Feature sets it rather than making it a question.
 
 Each CLI is opt-in on its own. Enabling this Feature for Claude should not silently
 install a second, third, fourth or fifth vendor's CLI, which is why only `installClaudeCli`
@@ -52,8 +52,8 @@ this Feature exists to prevent:
 | `/usr/local/share/devc-features/agents/claude-seed` | **Fixed.** Where you bind-mount your own host config. Created empty; this Feature only ever reads it.    | Same as your bind mount; empty and harmless if you mount none.      |
 | a host seed directory                               | **Your** config — `CLAUDE.md`, `settings.json`, `statusline.sh`. The one thing you decide, with a mount. | Lives on your host; the container only ever reads it.               |
 
-`~/.claude.json` is a symlink into `~/.claude`, with no lifetime of its own — see
-[`~/.claude.json`](#claudejson).
+`.claude.json` lives _inside_ `~/.claude`, not beside it, because this Feature sets
+`CLAUDE_CONFIG_DIR` — see [`.claude.json`](#claudejson).
 
 ## What it does
 
@@ -75,14 +75,15 @@ At **create time**, before any `postCreateCommand` of your own:
    Directories are ignored by design: a `~/.claude/skills/` mount point would either get a
    nested `skills/skills` or fail on a busy mountpoint. An empty seed links nothing and
    moves on.
-3. **`~/.claude.json`** is replaced with a symlink to `~/.claude/.claude.json`, seeded
-   with `{}` if nothing is there yet.
-4. **`piPackages`/`herdrPlugins`** are installed here, not at build time — see
+3. **`piPackages`/`herdrPlugins`** are installed here, not at build time — see
    [Packages and plugins](#packages-and-plugins) for why. A failed entry warns and moves
    on rather than aborting.
 
-Every skip path in steps 1-3 exits `0`. A failing `postCreateCommand` aborts container
-creation, and none of those skips is worth an unbootable container. Step 4 is the one
+Nothing here relocates `.claude.json` — the `CLAUDE_CONFIG_DIR` image `ENV` means Claude
+Code writes it inside `~/.claude` on its own.
+
+Every skip path in steps 1-2 exits `0`. A failing `postCreateCommand` aborts container
+creation, and none of those skips is worth an unbootable container. Step 3 is the one
 exception with teeth: install.sh still hard-fails the *build* if `piPackages`/
 `herdrPlugins` is set without its CLI option, exactly as before — only the actual fetch
 moved, not the validation.
@@ -152,10 +153,11 @@ docker inspect $(docker ps -q) \
 ```
 
 **The target is the literal `/home/vscode/.claude`.** No `devcontainer.json` variable
-names the remote user's home inside a Feature's own `mounts`, so it is a fixed path. On an
-image whose remote user is not `vscode`, the volume lands somewhere Claude Code never
-reads — the create-time step warns, names your real home and the mount line that fixes it,
-and still exits `0`.
+names the remote user's home inside a Feature's own `mounts`, so it is a fixed path — and
+the `CLAUDE_CONFIG_DIR` this Feature sets is the same literal, for the same reason, so the
+two always agree. On an image whose remote user is not `vscode`, both land somewhere that
+is not your home — the create-time step warns, names your real home and the two lines that
+fix it (the mount target and `containerEnv`), and still exits `0`.
 
 **You cannot remove a declared mount, only override it.** Mounts merge keyed on target,
 with your own `devcontainer.json` merged last, so declaring the same target yourself wins
@@ -165,25 +167,35 @@ with no duplicate and no error. That is the opt-out, and it is also how you poin
 First-use ownership needs no action from you: `~/.claude` is pre-created in the image
 owned by the remote user, so Docker seeds the empty volume from it.
 
-## `~/.claude.json`
+## `.claude.json`
 
-Claude Code resolves its config and auth file as `$CLAUDE_CONFIG_DIR/.claude.json`,
-falling back to `$HOME/.claude.json`. It is therefore a **sibling** of `~/.claude`, not a
-member of it — and a volume can only mount at a _directory_, so it cannot be a mount
-target on its own. Symlinking it into `~/.claude` is what lets one mount capture
-everything, and puts it next to the `.credentials.json` and `history.jsonl` it belongs
-with.
+Claude Code resolves its config and auth file as `$CLAUDE_CONFIG_DIR/.claude.json`, and
+its state _directory_ as `$CLAUDE_CONFIG_DIR` too — but with the variable unset the two
+fall back to different bases: the directory to `~/.claude`, the file to `$HOME`. That
+asymmetry is why the file used to sit beside `~/.claude` rather than in it, and a volume
+can only mount at a _directory_, so the file could never be a mount target on its own.
 
-This is unconditional. With no volume mounted it is an indirection inside one home
-directory, which costs nothing.
+**This Feature sets `CLAUDE_CONFIG_DIR` to `/home/vscode/.claude`** — the same literal the
+declared volume targets — in its `containerEnv`. That is exactly the value the directory
+already resolved to, so nothing else Claude Code derives from it moves; the only thing
+that changes is that `.claude.json` is now written **inside** `~/.claude`, next to the
+`.credentials.json` and `history.jsonl` it belongs with. One mount captures everything,
+with no symlink involved and nothing for the create-time step to relocate.
 
-Two consequences:
+Three things follow:
 
-- **A pre-existing real `~/.claude.json` is moved, not deleted.** If
-  `~/.claude/.claude.json` does not exist yet and `~/.claude.json` is a real file, it is
-  `mv`d into place and you keep your session.
-- **A symlink pointing somewhere else is repointed.** The check compares the link's
-  target, not just whether it is a link.
+- **It is a real image `ENV`,** baked at build time, so it applies to every process and
+  every user in the container — not only login shells. It therefore appears after a
+  **rebuild**, not after a plain container recreate.
+- **You can override it.** `containerEnv` merges with your own `devcontainer.json` last,
+  so setting `CLAUDE_CONFIG_DIR` yourself wins. That is the escape hatch for a remote user
+  whose home is not `/home/vscode` — set it alongside your own mount target, so the two
+  still name the same path.
+- **Upgrading costs one login.** An existing container built by an earlier version of this
+  Feature has a real `~/.claude.json` (or a symlink to one). It is **not** migrated: after
+  rebuilding onto this version, Claude Code looks in `~/.claude/.claude.json` and, finding
+  nothing, asks you to log in once. Everything else in the volume — projects, todos,
+  settings — is untouched.
 
 ## Node.js and pi
 
@@ -360,5 +372,5 @@ there is no option to point either install somewhere else.
 could declare that extension and deliberately does not: a config Feature that silently
 installs editor extensions is a surprise you did not ask for.
 
-**Not a way to share one `.claude.json` across projects.** Folding it into `~/.claude`
-ties its lifetime to whatever you mount there.
+**Not a way to share one `.claude.json` across projects.** Pointing
+`CLAUDE_CONFIG_DIR` at `~/.claude` ties the file's lifetime to whatever you mount there.

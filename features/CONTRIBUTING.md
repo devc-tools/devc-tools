@@ -272,10 +272,7 @@ false, which is a documented ignore rather than a `die`),
 sourced directly against fake `pi`/`herdr` binaries: comma-splitting/trimming, the
 `--yes` flag, a failed entry warning and continuing rather than aborting, and the
 missing-binary skips — this is what `install_options_test.sh` used to cover before
-`piPackages`/`herdrPlugins` moved from build time to create time),
-`features/agents/test/claude_json_test.sh` (the real `post-create.sh` against a temp
-`HOME` with `stat`/`sudo` stubbed: ownership repair and every `~/.claude.json` case
-including move-don't-delete and repoint-a-stale-link).
+`piPackages`/`herdrPlugins` moved from build time to create time).
 
 With Docker: the default scenario is the bare `{}` case. `scenarios.json` adds
 `with_seed`, `with_copilot`, `with_pi`, `with_herdr`, `with_pi_packages`,

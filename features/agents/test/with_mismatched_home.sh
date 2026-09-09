@@ -22,9 +22,18 @@ check "~/.claude is NOT backed by the declared volume" \
 
 # Everything below is only reachable if post-create.sh exited 0 despite warning.
 check "the create-time step still completed" test -d "$HOME/.claude"
-check "~/.claude.json was still folded into the directory" test -L "$HOME/.claude.json"
-check "and still reads back a JSON object through the link" \
-  bash -c "test -s \"$HOME/.claude.json\" && test \"\$(head -c1 \"$HOME/.claude.json\")\" = '{'"
+
+# containerEnv is a baked image ENV with a hardcoded path, so it names /home/vscode/.claude here
+# too, even though this user's home is /root. That is deliberate and is the more coherent half of
+# the mismatch: the ENV and the declared volume now agree on one path, where before the mount
+# landed in one home and the fold in another. A consumer whose remote user is not `vscode` fixes
+# both together, by overriding the mount target and CLAUDE_CONFIG_DIR in their devcontainer.json —
+# which is exactly what post-create.sh's warning names.
+check "CLAUDE_CONFIG_DIR still names the manifest's literal, not this user's home" \
+  bash -c "[ \"\$(printenv CLAUDE_CONFIG_DIR)\" = /home/vscode/.claude ]"
+check "and that is not where \$HOME points" \
+  bash -c "[ \"\$(printenv CLAUDE_CONFIG_DIR)\" != \"$HOME/.claude\" ]"
+check "no fold was left behind under this user's home" test ! -e "$HOME/.claude.json"
 check "the Claude CLI still installed under this user's home" test -x "$HOME/.local/bin/claude"
 
 reportResults

@@ -75,8 +75,12 @@ FEATURE_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 # _REMOTE_USER_HOME is set by the CLI whenever it knows the remote user (every real Feature
 # install); falls back to $HOME for a manual run or the offline test harness. Claude Code
-# resolves its own state directory as $CLAUDE_CONFIG_DIR or, unset, $HOME/.claude — so the
-# remote user's home is the only correct answer here, and there is nothing to make an option of.
+# resolves its own state directory as $CLAUDE_CONFIG_DIR, which the manifest's containerEnv
+# points at the literal /home/vscode/.claude — the same literal the declared volume targets, and
+# a literal because a Feature's containerEnv is baked as a build-time ENV that this variable
+# cannot reach. The derivation below stays: it is what the build-time mkdir, chown and the
+# CLAUDE_CONFIG_DIR re-export in install_cli need (a login shell drops the baked ENV), and it is
+# right for the image this Feature is built for, so there is nothing to make an option of.
 REMOTE_USER_HOME="${_REMOTE_USER_HOME:-$HOME}"
 REMOTE_USER="${_REMOTE_USER:-$(id -un)}"
 CLAUDE_DIR="$REMOTE_USER_HOME/.claude"
@@ -176,6 +180,14 @@ install_cli() { # install_cli <display name> <binary name> <install script URL> 
   {
     echo 'set -e'
     echo 'set -o pipefail'
+    # The manifest's containerEnv bakes CLAUDE_CONFIG_DIR as an image ENV, but `runuser -l` /
+    # `su -` below start a *login* shell, which clears every variable it does not itself
+    # initialize — so the ENV does not reach the installer. Re-export it here, at the same value
+    # derived from the remote user's home. Without this, `claude install` (the installer runs
+    # `claude install` at the end) writes .claude.json to $HOME/.claude.json at build time, and
+    # the image would ship the very sibling file this Feature no longer wants. Harmless for the
+    # other CLIs this helper installs — none of them reads it.
+    echo "export CLAUDE_CONFIG_DIR='$CLAUDE_DIR'"
     if [ -n "$_node_min" ]; then
       node_prelude "$_node_min"
     fi

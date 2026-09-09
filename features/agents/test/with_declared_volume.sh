@@ -9,9 +9,9 @@
 # The volume is keyed on ${devcontainerId}, so its *name* is opaque and per-devcontainer and is
 # deliberately not asserted here (a test that pinned the name would pin the id). What matters is
 # that ~/.claude is a mount point at all, and that the rest of the Feature still works on top of
-# one — a volume mounted over a build-time directory is exactly the case the ownership repair and
-# the .claude.json fold were written against, and this is the first scenario where they run
-# against a real one.
+# one — a volume mounted over a build-time directory is exactly the case the ownership repair was
+# written against, and this is the first scenario where it runs against a real one. It is also
+# where CLAUDE_CONFIG_DIR and the declared volume are checked to name the same path.
 set -e
 
 source dev-container-features-test-lib
@@ -29,17 +29,15 @@ check "the remote user's home is the one the manifest targets" test "$HOME" = /h
 check "~/.claude is owned by the remote user, not root" test -O "$HOME/.claude"
 check "and is writable" bash -c "touch \"$HOME/.claude/.write-probe\" && rm \"$HOME/.claude/.write-probe\""
 
-# Everything the Feature does at create time, now done on top of a real mount rather than a plain
-# directory — the combination that was previously only ever exercised by devc, never by a test.
-check "~/.claude.json is a symlink into the volume" test -L "$HOME/.claude.json"
-check "it points inside ~/.claude" \
-  test "$(readlink "$HOME/.claude.json")" = "$HOME/.claude/.claude.json"
-# Claude Code owns this file's contents and writes real state into it at install time
-# (installMethod, firstStartVersion, migrationVersion, a machine id...). Pinning `{}` pinned a
-# value that belonged to an external tool, and it went stale the moment the CLI started
-# seeding itself. What this Feature is responsible for is the *fold* — that the path is a link
-# into the volume (asserted above) and that reading through it yields a JSON object.
-check "and reads back a JSON object through the link" \
-  bash -c "test -s \"$HOME/.claude.json\" && test \"\$(head -c1 \"$HOME/.claude.json\")\" = '{'"
+# The manifest's containerEnv, now observed on top of a real mount rather than a plain directory.
+# containerEnv is baked as an image ENV, so this asserts it reached the running container at all —
+# and that Claude Code, not this Feature, is what put .claude.json inside the volume.
+check "CLAUDE_CONFIG_DIR is exported in the container" \
+  bash -c "[ \"\$(printenv CLAUDE_CONFIG_DIR)\" = /home/vscode/.claude ]"
+# A regular file, not a symlink: the fold is gone, and what is here was written in place by the
+# CLI at install time (installMethod, firstStartVersion, migrationVersion, a machine id...).
+check "~/.claude/.claude.json is a regular file, not a symlink" \
+  bash -c "test -f \"$HOME/.claude/.claude.json\" && test ! -L \"$HOME/.claude/.claude.json\""
+check "nothing was left beside the volume at ~/.claude.json" test ! -e "$HOME/.claude.json"
 
 reportResults

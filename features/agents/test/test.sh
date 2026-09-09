@@ -4,7 +4,7 @@
 #
 # That combination is the bare-`{}` case every Feature in this collection has to survive (see
 # .plans/design/devc-feature-split.md): the Claude CLI installs, the seed directory exists and is
-# empty so nothing is linked, ~/.claude.json is folded into ~/.claude, and Copilot/pi/Herdr are
+# empty so nothing is linked, .claude.json lands inside ~/.claude, and Copilot/pi/Herdr are
 # absent with no pi packages or Herdr plugins installed (installCopilotCli/installPiCli/
 # installHerdr default false, piPackages/herdrPlugins default empty).
 #
@@ -60,19 +60,15 @@ check "and is owned by the remote user" bash -c \
 check "the seed was empty, so ~/.claude has nothing linked into it" bash -c \
   "[ -z \"\$(find \"$HOME/.claude\" -mindepth 1 -maxdepth 1 -type l)\" ]"
 
-# --- ~/.claude.json is folded into ~/.claude, unconditionally ---------------------------------
-# The one place Claude Code keeps state outside ~/.claude. Doing this with no volume mounted, as
-# here, is an indirection inside one home directory; with a volume at ~/.claude it is what makes
-# a single mount capture everything.
-check "~/.claude.json is a symlink" test -L "$HOME/.claude.json"
-check "it points inside ~/.claude" \
-  test "$(readlink "$HOME/.claude.json")" = "$HOME/.claude/.claude.json"
-# Claude Code owns this file's contents and writes real state into it at install time
-# (installMethod, firstStartVersion, migrationVersion, a machine id...). Pinning `{}` pinned a
-# value that belonged to an external tool, and it went stale the moment the CLI started
-# seeding itself. What this Feature is responsible for is the *fold* — that the path is a link
-# into the volume (asserted above) and that reading through it yields a JSON object.
-check "and reads back a JSON object through the link" \
-  bash -c "test -s \"$HOME/.claude.json\" && test \"\$(head -c1 \"$HOME/.claude.json\")\" = '{'"
+# --- .claude.json lives inside ~/.claude ------------------------------------------------------
+# The manifest's containerEnv points CLAUDE_CONFIG_DIR at the same literal the declared volume
+# targets, so Claude Code writes its config/auth file into ~/.claude itself. No symlink is
+# involved and post-create.sh does not touch the file — the CLI writes it in place at install
+# time (installMethod, firstStartVersion, migrationVersion, a machine id...).
+check "CLAUDE_CONFIG_DIR is exported in the container" \
+  bash -c "[ \"\$(printenv CLAUDE_CONFIG_DIR)\" = /home/vscode/.claude ]"
+check "~/.claude/.claude.json is a regular file, not a symlink" \
+  bash -c "test -f \"$HOME/.claude/.claude.json\" && test ! -L \"$HOME/.claude/.claude.json\""
+check "nothing was left beside it at ~/.claude.json" test ! -e "$HOME/.claude.json"
 
 reportResults

@@ -65,6 +65,7 @@ esac
 cat << SCRIPT
 printf '$bin npm_config_prefix=%s\\n' "\$npm_config_prefix" >> "\$INSTALLER_ENV_LOG"
 printf '$bin node=%s\\n' "\$(command -v node || echo none)" >> "\$INSTALLER_ENV_LOG"
+printf '$bin CLAUDE_CONFIG_DIR=%s\\n' "\${CLAUDE_CONFIG_DIR:-unset}" >> "\$INSTALLER_ENV_LOG"
 mkdir -p "\$HOME/.local/bin"
 printf '#!/bin/sh\necho "$bin \$*" >> "\${CLI_INVOKE_LOG:-/dev/null}"\nexit "\${FAKE_BIN_EXIT:-0}"\n' > "\$HOME/.local/bin/$bin"
 chmod +x "\$HOME/.local/bin/$bin"
@@ -191,6 +192,7 @@ setup() {
     CURL_LOG="$CASE/curl.log" RUNUSER_LOG="$CASE/runuser.log" RUNUSER_USER_LOG="$CASE/runuser_user.log" \
     INSTALLER_ENV_LOG="$CASE/installer_env.log" CLI_INVOKE_LOG="$CASE/invoke.log" \
     NPM_LOG="$CASE/npm.log" \
+    CLAUDE_CONFIG_DIR=/decoy/inherited-from-the-build-env \
     PATH="${CASE_PATH:-$STUBS:$CLEAN_PATH}" \
     "$@" sh "$FEATURE_DIR/install.sh" > "$CASE/install.log" 2> "$CASE/install.err"
   status=$?
@@ -217,6 +219,14 @@ check "the hook decides by testing the mount, not by comparing to a path" \
 check "the hook pins no literal home" bash -c "! grep -q 'DECLARED_CLAUDE_DIR' \"$HOOK\""
 check "the manifest keys its volume on \${devcontainerId}, not the workspace basename" \
   grep -qF '"source": "claude-code-config-${devcontainerId}"' "$FEATURE_DIR/devcontainer-feature.json"
+# containerEnv is what replaced the old ~/.claude.json symlink fold: Claude Code writes
+# .claude.json into $CLAUDE_CONFIG_DIR, so pointing that at the volume's own target is what makes
+# one mount capture everything. The value must be the same literal the mount target above names —
+# a Feature's containerEnv is baked as a build-time Dockerfile ENV, so no substitution reaches it.
+check "the manifest declares containerEnv with the same literal the mount targets" \
+  grep -qF '"CLAUDE_CONFIG_DIR": "/home/vscode/.claude"' "$FEATURE_DIR/devcontainer-feature.json"
+check "the hook no longer folds ~/.claude.json — nothing left to relocate" \
+  bash -c "! grep -q 'claude.json' \"$HOOK\""
 check "the seed mount point was created, empty" test -d "$CASE/share/claude-seed"
 check "the seed mount point really is empty" \
   test -z "$(ls -A "$CASE/share/claude-seed")"
@@ -233,6 +243,14 @@ check "no npm invocation happened — agentBrowserChrome's non-empty default is 
   test ! -s "$WORK/c1/npm.log"
 check "the CLI install ran as the configured remote user" \
   grep -qxF "$(id -un)" "$WORK/c1/runuser_user.log"
+# A real `runuser -l`/`su -` is a *login* shell and clears the environment, so the manifest's
+# baked CLAUDE_CONFIG_DIR ENV never reaches the installer — and the Claude installer ends by
+# running `claude install`, which writes .claude.json wherever that variable points. install.sh
+# re-exports it, derived from the remote user's home. Without that the image would ship a
+# build-time ~/.claude.json beside the volume, which is exactly what this Feature stopped doing.
+# The decoy value in setup() is what makes this an assertion about the export, not the ambient env.
+check "the Claude installer saw CLAUDE_CONFIG_DIR pointing into the remote user's ~/.claude" \
+  grep -qxF "claude CLAUDE_CONFIG_DIR=$WORK/c1/home/.claude" "$WORK/c1/installer_env.log"
 
 echo "case 2: installCopilotCli=true — both CLIs land"
 setup c2 INSTALLCOPILOTCLI=true
