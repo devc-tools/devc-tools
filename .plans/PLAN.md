@@ -107,7 +107,7 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
   default bare `{}` case (assertions: `godot --version` and `godot --headless --version`
   succeed identically with no display server anywhere in the image, `fontconfig` installed,
   the `.godot` volume mounted and chowned) and `test/scenarios.json`'s `pinned_version`
-  (`version: "4.7.2"`, asserting the *installed* binary reports exactly that version
+  (`version: "4.7.2"`, asserting the _installed_ binary reports exactly that version
   independent of whatever `"latest"` resolves to that day) and `project_dir` (the volume
   staying at the workspace root rather than following `projectDir`, mirroring
   node-nvmrc's `project_subdir` scenario — the create-time warning's exact text is asserted
@@ -1802,4 +1802,4 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
 | devc injects `devc-config` — the baseline reaches project-mode containers too (renamed from `project-hook`) | [devc-inject-project-hook](archived/devc-inject-project-hook.md)                   | complete |
 | `node-nvmrc` 0.2.0 — `containerEnv` PATH pin for every process; drop the `cd` hook                          | [feature-node-nvmrc-container-wide](archived/feature-node-nvmrc-container-wide.md) | complete |
 | devc surfaces the container's agent to Herdr — rotating `HERDR_AGENT` sidecar                               | [herdr-agent-sidecar](archived/herdr-agent-sidecar.md)                             | complete |
-| Keepawake ping telemetry — measure inter-ping gaps before touching the idle timeout                        | [keepawake-ping-telemetry](keepawake-ping-telemetry.md)                            |          |
+| Keepawake ping telemetry — measure inter-ping gaps before touching the idle timeout                         | [keepawake-ping-telemetry](keepawake-ping-telemetry.md)                            |          |

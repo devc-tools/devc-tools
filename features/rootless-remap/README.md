@@ -16,12 +16,12 @@ No options, no `runArgs`, no mount. Keep `remoteUser` as it is (`vscode`, say).
 
 ## The problem it solves
 
-Under rootless Docker, `dockerd` runs inside a user namespace: container uid **0** is *your*
+Under rootless Docker, `dockerd` runs inside a user namespace: container uid **0** is _your_
 uid on the host, and container uids 1 and up map to your `/etc/subuid` range (host uid
 100000+). Your project's bind mount is therefore owned by container **root** inside, and the
 conventional `vscode` user (container uid 1000, a host uid you do not own) cannot write a
 single project file. There is no other container identity that owns the mount, so the remote
-user has to *be* uid 0 there — and making it plain `root` changes `$HOME`, breaks every
+user has to _be_ uid 0 there — and making it plain `root` changes `$HOME`, breaks every
 Feature that assumes `/home/vscode`, and puts `root` in a config you also use on your Mac.
 
 ## What it does
@@ -58,16 +58,16 @@ the host.
 
 ## What you will notice
 
-| | rootful host (Mac, native Docker) | rootless Linux |
-| --- | --- | --- |
-| `id` | `uid=1000(vscode)` | `uid=0(vscode) gid=0(root)` |
-| `$HOME` | `/home/vscode` | `/home/vscode` |
-| `sudo` | asks nothing, as before | a no-op |
-| files you create, on the host | owned by you | owned by you |
+|                               | rootful host (Mac, native Docker) | rootless Linux              |
+| ----------------------------- | --------------------------------- | --------------------------- |
+| `id`                          | `uid=1000(vscode)`                | `uid=0(vscode) gid=0(root)` |
+| `$HOME`                       | `/home/vscode`                    | `/home/vscode`              |
+| `sudo`                        | asks nothing, as before           | a no-op                     |
+| files you create, on the host | owned by you                      | owned by you                |
 
 Inside a rootless devcontainer you are effectively root: tools that refuse to run as root
 will complain, and `sudo` no longer stands between a misbehaving script and the container's
-system files. None of that reaches the host — container root *is* your unprivileged host
+system files. None of that reaches the host — container root _is_ your unprivileged host
 account there, which is the whole point of rootless Docker.
 
 ## Security

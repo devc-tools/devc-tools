@@ -26,7 +26,7 @@ this plan copies that Feature's volume shape line for line.
 ## Existing touchpoints
 
 - `features/node-nvmrc/` — the template this plan follows most closely: a Feature that
-  installs nothing itself (there it drives an nvm the *node* Feature installs; here
+  installs nothing itself (there it drives an nvm the _node_ Feature installs; here
   `install.sh` does the installing directly) and declares one `${devcontainerId}`-keyed
   volume at a workspace-relative path, with the same `projectDir`-can't-move-the-mount
   caveat and recipe.
@@ -92,8 +92,8 @@ this plan copies that Feature's volume shape line for line.
   `$VERSION`, `$INSTALLDEPENDENCIES`, `$PROJECTDIR`, `$FIXGODOTDIROWNERSHIP`. Booleans
   arrive as the strings `"true"`/`"false"`.
 - **No `DEVC_TOOLS_RELEASE`-style pin.** That convention
-  (`features/CONTRIBUTING.md`'s "Release pins") names a *devc-tools* release this repo
-  controls; `version: "latest"` here tracks an *upstream* project's releases instead, which
+  (`features/CONTRIBUTING.md`'s "Release pins") names a _devc-tools_ release this repo
+  controls; `version: "latest"` here tracks an _upstream_ project's releases instead, which
   is what the `version` option is for. Do not conflate the two — this Feature has no
   devc-tools release to pin.
 - **No `installsAfter`.** Unlike node-nvmrc (which orders behind a node Feature it does not
@@ -132,7 +132,7 @@ Feature's `install.sh` runs exactly once per image build.
    installed.
 6. **Ensure `unzip` exists.** Unlike node-nvmrc's nvm (an optional prerequisite this
    Feature documents rather than installs), `unzip` is load-bearing for what this Feature
-   *is* — `apt-get update && apt-get install -y --no-install-recommends unzip` when
+   _is_ — `apt-get update && apt-get install -y --no-install-recommends unzip` when
    `command -v unzip` fails, not a warn-and-skip.
 7. **Install layout**, mirroring devc-bridge's namespace:
    `/usr/local/share/devc-features/godot/bin/godot` (the renamed single file), `0755`,
@@ -181,7 +181,7 @@ fi
 ## Concept boundaries
 
 - **`.godot/` (this Feature's volume) vs. `~/.config/godot/` and `~/.local/share/godot/`.**
-  The latter two hold the *global* editor settings and the export-template cache — neither
+  The latter two hold the _global_ editor settings and the export-template cache — neither
   is project-local, neither is what the user asked to be mounted, and this Feature declares
   no volume for either. They are container-local and reset on rebuild, same as any other
   unmounted dotfile; out of scope here, not silently different from what was asked.
@@ -193,7 +193,7 @@ fi
   devc's own baseline namespace; no Feature writes into it (see node-nvmrc's identical
   note).
 - **`version` here is an upstream Godot release, not this Feature's own `version` field.**
-  The manifest's `"version": "0.1.0"` is this Feature's, bumped when *this Feature* changes;
+  The manifest's `"version": "0.1.0"` is this Feature's, bumped when _this Feature_ changes;
   the option resolves a `godotengine/godot` tag and can move (via a rebuild) without this
   Feature changing at all.
 
@@ -279,7 +279,7 @@ fi
   per-platform download (the templates archive bundles export binaries for every export
   platform) that most headless import/test/CI use of this Feature will never need.
 - **The editor GUI.** Nothing here sets up X11/Wayland forwarding, VNC, or any of the
-  libraries the *interactive* editor needs beyond what `installDependencies` already
+  libraries the _interactive_ editor needs beyond what `installDependencies` already
   installs for headless use. A consumer who wants the GUI provides their own display
   forwarding the same way any other GUI-in-a-devcontainer setup does; this Feature does not
   gate on it either way.

@@ -1121,32 +1121,38 @@ The fixture (`devc-dev`: `docs/rootless-nested-e2e/zero-caps/devcontainer.json` 
 {
   "image": "mcr.microsoft.com/devcontainers/base:ubuntu-24.04",
   "remoteUser": "vscode",
-  "features": { "./rootless-remap": {}, "./podman-as-docker": { "rootlessNetworkCmd": "slirp4netns" } },
-  "runArgs": ["--security-opt", "seccomp=${localWorkspaceFolder}/.devcontainer/seccomp-podman.json",
-              "--device=/dev/net/tun"]
+  "features": {
+    "./rootless-remap": {},
+    "./podman-as-docker": { "rootlessNetworkCmd": "slirp4netns" }
+  },
+  "runArgs": [
+    "--security-opt",
+    "seccomp=${localWorkspaceFolder}/.devcontainer/seccomp-podman.json",
+    "--device=/dev/net/tun"
+  ]
 }
 ```
 
 No `capAdd`, no `containerEnv`, `updateRemoteUserUID` at its default. What the two hosts showed
 (V-numbers are the plan's):
 
-| Check | rootless VM | macOS Docker Desktop |
-| --- | --- | --- |
-| V-2 `docker inspect … .HostConfig.CapAdd` | `[]` | `[]` |
-| V-2 `CapBnd` inside, `capsh --decode` | `00000000a80425fb`, no `cap_sys_admin` | same |
-| V-2 `SecurityOpt` entries / `MaskedPaths` | 2 (seccomp JSON, apparmor) / 0 | 2 / 0 |
-| `id` under `devcontainer exec` | `uid=0(vscode) gid=0(root)`, `HOME=/home/vscode` | `uid=1000(vscode)` |
-| build log | `rootless-remap: vscode remapped to uid 0/gid 0 (was 1000); home /home/vscode kept` · `uid 1000 held by devc-uid-hold` · `podman-as-docker: nested on a rootless daemon (container uid 0 is host uid 1000)` | `rootless-remap: rootful daemon (identity uid map) — nothing to remap` |
-| `podman info` | `rootless=true runtime=runc driver=overlay` | `rootless=true runtime=runc driver=overlay` |
-| V-3 (1) edit an existing `644` workspace file | OK | OK |
-| V-3 (2) file created by the remote user, on the host | `ubuntu:ubuntu` | the Mac user |
-| V-3 (3) `docker run` private netns; nested `uid_map` | OK; `0 1000 1 / 1 10000 50001` | OK; `0 1000 1 / 1 100000 65536` |
-| V-3 (3) egress; run via `podman --url $DOCKER_HOST` | OK; `0` | OK; `0` |
-| V-3 (4) nested write into a `755` dir, shim and socket; host owner; `chmod`/`rm` on host | OK; `ubuntu:ubuntu`; OK | OK; the Mac user; OK |
-| V-3 `docker build`; created network + name DNS | `built`; nginx title | `built`; nginx title |
-| V-4 second `devcontainer exec` sees the first's container; runs | yes; OK | — |
-| V-4 `docker stop`/`start`, `devcontainer up`, run + socket | OK, holder pid re-created | — |
-| runc state dir in the nested config | `/run/user/1000/runc` only (the wrapper drops `USER`; see V-5) | n/a |
+| Check                                                                                    | rootless VM                                                                                                                                                                                                 | macOS Docker Desktop                                                   |
+| ---------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
+| V-2 `docker inspect … .HostConfig.CapAdd`                                                | `[]`                                                                                                                                                                                                        | `[]`                                                                   |
+| V-2 `CapBnd` inside, `capsh --decode`                                                    | `00000000a80425fb`, no `cap_sys_admin`                                                                                                                                                                      | same                                                                   |
+| V-2 `SecurityOpt` entries / `MaskedPaths`                                                | 2 (seccomp JSON, apparmor) / 0                                                                                                                                                                              | 2 / 0                                                                  |
+| `id` under `devcontainer exec`                                                           | `uid=0(vscode) gid=0(root)`, `HOME=/home/vscode`                                                                                                                                                            | `uid=1000(vscode)`                                                     |
+| build log                                                                                | `rootless-remap: vscode remapped to uid 0/gid 0 (was 1000); home /home/vscode kept` · `uid 1000 held by devc-uid-hold` · `podman-as-docker: nested on a rootless daemon (container uid 0 is host uid 1000)` | `rootless-remap: rootful daemon (identity uid map) — nothing to remap` |
+| `podman info`                                                                            | `rootless=true runtime=runc driver=overlay`                                                                                                                                                                 | `rootless=true runtime=runc driver=overlay`                            |
+| V-3 (1) edit an existing `644` workspace file                                            | OK                                                                                                                                                                                                          | OK                                                                     |
+| V-3 (2) file created by the remote user, on the host                                     | `ubuntu:ubuntu`                                                                                                                                                                                             | the Mac user                                                           |
+| V-3 (3) `docker run` private netns; nested `uid_map`                                     | OK; `0 1000 1 / 1 10000 50001`                                                                                                                                                                              | OK; `0 1000 1 / 1 100000 65536`                                        |
+| V-3 (3) egress; run via `podman --url $DOCKER_HOST`                                      | OK; `0`                                                                                                                                                                                                     | OK; `0`                                                                |
+| V-3 (4) nested write into a `755` dir, shim and socket; host owner; `chmod`/`rm` on host | OK; `ubuntu:ubuntu`; OK                                                                                                                                                                                     | OK; the Mac user; OK                                                   |
+| V-3 `docker build`; created network + name DNS                                           | `built`; nginx title                                                                                                                                                                                        | `built`; nginx title                                                   |
+| V-4 second `devcontainer exec` sees the first's container; runs                          | yes; OK                                                                                                                                                                                                     | —                                                                      |
+| V-4 `docker stop`/`start`, `devcontainer up`, run + socket                               | OK, holder pid re-created                                                                                                                                                                                   | —                                                                      |
+| runc state dir in the nested config                                                      | `/run/user/1000/runc` only (the wrapper drops `USER`; see V-5)                                                                                                                                              | n/a                                                                    |
 
 **V-5** — `remoteUser: root`, `podman-as-docker` alone (no remap), rootless VM: the first run
 failed every `docker run` with `` `/usr/bin/runc start …` failed: exit status 1 `` and
@@ -1209,11 +1215,11 @@ written with an empty holder directory because `SOCKET_DIR` was defined further 
 `… --base-image mcr.microsoft.com/devcontainers/base:ubuntu-24.04 --skip-scenarios`, then
 `bash features/rootless-remap/test/run-features-test.sh --base-image …ubuntu-24.04`:
 
-| Suite | macOS Docker Desktop | rootless VM |
-| --- | --- | --- |
-| five scenarios | ✅ all five (`zero_caps`: bounding set without `cap_sys_admin`, `CapEff 0`, `Seccomp: 2`, run/egress/build/name DNS/API socket) | ✅ all five (the non-root nested path: remote user uid 1000, no remap) |
-| default scenario (build-only checks) | ✅ | ✅ |
-| `rootless-remap` default scenario | ✅ rootful branch: no marker, not uid 0, no placeholder, silent guard | ✅ rootless branch: marker, `uid 0`, own name and home, placeholder holds host uid, guard exits 0 |
+| Suite                                | macOS Docker Desktop                                                                                                            | rootless VM                                                                                       |
+| ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| five scenarios                       | ✅ all five (`zero_caps`: bounding set without `cap_sys_admin`, `CapEff 0`, `Seccomp: 2`, run/egress/build/name DNS/API socket) | ✅ all five (the non-root nested path: remote user uid 1000, no remap)                            |
+| default scenario (build-only checks) | ✅                                                                                                                              | ✅                                                                                                |
+| `rootless-remap` default scenario    | ✅ rootful branch: no marker, not uid 0, no placeholder, silent guard                                                           | ✅ rootless branch: marker, `uid 0`, own name and home, placeholder holds host uid, guard exits 0 |
 
 The VM `rootless-remap` scenario first failed `owned by root`: with the remapped user first in
 `/etc/passwd`, `stat -c %U` on a root-owned file prints `vscode`. Both default scenarios compare
@@ -1330,7 +1336,7 @@ From `agents-seed-opt-in`, which made devc bind-mount `~/.config/devc/.claude`
 onto `/home/vscode/.claude` — the **same target** the `agents` Feature's own
 declared volume names. `devc-core`'s `dedupeMounts` (`merge.ts`) collapses
 same-target entries keeping the later layer, so the consumer's bind is expected
-to supersede the Feature's volume. §12 measured what *substitutes* inside a
+to supersede the Feature's volume. §12 measured what _substitutes_ inside a
 Feature's `mounts`; nothing has yet measured what happens when a consumer and a
 Feature both claim one target, which is the shape every one of devc's four
 Claude-home configurations now rests on.
@@ -1379,7 +1385,7 @@ Add to the project's `devc.jsonc`:
 
 With row 1 active and a `devc:skills` mount at
 `/home/vscode/.claude/skills/<name>`, Docker materializes the intermediate
-`skills/` directory *inside the bind*, which means inside the host directory.
+`skills/` directory _inside the bind_, which means inside the host directory.
 
 - **M8** On the **host**, `~/.config/devc/.claude/skills/` is owned by the host
   user, not root, and `rmdir` removes it without `sudo`. §14's M4 is the

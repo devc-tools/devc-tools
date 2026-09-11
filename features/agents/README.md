@@ -28,10 +28,10 @@ the volume with everything else. The seed itself is **opt-in** — see
 | `installCopilotCli`   | `false`       | Install the GitHub Copilot CLI too.                                                                                                                                                                                                                                                                                                                 |
 | `installPiCli`        | `false`       | Install the pi coding agent CLI too. **Requires Node.js in the image** — see [Node.js and pi](#nodejs-and-pi).                                                                                                                                                                                                                                      |
 | `installHerdr`        | `false`       | Install the Herdr terminal multiplexer too. Ships a static binary — no extra prerequisite.                                                                                                                                                                                                                                                          |
-| `piPackages`          | `""`          | Comma-separated pi package sources to install at container **create** time. **Requires `installPiCli: true`** — see [Packages and plugins](#packages-and-plugins).                                                                                                                                                                                 |
-| `herdrPlugins`        | `""`          | Comma-separated Herdr plugins, in GitHub shorthand (`owner/repo[/subdir]`), installed at container **create** time. **Requires `installHerdr: true`**.                                                                                                                                                                                             |
+| `piPackages`          | `""`          | Comma-separated pi package sources to install at container **create** time. **Requires `installPiCli: true`** — see [Packages and plugins](#packages-and-plugins).                                                                                                                                                                                  |
+| `herdrPlugins`        | `""`          | Comma-separated Herdr plugins, in GitHub shorthand (`owner/repo[/subdir]`), installed at container **create** time. **Requires `installHerdr: true`**.                                                                                                                                                                                              |
 | `installAgentBrowser` | `false`       | Install the [agent-browser](https://agent-browser.dev) CLI too. Installs with npm — see [Node.js and pi](#nodejs-and-pi); unlike pi, what lands on `PATH` is a native binary, not a node script — see [Why agent-browser does not have pi's `.nvmrc` problem](#why-agent-browser-does-not-have-pis-nvmrc-problem).                                  |
-| `claudeSeed`          | `false`       | Link every top-level file from the fixed seed directory into `~/.claude` at create time. Off by default — see [The config seed](#the-config-seed-claudeseed). |
+| `claudeSeed`          | `false`       | Link every top-level file from the fixed seed directory into `~/.claude` at create time. Off by default — see [The config seed](#the-config-seed-claudeseed).                                                                                                                                                                                       |
 | `agentBrowserChrome`  | `"with-deps"` | What `agent-browser install` does at build time: also apt-install the Linux libraries Chrome needs (`"with-deps"`), download Chrome only (`"browser-only"`), or install no browser (`"none"`). **Read only when `installAgentBrowser: true`**, silently ignored otherwise — see [agent-browser's Chrome download](#agent-browsers-chrome-download). |
 
 That is the whole option surface — there are no path options. Every path this Feature
@@ -49,11 +49,11 @@ defaults true.
 Three paths, three lifetimes. Getting one confused for another is the whole failure mode
 this Feature exists to prevent:
 
-| Path                                                | What it is                                                                                               | Lifetime                                                            |
-| --------------------------------------------------- | -------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- |
-| `~/.claude`                                         | Claude Code's own state — `projects/`, `todos/`, credentials, settings, and `.claude.json`.              | Backed by a volume this Feature declares, so it survives a rebuild. |
+| Path                                                | What it is                                                                                                                          | Lifetime                                                            |
+| --------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- |
+| `~/.claude`                                         | Claude Code's own state — `projects/`, `todos/`, credentials, settings, and `.claude.json`.                                         | Backed by a volume this Feature declares, so it survives a rebuild. |
 | `/usr/local/share/devc-features/agents/claude-seed` | **Fixed.** Where you bind-mount your own host config, if you opt into `claudeSeed`. Created empty; this Feature only ever reads it. | Same as your bind mount; empty and harmless if you mount none.      |
-| a host seed directory                               | **Your** config — `CLAUDE.md`, `settings.json`, `statusline.sh`. The one thing you decide, with a mount. | Lives on your host; the container only ever reads it.               |
+| a host seed directory                               | **Your** config — `CLAUDE.md`, `settings.json`, `statusline.sh`. The one thing you decide, with a mount.                            | Lives on your host; the container only ever reads it.               |
 
 `.claude.json` lives _inside_ `~/.claude`, not beside it, because this Feature sets
 `CLAUDE_CONFIG_DIR` — see [`.claude.json`](#claudejson).
@@ -91,7 +91,7 @@ Code writes it inside `~/.claude` on its own.
 
 Every skip path in steps 1-3 exits `0`. A failing `postCreateCommand` aborts container
 creation, and none of those skips is worth an unbootable container. Step 4 is the one
-exception with teeth: install.sh still hard-fails the *build* if `piPackages`/
+exception with teeth: install.sh still hard-fails the _build_ if `piPackages`/
 `herdrPlugins` is set without its CLI option, exactly as before — only the actual fetch
 moved, not the validation.
 
@@ -123,7 +123,7 @@ Two rules govern what it does:
 One caveat if `~/.claude` is itself a bind mount of a host directory: the links this
 writes point at a **container** path, so they show up as broken symlinks when you open
 that directory on your host. That combination is legal but rarely what you want — with a
-bind in place, the host directory *is* your Claude home, and a seed can only supply names
+bind in place, the host directory _is_ your Claude home, and a seed can only supply names
 that are not already in it.
 
 ### The `claude-seed` / `herdr` naming asymmetry is deliberate
@@ -133,7 +133,7 @@ is **unconditional and has no option**, and the two are named differently on the
 in devc's own config (`~/.config/devc/claude-seed` beside `~/.config/devc/herdr`). This is
 not an oversight to tidy up later. `~/.claude` is a mount — a volume, or whatever a
 consumer put there — so writing symlinks into it is something to ask permission for.
-`~/.config/herdr` is deliberately *not* a mount: it holds live per-container runtime state
+`~/.config/herdr` is deliberately _not_ a mount: it holds live per-container runtime state
 (`herdr.sock`, `herdr-client.sock`, `herdr-server.log`, `plugins/`, `plugins.json`,
 `session.json`), so binding a host directory over it would be actively harmful, and a flag
 there would have nothing to protect.
@@ -372,14 +372,14 @@ comma, or stray whitespace — are dropped, so a messy value is harmless.
 
 Neither `~/.pi` nor `~/.config/herdr` is a mount — that part hasn't changed, and still
 means anything either CLI writes is gone on the next full rebuild either way. What moved
-is *when* the actual install runs, because build time had a real staleness bug: a
+is _when_ the actual install runs, because build time had a real staleness bug: a
 build-time install sits inside a Docker `RUN` layer, and Docker's build cache keys that
 layer on the instruction text and the option value. An unchanged `herdrPlugins`/
 `piPackages` string on a plain "Rebuild Container" (not "Rebuild Without Cache") is a
 cache hit — Docker never re-executes the layer, so you silently keep whatever commit was
-cloned the *last time that layer actually ran*, even if a `git:` source's default branch
+cloned the _last time that layer actually ran_, even if a `git:` source's default branch
 (or an `npm:` source floating on `latest`) has moved on since. `postCreateCommand` is not
-a Docker layer at all — it unconditionally reruns on every container *creation*, which is
+a Docker layer at all — it unconditionally reruns on every container _creation_, which is
 exactly what "Rebuild Container" performs (destroy the container, create a new one from
 the image) — so a create-time install always re-resolves each source's current tip, with
 no ref to pin and no `--no-cache` rebuild needed to see it.

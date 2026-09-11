@@ -50,9 +50,9 @@ event label. Record there, and record expiry inside `Keepawake`.
 **Enablement.** Opt-in, via a new env var read once at launch alongside the existing
 keepawake config in `host/config.ts`:
 
-| Env var | Default | Meaning |
-| --- | --- | --- |
-| `DEVC_BRIDGE_PING_LOG` | unset | Absolute path to the JSONL log. **Unset disables logging entirely** — no file is created and the ping path is unchanged. |
+| Env var                | Default | Meaning                                                                                                                  |
+| ---------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `DEVC_BRIDGE_PING_LOG` | unset   | Absolute path to the JSONL log. **Unset disables logging entirely** — no file is created and the ping path is unchanged. |
 
 Unset-means-off is deliberate: this is diagnostic instrumentation, not a feature, and
 a bridge that silently starts writing an unbounded file on every user's machine is
@@ -67,15 +67,15 @@ not acceptable. Config is read once at launch, so enabling it means
 {"t":"2026-09-04T21:00:00.000Z","type":"start","label":null,"gapMs":null,"armedBefore":false,"remainingMsBefore":0,"idleMs":300000}
 ```
 
-| Field | Type | Definition |
-| --- | --- | --- |
-| `t` | string | `new Date().toISOString()` — UTC, millisecond precision |
-| `type` | string | `"ping"`, `"expire"`, or `"start"` (one `start` per bridge launch) |
-| `label` | string \| null | `args[0]` as passed by the client; `null` when the client sent none |
-| `gapMs` | number \| null | ms since the previous `ping` record **of any label**; `null` for the first ping after a `start` |
-| `armedBefore` | boolean | whether the keepalive was already armed when this ping arrived |
-| `remainingMsBefore` | number | ms left on the timer at ping time; `0` when not armed |
-| `idleMs` | number | **`start` records only** — the configured timeout, so a log is self-describing |
+| Field               | Type           | Definition                                                                                      |
+| ------------------- | -------------- | ----------------------------------------------------------------------------------------------- |
+| `t`                 | string         | `new Date().toISOString()` — UTC, millisecond precision                                         |
+| `type`              | string         | `"ping"`, `"expire"`, or `"start"` (one `start` per bridge launch)                              |
+| `label`             | string \| null | `args[0]` as passed by the client; `null` when the client sent none                             |
+| `gapMs`             | number \| null | ms since the previous `ping` record **of any label**; `null` for the first ping after a `start` |
+| `armedBefore`       | boolean        | whether the keepalive was already armed when this ping arrived                                  |
+| `remainingMsBefore` | number         | ms left on the timer at ping time; `0` when not armed                                           |
+| `idleMs`            | number         | **`start` records only** — the configured timeout, so a log is self-describing                  |
 
 `gapMs` computed host-side is the whole point: it is the quantity the timeout has to
 exceed, and computing it at write time avoids any clock-skew or ordering question in
@@ -135,7 +135,7 @@ closes it; a trailing gap is reported as `expiries`, not as a max.
 
 1. `DEVC_BRIDGE_PING_LOG=~/.config/devc-bridge/state/ping-log.jsonl devc-bridge restart`
 2. Work normally for **at least five working days**, including at least one long build
-   in a session Herdr is *not* watching — that is the case the 300 s exists for, and a
+   in a session Herdr is _not_ watching — that is the case the 300 s exists for, and a
    log without it cannot justify keeping or lowering the value.
 3. `deno task report` and record the outcome in `## Findings`.
 
@@ -153,12 +153,12 @@ global compromise: `bridge-keepawake` asks for ~60 s (it pings every 2 s), hooks
 for more when they are the only pinger. Two design points already settled:
 
 - **Deadlines, not timer resets.** A per-ping TTL layered on the current
-  `clearTimeout`/`setTimeout` model lets a frequent short-cushion client *shorten*
+  `clearTimeout`/`setTimeout` model lets a frequent short-cushion client _shorten_
   what a coarse client asked for. The correct model is
   `deadline = max(deadline, now + clamp(ttl))` — a ping only ever extends.
 - **Leases, for `PreToolUse`/`PostToolUse` bracketing.** Because those hooks bracket a
   tool call, `PostToolUse` can hand back a long cushion the moment it is no longer
-  needed. Shortening is only safe if a caller can move *its own* entry and no one
+  needed. Shortening is only safe if a caller can move _its own_ entry and no one
   else's, so leases must be keyed — `session_id` from the hook JSON is the natural
   key and is already parsed by the seed's other hooks. `PostToolUse` should
   **downgrade, not release**, or protection drops to zero between tool calls.
@@ -166,21 +166,30 @@ for more when they are the only pinger. Two design points already settled:
   container can. An unbounded requested TTL is an unbounded keepawake.
 
 The open question the telemetry answers first: what a `PostToolUse` downgrade should
-downgrade *to*. That value is set by model think-time between tool calls, which is
+downgrade _to_. That value is set by model think-time between tool calls, which is
 one of the gaps this log measures.
 
 ## Checklist
 
-- [ ] 1. `DEVC_BRIDGE_PING_LOG` parsed in `host/config.ts`, unset = disabled
-- [ ] 2. `ping` and `expire` records written from `host/core.ts` / `host/keepawake.ts`,
-      with `gapMs` computed at write time
-- [ ] 3. One `start` record per launch, carrying `idleMs`
-- [ ] 4. 8 MB rotation to `<path>.1`, one generation
-- [ ] 5. Logging failures swallowed after one `log()` line; ping response unaffected
-- [ ] 6. `host/tools/ping-report.ts` + `deno task report`, human and `--json` output
-- [ ] 7. README: the env var, the record format, and that it is opt-in diagnostics
-- [ ] 8. `docs/testing.md`: how to enable and what to collect
-- [ ] 9. Five-day run recorded in `## Findings`
+-
+  1. [ ] `DEVC_BRIDGE_PING_LOG` parsed in `host/config.ts`, unset = disabled
+-
+  2. [ ] `ping` and `expire` records written from `host/core.ts` / `host/keepawake.ts`,
+         with `gapMs` computed at write time
+-
+  3. [ ] One `start` record per launch, carrying `idleMs`
+-
+  4. [ ] 8 MB rotation to `<path>.1`, one generation
+-
+  5. [ ] Logging failures swallowed after one `log()` line; ping response unaffected
+-
+  6. [ ] `host/tools/ping-report.ts` + `deno task report`, human and `--json` output
+-
+  7. [ ] README: the env var, the record format, and that it is opt-in diagnostics
+-
+  8. [ ] `docs/testing.md`: how to enable and what to collect
+-
+  9. [ ] Five-day run recorded in `## Findings`
 
 ## Validation
 

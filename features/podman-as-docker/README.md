@@ -42,7 +42,7 @@ not Podman's requirements, and 0.2.0 removes both:
   other rule stays. A Feature cannot apply it for you: the Docker CLI reads the file on the
   host, which is why it lives in your repo and in your `runArgs`.
 - **Ubuntu's `newuidmap` is setuid root.** Writing a namespace's uid map needs
-  `CAP_SYS_ADMIN` *over that namespace*; its creator has that as the owner, but a setuid-root
+  `CAP_SYS_ADMIN` _over that namespace_; its creator has that as the owner, but a setuid-root
   helper runs as root, and container root only has it if the container was granted
   `SYS_ADMIN`. `install.sh` gives `newuidmap`/`newgidmap` file capabilities
   (`cap_setuid`/`cap_setgid`) and removes the setuid bit, so they keep the caller's uid and
@@ -50,20 +50,20 @@ not Podman's requirements, and 0.2.0 removes both:
 
 What the Feature still declares, and what each costs:
 
-| Declared | Needed on | What it opens |
-| --- | --- | --- |
-| `securityOpt: systempaths=unconfined` | every host | Removes Docker's read-only masking of `/proc/sys` and neighbours. Required: without it the nested runtime cannot mount a fresh `proc` (the kernel only allows an unprivileged `proc` mount when an existing one is fully visible). With no capability in the container this is mostly information exposure — the kernel's own permission checks on `/proc/sys` remain, and nothing here can pass them. |
-| `securityOpt: apparmor=unconfined` | rootful native Linux only | Removes the `docker-default` AppArmor profile, whose blanket `deny mount` blocks Podman's storage setup there. A no-op on Docker Desktop (no AppArmor) and on rootless daemons. |
-| your `runArgs`: the seccomp profile | every host | Allows user-namespace creation and the mount syscalls **inside** namespaces the container owns — what any unprivileged user on a stock Linux desktop can do. It is a larger kernel attack surface than a default devcontainer (unprivileged user namespaces have been the entry point for several past kernel privilege-escalation bugs, which is why some distributions restrict them), but an escape once again needs a kernel bug rather than a known technique. |
-| your `runArgs`: `--device=/dev/net/tun` | only with private nested networking | A tun device. Low risk. |
+| Declared                                | Needed on                           | What it opens                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| --------------------------------------- | ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `securityOpt: systempaths=unconfined`   | every host                          | Removes Docker's read-only masking of `/proc/sys` and neighbours. Required: without it the nested runtime cannot mount a fresh `proc` (the kernel only allows an unprivileged `proc` mount when an existing one is fully visible). With no capability in the container this is mostly information exposure — the kernel's own permission checks on `/proc/sys` remain, and nothing here can pass them.                                                              |
+| `securityOpt: apparmor=unconfined`      | rootful native Linux only           | Removes the `docker-default` AppArmor profile, whose blanket `deny mount` blocks Podman's storage setup there. A no-op on Docker Desktop (no AppArmor) and on rootless daemons.                                                                                                                                                                                                                                                                                     |
+| your `runArgs`: the seccomp profile     | every host                          | Allows user-namespace creation and the mount syscalls **inside** namespaces the container owns — what any unprivileged user on a stock Linux desktop can do. It is a larger kernel attack surface than a default devcontainer (unprivileged user namespaces have been the entry point for several past kernel privilege-escalation bugs, which is why some distributions restrict them), but an escape once again needs a kernel bug rather than a known technique. |
+| your `runArgs`: `--device=/dev/net/tun` | only with private nested networking | A tun device. Low risk.                                                                                                                                                                                                                                                                                                                                                                                                                                             |
 
 The honest comparison, then:
 
-| Approach | What it grants | Cost of abuse |
-| --- | --- | --- |
-| `docker-outside-of-docker` | the host Docker API | **Immediate, trivial, total.** `docker run -v /:/host alpine chroot /host sh`. No exploit required. |
-| `docker-in-docker` | `--privileged` — all caps, all devices, no seccomp, no AppArmor | Immediate and total, by a slightly longer road. |
-| `podman-as-docker` ≤ 0.1.x | `CAP_SYS_ADMIN` + `seccomp=unconfined` + the two above | Escape by known technique; the devcontainer should be treated as running as you on the machine. |
+| Approach                     | What it grants                                                   | Cost of abuse                                                                                                            |
+| ---------------------------- | ---------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `docker-outside-of-docker`   | the host Docker API                                              | **Immediate, trivial, total.** `docker run -v /:/host alpine chroot /host sh`. No exploit required.                      |
+| `docker-in-docker`           | `--privileged` — all caps, all devices, no seccomp, no AppArmor  | Immediate and total, by a slightly longer road.                                                                          |
+| `podman-as-docker` ≤ 0.1.x   | `CAP_SYS_ADMIN` + `seccomp=unconfined` + the two above           | Escape by known technique; the devcontainer should be treated as running as you on the machine.                          |
 | **`podman-as-docker` 0.2.0** | **no capability**; the seccomp allowance and `systempaths` above | Escape needs a kernel bug. Roughly a plain devcontainer's boundary, with unprivileged user namespaces enabled inside it. |
 
 `seccomp=unconfined` is gone: the profile keeps Docker's filter for everything Podman does
@@ -193,7 +193,7 @@ the identity map) that it is nested inside a user namespace, and configures itse
   because images routinely carry uid 65534 (`nobody`) and a smaller block fails `docker pull`
   with `potentially insufficient UIDs or GIDs available in user namespace`;
 - runc invoked through a wrapper that removes `USER` from its environment. runc keeps
-  container state under `$XDG_RUNTIME_DIR` for in-namespace root *unless* `$USER` is `root`,
+  container state under `$XDG_RUNTIME_DIR` for in-namespace root _unless_ `$USER` is `root`,
   and podman hands `runc create` the caller's environment but `runc start` a minimal one — so
   with a remote user literally named `root` (VS Code sets `USER=root`) every start failed with
   `container does not exist`. Without `USER`, both sides honour `XDG_RUNTIME_DIR`, which podman
@@ -251,7 +251,7 @@ reach the running container. This shows up if something strips or overrides Feat
 `securityOpt`. Confirm with `cat /proc/self/attr/current`; `docker-default (enforce)` means the
 flag did not take.
 
-**`crun: mount `proc` to `proc`: Operation not permitted`** (or runc's `error mounting "proc"`)
+**`crun: mount`proc`to`proc`: Operation not permitted`** (or runc's `error mounting "proc"`)
 — `systempaths=unconfined` did not reach the container. Same diagnosis: something stripped the
 Feature's `securityOpt`.
 
