@@ -39,5 +39,20 @@
       },
       "node-nvmrc": {}
     }
+  },
+  "project_subdir_volume": {
+    "image": "mcr.microsoft.com/devcontainers/base:ubuntu",
+    "onCreateCommand": "mkdir -p ${containerWorkspaceFolder}/packages/app && echo 20 > ${containerWorkspaceFolder}/packages/app/.nvmrc",
+    "mounts": [
+      "type=volume,source=node-modules-${devcontainerId}-app,target=${containerWorkspaceFolder}/packages/app/node_modules"
+    ],
+    "features": {
+      "ghcr.io/devcontainers/features/node:1": {
+        "version": "lts"
+      },
+      "node-nvmrc": {
+        "projectDir": "packages/app"
+      }
+    }
   }
 }

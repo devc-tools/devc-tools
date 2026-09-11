@@ -34,6 +34,20 @@ echo "cwd=$PWD args=$*" >> "$SUDO_LOG"
 SUDO
 chmod +x "$BIN/sudo"
 
+# The hook asks mountpoint(1) whether the project's node_modules is really backed by a volume.
+# Nothing offline can create a mount, so the tool is stubbed instead and told what to say:
+# FAKE_MOUNTPOINTS is a colon-separated list of paths that are mount points. Unset — which is
+# every case but one — nothing is, which is the honest answer for a temp directory.
+cat > "$BIN/mountpoint" << 'MP'
+#!/bin/sh
+# fake mountpoint(1) for features/node-nvmrc/test/post_create_test.sh — `mountpoint -q <path>`
+case ":${FAKE_MOUNTPOINTS:-}:" in
+  *":$2:"*) exit 0 ;;
+esac
+exit 1
+MP
+chmod +x "$BIN/mountpoint"
+
 # The real `nvm install` with no arguments resolves .nvmrc from its cwd (walking *up* if it does
 # not find one, which is the behavior the hook's own [ -f .nvmrc ] guard exists to forestall),
 # and exports NVM_BIN because it runs `nvm use` implicitly. Both are reproduced; the walk-up is
@@ -329,6 +343,44 @@ echo 20 > "$WS/.nvmrc"
 run_hook
 check "with the default projectDir the declaration is correct, so nothing is said" bash -c \
   "! grep -q 'declares a node_modules volume' '$WORK/hook.err'"
+
+echo "case 18: a consumer who mounted the volume themselves is not warned at"
+# The warning asks the real question — is $TARGET/node_modules a mount point? — rather than
+# comparing paths against the manifest's declaration, which is what makes it stop once it has
+# been acted on. The consumer's mount is theirs: any source name they like, and a target they
+# may have written through ${containerWorkspaceFolder} rather than literally. None of that is
+# visible from in here, and none of it has to be.
+setup c18 PROJECTDIR=packages/app
+mkdir -p "$WS/packages/app/node_modules"
+echo 20 > "$WS/packages/app/.nvmrc"
+run_hook FAKE_MOUNTPOINTS="$WS/packages/app/node_modules"
+check "the hook still succeeds" test "$status" -eq 0
+check "and says nothing about the declared volume" bash -c \
+  "! grep -q 'declares a node_modules volume' '$WORK/hook.err'"
+check "the rest of the hook still ran" test "$(install_cwd)" = "$WS/packages/app"
+
+# Mounted somewhere else entirely is not mounted *here*: the check is on one exact path, so a
+# volume at the workspace root — which is what the manifest actually declares — must not be
+# mistaken for one backing the project directory.
+run_hook FAKE_MOUNTPOINTS="$WS/node_modules"
+check "a volume at the workspace root does not count as backing the project" \
+  grep -qF "$WS/packages/app/node_modules and is NOT backed by it" "$WORK/hook.err"
+
+echo "case 19: the /proc/self/mountinfo fallback, for an image with no mountpoint(1)"
+# The stub above means the fallback is never reached by the cases that run the hook, so the
+# expression is exercised here directly against real mountinfo. /proc is a mount point in every
+# container; a temp directory is not. The grep is what keeps this honest — it fails if the hook's
+# own fallback is ever reworded away from what this case runs.
+mountinfo_says() { # mountinfo_says [!] <path>
+  local want=0
+  case "$1" in '!') want=1; shift ;; esac
+  awk -v p="$1" '$5 == p { found = 1 } END { exit !found }' /proc/self/mountinfo 2> /dev/null
+  [ "$?" -eq "$want" ]
+}
+check "it finds a real mount point" mountinfo_says /proc
+check "and does not invent one" mountinfo_says '!' "$WORK"
+check "and it is the expression the hook actually falls back to" \
+  grep -qF "'\$5 == p { found = 1 } END { exit !found }' /proc/self/mountinfo" "$HOOK"
 
 echo
 if [ "$fails" -eq 0 ]; then echo "ALL PASS"; else echo "$fails FAILED"; exit 1; fi

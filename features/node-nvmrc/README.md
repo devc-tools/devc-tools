@@ -152,7 +152,8 @@ directory.
 
 **If you set it, mount your own `node_modules` volume where the project is.** The Feature's
 declared volume cannot follow `projectDir`, so it would sit at the workspace root where
-nothing writes to it. The create-time step warns and prints the mount line for you.
+nothing writes to it. The create-time step warns and prints the mount line for you, and
+**stops warning once you have mounted one** — see below.
 
 ## The `node_modules` volume
 
@@ -183,6 +184,13 @@ create-time step warns and gives you the line to paste:
 ```jsonc
 "mounts": ["type=volume,source=node-modules-${devcontainerId},target=${containerWorkspaceFolder}/packages/app/node_modules"]
 ```
+
+The warning then goes away, because it is not checking your `devcontainer.json` — it asks
+whether the project's `node_modules` is **really a mount point**, which is the thing that
+actually matters. So your own mount counts however you spelled it: any `source` name you
+like (a monorepo wanting one volume per package needs distinct names), and a `target`
+written either literally or through `${containerWorkspaceFolder}`. Only a genuinely
+unbacked `node_modules` is reported.
 
 **You cannot remove a declared mount — only override it.** Mounts merge keyed on **target**,
 with your own `devcontainer.json` merged last, so declaring the same target yourself wins

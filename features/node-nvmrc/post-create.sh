@@ -25,6 +25,16 @@ die() {
   exit 1
 }
 
+# Is $1 the target of a mount? Prefers util-linux's mountpoint(1) and falls back to
+# /proc/self/mountinfo (field 5 is the mount point) on an image that lacks it.
+is_mount_point() {
+  if command -v mountpoint > /dev/null 2>&1; then
+    mountpoint -q "$1"
+  else
+    awk -v p="$1" '$5 == p { found = 1 } END { exit !found }' /proc/self/mountinfo 2> /dev/null
+  fi
+}
+
 # --- baked by install.sh from the Feature's options -------------------------------------
 # Kept in `${VAR:-default}` form here so this file is readable and runnable straight out of
 # the repo. install.sh rewrites each of these five lines to the configured literal and fails
@@ -66,8 +76,15 @@ esac
 # The consequence is worth saying out loud rather than leaving to be discovered: with projectDir
 # set, the declared volume sits at the workspace root where nothing writes, and the project's own
 # node_modules is an ordinary directory that does not survive a rebuild. Only the explicitly-set
-# case warns — the empty default is the case the declaration is exactly right for.
-if [ -n "$PROJECT_DIR" ]; then
+# case is checked — the empty default is the case the declaration is exactly right for.
+#
+# What is checked is the real question — is $TARGET/node_modules actually a mount point? — and not
+# whether the manifest's own declaration happens to name it. Nothing here can read the consumer's
+# devcontainer.json, and it does not need to: a consumer who mounted a volume there themselves is
+# recognised as correct however they spelled it, under any source name and whether the target was
+# written out literally or through ${containerWorkspaceFolder}. Fixing the warning is then what
+# silences it, which is the only behavior worth having.
+if [ -n "$PROJECT_DIR" ] && ! is_mount_point "$TARGET/node_modules"; then
   echo "node-nvmrc: this Feature declares a node_modules volume at the workspace root," >&2
   echo "node-nvmrc: but projectDir is '$PROJECT_DIR', so your project's node_modules is at" >&2
   echo "node-nvmrc: $TARGET/node_modules and is NOT backed by it. Add to your mounts:" >&2

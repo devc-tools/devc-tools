@@ -199,9 +199,15 @@ check "no cd() override is written" bash -c "! grep -q 'builtin cd' '$INSTALL'"
 check "and nvm_use_test.sh is gone" test ! -e "$FEATURE_DIR/test/nvm_use_test.sh"
 # NB: this case's title tracks the README's *historical* numbering (the prose calls the
 # autoUseOnCd removal "0.2.0"), which commit ae6ba59 renumbered the manifest out of sync with.
-# They coincide again from here: 0.2.0 is now also the real manifest version, the one that
-# declares the node_modules volume.
-check "the manifest is 0.2.0" grep -qF '"version": "0.2.0"' "$MANIFEST"
+# They coincided again at 0.2.0, the manifest version that declares the node_modules volume.
+#
+# A floor, not an equality. This used to pin the exact version, which made every routine bump a
+# test failure in a case that is not about the version at all — and 0.2.1 duly shipped with this
+# red. What is worth asserting is only that the manifest has not gone *backwards* past the point
+# the removals above and the volume declaration landed.
+check "the manifest is at or past 0.2.0, where the volume declaration landed" bash -c \
+  "v=\$(sed -n 's/.*\"version\": \"\([^\"]*\)\".*/\1/p' '$MANIFEST'); \
+   [ \"\$(printf '%s\\n' 0.2.0 \"\$v\" | sort -V | head -1)\" = 0.2.0 ]"
 
 echo
 if [ "$fails" -eq 0 ]; then echo "ALL PASS"; else echo "$fails FAILED"; exit 1; fi
