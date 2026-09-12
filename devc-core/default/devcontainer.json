@@ -61,6 +61,12 @@
     // option on needs no host preparation.
     "type=bind,source=${localEnv:HOME}/.config/devc/claude-seed,target=/usr/local/share/devc-features/agents/claude-seed,consistency=cached,readonly",
 
+    // Copilot config
+    "type=bind,source=${localEnv:HOME}/.config/devc/.copilot,target=/home/vscode/.copilot,consistency=cached",
+
+    // Pi agent config
+    "type=bind,source=${localEnv:HOME}/.config/devc/.pi,target=/home/vscode/.pi,consistency=cached",
+
     // Your Herdr config, same idea. The agents Feature links every file here into
     // ~/.config/herdr. Put config.toml in ~/.config/devc/herdr — this is where a plugin's
     // tab_bar_right status-indicator entry lives, for one that has one.

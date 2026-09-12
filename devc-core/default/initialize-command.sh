@@ -18,9 +18,15 @@ mkdir -p "$HOME/.config/devc/.claude"
 # a bind mount with a missing source is a hard error.
 mkdir -p "$HOME/.config/devc/claude-seed"
 
+# Copilot CLI config
+mkdir -p "$HOME/.config/devc/.copilot"
+
 # Herdr config seed, same idea — a config.toml here (the tab_bar_right entry a plugin's
 # status indicator needs, say) is linked into ~/.config/herdr in the container.
 mkdir -p "$HOME/.config/devc/herdr"
+
+# Pi agent config
+mkdir -p "$HOME/.config/devc/.pi"
 
 # Your personal shell customization. Every bashrc_*.sh here is sourced by every interactive
 # shell in the container. Created empty; nothing writes into it for you.

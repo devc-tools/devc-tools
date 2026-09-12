@@ -52,7 +52,7 @@
   "mounts": [
     {
       "type": "volume",
-      "source": "podman-storage-${devcontainerId}",
+      "source": "devc-${devcontainerId}-podman-storage",
       "target": "/var/lib/devc-features/podman-as-docker/storage"
     }
   ],

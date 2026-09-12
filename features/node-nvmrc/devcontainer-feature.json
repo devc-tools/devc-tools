@@ -30,7 +30,7 @@
   "mounts": [
     {
       "type": "volume",
-      "source": "node-modules-${devcontainerId}",
+      "source": "devc-${devcontainerId}-node-modules",
       "target": "${containerWorkspaceFolder}/node_modules"
     }
   ],

@@ -59,8 +59,18 @@
   "mounts": [
     {
       "type": "volume",
-      "source": "claude-code-config-${devcontainerId}",
+      "source": "devc-${devcontainerId}-claude-code-config",
       "target": "/home/vscode/.claude"
+    },
+    {
+      "type": "volume",
+      "source": "devc-${devcontainerId}-copilot-config",
+      "target": "/home/vscode/.copilot"
+    },
+    {
+      "type": "volume",
+      "source": "devc-${devcontainerId}-pi-agent-config",
+      "target": "/home/vscode/.pi"
     }
   ],
   "installsAfter": [
