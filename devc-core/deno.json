@@ -1,5 +1,9 @@
 {
-  "version": "0.2.0",
+  // No `version` here, deliberately. The npm package @devc-tools/core carries its own in
+  // package.json, and the devc CLI's version lives in devc/help.ts (with devc-bridge's two
+  // VERSION consts) because release.yml greps those three and a compiled binary cannot read a
+  // JSON file at run time. A `version` in this file would be read by nothing — `deno publish`
+  // to JSR would additionally need `name` and `exports`, neither of which is here.
   "compilerOptions": {
     "lib": ["deno.window", "esnext"]
   },
