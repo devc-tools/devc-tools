@@ -1399,3 +1399,29 @@ exist, then rebuild onto `0.6.0`.
 - **M9** `find ~/.claude -maxdepth 1 -xtype l` is empty — the unconditional
   `devc:seed-cleanup` block removed every now-dangling seed link.
 - **M10** The host `~/.config/devc/.claude` contains no container-path symlinks.
+
+### 15.5 Upgrade from `agents` 0.6.0 — the `~/.copilot` / `~/.pi` volume ownership
+
+`0.6.0` declared volumes at `~/.copilot` and `~/.pi` without pre-creating their
+mount points in the image, so both came up **root-owned** on first use. Docker
+seeds a volume's ownership from the mount point on that first use only, so
+`0.7.0`'s build-time pre-create cannot fix a volume that already exists — only
+the create-time ownership repair can. That makes this the one path neither the
+offline harness nor a fresh-container scenario reaches.
+
+Bring a container up on `agents` `0.6.0` with `"agents": {}` (the bare case —
+neither CLI is installed, and both volumes are declared anyway), confirm
+`stat -c '%U' ~/.copilot ~/.pi` reports `root`, then rebuild onto `0.7.0`
+**without** removing the volumes — a plain "Rebuild Container", not
+`docker volume rm`.
+
+- **M11** `stat -c '%U' ~/.copilot ~/.pi` reports the remote user after the
+  rebuild, and `touch ~/.pi/.probe` succeeds without `sudo`.
+- **M12** The volume names are unchanged — `docker inspect` shows the same
+  `devc-<id>-copilot-config` / `devc-<id>-pi-agent-config` sources, so the
+  repair happened in place rather than by silently orphaning a volume.
+- **M13** A fresh devcontainer (new `${devcontainerId}`, so new volumes) on
+  `0.7.0` comes up owned correctly with the create-time repair a no-op — the
+  build-time pre-create is what did it. `with_declared_volume` covers this one
+  under `devcontainer features test`; it is here as the contrast that makes M11
+  meaningful.

@@ -1,7 +1,7 @@
 #!/bin/sh
 # agents Feature install — install the agent CLIs, validate and persist any declared pi packages
-# and Herdr plugins for post-create.sh to actually install, pre-create ~/.claude and the two seed
-# mount points, and place the create-time scripts.
+# and Herdr plugins for post-create.sh to actually install, pre-create the agent state
+# directories and the two seed mount points, and place the create-time scripts.
 #
 # Runs as root at image *build* time. These things happen here rather than in post-create.sh:
 #
@@ -20,8 +20,10 @@
 #     create-time-plugins.sh. What happens here is validating them (above) and persisting the raw
 #     option strings to fixed files under SHARE_DIR, because postCreateCommand does not receive a
 #     Feature's own options as environment variables; only install.sh does.
-#   - Pre-creating ~/.claude owned by the remote user, so the volume the manifest declares there
-#     comes up owned correctly rather than root-owned.
+#   - Pre-creating ~/.claude, ~/.copilot and ~/.pi owned by the remote user, so each volume the
+#     manifest declares there comes up owned correctly rather than root-owned — plus
+#     ~/.config/herdr, which is not a volume and is pre-created for the adjacent reason that a
+#     consumer may bind a single config.toml inside it. See that block for both arguments.
 #   - Pre-creating the two seed directories, empty. claude-seed is this Feature's published
 #     surface for Claude Code's own config; herdr-seed is the equivalent for Herdr's
 #     ~/.config/herdr — a consumer bind-mounts their own host config onto either. Empty is a
@@ -32,7 +34,8 @@
 #     option to be a one-line flip rather than a rebuild plus host prep.
 #
 # There are no path options to validate or bake. Every path this Feature touches is either fixed
-# (the seed) or derived from the remote user's own home (~/.claude).
+# (the seed) or derived from the remote user's own home (~/.claude, ~/.copilot, ~/.pi,
+# ~/.config/herdr).
 set -e
 
 die() {
@@ -362,14 +365,51 @@ if [ "$INSTALL_AGENT_BROWSER_OPT" = true ]; then
   install_agent_browser_chrome "$AGENT_BROWSER_CHROME_OPT"
 fi
 
-# --- pre-create ~/.claude, owned by the remote user ---------------------------------------------
-# Docker seeds a first-use empty named volume from whatever is already at the mount point, so
-# creating it owned here is what makes the declared volume come up owned by the remote user.
-mkdir -p "$CLAUDE_DIR"
-if [ "$(id -un)" != "$REMOTE_USER" ]; then
-  chown "$REMOTE_USER" "$CLAUDE_DIR" 2> /dev/null ||
-    echo "agents: could not chown $CLAUDE_DIR to $REMOTE_USER (post-create.sh repairs this)"
+# --- pre-create the agent state directories, owned by the remote user ---------------------------
+#
+# Two different problems, one loop:
+#
+#   - ~/.claude, ~/.copilot and ~/.pi are the three volume targets the manifest declares. Docker
+#     seeds a first-use empty named volume from whatever is already at the mount point, so
+#     creating each one owned here is what makes its volume come up owned by the remote user
+#     rather than root. Unconditional, NOT gated on the matching install option: the manifest
+#     declares all three mounts unconditionally, so all three mount points have to exist whether
+#     or not their CLI was installed — the same argument that creates claude-seed below whatever
+#     claudeSeed is set to.
+#   - ~/.config/herdr is deliberately NOT a volume and must not become one: it holds live
+#     per-container runtime state (herdr.sock, herdr-client.sock, session.json, plugins/), so a
+#     host directory bound over it would be actively harmful — see post-create.sh's header. It is
+#     in this list for the other half of the same ownership problem. A consumer who binds a
+#     single writable config.toml onto ~/.config/herdr/config.toml (the read/write alternative to
+#     the readonly herdr-seed link) leaves Docker to create that file's missing *parent* in the
+#     container, root-owned, and Herdr can then no longer write its own sockets and logs beside
+#     the file. Creating the parent here means Docker finds it and leaves ownership alone.
+#
+# A chown failure is not fatal — post-create.sh's ownership repair covers all four at create
+# time, which is also what fixes a container whose volume was already created root-owned by an
+# earlier version of this Feature (a build-time mkdir cannot: Docker seeds ownership from the
+# mount point only on the volume's FIRST use, so an existing volume keeps whatever it came up
+# with).
+claim_for_remote_user() { # claim_for_remote_user <dir>
+  if [ "$(id -un)" != "$REMOTE_USER" ]; then
+    chown "$REMOTE_USER" "$1" 2> /dev/null ||
+      echo "agents: could not chown $1 to $REMOTE_USER (post-create.sh repairs this)"
+  fi
+}
+
+# ~/.config one level up, claimed only when this script is what created it: on an image that
+# already ships the directory, whatever owns it keeps owning it. Nothing here needs to write
+# into ~/.config itself — only into the herdr directory below it, which is claimed either way.
+if [ ! -d "$REMOTE_USER_HOME/.config" ]; then
+  mkdir -p "$REMOTE_USER_HOME/.config"
+  claim_for_remote_user "$REMOTE_USER_HOME/.config"
 fi
+
+for _dir in "$CLAUDE_DIR" "$REMOTE_USER_HOME/.copilot" "$REMOTE_USER_HOME/.pi" \
+  "$REMOTE_USER_HOME/.config/herdr"; do
+  mkdir -p "$_dir"
+  claim_for_remote_user "$_dir"
+done
 
 # --- the create-time scripts, and the two seed mount points --------------------------------------
 #

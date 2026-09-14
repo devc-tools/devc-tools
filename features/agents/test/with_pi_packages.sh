@@ -2,8 +2,8 @@
 # Scenario `with_pi_packages` — installPiCli: true plus one piPackages entry, alongside a node
 # Feature. Exercises the build-time `pi install` path: the package must be visible to `pi list`
 # and ~/.pi/agent/settings.json (the file pi install writes) must exist and be owned by the
-# remote user — the state that would otherwise be lost on a rebuild if this ran at create time
-# instead, since ~/.pi is not a mount.
+# remote user. Ownership is the assertion with teeth: ~/.pi is a declared volume, so a
+# root-owned first-use volume would leave pi unable to write its own state at all.
 set -e
 
 source dev-container-features-test-lib

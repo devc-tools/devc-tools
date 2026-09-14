@@ -1,18 +1,18 @@
 # agents Feature create-time installs — pi packages and Herdr plugins, run at container
 # *create* time via post-create.sh rather than baked into a build-time Docker RUN layer.
 #
-# Why here and not install.sh: ~/.pi and ~/.config/herdr are still not mounts, so anything
-# either CLI writes in a running container is still lost on the next full rebuild — that part
-# hasn't changed. What moved is *when* the install runs, and that fixes a real staleness bug:
-# a build-time RUN layer is keyed on Docker's build cache, so an unchanged HERDRPLUGINS/
-# PIPACKAGES option value means an unchanged RUN instruction, which Docker treats as a cache
-# hit and never re-executes — a consumer who only bumped an upstream plugin's default branch
-# and ran a plain "Rebuild Container" (not "Rebuild Without Cache") kept whatever commit was
-# cloned the *last time that layer actually ran*, silently. postCreateCommand is not a Docker
+# Why here and not install.sh: not persistence — ~/.pi is a ${devcontainerId}-keyed volume now, so
+# what `pi install` writes there survives a plain rebuild (~/.config/herdr is still not a mount,
+# so Herdr plugins genuinely are container-local). What this placement buys is freshness, and the
+# bug it fixes is real: a build-time RUN layer is keyed on Docker's build cache, so an unchanged
+# HERDRPLUGINS/PIPACKAGES option value means an unchanged RUN instruction, which Docker treats as
+# a cache hit and never re-executes — a consumer who only bumped an upstream plugin's default
+# branch and ran a plain "Rebuild Container" (not "Rebuild Without Cache") kept whatever commit
+# was cloned the *last time that layer actually ran*, silently. postCreateCommand is not a Docker
 # layer at all: it unconditionally re-runs on every container *creation*, which is exactly what
-# "Rebuild Container" performs (destroy + create a new container from the image) — so running
-# the actual git-touching install here means every rebuild re-resolves each source's current
-# tip, with no ref to pin and no --no-cache needed.
+# "Rebuild Container" performs (destroy + create a new container from the image) — so running the
+# actual git-touching install here means every rebuild re-resolves each source's current tip, with
+# no ref to pin and no --no-cache needed.
 #
 # install.sh still does the option validation (the installHerdr/installPiCli pairing) and
 # persists the raw option strings into pi-packages.conf/herdr-plugins.conf, because

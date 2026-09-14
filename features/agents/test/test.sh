@@ -49,12 +49,23 @@ check "~/.pi/agent/settings.json does not exist — no piPackages entry was ever
 check "no herdr plugin config dir exists — no herdrPlugins entry was ever installed" \
   test ! -d "$HOME/.config/herdr/plugins"
 
-# --- ~/.claude ownership ---------------------------------------------------------------------
-# install.sh pre-creates it owned by the remote user at build time; post-create.sh's belt-and-
-# braces chown is a no-op here either way.
-check "~/.claude exists" test -d "$HOME/.claude"
-check "and is owned by the remote user" bash -c \
-  "[ \"\$(stat -c '%U' $HOME/.claude)\" = \"\$(id -un)\" ]"
+# --- agent state directory ownership ----------------------------------------------------------
+# install.sh pre-creates each of these owned by the remote user at build time; post-create.sh's
+# belt-and-braces chown is a no-op here either way.
+#
+# ~/.claude, ~/.copilot and ~/.pi are the manifest's three declared volume targets, and all three
+# exist in this bare-`{}` scenario even though Copilot and pi were never installed — that is the
+# point of pre-creating them unconditionally. ~/.config/herdr is not a volume; it is pre-created
+# so a consumer binding a single config.toml inside it does not get a root-owned parent from
+# Docker. A root-owned directory here is the failure this pins: it leaves the CLI unable to write
+# its own state.
+for dir in "$HOME/.claude" "$HOME/.copilot" "$HOME/.pi" "$HOME/.config/herdr"; do
+  check "$dir exists" test -d "$dir"
+  check "and is owned by the remote user" bash -c \
+    "[ \"\$(stat -c '%U' $dir)\" = \"\$(id -un)\" ]"
+  check "and is writable by the remote user" bash -c \
+    "touch \"$dir/.write-probe\" && rm \"$dir/.write-probe\""
+done
 
 # --- nothing linked out of an empty seed ------------------------------------------------------
 check "the seed was empty, so ~/.claude has nothing linked into it" bash -c \

@@ -23,6 +23,12 @@ set -e
 source dev-container-features-test-lib
 
 check "~/.claude is a mount point, not a plain directory" mountpoint -q "$HOME/.claude"
+# The other two declared volumes, mounted on the same bare `{}` and with their CLIs never
+# installed — a Feature's `mounts` are static metadata and cannot be gated on an option value,
+# so this is what the manifest promises whatever the options say.
+check "~/.copilot is a mount point too, with installCopilotCli left false" \
+  mountpoint -q "$HOME/.copilot"
+check "~/.pi is a mount point too, with installPiCli left false" mountpoint -q "$HOME/.pi"
 
 # The declared target is the literal /home/vscode/.claude and this image's remote user is `vscode`,
 # so the two agree and no warning should have fired. The mismatch path has its own scenario
@@ -34,6 +40,13 @@ check "the remote user's home is the one the manifest targets" test "$HOME" = /h
 # — a root-owned volume here would leave Claude Code unable to write its own state.
 check "~/.claude is owned by the remote user, not root" test -O "$HOME/.claude"
 check "and is writable" bash -c "touch \"$HOME/.claude/.write-probe\" && rm \"$HOME/.claude/.write-probe\""
+# Same assertion against the two volumes added later — these are the ones that came up root-owned
+# before install.sh pre-created their mount points, and a root-owned ~/.pi leaves `pi` unable to
+# write its own settings at all.
+for dir in "$HOME/.copilot" "$HOME/.pi"; do
+  check "$dir is owned by the remote user, not root" test -O "$dir"
+  check "and is writable" bash -c "touch \"$dir/.write-probe\" && rm \"$dir/.write-probe\""
+done
 
 # The manifest's containerEnv, now observed on top of a real mount rather than a plain directory.
 # containerEnv is baked as an image ENV, so this asserts it reached the running container at all —

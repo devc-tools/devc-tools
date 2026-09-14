@@ -57,32 +57,44 @@ if ! claude_dir_is_mounted "$HOME/.claude"; then
   warn "literal, so Claude Code reads and writes there rather than under this container's"
   warn "home, $HOME."
   warn "point both at this home in devcontainer.json to fix it:"
-  warn "  mounts: type=volume,source=claude-code-config-\${devcontainerId},target=$HOME/.claude"
+  warn "  mounts: type=volume,source=devc-\${devcontainerId}-claude-code-config,target=$HOME/.claude"
   warn "  containerEnv: { \"CLAUDE_CONFIG_DIR\": \"$HOME/.claude\" }"
 fi
 
 # --- 1. ownership repair -------------------------------------------------------------------
-# install.sh already pre-creates ~/.claude owned by the remote user, so this is normally a
-# no-op. It stays because it is cheap and it also covers a volume a consumer mounted themselves.
+# install.sh already pre-creates all of these owned by the remote user, so this is normally a
+# no-op. It stays because it is cheap, because it also covers a volume a consumer mounted
+# themselves, and because it is the ONLY thing that can fix a container whose volume was already
+# created root-owned by an earlier version of this Feature: Docker seeds a volume's ownership
+# from the image's mount point on that volume's first use only, so a ${devcontainerId} volume
+# that already exists keeps whatever it came up with no matter what a later build pre-creates.
 #
-# Non-recursive — a hard requirement, not a style choice: subpaths like skills/ are host bind
-# mounts and must not be chowned.
+# ~/.claude, ~/.copilot and ~/.pi are the manifest's three declared volume targets.
+# ~/.config/herdr is not a volume — it is here because a consumer may bind a single writable
+# config.toml inside it, which leaves Docker to create that parent root-owned; see install.sh's
+# pre-create block for the full argument. Its own `mkdir -p` inside the herdr-seed fence below
+# stays where it is: that fence is extracted verbatim by a test harness and has to remain
+# self-contained.
 #
-# The mkdir is insurance rather than load-bearing — install.sh pre-creates the directory at
-# build time and the volume mounts over it — but both the repair below and the seed-link block
-# guard on `[ -d ... ]` and would silently skip if it were ever missing.
-mkdir -p "$HOME/.claude" || warn "could not create $HOME/.claude"
+# Non-recursive — a hard requirement, not a style choice: subpaths like ~/.claude/skills/ are
+# host bind mounts and must not be chowned.
+#
+# Each mkdir is insurance rather than load-bearing — install.sh pre-creates the directory at
+# build time and any volume mounts over it — but both the repair below and the seed-link block
+# guard on `[ -d ... ]` and would silently skip if one were ever missing.
+for dir in "$HOME/.claude" "$HOME/.copilot" "$HOME/.pi" "$HOME/.config/herdr"; do
+  mkdir -p "$dir" || warn "could not create $dir"
 
-if [ -d "$HOME/.claude" ]; then
-  owner="$(stat -c '%U' "$HOME/.claude" 2> /dev/null || true)"
+  [ -d "$dir" ] || continue
+  owner="$(stat -c '%U' "$dir" 2> /dev/null || true)"
   if [ -n "$owner" ] && [ "$owner" != "$(id -un)" ]; then
     if command -v sudo > /dev/null 2>&1; then
-      sudo chown "$(id -un)" "$HOME/.claude" || warn "could not chown $HOME/.claude"
+      sudo chown "$(id -un)" "$dir" || warn "could not chown $dir"
     else
-      warn "$HOME/.claude is owned by $owner and no sudo is available to fix it"
+      warn "$dir is owned by $owner and no sudo is available to fix it"
     fi
   fi
-fi
+done
 
 # --- 2a. drop seed links a previous create left behind ----------------------------------------
 # Unconditional — it runs whether or not the seed itself is enabled below, and that is the whole

@@ -214,11 +214,21 @@ check "the hook names the same seed path install.sh creates" \
 # consumer declared the mount themselves. These assertions stop the two drifting apart.
 check "the manifest declares the literal conventional target" \
   grep -qF '"target": "/home/vscode/.claude"' "$FEATURE_DIR/devcontainer-feature.json"
+check "and declares the copilot and pi targets as the same literal home" bash -c \
+  "grep -qF '\"target\": \"/home/vscode/.copilot\"' \"$FEATURE_DIR/devcontainer-feature.json\" &&
+   grep -qF '\"target\": \"/home/vscode/.pi\"' \"$FEATURE_DIR/devcontainer-feature.json\""
 check "the hook decides by testing the mount, not by comparing to a path" \
   grep -qF 'claude_dir_is_mounted "$HOME/.claude"' "$HOOK"
 check "the hook pins no literal home" bash -c "! grep -q 'DECLARED_CLAUDE_DIR' \"$HOOK\""
-check "the manifest keys its volume on \${devcontainerId}, not the workspace basename" \
-  grep -qF '"source": "claude-code-config-${devcontainerId}"' "$FEATURE_DIR/devcontainer-feature.json"
+check "the manifest keys its claude volume on \${devcontainerId}, not the workspace basename" \
+  grep -qF '"source": "devc-${devcontainerId}-claude-code-config"' \
+  "$FEATURE_DIR/devcontainer-feature.json"
+check "and its copilot volume the same way" \
+  grep -qF '"source": "devc-${devcontainerId}-copilot-config"' \
+  "$FEATURE_DIR/devcontainer-feature.json"
+check "and its pi volume the same way" \
+  grep -qF '"source": "devc-${devcontainerId}-pi-agent-config"' \
+  "$FEATURE_DIR/devcontainer-feature.json"
 # containerEnv is what replaced the old ~/.claude.json symlink fold: Claude Code writes
 # .claude.json into $CLAUDE_CONFIG_DIR, so pointing that at the volume's own target is what makes
 # one mount capture everything. The value must be the same literal the mount target above names —
@@ -241,6 +251,17 @@ check "the seed mount point was created, empty" test -d "$CASE/share/claude-seed
 check "the seed mount point really is empty" \
   test -z "$(ls -A "$CASE/share/claude-seed")"
 check "~/.claude was pre-created" test -d "$WORK/c1/home/.claude"
+# The other two declared volume targets, pre-created for the same reason and, like ~/.claude,
+# NOT gated on their CLI's install option — the manifest declares all three mounts whatever the
+# options say, so all three mount points have to exist or the volume comes up root-owned.
+check "~/.copilot was pre-created even though installCopilotCli defaults false" \
+  test -d "$WORK/c1/home/.copilot"
+check "~/.pi was pre-created even though installPiCli defaults false" \
+  test -d "$WORK/c1/home/.pi"
+# Not a volume target — the parent a consumer's single-file config.toml bind needs, so that
+# Docker does not create it root-owned underneath them.
+check "~/.config/herdr was pre-created even though installHerdr defaults false" \
+  test -d "$WORK/c1/home/.config/herdr"
 check "claude was installed (curl invoked once)" test "$(wc -l < "$WORK/c1/curl.log")" -eq 1
 check "claude binary landed under the fake remote HOME" test -x "$WORK/c1/home/.local/bin/claude"
 check "copilot was NOT installed — installCopilotCli defaults false" \

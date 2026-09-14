@@ -3,7 +3,7 @@
 Installs coding-agent CLIs — the **Claude Code CLI**, and optionally the **GitHub Copilot
 CLI**, the **pi coding agent CLI**, the **Herdr terminal multiplexer** and the
 **agent-browser** browser-automation CLI — and keeps all of Claude Code's state in one
-place, so one volume survives a rebuild and one host directory supplies your config.
+place, so its volume survives a rebuild and one host directory supplies your config.
 
 ```jsonc
 "features": {
@@ -11,10 +11,10 @@ place, so one volume survives a rebuild and one host directory supplies your con
 }
 ```
 
-No mounts, no options you have to set. A bare `{}` installs the Claude CLI, declares a
-`~/.claude` volume that survives a rebuild, leaves an empty seed directory for you to
-mount onto, and points `CLAUDE_CONFIG_DIR` at `~/.claude` so `.claude.json` lands inside
-the volume with everything else. The seed itself is **opt-in** — see
+No mounts, no options you have to set. A bare `{}` installs the Claude CLI, declares the
+`~/.claude`, `~/.copilot` and `~/.pi` volumes that survive a rebuild, leaves an empty seed
+directory for you to mount onto, and points `CLAUDE_CONFIG_DIR` at `~/.claude` so
+`.claude.json` lands inside the volume with everything else. The seed itself is **opt-in** — see
 [`claudeSeed`](#the-config-seed-claudeseed).
 
 > The tag tracks **this Feature's own** version line, not the devc-tools release. It is
@@ -68,9 +68,13 @@ the build, rather than leaving a container that looks fine until the first `clau
 
 At **create time**, before any `postCreateCommand` of your own:
 
-1. **Ownership repair.** If `~/.claude` is not owned by you, a non-recursive `sudo chown`
-   fixes it. Non-recursive on purpose — subpaths like `skills/` may be host bind mounts
-   and must not be chowned.
+1. **Ownership repair.** If `~/.claude`, `~/.copilot`, `~/.pi` or `~/.config/herdr` is not
+   owned by you, a non-recursive `sudo chown` fixes it. Non-recursive on purpose —
+   subpaths like `~/.claude/skills/` may be host bind mounts and must not be chowned.
+   Normally a no-op, since all four are pre-created owned by you at build time; it earns
+   its place on a container whose volume was already created root-owned by an earlier
+   version of this Feature, which no later build can fix — see
+   [The declared volumes](#the-declared-volumes).
 2. **Stale seed-link cleanup**, always. Any symlink directly in `~/.claude` whose target
    points into the seed directory is removed. Unconditional on purpose: it is what keeps a
    container upgraded from `0.5.0`, or flipped back to `claudeSeed: false`, from coming up
@@ -177,21 +181,65 @@ destination, so anything that writes to one of them in place (Claude Code's `/co
 changing `settings.json`, say) fails. Host edits reaching the container live, with no
 rebuild, is the trade that buys.
 
-## The `~/.claude` volume
+### A writable Herdr config instead of the seed
 
-**This Feature declares its own volume** — persistence needs no mount line from you:
+If you want `config.toml` shared **and** writable from inside the container — Herdr itself
+edits it, `herdr config reset-keys` rewrites it — bind the single file directly rather than
+seeding it:
 
 ```jsonc
-{
-  "type": "volume",
-  "source": "claude-code-config-${devcontainerId}",
-  "target": "/home/vscode/.claude"
-}
+"initializeCommand": "mkdir -p ${localEnv:HOME}/.config/devc && touch ${localEnv:HOME}/.config/devc/herdr-config.toml",
+"mounts": [
+  "type=bind,source=${localEnv:HOME}/.config/devc/herdr-config.toml,target=/home/vscode/.config/herdr/config.toml"
+]
 ```
 
-Three things about it are not guessable:
+Note what is different from the seed mount: no `readonly`, a single **file** rather than a
+directory, and a `touch` rather than a `mkdir` — a bind mount whose source does not exist
+gets a _directory_ created for it, and Herdr cannot parse a directory as `config.toml`.
 
-**It is keyed on `${devcontainerId}`.** That is unique per devcontainer, where a workspace
+Four things to know:
+
+- **Keep `config.toml` out of the seed directory** if you do this. With the file in both,
+  the create-time step tries to link over your mount, fails, and prints `devc: could not
+  link ... (bind-mounted?)` on every create. Harmless, but that message exists for exactly
+  this case.
+- **Bind the file, never the directory.** `~/.config/herdr` also holds `herdr.sock`,
+  `herdr-client.sock`, `herdr-server.log`, `session.json`, `plugins/` and `plugins.json` —
+  live per-container runtime state. Sharing that across containers means several Herdr
+  servers contending for one socket path, one session file and one plugin lock.
+- **A single-file bind pins an inode.** An editor that saves by write-temp-then-rename
+  (vim's default `backupcopy`, sometimes VS Code) replaces the host file, and the container
+  keeps serving the old content until it is recreated. In-place writes propagate both ways.
+  This is the mirror of the seed's edge — the seed survives host rename-saves and is
+  unwritable, the bind is writable and does not survive them.
+- **A running server will not notice a change.** `herdr server reload-config` picks one up
+  without a restart, which matters more now that another container can change the file.
+
+`~/.config/herdr` itself is pre-created in the image owned by the remote user precisely so
+this works: Docker creates a bind's missing parent directory **root-owned**, and Herdr
+would then be unable to write its own sockets and logs beside your file.
+
+## The declared volumes
+
+**This Feature declares its own volumes** — persistence needs no mount line from you:
+
+```jsonc
+{ "type": "volume", "source": "devc-${devcontainerId}-claude-code-config", "target": "/home/vscode/.claude" },
+{ "type": "volume", "source": "devc-${devcontainerId}-copilot-config",     "target": "/home/vscode/.copilot" },
+{ "type": "volume", "source": "devc-${devcontainerId}-pi-agent-config",    "target": "/home/vscode/.pi" }
+```
+
+**All three are declared unconditionally**, whatever `installCopilotCli` and
+`installPiCli` are set to. A Feature's `mounts` are static metadata — they cannot be
+gated on an option value — so the mount happens either way, and the mount point has to
+exist either way or the volume comes up root-owned. That is why all three are pre-created
+in the image (see [First-use ownership](#first-use-ownership)) rather than only when their
+CLI was installed.
+
+Three things about them are not guessable:
+
+**Each is keyed on `${devcontainerId}`.** That is unique per devcontainer, where a workspace
 folder name is not — a `<repo>.worktrees/<branch>` layout names the folder after the
 branch, so worktrees called `main` in three different repos would have shared one
 `~/.claude`. The trade: the volume name is opaque, and **moving a workspace on disk
@@ -203,20 +251,31 @@ docker inspect $(docker ps -q) \
   --format '{{index .Config.Labels "devcontainer.local_folder"}} {{json .Mounts}}'
 ```
 
-**The target is the literal `/home/vscode/.claude`.** No `devcontainer.json` variable
-names the remote user's home inside a Feature's own `mounts`, so it is a fixed path — and
-the `CLAUDE_CONFIG_DIR` this Feature sets is the same literal, for the same reason, so the
-two always agree. On an image whose remote user is not `vscode`, both land somewhere that
-is not your home — the create-time step warns, names your real home and the two lines that
-fix it (the mount target and `containerEnv`), and still exits `0`.
+**Every target is a literal under `/home/vscode`.** No `devcontainer.json` variable names
+the remote user's home inside a Feature's own `mounts`, so all three are fixed paths — and
+the `CLAUDE_CONFIG_DIR` this Feature sets is the same literal as the `~/.claude` one, for
+the same reason, so those two always agree. On an image whose remote user is not `vscode`,
+all of them land somewhere that is not your home — the create-time step warns, names your
+real home and the two lines that fix it (the mount target and `containerEnv`), and still
+exits `0`.
 
 **You cannot remove a declared mount, only override it.** Mounts merge keyed on target,
 with your own `devcontainer.json` merged last, so declaring the same target yourself wins
-with no duplicate and no error. That is the opt-out, and it is also how you point
-`~/.claude` somewhere else entirely.
+with no duplicate and no error. That is the opt-out, and it is also how you point any of
+the three somewhere else entirely — it is what devc's own bundled config does, replacing
+all three volumes with host binds.
 
-First-use ownership needs no action from you: `~/.claude` is pre-created in the image
+### First-use ownership
+
+Ownership needs no action from you: each of the three targets is pre-created in the image
 owned by the remote user, so Docker seeds the empty volume from it.
+
+**This works on a volume's first use only.** Docker takes a new volume's ownership from
+whatever is at the mount point the first time that volume is used, and never revisits it —
+so a `${devcontainerId}` volume that already exists keeps whatever it came up with, no
+matter what a later build pre-creates. That is what the create-time ownership repair is
+for, and it is the path out for a container created by a version of this Feature that
+declared the `~/.copilot` / `~/.pi` volumes without pre-creating their mount points.
 
 ## `.claude.json`
 
@@ -336,11 +395,11 @@ active Node version between projects has no effect on it at all.
 
 Chrome for Testing is about **390 MB on disk** (185 MB downloaded) and lands in
 `~/.agent-browser/browsers/`, alongside `agent-browser`'s daemon sockets, saved sessions,
-auth vault and auto-generated encryption key. Like [`~/.pi`](#packages-and-plugins) and
-`~/.claude` without its declared volume, **`~/.agent-browser` is not a mount** — it is
-baked into the image at build time and is container-local at run time. A volume later
-mounted at `~/.agent-browser` **shadows** this install and costs a fresh 185 MB re-fetch
-on first use; there is no option to point it somewhere else.
+auth vault and auto-generated encryption key. Unlike `~/.claude`, `~/.copilot` and
+`~/.pi`, which this Feature backs with declared volumes, **`~/.agent-browser` is not a
+mount** — it is baked into the image at build time and is container-local at run time. A
+volume later mounted at `~/.agent-browser` **shadows** this install and costs a fresh
+185 MB re-fetch on first use; there is no option to point it somewhere else.
 
 `agentBrowserChrome` is read only when `installAgentBrowser: true`. Unlike `piPackages`/
 `herdrPlugins`, setting it with `installAgentBrowser` left at its default `false` is
@@ -370,10 +429,12 @@ comma, or stray whitespace — are dropped, so a messy value is harmless.
 
 ### Why create time, not build time
 
-Neither `~/.pi` nor `~/.config/herdr` is a mount — that part hasn't changed, and still
-means anything either CLI writes is gone on the next full rebuild either way. What moved
-is _when_ the actual install runs, because build time had a real staleness bug: a
-build-time install sits inside a Docker `RUN` layer, and Docker's build cache keys that
+Not persistence. `~/.pi` is a declared volume, so what `pi install` writes there does
+survive a plain rebuild — the create-time run re-resolves over the top of it rather than
+starting from nothing. (`~/.config/herdr` is not a mount, so Herdr plugins genuinely are
+container-local and genuinely do need reinstalling.) What this placement buys is freshness,
+because build time had a real staleness bug: a build-time install sits inside a Docker
+`RUN` layer, and Docker's build cache keys that
 layer on the instruction text and the option value. An unchanged `herdrPlugins`/
 `piPackages` string on a plain "Rebuild Container" (not "Rebuild Without Cache") is a
 cache hit — Docker never re-executes the layer, so you silently keep whatever commit was
@@ -413,8 +474,9 @@ plugin's own `doctor` command, to notice a skip after the fact.
 Reinstalling an already-installed pi package is a genuine no-op, so a rebuild does not pay
 for one.
 
-**A volume mounted at `~/.pi` or `~/.config/herdr` shadows whatever this installed** —
-there is no option to point either install somewhere else.
+**A mount you place at `~/.pi` or `~/.config/herdr` shadows whatever this installed** —
+your own entry wins over this Feature's declared `~/.pi` volume, keyed on the same target,
+and there is no option to point either install somewhere else.
 
 ## What this is not
 
