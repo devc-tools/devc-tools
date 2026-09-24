@@ -52,6 +52,7 @@ async function runTrayInner(cfg: Config): Promise<void> {
     hostname: cfg.hostname,
     port: cfg.port,
     token,
+    keysDir: cfg.keys,
     commandsDir: cfg.commands,
     stateDir: cfg.state,
     onActiveChange: (active) => paint(active),

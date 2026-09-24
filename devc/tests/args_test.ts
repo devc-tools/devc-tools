@@ -53,6 +53,7 @@ Deno.test('parseBuildArgs defaults to cwd with no flags', () => {
     target: undefined,
     noCache: false,
     json: false,
+    bridgeGitPush: false,
   });
 });
 
@@ -61,16 +62,19 @@ Deno.test('parseBuildArgs parses a path and both flags in any order', () => {
     target: '/some/path',
     noCache: false,
     json: false,
+    bridgeGitPush: false,
   });
   assertEquals(parseBuildArgs(['--no-cache', '/some/path']), {
     target: '/some/path',
     noCache: true,
     json: false,
+    bridgeGitPush: false,
   });
   assertEquals(parseBuildArgs(['/some/path', '--json', '--no-cache']), {
     target: '/some/path',
     noCache: true,
     json: true,
+    bridgeGitPush: false,
   });
 });
 
@@ -79,6 +83,7 @@ Deno.test('parseUpArgs defaults to cwd with no flags', () => {
     target: undefined,
     printConfig: false,
     json: false,
+    bridgeGitPush: false,
   });
 });
 
@@ -87,16 +92,19 @@ Deno.test('parseUpArgs parses a path and both flags in any order', () => {
     target: '/some/path',
     printConfig: false,
     json: false,
+    bridgeGitPush: false,
   });
   assertEquals(parseUpArgs(['--print-config', '/some/path']), {
     target: '/some/path',
     printConfig: true,
     json: false,
+    bridgeGitPush: false,
   });
   assertEquals(parseUpArgs(['/some/path', '--json', '--print-config']), {
     target: '/some/path',
     printConfig: true,
     json: true,
+    bridgeGitPush: false,
   });
 });
 
@@ -186,4 +194,19 @@ Deno.test('parseAttachArgs: --cwd alongside every other flag', () => {
       cwd: '/w',
     },
   );
+});
+
+Deno.test('--bridge-git-push is parsed by up and build, and is never the target', () => {
+  assertEquals(parseUpArgs(['--bridge-git-push', '/p']), {
+    target: '/p',
+    printConfig: false,
+    json: false,
+    bridgeGitPush: true,
+  });
+  assertEquals(parseBuildArgs(['/p', '--bridge-git-push']), {
+    target: '/p',
+    noCache: false,
+    json: false,
+    bridgeGitPush: true,
+  });
 });

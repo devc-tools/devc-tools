@@ -40,9 +40,13 @@ bind source path does not exist: /Users/you/.config/devc-bridge/run
 container can fix that: a Feature's lifecycle hooks all run _inside_ the container, and
 Features cannot declare an `initializeCommand`, the one hook that runs on the host.
 
-devc projects have the same prerequisite — devc creates no bridge directories either. What
-devc does do is write the mount line for you, in zero-config mode only; see
-[The token mount](../../devc/README.md#the-token-mount).
+devc projects do not have this prerequisite, and do not use this mount line. devc contributes
+its own, per workspace — `…/devc-bridge/keys/<key>` instead of `…/devc-bridge/run` — and
+creates that directory itself before the container starts, so each devc container gets its
+own token and comes up whether or not the host bridge is installed; see
+[The token mount](../../devc/README.md#the-token-mount). The `run/` line above gets the
+**shared** token, which `caffeinate` and `ping` accept and nothing needing a per-container
+identity will.
 
 **If you omit the mount line entirely,** the container builds fine and `devc-bridge` is on
 PATH, but the first call fails with:

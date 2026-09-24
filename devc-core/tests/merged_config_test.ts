@@ -323,10 +323,19 @@ Deno.test('a devc-bridge opt-in gets the token mount in project mode', async () 
         features: { 'ghcr.io/devc-tools/features/devc-bridge:0': {} },
       }),
     );
-    const mounts = (await merge(dirs)).config.mounts as string[];
+    const merged = await merge(dirs);
+    const mounts = merged.config.mounts as string[];
     const bridge = mounts.filter((m) => m.includes('/run/devc-bridge'));
     assertEquals(bridge.length, 1);
     assertEquals(bridge[0].split(',').includes('readonly'), true);
+    // Keyed on the workspace folder, and carried on the result so the CLI can create the dir.
+    const key = await projectKey(dirs.project);
+    assertEquals(merged.bridgeKey, key);
+    assertEquals(
+      bridge[0].includes(`/.config/devc-bridge/keys/${key},`),
+      true,
+      bridge[0],
+    );
   });
 });
 
@@ -336,8 +345,10 @@ Deno.test('no bridge opt-in, no token mount', async () => {
       `${dirs.project}/.devcontainer/devcontainer.json`,
       '{"image":"x"}',
     );
-    const mounts = ((await merge(dirs)).config.mounts ?? []) as string[];
+    const merged = await merge(dirs);
+    const mounts = (merged.config.mounts ?? []) as string[];
     assertEquals(mounts.filter((m) => m.includes('/run/devc-bridge')), []);
+    assertEquals(merged.bridgeKey, null);
   });
 });
 

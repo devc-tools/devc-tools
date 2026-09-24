@@ -11,6 +11,7 @@ import {
 import {
   type ConfigMode,
   ensureMergedConfig,
+  type MergedConfig,
   projectKey,
 } from './merged_config.ts';
 import { displayPath } from './config.ts';
@@ -49,6 +50,10 @@ export interface ExecOptions {
    * `startContainer` internally and has to forward whichever runner the caller bound.
    */
   devcontainer?: DevcontainerRunner;
+  /** Forwarded to that `startContainer` — see {@link StartOptions.beforeUp}. */
+  beforeUp?: StartOptions['beforeUp'];
+  /** Forwarded to that `startContainer` — see {@link StartOptions.afterUp}. */
+  afterUp?: StartOptions['afterUp'];
 }
 
 export interface ExecResult {
@@ -146,6 +151,31 @@ async function findContainer(
   return selectContainer(rows, localFolder);
 }
 
+/**
+ * The `devcontainer.local_folder` label of every devcontainer on this Docker host, running or
+ * stopped. Throws when `docker ps` fails, rather than returning an empty list: a caller deciding
+ * what is safe to delete must not read "docker is down" as "no containers exist".
+ */
+export async function listContainerFolders(): Promise<string[]> {
+  const { code, stdout } = await output('docker', {
+    args: [
+      'ps',
+      '-a',
+      '--filter',
+      'label=devcontainer.local_folder',
+      '--format',
+      '{{.Label "devcontainer.local_folder"}}',
+    ],
+    stdout: 'piped',
+    stderr: 'inherit',
+  });
+  if (code !== 0) {
+    throw new Error(`docker ps failed with exit code ${code}`);
+  }
+  return new TextDecoder().decode(stdout).split('\n').map((l) => l.trim())
+    .filter(Boolean);
+}
+
 export async function getContainerStatus(
   localFolder: string,
 ): Promise<ContainerStatus> {
@@ -206,6 +236,8 @@ export async function execInContainer(
 ): Promise<ExecResult> {
   const info = await startContainer(localFolder, false, {
     devcontainer: opts.devcontainer,
+    beforeUp: opts.beforeUp,
+    afterUp: opts.afterUp,
   });
   const args = buildExecArgs({
     containerId: info.containerId,
@@ -639,6 +671,19 @@ export interface StartOptions {
   noCache?: boolean;
   /** The devcontainer CLI to run `up` through. Defaults to {@link nodeDevcontainerRunner}. */
   devcontainer?: DevcontainerRunner;
+  /**
+   * Runs once the merged config is written and before `devcontainer up`. A throw aborts the start
+   * with nothing created. The CLI uses it to create the devc-bridge key directory the merged
+   * config bind-mounts — a mount source must exist before `up` — which core deliberately does
+   * not do itself: see `bridge.ts`'s header.
+   */
+  beforeUp?: (merged: MergedConfig) => Promise<void>;
+  /**
+   * Runs after the container is up and named, before `startContainer` resolves. A throw
+   * propagates — the container stays up. The CLI uses it to write or refresh the devc-bridge
+   * policy, which needs the live mount table.
+   */
+  afterUp?: (merged: MergedConfig, info: ContainerInfo) => Promise<void>;
 }
 
 /**
@@ -751,6 +796,7 @@ export async function startContainer(
   // and nothing is ever written into the project itself, so its `.devcontainer/` stays
   // standalone.
   const merged = await ensureMergedConfig(localFolder);
+  await opts.beforeUp?.(merged);
 
   const args = buildUpArgs({
     localFolder,
@@ -811,12 +857,14 @@ export async function startContainer(
     await inspectContainerEnv(result.containerId),
   );
 
-  return {
+  const info: ContainerInfo = {
     containerId: result.containerId,
     remoteUser: result.remoteUser,
     remoteWorkspaceFolder: result.remoteWorkspaceFolder,
     remoteEnv,
   };
+  await opts.afterUp?.(merged, info);
+  return info;
 }
 
 /**

@@ -18,8 +18,9 @@ devc-bridge start   (detached background process)
   │      (token-authorized)                           │  reads token from
   ├─ runs ~/.config/devc-bridge/commands/<name>       │  /run/devc-bridge/token
   │      (args as argv, never a shell string)         ▲  (bind mount)
-  ├─ writes token → ~/.config/devc-bridge/run/token ──┘
-  ├─ watches ~/.config/devc-bridge/state/
+  ├─ writes token → ~/.config/devc-bridge/run/token ──┤  (shared; non-devc mounts)
+  ├─ mints token  → ~/.config/devc-bridge/keys/<key>/token ┘  (one per devc workspace)
+  ├─ watches ~/.config/devc-bridge/keys/ and state/
   └─ devc-bridge status → idle | active: caffeinate
 ```
 
@@ -105,8 +106,9 @@ power _and_ an external display to avoid. Verify what is held with
 curl -fsSL https://github.com/devc-tools/devc-tools/releases/latest/download/install.sh | sh
 
 # 2. Start it in the background. First run auto-creates ~/.config/devc-bridge/ (run/,
-#    state/, commands/, client/), seeds the example command scripts, and writes the token.
-#    This is also what creates the run/ dir your devcontainer.json will bind-mount.
+#    keys/, state/, commands/, client/), seeds the example command scripts, and writes the
+#    shared token. This is also what creates the run/ dir a non-devc devcontainer.json
+#    bind-mounts; devc creates its own per-workspace keys/<key>/ dirs.
 devc-bridge start                   # -> started (pid N)
 devc-bridge status                  # -> running (pid N) — idle / client override: none
 
@@ -188,7 +190,8 @@ line:
 }
 ```
 
-…plus the token mount, which is **yours to declare** and not the Feature's:
+…plus the token mount, which is **yours to declare** and not the Feature's (devc
+projects get a per-workspace one contributed instead — see below):
 
 ```jsonc
 "mounts": [
@@ -212,13 +215,18 @@ full rationale, including the Docker Compose caveat.
 [devc](../devc/README.md#devc-bridge-the-opt-in-feature) projects opt in the same way,
 with `features` in a devc.json — the bridge is not part of devc's
 baseline, so a devc container comes up on a host that never heard of it. One
-mechanism, not two.
+mechanism, not two. What differs is the mount: devc contributes
+`…/devc-bridge/keys/<key>` instead of `…/devc-bridge/run`, one directory per
+workspace, so each devc container gets **its own token** — see
+[Per-container tokens](#per-container-tokens).
 
-**Install the host bridge before adding the mount.** Nothing in the container can
-create `~/.config/devc-bridge/run`: a Feature has no host-side hook, and
-`--mount type=bind` errors on a missing source rather than creating it. So a
-project that declares the mount on a host with no `~/.config/devc-bridge/` fails
-to build. Run `devc-bridge start` once first.
+**Install the host bridge before adding the `run/` mount.** Nothing in the
+container can create `~/.config/devc-bridge/run`: a Feature has no host-side
+hook, and `--mount type=bind` errors on a missing source rather than creating
+it. So a project that declares the mount on a host with no
+`~/.config/devc-bridge/` fails to build. Run `devc-bridge start` once first.
+(devc creates its `keys/<key>/` source itself, so a devc project has no such
+prerequisite.)
 
 **The client is downloaded by the Feature, not built on the fly and not taken
 from the host.** `devc-bridge start` never compiles one, and what sits in
@@ -461,12 +469,13 @@ few, simple, and reviewed. Injection is not a concern for _arguments_ — they a
 passed as `argv`, never interpolated into a shell — but a malicious or buggy
 script is still a malicious or buggy script running on your host.
 
-The bridge listens on host **loopback** TCP and requires a **token** (written to
-`~/.config/devc-bridge/run/token`, shared with the container via the bind
-mount). This keeps other containers that never mounted the run dir from invoking
-commands, but anything that can read that token file — i.e. anything with access
-to your home dir — can. It is a convenience boundary for a single-user machine,
-not a hardened multi-tenant control.
+The bridge listens on host **loopback** TCP and requires a **token**: the shared
+one in `~/.config/devc-bridge/run/token`, or a devc workspace's own in
+`keys/<key>/token`, each reaching a container through a bind mount. This keeps
+containers that mount neither from invoking commands, but anything that can
+read a token file — i.e. anything with access to your home dir — can. It is a
+convenience boundary for a single-user machine, not a hardened multi-tenant
+control.
 
 **Only one thing is mounted now — the token — and the host no longer assumes it
 is read-only.**
@@ -509,10 +518,43 @@ containers that mount it. The bridge's real boundary is the command allowlist.
 > writes). A bridge started before the move writes the old path, so a post-move
 > `stop` reports `not running` and leaves it orphaned — kill it by hand once.
 
-Because every container with the Feature mounts both dirs, one container's
-bridge access is not isolated from another's: they share the token and the
-client. That is the same single-user convenience boundary as above, stated at
-container scope.
+Containers that mount `run/` share its token, so one's bridge access is not
+isolated from another's. That is the same single-user convenience boundary as
+above, stated at container scope — and the reason devc containers do not mount
+`run/` at all.
+
+### Per-container tokens
+
+devc gives every workspace its own directory, `~/.config/devc-bridge/keys/<key>/`,
+bind-mounted read-only as that container's `/run/devc-bridge`. devc creates it,
+empty; the bridge **mints** a token into every key directory it finds — all of
+them on start, and any created later (it watches `keys/`) — with the same
+generate-never-adopt, rename-never-follow write as the shared token. A token the
+bridge did not mint identifies nobody, and removing a key directory (`devc down`)
+revokes its token at once. A symlinked entry in `keys/` is skipped, not minted
+into.
+
+Each token **identifies** its caller as that workspace's key. That is what a
+publishing verb needs: `~/.config/devc-bridge/policy/<key>.conf`, written by
+devc, pins the one repo, remote and branch that container may push —
+**one container, one repo, one branch**, and a bind mount is not a grant. The
+policy lives outside every mounted directory, because a policy the container
+could write is not a policy, and the pidfile rule already says so: never put a
+file the host acts on into `run/`. No command reads the policy yet; the
+`git-push` verb that will is a separate change. The shared token identifies no
+key, so it will never be allowed a git verb — `caffeinate` and `ping` keep
+working for it exactly as today.
+
+This is **bearer** identity, not attestation: a process that obtained another
+container's token could act as that container. Each container mounts only its
+own key directory, so there is no ambient channel between them, and `keys/` is
+never mounted whole — but that is the whole of the guarantee.
+
+Two independent tools share this directory: devc writes `keys/<key>/` and
+`policy/<key>.conf` and never invokes the bridge; the bridge writes tokens and
+never deletes what devc created. What they share beyond the paths is the policy
+line's format (`<repo>\t<remote>\t<branch>`), which is unversioned — a line
+either side cannot parse grants nothing.
 
 The arch note is a limitation, not a control: the client is cross-compiled for
 the host's architecture. A container run under emulation on the other arch will
@@ -621,10 +663,10 @@ Paths are relative to `devc-bridge/` unless noted.
 | -------------------------- | --------------------------------------------------------------------------------------------------------------------- |
 | `host/main.ts`             | `devc-bridge` entrypoint — CLI dispatch, the detached `start`, and the headless `run`                                 |
 | `host/config.ts`           | Path resolution + `ensureConfig`/`seedCommands` (zero-setup on first start)                                           |
-| `host/core.ts`             | Headless TCP server + dispatch + state watcher — what `run` runs                                                      |
+| `host/core.ts`             | Headless TCP server + dispatch + state and `keys/` watchers — what `run` runs                                         |
 | `host/tray.ts`             | Opt-in tray layer (`run --tray`) — same core + a menu-bar icon; headless if no GUI                                    |
-| `host/tests/`              | `deno task test` — the relaunch argv (both modes) and `start`'s detach-and-wait contract                              |
-| `host/token.ts`            | Generate/persist the shared token                                                                                     |
+| `host/tests/`              | `deno task test` — relaunch argv, `start`'s detach-and-wait contract, token and per-key minting                       |
+| `host/token.ts`            | Generate the shared token; mint and track one per `keys/<key>/` (`TokenRegistry`)                                     |
 | `host/version.ts`          | The host CLI's `VERSION` — one of the three the release workflow's version guard pins to the tag                      |
 | `host/commands/`           | Allowlisted host scripts, **embedded** in the binary + seeded to `~/.config/devc-bridge/commands`                     |
 | `client/devc-bridge.ts`    | Container client CLI                                                                                                  |

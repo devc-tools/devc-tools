@@ -7,21 +7,29 @@
 // socket does not cross the Docker Desktop VM boundary — the container sees the
 // socket inode but connect() is refused (no listener in the guest kernel). The
 // container reaches the host-loopback server via `host.docker.internal`. A shared
-// token (delivered through the bind-mounted run dir as a regular file) authorizes
-// requests, since a loopback TCP port is otherwise reachable by any local process.
+// token (delivered through a bind-mounted directory as a regular file) authorizes
+// requests, since a loopback TCP port is otherwise reachable by any local process: the
+// shared legacy token in run/, or a per-workspace one in keys/<key>/ that also identifies
+// which container is calling.
 //
 // The desktop entrypoint (server.ts) imports startServer() and adds the tray by
 // subscribing to `onActiveChange`.
 
 import { dirname, resolve } from '@std/path';
 import { Keepawake, type KeepawakeStatus } from './keepawake.ts';
+import { TokenRegistry } from './token.ts';
 
 export interface ServerOptions {
   /** Address to bind. Default host is 127.0.0.1 (reachable via host.docker.internal). */
   hostname: string;
   port: number;
-  /** Shared secret required on every request. */
+  /** The shared legacy token (`run/token`), for containers that mount `run/` whole. */
   token: string;
+  /**
+   * `keys/`: one subdirectory per devc workspace. The server mints a token into every one on
+   * start and into any created while it runs, and accepts each as identifying that key.
+   */
+  keysDir: string;
   /** Directory of executable command scripts. The filenames are the allowlist. */
   commandsDir: string;
   /** Directory where scripts drop "active" marker files; watched for the tray. */
@@ -52,6 +60,10 @@ export interface RunningServer {
   address: string;
   /** Current set of active markers (sorted). */
   active(): string[];
+  /** Workspace keys currently holding a token minted by this server, sorted. */
+  keys(): string[];
+  /** Resolves once every change to `keys/` seen so far has been minted. For tests. */
+  settled(): Promise<void>;
   /** Keepalive status, or null when the server wasn't configured with keepawake opts. */
   keepawake(): KeepawakeStatus | null;
   /** Stops accepting connections and — if the keepalive is armed — awaits its stop. */
@@ -167,6 +179,14 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
   const stateDir = resolve(opts.stateDir);
 
   await Deno.mkdir(stateDir, { recursive: true });
+  const keysDir = resolve(opts.keysDir);
+  await Deno.mkdir(keysDir, { recursive: true });
+
+  // Mint every key directory before accepting a connection, so no container that already
+  // exists sees a window where its token is stale.
+  const tokens = new TokenRegistry(opts.token, keysDir);
+  const minted = await tokens.sync();
+  if (minted.length > 0) log(`minted tokens for ${minted.length} key(s)`);
 
   const listener = Deno.listen({ hostname: opts.hostname, port: opts.port });
   const address = `${opts.hostname}:${opts.port}`;
@@ -185,7 +205,21 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
   opts.onActiveChange?.(currentActive);
 
   const watcher = Deno.watchFs(stateDir);
+  // Not recursive: only a key directory appearing or going matters, and the token files this
+  // server writes inside them would otherwise wake it for every mint.
+  const keysWatcher = Deno.watchFs(keysDir, { recursive: false });
   let closed = false;
+  let keysSettled: Promise<unknown> = Promise.resolve();
+
+  (async () => {
+    for await (const _ev of keysWatcher) {
+      keysSettled = tokens.sync().then((keys) => {
+        if (keys.length > 0) log(`minted tokens for: ${keys.join(', ')}`);
+      }, (e) => log(`key sync error: ${e}`));
+    }
+  })().catch((e) => {
+    if (!closed) log(`keys watch error: ${e}`);
+  });
 
   // State-watch loop → recompute active set → notify subscriber (the tray).
   (async () => {
@@ -210,7 +244,9 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
             let resp: Response;
             try {
               const req = JSON.parse(line) as Request;
-              if (req.token !== opts.token) {
+              // Identified, not merely authenticated: the caller's key is what a publishing verb
+              // resolves its policy from. Nothing dispatched today consults it.
+              if (tokens.identify(req.token) === null) {
                 resp = { ok: false, error: 'unauthorized' };
               } else if (keepawake && req.command === 'ping') {
                 const args = Array.isArray(req.args) ? req.args : [];
@@ -248,6 +284,11 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
   return {
     address,
     active: () => currentActive,
+    keys: () => tokens.keys(),
+    settled: async () => {
+      await tokens.sync();
+      await keysSettled;
+    },
     keepawake: () => keepawake?.status() ?? null,
     close: async () => {
       closed = true;
@@ -255,6 +296,9 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
       if (keepawake) await keepawake.close();
       try {
         watcher.close();
+      } catch { /* ignore */ }
+      try {
+        keysWatcher.close();
       } catch { /* ignore */ }
       try {
         listener.close();

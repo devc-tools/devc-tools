@@ -444,20 +444,43 @@ const BASELINE_FEATURES: readonly { id: string; name: string }[] = [
 
 /**
  * The token bind mount the devc-bridge Feature needs, contributed whenever something opts into
- * that Feature.
+ * that Feature. One per container: the source is this workspace's own key directory,
+ * `~/.config/devc-bridge/keys/<key>/`, so a container can read its own token and no other.
  *
  * Read-only, and that is why it has to be a config `mounts` entry: a Feature cannot declare it
  * (the Feature schema's `Mount` has no such field), and it could not ride the overlay back when
  * overlay mounts became `devcontainer up --mount` args, whose grammar has no `readonly` either.
  * A writable token mount would let a container pin the host token for the next start.
  *
+ * **Not under `run/`.** `run/` is what every older container and every non-devc consumer mounts
+ * whole, so a per-key directory beneath it would be readable by all of them. `run/token` stays the
+ * shared legacy token (`caffeinate`/`ping` only); `keys/` is mounted by nobody but devc, one
+ * subdirectory at a time. The target is unchanged, so the client sees `/run/devc-bridge/token`
+ * either way.
+ *
  * It used to be spliced into the *materialized cache config* as a JSONC fence, which meant it
  * reached zero-config containers only — devc will not write into a project's `.devcontainer/`,
  * so project-mode users copied the line in by hand. As a merge layer it reaches both, and devc
  * still writes nothing into the project.
+ *
+ * `key` is {@link import("./merged_config.ts").projectKey}'s output, which is already restricted
+ * to `[A-Za-z0-9_.-]` and so needs no quoting inside a mount string.
  */
-export const BRIDGE_MOUNT =
-  'type=bind,source=${localEnv:HOME}/.config/devc-bridge/run,target=/run/devc-bridge,readonly';
+export function bridgeMount(key: string): string {
+  return `type=bind,source=\${localEnv:HOME}/${BRIDGE_KEYS_SUBPATH}/${key},target=/run/devc-bridge,readonly`;
+}
+
+/** The per-key token directories, relative to `$HOME`. See {@link bridgeMount}. */
+export const BRIDGE_KEYS_SUBPATH = '.config/devc-bridge/keys';
+
+/** Whether the merged Features opt into the devc-bridge Feature, by any spelling. */
+export function declaresBridge(config: ConfigObject): boolean {
+  const declared = (typeof config.features === 'object' &&
+      config.features !== null && !Array.isArray(config.features))
+    ? config.features as ConfigObject
+    : {};
+  return declaresFeatureNamed(declared, 'devc-bridge');
+}
 
 /**
  * devc's own layer for `config` — the merged result of the base config and both overlays, which
@@ -471,13 +494,14 @@ export const BRIDGE_MOUNT =
  *   by name rather than id is what stops a consumer's `…/devc-config:0` and devc's
  *   `…/devc-config:0.1.0` from both installing — two ids are two Features to the CLI, and the
  *   hook would run twice.
- * - **The bridge token mount**, when the merged Features opt into a Feature named `devc-bridge`.
- *   A mount the user declared on the same target wins through the merge's own target dedupe, so
- *   there is nothing to check for here.
+ * - **The bridge token mount** for `bridgeKey` ({@link bridgeMount}), when the merged Features opt
+ *   into a Feature named `devc-bridge`. A mount the user declared on the same target wins through
+ *   the merge's own target dedupe, so there is nothing to check for here.
  */
 export function devcContributions(
   config: ConfigObject,
   baselineFeatures: boolean,
+  bridgeKey: string,
 ): ConfigObject {
   const layer: ConfigObject = {};
   const declared = (typeof config.features === 'object' &&
@@ -494,8 +518,8 @@ export function devcContributions(
     if (Object.keys(features).length > 0) layer.features = features;
   }
 
-  if (declaresFeatureNamed(declared, 'devc-bridge')) {
-    layer.mounts = [BRIDGE_MOUNT];
+  if (declaresBridge(config)) {
+    layer.mounts = [bridgeMount(bridgeKey)];
   }
 
   return layer;
@@ -508,7 +532,7 @@ export function devcContributions(
 // mounts per repo are derived in `mounts.ts`; everything here decides *which* repos get them,
 // and proves afterwards that they landed.
 //
-// Contributed as a merge layer, exactly like {@link BRIDGE_MOUNT} and for the same reason:
+// Contributed as a merge layer, exactly like {@link bridgeMount} and for the same reason:
 // `readonly` can only be expressed in a config `mounts` entry — a Feature cannot declare it (the
 // Feature schema's `Mount` has no such field), so the merge layer is the only channel. As a layer
 // it reaches zero-config and project mode alike, and devc still writes nothing into anyone's

@@ -61,3 +61,106 @@ async function writeTokenFile(path: string, token: string): Promise<void> {
     throw e;
   }
 }
+
+// ── per-container tokens ─────────────────────────────────────────────────────────────────────
+//
+// devc gives each workspace its own directory, `keys/<key>/`, bind-mounted read-only as that
+// container's `/run/devc-bridge`. devc creates the directory and never writes a token into it; the
+// bridge mints one into **every** key directory it finds — all of them on start, and any that
+// appear later — so the generate-never-adopt rule above holds per directory too. `run/token` stays
+// the shared legacy token for containers that mount `run/` whole.
+
+// A key is a bare directory name — the same shape devc's `projectKey` produces.
+const KEY_RE = /^[A-Za-z0-9._-]+$/;
+
+/** Who a request came from: a workspace key, or `null` for the shared legacy token. */
+export interface Caller {
+  key: string | null;
+}
+
+/**
+ * Every token this bridge has issued, and whom each identifies.
+ *
+ * Tokens are looked up by value, so a request carrying a token found on disk but never minted by
+ * this process — a planted one — identifies nobody.
+ */
+export class TokenRegistry {
+  readonly #keysDir: string;
+  readonly #byToken = new Map<string, Caller>();
+  readonly #byKey = new Map<string, string>();
+  #syncing: Promise<string[]> = Promise.resolve([]);
+
+  constructor(sharedToken: string, keysDir: string) {
+    this.#keysDir = keysDir;
+    this.#byToken.set(sharedToken, { key: null });
+  }
+
+  /** The caller `token` identifies, or null when this bridge never issued it. */
+  identify(token: unknown): Caller | null {
+    if (typeof token !== 'string') return null;
+    return this.#byToken.get(token) ?? null;
+  }
+
+  /** Keys that currently hold a token, sorted. */
+  keys(): string[] {
+    return [...this.#byKey.keys()].sort();
+  }
+
+  /**
+   * Bring the registry in line with `keys/`: mint for every key directory that has no token from
+   * this process — new, or whose file no longer holds what was minted (deleted, or rewritten by
+   * someone else) — and forget keys whose directory is gone. Serialized, so overlapping watch
+   * events cannot mint twice. Returns the keys minted.
+   */
+  sync(): Promise<string[]> {
+    this.#syncing = this.#syncing.catch(() => []).then(() => this.#syncOnce());
+    return this.#syncing;
+  }
+
+  async #syncOnce(): Promise<string[]> {
+    const present = new Set<string>();
+    try {
+      for await (const entry of Deno.readDir(this.#keysDir)) {
+        // `isDirectory` is false for a symlink, even one to a directory: a key dir the bridge
+        // writes into must be a real directory under keys/.
+        if (!entry.isDirectory || !KEY_RE.test(entry.name)) continue;
+        if (entry.name === '.' || entry.name === '..') continue;
+        present.add(entry.name);
+      }
+    } catch (e) {
+      if (!(e instanceof Deno.errors.NotFound)) throw e;
+    }
+
+    for (const [key, token] of this.#byKey) {
+      if (present.has(key)) continue;
+      this.#byKey.delete(key);
+      this.#byToken.delete(token);
+    }
+
+    const minted: string[] = [];
+    for (const key of present) {
+      const path = join(this.#keysDir, key, 'token');
+      const held = this.#byKey.get(key);
+      if (held !== undefined && await readToken(path) === held) continue;
+      let token: string;
+      try {
+        token = await resetToken(path);
+      } catch {
+        continue; // removed mid-sync; the next event will settle it
+      }
+      if (held !== undefined) this.#byToken.delete(held);
+      this.#byKey.set(key, token);
+      this.#byToken.set(token, { key });
+      minted.push(key);
+    }
+    return minted.sort();
+  }
+}
+
+async function readToken(path: string): Promise<string | null> {
+  try {
+    return (await Deno.readTextFile(path)).trim();
+  } catch {
+    return null;
+  }
+}

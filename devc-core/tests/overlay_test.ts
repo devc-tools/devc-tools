@@ -1,10 +1,11 @@
 import {
+  assert,
   assertEquals,
   assertRejects,
   assertStringIncludes,
 } from 'jsr:@std/assert@^1';
 import {
-  BRIDGE_MOUNT,
+  bridgeMount,
   DEVC_CONFIG_FEATURE,
   devcContributions,
   emptyOverlay,
@@ -447,13 +448,13 @@ Deno.test('a project can still turn baselineFeatures off on its own', async () =
 // ── devc's own layer ────────────────────────────────────────────────────────────────────────
 
 Deno.test('devcContributions adds the baseline Feature when nothing else declares it', () => {
-  assertEquals(devcContributions({}, true), {
+  assertEquals(devcContributions({}, true, 'proj-00000000'), {
     features: { [DEVC_CONFIG_FEATURE]: {} },
   });
 });
 
 Deno.test('devcContributions: baselineFeatures false contributes no Feature', () => {
-  assertEquals(devcContributions({}, false), {});
+  assertEquals(devcContributions({}, false, 'proj-00000000'), {});
 });
 
 // By *name*, not by id: two ids for one Feature are two Features to the CLI, so the hook would
@@ -469,7 +470,7 @@ Deno.test('a devc-config Feature at any tag or registry suppresses the injected 
     ]
   ) {
     assertEquals(
-      devcContributions({ features: { [id]: {} } }, true),
+      devcContributions({ features: { [id]: {} } }, true, 'proj-00000000'),
       {},
       `not suppressed by ${id}`,
     );
@@ -478,7 +479,11 @@ Deno.test('a devc-config Feature at any tag or registry suppresses the injected 
 
 Deno.test('an unrelated declared Feature does not suppress the baseline', () => {
   assertEquals(
-    devcContributions({ features: { 'ghcr.io/x/rust:1': {} } }, true),
+    devcContributions(
+      { features: { 'ghcr.io/x/rust:1': {} } },
+      true,
+      'proj-00000000',
+    ),
     { features: { [DEVC_CONFIG_FEATURE]: {} } },
   );
 });
@@ -486,24 +491,41 @@ Deno.test('an unrelated declared Feature does not suppress the baseline', () => 
 // The bridge token mount used to be spliced into the materialized cache config, which meant it
 // reached zero-config containers only. As a merge layer it reaches project mode too, and devc
 // still writes nothing into the project.
-Deno.test('opting into devc-bridge contributes the read-only token mount', () => {
-  const layer = devcContributions({
-    features: { 'ghcr.io/devc-tools/features/devc-bridge:0': {} },
-  }, true);
-  assertEquals(layer.mounts, [BRIDGE_MOUNT]);
+Deno.test('opting into devc-bridge contributes the read-only per-key token mount', () => {
+  const layer = devcContributions(
+    {
+      features: { 'ghcr.io/devc-tools/features/devc-bridge:0': {} },
+    },
+    true,
+    'proj-1a2b3c4d',
+  );
+  const mount = bridgeMount('proj-1a2b3c4d');
+  assertEquals(layer.mounts, [mount]);
 
   // A *string*, and read-only. Both halves matter: an object mount cannot express `readonly`,
   // and without it a container can pin the host's token for the next restart.
-  assertEquals(BRIDGE_MOUNT.split(',').includes('readonly'), true);
-  assertEquals(BRIDGE_MOUNT.startsWith('type=bind,'), true);
+  assertEquals(mount.split(',').includes('readonly'), true);
+  assertEquals(mount.startsWith('type=bind,'), true);
+  // This workspace's own key directory — never `run/`, which older containers mount whole.
   assertEquals(
-    BRIDGE_MOUNT.includes('source=${localEnv:HOME}/.config/devc-bridge/run'),
-    true,
+    mount,
+    'type=bind,source=${localEnv:HOME}/.config/devc-bridge/keys/proj-1a2b3c4d,target=/run/devc-bridge,readonly',
   );
 });
 
+Deno.test('bridgeMount: the source is per key, the target is not', () => {
+  const a = bridgeMount('app-11111111');
+  const b = bridgeMount('app-22222222');
+  assert(a !== b);
+  assertEquals(a.replace('11111111', 'X'), b.replace('22222222', 'X'));
+  assertStringIncludes(a, 'target=/run/devc-bridge,');
+});
+
 Deno.test('no bridge opt-in, no token mount', () => {
-  assertEquals(devcContributions({ features: {} }, true).mounts, undefined);
+  assertEquals(
+    devcContributions({ features: {} }, true, 'proj-00000000').mounts,
+    undefined,
+  );
 });
 
 // devc's layer is merged *under* everything else, so a mount someone wrote themselves on the
@@ -515,7 +537,7 @@ Deno.test("a hand-written /run/devc-bridge mount wins over devc's", () => {
     mounts: [own],
   };
   const merged = mergeConfigs([
-    devcContributions(provisional, true),
+    devcContributions(provisional, true, 'proj-00000000'),
     provisional,
   ]);
   assertEquals(merged.mounts, [own]);
@@ -524,7 +546,7 @@ Deno.test("a hand-written /run/devc-bridge mount wins over devc's", () => {
 Deno.test('devcContributions never mutates the config it inspects', () => {
   const config = { features: { 'ghcr.io/x/rust:1': {} } };
   const snapshot = JSON.stringify(config);
-  devcContributions(config, true);
+  devcContributions(config, true, 'proj-00000000');
   assertEquals(JSON.stringify(config), snapshot);
 });
 

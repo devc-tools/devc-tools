@@ -31,8 +31,8 @@ To build it from a clone instead, see [Development](#development).
 ```text
 devc init    [PATH]                                   Scaffold the default `.devcontainer/` into the project
 devc config  [PATH]                                   Configure the project's source/skills mounts (TUI)
-devc up      [PATH] [--json]                          Create/start the container; print its status
-devc build   [PATH] [--no-cache] [--json]             Recreate the container from scratch
+devc up      [PATH] [--json] [--bridge-git-push]      Create/start the container; print its status
+devc build   [PATH] [--no-cache] [--json] [--bridge-git-push] Recreate the container from scratch
 devc attach  [PATH] [--build] [--no-clear] [--cwd DIR] Start (creating if needed) and attach a login shell
 devc claude  [PATH] [--cwd DIR] [EXTRA_ARGS...]       Start and run `claude` (+ forwarded args) in a login shell
 devc copilot [PATH] [--cwd DIR] [EXTRA_ARGS...]       Start and run `copilot` (+ forwarded args) in a login shell
@@ -41,8 +41,9 @@ devc herdr   [PATH] [--cwd DIR] [EXTRA_ARGS...]       Start and run `herdr` (+ f
 devc exec    [PATH] [--cwd DIR] [--env K=V]... -- CMD Start and run CMD directly (no shell)
 devc mounts  [PATH] [--json]                          List the container's mounts
 devc stop    [PATH]                                   Stop the container
-devc down    [PATH]                                   Stop and remove the container
-devc status  [PATH]                                   Print `running` / `stopped` / `missing`
+devc down    [PATH]                                   Stop and remove the container (and its devc-bridge files)
+devc prune   [--dry-run]                              Remove devc-bridge key dirs/policies no container uses
+devc status  [PATH]                                   Print `running` / `stopped` / `missing`, then protection and bridge lines
 ```
 
 Run `devc --help` for the full command list, `devc <COMMAND> --help` for a
@@ -96,6 +97,14 @@ Notes:
   <path>` when nothing was running. `down` prints `Removed container for
   <path>`, or `No container for <path>` when there was nothing to remove. Both
   exit 0 either way — neither is an error.
+- `--bridge-git-push` on `up`/`build` grants the container `git push` for its
+  current branch through devc-bridge; `up`/`build` **without** it revoke any
+  earlier grant. No other command accepts it — see
+  [Per-container identity](#per-container-identity-and-git-push).
+- `prune` removes every `~/.config/devc-bridge/keys/<key>/` and
+  `policy/<key>.conf` that no container (running or stopped) maps to, printing
+  `removed <path>` per entry (`would remove` with `--dry-run`, which removes
+  nothing). It removes nothing and exits 1 if `docker ps` fails.
 - Lookup commands (`status`/`stop`/`down`/`mounts`) locate the container by its
   `devcontainer.local_folder` label and never start anything. With `docker`
   itself missing from `PATH` they fail hard — `devc: docker not found on PATH`,
@@ -854,45 +863,129 @@ and why.
 
 ### The token mount
 
-The bridge also needs the host's shared-secret token, which does have to cross as
-a bind mount — and it must be **read-only**, or a container can pin the host's
-token for the next restart. devc contributes that mount itself whenever anything
-opts into the Feature, in **both** modes:
+The bridge also needs a token, which does have to cross as a bind mount — and it
+must be **read-only**, or a container can pin a token for the next restart. devc
+contributes that mount itself whenever anything opts into the Feature, in
+**both** modes, and it is **per workspace**:
 
 ```jsonc
-"type=bind,source=${localEnv:HOME}/.config/devc-bridge/run,target=/run/devc-bridge,readonly"
+"type=bind,source=${localEnv:HOME}/.config/devc-bridge/keys/<key>,target=/run/devc-bridge,readonly"
 ```
 
-A **Feature** cannot declare it — the Feature schema's `Mount` has no `readonly`
-field, and the CLI re-serializes object mounts without one — so a
+`<key>` is the same `<basename>-<8 hex>` that names the project's cache
+directory (and, with a `devc-` prefix, its container), so every workspace
+folder — every worktree — has its own. devc creates `keys/<key>/` before
+`devcontainer up`, empty; the bridge mints a token into it. `devc status` prints
+the key.
+
+A **Feature** cannot declare the mount — the Feature schema's `Mount` has no
+`readonly` field, and the CLI re-serializes object mounts without one — so a
 `devcontainer.json` `mounts` array is the only place a read-only bind can be
 expressed. It reaches one because devc contributes it as the lowest layer of the
 merge, and the merged config is written to devc's own cache. **devc still does
-not write into a project's `.devcontainer/` — not here, not anywhere.**
+not write into a project's `.devcontainer/` — not here, not anywhere.** Under
+`~/.config/devc-bridge/` it writes only `keys/<key>/` and `policy/<key>.conf`,
+and it never runs `devc-bridge`: the two tools share that directory and the
+policy line's format, and nothing else.
 
-This used to be the one asymmetry between a devc project and a non-devc one: the
-mount was spliced into the config devc materialized for the zero-config path, so
-project-mode users had to copy the line into their own `devcontainer.json` by
-hand. As a merge layer it reaches both, and the hand-written line is no longer
-needed (one you already have is harmless — see below).
+A project that does not use devc at all declares the reference and the shared
+`run/` mount in its own `devcontainer.json`, exactly as before — see the
+[bridge README](../devc-bridge/README.md#the-container-client). That container
+gets the **shared** token: `caffeinate` and `ping` work, and nothing that needs
+an identity does.
 
-A project that does not use devc at all still declares the reference and the
-mount in its own `devcontainer.json`, exactly as before.
-
-**Install the host bridge first.** A Feature cannot create its own mount sources
-— its lifecycle hooks all run inside the container, and `--mount type=bind`
-errors on a missing source — so opting in on a host with no
-`~/.config/devc-bridge/` fails the create with Docker's `bind source path does
-not exist`. Running `devc-bridge start` once seeds that directory. devc does
-**not** pre-create it, in either mode: a host that never uses the bridge should
-not carry directories for it. That prerequisite is identical for devc and
-non-devc projects; only who writes the mount line differs.
+**The host bridge need not be installed first** any more: devc creates the
+mount's source itself, so a devc container comes up on a host that has never
+run `devc-bridge`, minus bridge commands (the client's error names the cause).
+Start the bridge whenever you like — it mints into every key directory it finds,
+including ones created while it runs, and running containers pick the token up
+with nothing restarted.
 
 **If you already wired the bridge yourself** — a `run` mount you wrote in
-`devc.json` or copied into `devcontainer.json` — you can leave it: the merge
-dedupes `mounts` by target, and since devc's contribution is the lowest layer,
-yours wins. A `devc-post-create.sh` that builds the client should still be
-removed before opting in, since the Feature installs its own.
+`devc.json` or copied into `devcontainer.json` — it still wins, because the
+merge dedupes `mounts` by target and devc's contribution is the lowest layer.
+It still works for `caffeinate`, but it is the shared token, so
+`--bridge-git-push` refuses that container. Delete the hand-written line and
+`devc build` to move to the per-workspace mount. A `devc-post-create.sh` that
+builds the client should still be removed before opting in, since the Feature
+installs its own.
+
+A container created by an older devc also still mounts all of `run/`, and gets
+the shared token until it is recreated.
+
+### Per-container identity and git push
+
+**One container, one repo, one branch.** The token identifies the container;
+`~/.config/devc-bridge/policy/<key>.conf` names the one repo, remote and branch
+it may publish:
+
+```text
+<host path of the repo><TAB><remote.origin.url><TAB><branch>
+```
+
+That file is the whole grant, and no container can write it — `policy/` is never
+mounted.
+
+> **No bridge command reads the policy yet.** The `git-push` verb that will is a
+> separate change; until it lands, `--bridge-git-push` writes a pin that nothing
+> acts on. Everything below describes what the pin will mean. Only the **primary workspace repo** is ever pinned: a `devc:source`
+> mount you added for convenience is not a grant.
+
+| Command                                              | With `--bridge-git-push` | Without it                                         |
+| ---------------------------------------------------- | ------------------------ | -------------------------------------------------- |
+| `up`, `build`                                        | write the policy         | **delete** this workspace's policy                 |
+| `attach`, `claude`, `copilot`, `pi`, `herdr`, `exec` | refused — not accepted   | refresh an existing policy from the current branch |
+
+A **flag, deliberately not a config key**: every `devc.jsonc` layer with the
+priority to set it lives inside the bind-mounted workspace, where an agent could
+grant itself the capability before your next `up`. A flag is typed per
+invocation and never persisted.
+
+Before writing (or refreshing) a policy devc checks, and with the flag given
+exits non-zero naming the first that fails:
+
+1. a `devc-bridge` Feature is declared;
+2. `gitProtect` is not off;
+3. the workspace is a bind-mounted repo whose `HEAD` names a branch (a detached
+   `HEAD` fails) and whose config has exactly one `remote.origin.url` (none,
+   two, or any `[include]` fails);
+4. **the running container** has that repo's `.git/config` and `.git/hooks`
+   mounted read-only, and its own `keys/<key>/` at `/run/devc-bridge`.
+
+The last one is checked against the container's live mount table, not against
+the `gitProtect` setting: `devc up` reuses an existing container, whose mounts
+were fixed when it was created, and the setting can be edited from inside the
+workspace. The remote URL is read out of `.git/config`, and is only trustworthy
+while that file is frozen. **A linked worktree fails this check today** — its
+remotes and hooks live in the primary repo's git dir, which git protection does
+not freeze in a worktree container.
+
+devc reads `HEAD`, the worktree `gitdir:` pointer and the remote as **files**;
+it never runs `git` in the repo, since `git -C <repo>` on the host fires a
+planted `core.fsmonitor`.
+
+**Refresh** keeps a long-lived container right when you switch branches: each
+`attach`/`claude`/… rewrites the pin from the current `HEAD`. When the pin can no
+longer be derived — a detached `HEAD`, protection gone — the refresh **removes**
+the policy and says so, rather than leave a grant standing that its
+preconditions no longer support.
+
+**Revocation needs no restart.** The policy is read per request, not cached, so
+removing the file stops the next push from a running container. That is also a
+panic button that involves no devc at all:
+
+```sh
+rm ~/.config/devc-bridge/policy/<key>.conf
+```
+
+This is **bearer** identity, not attestation: a process that obtained another
+container's token could act as that container. Each container mounts only its
+own key directory, so there is no ambient channel between them — but that is
+the whole of the guarantee.
+
+`devc down` removes the workspace's `keys/<key>/` and policy; `devc prune`
+removes the ones that leaked. `devc status` reports the key, whether its token
+is present, and the pin in force — `absent` when there is none.
 
 On **Docker Compose** devcontainers the CLI drops `readonly` when it rewrites
 mounts into the generated compose file, so the token mount ends up writable

@@ -17,8 +17,22 @@ import { join } from '@std/path';
 export interface Config {
   /** Root of the config tree (default ~/.config/devc-bridge). */
   base: string;
-  /** Bind-mounted run dir: the token lives here, and nothing else. */
+  /**
+   * Bind-mounted run dir: the shared legacy token lives here, and nothing else. Mounted whole by
+   * containers that predate per-workspace tokens and by non-devc consumers, so it is readable by
+   * all of them — which is why per-workspace tokens are *not* under it.
+   */
   run: string;
+  /**
+   * Per-workspace token dirs, `keys/<key>/`, each created by devc and bind-mounted read-only into
+   * that one container. Never mounted whole. The bridge mints into every subdirectory.
+   */
+  keys: string;
+  /**
+   * Per-workspace publish pins, `policy/<key>.conf`, written by devc. Host-only — no container
+   * mounts it — because a policy the container could write is not a policy.
+   */
+  policy: string;
   /** Active-marker dir watched by the tray. */
   state: string;
   /** Editable, allowlisted command scripts (seeded on first start). */
@@ -98,6 +112,8 @@ export function loadConfig(): Config {
   return {
     base,
     run,
+    keys: join(base, 'keys'),
+    policy: join(base, 'policy'),
     state: Deno.env.get('DEVC_BRIDGE_STATE') ?? join(base, 'state'),
     commands: Deno.env.get('DEVC_BRIDGE_COMMANDS') ?? join(base, 'commands'),
     client,
@@ -117,6 +133,7 @@ export function loadConfig(): Config {
 /** Create the runtime dirs and seed missing command scripts. Idempotent. */
 export async function ensureConfig(cfg: Config): Promise<void> {
   await ensureDir(cfg.run);
+  await ensureDir(cfg.keys);
   await ensureDir(cfg.state);
   await ensureDir(cfg.commands);
   // The dev-override destination. Created (never filled) so `build:client` and the release

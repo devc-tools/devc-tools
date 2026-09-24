@@ -30,6 +30,10 @@ export * from './overlay.ts';
 export * from './merge.ts';
 export * from './merged_config.ts';
 
+// devc-bridge per-container identity, pure half: key/policy paths, the policy line, and the
+// publish pin read out of a repo's files. Writes nothing — the CLI creates and removes the files.
+export * from './bridge.ts';
+
 // Worktree resolution for the mount picker (used by `devc config`, exposed for other UIs).
 export * from './worktree.ts';
 

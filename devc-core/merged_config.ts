@@ -27,6 +27,7 @@ import {
 import { type ConfigObject, mergeConfigs } from './merge.ts';
 import {
   assertGitProtectSupported,
+  declaresBridge,
   devcContributions,
   GIT_PROTECT_KEY,
   type GitProtect,
@@ -74,6 +75,13 @@ export interface MergedConfig {
    * live mount table; see {@link import("./overlay.ts").gitProtectState}.
    */
   protectedRows: MountRow[];
+  /**
+   * This workspace's devc-bridge key ({@link projectKey}) when the merged Features opt into the
+   * devc-bridge Feature, and so the container mounts `~/.config/devc-bridge/keys/<key>/`; `null`
+   * when they do not. Carried so the CLI can create that directory before `devcontainer up` —
+   * core itself writes nothing under `~/.config/devc-bridge/`.
+   */
+  bridgeKey: string | null;
 }
 
 function homeDir(): string {
@@ -243,8 +251,10 @@ export async function ensureMergedConfig(
     'the merged config',
   );
   const protectedRows = await gitProtectRows(provisional, localFolder);
+  const key = await projectKey(localFolder);
+  const bridgeKey = declaresBridge(provisional) ? key : null;
   const merged = stripDevcOnlyKeys(mergeConfigs([
-    devcContributions(provisional, overlays.baselineFeatures),
+    devcContributions(provisional, overlays.baselineFeatures, key),
     gitProtectLayer(protectedRows),
     provisional,
   ]));
@@ -261,5 +271,13 @@ export async function ensureMergedConfig(
     () => {},
   );
 
-  return { path, config, mode, baseConfigPath, gitProtect, protectedRows };
+  return {
+    path,
+    config,
+    mode,
+    baseConfigPath,
+    gitProtect,
+    protectedRows,
+    bridgeKey,
+  };
 }

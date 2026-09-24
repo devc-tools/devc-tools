@@ -66,14 +66,23 @@ export interface UpArgs {
    */
   printConfig: boolean;
   json: boolean;
+  /**
+   * Write this workspace's devc-bridge policy, granting `git push` for its current branch. Absent
+   * means *delete* the policy. A flag and never a config key: see `bridge.ts`.
+   */
+  bridgeGitPush: boolean;
 }
+
+/** The one devc-owned flag that grants a capability. Accepted by `up` and `build` only. */
+export const BRIDGE_GIT_PUSH_FLAG = '--bridge-git-push';
 
 /** Parses `devc up` arguments. */
 export function parseUpArgs(args: string[]): UpArgs {
   const printConfig = args.includes('--print-config');
   const json = args.includes('--json');
+  const bridgeGitPush = args.includes(BRIDGE_GIT_PUSH_FLAG);
   const target = args.find((a) => !a.startsWith('--'));
-  return { target, printConfig, json };
+  return { target, printConfig, json, bridgeGitPush };
 }
 
 export interface BuildArgs {
@@ -82,12 +91,15 @@ export interface BuildArgs {
   /** Drop the Docker layer cache for the image build (`--build-no-cache`). */
   noCache: boolean;
   json: boolean;
+  /** As {@link UpArgs.bridgeGitPush}. */
+  bridgeGitPush: boolean;
 }
 
 /** Parses `devc build` arguments. */
 export function parseBuildArgs(args: string[]): BuildArgs {
   const noCache = args.includes('--no-cache');
   const json = args.includes('--json');
+  const bridgeGitPush = args.includes(BRIDGE_GIT_PUSH_FLAG);
   const target = args.find((a) => !a.startsWith('--'));
-  return { target, noCache, json };
+  return { target, noCache, json, bridgeGitPush };
 }

@@ -149,6 +149,7 @@ async function run(cfg: Config, args: string[]): Promise<void> {
     hostname: cfg.hostname,
     port: cfg.port,
     token,
+    keysDir: cfg.keys,
     commandsDir: cfg.commands,
     stateDir: cfg.state,
     onActiveChange: (active) =>

@@ -12,7 +12,13 @@ import {
   stopContainer,
 } from './container.ts';
 import { describeBindMounts, resolveAttachCwd } from './attach.ts';
-import { parseAttachArgs, parseBuildArgs, parseUpArgs } from './args.ts';
+import {
+  BRIDGE_GIT_PUSH_FLAG,
+  parseAttachArgs,
+  parseBuildArgs,
+  parseUpArgs,
+} from './args.ts';
+import { bridgeStatusLines, pruneBridgeFiles } from './bridge.ts';
 import {
   DEVCONTAINER_SUBCOMMAND,
   runEmbeddedDevcontainerCli,
@@ -23,7 +29,10 @@ import {
   herdrMode,
   runHerdrSidecarBody,
 } from './herdr.ts';
-import { ensureMergedConfig } from '@devc-tools/core/merged_config.ts';
+import {
+  ensureMergedConfig,
+  type MergedConfig,
+} from '@devc-tools/core/merged_config.ts';
 import { gitProtectState } from '@devc-tools/core/overlay.ts';
 import { initProject } from '@devc-tools/core/init.ts';
 import {
@@ -54,6 +63,19 @@ if (subcommand === DEVCONTAINER_SUBCOMMAND) {
 // here on the process belongs to the sidecar body, not devc. Never returns.
 if (subcommand === HERDR_SIDECAR_SUBCOMMAND) {
   await runHerdrSidecarBody();
+}
+
+/**
+ * `--bridge-git-push` is honored by `up` and `build` only — see `bridge.ts` for why the other
+ * start paths may refresh a grant but never make one. Refused rather than ignored elsewhere, so
+ * `devc claude --bridge-git-push` cannot look like it granted something.
+ */
+function refuseBridgeGitPush(command: string, args: string[]): void {
+  if (!args.includes(BRIDGE_GIT_PUSH_FLAG)) return;
+  console.error(
+    `devc: ${BRIDGE_GIT_PUSH_FLAG} is accepted by \`devc up\` and \`devc build\` only, not \`devc ${command}\``,
+  );
+  Deno.exit(2);
 }
 
 /** Prints a `devc:`-prefixed error to stderr and exits 1 (never returns). */
@@ -116,6 +138,7 @@ async function resolveCwdArg(target: string, cwd: string): Promise<string> {
  * an interactive shell.
  */
 async function attach(rawArgs: string[], command?: string): Promise<void> {
+  refuseBridgeGitPush(command ?? 'attach', rawArgs);
   const { target: rawTarget, rebuild, noClear, cwd: rawCwd } = parseAttachArgs(
     rawArgs,
   );
@@ -278,14 +301,12 @@ if (subcommand === 'herdr') {
  * Never fatal. `devc status` answering "is my container up" must keep working even when the
  * config cannot be merged, so a failure here prints a note and returns.
  */
-async function printGitProtection(target: string): Promise<void> {
-  let merged;
-  try {
-    merged = await ensureMergedConfig(target);
-  } catch (e) {
-    console.log(
-      `git protection: unknown — ${e instanceof Error ? e.message : e}`,
-    );
+async function printGitProtection(
+  target: string,
+  merged: MergedConfig | Error,
+): Promise<void> {
+  if (merged instanceof Error) {
+    console.log(`git protection: unknown — ${merged.message}`);
     return;
   }
 
@@ -338,12 +359,23 @@ if (subcommand === 'down') {
 if (subcommand === 'status') {
   const target = resolveLocalFolder(Deno.args[1]);
   console.log(await getContainerStatus(target).catch(fail));
-  await printGitProtection(target);
+  const merged = await ensureMergedConfig(target).catch((e) =>
+    e instanceof Error ? e : new Error(String(e))
+  );
+  await printGitProtection(target, merged);
+  for (
+    const line of await bridgeStatusLines(
+      merged instanceof Error ? null : merged,
+      target,
+    )
+  ) {
+    console.log(line);
+  }
   Deno.exit(0);
 }
 
 if (subcommand === 'up') {
-  const { target: rawTarget, printConfig, json } = parseUpArgs(
+  const { target: rawTarget, printConfig, json, bridgeGitPush } = parseUpArgs(
     Deno.args.slice(1),
   );
   const target = resolveLocalFolder(rawTarget);
@@ -357,7 +389,9 @@ if (subcommand === 'up') {
     Deno.exit(0);
   }
 
-  const info = await startContainer(target, false).catch(fail);
+  const info = await startContainer(target, false, {
+    bridgePolicy: bridgeGitPush ? 'grant' : 'revoke',
+  }).catch(fail);
   if (json) {
     console.log(JSON.stringify(info));
   } else {
@@ -372,12 +406,15 @@ if (subcommand === 'up') {
 // operation that makes a `devcontainer.json` change take effect, since mounts are bound at
 // container-create time; `--no-cache` also rebuilds the image without the layer cache.
 if (subcommand === 'build') {
-  const { target: rawTarget, noCache, json } = parseBuildArgs(
+  const { target: rawTarget, noCache, json, bridgeGitPush } = parseBuildArgs(
     Deno.args.slice(1),
   );
   const target = resolveLocalFolder(rawTarget);
   if (!json) console.log(`Rebuilding dev container for ${target}...`);
-  const info = await rebuildContainer(target, { noCache }).catch(fail);
+  const info = await rebuildContainer(target, {
+    noCache,
+    bridgePolicy: bridgeGitPush ? 'grant' : 'revoke',
+  }).catch(fail);
   if (json) {
     console.log(JSON.stringify(info));
   } else {
@@ -396,6 +433,7 @@ if (subcommand === 'exec') {
   const sepIndex = rest.indexOf('--');
   const flagArgs = sepIndex === -1 ? rest : rest.slice(0, sepIndex);
   const cmd = sepIndex === -1 ? [] : rest.slice(sepIndex + 1);
+  refuseBridgeGitPush('exec', flagArgs);
 
   let target: string | undefined;
   let cwd: string | undefined;
@@ -434,6 +472,19 @@ if (subcommand === 'exec') {
     console.error(`devc: ${e instanceof Error ? e.message : e}`);
     Deno.exit(125); // reserved: devc/docker infra failure
   }
+}
+
+// `devc prune [--dry-run]`: remove devc-bridge key directories and policies that no container —
+// running or stopped — maps to any more. `devc down` removes its own; this is for the ones that
+// leaked (a container removed with `docker rm`, or by another tool).
+if (subcommand === 'prune') {
+  const dryRun = Deno.args.slice(1).includes('--dry-run');
+  const stale = await pruneBridgeFiles(dryRun).catch(fail);
+  for (const path of stale) {
+    console.log(`${dryRun ? 'would remove' : 'removed'} ${path}`);
+  }
+  if (stale.length === 0) console.log('Nothing to prune');
+  Deno.exit(0);
 }
 
 if (subcommand === 'mounts') {

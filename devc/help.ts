@@ -5,7 +5,7 @@
 /** CLI version. Single source of truth — the compiled binary cannot read `deno.json` at runtime. */
 export const VERSION = '0.2.2';
 
-/** The fourteen subcommands, in the order they appear in the top-level `Commands:` list. */
+/** The fifteen subcommands, in the order they appear in the top-level `Commands:` list. */
 export const COMMANDS: { name: string; summary: string }[] = [
   {
     name: 'init',
@@ -49,6 +49,10 @@ export const COMMANDS: { name: string; summary: string }[] = [
   { name: 'mounts', summary: 'List container mounts for the current project' },
   { name: 'stop', summary: 'Stop the dev container for the current project' },
   { name: 'down', summary: 'Remove the dev container for the current project' },
+  {
+    name: 'prune',
+    summary: 'Remove devc-bridge key dirs and policies no container uses',
+  },
   {
     name: 'status',
     summary: 'Show dev container status for the current project',
@@ -176,9 +180,12 @@ export const COMMAND_HELP: Record<string, string> = {
     '  [PATH]  Path to the project (default: current directory)',
     '',
     'Options:',
-    '      --print-config   Print the effective devcontainer.json and exit',
-    '      --json           Output container status as JSON',
-    '  -h, --help           Print help',
+    '      --print-config      Print the effective devcontainer.json and exit',
+    '      --json              Output container status as JSON',
+    '      --bridge-git-push   Let this container push its current branch via',
+    '                          devc-bridge; without it, any earlier grant is',
+    '                          removed',
+    '  -h, --help              Print help',
   ].join('\n'),
 
   build: [
@@ -188,9 +195,10 @@ export const COMMAND_HELP: Record<string, string> = {
     '  [PATH]  Path to the project (default: current directory)',
     '',
     'Options:',
-    '      --no-cache   Rebuild the image without the Docker layer cache',
-    '      --json       Output container status as JSON',
-    '  -h, --help       Print help',
+    '      --no-cache          Rebuild the image without the Docker layer cache',
+    '      --json              Output container status as JSON',
+    '      --bridge-git-push   As for `devc up`',
+    '  -h, --help              Print help',
   ].join('\n'),
 
   exec: [
@@ -235,6 +243,19 @@ export const COMMAND_HELP: Record<string, string> = {
     '',
     'Options:',
     '  -h, --help  Print help',
+    '',
+    "Also removes this project's devc-bridge key dir and git-push policy.",
+  ].join('\n'),
+
+  prune: [
+    'Usage: devc prune [OPTIONS]',
+    '',
+    'Options:',
+    '      --dry-run   Print what would be removed, and remove nothing',
+    '  -h, --help      Print help',
+    '',
+    'Removes every ~/.config/devc-bridge/keys/<key>/ and policy/<key>.conf that no',
+    'container (running or stopped) maps to. Removes nothing if docker is unreachable.',
   ].join('\n'),
 
   status: [
@@ -252,6 +273,9 @@ export const COMMAND_HELP: Record<string, string> = {
     '              (a mount you declared on the same target, or a container',
     '               created before the mounts existed — rebuild with `devc build`)',
     'Set "gitProtect": false in devc.jsonc to turn the whole control off.',
+    '',
+    "Then the devc-bridge lines: this project's key, whether its token is present,",
+    'and the git-push pin in force — or "absent" when there is none.',
   ].join('\n'),
 };
 

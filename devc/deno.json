@@ -2,7 +2,7 @@
   "version": "0.2.2",
   "tasks": {
     "run": "deno run --allow-run --allow-read --allow-write --allow-env --allow-sys --allow-net main.ts",
-    "check": "deno check main.ts args.ts attach.ts container.ts devcontainer_selfexec.ts help.ts herdr.ts tui/keys.ts tui/term.ts tui/folder_picker.ts tui/prompts.ts tui/config_flow.ts",
+    "check": "deno check main.ts args.ts attach.ts bridge.ts container.ts devcontainer_selfexec.ts help.ts herdr.ts tui/keys.ts tui/term.ts tui/folder_picker.ts tui/prompts.ts tui/config_flow.ts",
     // `--allow-run` is unscoped here for the same reason it is below, plus one of its own: the
     // devcontainer_selfexec tests spawn the *runtime itself* (`Deno.execPath()`), whose path no
     // allowlist entry can name — it is `deno` under `deno test` and the devc binary once
