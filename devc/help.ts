@@ -245,6 +245,13 @@ export const COMMAND_HELP: Record<string, string> = {
     '',
     'Options:',
     '  -h, --help  Print help',
+    '',
+    'Prints the container state, then a git-protection line per bind-mounted repo:',
+    '  protected   .git is a mountpoint; .git/config and .git/hooks are read-only',
+    '  MISMATCH    protection is configured but the container does not have it',
+    '              (a mount you declared on the same target, or a container',
+    '               created before the mounts existed — rebuild with `devc build`)',
+    'Set "gitProtect": false in devc.jsonc to turn the whole control off.',
   ].join('\n'),
 };
 

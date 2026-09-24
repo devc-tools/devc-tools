@@ -57,6 +57,16 @@ bundled default `.devcontainer/`), `default_config.ts` (the bundled default and
 `devcontainer.json` variable substitution), and `jsonc_edit.ts` / `posix.ts` /
 `paths.ts` (small primitives the rest is built on).
 
+`mounts.ts` also derives the **git-protection mounts** — the read-write `.git`
+mountpoint plus the read-only `config` and `hooks` binds that stop a container
+writing host-executable git config — and `overlay.ts` decides which bind-mounted
+repos get them, reads the `gitProtect` opt-out, refuses Docker Compose (where the
+CLI drops `readonly`), and compares the result against a container's live mount
+table for `devc status`. They are contributed as a merge layer below everything
+else, same as the bridge token mount and for the same reason: `readonly` can only
+be expressed in a config `mounts` entry, never by a Feature. See
+[devc's README](../devc/README.md#git-protection-frozen-gitconfig-and-githooks).
+
 `mount_paths.ts` works **host-side only**. It reads the table `getContainerMounts`
 returns from `docker inspect`, where a bind mount's `source` is the real host
 path; inside a container the same mount reports a source like

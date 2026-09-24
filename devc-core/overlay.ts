@@ -16,11 +16,22 @@
 //   `.devcontainer/` everyone else checks out is untouched by definition.
 
 import { readFile, stat } from 'node:fs/promises';
+import process from 'node:process';
 import { parse as parseJsoncLoose, type ParseError } from 'jsonc-parser';
 import { CONFIG_DIR, declaresFeatureNamed } from './default_config.ts';
 import { isNotADirectory, isNotFound } from './errors.ts';
 import { logWarning } from './log.ts';
 import { type ConfigObject, mountTarget, REPLACE_KEY } from './merge.ts';
+import {
+  basename,
+  gitDirTarget,
+  gitProtectMounts,
+  type MountRow,
+  parseMountSpec,
+  SOURCE_CONTAINER_ROOT,
+  unfoldHome,
+} from './mounts.ts';
+import { dirnamePosix } from './posix.ts';
 
 /**
  * Parse JSONC (comments and trailing commas both allowed), throwing when `jsonc-parser`
@@ -62,8 +73,23 @@ export interface DevcOverlay {
   baselineFeatures: boolean;
 }
 
+/**
+ * The top-level key that turns git protection off, wholly or per repo. See
+ * {@link readGitProtect} for the shapes and {@link gitProtectLayer} for what it gates.
+ *
+ * A devc-only key, but unlike `baselineFeatures` it rides the **merged config** rather than being
+ * stripped at load: that is what gives it ordinary layer precedence (base → user → project) and
+ * `$replace`/`null` semantics for free. {@link stripDevcOnlyKeys} takes it back out before the
+ * file is handed to the devcontainer CLI.
+ */
+export const GIT_PROTECT_KEY = 'gitProtect';
+
 /** The devc-only keys an overlay may carry. Everything else must be a `devcontainer.json` key. */
-const DEVC_ONLY_KEYS = ['baselineFeatures', REPLACE_KEY] as const;
+const DEVC_ONLY_KEYS = [
+  'baselineFeatures',
+  GIT_PROTECT_KEY,
+  REPLACE_KEY,
+] as const;
 
 /**
  * Every key a `devcontainer.json` may carry, including the three deprecated top-level VS Code
@@ -333,6 +359,12 @@ export async function loadOverlayFile(path: string): Promise<DevcOverlay> {
     }
   }
   if (raw.mounts !== undefined) checkMounts(path, raw.mounts);
+  // Shape-checked here as well as on the merged config, purely so the error can name the file
+  // the bad value is actually in. Same reasoning as `checkMounts`: a security control that
+  // silently defaults to `true` on a typo is one you cannot tell is working.
+  if (raw[GIT_PROTECT_KEY] !== undefined) {
+    readGitProtect(raw[GIT_PROTECT_KEY], path);
+  }
 
   const { baselineFeatures, ...config } = raw;
   return {
@@ -467,4 +499,305 @@ export function devcContributions(
   }
 
   return layer;
+}
+
+// ── git protection ──────────────────────────────────────────────────────────────────────────
+//
+// devc freezes `.git/config` and `.git/hooks` in every bind-mounted repo it can see, because both
+// files name programs that run **on the host** the next time the host runs git there. The three
+// mounts per repo are derived in `mounts.ts`; everything here decides *which* repos get them,
+// and proves afterwards that they landed.
+//
+// Contributed as a merge layer, exactly like {@link BRIDGE_MOUNT} and for the same reason:
+// `readonly` can only be expressed in a config `mounts` entry — a Feature cannot declare it (the
+// Feature schema's `Mount` has no such field), so the merge layer is the only channel. As a layer
+// it reaches zero-config and project mode alike, and devc still writes nothing into anyone's
+// `.devcontainer/`.
+
+/** The resolved value of {@link GIT_PROTECT_KEY}. */
+export type GitProtect =
+  | boolean
+  /** On, minus these container paths (each one a row's mount `target`). */
+  | { exclude: string[] };
+
+/**
+ * Read {@link GIT_PROTECT_KEY} off a config (or off one overlay file's raw object, which is why
+ * `where` is passed in — it names the file in the error).
+ *
+ * ```jsonc
+ * "gitProtect": true                                  // default
+ * "gitProtect": false                                 // disable entirely
+ * "gitProtect": { "exclude": ["/workspaces/foo"] }    // by container path (the row's target)
+ * ```
+ *
+ * **An unrecognized shape is an error, not a silent `true`.** This is a security control, so the
+ * one thing it may not do is read as enabled while doing nothing — a `"gitProtect": "false"` that
+ * quietly protected everything would be as bad a surprise as one that quietly protected nothing.
+ */
+export function readGitProtect(value: unknown, where: string): GitProtect {
+  if (value === undefined) return true;
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
+    const obj = value as Record<string, unknown>;
+    const keys = Object.keys(obj);
+    const unknown = keys.filter((k) => k !== 'exclude');
+    if (unknown.length > 0) {
+      throw typeError(
+        where,
+        `"${GIT_PROTECT_KEY}": unknown key${unknown.length > 1 ? 's' : ''} ${
+          unknown.map((k) => `"${k}"`).join(', ')
+        } — the object form takes "exclude" only`,
+      );
+    }
+    const exclude = obj.exclude;
+    if (
+      !Array.isArray(exclude) || exclude.some((e) => typeof e !== 'string')
+    ) {
+      throw typeError(
+        where,
+        `"${GIT_PROTECT_KEY}.exclude" must be an array of container paths`,
+      );
+    }
+    return { exclude: exclude as string[] };
+  }
+  throw typeError(
+    where,
+    `"${GIT_PROTECT_KEY}" must be true, false, or { "exclude": [<container path>, ...] }`,
+  );
+}
+
+/** A container path, trailing slashes removed, for comparing a row target to an `exclude` entry. */
+function normalizeTarget(target: string): string {
+  return target.replace(/\/+$/, '');
+}
+
+async function statKind(path: string): Promise<'dir' | 'file' | 'none'> {
+  try {
+    const info = await stat(path);
+    return info.isDirectory() ? 'dir' : 'file';
+  } catch (err) {
+    if (isNotFound(err) || isNotADirectory(err)) return 'none';
+    // A permissions failure on a host path is not "no repo here" — it is a host devc cannot read,
+    // and guessing either way would be wrong. Surface it.
+    throw err;
+  }
+}
+
+/**
+ * The repo root devc should protect for a project folder: the nearest ancestor of `localFolder`
+ * (itself included) holding a `.git`, or null when there is none.
+ *
+ * This mirrors what the devcontainer CLI actually binds, which is **not** `localFolder**: with
+ * `--mount-workspace-git-root` — on by default, and devc does not turn it off — the CLI resolves
+ * the workspace mount's source to the git toplevel and targets it at
+ * `/workspaces/<basename(root)>`, leaving `workspaceFolder` to point at the sub-path inside.
+ * A project in a repo subdirectory therefore has its *whole repo* bind-mounted, `.git` included,
+ * and that is the thing to freeze.
+ *
+ * Walked here rather than shelled out to `git rev-parse`, deliberately: `git -C <repo>` on the
+ * host fires `core.fsmonitor`, which is one of the two payloads this whole control exists to
+ * disarm. devc must not trip it while deciding whether to defuse it.
+ */
+export async function findRepoRoot(
+  localFolder: string,
+): Promise<string | null> {
+  // Not `normalizeTarget`: that strips every trailing slash, which would turn the filesystem
+  // root into '' and send the walk relative to the process cwd.
+  let dir = localFolder.length > 1
+    ? localFolder.replace(/(?!^)\/+$/, '')
+    : localFolder;
+  for (;;) {
+    if (await statKind(`${dir}/.git`) !== 'none') return dir;
+    const parent = dirnamePosix(dir);
+    if (parent === dir) return null;
+    dir = parent;
+  }
+}
+
+/**
+ * The row for the workspace mount the devcontainer CLI adds on its own — the project's own repo,
+ * which is **not** a `devc:source` row and is usually the one an agent is actually attached to.
+ *
+ * Three shapes, in precedence order:
+ *
+ * 1. The config declares `workspaceMount` → that spec is the row, verbatim.
+ * 2. The config is a Docker Compose project → no workspace mount comes from here at all, and
+ *    git protection is refused for compose anyway ({@link assertGitProtectSupported}).
+ * 3. Otherwise → source is {@link findRepoRoot}'s answer, target `/workspaces/<basename>`.
+ *
+ * `workspaceFolder` is deliberately *not* consulted for the target. It sets where the shell lands
+ * inside the mount, not the mount point: the CLI computes the target as
+ * `/workspaces/<basename(gitRoot)>` regardless of it (verified in 0.88.0's own
+ * `workspaceMount` defaulting).
+ */
+export async function workspaceMountRow(
+  config: ConfigObject,
+  localFolder: string,
+): Promise<MountRow | null> {
+  if (config.workspaceMount !== undefined) {
+    const spec = parseMountSpec(config.workspaceMount);
+    if (spec === null || spec.source === null) return null;
+    return spec.readonly ? null : { source: spec.source, target: spec.target };
+  }
+  if (config.dockerComposeFile !== undefined) return null;
+  const root = await findRepoRoot(localFolder);
+  if (root === null) return null;
+  return {
+    source: root,
+    target: `${SOURCE_CONTAINER_ROOT}/${basename(root)}`,
+  };
+}
+
+/**
+ * Every repo row in `config` that git protection applies to: the workspace mount
+ * ({@link workspaceMountRow}) first, then each `mounts` entry, in declaration order.
+ *
+ * A row is kept only when **all** of these hold, checked against the host filesystem at config
+ * time:
+ *
+ * 1. It is a `type=bind` entry with a `source` devc can resolve to a host path.
+ * 2. It is not already `readonly`. Deriving for one would bind a **writable** `.git` inside a repo
+ *    the user froze whole — strictly worse than doing nothing.
+ * 3. `<source>/.git` exists and is a **directory**. This one rule is the whole filter, and it is
+ *    why `.worktrees` rows, skills rows and plain non-repo folders need no special case: a linked
+ *    worktree's `.git` is a *file* (nothing can be mounted beneath a file, and its config and
+ *    hooks resolve from the primary's common dir anyway), and the rest have no `.git` at all.
+ * 4. Its target is not in `gitProtect`'s `exclude` list.
+ *
+ * Rows are deduped by target, first occurrence winning, so a project that also lists itself as a
+ * `devc:source` row does not derive the same three mounts twice.
+ */
+export async function gitProtectRows(
+  config: ConfigObject,
+  localFolder: string,
+  home: string | undefined = process.env.HOME,
+): Promise<MountRow[]> {
+  const protect = readGitProtect(config[GIT_PROTECT_KEY], 'the merged config');
+  if (protect === false) return [];
+  const excluded = new Set(
+    protect === true ? [] : protect.exclude.map(normalizeTarget),
+  );
+
+  const candidates: MountRow[] = [];
+  const workspace = await workspaceMountRow(config, localFolder);
+  if (workspace !== null) candidates.push(workspace);
+  if (Array.isArray(config.mounts)) {
+    for (const entry of config.mounts) {
+      const spec = parseMountSpec(entry);
+      if (spec === null || spec.type !== 'bind' || spec.source === null) {
+        continue;
+      }
+      if (spec.readonly) continue;
+      candidates.push({ source: spec.source, target: spec.target });
+    }
+  }
+
+  const rows: MountRow[] = [];
+  const seen = new Set<string>();
+  for (const row of candidates) {
+    const target = normalizeTarget(row.target);
+    if (seen.has(target) || excluded.has(target)) continue;
+    seen.add(target);
+    if (await statKind(`${unfoldHome(row.source, home)}/.git`) !== 'dir') {
+      continue;
+    }
+    rows.push({ source: row.source, target });
+  }
+  return rows;
+}
+
+/**
+ * Refuse a Docker Compose project outright unless `gitProtect` is explicitly `false`.
+ *
+ * The devcontainer CLI **drops `readonly`** when it generates the compose file for a config's
+ * `mounts`, so the three derived mounts would come up read-write while the user believed they
+ * were frozen. Mounts that silently do not protect are worse than no mounts: they make a control
+ * look present. So this does not degrade and does not warn-and-continue — it fails the run, and
+ * `"gitProtect": false` is the acknowledgement that unblocks it.
+ */
+export function assertGitProtectSupported(config: ConfigObject): void {
+  if (config.dockerComposeFile === undefined) return;
+  if (readGitProtect(config[GIT_PROTECT_KEY], 'the merged config') === false) {
+    return;
+  }
+  throw new Error(
+    'git protection cannot be applied to a Docker Compose devcontainer — the devcontainer CLI ' +
+      'drops "readonly" when it generates the compose file, so .git/config and .git/hooks would ' +
+      'come up writable while appearing protected. Set "gitProtect": false in your devc.jsonc to ' +
+      'acknowledge that this project is unprotected, or convert it off Docker Compose.',
+  );
+}
+
+/**
+ * The layer devc contributes for git protection: the three mounts of {@link gitProtectMounts} for
+ * every row {@link gitProtectRows} kept, parent before child. Pure — the rows are passed in
+ * because the caller needs them too, to report on later ({@link gitProtectState}).
+ *
+ * Merged **below** the base config and both overlays, so a mount the user declares on one of these
+ * targets simply wins through the merge's existing target dedupe. That is the per-mount escape
+ * hatch, and {@link gitProtectState} is what keeps its use visible rather than silent.
+ */
+export function gitProtectLayer(
+  rows: readonly MountRow[],
+  home: string | undefined = process.env.HOME,
+): ConfigObject {
+  if (rows.length === 0) return {};
+  return { mounts: rows.flatMap((row) => gitProtectMounts(row, home)) };
+}
+
+/** `config` without the devc-only keys, ready to hand to the devcontainer CLI. */
+export function stripDevcOnlyKeys(config: ConfigObject): ConfigObject {
+  if (config[GIT_PROTECT_KEY] === undefined) return config;
+  const { [GIT_PROTECT_KEY]: _gitProtect, ...rest } = config;
+  return rest;
+}
+
+// ── runtime verification ────────────────────────────────────────────────────────────────────
+
+/** One repo's git-protection state, as observed on a container's live mount table. */
+export interface GitProtectState {
+  /** The row's container path, e.g. `/workspaces/devc-tools`. */
+  target: string;
+  /** `MISMATCH` means devc expected protection here and the container does not have it. */
+  state: 'protected' | 'MISMATCH';
+  /** One line per expectation that failed; empty when `protected`. */
+  problems: string[];
+}
+
+/**
+ * Compare the mounts expected for `row` against a container's live mount table.
+ *
+ * Nothing at config time proves the mounts landed — the merge's target dedupe means a
+ * user-declared mount can legitimately replace one, a container created before this devc can
+ * simply predate it, and Docker Compose drops `readonly` outright. So the answer is read back
+ * from what Docker actually bound.
+ *
+ * Typed structurally rather than against `container.ts`'s `ContainerMount` to keep `devc-core`'s
+ * pure layer free of a dependency on its docker-calling one.
+ */
+export function gitProtectState(
+  row: MountRow,
+  mounts: readonly { destination: string; rw: boolean }[],
+): GitProtectState {
+  const byTarget = new Map(
+    mounts.map((m) => [normalizeTarget(m.destination), m]),
+  );
+  const gitDir = gitDirTarget(row.target);
+  const problems: string[] = [];
+
+  if (!byTarget.has(gitDir)) {
+    problems.push(`${gitDir} is not a mountpoint (so it can be renamed away)`);
+  }
+  for (const name of ['config', 'hooks']) {
+    const path = `${gitDir}/${name}`;
+    const mount = byTarget.get(path);
+    if (mount === undefined) problems.push(`${path} is not mounted`);
+    else if (mount.rw) problems.push(`${path} is mounted read-write`);
+  }
+
+  return {
+    target: row.target,
+    state: problems.length === 0 ? 'protected' : 'MISMATCH',
+    problems,
+  };
 }

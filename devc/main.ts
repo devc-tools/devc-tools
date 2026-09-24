@@ -24,6 +24,7 @@ import {
   runHerdrSidecarBody,
 } from './herdr.ts';
 import { ensureMergedConfig } from '@devc-tools/core/merged_config.ts';
+import { gitProtectState } from '@devc-tools/core/overlay.ts';
 import { initProject } from '@devc-tools/core/init.ts';
 import {
   globalConfigExists,
@@ -264,6 +265,56 @@ if (subcommand === 'herdr') {
   await attach(Deno.args.slice(1), 'herdr');
 }
 
+/**
+ * The git-protection section of `devc status`: one line per repo devc froze `.git/config` and
+ * `.git/hooks` in, checked against what Docker actually bound.
+ *
+ * Config time proves nothing here. The merge's `mounts` target dedupe lets a user-declared mount
+ * legitimately replace a derived one, and a container created before this devc simply predates
+ * them — so the expected rows come from the merged config and the verdict comes from the live
+ * mount table. `MISMATCH` is the case worth shouting about: it means devc believes this repo is
+ * protected and the container disagrees.
+ *
+ * Never fatal. `devc status` answering "is my container up" must keep working even when the
+ * config cannot be merged, so a failure here prints a note and returns.
+ */
+async function printGitProtection(target: string): Promise<void> {
+  let merged;
+  try {
+    merged = await ensureMergedConfig(target);
+  } catch (e) {
+    console.log(
+      `git protection: unknown — ${e instanceof Error ? e.message : e}`,
+    );
+    return;
+  }
+
+  if (merged.gitProtect === false) {
+    console.log('git protection: unprotected (gitProtect: false)');
+    return;
+  }
+  if (merged.protectedRows.length === 0) {
+    console.log('git protection: no bind-mounted git repositories');
+    return;
+  }
+
+  const mounts = await getContainerMounts(target).catch(() => null);
+  if (mounts === null) {
+    console.log(
+      `git protection: ${merged.protectedRows.length} repo(s) configured — no container to verify against`,
+    );
+    for (const row of merged.protectedRows) console.log(`  ${row.target}`);
+    return;
+  }
+
+  console.log('git protection:');
+  for (const row of merged.protectedRows) {
+    const { state, problems } = gitProtectState(row, mounts);
+    console.log(`  ${row.target}: ${state}`);
+    for (const problem of problems) console.log(`    ${problem}`);
+  }
+}
+
 if (subcommand === 'stop') {
   const target = resolveLocalFolder(Deno.args[1]);
   const stopped = await stopContainer(target).catch(fail);
@@ -287,6 +338,7 @@ if (subcommand === 'down') {
 if (subcommand === 'status') {
   const target = resolveLocalFolder(Deno.args[1]);
   console.log(await getContainerStatus(target).catch(fail));
+  await printGitProtection(target);
   Deno.exit(0);
 }
 

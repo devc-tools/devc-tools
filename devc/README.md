@@ -653,6 +653,143 @@ so add it by hand to pick up the user layer:
 "type=bind,source=${localEnv:HOME}/.config/devc/shell,target=/usr/local/share/devc/shell,consistency=cached,readonly",
 ```
 
+## Git protection: frozen `.git/config` and `.git/hooks`
+
+A devcontainer bind-mounts your repo, `.git` included — so everything in
+`.git/config` and `.git/hooks` is writable by whatever runs in the container.
+Both are **code**: they name programs git runs. A `pre-push` hook or a
+`core.fsmonitor` written from inside executes **on your host, as you**, the next
+time you or your editor runs git in that repo.
+
+devc closes that by default. For every bind-mounted repo it can see, three
+mounts are merged into the effective config:
+
+```
+type=bind,source=<repo>/.git,target=<target>/.git
+type=bind,source=<repo>/.git/config,target=<target>/.git/config,readonly
+type=bind,source=<repo>/.git/hooks,target=<target>/.git/hooks,readonly
+```
+
+This covers the **project itself** (whose repo the devcontainer CLI mounts on its
+own, not as a `devc:source` row) and every `devc:source` row whose `.git` is a
+real directory. A row is skipped when it has no `.git`, when its `.git` is a
+_file_ (a linked worktree — covered by its primary anyway), or when the row is
+already `readonly`.
+
+The first mount is read-write on purpose. `config` + `hooks` is the **maximum**
+that can be frozen: git rewrites config by `config.lock` + rename and takes
+`*.lock` files all over `.git/`, so `.git/`, `refs/`, `objects/` and `logs/`
+must stay writable. Making `.git` itself a mountpoint is what stops
+`mv .git .git-old` — a mountpoint cannot be renamed or unlinked (`EBUSY`), while
+its non-mount parent can. `chmod` is no defence for either file: git only needs
+the _directory_ write bit to replace them.
+
+Everything still works. `commit`, `checkout -b`, `tag`, `stash`, `merge`,
+`cherry-pick`, `rebase`, `reflog`, `pack-refs`, `gc` and `worktree add` were all
+measured green with both files frozen. One pair on the primary repo covers every
+**linked worktree**, including ones created after the container starts: worktree
+`git config` writes the _common_ `.git/config` and worktree hooks resolve from
+the common `.git/hooks`. (`git config --worktree` would escape that, but it is
+refused without `extensions.worktreeConfig`, which lives in the frozen config
+and so cannot be bootstrapped from inside.)
+
+Check it with `devc status`, which reads the container's live mount table rather
+than trusting the config:
+
+```
+$ devc status
+running
+git protection:
+  /workspaces/proj: protected
+  /workspaces/extra: MISMATCH
+    /workspaces/extra/.git/config is mounted read-write
+```
+
+`MISMATCH` means devc believes the repo is protected and the container
+disagrees — a mount you declared on the same target (which legitimately wins,
+see below), or a container created before the mounts existed. `devc build`
+recreates it.
+
+### The operating rule: configure on the host, run in the container
+
+Repo config is now **read-only from inside**. Anything that writes it is a
+_setup_ step, so do it on the host and let the container inherit it — a frozen
+config faithfully carries whatever the host already set. The ones that will bite
+you, because the failure is a bare `EROFS`/`EBUSY` that a wrapping tool buries:
+
+| Command                   | Why it fails, and what to do                                                                                                                  |
+| ------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| `git submodule init`      | writes `submodule.<path>.url` and `.active`. Run it on the host.                                                                              |
+| `git lfs install --local` | unnecessary — `git-container-config` puts the LFS filters in the container's **global** config.                                               |
+| `git config user.email …` | per-repo identity. Set it on the host; the container's identity comes from `~/.config/devc/gitconfig-identity` (see [Git setup](#git-setup)). |
+| `gh repo set-default`     | writes a remote config key. Run it on the host.                                                                                               |
+| pre-commit's `install`    | writes `core.hooksPath` and a hook file. Run it on the host.                                                                                  |
+| husky's `prepare` script  | writes `core.hooksPath`. `HUSKY=0` disables it.                                                                                               |
+
+Freezing `hooks/` does **not** disable the hooks already there — devc-tools' own
+`prepare-commit-msg` keeps running, for agent commits too. Only _installing_ a
+new one is blocked.
+
+Note also that the container's **global** `~/.gitconfig` stays fully writable.
+That is deliberate: it is container-local and wiped on every rebuild, so nothing
+written there reaches your host.
+
+### Turning it off
+
+`gitProtect` is a top-level key in any `devc.json` overlay, read from the merged
+config, so a project can override the user level:
+
+```jsonc
+"gitProtect": true                                  // the default
+"gitProtect": false                                 // off entirely
+"gitProtect": { "exclude": ["/workspaces/foo"] }    // off for one row, by container path
+```
+
+An unrecognized value is an **error**, not a silent `true` — a security control
+that reads as enabled while doing nothing is the one failure worth refusing to
+start over. A single derived mount can also be replaced by declaring your own on
+the same target, which wins through the overlay's normal `mounts` dedupe;
+`devc status` then reports `MISMATCH` so the replacement is never silent.
+
+### Docker Compose is refused, not degraded
+
+The devcontainer CLI **drops `readonly`** when it generates the compose file, so
+the mounts would come up writable while appearing frozen. devc fails the run
+instead, and `"gitProtect": false` is the acknowledgement that unblocks it.
+
+### Three things that will surprise you
+
+1. **Submodules are unsupported.** Each submodule's config lives at
+   `.git/modules/<name>/config` — inside the writable `.git`, created
+   dynamically, so no static mount can cover it. Host git entering a submodule
+   reads an agent-writable config. Three corollaries:
+
+   - **Leave `gitProtect` on for such a repo; do not add it to `exclude`.**
+     Excluding unfreezes the superproject's `config` and `hooks` too, which is
+     strictly worse. Partial protection beats none.
+   - **devc never auto-detects submodules from `.gitmodules`.** That is an
+     ordinary worktree file and is not frozen, so a rule that skipped protection
+     for repos containing one would hand the container a one-command opt-out of
+     the whole control. The only trustworthy signal is the host-authored
+     `exclude` list.
+   - **The residual is the human-push path only**, and it is the same risk you
+     have today without any of this: an agent edits a submodule's config, and
+     _you_ run git in it. Don't use submodules, or accept that.
+
+2. **Changing repo config needs a container restart.** A single-file bind mount
+   binds an _inode_, and `git config` on the host writes by rename — so a host
+   edit to `.git/config` leaves the running container bound to the old,
+   now-deleted inode. `devc build` to pick it up. (Observable today for a
+   different file: `findmnt` in a running container shows the identity mount
+   sourced from `…/gitconfig-identity//deleted`.)
+
+3. **On macOS, `.git` gains a `deny delete` ACL.** Docker Desktop puts
+   `user:<you> deny delete` on a bind-mount source nested inside another bind
+   mount, which is exactly this shape — so `rm -rf <repo>` on the host starts
+   failing with `Permission denied` on `.git`. Clear it with
+   `chmod -N <repo>/.git` (or `chmod -RN <repo>`) first. Measured on Docker
+   Desktop 29.7.2; a lone, un-nested mount source does not get one.
+
 ## Git setup
 
 `~/.gitconfig` is container-local and wiped on every rebuild, while the working

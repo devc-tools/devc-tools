@@ -1425,3 +1425,169 @@ neither CLI is installed, and both volumes are declared anyway), confirm
   build-time pre-create is what did it. `with_declared_volume` covers this one
   under `devcontainer features test`; it is here as the contrast that makes M11
   meaningful.
+
+---
+
+## 16. `devc-git-protect-mounts` — Docker host
+
+**Status: run and green** on Docker Desktop 29.7.2 / macOS arm64 (gRPC-FUSE),
+2026-09-24. Recorded here because none of it can run in the dev container, which
+has no Docker.
+
+### The fixture
+
+A throwaway tree under `$HOME`. (It was first built under `/private/tmp` and
+moved on a _mistaken_ diagnosis — see V8; the move changed nothing, and the
+actual fix was setting `safe.directory`.)
+
+```
+~/devc-gitprotect-test/
+  proj/              git repo — the project itself (the CLI's own workspace mount)
+  extra/             git repo — a devc:source row
+  extra.worktrees/   no .git                       (expect: no protection)
+  plain/             not a repo                    (expect: no protection)
+  frozen/            git repo, mounted readonly    (expect: no protection)
+  excluded/          git repo, in gitProtect.exclude (expect: no protection)
+```
+
+`proj/.devcontainer/devcontainer.json` is a plain
+`mcr.microsoft.com/devcontainers/base:ubuntu` image and `proj/.devc/devc.jsonc`
+sets `"baselineFeatures": false` and `"features": null`, so the run is an image
+pull with no Feature build. **`"features": null` is load-bearing** — without it
+the user-level overlay's `agents` Feature is merged in and fails the build on
+arm64 (that is
+[`agents-agent-browser-arm64`](../../devc-dev/.plans/pending/agents-agent-browser-arm64.md),
+not this plan).
+
+### V1 — derivation, from `devc up --print-config`
+
+Three mounts each for `proj` and `extra`; nothing for `extra.worktrees`,
+`plain`, `frozen` (already `readonly`) or `excluded`. `gitProtect` itself does
+**not** appear in the emitted config — it is a devc-only key, stripped before the
+CLI sees it.
+
+`proj` is the case worth stating twice: it is the _project_, which the
+devcontainer CLI mounts on its own and which is not a `devc:source` row at all.
+It is also the repo an agent is most likely to be attached to.
+
+### V2 — the mount table, cold `devc up`
+
+`/proc/mounts` inside the container, all three landing in one go, parent before
+child:
+
+```
+/workspaces/proj             rw      /workspaces/extra             rw
+/workspaces/proj/.git        rw      /workspaces/extra/.git        rw
+/workspaces/proj/.git/config ro      /workspaces/extra/.git/config ro
+/workspaces/proj/.git/hooks  ro      /workspaces/extra/.git/hooks  ro
+/workspaces/excluded         rw      /workspaces/frozen            ro
+/workspaces/extra.worktrees  rw      /workspaces/plain             rw
+```
+
+- **M1** `echo x > .git/config` → `Read-only file system`
+- **M2** `rm -f .git/config` → `Device or resource busy`
+- **M3** `mv .git .git-old` → `Device or resource busy`; `rmdir .git` likewise.
+  This is the measurement the read-write `.git` mount exists for.
+- **M4** `echo '#!/bin/sh' > .git/hooks/pre-push` → `Read-only file system`
+- **M5** Control, on the _excluded_ repo: the same two writes **succeed**. That
+  is what proves M1–M4 are the mount flags rather than permission bits.
+
+### V3 — git still works
+
+With `config` and `hooks` frozen, all green in `/workspaces/proj`:
+`commit --allow-empty`, `checkout -b`, `tag`, `stash`/`stash pop`,
+`cherry-pick` (of a real change), `rebase`, `merge --no-ff`, `reflog`,
+`pack-refs --all`, `gc`, `worktree add`.
+
+- **M6** `git config user.email x@x` →
+  `error: could not write config file .git/config: Device or resource busy`.
+  Note **EBUSY, not EROFS**: git writes config by `config.lock` + `rename`, and
+  the rename onto a mountpoint is what fails. Either way it is refused.
+- **M7** `git config --global user.email x@x` succeeds — the container's own
+  `~/.gitconfig` stays writable, which is where `git-container-config` puts
+  identity and LFS config.
+- **M8** `git config --worktree` is refused: it needs
+  `extensions.worktreeConfig`, which lives in the frozen config and so cannot be
+  bootstrapped from inside.
+
+### V4 — a linked worktree created _after_ the container started
+
+`git worktree add -b wt /workspaces/extra.worktrees/proj-wt`, run inside the
+container, then from that worktree:
+
+- **M9** `git config user.email x@x` →
+  `could not write config file /workspaces/proj/.git/config: Device or resource busy`
+  — it resolves to the **common** config, which is frozen.
+- **M10** `git rev-parse --git-path hooks` → `/workspaces/proj/.git/hooks`, the
+  frozen one.
+- **M11** `git commit --allow-empty` succeeds.
+
+Together: **one mount pair on the primary covers every linked worktree**,
+including ones that did not exist when the container was created.
+
+### V5 — `devc status`
+
+- **M12** All three states, live:
+
+  ```
+  git protection:                       git protection:
+    /workspaces/proj: protected           /workspaces/proj: protected
+    /workspaces/extra: protected          /workspaces/extra: MISMATCH
+                                            /workspaces/extra/.git/config is mounted read-write
+                                          /workspaces/excluded: protected
+
+  git protection: unprotected (gitProtect: false)
+  ```
+
+  The middle one is a **user mount declared on a derived target** — it wins
+  through the overlay's `mounts` dedupe, which is the intended escape hatch, and
+  `MISMATCH` is what keeps its use from being silent. A repo devc expects to
+  protect in a container created _before_ the mounts existed reports the same
+  way, with all three lines missing.
+
+### V6 — Docker Compose
+
+- **M13** A compose `devcontainer.json` + git protection on → `devc up` exits
+  non-zero naming compose and `"gitProtect": false`; nothing is started.
+- **M14** The same project with `"gitProtect": false` proceeds, and no `.git`
+  mounts are derived.
+
+### V7 — the macOS ACL side effect
+
+- **M15** After the container is removed, `~/devc-gitprotect-test/proj/.git`
+  carries `0: user:bingles deny delete`, and `rm -rf` on the repo fails with
+  `Permission denied`. Isolated with plain `docker run`: a bind-mount source
+  **nested inside another bind mount** gets the ACL; a lone, un-nested source
+  (`repo/` on its own, or `.git` mounted with no outer mount) does not. So this
+  is a direct consequence of the shape this plan creates, on every protected
+  repo. Clear it with `chmod -RN <repo>` before deleting. Documented in
+  `devc/README.md`.
+
+### V8 — `root:0` bind roots and `safe.directory`: raised, then retracted
+
+While running V2 the fixture's `.git` reported `root:0` and git refused
+everything with `detected dubious ownership`. That was first written up as a
+consequence of this plan — `.git` becoming a mountpoint. **It is not.**
+
+- **M16** A plain `docker run -u vscode --mount type=bind,source=<repo>,target=/w`
+  — no devc, no nesting, nothing from this plan — reports `/w` as `root:0` and
+  `/w/.git` as `vscode:1000`. Docker Desktop presents any bind-mount **root**
+  that way; files inside one map to the container user.
+- **M17** On a devc container rebuilt with this change, **every** `/workspaces/*`
+  bind root is `root:0`, including the `.worktrees` rows that get no protection
+  mounts at all. Containers created months ago still report `vscode:1000` for the
+  same paths, so this changed under them in some Docker Desktop version — it is a
+  create-time presentation, not a mount shape.
+- **M18** So `/workspaces/<repo>` already needed `safe.directory` on any new
+  container. This plan adds a second root-owned path, `<repo>/.git`, and that one
+  needs no entry of its own: with a throwaway `GIT_CONFIG_GLOBAL` on the live
+  container, `safe.directory = /workspaces/tools/devc-tools` (the **worktree**
+  path alone) makes `git status` work, while `safe.directory` set to the `.git`
+  path alone does not. A narrowed `safeDirectory` that already named the repo
+  keeps working unchanged.
+
+Conclusion: no new configuration required, and no safety net removed.
+`safe.directory` guards a reader against executing config out of a repo they do
+not own; devc has set `*` in the container by default since long before this
+plan, and **host-side ownership is untouched**, which is where that check
+actually earns its keep.

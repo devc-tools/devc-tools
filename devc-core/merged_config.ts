@@ -25,7 +25,18 @@ import {
   TEMPLATES_DIR,
 } from './default_config.ts';
 import { type ConfigObject, mergeConfigs } from './merge.ts';
-import { devcContributions, loadOverlays } from './overlay.ts';
+import {
+  assertGitProtectSupported,
+  devcContributions,
+  GIT_PROTECT_KEY,
+  type GitProtect,
+  gitProtectLayer,
+  gitProtectRows,
+  loadOverlays,
+  readGitProtect,
+  stripDevcOnlyKeys,
+} from './overlay.ts';
+import type { MountRow } from './mounts.ts';
 import { basenamePosix, dirnamePosix, resolvePosix } from './posix.ts';
 import { normalizePath } from './paths.ts';
 import { CONFIG_DIR } from './default_config.ts';
@@ -51,6 +62,18 @@ export interface MergedConfig {
   mode: ConfigMode;
   /** The config the merge started from, for messages that need to name it. */
   baseConfigPath: string;
+  /**
+   * The resolved `gitProtect` setting. Carried here because
+   * {@link import("./overlay.ts").stripDevcOnlyKeys} takes the key back out of `config` before
+   * the CLI sees it, and `devc status` still has to report which of the three states applies.
+   */
+  gitProtect: GitProtect;
+  /**
+   * The repo rows git protection was derived for — empty when `gitProtect` is `false`, and also
+   * when nothing bind-mounted here is a repo. `devc status` checks these against the container's
+   * live mount table; see {@link import("./overlay.ts").gitProtectState}.
+   */
+  protectedRows: MountRow[];
 }
 
 function homeDir(): string {
@@ -183,10 +206,12 @@ export interface MergedConfigOptions {
 /**
  * Materialize the effective config for `localFolder` and return it.
  *
- * The layers, lowest to highest, are `devc → base → user devc.json → project devc.json`. devc's
- * own layer is computed from the merge of the other three (it must not add a Feature something
- * else already declares), so the merge runs twice: once to know what is there, once to put devc's
- * contribution underneath it. One consequence worth knowing: `null` deletions are resolved in the
+ * The layers, lowest to highest, are `devc → git-protect → base → user devc.json →
+ * project devc.json`. devc's own two layers are computed from the merge of the other three (they
+ * must not add a Feature something else already declares, and the repos to protect are only
+ * knowable once every layer's `mounts` are in one array), so the merge runs twice: once to know
+ * what is there, once to put devc's contributions underneath it. Underneath is what makes both
+ * overridable — a user mount on a derived target wins through the `mounts` target dedupe. One consequence worth knowing: `null` deletions are resolved in the
  * first pass, so `"features": null` clears the *base's* Features while devc's baseline still
  * applies — `baselineFeatures: false` is what turns devc's own contributions off.
  *
@@ -210,10 +235,19 @@ export async function ensureMergedConfig(
   ]);
 
   const provisional = mergeConfigs([base, ...overlays.layers]);
-  const merged = mergeConfigs([
+  // Before deriving anything: a compose project cannot carry `readonly` mounts at all, so
+  // protection there would be a control that looks present and is not. Fails the run.
+  assertGitProtectSupported(provisional);
+  const gitProtect = readGitProtect(
+    provisional[GIT_PROTECT_KEY],
+    'the merged config',
+  );
+  const protectedRows = await gitProtectRows(provisional, localFolder);
+  const merged = stripDevcOnlyKeys(mergeConfigs([
     devcContributions(provisional, overlays.baselineFeatures),
+    gitProtectLayer(protectedRows),
     provisional,
-  ]);
+  ]));
 
   const config = mode === 'zero-config'
     ? absolutizePaths(merged, dirnamePosix(baseConfigPath))
@@ -227,5 +261,5 @@ export async function ensureMergedConfig(
     () => {},
   );
 
-  return { path, config, mode, baseConfigPath };
+  return { path, config, mode, baseConfigPath, gitProtect, protectedRows };
 }
