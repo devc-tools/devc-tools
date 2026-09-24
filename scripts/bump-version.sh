@@ -81,6 +81,17 @@ echo
 echo 'updated:'
 git diff --stat -- devc/help.ts devc-bridge/host/version.ts devc-bridge/client/version.ts \
   devc/deno.json
+# @devc-tools/core is reported, never bumped — it publishes on its own cadence. But an
+# already-published version only surfaces at `npm publish`, which cannot be undone, so say so.
+core_v="$(read_json devc-core/package.json)"
+if published="$(npm view @devc-tools/core versions --json 2> /dev/null)" &&
+  printf '%s' "$published" | tr -d ' \n' | grep -Fq "\"$core_v\""; then
+  echo
+  echo "@devc-tools/core is at $core_v, which is already published. To move it too:"
+  echo "    (cd devc-core && npm version $new --no-git-tag-version)"
+  echo "npm version, not an editor — package-lock.json carries the version too."
+fi
+
 echo
 echo "Next: review the diff, commit, then run scripts/preflight-core-publish.sh on the host"
 echo "before tagging (see README.md's Releasing section)."

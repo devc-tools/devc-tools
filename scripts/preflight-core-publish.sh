@@ -114,10 +114,9 @@ host_v="$(read_const devc-bridge/host/version.ts)"
 client_v="$(read_const devc-bridge/client/version.ts)"
 devc_json_v="$(read_json devc/deno.json)"
 core_pkg_v="$(read_json devc-core/package.json)"
-core_deno_v="$(read_json devc-core/deno.json)"
 
 echo "       binaries    devc=$devc_v host=$host_v client=$client_v (devc/deno.json=$devc_json_v)"
-echo "       devc-core   package.json=$core_pkg_v deno.json=$core_deno_v"
+echo "       devc-core   package.json=$core_pkg_v"
 
 # Each value is checked on its own, never concatenated: one unreadable version among several
 # good ones has to be reported as unreadable, not hidden by its neighbours in a joined string.
@@ -129,7 +128,7 @@ echo "       devc-core   package.json=$core_pkg_v deno.json=$core_deno_v"
 unreadable=0
 for pair in "devc/help.ts=$devc_v" "devc-bridge/host/version.ts=$host_v" \
   "devc-bridge/client/version.ts=$client_v" "devc/deno.json=$devc_json_v" \
-  "devc-core/package.json=$core_pkg_v" "devc-core/deno.json=$core_deno_v"; do
+  "devc-core/package.json=$core_pkg_v"; do
   if [ -n "${pair#*=}" ]; then continue; fi
   echo "  FAIL read a version from ${pair%%=*}"
   echo "       (empty — the file's shape changed, or this sed is not portable here)"
@@ -140,10 +139,11 @@ done
 
 binaries_agree() { [ "$devc_v" = "$host_v" ] && [ "$devc_v" = "$client_v" ]; }
 devc_json_agrees() { [ -n "$devc_json_v" ] && [ "$devc_json_v" = "$devc_v" ]; }
-core_agrees() { [ -n "$core_pkg_v" ] && [ "$core_pkg_v" = "$core_deno_v" ]; }
 check 'the three binary VERSION consts agree (release.yml requires this of a tag)' binaries_agree
 check 'devc/deno.json matches devc/help.ts' devc_json_agrees
-check 'devc-core package.json and deno.json agree' core_agrees
+# No check that devc-core's version matches the binaries': the library publishes on its own
+# cadence. This used to require devc-core/deno.json's "version" to match package.json, but that
+# field was removed in 37ddbdc as inert, which left the check failing on every run.
 
 if [ "$fails" -ne 0 ]; then
   die "$fails preconditions failed — fix these before anything else."
@@ -156,6 +156,26 @@ tag_exists=0
 if git rev-parse -q --verify "refs/tags/$TAG" > /dev/null 2>&1; then
   tag_exists=1
   echo "  --   tag $TAG already exists locally"
+fi
+
+# --- 1b. is this version still publishable? ---------------------------------------------------
+#
+# Before the guards and the build, because an npm version can never be republished: finding out
+# afterwards costs the build *and* leaves bumping as the only fix. (Contrast `npm login`, which
+# this deliberately does not check — publish says so itself, and re-running costs nothing.)
+
+echo
+echo 'npm registry'
+if published="$(npm view @devc-tools/core versions --json 2> /dev/null)" && [ -n "$published" ]; then
+  # grep -F: a version is full of dots, and as a regex `0.2.1` would also match `0x2y1`.
+  if printf '%s' "$published" | tr -d ' \n' | grep -Fq "\"$core_pkg_v\""; then
+    echo "  FAIL @devc-tools/core@$core_pkg_v is already published"
+    die "@devc-tools/core@$core_pkg_v cannot be republished. Bump it first:
+preflight:     (cd devc-core && npm version <x.y.z> --no-git-tag-version)"
+  fi
+  echo "  ok   $core_pkg_v is not taken yet"
+else
+  echo '  --   could not reach the registry — check whether that version is already published'
 fi
 
 # --- 2. the repo's own guards -----------------------------------------------------------------
@@ -187,6 +207,9 @@ if [ "$skip_install" -eq 0 ]; then
 else
   echo
   echo 'npm ci (skipped: --skip-install)'
+  # Note: devc-core/node_modules is bind-mounted into the devcontainer with no volume over it,
+  # so an install run in there leaves this tree holding Linux binaries and the esbuild build
+  # below fails. Drop --skip-install if that happens.
 fi
 
 echo

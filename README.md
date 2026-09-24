@@ -118,9 +118,19 @@ Feature under active development off ghcr.io until it's ready — see
 its `files` is `["dist"]` — so an unbuilt `dist/` publishes an empty package.
 Run [`scripts/preflight-core-publish.sh`](scripts/preflight-core-publish.sh)
 **on the host** first: it checks the same preconditions `release.yml` would
-refuse a tag over, runs the guards below, builds and smoke-tests the real
-tarball, and prints the two commands left — the tag, then the publish. It never
-tags, pushes or publishes.
+refuse a tag over, refuses a version that is **already on the registry** (npm
+versions are immutable, so finding that out at `npm publish` leaves bumping as
+the only fix), runs the guards below, builds and smoke-tests the real tarball,
+and prints the two commands left — the tag, then the publish. It never tags,
+pushes or publishes.
+
+It does _not_ check that you are logged in to npm: `npm publish` says so
+itself, and re-running costs nothing. Only what is expensive or unfixable when
+found late is worth checking early.
+
+**Push the one tag by name — `git push origin vX.Y.Z`, never `git push
+--tags`.** This checkout carries local-only tags from other work that `--tags`
+would push to the public remote.
 
 **Tag before you `npm publish`.** The two are independent (`devc` imports
 `devc-core` from source, not from the registry), so the only question is which
