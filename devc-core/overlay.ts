@@ -15,7 +15,7 @@
 //   need not know `devc` exists. Because the overlay is invisible to the repo, the
 //   `.devcontainer/` everyone else checks out is untouched by definition.
 
-import { readFile, stat } from 'node:fs/promises';
+import { readdir, readFile, stat } from 'node:fs/promises';
 import process from 'node:process';
 import { parse as parseJsoncLoose, type ParseError } from 'jsonc-parser';
 import { CONFIG_DIR, declaresFeatureNamed } from './default_config.ts';
@@ -24,6 +24,7 @@ import { logWarning } from './log.ts';
 import { type ConfigObject, mountTarget, REPLACE_KEY } from './merge.ts';
 import {
   basename,
+  gitDirProtectMounts,
   gitDirTarget,
   gitProtectMounts,
   type MountRow,
@@ -32,6 +33,7 @@ import {
   unfoldHome,
 } from './mounts.ts';
 import { dirnamePosix } from './posix.ts';
+import { cliWorktreeMounts } from './worktree.ts';
 
 /**
  * Parse JSONC (comments and trailing commas both allowed), throwing when `jsonc-parser`
@@ -647,12 +649,13 @@ export async function findRepoRoot(
  * 1. The config declares `workspaceMount` → that spec is the row, verbatim.
  * 2. The config is a Docker Compose project → no workspace mount comes from here at all, and
  *    git protection is refused for compose anyway ({@link assertGitProtectSupported}).
- * 3. Otherwise → source is {@link findRepoRoot}'s answer, target `/workspaces/<basename>`.
+ * 3. Otherwise → source is {@link findRepoRoot}'s answer, target `/workspaces/<basename>` — or,
+ *    when that root is a **linked worktree** with a relative `gitdir:`, the target the CLI
+ *    actually uses for one ({@link cliWorktreeMounts}), e.g. `/workspaces/app.worktrees/feat`.
  *
  * `workspaceFolder` is deliberately *not* consulted for the target. It sets where the shell lands
- * inside the mount, not the mount point: the CLI computes the target as
- * `/workspaces/<basename(gitRoot)>` regardless of it (verified in 0.88.0's own
- * `workspaceMount` defaulting).
+ * inside the mount, not the mount point: the CLI computes the target from the git root regardless
+ * of it (verified in 0.88.0's own `workspaceMount` defaulting).
  */
 export async function workspaceMountRow(
   config: ConfigObject,
@@ -666,38 +669,145 @@ export async function workspaceMountRow(
   if (config.dockerComposeFile !== undefined) return null;
   const root = await findRepoRoot(localFolder);
   if (root === null) return null;
+  const worktree = await cliWorktreeMounts(root);
   return {
     source: root,
-    target: `${SOURCE_CONTAINER_ROOT}/${basename(root)}`,
+    target: worktree?.workspaceTarget ??
+      `${SOURCE_CONTAINER_ROOT}/${basename(root)}`,
   };
 }
 
 /**
- * Every repo row in `config` that git protection applies to: the workspace mount
- * ({@link workspaceMountRow}) first, then each `mounts` entry, in declaration order.
+ * The primary repo's git dir the devcontainer CLI bind-mounts **itself** when the project folder is
+ * a linked worktree (`--mount-git-worktree-common-dir`, which devc passes for every worktree) — as
+ * a `{ source, target }` row, or null when the CLI adds no such mount.
  *
- * A row is kept only when **all** of these hold, checked against the host filesystem at config
- * time:
+ * The CLI adds it only when it is defaulting the workspace mount at all: not for Docker Compose,
+ * and not when the config sets **both** `workspaceFolder` and `workspaceMount` (0.88.0 skips the
+ * whole branch then). An absolute `gitdir:` also gets nothing — see {@link cliWorktreeMounts}.
+ *
+ * This mount is not in any config devc merges, so nothing else would ever derive protection for
+ * it: without this row, a worktree container's primary `.git/config` and `.git/hooks` are
+ * writable, and a hook planted there runs on the host (measured).
+ */
+export async function worktreeCommonDirRow(
+  config: ConfigObject,
+  localFolder: string,
+): Promise<MountRow | null> {
+  if (config.dockerComposeFile !== undefined) return null;
+  if (
+    config.workspaceFolder !== undefined && config.workspaceMount !== undefined
+  ) {
+    return null;
+  }
+  const root = await findRepoRoot(localFolder);
+  if (root === null) return null;
+  const worktree = await cliWorktreeMounts(root);
+  return worktree === null
+    ? null
+    : { source: worktree.commonDirSource, target: worktree.commonDirTarget };
+}
+
+/**
+ * How git protection treats a row:
+ *
+ * - `repo` — `<source>/.git` is a directory: freeze it with {@link gitProtectMounts}.
+ * - `gitdir` — `<source>` **is** a git dir (a primary's `.git` mounted on its own, a bare repo, the
+ *   CLI's worktree common-dir mount): freeze it with {@link gitDirProtectMounts}.
+ */
+export type GitRowKind = 'repo' | 'gitdir';
+
+/** A row git protection derives mounts for. */
+export interface ProtectedRow extends MountRow {
+  kind: GitRowKind;
+}
+
+/**
+ * A row that holds git config devc **cannot** freeze, kept so it can be reported rather than
+ * passed over in silence:
+ *
+ * - `umbrella` — a folder of repos (unsupported; `repos` names the immediate children that are one).
+ * - `no-hooks` — a `gitdir` row with no `hooks` directory. A bind mount with a missing source fails
+ *   the whole `up`, so none is derived.
+ */
+export type UnprotectedRow =
+  | (MountRow & { kind: 'umbrella'; repos: string[] })
+  | (MountRow & { kind: 'no-hooks' });
+
+/** {@link classifyGitRows}' answer. */
+export interface GitRows {
+  protectedRows: ProtectedRow[];
+  unprotectedRows: UnprotectedRow[];
+}
+
+/** `<path>` holds a git dir's three load-bearing entries: `HEAD` and `config` files, `objects/`. */
+async function isGitDir(path: string): Promise<boolean> {
+  const [head, config, objects] = await Promise.all([
+    statKind(`${path}/HEAD`),
+    statKind(`${path}/config`),
+    statKind(`${path}/objects`),
+  ]);
+  return head === 'file' && config === 'file' && objects === 'dir';
+}
+
+/** `repo`, `gitdir`, or null for a host path. Unreadable paths read as null — report-only callers. */
+async function kindOfPath(path: string): Promise<GitRowKind | null> {
+  if (await statKind(`${path}/.git`) === 'dir') return 'repo';
+  if (await isGitDir(path)) return 'gitdir';
+  return null;
+}
+
+/**
+ * The immediate, non-dot children of `dir` that are a `repo` or a `gitdir`, sorted. A child that is
+ * a linked worktree (`.git` a file) is not one: its config lives in its primary. Never throws — this
+ * only decides what to *warn* about.
+ */
+async function reposDirectlyUnder(dir: string): Promise<string[]> {
+  let names: string[];
+  try {
+    names = await readdir(dir);
+  } catch {
+    return [];
+  }
+  const repos: string[] = [];
+  for (const name of names) {
+    if (name.startsWith('.')) continue;
+    try {
+      if (await kindOfPath(`${dir}/${name}`) !== null) repos.push(name);
+    } catch { /* unreadable child — nothing to report */ }
+  }
+  return repos.sort();
+}
+
+/**
+ * Every row in `config` holding git config, classified: the workspace mount
+ * ({@link workspaceMountRow}) first, then the CLI's worktree common-dir mount
+ * ({@link worktreeCommonDirRow}), then each `mounts` entry in declaration order.
+ *
+ * A candidate is considered only when:
  *
  * 1. It is a `type=bind` entry with a `source` devc can resolve to a host path.
  * 2. It is not already `readonly`. Deriving for one would bind a **writable** `.git` inside a repo
  *    the user froze whole — strictly worse than doing nothing.
- * 3. `<source>/.git` exists and is a **directory**. This one rule is the whole filter, and it is
- *    why `.worktrees` rows, skills rows and plain non-repo folders need no special case: a linked
- *    worktree's `.git` is a *file* (nothing can be mounted beneath a file, and its config and
- *    hooks resolve from the primary's common dir anyway), and the rest have no `.git` at all.
- * 4. Its target is not in `gitProtect`'s `exclude` list.
+ * 3. Its target is not in `gitProtect`'s `exclude` list. (The common-dir row is also excluded by
+ *    the workspace row's target, since that is the path a user would think to name.)
  *
- * Rows are deduped by target, first occurrence winning, so a project that also lists itself as a
- * `devc:source` row does not derive the same three mounts twice.
+ * It is then, in order: a `repo` (`<source>/.git` a directory), a `gitdir` (`<source>` holds
+ * `HEAD`, `config` and `objects/`), an `umbrella` (neither, but an immediate child is one), or
+ * nothing — which is why `.worktrees` rows, skills rows and plain folders need no special case.
+ *
+ * Deduped by the **git dir's container path** (`<target>/.git` for a `repo`, `<target>` for a
+ * `gitdir`), first occurrence winning: a project that also lists itself as a `devc:source` row, or
+ * a wizard row for the same primary `.git` the CLI already mounts, derives nothing twice.
  */
-export async function gitProtectRows(
+export async function classifyGitRows(
   config: ConfigObject,
   localFolder: string,
   home: string | undefined = process.env.HOME,
-): Promise<MountRow[]> {
+): Promise<GitRows> {
+  const result: GitRows = { protectedRows: [], unprotectedRows: [] };
   const protect = readGitProtect(config[GIT_PROTECT_KEY], 'the merged config');
-  if (protect === false) return [];
+  if (protect === false) return result;
   const excluded = new Set(
     protect === true ? [] : protect.exclude.map(normalizeTarget),
   );
@@ -705,6 +815,13 @@ export async function gitProtectRows(
   const candidates: MountRow[] = [];
   const workspace = await workspaceMountRow(config, localFolder);
   if (workspace !== null) candidates.push(workspace);
+  const commonDir = await worktreeCommonDirRow(config, localFolder);
+  if (
+    commonDir !== null &&
+    !(workspace !== null && excluded.has(normalizeTarget(workspace.target)))
+  ) {
+    candidates.push(commonDir);
+  }
   if (Array.isArray(config.mounts)) {
     for (const entry of config.mounts) {
       const spec = parseMountSpec(entry);
@@ -716,18 +833,81 @@ export async function gitProtectRows(
     }
   }
 
-  const rows: MountRow[] = [];
-  const seen = new Set<string>();
+  const seenTargets = new Set<string>();
+  const claimedGitDirs = new Set<string>();
   for (const row of candidates) {
     const target = normalizeTarget(row.target);
-    if (seen.has(target) || excluded.has(target)) continue;
-    seen.add(target);
-    if (await statKind(`${unfoldHome(row.source, home)}/.git`) !== 'dir') {
+    if (seenTargets.has(target) || excluded.has(target)) continue;
+    seenTargets.add(target);
+    const source = unfoldHome(row.source, home);
+    const kind = await kindOfPath(source);
+
+    if (kind === null) {
+      const repos = await reposDirectlyUnder(source);
+      if (repos.length > 0) {
+        result.unprotectedRows.push({
+          source: row.source,
+          target,
+          kind: 'umbrella',
+          repos,
+        });
+      }
       continue;
     }
-    rows.push({ source: row.source, target });
+
+    const gitDir = kind === 'repo' ? gitDirTarget(target) : target;
+    if (claimedGitDirs.has(gitDir)) continue;
+    claimedGitDirs.add(gitDir);
+    if (kind === 'gitdir' && await statKind(`${source}/hooks`) !== 'dir') {
+      result.unprotectedRows.push({
+        source: row.source,
+        target,
+        kind: 'no-hooks',
+      });
+      continue;
+    }
+    result.protectedRows.push({ source: row.source, target, kind });
   }
-  return rows;
+  return result;
+}
+
+/** `names` joined, capped at five then `, … (+N more)`. */
+function capList(names: readonly string[]): string {
+  const shown = names.slice(0, 5).join(', ');
+  return names.length > 5 ? `${shown}, … (+${names.length - 5} more)` : shown;
+}
+
+/**
+ * The warning every start path prints for a row {@link classifyGitRows} could not protect.
+ * `source` is the row's host path as the user should read it (`~`-folded).
+ */
+export function unprotectedRowWarning(
+  row: UnprotectedRow,
+  source: string,
+): string {
+  return row.kind === 'umbrella'
+    ? `devc: git protection does not cover repos inside ${row.target} (from ${source}): ` +
+      `${capList(row.repos)} — bind each repo as its own mount`
+    : `devc: git protection skipped ${row.target} (from ${source}): it has no hooks directory, ` +
+      'so its config and hooks stay writable';
+}
+
+/** The `devc status` line for a row {@link classifyGitRows} could not protect. */
+export function unprotectedRowStatus(row: UnprotectedRow): string {
+  return row.kind === 'umbrella'
+    ? `${row.target}: UNSUPPORTED — repos inside an umbrella mount are not protected: ${
+      capList(row.repos)
+    }`
+    : `${row.target}: UNPROTECTED — no hooks directory, so no mounts were derived`;
+}
+
+/** The rows {@link classifyGitRows} derives mounts for. */
+export async function gitProtectRows(
+  config: ConfigObject,
+  localFolder: string,
+  home: string | undefined = process.env.HOME,
+): Promise<ProtectedRow[]> {
+  return (await classifyGitRows(config, localFolder, home)).protectedRows;
 }
 
 /**
@@ -753,8 +933,9 @@ export function assertGitProtectSupported(config: ConfigObject): void {
 }
 
 /**
- * The layer devc contributes for git protection: the three mounts of {@link gitProtectMounts} for
- * every row {@link gitProtectRows} kept, parent before child. Pure — the rows are passed in
+ * The layer devc contributes for git protection: for every row {@link gitProtectRows} kept, the
+ * three mounts of {@link gitProtectMounts} (a `repo`) or the two of {@link gitDirProtectMounts}
+ * (a `gitdir`), parent before child. Pure — the rows are passed in
  * because the caller needs them too, to report on later ({@link gitProtectState}).
  *
  * Merged **below** the base config and both overlays, so a mount the user declares on one of these
@@ -762,11 +943,17 @@ export function assertGitProtectSupported(config: ConfigObject): void {
  * hatch, and {@link gitProtectState} is what keeps its use visible rather than silent.
  */
 export function gitProtectLayer(
-  rows: readonly MountRow[],
+  rows: readonly ProtectedRow[],
   home: string | undefined = process.env.HOME,
 ): ConfigObject {
   if (rows.length === 0) return {};
-  return { mounts: rows.flatMap((row) => gitProtectMounts(row, home)) };
+  return {
+    mounts: rows.flatMap((row) =>
+      row.kind === 'gitdir'
+        ? gitDirProtectMounts(row, home)
+        : gitProtectMounts(row, home)
+    ),
+  };
 }
 
 /** `config` without the devc-only keys, ready to hand to the devcontainer CLI. */
@@ -800,13 +987,14 @@ export interface GitProtectState {
  * pure layer free of a dependency on its docker-calling one.
  */
 export function gitProtectState(
-  row: MountRow,
+  row: MountRow & { kind?: GitRowKind },
   mounts: readonly { destination: string; rw: boolean }[],
 ): GitProtectState {
   const byTarget = new Map(
     mounts.map((m) => [normalizeTarget(m.destination), m]),
   );
-  const gitDir = gitDirTarget(row.target);
+  // A `gitdir` row's target *is* the git dir; a `repo` row's is the working tree above it.
+  const gitDir = row.kind === 'gitdir' ? row.target : gitDirTarget(row.target);
   const problems: string[] = [];
 
   if (!byTarget.has(gitDir)) {

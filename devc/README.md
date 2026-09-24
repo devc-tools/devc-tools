@@ -681,9 +681,31 @@ type=bind,source=<repo>/.git/hooks,target=<target>/.git/hooks,readonly
 
 This covers the **project itself** (whose repo the devcontainer CLI mounts on its
 own, not as a `devc:source` row) and every `devc:source` row whose `.git` is a
-real directory. A row is skipped when it has no `.git`, when its `.git` is a
-_file_ (a linked worktree — covered by its primary anyway), or when the row is
-already `readonly`.
+real directory.
+
+A row whose source **is** a git dir gets two mounts instead, because the row
+itself is already the mountpoint that stops a rename:
+
+```
+type=bind,source=<gitdir>/config,target=<target>/config,readonly
+type=bind,source=<gitdir>/hooks,target=<target>/hooks,readonly
+```
+
+That shape comes up three ways, two of them automatic:
+
+- **A worktree as the project folder.** The devcontainer CLI mounts the primary
+  repo's `.git` itself (`--mount-git-worktree-common-dir`), at a target it
+  computes; devc computes the same target and freezes it. Without this, a
+  worktree container's primary `config` and `hooks` were writable.
+- **A worktree picked in `devc config` without its primary.** The wizard adds a
+  row for the primary's `.git` alone.
+- **A bare repo** you mount by hand.
+
+A row is skipped when it has no `.git` and is not a git dir, when its `.git` is
+a _file_ (a linked worktree — covered by its primary), or when the row is
+already `readonly`. A git dir with no `hooks` directory is skipped too (a bind
+mount with a missing source fails the whole `up`) and reported as
+`UNPROTECTED`.
 
 The first mount is read-write on purpose. `config` + `hooks` is the **maximum**
 that can be frozen: git rewrites config by `config.lock` + rename and takes
@@ -714,8 +736,9 @@ git protection:
     /workspaces/extra/.git/config is mounted read-write
 ```
 
-`MISMATCH` means devc believes the repo is protected and the container
-disagrees — a mount you declared on the same target (which legitimately wins,
+`UNSUPPORTED` marks an umbrella mount (see caveat 4) and `UNPROTECTED` a git
+dir with no `hooks` directory; neither is ever protected. `MISMATCH` means devc
+believes the repo is protected and the container disagrees — a mount you declared on the same target (which legitimately wins,
 see below), or a container created before the mounts existed. `devc build`
 recreates it.
 
@@ -766,7 +789,7 @@ The devcontainer CLI **drops `readonly`** when it generates the compose file, so
 the mounts would come up writable while appearing frozen. devc fails the run
 instead, and `"gitProtect": false` is the acknowledgement that unblocks it.
 
-### Three things that will surprise you
+### Four things that will surprise you
 
 1. **Submodules are unsupported.** Each submodule's config lives at
    `.git/modules/<name>/config` — inside the writable `.git`, created
@@ -798,6 +821,21 @@ instead, and `"gitProtect": false` is the acknowledgement that unblocks it.
    failing with `Permission denied` on `.git`. Clear it with
    `chmod -N <repo>/.git` (or `chmod -RN <repo>`) first. Measured on Docker
    Desktop 29.7.2; a lone, un-nested mount source does not get one.
+
+4. **Umbrella mounts are unsupported.** Mounting a folder _of_ repos
+   (`source=~/code`) protects none of them — only a row's own `.git` is looked
+   at. devc detects the shape from the folder's immediate children and warns on
+   every start, naming the repos:
+
+   ```
+   devc: git protection does not cover repos inside /workspaces/code (from ~/code): app, lib — bind each repo as its own mount
+   ```
+
+   It warns rather than refuses, so an umbrella you mount on purpose keeps
+   working. Bind each repo (and its `.worktrees` folder) as its own row instead,
+   which is what `devc config` writes anyway. Unlike submodules, this is
+   detected: it needs only a stat of each child, nothing read from inside a
+   repo.
 
 ## Git setup
 
@@ -955,10 +993,11 @@ exits non-zero naming the first that fails:
 The last one is checked against the container's live mount table, not against
 the `gitProtect` setting: `devc up` reuses an existing container, whose mounts
 were fixed when it was created, and the setting can be edited from inside the
-workspace. The remote URL is read out of `.git/config`, and is only trustworthy
-while that file is frozen. **A linked worktree fails this check today** — its
-remotes and hooks live in the primary repo's git dir, which git protection does
-not freeze in a worktree container.
+workspace. The remote URL is read from the host file behind the container's read-only
+`config` mount — the one actually frozen — so it is trustworthy. For a **linked
+worktree** that is the primary repo's git dir, as the devcontainer CLI mounts
+it; a worktree with an absolute `gitdir:` (which the CLI does not mount) is
+refused.
 
 devc reads `HEAD`, the worktree `gitdir:` pointer and the remote as **files**;
 it never runs `git` in the repo, since `git -C <repo>` on the host fires a

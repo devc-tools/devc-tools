@@ -36,7 +36,9 @@ import {
 } from '@devc-tools/core/merged_config.ts';
 import {
   gitProtectState,
+  type ProtectedRow,
   workspaceMountRow,
+  worktreeCommonDirRow,
 } from '@devc-tools/core/overlay.ts';
 
 /** Where the bridge mount lands in every container. */
@@ -106,8 +108,10 @@ export type DerivedPin =
  *    mount check in 5 would catch it anyway);
  * 3. the workspace is a bind-mounted repo devc can find;
  * 4. its `HEAD` names a branch and its config has exactly one `remote.origin.url`;
- * 5. the container's live mount table has that repo's `.git/config` and `.git/hooks` read-only,
- *    and has this workspace's own `keys/<key>/` at `/run/devc-bridge` — a container still on a
+ * 5. the container's live mount table has that repo's git dir `config` and `hooks` read-only —
+ *    the repo's own `.git`, or for a linked worktree the primary's git dir as the devcontainer
+ *    CLI mounts it — and has this workspace's own `keys/<key>/` at `/run/devc-bridge` (a container
+ *    still on a
  *    hand-written `run/` mount authenticates with the shared token, which no pin applies to.
  *    `null` (no container) fails it. `'skip'` skips it — only for the pre-`up` check, where no
  *    container exists yet to ask.
@@ -146,23 +150,45 @@ export async function derivePin(
     };
   }
 
-  const state = gitProtectState(row, mounts);
-  if (state.state !== 'protected') {
-    if (pin.worktree) {
+  // The git dir whose config the pin trusts: the repo's own `.git`, or — for a linked worktree —
+  // the primary's, at the target the devcontainer CLI mounts it on.
+  let protectedRow: ProtectedRow;
+  if (pin.worktree) {
+    const common = await worktreeCommonDirRow(merged.config, localFolder);
+    if (common === null) {
       return {
         ok: false,
         reason:
-          `${localFolder} is a linked worktree: its remotes and hooks live in the ` +
-          `primary repo's git dir, which git protection does not freeze in this container`,
+          `${localFolder} is a linked worktree whose primary git dir the devcontainer CLI ` +
+          `does not mount (an absolute gitdir:, or both workspaceFolder and workspaceMount set)`,
       };
     }
+    protectedRow = { ...common, kind: 'gitdir' };
+  } else {
+    protectedRow = { ...row, kind: 'repo' };
+  }
+  const state = gitProtectState(protectedRow, mounts);
+  if (state.state !== 'protected') {
     return {
       ok: false,
       reason:
-        `git protection is not in force in this container for ${row.target} ` +
+        `git protection is not in force in this container for ${protectedRow.target} ` +
         `(${state.problems.join('; ')}) — recreate it with \`devc build\``,
     };
   }
+
+  // Read the remote from the file that is actually frozen — the host source of the container's
+  // read-only `config` mount — not from a path derived through the writable `commondir` pointer.
+  const gitDir = protectedRow.kind === 'gitdir'
+    ? protectedRow.target
+    : `${protectedRow.target}/.git`;
+  const configMount = mounts.find((m) =>
+    m.destination.replace(/\/+$/, '') === `${gitDir}/config`
+  )!;
+  const frozen = await resolvePin(row.source, {
+    configPath: configMount.source,
+  });
+  if (!frozen.ok) return { ok: false, reason: frozen.reason };
 
   const keyDir = bridgePaths(home, merged.bridgeKey).keyDir;
   const tokenMount = mounts.find((m) =>
@@ -177,7 +203,7 @@ export async function derivePin(
           `${keyDir} — remove any hand-written devc-bridge mount and recreate it with \`devc build\``,
     };
   }
-  return { ok: true, record: pin.record };
+  return { ok: true, record: frozen.record };
 }
 
 /** The current policy for `key`: absent, unreadable as a pin, or the pin it holds. */

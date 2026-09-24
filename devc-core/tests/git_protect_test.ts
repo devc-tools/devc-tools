@@ -166,6 +166,7 @@ Deno.test("the project's own repo is a row, even though it is no devc:source ent
     assertEquals(rows, [{
       source: `${dir}/myproj`,
       target: '/workspaces/myproj',
+      kind: 'repo',
     }]);
   });
 });
@@ -180,6 +181,7 @@ Deno.test('a project inside a repo subdirectory protects the repo root', async (
     assertEquals(rows, [{
       source: `${dir}/monorepo`,
       target: '/workspaces/monorepo',
+      kind: 'repo',
     }]);
   });
 });
@@ -191,7 +193,11 @@ Deno.test('an explicit workspaceMount replaces the derived workspace row', async
     const rows = await gitProtectRows({
       workspaceMount: `type=bind,source=${dir}/elsewhere,target=/src`,
     }, `${dir}/myproj`);
-    assertEquals(rows, [{ source: `${dir}/elsewhere`, target: '/src' }]);
+    assertEquals(rows, [{
+      source: `${dir}/elsewhere`,
+      target: '/src',
+      kind: 'repo',
+    }]);
   });
 });
 

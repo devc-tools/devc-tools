@@ -275,9 +275,14 @@ async function kindOf(path: string): Promise<'dir' | 'file' | 'none'> {
  * - A detached `HEAD`, or one naming a ref outside `refs/heads/` → fail closed.
  *
  * Whether the config it reads can be *trusted* is not decided here: that needs the container's
- * live mount table, and is the caller's job.
+ * live mount table, and is the caller's job. A caller that has it should pass `configPath` — the
+ * host source of the container's frozen `config` mount — so the remote comes from the file that is
+ * actually frozen rather than from whatever the (writable) `commondir` file points at today.
  */
-export async function resolvePin(repo: string): Promise<PinResult> {
+export async function resolvePin(
+  repo: string,
+  opts: { configPath?: string } = {},
+): Promise<PinResult> {
   const dotGit = `${repo}/.git`;
   const kind = await kindOf(dotGit);
   if (kind === 'none') {
@@ -318,9 +323,10 @@ export async function resolvePin(repo: string): Promise<PinResult> {
     };
   }
 
-  const configText = await readText(`${commonDir}/config`);
+  const configPath = opts.configPath ?? `${commonDir}/config`;
+  const configText = await readText(configPath);
   if (configText === null) {
-    return { ok: false, reason: `cannot read ${commonDir}/config` };
+    return { ok: false, reason: `cannot read ${configPath}` };
   }
   const origin = parseOriginUrl(configText);
   if (!origin.ok) return { ok: false, reason: origin.reason };

@@ -272,6 +272,8 @@ export const COMMAND_HELP: Record<string, string> = {
     '  MISMATCH    protection is configured but the container does not have it',
     '              (a mount you declared on the same target, or a container',
     '               created before the mounts existed — rebuild with `devc build`)',
+    '  UNSUPPORTED an umbrella mount of a folder of repos — bind each repo instead',
+    '  UNPROTECTED a mounted git dir with no hooks directory',
     'Set "gitProtect": false in devc.jsonc to turn the whole control off.',
     '',
     "Then the devc-bridge lines: this project's key, whether its token is present,",

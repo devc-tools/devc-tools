@@ -15,6 +15,8 @@ import {
   projectKey,
 } from './merged_config.ts';
 import { displayPath } from './config.ts';
+import { unfoldHome } from './mounts.ts';
+import { unprotectedRowWarning } from './overlay.ts';
 import {
   type DevcontainerRunner,
   nodeDevcontainerRunner,
@@ -796,6 +798,13 @@ export async function startContainer(
   // and nothing is ever written into the project itself, so its `.devcontainer/` stays
   // standalone.
   const merged = await ensureMergedConfig(localFolder);
+  // Named on every start, not only by `devc status`: a repo devc cannot freeze is a host-execution
+  // path the user believes is closed.
+  for (const row of merged.unprotectedRows) {
+    logWarning(
+      unprotectedRowWarning(row, displayPath(unfoldHome(row.source))),
+    );
+  }
   await opts.beforeUp?.(merged);
 
   const args = buildUpArgs({

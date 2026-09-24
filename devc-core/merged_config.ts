@@ -27,17 +27,18 @@ import {
 import { type ConfigObject, mergeConfigs } from './merge.ts';
 import {
   assertGitProtectSupported,
+  classifyGitRows,
   declaresBridge,
   devcContributions,
   GIT_PROTECT_KEY,
   type GitProtect,
   gitProtectLayer,
-  gitProtectRows,
   loadOverlays,
+  type ProtectedRow,
   readGitProtect,
   stripDevcOnlyKeys,
+  type UnprotectedRow,
 } from './overlay.ts';
-import type { MountRow } from './mounts.ts';
 import { basenamePosix, dirnamePosix, resolvePosix } from './posix.ts';
 import { normalizePath } from './paths.ts';
 import { CONFIG_DIR } from './default_config.ts';
@@ -74,7 +75,13 @@ export interface MergedConfig {
    * when nothing bind-mounted here is a repo. `devc status` checks these against the container's
    * live mount table; see {@link import("./overlay.ts").gitProtectState}.
    */
-  protectedRows: MountRow[];
+  protectedRows: ProtectedRow[];
+  /**
+   * Rows holding git config devc could **not** freeze — an umbrella mount of a folder of repos,
+   * or a git dir with no `hooks` directory. Reported by every start path and `devc status`, never
+   * derived for.
+   */
+  unprotectedRows: UnprotectedRow[];
   /**
    * This workspace's devc-bridge key ({@link projectKey}) when the merged Features opt into the
    * devc-bridge Feature, and so the container mounts `~/.config/devc-bridge/keys/<key>/`; `null`
@@ -250,7 +257,10 @@ export async function ensureMergedConfig(
     provisional[GIT_PROTECT_KEY],
     'the merged config',
   );
-  const protectedRows = await gitProtectRows(provisional, localFolder);
+  const { protectedRows, unprotectedRows } = await classifyGitRows(
+    provisional,
+    localFolder,
+  );
   const key = await projectKey(localFolder);
   const bridgeKey = declaresBridge(provisional) ? key : null;
   const merged = stripDevcOnlyKeys(mergeConfigs([
@@ -278,6 +288,7 @@ export async function ensureMergedConfig(
     baseConfigPath,
     gitProtect,
     protectedRows,
+    unprotectedRows,
     bridgeKey,
   };
 }

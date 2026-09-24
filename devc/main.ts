@@ -33,7 +33,10 @@ import {
   ensureMergedConfig,
   type MergedConfig,
 } from '@devc-tools/core/merged_config.ts';
-import { gitProtectState } from '@devc-tools/core/overlay.ts';
+import {
+  gitProtectState,
+  unprotectedRowStatus,
+} from '@devc-tools/core/overlay.ts';
 import { initProject } from '@devc-tools/core/init.ts';
 import {
   globalConfigExists,
@@ -314,7 +317,8 @@ async function printGitProtection(
     console.log('git protection: unprotected (gitProtect: false)');
     return;
   }
-  if (merged.protectedRows.length === 0) {
+  const unprotected = merged.unprotectedRows.map(unprotectedRowStatus);
+  if (merged.protectedRows.length === 0 && unprotected.length === 0) {
     console.log('git protection: no bind-mounted git repositories');
     return;
   }
@@ -325,6 +329,7 @@ async function printGitProtection(
       `git protection: ${merged.protectedRows.length} repo(s) configured — no container to verify against`,
     );
     for (const row of merged.protectedRows) console.log(`  ${row.target}`);
+    for (const line of unprotected) console.log(`  ${line}`);
     return;
   }
 
@@ -334,6 +339,7 @@ async function printGitProtection(
     console.log(`  ${row.target}: ${state}`);
     for (const problem of problems) console.log(`    ${problem}`);
   }
+  for (const line of unprotected) console.log(`  ${line}`);
 }
 
 if (subcommand === 'stop') {

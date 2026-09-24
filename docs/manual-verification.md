@@ -1591,3 +1591,76 @@ Conclusion: no new configuration required, and no safety net removed.
 not own; devc has set `*` in the container by default since long before this
 plan, and **host-side ownership is untouched**, which is where that check
 actually earns its keep.
+
+## 17. `devc-git-protect-git-dirs` — Docker host
+
+**Status: run and green** on Docker Desktop / macOS arm64, `@devcontainers/cli`
+0.88.0, 2026-09-24, against a scratch `$HOME` (so no real
+`~/.config/devc-bridge` was touched) and a from-source bridge on port 48299.
+
+### The fixture
+
+```
+work/
+  app/                   git repo with an origin; the primary
+  app.worktrees/feat/    linked worktree of app, created with --relative-paths
+  host/                  git repo — a project whose devc.json mounts
+                         app.worktrees/feat and app/.git (the wizard's shape)
+  shapes/                git repo — mounts app, lib, app.worktrees, app again
+  lib/                   git repo
+```
+
+Every project uses `mcr.microsoft.com/devcontainers/base:ubuntu` with the
+devc-bridge Feature and `"baselineFeatures": false`. Inside a container,
+`git config --global safe.directory '*'` first (no `git-container-config`
+Feature here).
+
+### V1 — a worktree as the project folder
+
+`devc up app.worktrees/feat --bridge-git-push`: exit 0, granted
+`feat/wt → git@github.com:acme/app.git`. `devc mounts` shows the CLI's own
+common-dir mount `app/.git → /workspaces/app/.git` (rw) with devc's
+`/workspaces/app/.git/config` and `…/hooks` read-only over it; `devc status`
+reports `/workspaces/app/.git: protected`.
+
+From inside:
+
+| Action                                              | Result                                                                      |
+| --------------------------------------------------- | --------------------------------------------------------------------------- |
+| `echo … > /workspaces/app/.git/hooks/pre-push`      | `Read-only file system`                                                     |
+| `git config core.fsmonitor /tmp/evil`               | `could not write config file … Device or resource busy`, rc 4               |
+| `echo x >> /workspaces/app/.git/config`             | `Read-only file system`                                                     |
+| `mv /workspaces/app/.git /workspaces/app/.git-old`  | `Permission denied` (the parent is root-owned; either way it does not move) |
+| `git commit`, `git checkout -b`, `git worktree add` | all succeed                                                                 |
+
+On the host afterwards: no `pre-push`, `core.fsmonitor` unset. Before this plan
+the same hook write **succeeded and landed on the host** (plan 17's
+discrepancy 1).
+
+### V2 — the wizard's worktree + primary `.git` rows
+
+`devc up host`: `devc status` reports `/workspaces/host: protected` and
+`/workspaces/app/.git: protected`. The hook write is `EROFS`, `git config` is
+`EBUSY`, a commit in the worktree succeeds.
+
+### V3 — plan 17's forged-config case, on a worktree
+
+`devc build` with `"gitProtect": false`, flip it back to `true`, then
+`devc up --bridge-git-push`: exit 1,
+`git protection is not in force in this container for /workspaces/app/.git
+(/workspaces/app/.git/config is not mounted; /workspaces/app/.git/hooks is not
+mounted)`. `devc build --bridge-git-push` then granted.
+
+### V4 — the shapes plan 13 already handled are unchanged
+
+`devc up shapes --print-config` from this change and from the commit before it:
+**byte-identical**, all 17 mounts included (repo row, two repo rows, repo +
+`.worktrees`, the same repo at two targets).
+
+### V5 — an umbrella mount warns and still starts
+
+`shapes` re-pointed at a single `source=work,target=/workspaces/all` row:
+`devc up` exit 0, stderr
+`devc: git protection does not cover repos inside /workspaces/all (from …/work): app, host, lib, shapes — bind each repo as its own mount`;
+`devc status` prints
+`/workspaces/all: UNSUPPORTED — repos inside an umbrella mount are not protected: app, host, lib, shapes`.

@@ -17,6 +17,7 @@
 
 import { readFile, stat } from 'node:fs/promises';
 import {
+  basenamePosix,
   commonAncestorPosix,
   dirnamePosix,
   isAbsolutePosix,
@@ -207,4 +208,63 @@ export async function resolvePickedMounts(
     mounts.push(mount);
   }
   return mounts;
+}
+
+/** Where the devcontainer CLI mounts a linked worktree project folder, and its primary's git dir. */
+export interface CliWorktreeMounts {
+  /** Container target of the workspace mount itself, e.g. `/workspaces/app.worktrees/feat`. */
+  workspaceTarget: string;
+  /** Host path the CLI bind-mounts as the common git dir, e.g. `/code/app/.git`. */
+  commonDirSource: string;
+  /** Container target of that mount, e.g. `/workspaces/app/.git`. */
+  commonDirTarget: string;
+}
+
+/**
+ * The two mounts `@devcontainers/cli` 0.88.0 makes for a workspace whose git root `root` is a
+ * **linked worktree**, under `--mount-git-worktree-common-dir` — or null when it makes none (the
+ * `.git` is not a file, has no `gitdir:` line, or the pointer is absolute).
+ *
+ * A transcription of the CLI's own workspace-mount defaulting (`devContainersSpecCLI.js`), kept
+ * literal on purpose — devc has to name these targets *before* `up` so it can freeze the common
+ * dir's `config` and `hooks`, and any divergence from the CLI leaves the real mount unprotected:
+ *
+ * ```
+ * c   = /^gitdir:\s*(.+)$/m on <root>/.git     (not trimmed: the CLI does not trim either)
+ * u   = path.resolve(root, c, '..', '..')
+ * seg = basename of F for F = root, dirname(root), … while !u.startsWith(F + '/'), root-first
+ * E   = posix.join('/workspaces', ...seg)
+ * d   = posix.resolve(E, c, '..', '..')
+ * ```
+ *
+ * The CLI resolves `u` with the host `path` module and `d` with `posix`; devc's hosts are POSIX,
+ * so both use the posix helpers here. The walk also stops at the filesystem root, as the CLI's
+ * does (`F !== dirname(F)`).
+ */
+export async function cliWorktreeMounts(
+  root: string,
+  fs: FsProbe = realFsProbe,
+): Promise<CliWorktreeMounts | null> {
+  const dotGit = `${root}/.git`;
+  if (!(await fs.statIsFile(dotGit))) return null;
+  const m = /^gitdir:\s*(.+)$/m.exec(await fs.readText(dotGit) ?? '');
+  if (m === null) return null;
+  const c = m[1];
+  if (isAbsolutePosix(c)) return null;
+
+  const u = resolvePosix(resolvePosix(root, c), '../..');
+  const seg: string[] = [];
+  for (
+    let f = root;
+    !u.startsWith(f + '/') && f !== dirnamePosix(f);
+    f = dirnamePosix(f)
+  ) {
+    seg.unshift(basenamePosix(f));
+  }
+  const workspaceTarget = ['/workspaces', ...seg].join('/');
+  return {
+    workspaceTarget,
+    commonDirSource: u,
+    commonDirTarget: resolvePosix(resolvePosix(workspaceTarget, c), '../..'),
+  };
 }

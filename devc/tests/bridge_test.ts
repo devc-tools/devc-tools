@@ -61,7 +61,11 @@ async function exists(path: string): Promise<boolean> {
  * The mount table of a container with `target`'s repo frozen, as git protection leaves it, and
  * — when `keyDir` is given — its own devc-bridge key directory at `/run/devc-bridge`.
  */
-function protectedMounts(target: string, keyDir?: string): ContainerMount[] {
+function protectedMounts(
+  target: string,
+  keyDir?: string,
+  gitDirSource = '/h/.git',
+): ContainerMount[] {
   return [
     ...(keyDir === undefined ? [] : [{
       type: 'bind' as const,
@@ -73,7 +77,7 @@ function protectedMounts(target: string, keyDir?: string): ContainerMount[] {
     { type: 'bind', source: '/h', destination: `${target}/.git`, rw: true },
     {
       type: 'bind',
-      source: '/h',
+      source: `${gitDirSource}/config`,
       destination: `${target}/.git/config`,
       rw: false,
     },
@@ -106,7 +110,7 @@ async function withFixture(fn: (f: Fixture) => Promise<void>): Promise<void> {
     const logs: string[] = [];
     const keyDir = bridgePaths(home, await projectKey(project)).keyDir;
     await fn({
-      frozen: protectedMounts('/workspaces/proj', keyDir),
+      frozen: protectedMounts('/workspaces/proj', keyDir, `${project}/.git`),
       dir,
       home,
       project,
@@ -460,5 +464,120 @@ Deno.test('status names a malformed policy rather than showing a pin', async () 
     await write(bridgePaths(f.home, merged.bridgeKey!).policyFile, 'nope\n');
     const lines = await bridgeStatusLines(merged, f.project, f.deps(null));
     assertStringIncludes(lines.join('\n'), 'MALFORMED');
+  });
+});
+
+// ── linked worktrees (plan devc-git-protect-git-dirs § Step 5) ──────────────────────────────
+
+/**
+ * A linked worktree of the fixture's `proj`, made of files alone, plus its merged config and the
+ * mount table of a container where the CLI's common-dir mount (`/workspaces/proj/.git`) is frozen.
+ */
+async function worktreeOf(f: Fixture) {
+  const wt = `${f.dir}/proj.worktrees/wt`;
+  const wtGitDir = `${f.project}/.git/worktrees/wt`;
+  await Deno.mkdir(`${f.project}/.git/hooks`, { recursive: true });
+  await write(`${wtGitDir}/HEAD`, 'ref: refs/heads/feat/wt\n');
+  await write(`${wtGitDir}/commondir`, '../..\n');
+  await write(`${wt}/.git`, 'gitdir: ../../proj/.git/worktrees/wt\n');
+  await write(
+    `${wt}/.devcontainer/devcontainer.json`,
+    JSON.stringify({
+      image: 'ubuntu',
+      features: { [BRIDGE_FEATURE]: {} },
+    }),
+  );
+  const merged = await ensureMergedConfig(wt, {
+    cacheRoot: `${f.dir}/cache`,
+    templatesDir: `${f.dir}/no-templates`,
+    configDir: `${f.dir}/config`,
+  });
+  const keyDir = bridgePaths(f.home, merged.bridgeKey!).keyDir;
+  const gitDir = '/workspaces/proj/.git';
+  const frozen: ContainerMount[] = [
+    {
+      type: 'bind',
+      source: keyDir,
+      destination: '/run/devc-bridge',
+      rw: false,
+    },
+    {
+      type: 'bind',
+      source: wt,
+      destination: '/workspaces/proj.worktrees/wt',
+      rw: true,
+    },
+    {
+      type: 'bind',
+      source: `${f.project}/.git`,
+      destination: gitDir,
+      rw: true,
+    },
+    {
+      type: 'bind',
+      source: `${f.project}/.git/config`,
+      destination: `${gitDir}/config`,
+      rw: false,
+    },
+    {
+      type: 'bind',
+      source: `${f.project}/.git/hooks`,
+      destination: `${gitDir}/hooks`,
+      rw: false,
+    },
+  ];
+  return { wt, wtGitDir, merged, frozen };
+}
+
+Deno.test('a worktree container is granted once the primary git dir is frozen', async () => {
+  await withFixture(async (f) => {
+    const { wt, merged, frozen } = await worktreeOf(f);
+    assertEquals(merged.protectedRows.map((r) => [r.target, r.kind]), [
+      ['/workspaces/proj/.git', 'gitdir'],
+    ]);
+    await applyPolicy('grant', merged, wt, f.deps(frozen));
+    const policy = await readPolicy(merged.bridgeKey!, f.deps(null));
+    assertEquals(policy, {
+      kind: 'present',
+      record: {
+        repo: wt,
+        remote: 'git@github.com:acme/proj.git',
+        branch: 'feat/wt',
+      },
+    });
+  });
+});
+
+Deno.test('a worktree grant is refused while the primary git dir is writable', async () => {
+  await withFixture(async (f) => {
+    const { wt, merged, frozen } = await worktreeOf(f);
+    const writable = frozen.filter((m) =>
+      !m.destination.startsWith('/workspaces/proj/.git/')
+    );
+    await assertRejects(
+      () => applyPolicy('grant', merged, wt, f.deps(writable)),
+      BridgeGrantError,
+      'not in force in this container for /workspaces/proj/.git',
+    );
+  });
+});
+
+Deno.test('the pin reads the frozen config, not whatever commondir points at', async () => {
+  // `.git/worktrees/<name>/commondir` lives in the primary's git dir, which stays writable — only
+  // `config` and `hooks` are frozen. An agent can repoint it at a config it wrote; the pin must
+  // still come from the host source of the container's read-only config mount.
+  await withFixture(async (f) => {
+    const { wt, wtGitDir, merged, frozen } = await worktreeOf(f);
+    await write(
+      `${f.dir}/evil/config`,
+      '[remote "origin"]\n\turl = git@github.com:attacker/x.git\n',
+    );
+    await Deno.writeTextFile(`${wtGitDir}/commondir`, `${f.dir}/evil\n`);
+    await applyPolicy('grant', merged, wt, f.deps(frozen));
+    const policy = await readPolicy(merged.bridgeKey!, f.deps(null));
+    assertEquals(
+      policy.kind === 'present' && policy.record.remote,
+      'git@github.com:acme/proj.git',
+    );
   });
 });

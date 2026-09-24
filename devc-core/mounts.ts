@@ -328,3 +328,26 @@ export function gitProtectMounts(
     `type=bind,source=${gitSource}/hooks,target=${gitTarget}/hooks,readonly`,
   ];
 }
+
+/**
+ * The two mounts that freeze a row whose source **is** a git dir — a primary's `.git` mounted on
+ * its own, a bare repo, or the devcontainer CLI's worktree common-dir mount:
+ *
+ * ```
+ * type=bind,source=<SOURCE>/config,target=<TARGET>/config,readonly
+ * type=bind,source=<SOURCE>/hooks,target=<TARGET>/hooks,readonly
+ * ```
+ *
+ * No third mount: {@link gitProtectMounts}' read-write `.git` mount exists only to make the git dir
+ * a mountpoint, so it cannot be renamed away, and here `<TARGET>` already is one — it is the row.
+ */
+export function gitDirProtectMounts(
+  row: MountRow,
+  home: string | undefined = process.env.HOME,
+): string[] {
+  const source = foldHome(row.source, home);
+  return [
+    `type=bind,source=${source}/config,target=${row.target}/config,readonly`,
+    `type=bind,source=${source}/hooks,target=${row.target}/hooks,readonly`,
+  ];
+}
