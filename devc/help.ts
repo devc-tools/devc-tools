@@ -3,7 +3,7 @@
 // The command help blocks mirror `.plans/design/devc-design.md` (the source of truth) verbatim.
 
 /** CLI version. Single source of truth — the compiled binary cannot read `deno.json` at runtime. */
-export const VERSION = '0.2.2';
+export const VERSION = '0.3.0';
 
 /** The fifteen subcommands, in the order they appear in the top-level `Commands:` list. */
 export const COMMANDS: { name: string; summary: string }[] = [
