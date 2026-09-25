@@ -749,14 +749,14 @@ _setup_ step, so do it on the host and let the container inherit it — a frozen
 config faithfully carries whatever the host already set. The ones that will bite
 you, because the failure is a bare `EROFS`/`EBUSY` that a wrapping tool buries:
 
-| Command                   | Why it fails, and what to do                                                                                                                  |
-| ------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
-| `git submodule init`      | writes `submodule.<path>.url` and `.active`. Run it on the host.                                                                              |
-| `git lfs install --local` | unnecessary — `git-container-config` puts the LFS filters in the container's **global** config.                                               |
+| Command                   | Why it fails, and what to do                                                                                                                      |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `git submodule init`      | writes `submodule.<path>.url` and `.active`. Run it on the host.                                                                                  |
+| `git lfs install --local` | unnecessary — `git-container-config` puts the LFS filters in the container's **global** config.                                                   |
 | `git config user.email …` | per-repo identity. Set it on the host; the container's identity comes from `~/.config/devc/git-identity/gitconfig` (see [Git setup](#git-setup)). |
-| `gh repo set-default`     | writes a remote config key. Run it on the host.                                                                                               |
-| pre-commit's `install`    | writes `core.hooksPath` and a hook file. Run it on the host.                                                                                  |
-| husky's `prepare` script  | writes `core.hooksPath`. `HUSKY=0` disables it.                                                                                               |
+| `gh repo set-default`     | writes a remote config key. Run it on the host.                                                                                                   |
+| pre-commit's `install`    | writes `core.hooksPath` and a hook file. Run it on the host.                                                                                      |
+| husky's `prepare` script  | writes `core.hooksPath`. `HUSKY=0` disables it.                                                                                                   |
 
 Freezing `hooks/` does **not** disable the hooks already there — devc-tools' own
 `prepare-commit-msg` keeps running, for agent commits too. Only _installing_ a
