@@ -428,6 +428,95 @@ Deno.test('canonical default devcontainer.json has no local Feature and no devc-
   assertEquals(dc.onCreateCommand, undefined);
 });
 
+// --- the git identity mount ----------------------------------------------------------------
+//
+// initialize-command.sh rewrites one shared host path on every `devc up` of every project. A
+// single-file bind mount pins an inode, so the old shape (`gitconfig-identity` bound onto the
+// file itself) left every *other* running container holding a deleted inode — on a native Linux
+// daemon one already truncated to its comment line, i.e. no identity at all. The pair below is
+// the fix: the directory is what binds, and the file inside it is replaced whole by a rename.
+
+Deno.test('the git identity mount binds the directory, not the file', async () => {
+  const text = await Deno.readTextFile(
+    new URL('../default/devcontainer.json', import.meta.url),
+  );
+  const mounts: string[] = JSON.parse(stripLineComments(text)).mounts;
+  const identity = mounts.filter((m) =>
+    m.includes('git-container-config/identity')
+  );
+  assertEquals(identity, [
+    'type=bind,source=${localEnv:HOME}/.config/devc/git-identity,target=/usr/local/share/devc-features/git-container-config/identity,consistency=cached,readonly',
+  ]);
+});
+
+Deno.test('initialize-command.sh replaces the identity file by rename, never in place', async () => {
+  await withTempDir(async (home) => {
+    const script = fromFileUrl(
+      new URL('../default/initialize-command.sh', import.meta.url),
+    );
+    const run = async (email: string) => {
+      // GIT_CONFIG_GLOBAL is the script's only view of "the host identity"; NOSYSTEM and a
+      // cwd outside any repo keep a real /etc/gitconfig or this checkout's local config out.
+      const global = `${home}/host-gitconfig`;
+      await Deno.writeTextFile(
+        global,
+        `[user]\n\tname = Host User\n\temail = ${email}\n`,
+      );
+      const out = await new Deno.Command('bash', {
+        args: [script],
+        cwd: home,
+        clearEnv: true,
+        env: {
+          HOME: home,
+          PATH: Deno.env.get('PATH') ?? '',
+          GIT_CONFIG_GLOBAL: global,
+          GIT_CONFIG_NOSYSTEM: '1',
+        },
+      }).output();
+      assertEquals(out.code, 0, new TextDecoder().decode(out.stderr));
+    };
+    const identity = `${home}/.config/devc/git-identity/gitconfig`;
+
+    await run('first@example.com');
+    assertStringIncludes(
+      await Deno.readTextFile(identity),
+      'first@example.com',
+    );
+
+    // A hard link stands in for a single-file bind mount: both hold the inode, not the name.
+    const pinned = `${home}/pinned`;
+    await Deno.link(identity, pinned);
+    await run('second@example.com');
+
+    assertStringIncludes(
+      await Deno.readTextFile(identity),
+      'second@example.com',
+    );
+    // Written in place, the old inode would have been truncated under the pin.
+    assertStringIncludes(await Deno.readTextFile(pinned), 'first@example.com');
+    assertEquals(
+      (await Deno.stat(identity)).ino === (await Deno.stat(pinned)).ino,
+      false,
+    );
+    // The file is the only thing in the mounted directory — no temp file left behind in it,
+    // and none beside it either.
+    const listing = async (dir: string) => {
+      const names: string[] = [];
+      for await (const e of Deno.readDir(dir)) names.push(e.name);
+      return names.sort();
+    };
+    assertEquals(await listing(`${home}/.config/devc/git-identity`), [
+      'gitconfig',
+    ]);
+    assertEquals(
+      (await listing(`${home}/.config/devc`)).filter((n) =>
+        n.startsWith('.git-identity')
+      ),
+      [],
+    );
+  });
+});
+
 Deno.test('canonical default devcontainer.json does not install devc-bridge', async () => {
   // The bridge is an opt-in add-on, never part of devc's baseline — neither as a Feature
   // reference nor as mounts of devc's own. Two reasons, and the first is the load-bearing

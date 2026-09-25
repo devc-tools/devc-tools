@@ -753,7 +753,7 @@ you, because the failure is a bare `EROFS`/`EBUSY` that a wrapping tool buries:
 | ------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
 | `git submodule init`      | writes `submodule.<path>.url` and `.active`. Run it on the host.                                                                              |
 | `git lfs install --local` | unnecessary — `git-container-config` puts the LFS filters in the container's **global** config.                                               |
-| `git config user.email …` | per-repo identity. Set it on the host; the container's identity comes from `~/.config/devc/gitconfig-identity` (see [Git setup](#git-setup)). |
+| `git config user.email …` | per-repo identity. Set it on the host; the container's identity comes from `~/.config/devc/git-identity/gitconfig` (see [Git setup](#git-setup)). |
 | `gh repo set-default`     | writes a remote config key. Run it on the host.                                                                                               |
 | pre-commit's `install`    | writes `core.hooksPath` and a hook file. Run it on the host.                                                                                  |
 | husky's `prepare` script  | writes `core.hooksPath`. `HUSKY=0` disables it.                                                                                               |
@@ -811,9 +811,9 @@ instead, and `"gitProtect": false` is the acknowledgement that unblocks it.
 2. **Changing repo config needs a container restart.** A single-file bind mount
    binds an _inode_, and `git config` on the host writes by rename — so a host
    edit to `.git/config` leaves the running container bound to the old,
-   now-deleted inode. `devc build` to pick it up. (Observable today for a
-   different file: `findmnt` in a running container shows the identity mount
-   sourced from `…/gitconfig-identity//deleted`.)
+   now-deleted inode. `devc build` to pick it up. (`findmnt` shows it: the
+   source reads `…//deleted`. The identity mount used to do the same, which is
+   why it now binds a directory — see [Git setup](#git-setup).)
 
 3. **On macOS, `.git` gains a `deny delete` ACL.** Docker Desktop puts
    `user:<you> deny delete` on a bind-mount source nested inside another bind
@@ -845,8 +845,10 @@ tree and `.git` are host bind mounts. The
 Feature re-applies the user-scope settings git needs each create:
 
 - **Your identity.** `initialize-command.sh` extracts `user.name` / `user.email`
-  from the host into `~/.config/devc/gitconfig-identity`, which binds in
-  read-only and is picked up via `include.path`. Only those two keys cross the
+  from the host into `~/.config/devc/git-identity/gitconfig`; that directory
+  binds in read-only and the file is picked up via `include.path`. It is
+  rewritten on every `devc up` of any project, and a running container sees
+  the new file — so a host identity change reaches it without a restart. Only those two keys cross the
   boundary — binding the whole host `~/.gitconfig` would drag in host-absolute
   paths, credential helpers and signing config that do not work in here. A host
   with no identity configured is a warning at create time, not a failure.
@@ -861,14 +863,26 @@ Feature re-applies the user-scope settings git needs each create:
 - **`safe.directory=*`,** since the workspace mount can present a foreign owner
   and git otherwise refuses to operate on it.
 
-Projects whose `.devcontainer/devcontainer.json` was written by an earlier
-`devc` predate the identity mount — `devc` writes infra mounts once at creation
-and never re-asserts them — so add it by hand to get your identity in the
-container:
+Projects whose `.devcontainer/` was written by an earlier `devc` carry their own
+copy of `initialize-command.sh` and their own mounts — `devc` writes infra
+mounts once at creation and never re-asserts them — so they either predate the
+identity mount or still bind the **file** `~/.config/devc/gitconfig-identity`.
+That older shape breaks in a running container the moment any other project
+runs `devc up`: a single-file bind pins the inode the host then replaces, and
+on a native Linux daemon the container is left with no identity at all. The
+create hook warns about it (`the identity file is bind-mounted on its own`). To
+migrate, copy the identity block of the current
+[`initialize-command.sh`](../devc-core/default/initialize-command.sh) over your
+project's, and use this mount line in place of any `gitconfig-identity` one:
 
 ```jsonc
-"type=bind,source=${localEnv:HOME}/.config/devc/gitconfig-identity,target=/usr/local/share/devc-features/git-container-config/identity/gitconfig,consistency=cached,readonly",
+"type=bind,source=${localEnv:HOME}/.config/devc/git-identity,target=/usr/local/share/devc-features/git-container-config/identity,consistency=cached,readonly",
 ```
+
+Then `devc build`. Both halves are needed: the new mount's source directory is
+created by the new script, and Docker fails a bind whose source is missing.
+The old `~/.config/devc/gitconfig-identity` file is left alone, since projects
+not yet migrated still mount it.
 
 ## devc-bridge: the opt-in Feature
 

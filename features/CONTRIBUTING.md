@@ -328,11 +328,13 @@ _failed_, since a failing `postCreateCommand` aborts the run it would report fro
 `post-create.sh` against a temp `HOME` with `GIT_CONFIG_GLOBAL` pointed into it and a
 temp `SHARE_DIR`. Covers the identity include set and skipped, the defaults landing,
 `safeDirectory: ""` omitting the setting, a second run being idempotent, the
-missing-identity warning on **stderr** with exit `0`, and `git-lfs` absent warning while
-the other settings still apply.
+missing-identity warning on **stderr** with exit `0`, `git-lfs` absent warning while
+the other settings still apply, and the single-file-mount warning firing for a file-bound
+identity and not for a directory-bound one (against a stand-in `mountinfo`).
 
 With Docker: the bare `{}` case asserting the settings land in the **remote user's**
-`~/.gitconfig` and not `/root/`'s, plus `with_git_lfs` and `mounted_identity`.
+`~/.gitconfig` and not `/root/`'s, plus `with_git_lfs`, `mounted_identity`, and
+`identity_replaced` (the file swapped by rename after create still resolves).
 
 **godot** — offline: `install_options_test.sh` (version resolution — latest via a
 non-redirecting `file://` fixture standing in for the releases/latest redirect, a bare version

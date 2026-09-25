@@ -1,8 +1,8 @@
 {
   "id": "git-container-config",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "name": "Git container config",
-  "description": "Re-applies, on every container create, the user-scope git settings a devcontainer needs and cannot keep: LFS filters for the remote user, worktree.useRelativePaths, safe.directory, and an include.path to an identity file — read from one fixed mount point, /usr/local/share/devc-features/git-container-config/identity/gitconfig, if a consumer has bind-mounted one there. No path option: that mount point is the one thing a consumer decides is what to bind onto. ~/.gitconfig is container-local and wiped on every rebuild, while the repo's working tree and .git are host bind mounts, so anything git needs at user scope has to be re-applied on every create. Installs neither git nor git-lfs — it configures a git that is already there.",
+  "description": "Re-applies, on every container create, the user-scope git settings a devcontainer needs and cannot keep: LFS filters for the remote user, worktree.useRelativePaths, safe.directory, and an include.path to an identity file — read from /usr/local/share/devc-features/git-container-config/identity/gitconfig, if a consumer has bind-mounted a directory holding one onto that identity/ directory. No path option: that mount point is the one thing a consumer decides is what to bind onto. Bind the directory rather than the file: a single-file bind pins an inode, so a host-side rewrite by rename never reaches a running container (the create hook warns when it sees one). ~/.gitconfig is container-local and wiped on every rebuild, while the repo's working tree and .git are host bind mounts, so anything git needs at user scope has to be re-applied on every create. Installs neither git nor git-lfs — it configures a git that is already there.",
   "documentationURL": "https://github.com/devc-tools/devc-tools/tree/main/features/git-container-config",
   "licenseURL": "https://github.com/devc-tools/devc-tools/blob/main/LICENSE",
   "options": {

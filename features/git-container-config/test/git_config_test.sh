@@ -82,7 +82,11 @@ setup() {
   # directory empty) so a case can place a file there without touching the real filesystem path.
   HOOK="$WORK/$name/hook.sh"
   IDENTITY="$SHARE/identity/gitconfig"
+  # MOUNTINFO likewise: a per-case file, absent unless a case writes one, standing in for
+  # /proc/self/mountinfo so a case can choose what shape of mount the hook believes it has.
+  MOUNTINFO="$WORK/$name/mountinfo"
   sed -e "s#^IDENTITY_INCLUDE_PATH=.*#IDENTITY_INCLUDE_PATH=$IDENTITY#" \
+    -e "s#^MOUNTINFO=.*#MOUNTINFO=$MOUNTINFO#" \
     "$SHARE/post-create.sh" > "$HOOK"
   GC="$H/gitconfig"
 }
@@ -219,6 +223,35 @@ check "still exactly one include.path value after five runs" \
   test "$(get_all_count include.path)" -eq 1
 check "still exactly one safe.directory value after five runs" \
   test "$(get_all_count safe.directory)" -eq 1
+
+# Two lines in real /proc/self/mountinfo shape (field 4 is the source's root, field 5 the mount
+# point) — the file-bound shape is the one a legacy devc config produces.
+echo "case 12: the identity FILE bind-mounted on its own — still included, but it warns"
+setup c12
+git config --file "$IDENTITY" user.email 'file@example.com'
+printf '%s\n' \
+  "1 0 0:1 / / rw - overlay overlay rw" \
+  "2 1 0:2 /Users/me/.config/devc/gitconfig-identity//deleted $IDENTITY ro,relatime - fakeowner grpcfuse ro" \
+  > "$MOUNTINFO"
+run_hook
+check "the hook exits 0" test "$status" -eq 0
+check "the include is still written — it works until the host rewrites the file" \
+  test "$(get user.email)" = file@example.com
+check "it warns that a host-side rewrite will not reach the container, on stderr" \
+  grep -q 'bind-mounted on its own' "$WORK/hook.err"
+check "and names the directory to bind instead" grep -qF "onto $(dirname "$IDENTITY")" "$WORK/hook.err"
+
+echo "case 13: the identity DIRECTORY bind-mounted — no warning"
+setup c13
+git config --file "$IDENTITY" user.email 'dir@example.com'
+printf '%s\n' \
+  "1 0 0:1 / / rw - overlay overlay rw" \
+  "2 1 0:2 /Users/me/.config/devc/git-identity $(dirname "$IDENTITY") ro,relatime - fakeowner grpcfuse ro" \
+  > "$MOUNTINFO"
+run_hook
+check "the hook exits 0" test "$status" -eq 0
+check "the include resolves" test "$(get user.email)" = dir@example.com
+check "no file-mount warning" bash -c "! grep -q 'bind-mounted on its own' '$WORK/hook.err'"
 
 echo
 if [ "$fails" -eq 0 ]; then echo "ALL PASS"; else echo "$fails FAILED"; exit 1; fi

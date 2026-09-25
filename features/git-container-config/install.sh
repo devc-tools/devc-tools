@@ -79,8 +79,9 @@ bake() { # bake <file> <var> <value>
 mkdir -p "$SHARE_DIR"
 
 # identity/ stays root-owned and is never written to by this Feature: a consumer bind-mounts
-# their own identity file onto identity/gitconfig, read-only, and post-create.sh only ever
-# reads it. Left empty when nobody mounts anything, which is the bare `{}` case.
+# a host directory holding their identity file onto identity/, read-only, and post-create.sh
+# only ever reads identity/gitconfig. The directory, not the file — see README.md's "Why the
+# directory, not the file". Left empty when nobody mounts anything, which is the bare `{}` case.
 mkdir -p "$SHARE_DIR/identity"
 
 # Plain cp rather than `install -o root`: this runs as root, so the copy is root-owned either

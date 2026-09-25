@@ -52,11 +52,13 @@ does something else.
 
 At create time, in this order:
 
-1. **Identity include, first.** When a file exists at the fixed mount point
+1. **Identity include, first.** When a file exists at
    `/usr/local/share/devc-features/git-container-config/identity/gitconfig`, it is added as
    `include.path`. First on purpose, so every setting below overrides anything the identity
    file carries — a container's own requirements must not be overridable by whatever
    happens to be in a mounted file. Nothing mounted there is a silent no-op, not an error.
+   An identity file bound on its own, rather than through its directory, warns — see
+   [Why the directory, not the file](#why-the-directory-not-the-file).
 2. **A warning on the effective identity.** If `user.email` or `user.name` comes back empty,
    it warns on stderr. Warn only — never fail create over it.
 3. **LFS filters**, when `lfsFilters` is true and `git-lfs` is on `PATH`. No `git-lfs`
@@ -94,21 +96,22 @@ git compares what is already on disk.
 `user.name` / `user.email` live on your **host**. This Feature cannot read them (a Feature
 cannot declare an `initializeCommand`) and cannot mount them in itself (a Feature cannot
 declare a host bind mount). Only your own `devcontainer.json` can do both, and the fixed
-mount point is the seam: a directory this Feature only ever reads, which your own
-`initializeCommand` + mount produces a file inside of.
+mount point is the seam: a directory,
+`/usr/local/share/devc-features/git-container-config/identity`, that this Feature only ever
+reads `gitconfig` from, and that your own `initializeCommand` + mount fills.
 
 ```jsonc
 // extract an allowlist of two keys, host-side, into a file the container may read
-"initializeCommand": "sh -c 'f=$HOME/.config/gitid; : > $f; git config --null --get user.name | xargs -r -0 -I{} git config --file $f user.name {}; git config --null --get user.email | xargs -r -0 -I{} git config --file $f user.email {}; exit 0'",
+"initializeCommand": "sh -c 'd=$HOME/.config/gitid; mkdir -p $d; t=$d.$$; : > $t; git config --null --get user.name | xargs -r -0 -I{} git config --file $t user.name {}; git config --null --get user.email | xargs -r -0 -I{} git config --file $t user.email {}; mv -f $t $d/gitconfig; exit 0'",
 "mounts": [
-  "type=bind,source=${localEnv:HOME}/.config/gitid,target=/usr/local/share/devc-features/git-container-config/identity/gitconfig,readonly"
+  "type=bind,source=${localEnv:HOME}/.config/gitid,target=/usr/local/share/devc-features/git-container-config/identity,readonly"
 ],
 "features": {
   "ghcr.io/devc-tools/features/git-container-config:0": {}
 }
 ```
 
-Three things worth carrying with the recipe, or it is cargo cult:
+Four things worth carrying with the recipe, or it is cargo cult:
 
 1. **An allowlist, not the whole `~/.gitconfig`.** Host paths, credential helpers and
    signing config do not work inside a container, and binding the whole file would drag them
@@ -122,14 +125,46 @@ Three things worth carrying with the recipe, or it is cargo cult:
    not an edge case — silently loses everything from the apostrophe onward. `git config
    --null` emits the value NUL-terminated with no shell-style interpretation, and `xargs -0`
    reads it the same way, so the value arrives byte-for-byte regardless of what it contains.
+4. **Bind the directory, and replace the file by rename.** See
+   [below](#why-the-directory-not-the-file) — binding the file itself breaks the first time
+   the host rewrites it.
 
 And it must `exit 0`. A non-zero `initializeCommand` aborts container creation, and having
 no git identity is a warning (step 2 above), not a failure.
 
 **If you use devc, this is already done for you.**
 [`devc-core/default/initialize-command.sh`](../../devc-core/default/initialize-command.sh)
-runs the equivalent extraction into `~/.config/devc/gitconfig-identity`, and devc's bundled
-config binds that onto this Feature's mount point.
+runs the equivalent extraction into `~/.config/devc/git-identity/gitconfig`, and devc's
+bundled config binds that directory onto this Feature's mount point.
+
+### Why the directory, not the file
+
+A single-file bind mount binds an **inode**, not a name. `git config --file` always writes by
+writing a new file and renaming it over the old one, so the first time the host regenerates
+the identity — which a shared path like the one above gets on every `devcontainer up` of
+**any** project — every container already running is left bound to the old, deleted inode.
+`findmnt` in such a container shows the source as `…//deleted`. What that costs depends on
+the daemon:
+
+- **A native Linux daemon** — Docker Engine or Podman, rootful or rootless; measured with a
+  plain Linux bind mount, which is what each of them makes: the container really does hold
+  the old inode. With a writer that truncates the file before `git config` renames a new
+  one in (as `: > $f` does), that inode is left holding only what was written before the
+  rename, and a running container **loses its identity outright** until it is recreated. A
+  host identity change never arrives either.
+- **Docker Desktop on macOS**: its file-sharing layer resolves by path, so reads still return
+  the host's current contents despite the `//deleted` mark (measured on Docker Desktop
+  29.7.2). Harmless there today, but not
+  something to depend on.
+
+Binding the directory avoids all of it: the name is resolved on every read, so a regenerated
+file — including a changed identity — reaches running containers without a restart, and a
+rename-into-place means a reader never sees a half-written file. Build the temporary file
+outside the mounted directory (the recipe uses `$d.$$`, a sibling of it), so nothing but
+`gitconfig` ever appears inside it.
+
+A file-bound identity still works, and the create hook still includes it; it warns on stderr
+that a host-side rewrite will not reach the container.
 
 ## What this is not
 

@@ -12,5 +12,12 @@
     "features": {
       "git-container-config": {}
     }
+  },
+  "identity_replaced": {
+    "image": "mcr.microsoft.com/devcontainers/base:ubuntu",
+    "onCreateCommand": "sudo chmod 777 /usr/local/share/devc-features/git-container-config/identity && printf '[user]\\n\\temail = before@example.com\\n\\tname = Scenario Tester\\n' > /usr/local/share/devc-features/git-container-config/identity/gitconfig",
+    "features": {
+      "git-container-config": {}
+    }
   }
 }

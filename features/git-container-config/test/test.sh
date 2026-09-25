@@ -38,7 +38,7 @@ check "lfsSkipSmudge baked true" \
 check "worktreeRelativePaths baked true" \
   grep -qx 'WORKTREE_RELATIVE_PATHS="true"' "$SHARE/post-create.sh"
 check "safeDirectory baked to the wildcard default" \
-  grep -qx 'SAFE_DIRECTORY="*"' "$SHARE/post-create.sh"
+  grep -qxF 'SAFE_DIRECTORY="*"' "$SHARE/post-create.sh"
 
 # --- the settings landed in the REMOTE USER's ~/.gitconfig, not /root/'s -------------------
 #

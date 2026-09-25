@@ -49,13 +49,29 @@ SAFE_DIRECTORY="${SAFE_DIRECTORY-*}"
 # Feature never reads, parses or validates this file's contents — it only names it; producing
 # it is entirely the consumer's job (see README.md for the initializeCommand + mount recipe).
 #
-# Fixed mount point, not an option: a consumer bind-mounts their own identity file onto it, and
-# "nothing mounted" is a genuinely absent file rather than an option pointing nowhere — so no
-# include.path is written at all, instead of one pointing at an empty file.
+# Fixed mount point, not an option: a consumer bind-mounts a directory holding their identity
+# file onto identity/, and "nothing mounted" is a genuinely absent file rather than an option
+# pointing nowhere — so no include.path is written at all, instead of one pointing at an empty
+# file.
 IDENTITY_INCLUDE_PATH=/usr/local/share/devc-features/git-container-config/identity/gitconfig
+MOUNTINFO=/proc/self/mountinfo
 
 if [ -f "$IDENTITY_INCLUDE_PATH" ]; then
   git config --global --replace-all include.path "$IDENTITY_INCLUDE_PATH"
+fi
+
+# A bind mount of the *file* itself still works today, but it binds an inode: the first time the
+# host replaces that file by rename — `git config --file` always does — this container keeps the
+# old, deleted one until it is recreated (and on a native Linux daemon, possibly a truncated
+# one). Field 5 of mountinfo is the mount point; the directory form never matches it. Plain
+# `read` rather than grep/awk, so this assumes nothing on PATH beyond git.
+if [ -r "$MOUNTINFO" ]; then
+  while read -r _ _ _ _ mount_point _; do
+    if [ "$mount_point" = "$IDENTITY_INCLUDE_PATH" ]; then
+      warn "the identity file is bind-mounted on its own; a host-side rewrite will not reach this container — bind its directory onto ${IDENTITY_INCLUDE_PATH%/*} instead (see README.md)"
+      break
+    fi
+  done < "$MOUNTINFO"
 fi
 
 # Warn on the *effective* identity rather than on the mount, since the mounted file may also
