@@ -186,6 +186,8 @@ fi
 
 echo
 echo 'repository guards'
+# release.yml's first gate step; a tag over an unformatted tree fails there before building.
+check 'deno fmt --check (run `deno fmt` to fix)' deno fmt --check
 check 'tests/workflow_guards_test.sh' bash tests/workflow_guards_test.sh
 check 'tests/features_test.sh' bash tests/features_test.sh
 
