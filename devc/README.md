@@ -964,10 +964,13 @@ it may publish:
 That file is the whole grant, and no container can write it — `policy/` is never
 mounted.
 
-> **No bridge command reads the policy yet.** The `git-push` verb that will is a
-> separate change; until it lands, `--bridge-git-push` writes a pin that nothing
-> acts on. Everything below describes what the pin will mean. Only the **primary workspace repo** is ever pinned: a `devc:source`
-> mount you added for convenience is not a grant.
+> **The bridge needs the verb too.** `git-push` is a devc-bridge _recipe_, not a
+> seeded command: run `devc-bridge install-command git-push` once on the host, or
+> a granted container's pushes fail as `unknown command`. What it checks before
+> publishing is in the
+> [bridge README](../devc-bridge/README.md#publishing-a-branch-git-push). Only
+> the **primary workspace repo** is ever pinned: a `devc:source` mount you added
+> for convenience is not a grant.
 
 | Command                                              | With `--bridge-git-push` | Without it                                         |
 | ---------------------------------------------------- | ------------------------ | -------------------------------------------------- |

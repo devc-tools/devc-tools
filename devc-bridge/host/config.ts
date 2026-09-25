@@ -11,6 +11,10 @@
 // into the editable commands dir — we never overwrite, since those scripts are the
 // host's to edit. Run from source (uncompiled) the same URL resolves to the repo's
 // host/commands, so seeding still works without a build.
+//
+// Recipes (`../recipes`, embedded the same way) are the opposite: command scripts that are *not*
+// seeded, because a seeded file is an enabled capability. `devc-bridge install-command <name>`
+// copies one in on purpose — `git-push` is the reason this exists.
 
 import { join } from '@std/path';
 
@@ -199,6 +203,61 @@ export async function seedCommands(commandsDir: string): Promise<string[]> {
     written.push(entry.name);
   }
   return written;
+}
+
+// A command name must be a bare filename, as in core.ts's dispatch.
+const NAME_RE = /^[A-Za-z0-9._-]+$/;
+
+/** The embedded recipes, sorted. Empty when none are readable (a build without them). */
+export async function listRecipes(): Promise<string[]> {
+  const names: string[] = [];
+  try {
+    for await (
+      const entry of Deno.readDir(new URL('../recipes', import.meta.url))
+    ) {
+      if (entry.isFile) names.push(entry.name);
+    }
+  } catch { /* none embedded */ }
+  return names.sort();
+}
+
+/**
+ * Copy the recipe `name` into `commandsDir` as an executable command, enabling it. Refuses — and
+ * changes nothing — when `name` is not a recipe or `commandsDir` already has an entry of that name
+ * (the host's copy is never clobbered, as with seeding; delete it first to reinstall). Returns the
+ * installed path.
+ */
+export async function installCommand(
+  commandsDir: string,
+  name: string,
+): Promise<string> {
+  const recipes = await listRecipes();
+  if (!NAME_RE.test(name) || !recipes.includes(name)) {
+    throw new Error(
+      `devc-bridge: no recipe named ${JSON.stringify(name)} (available: ${
+        recipes.join(', ') || 'none'
+      })`,
+    );
+  }
+  await ensureDir(commandsDir);
+  const target = join(commandsDir, name);
+  const content = await Deno.readFile(
+    new URL(`../recipes/${name}`, import.meta.url),
+  );
+  try {
+    // createNew is O_EXCL: it fails on any existing entry, a dangling symlink included, and so can
+    // never write through one.
+    await Deno.writeFile(target, content, { createNew: true, mode: 0o755 });
+  } catch (e) {
+    if (e instanceof Deno.errors.AlreadyExists) {
+      throw new Error(
+        `devc-bridge: ${target} already exists — not overwriting (remove it first to reinstall)`,
+      );
+    }
+    throw e;
+  }
+  await Deno.chmod(target, 0o755); // createNew's mode is filtered by the umask
+  return target;
 }
 
 export function errMsg(e: unknown): string {

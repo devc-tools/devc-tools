@@ -1,0 +1,289 @@
+#!/usr/bin/env bash
+# git-push — publish this container's one pinned branch to its one pinned remote.
+#   devc-bridge git-push          (no arguments, ever)
+#
+# A recipe, not a seeded command: it exists on a host only after
+# `devc-bridge install-command git-push`. Removing the capability is `rm` of that copy.
+#
+# Who is asking comes from the bridge, not the caller: the server sets DEVC_BRIDGE_KEY to the
+# workspace key its token identifies (empty for the shared legacy token) and
+# DEVC_BRIDGE_POLICY_DIR to the host-only policy dir. `policy/<key>.conf`, written by devc, is the
+# whole grant — `<repo>\t<remote>\t<branch>`, one line. No file, no push.
+#
+# **The host never runs git inside the container's repo.** A hook or `core.fsmonitor` planted there
+# executes on any `git -C <repo> …`, and `--no-verify` does not contain repo-local `core.sshCommand`
+# or an `ext::` `insteadOf` rewrite. So the only thing this script does to the repo is *fetch from
+# it* into a host-owned bare mirror — git distrusts the config of a repo it fetches from — and every
+# later step runs in the mirror. The pushed object is the SHA that was inspected, never the
+# branch ref, which the agent can move at any moment.
+#
+# Exit codes: 0 pushed (or already up to date), 2 no/malformed policy, a pin that no longer
+# resolves, or a remote mismatch, 3 content-policy refusal, 4 transport failure or timeout.
+
+set -uo pipefail
+export LC_ALL=C
+# The daemon's cwd is wherever `devc-bridge start` ran — possibly inside a project. Every path below
+# is absolute, and no git here may discover a repo from the cwd.
+cd / || exit 4
+
+die() {
+  local code=$1
+  shift
+  echo "git-push: $*" >&2
+  exit "$code"
+}
+
+[ $# -eq 0 ] || die 2 "takes no arguments — the policy names the repo and branch"
+
+# ── the caller and its policy ─────────────────────────────────────────────────────────────
+
+key=${DEVC_BRIDGE_KEY-}
+[ -n "$key" ] || die 2 "this caller has no workspace key (the shared token can never push)"
+case $key in
+  . | .. | *[!A-Za-z0-9._-]*) die 2 "invalid workspace key" ;;
+esac
+
+policy_dir=${DEVC_BRIDGE_POLICY_DIR:-$HOME/.config/devc-bridge/policy}
+policy=$policy_dir/$key.conf
+[ -f "$policy" ] ||
+  die 2 "no push policy for this container — start it with: devc up --bridge-git-push"
+
+malformed() { die 2 "malformed policy $policy: $*"; }
+
+# Read the file whole (the `x` keeps trailing newlines from being stripped), drop one final newline,
+# and accept exactly one line of exactly three non-empty, control-free, tab-separated fields — the
+# same rule devc writes by. `read` cannot split it: tab is IFS whitespace, so empty fields collapse.
+line=$(cat -- "$policy" && printf x) || malformed "unreadable"
+line=${line%x}
+line=${line%$'\n'}
+case $line in *$'\n'* | *$'\r'*) malformed "more than one line" ;; esac
+tabs=${line//[!$'\t']/}
+[ ${#tabs} -eq 2 ] || malformed "want exactly three tab-separated fields"
+repo=${line%%$'\t'*}
+rest=${line#*$'\t'}
+remote=${rest%%$'\t'*}
+branch=${rest#*$'\t'}
+for field in "$repo" "$remote" "$branch"; do
+  [ -n "$field" ] || malformed "empty field"
+  case $field in *[[:cntrl:]]*) malformed "control character in a field" ;; esac
+done
+case $repo in /*) ;; *) malformed "repo is not an absolute path" ;; esac
+case $remote in -*) malformed "remote looks like an option" ;; esac
+git check-ref-format "refs/heads/$branch" || malformed "branch is not a valid ref name"
+
+mirror=$HOME/.local/state/devc-bridge/git/$key.git
+timeout_s=${DEVC_BRIDGE_GIT_TIMEOUT:-300}
+case $timeout_s in '' | *[!0-9]*) timeout_s=300 ;; esac
+
+# ── the environment every git below runs in ───────────────────────────────────────────────
+
+# Nothing inherited from the daemon's shell may point git somewhere else, and nothing may prompt: the
+# client blocks until this script returns and has no timeout of its own.
+unset GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_INDEX_FILE GIT_OBJECT_DIRECTORY \
+  GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_NAMESPACE GIT_CONFIG GIT_CONFIG_PARAMETERS \
+  GIT_CONFIG_COUNT GIT_ASKPASS SSH_ASKPASS GIT_SSH GIT_PROXY_COMMAND GIT_EXTERNAL_DIFF
+export GIT_TERMINAL_PROMPT=0
+export GIT_SSH_COMMAND='ssh -oBatchMode=yes -oConnectTimeout=30'
+# An allowlist rather than a denylist: `ext::` (arbitrary command) and everything else is refused.
+export GIT_ALLOW_PROTOCOL=file:ssh:https
+
+# For every invocation: the mirror's own hooks (a user `init.templateDir` could supply some) never
+# run, nothing asks, and nothing follows tags or submodules into a push.
+GIT_FLAGS=(-c core.hooksPath=/dev/null -c core.askPass= -c core.pager=cat
+  -c protocol.ext.allow=never -c push.followTags=false -c push.recurseSubmodules=no
+  -c fetch.recurseSubmodules=no -c submodule.recurse=false -c gc.auto=0)
+MIRROR_GIT=(git "${GIT_FLAGS[@]}" --git-dir="$mirror")
+# For the one fetch *from the agent's repo*: every command-running key blanked as well. Git already
+# ignores these from a repo it fetches from; this is belt-and-braces, not the control.
+SOURCE_GIT=(git "${GIT_FLAGS[@]}" -c core.fsmonitor=false -c uploadpack.packObjectsHook=
+  -c core.alternateRefsCommand= -c credential.helper= --git-dir="$mirror")
+
+tmp=$(mktemp -d "${TMPDIR:-/tmp}/devc-bridge-git-push.XXXXXX") || die 4 "cannot create a temp dir"
+trap 'rm -rf "$tmp"' EXIT
+
+# run_t CMD… — run CMD with stdin closed, killing its whole process group after $timeout_s.
+# macOS ships no timeout(1). The group matters: git leaves ssh holding the bridge's stdout pipe, and
+# the bridge waits for EOF on it, so killing git alone would still hang the client.
+run_t() {
+  rm -f "$tmp/timedout"
+  set -m
+  "$@" </dev/null &
+  local pid=$!
+  (
+    sleep "$timeout_s"
+    : >"$tmp/timedout"
+    kill -s TERM -- "-$pid"
+    sleep 5
+    kill -s KILL -- "-$pid"
+  ) </dev/null >/dev/null 2>&1 &
+  local watcher=$!
+  set +m
+  local rc=0
+  wait "$pid" 2>/dev/null || rc=$?
+  kill -s TERM -- "-$watcher" 2>/dev/null
+  wait "$watcher" 2>/dev/null
+  return "$rc"
+}
+
+# net STEP CMD… — a network step: any failure is exit 4, a timeout says so.
+net() {
+  local step=$1
+  shift
+  run_t "$@" && return 0
+  [ -e "$tmp/timedout" ] && die 4 "$step: timed out after ${timeout_s}s"
+  die 4 "$step failed"
+}
+
+# ── the repo is only ever read as files ───────────────────────────────────────────────────
+
+# ── shared with git-doctor: keep the two copies identical ─────────────────────────────────
+
+phys() { (cd -P -- "$1" 2>/dev/null && pwd -P); }
+
+# read_pointer FILE — the path after `gitdir: ` on FILE's first line, resolved against FILE's dir.
+read_pointer() {
+  local file=$1 first='' target
+  IFS= read -r first <"$file" || [ -n "$first" ] || return 1
+  target=${first#gitdir: }
+  [ "$target" != "$first" ] && [ -n "$target" ] || return 1
+  case $target in /*) ;; *) target=$(dirname -- "$file")/$target ;; esac
+  printf '%s\n' "$target"
+}
+
+# pointer_problem WORKTREE — print why WORKTREE/.git is not an honest linked-worktree pointer and
+# fail, or print its git dir and succeed. Honest means: `gitdir: <primary>/.git/worktrees/<name>`,
+# whose `gitdir` points back at WORKTREE/.git and whose `commondir` is `<primary>/.git`.
+pointer_problem() {
+  local wt=$1 gitdir back='' common here
+  gitdir=$(read_pointer "$wt/.git") || {
+    echo "$wt/.git is not a gitdir: pointer"
+    return 1
+  }
+  gitdir=$(phys "$gitdir") || {
+    echo "$wt/.git points at a git dir that does not exist"
+    return 1
+  }
+  case $gitdir in
+    */.git/worktrees/*) ;;
+    *)
+      echo "$wt/.git points at $gitdir, not a <repo>/.git/worktrees/<name> dir"
+      return 1
+      ;;
+  esac
+  IFS= read -r back <"$gitdir/gitdir" 2>/dev/null || [ -n "$back" ] || {
+    echo "$gitdir has no gitdir back-pointer"
+    return 1
+  }
+  case $back in /*) ;; *) back=$gitdir/$back ;; esac
+  here=$(phys "$wt")
+  [ "$(phys "$(dirname -- "$back")")/$(basename -- "$back")" = "$here/.git" ] || {
+    echo "$gitdir/gitdir does not point back at $wt/.git"
+    return 1
+  }
+  common=$(cat -- "$gitdir/commondir" 2>/dev/null) || {
+    echo "$gitdir has no commondir"
+    return 1
+  }
+  case $common in /*) ;; *) common=$gitdir/$common ;; esac
+  [ "$(phys "$common")" = "$(phys "$gitdir/../..")" ] || {
+    echo "$gitdir/commondir points outside its primary git dir"
+    return 1
+  }
+  printf '%s\n' "$gitdir"
+}
+
+# The fetch below resolves the repo's `.git` the way git does, so whatever it points at is what gets
+# published. Refuse any pointer that could redirect it at a repo the container cannot see. For a
+# linked worktree both halves of the pointer live in git dirs the container can already reach, so a
+# pointer that passes cannot publish anything it could not have copied into its own branch anyway.
+if [ -d "$repo/.git" ]; then
+  # A primary repo. `.git/commondir` would make git take refs and objects from another git dir.
+  [ ! -e "$repo/.git/commondir" ] ||
+    die 2 "$repo/.git/commondir exists — a primary repo has none, so something redirected it"
+elif [ -f "$repo/.git" ]; then
+  reason=$(pointer_problem "$repo") || die 2 "refused: $reason"
+else
+  die 2 "$repo is not a git repo (no .git)"
+fi
+
+# ── the mirror ────────────────────────────────────────────────────────────────────────────
+
+# Created from the policy, never cloned from the agent's repo, whose config would be inherited.
+# Built under a temp name and renamed in, so an interrupted setup never leaves a half-made mirror.
+if [ ! -d "$mirror" ]; then
+  mkdir -p -- "$(dirname -- "$mirror")" || die 4 "cannot create $(dirname -- "$mirror")"
+  staging=$mirror.tmp.$$
+  rm -rf -- "$staging"
+  if ! { git init -q --bare --template= -- "$staging" >/dev/null &&
+    git --git-dir="$staging" config remote.origin.url "$remote" &&
+    mv -- "$staging" "$mirror"; }; then
+    rm -rf -- "$staging"
+    die 4 "cannot create the mirror at $mirror"
+  fi
+fi
+
+# The mirror's origin is host-authored at creation and is the authority: if the policy disagrees,
+# something rewrote one of them — refuse rather than reconcile. Read from the file, not via
+# `remote get-url`, which applies `insteadOf` rewriting.
+origin=$(git config --file "$mirror/config" --get remote.origin.url) ||
+  die 2 "mirror $mirror has no origin — delete it to re-create"
+[ "$origin" = "$remote" ] ||
+  die 2 "policy remote $remote does not match mirror origin $origin"
+
+# ── what the remote has ───────────────────────────────────────────────────────────────────
+
+# The default branch is not assumed to be `main`: read it from the remote on every push.
+net "reading $remote" "${MIRROR_GIT[@]}" ls-remote --symref origin HEAD "refs/heads/$branch" \
+  >"$tmp/ls-remote"
+base=$(awk '$1 == "ref:" && $3 == "HEAD" { sub("^refs/heads/", "", $2); print $2; exit }' \
+  "$tmp/ls-remote")
+[ -n "$base" ] ||
+  die 3 "$remote has no default branch, so there is nothing to check the branch against"
+remote_sha=$(awk -v ref="refs/heads/$branch" '$2 == ref { print $1 }' "$tmp/ls-remote")
+
+# Fresh every time — a stale base would let the content policy compare against the wrong tree.
+net "fetching $base from $remote" "${MIRROR_GIT[@]}" fetch -q --no-tags origin \
+  "+refs/heads/$base:refs/remotes/origin/$base"
+
+# ── what the agent wants published ────────────────────────────────────────────────────────
+
+# `refs/staging/*`, never `refs/heads/*`: nothing in the mirror's branch namespace for a wildcard
+# refspec to sweep. `+` because the agent may rebase; the push itself still never forces.
+run_t "${SOURCE_GIT[@]}" fetch -q --no-tags --no-write-fetch-head -- "$repo" \
+  "+refs/heads/$branch:refs/staging/$branch" ||
+  die 2 "cannot read branch $branch from $repo"
+sha=$("${MIRROR_GIT[@]}" rev-parse --verify -q "refs/staging/$branch^{commit}") ||
+  die 2 "refs/staging/$branch is not a commit"
+short=${sha:0:12}
+
+# ── content policy, against the inspected SHA ─────────────────────────────────────────────
+
+# Plumbing, not `git diff`: no external diff, no textconv, no rename pairing that could hide one side.
+"${MIRROR_GIT[@]}" diff-tree --quiet -r --no-renames "refs/remotes/origin/$base" "$sha" \
+  -- .github/workflows
+case $? in
+  0) ;;
+  1) die 3 "refused: $branch changes .github/workflows/ relative to $base" ;;
+  *) die 3 "refused: could not diff $branch against $base" ;;
+esac
+
+# LFS: the mirror only ever receives pointer blobs; the objects stay in the working repo. Pushing a
+# new pointer would publish a commit whose content was never uploaded.
+"${MIRROR_GIT[@]}" diff-tree -p -r --no-renames --no-ext-diff --no-textconv \
+  "refs/remotes/origin/$base" "$sha" >"$tmp/diff" ||
+  die 3 "refused: could not diff $branch against $base"
+if grep -q '^+version https://git-lfs' "$tmp/diff"; then
+  die 3 "refused: $branch adds a Git LFS pointer, and LFS content cannot be published this way"
+fi
+
+# ── publish ───────────────────────────────────────────────────────────────────────────────
+
+if [ "$remote_sha" = "$sha" ]; then
+  echo "up to date: $branch is already $short on $remote ($repo)"
+  exit 0
+fi
+
+# The SHA, to a ref built from the policy: no tag, no force, no delete has a code path here.
+net "pushing $branch to $remote" "${MIRROR_GIT[@]}" push -q --no-verify --no-follow-tags \
+  origin "$sha:refs/heads/$branch"
+echo "pushed: $branch at $short to $remote ($repo)"

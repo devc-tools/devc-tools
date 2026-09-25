@@ -17,7 +17,7 @@
 
 import { dirname, resolve } from '@std/path';
 import { Keepawake, type KeepawakeStatus } from './keepawake.ts';
-import { TokenRegistry } from './token.ts';
+import { type Caller, TokenRegistry } from './token.ts';
 
 export interface ServerOptions {
   /** Address to bind. Default host is 127.0.0.1 (reachable via host.docker.internal). */
@@ -34,6 +34,12 @@ export interface ServerOptions {
   commandsDir: string;
   /** Directory where scripts drop "active" marker files; watched for the tray. */
   stateDir: string;
+  /**
+   * `policy/`: the host-only publish pins devc writes. Handed to every script as
+   * `DEVC_BRIDGE_POLICY_DIR`, beside the caller's `DEVC_BRIDGE_KEY`, so a publishing verb can find
+   * the one policy its caller holds. Omitted → the variable is not set.
+   */
+  policyDir?: string;
   /** Called on startup and whenever the set of active markers changes. */
   onActiveChange?: (active: string[]) => void;
   /** Optional logger; defaults to console.error. */
@@ -93,12 +99,21 @@ async function* readLines(conn: Deno.Conn): AsyncGenerator<string> {
   if (buf.trim().length > 0) yield buf;
 }
 
+/**
+ * What a script is told about its caller: `DEVC_BRIDGE_KEY` is the workspace key the request's
+ * token identifies, or empty for the shared legacy token — never absent, so a script can tell a
+ * dispatched call from one run by hand, and never inherited from the daemon's own environment.
+ */
+interface Dispatch {
+  commandsDir: string;
+  stateDir: string;
+  policyDir?: string;
+  caller: Caller;
+}
+
 /** Resolve a request to an allowlisted script and run it with args as argv. */
-async function dispatch(
-  req: Request,
-  commandsDir: string,
-  stateDir: string,
-): Promise<Response> {
+async function dispatch(req: Request, d: Dispatch): Promise<Response> {
+  const { commandsDir, stateDir } = d;
   const name = req.command;
   if (
     typeof name !== 'string' || !NAME_RE.test(name) || name === '.' ||
@@ -138,9 +153,16 @@ async function dispatch(
   try {
     // args are passed as argv — never interpolated into a shell — so nothing the
     // client sends can be interpreted as a shell metacharacter.
+    const env: Record<string, string> = {
+      ...Deno.env.toObject(),
+      DEVC_BRIDGE_STATE: stateDir,
+      DEVC_BRIDGE_KEY: d.caller.key ?? '',
+    };
+    delete env.DEVC_BRIDGE_POLICY_DIR;
+    if (d.policyDir !== undefined) env.DEVC_BRIDGE_POLICY_DIR = d.policyDir;
     const cmd = new Deno.Command(scriptPath, {
       args,
-      env: { ...Deno.env.toObject(), DEVC_BRIDGE_STATE: stateDir },
+      env,
       stdout: 'piped',
       stderr: 'piped',
     });
@@ -177,6 +199,15 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
   const log = opts.log ?? ((m: string) => console.error(m));
   const commandsDir = resolve(opts.commandsDir);
   const stateDir = resolve(opts.stateDir);
+  const policyDir = opts.policyDir === undefined
+    ? undefined
+    : resolve(opts.policyDir);
+  const via = (caller: Caller): Dispatch => ({
+    commandsDir,
+    stateDir,
+    policyDir,
+    caller,
+  });
 
   await Deno.mkdir(stateDir, { recursive: true });
   const keysDir = resolve(opts.keysDir);
@@ -196,7 +227,7 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
       command: opts.keepawake.command,
       idleMs: opts.keepawake.idleMs,
       run: (command, args) =>
-        dispatch({ token: opts.token, command, args }, commandsDir, stateDir),
+        dispatch({ token: opts.token, command, args }, via({ key: null })),
       log,
     })
     : null;
@@ -245,8 +276,9 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
             try {
               const req = JSON.parse(line) as Request;
               // Identified, not merely authenticated: the caller's key is what a publishing verb
-              // resolves its policy from. Nothing dispatched today consults it.
-              if (tokens.identify(req.token) === null) {
+              // (git-push) resolves its policy from, so it goes to the script as DEVC_BRIDGE_KEY.
+              const caller = tokens.identify(req.token);
+              if (caller === null) {
                 resp = { ok: false, error: 'unauthorized' };
               } else if (keepawake && req.command === 'ping') {
                 const args = Array.isArray(req.args) ? req.args : [];
@@ -254,7 +286,7 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
                 keepawake.ping(event);
                 resp = { ok: true, exitCode: 0, stdout: 'pong\n', stderr: '' };
               } else {
-                resp = await dispatch(req, commandsDir, stateDir);
+                resp = await dispatch(req, via(caller));
               }
             } catch (e) {
               resp = {

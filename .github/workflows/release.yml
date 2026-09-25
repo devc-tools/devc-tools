@@ -146,6 +146,10 @@ jobs:
           deno task check
           deno task test
 
+      # The git-push/git-doctor recipes: a local bare repo stands in for the remote, no network.
+      - name: devc-bridge git recipes — offline harness
+        run: bash devc-bridge/tests/git_push_test.sh
+
       - name: devc-bridge client — check
         working-directory: devc-bridge/client
         run: deno task check

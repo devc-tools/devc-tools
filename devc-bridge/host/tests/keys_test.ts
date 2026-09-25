@@ -35,6 +35,13 @@ async function withServer(
   const echo = join(commandsDir, 'echo');
   await Deno.writeTextFile(echo, '#!/bin/sh\necho ok\n');
   await Deno.chmod(echo, 0o755);
+  // Reports what dispatch told it about the caller; `-` marks a variable that is unset.
+  const whoami = join(commandsDir, 'whoami');
+  await Deno.writeTextFile(
+    whoami,
+    '#!/bin/sh\necho "key=${DEVC_BRIDGE_KEY--} policy=${DEVC_BRIDGE_POLICY_DIR--}"\n',
+  );
+  await Deno.chmod(whoami, 0o755);
   await prepare(keysDir);
 
   const port = freePort();
@@ -46,6 +53,7 @@ async function withServer(
     keysDir,
     commandsDir,
     stateDir: join(dir, 'state'),
+    policyDir: join(dir, 'policy'),
     log: () => {},
   });
   try {
@@ -57,12 +65,16 @@ async function withServer(
 }
 
 /** Send one request and return the parsed response. */
-async function call(port: number, token: string): Promise<{ ok: boolean }> {
+async function call(
+  port: number,
+  token: string,
+  command = 'echo',
+): Promise<{ ok: boolean; stdout?: string }> {
   const conn = await Deno.connect({ hostname: '127.0.0.1', port });
   try {
     await conn.write(
       new TextEncoder().encode(
-        JSON.stringify({ token, command: 'echo', args: [] }) + '\n',
+        JSON.stringify({ token, command, args: [] }) + '\n',
       ),
     );
     const buf = new Uint8Array(4096);
@@ -219,5 +231,30 @@ Deno.test('a restart re-mints every key', async () => {
     assertNotEquals(before, after);
   } finally {
     await Deno.remove(dir, { recursive: true }).catch(() => {});
+  }
+});
+
+Deno.test("a script is told its caller's key, and the shared token is told none", async () => {
+  // Set in the daemon's own environment, as if the shell that started it had them: dispatch must
+  // replace both, never pass them through.
+  Deno.env.set('DEVC_BRIDGE_KEY', 'forged-key');
+  Deno.env.set('DEVC_BRIDGE_POLICY_DIR', '/forged/policy');
+  try {
+    await withServer(async (keysDir) => {
+      await Deno.mkdir(join(keysDir, 'app-99999999'));
+    }, async ({ dir, keysDir, port, shared }) => {
+      const policy = join(dir, 'policy');
+      const keyed = await call(
+        port,
+        await tokenAt(keysDir, 'app-99999999'),
+        'whoami',
+      );
+      assertEquals(keyed.stdout, `key=app-99999999 policy=${policy}\n`);
+      const legacy = await call(port, shared, 'whoami');
+      assertEquals(legacy.stdout, `key= policy=${policy}\n`);
+    });
+  } finally {
+    Deno.env.delete('DEVC_BRIDGE_KEY');
+    Deno.env.delete('DEVC_BRIDGE_POLICY_DIR');
   }
 });

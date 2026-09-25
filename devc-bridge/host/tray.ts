@@ -55,6 +55,7 @@ async function runTrayInner(cfg: Config): Promise<void> {
     keysDir: cfg.keys,
     commandsDir: cfg.commands,
     stateDir: cfg.state,
+    policyDir: cfg.policy,
     onActiveChange: (active) => paint(active),
     keepawake: cfg.keepawake,
   });

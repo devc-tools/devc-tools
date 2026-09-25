@@ -7,6 +7,8 @@
 //   devc-bridge run         run the bridge in the foreground (headless)
 //   devc-bridge run --tray  ditto, plus the macOS menu-bar tray (`deno desktop` only)
 //   devc-bridge version     print the version (also --version / -V)
+//   devc-bridge install-command <name>
+//                           enable an unseeded recipe (e.g. git-push) by copying it into commands/
 //
 // main.ts plays two roles from one file:
 //   • As the CLI (start/stop/status/restart) it's the *controller* — it spawns, signals
@@ -25,6 +27,8 @@ import {
   type Config,
   ensureConfig,
   errMsg,
+  installCommand,
+  listRecipes,
   loadConfig,
 } from './config.ts';
 import { startServer } from './core.ts';
@@ -33,7 +37,7 @@ import { runTray } from './tray.ts';
 import { VERSION } from './version.ts';
 
 const USAGE =
-  'usage: devc-bridge {start|stop|status|restart|run [--tray]|version}';
+  'usage: devc-bridge {start|stop|status|restart|run [--tray]|install-command <name>|version}';
 
 async function main(): Promise<void> {
   const sub = Deno.args[0];
@@ -61,6 +65,9 @@ async function main(): Promise<void> {
       break;
     case 'run':
       await run(cfg, Deno.args.slice(1)); // never returns
+      break;
+    case 'install-command':
+      await install(cfg, Deno.args.slice(1));
       break;
     default:
       if (sub !== undefined) {
@@ -152,6 +159,7 @@ async function run(cfg: Config, args: string[]): Promise<void> {
     keysDir: cfg.keys,
     commandsDir: cfg.commands,
     stateDir: cfg.state,
+    policyDir: cfg.policy,
     onActiveChange: (active) =>
       console.log(`active: ${JSON.stringify(active)}`),
     keepawake: cfg.keepawake,
@@ -194,6 +202,21 @@ async function run(cfg: Config, args: string[]): Promise<void> {
 
   // Park forever; the signal handlers drive shutdown.
   await new Promise<void>(() => {});
+}
+
+/**
+ * Enable one recipe. Recipes are never seeded — a seeded script is a capability every container
+ * gets on first start — so this is the deliberate step. No restart needed: dispatch reads
+ * `commands/` on every request.
+ */
+async function install(cfg: Config, args: string[]): Promise<void> {
+  if (args.length !== 1) {
+    console.error('usage: devc-bridge install-command <name>');
+    console.error(`recipes: ${(await listRecipes()).join(', ') || 'none'}`);
+    Deno.exit(2);
+  }
+  const path = await installCommand(cfg.commands, args[0]);
+  console.log(`installed ${path}`);
 }
 
 async function stop(cfg: Config): Promise<void> {

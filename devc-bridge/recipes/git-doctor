@@ -1,0 +1,236 @@
+#!/usr/bin/env bash
+# git-doctor — explain why git-push would or would not work, without changing anything.
+#   devc-bridge git-doctor [key]
+#
+# A recipe, installed with `devc-bridge install-command git-doctor`. On the host it reports every
+# policy (or just `key`); called through the bridge it reports the caller's own and refuses any
+# other, since one container has no business reading another's pin. The bridge marks a dispatched
+# call by setting DEVC_BRIDGE_KEY, empty for the shared legacy token.
+#
+# Like git-push, it never runs git inside a pinned repo: HEAD, refs and worktree pointers are read
+# as files. Only the host-owned mirror is asked anything.
+#
+# Exit codes: 0 nothing wrong found, 1 at least one finding, 2 bad usage.
+
+set -uo pipefail
+export LC_ALL=C
+# The daemon's cwd is wherever `devc-bridge start` ran — possibly inside a project. Every path below
+# is absolute, and no git here may discover a repo from the cwd.
+cd / || exit 1
+
+usage() {
+  echo "git-doctor: $*" >&2
+  echo "usage: git-doctor [key]" >&2
+  exit 2
+}
+[ $# -le 1 ] || usage "takes at most one argument"
+want=${1-}
+if [ -n "$want" ]; then
+  case $want in . | .. | *[!A-Za-z0-9._-]*) usage "invalid key ${want}" ;; esac
+fi
+
+policy_dir=${DEVC_BRIDGE_POLICY_DIR:-$HOME/.config/devc-bridge/policy}
+mirrors=$HOME/.local/state/devc-bridge/git
+problems=0
+finding() {
+  problems=$((problems + 1))
+  echo "  $*"
+}
+
+# ── shared with git-push: keep the two copies identical ───────────────────────────────────
+
+phys() { (cd -P -- "$1" 2>/dev/null && pwd -P); }
+
+# read_pointer FILE — the path after `gitdir: ` on FILE's first line, resolved against FILE's dir.
+read_pointer() {
+  local file=$1 first='' target
+  IFS= read -r first <"$file" || [ -n "$first" ] || return 1
+  target=${first#gitdir: }
+  [ "$target" != "$first" ] && [ -n "$target" ] || return 1
+  case $target in /*) ;; *) target=$(dirname -- "$file")/$target ;; esac
+  printf '%s\n' "$target"
+}
+
+# pointer_problem WORKTREE — print why WORKTREE/.git is not an honest linked-worktree pointer and
+# fail, or print its git dir and succeed. Honest means: `gitdir: <primary>/.git/worktrees/<name>`,
+# whose `gitdir` points back at WORKTREE/.git and whose `commondir` is `<primary>/.git`.
+pointer_problem() {
+  local wt=$1 gitdir back='' common here
+  gitdir=$(read_pointer "$wt/.git") || {
+    echo "$wt/.git is not a gitdir: pointer"
+    return 1
+  }
+  gitdir=$(phys "$gitdir") || {
+    echo "$wt/.git points at a git dir that does not exist"
+    return 1
+  }
+  case $gitdir in
+    */.git/worktrees/*) ;;
+    *)
+      echo "$wt/.git points at $gitdir, not a <repo>/.git/worktrees/<name> dir"
+      return 1
+      ;;
+  esac
+  IFS= read -r back <"$gitdir/gitdir" 2>/dev/null || [ -n "$back" ] || {
+    echo "$gitdir has no gitdir back-pointer"
+    return 1
+  }
+  case $back in /*) ;; *) back=$gitdir/$back ;; esac
+  here=$(phys "$wt")
+  [ "$(phys "$(dirname -- "$back")")/$(basename -- "$back")" = "$here/.git" ] || {
+    echo "$gitdir/gitdir does not point back at $wt/.git"
+    return 1
+  }
+  common=$(cat -- "$gitdir/commondir" 2>/dev/null) || {
+    echo "$gitdir has no commondir"
+    return 1
+  }
+  case $common in /*) ;; *) common=$gitdir/$common ;; esac
+  [ "$(phys "$common")" = "$(phys "$gitdir/../..")" ] || {
+    echo "$gitdir/commondir points outside its primary git dir"
+    return 1
+  }
+  printf '%s\n' "$gitdir"
+}
+
+# ── the report ────────────────────────────────────────────────────────────────────────────
+
+# The daemon inherits SSH_AUTH_SOCK from whatever shell started it; a bridge started detached from a
+# terminal can have no agent, and an SSH push then fails with nothing more to say than "denied".
+echo "ssh agent:"
+if [ -z "${SSH_AUTH_SOCK-}" ]; then
+  echo "  SSH_AUTH_SOCK is not set in the bridge's environment — SSH remotes will fail"
+  echo "  (restart the bridge from a shell that has an agent: devc-bridge restart)"
+  ssh_ok=no
+elif listing=$(ssh-add -l 2>&1); then
+  printf '%s\n' "$listing" | sed 's/^/  /'
+  ssh_ok=yes
+else
+  echo "  ssh-add -l: $listing"
+  ssh_ok=no
+fi
+
+if [ -n "${DEVC_BRIDGE_KEY+set}" ]; then
+  [ -n "$DEVC_BRIDGE_KEY" ] || {
+    echo "this caller uses the shared legacy token: no workspace key, so no push policy"
+    exit 1
+  }
+  [ -z "$want" ] || [ "$want" = "$DEVC_BRIDGE_KEY" ] ||
+    usage "through the bridge, only this container's own key can be inspected"
+  want=$DEVC_BRIDGE_KEY
+fi
+
+keys=()
+if [ -n "$want" ]; then
+  keys=("$want")
+else
+  for f in "$policy_dir"/*.conf; do
+    [ -e "$f" ] || continue
+    k=${f##*/}
+    keys+=("${k%.conf}")
+  done
+  [ ${#keys[@]} -gt 0 ] || {
+    echo "no policies in $policy_dir — no container can push"
+    exit 0
+  }
+fi
+
+for key in "${keys[@]}"; do
+  echo
+  echo "key $key:"
+  policy=$policy_dir/$key.conf
+  if [ ! -f "$policy" ]; then
+    echo "  policy    absent ($policy) — this container cannot push"
+    continue
+  fi
+  line=$(cat -- "$policy" && printf x)
+  line=${line%x}
+  line=${line%$'\n'}
+  tabs=${line//[!$'\t']/}
+  case $line in
+    *$'\n'* | *$'\r'*) tabs=bad ;;
+  esac
+  if [ ${#tabs} -ne 2 ] || [ "$tabs" = bad ]; then
+    finding "policy    MALFORMED ($policy) — grants nothing"
+    continue
+  fi
+  repo=${line%%$'\t'*}
+  rest=${line#*$'\t'}
+  remote=${rest%%$'\t'*}
+  branch=${rest#*$'\t'}
+  echo "  policy    $branch → $remote"
+  echo "  repo      $repo"
+
+  common=''
+  if [ -d "$repo/.git" ]; then
+    common=$(phys "$repo/.git")
+    if [ -e "$repo/.git/commondir" ]; then
+      finding "repo      REDIRECTED: a primary repo with a .git/commondir — git-push will refuse"
+      common=''
+    fi
+  elif [ -f "$repo/.git" ]; then
+    if gitdir=$(pointer_problem "$repo"); then
+      echo "  repo      linked worktree ($gitdir)"
+      common=$(phys "$gitdir/../..")
+    else
+      finding "worktree  REPOINTED: $gitdir — git-push will refuse"
+    fi
+  elif [ -e "$repo" ]; then
+    finding "repo      NOT A GIT REPO (no .git)"
+  else
+    finding "repo      MISSING"
+  fi
+
+  if [ -n "$common" ]; then
+    if [ -e "$common/reftable" ]; then
+      echo "  branch    unknown (reftable repo — cannot read refs as files)"
+    elif [ -f "$common/refs/heads/$branch" ] ||
+      grep -q " refs/heads/$branch\$" "$common/packed-refs" 2>/dev/null; then
+      echo "  branch    $branch present"
+    else
+      finding "branch    MISSING: $branch is not in $repo"
+    fi
+
+    # Every sibling worktree of the primary: a pointer rewritten from inside a container is the one
+    # thing that could make a later push read a repo it was never pinned to.
+    primary=$(dirname -- "$common")
+    for dotgit in "$primary.worktrees"/*/.git; do
+      [ -f "$dotgit" ] || continue
+      wt=${dotgit%/.git}
+      if reason=$(pointer_problem "$wt"); then
+        case $reason in
+          "$common"/worktrees/*) ;;
+          *) finding "worktree  REPOINTED: $wt/.git belongs to another repo ($reason)" ;;
+        esac
+      else
+        finding "worktree  REPOINTED: $reason"
+      fi
+    done
+  fi
+
+  mirror=$mirrors/$key.git
+  if [ -d "$mirror" ]; then
+    origin=$(git config --file "$mirror/config" --get remote.origin.url 2>/dev/null)
+    staged=$(git -c core.hooksPath=/dev/null --git-dir="$mirror" for-each-ref refs/staging 2>/dev/null |
+      wc -l | tr -d ' ')
+    if [ "$origin" = "$remote" ]; then
+      echo "  mirror    $mirror (origin matches; $staged staging ref(s))"
+    else
+      finding "mirror    MISMATCH: origin ${origin:-<none>} ≠ policy $remote — git-push will refuse"
+    fi
+  else
+    echo "  mirror    none yet (the first git-push creates it)"
+  fi
+
+  case $remote in
+    ssh://*) is_ssh=yes ;;
+    *://* | /*) is_ssh=no ;;
+    *:*) is_ssh=yes ;; # scp-like: git@github.com:owner/repo.git
+    *) is_ssh=no ;;
+  esac
+  if [ "$is_ssh" = yes ] && [ "$ssh_ok" != yes ]; then
+    finding "transport SSH remote, but no usable ssh agent (above)"
+  fi
+done
+
+exit $((problems > 0))
