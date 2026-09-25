@@ -16,10 +16,16 @@ async function withDir(fn: (dir: string) => Promise<void>): Promise<void> {
 const recipe = (name: string) =>
   Deno.readFile(new URL(`../../recipes/${name}`, import.meta.url));
 
-Deno.test('the git recipes exist', async () => {
+Deno.test('the git and PR review recipes exist', async () => {
   const names = await listRecipes();
-  assert(names.includes('git-push'), `recipes: ${names}`);
-  assert(names.includes('git-doctor'), `recipes: ${names}`);
+  const want = [
+    'git-push',
+    'git-doctor',
+    'pr-comments',
+    'pr-reply',
+    'pr-resolve',
+  ];
+  for (const name of want) assert(names.includes(name), `recipes: ${names}`);
 });
 
 Deno.test('a freshly seeded commands dir holds no recipe', async () => {

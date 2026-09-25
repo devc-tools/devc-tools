@@ -63,6 +63,9 @@ of the box:
 | `toggle on\|off`                 | Demo command that flips a state marker (exercises `status`/the tray without needing macOS)                                                                                                                                                            |
 | `git-push`                       | **Recipe — absent until installed.** Publish this container's one pinned branch to its pinned remote. Takes no arguments. See [Publishing a branch](#publishing-a-branch-git-push)                                                                    |
 | `git-doctor`                     | **Recipe — absent until installed.** Explain why `git-push` would or would not work: ssh agent, the pin, the mirror, worktree pointers. Changes nothing                                                                                               |
+| `pr-comments`                    | **Recipe — absent until installed.** The unresolved review threads on this container's PR, as JSON, plus Copilot's latest reviewed commit. Takes no arguments. See [Iterating on PR review](#iterating-on-pr-review-pr-)                              |
+| `pr-reply <thread> <body>`       | **Recipe — absent until installed.** Reply to any review thread on that PR, prefixed `🤖`                                                                                                                                                             |
+| `pr-resolve <thread>`            | **Recipe — absent until installed.** Resolve a review thread on that PR — only one Copilot started                                                                                                                                                    |
 | `version`                        | **Answered by the client itself**, never sent to the host (also `--version` / `-V`) — which client is actually mounted in here, answerable with the bridge down                                                                                       |
 
 **In normal use you never call `caffeinate` yourself** — `ping` drives it
@@ -663,6 +666,92 @@ of the repo's primary (`<primary>.worktrees/*/.git`) still points where it
 should, and the mirror's origin and staging-ref count. Exit 1 when it found
 anything. Run on the host it covers every policy, or just `key`; called through
 the bridge it covers **only the caller's own** and refuses any other key.
+
+## Iterating on PR review (`pr-*`)
+
+The same trade as `git-push`, for the other half of a review loop: the agent
+reads Copilot's review threads on its PR, replies, and resolves Copilot's —
+**with no GitHub credential in the container at all**, not even a read-only
+one. Each call runs `gh api` on the host with your credentials.
+
+### Enabling it
+
+Each verb is its own recipe, so you grant exactly the ones you want — replies
+without resolves is simply not installing `pr-resolve`:
+
+```sh
+devc-bridge install-command pr-comments
+devc-bridge install-command pr-reply
+devc-bridge install-command pr-resolve
+devc up --bridge-git-push                # the same pin git-push uses
+```
+
+The host needs `gh` on the bridge's `PATH`, authenticated (`gh auth login`, or
+`GH_TOKEN` in the environment `devc-bridge start` ran from).
+
+### Which PR
+
+**The pin names a source, and the PR is found from it.** The policy's remote is
+the PR's **head** repo — your fork, in a fork workflow — and its branch the head
+branch. The recipes ask GitHub for that repo and, if it is a fork, its parent,
+and look for open PRs in both whose head is exactly `<head repo>:<branch>`.
+Exactly one must match; none or several is exit 2. So:
+
+- a PR from a branch of the repo itself, or from your fork into its upstream,
+  is found;
+- another fork's PR from a branch of the same name is not — the head repo is
+  compared, not just the branch name;
+- a PR from your fork into anything but its direct parent (a grandparent, a
+  sibling fork) is not found;
+- the container never names the target: the parent is whatever GitHub says.
+
+A thread id the container passes is looked up and must belong to that PR (by
+node id — PR numbers repeat across repos), or it is exit 2.
+
+### The verbs
+
+| Verb                       | Does                                                                                                                                                                                                                                                                                                                                                                        |
+| -------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pr-comments`              | Prints one JSON object: `pr` (`repo`, `number`, `url`, `headSha`), `threads` (unresolved only: `id`, `path`, `line`, `isOutdated`, `copilot`, `comments[]` of `author`/`body`/`createdAt`/`url`), and `copilotReview` (`commit`, `state`, `submittedAt` of Copilot's latest submitted review — `null`s if none — and `pending`, true while Copilot is a requested reviewer) |
+| `pr-reply <thread> <body>` | Replies to **any** thread on the PR — a human reviewer's too, resolved or not. Posted under your identity with the fixed prefix `🤖`. The body must be non-empty, at most **4000 bytes**, with no control characters other than newline and tab; anything else is exit 3 with a message saying what to change, and nothing is sent                                          |
+| `pr-resolve <thread>`      | Resolves a thread **only if Copilot started it** (its first comment's author is the `copilot-pull-request-reviewer` bot). A human reviewer's thread is exit 3 — resolving hides feedback, which is the one thing a misbehaving agent would want. Already resolved is exit 0                                                                                                 |
+
+**There is no re-review verb.** A push already triggers Copilot's review when
+the repo's auto-review ruleset has _review new pushes_ on. `copilotReview` is how
+the agent tells that review has landed: after `git-push`, wait until `pending`
+is `false` and `commit` equals `pr.headSha`. On a repo without that ruleset the
+commit never catches up, and the agent should stop rather than ask.
+
+| Exit | Meaning                                                                                                                                     |
+| ---- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| `0`  | done, or already resolved                                                                                                                   |
+| `2`  | no policy, the shared token, wrong arguments, an unsupported (non-github.com) remote, no single open PR for the pin, a thread not on it     |
+| `3`  | refused, and the agent can adjust: a reply body that is empty, too long or has control characters; resolving a thread Copilot did not start |
+| `4`  | GitHub or transport failure, `gh` missing or not authenticated, or the timeout (`DEVC_BRIDGE_GH_TIMEOUT`, seconds, default `60`)            |
+
+### How `gh` is driven
+
+The container's repo is never read or run in — everything comes from the
+policy and from GitHub. `gh` runs from `/`, only as `gh api` with the repo in
+the path or as GraphQL variables, so it never infers a repo from a git config
+the agent controls (`gh pr …` would). Container-supplied values — the branch
+from the pin, a thread id, a reply body — reach GitHub only as `-f` GraphQL
+variables: never interpolated into a query, and never `-F`, which reads a file
+for a value starting with `@`. Each call runs under the same process-group
+timeout as `git-push`.
+
+### Limits, stated plainly
+
+- **`pr-comments` output is untrusted.** Every body in it was written by someone
+  who could comment on the PR. An agent should treat it as data to act on, not
+  instructions.
+- **Replies are you.** They post under your GitHub identity; the prefix is the
+  only marker, and the 4000-byte cap the only volume limit.
+- **Thread comments are capped at 100 per thread**; beyond that a thread is
+  truncated, not refused. Top-level PR comments and review summary bodies are
+  not included — threads only.
+- **`copilotReview` looks at the last 100 reviews.** A PR with more reviews than
+  that since Copilot's last reports `null`s.
 
 ## Writing a command
 

@@ -150,6 +150,10 @@ jobs:
       - name: devc-bridge git recipes — offline harness
         run: bash devc-bridge/tests/git_push_test.sh
 
+      # The pr-* recipes: a gh shim stands in for GitHub (the harness needs jq; the runner has it).
+      - name: devc-bridge PR review recipes — offline harness
+        run: bash devc-bridge/tests/pr_review_test.sh
+
       - name: devc-bridge client — check
         working-directory: devc-bridge/client
         run: deno task check

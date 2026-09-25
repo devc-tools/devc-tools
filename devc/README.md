@@ -999,6 +999,11 @@ mounted.
 > [bridge README](../devc-bridge/README.md#publishing-a-branch-git-push). Only
 > the **primary workspace repo** is ever pinned: a `devc:source` mount you added
 > for convenience is not a grant.
+>
+> The same pin scopes the PR review recipes — `pr-comments`, `pr-reply`,
+> `pr-resolve` — to the one open PR whose head is that branch; install each with
+> `devc-bridge install-command`. See the
+> [bridge README](../devc-bridge/README.md#iterating-on-pr-review-pr-).
 
 | Command                                              | With `--bridge-git-push` | Without it                                         |
 | ---------------------------------------------------- | ------------------------ | -------------------------------------------------- |

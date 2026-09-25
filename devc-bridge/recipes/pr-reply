@@ -1,0 +1,252 @@
+#!/usr/bin/env bash
+# pr-reply — reply to one review thread on this container's one PR.
+#   devc-bridge pr-reply <thread-id> <body>
+#
+# A recipe, not a seeded command: it exists on a host only after
+# `devc-bridge install-command pr-reply`. Removing the capability is `rm` of that copy.
+#
+# Any thread on the PR — a human reviewer's too, resolved or not. The PR is the one open PR whose
+# head is the policy's remote + branch (see pr-comments). The reply is posted under the host user's
+# GitHub identity with a fixed `🤖 ` prefix, so readers can tell it came from an agent.
+#
+# Exit codes: 0 replied, 2 no/malformed policy, wrong arguments, an unsupported remote, no single
+# open PR, or a thread not on it, 3 a body the agent should fix and retry (empty, over 4000 bytes,
+# control characters), 4 GitHub/transport failure, gh not authenticated, or timeout.
+
+# SC2016: GraphQL variables are $-prefixed and must not expand. SC2034: the shared prelude sets
+# some variables only another recipe reads.
+# shellcheck disable=SC2016,SC2034
+me=pr-reply
+# ── BEGIN pr-prelude ──
+# Shared by pr-comments, pr-reply and pr-resolve: keep the three copies byte-identical (the harness
+# checks). Recipes are installed one file at a time, so there is no library to source.
+#
+# The container's repo is never touched — not read, not run in. Everything comes from the policy
+# (which remote, which branch) and from GitHub. `gh` runs from `/`, only as `gh api`, with the repo
+# spelled out, so it never infers a repo from a git config the agent controls; container-supplied
+# values reach GitHub only as `-f` GraphQL variables (raw strings — `-F` would read `@file`).
+
+set -uo pipefail
+export LC_ALL=C
+cd / || exit 4
+
+die() {
+  local code=$1
+  shift
+  echo "$me: $*" >&2
+  exit "$code"
+}
+
+# The bot's login as GraphQL reports it (REST adds `[bot]`), and a jq test for "this author object
+# is Copilot". A constant, never container data, so interpolating it into a filter is safe.
+COPILOT_LOGIN=copilot-pull-request-reviewer
+IS_COPILOT="(. != null and .__typename == \"Bot\" and .login == \"$COPILOT_LOGIN\")"
+
+# ── the caller and its policy (byte-for-byte git-push's parse) ────────────────────────────
+
+load_policy() {
+  local key policy_dir policy line tabs rest field
+  key=${DEVC_BRIDGE_KEY-}
+  [ -n "$key" ] || die 2 "this caller has no workspace key (the shared token has no pinned PR)"
+  case $key in
+    . | .. | *[!A-Za-z0-9._-]*) die 2 "invalid workspace key" ;;
+  esac
+  policy_dir=${DEVC_BRIDGE_POLICY_DIR:-$HOME/.config/devc-bridge/policy}
+  policy=$policy_dir/$key.conf
+  [ -f "$policy" ] ||
+    die 2 "no policy for this container — start it with: devc up --bridge-git-push"
+  line=$(cat -- "$policy" && printf x) || die 2 "malformed policy $policy: unreadable"
+  line=${line%x}
+  line=${line%$'\n'}
+  case $line in *$'\n'* | *$'\r'*) die 2 "malformed policy $policy: more than one line" ;; esac
+  tabs=${line//[!$'\t']/}
+  [ ${#tabs} -eq 2 ] || die 2 "malformed policy $policy: want exactly three tab-separated fields"
+  rest=${line#*$'\t'}
+  remote=${rest%%$'\t'*}
+  branch=${rest#*$'\t'}
+  for field in "${line%%$'\t'*}" "$remote" "$branch"; do
+    [ -n "$field" ] || die 2 "malformed policy $policy: empty field"
+    case $field in *[[:cntrl:]]*) die 2 "malformed policy $policy: control character in a field" ;; esac
+  done
+  case ${line%%$'\t'*} in /*) ;; *) die 2 "malformed policy $policy: repo is not an absolute path" ;; esac
+  git check-ref-format "refs/heads/$branch" ||
+    die 2 "malformed policy $policy: branch is not a valid ref name"
+  parse_remote "$remote" || die 2 "unsupported remote $remote — only github.com"
+}
+
+# parse_remote URL — sets head_owner/head_name. Three shapes, github.com or a `github.com-*` ssh
+# host alias; anything else fails.
+parse_remote() {
+  local rest host path
+  case $1 in
+    git@*:*) rest=${1#git@} host=${rest%%:*} path=${rest#*:} ;;
+    ssh://git@*/*) rest=${1#ssh://git@} host=${rest%%/*} path=${rest#*/} ;;
+    https://*/*) rest=${1#https://} host=${rest%%/*} path=${rest#*/} ;;
+    *) return 1 ;;
+  esac
+  case $host in github.com | github.com-*) ;; *) return 1 ;; esac
+  case $host in *[!A-Za-z0-9.-]*) return 1 ;; esac
+  path=${path%.git}
+  head_owner=${path%%/*}
+  head_name=${path#*/}
+  valid_name "$head_owner" && valid_name "$head_name"
+}
+
+valid_name() { # an owner or repo name: also keeps `..` out of an API path
+  case $1 in '' | . | .. | *[!A-Za-z0-9._-]*) return 1 ;; esac
+}
+valid_repo() { valid_name "${1%%/*}" && valid_name "${1#*/}" && [ "${1#*/}" != "$1" ]; }
+
+# ── gh, hang-proofed ──────────────────────────────────────────────────────────────────────
+
+unset GH_REPO GH_ENTERPRISE_TOKEN GITHUB_ENTERPRISE_TOKEN GH_DEBUG GH_PAGER GH_CONFIG_DIR_OVERRIDE
+export GH_HOST=github.com GH_PROMPT_DISABLED=1 GH_NO_UPDATE_NOTIFIER=1 NO_COLOR=1
+
+timeout_s=${DEVC_BRIDGE_GH_TIMEOUT:-60}
+case $timeout_s in '' | *[!0-9]*) timeout_s=60 ;; esac
+
+tmp=$(mktemp -d "${TMPDIR:-/tmp}/devc-bridge-$me.XXXXXX") || die 4 "cannot create a temp dir"
+trap 'rm -rf "$tmp"' EXIT
+
+# run_t CMD… — CMD with stdin closed, its whole process group killed after $timeout_s. macOS ships
+# no timeout(1); the group matters because a child holding the bridge's stdout would keep the
+# client waiting for EOF (git-push's hang-proofing, verbatim).
+run_t() {
+  rm -f "$tmp/timedout"
+  set -m
+  "$@" </dev/null &
+  local pid=$!
+  (
+    sleep "$timeout_s"
+    : >"$tmp/timedout"
+    kill -s TERM -- "-$pid"
+    sleep 5
+    kill -s KILL -- "-$pid"
+  ) </dev/null >/dev/null 2>&1 &
+  local watcher=$!
+  set +m
+  local rc=0
+  wait "$pid" 2>/dev/null || rc=$?
+  kill -s TERM -- "-$watcher" 2>/dev/null
+  wait "$watcher" 2>/dev/null
+  return "$rc"
+}
+
+# gh_try STEP ARGS… — gh ARGS, stdout to $tmp/out, stderr to $tmp/err; returns gh's status. A
+# timeout is always exit 4.
+gh_try() {
+  local step=$1
+  shift
+  run_t gh "$@" >"$tmp/out" 2>"$tmp/err" && return 0
+  local rc=$?
+  [ -e "$tmp/timedout" ] && die 4 "$step: timed out after ${timeout_s}s"
+  return "$rc"
+}
+
+# gh_run STEP ARGS… — gh_try, and any failure is exit 4 with gh's stderr relayed.
+gh_run() {
+  gh_try "$@" && return 0
+  gh_fail "$1"
+}
+gh_fail() {
+  sed "s/^/$me: gh: /" "$tmp/err" >&2
+  die 4 "$1 failed"
+}
+
+gh_ready() {
+  command -v gh >/dev/null 2>&1 || die 4 "gh is not installed on the host (not on the bridge's PATH)"
+  gh_try "checking gh auth" auth status --hostname github.com ||
+    die 4 "gh is not authenticated in the bridge's environment — run gh auth login on the host, then devc-bridge restart"
+}
+
+# ── the PR: found from its head, which is what the pin authorises ─────────────────────────
+
+# resolve_pr — sets pr_id pr_number pr_url pr_head_sha pr_repo pr_owner pr_name, or exits 2 unless
+# exactly one open PR has head <pinned repo>:<pinned branch>. Base candidates are the head repo and,
+# if it is a fork, its parent — both as GitHub reports them, so the container cannot widen the set.
+resolve_pr() {
+  local head_full parent_full base q
+  gh_run "reading $head_owner/$head_name" api "repos/$head_owner/$head_name" \
+    --jq '[.full_name, (.parent.full_name // "")] | @tsv'
+  IFS=$'\t' read -r head_full parent_full <"$tmp/out"
+  valid_repo "$head_full" || die 4 "unexpected response for $head_owner/$head_name"
+  [ -z "$parent_full" ] || valid_repo "$parent_full" ||
+    die 4 "unexpected parent for $head_full"
+
+  q='query($owner:String!,$name:String!,$branch:String!){repository(owner:$owner,name:$name){
+    pullRequests(headRefName:$branch,states:OPEN,first:20){nodes{id number url headRefOid
+    headRepository{nameWithOwner} baseRepository{nameWithOwner}}}}}'
+  : >"$tmp/prs"
+  for base in "$head_full" ${parent_full:+"$parent_full"}; do
+    gh_run "listing PRs in $base" api graphql -f query="$q" -f owner="${base%%/*}" \
+      -f name="${base#*/}" -f branch="$branch" \
+      --jq '.data.repository.pullRequests.nodes[] | [(.headRepository.nameWithOwner // ""), .id,
+        (.number | tostring), .url, .headRefOid, .baseRepository.nameWithOwner] | @tsv'
+    cat "$tmp/out" >>"$tmp/prs"
+  done
+  # headRefName alone matches any fork's branch of that name: the head repo is the restriction.
+  awk -F'\t' -v h="$head_full" 'tolower($1) == tolower(h)' "$tmp/prs" >"$tmp/match"
+
+  local n
+  n=$(wc -l <"$tmp/match" | tr -d ' ')
+  [ "$n" -gt 0 ] || die 2 "no open PR with head $head_full:$branch"
+  [ "$n" -eq 1 ] ||
+    die 2 "more than one open PR with head $head_full:$branch: $(cut -f4 "$tmp/match" | tr '\n' ' ')"
+  IFS=$'\t' read -r _ pr_id pr_number pr_url pr_head_sha pr_repo <"$tmp/match"
+  case $pr_id in '' | *[!A-Za-z0-9_=-]*) die 4 "unexpected PR id" ;; esac
+  case $pr_number in '' | *[!0-9]*) die 4 "unexpected PR number" ;; esac
+  case $pr_url in https://github.com/*) ;; *) die 4 "unexpected PR url" ;; esac
+  case ${pr_url#https://github.com/} in *[!A-Za-z0-9._/-]*) die 4 "unexpected PR url" ;; esac
+  [[ $pr_head_sha =~ ^[0-9a-f]{40}$ ]] || die 4 "unexpected PR head sha"
+  valid_repo "$pr_repo" || die 4 "unexpected PR base repo"
+  pr_owner=${pr_repo%%/*}
+  pr_name=${pr_repo#*/}
+}
+
+# ── a review thread, checked against that PR ──────────────────────────────────────────────
+
+valid_thread_id() { [[ $1 =~ ^PRRT_[A-Za-z0-9_-]+$ ]]; }
+
+# load_thread ID — sets thread_resolved/thread_copilot (true|false), or exits 2 unless ID is a
+# review thread on the resolved PR. Node ids are compared, not numbers, which repeat across repos.
+load_thread() {
+  local q typename prid
+  q='query($id:ID!){node(id:$id){__typename ... on PullRequestReviewThread{isResolved
+    pullRequest{id} comments(first:1){nodes{author{__typename login}}}}}}'
+  if ! gh_try "reading thread $1" api graphql -f query="$q" -f id="$1" \
+    --jq "[(.data.node.__typename // \"\"), (.data.node.pullRequest.id // \"\"),
+      (.data.node.isResolved | tostring), (.data.node.comments.nodes[0].author | $IS_COPILOT |
+      tostring)] | @tsv"; then
+    grep -q 'Could not resolve to a node' "$tmp/err" && die 2 "thread $1 does not exist"
+    gh_fail "reading thread $1"
+  fi
+  IFS=$'\t' read -r typename prid thread_resolved thread_copilot <"$tmp/out"
+  [ "$typename" = PullRequestReviewThread ] || die 2 "$1 is not a review thread"
+  [ "$prid" = "$pr_id" ] || die 2 "thread $1 is not on $pr_url"
+}
+# ── END pr-prelude ──
+
+MAX_BODY=4000
+PREFIX=$'\xf0\x9f\xa4\x96 ' # U+1F916 ROBOT FACE, then a space
+
+[ $# -eq 2 ] || die 2 "usage: pr-reply <thread-id> <body>"
+thread=$1
+body=$2
+valid_thread_id "$thread" || die 2 "not a review thread id (want PRRT_…): $thread"
+load_policy
+
+# Checked before anything touches the network, so a retry costs nothing. LC_ALL=C: ${#} is bytes.
+[ -n "${body//[[:space:]]/}" ] || die 3 "body is empty"
+[ ${#body} -le $MAX_BODY ] ||
+  die 3 "body is ${#body} bytes; the limit is $MAX_BODY — shorten it and retry"
+case ${body//[$'\n\t']/} in *[[:cntrl:]]*) die 3 "body contains control characters" ;; esac
+
+gh_ready
+resolve_pr
+load_thread "$thread"
+
+q='mutation($id:ID!,$body:String!){addPullRequestReviewThreadReply(input:{
+  pullRequestReviewThreadId:$id,body:$body}){comment{url}}}'
+gh_run "replying to $thread" api graphql -f query="$q" -f id="$thread" -f body="$PREFIX$body" \
+  --jq '.data.addPullRequestReviewThreadReply.comment.url'
+echo "replied: $(cat "$tmp/out")"
