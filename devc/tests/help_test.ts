@@ -49,6 +49,12 @@ Deno.test("helpRequested respects exec's `--` boundary", () => {
   assert(!helpRequested('exec', ['.']));
 });
 
+Deno.test('helpRequested respects the `--` boundary for forwarding commands', () => {
+  assert(helpRequested('herdr', ['--help']));
+  assert(!helpRequested('herdr', ['--', '--help']));
+  assert(!helpRequested('claude', ['.', '--', '-h']));
+});
+
 Deno.test('build is listed and documents its own options', () => {
   assertStringIncludes(
     topLevelHelp(),

@@ -118,6 +118,8 @@ export interface AttachOptions {
    * first-prompt clear a plain attach does) unless `noClear`.
    */
   command?: string;
+  /** Arguments passed to `command` verbatim — never re-parsed by the shell. */
+  commandArgs?: string[];
   /**
    * Herdr sidecar integration (see `herdr.ts`) — absent when disabled. Computed by the caller
    * from `HERDR_ENV`/`HERDR_AGENT`/`DEVC_HERDR_AGENT` (`herdrMode`), so this module never reads
@@ -227,6 +229,7 @@ export async function attachToContainer(
     sessionName = sessionNameForWorkspaceFolder(info.remoteWorkspaceFolder),
     noClear = false,
     command,
+    commandArgs = [],
     herdr,
     cwd,
   } = options;
@@ -254,13 +257,15 @@ export async function attachToContainer(
   // interactive login shell (plain `devc attach`). With `command`, a login
   // shell that runs the command and exits when it does (e.g. `devc claude`).
   // `clear` wipes login-init clutter before the command runs, mirroring the
-  // first-prompt clear a plain attach does via DEVC_ATTACH.
+  // first-prompt clear a plain attach does via DEVC_ATTACH. The command and its args ride
+  // along as `$0`/`$@` rather than being spliced into the script, so they reach the command
+  // exactly as given with no quoting to get wrong.
   const loginShell = (clear: boolean): string[] => {
     if (!command) return ['/bin/bash', '-l'];
     const inner = clear
-      ? `clear; printf '\\033[3J'; exec ${command}`
-      : `exec ${command}`;
-    return ['/bin/bash', '-lc', inner];
+      ? `clear; printf '\\033[3J'; exec "$0" "$@"`
+      : `exec "$0" "$@"`;
+    return ['/bin/bash', '-lc', inner, command, ...commandArgs];
   };
 
   const shellArgs = loginShell(!noClear);

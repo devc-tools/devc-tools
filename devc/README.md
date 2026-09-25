@@ -34,10 +34,10 @@ devc config  [PATH]                                   Configure the project's so
 devc up      [PATH] [--json] [--bridge-git-push]      Create/start the container; print its status
 devc build   [PATH] [--no-cache] [--json] [--bridge-git-push] Recreate the container from scratch
 devc attach  [PATH] [--build] [--no-clear] [--cwd DIR] Start (creating if needed) and attach a login shell
-devc claude  [PATH] [--cwd DIR] [EXTRA_ARGS...]       Start and run `claude` (+ forwarded args) in a login shell
-devc copilot [PATH] [--cwd DIR] [EXTRA_ARGS...]       Start and run `copilot` (+ forwarded args) in a login shell
-devc pi      [PATH] [--cwd DIR] [EXTRA_ARGS...]       Start and run `pi` (+ forwarded args) in a login shell
-devc herdr   [PATH] [--cwd DIR] [EXTRA_ARGS...]       Start and run `herdr` (+ forwarded args) in a login shell
+devc claude  [PATH] [--cwd DIR] [-- ARGS...]          Start and run `claude` (+ forwarded args) in a login shell
+devc copilot [PATH] [--cwd DIR] [-- ARGS...]          Start and run `copilot` (+ forwarded args) in a login shell
+devc pi      [PATH] [--cwd DIR] [-- ARGS...]          Start and run `pi` (+ forwarded args) in a login shell
+devc herdr   [PATH] [--cwd DIR] [-- ARGS...]          Start and run `herdr` (+ forwarded args) in a login shell
 devc exec    [PATH] [--cwd DIR] [--env K=V]... -- CMD Start and run CMD directly (no shell)
 devc mounts  [PATH] [--json]                          List the container's mounts
 devc stop    [PATH]                                   Stop the container
@@ -77,6 +77,20 @@ Notes:
   `attach`/`claude`/`copilot`/`pi`/`herdr` exit with the attached shell/command's own
   exit code (e.g. 130 on a signal-driven detach); `devc`/`docker` infra
   failures exit 125.
+- `claude`/`copilot`/`pi`/`herdr` forward everything after `--` to the command
+  verbatim (passed as argv, never re-parsed by a shell): `devc claude -- --resume`,
+  `devc herdr . -- session list`. Before `--`, only devc's own flags
+  (`--build`, `--no-clear`, `--cwd`) and one PATH are accepted — anything else
+  is an error rather than a guess, so a flag both devc and the command define
+  always goes to devc before `--` and to the command after it. `--help` before
+  `--` is devc's; `devc herdr -- --help` is herdr's. `attach` launches nothing,
+  so it refuses args after `--`.
+- `herdr` runs in a named session, `devc`, rather than Herdr's default one:
+  `devc herdr` is `herdr --session devc`. A named session can be deleted
+  outright (`herdr session stop devc && herdr session delete devc`) to recreate
+  it from scratch; the default session cannot. Pass `--session NAME` to pick
+  another one (`devc herdr -- --session NAME`); `--remote` or a subcommand
+  (`devc herdr -- session list`) also suppress the default.
 - `--cwd DIR` on `attach`/`claude`/`copilot`/`pi`/`herdr` starts in `DIR` instead of the
   container's workspace folder — how you attach into a git worktree under a
   `.worktrees` mount. It takes either a **container** path or a **host** one: a

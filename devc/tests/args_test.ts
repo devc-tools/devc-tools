@@ -1,5 +1,11 @@
-import { assertEquals } from 'jsr:@std/assert@^1';
-import { parseAttachArgs, parseBuildArgs, parseUpArgs } from '../args.ts';
+import { assertEquals, assertThrows } from 'jsr:@std/assert@^1';
+import {
+  DEVC_HERDR_SESSION,
+  herdrLaunchArgs,
+  parseAttachArgs,
+  parseBuildArgs,
+  parseUpArgs,
+} from '../args.ts';
 
 Deno.test('parseAttachArgs leaves target undefined when no path is given', () => {
   assertEquals(parseAttachArgs([]), {
@@ -46,6 +52,80 @@ Deno.test('parseAttachArgs parses --no-clear flag', () => {
     rebuild: true,
     noClear: true,
   });
+});
+
+Deno.test('parseAttachArgs rejects anything devc does not own before --', () => {
+  // `--session foo` once attached to a project named `foo`; now it is refused outright.
+  for (
+    const args of [
+      ['--session', 'foo'],
+      ['/p', '--resume'],
+      ['-c'],
+      ['/p', 'session', 'list'],
+      ['--build', '--bulid'],
+    ]
+  ) {
+    assertThrows(() => parseAttachArgs(args), Error, 'unexpected argument');
+  }
+});
+
+Deno.test('parseAttachArgs forwards everything after --, verbatim', () => {
+  assertEquals(parseAttachArgs(['--', '--session', 'foo']), {
+    target: undefined,
+    rebuild: false,
+    noClear: false,
+    extraArgs: ['--session', 'foo'],
+  });
+  // devc's own flags after `--` belong to the command — no order-dependent overlap.
+  assertEquals(
+    parseAttachArgs([
+      '/p',
+      '--build',
+      '--cwd',
+      '/c',
+      '--',
+      '--build',
+      '--cwd=x',
+    ]),
+    {
+      target: '/p',
+      rebuild: true,
+      noClear: false,
+      cwd: '/c',
+      extraArgs: ['--build', '--cwd=x'],
+    },
+  );
+  // A bare `--` with nothing after it forwards nothing.
+  assertEquals(parseAttachArgs(['/p', '--']), {
+    target: '/p',
+    rebuild: false,
+    noClear: false,
+  });
+});
+
+Deno.test('herdrLaunchArgs defaults to the devc session', () => {
+  assertEquals(DEVC_HERDR_SESSION, 'devc');
+  assertEquals(herdrLaunchArgs([]), ['--session', 'devc']);
+  assertEquals(herdrLaunchArgs(['--handoff']), [
+    '--session',
+    'devc',
+    '--handoff',
+  ]);
+});
+
+Deno.test('herdrLaunchArgs leaves an explicit target or subcommand alone', () => {
+  for (
+    const args of [
+      ['--session', 'mine'],
+      ['--session=mine'],
+      ['--remote', 'host'],
+      ['--remote=host'],
+      ['session', 'list'],
+      ['--machine', 'box', 'pane', 'list'],
+    ]
+  ) {
+    assertEquals(herdrLaunchArgs(args), args);
+  }
 });
 
 Deno.test('parseBuildArgs defaults to cwd with no flags', () => {
@@ -180,8 +260,12 @@ Deno.test('parseAttachArgs: --cwd with no value neither throws nor eats a flag',
   });
 });
 
-Deno.test('parseAttachArgs keeps the first positional as the target', () => {
-  assertEquals(parseAttachArgs(['/first', '/second']).target, '/first');
+Deno.test('parseAttachArgs refuses a second positional rather than ignoring it', () => {
+  assertThrows(
+    () => parseAttachArgs(['/first', '/second']),
+    Error,
+    "unexpected argument '/second'",
+  );
 });
 
 Deno.test('parseAttachArgs: --cwd alongside every other flag', () => {

@@ -118,11 +118,12 @@ export const COMMAND_HELP: Record<string, string> = {
   ].join('\n'),
 
   claude: [
-    'Usage: devc claude [PATH] [EXTRA_ARGS...]',
+    'Usage: devc claude [PATH] [OPTIONS] [-- EXTRA_ARGS...]',
     '',
     'Arguments:',
     '  [PATH]         Path to the project (default: current directory)',
     '  [EXTRA_ARGS]   Additional arguments forwarded to Claude',
+    '                 (everything after --)',
     '',
     'Options:',
     '      --cwd <PATH>  Start in PATH instead of the workspace folder — a',
@@ -132,11 +133,12 @@ export const COMMAND_HELP: Record<string, string> = {
   ].join('\n'),
 
   copilot: [
-    'Usage: devc copilot [PATH] [EXTRA_ARGS...]',
+    'Usage: devc copilot [PATH] [OPTIONS] [-- EXTRA_ARGS...]',
     '',
     'Arguments:',
     '  [PATH]         Path to the project (default: current directory)',
     '  [EXTRA_ARGS]   Additional arguments forwarded to Copilot',
+    '                 (everything after --)',
     '',
     'Options:',
     '      --cwd <PATH>  Start in PATH instead of the workspace folder — a',
@@ -146,11 +148,12 @@ export const COMMAND_HELP: Record<string, string> = {
   ].join('\n'),
 
   pi: [
-    'Usage: devc pi [PATH] [EXTRA_ARGS...]',
+    'Usage: devc pi [PATH] [OPTIONS] [-- EXTRA_ARGS...]',
     '',
     'Arguments:',
     '  [PATH]         Path to the project (default: current directory)',
     '  [EXTRA_ARGS]   Additional arguments forwarded to pi',
+    '                 (everything after --)',
     '',
     'Options:',
     '      --cwd <PATH>  Start in PATH instead of the workspace folder — a',
@@ -160,11 +163,15 @@ export const COMMAND_HELP: Record<string, string> = {
   ].join('\n'),
 
   herdr: [
-    'Usage: devc herdr [PATH] [EXTRA_ARGS...]',
+    'Usage: devc herdr [PATH] [OPTIONS] [-- EXTRA_ARGS...]',
     '',
     'Arguments:',
     '  [PATH]         Path to the project (default: current directory)',
     '  [EXTRA_ARGS]   Additional arguments forwarded to herdr',
+    '                 (everything after --)',
+    '                 Without --session, --remote or a subcommand, herdr',
+    '                 runs as `herdr --session devc` (deletable, unlike the',
+    '                 default session)',
     '',
     'Options:',
     '      --cwd <PATH>  Start in PATH instead of the workspace folder — a',
@@ -284,14 +291,12 @@ export const COMMAND_HELP: Record<string, string> = {
 /**
  * Whether a command invocation is asking for help (`-h` / `--help`).
  *
- * For `exec`, everything after the first `--` is the user's command, so a `--help` there belongs
- * to that command and must NOT trigger devc's help — only tokens before the `--` are scanned.
+ * Everything after the first `--` belongs to the launched command (`exec`'s CMD, or what
+ * `claude`/`copilot`/`pi`/`herdr` forward), so a `--help` there must NOT trigger devc's help —
+ * only tokens before the `--` are scanned. `devc herdr -- --help` is herdr's help.
  */
-export function helpRequested(cmd: string, cmdArgs: string[]): boolean {
-  let scan = cmdArgs;
-  if (cmd === 'exec') {
-    const sep = cmdArgs.indexOf('--');
-    scan = sep === -1 ? cmdArgs : cmdArgs.slice(0, sep);
-  }
+export function helpRequested(_cmd: string, cmdArgs: string[]): boolean {
+  const sep = cmdArgs.indexOf('--');
+  const scan = sep === -1 ? cmdArgs : cmdArgs.slice(0, sep);
   return scan.some((a) => a === '-h' || a === '--help');
 }

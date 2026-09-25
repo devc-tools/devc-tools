@@ -9,7 +9,16 @@ export interface AttachArgs {
    * that `main.ts` translates through the container's mount table. Absent when not given.
    */
   cwd?: string;
+  /**
+   * Everything after `--`, forwarded verbatim to the launched command (`devc claude`/`copilot`/
+   * `pi`/`herdr`). Absent when there are none. `devc attach` launches no command, so it
+   * rejects them.
+   */
+  extraArgs?: string[];
 }
+
+/** The flags `parseAttachArgs` accepts before `--`; any other flag there is an error. */
+const ATTACH_OWN_FLAGS = new Set(['--build', '--no-clear', '--cwd']);
 
 /**
  * Parses `devc attach` / `devc claude` / `devc copilot` / `devc pi` / `devc herdr` arguments.
@@ -19,15 +28,38 @@ export interface AttachArgs {
  * a space-separated `--cwd /some/path` would otherwise make `/some/path` look like the
  * positional target and silently attach to the wrong project. Both spellings are accepted —
  * `--cwd <path>` and `--cwd=<path>` — because users will try both.
+ *
+ * **Forwarded args.** Only what follows `--` is forwarded, verbatim:
+ * `devc herdr -- --session foo`. Before `--`, only devc's own flags and one PATH are accepted;
+ * anything else throws. Strict on purpose: forwarding from the first unknown flag would make
+ * a flag the wrapped CLI shares with devc (`--cwd`, say) go to one program or the other
+ * depending on where it was written, silently. It also stops `devc herdr --session foo` from
+ * attaching to a project named `foo`, as it once did.
  */
 export function parseAttachArgs(args: string[]): AttachArgs {
-  const rebuild = args.includes('--build');
-  const noClear = args.includes('--no-clear');
-
+  let rebuild = false;
+  let noClear = false;
   let target: string | undefined;
   let cwd: string | undefined;
+  let extraArgs: string[] = [];
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
+    if (arg === '--') {
+      extraArgs = args.slice(i + 1);
+      break;
+    }
+    const ownFlag = ATTACH_OWN_FLAGS.has(arg) || arg.startsWith('--cwd=');
+    if (arg.startsWith('-') ? !ownFlag : target !== undefined) {
+      throw new Error(`unexpected argument '${arg}'`);
+    }
+    if (arg === '--build') {
+      rebuild = true;
+      continue;
+    }
+    if (arg === '--no-clear') {
+      noClear = true;
+      continue;
+    }
     if (arg === '--cwd') {
       const value = args[i + 1];
       // A trailing `--cwd` with no value, or one followed by another flag, leaves `cwd`
@@ -43,15 +75,40 @@ export function parseAttachArgs(args: string[]): AttachArgs {
       if (value !== '') cwd = value;
       continue;
     }
-    if (arg.startsWith('--')) continue;
-    target ??= arg;
+    target = arg;
   }
 
-  // The key is omitted rather than set to `undefined` when `--cwd` was not given, so the
-  // result stays structurally identical to what this parser has always returned.
-  return cwd === undefined
-    ? { target, rebuild, noClear }
-    : { target, rebuild, noClear, cwd };
+  // Optional keys are omitted rather than set to `undefined` when not given, so the result
+  // stays structurally identical to what this parser has always returned.
+  const result: AttachArgs = { target, rebuild, noClear };
+  if (cwd !== undefined) result.cwd = cwd;
+  if (extraArgs.length > 0) result.extraArgs = extraArgs;
+  return result;
+}
+
+/**
+ * The Herdr session `devc herdr` uses unless told otherwise. A named session rather than
+ * Herdr's default one because only a named session can be deleted outright
+ * (`herdr session stop devc && herdr session delete devc`), which is how you recreate one
+ * from scratch; the default session cannot be deleted.
+ */
+export const DEVC_HERDR_SESSION = 'devc';
+
+/**
+ * The args `devc herdr` launches `herdr` with: the user's forwarded args, prefixed with
+ * `--session devc` unless they already chose where to go — `--session`/`--remote` — or ran a
+ * subcommand (any positional, e.g. `session list`, `pane …`), which the prefix could redirect
+ * or break.
+ */
+export function herdrLaunchArgs(extraArgs: string[]): string[] {
+  const choosesTarget = extraArgs.some((a) =>
+    !a.startsWith('-') ||
+    a === '--session' || a.startsWith('--session=') ||
+    a === '--remote' || a.startsWith('--remote=')
+  );
+  return choosesTarget
+    ? extraArgs
+    : ['--session', DEVC_HERDR_SESSION, ...extraArgs];
 }
 
 export interface UpArgs {

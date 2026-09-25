@@ -14,6 +14,7 @@ import {
 import { describeBindMounts, resolveAttachCwd } from './attach.ts';
 import {
   BRIDGE_GIT_PUSH_FLAG,
+  herdrLaunchArgs,
   parseAttachArgs,
   parseBuildArgs,
   parseUpArgs,
@@ -140,11 +141,38 @@ async function resolveCwdArg(target: string, cwd: string): Promise<string> {
  * `devc copilot`/`devc pi`/`devc herdr`), it runs inside a login shell instead of dropping into
  * an interactive shell.
  */
-async function attach(rawArgs: string[], command?: string): Promise<void> {
-  refuseBridgeGitPush(command ?? 'attach', rawArgs);
-  const { target: rawTarget, rebuild, noClear, cwd: rawCwd } = parseAttachArgs(
-    rawArgs,
+async function attach(
+  rawArgs: string[],
+  command?: string,
+  launchArgs: (extraArgs: string[]) => string[] = (a) => a,
+): Promise<void> {
+  // Only devc's own args are checked: past `--`, the flag belongs to the launched command.
+  const sep = rawArgs.indexOf('--');
+  refuseBridgeGitPush(
+    command ?? 'attach',
+    sep === -1 ? rawArgs : rawArgs.slice(0, sep),
   );
+  let parsed: ReturnType<typeof parseAttachArgs>;
+  try {
+    parsed = parseAttachArgs(rawArgs);
+  } catch (e) {
+    const hint = command
+      ? ` — arguments for ${command} go after \`--\`: devc ${command} [PATH] -- ARGS...`
+      : '';
+    fail(new Error(`${e instanceof Error ? e.message : e}${hint}`));
+  }
+  const {
+    target: rawTarget,
+    rebuild,
+    noClear,
+    cwd: rawCwd,
+    extraArgs = [],
+  } = parsed;
+  // A plain attach launches nothing to forward to. Refuse rather than drop them silently.
+  if (!command && extraArgs.length > 0) {
+    fail(new Error(`unexpected argument(s): ${extraArgs.join(' ')}`));
+  }
+  const commandArgs = command ? launchArgs(extraArgs) : [];
   const target = resolveLocalFolder(rawTarget);
   const what = command ? `${target} and running \`${command}\`` : `${target}`;
   console.log(
@@ -187,6 +215,7 @@ async function attach(rawArgs: string[], command?: string): Promise<void> {
       noClear,
       sessionName,
       command,
+      commandArgs,
       herdr,
       cwd,
     });
@@ -288,7 +317,7 @@ if (subcommand === 'pi') {
 }
 
 if (subcommand === 'herdr') {
-  await attach(Deno.args.slice(1), 'herdr');
+  await attach(Deno.args.slice(1), 'herdr', herdrLaunchArgs);
 }
 
 /**
