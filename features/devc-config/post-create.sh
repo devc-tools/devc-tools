@@ -71,11 +71,11 @@ _DEVC_TITLE="$(basename "${PROJECT_PATH:-$PWD}" | tr '.:'  '__')"
 printf '\033]0;%s\007' "$_DEVC_TITLE"
 # The devcontainers base image (~/.bashrc) retitles the terminal to the running
 # command via a DEBUG trap (preexec) and to $SHELL each prompt via precmd() in
-# PROMPT_COMMAND. With the Claude CLI's own title disabled
-# (CLAUDE_CODE_DISABLE_TERMINAL_TITLE), that command title would otherwise win
-# and hide the project name. Drop the trap and repoint precmd() — already wired
-# into PROMPT_COMMAND — at the project name so it persists at the prompt and
-# while a foreground app runs.
+# PROMPT_COMMAND, which would hide the project name. Drop the trap and repoint
+# precmd() — already wired into PROMPT_COMMAND — at the project name so it
+# persists at the prompt and while a foreground app runs. An app that sets its
+# own title (the Claude CLI does, unless CLAUDE_CODE_DISABLE_TERMINAL_TITLE is
+# set) still wins until the next prompt.
 trap - DEBUG
 precmd() { printf '\033]0;%s\007' "$_DEVC_TITLE"; }
 

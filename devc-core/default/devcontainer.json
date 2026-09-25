@@ -42,10 +42,12 @@
     "PROJECT_PATH": "${containerWorkspaceFolder}",
     "SHELL": "/bin/bash",
     // Provided by host $TZ, or defaults to America/New_York if not set.
-    "TZ": "${localEnv:TZ:America/New_York}",
-    // Stop the Claude CLI from overwriting the terminal title with the current task, so the
-    // project-name title stays put.
-    "CLAUDE_CODE_DISABLE_TERMINAL_TITLE": "1"
+    "TZ": "${localEnv:TZ:America/New_York}"
+    // The Claude CLI retitles the terminal with its current task while it runs;
+    // the next shell prompt restores the project-name title from the
+    // devc-config Feature's devc:bashrc-additions fence. Uncomment to keep the
+    // project name as the title while Claude runs too.
+    // "CLAUDE_CODE_DISABLE_TERMINAL_TITLE": "1"
   },
   "initializeCommand": "bash \"${localWorkspaceFolder}/.devcontainer/initialize-command.sh\"",
   "mounts": [
