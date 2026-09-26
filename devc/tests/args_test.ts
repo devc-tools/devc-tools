@@ -1,8 +1,13 @@
-import { assertEquals, assertThrows } from 'jsr:@std/assert@^1';
+import {
+  assertEquals,
+  assertStringIncludes,
+  assertThrows,
+} from 'jsr:@std/assert@^1';
 import {
   DEVC_HERDR_SESSION,
   herdrLaunchArgs,
   parseAttachArgs,
+  parseBridgeAllow,
   parseBuildArgs,
   parseUpArgs,
 } from '../args.ts';
@@ -133,7 +138,7 @@ Deno.test('parseBuildArgs defaults to cwd with no flags', () => {
     target: undefined,
     noCache: false,
     json: false,
-    bridgeGitPush: false,
+    bridgeAllow: null,
   });
 });
 
@@ -142,19 +147,19 @@ Deno.test('parseBuildArgs parses a path and both flags in any order', () => {
     target: '/some/path',
     noCache: false,
     json: false,
-    bridgeGitPush: false,
+    bridgeAllow: null,
   });
   assertEquals(parseBuildArgs(['--no-cache', '/some/path']), {
     target: '/some/path',
     noCache: true,
     json: false,
-    bridgeGitPush: false,
+    bridgeAllow: null,
   });
   assertEquals(parseBuildArgs(['/some/path', '--json', '--no-cache']), {
     target: '/some/path',
     noCache: true,
     json: true,
-    bridgeGitPush: false,
+    bridgeAllow: null,
   });
 });
 
@@ -163,7 +168,7 @@ Deno.test('parseUpArgs defaults to cwd with no flags', () => {
     target: undefined,
     printConfig: false,
     json: false,
-    bridgeGitPush: false,
+    bridgeAllow: null,
   });
 });
 
@@ -172,19 +177,19 @@ Deno.test('parseUpArgs parses a path and both flags in any order', () => {
     target: '/some/path',
     printConfig: false,
     json: false,
-    bridgeGitPush: false,
+    bridgeAllow: null,
   });
   assertEquals(parseUpArgs(['--print-config', '/some/path']), {
     target: '/some/path',
     printConfig: true,
     json: false,
-    bridgeGitPush: false,
+    bridgeAllow: null,
   });
   assertEquals(parseUpArgs(['/some/path', '--json', '--print-config']), {
     target: '/some/path',
     printConfig: true,
     json: true,
-    bridgeGitPush: false,
+    bridgeAllow: null,
   });
 });
 
@@ -280,17 +285,121 @@ Deno.test('parseAttachArgs: --cwd alongside every other flag', () => {
   );
 });
 
-Deno.test('--bridge-git-push is parsed by up and build, and is never the target', () => {
-  assertEquals(parseUpArgs(['--bridge-git-push', '/p']), {
-    target: '/p',
+Deno.test('--bridge-allow is parsed by up and build in both spellings, and is never the target', () => {
+  assertEquals(parseUpArgs(['--bridge-allow', 'git-push']), {
+    target: undefined,
     printConfig: false,
     json: false,
-    bridgeGitPush: true,
+    bridgeAllow: ['git-push'],
   });
-  assertEquals(parseBuildArgs(['/p', '--bridge-git-push']), {
+  assertEquals(parseUpArgs(['--bridge-allow=git-push,pr-review']).bridgeAllow, [
+    'git-push',
+    'pr-review',
+  ]);
+  assertEquals(
+    parseUpArgs(['--bridge-allow', 'pr-review,pr-resolve', '/path']),
+    {
+      target: '/path',
+      printConfig: false,
+      json: false,
+      bridgeAllow: ['pr-review', 'pr-resolve'],
+    },
+  );
+  assertEquals(parseBuildArgs(['/p', '--bridge-allow', 'git-push', '--json']), {
     target: '/p',
     noCache: false,
-    json: false,
-    bridgeGitPush: true,
+    json: true,
+    bridgeAllow: ['git-push'],
   });
+});
+
+Deno.test('--bridge-allow trims, dedupes and sorts into canonical order', () => {
+  assertEquals(parseBridgeAllow(' pr-resolve , pr-review '), [
+    'pr-review',
+    'pr-resolve',
+  ]);
+  assertEquals(parseBridgeAllow('pr-review,git-push,pr-review,'), [
+    'git-push',
+    'pr-review',
+  ]);
+});
+
+Deno.test('--bridge-allow refuses bad values with the documented messages', () => {
+  const cases: [string[], string][] = [
+    [
+      ['--bridge-allow'],
+      '--bridge-allow needs at least one of: git-push, pr-review, pr-resolve',
+    ],
+    [
+      ['--bridge-allow='],
+      '--bridge-allow needs at least one of: git-push, pr-review, pr-resolve',
+    ],
+    [['--bridge-allow', ' , '], '--bridge-allow needs at least one of'],
+    [
+      ['--bridge-allow', 'git-pull'],
+      'unknown capability git-pull — valid: git-push, pr-review, pr-resolve',
+    ],
+    [['--bridge-allow', 'pr-resolve'], 'pr-resolve requires pr-review'],
+    [
+      ['--bridge-allow', 'git-push', '--bridge-allow=pr-review'],
+      '--bridge-allow given more than once',
+    ],
+    [
+      ['--bridge-git-push'],
+      '--bridge-git-push was replaced by --bridge-allow git-push',
+    ],
+  ];
+  for (const [args, message] of cases) {
+    for (const parse of [parseUpArgs, parseBuildArgs]) {
+      assertThrows(() => parse(args), Error, message, args.join(' '));
+    }
+  }
+});
+
+/** Run the devc CLI from source; the refusals below happen before any Docker call. */
+async function cli(
+  ...args: string[]
+): Promise<{ code: number; stderr: string }> {
+  const { code, stderr } = await new Deno.Command(Deno.execPath(), {
+    args: [
+      'run',
+      '-A',
+      new URL('../main.ts', import.meta.url).pathname,
+      ...args,
+    ],
+    stdout: 'null',
+    stderr: 'piped',
+  }).output();
+  return { code, stderr: new TextDecoder().decode(stderr) };
+}
+
+Deno.test('CLI: --bridge-allow is refused by every attach-family command, and the old flag everywhere', async () => {
+  for (const command of ['attach', 'claude', 'copilot', 'pi', 'herdr']) {
+    const r = await cli(command, '/nonexistent', '--bridge-allow', 'git-push');
+    assertEquals(r.code, 2, `${command}: ${r.stderr}`);
+    assertStringIncludes(
+      r.stderr,
+      `--bridge-allow is accepted by \`devc up\` and \`devc build\` only, not \`devc ${command}\``,
+    );
+  }
+  const exec = await cli(
+    'exec',
+    '/nonexistent',
+    '--bridge-allow=git-push',
+    '--',
+    'true',
+  );
+  assertEquals(exec.code, 2, exec.stderr);
+  assertStringIncludes(exec.stderr, 'not `devc exec`');
+  for (const command of ['up', 'build', 'attach']) {
+    const r = await cli(command, '/nonexistent', '--bridge-git-push');
+    assertEquals(r.code, 2, `${command}: ${r.stderr}`);
+    assertStringIncludes(
+      r.stderr,
+      '--bridge-git-push was replaced by --bridge-allow git-push',
+    );
+  }
+  const bad = await cli('up', '/nonexistent', '--bridge-allow', 'pr-resolve');
+  assertEquals(bad.code, 2, bad.stderr);
+  assertStringIncludes(bad.stderr, 'pr-resolve requires pr-review');
 });

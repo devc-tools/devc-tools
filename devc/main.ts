@@ -13,8 +13,10 @@ import {
 } from './container.ts';
 import { describeBindMounts, resolveAttachCwd } from './attach.ts';
 import {
+  BRIDGE_ALLOW_FLAG,
   BRIDGE_GIT_PUSH_FLAG,
   herdrLaunchArgs,
+  isBridgeAllowArg,
   parseAttachArgs,
   parseBuildArgs,
   parseUpArgs,
@@ -70,16 +72,33 @@ if (subcommand === HERDR_SIDECAR_SUBCOMMAND) {
 }
 
 /**
- * `--bridge-git-push` is honored by `up` and `build` only — see `bridge.ts` for why the other
- * start paths may refresh a grant but never make one. Refused rather than ignored elsewhere, so
- * `devc claude --bridge-git-push` cannot look like it granted something.
+ * `--bridge-allow` is honored by `up` and `build` only — see `bridge.ts` for why the other start
+ * paths may refresh a grant but never make one. Refused rather than ignored elsewhere, so
+ * `devc claude --bridge-allow git-push` cannot look like it granted something. The removed
+ * `--bridge-git-push` is refused with a pointer to its replacement.
  */
-function refuseBridgeGitPush(command: string, args: string[]): void {
-  if (!args.includes(BRIDGE_GIT_PUSH_FLAG)) return;
+function refuseBridgeAllow(command: string, args: string[]): void {
+  if (args.includes(BRIDGE_GIT_PUSH_FLAG)) {
+    console.error(
+      `devc: ${BRIDGE_GIT_PUSH_FLAG} was replaced by ${BRIDGE_ALLOW_FLAG} git-push`,
+    );
+    Deno.exit(2);
+  }
+  if (!args.some(isBridgeAllowArg)) return;
   console.error(
-    `devc: ${BRIDGE_GIT_PUSH_FLAG} is accepted by \`devc up\` and \`devc build\` only, not \`devc ${command}\``,
+    `devc: ${BRIDGE_ALLOW_FLAG} is accepted by \`devc up\` and \`devc build\` only, not \`devc ${command}\``,
   );
   Deno.exit(2);
+}
+
+/** Parse up/build args; an invalid `--bridge-allow` is a usage error (exit 2). */
+function parseOrExit2<T>(parse: (args: string[]) => T, args: string[]): T {
+  try {
+    return parse(args);
+  } catch (e) {
+    console.error(`devc: ${e instanceof Error ? e.message : e}`);
+    Deno.exit(2);
+  }
 }
 
 /** Prints a `devc:`-prefixed error to stderr and exits 1 (never returns). */
@@ -148,7 +167,7 @@ async function attach(
 ): Promise<void> {
   // Only devc's own args are checked: past `--`, the flag belongs to the launched command.
   const sep = rawArgs.indexOf('--');
-  refuseBridgeGitPush(
+  refuseBridgeAllow(
     command ?? 'attach',
     sep === -1 ? rawArgs : rawArgs.slice(0, sep),
   );
@@ -410,7 +429,8 @@ if (subcommand === 'status') {
 }
 
 if (subcommand === 'up') {
-  const { target: rawTarget, printConfig, json, bridgeGitPush } = parseUpArgs(
+  const { target: rawTarget, printConfig, json, bridgeAllow } = parseOrExit2(
+    parseUpArgs,
     Deno.args.slice(1),
   );
   const target = resolveLocalFolder(rawTarget);
@@ -425,7 +445,7 @@ if (subcommand === 'up') {
   }
 
   const info = await startContainer(target, false, {
-    bridgePolicy: bridgeGitPush ? 'grant' : 'revoke',
+    bridgePolicy: bridgeAllow ? { grant: bridgeAllow } : 'revoke',
   }).catch(fail);
   if (json) {
     console.log(JSON.stringify(info));
@@ -441,14 +461,15 @@ if (subcommand === 'up') {
 // operation that makes a `devcontainer.json` change take effect, since mounts are bound at
 // container-create time; `--no-cache` also rebuilds the image without the layer cache.
 if (subcommand === 'build') {
-  const { target: rawTarget, noCache, json, bridgeGitPush } = parseBuildArgs(
+  const { target: rawTarget, noCache, json, bridgeAllow } = parseOrExit2(
+    parseBuildArgs,
     Deno.args.slice(1),
   );
   const target = resolveLocalFolder(rawTarget);
   if (!json) console.log(`Rebuilding dev container for ${target}...`);
   const info = await rebuildContainer(target, {
     noCache,
-    bridgePolicy: bridgeGitPush ? 'grant' : 'revoke',
+    bridgePolicy: bridgeAllow ? { grant: bridgeAllow } : 'revoke',
   }).catch(fail);
   if (json) {
     console.log(JSON.stringify(info));
@@ -468,7 +489,7 @@ if (subcommand === 'exec') {
   const sepIndex = rest.indexOf('--');
   const flagArgs = sepIndex === -1 ? rest : rest.slice(0, sepIndex);
   const cmd = sepIndex === -1 ? [] : rest.slice(sepIndex + 1);
-  refuseBridgeGitPush('exec', flagArgs);
+  refuseBridgeAllow('exec', flagArgs);
 
   let target: string | undefined;
   let cwd: string | undefined;

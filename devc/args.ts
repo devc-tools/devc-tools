@@ -1,3 +1,10 @@
+import {
+  BRIDGE_CAPABILITIES,
+  BRIDGE_CAPABILITY_REQUIRES,
+  type BridgeCapability,
+  isBridgeCapability,
+} from '@devc-tools/core/bridge.ts';
+
 export interface AttachArgs {
   /** The path argument, if given. Callers should default to `Deno.cwd()` when absent. */
   target?: string;
@@ -124,22 +131,94 @@ export interface UpArgs {
   printConfig: boolean;
   json: boolean;
   /**
-   * Write this workspace's devc-bridge policy, granting `git push` for its current branch. Absent
-   * means *delete* the policy. A flag and never a config key: see `bridge.ts`.
+   * `--bridge-allow <list>`: write this workspace's devc-bridge policy granting exactly these
+   * capabilities (canonical order) on its current branch. `null` — the flag is absent — means
+   * *delete* the policy. A flag and never a config key: see `bridge.ts`.
    */
-  bridgeGitPush: boolean;
+  bridgeAllow: BridgeCapability[] | null;
 }
 
-/** The one devc-owned flag that grants a capability. Accepted by `up` and `build` only. */
+/** The one devc-owned flag that grants capabilities. Accepted by `up` and `build` only. */
+export const BRIDGE_ALLOW_FLAG = '--bridge-allow';
+
+/** Its predecessor, refused everywhere with a pointer to the replacement. */
 export const BRIDGE_GIT_PUSH_FLAG = '--bridge-git-push';
 
-/** Parses `devc up` arguments. */
+/** Whether `arg` is `--bridge-allow` in either spelling (`--bridge-allow`, `--bridge-allow=…`). */
+export function isBridgeAllowArg(arg: string): boolean {
+  return arg === BRIDGE_ALLOW_FLAG || arg.startsWith(`${BRIDGE_ALLOW_FLAG}=`);
+}
+
+/**
+ * Validate a `--bridge-allow` value: comma-separated, entries trimmed, empties dropped, every name
+ * known, `pr-resolve` only with `pr-review`; returned deduplicated in canonical order. Throws with
+ * the user-facing message.
+ */
+export function parseBridgeAllow(value: string): BridgeCapability[] {
+  const valid = BRIDGE_CAPABILITIES.join(', ');
+  const names = value.split(',').map((n) => n.trim()).filter((n) => n !== '');
+  if (names.length === 0) {
+    throw new Error(`${BRIDGE_ALLOW_FLAG} needs at least one of: ${valid}`);
+  }
+  for (const n of names) {
+    if (!isBridgeCapability(n)) {
+      throw new Error(`unknown capability ${n} — valid: ${valid}`);
+    }
+  }
+  const grants = BRIDGE_CAPABILITIES.filter((c) => names.includes(c));
+  for (const g of grants) {
+    const needs = BRIDGE_CAPABILITY_REQUIRES[g];
+    if (needs !== undefined && !grants.includes(needs)) {
+      throw new Error(`${g} requires ${needs}`);
+    }
+  }
+  return grants;
+}
+
+/**
+ * Split `--bridge-allow` (both spellings) out of `args`: the capabilities, or null when absent, and
+ * the remaining args. The space form consumes the next arg as its value, so it can never be read as
+ * the target path. Throws for the flag given twice, a missing or invalid value, or the removed
+ * `--bridge-git-push`.
+ */
+function takeBridgeAllow(
+  args: string[],
+): { bridgeAllow: BridgeCapability[] | null; rest: string[] } {
+  let value: string | null = null;
+  const rest: string[] = [];
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    if (a === BRIDGE_GIT_PUSH_FLAG) {
+      throw new Error(
+        `${BRIDGE_GIT_PUSH_FLAG} was replaced by ${BRIDGE_ALLOW_FLAG} git-push`,
+      );
+    }
+    if (!isBridgeAllowArg(a)) {
+      rest.push(a);
+      continue;
+    }
+    if (value !== null) {
+      throw new Error(`${BRIDGE_ALLOW_FLAG} given more than once`);
+    }
+    if (a === BRIDGE_ALLOW_FLAG) {
+      value = i + 1 < args.length ? args[++i] : '';
+    } else {
+      value = a.slice(BRIDGE_ALLOW_FLAG.length + 1);
+    }
+  }
+  return {
+    bridgeAllow: value === null ? null : parseBridgeAllow(value),
+    rest,
+  };
+}
+
+/** Parses `devc up` arguments. Throws for an invalid `--bridge-allow`. */
 export function parseUpArgs(args: string[]): UpArgs {
-  const printConfig = args.includes('--print-config');
-  const json = args.includes('--json');
-  const bridgeGitPush = args.includes(BRIDGE_GIT_PUSH_FLAG);
-  const target = args.find((a) => !a.startsWith('--'));
-  return { target, printConfig, json, bridgeGitPush };
+  const { bridgeAllow, rest } = takeBridgeAllow(args);
+  const printConfig = rest.includes('--print-config');
+  const json = rest.includes('--json');
+  const target = rest.find((a) => !a.startsWith('--'));
+  return { target, printConfig, json, bridgeAllow };
 }
 
 export interface BuildArgs {
@@ -148,15 +227,15 @@ export interface BuildArgs {
   /** Drop the Docker layer cache for the image build (`--build-no-cache`). */
   noCache: boolean;
   json: boolean;
-  /** As {@link UpArgs.bridgeGitPush}. */
-  bridgeGitPush: boolean;
+  /** As {@link UpArgs.bridgeAllow}. */
+  bridgeAllow: BridgeCapability[] | null;
 }
 
-/** Parses `devc build` arguments. */
+/** Parses `devc build` arguments. Throws for an invalid `--bridge-allow`. */
 export function parseBuildArgs(args: string[]): BuildArgs {
-  const noCache = args.includes('--no-cache');
-  const json = args.includes('--json');
-  const bridgeGitPush = args.includes(BRIDGE_GIT_PUSH_FLAG);
-  const target = args.find((a) => !a.startsWith('--'));
-  return { target, noCache, json, bridgeGitPush };
+  const { bridgeAllow, rest } = takeBridgeAllow(args);
+  const noCache = rest.includes('--no-cache');
+  const json = rest.includes('--json');
+  const target = rest.find((a) => !a.startsWith('--'));
+  return { target, noCache, json, bridgeAllow };
 }

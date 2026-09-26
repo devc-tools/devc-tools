@@ -15,7 +15,15 @@
 // The desktop entrypoint (server.ts) imports startServer() and adds the tray by
 // subscribing to `onActiveChange`.
 
-import { dirname, resolve } from '@std/path';
+import { dirname, join, resolve } from '@std/path';
+import {
+  BRIDGE_CAPABILITIES,
+  BRIDGE_CAPABILITY_COMMANDS,
+  BRIDGE_CAPABILITY_REQUIRES,
+  type BridgeCapability,
+  capabilityForCommand,
+  parsePolicy,
+} from '@devc-tools/core/bridge.ts';
 import { Keepawake, type KeepawakeStatus } from './keepawake.ts';
 import { type Caller, TokenRegistry } from './token.ts';
 
@@ -32,6 +40,12 @@ export interface ServerOptions {
   keysDir: string;
   /** Directory of executable command scripts. The filenames are the allowlist. */
   commandsDir: string;
+  /**
+   * The materialized built-in capability scripts (config.ts `materializeBuiltins`). A built-in
+   * command name resolves here and never in `commandsDir`, and runs only for a caller whose policy
+   * grants its capability. Omitted → built-in names get no special treatment (tests only).
+   */
+  builtinDir?: string;
   /** Directory where scripts drop "active" marker files; watched for the tray. */
   stateDir: string;
   /**
@@ -106,6 +120,7 @@ async function* readLines(conn: Deno.Conn): AsyncGenerator<string> {
  */
 interface Dispatch {
   commandsDir: string;
+  builtinDir?: string;
   stateDir: string;
   policyDir?: string;
   caller: Caller;
@@ -125,7 +140,17 @@ async function dispatch(req: Request, d: Dispatch): Promise<Response> {
     };
   }
 
-  const commandsRoot = resolve(commandsDir);
+  // A built-in resolves in builtinDir only, and only for a caller its policy grants it to.
+  const capability = d.builtinDir === undefined
+    ? null
+    : capabilityForCommand(name);
+  if (capability !== null) {
+    const refusal = await grantRefusal(name, capability, d);
+    if (refusal !== null) return { ok: false, error: refusal };
+  }
+  const commandsRoot = resolve(
+    capability !== null ? d.builtinDir! : commandsDir,
+  );
   const scriptPath = resolve(commandsRoot, name);
   // Defense in depth: the resolved path must sit directly inside commandsDir.
   if (dirname(scriptPath) !== commandsRoot) {
@@ -183,6 +208,71 @@ async function dispatch(req: Request, d: Dispatch): Promise<Response> {
   }
 }
 
+/** `grants` plus `cap` and anything `cap` requires, comma-joined in canonical order. */
+function suggestGrants(
+  grants: readonly string[],
+  cap: BridgeCapability,
+): string {
+  const want = new Set<string>([...grants, cap]);
+  const needs = BRIDGE_CAPABILITY_REQUIRES[cap];
+  if (needs !== undefined) want.add(needs);
+  return BRIDGE_CAPABILITIES.filter((c) => want.has(c)).join(',');
+}
+
+/**
+ * Why the caller may not run built-in `name`, or null when its policy grants `capability`. The
+ * policy is read on every request, so deleting it (`devc up` without `--bridge-allow`) revokes a
+ * running container without a restart.
+ */
+async function grantRefusal(
+  name: string,
+  capability: BridgeCapability,
+  d: Dispatch,
+): Promise<string | null> {
+  const key = d.caller.key;
+  if (key === null) {
+    return `${name} needs a per-container token — the shared token has no capabilities`;
+  }
+  const hint = `on the host: devc up --bridge-allow ${
+    capability === 'pr-resolve' ? suggestGrants([], capability) : capability
+  }`;
+  let text: string;
+  try {
+    if (d.policyDir === undefined) throw new Deno.errors.NotFound();
+    text = await Deno.readTextFile(join(d.policyDir, `${key}.conf`));
+  } catch (e) {
+    if (e instanceof Deno.errors.NotFound) {
+      return `no capabilities granted to this container — ${hint}`;
+    }
+    return `this container's policy is unreadable and grants nothing — ${hint}`;
+  }
+  const policy = parsePolicy(text);
+  if (policy === null) {
+    return `this container's policy is malformed and grants nothing — ${hint}`;
+  }
+  if (policy.grants.includes(capability)) return null;
+  return `${name} needs capability ${capability}, which this container was not granted (it has: ${
+    policy.grants.join(', ')
+  }) — on the host: devc up --bridge-allow ${
+    suggestGrants(policy.grants, capability)
+  }`;
+}
+
+/** Log each file in `commandsDir` a built-in shadows: it is never run. */
+async function warnShadowed(
+  commandsDir: string,
+  log: (msg: string) => void,
+): Promise<void> {
+  for (const cap of BRIDGE_CAPABILITIES) {
+    for (const name of BRIDGE_CAPABILITY_COMMANDS[cap]) {
+      try {
+        await Deno.lstat(join(commandsDir, name));
+        log(`commands/${name} is shadowed by the built-in ${name} — remove it`);
+      } catch { /* not there — nothing shadowed */ }
+    }
+  }
+}
+
 async function scanActive(stateDir: string): Promise<string[]> {
   const active: string[] = [];
   try {
@@ -202,8 +292,13 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
   const policyDir = opts.policyDir === undefined
     ? undefined
     : resolve(opts.policyDir);
+  const builtinDir = opts.builtinDir === undefined
+    ? undefined
+    : resolve(opts.builtinDir);
+  if (builtinDir !== undefined) await warnShadowed(commandsDir, log);
   const via = (caller: Caller): Dispatch => ({
     commandsDir,
+    builtinDir,
     stateDir,
     policyDir,
     caller,

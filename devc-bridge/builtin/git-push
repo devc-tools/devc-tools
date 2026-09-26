@@ -2,13 +2,14 @@
 # git-push — publish this container's one pinned branch to its one pinned remote.
 #   devc-bridge git-push          (no arguments, ever)
 #
-# A recipe, not a seeded command: it exists on a host only after
-# `devc-bridge install-command git-push`. Removing the capability is `rm` of that copy.
+# Built in: runs only for a container whose policy grants `git-push`
+# (`devc up --bridge-allow git-push`). The bridge checks the grant before running this; the check
+# below is the second layer.
 #
 # Who is asking comes from the bridge, not the caller: the server sets DEVC_BRIDGE_KEY to the
 # workspace key its token identifies (empty for the shared legacy token) and
 # DEVC_BRIDGE_POLICY_DIR to the host-only policy dir. `policy/<key>.conf`, written by devc, is the
-# whole grant — `<repo>\t<remote>\t<branch>`, one line. No file, no push.
+# whole grant — `<repo>\t<remote>\t<branch>\t<grants>`, one line. No file, no push.
 #
 # **The host never runs git inside the container's repo.** A hook or `core.fsmonitor` planted there
 # executes on any `git -C <repo> …`, and `--no-verify` does not contain repo-local `core.sshCommand`
@@ -46,7 +47,7 @@ esac
 policy_dir=${DEVC_BRIDGE_POLICY_DIR:-$HOME/.config/devc-bridge/policy}
 policy=$policy_dir/$key.conf
 [ -f "$policy" ] ||
-  die 2 "no push policy for this container — start it with: devc up --bridge-git-push"
+  die 2 "no push policy for this container — on the host: devc up --bridge-allow git-push"
 
 malformed() { die 2 "malformed policy $policy: $*"; }
 
@@ -58,18 +59,22 @@ line=${line%x}
 line=${line%$'\n'}
 case $line in *$'\n'* | *$'\r'*) malformed "more than one line" ;; esac
 tabs=${line//[!$'\t']/}
-[ ${#tabs} -eq 2 ] || malformed "want exactly three tab-separated fields"
+[ ${#tabs} -eq 3 ] || malformed "want exactly four tab-separated fields"
 repo=${line%%$'\t'*}
 rest=${line#*$'\t'}
 remote=${rest%%$'\t'*}
-branch=${rest#*$'\t'}
-for field in "$repo" "$remote" "$branch"; do
+rest=${rest#*$'\t'}
+branch=${rest%%$'\t'*}
+grants=${rest#*$'\t'}
+for field in "$repo" "$remote" "$branch" "$grants"; do
   [ -n "$field" ] || malformed "empty field"
   case $field in *[[:cntrl:]]*) malformed "control character in a field" ;; esac
 done
 case $repo in /*) ;; *) malformed "repo is not an absolute path" ;; esac
 case $remote in -*) malformed "remote looks like an option" ;; esac
 git check-ref-format "refs/heads/$branch" || malformed "branch is not a valid ref name"
+[[ $grants =~ ^[a-z][a-z-]*(,[a-z][a-z-]*)*$ ]] || malformed "bad grants field"
+case ,$grants, in *,git-push,*) ;; *) die 2 "this container was not granted git-push" ;; esac
 
 mirror=$HOME/.local/state/devc-bridge/git/$key.git
 timeout_s=${DEVC_BRIDGE_GIT_TIMEOUT:-300}

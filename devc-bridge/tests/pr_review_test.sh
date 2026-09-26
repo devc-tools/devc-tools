@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Offline harness for the pr-comments, pr-reply and pr-resolve recipes. A `gh` shim first on PATH
+# Offline harness for the pr-comments, pr-reply and pr-resolve built-ins. A `gh` shim first on PATH
 # stands in for GitHub: it logs every call (cwd and argv, one line each) and answers from fixture
 # files this script writes per case, applying `--jq` with the real `jq` — so the harness needs `jq`,
-# the recipes do not. Runs the recipes directly with the environment the bridge would give them
+# the scripts do not. Runs the scripts directly with the environment the bridge would give them
 # (DEVC_BRIDGE_KEY, DEVC_BRIDGE_POLICY_DIR) and a throwaway $HOME.
 #
 #   bash devc-bridge/tests/pr_review_test.sh
@@ -10,7 +10,7 @@
 set -uo pipefail
 
 here=$(cd "$(dirname "$0")" && pwd)
-RECIPES=$here/../recipes
+RECIPES=$here/../builtin
 command -v jq >/dev/null || {
   echo "pr_review_test: needs jq" >&2
   exit 1
@@ -226,9 +226,10 @@ fresh() {
   echo '{"data":{"resolveReviewThread":{"thread":{"isResolved":true}}}}' >"$FX/resolve.json"
 }
 
-pin() { # pin <remote> <branch>
+pin() { # pin <remote> <branch> [grants, default pr-review,pr-resolve]
   mkdir -p "$POLICY_DIR"
-  printf '%s\t%s\t%s\n' /Users/you/code/r "$1" "$2" >"$POLICY_DIR/$KEY.conf"
+  printf '%s\t%s\t%s\t%s\n' /Users/you/code/r "$1" "$2" "${3:-pr-review,pr-resolve}" \
+    >"$POLICY_DIR/$KEY.conf"
 }
 
 # run <recipe> [args…] — as the bridge would; sets $rc, $out (stdout) and $err (stderr).
@@ -276,8 +277,23 @@ for r in pr-comments pr-reply pr-resolve; do
   printf 'only\ttwo\n' >"$POLICY_DIR/$KEY.conf"
   run "$r" "${args[@]}"
   expect_rc 2 "$r: a malformed policy"
+  printf '%s\t%s\t%s\n' /Users/you/code/r git@github.com:me/r.git "$BRANCH" >"$POLICY_DIR/$KEY.conf"
+  run "$r" "${args[@]}"
+  expect_rc 2 "$r: a three-field (pre-grants) policy"
+  pin git@github.com:me/r.git "$BRANCH" git-push
+  run "$r" "${args[@]}"
+  expect_rc 2 "$r: a policy granting only git-push"
+  check "  … says which grant is missing" has_err "this container was not granted pr-"
   check "  … and GitHub was never asked" test -z "$(calls)"
 done
+fresh
+pin git@github.com:me/r.git "$BRANCH" pr-review
+run pr-resolve PRRT_c1
+expect_rc 2 "pr-resolve with pr-review but not pr-resolve"
+check "  … says so" has_err "this container was not granted pr-resolve"
+run pr-reply PRRT_c1 hi
+expect_rc 0 "  … while pr-reply still works"
+
 
 echo "arguments"
 fresh

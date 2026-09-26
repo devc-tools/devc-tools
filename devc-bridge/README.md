@@ -34,16 +34,15 @@ container** to invoke an allowlisted host script.
 
 Run these on the host, outside any container:
 
-| Command                              | Does                                                                                                                                       |
-| ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| `devc-bridge start`                  | Seed `~/.config/devc-bridge/` on first run, then run the bridge in the background                                                          |
-| `devc-bridge status`                 | `running (pid N)` — idle \| active: … — or `stopped`, plus a `client:` line                                                                |
-| `devc-bridge stop`                   | Stop the background bridge                                                                                                                 |
-| `devc-bridge restart`                | `stop` + `start`                                                                                                                           |
-| `devc-bridge run`                    | Run it in the foreground instead (Ctrl-C to quit) — how you watch it work                                                                  |
-| `devc-bridge run --tray`             | Ditto, plus the menu-bar icon; needs a `deno desktop` runtime (see below)                                                                  |
-| `devc-bridge version`                | Print the version (also `--version` / `-V`) — which host binary is this                                                                    |
-| `devc-bridge install-command <name>` | Enable a **recipe** — an unseeded command such as `git-push` — by copying it into `commands/`; never overwrites. No name lists the recipes |
+| Command                  | Does                                                                              |
+| ------------------------ | --------------------------------------------------------------------------------- |
+| `devc-bridge start`      | Seed `~/.config/devc-bridge/` on first run, then run the bridge in the background |
+| `devc-bridge status`     | `running (pid N)` — idle \| active: … — or `stopped`, plus a `client:` line       |
+| `devc-bridge stop`       | Stop the background bridge                                                        |
+| `devc-bridge restart`    | `stop` + `start`                                                                  |
+| `devc-bridge run`        | Run it in the foreground instead (Ctrl-C to quit) — how you watch it work         |
+| `devc-bridge run --tray` | Ditto, plus the menu-bar icon; needs a `deno desktop` runtime (see below)         |
+| `devc-bridge version`    | Print the version (also `--version` / `-V`) — which host binary is this           |
 
 `start` runs **this same program** with the `run` subcommand as a detached child
 — no bundle, no build step, and no `deno` on `PATH`. It inherits your shell's
@@ -61,11 +60,11 @@ of the box:
 | `caffeinate start\|stop\|status` | The keepalive's own on/off switch, exposed directly (macOS-only; runs the real `caffeinate(8)`). Manual/advanced use only — see below.                                                                                                                |
 | `echo <args...>`                 | Round-trip smoke test — echoes args back                                                                                                                                                                                                              |
 | `toggle on\|off`                 | Demo command that flips a state marker (exercises `status`/the tray without needing macOS)                                                                                                                                                            |
-| `git-push`                       | **Recipe — absent until installed.** Publish this container's one pinned branch to its pinned remote. Takes no arguments. See [Publishing a branch](#publishing-a-branch-git-push)                                                                    |
-| `git-doctor`                     | **Recipe — absent until installed.** Explain why `git-push` would or would not work: ssh agent, the pin, the mirror, worktree pointers. Changes nothing                                                                                               |
-| `pr-comments`                    | **Recipe — absent until installed.** The unresolved review threads on this container's PR, as JSON, plus Copilot's latest reviewed commit. Takes no arguments. See [Iterating on PR review](#iterating-on-pr-review-pr-)                              |
-| `pr-reply <thread> <body>`       | **Recipe — absent until installed.** Reply to any review thread on that PR, prefixed `🤖`                                                                                                                                                             |
-| `pr-resolve <thread>`            | **Recipe — absent until installed.** Resolve a review thread on that PR — only one Copilot started                                                                                                                                                    |
+| `git-push`                       | **Built in — needs capability `git-push`.** Publish this container's one pinned branch to its pinned remote. Takes no arguments. See [Publishing a branch](#publishing-a-branch-git-push)                                                             |
+| `git-doctor`                     | **Built in — needs capability `git-push`.** Explain why `git-push` would or would not work: ssh agent, the pin, the mirror, worktree pointers. Changes nothing                                                                                        |
+| `pr-comments`                    | **Built in — needs capability `pr-review`.** The unresolved review threads on this container's PR, as JSON, plus Copilot's latest reviewed commit. Takes no arguments. See [Iterating on PR review](#iterating-on-pr-review-pr-)                      |
+| `pr-reply <thread> <body>`       | **Built in — needs capability `pr-review`.** Reply to any review thread on that PR, prefixed `🤖`                                                                                                                                                     |
+| `pr-resolve <thread>`            | **Built in — needs capability `pr-resolve`.** Resolve a review thread on that PR — only one Copilot started                                                                                                                                           |
 | `version`                        | **Answered by the client itself**, never sent to the host (also `--version` / `-V`) — which client is actually mounted in here, answerable with the bridge down                                                                                       |
 
 **In normal use you never call `caffeinate` yourself** — `ping` drives it
@@ -79,11 +78,10 @@ These are plain executable scripts in `~/.config/devc-bridge/commands/`
 one exception, a builtin handled by the server itself, not a script. See
 [Writing a command](#writing-a-command) to add your own.
 
-**Recipes are the exception to seeding.** `recipes/` holds commands that are
-embedded in the binary but **never** seeded, because a seeded file is a capability
-every container gets on first start. `devc-bridge install-command <name>` copies
-one into `commands/` (mode 755) on purpose, and refuses if a file of that name is
-already there. Removing the capability again is `rm` of that copy.
+**Built-ins are the exception to seeding.** The capability commands (`git-push`,
+`git-doctor`, `pr-*`) ship inside the binary and are never copied into
+`commands/`: each runs only for a container whose policy grants its capability.
+See [Capabilities](#capabilities).
 
 > **Seeding never clobbers.** A script that already exists in
 > `~/.config/devc-bridge/commands/` is left alone on every later `start`, so
@@ -548,14 +546,15 @@ into.
 
 Each token **identifies** its caller as that workspace's key. That is what a
 publishing verb needs: `~/.config/devc-bridge/policy/<key>.conf`, written by
-devc, pins the one repo, remote and branch that container may push —
+devc, pins the one repo, remote and branch that container's capabilities act on,
+and lists the capabilities it has —
 **one container, one repo, one branch**, and a bind mount is not a grant. The
 policy lives outside every mounted directory, because a policy the container
 could write is not a policy, and the pidfile rule already says so: never put a
-file the host acts on into `run/`. The [`git-push`](#publishing-a-branch-git-push)
-recipe is what reads it. The shared token identifies no key, so it is never
-allowed a git verb — `caffeinate` and `ping` keep working for it exactly as
-today.
+file the host acts on into `run/`. The server reads it on every call to a
+[built-in capability](#capabilities). The shared token identifies no key, so it
+is never allowed a capability — `caffeinate` and `ping` keep working for it
+exactly as today.
 
 This is **bearer** identity, not attestation: a process that obtained another
 container's token could act as that container. Each container mounts only its
@@ -565,12 +564,53 @@ never mounted whole — but that is the whole of the guarantee.
 Two independent tools share this directory: devc writes `keys/<key>/` and
 `policy/<key>.conf` and never invokes the bridge; the bridge writes tokens and
 never deletes what devc created. What they share beyond the paths is the policy
-line's format (`<repo>\t<remote>\t<branch>`), which is unversioned — a line
-either side cannot parse grants nothing.
+line's format (`<repo>\t<remote>\t<branch>\t<grants>`, parsed by the same
+`devc-core` code on both sides), which is unversioned — a line either side cannot
+parse grants nothing, including a three-field line from before grants existed.
 
 The arch note is a limitation, not a control: the client is cross-compiled for
 the host's architecture. A container run under emulation on the other arch will
 find a binary it cannot execute.
+
+## Capabilities
+
+The bridge ships every capability built in. **Which ones a container may use is
+its policy's grant**, written by devc from one flag:
+
+```sh
+devc up --bridge-allow git-push,pr-review,pr-resolve
+```
+
+| Capability   | Commands                  | Notes                                                 |
+| ------------ | ------------------------- | ----------------------------------------------------- |
+| `git-push`   | `git-push`, `git-doctor`  | [Publishing a branch](#publishing-a-branch-git-push)  |
+| `pr-review`  | `pr-comments`, `pr-reply` | [Iterating on PR review](#iterating-on-pr-review-pr-) |
+| `pr-resolve` | `pr-resolve`              | Requires `pr-review` — devc refuses it alone          |
+
+`devc up`/`devc build` with `--bridge-allow` write exactly that set (replacing
+any earlier one); without it they delete the policy. Every other start path
+keeps the set and only refreshes the pin's branch. See
+[devc § Per-container identity](../devc/README.md#per-container-identity-and-git-push).
+
+**The server checks the grant before running anything,** reading
+`policy/<key>.conf` on every call, so deleting it revokes a running container
+at once. A refused call is the client's exit `1` with one of:
+
+```text
+<cmd> needs a per-container token — the shared token has no capabilities
+no capabilities granted to this container — on the host: devc up --bridge-allow <cap>
+this container's policy is malformed and grants nothing — on the host: devc up --bridge-allow <cap>
+<cmd> needs capability <cap>, which this container was not granted (it has: <grants>) — on the host: devc up --bridge-allow <grants>,<cap>
+```
+
+Each script checks its own capability again (exit `2`) as a second layer.
+
+**Where they run from.** Embedded files cannot be executed, so every start
+writes the built-ins to `~/.local/state/devc-bridge/builtin/` — host-only, never
+mounted, outside `commands/` and `run/` — replacing the whole directory. An
+upgrade therefore applies on `devc-bridge restart`, with nothing to reinstall.
+A file in `commands/` with a built-in's name is never run; the bridge logs
+`commands/<name> is shadowed by the built-in <name> — remove it` on start.
 
 ## Publishing a branch (`git-push`)
 
@@ -587,12 +627,8 @@ host does, with your credentials, after checking what it is about to send.
 
 ### Enabling it
 
-Two deliberate steps, one per tool, and either alone grants nothing:
-
 ```sh
-devc-bridge install-command git-push     # once per host: the verb exists
-devc-bridge install-command git-doctor   # optional: its diagnostics
-devc up --bridge-git-push                # per workspace: the pin exists
+devc up --bridge-allow git-push          # per workspace: the pin and the grant
 ```
 
 Then, inside that container, `devc-bridge git-push` — no arguments. It prints
@@ -664,8 +700,10 @@ Reports the bridge's `ssh-add -l`, then per policy: the pin, whether the repo
 exists and the branch is there (read as files), whether each worktree pointer
 of the repo's primary (`<primary>.worktrees/*/.git`) still points where it
 should, and the mirror's origin and staging-ref count. Exit 1 when it found
-anything. Run on the host it covers every policy, or just `key`; called through
-the bridge it covers **only the caller's own** and refuses any other key.
+anything. Run on the host
+(`~/.local/state/devc-bridge/builtin/git-doctor [key]`) it covers every policy,
+or just `key`; called through the bridge it covers **only the caller's own** and
+refuses any other key.
 
 ## Iterating on PR review (`pr-*`)
 
@@ -676,14 +714,11 @@ one. Each call runs `gh api` on the host with your credentials.
 
 ### Enabling it
 
-Each verb is its own recipe, so you grant exactly the ones you want — replies
-without resolves is simply not installing `pr-resolve`:
+`pr-review` grants reading and replying; `pr-resolve` is separate, so replies
+without resolves is simply leaving it out:
 
 ```sh
-devc-bridge install-command pr-comments
-devc-bridge install-command pr-reply
-devc-bridge install-command pr-resolve
-devc up --bridge-git-push                # the same pin git-push uses
+devc up --bridge-allow git-push,pr-review,pr-resolve   # the same pin git-push uses
 ```
 
 The host needs `gh` on the bridge's `PATH`, authenticated (`gh auth login`, or
@@ -693,7 +728,7 @@ The host needs `gh` on the bridge's `PATH`, authenticated (`gh auth login`, or
 
 **The pin names a source, and the PR is found from it.** The policy's remote is
 the PR's **head** repo — your fork, in a fork workflow — and its branch the head
-branch. The recipes ask GitHub for that repo and, if it is a fork, its parent,
+branch. The commands ask GitHub for that repo and, if it is a fork, its parent,
 and look for open PRs in both whose head is exactly `<head repo>:<branch>`.
 Exactly one must match; none or several is exit 2. So:
 
@@ -865,12 +900,13 @@ Paths are relative to `devc-bridge/` unless noted.
 | `host/config.ts`           | Path resolution + `ensureConfig`/`seedCommands` (zero-setup on first start)                                           |
 | `host/core.ts`             | Headless TCP server + dispatch + state and `keys/` watchers — what `run` runs                                         |
 | `host/tray.ts`             | Opt-in tray layer (`run --tray`) — same core + a menu-bar icon; headless if no GUI                                    |
-| `host/tests/`              | `deno task test` — relaunch argv, `start`'s detach-and-wait contract, token and per-key minting, `install-command`    |
+| `host/tests/`              | `deno task test` — relaunch argv, `start`'s detach-and-wait contract, token and per-key minting, capability grants    |
 | `host/token.ts`            | Generate the shared token; mint and track one per `keys/<key>/` (`TokenRegistry`)                                     |
 | `host/version.ts`          | The host CLI's `VERSION` — one of the three the release workflow's version guard pins to the tag                      |
 | `host/commands/`           | Allowlisted host scripts, **embedded** in the binary + seeded to `~/.config/devc-bridge/commands`                     |
-| `recipes/`                 | Embedded but **never seeded** — `git-push`, `git-doctor`; enabled one at a time by `install-command`                  |
-| `tests/git_push_test.sh`   | Offline harness for the recipes — a local bare repo stands in for the remote                                          |
+| `builtin/`                 | The built-in capability scripts — embedded, **never seeded**, materialized to `~/.local/state/devc-bridge/builtin/`   |
+| `tests/git_push_test.sh`   | Offline harness for `git-push`/`git-doctor` — a local bare repo stands in for the remote                              |
+| `tests/pr_review_test.sh`  | Offline harness for the `pr-*` commands — a `gh` shim stands in for GitHub                                            |
 | `client/devc-bridge.ts`    | Container client CLI                                                                                                  |
 | `client/version.ts`        | The client's own `VERSION` — separate compile unit, pinned to the same tag                                            |
 | `client/build-client.sh`   | `deno task build:client` — cross-compile the client into `~/.config/devc-bridge/client/` (dev install)                |

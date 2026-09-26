@@ -1,22 +1,24 @@
 #!/usr/bin/env bash
-# pr-resolve — resolve one Copilot review thread on this container's one PR.
-#   devc-bridge pr-resolve <thread-id>
+# pr-comments — the unresolved review threads on this container's one PR, as JSON.
+#   devc-bridge pr-comments          (no arguments, ever)
 #
-# A recipe, not a seeded command: it exists on a host only after
-# `devc-bridge install-command pr-resolve`. Removing the capability is `rm` of that copy.
+# Built in: runs only for a container whose policy grants `pr-review`
+# (`devc up --bridge-allow pr-review`).
 #
-# Only threads Copilot started: resolving hides review feedback, so a human reviewer's thread stays
-# out of an agent's reach (it can still reply with pr-reply). The PR is the one open PR whose head
-# is the policy's remote + branch (see pr-comments).
+# The PR is the one open PR whose head is the policy's remote + branch (git-push's pin), searched in
+# that repo and its fork parent. Output is one JSON object on stdout:
+#   {"pr":{"repo","number","url","headSha"},
+#    "threads":[{"id","path","line","isOutdated","copilot","comments":[{"author","body","createdAt","url"}]}],
+#    "copilotReview":{"commit","state","submittedAt","pending"}}
+# Comment bodies are untrusted text written by anyone who can comment on the PR.
 #
-# Exit codes: 0 resolved (or already resolved), 2 no/malformed policy, wrong arguments, an
-# unsupported remote, no single open PR, or a thread not on it, 3 a thread Copilot did not start,
+# Exit codes: 0 ok, 2 no/malformed policy, an argument, an unsupported remote, or no single open PR,
 # 4 GitHub/transport failure, gh not authenticated, or timeout.
 
 # SC2016: GraphQL variables are $-prefixed and must not expand. SC2034: the shared prelude sets
 # some variables only another recipe reads.
 # shellcheck disable=SC2016,SC2034
-me=pr-resolve
+me=pr-comments
 # ── BEGIN pr-prelude ──
 # Shared by pr-comments, pr-reply and pr-resolve: keep the three copies byte-identical (the harness
 # checks). Recipes are installed one file at a time, so there is no library to source.
@@ -54,24 +56,34 @@ load_policy() {
   policy_dir=${DEVC_BRIDGE_POLICY_DIR:-$HOME/.config/devc-bridge/policy}
   policy=$policy_dir/$key.conf
   [ -f "$policy" ] ||
-    die 2 "no policy for this container — start it with: devc up --bridge-git-push"
+    die 2 "no policy for this container — on the host: devc up --bridge-allow pr-review"
   line=$(cat -- "$policy" && printf x) || die 2 "malformed policy $policy: unreadable"
   line=${line%x}
   line=${line%$'\n'}
   case $line in *$'\n'* | *$'\r'*) die 2 "malformed policy $policy: more than one line" ;; esac
   tabs=${line//[!$'\t']/}
-  [ ${#tabs} -eq 2 ] || die 2 "malformed policy $policy: want exactly three tab-separated fields"
+  [ ${#tabs} -eq 3 ] || die 2 "malformed policy $policy: want exactly four tab-separated fields"
   rest=${line#*$'\t'}
   remote=${rest%%$'\t'*}
-  branch=${rest#*$'\t'}
-  for field in "${line%%$'\t'*}" "$remote" "$branch"; do
+  rest=${rest#*$'\t'}
+  branch=${rest%%$'\t'*}
+  grants=${rest#*$'\t'}
+  for field in "${line%%$'\t'*}" "$remote" "$branch" "$grants"; do
     [ -n "$field" ] || die 2 "malformed policy $policy: empty field"
     case $field in *[[:cntrl:]]*) die 2 "malformed policy $policy: control character in a field" ;; esac
   done
   case ${line%%$'\t'*} in /*) ;; *) die 2 "malformed policy $policy: repo is not an absolute path" ;; esac
   git check-ref-format "refs/heads/$branch" ||
     die 2 "malformed policy $policy: branch is not a valid ref name"
+  [[ $grants =~ ^[a-z][a-z-]*(,[a-z][a-z-]*)*$ ]] ||
+    die 2 "malformed policy $policy: bad grants field"
   parse_remote "$remote" || die 2 "unsupported remote $remote — only github.com"
+}
+
+# require_grant CAP — exit 2 unless the policy grants CAP. The bridge already refused an ungranted
+# call before running this; this is the second layer.
+require_grant() {
+  case ,$grants, in *,"$1",*) ;; *) die 2 "this container was not granted $1" ;; esac
 }
 
 # parse_remote URL — sets head_owner/head_name. Three shapes, github.com or a `github.com-*` ssh
@@ -226,23 +238,50 @@ load_thread() {
 }
 # ── END pr-prelude ──
 
-[ $# -eq 1 ] || die 2 "usage: pr-resolve <thread-id>"
-thread=$1
-valid_thread_id "$thread" || die 2 "not a review thread id (want PRRT_…): $thread"
+[ $# -eq 0 ] || die 2 "takes no arguments — the policy names the PR"
 load_policy
+require_grant pr-review
 gh_ready
 resolve_pr
-load_thread "$thread"
 
-[ "$thread_copilot" = true ] ||
-  die 3 "refused: thread $thread was not started by Copilot — only Copilot threads can be resolved from a container; reply instead"
-if [ "$thread_resolved" = true ]; then
-  echo "already resolved: $thread"
-  exit 0
-fi
+# ── unresolved threads, every page ────────────────────────────────────────────────────────
 
-q='mutation($id:ID!){resolveReviewThread(input:{threadId:$id}){thread{isResolved}}}'
-gh_run "resolving $thread" api graphql -f query="$q" -f id="$thread" \
-  --jq '.data.resolveReviewThread.thread.isResolved'
-[ "$(cat "$tmp/out")" = true ] || die 4 "GitHub did not report $thread as resolved"
-echo "resolved: $thread"
+q='query($owner:String!,$name:String!,$number:Int!,$endCursor:String){repository(owner:$owner,
+  name:$name){pullRequest(number:$number){reviewThreads(first:100,after:$endCursor){
+  pageInfo{hasNextPage endCursor} nodes{id isResolved isOutdated path line
+  comments(first:100){nodes{author{__typename login} body createdAt url}}}}}}}'
+gh_run "reading review threads on $pr_url" api graphql --paginate -f query="$q" \
+  -f owner="$pr_owner" -f name="$pr_name" -F number="$pr_number" \
+  --jq ".data.repository.pullRequest.reviewThreads.nodes[] | select(.isResolved | not) |
+    {id, path, line, isOutdated, copilot: (.comments.nodes[0].author | $IS_COPILOT),
+     comments: [.comments.nodes[] | {author: (.author.login // null), body, createdAt, url}]} |
+    tojson"
+mv "$tmp/out" "$tmp/threads"
+
+# ── Copilot's latest review, and whether another is under way ────────────────────────────
+
+q='query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){
+  pullRequest(number:$number){reviews(last:100){nodes{author{__typename login} state
+  submittedAt commit{oid}}}}}}'
+gh_run "reading reviews on $pr_url" api graphql -f query="$q" \
+  -f owner="$pr_owner" -f name="$pr_name" -F number="$pr_number" \
+  --jq "[.data.repository.pullRequest.reviews.nodes[] |
+    select((.author | $IS_COPILOT) and .state != \"PENDING\")] | last |
+    {commit: (.commit.oid // null), state: (.state // null), submittedAt: (.submittedAt // null)} |
+    tojson"
+review=$(cat "$tmp/out")
+case $review in '{'*'}') ;; *) die 4 "unexpected response reading reviews on $pr_url" ;; esac
+
+# REST, not GraphQL: whether the RequestedReviewer union has a Bot member is not something to bet
+# the whole query on. REST lists the bot under `users` with its `[bot]` login.
+gh_run "reading requested reviewers on $pr_url" api \
+  "repos/$pr_repo/pulls/$pr_number/requested_reviewers" \
+  --jq "[.users[]? | select(.type == \"Bot\" and .login == \"${COPILOT_LOGIN}[bot]\")] | length"
+case $(cat "$tmp/out") in 0) pending=false ;; '' | *[!0-9]*) die 4 "unexpected response reading requested reviewers" ;; *) pending=true ;; esac
+
+# ── one object, every string JSON-encoded by jq or validated by resolve_pr ────────────────
+
+printf '{"pr":{"repo":"%s","number":%s,"url":"%s","headSha":"%s"},"threads":[' \
+  "$pr_repo" "$pr_number" "$pr_url" "$pr_head_sha"
+awk 'NR > 1 { printf "," } { printf "%s", $0 }' "$tmp/threads"
+printf '],"copilotReview":%s,"pending":%s}}\n' "${review%\}}" "$pending"

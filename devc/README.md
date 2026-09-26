@@ -31,8 +31,8 @@ To build it from a clone instead, see [Development](#development).
 ```text
 devc init    [PATH]                                   Scaffold the default `.devcontainer/` into the project
 devc config  [PATH]                                   Configure the project's source/skills mounts (TUI)
-devc up      [PATH] [--json] [--bridge-git-push]      Create/start the container; print its status
-devc build   [PATH] [--no-cache] [--json] [--bridge-git-push] Recreate the container from scratch
+devc up      [PATH] [--json] [--bridge-allow LIST]    Create/start the container; print its status
+devc build   [PATH] [--no-cache] [--json] [--bridge-allow LIST] Recreate the container from scratch
 devc attach  [PATH] [--build] [--no-clear] [--cwd DIR] Start (creating if needed) and attach a login shell
 devc claude  [PATH] [--cwd DIR] [-- ARGS...]          Start and run `claude` (+ forwarded args) in a login shell
 devc copilot [PATH] [--cwd DIR] [-- ARGS...]          Start and run `copilot` (+ forwarded args) in a login shell
@@ -111,9 +111,12 @@ Notes:
   <path>` when nothing was running. `down` prints `Removed container for
   <path>`, or `No container for <path>` when there was nothing to remove. Both
   exit 0 either way — neither is an error.
-- `--bridge-git-push` on `up`/`build` grants the container `git push` for its
-  current branch through devc-bridge; `up`/`build` **without** it revoke any
-  earlier grant. No other command accepts it — see
+- `--bridge-allow LIST` on `up`/`build` grants the container devc-bridge
+  capabilities — a comma-separated subset of `git-push`, `pr-review`,
+  `pr-resolve` (`pr-resolve` requires `pr-review`) — on its current branch;
+  `up`/`build` **without** it revoke any earlier grant. No other command accepts
+  it, and the old `--bridge-git-push` is refused with a pointer to
+  `--bridge-allow git-push` — see
   [Per-container identity](#per-container-identity-and-git-push).
 - `prune` removes every `~/.config/devc-bridge/keys/<key>/` and
   `policy/<key>.conf` that no container (running or stopped) maps to, printing
@@ -971,7 +974,7 @@ with nothing restarted.
 `devc.json` or copied into `devcontainer.json` — it still wins, because the
 merge dedupes `mounts` by target and devc's contribution is the lowest layer.
 It still works for `caffeinate`, but it is the shared token, so
-`--bridge-git-push` refuses that container. Delete the hand-written line and
+`--bridge-allow` refuses that container. Delete the hand-written line and
 `devc build` to move to the per-workspace mount. A `devc-post-create.sh` that
 builds the client should still be removed before opting in, since the Feature
 installs its own.
@@ -983,32 +986,31 @@ the shared token until it is recreated.
 
 **One container, one repo, one branch.** The token identifies the container;
 `~/.config/devc-bridge/policy/<key>.conf` names the one repo, remote and branch
-it may publish:
+its capabilities act on, and which capabilities it has:
 
 ```text
-<host path of the repo><TAB><remote.origin.url><TAB><branch>
+<host path of the repo><TAB><remote.origin.url><TAB><branch><TAB><grants>
 ```
 
+`<grants>` is comma-separated in canonical order, e.g. `git-push,pr-review`.
 That file is the whole grant, and no container can write it — `policy/` is never
-mounted.
+mounted. A three-field file from before grants existed grants nothing.
 
-> **The bridge needs the verb too.** `git-push` is a devc-bridge _recipe_, not a
-> seeded command: run `devc-bridge install-command git-push` once on the host, or
-> a granted container's pushes fail as `unknown command`. What it checks before
-> publishing is in the
-> [bridge README](../devc-bridge/README.md#publishing-a-branch-git-push). Only
-> the **primary workspace repo** is ever pinned: a `devc:source` mount you added
-> for convenience is not a grant.
->
-> The same pin scopes the PR review recipes — `pr-comments`, `pr-reply`,
-> `pr-resolve` — to the one open PR whose head is that branch; install each with
-> `devc-bridge install-command`. See the
-> [bridge README](../devc-bridge/README.md#iterating-on-pr-review-pr-).
+| Capability   | Lets the container run           |
+| ------------ | -------------------------------- |
+| `git-push`   | `git-push`, `git-doctor`         |
+| `pr-review`  | `pr-comments`, `pr-reply`        |
+| `pr-resolve` | `pr-resolve` (needs `pr-review`) |
 
-| Command                                              | With `--bridge-git-push` | Without it                                         |
-| ---------------------------------------------------- | ------------------------ | -------------------------------------------------- |
-| `up`, `build`                                        | write the policy         | **delete** this workspace's policy                 |
-| `attach`, `claude`, `copilot`, `pi`, `herdr`, `exec` | refused — not accepted   | refresh an existing policy from the current branch |
+The bridge ships all of them and checks the grant on every call — see the
+[bridge README](../devc-bridge/README.md#capabilities). Only the **primary
+workspace repo** is ever pinned: a `devc:source` mount you added for convenience
+is not a grant.
+
+| Command                                              | With `--bridge-allow LIST`                      | Without it                                                    |
+| ---------------------------------------------------- | ----------------------------------------------- | ------------------------------------------------------------- |
+| `up`, `build`                                        | write the policy with exactly LIST (no merging) | **delete** this workspace's policy                            |
+| `attach`, `claude`, `copilot`, `pi`, `herdr`, `exec` | refused — not accepted                          | refresh an existing policy's branch, keeping its capabilities |
 
 A **flag, deliberately not a config key**: every `devc.jsonc` layer with the
 priority to set it lives inside the bind-mounted workspace, where an agent could
@@ -1041,12 +1043,12 @@ planted `core.fsmonitor`.
 
 **Refresh** keeps a long-lived container right when you switch branches: each
 `attach`/`claude`/… rewrites the pin from the current `HEAD`. When the pin can no
-longer be derived — a detached `HEAD`, protection gone — the refresh **removes**
-the policy and says so, rather than leave a grant standing that its
+longer be derived — a detached `HEAD`, protection gone, a malformed file — the
+refresh **removes** the policy and says so, rather than leave a grant standing that its
 preconditions no longer support.
 
 **Revocation needs no restart.** The policy is read per request, not cached, so
-removing the file stops the next push from a running container. That is also a
+removing the file stops the next call from a running container. That is also a
 panic button that involves no devc at all:
 
 ```sh

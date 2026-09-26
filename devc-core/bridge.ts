@@ -45,14 +45,82 @@ export function bridgePaths(home: string, key: string): BridgePaths {
 
 // ── the policy line ─────────────────────────────────────────────────────────────────────────
 
-/** One container's publish pin: the one repo, remote and branch it may push. */
-export interface PolicyRecord {
+// ── capabilities ────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Every devc-bridge capability a policy can grant, in canonical order. devc validates
+ * `--bridge-allow` against this list and the bridge enforces it; nothing else defines it.
+ */
+export const BRIDGE_CAPABILITIES = [
+  'git-push',
+  'pr-review',
+  'pr-resolve',
+] as const;
+
+/** One of {@link BRIDGE_CAPABILITIES}. */
+export type BridgeCapability = typeof BRIDGE_CAPABILITIES[number];
+
+/** The built-in bridge commands each capability enables. */
+export const BRIDGE_CAPABILITY_COMMANDS: Readonly<
+  Record<BridgeCapability, readonly string[]>
+> = {
+  'git-push': ['git-push', 'git-doctor'],
+  'pr-review': ['pr-comments', 'pr-reply'],
+  'pr-resolve': ['pr-resolve'],
+};
+
+/** Capabilities that are only granted alongside another — `pr-resolve` acts on `pr-comments`' ids. */
+export const BRIDGE_CAPABILITY_REQUIRES: Readonly<
+  Partial<Record<BridgeCapability, BridgeCapability>>
+> = { 'pr-resolve': 'pr-review' };
+
+/** The capability that enables built-in command `name`, or null when `name` is not a built-in. */
+export function capabilityForCommand(name: string): BridgeCapability | null {
+  for (const cap of BRIDGE_CAPABILITIES) {
+    if (BRIDGE_CAPABILITY_COMMANDS[cap].includes(name)) return cap;
+  }
+  return null;
+}
+
+export function isBridgeCapability(name: string): name is BridgeCapability {
+  return (BRIDGE_CAPABILITIES as readonly string[]).includes(name);
+}
+
+/**
+ * Why `grants` is not a policy's grant list, or null when it is: non-empty, every name known, no
+ * duplicates, canonical order, and every requirement present. One spelling per grant set.
+ */
+export function grantsProblem(grants: readonly string[]): string | null {
+  if (grants.length === 0) return 'grants are empty';
+  let last = -1;
+  for (const g of grants) {
+    const i = (BRIDGE_CAPABILITIES as readonly string[]).indexOf(g);
+    if (i < 0) return `unknown capability ${JSON.stringify(g)}`;
+    if (i <= last) return 'grants are duplicated or out of canonical order';
+    last = i;
+  }
+  for (const g of grants as readonly BridgeCapability[]) {
+    const needs = BRIDGE_CAPABILITY_REQUIRES[g];
+    if (needs !== undefined && !grants.includes(needs)) {
+      return `${g} requires ${needs}`;
+    }
+  }
+  return null;
+}
+
+/** One container's publish pin: the one repo, remote and branch its capabilities act on. */
+export interface Pin {
   /** Host path of the repo's working tree. */
   repo: string;
   /** `remote.origin.url`, as read from the repo's (frozen) config. */
   remote: string;
   /** The branch `HEAD` named, without `refs/heads/`. */
   branch: string;
+}
+
+/** A policy file: the pin, and the capabilities granted on it (canonical order, non-empty). */
+export interface PolicyRecord extends Pin {
+  grants: BridgeCapability[];
 }
 
 // A field may hold anything but the separator and line breaks; control characters are refused
@@ -70,36 +138,42 @@ function fieldProblem(name: string, value: string): string | null {
 }
 
 /**
- * The policy file's contents: `<repo>\t<remote>\t<branch>\n`. Throws for a field that could not be
- * read back as itself — callers validate first via {@link resolvePin}, so reaching this is a bug.
+ * The policy file's contents: `<repo>\t<remote>\t<branch>\t<grants>\n`, grants comma-joined in
+ * canonical order. Throws for a field that could not be read back as itself, or a grant list
+ * {@link grantsProblem} refuses — callers validate first, so reaching this is a bug.
  */
 export function serializePolicy(record: PolicyRecord): string {
-  for (const [name, value] of Object.entries(record)) {
-    const problem = fieldProblem(name, value);
+  for (const name of ['repo', 'remote', 'branch'] as const) {
+    const problem = fieldProblem(name, record[name]);
     if (problem !== null) throw new Error(`policy ${problem}`);
   }
-  return `${record.repo}\t${record.remote}\t${record.branch}\n`;
+  const problem = grantsProblem(record.grants);
+  if (problem !== null) throw new Error(`policy ${problem}`);
+  return `${record.repo}\t${record.remote}\t${record.branch}\t${
+    record.grants.join(',')
+  }\n`;
 }
 
 /**
- * Parse a policy file. Exactly one non-empty line of exactly three non-empty fields, or `null` —
- * a malformed policy grants nothing, and the reader must not guess.
+ * Parse a policy file. Exactly one non-empty line of exactly four non-empty fields, the last a
+ * valid grant list, or `null` — a malformed policy grants nothing, and the reader must not guess.
+ * A three-field file from before grants existed, and a capability this build does not know, are
+ * both malformed: they fail closed.
  */
 export function parsePolicy(text: string): PolicyRecord | null {
   const body = text.endsWith('\n') ? text.slice(0, -1) : text;
   if (body.includes('\n') || body.includes('\r')) return null;
   const fields = body.split('\t');
-  if (fields.length !== 3) return null;
-  const [repo, remote, branch] = fields;
-  for (
-    const [name, value] of [['repo', repo], ['remote', remote], [
-      'branch',
-      branch,
-    ]]
-  ) {
+  if (fields.length !== 4) return null;
+  const [repo, remote, branch, grantField] = fields;
+  const pairs = [['repo', repo], ['remote', remote], ['branch', branch]];
+  for (const [name, value] of pairs) {
     if (fieldProblem(name, value) !== null) return null;
   }
-  return { repo, remote, branch };
+  if (fieldProblem('grants', grantField) !== null) return null;
+  const grants = grantField.split(',');
+  if (grantsProblem(grants) !== null) return null;
+  return { repo, remote, branch, grants: grants as BridgeCapability[] };
 }
 
 // ── reading the pin out of a repo ───────────────────────────────────────────────────────────
@@ -244,7 +318,7 @@ function parseConfigValue(raw: string): string | null {
 
 /** The pin {@link resolvePin} derived, or the one reason it could not. */
 export type PinResult =
-  | { ok: true; record: PolicyRecord; worktree: boolean }
+  | { ok: true; record: Pin; worktree: boolean }
   | { ok: false; reason: string };
 
 async function readText(path: string): Promise<string | null> {

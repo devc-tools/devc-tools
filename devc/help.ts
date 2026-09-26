@@ -189,8 +189,9 @@ export const COMMAND_HELP: Record<string, string> = {
     'Options:',
     '      --print-config      Print the effective devcontainer.json and exit',
     '      --json              Output container status as JSON',
-    '      --bridge-git-push   Let this container push its current branch via',
-    '                          devc-bridge; without it, any earlier grant is',
+    '      --bridge-allow LIST Let this container use devc-bridge capabilities',
+    '                          (git-push, pr-review, pr-resolve), comma-',
+    '                          separated; without it, any earlier grant is',
     '                          removed',
     '  -h, --help              Print help',
   ].join('\n'),
@@ -204,7 +205,7 @@ export const COMMAND_HELP: Record<string, string> = {
     'Options:',
     '      --no-cache          Rebuild the image without the Docker layer cache',
     '      --json              Output container status as JSON',
-    '      --bridge-git-push   As for `devc up`',
+    '      --bridge-allow LIST As for `devc up`',
     '  -h, --help              Print help',
   ].join('\n'),
 
@@ -251,7 +252,7 @@ export const COMMAND_HELP: Record<string, string> = {
     'Options:',
     '  -h, --help  Print help',
     '',
-    "Also removes this project's devc-bridge key dir and git-push policy.",
+    "Also removes this project's devc-bridge key dir and policy.",
   ].join('\n'),
 
   prune: [
@@ -284,7 +285,8 @@ export const COMMAND_HELP: Record<string, string> = {
     'Set "gitProtect": false in devc.jsonc to turn the whole control off.',
     '',
     "Then the devc-bridge lines: this project's key, whether its token is present,",
-    'and the git-push pin in force — or "absent" when there is none.',
+    'and the devc-bridge capabilities and pin in force — or "absent" when there are',
+    'none.',
   ].join('\n'),
 };
 

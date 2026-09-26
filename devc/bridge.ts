@@ -7,8 +7,9 @@
 // writes a token, so there is nothing for the bridge to adopt.
 //
 // **The policy is the whole grant.** `policy/<key>.conf` names the one repo, remote and branch a
-// container may publish. Only `devc up` / `devc build` create it (with `--bridge-git-push`) or
-// delete it (without). Every other start path only *refreshes* one that exists — and revokes it
+// container's capabilities act on, and which capabilities it has (`git-push`, `pr-review`,
+// `pr-resolve`). Only `devc up` / `devc build` create it (with `--bridge-allow <list>`) or delete
+// it (without). Every other start path only *refreshes* one that exists — and revokes it
 // when the pin can no longer be derived safely, since a policy that outlives its preconditions
 // is a grant nobody asked for.
 //
@@ -19,8 +20,10 @@
 // container's live mount table instead.
 
 import {
+  type BridgeCapability,
   bridgePaths,
   parsePolicy,
+  type Pin,
   type PolicyRecord,
   resolvePin,
   serializePolicy,
@@ -44,8 +47,11 @@ import {
 /** Where the bridge mount lands in every container. */
 const BRIDGE_TARGET = '/run/devc-bridge';
 
-/** What a start path does with the policy. See the module header. */
-export type PolicyMode = 'grant' | 'revoke' | 'refresh';
+/**
+ * What a start path does with the policy. See the module header. A grant carries its capabilities
+ * (canonical order, validated by `parseBridgeAllow`) and replaces any earlier set.
+ */
+export type PolicyMode = 'revoke' | 'refresh' | { grant: BridgeCapability[] };
 
 /** Injected so the tests can run against a temp home and a fake mount table. */
 export interface BridgeDeps {
@@ -64,7 +70,7 @@ export function defaultDeps(): BridgeDeps {
   };
 }
 
-/** An explicit `--bridge-git-push` whose preconditions do not hold. */
+/** An explicit `--bridge-allow` whose preconditions do not hold. */
 export class BridgeGrantError extends Error {}
 
 async function removeIfPresent(
@@ -97,7 +103,7 @@ export async function ensureKeyDir(
 
 /** The pin for this workspace, or the first precondition that failed. */
 export type DerivedPin =
-  | { ok: true; record: PolicyRecord }
+  | { ok: true; record: Pin }
   | { ok: false; reason: string };
 
 /**
@@ -254,11 +260,13 @@ export async function removePolicy(
 }
 
 function describe(record: PolicyRecord): string {
-  return `${record.branch} → ${record.remote} (${record.repo})`;
+  return `${
+    record.grants.join(', ')
+  } for ${record.branch} → ${record.remote} (${record.repo})`;
 }
 
 /**
- * Before `devcontainer up`, for an explicit `--bridge-git-push`: fail fast on every precondition
+ * Before `devcontainer up`, for an explicit `--bridge-allow`: fail fast on every precondition
  * that does not need a container, so the user is not handed a running container they believe can
  * publish. Removes any existing policy on failure — an explicit request that cannot be met must
  * not leave an older grant standing.
@@ -271,17 +279,19 @@ export async function checkGrantBeforeUp(
   const pin = await derivePin(merged, localFolder, 'skip', deps.home);
   if (pin.ok) return;
   await removePolicy(await projectKey(localFolder), deps);
-  throw new BridgeGrantError(`--bridge-git-push: ${pin.reason}`);
+  throw new BridgeGrantError(`--bridge-allow: ${pin.reason}`);
 }
 
 /**
  * After `devcontainer up`: apply `mode` to this workspace's policy.
  *
  * - `revoke` — unlink it. What `up`/`build` do without the flag.
- * - `grant` — derive the pin against the live mount table and write it, or remove any policy
- *   and throw {@link BridgeGrantError} naming the failed precondition.
- * - `refresh` — only when a policy exists: rewrite it from the current `HEAD`, or, when the pin
- *   can no longer be derived, remove it and say so. Never creates one.
+ * - `{ grant }` — derive the pin against the live mount table and write it with exactly these
+ *   capabilities, or remove any policy and throw {@link BridgeGrantError} naming the failed
+ *   precondition.
+ * - `refresh` — only when a policy exists: rewrite its pin from the current `HEAD`, keeping its
+ *   capabilities, or, when the pin can no longer be derived (or the file is malformed), remove it
+ *   and say so. Never creates one.
  */
 export async function applyPolicy(
   mode: PolicyMode,
@@ -294,14 +304,29 @@ export async function applyPolicy(
   if (mode === 'revoke') {
     if (await removePolicy(key, deps)) {
       deps.log(
-        'devc: git push via devc-bridge revoked for this workspace (pass --bridge-git-push to keep it)',
+        'devc: devc-bridge capabilities revoked for this workspace (pass --bridge-allow to keep them)',
       );
     }
     return;
   }
 
   const current = await readPolicy(key, deps);
-  if (mode === 'refresh' && current.kind === 'absent') return;
+  let grants: BridgeCapability[];
+  if (mode === 'refresh') {
+    if (current.kind === 'absent') return;
+    if (current.kind === 'malformed') {
+      await removePolicy(key, deps);
+      deps.log(
+        `devc: devc-bridge policy at ${
+          bridgePaths(deps.home, key).policyFile
+        } was malformed and has been removed — re-run devc up --bridge-allow <list>`,
+      );
+      return;
+    }
+    grants = current.record.grants;
+  } else {
+    grants = mode.grant;
+  }
 
   const pin = await derivePin(
     merged,
@@ -311,25 +336,28 @@ export async function applyPolicy(
   );
   if (!pin.ok) {
     await removePolicy(key, deps);
-    if (mode === 'grant') {
+    if (mode !== 'refresh') {
       throw new BridgeGrantError(
-        `the container is up, but --bridge-git-push was not granted: ${pin.reason}`,
+        `the container is up, but --bridge-allow was not granted: ${pin.reason}`,
       );
     }
     deps.log(
-      `devc: git push via devc-bridge revoked — ${pin.reason}. ` +
-        'Re-run `devc up --bridge-git-push` once that is fixed.',
+      `devc: devc-bridge capabilities revoked — ${pin.reason}. ` +
+        `Re-run \`devc up --bridge-allow ${
+          grants.join(',')
+        }\` once that is fixed.`,
     );
     return;
   }
 
+  const record: PolicyRecord = { ...pin.record, grants };
   const unchanged = current.kind === 'present' &&
-    serializePolicy(current.record) === serializePolicy(pin.record);
-  if (!unchanged) await writePolicy(key, pin.record, deps);
-  if (mode === 'grant') {
-    deps.log(`devc: git push via devc-bridge granted: ${describe(pin.record)}`);
+    serializePolicy(current.record) === serializePolicy(record);
+  if (!unchanged) await writePolicy(key, record, deps);
+  if (mode !== 'refresh') {
+    deps.log(`devc: devc-bridge capabilities granted: ${describe(record)}`);
   } else if (!unchanged) {
-    deps.log(`devc: git push pin refreshed: ${describe(pin.record)}`);
+    deps.log(`devc: devc-bridge pin refreshed: ${describe(record)}`);
   }
 }
 
@@ -439,10 +467,10 @@ export async function bridgeStatusLines(
   const policy = await readPolicy(key, deps);
   lines.push(
     policy.kind === 'absent'
-      ? '  git push:  absent — `devc up --bridge-git-push` grants it'
+      ? '  bridge:    absent — `devc up --bridge-allow <capabilities>` grants them'
       : policy.kind === 'malformed'
-      ? `  git push:  MALFORMED policy at ${paths.policyFile} — grants nothing`
-      : `  git push:  ${describe(policy.record)}`,
+      ? `  bridge:    MALFORMED policy at ${paths.policyFile} — grants nothing`
+      : `  bridge:    ${describe(policy.record)}`,
   );
   return lines;
 }

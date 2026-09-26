@@ -50,8 +50,8 @@ export type { AttachOptions } from './attach.ts';
 /** The CLI's start options: core's, plus what to do with the devc-bridge policy. */
 export interface CliStartOptions extends StartOptions {
   /**
-   * `refresh` (the default) for every start path except `up`/`build`, which pass `grant` with
-   * `--bridge-git-push` and `revoke` without it. See `bridge.ts`.
+   * `refresh` (the default) for every start path except `up`/`build`, which pass `{ grant }` with
+   * `--bridge-allow` and `revoke` without it. See `bridge.ts`.
    */
   bridgePolicy?: PolicyMode;
 }
@@ -66,7 +66,9 @@ function bridgeHooks(
 ): Pick<StartOptions, 'beforeUp' | 'afterUp'> {
   return {
     beforeUp: async (merged) => {
-      if (mode === 'grant') await checkGrantBeforeUp(merged, localFolder);
+      if (typeof mode === 'object') {
+        await checkGrantBeforeUp(merged, localFolder);
+      }
       await ensureKeyDir(merged);
     },
     afterUp: (merged) => applyPolicy(mode, merged, localFolder),

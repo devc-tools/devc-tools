@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Offline harness for the git-push and git-doctor recipes: a local bare repo stands in for the
-# remote, so nothing here touches a network. Runs the recipes directly with the environment the
+# Offline harness for the git-push and git-doctor built-ins: a local bare repo stands in for the
+# remote, so nothing here touches a network. Runs the scripts directly with the environment the
 # bridge would give them (DEVC_BRIDGE_KEY, DEVC_BRIDGE_POLICY_DIR) and a throwaway $HOME.
 #
 #   bash devc-bridge/tests/git_push_test.sh
@@ -11,8 +11,8 @@
 set -uo pipefail
 
 here=$(cd "$(dirname "$0")" && pwd)
-PUSH=$here/../recipes/git-push
-DOCTOR=$here/../recipes/git-doctor
+PUSH=$here/../builtin/git-push
+DOCTOR=$here/../builtin/git-doctor
 REAL_GIT=$(command -v git)
 
 pass=0
@@ -70,9 +70,9 @@ fresh() {
   pin "$REPO" "$REMOTE" feat
 }
 
-pin() { # pin <repo> <remote> <branch>
+pin() { # pin <repo> <remote> <branch> [grants, default git-push]
   mkdir -p "$POLICY_DIR"
-  printf '%s\t%s\t%s\n' "$1" "$2" "$3" >"$POLICY_DIR/$KEY.conf"
+  printf '%s\t%s\t%s\t%s\n' "$1" "$2" "$3" "${4:-git-push}" >"$POLICY_DIR/$KEY.conf"
 }
 
 # push [args…] — run the recipe as the bridge would; sets $rc and $out (stdout+stderr).
@@ -140,19 +140,32 @@ rm "$POLICY_DIR/$KEY.conf"
 push
 expect_rc 2 "no policy file"
 check "  … and no mirror was created (nothing touched)" test ! -e "$MIRROR"
+G=$'\t'git-push
 for bad_line in \
   "$REPO"$'\t'"$REMOTE" \
-  "$REPO"$'\t'"$REMOTE"$'\t'feat$'\t'x \
-  "$REPO"$'\t\t'feat \
-  "relative/repo"$'\t'"$REMOTE"$'\t'feat \
-  "$REPO"$'\t'"-u/evil"$'\t'feat \
-  "$REPO"$'\t'"$REMOTE"$'\t'"bad..ref" \
-  "$REPO"$'\t'"$REMOTE"$'\t'feat$'\n'"$REPO"$'\t'"$REMOTE"$'\t'main; do
+  "$REPO"$'\t'"$REMOTE"$'\t'feat \
+  "$REPO"$'\t'"$REMOTE"$'\t'feat"$G"$'\t'x \
+  "$REPO"$'\t\t'feat"$G" \
+  "relative/repo"$'\t'"$REMOTE"$'\t'feat"$G" \
+  "$REPO"$'\t'"-u/evil"$'\t'feat"$G" \
+  "$REPO"$'\t'"$REMOTE"$'\t'"bad..ref$G" \
+  "$REPO"$'\t'"$REMOTE"$'\t'feat$'\t' \
+  "$REPO"$'\t'"$REMOTE"$'\t'feat$'\t'"GIT PUSH" \
+  "$REPO"$'\t'"$REMOTE"$'\t'feat"$G"$'\n'"$REPO"$'\t'"$REMOTE"$'\t'main"$G"; do
   printf '%s\n' "$bad_line" >"$POLICY_DIR/$KEY.conf"
   push
   expect_rc 2 "malformed policy: $(printf '%s' "$bad_line" | sed "s|$W|W|g" | tr '\t\n' '|/')"
 done
 check "  … and the remote never moved" test "$(remote_ref refs/heads/feat)" = none
+fresh
+pin "$REPO" "$REMOTE" feat pr-review,pr-resolve
+push
+expect_rc 2 "a policy that does not grant git-push"
+check "  … says so" has "this container was not granted git-push"
+check "  … and nothing was touched" test ! -e "$MIRROR"
+pin "$REPO" "$REMOTE" feat git-push,pr-review
+push
+expect_rc 0 "git-push among other grants"
 fresh
 push extra
 expect_rc 2 "an argument is rejected, not ignored"
@@ -342,6 +355,18 @@ check "  … is reported" has "repo.worktrees/wt2"
 out=$(DEVC_BRIDGE_KEY=$KEY DEVC_BRIDGE_POLICY_DIR=$POLICY_DIR "$DOCTOR" other-key 2>&1)
 rc=$?
 expect_rc 2 "through the bridge, another key's report is refused"
+pin "$REPO" "$REMOTE" feat git-push,pr-review
+doctor
+check "the policy line shows the grants" has "policy    git-push, pr-review for feat → "
+pin "$REPO" "$REMOTE" feat pr-review
+out=$(DEVC_BRIDGE_KEY=$KEY DEVC_BRIDGE_POLICY_DIR=$POLICY_DIR "$DOCTOR" 2>&1)
+rc=$?
+expect_rc 2 "through the bridge, a container not granted git-push is refused"
+check "  … says so" has "this container was not granted git-push"
+printf '%s\t%s\t%s\n' "$REPO" "$REMOTE" feat >"$POLICY_DIR/$KEY.conf"
+doctor
+expect_rc 1 "a three-field (pre-grants) policy"
+check "  … is reported MALFORMED" has "MALFORMED"
 
 echo "hang-proofing"
 fresh

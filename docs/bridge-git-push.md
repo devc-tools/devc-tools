@@ -26,10 +26,10 @@ branch, remote, or ref.
 - **One repo:** the primary workspace repo. Sibling `devc:source` mounts are
   never pushable.
 - **One branch:** the branch that was checked out when the host last ran
-  `devc up --bridge-git-push`, `attach`, `claude`, and so on. Switching
+  `devc up --bridge-allow …`, `attach`, `claude`, and so on. Switching
   branches inside the container does **not** move the pin until the host runs
   one of those commands again. To see the pin, run `git-doctor` and read the
-  `policy <branch> → <remote>` line.
+  `policy <grants> for <branch> → <remote>` line.
 - **Committed tip only:** the host fetches `refs/heads/<branch>` from your repo.
   Uncommitted and unstaged changes are not sent. Commit first.
 - **Fast-forward only:** no force, no delete, no tags. If the remote branch has
@@ -52,13 +52,13 @@ Refusals and failures go to stderr, prefixed with `git-push:`.
 
 ## Exit codes
 
-| Exit | Meaning                                                                                                                                                                                                                        | What to do                                                                                                                                 |
-| ---- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| `0`  | Pushed, or already up to date                                                                                                                                                                                                  | Done                                                                                                                                       |
-| `1`  | Client-level error, before the verb ran. The stderr says which: `unknown command: git-push` means the recipe isn't installed on the host; a connection error means the bridge isn't running                                    | Stop and tell the user. You can't fix this from inside                                                                                     |
-| `2`  | No policy (container not started with `--bridge-git-push`), malformed policy, an argument was passed, the pin no longer resolves (branch missing, detached HEAD, bad worktree pointer), or the remote doesn't match the mirror | Run `git-doctor`, then report it to the user. Don't retry                                                                                  |
-| `3`  | Content policy refused the push: the branch changes `.github/workflows/` compared with the default branch, it adds a Git LFS pointer, or the remote has no default branch                                                      | Remove the offending change, or rebase if the default branch's workflows moved and you're just behind. Otherwise hand the push to the user |
-| `4`  | Transport failure, timeout (default 300s), or a non-fast-forward rejection                                                                                                                                                     | If you rewrote history, the push won't go through. Report it. Retry only for a transient network error                                     |
+| Exit | Meaning                                                                                                                                                                                                                                         | What to do                                                                                                                                 |
+| ---- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| `0`  | Pushed, or already up to date                                                                                                                                                                                                                   | Done                                                                                                                                       |
+| `1`  | Refused before the command ran. `git-push needs capability git-push, which this container was not granted …` or `no capabilities granted to this container …` means the host didn't grant it; a connection error means the bridge isn't running | Stop and tell the user, quoting the `devc up --bridge-allow …` the message suggests. You can't fix this from inside                        |
+| `2`  | A malformed policy, an argument was passed, the pin no longer resolves (branch missing, detached HEAD, bad worktree pointer), or the remote doesn't match the mirror                                                                            | Run `git-doctor`, then report it to the user. Don't retry                                                                                  |
+| `3`  | Content policy refused the push: the branch changes `.github/workflows/` compared with the default branch, it adds a Git LFS pointer, or the remote has no default branch                                                                       | Remove the offending change, or rebase if the default branch's workflows moved and you're just behind. Otherwise hand the push to the user |
+| `4`  | Transport failure, timeout (default 300s), or a non-fast-forward rejection                                                                                                                                                                      | If you rewrote history, the push won't go through. Report it. Retry only for a transient network error                                     |
 
 ## Rules for agents
 
@@ -68,14 +68,14 @@ Refusals and failures go to stderr, prefixed with `git-push:`.
 - Don't edit `.github/workflows/` on a branch you intend to push this way.
 - Don't loop on exit 2 or exit 3. Those are policy decisions, not transient
   failures.
-- If `git-doctor` isn't installed (exit 1, `unknown command`), the pin is
-  whatever branch was checked out when the container was last started or
-  attached.
+- If `git-doctor` is refused (exit 1), the container wasn't granted
+  `git-push` at all.
 
 ## PR review loop
 
-Three more commands, each installed separately on the host, so any may be
-missing (exit 1, `unknown command`). They act on **your PR**: the one open PR
+Three more commands, enabled per container by two capabilities: `pr-review`
+(`pr-comments`, `pr-reply`) and `pr-resolve` (`pr-resolve`). Either may be
+missing — the call is refused with exit 1 and says which. They act on **your PR**: the one open PR
 whose head is the pinned repo and branch. For a fork, that's the PR from your
 fork into its upstream.
 
@@ -156,10 +156,10 @@ Also stop and tell the user if `copilotReview.commit` never catches up to
 
 ### Exit codes
 
-| Exit | Meaning                                                                                                                         | What to do                                                                    |
-| ---- | ------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
-| `0`  | Done, or already resolved                                                                                                       | Continue                                                                      |
-| `1`  | Client-level error. `unknown command: pr-…` means that recipe isn't installed on the host                                       | Tell the user. You can't fix this from inside                                 |
-| `2`  | No policy, wrong arguments, a non-github.com remote, no single open PR for the pinned branch, or a thread that isn't on your PR | Check the thread id came from `pr-comments`. Otherwise report it. Don't retry |
-| `3`  | Refused: the reply body is empty, too long, or has control characters, or you tried to resolve a thread Copilot didn't start    | Fix the body and retry, or reply instead of resolving                         |
-| `4`  | GitHub or network failure, `gh` not set up on the host, or a timeout                                                            | Retry once for a transient error. Otherwise report it                         |
+| Exit | Meaning                                                                                                                                                | What to do                                                                                      |
+| ---- | ------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------- |
+| `0`  | Done, or already resolved                                                                                                                              | Continue                                                                                        |
+| `1`  | Refused before the command ran: `… needs capability pr-review` (or `pr-resolve`) `, which this container was not granted`, or the bridge isn't running | Tell the user, quoting the suggested `devc up --bridge-allow …`. You can't fix this from inside |
+| `2`  | No policy, wrong arguments, a non-github.com remote, no single open PR for the pinned branch, or a thread that isn't on your PR                        | Check the thread id came from `pr-comments`. Otherwise report it. Don't retry                   |
+| `3`  | Refused: the reply body is empty, too long, or has control characters, or you tried to resolve a thread Copilot didn't start                           | Fix the body and retry, or reply instead of resolving                                           |
+| `4`  | GitHub or network failure, `gh` not set up on the host, or a timeout                                                                                   | Retry once for a transient error. Otherwise report it                                           |

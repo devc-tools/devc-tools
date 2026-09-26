@@ -27,6 +27,14 @@
     "dependencies": [
       "jsr:@std/assert@1",
       "jsr:@std/path@1"
-    ]
+    ],
+    "links": {
+      "npm:@devc-tools/core@0.3.0": {
+        "dependencies": [
+          "npm:@devcontainers/cli@0.88.0",
+          "npm:jsonc-parser@^3.3.1"
+        ]
+      }
+    }
   }
 }

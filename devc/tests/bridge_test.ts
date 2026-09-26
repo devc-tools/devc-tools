@@ -23,6 +23,7 @@ import {
   bridgeStatusLines,
   checkGrantBeforeUp,
   ensureKeyDir,
+  type PolicyMode,
   pruneBridgeFiles,
   readPolicy,
   removeBridgeFiles,
@@ -146,6 +147,9 @@ async function withFixture(fn: (f: Fixture) => Promise<void>): Promise<void> {
 
 const SHA1 = '0123456789abcdef0123456789abcdef01234567';
 
+/** The grant most tests make: two capabilities, so the fourth field is visibly a list. */
+const GRANT: PolicyMode = { grant: ['git-push', 'pr-review'] };
+
 // ── the key directory ───────────────────────────────────────────────────────────────────────
 
 Deno.test('ensureKeyDir creates keys/<key>/ with no token in it', async () => {
@@ -172,20 +176,18 @@ Deno.test('ensureKeyDir creates nothing without the devc-bridge Feature', async 
 Deno.test('grant writes the pin when the container has the repo frozen', async () => {
   await withFixture(async (f) => {
     const merged = await f.merged();
-    await applyPolicy(
-      'grant',
-      merged,
-      f.project,
-      f.deps(f.frozen),
-    );
+    await applyPolicy(GRANT, merged, f.project, f.deps(f.frozen));
     const key = await projectKey(f.project);
     const file = bridgePaths(f.home, key).policyFile;
     assertEquals(
       await Deno.readTextFile(file),
-      `${f.project}\tgit@github.com:acme/proj.git\tfeat/x\n`,
+      `${f.project}\tgit@github.com:acme/proj.git\tfeat/x\tgit-push,pr-review\n`,
     );
     assertEquals((await Deno.stat(file)).mode! & 0o777, 0o600);
-    assertStringIncludes(f.logs.join('\n'), 'granted: feat/x');
+    assertStringIncludes(
+      f.logs.join('\n'),
+      'devc: devc-bridge capabilities granted: git-push, pr-review for feat/x → git@github.com:acme/proj.git',
+    );
   });
 });
 
@@ -193,18 +195,13 @@ Deno.test('grant is refused, and an older policy removed, when the container is 
   await withFixture(async (f) => {
     const merged = await f.merged();
     // An older grant, from before the container was recreated without protection.
-    await applyPolicy(
-      'grant',
-      merged,
-      f.project,
-      f.deps(f.frozen),
-    );
+    await applyPolicy(GRANT, merged, f.project, f.deps(f.frozen));
     const unfrozen = f.frozen.map((m) => ({
       ...m,
       rw: true,
     }));
     const err = await assertRejects(
-      () => applyPolicy('grant', merged, f.project, f.deps(unfrozen)),
+      () => applyPolicy(GRANT, merged, f.project, f.deps(unfrozen)),
       BridgeGrantError,
     );
     assertStringIncludes(err.message, 'git protection is not in force');
@@ -229,7 +226,7 @@ Deno.test('grant checks the live mounts, not the gitProtect key', async () => {
       rw: true,
     }];
     await assertRejects(
-      () => applyPolicy('grant', merged, f.project, f.deps(bare)),
+      () => applyPolicy(GRANT, merged, f.project, f.deps(bare)),
       BridgeGrantError,
       'not a mountpoint',
     );
@@ -247,14 +244,13 @@ Deno.test('grant is refused for a container still on a hand-written run/ mount',
     );
     await assertRejects(
       async () =>
-        applyPolicy('grant', await f.merged(), f.project, f.deps(legacy)),
+        applyPolicy(GRANT, await f.merged(), f.project, f.deps(legacy)),
       BridgeGrantError,
       'not its own',
     );
     const none = f.frozen.filter((m) => m.destination !== '/run/devc-bridge');
     await assertRejects(
-      async () =>
-        applyPolicy('grant', await f.merged(), f.project, f.deps(none)),
+      async () => applyPolicy(GRANT, await f.merged(), f.project, f.deps(none)),
       BridgeGrantError,
       'nothing mounted at /run/devc-bridge',
     );
@@ -267,7 +263,7 @@ Deno.test('grant with gitProtect off, no Feature, or no container: each named', 
     await assertRejects(
       async () =>
         applyPolicy(
-          'grant',
+          GRANT,
           await f.merged({ gitProtect: false }),
           f.project,
           frozen,
@@ -278,7 +274,7 @@ Deno.test('grant with gitProtect off, no Feature, or no container: each named', 
     await assertRejects(
       async () =>
         applyPolicy(
-          'grant',
+          GRANT,
           await f.merged({ features: { [BRIDGE_FEATURE]: null } }),
           f.project,
           frozen,
@@ -287,8 +283,7 @@ Deno.test('grant with gitProtect off, no Feature, or no container: each named', 
       'no devc-bridge Feature',
     );
     await assertRejects(
-      async () =>
-        applyPolicy('grant', await f.merged(), f.project, f.deps(null)),
+      async () => applyPolicy(GRANT, await f.merged(), f.project, f.deps(null)),
       BridgeGrantError,
       'no container',
     );
@@ -327,7 +322,7 @@ Deno.test('refresh rewrites the pin after a branch switch', async () => {
   await withFixture(async (f) => {
     const merged = await f.merged();
     const deps = f.deps(f.frozen);
-    await applyPolicy('grant', merged, f.project, deps);
+    await applyPolicy(GRANT, merged, f.project, deps);
     await f.setHead('ref: refs/heads/feat/next\n');
     await applyPolicy('refresh', merged, f.project, deps);
     const policy = await readPolicy(await projectKey(f.project), deps);
@@ -335,7 +330,15 @@ Deno.test('refresh rewrites the pin after a branch switch', async () => {
       policy.kind === 'present' && policy.record.branch,
       'feat/next',
     );
-    assertStringIncludes(f.logs.join('\n'), 'refreshed: feat/next');
+    assertEquals(
+      policy.kind === 'present' && policy.record.grants,
+      ['git-push', 'pr-review'],
+      'refresh keeps the grants',
+    );
+    assertStringIncludes(
+      f.logs.join('\n'),
+      'devc: devc-bridge pin refreshed: git-push, pr-review for feat/next',
+    );
   });
 });
 
@@ -343,14 +346,54 @@ Deno.test('refresh revokes, and says so, when the pin can no longer be derived',
   await withFixture(async (f) => {
     const merged = await f.merged();
     const deps = f.deps(f.frozen);
-    await applyPolicy('grant', merged, f.project, deps);
+    await applyPolicy(GRANT, merged, f.project, deps);
     await f.setHead(`${SHA1}\n`);
     await applyPolicy('refresh', merged, f.project, deps);
     assertEquals(
       await readPolicy(await projectKey(f.project), deps),
       { kind: 'absent' },
     );
-    assertStringIncludes(f.logs.join('\n'), 'revoked');
+    assertStringIncludes(
+      f.logs.join('\n'),
+      'devc: devc-bridge capabilities revoked — ',
+    );
+    assertStringIncludes(
+      f.logs.join('\n'),
+      'Re-run `devc up --bridge-allow git-push,pr-review` once that is fixed.',
+    );
+  });
+});
+
+Deno.test('refresh removes a malformed (pre-grants, three-field) policy and says so', async () => {
+  await withFixture(async (f) => {
+    const merged = await f.merged();
+    const deps = f.deps(f.frozen);
+    const file = bridgePaths(f.home, merged.bridgeKey!).policyFile;
+    await write(file, `${f.project}\tgit@github.com:acme/proj.git\tfeat/x\n`);
+    await applyPolicy('refresh', merged, f.project, deps);
+    assertEquals(await exists(file), false);
+    assertStringIncludes(
+      f.logs.join('\n'),
+      `devc: devc-bridge policy at ${file} was malformed and has been removed — re-run devc up --bridge-allow <list>`,
+    );
+  });
+});
+
+Deno.test('a new grant replaces the earlier set rather than merging', async () => {
+  await withFixture(async (f) => {
+    const merged = await f.merged();
+    const deps = f.deps(f.frozen);
+    await applyPolicy(
+      { grant: ['git-push', 'pr-review', 'pr-resolve'] },
+      merged,
+      f.project,
+      deps,
+    );
+    await applyPolicy({ grant: ['git-push'] }, merged, f.project, deps);
+    const policy = await readPolicy(merged.bridgeKey!, deps);
+    assertEquals(policy.kind === 'present' && policy.record.grants, [
+      'git-push',
+    ]);
   });
 });
 
@@ -360,7 +403,7 @@ Deno.test('revoke unlinks this key only, never a sweep of policy/', async () => 
   await withFixture(async (f) => {
     const merged = await f.merged();
     const deps = f.deps(f.frozen);
-    await applyPolicy('grant', merged, f.project, deps);
+    await applyPolicy(GRANT, merged, f.project, deps);
     const other = bridgePaths(f.home, 'other-12345678').policyFile;
     await Deno.writeTextFile(other, '/o\tu\tb\n');
 
@@ -368,6 +411,10 @@ Deno.test('revoke unlinks this key only, never a sweep of policy/', async () => 
     assertEquals(
       await readPolicy(await projectKey(f.project), deps),
       { kind: 'absent' },
+    );
+    assertStringIncludes(
+      f.logs.join('\n'),
+      'devc: devc-bridge capabilities revoked for this workspace (pass --bridge-allow to keep them)',
     );
     assertEquals(await Deno.readTextFile(other), '/o\tu\tb\n');
   });
@@ -378,7 +425,7 @@ Deno.test('removeBridgeFiles takes the key dir and the policy', async () => {
     const merged = await f.merged();
     const deps = f.deps(f.frozen);
     await ensureKeyDir(merged, deps);
-    await applyPolicy('grant', merged, f.project, deps);
+    await applyPolicy(GRANT, merged, f.project, deps);
     const paths = bridgePaths(f.home, merged.bridgeKey!);
     assertEquals(
       (await removeBridgeFiles(f.project, deps)).sort(),
@@ -442,18 +489,16 @@ Deno.test('status prints absent as absent, and the pin when there is one', async
       `devc-bridge: key ${merged.bridgeKey}`,
     );
     assertStringIncludes(before.join('\n'), 'token dir: absent');
-    assertStringIncludes(before.join('\n'), 'git push:  absent');
-
-    await applyPolicy(
-      'grant',
-      merged,
-      f.project,
-      f.deps(f.frozen),
+    assertStringIncludes(
+      before.join('\n'),
+      '  bridge:    absent — `devc up --bridge-allow <capabilities>` grants them',
     );
+
+    await applyPolicy(GRANT, merged, f.project, f.deps(f.frozen));
     const after = await bridgeStatusLines(merged, f.project, f.deps(null));
     assertStringIncludes(
       after.join('\n'),
-      'git push:  feat/x → git@github.com:acme/proj.git',
+      `  bridge:    git-push, pr-review for feat/x → git@github.com:acme/proj.git (${f.project})`,
     );
   });
 });
@@ -463,7 +508,12 @@ Deno.test('status names a malformed policy rather than showing a pin', async () 
     const merged = await f.merged();
     await write(bridgePaths(f.home, merged.bridgeKey!).policyFile, 'nope\n');
     const lines = await bridgeStatusLines(merged, f.project, f.deps(null));
-    assertStringIncludes(lines.join('\n'), 'MALFORMED');
+    assertStringIncludes(
+      lines.join('\n'),
+      `  bridge:    MALFORMED policy at ${
+        bridgePaths(f.home, merged.bridgeKey!).policyFile
+      } — grants nothing`,
+    );
   });
 });
 
@@ -535,7 +585,7 @@ Deno.test('a worktree container is granted once the primary git dir is frozen', 
     assertEquals(merged.protectedRows.map((r) => [r.target, r.kind]), [
       ['/workspaces/proj/.git', 'gitdir'],
     ]);
-    await applyPolicy('grant', merged, wt, f.deps(frozen));
+    await applyPolicy(GRANT, merged, wt, f.deps(frozen));
     const policy = await readPolicy(merged.bridgeKey!, f.deps(null));
     assertEquals(policy, {
       kind: 'present',
@@ -543,6 +593,7 @@ Deno.test('a worktree container is granted once the primary git dir is frozen', 
         repo: wt,
         remote: 'git@github.com:acme/proj.git',
         branch: 'feat/wt',
+        grants: ['git-push', 'pr-review'],
       },
     });
   });
@@ -555,7 +606,7 @@ Deno.test('a worktree grant is refused while the primary git dir is writable', a
       !m.destination.startsWith('/workspaces/proj/.git/')
     );
     await assertRejects(
-      () => applyPolicy('grant', merged, wt, f.deps(writable)),
+      () => applyPolicy(GRANT, merged, wt, f.deps(writable)),
       BridgeGrantError,
       'not in force in this container for /workspaces/proj/.git',
     );
@@ -573,7 +624,7 @@ Deno.test('the pin reads the frozen config, not whatever commondir points at', a
       '[remote "origin"]\n\turl = git@github.com:attacker/x.git\n',
     );
     await Deno.writeTextFile(`${wtGitDir}/commondir`, `${f.dir}/evil\n`);
-    await applyPolicy('grant', merged, wt, f.deps(frozen));
+    await applyPolicy(GRANT, merged, wt, f.deps(frozen));
     const policy = await readPolicy(merged.bridgeKey!, f.deps(null));
     assertEquals(
       policy.kind === 'present' && policy.record.remote,

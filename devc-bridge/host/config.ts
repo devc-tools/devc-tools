@@ -12,11 +12,13 @@
 // host's to edit. Run from source (uncompiled) the same URL resolves to the repo's
 // host/commands, so seeding still works without a build.
 //
-// Recipes (`../recipes`, embedded the same way) are the opposite: command scripts that are *not*
-// seeded, because a seeded file is an enabled capability. `devc-bridge install-command <name>`
-// copies one in on purpose — `git-push` is the reason this exists.
+// Built-ins (`../builtin`, embedded the same way) are the opposite: the capability scripts
+// (`git-push`, `pr-comments`, …), never seeded and never user-owned. Embedded files cannot be
+// exec'd, so every start materializes them into a host-only dir the bridge rewrites whole — an
+// upgrade applies on restart. Whether a caller may run one is its policy's grant, checked per
+// request in core.ts.
 
-import { join } from '@std/path';
+import { dirname, join } from '@std/path';
 
 export interface Config {
   /** Root of the config tree (default ~/.config/devc-bridge). */
@@ -41,6 +43,11 @@ export interface Config {
   state: string;
   /** Editable, allowlisted command scripts (seeded on first start). */
   commands: string;
+  /**
+   * The materialized built-in capability scripts, `~/.local/state/devc-bridge/builtin/`: rewritten
+   * whole on every start, never edited, never mounted, and outside both `commands/` and `run/`.
+   */
+  builtin: string;
   /**
    * Dev-override client dir: a Linux `devc-bridge` a container can be pointed at.
    *
@@ -120,6 +127,7 @@ export function loadConfig(): Config {
     policy: join(base, 'policy'),
     state: Deno.env.get('DEVC_BRIDGE_STATE') ?? join(base, 'state'),
     commands: Deno.env.get('DEVC_BRIDGE_COMMANDS') ?? join(base, 'commands'),
+    builtin: join(home, '.local', 'state', 'devc-bridge', 'builtin'),
     client,
     clientBin: join(client, 'devc-bridge'),
     token: Deno.env.get('DEVC_BRIDGE_TOKEN_FILE') ?? join(run, 'token'),
@@ -145,6 +153,7 @@ export async function ensureConfig(cfg: Config): Promise<void> {
   // `Config.client`.
   await ensureDir(cfg.client);
   await seedCommands(cfg.commands);
+  await materializeBuiltins(cfg.builtin);
 }
 
 /**
@@ -205,15 +214,12 @@ export async function seedCommands(commandsDir: string): Promise<string[]> {
   return written;
 }
 
-// A command name must be a bare filename, as in core.ts's dispatch.
-const NAME_RE = /^[A-Za-z0-9._-]+$/;
-
-/** The embedded recipes, sorted. Empty when none are readable (a build without them). */
-export async function listRecipes(): Promise<string[]> {
+/** The embedded built-in scripts, sorted. Empty when none are readable (a build without them). */
+export async function listBuiltins(): Promise<string[]> {
   const names: string[] = [];
   try {
     for await (
-      const entry of Deno.readDir(new URL('../recipes', import.meta.url))
+      const entry of Deno.readDir(new URL('../builtin', import.meta.url))
     ) {
       if (entry.isFile) names.push(entry.name);
     }
@@ -222,42 +228,40 @@ export async function listRecipes(): Promise<string[]> {
 }
 
 /**
- * Copy the recipe `name` into `commandsDir` as an executable command, enabling it. Refuses — and
- * changes nothing — when `name` is not a recipe or `commandsDir` already has an entry of that name
- * (the host's copy is never clobbered, as with seeding; delete it first to reinstall). Returns the
- * installed path.
+ * Write every embedded built-in into `dir` (`0700`, scripts `0755`), replacing whatever is there.
+ * Built in a fresh sibling and swapped in by rename, so a crash never leaves a half-written set and
+ * a stale script from an older build never survives. Returns the names written.
  */
-export async function installCommand(
-  commandsDir: string,
-  name: string,
-): Promise<string> {
-  const recipes = await listRecipes();
-  if (!NAME_RE.test(name) || !recipes.includes(name)) {
-    throw new Error(
-      `devc-bridge: no recipe named ${JSON.stringify(name)} (available: ${
-        recipes.join(', ') || 'none'
-      })`,
-    );
-  }
-  await ensureDir(commandsDir);
-  const target = join(commandsDir, name);
-  const content = await Deno.readFile(
-    new URL(`../recipes/${name}`, import.meta.url),
-  );
+export async function materializeBuiltins(dir: string): Promise<string[]> {
+  const names = await listBuiltins();
+  const parent = dirname(dir);
+  await Deno.mkdir(parent, { recursive: true, mode: 0o700 });
+  const fresh = await Deno.makeTempDir({ dir: parent, prefix: 'builtin.tmp-' });
   try {
-    // createNew is O_EXCL: it fails on any existing entry, a dangling symlink included, and so can
-    // never write through one.
-    await Deno.writeFile(target, content, { createNew: true, mode: 0o755 });
-  } catch (e) {
-    if (e instanceof Deno.errors.AlreadyExists) {
-      throw new Error(
-        `devc-bridge: ${target} already exists — not overwriting (remove it first to reinstall)`,
+    for (const name of names) {
+      const target = join(fresh, name);
+      await Deno.writeFile(
+        target,
+        await Deno.readFile(new URL(`../builtin/${name}`, import.meta.url)),
       );
+      await Deno.chmod(target, 0o755);
     }
+    await Deno.chmod(fresh, 0o700);
+    const old = `${fresh}.old`;
+    let hadOld = true;
+    try {
+      await Deno.rename(dir, old);
+    } catch (e) {
+      if (!(e instanceof Deno.errors.NotFound)) throw e;
+      hadOld = false;
+    }
+    await Deno.rename(fresh, dir);
+    if (hadOld) await Deno.remove(old, { recursive: true });
+  } catch (e) {
+    await Deno.remove(fresh, { recursive: true }).catch(() => {});
     throw e;
   }
-  await Deno.chmod(target, 0o755); // createNew's mode is filtered by the umask
-  return target;
+  return names;
 }
 
 export function errMsg(e: unknown): string {

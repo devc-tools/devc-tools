@@ -33,6 +33,8 @@ async function cli(
   const out = await new Deno.Command(command, {
     args: argv,
     env: {
+      // HOME too: every start materializes the built-ins under ~/.local/state/devc-bridge.
+      HOME: base,
       DEVC_BRIDGE_BASE: base,
       DEVC_BRIDGE_HOST: '127.0.0.1',
       DEVC_BRIDGE_PORT: String(port),

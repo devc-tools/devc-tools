@@ -2,8 +2,8 @@
 # pr-reply — reply to one review thread on this container's one PR.
 #   devc-bridge pr-reply <thread-id> <body>
 #
-# A recipe, not a seeded command: it exists on a host only after
-# `devc-bridge install-command pr-reply`. Removing the capability is `rm` of that copy.
+# Built in: runs only for a container whose policy grants `pr-review`
+# (`devc up --bridge-allow pr-review`).
 #
 # Any thread on the PR — a human reviewer's too, resolved or not. The PR is the one open PR whose
 # head is the policy's remote + branch (see pr-comments). The reply is posted under the host user's
@@ -54,24 +54,34 @@ load_policy() {
   policy_dir=${DEVC_BRIDGE_POLICY_DIR:-$HOME/.config/devc-bridge/policy}
   policy=$policy_dir/$key.conf
   [ -f "$policy" ] ||
-    die 2 "no policy for this container — start it with: devc up --bridge-git-push"
+    die 2 "no policy for this container — on the host: devc up --bridge-allow pr-review"
   line=$(cat -- "$policy" && printf x) || die 2 "malformed policy $policy: unreadable"
   line=${line%x}
   line=${line%$'\n'}
   case $line in *$'\n'* | *$'\r'*) die 2 "malformed policy $policy: more than one line" ;; esac
   tabs=${line//[!$'\t']/}
-  [ ${#tabs} -eq 2 ] || die 2 "malformed policy $policy: want exactly three tab-separated fields"
+  [ ${#tabs} -eq 3 ] || die 2 "malformed policy $policy: want exactly four tab-separated fields"
   rest=${line#*$'\t'}
   remote=${rest%%$'\t'*}
-  branch=${rest#*$'\t'}
-  for field in "${line%%$'\t'*}" "$remote" "$branch"; do
+  rest=${rest#*$'\t'}
+  branch=${rest%%$'\t'*}
+  grants=${rest#*$'\t'}
+  for field in "${line%%$'\t'*}" "$remote" "$branch" "$grants"; do
     [ -n "$field" ] || die 2 "malformed policy $policy: empty field"
     case $field in *[[:cntrl:]]*) die 2 "malformed policy $policy: control character in a field" ;; esac
   done
   case ${line%%$'\t'*} in /*) ;; *) die 2 "malformed policy $policy: repo is not an absolute path" ;; esac
   git check-ref-format "refs/heads/$branch" ||
     die 2 "malformed policy $policy: branch is not a valid ref name"
+  [[ $grants =~ ^[a-z][a-z-]*(,[a-z][a-z-]*)*$ ]] ||
+    die 2 "malformed policy $policy: bad grants field"
   parse_remote "$remote" || die 2 "unsupported remote $remote — only github.com"
+}
+
+# require_grant CAP — exit 2 unless the policy grants CAP. The bridge already refused an ungranted
+# call before running this; this is the second layer.
+require_grant() {
+  case ,$grants, in *,"$1",*) ;; *) die 2 "this container was not granted $1" ;; esac
 }
 
 # parse_remote URL — sets head_owner/head_name. Three shapes, github.com or a `github.com-*` ssh
@@ -234,6 +244,7 @@ thread=$1
 body=$2
 valid_thread_id "$thread" || die 2 "not a review thread id (want PRRT_…): $thread"
 load_policy
+require_grant pr-review
 
 # Checked before anything touches the network, so a retry costs nothing. LC_ALL=C: ${#} is bytes.
 [ -n "${body//[[:space:]]/}" ] || die 3 "body is empty"

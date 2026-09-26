@@ -2,15 +2,16 @@
 # git-doctor — explain why git-push would or would not work, without changing anything.
 #   devc-bridge git-doctor [key]
 #
-# A recipe, installed with `devc-bridge install-command git-doctor`. On the host it reports every
-# policy (or just `key`); called through the bridge it reports the caller's own and refuses any
+# Built in, enabled by the `git-push` capability. Run by hand on the host
+# (`~/.local/state/devc-bridge/builtin/git-doctor`) it reports every policy (or just `key`); called through the bridge it reports the caller's own and refuses any
 # other, since one container has no business reading another's pin. The bridge marks a dispatched
 # call by setting DEVC_BRIDGE_KEY, empty for the shared legacy token.
 #
 # Like git-push, it never runs git inside a pinned repo: HEAD, refs and worktree pointers are read
 # as files. Only the host-owned mirror is asked anything.
 #
-# Exit codes: 0 nothing wrong found, 1 at least one finding, 2 bad usage.
+# Exit codes: 0 nothing wrong found, 1 at least one finding, 2 bad usage, or (through the bridge)
+# a container not granted git-push.
 
 set -uo pipefail
 export LC_ALL=C
@@ -150,15 +151,30 @@ for key in "${keys[@]}"; do
   case $line in
     *$'\n'* | *$'\r'*) tabs=bad ;;
   esac
-  if [ ${#tabs} -ne 2 ] || [ "$tabs" = bad ]; then
+  grants=''
+  if [ ${#tabs} -eq 3 ] && [ "$tabs" != bad ]; then
+    grants=${line##*$'\t'}
+    [[ $grants =~ ^[a-z][a-z-]*(,[a-z][a-z-]*)*$ ]] || tabs=bad
+  fi
+  if [ ${#tabs} -ne 3 ] || [ "$tabs" = bad ]; then
     finding "policy    MALFORMED ($policy) — grants nothing"
     continue
+  fi
+  if [ -n "${DEVC_BRIDGE_KEY-}" ]; then
+    case ,$grants, in
+      *,git-push,*) ;;
+      *)
+        echo "git-doctor: this container was not granted git-push" >&2
+        exit 2
+        ;;
+    esac
   fi
   repo=${line%%$'\t'*}
   rest=${line#*$'\t'}
   remote=${rest%%$'\t'*}
-  branch=${rest#*$'\t'}
-  echo "  policy    $branch → $remote"
+  rest=${rest#*$'\t'}
+  branch=${rest%%$'\t'*}
+  echo "  policy    ${grants//,/, } for $branch → $remote"
   echo "  repo      $repo"
 
   common=''

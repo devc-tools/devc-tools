@@ -7,13 +7,19 @@ import {
   assertEquals,
   assertNotEquals,
   assertStringIncludes,
+  assertThrows,
 } from 'jsr:@std/assert@^1';
 import {
+  BRIDGE_CAPABILITIES,
+  BRIDGE_CAPABILITY_COMMANDS,
+  type BridgeCapability,
   bridgePaths,
+  capabilityForCommand,
   parseGitdirPointer,
   parseHead,
   parseOriginUrl,
   parsePolicy,
+  type PolicyRecord,
   resolvePin,
   serializePolicy,
 } from '../bridge.ts';
@@ -94,13 +100,32 @@ Deno.test('policy: serialize and parse round-trip one tab-separated line', () =>
     repo: '/Users/me/code/app',
     remote: 'git@github.com:acme/app.git',
     branch: 'feat/x',
+    grants: ['git-push', 'pr-review'] as BridgeCapability[],
   };
   const text = serializePolicy(record);
   assertEquals(
     text,
-    '/Users/me/code/app\tgit@github.com:acme/app.git\tfeat/x\n',
+    '/Users/me/code/app\tgit@github.com:acme/app.git\tfeat/x\tgit-push,pr-review\n',
   );
   assertEquals(parsePolicy(text), record);
+});
+
+Deno.test('policy: every valid grant set round-trips', () => {
+  const sets: BridgeCapability[][] = [
+    ['git-push'],
+    ['pr-review'],
+    ['git-push', 'pr-review'],
+    ['pr-review', 'pr-resolve'],
+    ['git-push', 'pr-review', 'pr-resolve'],
+  ];
+  for (const grants of sets) {
+    const record = { repo: '/a', remote: 'r', branch: 'b', grants };
+    assertEquals(
+      parsePolicy(serializePolicy(record)),
+      record,
+      grants.join(','),
+    );
+  }
 });
 
 Deno.test('policy: a malformed file parses to null', () => {
@@ -109,10 +134,18 @@ Deno.test('policy: a malformed file parses to null', () => {
       '',
       '\n',
       '/a\tb\n',
-      '/a\tb\tc\td\n',
-      '/a\t\tc\n',
-      '/a\tb\tc\n/d\te\tf\n',
-      '/a\tb\tc\r\n',
+      '/a\tb\tc\n', // three fields: a file from before grants existed
+      '/a\tb\tc\tgit-push\te\n',
+      '/a\t\tc\tgit-push\n',
+      '/a\tb\tc\t\n', // empty grants
+      '/a\tb\tc\tgit-push\n/d\te\tf\tgit-push\n',
+      '/a\tb\tc\tgit-push\r\n',
+      '/a\tb\tc\tgit-pull\n', // unknown capability
+      '/a\tb\tc\tgit-push,git-push\n', // duplicate
+      '/a\tb\tc\tpr-review,git-push\n', // out of canonical order
+      '/a\tb\tc\tgit-push, pr-review\n', // a space
+      '/a\tb\tc\tgit-push,\n', // trailing comma
+      '/a\tb\tc\tpr-resolve\n', // pr-resolve without pr-review
     ]
   ) {
     assertEquals(parsePolicy(text), null, JSON.stringify(text));
@@ -120,13 +153,34 @@ Deno.test('policy: a malformed file parses to null', () => {
 });
 
 Deno.test('policy: serialize refuses a field that would not read back', () => {
-  let threw = false;
-  try {
-    serializePolicy({ repo: '/a', remote: 'x\ty', branch: 'main' });
-  } catch {
-    threw = true;
+  const ok = { repo: '/a', remote: 'r', branch: 'main' };
+  const bad: PolicyRecord[] = [
+    { ...ok, remote: 'x\ty', grants: ['git-push'] },
+    { ...ok, grants: [] },
+    { ...ok, grants: ['pr-review', 'git-push'] },
+    { ...ok, grants: ['git-push', 'git-push'] },
+    { ...ok, grants: ['pr-resolve'] },
+    { ...ok, grants: ['nope' as BridgeCapability] },
+  ];
+  for (const record of bad) {
+    assertThrows(
+      () => serializePolicy(record),
+      Error,
+      undefined,
+      JSON.stringify(record),
+    );
   }
-  assert(threw);
+});
+
+Deno.test('capabilities: every built-in command maps to exactly one capability', () => {
+  assertEquals(capabilityForCommand('git-push'), 'git-push');
+  assertEquals(capabilityForCommand('git-doctor'), 'git-push');
+  assertEquals(capabilityForCommand('pr-comments'), 'pr-review');
+  assertEquals(capabilityForCommand('pr-reply'), 'pr-review');
+  assertEquals(capabilityForCommand('pr-resolve'), 'pr-resolve');
+  assertEquals(capabilityForCommand('caffeinate'), null);
+  const all = BRIDGE_CAPABILITIES.flatMap((c) => BRIDGE_CAPABILITY_COMMANDS[c]);
+  assertEquals(new Set(all).size, all.length);
 });
 
 // ── HEAD and gitdir ─────────────────────────────────────────────────────────────────────────
