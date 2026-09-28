@@ -1,9 +1,12 @@
 {
   "tasks": {
-    "build": "deno compile --allow-read --allow-net --allow-env=DEVC_BRIDGE_ADDR,DEVC_BRIDGE_TOKEN_FILE --output devc-bridge devc-bridge.ts",
+    // `build` and `build:client` stamp `git describe` into the binary for `--version` (see
+    // ../../version-info/version_info.ts); `build:release` never embeds it.
+    "build:info": "deno run --allow-run=git --allow-read --allow-write=build_info.json ../../version-info/write_build_info.ts build_info.json",
+    "build": "deno task build:info && deno compile --include build_info.json --allow-read --allow-net --allow-env=DEVC_BRIDGE_ADDR,DEVC_BRIDGE_TOKEN_FILE --output devc-bridge devc-bridge.ts",
     "build:release": "deno compile --allow-read --allow-net --allow-env=DEVC_BRIDGE_ADDR,DEVC_BRIDGE_TOKEN_FILE --target $DEVC_TARGET --output ../../dist/devc-bridge-client/devc-bridge devc-bridge.ts",
     "build:client": "bash ./build-client.sh",
-    "check": "deno check devc-bridge.ts version.ts",
+    "check": "deno check devc-bridge.ts version.ts ../../version-info/version_info.ts",
     "run": "deno run --allow-read --allow-net --allow-env=DEVC_BRIDGE_ADDR,DEVC_BRIDGE_TOKEN_FILE devc-bridge.ts"
   },
   "fmt": {

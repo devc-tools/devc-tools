@@ -31,6 +31,10 @@ import { startServer } from './core.ts';
 import { resetToken } from './token.ts';
 import { runTray } from './tray.ts';
 import { VERSION } from './version.ts';
+import {
+  BUILD_INFO_FILE,
+  versionLine,
+} from '../../version-info/version_info.ts';
 
 const USAGE =
   'usage: devc-bridge {start|stop|status|restart|run [--tray]|version}';
@@ -41,7 +45,13 @@ async function main(): Promise<void> {
   // answer with nothing else resolved, and it is what the release workflow's smoke test
   // runs against a freshly built artifact on a runner with no `~/.config/devc-bridge`.
   if (sub === 'version' || sub === '--version' || sub === '-V') {
-    console.log(`devc-bridge ${VERSION}`);
+    console.log(
+      versionLine(
+        'devc-bridge',
+        VERSION,
+        new URL(`./${BUILD_INFO_FILE}`, import.meta.url),
+      ),
+    );
     return;
   }
   const cfg = loadConfig();

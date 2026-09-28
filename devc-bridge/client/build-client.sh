@@ -32,7 +32,11 @@ mkdir -p "$DEST_DIR"
 TMP="$DEST.tmp.$$"
 trap 'rm -f "$TMP"' EXIT
 
+# Stamps `git describe` for the client's `--version` (see ../../version-info/version_info.ts).
+deno task build:info
+
 deno compile \
+  --include build_info.json \
   --allow-read \
   --allow-net \
   --allow-env=DEVC_BRIDGE_ADDR,DEVC_BRIDGE_TOKEN_FILE \

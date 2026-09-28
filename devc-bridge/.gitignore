@@ -1,5 +1,8 @@
 # Client build artifact (compiled at devcontainer create time)
 /client/devc-bridge
+# `git describe` stamps `deno task build` embeds (see ../version-info/version_info.ts)
+/client/build_info.json
+/host/build_info.json
 
 # Host tool build artifacts
 #   devc-bridge   — `deno task build` binary

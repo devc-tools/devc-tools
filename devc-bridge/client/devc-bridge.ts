@@ -13,6 +13,10 @@
 //   DEVC_BRIDGE_TOKEN_FILE  path to the shared token (default /run/devc-bridge/token)
 
 import { VERSION } from './version.ts';
+import {
+  BUILD_INFO_FILE,
+  versionLine,
+} from '../../version-info/version_info.ts';
 
 const ADDR = Deno.env.get('DEVC_BRIDGE_ADDR') ?? 'host.docker.internal:48227';
 const TOKEN_FILE = Deno.env.get('DEVC_BRIDGE_TOKEN_FILE') ??
@@ -69,7 +73,13 @@ function main(): Promise<never> {
   // question the container must be able to answer with the bridge down, and `version` is
   // not a host command anyone could add to the allowlist to shadow it.
   if (command === 'version' || command === '--version' || command === '-V') {
-    console.log(`devc-bridge ${VERSION}`);
+    console.log(
+      versionLine(
+        'devc-bridge',
+        VERSION,
+        new URL(`./${BUILD_INFO_FILE}`, import.meta.url),
+      ),
+    );
     return Deno.exit(0);
   }
   return run(command, args);

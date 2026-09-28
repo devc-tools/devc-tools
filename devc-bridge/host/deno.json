@@ -1,10 +1,13 @@
 {
   "tasks": {
     "dev": "deno desktop --hmr --allow-read --allow-write --allow-run --allow-env --allow-net main.ts run --tray",
-    "build": "deno compile --include commands --include ../builtin --output devc-bridge --allow-read --allow-write --allow-run --allow-env --allow-net main.ts",
+    // `build` stamps `git describe` into the binary for `--version` (see
+    // ../../version-info/version_info.ts); `build:release` never embeds it.
+    "build:info": "deno run --allow-run=git --allow-read --allow-write=build_info.json ../../version-info/write_build_info.ts build_info.json",
+    "build": "deno task build:info && deno compile --include commands --include ../builtin --include build_info.json --output devc-bridge --allow-read --allow-write --allow-run --allow-env --allow-net main.ts",
     "build:release": "deno compile --include commands --include ../builtin --target $DEVC_TARGET --output ../../dist/devc-bridge-host/devc-bridge --allow-read --allow-write --allow-run --allow-env --allow-net main.ts",
     "run": "deno run --allow-read --allow-write --allow-run --allow-env --allow-net main.ts",
-    "check": "deno check main.ts config.ts core.ts keepawake.ts token.ts tray.ts version.ts tests/relaunch_test.ts tests/start_test.ts tests/token_test.ts tests/keys_test.ts tests/capabilities_test.ts",
+    "check": "deno check main.ts config.ts core.ts keepawake.ts token.ts tray.ts version.ts ../../version-info/version_info.ts tests/relaunch_test.ts tests/start_test.ts tests/token_test.ts tests/keys_test.ts tests/capabilities_test.ts",
     "test": "deno test --allow-read --allow-write --allow-run --allow-env --allow-net"
   },
   "fmt": {

@@ -1,5 +1,6 @@
 import { assertEquals, assertMatch } from 'jsr:@std/assert';
-import { buildSuffix, versionLine } from '../version_info.ts';
+import { buildSuffix } from '../../version-info/version_info.ts';
+import { versionLine } from '../version_info.ts';
 import { VERSION } from '../help.ts';
 
 Deno.test('buildSuffix: exactly the clean release tag adds nothing', () => {
