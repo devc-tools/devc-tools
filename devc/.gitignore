@@ -1,2 +1,4 @@
 # Compiled binary (`deno task build`)
 /devc
+# `git describe` stamp `deno task build` embeds (see version_info.ts)
+/build_info.json

@@ -46,13 +46,8 @@ import {
   runGlobalConfigWizard,
   runProjectConfigWizard,
 } from './tui/config_flow.ts';
-import {
-  COMMAND_HELP,
-  COMMANDS,
-  helpRequested,
-  topLevelHelp,
-  VERSION,
-} from './help.ts';
+import { COMMAND_HELP, COMMANDS, helpRequested, topLevelHelp } from './help.ts';
+import { versionLine } from './version_info.ts';
 
 const subcommand = Deno.args[0];
 const KNOWN_COMMANDS = new Set(COMMANDS.map((c) => c.name));
@@ -249,7 +244,7 @@ async function attach(
 // before any folder resolution or Docker call, so `devc up --help` (etc.) prints help and exits
 // without launching the wizard or requiring Docker.
 if (subcommand === '-V' || subcommand === '--version') {
-  console.log(`devc ${VERSION}`);
+  console.log(versionLine());
   Deno.exit(0);
 }
 if (

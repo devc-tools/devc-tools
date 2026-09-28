@@ -1081,6 +1081,10 @@ deno task test                         # unit tests
 deno task check                        # type-check
 deno task build                        # compile the `devc` binary (embeds ../devc-core/default)
 
+# `--version` on a non-release build appends its `git describe` distance from the release tag:
+#   devc 0.3.0+6.g0222e50.dirty (source)   from `deno task run`
+#   devc 0.3.0+6.g0222e50 (local build)    from `deno task build`
+
 # What the release workflow calls: same flags, cross-compiled, into the repo-root dist/.
 DEVC_TARGET=aarch64-apple-darwin deno task build:release
 

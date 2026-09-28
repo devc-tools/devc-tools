@@ -2,13 +2,16 @@
   "version": "0.3.0",
   "tasks": {
     "run": "deno run --allow-run --allow-read --allow-write --allow-env --allow-sys --allow-net main.ts",
-    "check": "deno check main.ts args.ts attach.ts bridge.ts container.ts devcontainer_selfexec.ts help.ts herdr.ts tui/keys.ts tui/term.ts tui/folder_picker.ts tui/prompts.ts tui/config_flow.ts",
+    "check": "deno check main.ts args.ts attach.ts bridge.ts container.ts devcontainer_selfexec.ts help.ts herdr.ts version_info.ts write_build_info.ts tui/keys.ts tui/term.ts tui/folder_picker.ts tui/prompts.ts tui/config_flow.ts",
     // `--allow-run` is unscoped here for the same reason it is below, plus one of its own: the
     // devcontainer_selfexec tests spawn the *runtime itself* (`Deno.execPath()`), whose path no
     // allowlist entry can name — it is `deno` under `deno test` and the devc binary once
     // compiled, at whatever path the installer used.
     "test": "deno test --allow-run --allow-read --allow-write --allow-env",
-    "build": "deno compile --allow-run --allow-read --allow-write --allow-env --allow-sys --allow-net --include ../devc-core/default --output devc main.ts",
+    // `build` stamps `git describe` into the binary (build_info.json, see version_info.ts) so its
+    // `--version` shows how far it is from the release; `build:release` never embeds it.
+    "build:info": "deno run --allow-run=git --allow-read --allow-write=build_info.json write_build_info.ts",
+    "build": "deno task build:info && deno compile --allow-run --allow-read --allow-write --allow-env --allow-sys --allow-net --include ../devc-core/default --include build_info.json --output devc main.ts",
     "build:release": "deno compile --allow-run --allow-read --allow-write --allow-env --allow-sys --allow-net --include ../devc-core/default --target $DEVC_TARGET --output ../dist/devc/devc main.ts"
   },
   "fmt": {
