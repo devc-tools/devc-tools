@@ -18,6 +18,10 @@
 # later step runs in the mirror. The pushed object is the SHA that was inspected, never the
 # branch ref, which the agent can move at any moment.
 #
+# A GitHub remote (the shapes pr-*'s parse_remote accepts) is always reached over HTTPS with gh's
+# credential as git's only helper, so `gh auth login` on the host is the whole setup; the policy
+# and the mirror keep the remote verbatim. Any other remote uses plain git as given.
+#
 # Exit codes: 0 pushed (or already up to date), 2 no/malformed policy, a pin that no longer
 # resolves, or a remote mismatch, 3 content-policy refusal, 4 transport failure or timeout.
 
@@ -77,6 +81,61 @@ git check-ref-format "refs/heads/$branch" || malformed "branch is not a valid re
 case ,$grants, in *,git-push,*) ;; *) die 2 "this container was not granted git-push" ;; esac
 
 mirror=$HOME/.local/state/devc-bridge/git/$key.git
+
+# ── shared with git-doctor: keep the two copies identical ─────────────────────────────────
+
+# parse_remote URL — sets head_owner/head_name. Three shapes, github.com or a `github.com-*` ssh
+# host alias; anything else fails. (Verbatim from the pr-* prelude.)
+parse_remote() {
+  local rest host path
+  case $1 in
+    git@*:*) rest=${1#git@} host=${rest%%:*} path=${rest#*:} ;;
+    ssh://git@*/*) rest=${1#ssh://git@} host=${rest%%/*} path=${rest#*/} ;;
+    https://*/*) rest=${1#https://} host=${rest%%/*} path=${rest#*/} ;;
+    *) return 1 ;;
+  esac
+  case $host in github.com | github.com-*) ;; *) return 1 ;; esac
+  case $host in *[!A-Za-z0-9.-]*) return 1 ;; esac
+  path=${path%.git}
+  head_owner=${path%%/*}
+  head_name=${path#*/}
+  valid_name "$head_owner" && valid_name "$head_name"
+}
+
+valid_name() { # an owner or repo name: also keeps `..` out of an API path
+  case $1 in '' | . | .. | *[!A-Za-z0-9._-]*) return 1 ;; esac
+}
+
+unset GH_REPO GH_ENTERPRISE_TOKEN GITHUB_ENTERPRISE_TOKEN GH_DEBUG GH_PAGER GH_CONFIG_DIR_OVERRIDE
+export GH_HOST=github.com GH_PROMPT_DISABLED=1 GH_NO_UPDATE_NOTIFIER=1 NO_COLOR=1
+
+# transport_setup REMOTE — sets via_gh (yes/no), url (what network git calls are given) and
+# NET_ENV (env assignments for them). For a GitHub remote: the HTTPS URL, no user or system git
+# config (no `insteadOf` can turn it back into SSH, no other helper can answer), and gh as the
+# only credential helper. Fails (printing why) only when gh's path cannot be quoted.
+transport_setup() {
+  NET_ENV=() NET_FLAGS=() via_gh=no url=$1
+  parse_remote "$1" || return 0
+  via_gh=yes
+  url=https://github.com/$head_owner/$head_name.git
+  gh_bin=$(command -v gh) || gh_bin=''
+  case $gh_bin in *\'*)
+    echo "unusable gh path $gh_bin"
+    return 1
+    ;;
+  esac
+  NET_ENV=(GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1)
+  # git runs a `!` helper through the shell, hence the quotes; the empty value resets the list.
+  NET_FLAGS=(-c credential.helper= -c "credential.helper=!'$gh_bin' auth git-credential")
+}
+
+# gh_ready — for a GitHub remote: 0 gh can supply the credential, 2 gh is not installed, 3 gh is
+# not logged in to github.com. Needs run_t, so call it after that is defined.
+GH_MISSING="gh is not installed on the host (not on the bridge's PATH)"
+gh_ready() {
+  [ -n "$gh_bin" ] || return 2
+  run_t "$gh_bin" auth status --hostname github.com >/dev/null 2>&1 || return 3
+}
 timeout_s=${DEVC_BRIDGE_GIT_TIMEOUT:-300}
 case $timeout_s in '' | *[!0-9]*) timeout_s=300 ;; esac
 
@@ -238,7 +297,19 @@ origin=$(git config --file "$mirror/config" --get remote.origin.url) ||
 # ── what the remote has ───────────────────────────────────────────────────────────────────
 
 # The default branch is not assumed to be `main`: read it from the remote on every push.
-net "reading $remote" "${MIRROR_GIT[@]}" ls-remote --symref origin HEAD "refs/heads/$branch" \
+transport_setup "$remote" >"$tmp/why" || die 4 "$(cat "$tmp/why")"
+# `${a[@]+…}`: bash 3.2 (macOS) calls an empty array unbound under `set -u`.
+NET_GIT=(env ${NET_ENV[@]+"${NET_ENV[@]}"} "${MIRROR_GIT[@]}" ${NET_FLAGS[@]+"${NET_FLAGS[@]}"})
+if [ "$via_gh" = yes ]; then
+  gh_ready
+  case $? in
+    0) ;;
+    2) die 4 "$GH_MISSING" ;;
+    *) die 4 "gh is not authenticated in the bridge's environment — run gh auth login on the host, then devc-bridge restart" ;;
+  esac
+fi
+
+net "reading $remote" "${NET_GIT[@]}" ls-remote --symref -- "$url" HEAD "refs/heads/$branch" \
   >"$tmp/ls-remote"
 base=$(awk '$1 == "ref:" && $3 == "HEAD" { sub("^refs/heads/", "", $2); print $2; exit }' \
   "$tmp/ls-remote")
@@ -247,7 +318,7 @@ base=$(awk '$1 == "ref:" && $3 == "HEAD" { sub("^refs/heads/", "", $2); print $2
 remote_sha=$(awk -v ref="refs/heads/$branch" '$2 == ref { print $1 }' "$tmp/ls-remote")
 
 # Fresh every time — a stale base would let the content policy compare against the wrong tree.
-net "fetching $base from $remote" "${MIRROR_GIT[@]}" fetch -q --no-tags origin \
+net "fetching $base from $remote" "${NET_GIT[@]}" fetch -q --no-tags -- "$url" \
   "+refs/heads/$base:refs/remotes/origin/$base"
 
 # ── what the agent wants published ────────────────────────────────────────────────────────
@@ -289,6 +360,6 @@ if [ "$remote_sha" = "$sha" ]; then
 fi
 
 # The SHA, to a ref built from the policy: no tag, no force, no delete has a code path here.
-net "pushing $branch to $remote" "${MIRROR_GIT[@]}" push -q --no-verify --no-follow-tags \
-  origin "$sha:refs/heads/$branch"
+net "pushing $branch to $remote" "${NET_GIT[@]}" push -q --no-verify --no-follow-tags -- \
+  "$url" "$sha:refs/heads/$branch"
 echo "pushed: $branch at $short to $remote ($repo)"

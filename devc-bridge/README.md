@@ -61,10 +61,11 @@ of the box:
 | `echo <args...>`                 | Round-trip smoke test — echoes args back                                                                                                                                                                                                              |
 | `toggle on\|off`                 | Demo command that flips a state marker (exercises `status`/the tray without needing macOS)                                                                                                                                                            |
 | `git-push`                       | **Built in — needs capability `git-push`.** Publish this container's one pinned branch to its pinned remote. Takes no arguments. See [Publishing a branch](#publishing-a-branch-git-push)                                                             |
-| `git-doctor`                     | **Built in — needs capability `git-push`.** Explain why `git-push` would or would not work: ssh agent, the pin, the mirror, worktree pointers. Changes nothing                                                                                        |
+| `git-doctor`                     | **Built in — needs capability `git-push`.** Explain why `git-push` would or would not work: the pin, worktree pointers, the mirror, and a read-only probe of the remote. Changes nothing                                                              |
 | `pr-comments`                    | **Built in — needs capability `pr-review`.** The unresolved review threads on this container's PR, as JSON, plus Copilot's latest reviewed commit. Takes no arguments. See [Iterating on PR review](#iterating-on-pr-review-pr-)                      |
 | `pr-reply <thread> <body>`       | **Built in — needs capability `pr-review`.** Reply to any review thread on that PR, prefixed `🤖`                                                                                                                                                     |
 | `pr-resolve <thread>`            | **Built in — needs capability `pr-resolve`.** Resolve a review thread on that PR — only one Copilot started                                                                                                                                           |
+| `help [guide]`                   | **Answered by the client itself**, never sent to the host (also `--help` / `-h`; no arguments prints it to stderr, exit 2) — every command and its capability, or with `guide` the embedded [agent guide](../docs/bridge-git-push.md)                 |
 | `version`                        | **Answered by the client itself**, never sent to the host (also `--version` / `-V`) — which client is actually mounted in here, answerable with the bridge down                                                                                       |
 
 **In normal use you never call `caffeinate` yourself** — `ping` drives it
@@ -629,8 +630,18 @@ host does, with your credentials, after checking what it is about to send.
 ### Enabling it
 
 ```sh
+gh auth login                            # once, on the host: the credential for GitHub
 devc up --bridge-allow git-push          # per workspace: the pin and the grant
 ```
+
+**A GitHub remote is always pushed with `gh`'s credential.** Any remote the
+`pr-*` commands accept (`git@github.com:…`, `ssh://git@github.com/…`,
+`https://github.com/…`, or a `github.com-*` ssh alias) is reached at
+`https://github.com/<owner>/<name>.git` with `gh auth git-credential` as git's
+only credential helper — so `gh auth login` is the whole host setup for push and
+PR review, and no SSH key or agent is involved. Your own repos keep their SSH
+`origin`; nothing outside the bridge's git calls changes. Any other remote (a
+local path, another host) is used as given, with your normal git credentials.
 
 Then, inside that container, `devc-bridge git-push` — no arguments. It prints
 `pushed: <branch> at <sha> to <remote> (<repo>)`, or `up to date: …` when the
@@ -657,6 +668,10 @@ config of a repo it fetches from — into a host-owned bare mirror at
    repo — and refuse if its `origin` no longer equals the policy's remote.
 4. Ask the remote for its **default branch** (never assumed to be `main`) and
    fetch it fresh.
+   For a GitHub remote, this step and step 7 run against the HTTPS URL with no
+   user or system git config (`GIT_CONFIG_GLOBAL=/dev/null`,
+   `GIT_CONFIG_NOSYSTEM=1`, so no `insteadOf` can turn it back into SSH and no
+   other credential helper can answer), after checking `gh auth status`.
 5. Fetch the pinned branch from the repo into `refs/staging/<branch>` and record
    its SHA.
 6. Refuse (exit 3) a SHA whose tree differs from the default branch's under
@@ -671,12 +686,12 @@ hooks disabled, tag- and submodule-following off, and a hard timeout
 group — the client has no timeout of its own, so a git that stopped to ask
 something would otherwise hang the call forever.
 
-| Exit | Meaning                                                                                                   |
-| ---- | --------------------------------------------------------------------------------------------------------- |
-| `0`  | pushed, or already up to date                                                                             |
-| `2`  | no policy, a malformed one, an argument given, a pin that no longer resolves, or a remote/mirror mismatch |
-| `3`  | content-policy refusal: workflows changed, an LFS pointer added, or no default branch to check against    |
-| `4`  | transport failure or timeout — including a rejected (non-fast-forward) push                               |
+| Exit | Meaning                                                                                                                            |
+| ---- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| `0`  | pushed, or already up to date                                                                                                      |
+| `2`  | no policy, a malformed one, an argument given, a pin that no longer resolves, or a remote/mirror mismatch                          |
+| `3`  | content-policy refusal: workflows changed, an LFS pointer added, or no default branch to check against                             |
+| `4`  | transport failure or timeout — including a rejected (non-fast-forward) push, and for a GitHub remote `gh` missing or not logged in |
 
 ### Limits, stated plainly
 
@@ -691,17 +706,27 @@ something would otherwise hang the call forever.
 - **A workflow change is refused even when harmless** — including a branch that
   is merely behind a default branch whose workflows moved. Rebase, or push that
   one yourself.
-- **SSH needs an agent in the bridge's environment.** The daemon inherits
-  `SSH_AUTH_SOCK` from the shell that ran `devc-bridge start`; one started
-  without it cannot push over SSH. `git-doctor` says so.
+- **GitHub pushes go out as `gh`'s account.** A `github.com-*` ssh alias for a
+  second account does not carry over: the push authenticates as gh's active
+  github.com account. Because user git config is skipped, an `http.proxy` in
+  `~/.gitconfig` does not apply either; `HTTPS_PROXY` in the bridge's
+  environment does.
+- **Other SSH remotes must work without a prompt.** They run
+  `ssh -oBatchMode=yes`: a key file without a passphrase works as is; a
+  passphrase-protected key needs an agent in the bridge's environment (the
+  daemon inherits `SSH_AUTH_SOCK` from the shell that ran `devc-bridge start`).
+  `git-doctor`'s transport probe says which.
 
 ### `git-doctor [key]`
 
-Reports the bridge's `ssh-add -l`, then per policy: the pin, whether the repo
-exists and the branch is there (read as files), whether each worktree pointer
-of the repo's primary (`<primary>.worktrees/*/.git`) still points where it
-should, and the mirror's origin and staging-ref count. Exit 1 when it found
-anything. Run on the host
+Reports, per policy: the pin, whether the repo exists and the branch is there (read as
+files), whether each worktree pointer of the repo's primary
+(`<primary>.worktrees/*/.git`) still points where it should, the mirror's origin
+and staging-ref count, and a `transport` line from a read-only
+`git ls-remote` of the pinned remote over `git-push`'s own transport (`gh`'s
+credential for a GitHub remote, BatchMode ssh otherwise; no prompts), bounded by `DEVC_BRIDGE_GIT_TIMEOUT` (default 30s here). It
+proves the credential reaches the remote, not that it may write. Exit 1 when it
+found anything. Run on the host
 (`~/.local/state/devc-bridge/builtin/git-doctor [key]`) it covers every policy,
 or just `key`; called through the bridge it covers **only the caller's own** and
 refuses any other key.

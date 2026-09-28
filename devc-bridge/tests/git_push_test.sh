@@ -368,6 +368,134 @@ doctor
 expect_rc 1 "a three-field (pre-grants) policy"
 check "  … is reported MALFORMED" has "MALFORMED"
 
+echo "git-doctor transport"
+fresh
+doctor
+expect_rc 0 "a reachable remote"
+check "  … says transport ok" has "transport ok (git ls-remote reached $REMOTE non-interactively)"
+out=$(env -u DEVC_BRIDGE_KEY -u SSH_AUTH_SOCK DEVC_BRIDGE_POLICY_DIR="$POLICY_DIR" "$DOCTOR" 2>&1)
+rc=$?
+expect_rc 0 "no ssh agent is not a finding"
+mkdir -p "$W/shim"
+cat >"$W/shim/ssh" <<'EOF'
+#!/bin/sh
+echo 'git@git.example.invalid: Permission denied (publickey).' >&2
+exit 255
+EOF
+chmod +x "$W/shim/ssh"
+pin "$REPO" "ssh://git.example.invalid/x.git" feat
+out=$(PATH=$W/shim:$PATH env -u DEVC_BRIDGE_KEY DEVC_BRIDGE_POLICY_DIR="$POLICY_DIR" "$DOCTOR" 2>&1)
+rc=$?
+expect_rc 1 "an SSH remote that refuses the key"
+check "  … is reported FAILED" has "transport FAILED: git ls-remote exited "
+check "  … quotes the transport's error" has "Permission denied (publickey)."
+check "  … explains BatchMode" has "BatchMode=yes"
+cat >"$W/shim/ssh" <<'EOF'
+#!/bin/sh
+sleep 30 &
+exec sleep 31
+EOF
+start=$(date +%s)
+out=$(PATH=$W/shim:$PATH DEVC_BRIDGE_GIT_TIMEOUT=2 env -u DEVC_BRIDGE_KEY \
+  DEVC_BRIDGE_POLICY_DIR="$POLICY_DIR" "$DOCTOR" 2>&1)
+rc=$?
+took=$(($(date +%s) - start))
+expect_rc 1 "a hung transport"
+check "  … returns within the timeout (${took}s)" test "$took" -lt 15
+check "  … says it timed out" has "transport TIMED OUT after 2s"
+sleep 1
+check "  … leaves no process behind" test -z "$(pgrep -f 'sleep 3[01]$' || true)"
+
+echo "GitHub transport (gh's credential over HTTPS)"
+fresh
+GH_URL=https://github.com/acme/widget.git
+mkdir -p "$W/ghbin"
+# git: log every call with the config-isolation env, then run the real git with the GitHub URL
+# pointed at the local bare remote — the only way to exercise this path offline.
+cat >"$W/ghbin/git" <<EOF
+#!/usr/bin/env bash
+{
+  printf 'GIT_CONFIG_GLOBAL=%s GIT_CONFIG_NOSYSTEM=%s ' "\${GIT_CONFIG_GLOBAL-}" "\${GIT_CONFIG_NOSYSTEM-}"
+  printf '%s ' "\$@"
+  echo
+} >>"$W/git.log"
+args=()
+for a in "\$@"; do
+  if [ "\$a" = "$GH_URL" ]; then args+=("$REMOTE"); else args+=("\$a"); fi
+done
+exec "$REAL_GIT" "\${args[@]}"
+EOF
+cat >"$W/ghbin/gh" <<'EOF'
+#!/bin/sh
+if [ "$1 $2 $3" = "auth git-credential get" ]; then
+  echo username=x-access-token
+  echo password=shim-token
+  exit 0
+fi
+[ "$1" = auth ] && exit "${SHIM_AUTH_RC:-0}"
+exit 99
+EOF
+chmod +x "$W/ghbin/git" "$W/ghbin/gh"
+# The file transport never asks for a credential, so prove the helper string itself works: git must
+# run it through the shell and read gh's answer.
+cred=$(printf 'protocol=https\nhost=github.com\n\n' | GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 \
+  "$REAL_GIT" -c credential.helper= -c "credential.helper=!'$W/ghbin/gh' auth git-credential" \
+  credential fill 2>&1)
+check "the gh credential helper string answers git" test "${cred#*password=}" != "$cred"
+pin "$REPO" "git@github.com:acme/widget.git" feat
+ghpush() {
+  out=$(PATH=$W/ghbin:$PATH DEVC_BRIDGE_KEY=$KEY DEVC_BRIDGE_POLICY_DIR=$POLICY_DIR "$PUSH" 2>&1)
+  rc=$?
+}
+# The logged ls-remote/fetch/push subcommands, minus the one fetch *from the agent's repo*.
+net_calls() { grep -E ' (ls-remote|fetch|push) ' "$W/git.log" | grep -vF -e "-- $REPO " || true; }
+ghpush
+expect_rc 0 "a GitHub remote pushes"
+check "  … names the policy remote" has "pushed: feat at $(repo_ref feat | cut -c1-12) to git@github.com:acme/widget.git"
+check "  … the remote has the commit" test "$(remote_ref refs/heads/feat)" = "$(repo_ref feat)"
+check "  … three network calls" test "$(net_calls | wc -l)" -eq 3
+check "  … all to the HTTPS URL" test -z "$(net_calls | grep -v " -- $GH_URL " || true)"
+check "  … all with gh as the only credential helper" \
+  test -z "$(net_calls | grep -vF -e "-c credential.helper= -c credential.helper=!'$W/ghbin/gh' auth git-credential " || true)"
+check "  … all without user or system git config" \
+  test -z "$(net_calls | grep -v '^GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 ' || true)"
+check "  … never over SSH" test -z "$(grep -F 'git@github.com:' "$W/git.log" | grep -v 'config remote.origin.url' || true)"
+check "  … the mirror keeps the policy remote" \
+  test "$(git config --file "$MIRROR/config" remote.origin.url)" = "git@github.com:acme/widget.git"
+ghpush
+expect_rc 0 "a second push"
+check "  … is up to date" has "up to date: feat is already"
+commit_file more.txt more
+: >"$W/git.log"
+out=$(SHIM_AUTH_RC=1 PATH=$W/ghbin:$PATH DEVC_BRIDGE_KEY=$KEY DEVC_BRIDGE_POLICY_DIR=$POLICY_DIR "$PUSH" 2>&1)
+rc=$?
+expect_rc 4 "gh not logged in"
+check "  … says what to do" has "gh is not authenticated in the bridge's environment — run gh auth login on the host"
+check "  … makes no network call" test -z "$(net_calls || true)"
+if command -v -p gh >/dev/null 2>&1 || [ -x /usr/bin/gh ] || [ -x /bin/gh ]; then
+  ok "gh not installed — skipped, a real gh is on /usr/bin:/bin"
+else
+  rm "$W/ghbin/gh"
+  ghpush
+  expect_rc 4 "gh not installed"
+  check "  … says so" has "gh is not installed on the host"
+  cat >"$W/ghbin/gh" <<'EOF'
+#!/bin/sh
+[ "$1" = auth ] && exit "${SHIM_AUTH_RC:-0}"
+exit 99
+EOF
+  chmod +x "$W/ghbin/gh"
+fi
+out=$(PATH=$W/ghbin:$PATH env -u DEVC_BRIDGE_KEY DEVC_BRIDGE_POLICY_DIR="$POLICY_DIR" "$DOCTOR" 2>&1)
+rc=$?
+expect_rc 0 "git-doctor on a GitHub remote"
+check "  … probes via gh" has "transport ok (git ls-remote reached $GH_URL via gh credentials)"
+check "  … has no ssh agent section" bash -c '! grep -q "ssh agent:" <<<"$1"' _ "$out"
+out=$(SHIM_AUTH_RC=1 PATH=$W/ghbin:$PATH env -u DEVC_BRIDGE_KEY DEVC_BRIDGE_POLICY_DIR="$POLICY_DIR" "$DOCTOR" 2>&1)
+rc=$?
+expect_rc 1 "git-doctor with gh not logged in"
+check "  … says so" has "transport FAILED: gh is not authenticated for github.com"
+
 echo "hang-proofing"
 fresh
 mkdir -p "$W/shim"

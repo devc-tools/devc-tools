@@ -3,7 +3,8 @@
 For agents running inside a container. The container has no git or GitHub
 credentials of its own, so `git push`, `gh` and the GitHub API all fail.
 Instead, ask the host over the bridge: it pushes your branch and works on your
-PR's review threads with its own credentials.
+PR's review threads with its own credentials. For a GitHub repo that is the
+host's `gh` login for both: pushes go over HTTPS with `gh`'s credential.
 
 Full design:
 [§ Publishing a branch](../devc-bridge/README.md#publishing-a-branch-git-push)
@@ -14,8 +15,10 @@ in the devc-bridge README.
 ## Commands
 
 ```sh
+devc-bridge help          # every command and its capability; works with the bridge down
+devc-bridge help guide    # this guide
 devc-bridge git-push      # publish the pinned branch. No arguments, ever.
-devc-bridge git-doctor    # read-only: shows your pin and why a push would fail
+devc-bridge git-doctor    # read-only: shows your pin, and tests the connection to the remote
 ```
 
 Passing any argument to `git-push` is an error (exit 2). You cannot choose a
@@ -58,7 +61,7 @@ Refusals and failures go to stderr, prefixed with `git-push:`.
 | `1`  | Refused before the command ran. `git-push needs capability git-push, which this container was not granted …` or `no capabilities granted to this container …` means the host didn't grant it; a connection error means the bridge isn't running | Stop and tell the user, quoting the `devc up --bridge-allow …` the message suggests. You can't fix this from inside                        |
 | `2`  | A malformed policy, an argument was passed, the pin no longer resolves (branch missing, detached HEAD, bad worktree pointer), or the remote doesn't match the mirror                                                                            | Run `git-doctor`, then report it to the user. Don't retry                                                                                  |
 | `3`  | Content policy refused the push: the branch changes `.github/workflows/` compared with the default branch, it adds a Git LFS pointer, or the remote has no default branch                                                                       | Remove the offending change, or rebase if the default branch's workflows moved and you're just behind. Otherwise hand the push to the user |
-| `4`  | Transport failure, timeout (default 300s), or a non-fast-forward rejection                                                                                                                                                                      | If you rewrote history, the push won't go through. Report it. Retry only for a transient network error                                     |
+| `4`  | Transport failure, timeout (default 300s), a non-fast-forward rejection, or (GitHub remote) `gh` missing or not logged in on the host                                                                                                           | If you rewrote history, the push won't go through. Report it. Retry only for a transient network error                                     |
 
 ## Rules for agents
 

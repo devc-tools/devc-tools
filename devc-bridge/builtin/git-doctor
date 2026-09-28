@@ -8,7 +8,9 @@
 # call by setting DEVC_BRIDGE_KEY, empty for the shared legacy token.
 #
 # Like git-push, it never runs git inside a pinned repo: HEAD, refs and worktree pointers are read
-# as files. Only the host-owned mirror is asked anything.
+# as files. Only the host-owned mirror is asked anything, plus one read-only `git ls-remote` of the
+# pinned remote, over git-push's own transport (gh's credential for a GitHub remote), to prove it
+# works non-interactively.
 #
 # Exit codes: 0 nothing wrong found, 1 at least one finding, 2 bad usage, or (through the bridge)
 # a container not granted git-push.
@@ -31,6 +33,9 @@ if [ -n "$want" ]; then
 fi
 
 policy_dir=${DEVC_BRIDGE_POLICY_DIR:-$HOME/.config/devc-bridge/policy}
+# The knob git-push honors, but a diagnosis should not make you wait git-push's 300s.
+timeout_s=${DEVC_BRIDGE_GIT_TIMEOUT:-30}
+case $timeout_s in '' | *[!0-9]*) timeout_s=30 ;; esac
 mirrors=$HOME/.local/state/devc-bridge/git
 problems=0
 finding() {
@@ -39,6 +44,94 @@ finding() {
 }
 
 # ── shared with git-push: keep the two copies identical ───────────────────────────────────
+
+# The environment git-push's git runs in, so the transport probe below sees what a push would.
+unset GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_INDEX_FILE GIT_OBJECT_DIRECTORY \
+  GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_NAMESPACE GIT_CONFIG GIT_CONFIG_PARAMETERS \
+  GIT_CONFIG_COUNT GIT_ASKPASS SSH_ASKPASS GIT_SSH GIT_PROXY_COMMAND GIT_EXTERNAL_DIFF
+export GIT_TERMINAL_PROMPT=0
+export GIT_SSH_COMMAND='ssh -oBatchMode=yes -oConnectTimeout=30'
+export GIT_ALLOW_PROTOCOL=file:ssh:https
+
+tmp=$(mktemp -d "${TMPDIR:-/tmp}/devc-bridge-git-doctor.XXXXXX") || exit 1
+trap 'rm -rf "$tmp"' EXIT
+
+# run_t CMD… — run CMD with stdin closed, killing its whole process group after $timeout_s.
+# macOS ships no timeout(1). The group matters: git leaves ssh holding the bridge's stdout pipe, and
+# the bridge waits for EOF on it, so killing git alone would still hang the client.
+run_t() {
+  rm -f "$tmp/timedout"
+  set -m
+  "$@" </dev/null &
+  local pid=$!
+  (
+    sleep "$timeout_s"
+    : >"$tmp/timedout"
+    kill -s TERM -- "-$pid"
+    sleep 5
+    kill -s KILL -- "-$pid"
+  ) </dev/null >/dev/null 2>&1 &
+  local watcher=$!
+  set +m
+  local rc=0
+  wait "$pid" 2>/dev/null || rc=$?
+  kill -s TERM -- "-$watcher" 2>/dev/null
+  wait "$watcher" 2>/dev/null
+  return "$rc"
+}
+
+# parse_remote URL — sets head_owner/head_name. Three shapes, github.com or a `github.com-*` ssh
+# host alias; anything else fails. (Verbatim from the pr-* prelude.)
+parse_remote() {
+  local rest host path
+  case $1 in
+    git@*:*) rest=${1#git@} host=${rest%%:*} path=${rest#*:} ;;
+    ssh://git@*/*) rest=${1#ssh://git@} host=${rest%%/*} path=${rest#*/} ;;
+    https://*/*) rest=${1#https://} host=${rest%%/*} path=${rest#*/} ;;
+    *) return 1 ;;
+  esac
+  case $host in github.com | github.com-*) ;; *) return 1 ;; esac
+  case $host in *[!A-Za-z0-9.-]*) return 1 ;; esac
+  path=${path%.git}
+  head_owner=${path%%/*}
+  head_name=${path#*/}
+  valid_name "$head_owner" && valid_name "$head_name"
+}
+
+valid_name() { # an owner or repo name: also keeps `..` out of an API path
+  case $1 in '' | . | .. | *[!A-Za-z0-9._-]*) return 1 ;; esac
+}
+
+unset GH_REPO GH_ENTERPRISE_TOKEN GITHUB_ENTERPRISE_TOKEN GH_DEBUG GH_PAGER GH_CONFIG_DIR_OVERRIDE
+export GH_HOST=github.com GH_PROMPT_DISABLED=1 GH_NO_UPDATE_NOTIFIER=1 NO_COLOR=1
+
+# transport_setup REMOTE — sets via_gh (yes/no), url (what network git calls are given) and
+# NET_ENV (env assignments for them). For a GitHub remote: the HTTPS URL, no user or system git
+# config (no `insteadOf` can turn it back into SSH, no other helper can answer), and gh as the
+# only credential helper. Fails (printing why) only when gh's path cannot be quoted.
+transport_setup() {
+  NET_ENV=() NET_FLAGS=() via_gh=no url=$1
+  parse_remote "$1" || return 0
+  via_gh=yes
+  url=https://github.com/$head_owner/$head_name.git
+  gh_bin=$(command -v gh) || gh_bin=''
+  case $gh_bin in *\'*)
+    echo "unusable gh path $gh_bin"
+    return 1
+    ;;
+  esac
+  NET_ENV=(GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1)
+  # git runs a `!` helper through the shell, hence the quotes; the empty value resets the list.
+  NET_FLAGS=(-c credential.helper= -c "credential.helper=!'$gh_bin' auth git-credential")
+}
+
+# gh_ready — for a GitHub remote: 0 gh can supply the credential, 2 gh is not installed, 3 gh is
+# not logged in to github.com. Needs run_t, so call it after that is defined.
+GH_MISSING="gh is not installed on the host (not on the bridge's PATH)"
+gh_ready() {
+  [ -n "$gh_bin" ] || return 2
+  run_t "$gh_bin" auth status --hostname github.com >/dev/null 2>&1 || return 3
+}
 
 phys() { (cd -P -- "$1" 2>/dev/null && pwd -P); }
 
@@ -95,21 +188,6 @@ pointer_problem() {
 }
 
 # ── the report ────────────────────────────────────────────────────────────────────────────
-
-# The daemon inherits SSH_AUTH_SOCK from whatever shell started it; a bridge started detached from a
-# terminal can have no agent, and an SSH push then fails with nothing more to say than "denied".
-echo "ssh agent:"
-if [ -z "${SSH_AUTH_SOCK-}" ]; then
-  echo "  SSH_AUTH_SOCK is not set in the bridge's environment — SSH remotes will fail"
-  echo "  (restart the bridge from a shell that has an agent: devc-bridge restart)"
-  ssh_ok=no
-elif listing=$(ssh-add -l 2>&1); then
-  printf '%s\n' "$listing" | sed 's/^/  /'
-  ssh_ok=yes
-else
-  echo "  ssh-add -l: $listing"
-  ssh_ok=no
-fi
 
 if [ -n "${DEVC_BRIDGE_KEY+set}" ]; then
   [ -n "$DEVC_BRIDGE_KEY" ] || {
@@ -244,8 +322,44 @@ for key in "${keys[@]}"; do
     *:*) is_ssh=yes ;; # scp-like: git@github.com:owner/repo.git
     *) is_ssh=no ;;
   esac
-  if [ "$is_ssh" = yes ] && [ "$ssh_ok" != yes ]; then
-    finding "transport SSH remote, but no usable ssh agent (above)"
+  # Read-only and repo-less (cwd is /), over git-push's transport: it proves the credential reaches
+  # the remote, not that it may write.
+  if ! transport_setup "$remote" >"$tmp/why"; then
+    finding "transport FAILED: $(cat "$tmp/why")"
+    continue
+  fi
+  if [ "$via_gh" = yes ]; then
+    gh_ready
+    case $? in
+      0) ;;
+      2)
+        finding "transport FAILED: $GH_MISSING"
+        continue
+        ;;
+      *)
+        finding "transport FAILED: gh is not authenticated for github.com — run gh auth login on the host"
+        continue
+        ;;
+    esac
+  fi
+  rc=0
+  run_t env ${NET_ENV[@]+"${NET_ENV[@]}"} git -c core.askPass= -c protocol.ext.allow=never \
+    ${NET_FLAGS[@]+"${NET_FLAGS[@]}"} ls-remote --heads -- "$url" "refs/heads/$branch" \
+    >/dev/null 2>"$tmp/ls-remote.err" || rc=$?
+  if [ "$rc" -eq 0 ] && [ "$via_gh" = yes ]; then
+    echo "  transport ok (git ls-remote reached $url via gh credentials)"
+  elif [ "$rc" -eq 0 ]; then
+    echo "  transport ok (git ls-remote reached $url non-interactively)"
+  elif [ -e "$tmp/timedout" ]; then
+    finding "transport TIMED OUT after ${timeout_s}s reaching $url"
+  else
+    why=$(grep -v '^[[:space:]]*$' "$tmp/ls-remote.err" | head -n 1)
+    finding "transport FAILED: git ls-remote exited $rc: ${why:-no error output}"
+    if [ "$via_gh" = yes ]; then
+      echo "            GitHub remotes use gh's credentials over HTTPS: check gh auth status on the host"
+    elif [ "$is_ssh" = yes ]; then
+      echo "            SSH runs with BatchMode=yes: use a key file without a passphrase, or an agent in the bridge's environment"
+    fi
   fi
 done
 

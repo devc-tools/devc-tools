@@ -37,6 +37,7 @@ deno task build:info
 
 deno compile \
   --include build_info.json \
+  --include ../../docs/bridge-git-push.md \
   --allow-read \
   --allow-net \
   --allow-env=DEVC_BRIDGE_ADDR,DEVC_BRIDGE_TOKEN_FILE \

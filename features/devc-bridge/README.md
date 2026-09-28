@@ -78,6 +78,7 @@ Two details worth knowing:
 Smoke test, from inside the container:
 
 ```sh
+devc-bridge help         # the commands; answered by the client, no host needed
 devc-bridge ping test    # → pong
 ```
 

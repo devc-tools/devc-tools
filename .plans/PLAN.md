@@ -71,6 +71,26 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
 
 ### Completed
 
+- [devc-bridge-push-via-gh](archived/devc-bridge-push-via-gh.md) — ✅ Done,
+  offline-tested (`git_push_test.sh` 115/115, `pr_review_test.sh` 118/118) and
+  verified live: from a container with an empty ssh agent, `git-doctor` reported
+  `via gh credentials` and `git-push` published to
+  `git@github.com:bmingles/private-repo-spike.git` through `gh`. A GitHub remote is
+  now always pushed over HTTPS with `gh auth git-credential` as git's only helper
+  and no user/system git config, so `gh auth login` is the one host setup for push
+  and PR review; other remotes are unchanged. `git-doctor` probes the same way and
+  no longer has an ssh-agent section.
+
+- [devc-bridge-agent-help](archived/devc-bridge-agent-help.md) — ✅ Done, offline-tested
+  (`git_push_test.sh` 93/93, `pr_review_test.sh` 118/118) and the client validated
+  from inside a bridge-enabled container. Three fixes from an agent's first cold run
+  of the bridge PR loop: the client answers `help` / `--help` / `-h` / no-args
+  locally and serves the embedded agent guide (`help guide`, `docs/bridge-git-push.md`
+  compiled in with `--include`); `git-doctor` no longer fails on an empty ssh agent
+  and instead probes the pinned remote with a read-only, BatchMode, time-bounded
+  `git ls-remote`; the client no longer crashes with `BrokenPipe` when its output
+  reader exits early.
+
 - [feature-godot](archived/feature-godot.md) — ✅ Done, code complete and offline-tested;
   every Docker-needed item in the plan's own Validation list is unrun (no Docker in this
   environment), same standing as other entries below.
@@ -1811,3 +1831,5 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
 | devc surfaces the container's agent to Herdr — rotating `HERDR_AGENT` sidecar                               | [herdr-agent-sidecar](archived/herdr-agent-sidecar.md)                             | complete |
 | Keepawake ping telemetry — measure inter-ping gaps before touching the idle timeout                         | [keepawake-ping-telemetry](keepawake-ping-telemetry.md)                            |          |
 | devc auto-mounts the host's devc-bridge client read-only into bridge-enabled containers                     | [devc-bridge-client-auto-mount](devc-bridge-client-auto-mount.md)                  |          |
+| devc-bridge agent help — local `help`/guide, real `git-doctor` transport probe, BrokenPipe-safe client      | [devc-bridge-agent-help](archived/devc-bridge-agent-help.md)                       | complete |
+| devc-bridge `git-push` over HTTPS with gh's credential — one host setup                                     | [devc-bridge-push-via-gh](archived/devc-bridge-push-via-gh.md)                     | complete |
