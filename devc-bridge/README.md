@@ -151,7 +151,8 @@ cd ../client && deno task build:client  # the container client, to the same dir 
 ```
 
 …or skip the build entirely and source the repo's shell integration — it defines
-a `devc-bridge` function that runs `host/main.ts` from source via Deno:
+a `devc-bridge2` function that runs `host/main.ts` from source via Deno (suffixed
+so it doesn't shadow an installed `devc-bridge`):
 
 ```sh
 source /path/to/devc-tools/scripts/bash_aliases.sh   # add this to ~/.bashrc

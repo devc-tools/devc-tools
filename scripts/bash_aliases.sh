@@ -4,13 +4,17 @@
 #   source /path/to/devc-tools/scripts/bash_aliases.sh
 #
 # Each function runs its tool straight from source via Deno — no compile step:
-#   devc-bridge start | stop | status | restart
-#   devc config | up | attach | claude | exec | build | mounts | stop | down | status
+#   devc-bridge2 start | stop | status | restart
+#   devc2 config | up | attach | claude | exec | build | mounts | stop | down | status
 #
-# Sourcing also exports $DEVC_BIN (the same from-source invocation as the `devc` function)
+# The from-source tools carry a `2` suffix so they don't shadow the installed `devc` /
+# `devc-bridge` binaries on PATH — both can coexist, and the plain names always mean the
+# released build.
+#
+# Sourcing also exports $DEVC_BIN (the same from-source invocation as the `devc2` function)
 # for non-shell callers that can't see shell functions.
 #
-# Requires Deno 2.9+ on PATH. `devc-bridge start` backgrounds this same from-source
+# Requires Deno 2.9+ on PATH. `devc-bridge2 start` backgrounds this same from-source
 # invocation with its `run` subcommand — nothing is built. Only the opt-in menu-bar
 # tray needs `deno desktop` (macOS GUI); see devc-bridge/host's `dev` task.
 
@@ -35,7 +39,7 @@ if _devc_tools_root="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")/.." 2>/dev/null &&
   export DEVC_MAIN="$DEVC_TOOLS_ROOT/devc/main.ts"
   unset _devc_tools_root
 
-  # `devc` below is a bash function — invisible to anything that spawns child processes
+  # `devc2` below is a bash function — invisible to anything that spawns child processes
   # directly (e.g. Node's child_process.spawn, which resolves commands from PATH only and
   # never sees shell functions). Exporting the same invocation as $DEVC_BIN lets any such
   # consumer run devc from source too, with no separate setup: sourcing this file is enough.
@@ -73,8 +77,8 @@ _devc_tools_run() {
   deno run $_DEVC_TOOLS_PERMS "$main" "$@"
 }
 
-devc-bridge() { _devc_tools_run devc-bridge "${DEVC_BRIDGE_MAIN:-}" "$@"; }
+devc-bridge2() { _devc_tools_run devc-bridge2 "${DEVC_BRIDGE_MAIN:-}" "$@"; }
 
-devc() { _devc_tools_run devc "${DEVC_MAIN:-}" "$@"; }
+devc2() { _devc_tools_run devc2 "${DEVC_MAIN:-}" "$@"; }
 
 # Adding a tool: export its <TOOL>_MAIN above, then one function line here.
