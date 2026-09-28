@@ -25,7 +25,7 @@ BRIDGE_CLIENT="${BRIDGE_CLIENT:-/usr/local/share/devc-bridge/client/devc-bridge}
 # has been tested against this install.sh; bumping it is itself a Feature change. Repeated
 # here rather than read from the manifest, which is JSON, because no `jq` is guaranteed in
 # an arbitrary base image. See features/CONTRIBUTING.md.
-DEVC_TOOLS_RELEASE='v0.1.0'
+DEVC_TOOLS_RELEASE='v0.4.0'
 
 die() {
   echo "devc-bridge: $*" >&2
@@ -98,7 +98,11 @@ actual="$(sha256_of "$TMP/$ASSET")"
 [ "$expected" = "$actual" ] || die \
   "checksum mismatch for $ASSET (expected $expected, got $actual) — nothing was installed"
 
-tar -xzf "$TMP/$ASSET" -C "$TMP" || die "could not unpack $ASSET"
+# `-o`: owned by whoever extracts (root, at build time), not the archive's owner — release
+# archives record the CI runner's uid 1001, which a root `tar` otherwise restores, handing the
+# client to whichever container user has that uid. Spelled `-o` rather than
+# `--no-same-owner` because GNU tar, BusyBox and bsdtar all take it on extract.
+tar -xzof "$TMP/$ASSET" -C "$TMP" || die "could not unpack $ASSET"
 [ -f "$TMP/devc-bridge" ] || die "$ASSET does not contain devc-bridge"
 
 mkdir -p "$(dirname "$BRIDGE_CLIENT")"
