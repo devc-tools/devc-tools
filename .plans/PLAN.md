@@ -21,6 +21,13 @@
   The per-ping lease model is documented as a follow-on and deliberately **not**
   built until the data exists.
 
+- [devc-bridge-client-auto-mount](devc-bridge-client-auto-mount.md) — devc bind-mounts
+  the host's installed container client (`~/.config/devc-bridge/client/`) read-only
+  over the Feature's client dir in every bridge-enabled container, when it is a
+  host-arch Linux ELF and the project is not Compose. Opt out with
+  `"bridgeClientMount": false`. Client development becomes `deno task build:client`
+  with no image rebuild; non-devc consumers keep the Feature's downloaded client.
+
 ### Standing rules for Feature work
 
 Not a plan group — these are the conventions every Feature plan in this file
@@ -1803,3 +1810,4 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
 | `node-nvmrc` 0.2.0 — `containerEnv` PATH pin for every process; drop the `cd` hook                          | [feature-node-nvmrc-container-wide](archived/feature-node-nvmrc-container-wide.md) | complete |
 | devc surfaces the container's agent to Herdr — rotating `HERDR_AGENT` sidecar                               | [herdr-agent-sidecar](archived/herdr-agent-sidecar.md)                             | complete |
 | Keepawake ping telemetry — measure inter-ping gaps before touching the idle timeout                         | [keepawake-ping-telemetry](keepawake-ping-telemetry.md)                            |          |
+| devc auto-mounts the host's devc-bridge client read-only into bridge-enabled containers                     | [devc-bridge-client-auto-mount](devc-bridge-client-auto-mount.md)                  |          |
