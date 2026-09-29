@@ -15,6 +15,7 @@ import {
   type BridgeCapability,
   bridgePaths,
   capabilityForCommand,
+  isGitHubRemote,
   parseGitdirPointer,
   parseHead,
   parseOriginUrl,
@@ -100,25 +101,25 @@ Deno.test('policy: serialize and parse round-trip one tab-separated line', () =>
     repo: '/Users/me/code/app',
     remote: 'git@github.com:acme/app.git',
     branch: 'feat/x',
-    grants: ['git-push', 'pr-review'] as BridgeCapability[],
+    grants: ['gh-push', 'gh-pr-review'] as BridgeCapability[],
   };
   const text = serializePolicy(record);
   assertEquals(
     text,
-    '/Users/me/code/app\tgit@github.com:acme/app.git\tfeat/x\tgit-push,pr-review\n',
+    '/Users/me/code/app\tgit@github.com:acme/app.git\tfeat/x\tgh-push,gh-pr-review\n',
   );
   assertEquals(parsePolicy(text), record);
 });
 
 Deno.test('policy: every valid grant set round-trips', () => {
   const sets: BridgeCapability[][] = [
-    ['git-push'],
-    ['pr-review'],
-    ['git-push', 'pr-review'],
-    ['pr-review', 'pr-resolve'],
-    ['git-push', 'pr-review', 'pr-resolve'],
-    ['pr-review', 'pr-request-review'],
-    ['git-push', 'pr-review', 'pr-resolve', 'pr-request-review'],
+    ['gh-push'],
+    ['gh-pr-review'],
+    ['gh-push', 'gh-pr-review'],
+    ['gh-pr-review', 'gh-pr-resolve'],
+    ['gh-push', 'gh-pr-review', 'gh-pr-resolve'],
+    ['gh-pr-review', 'gh-pr-request-review'],
+    ['gh-push', 'gh-pr-review', 'gh-pr-resolve', 'gh-pr-request-review'],
   ];
   for (const grants of sets) {
     const record = { repo: '/a', remote: 'r', branch: 'b', grants };
@@ -137,20 +138,23 @@ Deno.test('policy: a malformed file parses to null', () => {
       '\n',
       '/a\tb\n',
       '/a\tb\tc\n', // three fields: a file from before grants existed
-      '/a\tb\tc\tgit-push\te\n',
-      '/a\t\tc\tgit-push\n',
+      '/a\tb\tc\tgh-push\te\n',
+      '/a\t\tc\tgh-push\n',
       '/a\tb\tc\t\n', // empty grants
-      '/a\tb\tc\tgit-push\n/d\te\tf\tgit-push\n',
-      '/a\tb\tc\tgit-push\r\n',
+      '/a\tb\tc\tgh-push\n/d\te\tf\tgh-push\n',
+      '/a\tb\tc\tgh-push\r\n',
       '/a\tb\tc\tgit-pull\n', // unknown capability
-      '/a\tb\tc\tgit-push,git-push\n', // duplicate
-      '/a\tb\tc\tpr-review,git-push\n', // out of canonical order
-      '/a\tb\tc\tgit-push, pr-review\n', // a space
-      '/a\tb\tc\tgit-push,\n', // trailing comma
-      '/a\tb\tc\tpr-resolve\n', // pr-resolve without pr-review
-      '/a\tb\tc\tpr-request-review\n', // pr-request-review without pr-review
-      '/a\tb\tc\tgit-push,pr-resolve,pr-request-review\n', // … even alongside pr-resolve
-      '/a\tb\tc\tpr-review,pr-request-review,pr-resolve\n', // out of canonical order
+      '/a\tb\tc\tgit-push\n', // a name from before the gh- rename
+      '/a\tb\tc\tgh-push,pr-review\n', // … even alongside a current one
+      '/a\tb\tc\tgh\n', // the wildcard is devc's to expand, never a policy's
+      '/a\tb\tc\tgh-push,gh-push\n', // duplicate
+      '/a\tb\tc\tgh-pr-review,gh-push\n', // out of canonical order
+      '/a\tb\tc\tgh-push, gh-pr-review\n', // a space
+      '/a\tb\tc\tgh-push,\n', // trailing comma
+      '/a\tb\tc\tgh-pr-resolve\n', // gh-pr-resolve without gh-pr-review
+      '/a\tb\tc\tgh-pr-request-review\n', // gh-pr-request-review without gh-pr-review
+      '/a\tb\tc\tgh-push,gh-pr-resolve,gh-pr-request-review\n', // … even alongside gh-pr-resolve
+      '/a\tb\tc\tgh-pr-review,gh-pr-request-review,gh-pr-resolve\n', // out of canonical order
     ]
   ) {
     assertEquals(parsePolicy(text), null, JSON.stringify(text));
@@ -160,12 +164,12 @@ Deno.test('policy: a malformed file parses to null', () => {
 Deno.test('policy: serialize refuses a field that would not read back', () => {
   const ok = { repo: '/a', remote: 'r', branch: 'main' };
   const bad: PolicyRecord[] = [
-    { ...ok, remote: 'x\ty', grants: ['git-push'] },
+    { ...ok, remote: 'x\ty', grants: ['gh-push'] },
     { ...ok, grants: [] },
-    { ...ok, grants: ['pr-review', 'git-push'] },
-    { ...ok, grants: ['git-push', 'git-push'] },
-    { ...ok, grants: ['pr-resolve'] },
-    { ...ok, grants: ['pr-request-review'] },
+    { ...ok, grants: ['gh-pr-review', 'gh-push'] },
+    { ...ok, grants: ['gh-push', 'gh-push'] },
+    { ...ok, grants: ['gh-pr-resolve'] },
+    { ...ok, grants: ['gh-pr-request-review'] },
     { ...ok, grants: ['nope' as BridgeCapability] },
   ];
   for (const record of bad) {
@@ -181,21 +185,24 @@ Deno.test('policy: serialize refuses a field that would not read back', () => {
 Deno.test('capabilities: the canonical order', () => {
   assertEquals(
     [...BRIDGE_CAPABILITIES],
-    ['git-push', 'pr-review', 'pr-resolve', 'pr-request-review'],
+    ['gh-push', 'gh-pr-review', 'gh-pr-resolve', 'gh-pr-request-review'],
   );
 });
 
 Deno.test('capabilities: every built-in command maps to exactly one capability', () => {
-  assertEquals(capabilityForCommand('git-push'), 'git-push');
-  assertEquals(capabilityForCommand('git-doctor'), 'git-push');
-  assertEquals(capabilityForCommand('pr-comments'), 'pr-review');
-  assertEquals(capabilityForCommand('pr-reply'), 'pr-review');
-  assertEquals(capabilityForCommand('pr-resolve'), 'pr-resolve');
+  assertEquals(capabilityForCommand('gh-push'), 'gh-push');
+  assertEquals(capabilityForCommand('gh-doctor'), 'gh-push');
+  assertEquals(capabilityForCommand('gh-pr-comments'), 'gh-pr-review');
+  assertEquals(capabilityForCommand('gh-pr-reply'), 'gh-pr-review');
+  assertEquals(capabilityForCommand('gh-pr-resolve'), 'gh-pr-resolve');
   assertEquals(
-    capabilityForCommand('pr-request-review'),
-    'pr-request-review',
+    capabilityForCommand('gh-pr-request-review'),
+    'gh-pr-request-review',
   );
   assertEquals(capabilityForCommand('caffeinate'), null);
+  for (const old of ['git-push', 'git-doctor', 'pr-comments', 'pr-resolve']) {
+    assertEquals(capabilityForCommand(old), null, old);
+  }
   const all = BRIDGE_CAPABILITIES.flatMap((c) => BRIDGE_CAPABILITY_COMMANDS[c]);
   assertEquals(new Set(all).size, all.length);
 });
@@ -227,6 +234,52 @@ Deno.test('parseGitdirPointer reads the gitdir: line', () => {
     '../app/.git/worktrees/feat',
   );
   assertEquals(parseGitdirPointer('nothing here\n'), null);
+});
+
+// ── GitHub remotes ──────────────────────────────────────────────────────────────────────────
+
+/**
+ * The one shape table for a GitHub remote. `devc-bridge/tests/gh_push_test.sh` reads these rows
+ * out of this file and asserts each against the shell `parse_remote` the bridge scripts carry, so
+ * keep one `['<url>', <bool>],` row per line.
+ */
+const GITHUB_REMOTE_SHAPES: [string, boolean][] = [
+  ['git@github.com:o/n.git', true],
+  ['git@github.com:o/n', true],
+  ['ssh://git@github.com/o/n', true],
+  ['ssh://git@github.com/o/n.git', true],
+  ['https://github.com/o/n.git', true],
+  ['https://github.com/o/n', true],
+  ['git@github.com-work:o/n.git', true],
+  ['ssh://git@github.com-work/o/n', true],
+  ['git@github.com:my.org/my_repo-2.git', true],
+  ['/srv/repo.git', false],
+  ['file:///x', false],
+  ['../x.git', false],
+  ['git@gitlab.com:o/n.git', false],
+  ['ssh://git@gitlab.com/o/n.git', false],
+  ['https://gitlab.com/o/n.git', false],
+  ['https://github.com.evil.com/o/n', false],
+  ['https://user@github.com/o/n', false],
+  ['https://github.com:443/o/n', false],
+  ['git@github.com_x:o/n', false],
+  ['http://github.com/o/n', false],
+  ['ssh://github.com/o/n', false],
+  ['https://github.com/o', false],
+  ['https://github.com/o/', false],
+  ['https://github.com//n', false],
+  ['https://github.com/../n', false],
+  ['https://github.com/o/..', false],
+  ['https://github.com/o/.git', false],
+  ['git@github.com:o/n/extra', false],
+  ['git@github.com:', false],
+  ['git@github.com:o/n x', false],
+];
+
+Deno.test('isGitHubRemote: the shape table', () => {
+  for (const [url, want] of GITHUB_REMOTE_SHAPES) {
+    assertEquals(isGitHubRemote(url), want, url);
+  }
 });
 
 // ── remote.origin.url ───────────────────────────────────────────────────────────────────────

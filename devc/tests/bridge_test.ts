@@ -149,7 +149,7 @@ async function withFixture(fn: (f: Fixture) => Promise<void>): Promise<void> {
 const SHA1 = '0123456789abcdef0123456789abcdef01234567';
 
 /** The grant most tests make: two capabilities, so the fourth field is visibly a list. */
-const GRANT: PolicyMode = { grant: ['git-push', 'pr-review'] };
+const GRANT: PolicyMode = { grant: ['gh-push', 'gh-pr-review'] };
 
 // ── the key directory ───────────────────────────────────────────────────────────────────────
 
@@ -182,12 +182,12 @@ Deno.test('grant writes the pin when the container has the repo frozen', async (
     const file = bridgePaths(f.home, key).policyFile;
     assertEquals(
       await Deno.readTextFile(file),
-      `${f.project}\tgit@github.com:acme/proj.git\tfeat/x\tgit-push,pr-review\n`,
+      `${f.project}\tgit@github.com:acme/proj.git\tfeat/x\tgh-push,gh-pr-review\n`,
     );
     assertEquals((await Deno.stat(file)).mode! & 0o777, 0o600);
     assertStringIncludes(
       f.logs.join('\n'),
-      'devc: devc-bridge capabilities granted: git-push, pr-review for feat/x → git@github.com:acme/proj.git',
+      'devc: devc-bridge capabilities granted: gh-push, gh-pr-review for feat/x → git@github.com:acme/proj.git',
     );
   });
 });
@@ -333,12 +333,12 @@ Deno.test('refresh rewrites the pin after a branch switch', async () => {
     );
     assertEquals(
       policy.kind === 'present' && policy.record.grants,
-      ['git-push', 'pr-review'],
+      ['gh-push', 'gh-pr-review'],
       'refresh keeps the grants',
     );
     assertStringIncludes(
       f.logs.join('\n'),
-      'devc: devc-bridge pin refreshed: git-push, pr-review for feat/next',
+      'devc: devc-bridge pin refreshed: gh-push, gh-pr-review for feat/next',
     );
   });
 });
@@ -360,7 +360,7 @@ Deno.test('refresh revokes, and says so, when the pin can no longer be derived',
     );
     assertStringIncludes(
       f.logs.join('\n'),
-      'Re-run `devc up --bridge-allow git-push,pr-review` once that is fixed.',
+      'Re-run `devc up --bridge-allow gh-push,gh-pr-review` once that is fixed.',
     );
   });
 });
@@ -380,20 +380,97 @@ Deno.test('refresh removes a malformed (pre-grants, three-field) policy and says
   });
 });
 
+/** Point the fixture repo's `remote.origin.url` at `url`, keeping the fsmonitor tripwire. */
+async function setOrigin(f: Fixture, url: string): Promise<void> {
+  const config = `${f.project}/.git/config`;
+  const text = await Deno.readTextFile(config);
+  await Deno.writeTextFile(
+    config,
+    text.replace(/url = .*/, `url = ${url}`),
+  );
+}
+
+Deno.test('a grant on a non-GitHub origin is refused, before up and after', async () => {
+  await withFixture(async (f) => {
+    const origin = `${f.dir}/remote.git`;
+    const merged = await f.merged();
+    await applyPolicy(GRANT, merged, f.project, f.deps(f.frozen));
+    await setOrigin(f, origin);
+    const before = await assertRejects(
+      () => checkGrantBeforeUp(merged, f.project, f.deps(null)),
+      BridgeGrantError,
+    );
+    assertEquals(
+      before.message,
+      `--bridge-allow: origin ${origin} is not a github.com remote`,
+    );
+    assertEquals(
+      await readPolicy(merged.bridgeKey!, f.deps(null)),
+      { kind: 'absent' },
+      'an explicit request that cannot be met removes the older grant',
+    );
+    const after = await assertRejects(
+      () => applyPolicy(GRANT, merged, f.project, f.deps(f.frozen)),
+      BridgeGrantError,
+    );
+    assertEquals(
+      after.message,
+      `the container is up, but --bridge-allow was not granted: origin ${origin} is not a github.com remote`,
+    );
+  });
+});
+
+Deno.test('refresh revokes a grant whose origin stopped being GitHub', async () => {
+  await withFixture(async (f) => {
+    const origin = `${f.dir}/remote.git`;
+    const merged = await f.merged();
+    const deps = f.deps(f.frozen);
+    await applyPolicy(GRANT, merged, f.project, deps);
+    await setOrigin(f, origin);
+    await applyPolicy('refresh', merged, f.project, deps);
+    assertEquals(await readPolicy(merged.bridgeKey!, deps), {
+      kind: 'absent',
+    });
+    assertStringIncludes(
+      f.logs.join('\n'),
+      `devc: devc-bridge capabilities revoked — origin ${origin} is not a github.com remote. ` +
+        'Re-run `devc up --bridge-allow gh-push,gh-pr-review` once that is fixed.',
+    );
+  });
+});
+
+Deno.test('refresh removes a policy holding a pre-rename capability name', async () => {
+  await withFixture(async (f) => {
+    const merged = await f.merged();
+    const deps = f.deps(f.frozen);
+    const file = bridgePaths(f.home, merged.bridgeKey!).policyFile;
+    await write(
+      file,
+      `${f.project}\tgit@github.com:acme/proj.git\tfeat/x\tgit-push,pr-review\n`,
+    );
+    await applyPolicy('refresh', merged, f.project, deps);
+    assertEquals(await exists(file), false);
+    assertStringIncludes(
+      f.logs.join('\n'),
+      'was malformed and has been removed',
+    );
+  });
+});
+
 Deno.test('a new grant replaces the earlier set rather than merging', async () => {
   await withFixture(async (f) => {
     const merged = await f.merged();
     const deps = f.deps(f.frozen);
     await applyPolicy(
-      { grant: ['git-push', 'pr-review', 'pr-resolve'] },
+      { grant: ['gh-push', 'gh-pr-review', 'gh-pr-resolve'] },
       merged,
       f.project,
       deps,
     );
-    await applyPolicy({ grant: ['git-push'] }, merged, f.project, deps);
+    await applyPolicy({ grant: ['gh-push'] }, merged, f.project, deps);
     const policy = await readPolicy(merged.bridgeKey!, deps);
     assertEquals(policy.kind === 'present' && policy.record.grants, [
-      'git-push',
+      'gh-push',
     ]);
   });
 });
@@ -499,7 +576,7 @@ Deno.test('status prints absent as absent, and the pin when there is one', async
     const after = await bridgeStatusLines(merged, f.project, f.deps(null));
     assertStringIncludes(
       after.join('\n'),
-      `  bridge:    git-push, pr-review for feat/x → git@github.com:acme/proj.git (${f.project})`,
+      `  bridge:    gh-push, gh-pr-review for feat/x → git@github.com:acme/proj.git (${f.project})`,
     );
   });
 });
@@ -683,7 +760,7 @@ Deno.test('a worktree container is granted once the primary git dir is frozen', 
         repo: wt,
         remote: 'git@github.com:acme/proj.git',
         branch: 'feat/wt',
-        grants: ['git-push', 'pr-review'],
+        grants: ['gh-push', 'gh-pr-review'],
       },
     });
   });

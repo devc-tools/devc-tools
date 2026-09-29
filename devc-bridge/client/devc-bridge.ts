@@ -28,7 +28,7 @@ const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 
 /** The agent guide, embedded by `deno compile --include` (see deno.json and build-client.sh). */
-const GUIDE_FILE = new URL('../../docs/bridge-git-push.md', import.meta.url);
+const GUIDE_FILE = new URL('../../docs/bridge-github.md', import.meta.url);
 
 const OVERVIEW = `usage: devc-bridge <command> [args...]
 
@@ -37,21 +37,21 @@ credentials: pushing and PR review go through the bridge.
 
 Built-in commands (capability in brackets, granted on the host with
 \`devc up --bridge-allow <caps>\`):
-  git-push                     publish the pinned branch; no arguments  [git-push]
-  git-doctor                   show the pin and why a push would fail   [git-push]
-  pr-comments                  unresolved threads on your PR, as JSON   [pr-review]
-  pr-reply <thread-id> <body>  reply to a review thread                 [pr-review]
-  pr-resolve <thread-id>       resolve a Copilot review thread          [pr-resolve]
-  pr-request-review            ask Copilot to review the current head   [pr-request-review]
-  ping [label]                 keep the host awake
+  gh-push                          publish the pinned branch; no arguments  [gh-push]
+  gh-doctor                        show the pin and why a push would fail   [gh-push]
+  gh-pr-comments                   unresolved threads on your PR, as JSON   [gh-pr-review]
+  gh-pr-reply <thread-id> <body>   reply to a review thread                 [gh-pr-review]
+  gh-pr-resolve <thread-id>        resolve a Copilot review thread          [gh-pr-resolve]
+  gh-pr-request-review             ask Copilot to review the current head   [gh-pr-request-review]
+  ping [label]                     keep the host awake
 
 Answered by this client, with the bridge up or down:
-  help [guide]                 this overview, or the full agent guide
-  version                      client version (also --version, -V)
+  help [guide]                     this overview, or the full agent guide
+  version                          client version (also --version, -V)
 
 Other commands are whatever the host keeps in ~/.config/devc-bridge/commands/.
 
-Start with: devc-bridge git-doctor
+Start with: devc-bridge gh-doctor
 Full guide (output, exit codes, the PR review loop): devc-bridge help guide
 `;
 

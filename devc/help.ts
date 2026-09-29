@@ -190,9 +190,10 @@ export const COMMAND_HELP: Record<string, string> = {
     '      --print-config      Print the effective devcontainer.json and exit',
     '      --json              Output container status as JSON',
     '      --bridge-allow LIST Let this container use devc-bridge capabilities',
-    '                          (git-push, pr-review, pr-resolve,',
-    '                          pr-request-review), comma-separated;',
-    '                          without it, any earlier grant is removed',
+    '                          (gh-push, gh-pr-review, gh-pr-resolve,',
+    "                          gh-pr-request-review; gh or 'gh-*' for all),",
+    '                          comma-separated; without it, any earlier',
+    '                          grant is removed',
     '  -h, --help              Print help',
   ].join('\n'),
 

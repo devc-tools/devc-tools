@@ -373,7 +373,7 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
             try {
               const req = JSON.parse(line) as Request;
               // Identified, not merely authenticated: the caller's key is what a publishing verb
-              // (git-push) resolves its policy from, so it goes to the script as DEVC_BRIDGE_KEY.
+              // (gh-push) resolves its policy from, so it goes to the script as DEVC_BRIDGE_KEY.
               const caller = tokens.identify(req.token);
               if (caller === null) {
                 resp = { ok: false, error: 'unauthorized' };

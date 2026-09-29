@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# git-push — publish this container's one pinned branch to its one pinned remote.
-#   devc-bridge git-push          (no arguments, ever)
+# gh-push — publish this container's one pinned branch to its one pinned remote.
+#   devc-bridge gh-push          (no arguments, ever)
 #
-# Built in: runs only for a container whose policy grants `git-push`
-# (`devc up --bridge-allow git-push`). The bridge checks the grant before running this; the check
+# Built in: runs only for a container whose policy grants `gh-push`
+# (`devc up --bridge-allow gh-push`). The bridge checks the grant before running this; the check
 # below is the second layer.
 #
 # Who is asking comes from the bridge, not the caller: the server sets DEVC_BRIDGE_KEY to the
@@ -18,12 +18,13 @@
 # later step runs in the mirror. The pushed object is the SHA that was inspected, never the
 # branch ref, which the agent can move at any moment.
 #
-# A GitHub remote (the shapes pr-*'s parse_remote accepts) is always reached over HTTPS with gh's
-# credential as git's only helper, so `gh auth login` on the host is the whole setup; the policy
-# and the mirror keep the remote verbatim. Any other remote uses plain git as given.
+# GitHub only: the remote must have one of the shapes gh-pr-*'s parse_remote accepts, and is always
+# reached over HTTPS with gh's credential as git's only helper, so `gh auth login` on the host is
+# the whole setup; the policy and the mirror keep the remote verbatim. devc refuses any other remote
+# at grant time; the check below is the second layer, since a policy file can be edited by hand.
 #
 # Exit codes: 0 pushed (or already up to date), 2 no/malformed policy, a pin that no longer
-# resolves, or a remote mismatch, 3 content-policy refusal, 4 transport failure or timeout.
+# resolves, a remote that is not GitHub, or a remote mismatch, 3 content-policy refusal, 4 transport failure or timeout.
 
 set -uo pipefail
 export LC_ALL=C
@@ -34,7 +35,7 @@ cd / || exit 4
 die() {
   local code=$1
   shift
-  echo "git-push: $*" >&2
+  echo "gh-push: $*" >&2
   exit "$code"
 }
 
@@ -51,7 +52,7 @@ esac
 policy_dir=${DEVC_BRIDGE_POLICY_DIR:-$HOME/.config/devc-bridge/policy}
 policy=$policy_dir/$key.conf
 [ -f "$policy" ] ||
-  die 2 "no push policy for this container — on the host: devc up --bridge-allow git-push"
+  die 2 "no push policy for this container — on the host: devc up --bridge-allow gh-push"
 
 malformed() { die 2 "malformed policy $policy: $*"; }
 
@@ -78,14 +79,14 @@ case $repo in /*) ;; *) malformed "repo is not an absolute path" ;; esac
 case $remote in -*) malformed "remote looks like an option" ;; esac
 git check-ref-format "refs/heads/$branch" || malformed "branch is not a valid ref name"
 [[ $grants =~ ^[a-z][a-z-]*(,[a-z][a-z-]*)*$ ]] || malformed "bad grants field"
-case ,$grants, in *,git-push,*) ;; *) die 2 "this container was not granted git-push" ;; esac
+case ,$grants, in *,gh-push,*) ;; *) die 2 "this container was not granted gh-push" ;; esac
 
 mirror=$HOME/.local/state/devc-bridge/git/$key.git
 
-# ── shared with git-doctor: keep the two copies identical ─────────────────────────────────
+# ── shared with gh-doctor: keep the two copies identical ─────────────────────────────────
 
 # parse_remote URL — sets head_owner/head_name. Three shapes, github.com or a `github.com-*` ssh
-# host alias; anything else fails. (Verbatim from the pr-* prelude.)
+# host alias; anything else fails. (Verbatim from the gh-pr-* prelude.)
 parse_remote() {
   local rest host path
   case $1 in
@@ -97,6 +98,7 @@ parse_remote() {
   case $host in github.com | github.com-*) ;; *) return 1 ;; esac
   case $host in *[!A-Za-z0-9.-]*) return 1 ;; esac
   path=${path%.git}
+  case $path in */*) ;; *) return 1 ;; esac
   head_owner=${path%%/*}
   head_name=${path#*/}
   valid_name "$head_owner" && valid_name "$head_name"
@@ -109,14 +111,17 @@ valid_name() { # an owner or repo name: also keeps `..` out of an API path
 unset GH_REPO GH_ENTERPRISE_TOKEN GITHUB_ENTERPRISE_TOKEN GH_DEBUG GH_PAGER GH_CONFIG_DIR_OVERRIDE
 export GH_HOST=github.com GH_PROMPT_DISABLED=1 GH_NO_UPDATE_NOTIFIER=1 NO_COLOR=1
 
-# transport_setup REMOTE — sets via_gh (yes/no), url (what network git calls are given) and
-# NET_ENV (env assignments for them). For a GitHub remote: the HTTPS URL, no user or system git
-# config (no `insteadOf` can turn it back into SSH, no other helper can answer), and gh as the
-# only credential helper. Fails (printing why) only when gh's path cannot be quoted.
+# transport_setup REMOTE — sets url (the HTTPS URL every network git call is given), NET_ENV
+# (env assignments for them) and NET_FLAGS: no user or system git config (no `insteadOf` can turn
+# it back into SSH, no other helper can answer), and gh as the only credential helper. There is no
+# other transport. Fails, printing why, for a remote that is not GitHub or a gh path that cannot be
+# quoted.
 transport_setup() {
-  NET_ENV=() NET_FLAGS=() via_gh=no url=$1
-  parse_remote "$1" || return 0
-  via_gh=yes
+  NET_ENV=() NET_FLAGS=() url=''
+  parse_remote "$1" || {
+    echo "unsupported remote $1 — only github.com"
+    return 1
+  }
   url=https://github.com/$head_owner/$head_name.git
   gh_bin=$(command -v gh) || gh_bin=''
   case $gh_bin in *\'*)
@@ -129,7 +134,7 @@ transport_setup() {
   NET_FLAGS=(-c credential.helper= -c "credential.helper=!'$gh_bin' auth git-credential")
 }
 
-# gh_ready — for a GitHub remote: 0 gh can supply the credential, 2 gh is not installed, 3 gh is
+# gh_ready — 0 gh can supply the credential, 2 gh is not installed, 3 gh is
 # not logged in to github.com. Needs run_t, so call it after that is defined.
 GH_MISSING="gh is not installed on the host (not on the bridge's PATH)"
 gh_ready() {
@@ -139,6 +144,9 @@ gh_ready() {
 timeout_s=${DEVC_BRIDGE_GIT_TIMEOUT:-300}
 case $timeout_s in '' | *[!0-9]*) timeout_s=300 ;; esac
 
+# Before anything is touched: every gh- capability acts through the host's gh login.
+parse_remote "$remote" || die 2 "unsupported remote $remote — only github.com"
+
 # ── the environment every git below runs in ───────────────────────────────────────────────
 
 # Nothing inherited from the daemon's shell may point git somewhere else, and nothing may prompt: the
@@ -147,9 +155,9 @@ unset GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_INDEX_FILE GIT_OBJECT_DIRECTORY \
   GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_NAMESPACE GIT_CONFIG GIT_CONFIG_PARAMETERS \
   GIT_CONFIG_COUNT GIT_ASKPASS SSH_ASKPASS GIT_SSH GIT_PROXY_COMMAND GIT_EXTERNAL_DIFF
 export GIT_TERMINAL_PROMPT=0
-export GIT_SSH_COMMAND='ssh -oBatchMode=yes -oConnectTimeout=30'
-# An allowlist rather than a denylist: `ext::` (arbitrary command) and everything else is refused.
-export GIT_ALLOW_PROTOCOL=file:ssh:https
+# An allowlist rather than a denylist: `ext::` (arbitrary command), ssh and everything else is
+# refused. `file` stays for the one fetch from the container's repo, which is by local path.
+export GIT_ALLOW_PROTOCOL=file:https
 
 # For every invocation: the mirror's own hooks (a user `init.templateDir` could supply some) never
 # run, nothing asks, and nothing follows tags or submodules into a push.
@@ -162,12 +170,13 @@ MIRROR_GIT=(git "${GIT_FLAGS[@]}" --git-dir="$mirror")
 SOURCE_GIT=(git "${GIT_FLAGS[@]}" -c core.fsmonitor=false -c uploadpack.packObjectsHook=
   -c core.alternateRefsCommand= -c credential.helper= --git-dir="$mirror")
 
-tmp=$(mktemp -d "${TMPDIR:-/tmp}/devc-bridge-git-push.XXXXXX") || die 4 "cannot create a temp dir"
+tmp=$(mktemp -d "${TMPDIR:-/tmp}/devc-bridge-gh-push.XXXXXX") || die 4 "cannot create a temp dir"
 trap 'rm -rf "$tmp"' EXIT
 
 # run_t CMD… — run CMD with stdin closed, killing its whole process group after $timeout_s.
-# macOS ships no timeout(1). The group matters: git leaves ssh holding the bridge's stdout pipe, and
-# the bridge waits for EOF on it, so killing git alone would still hang the client.
+# macOS ships no timeout(1). The group matters: git leaves its transport helper (git-remote-https,
+# and gh under it) holding the bridge's stdout pipe, and the bridge waits for EOF on it, so killing
+# git alone would still hang the client.
 run_t() {
   rm -f "$tmp/timedout"
   set -m
@@ -200,7 +209,7 @@ net() {
 
 # ── the repo is only ever read as files ───────────────────────────────────────────────────
 
-# ── shared with git-doctor: keep the two copies identical ─────────────────────────────────
+# ── shared with gh-doctor: keep the two copies identical ─────────────────────────────────
 
 phys() { (cd -P -- "$1" 2>/dev/null && pwd -P); }
 
@@ -300,14 +309,12 @@ origin=$(git config --file "$mirror/config" --get remote.origin.url) ||
 transport_setup "$remote" >"$tmp/why" || die 4 "$(cat "$tmp/why")"
 # `${a[@]+…}`: bash 3.2 (macOS) calls an empty array unbound under `set -u`.
 NET_GIT=(env ${NET_ENV[@]+"${NET_ENV[@]}"} "${MIRROR_GIT[@]}" ${NET_FLAGS[@]+"${NET_FLAGS[@]}"})
-if [ "$via_gh" = yes ]; then
-  gh_ready
-  case $? in
-    0) ;;
-    2) die 4 "$GH_MISSING" ;;
-    *) die 4 "gh is not authenticated in the bridge's environment — run gh auth login on the host, then devc-bridge restart" ;;
-  esac
-fi
+gh_ready
+case $? in
+  0) ;;
+  2) die 4 "$GH_MISSING" ;;
+  *) die 4 "gh is not authenticated in the bridge's environment — run gh auth login on the host, then devc-bridge restart" ;;
+esac
 
 net "reading $remote" "${NET_GIT[@]}" ls-remote --symref -- "$url" HEAD "refs/heads/$branch" \
   >"$tmp/ls-remote"

@@ -1,30 +1,26 @@
 #!/usr/bin/env bash
-# pr-request-review — ask Copilot to review this container's one PR at its current head.
-#   devc-bridge pr-request-review    (no arguments, ever)
+# gh-pr-resolve — resolve one Copilot review thread on this container's one PR.
+#   devc-bridge gh-pr-resolve <thread-id>
 #
-# Built in: runs only for a container whose policy grants `pr-request-review`
-# (`devc up --bridge-allow pr-review,pr-request-review`).
+# Built in: runs only for a container whose policy grants `gh-pr-resolve`
+# (`devc up --bridge-allow gh-pr-review,gh-pr-resolve`).
 #
-# Each request spends a Copilot review, so it asks only when one would do something: while a
-# Copilot review is already pending, or when Copilot's latest review is of the head, it posts
-# nothing. Calling it after every push asks for at most one review per head. The PR is the one open
-# PR whose head is the policy's remote + branch (see pr-comments). One line on stdout:
-#   pending: Copilot is already reviewing <pr-url>
-#   up to date: Copilot already reviewed <sha12> on <pr-url>
-#   requested: Copilot review of <sha12> on <pr-url>
+# Only threads Copilot started: resolving hides review feedback, so a human reviewer's thread stays
+# out of an agent's reach (it can still reply with gh-pr-reply). The PR is the one open PR whose head
+# is the policy's remote + branch (see gh-pr-comments).
 #
-# Exit codes: 0 requested, pending or up to date, 2 no/malformed policy, an argument, an
-# unsupported remote, or no single open PR, 4 GitHub/transport failure, gh not authenticated, or
-# timeout.
+# Exit codes: 0 resolved (or already resolved), 2 no/malformed policy, wrong arguments, an
+# unsupported remote, no single open PR, or a thread not on it, 3 a thread Copilot did not start,
+# 4 GitHub/transport failure, gh not authenticated, or timeout.
 
 # SC2016: GraphQL variables are $-prefixed and must not expand. SC2034: the shared prelude sets
 # some variables only another recipe reads.
 # shellcheck disable=SC2016,SC2034
-me=pr-request-review
+me=gh-pr-resolve
 # ── BEGIN pr-prelude ──
-# Shared by pr-comments, pr-reply, pr-resolve and pr-request-review: keep the four copies
-# byte-identical (the harness checks). Recipes are installed one file at a time, so there is no
-# library to source.
+# Shared by gh-pr-comments, gh-pr-reply, gh-pr-resolve and gh-pr-request-review: keep the four
+# copies byte-identical (the harness checks). Recipes are installed one file at a time, so there is
+# no library to source.
 #
 # The container's repo is never touched — not read, not run in. Everything comes from the policy
 # (which remote, which branch) and from GitHub. `gh` runs from `/`, only as `gh api`, with the repo
@@ -50,7 +46,7 @@ IS_COPILOT="(. != null and .__typename == \"Bot\" and .login == \"$COPILOT_LOGIN
 # over REST, and `Copilot` in the issue timeline's events.
 COPILOT_TIMELINE_LOGIN=Copilot
 
-# ── the caller and its policy (byte-for-byte git-push's parse) ────────────────────────────
+# ── the caller and its policy (byte-for-byte gh-push's parse) ────────────────────────────
 
 load_policy() {
   local key policy_dir policy line tabs rest field
@@ -62,7 +58,7 @@ load_policy() {
   policy_dir=${DEVC_BRIDGE_POLICY_DIR:-$HOME/.config/devc-bridge/policy}
   policy=$policy_dir/$key.conf
   [ -f "$policy" ] ||
-    die 2 "no policy for this container — on the host: devc up --bridge-allow pr-review"
+    die 2 "no policy for this container — on the host: devc up --bridge-allow gh-pr-review"
   line=$(cat -- "$policy" && printf x) || die 2 "malformed policy $policy: unreadable"
   line=${line%x}
   line=${line%$'\n'}
@@ -105,6 +101,7 @@ parse_remote() {
   case $host in github.com | github.com-*) ;; *) return 1 ;; esac
   case $host in *[!A-Za-z0-9.-]*) return 1 ;; esac
   path=${path%.git}
+  case $path in */*) ;; *) return 1 ;; esac
   head_owner=${path%%/*}
   head_name=${path#*/}
   valid_name "$head_owner" && valid_name "$head_name"
@@ -128,7 +125,7 @@ trap 'rm -rf "$tmp"' EXIT
 
 # run_t CMD… — CMD with stdin closed, its whole process group killed after $timeout_s. macOS ships
 # no timeout(1); the group matters because a child holding the bridge's stdout would keep the
-# client waiting for EOF (git-push's hang-proofing, verbatim).
+# client waiting for EOF (gh-push's hang-proofing, verbatim).
 run_t() {
   rm -f "$tmp/timedout"
   set -m
@@ -283,25 +280,24 @@ copilot_pending() {
 }
 # ── END pr-prelude ──
 
-[ $# -eq 0 ] || die 2 "usage: pr-request-review"
+[ $# -eq 1 ] || die 2 "usage: gh-pr-resolve <thread-id>"
+thread=$1
+valid_thread_id "$thread" || die 2 "not a review thread id (want PRRT_…): $thread"
 load_policy
-require_grant pr-request-review
+require_grant gh-pr-resolve
 gh_ready
 resolve_pr
-copilot_review
-copilot_pending
+load_thread "$thread"
 
-if [ "$pending" = true ]; then
-  echo "pending: Copilot is already reviewing $pr_url"
-  exit 0
-fi
-if [ "$review_commit" = "$pr_head_sha" ]; then
-  echo "up to date: Copilot already reviewed ${pr_head_sha:0:12} on $pr_url"
+[ "$thread_copilot" = true ] ||
+  die 3 "refused: thread $thread was not started by Copilot — only Copilot threads can be resolved from a container; reply instead"
+if [ "$thread_resolved" = true ]; then
+  echo "already resolved: $thread"
   exit 0
 fi
 
-# A 2xx is the only success signal: the response never lists Copilot among requested_reviewers.
-gh_run "requesting a Copilot review on $pr_url" api -X POST \
-  "repos/$pr_repo/pulls/$pr_number/requested_reviewers" \
-  -f "reviewers[]=${COPILOT_LOGIN}[bot]"
-echo "requested: Copilot review of ${pr_head_sha:0:12} on $pr_url"
+q='mutation($id:ID!){resolveReviewThread(input:{threadId:$id}){thread{isResolved}}}'
+gh_run "resolving $thread" api graphql -f query="$q" -f id="$thread" \
+  --jq '.data.resolveReviewThread.thread.isResolved'
+[ "$(cat "$tmp/out")" = true ] || die 4 "GitHub did not report $thread as resolved"
+echo "resolved: $thread"

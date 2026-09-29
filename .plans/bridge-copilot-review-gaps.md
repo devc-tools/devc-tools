@@ -6,7 +6,7 @@ reported the PR "clean" when Copilot's latest review had findings in its summary
 inline threads, and the bridge never returns that body. Four smaller defects turned up in the
 same run.
 
-**Depends on [bridge-gh-capabilities](bridge-gh-capabilities.md).** Every name here is post-rename:
+**Depends on [bridge-gh-capabilities](archived/bridge-gh-capabilities.md).** Every name here is post-rename:
 `gh-pr-comments`, `gh-pr-reply`, `gh-pr-resolve`, `gh-pr-request-review`, `gh-doctor`,
 `gh-push`, the guide at `docs/bridge-github.md`, the harness at
 `devc-bridge/tests/gh_pr_review_test.sh`. Both plans edit the same scripts, guide, tests and

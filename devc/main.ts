@@ -69,13 +69,13 @@ if (subcommand === HERDR_SIDECAR_SUBCOMMAND) {
 /**
  * `--bridge-allow` is honored by `up` and `build` only — see `bridge.ts` for why the other start
  * paths may refresh a grant but never make one. Refused rather than ignored elsewhere, so
- * `devc claude --bridge-allow git-push` cannot look like it granted something. The removed
+ * `devc claude --bridge-allow gh-push` cannot look like it granted something. The removed
  * `--bridge-git-push` is refused with a pointer to its replacement.
  */
 function refuseBridgeAllow(command: string, args: string[]): void {
   if (args.includes(BRIDGE_GIT_PUSH_FLAG)) {
     console.error(
-      `devc: ${BRIDGE_GIT_PUSH_FLAG} was replaced by ${BRIDGE_ALLOW_FLAG} git-push`,
+      `devc: ${BRIDGE_GIT_PUSH_FLAG} was replaced by ${BRIDGE_ALLOW_FLAG} gh-push`,
     );
     Deno.exit(2);
   }

@@ -1,19 +1,19 @@
 #!/usr/bin/env bash
-# git-doctor — explain why git-push would or would not work, without changing anything.
-#   devc-bridge git-doctor [key]
+# gh-doctor — explain why gh-push would or would not work, without changing anything.
+#   devc-bridge gh-doctor [key]
 #
-# Built in, enabled by the `git-push` capability. Run by hand on the host
-# (`~/.local/state/devc-bridge/builtin/git-doctor`) it reports every policy (or just `key`); called through the bridge it reports the caller's own and refuses any
+# Built in, enabled by the `gh-push` capability. Run by hand on the host
+# (`~/.local/state/devc-bridge/builtin/gh-doctor`) it reports every policy (or just `key`); called through the bridge it reports the caller's own and refuses any
 # other, since one container has no business reading another's pin. The bridge marks a dispatched
 # call by setting DEVC_BRIDGE_KEY, empty for the shared legacy token.
 #
-# Like git-push, it never runs git inside a pinned repo: HEAD, refs and worktree pointers are read
+# Like gh-push, it never runs git inside a pinned repo: HEAD, refs and worktree pointers are read
 # as files. Only the host-owned mirror is asked anything, plus one read-only `git ls-remote` of the
-# pinned remote, over git-push's own transport (gh's credential for a GitHub remote), to prove it
-# works non-interactively.
+# pinned remote, over gh-push's own transport (HTTPS with gh's credential), to prove it works
+# non-interactively. Like gh-push, it reports a remote that is not GitHub as unsupported.
 #
 # Exit codes: 0 nothing wrong found, 1 at least one finding, 2 bad usage, or (through the bridge)
-# a container not granted git-push.
+# a container not granted gh-push.
 
 set -uo pipefail
 export LC_ALL=C
@@ -22,8 +22,8 @@ export LC_ALL=C
 cd / || exit 1
 
 usage() {
-  echo "git-doctor: $*" >&2
-  echo "usage: git-doctor [key]" >&2
+  echo "gh-doctor: $*" >&2
+  echo "usage: gh-doctor [key]" >&2
   exit 2
 }
 [ $# -le 1 ] || usage "takes at most one argument"
@@ -33,7 +33,7 @@ if [ -n "$want" ]; then
 fi
 
 policy_dir=${DEVC_BRIDGE_POLICY_DIR:-$HOME/.config/devc-bridge/policy}
-# The knob git-push honors, but a diagnosis should not make you wait git-push's 300s.
+# The knob gh-push honors, but a diagnosis should not make you wait gh-push's 300s.
 timeout_s=${DEVC_BRIDGE_GIT_TIMEOUT:-30}
 case $timeout_s in '' | *[!0-9]*) timeout_s=30 ;; esac
 mirrors=$HOME/.local/state/devc-bridge/git
@@ -43,22 +43,22 @@ finding() {
   echo "  $*"
 }
 
-# ── shared with git-push: keep the two copies identical ───────────────────────────────────
+# ── shared with gh-push: keep the two copies identical ───────────────────────────────────
 
-# The environment git-push's git runs in, so the transport probe below sees what a push would.
+# The environment gh-push's git runs in, so the transport probe below sees what a push would.
 unset GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_INDEX_FILE GIT_OBJECT_DIRECTORY \
   GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_NAMESPACE GIT_CONFIG GIT_CONFIG_PARAMETERS \
   GIT_CONFIG_COUNT GIT_ASKPASS SSH_ASKPASS GIT_SSH GIT_PROXY_COMMAND GIT_EXTERNAL_DIFF
 export GIT_TERMINAL_PROMPT=0
-export GIT_SSH_COMMAND='ssh -oBatchMode=yes -oConnectTimeout=30'
-export GIT_ALLOW_PROTOCOL=file:ssh:https
+export GIT_ALLOW_PROTOCOL=file:https
 
-tmp=$(mktemp -d "${TMPDIR:-/tmp}/devc-bridge-git-doctor.XXXXXX") || exit 1
+tmp=$(mktemp -d "${TMPDIR:-/tmp}/devc-bridge-gh-doctor.XXXXXX") || exit 1
 trap 'rm -rf "$tmp"' EXIT
 
 # run_t CMD… — run CMD with stdin closed, killing its whole process group after $timeout_s.
-# macOS ships no timeout(1). The group matters: git leaves ssh holding the bridge's stdout pipe, and
-# the bridge waits for EOF on it, so killing git alone would still hang the client.
+# macOS ships no timeout(1). The group matters: git leaves its transport helper (git-remote-https,
+# and gh under it) holding the bridge's stdout pipe, and the bridge waits for EOF on it, so killing
+# git alone would still hang the client.
 run_t() {
   rm -f "$tmp/timedout"
   set -m
@@ -81,7 +81,7 @@ run_t() {
 }
 
 # parse_remote URL — sets head_owner/head_name. Three shapes, github.com or a `github.com-*` ssh
-# host alias; anything else fails. (Verbatim from the pr-* prelude.)
+# host alias; anything else fails. (Verbatim from the gh-pr-* prelude.)
 parse_remote() {
   local rest host path
   case $1 in
@@ -93,6 +93,7 @@ parse_remote() {
   case $host in github.com | github.com-*) ;; *) return 1 ;; esac
   case $host in *[!A-Za-z0-9.-]*) return 1 ;; esac
   path=${path%.git}
+  case $path in */*) ;; *) return 1 ;; esac
   head_owner=${path%%/*}
   head_name=${path#*/}
   valid_name "$head_owner" && valid_name "$head_name"
@@ -105,14 +106,17 @@ valid_name() { # an owner or repo name: also keeps `..` out of an API path
 unset GH_REPO GH_ENTERPRISE_TOKEN GITHUB_ENTERPRISE_TOKEN GH_DEBUG GH_PAGER GH_CONFIG_DIR_OVERRIDE
 export GH_HOST=github.com GH_PROMPT_DISABLED=1 GH_NO_UPDATE_NOTIFIER=1 NO_COLOR=1
 
-# transport_setup REMOTE — sets via_gh (yes/no), url (what network git calls are given) and
-# NET_ENV (env assignments for them). For a GitHub remote: the HTTPS URL, no user or system git
-# config (no `insteadOf` can turn it back into SSH, no other helper can answer), and gh as the
-# only credential helper. Fails (printing why) only when gh's path cannot be quoted.
+# transport_setup REMOTE — sets url (the HTTPS URL every network git call is given), NET_ENV
+# (env assignments for them) and NET_FLAGS: no user or system git config (no `insteadOf` can turn
+# it back into SSH, no other helper can answer), and gh as the only credential helper. There is no
+# other transport. Fails, printing why, for a remote that is not GitHub or a gh path that cannot be
+# quoted.
 transport_setup() {
-  NET_ENV=() NET_FLAGS=() via_gh=no url=$1
-  parse_remote "$1" || return 0
-  via_gh=yes
+  NET_ENV=() NET_FLAGS=() url=''
+  parse_remote "$1" || {
+    echo "unsupported remote $1 — only github.com"
+    return 1
+  }
   url=https://github.com/$head_owner/$head_name.git
   gh_bin=$(command -v gh) || gh_bin=''
   case $gh_bin in *\'*)
@@ -125,7 +129,7 @@ transport_setup() {
   NET_FLAGS=(-c credential.helper= -c "credential.helper=!'$gh_bin' auth git-credential")
 }
 
-# gh_ready — for a GitHub remote: 0 gh can supply the credential, 2 gh is not installed, 3 gh is
+# gh_ready — 0 gh can supply the credential, 2 gh is not installed, 3 gh is
 # not logged in to github.com. Needs run_t, so call it after that is defined.
 GH_MISSING="gh is not installed on the host (not on the bridge's PATH)"
 gh_ready() {
@@ -240,9 +244,9 @@ for key in "${keys[@]}"; do
   fi
   if [ -n "${DEVC_BRIDGE_KEY-}" ]; then
     case ,$grants, in
-      *,git-push,*) ;;
+      *,gh-push,*) ;;
       *)
-        echo "git-doctor: this container was not granted git-push" >&2
+        echo "gh-doctor: this container was not granted gh-push" >&2
         exit 2
         ;;
     esac
@@ -259,7 +263,7 @@ for key in "${keys[@]}"; do
   if [ -d "$repo/.git" ]; then
     common=$(phys "$repo/.git")
     if [ -e "$repo/.git/commondir" ]; then
-      finding "repo      REDIRECTED: a primary repo with a .git/commondir — git-push will refuse"
+      finding "repo      REDIRECTED: a primary repo with a .git/commondir — gh-push will refuse"
       common=''
     fi
   elif [ -f "$repo/.git" ]; then
@@ -267,7 +271,7 @@ for key in "${keys[@]}"; do
       echo "  repo      linked worktree ($gitdir)"
       common=$(phys "$gitdir/../..")
     else
-      finding "worktree  REPOINTED: $gitdir — git-push will refuse"
+      finding "worktree  REPOINTED: $gitdir — gh-push will refuse"
     fi
   elif [ -e "$repo" ]; then
     finding "repo      NOT A GIT REPO (no .git)"
@@ -310,56 +314,42 @@ for key in "${keys[@]}"; do
     if [ "$origin" = "$remote" ]; then
       echo "  mirror    $mirror (origin matches; $staged staging ref(s))"
     else
-      finding "mirror    MISMATCH: origin ${origin:-<none>} ≠ policy $remote — git-push will refuse"
+      finding "mirror    MISMATCH: origin ${origin:-<none>} ≠ policy $remote — gh-push will refuse"
     fi
   else
-    echo "  mirror    none yet (the first git-push creates it)"
+    echo "  mirror    none yet (the first gh-push creates it)"
   fi
 
-  case $remote in
-    ssh://*) is_ssh=yes ;;
-    *://* | /*) is_ssh=no ;;
-    *:*) is_ssh=yes ;; # scp-like: git@github.com:owner/repo.git
-    *) is_ssh=no ;;
-  esac
-  # Read-only and repo-less (cwd is /), over git-push's transport: it proves the credential reaches
+  # Read-only and repo-less (cwd is /), over gh-push's transport: it proves the credential reaches
   # the remote, not that it may write.
   if ! transport_setup "$remote" >"$tmp/why"; then
     finding "transport FAILED: $(cat "$tmp/why")"
     continue
   fi
-  if [ "$via_gh" = yes ]; then
-    gh_ready
-    case $? in
-      0) ;;
-      2)
-        finding "transport FAILED: $GH_MISSING"
-        continue
-        ;;
-      *)
-        finding "transport FAILED: gh is not authenticated for github.com — run gh auth login on the host"
-        continue
-        ;;
-    esac
-  fi
+  gh_ready
+  case $? in
+    0) ;;
+    2)
+      finding "transport FAILED: $GH_MISSING"
+      continue
+      ;;
+    *)
+      finding "transport FAILED: gh is not authenticated for github.com — run gh auth login on the host"
+      continue
+      ;;
+  esac
   rc=0
   run_t env ${NET_ENV[@]+"${NET_ENV[@]}"} git -c core.askPass= -c protocol.ext.allow=never \
     ${NET_FLAGS[@]+"${NET_FLAGS[@]}"} ls-remote --heads -- "$url" "refs/heads/$branch" \
     >/dev/null 2>"$tmp/ls-remote.err" || rc=$?
-  if [ "$rc" -eq 0 ] && [ "$via_gh" = yes ]; then
+  if [ "$rc" -eq 0 ]; then
     echo "  transport ok (git ls-remote reached $url via gh credentials)"
-  elif [ "$rc" -eq 0 ]; then
-    echo "  transport ok (git ls-remote reached $url non-interactively)"
   elif [ -e "$tmp/timedout" ]; then
     finding "transport TIMED OUT after ${timeout_s}s reaching $url"
   else
     why=$(grep -v '^[[:space:]]*$' "$tmp/ls-remote.err" | head -n 1)
     finding "transport FAILED: git ls-remote exited $rc: ${why:-no error output}"
-    if [ "$via_gh" = yes ]; then
-      echo "            GitHub remotes use gh's credentials over HTTPS: check gh auth status on the host"
-    elif [ "$is_ssh" = yes ]; then
-      echo "            SSH runs with BatchMode=yes: use a key file without a passphrase, or an agent in the bridge's environment"
-    fi
+    echo "            GitHub remotes use gh's credentials over HTTPS: check gh auth status on the host"
   fi
 done
 

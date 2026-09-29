@@ -150,22 +150,40 @@ export function isBridgeAllowArg(arg: string): boolean {
 }
 
 /**
- * Validate a `--bridge-allow` value: comma-separated, entries trimmed, empties dropped, every name
- * known, `pr-resolve` and `pr-request-review` only with `pr-review`; returned deduplicated in
- * canonical order. Throws with the user-facing message.
+ * The two reserved `--bridge-allow` entries that stand for every capability named `gh-*`. Exact
+ * tokens, not a glob: `*`, `gh-pr-*` and `GH` are unknown capabilities. Expanded here, so a
+ * policy file only ever holds the explicit list — a capability a later release adds is not granted
+ * to an existing container until it is re-granted.
+ */
+const BRIDGE_ALLOW_ALL_GH = ['gh', 'gh-*'];
+
+/**
+ * Validate a `--bridge-allow` value: comma-separated, entries trimmed, empties dropped, `gh` and
+ * `gh-*` expanded to every `gh-` capability, every other name known, `gh-pr-resolve` and
+ * `gh-pr-request-review` only with `gh-pr-review`; returned deduplicated in canonical order.
+ * Throws with the user-facing message.
  */
 export function parseBridgeAllow(value: string): BridgeCapability[] {
-  const valid = BRIDGE_CAPABILITIES.join(', ');
+  const valid = `${BRIDGE_CAPABILITIES.join(', ')} (or ${
+    BRIDGE_ALLOW_ALL_GH.join(' / ')
+  } for all of them)`;
   const names = value.split(',').map((n) => n.trim()).filter((n) => n !== '');
   if (names.length === 0) {
     throw new Error(`${BRIDGE_ALLOW_FLAG} needs at least one of: ${valid}`);
   }
+  const wanted = new Set<string>();
   for (const n of names) {
-    if (!isBridgeCapability(n)) {
+    if (BRIDGE_ALLOW_ALL_GH.includes(n)) {
+      for (const c of BRIDGE_CAPABILITIES) {
+        if (c.startsWith('gh-')) wanted.add(c);
+      }
+    } else if (isBridgeCapability(n)) {
+      wanted.add(n);
+    } else {
       throw new Error(`unknown capability ${n} — valid: ${valid}`);
     }
   }
-  const grants = BRIDGE_CAPABILITIES.filter((c) => names.includes(c));
+  const grants = BRIDGE_CAPABILITIES.filter((c) => wanted.has(c));
   for (const g of grants) {
     const needs = BRIDGE_CAPABILITY_REQUIRES[g];
     if (needs !== undefined && !grants.includes(needs)) {
@@ -190,7 +208,7 @@ function takeBridgeAllow(
     const a = args[i];
     if (a === BRIDGE_GIT_PUSH_FLAG) {
       throw new Error(
-        `${BRIDGE_GIT_PUSH_FLAG} was replaced by ${BRIDGE_ALLOW_FLAG} git-push`,
+        `${BRIDGE_GIT_PUSH_FLAG} was replaced by ${BRIDGE_ALLOW_FLAG} gh-push`,
       );
     }
     if (!isBridgeAllowArg(a)) {

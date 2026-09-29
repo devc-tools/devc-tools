@@ -159,26 +159,28 @@ becomes `Start with: devc-bridge gh-doctor`.
 
 ## Checklist
 
-- [ ] `devc-core/bridge.ts`: rename the capabilities, the command map and the requirements; add the GitHub-remote predicate
-- [ ] `devc/args.ts`: `gh` / `gh-*` expansion; unknown and empty messages; `--bridge-git-push` text
-- [ ] `devc/main.ts`: `--bridge-git-push` refusal text; doc comment
-- [ ] `devc/bridge.ts`: non-GitHub origin reason in pin derivation; header comment
-- [ ] `devc/help.ts`: `up` help text
-- [ ] `devc-bridge/builtin/`: rename all six scripts (`git mv`); rename grant literals, `$me` messages and prelude comments; push and doctor become GitHub-only with no SSH transport
-- [ ] `devc-bridge/host/core.ts` and `devc-bridge/host/config.ts`: comments and anything that names commands
-- [ ] `devc-bridge/client/devc-bridge.ts`: overview text; `GUIDE_FILE`
-- [ ] `docs/bridge-git-push.md` → `docs/bridge-github.md` (`git mv`), updated throughout; `deno.json` (both tasks) and `build-client.sh` includes
-- [ ] Tests: `git mv` `devc-bridge/tests/git_push_test.sh` → `gh_push_test.sh` and `pr_review_test.sh` → `gh_pr_review_test.sh`, then update them; `.github/workflows/release.yml` test steps
-- [ ] Tests: `devc-core/tests/bridge_test.ts`, `devc/tests/args_test.ts`, `devc/tests/bridge_test.ts`, `devc-bridge/host/tests/capabilities_test.ts`
-- [ ] Docs: `devc-bridge/README.md`, `devc/README.md`, `devc-bridge/docs/testing.md`
-- [ ] Skill: `skills/copilot-pr-reviewing/SKILL.md` — new command names; the `devc up` line uses `--bridge-allow gh`
+- [x] `devc-core/bridge.ts`: rename the capabilities, the command map and the requirements; add the GitHub-remote predicate
+- [x] `devc/args.ts`: `gh` / `gh-*` expansion; unknown and empty messages; `--bridge-git-push` text
+- [x] `devc/main.ts`: `--bridge-git-push` refusal text; doc comment
+- [x] `devc/bridge.ts`: non-GitHub origin reason in pin derivation; header comment
+- [x] `devc/help.ts`: `up` help text
+- [x] `devc-bridge/builtin/`: rename all six scripts (`git mv`); rename grant literals, `$me` messages and prelude comments; push and doctor become GitHub-only with no SSH transport
+- [x] `devc-bridge/host/core.ts` and `devc-bridge/host/config.ts`: comments and anything that names commands
+- [x] `devc-bridge/client/devc-bridge.ts`: overview text; `GUIDE_FILE`
+- [x] `docs/bridge-git-push.md` → `docs/bridge-github.md` (`git mv`), updated throughout; `deno.json` (both tasks) and `build-client.sh` includes
+- [x] Tests: `git mv` `devc-bridge/tests/git_push_test.sh` → `gh_push_test.sh` and `pr_review_test.sh` → `gh_pr_review_test.sh`, then update them; `.github/workflows/release.yml` test steps
+- [x] Tests: `devc-core/tests/bridge_test.ts`, `devc/tests/args_test.ts`, `devc/tests/bridge_test.ts`, `devc-bridge/host/tests/capabilities_test.ts`
+- [x] Docs: `devc-bridge/README.md`, `devc/README.md`, `devc-bridge/docs/testing.md`
+- [x] Skill: `skills/copilot-pr-reviewing/SKILL.md` — new command names; the `devc up` line uses `--bridge-allow gh`
 
 ## Validation
 
-- [ ] `cd devc-core && deno test` passes, including:
+- [x] `cd devc-core && deno test` passes, including: (all bridge tests pass; the one failure,
+      `cliWorktreeMounts matches what the pinned devcontainer CLI computes` in `git_dirs_test.ts`,
+      fails identically on the pre-change tree — it drives the devcontainer CLI and is environmental)
   - the GitHub-remote shape table: accepts `git@github.com:o/n.git`, `ssh://git@github.com/o/n`, `https://github.com/o/n.git`, `git@github.com-work:o/n.git`; refuses `/srv/repo.git`, `file:///x`, `git@gitlab.com:o/n.git`, `https://github.com/o`, `https://github.com/../n`, `git@github.com:o/n/extra`
   - parsing a policy with `git-push` → `null`
-- [ ] `cd devc && deno task test` passes, including:
+- [x] `cd devc && deno task test` passes, including:
   - `--bridge-allow gh` → `[gh-push, gh-pr-review, gh-pr-resolve, gh-pr-request-review]`
   - `--bridge-allow 'gh-*'` → the same list
   - `--bridge-allow gh-push,gh` → the same list
@@ -187,13 +189,15 @@ becomes `Start with: devc-bridge gh-doctor`.
   - `--bridge-allow '*'` and `--bridge-allow 'gh-pr-*'` → unknown capability
   - a grant against a fixture repo whose `remote.origin.url` is a local path → `BridgeGrantError` `--bridge-allow: origin <path> is not a github.com remote`
   - a refresh against the same fixture → revoke with that reason
-- [ ] `cd devc-bridge/host && deno task test && deno task check` pass. The built-ins list is exactly the six `gh-*` names, and an ungranted `gh-pr-resolve` gets the hint `devc up --bridge-allow gh-pr-review,gh-pr-resolve`
-- [ ] `bash devc-bridge/tests/gh_push_test.sh` → `0 failed`, including local-path pin → exit 2 `gh-push: unsupported remote … — only github.com`, and `gh-doctor` on that pin → `transport FAILED: unsupported remote`, exit 1
-- [ ] `bash devc-bridge/tests/gh_pr_review_test.sh` → `0 failed`, including the prelude being byte-identical across the four `gh-pr-*` scripts
-- [ ] `grep -rnE '\b(git-push|git-doctor|pr-comments|pr-reply|pr-resolve|pr-request-review|pr-review)\b' --exclude-dir=.git --exclude-dir=archived . | grep -vE 'gh-(push|doctor|pr-)|docs/manual-verification.md|\.plans/PLAN.md'` prints nothing
-- [ ] A compiled client (`bash devc-bridge/client/build-client.sh`) prints the new guide for `./devc-bridge help guide | head -1`, and `./devc-bridge help` lists the six `gh-*` commands
-- [ ] `deno fmt --check` on changed `.ts`/`.md`
-- [ ] Live on the host, after installing the new build and running `devc-bridge start`: `devc up --bridge-allow gh` → `devc: devc-bridge capabilities granted: gh-push, gh-pr-review, gh-pr-resolve, gh-pr-request-review for <branch> → <remote> (<repo>)`; inside the container `devc-bridge gh-doctor` shows the pin and `transport ok`, and `devc-bridge gh-pr-comments` prints JSON
+- [x] `cd devc-bridge/host && deno task test && deno task check` pass. The built-ins list is exactly the six `gh-*` names, and an ungranted `gh-pr-resolve` gets the hint `devc up --bridge-allow gh-pr-review,gh-pr-resolve`
+- [x] `bash devc-bridge/tests/gh_push_test.sh` → `0 failed`, including local-path pin → exit 2 `gh-push: unsupported remote … — only github.com`, and `gh-doctor` on that pin → `transport FAILED: unsupported remote`, exit 1
+- [x] `bash devc-bridge/tests/gh_pr_review_test.sh` → `0 failed`, including the prelude being byte-identical across the four `gh-pr-*` scripts
+- [x] `grep -rnE '\b(git-push|git-doctor|pr-comments|pr-reply|pr-resolve|pr-request-review|pr-review)\b' --exclude-dir=.git --exclude-dir=archived . | grep -vE 'gh-(push|doctor|pr-)|docs/manual-verification.md|\.plans/PLAN.md'` prints nothing
+      (after archiving this plan, it prints only deliberate uses: the retired `--bridge-git-push` flag
+      name, tests asserting old names are refused, and the devc README's note that old names are unknown)
+- [x] A compiled client (`bash devc-bridge/client/build-client.sh`) prints the new guide for `./devc-bridge help guide | head -1`, and `./devc-bridge help` lists the six `gh-*` commands
+- [x] `deno fmt --check` on changed `.ts`/`.md`
+- [ ] Live on the host (not run: needs the macOS host with the new build installed), after installing the new build and running `devc-bridge start`: `devc up --bridge-allow gh` → `devc: devc-bridge capabilities granted: gh-push, gh-pr-review, gh-pr-resolve, gh-pr-request-review for <branch> → <remote> (<repo>)`; inside the container `devc-bridge gh-doctor` shows the pin and `transport ok`, and `devc-bridge gh-pr-comments` prints JSON
 
 ## Relevant Files
 

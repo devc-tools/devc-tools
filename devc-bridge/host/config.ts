@@ -13,7 +13,7 @@
 // host/commands, so seeding still works without a build.
 //
 // Built-ins (`../builtin`, embedded the same way) are the opposite: the capability scripts
-// (`git-push`, `pr-comments`, …), never seeded and never user-owned. Embedded files cannot be
+// (`gh-push`, `gh-pr-comments`, …), never seeded and never user-owned. Embedded files cannot be
 // exec'd, so every start materializes them into a host-only dir the bridge rewrites whole — an
 // upgrade applies on restart. Whether a caller may run one is its policy's grant, checked per
 // request in core.ts.

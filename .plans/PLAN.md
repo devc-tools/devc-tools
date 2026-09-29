@@ -21,13 +21,6 @@
   The per-ping lease model is documented as a follow-on and deliberately **not**
   built until the data exists.
 
-- [bridge-gh-capabilities](bridge-gh-capabilities.md) — rename every devc-bridge
-  capability and built-in command to `gh-*` (`gh-push`, `gh-doctor`, `gh-pr-comments`,
-  `gh-pr-reply`, `gh-pr-resolve`, `gh-pr-request-review`), add `--bridge-allow gh` /
-  `'gh-*'` for all of them (expanded by devc into the explicit list the policy stores),
-  and make push GitHub-only, refused at grant time and in the script. Old names are
-  a hard error, with no aliases.
-
 - [bridge-copilot-review-gaps](bridge-copilot-review-gaps.md) — fixes from a live
   `copilot-pr-reviewing` run that called a PR clean when Copilot's findings were only in
   its review body. `gh-pr-comments` gains `copilotReview.body`, and all of `copilotReview`
@@ -79,6 +72,17 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
   take it too.
 
 ### Completed
+
+- [bridge-gh-capabilities](archived/bridge-gh-capabilities.md) — ✅ Done, validated by
+  `gh_push_test.sh` (149/149), `gh_pr_review_test.sh` (159/159), devc-core / devc / devc-bridge
+  host tests and checks, a compiled client's `help` / `help guide`, and `deno fmt --check`
+  (devc-core's pre-existing `cliWorktreeMounts … pinned devcontainer CLI` failure is unrelated).
+  The live host check needs the new build on the macOS host and was not run. Every capability
+  and built-in is now `gh-*`; `--bridge-allow gh` / `'gh-*'` expand in devc to the explicit
+  list; push and doctor are GitHub-only (no SSH transport, `GIT_ALLOW_PROTOCOL=file:https`),
+  refused at grant/refresh time via devc-core's `isGitHubRemote`, whose shape table the push
+  harness also asserts against every script's `parse_remote` (which now also refuses a
+  one-segment path such as `https://github.com/o`). The agent guide is `docs/bridge-github.md`.
 
 - [bridge-pr-request-review](archived/bridge-pr-request-review.md) — ✅ Done,
   validated by `pr_review_test.sh`, `git_push_test.sh`, devc-core / devc / devc-bridge host
@@ -1876,5 +1880,5 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
 | devc-bridge `git-push` over HTTPS with gh's credential — one host setup                                     | [devc-bridge-push-via-gh](archived/devc-bridge-push-via-gh.md)                     | complete |
 | `@devc-tools/core` version bump script — keeps the consumer deno.lock files in step                         | [core-version-bump-script](archived/core-version-bump-script.md)                   | complete |
 | devc-bridge `pr-request-review` — ask Copilot to re-review the current head                                 | [bridge-pr-request-review](archived/bridge-pr-request-review.md)                   | complete |
-| devc-bridge `gh-*` capability and command names, `--bridge-allow gh`, GitHub-only push                      | [bridge-gh-capabilities](bridge-gh-capabilities.md)                                |          |
+| devc-bridge `gh-*` capability and command names, `--bridge-allow gh`, GitHub-only push                      | [bridge-gh-capabilities](archived/bridge-gh-capabilities.md)                       | complete |
 | devc-bridge Copilot review-loop gaps — review body, timeline-sourced `pending`, policy refusal exit codes   | [bridge-copilot-review-gaps](bridge-copilot-review-gaps.md)                        |          |

@@ -4,6 +4,10 @@
 
 import { assert, assertEquals, assertStringIncludes } from '@std/assert';
 import { join } from '@std/path';
+import {
+  BRIDGE_CAPABILITIES,
+  BRIDGE_CAPABILITY_COMMANDS,
+} from '@devc-tools/core/bridge.ts';
 import { listBuiltins, materializeBuiltins, seedCommands } from '../config.ts';
 import { type RunningServer, startServer } from '../core.ts';
 import { resetToken } from '../token.ts';
@@ -34,7 +38,7 @@ async function script(path: string, body: string): Promise<void> {
 
 /**
  * A server over a temp tree with one keyed container, stub built-ins (each echoes `builtin
- * <name>`), and a `commands/git-push` that must never run. `policy` is the key's policy file
+ * <name>`), and a `commands/gh-push` that must never run. `policy` is the key's policy file
  * contents, or null for none.
  */
 async function withServer(
@@ -55,7 +59,7 @@ async function withServer(
       `echo "builtin ${name} key=$DEVC_BRIDGE_KEY"`,
     );
   }
-  await script(join(commandsDir, 'git-push'), 'echo shadow');
+  await script(join(commandsDir, 'gh-push'), 'echo shadow');
   await script(join(commandsDir, 'echo'), 'echo ok');
   const policyFile = join(policyDir, `${KEY}.conf`);
   if (policy !== null) await Deno.writeTextFile(policyFile, policy);
@@ -117,81 +121,84 @@ const policyLine = (grants: string) =>
 
 Deno.test('a granted built-in runs from builtinDir, with the caller key', async () => {
   await withServer(
-    policyLine('git-push,pr-review'),
+    policyLine('gh-push,gh-pr-review'),
     async ({ port, token }) => {
-      const push = await call(port, token, 'git-push');
+      const push = await call(port, token, 'gh-push');
       assertEquals(push, {
         ok: true,
         exitCode: 0,
-        stdout: `builtin git-push key=${KEY}\n`,
+        stdout: `builtin gh-push key=${KEY}\n`,
         stderr: '',
       } as Resp);
-      assertEquals((await call(port, token, 'git-doctor')).ok, true);
-      assertEquals((await call(port, token, 'pr-comments')).ok, true);
-      assertEquals((await call(port, token, 'pr-reply')).ok, true);
+      assertEquals((await call(port, token, 'gh-doctor')).ok, true);
+      assertEquals((await call(port, token, 'gh-pr-comments')).ok, true);
+      assertEquals((await call(port, token, 'gh-pr-reply')).ok, true);
     },
   );
 });
 
 Deno.test('a built-in is refused, with the exact message, for each ungranted case', async () => {
   await withServer(null, async ({ port, shared, token, policyFile }) => {
-    assertEquals(await call(port, shared, 'git-push'), {
+    assertEquals(await call(port, shared, 'gh-push'), {
       ok: false,
       error:
-        'git-push needs a per-container token — the shared token has no capabilities',
+        'gh-push needs a per-container token — the shared token has no capabilities',
     });
-    assertEquals(await call(port, token, 'git-push'), {
+    assertEquals(await call(port, token, 'gh-push'), {
       ok: false,
       error:
-        'no capabilities granted to this container — on the host: devc up --bridge-allow git-push',
+        'no capabilities granted to this container — on the host: devc up --bridge-allow gh-push',
     });
-    assertEquals(await call(port, token, 'pr-resolve'), {
+    assertEquals(await call(port, token, 'gh-pr-resolve'), {
       ok: false,
       error:
-        'no capabilities granted to this container — on the host: devc up --bridge-allow pr-review,pr-resolve',
+        'no capabilities granted to this container — on the host: devc up --bridge-allow gh-pr-review,gh-pr-resolve',
     });
-    assertEquals(await call(port, token, 'pr-request-review'), {
+    assertEquals(await call(port, token, 'gh-pr-request-review'), {
       ok: false,
       error:
-        'no capabilities granted to this container — on the host: devc up --bridge-allow pr-review,pr-request-review',
+        'no capabilities granted to this container — on the host: devc up --bridge-allow gh-pr-review,gh-pr-request-review',
     });
 
     // A policy from before grants existed: three fields.
     await Deno.writeTextFile(policyFile, '/r\tgit@github.com:o/r.git\tfeat\n');
-    assertEquals(await call(port, token, 'git-push'), {
+    assertEquals(await call(port, token, 'gh-push'), {
       ok: false,
       error:
-        "this container's policy is malformed and grants nothing — on the host: devc up --bridge-allow git-push",
+        "this container's policy is malformed and grants nothing — on the host: devc up --bridge-allow gh-push",
     });
 
-    await Deno.writeTextFile(policyFile, policyLine('git-push'));
-    assertEquals(await call(port, token, 'pr-comments'), {
+    await Deno.writeTextFile(policyFile, policyLine('gh-push'));
+    assertEquals(await call(port, token, 'gh-pr-comments'), {
       ok: false,
       error:
-        'pr-comments needs capability pr-review, which this container was not granted (it has: git-push) — on the host: devc up --bridge-allow git-push,pr-review',
+        'gh-pr-comments needs capability gh-pr-review, which this container was not granted (it has: gh-push) — on the host: devc up --bridge-allow gh-push,gh-pr-review',
     });
-    assertEquals(await call(port, token, 'pr-resolve'), {
+    assertEquals(await call(port, token, 'gh-pr-resolve'), {
       ok: false,
       error:
-        'pr-resolve needs capability pr-resolve, which this container was not granted (it has: git-push) — on the host: devc up --bridge-allow git-push,pr-review,pr-resolve',
+        'gh-pr-resolve needs capability gh-pr-resolve, which this container was not granted (it has: gh-push) — on the host: devc up --bridge-allow gh-push,gh-pr-review,gh-pr-resolve',
     });
 
-    await Deno.writeTextFile(policyFile, policyLine('pr-review,pr-resolve'));
-    assertEquals(await call(port, token, 'pr-request-review'), {
+    await Deno.writeTextFile(
+      policyFile,
+      policyLine('gh-pr-review,gh-pr-resolve'),
+    );
+    assertEquals(await call(port, token, 'gh-pr-request-review'), {
       ok: false,
       error:
-        'pr-request-review needs capability pr-request-review, which this container was not granted (it has: pr-review, pr-resolve) — on the host: devc up --bridge-allow pr-review,pr-resolve,pr-request-review',
+        'gh-pr-request-review needs capability gh-pr-request-review, which this container was not granted (it has: gh-pr-review, gh-pr-resolve) — on the host: devc up --bridge-allow gh-pr-review,gh-pr-resolve,gh-pr-request-review',
     });
   });
 });
 
 Deno.test('the policy is read per request: deleting it revokes without a restart', async () => {
   await withServer(
-    policyLine('git-push'),
+    policyLine('gh-push'),
     async ({ port, token, policyFile }) => {
-      assertEquals((await call(port, token, 'git-push')).ok, true);
+      assertEquals((await call(port, token, 'gh-push')).ok, true);
       await Deno.remove(policyFile);
-      const after = await call(port, token, 'git-push');
+      const after = await call(port, token, 'gh-push');
       assertEquals(after.ok, false);
       assertStringIncludes(after.error!, 'no capabilities granted');
     },
@@ -199,18 +206,32 @@ Deno.test('the policy is read per request: deleting it revokes without a restart
 });
 
 Deno.test('a commands/ file named like a built-in is never run, and is reported on start', async () => {
-  await withServer(policyLine('git-push'), async ({ port, token, logs }) => {
+  await withServer(policyLine('gh-push'), async ({ port, token, logs }) => {
     assertEquals(
-      (await call(port, token, 'git-push')).stdout,
-      `builtin git-push key=${KEY}\n`,
+      (await call(port, token, 'gh-push')).stdout,
+      `builtin gh-push key=${KEY}\n`,
     );
     assert(
       logs.includes(
-        'commands/git-push is shadowed by the built-in git-push — remove it',
+        'commands/gh-push is shadowed by the built-in gh-push — remove it',
       ),
       logs.join('\n'),
     );
   });
+});
+
+Deno.test('a pre-rename command name is an unknown command, with no hint', async () => {
+  await withServer(
+    policyLine('gh-push,gh-pr-review'),
+    async ({ port, token }) => {
+      for (const old of ['git-push', 'git-doctor', 'pr-comments', 'pr-reply']) {
+        assertEquals(await call(port, token, old), {
+          ok: false,
+          error: `unknown command: ${old}`,
+        });
+      }
+    },
+  );
 });
 
 Deno.test('ordinary commands are unaffected by grants', async () => {
@@ -227,18 +248,24 @@ Deno.test('materializeBuiltins writes every built-in and replaces a stale set wh
   try {
     const target = join(dir, 'state', 'builtin');
     await Deno.mkdir(target, { recursive: true });
-    await Deno.writeTextFile(join(target, 'git-push'), 'stale');
+    await Deno.writeTextFile(join(target, 'gh-push'), 'stale');
     await Deno.writeTextFile(join(target, 'retired-verb'), 'stale');
+    await Deno.writeTextFile(join(target, 'git-push'), 'stale'); // a pre-rename name
 
     const names = await materializeBuiltins(target);
     assertEquals(names, [
-      'git-doctor',
-      'git-push',
-      'pr-comments',
-      'pr-reply',
-      'pr-request-review',
-      'pr-resolve',
+      'gh-doctor',
+      'gh-pr-comments',
+      'gh-pr-reply',
+      'gh-pr-request-review',
+      'gh-pr-resolve',
+      'gh-push',
     ]);
+    // The bridge dispatches by file name: the built-ins are exactly the capability map's commands.
+    assertEquals(
+      BRIDGE_CAPABILITIES.flatMap((c) => BRIDGE_CAPABILITY_COMMANDS[c]).sort(),
+      names,
+    );
     const present = [...Deno.readDirSync(target)].map((e) => e.name).sort();
     assertEquals(present, names);
     for (const name of names) {
@@ -281,7 +308,7 @@ Deno.test('install-command is gone, and says what replaced it', async () => {
         '-A',
         new URL('../main.ts', import.meta.url).pathname,
         'install-command',
-        'git-push',
+        'gh-push',
       ],
       env: { HOME: dir, DEVC_BRIDGE_BASE: join(dir, 'base') },
       stdout: 'piped',

@@ -52,32 +52,39 @@ export function bridgePaths(home: string, key: string): BridgePaths {
  * `--bridge-allow` against this list and the bridge enforces it; nothing else defines it.
  */
 export const BRIDGE_CAPABILITIES = [
-  'git-push',
-  'pr-review',
-  'pr-resolve',
-  'pr-request-review',
+  'gh-push',
+  'gh-pr-review',
+  'gh-pr-resolve',
+  'gh-pr-request-review',
 ] as const;
 
 /** One of {@link BRIDGE_CAPABILITIES}. */
 export type BridgeCapability = typeof BRIDGE_CAPABILITIES[number];
 
-/** The built-in bridge commands each capability enables. */
+/**
+ * The built-in bridge commands each capability enables. The bridge dispatches by file name, so
+ * every name here is also the name of a script in `devc-bridge/builtin/`.
+ */
 export const BRIDGE_CAPABILITY_COMMANDS: Readonly<
   Record<BridgeCapability, readonly string[]>
 > = {
-  'git-push': ['git-push', 'git-doctor'],
-  'pr-review': ['pr-comments', 'pr-reply'],
-  'pr-resolve': ['pr-resolve'],
-  'pr-request-review': ['pr-request-review'],
+  'gh-push': ['gh-push', 'gh-doctor'],
+  'gh-pr-review': ['gh-pr-comments', 'gh-pr-reply'],
+  'gh-pr-resolve': ['gh-pr-resolve'],
+  'gh-pr-request-review': ['gh-pr-request-review'],
 };
 
 /**
- * Capabilities that are only granted alongside another — `pr-resolve` acts on `pr-comments`' ids,
- * and `pr-request-review` asks for a review whose threads only `pr-review` can read.
+ * Capabilities that are only granted alongside another — `gh-pr-resolve` acts on
+ * `gh-pr-comments`' ids, and `gh-pr-request-review` asks for a review whose threads only
+ * `gh-pr-review` can read.
  */
 export const BRIDGE_CAPABILITY_REQUIRES: Readonly<
   Partial<Record<BridgeCapability, BridgeCapability>>
-> = { 'pr-resolve': 'pr-review', 'pr-request-review': 'pr-review' };
+> = {
+  'gh-pr-resolve': 'gh-pr-review',
+  'gh-pr-request-review': 'gh-pr-review',
+};
 
 /** The capability that enables built-in command `name`, or null when `name` is not a built-in. */
 export function capabilityForCommand(name: string): BridgeCapability | null {
@@ -111,6 +118,49 @@ export function grantsProblem(grants: readonly string[]): string | null {
     }
   }
   return null;
+}
+
+/**
+ * Whether `url` is a GitHub remote — exactly the shapes the bridge scripts' `parse_remote`
+ * accepts, shape for shape, so devc refuses at grant time what `gh-push` would refuse at run time:
+ *
+ * - `git@<host>:<owner>/<name>[.git]`
+ * - `ssh://git@<host>/<owner>/<name>[.git]`
+ * - `https://<host>/<owner>/<name>[.git]`
+ *
+ * `<host>` is `github.com` or a `github.com-<alias>` ssh host alias, of `[A-Za-z0-9.-]` only;
+ * `<owner>` and `<name>` are non-empty `[A-Za-z0-9._-]`, and neither is `.` or `..`.
+ */
+export function isGitHubRemote(url: string): boolean {
+  let host: string;
+  let path: string;
+  if (url.startsWith('git@') && url.includes(':')) {
+    const rest = url.slice('git@'.length);
+    host = rest.slice(0, rest.indexOf(':'));
+    path = rest.slice(rest.indexOf(':') + 1);
+  } else if (/^ssh:\/\/git@.*\//s.test(url)) {
+    const rest = url.slice('ssh://git@'.length);
+    host = rest.slice(0, rest.indexOf('/'));
+    path = rest.slice(rest.indexOf('/') + 1);
+  } else if (/^https:\/\/.*\//s.test(url)) {
+    const rest = url.slice('https://'.length);
+    host = rest.slice(0, rest.indexOf('/'));
+    path = rest.slice(rest.indexOf('/') + 1);
+  } else {
+    return false;
+  }
+  if (host !== 'github.com' && !host.startsWith('github.com-')) return false;
+  if (/[^A-Za-z0-9.-]/.test(host)) return false;
+  if (path.endsWith('.git')) path = path.slice(0, -'.git'.length);
+  const slash = path.indexOf('/');
+  if (slash < 0) return false;
+  return validRemoteName(path.slice(0, slash)) &&
+    validRemoteName(path.slice(slash + 1));
+}
+
+/** An owner or repo name: `[A-Za-z0-9._-]`, non-empty, and not `.` or `..`. */
+function validRemoteName(name: string): boolean {
+  return name !== '.' && name !== '..' && /^[A-Za-z0-9._-]+$/.test(name);
 }
 
 /** One container's publish pin: the one repo, remote and branch its capabilities act on. */

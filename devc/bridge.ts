@@ -7,11 +7,12 @@
 // writes a token, so there is nothing for the bridge to adopt.
 //
 // **The policy is the whole grant.** `policy/<key>.conf` names the one repo, remote and branch a
-// container's capabilities act on, and which capabilities it has (`git-push`, `pr-review`,
-// `pr-resolve`, `pr-request-review`). Only `devc up` / `devc build` create it (with `--bridge-allow <list>`) or delete
-// it (without). Every other start path only *refreshes* one that exists — and revokes it
-// when the pin can no longer be derived safely, since a policy that outlives its preconditions
-// is a grant nobody asked for.
+// container's capabilities act on, and which capabilities it has (`gh-push`, `gh-pr-review`,
+// `gh-pr-resolve`, `gh-pr-request-review`), always as the explicit list — `--bridge-allow gh` is
+// expanded before it gets here. Only `devc up` / `devc build` create it (with
+// `--bridge-allow <list>`) or delete it (without), and only on a GitHub remote. Every other start
+// path only *refreshes* one that exists — and revokes it when the pin can no longer be derived
+// safely, since a policy that outlives its preconditions is a grant nobody asked for.
 //
 // **Trust comes from the container, not the config.** The remote URL is read out of the repo's
 // `.git/config`, which is only trustworthy while that file is frozen in the container. The
@@ -22,6 +23,7 @@
 import {
   type BridgeCapability,
   bridgePaths,
+  isGitHubRemote,
   parsePolicy,
   type Pin,
   type PolicyRecord,
@@ -103,6 +105,11 @@ export async function ensureKeyDir(
   await Deno.mkdir(paths.keyDir, { recursive: true, mode: 0o755 });
 }
 
+/** Why a pin on `remote` is refused: every `gh-*` capability needs a github.com remote. */
+function notGitHubReason(remote: string): string {
+  return `origin ${remote} is not a github.com remote`;
+}
+
 /** The pin for this workspace, or the first precondition that failed. */
 export type DerivedPin =
   | { ok: true; record: Pin }
@@ -115,7 +122,9 @@ export type DerivedPin =
  * 2. `gitProtect` is not off (named separately only because it is the clearest message — the
  *    mount check in 5 would catch it anyway);
  * 3. the workspace is a bind-mounted repo devc can find;
- * 4. its `HEAD` names a branch and its config has exactly one `remote.origin.url`;
+ * 4. its `HEAD` names a branch and its config has exactly one `remote.origin.url`, and that URL
+ *    is a GitHub remote — every capability acts through the host's `gh` login, so push is
+ *    GitHub-only (`gh-push` re-checks for itself, since a policy file can be edited by hand);
  * 5. the container's live mount table has that repo's git dir `config` and `hooks` read-only —
  *    the repo's own `.git`, or for a linked worktree the primary's git dir as the devcontainer
  *    CLI mounts it — and has this workspace's own `keys/<key>/` at `/run/devc-bridge` (a container
@@ -150,6 +159,9 @@ export async function derivePin(
   }
   const pin = await resolvePin(row.source);
   if (!pin.ok) return { ok: false, reason: pin.reason };
+  if (!isGitHubRemote(pin.record.remote)) {
+    return { ok: false, reason: notGitHubReason(pin.record.remote) };
+  }
   if (mounts === 'skip') return { ok: true, record: pin.record };
   if (mounts === null) {
     return {
@@ -197,6 +209,9 @@ export async function derivePin(
     configPath: configMount.source,
   });
   if (!frozen.ok) return { ok: false, reason: frozen.reason };
+  if (!isGitHubRemote(frozen.record.remote)) {
+    return { ok: false, reason: notGitHubReason(frozen.record.remote) };
+  }
 
   const keyDir = bridgePaths(home, merged.bridgeKey).keyDir;
   const tokenMount = mounts.find((m) =>

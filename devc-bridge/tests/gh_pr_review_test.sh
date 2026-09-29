@@ -1,18 +1,19 @@
 #!/usr/bin/env bash
-# Offline harness for the pr-comments, pr-reply, pr-resolve and pr-request-review built-ins. A `gh`
-# shim first on PATH stands in for GitHub: it logs every call (cwd and argv, one line each) and
+# Offline harness for the gh-pr-comments, gh-pr-reply, gh-pr-resolve and gh-pr-request-review
+# built-ins. A `gh` shim first on PATH stands in for GitHub: it logs every call (cwd and argv, one
+# line each) and
 # answers from fixture files this script writes per case, applying `--jq` with the real `jq` — so the harness needs `jq`,
 # the scripts do not. Runs the scripts directly with the environment the bridge would give them
 # (DEVC_BRIDGE_KEY, DEVC_BRIDGE_POLICY_DIR) and a throwaway $HOME.
 #
-#   bash devc-bridge/tests/pr_review_test.sh
+#   bash devc-bridge/tests/gh_pr_review_test.sh
 
 set -uo pipefail
 
 here=$(cd "$(dirname "$0")" && pwd)
 RECIPES=$here/../builtin
 command -v jq >/dev/null || {
-  echo "pr_review_test: needs jq" >&2
+  echo "gh_pr_review_test: needs jq" >&2
   exit 1
 }
 
@@ -32,7 +33,7 @@ check() { # check <desc> <command…>
   if "$@"; then ok "$desc"; else bad "$desc"; fi
 }
 
-root=$(mktemp -d "${TMPDIR:-/tmp}/pr-review-test.XXXXXX")
+root=$(mktemp -d "${TMPDIR:-/tmp}/gh-pr-review-test.XXXXXX")
 trap 'rm -rf "$root"' EXIT
 
 # ── the gh shim ───────────────────────────────────────────────────────────────────────────
@@ -255,10 +256,10 @@ fresh() {
   echo '{"data":{"resolveReviewThread":{"thread":{"isResolved":true}}}}' >"$FX/resolve.json"
 }
 
-pin() { # pin <remote> <branch> [grants, default pr-review,pr-resolve,pr-request-review]
+pin() { # pin <remote> <branch> [grants, default gh-pr-review,gh-pr-resolve,gh-pr-request-review]
   mkdir -p "$POLICY_DIR"
   printf '%s\t%s\t%s\t%s\n' /Users/you/code/r "$1" "$2" \
-    "${3:-pr-review,pr-resolve,pr-request-review}" \
+    "${3:-gh-pr-review,gh-pr-resolve,gh-pr-request-review}" \
     >"$POLICY_DIR/$KEY.conf"
 }
 
@@ -278,25 +279,25 @@ expect_rc() { # expect_rc <want> <desc>
   fi
 }
 has_err() { case $err in *"$1"*) return 0 ;; esac; return 1; }
-q() { jq -r "$1" <<<"$out"; } # q <filter> — over pr-comments' JSON
+q() { jq -r "$1" <<<"$out"; } # q <filter> — over gh-pr-comments' JSON
 calls() { cat "$SHIM/calls.log" 2>/dev/null; }
 posts() { cat "$SHIM/posts.log" 2>/dev/null; }
 
 # ── cases ─────────────────────────────────────────────────────────────────────────────────
 
 echo "the shared prelude"
-for r in pr-reply pr-resolve pr-request-review; do
-  check "$r's pr-prelude is byte-identical to pr-comments'" cmp -s \
-    <(sed -n '/^# ── BEGIN pr-prelude ──$/,/^# ── END pr-prelude ──$/p' "$RECIPES/pr-comments") \
+for r in gh-pr-reply gh-pr-resolve gh-pr-request-review; do
+  check "$r's pr-prelude is byte-identical to gh-pr-comments'" cmp -s \
+    <(sed -n '/^# ── BEGIN pr-prelude ──$/,/^# ── END pr-prelude ──$/p' "$RECIPES/gh-pr-comments") \
     <(sed -n '/^# ── BEGIN pr-prelude ──$/,/^# ── END pr-prelude ──$/p' "$RECIPES/$r")
 done
 check "  … and the block is not empty" test \
-  "$(sed -n '/^# ── BEGIN pr-prelude ──$/,/^# ── END pr-prelude ──$/p' "$RECIPES/pr-comments" | wc -l)" -gt 50
+  "$(sed -n '/^# ── BEGIN pr-prelude ──$/,/^# ── END pr-prelude ──$/p' "$RECIPES/gh-pr-comments" | wc -l)" -gt 50
 
 echo "the caller and its policy"
-for r in pr-comments pr-reply pr-resolve pr-request-review; do
+for r in gh-pr-comments gh-pr-reply gh-pr-resolve gh-pr-request-review; do
   case $r in
-    pr-comments | pr-request-review) args=() ;; pr-reply) args=(PRRT_c1 hi) ;; pr-resolve) args=(PRRT_c1) ;;
+    gh-pr-comments | gh-pr-request-review) args=() ;; gh-pr-reply) args=(PRRT_c1 hi) ;; gh-pr-resolve) args=(PRRT_c1) ;;
   esac
   fresh
   rm "$POLICY_DIR/$KEY.conf"
@@ -313,49 +314,49 @@ for r in pr-comments pr-reply pr-resolve pr-request-review; do
   printf '%s\t%s\t%s\n' /Users/you/code/r git@github.com:me/r.git "$BRANCH" >"$POLICY_DIR/$KEY.conf"
   run "$r" "${args[@]}"
   expect_rc 2 "$r: a three-field (pre-grants) policy"
-  pin git@github.com:me/r.git "$BRANCH" git-push
+  pin git@github.com:me/r.git "$BRANCH" gh-push
   run "$r" "${args[@]}"
-  expect_rc 2 "$r: a policy granting only git-push"
-  check "  … says which grant is missing" has_err "this container was not granted pr-"
+  expect_rc 2 "$r: a policy granting only gh-push"
+  check "  … says which grant is missing" has_err "this container was not granted gh-pr-"
   check "  … and GitHub was never asked" test -z "$(calls)"
 done
 fresh
-pin git@github.com:me/r.git "$BRANCH" pr-review
-run pr-resolve PRRT_c1
-expect_rc 2 "pr-resolve with pr-review but not pr-resolve"
-check "  … says so" has_err "this container was not granted pr-resolve"
-run pr-reply PRRT_c1 hi
-expect_rc 0 "  … while pr-reply still works"
+pin git@github.com:me/r.git "$BRANCH" gh-pr-review
+run gh-pr-resolve PRRT_c1
+expect_rc 2 "gh-pr-resolve with gh-pr-review but not gh-pr-resolve"
+check "  … says so" has_err "this container was not granted gh-pr-resolve"
+run gh-pr-reply PRRT_c1 hi
+expect_rc 0 "  … while gh-pr-reply still works"
 fresh
-pin git@github.com:me/r.git "$BRANCH" pr-review
-run pr-request-review
-expect_rc 2 "pr-request-review with pr-review but not pr-request-review"
-check "  … says so" has_err "this container was not granted pr-request-review"
+pin git@github.com:me/r.git "$BRANCH" gh-pr-review
+run gh-pr-request-review
+expect_rc 2 "gh-pr-request-review with gh-pr-review but not gh-pr-request-review"
+check "  … says so" has_err "this container was not granted gh-pr-request-review"
 check "  … and GitHub was never asked" test -z "$(calls)"
 fresh
-pin git@github.com:me/r.git "$BRANCH" pr-review,pr-request-review
-run pr-request-review
-expect_rc 0 "pr-request-review with pr-review,pr-request-review (no pr-resolve)"
+pin git@github.com:me/r.git "$BRANCH" gh-pr-review,gh-pr-request-review
+run gh-pr-request-review
+expect_rc 0 "gh-pr-request-review with gh-pr-review,gh-pr-request-review (no gh-pr-resolve)"
 
 
 echo "arguments"
 fresh
-run pr-comments extra
-expect_rc 2 "pr-comments with an argument"
-run pr-reply PRRT_c1
-expect_rc 2 "pr-reply with one argument"
-run pr-reply PRRT_c1 a b
-expect_rc 2 "pr-reply with three"
-run pr-resolve
-expect_rc 2 "pr-resolve with none"
-run pr-resolve PRRT_c1 PRRT_h1
-expect_rc 2 "pr-resolve with two"
-run pr-request-review extra
-expect_rc 2 "pr-request-review with an argument"
-check "  … prints its usage" has_err "usage: pr-request-review"
-run pr-resolve 'PR_7'
+run gh-pr-comments extra
+expect_rc 2 "gh-pr-comments with an argument"
+run gh-pr-reply PRRT_c1
+expect_rc 2 "gh-pr-reply with one argument"
+run gh-pr-reply PRRT_c1 a b
+expect_rc 2 "gh-pr-reply with three"
+run gh-pr-resolve
+expect_rc 2 "gh-pr-resolve with none"
+run gh-pr-resolve PRRT_c1 PRRT_h1
+expect_rc 2 "gh-pr-resolve with two"
+run gh-pr-request-review extra
+expect_rc 2 "gh-pr-request-review with an argument"
+check "  … prints its usage" has_err "usage: gh-pr-request-review"
+run gh-pr-resolve 'PR_7'
 expect_rc 2 "a thread id that is not PRRT_…"
-run pr-reply '--jq=.' hi
+run gh-pr-reply '--jq=.' hi
 expect_rc 2 "a thread id shaped like a flag"
 check "  … none of these reached GitHub" test -z "$(calls)"
 
@@ -366,62 +367,62 @@ for remote in git@github.com:o/r.git ssh://git@github.com/o/r https://github.com
   pin "$remote" "$BRANCH"
   repo_fx o/r
   prs_fx o/r o/r 3
-  run pr-comments
+  run gh-pr-comments
   if [ "$rc" = 0 ] && [ "$(q .pr.repo)" = o/r ]; then ok "$remote → o/r"; else
     bad "$remote — exit $rc, repo $(q .pr.repo 2>/dev/null)"
     printf '%s\n' "$err" | sed 's/^/         | /'
   fi
 done
 for remote in git@gitlab.com:o/r.git 'git@github.com:../r.git' 'https://github.com:8443/o/r' \
-  'git@github.com:o/r/extra.git' /srv/git/r.git; do
+  'git@github.com:o/r/extra.git' https://github.com/o /srv/git/r.git; do
   fresh
   pin "$remote" "$BRANCH"
-  run pr-comments
+  run gh-pr-comments
   expect_rc 2 "unsupported remote $remote"
 done
 
 echo "finding the PR"
 fresh
-run pr-comments
+run gh-pr-comments
 expect_rc 0 "fork: the PR is in the parent"
 check "  … up/r#7" test "$(q '.pr | "\(.repo)#\(.number)"')" = 'up/r#7'
 check "  … headSha" test "$(q .pr.headSha)" = "$(sha 7)"
 fresh
 prs_fx up/r other/r 5 me/r 7
-run pr-comments
+run gh-pr-comments
 expect_rc 0 "fork: another fork's same-name branch is ignored"
 check "  … still up/r#7" test "$(q .pr.number)" = 7
 fresh
 prs_fx up/r ME/R 7
-run pr-comments
+run gh-pr-comments
 expect_rc 0 "the head repo is compared case-insensitively"
 fresh
 prs_fx up/r
 prs_fx me/r me/r 2
-run pr-comments
+run gh-pr-comments
 expect_rc 0 "fork: a PR inside the fork itself is found too"
 check "  … me/r#2" test "$(q '.pr | "\(.repo)#\(.number)"')" = 'me/r#2'
 fresh
 repo_fx me/r
 prs_fx me/r me/r 4
-run pr-comments
+run gh-pr-comments
 expect_rc 0 "not a fork: a PR inside the same repo"
 check "  … and no parent was searched" test -z "$(calls | grep 'owner=up')"
 fresh
 prs_fx up/r other/r 5
-run pr-comments
+run gh-pr-comments
 expect_rc 2 "no open PR with that head"
 check "  … says so" has_err "no open PR with head me/r:$BRANCH"
 fresh
 prs_fx me/r me/r 2
-run pr-comments
+run gh-pr-comments
 expect_rc 2 "two matching PRs"
 check "  … lists both" has_err "https://github.com/up/r/pull/7"
 check "  … lists both" has_err "https://github.com/me/r/pull/2"
 
-echo "pr-comments"
+echo "gh-pr-comments"
 fresh
-run pr-comments
+run gh-pr-comments
 expect_rc 0 "the default world"
 check "  … is one valid JSON object" jq -e 'type == "object"' <<<"$out" >/dev/null
 check "  … only unresolved threads, across both pages" test "$(q '[.threads[].id] | join(",")')" = PRRT_c1,PRRT_h1,PRRT_c4
@@ -433,105 +434,105 @@ check "  … not pending" test "$(q .copilotReview.pending)" = false
 check "  … read from the timeline, not REST requested_reviewers" \
   test -z "$(calls | grep requested_reviewers)"
 reviews_fx human 1 APPROVED
-run pr-comments
+run gh-pr-comments
 check "no Copilot review → commit null" test "$(q .copilotReview.commit)" = null
 check "  … state null" test "$(q .copilotReview.state)" = null
 timeline_fx copilot-requested copilot-reviewed commit copilot-requested
-run pr-comments
+run gh-pr-comments
 check "timeline ends in a Copilot request → pending true" test "$(q .copilotReview.pending)" = true
 timeline_fx copilot-requested commit team human-requested
-run pr-comments
+run gh-pr-comments
 check "  … other events after it do not change that" test "$(q .copilotReview.pending)" = true
 timeline_fx copilot-requested copilot-reviewed
-run pr-comments
+run gh-pr-comments
 check "timeline ends in a Copilot review → pending false" test "$(q .copilotReview.pending)" = false
 timeline_fx commit team human-requested human-reviewed
-run pr-comments
+run gh-pr-comments
 check "no Copilot events → pending false" test "$(q .copilotReview.pending)" = false
 timeline_fx
-run pr-comments
+run gh-pr-comments
 check "an empty timeline → pending false" test "$(q .copilotReview.pending)" = false
 timeline_fx copilot-requested copilot-reviewed human-requested
-run pr-comments
+run gh-pr-comments
 check "a non-Copilot request after Copilot's review → pending false" \
   test "$(q .copilotReview.pending)" = false
 timeline_fx copilot-reviewed copilot-requested
 timeline_fx -2 commit copilot-reviewed commit
-run pr-comments
+run gh-pr-comments
 check "paginated: a review on page 2 after a request on page 1 → pending false" \
   test "$(q .copilotReview.pending)" = false
 timeline_fx copilot-requested copilot-reviewed
 timeline_fx -2 copilot-requested commit
-run pr-comments
+run gh-pr-comments
 check "paginated: a request on page 2 → pending true" test "$(q .copilotReview.pending)" = true
 fresh
 reviews_fx copilot 1 COMMENTED copilot 3 PENDING
-run pr-comments
+run gh-pr-comments
 check "a PENDING Copilot review is not the latest" test "$(q .copilotReview.commit)" = "$(sha 1)"
 
-echo "pr-reply"
+echo "gh-pr-reply"
 fresh
-run pr-reply PRRT_h1 'thanks, fixed in abc123'
+run gh-pr-reply PRRT_h1 'thanks, fixed in abc123'
 expect_rc 0 "a human reviewer's thread"
 check "  … prints the comment url" test "$out" = "replied: https://github.com/up/r/pull/7#r1"
 check "  … posted with the 🤖 prefix" test "$(cat "$SHIM/posted")" = "🤖 thanks, fixed in abc123"
 fresh
-run pr-reply PRRT_c2 'reopening'
+run gh-pr-reply PRRT_c2 'reopening'
 expect_rc 0 "a resolved thread"
 fresh
-run pr-reply PRRT_x9 'hi'
+run gh-pr-reply PRRT_x9 'hi'
 expect_rc 2 "a thread on another PR"
 check "  … names it" has_err "thread PRRT_x9 is not on https://github.com/up/r/pull/7"
 check "  … nothing posted" test ! -e "$SHIM/posted"
-run pr-reply PRRT_nope 'hi'
+run gh-pr-reply PRRT_nope 'hi'
 expect_rc 2 "a thread that does not exist"
 check "  … nothing posted" test ! -e "$SHIM/posted"
 fresh
-run pr-reply PRRT_c1 "$(printf 'a%.0s' $(seq 4000))"
+run gh-pr-reply PRRT_c1 "$(printf 'a%.0s' $(seq 4000))"
 expect_rc 0 "a 4000-byte body"
 fresh
-run pr-reply PRRT_c1 "$(printf 'a%.0s' $(seq 4001))"
+run gh-pr-reply PRRT_c1 "$(printf 'a%.0s' $(seq 4001))"
 expect_rc 3 "a 4001-byte body"
 check "  … says how long and what to do" has_err "body is 4001 bytes; the limit is 4000 — shorten it and retry"
-run pr-reply PRRT_c1 "$(printf 'é%.0s' $(seq 2001))"
+run gh-pr-reply PRRT_c1 "$(printf 'é%.0s' $(seq 2001))"
 expect_rc 3 "the limit is bytes, not characters (2001 × é = 4002 bytes)"
-run pr-reply PRRT_c1 $'  \n\t '
+run gh-pr-reply PRRT_c1 $'  \n\t '
 expect_rc 3 "a whitespace-only body"
 check "  … body is empty" has_err "body is empty"
-run pr-reply PRRT_c1 $'bell\x01'
+run gh-pr-reply PRRT_c1 $'bell\x01'
 expect_rc 3 "a control character"
-run pr-reply PRRT_c1 $'crlf\r\n'
+run gh-pr-reply PRRT_c1 $'crlf\r\n'
 expect_rc 3 "a carriage return"
 check "  … no exit 3 posted anything" test ! -e "$SHIM/posted"
 check "  … or reached GitHub" test -z "$(calls)"
-run pr-reply PRRT_c1 $'line one\n\tindented'
+run gh-pr-reply PRRT_c1 $'line one\n\tindented'
 expect_rc 0 "newlines and tabs are fine"
 check "  … and arrive intact" test "$(cat "$SHIM/posted")" = $'🤖 line one\n\tindented'
 
-echo "pr-resolve"
+echo "gh-pr-resolve"
 fresh
-run pr-resolve PRRT_c1
+run gh-pr-resolve PRRT_c1
 expect_rc 0 "a Copilot thread"
 check "  … prints it" test "$out" = "resolved: PRRT_c1"
 check "  … the mutation was sent" test -e "$SHIM/resolved-PRRT_c1"
-run pr-resolve PRRT_h1
+run gh-pr-resolve PRRT_h1
 expect_rc 3 "a human reviewer's thread"
 check "  … says to reply instead" has_err "reply instead"
 check "  … no mutation" test ! -e "$SHIM/resolved-PRRT_h1"
-run pr-resolve PRRT_c2
+run gh-pr-resolve PRRT_c2
 expect_rc 0 "an already-resolved Copilot thread"
 check "  … says so" test "$out" = "already resolved: PRRT_c2"
 check "  … no mutation" test ! -e "$SHIM/resolved-PRRT_c2"
-run pr-resolve PRRT_x9
+run gh-pr-resolve PRRT_x9
 expect_rc 2 "a Copilot thread on another PR"
 check "  … no mutation" test ! -e "$SHIM/resolved-PRRT_x9"
 node_fx PRRT_n1 PR_7 false none
-run pr-resolve PRRT_n1
+run gh-pr-resolve PRRT_n1
 expect_rc 3 "a thread whose author was deleted (null) is not Copilot's"
 
-echo "pr-request-review"
+echo "gh-pr-request-review"
 fresh
-run pr-request-review
+run gh-pr-request-review
 expect_rc 0 "Copilot's latest review is older than the head"
 check "  … prints what it requested" \
   test "$out" = "requested: Copilot review of $(sha 7 | cut -c1-12) on https://github.com/up/r/pull/7"
@@ -539,43 +540,43 @@ check "  … exactly one POST, to the PR's requested_reviewers, naming the bot" 
   "POST repos/up/r/pulls/7/requested_reviewers reviewers[]=copilot-pull-request-reviewer[bot]"
 fresh
 reviews_fx human 7 APPROVED
-run pr-request-review
+run gh-pr-request-review
 expect_rc 0 "no Copilot review yet"
 check "  … requests one" test "$(posts | wc -l | tr -d ' ')" = 1
 fresh
 timeline_fx copilot-reviewed commit copilot-requested
-run pr-request-review
+run gh-pr-request-review
 expect_rc 0 "a Copilot review is already pending"
 check "  … says so" test "$out" = "pending: Copilot is already reviewing https://github.com/up/r/pull/7"
 check "  … no POST" test -z "$(posts)"
 fresh
 reviews_fx copilot 1 COMMENTED copilot 7 COMMENTED
-run pr-request-review
+run gh-pr-request-review
 expect_rc 0 "Copilot's latest review is of the head"
 check "  … says so" test "$out" = \
   "up to date: Copilot already reviewed $(sha 7 | cut -c1-12) on https://github.com/up/r/pull/7"
 check "  … no POST" test -z "$(posts)"
 fresh
 reviews_fx copilot 7 COMMENTED copilot 8 PENDING
-run pr-request-review
+run gh-pr-request-review
 expect_rc 0 "a PENDING (draft) Copilot review does not count as the latest"
 check "  … still up to date" test "${out%% *}" = up
 fresh
-SHIM_FAIL=requested_reviewers run pr-request-review
+SHIM_FAIL=requested_reviewers run gh-pr-request-review
 expect_rc 4 "the request failing"
 check "  … relays gh's message" has_err "HTTP 502"
 check "  … prints nothing on stdout" test -z "$out"
 fresh
-SHIM_FAIL=timeline run pr-request-review
+SHIM_FAIL=timeline run gh-pr-request-review
 expect_rc 4 "the timeline read failing"
 check "  … no POST" test -z "$(posts)"
 
 echo "how gh is driven"
 fresh
-run pr-comments
-run pr-reply PRRT_c1 "secret-body-text"
-run pr-resolve PRRT_c1
-run pr-request-review
+run gh-pr-comments
+run gh-pr-reply PRRT_c1 "secret-body-text"
+run gh-pr-resolve PRRT_c1
+run gh-pr-request-review
 check "every call ran from /" test -z "$(calls | grep -v '^cwd=/ ')"
 check "only gh api and gh auth, never gh pr" test -z "$(calls | grep -Ev '^cwd=/ (api|auth) ')"
 check "no container value inside a query string" test -z "$(grep -E 'PRRT_|secret-body|pr-branch' "$SHIM/queries.log")"
@@ -583,16 +584,16 @@ check "container values go as -f, never -F" test -z "$(calls | grep -E -- "-F (i
 
 echo "failures"
 fresh
-SHIM_AUTH_RC=1 run pr-comments
+SHIM_AUTH_RC=1 run gh-pr-comments
 expect_rc 4 "gh not authenticated"
 check "  … says what to do" has_err "gh auth login"
 fresh
-SHIM_FAIL=reviewThreads run pr-comments
+SHIM_FAIL=reviewThreads run gh-pr-comments
 expect_rc 4 "a GitHub error"
 check "  … relays gh's message" has_err "HTTP 502"
 fresh
 out=$(PATH=/usr/bin:/bin DEVC_BRIDGE_KEY=$KEY DEVC_BRIDGE_POLICY_DIR=$POLICY_DIR \
-  "$RECIPES/pr-comments" 2>"$W/stderr")
+  "$RECIPES/gh-pr-comments" 2>"$W/stderr")
 rc=$?
 err=$(cat "$W/stderr")
 if command -v -p gh >/dev/null 2>&1 || [ -x /usr/bin/gh ] || [ -x /bin/gh ]; then
@@ -605,7 +606,7 @@ fi
 echo "hang-proofing"
 fresh
 start=$(date +%s)
-SHIM_SLEEP=1 DEVC_BRIDGE_GH_TIMEOUT=2 run pr-comments
+SHIM_SLEEP=1 DEVC_BRIDGE_GH_TIMEOUT=2 run gh-pr-comments
 took=$(($(date +%s) - start))
 expect_rc 4 "a hung gh"
 check "  … returns within the timeout (${took}s)" test "$took" -lt 12

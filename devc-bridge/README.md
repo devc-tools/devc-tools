@@ -60,13 +60,13 @@ of the box:
 | `caffeinate start\|stop\|status` | The keepalive's own on/off switch, exposed directly (macOS-only; runs the real `caffeinate(8)`). Manual/advanced use only — see below.                                                                                                                |
 | `echo <args...>`                 | Round-trip smoke test — echoes args back                                                                                                                                                                                                              |
 | `toggle on\|off`                 | Demo command that flips a state marker (exercises `status`/the tray without needing macOS)                                                                                                                                                            |
-| `git-push`                       | **Built in — needs capability `git-push`.** Publish this container's one pinned branch to its pinned remote. Takes no arguments. See [Publishing a branch](#publishing-a-branch-git-push)                                                             |
-| `git-doctor`                     | **Built in — needs capability `git-push`.** Explain why `git-push` would or would not work: the pin, worktree pointers, the mirror, and a read-only probe of the remote. Changes nothing                                                              |
-| `pr-comments`                    | **Built in — needs capability `pr-review`.** The unresolved review threads on this container's PR, as JSON, plus Copilot's latest reviewed commit. Takes no arguments. See [Iterating on PR review](#iterating-on-pr-review-pr-)                      |
-| `pr-reply <thread> <body>`       | **Built in — needs capability `pr-review`.** Reply to any review thread on that PR, prefixed `🤖`                                                                                                                                                     |
-| `pr-resolve <thread>`            | **Built in — needs capability `pr-resolve`.** Resolve a review thread on that PR — only one Copilot started                                                                                                                                           |
-| `pr-request-review`              | **Built in — needs capability `pr-request-review`.** Ask Copilot to review that PR's current head — nothing is requested while a review is pending or already of the head. Takes no arguments                                                         |
-| `help [guide]`                   | **Answered by the client itself**, never sent to the host (also `--help` / `-h`; no arguments prints it to stderr, exit 2) — every command and its capability, or with `guide` the embedded [agent guide](../docs/bridge-git-push.md)                 |
+| `gh-push`                        | **Built in — needs capability `gh-push`.** Publish this container's one pinned branch to its pinned remote. Takes no arguments. See [Publishing a branch](#publishing-a-branch-gh-push)                                                               |
+| `gh-doctor`                      | **Built in — needs capability `gh-push`.** Explain why `gh-push` would or would not work: the pin, worktree pointers, the mirror, and a read-only probe of the remote. Changes nothing                                                                |
+| `gh-pr-comments`                 | **Built in — needs capability `gh-pr-review`.** The unresolved review threads on this container's PR, as JSON, plus Copilot's latest reviewed commit. Takes no arguments. See [Iterating on PR review](#iterating-on-pr-review-gh-pr-)                |
+| `gh-pr-reply <thread> <body>`    | **Built in — needs capability `gh-pr-review`.** Reply to any review thread on that PR, prefixed `🤖`                                                                                                                                                  |
+| `gh-pr-resolve <thread>`         | **Built in — needs capability `gh-pr-resolve`.** Resolve a review thread on that PR — only one Copilot started                                                                                                                                        |
+| `gh-pr-request-review`           | **Built in — needs capability `gh-pr-request-review`.** Ask Copilot to review that PR's current head — nothing is requested while a review is pending or already of the head. Takes no arguments                                                      |
+| `help [guide]`                   | **Answered by the client itself**, never sent to the host (also `--help` / `-h`; no arguments prints it to stderr, exit 2) — every command and its capability, or with `guide` the embedded [agent guide](../docs/bridge-github.md)                   |
 | `version`                        | **Answered by the client itself**, never sent to the host (also `--version` / `-V`) — which client is actually mounted in here, answerable with the bridge down                                                                                       |
 
 **In normal use you never call `caffeinate` yourself** — `ping` drives it
@@ -80,8 +80,8 @@ These are plain executable scripts in `~/.config/devc-bridge/commands/`
 one exception, a builtin handled by the server itself, not a script. See
 [Writing a command](#writing-a-command) to add your own.
 
-**Built-ins are the exception to seeding.** The capability commands (`git-push`,
-`git-doctor`, `pr-*`) ship inside the binary and are never copied into
+**Built-ins are the exception to seeding.** The capability commands (`gh-push`,
+`gh-doctor`, `gh-pr-*`) ship inside the binary and are never copied into
 `commands/`: each runs only for a container whose policy grants its capability.
 See [Capabilities](#capabilities).
 
@@ -597,20 +597,29 @@ The bridge ships every capability built in. **Which ones a container may use is
 its policy's grant**, written by devc from one flag:
 
 ```sh
-devc up --bridge-allow git-push,pr-review,pr-resolve,pr-request-review
+devc up --bridge-allow gh        # all of them; 'gh-*' (quoted) is the same
+devc up --bridge-allow gh-push,gh-pr-review,gh-pr-resolve,gh-pr-request-review
 ```
 
-| Capability          | Commands                  | Notes                                                      |
-| ------------------- | ------------------------- | ---------------------------------------------------------- |
-| `git-push`          | `git-push`, `git-doctor`  | [Publishing a branch](#publishing-a-branch-git-push)       |
-| `pr-review`         | `pr-comments`, `pr-reply` | [Iterating on PR review](#iterating-on-pr-review-pr-)      |
-| `pr-resolve`        | `pr-resolve`              | Requires `pr-review` — devc refuses it alone               |
-| `pr-request-review` | `pr-request-review`       | Requires `pr-review`. Each request spends a Copilot review |
+`gh` and `gh-*` expand to every capability named `gh-*`. devc expands them when
+it parses the flag, so the policy (and so the bridge) only ever sees the
+explicit list — a capability added by a later release reaches an existing
+container only on the next `devc up --bridge-allow gh`. Quote `'gh-*'`: zsh
+aborts an unquoted one with `zsh: no matches found: gh-*` before devc runs.
+Every capability acts through the host's `gh` login, so the pinned `origin` must
+be a github.com remote; devc refuses to grant on any other.
+
+| Capability             | Commands                        | Notes                                                         |
+| ---------------------- | ------------------------------- | ------------------------------------------------------------- |
+| `gh-push`              | `gh-push`, `gh-doctor`          | [Publishing a branch](#publishing-a-branch-gh-push)           |
+| `gh-pr-review`         | `gh-pr-comments`, `gh-pr-reply` | [Iterating on PR review](#iterating-on-pr-review-gh-pr-)      |
+| `gh-pr-resolve`        | `gh-pr-resolve`                 | Requires `gh-pr-review` — devc refuses it alone               |
+| `gh-pr-request-review` | `gh-pr-request-review`          | Requires `gh-pr-review`. Each request spends a Copilot review |
 
 `devc up`/`devc build` with `--bridge-allow` write exactly that set (replacing
 any earlier one); without it they delete the policy. Every other start path
 keeps the set and only refreshes the pin's branch. See
-[devc § Per-container identity](../devc/README.md#per-container-identity-and-git-push).
+[devc § Per-container identity](../devc/README.md#per-container-identity-and-github-capabilities).
 
 **The server checks the grant before running anything,** reading
 `policy/<key>.conf` on every call, so deleting it revokes a running container
@@ -634,10 +643,10 @@ to finish the upgrade.
 A file in `commands/` with a built-in's name is never run; the bridge logs
 `commands/<name> is shadowed by the built-in <name> — remove it` on start.
 
-## Publishing a branch (`git-push`)
+## Publishing a branch (`gh-push`)
 
 A devcontainer has **no outbound git credential at all** — no SSH agent, no
-`gh`, no token. `git-push` trades a narrow, policed slice of that for an
+`gh`, no token. `gh-push` trades a narrow, policed slice of that for an
 unattended review loop: the agent asks the host to publish its branch, and the
 host does, with your credentials, after checking what it is about to send.
 
@@ -651,19 +660,22 @@ host does, with your credentials, after checking what it is about to send.
 
 ```sh
 gh auth login                            # once, on the host: the credential for GitHub
-devc up --bridge-allow git-push          # per workspace: the pin and the grant
+devc up --bridge-allow gh-push           # per workspace: the pin and the grant
 ```
 
-**A GitHub remote is always pushed with `gh`'s credential.** Any remote the
-`pr-*` commands accept (`git@github.com:…`, `ssh://git@github.com/…`,
-`https://github.com/…`, or a `github.com-*` ssh alias) is reached at
-`https://github.com/<owner>/<name>.git` with `gh auth git-credential` as git's
-only credential helper — so `gh auth login` is the whole host setup for push and
-PR review, and no SSH key or agent is involved. Your own repos keep their SSH
-`origin`; nothing outside the bridge's git calls changes. Any other remote (a
-local path, another host) is used as given, with your normal git credentials.
+**Push is GitHub-only, always with `gh`'s credential.** The pinned remote must
+be one the `gh-pr-*` commands accept (`git@github.com:…`,
+`ssh://git@github.com/…`, `https://github.com/…`, or a `github.com-*` ssh
+alias); it is reached at `https://github.com/<owner>/<name>.git` with
+`gh auth git-credential` as git's only credential helper — so `gh auth login` is
+the whole host setup for push and PR review, and no SSH key or agent is
+involved. Your own repos keep their SSH `origin`; nothing outside the bridge's
+git calls changes. Any other remote (a local path, another host) is refused:
+devc will not grant on it, and `gh-push` exits 2 with
+`gh-push: unsupported remote <remote> — only github.com` should a policy name
+one anyway.
 
-Then, inside that container, `devc-bridge git-push` — no arguments. It prints
+Then, inside that container, `devc-bridge gh-push` — no arguments. It prints
 `pushed: <branch> at <sha> to <remote> (<repo>)`, or `up to date: …` when the
 remote already has that commit.
 
@@ -678,8 +690,8 @@ config of a repo it fetches from — into a host-owned bare mirror at
 `~/.local/state/devc-bridge/git/<key>.git`, and every later step runs there:
 
 1. Read `policy/<key>.conf` for the caller's key (from `DEVC_BRIDGE_KEY`, set by
-   the bridge from the token). No file, or anything but one line of three fields,
-   is exit 2.
+   the bridge from the token). No file, anything but one line of four fields, or
+   a remote that is not GitHub, is exit 2.
 2. Check the repo's `.git` as a file: a linked worktree's `gitdir:` pointer must
    point at a `<primary>/.git/worktrees/<name>` that points back, and a primary
    repo must have no `commondir`. Either would otherwise let the fetch read a
@@ -688,7 +700,7 @@ config of a repo it fetches from — into a host-owned bare mirror at
    repo — and refuse if its `origin` no longer equals the policy's remote.
 4. Ask the remote for its **default branch** (never assumed to be `main`) and
    fetch it fresh.
-   For a GitHub remote, this step and step 7 run against the HTTPS URL with no
+   This step and step 7 run against the HTTPS URL with no
    user or system git config (`GIT_CONFIG_GLOBAL=/dev/null`,
    `GIT_CONFIG_NOSYSTEM=1`, so no `insteadOf` can turn it back into SSH and no
    other credential helper can answer), after checking `gh auth status`.
@@ -700,18 +712,19 @@ config of a repo it fetches from — into a host-owned bare mirror at
    to `refs/heads/<branch>`. No tags, no force, no delete: there is no code path
    that emits anything else.
 
-Every git call runs with prompts off, `GIT_ALLOW_PROTOCOL=file:ssh:https`,
+Every git call runs with prompts off, `GIT_ALLOW_PROTOCOL=file:https` (`file`
+for step 5's fetch from the repo by path, `https` for GitHub, nothing else),
 hooks disabled, tag- and submodule-following off, and a hard timeout
 (`DEVC_BRIDGE_GIT_TIMEOUT`, seconds, default `300`) that kills the whole process
 group — the client has no timeout of its own, so a git that stopped to ask
 something would otherwise hang the call forever.
 
-| Exit | Meaning                                                                                                                            |
-| ---- | ---------------------------------------------------------------------------------------------------------------------------------- |
-| `0`  | pushed, or already up to date                                                                                                      |
-| `2`  | no policy, a malformed one, an argument given, a pin that no longer resolves, or a remote/mirror mismatch                          |
-| `3`  | content-policy refusal: workflows changed, an LFS pointer added, or no default branch to check against                             |
-| `4`  | transport failure or timeout — including a rejected (non-fast-forward) push, and for a GitHub remote `gh` missing or not logged in |
+| Exit | Meaning                                                                                                                                |
+| ---- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| `0`  | pushed, or already up to date                                                                                                          |
+| `2`  | no policy, a malformed one, an argument given, a pin that no longer resolves, a remote that is not GitHub, or a remote/mirror mismatch |
+| `3`  | content-policy refusal: workflows changed, an LFS pointer added, or no default branch to check against                                 |
+| `4`  | transport failure or timeout — including a rejected (non-fast-forward) push, and `gh` missing or not logged in                         |
 
 ### Limits, stated plainly
 
@@ -731,29 +744,28 @@ something would otherwise hang the call forever.
   github.com account. Because user git config is skipped, an `http.proxy` in
   `~/.gitconfig` does not apply either; `HTTPS_PROXY` in the bridge's
   environment does.
-- **Other SSH remotes must work without a prompt.** They run
-  `ssh -oBatchMode=yes`: a key file without a passphrase works as is; a
-  passphrase-protected key needs an agent in the bridge's environment (the
-  daemon inherits `SSH_AUTH_SOCK` from the shell that ran `devc-bridge start`).
-  `git-doctor`'s transport probe says which.
+- **Nothing but GitHub.** A GitHub Enterprise host, GitLab, or a local bare repo
+  cannot be pushed through the bridge.
 
-### `git-doctor [key]`
+### `gh-doctor [key]`
 
 Reports, per policy: the pin, whether the repo exists and the branch is there (read as
 files), whether each worktree pointer of the repo's primary
 (`<primary>.worktrees/*/.git`) still points where it should, the mirror's origin
 and staging-ref count, and a `transport` line from a read-only
-`git ls-remote` of the pinned remote over `git-push`'s own transport (`gh`'s
-credential for a GitHub remote, BatchMode ssh otherwise; no prompts), bounded by `DEVC_BRIDGE_GIT_TIMEOUT` (default 30s here). It
-proves the credential reaches the remote, not that it may write. Exit 1 when it
-found anything. Run on the host
-(`~/.local/state/devc-bridge/builtin/git-doctor [key]`) it covers every policy,
+`git ls-remote` of the pinned remote over `gh-push`'s own transport (HTTPS with
+`gh`'s credential; no prompts), bounded by `DEVC_BRIDGE_GIT_TIMEOUT` (default
+30s here). It proves the credential reaches the remote, not that it may write; a
+remote that is not GitHub is a
+`transport FAILED: unsupported remote <remote> — only github.com` finding. Exit
+1 when it found anything. Run on the host
+(`~/.local/state/devc-bridge/builtin/gh-doctor [key]`) it covers every policy,
 or just `key`; called through the bridge it covers **only the caller's own** and
 refuses any other key.
 
-## Iterating on PR review (`pr-*`)
+## Iterating on PR review (`gh-pr-*`)
 
-The same trade as `git-push`, for the other half of a review loop: the agent
+The same trade as `gh-push`, for the other half of a review loop: the agent
 reads Copilot's review threads on its PR, replies, resolves Copilot's, and asks
 for the next review —
 **with no GitHub credential in the container at all**, not even a read-only
@@ -761,14 +773,14 @@ one. Each call runs `gh api` on the host with your credentials.
 
 ### Enabling it
 
-`pr-review` grants reading and replying; `pr-resolve` and `pr-request-review`
-are separate, so replies without resolves is simply leaving `pr-resolve` out.
-`pr-request-review` is separate because each request spends a Copilot review
+`gh-pr-review` grants reading and replying; `gh-pr-resolve` and `gh-pr-request-review`
+are separate, so replies without resolves is simply leaving `gh-pr-resolve` out.
+`gh-pr-request-review` is separate because each request spends a Copilot review
 (org quota or premium requests), which granting read-and-reply did not consent
 to:
 
 ```sh
-devc up --bridge-allow git-push,pr-review,pr-resolve,pr-request-review   # the same pin git-push uses
+devc up --bridge-allow gh   # all four; the same pin gh-push uses
 ```
 
 The host needs `gh` on the bridge's `PATH`, authenticated (`gh auth login`, or
@@ -795,20 +807,20 @@ node id — PR numbers repeat across repos), or it is exit 2.
 
 ### The verbs
 
-| Verb                       | Does                                                                                                                                                                                                                                                                                                                                                                                         |
-| -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `pr-comments`              | Prints one JSON object: `pr` (`repo`, `number`, `url`, `headSha`), `threads` (unresolved only: `id`, `path`, `line`, `isOutdated`, `copilot`, `comments[]` of `author`/`body`/`createdAt`/`url`), and `copilotReview` (`commit`, `state`, `submittedAt` of Copilot's latest submitted review — `null`s if none — and `pending`, true from a Copilot review request until the review arrives) |
-| `pr-reply <thread> <body>` | Replies to **any** thread on the PR — a human reviewer's too, resolved or not. Posted under your identity with the fixed prefix `🤖`. The body must be non-empty, at most **4000 bytes**, with no control characters other than newline and tab; anything else is exit 3 with a message saying what to change, and nothing is sent                                                           |
-| `pr-resolve <thread>`      | Resolves a thread **only if Copilot started it** (its first comment's author is the `copilot-pull-request-reviewer` bot). A human reviewer's thread is exit 3 — resolving hides feedback, which is the one thing a misbehaving agent would want. Already resolved is exit 0                                                                                                                  |
+| Verb                          | Does                                                                                                                                                                                                                                                                                                                                                                                         |
+| ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `gh-pr-comments`              | Prints one JSON object: `pr` (`repo`, `number`, `url`, `headSha`), `threads` (unresolved only: `id`, `path`, `line`, `isOutdated`, `copilot`, `comments[]` of `author`/`body`/`createdAt`/`url`), and `copilotReview` (`commit`, `state`, `submittedAt` of Copilot's latest submitted review — `null`s if none — and `pending`, true from a Copilot review request until the review arrives) |
+| `gh-pr-reply <thread> <body>` | Replies to **any** thread on the PR — a human reviewer's too, resolved or not. Posted under your identity with the fixed prefix `🤖`. The body must be non-empty, at most **4000 bytes**, with no control characters other than newline and tab; anything else is exit 3 with a message saying what to change, and nothing is sent                                                           |
+| `gh-pr-resolve <thread>`      | Resolves a thread **only if Copilot started it** (its first comment's author is the `copilot-pull-request-reviewer` bot). A human reviewer's thread is exit 3 — resolving hides feedback, which is the one thing a misbehaving agent would want. Already resolved is exit 0                                                                                                                  |
 
-| `pr-request-review` | Asks Copilot to review the PR's current head (REST `POST repos/<repo>/pulls/<n>/requested_reviewers` with `copilot-pull-request-reviewer[bot]`). Idempotent, so it bounds spend to one review per head: while a Copilot review is pending it prints `pending: Copilot is already reviewing <pr-url>`; when Copilot's latest review is of the head, `up to date: Copilot already reviewed <sha12> on <pr-url>` — both exit 0 with nothing posted. Otherwise `requested: Copilot review of <sha12> on <pr-url>`. A 2xx is the success signal: GitHub's response never lists Copilot among the requested reviewers |
+| `gh-pr-request-review` | Asks Copilot to review the PR's current head (REST `POST repos/<repo>/pulls/<n>/requested_reviewers` with `copilot-pull-request-reviewer[bot]`). Idempotent, so it bounds spend to one review per head: while a Copilot review is pending it prints `pending: Copilot is already reviewing <pr-url>`; when Copilot's latest review is of the head, `up to date: Copilot already reviewed <sha12> on <pr-url>` — both exit 0 with nothing posted. Otherwise `requested: Copilot review of <sha12> on <pr-url>`. A 2xx is the success signal: GitHub's response never lists Copilot among the requested reviewers |
 
 **Re-review after a push.** A push triggers Copilot's review by itself only when
 the repo's auto-review ruleset has _review new pushes_ on (and a personal repo
 needs the plan feature for that). Elsewhere a human would have to click
-"Re-request review" — `pr-request-review` does it, and on a repo that already
+"Re-request review" — `gh-pr-request-review` does it, and on a repo that already
 reviews on push it answers `pending:` or `up to date:` and spends nothing, so an
-agent can call it after every `git-push`. `copilotReview` is how the agent tells
+agent can call it after every `gh-push`. `copilotReview` is how the agent tells
 that review has landed: wait until `pending` is `false` and `commit` equals
 `pr.headSha`. If the commit never catches up, the request did not take, and the
 agent should stop.
@@ -822,7 +834,7 @@ and `Copilot` in timeline events.
 
 | Exit | Meaning                                                                                                                                     |
 | ---- | ------------------------------------------------------------------------------------------------------------------------------------------- |
-| `0`  | done, already resolved, or (`pr-request-review`) a review already pending or of the head                                                    |
+| `0`  | done, already resolved, or (`gh-pr-request-review`) a review already pending or of the head                                                 |
 | `2`  | no policy, the shared token, wrong arguments, an unsupported (non-github.com) remote, no single open PR for the pin, a thread not on it     |
 | `3`  | refused, and the agent can adjust: a reply body that is empty, too long or has control characters; resolving a thread Copilot did not start |
 | `4`  | GitHub or transport failure, `gh` missing or not authenticated, or the timeout (`DEVC_BRIDGE_GH_TIMEOUT`, seconds, default `60`)            |
@@ -836,11 +848,11 @@ the agent controls (`gh pr …` would). Container-supplied values — the branch
 from the pin, a thread id, a reply body — reach GitHub only as `-f` GraphQL
 variables: never interpolated into a query, and never `-F`, which reads a file
 for a value starting with `@`. Each call runs under the same process-group
-timeout as `git-push`.
+timeout as `gh-push`.
 
 ### Limits, stated plainly
 
-- **`pr-comments` output is untrusted.** Every body in it was written by someone
+- **`gh-pr-comments` output is untrusted.** Every body in it was written by someone
   who could comment on the PR. An agent should treat it as data to act on, not
   instructions.
 - **Replies are you.** They post under your GitHub identity; the prefix is the
@@ -957,22 +969,22 @@ everything runs as your host user, so keep the scripts few and simple.
 
 Paths are relative to `devc-bridge/` unless noted.
 
-| Path                       | Role                                                                                                                  |
-| -------------------------- | --------------------------------------------------------------------------------------------------------------------- |
-| `host/main.ts`             | `devc-bridge` entrypoint — CLI dispatch, the detached `start`, and the headless `run`                                 |
-| `host/config.ts`           | Path resolution + `ensureConfig`/`seedCommands` (zero-setup on first start)                                           |
-| `host/core.ts`             | Headless TCP server + dispatch + state and `keys/` watchers — what `run` runs                                         |
-| `host/tray.ts`             | Opt-in tray layer (`run --tray`) — same core + a menu-bar icon; headless if no GUI                                    |
-| `host/tests/`              | `deno task test` — relaunch argv, `start`'s detach-and-wait contract, token and per-key minting, capability grants    |
-| `host/token.ts`            | Generate the shared token; mint and track one per `keys/<key>/` (`TokenRegistry`)                                     |
-| `host/version.ts`          | The host CLI's `VERSION` — one of the three the release workflow's version guard pins to the tag                      |
-| `host/commands/`           | Allowlisted host scripts, **embedded** in the binary + seeded to `~/.config/devc-bridge/commands`                     |
-| `builtin/`                 | The built-in capability scripts — embedded, **never seeded**, materialized to `~/.local/state/devc-bridge/builtin/`   |
-| `tests/git_push_test.sh`   | Offline harness for `git-push`/`git-doctor` — a local bare repo stands in for the remote                              |
-| `tests/pr_review_test.sh`  | Offline harness for the `pr-*` commands — a `gh` shim stands in for GitHub                                            |
-| `client/devc-bridge.ts`    | Container client CLI                                                                                                  |
-| `client/version.ts`        | The client's own `VERSION` — separate compile unit, pinned to the same tag                                            |
-| `client/build-client.sh`   | `deno task build:client` — cross-compile the client into `~/.config/devc-bridge/client/` (dev install)                |
-| `../features/devc-bridge/` | The container half as a devcontainer Feature: the two read-only mounts and the PATH symlink                           |
-| `../devc-core/default/`    | devc's side: the Feature reference in `devcontainer.json` and the mount-source placeholder in `initialize-command.sh` |
-| `icons/`                   | Source PNGs for the app icon + the tray icons (embedded in `tray.ts`)                                                 |
+| Path                         | Role                                                                                                                  |
+| ---------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| `host/main.ts`               | `devc-bridge` entrypoint — CLI dispatch, the detached `start`, and the headless `run`                                 |
+| `host/config.ts`             | Path resolution + `ensureConfig`/`seedCommands` (zero-setup on first start)                                           |
+| `host/core.ts`               | Headless TCP server + dispatch + state and `keys/` watchers — what `run` runs                                         |
+| `host/tray.ts`               | Opt-in tray layer (`run --tray`) — same core + a menu-bar icon; headless if no GUI                                    |
+| `host/tests/`                | `deno task test` — relaunch argv, `start`'s detach-and-wait contract, token and per-key minting, capability grants    |
+| `host/token.ts`              | Generate the shared token; mint and track one per `keys/<key>/` (`TokenRegistry`)                                     |
+| `host/version.ts`            | The host CLI's `VERSION` — one of the three the release workflow's version guard pins to the tag                      |
+| `host/commands/`             | Allowlisted host scripts, **embedded** in the binary + seeded to `~/.config/devc-bridge/commands`                     |
+| `builtin/`                   | The built-in capability scripts — embedded, **never seeded**, materialized to `~/.local/state/devc-bridge/builtin/`   |
+| `tests/gh_push_test.sh`      | Offline harness for `gh-push`/`gh-doctor` — a `git` shim points the GitHub pin's HTTPS URL at a local bare repo       |
+| `tests/gh_pr_review_test.sh` | Offline harness for the `gh-pr-*` commands — a `gh` shim stands in for GitHub                                         |
+| `client/devc-bridge.ts`      | Container client CLI                                                                                                  |
+| `client/version.ts`          | The client's own `VERSION` — separate compile unit, pinned to the same tag                                            |
+| `client/build-client.sh`     | `deno task build:client` — cross-compile the client into `~/.config/devc-bridge/client/` (dev install)                |
+| `../features/devc-bridge/`   | The container half as a devcontainer Feature: the two read-only mounts and the PATH symlink                           |
+| `../devc-core/default/`      | devc's side: the Feature reference in `devcontainer.json` and the mount-source placeholder in `initialize-command.sh` |
+| `icons/`                     | Source PNGs for the app icon + the tray icons (embedded in `tray.ts`)                                                 |

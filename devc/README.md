@@ -112,13 +112,13 @@ Notes:
   <path>`, or `No container for <path>` when there was nothing to remove. Both
   exit 0 either way — neither is an error.
 - `--bridge-allow LIST` on `up`/`build` grants the container devc-bridge
-  capabilities — a comma-separated subset of `git-push`, `pr-review`,
-  `pr-resolve` and `pr-request-review` (the last two each require `pr-review`)
-  — on its current branch;
-  `up`/`build` **without** it revoke any earlier grant. No other command accepts
-  it, and the old `--bridge-git-push` is refused with a pointer to
-  `--bridge-allow git-push` — see
-  [Per-container identity](#per-container-identity-and-git-push).
+  capabilities — a comma-separated subset of `gh-push`, `gh-pr-review`,
+  `gh-pr-resolve` and `gh-pr-request-review` (the last two each require
+  `gh-pr-review`), or `gh` / `'gh-*'` for all of them — on its current branch,
+  whose `origin` must be a github.com remote. `up`/`build` **without** it revoke
+  any earlier grant. No other command accepts it, and the old
+  `--bridge-git-push` is refused with a pointer to `--bridge-allow gh-push` — see
+  [Per-container identity](#per-container-identity-and-github-capabilities).
 - `prune` removes every `~/.config/devc-bridge/keys/<key>/` and
   `policy/<key>.conf` that no container (running or stopped) maps to, printing
   `removed <path>` per entry (`would remove` with `--dry-run`, which removes
@@ -1041,7 +1041,7 @@ unaffected: they always run the Feature's downloaded client.
   mount hides the downloaded copy. Reinstall it, or `devc build` (the merge then
   skips the mount).
 
-### Per-container identity and git push
+### Per-container identity and GitHub capabilities
 
 **One container, one repo, one branch.** The token identifies the container;
 `~/.config/devc-bridge/policy/<key>.conf` names the one repo, remote and branch
@@ -1051,16 +1051,35 @@ its capabilities act on, and which capabilities it has:
 <host path of the repo><TAB><remote.origin.url><TAB><branch><TAB><grants>
 ```
 
-`<grants>` is comma-separated in canonical order, e.g. `git-push,pr-review`.
+`<grants>` is comma-separated in canonical order, e.g. `gh-push,gh-pr-review`.
 That file is the whole grant, and no container can write it — `policy/` is never
 mounted. A three-field file from before grants existed grants nothing.
 
-| Capability          | Lets the container run                  |
-| ------------------- | --------------------------------------- |
-| `git-push`          | `git-push`, `git-doctor`                |
-| `pr-review`         | `pr-comments`, `pr-reply`               |
-| `pr-resolve`        | `pr-resolve` (needs `pr-review`)        |
-| `pr-request-review` | `pr-request-review` (needs `pr-review`) |
+| Capability             | Lets the container run                        |
+| ---------------------- | --------------------------------------------- |
+| `gh-push`              | `gh-push`, `gh-doctor`                        |
+| `gh-pr-review`         | `gh-pr-comments`, `gh-pr-reply`               |
+| `gh-pr-resolve`        | `gh-pr-resolve` (needs `gh-pr-review`)        |
+| `gh-pr-request-review` | `gh-pr-request-review` (needs `gh-pr-review`) |
+
+**`gh` and `gh-*` mean all of them.** In a `--bridge-allow` list, the exact
+entries `gh` and `gh-*` each expand to every capability whose name starts with
+`gh-` — today, all four — and mix freely with explicit names. No other pattern
+is accepted (`*`, `gh-pr-*` and `GH` are unknown capabilities). devc expands
+them when it parses the flag, so the policy always stores the explicit list: a
+capability a later release adds is **not** granted to an existing container
+until you re-run `devc up --bridge-allow gh`, which matters when one spends
+quota the way `gh-pr-request-review` does. Quote the starred form — zsh (the
+macOS default) aborts an unquoted `gh-*` with `zsh: no matches found: gh-*`
+before devc runs:
+
+```sh
+devc up --bridge-allow gh        # every gh- capability
+devc up --bridge-allow 'gh-*'    # the same
+```
+
+Old names (`git-push`, `pr-review`, …) are unknown capabilities, and a policy
+file holding one is malformed: the next refresh removes it and says so.
 
 The bridge ships all of them and checks the grant on every call — see the
 [bridge README](../devc-bridge/README.md#capabilities). Only the **primary
@@ -1085,7 +1104,12 @@ exits non-zero naming the first that fails:
 3. the workspace is a bind-mounted repo whose `HEAD` names a branch (a detached
    `HEAD` fails) and whose config has exactly one `remote.origin.url` (none,
    two, or any `[include]` fails);
-4. **the running container** has that repo's `.git/config` and `.git/hooks`
+4. that `remote.origin.url` is a github.com remote — `git@github.com:<owner>/<name>`,
+   `ssh://git@github.com/<owner>/<name>` or `https://github.com/<owner>/<name>`
+   (optionally `.git`, and `github.com-<alias>` for an ssh host alias), refused
+   as `origin <url> is not a github.com remote`. Every capability acts through
+   the host's `gh` login, so a local-path or other-host remote cannot be granted;
+5. **the running container** has that repo's `.git/config` and `.git/hooks`
    mounted read-only, and its own `keys/<key>/` at `/run/devc-bridge`.
 
 The last one is checked against the container's live mount table, not against
@@ -1103,7 +1127,8 @@ planted `core.fsmonitor`.
 
 **Refresh** keeps a long-lived container right when you switch branches: each
 `attach`/`claude`/… rewrites the pin from the current `HEAD`. When the pin can no
-longer be derived — a detached `HEAD`, protection gone, a malformed file — the
+longer be derived — a detached `HEAD`, protection gone, an origin that stopped
+being GitHub, a malformed file — the
 refresh **removes** the policy and says so, rather than leave a grant standing that its
 preconditions no longer support.
 

@@ -146,13 +146,13 @@ jobs:
           deno task check
           deno task test
 
-      # The git-push/git-doctor built-ins: a local bare repo stands in for the remote, no network.
-      - name: devc-bridge git built-ins — offline harness
-        run: bash devc-bridge/tests/git_push_test.sh
+      # The gh-push/gh-doctor built-ins: a git shim points the GitHub pin at a local bare repo, no network.
+      - name: devc-bridge push built-ins — offline harness
+        run: bash devc-bridge/tests/gh_push_test.sh
 
-      # The pr-* built-ins: a gh shim stands in for GitHub (the harness needs jq; the runner has it).
+      # The gh-pr-* built-ins: a gh shim stands in for GitHub (the harness needs jq; the runner has it).
       - name: devc-bridge PR review built-ins — offline harness
-        run: bash devc-bridge/tests/pr_review_test.sh
+        run: bash devc-bridge/tests/gh_pr_review_test.sh
 
       - name: devc-bridge client — check
         working-directory: devc-bridge/client

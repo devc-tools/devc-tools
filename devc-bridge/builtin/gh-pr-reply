@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# pr-reply — reply to one review thread on this container's one PR.
-#   devc-bridge pr-reply <thread-id> <body>
+# gh-pr-reply — reply to one review thread on this container's one PR.
+#   devc-bridge gh-pr-reply <thread-id> <body>
 #
-# Built in: runs only for a container whose policy grants `pr-review`
-# (`devc up --bridge-allow pr-review`).
+# Built in: runs only for a container whose policy grants `gh-pr-review`
+# (`devc up --bridge-allow gh-pr-review`).
 #
 # Any thread on the PR — a human reviewer's too, resolved or not. The PR is the one open PR whose
-# head is the policy's remote + branch (see pr-comments). The reply is posted under the host user's
+# head is the policy's remote + branch (see gh-pr-comments). The reply is posted under the host user's
 # GitHub identity with a fixed `🤖 ` prefix, so readers can tell it came from an agent.
 #
 # Exit codes: 0 replied, 2 no/malformed policy, wrong arguments, an unsupported remote, no single
@@ -16,11 +16,11 @@
 # SC2016: GraphQL variables are $-prefixed and must not expand. SC2034: the shared prelude sets
 # some variables only another recipe reads.
 # shellcheck disable=SC2016,SC2034
-me=pr-reply
+me=gh-pr-reply
 # ── BEGIN pr-prelude ──
-# Shared by pr-comments, pr-reply, pr-resolve and pr-request-review: keep the four copies
-# byte-identical (the harness checks). Recipes are installed one file at a time, so there is no
-# library to source.
+# Shared by gh-pr-comments, gh-pr-reply, gh-pr-resolve and gh-pr-request-review: keep the four
+# copies byte-identical (the harness checks). Recipes are installed one file at a time, so there is
+# no library to source.
 #
 # The container's repo is never touched — not read, not run in. Everything comes from the policy
 # (which remote, which branch) and from GitHub. `gh` runs from `/`, only as `gh api`, with the repo
@@ -46,7 +46,7 @@ IS_COPILOT="(. != null and .__typename == \"Bot\" and .login == \"$COPILOT_LOGIN
 # over REST, and `Copilot` in the issue timeline's events.
 COPILOT_TIMELINE_LOGIN=Copilot
 
-# ── the caller and its policy (byte-for-byte git-push's parse) ────────────────────────────
+# ── the caller and its policy (byte-for-byte gh-push's parse) ────────────────────────────
 
 load_policy() {
   local key policy_dir policy line tabs rest field
@@ -58,7 +58,7 @@ load_policy() {
   policy_dir=${DEVC_BRIDGE_POLICY_DIR:-$HOME/.config/devc-bridge/policy}
   policy=$policy_dir/$key.conf
   [ -f "$policy" ] ||
-    die 2 "no policy for this container — on the host: devc up --bridge-allow pr-review"
+    die 2 "no policy for this container — on the host: devc up --bridge-allow gh-pr-review"
   line=$(cat -- "$policy" && printf x) || die 2 "malformed policy $policy: unreadable"
   line=${line%x}
   line=${line%$'\n'}
@@ -101,6 +101,7 @@ parse_remote() {
   case $host in github.com | github.com-*) ;; *) return 1 ;; esac
   case $host in *[!A-Za-z0-9.-]*) return 1 ;; esac
   path=${path%.git}
+  case $path in */*) ;; *) return 1 ;; esac
   head_owner=${path%%/*}
   head_name=${path#*/}
   valid_name "$head_owner" && valid_name "$head_name"
@@ -124,7 +125,7 @@ trap 'rm -rf "$tmp"' EXIT
 
 # run_t CMD… — CMD with stdin closed, its whole process group killed after $timeout_s. macOS ships
 # no timeout(1); the group matters because a child holding the bridge's stdout would keep the
-# client waiting for EOF (git-push's hang-proofing, verbatim).
+# client waiting for EOF (gh-push's hang-proofing, verbatim).
 run_t() {
   rm -f "$tmp/timedout"
   set -m
@@ -282,12 +283,12 @@ copilot_pending() {
 MAX_BODY=4000
 PREFIX=$'\xf0\x9f\xa4\x96 ' # U+1F916 ROBOT FACE, then a space
 
-[ $# -eq 2 ] || die 2 "usage: pr-reply <thread-id> <body>"
+[ $# -eq 2 ] || die 2 "usage: gh-pr-reply <thread-id> <body>"
 thread=$1
 body=$2
 valid_thread_id "$thread" || die 2 "not a review thread id (want PRRT_…): $thread"
 load_policy
-require_grant pr-review
+require_grant gh-pr-review
 
 # Checked before anything touches the network, so a retry costs nothing. LC_ALL=C: ${#} is bytes.
 [ -n "${body//[[:space:]]/}" ] || die 3 "body is empty"

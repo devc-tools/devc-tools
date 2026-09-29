@@ -1,9 +1,12 @@
 #!/usr/bin/env bash
-# Offline harness for the git-push and git-doctor built-ins: a local bare repo stands in for the
-# remote, so nothing here touches a network. Runs the scripts directly with the environment the
-# bridge would give them (DEVC_BRIDGE_KEY, DEVC_BRIDGE_POLICY_DIR) and a throwaway $HOME.
+# Offline harness for the gh-push and gh-doctor built-ins. Every pin is a GitHub remote
+# (`git@github.com:acme/widget.git`), the only kind they accept; a `git` shim on the scripts' PATH
+# points its HTTPS URL at a local bare repo and a `gh` shim answers `auth status` and
+# `auth git-credential`, so nothing here touches a network. Runs the scripts directly with the
+# environment the bridge would give them (DEVC_BRIDGE_KEY, DEVC_BRIDGE_POLICY_DIR) and a throwaway
+# $HOME.
 #
-#   bash devc-bridge/tests/git_push_test.sh
+#   bash devc-bridge/tests/gh_push_test.sh
 #
 # The bridge-side half — that the server sets DEVC_BRIDGE_KEY from the caller's token — is
 # `host/tests/keys_test.ts`.
@@ -11,8 +14,8 @@
 set -uo pipefail
 
 here=$(cd "$(dirname "$0")" && pwd)
-PUSH=$here/../builtin/git-push
-DOCTOR=$here/../builtin/git-doctor
+PUSH=$here/../builtin/gh-push
+DOCTOR=$here/../builtin/gh-doctor
 REAL_GIT=$(command -v git)
 
 pass=0
@@ -31,13 +34,18 @@ check() { # check <desc> <command…>
   if "$@"; then ok "$desc"; else bad "$desc"; fi
 }
 
-root=$(mktemp -d "${TMPDIR:-/tmp}/git-push-test.XXXXXX")
+root=$(mktemp -d "${TMPDIR:-/tmp}/gh-push-test.XXXXXX")
 trap 'rm -rf "$root"' EXIT
 
 # ── fixture ───────────────────────────────────────────────────────────────────────────────
 
+# The GitHub pin every case uses, and the HTTPS URL gh-push reaches it by.
+GH_PIN=git@github.com:acme/widget.git
+GH_URL=https://github.com/acme/widget.git
+
 # fresh [default-branch] — a new world: $HOME, a bare $REMOTE whose HEAD is the default branch, a
-# working $REPO cloned from it on branch `feat` with one new commit, and a policy pinning feat.
+# working $REPO cloned from it on branch `feat` with one new commit, the git and gh shims in
+# $W/ghbin, and a policy pinning feat to $GH_PIN.
 fresh() {
   local base=${1:-main}
   W=$(mktemp -d "$root/case.XXXXXX")
@@ -47,7 +55,7 @@ fresh() {
   git config --global user.email tester@example.invalid
   git config --global init.defaultBranch "$base"
   git config --global protocol.file.allow always
-  REMOTE=$W/remote.git
+  REMOTE=$W/widget.git
   REPO=$W/repo
   KEY=ws-1
   POLICY_DIR=$HOME/.config/devc-bridge/policy
@@ -67,21 +75,70 @@ fresh() {
   echo work >"$REPO/work.txt"
   git -C "$REPO" add work.txt
   git -C "$REPO" commit -q -m work
-  pin "$REPO" "$REMOTE" feat
+  shims
+  pin "$REPO" "$GH_PIN" feat
 }
 
-pin() { # pin <repo> <remote> <branch> [grants, default git-push]
+# shims — $W/ghbin/git logs every call (with the config-isolation env) to $W/git.log, then runs the
+# real git with any https://github.com/acme/<name>.git argument pointed at the local bare
+# $W/<name>.git — the only way to exercise the transport offline. For a network call, SHIM_LS_FAIL
+# makes it fail as GitHub would and SHIM_HANG makes it hang with a grandchild holding stdout.
+# $W/ghbin/gh answers `auth git-credential get`, and `auth status` with SHIM_AUTH_RC.
+shims() {
+  mkdir -p "$W/ghbin"
+  cat >"$W/ghbin/git" <<EOF
+#!/usr/bin/env bash
+{
+  printf 'GIT_CONFIG_GLOBAL=%s GIT_CONFIG_NOSYSTEM=%s ' "\${GIT_CONFIG_GLOBAL-}" "\${GIT_CONFIG_NOSYSTEM-}"
+  printf '%s ' "\$@"
+  echo
+} >>"$W/git.log"
+args=()
+net=no
+for a in "\$@"; do
+  case \$a in
+    https://github.com/acme/*.git) args+=("$W/\${a#https://github.com/acme/}") net=yes ;;
+    *) args+=("\$a") ;;
+  esac
+done
+if [ "\$net" = yes ] && [ -n "\${SHIM_HANG-}" ]; then
+  # A transport that never answers (30s, so a regression fails the timing check rather than
+  # wedging the harness), with a grandchild holding stdout — killing git alone would hang.
+  sleep 30 &
+  exec sleep 31
+fi
+if [ "\$net" = yes ] && [ -n "\${SHIM_LS_FAIL-}" ]; then
+  echo 'remote: Repository not found.' >&2
+  exit 128
+fi
+exec "$REAL_GIT" "\${args[@]}"
+EOF
+  cat >"$W/ghbin/gh" <<'EOF'
+#!/bin/sh
+if [ "$1 $2 $3" = "auth git-credential get" ]; then
+  echo username=x-access-token
+  echo password=shim-token
+  exit 0
+fi
+[ "$1" = auth ] && exit "${SHIM_AUTH_RC:-0}"
+exit 99
+EOF
+  chmod +x "$W/ghbin/git" "$W/ghbin/gh"
+  : >"$W/git.log"
+}
+
+pin() { # pin <repo> <remote> <branch> [grants, default gh-push]
   mkdir -p "$POLICY_DIR"
-  printf '%s\t%s\t%s\t%s\n' "$1" "$2" "$3" "${4:-git-push}" >"$POLICY_DIR/$KEY.conf"
+  printf '%s\t%s\t%s\t%s\n' "$1" "$2" "$3" "${4:-gh-push}" >"$POLICY_DIR/$KEY.conf"
 }
 
 # push [args…] — run the recipe as the bridge would; sets $rc and $out (stdout+stderr).
 push() {
-  out=$(DEVC_BRIDGE_KEY=$KEY DEVC_BRIDGE_POLICY_DIR=$POLICY_DIR "$PUSH" "$@" 2>&1)
+  out=$(PATH=$W/ghbin:$PATH DEVC_BRIDGE_KEY=$KEY DEVC_BRIDGE_POLICY_DIR=$POLICY_DIR "$PUSH" "$@" 2>&1)
   rc=$?
 }
 doctor() { # doctor — as run by hand on the host, where DEVC_BRIDGE_KEY is unset
-  out=$(env -u DEVC_BRIDGE_KEY DEVC_BRIDGE_POLICY_DIR="$POLICY_DIR" "$DOCTOR" 2>&1)
+  out=$(PATH=$W/ghbin:$PATH env -u DEVC_BRIDGE_KEY DEVC_BRIDGE_POLICY_DIR="$POLICY_DIR" "$DOCTOR" 2>&1)
   rc=$?
 }
 
@@ -140,42 +197,42 @@ rm "$POLICY_DIR/$KEY.conf"
 push
 expect_rc 2 "no policy file"
 check "  … and no mirror was created (nothing touched)" test ! -e "$MIRROR"
-G=$'\t'git-push
+G=$'\t'gh-push
 for bad_line in \
-  "$REPO"$'\t'"$REMOTE" \
-  "$REPO"$'\t'"$REMOTE"$'\t'feat \
-  "$REPO"$'\t'"$REMOTE"$'\t'feat"$G"$'\t'x \
+  "$REPO"$'\t'"$GH_PIN" \
+  "$REPO"$'\t'"$GH_PIN"$'\t'feat \
+  "$REPO"$'\t'"$GH_PIN"$'\t'feat"$G"$'\t'x \
   "$REPO"$'\t\t'feat"$G" \
-  "relative/repo"$'\t'"$REMOTE"$'\t'feat"$G" \
+  "relative/repo"$'\t'"$GH_PIN"$'\t'feat"$G" \
   "$REPO"$'\t'"-u/evil"$'\t'feat"$G" \
-  "$REPO"$'\t'"$REMOTE"$'\t'"bad..ref$G" \
-  "$REPO"$'\t'"$REMOTE"$'\t'feat$'\t' \
-  "$REPO"$'\t'"$REMOTE"$'\t'feat$'\t'"GIT PUSH" \
-  "$REPO"$'\t'"$REMOTE"$'\t'feat"$G"$'\n'"$REPO"$'\t'"$REMOTE"$'\t'main"$G"; do
+  "$REPO"$'\t'"$GH_PIN"$'\t'"bad..ref$G" \
+  "$REPO"$'\t'"$GH_PIN"$'\t'feat$'\t' \
+  "$REPO"$'\t'"$GH_PIN"$'\t'feat$'\t'"GIT PUSH" \
+  "$REPO"$'\t'"$GH_PIN"$'\t'feat"$G"$'\n'"$REPO"$'\t'"$GH_PIN"$'\t'main"$G"; do
   printf '%s\n' "$bad_line" >"$POLICY_DIR/$KEY.conf"
   push
   expect_rc 2 "malformed policy: $(printf '%s' "$bad_line" | sed "s|$W|W|g" | tr '\t\n' '|/')"
 done
 check "  … and the remote never moved" test "$(remote_ref refs/heads/feat)" = none
 fresh
-pin "$REPO" "$REMOTE" feat pr-review,pr-resolve
+pin "$REPO" "$GH_PIN" feat gh-pr-review,gh-pr-resolve
 push
-expect_rc 2 "a policy that does not grant git-push"
-check "  … says so" has "this container was not granted git-push"
+expect_rc 2 "a policy that does not grant gh-push"
+check "  … says so" has "this container was not granted gh-push"
 check "  … and nothing was touched" test ! -e "$MIRROR"
-pin "$REPO" "$REMOTE" feat git-push,pr-review
+pin "$REPO" "$GH_PIN" feat gh-push,gh-pr-review
 push
-expect_rc 0 "git-push among other grants"
+expect_rc 0 "gh-push among other grants"
 fresh
 push extra
 expect_rc 2 "an argument is rejected, not ignored"
 push --force
 expect_rc 2 "a flag-shaped argument is rejected"
 check "  … and nothing was pushed" test "$(remote_ref refs/heads/feat)" = none
-out=$(DEVC_BRIDGE_KEY='' DEVC_BRIDGE_POLICY_DIR=$POLICY_DIR "$PUSH" 2>&1)
+out=$(PATH=$W/ghbin:$PATH DEVC_BRIDGE_KEY='' DEVC_BRIDGE_POLICY_DIR=$POLICY_DIR "$PUSH" 2>&1)
 rc=$?
 expect_rc 2 "the shared legacy token (empty key) cannot push"
-out=$(DEVC_BRIDGE_KEY=../ws-1 DEVC_BRIDGE_POLICY_DIR=$POLICY_DIR "$PUSH" 2>&1)
+out=$(PATH=$W/ghbin:$PATH DEVC_BRIDGE_KEY=../ws-1 DEVC_BRIDGE_POLICY_DIR=$POLICY_DIR "$PUSH" 2>&1)
 rc=$?
 expect_rc 2 "a key with a path separator is refused"
 
@@ -214,7 +271,7 @@ check "  … feat is the pinned branch's commit, not the checkout's" \
 echo "a tag cannot be produced"
 fresh
 git -C "$REPO" branch refs/tags/v1 feat 2>/dev/null || git -C "$REPO" update-ref refs/heads/refs/tags/v1 feat
-pin "$REPO" "$REMOTE" refs/tags/v1
+pin "$REPO" "$GH_PIN" refs/tags/v1
 push
 check "  a branch named like a tag lands under refs/heads/" \
   test "$(git --git-dir="$REMOTE" for-each-ref --format='%(refname)' refs/tags | wc -l | tr -d ' ')" = 0
@@ -260,14 +317,14 @@ for a in "\$@"; do
   if [ "\$a" = push ]; then
     echo raced >"$REPO/raced.txt"
     "$REAL_GIT" -C "$REPO" add raced.txt >/dev/null 2>&1
-    "$REAL_GIT" -C "$REPO" commit -q -m raced >/dev/null 2>&1
+    "$REAL_GIT" -C "$REPO" -c user.name=racer -c user.email=racer@example.invalid commit -q -m raced >/dev/null 2>&1
     break
   fi
 done
-exec "$REAL_GIT" "\$@"
+exec "$W/ghbin/git" "\$@"
 EOF
 chmod +x "$W/shim/git"
-out=$(PATH=$W/shim:$PATH DEVC_BRIDGE_KEY=$KEY DEVC_BRIDGE_POLICY_DIR=$POLICY_DIR "$PUSH" 2>&1)
+out=$(PATH=$W/shim:$W/ghbin:$PATH DEVC_BRIDGE_KEY=$KEY DEVC_BRIDGE_POLICY_DIR=$POLICY_DIR "$PUSH" 2>&1)
 rc=$?
 expect_rc 0 "push while the branch moves underneath"
 check "  … the branch really did move" test "$(repo_ref feat)" != "$inspected"
@@ -283,24 +340,24 @@ push
 expect_rc 0 "deleting the mirror and re-running"
 check "  … published the new commit" test "$(remote_ref refs/heads/feat)" = "$(repo_ref feat)"
 git init -q --bare "$W/other.git"
-pin "$REPO" "$W/other.git" feat
+pin "$REPO" "git@github.com:acme/other.git" feat
 push
 expect_rc 2 "policy remote differs from the mirror's origin"
 check "  … nothing reached the other remote" test -z "$(git --git-dir="$W/other.git" for-each-ref)"
-pin "$REPO" "$REMOTE" feat
-git --git-dir="$MIRROR" config remote.origin.url "$W/other.git"
+pin "$REPO" "$GH_PIN" feat
+git --git-dir="$MIRROR" config remote.origin.url "git@github.com:acme/other.git"
 push
 expect_rc 2 "mirror origin rewritten under the policy"
 
 echo "the pinned repo"
 fresh
-pin "$REPO" "$REMOTE" nosuch
+pin "$REPO" "$GH_PIN" nosuch
 push
 expect_rc 2 "a branch the repo does not have"
-pin "$W/nowhere" "$REMOTE" feat
+pin "$W/nowhere" "$GH_PIN" feat
 push
 expect_rc 2 "a repo path that does not exist"
-pin "$REPO" "$REMOTE" feat
+pin "$REPO" "$GH_PIN" feat
 echo ../../other/.git >"$REPO/.git/commondir"
 push
 expect_rc 2 "a primary repo with a planted commondir"
@@ -313,7 +370,7 @@ WT=$W/repo.worktrees/wt
 echo wt >"$WT/wt.txt"
 git -C "$WT" add wt.txt
 git -C "$WT" commit -q -m wt
-pin "$WT" "$REMOTE" wt
+pin "$WT" "$GH_PIN" wt
 push
 expect_rc 0 "a linked worktree publishes"
 check "  … at the worktree's commit" test "$(remote_ref refs/heads/wt)" = "$(git -C "$WT" rev-parse wt)"
@@ -337,7 +394,7 @@ push
 expect_rc 2 "a worktree whose commondir was redirected"
 echo ../.. >"$wtdir/commondir"
 
-echo "git-doctor"
+echo "gh-doctor"
 doctor
 expect_rc 0 "a healthy policy"
 check "  … names the pin" has "wt"
@@ -346,57 +403,80 @@ doctor
 expect_rc 1 "a repointed worktree pointer"
 check "  … is reported" has "REPOINTED"
 printf '%s\n' "$saved" >"$WT/.git"
-pin "$REPO" "$REMOTE" feat
+pin "$REPO" "$GH_PIN" feat
 git -C "$REPO" worktree add -q -b wt2 "$W/repo.worktrees/wt2"
 echo "gitdir: $W/secret/.git" >"$W/repo.worktrees/wt2/.git"
 doctor
 expect_rc 1 "a repointed sibling under <repo>.worktrees/"
 check "  … is reported" has "repo.worktrees/wt2"
-out=$(DEVC_BRIDGE_KEY=$KEY DEVC_BRIDGE_POLICY_DIR=$POLICY_DIR "$DOCTOR" other-key 2>&1)
+out=$(PATH=$W/ghbin:$PATH DEVC_BRIDGE_KEY=$KEY DEVC_BRIDGE_POLICY_DIR=$POLICY_DIR "$DOCTOR" other-key 2>&1)
 rc=$?
 expect_rc 2 "through the bridge, another key's report is refused"
-pin "$REPO" "$REMOTE" feat git-push,pr-review
+pin "$REPO" "$GH_PIN" feat gh-push,gh-pr-review
 doctor
-check "the policy line shows the grants" has "policy    git-push, pr-review for feat → "
-pin "$REPO" "$REMOTE" feat pr-review
-out=$(DEVC_BRIDGE_KEY=$KEY DEVC_BRIDGE_POLICY_DIR=$POLICY_DIR "$DOCTOR" 2>&1)
+check "the policy line shows the grants" has "policy    gh-push, gh-pr-review for feat → "
+pin "$REPO" "$GH_PIN" feat gh-pr-review
+out=$(PATH=$W/ghbin:$PATH DEVC_BRIDGE_KEY=$KEY DEVC_BRIDGE_POLICY_DIR=$POLICY_DIR "$DOCTOR" 2>&1)
 rc=$?
-expect_rc 2 "through the bridge, a container not granted git-push is refused"
-check "  … says so" has "this container was not granted git-push"
-printf '%s\t%s\t%s\n' "$REPO" "$REMOTE" feat >"$POLICY_DIR/$KEY.conf"
+expect_rc 2 "through the bridge, a container not granted gh-push is refused"
+check "  … says so" has "this container was not granted gh-push"
+printf '%s\t%s\t%s\n' "$REPO" "$GH_PIN" feat >"$POLICY_DIR/$KEY.conf"
 doctor
 expect_rc 1 "a three-field (pre-grants) policy"
 check "  … is reported MALFORMED" has "MALFORMED"
 
-echo "git-doctor transport"
+echo "GitHub only"
+for remote in "$REMOTE" "file://$REMOTE" "ssh://git@gitlab.com/acme/widget.git" \
+  "git@gitlab.com:acme/widget.git" "https://github.com/acme"; do
+  fresh
+  pin "$REPO" "$remote" feat
+  push
+  expect_rc 2 "gh-push on a ${remote/#$W/W} pin"
+  check "  … says so" has "gh-push: unsupported remote $remote — only github.com"
+  check "  … and nothing was touched" test ! -e "$MIRROR"
+  check "  … and no network git ran" bash -c '! grep -qE " (init|ls-remote|fetch|push) " "$1"' _ "$W/git.log"
+  doctor
+  expect_rc 1 "gh-doctor on that pin"
+  check "  … reports it" has "transport FAILED: unsupported remote $remote — only github.com"
+done
+
+echo "parse_remote: devc-core's shape table, against every script's copy"
+# The rows of GITHUB_REMOTE_SHAPES in devc-core/tests/bridge_test.ts, one `['<url>', <bool>],` per
+# line — the one table devc's grant-time check (isGitHubRemote) is tested against.
+shapes=$(sed -nE "/^const GITHUB_REMOTE_SHAPES/,/^];/s/^  \['(.*)', (true|false)\],\$/\1|\2/p" \
+  "$here/../../devc-core/tests/bridge_test.ts")
+check "the table has rows" test "$(printf '%s\n' "$shapes" | grep -c .)" -ge 10
+for script in "$here"/../builtin/gh-*; do
+  fns=$(sed -n '/^parse_remote() {/,/^}/p; /^valid_name() {/,/^}/p' "$script")
+  mismatches=$(
+    eval "$fns"
+    while IFS="|" read -r url want; do
+      if parse_remote "$url"; then got=true; else got=false; fi
+      [ "$got" = "$want" ] || printf '%s ' "$url: want $want, got $got;"
+    done <<<"$shapes"
+  )
+  check "${script##*/} accepts exactly the table's GitHub remotes${mismatches:+ — $mismatches}" \
+    test -z "$mismatches"
+done
+
+echo "gh-doctor transport"
 fresh
 doctor
 expect_rc 0 "a reachable remote"
-check "  … says transport ok" has "transport ok (git ls-remote reached $REMOTE non-interactively)"
-out=$(env -u DEVC_BRIDGE_KEY -u SSH_AUTH_SOCK DEVC_BRIDGE_POLICY_DIR="$POLICY_DIR" "$DOCTOR" 2>&1)
+check "  … probes via gh" has "transport ok (git ls-remote reached $GH_URL via gh credentials)"
+check "  … has no ssh agent section" bash -c '! grep -q "ssh agent:" <<<"$1"' _ "$out"
+out=$(SHIM_LS_FAIL=1 PATH=$W/ghbin:$PATH env -u DEVC_BRIDGE_KEY DEVC_BRIDGE_POLICY_DIR="$POLICY_DIR" "$DOCTOR" 2>&1)
 rc=$?
-expect_rc 0 "no ssh agent is not a finding"
-mkdir -p "$W/shim"
-cat >"$W/shim/ssh" <<'EOF'
-#!/bin/sh
-echo 'git@git.example.invalid: Permission denied (publickey).' >&2
-exit 255
-EOF
-chmod +x "$W/shim/ssh"
-pin "$REPO" "ssh://git.example.invalid/x.git" feat
-out=$(PATH=$W/shim:$PATH env -u DEVC_BRIDGE_KEY DEVC_BRIDGE_POLICY_DIR="$POLICY_DIR" "$DOCTOR" 2>&1)
+expect_rc 1 "a remote that refuses"
+check "  … is reported FAILED" has "transport FAILED: git ls-remote exited 128: remote: Repository not found."
+check "  … points at gh auth" has "GitHub remotes use gh's credentials over HTTPS"
+check "  … never mentions SSH" bash -c '! grep -qiE "ssh|BatchMode" <<<"$1"' _ "$out"
+out=$(SHIM_AUTH_RC=1 PATH=$W/ghbin:$PATH env -u DEVC_BRIDGE_KEY DEVC_BRIDGE_POLICY_DIR="$POLICY_DIR" "$DOCTOR" 2>&1)
 rc=$?
-expect_rc 1 "an SSH remote that refuses the key"
-check "  … is reported FAILED" has "transport FAILED: git ls-remote exited "
-check "  … quotes the transport's error" has "Permission denied (publickey)."
-check "  … explains BatchMode" has "BatchMode=yes"
-cat >"$W/shim/ssh" <<'EOF'
-#!/bin/sh
-sleep 30 &
-exec sleep 31
-EOF
+expect_rc 1 "gh-doctor with gh not logged in"
+check "  … says so" has "transport FAILED: gh is not authenticated for github.com"
 start=$(date +%s)
-out=$(PATH=$W/shim:$PATH DEVC_BRIDGE_GIT_TIMEOUT=2 env -u DEVC_BRIDGE_KEY \
+out=$(SHIM_HANG=1 PATH=$W/ghbin:$PATH DEVC_BRIDGE_GIT_TIMEOUT=2 env -u DEVC_BRIDGE_KEY \
   DEVC_BRIDGE_POLICY_DIR="$POLICY_DIR" "$DOCTOR" 2>&1)
 rc=$?
 took=$(($(date +%s) - start))
@@ -408,50 +488,17 @@ check "  … leaves no process behind" test -z "$(pgrep -f 'sleep 3[01]$' || tru
 
 echo "GitHub transport (gh's credential over HTTPS)"
 fresh
-GH_URL=https://github.com/acme/widget.git
-mkdir -p "$W/ghbin"
-# git: log every call with the config-isolation env, then run the real git with the GitHub URL
-# pointed at the local bare remote — the only way to exercise this path offline.
-cat >"$W/ghbin/git" <<EOF
-#!/usr/bin/env bash
-{
-  printf 'GIT_CONFIG_GLOBAL=%s GIT_CONFIG_NOSYSTEM=%s ' "\${GIT_CONFIG_GLOBAL-}" "\${GIT_CONFIG_NOSYSTEM-}"
-  printf '%s ' "\$@"
-  echo
-} >>"$W/git.log"
-args=()
-for a in "\$@"; do
-  if [ "\$a" = "$GH_URL" ]; then args+=("$REMOTE"); else args+=("\$a"); fi
-done
-exec "$REAL_GIT" "\${args[@]}"
-EOF
-cat >"$W/ghbin/gh" <<'EOF'
-#!/bin/sh
-if [ "$1 $2 $3" = "auth git-credential get" ]; then
-  echo username=x-access-token
-  echo password=shim-token
-  exit 0
-fi
-[ "$1" = auth ] && exit "${SHIM_AUTH_RC:-0}"
-exit 99
-EOF
-chmod +x "$W/ghbin/git" "$W/ghbin/gh"
 # The file transport never asks for a credential, so prove the helper string itself works: git must
 # run it through the shell and read gh's answer.
 cred=$(printf 'protocol=https\nhost=github.com\n\n' | GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 \
   "$REAL_GIT" -c credential.helper= -c "credential.helper=!'$W/ghbin/gh' auth git-credential" \
   credential fill 2>&1)
 check "the gh credential helper string answers git" test "${cred#*password=}" != "$cred"
-pin "$REPO" "git@github.com:acme/widget.git" feat
-ghpush() {
-  out=$(PATH=$W/ghbin:$PATH DEVC_BRIDGE_KEY=$KEY DEVC_BRIDGE_POLICY_DIR=$POLICY_DIR "$PUSH" 2>&1)
-  rc=$?
-}
 # The logged ls-remote/fetch/push subcommands, minus the one fetch *from the agent's repo*.
 net_calls() { grep -E ' (ls-remote|fetch|push) ' "$W/git.log" | grep -vF -e "-- $REPO " || true; }
-ghpush
+push
 expect_rc 0 "a GitHub remote pushes"
-check "  … names the policy remote" has "pushed: feat at $(repo_ref feat | cut -c1-12) to git@github.com:acme/widget.git"
+check "  … names the policy remote" has "pushed: feat at $(repo_ref feat | cut -c1-12) to $GH_PIN"
 check "  … the remote has the commit" test "$(remote_ref refs/heads/feat)" = "$(repo_ref feat)"
 check "  … three network calls" test "$(net_calls | wc -l)" -eq 3
 check "  … all to the HTTPS URL" test -z "$(net_calls | grep -v " -- $GH_URL " || true)"
@@ -461,8 +508,8 @@ check "  … all without user or system git config" \
   test -z "$(net_calls | grep -v '^GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 ' || true)"
 check "  … never over SSH" test -z "$(grep -F 'git@github.com:' "$W/git.log" | grep -v 'config remote.origin.url' || true)"
 check "  … the mirror keeps the policy remote" \
-  test "$(git config --file "$MIRROR/config" remote.origin.url)" = "git@github.com:acme/widget.git"
-ghpush
+  test "$(git config --file "$MIRROR/config" remote.origin.url)" = "$GH_PIN"
+push
 expect_rc 0 "a second push"
 check "  … is up to date" has "up to date: feat is already"
 commit_file more.txt more
@@ -470,46 +517,22 @@ commit_file more.txt more
 out=$(SHIM_AUTH_RC=1 PATH=$W/ghbin:$PATH DEVC_BRIDGE_KEY=$KEY DEVC_BRIDGE_POLICY_DIR=$POLICY_DIR "$PUSH" 2>&1)
 rc=$?
 expect_rc 4 "gh not logged in"
-check "  … says what to do" has "gh is not authenticated in the bridge's environment — run gh auth login on the host"
+check "  … says what to do" has "gh-push: gh is not authenticated in the bridge's environment — run gh auth login on the host"
 check "  … makes no network call" test -z "$(net_calls || true)"
 if command -v -p gh >/dev/null 2>&1 || [ -x /usr/bin/gh ] || [ -x /bin/gh ]; then
   ok "gh not installed — skipped, a real gh is on /usr/bin:/bin"
 else
   rm "$W/ghbin/gh"
-  ghpush
+  push
   expect_rc 4 "gh not installed"
   check "  … says so" has "gh is not installed on the host"
-  cat >"$W/ghbin/gh" <<'EOF'
-#!/bin/sh
-[ "$1" = auth ] && exit "${SHIM_AUTH_RC:-0}"
-exit 99
-EOF
-  chmod +x "$W/ghbin/gh"
+  shims
 fi
-out=$(PATH=$W/ghbin:$PATH env -u DEVC_BRIDGE_KEY DEVC_BRIDGE_POLICY_DIR="$POLICY_DIR" "$DOCTOR" 2>&1)
-rc=$?
-expect_rc 0 "git-doctor on a GitHub remote"
-check "  … probes via gh" has "transport ok (git ls-remote reached $GH_URL via gh credentials)"
-check "  … has no ssh agent section" bash -c '! grep -q "ssh agent:" <<<"$1"' _ "$out"
-out=$(SHIM_AUTH_RC=1 PATH=$W/ghbin:$PATH env -u DEVC_BRIDGE_KEY DEVC_BRIDGE_POLICY_DIR="$POLICY_DIR" "$DOCTOR" 2>&1)
-rc=$?
-expect_rc 1 "git-doctor with gh not logged in"
-check "  … says so" has "transport FAILED: gh is not authenticated for github.com"
 
 echo "hang-proofing"
 fresh
-mkdir -p "$W/shim"
-cat >"$W/shim/ssh" <<'EOF'
-#!/bin/sh
-# A transport that never answers, with a grandchild holding stdout — killing git alone would hang
-# (for 30s, so that a regression fails the timing check below rather than wedging the harness).
-sleep 30 &
-exec sleep 31
-EOF
-chmod +x "$W/shim/ssh"
-pin "$REPO" "ssh://git.example.invalid/x.git" feat
 start=$(date +%s)
-out=$(PATH=$W/shim:$PATH DEVC_BRIDGE_GIT_TIMEOUT=2 DEVC_BRIDGE_KEY=$KEY \
+out=$(SHIM_HANG=1 PATH=$W/ghbin:$PATH DEVC_BRIDGE_GIT_TIMEOUT=2 DEVC_BRIDGE_KEY=$KEY \
   DEVC_BRIDGE_POLICY_DIR=$POLICY_DIR "$PUSH" 2>&1)
 rc=$?
 took=$(($(date +%s) - start))

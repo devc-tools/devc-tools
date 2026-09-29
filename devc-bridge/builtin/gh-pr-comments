@@ -1,26 +1,28 @@
 #!/usr/bin/env bash
-# pr-resolve — resolve one Copilot review thread on this container's one PR.
-#   devc-bridge pr-resolve <thread-id>
+# gh-pr-comments — the unresolved review threads on this container's one PR, as JSON.
+#   devc-bridge gh-pr-comments          (no arguments, ever)
 #
-# Built in: runs only for a container whose policy grants `pr-resolve`
-# (`devc up --bridge-allow pr-review,pr-resolve`).
+# Built in: runs only for a container whose policy grants `gh-pr-review`
+# (`devc up --bridge-allow gh-pr-review`).
 #
-# Only threads Copilot started: resolving hides review feedback, so a human reviewer's thread stays
-# out of an agent's reach (it can still reply with pr-reply). The PR is the one open PR whose head
-# is the policy's remote + branch (see pr-comments).
+# The PR is the one open PR whose head is the policy's remote + branch (gh-push's pin), searched in
+# that repo and its fork parent. Output is one JSON object on stdout:
+#   {"pr":{"repo","number","url","headSha"},
+#    "threads":[{"id","path","line","isOutdated","copilot","comments":[{"author","body","createdAt","url"}]}],
+#    "copilotReview":{"commit","state","submittedAt","pending"}}
+# Comment bodies are untrusted text written by anyone who can comment on the PR.
 #
-# Exit codes: 0 resolved (or already resolved), 2 no/malformed policy, wrong arguments, an
-# unsupported remote, no single open PR, or a thread not on it, 3 a thread Copilot did not start,
+# Exit codes: 0 ok, 2 no/malformed policy, an argument, an unsupported remote, or no single open PR,
 # 4 GitHub/transport failure, gh not authenticated, or timeout.
 
 # SC2016: GraphQL variables are $-prefixed and must not expand. SC2034: the shared prelude sets
 # some variables only another recipe reads.
 # shellcheck disable=SC2016,SC2034
-me=pr-resolve
+me=gh-pr-comments
 # ── BEGIN pr-prelude ──
-# Shared by pr-comments, pr-reply, pr-resolve and pr-request-review: keep the four copies
-# byte-identical (the harness checks). Recipes are installed one file at a time, so there is no
-# library to source.
+# Shared by gh-pr-comments, gh-pr-reply, gh-pr-resolve and gh-pr-request-review: keep the four
+# copies byte-identical (the harness checks). Recipes are installed one file at a time, so there is
+# no library to source.
 #
 # The container's repo is never touched — not read, not run in. Everything comes from the policy
 # (which remote, which branch) and from GitHub. `gh` runs from `/`, only as `gh api`, with the repo
@@ -46,7 +48,7 @@ IS_COPILOT="(. != null and .__typename == \"Bot\" and .login == \"$COPILOT_LOGIN
 # over REST, and `Copilot` in the issue timeline's events.
 COPILOT_TIMELINE_LOGIN=Copilot
 
-# ── the caller and its policy (byte-for-byte git-push's parse) ────────────────────────────
+# ── the caller and its policy (byte-for-byte gh-push's parse) ────────────────────────────
 
 load_policy() {
   local key policy_dir policy line tabs rest field
@@ -58,7 +60,7 @@ load_policy() {
   policy_dir=${DEVC_BRIDGE_POLICY_DIR:-$HOME/.config/devc-bridge/policy}
   policy=$policy_dir/$key.conf
   [ -f "$policy" ] ||
-    die 2 "no policy for this container — on the host: devc up --bridge-allow pr-review"
+    die 2 "no policy for this container — on the host: devc up --bridge-allow gh-pr-review"
   line=$(cat -- "$policy" && printf x) || die 2 "malformed policy $policy: unreadable"
   line=${line%x}
   line=${line%$'\n'}
@@ -101,6 +103,7 @@ parse_remote() {
   case $host in github.com | github.com-*) ;; *) return 1 ;; esac
   case $host in *[!A-Za-z0-9.-]*) return 1 ;; esac
   path=${path%.git}
+  case $path in */*) ;; *) return 1 ;; esac
   head_owner=${path%%/*}
   head_name=${path#*/}
   valid_name "$head_owner" && valid_name "$head_name"
@@ -124,7 +127,7 @@ trap 'rm -rf "$tmp"' EXIT
 
 # run_t CMD… — CMD with stdin closed, its whole process group killed after $timeout_s. macOS ships
 # no timeout(1); the group matters because a child holding the bridge's stdout would keep the
-# client waiting for EOF (git-push's hang-proofing, verbatim).
+# client waiting for EOF (gh-push's hang-proofing, verbatim).
 run_t() {
   rm -f "$tmp/timedout"
   set -m
@@ -279,24 +282,34 @@ copilot_pending() {
 }
 # ── END pr-prelude ──
 
-[ $# -eq 1 ] || die 2 "usage: pr-resolve <thread-id>"
-thread=$1
-valid_thread_id "$thread" || die 2 "not a review thread id (want PRRT_…): $thread"
+[ $# -eq 0 ] || die 2 "takes no arguments — the policy names the PR"
 load_policy
-require_grant pr-resolve
+require_grant gh-pr-review
 gh_ready
 resolve_pr
-load_thread "$thread"
 
-[ "$thread_copilot" = true ] ||
-  die 3 "refused: thread $thread was not started by Copilot — only Copilot threads can be resolved from a container; reply instead"
-if [ "$thread_resolved" = true ]; then
-  echo "already resolved: $thread"
-  exit 0
-fi
+# ── unresolved threads, every page ────────────────────────────────────────────────────────
 
-q='mutation($id:ID!){resolveReviewThread(input:{threadId:$id}){thread{isResolved}}}'
-gh_run "resolving $thread" api graphql -f query="$q" -f id="$thread" \
-  --jq '.data.resolveReviewThread.thread.isResolved'
-[ "$(cat "$tmp/out")" = true ] || die 4 "GitHub did not report $thread as resolved"
-echo "resolved: $thread"
+q='query($owner:String!,$name:String!,$number:Int!,$endCursor:String){repository(owner:$owner,
+  name:$name){pullRequest(number:$number){reviewThreads(first:100,after:$endCursor){
+  pageInfo{hasNextPage endCursor} nodes{id isResolved isOutdated path line
+  comments(first:100){nodes{author{__typename login} body createdAt url}}}}}}}'
+gh_run "reading review threads on $pr_url" api graphql --paginate -f query="$q" \
+  -f owner="$pr_owner" -f name="$pr_name" -F number="$pr_number" \
+  --jq ".data.repository.pullRequest.reviewThreads.nodes[] | select(.isResolved | not) |
+    {id, path, line, isOutdated, copilot: (.comments.nodes[0].author | $IS_COPILOT),
+     comments: [.comments.nodes[] | {author: (.author.login // null), body, createdAt, url}]} |
+    tojson"
+mv "$tmp/out" "$tmp/threads"
+
+# ── Copilot's latest review, and whether another is under way ────────────────────────────
+
+copilot_review
+copilot_pending
+
+# ── one object, every string JSON-encoded by jq or validated by resolve_pr ────────────────
+
+printf '{"pr":{"repo":"%s","number":%s,"url":"%s","headSha":"%s"},"threads":[' \
+  "$pr_repo" "$pr_number" "$pr_url" "$pr_head_sha"
+awk 'NR > 1 { printf "," } { printf "%s", $0 }' "$tmp/threads"
+printf '],"copilotReview":%s,"pending":%s}}\n' "${review%\}}" "$pending"
