@@ -28,6 +28,15 @@
   and make push GitHub-only, refused at grant time and in the script. Old names are
   a hard error, with no aliases.
 
+- [bridge-copilot-review-gaps](bridge-copilot-review-gaps.md) — fixes from a live
+  `copilot-pr-reviewing` run that called a PR clean when Copilot's findings were only in
+  its review body. `gh-pr-comments` gains `copilotReview.body`, and all of `copilotReview`
+  comes from the issue timeline, so `pending` and `commit` can no longer disagree. Host
+  grant refusals exit 2 for a malformed or unreadable policy, name the problem, and never
+  suggest a lossy one-capability `--bridge-allow`. The guide documents the reply/resolve
+  output lines. The skill triages body findings, checks for an open PR in preflight, and
+  expects `pending:` on review-on-push repos. **Runs after bridge-gh-capabilities.**
+
 ### Standing rules for Feature work
 
 Not a plan group — these are the conventions every Feature plan in this file
@@ -1868,3 +1877,4 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
 | `@devc-tools/core` version bump script — keeps the consumer deno.lock files in step                         | [core-version-bump-script](archived/core-version-bump-script.md)                   | complete |
 | devc-bridge `pr-request-review` — ask Copilot to re-review the current head                                 | [bridge-pr-request-review](archived/bridge-pr-request-review.md)                   | complete |
 | devc-bridge `gh-*` capability and command names, `--bridge-allow gh`, GitHub-only push                      | [bridge-gh-capabilities](bridge-gh-capabilities.md)                                |          |
+| devc-bridge Copilot review-loop gaps — review body, timeline-sourced `pending`, policy refusal exit codes   | [bridge-copilot-review-gaps](bridge-copilot-review-gaps.md)                        |          |
