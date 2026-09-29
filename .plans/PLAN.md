@@ -21,6 +21,13 @@
   The per-ping lease model is documented as a follow-on and deliberately **not**
   built until the data exists.
 
+- [bridge-gh-capabilities](bridge-gh-capabilities.md) — rename every devc-bridge
+  capability and built-in command to `gh-*` (`gh-push`, `gh-doctor`, `gh-pr-comments`,
+  `gh-pr-reply`, `gh-pr-resolve`, `gh-pr-request-review`), add `--bridge-allow gh` /
+  `'gh-*'` for all of them (expanded by devc into the explicit list the policy stores),
+  and make push GitHub-only, refused at grant time and in the script. Old names are
+  a hard error, with no aliases.
+
 ### Standing rules for Feature work
 
 Not a plan group — these are the conventions every Feature plan in this file
@@ -1860,3 +1867,4 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
 | devc-bridge `git-push` over HTTPS with gh's credential — one host setup                                     | [devc-bridge-push-via-gh](archived/devc-bridge-push-via-gh.md)                     | complete |
 | `@devc-tools/core` version bump script — keeps the consumer deno.lock files in step                         | [core-version-bump-script](archived/core-version-bump-script.md)                   | complete |
 | devc-bridge `pr-request-review` — ask Copilot to re-review the current head                                 | [bridge-pr-request-review](archived/bridge-pr-request-review.md)                   | complete |
+| devc-bridge `gh-*` capability and command names, `--bridge-allow gh`, GitHub-only push                      | [bridge-gh-capabilities](bridge-gh-capabilities.md)                                |          |
