@@ -55,6 +55,7 @@ export const BRIDGE_CAPABILITIES = [
   'git-push',
   'pr-review',
   'pr-resolve',
+  'pr-request-review',
 ] as const;
 
 /** One of {@link BRIDGE_CAPABILITIES}. */
@@ -67,12 +68,16 @@ export const BRIDGE_CAPABILITY_COMMANDS: Readonly<
   'git-push': ['git-push', 'git-doctor'],
   'pr-review': ['pr-comments', 'pr-reply'],
   'pr-resolve': ['pr-resolve'],
+  'pr-request-review': ['pr-request-review'],
 };
 
-/** Capabilities that are only granted alongside another — `pr-resolve` acts on `pr-comments`' ids. */
+/**
+ * Capabilities that are only granted alongside another — `pr-resolve` acts on `pr-comments`' ids,
+ * and `pr-request-review` asks for a review whose threads only `pr-review` can read.
+ */
 export const BRIDGE_CAPABILITY_REQUIRES: Readonly<
   Partial<Record<BridgeCapability, BridgeCapability>>
-> = { 'pr-resolve': 'pr-review' };
+> = { 'pr-resolve': 'pr-review', 'pr-request-review': 'pr-review' };
 
 /** The capability that enables built-in command `name`, or null when `name` is not a built-in. */
 export function capabilityForCommand(name: string): BridgeCapability | null {

@@ -151,8 +151,8 @@ export function isBridgeAllowArg(arg: string): boolean {
 
 /**
  * Validate a `--bridge-allow` value: comma-separated, entries trimmed, empties dropped, every name
- * known, `pr-resolve` only with `pr-review`; returned deduplicated in canonical order. Throws with
- * the user-facing message.
+ * known, `pr-resolve` and `pr-request-review` only with `pr-review`; returned deduplicated in
+ * canonical order. Throws with the user-facing message.
  */
 export function parseBridgeAllow(value: string): BridgeCapability[] {
   const valid = BRIDGE_CAPABILITIES.join(', ');

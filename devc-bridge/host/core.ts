@@ -234,7 +234,9 @@ async function grantRefusal(
     return `${name} needs a per-container token — the shared token has no capabilities`;
   }
   const hint = `on the host: devc up --bridge-allow ${
-    capability === 'pr-resolve' ? suggestGrants([], capability) : capability
+    BRIDGE_CAPABILITY_REQUIRES[capability] !== undefined
+      ? suggestGrants([], capability)
+      : capability
   }`;
   let text: string;
   try {

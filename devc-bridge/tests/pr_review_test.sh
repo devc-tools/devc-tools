@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Offline harness for the pr-comments, pr-reply and pr-resolve built-ins. A `gh` shim first on PATH
-# stands in for GitHub: it logs every call (cwd and argv, one line each) and answers from fixture
-# files this script writes per case, applying `--jq` with the real `jq` — so the harness needs `jq`,
+# Offline harness for the pr-comments, pr-reply, pr-resolve and pr-request-review built-ins. A `gh`
+# shim first on PATH stands in for GitHub: it logs every call (cwd and argv, one line each) and
+# answers from fixture files this script writes per case, applying `--jq` with the real `jq` — so the harness needs `jq`,
 # the scripts do not. Runs the scripts directly with the environment the bridge would give them
 # (DEVC_BRIDGE_KEY, DEVC_BRIDGE_POLICY_DIR) and a throwaway $HOME.
 #
@@ -42,6 +42,7 @@ cat >"$root/bin/gh" <<'SHIM'
 #!/usr/bin/env bash
 # Log, then answer from $SHIM/fixtures. SHIM_AUTH_RC fails `auth status`; SHIM_SLEEP hangs with a
 # grandchild holding stdout; SHIM_FAIL (a substring of the path or query) answers with an error.
+# Every `-X POST` is also logged to posts.log (path and its -f fields, one line).
 {
   printf 'cwd=%s ' "$PWD"
   printf '%q ' "$@"
@@ -57,16 +58,18 @@ if [ "$1" = auth ]; then exit "${SHIM_AUTH_RC:-0}"; fi
   exit 99
 }
 shift
-jqf='' path='' query='' owner='' name='' id='' body=''
+jqf='' path='' query='' owner='' name='' id='' body='' method=GET fields=''
 while [ $# -gt 0 ]; do
   case $1 in
     --jq) jqf=$2 && shift 2 ;;
     --paginate) shift ;;
+    -X) method=$2 && shift 2 ;;
     -f | -F)
       k=${2%%=*} v=${2#*=}
       case $k in
         query) query=$v ;; owner) owner=$v ;; name) name=$v ;; id) id=$v ;; body) body=$v ;;
       esac
+      fields+=" $2"
       shift 2
       ;;
     -*) echo "shim: unknown flag $1" >&2 && exit 99 ;;
@@ -74,6 +77,7 @@ while [ $# -gt 0 ]; do
   esac
 done
 [ -z "$query" ] || printf '%s\n----\n' "$query" >>"$SHIM/queries.log"
+[ "$method" = GET ] || printf '%s %s%s\n' "$method" "$path" "$fields" >>"$SHIM/posts.log"
 if [ -n "${SHIM_FAIL:-}" ]; then
   case "$path $query" in *"$SHIM_FAIL"*) echo "HTTP 502: Bad Gateway" >&2 && exit 1 ;; esac
 fi
@@ -103,9 +107,18 @@ if [ "$path" = graphql ]; then
       files=("$F/node-$id.json")
       ;;
   esac
-else
+elif [ "$method" = POST ]; then
   case $path in
-    repos/*/*/pulls/*/requested_reviewers) files=("$F/requested.json") ;;
+    repos/*/*/pulls/*/requested_reviewers) files=("$F/request.json") ;;
+  esac
+elif [ "$method" = GET ]; then
+  case $path in
+    repos/*/*/issues/*/timeline)
+      # timeline.json is page 1, timeline-2.json (if any) page 2: --jq runs per page, as in gh.
+      files=("$F/timeline.json")
+      [ ! -f "$F/timeline-2.json" ] || files+=("$F/timeline-2.json")
+      ;;
+    repos/*/*/*) ;;
     repos/*/*) r=${path#repos/} && files=("$F/repo-${r%%/*}-${r#*/}.json") ;;
   esac
 fi
@@ -190,9 +203,21 @@ reviews_fx() { # reviews_fx [<copilot|human> <commit n> <state>]…
     >"$FX/reviews.json"
 }
 
-requested_fx() { # requested_fx [bot login]…
-  printf '%s\n' "$@" | jq -R 'select(. != "") | {login: ., type: "Bot"}' |
-    jq -s '{users: ., teams: []}' >"$FX/requested.json"
+timeline_ev() { # timeline_ev <copilot|human>-<requested|reviewed> | commit | team — one event
+  case $1 in
+    copilot-requested) echo '{"event":"review_requested","requested_reviewer":{"login":"Copilot"}}' ;;
+    human-requested) echo '{"event":"review_requested","requested_reviewer":{"login":"alice"}}' ;;
+    copilot-reviewed) echo '{"event":"reviewed","state":"commented","user":{"login":"Copilot"}}' ;;
+    human-reviewed) echo '{"event":"reviewed","state":"approved","user":{"login":"alice"}}' ;;
+    commit) echo '{"event":"committed","sha":"abc"}' ;;
+    team) echo '{"event":"review_requested","requested_team":{"slug":"core"}}' ;;
+  esac
+}
+timeline_fx() { # timeline_fx [-2] <event>… — the PR's issue timeline (page 2 with -2), oldest first
+  local f=$FX/timeline.json
+  [ "${1-}" != -2 ] || { f=$FX/timeline-2.json && shift; }
+  local e
+  for e in "$@"; do timeline_ev "$e"; done | jq -s . >"$f"
 }
 
 TRICKY='she said "fix </script> this"
@@ -200,7 +225,8 @@ TRICKY='she said "fix </script> this"
 
 # fresh — a new world: head repo me/r, a fork of up/r, pinned on feat/pr-branch, with one open PR
 # (up/r#7). Threads: c1 Copilot, h1 human, c2 Copilot resolved, and c4 Copilot on a second page
-# with a body full of JSON-hostile characters. Copilot reviewed commits 1 then 2; nothing pending.
+# with a body full of JSON-hostile characters. Copilot reviewed commits 1 then 2 (the head is 7);
+# nothing pending.
 fresh() {
   W=$(mktemp -d "$root/case.XXXXXX")
   export HOME=$W/home SHIM=$W/shim
@@ -220,15 +246,19 @@ fresh() {
   node_fx PRRT_c2 PR_7 true copilot
   node_fx PRRT_x9 PR_99 false copilot
   reviews_fx copilot 1 COMMENTED copilot 2 COMMENTED human 2 APPROVED
-  requested_fx
+  timeline_fx commit copilot-requested copilot-reviewed team commit copilot-requested \
+    copilot-reviewed human-reviewed
+  echo '{"url":"https://api.github.com/repos/up/r/pulls/7","requested_reviewers":[]}' \
+    >"$FX/request.json"
   echo '{"data":{"addPullRequestReviewThreadReply":{"comment":{"url":"https://github.com/up/r/pull/7#r1"}}}}' \
     >"$FX/reply.json"
   echo '{"data":{"resolveReviewThread":{"thread":{"isResolved":true}}}}' >"$FX/resolve.json"
 }
 
-pin() { # pin <remote> <branch> [grants, default pr-review,pr-resolve]
+pin() { # pin <remote> <branch> [grants, default pr-review,pr-resolve,pr-request-review]
   mkdir -p "$POLICY_DIR"
-  printf '%s\t%s\t%s\t%s\n' /Users/you/code/r "$1" "$2" "${3:-pr-review,pr-resolve}" \
+  printf '%s\t%s\t%s\t%s\n' /Users/you/code/r "$1" "$2" \
+    "${3:-pr-review,pr-resolve,pr-request-review}" \
     >"$POLICY_DIR/$KEY.conf"
 }
 
@@ -250,11 +280,12 @@ expect_rc() { # expect_rc <want> <desc>
 has_err() { case $err in *"$1"*) return 0 ;; esac; return 1; }
 q() { jq -r "$1" <<<"$out"; } # q <filter> — over pr-comments' JSON
 calls() { cat "$SHIM/calls.log" 2>/dev/null; }
+posts() { cat "$SHIM/posts.log" 2>/dev/null; }
 
 # ── cases ─────────────────────────────────────────────────────────────────────────────────
 
 echo "the shared prelude"
-for r in pr-reply pr-resolve; do
+for r in pr-reply pr-resolve pr-request-review; do
   check "$r's pr-prelude is byte-identical to pr-comments'" cmp -s \
     <(sed -n '/^# ── BEGIN pr-prelude ──$/,/^# ── END pr-prelude ──$/p' "$RECIPES/pr-comments") \
     <(sed -n '/^# ── BEGIN pr-prelude ──$/,/^# ── END pr-prelude ──$/p' "$RECIPES/$r")
@@ -263,8 +294,10 @@ check "  … and the block is not empty" test \
   "$(sed -n '/^# ── BEGIN pr-prelude ──$/,/^# ── END pr-prelude ──$/p' "$RECIPES/pr-comments" | wc -l)" -gt 50
 
 echo "the caller and its policy"
-for r in pr-comments pr-reply pr-resolve; do
-  case $r in pr-comments) args=() ;; pr-reply) args=(PRRT_c1 hi) ;; pr-resolve) args=(PRRT_c1) ;; esac
+for r in pr-comments pr-reply pr-resolve pr-request-review; do
+  case $r in
+    pr-comments | pr-request-review) args=() ;; pr-reply) args=(PRRT_c1 hi) ;; pr-resolve) args=(PRRT_c1) ;;
+  esac
   fresh
   rm "$POLICY_DIR/$KEY.conf"
   run "$r" "${args[@]}"
@@ -293,6 +326,16 @@ expect_rc 2 "pr-resolve with pr-review but not pr-resolve"
 check "  … says so" has_err "this container was not granted pr-resolve"
 run pr-reply PRRT_c1 hi
 expect_rc 0 "  … while pr-reply still works"
+fresh
+pin git@github.com:me/r.git "$BRANCH" pr-review
+run pr-request-review
+expect_rc 2 "pr-request-review with pr-review but not pr-request-review"
+check "  … says so" has_err "this container was not granted pr-request-review"
+check "  … and GitHub was never asked" test -z "$(calls)"
+fresh
+pin git@github.com:me/r.git "$BRANCH" pr-review,pr-request-review
+run pr-request-review
+expect_rc 0 "pr-request-review with pr-review,pr-request-review (no pr-resolve)"
 
 
 echo "arguments"
@@ -307,6 +350,9 @@ run pr-resolve
 expect_rc 2 "pr-resolve with none"
 run pr-resolve PRRT_c1 PRRT_h1
 expect_rc 2 "pr-resolve with two"
+run pr-request-review extra
+expect_rc 2 "pr-request-review with an argument"
+check "  … prints its usage" has_err "usage: pr-request-review"
 run pr-resolve 'PR_7'
 expect_rc 2 "a thread id that is not PRRT_…"
 run pr-reply '--jq=.' hi
@@ -384,15 +430,42 @@ check "  … a hostile body round-trips exactly" test "$(q '.threads[2].comments
 check "  … comment author" test "$(q '.threads[1].comments[0].author')" = alice
 check "  … copilotReview is the later Copilot review" test "$(q .copilotReview.commit)" = "$(sha 2)"
 check "  … not pending" test "$(q .copilotReview.pending)" = false
+check "  … read from the timeline, not REST requested_reviewers" \
+  test -z "$(calls | grep requested_reviewers)"
 reviews_fx human 1 APPROVED
 run pr-comments
 check "no Copilot review → commit null" test "$(q .copilotReview.commit)" = null
 check "  … state null" test "$(q .copilotReview.state)" = null
-requested_fx 'copilot-pull-request-reviewer[bot]'
+timeline_fx copilot-requested copilot-reviewed commit copilot-requested
 run pr-comments
-check "Copilot requested → pending true" test "$(q .copilotReview.pending)" = true
+check "timeline ends in a Copilot request → pending true" test "$(q .copilotReview.pending)" = true
+timeline_fx copilot-requested commit team human-requested
+run pr-comments
+check "  … other events after it do not change that" test "$(q .copilotReview.pending)" = true
+timeline_fx copilot-requested copilot-reviewed
+run pr-comments
+check "timeline ends in a Copilot review → pending false" test "$(q .copilotReview.pending)" = false
+timeline_fx commit team human-requested human-reviewed
+run pr-comments
+check "no Copilot events → pending false" test "$(q .copilotReview.pending)" = false
+timeline_fx
+run pr-comments
+check "an empty timeline → pending false" test "$(q .copilotReview.pending)" = false
+timeline_fx copilot-requested copilot-reviewed human-requested
+run pr-comments
+check "a non-Copilot request after Copilot's review → pending false" \
+  test "$(q .copilotReview.pending)" = false
+timeline_fx copilot-reviewed copilot-requested
+timeline_fx -2 commit copilot-reviewed commit
+run pr-comments
+check "paginated: a review on page 2 after a request on page 1 → pending false" \
+  test "$(q .copilotReview.pending)" = false
+timeline_fx copilot-requested copilot-reviewed
+timeline_fx -2 copilot-requested commit
+run pr-comments
+check "paginated: a request on page 2 → pending true" test "$(q .copilotReview.pending)" = true
+fresh
 reviews_fx copilot 1 COMMENTED copilot 3 PENDING
-requested_fx
 run pr-comments
 check "a PENDING Copilot review is not the latest" test "$(q .copilotReview.commit)" = "$(sha 1)"
 
@@ -456,11 +529,53 @@ node_fx PRRT_n1 PR_7 false none
 run pr-resolve PRRT_n1
 expect_rc 3 "a thread whose author was deleted (null) is not Copilot's"
 
+echo "pr-request-review"
+fresh
+run pr-request-review
+expect_rc 0 "Copilot's latest review is older than the head"
+check "  … prints what it requested" \
+  test "$out" = "requested: Copilot review of $(sha 7 | cut -c1-12) on https://github.com/up/r/pull/7"
+check "  … exactly one POST, to the PR's requested_reviewers, naming the bot" test "$(posts)" = \
+  "POST repos/up/r/pulls/7/requested_reviewers reviewers[]=copilot-pull-request-reviewer[bot]"
+fresh
+reviews_fx human 7 APPROVED
+run pr-request-review
+expect_rc 0 "no Copilot review yet"
+check "  … requests one" test "$(posts | wc -l | tr -d ' ')" = 1
+fresh
+timeline_fx copilot-reviewed commit copilot-requested
+run pr-request-review
+expect_rc 0 "a Copilot review is already pending"
+check "  … says so" test "$out" = "pending: Copilot is already reviewing https://github.com/up/r/pull/7"
+check "  … no POST" test -z "$(posts)"
+fresh
+reviews_fx copilot 1 COMMENTED copilot 7 COMMENTED
+run pr-request-review
+expect_rc 0 "Copilot's latest review is of the head"
+check "  … says so" test "$out" = \
+  "up to date: Copilot already reviewed $(sha 7 | cut -c1-12) on https://github.com/up/r/pull/7"
+check "  … no POST" test -z "$(posts)"
+fresh
+reviews_fx copilot 7 COMMENTED copilot 8 PENDING
+run pr-request-review
+expect_rc 0 "a PENDING (draft) Copilot review does not count as the latest"
+check "  … still up to date" test "${out%% *}" = up
+fresh
+SHIM_FAIL=requested_reviewers run pr-request-review
+expect_rc 4 "the request failing"
+check "  … relays gh's message" has_err "HTTP 502"
+check "  … prints nothing on stdout" test -z "$out"
+fresh
+SHIM_FAIL=timeline run pr-request-review
+expect_rc 4 "the timeline read failing"
+check "  … no POST" test -z "$(posts)"
+
 echo "how gh is driven"
 fresh
 run pr-comments
 run pr-reply PRRT_c1 "secret-body-text"
 run pr-resolve PRRT_c1
+run pr-request-review
 check "every call ran from /" test -z "$(calls | grep -v '^cwd=/ ')"
 check "only gh api and gh auth, never gh pr" test -z "$(calls | grep -Ev '^cwd=/ (api|auth) ')"
 check "no container value inside a query string" test -z "$(grep -E 'PRRT_|secret-body|pr-branch' "$SHIM/queries.log")"

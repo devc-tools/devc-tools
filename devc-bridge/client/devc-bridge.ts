@@ -42,6 +42,7 @@ Built-in commands (capability in brackets, granted on the host with
   pr-comments                  unresolved threads on your PR, as JSON   [pr-review]
   pr-reply <thread-id> <body>  reply to a review thread                 [pr-review]
   pr-resolve <thread-id>       resolve a Copilot review thread          [pr-resolve]
+  pr-request-review            ask Copilot to review the current head   [pr-request-review]
   ping [label]                 keep the host awake
 
 Answered by this client, with the bridge up or down:

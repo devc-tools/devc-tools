@@ -117,6 +117,8 @@ Deno.test('policy: every valid grant set round-trips', () => {
     ['git-push', 'pr-review'],
     ['pr-review', 'pr-resolve'],
     ['git-push', 'pr-review', 'pr-resolve'],
+    ['pr-review', 'pr-request-review'],
+    ['git-push', 'pr-review', 'pr-resolve', 'pr-request-review'],
   ];
   for (const grants of sets) {
     const record = { repo: '/a', remote: 'r', branch: 'b', grants };
@@ -146,6 +148,9 @@ Deno.test('policy: a malformed file parses to null', () => {
       '/a\tb\tc\tgit-push, pr-review\n', // a space
       '/a\tb\tc\tgit-push,\n', // trailing comma
       '/a\tb\tc\tpr-resolve\n', // pr-resolve without pr-review
+      '/a\tb\tc\tpr-request-review\n', // pr-request-review without pr-review
+      '/a\tb\tc\tgit-push,pr-resolve,pr-request-review\n', // … even alongside pr-resolve
+      '/a\tb\tc\tpr-review,pr-request-review,pr-resolve\n', // out of canonical order
     ]
   ) {
     assertEquals(parsePolicy(text), null, JSON.stringify(text));
@@ -160,6 +165,7 @@ Deno.test('policy: serialize refuses a field that would not read back', () => {
     { ...ok, grants: ['pr-review', 'git-push'] },
     { ...ok, grants: ['git-push', 'git-push'] },
     { ...ok, grants: ['pr-resolve'] },
+    { ...ok, grants: ['pr-request-review'] },
     { ...ok, grants: ['nope' as BridgeCapability] },
   ];
   for (const record of bad) {
@@ -172,12 +178,23 @@ Deno.test('policy: serialize refuses a field that would not read back', () => {
   }
 });
 
+Deno.test('capabilities: the canonical order', () => {
+  assertEquals(
+    [...BRIDGE_CAPABILITIES],
+    ['git-push', 'pr-review', 'pr-resolve', 'pr-request-review'],
+  );
+});
+
 Deno.test('capabilities: every built-in command maps to exactly one capability', () => {
   assertEquals(capabilityForCommand('git-push'), 'git-push');
   assertEquals(capabilityForCommand('git-doctor'), 'git-push');
   assertEquals(capabilityForCommand('pr-comments'), 'pr-review');
   assertEquals(capabilityForCommand('pr-reply'), 'pr-review');
   assertEquals(capabilityForCommand('pr-resolve'), 'pr-resolve');
+  assertEquals(
+    capabilityForCommand('pr-request-review'),
+    'pr-request-review',
+  );
   assertEquals(capabilityForCommand('caffeinate'), null);
   const all = BRIDGE_CAPABILITIES.flatMap((c) => BRIDGE_CAPABILITY_COMMANDS[c]);
   assertEquals(new Set(all).size, all.length);

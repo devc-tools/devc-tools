@@ -150,6 +150,11 @@ Deno.test('a built-in is refused, with the exact message, for each ungranted cas
       error:
         'no capabilities granted to this container — on the host: devc up --bridge-allow pr-review,pr-resolve',
     });
+    assertEquals(await call(port, token, 'pr-request-review'), {
+      ok: false,
+      error:
+        'no capabilities granted to this container — on the host: devc up --bridge-allow pr-review,pr-request-review',
+    });
 
     // A policy from before grants existed: three fields.
     await Deno.writeTextFile(policyFile, '/r\tgit@github.com:o/r.git\tfeat\n');
@@ -169,6 +174,13 @@ Deno.test('a built-in is refused, with the exact message, for each ungranted cas
       ok: false,
       error:
         'pr-resolve needs capability pr-resolve, which this container was not granted (it has: git-push) — on the host: devc up --bridge-allow git-push,pr-review,pr-resolve',
+    });
+
+    await Deno.writeTextFile(policyFile, policyLine('pr-review,pr-resolve'));
+    assertEquals(await call(port, token, 'pr-request-review'), {
+      ok: false,
+      error:
+        'pr-request-review needs capability pr-request-review, which this container was not granted (it has: pr-review, pr-resolve) — on the host: devc up --bridge-allow pr-review,pr-resolve,pr-request-review',
     });
   });
 });
@@ -224,6 +236,7 @@ Deno.test('materializeBuiltins writes every built-in and replaces a stale set wh
       'git-push',
       'pr-comments',
       'pr-reply',
+      'pr-request-review',
       'pr-resolve',
     ]);
     const present = [...Deno.readDirSync(target)].map((e) => e.name).sort();

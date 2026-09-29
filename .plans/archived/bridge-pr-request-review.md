@@ -125,18 +125,18 @@ itself starts the review).
 ## Checklist
 
 - [x] Step 0 run and results recorded above (personal repo; org repo is a Validation item)
-- [ ] `copilot_pending` in the `pr-prelude` (all four copies); `pr-comments` uses it for `copilotReview.pending`, dropping the REST `requested_reviewers` read
-- [ ] `devc-core/bridge.ts`: capability, commands, requires
-- [ ] `devc-bridge/host/core.ts`: generalized hint
-- [ ] `devc-bridge/builtin/pr-request-review` (new, executable) + prelude comment in `pr-comments`, `pr-reply`, `pr-resolve`
-- [ ] `devc-bridge/client/devc-bridge.ts`: overview line
-- [ ] `devc/help.ts` and `devc/args.ts` doc comments listing capabilities
-- [ ] Tests: `devc-bridge/tests/pr_review_test.sh` (extend the `gh` shim to accept `-X POST` and log it, and to answer `repos/*/*/issues/*/timeline` from a `timeline.json` fixture — a JSON array of events, emitted through the shim's `--jq`; drop the `requested.json` fixture), `devc-bridge/host/tests/capabilities_test.ts` (built-ins list; hint), `devc-core/tests/bridge_test.ts` (canonical order; `pr-request-review` without `pr-review` refused)
-- [ ] Docs: `docs/bridge-git-push.md` (commands, loop, exit codes), `devc-bridge/README.md` (command table, Capabilities table, Iterating on PR review), `devc/README.md` (capability table and `--bridge-allow` list)
+- [x] `copilot_pending` in the `pr-prelude` (all four copies); `pr-comments` uses it for `copilotReview.pending`, dropping the REST `requested_reviewers` read
+- [x] `devc-core/bridge.ts`: capability, commands, requires
+- [x] `devc-bridge/host/core.ts`: generalized hint
+- [x] `devc-bridge/builtin/pr-request-review` (new, executable) + prelude comment in `pr-comments`, `pr-reply`, `pr-resolve`
+- [x] `devc-bridge/client/devc-bridge.ts`: overview line
+- [x] `devc/help.ts` and `devc/args.ts` doc comments listing capabilities
+- [x] Tests: `devc-bridge/tests/pr_review_test.sh` (extend the `gh` shim to accept `-X POST` and log it, and to answer `repos/*/*/issues/*/timeline` from a `timeline.json` fixture — a JSON array of events, emitted through the shim's `--jq`; drop the `requested.json` fixture), `devc-bridge/host/tests/capabilities_test.ts` (built-ins list; hint), `devc-core/tests/bridge_test.ts` (canonical order; `pr-request-review` without `pr-review` refused)
+- [x] Docs: `docs/bridge-git-push.md` (commands, loop, exit codes), `devc-bridge/README.md` (command table, Capabilities table, Iterating on PR review), `devc/README.md` (capability table and `--bridge-allow` list)
 
 ## Validation
 
-- [ ] `bash devc-bridge/tests/pr_review_test.sh` → `0 failed`, including:
+- [x] `bash devc-bridge/tests/pr_review_test.sh` → `0 failed`, including:
   - timeline ending in a Copilot `review_requested` → `pr-request-review` exit 0 `pending: Copilot is already reviewing`, no POST logged; `pr-comments` reports `"pending":true`
   - timeline ending in a Copilot `reviewed` (or with no Copilot events) → `pr-comments` reports `"pending":false`
   - a non-Copilot `review_requested` after Copilot's `reviewed` → not pending
@@ -145,12 +145,12 @@ itself starts the review).
   - POST failing (`SHIM_FAIL=requested_reviewers`) → exit 4
   - an argument → exit 2; policy with `pr-review` only → exit 2 `not granted pr-request-review`
   - `pr-request-review`'s prelude byte-identical to `pr-comments'`
-- [ ] `bash devc-bridge/tests/git_push_test.sh` → `0 failed`
-- [ ] `cd devc-bridge/host && deno task test` and `deno task check` pass
-- [ ] `cd devc-core && deno test` passes; `cd devc && deno task test` passes
-- [ ] `devc up --bridge-allow pr-request-review` → refused `pr-request-review requires pr-review`
-- [ ] Live on an org repo, after the host runs the new build: push a commit, `devc-bridge pr-request-review` → `requested:`; call again → `pending:`; after the review lands → `up to date:`
-- [ ] `deno fmt --check` on changed `.ts`/`.md`
+- [x] `bash devc-bridge/tests/git_push_test.sh` → `0 failed`
+- [x] `cd devc-bridge/host && deno task test` and `deno task check` pass
+- [x] `cd devc-core && deno test` passes (except the pre-existing, unrelated `cliWorktreeMounts … pinned devcontainer CLI` failure, which reproduces on the untouched tree); `cd devc && deno task test` passes
+- [x] `devc up --bridge-allow pr-request-review` → refused `pr-request-review requires pr-review`
+- [ ] Live on an org repo, after the host runs the new build: push a commit, `devc-bridge pr-request-review` → `requested:`; call again → `pending:`; after the review lands → `up to date:` — **not run**: needs the host running the new build and a live org-repo PR (it mutates a real PR); the steps are `devc-bridge/docs/testing.md` B19
+- [x] `deno fmt --check` on changed `.ts`/`.md`
 
 ## Relevant Files
 
@@ -166,6 +166,9 @@ itself starts the review).
 - `devc-bridge/client/devc-bridge.ts`
 - `devc/help.ts`
 - `devc/args.ts`
+- `devc/bridge.ts` (header comment's capability list)
+- `devc/tests/args_test.ts`
+- `devc-bridge/docs/testing.md`
 - `docs/bridge-git-push.md`
 - `devc-bridge/README.md`
 - `devc/README.md`

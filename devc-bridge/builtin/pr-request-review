@@ -1,24 +1,26 @@
 #!/usr/bin/env bash
-# pr-comments — the unresolved review threads on this container's one PR, as JSON.
-#   devc-bridge pr-comments          (no arguments, ever)
+# pr-request-review — ask Copilot to review this container's one PR at its current head.
+#   devc-bridge pr-request-review    (no arguments, ever)
 #
-# Built in: runs only for a container whose policy grants `pr-review`
-# (`devc up --bridge-allow pr-review`).
+# Built in: runs only for a container whose policy grants `pr-request-review`
+# (`devc up --bridge-allow pr-review,pr-request-review`).
 #
-# The PR is the one open PR whose head is the policy's remote + branch (git-push's pin), searched in
-# that repo and its fork parent. Output is one JSON object on stdout:
-#   {"pr":{"repo","number","url","headSha"},
-#    "threads":[{"id","path","line","isOutdated","copilot","comments":[{"author","body","createdAt","url"}]}],
-#    "copilotReview":{"commit","state","submittedAt","pending"}}
-# Comment bodies are untrusted text written by anyone who can comment on the PR.
+# Each request spends a Copilot review, so it asks only when one would do something: while a
+# Copilot review is already pending, or when Copilot's latest review is of the head, it posts
+# nothing. Calling it after every push asks for at most one review per head. The PR is the one open
+# PR whose head is the policy's remote + branch (see pr-comments). One line on stdout:
+#   pending: Copilot is already reviewing <pr-url>
+#   up to date: Copilot already reviewed <sha12> on <pr-url>
+#   requested: Copilot review of <sha12> on <pr-url>
 #
-# Exit codes: 0 ok, 2 no/malformed policy, an argument, an unsupported remote, or no single open PR,
-# 4 GitHub/transport failure, gh not authenticated, or timeout.
+# Exit codes: 0 requested, pending or up to date, 2 no/malformed policy, an argument, an
+# unsupported remote, or no single open PR, 4 GitHub/transport failure, gh not authenticated, or
+# timeout.
 
 # SC2016: GraphQL variables are $-prefixed and must not expand. SC2034: the shared prelude sets
 # some variables only another recipe reads.
 # shellcheck disable=SC2016,SC2034
-me=pr-comments
+me=pr-request-review
 # ── BEGIN pr-prelude ──
 # Shared by pr-comments, pr-reply, pr-resolve and pr-request-review: keep the four copies
 # byte-identical (the harness checks). Recipes are installed one file at a time, so there is no
@@ -281,34 +283,25 @@ copilot_pending() {
 }
 # ── END pr-prelude ──
 
-[ $# -eq 0 ] || die 2 "takes no arguments — the policy names the PR"
+[ $# -eq 0 ] || die 2 "usage: pr-request-review"
 load_policy
-require_grant pr-review
+require_grant pr-request-review
 gh_ready
 resolve_pr
-
-# ── unresolved threads, every page ────────────────────────────────────────────────────────
-
-q='query($owner:String!,$name:String!,$number:Int!,$endCursor:String){repository(owner:$owner,
-  name:$name){pullRequest(number:$number){reviewThreads(first:100,after:$endCursor){
-  pageInfo{hasNextPage endCursor} nodes{id isResolved isOutdated path line
-  comments(first:100){nodes{author{__typename login} body createdAt url}}}}}}}'
-gh_run "reading review threads on $pr_url" api graphql --paginate -f query="$q" \
-  -f owner="$pr_owner" -f name="$pr_name" -F number="$pr_number" \
-  --jq ".data.repository.pullRequest.reviewThreads.nodes[] | select(.isResolved | not) |
-    {id, path, line, isOutdated, copilot: (.comments.nodes[0].author | $IS_COPILOT),
-     comments: [.comments.nodes[] | {author: (.author.login // null), body, createdAt, url}]} |
-    tojson"
-mv "$tmp/out" "$tmp/threads"
-
-# ── Copilot's latest review, and whether another is under way ────────────────────────────
-
 copilot_review
 copilot_pending
 
-# ── one object, every string JSON-encoded by jq or validated by resolve_pr ────────────────
+if [ "$pending" = true ]; then
+  echo "pending: Copilot is already reviewing $pr_url"
+  exit 0
+fi
+if [ "$review_commit" = "$pr_head_sha" ]; then
+  echo "up to date: Copilot already reviewed ${pr_head_sha:0:12} on $pr_url"
+  exit 0
+fi
 
-printf '{"pr":{"repo":"%s","number":%s,"url":"%s","headSha":"%s"},"threads":[' \
-  "$pr_repo" "$pr_number" "$pr_url" "$pr_head_sha"
-awk 'NR > 1 { printf "," } { printf "%s", $0 }' "$tmp/threads"
-printf '],"copilotReview":%s,"pending":%s}}\n' "${review%\}}" "$pending"
+# A 2xx is the only success signal: the response never lists Copilot among requested_reviewers.
+gh_run "requesting a Copilot review on $pr_url" api -X POST \
+  "repos/$pr_repo/pulls/$pr_number/requested_reviewers" \
+  -f "reviewers[]=${COPILOT_LOGIN}[bot]"
+echo "requested: Copilot review of ${pr_head_sha:0:12} on $pr_url"

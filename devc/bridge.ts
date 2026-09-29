@@ -8,7 +8,7 @@
 //
 // **The policy is the whole grant.** `policy/<key>.conf` names the one repo, remote and branch a
 // container's capabilities act on, and which capabilities it has (`git-push`, `pr-review`,
-// `pr-resolve`). Only `devc up` / `devc build` create it (with `--bridge-allow <list>`) or delete
+// `pr-resolve`, `pr-request-review`). Only `devc up` / `devc build` create it (with `--bridge-allow <list>`) or delete
 // it (without). Every other start path only *refreshes* one that exists — and revokes it
 // when the pin can no longer be derived safely, since a policy that outlives its preconditions
 // is a grant nobody asked for.

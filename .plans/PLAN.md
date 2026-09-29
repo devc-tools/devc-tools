@@ -21,15 +21,6 @@
   The per-ping lease model is documented as a follow-on and deliberately **not**
   built until the data exists.
 
-- [bridge-pr-request-review](bridge-pr-request-review.md) — `devc-bridge pr-request-review`
-  asks Copilot to review the PR's current head (REST `requested_reviewers`), idempotent
-  (`pending:` / `up to date:` spend nothing), behind a new `pr-request-review` capability
-  that requires `pr-review`. Unblocks an unattended review loop on repos without
-  review-on-push. GitHub behaviour verified on the personal repo (the POST response
-  never lists Copilot; a request while pending is a no-op; pending shows only in the
-  issue timeline); also fixes `pr-comments`' `copilotReview.pending`, which is always
-  `false` today.
-
 ### Standing rules for Feature work
 
 Not a plan group — these are the conventions every Feature plan in this file
@@ -72,6 +63,19 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
   take it too.
 
 ### Completed
+
+- [bridge-pr-request-review](archived/bridge-pr-request-review.md) — ✅ Done,
+  validated by `pr_review_test.sh`, `git_push_test.sh`, devc-core / devc / devc-bridge host
+  tests and `deno fmt --check` (devc-core's pre-existing `cliWorktreeMounts … pinned
+  devcontainer CLI` failure is unrelated). The live org-repo check (`devc-bridge/docs/testing.md`
+  B19) needs the host on the new build and was not run. `devc-bridge pr-request-review`
+  asks Copilot to review the PR's current head (REST `requested_reviewers`), idempotent
+  (`pending:` / `up to date:` spend nothing), behind a new `pr-request-review` capability
+  that requires `pr-review`. Unblocks an unattended review loop on repos without
+  review-on-push. GitHub behaviour verified on the personal repo (the POST response
+  never lists Copilot; a request while pending is a no-op; pending shows only in the
+  issue timeline); also fixes `pr-comments`' `copilotReview.pending`, which was always
+  `false` before.
 
 - [devc-bridge-client-auto-mount](archived/devc-bridge-client-auto-mount.md) — ✅ Done,
   validated by devc-core / devc / devc-bridge host tests and `deno fmt --check`
@@ -1855,4 +1859,4 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
 | devc-bridge agent help — local `help`/guide, real `git-doctor` transport probe, BrokenPipe-safe client      | [devc-bridge-agent-help](archived/devc-bridge-agent-help.md)                       | complete |
 | devc-bridge `git-push` over HTTPS with gh's credential — one host setup                                     | [devc-bridge-push-via-gh](archived/devc-bridge-push-via-gh.md)                     | complete |
 | `@devc-tools/core` version bump script — keeps the consumer deno.lock files in step                         | [core-version-bump-script](archived/core-version-bump-script.md)                   | complete |
-| devc-bridge `pr-request-review` — ask Copilot to re-review the current head                                 | [bridge-pr-request-review](bridge-pr-request-review.md)                            |          |
+| devc-bridge `pr-request-review` — ask Copilot to re-review the current head                                 | [bridge-pr-request-review](archived/bridge-pr-request-review.md)                   | complete |

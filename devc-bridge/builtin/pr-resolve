@@ -18,8 +18,9 @@
 # shellcheck disable=SC2016,SC2034
 me=pr-resolve
 # ── BEGIN pr-prelude ──
-# Shared by pr-comments, pr-reply and pr-resolve: keep the three copies byte-identical (the harness
-# checks). Recipes are installed one file at a time, so there is no library to source.
+# Shared by pr-comments, pr-reply, pr-resolve and pr-request-review: keep the four copies
+# byte-identical (the harness checks). Recipes are installed one file at a time, so there is no
+# library to source.
 #
 # The container's repo is never touched — not read, not run in. Everything comes from the policy
 # (which remote, which branch) and from GitHub. `gh` runs from `/`, only as `gh api`, with the repo
@@ -41,6 +42,9 @@ die() {
 # is Copilot". A constant, never container data, so interpolating it into a filter is safe.
 COPILOT_LOGIN=copilot-pull-request-reviewer
 IS_COPILOT="(. != null and .__typename == \"Bot\" and .login == \"$COPILOT_LOGIN\")"
+# The same bot has two more names: `copilot-pull-request-reviewer[bot]` when a review is requested
+# over REST, and `Copilot` in the issue timeline's events.
+COPILOT_TIMELINE_LOGIN=Copilot
 
 # ── the caller and its policy (byte-for-byte git-push's parse) ────────────────────────────
 
@@ -233,6 +237,45 @@ load_thread() {
   IFS=$'\t' read -r typename prid thread_resolved thread_copilot <"$tmp/out"
   [ "$typename" = PullRequestReviewThread ] || die 2 "$1 is not a review thread"
   [ "$prid" = "$pr_id" ] || die 2 "thread $1 is not on $pr_url"
+}
+
+# ── Copilot's review state ────────────────────────────────────────────────────────────────
+
+# copilot_review — sets review, Copilot's latest submitted (non-PENDING) review on the resolved PR as
+# one JSON object {"commit","state","submittedAt"} (all null when there is none), and review_commit,
+# its commit oid or empty.
+copilot_review() {
+  local q
+  q='query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){
+    pullRequest(number:$number){reviews(last:100){nodes{author{__typename login} state
+    submittedAt commit{oid}}}}}}'
+  gh_run "reading reviews on $pr_url" api graphql -f query="$q" \
+    -f owner="$pr_owner" -f name="$pr_name" -F number="$pr_number" \
+    --jq "[.data.repository.pullRequest.reviews.nodes[] |
+      select((.author | $IS_COPILOT) and .state != \"PENDING\")] | last |
+      (.commit.oid // \"\"),
+      ({commit: (.commit.oid // null), state: (.state // null), submittedAt: (.submittedAt // null)} |
+        tojson)"
+  { IFS= read -r review_commit && IFS= read -r review; } <"$tmp/out" ||
+    die 4 "unexpected response reading reviews on $pr_url"
+  [ -z "$review_commit" ] || [[ $review_commit =~ ^[0-9a-f]{40}$ ]] ||
+    die 4 "unexpected review commit on $pr_url"
+  case $review in '{'*'}') ;; *) die 4 "unexpected response reading reviews on $pr_url" ;; esac
+}
+
+# copilot_pending — sets pending (true|false): whether a Copilot review of the resolved PR has been
+# requested and not yet delivered. Only the issue timeline shows this — REST requested_reviewers
+# never lists Copilot. Pending iff the last Copilot event is a request. With --paginate, --jq runs
+# per page, so it emits one line per event (oldest first) and the last line is taken here.
+copilot_pending() {
+  gh_run "reading the timeline of $pr_url" api --paginate \
+    "repos/$pr_repo/issues/$pr_number/timeline" \
+    --jq ".[] | select((.event == \"review_requested\" and
+        .requested_reviewer.login == \"$COPILOT_TIMELINE_LOGIN\") or
+      (.event == \"reviewed\" and .user.login == \"$COPILOT_TIMELINE_LOGIN\")) | .event"
+  ! grep -qvxE 'review_requested|reviewed' "$tmp/out" ||
+    die 4 "unexpected response reading the timeline of $pr_url"
+  case $(tail -n 1 "$tmp/out") in review_requested) pending=true ;; *) pending=false ;; esac
 }
 # ── END pr-prelude ──
 

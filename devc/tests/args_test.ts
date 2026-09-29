@@ -328,18 +328,22 @@ Deno.test('--bridge-allow refuses bad values with the documented messages', () =
   const cases: [string[], string][] = [
     [
       ['--bridge-allow'],
-      '--bridge-allow needs at least one of: git-push, pr-review, pr-resolve',
+      '--bridge-allow needs at least one of: git-push, pr-review, pr-resolve, pr-request-review',
     ],
     [
       ['--bridge-allow='],
-      '--bridge-allow needs at least one of: git-push, pr-review, pr-resolve',
+      '--bridge-allow needs at least one of: git-push, pr-review, pr-resolve, pr-request-review',
     ],
     [['--bridge-allow', ' , '], '--bridge-allow needs at least one of'],
     [
       ['--bridge-allow', 'git-pull'],
-      'unknown capability git-pull — valid: git-push, pr-review, pr-resolve',
+      'unknown capability git-pull — valid: git-push, pr-review, pr-resolve, pr-request-review',
     ],
     [['--bridge-allow', 'pr-resolve'], 'pr-resolve requires pr-review'],
+    [
+      ['--bridge-allow', 'pr-request-review'],
+      'pr-request-review requires pr-review',
+    ],
     [
       ['--bridge-allow', 'git-push', '--bridge-allow=pr-review'],
       '--bridge-allow given more than once',
@@ -402,4 +406,12 @@ Deno.test('CLI: --bridge-allow is refused by every attach-family command, and th
   const bad = await cli('up', '/nonexistent', '--bridge-allow', 'pr-resolve');
   assertEquals(bad.code, 2, bad.stderr);
   assertStringIncludes(bad.stderr, 'pr-resolve requires pr-review');
+  const lone = await cli(
+    'up',
+    '/nonexistent',
+    '--bridge-allow',
+    'pr-request-review',
+  );
+  assertEquals(lone.code, 2, lone.stderr);
+  assertStringIncludes(lone.stderr, 'pr-request-review requires pr-review');
 });

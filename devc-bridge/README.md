@@ -65,6 +65,7 @@ of the box:
 | `pr-comments`                    | **Built in — needs capability `pr-review`.** The unresolved review threads on this container's PR, as JSON, plus Copilot's latest reviewed commit. Takes no arguments. See [Iterating on PR review](#iterating-on-pr-review-pr-)                      |
 | `pr-reply <thread> <body>`       | **Built in — needs capability `pr-review`.** Reply to any review thread on that PR, prefixed `🤖`                                                                                                                                                     |
 | `pr-resolve <thread>`            | **Built in — needs capability `pr-resolve`.** Resolve a review thread on that PR — only one Copilot started                                                                                                                                           |
+| `pr-request-review`              | **Built in — needs capability `pr-request-review`.** Ask Copilot to review that PR's current head — nothing is requested while a review is pending or already of the head. Takes no arguments                                                         |
 | `help [guide]`                   | **Answered by the client itself**, never sent to the host (also `--help` / `-h`; no arguments prints it to stderr, exit 2) — every command and its capability, or with `guide` the embedded [agent guide](../docs/bridge-git-push.md)                 |
 | `version`                        | **Answered by the client itself**, never sent to the host (also `--version` / `-V`) — which client is actually mounted in here, answerable with the bridge down                                                                                       |
 
@@ -596,14 +597,15 @@ The bridge ships every capability built in. **Which ones a container may use is
 its policy's grant**, written by devc from one flag:
 
 ```sh
-devc up --bridge-allow git-push,pr-review,pr-resolve
+devc up --bridge-allow git-push,pr-review,pr-resolve,pr-request-review
 ```
 
-| Capability   | Commands                  | Notes                                                 |
-| ------------ | ------------------------- | ----------------------------------------------------- |
-| `git-push`   | `git-push`, `git-doctor`  | [Publishing a branch](#publishing-a-branch-git-push)  |
-| `pr-review`  | `pr-comments`, `pr-reply` | [Iterating on PR review](#iterating-on-pr-review-pr-) |
-| `pr-resolve` | `pr-resolve`              | Requires `pr-review` — devc refuses it alone          |
+| Capability          | Commands                  | Notes                                                      |
+| ------------------- | ------------------------- | ---------------------------------------------------------- |
+| `git-push`          | `git-push`, `git-doctor`  | [Publishing a branch](#publishing-a-branch-git-push)       |
+| `pr-review`         | `pr-comments`, `pr-reply` | [Iterating on PR review](#iterating-on-pr-review-pr-)      |
+| `pr-resolve`        | `pr-resolve`              | Requires `pr-review` — devc refuses it alone               |
+| `pr-request-review` | `pr-request-review`       | Requires `pr-review`. Each request spends a Copilot review |
 
 `devc up`/`devc build` with `--bridge-allow` write exactly that set (replacing
 any earlier one); without it they delete the policy. Every other start path
@@ -750,17 +752,21 @@ refuses any other key.
 ## Iterating on PR review (`pr-*`)
 
 The same trade as `git-push`, for the other half of a review loop: the agent
-reads Copilot's review threads on its PR, replies, and resolves Copilot's —
+reads Copilot's review threads on its PR, replies, resolves Copilot's, and asks
+for the next review —
 **with no GitHub credential in the container at all**, not even a read-only
 one. Each call runs `gh api` on the host with your credentials.
 
 ### Enabling it
 
-`pr-review` grants reading and replying; `pr-resolve` is separate, so replies
-without resolves is simply leaving it out:
+`pr-review` grants reading and replying; `pr-resolve` and `pr-request-review`
+are separate, so replies without resolves is simply leaving `pr-resolve` out.
+`pr-request-review` is separate because each request spends a Copilot review
+(org quota or premium requests), which granting read-and-reply did not consent
+to:
 
 ```sh
-devc up --bridge-allow git-push,pr-review,pr-resolve   # the same pin git-push uses
+devc up --bridge-allow git-push,pr-review,pr-resolve,pr-request-review   # the same pin git-push uses
 ```
 
 The host needs `gh` on the bridge's `PATH`, authenticated (`gh auth login`, or
@@ -787,21 +793,34 @@ node id — PR numbers repeat across repos), or it is exit 2.
 
 ### The verbs
 
-| Verb                       | Does                                                                                                                                                                                                                                                                                                                                                                        |
-| -------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `pr-comments`              | Prints one JSON object: `pr` (`repo`, `number`, `url`, `headSha`), `threads` (unresolved only: `id`, `path`, `line`, `isOutdated`, `copilot`, `comments[]` of `author`/`body`/`createdAt`/`url`), and `copilotReview` (`commit`, `state`, `submittedAt` of Copilot's latest submitted review — `null`s if none — and `pending`, true while Copilot is a requested reviewer) |
-| `pr-reply <thread> <body>` | Replies to **any** thread on the PR — a human reviewer's too, resolved or not. Posted under your identity with the fixed prefix `🤖`. The body must be non-empty, at most **4000 bytes**, with no control characters other than newline and tab; anything else is exit 3 with a message saying what to change, and nothing is sent                                          |
-| `pr-resolve <thread>`      | Resolves a thread **only if Copilot started it** (its first comment's author is the `copilot-pull-request-reviewer` bot). A human reviewer's thread is exit 3 — resolving hides feedback, which is the one thing a misbehaving agent would want. Already resolved is exit 0                                                                                                 |
+| Verb                       | Does                                                                                                                                                                                                                                                                                                                                                                                         |
+| -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pr-comments`              | Prints one JSON object: `pr` (`repo`, `number`, `url`, `headSha`), `threads` (unresolved only: `id`, `path`, `line`, `isOutdated`, `copilot`, `comments[]` of `author`/`body`/`createdAt`/`url`), and `copilotReview` (`commit`, `state`, `submittedAt` of Copilot's latest submitted review — `null`s if none — and `pending`, true from a Copilot review request until the review arrives) |
+| `pr-reply <thread> <body>` | Replies to **any** thread on the PR — a human reviewer's too, resolved or not. Posted under your identity with the fixed prefix `🤖`. The body must be non-empty, at most **4000 bytes**, with no control characters other than newline and tab; anything else is exit 3 with a message saying what to change, and nothing is sent                                                           |
+| `pr-resolve <thread>`      | Resolves a thread **only if Copilot started it** (its first comment's author is the `copilot-pull-request-reviewer` bot). A human reviewer's thread is exit 3 — resolving hides feedback, which is the one thing a misbehaving agent would want. Already resolved is exit 0                                                                                                                  |
 
-**There is no re-review verb.** A push already triggers Copilot's review when
-the repo's auto-review ruleset has _review new pushes_ on. `copilotReview` is how
-the agent tells that review has landed: after `git-push`, wait until `pending`
-is `false` and `commit` equals `pr.headSha`. On a repo without that ruleset the
-commit never catches up, and the agent should stop rather than ask.
+| `pr-request-review` | Asks Copilot to review the PR's current head (REST `POST repos/<repo>/pulls/<n>/requested_reviewers` with `copilot-pull-request-reviewer[bot]`). Idempotent, so it bounds spend to one review per head: while a Copilot review is pending it prints `pending: Copilot is already reviewing <pr-url>`; when Copilot's latest review is of the head, `up to date: Copilot already reviewed <sha12> on <pr-url>` — both exit 0 with nothing posted. Otherwise `requested: Copilot review of <sha12> on <pr-url>`. A 2xx is the success signal: GitHub's response never lists Copilot among the requested reviewers |
+
+**Re-review after a push.** A push triggers Copilot's review by itself only when
+the repo's auto-review ruleset has _review new pushes_ on (and a personal repo
+needs the plan feature for that). Elsewhere a human would have to click
+"Re-request review" — `pr-request-review` does it, and on a repo that already
+reviews on push it answers `pending:` or `up to date:` and spends nothing, so an
+agent can call it after every `git-push`. `copilotReview` is how the agent tells
+that review has landed: wait until `pending` is `false` and `commit` equals
+`pr.headSha`. If the commit never catches up, the request did not take, and the
+agent should stop.
+
+**Pending comes from the issue timeline.** REST `requested_reviewers` never
+lists Copilot, so `pending` is read from `repos/<repo>/issues/<n>/timeline`: it
+is true iff the last Copilot event there is a `review_requested` (the other
+being `reviewed`). The bot has three names — `copilot-pull-request-reviewer[bot]`
+in the REST request, `copilot-pull-request-reviewer` as a GraphQL review author,
+and `Copilot` in timeline events.
 
 | Exit | Meaning                                                                                                                                     |
 | ---- | ------------------------------------------------------------------------------------------------------------------------------------------- |
-| `0`  | done, or already resolved                                                                                                                   |
+| `0`  | done, already resolved, or (`pr-request-review`) a review already pending or of the head                                                    |
 | `2`  | no policy, the shared token, wrong arguments, an unsupported (non-github.com) remote, no single open PR for the pin, a thread not on it     |
 | `3`  | refused, and the agent can adjust: a reply body that is empty, too long or has control characters; resolving a thread Copilot did not start |
 | `4`  | GitHub or transport failure, `gh` missing or not authenticated, or the timeout (`DEVC_BRIDGE_GH_TIMEOUT`, seconds, default `60`)            |

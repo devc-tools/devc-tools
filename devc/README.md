@@ -113,7 +113,8 @@ Notes:
   exit 0 either way — neither is an error.
 - `--bridge-allow LIST` on `up`/`build` grants the container devc-bridge
   capabilities — a comma-separated subset of `git-push`, `pr-review`,
-  `pr-resolve` (`pr-resolve` requires `pr-review`) — on its current branch;
+  `pr-resolve` and `pr-request-review` (the last two each require `pr-review`)
+  — on its current branch;
   `up`/`build` **without** it revoke any earlier grant. No other command accepts
   it, and the old `--bridge-git-push` is refused with a pointer to
   `--bridge-allow git-push` — see
@@ -1054,11 +1055,12 @@ its capabilities act on, and which capabilities it has:
 That file is the whole grant, and no container can write it — `policy/` is never
 mounted. A three-field file from before grants existed grants nothing.
 
-| Capability   | Lets the container run           |
-| ------------ | -------------------------------- |
-| `git-push`   | `git-push`, `git-doctor`         |
-| `pr-review`  | `pr-comments`, `pr-reply`        |
-| `pr-resolve` | `pr-resolve` (needs `pr-review`) |
+| Capability          | Lets the container run                  |
+| ------------------- | --------------------------------------- |
+| `git-push`          | `git-push`, `git-doctor`                |
+| `pr-review`         | `pr-comments`, `pr-reply`               |
+| `pr-resolve`        | `pr-resolve` (needs `pr-review`)        |
+| `pr-request-review` | `pr-request-review` (needs `pr-review`) |
 
 The bridge ships all of them and checks the grant on every call — see the
 [bridge README](../devc-bridge/README.md#capabilities). Only the **primary
