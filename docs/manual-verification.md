@@ -1664,3 +1664,50 @@ mounted)`. `devc build --bridge-git-push` then granted.
 `devc: git protection does not cover repos inside /workspaces/all (from …/work): app, host, lib, shapes — bind each repo as its own mount`;
 `devc status` prints
 `/workspaces/all: UNSUPPORTED — repos inside an umbrella mount are not protected: app, host, lib, shapes`.
+
+## 18. `devc-bridge-client-auto-mount` — macOS host with Docker
+
+devc mounts the host's installed container client read-only over the Feature's
+client directory. Use any project that opts into the bridge Feature (for
+example `.devc/devc.jsonc` with
+`{"features": {"ghcr.io/devc-tools/features/devc-bridge:0": {}}}`).
+
+### V1 — the merged config carries the mount
+
+After `curl -fsSL …/install.sh | sh`, `devc up --print-config` shows, after the
+`/run/devc-bridge` token mount:
+
+```text
+type=bind,source=${localEnv:HOME}/.config/devc-bridge/client,target=/usr/local/share/devc-bridge/client,readonly
+```
+
+### V2 — it is read-only in the container, and it is the host's release
+
+`devc build`, then inside the container:
+
+| Action                                                  | Result                             |
+| ------------------------------------------------------- | ---------------------------------- |
+| `grep /usr/local/share/devc-bridge/client /proc/mounts` | one line, with `ro` in its options |
+| `sudo touch /usr/local/share/devc-bridge/client/x`      | fails with `Read-only file system` |
+| `devc-bridge --version`                                 | the host's release version         |
+
+### V3 — client development needs no rebuild
+
+On the host, temporarily edit `VERSION` in `devc-bridge/client/version.ts`, then
+`cd devc-bridge/client && deno task build:client`. Inside the **same** running
+container, `devc-bridge --version` shows the edited version with no rebuild.
+Revert the edit (and rebuild or reinstall the client) afterwards.
+
+### V4 — both status commands name it
+
+- `devc status` prints
+  `client:    host copy, mounted read-only (~/.config/devc-bridge/client)`.
+- `devc-bridge status` prints
+  `client: host copy present (devc mounts it read-only into bridge-enabled containers)`.
+
+### V5 — the opt-out
+
+Add `"bridgeClientMount": false` to `.devc/devc.jsonc` and `devc build`.
+`grep /usr/local/share/devc-bridge/client /proc/mounts` inside the container
+prints nothing, and `devc status` prints
+`client:    Feature's copy — bridgeClientMount is false`.

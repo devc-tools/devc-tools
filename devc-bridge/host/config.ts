@@ -49,12 +49,12 @@ export interface Config {
    */
   builtin: string;
   /**
-   * Dev-override client dir: a Linux `devc-bridge` a container can be pointed at.
+   * The host's installed container client dir: a Linux `devc-bridge` for containers.
    *
-   * No longer how containers get their client — the devc-bridge Feature downloads that
-   * from the matching release into the image. What is written here only matters if a
-   * project bind-mounts this directory over /usr/local/share/devc-bridge/client, which
-   * is the developer path for testing a local build.
+   * The normal source for devc containers: devc bind-mounts this directory read-only over
+   * /usr/local/share/devc-bridge/client in every bridge-enabled container it starts, when the
+   * binary is a host-arch Linux ELF. Containers devc does not start keep the client the
+   * devc-bridge Feature downloads from the matching release into the image.
    *
    * Nothing here is built on the fly — this is a *destination* that the release
    * installer or `deno task build:client` writes to. Unlike `commands`, the binary is
@@ -148,9 +148,9 @@ export async function ensureConfig(cfg: Config): Promise<void> {
   await ensureDir(cfg.keys);
   await ensureDir(cfg.state);
   await ensureDir(cfg.commands);
-  // The dev-override destination. Created (never filled) so `build:client` and the release
-  // installer have somewhere to land; `start` deliberately builds no client — see
-  // `Config.client`.
+  // The installed client's destination, which devc mounts into its containers. Created (never
+  // filled) so `build:client` and the release installer have somewhere to land; `start`
+  // deliberately builds no client — see `Config.client`.
   await ensureDir(cfg.client);
   await seedCommands(cfg.commands);
   await materializeBuiltins(cfg.builtin);

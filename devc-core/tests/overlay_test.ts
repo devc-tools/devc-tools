@@ -5,6 +5,7 @@ import {
   assertStringIncludes,
 } from 'jsr:@std/assert@^1';
 import {
+  bridgeClientMount,
   bridgeMount,
   DEVC_CONFIG_FEATURE,
   devcContributions,
@@ -13,7 +14,9 @@ import {
   findUserOverlayPath,
   loadOverlayFile,
   loadOverlays,
+  readBridgeClientMount,
   resolveProjectOverlayTarget,
+  stripDevcOnlyKeys,
 } from '../overlay.ts';
 import { mergeConfigs } from '../merge.ts';
 import { fixture, withTemp } from './helpers.ts';
@@ -541,6 +544,71 @@ Deno.test("a hand-written /run/devc-bridge mount wins over devc's", () => {
     provisional,
   ]);
   assertEquals(merged.mounts, [own]);
+});
+
+// ── the bridge client mount ─────────────────────────────────────────────────────────────────
+
+const CLIENT_MOUNT =
+  'type=bind,source=${localEnv:HOME}/.config/devc-bridge/client,target=/usr/local/share/devc-bridge/client,readonly';
+
+Deno.test('bridgeClientMount is the directory, read-only, with ${localEnv:HOME} verbatim', () => {
+  assertEquals(bridgeClientMount(), CLIENT_MOUNT);
+});
+
+Deno.test('the client mount is appended after the token mount only when told it applies', () => {
+  const config = {
+    features: { 'ghcr.io/devc-tools/features/devc-bridge:0': {} },
+  };
+  assertEquals(devcContributions(config, true, 'proj-1a2b3c4d', true).mounts, [
+    bridgeMount('proj-1a2b3c4d'),
+    CLIENT_MOUNT,
+  ]);
+  assertEquals(
+    devcContributions(config, true, 'proj-1a2b3c4d', false).mounts,
+    [bridgeMount('proj-1a2b3c4d')],
+  );
+  // No bridge, no client mount — even when asked.
+  assertEquals(
+    devcContributions({}, true, 'proj-1a2b3c4d', true).mounts,
+    undefined,
+  );
+});
+
+Deno.test('bridgeClientMount loads as a devc-only key, without an unknown-key warning', async () => {
+  await withTemp(async (dir) => {
+    const path = `${dir}/devc.json`;
+    await write(path, JSON.stringify({ bridgeClientMount: false }));
+    const warnings = await captureStderr(async () => {
+      const overlay = await loadOverlayFile(path);
+      assertEquals(overlay.config.bridgeClientMount, false);
+    });
+    assertEquals(warnings, []);
+  });
+});
+
+Deno.test('a non-boolean bridgeClientMount fails the load, naming the file', async () => {
+  await withTemp(async (dir) => {
+    const path = `${dir}/devc.json`;
+    await write(path, JSON.stringify({ bridgeClientMount: 'no' }));
+    await assertRejects(
+      () => loadOverlayFile(path),
+      Error,
+      `bridgeClientMount in ${path} must be true or false`,
+    );
+  });
+});
+
+Deno.test('readBridgeClientMount: absent is true, booleans pass through', () => {
+  assertEquals(readBridgeClientMount(undefined, 'x'), true);
+  assertEquals(readBridgeClientMount(true, 'x'), true);
+  assertEquals(readBridgeClientMount(false, 'x'), false);
+});
+
+Deno.test('stripDevcOnlyKeys removes bridgeClientMount', () => {
+  assertEquals(
+    stripDevcOnlyKeys({ image: 'x', bridgeClientMount: false }),
+    { image: 'x' },
+  );
 });
 
 Deno.test('devcContributions never mutates the config it inspects', () => {

@@ -16,7 +16,7 @@
 // in 0.88.0's own container lookup). A config path that moved would strand a container per move,
 // permanently. So the path is keyed on the project, never on content.
 
-import { mkdir, rename, rm, writeFile } from 'node:fs/promises';
+import { mkdir, open, rename, rm, writeFile } from 'node:fs/promises';
 import process from 'node:process';
 import {
   ensureDefaultConfig,
@@ -27,6 +27,8 @@ import {
 import { type ConfigObject, mergeConfigs } from './merge.ts';
 import {
   assertGitProtectSupported,
+  BRIDGE_CLIENT_MOUNT_KEY,
+  BRIDGE_CLIENT_SUBPATH,
   classifyGitRows,
   declaresBridge,
   devcContributions,
@@ -35,6 +37,7 @@ import {
   gitProtectLayer,
   loadOverlays,
   type ProtectedRow,
+  readBridgeClientMount,
   readGitProtect,
   stripDevcOnlyKeys,
   type UnprotectedRow,
@@ -89,6 +92,106 @@ export interface MergedConfig {
    * core itself writes nothing under `~/.config/devc-bridge/`.
    */
   bridgeKey: string | null;
+  /**
+   * Whether devc mounts the host's installed devc-bridge client over the Feature's copy
+   * ({@link import("./overlay.ts").bridgeClientMount}): {@link BRIDGE_CLIENT_MOUNTED} when it
+   * does, otherwise the reason it does not (see {@link bridgeClientDecision}), and `null` when the
+   * bridge is not enabled at all. Carried so `devc status` can report it without re-deriving.
+   */
+  bridgeClient: string | null;
+}
+
+/** {@link MergedConfig.bridgeClient}'s value when the client mount is contributed. */
+export const BRIDGE_CLIENT_MOUNTED = 'mounted';
+
+/** ELF `e_machine` values devc knows, mapped to the `uname -m` spelling. */
+const ELF_MACHINES: Record<number, string> = {
+  0x3e: 'x86_64',
+  0xb7: 'aarch64',
+};
+
+/** The host arch in `uname -m` spelling; an unmapped `process.arch` is returned raw. */
+function hostArch(): string {
+  switch (process.arch) {
+    case 'x64':
+      return 'x86_64';
+    case 'arm64':
+      return 'aarch64';
+    default:
+      return process.arch;
+  }
+}
+
+/**
+ * The first 20 bytes of `path` if it is a regular file, else `null` (missing, a directory, or
+ * unreadable — every one of which means there is no host client to mount).
+ */
+async function readHeader(path: string): Promise<Uint8Array | null> {
+  let handle;
+  try {
+    handle = await open(path, 'r');
+    if (!(await handle.stat()).isFile()) return null;
+    const buf = new Uint8Array(20);
+    const { bytesRead } = await handle.read(buf, 0, 20, 0);
+    return buf.subarray(0, bytesRead);
+  } catch {
+    return null;
+  } finally {
+    await handle?.close().catch(() => {});
+  }
+}
+
+/**
+ * Decide whether the host client mount applies to `provisional` (the merge of the base config
+ * and both overlays). Returns `null` when the bridge is not declared,
+ * {@link BRIDGE_CLIENT_MOUNTED} when every condition holds, and otherwise the first failing
+ * condition's reason — the exact string `devc status` prints:
+ *
+ * 1. the merged Features declare devc-bridge;
+ * 2. `bridgeClientMount` is not `false`;
+ * 3. not a Docker Compose project (Compose drops `readonly`, which would leave one writable
+ *    binary shared by every container);
+ * 4. `<home>/.config/devc-bridge/client/devc-bridge` is a regular file (a missing bind source
+ *    fails `docker run`);
+ * 5. it starts with the ELF magic (a placeholder must not shadow a working client);
+ * 6. its `e_machine` matches the host arch.
+ *
+ * Reads the **host** file, in this process — never `uname -m`, which is the Feature's rule inside
+ * the image.
+ */
+export async function bridgeClientDecision(
+  provisional: ConfigObject,
+  home: string,
+): Promise<string | null> {
+  if (!declaresBridge(provisional)) return null;
+  if (
+    !readBridgeClientMount(
+      provisional[BRIDGE_CLIENT_MOUNT_KEY],
+      'the merged config',
+    )
+  ) {
+    return `${BRIDGE_CLIENT_MOUNT_KEY} is false`;
+  }
+  if (provisional.dockerComposeFile !== undefined) {
+    return 'Docker Compose project — readonly would be dropped';
+  }
+  const header = await readHeader(
+    `${home}/${BRIDGE_CLIENT_SUBPATH}/devc-bridge`,
+  );
+  if (header === null) {
+    return `no host client at ~/${BRIDGE_CLIENT_SUBPATH}/devc-bridge`;
+  }
+  if (
+    header.length < 20 || header[0] !== 0x7f || header[1] !== 0x45 ||
+    header[2] !== 0x4c || header[3] !== 0x46
+  ) {
+    return 'host client is not a Linux binary';
+  }
+  const machine = header[18] | (header[19] << 8);
+  const elfArch = ELF_MACHINES[machine] ?? `unknown(${machine})`;
+  const host = hostArch();
+  if (elfArch !== host) return `host client is ${elfArch}, host is ${host}`;
+  return BRIDGE_CLIENT_MOUNTED;
 }
 
 function homeDir(): string {
@@ -216,6 +319,8 @@ export interface MergedConfigOptions {
   templatesDir?: string;
   /** The global config directory the user-level `devc.json` is read from. */
   configDir?: string;
+  /** The home directory the host devc-bridge client is looked for under. */
+  home?: string;
 }
 
 /**
@@ -263,8 +368,17 @@ export async function ensureMergedConfig(
   );
   const key = await projectKey(localFolder);
   const bridgeKey = declaresBridge(provisional) ? key : null;
+  const bridgeClient = await bridgeClientDecision(
+    provisional,
+    opts.home ?? homeDir(),
+  );
   const merged = stripDevcOnlyKeys(mergeConfigs([
-    devcContributions(provisional, overlays.baselineFeatures, key),
+    devcContributions(
+      provisional,
+      overlays.baselineFeatures,
+      key,
+      bridgeClient === BRIDGE_CLIENT_MOUNTED,
+    ),
     gitProtectLayer(protectedRows),
     provisional,
   ]));
@@ -290,5 +404,6 @@ export async function ensureMergedConfig(
     protectedRows,
     unprotectedRows,
     bridgeKey,
+    bridgeClient,
   };
 }

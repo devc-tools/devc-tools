@@ -141,18 +141,18 @@ What still has to be handled, and how this plan handles it:
 
 ## Checklist
 
-- [ ] `devc-core/overlay.ts`: `bridgeClientMount` in `DEVC_ONLY_KEYS`, per-file validation, resolved-value reader; client mount string constant/function; `devcContributions` appends it when told the mount applies
-- [ ] `devc-core/merged_config.ts`: condition checks 2–6 (decision 3), new `MergedConfig` field (decision 6), test-only `home` option
-- [ ] `devc/bridge.ts`: `client:` status line and the live-mount suffix (decision 7)
-- [ ] `devc-bridge/host/main.ts`: three new `clientStatus` strings plus comments (decision 8)
-- [ ] `devc-bridge/host/config.ts`: `Config.client` doc comment and the `ensureDir(cfg.client)` comment
-- [ ] Tests: `devc-core/tests/overlay_test.ts`, `devc-core/tests/merged_config_test.ts`, `devc/tests/bridge_test.ts`, `devc-bridge/host/tests/start_test.ts` (assert `client: none on host`)
-- [ ] Docs: `devc/README.md` (new "The client mount" subsection after "The token mount"; `bridgeClientMount` in the overlay key list), `devc-bridge/README.md` (Setup step 1/2 comments and `status` example, "The container client" section, "Developing the client"), `features/devc-bridge/README.md` ("You can shadow the client" bullet: devc does this automatically), root `README.md` Install paragraph ("developer override only"), `install.sh` `DEVC_BRIDGE_CLIENT_DIR` header comment (decision 9)
-- [ ] `docs/manual-verification.md`: add the host checks from Validation below as a section
+- [x] `devc-core/overlay.ts`: `bridgeClientMount` in `DEVC_ONLY_KEYS`, per-file validation, resolved-value reader; client mount string constant/function; `devcContributions` appends it when told the mount applies
+- [x] `devc-core/merged_config.ts`: condition checks 2–6 (decision 3), new `MergedConfig` field (decision 6), test-only `home` option
+- [x] `devc/bridge.ts`: `client:` status line and the live-mount suffix (decision 7)
+- [x] `devc-bridge/host/main.ts`: three new `clientStatus` strings plus comments (decision 8)
+- [x] `devc-bridge/host/config.ts`: `Config.client` doc comment and the `ensureDir(cfg.client)` comment
+- [x] Tests: `devc-core/tests/overlay_test.ts`, `devc-core/tests/merged_config_test.ts`, `devc/tests/bridge_test.ts`, `devc-bridge/host/tests/start_test.ts` (assert `client: none on host`)
+- [x] Docs: `devc/README.md` (new "The client mount" subsection after "The token mount"; `bridgeClientMount` in the overlay key list), `devc-bridge/README.md` (Setup step 1/2 comments and `status` example, "The container client" section, "Developing the client"), `features/devc-bridge/README.md` ("You can shadow the client" bullet: devc does this automatically), root `README.md` Install paragraph ("developer override only"), `install.sh` `DEVC_BRIDGE_CLIENT_DIR` header comment (decision 9)
+- [x] `docs/manual-verification.md`: add the host checks from Validation below as a section
 
 ## Validation
 
-- [ ] `cd devc-core && deno task check && deno task test` passes, including new tests proving:
+- [x] `cd devc-core && deno task check && deno task test` passes, including new tests proving:
   - bridge Feature and a valid host-arch ELF at `<home>/.config/devc-bridge/client/devc-bridge` → merged `mounts` contains the exact string from decision 1 exactly once, alongside the token mount
   - each of conditions 2–6 failing on its own → no mount with target `/usr/local/share/devc-bridge/client`, and the `MergedConfig` field holds that row's exact reason
   - no bridge Feature → no client mount, field is `null`
@@ -160,10 +160,11 @@ What still has to be handled, and how this plan handles it:
   - `"bridgeClientMount": "no"` fails the merge with `bridgeClientMount in <path> must be true or false`
   - `bridgeClientMount` never appears in the written config
   - zero-config and project mode both get the mount, with the source still `${localEnv:HOME}/…`
-- [ ] `cd devc && deno task check && deno task test` passes. The status test covers the mounted line, one reason line, and the `run \`devc build\`` suffix (fake mount table without the target)
-- [ ] `cd devc-bridge/host && deno task check && deno task test` passes with `start_test.ts` asserting `client: none on host`
-- [ ] `deno fmt --check` is clean at the repo root
-- [ ] `grep -rn "client override" --exclude-dir=.git --exclude-dir=archived --exclude-dir=node_modules .` returns nothing outside `.plans/`
+  - _Note:_ every new test passes. `git_dirs_test.ts`'s `cliWorktreeMounts matches what the pinned devcontainer CLI computes` fails in this environment, identically on the untouched tree (the CLI exits 1 under Deno 2.9.7's `process.execPath`); unrelated to this plan.
+- [x] `cd devc && deno task check && deno task test` passes. The status test covers the mounted line, one reason line, and the `run \`devc build\`` suffix (fake mount table without the target)
+- [x] `cd devc-bridge/host && deno task check && deno task test` passes with `start_test.ts` asserting `client: none on host`
+- [x] `deno fmt --check` is clean at the repo root
+- [x] `grep -rn "client override" --exclude-dir=.git --exclude-dir=archived --exclude-dir=node_modules .` returns nothing outside `.plans/`
 - [ ] (user, macOS host) After `curl … install.sh | sh`, `devc up --print-config` in a bridge-enabled project shows the decision-1 mount
 - [ ] (user) `devc build`, then inside the container: `grep /usr/local/share/devc-bridge/client /proc/mounts` shows `ro`; `sudo touch /usr/local/share/devc-bridge/client/x` fails with `Read-only file system`; `devc-bridge --version` prints the host's release version
 - [ ] (user) On the host, `cd devc-bridge/client && deno task build:client` after a visible change (e.g. temporarily edit `VERSION` in `client/version.ts`). Inside the **same** running container, `devc-bridge --version` shows it with no rebuild. Revert the edit afterwards

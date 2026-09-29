@@ -73,7 +73,10 @@ Two details worth knowing:
   fine until the first `devc-bridge` call.
 - **You can shadow the client with a local build.** Bind-mount a locally built client
   _directory_ over `/usr/local/share/devc-bridge/client` and it replaces the downloaded
-  copy, live — the symlink follows it.
+  copy, live — the symlink follows it. devc does this automatically, read-only, with the
+  host's installed client (`~/.config/devc-bridge/client/`) — see
+  [devc's README](../../devc/README.md#the-client-mount). Everything else keeps the
+  downloaded copy.
 
 Smoke test, from inside the container:
 

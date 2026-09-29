@@ -86,10 +86,22 @@ export interface DevcOverlay {
  */
 export const GIT_PROTECT_KEY = 'gitProtect';
 
+/**
+ * The top-level key that turns the devc-bridge client mount ({@link bridgeClientMount}) off.
+ * Boolean, default `true`, and a pure opt-out: `true` never bypasses the other conditions the
+ * mount needs (see `merged_config.ts`).
+ *
+ * Rides the merged config exactly like {@link GIT_PROTECT_KEY} — ordinary layer precedence, the
+ * highest layer wins — rather than being a veto like `baselineFeatures`. {@link stripDevcOnlyKeys}
+ * takes it back out before the CLI sees the file.
+ */
+export const BRIDGE_CLIENT_MOUNT_KEY = 'bridgeClientMount';
+
 /** The devc-only keys an overlay may carry. Everything else must be a `devcontainer.json` key. */
 const DEVC_ONLY_KEYS = [
   'baselineFeatures',
   GIT_PROTECT_KEY,
+  BRIDGE_CLIENT_MOUNT_KEY,
   REPLACE_KEY,
 ] as const;
 
@@ -367,6 +379,9 @@ export async function loadOverlayFile(path: string): Promise<DevcOverlay> {
   if (raw[GIT_PROTECT_KEY] !== undefined) {
     readGitProtect(raw[GIT_PROTECT_KEY], path);
   }
+  if (raw[BRIDGE_CLIENT_MOUNT_KEY] !== undefined) {
+    readBridgeClientMount(raw[BRIDGE_CLIENT_MOUNT_KEY], path);
+  }
 
   const { baselineFeatures, ...config } = raw;
   return {
@@ -475,6 +490,43 @@ export function bridgeMount(key: string): string {
 /** The per-key token directories, relative to `$HOME`. See {@link bridgeMount}. */
 export const BRIDGE_KEYS_SUBPATH = '.config/devc-bridge/keys';
 
+/** The host's installed container client directory, relative to `$HOME`. */
+export const BRIDGE_CLIENT_SUBPATH = '.config/devc-bridge/client';
+
+/** Where the devc-bridge Feature installs its downloaded client, and where devc mounts over it. */
+export const BRIDGE_CLIENT_TARGET = '/usr/local/share/devc-bridge/client';
+
+/**
+ * The read-only bind mount of the host's installed container client
+ * (`~/.config/devc-bridge/client/`) over the Feature's own client directory. Contributed only when
+ * `merged_config.ts` has checked the host binary is there and runs in this container (see
+ * {@link import("./merged_config.ts").MergedConfig.bridgeClient}).
+ *
+ * **The directory, never the file.** `deno task build:client` and `install.sh` replace the binary
+ * by rename, which gives it a new inode; a file bind mount would keep showing the old one. A
+ * directory mount shows the new file, and the Feature's `/usr/local/bin/devc-bridge` symlink
+ * follows it. Read-only for the same reason as the token mount: a container must not be able to
+ * rewrite a binary every other container runs.
+ *
+ * The source is always the default path — `DEVC_BRIDGE_CLIENT_DIR` is not honored, matching
+ * what host `devc-bridge status` inspects.
+ */
+export function bridgeClientMount(): string {
+  return `type=bind,source=\${localEnv:HOME}/${BRIDGE_CLIENT_SUBPATH},target=${BRIDGE_CLIENT_TARGET},readonly`;
+}
+
+/**
+ * Read {@link BRIDGE_CLIENT_MOUNT_KEY} off a config or one overlay file's raw object (`where`
+ * names it in the error). Absent is `true`; anything but a boolean fails the merge.
+ */
+export function readBridgeClientMount(value: unknown, where: string): boolean {
+  if (value === undefined) return true;
+  if (typeof value === 'boolean') return value;
+  throw new Error(
+    `${BRIDGE_CLIENT_MOUNT_KEY} in ${where} must be true or false`,
+  );
+}
+
 /** Whether the merged Features opt into the devc-bridge Feature, by any spelling. */
 export function declaresBridge(config: ConfigObject): boolean {
   const declared = (typeof config.features === 'object' &&
@@ -499,11 +551,15 @@ export function declaresBridge(config: ConfigObject): boolean {
  * - **The bridge token mount** for `bridgeKey` ({@link bridgeMount}), when the merged Features opt
  *   into a Feature named `devc-bridge`. A mount the user declared on the same target wins through
  *   the merge's own target dedupe, so there is nothing to check for here.
+ * - **The bridge client mount** ({@link bridgeClientMount}), after the token mount, when the
+ *   bridge is declared and the caller has decided the mount applies (`clientMount`). Overridable
+ *   by target the same way.
  */
 export function devcContributions(
   config: ConfigObject,
   baselineFeatures: boolean,
   bridgeKey: string,
+  clientMount = false,
 ): ConfigObject {
   const layer: ConfigObject = {};
   const declared = (typeof config.features === 'object' &&
@@ -521,7 +577,9 @@ export function devcContributions(
   }
 
   if (declaresBridge(config)) {
-    layer.mounts = [bridgeMount(bridgeKey)];
+    layer.mounts = clientMount
+      ? [bridgeMount(bridgeKey), bridgeClientMount()]
+      : [bridgeMount(bridgeKey)];
   }
 
   return layer;
@@ -958,8 +1016,17 @@ export function gitProtectLayer(
 
 /** `config` without the devc-only keys, ready to hand to the devcontainer CLI. */
 export function stripDevcOnlyKeys(config: ConfigObject): ConfigObject {
-  if (config[GIT_PROTECT_KEY] === undefined) return config;
-  const { [GIT_PROTECT_KEY]: _gitProtect, ...rest } = config;
+  if (
+    config[GIT_PROTECT_KEY] === undefined &&
+    config[BRIDGE_CLIENT_MOUNT_KEY] === undefined
+  ) {
+    return config;
+  }
+  const {
+    [GIT_PROTECT_KEY]: _gitProtect,
+    [BRIDGE_CLIENT_MOUNT_KEY]: _bridgeClientMount,
+    ...rest
+  } = config;
   return rest;
 }
 

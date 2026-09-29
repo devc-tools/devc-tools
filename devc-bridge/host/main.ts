@@ -238,11 +238,10 @@ async function stop(cfg: Config): Promise<void> {
 }
 
 async function status(cfg: Config): Promise<void> {
-  // Report the dev-override client too. It no longer answers "can a container reach the
-  // bridge" — the Feature ships its own client now — but a local build sitting here does
-  // change what a container runs when it is mounted, so it should not be invisible. With
-  // no menu-bar icon by default, the idle/active suffix below is also *the* way to answer
-  // "is it doing anything".
+  // Report the host's installed container client too: devc mounts it read-only into every
+  // bridge-enabled container it starts, so whether it is here decides which client those
+  // containers run (theirs from the Feature, or this one). With no menu-bar icon by default,
+  // the idle/active suffix below is also *the* way to answer "is it doing anything".
   const client = await clientStatus(cfg);
   const pid = await readPid(cfg);
   if (pid !== null && await pidAlive(pid)) {
@@ -365,16 +364,18 @@ export function spawnDetached(argv: string[], logfile: string): void {
 const PLACEHOLDER_MARKER = 'devc-bridge: no client binary';
 
 /**
- * A line describing the *dev override* client, which is all this directory is now.
+ * A line describing the host's installed container client — the normal source for devc
+ * containers, not a developer-only override.
  *
- * Containers no longer get their client from here: the devc-bridge Feature downloads it
- * from the matching release at image build time, so the host has no say in what a
- * container runs. What remains is the developer path — `deno task build:client` writes
- * here, and bind-mounting this directory over /usr/local/share/devc-bridge/client in a
- * container shadows the downloaded copy with a local build.
+ * The installer puts the client here by default, and devc bind-mounts this directory
+ * read-only over /usr/local/share/devc-bridge/client in every bridge-enabled container it
+ * starts (when the binary is a host-arch Linux ELF and the project is not Compose). So a devc
+ * container runs the client that matches this bridge, and `deno task build:client` replacing
+ * it is seen live, with no image rebuild. Containers devc does not start keep the client the
+ * devc-bridge Feature downloaded at image build time.
  *
- * Reported anyway because "which client is in play" is still a host-answerable question,
- * and an override that is silently in effect is worse than one that is named.
+ * Reported because "which client is in play" is a host-answerable question, and a client that
+ * is silently in effect is worse than one that is named.
  *
  * Detected by content, not size or mtime: a leftover placeholder is a tiny `#!/bin/sh`
  * script and a real client is a compiled binary, so the shebang plus its own message is
@@ -388,13 +389,13 @@ async function clientStatus(cfg: Config): Promise<string> {
     const n = await file.read(buf) ?? 0;
     head = buf.subarray(0, n);
   } catch {
-    return "client override: none (containers use the Feature's client)";
+    return "client: none on host (containers use the Feature's client)";
   }
   const text = new TextDecoder('utf-8', { fatal: false }).decode(head);
   if (text.startsWith('#!') && text.includes(PLACEHOLDER_MARKER)) {
-    return 'client override: none (leftover placeholder — safe to delete)';
+    return 'client: none (leftover placeholder — safe to delete)';
   }
-  return "client override: present (shadows the Feature's client where mounted)";
+  return 'client: host copy present (devc mounts it read-only into bridge-enabled containers)';
 }
 
 async function readPid(cfg: Config): Promise<number | null> {

@@ -285,7 +285,7 @@ _never_ into the project's own `devcontainer.json`. A checkout without `devc`
 still builds and runs from the standard config; it just does not get the
 overlay's contributions. Un-augmented, not broken.
 
-**An overlay may set any `devcontainer.json` key**, plus one devc-only key:
+**An overlay may set any `devcontainer.json` key**, plus devc's own keys:
 
 ```jsonc
 {
@@ -309,7 +309,12 @@ overlay's contributions. Un-augmented, not broken.
   // today — see "Project post-create hook" below). Default true. Unlike everything
   // else, this one is a *veto*: a user-level `false` wins even when a project sets it
   // back to `true` — see below.
-  "baselineFeatures": true
+  "baselineFeatures": true,
+
+  // devc-only. false stops devc mounting the host's devc-bridge client into
+  // bridge-enabled containers — see "The client mount" below. Default true; the
+  // highest layer wins. Any non-boolean fails the command.
+  "bridgeClientMount": true
 }
 ```
 
@@ -926,9 +931,11 @@ in with the same reference in its own `devcontainer.json` `features` block.
 
 The Feature installs the client: it downloads the arch-matched Linux binary from
 the matching release, verifies it, and symlinks `/usr/local/bin/devc-bridge` at
-it. Nothing is mounted for the client, and nothing is compiled in the container.
-See [the Feature's README](../features/devc-bridge/README.md) for what it does
-and why.
+it. Nothing is compiled in the container. devc then mounts the **host's**
+installed client over that download when it can — see
+[The client mount](#the-client-mount). See
+[the Feature's README](../features/devc-bridge/README.md) for what the Feature
+does and why.
 
 ### The token mount
 
@@ -981,6 +988,57 @@ installs its own.
 
 A container created by an older devc also still mounts all of `run/`, and gets
 the shared token until it is recreated.
+
+### The client mount
+
+The installer puts the Linux container client in
+`~/.config/devc-bridge/client/`, and devc bind-mounts that directory
+**read-only** over the Feature's client directory in every bridge-enabled
+container it starts, after the token mount:
+
+```jsonc
+"type=bind,source=${localEnv:HOME}/.config/devc-bridge/client,target=/usr/local/share/devc-bridge/client,readonly"
+```
+
+So a devc container runs the client that matches your host bridge, not the one
+the image was built with, and developing the client is just
+`deno task build:client` on the host: every devc container sees the new binary
+live, with no image rebuild. The directory is mounted, not the file, because
+both `build:client` and `install.sh` replace the binary by rename (a new inode a
+file mount would never show); the Feature's `/usr/local/bin/devc-bridge` symlink
+follows it.
+
+The mount is contributed only when all of these hold, checked on the host at
+merge time. The first one that fails is the reason `devc status` prints:
+
+| Condition                                                               | Reason when it fails                                         |
+| ----------------------------------------------------------------------- | ------------------------------------------------------------ |
+| `bridgeClientMount` is not `false`                                      | `bridgeClientMount is false`                                 |
+| Not a Docker Compose project (Compose drops `readonly`)                 | `Docker Compose project — readonly would be dropped`         |
+| `~/.config/devc-bridge/client/devc-bridge` exists and is a regular file | `no host client at ~/.config/devc-bridge/client/devc-bridge` |
+| It is a Linux ELF binary (a leftover placeholder is not)                | `host client is not a Linux binary`                          |
+| Its ELF arch matches the host's (`x86_64` / `aarch64`)                  | `host client is <elf-arch>, host is <host-arch>`             |
+
+When any fails, the container keeps the client the Feature downloaded. Only the
+default directory is ever mounted: a client installed with
+`DEVC_BRIDGE_CLIENT_DIR` pointing elsewhere is not. Non-devc consumers are
+unaffected: they always run the Feature's downloaded client.
+
+- **Opt out** with `"bridgeClientMount": false` in any `devc.json` overlay, then
+  `devc build`. It is a pure opt-out: `true` does not bypass the other
+  conditions.
+- **Override** with a mount of your own on target
+  `/usr/local/share/devc-bridge/client`. It wins through the `mounts` target
+  dedupe, like any other devc contribution.
+- `devc status` prints either
+  `client:    host copy, mounted read-only (~/.config/devc-bridge/client)` or
+  `client:    Feature's copy — <reason>`. Mounts are fixed when a container is
+  created, so a container that existed before you installed the client says
+  `— not in this container yet; run \`devc build\``.
+- **Deleting the host client after a container was created with the mount**
+  leaves `/usr/local/bin/devc-bridge` dangling in that container, because the
+  mount hides the downloaded copy. Reinstall it, or `devc build` (the merge then
+  skips the mount).
 
 ### Per-container identity and git push
 

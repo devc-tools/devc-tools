@@ -119,9 +119,9 @@ Deno.test('start: detaches, comes up, and stop takes it down', async () => {
     assertEquals(status.code, 0, status.stderr);
     assertStringIncludes(status.stdout, `running (pid ${pid})`);
     assertStringIncludes(status.stdout, 'idle');
-    // The dev-override client, which is all this directory reports now — containers get
-    // their client from the Feature, not from the host.
-    assertStringIncludes(status.stdout, 'client override: none');
+    // The host's installed client dir is empty in a fresh base, so containers fall back to
+    // the Feature's client.
+    assertStringIncludes(status.stdout, 'client: none on host');
 
     const stopped = await cli(base, port, 'stop');
     assertEquals(stopped.code, 0, stopped.stderr);

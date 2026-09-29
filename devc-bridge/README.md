@@ -112,16 +112,19 @@ power _and_ an external display to avoid. Verify what is held with
 
 ```sh
 # 1. Install. Puts the host `devc-bridge` in ~/.local/bin, plus a copy of the Linux
-#    *container client* in ~/.config/devc-bridge/client/ (a developer override —
-#    containers get their own from the Feature). No Deno, no sudo.
+#    *container client* in ~/.config/devc-bridge/client/, which devc mounts read-only
+#    into every bridge-enabled container it starts (other containers use the Feature's
+#    own). No Deno, no sudo.
 curl -fsSL https://github.com/devc-tools/devc-tools/releases/latest/download/install.sh | sh
 
 # 2. Start it in the background. First run auto-creates ~/.config/devc-bridge/ (run/,
 #    keys/, state/, commands/, client/), seeds the example command scripts, and writes the
 #    shared token. This is also what creates the run/ dir a non-devc devcontainer.json
-#    bind-mounts; devc creates its own per-workspace keys/<key>/ dirs.
+#    bind-mounts; devc creates its own per-workspace keys/<key>/ dirs. `status` names
+#    the installed client that devc containers will run.
 devc-bridge start                   # -> started (pid N)
-devc-bridge status                  # -> running (pid N) — idle / client override: none
+devc-bridge status                  # -> running (pid N) — idle
+                                    #    client: host copy present (devc mounts it read-only into bridge-enabled containers)
 
 # 3. Add the Feature *and* the token mount to a repo's devcontainer.json, then bring it
 #    up. See ../features/devc-bridge/README.md for the two lines.
@@ -240,18 +243,25 @@ it. So a project that declares the mount on a host with no
 (devc creates its `keys/<key>/` source itself, so a devc project has no such
 prerequisite.)
 
-**The client is downloaded by the Feature, not built on the fly and not taken
-from the host.** `devc-bridge start` never compiles one, and what sits in
-`~/.config/devc-bridge/client/devc-bridge` no longer reaches any container by
-itself — it is a _developer override_, used only when a project bind-mounts that
-directory over `/usr/local/share/devc-bridge/client`. Two paths write to it:
+**The Feature downloads a client; devc containers run the host's.** The Feature
+always downloads its pinned client at image build time, and that is what every
+container devc does not start runs. devc bind-mounts
+`~/.config/devc-bridge/client/` **read-only** over
+`/usr/local/share/devc-bridge/client` in every bridge-enabled container it
+starts — when the binary there is a host-arch Linux ELF and the project is not
+Docker Compose — so a devc container runs the client that matches this bridge
+(see [devc's README](../devc/README.md#the-client-mount), including the
+`"bridgeClientMount": false` opt-out). `devc-bridge start` never compiles one.
+Two paths write to that directory:
 
 | Path         | How                                                                                 |
 | ------------ | ----------------------------------------------------------------------------------- |
 | Typical user | `install.sh` drops the prebuilt Linux client there (see [Setup](#setup-macos-host)) |
 | Developer    | `cd client && deno task build:client` cross-compiles to the same path               |
 
-Both honor `DEVC_BRIDGE_CLIENT_DIR` if you need the destination somewhere else.
+Both honor `DEVC_BRIDGE_CLIENT_DIR` if you need the destination somewhere else,
+but devc mounts only the default directory: a client installed elsewhere is not
+mounted into containers.
 
 Both **overwrite unconditionally** — note the asymmetry with
 `~/.config/devc-bridge/commands/`, which is yours to edit and is never
@@ -267,14 +277,17 @@ the other arch is out of scope — rebuild with `DEVC_BRIDGE_CLIENT_TARGET` set 
 you need that (`deno task build:client` only), or fetch the other archive by
 hand.
 
-Because the mount is a live _directory_ mount and the symlink is made
-unconditionally, installing the client while a container is already running is
-enough: the link resolves on the next invocation, with no rebuild and nothing to
-re-run inside. Until then, devc's placeholder makes the gap legible — the
-container prints `devc-bridge: no client binary …` and exits 127, and
-`devc-bridge status` on the host reports `client: not installed (placeholder)`.
-(A standalone Feature project never reaches that state: with no placeholder to
-mount, it fails at create instead.)
+Because the mount is a live _directory_ mount and the Feature's symlink points
+into it, replacing the client on the host (`build:client`, or re-running the
+installer) is seen by every running devc container on its next invocation, with
+no rebuild and nothing to re-run inside. Mounts are fixed at create time,
+though: a container created before the client was installed keeps the Feature's
+copy until `devc build` recreates it (`devc status` says so). Deleting the host
+client after a container was created with the mount leaves its
+`/usr/local/bin/devc-bridge` dangling — reinstall, or `devc build`.
+`devc-bridge status` on the host reports what is there: `client: none on host`,
+`client: none (leftover placeholder — safe to delete)` for a file an older devc
+wrote, or `client: host copy present (…)`.
 
 > **Upgrading from per-repo wiring:** if you previously added the run-dir mount
 > to a `devc.json` overlay, copied the two bridge mounts into a project's
@@ -285,11 +298,14 @@ mount, it fails at create instead.)
 
 ### Developing the client
 
-Work on `client/devc-bridge.ts` through `deno task build:client` (or run the
-host side from source via `source scripts/bash_aliases.sh`). A compiled host
-binary has **no connection to the working tree**: once the container's client
-comes from the mount, editing the source and restarting silently keeps running
-the previously built client. That is the same rule the host binary follows —
+Work on `client/devc-bridge.ts` and run `cd client && deno task build:client`
+on the host (or run the host side from source via
+`source scripts/bash_aliases.sh`). That is the whole loop: the build replaces
+`~/.config/devc-bridge/client/devc-bridge`, and every devc container sees the new
+binary through its read-only mount on the next call — no image rebuild, no
+release. A compiled binary has **no connection to the working tree**, though:
+editing the source without re-running `build:client` silently keeps running the
+previously built client. That is the same rule the host binary follows —
 `start` never rebuilds anything — and keeps one answer to "where did this binary
 come from".
 

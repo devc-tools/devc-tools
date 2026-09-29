@@ -130,6 +130,7 @@ async function withFixture(fn: (f: Fixture) => Promise<void>): Promise<void> {
           cacheRoot: `${dir}/cache`,
           templatesDir: `${dir}/no-templates`,
           configDir: `${dir}/config`,
+          home,
         });
       },
       deps: (mounts) => ({
@@ -517,6 +518,94 @@ Deno.test('status names a malformed policy rather than showing a pin', async () 
   });
 });
 
+/** Install a host-arch ELF header as the host client under `home`. */
+async function installHostClient(home: string): Promise<void> {
+  const bytes = new Uint8Array(64);
+  bytes.set([0x7f, 0x45, 0x4c, 0x46, 2, 1, 1]);
+  bytes[18] = Deno.build.arch === 'aarch64' ? 0xb7 : 0x3e;
+  const dir = `${home}/.config/devc-bridge/client`;
+  await Deno.mkdir(dir, { recursive: true });
+  await Deno.writeFile(`${dir}/devc-bridge`, bytes);
+}
+
+const CLIENT_MOUNTED =
+  '  client:    host copy, mounted read-only (~/.config/devc-bridge/client)';
+
+Deno.test('status: the client line follows the token line, host copy when mounted', async () => {
+  await withFixture(async (f) => {
+    await installHostClient(f.home);
+    const merged = await f.merged();
+    const withClient: ContainerMount[] = [...f.frozen, {
+      type: 'bind',
+      source: `${f.home}/.config/devc-bridge/client`,
+      destination: '/usr/local/share/devc-bridge/client',
+      rw: false,
+    }];
+    const lines = await bridgeStatusLines(
+      merged,
+      f.project,
+      f.deps(withClient),
+    );
+    const token = lines.findIndex((l) => l.startsWith('  token:'));
+    assertEquals(lines[token + 1], CLIENT_MOUNTED);
+
+    // No container at all: nothing to compare against, so no suffix.
+    assert(
+      (await bridgeStatusLines(merged, f.project, f.deps(null))).includes(
+        CLIENT_MOUNTED,
+      ),
+    );
+  });
+});
+
+Deno.test('status: an existing container without the client mount is told to rebuild', async () => {
+  await withFixture(async (f) => {
+    await installHostClient(f.home);
+    const merged = await f.merged();
+    const lines = await bridgeStatusLines(
+      merged,
+      f.project,
+      f.deps(f.frozen),
+    );
+    assert(
+      lines.includes(
+        `${CLIENT_MOUNTED} — not in this container yet; run \`devc build\``,
+      ),
+      lines.join('\n'),
+    );
+  });
+});
+
+Deno.test("status: the Feature's copy, with the reason, when devc does not mount", async () => {
+  await withFixture(async (f) => {
+    await installHostClient(f.home);
+    const merged = await f.merged({ bridgeClientMount: false });
+    const lines = await bridgeStatusLines(
+      merged,
+      f.project,
+      f.deps(f.frozen),
+    );
+    assert(
+      lines.includes(
+        "  client:    Feature's copy — bridgeClientMount is false",
+      ),
+      lines.join('\n'),
+    );
+  });
+});
+
+Deno.test('status: no client line when the bridge is not enabled', async () => {
+  await withFixture(async (f) => {
+    const merged = await f.merged();
+    const lines = await bridgeStatusLines(
+      { ...merged, bridgeKey: null, bridgeClient: null },
+      f.project,
+      f.deps(null),
+    );
+    assertEquals(lines.some((l) => l.includes('client:')), false);
+  });
+});
+
 // ── linked worktrees (plan devc-git-protect-git-dirs § Step 5) ──────────────────────────────
 
 /**
@@ -541,6 +630,7 @@ async function worktreeOf(f: Fixture) {
     cacheRoot: `${f.dir}/cache`,
     templatesDir: `${f.dir}/no-templates`,
     configDir: `${f.dir}/config`,
+    home: f.home,
   });
   const keyDir = bridgePaths(f.home, merged.bridgeKey!).keyDir;
   const gitDir = '/workspaces/proj/.git';

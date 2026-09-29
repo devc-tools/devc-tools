@@ -10,7 +10,7 @@ import {
   projectKey,
 } from '../merged_config.ts';
 import { containerNameForLocalFolder } from '../container.ts';
-import { DEVC_CONFIG_FEATURE } from '../overlay.ts';
+import { bridgeMount, DEVC_CONFIG_FEATURE } from '../overlay.ts';
 import { withTemp } from './helpers.ts';
 
 /** Write `text` to `path`, creating parent directories. */
@@ -19,11 +19,16 @@ async function write(path: string, text: string): Promise<void> {
   await Deno.writeTextFile(path, text);
 }
 
-/** A project dir, a cache root and a config dir under one temp dir. */
+interface Dirs {
+  project: string;
+  cacheRoot: string;
+  configDir: string;
+  home: string;
+}
+
+/** A project dir, a cache root, a config dir and a home dir under one temp dir. */
 async function withProject<T>(
-  fn: (
-    dirs: { project: string; cacheRoot: string; configDir: string },
-  ) => Promise<T>,
+  fn: (dirs: Dirs) => Promise<T>,
 ): Promise<T> {
   return await withTemp(async (dir) => {
     const project = `${dir}/proj`;
@@ -32,18 +37,18 @@ async function withProject<T>(
       project,
       cacheRoot: `${dir}/cache`,
       configDir: `${dir}/config`,
+      home: `${dir}/home`,
     });
   });
 }
 
 /** `ensureMergedConfig` with every real path redirected into the temp dirs. */
-function merge(
-  dirs: { project: string; cacheRoot: string; configDir: string },
-) {
+function merge(dirs: Dirs) {
   return ensureMergedConfig(dirs.project, {
     cacheRoot: dirs.cacheRoot,
     templatesDir: `${dirs.cacheRoot}/no-templates`,
     configDir: dirs.configDir,
+    home: dirs.home,
   });
 }
 
@@ -349,6 +354,244 @@ Deno.test('no bridge opt-in, no token mount', async () => {
     const mounts = (merged.config.mounts ?? []) as string[];
     assertEquals(mounts.filter((m) => m.includes('/run/devc-bridge')), []);
     assertEquals(merged.bridgeKey, null);
+  });
+});
+
+// ── the devc-bridge client mount ────────────────────────────────────────────────────────────
+
+const BRIDGE_FEATURE = 'ghcr.io/devc-tools/features/devc-bridge:0';
+const CLIENT_TARGET = '/usr/local/share/devc-bridge/client';
+const CLIENT_MOUNT =
+  'type=bind,source=${localEnv:HOME}/.config/devc-bridge/client,target=/usr/local/share/devc-bridge/client,readonly';
+
+/** ELF `e_machine` for this host, and one for a host it is not. */
+const HOST_MACHINE = Deno.build.arch === 'aarch64' ? 0xb7 : 0x3e;
+const OTHER_MACHINE = HOST_MACHINE === 0xb7 ? 0x3e : 0xb7;
+const HOST_ARCH = Deno.build.arch === 'aarch64' ? 'aarch64' : 'x86_64';
+const OTHER_ARCH = HOST_ARCH === 'aarch64' ? 'x86_64' : 'aarch64';
+
+/** The first bytes of an ELF executable for `machine` — all the check ever reads. */
+function elf(machine: number): Uint8Array {
+  const bytes = new Uint8Array(64);
+  bytes.set([0x7f, 0x45, 0x4c, 0x46, 2, 1, 1]);
+  bytes[18] = machine & 0xff;
+  bytes[19] = machine >> 8;
+  return bytes;
+}
+
+/** Install `bytes` as the host client under `dirs.home`. */
+async function installClient(dirs: Dirs, bytes: Uint8Array): Promise<void> {
+  const dir = `${dirs.home}/.config/devc-bridge/client`;
+  await Deno.mkdir(dir, { recursive: true });
+  await Deno.writeFile(`${dir}/devc-bridge`, bytes);
+}
+
+/** A project-mode config opting into the bridge, plus `extra` on the base. */
+async function bridgeProject(
+  dirs: Dirs,
+  extra: Record<string, unknown> = {},
+): Promise<void> {
+  await write(
+    `${dirs.project}/.devcontainer/devcontainer.json`,
+    JSON.stringify({
+      image: 'x',
+      features: { [BRIDGE_FEATURE]: {} },
+      ...extra,
+    }),
+  );
+}
+
+function clientMounts(config: Record<string, unknown>): unknown[] {
+  return ((config.mounts ?? []) as unknown[]).filter((m) =>
+    (typeof m === 'string' ? m : JSON.stringify(m)).includes(
+      `target=${CLIENT_TARGET}`,
+    ) ||
+    (typeof m === 'object' && m !== null &&
+      (m as Record<string, unknown>).target === CLIENT_TARGET)
+  );
+}
+
+Deno.test('a host-arch ELF client is mounted read-only, once, after the token mount', async () => {
+  await withProject(async (dirs) => {
+    await bridgeProject(dirs);
+    await installClient(dirs, elf(HOST_MACHINE));
+    const merged = await merge(dirs);
+    const mounts = merged.config.mounts as string[];
+    assertEquals(mounts.filter((m) => m === CLIENT_MOUNT).length, 1);
+    const token = bridgeMount(await projectKey(dirs.project));
+    assert(mounts.includes(token), mounts.join('\n'));
+    assert(mounts.indexOf(token) < mounts.indexOf(CLIENT_MOUNT));
+    assertEquals(merged.bridgeClient, 'mounted');
+  });
+});
+
+Deno.test('zero-config gets the client mount too, source still ${localEnv:HOME}', async () => {
+  await withProject(async (dirs) => {
+    await write(
+      `${dirs.project}/.devc/devc.json`,
+      JSON.stringify({ features: { [BRIDGE_FEATURE]: {} } }),
+    );
+    await installClient(dirs, elf(HOST_MACHINE));
+    const merged = await merge(dirs);
+    assertEquals(merged.mode, 'zero-config');
+    assertEquals(clientMounts(merged.config), [CLIENT_MOUNT]);
+    assertEquals(merged.bridgeClient, 'mounted');
+    const written = JSON.parse(await Deno.readTextFile(merged.path));
+    assertEquals(clientMounts(written), [CLIENT_MOUNT]);
+  });
+});
+
+Deno.test('condition 2: bridgeClientMount false skips the mount', async () => {
+  await withProject(async (dirs) => {
+    await bridgeProject(dirs);
+    await installClient(dirs, elf(HOST_MACHINE));
+    await write(
+      `${dirs.project}/.devc/devc.json`,
+      '{"bridgeClientMount":false}',
+    );
+    const merged = await merge(dirs);
+    assertEquals(clientMounts(merged.config), []);
+    assertEquals(merged.bridgeClient, 'bridgeClientMount is false');
+  });
+});
+
+Deno.test('bridgeClientMount: the highest layer wins, it is not a veto', async () => {
+  await withProject(async (dirs) => {
+    await bridgeProject(dirs);
+    await installClient(dirs, elf(HOST_MACHINE));
+    await write(`${dirs.configDir}/devc.json`, '{"bridgeClientMount":false}');
+    await write(
+      `${dirs.project}/.devc/devc.json`,
+      '{"bridgeClientMount":true}',
+    );
+    const merged = await merge(dirs);
+    assertEquals(merged.bridgeClient, 'mounted');
+    assertEquals(clientMounts(merged.config), [CLIENT_MOUNT]);
+  });
+});
+
+Deno.test('condition 3: a Docker Compose project never gets the mount', async () => {
+  await withProject(async (dirs) => {
+    await bridgeProject(dirs, {
+      image: undefined,
+      dockerComposeFile: 'docker-compose.yml',
+      service: 'app',
+      workspaceFolder: '/src',
+    });
+    await installClient(dirs, elf(HOST_MACHINE));
+    await write(`${dirs.project}/.devc/devc.json`, '{"gitProtect":false}');
+    const merged = await merge(dirs);
+    assertEquals(clientMounts(merged.config), []);
+    assertEquals(
+      merged.bridgeClient,
+      'Docker Compose project — readonly would be dropped',
+    );
+  });
+});
+
+Deno.test('condition 4: no host client (missing, or a directory) skips the mount', async () => {
+  await withProject(async (dirs) => {
+    await bridgeProject(dirs);
+    const reason = 'no host client at ~/.config/devc-bridge/client/devc-bridge';
+    let merged = await merge(dirs);
+    assertEquals(clientMounts(merged.config), []);
+    assertEquals(merged.bridgeClient, reason);
+
+    await Deno.mkdir(`${dirs.home}/.config/devc-bridge/client/devc-bridge`, {
+      recursive: true,
+    });
+    merged = await merge(dirs);
+    assertEquals(clientMounts(merged.config), []);
+    assertEquals(merged.bridgeClient, reason);
+  });
+});
+
+Deno.test('condition 5: a placeholder that is not an ELF skips the mount', async () => {
+  await withProject(async (dirs) => {
+    await bridgeProject(dirs);
+    await installClient(
+      dirs,
+      new TextEncoder().encode('#!/bin/sh\necho placeholder\n'),
+    );
+    const merged = await merge(dirs);
+    assertEquals(clientMounts(merged.config), []);
+    assertEquals(merged.bridgeClient, 'host client is not a Linux binary');
+  });
+});
+
+Deno.test('condition 6: an ELF for another arch skips the mount', async () => {
+  await withProject(async (dirs) => {
+    await bridgeProject(dirs);
+    await installClient(dirs, elf(OTHER_MACHINE));
+    let merged = await merge(dirs);
+    assertEquals(clientMounts(merged.config), []);
+    assertEquals(
+      merged.bridgeClient,
+      `host client is ${OTHER_ARCH}, host is ${HOST_ARCH}`,
+    );
+
+    await installClient(dirs, elf(40)); // EM_ARM
+    merged = await merge(dirs);
+    assertEquals(clientMounts(merged.config), []);
+    assertEquals(
+      merged.bridgeClient,
+      `host client is unknown(40), host is ${HOST_ARCH}`,
+    );
+  });
+});
+
+Deno.test('no bridge Feature, no client mount, and bridgeClient is null', async () => {
+  await withProject(async (dirs) => {
+    await write(
+      `${dirs.project}/.devcontainer/devcontainer.json`,
+      '{"image":"x"}',
+    );
+    await installClient(dirs, elf(HOST_MACHINE));
+    const merged = await merge(dirs);
+    assertEquals(clientMounts(merged.config), []);
+    assertEquals(merged.bridgeClient, null);
+  });
+});
+
+Deno.test("a user mount on the client target wins over devc's", async () => {
+  await withProject(async (dirs) => {
+    const own =
+      'type=bind,source=/opt/my-client,target=/usr/local/share/devc-bridge/client,readonly';
+    await bridgeProject(dirs);
+    await write(
+      `${dirs.project}/.devc/devc.json`,
+      JSON.stringify({ mounts: [own] }),
+    );
+    await installClient(dirs, elf(HOST_MACHINE));
+    const merged = await merge(dirs);
+    assertEquals(clientMounts(merged.config), [own]);
+  });
+});
+
+Deno.test('a non-boolean bridgeClientMount fails the merge, naming the file', async () => {
+  await withProject(async (dirs) => {
+    await bridgeProject(dirs);
+    const overlay = `${dirs.project}/.devc/devc.json`;
+    await write(overlay, '{"bridgeClientMount":"no"}');
+    await assertRejects(
+      () => merge(dirs),
+      Error,
+      `bridgeClientMount in ${overlay} must be true or false`,
+    );
+  });
+});
+
+Deno.test('bridgeClientMount never reaches the written config', async () => {
+  await withProject(async (dirs) => {
+    await bridgeProject(dirs);
+    await write(
+      `${dirs.project}/.devc/devc.json`,
+      '{"bridgeClientMount":false}',
+    );
+    const merged = await merge(dirs);
+    assertEquals('bridgeClientMount' in merged.config, false);
+    const written = JSON.parse(await Deno.readTextFile(merged.path));
+    assertEquals('bridgeClientMount' in written, false);
   });
 });
 

@@ -12,10 +12,11 @@ curl -fsSL https://github.com/devc-tools/devc-tools/releases/latest/download/ins
 Installs the prebuilt binaries for your machine into `~/.local/bin` — **no Deno
 needed**, and never `sudo`. On macOS that is `devc` and the `devc-bridge` host
 CLI; on Linux, `devc`. Both also get a copy of the Linux `devc-bridge`
-**container client** in `~/.config/devc-bridge/client/`, which is a _developer
-override_ only — a container with the
-[bridge Feature](features/devc-bridge/README.md) downloads its own client at
-image build time rather than mounting one from the host.
+**container client** in `~/.config/devc-bridge/client/`, which devc mounts
+read-only into every bridge-enabled container it starts, so those containers run
+the client that matches your host bridge. Any other container with the
+[bridge Feature](features/devc-bridge/README.md) uses the client the Feature
+downloads at image build time.
 
 Every archive is checked against the release's own `checksums.txt` before
 anything is written. The script itself is a release asset, so the URL above

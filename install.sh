@@ -20,7 +20,9 @@
 #                      where the container client goes      (default
 #                      ~/.config/devc-bridge/client) — the same variable
 #                      devc-bridge/client/build-client.sh honors, so the developer and
-#                      installer paths stay in step
+#                      installer paths stay in step. devc mounts only the default
+#                      directory, so a client installed elsewhere is not mounted
+#                      into containers
 #   DEVC_RELEASE_BASE  release URL base (mirrors, and the test harness's file:// fixture)
 #   DEVC_API_LATEST    latest-release API URL, used only by an unstamped copy
 #

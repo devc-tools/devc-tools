@@ -34,10 +34,12 @@ import {
   listContainerFolders,
 } from '@devc-tools/core/container.ts';
 import {
+  BRIDGE_CLIENT_MOUNTED,
   type MergedConfig,
   projectKey,
 } from '@devc-tools/core/merged_config.ts';
 import {
+  BRIDGE_CLIENT_TARGET,
   gitProtectState,
   type ProtectedRow,
   workspaceMountRow,
@@ -426,11 +428,40 @@ export async function pruneBridgeFiles(
   return stale;
 }
 
+/**
+ * The `client:` line of `devc status`: whether devc mounts the host's installed client over the
+ * Feature's copy (`merged.bridgeClient`). Mounts are fixed when a container is created, so a
+ * "mounted" decision is checked against the live mount table — an existing container created
+ * before the host client was installed still runs the Feature's copy until it is recreated.
+ */
+async function clientStatusLine(
+  bridgeClient: string | null,
+  localFolder: string,
+  deps: Pick<BridgeDeps, 'mounts'>,
+): Promise<string> {
+  if (bridgeClient !== BRIDGE_CLIENT_MOUNTED) {
+    return `  client:    Feature's copy — ${bridgeClient}`;
+  }
+  const line =
+    '  client:    host copy, mounted read-only (~/.config/devc-bridge/client)';
+  // A mount table that cannot be read (docker down) is reported as no container: no suffix.
+  const mounts = await deps.mounts(localFolder).catch(() => null);
+  if (
+    mounts !== null &&
+    !mounts.some((m) =>
+      m.destination.replace(/\/+$/, '') === BRIDGE_CLIENT_TARGET
+    )
+  ) {
+    return `${line} — not in this container yet; run \`devc build\``;
+  }
+  return line;
+}
+
 /** The devc-bridge lines of `devc status`. Absent prints as absent, never as a blank. */
 export async function bridgeStatusLines(
   merged: MergedConfig | null,
   localFolder: string,
-  deps: Pick<BridgeDeps, 'home'> = defaultDeps(),
+  deps: Pick<BridgeDeps, 'home' | 'mounts'> = defaultDeps(),
 ): Promise<string[]> {
   const key = merged?.bridgeKey ?? await projectKey(localFolder);
   const paths = bridgePaths(deps.home, key);
@@ -463,6 +494,11 @@ export async function bridgeStatusLines(
         : 'absent — devc-bridge mints it while running'
     }`,
   );
+  if (merged !== null && merged.bridgeKey !== null) {
+    lines.push(
+      await clientStatusLine(merged.bridgeClient, localFolder, deps),
+    );
+  }
 
   const policy = await readPolicy(key, deps);
   lines.push(

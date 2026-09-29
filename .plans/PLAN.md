@@ -21,13 +21,6 @@
   The per-ping lease model is documented as a follow-on and deliberately **not**
   built until the data exists.
 
-- [devc-bridge-client-auto-mount](devc-bridge-client-auto-mount.md) — devc bind-mounts
-  the host's installed container client (`~/.config/devc-bridge/client/`) read-only
-  over the Feature's client dir in every bridge-enabled container, when it is a
-  host-arch Linux ELF and the project is not Compose. Opt out with
-  `"bridgeClientMount": false`. Client development becomes `deno task build:client`
-  with no image rebuild; non-devc consumers keep the Feature's downloaded client.
-
 - [bridge-pr-request-review](bridge-pr-request-review.md) — `devc-bridge pr-request-review`
   asks Copilot to review the PR's current head (REST `requested_reviewers`), idempotent
   (`pending:` / `up to date:` spend nothing), behind a new `pr-request-review` capability
@@ -79,6 +72,16 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
   take it too.
 
 ### Completed
+
+- [devc-bridge-client-auto-mount](archived/devc-bridge-client-auto-mount.md) — ✅ Done,
+  validated by devc-core / devc / devc-bridge host tests and `deno fmt --check`
+  (devc-core's pre-existing `cliWorktreeMounts … pinned devcontainer CLI` failure is
+  unrelated and reproduces on the untouched tree). The macOS/Docker checks are in
+  `docs/manual-verification.md` §18 and need the host. devc bind-mounts the host's
+  installed container client (`~/.config/devc-bridge/client/`) read-only over the
+  Feature's client dir in every bridge-enabled container, when it is a host-arch Linux
+  ELF and the project is not Compose. Opt out with `"bridgeClientMount": false`.
+  `devc status` and `devc-bridge status` report which client is in play.
 
 - [core-version-bump-script](archived/core-version-bump-script.md) — ✅ Done, validated
   in a throwaway worktree (usage/format/same/already-published refusals; a 0.4.0 → 0.4.1
@@ -1848,7 +1851,7 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
 | `node-nvmrc` 0.2.0 — `containerEnv` PATH pin for every process; drop the `cd` hook                          | [feature-node-nvmrc-container-wide](archived/feature-node-nvmrc-container-wide.md) | complete |
 | devc surfaces the container's agent to Herdr — rotating `HERDR_AGENT` sidecar                               | [herdr-agent-sidecar](archived/herdr-agent-sidecar.md)                             | complete |
 | Keepawake ping telemetry — measure inter-ping gaps before touching the idle timeout                         | [keepawake-ping-telemetry](keepawake-ping-telemetry.md)                            |          |
-| devc auto-mounts the host's devc-bridge client read-only into bridge-enabled containers                     | [devc-bridge-client-auto-mount](devc-bridge-client-auto-mount.md)                  |          |
+| devc auto-mounts the host's devc-bridge client read-only into bridge-enabled containers                     | [devc-bridge-client-auto-mount](archived/devc-bridge-client-auto-mount.md)         | complete |
 | devc-bridge agent help — local `help`/guide, real `git-doctor` transport probe, BrokenPipe-safe client      | [devc-bridge-agent-help](archived/devc-bridge-agent-help.md)                       | complete |
 | devc-bridge `git-push` over HTTPS with gh's credential — one host setup                                     | [devc-bridge-push-via-gh](archived/devc-bridge-push-via-gh.md)                     | complete |
 | `@devc-tools/core` version bump script — keeps the consumer deno.lock files in step                         | [core-version-bump-script](archived/core-version-bump-script.md)                   | complete |
