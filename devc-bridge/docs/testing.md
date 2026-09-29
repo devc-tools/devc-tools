@@ -130,7 +130,8 @@ fork's same-name branch is not, two matches are refused), `gh-pr-comments`' JSON
 (unresolved threads across two pages, a JSON-hostile body round-tripped,
 `copilotReview` — commit, state, body and `pending` all from the issue timeline
 across pages — and `findings` parsed from a measured-shape overview, with `null`
-for a count mismatch, no marker or an unbalanced `<details>`),
+for a count mismatch, no marker, an unbalanced `<details>` or a top-level
+`<details>` that isn't a `<name> (<n>)` section),
 `gh-pr-request-review`'s `pending:` / `up to date:` / `requested:` with exactly
 one POST only for the last, `gh-pr-reply`'s body rules at the 4000-byte
 boundary (bytes, not characters) with nothing sent on exit 3, `gh-pr-resolve`'s

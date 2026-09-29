@@ -591,6 +591,19 @@ timeline_fx copilot-reviewed:7:commented:body-stray
 run gh-pr-comments
 expect_rc 0 "a body with a stray </details>"
 check "  … findings null" test "$(q .copilotReview.findings)" = null
+# A top-level <details> that isn't a `<name> (<n>)` section is an unknown format, never skipped:
+# skipping it could turn open findings into [] ("no open findings").
+ccr_body 3 | sed 's|<summary>Previously missed (3)</summary>|<p>Previously missed</p>|' >"$FX/body-nosummary"
+ccr_body 3 | sed 's|Previously missed (3)|Previously missed|' >"$FX/body-nocount"
+ccr_body 3 | sed 's|Previously missed (3)|Previously missed (3 comments)|' >"$FX/body-oddcount"
+for shape in nosummary:"with no <summary>" nocount:"whose summary has no count" \
+  oddcount:"whose count is not a bare number"; do
+  timeline_fx copilot-reviewed:7:commented:body-"${shape%%:*}"
+  run gh-pr-comments
+  expect_rc 0 "a top-level <details> ${shape#*:}"
+  check "  … findings null" test "$(q .copilotReview.findings)" = null
+  check "  … body verbatim" cmp -s <(jq -j .copilotReview.body <<<"$out") "$FX/body-${shape%%:*}"
+done
 timeline_fx copilot-reviewed:7:commented:null
 run gh-pr-comments
 expect_rc 0 "a review whose body is null"

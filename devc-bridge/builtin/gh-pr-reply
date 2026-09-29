@@ -298,7 +298,8 @@ def ccr_findings:
       [ccr_blocks[]
         | ([.s | try (ccr_part | .summary) catch "" | ccr_flat | match("^(.+) \\(([0-9]+)\\)$")
             | .captures | map(.string)] | .[0]) as $m
-        | select($m != null and $m[0] != "Resolved since last review")
+        | if $m == null then error("unknown section")
+          elif $m[0] == "Resolved since last review" then empty else . end
         | if (.f | length) != ($m[1] | tonumber) then error("count mismatch") else . end
         | .f[] | ccr_finding($m[0])]
       | "[" + join(",") + "]"

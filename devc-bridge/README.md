@@ -858,7 +858,8 @@ a headline `**Findings:** None` that counts only new inline findings and paths
 carrying an invisible U+200B. The timeline's `--jq` filter walks the `<details>`
 tags, skips `Resolved since last review`, and emits each finding nested in any
 other `<name> (<n>)` section, U+200B removed. Any surprise — no marker, an
-unbalanced tag, a section whose count isn't `<n>` — makes `findings` `null`,
+unbalanced tag, a top-level `<details>` that isn't a `<name> (<n>)` section, a
+section whose count isn't `<n>` — makes `findings` `null`,
 never a partial list; `body` is always there, verbatim, as the fallback.
 
 | Exit | Meaning                                                                                                                                                                   |

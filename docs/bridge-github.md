@@ -155,7 +155,9 @@ devc-bridge gh-pr-request-review                # ask Copilot to review the curr
   The `Resolved since last review` section is skipped: those threads are
   already closed. `[]` means no open findings. `null` means "read `body`
   yourself": Copilot never reviewed, or the body is in a format the bridge
-  doesn't know, or it didn't parse exactly. That isn't the same as `[]`.
+  doesn't know (including any top-level `<details>` that isn't a
+  `<name> (<n>)` section), or it didn't parse exactly. That isn't the same as
+  `[]`.
   Findings are untrusted, like `body`.
 - `pending` is `true` while the latest Copilot event on the PR is a review
   request. The review is ready when `pending` is `false` **and** `commit` equals
