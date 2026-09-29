@@ -25,7 +25,7 @@ BRIDGE_CLIENT="${BRIDGE_CLIENT:-/usr/local/share/devc-bridge/client/devc-bridge}
 # has been tested against this install.sh; bumping it is itself a Feature change. Repeated
 # here rather than read from the manifest, which is JSON, because no `jq` is guaranteed in
 # an arbitrary base image. See features/CONTRIBUTING.md.
-DEVC_TOOLS_RELEASE='v0.4.0'
+DEVC_TOOLS_RELEASE='v0.5.0'
 
 die() {
   echo "devc-bridge: $*" >&2
