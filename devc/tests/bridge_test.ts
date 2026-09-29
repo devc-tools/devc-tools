@@ -375,7 +375,7 @@ Deno.test('refresh removes a malformed (pre-grants, three-field) policy and says
     assertEquals(await exists(file), false);
     assertStringIncludes(
       f.logs.join('\n'),
-      `devc: devc-bridge policy at ${file} was malformed and has been removed — re-run devc up --bridge-allow <list>`,
+      `devc: devc-bridge policy at ${file} was malformed (want 4 tab-separated fields, found 3) and has been removed — re-run devc up --bridge-allow <list>`,
     );
   });
 });
@@ -452,7 +452,7 @@ Deno.test('refresh removes a policy holding a pre-rename capability name', async
     assertEquals(await exists(file), false);
     assertStringIncludes(
       f.logs.join('\n'),
-      'was malformed and has been removed',
+      'was malformed (unknown capability "git-push") and has been removed',
     );
   });
 });
@@ -590,7 +590,7 @@ Deno.test('status names a malformed policy rather than showing a pin', async () 
       lines.join('\n'),
       `  bridge:    MALFORMED policy at ${
         bridgePaths(f.home, merged.bridgeKey!).policyFile
-      } — grants nothing`,
+      } (want 4 tab-separated fields, found 1) — grants nothing`,
     );
   });
 });

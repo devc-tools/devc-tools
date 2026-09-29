@@ -246,41 +246,113 @@ load_thread() {
 
 # ── Copilot's review state ────────────────────────────────────────────────────────────────
 
-# copilot_review — sets review, Copilot's latest submitted (non-PENDING) review on the resolved PR as
-# one JSON object {"commit","state","submittedAt"} (all null when there is none), and review_commit,
-# its commit oid or empty.
-copilot_review() {
-  local q
-  q='query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){
-    pullRequest(number:$number){reviews(last:100){nodes{author{__typename login} state
-    submittedAt commit{oid}}}}}}'
-  gh_run "reading reviews on $pr_url" api graphql -f query="$q" \
-    -f owner="$pr_owner" -f name="$pr_name" -F number="$pr_number" \
-    --jq "[.data.repository.pullRequest.reviews.nodes[] |
-      select((.author | $IS_COPILOT) and .state != \"PENDING\")] | last |
-      (.commit.oid // \"\"),
-      ({commit: (.commit.oid // null), state: (.state // null), submittedAt: (.submittedAt // null)} |
-        tojson)"
-  { IFS= read -r review_commit && IFS= read -r review; } <"$tmp/out" ||
-    die 4 "unexpected response reading reviews on $pr_url"
-  [ -z "$review_commit" ] || [[ $review_commit =~ ^[0-9a-f]{40}$ ]] ||
-    die 4 "unexpected review commit on $pr_url"
-  case $review in '{'*'}') ;; *) die 4 "unexpected response reading reviews on $pr_url" ;; esac
-}
+# jq definitions for the timeline filter below. They run inside `gh api --jq`, which is gojq, not
+# jq (the harness runs them under jq), so they keep to what both agree on: RE2-valid regexes, no
+# regex flags but "g", "​" string escapes. gojq sorts object keys, so every object whose key
+# order is part of the contract is built as text (ccr_obj) rather than with tojson.
+#
+# ccr_findings: a review body → its open findings as JSON text, "[]" for none, or "null" when the
+# body is not Copilot's `<!-- ccr-overview-v2 -->` overview or does not parse exactly — never a
+# partial list, and never an error (the body is anyone's text, so a parse failure is only "null").
+# Sections are the top-level <details> whose <summary> reads "<name> (<n>)", except "Resolved since
+# last review" (threads already closed); each <details> directly inside one is a finding, and a
+# section holding other than <n> of them is a mismatch. Tags are walked in order with a depth
+# counter, because <details> nests and no one regex can find a block's end.
+CCR_JQ='
+def ccr_obj: "{" + (map((.[0] | tojson) + ":" + .[1]) | join(",")) + "}";
+def ccr_trim: sub("\\A[ \t\r\n]+"; "") | sub("[ \t\r\n]+\\z"; "");
+def ccr_flat: gsub("<[^>]*>"; "") | gsub("[ \t\r\n]+"; " ") | ccr_trim;
+def ccr_part:
+  split("</summary>") as $p
+  | if ($p | length) < 2 or ($p[0] | test("\\A[^<]*<summary[^>]*>") | not) then error("no summary")
+    else {summary: ($p[0] | sub("\\A[^<]*<summary[^>]*>"; "")), rest: ($p[1:] | join("</summary>"))}
+    end;
+def ccr_blocks:
+  "</?details(?:[ \t\r\n][^>]*)?>" as $re
+  | [splits($re)] as $txt
+  | [match($re; "g") | .string] as $tags
+  | reduce range(0; $txt | length) as $i ({d: 0, b: []};
+      (if .d == 1 then .b[-1].s += $txt[$i] elif .d >= 2 then .b[-1].f[-1] += $txt[$i] else . end)
+      | if $i >= ($tags | length) then .
+        elif ($tags[$i] | startswith("</")) then
+          (if .d == 0 then error("unbalanced") else .d -= 1 end)
+        else
+          (if .d == 0 then .b += [{s: "", f: []}] elif .d == 1 then .b[-1].f += [""] else . end)
+          | .d += 1
+        end)
+  | if .d != 0 then error("unbalanced") else .b end;
+def ccr_finding($section):
+  ccr_part as $p
+  | "`([^`\n]+):([0-9]+)`" as $loc_re
+  | ([$p.rest | match($loc_re)] | .[0]) as $loc
+  | [["section", ($section | tojson)],
+     ["severity", ([$p.summary | match("alt=\"(?:[^\"]* )?([A-Za-z]+) severity\"")
+       | .captures[0].string | ascii_downcase] | .[0] | tojson)],
+     ["title", ($p.summary | ccr_flat | tojson)],
+     ["path", (if $loc == null then null else $loc.captures[0].string | gsub("​"; "") end
+       | tojson)],
+     ["line", (if $loc == null then null else $loc.captures[1].string | tonumber end | tojson)],
+     ["text", ($p.rest | sub($loc_re; "") | gsub("<[^>]*>"; "") | gsub("​"; "") | ccr_trim
+       | tojson)]]
+  | ccr_obj;
+def ccr_findings:
+  try (
+    if type != "string" or (contains("<!-- ccr-overview-v2 -->") | not) then "null"
+    else
+      [ccr_blocks[]
+        | ([.s | try (ccr_part | .summary) catch "" | ccr_flat | match("^(.+) \\(([0-9]+)\\)$")
+            | .captures | map(.string)] | .[0]) as $m
+        | select($m != null and $m[0] != "Resolved since last review")
+        | if (.f | length) != ($m[1] | tonumber) then error("count mismatch") else . end
+        | .f[] | ccr_finding($m[0])]
+      | "[" + join(",") + "]"
+    end
+  ) catch "null";
+def ccr_review:
+  (.body // "") as $body
+  | [["commit", (.commit_id | tojson)],
+     ["state", (.state | if type == "string" then ascii_upcase else null end | tojson)],
+     ["submittedAt", (.submitted_at | tojson)],
+     ["body", ($body | tojson)],
+     ["findings", ($body | ccr_findings)]]
+  | ccr_obj;
+'
 
-# copilot_pending — sets pending (true|false): whether a Copilot review of the resolved PR has been
-# requested and not yet delivered. Only the issue timeline shows this — REST requested_reviewers
-# never lists Copilot. Pending iff the last Copilot event is a request. With --paginate, --jq runs
-# per page, so it emits one line per event (oldest first) and the last line is taken here.
-copilot_pending() {
+# copilot_review — Copilot's review state on the resolved PR, all from the issue timeline (REST
+# requested_reviewers never lists Copilot), so `pending` and the review can never come from two
+# sources that GitHub updates at different times. Sets:
+#   pending        true iff the last Copilot event is a review request, not yet delivered
+#   review         the last delivered Copilot review (a `reviewed` event not in state pending) as
+#                  one JSON object {"commit","state","submittedAt","body","findings"}, all null when
+#                  there is none — even when a request follows it, which is "pending, previous shown"
+#   review_commit  its commit oid, or empty
+# With --paginate, --jq runs per page, so it emits one line per event (oldest first): either
+# `review_requested` or `reviewed<TAB><commit><TAB><review JSON>`.
+copilot_review() {
+  local line
   gh_run "reading the timeline of $pr_url" api --paginate \
     "repos/$pr_repo/issues/$pr_number/timeline" \
-    --jq ".[] | select((.event == \"review_requested\" and
+    --jq "$CCR_JQ .[] | select((.event == \"review_requested\" and
         .requested_reviewer.login == \"$COPILOT_TIMELINE_LOGIN\") or
-      (.event == \"reviewed\" and .user.login == \"$COPILOT_TIMELINE_LOGIN\")) | .event"
-  ! grep -qvxE 'review_requested|reviewed' "$tmp/out" ||
+      (.event == \"reviewed\" and .user.login == \"$COPILOT_TIMELINE_LOGIN\" and
+        ((.state // \"\") | tostring | ascii_downcase) != \"pending\")) |
+      if .event == \"review_requested\" then .event
+      else \"reviewed\t\" + ((.commit_id // \"\") | tostring | gsub(\"[\t\r\n]\"; \" \")) + \"\t\" +
+        ccr_review end"
+  ! grep -qv -e '^review_requested$' -e "^reviewed"$'\t' "$tmp/out" ||
     die 4 "unexpected response reading the timeline of $pr_url"
   case $(tail -n 1 "$tmp/out") in review_requested) pending=true ;; *) pending=false ;; esac
+  line=$(grep "^reviewed"$'\t' "$tmp/out" | tail -n 1)
+  if [ -z "$line" ]; then
+    review_commit=
+    review='{"commit":null,"state":null,"submittedAt":null,"body":null,"findings":null}'
+    return 0
+  fi
+  line=${line#reviewed$'\t'}
+  review_commit=${line%%$'\t'*}
+  review=${line#*$'\t'}
+  [[ $review_commit =~ ^[0-9a-f]{40}$ ]] || die 4 "unexpected review commit on $pr_url"
+  case $review in '{'*'}') ;; *) die 4 "unexpected response reading the timeline of $pr_url" ;; esac
 }
 # ── END pr-prelude ──
 
@@ -290,7 +362,6 @@ require_grant gh-pr-request-review
 gh_ready
 resolve_pr
 copilot_review
-copilot_pending
 
 if [ "$pending" = true ]; then
   echo "pending: Copilot is already reviewing $pr_url"

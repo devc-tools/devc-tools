@@ -87,7 +87,21 @@ async function withServer(
   }
 }
 
-type Resp = { ok: boolean; stdout?: string; error?: string };
+type Resp = {
+  ok: boolean;
+  exitCode?: number;
+  stdout?: string;
+  stderr?: string;
+  error?: string;
+};
+
+/** A grant refusal as the server sends it: a normal exit, so the client keeps the code. */
+const refused = (exitCode: number, message: string): Resp => ({
+  ok: true,
+  exitCode,
+  stdout: '',
+  stderr: `devc-bridge: ${message}\n`,
+});
 
 async function call(
   port: number,
@@ -139,56 +153,132 @@ Deno.test('a granted built-in runs from builtinDir, with the caller key', async 
 
 Deno.test('a built-in is refused, with the exact message, for each ungranted case', async () => {
   await withServer(null, async ({ port, shared, token, policyFile }) => {
-    assertEquals(await call(port, shared, 'gh-push'), {
-      ok: false,
-      error:
+    assertEquals(
+      await call(port, shared, 'gh-push'),
+      refused(
+        1,
         'gh-push needs a per-container token — the shared token has no capabilities',
-    });
-    assertEquals(await call(port, token, 'gh-push'), {
-      ok: false,
-      error:
+      ),
+    );
+    assertEquals(
+      await call(port, token, 'gh-push'),
+      refused(
+        1,
         'no capabilities granted to this container — on the host: devc up --bridge-allow gh-push',
-    });
-    assertEquals(await call(port, token, 'gh-pr-resolve'), {
-      ok: false,
-      error:
+      ),
+    );
+    assertEquals(
+      await call(port, token, 'gh-pr-resolve'),
+      refused(
+        1,
         'no capabilities granted to this container — on the host: devc up --bridge-allow gh-pr-review,gh-pr-resolve',
-    });
-    assertEquals(await call(port, token, 'gh-pr-request-review'), {
-      ok: false,
-      error:
+      ),
+    );
+    assertEquals(
+      await call(port, token, 'gh-pr-request-review'),
+      refused(
+        1,
         'no capabilities granted to this container — on the host: devc up --bridge-allow gh-pr-review,gh-pr-request-review',
-    });
-
-    // A policy from before grants existed: three fields.
-    await Deno.writeTextFile(policyFile, '/r\tgit@github.com:o/r.git\tfeat\n');
-    assertEquals(await call(port, token, 'gh-push'), {
-      ok: false,
-      error:
-        "this container's policy is malformed and grants nothing — on the host: devc up --bridge-allow gh-push",
-    });
+      ),
+    );
 
     await Deno.writeTextFile(policyFile, policyLine('gh-push'));
-    assertEquals(await call(port, token, 'gh-pr-comments'), {
-      ok: false,
-      error:
+    assertEquals(
+      await call(port, token, 'gh-pr-comments'),
+      refused(
+        1,
         'gh-pr-comments needs capability gh-pr-review, which this container was not granted (it has: gh-push) — on the host: devc up --bridge-allow gh-push,gh-pr-review',
-    });
-    assertEquals(await call(port, token, 'gh-pr-resolve'), {
-      ok: false,
-      error:
+      ),
+    );
+    assertEquals(
+      await call(port, token, 'gh-pr-resolve'),
+      refused(
+        1,
         'gh-pr-resolve needs capability gh-pr-resolve, which this container was not granted (it has: gh-push) — on the host: devc up --bridge-allow gh-push,gh-pr-review,gh-pr-resolve',
-    });
+      ),
+    );
 
     await Deno.writeTextFile(
       policyFile,
       policyLine('gh-pr-review,gh-pr-resolve'),
     );
-    assertEquals(await call(port, token, 'gh-pr-request-review'), {
-      ok: false,
-      error:
+    assertEquals(
+      await call(port, token, 'gh-pr-request-review'),
+      refused(
+        1,
         'gh-pr-request-review needs capability gh-pr-request-review, which this container was not granted (it has: gh-pr-review, gh-pr-resolve) — on the host: devc up --bridge-allow gh-pr-review,gh-pr-resolve,gh-pr-request-review',
-    });
+      ),
+    );
+  });
+});
+
+Deno.test('a broken policy is refused with exit 2, the reason, and a whole-list hint', async () => {
+  await withServer(null, async ({ port, token, policyFile }) => {
+    const regrant =
+      're-run devc up --bridge-allow <every capability this container needs>';
+
+    // A policy from before grants existed: three fields.
+    await Deno.writeTextFile(policyFile, '/r\tgit@github.com:o/r.git\tfeat\n');
+    assertEquals(
+      await call(port, token, 'gh-push'),
+      refused(
+        2,
+        `this container's policy is malformed and grants nothing: want 4 tab-separated fields, found 3 (${policyFile}) — on the host: ${regrant}`,
+      ),
+    );
+
+    await Deno.writeTextFile(
+      policyFile,
+      '/r\tgit@github.com:o/r.git\t\tgh-push\n',
+    );
+    assertEquals(
+      await call(port, token, 'gh-pr-comments'),
+      refused(
+        2,
+        `this container's policy is malformed and grants nothing: branch is empty (${policyFile}) — on the host: ${regrant}`,
+      ),
+    );
+
+    // A capability this bridge does not know: likely a newer devc than the running bridge.
+    await Deno.writeTextFile(policyFile, policyLine('gh-push,gh-nope'));
+    assertEquals(
+      await call(port, token, 'gh-doctor'),
+      refused(
+        2,
+        `this container's policy is malformed and grants nothing: unknown capability "gh-nope" (${policyFile}) — on the host: if devc is newer than the running bridge, run devc-bridge restart; otherwise ${regrant}`,
+      ),
+    );
+
+    for (
+      const text of [
+        '/r\tgit@github.com:o/r.git\tfeat\n',
+        policyLine('gh-push,gh-nope'),
+        policyLine('gh-pr-resolve'),
+      ]
+    ) {
+      await Deno.writeTextFile(policyFile, text);
+      for (const name of ['gh-push', 'gh-pr-resolve']) {
+        const resp = await call(port, token, name);
+        assertEquals(resp.exitCode, 2, `${name} ${JSON.stringify(text)}`);
+        assert(!resp.stderr!.includes('--bridge-allow gh-'), resp.stderr);
+      }
+    }
+
+    // Unreadable: a directory where the policy file should be.
+    await Deno.remove(policyFile);
+    await Deno.mkdir(policyFile);
+    const unreadable = await call(port, token, 'gh-push');
+    assertEquals(unreadable.ok, true);
+    assertEquals(unreadable.exitCode, 2);
+    assertEquals(unreadable.stdout, '');
+    assertStringIncludes(
+      unreadable.stderr!,
+      "devc-bridge: this container's policy is unreadable and grants nothing: ",
+    );
+    assertStringIncludes(
+      unreadable.stderr!,
+      ` (${policyFile}) — on the host: ${regrant}\n`,
+    );
   });
 });
 
@@ -199,8 +289,8 @@ Deno.test('the policy is read per request: deleting it revokes without a restart
       assertEquals((await call(port, token, 'gh-push')).ok, true);
       await Deno.remove(policyFile);
       const after = await call(port, token, 'gh-push');
-      assertEquals(after.ok, false);
-      assertStringIncludes(after.error!, 'no capabilities granted');
+      assertEquals(after.exitCode, 1);
+      assertStringIncludes(after.stderr!, 'no capabilities granted');
     },
   );
 });

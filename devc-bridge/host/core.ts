@@ -23,6 +23,7 @@ import {
   type BridgeCapability,
   capabilityForCommand,
   parsePolicy,
+  policyProblem,
 } from '@devc-tools/core/bridge.ts';
 import { Keepawake, type KeepawakeStatus } from './keepawake.ts';
 import { type Caller, TokenRegistry } from './token.ts';
@@ -145,8 +146,17 @@ async function dispatch(req: Request, d: Dispatch): Promise<Response> {
     ? null
     : capabilityForCommand(name);
   if (capability !== null) {
+    // A refusal is a normal exit, not a transport error, so the exit code reaches the caller: the
+    // shipped client prints `stderr` and exits with `exitCode`, but maps every `ok: false` to 1.
     const refusal = await grantRefusal(name, capability, d);
-    if (refusal !== null) return { ok: false, error: refusal };
+    if (refusal !== null) {
+      return {
+        ok: true,
+        exitCode: refusal.exitCode,
+        stdout: '',
+        stderr: `devc-bridge: ${refusal.message}\n`,
+      };
+    }
   }
   const commandsRoot = resolve(
     capability !== null ? d.builtinDir! : commandsDir,
@@ -219,6 +229,18 @@ function suggestGrants(
   return BRIDGE_CAPABILITIES.filter((c) => want.has(c)).join(',');
 }
 
+/** Why a built-in was refused, and the exit code the caller sees for it. */
+interface Refusal {
+  /** 1 for "not granted" (no key, no policy, capability missing); 2 for a broken policy. */
+  exitCode: number;
+  message: string;
+}
+
+// For a broken policy, never suggest one capability: `--bridge-allow` replaces the whole grant
+// list, so a one-capability hint would drop the others.
+const REGRANT =
+  're-run devc up --bridge-allow <every capability this container needs>';
+
 /**
  * Why the caller may not run built-in `name`, or null when its policy grants `capability`. The
  * policy is read on every request, so deleting it (`devc up` without `--bridge-allow`) revokes a
@@ -228,36 +250,65 @@ async function grantRefusal(
   name: string,
   capability: BridgeCapability,
   d: Dispatch,
-): Promise<string | null> {
+): Promise<Refusal | null> {
   const key = d.caller.key;
   if (key === null) {
-    return `${name} needs a per-container token — the shared token has no capabilities`;
+    return {
+      exitCode: 1,
+      message:
+        `${name} needs a per-container token — the shared token has no capabilities`,
+    };
   }
   const hint = `on the host: devc up --bridge-allow ${
     BRIDGE_CAPABILITY_REQUIRES[capability] !== undefined
       ? suggestGrants([], capability)
       : capability
   }`;
+  const policyFile = d.policyDir === undefined
+    ? undefined
+    : join(d.policyDir, `${key}.conf`);
   let text: string;
   try {
-    if (d.policyDir === undefined) throw new Deno.errors.NotFound();
-    text = await Deno.readTextFile(join(d.policyDir, `${key}.conf`));
+    if (policyFile === undefined) throw new Deno.errors.NotFound();
+    text = await Deno.readTextFile(policyFile);
   } catch (e) {
     if (e instanceof Deno.errors.NotFound) {
-      return `no capabilities granted to this container — ${hint}`;
+      return {
+        exitCode: 1,
+        message: `no capabilities granted to this container — ${hint}`,
+      };
     }
-    return `this container's policy is unreadable and grants nothing — ${hint}`;
+    return {
+      exitCode: 2,
+      message: `this container's policy is unreadable and grants nothing: ${
+        e instanceof Error ? e.message : String(e)
+      } (${policyFile}) — on the host: ${REGRANT}`,
+    };
   }
-  const policy = parsePolicy(text);
-  if (policy === null) {
-    return `this container's policy is malformed and grants nothing — ${hint}`;
+  const problem = policyProblem(text);
+  if (problem !== null) {
+    // The likeliest cause of an unknown capability is a newer devc than the running bridge.
+    const fix = problem.startsWith('unknown capability')
+      ? `if devc is newer than the running bridge, run devc-bridge restart; otherwise ${REGRANT}`
+      : REGRANT;
+    return {
+      exitCode: 2,
+      message:
+        `this container's policy is malformed and grants nothing: ${problem} (${policyFile}) — on the host: ${fix}`,
+    };
   }
+  // policyProblem found nothing, so this parses.
+  const policy = parsePolicy(text)!;
   if (policy.grants.includes(capability)) return null;
-  return `${name} needs capability ${capability}, which this container was not granted (it has: ${
-    policy.grants.join(', ')
-  }) — on the host: devc up --bridge-allow ${
-    suggestGrants(policy.grants, capability)
-  }`;
+  return {
+    exitCode: 1,
+    message:
+      `${name} needs capability ${capability}, which this container was not granted (it has: ${
+        policy.grants.join(', ')
+      }) — on the host: devc up --bridge-allow ${
+        suggestGrants(policy.grants, capability)
+      }`,
+  };
 }
 
 /** Log each file in `commandsDir` a built-in shadows: it is never run. */

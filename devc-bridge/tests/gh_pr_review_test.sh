@@ -3,7 +3,8 @@
 # built-ins. A `gh` shim first on PATH stands in for GitHub: it logs every call (cwd and argv, one
 # line each) and
 # answers from fixture files this script writes per case, applying `--jq` with the real `jq` — so the harness needs `jq`,
-# the scripts do not. Runs the scripts directly with the environment the bridge would give them
+# the scripts do not. gh evaluates `--jq` with gojq, not jq: when `gojq` is on PATH the shim uses it
+# instead (SHIM_JQ=jq forces jq), so run the harness both ways when you can. Runs the scripts directly with the environment the bridge would give them
 # (DEVC_BRIDGE_KEY, DEVC_BRIDGE_POLICY_DIR) and a throwaway $HOME.
 #
 #   bash devc-bridge/tests/gh_pr_review_test.sh
@@ -83,6 +84,7 @@ if [ -n "${SHIM_FAIL:-}" ]; then
   case "$path $query" in *"$SHIM_FAIL"*) echo "HTTP 502: Bad Gateway" >&2 && exit 1 ;; esac
 fi
 F=$SHIM/fixtures
+jqbin=${SHIM_JQ:-$(command -v gojq || echo jq)}
 files=()
 if [ "$path" = graphql ]; then
   case $query in
@@ -91,7 +93,6 @@ if [ "$path" = graphql ]; then
       [ -f "${files[0]}" ] || echo '{"data":{"repository":{"pullRequests":{"nodes":[]}}}}' >"${files[0]}"
       ;;
     *reviewThreads*) files=("$F"/threads-*.json) ;;
-    *'reviews(last'*) files=("$F/reviews.json") ;;
     *addPullRequestReviewThreadReply*)
       printf '%s' "$body" >"$SHIM/posted"
       files=("$F/reply.json")
@@ -132,7 +133,7 @@ for f in "${files[@]}"; do
     echo "HTTP 404: Not Found ($f)" >&2
     exit 1
   }
-  if [ -n "$jqf" ]; then jq -r "$jqf" "$f" || exit 1; else cat "$f"; fi
+  if [ -n "$jqf" ]; then "$jqbin" -r "$jqf" "$f" || exit 1; else cat "$f"; fi
 done
 SHIM
 chmod +x "$root/bin/gh"
@@ -192,24 +193,29 @@ node_fx() { # node_fx <thread id> <PR node id> <resolved> <copilot|human>
       comments: {nodes: [{author: $a}]}}}}' >"$FX/node-$1.json"
 }
 
-reviews_fx() { # reviews_fx [<copilot|human> <commit n> <state>]…
-  local nodes='[]'
-  while [ $# -gt 2 ]; do
-    nodes=$(jq -c --argjson a "$(author "$1")" --arg c "$(sha "$2")" --arg s "$3" \
-      '. + [{author: $a, state: $s, submittedAt: "2026-09-25T12:00:00Z", commit: {oid: $c}}]' \
-      <<<"$nodes")
-    shift 3
-  done
-  jq -n --argjson n "$nodes" '{data: {repository: {pullRequest: {reviews: {nodes: $n}}}}}' \
-    >"$FX/reviews.json"
-}
-
-timeline_ev() { # timeline_ev <copilot|human>-<requested|reviewed> | commit | team — one event
+timeline_ev() { # timeline_ev <spec> — one timeline event, as GitHub's REST timeline sends it:
+  #   copilot-requested | human-requested | human-reviewed | commit | team
+  #   copilot-reviewed[:<commit n>[:<state>[:<body file in $FX> | :null]]] — default commit 2,
+  #   state commented (lowercase, as the timeline has it), body "review of <n>"
+  local n state body
   case $1 in
     copilot-requested) echo '{"event":"review_requested","requested_reviewer":{"login":"Copilot"}}' ;;
     human-requested) echo '{"event":"review_requested","requested_reviewer":{"login":"alice"}}' ;;
-    copilot-reviewed) echo '{"event":"reviewed","state":"commented","user":{"login":"Copilot"}}' ;;
-    human-reviewed) echo '{"event":"reviewed","state":"approved","user":{"login":"alice"}}' ;;
+    copilot-reviewed*)
+      IFS=: read -r _ n state body <<<"$1"
+      n=${n:-2} state=${state:-commented}
+      case $body in
+        '') body=$(jq -n --arg b "review of $n" '$b') ;;
+        null) body=null ;;
+        *) body=$(jq -n --rawfile b "$FX/$body" '$b') ;;
+      esac
+      jq -c -n --arg c "$(sha "$n")" --arg s "$state" --argjson b "$body" \
+        '{event: "reviewed", state: $s, user: {login: "Copilot"}, commit_id: $c,
+          submitted_at: "2026-09-25T12:00:00Z", body: $b}'
+      ;;
+    human-reviewed) jq -c -n --arg c "$(sha 7)" \
+      '{event: "reviewed", state: "approved", user: {login: "alice"}, commit_id: $c,
+        submitted_at: "2026-09-25T12:00:00Z", body: ""}' ;;
     commit) echo '{"event":"committed","sha":"abc"}' ;;
     team) echo '{"event":"review_requested","requested_team":{"slug":"core"}}' ;;
   esac
@@ -219,6 +225,54 @@ timeline_fx() { # timeline_fx [-2] <event>… — the PR's issue timeline (page 
   [ "${1-}" != -2 ] || { f=$FX/timeline-2.json && shift; }
   local e
   for e in "$@"; do timeline_ev "$e"; done | jq -s . >"$f"
+}
+
+ZWSP=$'\xe2\x80\x8b' # U+200B ZERO WIDTH SPACE, as Copilot puts in a path after a `/`
+
+# ccr_body <n> — a Copilot overview modelled on the measured shape: a Resolved (2) section of links,
+# then "Previously missed (<n>)" holding three nested findings (so <n> ≠ 3 is a count mismatch), one
+# path carrying a U+200B. Full of JSON- and printf-hostile characters.
+ccr_body() {
+  local sev
+  sev() { printf '<picture><img alt="%s severity" src="https://x/%s.svg"></picture>' "$1" "$1"; }
+  cat <<BODY
+<!-- ccr-overview-v2 -->
+## Copilot review overview
+### 🔵 Needs a closer look
+Parsing is "mostly" fine — but see 100%s \\ edge cases.
+**Review effort:** Balanced
+**Findings:** None
+<details><summary>Resolved since last review (2)</summary>
+
+- [one](https://github.com/up/r/pull/7#discussion_r1)
+- [two](https://github.com/up/r/pull/7#discussion_r2)
+</details>
+<details>
+<summary>Previously missed ($1)</summary>
+In code that hasn't changed since last review
+<details>
+<summary>$(sev Medium) Guard the "empty" input</summary>
+
+\`src/${ZWSP}stats.py:11\`
+
+An empty list reaches \`mean()\` — divide by zero; use \`%s\` \\ carefully.
+</details>
+<details>
+<summary>$(sev Medium) Close the file</summary>
+
+\`src/io.py:53\`
+
+The handle leaks.
+</details>
+<details>
+<summary>$(sev Low) Name the constant</summary>
+
+\`src/io.py:50\`
+
+Magic number.
+</details>
+</details>
+BODY
 }
 
 TRICKY='she said "fix </script> this"
@@ -246,9 +300,8 @@ fresh() {
   node_fx PRRT_h1 PR_7 false human
   node_fx PRRT_c2 PR_7 true copilot
   node_fx PRRT_x9 PR_99 false copilot
-  reviews_fx copilot 1 COMMENTED copilot 2 COMMENTED human 2 APPROVED
-  timeline_fx commit copilot-requested copilot-reviewed team commit copilot-requested \
-    copilot-reviewed human-reviewed
+  timeline_fx commit copilot-requested copilot-reviewed:1 team commit copilot-requested \
+    copilot-reviewed:2 human-reviewed
   echo '{"url":"https://api.github.com/repos/up/r/pulls/7","requested_reviewers":[]}' \
     >"$FX/request.json"
   echo '{"data":{"addPullRequestReviewThreadReply":{"comment":{"url":"https://github.com/up/r/pull/7#r1"}}}}' \
@@ -433,7 +486,7 @@ check "  … copilotReview is the later Copilot review" test "$(q .copilotReview
 check "  … not pending" test "$(q .copilotReview.pending)" = false
 check "  … read from the timeline, not REST requested_reviewers" \
   test -z "$(calls | grep requested_reviewers)"
-reviews_fx human 1 APPROVED
+timeline_fx commit human-requested human-reviewed
 run gh-pr-comments
 check "no Copilot review → commit null" test "$(q .copilotReview.commit)" = null
 check "  … state null" test "$(q .copilotReview.state)" = null
@@ -466,9 +519,103 @@ timeline_fx -2 copilot-requested commit
 run gh-pr-comments
 check "paginated: a request on page 2 → pending true" test "$(q .copilotReview.pending)" = true
 fresh
-reviews_fx copilot 1 COMMENTED copilot 3 PENDING
+timeline_fx copilot-requested copilot-reviewed:1 copilot-requested copilot-reviewed:3:pending
 run gh-pr-comments
-check "a PENDING Copilot review is not the latest" test "$(q .copilotReview.commit)" = "$(sha 1)"
+check "a pending Copilot review event is skipped: not the latest" \
+  test "$(q .copilotReview.commit)" = "$(sha 1)"
+check "  … and the request before it is still pending" test "$(q .copilotReview.pending)" = true
+
+echo "gh-pr-comments: Copilot's review, from the timeline"
+fresh
+ccr_body 3 >"$FX/body-ccr"
+timeline_fx copilot-requested copilot-reviewed:1:commented:body-ccr commit copilot-requested
+run gh-pr-comments
+expect_rc 0 "timeline ends in a request after an earlier review"
+check "  … pending true" test "$(q .copilotReview.pending)" = true
+check "  … commit is the earlier review's" test "$(q .copilotReview.commit)" = "$(sha 1)"
+check "  … and so is body" cmp -s <(jq -j .copilotReview.body <<<"$out") "$FX/body-ccr"
+timeline_fx copilot-requested copilot-reviewed:1 copilot-requested copilot-reviewed:7:commented:body-ccr
+run gh-pr-comments
+expect_rc 0 "timeline ends in a Copilot review of the head"
+check "  … pending false" test "$(q .copilotReview.pending)" = false
+check "  … commit == headSha" test "$(q .copilotReview.commit)" = "$(q .pr.headSha)"
+check "  … state upper-cased to COMMENTED" test "$(q .copilotReview.state)" = COMMENTED
+check "  … submittedAt verbatim" test "$(q .copilotReview.submittedAt)" = 2026-09-25T12:00:00Z
+check "  … body byte-equal to the fixture (nested <details>, quotes, \\, %s, —, U+200B)" \
+  cmp -s <(jq -j .copilotReview.body <<<"$out") "$FX/body-ccr"
+check "  … body still holds the U+200B" test "$(jq -j .copilotReview.body <<<"$out" | grep -c "$ZWSP")" = 1
+check "  … copilotReview key order" test "$(jq -c '.copilotReview | keys_unsorted' <<<"$out")" = \
+  '["commit","state","submittedAt","body","findings","pending"]'
+check "  … findings: 3 entries" test "$(q '.copilotReview.findings | length')" = 3
+check "  … all from Previously missed, none from Resolved" \
+  test "$(q '[.copilotReview.findings[].section] | unique | join(",")')" = "Previously missed"
+check "  … severities" test "$(q '[.copilotReview.findings[].severity] | join(",")')" = medium,medium,low
+check "  … titles" test "$(q '.copilotReview.findings[0].title')" = 'Guard the "empty" input'
+check "  … paths, with no U+200B" \
+  test "$(q '[.copilotReview.findings[].path] | join(",")')" = src/stats.py,src/io.py,src/io.py
+check "  … (grep -c finds no U+200B)" \
+  test "$(q '.copilotReview.findings[].path' | grep -c "$ZWSP")" = 0
+check "  … line is a number" test "$(q '[.copilotReview.findings[].line | type] | unique | join(",")')" = number
+check "  … lines" test "$(q '[.copilotReview.findings[].line] | join(",")')" = 11,53,50
+check "  … text: the explanation, path span and tags removed, trimmed" \
+  test "$(q '.copilotReview.findings[0].text')" = 'An empty list reaches `mean()` — divide by zero; use `%s` \ carefully.'
+check "  … finding key order" test "$(jq -c '.copilotReview.findings[0] | keys_unsorted' <<<"$out")" = \
+  '["section","severity","title","path","line","text"]'
+check "  … the other fields are unchanged" test "$(q '[.threads[].id] | join(",")')" = PRRT_c1,PRRT_h1,PRRT_c4
+ccr_body 4 >"$FX/body-ccr"
+timeline_fx copilot-reviewed:7:commented:body-ccr
+run gh-pr-comments
+expect_rc 0 "a section count that does not match its findings"
+check "  … findings null" test "$(q .copilotReview.findings)" = null
+check "  … body still verbatim" cmp -s <(jq -j .copilotReview.body <<<"$out") "$FX/body-ccr"
+ccr_body 3 | sed 1d >"$FX/body-plain"
+timeline_fx copilot-reviewed:7:commented:body-plain
+run gh-pr-comments
+check "a body without the ccr-overview-v2 marker → findings null" \
+  test "$(q .copilotReview.findings)" = null
+check "  … body verbatim" cmp -s <(jq -j .copilotReview.body <<<"$out") "$FX/body-plain"
+printf '%s\n' '<!-- ccr-overview-v2 -->' '## Copilot review overview' \
+  '<details><summary>Resolved since last review (2)</summary>' '- one' '- two' '</details>' \
+  >"$FX/body-resolved"
+timeline_fx copilot-reviewed:7:commented:body-resolved
+run gh-pr-comments
+check "a marked body whose only section is Resolved since last review → findings []" \
+  test "$(jq -c .copilotReview.findings <<<"$out")" = '[]'
+ccr_body 3 | sed '$d' >"$FX/body-unclosed"
+timeline_fx copilot-reviewed:7:commented:body-unclosed
+run gh-pr-comments
+expect_rc 0 "a body with an unclosed <details>"
+check "  … findings null" test "$(q .copilotReview.findings)" = null
+printf '%s\n' '<!-- ccr-overview-v2 -->' '</details><details>' >"$FX/body-stray"
+timeline_fx copilot-reviewed:7:commented:body-stray
+run gh-pr-comments
+expect_rc 0 "a body with a stray </details>"
+check "  … findings null" test "$(q .copilotReview.findings)" = null
+timeline_fx copilot-reviewed:7:commented:null
+run gh-pr-comments
+expect_rc 0 "a review whose body is null"
+check "  … body \"\"" test "$(jq -c .copilotReview.body <<<"$out")" = '""'
+check "  … findings null" test "$(q .copilotReview.findings)" = null
+timeline_fx commit human-requested human-reviewed
+run gh-pr-comments
+expect_rc 0 "no Copilot events"
+check "  … commit, state, submittedAt, body, findings all null; pending false" \
+  test "$(jq -c '.copilotReview' <<<"$out")" = \
+  '{"commit":null,"state":null,"submittedAt":null,"body":null,"findings":null,"pending":false}'
+timeline_fx copilot-requested copilot-reviewed:1
+timeline_fx -2 commit copilot-requested copilot-reviewed:7:commented:body-ccr
+run gh-pr-comments
+check "the head's review on page 2 is found" test "$(q .copilotReview.commit)" = "$(sha 7)"
+check "  … pending false" test "$(q .copilotReview.pending)" = false
+timeline_fx copilot-reviewed:7:commented
+run gh-pr-comments
+check "a review of a plain (non-overview) body → findings null" test "$(q .copilotReview.findings)" = null
+jq -c -n '{event: "reviewed", state: "commented", user: {login: "Copilot"}, commit_id: "nope",
+  submitted_at: "2026-09-25T12:00:00Z", body: ""}' | jq -s . >"$FX/timeline.json"
+rm -f "$FX/timeline-2.json"
+run gh-pr-comments
+expect_rc 4 "a review commit that is not 40 hex"
+check "  … the GraphQL reviews query is never sent" test -z "$(grep -F 'reviews(last' "$SHIM/queries.log")"
 
 echo "gh-pr-reply"
 fresh
@@ -539,7 +686,7 @@ check "  … prints what it requested" \
 check "  … exactly one POST, to the PR's requested_reviewers, naming the bot" test "$(posts)" = \
   "POST repos/up/r/pulls/7/requested_reviewers reviewers[]=copilot-pull-request-reviewer[bot]"
 fresh
-reviews_fx human 7 APPROVED
+timeline_fx commit human-reviewed
 run gh-pr-request-review
 expect_rc 0 "no Copilot review yet"
 check "  … requests one" test "$(posts | wc -l | tr -d ' ')" = 1
@@ -550,14 +697,14 @@ expect_rc 0 "a Copilot review is already pending"
 check "  … says so" test "$out" = "pending: Copilot is already reviewing https://github.com/up/r/pull/7"
 check "  … no POST" test -z "$(posts)"
 fresh
-reviews_fx copilot 1 COMMENTED copilot 7 COMMENTED
+timeline_fx copilot-reviewed:1 copilot-requested copilot-reviewed:7
 run gh-pr-request-review
 expect_rc 0 "Copilot's latest review is of the head"
 check "  … says so" test "$out" = \
   "up to date: Copilot already reviewed $(sha 7 | cut -c1-12) on https://github.com/up/r/pull/7"
 check "  … no POST" test -z "$(posts)"
 fresh
-reviews_fx copilot 7 COMMENTED copilot 8 PENDING
+timeline_fx copilot-requested copilot-reviewed:7 copilot-reviewed:8:PENDING
 run gh-pr-request-review
 expect_rc 0 "a PENDING (draft) Copilot review does not count as the latest"
 check "  … still up to date" test "${out%% *}" = up

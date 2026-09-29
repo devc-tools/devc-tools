@@ -20,6 +20,7 @@ import {
   parseHead,
   parseOriginUrl,
   parsePolicy,
+  policyProblem,
   type PolicyRecord,
   resolvePin,
   serializePolicy,
@@ -158,6 +159,30 @@ Deno.test('policy: a malformed file parses to null', () => {
     ]
   ) {
     assertEquals(parsePolicy(text), null, JSON.stringify(text));
+  }
+});
+
+Deno.test('policy: policyProblem names the first problem, and parsePolicy agrees', () => {
+  const cases: [string, string | null][] = [
+    ['/a\tb\tc\tgh-push\n/d\te\tf\tgh-push\n', 'more than one line'],
+    ['/a\tb\tc\tgh-push\r\n', 'more than one line'],
+    ['/a\tb\tc\n', 'want 4 tab-separated fields, found 3'],
+    ['', 'want 4 tab-separated fields, found 1'],
+    ['/a\tb\t\tgh-push\n', 'branch is empty'],
+    ['/a\t\t\tgh-push\n', 'remote is empty'],
+    ['/a\tb\tc\t\n', 'grants is empty'],
+    ['/a\tb\tc\tgh-push,gh-nope\n', 'unknown capability "gh-nope"'],
+    ['/a\tb\tc\tgh-pr-resolve\n', 'gh-pr-resolve requires gh-pr-review'],
+    ['/a\tb\tc\tgh-push,gh-pr-review\n', null],
+    ['/a\tb\tc\tgh-push', null],
+  ];
+  for (const [text, want] of cases) {
+    assertEquals(policyProblem(text), want, JSON.stringify(text));
+    assertEquals(
+      parsePolicy(text) === null,
+      want !== null,
+      JSON.stringify(text),
+    );
   }
 });
 

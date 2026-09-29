@@ -315,23 +315,23 @@ come from the issue timeline, with no GraphQL reviews query.
 
 ## Checklist
 
-- [ ] `devc-core/bridge.ts`: `policyProblem`; `parsePolicy` built on it; tests in `devc-core/tests/bridge_test.ts`
-- [ ] `devc-bridge/host/core.ts`: refusals as `ok: true` with exit 1/2; malformed/unreadable messages per § 2; tests in `devc-bridge/host/tests/capabilities_test.ts`
-- [ ] `devc/bridge.ts`: malformed reason in `devc status` and in the refresh removal message; tests in `devc/tests/bridge_test.ts`
-- [ ] Prelude: `copilotReview` from the timeline with `body`; GraphQL reviews query removed; copied to all four `gh-pr-*` scripts; `gh-pr-comments` header comment
-- [ ] Prelude timeline filter: `copilotReview.findings` parsed per § 1b; emitted by `gh-pr-comments`
-- [ ] `devc-bridge/tests/gh_pr_review_test.sh`: shim and cases per § Validation
-- [ ] `docs/bridge-github.md`: per § 3
-- [ ] `devc-bridge/README.md`: per § 3
-- [ ] `devc-bridge/docs/testing.md`: B19 expectation adds `body`; new rows B21 (review body live) and B22 (malformed policy live), matching the last two live Validation items
-- [ ] `skills/copilot-pr-reviewing/SKILL.md`: per § 4
+- [x] `devc-core/bridge.ts`: `policyProblem`; `parsePolicy` built on it; tests in `devc-core/tests/bridge_test.ts`
+- [x] `devc-bridge/host/core.ts`: refusals as `ok: true` with exit 1/2; malformed/unreadable messages per § 2; tests in `devc-bridge/host/tests/capabilities_test.ts`
+- [x] `devc/bridge.ts`: malformed reason in `devc status` and in the refresh removal message; tests in `devc/tests/bridge_test.ts`
+- [x] Prelude: `copilotReview` from the timeline with `body`; GraphQL reviews query removed; copied to all four `gh-pr-*` scripts; `gh-pr-comments` header comment
+- [x] Prelude timeline filter: `copilotReview.findings` parsed per § 1b; emitted by `gh-pr-comments`
+- [x] `devc-bridge/tests/gh_pr_review_test.sh`: shim and cases per § Validation
+- [x] `docs/bridge-github.md`: per § 3
+- [x] `devc-bridge/README.md`: per § 3
+- [x] `devc-bridge/docs/testing.md`: B19 expectation adds `body`; new rows B21 (review body live) and B22 (malformed policy live), matching the last two live Validation items
+- [x] `skills/copilot-pr-reviewing/SKILL.md`: per § 4
 
 ## Validation
 
-- [ ] `cd devc-core && deno test` passes, with `policyProblem` cases: two lines → `more than one line`; three fields → `want 4 tab-separated fields, found 3`; empty branch → `branch is empty`; grants `gh-push,gh-nope` → `unknown capability "gh-nope"`; a valid policy → `null`, and `parsePolicy` agrees (null iff a problem) on every case
-- [ ] `cd devc-bridge/host && deno task test && deno task check` pass, including: a malformed policy on a granted built-in → `ok: true`, `exitCode: 2`, stderr `devc-bridge: this container's policy is malformed and grants nothing: <reason> (<path>) — on the host: re-run devc up --bridge-allow <every capability this container needs>`; an unknown-capability policy → the `devc-bridge restart` variant; an unreadable one (a directory at the policy path) → exit 2, `unreadable`; not granted and no policy → exit 1 with the existing text; stderr for malformed never contains `--bridge-allow gh-`
-- [ ] `cd devc && deno task test` passes, including `devc status` on a malformed policy printing `(<reason>)`, and a refresh over a malformed policy printing `was malformed (<reason>) and has been removed`
-- [ ] `bash devc-bridge/tests/gh_pr_review_test.sh` → `0 failed`, including:
+- [x] `cd devc-core && deno test` passes (except the known environmental `cliWorktreeMounts matches what the pinned devcontainer CLI computes`), with `policyProblem` cases: two lines → `more than one line`; three fields → `want 4 tab-separated fields, found 3`; empty branch → `branch is empty`; grants `gh-push,gh-nope` → `unknown capability "gh-nope"`; a valid policy → `null`, and `parsePolicy` agrees (null iff a problem) on every case
+- [x] `cd devc-bridge/host && deno task test && deno task check` pass, including: a malformed policy on a granted built-in → `ok: true`, `exitCode: 2`, stderr `devc-bridge: this container's policy is malformed and grants nothing: <reason> (<path>) — on the host: re-run devc up --bridge-allow <every capability this container needs>`; an unknown-capability policy → the `devc-bridge restart` variant; an unreadable one (a directory at the policy path) → exit 2, `unreadable`; not granted and no policy → exit 1 with the existing text; stderr for malformed never contains `--bridge-allow gh-`
+- [x] `cd devc && deno task test` passes, including `devc status` on a malformed policy printing `(<reason>)`, and a refresh over a malformed policy printing `was malformed (<reason>) and has been removed`
+- [x] `bash devc-bridge/tests/gh_pr_review_test.sh` → `0 failed` (203 passed, under both jq 1.7 and gojq 0.12.17), including:
   - timeline ends in a Copilot request after an earlier Copilot review → `pending: true`, and `commit`/`body` are the earlier review's
   - timeline ends in a Copilot review of the head → `pending: false`, `commit == headSha`, `state == "COMMENTED"`, `body` byte-equal to a fixture body containing nested `<details>`, `"`, `\`, `%s`, a newline, `—` and a U+200B inside a backticked path (model the fixture on the measured shape above; don't copy the real PR text)
   - that review with `"body": null` → `body == ""`
@@ -348,14 +348,14 @@ come from the issue timeline, with no GraphQL reviews query.
   - a body with an unclosed `<details>` → `findings: null`, exit 0
   - `gh-pr-request-review` and `gh-pr-resolve` still pass their existing cases with the larger prelude filter
   - the prelude is byte-identical across the four scripts
-- [ ] `grep -n 'reviews(last' devc-bridge/builtin/gh-pr-*` prints nothing
-- [ ] `grep -n 'already resolved:' docs/bridge-github.md` and `grep -n 'copilotReview.body\|"body"' docs/bridge-github.md` each find the new text, and the `body` bullet says untrusted
-- [ ] `grep -n 'copilotReview.findings' skills/copilot-pr-reviewing/SKILL.md` finds the checklist row, step 2 and the stop condition, and `grep -n 'U+200B' skills/copilot-pr-reviewing/SKILL.md` finds the fallback reading list; `grep -n 'gh-pr-comments' skills/copilot-pr-reviewing/SKILL.md` finds preflight step 4
-- [ ] `deno fmt --check` on changed `.ts`/`.md`; `shellcheck` on the four scripts if installed
-- [ ] Live (host on the new build, `devc-bridge restart`; container `devc up --bridge-allow gh` pinned to `bmingles_copilot-review-loop`, PR deephaven/experiments#3): `devc-bridge gh-pr-comments | jq -r .copilotReview.body | head -20` prints the start of the "Needs a closer look" overview for `0dee750393be`, `.copilotReview.state` is `COMMENTED`, and `jq -c '.copilotReview.findings[] | [.severity, .path, .line]'` prints three findings: `copilot-review-sandbox/table_stats.py` lines 11, 53 and 50, with no U+200B
-- [ ] Live: push a commit, then poll `gh-pr-comments` every 30s until the review lands. No poll shows `pending == false` with `commit != headSha`, unless the timeline has no Copilot request for the head (the repo didn't auto-review)
-- [ ] Live: on the host, overwrite the container's policy with `gh-push,gh-nope` in the grants field, then in the container `devc-bridge gh-doctor; echo $?` → the `unknown capability "gh-nope"` message with the `devc-bridge restart` hint, and `2`
-- [ ] Live: re-run `/copilot-pr-reviewing` on PR #3. The agent lists the overview's findings as triage items and doesn't call the PR clean while any are open
+- [x] `grep -n 'reviews(last' devc-bridge/builtin/gh-pr-*` prints nothing
+- [x] `grep -n 'already resolved:' docs/bridge-github.md` and `grep -n 'copilotReview.body\|"body"' docs/bridge-github.md` each find the new text, and the `body` bullet says untrusted
+- [x] `grep -n 'copilotReview.findings' skills/copilot-pr-reviewing/SKILL.md` finds the checklist row, step 2 and the stop condition, and `grep -n 'U+200B' skills/copilot-pr-reviewing/SKILL.md` finds the fallback reading list; `grep -n 'gh-pr-comments' skills/copilot-pr-reviewing/SKILL.md` finds preflight step 4
+- [x] `deno fmt --check` on changed `.ts`/`.md`; `shellcheck` on the four scripts if installed (not installed here; `bash -n` passes)
+- [ ] Live (not run: needs the host with the new build and gh, and the live PR) (host on the new build, `devc-bridge restart`; container `devc up --bridge-allow gh` pinned to `bmingles_copilot-review-loop`, PR deephaven/experiments#3): `devc-bridge gh-pr-comments | jq -r .copilotReview.body | head -20` prints the start of the "Needs a closer look" overview for `0dee750393be`, `.copilotReview.state` is `COMMENTED`, and `jq -c '.copilotReview.findings[] | [.severity, .path, .line]'` prints three findings: `copilot-review-sandbox/table_stats.py` lines 11, 53 and 50, with no U+200B
+- [ ] Live (not run: needs the host with the new build and gh, and the live PR): push a commit, then poll `gh-pr-comments` every 30s until the review lands. No poll shows `pending == false` with `commit != headSha`, unless the timeline has no Copilot request for the head (the repo didn't auto-review)
+- [ ] Live (not run: needs the host with the new build and gh, and the live PR): on the host, overwrite the container's policy with `gh-push,gh-nope` in the grants field, then in the container `devc-bridge gh-doctor; echo $?` → the `unknown capability "gh-nope"` message with the `devc-bridge restart` hint, and `2`
+- [ ] Live (not run: needs the host with the new build and gh, and the live PR): re-run `/copilot-pr-reviewing` on PR #3. The agent lists the overview's findings as triage items and doesn't call the PR clean while any are open
 
 ## Relevant Files
 

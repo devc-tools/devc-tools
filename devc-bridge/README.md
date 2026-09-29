@@ -623,14 +623,29 @@ keeps the set and only refreshes the pin's branch. See
 
 **The server checks the grant before running anything,** reading
 `policy/<key>.conf` on every call, so deleting it revokes a running container
-at once. A refused call is the client's exit `1` with one of:
+at once. A refusal is sent as a normal exit (`ok: true`, empty stdout, the
+message on stderr after `devc-bridge:`), so the client's exit code is the
+server's. Exit `1` means not granted:
 
 ```text
 <cmd> needs a per-container token — the shared token has no capabilities
 no capabilities granted to this container — on the host: devc up --bridge-allow <cap>
-this container's policy is malformed and grants nothing — on the host: devc up --bridge-allow <cap>
 <cmd> needs capability <cap>, which this container was not granted (it has: <grants>) — on the host: devc up --bridge-allow <grants>,<cap>
 ```
+
+Exit `2` means the policy is broken. The message names the reason and the file,
+and never suggests a single capability, since `--bridge-allow` replaces the
+whole list:
+
+```text
+this container's policy is unreadable and grants nothing: <error> (<policy file>) — on the host: re-run devc up --bridge-allow <every capability this container needs>
+this container's policy is malformed and grants nothing: <reason> (<policy file>) — on the host: re-run devc up --bridge-allow <every capability this container needs>
+```
+
+For an `unknown capability "…"` reason — most likely a newer `devc` than the
+running bridge — the hint reads `if devc is newer than the running bridge, run
+devc-bridge restart; otherwise re-run devc up --bridge-allow <every capability
+this container needs>`.
 
 Each script checks its own capability again (exit `2`) as a second layer.
 
@@ -807,11 +822,11 @@ node id — PR numbers repeat across repos), or it is exit 2.
 
 ### The verbs
 
-| Verb                          | Does                                                                                                                                                                                                                                                                                                                                                                                         |
-| ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `gh-pr-comments`              | Prints one JSON object: `pr` (`repo`, `number`, `url`, `headSha`), `threads` (unresolved only: `id`, `path`, `line`, `isOutdated`, `copilot`, `comments[]` of `author`/`body`/`createdAt`/`url`), and `copilotReview` (`commit`, `state`, `submittedAt` of Copilot's latest submitted review — `null`s if none — and `pending`, true from a Copilot review request until the review arrives) |
-| `gh-pr-reply <thread> <body>` | Replies to **any** thread on the PR — a human reviewer's too, resolved or not. Posted under your identity with the fixed prefix `🤖`. The body must be non-empty, at most **4000 bytes**, with no control characters other than newline and tab; anything else is exit 3 with a message saying what to change, and nothing is sent                                                           |
-| `gh-pr-resolve <thread>`      | Resolves a thread **only if Copilot started it** (its first comment's author is the `copilot-pull-request-reviewer` bot). A human reviewer's thread is exit 3 — resolving hides feedback, which is the one thing a misbehaving agent would want. Already resolved is exit 0                                                                                                                  |
+| Verb                          | Does                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `gh-pr-comments`              | Prints one JSON object: `pr` (`repo`, `number`, `url`, `headSha`), `threads` (unresolved only: `id`, `path`, `line`, `isOutdated`, `copilot`, `comments[]` of `author`/`body`/`createdAt`/`url`), and `copilotReview` (`commit`, `state`, `submittedAt`, `body` — the review's markdown overview, verbatim — and `findings`, the open findings parsed out of `body` (`section`, `severity`, `title`, `path`, `line`, `text`; `null` when the body isn't parseable, so read `body`), of Copilot's latest delivered review — `null`s if none — and `pending`, true while the latest Copilot timeline event is a review request) |
+| `gh-pr-reply <thread> <body>` | Replies to **any** thread on the PR — a human reviewer's too, resolved or not. Posted under your identity with the fixed prefix `🤖`. The body must be non-empty, at most **4000 bytes**, with no control characters other than newline and tab; anything else is exit 3 with a message saying what to change, and nothing is sent                                                                                                                                                                                                                                                                                            |
+| `gh-pr-resolve <thread>`      | Resolves a thread **only if Copilot started it** (its first comment's author is the `copilot-pull-request-reviewer` bot). A human reviewer's thread is exit 3 — resolving hides feedback, which is the one thing a misbehaving agent would want. Already resolved is exit 0                                                                                                                                                                                                                                                                                                                                                   |
 
 | `gh-pr-request-review` | Asks Copilot to review the PR's current head (REST `POST repos/<repo>/pulls/<n>/requested_reviewers` with `copilot-pull-request-reviewer[bot]`). Idempotent, so it bounds spend to one review per head: while a Copilot review is pending it prints `pending: Copilot is already reviewing <pr-url>`; when Copilot's latest review is of the head, `up to date: Copilot already reviewed <sha12> on <pr-url>` — both exit 0 with nothing posted. Otherwise `requested: Copilot review of <sha12> on <pr-url>`. A 2xx is the success signal: GitHub's response never lists Copilot among the requested reviewers |
 
@@ -825,19 +840,33 @@ that review has landed: wait until `pending` is `false` and `commit` equals
 `pr.headSha`. If the commit never catches up, the request did not take, and the
 agent should stop.
 
-**Pending comes from the issue timeline.** REST `requested_reviewers` never
-lists Copilot, so `pending` is read from `repos/<repo>/issues/<n>/timeline`: it
-is true iff the last Copilot event there is a `review_requested` (the other
-being `reviewed`). The bot has three names — `copilot-pull-request-reviewer[bot]`
-in the REST request, `copilot-pull-request-reviewer` as a GraphQL review author,
+**Review data and `pending` both come from the issue timeline.** REST
+`requested_reviewers` never lists Copilot, so all of `copilotReview` is read
+from one ordered event list, `repos/<repo>/issues/<n>/timeline` — there is no
+GraphQL reviews query. `pending` is true iff the last Copilot event there is a
+`review_requested` (the other being `reviewed`); the review is the last
+`reviewed` event (`commit_id`, `state` upper-cased, `submitted_at`, `body`),
+skipping any still in state `pending`. One source means the two can't disagree:
+`pending` is `false` only when the last Copilot event is a review, and `commit`
+is that review's. The bot has three names — `copilot-pull-request-reviewer[bot]`
+in the REST request, `copilot-pull-request-reviewer` as a GraphQL thread author,
 and `Copilot` in timeline events.
 
-| Exit | Meaning                                                                                                                                     |
-| ---- | ------------------------------------------------------------------------------------------------------------------------------------------- |
-| `0`  | done, already resolved, or (`gh-pr-request-review`) a review already pending or of the head                                                 |
-| `2`  | no policy, the shared token, wrong arguments, an unsupported (non-github.com) remote, no single open PR for the pin, a thread not on it     |
-| `3`  | refused, and the agent can adjust: a reply body that is empty, too long or has control characters; resolving a thread Copilot did not start |
-| `4`  | GitHub or transport failure, `gh` missing or not authenticated, or the timeout (`DEVC_BRIDGE_GH_TIMEOUT`, seconds, default `60`)            |
+**`findings` is parsed on the host.** Copilot's overview (`<!-- ccr-overview-v2 -->`)
+holds findings that have no inline thread, in nested `<details>` sections, with
+a headline `**Findings:** None` that counts only new inline findings and paths
+carrying an invisible U+200B. The timeline's `--jq` filter walks the `<details>`
+tags, skips `Resolved since last review`, and emits each finding nested in any
+other `<name> (<n>)` section, U+200B removed. Any surprise — no marker, an
+unbalanced tag, a section whose count isn't `<n>` — makes `findings` `null`,
+never a partial list; `body` is always there, verbatim, as the fallback.
+
+| Exit | Meaning                                                                                                                                                                   |
+| ---- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `0`  | done, already resolved, or (`gh-pr-request-review`) a review already pending or of the head                                                                               |
+| `2`  | no policy, a malformed or unreadable policy, the shared token, wrong arguments, an unsupported (non-github.com) remote, no single open PR for the pin, a thread not on it |
+| `3`  | refused, and the agent can adjust: a reply body that is empty, too long or has control characters; resolving a thread Copilot did not start                               |
+| `4`  | GitHub or transport failure, `gh` missing or not authenticated, or the timeout (`DEVC_BRIDGE_GH_TIMEOUT`, seconds, default `60`)                                          |
 
 ### How `gh` is driven
 
@@ -848,7 +877,10 @@ the agent controls (`gh pr …` would). Container-supplied values — the branch
 from the pin, a thread id, a reply body — reach GitHub only as `-f` GraphQL
 variables: never interpolated into a query, and never `-F`, which reads a file
 for a value starting with `@`. Each call runs under the same process-group
-timeout as `gh-push`.
+timeout as `gh-push`. Copilot's review state is one paginated
+`gh api --paginate repos/<repo>/issues/<n>/timeline` read, the same one
+`gh-pr-request-review` judges `pending:` and `up to date:` by; filters run in
+`gh`'s own `--jq` (gojq), so `gh` stays the only host dependency.
 
 ### Limits, stated plainly
 
@@ -858,10 +890,8 @@ timeout as `gh-push`.
 - **Replies are you.** They post under your GitHub identity; the prefix is the
   only marker, and the 4000-byte cap the only volume limit.
 - **Thread comments are capped at 100 per thread**; beyond that a thread is
-  truncated, not refused. Top-level PR comments and review summary bodies are
-  not included — threads only.
-- **`copilotReview` looks at the last 100 reviews.** A PR with more reviews than
-  that since Copilot's last reports `null`s.
+  truncated, not refused. Top-level PR comments and other reviewers' summary
+  bodies are not included — threads, plus Copilot's latest review body.
 
 ## Writing a command
 

@@ -26,6 +26,7 @@ import {
   isGitHubRemote,
   parsePolicy,
   type Pin,
+  policyProblem,
   type PolicyRecord,
   resolvePin,
   serializePolicy,
@@ -232,7 +233,7 @@ export async function derivePin(
 /** The current policy for `key`: absent, unreadable as a pin, or the pin it holds. */
 export type PolicyState =
   | { kind: 'absent' }
-  | { kind: 'malformed' }
+  | { kind: 'malformed'; reason: string }
   | { kind: 'present'; record: PolicyRecord };
 
 export async function readPolicy(
@@ -246,8 +247,9 @@ export async function readPolicy(
     if (e instanceof Deno.errors.NotFound) return { kind: 'absent' };
     throw e;
   }
-  const record = parsePolicy(text);
-  return record === null ? { kind: 'malformed' } : { kind: 'present', record };
+  const reason = policyProblem(text);
+  if (reason !== null) return { kind: 'malformed', reason };
+  return { kind: 'present', record: parsePolicy(text)! };
 }
 
 /** Write `policy/<key>.conf` atomically (same-directory temp + rename), mode 0600. */
@@ -336,7 +338,7 @@ export async function applyPolicy(
       deps.log(
         `devc: devc-bridge policy at ${
           bridgePaths(deps.home, key).policyFile
-        } was malformed and has been removed — re-run devc up --bridge-allow <list>`,
+        } was malformed (${current.reason}) and has been removed — re-run devc up --bridge-allow <list>`,
       );
       return;
     }
@@ -520,7 +522,7 @@ export async function bridgeStatusLines(
     policy.kind === 'absent'
       ? '  bridge:    absent — `devc up --bridge-allow <capabilities>` grants them'
       : policy.kind === 'malformed'
-      ? `  bridge:    MALFORMED policy at ${paths.policyFile} — grants nothing`
+      ? `  bridge:    MALFORMED policy at ${paths.policyFile} (${policy.reason}) — grants nothing`
       : `  bridge:    ${describe(policy.record)}`,
   );
   return lines;

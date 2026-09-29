@@ -210,25 +210,47 @@ export function serializePolicy(record: PolicyRecord): string {
 }
 
 /**
+ * Why `text` is not a policy file, or null when it is: the **first** problem in the order
+ * {@link parsePolicy} checks — a second line (or a `\r`), the field count, each field, then the
+ * grant list. {@link parsePolicy} is built on this, so the two never disagree.
+ */
+export function policyProblem(text: string): string | null {
+  const body = text.endsWith('\n') ? text.slice(0, -1) : text;
+  if (body.includes('\n') || body.includes('\r')) return 'more than one line';
+  const fields = body.split('\t');
+  if (fields.length !== 4) {
+    return `want 4 tab-separated fields, found ${fields.length}`;
+  }
+  const [repo, remote, branch, grantField] = fields;
+  const pairs = [
+    ['repo', repo],
+    ['remote', remote],
+    ['branch', branch],
+    ['grants', grantField],
+  ];
+  for (const [name, value] of pairs) {
+    const problem = fieldProblem(name, value);
+    if (problem !== null) return problem;
+  }
+  return grantsProblem(grantField.split(','));
+}
+
+/**
  * Parse a policy file. Exactly one non-empty line of exactly four non-empty fields, the last a
  * valid grant list, or `null` — a malformed policy grants nothing, and the reader must not guess.
  * A three-field file from before grants existed, and a capability this build does not know, are
- * both malformed: they fail closed.
+ * both malformed: they fail closed. {@link policyProblem} says why.
  */
 export function parsePolicy(text: string): PolicyRecord | null {
+  if (policyProblem(text) !== null) return null;
   const body = text.endsWith('\n') ? text.slice(0, -1) : text;
-  if (body.includes('\n') || body.includes('\r')) return null;
-  const fields = body.split('\t');
-  if (fields.length !== 4) return null;
-  const [repo, remote, branch, grantField] = fields;
-  const pairs = [['repo', repo], ['remote', remote], ['branch', branch]];
-  for (const [name, value] of pairs) {
-    if (fieldProblem(name, value) !== null) return null;
-  }
-  if (fieldProblem('grants', grantField) !== null) return null;
-  const grants = grantField.split(',');
-  if (grantsProblem(grants) !== null) return null;
-  return { repo, remote, branch, grants: grants as BridgeCapability[] };
+  const [repo, remote, branch, grantField] = body.split('\t');
+  return {
+    repo,
+    remote,
+    branch,
+    grants: grantField.split(',') as BridgeCapability[],
+  };
 }
 
 // ── reading the pin out of a repo ───────────────────────────────────────────────────────────

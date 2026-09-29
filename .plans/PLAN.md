@@ -21,15 +21,6 @@
   The per-ping lease model is documented as a follow-on and deliberately **not**
   built until the data exists.
 
-- [bridge-copilot-review-gaps](bridge-copilot-review-gaps.md) — fixes from a live
-  `copilot-pr-reviewing` run that called a PR clean when Copilot's findings were only in
-  its review body. `gh-pr-comments` gains `copilotReview.body`, and all of `copilotReview`
-  comes from the issue timeline, so `pending` and `commit` can no longer disagree. Host
-  grant refusals exit 2 for a malformed or unreadable policy, name the problem, and never
-  suggest a lossy one-capability `--bridge-allow`. The guide documents the reply/resolve
-  output lines. The skill triages body findings, checks for an open PR in preflight, and
-  expects `pending:` on review-on-push repos. **Runs after bridge-gh-capabilities.**
-
 ### Standing rules for Feature work
 
 Not a plan group — these are the conventions every Feature plan in this file
@@ -72,6 +63,18 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
   take it too.
 
 ### Completed
+
+- [bridge-copilot-review-gaps](archived/bridge-copilot-review-gaps.md) — ✅ Done, validated by
+  `gh_pr_review_test.sh` (203/203 under both jq and gojq), devc-core / devc / devc-bridge host
+  tests and checks, and `deno fmt --check`; the four live rows (B21, B22, the push poll and the
+  skill re-run on PR #3) are not run yet. Fixes from a live
+  `copilot-pr-reviewing` run that called a PR clean when Copilot's findings were only in
+  its review body. `gh-pr-comments` gains `copilotReview.body`, and all of `copilotReview`
+  comes from the issue timeline, so `pending` and `commit` can no longer disagree. Host
+  grant refusals exit 2 for a malformed or unreadable policy, name the problem, and never
+  suggest a lossy one-capability `--bridge-allow`. The guide documents the reply/resolve
+  output lines. The skill triages body findings, checks for an open PR in preflight, and
+  expects `pending:` on review-on-push repos. **Runs after bridge-gh-capabilities.**
 
 - [bridge-gh-capabilities](archived/bridge-gh-capabilities.md) — ✅ Done, validated by
   `gh_push_test.sh` (149/149), `gh_pr_review_test.sh` (159/159), devc-core / devc / devc-bridge
@@ -1881,4 +1884,4 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
 | `@devc-tools/core` version bump script — keeps the consumer deno.lock files in step                         | [core-version-bump-script](archived/core-version-bump-script.md)                   | complete |
 | devc-bridge `pr-request-review` — ask Copilot to re-review the current head                                 | [bridge-pr-request-review](archived/bridge-pr-request-review.md)                   | complete |
 | devc-bridge `gh-*` capability and command names, `--bridge-allow gh`, GitHub-only push                      | [bridge-gh-capabilities](archived/bridge-gh-capabilities.md)                       | complete |
-| devc-bridge Copilot review-loop gaps — review body, timeline-sourced `pending`, policy refusal exit codes   | [bridge-copilot-review-gaps](bridge-copilot-review-gaps.md)                        |          |
+| devc-bridge Copilot review-loop gaps — review body, timeline-sourced `pending`, policy refusal exit codes   | [bridge-copilot-review-gaps](archived/bridge-copilot-review-gaps.md)               | complete |
