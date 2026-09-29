@@ -28,6 +28,15 @@
   `"bridgeClientMount": false`. Client development becomes `deno task build:client`
   with no image rebuild; non-devc consumers keep the Feature's downloaded client.
 
+- [bridge-pr-request-review](bridge-pr-request-review.md) — `devc-bridge pr-request-review`
+  asks Copilot to review the PR's current head (REST `requested_reviewers`), idempotent
+  (`pending:` / `up to date:` spend nothing), behind a new `pr-request-review` capability
+  that requires `pr-review`. Unblocks an unattended review loop on repos without
+  review-on-push. GitHub behaviour verified on the personal repo (the POST response
+  never lists Copilot; a request while pending is a no-op; pending shows only in the
+  issue timeline); also fixes `pr-comments`' `copilotReview.pending`, which is always
+  `false` today.
+
 ### Standing rules for Feature work
 
 Not a plan group — these are the conventions every Feature plan in this file
@@ -1843,3 +1852,4 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
 | devc-bridge agent help — local `help`/guide, real `git-doctor` transport probe, BrokenPipe-safe client      | [devc-bridge-agent-help](archived/devc-bridge-agent-help.md)                       | complete |
 | devc-bridge `git-push` over HTTPS with gh's credential — one host setup                                     | [devc-bridge-push-via-gh](archived/devc-bridge-push-via-gh.md)                     | complete |
 | `@devc-tools/core` version bump script — keeps the consumer deno.lock files in step                         | [core-version-bump-script](archived/core-version-bump-script.md)                   | complete |
+| devc-bridge `pr-request-review` — ask Copilot to re-review the current head                                 | [bridge-pr-request-review](bridge-pr-request-review.md)                            |          |
