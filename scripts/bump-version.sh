@@ -88,8 +88,8 @@ if published="$(npm view @devc-tools/core versions --json 2> /dev/null)" &&
   printf '%s' "$published" | tr -d ' \n' | grep -Fq "\"$core_v\""; then
   echo
   echo "@devc-tools/core is at $core_v, which is already published. To move it too:"
-  echo "    (cd devc-core && npm version $new --no-git-tag-version)"
-  echo "npm version, not an editor — package-lock.json carries the version too."
+  echo "    bash scripts/bump-core-version.sh $new"
+  echo "(not a bare npm version — the deno.lock files carry core's version too)."
 fi
 
 echo

@@ -71,6 +71,15 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
 
 ### Completed
 
+- [core-version-bump-script](archived/core-version-bump-script.md) — ✅ Done, validated
+  in a throwaway worktree (usage/format/same/already-published refusals; a 0.4.0 → 0.4.1
+  bump touching exactly `devc-core/package.json`, `package-lock.json` and one `links` line
+  in each of `devc/deno.lock` and `devc-bridge/host/deno.lock`, with `deno check --frozen`
+  green after and red on a stale lock). The full `preflight-core-publish.sh` run, including
+  its new lock guards, needs the host. `scripts/bump-core-version.sh` moves core's version
+  everywhere it lives; `bump-version.sh` and preflight now point at it instead of a bare
+  `npm version`.
+
 - [devc-bridge-push-via-gh](archived/devc-bridge-push-via-gh.md) — ✅ Done,
   offline-tested (`git_push_test.sh` 115/115, `pr_review_test.sh` 118/118) and
   verified live: from a container with an empty ssh agent, `git-doctor` reported
@@ -1833,3 +1842,4 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
 | devc auto-mounts the host's devc-bridge client read-only into bridge-enabled containers                     | [devc-bridge-client-auto-mount](devc-bridge-client-auto-mount.md)                  |          |
 | devc-bridge agent help — local `help`/guide, real `git-doctor` transport probe, BrokenPipe-safe client      | [devc-bridge-agent-help](archived/devc-bridge-agent-help.md)                       | complete |
 | devc-bridge `git-push` over HTTPS with gh's credential — one host setup                                     | [devc-bridge-push-via-gh](archived/devc-bridge-push-via-gh.md)                     | complete |
+| `@devc-tools/core` version bump script — keeps the consumer deno.lock files in step                         | [core-version-bump-script](archived/core-version-bump-script.md)                   | complete |

@@ -113,7 +113,12 @@ commit — and only a devc release delivers it.
 Feature under active development off ghcr.io until it's ready — see
 [The publish allowlist](features/CONTRIBUTING.md#the-publish-allowlist).
 
-**`@devc-tools/core` is not published by any workflow.** It is a manual
+**`@devc-tools/core` is not published by any workflow.** Move its version with
+[`scripts/bump-core-version.sh`](scripts/bump-core-version.sh)
+(`bash scripts/bump-core-version.sh 0.5.0`), never a bare `npm version`: besides
+`package.json` and `package-lock.json`, `devc/deno.lock` and
+`devc-bridge/host/deno.lock` record core's version (Deno links `../devc-core/` as
+an npm package), and the script refreshes and verifies both. It is a manual
 `npm publish`, and `devc-core/package.json` has no `prepublishOnly` hook while
 its `files` is `["dist"]` — so an unbuilt `dist/` publishes an empty package.
 Run [`scripts/preflight-core-publish.sh`](scripts/preflight-core-publish.sh)

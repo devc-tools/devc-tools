@@ -171,7 +171,7 @@ if published="$(npm view @devc-tools/core versions --json 2> /dev/null)" && [ -n
   if printf '%s' "$published" | tr -d ' \n' | grep -Fq "\"$core_pkg_v\""; then
     echo "  FAIL @devc-tools/core@$core_pkg_v is already published"
     die "@devc-tools/core@$core_pkg_v cannot be republished. Bump it first:
-preflight:     (cd devc-core && npm version <x.y.z> --no-git-tag-version)"
+preflight:     bash scripts/bump-core-version.sh <x.y.z>"
   fi
   echo "  ok   $core_pkg_v is not taken yet"
 else
@@ -190,6 +190,12 @@ echo 'repository guards'
 check 'deno fmt --check (run `deno fmt` to fix)' deno fmt --check
 check 'tests/workflow_guards_test.sh' bash tests/workflow_guards_test.sh
 check 'tests/features_test.sh' bash tests/features_test.sh
+# devc/ and devc-bridge/host/ record core's version in their deno.lock (`workspace.links`); a bump
+# made without scripts/bump-core-version.sh leaves them stale. `--frozen` fails on any drift.
+lock_matches() { (cd "$1" && deno check -q --frozen main.ts); }
+check 'devc/deno.lock matches devc-core (deno check --frozen)' lock_matches devc
+check 'devc-bridge/host/deno.lock matches devc-core (deno check --frozen)' \
+  lock_matches devc-bridge/host
 
 if [ "$fails" -ne 0 ]; then
   die "$fails check(s) failed — nothing was built."
