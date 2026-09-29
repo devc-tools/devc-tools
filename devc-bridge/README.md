@@ -629,6 +629,8 @@ Each script checks its own capability again (exit `2`) as a second layer.
 writes the built-ins to `~/.local/state/devc-bridge/builtin/` — host-only, never
 mounted, outside `commands/` and `run/` — replacing the whole directory. An
 upgrade therefore applies on `devc-bridge restart`, with nothing to reinstall.
+`install.sh` stops a running bridge when it replaces the binary; start it again
+to finish the upgrade.
 A file in `commands/` with a built-in's name is never run; the bridge logs
 `commands/<name> is shadowed by the built-in <name> — remove it` on start.
 

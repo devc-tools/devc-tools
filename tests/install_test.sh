@@ -65,6 +65,31 @@ make_archive() { # make_archive <release-dir> <asset> <binary-name> <marker>
   rm -rf "$stage"
 }
 
+# The host bridge also answers `status` and `stop`, which the installer calls after replacing
+# it. Its "daemon" is a marker file in HOME: present = running. `stop` logs each call and
+# clears the marker, or fails when `.fake-bridge-stop-fails` exists. Anything else prints
+# the marker, like the other fakes.
+make_host_archive() { # make_host_archive <release-dir> <asset> <marker>
+  local dir="$1" asset="$2" marker="$3"
+  local stage; stage="$(mktemp -d "$WORK/stage.XXXXXX")"
+  cat > "$stage/devc-bridge" <<EOF
+#!/bin/sh
+case "\${1:-}" in
+  status)
+    if [ -e "\$HOME/.fake-bridge-running" ]; then echo 'running (pid 42) — idle'; exit 0; fi
+    echo stopped; exit 1 ;;
+  stop)
+    echo stop >> "\$HOME/.fake-bridge-calls"
+    [ ! -e "\$HOME/.fake-bridge-stop-fails" ] || exit 1
+    rm -f "\$HOME/.fake-bridge-running"; echo stopped ;;
+  *) echo "$marker" ;;
+esac
+EOF
+  chmod 0755 "$stage/devc-bridge"
+  tar -czf "$dir/$asset" -C "$stage" devc-bridge
+  rm -rf "$stage"
+}
+
 # Builds a complete eight-archive release plus checksums.txt, exactly the matrix
 # .github/workflows/release.yml publishes.
 make_release() { # make_release <dir> <version-marker>
@@ -77,7 +102,7 @@ make_release() { # make_release <dir> <version-marker>
     make_archive "$dir" "devc-$b-$t.tar.gz" devc "devc $v $t"
   done
   for t in "${DARWIN[@]}"; do
-    make_archive "$dir" "devc-bridge-host-$b-$t.tar.gz" devc-bridge "host $v $t"
+    make_host_archive "$dir" "devc-bridge-host-$b-$t.tar.gz" "host $v $t"
   done
   for t in "${LINUX[@]}"; do
     make_archive "$dir" "devc-bridge-client-$b-$t.tar.gz" devc-bridge "client $v $t"
@@ -342,13 +367,59 @@ check "nonzero exit" test $? -ne 0
 check "no temp dir survives a failure either" \
   test "$(find "$WORK/tmp" -maxdepth 1 -name 'devc-install.*' | wc -l)" -eq 0
 
-# --- 12: the matrix this installer expects ---------------------------------------------
+# --- 12: a running bridge is stopped, not left on the old version ----------------------
 
-echo "case 12: install.sh and the release workflow agree on the asset names"
+# run_install makes a fresh HOME per case; this seeds it first, so the "daemon" is already
+# up when the installer runs.
+seed_home() { # seed_home <case-name> <file>...
+  local home="$WORK/home/$1"; shift
+  mkdir -p "$home"
+  local f
+  for f in "$@"; do touch "$home/$f"; done
+}
+stop_calls() { cat "$HOME_DIR/.fake-bridge-calls" 2>/dev/null | wc -l | tr -d ' '; }
+
+echo "case 12: a running bridge is stopped after its binary is replaced"
+seed_home bridge-running .fake-bridge-running
+run_install bridge-running Darwin arm64
+check "exit 0" test $? -eq 0
+check "stop called once" test "$(stop_calls)" = 1
+check "the bridge is no longer running" test ! -e "$HOME_DIR/.fake-bridge-running"
+check_out "says it stopped it" 'stopped the running devc-bridge so the new version takes over'
+check_out "says how to start it" 'devc-bridge start'
+check "the notice is the last thing printed" \
+  grep -qF 'as they were, with nothing to re-up.' <(tail -n 1 "$WORK/out.log")
+
+echo "case 12b: a stopped bridge is left alone"
+run_install bridge-stopped Darwin arm64
+check "exit 0" test $? -eq 0
+check "stop never called" test "$(stop_calls)" = 0
+check_no_out "no notice" 'stopped the running devc-bridge'
+
+echo "case 12c: a failed stop warns and never fails the install"
+seed_home bridge-stuck .fake-bridge-running .fake-bridge-stop-fails
+run_install bridge-stuck Darwin arm64
+check "exit 0" test $? -eq 0
+check "host bridge installed anyway" \
+  test "$(installed .local/bin/devc-bridge)" = 'host v9.9.9 aarch64-apple-darwin'
+check_out "warns it is still the old version" 'still the old version'
+check_out "says to restart it" 'devc-bridge restart'
+check_no_out "does not claim it stopped it" 'stopped the running devc-bridge'
+
+echo "case 12d: without the bridge in DEVC_TOOLS, a running bridge is not touched"
+seed_home bridge-not-installed .fake-bridge-running
+run_install bridge-not-installed Darwin arm64 DEVC_TOOLS=devc,client
+check "exit 0" test $? -eq 0
+check "stop never called" test "$(stop_calls)" = 0
+check "still running" test -e "$HOME_DIR/.fake-bridge-running"
+
+# --- 13: the matrix this installer expects ---------------------------------------------
+
+echo "case 13: install.sh and the release workflow agree on the asset names"
 # Names are <tool>-<version>-<triple>.tar.gz in both files, but each spells the version with
 # its own variable — $VERSION in the workflow (bare, from the gate job), $BARE_VERSION in
 # install.sh — so the literal below is the workflow's spelling. The installer's own half
-# needs no assertion here: cases 1-11 run it against fixtures named by make_release, so a
+# needs no assertion here: cases 1-12 run it against fixtures named by make_release, so a
 # wrong name there is already a failed download.
 WF="$(dirname "$SCRIPT")/.github/workflows/release.yml"
 if [ -f "$WF" ]; then

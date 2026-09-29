@@ -31,8 +31,12 @@ Knobs, as env vars (it is piped to `sh`, so there are no flags):
 | `DEVC_INSTALL_DIR` | `~/.local/bin`     | Where `devc`/`devc-bridge` go                 |
 | `DEVC_TOOLS`       | all that apply     | Subset to install: `devc`, `bridge`, `client` |
 
-Re-run it to upgrade — download, verify, replace. To uninstall, delete the files
-it printed.
+Re-run it to upgrade — download, verify, replace. On macOS, a running
+`devc-bridge` is **stopped** once its binary is replaced, so the old version
+can't go on serving containers the new `devc` has granted capabilities it doesn't
+know. Start it again yourself (`devc-bridge start`, or however you ran it):
+running containers reconnect as they were, with nothing to re-up. To uninstall,
+delete the files it printed.
 
 Notes:
 

@@ -27,7 +27,8 @@
 #   DEVC_API_LATEST    latest-release API URL, used only by an unstamped copy
 #
 # Never uses sudo. If the install dir is not on PATH it says so and prints the line to
-# add, rather than silently installing something unreachable.
+# add, rather than silently installing something unreachable. A running host bridge is
+# stopped once its binary is replaced (see stop_running_bridge), never restarted.
 #
 # The whole body is inside functions, invoked on the very last line: a download truncated
 # mid-script then defines some functions and does nothing, instead of executing half an
@@ -229,6 +230,44 @@ install_binary() { # install_binary <slot> <staged-name> <dest-dir> <dest-name>
   mv -f "$tmpf" "$3/$4" || die "could not install $3/$4"
 }
 
+# --- the running bridge --------------------------------------------------------------
+
+# Stop a running host bridge once its binary has been replaced, and leave starting it again
+# to the user. A bridge left running keeps the old version's code — its policy parser, its
+# built-in scripts — while the new `devc` writes policies for the new one, so a container
+# granted a capability the old bridge does not know gets nothing at all ("malformed"). A
+# stopped bridge fails loudly instead, and loses nothing: policies are host files read per
+# request and the token is re-minted into the live mount on start, so every container
+# reconnects as it was once the bridge is back.
+#
+# Stop, not restart: the daemon takes its config only from the environment it was started
+# in (DEVC_BRIDGE_PORT, DEVC_BRIDGE_KEEPAWAKE_*, GH_TOKEN …), which this script does not
+# have, and it may be the from-source menu-bar build rather than this binary. `stop` works
+# for all of them — it signals whatever wrote the pidfile.
+#
+# Sets BRIDGE_STOPPED. Never fails the install: the binaries are already in place.
+stop_running_bridge() {
+  BRIDGE_STOPPED=''
+  case "$("$INSTALL_DIR/devc-bridge" status 2>/dev/null)" in
+    'running '*) ;;
+    *) return 0 ;;
+  esac
+  if "$INSTALL_DIR/devc-bridge" stop >/dev/null 2>&1; then
+    BRIDGE_STOPPED=1
+  else
+    warn 'could not stop the running devc-bridge, which is still the old version.'
+    warn 'restart it yourself so the new one takes over:  devc-bridge restart'
+  fi
+}
+
+report_stopped_bridge() {
+  [ -n "$BRIDGE_STOPPED" ] || return 0
+  echo
+  say 'stopped the running devc-bridge so the new version takes over.'
+  say 'start it again (devc-bridge start, or however you ran it) — containers reconnect'
+  say 'as they were, with nothing to re-up.'
+}
+
 # --- advice --------------------------------------------------------------------------
 
 # Report, never block. An installer that refuses because Docker is not running is worse
@@ -285,8 +324,10 @@ main() {
   fi
 
   if want devc; then install_binary devc devc "$INSTALL_DIR" devc; fi
+  BRIDGE_STOPPED=''
   if want bridge; then
     install_binary bridge devc-bridge "$INSTALL_DIR" devc-bridge
+    stop_running_bridge
   fi
   # Overwrites unconditionally — devc's placeholder or a previous client. The binary is
   # not user-owned: it is a build artifact with a fixed name, and a stale one is a bug.
@@ -315,6 +356,8 @@ main() {
   # `/bin/sh -c` inside devc's own sandbox, which permits every host command anyway, so
   # the allowlist was giving up nothing real by staying. See devc/README.md.
   say 'run `devc --help` to get started'
+  # Last, so it is what the user sees when the script ends.
+  report_stopped_bridge
 }
 
 main "$@"
