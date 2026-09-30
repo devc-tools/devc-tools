@@ -82,6 +82,11 @@ To cut a release:
    [`publish-feature.yml`](../.github/workflows/publish-feature.yml) does that on a
    push to `main`, one job per Feature, to `ghcr.io/devc-tools/features/<id>`.
 
+**The macOS binaries are unsigned.** `release.yml` cross-compiles them on a
+Linux runner. GitHub's macOS runners kept becoming unavailable to this repo,
+and these two binaries were the only reason the pipeline needed macOS at all,
+so there is no `codesign` step and no native run to check them against.
+
 Neither workflow has ever run, and the release path crosses machines this repo
 is not developed on. Before the first real tag, work through
 [docs/manual-verification.md](manual-verification.md) — the checks that

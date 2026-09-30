@@ -20,9 +20,8 @@ curl -fsSL https://github.com/devc-tools/devc-tools/releases/latest/download/ins
 ```
 
 This puts `devc` (and, on macOS, `devc-bridge`) in `~/.local/bin`. If that
-directory isn't on your `PATH`, the installer prints the line to add. It needs
-no Deno or Node and never uses `sudo`. See [docs/install.md](docs/install.md)
-for options, upgrading and platform notes.
+directory isn't on your `PATH`, the installer prints the line to add. See
+[docs/install.md](docs/install.md) for options, upgrading and platform notes.
 
 ### 2. Start a container and work in it
 
@@ -45,12 +44,9 @@ The first run builds the image, which takes a few minutes. Later runs reuse it.
 - **Project has none:** devc uses its bundled default, which includes Node,
   Deno, git-lfs, Claude Code, pi and Herdr.
 
-Either way, devc never writes into your project unless you ask it to.
-
 Claude Code signs in on first use. Its state lives in `~/.config/devc/.claude`
-on the host, so **one login covers every devc container**. Your host
-`~/.claude` is not copied in. To share your personal `CLAUDE.md` or settings
-with every container, copy them over:
+on the host, so **one login covers every devc container**. To share your
+personal `CLAUDE.md` or settings with every container, copy them there:
 
 ```sh
 cp ~/.claude/CLAUDE.md ~/.config/devc/.claude/
@@ -75,12 +71,11 @@ is in the [devc README](devc/README.md#commands).
 
 **Mount sibling repos or skill folders.** Run `devc config` for a picker that
 chooses folders to bind-mount into the container, then offers to rebuild. It
-writes to a `devc.json` overlay, not to your `devcontainer.json`. See
+saves your picks in a `devc.json` overlay. See
 [`devc config`](devc/README.md#devc-config).
 
 **Customize the container.** Run `devc init` to copy the bundled default into
-`.devcontainer/` so you can edit it. For personal tweaks that shouldn't be
-committed, see
+`.devcontainer/` so you can edit it. For personal, uncommitted tweaks, see
 [the `devc.json` overlay](devc/README.md#optional-overlay-devcjson),
 [shell setup](devc/README.md#shell-setup-shell-folders) and the
 [post-create hook](devc/README.md#project-post-create-hook-devc-post-createsh).
@@ -98,17 +93,17 @@ Then see [devc-bridge setup](devc-bridge/README.md#setup-macos-host) and
 
 **Use the Features in your own devcontainers.** The agent, shell and git setup in
 devc's default container is published as standalone
-[devcontainer Features](features/README.md), so you can use them with VS Code or
-the `devcontainer` CLI without devc.
+[devcontainer Features](features/README.md), so you can add them to any
+`devcontainer.json`.
 
 ## What's in the box
 
-| Tool                                   | What it is                                                                                                                                      |
-| -------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
-| [`devc`](devc/README.md)               | Dev container lifecycle CLI (`up`, `attach`, `claude`, `exec`, `build`, …) plus the `devc config` mount picker.                                 |
-| [`devc-bridge`](devc-bridge/README.md) | A headless host daemon (macOS) and container client that let a container invoke allowlisted host commands. A menu-bar tray is an opt-in extra.  |
-| [Features](features/README.md)         | Published devcontainer Features: `agents`, `bash-config`, `devc-bridge`, `git-container-config`, `node-nvmrc` and more.                         |
-| [`devc-core`](devc-core/README.md)     | `devc`'s lifecycle logic as an npm library, `@devc-tools/core`, for programmatic use. Compiled into `devc`, so you don't install it separately. |
+| Tool                                   | What it is                                                                                                                                     |
+| -------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| [`devc`](devc/README.md)               | Dev container lifecycle CLI (`up`, `attach`, `claude`, `exec`, `build`, …) plus the `devc config` mount picker.                                |
+| [`devc-bridge`](devc-bridge/README.md) | A headless host daemon (macOS) and container client that let a container invoke allowlisted host commands. A menu-bar tray is an opt-in extra. |
+| [Features](features/README.md)         | Published devcontainer Features: `agents`, `bash-config`, `devc-bridge`, `git-container-config`, `node-nvmrc` and more.                        |
+| [`devc-core`](devc-core/README.md)     | `devc`'s lifecycle logic as an npm library, `@devc-tools/core`, for programmatic use.                                                          |
 
 ## How devc works
 

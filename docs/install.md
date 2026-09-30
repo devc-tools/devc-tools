@@ -6,8 +6,7 @@ curl -fsSL https://github.com/devc-tools/devc-tools/releases/latest/download/ins
 
 ## What it installs
 
-Prebuilt binaries for your machine go into `~/.local/bin`. **No Deno needed**,
-and the installer never uses `sudo`.
+Prebuilt binaries for your machine go into `~/.local/bin`.
 
 | Platform | On your `PATH`                   | Also installed                       |
 | -------- | -------------------------------- | ------------------------------------ |
@@ -40,39 +39,31 @@ meant for mirrors and the test harness.
 ## Upgrading and uninstalling
 
 - **Upgrade:** run the installer again. It downloads, verifies and replaces.
-  On macOS, a running `devc-bridge` is **stopped** once its binary is replaced,
-  so the old version can't keep serving containers the new `devc` has granted
-  capabilities it doesn't know about. Start it again yourself
-  (`devc-bridge start`). Running containers reconnect as they were, so there is
-  nothing to re-up.
+  On macOS, upgrading **stops** a running `devc-bridge`, so the new version
+  takes over. Run `devc-bridge start` again. Running containers reconnect on
+  their own.
 - **Uninstall:** delete the files the installer printed.
 
 ## Requirements and platform notes
 
 - **`PATH`:** if `~/.local/bin` isn't on your `PATH`, the installer says so and
   prints the line to add. It still installs.
-- **Docker is the only runtime dependency.** The
-  [`devcontainer` CLI](https://github.com/devcontainers/cli) is embedded in the
-  `devc` binary, so you don't need it or Node.js on your `PATH`. The installer
-  warns if Docker is missing and installs anyway.
-- **Windows is not supported.** The `devc-bridge` **host** CLI is macOS-only,
-  because every command it ships is macOS (`caffeinate`). `devc` and the
-  container client work on Linux.
-- **Gatekeeper:** `curl` does not set `com.apple.quarantine`, so a macOS binary
-  installed this way runs. One downloaded through a browser would not.
-- **The macOS binaries are unsigned.** `release.yml` cross-compiles them on a
-  Linux runner. GitHub's macOS runners kept becoming unavailable to this repo,
-  and these two binaries were the only reason the pipeline needed macOS at all,
-  so there is no `codesign` step and no native run to check them against. If
-  Gatekeeper still complains on your setup, run
-  `xattr -d com.apple.quarantine <path>` to clear it.
+- **Docker:** `devc` runs containers through Docker, so install it first. The
+  installer warns if it's missing.
+- **Platforms:** macOS and Linux. The `devc-bridge` host CLI is macOS-only,
+  because every command it ships is macOS (`caffeinate`). Windows is not
+  supported.
+- **Gatekeeper (macOS):** the macOS binaries are unsigned. Installed with the
+  `curl` command above, they run as-is. If Gatekeeper blocks one (for example,
+  an archive you downloaded through a browser), clear the quarantine flag:
+  `xattr -d com.apple.quarantine <path>`.
 
 ## Integrity
 
 Every archive is checked against the release's `checksums.txt` before anything
 is written. The script itself is a release asset, so the URL above always
-serves the copy that release was built and tested with, not whatever `main`
-currently holds. [`install.sh`](../install.sh) at the repo root is the source
+serves the copy that release was built and tested with.
+[`install.sh`](../install.sh) at the repo root is the source
 of truth for that script.
 
 ## Building from source
