@@ -292,7 +292,7 @@ a password (the repair is `sudo -n`, so it skips rather than hangs). Check with
 
 Tested against podman 4.9.3 (Ubuntu 24.04) and 5.7.0 (Ubuntu 26.04), on Docker Desktop and
 on a native Linux Docker Engine host; the no-capability configuration (0.2.0) was measured on
-Docker Desktop and on a rootless Docker 29 host — `docs/manual-verification.md` § 13.9.
+Docker Desktop and on a rootless Docker 29 host — `docs/maintainers/manual-verification.md` § 13.9.
 
 ## The seccomp profile
 

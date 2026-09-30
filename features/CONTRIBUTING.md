@@ -1,8 +1,9 @@
 # Contributing to the Features collection
 
-Maintainer notes for `features/`. Everything a _consumer_ of a Feature needs is in
-[README.md](README.md) and each Feature's own README; everything about building,
-testing and publishing them is here.
+How to build and test the Features in `features/`. Everything a _consumer_ of a Feature
+needs is in [README.md](README.md) and each Feature's own README. Versioning and
+publishing are maintainer steps, covered in
+[docs/maintainers/publishing-features.md](../docs/maintainers/publishing-features.md).
 
 ## Layout
 
@@ -72,33 +73,17 @@ volume.
 
 ## Versions
 
-**Every Feature versions itself.** The `version` in a `devcontainer-feature.json` is that
-Feature's own, unrelated to the repo's `vX.Y.Z` tag and to the other Features. Two
-Features at different versions is the normal state here, not drift. The binaries still
-move in lockstep on one tag — see the
-[release guide](../docs/releasing.md) — but a Feature is pulled from ghcr
-by a consumer's `devcontainer.json`, not installed by `install.sh`, so nothing needs the
-coupling. It only ever cost: a byte-identical Feature getting a new digest because some
-unrelated tool changed, and a one-line Feature fix needing a full binary release.
+Each Feature has its own `version` in `devcontainer-feature.json`, and its published tag
+tracks it: `:0` while that Feature is pre-1.0, `:1` at its first 1.x release.
 
-The published tag tracks **each Feature's own** version line: `:0` while that Feature is
-pre-1.0, `:1` at its first 1.x release.
+**In a PR, leave `version` as it is.** The maintainer bumps it when publishing. A new
+Feature starts at `0.1.0` and stays off ghcr.io until the maintainer adds it to
+[`PUBLISH_ALLOWLIST.txt`](PUBLISH_ALLOWLIST.txt).
 
-**Bump what you changed, in the same commit.** A push to `main` touching `features/`
-publishes each Feature from its own matrix job, so:
+If your change adds a declared mount or otherwise changes what every consumer gets,
+say so in the PR description so it gets the right bump.
 
-- bump a Feature's `version` when that Feature changes — nothing else has to move;
-- leave it alone and the publish is a no-op. `devcontainer features publish` skips a
-  version already in the registry, prints `Version X already exists, skipping`, and
-  pushes nothing. So "I forgot to bump it" shows up as "nothing published" in the run
-  that changed it, not silently at the next release.
-
-A new Feature starts at `0.1.0`.
-
-Adding a declared mount to a published Feature is new behavior every consumer gets
-whether or not they ask for it — that is a version bump, not a silent edit.
-
-### Release pins
+## Release pins
 
 A Feature that downloads a release asset bakes `DEVC_TOOLS_RELEASE='<tag>'` into its
 `install.sh`, naming the devc-tools release it fetches from — **not its own version**;
@@ -111,63 +96,12 @@ nothing must not be made to invent a version.
 which the old tag trigger used to guarantee by accident: publishing from `main` otherwise
 lets a Feature ship pinned to a release nobody has tagged yet.
 
-## The publish allowlist
-
-A Feature that reaches every guard still does not publish unless its id is listed in
-[`PUBLISH_ALLOWLIST.txt`](PUBLISH_ALLOWLIST.txt), one id per line (`#` comments and blank
-lines are ignored). This is the gate for a Feature under active development: add its
-directory, get its manifest right, run its tests — it still sits invisible to ghcr.io
-until you add it here. No half-finished Feature auto-publishes just because it touched
-`main`.
-
-It is deliberately the one static list in this collection. Everywhere else a Feature is
-_discovered_ by walking `features/*/devcontainer-feature.json`, precisely so a guard can
-never be left naming only the old Features. The allowlist does not reopen that failure:
-leaving a Feature off it fails **safe** (it does not publish), where the old failure mode
-failed **unsafe** (it published unguarded). `bash tests/features_test.sh` checks every
-entry names a real Feature, so a stale or misspelled id is caught rather than silently
-doing nothing forever.
-
-It is **source-only**. `devcontainer features publish` packages one Feature's own
-`features/<id>/` directory; `PUBLISH_ALLOWLIST.txt` lives at the collection root, outside
-every Feature directory, so it is never part of a published artifact.
-
-`publish-feature.yml`'s `discover` job builds its matrix from this file, and its
-`collection-index` job stages a copy of only the allowlisted Feature directories before
-republishing the collection index — both so a held-back Feature cannot appear in either
-place.
-
-### Publish status
-
-All seven Features are currently allowlisted. Two caveats:
-
-- **`devc-bridge` publishes only once its pinned release exists.** It pins
-  `DEVC_TOOLS_RELEASE='v0.6.0'`; the guard runs `gh release view` on that tag, so a tag
-  without a published GitHub release still fails it. Check with
-  `bash tests/features_test.sh --check-release-pins` before assuming it will publish.
-- **A newly created GHCR package is private.** Each has to be made public in the repo's
-  Packages settings before an anonymous `devcontainer up` can pull it. Check the
-  package's visibility before assuming a fresh publish is reachable.
-
-Orphaned namespaces, referenced nowhere in this repo: everything under
-`ghcr.io/bmingles/devc-tools/*` from before the org move, a short-lived
-`ghcr.io/devc-tools/*` (no `features/` segment) from a run that published the Features
-and then failed on the collection index, and `ghcr.io/devc-tools/features/project-hook`
-from before `devc-config` was renamed.
-
-When devc injects `devc-config` it is pinned at an **exact** version rather than `:0` — see
-`devc-core/overlay.ts`'s `DEVC_CONFIG_FEATURE` — because that injection reaches every
-container devc starts, with no opt-in anywhere. Bumping `devc-config`'s version therefore
-means bumping that pin in the same commit, and shipping a devc release to deliver it;
-`tests/workflow_guards_test.sh` asserts the two agree. A manual `"devc-config": {}` in your
-own config still floats on `:0` like any other Feature here.
-
 ## Guarding the collection
 
 ```sh
 bash tests/features_test.sh                       # the whole collection, offline
 bash tests/features_test.sh --feature node-nvmrc  # one Feature
-bash tests/features_test.sh --check-release-pins  # + the network check above (needs gh)
+bash tests/features_test.sh --check-release-pins  # + the release-pin check (needs gh)
 ```
 
 Per Feature it checks that `id` equals the directory name (`features package` names the
@@ -180,39 +114,6 @@ glob — a guard that finds nothing to check must not pass.
 `publish-feature.yml` runs it three times: once over the whole collection before the
 matrix, once per Feature with `--feature` so one Feature's failed guard cannot fail
 another Feature's publish, and once more in the `collection-index` job.
-
-## The collection index package
-
-`ghcr.io/devc-tools/features` — no trailing `/<id>` — is **not** a Feature and not an
-image. It is a metadata-only OCI artifact holding one `devcontainer-collection.json`
-layer that lists what is in this collection. `devcontainer features publish` pushes it on
-every run and there is no flag to suppress it.
-
-Because each Feature publishes from its own job, every one of those runs would otherwise
-overwrite that document with a one-Feature view — so it would name whichever Feature
-published last as the whole collection. The `collection-index` job repairs it: it runs
-after the matrix, `needs: publish` so it is skipped unless **every** Feature published
-cleanly, and re-publishes the whole collection. Every Feature is already at its current
-version by then, so the CLI skips them all and only the index document is rewritten.
-
-Nothing in this repo reads it — `devc` never resolves a Feature version, and
-`devcontainer features info` goes through a Feature's own OCI annotations. It is kept
-honest because it is visible on the repo's Packages page.
-
-### Why the namespace is `<owner>/features`
-
-That unconditional index push is also why `--namespace` cannot be the owner alone. The
-CLI derives the index ref from the namespace with no `/<id>`, so
-`--namespace devc-tools` would aim it at `ghcr.io/devc-tools` — a registry and an owner
-with no package name, which GHCR rejects with `NAME_INVALID`. The CLI's own path
-validation accepts a single segment, so nothing catches it until the registry does: every
-Feature publishes successfully and _then_ the command fails.
-
-`<owner>/features` keeps Features one segment shorter than `${{ github.repository }}`
-would (`ghcr.io/devc-tools/features/<id>` rather than
-`ghcr.io/devc-tools/devc-tools/<id>`) while still giving the index a valid home.
-`tests/workflow_guards_test.sh` asserts no `--namespace` in the workflow is a single
-segment.
 
 ## Running a Feature's tests
 
@@ -387,7 +288,7 @@ The default scenario is the strongest claim this Feature makes: `docker run` has
 with **zero** `runArgs`. `scenarios.json` adds `with_tun`, `with_socket`, `with_volume`
 and `no_shim`.
 
-## Per-Feature maintainer notes
+## Per-Feature notes
 
 ### agents
 
@@ -459,7 +360,7 @@ otherwise compete for. Do not "simplify" this to the API call without re-derivin
 
 This Feature has **no `DEVC_TOOLS_RELEASE`-style pin**. That convention names a _devc-tools_
 release this repo controls; `version: "latest"` here tracks an _upstream_ project's own
-releases instead, which is what the `version` option is for — see "Release pins" above. It also
+releases instead, which is what the `version` option is for — see [Release pins](#release-pins). It also
 declares no `installsAfter`: unlike `node-nvmrc` (which orders behind a Node Feature it does not
 install), this Feature installs the one thing it needs itself and has nothing else to order
 behind.

@@ -3,7 +3,7 @@
 # The scenario's runArgs carry only the seccomp profile and /dev/net/tun; the Feature declares
 # systempaths=unconfined and apparmor=unconfined and nothing else. Private networking
 # (slirp4netns) is on, so this also exercises the network path the old SYS_ADMIN grant used
-# to cover. See docs/manual-verification.md §13.9 and devc-dev's rootless findings § Zero
+# to cover. See docs/maintainers/manual-verification.md §13.9 and devc-dev's rootless findings § Zero
 # capabilities for the measurements behind every check here.
 set -e
 

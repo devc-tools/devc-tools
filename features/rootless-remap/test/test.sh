@@ -4,7 +4,7 @@
 # pointed at, so this scenario proves the two things that hold on ANY daemon: the Feature
 # installs, and on a rootful daemon (Docker Desktop, native Linux Docker, GitHub runners) it
 # changes nothing. The rootless branch cannot be reached from a scenario; it is validated by
-# hand on a rootless host — devc-tools docs/manual-verification.md §13.9.
+# hand on a rootless host — devc-tools docs/maintainers/manual-verification.md §13.9.
 set -e
 
 source dev-container-features-test-lib

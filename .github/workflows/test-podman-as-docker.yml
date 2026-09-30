@@ -3,7 +3,7 @@ name: Test podman-as-docker (native Linux Docker)
 # Closes a gap review surfaced in the podman-as-docker Feature: it was built and measured
 # entirely against Docker Desktop's LinuxKit VM, which — unlike a normal Linux Docker Engine
 # host — already runs with no seccomp filter and no AppArmor profile applied (see
-# docs/manual-verification.md §13 and the Feature's README). So "capAdd:[SYS_ADMIN] +
+# docs/maintainers/manual-verification.md §13 and the Feature's README). So "capAdd:[SYS_ADMIN] +
 # securityOpt:[systempaths=unconfined], nothing else" was never actually exercised against
 # the two restrictions a stock Linux host adds on top: the `docker-default` seccomp profile
 # and the `docker-default` AppArmor profile. A GitHub-hosted `ubuntu-latest` runner is a real

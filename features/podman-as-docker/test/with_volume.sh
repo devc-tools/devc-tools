@@ -6,7 +6,7 @@
 # What is NOT verifiable here: that the volume's name resolved `${devcontainerId}` rather
 # than collapsing every project onto one shared graphroot — that needs a host-side
 # `docker volume ls`, which this scenario script (running inside the built container) has
-# no access to. That check lives in docs/manual-verification.md instead.
+# no access to. That check lives in docs/maintainers/manual-verification.md instead.
 set -e
 
 source dev-container-features-test-lib

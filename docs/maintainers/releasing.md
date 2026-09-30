@@ -14,7 +14,7 @@ not installed by `install.sh`, so a one-line fix to one ships without a binary
 release and an untouched Feature never gets a new digest. Bump the `version` of
 whatever Feature you changed, in the same commit; anything you do not bump simply
 does not publish. See
-[`features/CONTRIBUTING.md`](../features/CONTRIBUTING.md#versions).
+[Publishing Features](publishing-features.md#versions).
 
 One exception: `devc-config` is pinned at an exact version by
 `devc-core/overlay.ts`'s `DEVC_CONFIG_FEATURE`, since devc injects it into every
@@ -22,19 +22,19 @@ container it starts. Bumping that Feature means bumping the pin in the same
 commit — and only a devc release delivers it.
 
 **A Feature also has to be on the allowlist to publish at all.**
-[`features/PUBLISH_ALLOWLIST.txt`](../features/PUBLISH_ALLOWLIST.txt) is what keeps a
+[`features/PUBLISH_ALLOWLIST.txt`](../../features/PUBLISH_ALLOWLIST.txt) is what keeps a
 Feature under active development off ghcr.io until it's ready — see
-[The publish allowlist](../features/CONTRIBUTING.md#the-publish-allowlist).
+[The publish allowlist](publishing-features.md#the-publish-allowlist).
 
 **`@devc-tools/core` is not published by any workflow.** Move its version with
-[`scripts/bump-core-version.sh`](../scripts/bump-core-version.sh)
+[`scripts/bump-core-version.sh`](../../scripts/bump-core-version.sh)
 (`bash scripts/bump-core-version.sh 0.5.0`), never a bare `npm version`: besides
 `package.json` and `package-lock.json`, `devc/deno.lock` and
 `devc-bridge/host/deno.lock` record core's version (Deno links `../devc-core/` as
 an npm package), and the script refreshes and verifies both. It is a manual
 `npm publish`, and `devc-core/package.json` has no `prepublishOnly` hook while
 its `files` is `["dist"]` — so an unbuilt `dist/` publishes an empty package.
-Run [`scripts/preflight-core-publish.sh`](../scripts/preflight-core-publish.sh)
+Run [`scripts/preflight-core-publish.sh`](../../scripts/preflight-core-publish.sh)
 **on the host** first: it checks the same preconditions `release.yml` would
 refuse a tag over, refuses a version that is **already on the registry** (npm
 versions are immutable, so finding that out at `npm publish` leaves bumping as
@@ -61,7 +61,7 @@ To cut a release:
    `devc-bridge/host/version.ts` and `devc-bridge/client/version.ts`, plus
    `devc/deno.json`'s `"version"` — guarded by `release.yml` (the three `VERSION`
    consts) and by `preflight-core-publish.sh` (`devc/deno.json` matching them).
-   [`scripts/bump-version.sh`](../scripts/bump-version.sh) does all four in one
+   [`scripts/bump-version.sh`](../../scripts/bump-version.sh) does all four in one
    step: `bash scripts/bump-version.sh 0.2.0`. Prereleases are no exception: to
    tag `v0.1.0-rc.1`, every one of those versions must be `0.1.0-rc.1`, so
    nothing claims a version its release does not have. Nothing under
@@ -70,7 +70,7 @@ To cut a release:
    it at a newer one is a change to that Feature, with its own version bump, on
    its own schedule.
 2. Commit, then `git tag v0.1.0 && git push origin v0.1.0`.
-3. [`release.yml`](../.github/workflows/release.yml) builds each of the eight
+3. [`release.yml`](../../.github/workflows/release.yml) builds each of the eight
    archives on a runner of its own architecture, runs `--version` on what it
    built, writes `checksums.txt`, stamps the tag into `install.sh` and publishes.
    Assets are named `<tool>-<version>-<triple>.tar.gz` — the version sits in the
@@ -79,7 +79,7 @@ To cut a release:
    downloaded archive says which version it is. `install.sh` and `checksums.txt`
    stay version-free: the former is served from `releases/latest/download/`, so
    its name cannot move. It publishes no Features —
-   [`publish-feature.yml`](../.github/workflows/publish-feature.yml) does that on a
+   [`publish-feature.yml`](../../.github/workflows/publish-feature.yml) does that on a
    push to `main`, one job per Feature, to `ghcr.io/devc-tools/features/<id>`.
 
 **The macOS binaries are unsigned.** `release.yml` cross-compiles them on a

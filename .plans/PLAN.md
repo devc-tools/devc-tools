@@ -104,7 +104,7 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
   validated by devc-core / devc / devc-bridge host tests and `deno fmt --check`
   (devc-core's pre-existing `cliWorktreeMounts … pinned devcontainer CLI` failure is
   unrelated and reproduces on the untouched tree). The macOS/Docker checks are in
-  `docs/manual-verification.md` §18 and need the host. devc bind-mounts the host's
+  `docs/maintainers/manual-verification.md` §18 and need the host. devc bind-mounts the host's
   installed container client (`~/.config/devc-bridge/client/`) read-only over the
   Feature's client dir in every bridge-enabled container, when it is a host-arch Linux
   ELF and the project is not Compose. Opt out with `"bridgeClientMount": false`.
@@ -201,7 +201,7 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
 
 - [devc-merged-config](archived/devc-merged-config.md) — ✅ Done, code
   complete and offline-tested; the nine Docker-needed items in
-  [docs/manual-verification.md §11](../docs/manual-verification.md) are unrun
+  [docs/maintainers/manual-verification.md §11](../docs/maintainers/manual-verification.md) are unrun
   (no Docker in this environment), same standing as other entries below.
 
   The `devc.json` overlay is no longer translated into `devcontainer up` flags.
@@ -300,7 +300,7 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
   `HERDR_AGENT=claude` deference regression guard, the `DEVC_HERDR_AGENT=off`/
   `=<kind>` switches, no leaked `__herdr-sidecar`/watcher process after
   ctrl+c or `SIGKILL`, and the pane staying clean under a full-screen agent.
-  All added to `docs/manual-verification.md` §10 for the next Docker+Herdr
+  All added to `docs/maintainers/manual-verification.md` §10 for the next Docker+Herdr
   session.
 
   `devc/README.md` gained a "Herdr integration" subsection under
@@ -397,7 +397,7 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
   daemon, `devc init` output still provisioning standalone with no `devc` on
   `PATH`, the bashrc-additions reach extension actually showing up in a
   project-mode container's interactive shell, and rebuild churn being
-  one-time rather than recurring. All added to `docs/manual-verification.md`
+  one-time rather than recurring. All added to `docs/maintainers/manual-verification.md`
   §9 for the next Docker-host session, alongside a correction to that doc's
   own pre-existing baseline block (it pointed `seed_link_test.sh` and
   `shell_dirs_test.sh` at paths under `devc/default/scripts/` that never
@@ -585,7 +585,7 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
   existing container picks up the injected Feature without `--rebuild`,
   one-time rebuild churn on first upgrade, and offline-build behavior with
   `baselineFeatures: false` as the air-gapped escape hatch. All added to
-  `docs/manual-verification.md` §8 for the next Docker-host session.
+  `docs/maintainers/manual-verification.md` §8 for the next Docker-host session.
 
 - [feature-project-hook](archived/feature-project-hook.md) — ✅ Done, split
   but not published. `features/project-hook/` runs the project's own
@@ -1037,7 +1037,7 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
   at create time, so both PATH entries agree until something disturbs one.
   Also still open, and still what `with_nvmrc` measures: the cwd of a
   Feature-declared `postCreateCommand` (`design/devc-feature-split.md` open
-  question 1). `docs/manual-verification.md` needs no change — nothing about
+  question 1). `docs/maintainers/manual-verification.md` needs no change — nothing about
   publishing moves. **`node-nvmrc` is on `features/PUBLISH_ALLOWLIST`, so the
   push that merges this to `main` publishes 0.2.0 to ghcr.io**, breaking any
   consumer pinned to `:0` who passes `autoUseOnCd` or relies on the `cd` hook;
@@ -1308,7 +1308,7 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
   fails naming `v0.1.0` — a Feature that fetches nothing cannot be blocked by one
   that does.
   **Not verified here (no Actions):** the workflow has never run. Two things need
-  a real dispatch, both in `docs/manual-verification.md` §1 and §3 — a dry run
+  a real dispatch, both in `docs/maintainers/manual-verification.md` §1 and §3 — a dry run
   from `main` showing `node-nvmrc`'s matrix job green beside `devc-bridge`'s
   failing pin guard with `fail-fast: false` holding, and a real publish of
   `node-nvmrc` **with no devc release tagged**, followed by a no-change re-run
@@ -1404,7 +1404,7 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
   meant to be copied unchanged. New `features/README.md` carries the collection
   layout, the one-repo-one-version rule, the published-refs table and the
   no-shared-code / no-host-mounts constraints; the root README's Releasing
-  section and `docs/manual-verification.md` §3 stop saying "all four" versions
+  section and `docs/maintainers/manual-verification.md` §3 stop saying "all four" versions
   and say "every Feature under `features/`". `tests/workflow_guards_test.sh`
   gained two offline sections: the guard's `run:` block must name **no** Feature
   id literally and must iterate the collection glob, and every Feature's `id`

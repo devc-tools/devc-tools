@@ -32,7 +32,7 @@ warn() {
 # The manifest declares a named volume at the literal /home/vscode/.claude — a literal because no
 # devcontainer.json variable names the remote user's home inside a Feature's own `mounts`
 # (`${containerEnv:HOME}` reaches Docker as a literal string and the mount is refused; measured,
-# docs/manual-verification.md §12 M1).
+# docs/maintainers/manual-verification.md §12 M1).
 #
 # So on an image whose remote user is not `vscode`, the volume is mounted somewhere Claude Code
 # never reads. Nothing here can fix that — a mount target cannot be chosen at create time — so it

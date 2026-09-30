@@ -120,22 +120,5 @@ which covers why `.git/config` is read-only inside the container.
 
 ## Contributing
 
-Each tool has its own README with build and test instructions. To run a tool
-from source without building it, source
-[`scripts/bash_aliases.sh`](scripts/bash_aliases.sh) from `~/.bashrc`.
-
-| Path                 | Role                                                                                                                                                                       |
-| -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `devc/`              | The dev container CLI and config TUI                                                                                                                                       |
-| `devc-bridge/`       | The host command bridge                                                                                                                                                    |
-| `devc-core/`         | `devc`'s lifecycle logic, as an npm library                                                                                                                                |
-| `features/`          | Published devcontainer Features. See [CONTRIBUTING](features/CONTRIBUTING.md)                                                                                              |
-| `install.sh`         | The `curl \| sh` installer. The source of truth, shipped as a release asset                                                                                                |
-| `tests/`             | Repo-level shell harnesses, e.g. `bash tests/install_test.sh install.sh` (offline)                                                                                         |
-| `.github/workflows/` | `release.yml` (binaries from a `v*` tag) and `publish-feature.yml` (Features, on `main`)                                                                                   |
-| `scripts/`           | Source-run aliases, plus the version-bump and preflight scripts                                                                                                            |
-| `.devc/`             | Devcontainer config for developing _this_ repo                                                                                                                             |
-| `.plans/`            | Plan docs. `.plans/PLAN.md` is the status index                                                                                                                            |
-| `docs/`              | Reference guides: [install](docs/install.md), [releasing](docs/releasing.md), [manual verification](docs/manual-verification.md), [bridge + GitHub](docs/bridge-github.md) |
-
-To cut a release, see [docs/releasing.md](docs/releasing.md).
+Pull requests are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for setup,
+tests and how versions and releases are handled.

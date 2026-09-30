@@ -795,7 +795,7 @@ initially **failed**, which is the reason §13.3 and the CI workflow below exist
 LinuxKit VM, which — measured back in § Measured, the plan's very first section —
 already runs with `Seccomp: 0` and no AppArmor profile applied. That is not the
 normal state of a Linux Docker host, and the gap was invisible until
-[`.github/workflows/test-podman-as-docker.yml`](../.github/workflows/test-podman-as-docker.yml)
+[`.github/workflows/test-podman-as-docker.yml`](../../.github/workflows/test-podman-as-docker.yml)
 ran the same five scenarios on a GitHub-hosted `ubuntu-latest` runner (a real
 Linux Docker Engine host, `docker-default` seccomp **and** AppArmor both
 enforced — confirmed in the run's own log before the scenarios started):
@@ -1456,7 +1456,7 @@ sets `"baselineFeatures": false` and `"features": null`, so the run is an image
 pull with no Feature build. **`"features": null` is load-bearing** — without it
 the user-level overlay's `agents` Feature is merged in and fails the build on
 arm64 (that is
-[`agents-agent-browser-arm64`](../../devc-dev/.plans/pending/agents-agent-browser-arm64.md),
+[`agents-agent-browser-arm64`](../../../devc-dev/.plans/pending/agents-agent-browser-arm64.md),
 not this plan).
 
 ### V1 — derivation, from `devc up --print-config`
