@@ -54,14 +54,16 @@ cp ~/.claude/CLAUDE.md ~/.config/devc/.claude/
 
 ### 3. Everyday commands
 
-| Command                        | Does                                                                              |
-| ------------------------------ | --------------------------------------------------------------------------------- |
-| `devc attach`                  | Start the container if needed and open a shell in it                              |
-| `devc claude` / `pi` / `herdr` | Same, but run that agent. Pass its own args after `--`: `devc claude -- --resume` |
-| `devc exec -- CMD`             | Run one command in the container                                                  |
-| `devc status`                  | `running` / `stopped` / `missing`                                                 |
-| `devc build`                   | Recreate the container. Run this after changing its config                        |
-| `devc stop` / `devc down`      | Stop the container / stop and remove it                                           |
+| Command                        | Does                                                                                                     |
+| ------------------------------ | -------------------------------------------------------------------------------------------------------- |
+| `devc attach`                  | Start the container if needed and open a shell in it                                                     |
+| `devc claude` / `pi` / `herdr` | Same, but run that agent. Pass its own args after `--`: `devc claude -- --resume`                        |
+| `devc exec -- CMD`             | Run one command in the container                                                                         |
+| `devc status`                  | `running` / `stopped` / `missing`                                                                        |
+| `devc build`                   | Recreate the container. Run this after changing its config                                               |
+| `devc config`                  | Pick sibling repos and skill folders to mount into the container ([details](devc/README.md#devc-config)) |
+| `devc init`                    | Copy the default config into `.devcontainer/` so you can edit it ([details](devc/README.md#commands))    |
+| `devc stop` / `devc down`      | Stop the container / stop and remove it                                                                  |
 
 Every command works on the current directory, or on a path you pass
 (`devc attach ~/code/other`). `devc --help` lists everything. The full reference
