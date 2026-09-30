@@ -305,12 +305,15 @@ jobs:
           fi
           ls -l dist/assets
 
+      # Only a hand-off to `publish` in this same run, which deletes it once it is done
+      # with it. The one-day retention is the backstop for a run that fails before then:
+      # each release's four of these are ~250 MB, half the Free plan's storage quota.
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: assets-${{ matrix.target }}
           path: dist/assets/*.tar.gz
           if-no-files-found: error
-          retention-days: 7
+          retention-days: 1
 
   publish:
     needs: [gate, build]
@@ -385,7 +388,7 @@ jobs:
           name: release-${{ needs.gate.outputs.tag }}
           path: dist/release/*
           if-no-files-found: error
-          retention-days: 7
+          retention-days: 1
 
       # `gh` over a third-party action, deliberately: fewer third parties in the path that
       # produces binaries people `curl | sh`. A tag with a pre-release suffix (v0.1.0-rc.1)
@@ -403,3 +406,29 @@ jobs:
             --generate-notes \
             $prerelease \
             dist/release/*
+
+  # Its own job so `actions: write` never shares a token with checked-out code or a
+  # third-party action — `publish` keeps only the workflow's `contents: write`. Job-level
+  # permissions replace the workflow's, so this one holds nothing else.
+  #
+  # Everything in `assets-*` is now either attached to the release (which does not count
+  # toward Actions storage) or re-uploaded as `release-<tag>`, so the per-target copies
+  # are dead weight. Runs after a dry run too; `needs` skips it when `publish` fails, so a
+  # broken run keeps them for debugging until the one-day retention expires.
+  cleanup:
+    needs: publish
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+    steps:
+      - name: Delete build artifacts
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/artifacts?per_page=100" \
+            --paginate --jq '.artifacts[] | select(.name | startswith("assets-")) | .id' \
+            > /tmp/artifact-ids.txt
+          while read -r id; do
+            gh api -X DELETE "repos/$GITHUB_REPOSITORY/actions/artifacts/$id"
+          done < /tmp/artifact-ids.txt
