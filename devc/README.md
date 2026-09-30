@@ -18,7 +18,7 @@ curl -fsSL https://github.com/devc-tools/devc-tools/releases/latest/download/ins
 
 That drops a prebuilt `devc` into `~/.local/bin` (macOS and Linux, Intel and
 ARM) — **Deno is not needed to use it**, only to develop it. See the
-[repo README](../README.md#install) for the env knobs and the `PATH` note.
+[install guide](../docs/install.md) for the env knobs and the `PATH` note.
 
 **`docker` is the only thing `devc` needs on your `PATH`.** The
 [`devcontainer` CLI](https://github.com/devcontainers/cli) is embedded in the

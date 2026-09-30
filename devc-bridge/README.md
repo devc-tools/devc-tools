@@ -138,7 +138,7 @@ The installer places **both** `devc-bridge` binaries, which are two different
 programs sharing a name: the host CLI on your `PATH`, and the container client
 at `~/.config/devc-bridge/client/devc-bridge`. See
 [The container client](#the-container-client) for why that path matters and
-[the repo README](../README.md#install) for the installer's env knobs. The host
+[the install guide](../docs/install.md) for the installer's env knobs. The host
 CLI is **macOS-only** — every command it ships is macOS (`caffeinate`) — so on
 Linux the installer places only the client.
 

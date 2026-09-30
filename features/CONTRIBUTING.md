@@ -75,8 +75,8 @@ volume.
 **Every Feature versions itself.** The `version` in a `devcontainer-feature.json` is that
 Feature's own, unrelated to the repo's `vX.Y.Z` tag and to the other Features. Two
 Features at different versions is the normal state here, not drift. The binaries still
-move in lockstep on one tag — see the root
-[README's Releasing section](../README.md#releasing) — but a Feature is pulled from ghcr
+move in lockstep on one tag — see the
+[release guide](../docs/releasing.md) — but a Feature is pulled from ghcr
 by a consumer's `devcontainer.json`, not installed by `install.sh`, so nothing needs the
 coupling. It only ever cost: a byte-identical Feature getting a new digest because some
 unrelated tool changed, and a one-line Feature fix needing a full binary release.
