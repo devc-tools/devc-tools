@@ -142,7 +142,7 @@ place.
 All seven Features are currently allowlisted. Two caveats:
 
 - **`devc-bridge` publishes only once its pinned release exists.** It pins
-  `DEVC_TOOLS_RELEASE='v0.5.0'`; the guard runs `gh release view` on that tag, so a tag
+  `DEVC_TOOLS_RELEASE='v0.6.0'`; the guard runs `gh release view` on that tag, so a tag
   without a published GitHub release still fails it. Check with
   `bash tests/features_test.sh --check-release-pins` before assuming it will publish.
 - **A newly created GHCR package is private.** Each has to be made public in the repo's
