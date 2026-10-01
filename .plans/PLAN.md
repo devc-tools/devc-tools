@@ -21,6 +21,14 @@
   The per-ping lease model is documented as a follow-on and deliberately **not**
   built until the data exists.
 
+- [devc-feature-lockfile](devc-feature-lockfile.md) — devc still never writes a Feature
+  lockfile on its own, but `devc lock [PATH] [--dry-run]` writes one for the project's own
+  `devcontainer.json` (embedded CLI `upgrade`), and project-mode starts honor an existing
+  lock by rewriting pinned Feature keys in the merged config to their `resolved` digests.
+  `--no-lockfile` stays unconditional: the CLI has no read-only lock mode, and its default
+  and frozen modes either write devc's injected Features into the project's lock or fail on
+  them. Also strips `@sha256:` digests in `declaresFeatureNamed`.
+
 ### Standing rules for Feature work
 
 Not a plan group — these are the conventions every Feature plan in this file
@@ -1885,3 +1893,4 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
 | devc-bridge `pr-request-review` — ask Copilot to re-review the current head                                 | [bridge-pr-request-review](archived/bridge-pr-request-review.md)                   | complete |
 | devc-bridge `gh-*` capability and command names, `--bridge-allow gh`, GitHub-only push                      | [bridge-gh-capabilities](archived/bridge-gh-capabilities.md)                       | complete |
 | devc-bridge Copilot review-loop gaps — review body, timeline-sourced `pending`, policy refusal exit codes   | [bridge-copilot-review-gaps](archived/bridge-copilot-review-gaps.md)               | complete |
+| devc Feature lockfile — `devc lock` on demand; project-mode starts honor an existing lock                   | [devc-feature-lockfile](devc-feature-lockfile.md)                                  |          |
