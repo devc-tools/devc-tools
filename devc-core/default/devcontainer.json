@@ -111,7 +111,8 @@
         // Approve anything VS Code's own rules do not explicitly deny. Those built-in rules still
         // apply on top of this (ignoreDefaultAutoApproveRules stays false) and downgrade a
         // command to a confirmation prompt rather than blocking it, so nothing is unreachable.
-        // Not chat.tools.global.autoApprove: VS Code only reads that from enterprise policy.
+        // Deliberately not chat.tools.global.autoApprove: it approves every tool call, not just
+        // terminal commands. Enabling it is a per-user choice in local settings.
         "chat.tools.terminal.autoApprove": { "/.*/": true },
         "chat.tools.terminal.ignoreDefaultAutoApproveRules": false,
 
