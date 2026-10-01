@@ -28,7 +28,7 @@ alongside any installed `devc` / `devc-bridge`.
 | `install.sh`         | The `curl \| sh` installer                                                                  |
 | `tests/`             | Repo-level shell harnesses (installer, workflow guards, Features)                           |
 | `.github/workflows/` | Release and publish workflows                                                               |
-| `scripts/`           | Source-run aliases, plus version-bump and preflight scripts                                 |
+| `scripts/`           | Source-run aliases, version-bump, preflight and seccomp-profile check scripts               |
 | `docs/`              | User guides. [`docs/maintainers/`](docs/maintainers/) holds the release and publish process |
 | `.plans/`            | Plan docs. `.plans/PLAN.md` is the status index                                             |
 

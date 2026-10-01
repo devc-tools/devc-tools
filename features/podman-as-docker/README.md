@@ -296,12 +296,18 @@ Docker Desktop and on a rootless Docker 29 host — `docs/maintainers/manual-ver
 
 ## The seccomp profile
 
-[`seccomp-podman.json`](seccomp-podman.json) is Docker's default profile
-(`github.com/moby/profiles`, `seccomp/default.json`, Apache-2.0) with one rule prepended:
-`SCMP_ACT_ALLOW` for `unshare mount umount2 pivot_root setns clone clone3 keyctl sethostname
-setdomainname mount_setattr open_tree move_mount fsopen fsconfig fsmount fspick
-open_tree_attr`. Nothing else is changed. Diff it against upstream whenever Docker updates its
-default; the Feature's scenario tests run against this exact file.
+[`seccomp-podman.json`](seccomp-podman.json) is a snapshot of Docker's default profile
+(`github.com/moby/profiles`, `seccomp/default.json` at commit `6fe7deb1b9fb`, 2026-09-17,
+Apache-2.0) with one rule prepended: `SCMP_ACT_ALLOW` for `unshare mount umount2 pivot_root
+setns clone clone3 keyctl sethostname setdomainname mount_setattr open_tree move_mount fsopen
+fsconfig fsmount fspick open_tree_attr`. Nothing else is changed from that commit. It is not kept
+in step with upstream, so Docker's current default may differ; to refresh, regenerate from a
+newer commit and update the commit here. The Feature's scenario tests run against this exact
+file.
+
+`bash scripts/check-seccomp-podman.sh [path]` verifies a copy (this one by default): it prints
+the added rule, fails if the rest differs from upstream at the pinned commit, and exits 3 with
+the diff if upstream `main` has moved since.
 
 ## Related, but not this
 
