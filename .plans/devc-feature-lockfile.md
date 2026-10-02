@@ -19,11 +19,11 @@ CLI neither reads nor writes a lock, so today a project's tracked
 `@devcontainers/cli` 0.88.0 has three lockfile modes, and none of them is
 "read, never write":
 
-| CLI mode            | Reads lock | Writes lock                                               | Why devc can't use it                                                                                                                                                                                                                      |
-| ------------------- | ---------- | --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `--no-lockfile`     | no         | no                                                        | (today) nothing is honored                                                                                                                                                                                                                 |
-| default             | yes        | always: creates if missing, rewrites if it differs        | In project mode `--override-config` records the project's config path, so the CLI writes into the project's `.devcontainer/`. It locks the **merged** config, so devc's injected Features (`devc-config`, …) land in the project's lock. |
-| `--frozen-lockfile` | yes        | no; fails `Lockfile does not exist` / `does not match`    | The merged config's Features never match a lock that lists only the project's, so every project-mode start fails                                                                                                                          |
+| CLI mode            | Reads lock | Writes lock                                            | Why devc can't use it                                                                                                                                                                                                                    |
+| ------------------- | ---------- | ------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--no-lockfile`     | no         | no                                                     | (today) nothing is honored                                                                                                                                                                                                               |
+| default             | yes        | always: creates if missing, rewrites if it differs     | In project mode `--override-config` records the project's config path, so the CLI writes into the project's `.devcontainer/`. It locks the **merged** config, so devc's injected Features (`devc-config`, …) land in the project's lock. |
+| `--frozen-lockfile` | yes        | no; fails `Lockfile does not exist` / `does not match` | The merged config's Features never match a lock that lists only the project's, so every project-mode start fails                                                                                                                         |
 
 So devc keeps `--no-lockfile` and applies the lock's pins itself. This is the
 same substitution the CLI makes internally: it fetches an OCI Feature by its
@@ -51,12 +51,12 @@ CLI accepts as a Feature reference.
 
 3. **Reading the lock** (project mode only, in `ensureMergedConfig`):
 
-   | File state                                                        | Result                                                                                                                                      |
-   | ----------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
-   | absent                                                            | no pinning; `MergedConfig.lockfile` is `null`                                                                                              |
-   | empty or whitespace only                                          | no pinning; `lockfile` is `null`. The CLI treats this as "initialize" and `upgrade` truncates before writing, so it is not an error.     |
-   | not JSON, not an object, or `features` missing or not an object | **fail the merge**: `<relpath>: not a valid devcontainer lockfile — <detail>; regenerate it with \`devc lock\``                            |
-   | valid                                                             | pin per decision 4                                                                                                                          |
+   | File state                                                      | Result                                                                                                                               |
+   | --------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+   | absent                                                          | no pinning; `MergedConfig.lockfile` is `null`                                                                                        |
+   | empty or whitespace only                                        | no pinning; `lockfile` is `null`. The CLI treats this as "initialize" and `upgrade` truncates before writing, so it is not an error. |
+   | not JSON, not an object, or `features` missing or not an object | **fail the merge**: `<relpath>: not a valid devcontainer lockfile — <detail>; regenerate it with \`devc lock\``                      |
+   | valid                                                           | pin per decision 4                                                                                                                   |
 
    `<relpath>` is the lock path relative to the project folder, e.g.
    `.devcontainer/devcontainer-lock.json`. `<detail>` is the JSON parse error
@@ -189,7 +189,7 @@ CLI accepts as a Feature reference.
 - [ ] `devc/main.ts`: `lock` dispatch before the first-run hook (decision 6); the `devc status` lockfile line (decision 8)
 - [ ] `devc/help.ts`: `COMMANDS` entry and `COMMAND_HELP.lock` (decision 7)
 - [ ] Tests: `devc-core/tests/lockfile_test.ts` (new), `devc-core/tests/merged_config_test.ts`, `devc-core/tests/default_config_test.ts`, `devc/tests/args_test.ts`, `devc/tests/help_test.ts`
-- [ ] Docs: `.plans/design/devc-design.md` (Delivery paragraph near "`.devcontainer-lock.json` is still found beside it" is now wrong, so rewrite it; new `## \`lock\`` section after `## \`build\``; top-level help list), `devc/README.md` (Commands block line `devc lock    [PATH] [--dry-run]` with summary `Write the project's Feature lockfile on demand`; new section "Feature lockfile" covering decisions 1–4 and the Gotchas a user can hit: transitive deps float, VS Code also writes it, empty file = no lock)
+- [ ] Docs: `.plans/design/devc-design.md` (Delivery paragraph near "`.devcontainer-lock.json` is still found beside it" is now wrong, so rewrite it; new `## \`lock\``section after`## \`build\``; top-level help list),`devc/README.md`(Commands block line`devc lock [PATH] [--dry-run]`with summary`Write the project's Feature lockfile on demand`; new section "Feature lockfile" covering decisions 1–4 and the Gotchas a user can hit: transitive deps float, VS Code also writes it, empty file = no lock)
 - [ ] `docs/maintainers/manual-verification.md`: new numbered section with the host checks from Validation
 
 ## Validation
@@ -200,7 +200,7 @@ CLI accepts as a Feature reference.
   - devc's injected `devc-config` Feature is present and unpinned when the lock doesn't name it
   - a lock entry whose `resolved` is `https://example.com/devcontainer-feature-x.tgz` → key unchanged, and a captured logger (`setLogger`) receives exactly `.devcontainer/devcontainer-lock.json: <K> not pinned — lock entry is not an OCI digest`
   - empty lock file and absent lock file → `lockfile` is `null`, features unchanged
-  - lock `not json` → `ensureMergedConfig` rejects with a message starting `.devcontainer/devcontainer-lock.json: not a valid devcontainer lockfile — `; `{"features":[]}` → `… — "features" is not an object; regenerate it with \`devc lock\``
+  - lock `not json` → `ensureMergedConfig` rejects with a message starting `.devcontainer/devcontainer-lock.json: not a valid devcontainer lockfile —`; `{"features":[]}` → `… — "features" is not an object; regenerate it with \`devc lock\``
   - root `.devcontainer.json` project reads `.devcontainer-lock.json`
   - project declaring `ghcr.io/devc-tools/features/devc-bridge:0`, pinned by the lock → `bridgeKey` non-null and the bridge token mount still present
   - project lock bytes are unchanged after a merge that pinned something
