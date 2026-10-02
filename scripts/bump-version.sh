@@ -33,6 +33,19 @@ case "$new" in
     ;;
 esac
 
+# release.yml's first gate is `deno fmt --check` over the whole tree, and preflight-core-publish.sh
+# repeats it — both after the bump is committed and likely pushed. Catch it here, before anything
+# is edited, so the formatting fix lands ahead of the version bump.
+if ! command -v deno > /dev/null 2>&1; then
+  echo "error: deno is not on PATH — it is needed for the deno fmt --check release.yml runs" >&2
+  exit 1
+fi
+if ! deno fmt --check > /dev/null 2>&1; then
+  echo "error: deno fmt --check fails — run deno fmt, commit the result, then bump" >&2
+  NO_COLOR=1 deno fmt --check 2>&1 | grep -E '^from ' >&2
+  exit 1
+fi
+
 read_const() { sed -n "s/^export const VERSION = '\(.*\)';\$/\1/p" "$1" | head -1; }
 read_json() {
   sed -n 's/^[[:space:]]*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$1" | head -1
@@ -72,10 +85,8 @@ fi
 sed -i.bak "s/\"version\": \"$current\"/\"version\": \"$new\"/" devc/deno.json
 rm -f devc/deno.json.bak
 
-if command -v deno > /dev/null 2>&1; then
-  deno fmt devc/help.ts devc-bridge/host/version.ts devc-bridge/client/version.ts devc/deno.json \
-    > /dev/null 2>&1 || true
-fi
+deno fmt devc/help.ts devc-bridge/host/version.ts devc-bridge/client/version.ts devc/deno.json \
+  > /dev/null 2>&1 || true
 
 echo
 echo 'updated:'
