@@ -596,9 +596,26 @@ async function renameContainerIfNeeded(
 }
 
 /**
+ * The image repository name for the alias tag {@link tagImageIfNeeded} adds: `containerName` with
+ * every run of non-`[a-z0-9]` characters collapsed to a single `-`.
+ *
+ * A container name allows `[a-zA-Z0-9_.-]` in any order, but an image repository component is
+ * lowercase alphanumerics joined by single separators (`.`, `_`, `__`, or a run of `-`), so two
+ * different separators may not touch. `devc-_wksp-<hash>` (folder `_wksp`) is a valid container
+ * name and an invalid image reference, as are `devc-.dotfiles-<hash>` and `devc-foo_-<hash>`.
+ * The `devc-` prefix and the hex hash suffix keep both ends alphanumeric, so the result is always
+ * a valid repository name. Only the image tag is rewritten — the container name and
+ * {@link import("./merged_config.ts").projectKey} stay as they are, since existing containers
+ * and cache directories are keyed on them.
+ */
+export function imageNameForContainerName(containerName: string): string {
+  return containerName.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+}
+
+/**
  * Best-effort: tags the image currently used by `containerId` (its image ID, from
  * `docker inspect --format '{{.Image}}'`) as `<name>:latest` — an *additional* alias
- * tag, not a replacement. Does not remove or alter the devcontainer CLI's own
+ * tag, not a replacement (named by {@link imageNameForContainerName}). Does not remove or alter the devcontainer CLI's own
  * `vsc-<basename>-<hash>` tag, which the CLI uses to detect "image already built,
  * skip rebuild" on the next `up`; deleting or repointing that tag would force a
  * rebuild on every `devc attach`. `docker tag` is idempotent/overwriting, so calling
@@ -614,7 +631,7 @@ async function tagImageIfNeeded(
     if (imageId === null) return;
 
     await output('docker', {
-      args: ['tag', imageId, `${name}:latest`],
+      args: ['tag', imageId, `${imageNameForContainerName(name)}:latest`],
       stdout: 'null',
       stderr: 'inherit',
     });
