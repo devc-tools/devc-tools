@@ -144,3 +144,13 @@ Stop and summarize for the user when any of these happens:
 In the summary, give the PR URL, the rounds run, the pushed SHAs, which threads you fixed or
 declined and why, the review findings (from `findings`, or `body`) and what you did with each, and
 anything left for the user.
+
+End the summary with a command that reviews every change the loop made, file by file. Note the
+branch's HEAD SHA before the first round; it's the base:
+
+```sh
+git difftool -y <head-before-loop> <final-sha>
+```
+
+Leave out `-d`. VS Code as a difftool compares two files only, so a directory diff opens two
+folders and shows no diff.
