@@ -294,6 +294,41 @@ git -C "$REPO" commit -q -m lfs
 push
 expect_rc 3 "a branch adding an LFS pointer is refused"
 check "  … remote unchanged" test "$(remote_ref refs/heads/feat)" = none
+fresh
+commit_file .github/actions/setup/action.yml 'runs: {using: composite, steps: []}'
+push
+expect_rc 3 "a branch adding a local action is refused"
+check "  … naming the path" has ".github/actions/setup/action.yml"
+
+echo "content policy is per push"
+fresh
+# The user pushes a workflow change to the branch with their own credentials.
+commit_file .github/workflows/ci.yml 'on: [push, pull_request]'
+git -C "$REPO" push -q "$REMOTE" feat
+commit_file more.txt more
+push
+expect_rc 0 "a push on top of a workflow change already on the remote branch"
+check "  … the remote has the commit" test "$(remote_ref refs/heads/feat)" = "$(repo_ref feat)"
+commit_file .github/workflows/ci.yml 'on: [push, pull_request, workflow_dispatch]'
+push
+expect_rc 3 "  … but changing that workflow again is refused"
+check "  … naming both trusted versions" has "relative to both main and the remote feat"
+git -C "$REPO" reset -q --hard HEAD~1
+# The default branch moves its workflows; the agent merges it in.
+git -C "$W/seed" pull -q "$REMOTE" main
+echo 'on: workflow_dispatch' >"$W/seed/.github/workflows/release.yml"
+git -C "$W/seed" add -A
+git -C "$W/seed" commit -q -m release
+git -C "$W/seed" push -q "$REMOTE" HEAD:refs/heads/main
+git -C "$REPO" pull -q --no-rebase --no-edit "$REMOTE" main
+push
+expect_rc 0 "  … merging the default branch's new workflow"
+# The remote branch is deleted: the tip the mirror cached must stop vouching for its workflow.
+git --git-dir="$REMOTE" update-ref -d refs/heads/feat
+push
+expect_rc 3 "  … a deleted remote branch no longer vouches for its workflow"
+check "  … the stale tip is gone from the mirror" \
+  test -z "$(git --git-dir="$MIRROR" for-each-ref refs/remotes/origin/feat)"
 
 echo "default branch is read, not assumed"
 fresh master

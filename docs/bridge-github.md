@@ -62,7 +62,7 @@ Refusals and failures go to stderr, prefixed with `gh-push:`.
 | `0`  | Pushed, or already up to date                                                                                                                                                                                                                         | Done                                                                                                                                       |
 | `1`  | Refused before the command ran. `gh-push needs capability gh-push, which this container was not granted …` or `no capabilities granted to this container …` means the host didn't grant it; a connection error means the bridge isn't running         | Stop and tell the user, quoting the `devc up --bridge-allow …` the message suggests. You can't fix this from inside                        |
 | `2`  | A malformed policy, an argument was passed, the pin no longer resolves (branch missing, detached HEAD, bad worktree pointer), the remote isn't github.com (`gh-push: unsupported remote … — only github.com`), or the remote doesn't match the mirror | Run `gh-doctor`, then report it to the user. Don't retry                                                                                   |
-| `3`  | Content policy refused the push: the branch changes `.github/workflows/` compared with the default branch, it adds a Git LFS pointer, or the remote has no default branch                                                                             | Remove the offending change, or rebase if the default branch's workflows moved and you're just behind. Otherwise hand the push to the user |
+| `3`  | Content policy refused the push: it changes a file under `.github/workflows/` or `.github/actions/` to something neither the default branch nor the remote branch has, it adds a Git LFS pointer, or the remote has no default branch | Undo that change, or rebase if the default branch's workflows moved and you're just behind. If the change is needed, hand it to the user to push. Your later pushes then go through |
 | `4`  | Transport failure, timeout (default 300s), a non-fast-forward rejection, or `gh` missing or not logged in on the host                                                                                                                                 | If you rewrote history, the push won't go through. Report it. Retry only for a transient network error                                     |
 
 ## Rules for agents
@@ -70,7 +70,9 @@ Refusals and failures go to stderr, prefixed with `gh-push:`.
 - Commit on the pinned branch, then run `devc-bridge gh-push`. There is
   nothing else to it.
 - Don't try `git push`, `gh`, or SSH directly. There are no credentials.
-- Don't edit `.github/workflows/` on a branch you intend to push this way.
+- Leave `.github/workflows/` and `.github/actions/` as they are on the default
+  branch or the remote branch. When a change there is needed, the user pushes it.
+  After that, your pushes carry it.
 - Don't loop on exit 2 or exit 3. Those are policy decisions, not transient
   failures.
 - If `gh-doctor` is refused (exit 1), the container wasn't granted

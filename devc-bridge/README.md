@@ -714,15 +714,18 @@ config of a repo it fetches from — into a host-owned bare mirror at
 3. Create the mirror if absent — from the policy, never cloned from the agent's
    repo — and refuse if its `origin` no longer equals the policy's remote.
 4. Ask the remote for its **default branch** (never assumed to be `main`) and
-   fetch it fresh.
+   fetch it fresh, along with the pinned branch's remote tip when there is one.
    This step and step 7 run against the HTTPS URL with no
    user or system git config (`GIT_CONFIG_GLOBAL=/dev/null`,
    `GIT_CONFIG_NOSYSTEM=1`, so no `insteadOf` can turn it back into SSH and no
    other credential helper can answer), after checking `gh auth status`.
 5. Fetch the pinned branch from the repo into `refs/staging/<branch>` and record
    its SHA.
-6. Refuse (exit 3) a SHA whose tree differs from the default branch's under
-   `.github/workflows/`, or that adds a Git LFS pointer.
+6. Refuse (exit 3) a SHA with a path under `.github/workflows/` or
+   `.github/actions/` that matches neither the default branch nor the remote
+   branch tip, or that adds a Git LFS pointer. A workflow change you push to the
+   branch yourself is then carried by later pushes. Only a change the push itself
+   introduces is refused.
 7. Push **that SHA** — not the branch, which the agent can move at any moment —
    to `refs/heads/<branch>`. No tags, no force, no delete: there is no code path
    that emits anything else.

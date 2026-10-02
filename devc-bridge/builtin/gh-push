@@ -325,8 +325,18 @@ base=$(awk '$1 == "ref:" && $3 == "HEAD" { sub("^refs/heads/", "", $2); print $2
 remote_sha=$(awk -v ref="refs/heads/$branch" '$2 == ref { print $1 }' "$tmp/ls-remote")
 
 # Fresh every time — a stale base would let the content policy compare against the wrong tree.
-net "fetching $base from $remote" "${NET_GIT[@]}" fetch -q --no-tags -- "$url" \
-  "+refs/heads/$base:refs/remotes/origin/$base"
+# The pinned branch's remote tip comes along when there is one: what is already on the remote is
+# trusted as much as the default branch. When there is none, a tip cached by an earlier run is
+# dropped — a branch deleted on the remote no longer vouches for anything.
+refspecs=("+refs/heads/$base:refs/remotes/origin/$base")
+tip=''
+if [ -n "$remote_sha" ] && [ "$branch" != "$base" ]; then
+  tip=refs/remotes/origin/$branch
+  refspecs+=("+refs/heads/$branch:$tip")
+elif [ "$branch" != "$base" ]; then
+  "${MIRROR_GIT[@]}" update-ref -d "refs/remotes/origin/$branch" 2>/dev/null
+fi
+net "fetching $base from $remote" "${NET_GIT[@]}" fetch -q --no-tags -- "$url" "${refspecs[@]}"
 
 # ── what the agent wants published ────────────────────────────────────────────────────────
 
@@ -341,14 +351,23 @@ short=${sha:0:12}
 
 # ── content policy, against the inspected SHA ─────────────────────────────────────────────
 
+# Workflows, and the local actions they can `uses: ./.github/actions/…`, run with the repo's secrets
+# from whatever commit was pushed. Each path there must match a version already trusted — the
+# default branch's or the remote branch tip's — so the branch may carry a workflow change the user
+# pushed, and pick up the default branch's, but nothing new comes in through this push.
 # Plumbing, not `git diff`: no external diff, no textconv, no rename pairing that could hide one side.
-"${MIRROR_GIT[@]}" diff-tree --quiet -r --no-renames "refs/remotes/origin/$base" "$sha" \
-  -- .github/workflows
-case $? in
-  0) ;;
-  1) die 3 "refused: $branch changes .github/workflows/ relative to $base" ;;
-  *) die 3 "refused: could not diff $branch against $base" ;;
-esac
+"${MIRROR_GIT[@]}" diff-tree -r --no-renames --name-only -z "refs/remotes/origin/$base" "$sha" \
+  -- .github/workflows .github/actions >"$tmp/guarded" ||
+  die 3 "refused: could not diff $branch against $base"
+while IFS= read -r -d '' path; do
+  [ -n "$tip" ] || die 3 "refused: $branch changes $path relative to $base"
+  "${MIRROR_GIT[@]}" --literal-pathspecs diff-tree --quiet -r --no-renames "$tip" "$sha" -- "$path"
+  case $? in
+    0) ;;
+    1) die 3 "refused: $branch changes $path relative to both $base and the remote $branch" ;;
+    *) die 3 "refused: could not diff $branch against the remote $branch" ;;
+  esac
+done <"$tmp/guarded"
 
 # LFS: the mirror only ever receives pointer blobs; the objects stay in the working repo. Pushing a
 # new pointer would publish a commit whose content was never uploaded.
