@@ -288,6 +288,31 @@ The default scenario is the strongest claim this Feature makes: `docker run` has
 with **zero** `runArgs`. `scenarios.json` adds `with_tun`, `with_socket`, `with_volume`
 and `no_shim`.
 
+**xvfb** — offline: `install_options_test.sh` (the real `install.sh` with `apt-get` and
+`apt-cache` stubbed, the latter answering from a fixture list of the names one base knows:
+each group's effect on the one resolved `apt-get install`, all groups off still installing the
+always-set, the README's VS Code / Electron `extraPackages` string — read out of the README
+itself — resolving on both a 24.04 and a pre-`t64` fixture, the `t64` fallback one name at a
+time, the `extraPackages`/`display`/`screen` values that must fail the build, every bake into
+`xvfb-ensure` and `post-start.sh`, the baked hook's on/off/failure paths, and the Aseprite
+list staying a subset of a bare `{}`), `xvfb_ensure_test.sh` (the real `xvfb-ensure` against
+fake `Xvfb` and `xdpyinfo` scripts on PATH and a scratch directory in place of `/tmp`: stdout
+being exactly one `export` line on every success path and empty on every failure, the
+reuse order, stale / unremovable / live-held locks, a failed start falling through to the next
+candidate, `--status` never starting, `--stop` touching only its own pidfiles and never a
+recycled pid, and argument validation). The fake server is a real detached process, so "it
+outlives the caller" is exercised for real.
+
+With Docker: the default scenario is the bare `{}` case — the default groups installed,
+nothing started and no `DISPLAY` set, then `xvfb-ensure` yielding a display `xdpyinfo`
+accepts with GLX, a second call reusing it, `xvfb-run -a` working alongside, and `--stop`.
+`scenarios.json` adds `minimal` (every group off), `start_on_container_start` (the server
+found already up, which is what proves it outlived the `postStartCommand` hook),
+`godot_render` (this Feature beside `godot`, asserting a `--write-movie` frame is **not one
+flat colour** — a blank frame is the typical silent failure, so a file existing proves
+nothing) and `debian` (bookworm, with the README's Electron list — the `t64` fallback on a
+real base).
+
 ## Per-Feature notes
 
 ### agents
@@ -423,3 +448,38 @@ Podman config key names are confirmed against both major versions this Feature w
 measured on: 4.9.3 (Ubuntu 24.04, default rootless backend `slirp4netns`) and 5.7.0
 (Ubuntu 26.04, default `pasta`). `[containers] netns` and
 `[network] default_rootless_network_cmd` exist unchanged on both.
+
+### xvfb
+
+**No `containerEnv`, deliberately — do not add `DISPLAY` to the manifest.** A Feature's
+`containerEnv` cannot be conditional on an option (`podman-as-docker` documents the same
+limit, and lives with an unconditional `DOCKER_HOST`). An unconditional `DISPLAY` would point
+every process in every consumer's container at a display that, by default, does not exist —
+and where one does exist, GUI prompts (credential helpers, `xdg-open`, editors) would open
+invisibly on it instead of failing fast. Programs opt in per command with
+`eval "$(xvfb-ensure)"`; the README carries the `remoteEnv` line for a consumer who wants it
+global.
+
+**The `t64` fallback is for `extraPackages`, and none of the built-in groups uses it.** Ubuntu
+24.04 renamed several libraries with a `t64` suffix; Ubuntu 22.04 and Debian bookworm only have
+the old names. `install.sh` installs a name ending in `t64` as written if `apt-cache show`
+knows it and without the suffix otherwise. It looks unused if you only read the group lists.
+It is what keeps one application list — the README's Electron one — portable across bases, and
+the `debian` scenario is pinned to **bookworm** rather than the floating `debian` tag because
+trixie has the `t64` names and would pass without exercising it.
+
+**Groups are for the display, not for applications.** A group belongs here only if it serves
+"use this display" for _any_ client: the display itself, the generic X client side, software
+rendering into it, fonts, and tools that operate on the display. Electron's runtime list (GTK,
+NSS, ALSA, CUPS, …) is needed with any display, not Xvfb's, so it is a README `extraPackages`
+recipe and not a group. `godot`'s `installDependencies` is likewise independent of this
+Feature's groups; neither Feature installs or requires the other.
+
+The `display` option reaches `install.sh` as `$DISPLAY` — the variable X clients read. Nothing
+in `install.sh` is an X client, so it is harmless there, but it is why the offline harness
+unsets its own `$DISPLAY` before every run.
+
+`xvfb-ensure` passes `+extension GLX` and `-noreset`. GLX is already the default on Debian and
+Ubuntu's Xvfb; it is named because Mesa clients render nothing without it. `-noreset` is not
+cosmetic: without it the server resets whenever its last client disconnects, which for a
+display shared across separate commands is after every command.

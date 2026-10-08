@@ -1,0 +1,317 @@
+#!/bin/sh
+# xvfb-ensure — start or reuse a virtual X display, and print the DISPLAY to use.
+#
+#   eval "$(xvfb-ensure)" && <command>
+#
+# stdout is reserved for exactly one line, `export DISPLAY=":N"`, so the eval above works;
+# every diagnostic goes to stderr. A server this starts is detached from its caller and
+# outlives it: the start-time hook's process exits, and an agent's shell tool runs each command
+# in a fresh shell, so a server tied to its parent would be gone by the next command.
+#
+# Not xvfb-run (Debian's, from the xvfb package): that starts one private server per command and
+# tears it down on exit. This keeps one shared server across commands. Both stay available.
+#
+# install.sh copies this file to /usr/local/share/devc-features/xvfb/bin/xvfb-ensure at image
+# build time and bakes the Feature's `display` and `screen` options into the two assignments
+# below. It never installs anything: the packages it needs are there from the build.
+set -u
+
+# --- baked by install.sh from the Feature's options ---------------------------------
+DEFAULT_DISPLAY="${DEFAULT_DISPLAY:-99}"
+DEFAULT_SCREEN="${DEFAULT_SCREEN:-1920x1080x24}"
+# --------------------------------------------------------------------------------------
+
+# How many display numbers past the first to try: N through N+5.
+EXTRA_CANDIDATES=5
+
+# Where the X lock files, and this command's own pid and log files, live. X itself only ever
+# uses /tmp, so this is not a setting — it exists so the offline test harness can run against a
+# scratch directory instead of the real /tmp.
+STATE_DIR="${XVFB_ENSURE_STATE_DIR:-/tmp}"
+
+log() {
+  echo "xvfb-ensure: $*" >&2
+}
+
+usage() {
+  cat >&2 << 'USAGE'
+usage: xvfb-ensure [--display <N>] [--screen <W>x<H>x<D>]   start or reuse a display
+       xvfb-ensure --status [--display <N>]                 report only, start nothing
+       xvfb-ensure --stop [--display <N>]                   stop servers this command started
+
+Prints one line on stdout — export DISPLAY=":N" — so:  eval "$(xvfb-ensure)" && <command>
+USAGE
+}
+
+die() {
+  log "$*"
+  usage
+  exit 2
+}
+
+have() { command -v "$1" > /dev/null 2>&1; }
+
+# --- arguments --------------------------------------------------------------------------------
+
+# An explicit --display is "this display, not whichever one happens to be live" — it is how a
+# caller insists on the virtual display over a forwarded host one — so that it was given is
+# remembered apart from the number itself.
+MODE=ensure
+EXPLICIT_DISPLAY=false
+FIRST="$DEFAULT_DISPLAY"
+SCREEN="$DEFAULT_SCREEN"
+
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --display)
+      [ "$#" -ge 2 ] || die '--display needs a value'
+      EXPLICIT_DISPLAY=true
+      FIRST="$2"
+      shift 2
+      ;;
+    --display=*)
+      EXPLICIT_DISPLAY=true
+      FIRST="${1#--display=}"
+      shift
+      ;;
+    --screen)
+      [ "$#" -ge 2 ] || die '--screen needs a value'
+      SCREEN="$2"
+      shift 2
+      ;;
+    --screen=*)
+      SCREEN="${1#--screen=}"
+      shift
+      ;;
+    --status)
+      MODE=status
+      shift
+      ;;
+    --stop)
+      MODE=stop
+      shift
+      ;;
+    -h | --help)
+      usage
+      exit 0
+      ;;
+    *) die "unknown argument: $1" ;;
+  esac
+done
+
+case "$FIRST" in
+  '' | *[!0-9]*) die "--display must be digits only (99 means DISPLAY=:99): $FIRST" ;;
+esac
+echo "$SCREEN" | grep -Eq '^[0-9]+x[0-9]+x(8|16|24|32)$' ||
+  die "--screen must be <width>x<height>x<depth> with a depth of 8, 16, 24 or 32: $SCREEN"
+
+CANDIDATES=''
+_i=0
+while [ "$_i" -le "$EXTRA_CANDIDATES" ]; do
+  CANDIDATES="$CANDIDATES $((FIRST + _i))"
+  _i=$((_i + 1))
+done
+CANDIDATES="${CANDIDATES# }"
+
+# --- helpers ----------------------------------------------------------------------------------
+
+emit() { # emit <display>
+  printf 'export DISPLAY="%s"\n' "$1"
+}
+
+# Is an X server answering on this display? Bounded, because a forwarded DISPLAY naming a host
+# that is no longer there can otherwise sit in a TCP connect for minutes.
+probe() { # probe <display>
+  if have timeout; then
+    timeout 5 xdpyinfo -display "$1" > /dev/null 2>&1
+  else
+    xdpyinfo -display "$1" > /dev/null 2>&1
+  fi
+}
+
+pid_alive() { # pid_alive <pid>
+  # /proc as well as kill -0: a server owned by another user answers kill -0 with EPERM.
+  kill -0 "$1" 2> /dev/null || [ -d "/proc/$1" ]
+}
+
+# Guards --stop against a pid that was recycled after the server it named died: only a process
+# that is still an Xvfb is ever signalled.
+is_xvfb() { # is_xvfb <pid>
+  [ -r "/proc/$1/cmdline" ] || return 0
+  tr '\0' ' ' < "/proc/$1/cmdline" | grep -q 'Xvfb'
+}
+
+read_pid() { # read_pid <file> — the digits in it, or nothing
+  [ -f "$1" ] || return 0
+  tr -cd '0-9' < "$1" 2> /dev/null || true
+}
+
+# The lookup both the default mode and --status use. Sets FOUND.
+find_live() {
+  FOUND=''
+  # A live $DISPLAY wins: "give me a display" is already answered. Its value is about to be
+  # printed for eval, so one carrying anything beyond a display name's own characters is
+  # ignored rather than echoed back.
+  if [ "$EXPLICIT_DISPLAY" = false ] && [ -n "${DISPLAY:-}" ]; then
+    case "$DISPLAY" in
+      *[!A-Za-z0-9._:/-]*) log "ignoring \$DISPLAY — not a display name: $DISPLAY" ;;
+      *)
+        if probe "$DISPLAY"; then
+          FOUND="$DISPLAY"
+          return 0
+        fi
+        ;;
+    esac
+  fi
+  for _n in $CANDIDATES; do
+    if probe ":$_n"; then
+      FOUND=":$_n"
+      return 0
+    fi
+  done
+  return 1
+}
+
+# start_on <N> — start a server on display N. Returns 1, having said why, if N is not usable.
+start_on() {
+  _n="$1"
+  _lock="$STATE_DIR/.X$_n-lock"
+  _pidfile="$STATE_DIR/xvfb-$_n.pid"
+  _logfile="$STATE_DIR/xvfb-$_n.log"
+
+  if [ -e "$_lock" ] || [ -L "$_lock" ]; then
+    # Nothing answered on this display (find_live already asked), so the lock is either stale
+    # or held by something that is alive and not a usable server. Only the first is ours to
+    # clear.
+    _owner="$(read_pid "$_lock")"
+    if [ -n "$_owner" ] && pid_alive "$_owner"; then
+      log "display :$_n is locked by pid $_owner, which is running but not answering — skipping it"
+      return 1
+    fi
+    rm -f "$_lock" 2> /dev/null || true
+    if [ -e "$_lock" ] || [ -L "$_lock" ]; then
+      log "display :$_n has a stale lock that cannot be removed ($_lock) — skipping it"
+      return 1
+    fi
+    log "removed stale lock $_lock"
+  fi
+
+  rm -f "$_pidfile" 2> /dev/null || true
+
+  # Detached so it outlives this process: setsid takes it out of the caller's session and
+  # process group, nohup covers a SIGHUP when the caller's terminal goes away, and stdio is
+  # redirected so nothing can block on a closed pipe. The pid is written by the launched
+  # process itself, just before it execs Xvfb — setsid forks when it is a process group
+  # leader, so `$!` here is not reliably the server's pid.
+  #
+  # -noreset: without it the server resets itself whenever its last client disconnects, which
+  # for a display shared across separate commands is every command. +extension GLX is the
+  # default on Debian and Ubuntu builds; named anyway, since Mesa clients cannot render
+  # without it.
+  _launch='echo "$$" > "$1"; shift; exec "$@"'
+  if have setsid; then
+    setsid nohup sh -c "$_launch" sh "$_pidfile" \
+      Xvfb ":$_n" -screen 0 "$SCREEN" -nolisten tcp -noreset +extension GLX \
+      > "$_logfile" 2>&1 < /dev/null &
+  else
+    nohup sh -c "$_launch" sh "$_pidfile" \
+      Xvfb ":$_n" -screen 0 "$SCREEN" -nolisten tcp -noreset +extension GLX \
+      > "$_logfile" 2>&1 < /dev/null &
+  fi
+
+  # Up to five seconds for it to answer, giving up early if it has already exited.
+  _tries=0
+  while [ "$_tries" -lt 50 ]; do
+    if probe ":$_n"; then
+      return 0
+    fi
+    _pid="$(read_pid "$_pidfile")"
+    if [ -n "$_pid" ] && ! pid_alive "$_pid"; then
+      break
+    fi
+    sleep 0.1
+    _tries=$((_tries + 1))
+  done
+
+  _pid="$(read_pid "$_pidfile")"
+  if [ -n "$_pid" ] && pid_alive "$_pid" && is_xvfb "$_pid"; then
+    kill "$_pid" 2> /dev/null || true
+  fi
+  rm -f "$_pidfile" 2> /dev/null || true
+  log "Xvfb did not come up on display :$_n — see $_logfile"
+  return 1
+}
+
+# stop_one <pidfile> — stop the server a pidfile of ours names, and remove the pidfile.
+stop_one() {
+  _pidfile="$1"
+  _n="${_pidfile##*/xvfb-}"
+  _n="${_n%.pid}"
+  _pid="$(read_pid "$_pidfile")"
+  if [ -n "$_pid" ] && pid_alive "$_pid" && is_xvfb "$_pid"; then
+    kill "$_pid" 2> /dev/null || true
+    # Wait for it to go, so a --status straight after this reports the truth.
+    _tries=0
+    while [ "$_tries" -lt 30 ] && pid_alive "$_pid"; do
+      sleep 0.1
+      _tries=$((_tries + 1))
+    done
+    if pid_alive "$_pid"; then
+      kill -9 "$_pid" 2> /dev/null || true
+      # A server killed this way never removes its own lock.
+      rm -f "$STATE_DIR/.X$_n-lock" 2> /dev/null || true
+    fi
+    log "stopped the server on display :$_n (pid $_pid)"
+  else
+    log "display :$_n: the server this command started is no longer running"
+  fi
+  rm -f "$_pidfile" 2> /dev/null || true
+}
+
+# --- modes ------------------------------------------------------------------------------------
+
+if [ "$MODE" = stop ]; then
+  # Only ever from this command's own pidfiles — an Xvfb somebody else started is not touched.
+  _stopped=false
+  if [ "$EXPLICIT_DISPLAY" = true ]; then
+    set -- "$STATE_DIR/xvfb-$FIRST.pid"
+  else
+    set -- "$STATE_DIR"/xvfb-*.pid
+  fi
+  for _f in "$@"; do
+    [ -f "$_f" ] || continue
+    stop_one "$_f"
+    _stopped=true
+  done
+  [ "$_stopped" = true ] || log 'nothing to stop'
+  exit 0
+fi
+
+have xdpyinfo || {
+  log 'xdpyinfo is not on PATH — it comes from x11-utils, which this Feature installs'
+  exit 1
+}
+
+if find_live; then
+  [ "$MODE" = status ] || log "reusing the display at $FOUND"
+  emit "$FOUND"
+  exit 0
+fi
+
+[ "$MODE" = status ] && exit 1
+
+have Xvfb || {
+  log 'Xvfb is not on PATH — it comes from the xvfb package, which this Feature installs'
+  exit 1
+}
+
+for _candidate in $CANDIDATES; do
+  if start_on "$_candidate"; then
+    log "started Xvfb on display :$_candidate ($SCREEN), log $STATE_DIR/xvfb-$_candidate.log"
+    emit ":$_candidate"
+    exit 0
+  fi
+done
+
+log "could not start Xvfb on any of the displays tried: $(echo "$CANDIDATES" | sed 's/[0-9][0-9]*/:&/g')"
+exit 1

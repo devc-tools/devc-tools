@@ -29,7 +29,10 @@
   and frozen modes either write devc's injected Features into the project's lock or fail on
   them. Also strips `@sha256:` digests in `declaresFeatureNamed`.
 
-- [feature-xvfb](feature-xvfb.md) — new `features/xvfb/`: Xvfb plus the libraries GUI
+- [feature-xvfb](feature-xvfb.md) — **code complete and offline-tested; still pending on
+  its Docker scenarios**, which are unrun (no Docker where it was implemented). Until they
+  pass, `xvfb` stays out of `features/PUBLISH_ALLOWLIST.txt` and does not publish — that is
+  the one open checklist item. New `features/xvfb/`: Xvfb plus the libraries GUI
   programs need to render into it, as option groups (X11 libs, Mesa software OpenGL and a
   base font by default; Vulkan/lavapipe and imagemagick/xdotool opt-in; free-form
   `extraPackages`, with a `t64` package-name fallback for pre-24.04 bases). Application

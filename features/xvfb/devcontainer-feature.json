@@ -1,0 +1,56 @@
+{
+  "id": "xvfb",
+  "version": "0.1.0",
+  "name": "Xvfb virtual display",
+  "description": "Installs Xvfb and the shared libraries GUI programs need to render into it — X client libraries, software OpenGL (Mesa llvmpipe) and a base font by default; Vulkan (lavapipe) and screenshot/input tools as opt-in groups, and any extra packages an application needs — plus `xvfb-ensure`, which starts or reuses a virtual display and prints the DISPLAY to export. Sets no DISPLAY globally and starts nothing unless asked.",
+  "documentationURL": "https://github.com/devc-tools/devc-tools/tree/main/features/xvfb",
+  "licenseURL": "https://github.com/devc-tools/devc-tools/blob/main/LICENSE",
+  "options": {
+    "x11Libraries": {
+      "type": "boolean",
+      "default": true,
+      "description": "Install the generic X client libraries a GUI program links or dlopens to open a window at all: libx11-6, libxext6, libxi6, libxrandr2, libxcursor1, libxinerama1, libxrender1, libxkbcommon0, libfontconfig1. For Godot (which dlopens them when not running --headless) and Aseprite. Off leaves only Xvfb itself, for a program that brings its own."
+    },
+    "openGL": {
+      "type": "boolean",
+      "default": true,
+      "description": "Install software OpenGL — libgl1, libegl1 and libgl1-mesa-dri (Mesa llvmpipe) — so a GL client renders real frames into the virtual display with no GPU. For Godot's GL Compatibility renderer (`--rendering-driver opengl3`) and Aseprite."
+    },
+    "fonts": {
+      "type": "boolean",
+      "default": true,
+      "description": "Install fonts-dejavu-core, one base font. For anything that draws text: fontconfig with no font installed renders none, which looks like a working program with blank labels."
+    },
+    "vulkan": {
+      "type": "boolean",
+      "default": false,
+      "description": "Install software Vulkan — libvulkan1 and mesa-vulkan-drivers (Mesa lavapipe). For Godot's Forward+ and Mobile renderers; the default GL Compatibility path does not need it."
+    },
+    "tools": {
+      "type": "boolean",
+      "default": false,
+      "description": "Install imagemagick and xdotool, which operate on the display itself: a screenshot of the whole X screen (`import -window root shot.png`) and synthetic keyboard/mouse input. For driving and inspecting any GUI program; Godot's own frame capture (--write-movie) does not need it."
+    },
+    "extraPackages": {
+      "type": "string",
+      "default": "",
+      "description": "Comma-separated apt packages to install alongside the groups, for one application's own runtime dependencies — the README carries the list VS Code / Electron extension tests need. A name ending in `t64` falls back to the same name without the suffix on a base that predates Ubuntu 24.04's rename (Ubuntu 22.04, Debian bookworm), so one list works on both."
+    },
+    "display": {
+      "type": "string",
+      "default": "99",
+      "description": "Display number `xvfb-ensure` starts on by default — digits only, so \"99\" means DISPLAY=:99. If that number is taken by something that is not a working server, the next five are tried in turn. `xvfb-ensure --display <N>` overrides it per call."
+    },
+    "screen": {
+      "type": "string",
+      "default": "1920x1080x24",
+      "description": "Size and colour depth of the virtual screen `xvfb-ensure` starts, as <width>x<height>x<depth> with a depth of 8, 16, 24 or 32. `xvfb-ensure --screen <WxHxD>` overrides it per call."
+    },
+    "startOnContainerStart": {
+      "type": "boolean",
+      "default": false,
+      "description": "Run `xvfb-ensure` on every container start, so a display is already up before anything asks for one. It still sets no DISPLAY: add `\"remoteEnv\": { \"DISPLAY\": \":99\" }` to your own devcontainer.json if every process should use it (the README has the two lines). Off — the default — starts nothing until something calls `xvfb-ensure`."
+    }
+  },
+  "postStartCommand": "bash /usr/local/share/devc-features/xvfb/post-start.sh"
+}

@@ -32,6 +32,31 @@ Nothing here sets up X11/Wayland forwarding or any of the libraries the _interac
 needs beyond what `installDependencies` already installs for headless use. See
 [What this is not](#what-this-is-not).
 
+## Rendering frames (screenshots, `--write-movie`)
+
+`--headless` is not just "no window": it selects a dummy renderer that draws nothing, and
+`--write-movie` refuses to run under it. Real frames need a display and a GL driver, and this
+Feature installs neither. Add the [`xvfb`](../xvfb/README.md) Feature alongside it — a bare
+`{}` is enough — and run Godot on the virtual display it provides:
+
+```jsonc
+"features": {
+  "ghcr.io/devc-tools/features/godot:0": {},
+  "ghcr.io/devc-tools/features/xvfb:0": {}
+}
+```
+
+```sh
+eval "$(xvfb-ensure)"
+godot --path . --rendering-driver opengl3 --audio-driver Dummy \
+  --fixed-fps 60 --write-movie out/frame.png --quit-after 3 res://level1.tscn
+```
+
+Pass `--rendering-driver opengl3`, and never `--headless`. The two Features are independent:
+neither installs or requires the other, and `installDependencies` here stays as narrow as
+`--headless` needs. See the [`xvfb` README](../xvfb/README.md#godot--screenshots-and---write-movie)
+for the Forward+/Mobile renderers and for capturing from inside the game.
+
 ## Which version gets installed
 
 `version` defaults to `"latest"`, resolved from

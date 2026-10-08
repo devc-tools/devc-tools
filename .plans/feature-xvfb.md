@@ -2,18 +2,73 @@
 
 ## Checklist
 
-- [ ] `features/xvfb/devcontainer-feature.json` with the options below
-- [ ] `features/xvfb/install.sh`: package groups, `t64` name fallback, `xvfb-ensure` + `post-start.sh` install with baked options
-- [ ] `features/xvfb/xvfb-ensure` (the command) and `features/xvfb/post-start.sh`
-- [ ] `features/xvfb/README.md` with the three recipes (Godot, Aseprite, VS Code extension tests)
-- [ ] Offline harnesses: `test/install_options_test.sh`, `test/xvfb_ensure_test.sh`
-- [ ] Container scenarios: `test/test.sh` + `test/scenarios.json` (`minimal`, `start_on_container_start`, `godot_render`, `debian`)
-- [ ] `test/run-features-test.sh` copied unchanged from another Feature
-- [ ] `features/README.md` row; `features/CONTRIBUTING.md` test-inventory entry + per-Feature note
-- [ ] `features/godot/README.md`: a short "Rendering frames" section pointing at this Feature
-- [ ] `bash tests/features_test.sh --feature xvfb` and the whole-collection run; `deno fmt --check`
-- [ ] Docker scenarios run (or recorded as unrun, same standing as `feature-godot`)
-- [ ] `features/PUBLISH_ALLOWLIST.txt` — only once the Docker scenarios are green
+- [x] `features/xvfb/devcontainer-feature.json` with the options below
+- [x] `features/xvfb/install.sh`: package groups, `t64` name fallback, `xvfb-ensure` + `post-start.sh` install with baked options
+- [x] `features/xvfb/xvfb-ensure` (the command) and `features/xvfb/post-start.sh`
+- [x] `features/xvfb/README.md` with the three recipes (Godot, Aseprite, VS Code extension tests)
+- [x] Offline harnesses: `test/install_options_test.sh`, `test/xvfb_ensure_test.sh`
+- [x] Container scenarios: `test/test.sh` + `test/scenarios.json` (`minimal`, `start_on_container_start`, `godot_render`, `debian`)
+- [x] `test/run-features-test.sh` copied unchanged from another Feature
+- [x] `features/README.md` row; `features/CONTRIBUTING.md` test-inventory entry + per-Feature note
+- [x] `features/godot/README.md`: a short "Rendering frames" section pointing at this Feature
+- [x] `bash tests/features_test.sh --feature xvfb` and the whole-collection run; `deno fmt --check`
+- [x] Docker scenarios run (or recorded as unrun, same standing as `feature-godot`) — **recorded as unrun**: no Docker in the implementing environment. See Implementation notes.
+- [ ] `features/PUBLISH_ALLOWLIST.txt` — only once the Docker scenarios are green. **Not done: the scenarios have not been run**, so `xvfb` is not listed and does not publish.
+
+## Implementation notes
+
+Code complete and offline-tested on 2026-10-07. What is left is the last checklist item and
+the run it waits on.
+
+**Verified offline:** `features/xvfb/test/install_options_test.sh` (157 checks),
+`features/xvfb/test/xvfb_ensure_test.sh` (139 checks), `bash tests/features_test.sh --feature
+xvfb` and the whole-collection run (10 Features in scope), `tests/workflow_guards_test.sh`,
+`deno fmt --check`.
+
+**Not verified (no Docker, and no real Xvfb, in the implementing environment):** every
+`devcontainer features test` scenario — `test.sh`, `minimal`, `start_on_container_start`,
+`godot_render`, `debian`. So nothing here has yet met a real X server: that Xvfb accepts the
+flags `xvfb-ensure` passes, that GLX is present, and that Godot renders a non-uniform frame
+through llvmpipe are all claims the scenarios make and nobody has run. Run
+`bash features/xvfb/test/run-features-test.sh`, then add `xvfb` to
+`features/PUBLISH_ALLOWLIST.txt` and archive this plan.
+
+**Where the implementation departs from, or adds to, the text above:**
+
+- **The `debian` scenario pins `base:bookworm`, not `base:debian`.** The scenario exists to
+  exercise the `t64` fallback "on a release without the renames". Debian trixie has the `t64`
+  names, so the floating tag would pass without exercising the fallback once it points there.
+  `debian.sh` also asserts `VERSION_ID` is 12.
+- **`--display` skips the live-`$DISPLAY` step.** Concept boundaries says a consumer who must
+  have the virtual display "passes `--display`"; that only works if an explicit `--display`
+  means "this display" rather than "start here if nothing is live". `post-start.sh` unsets
+  `DISPLAY` before calling `xvfb-ensure` for the same reason — a consumer's own
+  `remoteEnv` `DISPLAY` must not be mistaken for a display that is already up.
+- **A live `$DISPLAY` is only echoed back if it looks like a display name**
+  (`[A-Za-z0-9._:/-]`). The output is meant for `eval`.
+- **A lock whose owning pid is still running is skipped, not removed**, even though nothing
+  answers on that display. "Stale" is read as "its owner is gone"; removing the lock of a live
+  process that is merely not answering would break someone else's server.
+- **`xvfb-ensure` passes `-noreset` and `+extension GLX`** as well as `-nolisten tcp`.
+  `-noreset` stops the server resetting when its last client disconnects, which for a display
+  shared across separate commands is after every command.
+- **`--stop` checks `/proc/<pid>/cmdline` names an Xvfb** before signalling, so a pidfile
+  outliving its server cannot get a recycled pid killed. With no `--display` it stops every
+  server this command started; with one, only that display's.
+- **`--status` accepts `--display`** (the usage block above shows it bare).
+- **Usage errors exit 2**; "nothing came up" exits 1, as specified.
+- **The lock/pid/log directory override is `XVFB_ENSURE_STATE_DIR`** (test-only).
+- **`install.sh` creates `/tmp/.X11-unix` (mode 1777)** at build time, so a non-root Xvfb does
+  not warn about its ownership on every start.
+- **`extraPackages` entries are trimmed and de-duplicated**, and empty entries skipped.
+- **`minimal` does not assert the default groups' packages are absent.** Most are dependencies
+  of the always-set itself (`xvfb` pulls in `libgl1` and a Mesa driver, `x11-utils` most of the
+  X client libraries). It asserts the opt-in groups are absent; the per-option effect on the
+  requested set is asserted offline.
+- **`godot_render` uses `tools: true`** and ImageMagick for the non-uniform check, the
+  simpler of the two options offered.
+- **`godot`'s version was not bumped** for its README section — left to the maintainer, as
+  the plan says.
 
 ## Goal
 

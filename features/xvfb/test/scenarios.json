@@ -1,0 +1,40 @@
+{
+  "minimal": {
+    "image": "mcr.microsoft.com/devcontainers/base:ubuntu",
+    "features": {
+      "xvfb": {
+        "x11Libraries": false,
+        "openGL": false,
+        "fonts": false,
+        "vulkan": false,
+        "tools": false
+      }
+    }
+  },
+  "start_on_container_start": {
+    "image": "mcr.microsoft.com/devcontainers/base:ubuntu",
+    "features": {
+      "xvfb": {
+        "startOnContainerStart": true
+      }
+    }
+  },
+  "godot_render": {
+    "image": "mcr.microsoft.com/devcontainers/base:ubuntu",
+    "onCreateCommand": "mkdir -p ${containerWorkspaceFolder}/render && cd ${containerWorkspaceFolder}/render && printf '%s\\n' 'config_version=5' '' '[application]' '' 'config/name=\"xvfb-render\"' 'run/main_scene=\"res://main.tscn\"' '' '[display]' '' 'window/size/viewport_width=320' 'window/size/viewport_height=240' '' '[rendering]' '' 'renderer/rendering_method=\"gl_compatibility\"' > project.godot && printf '%s\\n' '[gd_scene format=3]' '' '[node name=\"Main\" type=\"Node2D\"]' '' '[node name=\"Rect\" type=\"ColorRect\" parent=\".\"]' 'offset_right = 160.0' 'offset_bottom = 240.0' 'color = Color(1, 0, 0, 1)' > main.tscn",
+    "features": {
+      "xvfb": {
+        "tools": true
+      },
+      "ghcr.io/devc-tools/features/godot:0": {}
+    }
+  },
+  "debian": {
+    "image": "mcr.microsoft.com/devcontainers/base:bookworm",
+    "features": {
+      "xvfb": {
+        "extraPackages": "libgtk-3-0t64,libnss3,libasound2t64,libgbm1,libxss1,libxkbfile1,libsecret-1-0,libxshmfence1,libdrm2,libatk-bridge2.0-0t64,libcups2t64"
+      }
+    }
+  }
+}
