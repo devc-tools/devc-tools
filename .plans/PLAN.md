@@ -29,6 +29,17 @@
   and frozen modes either write devc's injected Features into the project's lock or fail on
   them. Also strips `@sha256:` digests in `declaresFeatureNamed`.
 
+- [feature-xvfb](feature-xvfb.md) — new `features/xvfb/`: Xvfb plus the libraries GUI
+  programs need to render into it, as option groups (X11 libs, Mesa software OpenGL and a
+  base font by default; Vulkan/lavapipe and imagemagick/xdotool opt-in; free-form
+  `extraPackages`, with a `t64` package-name fallback for pre-24.04 bases). Application
+  dependency lists stay out of the groups — Electron's goes in a README `extraPackages`
+  recipe. Ships
+  `xvfb-ensure`, distilled from vscode-deephaven's `ensure-headless-env.sh`: start or reuse
+  a persistent display and print one `export DISPLAY` line to eval. Opt-in start at
+  container start; deliberately **no** `DISPLAY` in `containerEnv`, since it cannot be
+  gated on an option. Serves Godot frame capture, Aseprite and VS Code extension E2E tests.
+
 ### Standing rules for Feature work
 
 Not a plan group — these are the conventions every Feature plan in this file
