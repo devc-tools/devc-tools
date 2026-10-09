@@ -18,3 +18,4 @@ godot
 node-nvmrc
 podman-as-docker
 rootless-remap
+xvfb

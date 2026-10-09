@@ -29,19 +29,11 @@
   and frozen modes either write devc's injected Features into the project's lock or fail on
   them. Also strips `@sha256:` digests in `declaresFeatureNamed`.
 
-- [feature-xvfb](feature-xvfb.md) — **code complete and offline-tested; still pending on
-  its Docker scenarios**, which are unrun (no Docker where it was implemented). Until they
-  pass, `xvfb` stays out of `features/PUBLISH_ALLOWLIST.txt` and does not publish — that is
-  the one open checklist item. New `features/xvfb/`: Xvfb plus the libraries GUI
-  programs need to render into it, as option groups (X11 libs, Mesa software OpenGL and a
-  base font by default; Vulkan/lavapipe and imagemagick/xdotool opt-in; free-form
-  `extraPackages`, with a `t64` package-name fallback for pre-24.04 bases). Application
-  dependency lists stay out of the groups — Electron's goes in a README `extraPackages`
-  recipe. Ships
-  `xvfb-ensure`, distilled from vscode-deephaven's `ensure-headless-env.sh`: start or reuse
-  a persistent display and print one `export DISPLAY` line to eval. Opt-in start at
-  container start; deliberately **no** `DISPLAY` in `containerEnv`, since it cannot be
-  gated on an option. Serves Godot frame capture, Aseprite and VS Code extension E2E tests.
+- [feature-electron-deps](feature-electron-deps.md) — **placeholder, not ready.** Whether to
+  give Electron's runtime libraries (what VS Code extension tests need beyond a display) their
+  own small Feature that `dependsOn` `xvfb`, instead of the eleven-package `extraPackages`
+  string `xvfb`'s README carries today. Records what testing `xvfb` measured and the open
+  questions; nothing is decided, including whether to build it.
 
 ### Standing rules for Feature work
 
@@ -85,6 +77,22 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
   take it too.
 
 ### Completed
+
+- [feature-xvfb](archived/feature-xvfb.md) — ✅ Done, in `PUBLISH_ALLOWLIST.txt` at `0.1.0`.
+  New `features/xvfb/`: Xvfb plus the libraries GUI programs need to render into it, as option
+  groups (X11 libs, Mesa software OpenGL and a base font by default; Vulkan/lavapipe and
+  imagemagick/xdotool opt-in; free-form `extraPackages` with a `t64` name fallback), and
+  `xvfb-ensure`, which starts or reuses a persistent display and prints one `export DISPLAY`
+  line. Opt-in start at container start; deliberately no `DISPLAY` in `containerEnv`.
+  Validated by both offline harnesses, the collection guards and `deno fmt --check`, and in a
+  real container built from it (Ubuntu 24.04): the default, start-on-start and Godot-render
+  scenario scripts pass as written, Godot renders through llvmpipe and (with `vulkan`) lavapipe,
+  Aseprite's GUI paints, and `devc-vscode`'s `vscode-test` suite passes with the README's
+  Electron list. **`run-features-test.sh` itself was never run** (no Docker there), so the
+  `debian` scenario has not run on a real bookworm base — the fallback it exists for was
+  exercised on noble instead. Also bumps `godot` to `0.1.1` for its new "Rendering frames"
+  README section, which carries a fix for a volume name its README, create-time warning and
+  tests still spelled the old way.
 
 - [bridge-copilot-review-gaps](archived/bridge-copilot-review-gaps.md) — ✅ Done, validated by
   `gh_pr_review_test.sh` (203/203 under both jq and gojq), devc-core / devc / devc-bridge host

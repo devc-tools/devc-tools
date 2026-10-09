@@ -61,7 +61,7 @@ place.
 
 ### Publish status
 
-All seven Features are currently allowlisted. Two caveats:
+Every Feature in the collection is currently allowlisted. Two caveats:
 
 - **`devc-bridge` publishes only once its pinned release exists.** It pins
   `DEVC_TOOLS_RELEASE='v0.6.0'`; the guard runs `gh release view` on that tag, so a tag

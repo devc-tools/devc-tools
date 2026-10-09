@@ -13,7 +13,8 @@
 - [x] `features/godot/README.md`: a short "Rendering frames" section pointing at this Feature
 - [x] `bash tests/features_test.sh --feature xvfb` and the whole-collection run; `deno fmt --check`
 - [x] Docker scenarios run (or recorded as unrun, same standing as `feature-godot`) — **recorded as unrun**: no Docker in the implementing environment. See Implementation notes.
-- [ ] `features/PUBLISH_ALLOWLIST.txt` — only once the Docker scenarios are green. **Not done: the scenarios have not been run**, so `xvfb` is not listed and does not publish.
+- [x] `features/PUBLISH_ALLOWLIST.txt` — added 2026-10-08 on the maintainer's call, on the
+      evidence under "Finalized" below rather than a `run-features-test.sh` run.
 
 ## Implementation notes
 
@@ -67,6 +68,25 @@ exiting at that moment; it now tracks the shared server by pid.
 noble has the `t64` names, so the fallback did not fire here), the `minimal` scenario, the
 Vulkan group, and the scenarios run _as scenarios_ through `run-features-test.sh`. The
 allowlist item stays open on that run.
+
+**Finalized 2026-10-08.** `xvfb` is in `PUBLISH_ALLOWLIST.txt` at `0.1.0`. The gate this plan
+set — the Docker scenarios green — was met by equivalent evidence, not by the runner, which
+still has not been run (no Docker where this was built). What stands in for each scenario:
+
+- `test.sh`, `start_on_container_start.sh` and `godot_render.sh` — each script passes in full,
+  run as written inside a real container built from this Feature, against a stand-in for the
+  test library.
+- `minimal` — the real `install.sh` run against real apt with every group off requests exactly
+  `xvfb xauth x11-utils`. The script itself was not run (this container has the groups on).
+- `debian` — the `t64` fallback was run through the real `install.sh` and real apt on noble
+  with a name that only exists bare (`curlt64` → `curl`), and a name with neither form fails
+  the build naming both. **It has never run on an actual bookworm base**; that
+  `mcr.microsoft.com/devcontainers/base:bookworm` exists was checked against the registry.
+- `vulkan` (no scenario) — the group installed through the real `install.sh`, and Godot's
+  Forward+ renderer drew the fixture through lavapipe ("Vulkan 1.4 … Forward+ … llvmpipe").
+
+Running `bash features/xvfb/test/run-features-test.sh` on a host with Docker is still worth
+doing once; nothing is known to be wrong, but bookworm is the one base nobody has built on.
 
 **Where the implementation departs from, or adds to, the text above:**
 
