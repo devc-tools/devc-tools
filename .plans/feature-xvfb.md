@@ -33,6 +33,24 @@ through llvmpipe are all claims the scenarios make and nobody has run. Run
 `bash features/xvfb/test/run-features-test.sh`, then add `xvfb` to
 `features/PUBLISH_ALLOWLIST.txt` and archive this plan.
 
+**Verified in a real container on 2026-10-08, without the test runner:** the Feature was
+built into devc-dev's own devcontainer (Ubuntu 24.04, bare `{}`, as a local Feature) and
+exercised by hand there. `install.sh` ran against real apt and installed the always-set and
+the three default groups, leaving the opt-in ones out. `test.sh` — the default scenario's
+script — passes in full against that container with a stand-in for the test library. Also
+confirmed by hand: Xvfb accepts the flags `xvfb-ensure` passes, GLX is listed, the server
+runs in its own session and is still there from a later shell, a `kill -9`'d server's stale
+lock is cleared and restarted on, `--display`/`--screen` reach the server, and `--stop`
+with and without `--display`. That run found one bug, in the test rather than the Feature:
+`test.sh` counted Xvfb processes straight after `xvfb-run`, whose private server is still
+exiting at that moment; it now tracks the shared server by pid.
+
+**Still unverified:** the four named scenarios as scenarios (`minimal`,
+`start_on_container_start`, `godot_render`, `debian`), and therefore any actual GL
+rendering — nothing has drawn a frame through llvmpipe yet — the `postStartCommand` path
+with the option on, and the `t64` fallback on a real bookworm base. The allowlist item stays
+open on those.
+
 **Where the implementation departs from, or adds to, the text above:**
 
 - **The `debian` scenario pins `base:bookworm`, not `base:debian`.** The scenario exists to

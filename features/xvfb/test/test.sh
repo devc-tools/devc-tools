@@ -56,11 +56,17 @@ check "and started no second server" bash -c '[ "$(pgrep -cx Xvfb)" -eq 1 ]'
 check "--status reports it too" bash -c "[ \"\$(xvfb-ensure --status)\" = '$FIRST' ]"
 
 # Debian's own one-server-per-command script still works beside it, on a display of its own.
+# The shared server is identified by pid, not by counting Xvfb processes: xvfb-run's private
+# server is still exiting for a moment after xvfb-run itself returns (measured: a count taken
+# straight afterwards reads 2, and 1 a second later).
+SHARED_PID="$(cat /tmp/xvfb-99.pid)"
 check "xvfb-run -a works alongside" xvfb-run -a xdpyinfo
-check "and left the shared server alone" bash -c '[ "$(pgrep -cx Xvfb)" -eq 1 ]'
+check "and left the shared server running" kill -0 "$SHARED_PID"
+check "and still answering" xdpyinfo
 
 check "xvfb-ensure --stop exits 0" xvfb-ensure --stop
 check "and --status then exits 1" bash -c '! xvfb-ensure --status'
-check "no server is left running" bash -c '! pgrep -x Xvfb > /dev/null'
+check "the shared server is gone" bash -c "! kill -0 $SHARED_PID 2> /dev/null"
+check "and so is its pidfile" test ! -e /tmp/xvfb-99.pid
 
 reportResults
