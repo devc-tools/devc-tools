@@ -124,7 +124,7 @@ check "it warns the declared volume cannot follow projectDir" \
 check "and gives the exact mount line to paste" \
   grep -qF 'target=${containerWorkspaceFolder}/games/app/.godot' "$WORK/hook.err"
 check "keeping \${devcontainerId} unexpanded for the consumer to paste" \
-  grep -qF 'source=godot-project-cache-${devcontainerId}' "$WORK/hook.err"
+  grep -qF 'source=devc-${devcontainerId}-godot-project-cache' "$WORK/hook.err"
 check "and no chown was attempted" test ! -s "$SUDO_LOG"
 
 echo "case 6: projectDir set but no .godot at the workspace root — still warns"

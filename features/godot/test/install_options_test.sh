@@ -258,7 +258,7 @@ check "the manifest's postCreateCommand names where install.sh puts it" \
 check "the manifest declares the .godot volume at the workspace root" \
   grep -qF '"target": "${containerWorkspaceFolder}/.godot"' "$MANIFEST"
 check "keyed on \${devcontainerId}, not the workspace basename" \
-  grep -qF '"source": "godot-project-cache-${devcontainerId}"' "$MANIFEST"
+  grep -qF '"source": "devc-${devcontainerId}-godot-project-cache"' "$MANIFEST"
 check "post-create.sh warns when projectDir moves the project off that target" \
   grep -qF 'declares cannot follow it' "$FEATURE_DIR/post-create.sh"
 

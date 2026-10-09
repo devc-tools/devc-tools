@@ -106,7 +106,7 @@ This Feature declares its own:
 ```jsonc
 {
   "type": "volume",
-  "source": "godot-project-cache-${devcontainerId}",
+  "source": "devc-${devcontainerId}-godot-project-cache",
   "target": "${containerWorkspaceFolder}/.godot"
 }
 ```
@@ -129,7 +129,7 @@ left behind untouched.
 step warns and gives you the line to paste:
 
 ```jsonc
-"mounts": ["type=volume,source=godot-project-cache-${devcontainerId},target=${containerWorkspaceFolder}/your/project/dir/.godot"]
+"mounts": ["type=volume,source=devc-${devcontainerId}-godot-project-cache,target=${containerWorkspaceFolder}/your/project/dir/.godot"]
 ```
 
 **You cannot remove a declared mount — only override it.** Mounts merge keyed on **target**,

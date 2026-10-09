@@ -1,6 +1,6 @@
 {
   "id": "godot",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "name": "Godot engine",
   "description": "Installs the Godot engine at build time — by default the latest stable release, resolved from godotengine/godot's own GitHub releases rather than a version this repo tracks — and declares a per-devcontainer volume for the project's .godot/ cache directory, the Godot 4 equivalent of node_modules. No editor GUI is required to use it: the same binary runs headless (`godot --headless ...`) for imports, exports and tests.",
   "documentationURL": "https://github.com/devc-tools/devc-tools/tree/main/features/godot",

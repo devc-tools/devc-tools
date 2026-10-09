@@ -39,7 +39,7 @@ TARGET="${PROJECT_DIR:-.}"
 if [ -n "$PROJECT_DIR" ]; then
   echo "godot: projectDir is set to '$PROJECT_DIR', but the .godot volume this Feature" >&2
   echo "godot: declares cannot follow it — it always mounts at the workspace root. Add:" >&2
-  echo '  "mounts": ["type=volume,source=godot-project-cache-${devcontainerId},target=${containerWorkspaceFolder}/'"$PROJECT_DIR"'/.godot"]' >&2
+  echo '  "mounts": ["type=volume,source=devc-${devcontainerId}-godot-project-cache,target=${containerWorkspaceFolder}/'"$PROJECT_DIR"'/.godot"]' >&2
   echo "godot: to your own devcontainer.json, or move the project to the workspace root." >&2
 else
   # Best-effort exactly like node-nvmrc's node_modules chown: bounded to .godot, never the
