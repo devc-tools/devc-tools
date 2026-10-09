@@ -37,6 +37,13 @@
   generalized from vscode-deephaven's `vscode-dev.sh`. chrome-devtools-mcp registration stays
   with the consuming project. Replaces the `feature-electron-deps` placeholder.
 
+- [agents-update-tools-on-start](agents-update-tools-on-start.md) — new `agents` option
+  `updateToolsOnStart` (default `true`): a `postStartCommand` runs `claude`/`copilot`/`pi`/
+  `herdr update` for each CLI the Feature installed, so a cached image build no longer leaves
+  Claude Code on an old version that it then replaces in the background and asks to be
+  restarted for. One log line per tool, 120 s cap each, never fails the start. Not
+  agent-browser.
+
 ### Standing rules for Feature work
 
 Not a plan group — these are the conventions every Feature plan in this file
@@ -1919,3 +1926,4 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
 | devc-bridge Copilot review-loop gaps — review body, timeline-sourced `pending`, policy refusal exit codes   | [bridge-copilot-review-gaps](archived/bridge-copilot-review-gaps.md)               | complete |
 | devc Feature lockfile — `devc lock` on demand; project-mode starts honor an existing lock                   | [devc-feature-lockfile](devc-feature-lockfile.md)                                  |          |
 | `headless-vscode` Feature — Electron libraries + headless VS Code launcher over `xvfb`                      | [feature-headless-vscode](feature-headless-vscode.md)                              |          |
+| `agents` `updateToolsOnStart` — update installed agent CLIs at container start                              | [agents-update-tools-on-start](agents-update-tools-on-start.md)                    |          |
