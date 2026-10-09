@@ -185,7 +185,7 @@ setup() {
   : > "$CASE/installer_env.log"; : > "$CASE/npm.log"
   env -u INSTALLCLAUDECLI -u INSTALLCOPILOTCLI -u INSTALLPICLI \
     -u INSTALLHERDR -u PIPACKAGES -u HERDRPLUGINS \
-    -u INSTALLAGENTBROWSER -u AGENTBROWSERCHROME -u CLAUDESEED \
+    -u INSTALLAGENTBROWSER -u AGENTBROWSERCHROME -u CLAUDESEED -u UPDATETOOLSONSTART \
     SHARE_DIR="$CASE/share" \
     _REMOTE_USER="$(id -un)" _REMOTE_USER_HOME="$CASE/home" \
     FAKE_REMOTE_HOME="$CASE/home" \
@@ -498,7 +498,7 @@ check "the first build wrote it" test -f "$CASE_KEEP/share/claude-seed.conf"
 # directory, so the second run is driven by hand here.
 env -u INSTALLCLAUDECLI -u INSTALLCOPILOTCLI -u INSTALLPICLI \
   -u INSTALLHERDR -u PIPACKAGES -u HERDRPLUGINS \
-  -u INSTALLAGENTBROWSER -u AGENTBROWSERCHROME \
+  -u INSTALLAGENTBROWSER -u AGENTBROWSERCHROME -u UPDATETOOLSONSTART \
   CLAUDESEED=false \
   SHARE_DIR="$CASE_KEEP/share" \
   _REMOTE_USER="$(id -un)" _REMOTE_USER_HOME="$CASE_KEEP/home" \
@@ -520,6 +520,68 @@ check "with default false" bash -c \
   "grep -A2 -F '\"claudeSeed\": {' \"$FEATURE_DIR/devcontainer-feature.json\" | grep -qF '\"default\": false'"
 check "install.sh reads the getSafeId form of that name" \
   grep -qF 'CLAUDESEED:-false' "$FEATURE_DIR/install.sh"
+
+echo "case 13f: updateToolsOnStart (default true) — only claude is installed, so only claude is listed"
+setup c13f
+check "install.sh exits 0" test "$status" -eq 0
+check "post-start.sh installed" test -f "$WORK/c13f/share/post-start.sh"
+check "and executable" test -x "$WORK/c13f/share/post-start.sh"
+check "update-tools.conf holds exactly 'claude', no trailing newline" \
+  test "$(cat "$WORK/c13f/share/update-tools.conf")" = claude -a \
+  "$(wc -c < "$WORK/c13f/share/update-tools.conf")" -eq 6
+check "post-start.sh reads the same fixed path install.sh writes" \
+  grep -qF '/usr/local/share/devc-features/agents/update-tools.conf' "$WORK/c13f/share/post-start.sh"
+
+echo "case 13g: every updatable CLI installed — listed in the fixed order, agent-browser never"
+setup c13g INSTALLCOPILOTCLI=true INSTALLPICLI=true INSTALLHERDR=true \
+  INSTALLAGENTBROWSER=true AGENTBROWSERCHROME=none
+check "install.sh exits 0" test "$status" -eq 0
+check "update-tools.conf is exactly 'claude copilot pi herdr'" \
+  test "$(cat "$WORK/c13g/share/update-tools.conf")" = "claude copilot pi herdr"
+
+echo "case 13h: installClaudeCli=false and nothing else installed — no update-tools.conf"
+setup c13h INSTALLCLAUDECLI=false
+check "install.sh exits 0" test "$status" -eq 0
+check "no update-tools.conf is written" test ! -e "$WORK/c13h/share/update-tools.conf"
+check "post-start.sh is still installed — the manifest always names it" \
+  test -x "$WORK/c13h/share/post-start.sh"
+
+echo "case 13i: updateToolsOnStart=false — no update-tools.conf"
+setup c13i UPDATETOOLSONSTART=false INSTALLCOPILOTCLI=true
+check "install.sh exits 0" test "$status" -eq 0
+check "no update-tools.conf is written" test ! -e "$WORK/c13i/share/update-tools.conf"
+
+echo "case 13j: a build with updateToolsOnStart=false after one with true — the stale file is removed"
+CASE_KEEP="$WORK/c13j"
+setup c13j
+check "the first build wrote it" test -f "$CASE_KEEP/share/update-tools.conf"
+env -u INSTALLCLAUDECLI -u INSTALLCOPILOTCLI -u INSTALLPICLI \
+  -u INSTALLHERDR -u PIPACKAGES -u HERDRPLUGINS \
+  -u INSTALLAGENTBROWSER -u AGENTBROWSERCHROME -u CLAUDESEED \
+  UPDATETOOLSONSTART=false \
+  SHARE_DIR="$CASE_KEEP/share" \
+  _REMOTE_USER="$(id -un)" _REMOTE_USER_HOME="$CASE_KEEP/home" \
+  FAKE_REMOTE_HOME="$CASE_KEEP/home" \
+  CURL_LOG="$CASE_KEEP/curl.log" RUNUSER_LOG="$CASE_KEEP/runuser.log" \
+  RUNUSER_USER_LOG="$CASE_KEEP/runuser_user.log" \
+  INSTALLER_ENV_LOG="$CASE_KEEP/installer_env.log" CLI_INVOKE_LOG="$CASE_KEEP/invoke.log" \
+  NPM_LOG="$CASE_KEEP/npm.log" \
+  CLAUDE_CONFIG_DIR=/decoy/inherited-from-the-build-env \
+  PATH="$STUBS:$CLEAN_PATH" \
+  sh "$FEATURE_DIR/install.sh" > "$CASE_KEEP/install2.log" 2> "$CASE_KEEP/install2.err"
+check "the second build exits 0" test "$?" -eq 0
+check "and the stale conf file is gone" test ! -e "$CASE_KEEP/share/update-tools.conf"
+
+echo "case 13k: the manifest and install.sh agree on updateToolsOnStart's name and default"
+check "the manifest declares updateToolsOnStart" \
+  grep -qF '"updateToolsOnStart": {' "$FEATURE_DIR/devcontainer-feature.json"
+check "with default true" bash -c \
+  "grep -A2 -F '\"updateToolsOnStart\": {' \"$FEATURE_DIR/devcontainer-feature.json\" | grep -qF '\"default\": true'"
+check "install.sh reads the getSafeId form of that name" \
+  grep -qF 'UPDATETOOLSONSTART:-true' "$FEATURE_DIR/install.sh"
+check "the manifest's postStartCommand names the copy install.sh places" \
+  grep -qF '"postStartCommand": "bash /usr/local/share/devc-features/agents/post-start.sh"' \
+  "$FEATURE_DIR/devcontainer-feature.json"
 
 echo "case 14: installAgentBrowser=true — installed with npm, under the node prelude"
 # agentBrowserChrome=none isolates install_npm_cli from install_agent_browser_chrome, so this

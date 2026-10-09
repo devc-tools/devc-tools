@@ -67,6 +67,11 @@ for dir in "$HOME/.claude" "$HOME/.copilot" "$HOME/.pi" "$HOME/.config/herdr"; d
     "touch \"$dir/.write-probe\" && rm \"$dir/.write-probe\""
 done
 
+# --- updateToolsOnStart defaults on, and a bare build installs only claude --------------------
+check "update-tools.conf lists exactly claude" \
+  bash -c "[ \"\$(cat $SHARE/update-tools.conf)\" = claude ]"
+check "the start-time script is installed and executable" test -x "$SHARE/post-start.sh"
+
 # --- nothing linked out of an empty seed ------------------------------------------------------
 check "the seed was empty, so ~/.claude has nothing linked into it" bash -c \
   "[ -z \"\$(find \"$HOME/.claude\" -mindepth 1 -maxdepth 1 -type l)\" ]"

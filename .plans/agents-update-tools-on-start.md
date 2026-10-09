@@ -26,14 +26,10 @@ Repo touched: **`devc-tools`**, and within it **`features/agents/` only**.
 
 ## Checklist
 
--
-  1. [ ] `updateToolsOnStart` option and `update-tools.conf` written by `install.sh` (§ Step 1)
--
-  2. [ ] `post-start.sh` and the manifest's `postStartCommand` (§ Step 2)
--
-  3. [ ] Offline harness coverage (§ Step 3)
--
-  4. [ ] Docker scenario, README, option description, version bump (§ Step 4)
+- [x] Step 1: `updateToolsOnStart` option and `update-tools.conf` written by `install.sh` (§ Step 1)
+- [x] Step 2: `post-start.sh` and the manifest's `postStartCommand` (§ Step 2)
+- [x] Step 3: Offline harness coverage (§ Step 3)
+- [x] Step 4: Docker scenario, README, option description, version bump (§ Step 4)
 
 ---
 
@@ -237,14 +233,15 @@ only checks manifests and does not run harnesses.
 
 Offline, from the repo root, no Docker:
 
-- [ ] `bash features/agents/test/install_options_test.sh` passes, including the new cases
-- [ ] `bash features/agents/test/post_start_test.sh` passes, all 8 cases
-- [ ] Mutation check: changing `post-start.sh`'s final `exit 0` to propagate the update's exit
-      code turns case 4 red
-- [ ] `bash -n features/agents/post-start.sh features/agents/install.sh` and
-      `shellcheck features/agents/post-start.sh features/agents/install.sh` clean
-- [ ] `bash tests/features_test.sh --feature agents` passes (manifest guards accept the new option and `postStartCommand`)
-- [ ] `deno fmt --check` clean on every touched `.md`/`.json`
+- [x] `bash features/agents/test/install_options_test.sh` passes, including the new cases
+- [x] `bash features/agents/test/post_start_test.sh` passes, all 8 cases
+- [x] Mutation check: making a failed update abort `post-start.sh` (`|| code=$?` → `|| exit $?`)
+      turns case 4 red; dropping `install.sh`'s `update-tools.conf` removal arm turns case 13j red
+- [x] `bash -n features/agents/post-start.sh features/agents/install.sh` clean
+- [ ] `shellcheck features/agents/post-start.sh features/agents/install.sh` clean — not run:
+      `shellcheck` is not installed in the `devc-dev` container
+- [x] `bash tests/features_test.sh --feature agents` passes (manifest guards accept the new option and `postStartCommand`)
+- [x] `deno fmt --check` clean on every touched `.md`/`.json`
 
 On a **host** with Docker:
 
@@ -258,8 +255,10 @@ On a **host** with Docker:
 - [ ] With `"autoUpdates": false` in `~/.claude/.claude.json`, `claude update` from a stale image
       still changes the version. If not, change the command to `claude install latest` (see
       § Gotchas) and repeat this item
-- [ ] `copilot update < /dev/null` updates without asking, run in a container built from an
-      image with an older copilot
+- [x] `copilot update < /dev/null` updates without asking — measured 2026-10-09 in the
+      `devc-dev` container by running the real `post-start.sh` with a conf of `claude copilot`:
+      `agents: copilot updated: GitHub Copilot CLI 1.0.89. → GitHub Copilot CLI 1.0.95.`, exit 0,
+      12.8 s total
 - [ ] `herdr update < /dev/null` with no Herdr server running exits 0 without asking
 - [ ] **`up` waits:** the timestamp of the `agents: claude …` line in `~/.cache/devc-agents/` (or
       the `up` log) comes before the `docker exec` that `devc claude` performs. Record the result
@@ -267,6 +266,15 @@ On a **host** with Docker:
       turned off), `devc up` on a stopped container still succeeds and logs `update failed` lines
 - [ ] `"updateToolsOnStart": false` in `devc.jsonc` → rebuild → no `update-tools.conf`, and the
       start log shows the "nothing to update" line
+
+### Measured so far (2026-10-09, `devc-dev` container, no Docker)
+
+- The same run reported `agents: claude up to date: 2.1.295 (Claude Code)` with
+  `"autoUpdates": false` in `~/.claude/.claude.json`. Its log shows `claude update` doing a real
+  check (`Checking for updates to latest version...`), so the setting does not stop a manual
+  update. The stale-image item above stays open until a version change is actually seen.
+- Herdr was left out of that run: a Herdr server was running in the container (this session ran
+  inside it). The no-server case stays a host item.
 
 ## Relevant Files
 

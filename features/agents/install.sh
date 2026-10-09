@@ -1,7 +1,7 @@
 #!/bin/sh
 # agents Feature install — install the agent CLIs, validate and persist any declared pi packages
 # and Herdr plugins for post-create.sh to actually install, pre-create the agent state
-# directories and the two seed mount points, and place the create-time scripts.
+# directories and the two seed mount points, and place the create- and start-time scripts.
 #
 # Runs as root at image *build* time. These things happen here rather than in post-create.sh:
 #
@@ -20,6 +20,10 @@
 #     create-time-plugins.sh. What happens here is validating them (above) and persisting the raw
 #     option strings to fixed files under SHARE_DIR, because postCreateCommand does not receive a
 #     Feature's own options as environment variables; only install.sh does.
+#   - updateToolsOnStart: which CLIs this build installed, persisted to update-tools.conf for
+#     post-start.sh — the start-time half that brings them current. The build-time install
+#     above sits in a cached RUN layer, so a plain rebuild ships whatever version it first
+#     downloaded; post-start.sh runs each CLI's own update command before anything launches it.
 #   - Pre-creating ~/.claude, ~/.copilot and ~/.pi owned by the remote user, so each volume the
 #     manifest declares there comes up owned correctly rather than root-owned — plus
 #     ~/.config/herdr, which is not a volume and is pre-created for the adjacent reason that a
@@ -54,6 +58,7 @@ PI_PACKAGES_OPT="${PIPACKAGES:-}"
 HERDR_PLUGINS_OPT="${HERDRPLUGINS:-}"
 INSTALL_AGENT_BROWSER_OPT="${INSTALLAGENTBROWSER:-false}"
 CLAUDE_SEED_OPT="${CLAUDESEED:-false}"
+UPDATE_TOOLS_ON_START_OPT="${UPDATETOOLSONSTART:-true}"
 # agentBrowserChrome has a non-empty default ("with-deps"), unlike piPackages/herdrPlugins'
 # empty one — so, unlike those two, install.sh cannot tell an explicit value from the default it
 # was handed, and there is no die guard here. It is read only when installAgentBrowser is true
@@ -353,6 +358,25 @@ if [ "$CLAUDE_SEED_OPT" = true ]; then
 else
   rm -f "$SHARE_DIR/claude-seed.conf"
 fi
+# updateToolsOnStart, persisted as the list of CLIs this build installed, in the fixed order
+# post-start.sh updates them — Claude first, as the one most often launched right after start.
+# Only what this Feature installed: a claude the consumer put there some other way is not ours to
+# update. agent-browser is deliberately absent — it has no self-update command, and its Chrome
+# download is tied to its version. Same removal arm as claude-seed.conf, for the same reason: a
+# rebuild that turns the option off (or every CLI off) must not keep an earlier build's list.
+_update_tools=""
+if [ "$UPDATE_TOOLS_ON_START_OPT" = true ]; then
+  [ "$INSTALL_CLAUDE_CLI_OPT" = true ] && _update_tools="$_update_tools claude"
+  [ "$INSTALL_COPILOT_CLI_OPT" = true ] && _update_tools="$_update_tools copilot"
+  [ "$INSTALL_PI_CLI_OPT" = true ] && _update_tools="$_update_tools pi"
+  [ "$INSTALL_HERDR_OPT" = true ] && _update_tools="$_update_tools herdr"
+fi
+_update_tools="${_update_tools# }"
+if [ -n "$_update_tools" ]; then
+  printf '%s' "$_update_tools" > "$SHARE_DIR/update-tools.conf"
+else
+  rm -f "$SHARE_DIR/update-tools.conf"
+fi
 if [ "$INSTALL_AGENT_BROWSER_OPT" = true ]; then
   # 22.19.0 — deliberately pi's existing floor above, not the package's declared engines >= 24:
   # that floor covers building the Rust CLI from source, npm does not enforce engines without
@@ -430,11 +454,17 @@ chmod 0755 "$SHARE_DIR/post-create.sh"
 cp "$FEATURE_DIR/create-time-plugins.sh" "$SHARE_DIR/create-time-plugins.sh"
 chmod 0755 "$SHARE_DIR/create-time-plugins.sh"
 
+# The start-time half — see its own header. Copied for the same reason as the two above.
+cp "$FEATURE_DIR/post-start.sh" "$SHARE_DIR/post-start.sh"
+chmod 0755 "$SHARE_DIR/post-start.sh"
+
 echo "agents: create-time scripts installed at $SHARE_DIR/{post-create,create-time-plugins}.sh"
+echo "agents: start-time script installed at $SHARE_DIR/post-start.sh" \
+  "(updateToolsOnStart=$UPDATE_TOOLS_ON_START_OPT updates: '${_update_tools}')"
 echo "agents: claudeDir='$CLAUDE_DIR' claudeSeedDir='$SHARE_DIR/claude-seed'" \
   "herdrSeedDir='$SHARE_DIR/herdr-seed'" \
   "installClaudeCli=$INSTALL_CLAUDE_CLI_OPT installCopilotCli=$INSTALL_COPILOT_CLI_OPT" \
   "installPiCli=$INSTALL_PI_CLI_OPT installHerdr=$INSTALL_HERDR_OPT" \
   "piPackages='$PI_PACKAGES_OPT' herdrPlugins='$HERDR_PLUGINS_OPT' (installed at create time)" \
   "installAgentBrowser=$INSTALL_AGENT_BROWSER_OPT agentBrowserChrome='$AGENT_BROWSER_CHROME_OPT'" \
-  "claudeSeed=$CLAUDE_SEED_OPT"
+  "claudeSeed=$CLAUDE_SEED_OPT updateToolsOnStart=$UPDATE_TOOLS_ON_START_OPT"

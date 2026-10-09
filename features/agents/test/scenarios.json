@@ -98,5 +98,14 @@
         "installAgentBrowser": true
       }
     }
+  },
+  "with_update_on_start": {
+    "image": "mcr.microsoft.com/devcontainers/base:ubuntu",
+    "features": {
+      "agents": {
+        "installCopilotCli": true,
+        "installHerdr": true
+      }
+    }
   }
 }

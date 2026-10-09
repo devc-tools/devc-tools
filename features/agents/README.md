@@ -11,7 +11,8 @@ place, so its volume survives a rebuild and one host directory supplies your con
 }
 ```
 
-No mounts, no options you have to set. A bare `{}` installs the Claude CLI, declares the
+No mounts, no options you have to set. A bare `{}` installs the Claude CLI and updates it at
+every container start, declares the
 `~/.claude`, `~/.copilot` and `~/.pi` volumes that survive a rebuild, leaves an empty seed
 directory for you to mount onto, and points `CLAUDE_CONFIG_DIR` at `~/.claude` so
 `.claude.json` lands inside the volume with everything else. The seed itself is **opt-in** — see
@@ -32,6 +33,7 @@ directory for you to mount onto, and points `CLAUDE_CONFIG_DIR` at `~/.claude` s
 | `herdrPlugins`        | `""`          | Comma-separated Herdr plugins, in GitHub shorthand (`owner/repo[/subdir]`), installed at container **create** time. **Requires `installHerdr: true`**.                                                                                                                                                                                              |
 | `installAgentBrowser` | `false`       | Install the [agent-browser](https://agent-browser.dev) CLI too. Installs with npm — see [Node.js and pi](#nodejs-and-pi); unlike pi, what lands on `PATH` is a native binary, not a node script — see [Why agent-browser does not have pi's `.nvmrc` problem](#why-agent-browser-does-not-have-pis-nvmrc-problem).                                  |
 | `claudeSeed`          | `false`       | Link every top-level file from the fixed seed directory into `~/.claude` at create time. Off by default — see [The config seed](#the-config-seed-claudeseed).                                                                                                                                                                                       |
+| `updateToolsOnStart`  | `true`        | At every container start, run `claude`/`copilot`/`pi`/`herdr update` for each of those CLIs this Feature installed. Never fails the start — see [At start time](#at-start-time).                                                                                                                                                                    |
 | `agentBrowserChrome`  | `"with-deps"` | What `agent-browser install` does at build time: also apt-install the Linux libraries Chrome needs (`"with-deps"`), download Chrome only (`"browser-only"`), or install no browser (`"none"`). **Read only when `installAgentBrowser: true`**, silently ignored otherwise — see [agent-browser's Chrome download](#agent-browsers-chrome-download). |
 
 That is the whole option surface — there are no path options. Every path this Feature
@@ -62,8 +64,9 @@ this Feature exists to prevent:
 
 At **build time** it installs the CLIs you asked for, as the remote user rather than root,
 into `~/.local/bin` — so you can later run `claude update` / `copilot update` / `pi
-update` / `herdr update` yourself. A rebuild does not re-download a binary that is already
-there. **Network is required** when any install option is true: a failed download fails
+update` / `herdr update` yourself. The install runs in a Docker build layer, so a plain rebuild
+reuses that layer and ships the version it first downloaded; `updateToolsOnStart` brings it
+current at start — see [At start time](#at-start-time). **Network is required** when any install option is true: a failed download fails
 the build, rather than leaving a container that looks fine until the first `claude`.
 
 At **create time**, before any `postCreateCommand` of your own:
@@ -98,6 +101,38 @@ creation, and none of those skips is worth an unbootable container. Step 4 is th
 exception with teeth: install.sh still hard-fails the _build_ if `piPackages`/
 `herdrPlugins` is set without its CLI option, exactly as before — only the actual fetch
 moved, not the validation.
+
+### At start time
+
+At **every container start** (`postStartCommand`, so also a restart days after the build),
+with `updateToolsOnStart: true` — the default — each CLI this Feature installed is updated
+with its own command, in this order:
+
+| CLI       | Command          | Note                                                             |
+| --------- | ---------------- | ---------------------------------------------------------------- |
+| `claude`  | `claude update`  | First, as the one most often launched right after start.         |
+| `copilot` | `copilot update` |                                                                  |
+| `pi`      | `pi update`      | No target, so pi alone — its packages re-resolve at create time. |
+| `herdr`   | `herdr update`   | Never `--handoff`; no Herdr server is running yet at start.      |
+
+`agent-browser` is left at its installed version: it has no update command of its own, and its
+Chrome download is tied to that version. A CLI you installed some other way is left alone too.
+
+This is what keeps Claude Code from starting on a stale image's version, replacing itself in the
+background, and then asking to be restarted: the update finishes inside `devcontainer up`,
+before `devc attach`/`devc claude` or VS Code starts an agent.
+
+Each update prints one line to the start log:
+
+```
+agents: claude updated: 2.1.285 (Claude Code) → 2.1.295 (Claude Code)
+agents: herdr up to date: herdr 0.9.3
+agents: copilot update failed (exit 1) — see ~/.cache/devc-agents/update-copilot.log
+```
+
+The tool's own output goes to `~/.cache/devc-agents/update-<cli>.log`. Each update is capped at
+120 seconds, and a failed or timed-out one — offline, say — leaves the installed version in
+place and the start succeeds. To turn it off, set `"updateToolsOnStart": false`.
 
 ## The config seed (`claudeSeed`)
 
