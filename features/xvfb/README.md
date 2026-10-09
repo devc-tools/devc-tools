@@ -132,13 +132,20 @@ the `tools` group; that is for a picture of the whole X screen.
 
 ### Aseprite
 
-Aseprite is a GUI binary that wants an X display and GL even when it is only being scripted. A
+Aseprite is a GUI binary that links the X and GL client libraries whatever you ask it to do. A
 bare `{}` covers its library list (`libx11-6 libfontconfig1 libxcursor1 libgl1 libxext6 libxi6
-libxrandr2`):
+libxrandr2`), which is all `--batch` needs — measured on 1.3.17, batch scripting and
+conversion run with no display at all:
+
+```sh
+aseprite --batch sprite.aseprite --save-as sprite.png
+```
+
+Anything that opens its window does need the display; without one Aseprite crashes on start:
 
 ```sh
 eval "$(xvfb-ensure)"
-aseprite --batch sprite.aseprite --save-as sprite.png
+aseprite &
 ```
 
 ### VS Code extension tests

@@ -45,11 +45,28 @@ with and without `--display`. That run found one bug, in the test rather than th
 `test.sh` counted Xvfb processes straight after `xvfb-run`, whose private server is still
 exiting at that moment; it now tracks the shared server by pid.
 
-**Still unverified:** the four named scenarios as scenarios (`minimal`,
-`start_on_container_start`, `godot_render`, `debian`), and therefore any actual GL
-rendering — nothing has drawn a frame through llvmpipe yet — the `postStartCommand` path
-with the option on, and the `t64` fallback on a real bookworm base. The allowlist item stays
-open on those.
+**All three consumers exercised in that container on 2026-10-08**, after a second rebuild with
+`extraPackages` (the README's Electron list), `tools: true` and `startOnContainerStart: true`:
+
+- **Godot** (4.7.2, the upstream binary, not the `godot` Feature): the `godot_render`
+  scenario's own fixture and command rendered through llvmpipe ("OpenGL API 4.5 … Mesa …
+  llvmpipe") and wrote three 320x240 frames, red rectangle on grey — two colours, checked by
+  pixel and by eye. The same command with `--headless` wrote no frames; with no `DISPLAY`
+  Godot reported "X11 Display is not available".
+- **Aseprite** (1.3.17): the GUI segfaults with no display and opens and paints its window
+  under `xvfb-ensure` (screenshotted with `import -window root`). `--batch` turned out to
+  need **no** display, only the libraries — the Goal section's "even when scripted" is wrong
+  for this version, and the README recipe now says so.
+- **VS Code extension tests**: `vscode-test` in `devc-vscode` (VS Code 1.141.0) fails without
+  a display ("Missing X server or $DISPLAY") and passes under `xvfb-ensure` — 197 passing,
+  exit 0 — with the eleven Electron packages installed through `extraPackages` on noble.
+- **`startOnContainerStart`**: after the rebuild a server was already up on `:99`, started by
+  the real `postStartCommand`, in its own session, with no `DISPLAY` exported.
+
+**Still unverified:** the `t64` fallback on a real pre-rename base (the `debian` scenario —
+noble has the `t64` names, so the fallback did not fire here), the `minimal` scenario, the
+Vulkan group, and the scenarios run _as scenarios_ through `run-features-test.sh`. The
+allowlist item stays open on that run.
 
 **Where the implementation departs from, or adds to, the text above:**
 
