@@ -9,7 +9,7 @@
     "ghcr.io/devcontainers/features/git-lfs:1": {
       "autoPull": false
     },
-    // Uncomment if your project needs Go.
+    // Uncomment if your project needs Go (also the volume mounts for caches).
     // "ghcr.io/devcontainers/features/go:1": { "version": "latest" },
     "ghcr.io/devcontainers/features/node:1": {
       "nodeGypDependencies": true,
@@ -79,11 +79,11 @@
     "type=bind,source=${localEnv:HOME}/.config/devc/git-identity,target=/usr/local/share/devc-features/git-container-config/identity,consistency=cached,readonly",
 
     // Your personal shell scripts — every bashrc_*.sh in ~/.config/devc/shell.
-    "type=bind,source=${localEnv:HOME}/.config/devc/shell,target=/usr/local/share/devc-features/bash-config/dirs/user,readonly",
+    "type=bind,source=${localEnv:HOME}/.config/devc/shell,target=/usr/local/share/devc-features/bash-config/dirs/user,readonly"
 
     // Go build caches, kept out of the workspace so they survive a rebuild.
-    "type=volume,source=go-cache-${localWorkspaceFolderBasename},target=/home/vscode/go/pkg",
-    "type=volume,source=go-build-cache-${localWorkspaceFolderBasename},target=/root/.cache/go-build"
+    // "type=volume,source=go-cache-${localWorkspaceFolderBasename},target=/home/vscode/go/pkg",
+    // "type=volume,source=go-build-cache-${localWorkspaceFolderBasename},target=/root/.cache/go-build"
   ],
   "customizations": {
     "vscode": {
