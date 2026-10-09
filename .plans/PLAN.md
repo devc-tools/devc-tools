@@ -29,11 +29,13 @@
   and frozen modes either write devc's injected Features into the project's lock or fail on
   them. Also strips `@sha256:` digests in `declaresFeatureNamed`.
 
-- [feature-electron-deps](feature-electron-deps.md) — **placeholder, not ready.** Whether to
-  give Electron's runtime libraries (what VS Code extension tests need beyond a display) their
-  own small Feature that `dependsOn` `xvfb`, instead of the eleven-package `extraPackages`
-  string `xvfb`'s README carries today. Records what testing `xvfb` measured and the open
-  questions; nothing is decided, including whether to build it.
+- [feature-headless-vscode](feature-headless-vscode.md) — **decisions pending: the
+  implementing agent must first ask the user D1–D9 in the plan.** New `headless-vscode`
+  Feature: Electron's runtime libraries (replacing the eleven-package `extraPackages` recipe
+  in `xvfb`'s README), `dependsOn` `xvfb`, and a launcher that downloads VS Code at run time
+  and runs it against the extension under development on an `xvfb` display with a CDP port,
+  generalized from vscode-deephaven's `vscode-dev.sh`. chrome-devtools-mcp registration stays
+  with the consuming project. Replaces the `feature-electron-deps` placeholder.
 
 ### Standing rules for Feature work
 
@@ -1916,3 +1918,4 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
 | devc-bridge `gh-*` capability and command names, `--bridge-allow gh`, GitHub-only push                      | [bridge-gh-capabilities](archived/bridge-gh-capabilities.md)                       | complete |
 | devc-bridge Copilot review-loop gaps — review body, timeline-sourced `pending`, policy refusal exit codes   | [bridge-copilot-review-gaps](archived/bridge-copilot-review-gaps.md)               | complete |
 | devc Feature lockfile — `devc lock` on demand; project-mode starts honor an existing lock                   | [devc-feature-lockfile](devc-feature-lockfile.md)                                  |          |
+| `headless-vscode` Feature — Electron libraries + headless VS Code launcher over `xvfb`                      | [feature-headless-vscode](feature-headless-vscode.md)                              |          |
