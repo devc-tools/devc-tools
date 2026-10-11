@@ -6,8 +6,8 @@
 # Runs as root at image *build* time. These things happen here rather than in post-create.sh:
 #
 #   - The CLI installs, run as the remote user rather than root, so the binaries land under a
-#     directory that user can later update (`claude`/`copilot`/`pi update`/`herdr update`/
-#     `agent-browser` via npm). Network is required when any install option is true: a failed
+#     directory that user can later update (`claude`/`copilot`/`pi update`/`opencode upgrade`/
+#     `herdr update`/`agent-browser` via npm). Network is required when any install option is true: a failed
 #     download fails the build, rather than leaving a container that looks fine until the first
 #     `claude`. An npm-installed CLI (pi, agent-browser) additionally needs Node.js visible to a
 #     non-interactive shell, which at build time it is not — see node_prelude.
@@ -24,7 +24,8 @@
 #     post-start.sh — the start-time half that brings them current. The build-time install
 #     above sits in a cached RUN layer, so a plain rebuild ships whatever version it first
 #     downloaded; post-start.sh runs each CLI's own update command before anything launches it.
-#   - Pre-creating ~/.claude, ~/.copilot and ~/.pi owned by the remote user, so each volume the
+#   - Pre-creating ~/.claude, ~/.copilot, ~/.pi, ~/.local/share/opencode and ~/.config/opencode
+#     owned by the remote user, so each volume the
 #     manifest declares there comes up owned correctly rather than root-owned — plus
 #     ~/.config/herdr, which is not a volume and is pre-created for the adjacent reason that a
 #     consumer may bind a single config.toml inside it. See that block for both arguments.
@@ -39,7 +40,7 @@
 #
 # There are no path options to validate or bake. Every path this Feature touches is either fixed
 # (the seed) or derived from the remote user's own home (~/.claude, ~/.copilot, ~/.pi,
-# ~/.config/herdr).
+# ~/.local/share/opencode, ~/.config/opencode, ~/.config/herdr).
 set -e
 
 die() {
@@ -53,6 +54,7 @@ die() {
 INSTALL_CLAUDE_CLI_OPT="${INSTALLCLAUDECLI:-true}"
 INSTALL_COPILOT_CLI_OPT="${INSTALLCOPILOTCLI:-false}"
 INSTALL_PI_CLI_OPT="${INSTALLPICLI:-false}"
+INSTALL_OPENCODE_CLI_OPT="${INSTALLOPENCODECLI:-false}"
 INSTALL_HERDR_OPT="${INSTALLHERDR:-false}"
 PI_PACKAGES_OPT="${PIPACKAGES:-}"
 HERDR_PLUGINS_OPT="${HERDRPLUGINS:-}"
@@ -263,6 +265,37 @@ EOF
   echo "agents: $_name CLI installed for $REMOTE_USER"
 }
 
+# link_into_local_bin <binary name> <path under $HOME> — symlinks a binary an installer dropped
+# somewhere of its own choosing into ~/.local/bin, as the remote user. For opencode, whose
+# installer hardcodes ~/.opencode/bin and offers no way to point it elsewhere: that directory
+# reaches PATH only through the line the installer appends to ~/.bashrc, which a non-interactive
+# shell never sources, and ~/.local/bin is where install_cli's idempotency guard and
+# post-start.sh both look. A symlink rather than a move, because `opencode upgrade` re-runs the
+# same installer and writes the new binary back to ~/.opencode/bin — and because opencode decides
+# how to upgrade itself from its own resolved path, which still reads as ~/.opencode/bin through
+# the link.
+#
+# A no-op when the source is missing (install_cli skipped the download because an opencode was
+# already on PATH) or when something other than a dangling link already holds the name.
+link_into_local_bin() { # link_into_local_bin <binary name> <path under $HOME>
+  _bin="$1"; _src="$2"
+  _script="$(mktemp)"
+  cat > "$_script" << EOF
+set -e
+if [ -x "\$HOME/$_src" ] && [ ! -e "\$HOME/.local/bin/$_bin" ]; then
+  mkdir -p "\$HOME/.local/bin"
+  ln -sf "\$HOME/$_src" "\$HOME/.local/bin/$_bin"
+fi
+EOF
+  chmod 0755 "$_script"
+  _status=0
+  run_as_remote_user "$_script" || _status=$?
+  rm -f "$_script"
+  if [ "$_status" -ne 0 ]; then
+    die "could not link $_bin into $REMOTE_USER_HOME/.local/bin"
+  fi
+}
+
 # install_agent_browser_chrome <with-deps|browser-only|none> — runs `agent-browser install
 # [--with-deps]`, which downloads Chrome for Testing into ~/.agent-browser and, for
 # "with-deps", apt-installs the ~36 shared libraries and fonts Chrome needs on Linux.
@@ -330,6 +363,12 @@ if [ "$INSTALL_PI_CLI_OPT" = true ]; then
   # raw SyntaxError rather than a version complaint, so the check is worth making here.
   install_cli Pi pi https://pi.dev/install.sh 22.19.0
 fi
+if [ "$INSTALL_OPENCODE_CLI_OPT" = true ]; then
+  # opencode ships a self-contained binary — no node prelude — but into ~/.opencode/bin rather
+  # than ~/.local/bin; see link_into_local_bin.
+  install_cli opencode opencode https://opencode.ai/install
+  link_into_local_bin opencode .opencode/bin/opencode
+fi
 if [ "$INSTALL_HERDR_OPT" = true ]; then
   # Herdr ships a static binary — no node prelude, unlike pi above.
   install_cli Herdr herdr https://herdr.dev/install.sh
@@ -369,6 +408,7 @@ if [ "$UPDATE_TOOLS_ON_START_OPT" = true ]; then
   [ "$INSTALL_CLAUDE_CLI_OPT" = true ] && _update_tools="$_update_tools claude"
   [ "$INSTALL_COPILOT_CLI_OPT" = true ] && _update_tools="$_update_tools copilot"
   [ "$INSTALL_PI_CLI_OPT" = true ] && _update_tools="$_update_tools pi"
+  [ "$INSTALL_OPENCODE_CLI_OPT" = true ] && _update_tools="$_update_tools opencode"
   [ "$INSTALL_HERDR_OPT" = true ] && _update_tools="$_update_tools herdr"
 fi
 _update_tools="${_update_tools# }"
@@ -393,11 +433,13 @@ fi
 #
 # Two different problems, one loop:
 #
-#   - ~/.claude, ~/.copilot and ~/.pi are the three volume targets the manifest declares. Docker
+#   - ~/.claude, ~/.copilot, ~/.pi, ~/.local/share/opencode and ~/.config/opencode are the five
+#     volume targets the manifest declares (opencode keeps its state in two XDG directories
+#     rather than one dot-directory, hence two). Docker
 #     seeds a first-use empty named volume from whatever is already at the mount point, so
 #     creating each one owned here is what makes its volume come up owned by the remote user
 #     rather than root. Unconditional, NOT gated on the matching install option: the manifest
-#     declares all three mounts unconditionally, so all three mount points have to exist whether
+#     declares all five mounts unconditionally, so all five mount points have to exist whether
 #     or not their CLI was installed — the same argument that creates claude-seed below whatever
 #     claudeSeed is set to.
 #   - ~/.config/herdr is deliberately NOT a volume and must not become one: it holds live
@@ -409,7 +451,7 @@ fi
 #     container, root-owned, and Herdr can then no longer write its own sockets and logs beside
 #     the file. Creating the parent here means Docker finds it and leaves ownership alone.
 #
-# A chown failure is not fatal — post-create.sh's ownership repair covers all four at create
+# A chown failure is not fatal — post-create.sh's ownership repair covers all six at create
 # time, which is also what fixes a container whose volume was already created root-owned by an
 # earlier version of this Feature (a build-time mkdir cannot: Docker seeds ownership from the
 # mount point only on the volume's FIRST use, so an existing volume keeps whatever it came up
@@ -421,15 +463,21 @@ claim_for_remote_user() { # claim_for_remote_user <dir>
   fi
 }
 
-# ~/.config one level up, claimed only when this script is what created it: on an image that
-# already ships the directory, whatever owns it keeps owning it. Nothing here needs to write
-# into ~/.config itself — only into the herdr directory below it, which is claimed either way.
-if [ ! -d "$REMOTE_USER_HOME/.config" ]; then
-  mkdir -p "$REMOTE_USER_HOME/.config"
-  claim_for_remote_user "$REMOTE_USER_HOME/.config"
-fi
+# The parents one level up — ~/.config, and ~/.local and ~/.local/share for opencode's data
+# volume — each claimed only when this script is what created it: on an image that already ships
+# the directory (or where a CLI install above already made ~/.local), whatever owns it keeps
+# owning it. Nothing here needs to write into the parents themselves — only into the directories
+# below them, which are claimed either way. Outermost first, so each mkdir creates one level.
+for _dir in "$REMOTE_USER_HOME/.config" "$REMOTE_USER_HOME/.local" \
+  "$REMOTE_USER_HOME/.local/share"; do
+  if [ ! -d "$_dir" ]; then
+    mkdir -p "$_dir"
+    claim_for_remote_user "$_dir"
+  fi
+done
 
 for _dir in "$CLAUDE_DIR" "$REMOTE_USER_HOME/.copilot" "$REMOTE_USER_HOME/.pi" \
+  "$REMOTE_USER_HOME/.local/share/opencode" "$REMOTE_USER_HOME/.config/opencode" \
   "$REMOTE_USER_HOME/.config/herdr"; do
   mkdir -p "$_dir"
   claim_for_remote_user "$_dir"
@@ -464,7 +512,8 @@ echo "agents: start-time script installed at $SHARE_DIR/post-start.sh" \
 echo "agents: claudeDir='$CLAUDE_DIR' claudeSeedDir='$SHARE_DIR/claude-seed'" \
   "herdrSeedDir='$SHARE_DIR/herdr-seed'" \
   "installClaudeCli=$INSTALL_CLAUDE_CLI_OPT installCopilotCli=$INSTALL_COPILOT_CLI_OPT" \
-  "installPiCli=$INSTALL_PI_CLI_OPT installHerdr=$INSTALL_HERDR_OPT" \
+  "installPiCli=$INSTALL_PI_CLI_OPT installOpencodeCli=$INSTALL_OPENCODE_CLI_OPT" \
+  "installHerdr=$INSTALL_HERDR_OPT" \
   "piPackages='$PI_PACKAGES_OPT' herdrPlugins='$HERDR_PLUGINS_OPT' (installed at create time)" \
   "installAgentBrowser=$INSTALL_AGENT_BROWSER_OPT agentBrowserChrome='$AGENT_BROWSER_CHROME_OPT'" \
   "claudeSeed=$CLAUDE_SEED_OPT updateToolsOnStart=$UPDATE_TOOLS_ON_START_OPT"

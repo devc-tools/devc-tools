@@ -180,7 +180,7 @@ missing-binary skips — this is what `install_options_test.sh` used to cover be
 `piPackages`/`herdrPlugins` moved from build time to create time).
 
 With Docker: the default scenario is the bare `{}` case. `scenarios.json` adds
-`with_seed`, `with_copilot`, `with_pi`, `with_herdr`, `with_pi_packages`,
+`with_seed`, `with_copilot`, `with_pi`, `with_opencode`, `with_herdr`, `with_pi_packages`,
 `with_herdr_plugins`, `with_agent_browser` and `with_agent_browser_chrome`. The last four
 hit the network by design; `with_agent_browser_chrome` is by far the slowest in the
 collection — it downloads ~185 MB of Chrome for Testing and apt-installs ~36 packages, and

@@ -6,7 +6,7 @@
 #   bash features/agents/test/install_options_test.sh
 #
 # What this cannot cover, because it needs a real container: whether the CLI installers
-# (claude.ai/install.sh, gh.io/copilot-install, pi.dev/install.sh) actually work, and whether
+# (claude.ai/install.sh, gh.io/copilot-install, pi.dev/install.sh, opencode.ai/install) actually work, and whether
 # `runuser`/`su` really drop privileges the way the stub here does not even attempt to. Both need
 # test/run-features-test.sh under Docker. What this DOES pin, against the real install.sh: that
 # the two fixed paths post-create.sh depends on are really created and really named the way it
@@ -45,10 +45,15 @@ echo "curl $*" >> "$CURL_LOG"
 [ "${CURL_FAIL:-}" = 1 ] && exit 1
 url=""
 for a in "$@"; do case "$a" in http*) url="$a" ;; esac; done
+# Where the fake installer drops its binary, relative to $HOME. ~/.local/bin for every CLI but
+# opencode, whose real installer hardcodes ~/.opencode/bin — install.sh's link_into_local_bin is
+# what gets it into ~/.local/bin, so the stub has to leave that half undone.
+dir=.local/bin
 case "$url" in
   *claude*) bin=claude ;;
   *copilot*) bin=copilot ;;
   *herdr*) bin=herdr ;;
+  *opencode*) bin=opencode; dir=.opencode/bin ;;
   *pi*) bin=pi ;;
   *) bin=unknown ;;
 esac
@@ -66,9 +71,9 @@ cat << SCRIPT
 printf '$bin npm_config_prefix=%s\\n' "\$npm_config_prefix" >> "\$INSTALLER_ENV_LOG"
 printf '$bin node=%s\\n' "\$(command -v node || echo none)" >> "\$INSTALLER_ENV_LOG"
 printf '$bin CLAUDE_CONFIG_DIR=%s\\n' "\${CLAUDE_CONFIG_DIR:-unset}" >> "\$INSTALLER_ENV_LOG"
-mkdir -p "\$HOME/.local/bin"
-printf '#!/bin/sh\necho "$bin \$*" >> "\${CLI_INVOKE_LOG:-/dev/null}"\nexit "\${FAKE_BIN_EXIT:-0}"\n' > "\$HOME/.local/bin/$bin"
-chmod +x "\$HOME/.local/bin/$bin"
+mkdir -p "\$HOME/$dir"
+printf '#!/bin/sh\necho "$bin \$*" >> "\${CLI_INVOKE_LOG:-/dev/null}"\nexit "\${FAKE_BIN_EXIT:-0}"\n' > "\$HOME/$dir/$bin"
+chmod +x "\$HOME/$dir/$bin"
 SCRIPT
 CURL
 chmod +x "$STUBS/curl"
@@ -126,7 +131,7 @@ chmod +x "$STUBS/runuser"
 # `! command -v claude` guard would find the real one and skip the fake install silently, so every
 # case below would "pass" without curl ever running. Strip those directories out.
 CLEAN_PATH="$PATH"
-for real_bin in claude copilot pi herdr; do
+for real_bin in claude copilot pi opencode herdr; do
   real_path="$(command -v "$real_bin" 2> /dev/null || true)"
   if [ -n "$real_path" ]; then
     real_dir="$(dirname "$real_path")"
@@ -183,7 +188,7 @@ setup() {
   mkdir -p "$CASE/home"
   : > "$CASE/curl.log"; : > "$CASE/runuser.log"; : > "$CASE/runuser_user.log"
   : > "$CASE/installer_env.log"; : > "$CASE/npm.log"
-  env -u INSTALLCLAUDECLI -u INSTALLCOPILOTCLI -u INSTALLPICLI \
+  env -u INSTALLCLAUDECLI -u INSTALLCOPILOTCLI -u INSTALLPICLI -u INSTALLOPENCODECLI \
     -u INSTALLHERDR -u PIPACKAGES -u HERDRPLUGINS \
     -u INSTALLAGENTBROWSER -u AGENTBROWSERCHROME -u CLAUDESEED -u UPDATETOOLSONSTART \
     SHARE_DIR="$CASE/share" \
@@ -229,6 +234,11 @@ check "and its copilot volume the same way" \
 check "and its pi volume the same way" \
   grep -qF '"source": "devc-${devcontainerId}-pi-agent-config"' \
   "$FEATURE_DIR/devcontainer-feature.json"
+check "and its two opencode volumes the same way, at the same literal home" bash -c \
+  "grep -qF '\"source\": \"devc-\${devcontainerId}-opencode-data\"' \"$FEATURE_DIR/devcontainer-feature.json\" &&
+   grep -qF '\"target\": \"/home/vscode/.local/share/opencode\"' \"$FEATURE_DIR/devcontainer-feature.json\" &&
+   grep -qF '\"source\": \"devc-\${devcontainerId}-opencode-config\"' \"$FEATURE_DIR/devcontainer-feature.json\" &&
+   grep -qF '\"target\": \"/home/vscode/.config/opencode\"' \"$FEATURE_DIR/devcontainer-feature.json\""
 # containerEnv is what replaced the old ~/.claude.json symlink fold: Claude Code writes
 # .claude.json into $CLAUDE_CONFIG_DIR, so pointing that at the volume's own target is what makes
 # one mount capture everything. The value must be the same literal the mount target above names —
@@ -251,13 +261,17 @@ check "the seed mount point was created, empty" test -d "$CASE/share/claude-seed
 check "the seed mount point really is empty" \
   test -z "$(ls -A "$CASE/share/claude-seed")"
 check "~/.claude was pre-created" test -d "$WORK/c1/home/.claude"
-# The other two declared volume targets, pre-created for the same reason and, like ~/.claude,
-# NOT gated on their CLI's install option — the manifest declares all three mounts whatever the
-# options say, so all three mount points have to exist or the volume comes up root-owned.
+# The other four declared volume targets, pre-created for the same reason and, like ~/.claude,
+# NOT gated on their CLI's install option — the manifest declares all five mounts whatever the
+# options say, so all five mount points have to exist or the volume comes up root-owned.
 check "~/.copilot was pre-created even though installCopilotCli defaults false" \
   test -d "$WORK/c1/home/.copilot"
 check "~/.pi was pre-created even though installPiCli defaults false" \
   test -d "$WORK/c1/home/.pi"
+check "opencode's two state directories were pre-created even though installOpencodeCli defaults false" \
+  test -d "$WORK/c1/home/.local/share/opencode" -a -d "$WORK/c1/home/.config/opencode"
+check "the hook repairs ownership of the same two opencode directories" \
+  grep -qF '"$HOME/.local/share/opencode" "$HOME/.config/opencode"' "$HOOK"
 # Not a volume target — the parent a consumer's single-file config.toml bind needs, so that
 # Docker does not create it root-owned underneath them.
 check "~/.config/herdr was pre-created even though installHerdr defaults false" \
@@ -268,6 +282,8 @@ check "copilot was NOT installed — installCopilotCli defaults false" \
   test ! -e "$WORK/c1/home/.local/bin/copilot"
 check "pi was NOT installed — installPiCli defaults false" \
   test ! -e "$WORK/c1/home/.local/bin/pi"
+check "opencode was NOT installed — installOpencodeCli defaults false" \
+  test ! -e "$WORK/c1/home/.local/bin/opencode" -a ! -e "$WORK/c1/home/.opencode/bin"
 check "agent-browser was NOT installed — installAgentBrowser defaults false" \
   test ! -e "$WORK/c1/home/.local/bin/agent-browser"
 check "no npm invocation happened — agentBrowserChrome's non-empty default is ignored" \
@@ -306,6 +322,51 @@ check "the pi install pinned npm's global prefix to the fake remote ~/.local" \
   grep -qxF "pi npm_config_prefix=$WORK/c2b/home/.local" "$WORK/c2b/installer_env.log"
 check "and claude's install got no prelude — the pin is scoped to the npm-installed CLI" \
   grep -qxF "claude npm_config_prefix=" "$WORK/c2b/installer_env.log"
+
+echo "case 2f: installOpencodeCli=true — installed to ~/.opencode/bin, linked into ~/.local/bin"
+# opencode's installer hardcodes ~/.opencode/bin, which reaches PATH only through a line it
+# appends to ~/.bashrc. Everything else in this Feature — the idempotency guard, post-start.sh,
+# a non-interactive shell's PATH — looks in ~/.local/bin, so install.sh links it there.
+setup c2f INSTALLOPENCODECLI=true
+check "install.sh exits 0" test "$status" -eq 0
+check "curl invoked twice (claude, then opencode)" test "$(wc -l < "$WORK/c2f/curl.log")" -eq 2
+check "the opencode installer was fetched from opencode.ai" \
+  grep -q 'https://opencode.ai/install' "$WORK/c2f/curl.log"
+check "the binary is where the installer put it" test -x "$WORK/c2f/home/.opencode/bin/opencode"
+check "~/.local/bin/opencode is a symlink" test -L "$WORK/c2f/home/.local/bin/opencode"
+check "pointing at the installer's own copy, not a second one" \
+  test "$(readlink "$WORK/c2f/home/.local/bin/opencode")" = "$WORK/c2f/home/.opencode/bin/opencode"
+check "and it resolves to something executable" test -x "$WORK/c2f/home/.local/bin/opencode"
+check "opencode's install got no node prelude — it is a self-contained binary" \
+  grep -qxF "opencode npm_config_prefix=" "$WORK/c2f/installer_env.log"
+
+echo "case 2g: opencode with installClaudeCli=false — the link step creates ~/.local/bin itself"
+# With no other CLI installed nothing has created ~/.local/bin yet.
+setup c2g INSTALLCLAUDECLI=false INSTALLOPENCODECLI=true
+check "install.sh exits 0" test "$status" -eq 0
+check "~/.local/bin/opencode resolves to something executable" \
+  test -x "$WORK/c2g/home/.local/bin/opencode"
+
+echo "case 2h: opencode already linked — a second build skips curl and keeps the link"
+CASE_KEEP="$WORK/c2h"
+setup c2h INSTALLCLAUDECLI=false INSTALLOPENCODECLI=true
+env -u INSTALLCOPILOTCLI -u INSTALLPICLI -u INSTALLHERDR -u PIPACKAGES -u HERDRPLUGINS \
+  -u INSTALLAGENTBROWSER -u AGENTBROWSERCHROME -u CLAUDESEED -u UPDATETOOLSONSTART \
+  INSTALLCLAUDECLI=false INSTALLOPENCODECLI=true \
+  SHARE_DIR="$CASE_KEEP/share" \
+  _REMOTE_USER="$(id -un)" _REMOTE_USER_HOME="$CASE_KEEP/home" \
+  FAKE_REMOTE_HOME="$CASE_KEEP/home" \
+  CURL_LOG="$CASE_KEEP/curl.log" RUNUSER_LOG="$CASE_KEEP/runuser.log" \
+  RUNUSER_USER_LOG="$CASE_KEEP/runuser_user.log" \
+  INSTALLER_ENV_LOG="$CASE_KEEP/installer_env.log" CLI_INVOKE_LOG="$CASE_KEEP/invoke.log" \
+  NPM_LOG="$CASE_KEEP/npm.log" \
+  PATH="$STUBS:$CLEAN_PATH" \
+  sh "$FEATURE_DIR/install.sh" > "$CASE_KEEP/install2.log" 2> "$CASE_KEEP/install2.err"
+check "the second build exits 0" test "$?" -eq 0
+check "curl ran once in total — the guard saw ~/.local/bin/opencode" \
+  test "$(wc -l < "$CASE_KEEP/curl.log")" -eq 1
+check "the link is still a link to the installer's copy" \
+  test "$(readlink "$CASE_KEEP/home/.local/bin/opencode")" = "$CASE_KEEP/home/.opencode/bin/opencode"
 
 echo "case 2c: node is not on PATH — the prelude sources nvm and finds it"
 # The real-world build-time case, and the bug this prelude exists for: the node Feature has
@@ -533,11 +594,11 @@ check "post-start.sh reads the same fixed path install.sh writes" \
   grep -qF '/usr/local/share/devc-features/agents/update-tools.conf' "$WORK/c13f/share/post-start.sh"
 
 echo "case 13g: every updatable CLI installed — listed in the fixed order, agent-browser never"
-setup c13g INSTALLCOPILOTCLI=true INSTALLPICLI=true INSTALLHERDR=true \
+setup c13g INSTALLCOPILOTCLI=true INSTALLPICLI=true INSTALLOPENCODECLI=true INSTALLHERDR=true \
   INSTALLAGENTBROWSER=true AGENTBROWSERCHROME=none
 check "install.sh exits 0" test "$status" -eq 0
-check "update-tools.conf is exactly 'claude copilot pi herdr'" \
-  test "$(cat "$WORK/c13g/share/update-tools.conf")" = "claude copilot pi herdr"
+check "update-tools.conf is exactly 'claude copilot pi opencode herdr'" \
+  test "$(cat "$WORK/c13g/share/update-tools.conf")" = "claude copilot pi opencode herdr"
 
 echo "case 13h: installClaudeCli=false and nothing else installed — no update-tools.conf"
 setup c13h INSTALLCLAUDECLI=false

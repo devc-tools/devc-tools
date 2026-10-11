@@ -40,6 +40,14 @@
       }
     }
   },
+  "with_opencode": {
+    "image": "mcr.microsoft.com/devcontainers/base:ubuntu",
+    "features": {
+      "agents": {
+        "installOpencodeCli": true
+      }
+    }
+  },
   "with_herdr": {
     "image": "mcr.microsoft.com/devcontainers/base:ubuntu",
     "features": {

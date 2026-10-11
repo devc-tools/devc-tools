@@ -6,7 +6,7 @@
 #
 # Each stub reports a version (`<name> v<N>`) from a per-case state file, records every `update`
 # call, and can be told to bump its version, exit non-zero, or both. What this cannot cover: that
-# the real `claude`/`copilot`/`pi`/`herdr update` commands work unattended, and that
+# the real `claude`/`copilot`/`pi`/`herdr update` and `opencode upgrade` commands work unattended, and that
 # `devcontainer up` waits for postStartCommand — both need a real container (see the plan's
 # Validation and test/scenarios.json's with_update_on_start).
 set -uo pipefail
@@ -93,16 +93,16 @@ check "exits 0" test "$status" -eq 0
 check "prints the not-found line" \
   out_has "agents: copilot not found at ~/.local/bin/copilot — skipping update"
 
-echo "case 6: all four tools — updated in the conf's order"
-setup c6 "claude copilot pi herdr" claude copilot pi herdr
+echo "case 6: all five tools — updated in the conf's order"
+setup c6 "claude copilot pi opencode herdr" claude copilot pi opencode herdr
 # pi needs node; give it a stub so the case does not depend on this machine's toolchain.
 mkdir -p "$CASE/nodebin"
 printf '#!/bin/sh\nexit 0\n' > "$CASE/nodebin/node"
 chmod +x "$CASE/nodebin/node"
 run PATH="$CASE/nodebin:$PATH"
 check "exits 0" test "$status" -eq 0
-check "calls ran claude, copilot, pi, herdr in that order" \
-  test "$(cut -d' ' -f1 "$CALLS" | paste -sd' ')" = "claude copilot pi herdr"
+check "calls ran claude, copilot, pi, opencode, herdr in that order" \
+  test "$(cut -d' ' -f1 "$CALLS" | paste -sd' ')" = "claude copilot pi opencode herdr"
 check "pi was called with no target (pi alone, not its packages)" grep -qxF "pi update" "$CALLS"
 
 echo "case 7: herdr is updated without --handoff"
@@ -110,6 +110,17 @@ setup c7 herdr herdr
 run
 check "exits 0" test "$status" -eq 0
 check "herdr saw exactly 'update'" test "$(cat "$CALLS")" = "herdr update"
+
+echo "case 7b: opencode is updated with 'upgrade', not 'update'"
+# opencode has no `update` subcommand — it reads the word as a project directory to open.
+setup c7b opencode opencode
+touch "$CASE/state/opencode.bump"
+run
+check "exits 0" test "$status" -eq 0
+check "opencode saw exactly 'upgrade'" test "$(cat "$CALLS")" = "opencode upgrade"
+check "and is reported like every other tool" \
+  out_has "agents: opencode updated: opencode v1 → opencode v2"
+check "its output went to the per-tool log" test -f "$H/.cache/devc-agents/update-opencode.log"
 
 echo "case 8: each update is capped at 120 seconds"
 setup c8 claude claude

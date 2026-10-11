@@ -23,12 +23,16 @@ set -e
 source dev-container-features-test-lib
 
 check "~/.claude is a mount point, not a plain directory" mountpoint -q "$HOME/.claude"
-# The other two declared volumes, mounted on the same bare `{}` and with their CLIs never
+# The other four declared volumes, mounted on the same bare `{}` and with their CLIs never
 # installed — a Feature's `mounts` are static metadata and cannot be gated on an option value,
 # so this is what the manifest promises whatever the options say.
 check "~/.copilot is a mount point too, with installCopilotCli left false" \
   mountpoint -q "$HOME/.copilot"
 check "~/.pi is a mount point too, with installPiCli left false" mountpoint -q "$HOME/.pi"
+# opencode keeps its state in two XDG directories, so it gets a volume for each.
+check "~/.local/share/opencode is a mount point too, with installOpencodeCli left false" \
+  mountpoint -q "$HOME/.local/share/opencode"
+check "and so is ~/.config/opencode" mountpoint -q "$HOME/.config/opencode"
 
 # The declared target is the literal /home/vscode/.claude and this image's remote user is `vscode`,
 # so the two agree and no warning should have fired. The mismatch path has its own scenario
@@ -40,10 +44,14 @@ check "the remote user's home is the one the manifest targets" test "$HOME" = /h
 # — a root-owned volume here would leave Claude Code unable to write its own state.
 check "~/.claude is owned by the remote user, not root" test -O "$HOME/.claude"
 check "and is writable" bash -c "touch \"$HOME/.claude/.write-probe\" && rm \"$HOME/.claude/.write-probe\""
-# Same assertion against the two volumes added later — these are the ones that came up root-owned
-# before install.sh pre-created their mount points, and a root-owned ~/.pi leaves `pi` unable to
-# write its own settings at all.
-for dir in "$HOME/.copilot" "$HOME/.pi"; do
+# Same assertion against the volumes added later — ~/.copilot and ~/.pi are the ones that came up
+# root-owned before install.sh pre-created their mount points, and a root-owned ~/.pi leaves `pi`
+# unable to write its own settings at all. The two opencode targets are nested under ~/.local/share
+# and ~/.config, so the parents are checked too: Docker creating one root-owned would leave
+# everything else that writes there (~/.local/share especially) broken.
+check "~/.local/share is owned by the remote user, not root" test -O "$HOME/.local/share"
+check "~/.config is owned by the remote user, not root" test -O "$HOME/.config"
+for dir in "$HOME/.copilot" "$HOME/.pi" "$HOME/.local/share/opencode" "$HOME/.config/opencode"; do
   check "$dir is owned by the remote user, not root" test -O "$dir"
   check "and is writable" bash -c "touch \"$dir/.write-probe\" && rm \"$dir/.write-probe\""
 done

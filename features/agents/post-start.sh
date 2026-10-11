@@ -4,7 +4,7 @@
 #
 # install.sh copies this file to /usr/local/share/devc-features/agents/post-start.sh at image
 # build time and writes update-tools.conf beside it: the CLIs that build installed, space-
-# separated, in the order to update them (claude copilot pi herdr). No file means the option is
+# separated, in the order to update them (claude copilot pi opencode herdr). No file means the option is
 # off or no CLI was installed. The manifest's postStartCommand names the copy, and the
 # devcontainer CLI runs it as the remote user.
 #
@@ -75,13 +75,16 @@ for name in $(cat "$UPDATE_TOOLS_CONF"); do
   log="$LOG_DIR/update-$name.log"
   before="$(first_line "$bin")"
   # Plain `<bin> update`, no arguments for any tool: for pi, no target updates pi alone (not its
-  # packages, which create time re-resolves); for herdr, no --handoff. stdin is /dev/null so an
-  # update that wants confirmation fails instead of hanging the start.
+  # packages, which create time re-resolves); for herdr, no --handoff. opencode is the one tool
+  # that spells it `upgrade` — it reads `update` as a project directory to open. stdin is
+  # /dev/null so an update that wants confirmation fails instead of hanging the start.
+  cmd=update
+  [ "$name" = opencode ] && cmd=upgrade
   code=0
   if command -v timeout > /dev/null 2>&1; then
-    timeout "$UPDATE_TIMEOUT" "$bin" update < /dev/null > "$log" 2>&1 || code=$?
+    timeout "$UPDATE_TIMEOUT" "$bin" "$cmd" < /dev/null > "$log" 2>&1 || code=$?
   else
-    "$bin" update < /dev/null > "$log" 2>&1 || code=$?
+    "$bin" "$cmd" < /dev/null > "$log" 2>&1 || code=$?
   fi
   after="$(first_line "$bin")"
 

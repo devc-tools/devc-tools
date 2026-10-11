@@ -69,7 +69,8 @@ fi
 # from the image's mount point on that volume's first use only, so a ${devcontainerId} volume
 # that already exists keeps whatever it came up with no matter what a later build pre-creates.
 #
-# ~/.claude, ~/.copilot and ~/.pi are the manifest's three declared volume targets.
+# ~/.claude, ~/.copilot, ~/.pi, ~/.local/share/opencode and ~/.config/opencode are the
+# manifest's five declared volume targets.
 # ~/.config/herdr is not a volume — it is here because a consumer may bind a single writable
 # config.toml inside it, which leaves Docker to create that parent root-owned; see install.sh's
 # pre-create block for the full argument. Its own `mkdir -p` inside the herdr-seed fence below
@@ -82,7 +83,8 @@ fi
 # Each mkdir is insurance rather than load-bearing — install.sh pre-creates the directory at
 # build time and any volume mounts over it — but both the repair below and the seed-link block
 # guard on `[ -d ... ]` and would silently skip if one were ever missing.
-for dir in "$HOME/.claude" "$HOME/.copilot" "$HOME/.pi" "$HOME/.config/herdr"; do
+for dir in "$HOME/.claude" "$HOME/.copilot" "$HOME/.pi" \
+  "$HOME/.local/share/opencode" "$HOME/.config/opencode" "$HOME/.config/herdr"; do
   mkdir -p "$dir" || warn "could not create $dir"
 
   [ -d "$dir" ] || continue

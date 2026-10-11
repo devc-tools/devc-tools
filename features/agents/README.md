@@ -1,8 +1,8 @@
 # agents (devcontainer Feature)
 
 Installs coding-agent CLIs — the **Claude Code CLI**, and optionally the **GitHub Copilot
-CLI**, the **pi coding agent CLI**, the **Herdr terminal multiplexer** and the
-**agent-browser** browser-automation CLI — and keeps all of Claude Code's state in one
+CLI**, the **pi coding agent CLI**, the **opencode CLI**, the **Herdr terminal multiplexer**
+and the **agent-browser** browser-automation CLI — and keeps all of Claude Code's state in one
 place, so its volume survives a rebuild and one host directory supplies your config.
 
 ```jsonc
@@ -13,7 +13,7 @@ place, so its volume survives a rebuild and one host directory supplies your con
 
 No mounts, no options you have to set. A bare `{}` installs the Claude CLI and updates it at
 every container start, declares the
-`~/.claude`, `~/.copilot` and `~/.pi` volumes that survive a rebuild, leaves an empty seed
+`~/.claude`, `~/.copilot`, `~/.pi` and opencode volumes that survive a rebuild, leaves an empty seed
 directory for you to mount onto, and points `CLAUDE_CONFIG_DIR` at `~/.claude` so
 `.claude.json` lands inside the volume with everything else. The seed itself is **opt-in** — see
 [`claudeSeed`](#the-config-seed-claudeseed).
@@ -28,12 +28,13 @@ directory for you to mount onto, and points `CLAUDE_CONFIG_DIR` at `~/.claude` s
 | `installClaudeCli`    | `true`        | Install the Claude Code CLI.                                                                                                                                                                                                                                                                                                                        |
 | `installCopilotCli`   | `false`       | Install the GitHub Copilot CLI too.                                                                                                                                                                                                                                                                                                                 |
 | `installPiCli`        | `false`       | Install the pi coding agent CLI too. **Requires Node.js in the image** — see [Node.js and pi](#nodejs-and-pi).                                                                                                                                                                                                                                      |
+| `installOpencodeCli`  | `false`       | Install the [opencode](https://opencode.ai) CLI too. Ships a self-contained binary — no extra prerequisite. See [opencode](#opencode).                                                                                                                                                                                                              |
 | `installHerdr`        | `false`       | Install the Herdr terminal multiplexer too. Ships a static binary — no extra prerequisite.                                                                                                                                                                                                                                                          |
 | `piPackages`          | `""`          | Comma-separated pi package sources to install at container **create** time. **Requires `installPiCli: true`** — see [Packages and plugins](#packages-and-plugins).                                                                                                                                                                                  |
 | `herdrPlugins`        | `""`          | Comma-separated Herdr plugins, in GitHub shorthand (`owner/repo[/subdir]`), installed at container **create** time. **Requires `installHerdr: true`**.                                                                                                                                                                                              |
 | `installAgentBrowser` | `false`       | Install the [agent-browser](https://agent-browser.dev) CLI too. Installs with npm — see [Node.js and pi](#nodejs-and-pi); unlike pi, what lands on `PATH` is a native binary, not a node script — see [Why agent-browser does not have pi's `.nvmrc` problem](#why-agent-browser-does-not-have-pis-nvmrc-problem).                                  |
 | `claudeSeed`          | `false`       | Link every top-level file from the fixed seed directory into `~/.claude` at create time. Off by default — see [The config seed](#the-config-seed-claudeseed).                                                                                                                                                                                       |
-| `updateToolsOnStart`  | `true`        | At every container start, run `claude`/`copilot`/`pi`/`herdr update` for each of those CLIs this Feature installed. Never fails the start — see [At start time](#at-start-time).                                                                                                                                                                    |
+| `updateToolsOnStart`  | `true`        | At every container start, run `claude`/`copilot`/`pi`/`herdr update` and `opencode upgrade` for each of those CLIs this Feature installed. Never fails the start — see [At start time](#at-start-time).                                                                                                                                             |
 | `agentBrowserChrome`  | `"with-deps"` | What `agent-browser install` does at build time: also apt-install the Linux libraries Chrome needs (`"with-deps"`), download Chrome only (`"browser-only"`), or install no browser (`"none"`). **Read only when `installAgentBrowser: true`**, silently ignored otherwise — see [agent-browser's Chrome download](#agent-browsers-chrome-download). |
 
 That is the whole option surface — there are no path options. Every path this Feature
@@ -43,7 +44,7 @@ which this Feature sets, to the same literal its declared volume targets — so 
 exactly one correct answer and the Feature sets it rather than making it a question.
 
 Each CLI is opt-in on its own. Enabling this Feature for Claude should not silently
-install a second, third, fourth or fifth vendor's CLI, which is why only `installClaudeCli`
+install a second, third, fourth, fifth or sixth vendor's CLI, which is why only `installClaudeCli`
 defaults true.
 
 ## Where Claude Code's state lives
@@ -64,17 +65,17 @@ this Feature exists to prevent:
 
 At **build time** it installs the CLIs you asked for, as the remote user rather than root,
 into `~/.local/bin` — so you can later run `claude update` / `copilot update` / `pi
-update` / `herdr update` yourself. The install runs in a Docker build layer, so a plain rebuild
+update` / `opencode upgrade` / `herdr update` yourself. The install runs in a Docker build layer, so a plain rebuild
 reuses that layer and ships the version it first downloaded; `updateToolsOnStart` brings it
 current at start — see [At start time](#at-start-time). **Network is required** when any install option is true: a failed download fails
 the build, rather than leaving a container that looks fine until the first `claude`.
 
 At **create time**, before any `postCreateCommand` of your own:
 
-1. **Ownership repair.** If `~/.claude`, `~/.copilot`, `~/.pi` or `~/.config/herdr` is not
-   owned by you, a non-recursive `sudo chown` fixes it. Non-recursive on purpose —
+1. **Ownership repair.** If `~/.claude`, `~/.copilot`, `~/.pi`, `~/.local/share/opencode`,
+   `~/.config/opencode` or `~/.config/herdr` is not owned by you, a non-recursive `sudo chown` fixes it. Non-recursive on purpose —
    subpaths like `~/.claude/skills/` may be host bind mounts and must not be chowned.
-   Normally a no-op, since all four are pre-created owned by you at build time; it earns
+   Normally a no-op, since all six are pre-created owned by you at build time; it earns
    its place on a container whose volume was already created root-owned by an earlier
    version of this Feature, which no later build can fix — see
    [The declared volumes](#the-declared-volumes).
@@ -108,12 +109,13 @@ At **every container start** (`postStartCommand`, so also a restart days after t
 with `updateToolsOnStart: true` — the default — each CLI this Feature installed is updated
 with its own command, in this order:
 
-| CLI       | Command          | Note                                                             |
-| --------- | ---------------- | ---------------------------------------------------------------- |
-| `claude`  | `claude update`  | First, as the one most often launched right after start.         |
-| `copilot` | `copilot update` |                                                                  |
-| `pi`      | `pi update`      | No target, so pi alone — its packages re-resolve at create time. |
-| `herdr`   | `herdr update`   | Never `--handoff`; no Herdr server is running yet at start.      |
+| CLI        | Command            | Note                                                             |
+| ---------- | ------------------ | ---------------------------------------------------------------- |
+| `claude`   | `claude update`    | First, as the one most often launched right after start.         |
+| `copilot`  | `copilot update`   |                                                                  |
+| `pi`       | `pi update`        | No target, so pi alone — its packages re-resolve at create time. |
+| `opencode` | `opencode upgrade` | The one CLI that spells it `upgrade`.                            |
+| `herdr`    | `herdr update`     | Never `--handoff`; no Herdr server is running yet at start.      |
 
 `agent-browser` is left at its installed version: it has no update command of its own, and its
 Chrome download is tied to that version. A CLI you installed some other way is left alone too.
@@ -262,13 +264,18 @@ would then be unable to write its own sockets and logs beside your file.
 ```jsonc
 { "type": "volume", "source": "devc-${devcontainerId}-claude-code-config", "target": "/home/vscode/.claude" },
 { "type": "volume", "source": "devc-${devcontainerId}-copilot-config",     "target": "/home/vscode/.copilot" },
-{ "type": "volume", "source": "devc-${devcontainerId}-pi-agent-config",    "target": "/home/vscode/.pi" }
+{ "type": "volume", "source": "devc-${devcontainerId}-pi-agent-config",    "target": "/home/vscode/.pi" },
+{ "type": "volume", "source": "devc-${devcontainerId}-opencode-data",      "target": "/home/vscode/.local/share/opencode" },
+{ "type": "volume", "source": "devc-${devcontainerId}-opencode-config",    "target": "/home/vscode/.config/opencode" }
 ```
 
-**All three are declared unconditionally**, whatever `installCopilotCli` and
-`installPiCli` are set to. A Feature's `mounts` are static metadata — they cannot be
+opencode gets two because it keeps its state in two XDG directories rather than one
+dot-directory — see [opencode](#opencode).
+
+**All five are declared unconditionally**, whatever `installCopilotCli`, `installPiCli` and
+`installOpencodeCli` are set to. A Feature's `mounts` are static metadata — they cannot be
 gated on an option value — so the mount happens either way, and the mount point has to
-exist either way or the volume comes up root-owned. That is why all three are pre-created
+exist either way or the volume comes up root-owned. That is why all five are pre-created
 in the image (see [First-use ownership](#first-use-ownership)) rather than only when their
 CLI was installed.
 
@@ -287,7 +294,7 @@ docker inspect $(docker ps -q) \
 ```
 
 **Every target is a literal under `/home/vscode`.** No `devcontainer.json` variable names
-the remote user's home inside a Feature's own `mounts`, so all three are fixed paths — and
+the remote user's home inside a Feature's own `mounts`, so all five are fixed paths — and
 the `CLAUDE_CONFIG_DIR` this Feature sets is the same literal as the `~/.claude` one, for
 the same reason, so those two always agree. On an image whose remote user is not `vscode`,
 all of them land somewhere that is not your home — the create-time step warns, names your
@@ -297,13 +304,15 @@ exits `0`.
 **You cannot remove a declared mount, only override it.** Mounts merge keyed on target,
 with your own `devcontainer.json` merged last, so declaring the same target yourself wins
 with no duplicate and no error. That is the opt-out, and it is also how you point any of
-the three somewhere else entirely — it is what devc's own bundled config does, replacing
-all three volumes with host binds.
+the five somewhere else entirely — it is what devc's own bundled config does, replacing
+all five volumes with host binds.
 
 ### First-use ownership
 
-Ownership needs no action from you: each of the three targets is pre-created in the image
-owned by the remote user, so Docker seeds the empty volume from it.
+Ownership needs no action from you: each of the five targets is pre-created in the image
+owned by the remote user, so Docker seeds the empty volume from it. The two opencode targets
+are nested, so their parents (`~/.local/share`, `~/.config`) are created too when the image
+does not already have them — otherwise Docker would create them root-owned.
 
 **This works on a volume's first use only.** Docker takes a new volume's ownership from
 whatever is at the mount point the first time that volume is used, and never revisits it —
@@ -344,7 +353,7 @@ Three things follow:
 
 ## Node.js and pi
 
-`claude`, `copilot` and `herdr` ship self-contained installers that drop a binary. **pi
+`claude`, `copilot`, `opencode` and `herdr` ship self-contained installers that drop a binary. **pi
 installs itself with `npm`**, so `installPiCli: true` requires **Node.js 22.19.0 or newer
 and npm** in the image. Add a node Feature alongside this one:
 
@@ -383,6 +392,32 @@ intercepts this with a readable message. In practice every current LTS line sati
 (`lts/jod` is 22.23.2, `lts/krypton` is 24.20.0) — a project would have to pin Node 20 or
 older to hit it. If yours must, run pi from outside the container, or give it its own Node
 via a wrapper on `PATH` ahead of `pin/bin`.
+
+## opencode
+
+`installOpencodeCli: true` installs [opencode](https://opencode.ai) with its own installer,
+the same shape as `installCopilotCli` — a self-contained binary, no Node.js needed:
+
+```jsonc
+"features": {
+  "ghcr.io/devc-tools/features/agents:0": { "installOpencodeCli": true }
+}
+```
+
+Two things differ from the other CLIs:
+
+- **The binary lives in `~/.opencode/bin`, and `~/.local/bin/opencode` is a symlink to it.**
+  opencode's installer hardcodes that directory and puts it on `PATH` by appending a line to
+  `~/.bashrc`, which only an interactive shell reads. The symlink is what makes `opencode`
+  resolve everywhere `claude` does. It is a link rather than a move because
+  `opencode upgrade` re-runs the installer and writes the new binary back to
+  `~/.opencode/bin`.
+- **Its state is two directories, so it gets two volumes.** Where the other CLIs keep
+  everything in one dot-directory, opencode follows XDG: its login and sessions live in
+  `~/.local/share/opencode`, and its config (`opencode.json`, agents, commands) in
+  `~/.config/opencode`. Both are [declared volumes](#the-declared-volumes), so both survive
+  a rebuild. `~/.cache/opencode` and `~/.local/state/opencode` are not mounts — nothing in
+  them is worth keeping.
 
 ## agent-browser
 
@@ -430,8 +465,8 @@ active Node version between projects has no effect on it at all.
 
 Chrome for Testing is about **390 MB on disk** (185 MB downloaded) and lands in
 `~/.agent-browser/browsers/`, alongside `agent-browser`'s daemon sockets, saved sessions,
-auth vault and auto-generated encryption key. Unlike `~/.claude`, `~/.copilot` and
-`~/.pi`, which this Feature backs with declared volumes, **`~/.agent-browser` is not a
+auth vault and auto-generated encryption key. Unlike `~/.claude`, `~/.copilot`,
+`~/.pi` and opencode's two directories, which this Feature backs with declared volumes, **`~/.agent-browser` is not a
 mount** — it is baked into the image at build time and is container-local at run time. A
 volume later mounted at `~/.agent-browser` **shadows** this install and costs a fresh
 185 MB re-fetch on first use; there is no option to point it somewhere else.

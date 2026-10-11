@@ -28,6 +28,9 @@ mkdir -p "$HOME/.config/devc/herdr"
 # Pi agent config
 mkdir -p "$HOME/.config/devc/.pi"
 
+# opencode data (login, sessions) and config
+mkdir -p "$HOME/.config/devc/opencode/share" "$HOME/.config/devc/opencode/config"
+
 # Your personal shell customization. Every bashrc_*.sh here is sourced by every interactive
 # shell in the container. Created empty; nothing writes into it for you.
 mkdir -p "$HOME/.config/devc/shell"

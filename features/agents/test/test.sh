@@ -4,9 +4,9 @@
 #
 # That combination is the bare-`{}` case every Feature in this collection has to survive (see
 # .plans/design/devc-feature-split.md): the Claude CLI installs, the seed directory exists and is
-# empty so nothing is linked, .claude.json lands inside ~/.claude, and Copilot/pi/Herdr are
-# absent with no pi packages or Herdr plugins installed (installCopilotCli/installPiCli/
-# installHerdr default false, piPackages/herdrPlugins default empty).
+# empty so nothing is linked, .claude.json lands inside ~/.claude, and Copilot/pi/opencode/Herdr
+# are absent with no pi packages or Herdr plugins installed (installCopilotCli/installPiCli/
+# installOpencodeCli/installHerdr default false, piPackages/herdrPlugins default empty).
 #
 # There are no path options to pass — the seed scenario in scenarios.json differs from this one
 # only by what its onCreateCommand writes into the seed, not by configuration.
@@ -32,10 +32,11 @@ check "and is empty — nothing was mounted onto it" bash -c \
 check "claude is on PATH" bash -c "command -v claude"
 check "claude is executable by the remote user" test -x "$(command -v claude)"
 
-# --- Copilot, pi, Herdr and agent-browser stay absent — their install options all default
+# --- Copilot, pi, opencode, Herdr and agent-browser stay absent — their install options all default
 # false ------------------------------------------------------------------------------------
 check "copilot is NOT on PATH" bash -c "! command -v copilot"
 check "pi is NOT on PATH" bash -c "! command -v pi"
+check "opencode is NOT on PATH" bash -c "! command -v opencode"
 check "herdr is NOT on PATH" bash -c "! command -v herdr"
 check "agent-browser is NOT on PATH — installAgentBrowser defaults false" \
   bash -c "! command -v agent-browser"
@@ -53,13 +54,15 @@ check "no herdr plugin config dir exists — no herdrPlugins entry was ever inst
 # install.sh pre-creates each of these owned by the remote user at build time; post-create.sh's
 # belt-and-braces chown is a no-op here either way.
 #
-# ~/.claude, ~/.copilot and ~/.pi are the manifest's three declared volume targets, and all three
-# exist in this bare-`{}` scenario even though Copilot and pi were never installed — that is the
+# ~/.claude, ~/.copilot, ~/.pi, ~/.local/share/opencode and ~/.config/opencode are the manifest's
+# five declared volume targets, and all five
+# exist in this bare-`{}` scenario even though Copilot, pi and opencode were never installed — that is the
 # point of pre-creating them unconditionally. ~/.config/herdr is not a volume; it is pre-created
 # so a consumer binding a single config.toml inside it does not get a root-owned parent from
 # Docker. A root-owned directory here is the failure this pins: it leaves the CLI unable to write
 # its own state.
-for dir in "$HOME/.claude" "$HOME/.copilot" "$HOME/.pi" "$HOME/.config/herdr"; do
+for dir in "$HOME/.claude" "$HOME/.copilot" "$HOME/.pi" \
+  "$HOME/.local/share/opencode" "$HOME/.config/opencode" "$HOME/.config/herdr"; do
   check "$dir exists" test -d "$dir"
   check "and is owned by the remote user" bash -c \
     "[ \"\$(stat -c '%U' $dir)\" = \"\$(id -un)\" ]"
