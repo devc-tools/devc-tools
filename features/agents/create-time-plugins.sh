@@ -123,8 +123,15 @@ install_pi_packages() {
   [ -n "$_pkgs" ] || return 0
   PI_BIN="$(resolve_bin pi)"
   if [ -z "$PI_BIN" ]; then
-    warn "piPackages is set but pi is not installed — skipping. (installPiCli should have" \
-      "guaranteed this at build time; was the image built before that option was set?)"
+    # A dangling ~/.local/bin/pi means pi was installed but a mount now hides it — the failure
+    # an older build of this Feature had, when pi's installer put pi under ~/.pi.
+    if [ -L "$HOME/.local/bin/pi" ]; then
+      warn "piPackages is set but ~/.local/bin/pi is a broken link to" \
+        "$(readlink "$HOME/.local/bin/pi") — a mount is hiding the directory pi was installed" \
+        "into. Skipping. Rebuild the image with the current agents Feature to fix it."
+    else
+      warn "piPackages is set but pi is not installed — skipping."
+    fi
     return 0
   fi
   # pi's own entry point has a `#!/usr/bin/env node` shebang, so invoking it at all — not just

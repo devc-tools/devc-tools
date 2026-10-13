@@ -118,6 +118,24 @@ STATUS=$?
 check "exits 0 — a missing pi skips, it does not fail the create" test "$STATUS" -eq 0
 check "it warns that pi is not installed" grep -q 'pi is not installed' "$OUT"
 
+echo "case 5b: ~/.local/bin/pi is a dangling link — warns that a mount is hiding pi"
+# What a mount over ~/.pi does to an image whose pi was installed under ~/.pi: the link survives,
+# its target does not.
+CASE="$WORK/c5b"; mkdir -p "$CASE/home/.local/bin" "$CASE/stubs"
+ln -s ../../.pi/agent/bin/pi "$CASE/home/.local/bin/pi"
+OUT="$WORK/c5b.out"
+(
+  HOME="$CASE/home" PATH="$CASE/stubs:/usr/bin:/bin"
+  export HOME PATH
+  . "$FEATURE_DIR/create-time-plugins.sh"
+  install_pi_packages "npm:whatever"
+) > "$OUT" 2>&1
+STATUS=$?
+check "exits 0 — a hidden pi skips, it does not fail the create" test "$STATUS" -eq 0
+check "it names the broken link and its target" \
+  grep -q 'broken link to ../../.pi/agent/bin/pi' "$OUT"
+check "and does not claim pi is not installed" bash -c "! grep -q 'pi is not installed' '$OUT'"
+
 echo "case 6: herdr not installed — skips with a warning, does not error"
 CASE="$WORK/c6"; mkdir -p "$CASE/home" "$CASE/stubs"
 OUT="$WORK/c6.out"

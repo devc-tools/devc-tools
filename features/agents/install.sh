@@ -184,10 +184,12 @@ export npm_config_prefix="$HOME/.local"
 NODE_PRELUDE
 }
 
-install_cli() { # install_cli <display name> <binary name> <install script URL> [min node version]
+install_cli() { # install_cli <display name> <binary name> <install script URL> [min node version] [NAME=value]
   # A 4th argument means "this installer runs on Node.js", and its value is the minimum version
-  # that installer needs — see node_prelude above.
-  _name="$1"; _bin="$2"; _url="$3"; _node_min="${4:-}"
+  # that installer needs — see node_prelude above. Pass "" for a non-Node installer that needs
+  # the 5th. A 5th argument is one environment variable exported for the installer only — pi's
+  # install uses it to keep its binary out of ~/.pi; see install_pi_cli.
+  _name="$1"; _bin="$2"; _url="$3"; _node_min="${4:-}"; _env="${5:-}"
   _script="$(mktemp)"
   # set -o pipefail is bash-only (hence `bash '$1'` above, not a bare `sh -c`) — without it a
   # failed curl piped into bash would not fail this whole line, and a network failure would look
@@ -207,6 +209,9 @@ install_cli() { # install_cli <display name> <binary name> <install script URL> 
     # the image would ship the very sibling file this Feature no longer wants. Harmless for the
     # other CLIs this helper installs — none of them reads it.
     echo "export CLAUDE_CONFIG_DIR='$CLAUDE_DIR'"
+    if [ -n "$_env" ]; then
+      echo "export ${_env%%=*}='${_env#*=}'"
+    fi
     if [ -n "$_node_min" ]; then
       node_prelude "$_node_min"
     fi
@@ -296,6 +301,42 @@ EOF
   fi
 }
 
+# Where pi's installer puts pi itself, instead of its default ~/.pi/agent/install. pi's
+# installer is a "managed install": it unpacks pi under ${PI_CODING_AGENT_DIR:-~/.pi/agent} and
+# only symlinks ~/.local/bin/pi to a launcher there. That default puts the binary inside ~/.pi,
+# which is a mount at run time — this Feature's own declared volume, or a host bind such as
+# devc's default config — and a mount over ~/.pi hides the image's copy, leaving
+# ~/.local/bin/pi a dangling link. (A host bind is never populated from the image, and a volume
+# only when it is first created empty.)
+#
+# PI_CODING_AGENT_DIR is pi's documented override for its config directory. It is set for the
+# installer only, so pi itself still reads its config from ~/.pi/agent at run time. The
+# installed launcher finds its release by its own path, and `pi update` finds the install the
+# same way, so neither needs the variable again.
+PI_INSTALL_DIR="$REMOTE_USER_HOME/.local/share/pi"
+
+# install_pi_cli — install_cli for pi, then fail the build if pi still ended up under ~/.pi. The
+# check is what turns a future installer that stops honoring PI_CODING_AGENT_DIR into a build
+# error, rather than a pi that works in the image and vanishes in every container.
+install_pi_cli() {
+  # pi's own package declares engines >= 22.19.0; under anything older its bundle dies with a
+  # raw SyntaxError rather than a version complaint, so the check is worth making here.
+  install_cli Pi pi https://pi.dev/install.sh 22.19.0 "PI_CODING_AGENT_DIR=$PI_INSTALL_DIR"
+  # readlink -f resolves the whole chain while nothing is mounted over ~/.pi yet. No link at all
+  # means install_cli skipped the download for a pi already on PATH, which is not ours to judge.
+  _pi_link="$REMOTE_USER_HOME/.local/bin/pi"
+  if [ -L "$_pi_link" ] || [ -e "$_pi_link" ]; then
+    _pi_target="$(readlink -f "$_pi_link" || true)"
+    case "$_pi_target" in
+      "$REMOTE_USER_HOME/.pi" | "$REMOTE_USER_HOME/.pi/"*)
+        die "pi's installer put pi under ~/.pi ($_pi_target), ignoring" \
+          "PI_CODING_AGENT_DIR=$PI_INSTALL_DIR. ~/.pi is a mount at run time, which would hide" \
+          "it in every container. pi's installer has changed; install.sh needs updating."
+        ;;
+    esac
+  fi
+}
+
 # install_agent_browser_chrome <with-deps|browser-only|none> — runs `agent-browser install
 # [--with-deps]`, which downloads Chrome for Testing into ~/.agent-browser and, for
 # "with-deps", apt-installs the ~36 shared libraries and fonts Chrome needs on Linux.
@@ -359,9 +400,7 @@ if [ "$INSTALL_COPILOT_CLI_OPT" = true ]; then
   install_cli Copilot copilot https://gh.io/copilot-install
 fi
 if [ "$INSTALL_PI_CLI_OPT" = true ]; then
-  # pi's own package declares engines >= 22.19.0; under anything older its bundle dies with a
-  # raw SyntaxError rather than a version complaint, so the check is worth making here.
-  install_cli Pi pi https://pi.dev/install.sh 22.19.0
+  install_pi_cli
 fi
 if [ "$INSTALL_OPENCODE_CLI_OPT" = true ]; then
   # opencode ships a self-contained binary — no node prelude — but into ~/.opencode/bin rather

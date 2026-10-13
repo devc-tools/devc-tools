@@ -67,6 +67,25 @@ esac
 # create_time_plugins_test.sh) — so nothing here currently sets FAKE_BIN_EXIT; the mechanism is
 # kept generic rather than stripped, since agent-browser's own invoke-log cases below still rely
 # on the same fake-binary shape.
+# pi's real installer is a managed install: pi goes under ${PI_CODING_AGENT_DIR:-~/.pi/agent}
+# and ~/.local/bin/pi is only a symlink to it. The stub does the same, so install.sh's
+# "pi must not resolve under ~/.pi" check sees the real shape. FAKE_PI_IGNORE_AGENT_DIR=1 plays
+# a future installer that stops honoring the variable.
+if [ "$bin" = pi ]; then
+cat << SCRIPT
+printf 'pi npm_config_prefix=%s\\n' "\$npm_config_prefix" >> "\$INSTALLER_ENV_LOG"
+printf 'pi node=%s\\n' "\$(command -v node || echo none)" >> "\$INSTALLER_ENV_LOG"
+printf 'pi CLAUDE_CONFIG_DIR=%s\\n' "\${CLAUDE_CONFIG_DIR:-unset}" >> "\$INSTALLER_ENV_LOG"
+printf 'pi PI_CODING_AGENT_DIR=%s\\n' "\${PI_CODING_AGENT_DIR:-unset}" >> "\$INSTALLER_ENV_LOG"
+agent="\${PI_CODING_AGENT_DIR:-\$HOME/.pi/agent}"
+[ "\${FAKE_PI_IGNORE_AGENT_DIR:-}" = 1 ] && agent="\$HOME/.pi/agent"
+mkdir -p "\$agent/bin" "\$HOME/.local/bin"
+printf '#!/bin/sh\necho "pi \$*" >> "\${CLI_INVOKE_LOG:-/dev/null}"\nexit "\${FAKE_BIN_EXIT:-0}"\n' > "\$agent/bin/pi"
+chmod +x "\$agent/bin/pi"
+ln -sf "\$agent/bin/pi" "\$HOME/.local/bin/pi"
+SCRIPT
+exit 0
+fi
 cat << SCRIPT
 printf '$bin npm_config_prefix=%s\\n' "\$npm_config_prefix" >> "\$INSTALLER_ENV_LOG"
 printf '$bin node=%s\\n' "\$(command -v node || echo none)" >> "\$INSTALLER_ENV_LOG"
@@ -322,6 +341,24 @@ check "the pi install pinned npm's global prefix to the fake remote ~/.local" \
   grep -qxF "pi npm_config_prefix=$WORK/c2b/home/.local" "$WORK/c2b/installer_env.log"
 check "and claude's install got no prelude — the pin is scoped to the npm-installed CLI" \
   grep -qxF "claude npm_config_prefix=" "$WORK/c2b/installer_env.log"
+
+echo "case 2i: pi is installed outside ~/.pi — only its link is in ~/.local/bin"
+# ~/.pi is a mount at run time (the declared volume, or a host bind), and a mount there hides
+# anything the image put under it. pi's installer defaults to ~/.pi/agent/install, so install.sh
+# points it at ~/.local/share/pi instead, for the installer only.
+setup c2i INSTALLCLAUDECLI=false INSTALLPICLI=true
+check "install.sh exits 0" test "$status" -eq 0
+check "the pi installer was handed PI_CODING_AGENT_DIR=~/.local/share/pi" \
+  grep -qxF "pi PI_CODING_AGENT_DIR=$WORK/c2i/home/.local/share/pi" "$WORK/c2i/installer_env.log"
+check "~/.local/bin/pi resolves under ~/.local/share/pi" \
+  test "$(readlink -f "$WORK/c2i/home/.local/bin/pi")" = "$WORK/c2i/home/.local/share/pi/bin/pi"
+check "nothing was installed under ~/.pi" test -z "$(ls -A "$WORK/c2i/home/.pi")"
+
+echo "case 2j: pi's installer ignores PI_CODING_AGENT_DIR — the build fails naming ~/.pi"
+setup c2j INSTALLCLAUDECLI=false INSTALLPICLI=true FAKE_PI_IGNORE_AGENT_DIR=1
+check "install.sh exits non-zero" test "$status" -ne 0
+check "the error says pi landed under ~/.pi" grep -q "put pi under ~/.pi" "$WORK/c2j/install.err"
+check "and does not blame the network" bash -c "! grep -q 'network required' '$WORK/c2j/install.err'"
 
 echo "case 2f: installOpencodeCli=true — installed to ~/.opencode/bin, linked into ~/.local/bin"
 # opencode's installer hardcodes ~/.opencode/bin, which reaches PATH only through a line it

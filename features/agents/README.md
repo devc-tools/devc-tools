@@ -369,12 +369,16 @@ Feature and `node-nvmrc`. Without a node Feature the build fails naming the requ
 rather than producing a container that looks fine until the first `pi`. It also refuses a
 too-old Node up front, naming the version it needs and the one it found.
 
-`pi` is installed into `~/.local/bin`, beside `claude` and `copilot`, so it stays on PATH
-across Node version switches.
+`pi` is linked into `~/.local/bin`, beside `claude` and `copilot`, so it stays on PATH
+across Node version switches. pi itself is installed under `~/.local/share/pi`. Its installer
+defaults to `~/.pi/agent/install`, but `~/.pi` is a mount at run time (this Feature's declared
+volume, or your own bind), and a mount there would hide it. pi still reads its config from
+`~/.pi/agent`, so mounting `~/.pi` from your host keeps working.
 
 ### pi and a project's `.nvmrc`
 
-`~/.local/bin/pi` is a symlink to a script whose shebang is `#!/usr/bin/env node` — so
+`~/.local/bin/pi` leads, through pi's launcher, to a script whose shebang is
+`#!/usr/bin/env node` — so
 **pi runs under whatever `node` is first on `PATH` when you run it, not the one it was
 installed with.** With [`node-nvmrc`](../node-nvmrc/README.md) that is the version your
 workspace's `.nvmrc` pins.
@@ -544,9 +548,10 @@ plugin's own `doctor` command, to notice a skip after the fact.
 Reinstalling an already-installed pi package is a genuine no-op, so a rebuild does not pay
 for one.
 
-**A mount you place at `~/.pi` or `~/.config/herdr` shadows whatever this installed** —
-your own entry wins over this Feature's declared `~/.pi` volume, keyed on the same target,
-and there is no option to point either install somewhere else.
+**A mount you place at `~/.pi` or `~/.config/herdr` shadows the packages and plugins this
+installed** — your own entry wins over this Feature's declared `~/.pi` volume, keyed on the
+same target, and there is no option to point either install somewhere else. The `pi` and
+`herdr` CLIs themselves are outside both directories, so they stay available.
 
 ## What this is not
 

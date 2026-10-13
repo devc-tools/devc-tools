@@ -21,6 +21,14 @@ check "pi landed in ~/.local/bin, not in the active nvm node version's directory
 check "and that is the pi the remote user's PATH resolves" \
   test "$(command -v pi)" = "$HOME/.local/bin/pi"
 
+# pi's installer defaults to ~/.pi/agent/install, but ~/.pi is a mount at run time, and a mount
+# there (a host bind, or an older volume) hides whatever the image put under it. install.sh
+# points the installer at ~/.local/share/pi instead.
+check "pi resolves under ~/.local/share/pi" bash -c \
+  "case \"\$(readlink -f \"\$HOME/.local/bin/pi\")\" in \"\$HOME/.local/share/pi/\"*) ;; *) exit 1 ;; esac"
+check "and nothing of pi's own is under ~/.pi/agent/install" test ! -e "$HOME/.pi/agent/install"
+check "pi runs" pi --version
+
 # The Claude CLI still installs alongside it — installPiCli does not turn installClaudeCli off,
 # the three options are independent.
 check "claude is still on PATH too" bash -c "command -v claude"
