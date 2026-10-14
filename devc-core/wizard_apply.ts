@@ -1,4 +1,5 @@
-// Applying a project wizard selection to the project's `devc.json` overlay.
+// Applying a project wizard selection to the project's `devc.json` overlay, or to the repo
+// overlay under `~/.config/devc/repos/` (`devc config --repo`).
 //
 // The wizard owns exactly two regions of the overlay's `mounts` array: the `devc:source` and
 // `devc:skills` fences. Everything else in that file — hand-written mounts, `features`,
@@ -14,6 +15,7 @@
 
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import {
+  displayPath,
   loadGlobalConfig,
   makeGlobalConfig,
   saveGlobalConfig,
@@ -24,7 +26,7 @@ import {
   writeBlocks,
 } from './jsonc_edit.ts';
 import { type MountRow, rowToEntry } from './mounts.ts';
-import { resolveProjectOverlayTarget } from './overlay.ts';
+import { type OverlayTarget, resolveProjectOverlayTarget } from './overlay.ts';
 
 /** The wizard's selected mounts for the two managed fences. */
 export interface WizardSelection {
@@ -47,6 +49,23 @@ const NEW_OVERLAY_TEXT = `{
   "mounts": []
 }
 `;
+
+/**
+ * Starting text for a **repo** overlay (`devc config --repo`): {@link NEW_OVERLAY_TEXT} plus two
+ * lines naming the repo, since the file lives under `~/.config/devc/repos/<key>/` where nothing
+ * else says which repo `<key>` is. `commonDir` is shown `~`-folded.
+ */
+export function repoOverlaySeedText(commonDir: string): string {
+  return `{
+  // Repo devc overlay for ${
+    displayPath(commonDir)
+  }, managed by \`devc config --repo\`.
+  // Applies to every checkout and worktree of this repository.
+  // Also supports "features" and "remoteEnv" — see devc's README.
+  "mounts": []
+}
+`;
+}
 
 /** Rewrite (or insert) the two managed fences in `src`, preserving everything else. */
 export function applyFences(src: string, selection: WizardSelection): string {
@@ -75,12 +94,19 @@ export interface ApplyResult {
 export interface ApplyDeps {
   /** Global config file path for the `recentSkills` persistence. Defaults to the standard path. */
   globalConfigPath?: string;
+  /**
+   * The overlay to write. Defaults to `resolveProjectOverlayTarget(projectDir)`; `devc config
+   * --repo` passes the repo overlay instead.
+   */
+  target?: OverlayTarget;
+  /** Text a created overlay starts from. Defaults to the project overlay's seed. */
+  seedText?: string;
 }
 
 /**
  * Apply `selection` to `projectDir`'s overlay, resolved by `resolveProjectOverlayTarget` —
  * an existing overlay in place, otherwise a new `.devcontainer/devc.jsonc` (or `.devc/devc.jsonc`
- * when the project has no `.devcontainer/`).
+ * when the project has no `.devcontainer/`) — or to `deps.target` when given (the repo overlay).
  *
  * Creation writes the seed text first, so the fence splice has an object to work on; the parent
  * directory is created with it. An update rewrites only the two fences on the existing text.
@@ -94,10 +120,10 @@ export async function applySelection(
   selection: WizardSelection,
   deps: ApplyDeps = {},
 ): Promise<ApplyResult> {
-  const target = await resolveProjectOverlayTarget(projectDir);
+  const target = deps.target ?? await resolveProjectOverlayTarget(projectDir);
 
   const baseText = target.creating
-    ? NEW_OVERLAY_TEXT
+    ? deps.seedText ?? NEW_OVERLAY_TEXT
     : await readFile(target.path, 'utf8');
 
   let out: string;

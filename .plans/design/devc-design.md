@@ -155,7 +155,7 @@ the merge.
 
 ### Configuration precedence
 
-One effective `devcontainer.json` is produced per project by merging four
+One effective `devcontainer.json` is produced per project by merging five
 layers, lowest to highest, and written to
 `~/.cache/devc/projects/<key>/devcontainer.json`:
 
@@ -169,7 +169,13 @@ layers, lowest to highest, and written to
    own config — scaffolded by `devc init` or hand-written — subsequent commands
    automatically use it.
 3. `~/.config/devc/devc.jsonc`, else `~/.config/devc/devc.json`
-4. `PATH/.devc/devc.jsonc`, `.devc/devc.json`, `.devcontainer/devc.jsonc`,
+4. `~/.config/devc/repos/<name>-<hash>/devc.jsonc`, else `devc.json` — the
+   **repo overlay**, shared by every checkout of PATH's git repo. The key comes
+   from the repo's common git dir (a `.git` directory, or a worktree's `gitdir:`
+   file and its `commondir`), canonicalized with `realpath` and read without a
+   `git` subprocess: `<name>` is its folder, `<hash>` the first 8 hex of SHA-256
+   over the lowercased path. No registry; a missing file is no layer
+5. `PATH/.devc/devc.jsonc`, `.devc/devc.json`, `.devcontainer/devc.jsonc`,
    `.devcontainer/devc.json` — first hit only, the rest are not consulted
 
 An overlay may set **any `devcontainer.json` key**, plus the devc-only
@@ -180,7 +186,7 @@ anything else is replaced by the higher layer. Then `mounts` dedupe by target
 mount the base config declares rather than collide with it — and
 `customizations.vscode.extensions` dedupe by id.
 
-One exception: `baselineFeatures` is `user && project` (a veto, not
+One exception: `baselineFeatures` is `user && repo && project` (a veto, not
 "project wins").
 
 **Delivery** differs by which base won, and the difference is load-bearing:
@@ -204,6 +210,11 @@ on it: the devcontainer CLI keys a container on `devcontainer.local_folder` +
 `devcontainer.config_file` and will not reuse one whose `config_file` differs,
 without removing it even under `--remove-existing-container`. A path that moved
 would strand a container per move.
+
+The repo overlay shares configuration, never identity: cache paths, container
+names and bridge keys stay keyed on the workspace folder, so two worktrees of
+one repo get two containers. Its relative paths are not rebased onto its own
+directory, the same as the user overlay's.
 
 Both project overlay locations are first-class and behave identically.
 `.devcontainer/devc.json` often suits a gitignored local override — one file to
@@ -464,9 +475,10 @@ When the user runs `devc config [PATH]`:
 1. Resolve the project directory (`PATH` or cwd).
 2. If `~/.config/devc/config.json` is missing, run the **Global config** step
    first and persist the code/skills root lists.
-3. Resolve the overlay to write (`resolveProjectOverlayTarget`) and load its
-   current contents into memory, or start from an empty selection when there is
-   no overlay yet.
+3. Resolve the overlay to write (`resolveProjectOverlayTarget`, or with
+   `--repo` the repo overlay from `findRepoOverlay` — outside a git repo that
+   exits 1 before anything is written) and load its current contents into
+   memory, or start from an empty selection when there is no overlay yet.
 4. Proceed to the **Project overview** step.
 
 ### Step 1: Project overview

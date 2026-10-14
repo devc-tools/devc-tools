@@ -92,13 +92,14 @@ export const COMMAND_HELP: Record<string, string> = {
   ].join('\n'),
 
   config: [
-    'Usage: devc config [PATH] [--global]',
+    'Usage: devc config [PATH] [--global | --repo]',
     '',
     'Arguments:',
     '  [PATH]  Path to the project (default: current directory)',
     '',
     'Options:',
     '      --global  Reconfigure the code/skills folder roots only, then exit',
+    "      --repo    Configure the overlay shared by every checkout of PATH's git repository",
     '  -h, --help    Print help',
   ].join('\n'),
 

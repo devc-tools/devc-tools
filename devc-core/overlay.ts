@@ -33,6 +33,13 @@ import {
   unfoldHome,
 } from './mounts.ts';
 import { dirnamePosix } from './posix.ts';
+import {
+  findRepoRoot,
+  RepoMetadataError,
+  repoOverlayDir,
+  resolveRepo,
+  statKind,
+} from './repo.ts';
 import { cliWorktreeMounts } from './worktree.ts';
 
 /**
@@ -259,6 +266,45 @@ export function findUserOverlayPath(
   return firstExisting(USER_CANDIDATES.map((name) => `${configDir}/${name}`));
 }
 
+/**
+ * The repo overlay for the repo `localFolder` belongs to, as far as it could be resolved:
+ *
+ * - `null` — `localFolder` is in no git repository.
+ * - `{ reason }` — it is in one whose metadata could not be read (see
+ *   {@link import("./repo.ts").RepoMetadataError}); there is no repo layer.
+ * - `{ commonDir, path, exists }` — `path` is the overlay file: the first of
+ *   `<configDir>/repos/<key>/devc.jsonc` and `devc.json` that exists, or the `.jsonc` one when
+ *   neither does (`exists: false`, and the path is where `devc config --repo` would create it).
+ */
+export type RepoOverlay =
+  | { commonDir: string; path: string; exists: boolean }
+  | { reason: string }
+  | null;
+
+/** Resolve {@link RepoOverlay} for `localFolder`. Never throws for repo metadata problems. */
+export async function findRepoOverlay(
+  localFolder: string,
+  configDir: string = CONFIG_DIR,
+): Promise<RepoOverlay> {
+  let repo;
+  try {
+    repo = await resolveRepo(localFolder);
+  } catch (err) {
+    if (err instanceof RepoMetadataError) return { reason: err.message };
+    throw err;
+  }
+  if (repo === null) return null;
+  const dir = await repoOverlayDir(repo.commonDir, configDir);
+  const found = await firstExisting(
+    USER_CANDIDATES.map((name) => `${dir}/${name}`),
+  );
+  return {
+    commonDir: repo.commonDir,
+    path: found ?? `${dir}/${USER_CANDIDATES[0]}`,
+    exists: found !== null,
+  };
+}
+
 function typeError(path: string, detail: string): Error {
   return new Error(`${path}: ${detail}`);
 }
@@ -395,22 +441,33 @@ export async function loadOverlayFile(path: string): Promise<DevcOverlay> {
 /** The overlay layers for one project, plus the effective `baselineFeatures`. */
 export interface DevcOverlays {
   /**
-   * Config layers to merge, **lowest first**: the user-level file, then the project one.
+   * Config layers to merge, **lowest first**: the user-level file, the repo one, then the
+   * project one.
    *
    * They stay separate rather than being pre-merged because the merge is not associative in
-   * the way that would need: a project's `$replace` must replace what the base config *and* the
-   * user overlay said, which only holds if the base is already in the fold when the project
-   * layer lands.
+   * the way that would need: a project's `$replace` must replace what the base config, the
+   * user overlay *and* the repo overlay said, which only holds if the base is already in the
+   * fold when the later layers land.
    */
   layers: ConfigObject[];
-  /** `user && project` — see {@link DevcOverlay.baselineFeatures} for why this one is a veto. */
+  /**
+   * `user && repo && project` — see {@link DevcOverlay.baselineFeatures} for why this one is a
+   * veto.
+   */
   baselineFeatures: boolean;
+  /** How the repo layer was resolved, for `devc status`. See {@link RepoOverlay}. */
+  repo: RepoOverlay;
 }
 
 /**
- * The overlay layers for `localFolder`: the user-level file, then the project-level one. Applies
- * in *both* modes — a project with its own `devcontainer.json` gets the overlay just as the
- * zero-config path does.
+ * The overlay layers for `localFolder`: the user-level file, the repo-level one (shared by every
+ * checkout of the git repo `localFolder` is in), then the project-level one. Applies in *both*
+ * modes — a project with its own `devcontainer.json` gets the overlay just as the zero-config
+ * path does.
+ *
+ * A repo whose metadata cannot be read gets no repo layer and one warning — only when
+ * `<configDir>/repos/` exists, so nobody who never made a repo overlay hears about it. An
+ * existing repo overlay that is invalid fails exactly as an invalid user overlay does.
  *
  * `configDir` defaults to the real `~/.config/devc` and only needs overriding in tests.
  */
@@ -418,17 +475,30 @@ export async function loadOverlays(
   localFolder: string,
   configDir: string = CONFIG_DIR,
 ): Promise<DevcOverlays> {
-  const [userPath, projectPath] = await Promise.all([
+  const [userPath, repo, projectPath] = await Promise.all([
     findUserOverlayPath(configDir),
+    findRepoOverlay(localFolder, configDir),
     findProjectOverlayPath(localFolder),
   ]);
-  const [user, project] = await Promise.all([
+  if (
+    repo !== null && 'reason' in repo &&
+    await statKind(`${configDir}/repos`).catch(() => 'none') === 'dir'
+  ) {
+    logWarning(`devc: no repo overlay for ${localFolder} — ${repo.reason}`);
+  }
+  const repoPath = repo !== null && 'exists' in repo && repo.exists
+    ? repo.path
+    : null;
+  const [user, repoLayer, project] = await Promise.all([
     userPath === null ? emptyOverlay() : loadOverlayFile(userPath),
+    repoPath === null ? emptyOverlay() : loadOverlayFile(repoPath),
     projectPath === null ? emptyOverlay() : loadOverlayFile(projectPath),
   ]);
   return {
-    layers: [user.config, project.config],
-    baselineFeatures: user.baselineFeatures && project.baselineFeatures,
+    layers: [user.config, repoLayer.config, project.config],
+    baselineFeatures: user.baselineFeatures && repoLayer.baselineFeatures &&
+      project.baselineFeatures,
+    repo,
   };
 }
 
@@ -655,48 +725,9 @@ function normalizeTarget(target: string): string {
   return target.replace(/\/+$/, '');
 }
 
-async function statKind(path: string): Promise<'dir' | 'file' | 'none'> {
-  try {
-    const info = await stat(path);
-    return info.isDirectory() ? 'dir' : 'file';
-  } catch (err) {
-    if (isNotFound(err) || isNotADirectory(err)) return 'none';
-    // A permissions failure on a host path is not "no repo here" — it is a host devc cannot read,
-    // and guessing either way would be wrong. Surface it.
-    throw err;
-  }
-}
-
-/**
- * The repo root devc should protect for a project folder: the nearest ancestor of `localFolder`
- * (itself included) holding a `.git`, or null when there is none.
- *
- * This mirrors what the devcontainer CLI actually binds, which is **not** `localFolder**: with
- * `--mount-workspace-git-root` — on by default, and devc does not turn it off — the CLI resolves
- * the workspace mount's source to the git toplevel and targets it at
- * `/workspaces/<basename(root)>`, leaving `workspaceFolder` to point at the sub-path inside.
- * A project in a repo subdirectory therefore has its *whole repo* bind-mounted, `.git` included,
- * and that is the thing to freeze.
- *
- * Walked here rather than shelled out to `git rev-parse`, deliberately: `git -C <repo>` on the
- * host fires `core.fsmonitor`, which is one of the two payloads this whole control exists to
- * disarm. devc must not trip it while deciding whether to defuse it.
- */
-export async function findRepoRoot(
-  localFolder: string,
-): Promise<string | null> {
-  // Not `normalizeTarget`: that strips every trailing slash, which would turn the filesystem
-  // root into '' and send the walk relative to the process cwd.
-  let dir = localFolder.length > 1
-    ? localFolder.replace(/(?!^)\/+$/, '')
-    : localFolder;
-  for (;;) {
-    if (await statKind(`${dir}/.git`) !== 'none') return dir;
-    const parent = dirnamePosix(dir);
-    if (parent === dir) return null;
-    dir = parent;
-  }
-}
+// `findRepoRoot` lives in `repo.ts` with the rest of the filesystem-only repo discovery; re-exported
+// here, where its callers have always imported it from.
+export { findRepoRoot };
 
 /**
  * The row for the workspace mount the devcontainer CLI adds on its own — the project's own repo,

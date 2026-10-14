@@ -154,7 +154,8 @@ it.
 ### Two caches under `~/.cache/devc/`
 
 **`projects/<key>/devcontainer.json`** is the _effective_ config for one project
-— the base config with devc's own layer and both `devc.json` overlays merged in
+— the base config with devc's own layer and the user, repo and project
+`devc.json` overlays merged in
 (`ensureMergedConfig`). It is what `devcontainer up` is actually given, and it is
 written on every start, atomically, at `0600`. Its path is keyed on the project
 and never on content, deliberately: the devcontainer CLI keys a container on

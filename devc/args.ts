@@ -257,3 +257,34 @@ export function parseBuildArgs(args: string[]): BuildArgs {
   const target = rest.find((a) => !a.startsWith('--'));
   return { target, noCache, json, bridgeAllow };
 }
+
+export interface ConfigArgs {
+  /** The path argument, if given. Callers should default to `Deno.cwd()` when absent. */
+  target?: string;
+  /** `--global`: reconfigure the code/skills roots only. */
+  global: boolean;
+  /** `--repo`: write the overlay shared by every checkout of the target's git repo. */
+  repo: boolean;
+}
+
+/**
+ * Parses `devc config` arguments: `--global`, `--repo`, and at most one PATH. Strict, like
+ * {@link parseAttachArgs}: an unknown flag or a second path throws rather than being ignored, so
+ * a typo cannot quietly configure the wrong scope.
+ */
+export function parseConfigArgs(args: string[]): ConfigArgs {
+  let target: string | undefined;
+  let global = false;
+  let repo = false;
+  for (const arg of args) {
+    if (arg === '--global') global = true;
+    else if (arg === '--repo') repo = true;
+    else if (arg.startsWith('-') || target !== undefined) {
+      throw new Error(`unexpected argument '${arg}'`);
+    } else target = arg;
+  }
+  if (global && repo) {
+    throw new Error('--global and --repo cannot be combined');
+  }
+  return { target, global, repo };
+}

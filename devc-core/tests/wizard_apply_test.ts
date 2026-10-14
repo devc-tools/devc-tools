@@ -2,6 +2,7 @@ import { assert, assertEquals, assertStringIncludes } from 'jsr:@std/assert@^1';
 import {
   applyFences,
   applySelection,
+  repoOverlaySeedText,
   type WizardSelection,
 } from '../wizard_apply.ts';
 import { findArraySpan, parseFenceEntries, parseJsonc } from '../jsonc_edit.ts';
@@ -313,5 +314,52 @@ Deno.test('changed: false leaves the fences and a toggled-and-restored row intac
       fenceRows(await Deno.readTextFile(overlayPath)).skills,
       SEL.skills,
     );
+  });
+});
+
+// ── repo scope (`devc config --repo`) ───────────────────────────────────────────────────────
+
+Deno.test('repo target: creates the repo overlay with its seed, and nothing in the project', async () => {
+  await withTemp(async (dir) => {
+    await projectWithDevcontainer(`${dir}/proj`);
+    const path = `${dir}/config/repos/proj-12345678/devc.jsonc`;
+    const result = await applySelection(`${dir}/proj`, SEL, {
+      globalConfigPath: `${dir}/config.json`,
+      target: { path, creating: true },
+      seedText: repoOverlaySeedText(`${dir}/proj/.git`),
+    });
+    assertEquals(result, { created: true, changed: true, overlayPath: path });
+
+    const text = await Deno.readTextFile(path);
+    assertStringIncludes(
+      text,
+      `  // Repo devc overlay for ${dir}/proj/.git, managed by \`devc config --repo\`.\n` +
+        '  // Applies to every checkout and worktree of this repository.\n',
+    );
+    assertEquals(fenceRows(text).source, SEL.source);
+    assertEquals(await exists(`${dir}/proj/.devcontainer/devc.jsonc`), false);
+    assertEquals(await exists(`${dir}/proj/.devc`), false);
+  });
+});
+
+Deno.test('repo target: re-applying keeps hand-written comments and keys', async () => {
+  await withTemp(async (dir) => {
+    const path = `${dir}/repos/app-12345678/devc.jsonc`;
+    await Deno.mkdir(`${dir}/repos/app-12345678`, { recursive: true });
+    await Deno.writeTextFile(
+      path,
+      '{\n  // mine\n  "remoteEnv": { "K": "v" },\n  "mounts": []\n}\n',
+    );
+    await applySelection(`${dir}/proj`, SEL, {
+      globalConfigPath: `${dir}/config.json`,
+      target: { path, creating: false },
+    });
+    const text = await Deno.readTextFile(path);
+    assertStringIncludes(text, '// mine');
+    assertEquals(
+      (parseJsonc(text) as { remoteEnv: unknown }).remoteEnv,
+      { K: 'v' },
+    );
+    assertEquals(fenceRows(text).skills, SEL.skills);
   });
 });

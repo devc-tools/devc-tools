@@ -19,7 +19,10 @@ import {
   makeGlobalConfig,
   saveGlobalConfig,
 } from '@devc-tools/core/config.ts';
-import { resolveProjectOverlayTarget } from '@devc-tools/core/overlay.ts';
+import {
+  type OverlayTarget,
+  resolveProjectOverlayTarget,
+} from '@devc-tools/core/overlay.ts';
 import {
   assertNoDuplicateTarget,
   basename,
@@ -33,8 +36,10 @@ import {
   serializeMount,
 } from '@devc-tools/core/mounts.ts';
 import {
+  type ApplyDeps,
   type ApplyResult,
   applySelection,
+  repoOverlaySeedText,
   type WizardSelection,
 } from '@devc-tools/core/wizard_apply.ts';
 import {
@@ -79,7 +84,11 @@ export interface FlowDeps {
   isTerminal?: () => boolean;
   err?: (msg: string) => void;
   /** Apply the selection. Defaults to `applySelection` (real writes). */
-  apply?: (dir: string, sel: WizardSelection) => Promise<ApplyResult>;
+  apply?: (
+    dir: string,
+    sel: WizardSelection,
+    opts?: ApplyDeps,
+  ) => Promise<ApplyResult>;
   /** Filesystem probe for worktree resolution. Defaults to `realFsProbe`. */
   fsProbe?: FsProbe;
   /**
@@ -266,6 +275,11 @@ export interface ProjectFlowOptions {
   overlayPath: string;
   /** True when that overlay does not exist yet and will be created. */
   creating: boolean;
+  /**
+   * Set for `devc config --repo`: the repo's common git dir. `overlayPath` is then the repo
+   * overlay, shared by every checkout of that repo, rather than the project's own.
+   */
+  repoCommonDir?: string;
   sourceRows: MountRow[];
   skillsRows: MountRow[];
   /** Expanded (absolute) code roots — where the source picker opens. */
@@ -293,10 +307,17 @@ export async function runProjectFlow(
   const warn = deps.err ?? ((m: string) => console.error(m));
   const fs = deps.fsProbe ?? realFsProbe;
 
+  const repoNote = opts.repoCommonDir === undefined
+    ? ''
+    : ` repo overlay, shared by every checkout of ${
+      displayPath(opts.repoCommonDir)
+    }`;
   await writeLines(deps.output, [
     `Configuring devc mounts at ${opts.overlayPath}`,
     `  (${
-      opts.creating ? 'creating a new overlay' : 'updating the existing overlay'
+      opts.creating
+        ? `creating a new${repoNote || ' overlay'}`
+        : `updating the existing${repoNote || ' overlay'}`
     })`,
   ]);
 
@@ -396,7 +417,14 @@ export async function runProjectFlow(
     return { applied: false, changed: false, rebuilt: false };
   }
 
-  const result = await apply(opts.projectDir, selection);
+  // Project scope lets `applySelection` resolve the target itself, exactly as before; repo scope
+  // must hand it over, or the apply would write the project's own overlay.
+  const result = opts.repoCommonDir === undefined
+    ? await apply(opts.projectDir, selection)
+    : await apply(opts.projectDir, selection, {
+      target: { path: opts.overlayPath, creating: opts.creating },
+      seedText: repoOverlaySeedText(opts.repoCommonDir),
+    });
   await writeLines(deps.output, [
     result.changed
       ? `${result.created ? 'Created' : 'Updated'} ${result.overlayPath}`
@@ -404,6 +432,13 @@ export async function runProjectFlow(
   ]);
 
   const rebuilt = await maybeRebuild(opts.projectDir, result.changed, deps);
+  // The rebuild above is this checkout's only; every other worktree's container still has the
+  // old config, and devc does not enumerate them.
+  if (opts.repoCommonDir !== undefined && result.changed) {
+    await writeLines(deps.output, [
+      'Other checkouts of this repo pick this up on their next `devc build`.',
+    ]);
+  }
   return { applied: true, changed: result.changed, rebuilt };
 }
 
@@ -603,15 +638,23 @@ const colorEnabled = (): boolean => {
   return f === undefined || f === '';
 };
 
+/** The repo overlay `devc config --repo` writes, as `findRepoOverlay` resolved it. */
+export interface RepoScope {
+  commonDir: string;
+  path: string;
+  exists: boolean;
+}
+
 /**
  * Open the full project flow for `devc config [PATH]`. Resolves which overlay to write
- * (`resolveProjectOverlayTarget`), seeds the source/skills selections from it, and — when
- * `includeGlobalStep` — runs the global-roots step first.
+ * (`resolveProjectOverlayTarget`, or `repo` for `--repo`), seeds the source/skills selections
+ * from it, and — when `includeGlobalStep` — runs the global-roots step first.
  */
 export async function runProjectConfigWizard(
   projectDir: string,
   io: WizardIo,
   includeGlobalStep: boolean,
+  repo?: RepoScope,
 ): Promise<void> {
   const deps: FlowDeps = {
     ...realDeps(),
@@ -635,7 +678,9 @@ export async function runProjectConfigWizard(
     cfg = await loadGlobalConfig();
   }
 
-  const target = await resolveProjectOverlayTarget(projectDir);
+  const target: OverlayTarget = repo === undefined
+    ? await resolveProjectOverlayTarget(projectDir)
+    : { path: repo.path, creating: !repo.exists };
   const baseText = target.creating ? '' : await Deno.readTextFile(target.path);
 
   const { sourceRows, skillsRows } = await seedRows(baseText, cfg.recentSkills);
@@ -644,6 +689,7 @@ export async function runProjectConfigWizard(
     projectDir,
     overlayPath: target.path,
     creating: target.creating,
+    repoCommonDir: repo?.commonDir,
     sourceRows,
     skillsRows,
     codeRoots: safeExpanded(() => cfg.codeRootsExpanded()),

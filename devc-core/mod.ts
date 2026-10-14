@@ -34,6 +34,16 @@ export * from './merged_config.ts';
 // publish pin read out of a repo's files. Writes nothing — the CLI creates and removes the files.
 export * from './bridge.ts';
 
+// Git repo identity read from the filesystem (no `git` subprocess): the common git dir every
+// checkout of a repo shares, and the key its repo overlay is stored under.
+export {
+  type RepoIdentity,
+  repoKey,
+  RepoMetadataError,
+  repoOverlayDir,
+  resolveRepo,
+} from './repo.ts';
+
 // Worktree resolution for the mount picker (used by `devc config`, exposed for other UIs).
 export * from './worktree.ts';
 
@@ -67,5 +77,6 @@ export {
   applyFences,
   type ApplyResult,
   applySelection,
+  repoOverlaySeedText,
   type WizardSelection,
 } from './wizard_apply.ts';

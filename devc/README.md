@@ -30,7 +30,7 @@ To build it from a clone instead, see [Development](#development).
 
 ```text
 devc init    [PATH]                                   Scaffold the default `.devcontainer/` into the project
-devc config  [PATH]                                   Configure the project's source/skills mounts (TUI)
+devc config  [PATH] [--global | --repo]               Configure the project's (or with --repo, the repo's) source/skills mounts (TUI)
 devc up      [PATH] [--json] [--bridge-allow LIST]    Create/start the container; print its status
 devc build   [PATH] [--no-cache] [--json] [--bridge-allow LIST] Recreate the container from scratch
 devc attach  [PATH] [--build] [--no-clear] [--cwd DIR] Start (creating if needed) and attach a login shell
@@ -331,9 +331,11 @@ overlay's contributions. Un-augmented, not broken.
 Where it can live — **first hit wins per level, and the losers are not merged**:
 
 ```text
-~/.config/devc/devc.jsonc          your own, applied to every project   (lowest precedence)
+~/.config/devc/devc.jsonc               your own, applied to every project   (lowest precedence)
 ~/.config/devc/devc.json
-<project>/.devc/devc.jsonc         this project                         (highest precedence)
+~/.config/devc/repos/<key>/devc.jsonc   every checkout of one git repo
+~/.config/devc/repos/<key>/devc.json
+<project>/.devc/devc.jsonc              this project                         (highest precedence)
 <project>/.devc/devc.json
 <project>/.devcontainer/devc.jsonc
 <project>/.devcontainer/devc.json
@@ -364,10 +366,49 @@ Where it can live — **first hit wins per level, and the losers are not merged*
   `.devcontainer/`: a lone `devc.json` in there counts as content. Move it
   aside, run `init`, move it back.
 
+### Repo overlay: one file for every worktree
+
+A **repo overlay** applies to a git repository's primary checkout and every
+linked worktree of it, wherever those live, and is written into none of them:
+
+```sh
+cd ~/code/app                  # the primary, any worktree, or a subfolder of either
+devc config --repo             # the usual wizard, writing the repo overlay
+git worktree add ../app.worktrees/feat
+devc up ../app.worktrees/feat  # picks the repo overlay up automatically
+```
+
+- **Which repo.** devc follows the checkout's `.git` (a directory, or a
+  worktree's `gitdir:` file and the `commondir` beside it) to the git directory
+  every checkout shares, e.g. `~/code/app/.git`, with symlinks resolved. It
+  reads files only and runs no `git`. A submodule is its own repo, a worktree of a
+  bare repo belongs to the bare repo, and two clones of the same remote are two
+  repos.
+- **Where.** `~/.config/devc/repos/<name>-<hash>/devc.jsonc`: `<name>` is the
+  repo's folder name, `<hash>` the first 8 hex of the SHA-256 of that git
+  directory's path. `devc status` prints the path for the current checkout —
+  `repo overlay: ~/.config/devc/repos/app-1a2b3c4d/devc.jsonc`, or `none` and
+  where it would go.
+- **Same keys, same paths as the user overlay.** Relative paths are not
+  resolved against `~/.config/devc/repos/<key>/`; use absolute paths,
+  `${localEnv:HOME}`, or `${localWorkspaceFolder}`, which is the checkout being
+  started, not the primary.
+- **Config is shared, containers are not.** Every worktree keeps its own
+  container, merged config and devc-bridge key. After editing the repo overlay,
+  run `devc build` in each checkout whose container should pick it up.
+- **To stop using it**, delete or rename its directory.
+- **After moving the repo** the hash changes, so the old overlay no longer
+  applies: run `devc status` in the moved repo and `mv` the old directory to the
+  path it prints.
+- A git directory devc cannot read (a dangling `gitdir:`, say) means no repo
+  overlay, and one warning on start once `~/.config/devc/repos/` exists. An
+  overlay file that exists but is invalid fails the start, as a broken user
+  overlay does.
+
 ### How the layers merge
 
-Lowest to highest: **devc → base config → user `devc.json` → project
-`devc.json`**. Per key of each layer in turn:
+Lowest to highest: **devc → base config → user `devc.json` → repo `devc.json`
+→ project `devc.json`**. Per key of each layer in turn:
 
 | Kind                                              | Rule                          |
 | ------------------------------------------------- | ----------------------------- |
@@ -385,8 +426,8 @@ survives and the highest layer's value wins — and
 One deliberate exception:
 
 - **`baselineFeatures` is a veto, not "project wins".** It is
-  `user && project`: a machine owner's `false` cannot be talked back on by a
-  repo's `devc.json`. A project can still turn it off on its own.
+  `user && repo && project`: a machine owner's `false` cannot be talked back on
+  by a repo's `devc.json`. Any one layer can still turn it off on its own.
 
 Target dedupe is what turns "append" into "override": pointing an overlay mount
 at a target the base config already mounts replaces that mount rather than
@@ -1299,6 +1340,13 @@ otherwise                                           → .devc/devc.jsonc
 
 An existing overlay always wins, and a second one is never created beside it —
 only the first hit is ever read, so the loser would silently do nothing.
+
+**`devc config --repo`** writes the [repo overlay](#repo-overlay-one-file-for-every-worktree)
+instead — `~/.config/devc/repos/<key>/devc.jsonc`, created on first use — and
+nothing in the checkout. The wizard is the same; its header names the repo, the
+rebuild offer covers the current checkout only, and a changed overlay ends with
+a reminder that other checkouts pick it up on their next `devc build`. Outside a
+git repository it exits 1 and writes nothing.
 
 Upgrading from a `devc` that wrote fences into `devcontainer.json`: **delete the
 `devc:source` and `devc:skills` blocks there by hand**, then run `devc config`.

@@ -709,3 +709,85 @@ Deno.test('rebuild prompt: a failed status lookup falls back to the `devc build`
   assertEquals(rebuildCalled, false);
   assertStringIncludes(chunks.join(''), 'run `devc build` to rebuild');
 });
+
+// ── repo scope (`devc config --repo`) ───────────────────────────────────────────────────────
+
+interface RepoRun {
+  result: FlowResult;
+  text: string;
+  applyOpts: unknown[];
+}
+
+/** The pick-one-source path, optionally in repo scope, with a stub apply reporting `changed`. */
+async function runScoped(
+  repoCommonDir: string | undefined,
+  changed: boolean,
+  keys = [SPACE, ENTER, ENTER, 'y'],
+): Promise<RepoRun> {
+  const chunks: string[] = [];
+  const applyOpts: unknown[] = [];
+  const overlayPath = repoCommonDir === undefined
+    ? '/proj/.devcontainer/devc.jsonc'
+    : '/cfg/repos/proj-12345678/devc.jsonc';
+  const deps: FlowDeps = {
+    input: streamOfKeys(keys),
+    output: capturingSink(chunks),
+    size: () => ({ columns: 80, rows: 24 }),
+    raw: false,
+    readDir: fakeReadDir,
+    apply: (_dir, _sel, opts) => {
+      applyOpts.push(opts);
+      return Promise.resolve({ created: true, changed, overlayPath });
+    },
+  };
+  const result = await runProjectFlow(
+    { ...baseOpts(), overlayPath, repoCommonDir },
+    deps,
+  );
+  return { result, text: chunks.join(''), applyOpts };
+}
+
+Deno.test('repo flow: header names the repo overlay; apply gets the repo target and seed', async () => {
+  const { result, text, applyOpts } = await runScoped('/proj/.git', true);
+  assertEquals(result.applied, true);
+  assertStringIncludes(
+    text,
+    'Configuring devc mounts at /cfg/repos/proj-12345678/devc.jsonc',
+  );
+  assertStringIncludes(
+    text,
+    '(creating a new repo overlay, shared by every checkout of /proj/.git)',
+  );
+  assertEquals(applyOpts.length, 1);
+  const opts = applyOpts[0] as {
+    target: { path: string; creating: boolean };
+    seedText: string;
+  };
+  assertEquals(opts.target, {
+    path: '/cfg/repos/proj-12345678/devc.jsonc',
+    creating: true,
+  });
+  assertStringIncludes(opts.seedText, 'Repo devc overlay for /proj/.git');
+  assertStringIncludes(
+    text,
+    'Other checkouts of this repo pick this up on their next `devc build`.',
+  );
+});
+
+Deno.test('repo flow: an unchanged apply says nothing about other checkouts', async () => {
+  const { text } = await runScoped('/proj/.git', false);
+  assert(!text.includes('Other checkouts'));
+});
+
+Deno.test('project flow: never mentions other checkouts, and passes apply no target', async () => {
+  const { text, applyOpts } = await runScoped(undefined, true);
+  assert(!text.includes('Other checkouts'));
+  assert(!text.includes('repo overlay'));
+  assertEquals(applyOpts, [undefined]);
+});
+
+Deno.test('repo flow: cancelling writes nothing', async () => {
+  const { result, applyOpts } = await runScoped('/proj/.git', true, [ESC]);
+  assertEquals(result.applied, false);
+  assertEquals(applyOpts, []);
+});

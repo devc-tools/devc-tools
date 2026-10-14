@@ -64,3 +64,20 @@ Deno.test('build is listed and documents its own options', () => {
   assertStringIncludes(block, '--no-cache');
   assertStringIncludes(block, '--json');
 });
+
+Deno.test('config help documents --repo', () => {
+  assertEquals(
+    COMMAND_HELP.config,
+    [
+      'Usage: devc config [PATH] [--global | --repo]',
+      '',
+      'Arguments:',
+      '  [PATH]  Path to the project (default: current directory)',
+      '',
+      'Options:',
+      '      --global  Reconfigure the code/skills folder roots only, then exit',
+      "      --repo    Configure the overlay shared by every checkout of PATH's git repository",
+      '  -h, --help    Print help',
+    ].join('\n'),
+  );
+});

@@ -11,6 +11,7 @@ import {
 } from '../merged_config.ts';
 import { containerNameForLocalFolder } from '../container.ts';
 import { bridgeMount, DEVC_CONFIG_FEATURE } from '../overlay.ts';
+import { repoOverlayDir } from '../repo.ts';
 import { withTemp } from './helpers.ts';
 
 /** Write `text` to `path`, creating parent directories. */
@@ -686,5 +687,64 @@ Deno.test('a lockfile in the project is left alone', async () => {
     await merge(dirs);
 
     assertEquals(await Deno.readTextFile(projectLock), '{"features":{}}');
+  });
+});
+
+// ── the repo overlay layer ──────────────────────────────────────────────────────────────────
+
+const REPO_MOUNT = 'type=bind,source=/src/shared,target=/workspaces/shared';
+
+/** Make `dirs.project` a primary checkout with a worktree beside it; write a repo overlay. */
+async function withRepoOverlay(dirs: Dirs): Promise<string> {
+  await Deno.mkdir(`${dirs.project}/.git/worktrees/wt`, { recursive: true });
+  await Deno.writeTextFile(
+    `${dirs.project}/.git/worktrees/wt/commondir`,
+    '../..',
+  );
+  const worktree = `${dirs.project}-wt`;
+  await write(
+    `${worktree}/.git`,
+    `gitdir: ${dirs.project}/.git/worktrees/wt\n`,
+  );
+  const repoDir = await repoOverlayDir(`${dirs.project}/.git`, dirs.configDir);
+  await write(`${repoDir}/devc.jsonc`, `{"mounts":["${REPO_MOUNT}"]}`);
+  return worktree;
+}
+
+Deno.test('a repo overlay mount reaches the merged config in zero-config mode', async () => {
+  await withProject(async (dirs) => {
+    await withRepoOverlay(dirs);
+    const merged = await merge(dirs);
+    assertEquals(merged.mode, 'zero-config');
+    assert((merged.config.mounts as string[]).includes(REPO_MOUNT));
+    assertEquals(
+      merged.repoOverlay !== null && 'exists' in merged.repoOverlay &&
+        merged.repoOverlay.exists,
+      true,
+    );
+  });
+});
+
+Deno.test('a repo overlay mount reaches the merged config in project mode', async () => {
+  await withProject(async (dirs) => {
+    await withRepoOverlay(dirs);
+    await write(
+      `${dirs.project}/.devcontainer/devcontainer.json`,
+      '{"image":"x"}',
+    );
+    const merged = await merge(dirs);
+    assertEquals(merged.mode, 'project');
+    assert((merged.config.mounts as string[]).includes(REPO_MOUNT));
+  });
+});
+
+Deno.test('two checkouts of one repo share the repo layer but not the merged config path', async () => {
+  await withProject(async (dirs) => {
+    const worktree = await withRepoOverlay(dirs);
+    const primary = await merge(dirs);
+    const linked = await merge({ ...dirs, project: worktree });
+    assert(primary.path !== linked.path);
+    assert((linked.config.mounts as string[]).includes(REPO_MOUNT));
+    assertEquals(primary.repoOverlay, linked.repoOverlay);
   });
 });

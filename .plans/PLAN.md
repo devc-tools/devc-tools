@@ -44,13 +44,6 @@
   restarted for. One log line per tool, 120 s cap each, never fails the start. Not
   agent-browser.
 
-- [devc-repo-overlay](devc-repo-overlay.md) — a third overlay level between user and
-  project: `~/.config/devc/repos/<name>-<hash>/devc.jsonc`, keyed on the repo's canonical
-  common git dir (read from `.git` / `commondir`, no git subprocess), so one config applies
-  to the primary checkout and every linked worktree with nothing written into any of them.
-  `devc config --repo` writes it; `devc status` reports it. No registry — the path is
-  derived, so unlink is deleting the directory. Containers stay per worktree.
-
 ### Standing rules for Feature work
 
 Not a plan group — these are the conventions every Feature plan in this file
@@ -93,6 +86,18 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
   take it too.
 
 ### Completed
+
+- [devc-repo-overlay](archived/devc-repo-overlay.md) — ✅ Done, validated by devc-core / devc
+  host tests and checks (new `repo_test.ts`, including a real `git worktree add` case), core's
+  `tsc` and portability checks, and `deno fmt --check` (devc-core's pre-existing
+  `cliWorktreeMounts … pinned devcontainer CLI` failure is unrelated). `devc config --repo`'s
+  error exits were checked from source with a scratch `HOME`; the three host rows (interactive
+  wizard in a scratch repo, `devc status` line, two containers for two worktrees) need Docker
+  and a TTY and were not run. A third overlay level between user and project,
+  `~/.config/devc/repos/<name>-<hash>/devc.jsonc`, keyed on the repo's canonical common git dir
+  (read from `.git` / `commondir`, no git subprocess), so one config applies to the primary
+  checkout and every linked worktree with nothing written into any of them. No registry — the
+  path is derived. `devc config` now rejects unknown flags.
 
 - [feature-xvfb](archived/feature-xvfb.md) — ✅ Done, in `PUBLISH_ALLOWLIST.txt` at `0.1.0`.
   New `features/xvfb/`: Xvfb plus the libraries GUI programs need to render into it, as option
@@ -1934,4 +1939,4 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
 | devc Feature lockfile — `devc lock` on demand; project-mode starts honor an existing lock                   | [devc-feature-lockfile](devc-feature-lockfile.md)                                  |             |
 | `headless-vscode` Feature — Electron libraries + headless VS Code launcher over `xvfb`                      | [feature-headless-vscode](feature-headless-vscode.md)                              |             |
 | `agents` `updateToolsOnStart` — update installed agent CLIs at container start                              | [agents-update-tools-on-start](agents-update-tools-on-start.md)                    | in progress |
-| devc repo overlay — one `devc.jsonc` per git repo, shared by its worktrees                                  | [devc-repo-overlay](devc-repo-overlay.md)                                          |             |
+| devc repo overlay — one `devc.jsonc` per git repo, shared by its worktrees                                  | [devc-repo-overlay](archived/devc-repo-overlay.md)                                 | complete    |

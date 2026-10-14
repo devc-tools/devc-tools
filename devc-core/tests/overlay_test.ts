@@ -19,6 +19,8 @@ import {
   stripDevcOnlyKeys,
 } from '../overlay.ts';
 import { mergeConfigs } from '../merge.ts';
+import { setLogger } from '../log.ts';
+import { repoOverlayDir } from '../repo.ts';
 import { fixture, withTemp } from './helpers.ts';
 
 /** Write `text` to `path`, creating parent directories. */
@@ -146,7 +148,7 @@ Deno.test('the overlay is read even when the project has its own devcontainer.js
       '{"mounts":["type=bind,source=/a,target=/b"]}',
     );
     const { layers } = await loadOverlays(dir, `${dir}/nouser`);
-    assertEquals(layers, [{}, {
+    assertEquals(layers, [{}, {}, {
       mounts: ['type=bind,source=/a,target=/b'],
     }]);
   });
@@ -157,7 +159,11 @@ Deno.test('the overlay is read even when the project has its own devcontainer.js
 Deno.test('loadOverlays returns empty layers when nothing exists anywhere', async () => {
   await withTemp(async (dir) => {
     const overlays = await loadOverlays(`${dir}/project`, `${dir}/config`);
-    assertEquals(overlays, { layers: [{}, {}], baselineFeatures: true });
+    assertEquals(overlays, {
+      layers: [{}, {}, {}],
+      baselineFeatures: true,
+      repo: null,
+    });
     assertEquals(mergeConfigs(overlays.layers), {});
   });
 });
@@ -706,5 +712,168 @@ Deno.test('the overlay read path leaves the project devcontainer.json byte-ident
     assertEquals(await Deno.readTextFile(configPath), original);
     // Not even the mtime moved — the file was never opened for writing.
     assertEquals((await Deno.stat(configPath)).mtime, before.mtime);
+  });
+});
+
+// ── repo overlay ────────────────────────────────────────────────────────────────────────────
+
+/**
+ * A primary checkout `<dir>/app` plus a linked worktree `<dir>/wt`, a config dir `<dir>/config`,
+ * and the repo overlay directory those resolve to.
+ */
+async function repoFixture(dir: string) {
+  await Deno.mkdir(`${dir}/app/.git/worktrees/wt`, { recursive: true });
+  await Deno.writeTextFile(`${dir}/app/.git/worktrees/wt/commondir`, '../..');
+  await write(`${dir}/wt/.git`, `gitdir: ${dir}/app/.git/worktrees/wt\n`);
+  return {
+    config: `${dir}/config`,
+    repoDir: await repoOverlayDir(`${dir}/app/.git`, `${dir}/config`),
+  };
+}
+
+const mount = (n: string) => `type=bind,source=/src/${n},target=/t/${n}`;
+
+Deno.test('repo overlay: user, repo, project layer in that order', async () => {
+  await withTemp(async (dir) => {
+    const { config, repoDir } = await repoFixture(dir);
+    await write(`${config}/devc.jsonc`, `{"mounts":["${mount('a')}"]}`);
+    await write(`${repoDir}/devc.jsonc`, `{"mounts":["${mount('b')}"]}`);
+    await write(`${dir}/wt/.devc/devc.jsonc`, `{"mounts":["${mount('c')}"]}`);
+    const overlays = await loadOverlays(`${dir}/wt`, config);
+    assertEquals(mergeConfigs(overlays.layers).mounts, [
+      mount('a'),
+      mount('b'),
+      mount('c'),
+    ]);
+    assertEquals(overlays.repo, {
+      commonDir: `${dir}/app/.git`,
+      path: `${repoDir}/devc.jsonc`,
+      exists: true,
+    });
+  });
+});
+
+Deno.test('repo overlay: the primary checkout and its worktree load the same file', async () => {
+  await withTemp(async (dir) => {
+    const { config, repoDir } = await repoFixture(dir);
+    await write(`${repoDir}/devc.json`, '{"remoteEnv":{"R":"1"}}');
+    assertEquals(mergedRemoteEnv(await loadOverlays(`${dir}/app`, config)), {
+      R: '1',
+    });
+    assertEquals(mergedRemoteEnv(await loadOverlays(`${dir}/wt`, config)), {
+      R: '1',
+    });
+  });
+});
+
+Deno.test('repo overlay: project beats repo, repo beats user', async () => {
+  await withTemp(async (dir) => {
+    const { config, repoDir } = await repoFixture(dir);
+    await write(`${config}/devc.jsonc`, '{"remoteEnv":{"X":"u","U":"u"}}');
+    await write(`${repoDir}/devc.jsonc`, '{"remoteEnv":{"X":"r"}}');
+    assertEquals(mergedRemoteEnv(await loadOverlays(`${dir}/wt`, config)), {
+      X: 'r',
+      U: 'u',
+    });
+    await write(`${dir}/wt/.devc/devc.jsonc`, '{"remoteEnv":{"X":"p"}}');
+    assertEquals(mergedRemoteEnv(await loadOverlays(`${dir}/wt`, config)), {
+      X: 'p',
+      U: 'u',
+    });
+  });
+});
+
+Deno.test('repo overlay: $replace drops the user layer and keeps the project layer', async () => {
+  await withTemp(async (dir) => {
+    const { config, repoDir } = await repoFixture(dir);
+    await write(`${config}/devc.jsonc`, '{"remoteEnv":{"U":"u"}}');
+    await write(
+      `${repoDir}/devc.jsonc`,
+      '{"$replace":["remoteEnv"],"remoteEnv":{"Y":"r"}}',
+    );
+    await write(`${dir}/wt/.devc/devc.jsonc`, '{"remoteEnv":{"P":"p"}}');
+    assertEquals(mergedRemoteEnv(await loadOverlays(`${dir}/wt`, config)), {
+      Y: 'r',
+      P: 'p',
+    });
+  });
+});
+
+Deno.test('repo overlay: "features": null clears the user layer\'s features', async () => {
+  await withTemp(async (dir) => {
+    const { config, repoDir } = await repoFixture(dir);
+    await write(`${config}/devc.jsonc`, '{"features":{"ghcr.io/x/y:1":{}}}');
+    await write(`${repoDir}/devc.jsonc`, '{"features":null}');
+    const merged = mergeConfigs(
+      (await loadOverlays(`${dir}/wt`, config)).layers,
+    );
+    assertEquals(merged.features, undefined);
+  });
+});
+
+Deno.test('repo overlay: baselineFeatures false is a veto', async () => {
+  await withTemp(async (dir) => {
+    const { config, repoDir } = await repoFixture(dir);
+    await write(`${config}/devc.jsonc`, '{"baselineFeatures":true}');
+    await write(`${repoDir}/devc.jsonc`, '{"baselineFeatures":false}');
+    await write(`${dir}/wt/.devc/devc.jsonc`, '{"baselineFeatures":true}');
+    assertEquals(
+      (await loadOverlays(`${dir}/wt`, config)).baselineFeatures,
+      false,
+    );
+  });
+});
+
+Deno.test('repo overlay: none present leaves an empty middle layer and the same merge', async () => {
+  await withTemp(async (dir) => {
+    const { config, repoDir } = await repoFixture(dir);
+    await write(`${config}/devc.jsonc`, `{"mounts":["${mount('a')}"]}`);
+    await write(`${dir}/wt/.devc/devc.jsonc`, '{"remoteEnv":{"P":"p"}}');
+    const overlays = await loadOverlays(`${dir}/wt`, config);
+    assertEquals(overlays.layers[1], {});
+    assertEquals(
+      mergeConfigs(overlays.layers),
+      mergeConfigs([overlays.layers[0], overlays.layers[2]]),
+    );
+    assertEquals(overlays.repo, {
+      commonDir: `${dir}/app/.git`,
+      path: `${repoDir}/devc.jsonc`,
+      exists: false,
+    });
+  });
+});
+
+Deno.test('repo overlay: an invalid file fails naming its path', async () => {
+  await withTemp(async (dir) => {
+    const { config, repoDir } = await repoFixture(dir);
+    await write(`${repoDir}/devc.jsonc`, '[1]');
+    await assertRejects(
+      () => loadOverlays(`${dir}/wt`, config),
+      Error,
+      `${repoDir}/devc.jsonc`,
+    );
+  });
+});
+
+Deno.test('repo overlay: broken metadata warns once, only when repos/ exists', async () => {
+  await withTemp(async (dir) => {
+    await write(`${dir}/broken/.git`, 'not a link\n');
+    const warnings: string[] = [];
+    setLogger((_level, message) => warnings.push(message));
+    try {
+      const overlays = await loadOverlays(`${dir}/broken`, `${dir}/config`);
+      assertEquals(overlays.repo, {
+        reason: `${dir}/broken/.git has no "gitdir:" line`,
+      });
+      assertEquals(warnings, []);
+
+      await Deno.mkdir(`${dir}/config/repos`, { recursive: true });
+      await loadOverlays(`${dir}/broken`, `${dir}/config`);
+      assertEquals(warnings, [
+        `devc: no repo overlay for ${dir}/broken — ${dir}/broken/.git has no "gitdir:" line`,
+      ]);
+    } finally {
+      setLogger(null);
+    }
   });
 });

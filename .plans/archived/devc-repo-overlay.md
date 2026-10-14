@@ -83,7 +83,7 @@ nothing written into any checkout.
      `devc: cannot resolve the git repository for <abs PATH> — <reason>`, and
      writes nothing.
    - `--repo` with `--global` exits 2 with
-     `devc config: --global and --repo cannot be combined`.
+     `devc: --global and --repo cannot be combined`.
    - `devc config` arguments get a real parser, `parseConfigArgs` in
      `devc/args.ts`: flags `--global` and `--repo`, at most one positional. Any
      other flag, or a second positional, exits 2 with
@@ -91,7 +91,7 @@ nothing written into any checkout.
      flags are silently ignored, and that change is intended.
 
 7. **Wizard in repo scope.**
-   - Header lines: `Configuring devc mounts at <displayPath(overlay)>`, then
+   - Header lines: `Configuring devc mounts at <overlay path>` (unchanged from project scope), then
      `(creating a new repo overlay, shared by every checkout of <displayPath(commonDir)>)`
      or
      `(updating the existing repo overlay, shared by every checkout of <displayPath(commonDir)>)`.
@@ -154,23 +154,23 @@ nothing written into any checkout.
 
 ## Checklist
 
-- [ ] `devc-core/repo.ts` (new): `resolveRepo(localFolder)` returning `{ checkoutRoot, gitDir, commonDir }`, `null` (not a repo), or a typed error carrying the decision-4 reason. Also `repoKey(commonDir)` and `repoOverlayDir(commonDir, configDir)`. Imports only `node:fs/promises`, `crypto.subtle` and `./posix.ts`. Move `findRepoRoot` (and the `statKind` it needs) here and re-export it from `overlay.ts`, so the two modules don't import each other. Export from `mod.ts`; add to `devc-core/deno.json` `check`
-- [ ] `devc-core/overlay.ts`: `findRepoOverlayPath`; `loadOverlays` loads three layers (decision 3), and returns the repo resolution for status (`repo: { commonDir, path, exists } | { reason } | null`); the decision-4 warning; update the `DevcOverlays` doc comments that say "two"
-- [ ] `devc-core/merged_config.ts`: carry the repo resolution onto `MergedConfig` as `repoOverlay`; update the `ensureMergedConfig` layer-order comment to `devc → git-protect → base → user → repo → project`
-- [ ] `devc-core/wizard_apply.ts`: `applySelection` takes an `OverlayTarget` plus seed text instead of resolving one; add the repo seed text (decision 7) beside `NEW_OVERLAY_TEXT`; create parent dirs
-- [ ] `devc/args.ts`: `parseConfigArgs` (decision 6)
-- [ ] `devc/main.ts`: `config` dispatch through `parseConfigArgs`; `--repo` resolution and the exit-1 messages; `devc status` repo line (decision 8)
-- [ ] `devc/tui/config_flow.ts`: `runProjectConfigWizard` takes a scope; repo header lines; the post-rebuild note (decision 7)
-- [ ] `devc/help.ts`: `config` usage `Usage: devc config [PATH] [--global | --repo]`, option `--repo    Configure the overlay shared by every checkout of PATH's git repository`
-- [ ] Tests (listed under Validation): `devc-core/tests/repo_test.ts` (new), `overlay_test.ts`, `merged_config_test.ts`, `wizard_apply_test.ts`; `devc/tests/args_test.ts`, `config_flow_test.ts`, `help_test.ts`
-- [ ] `devc/README.md`: in "Optional overlay: `devc.json`", add the repo row to the "Where it can live" block between user and project, then a "Repo overlay" subsection covering decisions 1, 2 (with unlink and move), 5, and `devc config --repo`; add `--repo` to the Commands block
-- [ ] `devc-core/README.md`: any mention of the two overlay levels becomes three
-- [ ] `.plans/design/devc-design.md`: the overlay-location paragraph near "Both project overlay locations are first-class" gains the repo level; "Starting the wizard" step 3 names the repo target under `--repo`
-- [ ] `deno fmt` on every touched file, including this plan and `.plans/PLAN.md`
+- [x] `devc-core/repo.ts` (new): `resolveRepo(localFolder)` returning `{ checkoutRoot, gitDir, commonDir }`, `null` (not a repo), or a typed error carrying the decision-4 reason. Also `repoKey(commonDir)` and `repoOverlayDir(commonDir, configDir)`. Imports only `node:fs/promises`, `crypto.subtle` and `./posix.ts`. Move `findRepoRoot` (and the `statKind` it needs) here and re-export it from `overlay.ts`, so the two modules don't import each other. Export from `mod.ts`; add to `devc-core/deno.json` `check`
+- [x] `devc-core/overlay.ts`: `findRepoOverlay`; `loadOverlays` loads three layers (decision 3), and returns the repo resolution for status (`repo: { commonDir, path, exists } | { reason } | null`); the decision-4 warning; update the `DevcOverlays` doc comments that say "two"
+- [x] `devc-core/merged_config.ts`: carry the repo resolution onto `MergedConfig` as `repoOverlay`; update the `ensureMergedConfig` layer-order comment to `devc → git-protect → base → user → repo → project`
+- [x] `devc-core/wizard_apply.ts`: `applySelection` takes an `OverlayTarget` plus seed text instead of resolving one; add the repo seed text (decision 7) beside `NEW_OVERLAY_TEXT`; create parent dirs
+- [x] `devc/args.ts`: `parseConfigArgs` (decision 6)
+- [x] `devc/main.ts`: `config` dispatch through `parseConfigArgs`; `--repo` resolution and the exit-1 messages; `devc status` repo line (decision 8)
+- [x] `devc/tui/config_flow.ts`: `runProjectConfigWizard` takes a scope; repo header lines; the post-rebuild note (decision 7)
+- [x] `devc/help.ts`: `config` usage `Usage: devc config [PATH] [--global | --repo]`, option `--repo    Configure the overlay shared by every checkout of PATH's git repository`
+- [x] Tests (listed under Validation): `devc-core/tests/repo_test.ts` (new), `overlay_test.ts`, `merged_config_test.ts`, `wizard_apply_test.ts`; `devc/tests/args_test.ts`, `config_flow_test.ts`, `help_test.ts`
+- [x] `devc/README.md`: in "Optional overlay: `devc.json`", add the repo row to the "Where it can live" block between user and project, then a "Repo overlay" subsection covering decisions 1, 2 (with unlink and move), 5, and `devc config --repo`; add `--repo` to the Commands block
+- [x] `devc-core/README.md`: any mention of the two overlay levels becomes three
+- [x] `.plans/design/devc-design.md`: the overlay-location paragraph near "Both project overlay locations are first-class" gains the repo level; "Starting the wizard" step 3 names the repo target under `--repo`
+- [x] `deno fmt` on every touched file, including this plan and `.plans/PLAN.md`
 
 ## Validation
 
-- [ ] `cd devc-core && deno task check && deno task test` passes, including new tests proving:
+- [x] `cd devc-core && deno task check && deno task test` passes, including new tests proving:
   - `repo_test.ts`, with fixtures written as plain files (no git):
     - a `.git` dir checkout gives `commonDir` = `<root>/.git`, from both the root and a subdirectory
     - a `.git` file `gitdir: ../app/.git/worktrees/feat` plus `commondir` `../..` gives `<app>/.git`, and the absolute-path spelling of the same link gives the same `commonDir`
@@ -187,7 +187,7 @@ nothing written into any checkout.
   - `overlay_test.ts`, with a temp `configDir`:
     - user `{"mounts":[A]}`, repo `{"mounts":[B]}`, project `{"mounts":[C]}` merge to A, B, C in that order
     - repo `{"remoteEnv":{"X":"r"}}` with project `{"remoteEnv":{"X":"p"}}` gives `p`
-    - repo `{"remoteEnv":{"$replace":true,"Y":"r"}}` drops the user's `remoteEnv` keys and keeps the project's
+    - repo `{"$replace":["remoteEnv"],"remoteEnv":{"Y":"r"}}` drops the user's `remoteEnv` keys and keeps the project's
     - repo `"features": null` clears the user's features
     - repo `baselineFeatures: false` makes the effective value `false` while user and project are `true`
     - with no repo file, layers equal today's `[user, project]` output plus an empty middle layer, and the merged result is byte-identical
@@ -199,17 +199,17 @@ nothing written into any checkout.
   - `wizard_apply_test.ts`:
     - applying to a repo target creates `<configDir>/repos/<key>/devc.jsonc` with the decision-7 seed comment lines, and creates nothing under the project folder
     - re-applying preserves a hand-written comment and a `remoteEnv` key in that file
-- [ ] `cd devc && deno task check && deno task test` passes, including:
+- [x] `cd devc && deno task check && deno task test` passes, including:
   - `args_test.ts`: `parseConfigArgs` for `[]`, `['p']`, `['--repo']`, `['--repo','p']`, `['p','--repo']`, `['--global']`; `['--global','--repo']` throws the decision-6 message; `['--bogus']` and `['a','b']` throw `unexpected argument`
   - `config_flow_test.ts`:
     - the repo-scope flow writes through the injected `apply` to the repo target and prints both decision-7 header lines
     - with `changed: true` it prints the "Other checkouts" line, and a project-scope run never prints it
     - a cancelled repo-scope run writes nothing
   - `help_test.ts`: `COMMAND_HELP.config` matches decision 6 / the Checklist text exactly
-- [ ] `deno fmt --check` is clean at the repo root
+- [x] `deno fmt --check` is clean at the repo root
 - [ ] (user) In a scratch repo with `git worktree add ../scratch.worktrees/a`: run `devc config --repo` in the primary and pick one extra source folder. `git status` in both checkouts is clean, and `ls ~/.config/devc/repos/` shows one `scratch-<hash>` dir. `devc up --print-config | jq .mounts` from the worktree includes the picked folder
 - [ ] (user) `devc status` in the worktree prints `repo overlay: ~/.config/devc/repos/scratch-<hash>/devc.jsonc`. In `/tmp` (no repo), it prints `repo overlay: none (not a git repository)`
-- [ ] (user) `devc config --repo /tmp` exits 1 with the decision-6 message and creates nothing under `~/.config/devc/repos/`
+- [x] (user) `devc config --repo /tmp` exits 1 with the decision-6 message and creates nothing under `~/.config/devc/repos/` — verified in the devcontainer with a scratch `HOME`, from source (`deno run main.ts`)
 - [ ] (user) `devc up` in the primary and in the worktree yields two containers (`docker ps --filter label=devcontainer.local_folder`)
 
 ## Relevant Files

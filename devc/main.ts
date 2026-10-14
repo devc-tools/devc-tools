@@ -19,6 +19,7 @@ import {
   isBridgeAllowArg,
   parseAttachArgs,
   parseBuildArgs,
+  parseConfigArgs,
   parseUpArgs,
 } from './args.ts';
 import { bridgeStatusLines, pruneBridgeFiles } from './bridge.ts';
@@ -37,12 +38,16 @@ import {
   type MergedConfig,
 } from '@devc-tools/core/merged_config.ts';
 import {
+  findRepoOverlay,
   gitProtectState,
+  type RepoOverlay,
   unprotectedRowStatus,
 } from '@devc-tools/core/overlay.ts';
+import { displayPath } from '@devc-tools/core/config.ts';
 import { initProject } from '@devc-tools/core/init.ts';
 import {
   globalConfigExists,
+  type RepoScope,
   runGlobalConfigWizard,
   runProjectConfigWizard,
 } from './tui/config_flow.ts';
@@ -288,21 +293,38 @@ if (subcommand === 'init') {
 // `devc config [PATH]`: open the full four-step project wizard for PATH (default cwd). The
 // Global config step is prepended (as the first step) when the global config is missing and
 // stdin is a TTY, so the very first run configures roots then continues into the project steps.
+//
+// `--repo` writes the overlay shared by every checkout of PATH's git repo instead
+// (`~/.config/devc/repos/<key>/devc.jsonc`). It is resolved before anything else runs, so a
+// folder outside a repo fails with nothing written — not even the first-run global config.
 if (subcommand === 'config') {
+  const configArgs = parseOrExit2(parseConfigArgs, Deno.args.slice(1));
   // `--global` reconfigures the code/skills roots only (free-mode folder picker), then exits.
-  if (Deno.args.includes('--global')) {
+  if (configArgs.global) {
     await runGlobalConfigWizard({ err: (m) => console.error(m) });
     Deno.exit(0);
   }
-  const target = resolveLocalFolder(
-    Deno.args.find((a, i) => i > 0 && !a.startsWith('--')),
-  );
+  const target = resolveLocalFolder(configArgs.target);
+  let repo: RepoScope | undefined;
+  if (configArgs.repo) {
+    const found = await findRepoOverlay(target).catch(fail);
+    if (found === null) {
+      fail(`${target} is not in a git repository — --repo needs one`);
+    }
+    if ('reason' in found) {
+      fail(
+        `cannot resolve the git repository for ${target} — ${found.reason}`,
+      );
+    }
+    repo = found;
+  }
   const includeGlobalStep = !(await globalConfigExists()) &&
     Deno.stdin.isTerminal();
   await runProjectConfigWizard(
     target,
     { err: (m) => console.error(m) },
     includeGlobalStep,
+    repo,
   );
   Deno.exit(0);
 }
@@ -347,6 +369,20 @@ if (subcommand === 'herdr') {
  * Never fatal. `devc status` answering "is my container up" must keep working even when the
  * config cannot be merged, so a failure here prints a note and returns.
  */
+/**
+ * The repo-overlay line of `devc status`. Omitted by the caller when the merge failed: git
+ * protection already reports `unknown — <message>` then.
+ */
+function repoOverlayStatusLine(repo: RepoOverlay): string {
+  if (repo === null) return 'repo overlay: none (not a git repository)';
+  if ('reason' in repo) return `repo overlay: none (${repo.reason})`;
+  return repo.exists
+    ? `repo overlay: ${displayPath(repo.path)}`
+    : `repo overlay: none — create with \`devc config --repo\` (${
+      displayPath(repo.path)
+    })`;
+}
+
 async function printGitProtection(
   target: string,
   merged: MergedConfig | Error,
@@ -412,6 +448,9 @@ if (subcommand === 'status') {
     e instanceof Error ? e : new Error(String(e))
   );
   await printGitProtection(target, merged);
+  if (!(merged instanceof Error)) {
+    console.log(repoOverlayStatusLine(merged.repoOverlay));
+  }
   for (
     const line of await bridgeStatusLines(
       merged instanceof Error ? null : merged,

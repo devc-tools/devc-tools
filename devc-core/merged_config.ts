@@ -39,6 +39,7 @@ import {
   type ProtectedRow,
   readBridgeClientMount,
   readGitProtect,
+  type RepoOverlay,
   stripDevcOnlyKeys,
   type UnprotectedRow,
 } from './overlay.ts';
@@ -99,6 +100,11 @@ export interface MergedConfig {
    * bridge is not enabled at all. Carried so `devc status` can report it without re-deriving.
    */
   bridgeClient: string | null;
+  /**
+   * The repo overlay layer as resolved for this workspace — which file, whether it exists, or
+   * why there is none. Carried so `devc status` can report it without re-deriving.
+   */
+  repoOverlay: RepoOverlay;
 }
 
 /** {@link MergedConfig.bridgeClient}'s value when the client mount is contributed. */
@@ -327,7 +333,8 @@ export interface MergedConfigOptions {
  * Materialize the effective config for `localFolder` and return it.
  *
  * The layers, lowest to highest, are `devc → git-protect → base → user devc.json →
- * project devc.json`. devc's own two layers are computed from the merge of the other three (they
+ * repo devc.json → project devc.json`. devc's own two layers are computed from the merge of the
+ * other four (they
  * must not add a Feature something else already declares, and the repos to protect are only
  * knowable once every layer's `mounts` are in one array), so the merge runs twice: once to know
  * what is there, once to put devc's contributions underneath it. Underneath is what makes both
@@ -405,5 +412,6 @@ export async function ensureMergedConfig(
     unprotectedRows,
     bridgeKey,
     bridgeClient,
+    repoOverlay: overlays.repo,
   };
 }

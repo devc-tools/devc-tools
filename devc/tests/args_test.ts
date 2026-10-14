@@ -9,6 +9,7 @@ import {
   parseAttachArgs,
   parseBridgeAllow,
   parseBuildArgs,
+  parseConfigArgs,
   parseUpArgs,
 } from '../args.ts';
 
@@ -459,5 +460,56 @@ Deno.test('CLI: --bridge-allow is refused by every attach-family command, and th
   assertStringIncludes(
     lone.stderr,
     'gh-pr-request-review requires gh-pr-review',
+  );
+});
+
+Deno.test('parseConfigArgs: PATH and the two scope flags, in any order', () => {
+  assertEquals(parseConfigArgs([]), {
+    target: undefined,
+    global: false,
+    repo: false,
+  });
+  assertEquals(parseConfigArgs(['p']), {
+    target: 'p',
+    global: false,
+    repo: false,
+  });
+  assertEquals(parseConfigArgs(['--repo']), {
+    target: undefined,
+    global: false,
+    repo: true,
+  });
+  assertEquals(parseConfigArgs(['--repo', 'p']), {
+    target: 'p',
+    global: false,
+    repo: true,
+  });
+  assertEquals(parseConfigArgs(['p', '--repo']), {
+    target: 'p',
+    global: false,
+    repo: true,
+  });
+  assertEquals(parseConfigArgs(['--global']), {
+    target: undefined,
+    global: true,
+    repo: false,
+  });
+});
+
+Deno.test('parseConfigArgs: rejects --global with --repo, unknown flags and a second PATH', () => {
+  assertThrows(
+    () => parseConfigArgs(['--global', '--repo']),
+    Error,
+    '--global and --repo cannot be combined',
+  );
+  assertThrows(
+    () => parseConfigArgs(['--bogus']),
+    Error,
+    "unexpected argument '--bogus'",
+  );
+  assertThrows(
+    () => parseConfigArgs(['a', 'b']),
+    Error,
+    "unexpected argument 'b'",
   );
 });
