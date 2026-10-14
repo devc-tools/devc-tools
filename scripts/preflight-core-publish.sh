@@ -8,6 +8,13 @@
 #
 #   bash scripts/preflight-core-publish.sh
 #
+# Whether this release publishes @devc-tools/core is read from the registry, not passed in: if
+# devc-core/package.json's version is already on npm, core is not being published (it cannot
+# be), so the tarball build is skipped and only the tag step is printed. A core version already
+# on npm is not a reason to bump it — the binaries compile devc-core from source. If devc-core/
+# changed since the last tag, that is said, since those changes then do not reach npm. See
+# docs/maintainers/releasing.md.
+#
 # Options:
 #   --skip-install   reuse the existing devc-core/node_modules instead of running `npm ci`
 #   --allow-container  run even inside the devcontainer (see below — you almost certainly
@@ -20,7 +27,7 @@
 # builds. The container guard below is the whole reason this check is worth scripting.
 #
 # What it does NOT cover: `git tag` / `git push`. Those are the release's irreversible,
-# outward-facing half and stay a deliberate manual step (see README.md's Releasing section).
+# outward-facing half and stay a deliberate manual step (see docs/maintainers/releasing.md).
 # This script only reports whether the versions a tag would have to match are consistent.
 set -uo pipefail
 
@@ -166,16 +173,24 @@ fi
 
 echo
 echo 'npm registry'
+publish_core=1
 if published="$(npm view @devc-tools/core versions --json 2> /dev/null)" && [ -n "$published" ]; then
   # grep -F: a version is full of dots, and as a regex `0.2.1` would also match `0x2y1`.
   if printf '%s' "$published" | tr -d ' \n' | grep -Fq "\"$core_pkg_v\""; then
-    echo "  FAIL @devc-tools/core@$core_pkg_v is already published"
-    die "@devc-tools/core@$core_pkg_v cannot be republished. Bump it first:
-preflight:     bash scripts/bump-core-version.sh <x.y.z>"
+    publish_core=0
+    echo "  --   @devc-tools/core@$core_pkg_v is already published — this release does not publish"
+    echo '       core; the binaries do not need it (they compile devc-core from source)'
+    last_tag="$(git describe --tags --abbrev=0 --match 'v[0-9]*' 2> /dev/null || true)"
+    if [ -n "$last_tag" ] && ! git diff --quiet "$last_tag" HEAD -- devc-core \
+      ':!devc-core/package.json' ':!devc-core/package-lock.json'; then
+      echo "  !!   devc-core/ changed since $last_tag — those changes reach npm only if you"
+      echo '       bump core (bash scripts/bump-core-version.sh <x.y.z>). Fine to leave for later.'
+    fi
+  else
+    echo "  ok   $core_pkg_v is not taken yet — this release publishes core"
   fi
-  echo "  ok   $core_pkg_v is not taken yet"
 else
-  echo '  --   could not reach the registry — check whether that version is already published'
+  echo '  --   could not reach the registry — assuming core is published, so building it'
 fi
 
 # --- 2. the repo's own guards -----------------------------------------------------------------
@@ -199,6 +214,28 @@ check 'devc-bridge/host/deno.lock matches devc-core (deno check --frozen)' \
 
 if [ "$fails" -ne 0 ]; then
   die "$fails check(s) failed — nothing was built."
+fi
+
+# A binary release stops here: the binaries compile devc-core from source, so the tarball below
+# is only the npm package's concern.
+if [ "$publish_core" -eq 0 ]; then
+  echo
+  echo '────────────────────────────────────────────────────────────────────────'
+  echo "  All preflight checks passed (core $core_pkg_v already published: not built)."
+  echo
+  echo '  This script tagged, pushed and published nothing. Remaining step:'
+  echo
+  if [ "$tag_exists" -eq 1 ]; then
+    echo "  Tag the release — ALREADY DONE, $TAG exists locally."
+    echo "  If it is not on the remote yet:  git push origin $TAG"
+  else
+    echo "  Tag the release (devc $devc_v):"
+    echo
+    echo "      git tag $TAG"
+    echo "      git push origin $TAG"
+  fi
+  echo '────────────────────────────────────────────────────────────────────────'
+  exit 0
 fi
 
 # --- 2. build and smoke-test the real tarball ------------------------------------------------

@@ -6,7 +6,7 @@
 # preconditions check: the three binary VERSION consts (devc/help.ts, devc-bridge/host/version.ts,
 # devc-bridge/client/version.ts) and devc/deno.json's "version" field. It does NOT touch
 # devc-core/package.json or devc-core/deno.json — @devc-tools/core is versioned and published on
-# its own schedule (see README.md's Releasing section) — and it does not touch anything under
+# its own schedule (see docs/maintainers/releasing.md) — and it does not touch anything under
 # features/, which also move independently.
 #
 #   bash scripts/bump-version.sh 0.2.0
@@ -92,17 +92,30 @@ echo
 echo 'updated:'
 git diff --stat -- devc/help.ts devc-bridge/host/version.ts devc-bridge/client/version.ts \
   devc/deno.json
-# @devc-tools/core is reported, never bumped — it publishes on its own cadence. But an
-# already-published version only surfaces at `npm publish`, which cannot be undone, so say so.
+# @devc-tools/core is reported, never bumped — it publishes on its own cadence, and a binary
+# release never needs it (devc compiles devc-core from source). Only mention it when devc-core/
+# actually changed since the last release tag, ignoring its own version files: otherwise every
+# release would "suggest" a lockstep core bump that publishes nothing new.
 core_v="$(read_json devc-core/package.json)"
-if published="$(npm view @devc-tools/core versions --json 2> /dev/null)" &&
-  printf '%s' "$published" | tr -d ' \n' | grep -Fq "\"$core_v\""; then
-  echo
-  echo "@devc-tools/core is at $core_v, which is already published. To move it too:"
-  echo "    bash scripts/bump-core-version.sh $new"
-  echo "(not a bare npm version — the deno.lock files carry core's version too)."
+last_tag="$(git describe --tags --abbrev=0 --match 'v[0-9]*' 2> /dev/null || true)"
+core_changed=0
+if [ -n "$last_tag" ] && ! git diff --quiet "$last_tag" HEAD -- devc-core \
+  ':!devc-core/package.json' ':!devc-core/package-lock.json'; then
+  core_changed=1
 fi
 
 echo
-echo "Next: review the diff, commit, then run scripts/preflight-core-publish.sh on the host"
-echo "before tagging (see README.md's Releasing section)."
+if [ "$core_changed" -eq 1 ]; then
+  echo "devc-core/ changed since $last_tag (core is at $core_v). Only if you also want to"
+  echo "publish @devc-tools/core this release:"
+  echo "    bash scripts/bump-core-version.sh <x.y.z>"
+  echo "Otherwise leave it — the binaries do not need it."
+else
+  echo "@devc-tools/core: unchanged since ${last_tag:-the last release} — leave it at $core_v."
+fi
+
+echo
+echo 'Next (docs/maintainers/releasing.md):'
+echo '  1. Review the diff, commit, push.'
+echo '  2. On the host: bash scripts/preflight-core-publish.sh'
+echo "  3. git tag v$new && git push origin v$new"

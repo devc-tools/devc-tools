@@ -34,13 +34,26 @@ Feature under active development off ghcr.io until it's ready — see
 an npm package), and the script refreshes and verifies both. It is a manual
 `npm publish`, and `devc-core/package.json` has no `prepublishOnly` hook while
 its `files` is `["dist"]` — so an unbuilt `dist/` publishes an empty package.
+
+**Publishing core is optional for a release, and its version only moves when
+you publish it.** The binaries compile `devc-core/` from source, so a release
+whose core is unchanged — or changed but not worth publishing yet — leaves
+`devc-core/package.json` alone, even though its version is already on npm.
+`bump-version.sh` says whether `devc-core/` changed since the last tag.
+
 Run [`scripts/preflight-core-publish.sh`](../../scripts/preflight-core-publish.sh)
-**on the host** first: it checks the same preconditions `release.yml` would
-refuse a tag over, refuses a version that is **already on the registry** (npm
-versions are immutable, so finding that out at `npm publish` leaves bumping as
-the only fix), runs the guards below, builds and smoke-tests the real tarball,
-and prints the two commands left — the tag, then the publish. It never tags,
-pushes or publishes.
+**on the host** before tagging. It checks the same preconditions `release.yml`
+would refuse a tag over and runs the guards below, and it works out from the
+registry whether this release publishes core — there is nothing to pass:
+
+- **Core's version is already on npm** → core is not being published. It skips
+  the tarball, notes if `devc-core/` changed since the last tag (those changes
+  then wait for a later core bump), and prints the tag step.
+- **Core's version is not on npm** → core is being published. It builds and
+  smoke-tests the real tarball (npm versions are immutable, so a broken one is
+  found here, not after `npm publish`) and prints the tag, then the publish.
+
+It never tags, pushes or publishes.
 
 It does _not_ check that you are logged in to npm: `npm publish` says so
 itself, and re-running costs nothing. Only what is expensive or unfixable when
@@ -55,7 +68,8 @@ would push to the public remote.
 is recoverable: a tag and its release can be deleted and re-cut, an npm version
 can never be republished. Let `release.yml` go green first.
 
-To cut a release:
+To cut a release — these steps, in this order, are the whole process; a
+script's closing "Next" lines summarize them and never add to them:
 
 1. Bump the version in **all three binaries** — `VERSION` in `devc/help.ts`,
    `devc-bridge/host/version.ts` and `devc-bridge/client/version.ts`, plus
@@ -69,8 +83,12 @@ To cut a release:
    its `install.sh` (`DEVC_TOOLS_RELEASE`, only `devc-bridge` today), pointing
    it at a newer one is a change to that Feature, with its own version bump, on
    its own schedule.
-2. Commit, then `git tag v0.1.0 && git push origin v0.1.0`.
-3. [`release.yml`](../../.github/workflows/release.yml) builds each of the eight
+2. **Only if publishing core:** `bash scripts/bump-core-version.sh <x.y.z>`.
+   Skip this when it is not being published — including when its version is
+   already on npm.
+3. Commit and push, then on the host: `bash scripts/preflight-core-publish.sh`.
+4. `git tag v0.1.0 && git push origin v0.1.0`.
+5. [`release.yml`](../../.github/workflows/release.yml) builds each of the eight
    archives on a runner of its own architecture, runs `--version` on what it
    built, writes `checksums.txt`, stamps the tag into `install.sh` and publishes.
    Assets are named `<tool>-<version>-<triple>.tar.gz` — the version sits in the
@@ -81,6 +99,8 @@ To cut a release:
    its name cannot move. It publishes no Features —
    [`publish-feature.yml`](../../.github/workflows/publish-feature.yml) does that on a
    push to `main`, one job per Feature, to `ghcr.io/devc-tools/features/<id>`.
+6. **Only if you did step 2**, once `release.yml` is green:
+   `cd devc-core && npm publish --access public`.
 
 **The macOS binaries are unsigned.** `release.yml` cross-compiles them on a
 Linux runner. GitHub's macOS runners kept becoming unavailable to this repo,
