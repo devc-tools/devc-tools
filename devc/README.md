@@ -191,6 +191,15 @@ Notes:
   substitutes variables itself — inside the merged config they are the
   devcontainer CLI's to resolve, which is why `${devcontainerId}` and
   `${containerEnv:…}` work there.
+- **The workspace mount is the git root, not `<PATH>`.** The CLI's
+  `--mount-workspace-git-root` (on by default) mounts the nearest ancestor
+  holding a `.git`. When that is an ancestor of `<PATH>` (a fresh project nobody
+  has `git init`ed under a `~/code` that is itself a repo, say), every command
+  that would _create_ the container (`up`, `build`, `attach`, `exec`, …) warns
+  first and asks `Mount <root> anyway? [y/N]`. It asks only on create or
+  rebuild: once the container exists, it is what you chose. Without a terminal
+  it only warns. A config that sets `workspaceMount` (or uses Compose) is never
+  asked about.
 - **Git worktrees**: `up` passes `--mount-git-worktree-common-dir`. devc used to
   reimplement the CLI's own container-workspace-path algorithm to substitute
   `${containerWorkspaceFolder}` into `--mount` args; inside a config file the CLI

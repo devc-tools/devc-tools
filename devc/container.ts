@@ -5,8 +5,9 @@
 // are re-exported from `attach.ts` for the same reason — nothing outside this module and
 // `attach.ts` itself needs to know that lifecycle and attach now live apart.
 //
-// Every start path bound here also runs the devc-bridge hooks (`bridge.ts`), and `downContainer`
-// tears down the same files — so no command can start a container that skips them.
+// Every start path bound here also runs the start hooks — the ancestor-repo mount guard
+// (`git_root_guard.ts`) and the devc-bridge hooks (`bridge.ts`), whose files `downContainer`
+// tears down again — so no command can start a container that skips them.
 
 import {
   type ContainerInfo,
@@ -14,6 +15,7 @@ import {
   execInContainer as _execInContainer,
   type ExecOptions,
   type ExecResult,
+  getContainerStatus,
   startContainer as _startContainer,
   type StartOptions,
 } from '@devc-tools/core/container.ts';
@@ -25,6 +27,7 @@ import {
   type PolicyMode,
   removeBridgeFiles,
 } from './bridge.ts';
+import { guardAncestorRepoMount, terminalConfirm } from './git_root_guard.ts';
 
 export {
   assertLocalFolderExists,
@@ -57,15 +60,24 @@ export interface CliStartOptions extends StartOptions {
 }
 
 /**
- * The devc-bridge hooks every CLI start path runs: create this workspace's key directory before
- * `up` (a bind mount's source must exist), then write, refresh or revoke its policy after.
+ * The hooks every CLI start path runs: ask before creating a container whose workspace mount
+ * would be an ancestor repo (`git_root_guard.ts`); then the devc-bridge ones — create this
+ * workspace's key directory before `up` (a bind mount's source must exist), then write, refresh
+ * or revoke its policy after.
  */
-function bridgeHooks(
+function startHooks(
   localFolder: string,
   mode: PolicyMode,
+  rebuild: boolean,
 ): Pick<StartOptions, 'beforeUp' | 'afterUp'> {
   return {
     beforeUp: async (merged) => {
+      await guardAncestorRepoMount(merged, localFolder, rebuild, {
+        containerExists: async () =>
+          await getContainerStatus(localFolder) !== 'missing',
+        confirm: terminalConfirm(),
+        warn: (m) => console.error(m),
+      });
       if (typeof mode === 'object') {
         await checkGrantBeforeUp(merged, localFolder);
       }
@@ -84,7 +96,7 @@ export function startContainer(
   const { bridgePolicy = 'refresh', ...rest } = opts;
   return _startContainer(localFolder, rebuild, {
     devcontainer: selfExecDevcontainerRunner,
-    ...bridgeHooks(localFolder, bridgePolicy),
+    ...startHooks(localFolder, bridgePolicy, rebuild),
     ...rest,
   });
 }
@@ -100,7 +112,7 @@ export function rebuildContainer(
 /**
  * {@link _execInContainer}, pre-bound to the CLI's self-exec `DevcontainerRunner` — `exec`
  * starts the container first (via `startContainer`) when it is not already running, so it needs
- * the same binding `startContainer` above does, bridge hooks included (a refresh).
+ * the same binding `startContainer` above does, start hooks included (a bridge refresh).
  */
 export function execInContainer(
   localFolder: string,
@@ -108,7 +120,7 @@ export function execInContainer(
 ): Promise<ExecResult> {
   return _execInContainer(localFolder, {
     devcontainer: selfExecDevcontainerRunner,
-    ...bridgeHooks(localFolder, 'refresh'),
+    ...startHooks(localFolder, 'refresh', false),
     ...opts,
   });
 }
