@@ -44,6 +44,13 @@
   restarted for. One log line per tool, 120 s cap each, never fails the start. Not
   agent-browser.
 
+- [devc-repo-overlay](devc-repo-overlay.md) — a third overlay level between user and
+  project: `~/.config/devc/repos/<name>-<hash>/devc.jsonc`, keyed on the repo's canonical
+  common git dir (read from `.git` / `commondir`, no git subprocess), so one config applies
+  to the primary checkout and every linked worktree with nothing written into any of them.
+  `devc config --repo` writes it; `devc status` reports it. No registry — the path is
+  derived, so unlink is deleting the directory. Containers stay per worktree.
+
 ### Standing rules for Feature work
 
 Not a plan group — these are the conventions every Feature plan in this file
@@ -1927,3 +1934,4 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
 | devc Feature lockfile — `devc lock` on demand; project-mode starts honor an existing lock                   | [devc-feature-lockfile](devc-feature-lockfile.md)                                  |             |
 | `headless-vscode` Feature — Electron libraries + headless VS Code launcher over `xvfb`                      | [feature-headless-vscode](feature-headless-vscode.md)                              |             |
 | `agents` `updateToolsOnStart` — update installed agent CLIs at container start                              | [agents-update-tools-on-start](agents-update-tools-on-start.md)                    | in progress |
+| devc repo overlay — one `devc.jsonc` per git repo, shared by its worktrees                                  | [devc-repo-overlay](devc-repo-overlay.md)                                          |             |
