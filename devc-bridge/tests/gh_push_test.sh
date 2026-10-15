@@ -341,6 +341,31 @@ push
 expect_rc 3 "  … and the workflow policy still runs against master"
 check "  … naming master" has "master"
 
+echo "default branch is refused"
+fresh
+pin "$REPO" "$GH_PIN" main
+before_main=$(remote_ref refs/heads/main)
+push
+expect_rc 3 "a pin on the remote's default branch"
+check "  … says so" has "is the default branch of $GH_PIN"
+check "  … main did not move" test "$(remote_ref refs/heads/main)" = "$before_main"
+check "  … and no push ran" bash -c '! grep -qE " push " "$1"' _ "$W/git.log"
+doctor
+expect_rc 1 "gh-doctor on that pin"
+check "  … reports it" has "default   main is the default branch of $GH_PIN"
+fresh master
+pin "$REPO" "$GH_PIN" master
+push
+expect_rc 3 "a pin on a master-default remote's master"
+fresh master
+# `main` is just another branch on a remote whose default is `master`.
+git -C "$REPO" checkout -q -b main master
+commit_file main.txt main
+pin "$REPO" "$GH_PIN" main
+push
+expect_rc 0 "a pin named main on a master-default remote publishes"
+check "  … at the repo's commit" test "$(remote_ref refs/heads/main)" = "$(repo_ref main)"
+
 echo "TOCTOU"
 fresh
 inspected=$(repo_ref feat)

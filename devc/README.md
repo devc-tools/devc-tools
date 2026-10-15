@@ -1136,10 +1136,10 @@ The bridge ships all of them and checks the grant on every call — see the
 workspace repo** is ever pinned: a `devc:source` mount you added for convenience
 is not a grant.
 
-| Command                                              | With `--bridge-allow LIST`                      | Without it                                                    |
-| ---------------------------------------------------- | ----------------------------------------------- | ------------------------------------------------------------- |
-| `up`, `build`                                        | write the policy with exactly LIST (no merging) | **delete** this workspace's policy                            |
-| `attach`, `claude`, `copilot`, `pi`, `herdr`, `exec` | refused — not accepted                          | refresh an existing policy's branch, keeping its capabilities |
+| Command                                              | With `--bridge-allow LIST`                      | Without it                                                                   |
+| ---------------------------------------------------- | ----------------------------------------------- | ---------------------------------------------------------------------------- |
+| `up`, `build`                                        | write the policy with exactly LIST (no merging) | **delete** this workspace's policy                                           |
+| `attach`, `claude`, `copilot`, `pi`, `herdr`, `exec` | refused — not accepted                          | re-check an existing policy; revoke it if its repo, origin or branch changed |
 
 A **flag, deliberately not a config key**: every `devc.jsonc` layer with the
 priority to set it lives inside the bind-mounted workspace, where an agent could
@@ -1175,12 +1175,21 @@ devc reads `HEAD`, the worktree `gitdir:` pointer and the remote as **files**;
 it never runs `git` in the repo, since `git -C <repo>` on the host fires a
 planted `core.fsmonitor`.
 
-**Refresh** keeps a long-lived container right when you switch branches: each
-`attach`/`claude`/… rewrites the pin from the current `HEAD`. When the pin can no
-longer be derived — a detached `HEAD`, protection gone, an origin that stopped
-being GitHub, a malformed file — the
-refresh **removes** the policy and says so, rather than leave a grant standing that its
-preconditions no longer support.
+**Refresh** re-checks an existing policy on each `attach`/`claude`/… and never
+rewrites it. `HEAD` is writable from inside the container, so a pin that
+followed it would let an agent choose the branch it publishes to. When the pin
+derived now differs from the stored one — the workspace repo, the origin or the
+branch changed — or can no longer be derived at all — a detached `HEAD`,
+protection gone, an origin that stopped being GitHub, a malformed file — the
+refresh **removes** the policy and says so:
+
+```
+devc: devc-bridge capabilities revoked — the branch is now feat/next, but they were granted for feat/x. Run `devc up --bridge-allow gh-push,gh-pr-review` to grant it.
+```
+
+To publish another branch, check it out on the host and run
+`devc up --bridge-allow …` again; `up` reuses the running container. An
+unchanged pin is left exactly as it is, with nothing logged.
 
 **Revocation needs no restart.** The policy is read per request, not cached, so
 removing the file stops the next call from a running container. That is also a

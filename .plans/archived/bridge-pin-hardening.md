@@ -89,33 +89,33 @@ In `devc/bridge.ts` `applyPolicy`, `refresh` mode:
 
 ## Checklist
 
-- [ ] `gh-push`: default-branch refusal (exit 3, exact message above); update
+- [x] `gh-push`: default-branch refusal (exit 3, exact message above); update
       the header comment's exit-code list to include it
-- [ ] `gh-doctor`: `--symref` probe and the `default` finding
-- [ ] `devc-bridge/tests/gh_push_test.sh`: new `default branch is refused`
+- [x] `gh-doctor`: `--symref` probe and the `default` finding
+- [x] `devc-bridge/tests/gh_push_test.sh`: new `default branch is refused`
       cases (see Validation)
-- [ ] `devc/bridge.ts`: refresh revokes on a changed repo, remote or branch;
+- [x] `devc/bridge.ts`: refresh revokes on a changed repo, remote or branch;
       drop the `pin refreshed` path; update the module header and the
       `applyPolicy` doc comment (refresh validates, never rewrites)
-- [ ] `devc/tests/bridge_test.ts`: replace `refresh rewrites the pin after a
+- [x] `devc/tests/bridge_test.ts`: replace `refresh rewrites the pin after a
       branch switch` with the revoke case; add the origin-changed case and the
       unchanged-pin case
-- [ ] `devc/README.md`: the start-path table's `attach, …` row ("Without it"
+- [x] `devc/README.md`: the start-path table's `attach, …` row ("Without it"
       column → `re-check an existing policy; revoke it if its repo, origin or
       branch changed`), and rewrite the **Refresh** paragraph to match
-- [ ] `devc-bridge/README.md`: the "Every other start path keeps the set and
+- [x] `devc-bridge/README.md`: the "Every other start path keeps the set and
       only refreshes the pin's branch" sentence; a new `gh-push` step after
       step 4 (refuse the default branch, exit 3); the exit-code table's `3`
       row; the `gh-doctor [key]` section (the `default` finding)
-- [ ] `docs/bridge-github.md`: the **One branch** bullet (switching branches
+- [x] `docs/bridge-github.md`: the **One branch** bullet (switching branches
       never moves the pin; the host's next `attach` revokes the grant; only
       `devc up --bridge-allow …` grants a new branch; the default branch is
       never publishable); the `gh-push` exit `3` row
-- [ ] `deno fmt` on every touched `.ts` and `.md` file
+- [x] `deno fmt` on every touched `.ts` and `.md` file
 
 ## Validation
 
-- [ ] `cd devc && deno task test` — all pass, including:
+- [x] `cd devc && deno task test` — all pass, including:
   - after a grant on `feat/x`, `setHead('ref: refs/heads/feat/next\n')` then
     `refresh` → policy `absent`; log contains
     ``devc: devc-bridge capabilities revoked — the branch is now feat/next, but they were granted for feat/x. Run `devc up --bridge-allow gh-push,gh-pr-review` to grant it.``
@@ -125,8 +125,8 @@ In `devc/bridge.ts` `applyPolicy`, `refresh` mode:
   - after a grant, `refresh` with nothing changed → policy file content and
     mtime unchanged, and no log line from the refresh
   - no log line anywhere contains `pin refreshed`
-- [ ] `cd devc && deno task check` passes
-- [ ] `bash devc-bridge/tests/gh_push_test.sh` → `N passed, 0 failed`,
+- [x] `cd devc && deno task check` passes
+- [x] `bash devc-bridge/tests/gh_push_test.sh` → `N passed, 0 failed`,
       including:
   - `fresh`; `pin "$REPO" "$GH_PIN" main` → exit 3; output has
     `is the default branch of $GH_PIN`; `remote_ref refs/heads/main` unchanged;
@@ -138,11 +138,11 @@ In `devc/bridge.ts` `applyPolicy`, `refresh` mode:
   - `gh-doctor` on the `fresh`/`main` pin → exit 1; output has
     `default   main is the default branch of $GH_PIN`
   - existing `gh-doctor` "a healthy policy" case still exits 0
-- [ ] `bash devc-bridge/tests/gh_pr_review_test.sh` → `N passed, 0 failed`
+- [x] `bash devc-bridge/tests/gh_pr_review_test.sh` → `N passed, 0 failed`
       (unchanged scripts, regression only)
-- [ ] `grep -rn "pin refreshed\|refreshes the pin's branch\|rewrites the pin" devc devc-bridge docs`
+- [x] `grep -rn "pin refreshed\|refreshes the pin's branch\|rewrites the pin" devc devc-bridge docs`
       returns nothing
-- [ ] `deno fmt --check` on every touched file passes
+- [x] `deno fmt --check` on every touched file passes
 
 ## Relevant Files
 

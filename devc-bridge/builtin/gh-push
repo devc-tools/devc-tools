@@ -24,7 +24,8 @@
 # at grant time; the check below is the second layer, since a policy file can be edited by hand.
 #
 # Exit codes: 0 pushed (or already up to date), 2 no/malformed policy, a pin that no longer
-# resolves, a remote that is not GitHub, or a remote mismatch, 3 content-policy refusal, 4 transport failure or timeout.
+# resolves, a remote that is not GitHub, or a remote mismatch, 3 content-policy refusal or a pinned
+# branch that is the remote's default branch, 4 transport failure or timeout.
 
 set -uo pipefail
 export LC_ALL=C
@@ -322,18 +323,25 @@ base=$(awk '$1 == "ref:" && $3 == "HEAD" { sub("^refs/heads/", "", $2); print $2
   "$tmp/ls-remote")
 [ -n "$base" ] ||
   die 3 "$remote has no default branch, so there is nothing to check the branch against"
+# The default branch is never publishable, whatever the pin says. The pin is the user's grant, but
+# `HEAD` is agent-writable, and nothing else stands between a pin that ended up on the default
+# branch and a push to it. Exact comparison: ref names are case-sensitive, and `base` is the
+# remote's own answer, so a pin named `main` on a remote whose default is `master` still pushes.
+[ "$branch" != "$base" ] ||
+  die 3 "refused: $branch is the default branch of $remote — gh-push publishes only a non-default branch; on the host, check out another branch and run devc up --bridge-allow $grants"
 remote_sha=$(awk -v ref="refs/heads/$branch" '$2 == ref { print $1 }' "$tmp/ls-remote")
 
 # Fresh every time — a stale base would let the content policy compare against the wrong tree.
 # The pinned branch's remote tip comes along when there is one: what is already on the remote is
 # trusted as much as the default branch. When there is none, a tip cached by an earlier run is
 # dropped — a branch deleted on the remote no longer vouches for anything.
+# (`branch` is never `base` here — refused above.)
 refspecs=("+refs/heads/$base:refs/remotes/origin/$base")
 tip=''
-if [ -n "$remote_sha" ] && [ "$branch" != "$base" ]; then
+if [ -n "$remote_sha" ]; then
   tip=refs/remotes/origin/$branch
   refspecs+=("+refs/heads/$branch:$tip")
-elif [ "$branch" != "$base" ]; then
+else
   "${MIRROR_GIT[@]}" update-ref -d "refs/remotes/origin/$branch" 2>/dev/null
 fi
 net "fetching $base from $remote" "${NET_GIT[@]}" fetch -q --no-tags -- "$url" "${refspecs[@]}"

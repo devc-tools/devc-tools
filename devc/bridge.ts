@@ -1,5 +1,5 @@
 // devc-bridge per-container identity, side-effect half: create each workspace's key directory,
-// write, refresh and remove its policy, and clean both up on teardown and prune.
+// write, re-check and remove its policy, and clean both up on teardown and prune.
 //
 // **devc gains no dependency on devc-bridge.** Everything here is a file under
 // `~/.config/devc-bridge/` — a path devc already names in its bridge mount — and nothing here
@@ -11,8 +11,10 @@
 // `gh-pr-resolve`, `gh-pr-request-review`), always as the explicit list — `--bridge-allow gh` is
 // expanded before it gets here. Only `devc up` / `devc build` create it (with
 // `--bridge-allow <list>`) or delete it (without), and only on a GitHub remote. Every other start
-// path only *refreshes* one that exists — and revokes it when the pin can no longer be derived
-// safely, since a policy that outlives its preconditions is a grant nobody asked for.
+// path only *refreshes* one that exists: it re-derives the pin and revokes the policy when that
+// fails or no longer matches, since a policy that outlives its preconditions is a grant nobody
+// asked for. Refresh never writes the policy — `HEAD` is agent-writable, so a pin that followed it
+// would let the agent choose its own branch at the user's next `attach`.
 //
 // **Trust comes from the container, not the config.** The remote URL is read out of the repo's
 // `.git/config`, which is only trustworthy while that file is frozen in the container. The
@@ -230,6 +232,26 @@ export async function derivePin(
   return { ok: true, record: frozen.record };
 }
 
+/**
+ * The first pin field that differs, in the order repo, remote, branch, as the words of the
+ * refresh revoke message — or null when the pins are identical.
+ */
+function pinDrift(
+  stored: Pin,
+  derived: Pin,
+): { what: string; now: string; was: string } | null {
+  if (stored.repo !== derived.repo) {
+    return { what: 'workspace repo', now: derived.repo, was: stored.repo };
+  }
+  if (stored.remote !== derived.remote) {
+    return { what: 'origin', now: derived.remote, was: stored.remote };
+  }
+  if (stored.branch !== derived.branch) {
+    return { what: 'branch', now: derived.branch, was: stored.branch };
+  }
+  return null;
+}
+
 /** The current policy for `key`: absent, unreadable as a pin, or the pin it holds. */
 export type PolicyState =
   | { kind: 'absent' }
@@ -308,9 +330,10 @@ export async function checkGrantBeforeUp(
  * - `{ grant }` — derive the pin against the live mount table and write it with exactly these
  *   capabilities, or remove any policy and throw {@link BridgeGrantError} naming the failed
  *   precondition.
- * - `refresh` — only when a policy exists: rewrite its pin from the current `HEAD`, keeping its
- *   capabilities, or, when the pin can no longer be derived (or the file is malformed), remove it
- *   and say so. Never creates one.
+ * - `refresh` — only when a policy exists: re-derive the pin and compare it with the stored one.
+ *   Identical → nothing is written or logged. The pin can no longer be derived, it differs in
+ *   repo, origin or branch, or the file is malformed → remove it and say so. Never creates or
+ *   rewrites one: `HEAD` is agent-writable, so only an explicit `--bridge-allow` moves a pin.
  */
 export async function applyPolicy(
   mode: PolicyMode,
@@ -331,6 +354,7 @@ export async function applyPolicy(
 
   const current = await readPolicy(key, deps);
   let grants: BridgeCapability[];
+  let stored: PolicyRecord | null = null;
   if (mode === 'refresh') {
     if (current.kind === 'absent') return;
     if (current.kind === 'malformed') {
@@ -342,7 +366,8 @@ export async function applyPolicy(
       );
       return;
     }
-    grants = current.record.grants;
+    stored = current.record;
+    grants = stored.grants;
   } else {
     grants = mode.grant;
   }
@@ -369,15 +394,25 @@ export async function applyPolicy(
     return;
   }
 
+  if (stored !== null) {
+    // Refresh: the stored pin stands only while it still matches what the container shows.
+    const drift = pinDrift(stored, pin.record);
+    if (drift === null) return;
+    await removePolicy(key, deps);
+    deps.log(
+      `devc: devc-bridge capabilities revoked — the ${drift.what} is now ${drift.now}, ` +
+        `but they were granted for ${drift.was}. Run \`devc up --bridge-allow ${
+          grants.join(',')
+        }\` to grant it.`,
+    );
+    return;
+  }
+
   const record: PolicyRecord = { ...pin.record, grants };
   const unchanged = current.kind === 'present' &&
     serializePolicy(current.record) === serializePolicy(record);
   if (!unchanged) await writePolicy(key, record, deps);
-  if (mode !== 'refresh') {
-    deps.log(`devc: devc-bridge capabilities granted: ${describe(record)}`);
-  } else if (!unchanged) {
-    deps.log(`devc: devc-bridge pin refreshed: ${describe(record)}`);
-  }
+  deps.log(`devc: devc-bridge capabilities granted: ${describe(record)}`);
 }
 
 /** On `devc down`: remove this workspace's key directory and policy. Returns the paths removed. */

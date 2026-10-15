@@ -44,13 +44,6 @@
   restarted for. One log line per tool, 120 s cap each, never fails the start. Not
   agent-browser.
 
-- [bridge-pin-hardening](bridge-pin-hardening.md) — the devc-bridge pin changes only on an
-  explicit `devc up`/`devc build --bridge-allow`. `gh-push` refuses (exit 3) when the pinned
-  branch is the remote's default branch, and `gh-doctor` reports it. Refresh on
-  `attach`/`exec`/… still re-checks the pin, but revokes the policy instead of rewriting it
-  when the repo, origin or branch has changed, since `HEAD` is agent-writable. Prerequisite for
-  multi-repo pinning.
-
 - [bridge-multi-repo-pins](bridge-multi-repo-pins.md) — **after bridge-pin-hardening.**
   `devc up`/`devc build --bridge-allow … --bridge-repo PATH` (repeatable, explicit host paths
   only, never auto-discovered) also pins extra git-protected repo mounts. The policy becomes 1–16
@@ -100,6 +93,17 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
   take it too.
 
 ### Completed
+
+- [bridge-pin-hardening](archived/bridge-pin-hardening.md) — ✅ Done, validated by the devc host
+  tests and check (the branch-switch case now revokes; new origin-changed and unchanged-pin
+  cases), `gh_push_test.sh` (new `default branch is refused` cases, including `main` on a
+  `master`-default remote still pushing, and the `gh-doctor` `default` finding),
+  `gh_pr_review_test.sh` as a regression, the `pin refreshed` grep, and `deno fmt --check`.
+  The devc-bridge pin changes only on an explicit `devc up`/`devc build --bridge-allow`:
+  `gh-push` refuses (exit 3) when the pinned branch is the remote's default branch, read on every
+  push, and `gh-doctor` reports it. Refresh on `attach`/`exec`/… re-checks the pin and revokes
+  the policy instead of rewriting it when the repo, origin or branch has changed, since `HEAD`
+  is agent-writable; an unchanged pin is not written or logged.
 
 - [devc-repo-overlay](archived/devc-repo-overlay.md) — ✅ Done, validated by devc-core / devc
   host tests and checks (new `repo_test.ts`, including a real `git worktree add` case), core's
@@ -1954,5 +1958,5 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
 | `headless-vscode` Feature — Electron libraries + headless VS Code launcher over `xvfb`                      | [feature-headless-vscode](feature-headless-vscode.md)                              |             |
 | `agents` `updateToolsOnStart` — update installed agent CLIs at container start                              | [agents-update-tools-on-start](agents-update-tools-on-start.md)                    | in progress |
 | devc repo overlay — one `devc.jsonc` per git repo, shared by its worktrees                                  | [devc-repo-overlay](archived/devc-repo-overlay.md)                                 | complete    |
-| devc-bridge pin hardening — refuse the default branch; refresh revokes instead of moving the pin            | [bridge-pin-hardening](bridge-pin-hardening.md)                                    |             |
+| devc-bridge pin hardening — refuse the default branch; refresh revokes instead of moving the pin            | [bridge-pin-hardening](archived/bridge-pin-hardening.md)                           | complete    |
 | devc-bridge multi-repo pins — `--bridge-repo PATH`, v2 policy, `--repo` selector                            | [bridge-multi-repo-pins](bridge-multi-repo-pins.md)                                |             |

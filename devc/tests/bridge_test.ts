@@ -319,27 +319,24 @@ Deno.test('refresh never creates a policy', async () => {
   });
 });
 
-Deno.test('refresh rewrites the pin after a branch switch', async () => {
+Deno.test('refresh revokes, never moves, the pin after a branch switch', async () => {
+  // `HEAD` is agent-writable: a pin that followed it would let the agent pick its own branch.
   await withFixture(async (f) => {
     const merged = await f.merged();
     const deps = f.deps(f.frozen);
     await applyPolicy(GRANT, merged, f.project, deps);
     await f.setHead('ref: refs/heads/feat/next\n');
     await applyPolicy('refresh', merged, f.project, deps);
-    const policy = await readPolicy(await projectKey(f.project), deps);
     assertEquals(
-      policy.kind === 'present' && policy.record.branch,
-      'feat/next',
-    );
-    assertEquals(
-      policy.kind === 'present' && policy.record.grants,
-      ['gh-push', 'gh-pr-review'],
-      'refresh keeps the grants',
+      await readPolicy(await projectKey(f.project), deps),
+      { kind: 'absent' },
     );
     assertStringIncludes(
       f.logs.join('\n'),
-      'devc: devc-bridge pin refreshed: gh-push, gh-pr-review for feat/next',
+      'devc: devc-bridge capabilities revoked — the branch is now feat/next, but they were ' +
+        'granted for feat/x. Run `devc up --bridge-allow gh-push,gh-pr-review` to grant it.',
     );
+    assert(!f.logs.some((l) => l.includes('refreshed')));
   });
 });
 
@@ -436,6 +433,42 @@ Deno.test('refresh revokes a grant whose origin stopped being GitHub', async () 
       `devc: devc-bridge capabilities revoked — origin ${origin} is not a github.com remote. ` +
         'Re-run `devc up --bridge-allow gh-push,gh-pr-review` once that is fixed.',
     );
+  });
+});
+
+Deno.test('refresh revokes a grant whose origin changed to another GitHub repo', async () => {
+  await withFixture(async (f) => {
+    const merged = await f.merged();
+    const deps = f.deps(f.frozen);
+    await applyPolicy(GRANT, merged, f.project, deps);
+    await setOrigin(f, 'git@github.com:acme/other.git');
+    await applyPolicy('refresh', merged, f.project, deps);
+    assertEquals(await readPolicy(merged.bridgeKey!, deps), {
+      kind: 'absent',
+    });
+    assertStringIncludes(
+      f.logs.join('\n'),
+      'the origin is now git@github.com:acme/other.git, but they were granted for ' +
+        'git@github.com:acme/proj.git',
+    );
+    assert(!f.logs.some((l) => l.includes('refreshed')));
+  });
+});
+
+Deno.test('refresh of an unchanged pin writes nothing and logs nothing', async () => {
+  await withFixture(async (f) => {
+    const merged = await f.merged();
+    const deps = f.deps(f.frozen);
+    await applyPolicy(GRANT, merged, f.project, deps);
+    const file = bridgePaths(f.home, merged.bridgeKey!).policyFile;
+    const before = await Deno.readTextFile(file);
+    const mtime = (await Deno.stat(file)).mtime;
+    const logged = f.logs.length;
+    await applyPolicy('refresh', merged, f.project, deps);
+    assertEquals(await Deno.readTextFile(file), before);
+    assertEquals((await Deno.stat(file)).mtime, mtime);
+    assertEquals(f.logs.slice(logged), [], 'the refresh logged nothing');
+    assert(!f.logs.some((l) => l.includes('refreshed')));
   });
 });
 

@@ -338,12 +338,18 @@ for key in "${keys[@]}"; do
       continue
       ;;
   esac
+  # `--symref HEAD` as well, so the same probe reads the default branch the way gh-push does.
   rc=0
   run_t env ${NET_ENV[@]+"${NET_ENV[@]}"} git -c core.askPass= -c protocol.ext.allow=never \
-    ${NET_FLAGS[@]+"${NET_FLAGS[@]}"} ls-remote --heads -- "$url" "refs/heads/$branch" \
-    >/dev/null 2>"$tmp/ls-remote.err" || rc=$?
+    ${NET_FLAGS[@]+"${NET_FLAGS[@]}"} ls-remote --symref -- "$url" HEAD "refs/heads/$branch" \
+    >"$tmp/ls-remote" 2>"$tmp/ls-remote.err" || rc=$?
   if [ "$rc" -eq 0 ]; then
     echo "  transport ok (git ls-remote reached $url via gh credentials)"
+    base=$(awk '$1 == "ref:" && $3 == "HEAD" { sub("^refs/heads/", "", $2); print $2; exit }' \
+      "$tmp/ls-remote")
+    # gh-push refuses to publish the default branch (exit 3), whatever the pin says.
+    [ "$branch" != "$base" ] ||
+      finding "default   $branch is the default branch of $remote — gh-push refuses it"
   elif [ -e "$tmp/timedout" ]; then
     finding "transport TIMED OUT after ${timeout_s}s reaching $url"
   else

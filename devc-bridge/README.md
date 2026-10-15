@@ -618,7 +618,8 @@ be a github.com remote; devc refuses to grant on any other.
 
 `devc up`/`devc build` with `--bridge-allow` write exactly that set (replacing
 any earlier one); without it they delete the policy. Every other start path
-keeps the set and only refreshes the pin's branch. See
+never changes the pin: it re-checks it, and revokes the policy when the
+workspace repo, origin or branch has changed. See
 [devc § Per-container identity](../devc/README.md#per-container-identity-and-github-capabilities).
 
 **The server checks the grant before running anything,** reading
@@ -715,34 +716,40 @@ config of a repo it fetches from — into a host-owned bare mirror at
    repo — and refuse if its `origin` no longer equals the policy's remote.
 4. Ask the remote for its **default branch** (never assumed to be `main`) and
    fetch it fresh, along with the pinned branch's remote tip when there is one.
-   This step and step 7 run against the HTTPS URL with no
+   This step and step 8 run against the HTTPS URL with no
    user or system git config (`GIT_CONFIG_GLOBAL=/dev/null`,
    `GIT_CONFIG_NOSYSTEM=1`, so no `insteadOf` can turn it back into SSH and no
    other credential helper can answer), after checking `gh auth status`.
-5. Fetch the pinned branch from the repo into `refs/staging/<branch>` and record
+5. Refuse (exit 3) when the pinned branch **is** the default branch — an exact
+   comparison against what the remote just reported, so a pin named `main` on a
+   remote whose default is `master` still pushes. Nothing has been fetched yet.
+   `HEAD` is writable from inside the container, so this is what keeps a pin
+   that ended up on the default branch from publishing there:
+   `gh-push: refused: <branch> is the default branch of <remote> — gh-push publishes only a non-default branch; on the host, check out another branch and run devc up --bridge-allow <grants>`.
+6. Fetch the pinned branch from the repo into `refs/staging/<branch>` and record
    its SHA.
-6. Refuse (exit 3) a SHA with a path under `.github/workflows/` or
+7. Refuse (exit 3) a SHA with a path under `.github/workflows/` or
    `.github/actions/` that matches neither the default branch nor the remote
    branch tip, or that adds a Git LFS pointer. A workflow change you push to the
    branch yourself is then carried by later pushes. Only a change the push itself
    introduces is refused.
-7. Push **that SHA** — not the branch, which the agent can move at any moment —
+8. Push **that SHA** — not the branch, which the agent can move at any moment —
    to `refs/heads/<branch>`. No tags, no force, no delete: there is no code path
    that emits anything else.
 
 Every git call runs with prompts off, `GIT_ALLOW_PROTOCOL=file:https` (`file`
-for step 5's fetch from the repo by path, `https` for GitHub, nothing else),
+for step 6's fetch from the repo by path, `https` for GitHub, nothing else),
 hooks disabled, tag- and submodule-following off, and a hard timeout
 (`DEVC_BRIDGE_GIT_TIMEOUT`, seconds, default `300`) that kills the whole process
 group — the client has no timeout of its own, so a git that stopped to ask
 something would otherwise hang the call forever.
 
-| Exit | Meaning                                                                                                                                |
-| ---- | -------------------------------------------------------------------------------------------------------------------------------------- |
-| `0`  | pushed, or already up to date                                                                                                          |
-| `2`  | no policy, a malformed one, an argument given, a pin that no longer resolves, a remote that is not GitHub, or a remote/mirror mismatch |
-| `3`  | content-policy refusal: workflows changed, an LFS pointer added, or no default branch to check against                                 |
-| `4`  | transport failure or timeout — including a rejected (non-fast-forward) push, and `gh` missing or not logged in                         |
+| Exit | Meaning                                                                                                                                 |
+| ---- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| `0`  | pushed, or already up to date                                                                                                           |
+| `2`  | no policy, a malformed one, an argument given, a pin that no longer resolves, a remote that is not GitHub, or a remote/mirror mismatch  |
+| `3`  | policy refusal: the pinned branch is the default branch, workflows changed, an LFS pointer added, or no default branch to check against |
+| `4`  | transport failure or timeout — including a rejected (non-fast-forward) push, and `gh` missing or not logged in                          |
 
 ### Limits, stated plainly
 
@@ -762,6 +769,9 @@ something would otherwise hang the call forever.
   github.com account. Because user git config is skipped, an `http.proxy` in
   `~/.gitconfig` does not apply either; `HTTPS_PROXY` in the bridge's
   environment does.
+- **Never the default branch.** Read from the remote on every push, so a fork
+  workflow that commits on the fork's own default branch cannot publish; use a
+  feature branch.
 - **Nothing but GitHub.** A GitHub Enterprise host, GitLab, or a local bare repo
   cannot be pushed through the bridge.
 
@@ -775,8 +785,10 @@ and staging-ref count, and a `transport` line from a read-only
 `gh`'s credential; no prompts), bounded by `DEVC_BRIDGE_GIT_TIMEOUT` (default
 30s here). It proves the credential reaches the remote, not that it may write; a
 remote that is not GitHub is a
-`transport FAILED: unsupported remote <remote> — only github.com` finding. Exit
-1 when it found anything. Run on the host
+`transport FAILED: unsupported remote <remote> — only github.com` finding. The
+same probe reads the remote's default branch, and a pin on it is a
+`default   <branch> is the default branch of <remote> — gh-push refuses it`
+finding. Exit 1 when it found anything. Run on the host
 (`~/.local/state/devc-bridge/builtin/gh-doctor [key]`) it covers every policy,
 or just `key`; called through the bridge it covers **only the caller's own** and
 refuses any other key.
