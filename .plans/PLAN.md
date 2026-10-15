@@ -44,6 +44,20 @@
   restarted for. One log line per tool, 120 s cap each, never fails the start. Not
   agent-browser.
 
+- [bridge-pin-hardening](bridge-pin-hardening.md) — the devc-bridge pin changes only on an
+  explicit `devc up`/`devc build --bridge-allow`. `gh-push` refuses (exit 3) when the pinned
+  branch is the remote's default branch, and `gh-doctor` reports it. Refresh on
+  `attach`/`exec`/… still re-checks the pin, but revokes the policy instead of rewriting it
+  when the repo, origin or branch has changed, since `HEAD` is agent-writable. Prerequisite for
+  multi-repo pinning.
+
+- [bridge-multi-repo-pins](bridge-multi-repo-pins.md) — **after bridge-pin-hardening.**
+  `devc up`/`devc build --bridge-allow … --bridge-repo PATH` (repeatable, explicit host paths
+  only, never auto-discovered) also pins extra git-protected repo mounts. The policy becomes 1–16
+  five-field lines with a container `target` and shared grants (v1 files fail closed). The bridge
+  commands take a leading `--repo <target>`, which is required once more than one repo is pinned.
+  Mirrors are keyed per remote. Grant and refresh are all-or-nothing across the pinned repos.
+
 ### Standing rules for Feature work
 
 Not a plan group — these are the conventions every Feature plan in this file
@@ -1940,3 +1954,5 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
 | `headless-vscode` Feature — Electron libraries + headless VS Code launcher over `xvfb`                      | [feature-headless-vscode](feature-headless-vscode.md)                              |             |
 | `agents` `updateToolsOnStart` — update installed agent CLIs at container start                              | [agents-update-tools-on-start](agents-update-tools-on-start.md)                    | in progress |
 | devc repo overlay — one `devc.jsonc` per git repo, shared by its worktrees                                  | [devc-repo-overlay](archived/devc-repo-overlay.md)                                 | complete    |
+| devc-bridge pin hardening — refuse the default branch; refresh revokes instead of moving the pin            | [bridge-pin-hardening](bridge-pin-hardening.md)                                    |             |
+| devc-bridge multi-repo pins — `--bridge-repo PATH`, v2 policy, `--repo` selector                            | [bridge-multi-repo-pins](bridge-multi-repo-pins.md)                                |             |
