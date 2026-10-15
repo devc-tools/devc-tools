@@ -29,7 +29,13 @@ to rebuild the container with the current `devc-bridge` feature.
 
 ## Preflight
 
-1. `devc-bridge gh-doctor`: read the `policy <grants> for <branch> → <remote>` line.
+1. `devc-bridge gh-doctor`: read the `policy <grants> for <branch> → <remote>` line. It prints a
+   `target    <path>` line before each pinned repo. When there is more than one, find the
+   `target` that is the repo you are working in (`git rev-parse --show-toplevel`), read that
+   repo's `policy` line, and pass `--repo <that path>` as the **first** argument of every
+   `gh-push` and `gh-pr-*` command below — without it they exit 2 with
+   `pass --repo <path>`. With one pinned repo, leave `--repo` out. If your repo has no `target`
+   line, it isn't pinned: stop and tell the user.
 2. `git branch --show-current` must print that same `<branch>`. The pin is set on the host and
    switching branches in the container does **not** move it. If they differ, stop and tell the
    user. Don't push a branch that isn't the one you were working on.
@@ -99,7 +105,7 @@ Read `body` yourself:
   the file (`sed 's/\xe2\x80\x8b//g'`), or the path won't exist.
 
 **3. Commit, then push.** Commit on the pinned branch and run `devc-bridge gh-push`. It takes no
-arguments. Uncommitted changes are not sent. **Push before replying or resolving**, so no reply
+arguments but `--repo <path>` (see Preflight). Uncommitted changes are not sent. **Push before replying or resolving**, so no reply
 points at a commit GitHub doesn't have yet.
 
 **4. Request the next review:** `devc-bridge gh-pr-request-review`. It's safe after every push: it

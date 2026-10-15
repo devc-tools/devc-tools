@@ -31,8 +31,8 @@ To build it from a clone instead, see [Development](#development).
 ```text
 devc init    [PATH]                                   Scaffold the default `.devcontainer/` into the project
 devc config  [PATH] [--global | --repo]               Configure the project's (or with --repo, the repo's) source/skills mounts (TUI)
-devc up      [PATH] [--json] [--bridge-allow LIST]    Create/start the container; print its status
-devc build   [PATH] [--no-cache] [--json] [--bridge-allow LIST] Recreate the container from scratch
+devc up      [PATH] [--json] [--bridge-allow LIST [--bridge-repo PATH]...] Create/start the container; print its status
+devc build   [PATH] [--no-cache] [--json] [--bridge-allow LIST [--bridge-repo PATH]...] Recreate the container from scratch
 devc attach  [PATH] [--build] [--no-clear] [--cwd DIR] Start (creating if needed) and attach a login shell
 devc claude  [PATH] [--cwd DIR] [-- ARGS...]          Start and run `claude` (+ forwarded args) in a login shell
 devc copilot [PATH] [--cwd DIR] [-- ARGS...]          Start and run `copilot` (+ forwarded args) in a login shell
@@ -116,7 +116,9 @@ Notes:
   `gh-pr-resolve` and `gh-pr-request-review` (the last two each require
   `gh-pr-review`), or `gh` / `'gh-*'` for all of them — on its current branch,
   whose `origin` must be a github.com remote. `up`/`build` **without** it revoke
-  any earlier grant. No other command accepts it, and the old
+  any earlier grant. `--bridge-repo PATH` (repeatable, only with
+  `--bridge-allow`) pins an extra git-protected repo mount alongside the
+  workspace repo. No other command accepts either flag, and the old
   `--bridge-git-push` is refused with a pointer to `--bridge-allow gh-push` — see
   [Per-container identity](#per-container-identity-and-github-capabilities).
 - `prune` removes every `~/.config/devc-bridge/keys/<key>/` and
@@ -1093,17 +1095,24 @@ unaffected: they always run the Feature's downloaded client.
 
 ### Per-container identity and GitHub capabilities
 
-**One container, one repo, one branch.** The token identifies the container;
-`~/.config/devc-bridge/policy/<key>.conf` names the one repo, remote and branch
-its capabilities act on, and which capabilities it has:
+**One container, one branch per pinned repo.** The token identifies the
+container; `~/.config/devc-bridge/policy/<key>.conf` names each repo its
+capabilities act on — the workspace repo, plus any you named with
+`--bridge-repo` — with its remote and branch, and which capabilities it has. One
+line per pinned repo, the workspace repo first, at most 16:
 
 ```text
-<host path of the repo><TAB><remote.origin.url><TAB><branch><TAB><grants>
+<host path of the repo><TAB><remote.origin.url><TAB><branch><TAB><grants><TAB><container path>
 ```
 
-`<grants>` is comma-separated in canonical order, e.g. `gh-push,gh-pr-review`.
-That file is the whole grant, and no container can write it — `policy/` is never
-mounted. A three-field file from before grants existed grants nothing.
+`<grants>` is comma-separated in canonical order, e.g. `gh-push,gh-pr-review`,
+and the same on every line: one grant list covers every pinned repo.
+`<container path>` is where the repo is mounted in the container (absolute, no
+trailing `/`); it is what the bridge commands' `--repo <path>` selects. That
+file is the whole grant, and no container can write it — `policy/` is never
+mounted. A three- or four-field file from an older devc grants nothing: the next
+refresh removes it and says so, and `devc up --bridge-allow …` writes a new
+one.
 
 | Capability             | Lets the container run                        |
 | ---------------------- | --------------------------------------------- |
@@ -1132,22 +1141,49 @@ Old names (`git-push`, `pr-review`, …) are unknown capabilities, and a policy
 file holding one is malformed: the next refresh removes it and says so.
 
 The bridge ships all of them and checks the grant on every call — see the
-[bridge README](../devc-bridge/README.md#capabilities). Only the **primary
-workspace repo** is ever pinned: a `devc:source` mount you added for convenience
-is not a grant.
+[bridge README](../devc-bridge/README.md#capabilities).
 
-| Command                                              | With `--bridge-allow LIST`                      | Without it                                                                   |
-| ---------------------------------------------------- | ----------------------------------------------- | ---------------------------------------------------------------------------- |
-| `up`, `build`                                        | write the policy with exactly LIST (no merging) | **delete** this workspace's policy                                           |
-| `attach`, `claude`, `copilot`, `pi`, `herdr`, `exec` | refused — not accepted                          | re-check an existing policy; revoke it if its repo, origin or branch changed |
+**Extra repos are pinned by name, never by discovery.** The workspace repo is
+always pinned. To let the same grant act on another repo the container mounts —
+a `devc:source` sibling, say — name it on the same command:
 
-A **flag, deliberately not a config key**: every `devc.jsonc` layer with the
-priority to set it lives inside the bind-mounted workspace, where an agent could
-grant itself the capability before your next `up`. A flag is typed per
-invocation and never persisted.
+```sh
+devc up ~/code/tools/devc-dev --bridge-allow gh --bridge-repo ~/code/tools/devc-tools
+```
+
+- `--bridge-repo PATH` is accepted by `up` and `build` only, requires
+  `--bridge-allow` (`devc: --bridge-repo requires --bridge-allow`, exit 2), and
+  repeats, one path each, at most 15 times. Both `--bridge-repo PATH` and
+  `--bridge-repo=PATH` work; the same repo twice is a usage error.
+- `PATH` is a **host** path, as you wrote it in `devc:source`: a leading `~` or
+  `~/` expands to `$HOME` (devc does this, so `--bridge-repo=~/x` and a quoted
+  `'~/x'` work too; `~user` does not expand), a relative path resolves against
+  the current directory, and symlinks are resolved.
+- It must name a **git-protected repo mount** of this workspace: a bind-mounted
+  row whose `.git` is a directory and that git protection froze. devc refuses,
+  and grants nothing, for a path that does not exist, the workspace repo itself
+  (`this is the workspace repo, which is always pinned`), a linked worktree
+  mounted as an extra folder (git protection does not cover it), and anything
+  else — that message lists the paths you can pin.
+- Every pinned repo passes the same checks as the workspace repo (below), and
+  two pinned repos on the same GitHub `<owner>/<name>` are refused
+  (`<PATH-a> and <PATH-b> both push to github.com/<owner>/<name>`).
+- **All or nothing.** One repo that fails fails the whole grant: no policy is
+  written, any earlier one is removed, and the error names the repo.
+
+| Command                                              | With `--bridge-allow LIST [--bridge-repo PATH]...`              | Without it                                                                                 |
+| ---------------------------------------------------- | --------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| `up`, `build`                                        | write the policy with exactly LIST and these repos (no merging) | **delete** this workspace's policy                                                         |
+| `attach`, `claude`, `copilot`, `pi`, `herdr`, `exec` | refused — not accepted                                          | re-check an existing policy; revoke it if any pinned repo's repo, origin or branch changed |
+
+Both are **flags, deliberately not config keys**: every `devc.jsonc` layer with
+the priority to set them lives inside the bind-mounted workspace, where an agent
+could grant itself the capability, or widen it to another repo, before your next
+`up`. A flag is typed per invocation and never persisted.
 
 Before writing (or refreshing) a policy devc checks, and with the flag given
-exits non-zero naming the first that fails:
+exits non-zero naming the first that fails — 1, 2 and the key-directory half of
+5 once for the container, the rest for every pinned repo:
 
 1. a `devc-bridge` Feature is declared;
 2. `gitProtect` is not off;
@@ -1177,14 +1213,23 @@ planted `core.fsmonitor`.
 
 **Refresh** re-checks an existing policy on each `attach`/`claude`/… and never
 rewrites it. `HEAD` is writable from inside the container, so a pin that
-followed it would let an agent choose the branch it publishes to. When the pin
-derived now differs from the stored one — the workspace repo, the origin or the
-branch changed — or can no longer be derived at all — a detached `HEAD`,
-protection gone, an origin that stopped being GitHub, a malformed file — the
-refresh **removes** the policy and says so:
+followed it would let an agent choose the branch it publishes to. Every line is
+re-derived — an extra repo by finding its mount again at the stored host path
+and container path. When any pin derived now differs from the stored one — the
+workspace repo, the origin or the branch changed — or can no longer be derived
+at all — a detached `HEAD`, protection gone, an origin that stopped being
+GitHub, the mount gone, a malformed file — the refresh **removes** the whole
+policy and says so:
 
 ```
 devc: devc-bridge capabilities revoked — the branch is now feat/next, but they were granted for feat/x. Run `devc up --bridge-allow gh-push,gh-pr-review` to grant it.
+```
+
+With more than one repo pinned, the message starts with the repo's host path and
+the hint carries `--bridge-repo …`:
+
+```
+devc: devc-bridge capabilities revoked — /Users/me/code/tools/devc-tools: the branch is now main, but they were granted for feat/x. Run `devc up --bridge-allow gh --bridge-repo …` to grant it.
 ```
 
 To publish another branch, check it out on the host and run
@@ -1206,7 +1251,14 @@ the whole of the guarantee.
 
 `devc down` removes the workspace's `keys/<key>/` and policy; `devc prune`
 removes the ones that leaked. `devc status` reports the key, whether its token
-is present, and the pin in force — `absent` when there is none.
+is present, and the pins in force — `absent` when there are none. A grant logs,
+and `devc status` shows, the capabilities and then one line per pinned repo:
+
+```
+devc: devc-bridge capabilities granted: gh-push, gh-pr-review, gh-pr-resolve, gh-pr-request-review
+devc:   /workspaces/devc-dev: feat/x → git@github.com:acme/devc-dev.git (/Users/me/code/tools/devc-dev)
+devc:   /workspaces/tools/devc-tools: feat/y → git@github.com:acme/devc-tools.git (/Users/me/code/tools/devc-tools)
+```
 
 On **Docker Compose** devcontainers the CLI drops `readonly` when it rewrites
 mounts into the generated compose file, so the token mount ends up writable

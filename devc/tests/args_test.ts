@@ -140,6 +140,7 @@ Deno.test('parseBuildArgs defaults to cwd with no flags', () => {
     noCache: false,
     json: false,
     bridgeAllow: null,
+    bridgeRepos: [],
   });
 });
 
@@ -149,18 +150,21 @@ Deno.test('parseBuildArgs parses a path and both flags in any order', () => {
     noCache: false,
     json: false,
     bridgeAllow: null,
+    bridgeRepos: [],
   });
   assertEquals(parseBuildArgs(['--no-cache', '/some/path']), {
     target: '/some/path',
     noCache: true,
     json: false,
     bridgeAllow: null,
+    bridgeRepos: [],
   });
   assertEquals(parseBuildArgs(['/some/path', '--json', '--no-cache']), {
     target: '/some/path',
     noCache: true,
     json: true,
     bridgeAllow: null,
+    bridgeRepos: [],
   });
 });
 
@@ -170,6 +174,7 @@ Deno.test('parseUpArgs defaults to cwd with no flags', () => {
     printConfig: false,
     json: false,
     bridgeAllow: null,
+    bridgeRepos: [],
   });
 });
 
@@ -179,18 +184,21 @@ Deno.test('parseUpArgs parses a path and both flags in any order', () => {
     printConfig: false,
     json: false,
     bridgeAllow: null,
+    bridgeRepos: [],
   });
   assertEquals(parseUpArgs(['--print-config', '/some/path']), {
     target: '/some/path',
     printConfig: true,
     json: false,
     bridgeAllow: null,
+    bridgeRepos: [],
   });
   assertEquals(parseUpArgs(['/some/path', '--json', '--print-config']), {
     target: '/some/path',
     printConfig: true,
     json: true,
     bridgeAllow: null,
+    bridgeRepos: [],
   });
 });
 
@@ -292,6 +300,7 @@ Deno.test('--bridge-allow is parsed by up and build in both spellings, and is ne
     printConfig: false,
     json: false,
     bridgeAllow: ['gh-push'],
+    bridgeRepos: [],
   });
   assertEquals(
     parseUpArgs(['--bridge-allow=gh-push,gh-pr-review']).bridgeAllow,
@@ -307,6 +316,7 @@ Deno.test('--bridge-allow is parsed by up and build in both spellings, and is ne
       printConfig: false,
       json: false,
       bridgeAllow: ['gh-pr-review', 'gh-pr-resolve'],
+      bridgeRepos: [],
     },
   );
   assertEquals(parseBuildArgs(['/p', '--bridge-allow', 'gh-push', '--json']), {
@@ -314,6 +324,7 @@ Deno.test('--bridge-allow is parsed by up and build in both spellings, and is ne
     noCache: false,
     json: true,
     bridgeAllow: ['gh-push'],
+    bridgeRepos: [],
   });
 });
 
@@ -399,6 +410,93 @@ Deno.test('--bridge-allow refuses bad values with the documented messages', () =
   }
 });
 
+Deno.test('--bridge-repo is repeatable in both spellings, and its value is never the target', () => {
+  assertEquals(
+    parseUpArgs([
+      '--bridge-allow',
+      'gh',
+      '--bridge-repo',
+      '/a',
+      '--bridge-repo=/b',
+      'proj',
+    ]),
+    {
+      target: 'proj',
+      printConfig: false,
+      json: false,
+      bridgeAllow: [
+        'gh-push',
+        'gh-pr-review',
+        'gh-pr-resolve',
+        'gh-pr-request-review',
+      ],
+      bridgeRepos: ['/a', '/b'],
+    },
+  );
+  assertEquals(
+    parseBuildArgs(['--bridge-repo', '~/x', '--bridge-allow=gh-push']),
+    {
+      target: undefined,
+      noCache: false,
+      json: false,
+      bridgeAllow: ['gh-push'],
+      bridgeRepos: ['~/x'],
+    },
+  );
+});
+
+Deno.test('--bridge-repo refuses bad uses with the documented messages', () => {
+  const sixteen = Array.from(
+    { length: 16 },
+    (_, i) => `--bridge-repo=/r${i}`,
+  );
+  const cases: [string[], string][] = [
+    [['--bridge-repo', '/a'], '--bridge-repo requires --bridge-allow'],
+    [['--bridge-repo=/a', 'proj'], '--bridge-repo requires --bridge-allow'],
+    [['--bridge-allow', 'gh', '--bridge-repo'], '--bridge-repo needs a path'],
+    [['--bridge-allow', 'gh', '--bridge-repo='], '--bridge-repo needs a path'],
+    [
+      ['--bridge-allow', 'gh', '--bridge-repo', '/a', '--bridge-repo=/a/'],
+      '--bridge-repo /a/ given more than once',
+    ],
+    [['--bridge-allow', 'gh', ...sixteen], '--bridge-repo given 16 times'],
+  ];
+  for (const [args, message] of cases) {
+    for (const parse of [parseUpArgs, parseBuildArgs]) {
+      assertThrows(() => parse(args), Error, message, args.join(' '));
+    }
+  }
+  // Fifteen is the most, and still parses.
+  assertEquals(
+    parseUpArgs(['--bridge-allow', 'gh', ...sixteen.slice(1)]).bridgeRepos
+      .length,
+    15,
+  );
+});
+
+Deno.test('--bridge-repo: two spellings of one directory are the same repo', async () => {
+  const dir = await Deno.realPath(await Deno.makeTempDir());
+  try {
+    await Deno.mkdir(`${dir}/repo`);
+    await Deno.symlink(`${dir}/repo`, `${dir}/link`);
+    assertThrows(
+      () =>
+        parseUpArgs([
+          '--bridge-allow',
+          'gh',
+          '--bridge-repo',
+          `${dir}/repo`,
+          '--bridge-repo',
+          `${dir}/link`,
+        ]),
+      Error,
+      `--bridge-repo ${dir}/link given more than once`,
+    );
+  } finally {
+    await Deno.remove(dir, { recursive: true });
+  }
+});
+
 /** Run the devc CLI from source; the refusals below happen before any Docker call. */
 async function cli(
   ...args: string[]
@@ -416,7 +514,7 @@ async function cli(
   return { code, stderr: new TextDecoder().decode(stderr) };
 }
 
-Deno.test('CLI: --bridge-allow is refused by every attach-family command, and the old flag everywhere', async () => {
+Deno.test('CLI: --bridge-allow and --bridge-repo are refused by every attach-family command, and the old flag everywhere', async () => {
   for (const command of ['attach', 'claude', 'copilot', 'pi', 'herdr']) {
     const r = await cli(command, '/nonexistent', '--bridge-allow', 'gh-push');
     assertEquals(r.code, 2, `${command}: ${r.stderr}`);
@@ -434,6 +532,32 @@ Deno.test('CLI: --bridge-allow is refused by every attach-family command, and th
   );
   assertEquals(exec.code, 2, exec.stderr);
   assertStringIncludes(exec.stderr, 'not `devc exec`');
+  for (const command of ['attach', 'claude', 'copilot', 'pi', 'herdr']) {
+    const r = await cli(command, '/nonexistent', '--bridge-repo', '/a');
+    assertEquals(r.code, 2, `${command}: ${r.stderr}`);
+    assertStringIncludes(
+      r.stderr,
+      `devc: --bridge-repo is accepted by \`devc up\` and \`devc build\` only, not \`devc ${command}\``,
+    );
+  }
+  const execRepo = await cli(
+    'exec',
+    '/nonexistent',
+    '--bridge-repo=/a',
+    '--',
+    'true',
+  );
+  assertEquals(execRepo.code, 2, execRepo.stderr);
+  assertStringIncludes(
+    execRepo.stderr,
+    '--bridge-repo is accepted by `devc up` and `devc build` only, not `devc exec`',
+  );
+  const noAllow = await cli('up', '/nonexistent', '--bridge-repo', '/a');
+  assertEquals(noAllow.code, 2, noAllow.stderr);
+  assertStringIncludes(
+    noAllow.stderr,
+    'devc: --bridge-repo requires --bridge-allow',
+  );
   for (const command of ['up', 'build', 'attach']) {
     const r = await cli(command, '/nonexistent', '--bridge-git-push');
     assertEquals(r.code, 2, `${command}: ${r.stderr}`);

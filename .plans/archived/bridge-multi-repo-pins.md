@@ -201,32 +201,32 @@ rules.
 
 ## Checklist
 
-- [ ] `devc-core/bridge.ts`: v2 policy types, `policyProblem`/`parsePolicy`/
+- [x] `devc-core/bridge.ts`: v2 policy types, `policyProblem`/`parsePolicy`/
       `serializePolicy` with the cross-line rules; v1 files malformed
-- [ ] `devc/args.ts`: `--bridge-repo` parsing for `up`/`build` (both spellings,
+- [x] `devc/args.ts`: `--bridge-repo` parsing for `up`/`build` (both spellings,
       repeatable, consumes its value, requires `--bridge-allow`, duplicates and
       the 15 cap as usage errors)
-- [ ] `devc/main.ts`: refuse `--bridge-repo` on the other start paths; thread the
+- [x] `devc/main.ts`: refuse `--bridge-repo` on the other start paths; thread the
       repo list into `{ grant }`
-- [ ] `devc/bridge.ts`: per-repo pin derivation for extra rows; all-or-nothing
+- [x] `devc/bridge.ts`: per-repo pin derivation for extra rows; all-or-nothing
       grant; same-`<owner>/<name>` refusal; `checkGrantBeforeUp` covers extra
       repos (no mount table yet); per-line refresh; new grant log and
       `devc status` lines
-- [ ] `devc/help.ts` and `.plans/design/devc-design.md` (the help source of
+- [x] `devc/help.ts` and `.plans/design/devc-design.md` (the help source of
       truth): `--bridge-repo PATH` under `up`; `build`'s `As for devc up` line
       covers it
-- [ ] `devc-bridge/host/core.ts`: grant check on v2 policies
-- [ ] `gh-push`: v2 parse, `--repo`, per-remote mirror path
-- [ ] `gh-pr-comments`, `gh-pr-reply`, `gh-pr-resolve`, `gh-pr-request-review`:
+- [x] `devc-bridge/host/core.ts`: grant check on v2 policies
+- [x] `gh-push`: v2 parse, `--repo`, per-remote mirror path
+- [x] `gh-pr-comments`, `gh-pr-reply`, `gh-pr-resolve`, `gh-pr-request-review`:
       v2 `load_policy` in the shared prelude, `--repo`, usage strings
-- [ ] `gh-doctor`: v2 parse, per-line report with `target`, new mirror path
-- [ ] `devc-bridge/client/devc-bridge.ts`: overview lines show `[--repo <path>]`
+- [x] `gh-doctor`: v2 parse, per-line report with `target`, new mirror path
+- [x] `devc-bridge/client/devc-bridge.ts`: overview lines show `[--repo <path>]`
       for the five commands
-- [ ] Tests: `devc-core/tests/bridge_test.ts`, `devc/tests/args_test.ts`,
+- [x] Tests: `devc-core/tests/bridge_test.ts`, `devc/tests/args_test.ts`,
       `devc/tests/bridge_test.ts`, `devc-bridge/host/tests/capabilities_test.ts`,
       `devc-bridge/tests/gh_push_test.sh` (its `pin` helper and inline policy
       lines move to five fields), `devc-bridge/tests/gh_pr_review_test.sh`
-- [ ] Docs: `devc/README.md` (replace "Only the **primary workspace repo** is
+- [x] Docs: `devc/README.md` (replace "Only the **primary workspace repo** is
       ever pinned…" with the `--bridge-repo` rules; add `--bridge-repo` to the
       start-path table and the precondition list), `devc-bridge/README.md`
       (policy format, `--repo`, mirror path, `gh-doctor`, the legacy mirror is
@@ -235,18 +235,18 @@ rules.
       `--repo "$(git rev-parse --show-toplevel)"`),
       `skills/copilot-pr-reviewing/SKILL.md` (pass `--repo` when more than one
       repo is pinned)
-- [ ] `deno fmt` on every touched `.ts` and `.md` file
+- [x] `deno fmt` on every touched `.ts` and `.md` file
 
 ## Validation
 
-- [ ] `cd devc-core && deno task check && deno task test` passes, including:
+- [x] `cd devc-core && deno task check && deno task test` passes, including:
   - a 1-line and a 3-line v2 policy round-trip through
     `serializePolicy`/`parsePolicy`
   - each of these is malformed, and `policyProblem` names it: a v1 four-field
     line; a six-field line; grants differing between lines; a duplicated
     `repo`; a duplicated `target`; a relative `target`; a `target` with a
     trailing `/`; a `target` containing `/../`; 17 lines; an empty middle line
-- [ ] `cd devc && deno task check && deno task test` passes, including:
+- [x] `cd devc && deno task check && deno task test` passes, including:
   - `parseUpArgs(['--bridge-allow', 'gh', '--bridge-repo', '/a', '--bridge-repo=/b', 'proj'])`
     → target `proj`, repos `['/a', '/b']`
   - with `HOME` set to the fixture home, `--bridge-repo=~/extra`,
@@ -270,10 +270,10 @@ rules.
     `<repo>: the branch is now`
   - refresh with nothing changed → file content and mtime unchanged
   - `devc status` with a two-line policy prints both indented lines
-- [ ] `cd devc-bridge/host && deno task check && deno task test` passes; a v2
+- [x] `cd devc-bridge/host && deno task check && deno task test` passes; a v2
       multi-line policy grants by its shared grants; a v1 policy is reported
       malformed (exit 2)
-- [ ] `bash devc-bridge/tests/gh_push_test.sh` → `N passed, 0 failed`,
+- [x] `bash devc-bridge/tests/gh_push_test.sh` → `N passed, 0 failed`,
       including:
   - a two-line policy (two repos, two bare remotes `acme/widget`, `acme/gadget`):
     `gh-push` without `--repo` → exit 2, with the `pass --repo` message listing
@@ -290,13 +290,13 @@ rules.
     unchanged)
   - a v1 four-field policy → exit 2, malformed
   - `gh-doctor` on the two-line policy prints a `target` line for each repo
-- [ ] `bash devc-bridge/tests/gh_pr_review_test.sh` → `N passed, 0 failed`,
+- [x] `bash devc-bridge/tests/gh_pr_review_test.sh` → `N passed, 0 failed`,
       including: the prelude byte-identical check; `gh-pr-reply --repo <t> <thread> <body>`
       replies on that repo's PR; `gh-pr-reply <thread> --repo` treats `--repo`
       as the body; multi-line without `--repo` → exit 2 for each of the four
       scripts
-- [ ] `cd devc-bridge/client && deno task check` passes
-- [ ] `deno fmt --check` passes at the repo root
+- [x] `cd devc-bridge/client && deno task check` passes
+- [x] `deno fmt --check` passes at the repo root
 - [ ] Manual, in this `devc-dev` setup:
       `devc up ~/code/tools/devc-dev --bridge-allow gh --bridge-repo ~/code/tools/devc-tools`
       → grant log lists `/workspaces/devc-dev` and

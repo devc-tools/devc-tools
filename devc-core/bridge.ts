@@ -1,5 +1,5 @@
 // The pure half of devc-bridge's per-container identity: where a workspace's key directory and
-// policy file live, what the policy line looks like, and how the pin it carries is read out of a
+// policy file live, what the policy lines look like, and how each pin they carry is read out of a
 // repo on the host.
 //
 // **Core writes nothing here.** `@devc-tools/core` is a lifecycle library, and a programmatic
@@ -27,7 +27,7 @@ export interface BridgePaths {
   tokenFile: string;
   /** `~/.config/devc-bridge/policy/` — host-only; no container mounts it. */
   policyDir: string;
-  /** `~/.config/devc-bridge/policy/<key>.conf` — the one-line pin, written by devc. */
+  /** `~/.config/devc-bridge/policy/<key>.conf` — one pin line per pinned repo, written by devc. */
   policyFile: string;
 }
 
@@ -43,7 +43,7 @@ export function bridgePaths(home: string, key: string): BridgePaths {
   };
 }
 
-// ── the policy line ─────────────────────────────────────────────────────────────────────────
+// ── the policy lines ────────────────────────────────────────────────────────────────────────
 
 // ── capabilities ────────────────────────────────────────────────────────────────────────────
 
@@ -132,6 +132,15 @@ export function grantsProblem(grants: readonly string[]): string | null {
  * `<owner>` and `<name>` are non-empty `[A-Za-z0-9._-]`, and neither is `.` or `..`.
  */
 export function isGitHubRemote(url: string): boolean {
+  return gitHubRepoOf(url) !== null;
+}
+
+/**
+ * The owner/name a GitHub remote names, as `<owner>/<name>` with any `.git` dropped — the same
+ * parse {@link isGitHubRemote} accepts, shape for shape — or null for anything else. Two remotes
+ * name the same repo when these match case-insensitively, as GitHub's own names do.
+ */
+export function gitHubRepoOf(url: string): string | null {
   let host: string;
   let path: string;
   if (url.startsWith('git@') && url.includes(':')) {
@@ -147,15 +156,18 @@ export function isGitHubRemote(url: string): boolean {
     host = rest.slice(0, rest.indexOf('/'));
     path = rest.slice(rest.indexOf('/') + 1);
   } else {
-    return false;
+    return null;
   }
-  if (host !== 'github.com' && !host.startsWith('github.com-')) return false;
-  if (/[^A-Za-z0-9.-]/.test(host)) return false;
+  if (host !== 'github.com' && !host.startsWith('github.com-')) return null;
+  if (/[^A-Za-z0-9.-]/.test(host)) return null;
   if (path.endsWith('.git')) path = path.slice(0, -'.git'.length);
   const slash = path.indexOf('/');
-  if (slash < 0) return false;
-  return validRemoteName(path.slice(0, slash)) &&
-    validRemoteName(path.slice(slash + 1));
+  if (slash < 0) return null;
+  const owner = path.slice(0, slash);
+  const name = path.slice(slash + 1);
+  return validRemoteName(owner) && validRemoteName(name)
+    ? `${owner}/${name}`
+    : null;
 }
 
 /** An owner or repo name: `[A-Za-z0-9._-]`, non-empty, and not `.` or `..`. */
@@ -163,7 +175,7 @@ function validRemoteName(name: string): boolean {
   return name !== '.' && name !== '..' && /^[A-Za-z0-9._-]+$/.test(name);
 }
 
-/** One container's publish pin: the one repo, remote and branch its capabilities act on. */
+/** One repo's publish pin: the repo, remote and branch a container's capabilities act on there. */
 export interface Pin {
   /** Host path of the repo's working tree. */
   repo: string;
@@ -173,9 +185,26 @@ export interface Pin {
   branch: string;
 }
 
-/** A policy file: the pin, and the capabilities granted on it (canonical order, non-empty). */
-export interface PolicyRecord extends Pin {
+/** A pin and where the repo sits in the container — one policy line. */
+export interface PinnedRepo extends Pin {
+  /**
+   * The repo's path in the container: what the bridge commands' `--repo <path>` selects by.
+   * Normalized — see {@link targetProblem}.
+   */
+  target: string;
+}
+
+/** The most repos one policy pins: the workspace repo plus fifteen `--bridge-repo`s. */
+export const MAX_PINNED_REPOS = 16;
+
+/**
+ * A policy file: the capabilities granted (canonical order, non-empty), shared by every pinned
+ * repo, and the pinned repos — the workspace repo first, then each `--bridge-repo` in the order it
+ * was given. 1–{@link MAX_PINNED_REPOS} of them, with distinct `repo`s and distinct `target`s.
+ */
+export interface PolicyRecord {
   grants: BridgeCapability[];
+  repos: PinnedRepo[];
 }
 
 // A field may hold anything but the separator and line breaks; control characters are refused
@@ -193,64 +222,112 @@ function fieldProblem(name: string, value: string): string | null {
 }
 
 /**
- * The policy file's contents: `<repo>\t<remote>\t<branch>\t<grants>\n`, grants comma-joined in
- * canonical order. Throws for a field that could not be read back as itself, or a grant list
- * {@link grantsProblem} refuses — callers validate first, so reaching this is a bug.
+ * Why `target` is not a policy line's container path, or null when it is: absolute, not `/`
+ * itself, no trailing `/`, and no empty, `.` or `..` segment — one spelling per path, so the
+ * bridge commands can select a line by plain string comparison. Assumes {@link fieldProblem}
+ * already passed.
+ */
+export function targetProblem(target: string): string | null {
+  if (!target.startsWith('/')) return 'target is not an absolute path';
+  if (target === '/') return 'target is /';
+  if (target.endsWith('/')) return 'target ends with /';
+  for (const segment of target.slice(1).split('/')) {
+    if (segment === '' || segment === '.' || segment === '..') {
+      return 'target has an empty, . or .. segment';
+    }
+  }
+  return null;
+}
+
+/**
+ * The policy file's contents: one `<repo>\t<remote>\t<branch>\t<grants>\t<target>\n` line per
+ * pinned repo, grants comma-joined in canonical order and the same on every line. Throws for
+ * anything {@link policyProblem} would refuse to read back — callers validate first, so reaching
+ * this is a bug.
  */
 export function serializePolicy(record: PolicyRecord): string {
-  for (const name of ['repo', 'remote', 'branch'] as const) {
-    const problem = fieldProblem(name, record[name]);
-    if (problem !== null) throw new Error(`policy ${problem}`);
-  }
-  const problem = grantsProblem(record.grants);
+  const grants = record.grants.join(',');
+  const text = record.repos.map((r) =>
+    `${r.repo}\t${r.remote}\t${r.branch}\t${grants}\t${r.target}\n`
+  ).join('');
+  const problem = record.repos.length === 0
+    ? 'has no repos'
+    : grantsProblem(record.grants) ?? policyProblem(text);
   if (problem !== null) throw new Error(`policy ${problem}`);
-  return `${record.repo}\t${record.remote}\t${record.branch}\t${
-    record.grants.join(',')
-  }\n`;
+  return text;
 }
 
 /**
  * Why `text` is not a policy file, or null when it is: the **first** problem in the order
- * {@link parsePolicy} checks — a second line (or a `\r`), the field count, each field, then the
- * grant list. {@link parsePolicy} is built on this, so the two never disagree.
+ * {@link parsePolicy} checks — the final newline, the line count, then per line (`line <n>: …`)
+ * an empty line, the field count, each field, the target and the grant list, and last the
+ * cross-line rules (grants identical to line 1's, `repo` and `target` each distinct).
+ * {@link parsePolicy} is built on this, so the two never disagree. The bridge scripts' bash
+ * parsers apply the same rules.
  */
 export function policyProblem(text: string): string | null {
-  const body = text.endsWith('\n') ? text.slice(0, -1) : text;
-  if (body.includes('\n') || body.includes('\r')) return 'more than one line';
-  const fields = body.split('\t');
-  if (fields.length !== 4) {
-    return `want 4 tab-separated fields, found ${fields.length}`;
+  if (!text.endsWith('\n')) return 'the file does not end with a newline';
+  const lines = text.slice(0, -1).split('\n');
+  if (lines.length > MAX_PINNED_REPOS) {
+    return `more than ${MAX_PINNED_REPOS} lines`;
   }
-  const [repo, remote, branch, grantField] = fields;
-  const pairs = [
-    ['repo', repo],
-    ['remote', remote],
-    ['branch', branch],
-    ['grants', grantField],
-  ];
-  for (const [name, value] of pairs) {
-    const problem = fieldProblem(name, value);
-    if (problem !== null) return problem;
+  const seenRepo = new Map<string, number>();
+  const seenTarget = new Map<string, number>();
+  let firstGrants = '';
+  for (let i = 0; i < lines.length; i++) {
+    const n = i + 1;
+    if (lines[i] === '') return `line ${n} is empty`;
+    const fields = lines[i].split('\t');
+    if (fields.length !== 5) {
+      return `line ${n}: want 5 tab-separated fields, found ${fields.length}`;
+    }
+    const [repo, remote, branch, grantField, target] = fields;
+    const pairs = [
+      ['repo', repo],
+      ['remote', remote],
+      ['branch', branch],
+      ['grants', grantField],
+      ['target', target],
+    ];
+    for (const [name, value] of pairs) {
+      const problem = fieldProblem(name, value);
+      if (problem !== null) return `line ${n}: ${problem}`;
+    }
+    const problem = targetProblem(target) ??
+      grantsProblem(grantField.split(','));
+    if (problem !== null) return `line ${n}: ${problem}`;
+    if (i === 0) firstGrants = grantField;
+    else if (grantField !== firstGrants) {
+      return `line ${n}: grants differ from line 1's`;
+    }
+    const repoAt = seenRepo.get(repo);
+    if (repoAt !== undefined) return `line ${n}: repo repeats line ${repoAt}'s`;
+    const targetAt = seenTarget.get(target);
+    if (targetAt !== undefined) {
+      return `line ${n}: target repeats line ${targetAt}'s`;
+    }
+    seenRepo.set(repo, n);
+    seenTarget.set(target, n);
   }
-  return grantsProblem(grantField.split(','));
+  return null;
 }
 
 /**
- * Parse a policy file. Exactly one non-empty line of exactly four non-empty fields, the last a
- * valid grant list, or `null` — a malformed policy grants nothing, and the reader must not guess.
- * A three-field file from before grants existed, and a capability this build does not know, are
- * both malformed: they fail closed. {@link policyProblem} says why.
+ * Parse a policy file: 1–{@link MAX_PINNED_REPOS} newline-terminated lines of exactly five
+ * non-empty fields, or `null` — a malformed policy grants nothing, and the reader must not guess.
+ * A four-field file from before targets existed, a three-field one from before grants existed,
+ * and a capability this build does not know are all malformed: they fail closed.
+ * {@link policyProblem} says why.
  */
 export function parsePolicy(text: string): PolicyRecord | null {
   if (policyProblem(text) !== null) return null;
-  const body = text.endsWith('\n') ? text.slice(0, -1) : text;
-  const [repo, remote, branch, grantField] = body.split('\t');
-  return {
-    repo,
-    remote,
-    branch,
-    grants: grantField.split(',') as BridgeCapability[],
-  };
+  const repos = text.slice(0, -1).split('\n').map((line) => {
+    const [repo, remote, branch, , target] = line.split('\t');
+    return { repo, remote, branch, target };
+  });
+  const grants = text.slice(0, text.indexOf('\n')).split('\t')[3]
+    .split(',') as BridgeCapability[];
+  return { grants, repos };
 }
 
 // ── reading the pin out of a repo ───────────────────────────────────────────────────────────

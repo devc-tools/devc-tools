@@ -3,7 +3,10 @@ import {
   BRIDGE_CAPABILITY_REQUIRES,
   type BridgeCapability,
   isBridgeCapability,
+  MAX_PINNED_REPOS,
 } from '@devc-tools/core/bridge.ts';
+import { unfoldHome } from '@devc-tools/core/mounts.ts';
+import { isAbsolutePosix, resolvePosix } from '@devc-tools/core/posix.ts';
 
 export interface AttachArgs {
   /** The path argument, if given. Callers should default to `Deno.cwd()` when absent. */
@@ -136,10 +139,49 @@ export interface UpArgs {
    * *delete* the policy. A flag and never a config key: see `bridge.ts`.
    */
   bridgeAllow: BridgeCapability[] | null;
+  /**
+   * `--bridge-repo PATH`, each as typed, in command-line order: extra repos the grant pins
+   * alongside the workspace repo. Empty when none were given; never non-empty without
+   * {@link bridgeAllow}. Resolved and checked against the container in `bridge.ts`.
+   */
+  bridgeRepos: string[];
 }
 
 /** The one devc-owned flag that grants capabilities. Accepted by `up` and `build` only. */
 export const BRIDGE_ALLOW_FLAG = '--bridge-allow';
+
+/**
+ * Names one extra repo for the grant to pin, by host path. Accepted by `up` and `build` only,
+ * repeatable, and only alongside {@link BRIDGE_ALLOW_FLAG}. A flag and never a config key, for
+ * the same reason as `--bridge-allow`: every config layer that could set it is agent-writable.
+ */
+export const BRIDGE_REPO_FLAG = '--bridge-repo';
+
+/** At most this many `--bridge-repo`s: the policy pins the workspace repo too. */
+export const MAX_BRIDGE_REPOS = MAX_PINNED_REPOS - 1;
+
+/** Whether `arg` is `--bridge-repo` in either spelling (`--bridge-repo`, `--bridge-repo=…`). */
+export function isBridgeRepoArg(arg: string): boolean {
+  return arg === BRIDGE_REPO_FLAG || arg.startsWith(`${BRIDGE_REPO_FLAG}=`);
+}
+
+/**
+ * A `--bridge-repo` value as an absolute host path, not yet resolved through symlinks: a leading
+ * `~` or `~/` expands to `home`, and a relative path resolves against `cwd`. The expansion is
+ * devc's to do — the shell does not tilde-expand `--bridge-repo=~/x` (bash and zsh only do after
+ * `=` in a real variable assignment) or a quoted `"~/x"`. `~user` is left alone, so it resolves as
+ * a relative path and then fails as a directory that does not exist.
+ */
+export function expandBridgeRepo(
+  value: string,
+  home: string | undefined,
+  cwd: string,
+): string {
+  const unfolded = value === '~' || value.startsWith('~/')
+    ? unfoldHome(value, home)
+    : value;
+  return isAbsolutePosix(unfolded) ? unfolded : resolvePosix(cwd, unfolded);
+}
 
 /** Its predecessor, refused everywhere with a pointer to the replacement. */
 export const BRIDGE_GIT_PUSH_FLAG = '--bridge-git-push';
@@ -194,15 +236,22 @@ export function parseBridgeAllow(value: string): BridgeCapability[] {
 }
 
 /**
- * Split `--bridge-allow` (both spellings) out of `args`: the capabilities, or null when absent, and
- * the remaining args. The space form consumes the next arg as its value, so it can never be read as
- * the target path. Throws for the flag given twice, a missing or invalid value, or the removed
- * `--bridge-git-push`.
+ * Split `--bridge-allow` and `--bridge-repo` (both spellings each) out of `args`: the
+ * capabilities, or null when absent, the repos as typed, and the remaining args. The space forms
+ * consume the next arg as their value, so it can never be read as the target path. Throws for
+ * `--bridge-allow` given twice, a missing or invalid value, the removed `--bridge-git-push`,
+ * `--bridge-repo` without `--bridge-allow`, the same repo named twice, or more than
+ * {@link MAX_BRIDGE_REPOS} of them.
  */
-function takeBridgeAllow(
+function takeBridgeFlags(
   args: string[],
-): { bridgeAllow: BridgeCapability[] | null; rest: string[] } {
+): {
+  bridgeAllow: BridgeCapability[] | null;
+  bridgeRepos: string[];
+  rest: string[];
+} {
   let value: string | null = null;
+  const bridgeRepos: string[] = [];
   const rest: string[] = [];
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
@@ -210,6 +259,14 @@ function takeBridgeAllow(
       throw new Error(
         `${BRIDGE_GIT_PUSH_FLAG} was replaced by ${BRIDGE_ALLOW_FLAG} gh-push`,
       );
+    }
+    if (isBridgeRepoArg(a)) {
+      const repo = a === BRIDGE_REPO_FLAG
+        ? (i + 1 < args.length ? args[++i] : '')
+        : a.slice(BRIDGE_REPO_FLAG.length + 1);
+      if (repo === '') throw new Error(`${BRIDGE_REPO_FLAG} needs a path`);
+      bridgeRepos.push(repo);
+      continue;
     }
     if (!isBridgeAllowArg(a)) {
       rest.push(a);
@@ -224,19 +281,40 @@ function takeBridgeAllow(
       value = a.slice(BRIDGE_ALLOW_FLAG.length + 1);
     }
   }
-  return {
-    bridgeAllow: value === null ? null : parseBridgeAllow(value),
-    rest,
-  };
+  const bridgeAllow = value === null ? null : parseBridgeAllow(value);
+  if (bridgeRepos.length > 0 && bridgeAllow === null) {
+    throw new Error(`${BRIDGE_REPO_FLAG} requires ${BRIDGE_ALLOW_FLAG}`);
+  }
+  if (bridgeRepos.length > MAX_BRIDGE_REPOS) {
+    throw new Error(
+      `${BRIDGE_REPO_FLAG} given ${bridgeRepos.length} times — at most ${MAX_BRIDGE_REPOS}, ` +
+        `since a policy pins at most ${MAX_PINNED_REPOS} repos with the workspace repo`,
+    );
+  }
+  // The same repo twice, however it was spelled, compared after symlinks are resolved. A path
+  // that does not resolve compares as spelled; `bridge.ts` refuses it as no such directory.
+  const seen = new Set<string>();
+  for (const repo of bridgeRepos) {
+    const abs = expandBridgeRepo(repo, Deno.env.get('HOME'), Deno.cwd());
+    let real = abs.replace(/(?<=.)\/+$/, '');
+    try {
+      real = Deno.realPathSync(abs);
+    } catch { /* compared as spelled */ }
+    if (seen.has(real)) {
+      throw new Error(`${BRIDGE_REPO_FLAG} ${repo} given more than once`);
+    }
+    seen.add(real);
+  }
+  return { bridgeAllow, bridgeRepos, rest };
 }
 
-/** Parses `devc up` arguments. Throws for an invalid `--bridge-allow`. */
+/** Parses `devc up` arguments. Throws for an invalid `--bridge-allow` or `--bridge-repo`. */
 export function parseUpArgs(args: string[]): UpArgs {
-  const { bridgeAllow, rest } = takeBridgeAllow(args);
+  const { bridgeAllow, bridgeRepos, rest } = takeBridgeFlags(args);
   const printConfig = rest.includes('--print-config');
   const json = rest.includes('--json');
   const target = rest.find((a) => !a.startsWith('--'));
-  return { target, printConfig, json, bridgeAllow };
+  return { target, printConfig, json, bridgeAllow, bridgeRepos };
 }
 
 export interface BuildArgs {
@@ -247,15 +325,17 @@ export interface BuildArgs {
   json: boolean;
   /** As {@link UpArgs.bridgeAllow}. */
   bridgeAllow: BridgeCapability[] | null;
+  /** As {@link UpArgs.bridgeRepos}. */
+  bridgeRepos: string[];
 }
 
-/** Parses `devc build` arguments. Throws for an invalid `--bridge-allow`. */
+/** Parses `devc build` arguments. Throws for an invalid `--bridge-allow` or `--bridge-repo`. */
 export function parseBuildArgs(args: string[]): BuildArgs {
-  const { bridgeAllow, rest } = takeBridgeAllow(args);
+  const { bridgeAllow, bridgeRepos, rest } = takeBridgeFlags(args);
   const noCache = rest.includes('--no-cache');
   const json = rest.includes('--json');
   const target = rest.find((a) => !a.startsWith('--'));
-  return { target, noCache, json, bridgeAllow };
+  return { target, noCache, json, bridgeAllow, bridgeRepos };
 }
 
 export interface ConfigArgs {

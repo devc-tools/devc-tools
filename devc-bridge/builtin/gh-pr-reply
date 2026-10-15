@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# gh-pr-reply — reply to one review thread on this container's one PR.
-#   devc-bridge gh-pr-reply <thread-id> <body>
+# gh-pr-reply — reply to one review thread on the pinned repo's one PR.
+#   devc-bridge gh-pr-reply [--repo <path>] <thread-id> <body>
+#   (`--repo` names the pinned repo by its container path; required once more than one is pinned)
 #
 # Built in: runs only for a container whose policy grants `gh-pr-review`
 # (`devc up --bridge-allow gh-pr-review`).
@@ -17,13 +18,15 @@
 # some variables only another recipe reads.
 # shellcheck disable=SC2016,SC2034
 me=gh-pr-reply
+usage="usage: gh-pr-reply [--repo <path>] <thread-id> <body>"
 # ── BEGIN pr-prelude ──
 # Shared by gh-pr-comments, gh-pr-reply, gh-pr-resolve and gh-pr-request-review: keep the four
 # copies byte-identical (the harness checks). Recipes are installed one file at a time, so there is
 # no library to source.
 #
 # The container's repo is never touched — not read, not run in. Everything comes from the policy
-# (which remote, which branch) and from GitHub. `gh` runs from `/`, only as `gh api`, with the repo
+# (which remote, which branch — of the pinned repo `--repo` selects, when it pins several) and from
+# GitHub. `gh` runs from `/`, only as `gh api`, with the repo
 # spelled out, so it never infers a repo from a git config the agent controls; container-supplied
 # values reach GitHub only as `-f` GraphQL variables (raw strings — `-F` would read `@file`).
 
@@ -46,10 +49,160 @@ IS_COPILOT="(. != null and .__typename == \"Bot\" and .login == \"$COPILOT_LOGIN
 # over REST, and `Copilot` in the issue timeline's events.
 COPILOT_TIMELINE_LOGIN=Copilot
 
-# ── the caller and its policy (byte-for-byte gh-push's parse) ────────────────────────────
+# A leading `--repo <path>` picks one of the pinned repos by its container path; `$usage` is the
+# script's own. Recognized only as the first argument, so a reply body that happens to read
+# `--repo` is still a body, and only in the space form.
+want_repo=''
+if [ "${1-}" = --repo ]; then
+  [ -n "${2-}" ] || die 2 "$usage"
+  want_repo=$2
+  shift 2
+fi
 
+# ── the caller and its policy (gh-push's parse and selection, verbatim) ──────────────────
+
+# parse_policy FILE — read a policy into grants and the arrays pol_repo/pol_remote/pol_branch/
+# pol_target (one entry per line, file order), or set pol_why and fail. The rules are devc-core's
+# policyProblem: 1–16 lines, each `\n`-terminated, each exactly five non-empty, control-free,
+# tab-separated fields `<repo> <remote> <branch> <grants> <target>`; the target absolute and
+# normalized; grants identical on every line; repo and target each distinct. A four-field v1 file
+# is malformed. The whole file is read with the `x` sentinel (so trailing newlines survive) and split
+# by hand: `read` cannot split it, because tab is IFS whitespace and empty fields would collapse.
+parse_policy() {
+  local text line rest tabs field n=0 i r_repo r_remote r_branch r_grants r_target
+  pol_repo=() pol_remote=() pol_branch=() pol_target=() grants='' pol_why=''
+  text=$(cat -- "$1" && printf x) || {
+    pol_why="unreadable"
+    return 1
+  }
+  text=${text%x}
+  case $text in *$'\n') ;; *)
+    pol_why="the file does not end with a newline"
+    return 1
+    ;;
+  esac
+  text=${text%$'\n'}
+  while :; do
+    n=$((n + 1))
+    [ "$n" -le 16 ] || {
+      pol_why="more than 16 lines"
+      return 1
+    }
+    line=${text%%$'\n'*}
+    [ -n "$line" ] || {
+      pol_why="line $n is empty"
+      return 1
+    }
+    tabs=${line//[!$'\t']/}
+    [ ${#tabs} -eq 4 ] || {
+      pol_why="line $n: want 5 tab-separated fields, found $((${#tabs} + 1))"
+      return 1
+    }
+    r_repo=${line%%$'\t'*}
+    rest=${line#*$'\t'}
+    r_remote=${rest%%$'\t'*}
+    rest=${rest#*$'\t'}
+    r_branch=${rest%%$'\t'*}
+    rest=${rest#*$'\t'}
+    r_grants=${rest%%$'\t'*}
+    r_target=${rest#*$'\t'}
+    for field in "$r_repo" "$r_remote" "$r_branch" "$r_grants" "$r_target"; do
+      [ -n "$field" ] || {
+        pol_why="line $n: empty field"
+        return 1
+      }
+      case $field in *[[:cntrl:]]*)
+        pol_why="line $n: control character in a field"
+        return 1
+        ;;
+      esac
+    done
+    case $r_repo in /*) ;; *)
+      pol_why="line $n: repo is not an absolute path"
+      return 1
+      ;;
+    esac
+    case $r_remote in -*)
+      pol_why="line $n: remote looks like an option"
+      return 1
+      ;;
+    esac
+    git check-ref-format "refs/heads/$r_branch" || {
+      pol_why="line $n: branch is not a valid ref name"
+      return 1
+    }
+    [[ $r_grants =~ ^[a-z][a-z-]*(,[a-z][a-z-]*)*$ ]] || {
+      pol_why="line $n: bad grants field"
+      return 1
+    }
+    case $r_target in
+      / | */ | *//* | */./* | */../* | */. | */.. | [!/]*)
+        pol_why="line $n: target is not a normalized absolute path"
+        return 1
+        ;;
+    esac
+    if [ "$n" -eq 1 ]; then
+      grants=$r_grants
+    elif [ "$r_grants" != "$grants" ]; then
+      pol_why="line $n: grants differ from line 1's"
+      return 1
+    fi
+    i=0
+    while [ "$i" -lt "${#pol_repo[@]}" ]; do
+      [ "${pol_repo[$i]}" != "$r_repo" ] || {
+        pol_why="line $n: repo repeats line $((i + 1))'s"
+        return 1
+      }
+      [ "${pol_target[$i]}" != "$r_target" ] || {
+        pol_why="line $n: target repeats line $((i + 1))'s"
+        return 1
+      }
+      i=$((i + 1))
+    done
+    pol_repo+=("$r_repo")
+    pol_remote+=("$r_remote")
+    pol_branch+=("$r_branch")
+    pol_target+=("$r_target")
+    case $text in
+      *$'\n'*) text=${text#*$'\n'} ;;
+      *) return 0 ;;
+    esac
+  done
+}
+
+# select_repo WANT — pick the policy line whose target is WANT (trailing `/`s dropped), or, with
+# WANT empty, the only line; sets repo/remote/branch/target from it, or exits 2 listing the pinned
+# targets. Plain string comparison: devc writes every target normalized.
+select_repo() {
+  local want=$1 t list='' i=0 pick=-1
+  while [ "$i" -lt "${#pol_target[@]}" ]; do
+    list=${list:+$list, }${pol_target[$i]}
+    i=$((i + 1))
+  done
+  if [ -z "$want" ]; then
+    [ "${#pol_target[@]}" -eq 1 ] ||
+      die 2 "this container has ${#pol_target[@]} pinned repos — pass --repo <path>, one of: $list"
+    pick=0
+  else
+    t=$want
+    while [ "${t%/}" != "$t" ]; do t=${t%/}; done
+    i=0
+    while [ "$i" -lt "${#pol_target[@]}" ]; do
+      [ "${pol_target[$i]}" != "$t" ] || pick=$i
+      i=$((i + 1))
+    done
+    [ "$pick" -ge 0 ] || die 2 "no pinned repo at $want — pinned: $list"
+  fi
+  repo=${pol_repo[$pick]}
+  remote=${pol_remote[$pick]}
+  branch=${pol_branch[$pick]}
+  target=${pol_target[$pick]}
+}
+
+# load_policy — the caller's policy, parsed, and the pinned repo `--repo` selected: sets grants,
+# repo, remote, branch, target and head_owner/head_name, or exits 2.
 load_policy() {
-  local key policy_dir policy line tabs rest field
+  local key policy_dir policy
   key=${DEVC_BRIDGE_KEY-}
   [ -n "$key" ] || die 2 "this caller has no workspace key (the shared token has no pinned PR)"
   case $key in
@@ -59,26 +212,8 @@ load_policy() {
   policy=$policy_dir/$key.conf
   [ -f "$policy" ] ||
     die 2 "no policy for this container — on the host: devc up --bridge-allow gh-pr-review"
-  line=$(cat -- "$policy" && printf x) || die 2 "malformed policy $policy: unreadable"
-  line=${line%x}
-  line=${line%$'\n'}
-  case $line in *$'\n'* | *$'\r'*) die 2 "malformed policy $policy: more than one line" ;; esac
-  tabs=${line//[!$'\t']/}
-  [ ${#tabs} -eq 3 ] || die 2 "malformed policy $policy: want exactly four tab-separated fields"
-  rest=${line#*$'\t'}
-  remote=${rest%%$'\t'*}
-  rest=${rest#*$'\t'}
-  branch=${rest%%$'\t'*}
-  grants=${rest#*$'\t'}
-  for field in "${line%%$'\t'*}" "$remote" "$branch" "$grants"; do
-    [ -n "$field" ] || die 2 "malformed policy $policy: empty field"
-    case $field in *[[:cntrl:]]*) die 2 "malformed policy $policy: control character in a field" ;; esac
-  done
-  case ${line%%$'\t'*} in /*) ;; *) die 2 "malformed policy $policy: repo is not an absolute path" ;; esac
-  git check-ref-format "refs/heads/$branch" ||
-    die 2 "malformed policy $policy: branch is not a valid ref name"
-  [[ $grants =~ ^[a-z][a-z-]*(,[a-z][a-z-]*)*$ ]] ||
-    die 2 "malformed policy $policy: bad grants field"
+  parse_policy "$policy" || die 2 "malformed policy $policy: $pol_why"
+  select_repo "$want_repo"
   parse_remote "$remote" || die 2 "unsupported remote $remote — only github.com"
 }
 
@@ -356,7 +491,7 @@ copilot_review() {
 MAX_BODY=4000
 PREFIX=$'\xf0\x9f\xa4\x96 ' # U+1F916 ROBOT FACE, then a space
 
-[ $# -eq 2 ] || die 2 "usage: gh-pr-reply <thread-id> <body>"
+[ $# -eq 2 ] || die 2 "$usage"
 thread=$1
 body=$2
 valid_thread_id "$thread" || die 2 "not a review thread id (want PRRT_…): $thread"

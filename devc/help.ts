@@ -195,6 +195,10 @@ export const COMMAND_HELP: Record<string, string> = {
     "                          gh-pr-request-review; gh or 'gh-*' for all),",
     '                          comma-separated; without it, any earlier',
     '                          grant is removed',
+    '      --bridge-repo PATH  Also pin the repo at host PATH, a git-protected',
+    '                          mount of this workspace, so the capabilities',
+    '                          act on it too; repeatable (at most 15), with',
+    '                          --bridge-allow only',
     '  -h, --help              Print help',
   ].join('\n'),
 
@@ -207,7 +211,8 @@ export const COMMAND_HELP: Record<string, string> = {
     'Options:',
     '      --no-cache          Rebuild the image without the Docker layer cache',
     '      --json              Output container status as JSON',
-    '      --bridge-allow LIST As for `devc up`',
+    '      --bridge-allow LIST',
+    '      --bridge-repo PATH  As for `devc up`',
     '  -h, --help              Print help',
   ].join('\n'),
 

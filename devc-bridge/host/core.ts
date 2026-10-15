@@ -288,7 +288,7 @@ async function grantRefusal(
   const problem = policyProblem(text);
   if (problem !== null) {
     // The likeliest cause of an unknown capability is a newer devc than the running bridge.
-    const fix = problem.startsWith('unknown capability')
+    const fix = /^line \d+: unknown capability/.test(problem)
       ? `if devc is newer than the running bridge, run devc-bridge restart; otherwise ${REGRANT}`
       : REGRANT;
     return {
@@ -297,7 +297,9 @@ async function grantRefusal(
         `this container's policy is malformed and grants nothing: ${problem} (${policyFile}) — on the host: ${fix}`,
     };
   }
-  // policyProblem found nothing, so this parses.
+  // policyProblem found nothing, so this parses. The grants are one list shared by every pinned
+  // repo, so the check is per container, not per repo — which repo a command acts on is the
+  // script's to select (`--repo`).
   const policy = parsePolicy(text)!;
   if (policy.grants.includes(capability)) return null;
   return {

@@ -129,7 +129,7 @@ async function call(
 }
 
 const policyLine = (grants: string) =>
-  `/r\tgit@github.com:o/r.git\tfeat\t${grants}\n`;
+  `/r\tgit@github.com:o/r.git\tfeat\t${grants}\t/workspaces/r\n`;
 
 // ── the grant check ─────────────────────────────────────────────────────────────────────────
 
@@ -223,19 +223,32 @@ Deno.test('a broken policy is refused with exit 2, the reason, and a whole-list 
       await call(port, token, 'gh-push'),
       refused(
         2,
-        `this container's policy is malformed and grants nothing: want 4 tab-separated fields, found 3 (${policyFile}) — on the host: ${regrant}`,
+        `this container's policy is malformed and grants nothing: line 1: want 5 tab-separated fields, found 3 (${policyFile}) — on the host: ${regrant}`,
+      ),
+    );
+
+    // A v1 policy, from before targets existed: four fields. It fails closed.
+    await Deno.writeTextFile(
+      policyFile,
+      '/r\tgit@github.com:o/r.git\tfeat\tgh-push\n',
+    );
+    assertEquals(
+      await call(port, token, 'gh-push'),
+      refused(
+        2,
+        `this container's policy is malformed and grants nothing: line 1: want 5 tab-separated fields, found 4 (${policyFile}) — on the host: ${regrant}`,
       ),
     );
 
     await Deno.writeTextFile(
       policyFile,
-      '/r\tgit@github.com:o/r.git\t\tgh-push\n',
+      '/r\tgit@github.com:o/r.git\t\tgh-push\t/workspaces/r\n',
     );
     assertEquals(
       await call(port, token, 'gh-pr-comments'),
       refused(
         2,
-        `this container's policy is malformed and grants nothing: branch is empty (${policyFile}) — on the host: ${regrant}`,
+        `this container's policy is malformed and grants nothing: line 1: branch is empty (${policyFile}) — on the host: ${regrant}`,
       ),
     );
 
@@ -245,7 +258,7 @@ Deno.test('a broken policy is refused with exit 2, the reason, and a whole-list 
       await call(port, token, 'gh-doctor'),
       refused(
         2,
-        `this container's policy is malformed and grants nothing: unknown capability "gh-nope" (${policyFile}) — on the host: if devc is newer than the running bridge, run devc-bridge restart; otherwise ${regrant}`,
+        `this container's policy is malformed and grants nothing: line 1: unknown capability "gh-nope" (${policyFile}) — on the host: if devc is newer than the running bridge, run devc-bridge restart; otherwise ${regrant}`,
       ),
     );
 
@@ -280,6 +293,34 @@ Deno.test('a broken policy is refused with exit 2, the reason, and a whole-list 
       ` (${policyFile}) — on the host: ${regrant}\n`,
     );
   });
+});
+
+Deno.test('a multi-repo policy grants by its one shared grant list', async () => {
+  const second =
+    `/s\tgit@github.com:o/s.git\tfix\tgh-push,gh-pr-review\t/workspaces/s\n`;
+  await withServer(
+    policyLine('gh-push,gh-pr-review') + second,
+    async ({ port, token, policyFile }) => {
+      assertEquals((await call(port, token, 'gh-push')).ok, true);
+      assertEquals((await call(port, token, 'gh-pr-reply')).ok, true);
+      assertEquals(
+        await call(port, token, 'gh-pr-resolve'),
+        refused(
+          1,
+          'gh-pr-resolve needs capability gh-pr-resolve, which this container was not granted (it has: gh-push, gh-pr-review) — on the host: devc up --bridge-allow gh-push,gh-pr-review,gh-pr-resolve',
+        ),
+      );
+      // Grants that differ between lines are malformed: one list for every repo, or none.
+      await Deno.writeTextFile(
+        policyFile,
+        policyLine('gh-push,gh-pr-review') +
+          second.replace(',gh-pr-review', ''),
+      );
+      const resp = await call(port, token, 'gh-push');
+      assertEquals(resp.exitCode, 2);
+      assertStringIncludes(resp.stderr!, "line 2: grants differ from line 1's");
+    },
+  );
 });
 
 Deno.test('the policy is read per request: deleting it revokes without a restart', async () => {

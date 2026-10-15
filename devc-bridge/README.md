@@ -60,12 +60,12 @@ of the box:
 | `caffeinate start\|stop\|status` | The keepalive's own on/off switch, exposed directly (macOS-only; runs the real `caffeinate(8)`). Manual/advanced use only — see below.                                                                                                                |
 | `echo <args...>`                 | Round-trip smoke test — echoes args back                                                                                                                                                                                                              |
 | `toggle on\|off`                 | Demo command that flips a state marker (exercises `status`/the tray without needing macOS)                                                                                                                                                            |
-| `gh-push`                        | **Built in — needs capability `gh-push`.** Publish this container's one pinned branch to its pinned remote. Takes no arguments. See [Publishing a branch](#publishing-a-branch-gh-push)                                                               |
-| `gh-doctor`                      | **Built in — needs capability `gh-push`.** Explain why `gh-push` would or would not work: the pin, worktree pointers, the mirror, and a read-only probe of the remote. Changes nothing                                                                |
-| `gh-pr-comments`                 | **Built in — needs capability `gh-pr-review`.** The unresolved review threads on this container's PR, as JSON, plus Copilot's latest reviewed commit. Takes no arguments. See [Iterating on PR review](#iterating-on-pr-review-gh-pr-)                |
-| `gh-pr-reply <thread> <body>`    | **Built in — needs capability `gh-pr-review`.** Reply to any review thread on that PR, prefixed `🤖`                                                                                                                                                  |
-| `gh-pr-resolve <thread>`         | **Built in — needs capability `gh-pr-resolve`.** Resolve a review thread on that PR — only one Copilot started                                                                                                                                        |
-| `gh-pr-request-review`           | **Built in — needs capability `gh-pr-request-review`.** Ask Copilot to review that PR's current head — nothing is requested while a review is pending or already of the head. Takes no arguments                                                      |
+| `gh-push`                        | **Built in — needs capability `gh-push`.** Publish a pinned branch to its pinned remote. Takes only `--repo <path>`, required once more than one repo is pinned. See [Publishing a branch](#publishing-a-branch-gh-push)                              |
+| `gh-doctor`                      | **Built in — needs capability `gh-push`.** Explain why `gh-push` would or would not work, for every pinned repo: the pin, worktree pointers, the mirror, and a read-only probe of the remote. Changes nothing                                         |
+| `gh-pr-comments`                 | **Built in — needs capability `gh-pr-review`.** The unresolved review threads on the pinned repo's PR, as JSON, plus Copilot's latest reviewed commit. Takes only `--repo <path>`. See [Iterating on PR review](#iterating-on-pr-review-gh-pr-)       |
+| `gh-pr-reply <thread> <body>`    | **Built in — needs capability `gh-pr-review`.** Reply to any review thread on that PR, prefixed `🤖`. Takes a leading `--repo <path>` like the others                                                                                                 |
+| `gh-pr-resolve <thread>`         | **Built in — needs capability `gh-pr-resolve`.** Resolve a review thread on that PR — only one Copilot started. Takes a leading `--repo <path>` like the others                                                                                       |
+| `gh-pr-request-review`           | **Built in — needs capability `gh-pr-request-review`.** Ask Copilot to review that PR's current head — nothing is requested while a review is pending or already of the head. Takes only `--repo <path>`                                              |
 | `help [guide]`                   | **Answered by the client itself**, never sent to the host (also `--help` / `-h`; no arguments prints it to stderr, exit 2) — every command and its capability, or with `guide` the embedded [agent guide](../docs/bridge-github.md)                   |
 | `version`                        | **Answered by the client itself**, never sent to the host (also `--version` / `-V`) — which client is actually mounted in here, answerable with the bridge down                                                                                       |
 
@@ -565,9 +565,10 @@ into.
 
 Each token **identifies** its caller as that workspace's key. That is what a
 publishing verb needs: `~/.config/devc-bridge/policy/<key>.conf`, written by
-devc, pins the one repo, remote and branch that container's capabilities act on,
-and lists the capabilities it has —
-**one container, one repo, one branch**, and a bind mount is not a grant. The
+devc, pins the repos that container's capabilities act on — the workspace repo,
+plus any the user named with `devc up --bridge-repo` — each with its remote and
+branch, and lists the capabilities it has —
+**one branch per pinned repo**, and a bind mount is not a grant. The
 policy lives outside every mounted directory, because a policy the container
 could write is not a policy, and the pidfile rule already says so: never put a
 file the host acts on into `run/`. The server reads it on every call to a
@@ -583,9 +584,20 @@ never mounted whole — but that is the whole of the guarantee.
 Two independent tools share this directory: devc writes `keys/<key>/` and
 `policy/<key>.conf` and never invokes the bridge; the bridge writes tokens and
 never deletes what devc created. What they share beyond the paths is the policy
-line's format (`<repo>\t<remote>\t<branch>\t<grants>`, parsed by the same
-`devc-core` code on both sides), which is unversioned — a line either side cannot
-parse grants nothing, including a three-field line from before grants existed.
+format, parsed by the same `devc-core` code on both sides (and by each built-in
+script's bash copy of the same rules): 1–16 lines, each `\n`-terminated, one per
+pinned repo with the workspace repo first —
+
+```text
+<repo>\t<remote>\t<branch>\t<grants>\t<target>
+```
+
+— where `<repo>` is the working tree's host path, `<target>` its path in the
+container (absolute, no trailing `/`, no `//`, `.` or `..` segment), `<grants>`
+the same on every line, and `<repo>` and `<target>` each distinct across lines.
+The format is unversioned: a file either side cannot parse grants nothing,
+including a four-field file from an older devc (before `<target>`) and a
+three-field one from before grants existed.
 
 The arch note is a limitation, not a control: the client is cross-compiled for
 the host's architecture. A container run under emulation on the other arch will
@@ -617,9 +629,9 @@ be a github.com remote; devc refuses to grant on any other.
 | `gh-pr-request-review` | `gh-pr-request-review`          | Requires `gh-pr-review`. Each request spends a Copilot review |
 
 `devc up`/`devc build` with `--bridge-allow` write exactly that set (replacing
-any earlier one); without it they delete the policy. Every other start path
-never changes the pin: it re-checks it, and revokes the policy when the
-workspace repo, origin or branch has changed. See
+any earlier one), shared by every repo pinned with it; without it they delete the
+policy. Every other start path never changes a pin: it re-checks each one, and
+revokes the whole policy when any pinned repo, origin or branch has changed. See
 [devc § Per-container identity](../devc/README.md#per-container-identity-and-github-capabilities).
 
 **The server checks the grant before running anything,** reading
@@ -666,11 +678,12 @@ A devcontainer has **no outbound git credential at all** — no SSH agent, no
 unattended review loop: the agent asks the host to publish its branch, and the
 host does, with your credentials, after checking what it is about to send.
 
-> **One container, one repo, one branch.** The token identifies the container;
-> the policy names the single repo and branch it may publish. Sibling
-> `devc:source` mounts are never pushable — a bind mount you added for
-> convenience is not a grant. A container with no policy has exactly the
-> capabilities it has today.
+> **One branch per pinned repo.** The token identifies the container; the
+> policy names the repos and branches it may publish — the workspace repo, and
+> each extra repo you named with `devc up --bridge-allow … --bridge-repo PATH`.
+> A `devc:source` mount you did not name is never pushable — a bind mount you
+> added for convenience is not a grant. A container with no policy has exactly
+> the capabilities it has today.
 
 ### Enabling it
 
@@ -691,9 +704,20 @@ devc will not grant on it, and `gh-push` exits 2 with
 `gh-push: unsupported remote <remote> — only github.com` should a policy name
 one anyway.
 
-Then, inside that container, `devc-bridge gh-push` — no arguments. It prints
+Then, inside that container, `devc-bridge gh-push`. It prints
 `pushed: <branch> at <sha> to <remote> (<repo>)`, or `up to date: …` when the
 remote already has that commit.
+
+**More than one pinned repo: `--repo <path>`.** With several repos pinned,
+name the one to publish by its path in the container —
+`devc-bridge gh-push --repo /workspaces/tools/devc-tools` (a trailing `/` is
+ignored; `--repo "$(git rev-parse --show-toplevel)"` from inside the repo). It
+is the only argument, accepted only first and only as `--repo <path>`. Without
+it, `gh-push` exits 2 with
+`this container has <N> pinned repos — pass --repo <path>, one of: <targets>`;
+a path that is not pinned is exit 2 with
+`no pinned repo at <path> — pinned: <targets>`. With one repo pinned `--repo`
+may be left out. The `gh-pr-*` commands take the same leading `--repo <path>`.
 
 ### What it does
 
@@ -703,11 +727,13 @@ and `--no-verify` does not contain repo-local `core.sshCommand` or an `ext::`
 `insteadOf` rewrite of the very URL you passed on the command line. So the
 script's only contact with the repo is to **fetch from it** — git distrusts the
 config of a repo it fetches from — into a host-owned bare mirror at
-`~/.local/state/devc-bridge/git/<key>.git`, and every later step runs there:
+`~/.local/state/devc-bridge/git/<key>/<owner>/<name>.git`, one per pinned remote,
+and every later step runs there:
 
 1. Read `policy/<key>.conf` for the caller's key (from `DEVC_BRIDGE_KEY`, set by
-   the bridge from the token). No file, anything but one line of four fields, or
-   a remote that is not GitHub, is exit 2.
+   the bridge from the token) and select the pinned repo (`--repo`). No file, a
+   malformed one, no single repo selected, or a remote that is not GitHub, is
+   exit 2.
 2. Check the repo's `.git` as a file: a linked worktree's `gitdir:` pointer must
    point at a `<primary>/.git/worktrees/<name>` that points back, and a primary
    repo must have no `commondir`. Either would otherwise let the fetch read a
@@ -744,17 +770,19 @@ hooks disabled, tag- and submodule-following off, and a hard timeout
 group — the client has no timeout of its own, so a git that stopped to ask
 something would otherwise hang the call forever.
 
-| Exit | Meaning                                                                                                                                 |
-| ---- | --------------------------------------------------------------------------------------------------------------------------------------- |
-| `0`  | pushed, or already up to date                                                                                                           |
-| `2`  | no policy, a malformed one, an argument given, a pin that no longer resolves, a remote that is not GitHub, or a remote/mirror mismatch  |
-| `3`  | policy refusal: the pinned branch is the default branch, workflows changed, an LFS pointer added, or no default branch to check against |
-| `4`  | transport failure or timeout — including a rejected (non-fast-forward) push, and `gh` missing or not logged in                          |
+| Exit | Meaning                                                                                                                                                        |
+| ---- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `0`  | pushed, or already up to date                                                                                                                                  |
+| `2`  | no policy, a malformed one, wrong arguments or no single pinned repo selected, a pin that no longer resolves, a non-GitHub remote, or a remote/mirror mismatch |
+| `3`  | policy refusal: the pinned branch is the default branch, workflows changed, an LFS pointer added, or no default branch to check against                        |
+| `4`  | transport failure or timeout — including a rejected (non-fast-forward) push, and `gh` missing or not logged in                                                 |
 
 ### Limits, stated plainly
 
 - **The mirror holds no unique state.** Deleting it costs a re-fetch on the next
-  push and nothing else.
+  push and nothing else. A mirror from an older bridge, at
+  `~/.local/state/devc-bridge/git/<key>.git`, is no longer read — it is safe to
+  `rm -rf`.
 - **Bearer identity.** A process that obtained another container's token could
   push as that container. Each container mounts only its own key directory, so
   there is no ambient channel — but that is the whole of the guarantee.
@@ -777,10 +805,11 @@ something would otherwise hang the call forever.
 
 ### `gh-doctor [key]`
 
-Reports, per policy: the pin, whether the repo exists and the branch is there (read as
+Reports, per policy and per pinned repo — each headed by a `target    <path>` line
+with its container path, so it takes no `--repo` — the pin, whether the repo exists and the branch is there (read as
 files), whether each worktree pointer of the repo's primary
 (`<primary>.worktrees/*/.git`) still points where it should, the mirror's origin
-and staging-ref count, and a `transport` line from a read-only
+and staging-ref count (`git/<key>/<owner>/<name>.git`, as `gh-push` uses it), and a `transport` line from a read-only
 `git ls-remote` of the pinned remote over `gh-push`'s own transport (HTTPS with
 `gh`'s credential; no prompts), bounded by `DEVC_BRIDGE_GIT_TIMEOUT` (default
 30s here). It proves the credential reaches the remote, not that it may write; a
@@ -818,7 +847,10 @@ The host needs `gh` on the bridge's `PATH`, authenticated (`gh auth login`, or
 
 ### Which PR
 
-**The pin names a source, and the PR is found from it.** The policy's remote is
+**The pin names a source, and the PR is found from it.** With more than one
+repo pinned, every command takes a leading `--repo <path>` (the repo's container
+path) to say which pin — `gh-pr-reply --repo /workspaces/tools/x <thread> <body>`
+— and exits 2 without it, exactly as `gh-push` does. The selected pin's remote is
 the PR's **head** repo — your fork, in a fork workflow — and its branch the head
 branch. The commands ask GitHub for that repo and, if it is a fork, its parent,
 and look for open PRs in both whose head is exactly `<head repo>:<branch>`.
@@ -877,12 +909,12 @@ unbalanced tag, a top-level `<details>` that isn't a `<name> (<n>)` section, a
 section whose count isn't `<n>` — makes `findings` `null`,
 never a partial list; `body` is always there, verbatim, as the fallback.
 
-| Exit | Meaning                                                                                                                                                                   |
-| ---- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `0`  | done, already resolved, or (`gh-pr-request-review`) a review already pending or of the head                                                                               |
-| `2`  | no policy, a malformed or unreadable policy, the shared token, wrong arguments, an unsupported (non-github.com) remote, no single open PR for the pin, a thread not on it |
-| `3`  | refused, and the agent can adjust: a reply body that is empty, too long or has control characters; resolving a thread Copilot did not start                               |
-| `4`  | GitHub or transport failure, `gh` missing or not authenticated, or the timeout (`DEVC_BRIDGE_GH_TIMEOUT`, seconds, default `60`)                                          |
+| Exit | Meaning                                                                                                                                                                                                     |
+| ---- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `0`  | done, already resolved, or (`gh-pr-request-review`) a review already pending or of the head                                                                                                                 |
+| `2`  | no policy, a malformed or unreadable policy, the shared token, wrong arguments or no single pinned repo selected, an unsupported (non-github.com) remote, no single open PR for the pin, a thread not on it |
+| `3`  | refused, and the agent can adjust: a reply body that is empty, too long or has control characters; resolving a thread Copilot did not start                                                                 |
+| `4`  | GitHub or transport failure, `gh` missing or not authenticated, or the timeout (`DEVC_BRIDGE_GH_TIMEOUT`, seconds, default `60`)                                                                            |
 
 ### How `gh` is driven
 

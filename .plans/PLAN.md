@@ -44,13 +44,6 @@
   restarted for. One log line per tool, 120 s cap each, never fails the start. Not
   agent-browser.
 
-- [bridge-multi-repo-pins](bridge-multi-repo-pins.md) — **after bridge-pin-hardening.**
-  `devc up`/`devc build --bridge-allow … --bridge-repo PATH` (repeatable, explicit host paths
-  only, never auto-discovered) also pins extra git-protected repo mounts. The policy becomes 1–16
-  five-field lines with a container `target` and shared grants (v1 files fail closed). The bridge
-  commands take a leading `--repo <target>`, which is required once more than one repo is pinned.
-  Mirrors are keyed per remote. Grant and refresh are all-or-nothing across the pinned repos.
-
 ### Standing rules for Feature work
 
 Not a plan group — these are the conventions every Feature plan in this file
@@ -93,6 +86,22 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
   take it too.
 
 ### Completed
+
+- [bridge-multi-repo-pins](archived/bridge-multi-repo-pins.md) — ✅ Done, validated by the devc-core,
+  devc and bridge-host tests and checks (v2 round-trips and every malformed case; `--bridge-repo`
+  parsing, tilde and refusal cases, the two-line grant, all-or-nothing refusals, the
+  `both push to` refusal, per-line refresh, status), the client check, `gh_push_test.sh` (two-repo
+  policy, `--repo` selection and refusals, per-remote mirrors, v1 refused, `gh-doctor` `target`
+  lines), `gh_pr_review_test.sh` (byte-identical prelude, `--repo` on all four, `--repo` as a
+  reply body) and `deno fmt --check`. **The manual devc-dev check is still to be done by the user
+  on the host** (`devc up ~/code/tools/devc-dev --bridge-allow gh --bridge-repo
+  ~/code/tools/devc-tools`, then `gh-doctor` and `gh-push --repo /workspaces/tools/devc-tools`
+  inside). `devc up`/`devc build --bridge-allow … --bridge-repo PATH` (repeatable, at most 15,
+  explicit host paths only) also pins extra git-protected repo mounts; the policy is 1–16
+  five-field lines with a container `target` and shared grants (v1 files fail closed); the bridge
+  commands take a leading `--repo <target>`, required once more than one repo is pinned; mirrors
+  live at `git/<key>/<owner>/<name>.git`; grant and refresh are all-or-nothing across the pinned
+  repos.
 
 - [bridge-pin-hardening](archived/bridge-pin-hardening.md) — ✅ Done, validated by the devc host
   tests and check (the branch-switch case now revokes; new origin-changed and unchanged-pin
@@ -1959,4 +1968,4 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
 | `agents` `updateToolsOnStart` — update installed agent CLIs at container start                              | [agents-update-tools-on-start](agents-update-tools-on-start.md)                    | in progress |
 | devc repo overlay — one `devc.jsonc` per git repo, shared by its worktrees                                  | [devc-repo-overlay](archived/devc-repo-overlay.md)                                 | complete    |
 | devc-bridge pin hardening — refuse the default branch; refresh revokes instead of moving the pin            | [bridge-pin-hardening](archived/bridge-pin-hardening.md)                           | complete    |
-| devc-bridge multi-repo pins — `--bridge-repo PATH`, v2 policy, `--repo` selector                            | [bridge-multi-repo-pins](bridge-multi-repo-pins.md)                                |             |
+| devc-bridge multi-repo pins — `--bridge-repo PATH`, v2 policy, `--repo` selector                            | [bridge-multi-repo-pins](archived/bridge-multi-repo-pins.md)                       | complete    |

@@ -19,17 +19,29 @@ in the devc-bridge README.
 ```sh
 devc-bridge help          # every command and its capability; works with the bridge down
 devc-bridge help guide    # this guide
-devc-bridge gh-push      # publish the pinned branch. No arguments, ever.
-devc-bridge gh-doctor    # read-only: shows your pin, and tests the connection to the remote
+devc-bridge gh-push [--repo <path>]   # publish the pinned branch of a pinned repo
+devc-bridge gh-doctor                 # read-only: shows every pin, and tests the connection to each remote
 ```
 
-Passing any argument to `gh-push` is an error (exit 2). You cannot choose a
-branch, remote, or ref.
+`gh-push` takes no other argument (anything else is exit 2). You cannot choose a
+branch, remote, or ref — only, when more than one repo is pinned, which pinned
+repo.
 
 ## What gets pushed
 
-- **One repo:** the primary workspace repo. Sibling `devc:source` mounts are
-  never pushable.
+- **The pinned repos:** the primary workspace repo, plus each extra repo the
+  user named on the host with `devc up --bridge-allow … --bridge-repo PATH`. A
+  sibling `devc:source` mount the user did not name is never pushable.
+  `gh-doctor` prints a `target    <path>` line for each pinned repo: that is its
+  path in this container.
+- **`--repo <path>` picks one.** With one repo pinned, leave it out. With more
+  than one, every command (`gh-push` and the four `gh-pr-*`) needs a leading
+  `--repo <path>`, the repo's path in this container, or it exits 2 with
+  `this container has <N> pinned repos — pass --repo <path>, one of: <path>, …`.
+  A path that is not pinned is exit 2 with `no pinned repo at <path> — pinned: …`.
+  From inside the repo you are working in, `--repo "$(git rev-parse --show-toplevel)"`
+  names it. `--repo` must come first and takes a separate value
+  (`--repo <path>`, not `--repo=<path>`).
 - **One branch:** the branch that was checked out when the host last ran
   `devc up --bridge-allow …`. Switching branches never moves the pin: the
   host's next `attach`, `claude`, `exec` and so on sees the change and revokes
@@ -63,14 +75,15 @@ Refusals and failures go to stderr, prefixed with `gh-push:`.
 | ---- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `0`  | Pushed, or already up to date                                                                                                                                                                                                                                                                                                                      | Done                                                                                                                                                                                                                                                                                                                        |
 | `1`  | Refused before the command ran. `gh-push needs capability gh-push, which this container was not granted …` or `no capabilities granted to this container …` means the host didn't grant it; a connection error means the bridge isn't running                                                                                                      | Stop and tell the user, quoting the `devc up --bridge-allow …` the message suggests. You can't fix this from inside                                                                                                                                                                                                         |
-| `2`  | A malformed policy, an argument was passed, the pin no longer resolves (branch missing, detached HEAD, bad worktree pointer), the remote isn't github.com (`gh-push: unsupported remote … — only github.com`), or the remote doesn't match the mirror                                                                                              | Run `gh-doctor`, then report it to the user. Don't retry                                                                                                                                                                                                                                                                    |
+| `2`  | A malformed policy, a wrong argument or no single pinned repo selected (see `--repo`), the pin no longer resolves (branch missing, detached HEAD, bad worktree pointer), the remote isn't github.com (`gh-push: unsupported remote … — only github.com`), or the remote doesn't match the mirror                                                   | Run `gh-doctor`, then report it to the user. Don't retry                                                                                                                                                                                                                                                                    |
 | `3`  | Policy refused the push: the pinned branch is the remote's default branch (`gh-push: refused: <branch> is the default branch of <remote> …`), it changes a file under `.github/workflows/` or `.github/actions/` to something neither the default branch nor the remote branch has, it adds a Git LFS pointer, or the remote has no default branch | For the default branch, stop and tell the user: they check out another branch on the host and run `devc up --bridge-allow …`. Otherwise undo that change, or rebase if the default branch's workflows moved and you're just behind. If the change is needed, hand it to the user to push. Your later pushes then go through |
 | `4`  | Transport failure, timeout (default 300s), a non-fast-forward rejection, or `gh` missing or not logged in on the host                                                                                                                                                                                                                              | If you rewrote history, the push won't go through. Report it. Retry only for a transient network error                                                                                                                                                                                                                      |
 
 ## Rules for agents
 
-- Commit on the pinned branch, then run `devc-bridge gh-push`. There is
-  nothing else to it.
+- Commit on the pinned branch, then run `devc-bridge gh-push` — with
+  `--repo "$(git rev-parse --show-toplevel)"` when more than one repo is
+  pinned. There is nothing else to it.
 - Don't try `git push`, `gh`, or SSH directly. There are no credentials.
 - Leave `.github/workflows/` and `.github/actions/` as they are on the default
   branch or the remote branch. When a change there is needed, the user pushes it.
@@ -87,13 +100,15 @@ Four more commands, enabled per container by three capabilities: `gh-pr-review`
 `gh-pr-request-review` (`gh-pr-request-review`). Any may be missing — the call is
 refused with exit 1 and says which. They act on **your PR**: the one open PR
 whose head is the pinned repo and branch. For a fork, that's the PR from your
-fork into its upstream.
+fork into its upstream. With more than one repo pinned, each takes the same
+leading `--repo <path>` as `gh-push` to say which repo's PR, and exits 2 without
+it.
 
 ```sh
-devc-bridge gh-pr-comments                      # unresolved threads, as JSON
-devc-bridge gh-pr-reply <thread-id> '<body>'    # reply to any thread
-devc-bridge gh-pr-resolve <thread-id>           # resolve a Copilot thread
-devc-bridge gh-pr-request-review                # ask Copilot to review the current head
+devc-bridge gh-pr-comments [--repo <path>]                     # unresolved threads, as JSON
+devc-bridge gh-pr-reply [--repo <path>] <thread-id> '<body>'   # reply to any thread
+devc-bridge gh-pr-resolve [--repo <path>] <thread-id>          # resolve a Copilot thread
+devc-bridge gh-pr-request-review [--repo <path>]               # ask Copilot to review the current head
 ```
 
 `gh-pr-comments` prints one JSON object:
@@ -177,7 +192,7 @@ message saying what to fix. Shorten the body or clean it up and retry; nothing
 was posted. Replies appear under the user's GitHub name with a `🤖` prefix
 added for you, so don't add your own.
 
-`gh-pr-request-review` takes no arguments and prints one line. It spends a Copilot
+`gh-pr-request-review` takes no argument but `--repo` and prints one line. It spends a Copilot
 review only when one would do something, so calling it after every push is safe:
 
 - `pending: Copilot is already reviewing <pr-url>` — nothing was requested.
@@ -221,10 +236,10 @@ Also stop and tell the user if `copilotReview.commit` never catches up to
 
 ### Exit codes
 
-| Exit | Meaning                                                                                                                                                                                           | What to do                                                                                      |
-| ---- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
-| `0`  | Done, already resolved, or (`gh-pr-request-review`) a review already pending or up to date                                                                                                        | Continue                                                                                        |
-| `1`  | Refused before the command ran: `… needs capability gh-pr-review` (or `gh-pr-resolve`, `gh-pr-request-review`) `, which this container was not granted`, or the bridge isn't running              | Tell the user, quoting the suggested `devc up --bridge-allow …`. You can't fix this from inside |
-| `2`  | No policy, a malformed or unreadable policy (the message says what's wrong), wrong arguments, a non-github.com remote, no single open PR for the pinned branch, or a thread that isn't on your PR | Check the thread id came from `gh-pr-comments`. Otherwise report it. Don't retry                |
-| `3`  | Refused: the reply body is empty, too long, or has control characters, or you tried to resolve a thread Copilot didn't start                                                                      | Fix the body and retry, or reply instead of resolving                                           |
-| `4`  | GitHub or network failure, `gh` not set up on the host, or a timeout                                                                                                                              | Retry once for a transient error. Otherwise report it                                           |
+| Exit | Meaning                                                                                                                                                                                                                                             | What to do                                                                                      |
+| ---- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| `0`  | Done, already resolved, or (`gh-pr-request-review`) a review already pending or up to date                                                                                                                                                          | Continue                                                                                        |
+| `1`  | Refused before the command ran: `… needs capability gh-pr-review` (or `gh-pr-resolve`, `gh-pr-request-review`) `, which this container was not granted`, or the bridge isn't running                                                                | Tell the user, quoting the suggested `devc up --bridge-allow …`. You can't fix this from inside |
+| `2`  | No policy, a malformed or unreadable policy (the message says what's wrong), wrong arguments or no single pinned repo selected (pass `--repo`), a non-github.com remote, no single open PR for the pinned branch, or a thread that isn't on your PR | Check the thread id came from `gh-pr-comments`. Otherwise report it. Don't retry                |
+| `3`  | Refused: the reply body is empty, too long, or has control characters, or you tried to resolve a thread Copilot didn't start                                                                                                                        | Fix the body and retry, or reply instead of resolving                                           |
+| `4`  | GitHub or network failure, `gh` not set up on the host, or a timeout                                                                                                                                                                                | Retry once for a transient error. Otherwise report it                                           |

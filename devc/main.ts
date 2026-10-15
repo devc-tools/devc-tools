@@ -15,8 +15,10 @@ import { describeBindMounts, resolveAttachCwd } from './attach.ts';
 import {
   BRIDGE_ALLOW_FLAG,
   BRIDGE_GIT_PUSH_FLAG,
+  BRIDGE_REPO_FLAG,
   herdrLaunchArgs,
   isBridgeAllowArg,
+  isBridgeRepoArg,
   parseAttachArgs,
   parseBuildArgs,
   parseConfigArgs,
@@ -72,10 +74,10 @@ if (subcommand === HERDR_SIDECAR_SUBCOMMAND) {
 }
 
 /**
- * `--bridge-allow` is honored by `up` and `build` only — see `bridge.ts` for why the other start
- * paths may refresh a grant but never make one. Refused rather than ignored elsewhere, so
- * `devc claude --bridge-allow gh-push` cannot look like it granted something. The removed
- * `--bridge-git-push` is refused with a pointer to its replacement.
+ * `--bridge-allow` and `--bridge-repo` are honored by `up` and `build` only — see `bridge.ts` for
+ * why the other start paths may refresh a grant but never make one. Refused rather than ignored
+ * elsewhere, so `devc claude --bridge-allow gh-push` cannot look like it granted something. The
+ * removed `--bridge-git-push` is refused with a pointer to its replacement.
  */
 function refuseBridgeAllow(command: string, args: string[]): void {
   if (args.includes(BRIDGE_GIT_PUSH_FLAG)) {
@@ -84,14 +86,21 @@ function refuseBridgeAllow(command: string, args: string[]): void {
     );
     Deno.exit(2);
   }
-  if (!args.some(isBridgeAllowArg)) return;
-  console.error(
-    `devc: ${BRIDGE_ALLOW_FLAG} is accepted by \`devc up\` and \`devc build\` only, not \`devc ${command}\``,
-  );
-  Deno.exit(2);
+  for (
+    const [flag, is] of [
+      [BRIDGE_ALLOW_FLAG, isBridgeAllowArg],
+      [BRIDGE_REPO_FLAG, isBridgeRepoArg],
+    ] as const
+  ) {
+    if (!args.some(is)) continue;
+    console.error(
+      `devc: ${flag} is accepted by \`devc up\` and \`devc build\` only, not \`devc ${command}\``,
+    );
+    Deno.exit(2);
+  }
 }
 
-/** Parse up/build args; an invalid `--bridge-allow` is a usage error (exit 2). */
+/** Parse up/build args; an invalid `--bridge-allow` or `--bridge-repo` is a usage error (exit 2). */
 function parseOrExit2<T>(parse: (args: string[]) => T, args: string[]): T {
   try {
     return parse(args);
@@ -463,10 +472,8 @@ if (subcommand === 'status') {
 }
 
 if (subcommand === 'up') {
-  const { target: rawTarget, printConfig, json, bridgeAllow } = parseOrExit2(
-    parseUpArgs,
-    Deno.args.slice(1),
-  );
+  const { target: rawTarget, printConfig, json, bridgeAllow, bridgeRepos } =
+    parseOrExit2(parseUpArgs, Deno.args.slice(1));
   const target = resolveLocalFolder(rawTarget);
 
   // `--print-config` starts nothing: the effective config is merged into a cache directory
@@ -479,7 +486,9 @@ if (subcommand === 'up') {
   }
 
   const info = await startContainer(target, false, {
-    bridgePolicy: bridgeAllow ? { grant: bridgeAllow } : 'revoke',
+    bridgePolicy: bridgeAllow
+      ? { grant: bridgeAllow, repos: bridgeRepos }
+      : 'revoke',
   }).catch(fail);
   if (json) {
     console.log(JSON.stringify(info));
@@ -495,15 +504,15 @@ if (subcommand === 'up') {
 // operation that makes a `devcontainer.json` change take effect, since mounts are bound at
 // container-create time; `--no-cache` also rebuilds the image without the layer cache.
 if (subcommand === 'build') {
-  const { target: rawTarget, noCache, json, bridgeAllow } = parseOrExit2(
-    parseBuildArgs,
-    Deno.args.slice(1),
-  );
+  const { target: rawTarget, noCache, json, bridgeAllow, bridgeRepos } =
+    parseOrExit2(parseBuildArgs, Deno.args.slice(1));
   const target = resolveLocalFolder(rawTarget);
   if (!json) console.log(`Rebuilding dev container for ${target}...`);
   const info = await rebuildContainer(target, {
     noCache,
-    bridgePolicy: bridgeAllow ? { grant: bridgeAllow } : 'revoke',
+    bridgePolicy: bridgeAllow
+      ? { grant: bridgeAllow, repos: bridgeRepos }
+      : 'revoke',
   }).catch(fail);
   if (json) {
     console.log(JSON.stringify(info));

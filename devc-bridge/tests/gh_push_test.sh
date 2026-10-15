@@ -45,7 +45,7 @@ GH_URL=https://github.com/acme/widget.git
 
 # fresh [default-branch] — a new world: $HOME, a bare $REMOTE whose HEAD is the default branch, a
 # working $REPO cloned from it on branch `feat` with one new commit, the git and gh shims in
-# $W/ghbin, and a policy pinning feat to $GH_PIN.
+# $W/ghbin, and a one-line policy pinning feat to $GH_PIN, at container path /workspaces/repo.
 fresh() {
   local base=${1:-main}
   W=$(mktemp -d "$root/case.XXXXXX")
@@ -59,7 +59,8 @@ fresh() {
   REPO=$W/repo
   KEY=ws-1
   POLICY_DIR=$HOME/.config/devc-bridge/policy
-  MIRROR=$HOME/.local/state/devc-bridge/git/$KEY.git
+  MIRRORS=$HOME/.local/state/devc-bridge/git
+  MIRROR=$MIRRORS/$KEY/acme/widget.git
   MARK=$W/marks
   mkdir -p "$MARK"
   git init -q --bare "$REMOTE"
@@ -127,9 +128,13 @@ EOF
   : >"$W/git.log"
 }
 
-pin() { # pin <repo> <remote> <branch> [grants, default gh-push]
+pin() { # pin <repo> <remote> <branch> [grants, default gh-push] [target, default /workspaces/repo]
   mkdir -p "$POLICY_DIR"
-  printf '%s\t%s\t%s\t%s\n' "$1" "$2" "$3" "${4:-gh-push}" >"$POLICY_DIR/$KEY.conf"
+  printf '%s\t%s\t%s\t%s\t%s\n' "$1" "$2" "$3" "${4:-gh-push}" "${5:-/workspaces/repo}" \
+    >"$POLICY_DIR/$KEY.conf"
+}
+pin_more() { # pin_more <repo> <remote> <branch> <grants> <target> — append a line to the policy
+  printf '%s\t%s\t%s\t%s\t%s\n' "$@" >>"$POLICY_DIR/$KEY.conf"
 }
 
 # push [args…] — run the recipe as the bridge would; sets $rc and $out (stdout+stderr).
@@ -198,21 +203,47 @@ push
 expect_rc 2 "no policy file"
 check "  … and no mirror was created (nothing touched)" test ! -e "$MIRROR"
 G=$'\t'gh-push
+T=$'\t'/workspaces/repo
 for bad_line in \
   "$REPO"$'\t'"$GH_PIN" \
   "$REPO"$'\t'"$GH_PIN"$'\t'feat \
-  "$REPO"$'\t'"$GH_PIN"$'\t'feat"$G"$'\t'x \
-  "$REPO"$'\t\t'feat"$G" \
-  "relative/repo"$'\t'"$GH_PIN"$'\t'feat"$G" \
-  "$REPO"$'\t'"-u/evil"$'\t'feat"$G" \
-  "$REPO"$'\t'"$GH_PIN"$'\t'"bad..ref$G" \
-  "$REPO"$'\t'"$GH_PIN"$'\t'feat$'\t' \
-  "$REPO"$'\t'"$GH_PIN"$'\t'feat$'\t'"GIT PUSH" \
-  "$REPO"$'\t'"$GH_PIN"$'\t'feat"$G"$'\n'"$REPO"$'\t'"$GH_PIN"$'\t'main"$G"; do
+  "$REPO"$'\t'"$GH_PIN"$'\t'feat"$G" \
+  "$REPO"$'\t'"$GH_PIN"$'\t'feat"$G$T"$'\t'x \
+  "$REPO"$'\t\t'feat"$G$T" \
+  "relative/repo"$'\t'"$GH_PIN"$'\t'feat"$G$T" \
+  "$REPO"$'\t'"-u/evil"$'\t'feat"$G$T" \
+  "$REPO"$'\t'"$GH_PIN"$'\t'"bad..ref$G$T" \
+  "$REPO"$'\t'"$GH_PIN"$'\t'feat$'\t'"$T" \
+  "$REPO"$'\t'"$GH_PIN"$'\t'feat$'\t'"GIT PUSH$T" \
+  "$REPO"$'\t'"$GH_PIN"$'\t'feat"$G"$'\t' \
+  "$REPO"$'\t'"$GH_PIN"$'\t'feat"$G"$'\t'workspaces/repo \
+  "$REPO"$'\t'"$GH_PIN"$'\t'feat"$G"$'\t'/ \
+  "$REPO"$'\t'"$GH_PIN"$'\t'feat"$G"$'\t'/workspaces/repo/ \
+  "$REPO"$'\t'"$GH_PIN"$'\t'feat"$G"$'\t'/workspaces/../repo \
+  "$REPO"$'\t'"$GH_PIN"$'\t'feat"$G"$'\t'/workspaces//repo \
+  "$REPO"$'\t'"$GH_PIN"$'\t'feat"$G$T"$'\n'"$REPO"$'\t'"$GH_PIN"$'\t'main"$G"$'\t'/workspaces/b \
+  "$REPO"$'\t'"$GH_PIN"$'\t'feat"$G$T"$'\n'"$W/b"$'\t'"$GH_PIN"$'\t'main"$G$T" \
+  "$REPO"$'\t'"$GH_PIN"$'\t'feat"$G$T"$'\n'"$W/b"$'\t'"$GH_PIN"$'\t'main"$G",gh-pr-review$'\t'/b \
+  "$REPO"$'\t'"$GH_PIN"$'\t'feat"$G$T"$'\n\n'"$W/b"$'\t'"$GH_PIN"$'\t'main"$G"$'\t'/b \
+  "$REPO"$'\t'"$GH_PIN"$'\t'feat"$G$T"$'\n'; do
   printf '%s\n' "$bad_line" >"$POLICY_DIR/$KEY.conf"
   push
   expect_rc 2 "malformed policy: $(printf '%s' "$bad_line" | sed "s|$W|W|g" | tr '\t\n' '|/')"
 done
+printf '%s' "$REPO"$'\t'"$GH_PIN"$'\t'feat"$G$T" >"$POLICY_DIR/$KEY.conf"
+push
+expect_rc 2 "malformed policy: no final newline"
+for n in $(seq 1 17); do printf '%s\n' "$W/r$n"$'\t'"$GH_PIN"$'\t'feat"$G"$'\t'/w$n; done \
+  >"$POLICY_DIR/$KEY.conf"
+push
+expect_rc 2 "malformed policy: 17 lines"
+check "  … says so" has "more than 16 lines"
+printf '%s\n' "$REPO"$'\t'"$GH_PIN"$'\t'feat"$G" >"$POLICY_DIR/$KEY.conf"
+push
+expect_rc 2 "a v1 (four-field) policy"
+check "  … is malformed" has "malformed policy $POLICY_DIR/$KEY.conf: line 1: want 5 tab-separated fields, found 4"
+check "  … and no mirror was created" test ! -e "$MIRRORS/$KEY"
+
 check "  … and the remote never moved" test "$(remote_ref refs/heads/feat)" = none
 fresh
 pin "$REPO" "$GH_PIN" feat gh-pr-review,gh-pr-resolve
@@ -226,8 +257,15 @@ expect_rc 0 "gh-push among other grants"
 fresh
 push extra
 expect_rc 2 "an argument is rejected, not ignored"
+check "  … with the usage" has "gh-push: usage: gh-push [--repo <path>]"
 push --force
 expect_rc 2 "a flag-shaped argument is rejected"
+push --repo
+expect_rc 2 "--repo with no value"
+push --repo /workspaces/repo extra
+expect_rc 2 "an argument after --repo <path> is rejected"
+push --repo=/workspaces/repo
+expect_rc 2 "--repo=<path> is not accepted"
 check "  … and nothing was pushed" test "$(remote_ref refs/heads/feat)" = none
 out=$(PATH=$W/ghbin:$PATH DEVC_BRIDGE_KEY='' DEVC_BRIDGE_POLICY_DIR=$POLICY_DIR "$PUSH" 2>&1)
 rc=$?
@@ -366,6 +404,54 @@ push
 expect_rc 0 "a pin named main on a master-default remote publishes"
 check "  … at the repo's commit" test "$(remote_ref refs/heads/main)" = "$(repo_ref main)"
 
+echo "multiple pinned repos"
+fresh
+check "a one-line policy pushes without --repo (see above); its target is /workspaces/repo" \
+  grep -q $'\t/workspaces/repo$' "$POLICY_DIR/$KEY.conf"
+GADGET=git@github.com:acme/gadget.git
+git init -q --bare "$W/gadget.git"
+git -C "$W/seed" push -q "$W/gadget.git" HEAD:refs/heads/main
+git clone -q "$W/gadget.git" "$W/repo2"
+git -C "$W/repo2" checkout -q -b feat2
+echo gadget >"$W/repo2/gadget.txt"
+git -C "$W/repo2" add gadget.txt
+git -C "$W/repo2" commit -q -m gadget
+pin_more "$W/repo2" "$GADGET" feat2 gh-push /workspaces/tools/repo2
+widget_refs=$(remote_refs)
+push
+expect_rc 2 "two pinned repos and no --repo"
+check "  … says to pass --repo, listing both" \
+  has "gh-push: this container has 2 pinned repos — pass --repo <path>, one of: /workspaces/repo, /workspaces/tools/repo2"
+push --repo /workspaces/tools/repo2
+expect_rc 0 "--repo selects the second repo"
+check "  … pushes its branch to acme/gadget" \
+  test "$(git --git-dir="$W/gadget.git" rev-parse -q --verify refs/heads/feat2)" = \
+  "$(git -C "$W/repo2" rev-parse feat2)"
+check "  … and leaves acme/widget unchanged" test "$(remote_refs)" = "$widget_refs"
+check "  … naming the repo" has "($W/repo2)"
+push --repo /workspaces/tools/repo2/
+expect_rc 0 "--repo with a trailing slash is the same repo"
+check "  … already up to date" has "up to date: feat2"
+push --repo /nope
+expect_rc 2 "--repo naming no pinned repo"
+check "  … says so, listing the pinned ones" \
+  has "gh-push: no pinned repo at /nope — pinned: /workspaces/repo, /workspaces/tools/repo2"
+push --repo
+expect_rc 2 "--repo with no value"
+push x
+expect_rc 2 "still no positional arguments"
+push --repo /workspaces/repo
+expect_rc 0 "--repo selects the first repo"
+check "  … pushes feat to acme/widget" test "$(remote_ref refs/heads/feat)" = "$(repo_ref feat)"
+check "mirrors are per remote: git/ws-1/acme/widget.git" test -d "$MIRRORS/ws-1/acme/widget.git"
+check "  … and git/ws-1/acme/gadget.git" test -d "$MIRRORS/ws-1/acme/gadget.git"
+check "  … and nothing at git/ws-1.git" test ! -e "$MIRRORS/ws-1.git"
+doctor
+expect_rc 0 "gh-doctor on the two-line policy"
+check "  … a target line for the first repo" has "  target    /workspaces/repo"
+check "  … and for the second" has "  target    /workspaces/tools/repo2"
+check "  … each with its own mirror" has "mirror    $MIRRORS/ws-1/acme/gadget.git (origin matches"
+
 echo "TOCTOU"
 fresh
 inspected=$(repo_ref feat)
@@ -399,11 +485,19 @@ rm -rf "$MIRROR"
 push
 expect_rc 0 "deleting the mirror and re-running"
 check "  … published the new commit" test "$(remote_ref refs/heads/feat)" = "$(repo_ref feat)"
+check "  … at git/<key>/<owner>/<name>.git" test -d "$MIRRORS/$KEY/acme/widget.git"
+check "  … and nothing at the old git/<key>.git" test ! -e "$MIRRORS/$KEY.git"
+# Another remote is another mirror: the widget one is neither reused nor touched.
 git init -q --bare "$W/other.git"
+git -C "$W/seed" push -q "$W/other.git" HEAD:refs/heads/main
 pin "$REPO" "git@github.com:acme/other.git" feat
 push
-expect_rc 2 "policy remote differs from the mirror's origin"
-check "  … nothing reached the other remote" test -z "$(git --git-dir="$W/other.git" for-each-ref)"
+expect_rc 0 "a pin moved to another remote"
+check "  … uses that remote's own mirror" \
+  test "$(git config --file "$MIRRORS/$KEY/acme/other.git/config" remote.origin.url)" = \
+  "git@github.com:acme/other.git"
+check "  … and leaves the widget mirror's origin alone" \
+  test "$(git config --file "$MIRROR/config" remote.origin.url)" = "$GH_PIN"
 pin "$REPO" "$GH_PIN" feat
 git --git-dir="$MIRROR" config remote.origin.url "git@github.com:acme/other.git"
 push
@@ -484,6 +578,10 @@ printf '%s\t%s\t%s\n' "$REPO" "$GH_PIN" feat >"$POLICY_DIR/$KEY.conf"
 doctor
 expect_rc 1 "a three-field (pre-grants) policy"
 check "  … is reported MALFORMED" has "MALFORMED"
+printf '%s\t%s\t%s\t%s\n' "$REPO" "$GH_PIN" feat gh-push >"$POLICY_DIR/$KEY.conf"
+doctor
+expect_rc 1 "a four-field (v1) policy"
+check "  … is reported MALFORMED, with the reason" has "want 5 tab-separated fields, found 4"
 
 echo "GitHub only"
 for remote in "$REMOTE" "file://$REMOTE" "ssh://git@gitlab.com/acme/widget.git" \

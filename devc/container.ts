@@ -79,7 +79,7 @@ function startHooks(
         warn: (m) => console.error(m),
       });
       if (typeof mode === 'object') {
-        await checkGrantBeforeUp(merged, localFolder);
+        await checkGrantBeforeUp(merged, localFolder, undefined, mode.repos);
       }
       await ensureKeyDir(merged);
     },

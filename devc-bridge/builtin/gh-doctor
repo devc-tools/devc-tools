@@ -5,7 +5,9 @@
 # Built in, enabled by the `gh-push` capability. Run by hand on the host
 # (`~/.local/state/devc-bridge/builtin/gh-doctor`) it reports every policy (or just `key`); called through the bridge it reports the caller's own and refuses any
 # other, since one container has no business reading another's pin. The bridge marks a dispatched
-# call by setting DEVC_BRIDGE_KEY, empty for the shared legacy token.
+# call by setting DEVC_BRIDGE_KEY, empty for the shared legacy token. A policy that pins several
+# repos (`devc up --bridge-repo`) is reported repo by repo, each headed by its container path — so
+# it takes no `--repo`.
 #
 # Like gh-push, it never runs git inside a pinned repo: HEAD, refs and worktree pointers are read
 # as files. Only the host-owned mirror is asked anything, plus one read-only `git ls-remote` of the
@@ -36,6 +38,7 @@ policy_dir=${DEVC_BRIDGE_POLICY_DIR:-$HOME/.config/devc-bridge/policy}
 # The knob gh-push honors, but a diagnosis should not make you wait gh-push's 300s.
 timeout_s=${DEVC_BRIDGE_GIT_TIMEOUT:-30}
 case $timeout_s in '' | *[!0-9]*) timeout_s=30 ;; esac
+# gh-push's mirrors: `<key>/<owner>/<name>.git`, one per pinned remote.
 mirrors=$HOME/.local/state/devc-bridge/git
 problems=0
 finding() {
@@ -191,6 +194,117 @@ pointer_problem() {
   printf '%s\n' "$gitdir"
 }
 
+# ── shared with gh-push and the gh-pr-* prelude: keep the copies identical ───────────────
+
+# parse_policy FILE — read a policy into grants and the arrays pol_repo/pol_remote/pol_branch/
+# pol_target (one entry per line, file order), or set pol_why and fail. The rules are devc-core's
+# policyProblem: 1–16 lines, each `\n`-terminated, each exactly five non-empty, control-free,
+# tab-separated fields `<repo> <remote> <branch> <grants> <target>`; the target absolute and
+# normalized; grants identical on every line; repo and target each distinct. A four-field v1 file
+# is malformed. The whole file is read with the `x` sentinel (so trailing newlines survive) and split
+# by hand: `read` cannot split it, because tab is IFS whitespace and empty fields would collapse.
+parse_policy() {
+  local text line rest tabs field n=0 i r_repo r_remote r_branch r_grants r_target
+  pol_repo=() pol_remote=() pol_branch=() pol_target=() grants='' pol_why=''
+  text=$(cat -- "$1" && printf x) || {
+    pol_why="unreadable"
+    return 1
+  }
+  text=${text%x}
+  case $text in *$'\n') ;; *)
+    pol_why="the file does not end with a newline"
+    return 1
+    ;;
+  esac
+  text=${text%$'\n'}
+  while :; do
+    n=$((n + 1))
+    [ "$n" -le 16 ] || {
+      pol_why="more than 16 lines"
+      return 1
+    }
+    line=${text%%$'\n'*}
+    [ -n "$line" ] || {
+      pol_why="line $n is empty"
+      return 1
+    }
+    tabs=${line//[!$'\t']/}
+    [ ${#tabs} -eq 4 ] || {
+      pol_why="line $n: want 5 tab-separated fields, found $((${#tabs} + 1))"
+      return 1
+    }
+    r_repo=${line%%$'\t'*}
+    rest=${line#*$'\t'}
+    r_remote=${rest%%$'\t'*}
+    rest=${rest#*$'\t'}
+    r_branch=${rest%%$'\t'*}
+    rest=${rest#*$'\t'}
+    r_grants=${rest%%$'\t'*}
+    r_target=${rest#*$'\t'}
+    for field in "$r_repo" "$r_remote" "$r_branch" "$r_grants" "$r_target"; do
+      [ -n "$field" ] || {
+        pol_why="line $n: empty field"
+        return 1
+      }
+      case $field in *[[:cntrl:]]*)
+        pol_why="line $n: control character in a field"
+        return 1
+        ;;
+      esac
+    done
+    case $r_repo in /*) ;; *)
+      pol_why="line $n: repo is not an absolute path"
+      return 1
+      ;;
+    esac
+    case $r_remote in -*)
+      pol_why="line $n: remote looks like an option"
+      return 1
+      ;;
+    esac
+    git check-ref-format "refs/heads/$r_branch" || {
+      pol_why="line $n: branch is not a valid ref name"
+      return 1
+    }
+    [[ $r_grants =~ ^[a-z][a-z-]*(,[a-z][a-z-]*)*$ ]] || {
+      pol_why="line $n: bad grants field"
+      return 1
+    }
+    case $r_target in
+      / | */ | *//* | */./* | */../* | */. | */.. | [!/]*)
+        pol_why="line $n: target is not a normalized absolute path"
+        return 1
+        ;;
+    esac
+    if [ "$n" -eq 1 ]; then
+      grants=$r_grants
+    elif [ "$r_grants" != "$grants" ]; then
+      pol_why="line $n: grants differ from line 1's"
+      return 1
+    fi
+    i=0
+    while [ "$i" -lt "${#pol_repo[@]}" ]; do
+      [ "${pol_repo[$i]}" != "$r_repo" ] || {
+        pol_why="line $n: repo repeats line $((i + 1))'s"
+        return 1
+      }
+      [ "${pol_target[$i]}" != "$r_target" ] || {
+        pol_why="line $n: target repeats line $((i + 1))'s"
+        return 1
+      }
+      i=$((i + 1))
+    done
+    pol_repo+=("$r_repo")
+    pol_remote+=("$r_remote")
+    pol_branch+=("$r_branch")
+    pol_target+=("$r_target")
+    case $text in
+      *$'\n'*) text=${text#*$'\n'} ;;
+      *) return 0 ;;
+    esac
+  done
+}
+
 # ── the report ────────────────────────────────────────────────────────────────────────────
 
 if [ -n "${DEVC_BRIDGE_KEY+set}" ]; then
@@ -226,20 +340,8 @@ for key in "${keys[@]}"; do
     echo "  policy    absent ($policy) — this container cannot push"
     continue
   fi
-  line=$(cat -- "$policy" && printf x)
-  line=${line%x}
-  line=${line%$'\n'}
-  tabs=${line//[!$'\t']/}
-  case $line in
-    *$'\n'* | *$'\r'*) tabs=bad ;;
-  esac
-  grants=''
-  if [ ${#tabs} -eq 3 ] && [ "$tabs" != bad ]; then
-    grants=${line##*$'\t'}
-    [[ $grants =~ ^[a-z][a-z-]*(,[a-z][a-z-]*)*$ ]] || tabs=bad
-  fi
-  if [ ${#tabs} -ne 3 ] || [ "$tabs" = bad ]; then
-    finding "policy    MALFORMED ($policy) — grants nothing"
+  if ! parse_policy "$policy"; then
+    finding "policy    MALFORMED ($policy: $pol_why) — grants nothing"
     continue
   fi
   if [ -n "${DEVC_BRIDGE_KEY-}" ]; then
@@ -251,112 +353,117 @@ for key in "${keys[@]}"; do
         ;;
     esac
   fi
-  repo=${line%%$'\t'*}
-  rest=${line#*$'\t'}
-  remote=${rest%%$'\t'*}
-  rest=${rest#*$'\t'}
-  branch=${rest%%$'\t'*}
-  echo "  policy    ${grants//,/, } for $branch → $remote"
-  echo "  repo      $repo"
 
-  common=''
-  if [ -d "$repo/.git" ]; then
-    common=$(phys "$repo/.git")
-    if [ -e "$repo/.git/commondir" ]; then
-      finding "repo      REDIRECTED: a primary repo with a .git/commondir — gh-push will refuse"
-      common=''
-    fi
-  elif [ -f "$repo/.git" ]; then
-    if gitdir=$(pointer_problem "$repo"); then
-      echo "  repo      linked worktree ($gitdir)"
-      common=$(phys "$gitdir/../..")
-    else
-      finding "worktree  REPOINTED: $gitdir — gh-push will refuse"
-    fi
-  elif [ -e "$repo" ]; then
-    finding "repo      NOT A GIT REPO (no .git)"
-  else
-    finding "repo      MISSING"
-  fi
+  # One report per pinned repo, in policy order. `continue` below moves on to the next one.
+  for ((i = 0; i < ${#pol_target[@]}; i++)); do
+    [ "$i" -eq 0 ] || echo
+    repo=${pol_repo[$i]}
+    remote=${pol_remote[$i]}
+    branch=${pol_branch[$i]}
+    echo "  target    ${pol_target[$i]}"
+    echo "  policy    ${grants//,/, } for $branch → $remote"
+    echo "  repo      $repo"
 
-  if [ -n "$common" ]; then
-    if [ -e "$common/reftable" ]; then
-      echo "  branch    unknown (reftable repo — cannot read refs as files)"
-    elif [ -f "$common/refs/heads/$branch" ] ||
-      grep -q " refs/heads/$branch\$" "$common/packed-refs" 2>/dev/null; then
-      echo "  branch    $branch present"
-    else
-      finding "branch    MISSING: $branch is not in $repo"
-    fi
-
-    # Every sibling worktree of the primary: a pointer rewritten from inside a container is the one
-    # thing that could make a later push read a repo it was never pinned to.
-    primary=$(dirname -- "$common")
-    for dotgit in "$primary.worktrees"/*/.git; do
-      [ -f "$dotgit" ] || continue
-      wt=${dotgit%/.git}
-      if reason=$(pointer_problem "$wt"); then
-        case $reason in
-          "$common"/worktrees/*) ;;
-          *) finding "worktree  REPOINTED: $wt/.git belongs to another repo ($reason)" ;;
-        esac
-      else
-        finding "worktree  REPOINTED: $reason"
+    common=''
+    if [ -d "$repo/.git" ]; then
+      common=$(phys "$repo/.git")
+      if [ -e "$repo/.git/commondir" ]; then
+        finding "repo      REDIRECTED: a primary repo with a .git/commondir — gh-push will refuse"
+        common=''
       fi
-    done
-  fi
-
-  mirror=$mirrors/$key.git
-  if [ -d "$mirror" ]; then
-    origin=$(git config --file "$mirror/config" --get remote.origin.url 2>/dev/null)
-    staged=$(git -c core.hooksPath=/dev/null --git-dir="$mirror" for-each-ref refs/staging 2>/dev/null |
-      wc -l | tr -d ' ')
-    if [ "$origin" = "$remote" ]; then
-      echo "  mirror    $mirror (origin matches; $staged staging ref(s))"
+    elif [ -f "$repo/.git" ]; then
+      if gitdir=$(pointer_problem "$repo"); then
+        echo "  repo      linked worktree ($gitdir)"
+        common=$(phys "$gitdir/../..")
+      else
+        finding "worktree  REPOINTED: $gitdir — gh-push will refuse"
+      fi
+    elif [ -e "$repo" ]; then
+      finding "repo      NOT A GIT REPO (no .git)"
     else
-      finding "mirror    MISMATCH: origin ${origin:-<none>} ≠ policy $remote — gh-push will refuse"
+      finding "repo      MISSING"
     fi
-  else
-    echo "  mirror    none yet (the first gh-push creates it)"
-  fi
 
-  # Read-only and repo-less (cwd is /), over gh-push's transport: it proves the credential reaches
-  # the remote, not that it may write.
-  if ! transport_setup "$remote" >"$tmp/why"; then
-    finding "transport FAILED: $(cat "$tmp/why")"
-    continue
-  fi
-  gh_ready
-  case $? in
-    0) ;;
-    2)
-      finding "transport FAILED: $GH_MISSING"
+    if [ -n "$common" ]; then
+      if [ -e "$common/reftable" ]; then
+        echo "  branch    unknown (reftable repo — cannot read refs as files)"
+      elif [ -f "$common/refs/heads/$branch" ] ||
+        grep -q " refs/heads/$branch\$" "$common/packed-refs" 2>/dev/null; then
+        echo "  branch    $branch present"
+      else
+        finding "branch    MISSING: $branch is not in $repo"
+      fi
+
+      # Every sibling worktree of the primary: a pointer rewritten from inside a container is the one
+      # thing that could make a later push read a repo it was never pinned to.
+      primary=$(dirname -- "$common")
+      for dotgit in "$primary.worktrees"/*/.git; do
+        [ -f "$dotgit" ] || continue
+        wt=${dotgit%/.git}
+        if reason=$(pointer_problem "$wt"); then
+          case $reason in
+            "$common"/worktrees/*) ;;
+            *) finding "worktree  REPOINTED: $wt/.git belongs to another repo ($reason)" ;;
+          esac
+        else
+          finding "worktree  REPOINTED: $reason"
+        fi
+      done
+    fi
+
+    if ! parse_remote "$remote"; then
+      echo "  mirror    none (gh-push refuses this remote)"
+    elif mirror=$mirrors/$key/$head_owner/$head_name.git && [ -d "$mirror" ]; then
+      origin=$(git config --file "$mirror/config" --get remote.origin.url 2>/dev/null)
+      staged=$(git -c core.hooksPath=/dev/null --git-dir="$mirror" for-each-ref refs/staging 2>/dev/null |
+        wc -l | tr -d ' ')
+      if [ "$origin" = "$remote" ]; then
+        echo "  mirror    $mirror (origin matches; $staged staging ref(s))"
+      else
+        finding "mirror    MISMATCH: origin ${origin:-<none>} ≠ policy $remote — gh-push will refuse"
+      fi
+    else
+      echo "  mirror    none yet (the first gh-push creates it)"
+    fi
+
+    # Read-only and repo-less (cwd is /), over gh-push's transport: it proves the credential reaches
+    # the remote, not that it may write.
+    if ! transport_setup "$remote" >"$tmp/why"; then
+      finding "transport FAILED: $(cat "$tmp/why")"
       continue
-      ;;
-    *)
-      finding "transport FAILED: gh is not authenticated for github.com — run gh auth login on the host"
-      continue
-      ;;
-  esac
-  # `--symref HEAD` as well, so the same probe reads the default branch the way gh-push does.
-  rc=0
-  run_t env ${NET_ENV[@]+"${NET_ENV[@]}"} git -c core.askPass= -c protocol.ext.allow=never \
-    ${NET_FLAGS[@]+"${NET_FLAGS[@]}"} ls-remote --symref -- "$url" HEAD "refs/heads/$branch" \
-    >"$tmp/ls-remote" 2>"$tmp/ls-remote.err" || rc=$?
-  if [ "$rc" -eq 0 ]; then
-    echo "  transport ok (git ls-remote reached $url via gh credentials)"
-    base=$(awk '$1 == "ref:" && $3 == "HEAD" { sub("^refs/heads/", "", $2); print $2; exit }' \
-      "$tmp/ls-remote")
-    # gh-push refuses to publish the default branch (exit 3), whatever the pin says.
-    [ "$branch" != "$base" ] ||
-      finding "default   $branch is the default branch of $remote — gh-push refuses it"
-  elif [ -e "$tmp/timedout" ]; then
-    finding "transport TIMED OUT after ${timeout_s}s reaching $url"
-  else
-    why=$(grep -v '^[[:space:]]*$' "$tmp/ls-remote.err" | head -n 1)
-    finding "transport FAILED: git ls-remote exited $rc: ${why:-no error output}"
-    echo "            GitHub remotes use gh's credentials over HTTPS: check gh auth status on the host"
-  fi
+    fi
+    gh_ready
+    case $? in
+      0) ;;
+      2)
+        finding "transport FAILED: $GH_MISSING"
+        continue
+        ;;
+      *)
+        finding "transport FAILED: gh is not authenticated for github.com — run gh auth login on the host"
+        continue
+        ;;
+    esac
+    # `--symref HEAD` as well, so the same probe reads the default branch the way gh-push does.
+    rc=0
+    run_t env ${NET_ENV[@]+"${NET_ENV[@]}"} git -c core.askPass= -c protocol.ext.allow=never \
+      ${NET_FLAGS[@]+"${NET_FLAGS[@]}"} ls-remote --symref -- "$url" HEAD "refs/heads/$branch" \
+      >"$tmp/ls-remote" 2>"$tmp/ls-remote.err" || rc=$?
+    if [ "$rc" -eq 0 ]; then
+      echo "  transport ok (git ls-remote reached $url via gh credentials)"
+      base=$(awk '$1 == "ref:" && $3 == "HEAD" { sub("^refs/heads/", "", $2); print $2; exit }' \
+        "$tmp/ls-remote")
+      # gh-push refuses to publish the default branch (exit 3), whatever the pin says.
+      [ "$branch" != "$base" ] ||
+        finding "default   $branch is the default branch of $remote — gh-push refuses it"
+    elif [ -e "$tmp/timedout" ]; then
+      finding "transport TIMED OUT after ${timeout_s}s reaching $url"
+    else
+      why=$(grep -v '^[[:space:]]*$' "$tmp/ls-remote.err" | head -n 1)
+      finding "transport FAILED: git ls-remote exited $rc: ${why:-no error output}"
+      echo "            GitHub remotes use gh's credentials over HTTPS: check gh auth status on the host"
+    fi
+  done
 done
 
 exit $((problems > 0))

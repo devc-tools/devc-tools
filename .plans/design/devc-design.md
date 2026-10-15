@@ -806,9 +806,25 @@ Arguments:
   [PATH]  Path to the project (default: current directory)
 
 Options:
-      --json   Output container status as JSON
-  -h, --help   Print help
+      --print-config      Print the effective devcontainer.json and exit
+      --json              Output container status as JSON
+      --bridge-allow LIST Let this container use devc-bridge capabilities
+                          (gh-push, gh-pr-review, gh-pr-resolve,
+                          gh-pr-request-review; gh or 'gh-*' for all),
+                          comma-separated; without it, any earlier
+                          grant is removed
+      --bridge-repo PATH  Also pin the repo at host PATH, a git-protected
+                          mount of this workspace, so the capabilities
+                          act on it too; repeatable (at most 15), with
+                          --bridge-allow only
+  -h, --help              Print help
 ```
+
+`--bridge-repo PATH` names an extra repo by **host** path — `~`/`~/` expand to
+`$HOME` even after `=` or in quotes, a relative path resolves against the cwd —
+and must be a git-protected repo mount of this workspace (a `devc:source` row
+whose `.git` is a directory). devc never pins a mounted repo it was not told
+to. See [devc/README.md](../../devc/README.md) for the grant rules.
 
 ## `build`
 
@@ -829,9 +845,11 @@ Arguments:
   [PATH]  Path to the project (default: current directory)
 
 Options:
-      --no-cache   Rebuild the image without the Docker layer cache
-      --json       Output container status as JSON
-  -h, --help       Print help
+      --no-cache          Rebuild the image without the Docker layer cache
+      --json              Output container status as JSON
+      --bridge-allow LIST
+      --bridge-repo PATH  As for `devc up`
+  -h, --help              Print help
 ```
 
 Output matches `up`:

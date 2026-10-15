@@ -309,11 +309,14 @@ fresh() {
   echo '{"data":{"resolveReviewThread":{"thread":{"isResolved":true}}}}' >"$FX/resolve.json"
 }
 
-pin() { # pin <remote> <branch> [grants, default gh-pr-review,gh-pr-resolve,gh-pr-request-review]
+ALL_PR=gh-pr-review,gh-pr-resolve,gh-pr-request-review
+pin() { # pin <remote> <branch> [grants, default $ALL_PR] — one line, container path /workspaces/r
   mkdir -p "$POLICY_DIR"
-  printf '%s\t%s\t%s\t%s\n' /Users/you/code/r "$1" "$2" \
-    "${3:-gh-pr-review,gh-pr-resolve,gh-pr-request-review}" \
+  printf '%s\t%s\t%s\t%s\t%s\n' /Users/you/code/r "$1" "$2" "${3:-$ALL_PR}" /workspaces/r \
     >"$POLICY_DIR/$KEY.conf"
+}
+pin_more() { # pin_more <repo> <remote> <branch> <grants> <target> — append a policy line
+  printf '%s\t%s\t%s\t%s\t%s\n' "$@" >>"$POLICY_DIR/$KEY.conf"
 }
 
 # run <recipe> [args…] — as the bridge would; sets $rc, $out (stdout) and $err (stderr).
@@ -367,6 +370,11 @@ for r in gh-pr-comments gh-pr-reply gh-pr-resolve gh-pr-request-review; do
   printf '%s\t%s\t%s\n' /Users/you/code/r git@github.com:me/r.git "$BRANCH" >"$POLICY_DIR/$KEY.conf"
   run "$r" "${args[@]}"
   expect_rc 2 "$r: a three-field (pre-grants) policy"
+  printf '%s\t%s\t%s\t%s\n' /Users/you/code/r git@github.com:me/r.git "$BRANCH" "$ALL_PR" \
+    >"$POLICY_DIR/$KEY.conf"
+  run "$r" "${args[@]}"
+  expect_rc 2 "$r: a four-field (v1) policy"
+  check "  … is malformed" has_err "line 1: want 5 tab-separated fields, found 4"
   pin git@github.com:me/r.git "$BRANCH" gh-push
   run "$r" "${args[@]}"
   expect_rc 2 "$r: a policy granting only gh-push"
@@ -412,6 +420,63 @@ expect_rc 2 "a thread id that is not PRRT_…"
 run gh-pr-reply '--jq=.' hi
 expect_rc 2 "a thread id shaped like a flag"
 check "  … none of these reached GitHub" test -z "$(calls)"
+
+run gh-pr-reply --repo
+expect_rc 2 "gh-pr-reply --repo with no value"
+check "  … prints the usage" has_err "usage: gh-pr-reply [--repo <path>] <thread-id> <body>"
+run gh-pr-resolve --repo /workspaces/r
+expect_rc 2 "gh-pr-resolve --repo <path> and no thread"
+check "  … prints the usage" has_err "usage: gh-pr-resolve [--repo <path>] <thread-id>"
+run gh-pr-comments --repo=/workspaces/r
+expect_rc 2 "--repo=<path> is not accepted"
+check "  … prints the usage" has_err "usage: gh-pr-comments [--repo <path>]"
+check "  … none of these reached GitHub either" test -z "$(calls)"
+run gh-pr-reply PRRT_c1 --repo
+expect_rc 0 "gh-pr-reply <thread> --repo: --repo after the thread is the body"
+check "  … and was posted as one" test "$(cat "$SHIM/posted")" = $'\xf0\x9f\xa4\x96 --repo'
+fresh
+run gh-pr-reply --repo /workspaces/r/ PRRT_c1 hi
+expect_rc 0 "one pinned repo, named with --repo (and a trailing slash)"
+
+echo "multiple pinned repos"
+# fresh's me/r at /workspaces/r, then me/s (no fork, PR me/s#9, thread s1) at /workspaces/tools/s.
+multi() {
+  fresh
+  pin_more /Users/you/code/s git@github.com:me/s.git feat/s "$ALL_PR" /workspaces/tools/s
+  repo_fx me/s
+  prs_fx me/s me/s 9
+  node_fx PRRT_s1 PR_9 false copilot
+}
+for r in gh-pr-comments gh-pr-reply gh-pr-resolve gh-pr-request-review; do
+  case $r in
+    gh-pr-comments | gh-pr-request-review) args=() ;; gh-pr-reply) args=(PRRT_c1 hi) ;; gh-pr-resolve) args=(PRRT_c1) ;;
+  esac
+  multi
+  run "$r" "${args[@]}"
+  expect_rc 2 "$r: two pinned repos and no --repo"
+  check "  … says to pass --repo, listing both" \
+    has_err "$r: this container has 2 pinned repos — pass --repo <path>, one of: /workspaces/r, /workspaces/tools/s"
+  check "  … and GitHub was never asked" test -z "$(calls)"
+  run "$r" --repo /nope "${args[@]}"
+  expect_rc 2 "$r: --repo naming no pinned repo"
+  check "  … says so" has_err "$r: no pinned repo at /nope — pinned: /workspaces/r, /workspaces/tools/s"
+done
+multi
+run gh-pr-reply --repo /workspaces/r PRRT_c1 hi
+expect_rc 0 "gh-pr-reply --repo /workspaces/r replies on me/r's PR"
+check "  … through up/r#7" test "$out" = "replied: https://github.com/up/r/pull/7#r1"
+check "  … and never looked at me/s" bash -c '! grep -q "me/s\|name=s " "$1"' _ "$SHIM/calls.log"
+multi
+run gh-pr-reply --repo /workspaces/tools/s PRRT_s1 hi
+expect_rc 0 "gh-pr-reply --repo /workspaces/tools/s replies on me/s's PR"
+check "  … looking its PR up in me/s" grep -q "repos/me/s " "$SHIM/calls.log"
+check "  … on branch feat/s" grep -q "branch=feat/s " "$SHIM/calls.log"
+run gh-pr-reply --repo /workspaces/tools/s PRRT_c1 hi
+expect_rc 2 "  … and a thread on me/r's PR is not on it"
+check "  … says so" has_err "thread PRRT_c1 is not on https://github.com/me/s/pull/9"
+run gh-pr-comments --repo /workspaces/r
+expect_rc 0 "gh-pr-comments --repo /workspaces/r"
+check "  … reads up/r#7" test "$(q .pr.number)" = 7
 
 echo "remote shapes"
 for remote in git@github.com:o/r.git ssh://git@github.com/o/r https://github.com/o/r.git \

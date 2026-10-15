@@ -15,6 +15,7 @@ import {
   type BridgeCapability,
   bridgePaths,
   capabilityForCommand,
+  gitHubRepoOf,
   isGitHubRemote,
   parseGitdirPointer,
   parseHead,
@@ -95,19 +96,66 @@ Deno.test('bridgePaths: token under keys/<key>/, policy outside it', () => {
   assert(!p.keyDir.includes('/run/'));
 });
 
-// ── the policy line ─────────────────────────────────────────────────────────────────────────
+// ── the policy lines ────────────────────────────────────────────────────────────────────────
 
-Deno.test('policy: serialize and parse round-trip one tab-separated line', () => {
-  const record = {
-    repo: '/Users/me/code/app',
-    remote: 'git@github.com:acme/app.git',
-    branch: 'feat/x',
-    grants: ['gh-push', 'gh-pr-review'] as BridgeCapability[],
+/** One v2 policy line. */
+const line = (
+  repo: string,
+  target: string,
+  grants = 'gh-push',
+  remote = 'git@github.com:acme/app.git',
+  branch = 'feat/x',
+) => `${repo}\t${remote}\t${branch}\t${grants}\t${target}\n`;
+
+Deno.test('policy: a one-line policy round-trips as five tab-separated fields', () => {
+  const record: PolicyRecord = {
+    grants: ['gh-push', 'gh-pr-review'],
+    repos: [{
+      repo: '/Users/me/code/app',
+      remote: 'git@github.com:acme/app.git',
+      branch: 'feat/x',
+      target: '/workspaces/app',
+    }],
   };
   const text = serializePolicy(record);
   assertEquals(
     text,
-    '/Users/me/code/app\tgit@github.com:acme/app.git\tfeat/x\tgh-push,gh-pr-review\n',
+    '/Users/me/code/app\tgit@github.com:acme/app.git\tfeat/x\tgh-push,gh-pr-review\t/workspaces/app\n',
+  );
+  assertEquals(parsePolicy(text), record);
+});
+
+Deno.test('policy: a three-line policy round-trips, workspace first, grants on every line', () => {
+  const record: PolicyRecord = {
+    grants: ['gh-push', 'gh-pr-review', 'gh-pr-resolve'],
+    repos: [
+      {
+        repo: '/Users/me/code/app',
+        remote: 'git@github.com:acme/app.git',
+        branch: 'feat/x',
+        target: '/workspaces/app',
+      },
+      {
+        repo: '/Users/me/code/tools/lib',
+        remote: 'https://github.com/acme/lib',
+        branch: 'feat/lib',
+        target: '/workspaces/tools/lib',
+      },
+      {
+        repo: '/Users/me/code/docs',
+        remote: 'ssh://git@github.com-work/acme/docs.git',
+        branch: 'fix/typo',
+        target: '/workspaces/docs',
+      },
+    ],
+  };
+  const text = serializePolicy(record);
+  const grants = 'gh-push,gh-pr-review,gh-pr-resolve';
+  assertEquals(
+    text,
+    `/Users/me/code/app\tgit@github.com:acme/app.git\tfeat/x\t${grants}\t/workspaces/app\n` +
+      `/Users/me/code/tools/lib\thttps://github.com/acme/lib\tfeat/lib\t${grants}\t/workspaces/tools/lib\n` +
+      `/Users/me/code/docs\tssh://git@github.com-work/acme/docs.git\tfix/typo\t${grants}\t/workspaces/docs\n`,
   );
   assertEquals(parsePolicy(text), record);
 });
@@ -123,7 +171,10 @@ Deno.test('policy: every valid grant set round-trips', () => {
     ['gh-push', 'gh-pr-review', 'gh-pr-resolve', 'gh-pr-request-review'],
   ];
   for (const grants of sets) {
-    const record = { repo: '/a', remote: 'r', branch: 'b', grants };
+    const record: PolicyRecord = {
+      grants,
+      repos: [{ repo: '/a', remote: 'r', branch: 'b', target: '/w' }],
+    };
     assertEquals(
       parsePolicy(serializePolicy(record)),
       record,
@@ -139,23 +190,37 @@ Deno.test('policy: a malformed file parses to null', () => {
       '\n',
       '/a\tb\n',
       '/a\tb\tc\n', // three fields: a file from before grants existed
-      '/a\tb\tc\tgh-push\te\n',
-      '/a\t\tc\tgh-push\n',
-      '/a\tb\tc\t\n', // empty grants
-      '/a\tb\tc\tgh-push\n/d\te\tf\tgh-push\n',
-      '/a\tb\tc\tgh-push\r\n',
-      '/a\tb\tc\tgit-pull\n', // unknown capability
-      '/a\tb\tc\tgit-push\n', // a name from before the gh- rename
-      '/a\tb\tc\tgh-push,pr-review\n', // … even alongside a current one
-      '/a\tb\tc\tgh\n', // the wildcard is devc's to expand, never a policy's
-      '/a\tb\tc\tgh-push,gh-push\n', // duplicate
-      '/a\tb\tc\tgh-pr-review,gh-push\n', // out of canonical order
-      '/a\tb\tc\tgh-push, gh-pr-review\n', // a space
-      '/a\tb\tc\tgh-push,\n', // trailing comma
-      '/a\tb\tc\tgh-pr-resolve\n', // gh-pr-resolve without gh-pr-review
-      '/a\tb\tc\tgh-pr-request-review\n', // gh-pr-request-review without gh-pr-review
-      '/a\tb\tc\tgh-push,gh-pr-resolve,gh-pr-request-review\n', // … even alongside gh-pr-resolve
-      '/a\tb\tc\tgh-pr-review,gh-pr-request-review,gh-pr-resolve\n', // out of canonical order
+      '/a\tb\tc\tgh-push\n', // four fields: a v1 file, from before targets existed
+      '/a\tb\tc\tgh-push\t/w', // no final newline
+      '/a\tb\tc\tgh-push\t/w\n\n', // a trailing empty line
+      '/a\tb\tc\tgh-push\t/w\te\n',
+      '/a\t\tc\tgh-push\t/w\n',
+      '/a\tb\tc\t\t/w\n', // empty grants
+      '/a\tb\tc\tgh-push\t\n', // empty target
+      '/a\tb\tc\tgh-push\t/w\r\n',
+      line('/a', 'w'), // a relative target
+      line('/a', '/'),
+      line('/a', '/w/'),
+      line('/a', '/w//x'),
+      line('/a', '/w/./x'),
+      line('/a', '/w/../x'),
+      line('/a', '/w/..'),
+      line('/a', '/w', 'git-pull'), // unknown capability
+      line('/a', '/w', 'git-push'), // a name from before the gh- rename
+      line('/a', '/w', 'gh-push,pr-review'), // … even alongside a current one
+      line('/a', '/w', 'gh'), // the wildcard is devc's to expand, never a policy's
+      line('/a', '/w', 'gh-push,gh-push'), // duplicate
+      line('/a', '/w', 'gh-pr-review,gh-push'), // out of canonical order
+      line('/a', '/w', 'gh-push, gh-pr-review'), // a space
+      line('/a', '/w', 'gh-push,'), // trailing comma
+      line('/a', '/w', 'gh-pr-resolve'), // gh-pr-resolve without gh-pr-review
+      line('/a', '/w', 'gh-pr-request-review'), // gh-pr-request-review without gh-pr-review
+      line('/a', '/w', 'gh-push,gh-pr-resolve,gh-pr-request-review'), // … even alongside gh-pr-resolve
+      line('/a', '/w', 'gh-pr-review,gh-pr-request-review,gh-pr-resolve'), // out of canonical order
+      line('/a', '/w') + line('/b', '/x', 'gh-push,gh-pr-review'), // grants differ
+      line('/a', '/w') + line('/a', '/x'), // the same repo twice
+      line('/a', '/w') + line('/b', '/w'), // the same target twice
+      line('/a', '/w') + '\n' + line('/b', '/x'), // an empty middle line
     ]
   ) {
     assertEquals(parsePolicy(text), null, JSON.stringify(text));
@@ -163,18 +228,58 @@ Deno.test('policy: a malformed file parses to null', () => {
 });
 
 Deno.test('policy: policyProblem names the first problem, and parsePolicy agrees', () => {
+  const seventeen = Array.from(
+    { length: 17 },
+    (_, i) => line(`/r${i}`, `/w${i}`),
+  )
+    .join('');
+  const sixteen = Array.from({ length: 16 }, (_, i) => line(`/r${i}`, `/w${i}`))
+    .join('');
   const cases: [string, string | null][] = [
-    ['/a\tb\tc\tgh-push\n/d\te\tf\tgh-push\n', 'more than one line'],
-    ['/a\tb\tc\tgh-push\r\n', 'more than one line'],
-    ['/a\tb\tc\n', 'want 4 tab-separated fields, found 3'],
-    ['', 'want 4 tab-separated fields, found 1'],
-    ['/a\tb\t\tgh-push\n', 'branch is empty'],
-    ['/a\t\t\tgh-push\n', 'remote is empty'],
-    ['/a\tb\tc\t\n', 'grants is empty'],
-    ['/a\tb\tc\tgh-push,gh-nope\n', 'unknown capability "gh-nope"'],
-    ['/a\tb\tc\tgh-pr-resolve\n', 'gh-pr-resolve requires gh-pr-review'],
-    ['/a\tb\tc\tgh-push,gh-pr-review\n', null],
-    ['/a\tb\tc\tgh-push', null],
+    ['', 'the file does not end with a newline'],
+    ['/a\tb\tc\tgh-push\t/w', 'the file does not end with a newline'],
+    ['\n', 'line 1 is empty'],
+    ['/a\tb\tc\tgh-push\n', 'line 1: want 5 tab-separated fields, found 4'],
+    ['/a\tb\tc\n', 'line 1: want 5 tab-separated fields, found 3'],
+    [
+      '/a\tb\tc\tgh-push\t/w\tx\n',
+      'line 1: want 5 tab-separated fields, found 6',
+    ],
+    ['/a\tb\t\tgh-push\t/w\n', 'line 1: branch is empty'],
+    ['/a\t\t\tgh-push\t/w\n', 'line 1: remote is empty'],
+    ['/a\tb\tc\t\t/w\n', 'line 1: grants is empty'],
+    [
+      '/a\tb\tc\tgh-push\t/w\r\n',
+      'line 1: target contains a tab, newline or other control character',
+    ],
+    [line('/a', 'w'), 'line 1: target is not an absolute path'],
+    [line('/a', '/'), 'line 1: target is /'],
+    [line('/a', '/w/'), 'line 1: target ends with /'],
+    [line('/a', '/w/../x'), 'line 1: target has an empty, . or .. segment'],
+    [line('/a', '/w//x'), 'line 1: target has an empty, . or .. segment'],
+    [
+      line('/a', '/w', 'gh-push,gh-nope'),
+      'line 1: unknown capability "gh-nope"',
+    ],
+    [
+      line('/a', '/w', 'gh-pr-resolve'),
+      'line 1: gh-pr-resolve requires gh-pr-review',
+    ],
+    [
+      line('/a', '/w') + line('/b', '/x', 'gh-push,gh-pr-review'),
+      "line 2: grants differ from line 1's",
+    ],
+    [line('/a', '/w') + line('/a', '/x'), "line 2: repo repeats line 1's"],
+    [
+      line('/a', '/w') + line('/b', '/x') + line('/c', '/w'),
+      "line 3: target repeats line 1's",
+    ],
+    [line('/a', '/w') + '\n' + line('/b', '/x'), 'line 2 is empty'],
+    [line('/a', '/w') + '\n', 'line 2 is empty'],
+    [seventeen, 'more than 16 lines'],
+    [sixteen, null],
+    [line('/a', '/w', 'gh-push,gh-pr-review'), null],
+    [line('/a', '/w') + line('/b', '/x'), null],
   ];
   for (const [text, want] of cases) {
     assertEquals(policyProblem(text), want, JSON.stringify(text));
@@ -187,15 +292,19 @@ Deno.test('policy: policyProblem names the first problem, and parsePolicy agrees
 });
 
 Deno.test('policy: serialize refuses a field that would not read back', () => {
-  const ok = { repo: '/a', remote: 'r', branch: 'main' };
+  const ok = { repo: '/a', remote: 'r', branch: 'main', target: '/w' };
   const bad: PolicyRecord[] = [
-    { ...ok, remote: 'x\ty', grants: ['gh-push'] },
-    { ...ok, grants: [] },
-    { ...ok, grants: ['gh-pr-review', 'gh-push'] },
-    { ...ok, grants: ['gh-push', 'gh-push'] },
-    { ...ok, grants: ['gh-pr-resolve'] },
-    { ...ok, grants: ['gh-pr-request-review'] },
-    { ...ok, grants: ['nope' as BridgeCapability] },
+    { grants: ['gh-push'], repos: [{ ...ok, remote: 'x\ty' }] },
+    { grants: ['gh-push'], repos: [{ ...ok, branch: 'x\ny' }] },
+    { grants: ['gh-push'], repos: [{ ...ok, target: '/w/' }] },
+    { grants: ['gh-push'], repos: [] },
+    { grants: ['gh-push'], repos: [ok, { ...ok, target: '/x' }] },
+    { grants: [], repos: [ok] },
+    { grants: ['gh-pr-review', 'gh-push'], repos: [ok] },
+    { grants: ['gh-push', 'gh-push'], repos: [ok] },
+    { grants: ['gh-pr-resolve'], repos: [ok] },
+    { grants: ['gh-pr-request-review'], repos: [ok] },
+    { grants: ['nope' as BridgeCapability], repos: [ok] },
   ];
   for (const record of bad) {
     assertThrows(
@@ -205,6 +314,21 @@ Deno.test('policy: serialize refuses a field that would not read back', () => {
       JSON.stringify(record),
     );
   }
+});
+
+Deno.test('gitHubRepoOf: owner/name from each remote shape, null otherwise', () => {
+  for (
+    const url of [
+      'git@github.com:acme/x.git',
+      'git@github.com-work:acme/x',
+      'ssh://git@github.com/acme/x.git',
+      'https://github.com/acme/x',
+    ]
+  ) {
+    assertEquals(gitHubRepoOf(url), 'acme/x', url);
+  }
+  assertEquals(gitHubRepoOf('git@gitlab.com:acme/x.git'), null);
+  assertEquals(gitHubRepoOf('https://github.com/acme'), null);
 });
 
 Deno.test('capabilities: the canonical order', () => {

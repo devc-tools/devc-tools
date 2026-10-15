@@ -37,13 +37,19 @@ credentials: pushing and PR review go through the bridge.
 
 Built-in commands (capability in brackets, granted on the host with
 \`devc up --bridge-allow <caps>\`):
-  gh-push                          publish the pinned branch; no arguments  [gh-push]
-  gh-doctor                        show the pin and why a push would fail   [gh-push]
-  gh-pr-comments                   unresolved threads on your PR, as JSON   [gh-pr-review]
-  gh-pr-reply <thread-id> <body>   reply to a review thread                 [gh-pr-review]
-  gh-pr-resolve <thread-id>        resolve a Copilot review thread          [gh-pr-resolve]
-  gh-pr-request-review             ask Copilot to review the current head   [gh-pr-request-review]
+  gh-push [--repo <path>]          publish the pinned branch                [gh-push]
+  gh-doctor                        show every pin and why a push would fail [gh-push]
+  gh-pr-comments [--repo <path>]   unresolved threads on your PR, as JSON   [gh-pr-review]
+  gh-pr-reply [--repo <path>] <thread-id> <body>
+                                   reply to a review thread                 [gh-pr-review]
+  gh-pr-resolve [--repo <path>] <thread-id>
+                                   resolve a Copilot review thread          [gh-pr-resolve]
+  gh-pr-request-review [--repo <path>]
+                                   ask Copilot to review the current head   [gh-pr-request-review]
   ping [label]                     keep the host awake
+
+--repo <path> names a pinned repo by its path in this container; it is
+required once more than one repo is pinned (gh-doctor lists them).
 
 Answered by this client, with the bridge up or down:
   help [guide]                     this overview, or the full agent guide

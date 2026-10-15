@@ -28,6 +28,7 @@ import {
   readPolicy,
   removeBridgeFiles,
 } from '../bridge.ts';
+import { parseUpArgs } from '../args.ts';
 
 const BRIDGE_FEATURE = 'ghcr.io/devc-tools/features/devc-bridge:0';
 
@@ -182,13 +183,13 @@ Deno.test('grant writes the pin when the container has the repo frozen', async (
     const file = bridgePaths(f.home, key).policyFile;
     assertEquals(
       await Deno.readTextFile(file),
-      `${f.project}\tgit@github.com:acme/proj.git\tfeat/x\tgh-push,gh-pr-review\n`,
+      `${f.project}\tgit@github.com:acme/proj.git\tfeat/x\tgh-push,gh-pr-review\t/workspaces/proj\n`,
     );
     assertEquals((await Deno.stat(file)).mode! & 0o777, 0o600);
-    assertStringIncludes(
-      f.logs.join('\n'),
-      'devc: devc-bridge capabilities granted: gh-push, gh-pr-review for feat/x → git@github.com:acme/proj.git',
-    );
+    assertEquals(f.logs, [
+      'devc: devc-bridge capabilities granted: gh-push, gh-pr-review',
+      `devc:   /workspaces/proj: feat/x → git@github.com:acme/proj.git (${f.project})`,
+    ]);
   });
 });
 
@@ -372,7 +373,7 @@ Deno.test('refresh removes a malformed (pre-grants, three-field) policy and says
     assertEquals(await exists(file), false);
     assertStringIncludes(
       f.logs.join('\n'),
-      `devc: devc-bridge policy at ${file} was malformed (want 4 tab-separated fields, found 3) and has been removed — re-run devc up --bridge-allow <list>`,
+      `devc: devc-bridge policy at ${file} was malformed (line 1: want 5 tab-separated fields, found 3) and has been removed — re-run devc up --bridge-allow <list>`,
     );
   });
 });
@@ -479,13 +480,13 @@ Deno.test('refresh removes a policy holding a pre-rename capability name', async
     const file = bridgePaths(f.home, merged.bridgeKey!).policyFile;
     await write(
       file,
-      `${f.project}\tgit@github.com:acme/proj.git\tfeat/x\tgit-push,pr-review\n`,
+      `${f.project}\tgit@github.com:acme/proj.git\tfeat/x\tgit-push,pr-review\t/workspaces/proj\n`,
     );
     await applyPolicy('refresh', merged, f.project, deps);
     assertEquals(await exists(file), false);
     assertStringIncludes(
       f.logs.join('\n'),
-      'was malformed (unknown capability "git-push") and has been removed',
+      'was malformed (line 1: unknown capability "git-push") and has been removed',
     );
   });
 });
@@ -609,7 +610,8 @@ Deno.test('status prints absent as absent, and the pin when there is one', async
     const after = await bridgeStatusLines(merged, f.project, f.deps(null));
     assertStringIncludes(
       after.join('\n'),
-      `  bridge:    gh-push, gh-pr-review for feat/x → git@github.com:acme/proj.git (${f.project})`,
+      `  bridge:    gh-push, gh-pr-review\n` +
+        `    /workspaces/proj: feat/x → git@github.com:acme/proj.git (${f.project})`,
     );
   });
 });
@@ -623,7 +625,7 @@ Deno.test('status names a malformed policy rather than showing a pin', async () 
       lines.join('\n'),
       `  bridge:    MALFORMED policy at ${
         bridgePaths(f.home, merged.bridgeKey!).policyFile
-      } (want 4 tab-separated fields, found 1) — grants nothing`,
+      } (line 1: want 5 tab-separated fields, found 1) — grants nothing`,
     );
   });
 });
@@ -790,10 +792,13 @@ Deno.test('a worktree container is granted once the primary git dir is frozen', 
     assertEquals(policy, {
       kind: 'present',
       record: {
-        repo: wt,
-        remote: 'git@github.com:acme/proj.git',
-        branch: 'feat/wt',
         grants: ['gh-push', 'gh-pr-review'],
+        repos: [{
+          repo: wt,
+          remote: 'git@github.com:acme/proj.git',
+          branch: 'feat/wt',
+          target: '/workspaces/proj.worktrees/wt',
+        }],
       },
     });
   });
@@ -827,8 +832,364 @@ Deno.test('the pin reads the frozen config, not whatever commondir points at', a
     await applyPolicy(GRANT, merged, wt, f.deps(frozen));
     const policy = await readPolicy(merged.bridgeKey!, f.deps(null));
     assertEquals(
-      policy.kind === 'present' && policy.record.remote,
+      policy.kind === 'present' && policy.record.repos[0].remote,
       'git@github.com:acme/proj.git',
     );
+  });
+});
+
+// ── extra repos: --bridge-repo ──────────────────────────────────────────────────────────────
+
+/**
+ * A second repo under the fixture home (`~/extra`, origin `acme/extra`, on `feat/extra`), with the
+ * fsmonitor tripwire, mounted at `/workspaces/extra` through the project's devc.json. Returns the
+ * merged config and the mount table of a container with both repos frozen.
+ */
+async function withExtra(
+  f: Fixture,
+  opts: { origin?: string; mounts?: string[] } = {},
+) {
+  const extra = `${f.home}/extra`;
+  await write(`${extra}/.git/HEAD`, 'ref: refs/heads/feat/extra\n');
+  await Deno.mkdir(`${extra}/.git/objects`, { recursive: true });
+  await Deno.mkdir(`${extra}/.git/hooks`, { recursive: true });
+  await write(
+    `${extra}/.git/config`,
+    `[core]\n\tfsmonitor = ${f.dir}/fsmonitor.sh\n[remote "origin"]\n\turl = ${
+      opts.origin ?? 'git@github.com:acme/extra.git'
+    }\n`,
+  );
+  const merged = await f.merged({
+    mounts: [
+      `source=${extra},target=/workspaces/extra,type=bind`,
+      ...(opts.mounts ?? []),
+    ],
+  });
+  const target = '/workspaces/extra';
+  const frozen: ContainerMount[] = [
+    ...f.frozen,
+    { type: 'bind', source: extra, destination: target, rw: true },
+    {
+      type: 'bind',
+      source: `${extra}/.git`,
+      destination: `${target}/.git`,
+      rw: true,
+    },
+    {
+      type: 'bind',
+      source: `${extra}/.git/config`,
+      destination: `${target}/.git/config`,
+      rw: false,
+    },
+    {
+      type: 'bind',
+      source: `${extra}/.git/hooks`,
+      destination: `${target}/.git/hooks`,
+      rw: false,
+    },
+  ];
+  return { extra, merged, frozen };
+}
+
+const EXTRA_GRANT: PolicyMode = {
+  grant: ['gh-push', 'gh-pr-review'],
+  repos: ['~/extra'],
+};
+
+Deno.test('--bridge-repo pins an extra protected repo as line 2, and logs one line per repo', async () => {
+  await withFixture(async (f) => {
+    const { extra, merged, frozen } = await withExtra(f);
+    await checkGrantBeforeUp(merged, f.project, f.deps(null), ['~/extra']);
+    await applyPolicy(EXTRA_GRANT, merged, f.project, f.deps(frozen));
+    const grants = 'gh-push,gh-pr-review';
+    assertEquals(
+      await Deno.readTextFile(
+        bridgePaths(f.home, merged.bridgeKey!).policyFile,
+      ),
+      `${f.project}\tgit@github.com:acme/proj.git\tfeat/x\t${grants}\t/workspaces/proj\n` +
+        `${extra}\tgit@github.com:acme/extra.git\tfeat/extra\t${grants}\t/workspaces/extra\n`,
+    );
+    assertEquals(f.logs, [
+      'devc: devc-bridge capabilities granted: gh-push, gh-pr-review',
+      `devc:   /workspaces/proj: feat/x → git@github.com:acme/proj.git (${f.project})`,
+      `devc:   /workspaces/extra: feat/extra → git@github.com:acme/extra.git (${extra})`,
+    ]);
+  });
+});
+
+Deno.test('--bridge-repo: ~/x after =, a literal ~/x and the absolute path pin the same repo', async () => {
+  await withFixture(async (f) => {
+    const { extra, merged, frozen } = await withExtra(f);
+    const home = Deno.env.get('HOME');
+    Deno.env.set('HOME', f.home);
+    try {
+      for (
+        const args of [
+          ['--bridge-repo=~/extra'],
+          ['--bridge-repo', '~/extra'],
+          ['--bridge-repo', extra],
+        ]
+      ) {
+        const { bridgeAllow, bridgeRepos } = parseUpArgs([
+          '--bridge-allow',
+          'gh-push',
+          ...args,
+        ]);
+        await applyPolicy(
+          { grant: bridgeAllow!, repos: bridgeRepos },
+          merged,
+          f.project,
+          f.deps(frozen),
+        );
+        const policy = await readPolicy(merged.bridgeKey!, f.deps(null));
+        assertEquals(
+          policy.kind === 'present' && policy.record.repos[1],
+          {
+            repo: extra,
+            remote: 'git@github.com:acme/extra.git',
+            branch: 'feat/extra',
+            target: '/workspaces/extra',
+          },
+          args.join(' '),
+        );
+      }
+      // `~user` is not expanded: it is a relative path, and there is no such directory.
+      const err = await assertRejects(
+        () =>
+          applyPolicy(
+            { grant: ['gh-push'], repos: ['~nobody/extra'] },
+            merged,
+            f.project,
+            f.deps(frozen),
+          ),
+        BridgeGrantError,
+      );
+      assertEquals(
+        err.message,
+        '--bridge-repo ~nobody/extra: no such directory',
+      );
+    } finally {
+      if (home === undefined) Deno.env.delete('HOME');
+      else Deno.env.set('HOME', home);
+    }
+  });
+});
+
+Deno.test('--bridge-repo that names no eligible row: each refusal is exact, and no policy stays', async () => {
+  await withFixture(async (f) => {
+    // A linked worktree and a plain folder, both mounted as extra folders, and a repo not mounted.
+    const wt = `${f.home}/extra.worktrees/wt`;
+    await write(`${wt}/.git`, 'gitdir: ../../extra/.git/worktrees/wt\n');
+    const plain = `${f.home}/plain`;
+    await Deno.mkdir(plain, { recursive: true });
+    const loose = `${f.dir}/loose`;
+    await write(`${loose}/.git/HEAD`, 'ref: refs/heads/main\n');
+    const { merged, frozen } = await withExtra(f, {
+      mounts: [
+        `source=${wt},target=/workspaces/wt,type=bind`,
+        `source=${plain},target=/workspaces/plain,type=bind`,
+      ],
+    });
+    const pinnable =
+      'not a git-protected repo mount in this workspace — pinnable: ~/extra';
+    const cases: [string, string][] = [
+      [
+        f.project,
+        `--bridge-repo ${f.project}: this is the workspace repo, which is always pinned`,
+      ],
+      [`${f.dir}/nope`, `--bridge-repo ${f.dir}/nope: no such directory`],
+      [loose, `--bridge-repo ${loose}: ${pinnable}`],
+      [
+        wt,
+        `--bridge-repo ${wt}: a linked worktree mounted as an extra folder is not git-protected, so it cannot be pinned`,
+      ],
+      [plain, `--bridge-repo ${plain}: ${pinnable}`],
+    ];
+    for (const [repo, message] of cases) {
+      await applyPolicy(GRANT, merged, f.project, f.deps(frozen));
+      for (
+        const run of [
+          () => checkGrantBeforeUp(merged, f.project, f.deps(null), [repo]),
+          () =>
+            applyPolicy(
+              { grant: ['gh-push'], repos: [repo] },
+              merged,
+              f.project,
+              f.deps(frozen),
+            ),
+        ]
+      ) {
+        const err = await assertRejects(run, BridgeGrantError);
+        assertEquals(err.message, message);
+        assertEquals(
+          await readPolicy(merged.bridgeKey!, f.deps(null)),
+          { kind: 'absent' },
+          repo,
+        );
+        await applyPolicy(GRANT, merged, f.project, f.deps(frozen));
+      }
+    }
+  });
+});
+
+Deno.test('--bridge-repo with no extra protected mount says there are none', async () => {
+  await withFixture(async (f) => {
+    const merged = await f.merged();
+    const err = await assertRejects(
+      () =>
+        applyPolicy(
+          { grant: ['gh-push'], repos: [f.dir] },
+          merged,
+          f.project,
+          f.deps(f.frozen),
+        ),
+      BridgeGrantError,
+    );
+    assertEquals(
+      err.message,
+      `--bridge-repo ${f.dir}: not a git-protected repo mount in this workspace — no extra repo mounts are git-protected`,
+    );
+  });
+});
+
+Deno.test('an extra repo whose .git/config is writable in the container fails the whole grant', async () => {
+  await withFixture(async (f) => {
+    const { merged, frozen } = await withExtra(f);
+    await applyPolicy(EXTRA_GRANT, merged, f.project, f.deps(frozen));
+    const writable = frozen.map((m) =>
+      m.destination === '/workspaces/extra/.git/config' ? { ...m, rw: true } : m
+    );
+    const err = await assertRejects(
+      () => applyPolicy(EXTRA_GRANT, merged, f.project, f.deps(writable)),
+      BridgeGrantError,
+    );
+    assertStringIncludes(
+      err.message,
+      'the container is up, but --bridge-allow was not granted: ~/extra: git protection is not ' +
+        'in force in this container for /workspaces/extra (/workspaces/extra/.git/config is ' +
+        'mounted read-write)',
+    );
+    assertEquals(
+      await readPolicy(merged.bridgeKey!, f.deps(null)),
+      { kind: 'absent' },
+    );
+  });
+});
+
+Deno.test('checkGrantBeforeUp checks an extra repo before up, naming it', async () => {
+  await withFixture(async (f) => {
+    const { extra, merged } = await withExtra(f);
+    await Deno.writeTextFile(`${extra}/.git/HEAD`, `${SHA1}\n`);
+    await assertRejects(
+      () => checkGrantBeforeUp(merged, f.project, f.deps(null), ['~/extra']),
+      BridgeGrantError,
+      `--bridge-allow: ~/extra: HEAD is detached in ${extra}`,
+    );
+  });
+});
+
+Deno.test('two pinned repos on one GitHub repo, in different URL shapes, are refused', async () => {
+  await withFixture(async (f) => {
+    await setOrigin(f, 'git@github.com:acme/x.git');
+    const { merged, frozen } = await withExtra(f, {
+      origin: 'https://github.com/acme/x',
+    });
+    for (
+      const [run, prefix] of [
+        [
+          () =>
+            checkGrantBeforeUp(merged, f.project, f.deps(null), ['~/extra']),
+          '--bridge-allow: ',
+        ],
+        [
+          () => applyPolicy(EXTRA_GRANT, merged, f.project, f.deps(frozen)),
+          'the container is up, but --bridge-allow was not granted: ',
+        ],
+      ] as const
+    ) {
+      const err = await assertRejects(run, BridgeGrantError);
+      assertEquals(
+        err.message,
+        `${prefix}${f.project} and ~/extra both push to github.com/acme/x`,
+      );
+    }
+    assertEquals(
+      await readPolicy(merged.bridgeKey!, f.deps(null)),
+      { kind: 'absent' },
+    );
+  });
+});
+
+Deno.test("refresh revokes the whole policy when an extra repo's HEAD moves, naming the repo", async () => {
+  await withFixture(async (f) => {
+    const { extra, merged, frozen } = await withExtra(f);
+    const deps = f.deps(frozen);
+    await applyPolicy(EXTRA_GRANT, merged, f.project, deps);
+    await Deno.writeTextFile(
+      `${extra}/.git/HEAD`,
+      'ref: refs/heads/feat/other\n',
+    );
+    await applyPolicy('refresh', merged, f.project, deps);
+    assertEquals(await readPolicy(merged.bridgeKey!, deps), {
+      kind: 'absent',
+    });
+    assertStringIncludes(
+      f.logs.join('\n'),
+      `devc: devc-bridge capabilities revoked — ${extra}: the branch is now feat/other, but ` +
+        'they were granted for feat/extra. Run `devc up --bridge-allow gh-push,gh-pr-review ' +
+        '--bridge-repo …` to grant it.',
+    );
+  });
+});
+
+Deno.test('refresh of an unchanged multi-repo policy writes nothing and logs nothing', async () => {
+  await withFixture(async (f) => {
+    const { merged, frozen } = await withExtra(f);
+    const deps = f.deps(frozen);
+    await applyPolicy(EXTRA_GRANT, merged, f.project, deps);
+    const file = bridgePaths(f.home, merged.bridgeKey!).policyFile;
+    const before = await Deno.readTextFile(file);
+    const mtime = (await Deno.stat(file)).mtime;
+    const logged = f.logs.length;
+    await applyPolicy('refresh', merged, f.project, deps);
+    assertEquals(await Deno.readTextFile(file), before);
+    assertEquals((await Deno.stat(file)).mtime, mtime);
+    assertEquals(f.logs.slice(logged), []);
+  });
+});
+
+Deno.test('refresh revokes, with the repo named, when an extra repo is no longer protected', async () => {
+  await withFixture(async (f) => {
+    const { extra, merged, frozen } = await withExtra(f);
+    await applyPolicy(EXTRA_GRANT, merged, f.project, f.deps(frozen));
+    const unfrozen = frozen.filter((m) =>
+      m.destination !== '/workspaces/extra/.git/hooks'
+    );
+    await applyPolicy('refresh', merged, f.project, f.deps(unfrozen));
+    assertEquals(await readPolicy(merged.bridgeKey!, f.deps(null)), {
+      kind: 'absent',
+    });
+    assertStringIncludes(
+      f.logs.join('\n'),
+      `devc: devc-bridge capabilities revoked — ${extra}: git protection is not in force`,
+    );
+    assertStringIncludes(
+      f.logs.join('\n'),
+      'Re-run `devc up --bridge-allow gh-push,gh-pr-review --bridge-repo …` once that is fixed.',
+    );
+  });
+});
+
+Deno.test('status prints one indented line per pinned repo', async () => {
+  await withFixture(async (f) => {
+    const { extra, merged, frozen } = await withExtra(f);
+    await applyPolicy(EXTRA_GRANT, merged, f.project, f.deps(frozen));
+    const lines = await bridgeStatusLines(merged, f.project, f.deps(null));
+    const at = lines.indexOf('  bridge:    gh-push, gh-pr-review');
+    assert(at >= 0, lines.join('\n'));
+    assertEquals(lines.slice(at + 1), [
+      `    /workspaces/proj: feat/x → git@github.com:acme/proj.git (${f.project})`,
+      `    /workspaces/extra: feat/extra → git@github.com:acme/extra.git (${extra})`,
+    ]);
   });
 });
