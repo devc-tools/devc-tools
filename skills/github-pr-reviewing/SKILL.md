@@ -1,9 +1,9 @@
 ---
-name: copilot-pr-reviewing
-description: Runs the GitHub Copilot pull-request review loop from inside a devcontainer whose host has granted devc-bridge review capabilities — reads unresolved review threads on the PR, fixes what is warranted, publishes the pinned branch through the bridge, requests a fresh Copilot review, replies to and resolves threads, and repeats until the review is clean. Use only when the user asks to work through, iterate on, or respond to Copilot review comments on a PR from inside a devcontainer. Not for ordinary pushes or other git/GitHub work. Keywords: Copilot review loop, PR review threads, address review comments, resolve Copilot threads, re-request Copilot review, devc-bridge gh-pr-comments, gh-pr-reply, gh-pr-resolve, gh-pr-request-review.
+name: github-pr-reviewing
+description: Runs the GitHub pull-request review loop from inside a devcontainer whose host has granted devc-bridge review capabilities — reads unresolved review threads on the PR (Copilot's and human reviewers'), fixes what is warranted, publishes the pinned branch through the bridge, requests a fresh Copilot review, replies to threads, resolves the Copilot threads it fixed, and repeats until the review is clean. Use only when the user asks to work through, iterate on, or respond to review comments on a GitHub PR from inside a devcontainer. Not for ordinary pushes or other git/GitHub work. Keywords: GitHub PR review loop, Copilot review, PR review threads, address review comments, reply to reviewers, resolve Copilot threads, re-request Copilot review, devc-bridge gh-pr-comments, gh-pr-reply, gh-pr-resolve, gh-pr-request-review.
 ---
 
-# Copilot PR review loop
+# GitHub PR review loop
 
 For the review loop only. The host has to turn it on per container
 (`devc up --bridge-allow gh`). Outside the review loop, keep doing what you'd do anyway: if you
