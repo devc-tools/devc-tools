@@ -32,36 +32,49 @@ const wsHeaders = (origin?: string) => ({
   ...(origin !== undefined ? { origin } : {}),
 });
 
-Deno.test('hostAllowed accepts 127.0.0.1 and localhost on our port only', () => {
+Deno.test('hostAllowed accepts 127.0.0.1, localhost and host.docker.internal on our port only', () => {
   assert(hostAllowed(`127.0.0.1:${PORT}`, PORT));
   assert(hostAllowed(`localhost:${PORT}`, PORT));
+  assert(hostAllowed(`host.docker.internal:${PORT}`, PORT));
   assert(!hostAllowed(`127.0.0.1:${PORT + 1}`, PORT));
+  assert(!hostAllowed(`host.docker.internal:${PORT + 1}`, PORT));
+  assert(!hostAllowed(`gateway.docker.internal:${PORT}`, PORT));
   assert(!hostAllowed(`evil.test:${PORT}`, PORT));
   assert(!hostAllowed('127.0.0.1', PORT));
   assert(!hostAllowed(null, PORT));
 });
 
-Deno.test('originAllowed accepts only this page', () => {
+Deno.test('originAllowed accepts this page under any of its names, or no Origin', () => {
   assert(originAllowed(`http://127.0.0.1:${PORT}`, PORT));
   assert(originAllowed(`http://localhost:${PORT}`, PORT));
+  assert(originAllowed(`http://host.docker.internal:${PORT}`, PORT));
+  assert(originAllowed(null, PORT));
   assert(!originAllowed(`https://example.com`, PORT));
   assert(!originAllowed(`http://localhost:${PORT + 1}`, PORT));
-  assert(!originAllowed(null, PORT));
+  assert(!originAllowed('null', PORT));
+  assert(!originAllowed('', PORT));
 });
 
 Deno.test('authorize: static requests need only a good Host', () => {
   assertEquals(check('/', { host: `127.0.0.1:${PORT}` }), null);
   assertEquals(check('/app.js', { host: `localhost:${PORT}` }), null);
+  assertEquals(check('/', { host: `host.docker.internal:${PORT}` }), null);
   assertEquals(check('/', { host: `evil.test:${PORT}` }), 403);
   assertEquals(check('/', { host: `127.0.0.1:1234` }), 403);
   assertEquals(check('/', {}), 403);
 });
 
-Deno.test('authorize: /ws needs Host, Origin and the token', () => {
+Deno.test('authorize: /ws needs Host, an allowed or absent Origin, and the token', () => {
   const ok = `/ws?token=${TOKEN}`;
   assertEquals(check(ok, wsHeaders(`http://127.0.0.1:${PORT}`)), null);
   assertEquals(check(ok, wsHeaders(`http://localhost:${PORT}`)), null);
-  assertEquals(check(ok, wsHeaders()), 403);
+  // A client in a container on Docker Desktop: no browser, so no Origin.
+  assertEquals(
+    check(ok, { ...wsHeaders(), host: `host.docker.internal:${PORT}` }),
+    null,
+  );
+  assertEquals(check(ok, wsHeaders()), null);
+  assertEquals(check('/ws', wsHeaders()), 401);
   assertEquals(check(ok, wsHeaders('https://example.com')), 403);
   assertEquals(
     check(ok, {

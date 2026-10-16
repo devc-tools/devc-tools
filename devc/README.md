@@ -278,8 +278,17 @@ is published from any container: the host server finds devcontainers with
   exits 1 with a `devc web:` message.
 
 Security: Herdr panes are shells, so `/ws` only accepts requests whose `Host`
-is `127.0.0.1:<port>` or `localhost:<port>`, whose `Origin` is that page, and
-that carry the token. There is no remote access by design.
+is `127.0.0.1:<port>`, `localhost:<port>` or `host.docker.internal:<port>`,
+whose `Origin` is that page or absent (a non-browser client), and that carry
+the token. There is no remote access by design.
+
+**From a container:** on Docker Desktop, a container reaches the server at
+`host.docker.internal:<port>`. Give an agent the printed URL with the host
+swapped, and it can connect any WebSocket client to
+`ws://host.docker.internal:<port>/ws?token=<token>`. Anything in any container
+that has the token can drive every pane, so restart `devc web` for a fresh
+token when the agent is done. On Linux Docker, `host.docker.internal` is the
+bridge gateway rather than the host's loopback, so this needs Docker Desktop.
 
 Known limitations:
 

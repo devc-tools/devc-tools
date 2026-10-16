@@ -4,7 +4,8 @@
 //
 // Any website the user visits can open a WebSocket to 127.0.0.1, and `/ws` is a shell in every
 // container, so every request passes `authorize` first: Host (DNS rebinding), then for `/ws`
-// Origin and the per-start token.
+// Origin and the per-start token. Containers reach the server too: on Docker Desktop,
+// `host.docker.internal` is the host's loopback, so that name is an accepted Host.
 
 import { basename, extname } from 'jsr:@std/path';
 import { type ContainerRecord, Discovery, probeDocker } from './containers.ts';
@@ -32,15 +33,27 @@ export interface WebOptions {
 // Request checks (pure)
 // ---------------------------------------------------------------------------------------------
 
-/** Whether `host` (the Host header) names this server: `127.0.0.1:<port>` or `localhost:<port>`. */
+/**
+ * The names this server answers to. `host.docker.internal` is how a container on Docker
+ * Desktop reaches the host's loopback. A fixed name keeps the DNS rebinding check intact: a
+ * rebinding page arrives with its own domain as Host.
+ */
+const HOST_NAMES = ['127.0.0.1', 'localhost', 'host.docker.internal'];
+
+/** Whether `host` (the Host header) names this server: one of {@link HOST_NAMES} on `port`. */
 export function hostAllowed(host: string | null, port: number): boolean {
-  return host === `127.0.0.1:${port}` || host === `localhost:${port}`;
+  return HOST_NAMES.some((name) => host === `${name}:${port}`);
 }
 
-/** Whether `origin` (a WebSocket upgrade's Origin header) is this server's own page. */
+/**
+ * Whether `origin` (a WebSocket upgrade's Origin header) may connect: this server's own page
+ * under any of {@link HOST_NAMES}, or no Origin at all. Browsers always send Origin on an
+ * upgrade, so a missing one is a non-browser client (an agent's script in a container), which
+ * no website can impersonate; the token still has to match.
+ */
 export function originAllowed(origin: string | null, port: number): boolean {
-  return origin === `http://127.0.0.1:${port}` ||
-    origin === `http://localhost:${port}`;
+  return origin === null ||
+    HOST_NAMES.some((name) => origin === `http://${name}:${port}`);
 }
 
 /** Constant-time token comparison. */
@@ -55,7 +68,8 @@ export function tokenMatches(given: string | null, expected: string): boolean {
 
 /**
  * The HTTP status a request is refused with, or `null` when it may proceed. Host is checked on
- * every request (403); `/ws` additionally needs this page's Origin (403) and the token (401).
+ * every request (403); `/ws` additionally needs this page's Origin or none (403) and the token
+ * (401).
  */
 export function authorize(
   headers: Headers,

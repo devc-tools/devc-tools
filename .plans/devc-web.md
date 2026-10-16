@@ -162,9 +162,11 @@ that would hand it a shell in every container:
   `?token=` on the WebSocket URL. A wrong or missing token gets HTTP 401 with no
   upgrade.
 - **Host check (DNS rebinding):** every HTTP and WebSocket request must have
-  `Host: 127.0.0.1:<port>` or `localhost:<port>`. Anything else gets 403.
-- **Origin check:** a WebSocket upgrade must carry `Origin: http://127.0.0.1:<port>` or
-  `http://localhost:<port>`. Anything else gets 403.
+  `Host: 127.0.0.1:<port>`, `localhost:<port>` or `host.docker.internal:<port>` (how a
+  container on Docker Desktop reaches the host's loopback). Anything else gets 403.
+- **Origin check:** a WebSocket upgrade must carry `Origin: http://<name>:<port>` for one
+  of those three names, or no Origin. Browsers always send one on an upgrade, so a missing
+  Origin is a non-browser client such as an agent's script. Anything else gets 403.
 - Static responses carry `Cache-Control: no-store`. The page loads nothing from any
   origin but its own.
 
@@ -424,9 +426,9 @@ Automated (inside the repo's dev container):
   - event-name normalization: `pane_created`→`pane.created`,
     `workspace_metadata_updated`→`workspace.metadata_updated`,
     `pane.agent_status_changed` unchanged
-  - Host/Origin/token checks: accepts `127.0.0.1:<port>` and `localhost:<port>`; rejects
-    another port, another host and a missing Origin on upgrade; a missing or wrong token
-    is 401
+  - Host/Origin/token checks: accepts `127.0.0.1:<port>`, `localhost:<port>` and
+    `host.docker.internal:<port>`, and a missing Origin on upgrade; rejects another port,
+    another host and a foreign Origin; a missing or wrong token is 401
   - message validation: an unknown `type`, missing fields and a disallowed `request`
     method each produce the specified `result` error
   - paste wrapper: single line unchanged; `"a\nb"` → `"\x1b[200~a\rb\x1b[201~"`;
