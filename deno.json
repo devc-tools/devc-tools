@@ -5,6 +5,8 @@
     "indentWidth": 2,
     "semiColons": true,
     "singleQuote": true,
-    "proseWrap": "preserve"
+    "proseWrap": "preserve",
+    // Vendored, unmodified xterm.js — see scripts/vendor-xterm.sh.
+    "exclude": ["devc/web/static/vendor/"]
   }
 }

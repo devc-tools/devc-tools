@@ -5,7 +5,7 @@
 /** CLI version. Single source of truth — the compiled binary cannot read `deno.json` at runtime. */
 export const VERSION = '0.10.0';
 
-/** The fifteen subcommands, in the order they appear in the top-level `Commands:` list. */
+/** The sixteen subcommands, in the order they appear in the top-level `Commands:` list. */
 export const COMMANDS: { name: string; summary: string }[] = [
   {
     name: 'init',
@@ -56,6 +56,11 @@ export const COMMANDS: { name: string; summary: string }[] = [
   {
     name: 'status',
     summary: 'Show dev container status for the current project',
+  },
+  {
+    name: 'web',
+    summary:
+      'Serve a browser UI for the Herdr sessions in running dev containers',
   },
 ];
 
@@ -294,6 +299,15 @@ export const COMMAND_HELP: Record<string, string> = {
     "Then the devc-bridge lines: this project's key, whether its token is present,",
     'and the devc-bridge capabilities and pin in force — or "absent" when there are',
     'none.',
+  ].join('\n'),
+
+  web: [
+    'Usage: devc web [--port N] [--session NAME]',
+    '',
+    'Options:',
+    '  --port N        Port to listen on, on 127.0.0.1 (default: 48228)',
+    '  --session NAME  Herdr session to use in each container (default: devc)',
+    '  -h, --help      Print help',
   ].join('\n'),
 };
 

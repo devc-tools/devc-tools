@@ -44,6 +44,7 @@ devc stop    [PATH]                                   Stop the container
 devc down    [PATH]                                   Stop and remove the container (and its devc-bridge files)
 devc prune   [--dry-run]                              Remove devc-bridge key dirs/policies no container uses
 devc status  [PATH]                                   Print `running` / `stopped` / `missing`, then protection and bridge lines
+devc web     [--port N] [--session NAME]              Serve a browser UI for the Herdr sessions in every running devcontainer
 ```
 
 Run `devc --help` for the full command list, `devc <COMMAND> --help` for a
@@ -129,6 +130,7 @@ Notes:
   `devcontainer.local_folder` label and never start anything. With `docker`
   itself missing from `PATH` they fail hard — `devc: docker not found on PATH`,
   exit 1 — rather than reporting the container as absent.
+- `web` — see [`devc web`](#devc-web-browser-ui-for-in-container-herdr).
 
 ## How it works
 
@@ -246,6 +248,49 @@ Herdr's own detection manifests keep deciding **state** (idle/working/blocked)
 from the pane's terminal output, exactly as they do for an agent run on the
 host — devc only ever asserts **identity**. Nothing here writes to Herdr's
 config.
+
+### `devc web`: browser UI for in-container Herdr
+
+`devc web` serves one page, on `127.0.0.1` only, for the Herdr sessions running
+**inside** every running devcontainer. It prints exactly one line,
+`devc web: http://127.0.0.1:48228/#token=…`, and runs until Ctrl-C. Open that URL
+(the `#token=` part included — a new token is minted on every start). Nothing
+is published from any container: the host server finds devcontainers with
+`docker ps` + `docker events` and reaches each container's Herdr through
+`docker exec … herdr --session devc remote-api-bridge` and
+`terminal session control`. Updates are pushed end to end; nothing is polled.
+
+- **Sidebar:** Container → Workspace → Tab → Pane, with an agent badge per
+  pane. A container without a running Herdr server shows **Start session**
+  (`herdr --session devc server`, detached) and **Retry**. Right-click a
+  workspace, tab or pane to create, rename, split or close.
+- **Tiles:** click a pane to open it in the focused tile; split tiles right or
+  down and drag the dividers. Tiles are the browser's own layout and never
+  change Herdr's. The layout is kept in the browser's `localStorage`; a tile
+  whose pane has since closed shows "Pane gone".
+- **Input:** keys go through as typed. A multi-line paste is sent as one
+  bracketed paste, so a shell or agent prompt does not submit each line. Mouse
+  clicks and drags go to the app (Herdr encodes them in the app's own mouse
+  mode); **Shift+drag** selects locally and copies. The wheel scrolls the app
+  when it tracks the mouse, and Herdr's scrollback otherwise.
+- `--port N` picks another port (default 48228); `--session NAME` another Herdr
+  session (default `devc`, the one `devc herdr` uses). A port already in use
+  exits 1 with a `devc web:` message.
+
+Security: Herdr panes are shells, so `/ws` only accepts requests whose `Host`
+is `127.0.0.1:<port>` or `localhost:<port>`, whose `Origin` is that page, and
+that carry the token. There is no remote access by design.
+
+Known limitations:
+
+- **Application cursor key mode is not honored.** Herdr's frames are its own
+  redraw and never carry the app's terminal modes, so arrow keys always go as
+  `ESC [ A` and the like. vim, less, readline and the agent TUIs accept both.
+- **A pane open in the browser takes the browser's size.** Herdr allows one
+  controller per terminal, and a resize changes the pane's real pty size, which
+  persists. A Herdr TUI (`devc herdr`) showing the same pane draws it at the
+  browser's size until the TUI takes it back, and opening the pane elsewhere
+  with `--takeover` disconnects the tile (it offers **Reconnect**).
 
 ### The library: `@devc-tools/core`
 

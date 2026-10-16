@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>devc web</title>
+    <link rel="stylesheet" href="/vendor/xterm/xterm.css">
+    <link rel="stylesheet" href="/style.css">
+  </head>
+  <body>
+    <div class="app">
+      <aside class="sidebar">
+        <header class="sidebar-header">
+          <span class="brand">devc web</span>
+          <span class="conn" id="conn" data-state="connecting">connecting</span>
+        </header>
+        <nav class="tree" id="tree" aria-label="Containers"></nav>
+      </aside>
+      <main class="tiles" id="tiles"></main>
+    </div>
+    <div class="menu" id="menu" role="menu" hidden></div>
+    <div class="toasts" id="toasts" aria-live="polite"></div>
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>

@@ -121,6 +121,47 @@ export function herdrLaunchArgs(extraArgs: string[]): string[] {
     : ['--session', DEVC_HERDR_SESSION, ...extraArgs];
 }
 
+export interface WebArgs {
+  /** `--port N`: the 127.0.0.1 port to listen on. */
+  port: number;
+  /** `--session NAME`: the Herdr session to use in each container. */
+  session: string;
+}
+
+/** The port `devc web` listens on unless `--port` says otherwise. */
+export const DEVC_WEB_DEFAULT_PORT = 48228;
+
+/**
+ * Parses `devc web` arguments: `--port N` and `--session NAME` (each also as `--flag=value`).
+ * Strict: an unknown argument, a missing value or a port outside 1–65535 throws.
+ */
+export function parseWebArgs(args: string[]): WebArgs {
+  let port = DEVC_WEB_DEFAULT_PORT;
+  let session = DEVC_HERDR_SESSION;
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    const eq = arg.indexOf('=');
+    const flag = arg.startsWith('--') && eq !== -1 ? arg.slice(0, eq) : arg;
+    if (flag !== '--port' && flag !== '--session') {
+      throw new Error(`unexpected argument '${arg}'`);
+    }
+    const value = flag === arg ? args[++i] : arg.slice(eq + 1);
+    if (value === undefined || value === '') {
+      throw new Error(`${flag} needs a value`);
+    }
+    if (flag === '--port') {
+      const n = /^[0-9]+$/.test(value) ? Number(value) : NaN;
+      if (!(n >= 1 && n <= 65535)) {
+        throw new Error(
+          `--port must be a number from 1 to 65535, got '${value}'`,
+        );
+      }
+      port = n;
+    } else session = value;
+  }
+  return { port, session };
+}
+
 export interface UpArgs {
   /** The path argument, if given. Callers should default to `Deno.cwd()` when absent. */
   target?: string;

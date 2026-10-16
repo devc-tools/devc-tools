@@ -1995,4 +1995,4 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
 | devc-bridge pin hardening — refuse the default branch; refresh revokes instead of moving the pin                   | [bridge-pin-hardening](archived/bridge-pin-hardening.md)                           | complete    |
 | devc-bridge multi-repo pins — `--bridge-repo PATH`, v2 policy, `--repo` selector                                   | [bridge-multi-repo-pins](archived/bridge-multi-repo-pins.md)                       | complete    |
 | devc-bridge worktree extra repos — linked worktrees in `--bridge-repo`, same-repo pins, mirror lock, trap race fix | [bridge-worktree-extra-repos](archived/bridge-worktree-extra-repos.md)             | complete    |
-| `devc web` — browser UI for in-container Herdr sessions over `docker exec`                                         | [devc-web](devc-web.md)                                                            |             |
+| `devc web` — browser UI for in-container Herdr sessions over `docker exec`                                         | [devc-web](devc-web.md)                                                            | in progress |

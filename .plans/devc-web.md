@@ -388,36 +388,36 @@ Browser → server:
 
 ## Checklist
 
-- [ ] `web` added to `COMMANDS` and `COMMAND_HELP` in `devc/help.ts` with the usage text above; `devc/tests/help_test.ts` count raised to 16
-- [ ] `devc web` dispatch in `devc/main.ts`, placed before the first-run wizard hook; flag parsing for `--port` and `--session` (default `DEVC_HERDR_SESSION`)
-- [ ] Pure `devcontainer.metadata` → `remoteUser` resolver, with tests
-- [ ] Container discovery: initial `docker ps` plus a long-lived `docker events`, restarted after 2 s on exit with reconciliation
-- [ ] herdr path resolution (`sh -lc 'command -v herdr'`) and `remote-api-bridge --check`
-- [ ] Bridge helpers: one-shot request, and a streaming subscription with `subscription_started` handshake
-- [ ] Event-name normalization (pure, tested)
-- [ ] Per-container lifecycle: the six states, coalesced re-snapshots, overlapping status-connection swap, `events_lost`, lifecycle-exit teardown
-- [ ] Start session (`docker exec -d … server`) and Retry
-- [ ] Controller manager: one controller per pane, shared, `--takeover` rejoin for full frames, release on last close, `pane_closed` with reason
-- [ ] HTTP + WebSocket server on 127.0.0.1 with token, Host and Origin checks (check logic pure and tested); `Cache-Control: no-store`
-- [ ] WebSocket protocol exactly as specified, including the `request` allowlist and `bad_request` handling (message validation pure and tested)
-- [ ] SIGINT/SIGTERM teardown: release controllers, close bridges, stop `docker events`, exit 0
-- [ ] Vendored xterm.js 6.0.0 + addon-fit 0.11.0 with `LICENSE`/`VERSIONS`; `scripts/vendor-xterm.sh`; fmt exclude in both `deno.json` files
-- [ ] `--include web/static` in `build` and `build:release`
-- [ ] Renderer wrapper module (the only file that imports xterm)
-- [ ] Sidebar tree with container states, agent badges and context-menu pane management
-- [ ] Browser-owned tiling: splits, divider drag, close, `localStorage` persistence, "Pane gone"
-- [ ] Input: keyboard via `onData`; paste wrapping; mouse forwarding with Shift+drag local selection; wheel → `scroll`
-- [ ] Pure browser helpers in `devc/web/static/lib/` with tests (paste wrapper, pixel→cell, wheel→lines, button map)
-- [ ] New `.ts` files added to the `check` task
-- [ ] Docs: `devc/README.md` Commands block and a `web` note (including the application cursor key limitation and the TUI size conflict); `.plans/design/devc-design.md` Top-level help plus a new `## \`web\``section; root`README.md` everyday-commands table row
+- [x] `web` added to `COMMANDS` and `COMMAND_HELP` in `devc/help.ts` with the usage text above; `devc/tests/help_test.ts` count raised to 16
+- [x] `devc web` dispatch in `devc/main.ts`, placed before the first-run wizard hook; flag parsing for `--port` and `--session` (default `DEVC_HERDR_SESSION`)
+- [x] Pure `devcontainer.metadata` → `remoteUser` resolver, with tests
+- [x] Container discovery: initial `docker ps` plus a long-lived `docker events`, restarted after 2 s on exit with reconciliation
+- [x] herdr path resolution (`sh -lc 'command -v herdr'`) and `remote-api-bridge --check`
+- [x] Bridge helpers: one-shot request, and a streaming subscription with `subscription_started` handshake
+- [x] Event-name normalization (pure, tested)
+- [x] Per-container lifecycle: the six states, coalesced re-snapshots, overlapping status-connection swap, `events_lost`, lifecycle-exit teardown
+- [x] Start session (`docker exec -d … server`) and Retry
+- [x] Controller manager: one controller per pane, shared, `--takeover` rejoin for full frames, release on last close, `pane_closed` with reason
+- [x] HTTP + WebSocket server on 127.0.0.1 with token, Host and Origin checks (check logic pure and tested); `Cache-Control: no-store`
+- [x] WebSocket protocol exactly as specified, including the `request` allowlist and `bad_request` handling (message validation pure and tested)
+- [x] SIGINT/SIGTERM teardown: release controllers, close bridges, stop `docker events`, exit 0
+- [x] Vendored xterm.js 6.0.0 + addon-fit 0.11.0 with `LICENSE`/`VERSIONS`; `scripts/vendor-xterm.sh`; fmt exclude in both `deno.json` files
+- [x] `--include web/static` in `build` and `build:release`
+- [x] Renderer wrapper module (the only file that imports xterm)
+- [x] Sidebar tree with container states, agent badges and context-menu pane management
+- [x] Browser-owned tiling: splits, divider drag, close, `localStorage` persistence, "Pane gone"
+- [x] Input: keyboard via `onData`; paste wrapping; mouse forwarding with Shift+drag local selection; wheel → `scroll`
+- [x] Pure browser helpers in `devc/web/static/lib/` with tests (paste wrapper, pixel→cell, wheel→lines, button map)
+- [x] New `.ts` files added to the `check` task
+- [x] Docs: `devc/README.md` Commands block and a `web` note (including the application cursor key limitation and the TUI size conflict); `.plans/design/devc-design.md` Top-level help plus a new `## \`web\``section; root`README.md` everyday-commands table row
 
 ## Validation
 
 Automated (inside the repo's dev container):
 
-- [ ] `deno fmt --check` at the repo root passes, with vendored files excluded
-- [ ] `cd devc && deno task check` passes
-- [ ] `cd devc && deno task test` passes. The new tests cover:
+- [x] `deno fmt --check` at the repo root passes, with vendored files excluded
+- [x] `cd devc && deno task check` passes
+- [x] `cd devc && deno task test` passes. The new tests cover:
   - `remoteUser` resolution: an array whose last entry has `remoteUser`; a single
     object; no `remoteUser` (falls back to `Config.User`, then `root`); malformed JSON
     (falls back)
@@ -433,7 +433,7 @@ Automated (inside the repo's dev container):
     `"a\r\nb"` → the same
   - pixel→cell is zero-based and clamped to the grid; wheel→lines clamps to 1..10;
     button mapping 0/1/2 → left/middle/right
-- [ ] `cd devc && deno task build` produces a binary, and `./devc web --help` prints the usage block
+- [x] `cd devc && deno task build` produces a binary, and `./devc web --help` prints the usage block
 
 Manual, on a macOS host with Docker Desktop and at least two running devcontainers whose
 images have the Agents Feature with `installHerdr: true`:

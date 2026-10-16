@@ -23,6 +23,7 @@ import {
   parseBuildArgs,
   parseConfigArgs,
   parseUpArgs,
+  parseWebArgs,
 } from './args.ts';
 import { bridgeStatusLines, pruneBridgeFiles } from './bridge.ts';
 import {
@@ -55,6 +56,7 @@ import {
 } from './tui/config_flow.ts';
 import { COMMAND_HELP, COMMANDS, helpRequested, topLevelHelp } from './help.ts';
 import { versionLine } from './version_info.ts';
+import { serveWeb, WebStartError } from './web/server.ts';
 
 const subcommand = Deno.args[0];
 const KNOWN_COMMANDS = new Set(COMMANDS.map((c) => c.name));
@@ -336,6 +338,30 @@ if (subcommand === 'config') {
     repo,
   );
   Deno.exit(0);
+}
+
+// `devc web`: the browser UI for the Herdr sessions in every running devcontainer. Runs until
+// Ctrl-C. Like `init` and `config`, dispatched before the first-run global-config hook below: it
+// serves every container, not one project, and needs no folder roots.
+if (subcommand === 'web') {
+  let webArgs: ReturnType<typeof parseWebArgs>;
+  try {
+    webArgs = parseWebArgs(Deno.args.slice(1));
+  } catch (e) {
+    console.error(`devc web: ${e instanceof Error ? e.message : e}`);
+    Deno.exit(1);
+  }
+  try {
+    await serveWeb(webArgs);
+  } catch (e) {
+    // `docker` missing reads exactly as it does for the lookup commands.
+    const message = e instanceof Error ? e.message : String(e);
+    if (message === 'docker not found on PATH') fail(message);
+    console.error(
+      `devc web: ${e instanceof WebStartError ? message : `${e}`}`,
+    );
+    Deno.exit(1);
+  }
 }
 
 // First-run hook: before dispatching any other command, if the global config does not exist

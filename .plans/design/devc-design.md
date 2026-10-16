@@ -639,7 +639,9 @@ Commands:
   mounts   List container mounts for the current project
   stop     Stop the dev container for the current project
   down     Remove the dev container for the current project
+  prune    Remove devc-bridge key dirs and policies no container uses
   status   Show dev container status for the current project
+  web      Serve a browser UI for the Herdr sessions in running dev containers
 
 Run "devc <COMMAND> --help" for more information on a command.
 ```
@@ -931,6 +933,28 @@ Arguments:
 Options:
   -h, --help  Print help
 ```
+
+## `web`
+
+Serve a browser UI for the Herdr sessions running inside every running devcontainer, on
+`127.0.0.1` only. Runs in the foreground until Ctrl-C and ignores PATH. Dispatched before the
+first-run global-config wizard: it needs no global config. See `devc/README.md` and
+`.plans/devc-web.md` for the protocol and security checks.
+
+```text
+Usage: devc web [--port N] [--session NAME]
+
+Options:
+  --port N        Port to listen on, on 127.0.0.1 (default: 48228)
+  --session NAME  Herdr session to use in each container (default: devc)
+  -h, --help      Print help
+```
+
+On a successful listen, stdout gets exactly one line,
+`devc web: http://127.0.0.1:<port>/#token=<token>`. A port in use or a bad flag value prints
+`devc web: <message>` to stderr and exits 1; `docker` missing from PATH prints
+`devc: docker not found on PATH` and exits 1. SIGINT/SIGTERM release every pane controller,
+close every bridge and exit 0.
 
 ## Implementation notes
 

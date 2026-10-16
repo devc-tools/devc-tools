@@ -1,0 +1,248 @@
+// Devcontainer discovery for `devc web`: an initial `docker ps`, then a `docker events` stream
+// for the server's lifetime (push, never polled), plus the per-container facts every Herdr
+// process needs — the user to exec as and the absolute path of `herdr`.
+//
+// A devcontainer is any container labelled `devcontainer.local_folder`, which the devcontainer
+// CLI sets on every container it creates — the same label `@devc-tools/core/container.ts` finds
+// a project's container by.
+
+import { type LineProc, runText, spawnLines } from './proc.ts';
+
+export const LOCAL_FOLDER_LABEL = 'devcontainer.local_folder';
+
+/** A running devcontainer. `id` is the full Docker id. */
+export interface ContainerRecord {
+  id: string;
+  localFolder: string;
+}
+
+/** Parses one `docker ps --format '{{.ID}}\t{{.Label …}}'` line; `null` for a blank one. */
+export function parsePsLine(line: string): ContainerRecord | null {
+  const tab = line.indexOf('\t');
+  if (tab <= 0) return null;
+  return { id: line.slice(0, tab).trim(), localFolder: line.slice(tab + 1) };
+}
+
+/** One `docker events --format '{{json .}}'` line, reduced to what discovery needs. */
+export interface ContainerEvent {
+  action: 'start' | 'die';
+  id: string;
+  localFolder: string;
+}
+
+/** Parses one `docker events` JSON line; `null` for anything that is not a start or die. */
+export function parseEventLine(line: string): ContainerEvent | null {
+  let ev: unknown;
+  try {
+    ev = JSON.parse(line);
+  } catch {
+    return null;
+  }
+  if (typeof ev !== 'object' || ev === null) return null;
+  const { Action, Actor } = ev as {
+    Action?: unknown;
+    Actor?: { ID?: unknown; Attributes?: Record<string, unknown> };
+  };
+  if (Action !== 'start' && Action !== 'die') return null;
+  if (typeof Actor?.ID !== 'string') return null;
+  const folder = Actor.Attributes?.[LOCAL_FOLDER_LABEL];
+  return {
+    action: Action,
+    id: Actor.ID,
+    localFolder: typeof folder === 'string' ? folder : '',
+  };
+}
+
+/**
+ * The user a container's tools run as: `remoteUser` from the `devcontainer.metadata` label (the
+ * **last** entry that has a string one — later entries are the more specific config, as the
+ * devcontainer CLI merges them), else the image's `Config.User`, else `root`.
+ *
+ * `labelsJson` is `docker inspect --format '{{json .Config.Labels}}'` output. The metadata label
+ * may hold an array or a single object. Anything malformed falls through to the fallbacks.
+ * Nothing else in devc reads this label — `startContainer` learns `remoteUser` from
+ * `devcontainer up` — so this is its only parser.
+ */
+export function resolveRemoteUser(
+  labelsJson: string,
+  configUser: string,
+): string {
+  const fallback = configUser.trim() || 'root';
+  let labels: unknown;
+  try {
+    labels = JSON.parse(labelsJson);
+  } catch {
+    return fallback;
+  }
+  if (typeof labels !== 'object' || labels === null) return fallback;
+  const raw = (labels as Record<string, unknown>)['devcontainer.metadata'];
+  if (typeof raw !== 'string') return fallback;
+  let meta: unknown;
+  try {
+    meta = JSON.parse(raw);
+  } catch {
+    return fallback;
+  }
+  const entries = Array.isArray(meta) ? meta : [meta];
+  let user: string | undefined;
+  for (const entry of entries) {
+    if (typeof entry !== 'object' || entry === null) continue;
+    const r = (entry as Record<string, unknown>).remoteUser;
+    if (typeof r === 'string' && r !== '') user = r;
+  }
+  return user ?? fallback;
+}
+
+/** `resolveRemoteUser` for a live container, via one `docker inspect`. */
+export async function inspectRemoteUser(id: string): Promise<string> {
+  // Labels JSON escapes any newline, so the first line is the labels and the rest is the user.
+  const { code, stdout, stderr } = await runText('docker', [
+    'inspect',
+    '--format',
+    '{{json .Config.Labels}}\n{{.Config.User}}',
+    id,
+  ]);
+  if (code !== 0) {
+    throw new Error(stderr.trim() || `docker inspect ${id} failed`);
+  }
+  const nl = stdout.indexOf('\n');
+  const labels = nl === -1 ? stdout : stdout.slice(0, nl);
+  const user = nl === -1 ? '' : stdout.slice(nl + 1).trim();
+  return resolveRemoteUser(labels, user);
+}
+
+/**
+ * The absolute path of `herdr` in the container, or `''` when it has none. A login shell,
+ * because the Agents Feature installs into `~/.local/bin`, which a plain `docker exec` PATH may
+ * not include. This is the only Herdr-related exec that goes through a shell: every later one
+ * runs the returned path directly.
+ */
+export async function resolveHerdrPath(
+  id: string,
+  user: string,
+): Promise<string> {
+  const { stdout } = await runText('docker', [
+    'exec',
+    '-u',
+    user,
+    id,
+    'sh',
+    '-lc',
+    'command -v herdr',
+  ]);
+  const path = stdout.trim().split('\n').pop()?.trim() ?? '';
+  return path.startsWith('/') ? path : '';
+}
+
+/** Lists running devcontainers. */
+export async function listDevcontainers(): Promise<ContainerRecord[]> {
+  const { code, stdout, stderr } = await runText('docker', [
+    'ps',
+    '--no-trunc',
+    '--filter',
+    `label=${LOCAL_FOLDER_LABEL}`,
+    '--format',
+    `{{.ID}}\t{{.Label "${LOCAL_FOLDER_LABEL}"}}`,
+  ]);
+  if (code !== 0) throw new Error(stderr.trim() || 'docker ps failed');
+  return stdout.split('\n').map(parsePsLine).filter((r) =>
+    r !== null
+  ) as ContainerRecord[];
+}
+
+export interface DiscoveryHooks {
+  onAdd(record: ContainerRecord): void;
+  onRemove(id: string): void;
+  onError(message: string): void;
+}
+
+const EVENTS_RESTART_MS = 2000;
+
+/**
+ * Tracks the set of running devcontainers. `docker events` is started *before* each `docker ps`
+ * so nothing that happens between the two is missed; the reconcile makes the overlap harmless.
+ * When the events stream ends it is restarted after 2 s and the list reconciled again.
+ */
+export class Discovery {
+  #known = new Map<string, ContainerRecord>();
+  #events: LineProc | null = null;
+  #stopped = false;
+  #restartTimer: ReturnType<typeof setTimeout> | undefined;
+
+  constructor(private hooks: DiscoveryHooks) {}
+
+  start(): void {
+    this.#runEvents();
+  }
+
+  stop(): void {
+    this.#stopped = true;
+    clearTimeout(this.#restartTimer);
+    this.#events?.kill();
+  }
+
+  #add(record: ContainerRecord): void {
+    if (this.#known.has(record.id)) return;
+    this.#known.set(record.id, record);
+    this.hooks.onAdd(record);
+  }
+
+  #remove(id: string): void {
+    if (!this.#known.delete(id)) return;
+    this.hooks.onRemove(id);
+  }
+
+  async #reconcile(): Promise<void> {
+    let current: ContainerRecord[];
+    try {
+      current = await listDevcontainers();
+    } catch (e) {
+      this.hooks.onError(e instanceof Error ? e.message : String(e));
+      return;
+    }
+    const ids = new Set(current.map((r) => r.id));
+    for (const id of [...this.#known.keys()]) {
+      if (!ids.has(id)) this.#remove(id);
+    }
+    for (const r of current) this.#add(r);
+  }
+
+  async #runEvents(): Promise<void> {
+    if (this.#stopped) return;
+    const proc = spawnLines('docker', [
+      'events',
+      '--filter',
+      'type=container',
+      '--filter',
+      `label=${LOCAL_FOLDER_LABEL}`,
+      '--filter',
+      'event=start',
+      '--filter',
+      'event=die',
+      '--format',
+      '{{json .}}',
+    ]);
+    this.#events = proc;
+    // Nothing is ever written: `docker events` reads no stdin.
+    void proc.closeStdin();
+    void this.#reconcile();
+    for await (const line of proc.lines) {
+      const ev = parseEventLine(line);
+      if (ev === null) continue;
+      if (ev.action === 'start') {
+        this.#add({ id: ev.id, localFolder: ev.localFolder });
+      } else this.#remove(ev.id);
+    }
+    await proc.status;
+    if (this.#stopped) return;
+    this.#restartTimer = setTimeout(
+      () => void this.#runEvents(),
+      EVENTS_RESTART_MS,
+    );
+  }
+}
+
+/** Throws `Deno.errors.NotFound` when `docker` is not on PATH. */
+export async function probeDocker(): Promise<void> {
+  await runText('docker', ['--version']);
+}

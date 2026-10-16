@@ -64,6 +64,7 @@ cp ~/.claude/CLAUDE.md ~/.config/devc/.claude/
 | `devc config`                  | Pick sibling repos and skill folders to mount into the container ([details](devc/README.md#devc-config)) |
 | `devc init`                    | Copy the default config into `.devcontainer/` so you can edit it ([details](devc/README.md#commands))    |
 | `devc stop` / `devc down`      | Stop the container / stop and remove it                                                                  |
+| `devc web`                     | Browser UI for the Herdr sessions in every running container                                             |
 
 Every command works on the current directory, or on a path you pass
 (`devc attach ~/code/other`). `devc --help` lists everything. The full reference
