@@ -30,6 +30,7 @@ import {
   bridgePaths,
   gitHubRepoOf,
   isGitHubRemote,
+  parseGitdirPointer,
   parsePolicy,
   type PinnedRepo,
   policyProblem,
@@ -48,7 +49,12 @@ import {
   type MergedConfig,
   projectKey,
 } from '@devc-tools/core/merged_config.ts';
-import { unfoldHome } from '@devc-tools/core/mounts.ts';
+import {
+  gitDirTarget,
+  parseMountSpec,
+  unfoldHome,
+} from '@devc-tools/core/mounts.ts';
+import { isAbsolutePosix, resolvePosix } from '@devc-tools/core/posix.ts';
 import {
   BRIDGE_CLIENT_TARGET,
   gitProtectState,
@@ -335,9 +341,230 @@ interface EligibleRow {
 }
 
 /**
- * The rows `--bridge-repo` may name: every git-protected `repo` row of the merged config except
- * the workspace's own (at its own target or mounted again elsewhere). A linked worktree is never one (its `.git` is a file, so git protection
- * does not classify it as a repo), and nor is a row whose source does not exist.
+ * A linked worktree an extra pin may name ({@link matchWorktree}): its host working tree, its path
+ * in the container, and the git-protected row whose git dir is its common dir — the primary's,
+ * whose frozen `config` and `hooks` are the only config and hooks git uses for the worktree.
+ */
+interface WorktreeMatch {
+  repo: string;
+  target: string;
+  gitDirRow: ProtectedRow;
+  /** The container path of that common git dir. */
+  gitDir: string;
+}
+
+/** The container path of a protected row's git dir: `<target>/.git`, or a `gitdir` row's target. */
+function containerGitDir(row: ProtectedRow): string {
+  const target = normalizeTarget(row.target);
+  return row.kind === 'gitdir' ? target : gitDirTarget(target);
+}
+
+/** The host path of a protected row's git dir, resolved through symlinks, or null if missing. */
+async function hostGitDir(
+  row: ProtectedRow,
+  home: string,
+): Promise<string | null> {
+  const source = unfoldHome(row.source, home);
+  return await realPathOrNull(
+    row.kind === 'gitdir' ? source : `${source}/.git`,
+  );
+}
+
+async function readTextOrNull(path: string): Promise<string | null> {
+  try {
+    return await Deno.readTextFile(path);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Whether the linked worktree at `repo` (a host path, resolved through symlinks, whose `.git` is a
+ * file) may be pinned as an extra repo, and where it sits in the container. Each check is the one
+ * that keeps the container's git on the frozen config; the first that fails is the reason:
+ *
+ * 1. It is inside a bind mount (the deepest one whose source contains it) — a `<repo>.worktrees`
+ *    row, or a row mounting the worktree itself. That gives its container path.
+ * 2. Its `gitdir:` pointer is relative: an absolute one names a host path the container lacks.
+ * 3. The pointer is honest — `<C>/worktrees/<name>`, whose `gitdir` points back at this `.git` and
+ *    whose `commondir` is `<C>` (the checks `gh-push`'s `pointer_problem` makes) — and `<C>` is the
+ *    git dir of a git-protected row: a `repo` row's `.git`, or a `gitdir` row such as the CLI's
+ *    common-dir mount for a worktree workspace.
+ * 4. The same relative pointer, resolved from the container path, lands on that row's git dir in
+ *    the container — so git in the container uses the frozen config, not some other copy.
+ *
+ * Whether protection is actually in force is checked against the live mount table later, as for
+ * any pin ({@link deriveWorktreePin}).
+ */
+async function matchWorktree(
+  repo: string,
+  merged: MergedConfig,
+  localFolder: string,
+  home: string,
+): Promise<{ ok: true; match: WorktreeMatch } | { ok: false; reason: string }> {
+  // 1. The deepest bind mount containing it. The workspace mount is not in `mounts`, so it is a
+  // candidate of its own.
+  const candidates: { source: string; target: string }[] = [];
+  const workspace = await workspaceMountRow(merged.config, localFolder);
+  if (workspace !== null) candidates.push(workspace);
+  if (Array.isArray(merged.config.mounts)) {
+    for (const entry of merged.config.mounts) {
+      const spec = parseMountSpec(entry);
+      if (spec === null || spec.type !== 'bind' || spec.source === null) {
+        continue;
+      }
+      candidates.push({ source: spec.source, target: spec.target });
+    }
+  }
+  let best: { source: string; target: string } | null = null;
+  for (const c of candidates) {
+    const source = await realPathOrNull(unfoldHome(c.source, home));
+    if (source === null) continue;
+    if (repo !== source && !repo.startsWith(`${source}/`)) continue;
+    if (best === null || source.length > best.source.length) {
+      best = { source, target: c.target };
+    }
+  }
+  if (best === null) {
+    return {
+      ok: false,
+      reason:
+        'a linked worktree that is not inside any bind mount of this workspace',
+    };
+  }
+  const target = normalizeTarget(best.target) +
+    repo.slice(best.source.length);
+
+  // 2. A relative pointer.
+  const rel = parseGitdirPointer(await readTextOrNull(`${repo}/.git`) ?? '');
+  if (rel === null) {
+    return { ok: false, reason: 'its .git is a file with no gitdir: line' };
+  }
+  if (isAbsolutePosix(rel)) {
+    return {
+      ok: false,
+      reason:
+        'its .git uses an absolute gitdir: path, which does not resolve inside the container — ' +
+        'run git worktree repair --relative-paths',
+    };
+  }
+
+  // 3. An honest pointer into a protected git dir.
+  const pointed = resolvePosix(repo, rel);
+  const g = await realPathOrNull(pointed);
+  const notProtected = {
+    ok: false as const,
+    reason: `its .git points at ${
+      g ?? pointed
+    }, which is not the worktrees/ dir of a git-protected repo here`,
+  };
+  const m = g === null ? null : /^(.+)\/worktrees\/([^/]+)$/.exec(g);
+  if (g === null || m === null) return notProtected;
+  const [, commonDir, name] = m;
+  const back = (await readTextOrNull(`${g}/gitdir`))?.trim();
+  if (back === undefined || back === '') return notProtected;
+  const backPath = isAbsolutePosix(back) ? back : resolvePosix(g, back);
+  const backDir = await realPathOrNull(dirOf(backPath));
+  if (
+    backDir === null || `${backDir}/${baseOf(backPath)}` !== `${repo}/.git`
+  ) {
+    return notProtected;
+  }
+  const common = (await readTextOrNull(`${g}/commondir`))?.trim();
+  if (common === undefined || common === '') return notProtected;
+  const commonPath = isAbsolutePosix(common) ? common : resolvePosix(g, common);
+  if (await realPathOrNull(commonPath) !== commonDir) return notProtected;
+  let gitDirRow: ProtectedRow | null = null;
+  for (const row of merged.protectedRows) {
+    if (await hostGitDir(row, home) === commonDir) {
+      gitDirRow = row;
+      break;
+    }
+  }
+  if (gitDirRow === null) return notProtected;
+
+  // 4. The same pointer, from inside the container.
+  const gitDir = containerGitDir(gitDirRow);
+  const expected = `${gitDir}/worktrees/${name}`;
+  const inside = resolvePosix(target, rel);
+  if (inside !== expected) {
+    return {
+      ok: false,
+      reason:
+        `its gitdir: pointer resolves to ${inside} inside the container, not ${expected}`,
+    };
+  }
+  return { ok: true, match: { repo, target, gitDirRow, gitDir } };
+}
+
+function dirOf(path: string): string {
+  const i = path.lastIndexOf('/');
+  return i <= 0 ? '/' : path.slice(0, i);
+}
+
+function baseOf(path: string): string {
+  return path.slice(path.lastIndexOf('/') + 1);
+}
+
+/**
+ * The pin for a linked worktree {@link matchWorktree} accepted: its own branch (`HEAD` in its
+ * `<C>/worktrees/<name>` dir) and the primary's GitHub remote, read from the frozen `config` —
+ * before `up`, from `<C>/config` itself. With a live mount table, the common git dir's `config`
+ * and `hooks` must be read-only in the container, as for any pin.
+ */
+async function deriveWorktreePin(
+  match: WorktreeMatch,
+  mounts: ContainerMount[] | null | 'skip',
+): Promise<DerivedPin> {
+  const badTarget = targetProblem(match.target);
+  if (badTarget !== null) {
+    return {
+      ok: false,
+      reason:
+        `its container path ${match.target} cannot be pinned (${badTarget})`,
+    };
+  }
+  const pin = await resolvePin(match.repo);
+  if (!pin.ok) return { ok: false, reason: pin.reason };
+  if (!isGitHubRemote(pin.record.remote)) {
+    return { ok: false, reason: notGitHubReason(pin.record.remote) };
+  }
+  if (mounts === 'skip') {
+    return { ok: true, record: { ...pin.record, target: match.target } };
+  }
+  if (mounts === null) {
+    return {
+      ok: false,
+      reason: 'no container to verify git protection against',
+    };
+  }
+  const state = gitProtectState(match.gitDirRow, mounts);
+  if (state.state !== 'protected') {
+    return {
+      ok: false,
+      reason:
+        `git protection is not in force in this container for ${match.target} ` +
+        `(${state.problems.join('; ')}) — recreate it with \`devc build\``,
+    };
+  }
+  const configMount = mounts.find((m) =>
+    normalizeTarget(m.destination) === `${match.gitDir}/config`
+  )!;
+  const frozen = await resolvePin(match.repo, {
+    configPath: configMount.source,
+  });
+  if (!frozen.ok) return { ok: false, reason: frozen.reason };
+  if (!isGitHubRemote(frozen.record.remote)) {
+    return { ok: false, reason: notGitHubReason(frozen.record.remote) };
+  }
+  return { ok: true, record: { ...frozen.record, target: match.target } };
+}
+
+/**
+ * The rows `--bridge-repo` may name as a whole repo: every git-protected `repo` row of the merged
+ * config except the workspace's own (at its own target or mounted again elsewhere), and not a row
+ * whose source does not exist. A linked worktree is never one (its `.git` is a file, so git
+ * protection does not classify it as a repo); {@link matchWorktree} decides those.
  */
 async function eligibleRows(
   merged: MergedConfig,
@@ -363,9 +590,10 @@ async function eligibleRows(
 }
 
 /**
- * The row `--bridge-repo <arg>` names, or throws {@link BridgeGrantError} saying why it names
- * none: no such directory, the workspace repo itself, a linked worktree, or anything else that is
- * not a git-protected repo mount here (listing the ones that are).
+ * What `--bridge-repo <arg>` names — a protected repo row, or a linked worktree
+ * {@link matchWorktree} accepts — or throws {@link BridgeGrantError} saying why it names neither:
+ * no such directory, the workspace repo itself, a worktree that fails one of its checks, or
+ * anything else that is not a git-protected repo mount here (listing the ones that are).
  */
 async function matchBridgeRepo(
   arg: string,
@@ -373,7 +601,7 @@ async function matchBridgeRepo(
   merged: MergedConfig,
   localFolder: string,
   home: string,
-): Promise<EligibleRow> {
+): Promise<EligibleRow | WorktreeMatch> {
   const real = await realPathOrNull(
     expandBridgeRepo(arg, home, Deno.cwd()),
   );
@@ -395,9 +623,9 @@ async function matchBridgeRepo(
     dotGitIsFile = (await Deno.stat(`${real}/.git`)).isFile;
   } catch { /* no .git at all */ }
   if (dotGitIsFile) {
-    throw refuse(
-      'a linked worktree mounted as an extra folder is not git-protected, so it cannot be pinned',
-    );
+    const worktree = await matchWorktree(real, merged, localFolder, home);
+    if (!worktree.ok) throw refuse(worktree.reason);
+    return worktree.match;
   }
   throw refuse(
     rows.length === 0
@@ -407,6 +635,38 @@ async function matchBridgeRepo(
           .join(', ')
       }`,
   );
+}
+
+/**
+ * Why two of `pins` cannot stand together, or null. Pins on one GitHub `<owner>/<name>` share
+ * `gh-push`'s per-remote mirror, which is fine for different branches — worktrees of one primary —
+ * but not for the same branch twice, and not through two URL spellings: the mirror's `origin`
+ * must equal each line's remote. `labels[i]` names `pins[i]` in the message.
+ */
+function sameRepoProblem(
+  pins: readonly PinnedRepo[],
+  labels: readonly string[],
+): string | null {
+  for (let i = 0; i < pins.length; i++) {
+    for (let j = 0; j < i; j++) {
+      const a = gitHubRepoOf(pins[j].remote)!;
+      if (a.toLowerCase() !== gitHubRepoOf(pins[i].remote)!.toLowerCase()) {
+        continue;
+      }
+      if (pins[j].branch === pins[i].branch) {
+        return `${labels[j]} and ${labels[i]} both push branch ${
+          pins[i].branch
+        } to github.com/${a}`;
+      }
+      if (pins[j].remote !== pins[i].remote) {
+        return `${labels[j]} and ${
+          labels[i]
+        } reach github.com/${a} through different URLs ` +
+          `(${pins[j].remote}, ${pins[i].remote})`;
+      }
+    }
+  }
+  return null;
 }
 
 /**
@@ -429,33 +689,24 @@ async function derivePins(
   const rows = repos.length === 0
     ? []
     : await eligibleRows(merged, localFolder, home);
-  const used = new Set<EligibleRow>();
+  const used = new Set<string>();
   for (const arg of repos) {
     const match = await matchBridgeRepo(arg, rows, merged, localFolder, home);
-    if (used.has(match)) {
+    if (used.has(match.repo)) {
       throw new BridgeGrantError(
         `${BRIDGE_REPO_FLAG} ${arg} given more than once`,
       );
     }
-    used.add(match);
-    const pin = await deriveExtraPin(match.row, match.repo, mounts);
+    used.add(match.repo);
+    const pin = 'row' in match
+      ? await deriveExtraPin(match.row, match.repo, mounts)
+      : await deriveWorktreePin(match, mounts);
     if (!pin.ok) return { ok: false, reason: `${arg}: ${pin.reason}` };
     pins.push(pin.record);
     labels.push(arg);
   }
-  // Two lines on one GitHub repo would make gh-push's per-remote mirror ambiguous. Only a repo and
-  // its own checkout or worktree can do this, so it is refused rather than reconciled.
-  for (let i = 0; i < pins.length; i++) {
-    for (let j = 0; j < i; j++) {
-      const a = gitHubRepoOf(pins[j].remote)!;
-      if (a.toLowerCase() === gitHubRepoOf(pins[i].remote)!.toLowerCase()) {
-        return {
-          ok: false,
-          reason: `${labels[j]} and ${labels[i]} both push to github.com/${a}`,
-        };
-      }
-    }
-  }
+  const shared = sameRepoProblem(pins, labels);
+  if (shared !== null) return { ok: false, reason: shared };
   return { ok: true, pins };
 }
 
@@ -640,9 +891,10 @@ export async function applyPolicy(
 /**
  * {@link applyPolicy}'s refresh of a present policy: the stored pins stand only while every one
  * still matches what the container shows. Line 1 is re-derived as the workspace repo; each later
- * line by finding the protected row with its stored `repo` and `target`. The first line that
- * fails or drifted revokes the whole policy, named by its host path when more than one repo is
- * pinned.
+ * line by finding the protected row with its stored `repo` and `target`, or — for a linked
+ * worktree — through {@link matchWorktree} again. The first line that fails or drifted revokes the
+ * whole policy, named by its host path when more than one repo is pinned; so does a pair the
+ * same-repo rule ({@link sameRepoProblem}) no longer allows.
  */
 async function refreshPolicy(
   key: string,
@@ -663,6 +915,7 @@ async function refreshPolicy(
 
   const mounts = await deps.mounts(localFolder);
   const rows = multi ? await eligibleRows(merged, localFolder, deps.home) : [];
+  const derivedPins: PinnedRepo[] = [];
   for (let i = 0; i < stored.repos.length; i++) {
     const line = stored.repos[i];
     let derived: DerivedPin;
@@ -672,13 +925,9 @@ async function refreshPolicy(
       const match = rows.find((r) =>
         r.repo === line.repo && normalizeTarget(r.row.target) === line.target
       );
-      derived = match === undefined
-        ? {
-          ok: false,
-          reason:
-            `${line.repo} is no longer a git-protected repo mount at ${line.target}`,
-        }
-        : await deriveExtraPin(match.row, match.repo, mounts);
+      derived = match !== undefined
+        ? await deriveExtraPin(match.row, match.repo, mounts)
+        : await refreshWorktreeLine(line, merged, localFolder, mounts, deps);
     }
     if (!derived.ok) {
       await revoke(
@@ -698,7 +947,44 @@ async function refreshPolicy(
       );
       return;
     }
+    derivedPins.push(derived.record);
   }
+  const shared = sameRepoProblem(
+    derivedPins,
+    derivedPins.map((p) => p.repo),
+  );
+  if (shared !== null) {
+    await revoke(`${shared}. Re-run \`${regrant}\` once that is fixed.`);
+  }
+}
+
+/**
+ * Refresh's re-derivation of an extra line no protected repo row matches: a linked worktree goes
+ * through {@link matchWorktree} and {@link deriveWorktreePin} again (a moved container path then
+ * shows as drift); anything else is no longer a pinnable mount.
+ */
+async function refreshWorktreeLine(
+  line: PinnedRepo,
+  merged: MergedConfig,
+  localFolder: string,
+  mounts: ContainerMount[] | null,
+  deps: BridgeDeps,
+): Promise<DerivedPin> {
+  const gone: DerivedPin = {
+    ok: false,
+    reason:
+      `${line.repo} is no longer a git-protected repo mount at ${line.target}`,
+  };
+  const repo = await realPathOrNull(line.repo);
+  if (repo === null) return gone;
+  try {
+    if (!(await Deno.stat(`${repo}/.git`)).isFile) return gone;
+  } catch {
+    return gone;
+  }
+  const worktree = await matchWorktree(repo, merged, localFolder, deps.home);
+  if (!worktree.ok) return { ok: false, reason: worktree.reason };
+  return await deriveWorktreePin(worktree.match, mounts);
 }
 
 /** On `devc down`: remove this workspace's key directory and policy. Returns the paths removed. */

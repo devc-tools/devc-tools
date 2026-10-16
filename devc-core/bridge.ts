@@ -438,6 +438,54 @@ export function parseOriginUrl(text: string): OriginUrl {
     : { ok: false, reason: problem };
 }
 
+/** Why a pin is refused when {@link enablesWorktreeConfig} holds for its frozen config. */
+export const WORKTREE_CONFIG_REASON =
+  'its repo config enables extensions.worktreeConfig, so a per-worktree config.worktree could ' +
+  'override the frozen config — unset it on the host to pin this repo';
+
+/**
+ * Whether a git config file's text turns on `extensions.worktreeConfig`. With it on, git also
+ * reads `<git dir>/config.worktree` — for the primary worktree and every linked one — and that
+ * file is not among the read-only mounts, so the frozen `config` would no longer be the whole
+ * config. It cannot be switched on from inside a container (it lives in the frozen file), but a
+ * user may already have it on.
+ *
+ * As git reads it: `[extensions]` with no subsection, key `worktreeConfig`, both case-insensitive;
+ * the last occurrence wins; a bare key is `true`; only `false`/`no`/`off`/`0` (case-insensitive)
+ * turn it off. **Fails closed**: a line inside `[extensions]` it cannot read, or a value it cannot
+ * parse, counts as on — refusing a pin over an odd config is recoverable, trusting one is not.
+ */
+export function enablesWorktreeConfig(text: string): boolean {
+  let inExtensions = false;
+  let enabled = false;
+  for (const raw of text.split(/\r?\n/)) {
+    const line = raw.trim();
+    if (line === '' || line.startsWith('#') || line.startsWith(';')) continue;
+    if (line.startsWith('[')) {
+      const section = /^\[\s*([A-Za-z0-9.-]+)(\s+"(?:[^"\\]|\\.)*")?\s*\]/
+        .exec(line);
+      inExtensions = section !== null &&
+        section[1].toLowerCase() === 'extensions' && section[2] === undefined;
+      if (inExtensions && line.slice(section![0].length).trim() !== '') {
+        return true;
+      }
+      continue;
+    }
+    if (!inExtensions) continue;
+    const kv = /^([A-Za-z][A-Za-z0-9-]*)\s*(?:=\s*(.*))?$/.exec(line);
+    if (kv === null) return true;
+    if (kv[1].toLowerCase() !== 'worktreeconfig') continue;
+    if (kv[2] === undefined) {
+      enabled = true;
+      continue;
+    }
+    const value = parseConfigValue(kv[2]);
+    if (value === null) return true;
+    enabled = !['false', 'no', 'off', '0'].includes(value.toLowerCase());
+  }
+  return enabled;
+}
+
 /** A git config value: quotes removed, escapes applied, trailing comment dropped; null if continued. */
 function parseConfigValue(raw: string): string | null {
   let out = '';
@@ -501,6 +549,8 @@ async function kindOf(path: string): Promise<'dir' | 'file' | 'none'> {
  *   `commondir` for `config`, which is where a worktree's remotes live. `worktree: true` in the
  *   result, so the caller can name the case when protection is missing.
  * - A detached `HEAD`, or one naming a ref outside `refs/heads/` → fail closed.
+ * - A config that turns on `extensions.worktreeConfig` → fail closed with
+ *   {@link WORKTREE_CONFIG_REASON}: git would also read an unfrozen `config.worktree`.
  *
  * Whether the config it reads can be *trusted* is not decided here: that needs the container's
  * live mount table, and is the caller's job. A caller that has it should pass `configPath` — the
@@ -558,6 +608,9 @@ export async function resolvePin(
   }
   const origin = parseOriginUrl(configText);
   if (!origin.ok) return { ok: false, reason: origin.reason };
+  if (enablesWorktreeConfig(configText)) {
+    return { ok: false, reason: WORKTREE_CONFIG_REASON };
+  }
 
   const repoProblem = fieldProblem('repo path', repo);
   if (repoProblem !== null) return { ok: false, reason: repoProblem };

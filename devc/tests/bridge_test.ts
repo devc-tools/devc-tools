@@ -9,7 +9,10 @@ import {
   assertRejects,
   assertStringIncludes,
 } from 'jsr:@std/assert@^1';
-import { bridgePaths } from '@devc-tools/core/bridge.ts';
+import {
+  bridgePaths,
+  WORKTREE_CONFIG_REASON,
+} from '@devc-tools/core/bridge.ts';
 import type { ContainerMount } from '@devc-tools/core/container.ts';
 import {
   ensureMergedConfig,
@@ -977,7 +980,8 @@ Deno.test('--bridge-repo: ~/x after =, a literal ~/x and the absolute path pin t
 
 Deno.test('--bridge-repo that names no eligible row: each refusal is exact, and no policy stays', async () => {
   await withFixture(async (f) => {
-    // A linked worktree and a plain folder, both mounted as extra folders, and a repo not mounted.
+    // A linked worktree whose git dir does not exist and a plain folder, both mounted as extra
+    // folders, and a repo not mounted.
     const wt = `${f.home}/extra.worktrees/wt`;
     await write(`${wt}/.git`, 'gitdir: ../../extra/.git/worktrees/wt\n');
     const plain = `${f.home}/plain`;
@@ -1001,7 +1005,8 @@ Deno.test('--bridge-repo that names no eligible row: each refusal is exact, and 
       [loose, `--bridge-repo ${loose}: ${pinnable}`],
       [
         wt,
-        `--bridge-repo ${wt}: a linked worktree mounted as an extra folder is not git-protected, so it cannot be pinned`,
+        `--bridge-repo ${wt}: its .git points at ${f.home}/extra/.git/worktrees/wt, which is not ` +
+        'the worktrees/ dir of a git-protected repo here',
       ],
       [plain, `--bridge-repo ${plain}: ${pinnable}`],
     ];
@@ -1110,7 +1115,8 @@ Deno.test('two pinned repos on one GitHub repo, in different URL shapes, are ref
       const err = await assertRejects(run, BridgeGrantError);
       assertEquals(
         err.message,
-        `${prefix}${f.project} and ~/extra both push to github.com/acme/x`,
+        `${prefix}${f.project} and ~/extra reach github.com/acme/x through different URLs ` +
+          '(git@github.com:acme/x.git, https://github.com/acme/x)',
       );
     }
     assertEquals(
@@ -1191,5 +1197,359 @@ Deno.test('status prints one indented line per pinned repo', async () => {
       `    /workspaces/proj: feat/x → git@github.com:acme/proj.git (${f.project})`,
       `    /workspaces/extra: feat/extra → git@github.com:acme/extra.git (${extra})`,
     ]);
+  });
+});
+
+// ── linked worktrees as extra repos (plan bridge-worktree-extra-repos) ──────────────────────
+
+/**
+ * Write a linked worktree of the primary at `primary` (a host repo with a `.git` dir), at host
+ * path `wt`, as git lays one out with relative pointers: `wt/.git` → `<rel>`, and in
+ * `<primary>/.git/worktrees/<name>/` a `HEAD`, a `gitdir` back-pointer and a `commondir`.
+ */
+async function linkWorktree(
+  primary: string,
+  wt: string,
+  name: string,
+  rel: string,
+  branch: string,
+): Promise<string> {
+  const gitDir = `${primary}/.git/worktrees/${name}`;
+  await write(`${gitDir}/HEAD`, `ref: refs/heads/${branch}\n`);
+  await write(`${gitDir}/commondir`, '../..\n');
+  await write(`${gitDir}/gitdir`, `${wt}/.git\n`);
+  await write(`${wt}/.git`, `gitdir: ${rel}\n`);
+  return gitDir;
+}
+
+/**
+ * The motivating setup: the workspace is worktree `wt` of `proj` (as {@link worktreeOf}), and
+ * `proj.worktrees` is also mounted whole, holding a second worktree `wt2` of the same repo.
+ */
+async function worktreePair(f: Fixture, opts: { branch2?: string } = {}) {
+  const base = await worktreeOf(f);
+  const wt2 = `${f.dir}/proj.worktrees/wt2`;
+  await linkWorktree(
+    f.project,
+    wt2,
+    'wt2',
+    '../../proj/.git/worktrees/wt2',
+    opts.branch2 ?? 'feat/wt2',
+  );
+  await write(
+    `${base.wt}/.devcontainer/devcontainer.json`,
+    JSON.stringify({
+      image: 'ubuntu',
+      features: { [BRIDGE_FEATURE]: {} },
+      mounts: [
+        `source=${f.dir}/proj.worktrees,target=/workspaces/proj.worktrees,type=bind`,
+      ],
+    }),
+  );
+  const merged = await ensureMergedConfig(base.wt, {
+    cacheRoot: `${f.dir}/cache`,
+    templatesDir: `${f.dir}/no-templates`,
+    configDir: `${f.dir}/config`,
+    home: f.home,
+  });
+  const frozen: ContainerMount[] = [
+    ...base.frozen,
+    {
+      type: 'bind',
+      source: `${f.dir}/proj.worktrees`,
+      destination: '/workspaces/proj.worktrees',
+      rw: true,
+    },
+  ];
+  return { wt: base.wt, wt2, merged, frozen };
+}
+
+Deno.test('a second worktree of the workspace repo is pinned beside the workspace worktree', async () => {
+  await withFixture(async (f) => {
+    const { wt, wt2, merged, frozen } = await worktreePair(f);
+    await checkGrantBeforeUp(merged, wt, f.deps(null), [wt2]);
+    await applyPolicy(
+      { grant: ['gh-push'], repos: [wt2] },
+      merged,
+      wt,
+      f.deps(frozen),
+    );
+    const policy = await readPolicy(merged.bridgeKey!, f.deps(null));
+    assertEquals(policy.kind === 'present' && policy.record.repos, [
+      {
+        repo: wt,
+        remote: 'git@github.com:acme/proj.git',
+        branch: 'feat/wt',
+        target: '/workspaces/proj.worktrees/wt',
+      },
+      {
+        repo: wt2,
+        remote: 'git@github.com:acme/proj.git',
+        branch: 'feat/wt2',
+        target: '/workspaces/proj.worktrees/wt2',
+      },
+    ]);
+    assertEquals(await exists(f.marker), false);
+  });
+});
+
+Deno.test("a second worktree on the workspace worktree's branch is refused", async () => {
+  await withFixture(async (f) => {
+    const { wt, wt2, merged, frozen } = await worktreePair(f, {
+      branch2: 'feat/wt',
+    });
+    const err = await assertRejects(
+      () =>
+        applyPolicy(
+          { grant: ['gh-push'], repos: [wt2] },
+          merged,
+          wt,
+          f.deps(frozen),
+        ),
+      BridgeGrantError,
+    );
+    assertEquals(
+      err.message,
+      `the container is up, but --bridge-allow was not granted: ${wt} and ${wt2} both push ` +
+        'branch feat/wt to github.com/acme/proj',
+    );
+  });
+});
+
+Deno.test('refresh revokes when a pinned extra worktree switches branch, and keeps an unchanged one', async () => {
+  await withFixture(async (f) => {
+    const { wt, wt2, merged, frozen } = await worktreePair(f);
+    const deps = f.deps(frozen);
+    await applyPolicy({ grant: ['gh-push'], repos: [wt2] }, merged, wt, deps);
+    const file = bridgePaths(f.home, merged.bridgeKey!).policyFile;
+    const before = await Deno.readTextFile(file);
+    const mtime = (await Deno.stat(file)).mtime;
+    f.logs.length = 0;
+    await applyPolicy('refresh', merged, wt, deps);
+    assertEquals(await Deno.readTextFile(file), before);
+    assertEquals((await Deno.stat(file)).mtime, mtime);
+    assertEquals(f.logs, []);
+
+    await write(
+      `${f.project}/.git/worktrees/wt2/HEAD`,
+      'ref: refs/heads/main\n',
+    );
+    await applyPolicy('refresh', merged, wt, deps);
+    assertEquals(await readPolicy(merged.bridgeKey!, deps), {
+      kind: 'absent',
+    });
+    assertStringIncludes(
+      f.logs.join('\n'),
+      `${wt2}: the branch is now main, but they were granted for feat/wt2`,
+    );
+  });
+});
+
+/**
+ * An extra repo `~/extra` (as {@link withExtra}) with `~/extra.worktrees` mounted at `mountTarget`,
+ * holding worktree `wt` of it whose `.git` points by `rel`.
+ */
+async function withExtraWorktree(
+  f: Fixture,
+  opts: { mountTarget?: string; rel?: string } = {},
+) {
+  const wt = `${f.home}/extra.worktrees/wt`;
+  const mountTarget = opts.mountTarget ?? '/workspaces/extra.worktrees';
+  const { extra, merged, frozen } = await withExtra(f, {
+    mounts: [
+      `source=${f.home}/extra.worktrees,target=${mountTarget},type=bind`,
+    ],
+  });
+  const gitDir = await linkWorktree(
+    extra,
+    wt,
+    'wt',
+    opts.rel ?? '../../extra/.git/worktrees/wt',
+    'feat/extra-wt',
+  );
+  return { extra, wt, gitDir, merged, frozen };
+}
+
+Deno.test("a worktree of another protected repo mount is pinned with that repo's frozen remote", async () => {
+  await withFixture(async (f) => {
+    const { wt, merged, frozen } = await withExtraWorktree(f);
+    await applyPolicy(
+      { grant: ['gh-push'], repos: ['~/extra.worktrees/wt'] },
+      merged,
+      f.project,
+      f.deps(frozen),
+    );
+    const policy = await readPolicy(merged.bridgeKey!, f.deps(null));
+    assertEquals(policy.kind === 'present' && policy.record.repos[1], {
+      repo: wt,
+      remote: 'git@github.com:acme/extra.git',
+      branch: 'feat/extra-wt',
+      target: '/workspaces/extra.worktrees/wt',
+    });
+  });
+});
+
+Deno.test('an extra worktree whose primary git dir is writable in the container is refused', async () => {
+  await withFixture(async (f) => {
+    const { merged, frozen } = await withExtraWorktree(f);
+    const writable = frozen.map((m) =>
+      m.destination === '/workspaces/extra/.git/hooks' ? { ...m, rw: true } : m
+    );
+    const err = await assertRejects(
+      () =>
+        applyPolicy(
+          { grant: ['gh-push'], repos: ['~/extra.worktrees/wt'] },
+          merged,
+          f.project,
+          f.deps(writable),
+        ),
+      BridgeGrantError,
+    );
+    assertStringIncludes(
+      err.message,
+      '~/extra.worktrees/wt: git protection is not in force in this container for ' +
+        '/workspaces/extra.worktrees/wt (/workspaces/extra/.git/hooks is mounted read-write)',
+    );
+  });
+});
+
+Deno.test('extra worktrees that fail a check are refused, each with its reason', async () => {
+  await withFixture(async (f) => {
+    const refusal = async (
+      merged: MergedConfig,
+      frozen: ContainerMount[],
+      arg: string,
+    ) =>
+      (await assertRejects(
+        () =>
+          applyPolicy(
+            { grant: ['gh-push'], repos: [arg] },
+            merged,
+            f.project,
+            f.deps(frozen),
+          ),
+        BridgeGrantError,
+      )).message;
+
+    // Not inside any bind mount.
+    {
+      const { extra, merged, frozen } = await withExtra(f);
+      const loose = `${f.dir}/elsewhere/wt`;
+      await linkWorktree(
+        extra,
+        loose,
+        'loose',
+        `../../home/extra/.git/worktrees/loose`,
+        'feat/l',
+      );
+      assertEquals(
+        await refusal(merged, frozen, loose),
+        `--bridge-repo ${loose}: a linked worktree that is not inside any bind mount of this ` +
+          'workspace',
+      );
+    }
+    // An absolute gitdir: pointer.
+    {
+      const { wt, gitDir, merged, frozen } = await withExtraWorktree(f);
+      await write(`${wt}/.git`, `gitdir: ${gitDir}\n`);
+      assertEquals(
+        await refusal(merged, frozen, wt),
+        `--bridge-repo ${wt}: its .git uses an absolute gitdir: path, which does not resolve ` +
+          'inside the container — run git worktree repair --relative-paths',
+      );
+    }
+    // A wrong back-reference.
+    {
+      const { extra, wt, gitDir, merged, frozen } = await withExtraWorktree(f);
+      await write(`${gitDir}/gitdir`, `${extra}/somewhere-else/.git\n`);
+      assertEquals(
+        await refusal(merged, frozen, wt),
+        `--bridge-repo ${wt}: its .git points at ${gitDir}, which is not the worktrees/ dir of ` +
+          'a git-protected repo here',
+      );
+    }
+    // A pointer into a git dir no protected row covers.
+    {
+      const { merged, frozen } = await withExtra(f, {
+        mounts: [
+          `source=${f.home}/other.worktrees,target=/workspaces/other.worktrees,type=bind`,
+        ],
+      });
+      const other = `${f.home}/other`;
+      await write(`${other}/.git/HEAD`, 'ref: refs/heads/main\n');
+      await Deno.mkdir(`${other}/.git/objects`, { recursive: true });
+      const wt = `${f.home}/other.worktrees/wt`;
+      const gitDir = await linkWorktree(
+        other,
+        wt,
+        'wt',
+        '../../other/.git/worktrees/wt',
+        'feat/o',
+      );
+      assertEquals(
+        await refusal(merged, frozen, wt),
+        `--bridge-repo ${wt}: its .git points at ${gitDir}, which is not the worktrees/ dir of ` +
+          'a git-protected repo here',
+      );
+    }
+    // A mount target that breaks the sibling layout, so the pointer lands elsewhere inside.
+    {
+      const { wt, merged, frozen } = await withExtraWorktree(f, {
+        mountTarget: '/elsewhere/deep/extra.worktrees',
+      });
+      assertEquals(
+        await refusal(merged, frozen, wt),
+        `--bridge-repo ${wt}: its gitdir: pointer resolves to /elsewhere/deep/extra/.git/worktrees/wt ` +
+          'inside the container, not /workspaces/extra/.git/worktrees/wt',
+      );
+    }
+    // The primary's frozen config enables extensions.worktreeConfig.
+    {
+      const { extra, wt, merged, frozen } = await withExtraWorktree(f);
+      const config = `${extra}/.git/config`;
+      await Deno.writeTextFile(
+        config,
+        (await Deno.readTextFile(config)) +
+          '[extensions]\n\tworktreeConfig = true\n',
+      );
+      assertStringIncludes(
+        await refusal(merged, frozen, wt),
+        `${wt}: ${WORKTREE_CONFIG_REASON}`,
+      );
+    }
+    assertEquals(
+      await readPolicy(await projectKey(f.project), f.deps(null)),
+      { kind: 'absent' },
+    );
+  });
+});
+
+Deno.test('extensions.worktreeConfig on the workspace repo refuses the grant, and revokes on refresh', async () => {
+  await withFixture(async (f) => {
+    const merged = await f.merged();
+    const deps = f.deps(f.frozen);
+    const config = `${f.project}/.git/config`;
+    const plain = await Deno.readTextFile(config);
+    await Deno.writeTextFile(
+      config,
+      plain + '[extensions]\n\tworktreeConfig = true\n',
+    );
+    const err = await assertRejects(
+      () => applyPolicy(GRANT, merged, f.project, deps),
+      BridgeGrantError,
+    );
+    assertStringIncludes(err.message, WORKTREE_CONFIG_REASON);
+
+    await Deno.writeTextFile(config, plain);
+    await applyPolicy(GRANT, merged, f.project, deps);
+    await Deno.writeTextFile(
+      config,
+      plain + '[extensions]\n\tworktreeConfig = true\n',
+    );
+    await applyPolicy('refresh', merged, f.project, deps);
+    assertEquals(await readPolicy(merged.bridgeKey!, deps), {
+      kind: 'absent',
+    });
+    assertStringIncludes(f.logs.join('\n'), WORKTREE_CONFIG_REASON);
   });
 });

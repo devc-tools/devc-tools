@@ -15,6 +15,7 @@ import {
   type BridgeCapability,
   bridgePaths,
   capabilityForCommand,
+  enablesWorktreeConfig,
   gitHubRepoOf,
   isGitHubRemote,
   parseGitdirPointer,
@@ -25,6 +26,7 @@ import {
   type PolicyRecord,
   resolvePin,
   serializePolicy,
+  WORKTREE_CONFIG_REASON,
 } from '../bridge.ts';
 import { projectKey } from '../merged_config.ts';
 import { withTemp } from './helpers.ts';
@@ -478,6 +480,55 @@ Deno.test('parseOriginUrl refuses anything ambiguous, each with a reason', () =>
 });
 
 // ── resolvePin: files only, never git ───────────────────────────────────────────────────────
+
+Deno.test('enablesWorktreeConfig: on, as git reads it', () => {
+  for (
+    const text of [
+      '[extensions]\n\tworktreeConfig = true\n',
+      '[Extensions]\n\tworktreeconfig\n', // a bare key is true
+      '[extensions]\n\tworktreeConfig = "yes"\n',
+      '[extensions]\n\tworktreeConfig = 1 # on\n',
+      '[extensions]\n\tworktreeConfig = false\n\tworktreeConfig = true\n', // last wins
+      '[extensions]\n\tworktreeConfig = "unterminated\n', // unparseable: fail closed
+      '[extensions]\n\t= true\n', // unreadable line: fail closed
+    ]
+  ) {
+    assertEquals(enablesWorktreeConfig(text), true, JSON.stringify(text));
+  }
+});
+
+Deno.test('enablesWorktreeConfig: off, absent, or not under [extensions]', () => {
+  for (
+    const text of [
+      '',
+      '[core]\n\tbare = false\n',
+      '[extensions]\n\tworktreeConfig = false\n',
+      '[extensions]\n\tworktreeConfig = OFF\n',
+      '[extensions]\n\tworktreeConfig = 0\n',
+      '[extensions]\n\tworktreeConfig = no\n',
+      '[extensions]\n\tworktreeConfig = true\n\tworktreeConfig = false\n',
+      '[core]\n\tworktreeConfig = true\n',
+      '[extensions "x"]\n\tworktreeConfig = true\n',
+      '[extensions]\n\tobjectFormat = sha1\n',
+    ]
+  ) {
+    assertEquals(enablesWorktreeConfig(text), false, JSON.stringify(text));
+  }
+});
+
+Deno.test('resolvePin: a config that enables extensions.worktreeConfig fails closed', async () => {
+  await withTemp(async (dir) => {
+    const { root, marker } = await trappedRepo(`${dir}/app`, {
+      config: '[remote "origin"]\n\turl = git@github.com:acme/app.git\n' +
+        '[extensions]\n\tworktreeConfig = true\n',
+    });
+    assertEquals(await resolvePin(root), {
+      ok: false,
+      reason: WORKTREE_CONFIG_REASON,
+    });
+    assertEquals(await exists(marker), false);
+  });
+});
 
 Deno.test('resolvePin: an attached branch, without ever running git', async () => {
   await withTemp(async (dir) => {

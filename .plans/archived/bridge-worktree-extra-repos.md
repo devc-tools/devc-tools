@@ -132,12 +132,17 @@ revokes the policy with the same reason (no `<repo>:` prefix) and the usual
   a variable.
 - If the lock is held, retry every second for up to `$timeout_s` seconds. Before
   each retry, remove a stale lock: one whose mtime is older than
-  `timeout_s + 60` seconds. Check with
+  `4 * timeout_s + 60` seconds. Check with
   `find "$mirror.lock" -maxdepth 0 -mmin +<minutes>`, where `<minutes>` is
-  `(timeout_s + 60 + 59) / 60`, and remove with `rmdir`. Both work on macOS and
-  Linux.
+  `(4 * timeout_s + 60 + 59) / 60`, and remove with `rmdir`. Both work on macOS
+  and Linux. _Changed during implementation:_ the plan first said
+  `timeout_s + 60`, but a healthy run holds the lock across four separately
+  timed git steps (`ls-remote`, two fetches, `push`), so that limit could break
+  into a live push.
 - Still held at the end →
-  `die 4 "another gh-push is using the mirror for $head_owner/$head_name — try again"`.
+  `die 4 "another gh-push is using the mirror for $head_owner/$head_name — try again (if none is running, remove $lock)"`.
+  _Changed during implementation:_ the message names the lock path, so a lock
+  left by a killed run can be cleared without waiting out the stale limit.
 - `gh-doctor` takes no lock: it only reads the mirror.
 
 ### The EXIT-trap race (all six built-ins)
@@ -160,35 +165,35 @@ first thing it checks.
 
 ## Checklist
 
-- [ ] `devc-core/bridge.ts`: `extensions.worktreeConfig` detection beside
+- [x] `devc-core/bridge.ts`: `extensions.worktreeConfig` detection beside
       `parseOriginUrl`
-- [ ] `devc/bridge.ts`: worktree eligibility (checks 1–5, exact messages);
+- [x] `devc/bridge.ts`: worktree eligibility (checks 1–5, exact messages);
       worktree pin derivation; `worktreeConfig` refusal for every pin at grant
       and refresh; refresh re-derives worktree lines through the same path;
       the same-repo rule replaced
-- [ ] `devc-bridge/builtin/gh-push`: mirror lock; EXIT-trap guard
-- [ ] `devc-bridge/builtin/gh-doctor`: EXIT-trap guard
-- [ ] `gh-pr-comments`, `gh-pr-reply`, `gh-pr-resolve`, `gh-pr-request-review`:
+- [x] `devc-bridge/builtin/gh-push`: mirror lock; EXIT-trap guard
+- [x] `devc-bridge/builtin/gh-doctor`: EXIT-trap guard
+- [x] `gh-pr-comments`, `gh-pr-reply`, `gh-pr-resolve`, `gh-pr-request-review`:
       EXIT-trap guard, prelude still byte-identical
-- [ ] Tests: `devc-core/tests/bridge_test.ts`, `devc/tests/bridge_test.ts`,
+- [x] Tests: `devc-core/tests/bridge_test.ts`, `devc/tests/bridge_test.ts`,
       `devc-bridge/tests/gh_push_test.sh`, `devc-bridge/tests/gh_pr_review_test.sh`
-- [ ] Docs: `devc/README.md` (the `--bridge-repo` rules: linked worktrees
+- [x] Docs: `devc/README.md` (the `--bridge-repo` rules: linked worktrees
       allowed, their conditions and messages; same-repo pins on different
       branches; `extensions.worktreeConfig`), `devc-bridge/README.md` (mirror
       lock and its exit-4 message; a shared mirror for same-repo pins),
       `docs/bridge-github.md` (exit 4 `another gh-push is using the mirror` →
       retry after the other push finishes)
-- [ ] `deno fmt` on every touched `.ts` and `.md` file
+- [x] `deno fmt` on every touched `.ts` and `.md` file
 
 ## Validation
 
-- [ ] `cd devc-core && deno task check && deno task test` passes, except the
+- [x] `cd devc-core && deno task check && deno task test` passes, except the
       known Docker-dependent `cliWorktreeMounts matches what the pinned
       devcontainer CLI computes`. Includes: `worktreeConfig` detected for
       `worktreeConfig = true`, `worktreeconfig` (bare), `"yes"`, `1`; not for
       `false`, `off`, `0`, absent, or a `worktreeConfig` key under a section
       other than `[extensions]`.
-- [ ] `cd devc && deno task check && deno task test` passes, including, with a
+- [x] `cd devc && deno task check && deno task test` passes, including, with a
       fake mount table that freezes the primary's git dir:
   - **the motivating case:** workspace = worktree `A` of a primary `P`, with
     `--bridge-repo <worktree B of P>`, where B sits inside a mounted
@@ -208,7 +213,7 @@ first thing it checks.
   - refresh after B's `HEAD` changes → policy `absent`, and the log has
     `<B>: the branch is now`.
   - refresh with nothing changed → file content and mtime unchanged.
-- [ ] `bash devc-bridge/tests/gh_push_test.sh` → `N passed, 0 failed` on **five
+- [x] `bash devc-bridge/tests/gh_push_test.sh` → `N passed, 0 failed` on **five
       consecutive runs**, including:
   - a two-line policy on the same remote with branches `feat` and `feat2`
     (two linked worktrees of one repo): `gh-push --repo <t1>` and
@@ -221,14 +226,18 @@ first thing it checks.
   - a fresh `$mirror.lock` held throughout, with `DEVC_BRIDGE_GIT_TIMEOUT=2` →
     exit 4 with `another gh-push is using the mirror for acme/widget`, and the
     lock is not removed.
-- [ ] `bash devc-bridge/tests/gh_pr_review_test.sh` → `N passed, 0 failed` on
+- [x] `bash devc-bridge/tests/gh_pr_review_test.sh` → `N passed, 0 failed` on
       three consecutive runs; the prelude byte-identical check passes.
-- [ ] The trap race no longer reproduces: a scratch script copying
+- [x] The trap race no longer reproduces: a scratch script copying
       `gh-push`'s `tmp`/trap/`run_t` setup and calling `run_t true` 2000 times
       never loses `$tmp`. Run it on bash 5 here; record in this plan that
       bash 3.2 was not exercised locally.
-- [ ] `cd devc-bridge/host && deno task check && deno task test` passes
-- [ ] `deno fmt --check` passes at the repo root
+      _Result:_ on GNU bash 5.2.21 (aarch64 Linux), the unguarded trap lost
+      `$tmp` within 7–30 iterations; both the inline guard (the four `gh-pr-*`
+      scripts and `gh-doctor`) and `gh-push`'s `on_exit` function form held for
+      2000. bash 3.2 (macOS) was not exercised locally.
+- [x] `cd devc-bridge/host && deno task check && deno task test` passes
+- [x] `deno fmt --check` passes at the repo root
 - [ ] Manual, on the host, in the motivating setup: from the existing worktree
       container,
       `devc up --bridge-allow gh --bridge-repo ~/code/deephaven-core.worktrees/<B>`

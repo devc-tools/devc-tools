@@ -728,7 +728,9 @@ and `--no-verify` does not contain repo-local `core.sshCommand` or an `ext::`
 script's only contact with the repo is to **fetch from it** — git distrusts the
 config of a repo it fetches from — into a host-owned bare mirror at
 `~/.local/state/devc-bridge/git/<key>/<owner>/<name>.git`, one per pinned remote,
-and every later step runs there:
+and every later step runs there. Two pinned repos on one remote — worktrees of
+one repo, on different branches — share that mirror, so a push holds it
+exclusively (step 3):
 
 1. Read `policy/<key>.conf` for the caller's key (from `DEVC_BRIDGE_KEY`, set by
    the bridge from the token) and select the pinned repo (`--repo`). No file, a
@@ -738,8 +740,12 @@ and every later step runs there:
    point at a `<primary>/.git/worktrees/<name>` that points back, and a primary
    repo must have no `commondir`. Either would otherwise let the fetch read a
    different repo.
-3. Create the mirror if absent — from the policy, never cloned from the agent's
-   repo — and refuse if its `origin` no longer equals the policy's remote.
+3. Lock the mirror (`<mirror>.lock`, a directory), waiting up to
+   `DEVC_BRIDGE_GIT_TIMEOUT` seconds for another push through it to finish, and
+   taking over a lock old enough that the run holding it must have been killed
+   (four timeouts plus a minute). Then create the mirror if absent — from the
+   policy, never cloned from the agent's repo — and refuse if its `origin` no
+   longer equals the policy's remote.
 4. Ask the remote for its **default branch** (never assumed to be `main`) and
    fetch it fresh, along with the pinned branch's remote tip when there is one.
    This step and step 8 run against the HTTPS URL with no
@@ -775,12 +781,15 @@ something would otherwise hang the call forever.
 | `0`  | pushed, or already up to date                                                                                                                                  |
 | `2`  | no policy, a malformed one, wrong arguments or no single pinned repo selected, a pin that no longer resolves, a non-GitHub remote, or a remote/mirror mismatch |
 | `3`  | policy refusal: the pinned branch is the default branch, workflows changed, an LFS pointer added, or no default branch to check against                        |
-| `4`  | transport failure or timeout — including a rejected (non-fast-forward) push, and `gh` missing or not logged in                                                 |
+| `4`  | transport failure or timeout — including a rejected (non-fast-forward) push, `gh` missing or not logged in, and another push still holding the mirror          |
 
 ### Limits, stated plainly
 
 - **The mirror holds no unique state.** Deleting it costs a re-fetch on the next
-  push and nothing else. A mirror from an older bridge, at
+  push and nothing else. `another gh-push is using the mirror for <owner>/<name>`
+  (exit 4) after the wait means another push is still running — or a killed
+  one left `<mirror>.lock` behind, which the message names; with no push
+  running, `rmdir` it. A mirror from an older bridge, at
   `~/.local/state/devc-bridge/git/<key>.git`, is no longer read — it is safe to
   `rm -rf`.
 - **Bearer identity.** A process that obtained another container's token could

@@ -44,13 +44,6 @@
   restarted for. One log line per tool, 120 s cap each, never fails the start. Not
   agent-browser.
 
-- [bridge-worktree-extra-repos](bridge-worktree-extra-repos.md) — `--bridge-repo` accepts a
-  linked worktree, including a second worktree of the workspace's own repo, when it sits inside a
-  bind mount and its relative `gitdir:` leads, on the host and in the container alike, to a
-  git-protected primary. Same-GitHub-repo pins are allowed on different branches. Any pin whose
-  frozen config enables `extensions.worktreeConfig` is refused. `gh-push` takes a per-mirror
-  lock, and all six built-ins get the EXIT-trap fix that ends the `$tmp` deletion flake.
-
 ### Standing rules for Feature work
 
 Not a plan group — these are the conventions every Feature plan in this file
@@ -93,6 +86,22 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
   take it too.
 
 ### Completed
+
+- [bridge-worktree-extra-repos](archived/bridge-worktree-extra-repos.md) — ✅ Done, validated by
+  the devc-core tests (`extensions.worktreeConfig` detection; `resolvePin` refusing it), the devc
+  tests (a second worktree of the workspace's own repo pinned beside the workspace worktree; a
+  worktree of another protected repo mount; each worktree refusal with its exact message; same-repo
+  pins refused on the same branch or through different URLs; `worktreeConfig` refused on the
+  workspace at grant and revoked at refresh; refresh on a worktree line), `gh_push_test.sh` five
+  consecutive clean runs (two worktrees through one mirror, concurrent pushes, stale and held
+  locks), `gh_pr_review_test.sh` three clean runs, a 2000-iteration trap-race loop on bash 5, the
+  bridge-host tests and `deno fmt --check`. **The manual check in the deephaven-core worktree
+  setup is still to be done by the user on the host.** `--bridge-repo` now accepts a linked
+  worktree inside a bind mount whose relative `gitdir:` leads, on the host and in the container,
+  to a git-protected primary; same-GitHub-repo pins are allowed on different branches; any pin
+  whose frozen config enables `extensions.worktreeConfig` is refused; `gh-push` locks its
+  per-remote mirror (stale after four timeouts plus a minute); and all six built-ins guard their
+  EXIT trap so `run_t`'s watcher can no longer delete `$tmp`.
 
 - [bridge-multi-repo-pins](archived/bridge-multi-repo-pins.md) — ✅ Done, validated by the devc-core,
   devc and bridge-host tests and checks (v2 round-trips and every malformed case; `--bridge-repo`
@@ -1976,4 +1985,4 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
 | devc repo overlay — one `devc.jsonc` per git repo, shared by its worktrees                                         | [devc-repo-overlay](archived/devc-repo-overlay.md)                                 | complete    |
 | devc-bridge pin hardening — refuse the default branch; refresh revokes instead of moving the pin                   | [bridge-pin-hardening](archived/bridge-pin-hardening.md)                           | complete    |
 | devc-bridge multi-repo pins — `--bridge-repo PATH`, v2 policy, `--repo` selector                                   | [bridge-multi-repo-pins](archived/bridge-multi-repo-pins.md)                       | complete    |
-| devc-bridge worktree extra repos — linked worktrees in `--bridge-repo`, same-repo pins, mirror lock, trap race fix | [bridge-worktree-extra-repos](bridge-worktree-extra-repos.md)                      |             |
+| devc-bridge worktree extra repos — linked worktrees in `--bridge-repo`, same-repo pins, mirror lock, trap race fix | [bridge-worktree-extra-repos](archived/bridge-worktree-extra-repos.md)             | complete    |

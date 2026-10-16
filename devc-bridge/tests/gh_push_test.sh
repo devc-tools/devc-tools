@@ -700,6 +700,64 @@ check "  … says it timed out" has "timed out"
 sleep 1
 check "  … leaves no process behind" test -z "$(pgrep -f 'sleep 3[01]$' || true)"
 
+echo "two worktrees of one repo share a mirror"
+# worktrees_pin — a second worktree of $REPO on feat2 with its own commit, and a two-line policy
+# pinning feat (the primary checkout) and feat2 (the worktree) to the same remote.
+WT2_TARGET=/workspaces/repo.worktrees/feat2
+worktrees_pin() {
+  WT2=$W/repo.worktrees/feat2
+  git -C "$REPO" worktree add -q -b feat2 "$WT2"
+  echo two >"$WT2/two.txt"
+  git -C "$WT2" add two.txt
+  git -C "$WT2" commit -q -m two
+  pin "$REPO" "$GH_PIN" feat gh-push /workspaces/repo
+  pin_more "$WT2" "$GH_PIN" feat2 gh-push "$WT2_TARGET"
+}
+fresh
+worktrees_pin
+push --repo /workspaces/repo
+expect_rc 0 "the primary checkout's branch pushes"
+push --repo "$WT2_TARGET"
+expect_rc 0 "the worktree's branch pushes"
+check "  … feat is the checkout's commit" test "$(remote_ref refs/heads/feat)" = "$(repo_ref feat)"
+check "  … feat2 is the worktree's commit" test "$(remote_ref refs/heads/feat2)" = "$(repo_ref feat2)"
+check "  … through one mirror" test "$(ls "$MIRRORS/$KEY/acme")" = widget.git
+check "  … and no lock is left behind" test ! -e "$MIRROR.lock"
+
+echo "the mirror lock"
+fresh
+worktrees_pin
+bg_push() { # bg_push <n> <target> — a push in the background, its output and exit code in files
+  PATH=$W/ghbin:$PATH DEVC_BRIDGE_KEY=$KEY DEVC_BRIDGE_POLICY_DIR=$POLICY_DIR \
+    "$PUSH" --repo "$2" >"$W/bg$1.out" 2>&1
+  echo $? >"$W/bg$1.rc"
+}
+bg_push 1 /workspaces/repo &
+bg_push 2 "$WT2_TARGET" &
+wait
+check "two pushes at once through one mirror both succeed" \
+  test "$(cat "$W/bg1.rc") $(cat "$W/bg2.rc")" = "0 0"
+check "  … both branches reached the remote" \
+  test "$(remote_ref refs/heads/feat) $(remote_ref refs/heads/feat2)" = \
+  "$(repo_ref feat) $(repo_ref feat2)"
+check "  … and no lock is left behind" test ! -e "$MIRROR.lock"
+fresh
+mkdir -p "$MIRROR.lock"
+touch -t 202001010000 "$MIRROR.lock"
+push
+expect_rc 0 "a stale lock (left by a killed run) is taken over"
+check "  … and released" test ! -e "$MIRROR.lock"
+fresh
+mkdir -p "$MIRROR.lock"
+start=$(date +%s)
+DEVC_BRIDGE_GIT_TIMEOUT=2 push
+took=$(($(date +%s) - start))
+expect_rc 4 "a lock held by another run, past the timeout"
+check "  … says so, naming the lock" has "another gh-push is using the mirror for acme/widget — try again (if none is running, remove $MIRROR.lock)"
+check "  … gives up within the timeout (${took}s)" test "$took" -lt 10
+check "  … and leaves the other run's lock alone" test -d "$MIRROR.lock"
+check "  … and pushed nothing" test "$(remote_ref refs/heads/feat)" = none
+
 echo
 echo "$pass passed, $fail failed"
 [ "$fail" -eq 0 ]

@@ -260,7 +260,11 @@ timeout_s=${DEVC_BRIDGE_GH_TIMEOUT:-60}
 case $timeout_s in '' | *[!0-9]*) timeout_s=60 ;; esac
 
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/devc-bridge-$me.XXXXXX") || die 4 "cannot create a temp dir"
-trap 'rm -rf "$tmp"' EXIT
+# The EXIT trap acts only in the main shell. run_t's watcher subshell, killed right after it forks,
+# can run an inherited copy of this trap and would delete $tmp mid-run. bash 3.2 (macOS) has no
+# BASHPID, so compare the trapping shell's pid (a child's $PPID) with the one saved here.
+main_pid=$$
+trap '[ "$(exec sh -c "echo \$PPID")" = "$main_pid" ] && rm -rf "$tmp"' EXIT
 
 # run_t CMD… — CMD with stdin closed, its whole process group killed after $timeout_s. macOS ships
 # no timeout(1); the group matters because a child holding the bridge's stdout would keep the

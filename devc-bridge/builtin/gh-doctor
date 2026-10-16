@@ -56,7 +56,11 @@ export GIT_TERMINAL_PROMPT=0
 export GIT_ALLOW_PROTOCOL=file:https
 
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/devc-bridge-gh-doctor.XXXXXX") || exit 1
-trap 'rm -rf "$tmp"' EXIT
+# The EXIT trap acts only in the main shell. run_t's watcher subshell, killed right after it forks,
+# can run an inherited copy of this trap and would delete $tmp mid-run. bash 3.2 (macOS) has no
+# BASHPID, so compare the trapping shell's pid (a child's $PPID) with the one saved here.
+main_pid=$$
+trap '[ "$(exec sh -c "echo \$PPID")" = "$main_pid" ] && rm -rf "$tmp"' EXIT
 
 # run_t CMD… — run CMD with stdin closed, killing its whole process group after $timeout_s.
 # macOS ships no timeout(1). The group matters: git leaves its transport helper (git-remote-https,

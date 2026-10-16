@@ -1159,15 +1159,39 @@ devc up ~/code/tools/devc-dev --bridge-allow gh --bridge-repo ~/code/tools/devc-
   `~/` expands to `$HOME` (devc does this, so `--bridge-repo=~/x` and a quoted
   `'~/x'` work too; `~user` does not expand), a relative path resolves against
   the current directory, and symlinks are resolved.
-- It must name a **git-protected repo mount** of this workspace: a bind-mounted
-  row whose `.git` is a directory and that git protection froze. devc refuses,
-  and grants nothing, for a path that does not exist, the workspace repo itself
-  (`this is the workspace repo, which is always pinned`), a linked worktree
-  mounted as an extra folder (git protection does not cover it), and anything
-  else — that message lists the paths you can pin.
-- Every pinned repo passes the same checks as the workspace repo (below), and
-  two pinned repos on the same GitHub `<owner>/<name>` are refused
-  (`<PATH-a> and <PATH-b> both push to github.com/<owner>/<name>`).
+- It must name a **git-protected repo mount** of this workspace — a bind-mounted
+  row whose `.git` is a directory and that git protection froze — or a **linked
+  worktree** (below). devc refuses, and grants nothing, for a path that does not
+  exist, the workspace repo itself (`this is the workspace repo, which is always
+  pinned`), and anything else — that message lists the repo mounts you can pin.
+- A **linked worktree** (its `.git` is a file) has no config or hooks of its
+  own: git uses its primary's, so it is as protected as that primary. It can be
+  pinned — another worktree of the workspace's own repo too — when each of these
+  holds, or devc names the one that does not:
+  1. it is inside a bind mount, such as a `<repo>.worktrees` row (`a linked
+     worktree that is not inside any bind mount of this workspace`);
+  2. its `gitdir:` pointer is relative (`its .git uses an absolute gitdir:
+     path, …` — run `git worktree repair --relative-paths`);
+  3. that pointer leads to `<primary>/.git/worktrees/<name>`, which points back
+     at it, in a primary whose git dir is git-protected here: an extra repo
+     mount, or the workspace's own primary when the workspace is a worktree
+     (`its .git points at <dir>, which is not the worktrees/ dir of a
+     git-protected repo here`);
+  4. from the worktree's container path, the same pointer reaches that
+     primary's git dir in the container too (`its gitdir: pointer resolves to
+     <path> inside the container, not <path>`) — mount `<repo>.worktrees` beside
+     `<repo>` as `devc:source` does.
+
+  It is pinned on its own branch, with the primary's frozen `origin`.
+- Every pinned repo passes the same checks as the workspace repo (below). Two
+  pinned repos on the same GitHub `<owner>/<name>` — two worktrees of one repo —
+  are fine on different branches; they are refused on the same branch
+  (`<PATH-a> and <PATH-b> both push branch <branch> to github.com/<owner>/<name>`)
+  or through two different URLs for the repo (`… reach github.com/<owner>/<name>
+  through different URLs (…)`).
+- A repo whose config turns on `extensions.worktreeConfig` is never pinned,
+  the workspace repo included: git would then also read a per-worktree
+  `config.worktree`, which is not frozen. Unset it on the host to pin the repo.
 - **All or nothing.** One repo that fails fails the whole grant: no policy is
   written, any earlier one is removed, and the error names the repo.
 

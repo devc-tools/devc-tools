@@ -30,8 +30,8 @@
 #
 # Exit codes: 0 pushed (or already up to date), 2 wrong arguments, no/malformed policy, no single
 # pinned repo selected, a pin that no longer resolves, a remote that is not GitHub, or a remote
-# mismatch, 3 content-policy refusal or a pinned
-# branch that is the remote's default branch, 4 transport failure or timeout.
+# mismatch, 3 content-policy refusal or a pinned branch that is the remote's default branch,
+# 4 transport failure or timeout, or another gh-push holding this remote's mirror past the timeout.
 
 set -uo pipefail
 export LC_ALL=C
@@ -279,9 +279,12 @@ case $timeout_s in '' | *[!0-9]*) timeout_s=300 ;; esac
 # Before anything is touched: every gh- capability acts through the host's gh login.
 parse_remote "$remote" || die 2 "unsupported remote $remote — only github.com"
 
-# One mirror per remote, under the key: a policy pinning several repos has one per repo (devc
-# refuses two pinned repos on the same GitHub repo). `valid_name` keeps owner and name path-safe.
+# One mirror per remote, under the key. Two pinned repos on the same GitHub repo — worktrees of
+# one primary, on different branches (devc refuses the same branch twice, and two URL spellings of
+# one repo) — share it, so it is locked below. `valid_name` keeps owner and name path-safe.
 mirror=$HOME/.local/state/devc-bridge/git/$key/$head_owner/$head_name.git
+lock=$mirror.lock
+locked=''
 
 # ── the environment every git below runs in ───────────────────────────────────────────────
 
@@ -307,7 +310,17 @@ SOURCE_GIT=(git "${GIT_FLAGS[@]}" -c core.fsmonitor=false -c uploadpack.packObje
   -c core.alternateRefsCommand= -c credential.helper= --git-dir="$mirror")
 
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/devc-bridge-gh-push.XXXXXX") || die 4 "cannot create a temp dir"
-trap 'rm -rf "$tmp"' EXIT
+# The EXIT trap acts only in the main shell. run_t's watcher subshell, killed right after it forks,
+# can run an inherited copy of this trap — and would delete $tmp, or release the mirror lock another
+# run is now relying on, mid-push. bash 3.2 (macOS) has no BASHPID, so compare the trapping
+# shell's pid (a child's $PPID) with the one saved here.
+main_pid=$$
+on_exit() {
+  [ "$(exec sh -c 'echo $PPID')" = "$main_pid" ] || return 0
+  [ -z "$locked" ] || rmdir -- "$lock" 2>/dev/null
+  rm -rf "$tmp"
+}
+trap on_exit EXIT
 
 # run_t CMD… — run CMD with stdin closed, killing its whole process group after $timeout_s.
 # macOS ships no timeout(1). The group matters: git leaves its transport helper (git-remote-https,
@@ -417,10 +430,28 @@ fi
 
 # ── the mirror ────────────────────────────────────────────────────────────────────────────
 
+# One push per mirror at a time: two worktrees of one repo share it, and two sessions can push at
+# once. `mkdir` is the lock — atomic on every filesystem, on macOS and Linux alike, with no
+# flock(1) on macOS. A lock older than any run could legitimately hold it (four timed git steps,
+# plus slack) is left by a run that was killed, and is taken over.
+mkdir -p -- "$(dirname -- "$mirror")" || die 4 "cannot create $(dirname -- "$mirror")"
+stale_min=$(((4 * timeout_s + 60 + 59) / 60))
+waited=0
+until mkdir -- "$lock" 2>/dev/null; do
+  if [ -n "$(find "$lock" -maxdepth 0 -mmin +"$stale_min" 2>/dev/null)" ]; then
+    rmdir -- "$lock" 2>/dev/null
+    continue
+  fi
+  [ "$waited" -lt "$timeout_s" ] ||
+    die 4 "another gh-push is using the mirror for $head_owner/$head_name — try again (if none is running, remove $lock)"
+  sleep 1
+  waited=$((waited + 1))
+done
+locked=1
+
 # Created from the policy, never cloned from the agent's repo, whose config would be inherited.
 # Built under a temp name and renamed in, so an interrupted setup never leaves a half-made mirror.
 if [ ! -d "$mirror" ]; then
-  mkdir -p -- "$(dirname -- "$mirror")" || die 4 "cannot create $(dirname -- "$mirror")"
   staging=$mirror.tmp.$$
   rm -rf -- "$staging"
   if ! { git init -q --bare --template= -- "$staging" >/dev/null &&
