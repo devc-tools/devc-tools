@@ -27,15 +27,18 @@
     // }
     // Coding-agent CLIs. Set any of these to false to skip installing it.
     "ghcr.io/devc-tools/features/agents:0": {
+      "installAgentBrowser": true,
       "installClaudeCli": true,
       "installCopilotCli": false,
       "installHerdr": true,
+      "installOpencodeCli": true,
       "installPiCli": true,
       "piPackages": "npm:@andrewjacop/pi-herdr"
     },
     "ghcr.io/devc-tools/features/bash-config:0": {},
     "ghcr.io/devc-tools/features/git-container-config:0": {},
-    "ghcr.io/devc-tools/features/node-nvmrc:0": {}
+    "ghcr.io/devc-tools/features/node-nvmrc:0": {},
+    "ghcr.io/devc-tools/features/xvfb:0": {}
   },
   "remoteEnv": {
     "LANG": "en_US.utf8",
