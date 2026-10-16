@@ -1,5 +1,5 @@
 // The `devc web` page: the WebSocket client for `/ws`, the sidebar tree
-// (Container → Workspace → Tab → Pane) and the browser-owned tiling area. The protocol is
+// (Container → Workspace → Tab → Pane, single-child levels folded) and the browser-owned tiling area. The protocol is
 // specified in `.plans/devc-web.md`; renderer details live in `renderer.js`, and the pure input
 // helpers in `lib/input.js`.
 
@@ -12,6 +12,14 @@ import {
   wheelToScroll,
   wrapPaste,
 } from './lib/input.js';
+import {
+  agentStatus,
+  containerLabel,
+  paneLabel,
+  paneTitle,
+  tabName,
+  topStatus,
+} from './lib/sidebar.js';
 
 const LAYOUT_KEY = 'devc-web-layout-v1';
 const RESIZE_DEBOUNCE_MS = 100;
@@ -278,12 +286,6 @@ function byNumber(a, b) {
   return (a.number ?? 0) - (b.number ?? 0);
 }
 
-function paneTitle(pane) {
-  return pane?.terminal_title_stripped || basename(pane?.cwd) ||
-    pane?.pane_id ||
-    '';
-}
-
 function containerByFolder(localFolder) {
   for (const c of containers.values()) {
     if (c.localFolder === localFolder) return c;
@@ -297,9 +299,10 @@ function findPane(containerId, paneId) {
   ) ?? null;
 }
 
+/** A pane's agent status as a dot and a word; the agent's name is in the tooltip. */
 function badge(pane) {
   if (!pane?.agent) return '';
-  const status = pane.agent_status ?? 'unknown';
+  const status = agentStatus(pane);
   return h(
     'span',
     {
@@ -307,14 +310,109 @@ function badge(pane) {
       'data-status': status,
       title: `${pane.agent}: ${status}`,
     },
-    `${pane.agent} · ${status}`,
+    status,
   );
+}
+
+/**
+ * A collapsed container row's summary of its agents: the status most in need of attention,
+ * with how many agents share it when more than one does. Every agent is in the tooltip.
+ */
+function rollupBadge(panes) {
+  const top = topStatus(panes);
+  if (!top) return '';
+  return h(
+    'span',
+    {
+      class: 'badge',
+      'data-status': top.status,
+      title: panes.filter((p) => p.agent).map((p) =>
+        `${paneTitle(p)}: ${p.agent} ${agentStatus(p)}`
+      ).join('\n'),
+    },
+    top.count > 1 ? `${top.count} ${top.status}` : top.status,
+  );
+}
+
+/** A container's name, told apart from any other container with the same name. */
+function displayName(c) {
+  return containerLabel(c, containers.values());
 }
 
 // ---------------------------------------------------------------------------------------------
 // Sidebar
 // ---------------------------------------------------------------------------------------------
 
+const SIDEBAR_KEY = 'devc-web-sidebar-v1';
+/** Containers without a usable Herdr; listed together under "Not running". */
+const INACTIVE_STATES = new Set([
+  'no-session',
+  'no-herdr',
+  'unsupported',
+  'error',
+]);
+const STATE_TEXT = {
+  connecting: 'connecting…',
+  'no-session': 'no session',
+  'no-herdr': 'no herdr',
+  unsupported: 'unsupported',
+  error: 'error',
+};
+
+/** Collapsed containers (by local folder) and whether "Not running" is open, per browser. */
+const sidebarState = loadSidebarState();
+
+function loadSidebarState() {
+  let saved = null;
+  try {
+    saved = JSON.parse(localStorage.getItem(SIDEBAR_KEY) ?? 'null');
+  } catch { /* unavailable or corrupt: everything starts expanded */ }
+  return {
+    collapsed: new Set(
+      Array.isArray(saved?.collapsed)
+        ? saved.collapsed.filter((f) => typeof f === 'string')
+        : [],
+    ),
+    inactiveOpen: saved?.inactiveOpen === true,
+  };
+}
+
+function saveSidebarState() {
+  try {
+    localStorage.setItem(
+      SIDEBAR_KEY,
+      JSON.stringify({
+        collapsed: [...sidebarState.collapsed],
+        inactiveOpen: sidebarState.inactiveOpen,
+      }),
+    );
+  } catch { /* storage unavailable: collapsing just won't survive a reload */ }
+}
+
+function toggleContainer(c) {
+  if (!sidebarState.collapsed.delete(c.localFolder)) {
+    sidebarState.collapsed.add(c.localFolder);
+  }
+  saveSidebarState();
+  renderTree();
+}
+
+function toggleInactive() {
+  sidebarState.inactiveOpen = !sidebarState.inactiveOpen;
+  saveSidebarState();
+  renderTree();
+}
+
+function chevron() {
+  return h('span', { class: 'chevron', 'aria-hidden': 'true' });
+}
+
+/**
+ * Container → Workspace → Tab → Pane, with every level that has a single child folded away: a
+ * workspace row shows only when its container has several, and a tab row only when the tab is
+ * split into several panes. What a folded row's menu offered moves to the row that remains.
+ * Containers without a usable Herdr are listed last, under a collapsed "Not running" group.
+ */
 function renderTree() {
   const scroll = $tree.scrollTop;
   const rows = [];
@@ -327,73 +425,84 @@ function renderTree() {
       ),
     );
   }
+  const inactive = [];
   for (const c of containers.values()) {
-    rows.push(
-      h(
-        'div',
-        { class: 'row container', style: '--depth: 0', title: c.localFolder },
-        h('span', { class: 'label' }, c.name),
-        h('span', { class: 'state', 'data-state': c.state }, c.state),
-      ),
-    );
-    if (c.state === 'no-session') {
-      rows.push(
-        h(
-          'div',
-          { class: 'note', style: '--depth: 1' },
-          'No Herdr server for this session.',
-        ),
-        h(
-          'div',
-          { class: 'actions', style: '--depth: 1' },
-          h('button', { onclick: () => startSession(c.id) }, 'Start session'),
-          h(
-            'button',
-            { onclick: () => send({ type: 'retry', container: c.id }) },
-            'Retry',
-          ),
-        ),
+    if (INACTIVE_STATES.has(c.state)) inactive.push(c);
+    else rows.push(...containerRows(c));
+  }
+  if (inactive.length > 0) rows.push(...inactiveRows(inactive));
+  $tree.replaceChildren(...rows);
+  $tree.scrollTop = scroll;
+}
+
+function newTabItem(c, ws) {
+  return ['New tab', () =>
+    request(
+      c.id,
+      'tab.create',
+      { workspace_id: ws.workspace_id },
+      'New tab',
+    )];
+}
+
+function renameTabItem(c, tab, text = 'Rename') {
+  return [text, () => {
+    const label = prompt('Tab name', tab.label ?? '');
+    if (label) {
+      request(
+        c.id,
+        'tab.rename',
+        { tab_id: tab.tab_id, label },
+        'Rename tab',
       );
-      continue;
     }
-    if (
-      c.state === 'error' || c.state === 'no-herdr' || c.state === 'unsupported'
-    ) {
-      rows.push(
-        h('div', { class: 'note', style: '--depth: 1' }, c.error ?? c.state),
-        h(
-          'div',
-          { class: 'actions', style: '--depth: 1' },
-          h(
-            'button',
-            { onclick: () => send({ type: 'retry', container: c.id }) },
-            'Retry',
-          ),
-        ),
-      );
-      continue;
-    }
-    const snap = snapshots.get(c.id);
-    if (!snap) continue;
-    const tabs = list(snap.tabs);
-    const panes = list(snap.panes);
-    for (const ws of list(snap.workspaces).sort(byNumber)) {
+  }];
+}
+
+function containerRows(c) {
+  const snap = c.state === 'connected' ? snapshots.get(c.id) : undefined;
+  const workspaces = list(snap?.workspaces).sort(byNumber);
+  const tabs = list(snap?.tabs);
+  const panes = list(snap?.panes);
+  const collapsed = sidebarState.collapsed.has(c.localFolder);
+  const only = workspaces.length === 1 ? workspaces[0] : null;
+  const rows = [
+    h(
+      'div',
+      {
+        class: 'row container',
+        style: '--depth: 0',
+        title: c.localFolder,
+        'aria-expanded': String(!collapsed),
+        onclick: () => toggleContainer(c),
+        oncontextmenu: only
+          ? (e) => openMenu(e, [newTabItem(c, only)])
+          : undefined,
+      },
+      h('span', { class: 'label' }, chevron(), displayName(c)),
+      c.state !== 'connected'
+        ? h(
+          'span',
+          { class: 'state', 'data-state': c.state },
+          STATE_TEXT[c.state] ?? c.state,
+        )
+        // Expanded, each agent's own badge is right below.
+        : collapsed
+        ? rollupBadge(panes)
+        : '',
+    ),
+  ];
+  if (collapsed) return rows;
+  for (const ws of workspaces) {
+    let depth = 1;
+    if (!only) {
       rows.push(
         h(
           'div',
           {
             class: 'row workspace',
-            style: '--depth: 1',
-            oncontextmenu: (e) =>
-              openMenu(e, [
-                ['New tab', () =>
-                  request(
-                    c.id,
-                    'tab.create',
-                    { workspace_id: ws.workspace_id },
-                    'New tab',
-                  )],
-              ]),
+            style: `--depth: ${depth}`,
+            oncontextmenu: (e) => openMenu(e, [newTabItem(c, ws)]),
           },
           h(
             'span',
@@ -402,71 +511,120 @@ function renderTree() {
           ),
         ),
       );
-      for (
-        const tab of tabs.filter((t) => t.workspace_id === ws.workspace_id)
-          .sort(
-            byNumber,
-          )
-      ) {
-        rows.push(
-          h(
-            'div',
-            {
-              class: 'row tab',
-              style: '--depth: 2',
-              oncontextmenu: (e) =>
-                openMenu(e, [
-                  ['Rename', () => {
-                    const label = prompt('Tab name', tab.label ?? '');
-                    if (label) {
-                      request(
-                        c.id,
-                        'tab.rename',
-                        { tab_id: tab.tab_id, label },
-                        'Rename tab',
-                      );
-                    }
-                  }],
-                  ['Close', () => {
-                    if (
-                      confirm(
-                        `Close tab "${tab.label || tab.tab_id}" and its panes?`,
-                      )
-                    ) {
-                      request(
-                        c.id,
-                        'tab.close',
-                        { tab_id: tab.tab_id },
-                        'Close tab',
-                      );
-                    }
-                  }, true],
-                ]),
-            },
-            h(
-              'span',
-              { class: 'label' },
-              tab.label || `tab ${tab.number ?? ''}`,
-            ),
-          ),
-        );
-        for (const pane of panes.filter((p) => p.tab_id === tab.tab_id)) {
-          rows.push(paneRow(c, pane));
+      depth++;
+    }
+    const wsTabs = tabs.filter((t) => t.workspace_id === ws.workspace_id)
+      .sort(byNumber);
+    for (const tab of wsTabs) {
+      const tabPanes = panes.filter((p) => p.tab_id === tab.tab_id);
+      if (tabPanes.length < 2) {
+        for (const pane of tabPanes) {
+          rows.push(
+            paneRow(c, pane, depth, [renameTabItem(c, tab, 'Rename tab')]),
+          );
         }
+        continue;
       }
+      rows.push(
+        h(
+          'div',
+          {
+            class: 'row tab',
+            style: `--depth: ${depth}`,
+            oncontextmenu: (e) =>
+              openMenu(e, [
+                renameTabItem(c, tab),
+                ['Close', () => {
+                  if (
+                    confirm(`Close ${tabName(tab)} and its panes?`)
+                  ) {
+                    request(
+                      c.id,
+                      'tab.close',
+                      { tab_id: tab.tab_id },
+                      'Close tab',
+                    );
+                  }
+                }, true],
+              ]),
+          },
+          h('span', { class: 'label' }, tabName(tab)),
+        ),
+      );
+      for (const pane of tabPanes) rows.push(paneRow(c, pane, depth + 1));
     }
   }
-  $tree.replaceChildren(...rows);
-  $tree.scrollTop = scroll;
+  return rows;
 }
 
-function paneRow(c, pane) {
+function inactiveRows(inactive) {
+  const errors = inactive.filter((c) => c.state !== 'no-session').length;
+  const rows = [
+    h(
+      'div',
+      {
+        class: 'row group',
+        style: '--depth: 0',
+        'aria-expanded': String(sidebarState.inactiveOpen),
+        onclick: toggleInactive,
+      },
+      h(
+        'span',
+        { class: 'label' },
+        chevron(),
+        `Not running (${inactive.length})`,
+      ),
+      errors > 0
+        ? h(
+          'span',
+          { class: 'state', 'data-state': 'error' },
+          `${errors} with errors`,
+        )
+        : '',
+    ),
+  ];
+  if (!sidebarState.inactiveOpen) return rows;
+  for (const c of inactive) {
+    rows.push(
+      h(
+        'div',
+        {
+          class: 'row inactive',
+          style: '--depth: 1',
+          title: c.error ? `${c.localFolder}\n${c.error}` : c.localFolder,
+        },
+        h('span', { class: 'label' }, displayName(c)),
+        h(
+          'span',
+          { class: 'row-actions' },
+          h(
+            'span',
+            { class: 'state', 'data-state': c.state },
+            STATE_TEXT[c.state] ?? c.state,
+          ),
+          c.state === 'no-session'
+            ? h('button', {
+              title: 'Start a Herdr server for this session',
+              onclick: () => startSession(c.id),
+            }, 'Start')
+            : '',
+          h('button', {
+            onclick: () => send({ type: 'retry', container: c.id }),
+          }, 'Retry'),
+        ),
+      ),
+    );
+  }
+  return rows;
+}
+
+function paneRow(c, pane, depth, extraItems = []) {
   return h(
     'div',
     {
       class: 'row pane',
-      style: '--depth: 3',
-      title: pane.cwd ?? '',
+      style: `--depth: ${depth}`,
+      title: pane.foreground_cwd || pane.cwd || '',
       onclick: () => openInFocusedTile(c, pane.pane_id),
       oncontextmenu: (e) =>
         openMenu(e, [
@@ -491,8 +649,9 @@ function paneRow(c, pane) {
               );
             }
           }],
+          ...extraItems,
           ['Close', () => {
-            if (confirm(`Close pane "${paneTitle(pane)}"?`)) {
+            if (confirm(`Close pane "${paneLabel(c, pane)}"?`)) {
               request(
                 c.id,
                 'pane.close',
@@ -503,7 +662,7 @@ function paneRow(c, pane) {
           }, true],
         ]),
     },
-    h('span', { class: 'label' }, paneTitle(pane)),
+    h('span', { class: 'label' }, paneLabel(c, pane)),
     badge(pane),
   );
 }
@@ -706,8 +865,9 @@ function updateOverlay(tileId) {
     const c = containerByFolder(tile.pane.localFolder);
     if (!socket) message = 'Disconnected from devc web.';
     else if (!c) message = `${basename(tile.pane.localFolder)} is not running.`;
-    else if (c.state !== 'connected') message = `${c.name}: ${c.state}`;
-    else if (!findPane(c.id, tile.pane.pane_id)) message = 'Pane gone';
+    else if (c.state !== 'connected') {
+      message = `${displayName(c)}: ${c.state}`;
+    } else if (!findPane(c.id, tile.pane.pane_id)) message = 'Pane gone';
     else if (view.closedReason !== null) {
       message = `Disconnected: ${view.closedReason}`;
       action = h('button', {
@@ -742,7 +902,7 @@ function renderTileHeaders() {
     }
     const c = containerByFolder(tile.pane.localFolder);
     const pane = c ? findPane(c.id, tile.pane.pane_id) : null;
-    where.textContent = c?.name ?? basename(tile.pane.localFolder);
+    where.textContent = c ? displayName(c) : basename(tile.pane.localFolder);
     title.textContent = pane ? paneTitle(pane) : tile.pane.pane_id;
     const b = badge(pane);
     badgeSlot.replaceChildren(...(b ? [b] : []));

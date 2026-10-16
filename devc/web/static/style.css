@@ -110,19 +110,67 @@ button:hover {
   text-overflow: ellipsis;
 }
 
-.row.container {
+.row.container,
+.row.group {
   font-weight: 600;
   margin-top: 4px;
+  cursor: pointer;
+}
+
+.row.group {
+  margin-top: 12px;
+  color: var(--muted);
+}
+
+.row.workspace,
+.row.tab {
+  color: var(--muted);
 }
 
 .row.pane {
   cursor: pointer;
 }
 
+.row.container:hover,
+.row.group:hover,
 .row.pane:hover,
 .row.workspace:hover,
 .row.tab:hover {
   background: var(--panel-2);
+}
+
+.chevron {
+  display: inline-block;
+  width: 14px;
+  color: var(--muted);
+  font-weight: 400;
+}
+
+.chevron::before {
+  content: '▾';
+}
+
+[aria-expanded='false'] > .label > .chevron::before {
+  content: '▸';
+}
+
+/* Containers under "Not running": the state and its buttons on the one row. */
+.row-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.row-actions button {
+  display: none;
+  font-size: 11px;
+  padding: 0 6px;
+}
+
+/* Buttons only on hover, so the names have the room otherwise. */
+.row.inactive:hover .row-actions button,
+.row.inactive:focus-within .row-actions button {
+  display: inline-block;
 }
 
 .row .state {
@@ -131,27 +179,10 @@ button:hover {
   color: var(--muted);
 }
 
-.row .state[data-state='connected'] {
-  color: var(--done);
-}
-
 .row .state[data-state='error'],
 .row .state[data-state='unsupported'],
 .row .state[data-state='no-herdr'] {
   color: var(--danger);
-}
-
-.note {
-  padding: 2px 10px 4px calc(10px + var(--depth, 0) * 14px);
-  color: var(--muted);
-  font-size: 12px;
-  white-space: normal;
-}
-
-.actions {
-  display: flex;
-  gap: 6px;
-  padding: 2px 10px 6px calc(10px + var(--depth, 0) * 14px);
 }
 
 .empty {
@@ -161,13 +192,23 @@ button:hover {
 
 /* Agent badges */
 
+/* A colored dot and the status word. */
 .badge {
-  font-size: 10px;
-  padding: 0 6px;
-  border-radius: 8px;
-  border: 1px solid currentColor;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  font-weight: 400;
   color: var(--idle);
   white-space: nowrap;
+}
+
+.badge::before {
+  content: '';
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
 }
 
 .badge[data-status='working'] {

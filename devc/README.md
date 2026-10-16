@@ -260,10 +260,13 @@ is published from any container: the host server finds devcontainers with
 `docker exec … herdr --session devc remote-api-bridge` and
 `terminal session control`. Updates are pushed end to end; nothing is polled.
 
-- **Sidebar:** Container → Workspace → Tab → Pane, with an agent badge per
-  pane. A container without a running Herdr server shows **Start session**
+- **Sidebar:** each container with its panes and an agent status per pane.
+  Workspace and tab rows appear only when there is more than one to choose
+  from. Click a container to collapse it; a collapsed one shows its most urgent
+  agent status. Containers without a running Herdr server are grouped under
+  **Not running** at the bottom; hover one for **Start**
   (`herdr --session devc server`, detached) and **Retry**. Right-click a
-  workspace, tab or pane to create, rename, split or close.
+  container, workspace, tab or pane to create, rename, split or close.
 - **Tiles:** click a pane to open it in the focused tile; split tiles right or
   down and drag the dividers. Tiles are the browser's own layout and never
   change Herdr's. The layout is kept in the browser's `localStorage`; a tile

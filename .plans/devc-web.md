@@ -306,16 +306,28 @@ Browser → server:
     already parsed and re-rendered the output.)
 - **Scrollback:** xterm.js `scrollback: 0`. Herdr owns scrollback.
 - **Sidebar:** a tree of Container → Workspace → Tab → Pane, built from the latest
-  snapshot.
-  - Container rows show `name` and their state. `no-session` shows **Start session**
-    and **Retry**; `error`, `no-herdr` and `unsupported` show the message.
-  - Pane rows show `terminal_title_stripped` (or the basename of `cwd` when it is empty)
-    and an **agent badge** for `idle`/`working`/`blocked`/`done`/`unknown`. A pane with
-    no `agent` gets no badge.
+  snapshot, with single-child levels folded away: a workspace row shows only when its
+  container has more than one workspace, and a tab row only when the tab has more than
+  one pane. Numeric tab labels read `tab N`.
+  - Container rows show the name, with the parent folder appended when two containers
+    share a name (`feature1 · demos`), or the full folder when the parent is shared too.
+    Clicking one collapses or expands it; the collapsed set is kept in `localStorage`
+    (`devc-web-sidebar-v1`). A collapsed container shows its agents' most urgent status
+    (`blocked` > `working` > `done` > `unknown` > `idle`), with a count when several
+    agents share it. `connecting` shows as a muted state.
+  - Containers in `no-session`, `no-herdr`, `unsupported` or `error` are listed last under
+    a **Not running (N)** group, collapsed by default, one row each with its state; the
+    group row counts the ones with errors. Hovering a row shows **Start** (`no-session`
+    only) and **Retry**; the tooltip has the folder and any error message.
+  - Pane rows show `terminal_title_stripped` (or the basename of `cwd` when it is empty).
+    A pane without an agent whose title is just its folder reads `shell`, or
+    `shell · <folder>` when that folder is not the container's. An **agent badge** is a
+    colored dot and the status (`idle`/`working`/`blocked`/`done`/`unknown`), with the
+    agent's name in the tooltip. A pane with no `agent` gets no badge.
   - Clicking a pane opens it in the focused tile.
   - A context menu offers the allowlisted pane-management actions:
-    - workspace: New tab
-    - tab: Rename, Close
+    - workspace: New tab (on the container row when the workspace row is folded)
+    - tab: Rename, Close (a folded tab's pane menu offers Rename tab)
     - pane: Split right, Split down, Rename, Close
   - Close actions ask for confirmation first.
 - **Tiling area (browser-owned windowing):**
