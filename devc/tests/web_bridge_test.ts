@@ -6,7 +6,7 @@ import {
   normalizeEventName,
   snapshotPaneIds,
 } from '../web/herdr_bridge.ts';
-import { splitLines } from '../web/proc.ts';
+import { spawnLines, splitLines } from '../web/proc.ts';
 
 Deno.test('normalizeEventName turns the first underscore into a dot', () => {
   assertEquals(normalizeEventName('pane_created'), 'pane.created');
@@ -104,4 +104,18 @@ Deno.test('splitLines reassembles lines split across chunks', async () => {
     const line of splitLines(chunks('{"a":', '1}\n{"b"', ':2}\r\n\n', 'tail'))
   ) out.push(line);
   assertEquals(out, ['{"a":1}', '{"b":2}', '', 'tail']);
+});
+
+Deno.test('spawnLines: a reader that stops early leaves stdout undestroyed and drained', async () => {
+  // Like bridgeRequest returning on its answer while the child still has output to write.
+  const proc = spawnLines('sh', [
+    '-c',
+    'echo first; head -c 1000000 /dev/zero | tr "\\0" x; echo; echo last',
+  ]);
+  for await (const line of proc.lines) {
+    assertEquals(line, 'first');
+    break;
+  }
+  // Undrained, the child blocks on a full pipe and never exits.
+  assertEquals(await proc.status, { code: 0 });
 });

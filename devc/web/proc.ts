@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process';
+import type { Readable } from 'node:stream';
 
 // Child processes for `devc web`: every `docker` process the server starts goes through
 // `spawnLines`, so each is tracked for shutdown and read as JSON lines the same way.
@@ -42,6 +43,21 @@ export async function* splitLines(
   if (buf !== '') yield buf;
 }
 
+/**
+ * `stdout`'s chunks, for a reader that may stop early (`bridgeRequest` returns on its answer,
+ * a controller breaks on `terminal.closed`). By default, leaving a stream's async iterator
+ * early destroys the stream with an `AbortError`, which on macOS Deno surfaces as an uncaught
+ * rejection that kills `devc web`. Here the stream is left alone and drained instead, so the
+ * child can still exit and `status` still resolves.
+ */
+async function* readToEnd(stdout: Readable): AsyncGenerator<string> {
+  try {
+    yield* stdout.iterator({ destroyOnReturn: false }) as AsyncIterable<string>;
+  } finally {
+    stdout.resume();
+  }
+}
+
 const STDERR_CAP = 16 * 1024;
 
 /**
@@ -73,7 +89,7 @@ export function spawnLines(cmd: string, args: string[]): LineProc {
     child.on('close', (code) => resolve({ code }));
   });
   const proc: LineProc = {
-    lines: splitLines(child.stdout! as AsyncIterable<string>),
+    lines: splitLines(readToEnd(child.stdout!)),
     write(line) {
       if (stdinClosed || exited) return Promise.resolve();
       return new Promise((resolve) => {
