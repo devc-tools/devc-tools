@@ -39,6 +39,13 @@ const RESIZE_DEBOUNCE_MS = 100;
 const DRAG_INTERVAL_MS = 50;
 /** How long a `read_selection` may go unanswered before its copy is dropped. */
 const SELECTION_TIMEOUT_MS = 5000;
+/**
+ * How long a copied drag's highlight stays. It marks grid cells, not text, so it goes stale as
+ * soon as the app redraws (Claude Code shifts its transcript when it copies the selection itself):
+ * a brief flash confirms what was copied, and an app that draws its own selection keeps the only
+ * lasting one.
+ */
+const COPY_FLASH_MS = 500;
 const RECONNECT_MS = 2000;
 /**
  * How long a tile opened on a pane this page just created waits for a snapshot listing it before
@@ -106,6 +113,7 @@ let renderGeneration = 0;
  * @property {string | null} closedReason
  * @property {boolean} hidden  in a background stack tab: no resize is sent
  * @property {ReturnType<typeof setTimeout> | undefined} resizeTimer
+ * @property {ReturnType<typeof setTimeout> | undefined} flashTimer  clears the copy highlight
  * @property {ResizeObserver} observer
  */
 
@@ -1884,6 +1892,7 @@ function mountTile(tile) {
     closedReason: null,
     hidden: false,
     resizeTimer: undefined,
+    flashTimer: undefined,
     observer: new ResizeObserver(() => {
       clearTimeout(view.resizeTimer);
       view.resizeTimer = setTimeout(() => refit(view), RESIZE_DEBOUNCE_MS);
@@ -1939,6 +1948,7 @@ function unmountTile(tile) {
     if (tileId === tile.id) pendingOpens.delete(id);
   }
   clearTimeout(view.resizeTimer);
+  clearTimeout(view.flashTimer);
   view.observer.disconnect();
   view.renderer.dispose();
   views.delete(tile.id);
@@ -2003,7 +2013,7 @@ async function writeClipboard(text) {
 
 /**
  * Plain mouse down/drag/up over the terminal go to Herdr as cells (the browser does not
- * select); a plain left-drag is also highlighted here and its text copied from Herdr. Shift+drag
+ * select); a plain left-drag is also flashed here and its text copied from Herdr. Shift+drag
  * is left to xterm.js for a local selection, copied on mouseup. A right-click opens the tile's
  * menu (the same as its tab's) and is not sent to the app.
  */
@@ -2077,6 +2087,11 @@ function attachMouse(view, termEl, target) {
         button === 'left' && (c.column !== start.column || c.row !== start.row)
       ) {
         view.renderer.highlight(start, c);
+        clearTimeout(view.flashTimer);
+        view.flashTimer = setTimeout(
+          () => view.renderer.clearHighlight(),
+          COPY_FLASH_MS,
+        );
         copySelection(t, start, c);
       }
     };
