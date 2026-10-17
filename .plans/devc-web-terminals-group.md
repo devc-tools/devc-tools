@@ -1,12 +1,12 @@
 # devc-web-terminals-group
 
-- [ ] Space rows removed: panes listed flat under the container, the space named in the tooltip (already in the working tree, uncommitted; commit it with this plan)
-- [ ] Page: a **Terminals** row first under every expanded container, expanded by default, with the agent rollup while collapsed
-- [ ] Page: the **Repos** row always shown (also for a single repo), after Terminals, collapsed by default
-- [ ] Page: user-visible "pane" / "Herdr tab" / "shell" wording → "terminal", from one set of label constants
-- [ ] `sidebarState.terminalsClosed` saved and restored
-- [ ] `.plans/devc-web.md` "Browser UI" section updated (vocabulary included)
-- [ ] Verify (below) and ask the user to try it in their open tab
+- [x] Space rows removed: panes listed flat under the container, the space named in the tooltip (already in the working tree, uncommitted; commit it with this plan)
+- [x] Page: a **Terminals** row first under every expanded container, expanded by default, with the agent rollup while collapsed
+- [x] Page: the **Repos** row always shown (also for a single repo), after Terminals, collapsed by default
+- [x] Page: user-visible "pane" / "Herdr tab" / "shell" wording → "terminal", from one set of label constants
+- [x] `sidebarState.terminalsClosed` saved and restored
+- [x] `.plans/devc-web.md` "Browser UI" section updated (vocabulary included)
+- [x] Verify (below) and ask the user to try it in their open tab
 
 Page only, with no protocol change, so it works under plain `--live`. Read
 `/workspaces/devc-dev/.claude/skills/devc-web/SKILL.md` first. Builds on

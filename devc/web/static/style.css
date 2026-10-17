@@ -226,10 +226,6 @@ body.resizing-sidebar {
   color: var(--muted);
 }
 
-.row.workspace {
-  color: var(--muted);
-}
-
 /* "Layout" and "Projects" headings. */
 .row.section {
   margin-top: 10px;
@@ -500,7 +496,6 @@ body.resizing-sidebar {
 .row.container:hover,
 .row.group:hover,
 .row.pane:hover,
-.row.workspace:hover,
 .row.layout-node:hover {
   --row-bg: var(--panel-2);
   background: var(--row-bg);
@@ -575,9 +570,10 @@ body.resizing-sidebar {
 }
 
 /* A repo a container mounts, listed above its workspaces: its name and marks, and a chevron
-   opening its worktrees and files. The Repos row above several of them reads the same. */
+   opening its worktrees and files. The Repos and Terminals group rows read the same. */
 .row.repo,
-.row.repos {
+.row.repos,
+.row.terminals {
   color: var(--muted);
 }
 

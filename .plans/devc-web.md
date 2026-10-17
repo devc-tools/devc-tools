@@ -354,10 +354,16 @@ Browser → server:
   - its main advantage, more accurate parsing, mostly disappears because Herdr has
     already parsed and re-rendered the output.)
 - **Scrollback:** xterm.js `scrollback: 0`. Herdr owns scrollback.
-- **Sidebar:** a tree of Container → Workspace → Tab → Pane, built from the latest
-  snapshot, with single-child levels folded away: a workspace row shows only when its
-  container has more than one workspace, and a tab row only when the tab has more than
-  one pane. Numeric tab labels read `tab N`.
+- **Sidebar:** a tree of Container → Terminals → terminal, and Container → Repos → repo →
+  files, built from the latest snapshot (see
+  [devc-web-terminals-group](archived/devc-web-terminals-group.md)).
+  - **Vocabulary:** the page says **terminal** for a Herdr pane; code and protocol keep
+    `pane`. A **tile** is a panel in the browser layout that shows a terminal or a file.
+    "Herdr" stays in text about the server the terminals run on (Start Herdr, `no session`).
+    User-visible names are in `LABELS` in `app.js`.
+  - Herdr's spaces (`workspace` in its API) and tabs get no rows: devc web doesn't manage
+    them. Terminals are listed in Herdr's order (space by space, then tab by tab). When a
+    container has more than one space, a terminal's tooltip names its space.
   - Container rows show the name, with the parent folder appended when two containers
     share a name (`feature1 · demos`), or the full folder when the parent is shared too.
     Clicking one collapses or expands it; the collapsed set is kept in `localStorage`
@@ -366,16 +372,17 @@ Browser → server:
     agents share it. `connecting` shows as a muted state.
   - Containers in `no-session`, `no-herdr`, `unsupported` or `error` are still running, so
     they stay in the list with the others, expandable, with their state on the row and no
-    workspace or pane rows. Hovering the row shows **Start Herdr** (`no-session` only) and
+    Terminals row. Hovering the row shows **Start Herdr** (`no-session` only) and
     **Retry**; the tooltip has the folder and any error message. Projects without a running
     container are listed last under a **Not running (N)** group, collapsed by default (see
     [devc-web-repos-group](archived/devc-web-repos-group.md)).
-  - Under an expanded container, its repos come first. With more than one, they sit under a
-    **Repos** row, collapsed by default and showing the combined push/pull mark while
-    collapsed; the open ones are kept in `localStorage` (`reposOpen`). With one repo, its row
-    is directly under the container. Expanding a repo shows its worktrees (repo rows of their
-    own), then its files. Workspace and pane rows follow.
-  - Pane rows show `terminal_title_stripped` (or the basename of `cwd` when it is empty).
+  - Under an expanded, connected container, a **Terminals** row comes first: open by
+    default, showing the agents' most urgent status while collapsed (collapsed ones kept as
+    `terminalsClosed`), with "No terminals" when there are none. A **Repos** row follows, on
+    every container whatever its repo count: collapsed by default, showing the combined
+    push/pull mark while collapsed (open ones kept as `reposOpen`). Expanding a repo shows its
+    worktrees (repo rows of their own), then its files.
+  - Terminal rows show `terminal_title_stripped` (or the basename of `cwd` when it is empty).
     A pane without an agent whose title is just its folder reads `shell`, or
     `shell · <folder>` when that folder is not the container's. An **agent badge** is a
     colored dot and the status (`idle`/`working`/`blocked`/`done`/`unknown`), with the

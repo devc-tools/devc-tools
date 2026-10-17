@@ -69,7 +69,7 @@ const COPY_FLASH_MS = 500;
 const RECONNECT_MS = 2000;
 /**
  * How long a tile opened on a pane this page just created waits for a snapshot listing it before
- * it says "Pane gone": `new_shell` answers before Herdr's next snapshot arrives.
+ * it says `LABELS.closed`: `new_shell` answers before Herdr's next snapshot arrives.
  */
 const NEW_PANE_GRACE_MS = 5000;
 /** Served from the last-good snapshot (`/safe/`): no reloads, no `client_ready`. */
@@ -679,6 +679,30 @@ const INACTIVE_STATES = new Set([
   'unsupported',
   'error',
 ]);
+/**
+ * User-visible names for what the sidebar lists under a container. A *terminal* is a Herdr
+ * pane: code and protocol keep saying `pane`, the page says "terminal". Kept here so a rename
+ * is one edit.
+ */
+const LABELS = {
+  terminals: 'Terminals',
+  noTerminals: 'No terminals',
+  openHere: 'Open terminal here',
+  newHere: 'New terminal here',
+  newTerminal: 'New terminal',
+  newRight: 'New terminal to the right',
+  newBelow: 'New terminal below',
+  newInStack: 'New terminal in this stack',
+  newAtEnd: 'New terminal at end',
+  close: 'Close terminal…',
+  closeRequest: 'Close terminal',
+  rename: 'Rename terminal',
+  renamePrompt: 'Terminal name',
+  closed: 'Terminal closed',
+  clickToOpen: 'Click a terminal in the sidebar to open it here.',
+  dragHere: 'Drag a terminal here, or click one in the sidebar.',
+};
+
 const STATE_TEXT = {
   connecting: 'connecting…',
   'no-session': 'no session',
@@ -703,6 +727,12 @@ function loadSidebarState() {
     collapsed: new Set(
       Array.isArray(saved?.collapsed)
         ? saved.collapsed.filter((f) => typeof f === 'string')
+        : [],
+    ),
+    /** Containers (by local folder) whose Terminals row is collapsed; new ones start open. */
+    terminalsClosed: new Set(
+      Array.isArray(saved?.terminalsClosed)
+        ? saved.terminalsClosed.filter((f) => typeof f === 'string')
         : [],
     ),
     reposOpen: new Set(
@@ -742,6 +772,7 @@ function saveSidebarState() {
       SIDEBAR_KEY,
       JSON.stringify({
         collapsed: [...sidebarState.collapsed],
+        terminalsClosed: [...sidebarState.terminalsClosed],
         reposOpen: [...sidebarState.reposOpen],
         inactiveOpen: sidebarState.inactiveOpen,
         projectsOpen: [...sidebarState.projectsOpen],
@@ -758,6 +789,15 @@ function saveSidebarState() {
 function toggleContainer(c) {
   if (!sidebarState.collapsed.delete(c.localFolder)) {
     sidebarState.collapsed.add(c.localFolder);
+  }
+  saveSidebarState();
+  renderTree();
+}
+
+/** Opens or closes a container's Terminals row (by its local folder). */
+function toggleTerminals(localFolder) {
+  if (!sidebarState.terminalsClosed.delete(localFolder)) {
+    sidebarState.terminalsClosed.add(localFolder);
   }
   saveSidebarState();
   renderTree();
@@ -1187,14 +1227,19 @@ $tree.addEventListener('mouseleave', () => {
 /**
  * Creates a pane in its own Herdr tab and places it with `place`. The tile is placed as soon as
  * the server answers, before Herdr's snapshot lists the pane, so its overlay waits out
- * {@link NEW_PANE_GRACE_MS} instead of saying "Pane gone".
+ * {@link NEW_PANE_GRACE_MS} instead of saying `LABELS.closed`.
  *
  * @param {ContainerInfo} c
  * @param {{workspace_id?: string, cwd?: string}} opts
  * @param {(ref: PaneRef) => Tile} place
  */
 function newShell(c, opts, place) {
-  return createPane(c, { type: 'new_shell', ...opts }, place, 'New shell');
+  return createPane(
+    c,
+    { type: 'new_shell', ...opts },
+    place,
+    LABELS.newTerminal,
+  );
 }
 
 /**
@@ -1286,13 +1331,13 @@ function placeInFocusedStack(ref) {
 
 /** Ends a pane's process (and closes its Herdr tab), after asking. */
 function killPane(c, pane) {
-  if (confirm(`Kill pane "${paneLabel(c, pane)}"? Its process ends.`)) {
-    request(c.id, 'pane.close', { pane_id: pane.pane_id }, 'Kill pane');
+  if (confirm(`Close terminal "${paneLabel(c, pane)}"? Its process ends.`)) {
+    request(c.id, 'pane.close', { pane_id: pane.pane_id }, LABELS.closeRequest);
   }
 }
 
 function killPaneItem(c, pane) {
-  return ['Kill pane…', () => killPane(c, pane), true];
+  return [LABELS.close, () => killPane(c, pane), true];
 }
 
 /** @param {Tile} tile @returns {[string, () => void, boolean?][]} */
@@ -1304,17 +1349,17 @@ function tileMenuItems(tile) {
     const opts = shellOptsNear(c, pane);
     items.push(
       [
-        'Split pane vertically',
+        LABELS.newRight,
         () =>
           newShell(c, opts, (ref) => tiling.addBeside(tile.id, ref, 'right')),
       ],
       [
-        'Split pane horizontally',
+        LABELS.newBelow,
         () =>
           newShell(c, opts, (ref) => tiling.addBeside(tile.id, ref, 'below')),
       ],
       [
-        'New pane in this stack',
+        LABELS.newInStack,
         () =>
           newShell(c, opts, (ref) => tiling.addBeside(tile.id, ref, 'stack')),
       ],
@@ -1335,7 +1380,7 @@ function nodeMenuItems(node, tiles) {
   if (origin) {
     const opts = shellOptsNear(origin.c, origin.pane);
     items.push([
-      node.kind === 'stack' ? 'New pane in this stack' : 'New pane at end',
+      node.kind === 'stack' ? LABELS.newInStack : LABELS.newAtEnd,
       () =>
         newShell(
           origin.c,
@@ -1411,7 +1456,7 @@ function tileShowing(c, pane) {
 }
 
 function newShellItem(c, workspaceId) {
-  return ['New shell', () =>
+  return [LABELS.newTerminal, () =>
     newShell(
       c,
       workspaceId ? { workspace_id: workspaceId } : {},
@@ -1475,37 +1520,52 @@ function containerRows(c) {
     ),
   ];
   if (collapsed) return rows;
+  if (c.state === 'connected') {
+    rows.push(...terminalRows(c, workspaces, tabs, panes, only));
+  }
   rows.push(...repoRows(c.localFolder));
+  return rows;
+}
+
+/**
+ * A connected container's Terminals row and, while it is open, a row per terminal (Herdr pane)
+ * in Herdr's order, space by space. devc web doesn't manage Herdr spaces (workspaces in the
+ * API), so they get no rows of their own; with several, a terminal's tooltip names its space.
+ */
+function terminalRows(c, workspaces, tabs, panes, only) {
+  const open = !sidebarState.terminalsClosed.has(c.localFolder);
+  const head = treeRow(
+    // No file root is empty, so this never matches a repo's key.
+    `${c.localFolder}\n\nterminals`,
+    1,
+    open,
+    { class: 'terminals', onclick: () => toggleTerminals(c.localFolder) },
+    LABELS.terminals,
+  );
+  // Open, each agent's own badge is right below.
+  if (!open) head.append(rollupBadge(panes));
+  const rows = [head];
+  if (!open) return rows;
   const listed = new Set();
   for (const ws of workspaces) {
-    let depth = 1;
-    if (!only) {
-      rows.push(
-        h(
-          'div',
-          {
-            class: 'row workspace',
-            style: `--depth: ${depth}`,
-            oncontextmenu: (e) =>
-              openMenu(e, [newShellItem(c, ws.workspace_id)]),
-          },
-          h(
-            'span',
-            { class: 'label' },
-            ws.label || `workspace ${ws.number ?? ''}`,
-          ),
-        ),
-      );
-      depth++;
-    }
+    const space = only ? '' : ws.label || `space ${ws.number ?? ''}`;
     for (const pane of workspacePanes(ws, tabs, panes)) {
       listed.add(pane.pane_id);
-      rows.push(paneRow(c, pane, depth));
+      rows.push(paneRow(c, pane, 2, space));
     }
   }
   // Anything the snapshot didn't place in a workspace's tab still gets a row.
   for (const pane of panes) {
-    if (!listed.has(pane.pane_id)) rows.push(paneRow(c, pane, 1));
+    if (!listed.has(pane.pane_id)) rows.push(paneRow(c, pane, 2));
+  }
+  if (rows.length === 1) {
+    rows.push(
+      h(
+        'div',
+        { class: 'row tree-note', style: '--depth: 2' },
+        h('span', { class: 'label' }, LABELS.noTerminals),
+      ),
+    );
   }
   return rows;
 }
@@ -1643,7 +1703,6 @@ function repoRows(localFolder) {
     }
     return rows;
   };
-  if (repos.length === 1) return repoRow(repos[0], 1);
   const open = sidebarState.reposOpen.has(localFolder);
   const rows = [
     treeRow(
@@ -2140,15 +2199,15 @@ function openHerdrTab(fr, path, reuse) {
     c,
     { type: 'open_tab', root: fr.root, path, reuse },
     placeInFocusedStack,
-    reuse ? 'Open Herdr tab' : 'New Herdr tab',
+    reuse ? LABELS.openHere : LABELS.newHere,
   );
 }
 
 /** A folder's menu: the root itself (`path` '', its repo row) or a directory under it. */
 function dirMenuItems(fr, path) {
   return [
-    ['Open Herdr tab here', () => openHerdrTab(fr, path, true)],
-    ['New Herdr tab here', () => openHerdrTab(fr, path, false)],
+    [LABELS.openHere, () => openHerdrTab(fr, path, true)],
+    [LABELS.newHere, () => openHerdrTab(fr, path, false)],
     ['Refresh', () => fileTree(fr).refresh(path)],
     ['Copy path', () => copyPath(fr, path)],
   ];
@@ -2682,13 +2741,13 @@ function paneMenu(rec) {
   if (tile) items.push(['Show in layout', () => revealTile(tile.id)]);
   items.push(
     ['Rename…', () => {
-      const label = prompt('Pane name', paneTitle(pane));
+      const label = prompt(LABELS.renamePrompt, paneTitle(pane));
       if (label) {
         request(
           c.id,
           'pane.rename',
           { pane_id: pane.pane_id, label },
-          'Rename pane',
+          LABELS.rename,
         );
       }
     }],
@@ -2708,8 +2767,11 @@ function onPaneClick(rec, e) {
   else openInFocusedTile(rec.c, rec.pane.pane_id);
 }
 
-/** A pane's sidebar row: the kept one for this pane (see {@link paneRows}), brought up to date. */
-function paneRow(c, pane, depth) {
+/**
+ * A pane's sidebar row: the kept one for this pane (see {@link paneRows}), brought up to date.
+ * `space` names its Herdr space in the tooltip; '' when the container has just one.
+ */
+function paneRow(c, pane, depth, space = '') {
   const key = paneKey(c.id, pane.pane_id);
   let rec = paneRows.get(key);
   if (!rec) {
@@ -2740,6 +2802,7 @@ function paneRow(c, pane, depth) {
   // The children ignore the pointer, so the badge's tooltip lives here.
   row.title = [
     pane.foreground_cwd || pane.cwd || '',
+    space ? `Space: ${space}` : '',
     pane.agent ? `${pane.agent}: ${agentStatus(pane)}` : '',
     visible ? 'Shown in a tile' : '',
   ].filter((s) => s).join('\n');
@@ -2753,7 +2816,7 @@ function paneRow(c, pane, depth) {
     rowTrail(
       badge(pane),
       hoverActions(
-        iconButton('trash', 'Kill pane…', () => killPane(rec.c, rec.pane)),
+        iconButton('trash', LABELS.close, () => killPane(rec.c, rec.pane)),
       ),
     ),
   );
@@ -2949,7 +3012,7 @@ function updateOverlay(tileId) {
   let message = '';
   let action = null;
   if (!ref) {
-    message = 'Click a pane in the sidebar to open it here.';
+    message = LABELS.clickToOpen;
   } else {
     const c = containerByFolder(ref.localFolder);
     if (!socket) message = 'Disconnected from devc web.';
@@ -2969,7 +3032,7 @@ function updateOverlay(tileId) {
     } else if (c.state !== 'connected') {
       message = `${displayName(c)}: ${c.state}`;
     } else if (!findPane(c.id, ref.pane_id)) {
-      message = isNewPane(ref) ? '' : 'Pane gone';
+      message = isNewPane(ref) ? '' : LABELS.closed;
     } else if (view.closedReason !== null) {
       message = `Disconnected: ${view.closedReason}`;
       action = h('button', {
@@ -3005,7 +3068,7 @@ function renderTileTitles() {
 const $placeholder = h(
   'div',
   { class: 'tiles-placeholder', hidden: true },
-  'Drag a pane here, or click one in the sidebar.',
+  LABELS.dragHere,
 );
 
 function updatePlaceholder() {
