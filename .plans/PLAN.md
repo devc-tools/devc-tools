@@ -11,6 +11,18 @@
 
 ### Pending
 
+- [devc-web-bridge-status](devc-web-bridge-status.md) — a host status strip in `devc web`'s
+  sidebar showing whether devc-bridge is running and whether keepawake (`caffeinate`) is
+  holding the host awake. Reads the bridge's own state dir (every file is an active marker,
+  as the tray and `devc-bridge status` read it) and its pidfile, watched, sent as a
+  `bridge_status` message; no devc-bridge change. Countdown is a follow-on.
+
+- [devc-web-usage](devc-web-usage.md) — after devc-web-bridge-status. Account-wide usage
+  limits (Claude's 5h / 7d) shown once in the strip, from whichever session reported last:
+  a status-line tap writes `~/.claude/devc-usage.json` (host-shared via the `~/.claude`
+  bind mount), devc web watches it and sends `usage`; the page marks a window reset once
+  `resets_at` passes. The file shape is the hook for other agents; Herdr has no usage API.
+
 - [git-protect-live-check](git-protect-live-check.md) — a read-only `.git/config` mount can
   vanish from a running container when the host rewrites the file (seen on Docker Desktop:
   VS Code's config writes), leaving the repo's config writable from inside while `devc status`
