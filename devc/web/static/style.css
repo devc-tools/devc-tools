@@ -102,6 +102,20 @@ button:hover {
   color: var(--blocked);
 }
 
+/* Usage limits: `high` near the limit, `stale` an old observation, `reset` a passed window. */
+.host-status-item[data-state='usage'] {
+  color: var(--text);
+}
+
+.host-status-item[data-state='high'] {
+  color: var(--danger);
+}
+
+.host-status-item[data-state='stale'],
+.host-status-item[data-state='reset'] {
+  opacity: 0.6;
+}
+
 /* Drag to resize the sidebar, double-click to reset; colored like `.lm_splitter`. */
 .sidebar-resizer {
   grid-column: 2;

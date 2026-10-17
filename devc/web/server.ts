@@ -59,6 +59,7 @@ import {
   type BridgeStatus,
   watchBridgeStatus,
 } from './bridge_status.ts';
+import { usageFiles, type UsageSource, watchUsage } from './usage.ts';
 import { type MountedRepo, mountedRepos } from './git_repo.ts';
 import {
   type ClientMessage,
@@ -332,6 +333,15 @@ export async function startWeb(
     type: 'bridge_status',
     running: s.running,
     active: s.active,
+  });
+
+  // Account-wide agent usage limits, the newest observation per agent, from the usage files
+  // status-line reporters write. `null` until the first read, which the watch reports straight
+  // away.
+  let usageSources: UsageSource[] | null = null;
+  const usageMessage = (sources: UsageSource[]) => ({
+    type: 'usage',
+    sources,
   });
   // Each container's repos by container id, from its bind mounts, read once per container: a
   // container's mounts are fixed when it is created.
@@ -883,6 +893,9 @@ export async function startWeb(
       if (bridgeStatus !== null) {
         client.send(JSON.stringify(bridgeStatusMessage(bridgeStatus)));
       }
+      if (usageSources !== null) {
+        client.send(JSON.stringify(usageMessage(usageSources)));
+      }
       for (const s of sessions.values()) {
         if (s.state === 'connected' && s.snapshot !== null) {
           client.send(JSON.stringify({
@@ -972,6 +985,13 @@ export async function startWeb(
       broadcast(bridgeStatusMessage(s));
     },
   );
+  const usageWatch = watchUsage(
+    usageFiles(Deno.env, Deno.env.get('HOME') ?? '.'),
+    (sources) => {
+      usageSources = sources;
+      broadcast(usageMessage(sources));
+    },
+  );
 
   let stopping: Promise<void> | null = null;
   const stop = () => {
@@ -981,6 +1001,7 @@ export async function startWeb(
       gitWatch.stop();
       projectsWatch.stop();
       bridgeWatch.stop();
+      usageWatch.stop();
       for (const c of clients) {
         try {
           c.socket.close();

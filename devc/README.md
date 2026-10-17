@@ -327,6 +327,43 @@ that has the token can drive every pane, so restart `devc web` for a fresh
 token when the agent is done. On Linux Docker, `host.docker.internal` is the
 bridge gateway rather than the host's loopback, so this needs Docker Desktop.
 
+#### The host status strip and usage limits
+
+The sidebar's foot is a one-line strip of host-level indicators: the
+account-wide agent usage limits (Claude's `5h 42%` and `7d 18%`), then
+devc-bridge (`bridge ●` / `bridge ○ off`, `☕ awake` while keepawake holds the
+host awake). Hover an item for details: a usage window's reset time and how old
+the observation is. Usage is shown once for every session, from whichever one
+reported last; once a window's reset time passes with no newer report it shows
+as `5h —` rather than the old percentage. An observation over 15 minutes old is
+dimmed, and a window at 90% or more is highlighted.
+
+Claude Code hands its usage limits only to the status line, so the status line
+has to write them down. [`scripts/devc-usage-tap`](../scripts/devc-usage-tap)
+(needs `jq`) reads one status-line input on stdin and replaces
+`${CLAUDE_CONFIG_DIR:-~/.claude}/devc-usage.json`; it never prints, never fails,
+and skips inputs without `rate_limits` (early in a session, or API-key auth).
+`devc web` watches that file in the Claude home devc mounts into every container
+(`~/.config/devc/.claude`) and in the host's own (`$CLAUDE_CONFIG_DIR`, default
+`~/.claude`); the newer observation wins. To wire it up, copy the script next to
+your `statusline.sh` in each Claude home whose sessions should report:
+
+```sh
+cp scripts/devc-usage-tap ~/.config/devc/.claude/   # every devc container
+cp scripts/devc-usage-tap ~/.claude/                # sessions on the host
+```
+
+and add the tap to `statusline.sh` straight after it reads its input:
+
+```bash
+input=$(cat)
+tap="$(dirname "$0")/devc-usage-tap"
+[ -x "$tap" ] && printf '%s' "$input" | "$tap" >/dev/null 2>&1 &
+```
+
+Until a session reports, the strip shows no usage. Seeing usage needs a server
+with the `usage` message (`--live-yolo`, or a `devc` built from this version).
+
 #### Live mode: `devc web --live` and `--live-yolo`
 
 Live mode serves a devc-tools checkout's `devc/` directory on the **host** (the

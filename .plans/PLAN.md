@@ -11,13 +11,6 @@
 
 ### Pending
 
-- [devc-web-usage](devc-web-usage.md) — after
-  [devc-web-bridge-status](archived/devc-web-bridge-status.md). Account-wide usage limits
-  (Claude's 5h / 7d) shown once in the strip, from whichever session reported last:
-  a status-line tap writes `~/.claude/devc-usage.json` (host-shared via the `~/.claude`
-  bind mount), devc web watches it and sends `usage`; the page marks a window reset once
-  `resets_at` passes. The file shape is the hook for other agents; Herdr has no usage API.
-
 - [git-protect-live-check](git-protect-live-check.md) — a read-only `.git/config` mount can
   vanish from a running container when the host rewrites the file (seen on Docker Desktop:
   VS Code's config writes), leaving the repo's config writable from inside while `devc status`
@@ -128,6 +121,23 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
   take it too.
 
 ### Completed
+
+- [devc-web-usage](archived/devc-web-usage.md) — ✅ Done, validated by `deno check main.ts`,
+  `deno task check`, `deno task test` (new `web_usage_test.ts`: file paths, the file contract
+  and malformed files, newest-observation merge, the debounced watch with atomic replaces and a
+  dir that appears later and is never created, and `scripts/devc-usage-tap` itself: output
+  parsed back, silent, exit 0, never overwriting a good file; `web_host_status_test.ts` gains
+  the usage items, ages and reset state) and `deno fmt --check`, and in this container against
+  a throwaway `devc web` (stub `docker`, temp `HOME`): a WebSocket client saw `usage` on
+  connect and ~200 ms after each tap write, the newer of the two Claude homes winning, and
+  headless Chromium showed `5h 55%` in the strip, a window flip to `5h —` on the minute timer
+  once its reset passed, and a `<b>` label rendered as text. **Still to be done by the user:**
+  the plan's "Verify first" capture of a real status-line input (`rate_limits` shape,
+  `resets_at` unit; the tap accepts epoch s, ms or ISO), copying the tap next to
+  `statusline.sh` and wiring it in (devc/README.md), and on the macOS host: two containers, use
+  one, the strip updates; idle past `resets_at`, it shows reset (needs `--live-yolo` or an
+  updated `devc`, since the server changed). Watches `~/.config/devc/.claude/devc-usage.json`
+  (every devc container's Claude home) and `${CLAUDE_CONFIG_DIR:-~/.claude}/devc-usage.json`.
 
 - [devc-web-bridge-status](archived/devc-web-bridge-status.md) — ✅ Done, validated by
   `deno check main.ts`, `deno task check`, `deno task test` (new `web_bridge_status_test.ts`:

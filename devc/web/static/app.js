@@ -33,7 +33,12 @@ import {
   SIDEBAR_DEFAULT_WIDTH,
   topStatus,
 } from './lib/sidebar.js';
-import { bridgeStatusItems, parseBridgeStatus } from './lib/host_status.js';
+import {
+  bridgeStatusItems,
+  parseBridgeStatus,
+  parseUsage,
+  usageItems,
+} from './lib/host_status.js';
 import {
   byDepth,
   childPath,
@@ -177,8 +182,9 @@ const $sidebarShow = /** @type {HTMLElement} */ (document.getElementById(
 ));
 
 /**
- * The host status strip at the foot of the sidebar: host-level indicators (devc-bridge's, from
- * `bridge_status`). Hidden until the server sends one.
+ * The host status strip at the foot of the sidebar: host-level indicators, the account-wide
+ * agent usage limits (`usage`) then devc-bridge's (`bridge_status`). Hidden while it has nothing
+ * to show.
  */
 const $hostStatus = h('footer', {
   class: 'host-status',
@@ -187,6 +193,14 @@ const $hostStatus = h('footer', {
   hidden: true,
 });
 document.querySelector('.sidebar')?.append($hostStatus);
+/** @type {{running: boolean, active: string[]} | null} The last `bridge_status`. */
+let hostBridgeStatus = null;
+/** @type {import('./lib/host_status.js').UsageSource[] | null} The last `usage`. */
+let hostUsage = null;
+// Usage windows reset and observations age with no server traffic: re-evaluate every minute.
+setInterval(() => {
+  if (hostUsage?.length) renderHostStatus();
+}, 60_000);
 
 function paneKey(containerId, paneId) {
   return `${containerId}\n${paneId}`;
@@ -400,7 +414,12 @@ function onMessage(msg) {
       onProjectOutput(msg.localFolder, msg.line);
       break;
     case 'bridge_status':
-      renderHostStatus(parseBridgeStatus(msg));
+      hostBridgeStatus = parseBridgeStatus(msg);
+      renderHostStatus();
+      break;
+    case 'usage':
+      hostUsage = parseUsage(msg);
+      renderHostStatus();
       break;
     case 'snapshot':
       snapshots.set(msg.container, msg.snapshot);
@@ -430,18 +449,22 @@ function onMessage(msg) {
 }
 
 /**
- * Fills the host status strip from devc-bridge's status; hides it for `null`. Marker names come
- * from the host's filesystem, so every item is text.
- * @param {{running: boolean, active: string[]} | null} status
+ * Fills the host status strip from the last usage and devc-bridge status; hides it when neither
+ * has anything to show. Marker names and usage labels come from the host's filesystem, so every
+ * item is text.
  */
-function renderHostStatus(status) {
-  if (status === null) {
+function renderHostStatus() {
+  const items = [
+    ...(hostUsage ? usageItems(hostUsage, Date.now() / 1000) : []),
+    ...(hostBridgeStatus ? bridgeStatusItems(hostBridgeStatus) : []),
+  ];
+  if (items.length === 0) {
     $hostStatus.hidden = true;
     $hostStatus.replaceChildren();
     return;
   }
   $hostStatus.replaceChildren(
-    ...bridgeStatusItems(status).map((item) =>
+    ...items.map((item) =>
       h('span', {
         class: 'host-status-item',
         'data-state': item.state,

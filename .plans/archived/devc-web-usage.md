@@ -8,16 +8,41 @@ stale number in each idle session's status line.
 
 - [ ] Capture one real status-line input and confirm the `rate_limits` shape and the
       `resets_at` unit (see "Verify first")
-- [ ] Reporter: `scripts/devc-usage-tap` (or a documented snippet) that turns status-line
+- [x] Reporter: `scripts/devc-usage-tap` (or a documented snippet) that turns status-line
       JSON into the usage file
-- [ ] Server: `web/usage.ts` (pure parse + watch), with tests
-- [ ] Server: `usage` message sent on connect and on every change (`server.ts`)
-- [ ] Spec: add `usage` to the protocol table in `.plans/devc-web.md`
-- [ ] Page: usage in the host status strip (from `devc-web-bridge-status`)
-- [ ] Docs: `devc/README.md` — how to wire the reporter into a status line
-- [ ] Verify: `deno check main.ts`, `deno task check`, `deno task test`, `deno fmt --check`
+- [x] Server: `web/usage.ts` (pure parse + watch), with tests
+- [x] Server: `usage` message sent on connect and on every change (`server.ts`)
+- [x] Spec: add `usage` to the protocol table in `.plans/devc-web.md`
+- [x] Page: usage in the host status strip (from `devc-web-bridge-status`)
+- [x] Docs: `devc/README.md` — how to wire the reporter into a status line
+- [x] Verify: `deno check main.ts`, `deno task check`, `deno task test`, `deno fmt --check`
 - [ ] Manual (user, host): two containers, use one, the strip updates; leave both idle past
       `resets_at`, the strip shows "reset" rather than the old percentage
+
+## Implementation notes
+
+- **"Verify first" was not run**: it needs a real interactive Claude Code session with a
+  status line that dumps its stdin, i.e. an edit to the user's shared `statusline.sh`. The
+  reporter is written to be safe either way: `resets_at` is accepted as epoch seconds,
+  epoch milliseconds (anything above 1e12) or an ISO 8601 UTC string, all written as
+  seconds. The idle re-render cache (Risks) was not added, pending that check.
+- **Two files, not one.** A devc container's `~/.claude` is the host's
+  `~/.config/devc/.claude` (devc-core's `CLAUDE_HOME_HOST_DIR`), not the host's `~/.claude`.
+  `usageFiles()` therefore returns that file first, then `$CLAUDE_CONFIG_DIR` (default
+  `~/.claude`) for host sessions. Several files for one agent merge to the one with the
+  newest `observedAt` (a tie keeps the earlier file). A container using the isolated
+  `~/.claude` volume shape does not reach the host and is not shown.
+- `watchUsage` takes an optional third `{debounceMs, pollMs}` argument (as
+  `watchBridgeStatus` does) and re-reads every 30 s besides watching, in case a bind mount
+  delivers no events. A malformed window makes the whole file malformed.
+- The reporter is `scripts/devc-usage-tap`, not installed by the `agents` Feature: the user
+  copies it next to `statusline.sh` in each Claude home and calls it as
+  `"$(dirname "$0")/devc-usage-tap"` (devc/README.md, "The host status strip and usage
+  limits"). Labels are derived from the key (`five_hour` → `5h`, `seven_day_opus` →
+  `7d opus`).
+- Page helpers live in `web/static/lib/host_status.js` beside the bridge ones (tested in
+  `tests/web_host_status_test.ts`); usage items come first in the strip. States: `usage`,
+  `high` (≥ 90%), `stale` (observation > 15 min old, dimmed), `reset` (dimmed, `5h —`).
 
 ## Why this shape
 
