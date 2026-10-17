@@ -1,11 +1,11 @@
 # devc-web-open-tab-here
 
-- [ ] Server: `startSession` reports failure (with the tail of Herdr's server log) when the session doesn't come up
-- [ ] Server: `open_tab` message: start the session if needed, then reuse a tab already at the folder or create one, with tests for the matching
-- [ ] Protocol: `open_tab` in `protocol.ts` and its tests; `.plans/devc-web.md` protocol table
-- [ ] Page: "Open Herdr tab here" and "New Herdr tab here" on repo rows and directory rows, replacing "New shell here"
-- [ ] Page: the opened pane is focused if it's already in a tile, else placed in the focused stack
-- [ ] Verify (below) and ask the user to try it in their open tab
+- [x] Server: `startSession` reports failure (with the tail of Herdr's server log) when the session doesn't come up
+- [x] Server: `open_tab` message: start the session if needed, then reuse a tab already at the folder or create one, with tests for the matching
+- [x] Protocol: `open_tab` in `protocol.ts` and its tests; `.plans/devc-web.md` protocol table
+- [x] Page: "Open Herdr tab here" and "New Herdr tab here" on repo rows and directory rows, replacing "New shell here"
+- [x] Page: the opened pane is focused if it's already in a tile, else placed in the focused stack
+- [x] Verify (below) and ask the user to try it in their open tab
 
 Open a Herdr tab at any folder of a project from the `devc web` sidebar. It uses the project's
 Herdr session (`devc` unless `devc web --session` says otherwise), starting it if the container

@@ -1198,8 +1198,11 @@ function newShell(c, opts, place) {
 }
 
 /**
- * Sends `msg` (`new_shell` or `open_file`: a message that answers with a new pane) for container
- * `c`, then places the pane as {@link newShell} does. A failure is a toast naming `what`.
+ * Sends `msg` (`new_shell`, `open_file` or `open_tab`: a message that answers with a pane) for
+ * container `c`, then places the pane as {@link newShell} does. A reused pane (`open_tab`'s
+ * `reused`) already shown in a tile focuses that tile instead. Placement goes by `c`'s folder
+ * only, never its state: an `open_tab` that started Herdr can answer before this page has seen
+ * the container connect. A failure is a toast naming `what`.
  *
  * @param {ContainerInfo} c
  * @param {Record<string, unknown> & {type: string}} msg
@@ -1208,7 +1211,7 @@ function newShell(c, opts, place) {
  */
 async function createPane(c, msg, place, what) {
   const id = `n${++nextRequestId}`;
-  /** @type {Promise<{pane_id: string}>} */
+  /** @type {Promise<{pane_id: string, reused?: boolean}>} */
   const created = new Promise((resolve, reject) =>
     pendingShells.set(id, { resolve, reject })
   );
@@ -1222,6 +1225,11 @@ async function createPane(c, msg, place, what) {
   }
   if (!tiling) return;
   const ref = { localFolder: c.localFolder, pane_id: result.pane_id };
+  const shown = result.reused ? tileShowing(c, ref) : null;
+  if (shown) {
+    revealTile(shown.id);
+    return;
+  }
   newPanes.set(
     `${ref.localFolder}\n${ref.pane_id}`,
     Date.now() + NEW_PANE_GRACE_MS,
@@ -2115,22 +2123,35 @@ function openInEditor(fr, path, where) {
   );
 }
 
+/**
+ * A Herdr tab at a repo folder (`open_tab`), shown in the focused stack: with `reuse`, a shell
+ * already there (its tile focused if it has one), else a new tab. Starts Herdr in a running
+ * container that has no session; never starts the container.
+ */
+function openHerdrTab(fr, path, reuse) {
+  const c = containerByFolder(fr.localFolder);
+  if (!c) {
+    toast('Start the container first');
+    return;
+  }
+  if (!tiling) return;
+  if (c.state === 'no-session') toast('Starting Herdr…');
+  createPane(
+    c,
+    { type: 'open_tab', root: fr.root, path, reuse },
+    placeInFocusedStack,
+    reuse ? 'Open Herdr tab' : 'New Herdr tab',
+  );
+}
+
 /** A folder's menu: the root itself (`path` '', its repo row) or a directory under it. */
 function dirMenuItems(fr, path) {
-  const c = containerByFolder(fr.localFolder);
-  const cwd = containerPathOf(fr, path);
-  const items = [];
-  if (c?.state === 'connected' && cwd) {
-    items.push([
-      'New shell here',
-      () => newShell(c, { cwd }, placeInFocusedStack),
-    ]);
-  }
-  items.push(
+  return [
+    ['Open Herdr tab here', () => openHerdrTab(fr, path, true)],
+    ['New Herdr tab here', () => openHerdrTab(fr, path, false)],
     ['Refresh', () => fileTree(fr).refresh(path)],
     ['Copy path', () => copyPath(fr, path)],
-  );
-  return items;
+  ];
 }
 
 function fileMenuItems(fr, path) {

@@ -499,3 +499,37 @@ Deno.test('parseClientMessage: file messages take a root and a path, empty meani
     'bad_request',
   );
 });
+
+Deno.test('parseClientMessage: open_tab needs root, a path (may be empty) and reuse', () => {
+  const base = {
+    type: 'open_tab' as const,
+    id: 't1',
+    container: 'c1',
+    root: '/src/app',
+    path: '',
+    reuse: true,
+  };
+  assertEquals(parseClientMessage(JSON.stringify(base)), {
+    ok: true,
+    msg: base,
+  });
+  assertEquals(
+    parseClientMessage(JSON.stringify({ ...base, path: 'lib', reuse: false })),
+    { ok: true, msg: { ...base, path: 'lib', reuse: false } },
+  );
+  for (
+    const bad of [
+      { reuse: undefined },
+      { reuse: 'yes' },
+      { root: 'rel' },
+      { root: undefined },
+      { path: undefined },
+      { container: '' },
+      { id: undefined },
+    ]
+  ) {
+    const r = parseClientMessage(JSON.stringify({ ...base, ...bad }));
+    assert(!r.ok, JSON.stringify(bad));
+    assertEquals(r.rejection.code, 'bad_request');
+  }
+});

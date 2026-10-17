@@ -41,6 +41,7 @@ import {
   createShell,
   type HerdrTarget,
   isHerdrLaunch,
+  paneAtFolder,
   snapshotPaneIds,
 } from './herdr_bridge.ts';
 import { ControllerManager, type Subscriber } from './controllers.ts';
@@ -626,6 +627,102 @@ export async function startWeb(
     }
   };
 
+  /**
+   * Waits until the session is no longer `connecting` (a run in progress), up to about the time
+   * a session start may take.
+   */
+  const settled = async (session: ContainerSession) => {
+    const until = Date.now() + OPEN_TAB_WAIT_MS;
+    while (session.state === 'connecting' && Date.now() < until) {
+      await new Promise((r) => setTimeout(r, 100));
+    }
+  };
+
+  /**
+   * A Herdr tab at a project folder: `path` (a directory relative to `root`, one of the
+   * container's project's repo folders). Starts the session when there is none; with `reuse`,
+   * answers with a shell pane already at the folder (see {@link paneAtFolder}) instead of making
+   * one. Never starts the container.
+   */
+  const openTab = async (
+    c: Client,
+    session: ContainerSession,
+    msg: Extract<ClientMessage, { type: 'open_tab' }>,
+  ) => {
+    const projects = projectsMessage().projects;
+    if (!isProjectRepo(projects, session.record.localFolder, msg.root)) {
+      fail(c, msg.id, 'bad_request', 'unknown repo');
+      return;
+    }
+    const shown = msg.path || '.';
+    let hostPath: string | null;
+    try {
+      hostPath = await confine(msg.root, msg.path);
+    } catch {
+      fail(c, msg.id, 'not_found', `${shown} does not exist`);
+      return;
+    }
+    if (hostPath === null) {
+      fail(c, msg.id, 'forbidden', `${shown} is outside the project`);
+      return;
+    }
+    if (!(await Deno.stat(hostPath).catch(() => null))?.isDirectory) {
+      fail(c, msg.id, 'bad_request', `${shown} is not a directory`);
+      return;
+    }
+    const cwd = hostToContainerPath(
+      hostPath,
+      await mountsOf(session.record.id),
+    );
+    if (cwd === null) {
+      fail(
+        c,
+        msg.id,
+        'not_mounted',
+        `${shown} is not mounted in the container`,
+      );
+      return;
+    }
+    try {
+      await settled(session);
+      if (session.state === 'no-session') await session.startSession();
+    } catch (e) {
+      fail(c, msg.id, e instanceof BridgeError ? e.code : 'start_failed', e);
+      return;
+    }
+    const target = session.target;
+    if (session.state === 'connecting') {
+      fail(c, msg.id, 'not_ready', 'Herdr is still connecting');
+      return;
+    }
+    if (session.state !== 'connected' || target === null) {
+      fail(
+        c,
+        msg.id,
+        'herdr_unavailable',
+        session.error ?? `Herdr is unavailable (${session.state})`,
+      );
+      return;
+    }
+    if (msg.reuse) {
+      const found = paneAtFolder(session.snapshot, cwd);
+      if (found !== null) {
+        reply(c, { id: msg.id, ok: true, result: { ...found, reused: true } });
+        return;
+      }
+    }
+    try {
+      const created = await createShell(target, { cwd });
+      reply(c, {
+        id: msg.id,
+        ok: true,
+        result: { ...created, reused: false },
+      });
+    } catch (e) {
+      fail(c, msg.id, e instanceof BridgeError ? e.code : 'herdr_error', e);
+    }
+  };
+
   /** The messages about projects, which name a folder rather than a running container. */
   const handleProject = async (
     c: Client,
@@ -746,15 +843,16 @@ export async function startWeb(
           await session.startSession();
           reply(c, { id: msg.id, ok: true, result: {} });
         } catch (e) {
-          reply(c, {
-            id: msg.id,
-            ok: false,
-            error: {
-              code: 'start_failed',
-              message: e instanceof Error ? e.message : String(e),
-            },
-          });
+          fail(
+            c,
+            msg.id,
+            e instanceof BridgeError ? e.code : 'start_failed',
+            e,
+          );
         }
+        return;
+      case 'open_tab':
+        await openTab(c, session, msg);
         return;
     }
     const target = session.target;
@@ -1053,6 +1151,8 @@ export async function startWeb(
 
 /** How long the projects file must be quiet before a change to it is re-read. */
 const PROJECTS_DEBOUNCE_MS = 200;
+/** How long `open_tab` waits for a `connecting` container: about a session start's wait. */
+const OPEN_TAB_WAIT_MS = 15_000;
 
 /**
  * Calls `onChange` (debounced) whenever devc's projects file changes — a start in some terminal

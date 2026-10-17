@@ -222,6 +222,57 @@ export async function createShell(
   return { pane_id: pane.pane_id, tab_id };
 }
 
+/** A path compared as a folder: without its trailing `/` (but `/` stays `/`). */
+function folderKey(path: string): string {
+  return path.length > 1 ? path.replace(/\/+$/, '') || '/' : path;
+}
+
+/**
+ * The shell pane (no `agent`) whose `cwd` is `dir` (a container path), or null. `cwd` is the
+ * shell's own directory; `foreground_cwd` (a child's) is ignored, and agent panes never count.
+ * Several matches: the lowest-numbered tab wins (workspace number, then tab number, from the
+ * snapshot's `workspaces` / `tabs`), else the first in snapshot order.
+ */
+export function paneAtFolder(
+  snapshot: Record<string, unknown> | null,
+  dir: string,
+): { pane_id: string; tab_id: string } | null {
+  if (snapshot === null) return null;
+  const list = (v: unknown): Record<string, unknown>[] =>
+    (Array.isArray(v)
+      ? v
+      : typeof v === 'object' && v !== null
+      ? Object.values(v)
+      : []).filter((x) => typeof x === 'object' && x !== null);
+  const num = (v: unknown) => typeof v === 'number' ? v : Infinity;
+  const wsNumber = new Map(
+    list(snapshot.workspaces).map((w) => [w.workspace_id, num(w.number)]),
+  );
+  const tabOrder = new Map(
+    list(snapshot.tabs).map((t) => [
+      t.tab_id,
+      [wsNumber.get(t.workspace_id) ?? Infinity, num(t.number)],
+    ]),
+  );
+  const want = folderKey(dir);
+  const matches = list(snapshot.panes).filter((p) =>
+    (p.agent === undefined || p.agent === null || p.agent === '') &&
+    typeof p.cwd === 'string' && folderKey(p.cwd) === want &&
+    typeof p.pane_id === 'string' && typeof p.tab_id === 'string'
+  );
+  const order = (p: Record<string, unknown>) =>
+    tabOrder.get(p.tab_id) ?? [Infinity, Infinity];
+  matches.sort((a, b) => {
+    const [aw, at] = order(a);
+    const [bw, bt] = order(b);
+    return aw !== bw ? (aw < bw ? -1 : 1) : at !== bt ? (at < bt ? -1 : 1) : 0;
+  });
+  const found = matches[0];
+  return found
+    ? { pane_id: found.pane_id as string, tab_id: found.tab_id as string }
+    : null;
+}
+
 /** An open `events.subscribe` connection. */
 export interface Subscription {
   /** Resolves when the bridge exits, with why. */
@@ -342,7 +393,8 @@ export interface SessionHooks {
 
 const SNAPSHOT_COALESCE_MS = 50;
 const START_SESSION_WAIT_MS = 300;
-const START_SESSION_TRIES = 20;
+/** With {@link START_SESSION_WAIT_MS}, about 15 s: Herdr's first start can be slow. */
+const START_SESSION_TRIES = 50;
 /** A lifecycle connection that dies sooner than this after (re)starting is not restarted. */
 const MIN_RESTART_INTERVAL_MS = 5000;
 
@@ -357,6 +409,32 @@ export function snapshotPaneIds(snapshot: Record<string, unknown>): string[] {
   return list
     .map((p) => (p as { pane_id?: unknown })?.pane_id)
     .filter((id): id is string => typeof id === 'string');
+}
+
+/** What a {@link ContainerSession} runs commands with; tests replace it. */
+export interface SessionDeps {
+  runText: typeof runText;
+  startTries: number;
+  startWaitMs: number;
+}
+
+/** The last 10 lines of the session's `herdr-server.log` in the container, or '' when unreadable. */
+export async function serverLogTail(
+  t: HerdrTarget,
+  run: typeof runText = runText,
+): Promise<string> {
+  const out = await run('docker', [
+    'exec',
+    '-u',
+    t.user,
+    t.containerId,
+    'sh',
+    '-c',
+    'tail -n 10 "$HOME/.config/herdr/sessions/$1/herdr-server.log"',
+    '_',
+    t.session,
+  ]).catch(() => null);
+  return out !== null && out.code === 0 ? out.stdout.trimEnd() : '';
 }
 
 /**
@@ -383,12 +461,21 @@ export class ContainerSession {
   #snapshotDirty = false;
   #lastStart = 0;
   #awaiting = false;
+  readonly #deps: SessionDeps;
 
   constructor(
     readonly record: ContainerRecord,
     readonly session: string,
     private hooks: SessionHooks,
-  ) {}
+    deps: Partial<SessionDeps> = {},
+  ) {
+    this.#deps = {
+      runText,
+      startTries: START_SESSION_TRIES,
+      startWaitMs: START_SESSION_WAIT_MS,
+      ...deps,
+    };
+  }
 
   #setState(state: ContainerState, error?: string): void {
     this.state = state;
@@ -426,13 +513,17 @@ export class ContainerSession {
     }
   }
 
-  /** `herdr --session <S> server`, detached, then the lifecycle from the bridge check on. */
+  /**
+   * `herdr --session <S> server`, detached, then the lifecycle from the bridge check on. Throws
+   * a `no_session` {@link BridgeError} carrying the server log's tail when, after the retries,
+   * there is still no server.
+   */
   async startSession(): Promise<void> {
     const t = this.target;
     if (t === null) {
       throw new Error('herdr has not been located in this container');
     }
-    const out = await runText('docker', [
+    const out = await this.#deps.runText('docker', [
       'exec',
       '-d',
       '-u',
@@ -447,6 +538,15 @@ export class ContainerSession {
       throw new Error(out.stderr.trim() || 'starting the Herdr server failed');
     }
     await this.#awaitServer();
+    if (this.state === 'no-session') {
+      const { startTries, startWaitMs } = this.#deps;
+      const seconds = Math.round(startTries * startWaitMs / 1000);
+      const logTail = await serverLogTail(t, this.#deps.runText);
+      throw new BridgeError(
+        'no_session',
+        `Herdr didn't come up in ${seconds}s.\n${logTail}`,
+      );
+    }
   }
 
   /**
@@ -465,10 +565,10 @@ export class ContainerSession {
   async #awaitServer(): Promise<void> {
     this.#awaiting = true;
     try {
-      for (let i = 0; i < START_SESSION_TRIES; i++) {
+      for (let i = 0; i < this.#deps.startTries; i++) {
         await this.run();
         if (this.state !== 'no-session') return;
-        await new Promise((r) => setTimeout(r, START_SESSION_WAIT_MS));
+        await new Promise((r) => setTimeout(r, this.#deps.startWaitMs));
       }
     } finally {
       this.#awaiting = false;

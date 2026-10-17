@@ -94,6 +94,14 @@ export type ClientMessage =
     root: string;
     path: string;
   }
+  | {
+    type: 'open_tab';
+    id: string;
+    container: string;
+    root: string;
+    path: string;
+    reuse: boolean;
+  }
   | { type: 'retry'; container: string }
   | { type: 'client_ready'; generation: string };
 
@@ -351,6 +359,18 @@ function parseFields(m: Obj): ClientMessage {
         container: str(m, 'container'),
         root: absolute(m, 'root'),
         path: str(m, 'path'),
+      };
+    case 'open_tab':
+      if (typeof m.reuse !== 'boolean') {
+        throw new Invalid(`'reuse' must be a boolean`);
+      }
+      return {
+        type: 'open_tab',
+        id: str(m, 'id'),
+        container: str(m, 'container'),
+        root: absolute(m, 'root'),
+        path: text(m, 'path'),
+        reuse: m.reuse,
       };
     case 'retry':
       return { type: 'retry', container: str(m, 'container') };

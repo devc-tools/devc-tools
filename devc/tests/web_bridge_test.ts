@@ -1,10 +1,14 @@
-import { assert, assertEquals } from 'jsr:@std/assert';
+import { assert, assertEquals, assertRejects } from 'jsr:@std/assert';
 import {
+  BridgeError,
+  ContainerSession,
   herdrArgv,
   isHerdrLaunch,
   isNoSessionError,
   isStructuralEvent,
   normalizeEventName,
+  paneAtFolder,
+  serverLogTail,
   snapshotPaneIds,
 } from '../web/herdr_bridge.ts';
 import { spawnLines, splitLines } from '../web/proc.ts';
@@ -141,4 +145,141 @@ Deno.test("isHerdrLaunch: herdr runs yes, devc web's own bridge execs no", () =>
   ) {
     assert(!isHerdrLaunch(cmd), cmd);
   }
+});
+
+const shell = (pane_id: string, tab_id: string, cwd: string, extra = {}) => ({
+  pane_id,
+  tab_id,
+  workspace_id: tab_id.split(':')[0],
+  cwd,
+  foreground_cwd: cwd,
+  ...extra,
+});
+
+Deno.test('paneAtFolder: no snapshot, no match', () => {
+  assertEquals(paneAtFolder(null, '/w/a'), null);
+  assertEquals(
+    paneAtFolder({ panes: [shell('w1:p1', 'w1:t1', '/w/b')] }, '/w/a'),
+    null,
+  );
+});
+
+Deno.test('paneAtFolder: a trailing slash on either side still matches', () => {
+  const snap = { panes: [shell('w1:p1', 'w1:t1', '/w/a/')] };
+  assertEquals(paneAtFolder(snap, '/w/a'), {
+    pane_id: 'w1:p1',
+    tab_id: 'w1:t1',
+  });
+  assertEquals(
+    paneAtFolder({ panes: [shell('w1:p1', 'w1:t1', '/w/a')] }, '/w/a/'),
+    { pane_id: 'w1:p1', tab_id: 'w1:t1' },
+  );
+});
+
+Deno.test('paneAtFolder: of two matches, the lowest-numbered tab wins', () => {
+  const snap = {
+    workspaces: [{ workspace_id: 'w1', number: 1 }],
+    tabs: [
+      { tab_id: 'w1:t5', workspace_id: 'w1', number: 3 },
+      { tab_id: 'w1:t2', workspace_id: 'w1', number: 2 },
+    ],
+    panes: [shell('w1:p5', 'w1:t5', '/w/a'), shell('w1:p2', 'w1:t2', '/w/a')],
+  };
+  assertEquals(paneAtFolder(snap, '/w/a'), {
+    pane_id: 'w1:p2',
+    tab_id: 'w1:t2',
+  });
+});
+
+Deno.test("paneAtFolder: a foreground process's folder does not count", () => {
+  const snap = {
+    panes: [
+      shell('w1:p1', 'w1:t1', '/tmp', { foreground_cwd: '/w/a' }),
+    ],
+  };
+  assertEquals(paneAtFolder(snap, '/w/a'), null);
+  assertEquals(paneAtFolder(snap, '/tmp'), {
+    pane_id: 'w1:p1',
+    tab_id: 'w1:t1',
+  });
+});
+
+Deno.test('paneAtFolder: an agent pane at the folder never counts', () => {
+  const agent = shell('w1:p1', 'w1:t1', '/w/a', { agent: 'claude' });
+  assertEquals(paneAtFolder({ panes: [agent] }, '/w/a'), null);
+  assertEquals(
+    paneAtFolder({ panes: [agent, shell('w1:p2', 'w1:t2', '/w/a')] }, '/w/a'),
+    { pane_id: 'w1:p2', tab_id: 'w1:t2' },
+  );
+});
+
+type RunText = (
+  cmd: string,
+  args: string[],
+) => Promise<{ code: number; stdout: string; stderr: string }>;
+
+/** A session whose lifecycle always finds no server, with `runText` stubbed. */
+class NoServerSession extends ContainerSession {
+  runs = 0;
+  override run(): Promise<void> {
+    this.runs++;
+    this.state = 'no-session';
+    return Promise.resolve();
+  }
+}
+
+const hooks = {
+  onState() {},
+  onSnapshot() {},
+  onPaneUpdated() {},
+  onAgentStatus() {},
+  onTeardown() {},
+};
+
+const target = {
+  containerId: 'c1',
+  user: 'vscode',
+  herdrPath: '/usr/local/bin/herdr',
+  session: 'devc',
+};
+
+Deno.test("startSession throws no_session with the server log's tail", async () => {
+  const calls: string[][] = [];
+  const run: RunText = (_cmd, args) => {
+    calls.push(args);
+    return Promise.resolve(
+      args.includes(
+          'tail -n 10 "$HOME/.config/herdr/sessions/$1/herdr-server.log"',
+        )
+        ? { code: 0, stdout: 'line 1\npanic: boom\n', stderr: '' }
+        : { code: 0, stdout: '', stderr: '' },
+    );
+  };
+  const s = new NoServerSession(
+    { id: 'c1' } as ConstructorParameters<typeof ContainerSession>[0],
+    'devc',
+    hooks,
+    { runText: run, startTries: 3, startWaitMs: 1 },
+  );
+  s.target = target;
+  const err = await assertRejects(() => s.startSession(), BridgeError);
+  assertEquals(err.code, 'no_session');
+  assertEquals(err.message, "Herdr didn't come up in 0s.\nline 1\npanic: boom");
+  assertEquals(s.runs, 3);
+  assertEquals(calls[0].slice(0, 2), ['exec', '-d']);
+  assertEquals(calls[1].slice(-2), ['_', 'devc']);
+});
+
+Deno.test('serverLogTail is empty when the log is unreadable', async () => {
+  assertEquals(
+    await serverLogTail(
+      target,
+      () => Promise.resolve({ code: 1, stdout: '', stderr: 'no such file' }),
+    ),
+    '',
+  );
+  assertEquals(
+    await serverLogTail(target, () => Promise.reject(new Error('no docker'))),
+    '',
+  );
 });
