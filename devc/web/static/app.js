@@ -669,7 +669,10 @@ function displayName(c) {
 // ---------------------------------------------------------------------------------------------
 
 const SIDEBAR_KEY = 'devc-web-sidebar-v1';
-/** Containers without a usable Herdr; listed together under "Not running". */
+/**
+ * Containers without a usable Herdr: their rows offer Start Herdr / Retry and list no panes.
+ * They are still running, so they stay in the main list.
+ */
 const INACTIVE_STATES = new Set([
   'no-session',
   'no-herdr',
@@ -685,9 +688,9 @@ const STATE_TEXT = {
 };
 
 /**
- * Collapsed containers (by local folder), whether "Not running" is open, which of its projects
- * are expanded, each repo's open folders, and the sidebar's own width and hidden state, per
- * browser.
+ * Collapsed containers (by local folder), containers whose Repos row is open, whether "Not
+ * running" is open, which of its projects are expanded, each repo's open folders, and the
+ * sidebar's own width and hidden state, per browser.
  */
 const sidebarState = loadSidebarState();
 
@@ -700,6 +703,11 @@ function loadSidebarState() {
     collapsed: new Set(
       Array.isArray(saved?.collapsed)
         ? saved.collapsed.filter((f) => typeof f === 'string')
+        : [],
+    ),
+    reposOpen: new Set(
+      Array.isArray(saved?.reposOpen)
+        ? saved.reposOpen.filter((f) => typeof f === 'string')
         : [],
     ),
     inactiveOpen: saved?.inactiveOpen === true,
@@ -734,6 +742,7 @@ function saveSidebarState() {
       SIDEBAR_KEY,
       JSON.stringify({
         collapsed: [...sidebarState.collapsed],
+        reposOpen: [...sidebarState.reposOpen],
         inactiveOpen: sidebarState.inactiveOpen,
         projectsOpen: [...sidebarState.projectsOpen],
         // Not `filesOpen`: entries saved under that name were keyed by project, not by repo.
@@ -749,6 +758,15 @@ function saveSidebarState() {
 function toggleContainer(c) {
   if (!sidebarState.collapsed.delete(c.localFolder)) {
     sidebarState.collapsed.add(c.localFolder);
+  }
+  saveSidebarState();
+  renderTree();
+}
+
+/** Opens or closes a container's Repos row (by its local folder). */
+function toggleRepos(localFolder) {
+  if (!sidebarState.reposOpen.delete(localFolder)) {
+    sidebarState.reposOpen.add(localFolder);
   }
   saveSidebarState();
   renderTree();
@@ -825,7 +843,8 @@ function chevron() {
  * The sidebar: the Layout section (the Golden Layout tree, single-child levels folded), then
  * Projects (Container → Workspace → Pane, a workspace row only when its container has several).
  * Herdr tabs group nothing here: a pane the Herdr TUI split into a shared tab is just another pane.
- * Containers without a usable Herdr are listed last, under a collapsed "Not running" group.
+ * Every running container is listed, Herdr or not; projects without one are listed last, under a
+ * collapsed "Not running" group.
  */
 function renderTree() {
   const generation = ++renderGeneration;
@@ -858,14 +877,8 @@ function renderTree() {
       ),
     );
   }
-  const inactive = [];
-  for (const c of containers.values()) {
-    if (INACTIVE_STATES.has(c.state)) inactive.push(c);
-    else rows.push(...containerRows(c));
-  }
-  if (inactive.length + idle.length > 0) {
-    rows.push(...inactiveRows(inactive, idle));
-  }
+  for (const c of containers.values()) rows.push(...containerRows(c));
+  if (idle.length > 0) rows.push(...inactiveRows(idle));
   $tree.replaceChildren(...rows);
   $tree.scrollTop = scroll;
   refocusTreeKey($tree, focusKey);
@@ -1412,13 +1425,18 @@ function containerRows(c) {
   const panes = list(snap?.panes);
   const collapsed = sidebarState.collapsed.has(c.localFolder);
   const only = workspaces.length === 1 ? workspaces[0] : null;
+  const stateText = h(
+    'span',
+    { class: 'state', 'data-state': c.state },
+    STATE_TEXT[c.state] ?? c.state,
+  );
   const rows = [
     h(
       'div',
       {
         class: 'row container',
         style: '--depth: 0',
-        title: c.localFolder,
+        title: c.error ? `${c.localFolder}\n${c.error}` : c.localFolder,
         'aria-expanded': String(!collapsed),
         onclick: () => toggleContainer(c),
         oncontextmenu: (e) =>
@@ -1438,12 +1456,10 @@ function containerRows(c) {
         // Expanded, each repo's own marks are right below.
         collapsed ? gitMark(gitRollup(projectRepos(c.localFolder))) : '',
       ),
-      c.state !== 'connected'
-        ? h(
-          'span',
-          { class: 'state', 'data-state': c.state },
-          STATE_TEXT[c.state] ?? c.state,
-        )
+      INACTIVE_STATES.has(c.state)
+        ? h('span', { class: 'row-actions' }, stateText, herdrActions(c))
+        : c.state !== 'connected'
+        ? stateText
         // Expanded, each agent's own badge is right below.
         : collapsed
         ? rollupBadge(panes)
@@ -1486,12 +1502,27 @@ function containerRows(c) {
   return rows;
 }
 
-/**
- * The "Not running" group: running containers without a usable Herdr (`inactive`), then projects
- * without a running container (`idle`).
- */
-function inactiveRows(inactive, idle) {
-  const errors = inactive.filter((c) => c.state !== 'no-session').length;
+/** A Herdr-less container's hover buttons: Start Herdr (no session only) and Retry. */
+function herdrActions(c) {
+  return hoverActions(
+    c.state === 'no-session'
+      ? iconButton(
+        'play',
+        'Start Herdr: a Herdr server for this session',
+        () => startSession(c.id),
+      )
+      : '',
+    h('button', {
+      onclick: (e) => {
+        e.stopPropagation();
+        send({ type: 'retry', container: c.id });
+      },
+    }, 'Retry'),
+  );
+}
+
+/** The "Not running" group: projects without a running container (`idle`). */
+function inactiveRows(idle) {
   const rows = [
     h(
       'div',
@@ -1505,53 +1536,11 @@ function inactiveRows(inactive, idle) {
         'span',
         { class: 'label' },
         chevron(),
-        `Not running (${inactive.length + idle.length})`,
+        `Not running (${idle.length})`,
       ),
-      errors > 0
-        ? h(
-          'span',
-          { class: 'state', 'data-state': 'error' },
-          `${errors} with errors`,
-        )
-        : '',
     ),
   ];
   if (!sidebarState.inactiveOpen) return rows;
-  for (const c of inactive) {
-    rows.push(
-      h(
-        'div',
-        {
-          class: 'row inactive',
-          style: '--depth: 1',
-          title: c.error ? `${c.localFolder}\n${c.error}` : c.localFolder,
-          oncontextmenu: (e) => openMenu(e, projectMenuItems(c.localFolder)),
-        },
-        h('span', { class: 'label' }, displayName(c), pinMark(c)),
-        h(
-          'span',
-          { class: 'row-actions' },
-          h(
-            'span',
-            { class: 'state', 'data-state': c.state },
-            STATE_TEXT[c.state] ?? c.state,
-          ),
-          hoverActions(
-            c.state === 'no-session'
-              ? iconButton(
-                'play',
-                'Start Herdr: a Herdr server for this session',
-                () => startSession(c.id),
-              )
-              : '',
-            h('button', {
-              onclick: () => send({ type: 'retry', container: c.id }),
-            }, 'Retry'),
-          ),
-        ),
-      ),
-    );
-  }
   for (const p of idle) {
     rows.push(projectRow(p));
     if (sidebarState.projectsOpen.has(p.localFolder)) {
@@ -1604,34 +1593,66 @@ function projectRepos(localFolder) {
 }
 
 /**
- * An expanded container's repo rows, above its workspaces: every repo it mounts, worktrees
- * under their repo, each a file root followed by its open files. The project folder always gets
- * a row; a later folder that turned out to be no repo (`git: null`) gets none.
+ * An expanded container's repo rows, above its workspaces. With more than one repo they sit under
+ * a Repos row (collapsed until opened); with one, its row is directly under the container. A repo
+ * row, while expanded, is followed by its worktrees (repo rows of their own), then its files. The
+ * project folder always gets a row; a later folder that turned out to be no repo (`git: null`)
+ * gets none.
  */
 function repoRows(localFolder) {
-  return projectRepos(localFolder).filter((r, i) => i === 0 || r.git !== null)
-    .flatMap((r) => {
-      const fr = { localFolder, root: r.folder };
-      const tree = fileTree(fr);
-      const depth = r.worktreeOf ? 2 : 1;
-      const rows = [
-        treeRow(
-          `${treeId(fr)}\n`,
-          depth,
-          tree.isOpen(''),
-          {
-            class: 'repo',
-            title: r.folder,
-            onclick: () => tree.toggle(''),
-            oncontextmenu: (e) => openMenu(e, dirMenuItems(fr, '')),
-          },
-          r.name,
-          gitMark(gitSync(r.git)),
-        ),
-      ];
-      if (tree.isOpen('')) rows.push(...rootEntryRows(fr, depth + 1));
-      return rows;
-    });
+  const repos = projectRepos(localFolder).filter((r, i) =>
+    i === 0 || r.git !== null
+  );
+  if (repos.length === 0) return [];
+  const folders = new Set(repos.map((r) => r.folder));
+  // A worktree whose repo has no row of its own is listed as a repo.
+  const top = repos.filter((r) => !r.worktreeOf || !folders.has(r.worktreeOf));
+  const repoRow = (r, depth) => {
+    const fr = { localFolder, root: r.folder };
+    const tree = fileTree(fr);
+    const rows = [
+      treeRow(
+        `${treeId(fr)}\n`,
+        depth,
+        tree.isOpen(''),
+        {
+          class: 'repo',
+          title: r.folder,
+          onclick: () => tree.toggle(''),
+          oncontextmenu: (e) => openMenu(e, dirMenuItems(fr, '')),
+        },
+        r.name,
+        gitMark(gitSync(r.git)),
+      ),
+    ];
+    if (tree.isOpen('')) {
+      for (const w of repos) {
+        if (w !== r && w.worktreeOf === r.folder) {
+          rows.push(...repoRow(w, depth + 1));
+        }
+      }
+      rows.push(...rootEntryRows(fr, depth + 1));
+    }
+    return rows;
+  };
+  if (repos.length === 1) return repoRow(repos[0], 1);
+  const open = sidebarState.reposOpen.has(localFolder);
+  const rows = [
+    treeRow(
+      // No file root is empty, so this never matches a repo's key.
+      `${localFolder}\n\nrepos`,
+      1,
+      open,
+      { class: 'repos', onclick: () => toggleRepos(localFolder) },
+      'Repos',
+      // Open, each repo's own marks are right below.
+      open ? '' : gitMark(gitRollup(repos)),
+    ),
+  ];
+  if (open) {
+    for (const r of top) rows.push(...repoRow(r, 2));
+  }
+  return rows;
 }
 
 const PROJECT_STATE_TEXT = {

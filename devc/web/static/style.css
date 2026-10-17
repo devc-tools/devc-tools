@@ -575,8 +575,9 @@ body.resizing-sidebar {
 }
 
 /* A repo a container mounts, listed above its workspaces: its name and marks, and a chevron
-   opening its files. */
-.row.repo {
+   opening its worktrees and files. The Repos row above several of them reads the same. */
+.row.repo,
+.row.repos {
   color: var(--muted);
 }
 

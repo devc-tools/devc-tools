@@ -1,12 +1,12 @@
 # devc-web-repos-group
 
-- [ ] `gitRollup`: `•` when every repo with git status has no upstream, with tests
-- [ ] Page: a collapsible **Repos** row first under each expanded container (when it has more than one repo)
-- [ ] Page: a repo's worktrees and files both hide behind its chevron, worktrees first
-- [ ] Page: running containers without a usable Herdr stay in the main list (expandable, with Start / Retry); "Not running" holds only projects without a running container
-- [ ] `sidebarState.reposOpen` saved and restored
-- [ ] `.plans/devc-web.md` "Browser UI" section updated
-- [ ] Verify (below) and ask the user to try it in their open tab
+- [x] `gitRollup`: `•` when every repo with git status has no upstream, with tests
+- [x] Page: a collapsible **Repos** row first under each expanded container (when it has more than one repo)
+- [x] Page: a repo's worktrees and files both hide behind its chevron, worktrees first
+- [x] Page: running containers without a usable Herdr stay in the main list (expandable, with Start / Retry); "Not running" holds only projects without a running container
+- [x] `sidebarState.reposOpen` saved and restored
+- [x] `.plans/devc-web.md` "Browser UI" section updated
+- [x] Verify (below) and ask the user to try it in their open tab
 
 Reshapes the Projects section of the `devc web` sidebar, from what a real dump showed (the
 "Copy sidebar as JSON" item on a section heading). With many mounted repos, the panes sit at the

@@ -121,8 +121,8 @@ const QUIET_DIRS = ['synced', 'local'];
 /**
  * One mark for several repos (a collapsed container's, say). When any repo has something to
  * push or pull (or a deleted upstream): their ↑ and ↓ counts summed, with every such repo listed
- * in the tooltip. Otherwise a quiet ✓ listing every repo's own tooltip. `null` when none of
- * `repos` is a repo.
+ * in the tooltip. Otherwise a quiet ✓ listing every repo's own tooltip, or • when no repo has
+ * an upstream. `null` when none of `repos` is a repo.
  */
 export function gitRollup(repos) {
   const all = [...repos].map((r) => ({ name: r.name, sync: gitSync(r.git) }))
@@ -132,8 +132,13 @@ export function gitRollup(repos) {
     r.sync.marks.some((m) => !QUIET_DIRS.includes(m.dir))
   );
   if (busy.length === 0) {
+    const anySynced = all.some((r) =>
+      r.sync.marks.some((m) => m.dir === 'synced')
+    );
     return {
-      marks: [{ dir: 'synced', text: '✓' }],
+      marks: [
+        anySynced ? { dir: 'synced', text: '✓' } : { dir: 'local', text: '•' },
+      ],
       diverged: false,
       title: all.map((r) => `${r.name}: ${r.sync.title}`).join('\n'),
     };

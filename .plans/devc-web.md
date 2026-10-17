@@ -358,10 +358,17 @@ Browser → server:
     (`devc-web-sidebar-v1`). A collapsed container shows its agents' most urgent status
     (`blocked` > `working` > `done` > `unknown` > `idle`), with a count when several
     agents share it. `connecting` shows as a muted state.
-  - Containers in `no-session`, `no-herdr`, `unsupported` or `error` are listed last under
-    a **Not running (N)** group, collapsed by default, one row each with its state; the
-    group row counts the ones with errors. Hovering a row shows **Start** (`no-session`
-    only) and **Retry**; the tooltip has the folder and any error message.
+  - Containers in `no-session`, `no-herdr`, `unsupported` or `error` are still running, so
+    they stay in the list with the others, expandable, with their state on the row and no
+    workspace or pane rows. Hovering the row shows **Start Herdr** (`no-session` only) and
+    **Retry**; the tooltip has the folder and any error message. Projects without a running
+    container are listed last under a **Not running (N)** group, collapsed by default (see
+    [devc-web-repos-group](devc-web-repos-group.md)).
+  - Under an expanded container, its repos come first. With more than one, they sit under a
+    **Repos** row, collapsed by default and showing the combined push/pull mark while
+    collapsed; the open ones are kept in `localStorage` (`reposOpen`). With one repo, its row
+    is directly under the container. Expanding a repo shows its worktrees (repo rows of their
+    own), then its files. Workspace and pane rows follow.
   - Pane rows show `terminal_title_stripped` (or the basename of `cwd` when it is empty).
     A pane without an agent whose title is just its folder reads `shell`, or
     `shell · <folder>` when that folder is not the container's. An **agent badge** is a

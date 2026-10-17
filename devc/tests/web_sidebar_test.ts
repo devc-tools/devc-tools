@@ -208,7 +208,7 @@ Deno.test('gitRollup sums every repo and lists the ones with something to do', (
   ]);
 });
 
-Deno.test('gitRollup shows a quiet ✓ when no repo has anything to sync', () => {
+Deno.test('gitRollup shows a quiet ✓ (or • when no repo has an upstream) when none has anything to sync', () => {
   const git = (upstream: string | null) => ({
     branch: 'main',
     upstream,
@@ -231,8 +231,13 @@ Deno.test('gitRollup shows a quiet ✓ when no repo has anything to sync', () =>
     { name: 'a', git: git(null) },
     { name: 'b', git: git(null) },
   ]);
-  assertEquals(local?.marks, [{ dir: 'synced', text: '✓' }]);
+  assertEquals(local?.marks, [{ dir: 'local', text: '•' }]);
   assertEquals(local?.title, 'a: main: no upstream\nb: main: no upstream');
+  const localAndSynced = gitRollup([
+    { name: 'a', git: git(null) },
+    { name: 'b', git: git('origin/main') },
+  ]);
+  assertEquals(localAndSynced?.marks, [{ dir: 'synced', text: '✓' }]);
   const mixed = gitRollup([
     { name: 'a', git: git('origin/main') },
     { name: 'b', git: { ...git('origin/main'), ahead: 2 } },
