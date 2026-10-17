@@ -19,10 +19,36 @@
         <header class="sidebar-header">
           <span class="brand">devc web</span>
           <span class="conn" id="conn" data-state="connecting">connecting</span>
+          <button
+            class="sidebar-toggle"
+            id="sidebar-hide"
+            type="button"
+            aria-label="Hide sidebar"
+            title="Hide sidebar"
+          >
+            «
+          </button>
         </header>
         <nav class="tree" id="tree" aria-label="Containers"></nav>
       </aside>
+      <div
+        class="sidebar-resizer"
+        id="sidebar-resizer"
+        role="separator"
+        aria-orientation="vertical"
+        aria-label="Resize sidebar"
+        title="Drag to resize, double-click to reset"
+      ></div>
       <main class="tiles" id="tiles"></main>
+      <button
+        class="sidebar-toggle sidebar-show"
+        id="sidebar-show"
+        type="button"
+        aria-label="Show sidebar"
+        title="Show sidebar"
+      >
+        »
+      </button>
     </div>
     <div class="menu" id="menu" role="menu" hidden></div>
     <div class="toasts" id="toasts" aria-live="polite"></div>

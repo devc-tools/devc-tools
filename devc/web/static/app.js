@@ -16,9 +16,11 @@ import {
 } from './lib/input.js';
 import {
   agentStatus,
+  clampSidebarWidth,
   containerLabel,
   paneLabel,
   paneTitle,
+  SIDEBAR_DEFAULT_WIDTH,
   tabName,
   topStatus,
 } from './lib/sidebar.js';
@@ -98,6 +100,16 @@ const $tiles = /** @type {HTMLElement} */ (document.getElementById('tiles'));
 const $menu = /** @type {HTMLElement} */ (document.getElementById('menu'));
 const $conn = /** @type {HTMLElement} */ (document.getElementById('conn'));
 const $toasts = /** @type {HTMLElement} */ (document.getElementById('toasts'));
+const $app = /** @type {HTMLElement} */ (document.querySelector('.app'));
+const $resizer = /** @type {HTMLElement} */ (document.getElementById(
+  'sidebar-resizer',
+));
+const $sidebarHide = /** @type {HTMLElement} */ (document.getElementById(
+  'sidebar-hide',
+));
+const $sidebarShow = /** @type {HTMLElement} */ (document.getElementById(
+  'sidebar-show',
+));
 
 function paneKey(containerId, paneId) {
   return `${containerId}\n${paneId}`;
@@ -455,7 +467,10 @@ const STATE_TEXT = {
   error: 'error',
 };
 
-/** Collapsed containers (by local folder) and whether "Not running" is open, per browser. */
+/**
+ * Collapsed containers (by local folder), whether "Not running" is open, and the sidebar's own
+ * width and hidden state, per browser.
+ */
 const sidebarState = loadSidebarState();
 
 function loadSidebarState() {
@@ -470,6 +485,8 @@ function loadSidebarState() {
         : [],
     ),
     inactiveOpen: saved?.inactiveOpen === true,
+    width: Number.isFinite(saved?.width) ? saved.width : SIDEBAR_DEFAULT_WIDTH,
+    hidden: saved?.hidden === true,
   };
 }
 
@@ -480,6 +497,8 @@ function saveSidebarState() {
       JSON.stringify({
         collapsed: [...sidebarState.collapsed],
         inactiveOpen: sidebarState.inactiveOpen,
+        width: sidebarState.width,
+        hidden: sidebarState.hidden,
       }),
     );
   } catch { /* storage unavailable: collapsing just won't survive a reload */ }
@@ -498,6 +517,57 @@ function toggleInactive() {
   saveSidebarState();
   renderTree();
 }
+
+/**
+ * Applies the sidebar's width and hidden state. The width is clamped to the window as it is
+ * now; the saved one stays as chosen, so it comes back when the window grows again.
+ */
+function applySidebarLayout() {
+  $app.dataset.sidebar = sidebarState.hidden ? 'hidden' : 'shown';
+  $app.style.setProperty(
+    '--sidebar-width',
+    `${clampSidebarWidth(sidebarState.width, innerWidth)}px`,
+  );
+}
+
+function toggleSidebarHidden() {
+  sidebarState.hidden = !sidebarState.hidden;
+  saveSidebarState();
+  applySidebarLayout();
+}
+
+$sidebarHide.addEventListener('click', toggleSidebarHidden);
+$sidebarShow.addEventListener('click', toggleSidebarHidden);
+window.addEventListener('resize', applySidebarLayout);
+
+// The handle drags with pointer capture, so Golden Layout and the terminals never see the move.
+$resizer.addEventListener('pointerdown', (ev) => {
+  if (ev.button !== 0) return;
+  ev.preventDefault();
+  ev.stopPropagation();
+  $resizer.setPointerCapture(ev.pointerId);
+  $resizer.classList.add('dragging');
+  document.body.classList.add('resizing-sidebar');
+  const left = $app.getBoundingClientRect().left;
+  const onMove = (/** @type {PointerEvent} */ e) => {
+    sidebarState.width = clampSidebarWidth(e.clientX - left, innerWidth);
+    applySidebarLayout();
+  };
+  const onEnd = () => {
+    $resizer.removeEventListener('pointermove', onMove);
+    $resizer.removeEventListener('lostpointercapture', onEnd);
+    $resizer.classList.remove('dragging');
+    document.body.classList.remove('resizing-sidebar');
+    saveSidebarState();
+  };
+  $resizer.addEventListener('pointermove', onMove);
+  $resizer.addEventListener('lostpointercapture', onEnd);
+});
+$resizer.addEventListener('dblclick', () => {
+  sidebarState.width = SIDEBAR_DEFAULT_WIDTH;
+  saveSidebarState();
+  applySidebarLayout();
+});
 
 function chevron() {
   return h('span', { class: 'chevron', 'aria-hidden': 'true' });
@@ -1221,6 +1291,7 @@ tiling = createTiling($layoutRoot, {
   },
 });
 if (SAFE_MODE) showSafeBanner();
+applySidebarLayout();
 restoreLayout();
 reconcileTiles();
 renderTree();

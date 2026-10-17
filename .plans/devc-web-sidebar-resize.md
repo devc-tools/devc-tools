@@ -1,9 +1,9 @@
 # devc-web-sidebar-resize
 
-- [ ] `clampSidebarWidth` in `devc/web/static/lib/sidebar.js`, with tests in `devc/tests/web_sidebar_test.ts`
-- [ ] Saved sidebar state gains `width` and `hidden` (same `localStorage` key, old values still load)
-- [ ] Resize handle between the sidebar and the tiles: drag to resize, double-click to reset
-- [ ] Hide button in the sidebar header; show button over the tile area while hidden
+- [x] `clampSidebarWidth` in `devc/web/static/lib/sidebar.js`, with tests in `devc/tests/web_sidebar_test.ts`
+- [x] Saved sidebar state gains `width` and `hidden` (same `localStorage` key, old values still load)
+- [x] Resize handle between the sidebar and the tiles: drag to resize, double-click to reset
+- [x] Hide button in the sidebar header; show button over the tile area while hidden
 - [ ] Verify (below) and ask the user to try it in their open tab
 
 Make `devc web`'s sidebar **resizable** (drag its right edge) and **hideable** (it disappears

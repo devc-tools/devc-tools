@@ -1,8 +1,11 @@
 import { assertEquals } from 'jsr:@std/assert';
 import {
   agentStatus,
+  clampSidebarWidth,
   containerLabel,
   paneLabel,
+  SIDEBAR_DEFAULT_WIDTH,
+  SIDEBAR_MIN_WIDTH,
   tabName,
   topStatus,
 } from '../web/static/lib/sidebar.js';
@@ -111,4 +114,26 @@ Deno.test('topStatus picks the status most in need of attention and counts it', 
     ]),
     { status: 'blocked', count: 1 },
   );
+});
+
+Deno.test('clampSidebarWidth keeps a width in range, rounded', () => {
+  assertEquals(clampSidebarWidth(320.4, 1600), 320);
+});
+
+Deno.test('clampSidebarWidth raises a width below the minimum', () => {
+  assertEquals(clampSidebarWidth(40, 1600), SIDEBAR_MIN_WIDTH);
+});
+
+Deno.test('clampSidebarWidth caps a width at 60% of the viewport', () => {
+  assertEquals(clampSidebarWidth(1200, 1000), 600);
+});
+
+Deno.test('clampSidebarWidth lets the minimum win in a tiny viewport', () => {
+  assertEquals(clampSidebarWidth(200, 100), SIDEBAR_MIN_WIDTH);
+});
+
+Deno.test('clampSidebarWidth uses the default for a non-finite width', () => {
+  assertEquals(clampSidebarWidth(NaN, 1600), SIDEBAR_DEFAULT_WIDTH);
+  assertEquals(clampSidebarWidth(Infinity, 1600), SIDEBAR_DEFAULT_WIDTH);
+  assertEquals(clampSidebarWidth(NaN, 300), 180);
 });

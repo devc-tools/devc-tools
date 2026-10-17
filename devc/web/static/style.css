@@ -47,25 +47,53 @@ button:hover {
 }
 
 .app {
+  position: relative;
   display: grid;
-  grid-template-columns: var(--sidebar-width) 1fr;
+  grid-template-columns: var(--sidebar-width) 5px 1fr;
   height: 100%;
+}
+
+.app[data-sidebar='hidden'] {
+  grid-template-columns: 0 0 1fr;
+}
+
+.app[data-sidebar='hidden'] > .sidebar,
+.app[data-sidebar='hidden'] > .sidebar-resizer {
+  display: none;
 }
 
 /* Sidebar */
 
 .sidebar {
+  grid-column: 1;
   display: grid;
   grid-template-rows: auto 1fr;
   min-height: 0;
   background: var(--panel);
-  border-right: 1px solid var(--border);
+}
+
+/* Drag to resize the sidebar, double-click to reset; colored like `.lm_splitter`. */
+.sidebar-resizer {
+  grid-column: 2;
+  background: var(--border);
+  cursor: col-resize;
+  touch-action: none;
+}
+
+.sidebar-resizer:hover,
+.sidebar-resizer.dragging {
+  background: var(--accent);
+}
+
+body.resizing-sidebar {
+  cursor: col-resize;
+  user-select: none;
 }
 
 .sidebar-header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  gap: 8px;
   padding: 8px 10px;
   border-bottom: 1px solid var(--border);
 }
@@ -75,8 +103,39 @@ button:hover {
 }
 
 .conn {
+  margin-left: auto;
   font-size: 11px;
   color: var(--muted);
+}
+
+.sidebar-toggle {
+  padding: 0 5px;
+  line-height: 16px;
+  color: var(--muted);
+}
+
+.sidebar-toggle:hover {
+  color: var(--text);
+}
+
+/* Over the top-left stack's header while the sidebar is hidden; headers make room for it. */
+.sidebar-show {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 5;
+  width: 22px;
+  height: 20px;
+  padding: 0;
+  border-radius: 0 0 4px 0;
+}
+
+.app:not([data-sidebar='hidden']) > .sidebar-show {
+  display: none;
+}
+
+.app[data-sidebar='hidden'] .lm_header .lm_tabs {
+  margin-left: 24px;
 }
 
 .conn[data-state='open'] {
@@ -228,6 +287,7 @@ button:hover {
 /* Tiling: Golden Layout (layout.js), themed with the tokens above. */
 
 .tiles {
+  grid-column: 3;
   position: relative;
   min-width: 0;
   min-height: 0;

@@ -79,3 +79,21 @@ export function tabName(tab) {
   const label = tab.label ?? '';
   return label && !/^\d+$/.test(label) ? label : `tab ${tab.number ?? label}`;
 }
+
+/** Sidebar bounds in CSS px. */
+export const SIDEBAR_MIN_WIDTH = 160;
+export const SIDEBAR_DEFAULT_WIDTH = 280;
+
+/**
+ * Clamps a sidebar width to [SIDEBAR_MIN_WIDTH, max(SIDEBAR_MIN_WIDTH, 60% of the viewport)].
+ * A non-finite `width` gives SIDEBAR_DEFAULT_WIDTH, clamped the same way.
+ *
+ * @param {number} width
+ * @param {number} viewportWidth  window.innerWidth
+ * @returns {number} an integer
+ */
+export function clampSidebarWidth(width, viewportWidth) {
+  const max = Math.max(SIDEBAR_MIN_WIDTH, Math.floor(viewportWidth * 0.6));
+  const w = Number.isFinite(width) ? Math.round(width) : SIDEBAR_DEFAULT_WIDTH;
+  return Math.min(max, Math.max(SIDEBAR_MIN_WIDTH, w));
+}
