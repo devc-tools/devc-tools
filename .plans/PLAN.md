@@ -11,12 +11,6 @@
 
 ### Pending
 
-- [devc-web-file-viewer](devc-web-file-viewer.md) — after devc-web-repo-tree. A `file` tile
-  (second Golden Layout component type) showing a file read-only in vendored CodeMirror 6, with
-  syntax highlighting, line numbers, search and folding. `read_file` reads the host side
-  (confined to a repo root, 2 MiB cap, binary refused). Clicking a file opens it there;
-  `$EDITOR` moves to the menu. Editing is the follow-on.
-
 - [git-protect-live-check](git-protect-live-check.md) — a read-only `.git/config` mount can
   vanish from a running container when the host rewrites the file (seen on Docker Desktop:
   VS Code's config writes), leaving the repo's config writable from inside while `devc status`
@@ -127,6 +121,19 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
   take it too.
 
 ### Completed
+
+- [devc-web-file-viewer](archived/devc-web-file-viewer.md) — ✅ Done: a `file` tile (second
+  Golden Layout component type, state a `FileRef`) showing a file read-only in vendored
+  CodeMirror 6 (one 1.3 MB bundle, `scripts/vendor-codemirror.sh`); `read_file` reads the host
+  side (confined to a repo root, 2 MiB cap, NUL-sniffed binary refused). Clicking a file opens
+  or focuses its tile; "Open in editor" moved to the row and tile menus. Validated by
+  `deno task check`, `deno task test` (`readProjectFile`, `read_file` parsing, `fileRefFromState`
+  / `tileContent`, `languageFor`) and `deno fmt --check`, and in headless Chromium against the
+  checkout's page with a fake WebSocket (highlighted `.ts` / `Dockerfile` / `.md`, no duplicate
+  tile, Ctrl-F, typing ignored, the `too_large` overlay, tab-menu Reload, a drag to the right
+  edge, tiles restored on reload, no `open` / `resize` sent). The server's `read_file` handler
+  is not tested end to end. **Still to be done by the user:** the plan's checks in their open
+  tab (needs `--live-yolo` or an updated `devc` for `read_file`).
 
 - [devc-web-repo-tree](archived/devc-web-repo-tree.md) — ✅ Done: a muted `✓` (in sync) / `•`
   (no upstream) mark and a `✓` rollup; the Files node replaced by per-repo file trees on each

@@ -322,7 +322,7 @@ Browser → server:
   `open_file` address files by `root`: one of the project's repo folders as the `projects`
   message lists them (the project folder first, then every mounted repo and worktree), checked
   against that same list. `localFolder` / `container` still pick the project. `read_file`
-  ([devc-web-file-viewer](devc-web-file-viewer.md)) addresses files the same way and, like
+  ([devc-web-file-viewer](archived/devc-web-file-viewer.md)) addresses files the same way and, like
   `list_dir`, reads the host side of the bind mount, so it works while the container is
   stopped. Its `mtimeMs` is unused by the page for now (kept for a later save's conflict
   check).
@@ -412,7 +412,7 @@ Browser → server:
     scroll that many lines (at least 1); capped at 10 per event. Use
     xterm.js `attachCustomWheelEventHandler` to suppress its own scrolling.
   - Map the browser button numbers 0/1/2 to `left`/`middle`/`right`.
-- **File tiles ([devc-web-file-viewer](devc-web-file-viewer.md)):** a second Golden Layout
+- **File tiles ([devc-web-file-viewer](archived/devc-web-file-viewer.md)):** a second Golden Layout
   component type, `file`, whose state is a `FileRef` `{localFolder, root, path}`; a `pane`
   tile's is a `PaneRef`. A file tile shows the file read-only in CodeMirror 6 (`viewer.js`,
   the only CodeMirror importer; vendored as one bundle in `static/vendor/codemirror/`):

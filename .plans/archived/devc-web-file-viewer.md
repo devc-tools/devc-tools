@@ -18,7 +18,7 @@ CodeMirror 6 is the component because the next step, editing, is the same view w
 `readOnly` off plus a `write_file` message. A highlight-only library (highlight.js, Prism,
 Shiki) would have to be replaced at that point.
 
-Depends on [devc-web-repo-tree](archived/devc-web-repo-tree.md) (the `root` a file path is relative to).
+Depends on [devc-web-repo-tree](devc-web-repo-tree.md) (the `root` a file path is relative to).
 Read `/workspaces/devc-dev/.claude/skills/devc-web/SKILL.md` first.
 
 **Not in this plan** (follow-ons):
