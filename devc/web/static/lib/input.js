@@ -43,28 +43,37 @@ export function pixelToCell(x, y, cellWidth, cellHeight, cols, rows) {
 export const MAX_WHEEL_LINES = 10;
 
 /**
- * A wheel event as a `scroll`: direction from the sign of `deltaY`, and
- * `lines` = max(1, round(|deltaY| / cell height)), capped at {@link MAX_WHEEL_LINES}. `deltaMode`
- * 1 (lines) uses `deltaY` as lines; 2 (pages) scrolls the cap. `null` when there is no vertical
- * movement.
+ * A stateful converter from wheel events to `scroll`s. Pixel deltas (`deltaMode` 0) accumulate
+ * until they add up to a whole cell height, so a trackpad's stream of small events scrolls in
+ * proportion to finger travel rather than a line per event; the remainder carries over and resets
+ * when the direction reverses. `deltaMode` 1 (lines) uses `deltaY` as lines (at least 1); 2
+ * (pages) scrolls the cap. Lines are capped at {@link MAX_WHEEL_LINES}. Returns `null` when no
+ * whole line has accumulated yet.
  *
- * @param {number} deltaY
- * @param {number} cellHeight
- * @param {number} [deltaMode=0]
- * @returns {{direction: 'up' | 'down', lines: number} | null}
+ * @returns {(deltaY: number, cellHeight: number, deltaMode?: number) =>
+ *   {direction: 'up' | 'down', lines: number} | null}
  */
-export function wheelToScroll(deltaY, cellHeight, deltaMode = 0) {
-  if (!deltaY) return null;
-  const abs = Math.abs(deltaY);
-  const raw = deltaMode === 1
-    ? abs
-    : deltaMode === 2
-    ? MAX_WHEEL_LINES
-    : cellHeight > 0
-    ? abs / cellHeight
-    : 1;
-  const lines = Math.min(MAX_WHEEL_LINES, Math.max(1, Math.round(raw)));
-  return { direction: deltaY < 0 ? 'up' : 'down', lines };
+export function createWheelAccumulator() {
+  let pending = 0;
+  return (deltaY, cellHeight, deltaMode = 0) => {
+    if (!deltaY) return null;
+    const direction = deltaY < 0 ? 'up' : 'down';
+    if (deltaMode !== 0 || !(cellHeight > 0)) {
+      pending = 0;
+      const raw = deltaMode === 1
+        ? Math.round(Math.abs(deltaY))
+        : deltaMode === 2
+        ? MAX_WHEEL_LINES
+        : 1;
+      return { direction, lines: Math.min(MAX_WHEEL_LINES, Math.max(1, raw)) };
+    }
+    if (Math.sign(pending) !== Math.sign(deltaY)) pending = 0;
+    pending += deltaY / cellHeight;
+    const whole = Math.trunc(pending);
+    if (whole === 0) return null;
+    pending -= whole;
+    return { direction, lines: Math.min(MAX_WHEEL_LINES, Math.abs(whole)) };
+  };
 }
 
 /**

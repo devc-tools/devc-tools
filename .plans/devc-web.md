@@ -379,8 +379,10 @@ Browser → server:
     for a control client and sends it no OSC 52 (measured; an app's own OSC 52 is lost too),
     so the text comes from `pane.selection.read`. See
     [devc-web-copy-on-select](archived/devc-web-copy-on-select.md).
-  - The **wheel** is always sent as `scroll`: direction from the sign of `deltaY`,
-    `lines` = max(1, round(|deltaY| / cell height)), capped at 10 per event. Use
+  - The **wheel** is always sent as `scroll`: direction from the sign of `deltaY`. Pixel
+    deltas accumulate per tile until they reach a whole cell height (so a trackpad scrolls in
+    proportion to finger travel), with the remainder carried and reset on reversal; line deltas
+    scroll that many lines (at least 1); capped at 10 per event. Use
     xterm.js `attachCustomWheelEventHandler` to suppress its own scrolling.
   - Map the browser button numbers 0/1/2 to `left`/`middle`/`right`.
 - **Known limitation (documented, not fixed):** application cursor key mode is not
@@ -472,7 +474,7 @@ Automated (inside the repo's dev container):
     method each produce the specified `result` error
   - paste wrapper: single line unchanged; `"a\nb"` → `"\x1b[200~a\rb\x1b[201~"`;
     `"a\r\nb"` → the same
-  - pixel→cell is zero-based and clamped to the grid; wheel→lines clamps to 1..10;
+  - pixel→cell is zero-based and clamped to the grid; wheel→lines accumulates pixel deltas and clamps to 1..10;
     button mapping 0/1/2 → left/middle/right
 - [x] `cd devc && deno task build` produces a binary, and `./devc web --help` prints the usage block
 

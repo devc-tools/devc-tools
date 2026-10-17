@@ -7,11 +7,11 @@ import { createRenderer } from './renderer.js';
 import { createTiling } from './layout.js';
 import { parseSavedLayout, tileTitle } from './lib/layout_state.js';
 import {
+  createWheelAccumulator,
   decodeBase64,
   encodeInput,
   mouseButton,
   pixelToCell,
-  wheelToScroll,
   wrapPaste,
 } from './lib/input.js';
 import {
@@ -1174,6 +1174,7 @@ function mountTile(tile) {
     if (t) send({ type: 'input', ...t, bytes: encodeInput(data) });
   });
 
+  const wheelToScroll = createWheelAccumulator();
   renderer.onWheel((ev) => {
     const t = target();
     const m = renderer.metrics();
