@@ -40,10 +40,9 @@ const DRAG_INTERVAL_MS = 50;
 /** How long a `read_selection` may go unanswered before its copy is dropped. */
 const SELECTION_TIMEOUT_MS = 5000;
 /**
- * How long a copied drag's highlight stays. It marks grid cells, not text, so it goes stale as
- * soon as the app redraws (Claude Code shifts its transcript when it copies the selection itself):
- * a brief flash confirms what was copied, and an app that draws its own selection keeps the only
- * lasting one.
+ * How long a copied drag's highlight stays, in a pane whose app draws no selection of its own
+ * (see `attachMouse`). It marks grid cells, not text, so it would go stale on the app's next
+ * redraw: a brief flash confirms what was copied.
  */
 const COPY_FLASH_MS = 500;
 const RECONNECT_MS = 2000;
@@ -114,6 +113,7 @@ let renderGeneration = 0;
  * @property {boolean} hidden  in a background stack tab: no resize is sent
  * @property {ReturnType<typeof setTimeout> | undefined} resizeTimer
  * @property {ReturnType<typeof setTimeout> | undefined} flashTimer  clears the copy highlight
+ * @property {number} frames  frames painted so far: whether the app redrew during a drag
  * @property {ResizeObserver} observer
  */
 
@@ -404,6 +404,7 @@ function onFrame(msg) {
   for (const view of views.values()) {
     if (view.openKey !== key) continue;
     view.renderer.write(bytes, msg.cols, msg.rows);
+    view.frames++;
   }
 }
 
@@ -1893,6 +1894,7 @@ function mountTile(tile) {
     hidden: false,
     resizeTimer: undefined,
     flashTimer: undefined,
+    frames: 0,
     observer: new ResizeObserver(() => {
       clearTimeout(view.resizeTimer);
       view.resizeTimer = setTimeout(() => refit(view), RESIZE_DEBOUNCE_MS);
@@ -2013,7 +2015,8 @@ async function writeClipboard(text) {
 
 /**
  * Plain mouse down/drag/up over the terminal go to Herdr as cells (the browser does not
- * select); a plain left-drag is also flashed here and its text copied from Herdr. Shift+drag
+ * select); a plain left-drag's text is copied from Herdr, and flashed here unless the app redrew
+ * during the drag (it draws its own selection). Shift+drag
  * is left to xterm.js for a local selection, copied on mouseup. A right-click opens the tile's
  * menu (the same as its tab's) and is not sent to the app.
  */
@@ -2061,6 +2064,7 @@ function attachMouse(view, termEl, target) {
     const start = cell(ev);
     if (!start) return;
     send({ type: 'mouse', ...t, action: 'down', button, ...start });
+    const framesAtDown = view.frames;
     let last = start;
     let lastSent = 0;
     let trailing;
@@ -2086,12 +2090,16 @@ function attachMouse(view, termEl, target) {
       if (
         button === 'left' && (c.column !== start.column || c.row !== start.row)
       ) {
-        view.renderer.highlight(start, c);
-        clearTimeout(view.flashTimer);
-        view.flashTimer = setTimeout(
-          () => view.renderer.clearHighlight(),
-          COPY_FLASH_MS,
-        );
+        // An app that redrew during the drag is drawing its own selection (Claude Code, vim
+        // with the mouse on): a second, grid-bound highlight would only contradict it.
+        if (view.frames === framesAtDown) {
+          view.renderer.highlight(start, c);
+          clearTimeout(view.flashTimer);
+          view.flashTimer = setTimeout(
+            () => view.renderer.clearHighlight(),
+            COPY_FLASH_MS,
+          );
+        }
         copySelection(t, start, c);
       }
     };
