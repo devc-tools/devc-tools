@@ -11,12 +11,6 @@
 
 ### Pending
 
-- [devc-web-repos-group](devc-web-repos-group.md) — page only. A collapsible **Repos** row
-  first under each container (when it has more than one repo), so panes are no longer buried
-  under a dozen repo rows. A repo's worktrees and files both hide behind its chevron. A running
-  container without a usable Herdr stays in the main list, expandable, with Start / Retry;
-  "Not running" holds only stopped projects. The rollup shows `•` when no repo has an upstream.
-
 - [devc-web-open-tab-here](devc-web-open-tab-here.md) — after devc-web-repos-group. "Open
   Herdr tab here" / "New Herdr tab here" on repo and folder rows: a new `open_tab` message
   starts the project's Herdr session if needed, then reuses a tab whose shell is in that
@@ -133,6 +127,19 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
   take it too.
 
 ### Completed
+
+- [devc-web-repos-group](archived/devc-web-repos-group.md) — ✅ Done: under an expanded
+  container with several repos, a collapsible **Repos** row (collapsed by default, the
+  `gitRollup` mark while collapsed, open state in `sidebarState.reposOpen`); a repo's worktrees
+  then its files hide behind its chevron. Running containers without a usable Herdr stay in the
+  main list, expandable, with Start Herdr / Retry; "Not running" holds only projects without a
+  running container. `gitRollup` gives `•` when no repo has an upstream. Validated by
+  `deno task check`, `deno task test` (`gitRollup`) and `deno fmt --check`, and in headless
+  Chromium against the checkout's page with a fake WebSocket shaped like the user's sidebar dump
+  (Repos at depth 1, repos at 2, a worktree at 3 before its parent's files, no Repos row for a
+  single repo, the `no-session` container under Projects with Start Herdr / Retry, Retry not
+  toggling the row, click and Enter toggling Repos, `reposOpen` saved). **Still to be done by
+  the user:** the plan's five checks in their open tab.
 
 - [devc-web-file-viewer](archived/devc-web-file-viewer.md) — ✅ Done: a `file` tile (second
   Golden Layout component type, state a `FileRef`) showing a file read-only in vendored

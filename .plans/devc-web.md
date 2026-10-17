@@ -363,7 +363,7 @@ Browser → server:
     workspace or pane rows. Hovering the row shows **Start Herdr** (`no-session` only) and
     **Retry**; the tooltip has the folder and any error message. Projects without a running
     container are listed last under a **Not running (N)** group, collapsed by default (see
-    [devc-web-repos-group](devc-web-repos-group.md)).
+    [devc-web-repos-group](archived/devc-web-repos-group.md)).
   - Under an expanded container, its repos come first. With more than one, they sit under a
     **Repos** row, collapsed by default and showing the combined push/pull mark while
     collapsed; the open ones are kept in `localStorage` (`reposOpen`). With one repo, its row

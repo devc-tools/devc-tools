@@ -15,7 +15,7 @@ Today "New shell here" (directory menu) only works while the container is `conne
 always creates a new tab. Clicking **Start Herdr** on a `no-session` container reports success
 even when no server came up after its ~6 s of retries, so the row silently stays "no session".
 
-Depends on [devc-web-repos-group](devc-web-repos-group.md), which makes a `no-session`
+Depends on [devc-web-repos-group](archived/devc-web-repos-group.md), which makes a `no-session`
 container expandable so its folders can be reached. Read
 `/workspaces/devc-dev/.claude/skills/devc-web/SKILL.md` first. This is a protocol change, so it
 needs `devc web --live-yolo` (or an updated `devc`). Save the server side first.
