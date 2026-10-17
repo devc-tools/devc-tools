@@ -36,6 +36,7 @@ import {
   SIDEBAR_DEFAULT_WIDTH,
   topStatus,
 } from './lib/sidebar.js';
+import { AGENT_IDS, AGENT_MARKS, terminalIconKind } from './lib/agent_icons.js';
 import {
   bridgeStatusItems,
   parseBridgeStatus,
@@ -686,6 +687,14 @@ const INACTIVE_STATES = new Set([
  */
 const LABELS = {
   terminals: 'Terminals',
+  plainTerminal: 'Terminal',
+  /** The + menu's agents (ids from `lib/agent_icons.js`). */
+  agents: {
+    claude: 'Claude',
+    copilot: 'Copilot',
+    pi: 'Pi',
+    opencode: 'OpenCode',
+  },
   noTerminals: 'No terminals',
   openHere: 'Open terminal here',
   newHere: 'New terminal here',
@@ -1036,7 +1045,12 @@ function layoutTileRow(tile, active, depth) {
       onclick: () => revealTile(tile.id),
       oncontextmenu: (e) => openMenu(e, tileMenuItems(tile)),
     },
-    h('span', { class: 'label' }, refTitle(tile.ref)),
+    h(
+      'span',
+      { class: 'label' },
+      rowIcon({ agent: pane?.agent, empty: !tile.ref }),
+      refTitle(tile.ref),
+    ),
     rowTrail(
       badge(pane),
       hoverActions(
@@ -1063,7 +1077,12 @@ function layoutFileTileRow(tile, active, depth) {
       onclick: () => revealTile(tile.id),
       oncontextmenu: (e) => openMenu(e, tileMenuItems(tile)),
     },
-    h('span', { class: 'label' }, fileTileTitle(tile.file)),
+    h(
+      'span',
+      { class: 'label' },
+      rowIcon({ kind: 'file' }),
+      fileTileTitle(tile.file),
+    ),
     rowTrail(
       hoverActions(
         iconButton('close', 'Close tile', () => tiling?.close(tile.id)),
@@ -1135,7 +1154,49 @@ const ICON_PATHS = {
   pin: 'M5.5 2.5h5M6.5 2.5v4L4.5 9h7l-2-2.5v-4M8 9v4.5',
   play: 'M5.5 3.5v9l7-4.5z',
   project: 'M8 2.5l5 2.75v5.5L8 13.5l-5-2.75v-5.5zM3 5.25L8 8l5-2.75M8 8v5.5',
+  // A window with a `>_` prompt: a shell.
+  terminal: 'M2 3h12v10H2zM4.5 6.5L6.5 8l-2 1.5M8 10.5h3',
+  // A robot head: an agent without a mark of its own.
+  agent: 'M3 6h10v7H3zM8 3v3M6 9.5v.01M10 9.5v.01M1.5 9v1.5M14.5 9v1.5',
+  // A page with a folded corner: a file tile.
+  file: 'M4 1.5h5l3 3v10H4zM9 1.5v3h3',
 };
+
+/**
+ * A 14px leading icon for a terminal (its pane's `agent`: that agent's mark, a generic agent
+ * glyph, or a shell's) or, with `kind` 'file', for a file tile.
+ *
+ * @param {{agent?: string | null, kind?: 'file', empty?: boolean}} what
+ */
+function rowIcon({ agent, kind, empty }) {
+  const which = kind ?? terminalIconKind(agent);
+  let svg;
+  if (which === 'terminal' || which === 'agent' || which === 'file') {
+    svg = svgIcon(which);
+    svg.setAttribute('data-stroked', '');
+  } else {
+    svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('viewBox', '0 0 24 24');
+    svg.setAttribute('aria-hidden', 'true');
+    for (const d of AGENT_MARKS[which].paths) {
+      const path = document.createElementNS(
+        'http://www.w3.org/2000/svg',
+        'path',
+      );
+      path.setAttribute('d', d);
+      svg.append(path);
+    }
+  }
+  return h(
+    'span',
+    {
+      class: 'term-icon',
+      'data-kind': which,
+      'data-empty': empty || undefined,
+    },
+    svg,
+  );
+}
 
 /** @param {keyof ICON_PATHS} icon */
 function svgIcon(icon) {
@@ -1550,16 +1611,12 @@ function terminalRows(c, workspaces, tabs, panes, only) {
       // Open, each agent's own badge is right below.
       open ? '' : rollupBadge(panes),
       hoverActions(
-        iconButton(
-          'plus',
-          LABELS.newTerminal,
-          () =>
-            openHerdrTab(
-              { localFolder: c.localFolder, root: c.localFolder },
-              '',
-              false,
-            ),
-        ),
+        iconButton('plus', LABELS.newTerminal, () => {
+          // Under the + at the row's right end. The row, not the button: hover buttons can be
+          // hidden (zero-sized) by the time the click lands.
+          const r = head.getBoundingClientRect();
+          openMenuAt(r.right - 20, r.bottom + 2, newTerminalMenuItems(c));
+        }),
       ),
     ),
   );
@@ -2206,7 +2263,7 @@ function openInEditor(fr, path, where) {
  * already there (its tile focused if it has one), else a new tab. Starts Herdr in a running
  * container that has no session; never starts the container.
  */
-function openHerdrTab(fr, path, reuse) {
+function openHerdrTab(fr, path, reuse, agent) {
   const c = containerByFolder(fr.localFolder);
   if (!c) {
     toast('Start the container first');
@@ -2216,10 +2273,38 @@ function openHerdrTab(fr, path, reuse) {
   if (c.state === 'no-session') toast('Starting Herdr…');
   createPane(
     c,
-    { type: 'open_tab', root: fr.root, path, reuse },
+    {
+      type: 'open_tab',
+      root: fr.root,
+      path,
+      reuse,
+      ...(agent ? { agent } : {}),
+    },
     placeInFocusedStack,
-    reuse ? LABELS.openHere : LABELS.newHere,
+    agent ? LABELS.agents[agent] : reuse ? LABELS.openHere : LABELS.newHere,
   );
+}
+
+/**
+ * The Terminals row's + menu: a shell or one of the agents, each in a new terminal at the
+ * project folder (`open_tab`, which starts Herdr first when the container has no session).
+ */
+function newTerminalMenuItems(c) {
+  const fr = { localFolder: c.localFolder, root: c.localFolder };
+  return [
+    [
+      LABELS.plainTerminal,
+      () => openHerdrTab(fr, '', false),
+      false,
+      rowIcon({}),
+    ],
+    ...AGENT_IDS.map((id) => [
+      LABELS.agents[id],
+      () => openHerdrTab(fr, '', false, id),
+      false,
+      rowIcon({ agent: id }),
+    ]),
+  ];
 }
 
 /** A folder's menu: the root itself (`path` '', its repo row) or a directory under it. */
@@ -2829,8 +2914,8 @@ function paneRow(c, pane, depth, space = '') {
     h(
       'span',
       { class: 'label' },
-      // The gap a chevron would take, so terminals line up with the tree rows at their depth.
-      h('span', { class: 'chevron', 'aria-hidden': 'true' }),
+      // In the slot a chevron would take, so terminals line up with the tree rows at their depth.
+      rowIcon({ agent: pane.agent }),
       visible ? h('span', { class: 'shown-mark', 'aria-label': 'shown' }) : '',
       paneLabel(c, pane),
     ),
@@ -2853,22 +2938,38 @@ function startSession(containerId) {
 /** @param {MouseEvent} e @param {[string, () => void, boolean?][]} items */
 function openMenu(e, items) {
   e.preventDefault();
+  openMenuAt(e.clientX, e.clientY, items);
+}
+
+/**
+ * The menu at (`x`, `y`), kept inside the window. An item may carry an icon (a fourth element)
+ * shown before its label.
+ *
+ * @param {number} x @param {number} y
+ * @param {[string, () => void, boolean?, Node?][]} items
+ */
+function openMenuAt(x, y, items) {
   $menu.replaceChildren(
-    ...items.map(([label, action, danger]) =>
-      h('button', {
-        class: danger ? 'danger' : undefined,
-        onclick: () => {
-          closeMenu();
-          action();
+    ...items.map(([label, action, danger, icon]) =>
+      h(
+        'button',
+        {
+          class: danger ? 'danger' : undefined,
+          onclick: () => {
+            closeMenu();
+            action();
+          },
         },
-      }, label)
+        icon ?? '',
+        label,
+      )
     ),
   );
   $menu.hidden = false;
   const { innerWidth, innerHeight } = window;
   const rect = $menu.getBoundingClientRect();
-  $menu.style.left = `${Math.min(e.clientX, innerWidth - rect.width - 4)}px`;
-  $menu.style.top = `${Math.min(e.clientY, innerHeight - rect.height - 4)}px`;
+  $menu.style.left = `${Math.min(x, innerWidth - rect.width - 4)}px`;
+  $menu.style.top = `${Math.min(y, innerHeight - rect.height - 4)}px`;
 }
 
 function closeMenu() {

@@ -1,12 +1,12 @@
 # devc-web-terminal-agents
 
-- [ ] Vendor the four agent marks from Lobe Icons (`static/vendor/agent-icons/`), with `VERSIONS` and `LICENSE`
-- [ ] Server: `open_tab` takes an optional `agent`: checks the command is installed, creates a tab, runs it there; with tests
-- [ ] Protocol: `agent` in `protocol.ts` and its tests; `.plans/devc-web.md` protocol table
-- [ ] Page: the Terminals row's **+** opens a menu: Terminal, Claude, Copilot, Pi, OpenCode, each with its icon
-- [ ] Page: an icon in front of every terminal row: the agent's mark, or a terminal glyph for a shell
-- [ ] Page: Layout section tile rows get the same leading icon (terminal tiles), or a file glyph (file tiles)
-- [ ] Verify (below) and ask the user to try it in their open tab
+- [x] Vendor the four agent marks from Lobe Icons (`static/vendor/agent-icons/`), with `VERSIONS` and `LICENSE`
+- [x] Server: `open_tab` takes an optional `agent`: checks the command is installed, creates a tab, runs it there; with tests
+- [x] Protocol: `agent` in `protocol.ts` and its tests; `.plans/devc-web.md` protocol table
+- [x] Page: the Terminals row's **+** opens a menu: Terminal, Claude, Copilot, Pi, OpenCode, each with its icon
+- [x] Page: an icon in front of every terminal row: the agent's mark, or a terminal glyph for a shell
+- [x] Page: Layout section tile rows get the same leading icon (terminal tiles), or a file glyph (file tiles)
+- [x] Verify (below) and ask the user to try it in their open tab
 
 Start a terminal or a specific coding agent from a container's Terminals row, and see at a glance
 which terminal runs which agent. Today the Terminals row's **+** opens a plain shell
@@ -32,6 +32,20 @@ change, so it needs `devc web --live-yolo` (or an updated `devc`). Save the serv
 **Not in this plan:** agent choices on folder rows ("New terminal here" stays a shell). Icons on
 tile tabs (the Golden Layout headers). Agents beyond these four (Herdr detects many more, see
 `KIND_TABLE` in `devc/herdr.ts`). Per-agent arguments or flags.
+
+## Deviations (implementation)
+
+- **Icons are inlined, not loaded.** The server serves only `.html`/`.js`/`.mjs`/`.css`/`.png`,
+  so a CSS `mask-image` on the vendored `.svg` would 404 under the installed server. The path
+  data is copied into `static/lib/agent_icons.js` (`AGENT_MARKS`), and
+  `tests/web_agents_test.ts` checks it matches the vendored files byte for byte. The SVGs stay
+  vendored as the source of truth.
+- **`commandInstalled` lives in `herdr_bridge.ts`** beside the other `docker exec` helpers, so
+  `web/agents.ts` stays pure (`protocol.ts` imports it). The "refuses an uninstalled command
+  without `createShell`" case is covered by `commandInstalled`'s tests and the handler's order,
+  not end to end (the handler is inside the server closure).
+- **The + menu is anchored to the Terminals row's right end,** not the button: hover buttons
+  can be zero-sized when the click lands.
 
 ## Icons
 

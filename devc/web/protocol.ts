@@ -3,6 +3,8 @@
 // validates a browser message's shape; whether its container or pane exists is the server's
 // check.
 
+import { type AgentId, isAgentId } from './agents.ts';
+
 /** The only Herdr methods a browser `request` may call. */
 export const REQUEST_METHODS: ReadonlySet<string> = new Set([
   'pane.rename',
@@ -101,6 +103,8 @@ export type ClientMessage =
     root: string;
     path: string;
     reuse: boolean;
+    /** Start this agent in the new tab (never with `reuse`). */
+    agent?: AgentId;
   }
   | { type: 'retry'; container: string }
   | { type: 'client_ready'; generation: string };
@@ -364,6 +368,12 @@ function parseFields(m: Obj): ClientMessage {
       if (typeof m.reuse !== 'boolean') {
         throw new Invalid(`'reuse' must be a boolean`);
       }
+      if (m.agent !== undefined && !isAgentId(m.agent)) {
+        throw new Invalid(`unknown agent '${String(m.agent)}'`);
+      }
+      if (m.agent !== undefined && m.reuse) {
+        throw new Invalid(`'agent' needs 'reuse: false'`);
+      }
       return {
         type: 'open_tab',
         id: str(m, 'id'),
@@ -371,6 +381,7 @@ function parseFields(m: Obj): ClientMessage {
         root: absolute(m, 'root'),
         path: text(m, 'path'),
         reuse: m.reuse,
+        ...(m.agent !== undefined ? { agent: m.agent } : {}),
       };
     case 'retry':
       return { type: 'retry', container: str(m, 'container') };

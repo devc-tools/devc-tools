@@ -37,6 +37,7 @@ import {
 import {
   BridgeError,
   bridgeRequest,
+  commandInstalled,
   ContainerSession,
   createShell,
   type HerdrTarget,
@@ -45,6 +46,7 @@ import {
   snapshotPaneIds,
 } from './herdr_bridge.ts';
 import { ControllerManager, type Subscriber } from './controllers.ts';
+import { AGENT_COMMANDS } from './agents.ts';
 import {
   forget as forgetProject,
   loadProjects,
@@ -704,6 +706,16 @@ export async function startWeb(
       );
       return;
     }
+    const command = msg.agent !== undefined ? AGENT_COMMANDS[msg.agent] : null;
+    if (command !== null && !(await commandInstalled(target, command))) {
+      fail(
+        c,
+        msg.id,
+        'not_installed',
+        `${command} isn't installed in this container`,
+      );
+      return;
+    }
     if (msg.reuse) {
       const found = paneAtFolder(session.snapshot, cwd);
       if (found !== null) {
@@ -713,6 +725,13 @@ export async function startWeb(
     }
     try {
       const created = await createShell(target, { cwd });
+      // Not `exec`: quitting the agent leaves the shell.
+      if (command !== null) {
+        await bridgeRequest(target, 'pane.send_text', {
+          pane_id: created.pane_id,
+          text: `${command}\n`,
+        });
+      }
       reply(c, {
         id: msg.id,
         ok: true,

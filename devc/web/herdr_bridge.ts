@@ -438,6 +438,29 @@ export async function serverLogTail(
 }
 
 /**
+ * Whether `command` is on the PATH of a login shell for the container's remote user: the PATH
+ * `devc claude` gets, and the one a new Herdr tab's shell has.
+ */
+export async function commandInstalled(
+  t: HerdrTarget,
+  command: string,
+  run: typeof runText = runText,
+): Promise<boolean> {
+  const out = await run('docker', [
+    'exec',
+    '-u',
+    t.user,
+    t.containerId,
+    'bash',
+    '-lc',
+    'command -v "$1" >/dev/null',
+    '_',
+    command,
+  ]).catch(() => null);
+  return out !== null && out.code === 0;
+}
+
+/**
  * One container's Herdr connection, through the states in the plan's lifecycle: resolve the
  * user and `herdr` path, check the bridge, subscribe (lifecycle connection), snapshot, then a
  * second subscription for per-pane agent status, swapped (new first, then old closed) whenever
