@@ -11,6 +11,11 @@
 
 ### Pending
 
+- [devc-web-usage-5h](devc-web-usage-5h.md) — page only. The host status strip's usage item
+  shows just the 5h window as used / time to reset (`33%/3h10m`, picked by its `5h` label, else
+  the source's first window); its tooltip has one row per window (`5h 33%/3h10m`, `7d 18%/6d4h`).
+  A 7d window near its limit still turns the item red.
+
 - [devc-web-containers-kill-closes](devc-web-containers-kill-closes.md) — page only, independent
   of the other devc-web plans. The sidebar's Projects heading becomes **Containers** (every
   top-level row is a running container or a stopped / not-created one under "Not running"); the
