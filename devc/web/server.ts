@@ -54,6 +54,11 @@ import {
 import { startProject, stopProject } from './project_control.ts';
 import { buildProjects, projectRefusal } from './projects_view.ts';
 import { GitStatusWatch } from './git_status.ts';
+import {
+  bridgeStatePaths,
+  type BridgeStatus,
+  watchBridgeStatus,
+} from './bridge_status.ts';
 import { type MountedRepo, mountedRepos } from './git_repo.ts';
 import {
   type ClientMessage,
@@ -319,6 +324,15 @@ export async function startWeb(
     ),
   });
   const broadcastProjects = () => broadcast(projectsMessage());
+
+  // devc-bridge's state on this host (running, keepawake markers), watched from its own files.
+  // `null` until the first read, which the watch reports straight away.
+  let bridgeStatus: BridgeStatus | null = null;
+  const bridgeStatusMessage = (s: BridgeStatus) => ({
+    type: 'bridge_status',
+    running: s.running,
+    active: s.active,
+  });
   // Each container's repos by container id, from its bind mounts, read once per container: a
   // container's mounts are fixed when it is created.
   const containerRepos = new Map<string, MountedRepo[]>();
@@ -866,6 +880,9 @@ export async function startWeb(
       }));
       client.send(JSON.stringify(containersMessage()));
       client.send(JSON.stringify(projectsMessage()));
+      if (bridgeStatus !== null) {
+        client.send(JSON.stringify(bridgeStatusMessage(bridgeStatus)));
+      }
       for (const s of sessions.values()) {
         if (s.state === 'connected' && s.snapshot !== null) {
           client.send(JSON.stringify({
@@ -948,6 +965,13 @@ export async function startWeb(
   liveStatic?.watch();
   gitWatch.start();
   const projectsWatch = watchProjectsFile(() => void reloadProjects());
+  const bridgeWatch = watchBridgeStatus(
+    bridgeStatePaths(Deno.env, Deno.env.get('HOME') ?? '.'),
+    (s) => {
+      bridgeStatus = s;
+      broadcast(bridgeStatusMessage(s));
+    },
+  );
 
   let stopping: Promise<void> | null = null;
   const stop = () => {
@@ -956,6 +980,7 @@ export async function startWeb(
       liveStatic?.stop();
       gitWatch.stop();
       projectsWatch.stop();
+      bridgeWatch.stop();
       for (const c of clients) {
         try {
           c.socket.close();

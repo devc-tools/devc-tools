@@ -11,14 +11,9 @@
 
 ### Pending
 
-- [devc-web-bridge-status](devc-web-bridge-status.md) — a host status strip in `devc web`'s
-  sidebar showing whether devc-bridge is running and whether keepawake (`caffeinate`) is
-  holding the host awake. Reads the bridge's own state dir (every file is an active marker,
-  as the tray and `devc-bridge status` read it) and its pidfile, watched, sent as a
-  `bridge_status` message; no devc-bridge change. Countdown is a follow-on.
-
-- [devc-web-usage](devc-web-usage.md) — after devc-web-bridge-status. Account-wide usage
-  limits (Claude's 5h / 7d) shown once in the strip, from whichever session reported last:
+- [devc-web-usage](devc-web-usage.md) — after
+  [devc-web-bridge-status](archived/devc-web-bridge-status.md). Account-wide usage limits
+  (Claude's 5h / 7d) shown once in the strip, from whichever session reported last:
   a status-line tap writes `~/.claude/devc-usage.json` (host-shared via the `~/.claude`
   bind mount), devc web watches it and sends `usage`; the page marks a window reset once
   `resets_at` passes. The file shape is the hook for other agents; Herdr has no usage API.
@@ -133,6 +128,20 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
   take it too.
 
 ### Completed
+
+- [devc-web-bridge-status](archived/devc-web-bridge-status.md) — ✅ Done, validated by
+  `deno check main.ts`, `deno task check`, `deno task test` (new `web_bridge_status_test.ts`:
+  paths and overrides, pidfile liveness, markers, the debounced watch, dirs that appear later
+  and are never created; new `web_host_status_test.ts`: strip items) and `deno fmt --check`,
+  and in this container against a throwaway `devc web` (stub `docker`, temp
+  `DEVC_BRIDGE_BASE`): a WebSocket client saw `bridge_status` on connect and within ~200 ms of
+  each marker and pidfile change, and headless Chromium showed the strip update live with a
+  marker named `<b>odd` rendered as text. **Still to be done by the user on the macOS host:**
+  the strip flips to "awake" within a second of a real keepawake ping and back after
+  `DEVC_BRIDGE_KEEPAWAKE_IDLE_MS` (needs `--live-yolo` or an updated `devc`, since the server
+  changed). `web/bridge_status.ts` reads devc-bridge's state dir and pidfile (no devc-bridge
+  change); the sidebar's foot gains a one-line host status strip (`bridge ●` / `bridge ○ off`,
+  `☕ awake`, other markers verbatim) that devc-web-usage extends.
 
 - [devc-web-live](archived/devc-web-live.md) — ✅ Done, validated by `deno task check`,
   `deno task test` (new `web_live_test.ts`: token file, generations, snapshot, `/safe/`

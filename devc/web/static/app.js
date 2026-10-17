@@ -33,6 +33,7 @@ import {
   SIDEBAR_DEFAULT_WIDTH,
   topStatus,
 } from './lib/sidebar.js';
+import { bridgeStatusItems, parseBridgeStatus } from './lib/host_status.js';
 import {
   byDepth,
   childPath,
@@ -174,6 +175,18 @@ const $sidebarHide = /** @type {HTMLElement} */ (document.getElementById(
 const $sidebarShow = /** @type {HTMLElement} */ (document.getElementById(
   'sidebar-show',
 ));
+
+/**
+ * The host status strip at the foot of the sidebar: host-level indicators (devc-bridge's, from
+ * `bridge_status`). Hidden until the server sends one.
+ */
+const $hostStatus = h('footer', {
+  class: 'host-status',
+  id: 'host-status',
+  'aria-label': 'Host status',
+  hidden: true,
+});
+document.querySelector('.sidebar')?.append($hostStatus);
 
 function paneKey(containerId, paneId) {
   return `${containerId}\n${paneId}`;
@@ -386,6 +399,9 @@ function onMessage(msg) {
     case 'project_output':
       onProjectOutput(msg.localFolder, msg.line);
       break;
+    case 'bridge_status':
+      renderHostStatus(parseBridgeStatus(msg));
+      break;
     case 'snapshot':
       snapshots.set(msg.container, msg.snapshot);
       renderTree();
@@ -411,6 +427,29 @@ function onMessage(msg) {
       onResult(msg);
       break;
   }
+}
+
+/**
+ * Fills the host status strip from devc-bridge's status; hides it for `null`. Marker names come
+ * from the host's filesystem, so every item is text.
+ * @param {{running: boolean, active: string[]} | null} status
+ */
+function renderHostStatus(status) {
+  if (status === null) {
+    $hostStatus.hidden = true;
+    $hostStatus.replaceChildren();
+    return;
+  }
+  $hostStatus.replaceChildren(
+    ...bridgeStatusItems(status).map((item) =>
+      h('span', {
+        class: 'host-status-item',
+        'data-state': item.state,
+        title: item.title,
+      }, item.text)
+    ),
+  );
+  $hostStatus.hidden = false;
 }
 
 function patchPane(containerId, pane, merge) {

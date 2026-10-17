@@ -5,11 +5,11 @@ keepawake (`caffeinate`) is currently holding the host awake.
 
 ## Checklist
 
-- [ ] Server: `web/bridge_status.ts` (pure read + watch), with tests
-- [ ] Server: `bridge_status` message sent on connect and on every change (`server.ts`)
-- [ ] Spec: add `bridge_status` to the protocol table in `.plans/devc-web.md`
-- [ ] Page: host status strip in the sidebar
-- [ ] Verify: `deno check main.ts`, `deno task check`, `deno task test`, `deno fmt --check`
+- [x] Server: `web/bridge_status.ts` (pure read + watch), with tests
+- [x] Server: `bridge_status` message sent on connect and on every change (`server.ts`)
+- [x] Spec: add `bridge_status` to the protocol table in `.plans/devc-web.md`
+- [x] Page: host status strip in the sidebar
+- [x] Verify: `deno check main.ts`, `deno task check`, `deno task test`, `deno fmt --check`
 - [ ] Manual (user, host): strip flips to "awake" within a second of a ping, back to idle after
       `DEVC_BRIDGE_KEEPAWAKE_IDLE_MS`
 

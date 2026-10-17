@@ -67,9 +67,39 @@ button:hover {
 .sidebar {
   grid-column: 1;
   display: grid;
-  grid-template-rows: auto 1fr;
+  grid-template-rows: auto 1fr auto;
   min-height: 0;
   background: var(--panel);
+}
+
+/* Host status strip: one line of host-level indicators at the foot of the sidebar. */
+.host-status {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 10px;
+  border-top: 1px solid var(--border);
+  font-size: 11px;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.host-status[hidden] {
+  display: none;
+}
+
+.host-status-item {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.host-status-item[data-state='on'] {
+  color: var(--done);
+}
+
+.host-status-item[data-state='awake'] {
+  color: var(--blocked);
 }
 
 /* Drag to resize the sidebar, double-click to reset; colored like `.lm_splitter`. */
