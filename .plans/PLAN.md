@@ -11,6 +11,18 @@
 
 ### Pending
 
+- [devc-web-repos-group](devc-web-repos-group.md) — page only. A collapsible **Repos** row
+  first under each container (when it has more than one repo), so panes are no longer buried
+  under a dozen repo rows. A repo's worktrees and files both hide behind its chevron. A running
+  container without a usable Herdr stays in the main list, expandable, with Start / Retry;
+  "Not running" holds only stopped projects. The rollup shows `•` when no repo has an upstream.
+
+- [devc-web-open-tab-here](devc-web-open-tab-here.md) — after devc-web-repos-group. "Open
+  Herdr tab here" / "New Herdr tab here" on repo and folder rows: a new `open_tab` message
+  starts the project's Herdr session if needed, then reuses a tab whose shell is in that
+  folder or creates one. Start Herdr stops reporting success when no server came up: it
+  errors with the tail of Herdr's server log.
+
 - [git-protect-live-check](git-protect-live-check.md) — a read-only `.git/config` mount can
   vanish from a running container when the host rewrites the file (seen on Docker Desktop:
   VS Code's config writes), leaving the repo's config writable from inside while `devc status`
