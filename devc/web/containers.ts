@@ -6,6 +6,7 @@
 // CLI sets on every container it creates — the same label `@devc-tools/core/container.ts` finds
 // a project's container by.
 
+import { parseMounts } from '@devc-tools/core/container.ts';
 import { type LineProc, runText, spawnLines } from './proc.ts';
 
 export const LOCAL_FOLDER_LABEL = 'devcontainer.local_folder';
@@ -117,6 +118,20 @@ export function resolveRemoteUser(
     if (typeof r === 'string' && r !== '') user = r;
   }
   return user ?? fallback;
+}
+
+/** A container's bind-mount sources, as host paths, via one `docker inspect`; `[]` on failure. */
+export async function inspectBindSources(id: string): Promise<string[]> {
+  const { code, stdout } = await runText('docker', [
+    'inspect',
+    '--format',
+    '{{json .Mounts}}',
+    id,
+  ]);
+  if (code !== 0) return [];
+  return parseMounts(stdout.trim())
+    .filter((m) => m.type === 'bind')
+    .map((m) => m.source);
 }
 
 /** `resolveRemoteUser` for a live container, via one `docker inspect`. */

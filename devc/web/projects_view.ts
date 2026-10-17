@@ -4,6 +4,8 @@
 
 import { basename } from 'jsr:@std/path';
 import type { ProjectEntry } from '../projects.ts';
+import type { MountedRepo } from './git_repo.ts';
+import type { GitStatus } from './git_status.ts';
 
 /** A project's container: running, only stopped ones, or none at all. */
 export type ProjectContainer = 'running' | 'stopped' | 'missing';
@@ -16,18 +18,33 @@ export interface ProjectView {
   container: ProjectContainer;
   /** A `start_project` for it is in flight. */
   starting: boolean;
+  /**
+   * Its repos, the folder itself first: with a container, every repo that container mounts and
+   * the worktrees beside them; without one, just the folder.
+   */
+  repos: RepoView[];
+}
+
+/** One repo in a project, and its push/pull state. */
+export interface RepoView extends MountedRepo {
+  name: string;
+  /** Its branch against its upstream; `null` when it is no repo or detached, absent until read. */
+  git?: GitStatus | null;
 }
 
 /**
  * Merges the projects list with what discovery knows. `running` and `stopped` are the
  * `localFolder`s of running and stopped containers; a folder with both counts as running.
- * Sorted by name, then folder.
+ * `repos` holds each container's mounted repos by project folder (a folder missing from it has
+ * just itself), and `git` each repo's push/pull state, when read. Sorted by name, then folder.
  */
 export function buildProjects(
   entries: readonly ProjectEntry[],
   running: Iterable<string>,
   stopped: Iterable<string>,
   starting: ReadonlySet<string>,
+  repos: ReadonlyMap<string, readonly MountedRepo[]> = new Map(),
+  git: ReadonlyMap<string, GitStatus | null> = new Map(),
 ): ProjectView[] {
   const runningSet = new Set(running);
   const stoppedSet = new Set(stopped);
@@ -53,6 +70,12 @@ export function buildProjects(
       ? 'stopped' as const
       : 'missing' as const,
     starting: starting.has(e.localFolder),
+    repos: (repos.get(e.localFolder) ??
+      [{ folder: e.localFolder, worktreeOf: null }]).map((r) => ({
+        ...r,
+        name: basename(r.folder) || r.folder,
+        ...(git.has(r.folder) ? { git: git.get(r.folder) } : {}),
+      })),
   })).sort((a, b) =>
     a.name.localeCompare(b.name) || a.localFolder.localeCompare(b.localFolder)
   );

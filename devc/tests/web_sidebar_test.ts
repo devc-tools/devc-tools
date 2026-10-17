@@ -3,6 +3,8 @@ import {
   agentStatus,
   clampSidebarWidth,
   containerLabel,
+  gitRollup,
+  gitSync,
   paneLabel,
   paneTitle,
   SIDEBAR_DEFAULT_WIDTH,
@@ -143,4 +145,59 @@ Deno.test('clampSidebarWidth uses the default for a non-finite width', () => {
   assertEquals(clampSidebarWidth(NaN, 1600), SIDEBAR_DEFAULT_WIDTH);
   assertEquals(clampSidebarWidth(Infinity, 1600), SIDEBAR_DEFAULT_WIDTH);
   assertEquals(clampSidebarWidth(NaN, 300), 180);
+});
+
+Deno.test('gitSync shows commits to push and pull, nothing when in sync', () => {
+  const git = {
+    branch: 'feature',
+    upstream: 'origin/feature',
+    ahead: 0,
+    behind: 0,
+    gone: false,
+  };
+  assertEquals(gitSync(git), null);
+  assertEquals(gitSync({ ...git, upstream: null, ahead: 3 }), null);
+  assertEquals(gitSync(null), null);
+  assertEquals(gitSync(undefined), null);
+  assertEquals(gitSync({ ...git, ahead: 2 }), {
+    marks: [{ dir: 'ahead', text: '↑2' }],
+    diverged: false,
+    title: 'feature → origin/feature: 2 to push (as of the last fetch)',
+  });
+  const both = gitSync({ ...git, ahead: 1, behind: 4 });
+  assertEquals(both?.marks.map((m) => m.text), ['↑1', '↓4']);
+  assertEquals(both?.diverged, true);
+  assertEquals(gitSync({ ...git, gone: true })?.marks, [
+    { dir: 'gone', text: 'gone' },
+  ]);
+});
+
+Deno.test('gitRollup sums every repo and lists the ones with something to do', () => {
+  const git = (ahead: number, behind: number) => ({
+    branch: 'main',
+    upstream: 'origin/main',
+    ahead,
+    behind,
+    gone: false,
+  });
+  assertEquals(
+    gitRollup([{ name: 'a', git: git(0, 0) }, { name: 'b', git: null }, {
+      name: 'c',
+    }]),
+    null,
+  );
+  const r = gitRollup([
+    { name: 'app', git: git(1, 0) },
+    { name: 'lib', git: git(2, 3) },
+    { name: 'docs', git: git(0, 0) },
+  ]);
+  assertEquals(r?.marks, [
+    { dir: 'ahead', text: '↑3' },
+    { dir: 'behind', text: '↓3' },
+  ]);
+  assertEquals(r?.diverged, true);
+  assertEquals(r?.title.split('\n').map((l) => l.split(':')[0]), [
+    'app',
+    'lib',
+  ]);
 });

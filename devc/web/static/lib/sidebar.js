@@ -74,6 +74,58 @@ export function paneLabel(c, pane) {
   return dir === basename(c.localFolder) ? 'shell' : `shell · ${dir}`;
 }
 
+/**
+ * A folder's push/pull marks from its `git` field (see the `projects` message): `ahead` (↑N,
+ * to push), `behind` (↓N, to pull) or `gone` (the upstream was deleted), with a tooltip naming
+ * the branch. `null` when there is nothing to show: no repo, no upstream, or in sync.
+ */
+export function gitSync(git) {
+  if (!git?.upstream) return null;
+  const marks = [];
+  if (git.ahead > 0) marks.push({ dir: 'ahead', text: `↑${git.ahead}` });
+  if (git.behind > 0) marks.push({ dir: 'behind', text: `↓${git.behind}` });
+  if (git.gone) marks.push({ dir: 'gone', text: 'gone' });
+  if (marks.length === 0) return null;
+  const counts = [
+    git.ahead > 0 ? `${git.ahead} to push` : '',
+    git.behind > 0 ? `${git.behind} to pull` : '',
+    git.gone ? 'upstream deleted' : '',
+  ].filter((s) => s);
+  return {
+    marks,
+    diverged: git.ahead > 0 && git.behind > 0,
+    title: `${git.branch} → ${git.upstream}: ${
+      counts.join(', ')
+    } (as of the last fetch)`,
+  };
+}
+
+/**
+ * One mark for several repos (a collapsed container's, say): their ↑ and ↓ counts summed, with
+ * every repo that has any listed in the tooltip. `null` when all are in sync.
+ */
+export function gitRollup(repos) {
+  const synced = [...repos].map((r) => ({ name: r.name, sync: gitSync(r.git) }))
+    .filter((r) => r.sync);
+  if (synced.length === 0) return null;
+  const sum = (dir) =>
+    synced.reduce((n, r) => {
+      const m = r.sync.marks.find((x) => x.dir === dir);
+      return n + (m ? Number(m.text.slice(1)) : 0);
+    }, 0);
+  const ahead = sum('ahead');
+  const behind = sum('behind');
+  const marks = [];
+  if (ahead > 0) marks.push({ dir: 'ahead', text: `↑${ahead}` });
+  if (behind > 0) marks.push({ dir: 'behind', text: `↓${behind}` });
+  if (marks.length === 0) marks.push({ dir: 'gone', text: 'gone' });
+  return {
+    marks,
+    diverged: synced.some((r) => r.sync.diverged),
+    title: synced.map((r) => `${r.name}: ${r.sync.title}`).join('\n'),
+  };
+}
+
 /** Sidebar bounds in CSS px. */
 export const SIDEBAR_MIN_WIDTH = 160;
 export const SIDEBAR_DEFAULT_WIDTH = 280;

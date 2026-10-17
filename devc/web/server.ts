@@ -14,7 +14,12 @@ import {
   fromFileUrl,
   toFileUrl,
 } from 'jsr:@std/path';
-import { type ContainerRecord, Discovery, probeDocker } from './containers.ts';
+import {
+  type ContainerRecord,
+  Discovery,
+  inspectBindSources,
+  probeDocker,
+} from './containers.ts';
 import {
   BridgeError,
   bridgeRequest,
@@ -34,6 +39,8 @@ import {
 } from '../projects.ts';
 import { startProject, stopProject } from './project_control.ts';
 import { buildProjects, projectRefusal } from './projects_view.ts';
+import { GitStatusWatch } from './git_status.ts';
+import { type MountedRepo, mountedRepos } from './git_repo.ts';
 import {
   type ClientMessage,
   parseClientMessage,
@@ -293,12 +300,51 @@ export async function startWeb(
       [...sessions.values()].map((s) => s.record.localFolder),
       [...discovery.stopped.values()].map((r) => r.localFolder),
       startingProjects,
+      reposByFolder(),
+      gitWatch.statuses,
     ),
   });
   const broadcastProjects = () => broadcast(projectsMessage());
+  // Each container's repos by container id, from its bind mounts, read once per container: a
+  // container's mounts are fixed when it is created.
+  const containerRepos = new Map<string, MountedRepo[]>();
+  const reposByFolder = () => {
+    const byFolder = new Map<string, MountedRepo[]>();
+    // A running container's mounts win over a stopped one's for the same folder.
+    const records = [
+      ...discovery.stopped.values(),
+      ...[...sessions.values()].map((s) => s.record),
+    ];
+    for (const r of records) {
+      const repos = containerRepos.get(r.id);
+      if (repos) byFolder.set(r.localFolder, repos);
+    }
+    return byFolder;
+  };
+  const loadRepos = async (record: ContainerRecord) => {
+    if (containerRepos.has(record.id)) return;
+    containerRepos.set(record.id, [{
+      folder: record.localFolder,
+      worktreeOf: null,
+    }]);
+    const sources = await inspectBindSources(record.id);
+    containerRepos.set(
+      record.id,
+      await mountedRepos(record.localFolder, sources),
+    );
+    broadcastProjects();
+    void gitWatch.refresh();
+  };
+  // Every listed repo's push/pull state, read again on a timer and whenever the list changes.
+  const gitWatch: GitStatusWatch = new GitStatusWatch({
+    folders: () =>
+      projectsMessage().projects.flatMap((p) => p.repos.map((r) => r.folder)),
+    onChange: broadcastProjects,
+  });
   const reloadProjects = async () => {
     projectEntries = await loadProjects();
     broadcastProjects();
+    void gitWatch.refresh();
   };
   const isListedProject = (localFolder: string) =>
     projectsMessage().projects.some((p) => p.localFolder === localFolder);
@@ -324,6 +370,8 @@ export async function startWeb(
     sessions.set(id, session);
     broadcast(containersMessage());
     broadcastProjects();
+    void gitWatch.refresh();
+    void loadRepos(record);
     void session.run();
   };
 
@@ -352,7 +400,11 @@ export async function startWeb(
   const discovery = new Discovery({
     onAdd: addContainer,
     onRemove: removeContainer,
-    onStoppedChange: () => broadcastProjects(),
+    onStoppedChange: () => {
+      broadcastProjects();
+      void gitWatch.refresh();
+      for (const r of discovery.stopped.values()) void loadRepos(r);
+    },
     onExec: (id, command) => {
       if (isHerdrLaunch(command)) void sessions.get(id)?.herdrLaunched();
     },
@@ -739,6 +791,7 @@ export async function startWeb(
 
   discovery.start();
   liveStatic?.watch();
+  gitWatch.start();
   const projectsWatch = watchProjectsFile(() => void reloadProjects());
 
   let stopping: Promise<void> | null = null;
@@ -746,6 +799,7 @@ export async function startWeb(
     stopping ??= (async () => {
       discovery.stop();
       liveStatic?.stop();
+      gitWatch.stop();
       projectsWatch.stop();
       for (const c of clients) {
         try {

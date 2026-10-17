@@ -26,6 +26,8 @@ import {
   agentStatus,
   clampSidebarWidth,
   containerLabel,
+  gitRollup,
+  gitSync,
   paneLabel,
   paneTitle,
   SIDEBAR_DEFAULT_WIDTH,
@@ -1223,7 +1225,15 @@ function containerRows(c) {
             ...projectMenuItems(c.localFolder),
           ]),
       },
-      h('span', { class: 'label' }, chevron(), displayName(c), pinMark(c)),
+      h(
+        'span',
+        { class: 'label' },
+        chevron(),
+        displayName(c),
+        pinMark(c),
+        // Expanded, each repo's own marks are right below.
+        collapsed ? gitMark(gitRollup(projectRepos(c.localFolder))) : '',
+      ),
       c.state !== 'connected'
         ? h(
           'span',
@@ -1237,6 +1247,7 @@ function containerRows(c) {
     ),
   ];
   if (collapsed) return rows;
+  rows.push(...repoRows(c.localFolder));
   const listed = new Set();
   for (const ws of workspaces) {
     let depth = 1;
@@ -1360,6 +1371,43 @@ function pinMark(project) {
   return mark;
 }
 
+/** ↑ push / ↓ pull counts from `gitSync` or `gitRollup`; nothing when in sync. */
+function gitMark(sync) {
+  if (!sync) return '';
+  return h(
+    'span',
+    {
+      class: 'git-sync',
+      title: sync.title,
+      'data-diverged': sync.diverged,
+    },
+    ...sync.marks.map((m) => h('span', { 'data-dir': m.dir }, m.text)),
+  );
+}
+
+/** A project's repos (its `repos` field), the folder itself first. */
+function projectRepos(localFolder) {
+  return list(projects.get(localFolder)?.repos);
+}
+
+/**
+ * An expanded container's repo rows, above its workspaces: every repo it mounts, worktrees
+ * under their repo. A folder that turned out to be no repo (`git: null`) gets no row.
+ */
+function repoRows(localFolder) {
+  return projectRepos(localFolder).filter((r) => r.git !== null).map((r) =>
+    h(
+      'div',
+      {
+        class: 'row repo',
+        style: `--depth: ${r.worktreeOf ? 2 : 1}`,
+        title: r.folder,
+      },
+      h('span', { class: 'label' }, r.name, gitMark(gitSync(r.git))),
+    )
+  );
+}
+
 const PROJECT_STATE_TEXT = {
   starting: 'starting…',
   stopped: 'stopped',
@@ -1383,6 +1431,7 @@ function projectRow(p) {
       { class: 'label' },
       containerLabel(p, projects.values()),
       pinMark(p),
+      gitMark(gitRollup(list(p.repos))),
     ),
     h(
       'span',

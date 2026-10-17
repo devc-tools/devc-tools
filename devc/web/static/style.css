@@ -501,6 +501,42 @@ body.resizing-sidebar {
   color: var(--muted);
 }
 
+/* Push/pull: ↑ commits to push, ↓ commits to pull, against the branch's upstream. */
+.git-sync {
+  display: inline-flex;
+  gap: 4px;
+  margin-left: 6px;
+  font-size: 11px;
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+  vertical-align: middle;
+}
+
+.git-sync [data-dir='ahead'] {
+  color: var(--done);
+}
+
+.git-sync [data-dir='behind'] {
+  color: var(--blocked);
+}
+
+.git-sync [data-dir='gone'] {
+  color: var(--muted);
+}
+
+/* A repo a container mounts, listed above its workspaces: just a name and its marks. */
+.row.repo {
+  color: var(--muted);
+  cursor: default;
+}
+
+/* Both ways: the branch has diverged, so a pull needs a merge or rebase. */
+.git-sync[data-diverged] {
+  padding: 0 4px;
+  border: 1px solid var(--blocked);
+  border-radius: 3px;
+}
+
 /* Agent badges */
 
 /* A colored dot and the status word. */
