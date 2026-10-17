@@ -32,6 +32,7 @@ import {
   listHostDir,
   listProjectDir,
   pickerRoots,
+  readProjectFile,
 } from './files.ts';
 import {
   BridgeError,
@@ -494,12 +495,19 @@ export async function startWeb(
     return pickerRoots(codeRoots, Deno.env.get('HOME') ?? '/');
   };
 
-  /** Directory listings: a project's files, and the host folders "Add project…" browses. */
+  /**
+   * Directory listings (a project's files, and the host folders "Add project…" browses) and
+   * project file reads for the page's file viewer. Both project messages read the host side of
+   * the bind mount, so they work while the container is stopped.
+   */
   const handleListing = async (
     c: Client,
-    msg: Extract<ClientMessage, { type: 'list_dir' | 'list_host_dir' }>,
+    msg: Extract<
+      ClientMessage,
+      { type: 'list_dir' | 'list_host_dir' | 'read_file' }
+    >,
   ) => {
-    if (msg.type === 'list_dir') {
+    if (msg.type === 'list_dir' || msg.type === 'read_file') {
       if (!isListedProject(msg.localFolder)) {
         reject(c, {
           id: msg.id,
@@ -512,6 +520,15 @@ export async function startWeb(
         !isProjectRepo(projectsMessage().projects, msg.localFolder, msg.root)
       ) {
         reject(c, { id: msg.id, code: 'bad_request', message: 'unknown repo' });
+        return;
+      }
+      if (msg.type === 'read_file') {
+        try {
+          const result = await readProjectFile(msg.root, msg.path);
+          reply(c, { id: msg.id, ok: true, result });
+        } catch (e) {
+          fail(c, msg.id, e instanceof FilesError ? e.code : 'read_failed', e);
+        }
         return;
       }
       try {
@@ -614,7 +631,7 @@ export async function startWeb(
     c: Client,
     msg: Exclude<
       Extract<ClientMessage, { localFolder: string }>,
-      { type: 'list_dir' }
+      { type: 'list_dir' | 'read_file' }
     >,
   ) => {
     const folder = msg.localFolder;
@@ -703,7 +720,10 @@ export async function startWeb(
       await liveStatic?.clientReady(msg.generation);
       return;
     }
-    if (msg.type === 'list_dir' || msg.type === 'list_host_dir') {
+    if (
+      msg.type === 'list_dir' || msg.type === 'list_host_dir' ||
+      msg.type === 'read_file'
+    ) {
       await handleListing(c, msg);
       return;
     }

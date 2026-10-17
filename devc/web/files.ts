@@ -28,7 +28,12 @@ export const MAX_ENTRIES = 2000;
 /** Why a listing failed, as the `result` error code it is answered with. */
 export class FilesError extends Error {
   constructor(
-    readonly code: 'bad_request' | 'forbidden' | 'not_found',
+    readonly code:
+      | 'bad_request'
+      | 'forbidden'
+      | 'not_found'
+      | 'too_large'
+      | 'binary',
     message: string,
   ) {
     super(message);
@@ -154,6 +159,89 @@ export async function listProjectDir(
     entries: sorted.slice(0, MAX_ENTRIES),
     truncated: sorted.length > MAX_ENTRIES,
   };
+}
+
+/** The largest file `read_file` returns. */
+export const MAX_READ_BYTES = 2 * 1024 * 1024;
+
+/** How much of a file is searched for a NUL byte to call it binary. */
+const BINARY_SNIFF_BYTES = 8 * 1024;
+
+/**
+ * A project file's text, for the page's file viewer: `rel` under `root`, confined to it (see
+ * {@link confine}). Refuses a non-file (`bad_request`), one over {@link MAX_READ_BYTES}
+ * (`too_large`) and one with a NUL byte in its first 8 KiB (`binary`). Decodes as UTF-8 with
+ * replacement characters. `mtimeMs` is the modification time (0 when the platform has none).
+ * Throws {@link FilesError}.
+ */
+export async function readProjectFile(
+  root: string,
+  rel: string,
+): Promise<{ text: string; size: number; mtimeMs: number }> {
+  let path: string | null;
+  try {
+    path = await confine(root, rel);
+  } catch (e) {
+    throw filesError(e, rel);
+  }
+  if (path === null) {
+    throw new FilesError('forbidden', `${rel} is outside the project`);
+  }
+  let file: Deno.FsFile;
+  try {
+    // Checked before opening too: opening a FIFO for reading would wait for a writer.
+    if (!(await Deno.stat(path)).isFile) {
+      throw new FilesError('bad_request', `${rel} is not a file`);
+    }
+    file = await Deno.open(path, { read: true });
+  } catch (e) {
+    throw e instanceof FilesError ? e : filesError(e, rel);
+  }
+  try {
+    const info = await file.stat();
+    if (!info.isFile) {
+      throw new FilesError('bad_request', `${rel} is not a file`);
+    }
+    if (info.size > MAX_READ_BYTES) {
+      throw new FilesError(
+        'too_large',
+        `${rel} is ${info.size} bytes; the viewer shows files up to ${MAX_READ_BYTES} bytes`,
+      );
+    }
+    // Read through the open handle, so the checks above apply to the bytes returned. Capped one
+    // past the limit in case the file grew since the stat.
+    const bytes = await readUpTo(file, MAX_READ_BYTES + 1);
+    if (bytes.length > MAX_READ_BYTES) {
+      throw new FilesError(
+        'too_large',
+        `${rel} is over ${MAX_READ_BYTES} bytes; the viewer shows files up to that size`,
+      );
+    }
+    if (bytes.subarray(0, BINARY_SNIFF_BYTES).includes(0)) {
+      throw new FilesError('binary', `${rel} looks like a binary file`);
+    }
+    return {
+      text: new TextDecoder('utf-8').decode(bytes),
+      size: bytes.length,
+      mtimeMs: info.mtime?.getTime() ?? 0,
+    };
+  } catch (e) {
+    throw e instanceof FilesError ? e : filesError(e, rel);
+  } finally {
+    file.close();
+  }
+}
+
+/** Up to `max` bytes from `file`, from where it is now. */
+async function readUpTo(file: Deno.FsFile, max: number): Promise<Uint8Array> {
+  const out = new Uint8Array(max);
+  let n = 0;
+  while (n < max) {
+    const got = await file.read(out.subarray(n));
+    if (got === null) break;
+    n += got;
+  }
+  return out.subarray(0, n);
 }
 
 /** The folders the picker opens on: the `codeRoots` that are directories, else `home`. */

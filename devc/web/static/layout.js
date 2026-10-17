@@ -2,8 +2,8 @@
 // that imports Golden Layout, so replacing it is a change to this file alone (the same boundary
 // `renderer.js` draws around xterm.js). See `.plans/devc-web-golden-layout.md`.
 //
-// Vocabulary: a *tile* is one Golden Layout component showing at most one Herdr pane; tiles sit
-// in *stacks* (Golden Layout's tab groups), inside rows and columns. None of this is Herdr's
+// Vocabulary: a *tile* is one Golden Layout component showing at most one Herdr pane (a pane
+// tile) or one project file (a file tile, see `viewer.js`); tiles sit in *stacks* (Golden Layout's tab groups), inside rows and columns. None of this is Herdr's
 // layout — a Herdr tab is a different thing, and nothing here ever changes it.
 
 import {
@@ -12,21 +12,34 @@ import {
   LayoutConfig,
   ResolvedItemConfig,
 } from './vendor/golden-layout/golden-layout.mjs';
-import { paneRefFromState } from './lib/layout_state.js';
+import {
+  fileRefFromState,
+  paneRefFromState,
+  tileContent,
+} from './lib/layout_state.js';
 
-/** The one component type. Its state is exactly a PaneRef, or `{}` for an empty tile. */
-const COMPONENT_TYPE = 'pane';
+/**
+ * The component types: `pane`, whose state is exactly a PaneRef (or `{}` for an empty tile), and
+ * `file`, whose state is exactly a FileRef.
+ */
+const COMPONENT_TYPES = /** @type {const} */ (['pane', 'file']);
 
 /** @typedef {import('./lib/layout_state.js').PaneRef} PaneRef */
+/** @typedef {import('./lib/layout_state.js').FileRef} FileRef */
+/** What a new tile shows: a pane, a file, or nothing (an empty pane tile). */
+/** @typedef {PaneRef | {file: FileRef} | null} TileRef */
 /** @typedef {import('./lib/layout_state.js').LayoutNode} LayoutNode */
 
 /**
  * @typedef {object} Tile
  * @property {string} id                 stable for the tile's lifetime
- * @property {PaneRef | null} ref        the pane this tile shows
+ * @property {'pane' | 'file'} kind      a pane tile (a terminal) or a file tile (a viewer)
+ * @property {PaneRef | null} ref        the pane this tile shows; always null on a file tile
+ * @property {FileRef | null} file       the file a file tile shows; null on a pane tile
  * @property {HTMLElement} element       where app.js mounts the renderer and overlay
- * @property {(ref: PaneRef | null) => void} setRef   persists into the component state
+ * @property {(ref: PaneRef | null) => void} setRef   persists into the component state (pane tiles)
  * @property {(title: string) => void} setTitle
+ * @property {(text: string) => void} setTooltip  the tab's tooltip (default: the title)
  * @property {(el: Node | null) => void} setBadge     agent badge shown in the tile's tab
  * @property {() => void} focus
  */
@@ -75,6 +88,8 @@ export function createTiling(root, hooks) {
   const byContainer = new Map();
   /** @type {Map<Tile, Node | null>} each tile's badge, re-applied when its tab is rebuilt */
   const badges = new Map();
+  /** @type {Map<Tile, string>} each tile's tooltip, re-applied the same way */
+  const tooltips = new Map();
   /** @type {Map<string, any>} ComponentContainer by Tile.id */
   const containerById = new Map();
   /**
@@ -94,10 +109,15 @@ export function createTiling(root, hooks) {
     return id;
   };
 
-  /** Puts `tile`'s badge into its current tab element (tabs are recreated on moves). */
+  /**
+   * Puts `tile`'s badge and tooltip into its current tab element (tabs are recreated on moves,
+   * and a title change resets the tooltip).
+   */
   const applyBadge = (container, tile) => {
     const tab = container.tab;
     if (!tab) return;
+    const tooltip = tooltips.get(tile);
+    if (tooltip !== undefined) tab.element.title = tooltip;
     tab.element.querySelector('.tile-badge')?.remove();
     const badge = badges.get(tile);
     if (!badge) return;
@@ -107,20 +127,30 @@ export function createTiling(root, hooks) {
     tab.titleElement.after(slot);
   };
 
-  layout.registerComponentFactoryFunction(
-    COMPONENT_TYPE,
-    (container, state) => {
+  for (const type of COMPONENT_TYPES) {
+    layout.registerComponentFactoryFunction(type, (container, state) => {
+      const file = type === 'file' ? fileRefFromState(state) : null;
       /** @type {Tile} */
       const tile = {
         id: `t${++nextTileId}`,
-        ref: paneRefFromState(state),
+        kind: type,
+        ref: type === 'pane' ? paneRefFromState(state) : null,
+        file,
         element: container.element,
         setRef(ref) {
+          if (tile.kind !== 'pane') return;
           tile.ref = ref;
           container.setState(ref ? { ...ref } : {});
         },
         setTitle(title) {
-          if (container.title !== title) container.setTitle(title);
+          if (container.title !== title) {
+            container.setTitle(title);
+            applyBadge(container, tile);
+          }
+        },
+        setTooltip(text) {
+          tooltips.set(tile, text);
+          applyBadge(container, tile);
         },
         setBadge(el) {
           badges.set(tile, el);
@@ -138,12 +168,13 @@ export function createTiling(root, hooks) {
         byContainer.delete(container);
         containerById.delete(tile.id);
         badges.delete(tile);
+        tooltips.delete(tile);
         hooks.unmount(tile);
       });
       hooks.mount(tile);
       return undefined;
-    },
-  );
+    });
+  }
 
   layout.on('tabCreated', (tab) => {
     const container = tab.componentItem?.container;
@@ -218,13 +249,16 @@ export function createTiling(root, hooks) {
     };
   }
 
-  /** @param {PaneRef | null} ref @param {string} title */
-  const itemConfig = (ref, title) => ({
-    type: 'component',
-    componentType: COMPONENT_TYPE,
-    componentState: ref ? { ...ref } : {},
-    title,
-  });
+  /** @param {TileRef} ref @param {string} title */
+  const itemConfig = (ref, title) => {
+    const { type, state } = tileContent(ref);
+    return {
+      type: 'component',
+      componentType: type,
+      componentState: state,
+      title,
+    };
+  };
 
   layout.loadLayout(emptyConfig());
 
@@ -233,26 +267,24 @@ export function createTiling(root, hooks) {
      * A new tile, in the focused stack when there is one, else wherever Golden Layout's default
      * location selectors put it (the root, for an empty layout).
      *
-     * @param {PaneRef | null} ref
+     * @param {TileRef} ref
      * @returns {Tile}
      */
     add(ref) {
-      const item = layout.newComponent(
-        COMPONENT_TYPE,
-        ref ? { ...ref } : {},
-        '',
-      );
+      const { type, state } = tileContent(ref);
+      const item = layout.newComponent(type, state, '');
       const tile = byContainer.get(item.container);
       item.focus();
       return /** @type {Tile} */ (tile);
     },
 
     /**
-     * Makes `el` draggable into the layout; a drop creates a tile for `ref()`. `title()` names
-     * the drag preview (app.js keeps the tile's title current once it is placed).
+     * Makes `el` draggable into the layout; a drop creates a tile for `ref()` (a pane, or
+     * `{file}` for a file tile). `title()` names the drag preview (app.js keeps the tile's title
+     * current once it is placed).
      *
      * @param {HTMLElement} el
-     * @param {() => PaneRef} ref
+     * @param {() => PaneRef | {file: FileRef}} ref
      * @param {() => string} [title]
      * @returns {() => void} unregisters the drag source
      */
@@ -265,7 +297,7 @@ export function createTiling(root, hooks) {
     },
 
     /**
-     * A new tile showing `ref`, placed relative to the item with id `id`:
+     * A new tile showing `ref` (a pane, `{file}`, or null for an empty tile), placed relative to the item with id `id`:
      * - a tile: 'right' / 'below' split beside its stack (inserting into the parent row or
      *   column when its direction matches, else wrapping the stack in a new one, as a drop on
      *   the stack's edge would); 'stack' adds it to the tile's stack;
@@ -274,7 +306,7 @@ export function createTiling(root, hooks) {
      * `id` null (or unknown) behaves like `add(ref)`. The new tile is focused.
      *
      * @param {string | null} id
-     * @param {PaneRef | null} ref
+     * @param {TileRef} ref
      * @param {'right' | 'below' | 'stack'} where
      * @returns {Tile}
      */
@@ -293,7 +325,7 @@ export function createTiling(root, hooks) {
         const stack = target.isStack ? target : target.parentItem;
         if (where === 'stack') {
           component = stack.newComponent(
-            COMPONENT_TYPE,
+            config.componentType,
             config.componentState,
             '',
           );

@@ -1,12 +1,14 @@
 import { assertEquals, assertRejects } from 'jsr:@std/assert';
-import { join } from 'jsr:@std/path';
+import { dirname, join } from 'jsr:@std/path';
 import {
   confine,
   editorCommand,
   FilesError,
   listHostDir,
   listProjectDir,
+  MAX_READ_BYTES,
   pickerRoots,
+  readProjectFile,
   sortEntries,
 } from '../web/files.ts';
 
@@ -199,4 +201,91 @@ Deno.test('editorCommand single-quotes the path and execs the editor', () => {
     editorCommand("/w/it's $(rm).txt"),
     `exec "\${EDITOR:-vi}" -- '/w/it'\\''s $(rm).txt'\n`,
   );
+});
+
+Deno.test('readProjectFile reads a file with its size and mtime', async () => {
+  const { project } = await fixture();
+  try {
+    const got = await readProjectFile(project, 'README.md');
+    assertEquals([got.text, got.size], ['hello', 5]);
+    const info = await Deno.stat(join(project, 'README.md'));
+    assertEquals(got.mtimeMs, info.mtime?.getTime());
+  } finally {
+    await Deno.remove(dirname(project), { recursive: true });
+  }
+});
+
+Deno.test('readProjectFile refuses .., an escaping symlink, a directory and a missing file', async () => {
+  const { base, project } = await fixture();
+  try {
+    await Deno.symlink(
+      join(base, 'outside', 'secret'),
+      join(project, 'leak'),
+    );
+    const code = async (rel: string) =>
+      (await assertRejects(() => readProjectFile(project, rel), FilesError))
+        .code;
+    assertEquals(await code('../outside/secret'), 'forbidden');
+    assertEquals(await code('/etc/passwd'), 'forbidden');
+    assertEquals(await code('leak'), 'forbidden');
+    assertEquals(await code('src'), 'bad_request');
+    assertEquals(await code('nope.txt'), 'not_found');
+  } finally {
+    await Deno.remove(base, { recursive: true });
+  }
+});
+
+Deno.test('readProjectFile refuses a file just over the cap, reads one at it', async () => {
+  const { base, project } = await fixture();
+  try {
+    await Deno.writeFile(
+      join(project, 'at'),
+      new Uint8Array(MAX_READ_BYTES).fill(0x61),
+    );
+    await Deno.writeFile(
+      join(project, 'over'),
+      new Uint8Array(MAX_READ_BYTES + 1).fill(0x61),
+    );
+    assertEquals((await readProjectFile(project, 'at')).size, MAX_READ_BYTES);
+    const err = await assertRejects(
+      () => readProjectFile(project, 'over'),
+      FilesError,
+    );
+    assertEquals(err.code, 'too_large');
+    assertEquals(err.message.includes(String(MAX_READ_BYTES + 1)), true);
+  } finally {
+    await Deno.remove(base, { recursive: true });
+  }
+});
+
+Deno.test('readProjectFile calls a file with a NUL byte binary', async () => {
+  const { base, project } = await fixture();
+  try {
+    await Deno.writeFile(
+      join(project, 'bin'),
+      new Uint8Array([0x7f, 0x45, 0, 1]),
+    );
+    const err = await assertRejects(
+      () => readProjectFile(project, 'bin'),
+      FilesError,
+    );
+    assertEquals(err.code, 'binary');
+  } finally {
+    await Deno.remove(base, { recursive: true });
+  }
+});
+
+Deno.test('readProjectFile decodes invalid UTF-8 with replacement characters', async () => {
+  const { base, project } = await fixture();
+  try {
+    await Deno.writeFile(
+      join(project, 'latin1'),
+      new Uint8Array([0x63, 0x61, 0x66, 0xe9, 0x0a]),
+    );
+    const got = await readProjectFile(project, 'latin1');
+    assertEquals(got.text, 'caf�\n');
+    assertEquals(got.size, 5);
+  } finally {
+    await Deno.remove(base, { recursive: true });
+  }
 });

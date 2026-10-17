@@ -1,11 +1,56 @@
 import { assertEquals } from 'jsr:@std/assert';
 import {
+  fileRefFromState,
   foldTree,
   paneRefFromState,
   parseSavedLayout,
+  sameFile,
+  tileContent,
   tileTitle,
   treeSignature,
 } from '../web/static/lib/layout_state.js';
+
+Deno.test('fileRefFromState accepts a full file reference', () => {
+  assertEquals(
+    fileRefFromState({
+      localFolder: '/src/app',
+      root: '/src/lib',
+      path: 'src/a.ts',
+      extra: 1,
+    }),
+    { localFolder: '/src/app', root: '/src/lib', path: 'src/a.ts' },
+  );
+});
+
+Deno.test('fileRefFromState returns null for missing, empty or non-string fields', () => {
+  const full = { localFolder: '/a', root: '/a', path: 'x' };
+  for (const key of ['localFolder', 'root', 'path']) {
+    assertEquals(fileRefFromState({ ...full, [key]: undefined }), null);
+    assertEquals(fileRefFromState({ ...full, [key]: '' }), null);
+    assertEquals(fileRefFromState({ ...full, [key]: 1 }), null);
+  }
+  assertEquals(fileRefFromState({ localFolder: '/a', pane_id: 'w1:p1' }), null);
+  assertEquals(fileRefFromState(null), null);
+  assertEquals(fileRefFromState([full]), null);
+});
+
+Deno.test('sameFile compares all three fields', () => {
+  const a = { localFolder: '/a', root: '/a', path: 'x' };
+  assertEquals(sameFile(a, { ...a }), true);
+  assertEquals(sameFile(a, { ...a, localFolder: '/b' }), false);
+  assertEquals(sameFile(a, { ...a, root: '/b' }), false);
+  assertEquals(sameFile(a, { ...a, path: 'y' }), false);
+});
+
+Deno.test('tileContent picks the component type from the ref', () => {
+  const file = { localFolder: '/a', root: '/r', path: 'x.ts' };
+  assertEquals(tileContent({ file }), { type: 'file', state: file });
+  assertEquals(
+    tileContent({ localFolder: '/a', pane_id: 'w1:p1' }),
+    { type: 'pane', state: { localFolder: '/a', pane_id: 'w1:p1' } },
+  );
+  assertEquals(tileContent(null), { type: 'pane', state: {} });
+});
 
 Deno.test('paneRefFromState accepts a full pane reference', () => {
   assertEquals(

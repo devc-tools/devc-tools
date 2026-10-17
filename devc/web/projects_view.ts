@@ -102,7 +102,8 @@ export function projectRefusal(
 
 /**
  * Whether `root` is one of the repo folders of the project at `localFolder` in `projects` (as the
- * `projects` message lists them): the folders `list_dir` and `open_file` may address files under.
+ * `projects` message lists them): the folders `list_dir`, `read_file` and
+ * `open_file` may address files under.
  */
 export function isProjectRepo(
   projects: readonly ProjectView[],

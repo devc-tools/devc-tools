@@ -81,6 +81,13 @@ export type ClientMessage =
   }
   | { type: 'list_host_dir'; id: string; path: string }
   | {
+    type: 'read_file';
+    id: string;
+    localFolder: string;
+    root: string;
+    path: string;
+  }
+  | {
     type: 'open_file';
     id: string;
     container: string;
@@ -329,6 +336,14 @@ function parseFields(m: Obj): ClientMessage {
       };
     case 'list_host_dir':
       return { type: 'list_host_dir', id: str(m, 'id'), path: text(m, 'path') };
+    case 'read_file':
+      return {
+        type: 'read_file',
+        id: str(m, 'id'),
+        localFolder: folder(m),
+        root: absolute(m, 'root'),
+        path: str(m, 'path'),
+      };
     case 'open_file':
       return {
         type: 'open_file',

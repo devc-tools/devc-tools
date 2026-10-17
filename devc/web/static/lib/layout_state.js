@@ -2,6 +2,12 @@
 // tested from `devc/tests/web_layout_test.ts`. No DOM access and no Golden Layout import here.
 
 /** @typedef {{localFolder: string, pane_id: string}} PaneRef */
+/**
+ * A file shown in a file tile: `path` is relative to `root`, one of the repo folders of the
+ * project at `localFolder` (the `read_file` message's fields).
+ *
+ * @typedef {{localFolder: string, root: string, path: string}} FileRef
+ */
 
 /**
  * A tile's component state as a pane reference: only an object with string `localFolder` and
@@ -19,6 +25,54 @@ export function paneRefFromState(state) {
   if (typeof localFolder !== 'string' || localFolder === '') return null;
   if (typeof pane_id !== 'string' || pane_id === '') return null;
   return { localFolder, pane_id };
+}
+
+/**
+ * A file tile's component state as a file reference: only an object whose `localFolder`, `root`
+ * and `path` are all non-empty strings is one. Anything else is `null`.
+ *
+ * @param {unknown} state
+ * @returns {FileRef | null}
+ */
+export function fileRefFromState(state) {
+  if (typeof state !== 'object' || state === null || Array.isArray(state)) {
+    return null;
+  }
+  const { localFolder, root, path } =
+    /** @type {Record<string, unknown>} */ (state);
+  for (const v of [localFolder, root, path]) {
+    if (typeof v !== 'string' || v === '') return null;
+  }
+  return /** @type {FileRef} */ ({ localFolder, root, path });
+}
+
+/**
+ * Whether two file references name the same file.
+ *
+ * @param {FileRef} a
+ * @param {FileRef} b
+ */
+export function sameFile(a, b) {
+  return a.localFolder === b.localFolder && a.root === b.root &&
+    a.path === b.path;
+}
+
+/**
+ * What a tile shows, as its Golden Layout component type and state: `{file}` a file tile, a
+ * `PaneRef` a pane tile, `null` an empty pane tile.
+ *
+ * @param {PaneRef | {file: FileRef} | null} ref
+ * @returns {{type: 'pane' | 'file', state: Record<string, string>}}
+ */
+export function tileContent(ref) {
+  if (ref && 'file' in ref) {
+    const { localFolder, root, path } = ref.file;
+    return { type: 'file', state: { localFolder, root, path } };
+  }
+  return {
+    type: 'pane',
+    state: ref ? { localFolder: ref.localFolder, pane_id: ref.pane_id } : {},
+  };
 }
 
 /**

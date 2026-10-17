@@ -1,13 +1,13 @@
 # devc-web-file-viewer
 
-- [ ] Vendor CodeMirror 6 as one bundled ES module (`static/vendor/codemirror/`), with `VERSIONS` and `LICENSE`
-- [ ] Server: `read_file` (host side, confined to a repo root, size and binary checks), with tests
-- [ ] `layout.js`: a second component type, `file`, whose state is a `FileRef`; persisted and restored like pane tiles
-- [ ] `static/viewer.js`: the only CodeMirror importer. Mounts a read-only view with language highlighting by file name
-- [ ] Page: clicking a file opens it in a file tile; "Open in editor" (`$EDITOR` in a pane) moves to the menu
-- [ ] File tile header menu: Reload, Open in editor, Copy path
-- [ ] `.plans/devc-web.md` protocol and UI sections updated
-- [ ] Verify (below) and ask the user to try it in their open tab
+- [x] Vendor CodeMirror 6 as one bundled ES module (`static/vendor/codemirror/`), with `VERSIONS` and `LICENSE`
+- [x] Server: `read_file` (host side, confined to a repo root, size and binary checks), with tests
+- [x] `layout.js`: a second component type, `file`, whose state is a `FileRef`; persisted and restored like pane tiles
+- [x] `static/viewer.js`: the only CodeMirror importer. Mounts a read-only view with language highlighting by file name
+- [x] Page: clicking a file opens it in a file tile; "Open in editor" (`$EDITOR` in a pane) moves to the menu
+- [x] File tile header menu: Reload, Open in editor, Copy path
+- [x] `.plans/devc-web.md` protocol and UI sections updated
+- [x] Verify (below) and ask the user to try it in their open tab
 
 A real file view in `devc web`: a tile that shows a file with syntax highlighting, line
 numbers, search and code folding. It starts **read-only**. Today the only way to see a file is
@@ -73,6 +73,10 @@ Read `/workspaces/devc-dev/.claude/skills/devc-web/SKILL.md` first.
   SQL. Through `legacy-modes`: shell, Dockerfile, TOML. Everything is bundled up front; no
   dynamic imports (the page has no build step and the server serves files as they are).
 - `LICENSE`: CodeMirror's MIT licence text.
+- **As built:** the entry file is `scripts/codemirror-entry.js`, not `entry.js` beside the
+  bundle: `deno compile --include web/static` follows every `.js` under `web/static/` into the
+  binary, and the entry's `npm:` imports added about 7 MB of `node_modules` to it.
+  `scripts/vendor-codemirror.sh` rebuilds the bundle (byte-identical on a rerun).
 
 ### `static/viewer.js`
 

@@ -4,13 +4,16 @@
 // running, and the process actions). The browser owns all layout: it never splits a Herdr pane or
 // shows a Herdr tab, and each pane it creates gets its own Herdr tab (`new_shell`). The protocol is
 // specified in `.plans/devc-web.md`; renderer details live in `renderer.js`, window management
-// in `layout.js` (Golden Layout), and the pure input helpers in `lib/input.js`.
+// in `layout.js` (Golden Layout), the file viewer in `viewer.js` (CodeMirror), and the pure
+// input helpers in `lib/input.js`.
 
 import { createRenderer } from './renderer.js';
 import { createTiling } from './layout.js';
+import { createViewer } from './viewer.js';
 import {
   foldTree,
   parseSavedLayout,
+  sameFile,
   tileTitle,
   treeSignature,
 } from './lib/layout_state.js';
@@ -79,6 +82,7 @@ const SAFE_MODE = location.pathname.startsWith('/safe/');
 /**
  * @typedef {{id: string, localFolder: string, name: string, state: string, error?: string}} ContainerInfo
  * @typedef {import('./lib/layout_state.js').PaneRef} PaneRef
+ * @typedef {import('./lib/layout_state.js').FileRef} FileRef
  * @typedef {import('./layout.js').Tile} Tile
  */
 
@@ -110,6 +114,13 @@ let projectStarts = true;
 /** The Layout section's last rendered tree, as `treeSignature` plus the tiles' refs. */
 let layoutSignature = '';
 /**
+ * Sidebar file rows (each a Golden Layout drag source) by tree key, kept across renders for the
+ * same reason as {@link paneRows}.
+ *
+ * @type {Map<string, {row: HTMLElement, seen: number, remove: () => void}>}
+ */
+const fileRows = new Map();
+/**
  * Sidebar pane rows by `container\npane`, kept across renders and updated in place. Each is a
  * Golden Layout drag source, and unregistering one tears down the document listeners of a drag
  * in progress — so a row (and its drag source) lives as long as its pane, not one render.
@@ -137,8 +148,25 @@ let renderGeneration = 0;
  * @property {ResizeObserver} observer
  */
 
-/** @type {Map<string, TileView>} by Tile.id */
+/** @type {Map<string, TileView>} pane tiles' views, by Tile.id */
 const views = new Map();
+
+/**
+ * A file tile's live view: the viewer once the file has been read, else an overlay saying why
+ * not. `seq` numbers the reads, so only the latest one's answer lands.
+ *
+ * @typedef {object} FileView
+ * @property {Tile} tile
+ * @property {HTMLElement} host      where the viewer mounts
+ * @property {HTMLElement} overlay
+ * @property {import('./viewer.js').Viewer | null} viewer
+ * @property {'loading' | 'ok' | 'error'} state
+ * @property {string} error          the message shown while `state` is 'error'
+ * @property {number} seq
+ */
+
+/** @type {Map<string, FileView>} file tiles' views, by Tile.id */
+const fileViews = new Map();
 /** Pending `open` request ids → tile id. */
 const pendingOpens = new Map();
 /** Pending `request`/`start_session` ids → description, for error toasts. */
@@ -322,8 +350,11 @@ function onHello(msg) {
   // `devc web --live` starts no containers for the page (its code comes from a checkout agents can
   // write to): hide what would only be refused. A server that doesn't say allows them.
   projectStarts = msg.projectStarts !== false;
-  // Listings asked for while disconnected never got an answer.
+  // Listings and file reads asked for while disconnected never got an answer.
   for (const { tree } of fileTrees.values()) tree.refresh('');
+  for (const view of fileViews.values()) {
+    if (view.state === 'loading') loadFile(view);
+  }
   for (const top of picker?.tops ?? []) picker?.tree.refresh(top);
   if (bootGeneration === null) {
     bootGeneration = msg.generation;
@@ -512,7 +543,10 @@ function onResult(msg) {
     if (msg.ok) pending.resolve(msg.result);
     else {
       pending.reject(
-        new Error(msg.error?.message ?? msg.error?.code ?? 'failed'),
+        Object.assign(
+          new Error(msg.error?.message ?? msg.error?.code ?? 'failed'),
+          { code: msg.error?.code },
+        ),
       );
     }
     return;
@@ -840,6 +874,11 @@ function renderTree() {
     rec.remove?.();
     paneRows.delete(key);
   }
+  for (const [key, rec] of fileRows) {
+    if (rec.seen === generation) continue;
+    rec.remove();
+    fileRows.delete(key);
+  }
   updateCurrent();
 }
 
@@ -868,7 +907,13 @@ function layoutState() {
   const tree = tiling ? foldTree(tiling.tree()) : null;
   const refs = tiling
     ? tiling.tiles().map((t) =>
-      `${t.id}=${t.ref ? `${t.ref.localFolder}\n${t.ref.pane_id}` : ''}`
+      `${t.id}=${
+        t.file
+          ? `${t.file.localFolder}\n${t.file.root}\n${t.file.path}`
+          : t.ref
+          ? `${t.ref.localFolder}\n${t.ref.pane_id}`
+          : ''
+      }`
     ).sort().join(';')
     : '';
   return { tree, signature: `${treeSignature(tree)}|${refs}` };
@@ -921,6 +966,7 @@ function refTitle(ref) {
 }
 
 function layoutTileRow(tile, active, depth) {
+  if (tile.kind === 'file') return layoutFileTileRow(tile, active, depth);
   const { c, pane } = resolveRef(tile.ref);
   return h(
     'div',
@@ -940,6 +986,32 @@ function layoutTileRow(tile, active, depth) {
     h('span', { class: 'label' }, refTitle(tile.ref)),
     rowTrail(
       badge(pane),
+      hoverActions(
+        iconButton('close', 'Close tile', () => tiling?.close(tile.id)),
+      ),
+    ),
+  );
+}
+
+/** A file tile's Layout row: the file's name, its host path as the tooltip. */
+function layoutFileTileRow(tile, active, depth) {
+  return h(
+    'div',
+    {
+      class: active
+        ? 'row layout-node tile'
+        : 'row layout-node tile background',
+      style: `--depth: ${depth}`,
+      'data-tile': tile.id,
+      title: [
+        tile.file ? fileHostPath(tile.file) : '',
+        active ? '' : 'Background tab',
+      ].filter((s) => s).join('\n') || undefined,
+      onclick: () => revealTile(tile.id),
+      oncontextmenu: (e) => openMenu(e, tileMenuItems(tile)),
+    },
+    h('span', { class: 'label' }, fileTileTitle(tile.file)),
+    rowTrail(
       hoverActions(
         iconButton('close', 'Close tile', () => tiling?.close(tile.id)),
       ),
@@ -1047,11 +1119,12 @@ function iconButton(icon, title, action) {
   }, svg);
 }
 
-/** Brings a tile to the front of its stack and focuses its terminal. */
+/** Brings a tile to the front of its stack and focuses its terminal (or file viewer). */
 function revealTile(tileId) {
   tiling?.reveal(tileId);
   focusedTileId = tileId;
   views.get(tileId)?.renderer.focus();
+  fileViews.get(tileId)?.viewer?.focus();
 }
 
 /** Marks the focused tile's Layout row and its pane's Projects row(s). */
@@ -1203,6 +1276,7 @@ function killPaneItem(c, pane) {
 
 /** @param {Tile} tile @returns {[string, () => void, boolean?][]} */
 function tileMenuItems(tile) {
+  if (tile.kind === 'file') return fileTileMenuItems(tile);
   const { c, pane } = resolveRef(tile.ref);
   const items = [];
   if (c && c.state === 'connected') {
@@ -2040,6 +2114,8 @@ function dirMenuItems(fr, path) {
 
 function fileMenuItems(fr, path) {
   return [
+    ['Open', () => openFileTile(fr, path, 'stack')],
+    ['Open to the right', () => openFileTile(fr, path, 'right')],
     ['Open in editor', () => openInEditor(fr, path, 'stack')],
     [
       'Open in editor to the right',
@@ -2059,12 +2135,13 @@ function fileEntryRow(fr, tree, item) {
   const { entry, path } = item;
   const dir = opensAsDir(entry);
   const file = opensAsFile(entry);
-  return treeRow(
-    `${treeId(fr)}\n${path}`,
+  const key = `${treeId(fr)}\n${path}`;
+  const row = treeRow(
+    key,
     item.depth,
     dir ? item.open : undefined,
     {
-      class: 'file-entry',
+      class: file && tiling ? 'file-entry file-drag' : 'file-entry',
       'data-kind': entry.kind,
       'data-dim': isHiddenName(entry.name) || (!dir && !file) || undefined,
       title: [
@@ -2077,7 +2154,7 @@ function fileEntryRow(fr, tree, item) {
       onclick: dir
         ? () => tree.toggle(path)
         : file
-        ? () => openInEditor(fr, path, 'stack')
+        ? () => openFileTile(fr, path, 'stack')
         : undefined,
       oncontextmenu: (e) =>
         openMenu(
@@ -2092,6 +2169,241 @@ function fileEntryRow(fr, tree, item) {
     entry.name,
     entry.kind === 'symlink' ? h('span', { class: 'link-mark' }, '→') : '',
   );
+  return file && tiling ? keptFileRow(key, row, fr, path) : row;
+}
+
+/**
+ * A file row that is a drag source into the layout (a drop opens a file tile there). The first
+ * row made for `key` is kept and brought up to date from `fresh` on each render, so its drag
+ * source lives as long as the row is shown (see {@link paneRows}). Its listeners stay the first
+ * row's: they act on the same root and path, which is what `key` names.
+ *
+ * @param {string} key @param {HTMLElement} fresh @param {FileRoot} fr @param {string} path
+ */
+function keptFileRow(key, fresh, fr, path) {
+  const rec = fileRows.get(key);
+  if (!rec) {
+    const ref = { localFolder: fr.localFolder, root: fr.root, path };
+    fileRows.set(key, {
+      row: fresh,
+      seen: renderGeneration,
+      remove: tiling.dragSource(
+        fresh,
+        () => ({ file: ref }),
+        () => basename(path),
+      ),
+    });
+    return fresh;
+  }
+  rec.seen = renderGeneration;
+  const { row } = rec;
+  for (const { name } of [...row.attributes]) {
+    if (!fresh.hasAttribute(name)) row.removeAttribute(name);
+  }
+  for (const { name, value } of [...fresh.attributes]) {
+    if (row.getAttribute(name) !== value) row.setAttribute(name, value);
+  }
+  row.replaceChildren(...fresh.childNodes);
+  return row;
+}
+
+// ---------------------------------------------------------------------------------------------
+// File tiles: a project file in the viewer (viewer.js), read from the host (`read_file`)
+// ---------------------------------------------------------------------------------------------
+
+/** A file's host path. */
+function fileHostPath(file) {
+  return childPath(file.root, file.path);
+}
+
+/** A file tile's title: the file's name. */
+function fileTileTitle(file) {
+  return file ? basename(file.path) : 'unknown file';
+}
+
+/** The open file tile showing `file`, the most recently focused one if there are several. */
+function tileShowingFile(file) {
+  let best = null;
+  for (const tile of tiling?.tiles() ?? []) {
+    if (!tile.file || !sameFile(tile.file, file)) continue;
+    if (!best || (focusSeq.get(tile.id) ?? 0) > (focusSeq.get(best.id) ?? 0)) {
+      best = tile;
+    }
+  }
+  return best;
+}
+
+/**
+ * Opens a repo file in a file tile: in the focused stack (`'stack'`; a tile already showing the
+ * file is brought forward instead), or split to the right of the focused tile. Works whether or
+ * not the container runs: the server reads the host side of the mount.
+ *
+ * @param {FileRoot} fr @param {string} path @param {'stack' | 'right'} where
+ */
+function openFileTile(fr, path, where) {
+  if (!tiling) return;
+  const file = { localFolder: fr.localFolder, root: fr.root, path };
+  if (where === 'stack') {
+    const shown = tileShowingFile(file);
+    if (shown) {
+      revealTile(shown.id);
+      return;
+    }
+  }
+  const tile = where === 'right'
+    ? tiling.addBeside(targetTile()?.id ?? null, { file }, 'right')
+    : placeInFocusedStack({ file });
+  focusedTileId = tile.id;
+  focusSeq.set(tile.id, ++nextFocusSeq);
+  fileViews.get(tile.id)?.viewer?.focus();
+}
+
+/** A file tile's menu (its tab, its Layout row, and a right-click in it). */
+function fileTileMenuItems(tile) {
+  const items = [];
+  const file = tile.file;
+  const view = fileViews.get(tile.id);
+  if (file) {
+    const fr = { localFolder: file.localFolder, root: file.root };
+    if (view) items.push(['Reload', () => loadFile(view)]);
+    items.push(
+      ['Open in editor', () => openInEditor(fr, file.path, 'stack')],
+      ['Copy path', () => copyPath(fr, file.path)],
+    );
+  }
+  items.push(['Close', () => tiling?.close(tile.id)]);
+  return items;
+}
+
+/** Builds a file tile's view and reads its file. */
+function mountFileTile(tile) {
+  const host = h('div', { class: 'file-view' });
+  const overlay = h('div', { class: 'overlay' });
+  const body = h('div', { class: 'tile-body' }, host, overlay);
+  tile.element.append(body);
+  tile.element.addEventListener('mousedown', () => {
+    focusedTileId = tile.id;
+    focusSeq.set(tile.id, ++nextFocusSeq);
+    tile.focus();
+  }, true);
+  body.addEventListener('contextmenu', (e) => {
+    // The viewer's own text keeps the browser's menu (copy); the margins get the tile's.
+    if (/** @type {HTMLElement} */ (e.target).closest('.cm-content')) return;
+    openMenu(e, tileMenuItems(tile));
+  });
+  // After the factory returns: a title change mid-build would save a half-built layout.
+  queueMicrotask(() => {
+    if (!fileViews.has(tile.id)) return;
+    tile.setTitle(fileTileTitle(tile.file));
+    if (tile.file) tile.setTooltip(fileHostPath(tile.file));
+  });
+  /** @type {FileView} */
+  const view = {
+    tile,
+    host,
+    overlay,
+    viewer: null,
+    state: 'loading',
+    error: '',
+    seq: 0,
+  };
+  fileViews.set(tile.id, view);
+  if (tile.file) loadFile(view);
+  else {
+    view.state = 'error';
+    view.error = 'This tile names no file.';
+  }
+  updateFileOverlay(view);
+  queueMicrotask(updatePlaceholder);
+}
+
+/**
+ * Reads (or re-reads) a file tile's file and shows it. A tile that already shows the file keeps
+ * it, scroll position included, while the new read is on its way. Asked while disconnected, the
+ * read waits for the next `hello`.
+ *
+ * @param {FileView} view
+ */
+async function loadFile(view) {
+  const file = view.tile.file;
+  if (!file) return;
+  const seq = ++view.seq;
+  if (!view.viewer) {
+    view.state = 'loading';
+    updateFileOverlay(view);
+  }
+  if (!socket || socket.readyState !== WebSocket.OPEN) {
+    view.state = 'loading';
+    return;
+  }
+  let result;
+  try {
+    result = await call({
+      type: 'read_file',
+      localFolder: file.localFolder,
+      root: file.root,
+      path: file.path,
+    });
+  } catch (e) {
+    if (seq !== view.seq || !fileViews.has(view.tile.id)) return;
+    view.state = 'error';
+    view.error = String(e?.message ?? e);
+    view.viewer?.destroy();
+    view.viewer = null;
+    updateFileOverlay(view);
+    return;
+  }
+  if (seq !== view.seq || !fileViews.has(view.tile.id)) return;
+  const text = typeof result?.text === 'string' ? result.text : '';
+  if (view.viewer) view.viewer.setText(text);
+  else {
+    view.viewer = createViewer(view.host, {
+      name: basename(file.path),
+      text,
+    });
+  }
+  view.state = 'ok';
+  view.error = '';
+  updateFileOverlay(view);
+}
+
+/** A file tile's overlay: "Loading…", or why the file can't be shown (with "Open in editor"). */
+function updateFileOverlay(view) {
+  let message = '';
+  let action = null;
+  if (view.state === 'loading') message = 'Loading…';
+  else if (view.state === 'error') {
+    message = view.error;
+    const file = view.tile.file;
+    const c = file ? containerByFolder(file.localFolder) : null;
+    if (file && c?.state === 'connected') {
+      action = h('button', {
+        onclick: () =>
+          openInEditor(
+            { localFolder: file.localFolder, root: file.root },
+            file.path,
+            'stack',
+          ),
+      }, 'Open in editor');
+    }
+  }
+  view.overlay.hidden = message === '';
+  view.overlay.replaceChildren(
+    h('div', {}, message),
+    ...(action ? [action] : []),
+  );
+}
+
+/** Tears a file tile's view down. */
+function unmountFileTile(tile) {
+  const view = fileViews.get(tile.id);
+  if (!view) return;
+  view.seq++;
+  view.viewer?.destroy();
+  fileViews.delete(tile.id);
+  focusSeq.delete(tile.id);
+  if (focusedTileId === tile.id) focusedTileId = null;
+  queueMicrotask(updatePlaceholder);
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -2525,7 +2837,10 @@ function openInFocusedTile(c, paneId) {
   if (!tiling) return;
   const ref = { localFolder: c.localFolder, pane_id: paneId };
   let tile = targetTile();
-  if (tile) {
+  if (tile?.kind === 'file') {
+    // A file tile can't show a pane: the pane opens beside it, in its stack.
+    tile = placeInFocusedStack(ref);
+  } else if (tile) {
     closeTilePane(tile.id);
     views.get(tile.id).closedReason = null;
     tile.setRef(ref);
@@ -2577,6 +2892,9 @@ function reconcileTiles() {
       openTilePane(id, c.id, ref.pane_id);
     }
     updateOverlay(id);
+  }
+  for (const view of fileViews.values()) {
+    if (view.state === 'error') updateFileOverlay(view);
   }
   renderTileTitles();
   updatePlaceholder();
@@ -2678,6 +2996,10 @@ function refit(view) {
 
 /** Builds the live view (renderer, overlay, input handlers) inside a new tile. */
 function mountTile(tile) {
+  if (tile.kind === 'file') {
+    mountFileTile(tile);
+    return;
+  }
   const termEl = h('div', { class: 'term' });
   const overlay = h('div', { class: 'overlay' });
   const body = h('div', { class: 'tile-body' }, termEl, overlay);
@@ -2750,6 +3072,10 @@ function mountTile(tile) {
 
 /** Tears a tile's view down; the pane closes on the server with the last tile showing it. */
 function unmountTile(tile) {
+  if (tile.kind === 'file') {
+    unmountFileTile(tile);
+    return;
+  }
   const view = views.get(tile.id);
   if (!view) return;
   closeTilePane(tile.id);

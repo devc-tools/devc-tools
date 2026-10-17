@@ -416,6 +416,26 @@ Deno.test('parseClientMessage: file messages take a root and a path, empty meani
     root: '/src/lib',
     path: 'src/x',
   });
+  ok({
+    type: 'read_file',
+    id: 'r1',
+    localFolder: '/src/app',
+    root: '/src/lib',
+    path: 'src/a.ts',
+  });
+  for (
+    const bad of [
+      { localFolder: 'rel', root: '/a', path: 'x' },
+      { localFolder: '/a', root: 'rel', path: 'x' },
+      { localFolder: '/a', root: '/a', path: '' },
+      { localFolder: '/a', root: '/a' },
+    ]
+  ) {
+    assertEquals(
+      rejected({ type: 'read_file', id: 'r2', ...bad }).code,
+      'bad_request',
+    );
+  }
   ok({ type: 'list_host_dir', id: 'f3', path: '' });
   ok({ type: 'list_host_dir', id: 'f4', path: '/Users/me' });
   ok({

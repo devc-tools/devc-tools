@@ -710,7 +710,8 @@ body.resizing-sidebar {
 }
 
 /* Golden Layout only starts a drag on the registered row itself, not on its children. */
-.row.pane > * {
+.row.pane > *,
+.row.file-drag > * {
   pointer-events: none;
 }
 
@@ -725,6 +726,16 @@ body.resizing-sidebar {
 .term {
   position: absolute;
   inset: 4px;
+}
+
+/* A file tile's viewer (viewer.js): CodeMirror fills it and scrolls inside. */
+.file-view {
+  position: absolute;
+  inset: 0;
+}
+
+.file-view .cm-editor {
+  height: 100%;
 }
 
 .overlay {
