@@ -11,6 +11,14 @@
 
 ### Pending
 
+- [git-protect-live-check](git-protect-live-check.md) — a read-only `.git/config` mount can
+  vanish from a running container when the host rewrites the file (seen on Docker Desktop:
+  VS Code's config writes), leaving the repo's config writable from inside while `devc status`
+  still prints `protected`, because it checks `docker inspect`'s create-time mounts. Read the
+  container's kernel mount table (`/proc/<pid>/mountinfo`) in `gitProtectState`'s callers:
+  `devc status` reports `MISMATCH`, and the bridge refuses grants. Step 0 measures the
+  mechanism on a host first. Surviving the rewrite is left to a later plan.
+
 - [devc-web-projects](devc-web-projects.md) — next up (devc-web-layout-sidebar is done). Projects, not
   just running containers: a `~/.config/devc/projects.json` of pinned and recent projects
   (written by every CLI start path), stopped containers from `docker ps -a`, a `projects`
