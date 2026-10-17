@@ -274,7 +274,7 @@ is published from any container: the host server finds devcontainers with
   (`herdr --session devc server`, detached) and **Retry**.
 - **Menus:** right-click a tile (its tab, or its Layout row) for **Split pane
   vertically** (a new shell to its right), **Split pane horizontally** (below),
-  **New shell in this stack**, **Close** (the tile only) and **Kill pane** (ends
+  **New pane in this stack**, **Close** (the tile only) and **Kill pane** (ends
   the process). Stacks, rows and columns offer a new shell inside them; a
   container or workspace row offers **New shell** in the focused stack; a pane
   row offers **Open in new tile**, **Rename** and **Kill**. A new shell is
@@ -294,7 +294,8 @@ is published from any container: the host server finds devcontainers with
 - **Input:** keys go through as typed. A multi-line paste is sent as one
   bracketed paste, so a shell or agent prompt does not submit each line. Mouse
   clicks and drags go to the app (Herdr encodes them in the app's own mouse
-  mode); **Shift+drag** selects locally and copies. The wheel scrolls the app
+  mode), except a right-click, which opens the tile's menu (the same one as
+  its tab); **Shift+drag** selects locally and copies. The wheel scrolls the app
   when it tracks the mouse, and Herdr's scrollback otherwise.
 - `--port N` picks another port (default 48228); `--session NAME` another Herdr
   session (default `devc`, the one `devc herdr` uses). A port already in use

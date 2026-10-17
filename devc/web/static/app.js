@@ -1014,7 +1014,7 @@ function tileMenuItems(tile) {
           newShell(c, opts, (ref) => tiling.addBeside(tile.id, ref, 'below')),
       ],
       [
-        'New shell in this stack',
+        'New pane in this stack',
         () =>
           newShell(c, opts, (ref) => tiling.addBeside(tile.id, ref, 'stack')),
       ],
@@ -1035,7 +1035,7 @@ function nodeMenuItems(node, tiles) {
   if (origin) {
     const opts = shellOptsNear(origin.c, origin.pane);
     items.push([
-      node.kind === 'stack' ? 'New shell in this stack' : 'New shell at end',
+      node.kind === 'stack' ? 'New pane in this stack' : 'New pane at end',
       () =>
         newShell(
           origin.c,
@@ -1371,14 +1371,15 @@ function closeMenu() {
   $menu.hidden = true;
 }
 
+// Capture phase: a terminal stops its own mousedowns and keys from bubbling.
 document.addEventListener('mousedown', (e) => {
   if (!$menu.hidden && !$menu.contains(/** @type {Node} */ (e.target))) {
     closeMenu();
   }
-});
+}, true);
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') closeMenu();
-});
+}, true);
 
 // ---------------------------------------------------------------------------------------------
 // Layout persistence
@@ -1738,11 +1739,21 @@ async function writeClipboard(text) {
 /**
  * Plain mouse down/drag/up over the terminal go to Herdr as cells (the browser does not
  * select); a plain left-drag is also highlighted here and its text copied from Herdr. Shift+drag
- * is left to xterm.js for a local selection, copied on mouseup.
+ * is left to xterm.js for a local selection, copied on mouseup. A right-click opens the tile's
+ * menu (the same as its tab's) and is not sent to the app.
  */
 function attachMouse(view, termEl, target) {
-  termEl.addEventListener('contextmenu', (ev) => ev.preventDefault());
+  termEl.addEventListener('contextmenu', (ev) => {
+    ev.preventDefault();
+    openMenu(ev, tileMenuItems(view.tile));
+  });
   termEl.addEventListener('mousedown', (ev) => {
+    if (ev.button === 2) {
+      ev.preventDefault();
+      ev.stopPropagation();
+      view.renderer.focus();
+      return;
+    }
     if (ev.shiftKey) {
       const onUp = () => {
         window.removeEventListener('mouseup', onUp, true);

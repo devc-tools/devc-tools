@@ -177,14 +177,14 @@ close(id) {}
 
 ### Menus
 
-| Node                                 | Items                                                                                                               |
-| ------------------------------------ | ------------------------------------------------------------------------------------------------------------------- |
-| Layout: tile (row, or GL tab header) | Split pane vertically · Split pane horizontally · New shell in this stack · Reveal in Projects · Close · Kill pane… |
-| Layout: stack                        | New shell in this stack · Close stack                                                                               |
-| Layout: row / column                 | New shell at end                                                                                                    |
-| Projects: project (container) row    | New shell (goes to the focused tile's stack, or a fresh tile when the layout is empty)                              |
-| Projects: workspace row              | New shell (in that workspace)                                                                                       |
-| Projects: pane row                   | Open in new tile · Show in layout (only when visible) · Rename… · Kill…                                             |
+| Node                                 | Items                                                                                                              |
+| ------------------------------------ | ------------------------------------------------------------------------------------------------------------------ |
+| Layout: tile (row, or GL tab header) | Split pane vertically · Split pane horizontally · New pane in this stack · Reveal in Projects · Close · Kill pane… |
+| Layout: stack                        | New pane in this stack · Close stack                                                                               |
+| Layout: row / column                 | New shell at end                                                                                                   |
+| Projects: project (container) row    | New shell (goes to the focused tile's stack, or a fresh tile when the layout is empty)                             |
+| Projects: workspace row              | New shell (in that workspace)                                                                                      |
+| Projects: pane row                   | Open in new tile · Show in layout (only when visible) · Rename… · Kill…                                            |
 
 - **New shell:** `new_shell`, then place the result with `addBeside(…)` and the ref
   `{localFolder, pane_id}`. The tile appears before the snapshot that lists the pane does. Its
