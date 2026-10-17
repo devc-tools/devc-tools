@@ -1,9 +1,9 @@
 # devc-web-containers-kill-closes
 
-- [ ] Page: the sidebar's Projects section heading reads **Containers**, and "Reveal in Projects" reads "Reveal in Containers"
-- [ ] Page: comments and docs that name the Projects _section_ say Containers (not the `projects` message, nor "Add project…")
-- [ ] Page: Kill pane closes every tile showing the pane once Herdr confirms the kill; a failed kill leaves them and toasts as today
-- [ ] Verify (below) and ask the user to try it in their open tab
+- [x] Page: the sidebar's Projects section heading reads **Containers**, and "Reveal in Projects" reads "Reveal in Containers"
+- [x] Page: comments and docs that name the Projects _section_ say Containers (not the `projects` message, nor "Add project…")
+- [x] Page: Kill pane closes every tile showing the pane once Herdr confirms the kill; a failed kill leaves them and toasts as today
+- [x] Verify (below) and ask the user to try it in their open tab
 
 Two small fixes to the `devc web` sidebar and tiles. Page only (`devc/web/static/app.js`), no
 server or protocol change, so `devc web --live` picks it up.

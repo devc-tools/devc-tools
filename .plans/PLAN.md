@@ -16,12 +16,6 @@
   the source's first window); its tooltip has one row per window (`5h 33%/3h10m`, `7d 18%/6d4h`).
   A 7d window near its limit still turns the item red.
 
-- [devc-web-containers-kill-closes](devc-web-containers-kill-closes.md) — page only, independent
-  of the other devc-web plans. The sidebar's Projects heading becomes **Containers** (every
-  top-level row is a running container or a stopped / not-created one under "Not running"); the
-  `projects` message, Add project… and saved sidebar keys keep their names. Kill pane… closes
-  every tile showing the pane once `pane.close` succeeds, instead of leaving "Pane gone".
-
 - [git-protect-live-check](git-protect-live-check.md) — a read-only `.git/config` mount can
   vanish from a running container when the host rewrites the file (seen on Docker Desktop:
   VS Code's config writes), leaving the repo's config writable from inside while `devc status`
@@ -132,6 +126,20 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
   take it too.
 
 ### Completed
+
+- [devc-web-containers-kill-closes](archived/devc-web-containers-kill-closes.md) — ✅ Done: the
+  sidebar's Projects heading reads **Containers** and the tile menu's item **Reveal in
+  Containers** (`revealInContainers`), with the section's comments and `devc/README.md` to match;
+  the `projects` message, Add project…, Not running and the saved sidebar keys are unchanged.
+  Kill pane… now awaits `pane.close` through `call` and, on success, closes every pane tile
+  showing that pane; on failure it toasts `Close terminal failed: <message>` (today's text) and
+  leaves the tiles. The server's `close` handler was confirmed a no-op for a pane it has no
+  stream for. Validated by `deno task check`, `deno task test` (387 passed), `deno fmt --check`,
+  and headless Chromium with a fake WebSocket: the Containers heading with Add project… on hover
+  and right-click; Reveal in Containers flashing the pane row; Kill from the pane row menu and
+  the tile menu (`ok: true`) closing both tiles showing the pane and keeping the other; the
+  hover trash button with `ok: false` toasting and keeping the tiles; a cancelled `confirm`
+  sending nothing. **Still to be done by the user:** the plan's checks in their open tab.
 
 - [devc-web-terminals-group](archived/devc-web-terminals-group.md) — ✅ Done: every running
   container lists a **Terminals** group first (open by default, the agents' most urgent status

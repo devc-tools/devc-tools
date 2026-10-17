@@ -265,7 +265,7 @@ is published from any container: the host server finds devcontainers with
 - **Sidebar:** two sections. **Layout** mirrors the tiles: rows, columns and
   tab stacks as they nest (a level with a single child is folded away), each
   tile with its pane's agent status; click a tile to bring it forward.
-  **Projects** lists each container with every pane in it, marking the ones a
+  **Containers** lists each container with every pane in it, marking the ones a
   tile shows; a workspace row appears only when there is more than one. Herdr
   tabs don't appear: a pane split in Herdr's own UI is listed like any other.
   Click a container to collapse it; a collapsed one shows its most urgent agent
@@ -277,18 +277,18 @@ is published from any container: the host server finds devcontainers with
   `~/.config/devc/projects.json`; the 20 most recent unpinned ones) and every
   folder you pinned. Hover one for its play button, **Start container** (the same start as `devc attach`,
   with its output under **Show output**); right-click any project for **Stop
-  container**, **Pin**/**Unpin** and **Forget**, and the **+** on the Projects
+  container**, **Pin**/**Unpin** and **Forget**, and the **+** on the Containers
   heading adds a folder. A tile whose project is down offers **Start
   container**.
 - **Menus:** right-click a tile (its tab, or its Layout row) for **Split pane
   vertically** (a new shell to its right), **Split pane horizontally** (below),
   **New pane in this stack**, **Close** (the tile only) and **Kill pane** (ends
-  the process). Stacks, rows and columns offer a new shell inside them; a
+  the process and closes every tile showing it). Stacks, rows and columns offer a new shell inside them; a
   container or workspace row offers **New shell** in the focused stack; a pane
   row offers **Open in new tile**, **Rename** and **Kill**. A new shell is
   always its own Herdr tab, created without moving the focus of a Herdr TUI
   attached to the same session. Hovering a Layout row shows **×** to close its
-  tiles; hovering a pane under Projects shows a trash button to kill it.
+  tiles; hovering a pane under Containers shows a trash button to kill it.
 - **Tiles:** click a pane to show it (bringing its tile forward if one already
   shows it, else opening it in the focused tile; Ctrl/⌘-click always opens a
   new tile), or drag it from the sidebar onto any tile's edge (a new split) or

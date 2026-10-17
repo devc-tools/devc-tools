@@ -1,6 +1,6 @@
 // The `devc web` page: the WebSocket client for `/ws`, the sidebar and the browser-owned tiling
 // area. The sidebar has two sections: Layout, a live mirror of the Golden Layout tree (where things
-// are on screen, and the layout actions), and Projects, every Herdr pane by container (what is
+// are on screen, and the layout actions), and Containers, every Herdr pane by container (what is
 // running, and the process actions). The browser owns all layout: it never splits a Herdr pane or
 // shows a Herdr tab, and each pane it creates gets its own Herdr tab (`new_shell`). The protocol is
 // specified in `.plans/devc-web.md`; renderer details live in `renderer.js`, window management
@@ -881,7 +881,7 @@ function chevron() {
 
 /**
  * The sidebar: the Layout section (the Golden Layout tree, single-child levels folded), then
- * Projects (Container → Terminals → terminal, and Container → Repos → repo → files).
+ * Containers (Container → Terminals → terminal, and Container → Repos → repo → files).
  * Herdr tabs group nothing here: a pane the Herdr TUI split into a shared tab is just another pane.
  * Every running container is listed, Herdr or not; projects without one are listed last, under a
  * collapsed "Not running" group.
@@ -893,7 +893,7 @@ function renderTree() {
   const rows = [
     ...layoutRows(),
     sectionRow(
-      'Projects',
+      'Containers',
       undefined,
       undefined,
       projectStarts
@@ -1180,7 +1180,7 @@ function revealTile(tileId) {
   fileViews.get(tileId)?.viewer?.focus();
 }
 
-/** Marks the focused tile's Layout row and its pane's Projects row(s). */
+/** Marks the focused tile's Layout row and its pane's Containers row(s). */
 function updateCurrent() {
   const tile = targetTile();
   const { c } = resolveRef(tile?.ref ?? null);
@@ -1329,11 +1329,30 @@ function placeInFocusedStack(ref) {
   return tiling.addBeside(tile?.id ?? null, ref, 'stack');
 }
 
-/** Ends a pane's process (and closes its Herdr tab), after asking. */
+/**
+ * Ends a pane's process (and closes its Herdr tab), after asking. Once Herdr confirms, every tile
+ * showing the pane closes too, rather than staying behind with "Pane gone".
+ */
 function killPane(c, pane) {
-  if (confirm(`Close terminal "${paneLabel(c, pane)}"? Its process ends.`)) {
-    request(c.id, 'pane.close', { pane_id: pane.pane_id }, LABELS.closeRequest);
+  if (!confirm(`Close terminal "${paneLabel(c, pane)}"? Its process ends.`)) {
+    return;
   }
+  call({
+    type: 'request',
+    container: c.id,
+    method: 'pane.close',
+    params: { pane_id: pane.pane_id },
+  }).then(
+    () => {
+      // Collected first: each close changes `tiling.tiles()`.
+      const shown = (tiling?.tiles() ?? []).filter((t) =>
+        t.kind !== 'file' && t.ref?.localFolder === c.localFolder &&
+        t.ref.pane_id === pane.pane_id
+      );
+      for (const t of shown) tiling?.close(t.id);
+    },
+    (err) => toast(`${LABELS.closeRequest} failed: ${err.message}`),
+  );
 }
 
 function killPaneItem(c, pane) {
@@ -1366,7 +1385,7 @@ function tileMenuItems(tile) {
     );
   }
   if (c && pane) {
-    items.push(['Reveal in Projects', () => revealInProjects(c, pane)]);
+    items.push(['Reveal in Containers', () => revealInContainers(c, pane)]);
   }
   items.push(['Close', () => tiling?.close(tile.id)]);
   if (c && pane) items.push(killPaneItem(c, pane));
@@ -1415,8 +1434,8 @@ function stackMenu(stackId, e) {
   if (items.length > 0) openMenu(e, items);
 }
 
-/** Expands the pane's container and scrolls its Projects row into view, briefly flashed. */
-function revealInProjects(c, pane) {
+/** Expands the pane's container and scrolls its Containers row into view, briefly flashed. */
+function revealInContainers(c, pane) {
   if (sidebarState.collapsed.delete(c.localFolder)) {
     saveSidebarState();
     renderTree();
@@ -1430,7 +1449,7 @@ function revealInProjects(c, pane) {
 }
 
 // ---------------------------------------------------------------------------------------------
-// Sidebar: Projects section
+// Sidebar: Containers section
 // ---------------------------------------------------------------------------------------------
 
 /** Whether some tile shows the pane. */
