@@ -842,8 +842,10 @@ body.resizing-sidebar {
   box-shadow: inset 0 0 0 1px var(--accent);
 }
 
-/* A file row keeps a chevron's width, so names line up with folders'. */
-.row.tree-row:not([aria-expanded]) > .label > .chevron::before {
+/* A file row keeps a chevron's width, so names line up with folders'; a terminal row too, so it
+   reads as a child of its Terminals row. */
+.row.tree-row:not([aria-expanded]) > .label > .chevron::before,
+.row.pane > .label > .chevron::before {
   content: '';
 }
 

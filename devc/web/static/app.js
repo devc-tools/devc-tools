@@ -881,7 +881,7 @@ function chevron() {
 
 /**
  * The sidebar: the Layout section (the Golden Layout tree, single-child levels folded), then
- * Projects (Container → Workspace → Pane, a workspace row only when its container has several).
+ * Projects (Container → Terminals → terminal, and Container → Repos → repo → files).
  * Herdr tabs group nothing here: a pane the Herdr TUI split into a shared tab is just another pane.
  * Every running container is listed, Herdr or not; projects without one are listed last, under a
  * collapsed "Not running" group.
@@ -1455,15 +1455,6 @@ function tileShowing(c, pane) {
   return best;
 }
 
-function newShellItem(c, workspaceId) {
-  return [LABELS.newTerminal, () =>
-    newShell(
-      c,
-      workspaceId ? { workspace_id: workspaceId } : {},
-      placeInFocusedStack,
-    )];
-}
-
 /** A workspace's panes in Herdr's order: by tab number, then as listed within the tab. */
 function workspacePanes(ws, tabs, panes) {
   const wsTabs = tabs.filter((t) => t.workspace_id === ws.workspace_id)
@@ -1492,13 +1483,7 @@ function containerRows(c) {
         title: c.error ? `${c.localFolder}\n${c.error}` : c.localFolder,
         'aria-expanded': String(!collapsed),
         onclick: () => toggleContainer(c),
-        oncontextmenu: (e) =>
-          openMenu(e, [
-            ...(c.state === 'connected'
-              ? [newShellItem(c, only?.workspace_id)]
-              : []),
-            ...projectMenuItems(c.localFolder),
-          ]),
+        oncontextmenu: (e) => openMenu(e, projectMenuItems(c.localFolder)),
       },
       h(
         'span',
@@ -1520,16 +1505,15 @@ function containerRows(c) {
     ),
   ];
   if (collapsed) return rows;
-  if (c.state === 'connected') {
-    rows.push(...terminalRows(c, workspaces, tabs, panes, only));
-  }
+  rows.push(...terminalRows(c, workspaces, tabs, panes, only));
   rows.push(...repoRows(c.localFolder));
   return rows;
 }
 
 /**
- * A connected container's Terminals row and, while it is open, a row per terminal (Herdr pane)
- * in Herdr's order, space by space. devc web doesn't manage Herdr spaces (workspaces in the
+ * A running container's Terminals row, whatever its Herdr state, and while it is open a row per
+ * terminal (Herdr pane) in Herdr's order, space by space. Its + opens a new terminal at the
+ * project folder, starting Herdr first when the container has no session (`open_tab`). devc web doesn't manage Herdr spaces (workspaces in the
  * API), so they get no rows of their own; with several, a terminal's tooltip names its space.
  */
 function terminalRows(c, workspaces, tabs, panes, only) {
@@ -1542,8 +1526,24 @@ function terminalRows(c, workspaces, tabs, panes, only) {
     { class: 'terminals', onclick: () => toggleTerminals(c.localFolder) },
     LABELS.terminals,
   );
-  // Open, each agent's own badge is right below.
-  if (!open) head.append(rollupBadge(panes));
+  head.append(
+    rowTrail(
+      // Open, each agent's own badge is right below.
+      open ? '' : rollupBadge(panes),
+      hoverActions(
+        iconButton(
+          'plus',
+          LABELS.newTerminal,
+          () =>
+            openHerdrTab(
+              { localFolder: c.localFolder, root: c.localFolder },
+              '',
+              false,
+            ),
+        ),
+      ),
+    ),
+  );
   const rows = [head];
   if (!open) return rows;
   const listed = new Set();
@@ -2810,6 +2810,8 @@ function paneRow(c, pane, depth, space = '') {
     h(
       'span',
       { class: 'label' },
+      // The gap a chevron would take, so terminals line up with the tree rows at their depth.
+      h('span', { class: 'chevron', 'aria-hidden': 'true' }),
       visible ? h('span', { class: 'shown-mark', 'aria-label': 'shown' }) : '',
       paneLabel(c, pane),
     ),

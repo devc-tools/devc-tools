@@ -372,13 +372,15 @@ Browser → server:
     agents share it. `connecting` shows as a muted state.
   - Containers in `no-session`, `no-herdr`, `unsupported` or `error` are still running, so
     they stay in the list with the others, expandable, with their state on the row and no
-    Terminals row. Hovering the row shows **Start Herdr** (`no-session` only) and
+    terminals. Hovering the row shows **Start Herdr** (`no-session` only) and
     **Retry**; the tooltip has the folder and any error message. Projects without a running
     container are listed last under a **Not running (N)** group, collapsed by default (see
     [devc-web-repos-group](archived/devc-web-repos-group.md)).
-  - Under an expanded, connected container, a **Terminals** row comes first: open by
-    default, showing the agents' most urgent status while collapsed (collapsed ones kept as
-    `terminalsClosed`), with "No terminals" when there are none. A **Repos** row follows, on
+  - Under every expanded container, whatever its Herdr state, a **Terminals** row comes
+    first: open by default, showing the agents' most urgent status while collapsed (collapsed
+    ones kept as `terminalsClosed`), with "No terminals" when there are none. Its hover **+**
+    opens a new terminal at the project folder (`open_tab`, so it starts Herdr first on a
+    `no-session` container); the container row's menu no longer has "New terminal". A **Repos** row follows, on
     every container whatever its repo count: collapsed by default, showing the combined
     push/pull mark while collapsed (open ones kept as `reposOpen`). Expanding a repo shows its
     worktrees (repo rows of their own), then its files.
