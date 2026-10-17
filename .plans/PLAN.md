@@ -11,12 +11,6 @@
 
 ### Pending
 
-- [devc-web-preview-tiles](devc-web-preview-tiles.md) — page only. VS Code-style preview
-  tiles: clicking a terminal or file opens it in the focused stack's preview tile (italic tab
-  title), replacing that tile's content on the next click instead of the tile you were working
-  in. Double-clicking the tab or sidebar row, typing into it, dragging it, or "Keep open" pins
-  it. Saved with the layout.
-
 - [git-protect-live-check](git-protect-live-check.md) — a read-only `.git/config` mount can
   vanish from a running container when the host rewrites the file (seen on Docker Desktop:
   VS Code's config writes), leaving the repo's config writable from inside while `devc status`
@@ -127,6 +121,20 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
   take it too.
 
 ### Completed
+
+- [devc-web-preview-tiles](archived/devc-web-preview-tiles.md) — ✅ Done: VS Code-style preview
+  tiles. A click on a terminal or file no tile shows opens it in the focused stack's preview
+  tile (italic tab title and Layout row), switching a terminal in place or swapping the tile
+  (`tiling.replace`) when the kind changes, else a new preview tile in that stack.
+  Double-clicking the tab or sidebar row, typing or pasting, dragging (`itemDropped`) or **Keep
+  open** pins it; Ctrl/Cmd-click and menu items that name a place open pinned tiles.
+  `preview: true` rides in the component state (`tileContent`, `previewFromState`), so it
+  survives a reload. Validated by `deno task check`, `deno task test` (`previewFromState`,
+  `tileContent` with the flag) and `deno fmt --check`, and in a headless page with a fake
+  WebSocket: pinned A, click B (italic second tab), click C (replaces B), double-click the tab
+  (upright), click D (new italic), type into D (upright), a file preview replaced by a terminal
+  preview and back, the italic Layout row, and previews surviving a reload. **Not verified:**
+  pinning by drag and by the Keep open item, and anything in the user's tab.
 
 - [devc-web-terminal-agents](archived/devc-web-terminal-agents.md) — ✅ Done: the Terminals
   row's **+** opens a menu (Terminal, Claude, Copilot, Pi, OpenCode). `open_tab` gained an
