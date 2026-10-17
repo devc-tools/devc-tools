@@ -14,8 +14,8 @@ which terminal runs which agent. Today the Terminals row's **+** opens a plain s
 only through its badge's tooltip.
 
 Read `/workspaces/devc-dev/.claude/skills/devc-web/SKILL.md` first. Builds on
-[devc-web-open-tab-here](archived/devc-web-open-tab-here.md) and
-[devc-web-terminals-group](archived/devc-web-terminals-group.md). The server half is a protocol
+[devc-web-open-tab-here](devc-web-open-tab-here.md) and
+[devc-web-terminals-group](devc-web-terminals-group.md). The server half is a protocol
 change, so it needs `devc web --live-yolo` (or an updated `devc`). Save the server side first.
 
 ```

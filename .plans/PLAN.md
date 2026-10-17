@@ -11,13 +11,6 @@
 
 ### Pending
 
-- [devc-web-terminal-agents](devc-web-terminal-agents.md) — the Terminals row's **+** opens a
-  menu: Terminal, Claude, Copilot, Pi, OpenCode. `open_tab` gains `agent` (a server-side id →
-  command table; checks the command is installed, then runs it in a new tab without `exec`).
-  Terminal rows get an icon: the agent's real mark (Lobe Icons 1.95.1, MIT, monochrome,
-  `currentColor`) or a terminal glyph for a shell. Layout section tile rows get the same
-  icons (a file glyph for file tiles).
-
 - [git-protect-live-check](git-protect-live-check.md) — a read-only `.git/config` mount can
   vanish from a running container when the host rewrites the file (seen on Docker Desktop:
   VS Code's config writes), leaving the repo's config writable from inside while `devc status`
@@ -128,6 +121,22 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
   take it too.
 
 ### Completed
+
+- [devc-web-terminal-agents](archived/devc-web-terminal-agents.md) — ✅ Done: the Terminals
+  row's **+** opens a menu (Terminal, Claude, Copilot, Pi, OpenCode). `open_tab` gained an
+  optional `agent` id: the server maps it to a command through `AGENT_COMMANDS`
+  (`web/agents.ts`), refuses with `not_installed` when `command -v` fails in a login shell (no
+  tab made), else creates the tab and types the command without `exec`. Terminal rows and
+  terminal tiles' Layout rows lead with an icon: the agent's own mark (Lobe Icons 1.95.1, MIT,
+  vendored in `static/vendor/agent-icons/`, path data inlined in `static/lib/agent_icons.js`
+  because the server doesn't serve `.svg`; a test keeps them identical), a generic agent glyph,
+  or a terminal glyph; file tiles get a file glyph. Validated by `deno check main.ts`,
+  `deno task check`, `deno task test` (agent ids, the `open_tab` parser, `commandInstalled`'s
+  argv and failure, icon kinds, marks vs files) and `deno fmt --check`, and in a headless page
+  with a fake WebSocket: each agent's icon on its row and in Layout, the file glyph, the menu's
+  five items under the +, and Claude sending `open_tab` with `agent: 'claude'`. **Not
+  verified:** an agent actually starting in a real container, the `not_installed` toast end to
+  end, and the icons in the user's tab.
 
 - [devc-web-usage-5h](archived/devc-web-usage-5h.md) — ✅ Done: the host status strip's usage
   item shows only the 5h window (picked by its `5h` label, else the source's first window) as
