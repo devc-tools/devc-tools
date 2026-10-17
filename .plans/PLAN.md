@@ -17,6 +17,14 @@
   `localStorage` persistence. One module (`layout.js`) is the only Golden Layout importer;
   server, protocol and renderer are unchanged apart from a `.png` content type.
 
+- [devc-web-live](devc-web-live.md) — **after devc-web-golden-layout.** `devc web --source DIR`
+  (or `DEVC_WEB_SOURCE`) serves a devc-tools checkout live: page edits reload the open tab (CSS
+  swaps in place), server `.ts` edits restart a supervised `deno run` child after a
+  `deno check` gate, and a crash falls back to the built-in server. The token persists in
+  `~/.config/devc/web-token` (`--new-token` rotates it), so the URL survives restarts. Safety
+  nets for a UI that edits itself: a `boot.js` error overlay and a last-good snapshot at
+  `/safe/`. Protocol gains `hello`, `static_changed` and `client_ready`.
+
 - [devc-web](devc-web.md) — `devc web`: a loopback-only (127.0.0.1, token + Host/Origin
   checked) web UI for the Herdr sessions running inside devcontainers. The host server
   discovers containers via `docker ps` + `docker events`, reaches each Herdr through
