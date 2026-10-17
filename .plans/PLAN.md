@@ -11,6 +11,12 @@
 
 ### Pending
 
+- [devc-web-preview-tiles](devc-web-preview-tiles.md) — page only. VS Code-style preview
+  tiles: clicking a terminal or file opens it in the focused stack's preview tile (italic tab
+  title), replacing that tile's content on the next click instead of the tile you were working
+  in. Double-clicking the tab or sidebar row, typing into it, dragging it, or "Keep open" pins
+  it. Saved with the layout.
+
 - [git-protect-live-check](git-protect-live-check.md) — a read-only `.git/config` mount can
   vanish from a running container when the host rewrites the file (seen on Docker Desktop:
   VS Code's config writes), leaving the repo's config writable from inside while `devc status`
