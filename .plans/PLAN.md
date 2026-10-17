@@ -11,6 +11,12 @@
 
 ### Pending
 
+- [devc-web-containers-kill-closes](devc-web-containers-kill-closes.md) — page only, independent
+  of the other devc-web plans. The sidebar's Projects heading becomes **Containers** (every
+  top-level row is a running container or a stopped / not-created one under "Not running"); the
+  `projects` message, Add project… and saved sidebar keys keep their names. Kill pane… closes
+  every tile showing the pane once `pane.close` succeeds, instead of leaving "Pane gone".
+
 - [git-protect-live-check](git-protect-live-check.md) — a read-only `.git/config` mount can
   vanish from a running container when the host rewrites the file (seen on Docker Desktop:
   VS Code's config writes), leaving the repo's config writable from inside while `devc status`
