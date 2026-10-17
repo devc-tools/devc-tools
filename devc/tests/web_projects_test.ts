@@ -1,5 +1,9 @@
 import { assertEquals } from 'jsr:@std/assert';
-import { buildProjects, projectRefusal } from '../web/projects_view.ts';
+import {
+  buildProjects,
+  isProjectRepo,
+  projectRefusal,
+} from '../web/projects_view.ts';
 
 Deno.test('buildProjects merges the list with running and stopped containers', () => {
   const views = buildProjects(
@@ -108,4 +112,30 @@ Deno.test('projectRefusal: with starts off, nothing starts, adds or pins', () =>
   for (const type of ['stop_project', 'forget_project', 'list_dir']) {
     assertEquals(projectRefusal({ type }, false), null);
   }
+});
+
+Deno.test("isProjectRepo: only a listed project's own repo folders are roots", () => {
+  const views = buildProjects(
+    [],
+    ['/src/api'],
+    ['/src/web'],
+    new Set(),
+    new Map([['/src/api', [
+      { folder: '/src/api', worktreeOf: null },
+      { folder: '/src/shared-lib', worktreeOf: null },
+      { folder: '/src/api.worktrees/fix', worktreeOf: '/src/api' },
+    ]]]),
+  );
+  assertEquals(isProjectRepo(views, '/src/api', '/src/api'), true);
+  assertEquals(isProjectRepo(views, '/src/api', '/src/shared-lib'), true);
+  assertEquals(
+    isProjectRepo(views, '/src/api', '/src/api.worktrees/fix'),
+    true,
+  );
+  assertEquals(isProjectRepo(views, '/src/web', '/src/web'), true);
+  // Another project's folder, a folder no project has, a project not listed.
+  assertEquals(isProjectRepo(views, '/src/api', '/src/web'), false);
+  assertEquals(isProjectRepo(views, '/src/web', '/src/shared-lib'), false);
+  assertEquals(isProjectRepo(views, '/src/api', '/etc'), false);
+  assertEquals(isProjectRepo(views, '/src/nope', '/src/nope'), false);
 });

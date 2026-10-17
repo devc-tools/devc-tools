@@ -52,7 +52,11 @@ import {
   updateProjects,
 } from '../projects.ts';
 import { startProject, stopProject } from './project_control.ts';
-import { buildProjects, projectRefusal } from './projects_view.ts';
+import {
+  buildProjects,
+  isProjectRepo,
+  projectRefusal,
+} from './projects_view.ts';
 import { GitStatusWatch } from './git_status.ts';
 import {
   bridgeStatePaths,
@@ -504,11 +508,14 @@ export async function startWeb(
         });
         return;
       }
+      if (
+        !isProjectRepo(projectsMessage().projects, msg.localFolder, msg.root)
+      ) {
+        reject(c, { id: msg.id, code: 'bad_request', message: 'unknown repo' });
+        return;
+      }
       try {
-        const { path, ...listing } = await listProjectDir(
-          msg.localFolder,
-          msg.path,
-        );
+        const { path, ...listing } = await listProjectDir(msg.root, msg.path);
         // Where the directory is in its running container, for new shells and copied paths.
         const session = [...sessions.values()].find((s) =>
           s.record.localFolder === msg.localFolder
@@ -545,8 +552,9 @@ export async function startWeb(
   };
 
   /**
-   * Opens a project file in a new pane running the container's editor. `path` is relative to the
-   * container's folder and confined to it; the editor gets the file's container path.
+   * Opens a project file in a new pane running the container's editor. `path` is relative to
+   * `root`, one of the repo folders of the container's project, and confined to it; the editor
+   * gets the file's container path.
    */
   const openFile = async (
     c: Client,
@@ -554,9 +562,14 @@ export async function startWeb(
     target: HerdrTarget,
     msg: Extract<ClientMessage, { type: 'open_file' }>,
   ) => {
+    const projects = projectsMessage().projects;
+    if (!isProjectRepo(projects, session.record.localFolder, msg.root)) {
+      fail(c, msg.id, 'bad_request', 'unknown repo');
+      return;
+    }
     let hostPath: string | null;
     try {
-      hostPath = await confine(session.record.localFolder, msg.path);
+      hostPath = await confine(msg.root, msg.path);
     } catch {
       fail(c, msg.id, 'not_found', `${msg.path} does not exist`);
       return;

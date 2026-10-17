@@ -113,6 +113,29 @@ Deno.test('listProjectDir lists, describes and confines', async () => {
   }
 });
 
+Deno.test('listProjectDir lists a sibling repo root and confines paths to it', async () => {
+  const { base } = await fixture();
+  try {
+    const lib = join(base, 'lib');
+    await Deno.mkdir(join(lib, 'pkg'), { recursive: true });
+    await Deno.writeTextFile(join(lib, 'pkg', 'b.ts'), 'y');
+    const { path, entries } = await listProjectDir(lib, 'pkg');
+    assertEquals(path, join(lib, 'pkg'));
+    assertEquals(entries, [{ name: 'b.ts', kind: 'file', size: 1 }]);
+    for (const rel of ['../project', '../outside', 'pkg/../../outside']) {
+      const err = await assertRejects(
+        () => listProjectDir(lib, rel),
+        FilesError,
+      );
+      assertEquals(err.code, 'forbidden');
+    }
+    assertEquals(await confine(lib, '../project/README.md'), null);
+    assertEquals(await confine(lib, 'pkg/b.ts'), join(lib, 'pkg/b.ts'));
+  } finally {
+    await Deno.remove(base, { recursive: true });
+  }
+});
+
 Deno.test('pickerRoots keeps existing code roots, else home', async () => {
   const { base, project } = await fixture();
   try {

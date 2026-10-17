@@ -77,15 +77,30 @@ export function paneLabel(c, pane) {
 /**
  * A folder's push/pull marks from its `git` field (see the `projects` message): `ahead` (↑N,
  * to push), `behind` (↓N, to pull) or `gone` (the upstream was deleted), with a tooltip naming
- * the branch. `null` when there is nothing to show: no repo, no upstream, or in sync.
+ * the branch. A branch level with its upstream gets a quiet `synced` mark (✓), and one with no
+ * upstream a `local` mark (•). `null` only when there is no repo (or a detached HEAD, or no
+ * status read yet).
  */
 export function gitSync(git) {
-  if (!git?.upstream) return null;
+  if (!git) return null;
+  if (!git.upstream) {
+    return {
+      marks: [{ dir: 'local', text: '•' }],
+      diverged: false,
+      title: `${git.branch}: no upstream`,
+    };
+  }
   const marks = [];
   if (git.ahead > 0) marks.push({ dir: 'ahead', text: `↑${git.ahead}` });
   if (git.behind > 0) marks.push({ dir: 'behind', text: `↓${git.behind}` });
   if (git.gone) marks.push({ dir: 'gone', text: 'gone' });
-  if (marks.length === 0) return null;
+  if (marks.length === 0) {
+    return {
+      marks: [{ dir: 'synced', text: '✓' }],
+      diverged: false,
+      title: `${git.branch} → ${git.upstream}: in sync (as of the last fetch)`,
+    };
+  }
   const counts = [
     git.ahead > 0 ? `${git.ahead} to push` : '',
     git.behind > 0 ? `${git.behind} to pull` : '',
@@ -100,16 +115,31 @@ export function gitSync(git) {
   };
 }
 
+/** Mark `dir`s that mean "nothing to push or pull". */
+const QUIET_DIRS = ['synced', 'local'];
+
 /**
- * One mark for several repos (a collapsed container's, say): their ↑ and ↓ counts summed, with
- * every repo that has any listed in the tooltip. `null` when all are in sync.
+ * One mark for several repos (a collapsed container's, say). When any repo has something to
+ * push or pull (or a deleted upstream): their ↑ and ↓ counts summed, with every such repo listed
+ * in the tooltip. Otherwise a quiet ✓ listing every repo's own tooltip. `null` when none of
+ * `repos` is a repo.
  */
 export function gitRollup(repos) {
-  const synced = [...repos].map((r) => ({ name: r.name, sync: gitSync(r.git) }))
+  const all = [...repos].map((r) => ({ name: r.name, sync: gitSync(r.git) }))
     .filter((r) => r.sync);
-  if (synced.length === 0) return null;
+  if (all.length === 0) return null;
+  const busy = all.filter((r) =>
+    r.sync.marks.some((m) => !QUIET_DIRS.includes(m.dir))
+  );
+  if (busy.length === 0) {
+    return {
+      marks: [{ dir: 'synced', text: '✓' }],
+      diverged: false,
+      title: all.map((r) => `${r.name}: ${r.sync.title}`).join('\n'),
+    };
+  }
   const sum = (dir) =>
-    synced.reduce((n, r) => {
+    busy.reduce((n, r) => {
       const m = r.sync.marks.find((x) => x.dir === dir);
       return n + (m ? Number(m.text.slice(1)) : 0);
     }, 0);
@@ -121,8 +151,8 @@ export function gitRollup(repos) {
   if (marks.length === 0) marks.push({ dir: 'gone', text: 'gone' });
   return {
     marks,
-    diverged: synced.some((r) => r.sync.diverged),
-    title: synced.map((r) => `${r.name}: ${r.sync.title}`).join('\n'),
+    diverged: busy.some((r) => r.sync.diverged),
+    title: busy.map((r) => `${r.name}: ${r.sync.title}`).join('\n'),
   };
 }
 

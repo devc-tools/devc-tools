@@ -323,7 +323,7 @@ function onHello(msg) {
   // write to): hide what would only be refused. A server that doesn't say allows them.
   projectStarts = msg.projectStarts !== false;
   // Listings asked for while disconnected never got an answer.
-  for (const tree of fileTrees.values()) tree.refresh('');
+  for (const { tree } of fileTrees.values()) tree.refresh('');
   for (const top of picker?.tops ?? []) picker?.tree.refresh(top);
   if (bootGeneration === null) {
     bootGeneration = msg.generation;
@@ -652,8 +652,8 @@ const STATE_TEXT = {
 
 /**
  * Collapsed containers (by local folder), whether "Not running" is open, which of its projects
- * are expanded, each project's open Files folders, and the sidebar's own width and hidden state,
- * per browser.
+ * are expanded, each repo's open folders, and the sidebar's own width and hidden state, per
+ * browser.
  */
 const sidebarState = loadSidebarState();
 
@@ -674,8 +674,8 @@ function loadSidebarState() {
         ? saved.projectsOpen.filter((f) => typeof f === 'string')
         : [],
     ),
-    /** @type {Record<string, string[]>} project folder → open paths ('' is the Files node) */
-    filesOpen: savedFilesOpen(saved?.filesOpen),
+    /** @type {Record<string, string[]>} repo folder (file root) → open paths ('' is the root) */
+    filesOpen: savedFilesOpen(saved?.rootsOpen),
     layoutOpen: saved?.layoutOpen !== false,
     width: Number.isFinite(saved?.width) ? saved.width : SIDEBAR_DEFAULT_WIDTH,
     hidden: saved?.hidden === true,
@@ -702,7 +702,8 @@ function saveSidebarState() {
         collapsed: [...sidebarState.collapsed],
         inactiveOpen: sidebarState.inactiveOpen,
         projectsOpen: [...sidebarState.projectsOpen],
-        filesOpen: sidebarState.filesOpen,
+        // Not `filesOpen`: entries saved under that name were keyed by project, not by repo.
+        rootsOpen: sidebarState.filesOpen,
         layoutOpen: sidebarState.layoutOpen,
         width: sidebarState.width,
         hidden: sidebarState.hidden,
@@ -1376,7 +1377,7 @@ function containerRows(c) {
     ),
   ];
   if (collapsed) return rows;
-  rows.push(...repoRows(c.localFolder), ...filesRows(c.localFolder, 1));
+  rows.push(...repoRows(c.localFolder));
   const listed = new Set();
   for (const ws of workspaces) {
     let depth = 1;
@@ -1480,7 +1481,11 @@ function inactiveRows(inactive, idle) {
   for (const p of idle) {
     rows.push(projectRow(p));
     if (sidebarState.projectsOpen.has(p.localFolder)) {
-      rows.push(...filesRows(p.localFolder, 2));
+      // Just its own folder: its files go straight under the project row.
+      const fr = { localFolder: p.localFolder, root: p.localFolder };
+      const tree = fileTree(fr);
+      if (!tree.isOpen('')) tree.expand('');
+      rows.push(...rootEntryRows(fr, 2));
     }
   }
   return rows;
@@ -1505,7 +1510,7 @@ function pinMark(project) {
   return mark;
 }
 
-/** ↑ push / ↓ pull counts from `gitSync` or `gitRollup`; nothing when in sync. */
+/** ↑ push / ↓ pull counts, or a quiet ✓ / •, from `gitSync` or `gitRollup`; nothing for no repo. */
 function gitMark(sync) {
   if (!sync) return '';
   return h(
@@ -1526,20 +1531,33 @@ function projectRepos(localFolder) {
 
 /**
  * An expanded container's repo rows, above its workspaces: every repo it mounts, worktrees
- * under their repo. A folder that turned out to be no repo (`git: null`) gets no row.
+ * under their repo, each a file root followed by its open files. The project folder always gets
+ * a row; a later folder that turned out to be no repo (`git: null`) gets none.
  */
 function repoRows(localFolder) {
-  return projectRepos(localFolder).filter((r) => r.git !== null).map((r) =>
-    h(
-      'div',
-      {
-        class: 'row repo',
-        style: `--depth: ${r.worktreeOf ? 2 : 1}`,
-        title: r.folder,
-      },
-      h('span', { class: 'label' }, r.name, gitMark(gitSync(r.git))),
-    )
-  );
+  return projectRepos(localFolder).filter((r, i) => i === 0 || r.git !== null)
+    .flatMap((r) => {
+      const fr = { localFolder, root: r.folder };
+      const tree = fileTree(fr);
+      const depth = r.worktreeOf ? 2 : 1;
+      const rows = [
+        treeRow(
+          `${treeId(fr)}\n`,
+          depth,
+          tree.isOpen(''),
+          {
+            class: 'repo',
+            title: r.folder,
+            onclick: () => tree.toggle(''),
+            oncontextmenu: (e) => openMenu(e, dirMenuItems(fr, '')),
+          },
+          r.name,
+          gitMark(gitSync(r.git)),
+        ),
+      ];
+      if (tree.isOpen('')) rows.push(...rootEntryRows(fr, depth + 1));
+      return rows;
+    });
 }
 
 const PROJECT_STATE_TEXT = {
@@ -1548,7 +1566,7 @@ const PROJECT_STATE_TEXT = {
   missing: 'not created',
 };
 
-/** Expands or collapses a project under "Not running", which shows its Files node. */
+/** Expands or collapses a project under "Not running", which shows its folder's files. */
 function toggleProject(localFolder) {
   if (!sidebarState.projectsOpen.delete(localFolder)) {
     sidebarState.projectsOpen.add(localFolder);
@@ -1569,7 +1587,14 @@ function projectRow(p) {
       'aria-expanded': String(sidebarState.projectsOpen.has(p.localFolder)),
       title: [p.localFolder, output.at(-1) ?? ''].filter((s) => s).join('\n'),
       onclick: () => toggleProject(p.localFolder),
-      oncontextmenu: (e) => openMenu(e, projectMenuItems(p.localFolder)),
+      oncontextmenu: (e) =>
+        openMenu(e, [
+          ...projectMenuItems(p.localFolder),
+          ...dirMenuItems(
+            { localFolder: p.localFolder, root: p.localFolder },
+            '',
+          ),
+        ]),
     },
     h(
       'span',
@@ -1720,7 +1745,7 @@ function closeOutput() {
 }
 
 // ---------------------------------------------------------------------------------------------
-// Directory trees: shared by the Files node and the folder picker
+// Directory trees: shared by the repo file trees and the folder picker
 // ---------------------------------------------------------------------------------------------
 
 /** Sends `msg` with a fresh id; resolves with its `result`, rejects with its error. */
@@ -1881,33 +1906,51 @@ $tree.addEventListener('keydown', (e) =>
 // Sidebar: project files
 // ---------------------------------------------------------------------------------------------
 
-/** Each project's Files tree, by local folder: made when its row is first drawn. */
+/**
+ * A file root: `root` is one of the repo folders (`repos[].folder`) of the project at
+ * `localFolder`. Paths in a tree are relative to `root`; `localFolder` finds the container.
+ *
+ * @typedef {{localFolder: string, root: string}} FileRoot
+ */
+
+/** A file root's key: a repo mounted by two projects has a tree in each (container paths differ). */
+function treeId(fr) {
+  return `${fr.localFolder}\n${fr.root}`;
+}
+
+/** Each file root's tree, by {@link treeId}: made when its row is first drawn. */
 const fileTrees = new Map();
 /** Saved open folders of each tree still listing after a reload: one that fails is dropped. */
 const restoringFiles = new Map();
 /** The container each tree was last listed for, so a container start lists it again. */
 const filesListedFor = new Map();
 
-/** @returns {ReturnType<typeof createDirTree>} */
-function fileTree(localFolder) {
-  let tree = fileTrees.get(localFolder);
-  if (tree) return tree;
-  tree = createDirTree({
-    list: (path) => call({ type: 'list_dir', localFolder, path }),
-    onChange: () => onFilesChange(localFolder),
+/**
+ * @param {FileRoot} fr
+ * @returns {ReturnType<typeof createDirTree>}
+ */
+function fileTree(fr) {
+  const id = treeId(fr);
+  const entry = fileTrees.get(id);
+  if (entry) return entry.tree;
+  const { localFolder, root } = fr;
+  const tree = createDirTree({
+    list: (path) => call({ type: 'list_dir', localFolder, root, path }),
+    onChange: () => onFilesChange(fr),
   });
-  fileTrees.set(localFolder, tree);
-  filesListedFor.set(localFolder, containerByFolder(localFolder)?.id ?? null);
-  const saved = byDepth(sidebarState.filesOpen[localFolder] ?? []);
-  restoringFiles.set(localFolder, new Set(saved));
+  fileTrees.set(id, { fr: { localFolder, root }, tree });
+  filesListedFor.set(id, containerByFolder(localFolder)?.id ?? null);
+  const saved = byDepth(sidebarState.filesOpen[root] ?? []);
+  restoringFiles.set(id, new Set(saved));
   for (const p of saved) tree.expand(p);
   return tree;
 }
 
-function onFilesChange(localFolder) {
-  const tree = fileTrees.get(localFolder);
+function onFilesChange(fr) {
+  const id = treeId(fr);
+  const tree = fileTrees.get(id)?.tree;
   if (!tree) return;
-  const restoring = restoringFiles.get(localFolder);
+  const restoring = restoringFiles.get(id);
   for (const p of [...(restoring ?? [])]) {
     const state = tree.listing(p)?.state;
     if (state === 'loading') continue;
@@ -1915,8 +1958,8 @@ function onFilesChange(localFolder) {
     if (state !== 'ok' && tree.isOpen(p)) tree.collapse(p);
   }
   const open = tree.openPaths();
-  if (open.length) sidebarState.filesOpen[localFolder] = open;
-  else delete sidebarState.filesOpen[localFolder];
+  if (open.length) sidebarState.filesOpen[fr.root] = open;
+  else delete sidebarState.filesOpen[fr.root];
   saveSidebarState();
   queueRender();
 }
@@ -1926,18 +1969,18 @@ function onFilesChange(localFolder) {
  * folder is in the container, which only a running one knows.
  */
 function relistForContainers() {
-  for (const [localFolder, tree] of fileTrees) {
-    const id = containerByFolder(localFolder)?.id ?? null;
-    if (filesListedFor.get(localFolder) === id) continue;
-    filesListedFor.set(localFolder, id);
+  for (const [id, { fr, tree }] of fileTrees) {
+    const cid = containerByFolder(fr.localFolder)?.id ?? null;
+    if (filesListedFor.get(id) === cid) continue;
+    filesListedFor.set(id, cid);
     tree.refresh('');
   }
 }
 
 /** `path`'s container path, from the nearest listed folder at or above it; null if none knows. */
-function containerPathOf(localFolder, path) {
-  if (!containerByFolder(localFolder)) return null;
-  const tree = fileTree(localFolder);
+function containerPathOf(fr, path) {
+  if (!containerByFolder(fr.localFolder)) return null;
+  const tree = fileTree(fr);
   const parts = path === '' ? [] : path.split('/');
   for (let n = parts.length; n >= 0; n--) {
     const l = tree.listing(parts.slice(0, n).join('/'));
@@ -1948,19 +1991,19 @@ function containerPathOf(localFolder, path) {
   return null;
 }
 
-/** Copies a project path: where the running container sees it, else the host path. */
-function copyPath(localFolder, path) {
-  const text = containerPathOf(localFolder, path) ??
-    (path === '' ? localFolder : childPath(localFolder, path));
+/** Copies a repo path: where the running container sees it, else the host path. */
+function copyPath(fr, path) {
+  const text = containerPathOf(fr, path) ??
+    (path === '' ? fr.root : childPath(fr.root, path));
   navigator.clipboard?.writeText(text).then(
     () => toast(`Copied ${text}`),
     (e) => toast(`Copy failed: ${e?.message ?? e}`),
   );
 }
 
-/** Opens a project file in a new pane running the container's editor. */
-function openInEditor(localFolder, path, where) {
-  const c = containerByFolder(localFolder);
+/** Opens a repo file in a new pane running the container's editor. */
+function openInEditor(fr, path, where) {
+  const c = containerByFolder(fr.localFolder);
   if (!c || c.state !== 'connected' || !tiling) {
     toast(
       c ? 'Start Herdr in this container first' : 'Start the container first',
@@ -1969,7 +2012,7 @@ function openInEditor(localFolder, path, where) {
   }
   createPane(
     c,
-    { type: 'open_file', path },
+    { type: 'open_file', root: fr.root, path },
     where === 'right'
       ? (ref) => tiling.addBeside(targetTile()?.id ?? null, ref, 'right')
       : placeInFocusedStack,
@@ -1977,10 +2020,10 @@ function openInEditor(localFolder, path, where) {
   );
 }
 
-/** A folder's menu: the Files node itself (`path` '') or a directory under it. */
-function dirMenuItems(localFolder, path) {
-  const c = containerByFolder(localFolder);
-  const cwd = containerPathOf(localFolder, path);
+/** A folder's menu: the root itself (`path` '', its repo row) or a directory under it. */
+function dirMenuItems(fr, path) {
+  const c = containerByFolder(fr.localFolder);
+  const cwd = containerPathOf(fr, path);
   const items = [];
   if (c?.state === 'connected' && cwd) {
     items.push([
@@ -1989,59 +2032,35 @@ function dirMenuItems(localFolder, path) {
     ]);
   }
   items.push(
-    ['Refresh', () => fileTree(localFolder).refresh(path)],
-    ['Copy path', () => copyPath(localFolder, path)],
+    ['Refresh', () => fileTree(fr).refresh(path)],
+    ['Copy path', () => copyPath(fr, path)],
   );
   return items;
 }
 
-function fileMenuItems(localFolder, path) {
+function fileMenuItems(fr, path) {
   return [
-    ['Open in editor', () => openInEditor(localFolder, path, 'stack')],
+    ['Open in editor', () => openInEditor(fr, path, 'stack')],
     [
       'Open in editor to the right',
-      () => openInEditor(localFolder, path, 'right'),
+      () => openInEditor(fr, path, 'right'),
     ],
-    ['Copy path', () => copyPath(localFolder, path)],
+    ['Copy path', () => copyPath(fr, path)],
   ];
 }
 
-/** A project's Files node and, while it is open, the folders and files under it. */
-function filesRows(localFolder, depth) {
-  const tree = fileTree(localFolder);
-  const rows = [
-    treeRow(
-      `${localFolder}\n`,
-      depth,
-      tree.isOpen(''),
-      {
-        class: 'files',
-        title: localFolder,
-        onclick: () => tree.toggle(''),
-        oncontextmenu: (e) => openMenu(e, dirMenuItems(localFolder, '')),
-      },
-      'Files',
-    ),
-  ];
-  if (tree.isOpen('')) {
-    rows.push(
-      ...treeRows(
-        tree,
-        '',
-        depth + 1,
-        (item) => fileEntryRow(localFolder, tree, item),
-      ),
-    );
-  }
-  return rows;
+/** The folders and files of an open root, at `depth`. */
+function rootEntryRows(fr, depth) {
+  const tree = fileTree(fr);
+  return treeRows(tree, '', depth, (item) => fileEntryRow(fr, tree, item));
 }
 
-function fileEntryRow(localFolder, tree, item) {
+function fileEntryRow(fr, tree, item) {
   const { entry, path } = item;
   const dir = opensAsDir(entry);
   const file = opensAsFile(entry);
   return treeRow(
-    `${localFolder}\n${path}`,
+    `${treeId(fr)}\n${path}`,
     item.depth,
     dir ? item.open : undefined,
     {
@@ -2049,7 +2068,7 @@ function fileEntryRow(localFolder, tree, item) {
       'data-kind': entry.kind,
       'data-dim': isHiddenName(entry.name) || (!dir && !file) || undefined,
       title: [
-        childPath(localFolder, path),
+        childPath(fr.root, path),
         entry.size !== undefined ? formatSize(entry.size) : '',
         entry.kind === 'symlink'
           ? entry.to ? 'Symbolic link' : 'Broken symbolic link'
@@ -2058,16 +2077,16 @@ function fileEntryRow(localFolder, tree, item) {
       onclick: dir
         ? () => tree.toggle(path)
         : file
-        ? () => openInEditor(localFolder, path, 'stack')
+        ? () => openInEditor(fr, path, 'stack')
         : undefined,
       oncontextmenu: (e) =>
         openMenu(
           e,
           dir
-            ? dirMenuItems(localFolder, path)
+            ? dirMenuItems(fr, path)
             : file
-            ? fileMenuItems(localFolder, path)
-            : [['Copy path', () => copyPath(localFolder, path)]],
+            ? fileMenuItems(fr, path)
+            : [['Copy path', () => copyPath(fr, path)]],
         ),
     },
     entry.name,

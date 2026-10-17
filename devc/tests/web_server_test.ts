@@ -396,32 +396,86 @@ Deno.test('parseClientMessage: project messages name an absolute folder', () => 
   );
 });
 
-Deno.test('parseClientMessage: file messages take a path, empty meaning the root', () => {
+Deno.test('parseClientMessage: file messages take a root and a path, empty meaning the root', () => {
   const ok = (msg: Record<string, unknown>) =>
     assertEquals(parseClientMessage(JSON.stringify(msg)), {
       ok: true,
       msg,
     } as never);
-  ok({ type: 'list_dir', id: 'f1', localFolder: '/src/app', path: '' });
-  ok({ type: 'list_dir', id: 'f2', localFolder: '/src/app', path: 'src/x' });
+  ok({
+    type: 'list_dir',
+    id: 'f1',
+    localFolder: '/src/app',
+    root: '/src/app',
+    path: '',
+  });
+  ok({
+    type: 'list_dir',
+    id: 'f2',
+    localFolder: '/src/app',
+    root: '/src/lib',
+    path: 'src/x',
+  });
   ok({ type: 'list_host_dir', id: 'f3', path: '' });
   ok({ type: 'list_host_dir', id: 'f4', path: '/Users/me' });
-  ok({ type: 'open_file', id: 'f5', container: 'c1', path: 'src/a.ts' });
+  ok({
+    type: 'open_file',
+    id: 'f5',
+    container: 'c1',
+    root: '/src/lib',
+    path: 'src/a.ts',
+  });
   assertEquals(
-    rejected({ type: 'list_dir', id: 'f6', localFolder: 'rel', path: '' })
+    rejected({
+      type: 'list_dir',
+      id: 'f6',
+      localFolder: 'rel',
+      root: '/a',
+      path: '',
+    }).code,
+    'bad_request',
+  );
+  assertEquals(
+    rejected({ type: 'list_dir', id: 'f7', localFolder: '/a', root: '/a' })
       .code,
     'bad_request',
   );
-  assertEquals(
-    rejected({ type: 'list_dir', id: 'f7', localFolder: '/a' }).code,
-    'bad_request',
-  );
+  for (const root of [undefined, 'rel']) {
+    assertEquals(
+      rejected({
+        type: 'list_dir',
+        id: 'f10',
+        localFolder: '/a',
+        root,
+        path: '',
+      })
+        .code,
+      'bad_request',
+    );
+    assertEquals(
+      rejected({
+        type: 'open_file',
+        id: 'f11',
+        container: 'c1',
+        root,
+        path: 'x',
+      })
+        .code,
+      'bad_request',
+    );
+  }
   assertEquals(
     rejected({ type: 'list_host_dir', id: 'f8', path: 3 }).code,
     'bad_request',
   );
   assertEquals(
-    rejected({ type: 'open_file', id: 'f9', container: 'c1', path: '' }).code,
+    rejected({
+      type: 'open_file',
+      id: 'f9',
+      container: 'c1',
+      root: '/a',
+      path: '',
+    }).code,
     'bad_request',
   );
 });

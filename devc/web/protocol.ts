@@ -72,9 +72,21 @@ export type ClientMessage =
     localFolder: string;
   }
   | { type: 'pin_project'; id: string; localFolder: string; pinned: boolean }
-  | { type: 'list_dir'; id: string; localFolder: string; path: string }
+  | {
+    type: 'list_dir';
+    id: string;
+    localFolder: string;
+    root: string;
+    path: string;
+  }
   | { type: 'list_host_dir'; id: string; path: string }
-  | { type: 'open_file'; id: string; container: string; path: string }
+  | {
+    type: 'open_file';
+    id: string;
+    container: string;
+    root: string;
+    path: string;
+  }
   | { type: 'retry'; container: string }
   | { type: 'client_ready'; generation: string };
 
@@ -142,11 +154,16 @@ function oneOf<T extends string>(o: Obj, k: string, values: T[]): T {
 
 const MAX_CELLS = 10_000;
 
+/** A host folder: an absolute path. */
+function absolute(o: Obj, k: string): string {
+  const v = str(o, k);
+  if (!v.startsWith('/')) throw new Invalid(`'${k}' must be absolute`);
+  return v;
+}
+
 /** A project's host folder: an absolute path. */
 function folder(o: Obj): string {
-  const v = str(o, 'localFolder');
-  if (!v.startsWith('/')) throw new Invalid(`'localFolder' must be absolute`);
-  return v;
+  return absolute(o, 'localFolder');
 }
 
 function pane(o: Obj): { container: string; pane_id: string } {
@@ -307,6 +324,7 @@ function parseFields(m: Obj): ClientMessage {
         type: 'list_dir',
         id: str(m, 'id'),
         localFolder: folder(m),
+        root: absolute(m, 'root'),
         path: text(m, 'path'),
       };
     case 'list_host_dir':
@@ -316,6 +334,7 @@ function parseFields(m: Obj): ClientMessage {
         type: 'open_file',
         id: str(m, 'id'),
         container: str(m, 'container'),
+        root: absolute(m, 'root'),
         path: str(m, 'path'),
       };
     case 'retry':

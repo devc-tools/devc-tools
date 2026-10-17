@@ -568,10 +568,16 @@ body.resizing-sidebar {
   color: var(--muted);
 }
 
-/* A repo a container mounts, listed above its workspaces: just a name and its marks. */
+/* Nothing to push or pull: ✓ level with the upstream, • no upstream. Quieter than the arrows. */
+.git-sync [data-dir='synced'],
+.git-sync [data-dir='local'] {
+  color: var(--muted);
+}
+
+/* A repo a container mounts, listed above its workspaces: its name and marks, and a chevron
+   opening its files. */
 .row.repo {
   color: var(--muted);
-  cursor: default;
 }
 
 /* Both ways: the branch has diverged, so a pull needs a merge or rebase. */
@@ -831,10 +837,6 @@ body.resizing-sidebar {
 /* A file row keeps a chevron's width, so names line up with folders'. */
 .row.tree-row:not([aria-expanded]) > .label > .chevron::before {
   content: '';
-}
-
-.row.files {
-  color: var(--muted);
 }
 
 /* Dotfiles, and links that lead nowhere. */

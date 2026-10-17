@@ -1,12 +1,12 @@
 # devc-web-repo-tree
 
-- [ ] `gitSync` / `gitRollup` (`static/lib/sidebar.js`): an in-sync mark and a no-upstream mark, with tests
-- [ ] Server: `list_dir` and `open_file` take a `root` (one of the project's repo folders) instead of always using `localFolder`, with tests
-- [ ] Page: each repo row (and the project folder's own row, repo or not) is a file tree root; the **Files** node is gone
-- [ ] Page: a project under "Not running" with only its own folder lists the files straight under its project row
-- [ ] `sidebarState.filesOpen` keyed by root folder
-- [ ] `.plans/devc-web.md` protocol section updated
-- [ ] Verify (below) and ask the user to try it in their open tab
+- [x] `gitSync` / `gitRollup` (`static/lib/sidebar.js`): an in-sync mark and a no-upstream mark, with tests
+- [x] Server: `list_dir` and `open_file` take a `root` (one of the project's repo folders) instead of always using `localFolder`, with tests
+- [x] Page: each repo row (and the project folder's own row, repo or not) is a file tree root; the **Files** node is gone
+- [x] Page: a project under "Not running" with only its own folder lists the files straight under its project row
+- [x] `sidebarState.filesOpen` keyed by root folder
+- [x] `.plans/devc-web.md` protocol section updated
+- [x] Verify (below) and ask the user to try it in their open tab
 
 Two sidebar changes in `devc web`:
 

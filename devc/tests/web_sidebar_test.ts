@@ -147,7 +147,7 @@ Deno.test('clampSidebarWidth uses the default for a non-finite width', () => {
   assertEquals(clampSidebarWidth(NaN, 300), 180);
 });
 
-Deno.test('gitSync shows commits to push and pull, nothing when in sync', () => {
+Deno.test('gitSync shows commits to push and pull, a quiet mark when in sync', () => {
   const git = {
     branch: 'feature',
     upstream: 'origin/feature',
@@ -155,8 +155,16 @@ Deno.test('gitSync shows commits to push and pull, nothing when in sync', () => 
     behind: 0,
     gone: false,
   };
-  assertEquals(gitSync(git), null);
-  assertEquals(gitSync({ ...git, upstream: null, ahead: 3 }), null);
+  assertEquals(gitSync(git), {
+    marks: [{ dir: 'synced', text: '✓' }],
+    diverged: false,
+    title: 'feature → origin/feature: in sync (as of the last fetch)',
+  });
+  assertEquals(gitSync({ ...git, upstream: null, ahead: 3 }), {
+    marks: [{ dir: 'local', text: '•' }],
+    diverged: false,
+    title: 'feature: no upstream',
+  });
   assertEquals(gitSync(null), null);
   assertEquals(gitSync(undefined), null);
   assertEquals(gitSync({ ...git, ahead: 2 }), {
@@ -181,9 +189,7 @@ Deno.test('gitRollup sums every repo and lists the ones with something to do', (
     gone: false,
   });
   assertEquals(
-    gitRollup([{ name: 'a', git: git(0, 0) }, { name: 'b', git: null }, {
-      name: 'c',
-    }]),
+    gitRollup([{ name: 'b', git: null }, { name: 'c' }]),
     null,
   );
   const r = gitRollup([
@@ -200,4 +206,38 @@ Deno.test('gitRollup sums every repo and lists the ones with something to do', (
     'app',
     'lib',
   ]);
+});
+
+Deno.test('gitRollup shows a quiet ✓ when no repo has anything to sync', () => {
+  const git = (upstream: string | null) => ({
+    branch: 'main',
+    upstream,
+    ahead: 0,
+    behind: 0,
+    gone: false,
+  });
+  const synced = gitRollup([
+    { name: 'a', git: git('origin/main') },
+    { name: 'b', git: null },
+    { name: 'c', git: git('origin/main') },
+  ]);
+  assertEquals(synced?.marks, [{ dir: 'synced', text: '✓' }]);
+  assertEquals(synced?.diverged, false);
+  assertEquals(synced?.title.split('\n'), [
+    'a: main → origin/main: in sync (as of the last fetch)',
+    'c: main → origin/main: in sync (as of the last fetch)',
+  ]);
+  const local = gitRollup([
+    { name: 'a', git: git(null) },
+    { name: 'b', git: git(null) },
+  ]);
+  assertEquals(local?.marks, [{ dir: 'synced', text: '✓' }]);
+  assertEquals(local?.title, 'a: main: no upstream\nb: main: no upstream');
+  const mixed = gitRollup([
+    { name: 'a', git: git('origin/main') },
+    { name: 'b', git: { ...git('origin/main'), ahead: 2 } },
+    { name: 'c', git: git(null) },
+  ]);
+  assertEquals(mixed?.marks, [{ dir: 'ahead', text: '↑2' }]);
+  assertEquals(mixed?.title.split('\n').map((l) => l.split(':')[0]), ['b']);
 });

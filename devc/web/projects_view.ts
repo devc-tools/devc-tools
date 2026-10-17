@@ -99,3 +99,17 @@ export function projectRefusal(
   if (msg.type === 'list_host_dir') return `browsing host folders ${off}`;
   return null;
 }
+
+/**
+ * Whether `root` is one of the repo folders of the project at `localFolder` in `projects` (as the
+ * `projects` message lists them): the folders `list_dir` and `open_file` may address files under.
+ */
+export function isProjectRepo(
+  projects: readonly ProjectView[],
+  localFolder: string,
+  root: string,
+): boolean {
+  return projects.some((p) =>
+    p.localFolder === localFolder && p.repos.some((r) => r.folder === root)
+  );
+}
