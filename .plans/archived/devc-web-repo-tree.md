@@ -36,7 +36,7 @@ PROJECTS
 ```
 
 Read `/workspaces/devc-dev/.claude/skills/devc-web/SKILL.md` first. Precedes
-[devc-web-file-viewer](devc-web-file-viewer.md), which uses the same `root` addressing.
+[devc-web-file-viewer](../devc-web-file-viewer.md), which uses the same `root` addressing.
 
 No compatibility with older pages or servers: page and server change together, and saved
 `filesOpen` entries keyed the old way are dropped on load.

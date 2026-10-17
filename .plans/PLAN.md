@@ -11,13 +11,6 @@
 
 ### Pending
 
-- [devc-web-repo-tree](devc-web-repo-tree.md) — two sidebar changes. A repo level with its
-  upstream gets a muted `✓` (no upstream: `•`) in the slot where `↑n ↓n` go, so it no longer
-  looks like a plain folder. The per-project **Files** node goes away: each repo row (project
-  folder first, then mounted repos and worktrees) expands into its own files. `list_dir` /
-  `open_file` take a `root` (one of the project's repo folders), so sibling repos become
-  browsable.
-
 - [devc-web-file-viewer](devc-web-file-viewer.md) — after devc-web-repo-tree. A `file` tile
   (second Golden Layout component type) showing a file read-only in vendored CodeMirror 6, with
   syntax highlighting, line numbers, search and folding. `read_file` reads the host side
@@ -134,6 +127,18 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
   take it too.
 
 ### Completed
+
+- [devc-web-repo-tree](archived/devc-web-repo-tree.md) — ✅ Done: a muted `✓` (in sync) / `•`
+  (no upstream) mark and a `✓` rollup; the Files node replaced by per-repo file trees on each
+  repo row (a stopped project lists its folder's files under its own row); `list_dir` /
+  `open_file` take a `root` checked against the project's repo folders. Validated by
+  `deno task check`, `deno task test` (marks and rollup, `root` parsing, `isProjectRepo`, a
+  sibling-repo listing with escapes refused) and `deno fmt --check`, and in headless Chromium
+  against the live page with a fake WebSocket (repo rows and marks, sibling-repo `list_dir` /
+  `open_file` carrying `root`, the stopped project's files, `rootsOpen` saved, collapsed
+  rollup). The server's `unknown repo` refusal is tested only through `isProjectRepo`, not
+  end to end. **Still to be done by the user:** the plan's checks in their open tab (needs
+  `--live-yolo` or an updated `devc`).
 
 - [devc-web-usage](archived/devc-web-usage.md) — ✅ Done, validated by `deno check main.ts`,
   `deno task check`, `deno task test` (new `web_usage_test.ts`: file paths, the file contract
