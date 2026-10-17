@@ -184,8 +184,8 @@ export async function saveGlobalConfig(cfg: GlobalConfig): Promise<void> {
 }
 
 /**
- * `webSource`: the `devc/` directory of a devc-tools checkout that `devc web` serves live when
- * neither `--source` nor `DEVC_WEB_SOURCE` is given. Kept in `extra`, so every save preserves
+ * `webSource`: the `devc/` directory of a devc-tools checkout that `devc web --live` serves
+ * when `--source` is not given (never without `--live`). Kept in `extra`, so every save preserves
  * it. Returns `null` when absent or empty; expands `~` / `$VAR` like the roots. Throws when it
  * is not a string, or not absolute once expanded.
  */

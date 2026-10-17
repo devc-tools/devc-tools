@@ -127,12 +127,16 @@ export interface WebArgs {
   /** `--session NAME`: the Herdr session to use in each container. */
   session: string;
   /**
-   * `--source DIR`, as typed: the `devc/` directory of a devc-tools checkout to serve live.
-   * Absent when not given; `main.ts` falls back to `DEVC_WEB_SOURCE` and resolves it.
+   * `--live`, or `--source` given: serve a devc-tools checkout live instead of the built-in copy.
+   * Never on by default, so a checkout that agents can write to is only ever run on the host
+   * when asked for, run by run.
+   */
+  live: boolean;
+  /**
+   * `--source DIR`, as typed: the checkout's `devc/` directory, for this run. Absent when not
+   * given; `main.ts` then takes `"webSource"` from the global config and resolves it.
    */
   source?: string;
-  /** `--new-token`: replace the saved token. */
-  newToken: boolean;
 }
 
 /** The port `devc web` listens on unless `--port` says otherwise. */
@@ -140,21 +144,21 @@ export const DEVC_WEB_DEFAULT_PORT = 48228;
 
 /**
  * Parses `devc web` arguments: `--port N`, `--session NAME` and `--source DIR` (each also as
- * `--flag=value`), and the bare flag `--new-token`. Strict: an unknown argument, a missing
- * value, a value on `--new-token` or a port outside 1–65535 throws.
+ * `--flag=value`), and the bare flag `--live`. `--source` implies `--live`. Strict: an unknown
+ * argument, a missing value, a value on `--live` or a port outside 1–65535 throws.
  */
 export function parseWebArgs(args: string[]): WebArgs {
   let port = DEVC_WEB_DEFAULT_PORT;
   let session = DEVC_HERDR_SESSION;
   let source: string | undefined;
-  let newToken = false;
+  let live = false;
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
     const eq = arg.indexOf('=');
     const flag = arg.startsWith('--') && eq !== -1 ? arg.slice(0, eq) : arg;
-    if (flag === '--new-token') {
-      if (flag !== arg) throw new Error('--new-token takes no value');
-      newToken = true;
+    if (flag === '--live') {
+      if (flag !== arg) throw new Error('--live takes no value');
+      live = true;
       continue;
     }
     if (flag !== '--port' && flag !== '--session' && flag !== '--source') {
@@ -172,14 +176,16 @@ export function parseWebArgs(args: string[]): WebArgs {
         );
       }
       port = n;
-    } else if (flag === '--source') source = value;
-    else session = value;
+    } else if (flag === '--source') {
+      source = value;
+      live = true;
+    } else session = value;
   }
   return {
     port,
     session,
+    live,
     ...(source !== undefined ? { source } : {}),
-    newToken,
   };
 }
 

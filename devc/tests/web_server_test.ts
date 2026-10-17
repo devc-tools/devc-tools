@@ -276,12 +276,12 @@ Deno.test('parseWebArgs defaults, flags and errors', () => {
   assertEquals(parseWebArgs([]), {
     port: 48228,
     session: DEVC_HERDR_SESSION,
-    newToken: false,
+    live: false,
   });
   assertEquals(parseWebArgs(['--port', '9000', '--session', 'work']), {
     port: 9000,
     session: 'work',
-    newToken: false,
+    live: false,
   });
   assertEquals(parseWebArgs(['--port=9001']).port, 9001);
   assertThrows(() => parseWebArgs(['--port']));
@@ -292,18 +292,20 @@ Deno.test('parseWebArgs defaults, flags and errors', () => {
   assertThrows(() => parseWebArgs(['path']));
 });
 
-Deno.test('parseWebArgs: --source in both forms and the bare --new-token', () => {
+Deno.test('parseWebArgs: --live, and --source in both forms implying it', () => {
+  assertEquals(parseWebArgs(['--live']).live, true);
+  assertEquals(parseWebArgs(['--live']).source, undefined);
+  assertThrows(() => parseWebArgs(['--live=x']), Error, 'takes no value');
   assertEquals(parseWebArgs(['--source', '../co/devc']).source, '../co/devc');
   assertEquals(parseWebArgs(['--source=/co/devc']).source, '/co/devc');
+  assertEquals(parseWebArgs(['--source', 'd']).live, true);
   assertEquals(parseWebArgs([]).source, undefined);
   assertThrows(() => parseWebArgs(['--source']));
   assertThrows(() => parseWebArgs(['--source=']));
-  assertEquals(parseWebArgs(['--new-token']).newToken, true);
-  assertThrows(() => parseWebArgs(['--new-token=x']), Error, 'takes no value');
-  assertThrows(() => parseWebArgs(['--new-token', '--bogus']));
+  assertThrows(() => parseWebArgs(['--new-token']), Error, 'unexpected');
   assertEquals(
-    parseWebArgs(['--new-token', '--source', 'd', '--port', '9']),
-    { port: 9, session: DEVC_HERDR_SESSION, source: 'd', newToken: true },
+    parseWebArgs(['--live', '--source', 'd', '--port', '9']),
+    { port: 9, session: DEVC_HERDR_SESSION, live: true, source: 'd' },
   );
 });
 

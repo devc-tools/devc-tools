@@ -2,7 +2,6 @@
 // `/safe/` routes. Temp dirs only; the `test` task has no --allow-net, so nothing opens a socket.
 import { assert, assertEquals, assertNotEquals } from 'jsr:@std/assert';
 import { join, toFileUrl } from 'jsr:@std/path';
-import { loadToken } from '../web/token.ts';
 import {
   changedPaths,
   computeGeneration,
@@ -35,28 +34,6 @@ async function writeTree(
 }
 
 const dirUrl = (dir: string) => toFileUrl(`${dir}/`);
-
-Deno.test('loadToken creates a 0600 file, reuses it, and replaces it on renew or when malformed', async () => {
-  await withTemp(async (dir) => {
-    const path = join(dir, 'nested', 'web-token');
-    const first = await loadToken(path, false);
-    assert(/^[0-9a-f]{64}$/.test(first));
-    assertEquals(await Deno.readTextFile(path), `${first}\n`);
-    assertEquals((await Deno.stat(path)).mode! & 0o777, 0o600);
-
-    assertEquals(await loadToken(path, false), first);
-
-    const renewed = await loadToken(path, true);
-    assertNotEquals(renewed, first);
-    assertEquals(await loadToken(path, false), renewed);
-    assertEquals((await Deno.stat(path)).mode! & 0o777, 0o600);
-
-    await Deno.writeTextFile(path, 'not-a-token\n');
-    const replaced = await loadToken(path, false);
-    assert(/^[0-9a-f]{64}$/.test(replaced));
-    assertEquals(await Deno.readTextFile(path), `${replaced}\n`);
-  });
-});
 
 Deno.test('computeGeneration is a stable content hash; changedPaths lists what moved', async () => {
   await withTemp(async (dir) => {

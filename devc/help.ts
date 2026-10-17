@@ -302,15 +302,15 @@ export const COMMAND_HELP: Record<string, string> = {
   ].join('\n'),
 
   web: [
-    'Usage: devc web [--port N] [--session NAME] [--source DIR] [--new-token]',
+    'Usage: devc web [--port N] [--session NAME] [--live] [--source DIR]',
     '',
     'Options:',
     '  --port N        Port to listen on, on 127.0.0.1 (default: 48228)',
     '  --session NAME  Herdr session to use in each container (default: devc)',
-    '  --source DIR    Serve from the devc/ directory of a devc-tools checkout and reload on',
-    '                  change (default: $DEVC_WEB_SOURCE, then "webSource" in',
-    '                  ~/.config/devc/config.json; unset: the built-in copy)',
-    '  --new-token     Replace the saved token, so URLs printed earlier stop working',
+    '  --live          Serve the devc-tools checkout named by "webSource" in',
+    '                  ~/.config/devc/config.json live, reloading on change (without it:',
+    '                  the built-in copy, whatever the config says)',
+    "  --source DIR    Serve this checkout's devc/ directory live instead (implies --live)",
     '  -h, --help      Print help',
   ].join('\n'),
 };

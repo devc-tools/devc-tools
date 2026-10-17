@@ -61,6 +61,7 @@ import {
 import { COMMAND_HELP, COMMANDS, helpRequested, topLevelHelp } from './help.ts';
 import { versionLine } from './version_info.ts';
 import {
+  mintToken,
   startWeb,
   stopCapped,
   type WebHandle,
@@ -68,7 +69,7 @@ import {
 } from './web/server.ts';
 import { resolve as resolvePath } from 'jsr:@std/path';
 import { superviseWeb } from './web/supervisor.ts';
-import { loadToken, tokenWellFormed, WEB_TOKEN_PATH } from './web/token.ts';
+import { LEGACY_TOKEN_PATH, tokenWellFormed } from './web/token.ts';
 
 const subcommand = Deno.args[0];
 const KNOWN_COMMANDS = new Set(COMMANDS.map((c) => c.name));
@@ -363,9 +364,9 @@ if (subcommand === 'web') {
     console.error(`devc web: ${e instanceof Error ? e.message : e}`);
     Deno.exit(1);
   }
-  // The supervised child of `devc web --source` (web/supervisor.ts): live mode, with the
-  // supervisor's token and no URL line. It ignores --source and DEVC_WEB_SOURCE, so it never
-  // supervises a child of its own.
+  // The supervised child of `devc web --live` (web/supervisor.ts): live mode, with the
+  // supervisor's token and no URL line. It ignores --live and --source, so it never supervises
+  // a child of its own.
   const child = Deno.env.get('DEVC_WEB_CHILD') === '1';
   const configWebSource = async () => {
     try {
@@ -394,12 +395,21 @@ if (subcommand === 'web') {
       }
       await runUntilSignal(await startWeb({ ...webArgs, token, live: true }));
     }
-    // --source, then DEVC_WEB_SOURCE, then config.json's `webSource`; none: the built-in copy.
-    const envSource = Deno.env.get('DEVC_WEB_SOURCE');
-    const source = webArgs.source ??
-      (envSource !== undefined && envSource !== '' ? envSource : undefined) ??
-      (await configWebSource()) ?? undefined;
-    const token = await loadToken(WEB_TOKEN_PATH, webArgs.newToken);
+    // Live only when asked for, run by run: --source, else config.json's `webSource`. Without
+    // --live (or --source), the built-in copy, whatever the config says.
+    const source = webArgs.live
+      ? webArgs.source ?? (await configWebSource()) ?? undefined
+      : undefined;
+    if (webArgs.live && source === undefined) {
+      throw new WebStartError(
+        '--live needs --source DIR or "webSource" in ~/.config/devc/config.json',
+      );
+    }
+    // A fresh token every run, held in memory only: a URL from an earlier run never works
+    // again. In live mode the supervisor keeps it across its server swaps.
+    const token = mintToken();
+    // Earlier versions kept the token in a file; it is never read now.
+    await Deno.remove(LEGACY_TOKEN_PATH).catch(() => {});
     if (source !== undefined) {
       Deno.exit(
         await superviseWeb({
