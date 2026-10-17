@@ -28,8 +28,8 @@
 - [devc-web-files](devc-web-files.md) — after devc-web-projects. A lazily loaded Files tree
   under each project, read from the host side of the bind mount (`list_dir`, confined to the
   project, symlinks included). Opening a file runs `$EDITOR` in a new pane via `createShell`
-  and places it in the layout. A `$HOME`-confined host folder picker (`list_host_dir`)
-  replaces the "Add project…" prompt.
+  and places it in the layout. A host folder tree (`list_host_dir`, same tree
+  component) opening on the configured `codeRoots` replaces the "Add project…" prompt.
 
 - [devc-web-golden-layout](devc-web-golden-layout.md) — replace `devc web`'s hand-written
   split-tree tiling with vendored Golden Layout 2.6.0 (bundled to one ES module): drag sidebar
