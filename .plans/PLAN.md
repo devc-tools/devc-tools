@@ -11,6 +11,11 @@
 
 ### Pending
 
+- [devc-web-terminals-group](devc-web-terminals-group.md) — page only. Every running
+  container gets a **Terminals** group first (expanded, agent rollup while collapsed), then
+  **Repos** (always, even for one repo). Herdr spaces get no rows. User-visible "pane" /
+  "Herdr tab" wording becomes "terminal" (code keeps `pane`), from one set of label constants.
+
 - [devc-web-containers-kill-closes](devc-web-containers-kill-closes.md) — page only, independent
   of the other devc-web plans. The sidebar's Projects heading becomes **Containers** (every
   top-level row is a running container or a stopped / not-created one under "Not running"); the
