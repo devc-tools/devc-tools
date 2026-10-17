@@ -293,6 +293,20 @@ body.resizing-sidebar {
   background: var(--panel);
 }
 
+/* In a "Not running" row's actions, keep the icon button's own size. */
+.row-actions .icon-btn {
+  padding: 2px;
+}
+
+/* The play triangle is solid; the other icons are strokes. */
+.icon-btn[data-icon='play'] svg {
+  fill: currentColor;
+}
+
+.icon-btn[data-icon='play']:hover {
+  color: var(--done);
+}
+
 .icon-btn[data-icon='trash']:hover {
   color: var(--danger);
 }

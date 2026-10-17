@@ -862,6 +862,7 @@ const ICON_PATHS = {
   trash: 'M3 4.5h10M6.5 4.5V3h3v1.5M4.5 4.5l.6 8.5h5.8l.6-8.5M7 7v4M9 7v4',
   plus: 'M8 3v10M3 8h10',
   pin: 'M5.5 2.5h5M6.5 2.5v4L4.5 9h7l-2-2.5v-4M8 9v4.5',
+  play: 'M5.5 3.5v9l7-4.5z',
 };
 
 /** @param {keyof ICON_PATHS} icon */
@@ -1293,10 +1294,11 @@ function inactiveRows(inactive, idle) {
             STATE_TEXT[c.state] ?? c.state,
           ),
           c.state === 'no-session'
-            ? h('button', {
-              title: 'Start a Herdr server for this session',
-              onclick: () => startSession(c.id),
-            }, 'Start Herdr')
+            ? iconButton(
+              'play',
+              'Start Herdr: a Herdr server for this session',
+              () => startSession(c.id),
+            )
             : '',
           h('button', {
             onclick: () => send({ type: 'retry', container: c.id }),
@@ -1363,10 +1365,11 @@ function projectRow(p) {
           : '',
         PROJECT_STATE_TEXT[state] ?? state,
       ),
-      p.starting ? '' : h('button', {
-        title: "Start this project's container",
-        onclick: () => startProject(p.localFolder),
-      }, 'Start'),
+      p.starting ? '' : iconButton(
+        'play',
+        'Start container',
+        () => startProject(p.localFolder),
+      ),
     ),
   );
 }

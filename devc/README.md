@@ -270,12 +270,12 @@ is published from any container: the host server finds devcontainers with
   tabs don't appear: a pane split in Herdr's own UI is listed like any other.
   Click a container to collapse it; a collapsed one shows its most urgent agent
   status. Containers without a running Herdr server are grouped under **Not
-  running** at the bottom; hover one for **Start Herdr**
-  (`herdr --session devc server`, detached) and **Retry**. The same group
+  running** at the bottom; hover one for its play button,
+  **Start Herdr** (`herdr --session devc server`, detached), and **Retry**. The same group
   lists **projects** whose container is stopped or was never created: every
   folder a devc command has started (kept, with your pins, in
   `~/.config/devc/projects.json`; the 20 most recent unpinned ones) and every
-  folder you pinned. Hover one for **Start** (the same start as `devc attach`,
+  folder you pinned. Hover one for its play button, **Start container** (the same start as `devc attach`,
   with its output under **Show output**); right-click any project for **Stop
   container**, **Pin**/**Unpin** and **Forget**, and the **+** on the Projects
   heading adds a folder. A tile whose project is down offers **Start
