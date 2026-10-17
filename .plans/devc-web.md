@@ -293,6 +293,9 @@ Browser → server:
 | `pin_project`    | `id`, `localFolder`, `pinned` (bool)                                           | Pin or unpin it in `~/.config/devc/projects.json`; `result`                                                                                                                                                                    |
 | `forget_project` | `id`, `localFolder`                                                            | Drop it from the projects file (it stays listed while a container exists); `result`                                                                                                                                            |
 | `add_project`    | `id`, `localFolder`                                                            | Must be an existing directory (else `bad_request`); pins it; `result`                                                                                                                                                          |
+| `list_dir`       | `id`, `localFolder` (a listed project), `path` (relative; `''` is the root)    | List one project directory, confined to the project (symlinks out of it fail). `result {entries, truncated, containerPath?}`; `forbidden` / `not_found`                                                                        |
+| `list_host_dir`  | `id`, `path` (absolute, or `''`)                                               | `''`: `result {roots}` (existing `codeRoots`, else `$HOME`). Else that host folder's subdirectories: `result {path, parent, entries, truncated}`. Refused under `--live`                                                       |
+| `open_file`      | `id`, `container`, `path` (relative to its folder)                             | `tab.create {cwd: file's dir}` + `pane.send_text` of `exec "${EDITOR:-vi}" -- '<file>'`; `result {pane_id, tab_id}`; `forbidden` / `not_found` / `not_mounted`                                                                 |
 | `retry`          | `container`                                                                    | Re-run the connection lifecycle                                                                                                                                                                                                |
 | `client_ready`   | `generation` (non-empty)                                                       | Live mode: snapshot `static/` as last-good if current. No reply                                                                                                                                                                |
 
@@ -307,6 +310,12 @@ Browser → server:
   Herdr 0.9.5's `tab.create` result carries `root_pane` (missing from its bundled schema);
   without it the server finds the pane with `pane.list {workspace_id}` by `tab_id`. A
   failure is `result {ok:false, error:{code, message}}` as for `request`.
+- **Files ([devc-web-files](devc-web-files.md)):** an entry is `{name, kind: 'dir'|'file'|'symlink',
+  size?, to?: 'dir'|'file'}` (`to`: what a symlink resolves to; absent when broken); a picker
+  entry adds `project` (it holds a dev container config or is a known project). Listings are
+  sorted directories first and capped at 2000 (`truncated`). `containerPath` is the listed
+  directory's path in the project's running container, absent when none runs. `parent` is
+  `null` at `/`.
 - **Message validation:** a message that is malformed, or names an unknown container or
   pane, gets `result {ok:false, error:{code:"bad_request", message}}` when it carries an
   `id`, and is ignored otherwise. It never crashes the server.

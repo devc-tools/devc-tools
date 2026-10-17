@@ -33,6 +33,16 @@ import {
   SIDEBAR_DEFAULT_WIDTH,
   topStatus,
 } from './lib/sidebar.js';
+import {
+  byDepth,
+  childPath,
+  createDirTree,
+  formatSize,
+  isHiddenName,
+  opensAsDir,
+  opensAsFile,
+  parentDir,
+} from './lib/files.js';
 
 const LAYOUT_KEY = 'devc-web-layout-v2';
 /** The split-tree layout before Golden Layout: removed on load, not migrated. */
@@ -137,6 +147,8 @@ const pendingSelections = new Map();
  * @type {Map<string, {resolve: (r: {pane_id: string}) => void, reject: (e: Error) => void}>}
  */
 const pendingShells = new Map();
+/** Pending {@link call} ids → their promise's settlers. */
+const pendingCalls = new Map();
 
 let socket = /** @type {WebSocket | null} */ (null);
 let nextRequestId = 0;
@@ -264,6 +276,8 @@ function connect() {
     pendingOpens.clear();
     for (const p of pendingShells.values()) p.reject(new Error('disconnected'));
     pendingShells.clear();
+    // Unsettled: the trees waiting on these list again on the next `hello`.
+    pendingCalls.clear();
     containers.clear();
     snapshots.clear();
     projects.clear();
@@ -281,6 +295,9 @@ function onHello(msg) {
   // `devc web --live` starts no containers for the page (its code comes from a checkout agents can
   // write to): hide what would only be refused. A server that doesn't say allows them.
   projectStarts = msg.projectStarts !== false;
+  // Listings asked for while disconnected never got an answer.
+  for (const tree of fileTrees.values()) tree.refresh('');
+  for (const top of picker?.tops ?? []) picker?.tree.refresh(top);
   if (bootGeneration === null) {
     bootGeneration = msg.generation;
     return;
@@ -349,6 +366,7 @@ function onMessage(msg) {
         const c = containers.get(id);
         if (!c || c.state !== 'connected') snapshots.delete(id);
       }
+      relistForContainers();
       renderTree();
       reconcileTiles();
       if (!booted) {
@@ -426,6 +444,17 @@ function onPaneClosed(containerId, paneId, reason) {
 }
 
 function onResult(msg) {
+  const pending = pendingCalls.get(msg.id);
+  if (pending) {
+    pendingCalls.delete(msg.id);
+    if (msg.ok) pending.resolve(msg.result);
+    else {
+      pending.reject(
+        new Error(msg.error?.message ?? msg.error?.code ?? 'failed'),
+      );
+    }
+    return;
+  }
   const selection = pendingSelections.get(msg.id);
   if (selection) {
     pendingSelections.delete(msg.id);
@@ -560,8 +589,9 @@ const STATE_TEXT = {
 };
 
 /**
- * Collapsed containers (by local folder), whether "Not running" is open, and the sidebar's own
- * width and hidden state, per browser.
+ * Collapsed containers (by local folder), whether "Not running" is open, which of its projects
+ * are expanded, each project's open Files folders, and the sidebar's own width and hidden state,
+ * per browser.
  */
 const sidebarState = loadSidebarState();
 
@@ -577,10 +607,29 @@ function loadSidebarState() {
         : [],
     ),
     inactiveOpen: saved?.inactiveOpen === true,
+    projectsOpen: new Set(
+      Array.isArray(saved?.projectsOpen)
+        ? saved.projectsOpen.filter((f) => typeof f === 'string')
+        : [],
+    ),
+    /** @type {Record<string, string[]>} project folder → open paths ('' is the Files node) */
+    filesOpen: savedFilesOpen(saved?.filesOpen),
     layoutOpen: saved?.layoutOpen !== false,
     width: Number.isFinite(saved?.width) ? saved.width : SIDEBAR_DEFAULT_WIDTH,
     hidden: saved?.hidden === true,
   };
+}
+
+function savedFilesOpen(v) {
+  /** @type {Record<string, string[]>} */
+  const out = {};
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return out;
+  for (const [folder, paths] of Object.entries(v)) {
+    if (!Array.isArray(paths)) continue;
+    const kept = paths.filter((p) => typeof p === 'string');
+    if (kept.length) out[folder] = kept;
+  }
+  return out;
 }
 
 function saveSidebarState() {
@@ -590,6 +639,8 @@ function saveSidebarState() {
       JSON.stringify({
         collapsed: [...sidebarState.collapsed],
         inactiveOpen: sidebarState.inactiveOpen,
+        projectsOpen: [...sidebarState.projectsOpen],
+        filesOpen: sidebarState.filesOpen,
         layoutOpen: sidebarState.layoutOpen,
         width: sidebarState.width,
         hidden: sidebarState.hidden,
@@ -682,6 +733,7 @@ function chevron() {
 function renderTree() {
   const generation = ++renderGeneration;
   const scroll = $tree.scrollTop;
+  const focusKey = focusedTreeKey($tree);
   const rows = [
     ...layoutRows(),
     sectionRow(
@@ -719,6 +771,7 @@ function renderTree() {
   }
   $tree.replaceChildren(...rows);
   $tree.scrollTop = scroll;
+  refocusTreeKey($tree, focusKey);
   for (const [key, rec] of paneRows) {
     if (rec.seen === generation) continue;
     rec.remove?.();
@@ -893,6 +946,7 @@ const ICON_PATHS = {
   plus: 'M8 3v10M3 8h10',
   pin: 'M5.5 2.5h5M6.5 2.5v4L4.5 9h7l-2-2.5v-4M8 9v4.5',
   play: 'M5.5 3.5v9l7-4.5z',
+  project: 'M8 2.5l5 2.75v5.5L8 13.5l-5-2.75v-5.5zM3 5.25L8 8l5-2.75M8 8v5.5',
 };
 
 /** @param {keyof ICON_PATHS} icon */
@@ -990,18 +1044,31 @@ $tree.addEventListener('mouseleave', () => {
  * @param {{workspace_id?: string, cwd?: string}} opts
  * @param {(ref: PaneRef) => Tile} place
  */
-async function newShell(c, opts, place) {
+function newShell(c, opts, place) {
+  return createPane(c, { type: 'new_shell', ...opts }, place, 'New shell');
+}
+
+/**
+ * Sends `msg` (`new_shell` or `open_file`: a message that answers with a new pane) for container
+ * `c`, then places the pane as {@link newShell} does. A failure is a toast naming `what`.
+ *
+ * @param {ContainerInfo} c
+ * @param {Record<string, unknown> & {type: string}} msg
+ * @param {(ref: PaneRef) => Tile} place
+ * @param {string} what
+ */
+async function createPane(c, msg, place, what) {
   const id = `n${++nextRequestId}`;
   /** @type {Promise<{pane_id: string}>} */
   const created = new Promise((resolve, reject) =>
     pendingShells.set(id, { resolve, reject })
   );
-  send({ type: 'new_shell', id, container: c.id, ...opts });
+  send({ ...msg, id, container: c.id });
   let result;
   try {
     result = await created;
   } catch (e) {
-    toast(`New shell failed: ${e?.message ?? e}`);
+    toast(`${what} failed: ${e?.message ?? e}`);
     return;
   }
   if (!tiling) return;
@@ -1247,7 +1314,7 @@ function containerRows(c) {
     ),
   ];
   if (collapsed) return rows;
-  rows.push(...repoRows(c.localFolder));
+  rows.push(...repoRows(c.localFolder), ...filesRows(c.localFolder, 1));
   const listed = new Set();
   for (const ws of workspaces) {
     let depth = 1;
@@ -1348,7 +1415,12 @@ function inactiveRows(inactive, idle) {
       ),
     );
   }
-  for (const p of idle) rows.push(projectRow(p));
+  for (const p of idle) {
+    rows.push(projectRow(p));
+    if (sidebarState.projectsOpen.has(p.localFolder)) {
+      rows.push(...filesRows(p.localFolder, 2));
+    }
+  }
   return rows;
 }
 
@@ -1414,6 +1486,15 @@ const PROJECT_STATE_TEXT = {
   missing: 'not created',
 };
 
+/** Expands or collapses a project under "Not running", which shows its Files node. */
+function toggleProject(localFolder) {
+  if (!sidebarState.projectsOpen.delete(localFolder)) {
+    sidebarState.projectsOpen.add(localFolder);
+  }
+  saveSidebarState();
+  renderTree();
+}
+
 function projectRow(p) {
   const output = projectOutput.get(p.localFolder) ?? [];
   const state = p.starting ? 'starting' : p.container;
@@ -1423,12 +1504,15 @@ function projectRow(p) {
       class: 'row inactive project',
       style: '--depth: 1',
       'data-project': p.localFolder,
+      'aria-expanded': String(sidebarState.projectsOpen.has(p.localFolder)),
       title: [p.localFolder, output.at(-1) ?? ''].filter((s) => s).join('\n'),
+      onclick: () => toggleProject(p.localFolder),
       oncontextmenu: (e) => openMenu(e, projectMenuItems(p.localFolder)),
     },
     h(
       'span',
       { class: 'label' },
+      chevron(),
       containerLabel(p, projects.values()),
       pinMark(p),
       gitMark(gitRollup(list(p.repos))),
@@ -1509,10 +1593,7 @@ function stopProject(p) {
 }
 
 function addProject() {
-  const folder = prompt('Project folder (an absolute path on the host)');
-  if (folder?.trim()) {
-    projectRequest('add_project', folder.trim(), 'Add project');
-  }
+  openPicker();
 }
 
 /** One line of a container start's output: kept, shown on its row, and in an open dialog. */
@@ -1574,6 +1655,587 @@ function showOutput(localFolder) {
 function closeOutput() {
   outputDialog?.el.remove();
   outputDialog = null;
+}
+
+// ---------------------------------------------------------------------------------------------
+// Directory trees: shared by the Files node and the folder picker
+// ---------------------------------------------------------------------------------------------
+
+/** Sends `msg` with a fresh id; resolves with its `result`, rejects with its error. */
+function call(msg) {
+  const id = `c${++nextRequestId}`;
+  return new Promise((resolve, reject) => {
+    pendingCalls.set(id, { resolve, reject });
+    send({ ...msg, id });
+  });
+}
+
+let renderQueued = false;
+
+/** Renders the sidebar once, after everything else that changes in this turn. */
+function queueRender() {
+  if (renderQueued) return;
+  renderQueued = true;
+  queueMicrotask(() => {
+    renderQueued = false;
+    renderTree();
+  });
+}
+
+/**
+ * A tree's rows under `root`: `entryRow` for each entry, and a muted note while a folder loads,
+ * when it failed, or when the server cut it short.
+ *
+ * @param {ReturnType<typeof createDirTree>} tree
+ * @param {(item: any) => HTMLElement} entryRow
+ */
+function treeRows(tree, root, depth, entryRow) {
+  return tree.walk(root, depth).map((item) => {
+    if (item.type === 'entry') return entryRow(item);
+    const text = item.type === 'loading'
+      ? 'Loading…'
+      : item.type === 'truncated'
+      ? '… more not shown'
+      : item.message;
+    return h(
+      'div',
+      {
+        class: 'row tree-note',
+        'data-note': item.type,
+        style: `--depth: ${item.depth}`,
+      },
+      h('span', { class: 'label' }, text),
+    );
+  });
+}
+
+/**
+ * A row in a directory tree, focusable for {@link treeKeydown}: a chevron when `expanded` is
+ * given, else a gap where it would be.
+ *
+ * @param {string} key unique within its tree's container
+ * @param {number} depth
+ * @param {boolean | undefined} expanded
+ * @param {Record<string, any>} attrs
+ * @param {...(Node|string)} label
+ */
+function treeRow(key, depth, expanded, attrs, ...label) {
+  return h(
+    'div',
+    {
+      ...attrs,
+      class: `row tree-row ${attrs.class ?? ''}`,
+      style: `--depth: ${depth}`,
+      tabindex: '-1',
+      'data-tree-key': key,
+      'data-depth': depth,
+      'aria-expanded': expanded === undefined ? undefined : String(expanded),
+    },
+    h(
+      'span',
+      { class: 'label' },
+      expanded === undefined
+        ? h('span', { class: 'chevron', 'aria-hidden': 'true' })
+        : chevron(),
+      ...label,
+    ),
+  );
+}
+
+/**
+ * Arrow keys and Enter on the tree rows inside `e.currentTarget`: up and down move, right
+ * expands (or steps into), left collapses (or steps out), Enter activates.
+ *
+ * @param {KeyboardEvent} e
+ * @param {{activate: (row: HTMLElement) => void, toggle: (row: HTMLElement) => void}} actions
+ */
+function treeKeydown(e, actions) {
+  const row = /** @type {HTMLElement | null} */ (
+    /** @type {HTMLElement} */ (e.target).closest?.('[data-tree-key]')
+  );
+  if (!row) return;
+  const rows = /** @type {HTMLElement[]} */ ([
+    ...(/** @type {HTMLElement} */ (e.currentTarget)).querySelectorAll(
+      '[data-tree-key]',
+    ),
+  ]);
+  const i = rows.indexOf(row);
+  const expanded = row.getAttribute('aria-expanded');
+  switch (e.key) {
+    case 'ArrowDown':
+      rows[i + 1]?.focus();
+      break;
+    case 'ArrowUp':
+      rows[i - 1]?.focus();
+      break;
+    case 'ArrowRight':
+      if (expanded === 'false') actions.toggle(row);
+      else if (expanded === 'true') rows[i + 1]?.focus();
+      break;
+    case 'ArrowLeft': {
+      if (expanded === 'true') {
+        actions.toggle(row);
+        break;
+      }
+      const depth = Number(row.dataset.depth);
+      rows.slice(0, i).reverse().find((r) => Number(r.dataset.depth) < depth)
+        ?.focus();
+      break;
+    }
+    case 'Enter':
+      actions.activate(row);
+      break;
+    default:
+      return;
+  }
+  e.preventDefault();
+  e.stopPropagation();
+}
+
+/** The tree key of the focused row inside `container`, to focus again after a re-render. */
+function focusedTreeKey(container) {
+  const el = /** @type {HTMLElement | null} */ (document.activeElement);
+  return el && container.contains(el) ? el.dataset.treeKey ?? null : null;
+}
+
+function refocusTreeKey(container, key) {
+  if (key === null) return;
+  for (const el of container.querySelectorAll('[data-tree-key]')) {
+    const row = /** @type {HTMLElement} */ (el);
+    if (row.dataset.treeKey === key) {
+      row.focus({ preventScroll: true });
+      return;
+    }
+  }
+}
+
+$tree.addEventListener('keydown', (e) =>
+  treeKeydown(e, {
+    activate: (row) => row.click(),
+    toggle: (row) => row.click(),
+  }));
+
+// ---------------------------------------------------------------------------------------------
+// Sidebar: project files
+// ---------------------------------------------------------------------------------------------
+
+/** Each project's Files tree, by local folder: made when its row is first drawn. */
+const fileTrees = new Map();
+/** Saved open folders of each tree still listing after a reload: one that fails is dropped. */
+const restoringFiles = new Map();
+/** The container each tree was last listed for, so a container start lists it again. */
+const filesListedFor = new Map();
+
+/** @returns {ReturnType<typeof createDirTree>} */
+function fileTree(localFolder) {
+  let tree = fileTrees.get(localFolder);
+  if (tree) return tree;
+  tree = createDirTree({
+    list: (path) => call({ type: 'list_dir', localFolder, path }),
+    onChange: () => onFilesChange(localFolder),
+  });
+  fileTrees.set(localFolder, tree);
+  filesListedFor.set(localFolder, containerByFolder(localFolder)?.id ?? null);
+  const saved = byDepth(sidebarState.filesOpen[localFolder] ?? []);
+  restoringFiles.set(localFolder, new Set(saved));
+  for (const p of saved) tree.expand(p);
+  return tree;
+}
+
+function onFilesChange(localFolder) {
+  const tree = fileTrees.get(localFolder);
+  if (!tree) return;
+  const restoring = restoringFiles.get(localFolder);
+  for (const p of [...(restoring ?? [])]) {
+    const state = tree.listing(p)?.state;
+    if (state === 'loading') continue;
+    restoring.delete(p);
+    if (state !== 'ok' && tree.isOpen(p)) tree.collapse(p);
+  }
+  const open = tree.openPaths();
+  if (open.length) sidebarState.filesOpen[localFolder] = open;
+  else delete sidebarState.filesOpen[localFolder];
+  saveSidebarState();
+  queueRender();
+}
+
+/**
+ * Lists a tree again when its project's container came or went: the listing says where each
+ * folder is in the container, which only a running one knows.
+ */
+function relistForContainers() {
+  for (const [localFolder, tree] of fileTrees) {
+    const id = containerByFolder(localFolder)?.id ?? null;
+    if (filesListedFor.get(localFolder) === id) continue;
+    filesListedFor.set(localFolder, id);
+    tree.refresh('');
+  }
+}
+
+/** `path`'s container path, from the nearest listed folder at or above it; null if none knows. */
+function containerPathOf(localFolder, path) {
+  if (!containerByFolder(localFolder)) return null;
+  const tree = fileTree(localFolder);
+  const parts = path === '' ? [] : path.split('/');
+  for (let n = parts.length; n >= 0; n--) {
+    const l = tree.listing(parts.slice(0, n).join('/'));
+    if (l?.state === 'ok' && typeof l.containerPath === 'string') {
+      return parts.slice(n).reduce(childPath, l.containerPath);
+    }
+  }
+  return null;
+}
+
+/** Copies a project path: where the running container sees it, else the host path. */
+function copyPath(localFolder, path) {
+  const text = containerPathOf(localFolder, path) ??
+    (path === '' ? localFolder : childPath(localFolder, path));
+  navigator.clipboard?.writeText(text).then(
+    () => toast(`Copied ${text}`),
+    (e) => toast(`Copy failed: ${e?.message ?? e}`),
+  );
+}
+
+/** Opens a project file in a new pane running the container's editor. */
+function openInEditor(localFolder, path, where) {
+  const c = containerByFolder(localFolder);
+  if (!c || c.state !== 'connected' || !tiling) {
+    toast(
+      c ? 'Start Herdr in this container first' : 'Start the container first',
+    );
+    return;
+  }
+  createPane(
+    c,
+    { type: 'open_file', path },
+    where === 'right'
+      ? (ref) => tiling.addBeside(targetTile()?.id ?? null, ref, 'right')
+      : placeInFocusedStack,
+    'Open in editor',
+  );
+}
+
+/** A folder's menu: the Files node itself (`path` '') or a directory under it. */
+function dirMenuItems(localFolder, path) {
+  const c = containerByFolder(localFolder);
+  const cwd = containerPathOf(localFolder, path);
+  const items = [];
+  if (c?.state === 'connected' && cwd) {
+    items.push([
+      'New shell here',
+      () => newShell(c, { cwd }, placeInFocusedStack),
+    ]);
+  }
+  items.push(
+    ['Refresh', () => fileTree(localFolder).refresh(path)],
+    ['Copy path', () => copyPath(localFolder, path)],
+  );
+  return items;
+}
+
+function fileMenuItems(localFolder, path) {
+  return [
+    ['Open in editor', () => openInEditor(localFolder, path, 'stack')],
+    [
+      'Open in editor to the right',
+      () => openInEditor(localFolder, path, 'right'),
+    ],
+    ['Copy path', () => copyPath(localFolder, path)],
+  ];
+}
+
+/** A project's Files node and, while it is open, the folders and files under it. */
+function filesRows(localFolder, depth) {
+  const tree = fileTree(localFolder);
+  const rows = [
+    treeRow(
+      `${localFolder}\n`,
+      depth,
+      tree.isOpen(''),
+      {
+        class: 'files',
+        title: localFolder,
+        onclick: () => tree.toggle(''),
+        oncontextmenu: (e) => openMenu(e, dirMenuItems(localFolder, '')),
+      },
+      'Files',
+    ),
+  ];
+  if (tree.isOpen('')) {
+    rows.push(
+      ...treeRows(
+        tree,
+        '',
+        depth + 1,
+        (item) => fileEntryRow(localFolder, tree, item),
+      ),
+    );
+  }
+  return rows;
+}
+
+function fileEntryRow(localFolder, tree, item) {
+  const { entry, path } = item;
+  const dir = opensAsDir(entry);
+  const file = opensAsFile(entry);
+  return treeRow(
+    `${localFolder}\n${path}`,
+    item.depth,
+    dir ? item.open : undefined,
+    {
+      class: 'file-entry',
+      'data-kind': entry.kind,
+      'data-dim': isHiddenName(entry.name) || (!dir && !file) || undefined,
+      title: [
+        childPath(localFolder, path),
+        entry.size !== undefined ? formatSize(entry.size) : '',
+        entry.kind === 'symlink'
+          ? entry.to ? 'Symbolic link' : 'Broken symbolic link'
+          : '',
+      ].filter((s) => s).join('\n'),
+      onclick: dir
+        ? () => tree.toggle(path)
+        : file
+        ? () => openInEditor(localFolder, path, 'stack')
+        : undefined,
+      oncontextmenu: (e) =>
+        openMenu(
+          e,
+          dir
+            ? dirMenuItems(localFolder, path)
+            : file
+            ? fileMenuItems(localFolder, path)
+            : [['Copy path', () => copyPath(localFolder, path)]],
+        ),
+    },
+    entry.name,
+    entry.kind === 'symlink' ? h('span', { class: 'link-mark' }, '→') : '',
+  );
+}
+
+// ---------------------------------------------------------------------------------------------
+// "Add project…": the host folder picker
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * The open picker: its tree of host folders (absolute paths), the folders shown at its top
+ * (`null` until the server names the opening roots) and the selected folder.
+ *
+ * @type {{el: HTMLDialogElement, tree: ReturnType<typeof createDirTree>, $list: HTMLElement,
+ *   $path: HTMLInputElement, $pin: HTMLButtonElement, tops: string[] | null,
+ *   selected: string | null} | null}
+ */
+let picker = null;
+
+function openPicker() {
+  picker?.el.close();
+  const tree = createDirTree({
+    list: (path) => call({ type: 'list_host_dir', path }),
+    onChange: () => renderPicker(),
+  });
+  const $list = h('div', {
+    class: 'picker-tree',
+    role: 'tree',
+    'aria-label': 'Host folders',
+  });
+  $list.addEventListener('keydown', (e) =>
+    treeKeydown(e, {
+      activate: (row) => pinFolder(row.dataset.path ?? null),
+      toggle: (row) => row.dataset.path && tree.toggle(row.dataset.path),
+    }));
+  const $path = /** @type {HTMLInputElement} */ (h('input', {
+    class: 'picker-path',
+    type: 'text',
+    spellcheck: 'false',
+    autocomplete: 'off',
+    autofocus: true,
+    placeholder: 'Pick a folder below, or paste an absolute path',
+    'aria-label': 'Folder',
+    onkeydown: (e) => {
+      if (e.key !== 'Enter') return;
+      e.preventDefault();
+      const path = $path.value.trim().replace(/(.)\/+$/, '$1');
+      if (path.startsWith('/')) rerootPicker(path);
+      else toast('Enter an absolute path');
+    },
+  }));
+  const $pin = /** @type {HTMLButtonElement} */ (h('button', {
+    type: 'button',
+    class: 'primary',
+    disabled: true,
+    onclick: () => pinFolder(picker?.selected ?? null),
+  }, 'Pin this folder'));
+  const el = /** @type {HTMLDialogElement} */ (h(
+    'dialog',
+    {
+      class: 'dialog picker',
+      'aria-label': 'Add project',
+      onclose: () => {
+        if (picker?.el === el) picker = null;
+        el.remove();
+      },
+    },
+    h(
+      'header',
+      { class: 'dialog-header' },
+      h('span', {}, 'Add project'),
+      h('button', { type: 'button', onclick: () => el.close() }, 'Cancel'),
+    ),
+    h('div', { class: 'picker-body' }, $path, $list),
+    h(
+      'footer',
+      { class: 'dialog-footer' },
+      h(
+        'span',
+        { class: 'picker-hint' },
+        h('span', { class: 'project-mark' }, svgIcon('project')),
+        'has a dev container config',
+      ),
+      $pin,
+    ),
+  ));
+  picker = { el, tree, $list, $path, $pin, tops: null, selected: null };
+  document.body.append(el);
+  el.showModal();
+  renderPicker();
+  call({ type: 'list_host_dir', path: '' }).then(
+    (result) => {
+      if (picker?.tree !== tree) return;
+      const roots = list(result?.roots).filter((r) => typeof r === 'string');
+      picker.tops = roots;
+      if (roots.length === 1) tree.expand(roots[0]);
+      renderPicker();
+    },
+    (e) => {
+      toast(`Add project failed: ${e?.message ?? e}`);
+      if (picker?.tree === tree) el.close();
+    },
+  );
+}
+
+/** Shows only `path` at the top of the picker, open and selected. */
+function rerootPicker(path) {
+  if (!picker) return;
+  picker.tops = [path];
+  picker.tree.expand(path);
+  selectFolder(path);
+}
+
+function selectFolder(path) {
+  if (!picker) return;
+  picker.selected = path;
+  if (picker.$path.value !== (path ?? '')) {
+    picker.$path.value = path ?? '';
+    // The end of a long path is the folder's own name.
+    picker.$path.scrollLeft = picker.$path.scrollWidth;
+  }
+  picker.$pin.disabled = path === null;
+  for (const el of picker.$list.querySelectorAll('[data-path]')) {
+    const row = /** @type {HTMLElement} */ (el);
+    row.toggleAttribute('data-selected', row.dataset.path === path);
+    row.setAttribute('aria-selected', String(row.dataset.path === path));
+  }
+}
+
+/** Pins `path` as a project (`add_project`) and closes the picker. */
+function pinFolder(path) {
+  if (!picker || !path) return;
+  projectRequest('add_project', path, 'Add project');
+  // It joins the list as "not created", under "Not running".
+  sidebarState.inactiveOpen = true;
+  saveSidebarState();
+  picker.el.close();
+}
+
+/** The top folder the selection is in (else the first): what "Parent folder" goes above. */
+function pickerTop() {
+  const tops = picker?.tops ?? [];
+  const sel = picker?.selected;
+  return tops.find((t) =>
+    sel && (sel === t || sel.startsWith(t === '/' ? '/' : `${t}/`))
+  ) ?? tops[0] ?? null;
+}
+
+function renderPicker() {
+  if (!picker) return;
+  const { tree, $list } = picker;
+  const focusKey = focusedTreeKey($list);
+  const scroll = $list.scrollTop;
+  const rows = [];
+  if (picker.tops === null) {
+    rows.push(
+      h('div', { class: 'row tree-note', style: '--depth: 0' }, 'Loading…'),
+    );
+  } else {
+    const parent = parentDir(pickerTop() ?? '/');
+    if (parent !== null) {
+      rows.push(
+        h(
+          'div',
+          {
+            class: 'row tree-row picker-up',
+            style: '--depth: 0',
+            title: parent,
+            onclick: () => rerootPicker(parent),
+          },
+          h('span', { class: 'label' }, '↑ Parent folder'),
+        ),
+      );
+    }
+    for (const top of picker.tops) {
+      rows.push(pickerRow(top, top, 0, tree.isOpen(top), false));
+      if (tree.isOpen(top)) {
+        rows.push(
+          ...treeRows(
+            tree,
+            top,
+            1,
+            (item) =>
+              pickerRow(
+                item.path,
+                item.entry.name,
+                item.depth,
+                item.open,
+                item.entry.project === true,
+                isHiddenName(item.entry.name),
+              ),
+          ),
+        );
+      }
+    }
+  }
+  $list.replaceChildren(...rows);
+  $list.scrollTop = scroll;
+  selectFolder(picker.selected);
+  refocusTreeKey($list, focusKey);
+}
+
+function pickerRow(path, name, depth, open, project, hidden = false) {
+  return treeRow(
+    path,
+    depth,
+    open,
+    {
+      class: 'picker-row',
+      role: 'treeitem',
+      'data-path': path,
+      'data-dim': hidden || undefined,
+      title: path,
+      onfocus: () => selectFolder(path),
+      onclick: () => {
+        selectFolder(path);
+        picker?.tree.toggle(path);
+      },
+      ondblclick: () => pinFolder(path),
+    },
+    name,
+    project
+      ? h('span', {
+        class: 'project-mark',
+        title: 'Has a dev container config',
+      }, svgIcon('project'))
+      : '',
+  );
 }
 
 function paneMenu(rec) {

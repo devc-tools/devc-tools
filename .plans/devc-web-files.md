@@ -1,11 +1,11 @@
 # devc-web-files
 
-- [ ] Server: `list_dir` (project files, confined) and `list_host_dir` (folder picker, opening on `codeRoots`), with tests
-- [ ] Server: `open_file`: a new shell running `$EDITOR` on the file, built on `createShell`
-- [ ] Sidebar: a lazily loaded **Files** node under each project
-- [ ] Open a file → editor pane placed in the layout; Copy path; Open shell here
-- [ ] "Add project…" opens a host folder tree (the Files tree component) instead of `prompt()`
-- [ ] `.plans/devc-web.md` protocol section updated
+- [x] Server: `list_dir` (project files, confined) and `list_host_dir` (folder picker, opening on `codeRoots`), with tests
+- [x] Server: `open_file`: a new shell running `$EDITOR` on the file, built on `createShell`
+- [x] Sidebar: a lazily loaded **Files** node under each project
+- [x] Open a file → editor pane placed in the layout; Copy path; Open shell here
+- [x] "Add project…" opens a host folder tree (the Files tree component) instead of `prompt()`
+- [x] `.plans/devc-web.md` protocol section updated
 - [ ] Verify (below) and ask the user to try it in their open tab
 
 Browse a project's files from the `devc web` sidebar and open them. Opening a file runs an
@@ -73,16 +73,16 @@ and `add_project`). Read `/workspaces/devc-dev/.claude/skills/devc-web/SKILL.md`
 
 ## Existing touchpoints
 
-| File                                                 | Role                                                                                                      |
-| ---------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
-| `devc/web/protocol.ts`                               | New `ClientMessage` variants.                                                                             |
-| `devc/web/server.ts`                                 | `handle()` cases. The projects list (from devc-web-projects) decides which `localFolder`s may be browsed. |
+| File                                                 | Role                                                                                                                           |
+| ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| `devc/web/protocol.ts`                               | New `ClientMessage` variants.                                                                                                  |
+| `devc/web/server.ts`                                 | `handle()` cases. The projects list (from devc-web-projects) decides which `localFolder`s may be browsed.                      |
 | `devc-core/config.ts`                                | `loadGlobalConfig`, `codeRootsExpanded`: the picker's opening roots, read per request so config edits apply without a restart. |
-| `devc/web/herdr_bridge.ts`                           | `createShell` (from devc-web-layout-sidebar) and `bridgeRequest`, used for `pane.send_text`.              |
-| `devc-core/container.ts`, `devc-core/mount_paths.ts` | `getContainerMounts`, `hostToContainerPath`.                                                              |
-| `devc/web/static/app.js`                             | `containerRows` gains the Files node. "Add project…" opens the picker.                                    |
-| `devc/web/static/lib/`                               | A new pure module, `files.js`: entry sorting and the path helpers that the page and tests share.          |
-| `devc/web/static/style.css`                          | File and dir rows, and the picker dialog.                                                                 |
+| `devc/web/herdr_bridge.ts`                           | `createShell` (from devc-web-layout-sidebar) and `bridgeRequest`, used for `pane.send_text`.                                   |
+| `devc-core/container.ts`, `devc-core/mount_paths.ts` | `getContainerMounts`, `hostToContainerPath`.                                                                                   |
+| `devc/web/static/app.js`                             | `containerRows` gains the Files node. "Add project…" opens the picker.                                                         |
+| `devc/web/static/lib/`                               | A new pure module, `files.js`: entry sorting and the path helpers that the page and tests share.                               |
+| `devc/web/static/style.css`                          | File and dir rows, and the picker dialog.                                                                                      |
 
 ## Contracts
 
@@ -115,11 +115,11 @@ export function sortEntries(entries: DirEntry[]): DirEntry[];
 
 ### Browser → server
 
-| Message         | Fields                      | Server does                                                                                                                                                                                                                                                                                                                                                                                                  |
-| --------------- | --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `list_dir`      | `id`, `localFolder`, `path` | `localFolder` must be a listed project, else `bad_request`. `confine(localFolder, path)`, then read the directory. Reply `result {ok: true, result: {entries: DirEntry[], truncated: boolean}}`, with the sorted entries capped at `MAX_ENTRIES`. A path outside the project gets `code: "forbidden"`; a missing directory gets `code: "not_found"`.                                                         |
+| Message         | Fields                      | Server does                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| --------------- | --------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `list_dir`      | `id`, `localFolder`, `path` | `localFolder` must be a listed project, else `bad_request`. `confine(localFolder, path)`, then read the directory. Reply `result {ok: true, result: {entries: DirEntry[], truncated: boolean}}`, with the sorted entries capped at `MAX_ENTRIES`. A path outside the project gets `code: "forbidden"`; a missing directory gets `code: "not_found"`.                                                                                                                                                                                                                                                                                                                        |
 | `list_host_dir` | `id`, `path`                | `path` is absolute, or `''` for the opening roots. For `''`, reply `{roots: string[]}`: `codeRootsExpanded()` that exist as directories, else `[$HOME]`. Otherwise `path` must be absolute with no `..` segment, else `bad_request`; resolve it with `Deno.realPath` and reply `{entries, truncated, path, parent}`, where `path` is the resolved absolute path and `parent` is `null` at `/`. Directories only (symlinks to directories included, as `kind: 'symlink'`), and each entry gains `project: boolean`: true when it contains `.devcontainer/` or `.devcontainer.json`, or is a known project. A missing or unreadable directory gets `not_found` / `forbidden`. |
-| `open_file`     | `id`, `container`, `path`   | `path` is relative to that container's `localFolder` and goes through `confine`. Get the mounts, then `hostToContainerPath`; if that returns null (not mounted), use `code: "not_mounted"`. Then `createShell(target, {cwd: <container dir of the file>})` and `pane.send_text {pane_id, text: "exec \"${EDITOR:-vi}\" -- '<file>'\n"}`, with the file name single-quote-escaped. Reply `{pane_id, tab_id}`. |
+| `open_file`     | `id`, `container`, `path`   | `path` is relative to that container's `localFolder` and goes through `confine`. Get the mounts, then `hostToContainerPath`; if that returns null (not mounted), use `code: "not_mounted"`. Then `createShell(target, {cwd: <container dir of the file>})` and `pane.send_text {pane_id, text: "exec \"${EDITOR:-vi}\" -- '<file>'\n"}`, with the file name single-quote-escaped. Reply `{pane_id, tab_id}`.                                                                                                                                                                                                                                                                |
 
 - **`exec`** means quitting the editor ends the pane. The page then sees `pane_closed`, and the
   tile shows "Pane gone" as it does for any exited pane. That is acceptable. If it feels wrong

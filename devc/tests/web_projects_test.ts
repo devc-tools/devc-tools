@@ -96,7 +96,7 @@ Deno.test('buildProjects sorts same-named folders by path', () => {
 });
 
 Deno.test('projectRefusal: with starts off, nothing starts, adds or pins', () => {
-  for (const type of ['start_project', 'add_project']) {
+  for (const type of ['start_project', 'add_project', 'list_host_dir']) {
     assertEquals(projectRefusal({ type }, true), null);
     assertEquals(typeof projectRefusal({ type }, false), 'string');
   }
@@ -105,7 +105,7 @@ Deno.test('projectRefusal: with starts off, nothing starts, adds or pins', () =>
   assertEquals(projectRefusal(pin, true), null);
   assertEquals(typeof projectRefusal(pin, false), 'string');
   assertEquals(projectRefusal(unpin, false), null);
-  for (const type of ['stop_project', 'forget_project']) {
+  for (const type of ['stop_project', 'forget_project', 'list_dir']) {
     assertEquals(projectRefusal({ type }, false), null);
   }
 });

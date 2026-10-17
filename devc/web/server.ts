@@ -18,13 +18,27 @@ import {
   type ContainerRecord,
   Discovery,
   inspectBindSources,
+  inspectMounts,
   probeDocker,
 } from './containers.ts';
+import type { ContainerMount } from '@devc-tools/core/container.ts';
+import { loadGlobalConfig } from '@devc-tools/core/config.ts';
+import { hostToContainerPath } from '@devc-tools/core/mount_paths.ts';
+import { dirnamePosix } from '@devc-tools/core/posix.ts';
+import {
+  confine,
+  editorCommand,
+  FilesError,
+  listHostDir,
+  listProjectDir,
+  pickerRoots,
+} from './files.ts';
 import {
   BridgeError,
   bridgeRequest,
   ContainerSession,
   createShell,
+  type HerdrTarget,
   isHerdrLaunch,
   snapshotPaneIds,
 } from './herdr_bridge.ts';
@@ -346,6 +360,17 @@ export async function startWeb(
     broadcastProjects();
     void gitWatch.refresh();
   };
+  // Each running container's mount table, read once: fixed when the container is created. A
+  // failed read (an empty table) is not kept.
+  const containerMounts = new Map<string, ContainerMount[]>();
+  const mountsOf = async (id: string) => {
+    let mounts = containerMounts.get(id);
+    if (mounts === undefined) {
+      mounts = await inspectMounts(id);
+      if (mounts.length) containerMounts.set(id, mounts);
+    }
+    return mounts;
+  };
   const isListedProject = (localFolder: string) =>
     projectsMessage().projects.some((p) => p.localFolder === localFolder);
 
@@ -379,6 +404,7 @@ export async function startWeb(
     const session = sessions.get(id);
     if (!session) return;
     sessions.delete(id);
+    containerMounts.delete(id);
     void controllers.closeContainer(id, 'container stopped');
     void session.dispose();
     broadcast(containersMessage());
@@ -427,10 +453,132 @@ export async function startWeb(
       error: { code, message: e instanceof Error ? e.message : String(e) },
     });
 
+  /** Answers a failed listing: a {@link FilesError}'s own code, else `list_failed`. */
+  const failFiles = (c: Client, id: string, e: unknown) =>
+    fail(c, id, e instanceof FilesError ? e.code : 'list_failed', e);
+
+  /** The picker's opening folders: `codeRoots` from devc's config, read now, else `$HOME`. */
+  const hostRoots = async () => {
+    let codeRoots: string[] = [];
+    try {
+      codeRoots = (await loadGlobalConfig()).codeRootsExpanded();
+    } catch { /* unreadable config or an unset $VAR: no code roots */ }
+    return pickerRoots(codeRoots, Deno.env.get('HOME') ?? '/');
+  };
+
+  /** Directory listings: a project's files, and the host folders "Add project…" browses. */
+  const handleListing = async (
+    c: Client,
+    msg: Extract<ClientMessage, { type: 'list_dir' | 'list_host_dir' }>,
+  ) => {
+    if (msg.type === 'list_dir') {
+      if (!isListedProject(msg.localFolder)) {
+        reject(c, {
+          id: msg.id,
+          code: 'bad_request',
+          message: 'unknown project',
+        });
+        return;
+      }
+      try {
+        const { path, ...listing } = await listProjectDir(
+          msg.localFolder,
+          msg.path,
+        );
+        // Where the directory is in its running container, for new shells and copied paths.
+        const session = [...sessions.values()].find((s) =>
+          s.record.localFolder === msg.localFolder
+        );
+        const containerPath = session
+          ? hostToContainerPath(path, await mountsOf(session.record.id))
+          : null;
+        reply(c, {
+          id: msg.id,
+          ok: true,
+          result: { ...listing, ...(containerPath ? { containerPath } : {}) },
+        });
+      } catch (e) {
+        failFiles(c, msg.id, e);
+      }
+      return;
+    }
+    const refusal = projectRefusal(msg, projectStarts);
+    if (refusal !== null) {
+      fail(c, msg.id, 'not_allowed', refusal);
+      return;
+    }
+    try {
+      const result = msg.path === ''
+        ? { roots: await hostRoots() }
+        : await listHostDir(
+          msg.path,
+          new Set(projectsMessage().projects.map((p) => p.localFolder)),
+        );
+      reply(c, { id: msg.id, ok: true, result });
+    } catch (e) {
+      failFiles(c, msg.id, e);
+    }
+  };
+
+  /**
+   * Opens a project file in a new pane running the container's editor. `path` is relative to the
+   * container's folder and confined to it; the editor gets the file's container path.
+   */
+  const openFile = async (
+    c: Client,
+    session: ContainerSession,
+    target: HerdrTarget,
+    msg: Extract<ClientMessage, { type: 'open_file' }>,
+  ) => {
+    let hostPath: string | null;
+    try {
+      hostPath = await confine(session.record.localFolder, msg.path);
+    } catch {
+      fail(c, msg.id, 'not_found', `${msg.path} does not exist`);
+      return;
+    }
+    if (hostPath === null) {
+      fail(c, msg.id, 'forbidden', `${msg.path} is outside the project`);
+      return;
+    }
+    if (!(await Deno.stat(hostPath).catch(() => null))?.isFile) {
+      fail(c, msg.id, 'bad_request', `${msg.path} is not a file`);
+      return;
+    }
+    const containerPath = hostToContainerPath(
+      hostPath,
+      await mountsOf(session.record.id),
+    );
+    if (containerPath === null) {
+      fail(
+        c,
+        msg.id,
+        'not_mounted',
+        `${msg.path} is not mounted in the container`,
+      );
+      return;
+    }
+    try {
+      const result = await createShell(target, {
+        cwd: dirnamePosix(containerPath),
+      });
+      await bridgeRequest(target, 'pane.send_text', {
+        pane_id: result.pane_id,
+        text: editorCommand(containerPath),
+      });
+      reply(c, { id: msg.id, ok: true, result });
+    } catch (e) {
+      fail(c, msg.id, e instanceof BridgeError ? e.code : 'herdr_error', e);
+    }
+  };
+
   /** The messages about projects, which name a folder rather than a running container. */
   const handleProject = async (
     c: Client,
-    msg: Extract<ClientMessage, { localFolder: string }>,
+    msg: Exclude<
+      Extract<ClientMessage, { localFolder: string }>,
+      { type: 'list_dir' }
+    >,
   ) => {
     const folder = msg.localFolder;
     const refusal = projectRefusal(msg, projectStarts);
@@ -516,6 +664,10 @@ export async function startWeb(
   const handle = async (c: Client, msg: ClientMessage) => {
     if (msg.type === 'client_ready') {
       await liveStatic?.clientReady(msg.generation);
+      return;
+    }
+    if (msg.type === 'list_dir' || msg.type === 'list_host_dir') {
+      await handleListing(c, msg);
       return;
     }
     if ('localFolder' in msg) {
@@ -656,6 +808,9 @@ export async function startWeb(
         }
         return;
       }
+      case 'open_file':
+        await openFile(c, session, target, msg);
+        return;
       case 'new_shell':
         try {
           const result = await createShell(target, {

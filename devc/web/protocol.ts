@@ -72,6 +72,9 @@ export type ClientMessage =
     localFolder: string;
   }
   | { type: 'pin_project'; id: string; localFolder: string; pinned: boolean }
+  | { type: 'list_dir'; id: string; localFolder: string; path: string }
+  | { type: 'list_host_dir'; id: string; path: string }
+  | { type: 'open_file'; id: string; container: string; path: string }
   | { type: 'retry'; container: string }
   | { type: 'client_ready'; generation: string };
 
@@ -111,6 +114,13 @@ function str(o: Obj, k: string): string {
   if (typeof v !== 'string' || v === '') {
     throw new Invalid(`'${k}' must be a non-empty string`);
   }
+  return v;
+}
+
+/** A string that may be empty: a path where '' means the root. */
+function text(o: Obj, k: string): string {
+  const v = o[k];
+  if (typeof v !== 'string') throw new Invalid(`'${k}' must be a string`);
   return v;
 }
 
@@ -291,6 +301,22 @@ function parseFields(m: Obj): ClientMessage {
         id: str(m, 'id'),
         localFolder: folder(m),
         pinned: m.pinned,
+      };
+    case 'list_dir':
+      return {
+        type: 'list_dir',
+        id: str(m, 'id'),
+        localFolder: folder(m),
+        path: text(m, 'path'),
+      };
+    case 'list_host_dir':
+      return { type: 'list_host_dir', id: str(m, 'id'), path: text(m, 'path') };
+    case 'open_file':
+      return {
+        type: 'open_file',
+        id: str(m, 'id'),
+        container: str(m, 'container'),
+        path: str(m, 'path'),
       };
     case 'retry':
       return { type: 'retry', container: str(m, 'container') };
