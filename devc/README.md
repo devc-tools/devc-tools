@@ -272,13 +272,15 @@ is published from any container: the host server finds devcontainers with
   status. Containers without a running Herdr server are grouped under **Not
   running** at the bottom; hover one for **Start Herdr**
   (`herdr --session devc server`, detached) and **Retry**.
-- **Menus:** right-click a tile (its tab, or its Layout row) for **New shell**
-  to the right, below or in the same stack, **Close** (the tile only) and
-  **Kill pane** (ends the process). Stacks, rows and columns offer a new shell
-  inside them; a container or workspace row offers **New shell** in the focused
-  stack; a pane row offers **Open in new tile**, **Rename** and **Kill**. A new
-  shell is always its own Herdr tab, created without moving the focus of a
-  Herdr TUI attached to the same session.
+- **Menus:** right-click a tile (its tab, or its Layout row) for **Split pane
+  vertically** (a new shell to its right), **Split pane horizontally** (below),
+  **New shell in this stack**, **Close** (the tile only) and **Kill pane** (ends
+  the process). Stacks, rows and columns offer a new shell inside them; a
+  container or workspace row offers **New shell** in the focused stack; a pane
+  row offers **Open in new tile**, **Rename** and **Kill**. A new shell is
+  always its own Herdr tab, created without moving the focus of a Herdr TUI
+  attached to the same session. Hovering a Layout row shows **×** to close its
+  tiles; hovering a pane under Projects shows a trash button to kill it.
 - **Tiles:** click a pane to show it (bringing its tile forward if one already
   shows it, else opening it in the focused tile; Ctrl/⌘-click always opens a
   new tile), or drag it from the sidebar onto any tile's edge (a new split) or

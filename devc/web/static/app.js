@@ -766,7 +766,10 @@ function layoutTileRow(tile, active, depth) {
       oncontextmenu: (e) => openMenu(e, tileMenuItems(tile)),
     },
     h('span', { class: 'label' }, refTitle(tile.ref)),
-    badge(pane),
+    rowTrail(
+      badge(pane),
+      iconButton('close', 'Close tile', () => tiling?.close(tile.id)),
+    ),
   );
 }
 
@@ -800,8 +803,56 @@ function layoutNodeRow(node, depth, tilesById) {
       h('span', { class: 'node-icon', 'data-kind': node.kind }),
       `${node.kind} · ${tiles.length}`,
     ),
-    rollupBadge(panes),
+    rowTrail(
+      rollupBadge(panes),
+      iconButton(
+        'close',
+        `Close ${
+          tiles.length === 1 ? 'its tile' : `its ${tiles.length} tiles`
+        }`,
+        () => tiling?.close(node.id),
+      ),
+    ),
   );
+}
+
+/** A row's right-hand side: its badge, then buttons shown on hover. */
+function rowTrail(...children) {
+  return h('span', { class: 'row-trail' }, ...children);
+}
+
+const ICON_PATHS = {
+  close: 'M4 4l8 8M12 4l-8 8',
+  trash: 'M3 4.5h10M6.5 4.5V3h3v1.5M4.5 4.5l.6 8.5h5.8l.6-8.5M7 7v4M9 7v4',
+};
+
+/**
+ * A small icon button for a sidebar row, shown on hover. It stops its clicks (and the
+ * mousedown that would start a Golden Layout drag) from reaching the row.
+ *
+ * @param {keyof ICON_PATHS} icon @param {string} title @param {() => void} action
+ */
+function iconButton(icon, title, action) {
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  svg.setAttribute('viewBox', '0 0 16 16');
+  svg.setAttribute('aria-hidden', 'true');
+  const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+  path.setAttribute('d', ICON_PATHS[icon]);
+  svg.append(path);
+  const stop = (e) => e.stopPropagation();
+  return h('button', {
+    type: 'button',
+    class: 'icon-btn',
+    'data-icon': icon,
+    title,
+    'aria-label': title,
+    onmousedown: stop,
+    onpointerdown: stop,
+    onclick: (e) => {
+      e.stopPropagation();
+      action();
+    },
+  }, svg);
 }
 
 /** Brings a tile to the front of its stack and focuses its terminal. */
@@ -934,12 +985,15 @@ function placeInFocusedStack(ref) {
   return tiling.addBeside(tile?.id ?? null, ref, 'stack');
 }
 
+/** Ends a pane's process (and closes its Herdr tab), after asking. */
+function killPane(c, pane) {
+  if (confirm(`Kill pane "${paneLabel(c, pane)}"? Its process ends.`)) {
+    request(c.id, 'pane.close', { pane_id: pane.pane_id }, 'Kill pane');
+  }
+}
+
 function killPaneItem(c, pane) {
-  return ['Kill pane…', () => {
-    if (confirm(`Kill pane "${paneLabel(c, pane)}"? Its process ends.`)) {
-      request(c.id, 'pane.close', { pane_id: pane.pane_id }, 'Kill pane');
-    }
-  }, true];
+  return ['Kill pane…', () => killPane(c, pane), true];
 }
 
 /** @param {Tile} tile @returns {[string, () => void, boolean?][]} */
@@ -950,12 +1004,12 @@ function tileMenuItems(tile) {
     const opts = shellOptsNear(c, pane);
     items.push(
       [
-        'New shell to the right',
+        'Split pane vertically',
         () =>
           newShell(c, opts, (ref) => tiling.addBeside(tile.id, ref, 'right')),
       ],
       [
-        'New shell below',
+        'Split pane horizontally',
         () =>
           newShell(c, opts, (ref) => tiling.addBeside(tile.id, ref, 'below')),
       ],
@@ -1278,7 +1332,10 @@ function paneRow(c, pane, depth) {
       visible ? h('span', { class: 'shown-mark', 'aria-label': 'shown' }) : '',
       paneLabel(c, pane),
     ),
-    badge(pane),
+    rowTrail(
+      badge(pane),
+      iconButton('trash', 'Kill pane…', () => killPane(rec.c, rec.pane)),
+    ),
   );
   return row;
 }
