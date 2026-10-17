@@ -87,6 +87,8 @@ const focusSeq = new Map();
 let nextFocusSeq = 0;
 /** `localFolder\npane` of panes from `new_shell`, → when their grace period ends. */
 const newPanes = new Map();
+/** Whether the server starts containers and adds projects for this page (see `onHello`). */
+let projectStarts = true;
 /** The Layout section's last rendered tree, as `treeSignature` plus the tiles' refs. */
 let layoutSignature = '';
 /**
@@ -274,6 +276,9 @@ function connect() {
 // ---------------------------------------------------------------------------------------------
 
 function onHello(msg) {
+  // `devc web --live` starts no containers for the page (its code comes from a checkout agents can
+  // write to): hide what would only be refused. A server that doesn't say allows them.
+  projectStarts = msg.projectStarts !== false;
   if (bootGeneration === null) {
     bootGeneration = msg.generation;
     return;
@@ -681,8 +686,12 @@ function renderTree() {
       'Projects',
       undefined,
       undefined,
-      rowTrail(hoverActions(iconButton('plus', 'Add project…', addProject))),
-      (e) => openMenu(e, [['Add project…', addProject]]),
+      projectStarts
+        ? rowTrail(hoverActions(iconButton('plus', 'Add project…', addProject)))
+        : '',
+      projectStarts
+        ? (e) => openMenu(e, [['Add project…', addProject]])
+        : undefined,
     ),
   ];
   // Projects with no running container: stopped, never created, or just pinned.
@@ -1386,7 +1395,7 @@ function projectRow(p) {
           : '',
         PROJECT_STATE_TEXT[state] ?? state,
       ),
-      p.starting ? '' : hoverActions(
+      p.starting || !projectStarts ? '' : hoverActions(
         iconButton(
           'play',
           'Start container',
@@ -1404,14 +1413,18 @@ function projectMenuItems(localFolder) {
   const items = [];
   if (p.container === 'running') {
     items.push(['Stop container…', () => stopProject(p)]);
-  } else if (!p.starting) {
+  } else if (!p.starting && projectStarts) {
     items.push(['Start container', () => startProject(localFolder)]);
   }
-  items.push([
-    p.pinned ? 'Unpin' : 'Pin',
-    () =>
-      projectRequest('pin_project', localFolder, 'Pin', { pinned: !p.pinned }),
-  ]);
+  if (p.pinned || projectStarts) {
+    items.push([
+      p.pinned ? 'Unpin' : 'Pin',
+      () =>
+        projectRequest('pin_project', localFolder, 'Pin', {
+          pinned: !p.pinned,
+        }),
+    ]);
+  }
   if (!p.pinned && p.container === 'missing' && !p.starting) {
     items.push([
       'Forget',
@@ -1795,9 +1808,11 @@ function updateOverlay(tileId) {
         message = p.container === 'stopped'
           ? 'Container stopped'
           : 'Container not created';
-        action = h('button', {
-          onclick: () => startProject(ref.localFolder),
-        }, 'Start container');
+        if (projectStarts) {
+          action = h('button', {
+            onclick: () => startProject(ref.localFolder),
+          }, 'Start container');
+        } else message += ' (start it from a terminal)';
       } else message = `${basename(ref.localFolder)} is not running.`;
     } else if (c.state !== 'connected') {
       message = `${displayName(c)}: ${c.state}`;

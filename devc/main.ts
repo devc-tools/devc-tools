@@ -364,9 +364,9 @@ if (subcommand === 'web') {
     console.error(`devc web: ${e instanceof Error ? e.message : e}`);
     Deno.exit(1);
   }
-  // The supervised child of `devc web --live` (web/supervisor.ts): live mode, with the
-  // supervisor's token and no URL line. It ignores --live and --source, so it never supervises
-  // a child of its own.
+  // The supervised child of `devc web --live-server` (web/supervisor.ts): live mode, with the
+  // supervisor's token and no URL line. It ignores --live, --live-server and --source, so it
+  // never supervises a child of its own.
   const child = Deno.env.get('DEVC_WEB_CHILD') === '1';
   const configWebSource = async () => {
     try {
@@ -410,16 +410,31 @@ if (subcommand === 'web') {
     const token = mintToken();
     // Earlier versions kept the token in a file; it is never read now.
     await Deno.remove(LEGACY_TOKEN_PATH).catch(() => {});
-    if (source !== undefined) {
-      Deno.exit(
-        await superviseWeb({
-          ...webArgs,
-          token,
-          source: resolvePath(Deno.cwd(), source),
-        }),
-      );
+    const dir = source === undefined
+      ? undefined
+      : resolvePath(Deno.cwd(), source);
+    // --live-server: the checkout's server code too, under a supervisor. Full trust.
+    if (dir !== undefined && webArgs.liveServer) {
+      Deno.exit(await superviseWeb({ ...webArgs, token, source: dir }));
     }
-    const handle = await startWeb({ ...webArgs, token, live: false });
+    // --live: devc's own server, serving and watching the checkout's page. The page is the only
+    // checkout code that runs, and the server starts no containers on its behalf.
+    const staticDir = dir === undefined ? undefined : `${dir}/web/static`;
+    if (staticDir !== undefined) {
+      try {
+        if (!(await Deno.stat(`${staticDir}/index.html`)).isFile) throw 0;
+      } catch {
+        throw new WebStartError(
+          `${dir}: no web/static/index.html there (expected the devc/ directory of a devc-tools checkout)`,
+        );
+      }
+    }
+    const handle = await startWeb({
+      ...webArgs,
+      token,
+      live: staticDir !== undefined,
+      ...(staticDir !== undefined ? { staticDir, projectStarts: false } : {}),
+    });
     console.log(`devc web: http://127.0.0.1:${webArgs.port}/#token=${token}`);
     await runUntilSignal(handle);
   } catch (e) {

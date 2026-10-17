@@ -57,3 +57,21 @@ export function buildProjects(
     a.name.localeCompare(b.name) || a.localFolder.localeCompare(b.localFolder)
   );
 }
+
+/**
+ * Why a project message is refused while container starts are off (`devc web --live`: the page
+ * comes from a checkout agents can write to), or `null` when it may go ahead. Off, nothing may
+ * start a container or bring in a folder: `start_project`, `add_project` and pinning are
+ * refused. Stop, unpin and forget never widen what can be reached, so they stay allowed.
+ */
+export function projectRefusal(
+  msg: { type: string; pinned?: boolean },
+  startsAllowed: boolean,
+): string | null {
+  if (startsAllowed) return null;
+  const off = 'is off while devc web runs with --live';
+  if (msg.type === 'start_project') return `starting containers ${off}`;
+  if (msg.type === 'add_project') return `adding projects ${off}`;
+  if (msg.type === 'pin_project' && msg.pinned) return `pinning ${off}`;
+  return null;
+}

@@ -277,11 +277,13 @@ Deno.test('parseWebArgs defaults, flags and errors', () => {
     port: 48228,
     session: DEVC_HERDR_SESSION,
     live: false,
+    liveServer: false,
   });
   assertEquals(parseWebArgs(['--port', '9000', '--session', 'work']), {
     port: 9000,
     session: 'work',
     live: false,
+    liveServer: false,
   });
   assertEquals(parseWebArgs(['--port=9001']).port, 9001);
   assertThrows(() => parseWebArgs(['--port']));
@@ -305,7 +307,21 @@ Deno.test('parseWebArgs: --live, and --source in both forms implying it', () => 
   assertThrows(() => parseWebArgs(['--new-token']), Error, 'unexpected');
   assertEquals(
     parseWebArgs(['--live', '--source', 'd', '--port', '9']),
-    { port: 9, session: DEVC_HERDR_SESSION, live: true, source: 'd' },
+    {
+      port: 9,
+      session: DEVC_HERDR_SESSION,
+      live: true,
+      liveServer: false,
+      source: 'd',
+    },
+  );
+  const server = parseWebArgs(['--live-server']);
+  assertEquals([server.live, server.liveServer], [true, true]);
+  assertEquals(parseWebArgs(['--live']).liveServer, false);
+  assertThrows(
+    () => parseWebArgs(['--live-server=1']),
+    Error,
+    'takes no value',
   );
 });
 

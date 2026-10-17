@@ -33,7 +33,7 @@ import {
   updateProjects,
 } from '../projects.ts';
 import { startProject, stopProject } from './project_control.ts';
-import { buildProjects } from './projects_view.ts';
+import { buildProjects, projectRefusal } from './projects_view.ts';
 import {
   type ClientMessage,
   parseClientMessage,
@@ -238,8 +238,26 @@ export interface WebHandle {
  * Throws {@link WebStartError} when docker is missing or the port cannot be bound.
  */
 export async function startWeb(
-  opts: WebOptions & { token: string; live: boolean },
+  opts: WebOptions & {
+    token: string;
+    live: boolean;
+    /**
+     * The page's directory, absolute: a checkout's `web/static/` for `devc web --live`.
+     * Defaults to this module's own {@link STATIC_ROOT}.
+     */
+    staticDir?: string;
+    /**
+     * Whether project messages may start containers or bring in folders (default `true`).
+     * `devc web --live` turns it off: its page comes from a checkout agents can write to. See
+     * {@link projectRefusal}.
+     */
+    projectStarts?: boolean;
+  },
 ): Promise<WebHandle> {
+  const staticRoot = opts.staticDir === undefined
+    ? STATIC_ROOT
+    : toFileUrl(`${opts.staticDir.replace(/\/+$/, '')}/`);
+  const projectStarts = opts.projectStarts ?? true;
   await requireDocker();
 
   const token = opts.token;
@@ -321,7 +339,7 @@ export async function startWeb(
 
   const liveStatic = opts.live
     ? new LiveStatic({
-      staticDir: fromFileUrl(STATIC_ROOT),
+      staticDir: fromFileUrl(staticRoot),
       snapshotDir: lastGoodDir(),
       onChange: (generation, paths) =>
         broadcast({ type: 'static_changed', generation, paths }),
@@ -363,6 +381,11 @@ export async function startWeb(
     msg: Extract<ClientMessage, { localFolder: string }>,
   ) => {
     const folder = msg.localFolder;
+    const refusal = projectRefusal(msg, projectStarts);
+    if (refusal !== null) {
+      fail(c, msg.id, 'not_allowed', refusal);
+      return;
+    }
     switch (msg.type) {
       case 'start_project': {
         if (!isListedProject(folder)) {
@@ -632,6 +655,7 @@ export async function startWeb(
         type: 'hello',
         generation: generation(),
         live: opts.live,
+        projectStarts,
       }));
       client.send(JSON.stringify(containersMessage()));
       client.send(JSON.stringify(projectsMessage()));
@@ -690,14 +714,14 @@ export async function startWeb(
         return new Response('method not allowed', { status: 405 });
       }
       if (!liveStatic) {
-        return routeStatic(url.pathname, opts.port, STATIC_ROOT, STATIC_ROOT);
+        return routeStatic(url.pathname, opts.port, staticRoot, staticRoot);
       }
       const snapshotDir = lastGoodDir();
       return snapshotGeneration(snapshotDir).then((snap) =>
         routeStatic(
           url.pathname,
           opts.port,
-          STATIC_ROOT,
+          staticRoot,
           snap === null ? null : toFileUrl(`${snapshotDir}/`),
         )
       );
