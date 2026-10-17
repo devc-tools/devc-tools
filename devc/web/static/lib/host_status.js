@@ -152,11 +152,11 @@ export function formatResetTime(at, now) {
 }
 
 /**
- * The strip's items for the usage sources, per source, per window in the source's order:
- * `5h 42%` (prefixed by the agent when there is more than one source), or `5h —` once the
- * window's reset has passed with no newer report, never the old percentage. Rendered from
- * `label`, `usedPercentage` and `resetsAt` alone, never by window id. Re-evaluate as `now`
- * moves on.
+ * The strip's items for the usage sources, one per source: its windows' percentages in the
+ * source's order, slash-separated, as `77/11%` (prefixed by the agent when there is more than
+ * one source). A window whose reset has passed with no newer report is `—`, never the old
+ * percentage. The tooltip names each window on its own line. Rendered from `label`,
+ * `usedPercentage` and `resetsAt` alone, never by window id. Re-evaluate as `now` moves on.
  * @param {UsageSource[]} sources
  * @param {number} now epoch seconds
  * @param {(at: number, now: number) => string} [fmtTime] formats a reset time
@@ -166,36 +166,40 @@ export function usageItems(sources, now, fmtTime = formatResetTime) {
   const multi = sources.length > 1;
   const items = [];
   for (const s of sources) {
-    const prefix = multi ? `${s.agent} ` : '';
+    if (s.windows.length === 0) continue;
     const asOf = `as of ${formatAge(now - s.observedAt)}`;
     const stale = now - s.observedAt > USAGE_STALE_S;
+    const parts = [];
+    const lines = [];
+    let high = false;
+    let live = false;
     for (const w of s.windows) {
-      const key = `usage:${s.agent}:${w.id}`;
-      const name = `${s.agent} ${w.label} usage`;
       if (w.resetsAt !== null && w.resetsAt <= now) {
-        items.push({
-          key,
-          state: 'reset',
-          text: `${prefix}${w.label} —`,
-          title: `${name}: reset at ${
-            fmtTime(w.resetsAt, now)
-          }, no newer report (${asOf})`,
-        });
+        parts.push('—');
+        lines.push(
+          `${w.label}: reset at ${fmtTime(w.resetsAt, now)}, no newer report`,
+        );
         continue;
       }
       const pct = Math.round(w.usedPercentage);
-      const resets = w.resetsAt === null
-        ? ''
-        : `, resets ${fmtTime(w.resetsAt, now)} (${
-          formatIn(w.resetsAt - now)
-        })`;
-      items.push({
-        key,
-        state: pct >= USAGE_HIGH_PERCENT ? 'high' : stale ? 'stale' : 'usage',
-        text: `${prefix}${w.label} ${pct}%`,
-        title: `${name}: ${pct}% used${resets}; ${asOf}`,
-      });
+      live = true;
+      if (pct >= USAGE_HIGH_PERCENT) high = true;
+      parts.push(String(pct));
+      lines.push(
+        `${w.label}: ${pct}% used` +
+          (w.resetsAt === null
+            ? ''
+            : `, resets ${fmtTime(w.resetsAt, now)} (${
+              formatIn(w.resetsAt - now)
+            })`),
+      );
     }
+    items.push({
+      key: `usage:${s.agent}`,
+      state: high ? 'high' : !live ? 'reset' : stale ? 'stale' : 'usage',
+      text: `${multi ? `${s.agent} ` : ''}${parts.join('/')}%`,
+      title: [`${s.agent} usage (${asOf})`, ...lines].join('\n'),
+    });
   }
   return items;
 }

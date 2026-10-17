@@ -330,7 +330,7 @@ bridge gateway rather than the host's loopback, so this needs Docker Desktop.
 #### The host status strip and usage limits
 
 The sidebar's foot is a one-line strip of host-level indicators: the
-account-wide agent usage limits (Claude's `5h 42%` and `7d 18%`), then
+account-wide agent usage limits (Claude's 5h/7d as `77/11%`), then
 devc-bridge (`bridge ●` / `bridge ○ off`, `☕ awake` while keepawake holds the
 host awake). Hover an item for details: a usage window's reset time and how old
 the observation is. Usage is shown once for every session, from whichever one
