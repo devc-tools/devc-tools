@@ -332,3 +332,48 @@ Deno.test('parseClientMessage: read_selection takes two viewport cells', () => {
   );
   assertEquals(rejected({ ...msg, cursor: { column: 1 } }).id, 's1');
 });
+
+Deno.test('parseClientMessage: project messages name an absolute folder', () => {
+  for (
+    const type of [
+      'start_project',
+      'stop_project',
+      'forget_project',
+      'add_project',
+    ]
+  ) {
+    assertEquals(
+      parseClientMessage(
+        JSON.stringify({ type, id: 'p1', localFolder: '/src/app' }),
+      ),
+      { ok: true, msg: { type, id: 'p1', localFolder: '/src/app' } } as never,
+    );
+    assertEquals(
+      rejected({ type, id: 'p2', localFolder: 'src/app' }).code,
+      'bad_request',
+    );
+    assertEquals(rejected({ type, id: 'p3' }).code, 'bad_request');
+  }
+  assertEquals(
+    parseClientMessage(JSON.stringify({
+      type: 'pin_project',
+      id: 'p4',
+      localFolder: '/src/app',
+      pinned: false,
+    })),
+    {
+      ok: true,
+      msg: {
+        type: 'pin_project',
+        id: 'p4',
+        localFolder: '/src/app',
+        pinned: false,
+      },
+    },
+  );
+  assertEquals(
+    rejected({ type: 'pin_project', id: 'p5', localFolder: '/a', pinned: 1 })
+      .code,
+    'bad_request',
+  );
+});

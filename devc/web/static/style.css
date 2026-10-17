@@ -297,6 +297,92 @@ body.resizing-sidebar {
   color: var(--danger);
 }
 
+/* A pinned project. */
+.pin-mark {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  margin-left: 4px;
+  color: var(--muted);
+  vertical-align: middle;
+}
+
+.pin-mark svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* A project's container starting. */
+.spinner {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  margin-right: 5px;
+  border: 1.5px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  vertical-align: -1px;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.row .state[data-state='starting'] {
+  color: var(--working);
+}
+
+/* A container start's output. */
+.dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 25;
+  display: grid;
+  place-items: center;
+  background: rgb(0 0 0 / 0.45);
+}
+
+.dialog {
+  display: grid;
+  grid-template-rows: auto 1fr;
+  width: min(820px, calc(100vw - 32px));
+  height: min(520px, calc(100vh - 32px));
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 10px 30px rgb(0 0 0 / 0.5);
+}
+
+.dialog-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  font-weight: 600;
+}
+
+.dialog-output {
+  margin: 0;
+  padding: 10px 12px;
+  overflow: auto;
+  font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: var(--text);
+  background: var(--term-bg);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 /* Projects: a pane some tile shows. */
 .shown-mark {
   display: inline-block;
@@ -591,6 +677,7 @@ body.resizing-sidebar {
 
 .toast {
   max-width: 420px;
+  white-space: pre-line;
   padding: 8px 12px;
   background: var(--panel-2);
   border: 1px solid var(--danger);

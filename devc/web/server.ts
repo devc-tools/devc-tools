@@ -7,7 +7,13 @@
 // Origin and the per-start token. Containers reach the server too: on Docker Desktop,
 // `host.docker.internal` is the host's loopback, so that name is an accepted Host.
 
-import { basename, extname, fromFileUrl, toFileUrl } from 'jsr:@std/path';
+import {
+  basename,
+  dirname,
+  extname,
+  fromFileUrl,
+  toFileUrl,
+} from 'jsr:@std/path';
 import { type ContainerRecord, Discovery, probeDocker } from './containers.ts';
 import {
   BridgeError,
@@ -18,6 +24,16 @@ import {
   snapshotPaneIds,
 } from './herdr_bridge.ts';
 import { ControllerManager, type Subscriber } from './controllers.ts';
+import {
+  forget as forgetProject,
+  loadProjects,
+  type ProjectEntry,
+  PROJECTS_PATH,
+  setPinned,
+  updateProjects,
+} from '../projects.ts';
+import { startProject, stopProject } from './project_control.ts';
+import { buildProjects } from './projects_view.ts';
 import {
   type ClientMessage,
   parseClientMessage,
@@ -249,6 +265,26 @@ export async function startWeb(
       .sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id)),
   });
 
+  // Projects: devc's projects list (pinned and recent folders) merged with what discovery knows.
+  let projectEntries: ProjectEntry[] = await loadProjects();
+  const startingProjects = new Set<string>();
+  const projectsMessage = () => ({
+    type: 'projects',
+    projects: buildProjects(
+      projectEntries,
+      [...sessions.values()].map((s) => s.record.localFolder),
+      [...discovery.stopped.values()].map((r) => r.localFolder),
+      startingProjects,
+    ),
+  });
+  const broadcastProjects = () => broadcast(projectsMessage());
+  const reloadProjects = async () => {
+    projectEntries = await loadProjects();
+    broadcastProjects();
+  };
+  const isListedProject = (localFolder: string) =>
+    projectsMessage().projects.some((p) => p.localFolder === localFolder);
+
   const addContainer = (record: ContainerRecord) => {
     const id = record.id;
     const session = new ContainerSession(record, opts.session, {
@@ -269,6 +305,7 @@ export async function startWeb(
     });
     sessions.set(id, session);
     broadcast(containersMessage());
+    broadcastProjects();
     void session.run();
   };
 
@@ -279,6 +316,7 @@ export async function startWeb(
     void controllers.closeContainer(id, 'container stopped');
     void session.dispose();
     broadcast(containersMessage());
+    broadcastProjects();
   };
 
   const liveStatic = opts.live
@@ -296,6 +334,7 @@ export async function startWeb(
   const discovery = new Discovery({
     onAdd: addContainer,
     onRemove: removeContainer,
+    onStoppedChange: () => broadcastProjects(),
     onExec: (id, command) => {
       if (isHerdrLaunch(command)) void sessions.get(id)?.herdrLaunched();
     },
@@ -311,9 +350,101 @@ export async function startWeb(
     }
   };
 
+  const fail = (c: Client, id: string, code: string, e: unknown) =>
+    reply(c, {
+      id,
+      ok: false,
+      error: { code, message: e instanceof Error ? e.message : String(e) },
+    });
+
+  /** The messages about projects, which name a folder rather than a running container. */
+  const handleProject = async (
+    c: Client,
+    msg: Extract<ClientMessage, { localFolder: string }>,
+  ) => {
+    const folder = msg.localFolder;
+    switch (msg.type) {
+      case 'start_project': {
+        if (!isListedProject(folder)) {
+          reject(c, {
+            id: msg.id,
+            code: 'bad_request',
+            message: 'unknown project',
+          });
+          return;
+        }
+        if (startingProjects.has(folder)) {
+          fail(c, msg.id, 'already_starting', `${folder} is already starting`);
+          return;
+        }
+        startingProjects.add(folder);
+        broadcastProjects();
+        try {
+          await startProject(
+            folder,
+            (line) =>
+              broadcast({ type: 'project_output', localFolder: folder, line }),
+          );
+          reply(c, { id: msg.id, ok: true, result: {} });
+        } catch (e) {
+          fail(c, msg.id, 'start_failed', e);
+        } finally {
+          startingProjects.delete(folder);
+          await reloadProjects();
+        }
+        return;
+      }
+      case 'stop_project':
+        try {
+          const stopped = await stopProject(folder);
+          reply(c, { id: msg.id, ok: true, result: { stopped } });
+        } catch (e) {
+          fail(c, msg.id, 'stop_failed', e);
+        }
+        return;
+      case 'add_project': {
+        let isDir = false;
+        try {
+          isDir = (await Deno.stat(folder)).isDirectory;
+        } catch { /* missing: not a directory */ }
+        if (!isDir) {
+          reject(c, {
+            id: msg.id,
+            code: 'bad_request',
+            message: `${folder} is not a directory`,
+          });
+          return;
+        }
+      }
+      // falls through: adding is pinning
+      case 'pin_project':
+      case 'forget_project':
+        try {
+          projectEntries = await updateProjects((list) =>
+            msg.type === 'forget_project'
+              ? forgetProject(list, folder)
+              : setPinned(
+                list,
+                folder,
+                msg.type === 'pin_project' ? msg.pinned : true,
+              )
+          );
+          broadcastProjects();
+          reply(c, { id: msg.id, ok: true, result: {} });
+        } catch (e) {
+          fail(c, msg.id, 'projects_error', e);
+        }
+        return;
+    }
+  };
+
   const handle = async (c: Client, msg: ClientMessage) => {
     if (msg.type === 'client_ready') {
       await liveStatic?.clientReady(msg.generation);
+      return;
+    }
+    if ('localFolder' in msg) {
+      await handleProject(c, msg);
       return;
     }
     const session = sessions.get(msg.container);
@@ -503,6 +634,7 @@ export async function startWeb(
         live: opts.live,
       }));
       client.send(JSON.stringify(containersMessage()));
+      client.send(JSON.stringify(projectsMessage()));
       for (const s of sessions.values()) {
         if (s.state === 'connected' && s.snapshot !== null) {
           client.send(JSON.stringify({
@@ -583,12 +715,14 @@ export async function startWeb(
 
   discovery.start();
   liveStatic?.watch();
+  const projectsWatch = watchProjectsFile(() => void reloadProjects());
 
   let stopping: Promise<void> | null = null;
   const stop = () => {
     stopping ??= (async () => {
       discovery.stop();
       liveStatic?.stop();
+      projectsWatch.stop();
       for (const c of clients) {
         try {
           c.socket.close();
@@ -603,6 +737,41 @@ export async function startWeb(
   };
 
   return { stop, finished: server.finished };
+}
+
+/** How long the projects file must be quiet before a change to it is re-read. */
+const PROJECTS_DEBOUNCE_MS = 200;
+
+/**
+ * Calls `onChange` (debounced) whenever devc's projects file changes — a start in some terminal
+ * records its project there. Watches the file's directory, since the file is replaced by a rename
+ * and may not exist yet. Never throws: without a watch, the list just refreshes on the page's
+ * own changes.
+ */
+function watchProjectsFile(onChange: () => void): { stop(): void } {
+  const dir = dirname(PROJECTS_PATH);
+  const file = basename(PROJECTS_PATH);
+  let watcher: Deno.FsWatcher | null = null;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  (async () => {
+    try {
+      await Deno.mkdir(dir, { recursive: true });
+      watcher = Deno.watchFs(dir, { recursive: false });
+      for await (const ev of watcher) {
+        if (!ev.paths.some((p) => basename(p) === file)) continue;
+        clearTimeout(timer);
+        timer = setTimeout(onChange, PROJECTS_DEBOUNCE_MS);
+      }
+    } catch { /* no watch: see above */ }
+  })();
+  return {
+    stop() {
+      clearTimeout(timer);
+      try {
+        watcher?.close();
+      } catch { /* already closed */ }
+    },
+  };
 }
 
 /** How long a stop may take before the process exits anyway: a hung child must not hold the

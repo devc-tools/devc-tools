@@ -1,12 +1,12 @@
 # devc-web-projects
 
-- [ ] `devc/projects.ts`: the projects file (pinned + recent), with tests
-- [ ] CLI start paths record each project they start (`devc/container.ts` `startContainer`)
-- [ ] Discovery reports stopped containers too (`docker ps -a`, `die` → stopped, `destroy` → gone)
-- [ ] Server: `projects` message; `start_project`, `stop_project`, `pin_project`, `forget_project`, `add_project`
-- [ ] Sidebar: projects that aren't running sit under the "Not running" group, with Start / Pin / Forget
-- [ ] Tiles whose project isn't running offer Start in their overlay
-- [ ] `.plans/devc-web.md` protocol section and `devc/README.md` (`devc web`) updated
+- [x] `devc/projects.ts`: the projects file (pinned + recent), with tests
+- [x] CLI start paths record each project they start (`devc/container.ts` `startContainer`)
+- [x] Discovery reports stopped containers too (`docker ps -a`, `die` → stopped, `destroy` → gone)
+- [x] Server: `projects` message; `start_project`, `stop_project`, `pin_project`, `forget_project`, `add_project`
+- [x] Sidebar: projects that aren't running sit under the "Not running" group, with Start / Pin / Forget
+- [x] Tiles whose project isn't running offer Start in their overlay
+- [x] `.plans/devc-web.md` protocol section and `devc/README.md` (`devc web`) updated
 - [ ] Verify (below) and ask the user to try it in their open tab
 
 Let `devc web` list **projects**, not only running containers. The sidebar's Projects section
@@ -214,6 +214,26 @@ These carry `localFolder` and no `container`. `handle()` currently rejects any m
   **Start container** button that sends `start_project`. Once the container runs and its
   snapshot has the pane, the tile reconnects through the existing reconcile. If the pane didn't
   survive the restart, it says "Pane gone" as today.
+
+## Implementation notes
+
+- **Start runs in-process, not `devc up`.** A bare `devc up` _revokes_ the project's devc-bridge
+  policy (only `--bridge-allow` grants), so the server calls the CLI's own `startContainer`
+  (`web/project_control.ts`), with the policy refreshed as `devc attach` does. The devcontainer
+  CLI's stderr streams through a self-exec runner (`streamingRunner`) as `project_output`.
+- **The ancestor-repo guard doesn't refuse without a TTY** (it warns and carries on), and the
+  `devc web` process usually _has_ a TTY, the user's host terminal, where a prompt would hang
+  unseen. `CliStartOptions.guard` lets the web start answer "no" and route the warning into the
+  output, so such a start fails with the guard's message.
+- **Stop** calls core's `stopContainer` in-process too.
+- `devc exec` records its project as well (it can start the container).
+- The merge of the projects file with discovery is a pure function, `web/projects_view.ts`.
+- Discovery keeps stopped containers in its own map (`Discovery.stopped`); the running-container
+  hooks (`onAdd`/`onRemove`) are unchanged, plus `onStoppedChange`.
+- Checked against a fake WebSocket in a headless browser: row order (pinned, then recent),
+  menus per state, every message the page sends, streamed output and its dialog, the failure
+  toast, and the tile overlays for a stopped and a starting project. Not checked end to end:
+  this container has no Docker.
 
 ## Verify
 

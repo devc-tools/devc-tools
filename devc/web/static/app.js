@@ -62,6 +62,15 @@ const SAFE_MODE = location.pathname.startsWith('/safe/');
 const containers = new Map();
 /** @type {Map<string, any>} Herdr snapshots, by container id */
 const snapshots = new Map();
+/**
+ * @typedef {{localFolder: string, name: string, pinned: boolean, lastUsed: string | null,
+ *   container: 'running' | 'stopped' | 'missing', starting: boolean}} ProjectInfo
+ */
+/** @type {Map<string, ProjectInfo>} devc's projects (the `projects` message), by local folder */
+const projects = new Map();
+/** Each project's container-start output, its last {@link OUTPUT_LINES} lines. Memory only. */
+const projectOutput = new Map();
+const OUTPUT_LINES = 500;
 
 /** @type {ReturnType<typeof createTiling> | null} set once the page has started */
 let tiling = null;
@@ -245,6 +254,7 @@ function connect() {
     pendingShells.clear();
     containers.clear();
     snapshots.clear();
+    projects.clear();
     renderTree();
     reconcileTiles();
     setTimeout(connect, RECONNECT_MS);
@@ -334,6 +344,15 @@ function onMessage(msg) {
       }
       break;
     }
+    case 'projects':
+      projects.clear();
+      for (const p of msg.projects) projects.set(p.localFolder, p);
+      renderTree();
+      reconcileTiles();
+      break;
+    case 'project_output':
+      onProjectOutput(msg.localFolder, msg.line);
+      break;
     case 'snapshot':
       snapshots.set(msg.container, msg.snapshot);
       renderTree();
@@ -647,8 +666,21 @@ function chevron() {
 function renderTree() {
   const generation = ++renderGeneration;
   const scroll = $tree.scrollTop;
-  const rows = [...layoutRows(), sectionRow('Projects')];
-  if (containers.size === 0) {
+  const rows = [
+    ...layoutRows(),
+    sectionRow(
+      'Projects',
+      undefined,
+      undefined,
+      rowTrail(iconButton('plus', 'Add project…', addProject)),
+      (e) => openMenu(e, [['Add project…', addProject]]),
+    ),
+  ];
+  // Projects with no running container: stopped, never created, or just pinned.
+  const idle = [...projects.values()].filter((p) =>
+    p.container !== 'running' && !containerByFolder(p.localFolder)
+  ).sort(byPinThenRecent);
+  if (containers.size === 0 && idle.length === 0) {
     rows.push(
       h(
         'div',
@@ -662,7 +694,9 @@ function renderTree() {
     if (INACTIVE_STATES.has(c.state)) inactive.push(c);
     else rows.push(...containerRows(c));
   }
-  if (inactive.length > 0) rows.push(...inactiveRows(inactive));
+  if (inactive.length + idle.length > 0) {
+    rows.push(...inactiveRows(inactive, idle));
+  }
   $tree.replaceChildren(...rows);
   $tree.scrollTop = scroll;
   for (const [key, rec] of paneRows) {
@@ -674,7 +708,7 @@ function renderTree() {
 }
 
 /** A section heading; collapsible when `open` is given. */
-function sectionRow(title, open, onToggle) {
+function sectionRow(title, open, onToggle, trail = '', oncontextmenu) {
   return h(
     'div',
     {
@@ -682,8 +716,10 @@ function sectionRow(title, open, onToggle) {
       style: '--depth: 0',
       'aria-expanded': open === undefined ? undefined : String(open),
       onclick: onToggle,
+      oncontextmenu,
     },
     h('span', { class: 'label' }, open === undefined ? '' : chevron(), title),
+    trail,
   );
 }
 
@@ -824,7 +860,20 @@ function rowTrail(...children) {
 const ICON_PATHS = {
   close: 'M4 4l8 8M12 4l-8 8',
   trash: 'M3 4.5h10M6.5 4.5V3h3v1.5M4.5 4.5l.6 8.5h5.8l.6-8.5M7 7v4M9 7v4',
+  plus: 'M8 3v10M3 8h10',
+  pin: 'M5.5 2.5h5M6.5 2.5v4L4.5 9h7l-2-2.5v-4M8 9v4.5',
 };
+
+/** @param {keyof ICON_PATHS} icon */
+function svgIcon(icon) {
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  svg.setAttribute('viewBox', '0 0 16 16');
+  svg.setAttribute('aria-hidden', 'true');
+  const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+  path.setAttribute('d', ICON_PATHS[icon]);
+  svg.append(path);
+  return svg;
+}
 
 /**
  * A small icon button for a sidebar row, shown on hover. It stops its clicks (and the
@@ -833,12 +882,7 @@ const ICON_PATHS = {
  * @param {keyof ICON_PATHS} icon @param {string} title @param {() => void} action
  */
 function iconButton(icon, title, action) {
-  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-  svg.setAttribute('viewBox', '0 0 16 16');
-  svg.setAttribute('aria-hidden', 'true');
-  const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-  path.setAttribute('d', ICON_PATHS[icon]);
-  svg.append(path);
+  const svg = svgIcon(icon);
   const stop = (e) => e.stopPropagation();
   return h('button', {
     type: 'button',
@@ -1142,11 +1186,15 @@ function containerRows(c) {
         title: c.localFolder,
         'aria-expanded': String(!collapsed),
         onclick: () => toggleContainer(c),
-        oncontextmenu: c.state === 'connected'
-          ? (e) => openMenu(e, [newShellItem(c, only?.workspace_id)])
-          : undefined,
+        oncontextmenu: (e) =>
+          openMenu(e, [
+            ...(c.state === 'connected'
+              ? [newShellItem(c, only?.workspace_id)]
+              : []),
+            ...projectMenuItems(c.localFolder),
+          ]),
       },
-      h('span', { class: 'label' }, chevron(), displayName(c)),
+      h('span', { class: 'label' }, chevron(), displayName(c), pinMark(c)),
       c.state !== 'connected'
         ? h(
           'span',
@@ -1194,7 +1242,11 @@ function containerRows(c) {
   return rows;
 }
 
-function inactiveRows(inactive) {
+/**
+ * The "Not running" group: running containers without a usable Herdr (`inactive`), then projects
+ * without a running container (`idle`).
+ */
+function inactiveRows(inactive, idle) {
   const errors = inactive.filter((c) => c.state !== 'no-session').length;
   const rows = [
     h(
@@ -1209,7 +1261,7 @@ function inactiveRows(inactive) {
         'span',
         { class: 'label' },
         chevron(),
-        `Not running (${inactive.length})`,
+        `Not running (${inactive.length + idle.length})`,
       ),
       errors > 0
         ? h(
@@ -1229,8 +1281,9 @@ function inactiveRows(inactive) {
           class: 'row inactive',
           style: '--depth: 1',
           title: c.error ? `${c.localFolder}\n${c.error}` : c.localFolder,
+          oncontextmenu: (e) => openMenu(e, projectMenuItems(c.localFolder)),
         },
-        h('span', { class: 'label' }, displayName(c)),
+        h('span', { class: 'label' }, displayName(c), pinMark(c)),
         h(
           'span',
           { class: 'row-actions' },
@@ -1252,7 +1305,187 @@ function inactiveRows(inactive) {
       ),
     );
   }
+  for (const p of idle) rows.push(projectRow(p));
   return rows;
+}
+
+// ---------------------------------------------------------------------------------------------
+// Sidebar: projects without a running container
+// ---------------------------------------------------------------------------------------------
+
+/** Pinned first, then most recently used, then by name. */
+function byPinThenRecent(a, b) {
+  return Number(b.pinned) - Number(a.pinned) ||
+    (b.lastUsed ?? '').localeCompare(a.lastUsed ?? '') ||
+    a.name.localeCompare(b.name);
+}
+
+/** A pin glyph after a pinned project's name. */
+function pinMark(project) {
+  if (!projects.get(project.localFolder)?.pinned) return '';
+  const mark = h('span', { class: 'pin-mark', title: 'Pinned' });
+  mark.append(svgIcon('pin'));
+  return mark;
+}
+
+const PROJECT_STATE_TEXT = {
+  starting: 'starting…',
+  stopped: 'stopped',
+  missing: 'not created',
+};
+
+function projectRow(p) {
+  const output = projectOutput.get(p.localFolder) ?? [];
+  const state = p.starting ? 'starting' : p.container;
+  return h(
+    'div',
+    {
+      class: 'row inactive project',
+      style: '--depth: 1',
+      'data-project': p.localFolder,
+      title: [p.localFolder, output.at(-1) ?? ''].filter((s) => s).join('\n'),
+      oncontextmenu: (e) => openMenu(e, projectMenuItems(p.localFolder)),
+    },
+    h(
+      'span',
+      { class: 'label' },
+      containerLabel(p, projects.values()),
+      pinMark(p),
+    ),
+    h(
+      'span',
+      { class: 'row-actions' },
+      h(
+        'span',
+        { class: 'state', 'data-state': state },
+        p.starting
+          ? h('span', { class: 'spinner', 'aria-hidden': 'true' })
+          : '',
+        PROJECT_STATE_TEXT[state] ?? state,
+      ),
+      p.starting ? '' : h('button', {
+        title: "Start this project's container",
+        onclick: () => startProject(p.localFolder),
+      }, 'Start'),
+    ),
+  );
+}
+
+/** Container actions for a project (by folder), whichever row its menu is on. */
+function projectMenuItems(localFolder) {
+  const p = projects.get(localFolder);
+  if (!p) return [];
+  const items = [];
+  if (p.container === 'running') {
+    items.push(['Stop container…', () => stopProject(p)]);
+  } else if (!p.starting) {
+    items.push(['Start container', () => startProject(localFolder)]);
+  }
+  items.push([
+    p.pinned ? 'Unpin' : 'Pin',
+    () =>
+      projectRequest('pin_project', localFolder, 'Pin', { pinned: !p.pinned }),
+  ]);
+  if (!p.pinned && p.container === 'missing' && !p.starting) {
+    items.push([
+      'Forget',
+      () => projectRequest('forget_project', localFolder, 'Forget'),
+    ]);
+  }
+  if (projectOutput.get(localFolder)?.length) {
+    items.push(['Show output', () => showOutput(localFolder)]);
+  }
+  return items;
+}
+
+/** Sends a project message; a failure is a toast naming `what`. */
+function projectRequest(type, localFolder, what, extra = {}) {
+  const id = `r${++nextRequestId}`;
+  pendingRequests.set(id, what);
+  send({ type, id, localFolder, ...extra });
+}
+
+function startProject(localFolder) {
+  projectOutput.set(localFolder, []);
+  projectRequest('start_project', localFolder, 'Start container');
+}
+
+function stopProject(p) {
+  if (
+    confirm(
+      `Stop the container for ${p.name}? Its panes end with it.`,
+    )
+  ) {
+    projectRequest('stop_project', p.localFolder, 'Stop container');
+  }
+}
+
+function addProject() {
+  const folder = prompt('Project folder (an absolute path on the host)');
+  if (folder?.trim()) {
+    projectRequest('add_project', folder.trim(), 'Add project');
+  }
+}
+
+/** One line of a container start's output: kept, shown on its row, and in an open dialog. */
+function onProjectOutput(localFolder, line) {
+  const lines = projectOutput.get(localFolder) ?? [];
+  lines.push(line);
+  if (lines.length > OUTPUT_LINES) lines.splice(0, lines.length - OUTPUT_LINES);
+  projectOutput.set(localFolder, lines);
+  for (const row of $tree.querySelectorAll('[data-project]')) {
+    const el = /** @type {HTMLElement} */ (row);
+    if (el.dataset.project === localFolder) {
+      el.title = `${localFolder}\n${line}`;
+    }
+  }
+  if (outputDialog?.localFolder === localFolder) {
+    const pre = outputDialog.pre;
+    const atEnd = pre.scrollTop + pre.clientHeight >= pre.scrollHeight - 4;
+    pre.textContent = lines.join('\n');
+    if (atEnd) pre.scrollTop = pre.scrollHeight;
+  }
+}
+
+/** @type {{localFolder: string, pre: HTMLElement, el: HTMLElement} | null} */
+let outputDialog = null;
+
+/** A dialog with a project's start output, following it while it runs. */
+function showOutput(localFolder) {
+  closeOutput();
+  const pre = h(
+    'pre',
+    { class: 'dialog-output' },
+    (projectOutput.get(localFolder) ?? []).join('\n'),
+  );
+  const el = h(
+    'div',
+    {
+      class: 'dialog-backdrop',
+      onmousedown: (e) => {
+        if (e.target === el) closeOutput();
+      },
+    },
+    h(
+      'div',
+      { class: 'dialog', role: 'dialog', 'aria-label': 'Start output' },
+      h(
+        'header',
+        { class: 'dialog-header' },
+        h('span', {}, `Start output · ${basename(localFolder)}`),
+        h('button', { type: 'button', onclick: closeOutput }, 'Close'),
+      ),
+      pre,
+    ),
+  );
+  document.body.append(el);
+  pre.scrollTop = pre.scrollHeight;
+  outputDialog = { localFolder, pre, el };
+}
+
+function closeOutput() {
+  outputDialog?.el.remove();
+  outputDialog = null;
 }
 
 function paneMenu(rec) {
@@ -1378,7 +1611,10 @@ document.addEventListener('mousedown', (e) => {
   }
 }, true);
 document.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape') closeMenu();
+  if (e.key === 'Escape') {
+    closeMenu();
+    closeOutput();
+  }
 }, true);
 
 // ---------------------------------------------------------------------------------------------
@@ -1524,8 +1760,18 @@ function updateOverlay(tileId) {
   } else {
     const c = containerByFolder(ref.localFolder);
     if (!socket) message = 'Disconnected from devc web.';
-    else if (!c) message = `${basename(ref.localFolder)} is not running.`;
-    else if (c.state !== 'connected') {
+    else if (!c) {
+      const p = projects.get(ref.localFolder);
+      if (p?.starting) message = 'Starting container…';
+      else if (p && p.container !== 'running') {
+        message = p.container === 'stopped'
+          ? 'Container stopped'
+          : 'Container not created';
+        action = h('button', {
+          onclick: () => startProject(ref.localFolder),
+        }, 'Start container');
+      } else message = `${basename(ref.localFolder)} is not running.`;
+    } else if (c.state !== 'connected') {
       message = `${displayName(c)}: ${c.state}`;
     } else if (!findPane(c.id, ref.pane_id)) {
       message = isNewPane(ref) ? '' : 'Pane gone';

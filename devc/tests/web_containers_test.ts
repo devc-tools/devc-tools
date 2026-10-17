@@ -52,13 +52,21 @@ Deno.test('resolveRemoteUser falls back on malformed JSON', () => {
   );
 });
 
-Deno.test('parsePsLine splits id and local folder on the first tab', () => {
-  assertEquals(parsePsLine('abc123\t/Users/me/src/my app'), {
+Deno.test('parsePsLine splits id, state and local folder on the first two tabs', () => {
+  assertEquals(parsePsLine('abc123\trunning\t/Users/me/src/my app'), {
     id: 'abc123',
+    running: true,
     localFolder: '/Users/me/src/my app',
   });
+  assertEquals(parsePsLine('abc123\texited\t/src/a\tb'), {
+    id: 'abc123',
+    running: false,
+    localFolder: '/src/a\tb',
+  });
+  assertEquals(parsePsLine('abc123\tpaused\t/src/a')?.running, false);
   assertEquals(parsePsLine(''), null);
   assertEquals(parsePsLine('no-tab'), null);
+  assertEquals(parsePsLine('abc123\t/src/a'), null);
 });
 
 Deno.test('parseEventLine reads start, die and exec_start, and ignores everything else', () => {
@@ -76,6 +84,7 @@ Deno.test('parseEventLine reads start, die and exec_start, and ignores everythin
     localFolder: '/src/app',
   });
   assertEquals(parseEventLine(line('die'))?.action, 'die');
+  assertEquals(parseEventLine(line('destroy'))?.action, 'destroy');
   assertEquals(parseEventLine(line('exec_start: sh -lc command -v herdr')), {
     action: 'exec',
     id: 'f00d',

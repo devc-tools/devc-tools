@@ -10,17 +10,31 @@ import { type LineProc, runText, spawnLines } from './proc.ts';
 
 export const LOCAL_FOLDER_LABEL = 'devcontainer.local_folder';
 
-/** A running devcontainer. `id` is the full Docker id. */
+/** A devcontainer. `id` is the full Docker id. */
 export interface ContainerRecord {
   id: string;
   localFolder: string;
 }
 
-/** Parses one `docker ps --format '{{.ID}}\t{{.Label …}}'` line; `null` for a blank one. */
-export function parsePsLine(line: string): ContainerRecord | null {
-  const tab = line.indexOf('\t');
-  if (tab <= 0) return null;
-  return { id: line.slice(0, tab).trim(), localFolder: line.slice(tab + 1) };
+/** A `docker ps -a` row: a devcontainer and whether it is running. */
+export interface ListedContainer extends ContainerRecord {
+  running: boolean;
+}
+
+/**
+ * Parses one `docker ps --format '{{.ID}}\t{{.State}}\t{{.Label …}}'` line; `null` for a blank
+ * or malformed one. Only the `running` state counts as running (`paused` does not: its Herdr
+ * can't answer).
+ */
+export function parsePsLine(line: string): ListedContainer | null {
+  const first = line.indexOf('\t');
+  const second = first <= 0 ? -1 : line.indexOf('\t', first + 1);
+  if (second === -1) return null;
+  return {
+    id: line.slice(0, first).trim(),
+    running: line.slice(first + 1, second).trim() === 'running',
+    localFolder: line.slice(second + 1),
+  };
 }
 
 /**
@@ -28,10 +42,10 @@ export function parsePsLine(line: string): ContainerRecord | null {
  * `exec_start`, with `command` the exec's entrypoint and args as Docker space-joins them.
  */
 export type ContainerEvent =
-  | { action: 'start' | 'die'; id: string; localFolder: string }
+  | { action: 'start' | 'die' | 'destroy'; id: string; localFolder: string }
   | { action: 'exec'; id: string; localFolder: string; command: string };
 
-/** Parses one `docker events` JSON line; `null` for anything not a start, die or exec_start. */
+/** Parses one `docker events` JSON line; `null` for anything not a start, die, destroy or exec_start. */
 export function parseEventLine(line: string): ContainerEvent | null {
   let ev: unknown;
   try {
@@ -50,7 +64,7 @@ export function parseEventLine(line: string): ContainerEvent | null {
     id: Actor.ID,
     localFolder: typeof folder === 'string' ? folder : '',
   };
-  if (Action === 'start' || Action === 'die') {
+  if (Action === 'start' || Action === 'die' || Action === 'destroy') {
     return { action: Action, ...base };
   }
   // Docker reports an exec as `exec_start: <entrypoint> <args…>`.
@@ -146,25 +160,32 @@ export async function resolveHerdrPath(
   return path.startsWith('/') ? path : '';
 }
 
-/** Lists running devcontainers. */
-export async function listDevcontainers(): Promise<ContainerRecord[]> {
+/** Lists devcontainers: the running ones, or with `all` the stopped ones too. */
+export async function listDevcontainers(
+  all = false,
+): Promise<ListedContainer[]> {
   const { code, stdout, stderr } = await runText('docker', [
     'ps',
+    ...(all ? ['-a'] : []),
     '--no-trunc',
     '--filter',
     `label=${LOCAL_FOLDER_LABEL}`,
     '--format',
-    `{{.ID}}\t{{.Label "${LOCAL_FOLDER_LABEL}"}}`,
+    `{{.ID}}\t{{.State}}\t{{.Label "${LOCAL_FOLDER_LABEL}"}}`,
   ]);
   if (code !== 0) throw new Error(stderr.trim() || 'docker ps failed');
   return stdout.split('\n').map(parsePsLine).filter((r) =>
     r !== null
-  ) as ContainerRecord[];
+  ) as ListedContainer[];
 }
 
 export interface DiscoveryHooks {
+  /** A container is running. */
   onAdd(record: ContainerRecord): void;
+  /** A running container stopped or went away. */
   onRemove(id: string): void;
+  /** The set of stopped containers changed: see {@link Discovery.stopped}. */
+  onStoppedChange(): void;
   /** A `docker exec` started in a known devcontainer. */
   onExec(id: string, command: string): void;
   onError(message: string): void;
@@ -173,12 +194,14 @@ export interface DiscoveryHooks {
 const EVENTS_RESTART_MS = 2000;
 
 /**
- * Tracks the set of running devcontainers. `docker events` is started *before* each `docker ps`
- * so nothing that happens between the two is missed; the reconcile makes the overlap harmless.
- * When the events stream ends it is restarted after 2 s and the list reconciled again.
+ * Tracks the set of running devcontainers, and the stopped ones beside them. `docker events` is
+ * started *before* each `docker ps` so nothing that happens between the two is missed; the
+ * reconcile makes the overlap harmless. When the events stream ends it is restarted after 2 s
+ * and the list reconciled again.
  */
 export class Discovery {
   #known = new Map<string, ContainerRecord>();
+  #stoppedContainers = new Map<string, ContainerRecord>();
   #events: LineProc | null = null;
   #stopped = false;
   #restartTimer: ReturnType<typeof setTimeout> | undefined;
@@ -206,19 +229,49 @@ export class Discovery {
     this.hooks.onRemove(id);
   }
 
+  /** Stopped devcontainers (created or exited), by id. */
+  get stopped(): ReadonlyMap<string, ContainerRecord> {
+    return this.#stoppedContainers;
+  }
+
+  #setStopped(record: ContainerRecord, stopped: boolean): void {
+    const had = this.#stoppedContainers.has(record.id);
+    if (stopped === had) return;
+    if (stopped) this.#stoppedContainers.set(record.id, record);
+    else this.#stoppedContainers.delete(record.id);
+    this.hooks.onStoppedChange();
+  }
+
   async #reconcile(): Promise<void> {
-    let current: ContainerRecord[];
+    let current: ListedContainer[];
     try {
-      current = await listDevcontainers();
+      current = await listDevcontainers(true);
     } catch (e) {
       this.hooks.onError(e instanceof Error ? e.message : String(e));
       return;
     }
-    const ids = new Set(current.map((r) => r.id));
+    const running = new Set(current.filter((r) => r.running).map((r) => r.id));
     for (const id of [...this.#known.keys()]) {
-      if (!ids.has(id)) this.#remove(id);
+      if (!running.has(id)) this.#remove(id);
     }
-    for (const r of current) this.#add(r);
+    const stopped = new Map(
+      current.filter((r) => !r.running).map((r) => [r.id, r]),
+    );
+    let changed = false;
+    for (const id of [...this.#stoppedContainers.keys()]) {
+      if (!stopped.has(id)) {
+        changed = this.#stoppedContainers.delete(id) || changed;
+      }
+    }
+    for (const [id, r] of stopped) {
+      if (this.#stoppedContainers.has(id)) continue;
+      this.#stoppedContainers.set(id, { id, localFolder: r.localFolder });
+      changed = true;
+    }
+    if (changed) this.hooks.onStoppedChange();
+    for (const r of current) {
+      if (r.running) this.#add({ id: r.id, localFolder: r.localFolder });
+    }
   }
 
   async #runEvents(): Promise<void> {
@@ -233,6 +286,8 @@ export class Discovery {
       'event=start',
       '--filter',
       'event=die',
+      '--filter',
+      'event=destroy',
       // Execs too: how a Herdr server started after discovery is noticed (see
       // `ContainerSession.herdrLaunched`).
       '--filter',
@@ -249,9 +304,16 @@ export class Discovery {
       if (ev === null) continue;
       if (ev.action === 'exec') {
         if (this.#known.has(ev.id)) this.hooks.onExec(ev.id, ev.command);
-      } else if (ev.action === 'start') {
-        this.#add({ id: ev.id, localFolder: ev.localFolder });
-      } else this.#remove(ev.id);
+      } else {
+        const record = { id: ev.id, localFolder: ev.localFolder };
+        if (ev.action === 'start') {
+          this.#setStopped(record, false);
+          this.#add(record);
+        } else {
+          this.#remove(ev.id);
+          this.#setStopped(record, ev.action === 'die');
+        }
+      }
     }
     await proc.status;
     if (this.#stopped) return;

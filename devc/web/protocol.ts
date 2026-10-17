@@ -66,6 +66,12 @@ export type ClientMessage =
     cursor: Cell;
   }
   | { type: 'start_session'; id: string; container: string }
+  | {
+    type: 'start_project' | 'stop_project' | 'forget_project' | 'add_project';
+    id: string;
+    localFolder: string;
+  }
+  | { type: 'pin_project'; id: string; localFolder: string; pinned: boolean }
   | { type: 'retry'; container: string }
   | { type: 'client_ready'; generation: string };
 
@@ -125,6 +131,13 @@ function oneOf<T extends string>(o: Obj, k: string, values: T[]): T {
 }
 
 const MAX_CELLS = 10_000;
+
+/** A project's host folder: an absolute path. */
+function folder(o: Obj): string {
+  const v = str(o, 'localFolder');
+  if (!v.startsWith('/')) throw new Invalid(`'localFolder' must be absolute`);
+  return v;
+}
 
 function pane(o: Obj): { container: string; pane_id: string } {
   return { container: str(o, 'container'), pane_id: str(o, 'pane_id') };
@@ -263,6 +276,21 @@ function parseFields(m: Obj): ClientMessage {
         type: 'start_session',
         id: str(m, 'id'),
         container: str(m, 'container'),
+      };
+    case 'start_project':
+    case 'stop_project':
+    case 'forget_project':
+    case 'add_project':
+      return { type: m.type, id: str(m, 'id'), localFolder: folder(m) };
+    case 'pin_project':
+      if (typeof m.pinned !== 'boolean') {
+        throw new Invalid(`'pinned' must be a boolean`);
+      }
+      return {
+        type: 'pin_project',
+        id: str(m, 'id'),
+        localFolder: folder(m),
+        pinned: m.pinned,
       };
     case 'retry':
       return { type: 'retry', container: str(m, 'container') };
