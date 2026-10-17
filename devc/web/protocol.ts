@@ -55,7 +55,8 @@ export type ClientMessage =
     params: Record<string, unknown>;
   }
   | { type: 'start_session'; id: string; container: string }
-  | { type: 'retry'; container: string };
+  | { type: 'retry'; container: string }
+  | { type: 'client_ready'; generation: string };
 
 /** A rejected message. `id` is set when the message carried one, so it can be answered. */
 export interface Rejection {
@@ -215,6 +216,8 @@ function parseFields(m: Obj): ClientMessage {
       };
     case 'retry':
       return { type: 'retry', container: str(m, 'container') };
+    case 'client_ready':
+      return { type: 'client_ready', generation: str(m, 'generation') };
     default:
       throw new Invalid(`unknown message type '${String(m.type)}'`);
   }

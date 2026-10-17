@@ -7,7 +7,7 @@
 // Origin and the per-start token. Containers reach the server too: on Docker Desktop,
 // `host.docker.internal` is the host's loopback, so that name is an accepted Host.
 
-import { basename, extname } from 'jsr:@std/path';
+import { basename, extname, fromFileUrl, toFileUrl } from 'jsr:@std/path';
 import { type ContainerRecord, Discovery, probeDocker } from './containers.ts';
 import {
   BridgeError,
@@ -24,6 +24,12 @@ import {
   rejectionReply,
 } from './protocol.ts';
 import { closeGracefully, liveProcs } from './proc.ts';
+import {
+  EMBEDDED_GENERATION,
+  lastGoodDir,
+  LiveStatic,
+  snapshotGeneration,
+} from './live.ts';
 
 export interface WebOptions {
   port: number;
@@ -123,24 +129,54 @@ function securityHeaders(port: number): Record<string, string> {
   };
 }
 
-async function serveStatic(pathname: string, port: number): Promise<Response> {
+/**
+ * The page's own files. Relative to this module, so it works from source (a checkout, in live
+ * mode) and from the compiled binary, whose `--include web/static` embeds the directory. Never
+ * `Deno.cwd()`.
+ */
+export const STATIC_ROOT = new URL('./static/', import.meta.url);
+
+/** Serves `pathname` (`/` meaning `/index.html`) from the directory `root`. */
+export async function serveStatic(
+  root: URL,
+  pathname: string,
+  port: number,
+): Promise<Response> {
   const path = pathname === '/' ? '/index.html' : pathname;
   const type = CONTENT_TYPES[extname(path)];
   if (!staticPathAllowed(path) || type === undefined) {
     return new Response('not found', { status: 404 });
   }
   try {
-    // Relative to this module, so it works from source and from the compiled binary, whose
-    // `--include web/static` embeds the directory. Never `Deno.cwd()`.
-    const body = await Deno.readFile(
-      new URL(`./static${path}`, import.meta.url),
-    );
+    const body = await Deno.readFile(new URL(`.${path}`, root));
     return new Response(body, {
       headers: { 'Content-Type': type, ...securityHeaders(port) },
     });
   } catch {
     return new Response('not found', { status: 404 });
   }
+}
+
+/**
+ * Routes a static GET: `/safe/…` to `safeRoot` (`null`: no last-good snapshot yet, a 404 that
+ * says so), everything else to `root`. The page uses only relative URLs, so it works under both.
+ */
+export function routeStatic(
+  pathname: string,
+  port: number,
+  root: URL,
+  safeRoot: URL | null,
+): Promise<Response> {
+  if (!pathname.startsWith('/safe/')) return serveStatic(root, pathname, port);
+  if (safeRoot === null) {
+    return Promise.resolve(
+      new Response('no last-good snapshot yet', {
+        status: 404,
+        headers: { 'Cache-Control': 'no-store' },
+      }),
+    );
+  }
+  return serveStatic(safeRoot, pathname.slice('/safe'.length), port);
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -151,14 +187,11 @@ interface Client extends Subscriber {
   socket: WebSocket;
 }
 
-/** Thrown by {@link serveWeb} for a startup failure worth a one-line message. */
+/** Thrown by {@link startWeb} for a startup failure worth a one-line message. */
 export class WebStartError extends Error {}
 
-/**
- * Runs `devc web` until SIGINT/SIGTERM, then exits the process with 0. Throws
- * {@link WebStartError} when docker is missing or the port cannot be bound.
- */
-export async function serveWeb(opts: WebOptions): Promise<never> {
+/** Throws {@link WebStartError} when `docker` is not on PATH. */
+export async function requireDocker(): Promise<void> {
   try {
     await probeDocker();
   } catch (e) {
@@ -167,8 +200,31 @@ export async function serveWeb(opts: WebOptions): Promise<never> {
     }
     throw e;
   }
+}
 
-  const token = mintToken();
+/** A running `devc web` server. */
+export interface WebHandle {
+  /**
+   * The shutdown sequence (release controllers, dispose sessions, kill procs, stop the HTTP
+   * server). Never exits the process; callers cap how long they wait. Idempotent.
+   */
+  stop(): Promise<void>;
+  /** Resolves when the HTTP server has finished. */
+  finished: Promise<void>;
+}
+
+/**
+ * Starts the server and returns once it is listening. `live` is the supervised child of a
+ * checkout (`supervisor.ts`): it watches `static/`, reports its generation and keeps the
+ * last-good snapshot for `/safe/`. Prints nothing on success; the caller prints the URL.
+ * Throws {@link WebStartError} when docker is missing or the port cannot be bound.
+ */
+export async function startWeb(
+  opts: WebOptions & { token: string; live: boolean },
+): Promise<WebHandle> {
+  await requireDocker();
+
+  const token = opts.token;
   const sessions = new Map<string, ContainerSession>();
   const clients = new Set<Client>();
   const controllers = new ControllerManager();
@@ -223,6 +279,18 @@ export async function serveWeb(opts: WebOptions): Promise<never> {
     broadcast(containersMessage());
   };
 
+  const liveStatic = opts.live
+    ? new LiveStatic({
+      staticDir: fromFileUrl(STATIC_ROOT),
+      snapshotDir: lastGoodDir(),
+      onChange: (generation, paths) =>
+        broadcast({ type: 'static_changed', generation, paths }),
+      onError: (m) => console.error(`devc web: ${m}`),
+    })
+    : null;
+  await liveStatic?.init();
+  const generation = () => liveStatic?.generation ?? EMBEDDED_GENERATION;
+
   const discovery = new Discovery({
     onAdd: addContainer,
     onRemove: removeContainer,
@@ -242,6 +310,10 @@ export async function serveWeb(opts: WebOptions): Promise<never> {
   };
 
   const handle = async (c: Client, msg: ClientMessage) => {
+    if (msg.type === 'client_ready') {
+      await liveStatic?.clientReady(msg.generation);
+      return;
+    }
     const session = sessions.get(msg.container);
     const id = 'id' in msg ? msg.id : undefined;
     if (!session) {
@@ -357,6 +429,11 @@ export async function serveWeb(opts: WebOptions): Promise<never> {
     };
     socket.onopen = () => {
       clients.add(client);
+      client.send(JSON.stringify({
+        type: 'hello',
+        generation: generation(),
+        live: opts.live,
+      }));
       client.send(JSON.stringify(containersMessage()));
       for (const s of sessions.values()) {
         if (s.state === 'connected' && s.snapshot !== null) {
@@ -412,7 +489,18 @@ export async function serveWeb(opts: WebOptions): Promise<never> {
       if (req.method !== 'GET' && req.method !== 'HEAD') {
         return new Response('method not allowed', { status: 405 });
       }
-      return serveStatic(url.pathname, opts.port);
+      if (!liveStatic) {
+        return routeStatic(url.pathname, opts.port, STATIC_ROOT, STATIC_ROOT);
+      }
+      const snapshotDir = lastGoodDir();
+      return snapshotGeneration(snapshotDir).then((snap) =>
+        routeStatic(
+          url.pathname,
+          opts.port,
+          STATIC_ROOT,
+          snap === null ? null : toFileUrl(`${snapshotDir}/`),
+        )
+      );
     });
   } catch (e) {
     if (e instanceof Deno.errors.AddrInUse) {
@@ -425,33 +513,42 @@ export async function serveWeb(opts: WebOptions): Promise<never> {
     );
   }
 
-  console.log(`devc web: http://127.0.0.1:${opts.port}/#token=${token}`);
   discovery.start();
+  liveStatic?.watch();
 
-  let shuttingDown = false;
-  const shutdown = async () => {
-    if (shuttingDown) return;
-    shuttingDown = true;
-    // A hung child must not hold the exit hostage.
-    setTimeout(() => Deno.exit(0), 6000);
-    discovery.stop();
-    for (const c of clients) {
-      try {
-        c.socket.close();
-      } catch { /* already closing */ }
-    }
-    await controllers.releaseAll();
-    await Promise.all([...sessions.values()].map((s) => s.dispose()));
-    await Promise.all(liveProcs().map((p) => closeGracefully(p, 1000)));
-    await server.shutdown().catch(() => {});
-    Deno.exit(0);
+  let stopping: Promise<void> | null = null;
+  const stop = () => {
+    stopping ??= (async () => {
+      discovery.stop();
+      liveStatic?.stop();
+      for (const c of clients) {
+        try {
+          c.socket.close();
+        } catch { /* already closing */ }
+      }
+      await controllers.releaseAll();
+      await Promise.all([...sessions.values()].map((s) => s.dispose()));
+      await Promise.all(liveProcs().map((p) => closeGracefully(p, 1000)));
+      await server.shutdown().catch(() => {});
+    })();
+    return stopping;
   };
-  for (const sig of ['SIGINT', 'SIGTERM'] as const) {
-    try {
-      Deno.addSignalListener(sig, () => void shutdown());
-    } catch { /* signal unsupported on this platform */ }
-  }
 
-  await server.finished;
-  return Deno.exit(0);
+  return { stop, finished: server.finished };
+}
+
+/** How long a stop may take before the process exits anyway: a hung child must not hold the
+ * exit hostage. */
+export const STOP_CAP_MS = 6000;
+
+/** Runs `handle.stop()`, giving up after {@link STOP_CAP_MS}. */
+export async function stopCapped(handle: WebHandle): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  await Promise.race([
+    handle.stop(),
+    new Promise<void>((resolve) => {
+      timer = setTimeout(resolve, STOP_CAP_MS);
+    }),
+  ]);
+  clearTimeout(timer);
 }

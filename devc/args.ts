@@ -126,23 +126,38 @@ export interface WebArgs {
   port: number;
   /** `--session NAME`: the Herdr session to use in each container. */
   session: string;
+  /**
+   * `--source DIR`, as typed: the `devc/` directory of a devc-tools checkout to serve live.
+   * Absent when not given; `main.ts` falls back to `DEVC_WEB_SOURCE` and resolves it.
+   */
+  source?: string;
+  /** `--new-token`: replace the saved token. */
+  newToken: boolean;
 }
 
 /** The port `devc web` listens on unless `--port` says otherwise. */
 export const DEVC_WEB_DEFAULT_PORT = 48228;
 
 /**
- * Parses `devc web` arguments: `--port N` and `--session NAME` (each also as `--flag=value`).
- * Strict: an unknown argument, a missing value or a port outside 1–65535 throws.
+ * Parses `devc web` arguments: `--port N`, `--session NAME` and `--source DIR` (each also as
+ * `--flag=value`), and the bare flag `--new-token`. Strict: an unknown argument, a missing
+ * value, a value on `--new-token` or a port outside 1–65535 throws.
  */
 export function parseWebArgs(args: string[]): WebArgs {
   let port = DEVC_WEB_DEFAULT_PORT;
   let session = DEVC_HERDR_SESSION;
+  let source: string | undefined;
+  let newToken = false;
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
     const eq = arg.indexOf('=');
     const flag = arg.startsWith('--') && eq !== -1 ? arg.slice(0, eq) : arg;
-    if (flag !== '--port' && flag !== '--session') {
+    if (flag === '--new-token') {
+      if (flag !== arg) throw new Error('--new-token takes no value');
+      newToken = true;
+      continue;
+    }
+    if (flag !== '--port' && flag !== '--session' && flag !== '--source') {
       throw new Error(`unexpected argument '${arg}'`);
     }
     const value = flag === arg ? args[++i] : arg.slice(eq + 1);
@@ -157,9 +172,15 @@ export function parseWebArgs(args: string[]): WebArgs {
         );
       }
       port = n;
-    } else session = value;
+    } else if (flag === '--source') source = value;
+    else session = value;
   }
-  return { port, session };
+  return {
+    port,
+    session,
+    ...(source !== undefined ? { source } : {}),
+    newToken,
+  };
 }
 
 export interface UpArgs {

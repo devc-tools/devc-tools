@@ -56,7 +56,15 @@ import {
 } from './tui/config_flow.ts';
 import { COMMAND_HELP, COMMANDS, helpRequested, topLevelHelp } from './help.ts';
 import { versionLine } from './version_info.ts';
-import { serveWeb, WebStartError } from './web/server.ts';
+import {
+  startWeb,
+  stopCapped,
+  type WebHandle,
+  WebStartError,
+} from './web/server.ts';
+import { resolve as resolvePath } from 'jsr:@std/path';
+import { superviseWeb } from './web/supervisor.ts';
+import { loadToken, tokenWellFormed, WEB_TOKEN_PATH } from './web/token.ts';
 
 const subcommand = Deno.args[0];
 const KNOWN_COMMANDS = new Set(COMMANDS.map((c) => c.name));
@@ -351,8 +359,46 @@ if (subcommand === 'web') {
     console.error(`devc web: ${e instanceof Error ? e.message : e}`);
     Deno.exit(1);
   }
+  // The supervised child of `devc web --source` (web/supervisor.ts): live mode, with the
+  // supervisor's token and no URL line. It ignores --source and DEVC_WEB_SOURCE, so it never
+  // supervises a child of its own.
+  const child = Deno.env.get('DEVC_WEB_CHILD') === '1';
+  const runUntilSignal = async (handle: WebHandle): Promise<never> => {
+    for (const sig of ['SIGINT', 'SIGTERM'] as const) {
+      try {
+        Deno.addSignalListener(sig, async () => {
+          await stopCapped(handle);
+          Deno.exit(0);
+        });
+      } catch { /* signal unsupported on this platform */ }
+    }
+    await handle.finished;
+    return Deno.exit(0);
+  };
   try {
-    await serveWeb(webArgs);
+    if (child) {
+      const token = Deno.env.get('DEVC_WEB_TOKEN');
+      if (!tokenWellFormed(token)) {
+        throw new WebStartError('DEVC_WEB_TOKEN is missing or malformed');
+      }
+      await runUntilSignal(await startWeb({ ...webArgs, token, live: true }));
+    }
+    const envSource = Deno.env.get('DEVC_WEB_SOURCE');
+    const source = webArgs.source ??
+      (envSource !== undefined && envSource !== '' ? envSource : undefined);
+    const token = await loadToken(WEB_TOKEN_PATH, webArgs.newToken);
+    if (source !== undefined) {
+      Deno.exit(
+        await superviseWeb({
+          ...webArgs,
+          token,
+          source: resolvePath(Deno.cwd(), source),
+        }),
+      );
+    }
+    const handle = await startWeb({ ...webArgs, token, live: false });
+    console.log(`devc web: http://127.0.0.1:${webArgs.port}/#token=${token}`);
+    await runUntilSignal(handle);
   } catch (e) {
     // `docker` missing reads exactly as it does for the lookup commands.
     const message = e instanceof Error ? e.message : String(e);

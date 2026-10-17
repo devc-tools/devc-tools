@@ -391,3 +391,24 @@ button:hover {
   border: 1px solid var(--danger);
   border-radius: 6px;
 }
+
+/* Safe mode (/safe/, the last-good snapshot) */
+
+.safe-banner {
+  position: fixed;
+  top: 6px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 30;
+  padding: 4px 12px;
+  background: var(--panel-2);
+  border: 1px solid var(--blocked);
+  border-radius: 999px;
+  color: var(--blocked);
+  font-size: 12px;
+}
+
+.safe-banner-link {
+  color: var(--accent);
+  margin-left: 6px;
+}

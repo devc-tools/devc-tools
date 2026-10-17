@@ -44,7 +44,7 @@ devc stop    [PATH]                                   Stop the container
 devc down    [PATH]                                   Stop and remove the container (and its devc-bridge files)
 devc prune   [--dry-run]                              Remove devc-bridge key dirs/policies no container uses
 devc status  [PATH]                                   Print `running` / `stopped` / `missing`, then protection and bridge lines
-devc web     [--port N] [--session NAME]              Serve a browser UI for the Herdr sessions in every running devcontainer
+devc web     [--port N] [--session NAME] [--source DIR] [--new-token] Serve a browser UI for the Herdr sessions in every running devcontainer
 ```
 
 Run `devc --help` for the full command list, `devc <COMMAND> --help` for a
@@ -254,7 +254,9 @@ config.
 `devc web` serves one page, on `127.0.0.1` only, for the Herdr sessions running
 **inside** every running devcontainer. It prints exactly one line,
 `devc web: http://127.0.0.1:48228/#token=…`, and runs until Ctrl-C. Open that URL
-(the `#token=` part included — a new token is minted on every start). Nothing
+(the `#token=` part included). The token is kept in `~/.config/devc/web-token`
+(mode `0600`), so the URL stays the same across restarts; `--new-token` replaces
+it, and URLs printed earlier stop working. Nothing
 is published from any container: the host server finds devcontainers with
 `docker ps` + `docker events` and reaches each container's Herdr through
 `docker exec … herdr --session devc remote-api-bridge` and
@@ -284,6 +286,8 @@ is published from any container: the host server finds devcontainers with
 - `--port N` picks another port (default 48228); `--session NAME` another Herdr
   session (default `devc`, the one `devc herdr` uses). A port already in use
   exits 1 with a `devc web:` message.
+- `--source DIR` (or `DEVC_WEB_SOURCE=DIR`; the flag wins, empty means unset)
+  serves a devc-tools checkout **live** instead of the built-in copy. See below.
 
 Security: Herdr panes are shells, so `/ws` only accepts requests whose `Host`
 is `127.0.0.1:<port>`, `localhost:<port>` or `host.docker.internal:<port>`,
@@ -294,9 +298,62 @@ the token. There is no remote access by design.
 `host.docker.internal:<port>`. Give an agent the printed URL with the host
 swapped, and it can connect any WebSocket client to
 `ws://host.docker.internal:<port>/ws?token=<token>`. Anything in any container
-that has the token can drive every pane, so restart `devc web` for a fresh
-token when the agent is done. On Linux Docker, `host.docker.internal` is the
+that has the token can drive every pane, so run `devc web --new-token` for a
+fresh token when the agent is done. On Linux Docker, `host.docker.internal` is the
 bridge gateway rather than the host's loopback, so this needs Docker Desktop.
+
+#### Live mode: `devc web --source DIR`
+
+`DIR` is the `devc/` directory of a devc-tools checkout on the **host** (the one
+holding `main.ts`), e.g. `~/code/tools/devc-tools/devc`. It is the same checkout
+that containers with the `devc:source` mount see read-write at
+`/workspaces/tools/devc-tools`: two names for one directory, from either side.
+Live mode needs `deno` on the host `PATH`; a missing `DIR/main.ts` or `deno`
+exits 1 with a `devc web:` message.
+
+The `devc` you started becomes a supervisor: it prints the URL once and runs
+`deno run … main.ts web` in `DIR` as a child, which serves the checkout's own
+server code and `web/static/` from disk. Edits reach the open tab without a new
+URL:
+
+- **Page** (`web/static/**`): the tab reloads (tile layout is in
+  `localStorage`, terminal contents in Herdr), or for a CSS-only change swaps the
+  stylesheet in place.
+- **Server** (`.ts` under `devc/` or `devc-core/`, not `tests/`): the supervisor
+  runs `deno check main.ts` while the old server keeps serving. If it fails, it
+  prints `devc web: not restarting: deno check failed` and the errors, and keeps
+  the old server. If it passes, it restarts the child; the page reconnects by
+  itself within a few seconds.
+- **A crash:** if the child exits on its own, the supervisor serves the
+  built-in copy on the same port and token (`devc web: server exited (…);
+  serving the built-in copy until the next change`) until a change passes
+  `deno check` again.
+- **A broken page:** an error before the page has rendered (or 5 s without
+  rendering) shows an overlay with **Reload** and **Load last good**. The
+  latter opens `/safe/`, a snapshot of the last page a browser rendered
+  (`~/.cache/devc/web/last-good/`), with a "Safe mode" banner and a link back.
+
+Running `deno task run web` directly in a checkout (no `--source`) is not live:
+it serves the files from disk, so a browser refresh shows page edits, but
+nothing is watched.
+
+#### Changing devc web while using it
+
+For an agent in a pane of `devc web` asked to change the UI:
+
+- **Where the code is:** the page is `devc/web/static/` (`app.js`, `layout.js`,
+  `renderer.js`, `lib/`, `style.css`, `index.html`, `boot.js`); the server is
+  `devc/web/*.ts`. From a container with the `devc:source` mount, that is
+  `/workspaces/tools/devc-tools/devc/…`.
+- **What happens on save:** a page file reloads the user's tab (a `.css` file
+  swaps in place); a server `.ts` file restarts the server, but only once
+  `deno check main.ts` passes. Your own pane reconnects too.
+- **How to verify:** `deno task check` and `deno task test` in `devc/`.
+- **If the UI breaks:** the user can click **Load last good** (or open
+  `/safe/`), or fall back to `devc herdr` in a terminal. Fix forward, or
+  `git checkout` the file. Keep page URLs relative (`./x.js`), so the page also
+  works under `/safe/`. **Never edit `boot.js` together with other page
+  files**: it is what shows the way out of a broken page.
 
 Known limitations:
 

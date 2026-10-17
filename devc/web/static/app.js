@@ -29,6 +29,8 @@ const OLD_LAYOUT_KEY = 'devc-web-layout-v1';
 const RESIZE_DEBOUNCE_MS = 100;
 const DRAG_INTERVAL_MS = 50;
 const RECONNECT_MS = 2000;
+/** Served from the last-good snapshot (`/safe/`): no reloads, no `client_ready`. */
+const SAFE_MODE = location.pathname.startsWith('/safe/');
 
 // ---------------------------------------------------------------------------------------------
 // State
@@ -84,6 +86,10 @@ const pendingRequests = new Map();
 
 let socket = /** @type {WebSocket | null} */ (null);
 let nextRequestId = 0;
+/** The static generation this page was loaded from: the first `hello`'s. */
+let bootGeneration = /** @type {string | null} */ (null);
+/** Set once the first `containers` has rendered: `client_ready` sent, boot guard released. */
+let booted = false;
 
 const token = new URLSearchParams(location.hash.slice(1)).get('token') ?? '';
 
@@ -121,6 +127,20 @@ function toast(message) {
   setTimeout(() => el.remove(), 6000);
 }
 
+/** Releases `boot.js`'s guard: from here on, errors are toasts, not its overlay. */
+function markBooted() {
+  if (booted) return;
+  booted = true;
+  /** @type {any} */ (window).__devcBooted?.();
+}
+
+window.addEventListener('error', (e) => {
+  if (booted && e.message) toast(e.message);
+});
+window.addEventListener('unhandledrejection', (e) => {
+  if (booted) toast(String(e.reason?.message ?? e.reason));
+});
+
 // ---------------------------------------------------------------------------------------------
 // WebSocket
 // ---------------------------------------------------------------------------------------------
@@ -148,6 +168,7 @@ function connect() {
         'This page needs the URL devc web printed, including its #token=… part.',
       ),
     );
+    markBooted();
     return;
   }
   const ws = new WebSocket(
@@ -185,8 +206,68 @@ function connect() {
   };
 }
 
+// ---------------------------------------------------------------------------------------------
+// Live reload (devc web --source): see .plans/devc-web-live.md
+// ---------------------------------------------------------------------------------------------
+
+function onHello(msg) {
+  if (bootGeneration === null) {
+    bootGeneration = msg.generation;
+    return;
+  }
+  // A reconnect to a server whose files changed while the socket was down (a restart, or the
+  // fallback to the built-in copy and back).
+  if (!SAFE_MODE && msg.generation !== bootGeneration) location.reload();
+}
+
+function onStaticChanged(msg) {
+  if (SAFE_MODE) return;
+  const paths = Array.isArray(msg.paths) ? msg.paths : [];
+  if (paths.length === 0 || !paths.every((p) => p.endsWith('.css'))) {
+    location.reload();
+    return;
+  }
+  // CSS only: swap each changed stylesheet in place, so the terminals keep their state.
+  const base = new URL('./', location.href).pathname;
+  const changed = new Set(paths);
+  for (const link of document.querySelectorAll('link[rel=stylesheet]')) {
+    const url = new URL(/** @type {HTMLLinkElement} */ (link).href);
+    const path = url.pathname.slice(base.length);
+    if (changed.has(path)) {
+      link.setAttribute(
+        'href',
+        `./${path}?g=${encodeURIComponent(msg.generation)}`,
+      );
+    }
+  }
+  bootGeneration = msg.generation;
+}
+
+function showSafeBanner() {
+  const back = h(
+    'a',
+    { href: `/${location.hash}`, class: 'safe-banner-link' },
+    'Back to live',
+  );
+  document.body.prepend(
+    h(
+      'div',
+      { class: 'safe-banner', role: 'status' },
+      'Safe mode — last good UI ',
+      back,
+    ),
+  );
+  document.body.classList.add('safe-mode');
+}
+
 function onMessage(msg) {
   switch (msg.type) {
+    case 'hello':
+      onHello(msg);
+      break;
+    case 'static_changed':
+      onStaticChanged(msg);
+      break;
     case 'containers': {
       const ids = new Set();
       containers.clear();
@@ -200,6 +281,12 @@ function onMessage(msg) {
       }
       renderTree();
       reconcileTiles();
+      if (!booted) {
+        if (!SAFE_MODE && bootGeneration !== null) {
+          send({ type: 'client_ready', generation: bootGeneration });
+        }
+        markBooted();
+      }
       break;
     }
     case 'snapshot':
@@ -1133,6 +1220,7 @@ tiling = createTiling($layoutRoot, {
     reconcileTiles();
   },
 });
+if (SAFE_MODE) showSafeBanner();
 restoreLayout();
 reconcileTiles();
 renderTree();

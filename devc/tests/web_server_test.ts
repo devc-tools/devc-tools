@@ -176,6 +176,27 @@ Deno.test('parseClientMessage rejects missing and bad fields', () => {
   );
 });
 
+Deno.test('parseClientMessage: client_ready needs a non-empty generation', () => {
+  assertEquals(
+    parseClientMessage(
+      JSON.stringify({ type: 'client_ready', generation: '3f9a0c1d2e4b5a69' }),
+    ),
+    {
+      ok: true,
+      msg: { type: 'client_ready', generation: '3f9a0c1d2e4b5a69' },
+    },
+  );
+  assertEquals(rejected({ type: 'client_ready' }).code, 'bad_request');
+  assertEquals(
+    rejected({ type: 'client_ready', generation: '' }).code,
+    'bad_request',
+  );
+  assertEquals(
+    rejected({ type: 'client_ready', generation: 7 }).code,
+    'bad_request',
+  );
+});
+
 Deno.test('parseClientMessage refuses a request method outside the allowlist', () => {
   const r = rejected({
     type: 'request',
@@ -200,10 +221,15 @@ Deno.test('parseClientMessage refuses a request method outside the allowlist', (
 });
 
 Deno.test('parseWebArgs defaults, flags and errors', () => {
-  assertEquals(parseWebArgs([]), { port: 48228, session: DEVC_HERDR_SESSION });
+  assertEquals(parseWebArgs([]), {
+    port: 48228,
+    session: DEVC_HERDR_SESSION,
+    newToken: false,
+  });
   assertEquals(parseWebArgs(['--port', '9000', '--session', 'work']), {
     port: 9000,
     session: 'work',
+    newToken: false,
   });
   assertEquals(parseWebArgs(['--port=9001']).port, 9001);
   assertThrows(() => parseWebArgs(['--port']));
@@ -212,4 +238,19 @@ Deno.test('parseWebArgs defaults, flags and errors', () => {
   assertThrows(() => parseWebArgs(['--port', '12ab']));
   assertThrows(() => parseWebArgs(['--bogus']));
   assertThrows(() => parseWebArgs(['path']));
+});
+
+Deno.test('parseWebArgs: --source in both forms and the bare --new-token', () => {
+  assertEquals(parseWebArgs(['--source', '../co/devc']).source, '../co/devc');
+  assertEquals(parseWebArgs(['--source=/co/devc']).source, '/co/devc');
+  assertEquals(parseWebArgs([]).source, undefined);
+  assertThrows(() => parseWebArgs(['--source']));
+  assertThrows(() => parseWebArgs(['--source=']));
+  assertEquals(parseWebArgs(['--new-token']).newToken, true);
+  assertThrows(() => parseWebArgs(['--new-token=x']), Error, 'takes no value');
+  assertThrows(() => parseWebArgs(['--new-token', '--bogus']));
+  assertEquals(
+    parseWebArgs(['--new-token', '--source', 'd', '--port', '9']),
+    { port: 9, session: DEVC_HERDR_SESSION, source: 'd', newToken: true },
+  );
 });

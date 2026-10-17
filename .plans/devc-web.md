@@ -260,15 +260,17 @@ All messages are JSON text frames. Container ids are the full Docker id.
 
 Server → browser:
 
-| `type`         | Fields                                                                                                                               |
-| -------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
-| `containers`   | `containers: [{id, localFolder, name, state, error?}]`. `name` is the basename of `localFolder`. Sent on connect and on every change |
-| `snapshot`     | `container`, `snapshot` (Herdr's `result.snapshot`, verbatim)                                                                        |
-| `pane_updated` | `container`, `pane` (Herdr's `data.pane`, verbatim)                                                                                  |
-| `agent_status` | `container`, `pane_id`, `agent`, `agent_status`                                                                                      |
-| `frame`        | `container`, `pane_id`, `seq`, `full`, `cols`, `rows`, `bytes` (base64, as received)                                                 |
-| `pane_closed`  | `container`, `pane_id`, `reason`                                                                                                     |
-| `result`       | `id`, `ok` (bool), `result` or `error` (`{code, message}`): the reply to a `request`, or to an `open` that failed                    |
+| `type`           | Fields                                                                                                                               |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| `containers`     | `containers: [{id, localFolder, name, state, error?}]`. `name` is the basename of `localFolder`. Sent on connect and on every change |
+| `snapshot`       | `container`, `snapshot` (Herdr's `result.snapshot`, verbatim)                                                                        |
+| `pane_updated`   | `container`, `pane` (Herdr's `data.pane`, verbatim)                                                                                  |
+| `agent_status`   | `container`, `pane_id`, `agent`, `agent_status`                                                                                      |
+| `frame`          | `container`, `pane_id`, `seq`, `full`, `cols`, `rows`, `bytes` (base64, as received)                                                 |
+| `pane_closed`    | `container`, `pane_id`, `reason`                                                                                                     |
+| `result`         | `id`, `ok` (bool), `result` or `error` (`{code, message}`): the reply to a `request`, or to an `open` that failed                    |
+| `hello`          | `generation`, `live` (bool). Sent first on every connection, before `containers`. `generation` is `"embedded"` unless live           |
+| `static_changed` | `generation`, `paths` (changed files under `static/`, `/`-separated). Live mode only; broadcast to every client                      |
 
 Browser → server:
 
@@ -283,6 +285,7 @@ Browser → server:
 | `request`       | `id`, `container`, `method`, `params`                        | One-shot bridge call, replied to with `result`                      |
 | `start_session` | `id`, `container`                                            | `docker exec -d … server`, then reconnect; replied to with `result` |
 | `retry`         | `container`                                                  | Re-run the connection lifecycle                                     |
+| `client_ready`  | `generation` (non-empty)                                     | Live mode: snapshot `static/` as last-good if current. No reply     |
 
 - **`request` allowlist:** `tab.create`, `tab.rename`, `tab.close`, `pane.split`,
   `pane.rename`, `pane.close`. Any other method gets
@@ -298,6 +301,9 @@ Browser → server:
   pane, gets `result {ok:false, error:{code:"bad_request", message}}` when it carries an
   `id`, and is ignored otherwise. It never crashes the server.
 - **Disconnect:** when a WebSocket closes, run `close` for every pane it had open.
+- **Live reload** (`hello`, `static_changed`, `client_ready`): added by
+  [devc-web-live](archived/devc-web-live.md), which describes when the page reloads and the `/safe/`
+  last-good snapshot.
 
 ### Browser UI
 

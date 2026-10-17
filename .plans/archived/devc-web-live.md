@@ -14,10 +14,10 @@ the checkout (any devcontainer with the `devc:source` mount has it read-write at
 using. The tab also shows the agent doing the work, so a broken edit can't be allowed to cost
 the user that view. The safety nets below are part of this plan, not a follow-on.
 
-**Depends on:** [devc-web-golden-layout](devc-web-golden-layout.md). It rewrites `index.html`,
+**Depends on:** [devc-web-golden-layout](../devc-web-golden-layout.md). It rewrites `index.html`,
 `app.js` and the tiling, which this plan also touches. Implement this plan only after that one
 is merged, and read `devc/web/static/` as it stands then, not as described in
-[devc-web](devc-web.md).
+[devc-web](../devc-web.md).
 
 Out of scope: Hot module replacement that keeps JS state across a reload (a full reload is
 fine: tile layout is in `localStorage`, and terminal contents live in Herdr), remote access,
@@ -27,13 +27,13 @@ and watching anything outside the checkout.
 
 ### Two modes
 
-| | **Embedded** (today, and still the default) | **Live** |
-|---|---|---|
-| Selected by | no source configured | `--source DIR` or `DEVC_WEB_SOURCE=DIR` |
-| Who serves | the `devc` process, in-process | a **child** `deno run DIR/main.ts web` that `devc` supervises |
-| Static files | from the binary (`--include web/static`) | from `DIR/web/static/` on disk, watched |
-| Server code | the binary's | the checkout's, restarted on change |
-| `/safe/` | the same embedded files | the last-good snapshot (below) |
+|              | **Embedded** (today, and still the default) | **Live**                                                      |
+| ------------ | ------------------------------------------- | ------------------------------------------------------------- |
+| Selected by  | no source configured                        | `--source DIR` or `DEVC_WEB_SOURCE=DIR`                       |
+| Who serves   | the `devc` process, in-process              | a **child** `deno run DIR/main.ts web` that `devc` supervises |
+| Static files | from the binary (`--include web/static`)    | from `DIR/web/static/` on disk, watched                       |
+| Server code  | the binary's                                | the checkout's, restarted on change                           |
+| `/safe/`     | the same embedded files                     | the last-good snapshot (below)                                |
 
 `DIR` is the checkout's **`devc/` directory** (the one that holds `main.ts` and `deno.json`),
 e.g. `~/code/tools/devc-tools/devc`. Live mode needs `deno` on the host PATH. If `DIR/main.ts`
@@ -118,7 +118,9 @@ the watch on server code. It never binds the port itself, except as the fallback
 
   ```ts
   /** Starts the server and returns once it is listening. Throws WebStartError as today. */
-  export function startWeb(opts: WebOptions & { token: string; live: boolean }): Promise<WebHandle>;
+  export function startWeb(
+    opts: WebOptions & { token: string; live: boolean },
+  ): Promise<WebHandle>;
   export interface WebHandle {
     /** The existing shutdown sequence (release controllers, dispose sessions, kill procs,
      *  server.shutdown), without Deno.exit. Idempotent. */
@@ -182,7 +184,7 @@ Browser → server (validated in `protocol.ts`; `generation` must be a non-empty
 
 The server answers `client_ready` with nothing. It is a no-op in embedded mode. Add it to
 `ClientMessage` and `parseFields`, and document all three in
-[devc-web](devc-web.md) § "Browser ⇄ server WebSocket protocol".
+[devc-web](../devc-web.md) § "Browser ⇄ server WebSocket protocol".
 
 ### Page behavior
 
@@ -243,20 +245,32 @@ it", written so an agent can follow it cold:
 
 ## Checklist
 
-- [ ] `args.ts`: `--source`, `--new-token`; `help.ts`; tests in the existing args test file
-- [ ] Persistent token file (`0600`) with `--new-token`; both modes use it
-- [ ] `server.ts`: split `serveWeb` into `startWeb`/`WebHandle`; `main.ts` owns signals and exit
-- [ ] Child mode (`DEVC_WEB_CHILD`, `DEVC_WEB_TOKEN`): no URL line, static watch, generations
-- [ ] Protocol: `hello`, `static_changed`, `client_ready` in `protocol.ts` + tests; spec in
+- [x] `args.ts`: `--source`, `--new-token`; `help.ts`; tests in the existing args test file
+- [x] Persistent token file (`0600`) with `--new-token`; both modes use it
+- [x] `server.ts`: split `serveWeb` into `startWeb`/`WebHandle`; `main.ts` owns signals and exit
+- [x] Child mode (`DEVC_WEB_CHILD`, `DEVC_WEB_TOKEN`): no URL line, static watch, generations
+- [x] Protocol: `hello`, `static_changed`, `client_ready` in `protocol.ts` + tests; spec in
       `devc-web.md`
-- [ ] Last-good snapshot (atomic rename) and `/safe/` routes in both modes
-- [ ] `index.html` relative URLs; `boot.js` overlay; `app.js` hello/static_changed/client_ready/
+- [x] Last-good snapshot (atomic rename) and `/safe/` routes in both modes
+- [x] `index.html` relative URLs; `boot.js` overlay; `app.js` hello/static_changed/client_ready/
       safe-mode banner
-- [ ] `web/supervisor.ts`: spawn, process group, `.ts` watch, `deno check` gate, swap, fallback
-- [ ] README: CLI, token, live mode, "Changing devc web while using it"; PLAN.md entry
-- [ ] `deno task check`, `deno task test`, `deno fmt --check` at the repo root
+- [x] `web/supervisor.ts`: spawn, process group, `.ts` watch, `deno check` gate, swap, fallback
+- [x] README: CLI, token, live mode, "Changing devc web while using it"; PLAN.md entry
+- [x] `deno task check`, `deno task test`, `deno fmt --check` at the repo root
 
 ## Validation
+
+**Result (2026-10-16):** automated tests pass (`devc/tests/web_live_test.ts`, plus the new
+`parseWebArgs` and `client_ready` cases in `web_server_test.ts`). Manual steps 1–9 were run in
+a Linux devcontainer against a copy of the checkout, with a stub `docker` (no containers, so no
+panes) and a headless Chromium: one URL printed and reused across restarts; CSS swapped in place
+without a reload; a JS edit reloaded; a server edit restarted and the client reconnected with
+the same token; a type error kept the old child with the checker's output; a module-level throw
+fell back to the built-in copy (`hello` generation `embedded`) and recovered when removed; a
+syntax error in `app.js` showed the overlay, **Load last good** opened `/safe/` with the banner,
+and **Back to live** returned; Ctrl-C left no processes; `--new-token` made the old token get
+401. **Still to do on the macOS host:** the same steps with real containers and open panes,
+including step 8's check for leftover `docker exec … herdr` children.
 
 Automated (`devc/tests/`):
 
