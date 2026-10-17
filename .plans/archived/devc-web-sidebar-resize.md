@@ -4,14 +4,14 @@
 - [x] Saved sidebar state gains `width` and `hidden` (same `localStorage` key, old values still load)
 - [x] Resize handle between the sidebar and the tiles: drag to resize, double-click to reset
 - [x] Hide button in the sidebar header; show button over the tile area while hidden
-- [ ] Verify (below) and ask the user to try it in their open tab
+- [x] Verify (below) and ask the user to try it in their open tab
 
 Make `devc web`'s sidebar **resizable** (drag its right edge) and **hideable** (it disappears
 completely, and a small button over the tiles brings it back). Both survive a reload. This is a
 page-only change: no server, protocol or Golden Layout changes.
 
-Builds on [devc-web](devc-web.md) ("Browser UI → Sidebar") and
-[devc-web-golden-layout](devc-web-golden-layout.md). Read
+Builds on [devc-web](../devc-web.md) ("Browser UI → Sidebar") and
+[devc-web-golden-layout](../devc-web-golden-layout.md). Read
 `/workspaces/devc-dev/.claude/skills/devc-web/SKILL.md` first: the user runs `devc web` in live
 mode, so every save reaches their tab.
 

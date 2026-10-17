@@ -17,11 +17,6 @@
   `localStorage` persistence. One module (`layout.js`) is the only Golden Layout importer;
   server, protocol and renderer are unchanged apart from a `.png` content type.
 
-- [devc-web-sidebar-resize](devc-web-sidebar-resize.md) — `devc web`'s sidebar becomes
-  resizable (drag handle, double-click resets, clamped 160px–60%) and hideable (fully hidden, a
-  small show button over the tiles), both kept in the existing `devc-web-sidebar-v1` entry.
-  Page-only.
-
 - [devc-web-copy-on-select](devc-web-copy-on-select.md) — a plain left-drag in a tile copies
   to the clipboard. Herdr draws no selection and sends no OSC 52 over the control stream
   (measured), so the page highlights the cells locally and a new `read_selection` message has
@@ -2026,5 +2021,5 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
 | devc-bridge worktree extra repos — linked worktrees in `--bridge-repo`, same-repo pins, mirror lock, trap race fix | [bridge-worktree-extra-repos](archived/bridge-worktree-extra-repos.md)             | complete    |
 | `devc web` — browser UI for in-container Herdr sessions over `docker exec`                                         | [devc-web](devc-web.md)                                                            | in progress |
 | `devc web` Golden Layout tiling — drag/drop, stacks, nesting                                                       | [devc-web-golden-layout](devc-web-golden-layout.md)                                | in progress |
-| `devc web` sidebar — resizable and hideable                                                                        | [devc-web-sidebar-resize](devc-web-sidebar-resize.md)                              |             |
+| `devc web` sidebar — resizable and hideable                                                                        | [devc-web-sidebar-resize](archived/devc-web-sidebar-resize.md)                     | complete    |
 | `devc web` copy on select — plain drag copies via `pane.selection.read`                                            | [devc-web-copy-on-select](devc-web-copy-on-select.md)                              |             |
