@@ -44,7 +44,7 @@ devc stop    [PATH]                                   Stop the container
 devc down    [PATH]                                   Stop and remove the container (and its devc-bridge files)
 devc prune   [--dry-run]                              Remove devc-bridge key dirs/policies no container uses
 devc status  [PATH]                                   Print `running` / `stopped` / `missing`, then protection and bridge lines
-devc web     [--port N] [--session NAME] [--live] [--live-server] [--source DIR] Serve a browser UI for the Herdr sessions in every running devcontainer
+devc web     [--port N] [--session NAME] [--live] [--live-yolo] [--source DIR] Serve a browser UI for the Herdr sessions in every running devcontainer
 ```
 
 Run `devc --help` for the full command list, `devc <COMMAND> --help` for a
@@ -310,7 +310,7 @@ is published from any container: the host server finds devcontainers with
   exits 1 with a `devc web:` message.
 - `--live` serves the **page** of the devc-tools checkout named by
   `"webSource"` in `~/.config/devc/config.json` live (`~` and `$VAR` expand; it
-  must be absolute); `--live-server` runs its server code too; `--source DIR`
+  must be absolute); `--live-yolo` runs its server code as well; `--source DIR`
   names a checkout for this run. Both imply `--live`. Neither: the built-in
   copy. See below.
 
@@ -327,7 +327,7 @@ that has the token can drive every pane, so restart `devc web` for a fresh
 token when the agent is done. On Linux Docker, `host.docker.internal` is the
 bridge gateway rather than the host's loopback, so this needs Docker Desktop.
 
-#### Live mode: `devc web --live` and `--live-server`
+#### Live mode: `devc web --live` and `--live-yolo`
 
 Live mode serves a devc-tools checkout's `devc/` directory on the **host** (the
 one holding `main.ts`), e.g. `~/code/tools/devc-tools/devc`, instead of the
@@ -340,7 +340,7 @@ directory, from either side. Name it once in `~/.config/devc/config.json`:
 ```
 
 `devc config --global` keeps the key when it rewrites the file. `--source DIR`
-names a checkout for one run instead. Without `--live`, `--live-server` or
+names a checkout for one run instead. Without `--live`, `--live-yolo` or
 `--source`, `devc web` serves the built-in copy, whatever the config says: any
 agent that can write to the checkout can change what live mode runs, so it is
 only ever on when asked for, run by run.
@@ -351,8 +351,8 @@ only ever on when asked for, run by run.
   its behalf beyond the containers already running: it starts no containers,
   adds no projects and pins none (the page hides those controls; start a
   project from a terminal). A page change that needs a server change the
-  installed `devc` doesn't have needs `--live-server`, or a newer `devc`.
-- **`devc web --live-server`: the server code too.** The `devc` you started
+  installed `devc` doesn't have needs `--live-yolo`, or a newer `devc`.
+- **`devc web --live-yolo`: the page and the server code.** The `devc` you started
   becomes a supervisor: it runs `deno run … main.ts web` in `DIR` as a child,
   which serves the checkout's own server code, and restarts it on every change
   that passes `deno check`. That code runs on the host as you, so use it only
@@ -365,12 +365,12 @@ Edits reach the open tab without a new URL:
   `localStorage`, terminal contents in Herdr), or for a CSS-only change swaps the
   stylesheet in place.
 - **Server** (`.ts` under `devc/` or `devc-core/`, not `tests/`;
-  `--live-server` only): the supervisor runs `deno check main.ts` while the old
+  `--live-yolo` only): the supervisor runs `deno check main.ts` while the old
   server keeps serving. If it fails, it prints
   `devc web: not restarting: deno check failed` and the errors, and keeps the
   old server. If it passes, it restarts the child; the page reconnects by itself
   within a few seconds.
-- **A crash** (`--live-server` only): if the child exits on its own, the
+- **A crash** (`--live-yolo` only): if the child exits on its own, the
   supervisor serves the built-in copy on the same port and token
   (`devc web: server exited (…); serving the built-in copy until the next
   change`) until a change passes `deno check` again.

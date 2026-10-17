@@ -315,11 +315,11 @@ Deno.test('parseWebArgs: --live, and --source in both forms implying it', () => 
       source: 'd',
     },
   );
-  const server = parseWebArgs(['--live-server']);
+  const server = parseWebArgs(['--live-yolo']);
   assertEquals([server.live, server.liveServer], [true, true]);
   assertEquals(parseWebArgs(['--live']).liveServer, false);
   assertThrows(
-    () => parseWebArgs(['--live-server=1']),
+    () => parseWebArgs(['--live-yolo=1']),
     Error,
     'takes no value',
   );

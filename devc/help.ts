@@ -302,7 +302,7 @@ export const COMMAND_HELP: Record<string, string> = {
   ].join('\n'),
 
   web: [
-    'Usage: devc web [--port N] [--session NAME] [--live] [--live-server] [--source DIR]',
+    'Usage: devc web [--port N] [--session NAME] [--live] [--live-yolo] [--source DIR]',
     '',
     'Options:',
     '  --port N        Port to listen on, on 127.0.0.1 (default: 48228)',
@@ -312,9 +312,9 @@ export const COMMAND_HELP: Record<string, string> = {
     '                  the built-in one, and starts no containers, adds no projects and',
     '                  pins none (without --live: the built-in page, whatever the config',
     '                  says)',
-    "  --live-server   Also run the checkout's server code, restarted on each change that",
-    '                  passes deno check (implies --live). That code runs on this machine',
-    '                  as you: use it only while working on the server',
+    "  --live-yolo     --live, plus the checkout's server code, restarted on each change that",
+    '                  passes deno check. That code runs on this machine as you: use it',
+    '                  only while working on the server',
     '  --source DIR    Use this checkout\'s devc/ directory instead of "webSource"',
     '                  (implies --live)',
     '  -h, --help      Print help',

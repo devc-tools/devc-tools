@@ -364,8 +364,8 @@ if (subcommand === 'web') {
     console.error(`devc web: ${e instanceof Error ? e.message : e}`);
     Deno.exit(1);
   }
-  // The supervised child of `devc web --live-server` (web/supervisor.ts): live mode, with the
-  // supervisor's token and no URL line. It ignores --live, --live-server and --source, so it
+  // The supervised child of `devc web --live-yolo` (web/supervisor.ts): live mode, with the
+  // supervisor's token and no URL line. It ignores --live, --live-yolo and --source, so it
   // never supervises a child of its own.
   const child = Deno.env.get('DEVC_WEB_CHILD') === '1';
   const configWebSource = async () => {
@@ -413,7 +413,7 @@ if (subcommand === 'web') {
     const dir = source === undefined
       ? undefined
       : resolvePath(Deno.cwd(), source);
-    // --live-server: the checkout's server code too, under a supervisor. Full trust.
+    // --live-yolo: the checkout's server code too, under a supervisor. Full trust.
     if (dir !== undefined && webArgs.liveServer) {
       Deno.exit(await superviseWeb({ ...webArgs, token, source: dir }));
     }
