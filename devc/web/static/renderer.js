@@ -7,6 +7,7 @@
 
 import { Terminal } from './vendor/xterm/xterm.mjs';
 import { FitAddon } from './vendor/xterm/addon-fit.mjs';
+import { selectionSpan } from './lib/input.js';
 
 /**
  * @typedef {object} Renderer
@@ -22,6 +23,9 @@ import { FitAddon } from './vendor/xterm/addon-fit.mjs';
  * @property {() => {left: number, top: number, cellWidth: number, cellHeight: number, cols: number, rows: number} | null} metrics
  *   The screen's client rect origin and cell size, for pixel→cell conversion.
  * @property {() => string} selection  The current local selection's text ('' for none).
+ * @property {(anchor: {column: number, row: number}, cursor: {column: number, row: number}) => void} highlight
+ *   Paints the inclusive range between two viewport cells (either order) as selected.
+ * @property {() => void} clearHighlight
  */
 
 /**
@@ -103,6 +107,14 @@ export function createRenderer(element) {
     },
     selection() {
       return term.hasSelection() ? term.getSelection() : '';
+    },
+    // No scrollback, so the buffer's rows are the viewport's.
+    highlight(anchor, cursor) {
+      const span = selectionSpan(anchor, cursor, term.cols);
+      term.select(span.column, span.row, span.length);
+    },
+    clearHighlight() {
+      term.clearSelection();
     },
   };
 }

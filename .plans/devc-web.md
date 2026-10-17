@@ -274,18 +274,19 @@ Server → browser:
 
 Browser → server:
 
-| `type`          | Fields                                                       | Server action                                                       |
-| --------------- | ------------------------------------------------------------ | ------------------------------------------------------------------- |
-| `open`          | `id`, `container`, `pane_id`, `cols`, `rows`                 | Start or join the controller                                        |
-| `close`         | `container`, `pane_id`                                       | Unsubscribe, and release if this was the last subscriber            |
-| `input`         | `container`, `pane_id`, `bytes` (base64)                     | `terminal.input` `bytes`                                            |
-| `resize`        | `container`, `pane_id`, `cols`, `rows`                       | `terminal.resize`                                                   |
-| `scroll`        | `container`, `pane_id`, `direction`, `lines`                 | `terminal.scroll`                                                   |
-| `mouse`         | `container`, `pane_id`, `action`, `button?`, `column`, `row` | `terminal.mouse` (zero-based cells)                                 |
-| `request`       | `id`, `container`, `method`, `params`                        | One-shot bridge call, replied to with `result`                      |
-| `start_session` | `id`, `container`                                            | `docker exec -d … server`, then reconnect; replied to with `result` |
-| `retry`         | `container`                                                  | Re-run the connection lifecycle                                     |
-| `client_ready`  | `generation` (non-empty)                                     | Live mode: snapshot `static/` as last-good if current. No reply     |
+| `type`           | Fields                                                                         | Server action                                                                               |
+| ---------------- | ------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------- |
+| `open`           | `id`, `container`, `pane_id`, `cols`, `rows`                                   | Start or join the controller                                                                |
+| `close`          | `container`, `pane_id`                                                         | Unsubscribe, and release if this was the last subscriber                                    |
+| `input`          | `container`, `pane_id`, `bytes` (base64)                                       | `terminal.input` `bytes`                                                                    |
+| `resize`         | `container`, `pane_id`, `cols`, `rows`                                         | `terminal.resize`                                                                           |
+| `scroll`         | `container`, `pane_id`, `direction`, `lines`                                   | `terminal.scroll`                                                                           |
+| `mouse`          | `container`, `pane_id`, `action`, `button?`, `column`, `row`                   | `terminal.mouse` (zero-based cells)                                                         |
+| `request`        | `id`, `container`, `method`, `params`                                          | One-shot bridge call, replied to with `result`                                              |
+| `read_selection` | `id`, `container`, `pane_id`, `anchor: {column, row}`, `cursor: {column, row}` | `pane.get`, viewport → content rows, `pane.selection.read`; replied to with `result {text}` |
+| `start_session`  | `id`, `container`                                                              | `docker exec -d … server`, then reconnect; replied to with `result`                         |
+| `retry`          | `container`                                                                    | Re-run the connection lifecycle                                                             |
+| `client_ready`   | `generation` (non-empty)                                                       | Live mode: snapshot `static/` as last-good if current. No reply                             |
 
 - **`request` allowlist:** `tab.create`, `tab.rename`, `tab.close`, `pane.split`,
   `pane.rename`, `pane.close`. Any other method gets
@@ -372,6 +373,12 @@ Browser → server:
     as `mouse`. Use a 50 ms cap for `drag`. The browser does not select on these.
   - **Shift+drag** does local xterm.js selection, never forwarded, and copies to the
     clipboard on mouseup.
+  - A plain **left-drag** that ends on a different cell is also highlighted locally and its
+    text copied: the page sends `read_selection` with the down and up cells (viewport,
+    inclusive), and writes the reply's `text` to the clipboard. Herdr 0.9.5 draws no selection
+    for a control client and sends it no OSC 52 (measured; an app's own OSC 52 is lost too),
+    so the text comes from `pane.selection.read`. See
+    [devc-web-copy-on-select](archived/devc-web-copy-on-select.md).
   - The **wheel** is always sent as `scroll`: direction from the sign of `deltaY`,
     `lines` = max(1, round(|deltaY| / cell height)), capped at 10 per event. Use
     xterm.js `attachCustomWheelEventHandler` to suppress its own scrolling.
@@ -379,6 +386,10 @@ Browser → server:
 - **Known limitation (documented, not fixed):** application cursor key mode is not
   honored. Arrow keys always go as `ESC[A` and the like. vim, less, readline and the
   agent TUIs accept both forms.
+- **Known limitation (documented, not fixed):** copy on select reads the rows as they are when
+  the server handles `read_selection`. If the pane scrolls or prints in between, the copied
+  rows can be off: `pane.selection.read`'s `content_revision` would catch it, but `pane.get`'s
+  `revision` is not that value and no other source was found.
 
 ### Static assets
 

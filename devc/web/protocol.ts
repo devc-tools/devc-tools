@@ -54,9 +54,20 @@ export type ClientMessage =
     method: string;
     params: Record<string, unknown>;
   }
+  | {
+    type: 'read_selection';
+    id: string;
+    container: string;
+    pane_id: string;
+    anchor: Cell;
+    cursor: Cell;
+  }
   | { type: 'start_session'; id: string; container: string }
   | { type: 'retry'; container: string }
   | { type: 'client_ready'; generation: string };
+
+/** A viewport cell, zero-based: the same space as `mouse`. */
+export type Cell = { column: number; row: number };
 
 /** A rejected message. `id` is set when the message carried one, so it can be answered. */
 export interface Rejection {
@@ -114,6 +125,24 @@ const MAX_CELLS = 10_000;
 
 function pane(o: Obj): { container: string; pane_id: string } {
   return { container: str(o, 'container'), pane_id: str(o, 'pane_id') };
+}
+
+/** Herdr's `pane.selection.read` takes a `u16` column. */
+const MAX_COLUMN = 65535;
+
+function cell(o: Obj, k: string): Cell {
+  const v = o[k];
+  if (typeof v !== 'object' || v === null || Array.isArray(v)) {
+    throw new Invalid(`'${k}' must be an object`);
+  }
+  const c = {
+    column: int(v as Obj, 'column', 0),
+    row: int(v as Obj, 'row', 0),
+  };
+  if (c.column > MAX_COLUMN || c.row > MAX_CELLS) {
+    throw new Invalid(`'${k}' out of range`);
+  }
+  return c;
 }
 
 function size(o: Obj): { cols: number; rows: number } {
@@ -208,6 +237,14 @@ function parseFields(m: Obj): ClientMessage {
       }
       return { type: 'request', id, container, method, params: params as Obj };
     }
+    case 'read_selection':
+      return {
+        type: 'read_selection',
+        id: str(m, 'id'),
+        ...pane(m),
+        anchor: cell(m, 'anchor'),
+        cursor: cell(m, 'cursor'),
+      };
     case 'start_session':
       return {
         type: 'start_session',

@@ -4,6 +4,7 @@ import {
   encodeInput,
   mouseButton,
   pixelToCell,
+  selectionSpan,
   wheelToScroll,
   wrapPaste,
 } from '../web/static/lib/input.js';
@@ -53,5 +54,32 @@ Deno.test('encodeInput is UTF-8 then base64, and decodeBase64 inverts it', () =>
   assertEquals(
     new TextDecoder().decode(decodeBase64(encodeInput(text))),
     text,
+  );
+});
+
+Deno.test('selectionSpan covers one row inclusively', () => {
+  assertEquals(
+    selectionSpan({ column: 2, row: 1 }, { column: 5, row: 1 }, 80),
+    {
+      column: 2,
+      row: 1,
+      length: 4,
+    },
+  );
+});
+
+Deno.test('selectionSpan wraps across rows and ignores order', () => {
+  const span = { column: 70, row: 3, length: 15 };
+  assertEquals(
+    selectionSpan({ column: 70, row: 3 }, { column: 4, row: 4 }, 80),
+    span,
+  );
+  assertEquals(
+    selectionSpan({ column: 4, row: 4 }, { column: 70, row: 3 }, 80),
+    span,
+  );
+  assertEquals(
+    selectionSpan({ column: 9, row: 2 }, { column: 3, row: 2 }, 80),
+    { column: 3, row: 2, length: 7 },
   );
 });

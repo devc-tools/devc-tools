@@ -30,6 +30,8 @@ const LAYOUT_KEY = 'devc-web-layout-v2';
 const OLD_LAYOUT_KEY = 'devc-web-layout-v1';
 const RESIZE_DEBOUNCE_MS = 100;
 const DRAG_INTERVAL_MS = 50;
+/** How long a `read_selection` may go unanswered before its copy is dropped. */
+const SELECTION_TIMEOUT_MS = 5000;
 const RECONNECT_MS = 2000;
 /** Served from the last-good snapshot (`/safe/`): no reloads, no `client_ready`. */
 const SAFE_MODE = location.pathname.startsWith('/safe/');
@@ -85,6 +87,11 @@ const views = new Map();
 const pendingOpens = new Map();
 /** Pending `request`/`start_session` ids → description, for error toasts. */
 const pendingRequests = new Map();
+/**
+ * Pending `read_selection` ids → the copy waiting on the text.
+ * @type {Map<string, {resolve: (text: string) => void, reject: (e: Error) => void, timer: ReturnType<typeof setTimeout>}>}
+ */
+const pendingSelections = new Map();
 
 let socket = /** @type {WebSocket | null} */ (null);
 let nextRequestId = 0;
@@ -358,6 +365,18 @@ function onPaneClosed(containerId, paneId, reason) {
 }
 
 function onResult(msg) {
+  const selection = pendingSelections.get(msg.id);
+  if (selection) {
+    pendingSelections.delete(msg.id);
+    clearTimeout(selection.timer);
+    if (msg.ok) selection.resolve(String(msg.result?.text ?? ''));
+    else {
+      selection.reject(
+        new Error(msg.error?.message ?? msg.error?.code ?? 'failed'),
+      );
+    }
+    return;
+  }
   if (pendingOpens.has(msg.id)) {
     const tileId = pendingOpens.get(msg.id);
     pendingOpens.delete(msg.id);
@@ -1206,8 +1225,55 @@ function tileVisibility(tile, visible) {
 }
 
 /**
+ * Copies the text between two viewport cells of a pane, read from Herdr's buffer
+ * (`read_selection`). Herdr draws no selection and sends no OSC 52 to a control client, so this
+ * is the only way its text reaches the clipboard.
+ */
+function copySelection(t, anchor, cursor) {
+  const id = `s${++nextRequestId}`;
+  /** @type {Promise<string>} */
+  const text = new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      pendingSelections.delete(id);
+      reject(new Error('no reply'));
+    }, SELECTION_TIMEOUT_MS);
+    pendingSelections.set(id, { resolve, reject, timer });
+  });
+  send({ type: 'read_selection', id, ...t, anchor, cursor });
+  writeClipboard(text).catch((e) => toast(`Copy failed: ${e?.message ?? e}`));
+}
+
+/**
+ * Writes text that is still on its way to the clipboard. The write starts now, inside the
+ * mouseup, with a promise-valued `ClipboardItem`: Safari and Firefox would drop the user
+ * activation across the wait for the server. Empty text copies nothing.
+ *
+ * @param {Promise<string>} text
+ */
+async function writeClipboard(text) {
+  const clipboard = navigator.clipboard;
+  if (!clipboard) throw new Error('clipboard unavailable');
+  if (typeof ClipboardItem === 'undefined') {
+    const t = await text;
+    if (t) await clipboard.writeText(t);
+    return;
+  }
+  const blob = text.then((t) => {
+    if (!t) throw new Error('empty');
+    return new Blob([t], { type: 'text/plain' });
+  });
+  try {
+    await clipboard.write([new ClipboardItem({ 'text/plain': blob })]);
+  } catch (e) {
+    // The reply's own error wins; an empty selection is not a failure.
+    if (await text) throw e;
+  }
+}
+
+/**
  * Plain mouse down/drag/up over the terminal go to Herdr as cells (the browser does not
- * select); Shift+drag is left to xterm.js for a local selection, copied on mouseup.
+ * select); a plain left-drag is also highlighted here and its text copied from Herdr. Shift+drag
+ * is left to xterm.js for a local selection, copied on mouseup.
  */
 function attachMouse(view, termEl, target) {
   termEl.addEventListener('contextmenu', (ev) => ev.preventDefault());
@@ -1226,6 +1292,7 @@ function attachMouse(view, termEl, target) {
     ev.preventDefault();
     ev.stopPropagation();
     view.renderer.focus();
+    view.renderer.clearHighlight();
     if (!button || !t) return;
     const cell = (e) => {
       const m = view.renderer.metrics();
@@ -1265,6 +1332,12 @@ function attachMouse(view, termEl, target) {
       clearTimeout(trailing);
       const c = cell(e) ?? last;
       send({ type: 'mouse', ...t, action: 'up', button, ...c });
+      if (
+        button === 'left' && (c.column !== start.column || c.row !== start.row)
+      ) {
+        view.renderer.highlight(start, c);
+        copySelection(t, start, c);
+      }
     };
     window.addEventListener('mousemove', onMove, true);
     window.addEventListener('mouseup', onUp, true);

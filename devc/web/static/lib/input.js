@@ -110,3 +110,24 @@ export function decodeBase64(b64) {
   for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
   return bytes;
 }
+
+/**
+ * The inclusive range between two viewport cells (either order) as xterm.js's
+ * `select(column, row, length)`: the earlier cell, and a cell count that wraps across rows.
+ *
+ * @param {{column: number, row: number}} anchor
+ * @param {{column: number, row: number}} cursor
+ * @param {number} cols  the grid's width
+ * @returns {{column: number, row: number, length: number}}
+ */
+export function selectionSpan(anchor, cursor, cols) {
+  const [a, b] = anchor.row < cursor.row ||
+      (anchor.row === cursor.row && anchor.column <= cursor.column)
+    ? [anchor, cursor]
+    : [cursor, anchor];
+  return {
+    column: a.column,
+    row: a.row,
+    length: (b.row - a.row) * cols + b.column - a.column + 1,
+  };
+}

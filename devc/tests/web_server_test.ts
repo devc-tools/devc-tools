@@ -254,3 +254,29 @@ Deno.test('parseWebArgs: --source in both forms and the bare --new-token', () =>
     { port: 9, session: DEVC_HERDR_SESSION, source: 'd', newToken: true },
   );
 });
+
+Deno.test('parseClientMessage: read_selection takes two viewport cells', () => {
+  const msg = {
+    type: 'read_selection' as const,
+    id: 's1',
+    container: 'c',
+    pane_id: 'w1:p1',
+    anchor: { column: 0, row: 3 },
+    cursor: { column: 12, row: 1 },
+  };
+  assertEquals(parseClientMessage(JSON.stringify(msg)), { ok: true, msg });
+  for (const field of ['id', 'container', 'pane_id', 'anchor', 'cursor']) {
+    const { [field]: _, ...rest } = msg as Record<string, unknown>;
+    assertEquals(rejected(rest).code, 'bad_request', field);
+  }
+  assertEquals(rejected({ ...msg, anchor: [0, 3] }).code, 'bad_request');
+  assertEquals(
+    rejected({ ...msg, anchor: { column: -1, row: 0 } }).code,
+    'bad_request',
+  );
+  assertEquals(
+    rejected({ ...msg, cursor: { column: 65536, row: 0 } }).code,
+    'bad_request',
+  );
+  assertEquals(rejected({ ...msg, cursor: { column: 1 } }).id, 's1');
+});

@@ -24,6 +24,7 @@ import {
   rejectionReply,
 } from './protocol.ts';
 import { closeGracefully, liveProcs } from './proc.ts';
+import { paneScroll, toTextPoint } from './selection.ts';
 import {
   EMBEDDED_GENERATION,
   lastGoodDir,
@@ -402,6 +403,52 @@ export async function startWeb(
           row: msg.row,
         });
         return;
+      case 'read_selection': {
+        const panes = session.snapshot ? snapshotPaneIds(session.snapshot) : [];
+        if (!panes.includes(msg.pane_id)) {
+          reject(c, { id, code: 'bad_request', message: 'unknown pane' });
+          return;
+        }
+        try {
+          const scroll = paneScroll(
+            await bridgeRequest(target, 'pane.get', { pane_id: msg.pane_id }),
+          );
+          if (!scroll) {
+            reply(c, {
+              id: msg.id,
+              ok: false,
+              error: {
+                code: 'bad_reply',
+                message: 'pane.get returned no scroll position',
+              },
+            });
+            return;
+          }
+          // No content_revision: pane.get's `revision` is not the value Herdr checks it against.
+          const result = await bridgeRequest(target, 'pane.selection.read', {
+            pane_id: msg.pane_id,
+            anchor: toTextPoint(scroll, msg.anchor),
+            cursor: toTextPoint(scroll, msg.cursor),
+          }) as { text?: unknown } | null;
+          reply(c, {
+            id: msg.id,
+            ok: true,
+            result: {
+              text: typeof result?.text === 'string' ? result.text : '',
+            },
+          });
+        } catch (e) {
+          reply(c, {
+            id: msg.id,
+            ok: false,
+            error: {
+              code: e instanceof BridgeError ? e.code : 'herdr_error',
+              message: e instanceof Error ? e.message : String(e),
+            },
+          });
+        }
+        return;
+      }
       case 'request':
         try {
           const result = await bridgeRequest(target, msg.method, msg.params);
