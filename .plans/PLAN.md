@@ -11,6 +11,26 @@
 
 ### Pending
 
+- [devc-web-layout-sidebar](devc-web-layout-sidebar.md) — Golden Layout owns all layout, and
+  Herdr only holds panes: every pane the page creates is its own Herdr tab (`new_shell` =
+  `tab.create` + find its pane), and the browser never splits a Herdr pane or shows Herdr tabs.
+  The sidebar gets a **Layout** section that mirrors the Golden Layout tree (single-child
+  levels folded) and a **Projects** section listing every pane, with a marker on visible ones.
+  Context menus are per node type, with Close (tile) kept separate from Kill (pane). The
+  request allowlist shrinks to `pane.rename` and `pane.close`.
+
+- [devc-web-projects](devc-web-projects.md) — after devc-web-layout-sidebar. Projects, not
+  just running containers: a `~/.config/devc/projects.json` of pinned and recent projects
+  (written by every CLI start path), stopped containers from `docker ps -a`, a `projects`
+  message, and `start_project` / `stop_project` / pin / forget / add from the page (spawning
+  `devc up` / `devc stop`, streaming the output). Tiles whose project is down offer Start.
+
+- [devc-web-files](devc-web-files.md) — after devc-web-projects. A lazily loaded Files tree
+  under each project, read from the host side of the bind mount (`list_dir`, confined to the
+  project, symlinks included). Opening a file runs `$EDITOR` in a new pane via `createShell`
+  and places it in the layout. A `$HOME`-confined host folder picker (`list_host_dir`)
+  replaces the "Add project…" prompt.
+
 - [devc-web-golden-layout](devc-web-golden-layout.md) — replace `devc web`'s hand-written
   split-tree tiling with vendored Golden Layout 2.6.0 (bundled to one ES module): drag sidebar
   panes onto tile edges or into tab stacks, move and nest tiles, maximise and close, with
