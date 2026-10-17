@@ -11,6 +11,19 @@
 
 ### Pending
 
+- [devc-web-repo-tree](devc-web-repo-tree.md) — two sidebar changes. A repo level with its
+  upstream gets a muted `✓` (no upstream: `•`) in the slot where `↑n ↓n` go, so it no longer
+  looks like a plain folder. The per-project **Files** node goes away: each repo row (project
+  folder first, then mounted repos and worktrees) expands into its own files. `list_dir` /
+  `open_file` take a `root` (one of the project's repo folders), so sibling repos become
+  browsable.
+
+- [devc-web-file-viewer](devc-web-file-viewer.md) — after devc-web-repo-tree. A `file` tile
+  (second Golden Layout component type) showing a file read-only in vendored CodeMirror 6, with
+  syntax highlighting, line numbers, search and folding. `read_file` reads the host side
+  (confined to a repo root, 2 MiB cap, binary refused). Clicking a file opens it there;
+  `$EDITOR` moves to the menu. Editing is the follow-on.
+
 - [git-protect-live-check](git-protect-live-check.md) — a read-only `.git/config` mount can
   vanish from a running container when the host rewrites the file (seen on Docker Desktop:
   VS Code's config writes), leaving the repo's config writable from inside while `devc status`
