@@ -11,11 +11,6 @@
 
 ### Pending
 
-- [devc-web-usage-5h](devc-web-usage-5h.md) — page only. The host status strip's usage item
-  shows just the 5h window as used / time to reset (`33%/3h10m`, picked by its `5h` label, else
-  the source's first window); its tooltip has one row per window (`5h 33%/3h10m`, `7d 18%/6d4h`).
-  A 7d window near its limit still turns the item red.
-
 - [git-protect-live-check](git-protect-live-check.md) — a read-only `.git/config` mount can
   vanish from a running container when the host rewrites the file (seen on Docker Desktop:
   VS Code's config writes), leaving the repo's config writable from inside while `devc status`
@@ -126,6 +121,18 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
   take it too.
 
 ### Completed
+
+- [devc-web-usage-5h](archived/devc-web-usage-5h.md) — ✅ Done: the host status strip's usage
+  item shows only the 5h window (picked by its `5h` label, else the source's first window) as
+  used / time to reset, `33%/3h10m` (`—` once reset), and its tooltip has one row per window
+  (`5h 33%/3h10m`, `7d 18%/6d4h`, the agent's name first when there are several sources); `high`
+  still looks at every window not yet reset. `usageItems` in `devc/web/static/lib/host_status.js`
+  rewritten, its tests and `devc/README.md` to match. Validated by `deno task check`,
+  `deno task test` and `deno fmt --check`, and in headless Chromium (agent-browser, the
+  checkout's `devc/web/static` over `python3 -m http.server`, a fake WebSocket and a fake clock):
+  the strip read `33%/3h10m` with a two-line title, and after moving the clock past the 5h reset
+  the page's one-minute re-render showed `—` with state `reset` and the `7d` row still in the
+  tooltip. **Still to be done by the user:** the plan's checks in their open tab.
 
 - [devc-web-containers-kill-closes](archived/devc-web-containers-kill-closes.md) — ✅ Done: the
   sidebar's Projects heading reads **Containers** and the tile menu's item **Reveal in

@@ -121,45 +121,47 @@ export function formatIn(seconds) {
 }
 
 /**
- * The strip's items for the usage sources, one per source: its windows' percentages in the
- * source's order, slash-separated, as `77/11%` (prefixed by the agent when there is more than
- * one source). A window whose reset has passed with no newer report is `—`, never the old
- * percentage. The tooltip is the time to each reset in the same pattern, `1h5m/3d4h` (`—`
- * passed, `?` unknown). Rendered from
- * `label`, `usedPercentage` and `resetsAt` alone, never by window id. Re-evaluate as `now`
- * moves on.
+ * The strip's items for the usage sources, one per source. The text is one window, the source's
+ * `5h` window (picked by label, else its first window), as used percentage / time to reset,
+ * `33%/3h10m` (prefixed by the agent when there is more than one source). The tooltip has one
+ * row per window in the source's order, `5h 33%/3h10m`, after the agent's name when there are
+ * several sources. A window whose reset has passed with no newer report is `—`, never the old
+ * percentage; an unknown reset is `?`. The item is `high` when any window not yet reset is near
+ * its limit, even one the text doesn't show. Re-evaluate as `now` moves on.
  * @param {UsageSource[]} sources
  * @param {number} now epoch seconds
  * @returns {{key: string, state: string, text: string, title: string}[]}
  */
 export function usageItems(sources, now) {
   const multi = sources.length > 1;
+  const passed = (/** @type {UsageWindow} */ w) =>
+    w.resetsAt !== null && w.resetsAt <= now;
+  const cell = (/** @type {UsageWindow} */ w) =>
+    passed(w)
+      ? '—'
+      : `${Math.round(w.usedPercentage)}%/${
+        w.resetsAt === null ? '?' : formatIn(w.resetsAt - now)
+      }`;
   const items = [];
   for (const s of sources) {
     if (s.windows.length === 0) continue;
+    const strip = s.windows.find((w) => w.label === '5h') ?? s.windows[0];
+    const high = s.windows.some((w) =>
+      !passed(w) && Math.round(w.usedPercentage) >= USAGE_HIGH_PERCENT
+    );
     const stale = now - s.observedAt > USAGE_STALE_S;
-    const parts = [];
-    const resets = [];
-    let high = false;
-    let live = false;
-    for (const w of s.windows) {
-      if (w.resetsAt !== null && w.resetsAt <= now) {
-        parts.push('—');
-        resets.push('—');
-        continue;
-      }
-      const pct = Math.round(w.usedPercentage);
-      live = true;
-      if (pct >= USAGE_HIGH_PERCENT) high = true;
-      parts.push(String(pct));
-      resets.push(w.resetsAt === null ? '?' : formatIn(w.resetsAt - now));
-    }
-    const prefix = multi ? `${s.agent} ` : '';
+    const rows = s.windows.map((w) => `${w.label} ${cell(w)}`);
     items.push({
       key: `usage:${s.agent}`,
-      state: high ? 'high' : !live ? 'reset' : stale ? 'stale' : 'usage',
-      text: `${prefix}${parts.join('/')}%`,
-      title: `${prefix}${resets.join('/')}`,
+      state: high
+        ? 'high'
+        : passed(strip)
+        ? 'reset'
+        : stale
+        ? 'stale'
+        : 'usage',
+      text: `${multi ? `${s.agent} ` : ''}${cell(strip)}`,
+      title: (multi ? [s.agent, ...rows] : rows).join('\n'),
     });
   }
   return items;

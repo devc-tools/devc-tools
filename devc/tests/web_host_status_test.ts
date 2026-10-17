@@ -95,43 +95,73 @@ Deno.test('formatIn', () => {
   );
 });
 
-Deno.test('usageItems: one terse item per source, windows in the source order', () => {
+Deno.test('usageItems: the 5h window in the strip, every window in the tooltip', () => {
   const items = usageItems(
-    [usage(NOW - 240, [win('5h', 77.4, NOW + 3600), win('7d', 11, null)])],
+    [
+      usage(NOW - 240, [
+        win('7d', 18, NOW + 6 * 86400 + 4 * 3600),
+        win('5h', 33.4, NOW + 3 * 3600 + 10 * 60),
+        win('7d opus', 4, null),
+      ]),
+    ],
     NOW,
   );
-  assertEquals(items.map((i) => [i.state, i.text]), [['usage', '77/11%']]);
-  assertEquals(
-    items[0].title,
-    '1h/?',
+  assertEquals(items.map((i) => [i.key, i.state, i.text]), [
+    ['usage:claude', 'usage', '33%/3h10m'],
+  ]);
+  assertEquals(items[0].title, '7d 18%/6d4h\n5h 33%/3h10m\n7d opus 4%/?');
+});
+
+Deno.test('usageItems: a source without a 5h window shows its first window', () => {
+  const [item] = usageItems(
+    [usage(NOW, [win('1mo', 30, null), win('1d', 5, NOW + 60)])],
+    NOW,
   );
+  assertEquals([item.state, item.text], ['usage', '30%/?']);
+  assertEquals(item.title, '1mo 30%/?\n1d 5%/1m');
 });
 
 Deno.test('usageItems: a passed reset shows the window as —, never the old percentage', () => {
   const [item] = usageItems(
-    [usage(NOW - 7200, [win('5h', 97, NOW - 60), win('7d', 40, NOW + 60)])],
+    [usage(NOW, [win('5h', 97, NOW - 60), win('7d', 40, NOW + 60)])],
     NOW,
   );
-  assertEquals([item.state, item.text], ['stale', '—/40%']);
-  assertEquals(
-    item.title,
-    '—/1m',
+  assertEquals([item.state, item.text], ['reset', '—']);
+  assertEquals(item.title, '5h —\n7d 40%/1m');
+  const [other] = usageItems(
+    [usage(NOW, [win('5h', 20, NOW + 60), win('7d', 97, NOW - 60)])],
+    NOW,
   );
-  const [all] = usageItems([usage(NOW, [win('5h', 97, NOW - 60)])], NOW);
-  assertEquals([all.state, all.text], ['reset', '—%']);
+  assertEquals([other.state, other.text], ['usage', '20%/1m']);
+  assertEquals(other.title, '5h 20%/1m\n7d —');
 });
 
-Deno.test('usageItems: high near the limit, stale when old, agent named when several', () => {
-  assertEquals(
-    usageItems(
-      [
-        usage(NOW, [win('5h', 95, NOW + 60), win('7d', 20, null)]),
-        usage(NOW - 16 * 60, [win('1mo', 30, NOW + 86400)], 'copilot'),
-      ],
-      NOW,
-    ).map((i) => [i.state, i.text]),
-    [['high', 'claude 95/20%'], ['stale', 'copilot 30%']],
+Deno.test('usageItems: high from any window, even one the strip does not show', () => {
+  const [item] = usageItems(
+    [usage(NOW - 7200, [win('5h', 10, NOW + 60), win('7d', 95, NOW + 600)])],
+    NOW,
   );
+  assertEquals([item.state, item.text], ['high', '10%/1m']);
+  const [stale] = usageItems(
+    [usage(NOW - 16 * 60, [win('5h', 10, NOW + 60)])],
+    NOW,
+  );
+  assertEquals([stale.state, stale.text], ['stale', '10%/1m']);
+});
+
+Deno.test('usageItems: agent named when several, none for empty sources', () => {
+  const items = usageItems(
+    [
+      usage(NOW, [win('5h', 95, NOW + 60), win('7d', 20, null)]),
+      usage(NOW - 16 * 60, [win('1mo', 30, NOW + 86400)], 'copilot'),
+      usage(NOW, [], 'pi'),
+    ],
+    NOW,
+  );
+  assertEquals(items.map((i) => [i.state, i.text, i.title]), [
+    ['high', 'claude 95%/1m', 'claude\n5h 95%/1m\n7d 20%/?'],
+    ['stale', 'copilot 30%/1d', 'copilot\n1mo 30%/1d'],
+  ]);
   assertEquals(usageItems([], NOW), []);
   assertEquals(usageItems([usage(NOW, [])], NOW), []);
 });

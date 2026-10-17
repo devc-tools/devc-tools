@@ -1,9 +1,9 @@
 # devc-web-usage-5h
 
-- [ ] `usageItems` (`devc/web/static/lib/host_status.js`): the strip shows one window per source, `33%/3h10m`; the tooltip has one row per window, `5h 33%/3h10m`
-- [ ] Tests in `devc/tests/web_host_status_test.ts` rewritten for the new text and title
-- [ ] `devc/README.md`'s host status strip paragraph and `usageItems`' doc comment updated
-- [ ] Verify (below) and ask the user to try it in their open tab
+- [x] `usageItems` (`devc/web/static/lib/host_status.js`): the strip shows one window per source, `33%/3h10m`; the tooltip has one row per window, `5h 33%/3h10m`
+- [x] Tests in `devc/tests/web_host_status_test.ts` rewritten for the new text and title
+- [x] `devc/README.md`'s host status strip paragraph and `usageItems`' doc comment updated
+- [x] Verify (below) and ask the user to try it in their open tab
 
 The usage item in the host status strip (bottom left of the sidebar) packs every window into one
 item. The text is all the percentages (`77/11%`) and the tooltip is the time to each reset in the

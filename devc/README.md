@@ -330,14 +330,14 @@ bridge gateway rather than the host's loopback, so this needs Docker Desktop.
 #### The host status strip and usage limits
 
 The sidebar's foot is a one-line strip of host-level indicators: the
-account-wide agent usage limits (Claude's 5h/7d as `77/11%`), then
-devc-bridge (`bridge ●` / `bridge ○ off`, `☕ awake` while keepawake holds the
-host awake). Hover the usage for the time left to each reset in the same
-pattern (`1h5m/3d4h`). Usage is shown once
-for every session, from whichever one reported last; once a window's reset time
-passes with no newer report it shows as `—` (`—/11%`) rather than the old
-percentage. An observation over 15 minutes old is
-dimmed, and a window at 90% or more is highlighted.
+account-wide agent usage limits (Claude's 5h window as used / time to reset,
+`33%/3h10m`), then devc-bridge (`bridge ●` / `bridge ○ off`, `☕ awake` while
+keepawake holds the host awake). Hover the usage for every window on its own
+row (`5h 33%/3h10m`, `7d 18%/6d4h`). Usage is shown once for every session,
+from whichever one reported last; once a window's reset time passes with no
+newer report it shows as `—` rather than the old percentage. An observation
+over 15 minutes old is dimmed, and the item is highlighted when any window,
+shown or not, is at 90% or more.
 
 Claude Code hands its usage limits only to the status line, so the status line
 has to write them down. [`scripts/devc-usage-tap`](../scripts/devc-usage-tap)
