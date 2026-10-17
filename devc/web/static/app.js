@@ -672,7 +672,7 @@ function renderTree() {
       'Projects',
       undefined,
       undefined,
-      rowTrail(iconButton('plus', 'Add project…', addProject)),
+      rowTrail(hoverActions(iconButton('plus', 'Add project…', addProject))),
       (e) => openMenu(e, [['Add project…', addProject]]),
     ),
   ];
@@ -804,7 +804,9 @@ function layoutTileRow(tile, active, depth) {
     h('span', { class: 'label' }, refTitle(tile.ref)),
     rowTrail(
       badge(pane),
-      iconButton('close', 'Close tile', () => tiling?.close(tile.id)),
+      hoverActions(
+        iconButton('close', 'Close tile', () => tiling?.close(tile.id)),
+      ),
     ),
   );
 }
@@ -841,13 +843,13 @@ function layoutNodeRow(node, depth, tilesById) {
     ),
     rowTrail(
       rollupBadge(panes),
-      iconButton(
+      hoverActions(iconButton(
         'close',
         `Close ${
           tiles.length === 1 ? 'its tile' : `its ${tiles.length} tiles`
         }`,
         () => tiling?.close(node.id),
-      ),
+      )),
     ),
   );
 }
@@ -855,6 +857,14 @@ function layoutNodeRow(node, depth, tilesById) {
 /** A row's right-hand side: its badge, then buttons shown on hover. */
 function rowTrail(...children) {
   return h('span', { class: 'row-trail' }, ...children);
+}
+
+/**
+ * A row's hover buttons. They show over the row's right end rather than beside its badge, so
+ * nothing on the row moves when they appear.
+ */
+function hoverActions(...buttons) {
+  return h('span', { class: 'row-hover' }, ...buttons);
 }
 
 const ICON_PATHS = {
@@ -1293,16 +1303,18 @@ function inactiveRows(inactive, idle) {
             { class: 'state', 'data-state': c.state },
             STATE_TEXT[c.state] ?? c.state,
           ),
-          c.state === 'no-session'
-            ? iconButton(
-              'play',
-              'Start Herdr: a Herdr server for this session',
-              () => startSession(c.id),
-            )
-            : '',
-          h('button', {
-            onclick: () => send({ type: 'retry', container: c.id }),
-          }, 'Retry'),
+          hoverActions(
+            c.state === 'no-session'
+              ? iconButton(
+                'play',
+                'Start Herdr: a Herdr server for this session',
+                () => startSession(c.id),
+              )
+              : '',
+            h('button', {
+              onclick: () => send({ type: 'retry', container: c.id }),
+            }, 'Retry'),
+          ),
         ),
       ),
     );
@@ -1365,10 +1377,12 @@ function projectRow(p) {
           : '',
         PROJECT_STATE_TEXT[state] ?? state,
       ),
-      p.starting ? '' : iconButton(
-        'play',
-        'Start container',
-        () => startProject(p.localFolder),
+      p.starting ? '' : hoverActions(
+        iconButton(
+          'play',
+          'Start container',
+          () => startProject(p.localFolder),
+        ),
       ),
     ),
   );
@@ -1570,7 +1584,9 @@ function paneRow(c, pane, depth) {
     ),
     rowTrail(
       badge(pane),
-      iconButton('trash', 'Kill pane…', () => killPane(rec.c, rec.pane)),
+      hoverActions(
+        iconButton('trash', 'Kill pane…', () => killPane(rec.c, rec.pane)),
+      ),
     ),
   );
   return row;

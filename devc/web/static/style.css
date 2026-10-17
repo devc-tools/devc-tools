@@ -152,6 +152,9 @@ body.resizing-sidebar {
 }
 
 .row {
+  /* What a row's hover buttons sit on, kept in step with its own background. */
+  --row-bg: var(--panel);
+  position: relative;
   display: grid;
   grid-template-columns: 1fr auto;
   align-items: center;
@@ -261,7 +264,8 @@ body.resizing-sidebar {
 }
 
 .icon-btn {
-  display: none;
+  display: block;
+  flex: none;
   width: 18px;
   height: 18px;
   padding: 2px;
@@ -284,18 +288,32 @@ body.resizing-sidebar {
   stroke-linejoin: round;
 }
 
-.row:hover .icon-btn {
-  display: block;
+/* Over the row's right end, fading in from the left, so the row's own content never moves. */
+.row-hover {
+  position: absolute;
+  top: 0;
+  right: 6px;
+  bottom: 0;
+  display: none;
+  align-items: center;
+  gap: 4px;
+  padding-left: 16px;
+  background: linear-gradient(to right, transparent, var(--row-bg) 14px);
+}
+
+.row:hover .row-hover,
+.row:focus-within .row-hover {
+  display: flex;
+}
+
+.row-hover button:not(.icon-btn) {
+  font-size: 11px;
+  padding: 0 6px;
 }
 
 .icon-btn:hover {
   color: var(--text);
   background: var(--panel);
-}
-
-/* In a "Not running" row's actions, keep the icon button's own size. */
-.row-actions .icon-btn {
-  padding: 2px;
 }
 
 /* The play triangle is solid; the other icons are strokes. */
@@ -411,12 +429,14 @@ body.resizing-sidebar {
 
 /* The focused tile's rows, and the other section's rows for a hovered pane. */
 .row[data-current] {
+  --row-bg: color-mix(in srgb, var(--accent) 10%, var(--panel));
   box-shadow: inset 2px 0 0 var(--accent);
-  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  background: var(--row-bg);
 }
 
 .row.linked {
-  background: var(--panel-2);
+  --row-bg: var(--panel-2);
+  background: var(--row-bg);
 }
 
 @keyframes flash {
@@ -438,7 +458,8 @@ body.resizing-sidebar {
 .row.pane:hover,
 .row.workspace:hover,
 .row.layout-node:hover {
-  background: var(--panel-2);
+  --row-bg: var(--panel-2);
+  background: var(--row-bg);
 }
 
 .chevron {
@@ -461,18 +482,6 @@ body.resizing-sidebar {
   display: flex;
   align-items: center;
   gap: 6px;
-}
-
-.row-actions button {
-  display: none;
-  font-size: 11px;
-  padding: 0 6px;
-}
-
-/* Buttons only on hover, so the names have the room otherwise. */
-.row.inactive:hover .row-actions button,
-.row.inactive:focus-within .row-actions button {
-  display: inline-block;
 }
 
 .row .state {
