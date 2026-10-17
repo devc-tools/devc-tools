@@ -35,7 +35,7 @@ Deno.test('containerLabel falls back to the full folder when the parent is share
   assertEquals(containerLabel(a, [a, b]), 'app · /Users/me/one/x/app');
 });
 
-Deno.test('paneLabel calls a shell in the container folder "shell"', () => {
+Deno.test('paneLabel calls a shell in the container folder "bash"', () => {
   const c = container('devc-dev', '/Users/me/code/tools/devc-dev');
   assertEquals(
     paneLabel(c, {
@@ -43,12 +43,12 @@ Deno.test('paneLabel calls a shell in the container folder "shell"', () => {
       cwd: '/workspaces/devc-dev',
       terminal_title_stripped: 'devc-dev',
     }),
-    'shell',
+    'bash',
   );
   // No title at all: still a shell.
   assertEquals(
     paneLabel(c, { pane_id: 'p1', cwd: '/workspaces/devc-dev' }),
-    'shell',
+    'bash',
   );
 });
 
@@ -61,7 +61,7 @@ Deno.test('paneLabel names the folder of a shell elsewhere', () => {
       foreground_cwd: '/workspaces/multi/client',
       terminal_title_stripped: 'client',
     }),
-    'shell · client',
+    'bash · client',
   );
 });
 

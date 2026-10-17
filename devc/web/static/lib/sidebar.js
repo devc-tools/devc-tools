@@ -62,7 +62,7 @@ export function containerLabel(c, all) {
 
 /**
  * A pane's sidebar label. A shell's title is just its folder, which is usually the container's
- * own name again, so a shell reads `shell`, or `shell · <folder>` when it is somewhere else.
+ * own name again, so a shell reads `bash`, or `bash · <folder>` when it is somewhere else.
  * Agents and anything with a title of its own (`npm run dev`) keep their title.
  */
 export function paneLabel(c, pane) {
@@ -71,7 +71,7 @@ export function paneLabel(c, pane) {
   const folders = [basename(pane.cwd), basename(pane.foreground_cwd)];
   if (pane.agent || !dir) return title;
   if (title !== pane.pane_id && !folders.includes(title)) return title;
-  return dir === basename(c.localFolder) ? 'shell' : `shell · ${dir}`;
+  return dir === basename(c.localFolder) ? 'bash' : `bash · ${dir}`;
 }
 
 /**

@@ -389,8 +389,8 @@ Browser → server:
     push/pull mark while collapsed (open ones kept as `reposOpen`). Expanding a repo shows its
     worktrees (repo rows of their own), then its files.
   - Terminal rows show `terminal_title_stripped` (or the basename of `cwd` when it is empty).
-    A pane without an agent whose title is just its folder reads `shell`, or
-    `shell · <folder>` when that folder is not the container's. An **agent badge** is a
+    A pane without an agent whose title is just its folder reads `bash`, or
+    `bash · <folder>` when that folder is not the container's. An **agent badge** is a
     colored dot and the status (`idle`/`working`/`blocked`/`done`/`unknown`), with the
     agent's name in the tooltip. A pane with no `agent` gets no badge.
   - Clicking a pane opens it in the focused tile.
