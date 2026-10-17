@@ -24,7 +24,7 @@ PROJECTS
       shell
 ```
 
-Depends on [devc-web-layout-sidebar](devc-web-layout-sidebar.md) (`createShell`, `addBeside`) and
+Depends on [devc-web-layout-sidebar](archived/devc-web-layout-sidebar.md) (`createShell`, `addBeside`) and
 [devc-web-projects](devc-web-projects.md) (the projects list that confines what can be browsed,
 and `add_project`). Read `/workspaces/devc-dev/.claude/skills/devc-web/SKILL.md` first.
 

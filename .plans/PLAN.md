@@ -11,15 +11,7 @@
 
 ### Pending
 
-- [devc-web-layout-sidebar](devc-web-layout-sidebar.md) — Golden Layout owns all layout, and
-  Herdr only holds panes: every pane the page creates is its own Herdr tab (`new_shell` =
-  `tab.create` + find its pane), and the browser never splits a Herdr pane or shows Herdr tabs.
-  The sidebar gets a **Layout** section that mirrors the Golden Layout tree (single-child
-  levels folded) and a **Projects** section listing every pane, with a marker on visible ones.
-  Context menus are per node type, with Close (tile) kept separate from Kill (pane). The
-  request allowlist shrinks to `pane.rename` and `pane.close`.
-
-- [devc-web-projects](devc-web-projects.md) — after devc-web-layout-sidebar. Projects, not
+- [devc-web-projects](devc-web-projects.md) — next up (devc-web-layout-sidebar is done). Projects, not
   just running containers: a `~/.config/devc/projects.json` of pinned and recent projects
   (written by every CLI start path), stopped containers from `docker ps -a`, a `projects`
   message, and `start_project` / `stop_project` / pin / forget / add from the page (spawning

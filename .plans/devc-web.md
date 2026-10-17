@@ -290,7 +290,7 @@ Browser → server:
 | `client_ready`   | `generation` (non-empty)                                                       | Live mode: snapshot `static/` as last-good if current. No reply                              |
 
 - **`request` allowlist:** `pane.rename`, `pane.close` (since
-  [devc-web-layout-sidebar](devc-web-layout-sidebar.md): the browser owns all layout, so it
+  [devc-web-layout-sidebar](archived/devc-web-layout-sidebar.md): the browser owns all layout, so it
   never splits a Herdr pane or touches Herdr tabs). Any other method gets
   `result {ok:false, error:{code:"method_not_allowed"}}` without touching Herdr. The
   param shapes are Herdr's own:
@@ -342,7 +342,7 @@ Browser → server:
     colored dot and the status (`idle`/`working`/`blocked`/`done`/`unknown`), with the
     agent's name in the tooltip. A pane with no `agent` gets no badge.
   - Clicking a pane opens it in the focused tile.
-  - Context menus: superseded by [devc-web-layout-sidebar](devc-web-layout-sidebar.md),
+  - Context menus: superseded by [devc-web-layout-sidebar](archived/devc-web-layout-sidebar.md),
     which split the sidebar into Layout and Projects sections, dropped Herdr tab rows and
     split actions, and gave each node type its own menu. Kept as history: workspace: New
     tab; tab: Rename, Close; pane: Split right, Split down, Rename, Close.

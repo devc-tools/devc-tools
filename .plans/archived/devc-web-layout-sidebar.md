@@ -7,7 +7,7 @@
 - [x] Context menus by node type (table below); Herdr split/tab actions removed
 - [x] Click semantics: focus a visible pane's tile, else open in the focused tile; Ctrl/⌘-click opens a new tile
 - [x] `.plans/devc-web.md` protocol section updated for `new_shell` and the smaller allowlist
-- [ ] Verify (below) and ask the user to try it in their open tab
+- [x] Verify (below) and ask the user to try it in their open tab
 
 Make `devc web`'s sidebar use the browser's own window-management words. The tiling area (Golden
 Layout) owns **all** layout; Herdr is only where panes (processes) live. The browser never splits a
@@ -40,8 +40,8 @@ PROJECTS
   and it carries the process actions. A pane shown in a tile gets a marker (👁 above; use a
   small icon, not an emoji).
 
-Builds on [devc-web](devc-web.md) and [devc-web-golden-layout](devc-web-golden-layout.md). It comes
-before [devc-web-projects](devc-web-projects.md) and [devc-web-files](devc-web-files.md). Read
+Builds on [devc-web](../devc-web.md) and [devc-web-golden-layout](../devc-web-golden-layout.md). It comes
+before [devc-web-projects](../devc-web-projects.md) and [devc-web-files](../devc-web-files.md). Read
 `/workspaces/devc-dev/.claude/skills/devc-web/SKILL.md` first: the user runs `devc web` in live
 mode, so every save reaches their tab.
 
@@ -61,7 +61,7 @@ mode, so every save reaches their tab.
   and mean Kill.
 - **Projects section.** For now it lists running containers, exactly the set that the `containers`
   message carries today, plus the existing "Not running" group. It is named "Projects" now
-  because [devc-web-projects](devc-web-projects.md) adds stopped and never-started projects to
+  because [devc-web-projects](../devc-web-projects.md) adds stopped and never-started projects to
   it. Rows stay keyed by `localFolder`, as they are now.
 - **`paneRows`** (in `app.js`) keeps one row per pane across renders so that its Golden Layout
   drag source survives. That stays as it is for Projects rows. Layout rows are new, keyed by tile id,
@@ -163,7 +163,7 @@ close(id) {}
 
 - **`createShell`:** put this in `herdr_bridge.ts`, typed as
   `createShell(target: HerdrTarget, opts: {workspace_id?: string, cwd?: string}): Promise<{pane_id: string, tab_id: string}>`.
-  [devc-web-files](devc-web-files.md) reuses it.
+  [devc-web-files](../devc-web-files.md) reuses it.
 - **No `workspace_id`:** omit it, so Herdr uses its default. That is fine, because the page
   always sends the workspace of the row it was invoked from (or the workspace of the focused
   tile's pane).
