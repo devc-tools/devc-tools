@@ -11,11 +11,6 @@
 
 ### Pending
 
-- [devc-web-terminals-group](devc-web-terminals-group.md) — page only. Every running
-  container gets a **Terminals** group first (expanded, agent rollup while collapsed), then
-  **Repos** (always, even for one repo). Herdr spaces get no rows. User-visible "pane" /
-  "Herdr tab" wording becomes "terminal" (code keeps `pane`), from one set of label constants.
-
 - [devc-web-containers-kill-closes](devc-web-containers-kill-closes.md) — page only, independent
   of the other devc-web plans. The sidebar's Projects heading becomes **Containers** (every
   top-level row is a running container or a stopped / not-created one under "Not running"); the
@@ -132,6 +127,21 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
   take it too.
 
 ### Completed
+
+- [devc-web-terminals-group](archived/devc-web-terminals-group.md) — ✅ Done: every running
+  container lists a **Terminals** group first (open by default, the agents' most urgent status
+  while collapsed, kept as `terminalsClosed`; "No terminals" when empty) and a **Repos** group
+  second, now on every container whatever its repo count. Herdr spaces get no rows: terminals
+  are listed in Herdr's order, the space named in the tooltip when there are several.
+  User-visible "pane" / "Herdr tab" / "shell" wording became "terminal" (Open / New terminal
+  here, New terminal, Close terminal…, Rename terminal, Terminal closed, the split and stack
+  items, the empty-tile hints), all from `LABELS` in `app.js`; code and protocol keep `pane`.
+  Validated by `deno task check`, `deno task test` and `deno fmt --check`, and in a headless
+  page with a fake WebSocket: row order and depths, a two-space container's tooltips, "No
+  terminals", a one-repo Repos row, no Terminals row on a `no-session` container, the
+  collapsed rollup badge, `terminalsClosed` written to `localStorage`, and the new menu
+  wording. **Not verified:** the collapsed state surviving a real reload (the harness reseeds
+  storage on load), and anything on screen in the user's tab.
 
 - [devc-web-open-tab-here](archived/devc-web-open-tab-here.md) — ✅ Done: "Open Herdr tab here"
   / "New Herdr tab here" replace "New shell here" on repo and folder rows. A new `open_tab`

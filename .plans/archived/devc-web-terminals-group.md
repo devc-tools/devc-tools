@@ -10,8 +10,8 @@
 
 Page only, with no protocol change, so it works under plain `--live`. Read
 `/workspaces/devc-dev/.claude/skills/devc-web/SKILL.md` first. Builds on
-[devc-web-repos-group](archived/devc-web-repos-group.md) and
-[devc-web-open-tab-here](archived/devc-web-open-tab-here.md).
+[devc-web-repos-group](devc-web-repos-group.md) and
+[devc-web-open-tab-here](devc-web-open-tab-here.md).
 
 The sidebar stops talking Herdr. What it lists under a container are **terminals**: each is a
 Herdr pane, shown in a tile when opened. Herdr's spaces, tabs and splits get no rows (devc web
