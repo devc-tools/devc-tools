@@ -97,6 +97,18 @@ export function isStructuralEvent(name: string): boolean {
     STRUCTURAL_PANE_EVENTS.has(name);
 }
 
+/**
+ * Whether a `docker exec` command (as `docker events` space-joins it) runs `herdr` in a way that
+ * may have started a server: any token named `herdr` — `devc herdr` wraps it as
+ * `/bin/bash -lc '…' herdr --session devc` — but never a `remote-api-bridge`, which is devc
+ * web's own probing and would otherwise retrigger itself.
+ */
+export function isHerdrLaunch(command: string): boolean {
+  const tokens = command.split(/\s+/);
+  return !tokens.includes('remote-api-bridge') &&
+    tokens.some((t) => t.split('/').pop() === 'herdr');
+}
+
 /** The bridge's stderr when the session has no server. */
 export function isNoSessionError(stderr: string): boolean {
   return stderr.includes('failed to connect to remote Herdr API socket') ||
@@ -327,6 +339,7 @@ export class ContainerSession {
   #snapshotRunning = false;
   #snapshotDirty = false;
   #lastStart = 0;
+  #awaiting = false;
 
   constructor(
     readonly record: ContainerRecord,
@@ -390,12 +403,32 @@ export class ContainerSession {
     if (out.code !== 0) {
       throw new Error(out.stderr.trim() || 'starting the Herdr server failed');
     }
-    // The server needs a moment to create its socket: retry while it still reads as no session.
-    // Bounded, and only right after a start — `no-session` itself is never polled.
-    for (let i = 0; i < START_SESSION_TRIES; i++) {
-      await this.run();
-      if (this.state !== 'no-session') return;
-      await new Promise((r) => setTimeout(r, START_SESSION_WAIT_MS));
+    await this.#awaitServer();
+  }
+
+  /**
+   * `herdr` was just exec'd in the container (see {@link isHerdrLaunch}) — by `devc herdr`, say.
+   * A container sitting in `no-session` reconnects once that has brought a server up.
+   */
+  async herdrLaunched(): Promise<void> {
+    if (this.state !== 'no-session' || this.#awaiting) return;
+    await this.#awaitServer();
+  }
+
+  /**
+   * The server needs a moment to create its socket: retry while it still reads as no session.
+   * Bounded, and only right after a start — `no-session` itself is never polled.
+   */
+  async #awaitServer(): Promise<void> {
+    this.#awaiting = true;
+    try {
+      for (let i = 0; i < START_SESSION_TRIES; i++) {
+        await this.run();
+        if (this.state !== 'no-session') return;
+        await new Promise((r) => setTimeout(r, START_SESSION_WAIT_MS));
+      }
+    } finally {
+      this.#awaiting = false;
     }
   }
 

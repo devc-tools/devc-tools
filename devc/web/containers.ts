@@ -23,14 +23,15 @@ export function parsePsLine(line: string): ContainerRecord | null {
   return { id: line.slice(0, tab).trim(), localFolder: line.slice(tab + 1) };
 }
 
-/** One `docker events --format '{{json .}}'` line, reduced to what discovery needs. */
-export interface ContainerEvent {
-  action: 'start' | 'die';
-  id: string;
-  localFolder: string;
-}
+/**
+ * One `docker events --format '{{json .}}'` line, reduced to what discovery needs. `exec` is an
+ * `exec_start`, with `command` the exec's entrypoint and args as Docker space-joins them.
+ */
+export type ContainerEvent =
+  | { action: 'start' | 'die'; id: string; localFolder: string }
+  | { action: 'exec'; id: string; localFolder: string; command: string };
 
-/** Parses one `docker events` JSON line; `null` for anything that is not a start or die. */
+/** Parses one `docker events` JSON line; `null` for anything not a start, die or exec_start. */
 export function parseEventLine(line: string): ContainerEvent | null {
   let ev: unknown;
   try {
@@ -43,14 +44,25 @@ export function parseEventLine(line: string): ContainerEvent | null {
     Action?: unknown;
     Actor?: { ID?: unknown; Attributes?: Record<string, unknown> };
   };
-  if (Action !== 'start' && Action !== 'die') return null;
-  if (typeof Actor?.ID !== 'string') return null;
+  if (typeof Action !== 'string' || typeof Actor?.ID !== 'string') return null;
   const folder = Actor.Attributes?.[LOCAL_FOLDER_LABEL];
-  return {
-    action: Action,
+  const base = {
     id: Actor.ID,
     localFolder: typeof folder === 'string' ? folder : '',
   };
+  if (Action === 'start' || Action === 'die') {
+    return { action: Action, ...base };
+  }
+  // Docker reports an exec as `exec_start: <entrypoint> <args…>`.
+  const EXEC = 'exec_start:';
+  if (Action.startsWith(EXEC)) {
+    return {
+      action: 'exec',
+      ...base,
+      command: Action.slice(EXEC.length).trim(),
+    };
+  }
+  return null;
 }
 
 /**
@@ -153,6 +165,8 @@ export async function listDevcontainers(): Promise<ContainerRecord[]> {
 export interface DiscoveryHooks {
   onAdd(record: ContainerRecord): void;
   onRemove(id: string): void;
+  /** A `docker exec` started in a known devcontainer. */
+  onExec(id: string, command: string): void;
   onError(message: string): void;
 }
 
@@ -219,6 +233,10 @@ export class Discovery {
       'event=start',
       '--filter',
       'event=die',
+      // Execs too: how a Herdr server started after discovery is noticed (see
+      // `ContainerSession.herdrLaunched`).
+      '--filter',
+      'event=exec_start',
       '--format',
       '{{json .}}',
     ]);
@@ -229,7 +247,9 @@ export class Discovery {
     for await (const line of proc.lines) {
       const ev = parseEventLine(line);
       if (ev === null) continue;
-      if (ev.action === 'start') {
+      if (ev.action === 'exec') {
+        if (this.#known.has(ev.id)) this.hooks.onExec(ev.id, ev.command);
+      } else if (ev.action === 'start') {
         this.#add({ id: ev.id, localFolder: ev.localFolder });
       } else this.#remove(ev.id);
     }

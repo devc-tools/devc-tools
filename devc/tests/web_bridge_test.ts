@@ -1,6 +1,7 @@
 import { assert, assertEquals } from 'jsr:@std/assert';
 import {
   herdrArgv,
+  isHerdrLaunch,
   isNoSessionError,
   isStructuralEvent,
   normalizeEventName,
@@ -118,4 +119,26 @@ Deno.test('spawnLines: a reader that stops early leaves stdout undestroyed and d
   }
   // Undrained, the child blocks on a full pipe and never exits.
   assertEquals(await proc.status, { code: 0 });
+});
+
+Deno.test("isHerdrLaunch: herdr runs yes, devc web's own bridge execs no", () => {
+  for (
+    const cmd of [
+      'herdr',
+      '/home/vscode/.local/bin/herdr --session devc server',
+      `/bin/bash -lc clear; printf '\\033[3J'; exec "$0" "$@" herdr --session devc`,
+    ]
+  ) {
+    assert(isHerdrLaunch(cmd), cmd);
+  }
+  for (
+    const cmd of [
+      '/home/vscode/.local/bin/herdr --session devc remote-api-bridge',
+      '/home/vscode/.local/bin/herdr --session devc remote-api-bridge --check',
+      '/bin/bash -l',
+      'sh -c herdr-ish',
+    ]
+  ) {
+    assert(!isHerdrLaunch(cmd), cmd);
+  }
 });

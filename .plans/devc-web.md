@@ -231,6 +231,14 @@ States sent to the browser: `connecting`, `connected`, `no-session`, `no-herdr`,
 `docker exec -d -u <remoteUser> <id> <herdrPath> --session <S> server` and then repeats
 from step 2, plus **Retry**.
 
+A server started outside the browser is still noticed without polling: discovery's
+`docker events` also passes `--filter event=exec_start`, and an exec in a known container
+whose command has a `herdr` token (e.g. `devc herdr`'s `/bin/bash -lc '…' herdr --session
+devc`) and no `remote-api-bridge` token (devc web's own execs) makes a `no-session`
+container repeat from step 2 with the same bounded retry as **Start session**. A server
+started from a shell that is already open in the container (no new `docker exec`) still
+needs **Retry**.
+
 ### Pane streams
 
 - **One controller per pane:** the server keeps at most one

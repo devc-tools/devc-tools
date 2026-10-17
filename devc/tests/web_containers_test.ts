@@ -61,7 +61,7 @@ Deno.test('parsePsLine splits id and local folder on the first tab', () => {
   assertEquals(parsePsLine('no-tab'), null);
 });
 
-Deno.test('parseEventLine reads start and die, and ignores everything else', () => {
+Deno.test('parseEventLine reads start, die and exec_start, and ignores everything else', () => {
   const line = (Action: string) =>
     JSON.stringify({
       Action,
@@ -76,7 +76,14 @@ Deno.test('parseEventLine reads start and die, and ignores everything else', () 
     localFolder: '/src/app',
   });
   assertEquals(parseEventLine(line('die'))?.action, 'die');
-  assertEquals(parseEventLine(line('exec_start: sh')), null);
+  assertEquals(parseEventLine(line('exec_start: sh -lc command -v herdr')), {
+    action: 'exec',
+    id: 'f00d',
+    localFolder: '/src/app',
+    command: 'sh -lc command -v herdr',
+  });
+  assertEquals(parseEventLine(line('exec_die')), null);
+  assertEquals(parseEventLine(line('kill')), null);
   assertEquals(parseEventLine('garbage'), null);
   assertEquals(parseEventLine(JSON.stringify({ Action: 'start' })), null);
 });

@@ -13,6 +13,7 @@ import {
   BridgeError,
   bridgeRequest,
   ContainerSession,
+  isHerdrLaunch,
   snapshotPaneIds,
 } from './herdr_bridge.ts';
 import { ControllerManager, type Subscriber } from './controllers.ts';
@@ -224,6 +225,9 @@ export async function serveWeb(opts: WebOptions): Promise<never> {
   const discovery = new Discovery({
     onAdd: addContainer,
     onRemove: removeContainer,
+    onExec: (id, command) => {
+      if (isHerdrLaunch(command)) void sessions.get(id)?.herdrLaunched();
+    },
     onError: (m) => console.error(`devc web: ${m}`),
   });
 
