@@ -179,9 +179,110 @@ body.resizing-sidebar {
   color: var(--muted);
 }
 
-.row.workspace,
-.row.tab {
+.row.workspace {
   color: var(--muted);
+}
+
+/* "Layout" and "Projects" headings. */
+.row.section {
+  margin-top: 10px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.row.section:first-child {
+  margin-top: 0;
+}
+
+.row.section[aria-expanded] {
+  cursor: pointer;
+}
+
+/* Layout section: rows, columns and stacks (muted), and tiles. */
+.row.layout-node {
+  color: var(--muted);
+}
+
+.row.layout-node.tile {
+  color: var(--text);
+  cursor: pointer;
+}
+
+.row.layout-node.tile.background {
+  color: var(--muted);
+}
+
+.row.layout-node .label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* A small window glyph: split down the middle for a row, across for a column, tabbed for a stack. */
+.node-icon {
+  position: relative;
+  flex: none;
+  width: 12px;
+  height: 9px;
+  border: 1.5px solid currentColor;
+  border-radius: 2px;
+}
+
+.node-icon[data-kind='row']::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: calc(50% - 0.75px);
+  border-left: 1.5px solid currentColor;
+}
+
+.node-icon[data-kind='column']::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc(50% - 0.75px);
+  border-top: 1.5px solid currentColor;
+}
+
+.node-icon[data-kind='stack'] {
+  border-top-width: 3px;
+}
+
+/* Projects: a pane some tile shows. */
+.shown-mark {
+  display: inline-block;
+  width: 9px;
+  height: 7px;
+  margin-right: 6px;
+  border: 1.5px solid var(--accent);
+  border-top-width: 3px;
+  border-radius: 1.5px;
+  vertical-align: middle;
+}
+
+/* The focused tile's rows, and the other section's rows for a hovered pane. */
+.row[data-current] {
+  box-shadow: inset 2px 0 0 var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
+.row.linked {
+  background: var(--panel-2);
+}
+
+@keyframes flash {
+  from {
+    background: color-mix(in srgb, var(--accent) 35%, transparent);
+  }
+}
+
+.row.flash {
+  animation: flash 1s ease-out;
 }
 
 .row.pane {
@@ -192,7 +293,7 @@ body.resizing-sidebar {
 .row.group:hover,
 .row.pane:hover,
 .row.workspace:hover,
-.row.tab:hover {
+.row.layout-node:hover {
   background: var(--panel-2);
 }
 

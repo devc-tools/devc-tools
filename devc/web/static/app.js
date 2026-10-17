@@ -1,11 +1,19 @@
-// The `devc web` page: the WebSocket client for `/ws`, the sidebar tree
-// (Container → Workspace → Tab → Pane, single-child levels folded) and the browser-owned tiling area. The protocol is
+// The `devc web` page: the WebSocket client for `/ws`, the sidebar and the browser-owned tiling
+// area. The sidebar has two sections: Layout, a live mirror of the Golden Layout tree (where things
+// are on screen, and the layout actions), and Projects, every Herdr pane by container (what is
+// running, and the process actions). The browser owns all layout: it never splits a Herdr pane or
+// shows a Herdr tab, and each pane it creates gets its own Herdr tab (`new_shell`). The protocol is
 // specified in `.plans/devc-web.md`; renderer details live in `renderer.js`, window management
 // in `layout.js` (Golden Layout), and the pure input helpers in `lib/input.js`.
 
 import { createRenderer } from './renderer.js';
 import { createTiling } from './layout.js';
-import { parseSavedLayout, tileTitle } from './lib/layout_state.js';
+import {
+  foldTree,
+  parseSavedLayout,
+  tileTitle,
+  treeSignature,
+} from './lib/layout_state.js';
 import {
   createWheelAccumulator,
   decodeBase64,
@@ -21,7 +29,6 @@ import {
   paneLabel,
   paneTitle,
   SIDEBAR_DEFAULT_WIDTH,
-  tabName,
   topStatus,
 } from './lib/sidebar.js';
 
@@ -33,6 +40,11 @@ const DRAG_INTERVAL_MS = 50;
 /** How long a `read_selection` may go unanswered before its copy is dropped. */
 const SELECTION_TIMEOUT_MS = 5000;
 const RECONNECT_MS = 2000;
+/**
+ * How long a tile opened on a pane this page just created waits for a snapshot listing it before
+ * it says "Pane gone": `new_shell` answers before Herdr's next snapshot arrives.
+ */
+const NEW_PANE_GRACE_MS = 5000;
 /** Served from the last-good snapshot (`/safe/`): no reloads, no `client_ready`. */
 const SAFE_MODE = location.pathname.startsWith('/safe/');
 
@@ -55,12 +67,19 @@ const snapshots = new Map();
 let tiling = null;
 /** @type {string | null} */
 let focusedTileId = null;
+/** Tile ids by when they were last focused (higher is later), to pick the one to reveal. */
+const focusSeq = new Map();
+let nextFocusSeq = 0;
+/** `localFolder\npane` of panes from `new_shell`, → when their grace period ends. */
+const newPanes = new Map();
+/** The Layout section's last rendered tree, as `treeSignature` plus the tiles' refs. */
+let layoutSignature = '';
 /**
  * Sidebar pane rows by `container\npane`, kept across renders and updated in place. Each is a
  * Golden Layout drag source, and unregistering one tears down the document listeners of a drag
  * in progress — so a row (and its drag source) lives as long as its pane, not one render.
  *
- * @type {Map<string, {row: HTMLElement, c: any, pane: any, extraItems: any[], seen: number, remove: (() => void) | null}>}
+ * @type {Map<string, {row: HTMLElement, c: any, pane: any, seen: number, remove: (() => void) | null}>}
  */
 const paneRows = new Map();
 let renderGeneration = 0;
@@ -92,6 +111,11 @@ const pendingRequests = new Map();
  * @type {Map<string, {resolve: (text: string) => void, reject: (e: Error) => void, timer: ReturnType<typeof setTimeout>}>}
  */
 const pendingSelections = new Map();
+/**
+ * Pending `new_shell` ids → the placement waiting on the new pane.
+ * @type {Map<string, {resolve: (r: {pane_id: string}) => void, reject: (e: Error) => void}>}
+ */
+const pendingShells = new Map();
 
 let socket = /** @type {WebSocket | null} */ (null);
 let nextRequestId = 0;
@@ -217,6 +241,8 @@ function connect() {
     // The server dropped every controller this connection had; reopen on reconnect.
     for (const view of views.values()) view.openKey = null;
     pendingOpens.clear();
+    for (const p of pendingShells.values()) p.reject(new Error('disconnected'));
+    pendingShells.clear();
     containers.clear();
     snapshots.clear();
     renderTree();
@@ -377,6 +403,18 @@ function onResult(msg) {
     }
     return;
   }
+  const shell = pendingShells.get(msg.id);
+  if (shell) {
+    pendingShells.delete(msg.id);
+    if (msg.ok && typeof msg.result?.pane_id === 'string') {
+      shell.resolve(msg.result);
+    } else {
+      shell.reject(
+        new Error(msg.error?.message ?? msg.error?.code ?? 'failed'),
+      );
+    }
+    return;
+  }
   if (pendingOpens.has(msg.id)) {
     const tileId = pendingOpens.get(msg.id);
     pendingOpens.delete(msg.id);
@@ -504,6 +542,7 @@ function loadSidebarState() {
         : [],
     ),
     inactiveOpen: saved?.inactiveOpen === true,
+    layoutOpen: saved?.layoutOpen !== false,
     width: Number.isFinite(saved?.width) ? saved.width : SIDEBAR_DEFAULT_WIDTH,
     hidden: saved?.hidden === true,
   };
@@ -516,6 +555,7 @@ function saveSidebarState() {
       JSON.stringify({
         collapsed: [...sidebarState.collapsed],
         inactiveOpen: sidebarState.inactiveOpen,
+        layoutOpen: sidebarState.layoutOpen,
         width: sidebarState.width,
         hidden: sidebarState.hidden,
       }),
@@ -527,6 +567,12 @@ function toggleContainer(c) {
   if (!sidebarState.collapsed.delete(c.localFolder)) {
     sidebarState.collapsed.add(c.localFolder);
   }
+  saveSidebarState();
+  renderTree();
+}
+
+function toggleLayoutSection() {
+  sidebarState.layoutOpen = !sidebarState.layoutOpen;
   saveSidebarState();
   renderTree();
 }
@@ -593,15 +639,15 @@ function chevron() {
 }
 
 /**
- * Container → Workspace → Tab → Pane, with every level that has a single child folded away: a
- * workspace row shows only when its container has several, and a tab row only when the tab is
- * split into several panes. What a folded row's menu offered moves to the row that remains.
+ * The sidebar: the Layout section (the Golden Layout tree, single-child levels folded), then
+ * Projects (Container → Workspace → Pane, a workspace row only when its container has several).
+ * Herdr tabs group nothing here: a pane the Herdr TUI split into a shared tab is just another pane.
  * Containers without a usable Herdr are listed last, under a collapsed "Not running" group.
  */
 function renderTree() {
   const generation = ++renderGeneration;
   const scroll = $tree.scrollTop;
-  const rows = [];
+  const rows = [...layoutRows(), sectionRow('Projects')];
   if (containers.size === 0) {
     rows.push(
       h(
@@ -624,30 +670,406 @@ function renderTree() {
     rec.remove?.();
     paneRows.delete(key);
   }
+  updateCurrent();
 }
 
-function newTabItem(c, ws) {
-  return ['New tab', () =>
-    request(
-      c.id,
-      'tab.create',
-      { workspace_id: ws.workspace_id },
-      'New tab',
+/** A section heading; collapsible when `open` is given. */
+function sectionRow(title, open, onToggle) {
+  return h(
+    'div',
+    {
+      class: 'row section',
+      style: '--depth: 0',
+      'aria-expanded': open === undefined ? undefined : String(open),
+      onclick: onToggle,
+    },
+    h('span', { class: 'label' }, open === undefined ? '' : chevron(), title),
+  );
+}
+
+// ---------------------------------------------------------------------------------------------
+// Sidebar: Layout section
+// ---------------------------------------------------------------------------------------------
+
+/** The folded layout tree, and a signature that also covers what each tile shows. */
+function layoutState() {
+  const tree = tiling ? foldTree(tiling.tree()) : null;
+  const refs = tiling
+    ? tiling.tiles().map((t) =>
+      `${t.id}=${t.ref ? `${t.ref.localFolder}\n${t.ref.pane_id}` : ''}`
+    ).sort().join(';')
+    : '';
+  return { tree, signature: `${treeSignature(tree)}|${refs}` };
+}
+
+/** Re-renders the sidebar when the layout's shape or the tiles' panes changed. */
+function layoutChanged() {
+  if (layoutState().signature !== layoutSignature) renderTree();
+}
+
+function layoutRows() {
+  const { tree, signature } = layoutState();
+  layoutSignature = signature;
+  const rows = [
+    sectionRow('Layout', sidebarState.layoutOpen, toggleLayoutSection),
+  ];
+  if (!sidebarState.layoutOpen) return rows;
+  if (!tree) {
+    rows.push(h('div', { class: 'empty' }, 'No tiles open'));
+    return rows;
+  }
+  const tilesById = new Map(tiling.tiles().map((t) => [t.id, t]));
+  const walk = (node, depth) => {
+    if (node.kind === 'tile') {
+      const tile = tilesById.get(node.id);
+      if (tile) rows.push(layoutTileRow(tile, node.active, depth));
+      return;
+    }
+    rows.push(layoutNodeRow(node, depth, tilesById));
+    for (const child of node.children) walk(child, depth + 1);
+  };
+  walk(tree, 1);
+  return rows;
+}
+
+/** The container and pane a ref points at, when they are known. */
+function resolveRef(ref) {
+  const c = ref ? containerByFolder(ref.localFolder) : null;
+  const pane = c && ref ? findPane(c.id, ref.pane_id) : null;
+  return { c, pane };
+}
+
+function refTitle(ref) {
+  if (!ref) return 'empty';
+  const { c, pane } = resolveRef(ref);
+  return tileTitle(
+    c ? displayName(c) : basename(ref.localFolder),
+    pane ? paneTitle(pane) : ref.pane_id,
+  );
+}
+
+function layoutTileRow(tile, active, depth) {
+  const { c, pane } = resolveRef(tile.ref);
+  return h(
+    'div',
+    {
+      class: active
+        ? 'row layout-node tile'
+        : 'row layout-node tile background',
+      style: `--depth: ${depth}`,
+      'data-tile': tile.id,
+      'data-pane-key': c && tile.ref
+        ? paneKey(c.id, tile.ref.pane_id)
+        : undefined,
+      title: active ? undefined : 'Background tab',
+      onclick: () => revealTile(tile.id),
+      oncontextmenu: (e) => openMenu(e, tileMenuItems(tile)),
+    },
+    h('span', { class: 'label' }, refTitle(tile.ref)),
+    badge(pane),
+  );
+}
+
+/** Every tile under a layout node, in order. */
+function nodeTiles(node, tilesById) {
+  if (node.kind === 'tile') {
+    const tile = tilesById.get(node.id);
+    return tile ? [tile] : [];
+  }
+  return node.children.flatMap((child) => nodeTiles(child, tilesById));
+}
+
+function layoutNodeRow(node, depth, tilesById) {
+  const tiles = nodeTiles(node, tilesById);
+  const panes = tiles.map((t) => resolveRef(t.ref).pane).filter((p) => p);
+  return h(
+    'div',
+    {
+      class: 'row layout-node',
+      style: `--depth: ${depth}`,
+      title: node.kind === 'row'
+        ? 'Side by side'
+        : node.kind === 'column'
+        ? 'Stacked vertically'
+        : 'Tabs',
+      oncontextmenu: (e) => openMenu(e, nodeMenuItems(node, tiles)),
+    },
+    h(
+      'span',
+      { class: 'label' },
+      h('span', { class: 'node-icon', 'data-kind': node.kind }),
+      `${node.kind} · ${tiles.length}`,
+    ),
+    rollupBadge(panes),
+  );
+}
+
+/** Brings a tile to the front of its stack and focuses its terminal. */
+function revealTile(tileId) {
+  tiling?.reveal(tileId);
+  focusedTileId = tileId;
+  views.get(tileId)?.renderer.focus();
+}
+
+/** Marks the focused tile's Layout row and its pane's Projects row(s). */
+function updateCurrent() {
+  const tile = targetTile();
+  const { c } = resolveRef(tile?.ref ?? null);
+  const key = c && tile?.ref ? paneKey(c.id, tile.ref.pane_id) : null;
+  for (const row of $tree.querySelectorAll('[data-current]')) {
+    row.removeAttribute('data-current');
+  }
+  if (!tile) return;
+  for (const row of $tree.querySelectorAll('.row')) {
+    const el = /** @type {HTMLElement} */ (row);
+    if (
+      el.dataset.tile === tile.id ||
+      (key && el.classList.contains('pane') && el.dataset.paneKey === key)
+    ) {
+      el.setAttribute('data-current', '');
+    }
+  }
+}
+
+// Hovering a pane's row in either section highlights its rows in the other.
+$tree.addEventListener('mouseover', (e) => {
+  const row = /** @type {HTMLElement} */ (e.target).closest?.(
+    '[data-pane-key]',
+  );
+  const key = row ? /** @type {HTMLElement} */ (row).dataset.paneKey : null;
+  for (const el of $tree.querySelectorAll('[data-pane-key]')) {
+    el.classList.toggle(
+      'linked',
+      key !== null && /** @type {HTMLElement} */ (el).dataset.paneKey === key &&
+        el !== row,
+    );
+  }
+});
+$tree.addEventListener('mouseleave', () => {
+  for (const el of $tree.querySelectorAll('.linked')) {
+    el.classList.remove('linked');
+  }
+});
+
+// ---------------------------------------------------------------------------------------------
+// Sidebar: menus and actions
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * Creates a pane in its own Herdr tab and places it with `place`. The tile is placed as soon as
+ * the server answers, before Herdr's snapshot lists the pane, so its overlay waits out
+ * {@link NEW_PANE_GRACE_MS} instead of saying "Pane gone".
+ *
+ * @param {ContainerInfo} c
+ * @param {{workspace_id?: string, cwd?: string}} opts
+ * @param {(ref: PaneRef) => Tile} place
+ */
+async function newShell(c, opts, place) {
+  const id = `n${++nextRequestId}`;
+  /** @type {Promise<{pane_id: string}>} */
+  const created = new Promise((resolve, reject) =>
+    pendingShells.set(id, { resolve, reject })
+  );
+  send({ type: 'new_shell', id, container: c.id, ...opts });
+  let result;
+  try {
+    result = await created;
+  } catch (e) {
+    toast(`New shell failed: ${e?.message ?? e}`);
+    return;
+  }
+  if (!tiling) return;
+  const ref = { localFolder: c.localFolder, pane_id: result.pane_id };
+  newPanes.set(
+    `${ref.localFolder}\n${ref.pane_id}`,
+    Date.now() + NEW_PANE_GRACE_MS,
+  );
+  setTimeout(reconcileTiles, NEW_PANE_GRACE_MS + 50);
+  const tile = place(ref);
+  focusedTileId = tile.id;
+  reconcileTiles();
+  views.get(tile.id)?.renderer.focus();
+}
+
+/** Whether a tile's missing pane is one this page just created and Herdr hasn't listed yet. */
+function isNewPane(ref) {
+  const key = `${ref.localFolder}\n${ref.pane_id}`;
+  const until = newPanes.get(key);
+  if (until === undefined) return false;
+  if (Date.now() < until) return true;
+  newPanes.delete(key);
+  return false;
+}
+
+/** The workspace a pane belongs to, through its Herdr tab. */
+function paneWorkspace(c, pane) {
+  const tab = list(snapshots.get(c.id)?.tabs).find((t) =>
+    t.tab_id === pane?.tab_id
+  );
+  return tab?.workspace_id;
+}
+
+/** `new_shell` options for a shell next to `pane`: its workspace, in its current folder. */
+function shellOptsNear(c, pane) {
+  const opts = {};
+  const ws = pane ? paneWorkspace(c, pane) : undefined;
+  if (ws) opts.workspace_id = ws;
+  const cwd = pane?.foreground_cwd || pane?.cwd;
+  if (cwd) opts.cwd = cwd;
+  return opts;
+}
+
+/** The first tile in `tiles` whose pane is in a connected container, for a new shell's origin. */
+function shellOrigin(tiles) {
+  for (const tile of tiles) {
+    const { c, pane } = resolveRef(tile.ref);
+    if (c && c.state === 'connected') return { c, pane };
+  }
+  return null;
+}
+
+/** Places a ref in the focused tile's stack, or in a fresh tile when the layout is empty. */
+function placeInFocusedStack(ref) {
+  const tile = targetTile();
+  return tiling.addBeside(tile?.id ?? null, ref, 'stack');
+}
+
+function killPaneItem(c, pane) {
+  return ['Kill pane…', () => {
+    if (confirm(`Kill pane "${paneLabel(c, pane)}"? Its process ends.`)) {
+      request(c.id, 'pane.close', { pane_id: pane.pane_id }, 'Kill pane');
+    }
+  }, true];
+}
+
+/** @param {Tile} tile @returns {[string, () => void, boolean?][]} */
+function tileMenuItems(tile) {
+  const { c, pane } = resolveRef(tile.ref);
+  const items = [];
+  if (c && c.state === 'connected') {
+    const opts = shellOptsNear(c, pane);
+    items.push(
+      [
+        'New shell to the right',
+        () =>
+          newShell(c, opts, (ref) => tiling.addBeside(tile.id, ref, 'right')),
+      ],
+      [
+        'New shell below',
+        () =>
+          newShell(c, opts, (ref) => tiling.addBeside(tile.id, ref, 'below')),
+      ],
+      [
+        'New shell in this stack',
+        () =>
+          newShell(c, opts, (ref) => tiling.addBeside(tile.id, ref, 'stack')),
+      ],
+    );
+  }
+  if (c && pane) {
+    items.push(['Reveal in Projects', () => revealInProjects(c, pane)]);
+  }
+  items.push(['Close', () => tiling?.close(tile.id)]);
+  if (c && pane) items.push(killPaneItem(c, pane));
+  return items;
+}
+
+/** A stack, row or column's menu. */
+function nodeMenuItems(node, tiles) {
+  const origin = shellOrigin(tiles);
+  const items = [];
+  if (origin) {
+    const opts = shellOptsNear(origin.c, origin.pane);
+    items.push([
+      node.kind === 'stack' ? 'New shell in this stack' : 'New shell at end',
+      () =>
+        newShell(
+          origin.c,
+          opts,
+          (ref) => tiling.addBeside(node.id, ref, 'stack'),
+        ),
+    ]);
+  }
+  if (node.kind === 'stack') {
+    items.push(['Close stack', () => tiling?.close(node.id)]);
+  }
+  return items;
+}
+
+/** A right-click on a stack header's empty area. */
+function stackMenu(stackId, e) {
+  const { tree } = layoutState();
+  const tilesById = new Map((tiling?.tiles() ?? []).map((t) => [t.id, t]));
+  // The folded tree has no node for a stack holding one tile: use the raw one.
+  const find = (node) => {
+    if (!node || node.kind === 'tile') return null;
+    if (node.id === stackId) return node;
+    for (const child of node.children) {
+      const found = find(child);
+      if (found) return found;
+    }
+    return null;
+  };
+  const stack = find(tiling?.tree() ?? null) ?? find(tree);
+  if (!stack) return;
+  const items = nodeMenuItems(stack, nodeTiles(stack, tilesById));
+  if (items.length > 0) openMenu(e, items);
+}
+
+/** Expands the pane's container and scrolls its Projects row into view, briefly flashed. */
+function revealInProjects(c, pane) {
+  if (sidebarState.collapsed.delete(c.localFolder)) {
+    saveSidebarState();
+    renderTree();
+  }
+  const row = paneRows.get(paneKey(c.id, pane.pane_id))?.row;
+  if (!row) return;
+  row.scrollIntoView({ block: 'nearest' });
+  row.classList.remove('flash');
+  void row.offsetWidth;
+  row.classList.add('flash');
+}
+
+// ---------------------------------------------------------------------------------------------
+// Sidebar: Projects section
+// ---------------------------------------------------------------------------------------------
+
+/** Whether some tile shows the pane. */
+function isVisible(c, pane) {
+  return (tiling?.tiles() ?? []).some((t) =>
+    t.ref?.localFolder === c.localFolder && t.ref.pane_id === pane.pane_id
+  );
+}
+
+/** The most recently focused tile showing the pane, if any. */
+function tileShowing(c, pane) {
+  let best = null;
+  for (const tile of tiling?.tiles() ?? []) {
+    if (
+      tile.ref?.localFolder !== c.localFolder ||
+      tile.ref.pane_id !== pane.pane_id
+    ) continue;
+    if (!best || (focusSeq.get(tile.id) ?? 0) > (focusSeq.get(best.id) ?? 0)) {
+      best = tile;
+    }
+  }
+  return best;
+}
+
+function newShellItem(c, workspaceId) {
+  return ['New shell', () =>
+    newShell(
+      c,
+      workspaceId ? { workspace_id: workspaceId } : {},
+      placeInFocusedStack,
     )];
 }
 
-function renameTabItem(c, tab, text = 'Rename') {
-  return [text, () => {
-    const label = prompt('Tab name', tab.label ?? '');
-    if (label) {
-      request(
-        c.id,
-        'tab.rename',
-        { tab_id: tab.tab_id, label },
-        'Rename tab',
-      );
-    }
-  }];
+/** A workspace's panes in Herdr's order: by tab number, then as listed within the tab. */
+function workspacePanes(ws, tabs, panes) {
+  const wsTabs = tabs.filter((t) => t.workspace_id === ws.workspace_id)
+    .sort(byNumber);
+  return wsTabs.flatMap((tab) => panes.filter((p) => p.tab_id === tab.tab_id));
 }
 
 function containerRows(c) {
@@ -666,8 +1088,8 @@ function containerRows(c) {
         title: c.localFolder,
         'aria-expanded': String(!collapsed),
         onclick: () => toggleContainer(c),
-        oncontextmenu: only
-          ? (e) => openMenu(e, [newTabItem(c, only)])
+        oncontextmenu: c.state === 'connected'
+          ? (e) => openMenu(e, [newShellItem(c, only?.workspace_id)])
           : undefined,
       },
       h('span', { class: 'label' }, chevron(), displayName(c)),
@@ -684,6 +1106,7 @@ function containerRows(c) {
     ),
   ];
   if (collapsed) return rows;
+  const listed = new Set();
   for (const ws of workspaces) {
     let depth = 1;
     if (!only) {
@@ -693,7 +1116,8 @@ function containerRows(c) {
           {
             class: 'row workspace',
             style: `--depth: ${depth}`,
-            oncontextmenu: (e) => openMenu(e, [newTabItem(c, ws)]),
+            oncontextmenu: (e) =>
+              openMenu(e, [newShellItem(c, ws.workspace_id)]),
           },
           h(
             'span',
@@ -704,46 +1128,14 @@ function containerRows(c) {
       );
       depth++;
     }
-    const wsTabs = tabs.filter((t) => t.workspace_id === ws.workspace_id)
-      .sort(byNumber);
-    for (const tab of wsTabs) {
-      const tabPanes = panes.filter((p) => p.tab_id === tab.tab_id);
-      if (tabPanes.length < 2) {
-        for (const pane of tabPanes) {
-          rows.push(
-            paneRow(c, pane, depth, [renameTabItem(c, tab, 'Rename tab')]),
-          );
-        }
-        continue;
-      }
-      rows.push(
-        h(
-          'div',
-          {
-            class: 'row tab',
-            style: `--depth: ${depth}`,
-            oncontextmenu: (e) =>
-              openMenu(e, [
-                renameTabItem(c, tab),
-                ['Close', () => {
-                  if (
-                    confirm(`Close ${tabName(tab)} and its panes?`)
-                  ) {
-                    request(
-                      c.id,
-                      'tab.close',
-                      { tab_id: tab.tab_id },
-                      'Close tab',
-                    );
-                  }
-                }, true],
-              ]),
-          },
-          h('span', { class: 'label' }, tabName(tab)),
-        ),
-      );
-      for (const pane of tabPanes) rows.push(paneRow(c, pane, depth + 1));
+    for (const pane of workspacePanes(ws, tabs, panes)) {
+      listed.add(pane.pane_id);
+      rows.push(paneRow(c, pane, depth));
     }
+  }
+  // Anything the snapshot didn't place in a workspace's tab still gets a row.
+  for (const pane of panes) {
+    if (!listed.has(pane.pane_id)) rows.push(paneRow(c, pane, 1));
   }
   return rows;
 }
@@ -797,7 +1189,7 @@ function inactiveRows(inactive) {
             ? h('button', {
               title: 'Start a Herdr server for this session',
               onclick: () => startSession(c.id),
-            }, 'Start')
+            }, 'Start Herdr')
             : '',
           h('button', {
             onclick: () => send({ type: 'retry', container: c.id }),
@@ -811,18 +1203,13 @@ function inactiveRows(inactive) {
 
 function paneMenu(rec) {
   const { c, pane } = rec;
-  return [
-    ['Split right', () =>
-      request(c.id, 'pane.split', {
-        target_pane_id: pane.pane_id,
-        direction: 'right',
-      }, 'Split')],
-    ['Split down', () =>
-      request(c.id, 'pane.split', {
-        target_pane_id: pane.pane_id,
-        direction: 'down',
-      }, 'Split')],
-    ['Rename', () => {
+  const items = [
+    ['Open in new tile', () => openInNewTile(c, pane.pane_id)],
+  ];
+  const tile = tileShowing(c, pane);
+  if (tile) items.push(['Show in layout', () => revealTile(tile.id)]);
+  items.push(
+    ['Rename…', () => {
       const label = prompt('Pane name', paneTitle(pane));
       if (label) {
         request(
@@ -833,34 +1220,36 @@ function paneMenu(rec) {
         );
       }
     }],
-    ...rec.extraItems,
-    ['Close', () => {
-      if (confirm(`Close pane "${paneLabel(c, pane)}"?`)) {
-        request(
-          c.id,
-          'pane.close',
-          { pane_id: pane.pane_id },
-          'Close pane',
-        );
-      }
-    }, true],
-  ];
+    killPaneItem(c, pane),
+  );
+  return items;
+}
+
+/** Click: show the pane where it already is, else open it in the focused tile. */
+function onPaneClick(rec, e) {
+  if (e.ctrlKey || e.metaKey) {
+    openInNewTile(rec.c, rec.pane.pane_id);
+    return;
+  }
+  const tile = tileShowing(rec.c, rec.pane);
+  if (tile) revealTile(tile.id);
+  else openInFocusedTile(rec.c, rec.pane.pane_id);
 }
 
 /** A pane's sidebar row: the kept one for this pane (see {@link paneRows}), brought up to date. */
-function paneRow(c, pane, depth, extraItems = []) {
+function paneRow(c, pane, depth) {
   const key = paneKey(c.id, pane.pane_id);
   let rec = paneRows.get(key);
   if (!rec) {
     const row = h('div', {
       class: 'row pane',
-      onclick: () => openInFocusedTile(rec.c, rec.pane.pane_id),
+      onclick: (e) => onPaneClick(rec, e),
       oncontextmenu: (e) => openMenu(e, paneMenu(rec)),
     });
-    rec = { row, c, pane, extraItems, seen: 0, remove: null };
+    rec = { row, c, pane, seen: 0, remove: null };
     paneRows.set(key, rec);
   }
-  Object.assign(rec, { c, pane, extraItems, seen: renderGeneration });
+  Object.assign(rec, { c, pane, seen: renderGeneration });
   // Dragging the row into the tiling area opens the pane in a new tile where it lands. Golden
   // Layout only starts a drag on the row itself, so its children ignore the pointer (CSS).
   if (!rec.remove && tiling) {
@@ -872,14 +1261,23 @@ function paneRow(c, pane, depth, extraItems = []) {
     );
   }
   const { row } = rec;
+  const visible = isVisible(c, pane);
   row.style.setProperty('--depth', String(depth));
+  row.dataset.paneKey = key;
+  row.classList.toggle('visible', visible);
   // The children ignore the pointer, so the badge's tooltip lives here.
   row.title = [
     pane.foreground_cwd || pane.cwd || '',
     pane.agent ? `${pane.agent}: ${agentStatus(pane)}` : '',
+    visible ? 'Shown in a tile' : '',
   ].filter((s) => s).join('\n');
   row.replaceChildren(
-    h('span', { class: 'label' }, paneLabel(c, pane)),
+    h(
+      'span',
+      { class: 'label' },
+      visible ? h('span', { class: 'shown-mark', 'aria-label': 'shown' }) : '',
+      paneLabel(c, pane),
+    ),
     badge(pane),
   );
   return row;
@@ -1009,6 +1407,19 @@ function openInFocusedTile(c, paneId) {
   }
   focusedTileId = tile.id;
   reconcileTiles();
+  layoutChanged();
+  views.get(tile.id)?.renderer.focus();
+}
+
+/** Opens a pane in a new tile in the focused tile's stack (or the first tile). */
+function openInNewTile(c, paneId) {
+  if (!tiling) return;
+  const tile = placeInFocusedStack({
+    localFolder: c.localFolder,
+    pane_id: paneId,
+  });
+  focusedTileId = tile.id;
+  reconcileTiles();
   views.get(tile.id)?.renderer.focus();
 }
 
@@ -1058,8 +1469,9 @@ function updateOverlay(tileId) {
     else if (!c) message = `${basename(ref.localFolder)} is not running.`;
     else if (c.state !== 'connected') {
       message = `${displayName(c)}: ${c.state}`;
-    } else if (!findPane(c.id, ref.pane_id)) message = 'Pane gone';
-    else if (view.closedReason !== null) {
+    } else if (!findPane(c.id, ref.pane_id)) {
+      message = isNewPane(ref) ? '' : 'Pane gone';
+    } else if (view.closedReason !== null) {
       message = `Disconnected: ${view.closedReason}`;
       action = h('button', {
         onclick: () => {
@@ -1085,15 +1497,8 @@ function renderTileTitles() {
       view.tile.setBadge(null);
       continue;
     }
-    const c = containerByFolder(ref.localFolder);
-    const pane = c ? findPane(c.id, ref.pane_id) : null;
-    view.tile.setTitle(
-      tileTitle(
-        c ? displayName(c) : basename(ref.localFolder),
-        pane ? paneTitle(pane) : ref.pane_id,
-      ),
-    );
-    view.tile.setBadge(badge(pane) || null);
+    view.tile.setTitle(refTitle(ref));
+    view.tile.setBadge(badge(resolveRef(ref).pane) || null);
   }
 }
 
@@ -1140,6 +1545,7 @@ function mountTile(tile) {
   tile.element.append(body);
   tile.element.addEventListener('mousedown', () => {
     focusedTileId = tile.id;
+    focusSeq.set(tile.id, ++nextFocusSeq);
     tile.focus();
   }, true);
 
@@ -1213,6 +1619,7 @@ function unmountTile(tile) {
   view.observer.disconnect();
   view.renderer.dispose();
   views.delete(tile.id);
+  focusSeq.delete(tile.id);
   if (focusedTileId === tile.id) focusedTileId = null;
   queueMicrotask(updatePlaceholder);
 }
@@ -1356,13 +1763,20 @@ tiling = createTiling($layoutRoot, {
   unmount: unmountTile,
   visibility: tileVisibility,
   focused: (tile) => {
-    if (tile) focusedTileId = tile.id;
+    if (tile) {
+      focusedTileId = tile.id;
+      focusSeq.set(tile.id, ++nextFocusSeq);
+    }
+    updateCurrent();
   },
   // A drop is a change too: the dropped tile is placed now, so it may open its pane.
   changed: () => {
     saveLayout();
     reconcileTiles();
+    layoutChanged();
   },
+  tileMenu: (tile, e) => openMenu(e, tileMenuItems(tile)),
+  stackMenu,
 });
 if (SAFE_MODE) showSafeBanner();
 applySidebarLayout();

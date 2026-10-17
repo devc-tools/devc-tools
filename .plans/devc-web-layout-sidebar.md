@@ -1,12 +1,12 @@
 # devc-web-layout-sidebar
 
-- [ ] `lib/layout_state.js`: `foldTree` and `treeSignature`, with tests in `devc/tests/web_layout_test.ts`
-- [ ] `layout.js`: `tree()`, `reveal()`, `addBeside()`, `close()`, and header context-menu hooks
-- [ ] Server: `new_shell` message (`tab.create` + find its pane), `REQUEST_METHODS` cut to `pane.rename`, `pane.close`
-- [ ] Sidebar: **Layout** section mirroring Golden Layout, **Projects** section without Herdr tabs, visible-pane marker
-- [ ] Context menus by node type (table below); Herdr split/tab actions removed
-- [ ] Click semantics: focus a visible pane's tile, else open in the focused tile; Ctrl/⌘-click opens a new tile
-- [ ] `.plans/devc-web.md` protocol section updated for `new_shell` and the smaller allowlist
+- [x] `lib/layout_state.js`: `foldTree` and `treeSignature`, with tests in `devc/tests/web_layout_test.ts`
+- [x] `layout.js`: `tree()`, `reveal()`, `addBeside()`, `close()`, and header context-menu hooks
+- [x] Server: `new_shell` message (`tab.create` + find its pane), `REQUEST_METHODS` cut to `pane.rename`, `pane.close`
+- [x] Sidebar: **Layout** section mirroring Golden Layout, **Projects** section without Herdr tabs, visible-pane marker
+- [x] Context menus by node type (table below); Herdr split/tab actions removed
+- [x] Click semantics: focus a visible pane's tile, else open in the focused tile; Ctrl/⌘-click opens a new tile
+- [x] `.plans/devc-web.md` protocol section updated for `new_shell` and the smaller allowlist
 - [ ] Verify (below) and ask the user to try it in their open tab
 
 Make `devc web`'s sidebar use the browser's own window-management words. The tiling area (Golden
@@ -221,6 +221,18 @@ close(id) {}
   from last time. Re-render on snapshot events as now.
 - **Renamed panes:** check whether a renamed pane's new name reaches `terminal_title_stripped`.
   If it doesn't, `paneTitle` should prefer a non-empty `pane.label`, and the tests should cover it.
+
+## Implementation notes
+
+- Herdr 0.9.5's `tab.create` result **does** carry `root_pane` (its bundled schema omits it).
+  `createShell` uses it and only falls back to `pane.list`.
+- Measured in a throwaway session: `pane.close` on a tab's only pane closes the tab, so
+  `tab.close` stays out of the allowlist. `pane.rename` sets `label` and leaves
+  `terminal_title_stripped` alone, so `paneTitle` prefers `label`.
+- `addBeside` also accepts a stack, row or column id (a row or column appends a new stack), which
+  the stack and row/column menus use.
+- Row, column and stack rows in the Layout section show a small glyph plus a muted
+  `<kind> · <tile count>` label, rather than a bare glyph, so they read at a glance.
 
 ## Verify
 

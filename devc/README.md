@@ -262,22 +262,33 @@ is published from any container: the host server finds devcontainers with
 `docker exec … herdr --session devc remote-api-bridge` and
 `terminal session control`. Updates are pushed end to end; nothing is polled.
 
-- **Sidebar:** each container with its panes and an agent status per pane.
-  Workspace and tab rows appear only when there is more than one to choose
-  from. Click a container to collapse it; a collapsed one shows its most urgent
-  agent status. Containers without a running Herdr server are grouped under
-  **Not running** at the bottom; hover one for **Start**
-  (`herdr --session devc server`, detached) and **Retry**. Right-click a
-  container, workspace, tab or pane to create, rename, split or close.
-- **Tiles:** click a pane to open it in the focused tile, or drag it from the
-  sidebar onto any tile's edge (a new split) or tab strip (a new tab in that
-  stack). Drag a tile's tab to move it; rows, columns and tab stacks nest to
-  any depth, the dividers resize, and each tab can be maximised or closed. The
-  same pane may be open in several tiles. Tiles are the browser's own layout
+- **Sidebar:** two sections. **Layout** mirrors the tiles: rows, columns and
+  tab stacks as they nest (a level with a single child is folded away), each
+  tile with its pane's agent status; click a tile to bring it forward.
+  **Projects** lists each container with every pane in it, marking the ones a
+  tile shows; a workspace row appears only when there is more than one. Herdr
+  tabs don't appear: a pane split in Herdr's own UI is listed like any other.
+  Click a container to collapse it; a collapsed one shows its most urgent agent
+  status. Containers without a running Herdr server are grouped under **Not
+  running** at the bottom; hover one for **Start Herdr**
+  (`herdr --session devc server`, detached) and **Retry**.
+- **Menus:** right-click a tile (its tab, or its Layout row) for **New shell**
+  to the right, below or in the same stack, **Close** (the tile only) and
+  **Kill pane** (ends the process). Stacks, rows and columns offer a new shell
+  inside them; a container or workspace row offers **New shell** in the focused
+  stack; a pane row offers **Open in new tile**, **Rename** and **Kill**. A new
+  shell is always its own Herdr tab, created without moving the focus of a
+  Herdr TUI attached to the same session.
+- **Tiles:** click a pane to show it (bringing its tile forward if one already
+  shows it, else opening it in the focused tile; Ctrl/⌘-click always opens a
+  new tile), or drag it from the sidebar onto any tile's edge (a new split) or
+  tab strip (a new tab in that stack). Drag a tile's tab to move it; rows,
+  columns and tab stacks nest to any depth, the dividers resize, and each tab
+  can be maximised or closed. The same pane may be open in several tiles. Tiles
+  are the browser's own layout
   ([Golden Layout](https://github.com/golden-layout/golden-layout), vendored)
-  and never change Herdr's — only the sidebar's **Split right/down** does. The
-  layout is kept in the browser's `localStorage`; a tile whose pane has since
-  closed shows "Pane gone".
+  and never change Herdr's. The layout is kept in the browser's
+  `localStorage`; a tile whose pane has since closed shows "Pane gone".
 - **Input:** keys go through as typed. A multi-line paste is sent as one
   bracketed paste, so a shell or agent prompt does not submit each line. Mouse
   clicks and drags go to the app (Herdr encodes them in the app's own mouse

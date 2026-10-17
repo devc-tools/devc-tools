@@ -13,6 +13,7 @@ import {
   BridgeError,
   bridgeRequest,
   ContainerSession,
+  createShell,
   isHerdrLaunch,
   snapshotPaneIds,
 } from './herdr_bridge.ts';
@@ -449,6 +450,26 @@ export async function startWeb(
         }
         return;
       }
+      case 'new_shell':
+        try {
+          const result = await createShell(target, {
+            ...(msg.workspace_id !== undefined
+              ? { workspace_id: msg.workspace_id }
+              : {}),
+            ...(msg.cwd !== undefined ? { cwd: msg.cwd } : {}),
+          });
+          reply(c, { id: msg.id, ok: true, result });
+        } catch (e) {
+          reply(c, {
+            id: msg.id,
+            ok: false,
+            error: {
+              code: e instanceof BridgeError ? e.code : 'herdr_error',
+              message: e instanceof Error ? e.message : String(e),
+            },
+          });
+        }
+        return;
       case 'request':
         try {
           const result = await bridgeRequest(target, msg.method, msg.params);

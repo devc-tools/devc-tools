@@ -56,3 +56,43 @@ export function parseSavedLayout(text) {
   }
   return value;
 }
+
+/**
+ * A node of the tiling tree as the sidebar's Layout section sees it. `id` of a tile node is its
+ * `Tile.id`; `active` is whether it is its stack's visible tab.
+ *
+ * @typedef {{kind: 'row' | 'column' | 'stack', id: string, children: LayoutNode[]}
+ *   | {kind: 'tile', id: string, active: boolean}} LayoutNode
+ */
+
+/**
+ * The tree the sidebar shows: a row, column or stack with exactly one child is replaced by that
+ * child (recursively); an empty one is dropped. `null` in, `null` out.
+ *
+ * @param {LayoutNode | null} node
+ * @returns {LayoutNode | null}
+ */
+export function foldTree(node) {
+  if (node === null || node.kind === 'tile') return node;
+  const children = /** @type {LayoutNode[]} */ (
+    node.children.map(foldTree).filter((c) => c !== null)
+  );
+  if (children.length === 0) return null;
+  if (children.length === 1) return children[0];
+  return { kind: node.kind, id: node.id, children };
+}
+
+/**
+ * A string that changes exactly when the tree's shape, its ids or any `active` flag changes, so
+ * the sidebar re-renders on a move or a tab switch and not on every splitter drag.
+ *
+ * @param {LayoutNode | null} node
+ * @returns {string}
+ */
+export function treeSignature(node) {
+  if (node === null) return '';
+  if (node.kind === 'tile') return `${node.id}${node.active ? '*' : ''}`;
+  return `${node.kind}:${node.id}(${
+    node.children.map(treeSignature).join(',')
+  })`;
+}

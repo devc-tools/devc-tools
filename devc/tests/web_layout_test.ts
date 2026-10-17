@@ -1,8 +1,10 @@
 import { assertEquals } from 'jsr:@std/assert';
 import {
+  foldTree,
   paneRefFromState,
   parseSavedLayout,
   tileTitle,
+  treeSignature,
 } from '../web/static/lib/layout_state.js';
 
 Deno.test('paneRefFromState accepts a full pane reference', () => {
@@ -56,4 +58,74 @@ Deno.test('parseSavedLayout returns a valid saved layout', () => {
     },
   };
   assertEquals(parseSavedLayout(JSON.stringify(saved)), saved);
+});
+
+const tile = (id: string, active = true) => ({
+  kind: 'tile' as const,
+  id,
+  active,
+});
+const node = (
+  kind: 'row' | 'column' | 'stack',
+  id: string,
+  ...children: ReturnType<typeof foldTree>[]
+) => ({ kind, id, children: children as NonNullable<typeof children[0]>[] });
+
+Deno.test('foldTree keeps a lone tile and drops nothing from null', () => {
+  assertEquals(foldTree(null), null);
+  assertEquals(foldTree(tile('t1')), tile('t1'));
+});
+
+Deno.test('foldTree replaces single-child rows, columns and stacks by the child', () => {
+  assertEquals(foldTree(node('stack', 's1', tile('t1'))), tile('t1'));
+  assertEquals(
+    foldTree(node('row', 'r1', node('stack', 's1', tile('t1')))),
+    tile('t1'),
+  );
+  assertEquals(
+    foldTree(
+      node('column', 'c1', node('row', 'r1', node('stack', 's1', tile('t1')))),
+    ),
+    tile('t1'),
+  );
+});
+
+Deno.test('foldTree keeps nodes with several children and drops empty ones', () => {
+  const tree = node(
+    'row',
+    'r1',
+    node('stack', 's1', tile('t1'), tile('t2', false)),
+    node('stack', 's2', tile('t3')),
+    node('stack', 's3'),
+  );
+  assertEquals(
+    foldTree(tree),
+    node(
+      'row',
+      'r1',
+      node('stack', 's1', tile('t1'), tile('t2', false)),
+      tile('t3'),
+    ),
+  );
+  assertEquals(foldTree(node('row', 'r1', node('stack', 's1'))), null);
+});
+
+Deno.test('treeSignature follows shape, ids and active flags only', () => {
+  const a = node('row', 'r1', tile('t1'), tile('t2'));
+  assertEquals(
+    treeSignature(a),
+    treeSignature(node('row', 'r1', tile('t1'), tile('t2'))),
+  );
+  assertEquals(treeSignature(null), '');
+  const different = [
+    node('row', 'r1', tile('t2'), tile('t1')),
+    node('row', 'r1', tile('t1'), tile('t2', false)),
+    node('column', 'r1', tile('t1'), tile('t2')),
+    node('row', 'r2', tile('t1'), tile('t2')),
+    node('row', 'r1', tile('t1')),
+    node('row', 'r1', tile('t1'), tile('t2'), tile('t3')),
+  ];
+  for (const d of different) {
+    assertEquals(treeSignature(d) === treeSignature(a), false);
+  }
 });

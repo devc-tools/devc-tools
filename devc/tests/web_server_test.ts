@@ -214,10 +214,62 @@ Deno.test('parseClientMessage refuses a request method outside the allowlist', (
     type: 'request',
     id: 'r2',
     container: 'c',
-    method: 'pane.split',
-    params: { target_pane_id: 'w1:p1', direction: 'right' },
+    method: 'pane.rename',
+    params: { pane_id: 'w1:p1', label: 'logs' },
   }));
   assert(ok.ok);
+  // The browser owns all layout: it never splits a Herdr pane or touches Herdr tabs.
+  for (
+    const method of ['pane.split', 'tab.create', 'tab.rename', 'tab.close']
+  ) {
+    assertEquals(
+      rejected({
+        type: 'request',
+        id: 'r3',
+        container: 'c',
+        method,
+        params: {},
+      })
+        .code,
+      'method_not_allowed',
+    );
+  }
+});
+
+Deno.test('parseClientMessage accepts new_shell with optional workspace and cwd', () => {
+  const bare = parseClientMessage(
+    JSON.stringify({ type: 'new_shell', id: 'n1', container: 'c' }),
+  );
+  assertEquals(bare, {
+    ok: true,
+    msg: { type: 'new_shell', id: 'n1', container: 'c' },
+  });
+  const full = parseClientMessage(JSON.stringify({
+    type: 'new_shell',
+    id: 'n2',
+    container: 'c',
+    workspace_id: 'w1',
+    cwd: '/workspaces/app',
+  }));
+  assertEquals(full, {
+    ok: true,
+    msg: {
+      type: 'new_shell',
+      id: 'n2',
+      container: 'c',
+      workspace_id: 'w1',
+      cwd: '/workspaces/app',
+    },
+  });
+  assertEquals(
+    rejected({ type: 'new_shell', id: 'n3', container: 'c', cwd: 7 }).code,
+    'bad_request',
+  );
+  assertEquals(
+    rejected({ type: 'new_shell', id: 'n4', container: 'c', workspace_id: '' })
+      .code,
+    'bad_request',
+  );
 });
 
 Deno.test('parseWebArgs defaults, flags and errors', () => {

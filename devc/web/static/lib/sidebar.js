@@ -38,9 +38,9 @@ export function topStatus(panes) {
   };
 }
 
-/** A pane's title as Herdr reports it, else its folder, else its id. */
+/** A pane's name: the one it was renamed to, else its title as Herdr reports it, else its folder, else its id. */
 export function paneTitle(pane) {
-  return pane?.terminal_title_stripped || basename(pane?.cwd) ||
+  return pane?.label || pane?.terminal_title_stripped || basename(pane?.cwd) ||
     pane?.pane_id ||
     '';
 }
@@ -72,12 +72,6 @@ export function paneLabel(c, pane) {
   if (pane.agent || !dir) return title;
   if (title !== pane.pane_id && !folders.includes(title)) return title;
   return dir === basename(c.localFolder) ? 'shell' : `shell · ${dir}`;
-}
-
-/** A tab's name: Herdr labels new tabs with just their number. */
-export function tabName(tab) {
-  const label = tab.label ?? '';
-  return label && !/^\d+$/.test(label) ? label : `tab ${tab.number ?? label}`;
 }
 
 /** Sidebar bounds in CSS px. */

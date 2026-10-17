@@ -5,10 +5,6 @@
 
 /** The only Herdr methods a browser `request` may call. */
 export const REQUEST_METHODS: ReadonlySet<string> = new Set([
-  'tab.create',
-  'tab.rename',
-  'tab.close',
-  'pane.split',
   'pane.rename',
   'pane.close',
 ]);
@@ -53,6 +49,13 @@ export type ClientMessage =
     container: string;
     method: string;
     params: Record<string, unknown>;
+  }
+  | {
+    type: 'new_shell';
+    id: string;
+    container: string;
+    workspace_id?: string;
+    cwd?: string;
   }
   | {
     type: 'read_selection';
@@ -237,6 +240,16 @@ function parseFields(m: Obj): ClientMessage {
       }
       return { type: 'request', id, container, method, params: params as Obj };
     }
+    case 'new_shell':
+      return {
+        type: 'new_shell',
+        id: str(m, 'id'),
+        container: str(m, 'container'),
+        ...(m.workspace_id !== undefined
+          ? { workspace_id: str(m, 'workspace_id') }
+          : {}),
+        ...(m.cwd !== undefined ? { cwd: str(m, 'cwd') } : {}),
+      };
     case 'read_selection':
       return {
         type: 'read_selection',

@@ -274,30 +274,32 @@ Server → browser:
 
 Browser → server:
 
-| `type`           | Fields                                                                         | Server action                                                                               |
-| ---------------- | ------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------- |
-| `open`           | `id`, `container`, `pane_id`, `cols`, `rows`                                   | Start or join the controller                                                                |
-| `close`          | `container`, `pane_id`                                                         | Unsubscribe, and release if this was the last subscriber                                    |
-| `input`          | `container`, `pane_id`, `bytes` (base64)                                       | `terminal.input` `bytes`                                                                    |
-| `resize`         | `container`, `pane_id`, `cols`, `rows`                                         | `terminal.resize`                                                                           |
-| `scroll`         | `container`, `pane_id`, `direction`, `lines`                                   | `terminal.scroll`                                                                           |
-| `mouse`          | `container`, `pane_id`, `action`, `button?`, `column`, `row`                   | `terminal.mouse` (zero-based cells)                                                         |
-| `request`        | `id`, `container`, `method`, `params`                                          | One-shot bridge call, replied to with `result`                                              |
-| `read_selection` | `id`, `container`, `pane_id`, `anchor: {column, row}`, `cursor: {column, row}` | `pane.get`, viewport → content rows, `pane.selection.read`; replied to with `result {text}` |
-| `start_session`  | `id`, `container`                                                              | `docker exec -d … server`, then reconnect; replied to with `result`                         |
-| `retry`          | `container`                                                                    | Re-run the connection lifecycle                                                             |
-| `client_ready`   | `generation` (non-empty)                                                       | Live mode: snapshot `static/` as last-good if current. No reply                             |
+| `type`           | Fields                                                                         | Server action                                                                                |
+| ---------------- | ------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------- |
+| `open`           | `id`, `container`, `pane_id`, `cols`, `rows`                                   | Start or join the controller                                                                 |
+| `close`          | `container`, `pane_id`                                                         | Unsubscribe, and release if this was the last subscriber                                     |
+| `input`          | `container`, `pane_id`, `bytes` (base64)                                       | `terminal.input` `bytes`                                                                     |
+| `resize`         | `container`, `pane_id`, `cols`, `rows`                                         | `terminal.resize`                                                                            |
+| `scroll`         | `container`, `pane_id`, `direction`, `lines`                                   | `terminal.scroll`                                                                            |
+| `mouse`          | `container`, `pane_id`, `action`, `button?`, `column`, `row`                   | `terminal.mouse` (zero-based cells)                                                          |
+| `request`        | `id`, `container`, `method`, `params`                                          | One-shot bridge call, replied to with `result`                                               |
+| `new_shell`      | `id`, `container`, `workspace_id?`, `cwd?`                                     | `tab.create {workspace_id?, cwd?, focus: false}`; replied to with `result {pane_id, tab_id}` |
+| `read_selection` | `id`, `container`, `pane_id`, `anchor: {column, row}`, `cursor: {column, row}` | `pane.get`, viewport → content rows, `pane.selection.read`; replied to with `result {text}`  |
+| `start_session`  | `id`, `container`                                                              | `docker exec -d … server`, then reconnect; replied to with `result`                          |
+| `retry`          | `container`                                                                    | Re-run the connection lifecycle                                                              |
+| `client_ready`   | `generation` (non-empty)                                                       | Live mode: snapshot `static/` as last-good if current. No reply                              |
 
-- **`request` allowlist:** `tab.create`, `tab.rename`, `tab.close`, `pane.split`,
-  `pane.rename`, `pane.close`. Any other method gets
+- **`request` allowlist:** `pane.rename`, `pane.close` (since
+  [devc-web-layout-sidebar](devc-web-layout-sidebar.md): the browser owns all layout, so it
+  never splits a Herdr pane or touches Herdr tabs). Any other method gets
   `result {ok:false, error:{code:"method_not_allowed"}}` without touching Herdr. The
   param shapes are Herdr's own:
-  - `tab.create`: `{workspace_id, cwd?, label?, focus?}`
-  - `tab.rename`: `{tab_id, label}`
-  - `tab.close`: `{tab_id}`
-  - `pane.split`: `{target_pane_id, direction: "right"|"down", cwd?, focus?}`
-  - `pane.rename`: `{pane_id, label}`
-  - `pane.close`: `{pane_id}`
+  - `pane.rename`: `{pane_id, label}` (sets the pane's `label`; its terminal title is unchanged)
+  - `pane.close`: `{pane_id}` (closing a tab's only pane closes the tab too)
+- **`new_shell`:** every pane the browser creates is the root pane of its own Herdr tab.
+  Herdr 0.9.5's `tab.create` result carries `root_pane` (missing from its bundled schema);
+  without it the server finds the pane with `pane.list {workspace_id}` by `tab_id`. A
+  failure is `result {ok:false, error:{code, message}}` as for `request`.
 - **Message validation:** a message that is malformed, or names an unknown container or
   pane, gets `result {ok:false, error:{code:"bad_request", message}}` when it carries an
   `id`, and is ignored otherwise. It never crashes the server.
@@ -340,11 +342,10 @@ Browser → server:
     colored dot and the status (`idle`/`working`/`blocked`/`done`/`unknown`), with the
     agent's name in the tooltip. A pane with no `agent` gets no badge.
   - Clicking a pane opens it in the focused tile.
-  - A context menu offers the allowlisted pane-management actions:
-    - workspace: New tab (on the container row when the workspace row is folded)
-    - tab: Rename, Close (a folded tab's pane menu offers Rename tab)
-    - pane: Split right, Split down, Rename, Close
-  - Close actions ask for confirmation first.
+  - Context menus: superseded by [devc-web-layout-sidebar](devc-web-layout-sidebar.md),
+    which split the sidebar into Layout and Projects sections, dropped Herdr tab rows and
+    split actions, and gave each node type its own menu. Kept as history: workspace: New
+    tab; tab: Rename, Close; pane: Split right, Split down, Rename, Close.
 - **Tiling area (browser-owned windowing):** superseded by
   [devc-web-golden-layout](devc-web-golden-layout.md), which replaced the split tree
   below with Golden Layout (drag and drop, tab stacks, nesting). Kept as history.

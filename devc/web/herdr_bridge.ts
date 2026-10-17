@@ -179,6 +179,49 @@ export async function bridgeRequest(
   }
 }
 
+/**
+ * A new pane in its own Herdr tab — how the browser makes every pane, since it owns all layout
+ * and never splits one. Herdr 0.9.5's `tab.create` result carries the tab's `root_pane`, though
+ * its bundled schema doesn't list it; without one, the pane is found with `pane.list` in the
+ * tab's workspace. Never focuses the tab: a Herdr TUI attached to the same session keeps its
+ * focus.
+ */
+export async function createShell(
+  t: HerdrTarget,
+  opts: { workspace_id?: string; cwd?: string },
+): Promise<{ pane_id: string; tab_id: string }> {
+  const created = await bridgeRequest(t, 'tab.create', {
+    ...(opts.workspace_id !== undefined
+      ? { workspace_id: opts.workspace_id }
+      : {}),
+    ...(opts.cwd !== undefined ? { cwd: opts.cwd } : {}),
+    focus: false,
+  }) as
+    | {
+      tab?: { tab_id?: unknown; workspace_id?: unknown };
+      root_pane?: { pane_id?: unknown };
+    }
+    | undefined;
+  const tab_id = created?.tab?.tab_id;
+  const workspace_id = created?.tab?.workspace_id;
+  if (typeof tab_id !== 'string' || typeof workspace_id !== 'string') {
+    throw new BridgeError('herdr_error', 'tab.create returned no tab');
+  }
+  const root = created?.root_pane?.pane_id;
+  if (typeof root === 'string') return { pane_id: root, tab_id };
+  const listed = await bridgeRequest(t, 'pane.list', { workspace_id }) as
+    | { panes?: unknown }
+    | undefined;
+  const panes = Array.isArray(listed?.panes) ? listed.panes : [];
+  const pane = panes.find((p) =>
+    (p as { tab_id?: unknown })?.tab_id === tab_id
+  ) as { pane_id?: unknown } | undefined;
+  if (typeof pane?.pane_id !== 'string') {
+    throw new BridgeError('herdr_error', `no pane in new tab ${tab_id}`);
+  }
+  return { pane_id: pane.pane_id, tab_id };
+}
+
 /** An open `events.subscribe` connection. */
 export interface Subscription {
   /** Resolves when the bridge exits, with why. */

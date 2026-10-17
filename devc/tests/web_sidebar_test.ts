@@ -4,9 +4,9 @@ import {
   clampSidebarWidth,
   containerLabel,
   paneLabel,
+  paneTitle,
   SIDEBAR_DEFAULT_WIDTH,
   SIDEBAR_MIN_WIDTH,
-  tabName,
   topStatus,
 } from '../web/static/lib/sidebar.js';
 
@@ -84,10 +84,17 @@ Deno.test('paneLabel keeps agent and command titles', () => {
   );
 });
 
-Deno.test('tabName spells out numeric labels', () => {
-  assertEquals(tabName({ label: '2', number: 2 }), 'tab 2');
-  assertEquals(tabName({ number: 3 }), 'tab 3');
-  assertEquals(tabName({ label: 'servers', number: 1 }), 'servers');
+Deno.test('paneTitle prefers a rename, then the terminal title, folder and id', () => {
+  assertEquals(
+    paneTitle({ pane_id: 'p1', label: 'logs', terminal_title_stripped: 'zsh' }),
+    'logs',
+  );
+  assertEquals(
+    paneTitle({ pane_id: 'p1', label: null, terminal_title_stripped: 'zsh' }),
+    'zsh',
+  );
+  assertEquals(paneTitle({ pane_id: 'p1', cwd: '/workspaces/app' }), 'app');
+  assertEquals(paneTitle({ pane_id: 'p1' }), 'p1');
 });
 
 Deno.test('agentStatus maps missing or unknown statuses to unknown', () => {
