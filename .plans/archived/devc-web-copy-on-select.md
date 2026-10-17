@@ -6,14 +6,14 @@
 - [x] Renderer gains `highlight` / `clearHighlight`
 - [x] Page: a plain left-drag that moves at least one cell highlights, sends `read_selection`, and writes the reply to the clipboard
 - [x] Spec tables in `devc-web.md` updated (protocol and "Browser UI → Mouse")
-- [ ] Verify (below) and ask the user to try it
+- [x] Verify (below) and ask the user to try it
 
 When you drag-select text in a `devc web` tile, it is copied to the clipboard automatically, the
 way it is in a Herdr TUI. A plain drag is still forwarded to Herdr as `mouse`, exactly as today.
 The copy happens alongside it. The existing **Shift+drag** (local xterm.js selection, copied on
 mouseup) is unchanged.
 
-Builds on [devc-web](devc-web.md). Read `/workspaces/devc-dev/.claude/skills/devc-web/SKILL.md`
+Builds on [devc-web](../devc-web.md). Read `/workspaces/devc-dev/.claude/skills/devc-web/SKILL.md`
 first: the user runs `devc web` in live mode, and protocol changes go **server first**.
 
 ## Background: what Herdr 0.9.5 does with a drag (measured 2026-10-16)

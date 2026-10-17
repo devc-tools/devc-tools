@@ -17,12 +17,6 @@
   `localStorage` persistence. One module (`layout.js`) is the only Golden Layout importer;
   server, protocol and renderer are unchanged apart from a `.png` content type.
 
-- [devc-web-copy-on-select](devc-web-copy-on-select.md) — a plain left-drag in a tile copies
-  to the clipboard. Herdr draws no selection and sends no OSC 52 over the control stream
-  (measured), so the page highlights the cells locally and a new `read_selection` message has
-  the server call `pane.get` + `pane.selection.read` (viewport → content rows). The drag is
-  still forwarded as `mouse`.
-
 - [devc-web](devc-web.md) — `devc web`: a loopback-only (127.0.0.1, token + Host/Origin
   checked) web UI for the Herdr sessions running inside devcontainers. The host server
   discovers containers via `docker ps` + `docker events`, reaches each Herdr through
@@ -2022,4 +2016,4 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
 | `devc web` — browser UI for in-container Herdr sessions over `docker exec`                                         | [devc-web](devc-web.md)                                                            | in progress |
 | `devc web` Golden Layout tiling — drag/drop, stacks, nesting                                                       | [devc-web-golden-layout](devc-web-golden-layout.md)                                | in progress |
 | `devc web` sidebar — resizable and hideable                                                                        | [devc-web-sidebar-resize](archived/devc-web-sidebar-resize.md)                     | complete    |
-| `devc web` copy on select — plain drag copies via `pane.selection.read`                                            | [devc-web-copy-on-select](devc-web-copy-on-select.md)                              |             |
+| `devc web` copy on select — plain drag copies via `pane.selection.read`                                            | [devc-web-copy-on-select](archived/devc-web-copy-on-select.md)                     | complete    |
