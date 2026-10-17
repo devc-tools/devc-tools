@@ -59,20 +59,38 @@ export function sameFile(a, b) {
 
 /**
  * What a tile shows, as its Golden Layout component type and state: `{file}` a file tile, a
- * `PaneRef` a pane tile, `null` an empty pane tile.
+ * `PaneRef` a pane tile, `null` an empty pane tile. A preview tile (see {@link previewFromState})
+ * carries `preview: true` beside the reference.
  *
  * @param {PaneRef | {file: FileRef} | null} ref
- * @returns {{type: 'pane' | 'file', state: Record<string, string>}}
+ * @param {boolean} [preview]
+ * @returns {{type: 'pane' | 'file', state: Record<string, string | boolean>}}
  */
-export function tileContent(ref) {
+export function tileContent(ref, preview = false) {
+  const flag = preview ? { preview: true } : {};
   if (ref && 'file' in ref) {
     const { localFolder, root, path } = ref.file;
-    return { type: 'file', state: { localFolder, root, path } };
+    return { type: 'file', state: { localFolder, root, path, ...flag } };
   }
   return {
     type: 'pane',
-    state: ref ? { localFolder: ref.localFolder, pane_id: ref.pane_id } : {},
+    state: ref
+      ? { localFolder: ref.localFolder, pane_id: ref.pane_id, ...flag }
+      : { ...flag },
   };
+}
+
+/**
+ * Whether a tile's component state marks it a *preview*: a tile a sidebar click opened, whose
+ * content the next click replaces until it is pinned. Only `preview: true` counts, so layouts
+ * saved before previews existed load pinned.
+ *
+ * @param {unknown} state
+ * @returns {boolean}
+ */
+export function previewFromState(state) {
+  return typeof state === 'object' && state !== null &&
+    /** @type {Record<string, unknown>} */ (state).preview === true;
 }
 
 /**

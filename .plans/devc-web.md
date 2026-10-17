@@ -393,7 +393,13 @@ Browser → server:
     `bash · <folder>` when that folder is not the container's. An **agent badge** is a
     colored dot and the status (`idle`/`working`/`blocked`/`done`/`unknown`), with the
     agent's name in the tooltip. A pane with no `agent` gets no badge.
-  - Clicking a pane opens it in the focused tile.
+  - Clicking a terminal (or a file) shows it where a tile already does; otherwise it opens in
+    the focused stack's **preview tile** (italic tab title and Layout row), replacing what that
+    tile showed, or in a new preview tile there (see
+    [devc-web-preview-tiles](archived/devc-web-preview-tiles.md)). A preview is pinned by
+    double-clicking its tab or sidebar row, typing or pasting into it, dragging it, or **Keep
+    open** in its menu. Ctrl/Cmd-click, and every menu item that names a place, open pinned
+    tiles. The flag is saved with the layout (`preview: true` in the component state).
   - Context menus: superseded by [devc-web-layout-sidebar](archived/devc-web-layout-sidebar.md),
     which split the sidebar into Layout and Projects sections, dropped Herdr tab rows and
     split actions, and gave each node type its own menu. Kept as history: workspace: New

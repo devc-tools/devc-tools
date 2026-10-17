@@ -1,12 +1,12 @@
 # devc-web-preview-tiles
 
-- [ ] `layout.js`: a tile can be a **preview**: saved in its component state, its tab title in italics, `setPreview`, and a hook for a double-click on its tab
-- [ ] `lib/layout_state.js`: `previewFromState`, with tests; the ref parsers ignore the new key
-- [ ] Page: clicking a terminal (or a file) that isn't shown opens it in the focused stack's preview tile, creating one if there is none
-- [ ] Page: pinning: double-click the tab or the sidebar row, typing into the terminal, dragging the tile, or "Keep open" in the tile menu
-- [ ] Page: the Layout section's row for a preview tile is italic too
-- [ ] `.plans/devc-web.md` "Browser UI" section updated
-- [ ] Verify (below) and ask the user to try it in their open tab
+- [x] `layout.js`: a tile can be a **preview**: saved in its component state, its tab title in italics, `setPreview`, and a hook for a double-click on its tab
+- [x] `lib/layout_state.js`: `previewFromState`, with tests; the ref parsers ignore the new key
+- [x] Page: clicking a terminal (or a file) that isn't shown opens it in the focused stack's preview tile, creating one if there is none
+- [x] Page: pinning: double-click the tab or the sidebar row, typing into the terminal, dragging the tile, or "Keep open" in the tile menu
+- [x] Page: the Layout section's row for a preview tile is italic too
+- [x] `.plans/devc-web.md` "Browser UI" section updated
+- [x] Verify (below) and ask the user to try it in their open tab
 
 Clicking a terminal row today **replaces** what the focused tile shows (`openInFocusedTile`). If
 you're reading one terminal and click another to glance at it, the first one leaves the layout.
@@ -24,6 +24,17 @@ tabs.
 
 Page only, with no protocol change, so it works under plain `--live`. Read
 `/workspaces/devc-dev/.claude/skills/devc-web/SKILL.md` first.
+
+## Deviations (implementation)
+
+- **Typing pins through xterm's `onData`** (and paste), not a raw keydown, so only input that
+  reaches the terminal counts.
+- **`layout.js` gained `replace(tileId, ref)`** for a preview whose content changes kind (file ↔
+  terminal), and for file → file: a file tile can't switch files in place. Same stack, same
+  position.
+- **`openInFocusedTile` is gone:** its only caller was the plain click.
+- **An empty focused tile** (no terminal yet) takes a clicked terminal as a preview, as it used
+  to take it outright.
 
 ## Concept boundaries
 

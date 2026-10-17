@@ -704,6 +704,7 @@ const LABELS = {
   newInStack: 'New terminal in this stack',
   newAtEnd: 'New terminal at end',
   close: 'Close terminal…',
+  keepOpen: 'Keep open',
   closeRequest: 'Close terminal',
   rename: 'Rename terminal',
   renamePrompt: 'Terminal name',
@@ -975,7 +976,7 @@ function layoutState() {
           : t.ref
           ? `${t.ref.localFolder}\n${t.ref.pane_id}`
           : ''
-      }`
+      }${t.preview ? '*' : ''}`
     ).sort().join(';')
     : '';
   return { tree, signature: `${treeSignature(tree)}|${refs}` };
@@ -1027,15 +1028,22 @@ function refTitle(ref) {
   );
 }
 
+/** A Layout tile row's classes: `background` behind its stack's front tab, `preview` (italic). */
+function tileRowClass(tile, active) {
+  return [
+    'row layout-node tile',
+    active ? '' : 'background',
+    tile.preview ? 'preview' : '',
+  ].filter((s) => s).join(' ');
+}
+
 function layoutTileRow(tile, active, depth) {
   if (tile.kind === 'file') return layoutFileTileRow(tile, active, depth);
   const { c, pane } = resolveRef(tile.ref);
   return h(
     'div',
     {
-      class: active
-        ? 'row layout-node tile'
-        : 'row layout-node tile background',
+      class: tileRowClass(tile, active),
       style: `--depth: ${depth}`,
       'data-tile': tile.id,
       'data-pane-key': c && tile.ref
@@ -1065,9 +1073,7 @@ function layoutFileTileRow(tile, active, depth) {
   return h(
     'div',
     {
-      class: active
-        ? 'row layout-node tile'
-        : 'row layout-node tile background',
+      class: tileRowClass(tile, active),
       style: `--depth: ${depth}`,
       'data-tile': tile.id,
       title: [
@@ -1448,9 +1454,21 @@ function tileMenuItems(tile) {
   if (c && pane) {
     items.push(['Reveal in Containers', () => revealInContainers(c, pane)]);
   }
+  if (tile.preview) items.push(keepOpenItem(tile));
   items.push(['Close', () => tiling?.close(tile.id)]);
   if (c && pane) items.push(killPaneItem(c, pane));
   return items;
+}
+
+/** Pins a preview tile: the next sidebar click opens a new preview instead of replacing it. */
+function keepOpen(tile) {
+  if (!tile?.preview) return;
+  tile.setPreview(false);
+  layoutChanged();
+}
+
+function keepOpenItem(tile) {
+  return [LABELS.keepOpen, () => keepOpen(tile)];
 }
 
 /** A stack, row or column's menu. */
@@ -2359,7 +2377,17 @@ function fileEntryRow(fr, tree, item) {
       onclick: dir
         ? () => tree.toggle(path)
         : file
-        ? () => openFileTile(fr, path, 'stack')
+        ? () => openFileTile(fr, path, 'preview')
+        : undefined,
+      ondblclick: file
+        ? () =>
+          keepOpen(
+            tileShowingFile({
+              localFolder: fr.localFolder,
+              root: fr.root,
+              path,
+            }),
+          )
         : undefined,
       oncontextmenu: (e) =>
         openMenu(
@@ -2439,15 +2467,22 @@ function tileShowingFile(file) {
 }
 
 /**
- * Opens a repo file in a file tile: in the focused stack (`'stack'`; a tile already showing the
- * file is brought forward instead), or split to the right of the focused tile. Works whether or
- * not the container runs: the server reads the host side of the mount.
+ * Opens a repo file in a file tile: in the focused stack's preview tile (`'preview'`, a click),
+ * in a new tile in the focused stack (`'stack'`), or split to the right of the focused tile. A
+ * tile already showing the file is brought forward instead, except for `'right'`. Works whether
+ * or not the container runs: the server reads the host side of the mount.
  *
- * @param {FileRoot} fr @param {string} path @param {'stack' | 'right'} where
+ * @param {FileRoot} fr @param {string} path @param {'preview' | 'stack' | 'right'} where
  */
 function openFileTile(fr, path, where) {
   if (!tiling) return;
   const file = { localFolder: fr.localFolder, root: fr.root, path };
+  if (where === 'preview') {
+    const shown = tileShowingFile(file);
+    if (shown) revealTile(shown.id);
+    else openInPreview({ file });
+    return;
+  }
   if (where === 'stack') {
     const shown = tileShowingFile(file);
     if (shown) {
@@ -2476,6 +2511,7 @@ function fileTileMenuItems(tile) {
       ['Copy path', () => copyPath(fr, file.path)],
     );
   }
+  if (tile.preview) items.push(keepOpenItem(tile));
   items.push(['Close', () => tiling?.close(tile.id)]);
   return items;
 }
@@ -2860,7 +2896,10 @@ function paneMenu(rec) {
   return items;
 }
 
-/** Click: show the pane where it already is, else open it in the focused tile. */
+/**
+ * Click: show the pane where it already is, else open it in the focused stack's preview tile.
+ * Ctrl/Cmd-click: a new tile that stays.
+ */
 function onPaneClick(rec, e) {
   if (e.ctrlKey || e.metaKey) {
     openInNewTile(rec.c, rec.pane.pane_id);
@@ -2868,7 +2907,74 @@ function onPaneClick(rec, e) {
   }
   const tile = tileShowing(rec.c, rec.pane);
   if (tile) revealTile(tile.id);
-  else openInFocusedTile(rec.c, rec.pane.pane_id);
+  else {
+    openInPreview({
+      localFolder: rec.c.localFolder,
+      pane_id: rec.pane.pane_id,
+    });
+  }
+}
+
+/** The preview tile in `anchor`'s stack (`anchor` itself included), or null. */
+function previewTileNear(anchor) {
+  if (!tiling || !anchor) return null;
+  const byId = new Map(tiling.tiles().map((t) => [t.id, t]));
+  /** @returns {Tile | null | undefined} undefined: `anchor` isn't under `node` */
+  const search = (node) => {
+    if (node.kind === 'tile') return undefined;
+    if (node.kind === 'stack') {
+      if (!node.children.some((ch) => ch.id === anchor.id)) return undefined;
+      return node.children.map((ch) => byId.get(ch.id)).find((t) =>
+        t?.preview
+      ) ?? null;
+    }
+    for (const child of node.children) {
+      const found = search(child);
+      if (found !== undefined) return found;
+    }
+    return undefined;
+  };
+  const root = tiling.tree();
+  return (root && search(root)) ?? null;
+}
+
+/**
+ * Shows `ref` (a pane, or `{file}`) in the focused stack's preview tile: in place for a pane
+ * replacing a pane, else a new tile in that tile's place; with no preview tile there, an empty
+ * focused tile takes it, or a new preview tile joins the stack. The tile is revealed and focused.
+ *
+ * @param {PaneRef | {file: FileRef}} ref
+ */
+function openInPreview(ref) {
+  if (!tiling) return;
+  const anchor = targetTile();
+  const preview = previewTileNear(anchor);
+  const isFile = 'file' in ref;
+  let tile;
+  if (preview && !isFile && preview.kind === 'pane') {
+    closeTilePane(preview.id);
+    views.get(preview.id).closedReason = null;
+    preview.setRef(/** @type {PaneRef} */ (ref));
+    tiling.reveal(preview.id);
+    tile = preview;
+  } else if (preview) {
+    tile = tiling.replace(preview.id, ref);
+  } else if (!isFile && anchor?.kind === 'pane' && !anchor.ref) {
+    anchor.setRef(/** @type {PaneRef} */ (ref));
+    anchor.setPreview(true);
+    tile = anchor;
+  } else {
+    tile = tiling.addBeside(anchor?.id ?? null, ref, 'stack', {
+      preview: true,
+    });
+  }
+  if (!tile) return;
+  focusedTileId = tile.id;
+  focusSeq.set(tile.id, ++nextFocusSeq);
+  reconcileTiles();
+  layoutChanged();
+  if (isFile) fileViews.get(tile.id)?.viewer?.focus();
+  else views.get(tile.id)?.renderer.focus();
 }
 
 /**
@@ -2882,6 +2988,8 @@ function paneRow(c, pane, depth, space = '') {
     const row = h('div', {
       class: 'row pane',
       onclick: (e) => onPaneClick(rec, e),
+      // The two clicks opened it (as a preview); a double-click also keeps it.
+      ondblclick: () => keepOpen(tileShowing(rec.c, rec.pane)),
       oncontextmenu: (e) => openMenu(e, paneMenu(rec)),
     });
     rec = { row, c, pane, seen: 0, remove: null };
@@ -3058,26 +3166,6 @@ function targetTile() {
   const tiles = tiling.tiles();
   return tiling.focusedTile() ?? tiles.find((t) => t.id === focusedTileId) ??
     tiles[0] ?? null;
-}
-
-function openInFocusedTile(c, paneId) {
-  if (!tiling) return;
-  const ref = { localFolder: c.localFolder, pane_id: paneId };
-  let tile = targetTile();
-  if (tile?.kind === 'file') {
-    // A file tile can't show a pane: the pane opens beside it, in its stack.
-    tile = placeInFocusedStack(ref);
-  } else if (tile) {
-    closeTilePane(tile.id);
-    views.get(tile.id).closedReason = null;
-    tile.setRef(ref);
-  } else {
-    tile = tiling.add(ref);
-  }
-  focusedTileId = tile.id;
-  reconcileTiles();
-  layoutChanged();
-  views.get(tile.id)?.renderer.focus();
 }
 
 /** Opens a pane in a new tile in the focused tile's stack (or the first tile). */
@@ -3267,7 +3355,10 @@ function mountTile(tile) {
 
   renderer.onData((data) => {
     const t = target();
-    if (t) send({ type: 'input', ...t, bytes: encodeInput(data) });
+    if (!t) return;
+    // Typing into a preview means using it: it stays.
+    keepOpen(tile);
+    send({ type: 'input', ...t, bytes: encodeInput(data) });
   });
 
   const wheelToScroll = createWheelAccumulator();
@@ -3287,6 +3378,7 @@ function mountTile(tile) {
     const t = target();
     const text = ev.clipboardData?.getData('text/plain') ?? '';
     if (t && text) {
+      keepOpen(tile);
       send({ type: 'input', ...t, bytes: encodeInput(wrapPaste(text)) });
     }
   }, true);
@@ -3493,6 +3585,7 @@ tiling = createTiling($layoutRoot, {
   },
   tileMenu: (tile, e) => openMenu(e, tileMenuItems(tile)),
   stackMenu,
+  tabDoubleClick: keepOpen,
 });
 if (SAFE_MODE) showSafeBanner();
 applySidebarLayout();

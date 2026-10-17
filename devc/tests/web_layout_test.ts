@@ -4,6 +4,7 @@ import {
   foldTree,
   paneRefFromState,
   parseSavedLayout,
+  previewFromState,
   sameFile,
   tileContent,
   tileTitle,
@@ -173,4 +174,53 @@ Deno.test('treeSignature follows shape, ids and active flags only', () => {
   for (const d of different) {
     assertEquals(treeSignature(d) === treeSignature(a), false);
   }
+});
+
+Deno.test('previewFromState: only preview: true counts', () => {
+  assertEquals(
+    previewFromState({ localFolder: '/a', pane_id: 'p', preview: true }),
+    true,
+  );
+  for (
+    const s of [
+      { localFolder: '/a', pane_id: 'p' },
+      { preview: 'true' },
+      { preview: 1 },
+      null,
+      [],
+      'x',
+    ]
+  ) {
+    assertEquals(previewFromState(s), false, JSON.stringify(s));
+  }
+});
+
+Deno.test('tileContent: a preview carries preview: true, and the refs still parse', () => {
+  const pane = tileContent({ localFolder: '/a', pane_id: 'p' }, true);
+  assertEquals(pane, {
+    type: 'pane',
+    state: { localFolder: '/a', pane_id: 'p', preview: true },
+  });
+  assertEquals(paneRefFromState(pane.state), {
+    localFolder: '/a',
+    pane_id: 'p',
+  });
+  assertEquals(previewFromState(pane.state), true);
+  const file = tileContent({
+    file: { localFolder: '/a', root: '/a', path: 'x' },
+  }, true);
+  assertEquals(file.state.preview, true);
+  assertEquals(fileRefFromState(file.state), {
+    localFolder: '/a',
+    root: '/a',
+    path: 'x',
+  });
+  assertEquals(tileContent(null, true), {
+    type: 'pane',
+    state: { preview: true },
+  });
+  assertEquals(
+    tileContent({ localFolder: '/a', pane_id: 'p' }).state.preview,
+    undefined,
+  );
 });

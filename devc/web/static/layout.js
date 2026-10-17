@@ -15,12 +15,13 @@ import {
 import {
   fileRefFromState,
   paneRefFromState,
+  previewFromState,
   tileContent,
 } from './lib/layout_state.js';
 
 /**
- * The component types: `pane`, whose state is exactly a PaneRef (or `{}` for an empty tile), and
- * `file`, whose state is exactly a FileRef.
+ * The component types: `pane`, whose state is a PaneRef (or `{}` for an empty tile), and `file`,
+ * whose state is a FileRef; either with `preview: true` on a preview tile.
  */
 const COMPONENT_TYPES = /** @type {const} */ (['pane', 'file']);
 
@@ -38,6 +39,9 @@ const COMPONENT_TYPES = /** @type {const} */ (['pane', 'file']);
  * @property {FileRef | null} file       the file a file tile shows; null on a pane tile
  * @property {HTMLElement} element       where app.js mounts the renderer and overlay
  * @property {(ref: PaneRef | null) => void} setRef   persists into the component state (pane tiles)
+ * @property {boolean} preview           a preview tile: the next sidebar click replaces what it
+ *   shows; its tab title is italic. Saved with the layout.
+ * @property {(on: boolean) => void} setPreview  persists into the component state
  * @property {(title: string) => void} setTitle
  * @property {(text: string) => void} setTooltip  the tab's tooltip (default: the title)
  * @property {(el: Node | null) => void} setBadge     agent badge shown in the tile's tab
@@ -54,6 +58,7 @@ const COMPONENT_TYPES = /** @type {const} */ (['pane', 'file']);
  * @property {(tile: Tile, e: MouseEvent) => void} tileMenu   right-click on a tile's header tab
  * @property {(stackId: string, e: MouseEvent) => void} stackMenu  right-click on a stack
  *   header's empty area
+ * @property {(tile: Tile) => void} tabDoubleClick  double-click on a tile's header tab
  */
 
 /** Settings and header controls: no popouts (each window would need its own WebSocket). */
@@ -110,12 +115,13 @@ export function createTiling(root, hooks) {
   };
 
   /**
-   * Puts `tile`'s badge and tooltip into its current tab element (tabs are recreated on moves,
-   * and a title change resets the tooltip).
+   * Puts `tile`'s badge, tooltip and preview styling into its current tab element (tabs are
+   * recreated on moves, and a title change resets the tooltip).
    */
   const applyBadge = (container, tile) => {
     const tab = container.tab;
     if (!tab) return;
+    tab.element.classList.toggle('tile-preview', tile.preview);
     const tooltip = tooltips.get(tile);
     if (tooltip !== undefined) tab.element.title = tooltip;
     tab.element.querySelector('.tile-badge')?.remove();
@@ -136,11 +142,20 @@ export function createTiling(root, hooks) {
         kind: type,
         ref: type === 'pane' ? paneRefFromState(state) : null,
         file,
+        preview: previewFromState(state),
         element: container.element,
         setRef(ref) {
           if (tile.kind !== 'pane') return;
           tile.ref = ref;
-          container.setState(ref ? { ...ref } : {});
+          container.setState(tileContent(ref, tile.preview).state);
+        },
+        setPreview(on) {
+          if (tile.preview === on) return;
+          tile.preview = on;
+          container.setState(
+            tileContent(tile.file ? { file: tile.file } : tile.ref, on).state,
+          );
+          applyBadge(container, tile);
         },
         setTitle(title) {
           if (container.title !== title) {
@@ -189,6 +204,12 @@ export function createTiling(root, hooks) {
         hooks.tileMenu(tile, e);
       },
     );
+    tab.element.addEventListener('dblclick', () => hooks.tabDoubleClick(tile));
+  });
+  // A tile dragged to a new place (its tab, or a sidebar row) was placed on purpose: it stays.
+  layout.on('itemDropped', (item) => {
+    const tile = item?.container && byContainer.get(item.container);
+    tile?.setPreview(false);
   });
   // A right-click on a stack header outside its tabs (tabs handle their own, above).
   root.addEventListener('contextmenu', (e) => {
@@ -249,9 +270,9 @@ export function createTiling(root, hooks) {
     };
   }
 
-  /** @param {TileRef} ref @param {string} title */
-  const itemConfig = (ref, title) => {
-    const { type, state } = tileContent(ref);
+  /** @param {TileRef} ref @param {string} title @param {boolean} [preview] */
+  const itemConfig = (ref, title, preview = false) => {
+    const { type, state } = tileContent(ref, preview);
     return {
       type: 'component',
       componentType: type,
@@ -268,10 +289,11 @@ export function createTiling(root, hooks) {
      * location selectors put it (the root, for an empty layout).
      *
      * @param {TileRef} ref
+     * @param {{preview?: boolean}} [opts]  create it as a preview tile
      * @returns {Tile}
      */
-    add(ref) {
-      const { type, state } = tileContent(ref);
+    add(ref, opts = {}) {
+      const { type, state } = tileContent(ref, opts.preview);
       const item = layout.newComponent(type, state, '');
       const tile = byContainer.get(item.container);
       item.focus();
@@ -308,12 +330,13 @@ export function createTiling(root, hooks) {
      * @param {string | null} id
      * @param {TileRef} ref
      * @param {'right' | 'below' | 'stack'} where
+     * @param {{preview?: boolean}} [opts]  create it as a preview tile
      * @returns {Tile}
      */
-    addBeside(id, ref, where) {
+    addBeside(id, ref, where, opts = {}) {
       const target = id === null ? null : itemById(id);
-      if (!target) return this.add(ref);
-      const config = itemConfig(ref, '');
+      if (!target) return this.add(ref, opts);
+      const config = itemConfig(ref, '', opts.preview);
       let component;
       if (target.isRow || target.isColumn) {
         const index = target.addItem(
@@ -358,6 +381,35 @@ export function createTiling(root, hooks) {
       component.parentItem.setActiveComponentItem(component, true);
       hooks.changed();
       return /** @type {Tile} */ (tile);
+    },
+
+    /**
+     * Swaps tile `tileId` for a new tile showing `ref`, in the same stack and position, keeping
+     * its preview flag: for content of another kind (a pane where a file was), which a tile can't
+     * switch to in place. The new tile is focused. `null` for an unknown id.
+     *
+     * @param {string} tileId
+     * @param {TileRef} ref
+     * @returns {Tile | null}
+     */
+    replace(tileId, ref) {
+      const container = containerById.get(tileId);
+      const component = container?.parent;
+      const stack = component?.parentItem;
+      if (!stack) return null;
+      const old = byContainer.get(container);
+      const index = stack.contentItems.indexOf(component);
+      const config = itemConfig(ref, '', old?.preview ?? false);
+      const added = stack.newComponent(
+        config.componentType,
+        config.componentState,
+        '',
+        index + 1,
+      );
+      component.close();
+      stack.setActiveComponentItem(added, true);
+      hooks.changed();
+      return byContainer.get(added.container) ?? null;
     },
 
     /** Brings tile `tileId` to the front of its stack and focuses it. No-op for an unknown id. */

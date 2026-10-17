@@ -273,6 +273,11 @@ body.resizing-sidebar {
   color: var(--muted);
 }
 
+/* A preview tile (the next sidebar click replaces it), as its tab title shows it. */
+.row.layout-node.tile.preview .label {
+  font-style: italic;
+}
+
 .row.layout-node .label {
   display: flex;
   align-items: center;
@@ -745,6 +750,11 @@ body.resizing-sidebar {
 .lm_header .lm_tab .lm_title {
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+/* A preview tile's tab: italic until it is pinned (double-click, typing, dragging, Keep open). */
+.lm_header .lm_tab.tile-preview .lm_title {
+  font-style: italic;
 }
 
 .lm_splitter {
