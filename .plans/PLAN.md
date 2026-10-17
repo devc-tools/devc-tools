@@ -11,6 +11,13 @@
 
 ### Pending
 
+- [devc-web-terminal-agents](devc-web-terminal-agents.md) — the Terminals row's **+** opens a
+  menu: Terminal, Claude, Copilot, Pi, OpenCode. `open_tab` gains `agent` (a server-side id →
+  command table; checks the command is installed, then runs it in a new tab without `exec`).
+  Terminal rows get an icon: the agent's real mark (Lobe Icons 1.95.1, MIT, monochrome,
+  `currentColor`) or a terminal glyph for a shell. Layout section tile rows get the same
+  icons (a file glyph for file tiles).
+
 - [git-protect-live-check](git-protect-live-check.md) — a read-only `.git/config` mount can
   vanish from a running container when the host rewrites the file (seen on Docker Desktop:
   VS Code's config writes), leaving the repo's config writable from inside while `devc status`
