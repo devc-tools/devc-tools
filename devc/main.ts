@@ -46,7 +46,11 @@ import {
   type RepoOverlay,
   unprotectedRowStatus,
 } from '@devc-tools/core/overlay.ts';
-import { displayPath } from '@devc-tools/core/config.ts';
+import {
+  displayPath,
+  loadGlobalConfig,
+  webSourceFromConfig,
+} from '@devc-tools/core/config.ts';
 import { initProject } from '@devc-tools/core/init.ts';
 import {
   globalConfigExists,
@@ -363,6 +367,13 @@ if (subcommand === 'web') {
   // supervisor's token and no URL line. It ignores --source and DEVC_WEB_SOURCE, so it never
   // supervises a child of its own.
   const child = Deno.env.get('DEVC_WEB_CHILD') === '1';
+  const configWebSource = async () => {
+    try {
+      return webSourceFromConfig(await loadGlobalConfig());
+    } catch (e) {
+      throw new WebStartError(e instanceof Error ? e.message : String(e));
+    }
+  };
   const runUntilSignal = async (handle: WebHandle): Promise<never> => {
     for (const sig of ['SIGINT', 'SIGTERM'] as const) {
       try {
@@ -383,9 +394,11 @@ if (subcommand === 'web') {
       }
       await runUntilSignal(await startWeb({ ...webArgs, token, live: true }));
     }
+    // --source, then DEVC_WEB_SOURCE, then config.json's `webSource`; none: the built-in copy.
     const envSource = Deno.env.get('DEVC_WEB_SOURCE');
     const source = webArgs.source ??
-      (envSource !== undefined && envSource !== '' ? envSource : undefined);
+      (envSource !== undefined && envSource !== '' ? envSource : undefined) ??
+      (await configWebSource()) ?? undefined;
     const token = await loadToken(WEB_TOKEN_PATH, webArgs.newToken);
     if (source !== undefined) {
       Deno.exit(

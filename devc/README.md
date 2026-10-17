@@ -286,8 +286,10 @@ is published from any container: the host server finds devcontainers with
 - `--port N` picks another port (default 48228); `--session NAME` another Herdr
   session (default `devc`, the one `devc herdr` uses). A port already in use
   exits 1 with a `devc web:` message.
-- `--source DIR` (or `DEVC_WEB_SOURCE=DIR`; the flag wins, empty means unset)
-  serves a devc-tools checkout **live** instead of the built-in copy. See below.
+- `--source DIR` serves a devc-tools checkout **live** instead of the built-in
+  copy. See below. Without the flag, `DEVC_WEB_SOURCE=DIR` is used, then
+  `"webSource"` in `~/.config/devc/config.json` (`~` and `$VAR` expand; it must
+  be absolute); an empty value counts as unset.
 
 Security: Herdr panes are shells, so `/ws` only accepts requests whose `Host`
 is `127.0.0.1:<port>`, `localhost:<port>` or `host.docker.internal:<port>`,
@@ -308,7 +310,14 @@ bridge gateway rather than the host's loopback, so this needs Docker Desktop.
 holding `main.ts`), e.g. `~/code/tools/devc-tools/devc`. It is the same checkout
 that containers with the `devc:source` mount see read-write at
 `/workspaces/tools/devc-tools`: two names for one directory, from either side.
-Live mode needs `deno` on the host `PATH`; a missing `DIR/main.ts` or `deno`
+To make it the default, add it to `~/.config/devc/config.json`:
+
+```json
+{ "webSource": "~/code/tools/devc-tools/devc" }
+```
+
+`devc config --global` keeps the key when it rewrites the file. Live mode needs
+`deno` on the host `PATH`; a missing `DIR/main.ts` or `deno`
 exits 1 with a `devc web:` message.
 
 The `devc` you started becomes a supervisor: it prints the URL once and runs

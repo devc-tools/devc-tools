@@ -62,6 +62,9 @@ Options:
   `--new-token=x` is an error. A relative `--source` is resolved against `Deno.cwd()`.
 - `DEVC_WEB_SOURCE` is read in `main.ts` (not in `parseWebArgs`, which stays pure). The flag
   wins over the environment variable. An empty value counts as unset.
+- **Added after implementation:** last in line, `"webSource"` in `~/.config/devc/config.json`
+  (`webSourceFromConfig` in `devc-core/config.ts`; kept in `extra`, so wizard saves preserve
+  it; `~`/`$VAR` expand; must be absolute).
 - Update `help.ts`, `devc/README.md` § `devc web` and the usage table at the top of the
   README.
 
