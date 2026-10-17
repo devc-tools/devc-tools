@@ -1,7 +1,6 @@
 import { assertEquals } from 'jsr:@std/assert';
 import {
   bridgeStatusItems,
-  formatAge,
   formatIn,
   parseBridgeStatus,
   parseUsage,
@@ -49,7 +48,6 @@ Deno.test('bridgeStatusItems: caffeinate is "awake", other markers verbatim', ()
 });
 
 const NOW = 1_760_000_000;
-const fmt = (at: number) => `T${at}`;
 const win = (label: string, pct: number, resetsAt: number | null) => ({
   id: label,
   label,
@@ -87,25 +85,13 @@ Deno.test('parseUsage keeps valid sources and windows, drops the rest', () => {
   assertEquals(parseUsage(null), null);
 });
 
-Deno.test('formatAge and formatIn', () => {
-  assertEquals(
-    [-5, 0, 59, 60, 4 * 60 + 30, 3 * 3600 + 1, 2 * 86400].map(formatAge),
-    [
-      'just now',
-      'just now',
-      'just now',
-      '1 min ago',
-      '4 min ago',
-      '3 h ago',
-      '2 d ago',
-    ],
-  );
+Deno.test('formatIn', () => {
   assertEquals(
     [-1, 12 * 60, 2 * 3600, 2 * 3600 + 5 * 60, 3 * 86400 + 4 * 3600, 3 * 86400]
       .map(
         formatIn,
       ),
-    ['in 0 min', 'in 12 min', 'in 2 h', 'in 2 h 5 min', 'in 3 d 4 h', 'in 3 d'],
+    ['0m', '12m', '2h', '2h5m', '3d4h', '3d'],
   );
 });
 
@@ -113,14 +99,11 @@ Deno.test('usageItems: one terse item per source, windows in the source order', 
   const items = usageItems(
     [usage(NOW - 240, [win('5h', 77.4, NOW + 3600), win('7d', 11, null)])],
     NOW,
-    fmt,
   );
   assertEquals(items.map((i) => [i.state, i.text]), [['usage', '77/11%']]);
   assertEquals(
     items[0].title,
-    `claude usage (as of 4 min ago)\n5h: 77% used, resets T${
-      NOW + 3600
-    } (in 1 h)\n7d: 11% used`,
+    '1h/?',
   );
 });
 
@@ -128,14 +111,13 @@ Deno.test('usageItems: a passed reset shows the window as —, never the old per
   const [item] = usageItems(
     [usage(NOW - 7200, [win('5h', 97, NOW - 60), win('7d', 40, NOW + 60)])],
     NOW,
-    fmt,
   );
   assertEquals([item.state, item.text], ['stale', '—/40%']);
   assertEquals(
-    item.title.split('\n')[1],
-    `5h: reset at T${NOW - 60}, no newer report`,
+    item.title,
+    '—/1m',
   );
-  const [all] = usageItems([usage(NOW, [win('5h', 97, NOW - 60)])], NOW, fmt);
+  const [all] = usageItems([usage(NOW, [win('5h', 97, NOW - 60)])], NOW);
   assertEquals([all.state, all.text], ['reset', '—%']);
 });
 
@@ -147,15 +129,9 @@ Deno.test('usageItems: high near the limit, stale when old, agent named when sev
         usage(NOW - 16 * 60, [win('1mo', 30, NOW + 86400)], 'copilot'),
       ],
       NOW,
-      fmt,
     ).map((i) => [i.state, i.text]),
     [['high', 'claude 95/20%'], ['stale', 'copilot 30%']],
   );
-  assertEquals(usageItems([], NOW, fmt), []);
-  assertEquals(usageItems([usage(NOW, [])], NOW, fmt), []);
-});
-
-Deno.test('usageItems: labels are kept verbatim for the page to insert as text', () => {
-  const [item] = usageItems([usage(NOW, [win('<b>x', 1, null)])], NOW, fmt);
-  assertEquals(item.title.split('\n')[1], '<b>x: 1% used');
+  assertEquals(usageItems([], NOW), []);
+  assertEquals(usageItems([usage(NOW, [])], NOW), []);
 });
