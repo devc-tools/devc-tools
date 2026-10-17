@@ -2915,8 +2915,8 @@ function paneRow(c, pane, depth, space = '') {
       'span',
       { class: 'label' },
       // In the slot a chevron would take, so terminals line up with the tree rows at their depth.
+      // Shown in a tile, it turns the accent color (the row's `visible` class).
       rowIcon({ agent: pane.agent }),
-      visible ? h('span', { class: 'shown-mark', 'aria-label': 'shown' }) : '',
       paneLabel(c, pane),
     ),
     rowTrail(

@@ -279,6 +279,17 @@ body.resizing-sidebar {
   gap: 6px;
 }
 
+/* A tile's row: its icon sits inline like a terminal row's (not flex-centered), so the two line
+   up the same in every font; always the accent color, since every tile is on screen. */
+.row.layout-node.tile .label {
+  display: block;
+}
+
+.row.layout-node.tile .term-icon {
+  margin-right: 3px;
+  color: var(--accent);
+}
+
 /* What a terminal runs (an agent's mark, a generic agent, a shell) or a file tile: a 14px slot,
    the width a chevron takes, so names line up with the tree rows beside them. */
 .term-icon {
@@ -512,16 +523,9 @@ body.resizing-sidebar {
   word-break: break-word;
 }
 
-/* Projects: a pane some tile shows. */
-.shown-mark {
-  display: inline-block;
-  width: 9px;
-  height: 7px;
-  margin-right: 6px;
-  border: 1.5px solid var(--accent);
-  border-top-width: 3px;
-  border-radius: 1.5px;
-  vertical-align: middle;
+/* Containers: a terminal some tile shows has its icon in the accent color. */
+.row.pane.visible .term-icon {
+  color: var(--accent);
 }
 
 /* The focused tile's rows, and the other section's rows for a hovered pane. */
