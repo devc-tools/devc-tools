@@ -11,12 +11,6 @@
 
 ### Pending
 
-- [devc-web-open-tab-here](devc-web-open-tab-here.md) — after devc-web-repos-group. "Open
-  Herdr tab here" / "New Herdr tab here" on repo and folder rows: a new `open_tab` message
-  starts the project's Herdr session if needed, then reuses a tab whose shell is in that
-  folder or creates one. Start Herdr stops reporting success when no server came up: it
-  errors with the tail of Herdr's server log.
-
 - [git-protect-live-check](git-protect-live-check.md) — a read-only `.git/config` mount can
   vanish from a running container when the host rewrites the file (seen on Docker Desktop:
   VS Code's config writes), leaving the repo's config writable from inside while `devc status`
@@ -127,6 +121,21 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
   take it too.
 
 ### Completed
+
+- [devc-web-open-tab-here](archived/devc-web-open-tab-here.md) — ✅ Done: "Open Herdr tab here"
+  / "New Herdr tab here" replace "New shell here" on repo and folder rows. A new `open_tab`
+  message starts the container's Herdr session when it has none (never the container), then
+  with `reuse` answers with a shell pane (no `agent`) whose `cwd` is that folder
+  (`paneAtFolder`, lowest-numbered tab wins), else creates a tab there; the page focuses a tile
+  already showing a reused pane, else places it in the focused stack. `startSession` waits about
+  15 s and throws `no_session` with the tail of `herdr-server.log` instead of reporting success.
+  Confirmed first in a throwaway Herdr session that `cwd` is the shell's directory and
+  `foreground_cwd` the foreground process's (`(cd /etc && sleep 30)` from `/var`: `cwd` `/var`,
+  `foreground_cwd` `/etc`), and that `tab.create` honours `cwd`. Validated by `deno check
+  main.ts`, `deno task check`, `deno task test` (`paneAtFolder`, the `startSession` throw with
+  `runText` stubbed, `open_tab` parsing) and `deno fmt --check`. Not exercised end to end against
+  a real container from this one. **Still to be done by the user:** the plan's six checks in
+  their open tab under `--live-yolo`.
 
 - [devc-web-repos-group](archived/devc-web-repos-group.md) — ✅ Done: under an expanded
   container with several repos, a collapsible **Repos** row (collapsed by default, the

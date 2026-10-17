@@ -39,7 +39,7 @@ PROJECTS
 Read `/workspaces/devc-dev/.claude/skills/devc-web/SKILL.md` first. Page only, with no protocol
 change, so it works under plain `--live`. Builds on
 [devc-web-repo-tree](devc-web-repo-tree.md). Precedes
-[devc-web-open-tab-here](../devc-web-open-tab-here.md).
+[devc-web-open-tab-here](devc-web-open-tab-here.md).
 
 ## Concept boundaries
 

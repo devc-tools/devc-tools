@@ -314,7 +314,7 @@ Browser → server:
   Herdr 0.9.5's `tab.create` result carries `root_pane` (missing from its bundled schema);
   without it the server finds the pane with `pane.list {workspace_id}` by `tab_id`. A
   failure is `result {ok:false, error:{code, message}}` as for `request`.
-- **`open_tab` ([devc-web-open-tab-here](devc-web-open-tab-here.md)):** the "Open / New Herdr
+- **`open_tab` ([devc-web-open-tab-here](archived/devc-web-open-tab-here.md)):** the "Open / New Herdr
   tab here" menu items. A pane is at the folder when it has no `agent` and its `cwd` (the
   shell's own directory, which follows `cd`) equals the folder, ignoring a trailing `/`;
   `foreground_cwd` (a child process's) is not used. Of several, the lowest-numbered tab wins.
