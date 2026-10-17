@@ -1,0 +1,2 @@
+golden-layout 2.6.0
+golden-layout.mjs is a `deno bundle --platform browser --format esm` of dist/esm/index.js

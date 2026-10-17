@@ -267,10 +267,15 @@ is published from any container: the host server finds devcontainers with
   **Not running** at the bottom; hover one for **Start**
   (`herdr --session devc server`, detached) and **Retry**. Right-click a
   container, workspace, tab or pane to create, rename, split or close.
-- **Tiles:** click a pane to open it in the focused tile; split tiles right or
-  down and drag the dividers. Tiles are the browser's own layout and never
-  change Herdr's. The layout is kept in the browser's `localStorage`; a tile
-  whose pane has since closed shows "Pane gone".
+- **Tiles:** click a pane to open it in the focused tile, or drag it from the
+  sidebar onto any tile's edge (a new split) or tab strip (a new tab in that
+  stack). Drag a tile's tab to move it; rows, columns and tab stacks nest to
+  any depth, the dividers resize, and each tab can be maximised or closed. The
+  same pane may be open in several tiles. Tiles are the browser's own layout
+  ([Golden Layout](https://github.com/golden-layout/golden-layout), vendored)
+  and never change Herdr's — only the sidebar's **Split right/down** does. The
+  layout is kept in the browser's `localStorage`; a tile whose pane has since
+  closed shows "Pane gone".
 - **Input:** keys go through as typed. A multi-line paste is sent as one
   bracketed paste, so a shell or agent prompt does not submit each line. Mouse
   clicks and drags go to the app (Herdr encodes them in the app's own mouse

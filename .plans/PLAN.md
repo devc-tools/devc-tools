@@ -11,6 +11,12 @@
 
 ### Pending
 
+- [devc-web-golden-layout](devc-web-golden-layout.md) — replace `devc web`'s hand-written
+  split-tree tiling with vendored Golden Layout 2.6.0 (bundled to one ES module): drag sidebar
+  panes onto tile edges or into tab stacks, move and nest tiles, maximise and close, with
+  `localStorage` persistence. One module (`layout.js`) is the only Golden Layout importer;
+  server, protocol and renderer are unchanged apart from a `.png` content type.
+
 - [devc-web](devc-web.md) — `devc web`: a loopback-only (127.0.0.1, token + Host/Origin
   checked) web UI for the Herdr sessions running inside devcontainers. The host server
   discovers containers via `docker ps` + `docker events`, reaches each Herdr through
@@ -1996,3 +2002,4 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
 | devc-bridge multi-repo pins — `--bridge-repo PATH`, v2 policy, `--repo` selector                                   | [bridge-multi-repo-pins](archived/bridge-multi-repo-pins.md)                       | complete    |
 | devc-bridge worktree extra repos — linked worktrees in `--bridge-repo`, same-repo pins, mirror lock, trap race fix | [bridge-worktree-extra-repos](archived/bridge-worktree-extra-repos.md)             | complete    |
 | `devc web` — browser UI for in-container Herdr sessions over `docker exec`                                         | [devc-web](devc-web.md)                                                            | in progress |
+| `devc web` Golden Layout tiling — drag/drop, stacks, nesting                                                       | [devc-web-golden-layout](devc-web-golden-layout.md)                                | in progress |

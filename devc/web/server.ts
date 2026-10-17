@@ -100,6 +100,7 @@ const CONTENT_TYPES: Record<string, string> = {
   '.js': 'text/javascript; charset=utf-8',
   '.mjs': 'text/javascript; charset=utf-8',
   '.css': 'text/css; charset=utf-8',
+  '.png': 'image/png',
 };
 
 /** Whether `pathname` may name a file under `static/`: no `..`, no hidden or odd segments. */

@@ -338,7 +338,9 @@ Browser → server:
     - tab: Rename, Close (a folded tab's pane menu offers Rename tab)
     - pane: Split right, Split down, Rename, Close
   - Close actions ask for confirmation first.
-- **Tiling area (browser-owned windowing):**
+- **Tiling area (browser-owned windowing):** superseded by
+  [devc-web-golden-layout](devc-web-golden-layout.md), which replaced the split tree
+  below with Golden Layout (drag and drop, tab stacks, nesting). Kept as history.
   - The main area is a tiling layout of tiles, each showing one pane. Each tile's
     header shows the container name, pane title, agent badge, and buttons for tile
     split right, tile split down and close tile.
