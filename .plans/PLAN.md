@@ -11,6 +11,15 @@
 
 ### Pending
 
+- [devc-container-connection](devc-container-connection.md) — one way to reach a devcontainer.
+  `devc web` built its own `docker exec` path (`remoteUser` from the metadata label, no
+  `remoteEnv`), so Herdr servers it starts miss `TZ`/`LANG`/`PROJECT_PATH`. Adds
+  `connectionFor` (a `ContainerInfo` for a running container, no `up`, same `remoteEnv`
+  derivation as `startContainer`) and one `dockerExecArgv`/`loginShellArgv` builder that
+  `exec`, `attach`, the Herdr watcher and every web exec use, enforced by a test. Step 0
+  measures `devcontainer read-configuration` as the source of `remoteUser` and the workspace
+  folder.
+
 - [git-protect-live-check](git-protect-live-check.md) — a read-only `.git/config` mount can
   vanish from a running container when the host rewrites the file (seen on Docker Desktop:
   VS Code's config writes), leaving the repo's config writable from inside while `devc status`
