@@ -11,7 +11,9 @@
 
 import { spawn } from 'node:child_process';
 import { join, resolve, SEPARATOR } from 'jsr:@std/path';
+import { openBrowser, openPath } from './browser.ts';
 import {
+  mintToken,
   requireDocker,
   startWeb,
   STOP_CAP_MS,
@@ -108,7 +110,7 @@ interface Child {
  * startup failure.
  */
 export async function superviseWeb(
-  opts: WebOptions & { token: string; source: string },
+  opts: WebOptions & { token: string; source: string; open: boolean },
 ): Promise<number> {
   const dir = resolve(opts.source);
   await checkSource(dir);
@@ -121,6 +123,10 @@ export async function superviseWeb(
   /** Set while the supervisor itself is stopping `child`, so its exit is not a crash. */
   let stoppingChild: Child | null = null;
   let announced = false;
+  // The one-time link that opens the page. Only a server started before the announcement gets
+  // it — the one announced — so no later server honours it again.
+  const openNonce = opts.open ? mintToken() : undefined;
+  const nonceFor = () => announced ? undefined : openNonce;
 
   const announce = () => {
     if (announced) return;
@@ -128,6 +134,9 @@ export async function superviseWeb(
     console.log(
       `devc web: http://127.0.0.1:${opts.port}/#token=${opts.token}`,
     );
+    if (openNonce !== undefined) {
+      openBrowser(`http://127.0.0.1:${opts.port}${openPath(openNonce)}`);
+    }
   };
 
   const spawnChild = (): Child => {
@@ -150,6 +159,9 @@ export async function superviseWeb(
           ...Deno.env.toObject(),
           DEVC_WEB_CHILD: '1',
           DEVC_WEB_TOKEN: opts.token,
+          ...(nonceFor() !== undefined
+            ? { DEVC_WEB_OPEN_NONCE: nonceFor() }
+            : {}),
         },
         stdio: ['ignore', 'inherit', 'inherit'],
         // Its own process group, so a terminal Ctrl-C reaches only the supervisor, which then
@@ -208,7 +220,12 @@ export async function superviseWeb(
   const startFallback = async () => {
     if (stopping || fallback) return;
     try {
-      fallback = await startWeb({ ...opts, live: false });
+      const openNonce = nonceFor();
+      fallback = await startWeb({
+        ...opts,
+        live: false,
+        ...(openNonce !== undefined ? { openNonce } : {}),
+      });
       announce();
     } catch (e) {
       console.error(

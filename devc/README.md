@@ -44,7 +44,7 @@ devc stop    [PATH]                                   Stop the container
 devc down    [PATH]                                   Stop and remove the container (and its devc-bridge files)
 devc prune   [--dry-run]                              Remove devc-bridge key dirs/policies no container uses
 devc status  [PATH]                                   Print `running` / `stopped` / `missing`, then protection and bridge lines
-devc web     [--port N] [--session NAME] [--live] [--live-yolo] [--source DIR] Serve a browser UI for the Herdr sessions in every running devcontainer
+devc web     [--port N] [--session NAME] [--no-open] [--live] [--live-yolo] [--source DIR] Serve a browser UI for the Herdr sessions in every running devcontainer
 ```
 
 Run `devc --help` for the full command list, `devc <COMMAND> --help` for a
@@ -253,8 +253,12 @@ config.
 
 `devc web` serves one page, on `127.0.0.1` only, for the Herdr sessions running
 **inside** every running devcontainer. It prints exactly one line,
-`devc web: http://127.0.0.1:48228/#token=…`, and runs until Ctrl-C. Open that URL
-(the `#token=` part included). Every run mints a new token and keeps it only in
+`devc web: http://127.0.0.1:48228/#token=…`, opens the page in the default
+browser, and runs until Ctrl-C. To open it elsewhere, use that URL (the
+`#token=` part included). The browser is opened through a one-time
+`/open/<nonce>` link that redirects to the URL, so the token never appears in
+the opener's command line; without a display (Linux with no `DISPLAY` or
+`WAYLAND_DISPLAY`) nothing is opened. `--no-open` skips it. Every run mints a new token and keeps it only in
 memory, so a URL printed by an earlier run never works again; restarting
 `devc web` is how to revoke one. Nothing
 is published from any container: the host server finds devcontainers with

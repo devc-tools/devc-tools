@@ -139,6 +139,8 @@ export interface WebArgs {
    * name.
    */
   liveServer: boolean;
+  /** Open the page in the default browser once it is served; `--no-open` turns it off. */
+  open: boolean;
   /**
    * `--source DIR`, as typed: the checkout's `devc/` directory, for this run. Absent when not
    * given; `main.ts` then takes `"webSource"` from the global config and resolves it.
@@ -161,10 +163,16 @@ export function parseWebArgs(args: string[]): WebArgs {
   let source: string | undefined;
   let live = false;
   let liveServer = false;
+  let open = true;
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
     const eq = arg.indexOf('=');
     const flag = arg.startsWith('--') && eq !== -1 ? arg.slice(0, eq) : arg;
+    if (flag === '--no-open') {
+      if (flag !== arg) throw new Error(`${flag} takes no value`);
+      open = false;
+      continue;
+    }
     if (flag === '--live' || flag === '--live-yolo') {
       if (flag !== arg) throw new Error(`${flag} takes no value`);
       live = true;
@@ -196,6 +204,7 @@ export function parseWebArgs(args: string[]): WebArgs {
     session,
     live,
     liveServer,
+    open,
     ...(source !== undefined ? { source } : {}),
   };
 }

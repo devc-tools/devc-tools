@@ -302,11 +302,12 @@ export const COMMAND_HELP: Record<string, string> = {
   ].join('\n'),
 
   web: [
-    'Usage: devc web [--port N] [--session NAME] [--live] [--live-yolo] [--source DIR]',
+    'Usage: devc web [--port N] [--session NAME] [--no-open] [--live] [--live-yolo] [--source DIR]',
     '',
     'Options:',
     '  --port N        Port to listen on, on 127.0.0.1 (default: 48228)',
     '  --session NAME  Herdr session to use in each container (default: devc)',
+    "  --no-open       Don't open the page in the default browser",
     '  --live          Serve the page of the devc-tools checkout named by "webSource" in',
     '                  ~/.config/devc/config.json, reloading on change. The server stays',
     '                  the built-in one, and starts no containers, adds no projects and',

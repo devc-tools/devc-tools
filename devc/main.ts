@@ -70,6 +70,7 @@ import {
 import { resolve as resolvePath } from 'jsr:@std/path';
 import { superviseWeb } from './web/supervisor.ts';
 import { LEGACY_TOKEN_PATH, tokenWellFormed } from './web/token.ts';
+import { openBrowser, openPath } from './web/browser.ts';
 
 const subcommand = Deno.args[0];
 const KNOWN_COMMANDS = new Set(COMMANDS.map((c) => c.name));
@@ -393,7 +394,16 @@ if (subcommand === 'web') {
       if (!tokenWellFormed(token)) {
         throw new WebStartError('DEVC_WEB_TOKEN is missing or malformed');
       }
-      await runUntilSignal(await startWeb({ ...webArgs, token, live: true }));
+      // The supervisor's one-time link, when this child is the first server it announces.
+      const openNonce = Deno.env.get('DEVC_WEB_OPEN_NONCE');
+      await runUntilSignal(
+        await startWeb({
+          ...webArgs,
+          token,
+          live: true,
+          ...(tokenWellFormed(openNonce) ? { openNonce } : {}),
+        }),
+      );
     }
     // Live only when asked for, run by run: --source, else config.json's `webSource`. Without
     // --live (or --source), the built-in copy, whatever the config says.
@@ -429,13 +439,18 @@ if (subcommand === 'web') {
         );
       }
     }
+    const openNonce = webArgs.open ? mintToken() : undefined;
     const handle = await startWeb({
       ...webArgs,
       token,
       live: staticDir !== undefined,
       ...(staticDir !== undefined ? { staticDir, projectStarts: false } : {}),
+      ...(openNonce !== undefined ? { openNonce } : {}),
     });
     console.log(`devc web: http://127.0.0.1:${webArgs.port}/#token=${token}`);
+    if (openNonce !== undefined) {
+      openBrowser(`http://127.0.0.1:${webArgs.port}${openPath(openNonce)}`);
+    }
     await runUntilSignal(handle);
   } catch (e) {
     // `docker` missing reads exactly as it does for the lookup commands.

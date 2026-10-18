@@ -47,6 +47,7 @@ import {
 } from './herdr_bridge.ts';
 import { ControllerManager, type Subscriber } from './controllers.ts';
 import { AGENT_COMMANDS } from './agents.ts';
+import { openRedirect } from './browser.ts';
 import {
   forget as forgetProject,
   loadProjects,
@@ -287,6 +288,8 @@ export async function startWeb(
      * {@link projectRefusal}.
      */
     projectStarts?: boolean;
+    /** The nonce of the one-time link that opens the page (see `browser.ts`), if any. */
+    openNonce?: string;
   },
 ): Promise<WebHandle> {
   const staticRoot = opts.staticDir === undefined
@@ -296,6 +299,7 @@ export async function startWeb(
   await requireDocker();
 
   const token = opts.token;
+  const openLink = openRedirect(opts.openNonce, token);
   const sessions = new Map<string, ContainerSession>();
   const clients = new Set<Client>();
   const controllers = new ControllerManager();
@@ -1100,6 +1104,8 @@ export async function startWeb(
       if (req.method !== 'GET' && req.method !== 'HEAD') {
         return new Response('method not allowed', { status: 405 });
       }
+      const opened = openLink(url.pathname);
+      if (opened !== null) return opened;
       if (!liveStatic) {
         return routeStatic(url.pathname, opts.port, staticRoot, staticRoot);
       }
