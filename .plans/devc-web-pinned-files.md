@@ -1,12 +1,12 @@
 # devc-web-pinned-files
 
-- [ ] Server: `~/.config/devc/pinned-files.json` (read/write module, tested)
-- [ ] Server: `pinned_files` broadcast, `pin_file` / `unpin_file` / `open_pinned`, with tests
-- [ ] Page: a **Pinned** section at the top of the sidebar; rows toggle their editor tile
-- [ ] Page: **Pin** / **Unpin** on file rows and file tiles; **New note…** in the section header
-- [ ] Page: a keyboard shortcut toggles the first pin
-- [ ] `devc/README.md` (devc web section) and `.plans/devc-web.md` protocol section updated
-- [ ] Verify (below) and ask the user to try it in their open tab
+- [x] Server: `~/.config/devc/pinned-files.json` (read/write module, tested)
+- [x] Server: `pinned_files` broadcast, `pin_file` / `unpin_file` / `open_pinned`, with tests
+- [x] Page: a **Pinned** section at the top of the sidebar; rows toggle their editor tile
+- [x] Page: **Pin** / **Unpin** on file rows and file tiles; **New note…** in the section header
+- [x] Page: a keyboard shortcut toggles the first pin
+- [x] `devc/README.md` (devc web section) and `.plans/devc-web.md` protocol section updated
+- [x] Verify (below) and ask the user to try it in their open tab
 
 Ad-hoc notes, kept for later plans, one click away. This is built as **pinned files**: any repo
 file can be pinned to a section at the top of the sidebar. Clicking a pin opens the file in the
@@ -162,3 +162,42 @@ Then ask the user to check, in their open tab and in the devc-desktop window:
 4. Reload the page: the pin is still there, and toggling it reuses the same pane.
 5. The browser tab and the desktop window show the same pins.
 6. Stop the container: the pin opens read-only and offers Start.
+
+## Verification (2026-10-18)
+
+- `deno check main.ts`, `deno task check` and `deno task test` (447 passed) in `devc/`.
+  `deno fmt --check` passes for every file this plan touched (repo-wide it still reports the
+  two `.plans/` files that were unformatted before this plan).
+- Unit tests: the store (`tests/web_pinned_files_test.ts`: missing file, corrupt file,
+  malformed and repeated entries, atomic write with no temp file left, duplicate pin, labels,
+  `last` never sent, and `open_pinned`'s reuse decision: `last` alive, dead, in another
+  container, unset), the parsers (`tests/web_server_test.ts`), and the page helpers
+  (`tests/web_pinned_files_page_test.ts`: message parsing, note path rules and default, the
+  shortcut on both platforms, the saved pane map, `tilesShowingPane`).
+- The real server (this checkout's `main.ts web`, a stub `docker`, a scratch `HOME`), driven by
+  a Deno WebSocket client: `pinned_files` on connect and after each change, `pin_file` (new,
+  duplicate → same id, missing file `not_found`, a folder `bad_request`, unknown project
+  `bad_request`), `rename_pin`, `open_pinned` with no container (`not_running`) and an unknown
+  pin (`not_found`), `unpin_file` twice (`not_found` the second time), and the file replaced
+  from outside (as another devc web would) broadcast to the client, `last` left out.
+- The page, in headless Chromium (agent-browser) against the checkout's `devc/web/static` over
+  `python3 -m http.server` with a fake WebSocket: the Pinned section above Layout, "No pinned
+  files"; **New note…** prefilled `.plans/notes.md` (the fake repo has `.plans/`), focused; a
+  missing folder reported in the dialog, `../x` refused before sending; submit sending
+  `create_file` → `pin_file` → `open_pinned`, the row with its dot and an editor tile; clicking
+  the row closes the tile (a controller `close`, never `pane.close`) and clicking again reopens
+  the **same** pane (`reused`); Ctrl+Alt+N from a focused terminal toggles it with no `input`
+  reaching the pane (a plain `a` does reach it); with `navigator.platform` set to `MacIntel`,
+  Cmd+Alt+N does the same; a reload keeps the pin, its dot and the same pane; **Pin file** /
+  **Unpin file** in a repo file's menu, **Unpin file** in the editor tile's and the file tile's
+  menus; the row menu's **Open read-only**, **Rename…**, **Unpin file**; with the container
+  gone, a click opens the file read-only with a **Start** toast that sends `start_project`, and
+  the next click closes that tile.
+- **Not verified — needs the user's tab:** the six checks above (Helix's unsaved text surviving a
+  toggle; the shortcut in a real browser and in the devc-desktop window, and on a real Mac,
+  where Option is a dead key that headless Linux Chromium does not reproduce; the browser tab
+  and the desktop window showing the same pins; a real stopped container). The server's own
+  `not_running` reply while the page still lists the container, and the Files node's missing
+  **Pin file** item, were checked in code only. Under `devc web --live` the installed server does
+  not know the new messages: the Pinned section shows "No pinned files" and pinning reports
+  "unknown message type" until the user runs `--live-yolo` or an updated `devc`.

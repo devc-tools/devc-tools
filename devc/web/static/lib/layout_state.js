@@ -64,6 +64,22 @@ export function sameFile(a, b) {
 }
 
 /**
+ * The tiles showing a pane (pane tiles whose ref names it), in order: what a pinned file's toggle
+ * closes, and whether its row shows the open dot.
+ *
+ * @template {{kind?: string, ref?: PaneRef | null}} T
+ * @param {T[]} tiles
+ * @param {PaneRef} ref
+ * @returns {T[]}
+ */
+export function tilesShowingPane(tiles, ref) {
+  return tiles.filter((t) =>
+    t.kind !== 'file' && t.ref?.localFolder === ref.localFolder &&
+    t.ref.pane_id === ref.pane_id
+  );
+}
+
+/**
  * What a tile shows, as its Golden Layout component type and state: `{file}` a file tile, a
  * `PaneRef` a pane tile, `null` an empty pane tile. A preview tile (see {@link previewFromState})
  * carries `preview: true` beside the reference.

@@ -538,6 +538,23 @@ body.resizing-sidebar {
   color: var(--accent);
 }
 
+/* Pinned: a pinned file whose tile is open has its icon in the accent color, and a dot. */
+.row.file-pin {
+  cursor: pointer;
+}
+
+.row.file-pin.visible .term-icon {
+  color: var(--accent);
+}
+
+.file-pin-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
 /* The focused tile's rows, and the other section's rows for a hovered pane. */
 .row[data-current] {
   --row-bg: color-mix(in srgb, var(--accent) 10%, var(--panel));
@@ -923,6 +940,11 @@ body.resizing-sidebar {
   border-radius: 6px;
 }
 
+.toast-action {
+  margin-left: 8px;
+  padding: 1px 10px;
+}
+
 /* Safe mode (/safe/, the last-good snapshot) */
 
 .safe-banner {
@@ -1135,4 +1157,41 @@ button.primary {
 button.primary:disabled {
   opacity: 0.45;
   cursor: default;
+}
+
+/* New note… */
+.dialog.new-note {
+  grid-template-rows: auto auto auto;
+  width: min(480px, calc(100vw - 32px));
+  height: fit-content;
+}
+
+.dialog.new-note:not([open]) {
+  display: none;
+}
+
+.new-note-body {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+}
+
+.new-note-body label {
+  display: grid;
+  gap: 4px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.new-note-project {
+  padding: 4px 6px;
+  font: inherit;
+  color: var(--text);
+  background: var(--term-bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+
+.new-note-error {
+  color: var(--danger);
 }

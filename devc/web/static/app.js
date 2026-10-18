@@ -1,7 +1,8 @@
 // The `devc web` page: the WebSocket client for `/ws`, the sidebar and the browser-owned tiling
-// area. The sidebar has two sections: Layout, a live mirror of the Golden Layout tree (where things
-// are on screen, and the layout actions), and Containers, every Herdr pane by container (what is
-// running, and the process actions). The browser owns all layout: it never splits a Herdr pane or
+// area. The sidebar has three sections: Pinned, the pinned files (a click toggles the file's
+// editor tile), Layout, a live mirror of the Golden Layout tree (where things are on screen, and
+// the layout actions), and Containers, every Herdr pane by container (what is running, and the
+// process actions). The browser owns all layout: it never splits a Herdr pane or
 // shows a Herdr tab, and each pane it creates gets its own Herdr tab (`new_shell`). The protocol is
 // specified in `.plans/devc-web.md`; renderer details live in `renderer.js`, window management
 // in `layout.js` (Golden Layout), the file viewer in `viewer.js` (CodeMirror), and the pure
@@ -14,6 +15,7 @@ import {
   foldTree,
   parseSavedLayout,
   sameFile,
+  tilesShowingPane,
   treeSignature,
 } from './lib/layout_state.js';
 import {
@@ -56,6 +58,14 @@ import {
   opensAsFile,
   parentDir,
 } from './lib/files.js';
+import {
+  defaultNotePath,
+  filePinName,
+  isFilePinShortcut,
+  notePathError,
+  parseFilePinPanes,
+  parsePinnedFiles,
+} from './lib/pinned_files.js';
 
 const LAYOUT_KEY = 'devc-web-layout-v2';
 /** The split-tree layout before Golden Layout: removed on load, not migrated. */
@@ -144,6 +154,17 @@ let renderGeneration = 0;
 let newEntry = null;
 /** The tree key of a row just created, focused by the first render that shows it. */
 let selectTreeKey = null;
+/**
+ * Pinned files (the `pinned_files` message), in pin order: the Pinned section's rows. Not pinned
+ * projects, and not a preview tile's "Keep open".
+ *
+ * @type {import('./lib/pinned_files.js').FilePin[]}
+ */
+let pinnedFiles = [];
+/** Where {@link filePinPanes} is saved, so a reload still knows which tiles are a pin's. */
+const FILE_PIN_PANES_KEY = 'devc-web-file-pin-panes-v1';
+/** Each pinned file's editor pane (pin id → pane_id), from `open_pinned` replies. */
+const filePinPanes = loadFilePinPanes();
 
 /**
  * A tile's live view. `openKey` is the `container\npane` it has open on the server, if any.
@@ -268,10 +289,26 @@ function h(tag, attrs = {}, ...children) {
   return el;
 }
 
-function toast(message) {
+/**
+ * A message in the corner for a few seconds. With `action`, it carries a button that runs it
+ * (and dismisses the toast), and stays a little longer.
+ *
+ * @param {string} message @param {{label: string, run: () => void}} [action]
+ */
+function toast(message, action) {
   const el = h('div', { class: 'toast' }, message);
+  if (action) {
+    el.append(h('button', {
+      type: 'button',
+      class: 'toast-action',
+      onclick: () => {
+        el.remove();
+        action.run();
+      },
+    }, action.label));
+  }
   $toasts.append(el);
-  setTimeout(() => el.remove(), 6000);
+  setTimeout(() => el.remove(), action ? 12000 : 6000);
 }
 
 /** Releases `boot.js`'s guard: from here on, errors are toasts, not its overlay. */
@@ -462,6 +499,9 @@ function onMessage(msg) {
       break;
     case 'project_output':
       onProjectOutput(msg.localFolder, msg.line);
+      break;
+    case 'pinned_files':
+      onPinnedFiles(msg);
       break;
     case 'bridge_status':
       hostBridgeStatus = parseBridgeStatus(msg);
@@ -711,6 +751,12 @@ const LABELS = {
   newTerminalHere: 'New terminal here',
   newFile: 'New file…',
   newFolder: 'New folder…',
+  /** Pinned files; never "pin" alone, which a project and a preview tile also use. */
+  pinned: 'Pinned',
+  pinFile: 'Pin file',
+  unpinFile: 'Unpin file',
+  newNote: 'New note…',
+  noPinnedFiles: 'No pinned files',
   notRunning: 'The container is not running',
   plainTerminal: 'Terminal',
   /** The + menu's agents (ids from `lib/agent_icons.js`). */
@@ -783,6 +829,7 @@ function loadSidebarState() {
     /** @type {Record<string, string[]>} repo folder (file root) → open paths ('' is the root) */
     filesOpen: savedFilesOpen(saved?.rootsOpen),
     layoutOpen: saved?.layoutOpen !== false,
+    pinnedOpen: saved?.pinnedOpen !== false,
     width: Number.isFinite(saved?.width) ? saved.width : SIDEBAR_DEFAULT_WIDTH,
     hidden: saved?.hidden === true,
   };
@@ -813,6 +860,7 @@ function saveSidebarState() {
         // Not `filesOpen`: entries saved under that name were keyed by project, not by repo.
         rootsOpen: sidebarState.filesOpen,
         layoutOpen: sidebarState.layoutOpen,
+        pinnedOpen: sidebarState.pinnedOpen,
         width: sidebarState.width,
         hidden: sidebarState.hidden,
       }),
@@ -842,6 +890,12 @@ function toggleRepos(localFolder) {
   if (!sidebarState.reposOpen.delete(localFolder)) {
     sidebarState.reposOpen.add(localFolder);
   }
+  saveSidebarState();
+  renderTree();
+}
+
+function togglePinnedSection() {
+  sidebarState.pinnedOpen = !sidebarState.pinnedOpen;
   saveSidebarState();
   renderTree();
 }
@@ -923,8 +977,8 @@ function chevron() {
 }
 
 /**
- * The sidebar: the Layout section (the Golden Layout tree, single-child levels folded), then
- * Containers (Container → Terminals → terminal, Container → Repos → repo → files, and
+ * The sidebar: the Pinned section (pinned files), the Layout section (the Golden Layout tree,
+ * single-child levels folded), then Containers (Container → Terminals → terminal, Container → Repos → repo → files, and
  * Container → Files → the container's own files from `/`).
  * Herdr tabs group nothing here: a pane the Herdr TUI split into a shared tab is just another pane.
  * Every running container is listed, Herdr or not; projects without one are listed last, under a
@@ -943,6 +997,7 @@ function renderTree() {
     ? [newEntry.input.selectionStart, newEntry.input.selectionEnd]
     : null;
   const rows = [
+    ...pinnedFileRows(),
     ...layoutRows(),
     sectionRow(
       'Containers',
@@ -1402,9 +1457,21 @@ async function createPane(c, msg, place, what) {
     toast(`${what} failed: ${e?.message ?? e}`);
     return;
   }
+  placePane(c.localFolder, result, place);
+}
+
+/**
+ * Places a pane a message answered with (see {@link createPane}), in the project at
+ * `localFolder`. A reused pane already shown in a tile focuses that tile instead.
+ *
+ * @param {string} localFolder
+ * @param {{pane_id: string, reused?: boolean}} result
+ * @param {(ref: PaneRef) => Tile} place
+ */
+function placePane(localFolder, result, place) {
   if (!tiling) return;
-  const ref = { localFolder: c.localFolder, pane_id: result.pane_id };
-  const shown = result.reused ? tileShowing(c, ref) : null;
+  const ref = { localFolder, pane_id: result.pane_id };
+  const shown = result.reused ? tileShowing({ localFolder }, ref) : null;
   if (shown) {
     revealTile(shown.id);
     return;
@@ -1520,6 +1587,10 @@ function tileMenuItems(tile) {
   }
   if (c && pane) {
     items.push(['Reveal in Containers', () => revealInContainers(c, pane)]);
+  }
+  const filePin = filePinOfTile(tile);
+  if (filePin) {
+    items.push([LABELS.unpinFile, () => unpinFile(filePin)]);
   }
   if (tile.preview) items.push(keepOpenItem(tile));
   items.push(['Close', () => tiling?.close(tile.id)]);
@@ -2103,6 +2174,459 @@ function closeOutput() {
 }
 
 // ---------------------------------------------------------------------------------------------
+// Sidebar: Pinned section (pinned files)
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * A pin's row toggles its file's editor tile. Closing closes the tile only: the Helix pane keeps
+ * running in Herdr, so the next open (`open_pinned`, which reuses it) brings back the same buffer
+ * and unsaved edits. Pins are kept by the server (`~/.config/devc/pinned-files.json`), so every
+ * devc web window shows the same ones.
+ */
+function pinnedFileRows() {
+  const rows = [
+    sectionRow(
+      LABELS.pinned,
+      sidebarState.pinnedOpen,
+      togglePinnedSection,
+      rowTrail(hoverActions(iconButton('plus', LABELS.newNote, openNewNote))),
+      (e) => openMenu(e, [[LABELS.newNote, openNewNote]]),
+    ),
+  ];
+  if (!sidebarState.pinnedOpen) return rows;
+  if (pinnedFiles.length === 0) {
+    rows.push(h('div', { class: 'empty' }, LABELS.noPinnedFiles));
+  }
+  for (const pin of pinnedFiles) rows.push(filePinRow(pin));
+  return rows;
+}
+
+/** @param {import('./lib/pinned_files.js').FilePin} pin */
+function filePinRow(pin) {
+  const open = filePinTiles(pin).length > 0;
+  const p = projects.get(pin.localFolder);
+  return h(
+    'div',
+    {
+      class: open ? 'row file-pin visible' : 'row file-pin',
+      style: '--depth: 1',
+      'data-file-pin': pin.id,
+      title: [
+        childPath(pin.root, pin.path),
+        open ? 'Shown in a tile: click to close it' : 'Click to open it',
+      ].join('\n'),
+      onclick: () => toggleFilePin(pin),
+      oncontextmenu: (e) => openMenu(e, filePinMenuItems(pin)),
+    },
+    h(
+      'span',
+      { class: 'label' },
+      rowIcon({ kind: 'file' }),
+      filePinName(pin),
+      h(
+        'span',
+        { class: 'pane-title' },
+        p ? containerLabel(p, projects.values()) : basename(pin.localFolder),
+      ),
+    ),
+    rowTrail(
+      open ? h('span', { class: 'file-pin-dot', 'aria-label': 'Open' }) : '',
+    ),
+  );
+}
+
+function onPinnedFiles(msg) {
+  pinnedFiles = parsePinnedFiles(msg);
+  const ids = new Set(pinnedFiles.map((p) => p.id));
+  let pruned = false;
+  for (const id of [...filePinPanes.keys()]) {
+    if (!ids.has(id)) pruned = filePinPanes.delete(id);
+  }
+  if (pruned) saveFilePinPanes();
+  renderTree();
+}
+
+function loadFilePinPanes() {
+  let text = null;
+  try {
+    text = localStorage.getItem(FILE_PIN_PANES_KEY);
+  } catch { /* unavailable: a reload forgets which tiles are a pin's */ }
+  return parseFilePinPanes(text);
+}
+
+function saveFilePinPanes() {
+  try {
+    localStorage.setItem(
+      FILE_PIN_PANES_KEY,
+      JSON.stringify(Object.fromEntries(filePinPanes)),
+    );
+  } catch { /* storage unavailable */ }
+}
+
+/**
+ * The tiles that are a pin's: those showing its editor pane and, while its project has no running
+ * container, file tiles showing its file (the read-only fallback).
+ *
+ * @param {import('./lib/pinned_files.js').FilePin} pin
+ */
+function filePinTiles(pin) {
+  const tiles = tiling?.tiles() ?? [];
+  const paneId = filePinPanes.get(pin.id);
+  const shown = paneId
+    ? tilesShowingPane(tiles, { localFolder: pin.localFolder, pane_id: paneId })
+    : [];
+  if (!containerByFolder(pin.localFolder)) {
+    const file = {
+      localFolder: pin.localFolder,
+      root: pin.root,
+      path: pin.path,
+    };
+    shown.push(...tiles.filter((t) => t.file && sameFile(t.file, file)));
+  }
+  return shown;
+}
+
+/** The pin whose editor pane a tile shows, if any. @param {Tile} tile */
+function filePinOfTile(tile) {
+  const ref = tile.ref;
+  if (!ref) return null;
+  return pinnedFiles.find((p) =>
+    p.localFolder === ref.localFolder &&
+    filePinPanes.get(p.id) === ref.pane_id
+  ) ?? null;
+}
+
+/**
+ * A pin's click: closes the tiles showing it (tiles only, never the pane), else opens it.
+ *
+ * @param {import('./lib/pinned_files.js').FilePin} pin
+ */
+function toggleFilePin(pin) {
+  const shown = filePinTiles(pin);
+  if (shown.length === 0) {
+    void openFilePin(pin, 'stack');
+    return;
+  }
+  for (const t of shown) tiling?.close(t.id);
+}
+
+/** Pins with an `open_pinned` in flight: a second click waits for the first. */
+const openingFilePins = new Set();
+
+/**
+ * Opens a pin's file in its editor pane (`open_pinned`: the pane it last had when that is still
+ * running, else a new one), in a non-preview tile in the focused stack or to the right. A pane
+ * already in a tile is focused there instead. With no running container, the file opens read-only.
+ *
+ * @param {import('./lib/pinned_files.js').FilePin} pin
+ * @param {'stack' | 'right'} where
+ */
+async function openFilePin(pin, where) {
+  if (!tiling || openingFilePins.has(pin.id)) return;
+  const c = containerByFolder(pin.localFolder);
+  if (!c) {
+    openFilePinReadOnly(pin, where);
+    return;
+  }
+  if (c.state === 'no-session') toast('Starting Herdr…');
+  openingFilePins.add(pin.id);
+  let result;
+  try {
+    result = await call({ type: 'open_pinned', pin: pin.id });
+  } catch (e) {
+    if (e?.code === 'not_running') openFilePinReadOnly(pin, where);
+    else toast(`Open ${filePinName(pin)} failed: ${e?.message ?? e}`);
+    return;
+  } finally {
+    openingFilePins.delete(pin.id);
+  }
+  if (typeof result?.pane_id !== 'string') return;
+  filePinPanes.set(pin.id, result.pane_id);
+  saveFilePinPanes();
+  placePane(
+    pin.localFolder,
+    result,
+    where === 'right'
+      ? (ref) => tiling.addBeside(targetTile()?.id ?? null, ref, 'right')
+      : placeInFocusedStack,
+  );
+}
+
+/**
+ * A pin's file in a file tile (the host-side viewer), for a stopped container: notes stay
+ * readable. Offers to start the container.
+ *
+ * @param {import('./lib/pinned_files.js').FilePin} pin
+ * @param {'stack' | 'right'} where
+ */
+function openFilePinReadOnly(pin, where) {
+  openFileTile(
+    { localFolder: pin.localFolder, root: pin.root },
+    pin.path,
+    where,
+  );
+  const p = projects.get(pin.localFolder);
+  toast(
+    `${
+      filePinName(pin)
+    }: the container is not running, so it opened read-only.`,
+    projectStarts && p && !p.starting
+      ? { label: 'Start', run: () => startProject(pin.localFolder) }
+      : undefined,
+  );
+}
+
+/** A pin's row menu. @param {import('./lib/pinned_files.js').FilePin} pin */
+function filePinMenuItems(pin) {
+  const fr = { localFolder: pin.localFolder, root: pin.root };
+  return [
+    ['Open to the right', () => void openFilePin(pin, 'right')],
+    ['Open read-only', () => openFileTile(fr, pin.path, 'stack')],
+    ['Rename…', () => renameFilePin(pin)],
+    ['Copy path', () => copyPath(fr, pin.path)],
+    [LABELS.unpinFile, () => unpinFile(pin)],
+  ];
+}
+
+/** "Pin file" or "Unpin file" for a repo file's menus. @param {FileRoot} fr @param {string} path */
+function filePinItem(fr, path) {
+  const pin = pinnedFiles.find((p) => p.root === fr.root && p.path === path);
+  return pin
+    ? [LABELS.unpinFile, () => unpinFile(pin)]
+    : [LABELS.pinFile, () => pinFile(fr, path)];
+}
+
+/** @param {FileRoot} fr @param {string} path */
+function pinFile(fr, path) {
+  call({
+    type: 'pin_file',
+    localFolder: fr.localFolder,
+    root: fr.root,
+    path,
+  }).then(
+    () => {
+      if (sidebarState.pinnedOpen) return;
+      sidebarState.pinnedOpen = true;
+      saveSidebarState();
+      renderTree();
+    },
+    (e) => toast(`${LABELS.pinFile} failed: ${e?.message ?? e}`),
+  );
+}
+
+/** Unpins a file; its editor pane, and any tile showing it, stay. */
+function unpinFile(pin) {
+  call({ type: 'unpin_file', pin: pin.id }).then(
+    () => {
+      if (filePinPanes.delete(pin.id)) saveFilePinPanes();
+    },
+    (e) => toast(`${LABELS.unpinFile} failed: ${e?.message ?? e}`),
+  );
+}
+
+/** Relabels a pin; an empty name, or the file's own, goes back to the file's name. */
+function renameFilePin(pin) {
+  const name = prompt('Pinned file name', filePinName(pin));
+  if (name === null) return;
+  const label = name.trim() === basename(pin.path) ? '' : name.trim();
+  call({ type: 'rename_pin', pin: pin.id, label }).catch((e) =>
+    toast(`Rename failed: ${e?.message ?? e}`)
+  );
+}
+
+/**
+ * The open **New note…** dialog.
+ *
+ * @type {{el: HTMLDialogElement, $project: HTMLSelectElement, $path: HTMLInputElement,
+ *   $error: HTMLElement, $create: HTMLButtonElement, edited: boolean, busy: boolean} | null}
+ */
+let newNote = null;
+
+/** The repo a project's notes go in: the project folder's own. */
+function noteRoot(localFolder) {
+  return projectRepos(localFolder)[0]?.folder ?? localFolder;
+}
+
+/**
+ * **New note…**: a project and a path in its repo (`.plans/notes.md` when the repo has a
+ * `.plans/` folder, else `NOTES.md`). Creating makes the file (an existing one is fine) and pins
+ * it, then opens it.
+ */
+function openNewNote() {
+  newNote?.el.close();
+  const candidates = [...projects.values()].sort(byPinThenRecent);
+  if (candidates.length === 0) {
+    toast('No projects yet: add one under Containers first');
+    return;
+  }
+  const focused = targetTile();
+  const near = focused?.ref?.localFolder ?? focused?.file?.localFolder;
+  const initial = (near && projects.has(near) ? near : null) ??
+    candidates.find((p) => containerByFolder(p.localFolder))?.localFolder ??
+    candidates[0].localFolder;
+  const $project = /** @type {HTMLSelectElement} */ (h(
+    'select',
+    {
+      class: 'new-note-project',
+      'aria-label': 'Project',
+      onchange: () => suggestNotePath(),
+    },
+    ...candidates.map((p) =>
+      h(
+        'option',
+        { value: p.localFolder, selected: p.localFolder === initial },
+        containerLabel(p, projects.values()),
+      )
+    ),
+  ));
+  const $path = /** @type {HTMLInputElement} */ (h('input', {
+    type: 'text',
+    class: 'picker-path',
+    spellcheck: 'false',
+    autocomplete: 'off',
+    'aria-label': 'Path in the repo',
+    oninput: () => {
+      if (newNote) newNote.edited = true;
+      showNoteError(null);
+    },
+    onkeydown: (e) => {
+      if (e.key !== 'Enter') return;
+      e.preventDefault();
+      void submitNewNote();
+    },
+  }));
+  const $error = h('div', { class: 'new-note-error', hidden: true });
+  const $create = /** @type {HTMLButtonElement} */ (h('button', {
+    type: 'button',
+    class: 'primary',
+    onclick: () => void submitNewNote(),
+  }, 'Create and pin'));
+  const el = /** @type {HTMLDialogElement} */ (h(
+    'dialog',
+    {
+      class: 'dialog new-note',
+      'aria-label': 'New note',
+      onclose: () => {
+        if (newNote?.el === el) newNote = null;
+        el.remove();
+      },
+    },
+    h(
+      'header',
+      { class: 'dialog-header' },
+      h('span', {}, 'New note'),
+      h('button', { type: 'button', onclick: () => el.close() }, 'Cancel'),
+    ),
+    h(
+      'div',
+      { class: 'new-note-body' },
+      h('label', {}, 'Project', $project),
+      h('label', {}, "File, in the project's repo", $path),
+      $error,
+    ),
+    h(
+      'footer',
+      { class: 'dialog-footer' },
+      h(
+        'span',
+        { class: 'picker-hint' },
+        'Created if missing (its folder must exist), then pinned',
+      ),
+      $create,
+    ),
+  ));
+  newNote = {
+    el,
+    $project,
+    $path,
+    $error,
+    $create,
+    edited: false,
+    busy: false,
+  };
+  document.body.append(el);
+  el.showModal();
+  suggestNotePath();
+  $path.focus();
+}
+
+/** Fills in the path for the selected project, unless it was typed. */
+function suggestNotePath() {
+  const nn = newNote;
+  if (!nn || nn.edited) return;
+  const localFolder = nn.$project.value;
+  nn.$path.value = 'NOTES.md';
+  showNoteError(null);
+  call({ type: 'list_dir', localFolder, root: noteRoot(localFolder), path: '' })
+    .then((result) => {
+      if (newNote !== nn || nn.edited || nn.$project.value !== localFolder) {
+        return;
+      }
+      nn.$path.value = defaultNotePath(list(result?.entries));
+    }, () => {/* NOTES.md stays */});
+}
+
+/** Shows `message` under the dialog's fields, or hides it with `null`. */
+function showNoteError(message) {
+  if (!newNote) return;
+  newNote.$error.textContent = message ?? '';
+  newNote.$error.hidden = message === null;
+}
+
+/**
+ * Creates the note (`create_file`, where `exists` is fine: the file is pinned as it is), pins it
+ * (`pin_file`) and opens it. A missing folder is reported, not created. With no running
+ * container, an existing file is still pinned.
+ */
+async function submitNewNote() {
+  const nn = newNote;
+  if (!nn || nn.busy) return;
+  const path = nn.$path.value.trim();
+  const invalid = notePathError(path);
+  if (invalid !== null) {
+    showNoteError(invalid);
+    return;
+  }
+  const localFolder = nn.$project.value;
+  const root = noteRoot(localFolder);
+  const c = containerByFolder(localFolder);
+  nn.busy = true;
+  nn.$create.disabled = true;
+  let pinId;
+  try {
+    if (c) {
+      await call({
+        type: 'create_file',
+        container: c.id,
+        root,
+        path,
+        kind: 'file',
+      })
+        .catch((e) => {
+          if (e?.code !== 'exists') throw e;
+        });
+    }
+    pinId = (await call({ type: 'pin_file', localFolder, root, path }))?.pin;
+  } catch (e) {
+    nn.busy = false;
+    nn.$create.disabled = false;
+    showNoteError(
+      !c && e?.code === 'not_found'
+        ? `${path} does not exist: start the container to create it`
+        : String(e?.message ?? e),
+    );
+    return;
+  }
+  nn.el.close();
+  if (!sidebarState.pinnedOpen) togglePinnedSection();
+  const pin = pinnedFiles.find((p) => p.id === pinId);
+  if (!pin) return;
+  const shown = filePinTiles(pin);
+  if (shown.length) revealTile(shown[0].id);
+  else void openFilePin(pin, 'stack');
+}
+
+// ---------------------------------------------------------------------------------------------
 // Directory trees: shared by the repo file trees and the folder picker
 // ---------------------------------------------------------------------------------------------
 
@@ -2670,6 +3194,8 @@ function fileMenuItems(fr, path) {
       () => openInEditor(fr, path, 'right'),
     ],
     ['Copy path', () => copyPath(fr, path)],
+    // A repo file only: the container's own files are outside the bind mount.
+    ...(fr.container ? [] : [filePinItem(fr, path)]),
   ];
 }
 
@@ -2875,6 +3401,7 @@ function fileTileMenuItems(tile) {
       ['Open in editor', () => openInEditor(fr, file.path, 'stack')],
       ['Copy path', () => copyPath(fr, file.path)],
     );
+    if (!file.container) items.push(filePinItem(fr, file.path));
   }
   if (tile.preview) items.push(keepOpenItem(tile));
   items.push(['Close', () => tiling?.close(tile.id)]);
@@ -3862,6 +4389,17 @@ const IS_MAC = /Mac|iPhone|iPad/.test(navigator.platform);
 function isLinkModifier(ev) {
   return IS_MAC ? ev.metaKey : ev.ctrlKey;
 }
+
+// Capture phase, so it works while a terminal has focus: xterm.js never sees the keys (on a Mac,
+// Option would type a character). Ctrl+Alt+N (Cmd+Alt+N on a Mac) toggles the first pinned file.
+document.addEventListener('keydown', (e) => {
+  if (!isFilePinShortcut(e, IS_MAC)) return;
+  e.preventDefault();
+  e.stopPropagation();
+  if (e.repeat) return;
+  if (pinnedFiles.length) toggleFilePin(pinnedFiles[0]);
+  else openNewNote();
+}, true);
 
 /** The tooltip over a terminal link. */
 const LINK_HINT = `${IS_MAC ? 'Cmd' : 'Ctrl'}+click to open`;

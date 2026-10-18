@@ -56,6 +56,7 @@ import {
   isHerdrLaunch,
   paneAtFolder,
   snapshotPaneIds,
+  snapshotPanes,
 } from './herdr_bridge.ts';
 import { ControllerManager, type Subscriber } from './controllers.ts';
 import { AGENT_COMMANDS } from './agents.ts';
@@ -69,6 +70,17 @@ import {
   updateProjects,
 } from '../projects.ts';
 import { startProject, stopProject } from './project_control.ts';
+import {
+  addFilePin,
+  type FilePin,
+  PINNED_FILES_PATH,
+  pinnedFilesMessage,
+  readPinnedFiles,
+  reusablePinnedPane,
+  updateFilePin,
+  withLabel,
+  writePinnedFiles,
+} from './pinned_files.ts';
 import {
   buildProjects,
   isProjectRepo,
@@ -351,6 +363,28 @@ export async function startWeb(
   });
   const broadcastProjects = () => broadcast(projectsMessage());
 
+  // Pinned files (the page's Pinned section; not pinned projects), kept in their own file so every
+  // devc web on this host (a browser tab's, the desktop window's) shows the same ones.
+  let filePins: FilePin[] = await readPinnedFiles();
+  const reloadPinnedFiles = async () => {
+    filePins = await readPinnedFiles();
+    broadcast(pinnedFilesMessage(filePins));
+  };
+  /**
+   * Read → `change` → write, so a change another devc web made in between is kept; null (nothing
+   * written) when `change` gives null. Every client is sent the new list.
+   */
+  const changePinnedFiles = async (
+    change: (pins: FilePin[]) => FilePin[] | null,
+  ): Promise<FilePin[] | null> => {
+    const next = change(await readPinnedFiles());
+    if (next === null) return null;
+    await writePinnedFiles(next);
+    filePins = next;
+    broadcast(pinnedFilesMessage(filePins));
+    return next;
+  };
+
   // devc-bridge's state on this host (running, keepawake markers), watched from its own files.
   // `null` until the first read, which the watch reports straight away.
   let bridgeStatus: BridgeStatus | null = null;
@@ -608,10 +642,8 @@ export async function startWeb(
   };
 
   /**
-   * Opens a file in a new pane running the container's editor, named after the file. With `root`,
-   * `path` is relative to it, one of the repo folders of the container's project, and confined to
-   * it; the editor gets the file's container path. Without, `path` is already a container path
-   * (the Files node).
+   * Opens a file in a new pane running the container's editor, named after the file, and answers
+   * with the pane (`open_file`). See {@link editorPane}.
    */
   const openFile = async (
     c: Client,
@@ -619,10 +651,26 @@ export async function startWeb(
     target: HerdrTarget,
     msg: Extract<ClientMessage, { type: 'open_file' }>,
   ) => {
+    const result = await editorPane(c, session, target, msg);
+    if (result !== null) reply(c, { id: msg.id, ok: true, result });
+  };
+
+  /**
+   * A new pane running the container's editor on a file, named after the file; null once a
+   * failure is answered. With `root`, `path` is relative to it, one of the repo folders of the
+   * container's project, and confined to it; the editor gets the file's container path. Without,
+   * `path` is already a container path (the Files node).
+   */
+  const editorPane = async (
+    c: Client,
+    session: ContainerSession,
+    target: HerdrTarget,
+    msg: { id: string; root?: string; path: string },
+  ): Promise<{ pane_id: string; tab_id: string } | null> => {
     const containerPath = msg.root === undefined
       ? msg.path
       : await repoContainerPath(c, session, { ...msg, root: msg.root });
-    if (containerPath === null) return;
+    if (containerPath === null) return null;
     try {
       const result = await createShell(target, {
         cwd: dirnamePosix(containerPath),
@@ -637,9 +685,10 @@ export async function startWeb(
         pane_id: result.pane_id,
         label: basenamePosix(containerPath),
       }).catch(() => {});
-      reply(c, { id: msg.id, ok: true, result });
+      return result;
     } catch (e) {
       fail(c, msg.id, e instanceof BridgeError ? e.code : 'herdr_error', e);
+      return null;
     }
   };
 
@@ -822,6 +871,39 @@ export async function startWeb(
   };
 
   /**
+   * The session's Herdr, once it is connected: waits out a run in progress and starts a session
+   * when there is none. Null once a failure is answered.
+   */
+  const readyTarget = async (
+    c: Client,
+    session: ContainerSession,
+    id: string,
+  ): Promise<HerdrTarget | null> => {
+    try {
+      await settled(session);
+      if (session.state === 'no-session') await session.startSession();
+    } catch (e) {
+      fail(c, id, e instanceof BridgeError ? e.code : 'start_failed', e);
+      return null;
+    }
+    const target = session.target;
+    if (session.state === 'connecting') {
+      fail(c, id, 'not_ready', 'Herdr is still connecting');
+      return null;
+    }
+    if (session.state !== 'connected' || target === null) {
+      fail(
+        c,
+        id,
+        'herdr_unavailable',
+        session.error ?? `Herdr is unavailable (${session.state})`,
+      );
+      return null;
+    }
+    return target;
+  };
+
+  /**
    * A Herdr tab at a project folder: `path` (a directory relative to `root`, one of the
    * container's project's repo folders). Starts the session when there is none; with `reuse`,
    * answers with a shell pane already at the folder (see {@link paneAtFolder}) instead of making
@@ -866,27 +948,8 @@ export async function startWeb(
       );
       return;
     }
-    try {
-      await settled(session);
-      if (session.state === 'no-session') await session.startSession();
-    } catch (e) {
-      fail(c, msg.id, e instanceof BridgeError ? e.code : 'start_failed', e);
-      return;
-    }
-    const target = session.target;
-    if (session.state === 'connecting') {
-      fail(c, msg.id, 'not_ready', 'Herdr is still connecting');
-      return;
-    }
-    if (session.state !== 'connected' || target === null) {
-      fail(
-        c,
-        msg.id,
-        'herdr_unavailable',
-        session.error ?? `Herdr is unavailable (${session.state})`,
-      );
-      return;
-    }
+    const target = await readyTarget(c, session, msg.id);
+    if (target === null) return;
     const command = msg.agent !== undefined ? AGENT_COMMANDS[msg.agent] : null;
     if (command !== null && !(await commandInstalled(target, command))) {
       fail(
@@ -921,6 +984,126 @@ export async function startWeb(
     } catch (e) {
       fail(c, msg.id, e instanceof BridgeError ? e.code : 'herdr_error', e);
     }
+  };
+
+  /**
+   * Pinned files: pin a repo file of a listed project, unpin or relabel one, and `open_pinned`,
+   * which answers with the pin's editor pane, reusing the one it last opened while that pane is
+   * still in its container's session, else making one as `open_file` does. Unpinning leaves the
+   * editor pane alone.
+   */
+  const handleFilePin = async (
+    c: Client,
+    msg: Extract<
+      ClientMessage,
+      { type: 'pin_file' | 'unpin_file' | 'rename_pin' | 'open_pinned' }
+    >,
+  ) => {
+    if (msg.type === 'pin_file') {
+      if (
+        !isListedProject(msg.localFolder) ||
+        !isProjectRepo(projectsMessage().projects, msg.localFolder, msg.root)
+      ) {
+        reject(c, {
+          id: msg.id,
+          code: 'bad_request',
+          message: isListedProject(msg.localFolder)
+            ? 'unknown repo'
+            : 'unknown project',
+        });
+        return;
+      }
+      let hostPath: string | null;
+      try {
+        hostPath = await confine(msg.root, msg.path);
+      } catch {
+        fail(c, msg.id, 'not_found', `${msg.path} does not exist`);
+        return;
+      }
+      if (hostPath === null) {
+        fail(c, msg.id, 'forbidden', `${msg.path} is outside the project`);
+        return;
+      }
+      if (!(await Deno.stat(hostPath).catch(() => null))?.isFile) {
+        fail(c, msg.id, 'bad_request', `${msg.path} is not a file`);
+        return;
+      }
+      let id = '';
+      try {
+        await changePinnedFiles((pins) => {
+          const added = addFilePin(pins, msg);
+          id = added.id;
+          return added.pins === pins ? null : added.pins;
+        });
+      } catch (e) {
+        fail(c, msg.id, 'pinned_files_error', e);
+        return;
+      }
+      reply(c, { id: msg.id, ok: true, result: { pin: id } });
+      return;
+    }
+    if (msg.type === 'unpin_file' || msg.type === 'rename_pin') {
+      const label = msg.type === 'rename_pin' ? msg.label : null;
+      let changed: FilePin[] | null;
+      try {
+        changed = await changePinnedFiles((pins) =>
+          label === null
+            ? pins.some((p) => p.id === msg.pin)
+              ? pins.filter((p) => p.id !== msg.pin)
+              : null
+            : updateFilePin(pins, msg.pin, (p) => withLabel(p, label))
+        );
+      } catch (e) {
+        fail(c, msg.id, 'pinned_files_error', e);
+        return;
+      }
+      if (changed === null) {
+        fail(c, msg.id, 'not_found', 'no such pinned file');
+        return;
+      }
+      reply(c, { id: msg.id, ok: true, result: {} });
+      return;
+    }
+    const pin = filePins.find((p) => p.id === msg.pin);
+    if (!pin) {
+      fail(c, msg.id, 'not_found', 'no such pinned file');
+      return;
+    }
+    const session = [...sessions.values()].find((s) =>
+      s.record.localFolder === pin.localFolder
+    );
+    if (!session) {
+      fail(c, msg.id, 'not_running', 'the container is not running');
+      return;
+    }
+    const target = await readyTarget(c, session, msg.id);
+    if (target === null) return;
+    const containerId = session.record.id;
+    const reused = reusablePinnedPane(
+      pin.last,
+      containerId,
+      snapshotPanes(session.snapshot),
+    );
+    if (reused !== null) {
+      reply(c, { id: msg.id, ok: true, result: { ...reused, reused: true } });
+      return;
+    }
+    const created = await editorPane(c, session, target, {
+      id: msg.id,
+      root: pin.root,
+      path: pin.path,
+    });
+    if (created === null) return;
+    // A hint for the next open, checked before use: a failed write only costs a new pane then.
+    await changePinnedFiles((pins) =>
+      updateFilePin(pins, pin.id, (p) => ({
+        ...p,
+        last: { containerId, paneId: created.pane_id },
+      }))
+    ).catch((e) =>
+      console.error(`devc web: ${e instanceof Error ? e.message : e}`)
+    );
+    reply(c, { id: msg.id, ok: true, result: { ...created, reused: false } });
   };
 
   /** The messages about projects, which name a folder rather than a running container. */
@@ -1022,6 +1205,13 @@ export async function startWeb(
       msg.type === 'read_file'
     ) {
       await handleListing(c, msg);
+      return;
+    }
+    if (
+      msg.type === 'pin_file' || msg.type === 'unpin_file' ||
+      msg.type === 'rename_pin' || msg.type === 'open_pinned'
+    ) {
+      await handleFilePin(c, msg);
       return;
     }
     if ('localFolder' in msg) {
@@ -1235,6 +1425,7 @@ export async function startWeb(
       }));
       client.send(JSON.stringify(containersMessage()));
       client.send(JSON.stringify(projectsMessage()));
+      client.send(JSON.stringify(pinnedFilesMessage(filePins)));
       if (bridgeStatus !== null) {
         client.send(JSON.stringify(bridgeStatusMessage(bridgeStatus)));
       }
@@ -1324,7 +1515,15 @@ export async function startWeb(
   discovery.start();
   liveStatic?.watch();
   gitWatch.start();
-  const projectsWatch = watchProjectsFile(() => void reloadProjects());
+  const projectsWatch = watchConfigFile(
+    PROJECTS_PATH,
+    () => void reloadProjects(),
+  );
+  // Another devc web (the desktop window's, a browser's) pinning or unpinning a file.
+  const pinnedFilesWatch = watchConfigFile(
+    PINNED_FILES_PATH,
+    () => void reloadPinnedFiles(),
+  );
   const bridgeWatch = watchBridgeStatus(
     bridgeStatePaths(Deno.env, Deno.env.get('HOME') ?? '.'),
     (s) => {
@@ -1347,6 +1546,7 @@ export async function startWeb(
       liveStatic?.stop();
       gitWatch.stop();
       projectsWatch.stop();
+      pinnedFilesWatch.stop();
       bridgeWatch.stop();
       usageWatch.stop();
       for (const c of clients) {
@@ -1365,20 +1565,20 @@ export async function startWeb(
   return { stop, finished: server.finished };
 }
 
-/** How long the projects file must be quiet before a change to it is re-read. */
-const PROJECTS_DEBOUNCE_MS = 200;
+/** How long a watched config file must be quiet before a change to it is re-read. */
+const CONFIG_DEBOUNCE_MS = 200;
 /** How long `open_tab` waits for a `connecting` container: about a session start's wait. */
 const OPEN_TAB_WAIT_MS = 15_000;
 
 /**
- * Calls `onChange` (debounced) whenever devc's projects file changes — a start in some terminal
- * records its project there. Watches the file's directory, since the file is replaced by a rename
- * and may not exist yet. Never throws: without a watch, the list just refreshes on the page's
- * own changes.
+ * Calls `onChange` (debounced) whenever a file of devc's config dir changes: the projects file (a
+ * start in some terminal records its project there) or the pinned files (another devc web pinned
+ * one). Watches the file's directory, since the file is replaced by a rename and may not exist
+ * yet. Never throws: without a watch, the list just refreshes on the page's own changes.
  */
-function watchProjectsFile(onChange: () => void): { stop(): void } {
-  const dir = dirname(PROJECTS_PATH);
-  const file = basename(PROJECTS_PATH);
+function watchConfigFile(path: string, onChange: () => void): { stop(): void } {
+  const dir = dirname(path);
+  const file = basename(path);
   let watcher: Deno.FsWatcher | null = null;
   let timer: ReturnType<typeof setTimeout> | undefined;
   (async () => {
@@ -1388,7 +1588,7 @@ function watchProjectsFile(onChange: () => void): { stop(): void } {
       for await (const ev of watcher) {
         if (!ev.paths.some((p) => basename(p) === file)) continue;
         clearTimeout(timer);
-        timer = setTimeout(onChange, PROJECTS_DEBOUNCE_MS);
+        timer = setTimeout(onChange, CONFIG_DEBOUNCE_MS);
       }
     } catch { /* no watch: see above */ }
   })();

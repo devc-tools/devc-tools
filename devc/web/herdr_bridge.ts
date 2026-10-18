@@ -422,15 +422,22 @@ const MIN_RESTART_INTERVAL_MS = 5000;
 
 /** The `pane_id` of every pane in a snapshot. `panes` may be an array or a map. */
 export function snapshotPaneIds(snapshot: Record<string, unknown>): string[] {
-  const panes = snapshot.panes;
+  return snapshotPanes(snapshot)
+    .map((p) => p.pane_id)
+    .filter((id): id is string => typeof id === 'string');
+}
+
+/** A snapshot's panes (a list or an object of them), each an object; none for `null`. */
+export function snapshotPanes(
+  snapshot: Record<string, unknown> | null,
+): { pane_id?: unknown; tab_id?: unknown }[] {
+  const panes = snapshot?.panes;
   const list = Array.isArray(panes)
     ? panes
     : typeof panes === 'object' && panes !== null
     ? Object.values(panes)
     : [];
-  return list
-    .map((p) => (p as { pane_id?: unknown })?.pane_id)
-    .filter((id): id is string => typeof id === 'string');
+  return list.filter((p) => typeof p === 'object' && p !== null);
 }
 
 /** What a {@link ContainerSession} runs commands with; tests replace it. */

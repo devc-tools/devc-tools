@@ -330,6 +330,22 @@ is published from any container: the host server finds devcontainers with
   container must be running. For an editor that is good out of the box, add the
   [`helix`](../features/helix/README.md) Feature and `export EDITOR=hx` in your
   shell prefs (see [Editing with Helix](#editing-with-helix)).
+- **Pinned files and notes:** the **Pinned** section at the top of the sidebar
+  keeps repo files one click away. Right-click a repo file (or a file tile) for
+  **Pin file** / **Unpin file**; the section's **+** is **New note…**, which
+  creates a file in a project's repo (`.plans/notes.md` when the repo has a
+  `.plans/` folder, else `NOTES.md`; an existing file is pinned as it is, and a
+  missing folder is reported, not created), pins it and opens it. Clicking a
+  pin opens its file in the editor, or closes its tile again (a dot marks it
+  open). Closing hides the tile only: the editor keeps running in Herdr, so the
+  next click brings back the same buffer, unsaved edits included.
+  **Ctrl+Alt+N** (**⌘⌥N** on a Mac) toggles the first pin, even while a
+  terminal has focus. While the container is stopped a pin opens read-only in
+  the file viewer, with a **Start** offer. A pin's menu has **Open to the
+  right**, **Open read-only**, **Rename…**, **Copy path** and **Unpin file**.
+  Pins are kept in `~/.config/devc/pinned-files.json`, so a browser tab and the
+  devc-desktop window show the same ones. They are not pinned projects (a
+  project kept in the Containers list) and not a preview tile's **Keep open**.
 - `--port N` picks another port (default 48228); `--session NAME` another Herdr
   session (default `devc`, the one `devc herdr` uses). A port already in use
   exits 1 with a `devc web:` message.

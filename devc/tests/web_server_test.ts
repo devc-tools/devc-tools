@@ -650,3 +650,71 @@ Deno.test('parseClientMessage: open_tab needs root, a path (may be empty) and re
     assertEquals(r.rejection.code, 'bad_request');
   }
 });
+
+Deno.test('parseClientMessage: pin_file takes a project, a repo root and a relative path', () => {
+  const base = {
+    type: 'pin_file',
+    id: 'f1',
+    localFolder: '/src/app',
+    root: '/src/app',
+  };
+  for (
+    const msg of [
+      { ...base, path: '.plans/notes.md' },
+      { ...base, path: 'NOTES.md', label: 'Notes' },
+    ]
+  ) {
+    assertEquals(
+      parseClientMessage(JSON.stringify(msg)),
+      { ok: true, msg } as never,
+    );
+  }
+  // An empty label is no label.
+  assertEquals(
+    parseClientMessage(JSON.stringify({ ...base, path: 'a', label: '' })),
+    { ok: true, msg: { ...base, path: 'a' } } as never,
+  );
+  for (
+    const bad of [
+      { ...base, path: '' },
+      { ...base, path: '/etc/passwd' },
+      { ...base, path: '../x' },
+      { ...base, path: 'a/../../x' },
+      { ...base, path: 'a\0b' },
+      { ...base, path: 'a', label: 3 },
+      { ...base, path: 'a', root: 'relative' },
+      { ...base, path: 'a', localFolder: 'relative' },
+      { ...base, path: 'a', root: undefined },
+    ]
+  ) {
+    const r = rejected(bad);
+    assertEquals([r.id, r.code], ['f1', 'bad_request'], JSON.stringify(bad));
+  }
+});
+
+Deno.test('parseClientMessage: unpin_file, rename_pin and open_pinned name a pin', () => {
+  for (
+    const msg of [
+      { type: 'unpin_file', id: 'f1', pin: 'p1' },
+      { type: 'open_pinned', id: 'f1', pin: 'p1' },
+      { type: 'rename_pin', id: 'f1', pin: 'p1', label: 'Notes' },
+      { type: 'rename_pin', id: 'f1', pin: 'p1', label: '' },
+    ]
+  ) {
+    assertEquals(
+      parseClientMessage(JSON.stringify(msg)),
+      { ok: true, msg } as never,
+    );
+  }
+  for (
+    const bad of [
+      { type: 'unpin_file', id: 'f1' },
+      { type: 'open_pinned', id: 'f1', pin: '' },
+      { type: 'rename_pin', id: 'f1', pin: 'p1' },
+      { type: 'rename_pin', id: 'f1', pin: 'p1', label: null },
+    ]
+  ) {
+    const r = rejected(bad);
+    assertEquals([r.id, r.code], ['f1', 'bad_request'], JSON.stringify(bad));
+  }
+});

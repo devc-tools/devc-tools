@@ -109,6 +109,18 @@ export type ClientMessage =
   }
   | { type: 'locate_file'; id: string; container: string; path: string }
   | {
+    type: 'pin_file';
+    id: string;
+    localFolder: string;
+    /** One of the project's repo folders; `path` is relative to it. */
+    root: string;
+    path: string;
+    label?: string;
+  }
+  | { type: 'unpin_file'; id: string; pin: string }
+  | { type: 'open_pinned'; id: string; pin: string }
+  | { type: 'rename_pin'; id: string; pin: string; label: string }
+  | {
     type: 'list_container_dir' | 'read_container_file';
     id: string;
     container: string;
@@ -231,6 +243,17 @@ function newEntryPath(o: Obj, rooted: boolean): string {
   if (name === '' || name === '.' || name === '..') {
     throw new Invalid(`'path' must end in a name`);
   }
+  return v;
+}
+
+/** A repo file's path for a file pin: relative, with no `..` segment and no NUL. */
+function repoPath(o: Obj): string {
+  const v = str(o, 'path');
+  if (v.startsWith('/')) throw new Invalid(`'path' must be relative`);
+  if (v.split('/').includes('..')) {
+    throw new Invalid(`'path' must not contain '..'`);
+  }
+  if (v.includes('\0')) throw new Invalid(`'path' must not contain NUL`);
   return v;
 }
 
@@ -436,6 +459,27 @@ function parseFields(m: Obj): ClientMessage {
         path,
       };
     }
+    case 'pin_file':
+      return {
+        type: 'pin_file',
+        id: str(m, 'id'),
+        localFolder: folder(m),
+        root: absolute(m, 'root'),
+        path: repoPath(m),
+        ...(m.label !== undefined && m.label !== ''
+          ? { label: text(m, 'label') }
+          : {}),
+      };
+    case 'unpin_file':
+    case 'open_pinned':
+      return { type: m.type, id: str(m, 'id'), pin: str(m, 'pin') };
+    case 'rename_pin':
+      return {
+        type: 'rename_pin',
+        id: str(m, 'id'),
+        pin: str(m, 'pin'),
+        label: text(m, 'label'),
+      };
     case 'list_container_dir':
     case 'read_container_file':
       return {
