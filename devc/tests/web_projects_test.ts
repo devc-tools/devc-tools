@@ -3,6 +3,7 @@ import {
   buildProjects,
   isProjectRepo,
   projectRefusal,
+  repoFileFor,
 } from '../web/projects_view.ts';
 
 Deno.test('buildProjects merges the list with running and stopped containers', () => {
@@ -138,4 +139,38 @@ Deno.test("isProjectRepo: only a listed project's own repo folders are roots", (
   assertEquals(isProjectRepo(views, '/src/web', '/src/shared-lib'), false);
   assertEquals(isProjectRepo(views, '/src/api', '/etc'), false);
   assertEquals(isProjectRepo(views, '/src/nope', '/src/nope'), false);
+});
+
+Deno.test('repoFileFor: the innermost repo of that project holding the path', () => {
+  const views = buildProjects(
+    [],
+    ['/src/api'],
+    ['/src/web'],
+    new Set(),
+    new Map([['/src/api', [
+      { folder: '/src/api', worktreeOf: null },
+      { folder: '/src/shared-lib', worktreeOf: null },
+      { folder: '/src/api/vendor/lib', worktreeOf: null },
+    ]]]),
+  );
+  assertEquals(repoFileFor(views, '/src/api', '/src/api/src/a.ts'), {
+    root: '/src/api',
+    path: 'src/a.ts',
+  });
+  assertEquals(repoFileFor(views, '/src/api', '/src/shared-lib/x.go'), {
+    root: '/src/shared-lib',
+    path: 'x.go',
+  });
+  assertEquals(repoFileFor(views, '/src/api', '/src/api/vendor/lib/b.ts'), {
+    root: '/src/api/vendor/lib',
+    path: 'b.ts',
+  });
+  assertEquals(repoFileFor(views, '/src/api', '/src/api'), {
+    root: '/src/api',
+    path: '',
+  });
+  // A sibling sharing a prefix, another project's repo, a path in no repo.
+  assertEquals(repoFileFor(views, '/src/api', '/src/api2/a.ts'), null);
+  assertEquals(repoFileFor(views, '/src/api', '/src/web/a.ts'), null);
+  assertEquals(repoFileFor(views, '/src/api', '/etc/passwd'), null);
 });

@@ -8,6 +8,7 @@
 import { Terminal } from './vendor/xterm/xterm.mjs';
 import { FitAddon } from './vendor/xterm/addon-fit.mjs';
 import { selectionSpan } from './lib/input.js';
+import { findLinks, linkAt } from './lib/links.js';
 
 /**
  * @typedef {object} Renderer
@@ -26,15 +27,24 @@ import { selectionSpan } from './lib/input.js';
  * @property {(anchor: {column: number, row: number}, cursor: {column: number, row: number}) => void} highlight
  *   Paints the inclusive range between two viewport cells (either order) as selected.
  * @property {() => void} clearHighlight
+ * @property {(cell: {column: number, row: number}) => import('./lib/links.js').Link | null} linkAt
+ *   The URL or file path drawn over a viewport cell, if any.
  */
 
 /**
- * Mounts a renderer into `element`.
+ * Mounts a renderer into `element`. Links (see `lib/links.js`) are underlined under the pointer,
+ * with `linkHint` as their tooltip, and get a pointer cursor while `linkModifier` says the key
+ * that opens them is held; opening one is the caller's (clicks never reach xterm.js).
  *
  * @param {HTMLElement} element
+ * @param {{linkHint?: string,
+ *   linkModifier?: (ev: MouseEvent | KeyboardEvent) => boolean}} [opts]
  * @returns {Renderer}
  */
-export function createRenderer(element) {
+export function createRenderer(
+  element,
+  { linkHint = '', linkModifier = () => false } = {},
+) {
   const term = new Terminal({
     scrollback: 0,
     cursorBlink: false,
@@ -54,6 +64,75 @@ export function createRenderer(element) {
     ev.preventDefault();
     wheel(ev);
     return false;
+  });
+
+  /**
+   * Row `y`'s text, the cell each of its characters starts in, and its links. No scrollback, so
+   * buffer rows are viewport rows.
+   */
+  const lineLinks = (y) => {
+    const line = term.buffer.active.getLine(y);
+    let text = '';
+    /** @type {number[]} */
+    const cells = [];
+    for (let x = 0; line && x < line.length; x++) {
+      const cell = line.getCell(x);
+      // The right half of a wide character has no text of its own.
+      if (!cell || cell.getWidth() === 0) continue;
+      const chars = cell.getChars() || ' ';
+      for (let i = 0; i < chars.length; i++) cells.push(x);
+      text += chars;
+    }
+    return { cells, links: findLinks(text) };
+  };
+
+  // The pointer cursor needs both: the pointer over a link, and the modifier down. Keys are
+  // watched on the window, so pressing or releasing it over a link updates the cursor.
+  let overLink = false;
+  let modifierDown = false;
+  const updateCursor = () => {
+    term.element?.classList.toggle(
+      'xterm-cursor-pointer',
+      overLink && modifierDown,
+    );
+  };
+  /** @param {MouseEvent | KeyboardEvent} ev */
+  const onModifier = (ev) => {
+    modifierDown = linkModifier(ev);
+    updateCursor();
+  };
+  const onBlur = () => {
+    modifierDown = false;
+    updateCursor();
+  };
+  window.addEventListener('keydown', onModifier, true);
+  window.addEventListener('keyup', onModifier, true);
+  window.addEventListener('blur', onBlur);
+  element.addEventListener('mousemove', onModifier);
+
+  term.registerLinkProvider({
+    provideLinks(y, callback) {
+      const { cells, links } = lineLinks(y - 1);
+      callback(links.map((link) => ({
+        range: {
+          start: { x: cells[link.start] + 1, y },
+          end: { x: cells[link.end - 1] + 1, y },
+        },
+        text: link.kind === 'url' ? link.url : link.path,
+        decorations: { underline: true, pointerCursor: false },
+        activate() {},
+        hover(ev) {
+          if (linkHint) element.title = linkHint;
+          overLink = true;
+          onModifier(ev);
+        },
+        leave() {
+          element.removeAttribute('title');
+          overLink = false;
+          updateCursor();
+        },
+      })));
+    },
   });
 
   const screen = () => /** @type {HTMLElement | null} */ (element.querySelector(
@@ -90,6 +169,9 @@ export function createRenderer(element) {
       term.focus();
     },
     dispose() {
+      window.removeEventListener('keydown', onModifier, true);
+      window.removeEventListener('keyup', onModifier, true);
+      window.removeEventListener('blur', onBlur);
       term.dispose();
     },
     metrics() {
@@ -115,6 +197,11 @@ export function createRenderer(element) {
     },
     clearHighlight() {
       term.clearSelection();
+    },
+    linkAt({ column, row }) {
+      const { cells, links } = lineLinks(row);
+      const index = cells.indexOf(column);
+      return index < 0 ? null : linkAt(links, index);
     },
   };
 }

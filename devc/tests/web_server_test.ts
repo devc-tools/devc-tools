@@ -505,6 +505,27 @@ Deno.test('parseClientMessage: file messages take a root and a path, empty meani
   );
 });
 
+Deno.test('parseClientMessage: locate_file takes an absolute container path without ..', () => {
+  const msg = {
+    type: 'locate_file',
+    id: 'l1',
+    container: 'c1',
+    path: '/workspaces/app/src/a.ts',
+  };
+  assertEquals(
+    parseClientMessage(JSON.stringify(msg)),
+    { ok: true, msg } as never,
+  );
+  for (
+    const path of [undefined, '', 'src/a.ts', '/workspaces/app/../etc/passwd']
+  ) {
+    assertEquals(
+      rejected({ type: 'locate_file', id: 'l2', container: 'c1', path }).code,
+      'bad_request',
+    );
+  }
+});
+
 Deno.test('parseClientMessage: open_tab needs root, a path (may be empty) and reuse', () => {
   const base = {
     type: 'open_tab' as const,

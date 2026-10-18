@@ -96,6 +96,7 @@ export type ClientMessage =
     root: string;
     path: string;
   }
+  | { type: 'locate_file'; id: string; container: string; path: string }
   | {
     type: 'open_tab';
     id: string;
@@ -364,6 +365,18 @@ function parseFields(m: Obj): ClientMessage {
         root: absolute(m, 'root'),
         path: str(m, 'path'),
       };
+    case 'locate_file': {
+      const path = absolute(m, 'path');
+      if (path.split('/').includes('..')) {
+        throw new Invalid(`'path' must not contain '..'`);
+      }
+      return {
+        type: 'locate_file',
+        id: str(m, 'id'),
+        container: str(m, 'container'),
+        path,
+      };
+    }
     case 'open_tab':
       if (typeof m.reuse !== 'boolean') {
         throw new Invalid(`'reuse' must be a boolean`);

@@ -114,3 +114,33 @@ export function isProjectRepo(
     p.localFolder === localFolder && p.repos.some((r) => r.folder === root)
   );
 }
+
+/**
+ * The repo of the project at `localFolder` that holds `hostPath`, as `{root, path}` for
+ * `read_file` (`path` relative to `root`, `''` for the root itself), or null when it is in none.
+ * Nested repos (a worktree inside its repo's folder) go to the innermost.
+ */
+export function repoFileFor(
+  projects: readonly ProjectView[],
+  localFolder: string,
+  hostPath: string,
+): { root: string; path: string } | null {
+  let root: string | null = null;
+  for (const p of projects) {
+    if (p.localFolder !== localFolder) continue;
+    for (const { folder } of p.repos) {
+      const inside = hostPath === folder ||
+        hostPath.startsWith(folder === '/' ? '/' : `${folder}/`);
+      if (inside && (root === null || folder.length > root.length)) {
+        root = folder;
+      }
+    }
+  }
+  if (root === null) return null;
+  return {
+    root,
+    path: hostPath === root
+      ? ''
+      : hostPath.slice(root === '/' ? 1 : root.length + 1),
+  };
+}

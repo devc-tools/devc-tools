@@ -37,6 +37,7 @@ import {
   topStatus,
 } from './lib/sidebar.js';
 import { AGENT_IDS, AGENT_MARKS, terminalIconKind } from './lib/agent_icons.js';
+import { resolvePath } from './lib/links.js';
 import {
   bridgeStatusItems,
   parseBridgeStatus,
@@ -2549,6 +2550,39 @@ function openFileTile(fr, path, where) {
   fileViews.get(tile.id)?.viewer?.focus();
 }
 
+/**
+ * Lines to jump to once a file tile's file has loaded (see {@link openFileAt}), by
+ * `localFolder\nroot\npath`. Not part of the tile: the layout saves files, not positions.
+ * @type {Map<string, {line: number, column?: number}>}
+ */
+const pendingLines = new Map();
+
+function fileKey(file) {
+  return `${file.localFolder}\n${file.root}\n${file.path}`;
+}
+
+/** Jumps a loaded file tile to the line it was opened at, if any. */
+function revealPendingLine(view) {
+  const file = view.tile.file;
+  const at = file && pendingLines.get(fileKey(file));
+  if (!at || !view.viewer) return;
+  pendingLines.delete(fileKey(file));
+  view.viewer.revealLine(at.line, at.column);
+}
+
+/** Opens a repo file in the preview tile, at a 1-based `line` and `column` when given. */
+function openFileAt(file, line, column) {
+  if (line) pendingLines.set(fileKey(file), { line, column });
+  openFileTile(
+    { localFolder: file.localFolder, root: file.root },
+    file.path,
+    'preview',
+  );
+  const tile = tileShowingFile(file);
+  const view = tile && fileViews.get(tile.id);
+  if (view) revealPendingLine(view);
+}
+
 /** A file tile's menu (its tab, its Layout row, and a right-click in it). */
 function fileTileMenuItems(tile) {
   const items = [];
@@ -2654,6 +2688,7 @@ async function loadFile(view) {
       text,
     });
   }
+  revealPendingLine(view);
   view.state = 'ok';
   view.error = '';
   updateFileOverlay(view);
@@ -3028,15 +3063,15 @@ function openInPreview(ref) {
   else views.get(tile.id)?.renderer.focus();
 }
 
-/**
- * A pane's sidebar row: the kept one for this pane (see {@link paneRows}), brought up to date.
- * `space` names its Herdr space in the tooltip; '' when the container has just one.
- */
 /** A label's row text (see `paneLabel`): its name, then any agent or command title, muted. */
 function labelParts({ name, title }) {
   return title ? [name, h('span', { class: 'pane-title' }, title)] : [name];
 }
 
+/**
+ * A pane's sidebar row: the kept one for this pane (see {@link paneRows}), brought up to date.
+ * `space` names its Herdr space in the tooltip; '' when the container has just one.
+ */
 function paneRow(c, pane, depth, space = '') {
   const key = paneKey(c.id, pane.pane_id);
   let rec = paneRows.get(key);
@@ -3384,7 +3419,10 @@ function mountTile(tile) {
     tile.focus();
   }, true);
 
-  const renderer = createRenderer(termEl);
+  const renderer = createRenderer(termEl, {
+    linkHint: LINK_HINT,
+    linkModifier: isLinkModifier,
+  });
   /** @type {TileView} */
   const view = {
     tile,
@@ -3524,12 +3562,69 @@ async function writeClipboard(text) {
   }
 }
 
+/** Mac's link modifier is Cmd; elsewhere it is Ctrl (as in VS Code's terminal). */
+const IS_MAC = /Mac|iPhone|iPad/.test(navigator.platform);
+
+/** Whether the key that opens terminal links is down during `ev`. */
+function isLinkModifier(ev) {
+  return IS_MAC ? ev.metaKey : ev.ctrlKey;
+}
+
+/** The tooltip over a terminal link. */
+const LINK_HINT = `${IS_MAC ? 'Cmd' : 'Ctrl'}+click to open`;
+
+/** The terminal cell under a mouse event, or null before the terminal is laid out. */
+function cellAt(view, e) {
+  const m = view.renderer.metrics();
+  return m
+    ? pixelToCell(
+      e.clientX - m.left,
+      e.clientY - m.top,
+      m.cellWidth,
+      m.cellHeight,
+      m.cols,
+      m.rows,
+    )
+    : null;
+}
+
+/**
+ * Opens a link in pane `t`: a URL in a new browser tab, a file in the viewer when it is in one of
+ * the container's project repos. Relative paths are from the pane's current folder.
+ *
+ * @param {{container: string, pane_id: string}} t
+ * @param {import('./lib/links.js').Link} link
+ */
+async function openLink(t, link) {
+  if (link.kind === 'url') {
+    window.open(link.url, '_blank', 'noopener,noreferrer');
+    return;
+  }
+  const pane = findPane(t.container, t.pane_id);
+  const path = resolvePath(pane?.foreground_cwd || pane?.cwd || '', link.path);
+  if (!path) {
+    toast(`Can't open ${link.path}: the terminal's folder is unknown`);
+    return;
+  }
+  try {
+    const file = await call({
+      type: 'locate_file',
+      container: t.container,
+      path,
+    });
+    openFileAt(file, link.line, link.column);
+  } catch (e) {
+    toast(`Can't open ${link.path}: ${e?.message ?? e}`);
+  }
+}
+
 /**
  * Plain mouse down/drag/up over the terminal go to Herdr as cells (the browser does not
  * select); a plain left-drag's text is copied from Herdr, and flashed here unless the app redrew
  * during the drag (it draws its own selection). Shift+drag
  * is left to xterm.js for a local selection, copied on mouseup. A right-click opens the tile's
- * menu (the same as its tab's) and is not sent to the app.
+ * menu (the same as its tab's) and is not sent to the app. Cmd+click (Ctrl+click off a Mac) on
+ * a link opens it ({@link openLink}); anywhere else it is an ordinary click.
  */
 function attachMouse(view, termEl, target) {
   termEl.addEventListener('contextmenu', (ev) => {
@@ -3542,6 +3637,19 @@ function attachMouse(view, termEl, target) {
       ev.stopPropagation();
       view.renderer.focus();
       return;
+    }
+    if (ev.button === 0 && isLinkModifier(ev)) {
+      const at = cellAt(view, ev);
+      const link = at && view.renderer.linkAt(at);
+      const t = target();
+      if (link && t) {
+        ev.preventDefault();
+        ev.stopPropagation();
+        // The file opens in the preview tile, which must not be this terminal.
+        keepOpen(view.tile);
+        openLink(t, link);
+        return;
+      }
     }
     if (ev.shiftKey) {
       const onUp = () => {
@@ -3559,19 +3667,7 @@ function attachMouse(view, termEl, target) {
     view.renderer.focus();
     view.renderer.clearHighlight();
     if (!button || !t) return;
-    const cell = (e) => {
-      const m = view.renderer.metrics();
-      return m
-        ? pixelToCell(
-          e.clientX - m.left,
-          e.clientY - m.top,
-          m.cellWidth,
-          m.cellHeight,
-          m.cols,
-          m.rows,
-        )
-        : null;
-    };
+    const cell = (e) => cellAt(view, e);
     const start = cell(ev);
     if (!start) return;
     send({ type: 'mouse', ...t, action: 'down', button, ...start });

@@ -46,6 +46,8 @@ import { languageFor as pickLanguage } from './lib/languages.js';
 /**
  * @typedef {object} Viewer
  * @property {(text: string) => void} setText   replaces the content, keeping the scroll position when it can
+ * @property {(line: number, column?: number) => void} revealLine
+ *   puts the cursor at a 1-based line and column (clamped to the file) and scrolls it to the middle
  * @property {() => void} focus
  * @property {() => void} destroy
  */
@@ -282,6 +284,15 @@ export function createViewer(el, { name, text }) {
         },
       });
       view.scrollDOM.scrollTop = scrollTop;
+    },
+    revealLine(line, column = 1) {
+      const doc = view.state.doc;
+      const at = doc.line(Math.min(Math.max(line, 1), doc.lines));
+      const pos = Math.min(at.from + Math.max(column - 1, 0), at.to);
+      view.dispatch({
+        selection: { anchor: pos },
+        effects: EditorView.scrollIntoView(pos, { y: 'center' }),
+      });
     },
     focus() {
       view.focus();

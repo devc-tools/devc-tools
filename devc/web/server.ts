@@ -23,7 +23,10 @@ import {
 } from './containers.ts';
 import type { ContainerMount } from '@devc-tools/core/container.ts';
 import { loadGlobalConfig } from '@devc-tools/core/config.ts';
-import { hostToContainerPath } from '@devc-tools/core/mount_paths.ts';
+import {
+  containerToHostPath,
+  hostToContainerPath,
+} from '@devc-tools/core/mount_paths.ts';
 import { dirnamePosix } from '@devc-tools/core/posix.ts';
 import {
   confine,
@@ -61,6 +64,7 @@ import {
   buildProjects,
   isProjectRepo,
   projectRefusal,
+  repoFileFor,
 } from './projects_view.ts';
 import { GitStatusWatch } from './git_status.ts';
 import {
@@ -634,6 +638,58 @@ export async function startWeb(
   };
 
   /**
+   * Where a container path a terminal printed is on the host, for the page's file viewer:
+   * `{localFolder, root, path}` as `read_file` takes them, when the file is in one of the
+   * container's project repos (confined like `read_file`, symlinks included).
+   */
+  const locateFile = async (
+    c: Client,
+    session: ContainerSession,
+    msg: Extract<ClientMessage, { type: 'locate_file' }>,
+  ) => {
+    const localFolder = session.record.localFolder;
+    const hostPath = containerToHostPath(
+      msg.path,
+      await mountsOf(session.record.id),
+    );
+    if (hostPath === null) {
+      fail(c, msg.id, 'not_mounted', `${msg.path} is not in a mounted folder`);
+      return;
+    }
+    const file = repoFileFor(projectsMessage().projects, localFolder, hostPath);
+    if (file === null) {
+      fail(
+        c,
+        msg.id,
+        'forbidden',
+        `${msg.path} is outside the project's repos`,
+      );
+      return;
+    }
+    let confined: string | null;
+    try {
+      confined = await confine(file.root, file.path);
+    } catch {
+      fail(c, msg.id, 'not_found', `${msg.path} does not exist`);
+      return;
+    }
+    if (confined === null) {
+      fail(
+        c,
+        msg.id,
+        'forbidden',
+        `${msg.path} is outside the project's repos`,
+      );
+      return;
+    }
+    if (!(await Deno.stat(confined).catch(() => null))?.isFile) {
+      fail(c, msg.id, 'not_found', `${msg.path} is not a file`);
+      return;
+    }
+    reply(c, { id: msg.id, ok: true, result: { localFolder, ...file } });
+  };
+
+  /**
    * Waits until the session is no longer `connecting` (a run in progress), up to about the time
    * a session start may take.
    */
@@ -876,6 +932,9 @@ export async function startWeb(
         return;
       case 'open_tab':
         await openTab(c, session, msg);
+        return;
+      case 'locate_file':
+        await locateFile(c, session, msg);
         return;
     }
     const target = session.target;
