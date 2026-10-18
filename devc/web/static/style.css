@@ -564,6 +564,13 @@ body.resizing-sidebar {
   cursor: pointer;
 }
 
+/* An agent's or command's title, after the terminal's folder name (sidebar rows and tabs). */
+.row .pane-title,
+.lm_header .lm_tab .tile-title-muted {
+  margin-left: 6px;
+  color: var(--muted);
+}
+
 .row.container:hover,
 .row.group:hover,
 .row.pane:hover,

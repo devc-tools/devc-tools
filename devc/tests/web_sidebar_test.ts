@@ -5,6 +5,7 @@ import {
   containerLabel,
   gitRollup,
   gitSync,
+  labelText,
   paneLabel,
   paneTitle,
   SIDEBAR_DEFAULT_WIDTH,
@@ -35,55 +36,75 @@ Deno.test('containerLabel falls back to the full folder when the parent is share
   assertEquals(containerLabel(a, [a, b]), 'app · /Users/me/one/x/app');
 });
 
-Deno.test('paneLabel calls a shell in the container folder "bash"', () => {
-  const c = container('devc-dev', '/Users/me/code/tools/devc-dev');
+Deno.test('paneLabel names a shell after its folder alone', () => {
   assertEquals(
-    paneLabel(c, {
+    paneLabel({
       pane_id: 'p1',
       cwd: '/workspaces/devc-dev',
       terminal_title_stripped: 'devc-dev',
     }),
-    'bash',
+    { name: 'devc-dev', title: '' },
   );
-  // No title at all: still a shell.
   assertEquals(
-    paneLabel(c, { pane_id: 'p1', cwd: '/workspaces/devc-dev' }),
-    'bash',
-  );
-});
-
-Deno.test('paneLabel names the folder of a shell elsewhere', () => {
-  const c = container('multi', '/Users/me/code/multi');
-  assertEquals(
-    paneLabel(c, {
-      pane_id: 'p1',
-      cwd: '/workspaces/multi',
-      foreground_cwd: '/workspaces/multi/client',
-      terminal_title_stripped: 'client',
-    }),
-    'bash · client',
+    paneLabel({ pane_id: 'p1', cwd: '/workspaces/devc-dev' }),
+    { name: 'devc-dev', title: '' },
   );
 });
 
-Deno.test('paneLabel keeps agent and command titles', () => {
-  const c = container('devc-dev', '/Users/me/code/tools/devc-dev');
+Deno.test('paneLabel keeps agent and command titles next to the folder', () => {
   assertEquals(
-    paneLabel(c, {
+    paneLabel({
       pane_id: 'p1',
       cwd: '/workspaces/devc-dev',
-      terminal_title_stripped: 'devc-dev',
+      terminal_title_stripped: 'Claude Code',
       agent: 'claude',
     }),
-    'devc-dev',
+    { name: 'devc-dev', title: 'Claude Code' },
   );
   assertEquals(
-    paneLabel(c, {
+    paneLabel({
       pane_id: 'p1',
       cwd: '/workspaces/devc-dev',
       terminal_title_stripped: 'npm run dev',
     }),
-    'npm run dev',
+    { name: 'devc-dev', title: 'npm run dev' },
   );
+});
+
+Deno.test('paneLabel prefers where the foreground process is', () => {
+  assertEquals(
+    paneLabel({
+      pane_id: 'p1',
+      cwd: '/workspaces/multi',
+      foreground_cwd: '/workspaces/multi/client',
+      terminal_title_stripped: 'multi',
+    }),
+    { name: 'client', title: '' },
+  );
+});
+
+Deno.test('paneLabel keeps a rename, and falls back to the title without a folder', () => {
+  assertEquals(
+    paneLabel({
+      pane_id: 'p1',
+      label: 'logs',
+      cwd: '/workspaces/app',
+      terminal_title_stripped: 'app',
+    }),
+    { name: 'logs', title: '' },
+  );
+  assertEquals(
+    paneLabel({ pane_id: 'p1', terminal_title_stripped: 'zsh' }),
+    { name: 'zsh', title: '' },
+  );
+});
+
+Deno.test('labelText joins a label into one line', () => {
+  assertEquals(
+    labelText({ name: 'multi · client', title: 'Claude Code' }),
+    'multi · client · Claude Code',
+  );
+  assertEquals(labelText({ name: 'multi', title: '' }), 'multi');
 });
 
 Deno.test('paneTitle prefers a rename, then the terminal title, folder and id', () => {

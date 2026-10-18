@@ -1,6 +1,8 @@
 // Pure naming and status helpers for the `devc web` sidebar, shared with the Deno tests
 // (`devc/tests/web_sidebar_test.ts`). No DOM access here.
 
+import { tileTitle } from './layout_state.js';
+
 /** Agent statuses, most in need of attention first. */
 export const STATUS_ORDER = ['blocked', 'working', 'done', 'unknown', 'idle'];
 
@@ -61,17 +63,27 @@ export function containerLabel(c, all) {
 }
 
 /**
- * A pane's sidebar label. A shell's title is just its folder, which is usually the container's
- * own name again, so a shell reads `bash`, or `bash · <folder>` when it is somewhere else.
- * Agents and anything with a title of its own (`npm run dev`) keep their title.
+ * A pane's label wherever it is listed: `name` is the name it was renamed to, else the base name
+ * of the folder it is in (`client`); `title` is an agent's or command's own title
+ * (`Claude Code`, `npm run dev`), or `''` for a shell, whose title is just its folder.
+ * @returns {{name: string, title: string}}
  */
-export function paneLabel(c, pane) {
-  const title = paneTitle(pane);
+export function paneLabel(pane) {
   const dir = basename(pane.foreground_cwd || pane.cwd);
+  const name = pane.label || dir || paneTitle(pane);
+  const title = pane.terminal_title_stripped || '';
   const folders = [basename(pane.cwd), basename(pane.foreground_cwd)];
-  if (pane.agent || !dir) return title;
-  if (title !== pane.pane_id && !folders.includes(title)) return title;
-  return dir === basename(c.localFolder) ? 'bash' : `bash · ${dir}`;
+  return {
+    name,
+    title: title === name || (!pane.agent && folders.includes(title))
+      ? ''
+      : title,
+  };
+}
+
+/** A label as one line of plain text, for places that can't style part of it. */
+export function labelText({ name, title }) {
+  return tileTitle(name, title);
 }
 
 /**

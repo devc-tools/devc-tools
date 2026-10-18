@@ -14,7 +14,6 @@ import {
   foldTree,
   parseSavedLayout,
   sameFile,
-  tileTitle,
   treeSignature,
 } from './lib/layout_state.js';
 import {
@@ -31,6 +30,7 @@ import {
   containerLabel,
   gitRollup,
   gitSync,
+  labelText,
   paneLabel,
   paneTitle,
   SIDEBAR_DEFAULT_WIDTH,
@@ -1027,13 +1027,22 @@ function resolveRef(ref) {
   return { c, pane };
 }
 
-function refTitle(ref) {
-  if (!ref) return 'empty';
+/** A tile's label (see `paneLabel`), the same as its sidebar row's. */
+function refLabel(ref) {
+  if (!ref) return { name: 'empty', title: '' };
+  const { pane } = resolveRef(ref);
+  return pane ? paneLabel(pane) : { name: ref.pane_id, title: '' };
+}
+
+/** A tile's tooltip lines: its container (which its label leaves out), label and folder. */
+function refTooltip(ref) {
+  if (!ref) return [];
   const { c, pane } = resolveRef(ref);
-  return tileTitle(
+  return [
     c ? displayName(c) : basename(ref.localFolder),
-    pane ? paneTitle(pane) : ref.pane_id,
-  );
+    labelText(refLabel(ref)),
+    pane?.foreground_cwd || pane?.cwd || '',
+  ].filter((s) => s);
 }
 
 /** A Layout tile row's classes: `background` behind its stack's front tab, `preview` (italic). */
@@ -1057,7 +1066,8 @@ function layoutTileRow(tile, active, depth) {
       'data-pane-key': c && tile.ref
         ? paneKey(c.id, tile.ref.pane_id)
         : undefined,
-      title: active ? undefined : 'Background tab',
+      title: [...refTooltip(tile.ref), active ? '' : 'Background tab']
+        .filter((s) => s).join('\n') || undefined,
       onclick: () => revealTile(tile.id),
       oncontextmenu: (e) => openMenu(e, tileMenuItems(tile)),
     },
@@ -1065,7 +1075,7 @@ function layoutTileRow(tile, active, depth) {
       'span',
       { class: 'label' },
       rowIcon({ agent: pane?.agent, empty: !tile.ref }),
-      refTitle(tile.ref),
+      ...labelParts(refLabel(tile.ref)),
     ),
     rowTrail(
       badge(pane),
@@ -1410,7 +1420,7 @@ function placeInFocusedStack(ref) {
  * showing the pane closes too, rather than staying behind with "Pane gone".
  */
 function killPane(c, pane) {
-  if (!confirm(`Close terminal "${paneLabel(c, pane)}"? Its process ends.`)) {
+  if (!confirm(`Close terminal "${paneLabel(pane).name}"? Its process ends.`)) {
     return;
   }
   call({
@@ -3022,6 +3032,11 @@ function openInPreview(ref) {
  * A pane's sidebar row: the kept one for this pane (see {@link paneRows}), brought up to date.
  * `space` names its Herdr space in the tooltip; '' when the container has just one.
  */
+/** A label's row text (see `paneLabel`): its name, then any agent or command title, muted. */
+function labelParts({ name, title }) {
+  return title ? [name, h('span', { class: 'pane-title' }, title)] : [name];
+}
+
 function paneRow(c, pane, depth, space = '') {
   const key = paneKey(c.id, pane.pane_id);
   let rec = paneRows.get(key);
@@ -3044,7 +3059,7 @@ function paneRow(c, pane, depth, space = '') {
     rec.remove = tiling.dragSource(
       r.row,
       () => ({ localFolder: r.c.localFolder, pane_id: r.pane.pane_id }),
-      () => tileTitle(displayName(r.c), paneTitle(r.pane)),
+      () => labelText(paneLabel(r.pane)),
     );
   }
   const { row } = rec;
@@ -3054,6 +3069,7 @@ function paneRow(c, pane, depth, space = '') {
   row.classList.toggle('visible', visible);
   // The children ignore the pointer, so the badge's tooltip lives here.
   row.title = [
+    paneTitle(pane),
     pane.foreground_cwd || pane.cwd || '',
     space ? `Space: ${space}` : '',
     pane.agent ? `${pane.agent}: ${agentStatus(pane)}` : '',
@@ -3066,7 +3082,7 @@ function paneRow(c, pane, depth, space = '') {
       // In the slot a chevron would take, so terminals line up with the tree rows at their depth.
       // Shown in a tile, it turns the accent color (the row's `visible` class).
       rowIcon({ agent: pane.agent }),
-      paneLabel(c, pane),
+      ...labelParts(paneLabel(pane)),
     ),
     rowTrail(
       badge(pane),
@@ -3301,7 +3317,7 @@ function updateOverlay(tileId) {
   );
 }
 
-/** Each tile's tab: `<container> · <pane title>`, and the pane's agent badge. */
+/** Each tile's tab: its label (`refLabel`), and the pane's agent badge. */
 function renderTileTitles() {
   for (const view of views.values()) {
     const ref = view.tile.ref;
@@ -3310,7 +3326,9 @@ function renderTileTitles() {
       view.tile.setBadge(null);
       continue;
     }
-    view.tile.setTitle(refTitle(ref));
+    const { name, title } = refLabel(ref);
+    view.tile.setTitle(name, title);
+    view.tile.setTooltip(refTooltip(ref).join('\n'));
     view.tile.setBadge(badge(resolveRef(ref).pane) || null);
   }
 }

@@ -42,7 +42,7 @@ const COMPONENT_TYPES = /** @type {const} */ (['pane', 'file']);
  * @property {boolean} preview           a preview tile: the next sidebar click replaces what it
  *   shows; its tab title is italic. Saved with the layout.
  * @property {(on: boolean) => void} setPreview  persists into the component state
- * @property {(title: string) => void} setTitle
+ * @property {(title: string, muted?: string) => void} setTitle  `muted` follows the title, muted
  * @property {(text: string) => void} setTooltip  the tab's tooltip (default: the title)
  * @property {(el: Node | null) => void} setBadge     agent badge shown in the tile's tab
  * @property {() => void} focus
@@ -95,6 +95,8 @@ export function createTiling(root, hooks) {
   const badges = new Map();
   /** @type {Map<Tile, string>} each tile's tooltip, re-applied the same way */
   const tooltips = new Map();
+  /** @type {Map<Tile, {title: string, muted: string}>} titles with a muted part, the same way */
+  const splitTitles = new Map();
   /** @type {Map<string, any>} ComponentContainer by Tile.id */
   const containerById = new Map();
   /**
@@ -115,13 +117,21 @@ export function createTiling(root, hooks) {
   };
 
   /**
-   * Puts `tile`'s badge, tooltip and preview styling into its current tab element (tabs are
-   * recreated on moves, and a title change resets the tooltip).
+   * Puts `tile`'s badge, tooltip, muted title part and preview styling into its current tab
+   * element (tabs are recreated on moves, and a title change resets the tooltip).
    */
   const applyBadge = (container, tile) => {
     const tab = container.tab;
     if (!tab) return;
     tab.element.classList.toggle('tile-preview', tile.preview);
+    // Golden Layout writes the title as plain text; this puts its muted part in its own span.
+    const split = splitTitles.get(tile);
+    if (split) {
+      const muted = document.createElement('span');
+      muted.className = 'tile-title-muted';
+      muted.textContent = split.muted;
+      tab.titleElement.replaceChildren(split.title, muted);
+    }
     const tooltip = tooltips.get(tile);
     if (tooltip !== undefined) tab.element.title = tooltip;
     tab.element.querySelector('.tile-badge')?.remove();
@@ -157,9 +167,12 @@ export function createTiling(root, hooks) {
           );
           applyBadge(container, tile);
         },
-        setTitle(title) {
-          if (container.title !== title) {
-            container.setTitle(title);
+        setTitle(title, muted = '') {
+          if (muted) splitTitles.set(tile, { title, muted });
+          else splitTitles.delete(tile);
+          const text = muted ? `${title} · ${muted}` : title;
+          if (container.title !== text) {
+            container.setTitle(text);
             applyBadge(container, tile);
           }
         },
@@ -184,6 +197,7 @@ export function createTiling(root, hooks) {
         containerById.delete(tile.id);
         badges.delete(tile);
         tooltips.delete(tile);
+        splitTitles.delete(tile);
         hooks.unmount(tile);
       });
       hooks.mount(tile);
