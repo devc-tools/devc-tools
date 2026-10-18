@@ -195,6 +195,17 @@ Notes:
   substitutes variables itself — inside the merged config they are the
   devcontainer CLI's to resolve, which is why `${devcontainerId}` and
   `${containerEnv:…}` work there.
+- **Every exec reaches the container the same way.** CLI commands and
+  `devc web` alike carry `-u remoteUser`, the full `remoteEnv` and
+  `-w remoteWorkspaceFolder`, built by one function (`dockerExecArgv` in
+  `devc-core/container.ts`; a test fails on any other `docker exec` argv).
+  `devc web` doesn't start containers, so it can't take these from
+  `devcontainer up`. It gets them from `connectionFor` instead: the same
+  merged config and `remoteEnv` derivation, with the workspace folder and
+  `remoteUser` from `devcontainer read-configuration --container-id`. A Herdr
+  server started from the page therefore gets the same `TZ`, `LANG` and
+  `PROJECT_PATH` a `devc herdr` attach does. A server that is already running
+  keeps the environment it started with.
 - **The workspace mount is the git root, not `<PATH>`.** The CLI's
   `--mount-workspace-git-root` (on by default) mounts the nearest ancestor
   holding a `.git`. When that is an ancestor of `<PATH>` (a fresh project nobody

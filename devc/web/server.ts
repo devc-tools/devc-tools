@@ -859,7 +859,7 @@ export async function startWeb(
     }
     switch (msg.type) {
       case 'retry':
-        void session.run();
+        void session.retry();
         return;
       case 'start_session':
         try {

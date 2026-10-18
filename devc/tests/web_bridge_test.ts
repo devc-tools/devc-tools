@@ -13,6 +13,13 @@ import {
 } from '../web/herdr_bridge.ts';
 import { spawnLines, splitLines } from '../web/proc.ts';
 
+const INFO = {
+  containerId: 'c1',
+  remoteUser: 'vscode',
+  remoteWorkspaceFolder: '/workspaces/app',
+  remoteEnv: {},
+};
+
 Deno.test('normalizeEventName turns the first underscore into a dot', () => {
   assertEquals(normalizeEventName('pane_created'), 'pane.created');
   assertEquals(
@@ -67,18 +74,21 @@ Deno.test('isNoSessionError recognizes the bridge NotFound failure', () => {
   assert(!isNoSessionError('Error: permission denied'));
 });
 
-Deno.test('herdrArgv uses docker exec -i, never -t, and the absolute herdr path', () => {
+Deno.test('herdrArgv uses docker exec -i, never -t, with remoteEnv and the absolute herdr path', () => {
   const argv = herdrArgv({
-    containerId: 'c1',
-    user: 'vscode',
+    info: { ...INFO, remoteEnv: { TZ: 'Europe/Paris' } },
     herdrPath: '/home/vscode/.local/bin/herdr',
     session: 'devc',
   }, ['remote-api-bridge']);
   assertEquals(argv, [
     'exec',
     '-i',
+    '-e',
+    'TZ=Europe/Paris',
     '-u',
     'vscode',
+    '-w',
+    '/workspaces/app',
     'c1',
     '/home/vscode/.local/bin/herdr',
     '--session',
@@ -241,11 +251,22 @@ const hooks = {
 };
 
 const target = {
-  containerId: 'c1',
-  user: 'vscode',
+  info: INFO,
   herdrPath: '/usr/local/bin/herdr',
   session: 'devc',
 };
+
+/** `resolve` for a container whose config now carries `remoteEnv`, counting its calls. */
+function resolver(remoteEnv: Record<string, string>) {
+  const r = {
+    calls: 0,
+    resolve: () => {
+      r.calls++;
+      return Promise.resolve({ ...INFO, remoteEnv });
+    },
+  };
+  return r;
+}
 
 Deno.test("startSession throws no_session with the server log's tail", async () => {
   const calls: string[][] = [];
@@ -268,6 +289,7 @@ Deno.test("startSession throws no_session with the server log's tail", async () 
       startTries: 3,
       startWaitMs: 1,
       serverUp: () => Promise.resolve(false),
+      resolve: resolver({ TZ: 'Europe/Paris', LANG: 'en_US.utf8' }).resolve,
     },
   );
   s.target = target;
@@ -277,11 +299,18 @@ Deno.test("startSession throws no_session with the server log's tail", async () 
   assertEquals(err.message, "Herdr didn't come up in 0s.\nline 1\npanic: boom");
   // Only probed: the lifecycle never ran, so the state never left `no-session`.
   assertEquals(s.runs, 0);
+  // Resolved again before the start: the server gets the config's current remoteEnv.
   assertEquals(calls[0], [
     'exec',
     '-d',
+    '-e',
+    'TZ=Europe/Paris',
+    '-e',
+    'LANG=en_US.utf8',
     '-u',
     'vscode',
+    '-w',
+    '/workspaces/app',
     'c1',
     '/bin/bash',
     '-lc',
@@ -345,4 +374,50 @@ Deno.test('serverLogTail is empty when the log is unreadable', async () => {
     await serverLogTail(target, () => Promise.reject(new Error('no docker'))),
     '',
   );
+});
+
+Deno.test('run resolves the connection once; retry resolves it again', async () => {
+  const r = resolver({ TZ: 'UTC' });
+  let herdrLookups = 0;
+  const s = new ContainerSession(
+    { id: 'c1', localFolder: '/src/app' },
+    'devc',
+    hooks,
+    {
+      resolve: r.resolve,
+      herdrPath: () => {
+        herdrLookups++;
+        return Promise.resolve('');
+      },
+    },
+  );
+  await s.run();
+  // No herdr: the lifecycle stops at no-herdr, and the next run looks again.
+  assertEquals([s.state, s.target, r.calls, herdrLookups], [
+    'no-herdr',
+    null,
+    1,
+    1,
+  ]);
+  await s.retry();
+  assertEquals([r.calls, herdrLookups], [2, 2]);
+});
+
+Deno.test('a failed resolution is the container error, with its message', async () => {
+  const s = new ContainerSession(
+    { id: 'c1', localFolder: '/src/app' },
+    'devc',
+    hooks,
+    {
+      resolve: () =>
+        Promise.reject(
+          new Error('devcontainer read-configuration failed with exit code 1'),
+        ),
+    },
+  );
+  await s.run();
+  assertEquals([s.state, s.error], [
+    'error',
+    'devcontainer read-configuration failed with exit code 1',
+  ]);
 });

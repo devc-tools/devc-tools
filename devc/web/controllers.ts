@@ -54,7 +54,7 @@ export class ControllerManager {
     cols: number,
     rows: number,
   ): Promise<void> {
-    const k = key(target.containerId, paneId);
+    const k = key(target.info.containerId, paneId);
     const existing = this.#controllers.get(k);
     const subscribers = new Set(existing?.subscribers ?? []);
     subscribers.add(sub);
@@ -75,7 +75,7 @@ export class ControllerManager {
       ]),
     );
     const ctl: Controller = {
-      container: target.containerId,
+      container: target.info.containerId,
       paneId,
       proc,
       subscribers,

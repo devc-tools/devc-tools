@@ -1,56 +1,5 @@
 import { assertEquals } from 'jsr:@std/assert';
-import {
-  parseEventLine,
-  parsePsLine,
-  resolveRemoteUser,
-} from '../web/containers.ts';
-
-const labels = (metadata: unknown) =>
-  JSON.stringify({
-    'devcontainer.local_folder': '/src/app',
-    'devcontainer.metadata': JSON.stringify(metadata),
-  });
-
-Deno.test('resolveRemoteUser takes the last array entry that has a remoteUser', () => {
-  assertEquals(
-    resolveRemoteUser(
-      labels([
-        { remoteUser: 'first' },
-        { id: 'feature' },
-        { remoteUser: 'vscode' },
-        { customizations: {} },
-      ]),
-      'imageuser',
-    ),
-    'vscode',
-  );
-});
-
-Deno.test('resolveRemoteUser accepts a single metadata object', () => {
-  assertEquals(resolveRemoteUser(labels({ remoteUser: 'node' }), ''), 'node');
-});
-
-Deno.test('resolveRemoteUser falls back to Config.User, then root', () => {
-  assertEquals(
-    resolveRemoteUser(labels([{ id: 'x' }]), 'imageuser'),
-    'imageuser',
-  );
-  assertEquals(resolveRemoteUser(labels([{ id: 'x' }]), ''), 'root');
-  assertEquals(resolveRemoteUser(labels([{ remoteUser: 42 }]), ' '), 'root');
-  assertEquals(resolveRemoteUser('{}', ''), 'root');
-  assertEquals(resolveRemoteUser('null', 'u'), 'u');
-});
-
-Deno.test('resolveRemoteUser falls back on malformed JSON', () => {
-  assertEquals(resolveRemoteUser('not json', 'imageuser'), 'imageuser');
-  assertEquals(
-    resolveRemoteUser(
-      JSON.stringify({ 'devcontainer.metadata': '[{"remoteUser":' }),
-      '',
-    ),
-    'root',
-  );
-});
+import { parseEventLine, parsePsLine } from '../web/containers.ts';
 
 Deno.test('parsePsLine splits id, state and local folder on the first two tabs', () => {
   assertEquals(parsePsLine('abc123\trunning\t/Users/me/src/my app'), {

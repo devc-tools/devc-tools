@@ -12,13 +12,33 @@ connection resolver and one argv builder in devc-core and makes every exec site 
 
 ## Checklist
 
-- [ ] Step 0: measure `devcontainer read-configuration` against running containers (§ Step 0)
-- [ ] Step 1: `connectionFor`, and `startContainer` sharing its `remoteEnv` derivation (§ Step 1)
-- [ ] Step 2: `dockerExecArgv` and `loginShellArgv`; `buildExecArgs` removed (§ Step 2)
-- [ ] Step 3: CLI exec sites use them: `execInContainer`, `attach`, the Herdr watcher (§ Step 3)
-- [ ] Step 4: `devc web` resolves a `ContainerInfo` per container and every exec uses it (§ Step 4)
-- [ ] Step 5: the single-path test, README, doc comments (§ Step 5)
-- [ ] Tests (§ Tests), then Validation on a host (§ Validation)
+- [x] Step 0: `read-configuration` settled from the CLI 0.88.0 source plus a stub-docker run; host measurement folded into Validation (§ Step 0 results)
+- [x] Step 1: `connectionFor`, and `startContainer` sharing its `remoteEnv` derivation (§ Step 1)
+- [x] Step 2: `dockerExecArgv` and `loginShellArgv`; `buildExecArgs` removed (§ Step 2)
+- [x] Step 3: CLI exec sites use them: `execInContainer`, `attach`, the Herdr watcher (§ Step 3)
+- [x] Step 4: `devc web` resolves a `ContainerInfo` per container and every exec uses it (§ Step 4)
+- [x] Step 5: the single-path test, README, doc comments (§ Step 5)
+- [x] Tests (§ Tests): the `connectionFor` test runs the real CLI against a stub `docker` (`devc-core/tests/connection_for_test.ts`)
+- [ ] Validation on a host (§ Validation), including Step 0's cases (a)–(d) against real containers
+
+### Implementation notes (2026-10-18)
+
+- **`attachExecArgs` was kept, not removed**, as attach's own pure argv function over
+  `dockerExecArgv` (`(info, options, hostEnv) => string[]`). It owns attach's env layering and
+  login-shell choice, which are now tested directly, `remoteEnv` beating host `TERM` included.
+- **The single-path test's pattern** is `/(^\s*|\[\s*)['"]exec['"]\s*,/` (an array element at
+  the start of a line or right after `[`), not the own-line-only pattern in § Step 5. It also
+  catches a one-line `['exec', …]`, and it skips `f('exec', …)` (`main.ts`) and
+  `action: 'exec',`. Checked against the pre-plan code: it flags all seven hand-built sites.
+- **Retry is `ContainerSession.retry()`**, which clears `target` and runs again. `run()` alone
+  resolves only when there is no target, so the post-start reconnect in `#awaitServer` doesn't
+  pay for a second `read-configuration`.
+- **`resolveConnection`** (`web/containers.ts`) runs `connectionFor` through `streamingRunner`, so
+  the CLI's log lines stay out of `devc web`'s terminal, and a failure's message carries the last
+  five lines.
+- `devc-core/tests/git_dirs_test.ts` "cliWorktreeMounts matches what the pinned devcontainer CLI
+  computes" fails in a container without Docker, both before and after this change: the real
+  `read-configuration` exits 1 when it can't run `docker`.
 
 ## What was observed (2026-10-18)
 
@@ -47,16 +67,16 @@ and each new consumer has built its own answer.
 
 Every site that runs `docker exec`, and how it differs from `execInContainer`:
 
-| Site | `-u` | `remoteEnv` | `-w` | Shell |
-|---|---|---|---|---|
-| `execInContainer` (`devc-core/container.ts`, via `buildExecArgs`) | `up` result | yes | `remoteWorkspaceFolder` / `cwd` | none (argv) |
-| `attachToContainer` (`devc/attach.ts`, via `attachExecArgs`) | `up` result | yes, plus TERM identity below it and TMUX/`DEVC_ATTACH`/watch id above | `remoteWorkspaceFolder` / `cwd` | `/bin/bash -l` or `/bin/bash -lc` |
-| Herdr watcher (`herdrWatcherArgs`, `devc/herdr.ts`) | `up` result | **no** | **no** | `sh -c` |
-| `herdrArgv` (`devc/web/herdr_bridge.ts`): bridge, `--check`, `terminal session control` in `controllers.ts` | label parse | **no** | **no** | none |
-| `startSession` (`herdr_bridge.ts`) | label parse | **no** | **no** | `SERVER_SHELL`: `/bin/bash -lc 'export SHELL; exec "$0" "$@"'` |
-| `serverLogTail` (`herdr_bridge.ts`) | label parse | **no** | **no** | `sh -c` |
-| `commandInstalled` (`herdr_bridge.ts`) | label parse | **no** | **no** | `bash -lc` |
-| `resolveHerdrPath` (`devc/web/containers.ts`) | label parse | **no** | **no** | `sh -lc`. **Not** the `bash -l` PATH that panes and `devc claude` get |
+| Site                                                                                                        | `-u`        | `remoteEnv`                                                            | `-w`                            | Shell                                                                 |
+| ----------------------------------------------------------------------------------------------------------- | ----------- | ---------------------------------------------------------------------- | ------------------------------- | --------------------------------------------------------------------- |
+| `execInContainer` (`devc-core/container.ts`, via `buildExecArgs`)                                           | `up` result | yes                                                                    | `remoteWorkspaceFolder` / `cwd` | none (argv)                                                           |
+| `attachToContainer` (`devc/attach.ts`, via `attachExecArgs`)                                                | `up` result | yes, plus TERM identity below it and TMUX/`DEVC_ATTACH`/watch id above | `remoteWorkspaceFolder` / `cwd` | `/bin/bash -l` or `/bin/bash -lc`                                     |
+| Herdr watcher (`herdrWatcherArgs`, `devc/herdr.ts`)                                                         | `up` result | **no**                                                                 | **no**                          | `sh -c`                                                               |
+| `herdrArgv` (`devc/web/herdr_bridge.ts`): bridge, `--check`, `terminal session control` in `controllers.ts` | label parse | **no**                                                                 | **no**                          | none                                                                  |
+| `startSession` (`herdr_bridge.ts`)                                                                          | label parse | **no**                                                                 | **no**                          | `SERVER_SHELL`: `/bin/bash -lc 'export SHELL; exec "$0" "$@"'`        |
+| `serverLogTail` (`herdr_bridge.ts`)                                                                         | label parse | **no**                                                                 | **no**                          | `sh -c`                                                               |
+| `commandInstalled` (`herdr_bridge.ts`)                                                                      | label parse | **no**                                                                 | **no**                          | `bash -lc`                                                            |
+| `resolveHerdrPath` (`devc/web/containers.ts`)                                                               | label parse | **no**                                                                 | **no**                          | `sh -lc`. **Not** the `bash -l` PATH that panes and `devc claude` get |
 
 Out of scope: `docker` calls that don't exec into a container (`docker ps`, `docker events`,
 `docker inspect`). Duplicated inspect helpers such as `inspectMounts` in web vs
@@ -107,6 +127,30 @@ remoteWorkspaceFolder}` to `~/.cache/devc/projects/<key>/connection.json` after 
 successful `up`. `connectionFor` reads it, and it must match `containerId`, or it fails with
 "start it with devc once". Case (d) then has no file, so record what web should do for it here
 before Step 4.
+
+### Step 0 results (2026-10-18, from source; no Docker in the implementing container)
+
+Read from `@devcontainers/cli` 0.88.0's bundle (`dist/spec-node/devContainersSpecCLI.js`):
+
+- `read-configuration` gets `workspace` from the same `vi(cliHost, workspace, configFile,
+  mountWorkspaceGitRoot, mountGitWorktreeCommonDir, …)` whose `workspaceConfig.workspaceFolder`
+  `up` (and `exec`) report as `remoteWorkspaceFolder`. Given the same `--workspace-folder`,
+  `--mount-git-worktree-common-dir` and config flag, the two match by construction, for
+  (a)–(c) alike.
+- With `--container-id`, the container is found by id with no label lookup, and
+  `--include-merged-configuration` merges **that container's** metadata (`Or(container, …)`),
+  which is the same merge `up` uses. `up`'s user is then `mergedConfig.remoteUser ||
+  Config.User || "root"`, user part only (`resolveRemoteUserName`). By id also covers (d), a
+  VS Code-started container, so no fallback and no label parser is needed.
+- `--no-lockfile` is rejected ("Unknown arguments"), and `read-configuration` writes no lockfile
+  anyway.
+- Smoke run (real CLI, real `ensureMergedConfig`, stub `docker` answering `inspect`): a project
+  with `workspaceFolder: /workspaces/proj/sub` resolved `remoteWorkspaceFolder`
+  `/workspaces/proj/sub`, `remoteUser` `vscode` from metadata over `Config.User` `root`, and
+  `remoteEnv` with `${localEnv:…:default}`, `${containerWorkspaceFolder}` and
+  `${containerEnv:FOO}` all resolved.
+- Not measured: wall time per call on a host. It is one Node process plus one `docker inspect`,
+  paid once per container at discovery, on Retry, and before Start session.
 
 ## Step 1: `connectionFor` (devc-core/container.ts)
 
@@ -159,7 +203,10 @@ export interface DockerExecSpec {
  * `['exec', <-i/-t/-d>, ...('-e', 'K=V') one per merged key (envDefaults < remoteEnv < env),
  *   '-u', remoteUser, '-w', cwd, containerId, ...cmd]`.
  */
-export function dockerExecArgv(info: ContainerInfo, spec: DockerExecSpec): string[];
+export function dockerExecArgv(
+  info: ContainerInfo,
+  spec: DockerExecSpec,
+): string[];
 
 /**
  * A login shell. With no script: `['/bin/bash', '-l']` (interactive attach). With one:

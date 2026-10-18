@@ -11,6 +11,7 @@
 // the project in devc's projects list (`projects.ts`), which `devc web` shows.
 
 import {
+  connectionFor as _connectionFor,
   type ContainerInfo,
   downContainer as _downContainer,
   execInContainer as _execInContainer,
@@ -20,6 +21,7 @@ import {
   startContainer as _startContainer,
   type StartOptions,
 } from '@devc-tools/core/container.ts';
+import type { DevcontainerRunner } from '@devc-tools/core/devcontainer.ts';
 import { selfExecDevcontainerRunner } from './devcontainer_selfexec.ts';
 import {
   applyPolicy,
@@ -37,16 +39,18 @@ import { recordUse, updateProjects } from './projects.ts';
 
 export {
   assertLocalFolderExists,
-  buildExecArgs,
   buildUpArgs,
   type ContainerInfo,
   type ContainerMount,
   containerNameForLocalFolder,
   type ContainerStatus,
+  dockerExecArgv,
+  type DockerExecSpec,
   type ExecOptions,
   type ExecResult,
   getContainerMounts,
   getContainerStatus,
+  loginShellArgv,
   parseMounts,
   resolveLocalFolder,
   type StartOptions,
@@ -114,6 +118,19 @@ export async function startContainer(
   });
   await recordProject(localFolder);
   return info;
+}
+
+/**
+ * {@link _connectionFor}, pre-bound to the CLI's self-exec `DevcontainerRunner` (`runner`
+ * overrides it, e.g. to capture the CLI's stderr). No start hooks and no project recording:
+ * those are start effects, and this starts nothing.
+ */
+export function connectionFor(
+  localFolder: string,
+  containerId: string,
+  runner: DevcontainerRunner = selfExecDevcontainerRunner,
+): Promise<ContainerInfo> {
+  return _connectionFor(localFolder, containerId, { devcontainer: runner });
 }
 
 /**

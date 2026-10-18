@@ -9,8 +9,12 @@ import {
 } from '../web/static/lib/agent_icons.js';
 
 const target: HerdrTarget = {
-  containerId: 'c1',
-  user: 'vscode',
+  info: {
+    containerId: 'c1',
+    remoteUser: 'vscode',
+    remoteWorkspaceFolder: '/workspaces/app',
+    remoteEnv: {},
+  },
   herdrPath: '/usr/local/bin/herdr',
   session: 'devc',
 };
@@ -74,8 +78,10 @@ Deno.test('commandInstalled: command -v in a login shell, the command as an argu
     'exec',
     '-u',
     'vscode',
+    '-w',
+    '/workspaces/app',
     'c1',
-    'bash',
+    '/bin/bash',
     '-lc',
     'command -v "$1" >/dev/null',
     '_',

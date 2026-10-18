@@ -7,10 +7,15 @@
 // Not to be confused with `devc/bridge.ts`, which is devc-bridge (host commands granted to a
 // container). Nothing here touches it.
 
+import {
+  type ContainerInfo,
+  dockerExecArgv,
+  loginShellArgv,
+} from '@devc-tools/core/container.ts';
 import { closeGracefully, type LineProc, runText, spawnLines } from './proc.ts';
 import {
   type ContainerRecord,
-  inspectRemoteUser,
+  resolveConnection,
   resolveHerdrPath,
 } from './containers.ts';
 
@@ -23,42 +28,35 @@ export type ContainerState =
   | 'unsupported'
   | 'error';
 
-/** What every Herdr process for one container is started with. */
+/**
+ * What every Herdr process for one container is started with: how to reach the container (the
+ * same `ContainerInfo` `devc attach` uses, from `resolveConnection`), plus which `herdr` and
+ * which session.
+ */
 export interface HerdrTarget {
-  containerId: string;
-  user: string;
+  info: ContainerInfo;
   herdrPath: string;
   session: string;
 }
 
 /** `docker exec -i …` argv for `herdr --session <S> <rest…>`. Never `-t`: a pty corrupts JSON. */
 export function herdrArgv(t: HerdrTarget, rest: string[]): string[] {
-  return [
-    'exec',
-    '-i',
-    '-u',
-    t.user,
-    t.containerId,
-    t.herdrPath,
-    '--session',
-    t.session,
-    ...rest,
-  ];
+  return dockerExecArgv(t.info, {
+    interactive: true,
+    cmd: [t.herdrPath, '--session', t.session, ...rest],
+  });
 }
 
 /**
- * What `herdr server` runs inside when devc web starts it: a login shell, as `devc herdr`'s
- * attach uses, so the server — and every pane it spawns, which inherits its environment — gets
- * the user's profile (`~/.local/bin` on `PATH`, say). `SHELL` is exported because Herdr gives a
- * pane `$SHELL`, else `/bin/sh` (no rc files, no prompt); a bare `docker exec` doesn't set it,
- * and bash only sets it, from the passwd entry, without exporting it. The command rides along as
+ * The login-shell script `herdr server` runs inside when devc web starts it (via
+ * `loginShellArgv`, as `devc herdr`'s attach does), so the server — and every pane it spawns,
+ * which inherits its environment — gets the user's profile (`~/.local/bin` on `PATH`, say) on top
+ * of the `remoteEnv` every exec carries. `SHELL` is exported because Herdr gives a pane `$SHELL`,
+ * else `/bin/sh` (no rc files, no prompt); a project config need not set it in `remoteEnv`, and
+ * bash only sets it, from the passwd entry, without exporting it. The command rides along as
  * `$0`/`$@`.
  */
-export const SERVER_SHELL = [
-  '/bin/bash',
-  '-lc',
-  'export SHELL; exec "$0" "$@"',
-];
+export const SERVER_SCRIPT = 'export SHELL; exec "$0" "$@"';
 
 /** The global event types the lifecycle connection subscribes to. */
 export const GLOBAL_EVENT_TYPES = [
@@ -442,6 +440,10 @@ export interface SessionDeps {
   startWaitMs: number;
   /** Whether the session has a server: see {@link serverAnswers}. */
   serverUp: (t: HerdrTarget) => Promise<boolean>;
+  /** How to reach the container: see {@link resolveConnection}. */
+  resolve: (record: ContainerRecord) => Promise<ContainerInfo>;
+  /** The container's `herdr`, `''` for none: see {@link resolveHerdrPath}. */
+  herdrPath: (info: ContainerInfo) => Promise<string>;
 }
 
 /**
@@ -462,17 +464,18 @@ export async function serverLogTail(
   t: HerdrTarget,
   run: typeof runText = runText,
 ): Promise<string> {
-  const out = await run('docker', [
-    'exec',
-    '-u',
-    t.user,
-    t.containerId,
-    'sh',
-    '-c',
-    'tail -n 10 "$HOME/.config/herdr/sessions/$1/herdr-server.log"',
-    '_',
-    t.session,
-  ]).catch(() => null);
+  const out = await run(
+    'docker',
+    dockerExecArgv(t.info, {
+      cmd: [
+        'sh',
+        '-c',
+        'tail -n 10 "$HOME/.config/herdr/sessions/$1/herdr-server.log"',
+        '_',
+        t.session,
+      ],
+    }),
+  ).catch(() => null);
   return out !== null && out.code === 0 ? out.stdout.trimEnd() : '';
 }
 
@@ -485,17 +488,12 @@ export async function commandInstalled(
   command: string,
   run: typeof runText = runText,
 ): Promise<boolean> {
-  const out = await run('docker', [
-    'exec',
-    '-u',
-    t.user,
-    t.containerId,
-    'bash',
-    '-lc',
-    'command -v "$1" >/dev/null',
-    '_',
-    command,
-  ]).catch(() => null);
+  const out = await run(
+    'docker',
+    dockerExecArgv(t.info, {
+      cmd: loginShellArgv('command -v "$1" >/dev/null', '_', command),
+    }),
+  ).catch(() => null);
   return out !== null && out.code === 0;
 }
 
@@ -536,6 +534,8 @@ export class ContainerSession {
       startTries: START_SESSION_TRIES,
       startWaitMs: START_SESSION_WAIT_MS,
       serverUp: serverAnswers,
+      resolve: resolveConnection,
+      herdrPath: resolveHerdrPath,
       ...deps,
     };
   }
@@ -547,28 +547,14 @@ export class ContainerSession {
     this.hooks.onState();
   }
 
-  /** Runs the lifecycle from the top. Safe to call again (Retry): it tears the old run down. */
+  /**
+   * Runs the lifecycle from the top. Safe to call again: it tears the old run down. Resolves the
+   * connection and `herdr` first when there is no target yet.
+   */
   async run(): Promise<void> {
     const gen = await this.#reset('retry');
     try {
-      if (this.target === null) {
-        const user = await inspectRemoteUser(this.record.id);
-        const herdrPath = await resolveHerdrPath(this.record.id, user);
-        if (gen !== this.#gen) return;
-        if (herdrPath === '') {
-          this.#setState(
-            'no-herdr',
-            'herdr is not installed in this container',
-          );
-          return;
-        }
-        this.target = {
-          containerId: this.record.id,
-          user,
-          herdrPath,
-          session: this.session,
-        };
-      }
+      if (this.target === null && !await this.#resolve(gen)) return;
       await this.#connect(gen);
     } catch (e) {
       if (gen !== this.#gen) return;
@@ -576,29 +562,58 @@ export class ContainerSession {
     }
   }
 
+  /** The page's Retry: resolves the connection again (a config edit since), then {@link run}. */
+  async retry(): Promise<void> {
+    this.target = null;
+    await this.run();
+  }
+
   /**
-   * `herdr --session <S> server`, detached and inside {@link SERVER_SHELL}, then the lifecycle
+   * How to reach the container and its `herdr`, into `target`. `false` when this run should stop
+   * here: superseded, no `herdr` (state `no-herdr`), or a thrown resolution (left to the caller's
+   * catch, which reports it as `error`).
+   */
+  async #resolve(gen: number): Promise<boolean> {
+    const info = await this.#deps.resolve(this.record);
+    const herdrPath = await this.#deps.herdrPath(info);
+    if (gen !== this.#gen) return false;
+    if (herdrPath === '') {
+      this.target = null;
+      this.#setState('no-herdr', 'herdr is not installed in this container');
+      return false;
+    }
+    this.target = { info, herdrPath, session: this.session };
+    return true;
+  }
+
+  /**
+   * `herdr --session <S> server`, detached and inside {@link SERVER_SCRIPT}'s login shell, then
+   * the lifecycle
    * from the bridge check on. Throws
    * a `no_session` {@link BridgeError} carrying the server log's tail when, after the retries,
    * there is still no server.
    */
   async startSession(): Promise<void> {
-    const t = this.target;
-    if (t === null) {
+    if (this.target === null) {
       throw new Error('herdr has not been located in this container');
     }
-    const out = await this.#deps.runText('docker', [
-      'exec',
-      '-d',
-      '-u',
-      t.user,
-      t.containerId,
-      ...SERVER_SHELL,
-      t.herdrPath,
-      '--session',
-      t.session,
-      'server',
-    ]);
+    // Resolved again, so a server started now gets the config's current `remoteEnv`.
+    const info = await this.#deps.resolve(this.record);
+    const t: HerdrTarget = { ...this.target, info };
+    this.target = t;
+    const out = await this.#deps.runText(
+      'docker',
+      dockerExecArgv(t.info, {
+        detach: true,
+        cmd: loginShellArgv(
+          SERVER_SCRIPT,
+          t.herdrPath,
+          '--session',
+          t.session,
+          'server',
+        ),
+      }),
+    );
     if (out.code !== 0) {
       throw new Error(out.stderr.trim() || 'starting the Herdr server failed');
     }

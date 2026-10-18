@@ -3,9 +3,11 @@
 // programmatic library consumer (the pi extension `devc-core` exists for) has any use for. See
 // `.plans/devc-core-npm-library.md`'s "the split follows the TTY" design decision.
 
-import type {
-  ContainerInfo,
-  ContainerMount,
+import {
+  type ContainerInfo,
+  type ContainerMount,
+  dockerExecArgv,
+  loginShellArgv,
 } from '@devc-tools/core/container.ts';
 import { hostToContainerPath } from '@devc-tools/core/mount_paths.ts';
 import { basenamePosix } from '@devc-tools/core/posix.ts';
@@ -187,31 +189,71 @@ export function describeBindMounts(mounts: ContainerMount[]): string {
 }
 
 /**
- * The `docker exec` argv for an attach. Split out from {@link attachToContainer} — which is
- * otherwise all TTY and environment side effects — so the one part with a decision in it is
- * directly testable: `-w` is `cwd` when the caller gave one, and the container's own
- * workspace folder otherwise.
+ * The `docker exec` argv for an attach: {@link dockerExecArgv} with attach's own environment and
+ * login shell. Split out from {@link attachToContainer} — which is otherwise all TTY and
+ * environment side effects — so every decision in it is directly testable. `hostEnv` reads the
+ * host's environment (`Deno.env.get` in production).
  */
 export function attachExecArgs(
-  info: Pick<
-    ContainerInfo,
-    'containerId' | 'remoteUser' | 'remoteWorkspaceFolder'
+  info: ContainerInfo,
+  options: Pick<
+    AttachOptions,
+    'noClear' | 'command' | 'commandArgs' | 'herdr' | 'cwd'
   >,
-  envFlags: string[],
-  shellArgs: string[],
-  cwd?: string,
+  hostEnv: (k: string) => string | undefined,
 ): string[] {
-  return [
-    'exec',
-    '-it',
-    ...envFlags,
-    '-u',
-    info.remoteUser,
-    '-w',
-    cwd ?? info.remoteWorkspaceFolder,
-    info.containerId,
-    ...shellArgs,
-  ];
+  const { noClear = false, command, commandArgs = [], herdr, cwd } = options;
+
+  // `docker exec -t` hardcodes TERM=xterm and drops the rest of the host's terminal
+  // identity, so keys negotiated against the outer terminal (extended keys like
+  // shift+enter) break inside the container. Propagate the identity vars the app
+  // keys off, each only when the host has it set:
+  //   TERM                 — e.g. tmux-256color, so behavior matches the host
+  //   TERM_PROGRAM         — e.g. vscode, so Claude interprets VS Code's shift+enter
+  //                          sequence (which `/terminal-setup` makes VS Code emit)
+  //   TERM_PROGRAM_VERSION — companion to TERM_PROGRAM
+  // Below remoteEnv, so explicit remoteEnv overrides still win.
+  const envDefaults: Record<string, string> = {};
+  for (const k of ['TERM', 'TERM_PROGRAM', 'TERM_PROGRAM_VERSION']) {
+    const v = hostEnv(k);
+    if (v) envDefaults[k] = v;
+  }
+
+  const env: Record<string, string> = {};
+  // Claude only requests extended keys (shift+enter et al.) from the outer terminal
+  // when it detects tmux via $TMUX, which `docker exec` drops — so a host-tmux user
+  // loses shift+enter inside the container despite the correct TERM. Re-inject the
+  // host $TMUX (only set when the host really is in tmux) so the container app sees it.
+  const hostTmux = hostEnv('TMUX');
+  if (hostTmux) env.TMUX = hostTmux;
+  // DEVC_ATTACH=1 arms the first-prompt clear in the devc:bashrc-additions fence
+  // (features/devc-config/post-create.sh). Skip it when the caller asked to keep
+  // output on screen (--no-clear), or when running a command (no interactive prompt
+  // fires — the clear is baked into the command's script below).
+  if (!noClear && !command) env.DEVC_ATTACH = '1';
+  // The marker the watcher greps `/proc/*/environ` for, so it can find *this* attach's shell
+  // among every process in the container. Only in `watch` mode — `pinned` needs no watcher.
+  if (herdr?.mode === 'watch') env[DEVC_HERDR_WATCH_ENV] = herdr.watchId;
+
+  // The login shell to run inside the container. Without `command`, an
+  // interactive login shell (plain `devc attach`). With `command`, a login
+  // shell that runs the command and exits when it does (e.g. `devc claude`).
+  // `clear` wipes login-init clutter before the command runs, mirroring the
+  // first-prompt clear a plain attach does via DEVC_ATTACH.
+  const shell = !command ? loginShellArgv() : loginShellArgv(
+    noClear ? `exec "$0" "$@"` : `clear; printf '\\033[3J'; exec "$0" "$@"`,
+    command,
+    ...commandArgs,
+  );
+
+  return dockerExecArgv(info, {
+    interactive: true,
+    tty: true,
+    cwd,
+    envDefaults,
+    env,
+    cmd: shell,
+  });
 }
 
 /**
@@ -253,67 +295,6 @@ export async function attachToContainer(
     new TextEncoder().encode(`\x1b]0;${sessionName}\x07`),
   );
 
-  // The login shell to run inside the container. Without `command`, an
-  // interactive login shell (plain `devc attach`). With `command`, a login
-  // shell that runs the command and exits when it does (e.g. `devc claude`).
-  // `clear` wipes login-init clutter before the command runs, mirroring the
-  // first-prompt clear a plain attach does via DEVC_ATTACH. The command and its args ride
-  // along as `$0`/`$@` rather than being spliced into the script, so they reach the command
-  // exactly as given with no quoting to get wrong.
-  const loginShell = (clear: boolean): string[] => {
-    if (!command) return ['/bin/bash', '-l'];
-    const inner = clear
-      ? `clear; printf '\\033[3J'; exec "$0" "$@"`
-      : `exec "$0" "$@"`;
-    return ['/bin/bash', '-lc', inner, command, ...commandArgs];
-  };
-
-  const shellArgs = loginShell(!noClear);
-
-  // `docker exec -t` hardcodes TERM=xterm and drops the rest of the host's terminal
-  // identity, so keys negotiated against the outer terminal (extended keys like
-  // shift+enter) break inside the container. Propagate the identity vars the app
-  // keys off, each only when the host has it set:
-  //   TERM                 — e.g. tmux-256color, so behavior matches the host
-  //   TERM_PROGRAM         — e.g. vscode, so Claude interprets VS Code's shift+enter
-  //                          sequence (which `/terminal-setup` makes VS Code emit)
-  //   TERM_PROGRAM_VERSION — companion to TERM_PROGRAM
-  // Placed before remoteEnv so explicit remoteEnv overrides still win.
-  const termIdentityFlags = ['TERM', 'TERM_PROGRAM', 'TERM_PROGRAM_VERSION']
-    .flatMap((k) => {
-      const v = Deno.env.get(k);
-      return v ? ['-e', `${k}=${v}`] : [];
-    });
-  const baseEnvFlags = [
-    ...termIdentityFlags,
-    ...Object.entries(info.remoteEnv).flatMap(([k, v]) => ['-e', `${k}=${v}`]),
-  ];
-
-  // Claude only requests extended keys (shift+enter et al.) from the outer terminal
-  // when it detects tmux via $TMUX, which `docker exec` drops — so a host-tmux user
-  // loses shift+enter inside the container despite the correct TERM. Re-inject the
-  // host $TMUX (only set when the host really is in tmux) so the container app sees it.
-  const hostTmux = Deno.env.get('TMUX');
-  const tmuxEnvFlags = hostTmux ? ['-e', `TMUX=${hostTmux}`] : [];
-
-  // DEVC_ATTACH=1 arms the first-prompt clear in the devc:bashrc-additions fence
-  // (features/devc-config/post-create.sh). Skip it when the caller asked to keep
-  // output on screen (--no-clear), or when running a command (no interactive prompt
-  // fires — the clear is baked into the command via loginShell()).
-  const attachFlag = noClear || command ? [] : ['-e', 'DEVC_ATTACH=1'];
-
-  // The marker the watcher greps `/proc/*/environ` for, so it can find *this* attach's shell
-  // among every process in the container. Only in `watch` mode — `pinned` needs no watcher.
-  const herdrWatchFlag = herdr?.mode === 'watch'
-    ? ['-e', `${DEVC_HERDR_WATCH_ENV}=${herdr.watchId}`]
-    : [];
-  const envFlags = [
-    ...baseEnvFlags,
-    ...tmuxEnvFlags,
-    ...attachFlag,
-    ...herdrWatchFlag,
-  ];
-
   // Two silent children beside the attach — a watcher and a sidecar, or just a pinned sidecar.
   // Seeded from `command` (`devc claude`) so the pane is correct immediately rather than a
   // second later. See `herdr.ts`.
@@ -326,7 +307,11 @@ export async function attachToContainer(
   const resetColors = await applyAttachColors(inTmux);
   try {
     const { code } = await new Deno.Command('docker', {
-      args: attachExecArgs(info, envFlags, shellArgs, cwd),
+      args: attachExecArgs(
+        info,
+        { noClear, command, commandArgs, herdr, cwd },
+        (k) => Deno.env.get(k),
+      ),
       stdin: 'inherit',
       stdout: 'inherit',
       stderr: 'inherit',

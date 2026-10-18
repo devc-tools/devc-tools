@@ -26,6 +26,11 @@ import { logNotice, logWarning } from './log.ts';
 
 export type ContainerStatus = 'running' | 'stopped' | 'missing';
 
+/**
+ * How to reach a devcontainer: everything a `docker exec` into it needs (see
+ * {@link dockerExecArgv}). Two producers, and only two: {@link startContainer} (runs `up`) and
+ * {@link connectionFor} (a container already running, no `up`).
+ */
 export interface ContainerInfo {
   containerId: string;
   remoteUser: string;
@@ -186,38 +191,64 @@ export async function getContainerStatus(
   return found.state === 'running' ? 'running' : 'stopped';
 }
 
-/**
- * Builds the `docker exec` argv for a non-interactive run: `-i` (never `-t`),
- * `-u remoteUser`, `-w cwd`, one `-e K=V` per env entry (remoteEnv first, then
- * `env` — so `env` overrides `remoteEnv` on key collision), the container id, and
- * finally `cmd` verbatim. Pure/exported for unit testing.
- */
-export function buildExecArgs(input: {
-  containerId: string;
-  remoteUser: string;
-  cwd: string;
-  remoteEnv: Record<string, string>;
-  env: Record<string, string>;
+/** What {@link dockerExecArgv} runs, and how. Everything else comes from the `ContainerInfo`. */
+export interface DockerExecSpec {
+  /** `-i`. */
+  interactive?: boolean;
+  /** `-t`. Never for a consumer that speaks JSON over stdio: a pty corrupts it. */
+  tty?: boolean;
+  /** `-d`. */
+  detach?: boolean;
+  /** `-w`. Defaults to the container's `remoteWorkspaceFolder`. */
+  cwd?: string;
+  /** Applied *below* `remoteEnv`, so `remoteEnv` wins on collision (attach's TERM identity). */
+  envDefaults?: Record<string, string>;
+  /** Applied *above* `remoteEnv`, so it wins on collision (`ExecOptions.env`, TMUX, …). */
+  env?: Record<string, string>;
+  /** argv[0] and its arguments, exec'd as given after the container id. */
   cmd: string[];
-}): string[] {
-  const { containerId, remoteUser, cwd, remoteEnv, env, cmd } = input;
-  // `env` overrides `remoteEnv` on key collision; spreading in this order keeps
-  // one entry per key with `env`'s value winning.
-  const merged = { ...remoteEnv, ...env };
-  const envFlags = Object.entries(merged).flatMap((
-    [k, v],
-  ) => ['-e', `${k}=${v}`]);
+}
+
+/**
+ * The one `docker exec` argv builder: every exec devc makes into a devcontainer, from the CLI or
+ * from `devc web`, goes through here, so they all reach it the same way.
+ *
+ * `['exec', -i/-t/-d…, one '-e K=V' per key (envDefaults < remoteEnv < env), '-u', remoteUser,
+ * '-w', cwd, containerId, ...cmd]`. Every exec carries the full `remoteEnv`: it is not stored on
+ * the container (each client applies it per connection), so an exec without it runs with an
+ * environment no devcontainer client would give it. Pure/exported for unit testing.
+ */
+export function dockerExecArgv(
+  info: ContainerInfo,
+  spec: DockerExecSpec,
+): string[] {
+  // Spreading in this order keeps one entry per key, with the higher layer's value winning.
+  const merged = { ...spec.envDefaults, ...info.remoteEnv, ...spec.env };
   return [
     'exec',
-    '-i',
-    ...envFlags,
+    ...(spec.interactive ? ['-i'] : []),
+    ...(spec.tty ? ['-t'] : []),
+    ...(spec.detach ? ['-d'] : []),
+    ...Object.entries(merged).flatMap(([k, v]) => ['-e', `${k}=${v}`]),
     '-u',
-    remoteUser,
+    info.remoteUser,
     '-w',
-    cwd,
-    containerId,
-    ...cmd,
+    spec.cwd ?? info.remoteWorkspaceFolder,
+    info.containerId,
+    ...spec.cmd,
   ];
+}
+
+/**
+ * A login shell, for a `cmd` that needs the remote user's profile (`~/.local/bin` on `PATH`, say).
+ * With no script, an interactive one: `['/bin/bash', '-l']`. With one,
+ * `['/bin/bash', '-lc', script, ...args]`: the args ride along as `$0`/`$@` rather than being
+ * spliced into the script, so they arrive exactly as given with no quoting to get wrong.
+ */
+export function loginShellArgv(script?: string, ...args: string[]): string[] {
+  return script === undefined
+    ? ['/bin/bash', '-l']
+    : ['/bin/bash', '-lc', script, ...args];
 }
 
 /**
@@ -241,12 +272,10 @@ export async function execInContainer(
     beforeUp: opts.beforeUp,
     afterUp: opts.afterUp,
   });
-  const args = buildExecArgs({
-    containerId: info.containerId,
-    remoteUser: info.remoteUser,
-    cwd: opts.cwd ?? info.remoteWorkspaceFolder,
-    remoteEnv: info.remoteEnv,
-    env: opts.env ?? {},
+  const args = dockerExecArgv(info, {
+    interactive: true,
+    cwd: opts.cwd,
+    env: opts.env,
     cmd: opts.cmd,
   });
 
@@ -707,7 +736,7 @@ export interface StartOptions {
 
 /**
  * Builds the full `devcontainer up` argv. Pure/exported for unit testing, in the same spirit as
- * {@link buildExecArgs}.
+ * {@link dockerExecArgv}.
  *
  * There are no per-mount, per-env or per-Feature args any more: everything the overlay
  * contributes is already inside the merged config at `mergedConfigPath` (see
@@ -762,11 +791,107 @@ export function buildUpArgs(input: {
   if (input.worktree) args.push('--mount-git-worktree-common-dir');
   if (input.rebuild) args.push('--remove-existing-container');
   if (input.noCache) args.push('--build-no-cache');
-  args.push(
-    input.mode === 'project' ? '--override-config' : '--config',
-    input.mergedConfigPath,
-  );
+  args.push(...configFlag(input.mode, input.mergedConfigPath));
   return args;
+}
+
+/** How the merged config is delivered — see {@link buildUpArgs}. */
+function configFlag(mode: ConfigMode, mergedConfigPath: string): string[] {
+  return [
+    mode === 'project' ? '--override-config' : '--config',
+    mergedConfigPath,
+  ];
+}
+
+/**
+ * The `devcontainer read-configuration` argv {@link connectionFor} runs: `up`'s workspace and
+ * config flags, so the CLI resolves the same workspace folder `up` would, pointed at one
+ * container by id. With `--container-id`, `--include-merged-configuration` reads that container's
+ * own metadata, so its `remoteUser` is the one `up` reports. There is no `--no-lockfile`:
+ * `read-configuration` rejects it, and writes no lockfile anyway. Pure/exported for unit testing.
+ */
+export function buildReadConfigArgs(input: {
+  localFolder: string;
+  worktree: boolean;
+  mergedConfigPath: string;
+  mode: ConfigMode;
+  containerId: string;
+}): string[] {
+  return [
+    'read-configuration',
+    '--workspace-folder',
+    input.localFolder,
+    ...(input.worktree ? ['--mount-git-worktree-common-dir'] : []),
+    '--container-id',
+    input.containerId,
+    '--include-merged-configuration',
+    ...configFlag(input.mode, input.mergedConfigPath),
+  ];
+}
+
+/**
+ * The two fields {@link connectionFor} needs from `read-configuration`'s output (its last line
+ * is one JSON object): `workspace.workspaceFolder`, which is the value `up` reports as
+ * `remoteWorkspaceFolder`, and `mergedConfiguration.remoteUser`, absent when nothing sets one.
+ * Throws when there is no workspace folder. Pure/exported for unit testing.
+ */
+export function parseReadConfiguration(
+  stdout: string,
+): { workspaceFolder: string; remoteUser?: string } {
+  const lines = stdout.trim().split('\n').filter(Boolean);
+  // deno-lint-ignore no-explicit-any
+  let result: any;
+  try {
+    result = JSON.parse(lines[lines.length - 1] ?? '');
+  } catch {
+    throw new Error('devcontainer read-configuration printed no configuration');
+  }
+  const workspaceFolder = result?.workspace?.workspaceFolder;
+  if (typeof workspaceFolder !== 'string' || workspaceFolder === '') {
+    throw new Error(
+      'devcontainer read-configuration reported no workspace folder',
+    );
+  }
+  const remoteUser = result?.mergedConfiguration?.remoteUser;
+  return typeof remoteUser === 'string' && remoteUser !== ''
+    ? { workspaceFolder, remoteUser }
+    : { workspaceFolder };
+}
+
+/**
+ * The user `up` reports, given the merged `remoteUser` and the container's `Config.User`: the
+ * first that is set, else `root`, and only its user part (`user:group` → `user`; uid `0` →
+ * `root`), as the CLI's own resolution does. Pure/exported for unit testing.
+ */
+export function resolveRemoteUserName(
+  mergedRemoteUser: string | undefined,
+  configUser: string,
+): string {
+  const spec = mergedRemoteUser || configUser.trim() || 'root';
+  const user = spec.split(':')[0];
+  return user === '0' || user === '' ? 'root' : user;
+}
+
+/**
+ * Re-derives `remoteEnv` from the merged config — `docker exec` never sees it otherwise. One call
+ * over one object: the overlay's own `remoteEnv` is already folded into it, so there is no second
+ * layer to apply. Shared by {@link startContainer} and {@link connectionFor}, so the two ways of
+ * reaching a container cannot drift apart. `${containerWorkspaceFolder}` resolves against the
+ * CLI's own workspace folder, and `${containerEnv:…}` against the started container's
+ * environment.
+ */
+async function deriveRemoteEnv(
+  merged: MergedConfig,
+  containerId: string,
+  remoteWorkspaceFolder: string,
+  localFolder: string,
+): Promise<Record<string, string>> {
+  return resolveRemoteEnv(
+    merged.config,
+    remoteWorkspaceFolder,
+    localFolder,
+    await inspectContainerEnv(containerId),
+  );
 }
 
 export async function startContainer(
@@ -871,16 +996,13 @@ export async function startContainer(
   await renameContainerIfNeeded(result.containerId, name, localFolder);
   await tagImageIfNeeded(result.containerId, name);
 
-  // Re-derive `remoteEnv` from the merged config — `docker exec` (how exec/attach run) never
-  // sees it otherwise. One call over one object: the overlay's own `remoteEnv` is already folded
-  // into it, so there is no second layer to apply. Done after the `up` so
-  // `${containerWorkspaceFolder}` resolves against the CLI's own `remoteWorkspaceFolder`, and
-  // so `${containerEnv:…}` has a started container to read its environment back from.
-  const remoteEnv = resolveRemoteEnv(
-    merged.config,
+  // After the `up`, so `${containerWorkspaceFolder}` resolves against the CLI's own
+  // `remoteWorkspaceFolder`, and `${containerEnv:…}` has a started container to read from.
+  const remoteEnv = await deriveRemoteEnv(
+    merged,
+    result.containerId,
     result.remoteWorkspaceFolder,
     localFolder,
-    await inspectContainerEnv(result.containerId),
   );
 
   const info: ContainerInfo = {
@@ -891,6 +1013,57 @@ export async function startContainer(
   };
   await opts.afterUp?.(merged, info);
   return info;
+}
+
+/**
+ * How to reach a container that is already running, without `devcontainer up`: the same
+ * {@link ContainerInfo} {@link startContainer} returns. For a consumer that observes containers
+ * rather than starting them (`devc web`), which must not pay for — or cause the side effects of —
+ * an `up` (the rename, the image tag, the CLI's start hooks).
+ *
+ * Recomputes the merged config ({@link ensureMergedConfig}), so a config edit since the start is
+ * reflected exactly as the next `devc attach` would see it. The workspace folder and `remoteUser`
+ * come from the devcontainer CLI itself (`read-configuration`, see {@link buildReadConfigArgs}),
+ * not from a re-implementation of its git-root and worktree rules; `remoteEnv` from the same
+ * {@link deriveRemoteEnv} `startContainer` uses.
+ *
+ * Throws on what `startContainer` would fail on before `up` (a missing folder, a merged config
+ * that does not load), and on a failed `read-configuration`.
+ */
+export async function connectionFor(
+  localFolder: string,
+  containerId: string,
+  opts: { devcontainer?: DevcontainerRunner } = {},
+): Promise<ContainerInfo> {
+  assertLocalFolderExists(localFolder);
+  const [merged, worktree] = await Promise.all([
+    ensureMergedConfig(localFolder),
+    isGitWorktree(localFolder),
+  ]);
+  const runner = opts.devcontainer ?? nodeDevcontainerRunner;
+  const { code, stdout } = await runner.run(buildReadConfigArgs({
+    localFolder,
+    worktree,
+    mergedConfigPath: merged.path,
+    mode: merged.mode,
+    containerId,
+  }));
+  if (code !== 0) {
+    throw new Error(
+      `devcontainer read-configuration failed with exit code ${code}`,
+    );
+  }
+  const read = parseReadConfiguration(stdout);
+  const [configUser, remoteEnv] = await Promise.all([
+    dockerInspect(containerId, '{{.Config.User}}'),
+    deriveRemoteEnv(merged, containerId, read.workspaceFolder, localFolder),
+  ]);
+  return {
+    containerId,
+    remoteUser: resolveRemoteUserName(read.remoteUser, configUser ?? ''),
+    remoteWorkspaceFolder: read.workspaceFolder,
+    remoteEnv,
+  };
 }
 
 /**

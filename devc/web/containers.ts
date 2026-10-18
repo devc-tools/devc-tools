@@ -1,15 +1,21 @@
 // Devcontainer discovery for `devc web`: an initial `docker ps`, then a `docker events` stream
 // for the server's lifetime (push, never polled), plus the per-container facts every Herdr
-// process needs — the user to exec as and the absolute path of `herdr`.
+// process needs — how to reach the container (the CLI's own `connectionFor`, so web execs exactly
+// as `devc attach` does) and the absolute path of `herdr`.
 //
 // A devcontainer is any container labelled `devcontainer.local_folder`, which the devcontainer
 // CLI sets on every container it creates — the same label `@devc-tools/core/container.ts` finds
 // a project's container by.
 
 import {
+  type ContainerInfo,
   type ContainerMount,
+  dockerExecArgv,
+  loginShellArgv,
   parseMounts,
 } from '@devc-tools/core/container.ts';
+import { connectionFor } from '../container.ts';
+import { streamingRunner } from './project_control.ts';
 import { type LineProc, runText, spawnLines } from './proc.ts';
 
 export const LOCAL_FOLDER_LABEL = 'devcontainer.local_folder';
@@ -83,46 +89,6 @@ export function parseEventLine(line: string): ContainerEvent | null {
   return null;
 }
 
-/**
- * The user a container's tools run as: `remoteUser` from the `devcontainer.metadata` label (the
- * **last** entry that has a string one — later entries are the more specific config, as the
- * devcontainer CLI merges them), else the image's `Config.User`, else `root`.
- *
- * `labelsJson` is `docker inspect --format '{{json .Config.Labels}}'` output. The metadata label
- * may hold an array or a single object. Anything malformed falls through to the fallbacks.
- * Nothing else in devc reads this label — `startContainer` learns `remoteUser` from
- * `devcontainer up` — so this is its only parser.
- */
-export function resolveRemoteUser(
-  labelsJson: string,
-  configUser: string,
-): string {
-  const fallback = configUser.trim() || 'root';
-  let labels: unknown;
-  try {
-    labels = JSON.parse(labelsJson);
-  } catch {
-    return fallback;
-  }
-  if (typeof labels !== 'object' || labels === null) return fallback;
-  const raw = (labels as Record<string, unknown>)['devcontainer.metadata'];
-  if (typeof raw !== 'string') return fallback;
-  let meta: unknown;
-  try {
-    meta = JSON.parse(raw);
-  } catch {
-    return fallback;
-  }
-  const entries = Array.isArray(meta) ? meta : [meta];
-  let user: string | undefined;
-  for (const entry of entries) {
-    if (typeof entry !== 'object' || entry === null) continue;
-    const r = (entry as Record<string, unknown>).remoteUser;
-    if (typeof r === 'string' && r !== '') user = r;
-  }
-  return user ?? fallback;
-}
-
 /** A container's mount table, via one `docker inspect`; `[]` on failure. */
 export async function inspectMounts(id: string): Promise<ContainerMount[]> {
   const { code, stdout } = await runText('docker', [
@@ -142,43 +108,47 @@ export async function inspectBindSources(id: string): Promise<string[]> {
     .map((m) => m.source);
 }
 
-/** `resolveRemoteUser` for a live container, via one `docker inspect`. */
-export async function inspectRemoteUser(id: string): Promise<string> {
-  // Labels JSON escapes any newline, so the first line is the labels and the rest is the user.
-  const { code, stdout, stderr } = await runText('docker', [
-    'inspect',
-    '--format',
-    '{{json .Config.Labels}}\n{{.Config.User}}',
-    id,
-  ]);
-  if (code !== 0) {
-    throw new Error(stderr.trim() || `docker inspect ${id} failed`);
+/** How many trailing CLI output lines a failed {@link resolveConnection} carries. */
+const RESOLVE_ERROR_TAIL_LINES = 5;
+
+/**
+ * How to reach a discovered container: the CLI's own {@link connectionFor}, so every exec from
+ * `devc web` carries the same user, `remoteEnv` and working directory `devc attach` would. The
+ * devcontainer CLI's progress log is captured rather than printed to `devc web`'s terminal, and a
+ * failure's message carries its last few lines.
+ */
+export async function resolveConnection(
+  record: ContainerRecord,
+): Promise<ContainerInfo> {
+  const lines: string[] = [];
+  try {
+    return await connectionFor(
+      record.localFolder,
+      record.id,
+      streamingRunner((line) => {
+        if (line.trim() !== '') lines.push(line);
+      }),
+    );
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String(e);
+    throw new Error(
+      [message, ...lines.slice(-RESOLVE_ERROR_TAIL_LINES)].join('\n'),
+    );
   }
-  const nl = stdout.indexOf('\n');
-  const labels = nl === -1 ? stdout : stdout.slice(0, nl);
-  const user = nl === -1 ? '' : stdout.slice(nl + 1).trim();
-  return resolveRemoteUser(labels, user);
 }
 
 /**
- * The absolute path of `herdr` in the container, or `''` when it has none. A login shell,
- * because the Agents Feature installs into `~/.local/bin`, which a plain `docker exec` PATH may
- * not include. This is the only Herdr-related exec that goes through a shell: every later one
- * runs the returned path directly.
+ * The absolute path of `herdr` in the container, or `''` when it has none. A login shell, because
+ * the Agents Feature installs into `~/.local/bin`, which a plain `docker exec` PATH may not
+ * include, and the same `bash -l` a pane's shell and `devc claude` get, so the `herdr` found is
+ * the one on their `PATH`. This is the only Herdr-related exec that goes through a shell: every
+ * later one runs the returned path directly.
  */
-export async function resolveHerdrPath(
-  id: string,
-  user: string,
-): Promise<string> {
-  const { stdout } = await runText('docker', [
-    'exec',
-    '-u',
-    user,
-    id,
-    'sh',
-    '-lc',
-    'command -v herdr',
-  ]);
+export async function resolveHerdrPath(info: ContainerInfo): Promise<string> {
+  const { stdout } = await runText(
+    'docker',
+    dockerExecArgv(info, { cmd: loginShellArgv('command -v herdr') }),
+  );
   const path = stdout.trim().split('\n').pop()?.trim() ?? '';
   return path.startsWith('/') ? path : '';
 }
