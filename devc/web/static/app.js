@@ -697,7 +697,6 @@ const LABELS = {
   },
   noTerminals: 'No terminals',
   openHere: 'Open terminal here',
-  newHere: 'New terminal here',
   newTerminal: 'New terminal',
   newRight: 'New terminal to the right',
   newBelow: 'New terminal below',
@@ -1628,14 +1627,10 @@ function terminalRows(c, workspaces, tabs, panes, only) {
     rowTrail(
       // Open, each agent's own badge is right below.
       open ? '' : rollupBadge(panes),
-      hoverActions(
-        iconButton('plus', LABELS.newTerminal, () => {
-          // Under the + at the row's right end. The row, not the button: hover buttons can be
-          // hidden (zero-sized) by the time the click lands.
-          const r = head.getBoundingClientRect();
-          openMenuAt(r.right - 20, r.bottom + 2, newTerminalMenuItems(c));
-        }),
-      ),
+      newTerminalButton(head, {
+        localFolder: c.localFolder,
+        root: c.localFolder,
+      }, ''),
     ),
   );
   const rows = [head];
@@ -1787,6 +1782,7 @@ function repoRows(localFolder) {
         gitMark(gitSync(r.git)),
       ),
     ];
+    folderTerminalButton(rows[0], fr, '');
     if (tree.isOpen('')) {
       for (const w of repos) {
         if (w !== r && w.worktreeOf === r.folder) {
@@ -2299,26 +2295,49 @@ function openHerdrTab(fr, path, reuse, agent) {
       ...(agent ? { agent } : {}),
     },
     placeInFocusedStack,
-    agent ? LABELS.agents[agent] : reuse ? LABELS.openHere : LABELS.newHere,
+    agent ? LABELS.agents[agent] : reuse ? LABELS.openHere : LABELS.newTerminal,
   );
 }
 
 /**
- * The Terminals row's + menu: a shell or one of the agents, each in a new terminal at the
- * project folder (`open_tab`, which starts Herdr first when the container has no session).
+ * A row's + (the Terminals row, or a folder's in a running container): opens
+ * {@link newTerminalMenuItems} for folder `path` under the row's right end.
+ *
+ * @param {HTMLElement} row @param {FileRoot} fr @param {string} path
  */
-function newTerminalMenuItems(c) {
-  const fr = { localFolder: c.localFolder, root: c.localFolder };
+function newTerminalButton(row, fr, path) {
+  return hoverActions(
+    iconButton('plus', LABELS.newTerminal, () => {
+      // Under the + at the row's right end. The row, not the button: hover buttons can be
+      // hidden (zero-sized) by the time the click lands.
+      const r = row.getBoundingClientRect();
+      openMenuAt(r.right - 20, r.bottom + 2, newTerminalMenuItems(fr, path));
+    }),
+  );
+}
+
+/** Gives a folder's row a {@link newTerminalButton} while its container is running. */
+function folderTerminalButton(row, fr, path) {
+  if (containerByFolder(fr.localFolder)) {
+    row.append(rowTrail(newTerminalButton(row, fr, path)));
+  }
+}
+
+/**
+ * The + menu: a shell or one of the agents, each in a new terminal at folder `path` (`open_tab`,
+ * which starts Herdr first when the container has no session).
+ */
+function newTerminalMenuItems(fr, path) {
   return [
     [
       LABELS.plainTerminal,
-      () => openHerdrTab(fr, '', false),
+      () => openHerdrTab(fr, path, false),
       false,
       rowIcon({}),
     ],
     ...AGENT_IDS.map((id) => [
       LABELS.agents[id],
-      () => openHerdrTab(fr, '', false, id),
+      () => openHerdrTab(fr, path, false, id),
       false,
       rowIcon({ agent: id }),
     ]),
@@ -2329,7 +2348,6 @@ function newTerminalMenuItems(c) {
 function dirMenuItems(fr, path) {
   return [
     [LABELS.openHere, () => openHerdrTab(fr, path, true)],
-    [LABELS.newHere, () => openHerdrTab(fr, path, false)],
     ['Refresh', () => fileTree(fr).refresh(path)],
     ['Copy path', () => copyPath(fr, path)],
   ];
@@ -2402,6 +2420,7 @@ function fileEntryRow(fr, tree, item) {
     entry.name,
     entry.kind === 'symlink' ? h('span', { class: 'link-mark' }, '→') : '',
   );
+  if (dir) folderTerminalButton(row, fr, path);
   return file && tiling ? keptFileRow(key, row, fr, path) : row;
 }
 
