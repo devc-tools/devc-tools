@@ -256,6 +256,18 @@ exactly that version regardless of what "latest" resolves to that day) and `proj
 volume staying at the workspace root rather than following `projectDir`, mirroring
 node-nvmrc's `project_subdir` scenario).
 
+**helix** — offline: `install_options_test.sh` (version resolution — latest via a
+non-redirecting `file://` fixture standing in for the releases/latest redirect, and a pinned
+tag — architecture mapping for `x86_64`, `aarch64` and `arm64` from one host, the values that
+must fail the build, a missing release or a tarball without `hx` failing with nothing
+installed, the `xz-utils` self-heal, and the installed layout and symlink).
+
+With Docker: the default scenario is the bare `{}` case, resolving `"latest"` for real and
+asserting, as the remote user, that `hx --version` and `hx --health` run, `HELIX_RUNTIME`
+names the installed runtime, TypeScript highlighting is available, and `EDITOR` is left
+alone. `scenarios.json` adds `pinned_version` (`25.07.1`, asserting the installed binary
+reports exactly that).
+
 **node-nvmrc** — offline: `install_options_test.sh` (all four options through to the baked
 `post-create.sh`, the values that must fail the build, the ones that must survive
 verbatim, the empty-`projectDir` distinction, the user-owned `pin/`, that no startup file
@@ -394,6 +406,15 @@ behind.
 separated, no `sha512sum -b`-style `*` prefix. The `*` is stripped defensively anyway, the way
 `devc-bridge/install.sh`'s `checksums.txt` parse already does, in case a future release changes
 that.
+
+### helix
+
+Helix's releases publish no checksums file (confirmed against `25.07.1`), so unlike `godot`
+and `devc-bridge` the download is not verified; it is trusted on HTTPS alone. `"latest"`
+follows the `releases/latest` redirect for the same reason `godot`'s does. The release binary
+links glibc, so `install.sh` refuses a musl base outright rather than install an `hx` that
+cannot start. The install path `/usr/local/lib/helix` appears in the manifest's
+`containerEnv` too; only the Docker scenario catches a rename there.
 
 ### node-nvmrc
 
