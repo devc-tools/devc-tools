@@ -11,6 +11,14 @@
 
 ### Pending
 
+- [devc-desktop](devc-desktop.md) — `devc web` in its own window: a thin `deno desktop` app
+  (CEF backend) in `devc-desktop/` that runs the installed `devc web --no-open …` as a child,
+  reads the `#token` URL from its stdout and navigates the window there, so live mode works
+  unchanged. A spike showed devc itself cannot be the desktop binary (re-executing it for the
+  embedded devcontainer CLI breaks), and that children must not inherit `DENO_SERVE_ADDRESS`.
+  Step 0 checks keyboard, `PATH`, arguments and closing on a Mac; the page gains a "Copy page
+  URL" action. Release packaging is out of scope.
+
 - [git-protect-live-check](git-protect-live-check.md) — a read-only `.git/config` mount can
   vanish from a running container when the host rewrites the file (seen on Docker Desktop:
   VS Code's config writes), leaving the repo's config writable from inside while `devc status`

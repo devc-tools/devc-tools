@@ -1,0 +1,24 @@
+{
+  "tasks": {
+    // `main.ts` uses `Deno.BrowserWindow`, which only `deno desktop` type-checks; `build` checks
+    // it. These are the modules plain `deno check` can see.
+    "check": "deno check launch.ts status.ts tests/",
+    "test": "deno test --allow-run --allow-read --allow-write --allow-env",
+    // CEF, not the system webview: the page renders as in the user's Chrome tab. For the host
+    // OS: `dist/devc.app` on macOS (`deno desktop` adds the `.app`), a `dist/devc/` directory on
+    // Linux. Cross-building for macOS from Linux (`--target aarch64-apple-darwin`) works only
+    // without `--icon`.
+    "build": "deno desktop --backend cef --allow-run --allow-read --allow-env --allow-net --icon icon.png --output dist/devc main.ts"
+  },
+  "fmt": {
+    "useTabs": false,
+    "lineWidth": 80,
+    "indentWidth": 2,
+    "semiColons": true,
+    "singleQuote": true,
+    "proseWrap": "preserve"
+  },
+  "imports": {
+    "jsr:@std/assert": "jsr:@std/assert@^1"
+  }
+}
