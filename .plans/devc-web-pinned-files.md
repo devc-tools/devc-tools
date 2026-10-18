@@ -17,7 +17,7 @@ Closing a pin closes its **tile**, not the editor. The Helix pane keeps running 
 reopening it brings back the same buffer, cursor and unsaved edits. That is what makes a toggle
 feel like a drawer and not like a relaunch.
 
-Depends on [devc-web-editor](devc-web-editor.md) (`create_file`, Helix). Read the `devc-web`
+Depends on [devc-web-editor](archived/devc-web-editor.md) (`create_file`, Helix). Read the `devc-web`
 skill first.
 
 ```
@@ -54,14 +54,14 @@ Two other boundaries:
 
 ## Existing touchpoints
 
-| File                                | Role                                                                                                     |
-| ----------------------------------- | -------------------------------------------------------------------------------------------------------- |
-| `devc/projects.ts`                  | Pattern for a `~/.config/devc/*.json` store: `CONFIG_DIR`, tolerant read, atomic write.                  |
-| `devc/web/protocol.ts`              | New client messages and the `pinned_files` server message.                                               |
-| `devc/web/server.ts`                | Handlers. Sends `pinned_files` on connect and to every client after a change. `openFile`/`create_file` are reused. |
-| `devc/web/static/app.js`            | The Pinned section, toggle logic, menu items, New note dialog, shortcut.                                  |
-| `devc/web/static/lib/layout_state.js` | Finding the tiles that show a given pane (for the toggle's open/closed state).                         |
-| `devc/web/static/style.css`         | The section and its rows.                                                                                 |
+| File                                  | Role                                                                                                               |
+| ------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| `devc/projects.ts`                    | Pattern for a `~/.config/devc/*.json` store: `CONFIG_DIR`, tolerant read, atomic write.                            |
+| `devc/web/protocol.ts`                | New client messages and the `pinned_files` server message.                                                         |
+| `devc/web/server.ts`                  | Handlers. Sends `pinned_files` on connect and to every client after a change. `openFile`/`create_file` are reused. |
+| `devc/web/static/app.js`              | The Pinned section, toggle logic, menu items, New note dialog, shortcut.                                           |
+| `devc/web/static/lib/layout_state.js` | Finding the tiles that show a given pane (for the toggle's open/closed state).                                     |
+| `devc/web/static/style.css`           | The section and its rows.                                                                                          |
 
 ## Contracts
 
@@ -102,12 +102,12 @@ and after every change, to every client. `last` is never sent to the page.
 
 ### Browser → server
 
-| Message        | Fields                                     | Server does                                                                                                                                                                                                                                                                                                                                         |
-| -------------- | ------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `pin_file`     | `id`, `localFolder`, `root`, `path`, `label?` | `localFolder` must be a listed project and `root` one of its repo folders, else `bad_request`. `confine(root, path)` must succeed (the file exists), else `forbidden`/`not_found`. Appends the pin and replies `{pin: string}` (its id).                                                                                                    |
-| `unpin_file`   | `id`, `pin`                                | Removes it. An unknown id is `not_found`. The editor pane is left alone.                                                                                                                                                                                                                                                                    |
-| `rename_pin`   | `id`, `pin`, `label`                       | Sets the label, or clears it when `label` is `''`.                                                                                                                                                                                                                                                                                          |
-| `open_pinned`  | `id`, `pin`                                | Finds the pin's running container (by `localFolder`), else `code: "not_running"`. If `last` names that container and `paneId` is in its session's current pane list, replies `{pane_id, tab_id, reused: true}`. Otherwise it creates the editor pane as `open_file` does (`root` + `path`), stores `last`, and replies `{pane_id, tab_id, reused: false}`. |
+| Message       | Fields                                        | Server does                                                                                                                                                                                                                                                                                                                                                |
+| ------------- | --------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pin_file`    | `id`, `localFolder`, `root`, `path`, `label?` | `localFolder` must be a listed project and `root` one of its repo folders, else `bad_request`. `confine(root, path)` must succeed (the file exists), else `forbidden`/`not_found`. Appends the pin and replies `{pin: string}` (its id).                                                                                                                   |
+| `unpin_file`  | `id`, `pin`                                   | Removes it. An unknown id is `not_found`. The editor pane is left alone.                                                                                                                                                                                                                                                                                   |
+| `rename_pin`  | `id`, `pin`, `label`                          | Sets the label, or clears it when `label` is `''`.                                                                                                                                                                                                                                                                                                         |
+| `open_pinned` | `id`, `pin`                                   | Finds the pin's running container (by `localFolder`), else `code: "not_running"`. If `last` names that container and `paneId` is in its session's current pane list, replies `{pane_id, tab_id, reused: true}`. Otherwise it creates the editor pane as `open_file` does (`root` + `path`), stores `last`, and replies `{pane_id, tab_id, reused: false}`. |
 
 The reuse check uses the pane list the server already keeps per session (the same state that
 feeds the pane rows). It never runs a new Herdr query per click.
@@ -135,7 +135,7 @@ feeds the pane rows). It never runs a new Herdr query per click.
   the file is pinned as it is), then `pin_file`, then toggles it open. A missing parent folder
   is reported, not created.
 - **Shortcut:** toggles the first pin. Use Ctrl+Alt+N (Cmd+Alt+N on macOS) unless Step 0 of
-  [devc-web-editor](devc-web-editor.md) found it taken. Handle it in the page's capture-phase
+  [devc-web-editor](archived/devc-web-editor.md) found it taken. Handle it in the page's capture-phase
   key handler so it works while a terminal has focus, and swallow it there. Record it in the
   README.
 

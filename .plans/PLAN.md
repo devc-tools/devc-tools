@@ -40,15 +40,7 @@
   and places it in the layout. A host folder tree (`list_host_dir`, same tree
   component) opening on the configured `codeRoots` replaces the "Add project…" prompt.
 
-- [devc-web-editor](devc-web-editor.md) — editing files in containers, first-class. A new
-  `helix` Feature (0.1.0: release binary + runtime, `HELIX_RUNTIME`, no language servers, not in
-  devc's baseline). The user picks it with `export EDITOR=hx`, because devc web still runs
-  `${EDITOR:-vi}`. Adds `create_file` (a file or folder, created in the container as the remote
-  user, noclobber), **New file…** / **New folder…** in the Files trees, and editor panes named
-  after their file. Step 0 measures Helix through xterm.js → Herdr: colors, keys, mouse,
-  clipboard (no OSC 52), LSP.
-
-- [devc-web-pinned-files](devc-web-pinned-files.md) — after devc-web-editor. Notes as pinned
+- [devc-web-pinned-files](devc-web-pinned-files.md) — after devc-web-editor (done). Notes as pinned
   files: a **Pinned** section at the top of the sidebar, stored server-side in
   `~/.config/devc/pinned-files.json` so the desktop window and browser tabs agree. A click
   toggles the file's editor tile. Closing hides the tile but the Helix pane keeps running, so
@@ -156,6 +148,25 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
   take it too.
 
 ### Completed
+
+- [devc-web-editor](archived/devc-web-editor.md) — ✅ Done: editing files in containers,
+  first-class. A new `helix` Feature (0.1.0) installs Helix's release binary and runtime under
+  `/usr/local/lib/helix` (`hx` on `PATH`, `HELIX_RUNTIME` set, no language servers, no
+  `EDITOR`, not in devc's baseline); the user picks it with `export EDITOR=hx`. `create_file`
+  creates a file (noclobber) or folder inside the container as the remote user, confining a
+  repo path's parent; folder, repo and Files rows get **New file…** / **New folder…** (an inline
+  name row, `exists` shown under it, a new file opening in the editor); `open_file` names its
+  pane after the file (`pane.rename`). Step 0 measured Helix through a throwaway Herdr 0.9.5
+  pane driven like devc web's server: truecolor (Herdr sets `COLORTERM`), every key tried
+  arrives, click and drag work, the wheel does not scroll Helix, no OSC 52 reaches the client,
+  bracketed paste lands as typed, `deno lsp` attaches via `.helix/languages.toml`;
+  `Ctrl+Alt+N` is free for devc-web-pinned-files. Validated by `deno task check`, `deno task
+  test`, `deno fmt --check`, the Feature's offline install harness and a real install run, and
+  headless Chromium with a fake WebSocket (the inline row, errors, Escape, the messages sent,
+  re-listing and opening). **Not verified:** the Feature's Docker scenario test (no Docker
+  here), the browser's own key handling (`Ctrl+W`, Mac `Option`), and the three checks in the
+  user's tab (Helix in a tile named after the file, New file/New folder against a real
+  container and its owner, `exists`); `create_file` needs `--live-yolo` or an updated `devc`.
 
 - [devc-desktop](archived/devc-desktop.md) — ✅ Done: `devc web` in its own window. A thin
   `deno desktop` app (CEF) in `devc-desktop/` runs `devc web --no-open …` as a child
