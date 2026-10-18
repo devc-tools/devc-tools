@@ -15,7 +15,7 @@ re-executes itself. `devc` does not change, apart from one page action (Step 3).
 
 ## Checklist
 
-- [ ] Step 0: host checks on macOS that decide the open questions (§ Step 0)
+- [x] Step 0: host checks on macOS that decide the open questions (§ Step 0)
 - [x] Step 1: `devc-desktop/` app: launch `devc web`, status page, navigate, stop (§ Step 1)
 - [x] Step 2: build task, icon, `.gitignore` (§ Step 2)
 - [x] Step 3: "Copy page URL" action in the `devc web` page (§ Step 3)
@@ -101,8 +101,10 @@ Launched from a terminal with `devc2` (`$DEVC_BIN`):
   app menu. Fixed in `main.ts` with a macOS app menu whose Quit item (an `id`, not the `quit`
   role, which sends no `menuclick`) runs the same shutdown, plus Edit roles. After that,
   Cmd+Q quit the app and port 48229 was freed.
-- **Still open:** 2 (`PATH` and `$DEVC_BIN` from a Finder launch, with `desktopWebArgs`),
-  5 (Gatekeeper).
+- **Finder launch (2, 5):** double-clicking `dist/devc.app` opened unblocked (a local build
+  is not quarantined). With no arguments and no `desktopWebArgs`, it ran plain
+  `devc web --no-open` on 48228 and the page worked. The installed `devc` (0.10.0) rejects
+  `--no-open`, so the app found `devc2` through the login shell's `$DEVC_BIN`.
 
 ## Built and checked on Linux (2026-10-18)
 
