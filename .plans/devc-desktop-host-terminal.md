@@ -167,15 +167,15 @@ is then the plan.
 
 ## Existing touchpoints
 
-| File                        | Role                                                                                                     |
-| --------------------------- | -------------------------------------------------------------------------------------------------------- |
-| `devc/web/server.ts`        | CSP `frame-ancestors 'none'` (line ~190) becomes the `--frame-ancestor` origin when given. The default is unchanged. |
-| `devc/args.ts`, `devc/help.ts`, `devc/README.md` | The new `devc web --frame-ancestor <origin>` flag.                                              |
-| `devc/web/static/app.js`    | `confirm()` (Kill pane, ~1435, ~1996) and `prompt()` (rename, ~3075) become in-page `<dialog>`s, because the sandbox has no `allow-modals`. If G5 says so, the `window.open` link path (~3705) changes. |
-| `devc-desktop/main.ts`      | Loads the shell once. `start`/`restart`/exit drive the iframe via `executeJs`. Adds the app menu's **Host Terminal** item, the binding (G1), the debug-port refusal, and kills the PTY in `shutdown()`. |
-| `devc-desktop/launch.ts`    | `devcArgs` adds `--frame-ancestor <shell origin>`. `childEnv` stays free of anything host-terminal related (tested). |
-| `devc-desktop/status.ts`    | Folded into the shell, or kept as the shell's status view.                                               |
-| `devc-desktop/deno.json`    | `--include` for the shell assets and the PTY helper.                                                     |
+| File                                             | Role                                                                                                                                                                                                    |
+| ------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `devc/web/server.ts`                             | CSP `frame-ancestors 'none'` (line ~190) becomes the `--frame-ancestor` origin when given. The default is unchanged.                                                                                    |
+| `devc/args.ts`, `devc/help.ts`, `devc/README.md` | The new `devc web --frame-ancestor <origin>` flag.                                                                                                                                                      |
+| `devc/web/static/app.js`                         | `confirm()` (Kill pane, ~1435, ~1996) and `prompt()` (rename, ~3075) become in-page `<dialog>`s, because the sandbox has no `allow-modals`. If G5 says so, the `window.open` link path (~3705) changes. |
+| `devc-desktop/main.ts`                           | Loads the shell once. `start`/`restart`/exit drive the iframe via `executeJs`. Adds the app menu's **Host Terminal** item, the binding (G1), the debug-port refusal, and kills the PTY in `shutdown()`. |
+| `devc-desktop/launch.ts`                         | `devcArgs` adds `--frame-ancestor <shell origin>`. `childEnv` stays free of anything host-terminal related (tested).                                                                                    |
+| `devc-desktop/status.ts`                         | Folded into the shell, or kept as the shell's status view.                                                                                                                                              |
+| `devc-desktop/deno.json`                         | `--include` for the shell assets and the PTY helper.                                                                                                                                                    |
 
 New: `devc-desktop/shell/` (page, vendored xterm.js), `devc-desktop/host_pty.ts` (spawns the
 helper and speaks its framing), `devc-desktop/hostpty/` (the Go helper).

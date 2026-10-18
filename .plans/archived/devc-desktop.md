@@ -135,7 +135,6 @@ server on demand, as `--live-yolo`'s supervisor does:
   The cause was not pinned down. So an app that dies without an orderly stop (crash,
   SIGKILL) can leave `devc web` running, and the next start would then find its port in use.
 
-
 ### Layout
 
 ```
@@ -243,7 +242,7 @@ reaches a running `devc web --live` session.
 ## Concept boundaries
 
 - **`--open`, `openNonce`, `/open/<nonce>`, `devc/web/browser.ts`:** devc's way of opening a
-  *browser* without putting the token in argv. The app passes `--no-open` and does not use
+  _browser_ without putting the token in argv. The app passes `--no-open` and does not use
   them; it reads the token-bearing URL from the child's stdout instead. Do not remove them:
   they still serve `devc web` in a terminal.
 - **"Child":** in `devc/web/supervisor.ts`, the child is the `deno run main.ts web` that
@@ -277,8 +276,8 @@ reaches a running `devc web --live` session.
    page shows, then the `devc web` page, connected, with Herdr panes working.
 2. Quit Docker Desktop and relaunch: the status page shows devc's error and stderr. Start
    Docker, press Restart: the page loads.
-   *Run instead with a busy port, since quitting Docker Desktop would stop every container and
-   its Herdr sessions:* `devc2 web --no-open` on 48228, then the app from Finder showed
+   _Run instead with a busy port, since quitting Docker Desktop would stop every container and
+   its Herdr sessions:_ `devc2 web --no-open` on 48228, then the app from Finder showed
    "port 48228 is already in use" with a Restart button; after stopping that `devc2`,
    Restart loaded the page.
 3. With `"desktopWebArgs": ["--live-yolo"]`: edit a `devc/web/*.ts` file in the checkout; the
