@@ -699,8 +699,8 @@ const LABELS = {
   noTerminals: 'No terminals',
   openHere: 'Open terminal here',
   newTerminal: 'New terminal',
-  newRight: 'New terminal to the right',
-  newBelow: 'New terminal below',
+  splitRight: 'Split vertically',
+  splitBelow: 'Split horizontally',
   newInStack: 'New terminal in this stack',
   newAtEnd: 'New terminal at end',
   close: 'Close terminal…',
@@ -1455,12 +1455,12 @@ function tileMenuItems(tile) {
     const opts = shellOptsNear(c, pane);
     items.push(
       [
-        LABELS.newRight,
+        LABELS.splitRight,
         () =>
           newShell(c, opts, (ref) => tiling.addBeside(tile.id, ref, 'right')),
       ],
       [
-        LABELS.newBelow,
+        LABELS.splitBelow,
         () =>
           newShell(c, opts, (ref) => tiling.addBeside(tile.id, ref, 'below')),
       ],

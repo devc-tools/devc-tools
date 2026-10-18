@@ -295,8 +295,8 @@ is published from any container: the host server finds devcontainers with
   container**, **Pin**/**Unpin** and **Forget**, and the **+** on the Containers
   heading adds a folder. A tile whose project is down offers **Start
   container**.
-- **Menus:** right-click a tile (its tab, or its Layout row) for **Split pane
-  vertically** (a new shell to its right), **Split pane horizontally** (below),
+- **Menus:** right-click a tile (its tab, or its Layout row) for **Split
+  vertically** (a new terminal to its right), **Split horizontally** (below),
   **New pane in this stack**, **Close** (the tile only) and **Kill pane** (ends
   the process and closes every tile showing it). Stacks, rows and columns offer a new shell inside them; a
   container or workspace row offers **New shell** in the focused stack; a pane
