@@ -58,10 +58,19 @@ export function childEnv(
   return out;
 }
 
-/** Where `devc` was found, and the `PATH` to run it with when not the app's own. */
+/**
+ * How to run `devc`: the command (`[path]` for a binary, or `$DEVC_BIN`'s words, e.g.
+ * `deno run … devc/main.ts`), and the `PATH` to run it with when not the app's own.
+ */
 export interface Found {
-  devc: string;
+  cmd: string[];
   path?: string;
+}
+
+/** What the login shell says: its `PATH`, and its `$DEVC_BIN` if set. */
+export interface LoginEnv {
+  path: string;
+  devcBin?: string;
 }
 
 /** The lookups {@link findDevc} makes, injected for tests. */
@@ -70,32 +79,53 @@ export interface FindDeps {
   env(k: string): string | undefined;
   /** The first executable `name` in the colon-separated `path`, or `null`. */
   onPath(name: string, path: string): Promise<string | null>;
-  /** The login shell's `PATH`, or `null` when it cannot be read. */
-  loginPath(): Promise<string | null>;
+  /** The login shell's {@link LoginEnv}, or `null` when it cannot be read. */
+  loginEnv(): Promise<LoginEnv | null>;
 }
 
 /** The places {@link findDevc} looks, in order, for the not-found message. */
 export const LOOKED = [
   '$DEVC_DESKTOP_DEVC',
-  "the app's PATH",
-  "your login shell's PATH",
+  '$DEVC_BIN',
+  "devc on the app's PATH",
+  '$DEVC_BIN or devc in your login shell',
 ];
 
+/** `$DEVC_BIN`'s words: it is a multi-word command, split on whitespace like a shell would. */
+function words(s: string): string[] {
+  return s.trim().split(/\s+/).filter((w) => w !== '');
+}
+
 /**
- * Finds the installed `devc`: `$DEVC_DESKTOP_DEVC` (an absolute path), else `devc` on the app's
- * `PATH`, else on the login shell's. An app opened from the Dock or Finder gets launchd's minimal
- * `PATH`, which lacks `~/.local/bin`, `docker` and `deno`; the login shell's `PATH` then goes to
- * the child too. `null` when none has it.
+ * Finds `devc`: `$DEVC_DESKTOP_DEVC` (an absolute path to a binary), else `$DEVC_BIN`, else `devc`
+ * on the app's `PATH`, else the same two in the login shell. `$DEVC_BIN` is what sourcing
+ * `scripts/bash_aliases.sh` exports, the from-source `devc2` as a command a process can run; it
+ * comes before a `PATH` `devc` because it only exists when asked for (as in the Features'
+ * `run-features-test.sh`). An app opened from the Dock or Finder gets launchd's minimal `PATH`,
+ * which lacks `~/.local/bin`, `docker` and `deno`; the login shell's `PATH` then goes to the
+ * child too, and resolves `$DEVC_BIN`'s first word. `null` when none has it.
  */
 export async function findDevc(deps: FindDeps): Promise<Found | null> {
   const given = deps.env('DEVC_DESKTOP_DEVC');
-  if (given) return { devc: given };
+  if (given) return { cmd: [given] };
+  const bin = words(deps.env('DEVC_BIN') ?? '');
+  if (bin.length > 0) return { cmd: bin };
   const own = await deps.onPath('devc', deps.env('PATH') ?? '');
-  if (own !== null) return { devc: own };
-  const path = await deps.loginPath();
-  if (path === null) return null;
-  const devc = await deps.onPath('devc', path);
-  return devc === null ? null : { devc, path };
+  if (own !== null) return { cmd: [own] };
+  const login = await deps.loginEnv();
+  if (login === null) return null;
+  const loginBin = words(login.devcBin ?? '');
+  if (loginBin.length > 0) {
+    // Spawning resolves a bare name against the app's own PATH, not the child's.
+    const first = loginBin[0].includes('/')
+      ? loginBin[0]
+      : await deps.onPath(loginBin[0], login.path);
+    if (first !== null) {
+      return { cmd: [first, ...loginBin.slice(1)], path: login.path };
+    }
+  }
+  const devc = await deps.onPath('devc', login.path);
+  return devc === null ? null : { cmd: [devc], path: login.path };
 }
 
 /** The first executable `name` in the colon-separated `path`, or `null`. */
@@ -114,30 +144,35 @@ export async function onPath(
   return null;
 }
 
-/** Brackets the `PATH` in the login shell's output, which rc files may add lines to. */
-const PATH_MARK = '__devc_desktop_path__';
+/** Brackets the values in the login shell's output, which rc files may add lines to. */
+const MARK = '__devc_desktop__';
 
-/** How long the login shell gets to print its `PATH`. */
+/** How long the login shell gets to answer. */
 const LOGIN_SHELL_MS = 5000;
 
 /**
- * `PATH` as the user's login shell sets it (`$SHELL`, else `/bin/zsh`), interactive as well so
- * rc files that set `PATH` (`.zshrc`, `.bashrc`) count. `null` on failure or after 5 s.
+ * `PATH` and `$DEVC_BIN` as the user's login shell sets them (`$SHELL`, else `/bin/zsh`),
+ * interactive as well so rc files (`.zshrc`, `.bashrc`, where `bash_aliases.sh` is sourced)
+ * count. `null` on failure or after 5 s.
  */
-export async function loginPath(
+export async function loginEnv(
   shell = Deno.env.get('SHELL') || '/bin/zsh',
-): Promise<string | null> {
+): Promise<LoginEnv | null> {
   try {
     const out = await new Deno.Command(shell, {
-      args: ['-ilc', `printf '${PATH_MARK}%s${PATH_MARK}' "$PATH"`],
+      args: [
+        '-ilc',
+        `printf '${MARK}%s${MARK}%s${MARK}' "$PATH" "\${DEVC_BIN:-}"`,
+      ],
       stdin: 'null',
       stdout: 'piped',
       stderr: 'null',
       signal: AbortSignal.timeout(LOGIN_SHELL_MS),
     }).output();
     const text = new TextDecoder().decode(out.stdout);
-    const m = new RegExp(`${PATH_MARK}(.*)${PATH_MARK}`, 's').exec(text);
-    return m?.[1] || null;
+    const m = new RegExp(`${MARK}(.*?)${MARK}(.*?)${MARK}`, 's').exec(text);
+    if (!m?.[1]) return null;
+    return m[2] ? { path: m[1], devcBin: m[2] } : { path: m[1] };
   } catch {
     return null;
   }
@@ -162,17 +197,17 @@ export interface DevcWeb {
 }
 
 /**
- * Starts `devc` with `args` and `env`. stdout and stderr are read for the child's whole life, so
+ * Starts `cmd` (a {@link Found}'s) with `args` after it, and `env`. stdout and stderr are read for the child's whole life, so
  * a full pipe never blocks it; stdout is only scanned for the ready line, never kept or printed,
  * since it carries the token.
  */
 export function startDevcWeb(
-  devc: string,
+  cmd: string[],
   args: string[],
   env: Record<string, string>,
 ): DevcWeb {
-  const child = new Deno.Command(devc, {
-    args,
+  const child = new Deno.Command(cmd[0], {
+    args: [...cmd.slice(1), ...args],
     env,
     clearEnv: true,
     stdin: 'null',

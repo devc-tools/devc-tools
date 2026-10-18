@@ -97,7 +97,16 @@ server on demand, as `--live-yolo`'s supervisor does:
 - SIGTERM to the app: the stand-in got SIGTERM, and no process was left.
 - A stand-in that exits 1: `/state` reported `failed`, `devc web exited (1)` and its stderr.
   `POST /restart` without the header got 403, with it 204 and a second run.
-- `loginPath()` read the login shell's `PATH`, and returned `null` for a missing shell.
+- `loginEnv()` read the login shell's `PATH`, and returned `null` for a missing shell.
+- **Against the real devc from source** (`DEVC_BIN` as `bash_aliases.sh` exports it, a stub
+  `docker` first on `PATH`, app args `--live-yolo --source <checkout>/devc --port 48301`):
+  the tree was app → `deno run … main.ts web --no-open --live-yolo …` (supervisor) →
+  `deno run … main.ts web --port 48301` (child). Over CDP
+  (`LAUFEY_REMOTE_DEBUGGING_PORT=9333`), the window's page was on `:48301/#token=…` with
+  `#conn` reading `live` (its WebSocket passed devc's real token check). SIGTERM to the app
+  stopped all three levels, and the port was freed.
+- **Copy page URL in the headless window** failed with "Document is not focused": Xvfb has
+  no window manager to focus the window. Check it on the host (Step 0.6).
 - **Not covered here:** closing the window by hand (no input injection in the container).
   In one run where the shell that launched `xvfb-run` was killed by mistake, the app's main
   process was gone afterwards but the stand-in and CEF helper processes were still running.
@@ -123,12 +132,20 @@ from them: it is separately built and has no shared code with devc.
 In order, first hit wins:
 
 1. `DEVC_DESKTOP_DEVC`, if set: an absolute path to the `devc` binary.
-2. `devc` on the app's `PATH`.
-3. `devc` as resolved by the user's login shell: `$SHELL -lc 'command -v devc'` (or
-   `/bin/zsh` when `SHELL` is unset). The same lookup supplies the `PATH` the child gets,
-   so `docker` and `deno` resolve too (`$SHELL -lc 'printf %s "$PATH"'`).
+2. `DEVC_BIN`, if set: a multi-word command, split on whitespace, that `scripts/bash_aliases.sh`
+   exports as `devc2`'s from-source invocation. It comes before a `PATH` `devc`, as in the
+   Features' `run-features-test.sh`, because it exists only when deliberately sourced.
+3. `devc` on the app's `PATH`.
+4. The login shell's `DEVC_BIN` (its first word resolved on the login `PATH`, since a spawn
+   resolves bare names against the app's own `PATH`), else `devc` on the login `PATH`:
+   `$SHELL -ilc` (or `/bin/zsh` when `SHELL` is unset). The same lookup supplies the
+   `PATH` the child gets, so `docker` and `deno` resolve too.
 
-None found: the status page says so and names the three places looked.
+None found: the status page says so and names the places looked.
+
+**Version floor:** the app always passes `--no-open` (from `a1586e9`, after 0.10.0). An
+installed `devc` older than that rejects it (strict argument parsing), so test with `devc2`
+until a release has it.
 
 ### Arguments passed to `devc web`
 

@@ -5,6 +5,8 @@ import {
   devcArgs,
   type FindDeps,
   findDevc,
+  type LoginEnv,
+  loginEnv,
   onPath,
   readyUrl,
   startDevcWeb,
@@ -71,17 +73,19 @@ Deno.test('childEnv: never DENO_SERVE_ADDRESS; PATH replaced only when given', (
 function deps(
   env: Record<string, string>,
   bins: Record<string, string>,
-  login: string | null,
+  login: LoginEnv | null,
 ): FindDeps & { loginCalls: number } {
   const d = {
     loginCalls: 0,
     env: (k: string) => env[k],
     onPath: (name: string, path: string) =>
       Promise.resolve(
-        path.split(':').map((dir) => bins[dir] === name ? `${dir}/${name}` : '')
+        path.split(':').map((dir) =>
+          bins[dir]?.split(' ').includes(name) ? `${dir}/${name}` : ''
+        )
           .find((f) => f !== '') ?? null,
       ),
-    loginPath: () => {
+    loginEnv: () => {
       d.loginCalls++;
       return Promise.resolve(login);
     },
@@ -89,21 +93,65 @@ function deps(
   return d;
 }
 
-Deno.test("findDevc: $DEVC_DESKTOP_DEVC, then the app's PATH, then the login shell's", async () => {
-  const given = deps({ DEVC_DESKTOP_DEVC: '/x/devc', PATH: '/a' }, {
-    '/a': 'devc',
-  }, null);
-  assertEquals(await findDevc(given), { devc: '/x/devc' });
+const DEVC_BIN = 'deno run --allow-read /src/devc/main.ts';
+const BIN_WORDS = ['deno', 'run', '--allow-read', '/src/devc/main.ts'];
 
-  const own = deps({ PATH: '/usr/bin:/a' }, { '/a': 'devc' }, '/b');
-  assertEquals(await findDevc(own), { devc: '/a/devc' });
+Deno.test("findDevc: $DEVC_DESKTOP_DEVC, then $DEVC_BIN, then the app's PATH", async () => {
+  const given = deps(
+    { DEVC_DESKTOP_DEVC: '/x/devc', DEVC_BIN, PATH: '/a' },
+    { '/a': 'devc' },
+    null,
+  );
+  assertEquals(await findDevc(given), { cmd: ['/x/devc'] });
+
+  const bin = deps(
+    { DEVC_BIN: `  ${DEVC_BIN} `, PATH: '/a' },
+    { '/a': 'devc' },
+    null,
+  );
+  assertEquals(await findDevc(bin), { cmd: BIN_WORDS });
+
+  const own = deps(
+    { PATH: '/usr/bin:/a', DEVC_BIN: ' ' },
+    { '/a': 'devc' },
+    null,
+  );
+  assertEquals(await findDevc(own), { cmd: ['/a/devc'] });
   assertEquals(own.loginCalls, 0);
+});
 
-  const login = deps({ PATH: '/usr/bin' }, { '/b': 'devc' }, '/usr/bin:/b');
-  assertEquals(await findDevc(login), { devc: '/b/devc', path: '/usr/bin:/b' });
+Deno.test("findDevc: the login shell's $DEVC_BIN (first word resolved), then its devc", async () => {
+  const bin = deps(
+    { PATH: '/usr/bin' },
+    { '/opt/deno': 'deno', '/b': 'devc' },
+    { path: '/usr/bin:/opt/deno:/b', devcBin: DEVC_BIN },
+  );
+  assertEquals(await findDevc(bin), {
+    cmd: ['/opt/deno/deno', ...BIN_WORDS.slice(1)],
+    path: '/usr/bin:/opt/deno:/b',
+  });
+
+  // $DEVC_BIN whose first word is not on the login PATH: fall through to its devc.
+  const noDeno = deps(
+    { PATH: '/usr/bin' },
+    { '/b': 'devc' },
+    { path: '/usr/bin:/b', devcBin: DEVC_BIN },
+  );
+  assertEquals(await findDevc(noDeno), {
+    cmd: ['/b/devc'],
+    path: '/usr/bin:/b',
+  });
+
+  const login = deps({ PATH: '/usr/bin' }, { '/b': 'devc' }, {
+    path: '/usr/bin:/b',
+  });
+  assertEquals(await findDevc(login), {
+    cmd: ['/b/devc'],
+    path: '/usr/bin:/b',
+  });
 
   assertEquals(
-    await findDevc(deps({ PATH: '/usr/bin' }, {}, '/usr/bin')),
+    await findDevc(deps({ PATH: '/usr/bin' }, {}, { path: '/usr/bin' })),
     null,
   );
   assertEquals(await findDevc(deps({}, {}, null)), null);
@@ -142,7 +190,7 @@ exec sleep 30`,
   );
   try {
     const web = startDevcWeb(
-      s.path,
+      [s.path],
       ['web', '--no-open'],
       childEnv(
         { PATH: Deno.env.get('PATH')!, DENO_SERVE_ADDRESS: 'x' },
@@ -166,7 +214,7 @@ Deno.test('startDevcWeb: an early exit keeps the stderr tail and never readies',
     `i=0; while [ $i -lt 50 ]; do echo "line $i" >&2; i=$((i+1)); done; exit 3`,
   );
   try {
-    const web = startDevcWeb(s.path, [], { PATH: Deno.env.get('PATH')! });
+    const web = startDevcWeb([s.path], [], { PATH: Deno.env.get('PATH')! });
     let readied = false;
     void web.ready.then(() => readied = true);
     assertEquals(await web.exited, '3');
@@ -183,7 +231,7 @@ Deno.test('startDevcWeb: an early exit keeps the stderr tail and never readies',
 Deno.test('startDevcWeb: stop escalates to SIGKILL when SIGTERM is ignored', async () => {
   const s = await stub(`trap '' TERM; while :; do sleep 0.1; done`);
   try {
-    const web = startDevcWeb(s.path, [], { PATH: Deno.env.get('PATH')! });
+    const web = startDevcWeb([s.path], [], { PATH: Deno.env.get('PATH')! });
     await new Promise((r) => setTimeout(r, 200));
     const t0 = Date.now();
     await web.stop();
@@ -191,5 +239,25 @@ Deno.test('startDevcWeb: stop escalates to SIGKILL when SIGTERM is ignored', asy
     assertEquals(Date.now() - t0 >= 4500, true);
   } finally {
     await Deno.remove(s.dir, { recursive: true });
+  }
+});
+
+Deno.test('loginEnv: PATH and $DEVC_BIN from the login shell; null for a missing shell', async () => {
+  const dir = await Deno.makeTempDir();
+  try {
+    const shell = `${dir}/sh`;
+    // A shell whose rc output surrounds the answer, as a chatty .zshrc would.
+    await Deno.writeTextFile(
+      shell,
+      `#!/bin/sh\necho 'welcome'\nPATH=/p1:/p2 DEVC_BIN='deno run x' exec /bin/sh -c "$2"\n`,
+    );
+    await Deno.chmod(shell, 0o755);
+    assertEquals(await loginEnv(shell), {
+      path: '/p1:/p2',
+      devcBin: 'deno run x',
+    });
+    assertEquals(await loginEnv('/nonexistent'), null);
+  } finally {
+    await Deno.remove(dir, { recursive: true });
   }
 });

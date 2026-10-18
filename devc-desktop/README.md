@@ -45,10 +45,18 @@ Launched with no arguments (from the Dock or Finder), the app reads them from
 The first of:
 
 1. `$DEVC_DESKTOP_DEVC`: an absolute path to a `devc` binary.
-2. `devc` on the app's `PATH`.
-3. `devc` on your login shell's `PATH` (`$SHELL -ilc`, else `/bin/zsh`). An app opened
-   from the Dock gets a minimal `PATH` without `~/.local/bin`, `docker` or `deno`, so
-   this is the usual case there. That `PATH` is also passed on to `devc web`.
+2. `$DEVC_BIN`: a whole command, split on spaces. Sourcing
+   [`scripts/bash_aliases.sh`](../scripts/bash_aliases.sh) exports it as `devc2`'s
+   from-source invocation (`deno run … devc/main.ts`), so a terminal that has `devc2`
+   launches the app against the checkout, with no build of devc.
+3. `devc` on the app's `PATH`: an installed release.
+4. `$DEVC_BIN`, else `devc`, as your login shell sets them (`$SHELL -ilc`, else
+   `/bin/zsh`). An app opened from the Dock gets a minimal `PATH` without
+   `~/.local/bin`, `docker` or `deno`, so this is the usual case there. That `PATH` is
+   also passed on to `devc web`.
+
+The app always passes `--no-open`, which `devc` has had only since the release after
+0.10.0. An older installed `devc` refuses it, so use `devc2` until you update.
 
 If `devc` can't be found or `devc web` exits, the window shows why, with the last lines
 of its stderr and a **Restart devc web** button.
@@ -76,7 +84,9 @@ arguments, the child process and the status page live in `launch.ts` and `status
 which plain `deno` checks and tests.
 
 On Linux without a display, `xvfb-run -a dist/devc/devc` runs the app headless. Point
-`DEVC_DESKTOP_DEVC` at a stand-in script to try it without Docker.
+`DEVC_DESKTOP_DEVC` at a stand-in script, or put a stub `docker` first on `PATH`, to try
+it without Docker. `LAUFEY_REMOTE_DEBUGGING_PORT=9333` at launch exposes the window's
+page to the Chrome DevTools Protocol (`http://127.0.0.1:9333/json/list`).
 
 ## Why not compile devc itself
 

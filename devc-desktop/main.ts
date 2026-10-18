@@ -13,7 +13,7 @@ import {
   devcArgs,
   type DevcWeb,
   findDevc,
-  loginPath,
+  loginEnv,
   LOOKED,
   onPath,
   startDevcWeb,
@@ -66,7 +66,7 @@ async function start(): Promise<void> {
   const found = await findDevc({
     env: (k) => Deno.env.get(k),
     onPath,
-    loginPath: () => loginPath(),
+    loginEnv: () => loginEnv(),
   });
   if (found === null) {
     return fail(`devc not found. Looked in ${LOOKED.join(', ')}.`);
@@ -81,19 +81,19 @@ async function start(): Promise<void> {
   let child: DevcWeb;
   try {
     child = startDevcWeb(
-      found.devc,
+      found.cmd,
       args,
       childEnv(Deno.env.toObject(), found.path),
     );
   } catch (e) {
     return fail(
-      `cannot run ${found.devc}: ${e instanceof Error ? e.message : e}`,
+      `cannot run ${found.cmd[0]}: ${e instanceof Error ? e.message : e}`,
     );
   }
   current = child;
   set({
     phase: 'starting',
-    message: `Running ${found.devc} ${args.join(' ')}…`,
+    message: `Running ${[...found.cmd, ...args].join(' ')}…`,
     stderr: [],
   });
   let shown = false;
