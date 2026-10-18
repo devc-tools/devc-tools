@@ -440,6 +440,21 @@ export interface SessionDeps {
   runText: typeof runText;
   startTries: number;
   startWaitMs: number;
+  /** Whether the session has a server: see {@link serverAnswers}. */
+  serverUp: (t: HerdrTarget) => Promise<boolean>;
+}
+
+/**
+ * Whether `t`'s session has a server, by one bridge request. Only `no_session` counts as no:
+ * any other failure is for the lifecycle to report.
+ */
+export async function serverAnswers(t: HerdrTarget): Promise<boolean> {
+  try {
+    await bridgeRequest(t, 'workspace.list', {});
+    return true;
+  } catch (e) {
+    return !(e instanceof BridgeError && e.code === 'no_session');
+  }
 }
 
 /** The last 10 lines of the session's `herdr-server.log` in the container, or '' when unreadable. */
@@ -520,6 +535,7 @@ export class ContainerSession {
       runText,
       startTries: START_SESSION_TRIES,
       startWaitMs: START_SESSION_WAIT_MS,
+      serverUp: serverAnswers,
       ...deps,
     };
   }
@@ -608,15 +624,25 @@ export class ContainerSession {
   }
 
   /**
-   * The server needs a moment to create its socket: retry while it still reads as no session.
-   * Bounded, and only right after a start — `no-session` itself is never polled.
+   * The server needs a moment to create its socket: poll for it while it still reads as no
+   * session, and run the lifecycle once it answers. Bounded, and only right after a start —
+   * `no-session` itself is never polled. The poll is a bare probe, not the lifecycle, so the
+   * state stays `no-session` throughout instead of flickering through `connecting` on every try:
+   * an exec that merely mentions `herdr` (see {@link isHerdrLaunch}) starts one too. Stops when
+   * the session is retried or disposed meanwhile.
    */
   async #awaitServer(): Promise<void> {
     this.#awaiting = true;
+    let gen = this.#gen;
     try {
       for (let i = 0; i < this.#deps.startTries; i++) {
-        await this.run();
-        if (this.state !== 'no-session') return;
+        if (this.target === null || gen !== this.#gen) return;
+        if (await this.#deps.serverUp(this.target)) {
+          if (gen !== this.#gen) return;
+          await this.run();
+          if (this.state !== 'no-session') return;
+          gen = this.#gen;
+        }
         await new Promise((r) => setTimeout(r, this.#deps.startWaitMs));
       }
     } finally {

@@ -218,12 +218,16 @@ type RunText = (
   args: string[],
 ) => Promise<{ code: number; stdout: string; stderr: string }>;
 
-/** A session whose lifecycle always finds no server, with `runText` stubbed. */
+/**
+ * A session whose lifecycle finds a server only once `up` (else no session), with `runText`
+ * stubbed, recording each state it is in.
+ */
 class NoServerSession extends ContainerSession {
   runs = 0;
+  up = false;
   override run(): Promise<void> {
     this.runs++;
-    this.state = 'no-session';
+    this.state = this.up ? 'connected' : 'no-session';
     return Promise.resolve();
   }
 }
@@ -259,13 +263,20 @@ Deno.test("startSession throws no_session with the server log's tail", async () 
     { id: 'c1' } as ConstructorParameters<typeof ContainerSession>[0],
     'devc',
     hooks,
-    { runText: run, startTries: 3, startWaitMs: 1 },
+    {
+      runText: run,
+      startTries: 3,
+      startWaitMs: 1,
+      serverUp: () => Promise.resolve(false),
+    },
   );
   s.target = target;
+  s.state = 'no-session';
   const err = await assertRejects(() => s.startSession(), BridgeError);
   assertEquals(err.code, 'no_session');
   assertEquals(err.message, "Herdr didn't come up in 0s.\nline 1\npanic: boom");
-  assertEquals(s.runs, 3);
+  // Only probed: the lifecycle never ran, so the state never left `no-session`.
+  assertEquals(s.runs, 0);
   assertEquals(calls[0], [
     'exec',
     '-d',
@@ -281,6 +292,45 @@ Deno.test("startSession throws no_session with the server log's tail", async () 
     'server',
   ]);
   assertEquals(calls[1].slice(-2), ['_', 'devc']);
+});
+
+Deno.test('herdrLaunched runs the lifecycle once, when the server answers', async () => {
+  let probes = 0;
+  const s: NoServerSession = new NoServerSession(
+    { id: 'c1' } as ConstructorParameters<typeof ContainerSession>[0],
+    'devc',
+    hooks,
+    {
+      startTries: 5,
+      startWaitMs: 1,
+      serverUp: (): Promise<boolean> => {
+        s.up = ++probes >= 3;
+        return Promise.resolve(s.up);
+      },
+    },
+  );
+  s.target = target;
+  s.state = 'no-session';
+  await s.herdrLaunched();
+  assertEquals([probes, s.runs, s.state], [3, 1, 'connected']);
+});
+
+Deno.test('herdrLaunched never runs the lifecycle while there is no server', async () => {
+  let probes = 0;
+  const s = new NoServerSession(
+    { id: 'c1' } as ConstructorParameters<typeof ContainerSession>[0],
+    'devc',
+    hooks,
+    {
+      startTries: 4,
+      startWaitMs: 1,
+      serverUp: () => Promise.resolve(++probes < 0),
+    },
+  );
+  s.target = target;
+  s.state = 'no-session';
+  await s.herdrLaunched();
+  assertEquals([probes, s.runs, s.state], [4, 0, 'no-session']);
 });
 
 Deno.test('serverLogTail is empty when the log is unreadable', async () => {
