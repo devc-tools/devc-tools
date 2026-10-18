@@ -429,9 +429,14 @@ body.resizing-sidebar {
   background: var(--panel);
 }
 
-/* The play triangle is solid; the other icons are strokes. */
-.icon-btn[data-icon='play'] svg {
+/* The play triangle and stop square are solid; the other icons are strokes. */
+.icon-btn[data-icon='play'] svg,
+.icon-btn[data-icon='stop'] svg {
   fill: currentColor;
+}
+
+.icon-btn[data-icon='stop'] {
+  color: var(--danger);
 }
 
 .icon-btn[data-icon='play']:hover {

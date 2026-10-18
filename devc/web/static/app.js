@@ -1167,6 +1167,7 @@ const ICON_PATHS = {
   plus: 'M8 3v10M3 8h10',
   pin: 'M5.5 2.5h5M6.5 2.5v4L4.5 9h7l-2-2.5v-4M8 9v4.5',
   play: 'M5.5 3.5v9l7-4.5z',
+  stop: 'M4.5 4.5h7v7h-7z',
   project: 'M8 2.5l5 2.75v5.5L8 13.5l-5-2.75v-5.5zM3 5.25L8 8l5-2.75M8 8v5.5',
   // A window with a `>_` prompt: a shell.
   terminal: 'M2 3h12v10H2zM4.5 6.5L6.5 8l-2 1.5M8 10.5h3',
@@ -1602,12 +1603,15 @@ function containerRows(c) {
       ),
       INACTIVE_STATES.has(c.state)
         ? h('span', { class: 'row-actions' }, stateText, herdrActions(c))
-        : c.state !== 'connected'
-        ? stateText
-        // Expanded, each agent's own badge is right below.
-        : collapsed
-        ? rollupBadge(panes)
-        : '',
+        : rowTrail(
+          c.state !== 'connected'
+            ? stateText
+            // Expanded, each agent's own badge is right below.
+            : collapsed
+            ? rollupBadge(panes)
+            : '',
+          hoverActions(stopButton(c)),
+        ),
     ),
   ];
   if (collapsed) return rows;
@@ -1668,9 +1672,18 @@ function terminalRows(c, workspaces, tabs, panes, only) {
   return rows;
 }
 
-/** A Herdr-less container's hover buttons: Start Herdr (no session only) and Retry. */
+/** A container row's Stop button, when its project is known to be running. */
+function stopButton(c) {
+  const p = projects.get(c.localFolder);
+  return p?.container === 'running'
+    ? iconButton('stop', 'Stop container…', () => stopProject(p))
+    : '';
+}
+
+/** A Herdr-less container's hover buttons: Stop, Start Herdr (no session only) and Retry. */
 function herdrActions(c) {
   return hoverActions(
+    stopButton(c),
     c.state === 'no-session'
       ? iconButton(
         'play',
