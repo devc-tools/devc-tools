@@ -97,6 +97,16 @@ export type ClientMessage =
     root?: string;
     path: string;
   }
+  | {
+    type: 'create_file';
+    id: string;
+    container: string;
+    /** A repo folder `path` is relative to; without one, `path` is a container path. */
+    root?: string;
+    /** The new entry's path. Its parent must exist. */
+    path: string;
+    kind: 'file' | 'dir';
+  }
   | { type: 'locate_file'; id: string; container: string; path: string }
   | {
     type: 'list_container_dir' | 'read_container_file';
@@ -201,6 +211,26 @@ function containerPath(o: Obj): string {
     throw new Invalid(`'path' must not contain '..'`);
   }
   if (v.includes('\0')) throw new Invalid(`'path' must not contain NUL`);
+  return v;
+}
+
+/**
+ * A `create_file` path: its last segment is a name (not empty, `.` or `..`), and nothing in it is
+ * NUL. With a `root`, relative with no `..` segment; without, a {@link containerPath}.
+ */
+function newEntryPath(o: Obj, rooted: boolean): string {
+  const v = rooted ? str(o, 'path') : containerPath(o);
+  if (rooted) {
+    if (v.startsWith('/')) throw new Invalid(`'path' must be relative`);
+    if (v.split('/').includes('..')) {
+      throw new Invalid(`'path' must not contain '..'`);
+    }
+    if (v.includes('\0')) throw new Invalid(`'path' must not contain NUL`);
+  }
+  const name = v.slice(v.lastIndexOf('/') + 1);
+  if (name === '' || name === '.' || name === '..') {
+    throw new Invalid(`'path' must end in a name`);
+  }
   return v;
 }
 
@@ -383,6 +413,16 @@ function parseFields(m: Obj): ClientMessage {
         ...(m.root === undefined
           ? { path: containerPath(m) }
           : { root: absolute(m, 'root'), path: str(m, 'path') }),
+      };
+    case 'create_file':
+      return {
+        type: 'create_file',
+        id: str(m, 'id'),
+        container: str(m, 'container'),
+        ...(m.root === undefined
+          ? { path: newEntryPath(m, false) }
+          : { root: absolute(m, 'root'), path: newEntryPath(m, true) }),
+        kind: oneOf(m, 'kind', ['file', 'dir']),
       };
     case 'locate_file': {
       const path = absolute(m, 'path');

@@ -26,13 +26,17 @@ import type {
   ContainerInfo,
   ContainerMount,
 } from '@devc-tools/core/container.ts';
-import { listContainerDir, readContainerFile } from './container_files.ts';
+import {
+  createContainerEntry,
+  listContainerDir,
+  readContainerFile,
+} from './container_files.ts';
 import { loadGlobalConfig } from '@devc-tools/core/config.ts';
 import {
   containerToHostPath,
   hostToContainerPath,
 } from '@devc-tools/core/mount_paths.ts';
-import { dirnamePosix } from '@devc-tools/core/posix.ts';
+import { basenamePosix, dirnamePosix } from '@devc-tools/core/posix.ts';
 import {
   confine,
   editorCommand,
@@ -604,9 +608,10 @@ export async function startWeb(
   };
 
   /**
-   * Opens a file in a new pane running the container's editor. With `root`, `path` is relative
-   * to it, one of the repo folders of the container's project, and confined to it; the editor
-   * gets the file's container path. Without, `path` is already a container path (the Files node).
+   * Opens a file in a new pane running the container's editor, named after the file. With `root`,
+   * `path` is relative to it, one of the repo folders of the container's project, and confined to
+   * it; the editor gets the file's container path. Without, `path` is already a container path
+   * (the Files node).
    */
   const openFile = async (
     c: Client,
@@ -626,17 +631,27 @@ export async function startWeb(
         pane_id: result.pane_id,
         text: editorCommand(containerPath),
       });
+      // Named after the file, through the same label a rename sets (the page's `paneLabel`).
+      // The editor is already open, so a failed rename leaves the folder's name and no error.
+      await bridgeRequest(target, 'pane.rename', {
+        pane_id: result.pane_id,
+        label: basenamePosix(containerPath),
+      }).catch(() => {});
       reply(c, { id: msg.id, ok: true, result });
     } catch (e) {
       fail(c, msg.id, e instanceof BridgeError ? e.code : 'herdr_error', e);
     }
   };
 
-  /** A repo file's container path for {@link openFile}; null once the refusal is answered. */
+  /**
+   * A repo file's container path for {@link openFile}, or with `kind: 'dir'` a repo folder's for
+   * {@link createFile}; null once the refusal is answered.
+   */
   const repoContainerPath = async (
     c: Client,
     session: ContainerSession,
     msg: { id: string; root: string; path: string },
+    kind: 'file' | 'dir' = 'file',
   ): Promise<string | null> => {
     const projects = projectsMessage().projects;
     if (!isProjectRepo(projects, session.record.localFolder, msg.root)) {
@@ -654,8 +669,14 @@ export async function startWeb(
       fail(c, msg.id, 'forbidden', `${msg.path} is outside the project`);
       return null;
     }
-    if (!(await Deno.stat(hostPath).catch(() => null))?.isFile) {
-      fail(c, msg.id, 'bad_request', `${msg.path} is not a file`);
+    const stat = await Deno.stat(hostPath).catch(() => null);
+    if (!(kind === 'file' ? stat?.isFile : stat?.isDirectory)) {
+      fail(
+        c,
+        msg.id,
+        'bad_request',
+        `${msg.path} is not a ${kind === 'file' ? 'file' : 'folder'}`,
+      );
       return null;
     }
     const containerPath = hostToContainerPath(
@@ -671,6 +692,38 @@ export async function startWeb(
       );
     }
     return containerPath;
+  };
+
+  /**
+   * Creates a file or folder in the container, as the remote user, and starts nothing: the page
+   * opens a new file with `open_file` itself. With `root`, `path` is relative to that repo folder
+   * and its parent is confined to it (the new path does not exist yet); without, it is a
+   * container path, and the container is the boundary. Never written from the host side, where
+   * the owner would be devc's user rather than the container's.
+   */
+  const createFile = async (
+    c: Client,
+    session: ContainerSession,
+    msg: Extract<ClientMessage, { type: 'create_file' }>,
+  ) => {
+    let path = msg.path;
+    if (msg.root !== undefined) {
+      const parent = await repoContainerPath(
+        c,
+        session,
+        { id: msg.id, root: msg.root, path: dirnamePosix(msg.path) },
+        'dir',
+      );
+      if (parent === null) return;
+      path = `${parent === '/' ? '' : parent}/${basenamePosix(msg.path)}`;
+    }
+    try {
+      const info = await connectionOf(session);
+      const result = await createContainerEntry(info, path, msg.kind);
+      reply(c, { id: msg.id, ok: true, result });
+    } catch (e) {
+      fail(c, msg.id, e instanceof FilesError ? e.code : 'create_failed', e);
+    }
   };
 
   /**
@@ -978,6 +1031,10 @@ export async function startWeb(
     const session = sessions.get(msg.container);
     const id = 'id' in msg ? msg.id : undefined;
     if (!session) {
+      if (msg.type === 'create_file') {
+        fail(c, msg.id, 'not_running', 'the container is not running');
+        return;
+      }
       reject(c, { id, code: 'bad_request', message: 'unknown container' });
       return;
     }
@@ -1007,6 +1064,9 @@ export async function startWeb(
       case 'list_container_dir':
       case 'read_container_file':
         await containerFiles(c, session, msg);
+        return;
+      case 'create_file':
+        await createFile(c, session, msg);
         return;
     }
     const target = session.target;

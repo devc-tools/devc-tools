@@ -2,6 +2,9 @@ import { assertEquals, assertRejects } from 'jsr:@std/assert';
 import { join } from 'jsr:@std/path';
 import type { ContainerInfo } from '@devc-tools/core/container.ts';
 import {
+  createArgv,
+  createContainerEntry,
+  createError,
   type DockerRun,
   listContainerDir,
   parseListing,
@@ -193,4 +196,149 @@ Deno.test('readContainerFile passes a path to the script as an argument, never a
   } finally {
     await Deno.remove(dir, { recursive: true });
   }
+});
+
+Deno.test('createArgv: a noclobber file or a plain mkdir, the path an argument', () => {
+  const path = `/w/$(touch pwned)'"; x`;
+  assertEquals(createArgv(path, 'file'), [
+    'sh',
+    '-c',
+    'set -C; : > "$1"',
+    'sh',
+    path,
+  ]);
+  assertEquals(createArgv(path, 'dir'), ['mkdir', '--', path]);
+});
+
+Deno.test('createContainerEntry creates a file and a folder as the remote user', async () => {
+  const dir = await fixture();
+  try {
+    const calls: string[][] = [];
+    const file = join(dir, 'src', 'new.ts');
+    assertEquals(
+      await createContainerEntry(info, file, 'file', localRun(calls)),
+      { path: file },
+    );
+    assertEquals(await Deno.readTextFile(file), '');
+    const args = calls[0];
+    assertEquals(args.slice(args.indexOf('-u'), args.indexOf('-u') + 2), [
+      '-u',
+      'vscode',
+    ]);
+    const sub = join(dir, 'src', 'sub');
+    assertEquals(
+      await createContainerEntry(info, sub, 'dir', localRun()),
+      { path: sub },
+    );
+    assertEquals((await Deno.stat(sub)).isDirectory, true);
+  } finally {
+    await Deno.remove(dir, { recursive: true });
+  }
+});
+
+Deno.test('createContainerEntry never replaces what is there', async () => {
+  const dir = await fixture();
+  try {
+    for (
+      const [name, kind] of [
+        ['a.txt', 'file'],
+        ['src', 'file'],
+        ['to-file', 'file'],
+        ['broken', 'file'],
+        ['a.txt', 'dir'],
+        ['src', 'dir'],
+      ] as const
+    ) {
+      const e = await assertRejects(
+        () => createContainerEntry(info, join(dir, name), kind, localRun()),
+        FilesError,
+      );
+      assertEquals(e.code, 'exists', `${kind} ${name}`);
+    }
+    assertEquals(await Deno.readTextFile(join(dir, 'a.txt')), 'hello');
+    assertEquals(
+      await Deno.lstat(join(dir, 'gone')).then(() => true, () => false),
+      false,
+    );
+  } finally {
+    await Deno.remove(dir, { recursive: true });
+  }
+});
+
+Deno.test('createContainerEntry names a missing or unwritable folder', async () => {
+  const dir = await fixture();
+  try {
+    for (const kind of ['file', 'dir'] as const) {
+      for (const path of [join(dir, 'nope', 'x'), join(dir, 'a.txt', 'x')]) {
+        const e = await assertRejects(
+          () => createContainerEntry(info, path, kind, localRun()),
+          FilesError,
+        );
+        assertEquals(e.code, 'not_found', `${kind} ${path}`);
+      }
+    }
+    await Deno.chmod(join(dir, 'src'), 0o555);
+    // Root writes through a read-only folder: nothing to check then.
+    const writable = await Deno.writeTextFile(join(dir, 'src', 'probe'), '')
+      .then(() => true, () => false);
+    for (const kind of writable ? [] : ['file', 'dir'] as const) {
+      const e = await assertRejects(
+        () =>
+          createContainerEntry(info, join(dir, 'src', 'x'), kind, localRun()),
+        FilesError,
+      );
+      assertEquals(e.code, 'forbidden', kind);
+    }
+    await Deno.chmod(join(dir, 'src'), 0o755);
+  } finally {
+    await Deno.remove(dir, { recursive: true });
+  }
+});
+
+Deno.test('createError maps docker and shell failures to codes', () => {
+  const err = (stderr: string, code = 1) =>
+    createError('/w/x', { code, stdout: new Uint8Array(), stderr });
+  const codeOf = (e: Error) => e instanceof FilesError ? e.code : e.message;
+  assertEquals(
+    codeOf(err('sh: 1: cannot create /w/x: File exists\n')),
+    'exists',
+  );
+  assertEquals(
+    codeOf(err('sh: line 1: /w/x: cannot overwrite existing file\n')),
+    'exists',
+  );
+  assertEquals(
+    codeOf(err("mkdir: cannot create directory '/w/x': File exists\n")),
+    'exists',
+  );
+  assertEquals(
+    codeOf(err('sh: 1: cannot create /w/x: Is a directory\n', 2)),
+    'exists',
+  );
+  assertEquals(
+    codeOf(err('sh: 1: cannot create /w/x: Directory nonexistent\n', 2)),
+    'not_found',
+  );
+  assertEquals(
+    codeOf(
+      err("mkdir: cannot create directory '/w/x': No such file or directory\n"),
+    ),
+    'not_found',
+  );
+  assertEquals(
+    codeOf(err('sh: 1: cannot create /w/x: Permission denied\n', 2)),
+    'forbidden',
+  );
+  assertEquals(
+    codeOf(
+      err('Error response from daemon: container c0ffee is not running\n'),
+    ),
+    'not_running',
+  );
+  assertEquals(
+    codeOf(err('Error response from daemon: No such container: c0ffee\n')),
+    'not_running',
+  );
+  assertEquals(codeOf(err('something else\n')), 'something else');
+  assertEquals(codeOf(err('')), 'creating failed');
 });

@@ -1,12 +1,12 @@
 # devc-web-editor
 
-- [ ] Step 0: measure Helix in a devc web pane (§ Step 0) and record the answers here
-- [ ] `features/helix` Feature (0.1.0): Helix release binary + runtime, with a scenario test
-- [ ] Server: `create_file` (file or folder, in the container as the remote user), with tests
-- [ ] Page: **New file…** / **New folder…** on folder and root rows; a new file opens in the editor
-- [ ] Editor panes are named after the file they edit
-- [ ] `devc/README.md` (devc web section) and `.plans/devc-web.md` protocol section updated
-- [ ] Verify (below) and ask the user to try it in their open tab
+- [x] Step 0: measure Helix in a devc web pane (§ Step 0) and record the answers here
+- [x] `features/helix` Feature (0.1.0): Helix release binary + runtime, with a scenario test
+- [x] Server: `create_file` (file or folder, in the container as the remote user), with tests
+- [x] Page: **New file…** / **New folder…** on folder and root rows; a new file opens in the editor
+- [x] Editor panes are named after the file they edit
+- [x] `devc/README.md` (devc web section) and `.plans/devc-web.md` protocol section updated
+- [x] Verify (below) and ask the user to try it in their open tab
 
 Make editing files in containers a first-class path in `devc web`: a terminal editor that is
 good out of the box, and creating files and folders from the Files trees. Opening a file in an
@@ -60,6 +60,65 @@ file from the Files tree with `EDITOR=hx`, then answer:
 Change the steps below where an answer says to. Clipboard gaps found in 3–4 are documented in
 the README, not fixed here.
 
+### Step 0 answers (measured 2026-10-18)
+
+Helix 25.07.1 (`helix-25.07.1-x86_64-linux.tar.xz`, unpacked under `~/.local/lib/helix`,
+`HELIX_RUNTIME` set) in a throwaway Herdr 0.9.5 session inside the devc-tools container,
+driven the way devc web's server drives a pane: `herdr terminal session control <pane>
+--takeover` with `terminal.input` / `terminal.mouse` / `terminal.scroll` JSON lines, frames
+decoded from its output, and `pane.selection.read` through `remote-api-bridge`. The file was
+opened with devc web's own command shape, `exec "${EDITOR:-vi}" -- '<path>'` (`hx` accepts the
+`--`). The Herdr server was started with `COLORTERM` unset, as a `docker exec` gives it. What
+xterm.js and the browser do with keys was not measured: nothing here can drive the user's tab.
+
+1. **Colors: truecolor, no change needed.** Herdr sets `COLORTERM=truecolor` (and
+   `TERM=xterm-256color`) in every pane's environment itself, so Helix draws its default theme
+   in 24-bit SGR (`38;2;…`/`48;2;…`), and those sequences reach the control client's frames
+   unchanged. **The Feature does not set `COLORTERM`.** Rendering in xterm.js: not verified —
+   needs the user's tab.
+2. **Keys, Herdr leg: all arrive.** `Esc`, `Ctrl+C` (toggled comments), `Ctrl+W` (the Window
+   popup), `Space` (the Space menu), `Alt+o` (expand selection), `Ctrl+B` (page up) and `Ctrl+Z`
+   (suspends to the shell; `fg` resumes) all reach Helix through `terminal session control`.
+   Herdr's own prefix keys (`Ctrl+B`) belong to its TUI client and do not apply on this path.
+   One quirk: an `Esc` and the next key sent in the **same** `input` message read as `Alt+key`
+   (Helix's escape timeout); the page sends each keystroke on its own, so typing is unaffected.
+   **Browser leg, from the code, not verified — needs the user's tab:** the page itself swallows
+   no keys (its document `Escape` handler closes menus without `preventDefault`; right-click
+   opens the tile menu and is not sent). The browser keeps its reserved shortcuts: `Ctrl+W`
+   (and `Ctrl+T`/`Ctrl+N`) off a Mac close or open browser tabs, so Helix's window mode is not
+   reachable from a browser tab there (the desktop window may differ); on a Mac `Ctrl+W` is
+   free and `Cmd+W` is the browser's. xterm.js runs without `macOptionIsMeta`, so on a Mac
+   `Option+key` types a character instead of Helix's `Alt+key`. **`Ctrl+Alt+N` is free** on the
+   Helix and Herdr legs (Helix binds nothing to it, measured): devc-web-pinned-files can use it.
+3. **Mouse: click and drag work; wheel does not.** A click places the cursor (cell → line and
+   column checked in the status line) and a drag selects (Helix also yanks it to its primary
+   register). devc web's wheel becomes Herdr's `terminal.scroll`, which scrolls Herdr's own
+   scrollback and is **not** forwarded to an alternate-screen app with mouse reporting on: the
+   Helix view did not move (a raw SGR wheel sequence typed as input does scroll it, so Helix
+   itself is fine). Scroll with `Ctrl+D`/`Ctrl+U`/`Ctrl+B`/`Ctrl+F` instead; documented in the
+   README, not fixed here. **Copy-on-select still copies:** a plain drag goes to Helix _and_ the
+   page's `read_selection` copies that screen range from Herdr's buffer, so the clipboard gets
+   the screen text, gutter line numbers included on multi-row drags, not Helix's selection.
+   **Shift+drag** is the bypass: it is xterm.js's local selection and never reaches Helix.
+4. **Clipboard: confirmed, no OSC 52.** `hx --health` reports the clipboard provider `termcode`
+   (OSC 52), and after `Space y` no `ESC ]52` appears in any frame Herdr sends the control
+   client, so Helix's yank cannot reach the host clipboard. **Paste:** a bracketed paste
+   (`ESC[200~ … ESC[201~`, lines joined with `\r`, as `wrapPaste` builds it) of indented lines
+   in insert mode lands as typed; only the first line takes the cursor's current indent, with
+   no staircasing.
+5. **LSP.** With no `.helix/languages.toml`, `hx --health typescript` reports
+   `✘ typescript-language-server: 'typescript-language-server' not found in $PATH` (grammar,
+   highlight, textobject and indent queries ✓). With a project `.helix/languages.toml` mapping
+   `typescript` to `deno lsp` (the README's example), `hx --health typescript` shows
+   `✓ deno-lsp: /usr/local/bin/deno`, and opening a `.ts` file with a type error from the
+   project's folder attached it (Helix's log shows `TS server started`, and the gutter marks
+   the error). Helix 25.07.1 reads a workspace's `.helix/languages.toml` without a trust prompt.
+
+**Changes to the steps below:** the Feature's `containerEnv` is `HELIX_RUNTIME` only. The
+README (devc web section) documents the wheel, clipboard and copy-on-select behaviour, the
+browser-reserved `Ctrl+W`, and the Deno `languages.toml`. The binary is not fully static: it
+links glibc (`libc`, `libm`, `libgcc_s`), so the Feature refuses a musl (Alpine) base.
+
 ## Concept boundaries
 
 - **`create_file` vs `open_file` vs `open`.** `open` attaches a tile to an existing pane's
@@ -80,24 +139,24 @@ the README, not fixed here.
 
 ## Existing touchpoints
 
-| File                                    | Role                                                                                                    |
-| --------------------------------------- | ------------------------------------------------------------------------------------------------------- |
-| `features/xvfb/`                        | The shape to copy for a new Feature: `devcontainer-feature.json`, `install.sh`, `README.md`, `test/`.   |
-| `features/README.md`                    | Gains a row for `helix`.                                                                                |
-| `features/PUBLISH_ALLOWLIST.txt`        | Gains `helix`, so a push to `main` publishes it.                                                        |
-| `devc/web/protocol.ts`                  | New `create_file` `ClientMessage` variant and its parser case, using the same addressing as `open_file`. |
-| `devc/web/server.ts`                    | The `create_file` handler, beside `openFile` and `repoContainerPath`.                                   |
-| `devc/web/container_files.ts`           | `createArgv` and the runner, beside `listArgv`, run through `dockerExecArgv`.                           |
-| `devc/web/files.ts`                     | `confine` (for the parent directory) and `FilesError` codes.                                            |
-| `devc/web/static/app.js`                | `dirMenuItems` and root row menus gain the new items. Inline name entry in the tree.                    |
-| `devc/web/static/lib/files.js`          | Pure name validation, shared by the page and its tests.                                                 |
+| File                             | Role                                                                                                     |
+| -------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| `features/xvfb/`                 | The shape to copy for a new Feature: `devcontainer-feature.json`, `install.sh`, `README.md`, `test/`.    |
+| `features/README.md`             | Gains a row for `helix`.                                                                                 |
+| `features/PUBLISH_ALLOWLIST.txt` | Gains `helix`, so a push to `main` publishes it.                                                         |
+| `devc/web/protocol.ts`           | New `create_file` `ClientMessage` variant and its parser case, using the same addressing as `open_file`. |
+| `devc/web/server.ts`             | The `create_file` handler, beside `openFile` and `repoContainerPath`.                                    |
+| `devc/web/container_files.ts`    | `createArgv` and the runner, beside `listArgv`, run through `dockerExecArgv`.                            |
+| `devc/web/files.ts`              | `confine` (for the parent directory) and `FilesError` codes.                                             |
+| `devc/web/static/app.js`         | `dirMenuItems` and root row menus gain the new items. Inline name entry in the tree.                     |
+| `devc/web/static/lib/files.js`   | Pure name validation, shared by the page and its tests.                                                  |
 
 ## Contracts
 
 ### Feature `helix` (`features/helix/`, version `0.1.0`)
 
-| Option    | Type   | Default    | Meaning                                                                                        |
-| --------- | ------ | ---------- | ---------------------------------------------------------------------------------------------- |
+| Option    | Type   | Default    | Meaning                                                                                           |
+| --------- | ------ | ---------- | ------------------------------------------------------------------------------------------------- |
 | `version` | string | `"latest"` | A Helix release tag (`25.07.1`), or `latest`, resolved from `helix-editor/helix` GitHub releases. |
 
 - Installs `/usr/local/lib/helix/` (the tarball's `hx` and `runtime/`) and the symlink
@@ -175,3 +234,30 @@ Then ask the user to check, in their open tab, with `export EDITOR=hx` in their 
    Creating it again shows "exists" inline.
 3. **New folder…** in the container's Files node (outside the repo) creates the folder as the
    remote user (`ls -l` shows the owner).
+
+## Verification (2026-10-18)
+
+- `deno task check`, `deno task test` (430 passed) and `deno check main.ts` in `devc/`.
+  `deno fmt --check` at the root passes for every file this plan touched; it still reports
+  `.plans/devc-desktop-host-terminal.md` and `.plans/archived/devc-desktop.md`, which were
+  unformatted before this plan (commit 2293efb) and are left alone.
+- The Feature: `bash tests/features_test.sh` and the offline
+  `features/helix/test/install_options_test.sh` pass, and a real `install.sh` run (network, a
+  scratch `HELIX_PREFIX`) installed 25.07.1 with working `hx --health`. **The Docker scenario
+  test (`features/helix/test/run-features-test.sh`) was not run**: this container has no Docker.
+- The page, in headless Chromium (agent-browser) against the checkout's `devc/web/static` over
+  `python3 -m http.server` with a fake WebSocket: **New file…** on a repo root and on a repo
+  subfolder, **New folder…** on the container's Files root; the inline row at the right depth
+  and focused, its text and focus surviving a re-render, `A name cannot contain /` for `a/b`,
+  `README.md already exists` for an `exists` reply (row kept open), Escape removing the row,
+  the exact `create_file` messages sent, the folder listed again with the new row, a new file
+  sending `open_file` (and its tile taking the focus), a new folder selected in the tree.
+- Pane naming: `pane.rename {pane_id, label}` against a throwaway Herdr 0.9.5 session sets the
+  pane's `label`, which `paneLabel` already shows.
+- **Not verified — needs the user's tab:** everything in the plan's three user checks (Helix in
+  a tile named after the file, in color; New file/New folder against a real container and its
+  `ls -l` owner; `exists` from a real container), the browser's own key handling (§ Step 0, 2),
+  and the Docker scenario test. The user's `devc web` was serving this checkout's page during
+  the work; under `--live` (not `--live-yolo`) its installed server does not know `create_file`
+  yet, so **New file…** shows the server's "unknown message type" under the row until it runs
+  `--live-yolo` or an updated `devc`.

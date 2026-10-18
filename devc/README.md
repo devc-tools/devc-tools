@@ -320,6 +320,16 @@ is published from any container: the host server finds devcontainers with
   mode), except a right-click, which opens the tile's menu (the same one as
   its tab); **Shift+drag** selects locally and copies. The wheel scrolls the app
   when it tracks the mouse, and Herdr's scrollback otherwise.
+- **Files and editing:** right-click a file for **Open in editor**, which runs
+  `${EDITOR:-vi}` on it in a new terminal named after the file. Right-click a
+  folder, a repo or a container's **Files** row for **New file…** or **New
+  folder…**: type the name in the row that opens under it, Enter creates it
+  (Escape cancels), and a new file opens in the editor. Entries are created
+  inside the container as its remote user, so they have the owner the editor's
+  saves will have; a name that is already taken is reported under the row. The
+  container must be running. For an editor that is good out of the box, add the
+  [`helix`](../features/helix/README.md) Feature and `export EDITOR=hx` in your
+  shell prefs (see [Editing with Helix](#editing-with-helix)).
 - `--port N` picks another port (default 48228); `--session NAME` another Herdr
   session (default `devc`, the one `devc herdr` uses). A port already in use
   exits 1 with a `devc web:` message.
@@ -465,6 +475,30 @@ Known limitations:
   persists. A Herdr TUI (`devc herdr`) showing the same pane draws it at the
   browser's size until the TUI takes it back, and opening the pane elsewhere
   with `--takeover` disconnects the tile (it offers **Reconnect**).
+
+#### Editing with Helix
+
+The [`helix`](../features/helix/README.md) Feature installs Helix with its
+grammars, and `export EDITOR=hx` (in `~/.config/devc/shell/10-prefs.sh`, see
+[Shell setup](#shell-setup-shell-folders)) makes it what **Open in editor** runs.
+Measured through devc web and Herdr 0.9.5:
+
+- **Colors** are truecolor: Herdr sets `COLORTERM=truecolor` in every pane.
+- **Keys** reach Helix (`Esc`, `Space` menus, `Ctrl+C`, `Ctrl+W`, `Alt+` keys,
+  `Ctrl+Z`), except what the browser keeps for itself: off a Mac, `Ctrl+W`
+  closes the browser tab, so Helix's window mode is out of reach there. On a
+  Mac, `Option+key` types a character rather than Helix's `Alt+key`.
+- **Mouse:** a click places the cursor and a drag selects, but the **wheel does
+  not scroll Helix** (devc web's wheel scrolls Herdr's scrollback, which an
+  editor's screen has none of). Use `Ctrl+U`/`Ctrl+D`.
+- **Copying:** Helix's `Space y` cannot reach your clipboard: it uses OSC 52,
+  which Herdr does not pass to devc web. A plain drag copies the screen text
+  under it (gutter line numbers included across lines), not Helix's selection;
+  **Shift+drag** selects locally without Helix seeing it. Pasting from the page
+  inserts the text as it was copied.
+- **Language servers** are whichever are on `PATH` (`hx --health typescript`).
+  For a Deno project, point TypeScript at `deno lsp` in the project's
+  `.helix/languages.toml` (the Feature's README has it).
 
 ### The library: `@devc-tools/core`
 

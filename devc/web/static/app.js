@@ -51,6 +51,7 @@ import {
   createDirTree,
   formatSize,
   isHiddenName,
+  newEntryNameError,
   opensAsDir,
   opensAsFile,
   parentDir,
@@ -132,6 +133,17 @@ const fileRows = new Map();
  */
 const paneRows = new Map();
 let renderGeneration = 0;
+/**
+ * The inline name row of a **New file…** / **New folder…** in progress: under folder `dir` of
+ * file root `fr`, kept across renders (so typing survives them) until Enter creates the entry or
+ * Escape cancels. A render that no longer shows its folder drops it.
+ *
+ * @type {{fr: FileRoot, dir: string, kind: 'file' | 'dir', row: HTMLElement,
+ *   input: HTMLInputElement, error: HTMLElement, busy: boolean, seen: number} | null}
+ */
+let newEntry = null;
+/** The tree key of a row just created, focused by the first render that shows it. */
+let selectTreeKey = null;
 
 /**
  * A tile's live view. `openKey` is the `container\npane` it has open on the server, if any.
@@ -697,6 +709,8 @@ const LABELS = {
   terminals: 'Terminals',
   files: 'Files',
   newTerminalHere: 'New terminal here',
+  newFile: 'New file…',
+  newFolder: 'New folder…',
   notRunning: 'The container is not running',
   plainTerminal: 'Terminal',
   /** The + menu's agents (ids from `lib/agent_icons.js`). */
@@ -920,6 +934,14 @@ function renderTree() {
   const generation = ++renderGeneration;
   const scroll = $tree.scrollTop;
   const focusKey = focusedTreeKey($tree);
+  // A just-created row takes the focus only from the sidebar, never from a terminal.
+  const active = document.activeElement;
+  const mayFocus = !active || active === document.body ||
+    $tree.contains(active);
+  const typing = newEntry !== null && active === newEntry.input;
+  const caret = typing
+    ? [newEntry.input.selectionStart, newEntry.input.selectionEnd]
+    : null;
   const rows = [
     ...layoutRows(),
     sectionRow(
@@ -951,7 +973,21 @@ function renderTree() {
   if (idle.length > 0) rows.push(...inactiveRows(idle));
   $tree.replaceChildren(...rows);
   $tree.scrollTop = scroll;
-  refocusTreeKey($tree, focusKey);
+  const created = selectTreeKey === null
+    ? null
+    : treeRowByKey($tree, selectTreeKey);
+  if (created) {
+    selectTreeKey = null;
+    if (mayFocus) {
+      created.focus({ preventScroll: true });
+      created.scrollIntoView({ block: 'nearest' });
+    }
+  } else refocusTreeKey($tree, focusKey);
+  if (newEntry !== null && newEntry.seen !== generation) newEntry = null;
+  if (typing && newEntry !== null) {
+    newEntry.input.focus({ preventScroll: true });
+    newEntry.input.setSelectionRange(caret[0], caret[1]);
+  }
   for (const [key, rec] of paneRows) {
     if (rec.seen === generation) continue;
     rec.remove?.();
@@ -2207,15 +2243,18 @@ function focusedTreeKey(container) {
   return el && container.contains(el) ? el.dataset.treeKey ?? null : null;
 }
 
-function refocusTreeKey(container, key) {
-  if (key === null) return;
+/** The row with tree key `key` inside `container`, if there is one. */
+function treeRowByKey(container, key) {
   for (const el of container.querySelectorAll('[data-tree-key]')) {
     const row = /** @type {HTMLElement} */ (el);
-    if (row.dataset.treeKey === key) {
-      row.focus({ preventScroll: true });
-      return;
-    }
+    if (row.dataset.treeKey === key) return row;
   }
+  return null;
+}
+
+function refocusTreeKey(container, key) {
+  if (key === null) return;
+  treeRowByKey(container, key)?.focus({ preventScroll: true });
 }
 
 $tree.addEventListener('keydown', (e) =>
@@ -2471,9 +2510,154 @@ function dirMenuItems(fr, path) {
     fr.container
       ? [LABELS.newTerminalHere, () => newShellIn(fr, path)]
       : [LABELS.openHere, () => openHerdrTab(fr, path, true)],
+    [LABELS.newFile, () => startNewEntry(fr, path, 'file')],
+    [LABELS.newFolder, () => startNewEntry(fr, path, 'dir')],
     ['Refresh', () => fileTree(fr).refresh(path)],
     ['Copy path', () => copyPath(fr, path)],
   ];
+}
+
+// ---------------------------------------------------------------------------------------------
+// Sidebar: new files and folders
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * Opens the inline name row under folder `path` of `fr`, expanding the folder. Creating needs a
+ * running container: the entry is made inside it, as the remote user (`create_file`).
+ *
+ * @param {FileRoot} fr @param {string} path @param {'file' | 'dir'} kind
+ */
+function startNewEntry(fr, path, kind) {
+  if (!containerByFolder(fr.localFolder)) {
+    toast('Start the container first');
+    return;
+  }
+  const input = /** @type {HTMLInputElement} */ (h('input', {
+    type: 'text',
+    class: 'new-entry-input',
+    spellcheck: 'false',
+    autocomplete: 'off',
+    'aria-label': kind === 'file' ? 'New file name' : 'New folder name',
+    placeholder: kind === 'file' ? 'File name' : 'Folder name',
+  }));
+  const error = h('div', { class: 'new-entry-error', hidden: '' });
+  const row = h(
+    'div',
+    { class: 'row new-entry', 'data-kind': kind },
+    h(
+      'span',
+      { class: 'label' },
+      h('span', { class: 'chevron', 'aria-hidden': 'true' }),
+      input,
+    ),
+    error,
+  );
+  const entry = {
+    fr,
+    dir: path,
+    kind,
+    row,
+    input,
+    error,
+    busy: false,
+    seen: 0,
+  };
+  input.addEventListener('keydown', (e) => {
+    // The tree's own keys (arrows, Enter) must not act on the rows behind it.
+    e.stopPropagation();
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      void submitNewEntry(entry);
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      cancelNewEntry(entry);
+    }
+  });
+  input.addEventListener('input', () => showNewEntryError(entry, null));
+  newEntry = entry;
+  const tree = fileTree(fr);
+  if (!tree.isOpen(path)) tree.expand(path);
+  renderTree();
+  input.focus();
+}
+
+function cancelNewEntry(entry) {
+  if (newEntry !== entry) return;
+  newEntry = null;
+  renderTree();
+}
+
+/** Shows `message` under the inline row, or hides it with `null`. */
+function showNewEntryError(entry, message) {
+  entry.error.textContent = message ?? '';
+  entry.error.hidden = message === null;
+}
+
+/**
+ * Creates the entry named in the inline row. On success the folder is listed again with the new
+ * row selected, and a file opens in the editor (as **Open in editor** places it). On failure
+ * (`exists` among them) the row stays open with the reason under it.
+ */
+async function submitNewEntry(entry) {
+  if (newEntry !== entry || entry.busy) return;
+  const name = entry.input.value;
+  const invalid = newEntryNameError(name);
+  if (invalid !== null) {
+    showNewEntryError(entry, invalid);
+    return;
+  }
+  const { fr, dir, kind } = entry;
+  const c = containerByFolder(fr.localFolder);
+  if (!c) {
+    toast('Start the container first');
+    return;
+  }
+  const path = childPath(dir, name);
+  entry.busy = true;
+  try {
+    await call({
+      type: 'create_file',
+      container: c.id,
+      ...(fr.container
+        ? { path: childPath('/', path) }
+        : { root: fr.root, path }),
+      kind,
+    });
+  } catch (e) {
+    entry.busy = false;
+    showNewEntryError(
+      entry,
+      e?.code === 'exists' ? `${name} already exists` : String(e?.message ?? e),
+    );
+    return;
+  }
+  if (newEntry === entry) newEntry = null;
+  selectTreeKey = `${treeId(fr)}\n${path}`;
+  fileTree(fr).refresh(dir);
+  if (kind === 'file') openInEditor(fr, path, 'stack');
+}
+
+/**
+ * `rows` (a root's entry rows, at `depth`) with the inline name row in place when it belongs to
+ * this root: first under its folder's row, or first of all for the root itself.
+ *
+ * @param {FileRoot} fr @param {number} depth @param {HTMLElement[]} rows
+ */
+function withNewEntryRow(fr, depth, rows) {
+  const entry = newEntry;
+  if (entry === null || treeId(entry.fr) !== treeId(fr)) return rows;
+  if (!fileTree(fr).isOpen(entry.dir)) return rows;
+  let at = 0;
+  let rowDepth = depth;
+  if (entry.dir !== '') {
+    const key = `${treeId(fr)}\n${entry.dir}`;
+    at = rows.findIndex((r) => r.dataset.treeKey === key) + 1;
+    if (at === 0) return rows;
+    rowDepth = Number(rows[at - 1].dataset.depth) + 1;
+  }
+  entry.row.style.setProperty('--depth', String(rowDepth));
+  entry.seen = renderGeneration;
+  return [...rows.slice(0, at), entry.row, ...rows.slice(at)];
 }
 
 function fileMenuItems(fr, path) {
@@ -2489,10 +2673,14 @@ function fileMenuItems(fr, path) {
   ];
 }
 
-/** The folders and files of an open root, at `depth`. */
+/** The folders and files of an open root, at `depth`, and an inline name row if it has one. */
 function rootEntryRows(fr, depth) {
   const tree = fileTree(fr);
-  return treeRows(tree, '', depth, (item) => fileEntryRow(fr, tree, item));
+  return withNewEntryRow(
+    fr,
+    depth,
+    treeRows(tree, '', depth, (item) => fileEntryRow(fr, tree, item)),
+  );
 }
 
 function fileEntryRow(fr, tree, item) {

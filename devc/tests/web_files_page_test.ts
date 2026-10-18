@@ -5,6 +5,7 @@ import {
   createDirTree,
   formatSize,
   isWithin,
+  newEntryNameError,
   opensAsDir,
   opensAsFile,
   parentDir,
@@ -15,6 +16,18 @@ Deno.test('childPath joins relative and absolute paths', () => {
   assertEquals(childPath('src', 'a.ts'), 'src/a.ts');
   assertEquals(childPath('/', 'Users'), '/Users');
   assertEquals(childPath('/Users/me', 'code'), '/Users/me/code');
+});
+
+Deno.test('newEntryNameError: one segment, not . or .., no / or NUL', () => {
+  for (const name of ['a.ts', '.env', '...', 'name with spaces', 'ü.md']) {
+    assertEquals(newEntryNameError(name), null, name);
+  }
+  assertEquals(newEntryNameError(''), 'Enter a name');
+  assertEquals(newEntryNameError('.'), '"." is not a name');
+  assertEquals(newEntryNameError('..'), '".." is not a name');
+  assertEquals(newEntryNameError('src/a.ts'), 'A name cannot contain /');
+  assertEquals(newEntryNameError('a/'), 'A name cannot contain /');
+  assertEquals(newEntryNameError('a\0b'), 'A name cannot contain NUL');
 });
 
 Deno.test('isWithin: the dir itself and paths under it, not siblings', () => {

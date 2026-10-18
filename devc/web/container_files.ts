@@ -1,7 +1,8 @@
 // A running container's own filesystem for `devc web`'s Files node (`list_container_dir`,
 // `read_container_file`): any absolute path inside the container, read with `docker exec` as the
 // remote user, so what is listed is what that user can see. Unlike the repo trees (`files.ts`),
-// nothing is confined: the container is the boundary.
+// nothing is confined: the container is the boundary. `create_file` writes here too, for both
+// trees, so a new file has the owner the editor's saves will have.
 //
 // The commands are GNU findutils and POSIX `sh`/`head`, as in devc-vscode's container file
 // system. BusyBox `find` (Alpine) has no `-printf`, so listing fails there with find's own error.
@@ -178,4 +179,56 @@ export async function readContainerFile(
     default:
       throw execError(path, out, 'reading failed');
   }
+}
+
+/**
+ * The command that creates `path`: an empty file with noclobber (`set -C`: the shell opens it
+ * `O_EXCL`, so anything already there fails it), or a folder with `mkdir` (no `-p`). The path
+ * rides in as an argument, never spliced into the script.
+ */
+export function createArgv(path: string, kind: 'file' | 'dir'): string[] {
+  return kind === 'file'
+    ? ['sh', '-c', 'set -C; : > "$1"', 'sh', path]
+    : ['mkdir', '--', path];
+}
+
+/** A failed {@link createArgv} (or the `docker exec` around it) as an error with its `code`. */
+export function createError(path: string, out: ExecOutput): Error {
+  const msg = out.stderr.trim();
+  // dash says "File exists", bash "cannot overwrite existing file"; a folder in the way of a
+  // file is "Is a directory".
+  if (/file exists|cannot overwrite existing file|is a directory/i.test(msg)) {
+    return new FilesError('exists', `${path} already exists`);
+  }
+  // dash says "Directory nonexistent" for a missing folder.
+  if (
+    /no such file or directory|directory nonexistent|not a directory/i.test(msg)
+  ) {
+    return new FilesError('not_found', `${path}'s folder does not exist`);
+  }
+  if (/permission denied|read-only file system/i.test(msg)) {
+    return new FilesError('forbidden', `${path} can't be created here`);
+  }
+  if (/is not running|no such container/i.test(msg)) {
+    return new FilesError('not_running', 'the container is not running');
+  }
+  return new Error(msg || 'creating failed');
+}
+
+/**
+ * Creates a file or folder at `path` (absolute) in the container, as the remote user. Its parent
+ * must exist. Resolves with the path; throws {@link FilesError} (`exists`, `not_found`,
+ * `forbidden`, `not_running`), or an `Error` carrying the command's stderr.
+ */
+export async function createContainerEntry(
+  info: ContainerInfo,
+  path: string,
+  kind: 'file' | 'dir',
+  run: DockerRun = runDocker,
+): Promise<{ path: string }> {
+  const out = await run(
+    dockerExecArgv(info, { cwd: '/', cmd: createArgv(path, kind) }),
+  );
+  if (out.code !== 0) throw createError(path, out);
+  return { path };
 }

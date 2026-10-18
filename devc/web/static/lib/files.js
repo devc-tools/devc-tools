@@ -36,6 +36,22 @@ export function parentDir(path) {
   return i <= 0 ? '/' : trimmed.slice(0, i);
 }
 
+/**
+ * Why `name` can't be a new file or folder's name (**New file…** / **New folder…**), or `null`
+ * when it can: one path segment, not `.` or `..`, with no `/` or NUL. The server checks the
+ * same rules on the whole path (`create_file`).
+ *
+ * @param {string} name
+ * @returns {string | null}
+ */
+export function newEntryNameError(name) {
+  if (name === '') return 'Enter a name';
+  if (name === '.' || name === '..') return `"${name}" is not a name`;
+  if (name.includes('/')) return 'A name cannot contain /';
+  if (name.includes('\0')) return 'A name cannot contain NUL';
+  return null;
+}
+
 /** A file size for a tooltip: bytes, then KB, MB, GB with one decimal under 10. */
 export function formatSize(bytes) {
   if (bytes < 1024) return `${bytes} B`;

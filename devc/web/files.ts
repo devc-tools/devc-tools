@@ -33,7 +33,9 @@ export class FilesError extends Error {
       | 'forbidden'
       | 'not_found'
       | 'too_large'
-      | 'binary',
+      | 'binary'
+      | 'exists'
+      | 'not_running',
     message: string,
   ) {
     super(message);

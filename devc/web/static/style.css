@@ -965,7 +965,8 @@ body.resizing-sidebar {
 }
 
 /* A file row keeps a chevron's width, so names line up with folders'. */
-.row.tree-row:not([aria-expanded]) > .label > .chevron::before {
+.row.tree-row:not([aria-expanded]) > .label > .chevron::before,
+.row.new-entry > .label > .chevron::before {
   content: '';
 }
 
@@ -987,6 +988,34 @@ body.resizing-sidebar {
 
 .row.tree-note[data-note='error'] {
   color: var(--danger);
+}
+
+/* The inline name row of New file… / New folder…, its error (an existing name) under it. */
+.row.new-entry {
+  grid-template-columns: 1fr;
+}
+
+.row.new-entry .label {
+  display: flex;
+  align-items: center;
+}
+
+.new-entry-input {
+  flex: 1;
+  min-width: 0;
+  font: inherit;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--accent);
+  border-radius: 3px;
+  padding: 1px 4px;
+  outline: none;
+}
+
+.new-entry-error {
+  padding-left: 14px;
+  color: var(--danger);
+  white-space: normal;
 }
 
 .row.tree-note .label {

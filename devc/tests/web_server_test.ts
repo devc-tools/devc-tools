@@ -561,6 +561,62 @@ Deno.test('parseClientMessage: container file messages take an absolute path wit
   }
 });
 
+Deno.test('parseClientMessage: create_file takes a kind and a path that ends in a name', () => {
+  for (
+    const msg of [
+      { path: 'src/new.ts', root: '/src/app', kind: 'file' },
+      { path: 'new', root: '/src/app', kind: 'dir' },
+      { path: '/home/me/notes.md', kind: 'file' },
+      { path: '/tmp/x', kind: 'dir' },
+      { path: '/.env', kind: 'file' },
+    ]
+  ) {
+    const full = { type: 'create_file', id: 'n1', container: 'c1', ...msg };
+    assertEquals(
+      parseClientMessage(JSON.stringify(full)),
+      { ok: true, msg: full } as never,
+    );
+  }
+  const rooted = { root: '/src/app', kind: 'file' };
+  for (
+    const bad of [
+      // kind
+      { ...rooted, path: 'a', kind: 'link' },
+      { ...rooted, path: 'a', kind: undefined },
+      // the last segment
+      { ...rooted, path: '' },
+      { ...rooted, path: 'src/' },
+      { ...rooted, path: '.' },
+      { ...rooted, path: 'src/..' },
+      { ...rooted, path: 'a\0b' },
+      // with a root: relative, no ..
+      { ...rooted, path: '/etc/x' },
+      { ...rooted, path: '../x' },
+      { ...rooted, path: 'src/../../x' },
+      { root: 'relative', kind: 'file', path: 'a' },
+      // without: a container path
+      { kind: 'file', path: 'etc/x' },
+      { kind: 'file', path: '/etc/../x' },
+      { kind: 'file', path: '/etc/' },
+      { kind: 'dir', path: '/' },
+      { kind: 'file', path: '/tmp/a\0b' },
+    ]
+  ) {
+    const r = rejected({
+      type: 'create_file',
+      id: 'n2',
+      container: 'c1',
+      ...bad,
+    });
+    assertEquals([r.id, r.code], ['n2', 'bad_request'], JSON.stringify(bad));
+  }
+  assertEquals(
+    rejected({ type: 'create_file', id: 'n3', path: '/tmp/x', kind: 'file' })
+      .code,
+    'bad_request',
+  );
+});
+
 Deno.test('parseClientMessage: open_tab needs root, a path (may be empty) and reuse', () => {
   const base = {
     type: 'open_tab' as const,
