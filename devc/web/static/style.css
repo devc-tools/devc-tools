@@ -677,6 +677,8 @@ body.resizing-sidebar {
   gap: 5px;
   font-size: 11px;
   font-weight: 400;
+  /* Monospace, so every four-letter status (statusShort) is the same width. */
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   color: var(--idle);
   white-space: nowrap;
 }

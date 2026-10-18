@@ -34,6 +34,7 @@ import {
   paneLabel,
   paneTitle,
   SIDEBAR_DEFAULT_WIDTH,
+  statusShort,
   topStatus,
 } from './lib/sidebar.js';
 import { AGENT_IDS, AGENT_MARKS, terminalIconKind } from './lib/agent_icons.js';
@@ -626,7 +627,7 @@ function findPane(containerId, paneId) {
   ) ?? null;
 }
 
-/** A pane's agent status as a dot and a word; the agent's name is in the tooltip. */
+/** A pane's agent status as a dot and its short word; the agent's name and full status are in the tooltip. */
 function badge(pane) {
   if (!pane?.agent) return '';
   const status = agentStatus(pane);
@@ -637,7 +638,7 @@ function badge(pane) {
       'data-status': status,
       title: `${pane.agent}: ${status}`,
     },
-    status,
+    statusShort(status),
   );
 }
 
@@ -657,7 +658,9 @@ function rollupBadge(panes) {
         `${paneTitle(p)}: ${p.agent} ${agentStatus(p)}`
       ).join('\n'),
     },
-    top.count > 1 ? `${top.count} ${top.status}` : top.status,
+    top.count > 1
+      ? `${top.count} ${statusShort(top.status)}`
+      : statusShort(top.status),
   );
 }
 

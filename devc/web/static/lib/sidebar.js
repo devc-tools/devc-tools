@@ -17,6 +17,20 @@ function dirname(path) {
   );
 }
 
+/** Each status's badge text: four letters, so a badge keeps its width as the status changes. */
+const STATUS_SHORT = {
+  blocked: 'wait',
+  working: 'work',
+  done: 'done',
+  unknown: 'unkn',
+  idle: 'idle',
+};
+
+/** A status's four-letter badge text; tooltips keep the full word. */
+export function statusShort(status) {
+  return STATUS_SHORT[status] ?? STATUS_SHORT.unknown;
+}
+
 /** A pane's agent status, `unknown` when Herdr sent none or one this page doesn't know. */
 export function agentStatus(pane) {
   return STATUS_ORDER.includes(pane?.agent_status)

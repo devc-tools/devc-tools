@@ -10,6 +10,8 @@ import {
   paneTitle,
   SIDEBAR_DEFAULT_WIDTH,
   SIDEBAR_MIN_WIDTH,
+  STATUS_ORDER,
+  statusShort,
   topStatus,
 } from '../web/static/lib/sidebar.js';
 
@@ -266,4 +268,10 @@ Deno.test('gitRollup shows a quiet ✓ (or • when no repo has an upstream) whe
   ]);
   assertEquals(mixed?.marks, [{ dir: 'ahead', text: '↑2' }]);
   assertEquals(mixed?.title.split('\n').map((l) => l.split(':')[0]), ['b']);
+});
+
+Deno.test('statusShort gives every status four letters, unknown for the rest', () => {
+  for (const s of STATUS_ORDER) assertEquals(statusShort(s).length, 4);
+  assertEquals(statusShort('working'), 'work');
+  assertEquals(statusShort('sleeping'), 'unkn');
 });
