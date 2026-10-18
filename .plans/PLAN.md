@@ -11,14 +11,6 @@
 
 ### Pending
 
-- [devc-desktop](devc-desktop.md) — `devc web` in its own window: a thin `deno desktop` app
-  (CEF backend) in `devc-desktop/` that runs the installed `devc web --no-open …` as a child,
-  reads the `#token` URL from its stdout and navigates the window there, so live mode works
-  unchanged. A spike showed devc itself cannot be the desktop binary (re-executing it for the
-  embedded devcontainer CLI breaks), and that children must not inherit `DENO_SERVE_ADDRESS`.
-  Step 0 checks keyboard, `PATH`, arguments and closing on a Mac; the page gains a "Copy page
-  URL" action. Release packaging is out of scope.
-
 - [git-protect-live-check](git-protect-live-check.md) — a read-only `.git/config` mount can
   vanish from a running container when the host rewrites the file (seen on Docker Desktop:
   VS Code's config writes), leaving the repo's config writable from inside while `devc status`
@@ -129,6 +121,19 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
   take it too.
 
 ### Completed
+
+- [devc-desktop](archived/devc-desktop.md) — ✅ Done: `devc web` in its own window. A thin
+  `deno desktop` app (CEF) in `devc-desktop/` runs `devc web --no-open …` as a child
+  (`$DEVC_DESKTOP_DEVC`, else `$DEVC_BIN` as `bash_aliases.sh` exports it for `devc2`, else
+  `devc` on `PATH`, else the same from the login shell), shows a status page while it starts
+  or after it fails (with Restart), and navigates the window to the `#token` URL the child
+  prints, so live mode works unchanged. Closing the window or Cmd+Q (a macOS app menu) stops
+  the child first. The page gained **Copy page URL**. devc itself can't be the desktop binary
+  (re-executing it starts another GUI instance), and children must not inherit
+  `DENO_SERVE_ADDRESS`. Validated by unit tests, an Xvfb run on Linux against `devc2` with a
+  stub `docker`, and on macOS: keyboard, clipboard, `--live-yolo` swaps and reloads, closing,
+  a Finder launch finding `devc2` through the login shell, and the failure page. Release
+  packaging is not done.
 
 - [devc-web-preview-tiles](archived/devc-web-preview-tiles.md) — ✅ Done: VS Code-style preview
   tiles. A click on a terminal or file no tile shows opens it in the focused stack's preview

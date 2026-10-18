@@ -20,7 +20,7 @@ re-executes itself. `devc` does not change, apart from one page action (Step 3).
 - [x] Step 2: build task, icon, `.gitignore` (§ Step 2)
 - [x] Step 3: "Copy page URL" action in the `devc web` page (§ Step 3)
 - [x] Tests (§ Tests): unit tests, and the end-to-end run on Linux under Xvfb
-- [ ] Validation on the host (§ Validation)
+- [x] Validation on the host (§ Validation)
 
 ## What the spike established (2026-10-18, Deno 2.9.7, Linux container under Xvfb)
 
@@ -271,12 +271,16 @@ reaches a running `devc web --live` session.
 - `devc` page: if `devc/tests/` has a static-markup test for `index.html`, extend it for
   `#copy-url`.
 
-## Validation (macOS host)
+## Validation (macOS host): all passed, 2026-10-18
 
 1. `deno task build` in `devc-desktop/`, then open `dist/devc.app` from Finder: the status
    page shows, then the `devc web` page, connected, with Herdr panes working.
 2. Quit Docker Desktop and relaunch: the status page shows devc's error and stderr. Start
    Docker, press Restart: the page loads.
+   *Run instead with a busy port, since quitting Docker Desktop would stop every container and
+   its Herdr sessions:* `devc2 web --no-open` on 48228, then the app from Finder showed
+   "port 48228 is already in use" with a Restart button; after stopping that `devc2`,
+   Restart loaded the page.
 3. With `"desktopWebArgs": ["--live-yolo"]`: edit a `devc/web/*.ts` file in the checkout; the
    supervisor swaps servers and the window reconnects with no action from the user.
 4. Close the window, and separately Cmd+Q: no `devc` or `deno` process remains.
