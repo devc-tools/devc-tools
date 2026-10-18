@@ -123,6 +123,51 @@ win.addEventListener('close', (e) => {
   e.preventDefault();
   void shutdown();
 });
+
+// macOS: Cmd+Q does nothing without an app menu that has Quit. Not the `quit` role: the OS
+// handles role items itself and sends no `menuclick`, so devc web would be left running. Giving
+// a menu replaces the generated default, so the Edit roles that make Cmd+C / Cmd+V work in the
+// page are listed again. Elsewhere there is no menu, and Ctrl+Q stays the terminal's.
+if (Deno.build.os === 'darwin') {
+  win.setApplicationMenu([
+    {
+      submenu: {
+        label: 'devc web',
+        items: [{
+          item: {
+            label: 'Quit devc web',
+            id: 'quit',
+            accelerator: 'Cmd+Q',
+            enabled: true,
+          },
+        }],
+      },
+    },
+    {
+      submenu: {
+        label: 'Edit',
+        items: [
+          { role: { role: 'undo' } },
+          { role: { role: 'redo' } },
+          'separator',
+          { role: { role: 'cut' } },
+          { role: { role: 'copy' } },
+          { role: { role: 'paste' } },
+          { role: { role: 'selectAll' } },
+        ],
+      },
+    },
+    {
+      submenu: {
+        label: 'Window',
+        items: [{ role: { role: 'minimize' } }],
+      },
+    },
+  ]);
+  win.addEventListener('menuclick', (e) => {
+    if (e.detail.id === 'quit') void shutdown();
+  });
+}
 for (const sig of ['SIGINT', 'SIGTERM'] as const) {
   try {
     Deno.addSignalListener(sig, () => void shutdown());
