@@ -571,6 +571,12 @@ body.resizing-sidebar {
   color: var(--muted);
 }
 
+/* Golden Layout switches and drags a tab only from the tab or its title element itself. */
+.lm_header .lm_tab .tile-title-muted,
+.lm_header .lm_tab .tile-badge {
+  pointer-events: none;
+}
+
 .row.container:hover,
 .row.group:hover,
 .row.pane:hover,
