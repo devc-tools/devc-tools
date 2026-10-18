@@ -42,18 +42,31 @@ Launched with no arguments (from the Dock or Finder), the app reads them from
 
 ### Which `devc`
 
-The first of:
+`"desktopDevc"` in the same file picks it:
 
-1. `$DEVC_DESKTOP_DEVC`: an absolute path to a `devc` binary.
-2. `$DEVC_BIN`: a whole command, split on spaces. Sourcing
-   [`scripts/bash_aliases.sh`](../scripts/bash_aliases.sh) exports it as `devc2`'s
-   from-source invocation (`deno run … devc/main.ts`), so a terminal that has `devc2`
-   launches the app against the checkout, with no build of devc.
-3. `devc` on the app's `PATH`: an installed release.
-4. `$DEVC_BIN`, else `devc`, as your login shell sets them (`$SHELL -ilc`, else
-   `/bin/zsh`). An app opened from the Dock gets a minimal `PATH` without
-   `~/.local/bin`, `docker` or `deno`, so this is the usual case there. That `PATH` is
-   also passed on to `devc web`.
+| `desktopDevc`            | Runs                                          |
+| ------------------------ | --------------------------------------------- |
+| absent, or `"installed"` | the installed `devc`                          |
+| `"devc2"`                | the checkout from source, through `$DEVC_BIN` |
+| an absolute path         | that `devc` binary                            |
+
+```json
+{ "desktopDevc": "devc2", "desktopWebArgs": ["--live-yolo"] }
+```
+
+- **`installed`:** `devc` on the app's `PATH`, else on your login shell's
+  (`$SHELL -ilc`, else `/bin/zsh`).
+- **`devc2`:** `$DEVC_BIN`, which sourcing
+  [`scripts/bash_aliases.sh`](../scripts/bash_aliases.sh) exports as `devc2`'s
+  from-source invocation (`deno run … devc/main.ts`), so no build of devc is needed.
+  It comes from the app's environment, else your login shell's, so the shell that
+  sets it must source that file.
+- **`$DEVC_DESKTOP_DEVC`** (an absolute path) overrides `desktopDevc` for a terminal
+  launch.
+
+An app opened from the Dock gets a minimal `PATH` without `~/.local/bin`, `docker` or
+`deno`, and none of your shell's variables, so the login shell is asked. Its `PATH` is
+also passed on to `devc web`.
 
 The app always passes `--no-open`, which `devc` has had only since the release after
 0.10.0. An older installed `devc` refuses it, so use `devc2` until you update.

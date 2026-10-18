@@ -1,12 +1,14 @@
 import { assertEquals, assertThrows } from 'jsr:@std/assert';
 import {
   childEnv,
-  desktopWebArgsFromConfig,
+  type DesktopConfig,
+  desktopConfig,
   devcArgs,
   type FindDeps,
   findDevc,
   type LoginEnv,
   loginEnv,
+  looked,
   onPath,
   readyUrl,
   startDevcWeb,
@@ -31,20 +33,34 @@ Deno.test("readyUrl: devc web's ready line, loopback and a 64-hex token only", (
   assertEquals(readyUrl('devc web: server exited (1)'), null);
 });
 
-Deno.test('desktopWebArgsFromConfig: absent means none; anything but strings throws', () => {
-  assertEquals(desktopWebArgsFromConfig(null), []);
-  assertEquals(desktopWebArgsFromConfig('{"codeRoots":[]}'), []);
+Deno.test('desktopConfig: defaults, desktopWebArgs, and desktopDevc', () => {
+  const dflt: DesktopConfig = { webArgs: [], devc: { kind: 'installed' } };
+  assertEquals(desktopConfig(null), dflt);
+  assertEquals(desktopConfig('{"codeRoots":[]}'), dflt);
   assertEquals(
-    desktopWebArgsFromConfig('{"desktopWebArgs":["--live-yolo"]}'),
-    ['--live-yolo'],
+    desktopConfig('{"desktopWebArgs":["--live-yolo"],"desktopDevc":"devc2"}'),
+    { webArgs: ['--live-yolo'], devc: { kind: 'devc2' } },
   );
+  assertEquals(desktopConfig('{"desktopDevc":"installed"}').devc, {
+    kind: 'installed',
+  });
+  assertEquals(desktopConfig('{"desktopDevc":"/opt/devc"}').devc, {
+    kind: 'path',
+    path: '/opt/devc',
+  });
   assertThrows(
-    () => desktopWebArgsFromConfig('{"desktopWebArgs":"--live"}'),
+    () => desktopConfig('{"desktopWebArgs":"--live"}'),
     Error,
     'desktopWebArgs',
   );
-  assertThrows(() => desktopWebArgsFromConfig('{"desktopWebArgs":[1]}'));
-  assertThrows(() => desktopWebArgsFromConfig('{'));
+  assertThrows(() => desktopConfig('{"desktopWebArgs":[1]}'));
+  assertThrows(
+    () => desktopConfig('{"desktopDevc":"devc3"}'),
+    Error,
+    'desktopDevc',
+  );
+  assertThrows(() => desktopConfig('{"desktopDevc":"bin/devc"}'));
+  assertThrows(() => desktopConfig('{'));
 });
 
 Deno.test("devcArgs: --no-open first; the app's own args win over the config's", () => {
@@ -96,65 +112,88 @@ function deps(
 const DEVC_BIN = 'deno run --allow-read /src/devc/main.ts';
 const BIN_WORDS = ['deno', 'run', '--allow-read', '/src/devc/main.ts'];
 
-Deno.test("findDevc: $DEVC_DESKTOP_DEVC, then $DEVC_BIN, then the app's PATH", async () => {
-  const given = deps(
-    { DEVC_DESKTOP_DEVC: '/x/devc', DEVC_BIN, PATH: '/a' },
-    { '/a': 'devc' },
-    null,
-  );
-  assertEquals(await findDevc(given), { cmd: ['/x/devc'] });
+const INSTALLED = { kind: 'installed' } as const;
+const DEVC2 = { kind: 'devc2' } as const;
 
-  const bin = deps(
-    { DEVC_BIN: `  ${DEVC_BIN} `, PATH: '/a' },
-    { '/a': 'devc' },
-    null,
-  );
-  assertEquals(await findDevc(bin), { cmd: BIN_WORDS });
-
-  const own = deps(
-    { PATH: '/usr/bin:/a', DEVC_BIN: ' ' },
-    { '/a': 'devc' },
-    null,
-  );
-  assertEquals(await findDevc(own), { cmd: ['/a/devc'] });
-  assertEquals(own.loginCalls, 0);
+Deno.test('findDevc: $DEVC_DESKTOP_DEVC overrides every choice', async () => {
+  const choices = [
+    INSTALLED,
+    DEVC2,
+    { kind: 'path', path: '/p/devc' } as const,
+  ];
+  for (const choice of choices) {
+    const d = deps({ DEVC_DESKTOP_DEVC: '/x/devc', DEVC_BIN, PATH: '/a' }, {
+      '/a': 'devc',
+    }, null);
+    assertEquals(await findDevc(d, choice), { cmd: ['/x/devc'] });
+  }
 });
 
-Deno.test("findDevc: the login shell's $DEVC_BIN (first word resolved), then its devc", async () => {
-  const bin = deps(
+Deno.test("findDevc installed: the app's PATH, then the login shell's; never $DEVC_BIN", async () => {
+  const own = deps({ PATH: '/usr/bin:/a', DEVC_BIN }, { '/a': 'devc' }, null);
+  assertEquals(await findDevc(own, INSTALLED), { cmd: ['/a/devc'] });
+  assertEquals(own.loginCalls, 0);
+
+  const login = deps({ PATH: '/usr/bin', DEVC_BIN }, { '/b': 'devc' }, {
+    path: '/usr/bin:/b',
+    devcBin: DEVC_BIN,
+  });
+  assertEquals(await findDevc(login, INSTALLED), {
+    cmd: ['/b/devc'],
+    path: '/usr/bin:/b',
+  });
+
+  const none = deps({ PATH: '/usr/bin', DEVC_BIN }, { '/opt/deno': 'deno' }, {
+    path: '/usr/bin:/opt/deno',
+    devcBin: DEVC_BIN,
+  });
+  assertEquals(await findDevc(none, INSTALLED), null);
+  assertEquals(await findDevc(deps({}, {}, null), INSTALLED), null);
+});
+
+Deno.test('findDevc devc2: $DEVC_BIN from the app, then the login shell; never a PATH devc', async () => {
+  const own = deps({ DEVC_BIN: `  ${DEVC_BIN} `, PATH: '/a' }, {
+    '/a': 'devc',
+  }, null);
+  assertEquals(await findDevc(own, DEVC2), { cmd: BIN_WORDS });
+  assertEquals(own.loginCalls, 0);
+
+  const login = deps(
     { PATH: '/usr/bin' },
     { '/opt/deno': 'deno', '/b': 'devc' },
     { path: '/usr/bin:/opt/deno:/b', devcBin: DEVC_BIN },
   );
-  assertEquals(await findDevc(bin), {
+  assertEquals(await findDevc(login, DEVC2), {
     cmd: ['/opt/deno/deno', ...BIN_WORDS.slice(1)],
     path: '/usr/bin:/opt/deno:/b',
   });
 
-  // $DEVC_BIN whose first word is not on the login PATH: fall through to its devc.
-  const noDeno = deps(
-    { PATH: '/usr/bin' },
-    { '/b': 'devc' },
-    { path: '/usr/bin:/b', devcBin: DEVC_BIN },
-  );
-  assertEquals(await findDevc(noDeno), {
-    cmd: ['/b/devc'],
+  // $DEVC_BIN whose first word is not on the login PATH, or no $DEVC_BIN at all: not found,
+  // even with a devc there.
+  const noDeno = deps({ PATH: '/usr/bin' }, { '/b': 'devc' }, {
     path: '/usr/bin:/b',
+    devcBin: DEVC_BIN,
   });
+  assertEquals(await findDevc(noDeno, DEVC2), null);
+  const unset = deps({ PATH: '/a' }, { '/a': 'devc' }, { path: '/a' });
+  assertEquals(await findDevc(unset, DEVC2), null);
+});
 
-  const login = deps({ PATH: '/usr/bin' }, { '/b': 'devc' }, {
-    path: '/usr/bin:/b',
+Deno.test('findDevc path: that binary as is', async () => {
+  const d = deps({ DEVC_BIN, PATH: '/a' }, { '/a': 'devc' }, null);
+  assertEquals(await findDevc(d, { kind: 'path', path: '/p/devc' }), {
+    cmd: ['/p/devc'],
   });
-  assertEquals(await findDevc(login), {
-    cmd: ['/b/devc'],
-    path: '/usr/bin:/b',
-  });
+  assertEquals(d.loginCalls, 0);
+});
 
-  assertEquals(
-    await findDevc(deps({ PATH: '/usr/bin' }, {}, { path: '/usr/bin' })),
-    null,
-  );
-  assertEquals(await findDevc(deps({}, {}, null)), null);
+Deno.test('looked: names the places each choice looks', () => {
+  assertEquals(looked(INSTALLED)[1], "devc on the app's PATH");
+  assertEquals(looked(DEVC2)[1], "$DEVC_BIN in the app's environment");
+  assertEquals(looked({ kind: 'path', path: '/p/devc' }), [
+    '$DEVC_DESKTOP_DEVC',
+    '/p/devc',
+  ]);
 });
 
 Deno.test('onPath: the first executable file, skipping non-executables', async () => {

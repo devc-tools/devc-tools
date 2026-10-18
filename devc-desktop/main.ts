@@ -9,12 +9,12 @@
 
 import {
   childEnv,
-  desktopWebArgsFromConfig,
+  desktopConfig,
   devcArgs,
   type DevcWeb,
   findDevc,
   loginEnv,
-  LOOKED,
+  looked,
   onPath,
   startDevcWeb,
 } from './launch.ts';
@@ -63,20 +63,21 @@ async function readConfig(): Promise<string | null> {
 async function start(): Promise<void> {
   if (current !== null || stopping) return;
   set({ phase: 'starting', message: 'Looking for devc…', stderr: [] });
+  let config;
+  try {
+    config = desktopConfig(await readConfig());
+  } catch (e) {
+    return fail(`${CONFIG_PATH}: ${e instanceof Error ? e.message : e}`);
+  }
   const found = await findDevc({
     env: (k) => Deno.env.get(k),
     onPath,
     loginEnv: () => loginEnv(),
-  });
+  }, config.devc);
   if (found === null) {
-    return fail(`devc not found. Looked in ${LOOKED.join(', ')}.`);
+    return fail(`devc not found. Looked in ${looked(config.devc).join(', ')}.`);
   }
-  let args;
-  try {
-    args = devcArgs(Deno.args, desktopWebArgsFromConfig(await readConfig()));
-  } catch (e) {
-    return fail(`${CONFIG_PATH}: ${e instanceof Error ? e.message : e}`);
-  }
+  const args = devcArgs(Deno.args, config.webArgs);
   if (current !== null || stopping) return;
   let child: DevcWeb;
   try {

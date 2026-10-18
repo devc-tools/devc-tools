@@ -20,19 +20,55 @@ export function readyUrl(line: string): string | null {
 }
 
 /**
- * `desktopWebArgs` from the text of `~/.config/devc/config.json`: the `devc web` arguments the
- * app adds when launched with none. Absent (or no file, `text` null) means `[]`. Throws on
- * malformed JSON or a value that is not an array of strings, with a message naming the key.
+ * Which `devc` the app runs, from `"desktopDevc"`: the installed one (absent, or
+ * `"installed"`), the checkout's from source (`"devc2"`: `$DEVC_BIN`), or the binary at an
+ * absolute path.
  */
-export function desktopWebArgsFromConfig(text: string | null): string[] {
-  if (text === null) return [];
-  const cfg = JSON.parse(text);
-  const raw = cfg?.desktopWebArgs;
+export type DevcChoice =
+  | { kind: 'installed' }
+  | { kind: 'devc2' }
+  | { kind: 'path'; path: string };
+
+/** The app's keys in `~/.config/devc/config.json`, with their defaults filled in. */
+export interface DesktopConfig {
+  /** `"desktopWebArgs"`: the `devc web` arguments when the app is launched with none. */
+  webArgs: string[];
+  /** `"desktopDevc"`: see {@link DevcChoice}. */
+  devc: DevcChoice;
+}
+
+/**
+ * The app's keys from the text of `~/.config/devc/config.json` (`null`: no file, so the
+ * defaults). devc keeps keys it does not know, so they live beside devc's own. Throws on
+ * malformed JSON or a malformed value, with a message naming the key.
+ */
+export function desktopConfig(text: string | null): DesktopConfig {
+  const cfg = text === null ? {} : JSON.parse(text);
+  return {
+    webArgs: webArgsFrom(cfg?.desktopWebArgs),
+    devc: devcChoiceFrom(cfg?.desktopDevc),
+  };
+}
+
+function webArgsFrom(raw: unknown): string[] {
   if (raw === undefined || raw === null) return [];
   if (!Array.isArray(raw) || !raw.every((a) => typeof a === 'string')) {
     throw new Error('"desktopWebArgs" must be an array of strings');
   }
   return raw;
+}
+
+function devcChoiceFrom(raw: unknown): DevcChoice {
+  if (raw === undefined || raw === null || raw === 'installed') {
+    return { kind: 'installed' };
+  }
+  if (raw === 'devc2') return { kind: 'devc2' };
+  if (typeof raw === 'string' && raw.startsWith('/')) {
+    return { kind: 'path', path: raw };
+  }
+  throw new Error(
+    '"desktopDevc" must be "installed", "devc2" or an absolute path to a devc binary',
+  );
 }
 
 /**
@@ -83,13 +119,25 @@ export interface FindDeps {
   loginEnv(): Promise<LoginEnv | null>;
 }
 
-/** The places {@link findDevc} looks, in order, for the not-found message. */
-export const LOOKED = [
-  '$DEVC_DESKTOP_DEVC',
-  '$DEVC_BIN',
-  "devc on the app's PATH",
-  '$DEVC_BIN or devc in your login shell',
-];
+/** Where {@link findDevc} looks for `choice`, in order, for the not-found message. */
+export function looked(choice: DevcChoice): string[] {
+  switch (choice.kind) {
+    case 'path':
+      return ['$DEVC_DESKTOP_DEVC', choice.path];
+    case 'devc2':
+      return [
+        '$DEVC_DESKTOP_DEVC',
+        "$DEVC_BIN in the app's environment",
+        '$DEVC_BIN in your login shell (source scripts/bash_aliases.sh there)',
+      ];
+    case 'installed':
+      return [
+        '$DEVC_DESKTOP_DEVC',
+        "devc on the app's PATH",
+        "devc on your login shell's PATH",
+      ];
+  }
+}
 
 /** `$DEVC_BIN`'s words: it is a multi-word command, split on whitespace like a shell would. */
 function words(s: string): string[] {
@@ -97,35 +145,48 @@ function words(s: string): string[] {
 }
 
 /**
- * Finds `devc`: `$DEVC_DESKTOP_DEVC` (an absolute path to a binary), else `$DEVC_BIN`, else `devc`
- * on the app's `PATH`, else the same two in the login shell. `$DEVC_BIN` is what sourcing
- * `scripts/bash_aliases.sh` exports, the from-source `devc2` as a command a process can run; it
- * comes before a `PATH` `devc` because it only exists when asked for (as in the Features'
- * `run-features-test.sh`). An app opened from the Dock or Finder gets launchd's minimal `PATH`,
- * which lacks `~/.local/bin`, `docker` and `deno`; the login shell's `PATH` then goes to the
- * child too, and resolves `$DEVC_BIN`'s first word. `null` when none has it.
+ * Finds the `devc` that `choice` asks for. `$DEVC_DESKTOP_DEVC` (an absolute path to a binary)
+ * overrides it, for a terminal launch. Then:
+ *
+ * - `installed`: `devc` on the app's `PATH`, else on the login shell's.
+ * - `devc2`: `$DEVC_BIN`, the from-source invocation that sourcing `scripts/bash_aliases.sh`
+ *   exports (the shell function `devc2` as a command a process can run), from the app's
+ *   environment, else the login shell's, its first word resolved on the login `PATH`.
+ * - `path`: that binary, as is.
+ *
+ * An app opened from the Dock or Finder gets launchd's minimal `PATH`, which lacks
+ * `~/.local/bin`, `docker` and `deno`, and none of the shell's variables. So the login shell is
+ * asked, and its `PATH` goes to the child too. `null` when nothing is found.
  */
-export async function findDevc(deps: FindDeps): Promise<Found | null> {
+export async function findDevc(
+  deps: FindDeps,
+  choice: DevcChoice,
+): Promise<Found | null> {
   const given = deps.env('DEVC_DESKTOP_DEVC');
   if (given) return { cmd: [given] };
-  const bin = words(deps.env('DEVC_BIN') ?? '');
-  if (bin.length > 0) return { cmd: bin };
-  const own = await deps.onPath('devc', deps.env('PATH') ?? '');
-  if (own !== null) return { cmd: [own] };
+  if (choice.kind === 'path') return { cmd: [choice.path] };
+  if (choice.kind === 'devc2') {
+    const bin = words(deps.env('DEVC_BIN') ?? '');
+    if (bin.length > 0) return { cmd: bin };
+  } else {
+    const own = await deps.onPath('devc', deps.env('PATH') ?? '');
+    if (own !== null) return { cmd: [own] };
+  }
   const login = await deps.loginEnv();
   if (login === null) return null;
-  const loginBin = words(login.devcBin ?? '');
-  if (loginBin.length > 0) {
-    // Spawning resolves a bare name against the app's own PATH, not the child's.
-    const first = loginBin[0].includes('/')
-      ? loginBin[0]
-      : await deps.onPath(loginBin[0], login.path);
-    if (first !== null) {
-      return { cmd: [first, ...loginBin.slice(1)], path: login.path };
-    }
+  if (choice.kind === 'installed') {
+    const devc = await deps.onPath('devc', login.path);
+    return devc === null ? null : { cmd: [devc], path: login.path };
   }
-  const devc = await deps.onPath('devc', login.path);
-  return devc === null ? null : { cmd: [devc], path: login.path };
+  const loginBin = words(login.devcBin ?? '');
+  if (loginBin.length === 0) return null;
+  // Spawning resolves a bare name against the app's own PATH, not the child's.
+  const first = loginBin[0].includes('/')
+    ? loginBin[0]
+    : await deps.onPath(loginBin[0], login.path);
+  return first === null
+    ? null
+    : { cmd: [first, ...loginBin.slice(1)], path: login.path };
 }
 
 /** The first executable `name` in the colon-separated `path`, or `null`. */
