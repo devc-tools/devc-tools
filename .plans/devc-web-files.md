@@ -33,7 +33,7 @@ and `add_project`). Read `/workspaces/devc-dev/.claude/skills/devc-web/SKILL.md`
 
 - a read-only viewer tile (a second Golden Layout component type);
 - an in-browser editor (overlaps with [feature-headless-vscode](feature-headless-vscode.md));
-- browsing container paths outside the bind-mounted workspace;
+- ~~browsing container paths outside the bind-mounted workspace~~: done as each container's Files node (`list_container_dir`, `read_container_file`; see `.plans/devc-web.md`);
 - file watching;
 - a "Browse with system dialog…" button (Chromium only): bind each code root once via
   `showDirectoryPicker()` (handle kept in IndexedDB, checked by comparing its child names with

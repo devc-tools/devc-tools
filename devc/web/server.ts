@@ -20,8 +20,13 @@ import {
   inspectBindSources,
   inspectMounts,
   probeDocker,
+  resolveConnection,
 } from './containers.ts';
-import type { ContainerMount } from '@devc-tools/core/container.ts';
+import type {
+  ContainerInfo,
+  ContainerMount,
+} from '@devc-tools/core/container.ts';
+import { listContainerDir, readContainerFile } from './container_files.ts';
 import { loadGlobalConfig } from '@devc-tools/core/config.ts';
 import {
   containerToHostPath,
@@ -411,6 +416,24 @@ export async function startWeb(
     }
     return mounts;
   };
+  // How to reach each running container for its Files node, when its session has no Herdr
+  // target to borrow one from. A failed resolution is not kept.
+  const containerConnections = new Map<string, Promise<ContainerInfo>>();
+  const connectionOf = (session: ContainerSession) => {
+    if (session.target) return Promise.resolve(session.target.info);
+    const id = session.record.id;
+    let info = containerConnections.get(id);
+    if (info === undefined) {
+      info = resolveConnection(session.record);
+      containerConnections.set(id, info);
+      info.catch(() => {
+        if (containerConnections.get(id) === info) {
+          containerConnections.delete(id);
+        }
+      });
+    }
+    return info;
+  };
   const isListedProject = (localFolder: string) =>
     projectsMessage().projects.some((p) => p.localFolder === localFolder);
 
@@ -445,6 +468,7 @@ export async function startWeb(
     if (!session) return;
     sessions.delete(id);
     containerMounts.delete(id);
+    containerConnections.delete(id);
     void controllers.closeContainer(id, 'container stopped');
     void session.dispose();
     broadcast(containersMessage());
@@ -580,9 +604,9 @@ export async function startWeb(
   };
 
   /**
-   * Opens a project file in a new pane running the container's editor. `path` is relative to
-   * `root`, one of the repo folders of the container's project, and confined to it; the editor
-   * gets the file's container path.
+   * Opens a file in a new pane running the container's editor. With `root`, `path` is relative
+   * to it, one of the repo folders of the container's project, and confined to it; the editor
+   * gets the file's container path. Without, `path` is already a container path (the Files node).
    */
   const openFile = async (
     c: Client,
@@ -590,39 +614,10 @@ export async function startWeb(
     target: HerdrTarget,
     msg: Extract<ClientMessage, { type: 'open_file' }>,
   ) => {
-    const projects = projectsMessage().projects;
-    if (!isProjectRepo(projects, session.record.localFolder, msg.root)) {
-      fail(c, msg.id, 'bad_request', 'unknown repo');
-      return;
-    }
-    let hostPath: string | null;
-    try {
-      hostPath = await confine(msg.root, msg.path);
-    } catch {
-      fail(c, msg.id, 'not_found', `${msg.path} does not exist`);
-      return;
-    }
-    if (hostPath === null) {
-      fail(c, msg.id, 'forbidden', `${msg.path} is outside the project`);
-      return;
-    }
-    if (!(await Deno.stat(hostPath).catch(() => null))?.isFile) {
-      fail(c, msg.id, 'bad_request', `${msg.path} is not a file`);
-      return;
-    }
-    const containerPath = hostToContainerPath(
-      hostPath,
-      await mountsOf(session.record.id),
-    );
-    if (containerPath === null) {
-      fail(
-        c,
-        msg.id,
-        'not_mounted',
-        `${msg.path} is not mounted in the container`,
-      );
-      return;
-    }
+    const containerPath = msg.root === undefined
+      ? msg.path
+      : await repoContainerPath(c, session, { ...msg, root: msg.root });
+    if (containerPath === null) return;
     try {
       const result = await createShell(target, {
         cwd: dirnamePosix(containerPath),
@@ -635,6 +630,47 @@ export async function startWeb(
     } catch (e) {
       fail(c, msg.id, e instanceof BridgeError ? e.code : 'herdr_error', e);
     }
+  };
+
+  /** A repo file's container path for {@link openFile}; null once the refusal is answered. */
+  const repoContainerPath = async (
+    c: Client,
+    session: ContainerSession,
+    msg: { id: string; root: string; path: string },
+  ): Promise<string | null> => {
+    const projects = projectsMessage().projects;
+    if (!isProjectRepo(projects, session.record.localFolder, msg.root)) {
+      fail(c, msg.id, 'bad_request', 'unknown repo');
+      return null;
+    }
+    let hostPath: string | null;
+    try {
+      hostPath = await confine(msg.root, msg.path);
+    } catch {
+      fail(c, msg.id, 'not_found', `${msg.path} does not exist`);
+      return null;
+    }
+    if (hostPath === null) {
+      fail(c, msg.id, 'forbidden', `${msg.path} is outside the project`);
+      return null;
+    }
+    if (!(await Deno.stat(hostPath).catch(() => null))?.isFile) {
+      fail(c, msg.id, 'bad_request', `${msg.path} is not a file`);
+      return null;
+    }
+    const containerPath = hostToContainerPath(
+      hostPath,
+      await mountsOf(session.record.id),
+    );
+    if (containerPath === null) {
+      fail(
+        c,
+        msg.id,
+        'not_mounted',
+        `${msg.path} is not mounted in the container`,
+      );
+    }
+    return containerPath;
   };
 
   /**
@@ -687,6 +723,38 @@ export async function startWeb(
       return;
     }
     reply(c, { id: msg.id, ok: true, result: { localFolder, ...file } });
+  };
+
+  /**
+   * The container's own filesystem, for the Files node: a directory listing or a file's text at
+   * an absolute container path, whatever Herdr's state. See `container_files.ts`.
+   */
+  const containerFiles = async (
+    c: Client,
+    session: ContainerSession,
+    msg: Extract<
+      ClientMessage,
+      { type: 'list_container_dir' | 'read_container_file' }
+    >,
+  ) => {
+    try {
+      const info = await connectionOf(session);
+      const result = msg.type === 'list_container_dir'
+        ? await listContainerDir(info, msg.path)
+        : await readContainerFile(info, msg.path);
+      reply(c, { id: msg.id, ok: true, result });
+    } catch (e) {
+      fail(
+        c,
+        msg.id,
+        e instanceof FilesError
+          ? e.code
+          : msg.type === 'list_container_dir'
+          ? 'list_failed'
+          : 'read_failed',
+        e,
+      );
+    }
   };
 
   /**
@@ -935,6 +1003,10 @@ export async function startWeb(
         return;
       case 'locate_file':
         await locateFile(c, session, msg);
+        return;
+      case 'list_container_dir':
+      case 'read_container_file':
+        await containerFiles(c, session, msg);
         return;
     }
     const target = session.target;

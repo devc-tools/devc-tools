@@ -4,9 +4,10 @@
 /** @typedef {{localFolder: string, pane_id: string}} PaneRef */
 /**
  * A file shown in a file tile: `path` is relative to `root`, one of the repo folders of the
- * project at `localFolder` (the `read_file` message's fields).
+ * project at `localFolder` (the `read_file` message's fields). With `container`, `root` is `/`
+ * inside the running container of the project at `localFolder` (`read_container_file`).
  *
- * @typedef {{localFolder: string, root: string, path: string}} FileRef
+ * @typedef {{localFolder: string, root: string, path: string, container?: true}} FileRef
  */
 
 /**
@@ -38,12 +39,17 @@ export function fileRefFromState(state) {
   if (typeof state !== 'object' || state === null || Array.isArray(state)) {
     return null;
   }
-  const { localFolder, root, path } =
+  const { localFolder, root, path, container } =
     /** @type {Record<string, unknown>} */ (state);
   for (const v of [localFolder, root, path]) {
     if (typeof v !== 'string' || v === '') return null;
   }
-  return /** @type {FileRef} */ ({ localFolder, root, path });
+  return /** @type {FileRef} */ ({
+    localFolder,
+    root,
+    path,
+    ...(container === true ? { container: true } : {}),
+  });
 }
 
 /**
@@ -54,7 +60,7 @@ export function fileRefFromState(state) {
  */
 export function sameFile(a, b) {
   return a.localFolder === b.localFolder && a.root === b.root &&
-    a.path === b.path;
+    a.path === b.path && !a.container === !b.container;
 }
 
 /**
@@ -69,8 +75,17 @@ export function sameFile(a, b) {
 export function tileContent(ref, preview = false) {
   const flag = preview ? { preview: true } : {};
   if (ref && 'file' in ref) {
-    const { localFolder, root, path } = ref.file;
-    return { type: 'file', state: { localFolder, root, path, ...flag } };
+    const { localFolder, root, path, container } = ref.file;
+    return {
+      type: 'file',
+      state: {
+        localFolder,
+        root,
+        path,
+        ...(container ? { container: true } : {}),
+        ...flag,
+      },
+    };
   }
   return {
     type: 'pane',

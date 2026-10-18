@@ -165,6 +165,7 @@ const views = new Map();
  * @property {import('./viewer.js').Viewer | null} viewer
  * @property {'loading' | 'ok' | 'error'} state
  * @property {string} error          the message shown while `state` is 'error'
+ * @property {boolean} [noContainer] the error is that a container file's container isn't running
  * @property {number} seq
  */
 
@@ -428,6 +429,9 @@ function onMessage(msg) {
         if (!c || c.state !== 'connected') snapshots.delete(id);
       }
       relistForContainers();
+      for (const view of fileViews.values()) {
+        if (view.noContainer) loadFile(view);
+      }
       renderTree();
       reconcileTiles();
       if (!booted) {
@@ -691,6 +695,9 @@ const INACTIVE_STATES = new Set([
  */
 const LABELS = {
   terminals: 'Terminals',
+  files: 'Files',
+  newTerminalHere: 'New terminal here',
+  notRunning: 'The container is not running',
   plainTerminal: 'Terminal',
   /** The + menu's agents (ids from `lib/agent_icons.js`). */
   agents: {
@@ -903,7 +910,8 @@ function chevron() {
 
 /**
  * The sidebar: the Layout section (the Golden Layout tree, single-child levels folded), then
- * Containers (Container → Terminals → terminal, and Container → Repos → repo → files).
+ * Containers (Container → Terminals → terminal, Container → Repos → repo → files, and
+ * Container → Files → the container's own files from `/`).
  * Herdr tabs group nothing here: a pane the Herdr TUI split into a shared tab is just another pane.
  * Every running container is listed, Herdr or not; projects without one are listed last, under a
  * collapsed "Not running" group.
@@ -984,7 +992,7 @@ function layoutState() {
     ? tiling.tiles().map((t) =>
       `${t.id}=${
         t.file
-          ? `${t.file.localFolder}\n${t.file.root}\n${t.file.path}`
+          ? fileKey(t.file)
           : t.ref
           ? `${t.ref.localFolder}\n${t.ref.pane_id}`
           : ''
@@ -1631,6 +1639,7 @@ function containerRows(c) {
   if (collapsed) return rows;
   rows.push(...terminalRows(c, workspaces, tabs, panes, only));
   rows.push(...repoRows(c.localFolder));
+  rows.push(...containerFileRows(c));
   return rows;
 }
 
@@ -1845,6 +1854,31 @@ function repoRows(localFolder) {
   if (open) {
     for (const r of top) rows.push(...repoRow(r, 2));
   }
+  return rows;
+}
+
+/**
+ * A running container's Files row: its own filesystem from `/`, read with `docker exec` whatever
+ * Herdr's state (`list_container_dir`). Collapsed until opened.
+ */
+function containerFileRows(c) {
+  const fr = containerRoot(c.localFolder);
+  const tree = fileTree(fr);
+  const rows = [
+    treeRow(
+      `${treeId(fr)}\n`,
+      1,
+      tree.isOpen(''),
+      {
+        class: 'files',
+        title: '/',
+        onclick: () => tree.toggle(''),
+        oncontextmenu: (e) => openMenu(e, dirMenuItems(fr, '')),
+      },
+      LABELS.files,
+    ),
+  ];
+  if (tree.isOpen('')) rows.push(...rootEntryRows(fr, 2));
   return rows;
 }
 
@@ -2196,14 +2230,38 @@ $tree.addEventListener('keydown', (e) =>
 
 /**
  * A file root: `root` is one of the repo folders (`repos[].folder`) of the project at
- * `localFolder`. Paths in a tree are relative to `root`; `localFolder` finds the container.
+ * `localFolder`. Paths in a tree are relative to `root`; `localFolder` finds the container. With
+ * `container`, `root` is `/` inside that running container (its Files row), not a host folder.
  *
- * @typedef {{localFolder: string, root: string}} FileRoot
+ * @typedef {{localFolder: string, root: string, container?: true}} FileRoot
  */
 
-/** A file root's key: a repo mounted by two projects has a tree in each (container paths differ). */
+/** The file root of a project's container's own filesystem. @returns {FileRoot} */
+function containerRoot(localFolder) {
+  return { localFolder, root: '/', container: true };
+}
+
+/**
+ * A file root's key: a repo mounted by two projects has a tree in each (container paths differ).
+ * A container root's never matches a repo's: those are absolute.
+ */
 function treeId(fr) {
-  return `${fr.localFolder}\n${fr.root}`;
+  return `${fr.localFolder}\n${fr.container ? 'container' : fr.root}`;
+}
+
+/** Where a file root's open folders are saved in `sidebarState.filesOpen`. */
+function openKey(fr) {
+  return fr.container ? `container:${fr.localFolder}` : fr.root;
+}
+
+/** A file under `fr`, as a file tile names it. @returns {FileRef} */
+function fileRefOf(fr, path) {
+  return {
+    localFolder: fr.localFolder,
+    root: fr.root,
+    path,
+    ...(fr.container ? { container: true } : {}),
+  };
 }
 
 /** Each file root's tree, by {@link treeId}: made when its row is first drawn. */
@@ -2223,12 +2281,24 @@ function fileTree(fr) {
   if (entry) return entry.tree;
   const { localFolder, root } = fr;
   const tree = createDirTree({
-    list: (path) => call({ type: 'list_dir', localFolder, root, path }),
+    list: (path) => {
+      if (!fr.container) {
+        return call({ type: 'list_dir', localFolder, root, path });
+      }
+      const c = containerByFolder(localFolder);
+      return c
+        ? call({
+          type: 'list_container_dir',
+          container: c.id,
+          path: childPath('/', path),
+        })
+        : Promise.reject(new Error(LABELS.notRunning));
+    },
     onChange: () => onFilesChange(fr),
   });
-  fileTrees.set(id, { fr: { localFolder, root }, tree });
+  fileTrees.set(id, { fr: { ...fr }, tree });
   filesListedFor.set(id, containerByFolder(localFolder)?.id ?? null);
-  const saved = byDepth(sidebarState.filesOpen[root] ?? []);
+  const saved = byDepth(sidebarState.filesOpen[openKey(fr)] ?? []);
   restoringFiles.set(id, new Set(saved));
   for (const p of saved) tree.expand(p);
   return tree;
@@ -2246,8 +2316,8 @@ function onFilesChange(fr) {
     if (state !== 'ok' && tree.isOpen(p)) tree.collapse(p);
   }
   const open = tree.openPaths();
-  if (open.length) sidebarState.filesOpen[fr.root] = open;
-  else delete sidebarState.filesOpen[fr.root];
+  if (open.length) sidebarState.filesOpen[openKey(fr)] = open;
+  else delete sidebarState.filesOpen[openKey(fr)];
   saveSidebarState();
   queueRender();
 }
@@ -2267,6 +2337,7 @@ function relistForContainers() {
 
 /** `path`'s container path, from the nearest listed folder at or above it; null if none knows. */
 function containerPathOf(fr, path) {
+  if (fr.container) return childPath('/', path);
   if (!containerByFolder(fr.localFolder)) return null;
   const tree = fileTree(fr);
   const parts = path === '' ? [] : path.split('/');
@@ -2300,7 +2371,9 @@ function openInEditor(fr, path, where) {
   }
   createPane(
     c,
-    { type: 'open_file', root: fr.root, path },
+    fr.container
+      ? { type: 'open_file', path: childPath('/', path) }
+      : { type: 'open_file', root: fr.root, path },
     where === 'right'
       ? (ref) => tiling.addBeside(targetTile()?.id ?? null, ref, 'right')
       : placeInFocusedStack,
@@ -2354,7 +2427,7 @@ function newTerminalButton(row, fr, path) {
 
 /** Gives a folder's row a {@link newTerminalButton} while its container is running. */
 function folderTerminalButton(row, fr, path) {
-  if (containerByFolder(fr.localFolder)) {
+  if (!fr.container && containerByFolder(fr.localFolder)) {
     row.append(rowTrail(newTerminalButton(row, fr, path)));
   }
 }
@@ -2380,10 +2453,24 @@ function newTerminalMenuItems(fr, path) {
   ];
 }
 
-/** A folder's menu: the root itself (`path` '', its repo row) or a directory under it. */
+/** A new terminal at a container folder (`new_shell`), shown in the focused stack. */
+function newShellIn(fr, path) {
+  const c = containerByFolder(fr.localFolder);
+  if (!c || c.state !== 'connected' || !tiling) {
+    toast(
+      c ? 'Start Herdr in this container first' : 'Start the container first',
+    );
+    return;
+  }
+  newShell(c, { cwd: childPath('/', path) }, placeInFocusedStack);
+}
+
+/** A folder's menu: the root itself (`path` '', its repo or Files row) or a directory under it. */
 function dirMenuItems(fr, path) {
   return [
-    [LABELS.openHere, () => openHerdrTab(fr, path, true)],
+    fr.container
+      ? [LABELS.newTerminalHere, () => newShellIn(fr, path)]
+      : [LABELS.openHere, () => openHerdrTab(fr, path, true)],
     ['Refresh', () => fileTree(fr).refresh(path)],
     ['Copy path', () => copyPath(fr, path)],
   ];
@@ -2434,14 +2521,7 @@ function fileEntryRow(fr, tree, item) {
         ? () => openFileTile(fr, path, 'preview')
         : undefined,
       ondblclick: file
-        ? () =>
-          keepOpen(
-            tileShowingFile({
-              localFolder: fr.localFolder,
-              root: fr.root,
-              path,
-            }),
-          )
+        ? () => keepOpen(tileShowingFile(fileRefOf(fr, path)))
         : undefined,
       oncontextmenu: (e) =>
         openMenu(
@@ -2471,7 +2551,7 @@ function fileEntryRow(fr, tree, item) {
 function keptFileRow(key, fresh, fr, path) {
   const rec = fileRows.get(key);
   if (!rec) {
-    const ref = { localFolder: fr.localFolder, root: fr.root, path };
+    const ref = fileRefOf(fr, path);
     fileRows.set(key, {
       row: fresh,
       seen: renderGeneration,
@@ -2499,9 +2579,16 @@ function keptFileRow(key, fresh, fr, path) {
 // File tiles: a project file in the viewer (viewer.js), read from the host (`read_file`)
 // ---------------------------------------------------------------------------------------------
 
-/** A file's host path. */
+/** A file's host path; a container file's path in the container. */
 function fileHostPath(file) {
   return childPath(file.root, file.path);
+}
+
+/** The file root a file tile's file is under. @returns {FileRoot} */
+function fileRootOf(file) {
+  return file.container
+    ? containerRoot(file.localFolder)
+    : { localFolder: file.localFolder, root: file.root };
 }
 
 /** A file tile's title: the file's name. */
@@ -2531,7 +2618,7 @@ function tileShowingFile(file) {
  */
 function openFileTile(fr, path, where) {
   if (!tiling) return;
-  const file = { localFolder: fr.localFolder, root: fr.root, path };
+  const file = fileRefOf(fr, path);
   if (where === 'preview') {
     const shown = tileShowingFile(file);
     if (shown) revealTile(shown.id);
@@ -2561,7 +2648,9 @@ function openFileTile(fr, path, where) {
 const pendingLines = new Map();
 
 function fileKey(file) {
-  return `${file.localFolder}\n${file.root}\n${file.path}`;
+  return `${file.localFolder}\n${file.root}\n${file.path}${
+    file.container ? '\ncontainer' : ''
+  }`;
 }
 
 /** Jumps a loaded file tile to the line it was opened at, if any. */
@@ -2592,7 +2681,7 @@ function fileTileMenuItems(tile) {
   const file = tile.file;
   const view = fileViews.get(tile.id);
   if (file) {
-    const fr = { localFolder: file.localFolder, root: file.root };
+    const fr = fileRootOf(file);
     if (view) items.push(['Reload', () => loadFile(view)]);
     items.push(
       ['Open in editor', () => openInEditor(fr, file.path, 'stack')],
@@ -2665,14 +2754,32 @@ async function loadFile(view) {
     view.state = 'loading';
     return;
   }
+  const c = file.container ? containerByFolder(file.localFolder) : null;
+  view.noContainer = file.container === true && !c;
+  if (view.noContainer) {
+    view.state = 'error';
+    view.error = LABELS.notRunning;
+    view.viewer?.destroy();
+    view.viewer = null;
+    updateFileOverlay(view);
+    return;
+  }
   let result;
   try {
-    result = await call({
-      type: 'read_file',
-      localFolder: file.localFolder,
-      root: file.root,
-      path: file.path,
-    });
+    result = await call(
+      c
+        ? {
+          type: 'read_container_file',
+          container: c.id,
+          path: childPath('/', file.path),
+        }
+        : {
+          type: 'read_file',
+          localFolder: file.localFolder,
+          root: file.root,
+          path: file.path,
+        },
+    );
   } catch (e) {
     if (seq !== view.seq || !fileViews.has(view.tile.id)) return;
     view.state = 'error';
@@ -2708,12 +2815,7 @@ function updateFileOverlay(view) {
     const c = file ? containerByFolder(file.localFolder) : null;
     if (file && c?.state === 'connected') {
       action = h('button', {
-        onclick: () =>
-          openInEditor(
-            { localFolder: file.localFolder, root: file.root },
-            file.path,
-            'stack',
-          ),
+        onclick: () => openInEditor(fileRootOf(file), file.path, 'stack'),
       }, 'Open in editor');
     }
   }

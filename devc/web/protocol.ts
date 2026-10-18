@@ -93,10 +93,18 @@ export type ClientMessage =
     type: 'open_file';
     id: string;
     container: string;
-    root: string;
+    /** A repo folder `path` is relative to; without one, `path` is a container path. */
+    root?: string;
     path: string;
   }
   | { type: 'locate_file'; id: string; container: string; path: string }
+  | {
+    type: 'list_container_dir' | 'read_container_file';
+    id: string;
+    container: string;
+    /** An absolute path inside the container. */
+    path: string;
+  }
   | {
     type: 'open_tab';
     id: string;
@@ -184,6 +192,16 @@ function absolute(o: Obj, k: string): string {
 /** A project's host folder: an absolute path. */
 function folder(o: Obj): string {
   return absolute(o, 'localFolder');
+}
+
+/** A path inside a container: absolute, with no `..` segment and no NUL (it goes in argv). */
+function containerPath(o: Obj): string {
+  const v = absolute(o, 'path');
+  if (v.split('/').includes('..')) {
+    throw new Invalid(`'path' must not contain '..'`);
+  }
+  if (v.includes('\0')) throw new Invalid(`'path' must not contain NUL`);
+  return v;
 }
 
 function pane(o: Obj): { container: string; pane_id: string } {
@@ -362,8 +380,9 @@ function parseFields(m: Obj): ClientMessage {
         type: 'open_file',
         id: str(m, 'id'),
         container: str(m, 'container'),
-        root: absolute(m, 'root'),
-        path: str(m, 'path'),
+        ...(m.root === undefined
+          ? { path: containerPath(m) }
+          : { root: absolute(m, 'root'), path: str(m, 'path') }),
       };
     case 'locate_file': {
       const path = absolute(m, 'path');
@@ -377,6 +396,14 @@ function parseFields(m: Obj): ClientMessage {
         path,
       };
     }
+    case 'list_container_dir':
+    case 'read_container_file':
+      return {
+        type: m.type,
+        id: str(m, 'id'),
+        container: str(m, 'container'),
+        path: containerPath(m),
+      };
     case 'open_tab':
       if (typeof m.reuse !== 'boolean') {
         throw new Invalid(`'reuse' must be a boolean`);

@@ -654,10 +654,11 @@ body.resizing-sidebar {
 }
 
 /* A repo a container mounts, listed above its workspaces: its name and marks, and a chevron
-   opening its worktrees and files. The Repos and Terminals group rows read the same. */
+   opening its worktrees and files. The Repos, Terminals and Files group rows read the same. */
 .row.repo,
 .row.repos,
-.row.terminals {
+.row.terminals,
+.row.files {
   color: var(--muted);
 }
 

@@ -211,18 +211,8 @@ export async function readProjectFile(
     // Read through the open handle, so the checks above apply to the bytes returned. Capped one
     // past the limit in case the file grew since the stat.
     const bytes = await readUpTo(file, MAX_READ_BYTES + 1);
-    if (bytes.length > MAX_READ_BYTES) {
-      throw new FilesError(
-        'too_large',
-        `${rel} is over ${MAX_READ_BYTES} bytes; the viewer shows files up to that size`,
-      );
-    }
-    if (bytes.subarray(0, BINARY_SNIFF_BYTES).includes(0)) {
-      throw new FilesError('binary', `${rel} looks like a binary file`);
-    }
     return {
-      text: new TextDecoder('utf-8').decode(bytes),
-      size: bytes.length,
+      ...fileText(bytes, rel),
       mtimeMs: info.mtime?.getTime() ?? 0,
     };
   } catch (e) {
@@ -230,6 +220,27 @@ export async function readProjectFile(
   } finally {
     file.close();
   }
+}
+
+/**
+ * A file's first bytes, read up to one past {@link MAX_READ_BYTES}, as the viewer's text: refuses
+ * more than that (`too_large`) and a NUL byte in the first 8 KiB (`binary`), and decodes as UTF-8
+ * with replacement characters. `name` names the file in the error. Throws {@link FilesError}.
+ */
+export function fileText(
+  bytes: Uint8Array,
+  name: string,
+): { text: string; size: number } {
+  if (bytes.length > MAX_READ_BYTES) {
+    throw new FilesError(
+      'too_large',
+      `${name} is over ${MAX_READ_BYTES} bytes; the viewer shows files up to that size`,
+    );
+  }
+  if (bytes.subarray(0, BINARY_SNIFF_BYTES).includes(0)) {
+    throw new FilesError('binary', `${name} looks like a binary file`);
+  }
+  return { text: new TextDecoder('utf-8').decode(bytes), size: bytes.length };
 }
 
 /** Up to `max` bytes from `file`, from where it is now. */

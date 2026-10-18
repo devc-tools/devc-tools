@@ -35,17 +35,37 @@ Deno.test('fileRefFromState returns null for missing, empty or non-string fields
   assertEquals(fileRefFromState([full]), null);
 });
 
-Deno.test('sameFile compares all three fields', () => {
+Deno.test("fileRefFromState keeps a container file's flag, and only a true one", () => {
+  const full = { localFolder: '/a', root: '/', path: 'etc/hosts' };
+  assertEquals(fileRefFromState({ ...full, container: true }), {
+    ...full,
+    container: true,
+  });
+  assertEquals(fileRefFromState({ ...full, container: 'yes' }), full);
+});
+
+Deno.test('sameFile compares every field, the container flag included', () => {
   const a = { localFolder: '/a', root: '/a', path: 'x' };
   assertEquals(sameFile(a, { ...a }), true);
   assertEquals(sameFile(a, { ...a, localFolder: '/b' }), false);
   assertEquals(sameFile(a, { ...a, root: '/b' }), false);
   assertEquals(sameFile(a, { ...a, path: 'y' }), false);
+  const c = { localFolder: '/a', root: '/', path: 'x' };
+  assertEquals(sameFile(c, { ...c, container: true }), false);
+  assertEquals(
+    sameFile({ ...c, container: true }, { ...c, container: true }),
+    true,
+  );
 });
 
 Deno.test('tileContent picks the component type from the ref', () => {
   const file = { localFolder: '/a', root: '/r', path: 'x.ts' };
   assertEquals(tileContent({ file }), { type: 'file', state: file });
+  const inContainer = { ...file, root: '/', container: true as const };
+  assertEquals(tileContent({ file: inContainer }, true), {
+    type: 'file',
+    state: { ...inContainer, preview: true },
+  });
   assertEquals(
     tileContent({ localFolder: '/a', pane_id: 'w1:p1' }),
     { type: 'pane', state: { localFolder: '/a', pane_id: 'w1:p1' } },

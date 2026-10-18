@@ -489,6 +489,17 @@ Deno.test('parseClientMessage: file messages take a root and a path, empty meani
       'bad_request',
     );
   }
+  // Without a root, the path is a container path (the Files node).
+  ok({ type: 'open_file', id: 'f12', container: 'c1', path: '/etc/hosts' });
+  assertEquals(
+    rejected({
+      type: 'open_file',
+      id: 'f13',
+      container: 'c1',
+      path: '/etc/../root/x',
+    }).code,
+    'bad_request',
+  );
   assertEquals(
     rejected({ type: 'list_host_dir', id: 'f8', path: 3 }).code,
     'bad_request',
@@ -521,6 +532,30 @@ Deno.test('parseClientMessage: locate_file takes an absolute container path with
   ) {
     assertEquals(
       rejected({ type: 'locate_file', id: 'l2', container: 'c1', path }).code,
+      'bad_request',
+    );
+  }
+});
+
+Deno.test('parseClientMessage: container file messages take an absolute path without .. or NUL', () => {
+  for (const type of ['list_container_dir', 'read_container_file']) {
+    for (const path of ['/', '/etc/hosts', '/home/me/.config']) {
+      const msg = { type, id: 'f1', container: 'c1', path };
+      assertEquals(
+        parseClientMessage(JSON.stringify(msg)),
+        { ok: true, msg } as never,
+      );
+    }
+    for (
+      const path of [undefined, '', 'etc', '/etc/../root', '/etc/\0x']
+    ) {
+      assertEquals(
+        rejected({ type, id: 'f2', container: 'c1', path }).code,
+        'bad_request',
+      );
+    }
+    assertEquals(
+      rejected({ type, id: 'f3', path: '/' }).code,
       'bad_request',
     );
   }
