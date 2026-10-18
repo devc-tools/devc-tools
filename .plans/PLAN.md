@@ -40,6 +40,32 @@
   and places it in the layout. A host folder tree (`list_host_dir`, same tree
   component) opening on the configured `codeRoots` replaces the "Add project…" prompt.
 
+- [devc-web-editor](devc-web-editor.md) — editing files in containers, first-class. A new
+  `helix` Feature (0.1.0: release binary + runtime, `HELIX_RUNTIME`, no language servers, not in
+  devc's baseline). The user picks it with `export EDITOR=hx`, because devc web still runs
+  `${EDITOR:-vi}`. Adds `create_file` (a file or folder, created in the container as the remote
+  user, noclobber), **New file…** / **New folder…** in the Files trees, and editor panes named
+  after their file. Step 0 measures Helix through xterm.js → Herdr: colors, keys, mouse,
+  clipboard (no OSC 52), LSP.
+
+- [devc-web-pinned-files](devc-web-pinned-files.md) — after devc-web-editor. Notes as pinned
+  files: a **Pinned** section at the top of the sidebar, stored server-side in
+  `~/.config/devc/pinned-files.json` so the desktop window and browser tabs agree. A click
+  toggles the file's editor tile. Closing hides the tile but the Helix pane keeps running, so
+  unsaved edits survive (`open_pinned` reuses the pane). **New note…** creates and pins
+  `.plans/notes.md`. When the container is stopped, the file opens read-only. Distinct from
+  pinned projects and from "Keep open".
+
+- [devc-desktop-host-terminal](devc-desktop-host-terminal.md) — **gated: Step 0 must prove
+  complete isolation, or it falls back to an "Open iTerm at Project" app-menu item.** A host
+  terminal in a drawer that slides up at the bottom of the devc-desktop window. The window's top
+  frame is a desktop-owned shell page that draws the drawer itself (xterm.js on a Go PTY helper),
+  and devc web runs in a sandboxed cross-origin iframe inside it (no modals, no top navigation,
+  no fullscreen). The deciding check is G3: no programmatic way for the iframe to take keyboard
+  focus. The PTY is reached through per-window `deno desktop` bindings when they prove
+  top-frame-only, else a one-shot-secret loopback socket. devc web gains `--frame-ancestor` and
+  loses `confirm()`/`prompt()`. The live modes' existing host-exec path is out of scope.
+
 - [devc-web-golden-layout](devc-web-golden-layout.md) — replace `devc web`'s hand-written
   split-tree tiling with vendored Golden Layout 2.6.0 (bundled to one ES module): drag sidebar
   panes onto tile edges or into tab stacks, move and nest tiles, maximise and close, with
