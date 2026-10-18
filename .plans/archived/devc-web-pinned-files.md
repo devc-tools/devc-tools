@@ -17,7 +17,7 @@ Closing a pin closes its **tile**, not the editor. The Helix pane keeps running 
 reopening it brings back the same buffer, cursor and unsaved edits. That is what makes a toggle
 feel like a drawer and not like a relaunch.
 
-Depends on [devc-web-editor](archived/devc-web-editor.md) (`create_file`, Helix). Read the `devc-web`
+Depends on [devc-web-editor](devc-web-editor.md) (`create_file`, Helix). Read the `devc-web`
 skill first.
 
 ```
@@ -135,7 +135,7 @@ feeds the pane rows). It never runs a new Herdr query per click.
   the file is pinned as it is), then `pin_file`, then toggles it open. A missing parent folder
   is reported, not created.
 - **Shortcut:** toggles the first pin. Use Ctrl+Alt+N (Cmd+Alt+N on macOS) unless Step 0 of
-  [devc-web-editor](archived/devc-web-editor.md) found it taken. Handle it in the page's capture-phase
+  [devc-web-editor](devc-web-editor.md) found it taken. Handle it in the page's capture-phase
   key handler so it works while a terminal has focus, and swallow it there. Record it in the
   README.
 

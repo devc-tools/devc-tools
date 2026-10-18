@@ -40,14 +40,6 @@
   and places it in the layout. A host folder tree (`list_host_dir`, same tree
   component) opening on the configured `codeRoots` replaces the "Add project…" prompt.
 
-- [devc-web-pinned-files](devc-web-pinned-files.md) — after devc-web-editor (done). Notes as pinned
-  files: a **Pinned** section at the top of the sidebar, stored server-side in
-  `~/.config/devc/pinned-files.json` so the desktop window and browser tabs agree. A click
-  toggles the file's editor tile. Closing hides the tile but the Helix pane keeps running, so
-  unsaved edits survive (`open_pinned` reuses the pane). **New note…** creates and pins
-  `.plans/notes.md`. When the container is stopped, the file opens read-only. Distinct from
-  pinned projects and from "Keep open".
-
 - [devc-desktop-host-terminal](devc-desktop-host-terminal.md) — **gated: Step 0 must prove
   complete isolation, or it falls back to an "Open iTerm at Project" app-menu item.** A host
   terminal in a drawer that slides up at the bottom of the devc-desktop window. The window's top
@@ -149,6 +141,23 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
 
 ### Completed
 
+- [devc-web-pinned-files](archived/devc-web-pinned-files.md) — ✅ Done: notes as pinned files. A
+  **Pinned** section at the top of the sidebar, stored server-side in
+  `~/.config/devc/pinned-files.json` (tolerant read, atomic write, watched so another devc web's
+  changes are broadcast); `pinned_files` on connect and after every change. `pin_file` /
+  `unpin_file` / `rename_pin` manage them; `open_pinned` reuses the pin's last editor pane while
+  its session's snapshot lists it, else makes one as `open_file` does. A click closes the tiles
+  showing the pane (never the pane) or opens it in the focused stack; a stopped container opens
+  the file read-only with a **Start** toast. **New note…** creates `.plans/notes.md` (or
+  `NOTES.md`), pins and opens it; **Pin file** / **Unpin file** on repo file rows, file tiles and
+  pinned editor tiles; Ctrl+Alt+N (Cmd+Alt+N on a Mac) toggles the first pin from the capture
+  phase. Validated by `deno task check`, `deno task test`, `deno fmt --check`, the checkout's
+  server driven by a WebSocket client (stub `docker`, scratch `HOME`), and headless Chromium with
+  a fake WebSocket (New note…, toggle reusing the same pane, the shortcut from a focused terminal
+  on both platforms, reload, menus, the read-only path). **Not verified:** the plan's six checks
+  in the user's tab and the devc-desktop window (unsaved Helix text surviving a toggle, the
+  shortcut in real browsers and on a real Mac, both windows agreeing, a real stopped
+  container); the new messages need `--live-yolo` or an updated `devc`.
 - [devc-web-editor](archived/devc-web-editor.md) — ✅ Done: editing files in containers,
   first-class. A new `helix` Feature (0.1.0) installs Helix's release binary and runtime under
   `/usr/local/lib/helix` (`hx` on `PATH`, `HELIX_RUNTIME` set, no language servers, no
