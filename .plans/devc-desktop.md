@@ -18,7 +18,7 @@ re-executes itself. `devc` does not change, apart from one page action (Step 3).
 - [ ] Step 0: host checks on macOS that decide the open questions (§ Step 0)
 - [x] Step 1: `devc-desktop/` app: launch `devc web`, status page, navigate, stop (§ Step 1)
 - [x] Step 2: build task, icon, `.gitignore` (§ Step 2)
-- [ ] Step 3: "Copy page URL" action in the `devc web` page (§ Step 3)
+- [x] Step 3: "Copy page URL" action in the `devc web` page (§ Step 3)
 - [x] Tests (§ Tests): unit tests, and the end-to-end run on Linux under Xvfb
 - [ ] Validation on the host (§ Validation)
 

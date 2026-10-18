@@ -855,6 +855,15 @@ $sidebarHide.addEventListener('click', toggleSidebarHidden);
 $sidebarShow.addEventListener('click', toggleSidebarHidden);
 window.addEventListener('resize', applySidebarLayout);
 
+// The page's URL, token included: devc-desktop's window has no address bar, and a container or
+// another browser may need it. The toast names it without showing it, since it is the token.
+document.getElementById('copy-url')?.addEventListener('click', () => {
+  navigator.clipboard?.writeText(location.href).then(
+    () => toast('Copied page URL'),
+    (e) => toast(`Copy failed: ${e?.message ?? e}`),
+  );
+});
+
 // The handle drags with pointer capture, so Golden Layout and the terminals never see the move.
 $resizer.addEventListener('pointerdown', (ev) => {
   if (ev.button !== 0) return;
