@@ -74,6 +74,13 @@ The app always passes `--no-open`, which `devc` has had only since the release a
 If `devc` can't be found or `devc web` exits, the window shows why, with the last lines
 of its stderr and a **Restart devc web** button.
 
+### Restarting
+
+On macOS, **Restart devc web** (`Cmd+R`) in the app menu stops `devc web` and starts
+it again in the same window. That picks up devc changes outside live mode, and it gives
+a new token, so a copied page URL stops working. Linux has no app menu, so this is
+macOS-only.
+
 ### Closing
 
 Closing the window stops `devc web` (SIGTERM, then SIGKILL after 5 s) and then exits.

@@ -25,6 +25,8 @@ const CONFIG_PATH = `${Deno.env.get('HOME') ?? ''}/.config/devc/config.json`;
 
 let status: Status = { phase: 'starting', message: 'Starting…', stderr: [] };
 let current: DevcWeb | null = null;
+/** The child a restart is stopping, until it has exited. */
+let retiring: Promise<void> | null = null;
 let stopping = false;
 
 const set = (next: Status) => {
@@ -61,7 +63,7 @@ async function readConfig(): Promise<string | null> {
 
 /** Starts `devc web`, unless one is running. Every outcome lands in `status`. */
 async function start(): Promise<void> {
-  if (current !== null || stopping) return;
+  if (current !== null || retiring !== null || stopping) return;
   set({ phase: 'starting', message: 'Looking for devc…', stderr: [] });
   let config;
   try {
@@ -112,11 +114,28 @@ async function start(): Promise<void> {
   });
 }
 
+/** Stops `devc web` and starts it again, a new token and all, in the same window. The child is
+ * dropped from `current` first, so its exit is not reported as a failure, and the next one
+ * starts only once it has exited: under `--live` devc's port is fixed. */
+async function restart(): Promise<void> {
+  if (retiring !== null || stopping) return;
+  const child = current;
+  if (child !== null) {
+    current = null;
+    set({ phase: 'starting', message: 'Restarting devc web…', stderr: [] });
+    win.navigate(statusUrl);
+    retiring = child.stop();
+    await retiring;
+    retiring = null;
+  }
+  await start();
+}
+
 /** Stops `devc web`, waiting for it, then exits. Closing the last window would end the app at
  * once, before any cleanup, so the close is cancelled until the child is gone. */
 async function shutdown(): Promise<never> {
   stopping = true;
-  await current?.stop();
+  await Promise.all([current?.stop(), retiring]);
   Deno.exit(0);
 }
 
@@ -125,7 +144,8 @@ win.addEventListener('close', (e) => {
   void shutdown();
 });
 
-// macOS: Cmd+Q does nothing without an app menu that has Quit. Not the `quit` role: the OS
+// macOS: Cmd+R restarts devc web, for picking up devc changes outside live mode.
+// Cmd+Q does nothing without an app menu that has Quit. Not the `quit` role: the OS
 // handles role items itself and sends no `menuclick`, so devc web would be left running. Giving
 // a menu replaces the generated default, so the Edit roles that make Cmd+C / Cmd+V work in the
 // page are listed again. Elsewhere there is no menu, and Ctrl+Q stays the terminal's.
@@ -134,14 +154,25 @@ if (Deno.build.os === 'darwin') {
     {
       submenu: {
         label: 'devc web',
-        items: [{
-          item: {
-            label: 'Quit devc web',
-            id: 'quit',
-            accelerator: 'Cmd+Q',
-            enabled: true,
+        items: [
+          {
+            item: {
+              label: 'Restart devc web',
+              id: 'restart',
+              accelerator: 'Cmd+R',
+              enabled: true,
+            },
           },
-        }],
+          'separator',
+          {
+            item: {
+              label: 'Quit devc web',
+              id: 'quit',
+              accelerator: 'Cmd+Q',
+              enabled: true,
+            },
+          },
+        ],
       },
     },
     {
@@ -166,6 +197,7 @@ if (Deno.build.os === 'darwin') {
     },
   ]);
   win.addEventListener('menuclick', (e) => {
+    if (e.detail.id === 'restart') void restart();
     if (e.detail.id === 'quit') void shutdown();
   });
 }
