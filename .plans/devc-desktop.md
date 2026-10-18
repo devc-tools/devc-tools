@@ -96,8 +96,13 @@ Launched from a terminal with `devc2` (`$DEVC_BIN`):
   page saves (a comment added to `devc/web/static/viewer.js`, then removed) were served at
   once, and the user saw the window reload twice.
 - **Arguments (3):** intact on macOS too; the terminal launch's `--port 48229` took effect.
+- **Closing (4):** the red close button stopped `devc web` (no `main.ts web` process from the
+  app afterwards). **Cmd+Q did nothing** at first: `deno desktop` gives no Quit without an
+  app menu. Fixed in `main.ts` with a macOS app menu whose Quit item (an `id`, not the `quit`
+  role, which sends no `menuclick`) runs the same shutdown, plus Edit roles. After that,
+  Cmd+Q quit the app and port 48229 was freed.
 - **Still open:** 2 (`PATH` and `$DEVC_BIN` from a Finder launch, with `desktopWebArgs`),
-  4 (red close button and Cmd+Q leave no `devc` or `deno` process), 5 (Gatekeeper).
+  5 (Gatekeeper).
 
 ## Built and checked on Linux (2026-10-18)
 
