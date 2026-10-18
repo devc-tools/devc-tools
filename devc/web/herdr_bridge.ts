@@ -184,18 +184,28 @@ export async function bridgeRequest(
  * and never splits one. Herdr 0.9.5's `tab.create` result carries the tab's `root_pane`, though
  * its bundled schema doesn't list it; without one, the pane is found with `pane.list` in the
  * tab's workspace. Never focuses the tab: a Herdr TUI attached to the same session keeps its
- * focus.
+ * focus. A session with no workspace (a server just started, with no TUI) has nowhere to put a
+ * tab — `tab.create` answers `workspace_not_found` — so the pane comes from `workspace.create`.
  */
 export async function createShell(
   t: HerdrTarget,
   opts: { workspace_id?: string; cwd?: string },
 ): Promise<{ pane_id: string; tab_id: string }> {
+  const cwd = opts.cwd !== undefined ? { cwd: opts.cwd } : {};
   const created = await bridgeRequest(t, 'tab.create', {
     ...(opts.workspace_id !== undefined
       ? { workspace_id: opts.workspace_id }
       : {}),
-    ...(opts.cwd !== undefined ? { cwd: opts.cwd } : {}),
+    ...cwd,
     focus: false,
+  }).catch((e) => {
+    if (
+      !(e instanceof BridgeError && e.code === 'workspace_not_found') ||
+      opts.workspace_id !== undefined
+    ) {
+      throw e;
+    }
+    return bridgeRequest(t, 'workspace.create', { ...cwd, focus: false });
   }) as
     | {
       tab?: { tab_id?: unknown; workspace_id?: unknown };
