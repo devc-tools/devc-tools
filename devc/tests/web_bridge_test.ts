@@ -266,7 +266,20 @@ Deno.test("startSession throws no_session with the server log's tail", async () 
   assertEquals(err.code, 'no_session');
   assertEquals(err.message, "Herdr didn't come up in 0s.\nline 1\npanic: boom");
   assertEquals(s.runs, 3);
-  assertEquals(calls[0].slice(0, 2), ['exec', '-d']);
+  assertEquals(calls[0], [
+    'exec',
+    '-d',
+    '-u',
+    'vscode',
+    'c1',
+    '/bin/bash',
+    '-lc',
+    'export SHELL; exec "$0" "$@"',
+    '/usr/local/bin/herdr',
+    '--session',
+    'devc',
+    'server',
+  ]);
   assertEquals(calls[1].slice(-2), ['_', 'devc']);
 });
 

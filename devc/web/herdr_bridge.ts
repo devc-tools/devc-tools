@@ -46,6 +46,20 @@ export function herdrArgv(t: HerdrTarget, rest: string[]): string[] {
   ];
 }
 
+/**
+ * What `herdr server` runs inside when devc web starts it: a login shell, as `devc herdr`'s
+ * attach uses, so the server — and every pane it spawns, which inherits its environment — gets
+ * the user's profile (`~/.local/bin` on `PATH`, say). `SHELL` is exported because Herdr gives a
+ * pane `$SHELL`, else `/bin/sh` (no rc files, no prompt); a bare `docker exec` doesn't set it,
+ * and bash only sets it, from the passwd entry, without exporting it. The command rides along as
+ * `$0`/`$@`.
+ */
+export const SERVER_SHELL = [
+  '/bin/bash',
+  '-lc',
+  'export SHELL; exec "$0" "$@"',
+];
+
 /** The global event types the lifecycle connection subscribes to. */
 export const GLOBAL_EVENT_TYPES = [
   'workspace.created',
@@ -547,7 +561,8 @@ export class ContainerSession {
   }
 
   /**
-   * `herdr --session <S> server`, detached, then the lifecycle from the bridge check on. Throws
+   * `herdr --session <S> server`, detached and inside {@link SERVER_SHELL}, then the lifecycle
+   * from the bridge check on. Throws
    * a `no_session` {@link BridgeError} carrying the server log's tail when, after the retries,
    * there is still no server.
    */
@@ -562,6 +577,7 @@ export class ContainerSession {
       '-u',
       t.user,
       t.containerId,
+      ...SERVER_SHELL,
       t.herdrPath,
       '--session',
       t.session,
