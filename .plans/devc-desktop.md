@@ -84,6 +84,21 @@ where an answer says to.
 6. **Clipboard and selection.** Does the page's copy-on-select (`navigator.clipboard`) work in
    the window as in Chrome?
 
+### Results so far (macOS host, 2026-10-18)
+
+Launched from a terminal with `devc2` (`$DEVC_BIN`):
+`dist/devc.app/Contents/MacOS/laufey --live-yolo --port 48229`, beside the user's own
+`devc web` on 48228, which serves the same checkout.
+
+- **Basics, keyboard, clipboard (1, 6):** reported fine by the user.
+- **Live mode:** a `.ts` save (identical content, `devc/web/token.ts`) swapped the server:
+  48229 went down about 2.7 s after the save (the `deno check` gate) for about 0.5 s. Two
+  page saves (a comment added to `devc/web/static/viewer.js`, then removed) were served at
+  once, and the user saw the window reload twice.
+- **Arguments (3):** intact on macOS too; the terminal launch's `--port 48229` took effect.
+- **Still open:** 2 (`PATH` and `$DEVC_BIN` from a Finder launch, with `desktopWebArgs`),
+  4 (red close button and Cmd+Q leave no `devc` or `deno` process), 5 (Gatekeeper).
+
 ## Built and checked on Linux (2026-10-18)
 
 Steps 1–2 ran end to end in the devcontainer under `xvfb-run`, with `DEVC_DESKTOP_DEVC`
