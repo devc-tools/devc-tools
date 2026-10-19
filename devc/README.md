@@ -334,8 +334,9 @@ is published from any container: the host server finds devcontainers with
   editor's terminal is named after its file, in the sidebar and on its tab. See
   [Editing in a terminal](#editing-in-a-terminal) for the editor.
 - **Pinned files and notes:** the **Pinned** section at the top of the sidebar
-  keeps repo files one click away. Right-click a repo file (or a file tile) for
-  **Pin file** / **Unpin file**; the section's **+** is **New note…**, which
+  keeps repo files one click away. It appears once something is pinned:
+  right-click a repo file (or a file tile) for **Pin file** / **Unpin file**.
+  The section's **+** is **New note…** (so the first note needs one pin), which
   creates a file in a project's repo (`.plans/notes.md` when the repo has a
   `.plans/` folder, else `NOTES.md`; an existing file is pinned as it is, and a
   missing folder is reported, not created), pins it and opens it. Clicking a
@@ -349,12 +350,13 @@ is published from any container: the host server finds devcontainers with
   Pins are kept in `~/.config/devc/pinned-files.json`, so a browser tab and the
   devc-desktop window show the same ones. They are not pinned projects (a
   project kept in the Containers list) and not a preview tile's **Keep open**.
-- **Tasks:** the **Tasks** section, under Pinned, is a to-do list for agents.
-  Its **+** opens a dialog: write the task (the first line is its title),
-  optionally choose a project and repo, then **Save** it for later or send it
-  straight away. **New task here…** on a folder (its hover button beside the
-  new-terminal **+**, or its menu) opens the same dialog routed to that folder's
-  project and repo. **Send: plan** asks the agent for an implementation plan (a
+- **Tasks:** the **Tasks** section, at the top of the sidebar or under Pinned,
+  is a to-do list for agents. Its **+** opens a dialog: write the task (the
+  first line is its title), optionally choose a project and repo, then **Save**
+  it for later or send it straight away with the two icons at the dialog's top,
+  **Send: plan** and **Send: implement**. **New task here…** on a folder (its
+  hover button beside the new-terminal **+**, or its menu) opens the same
+  dialog routed to that folder's project and repo. **Send: plan** asks the agent for an implementation plan (a
   `.plans/` doc if the repo has a `.plans/` folder); **Send: implement** asks
   it to do the task. The agent is Claude, Copilot or pi (opencode can't be
   given a session id), and the container must be running. Sending writes the

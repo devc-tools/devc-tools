@@ -429,6 +429,16 @@ body.resizing-sidebar {
   background: var(--panel);
 }
 
+.icon-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.icon-btn:disabled:hover {
+  color: var(--muted);
+  background: none;
+}
+
 /* The play triangle and stop square are solid; the other icons are strokes. */
 .icon-btn[data-icon='play'] svg,
 .icon-btn[data-icon='stop'] svg {
@@ -1311,4 +1321,10 @@ button.primary.danger {
 .task-buttons {
   display: inline-flex;
   gap: 6px;
+}
+
+.task-send {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
 }

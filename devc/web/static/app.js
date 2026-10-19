@@ -1,6 +1,7 @@
 // The `devc web` page: the WebSocket client for `/ws`, the sidebar and the browser-owned tiling
-// area. The sidebar has three sections: Pinned, the pinned files (a click toggles the file's
-// editor tile), Layout, a live mirror of the Golden Layout tree (where things are on screen, and
+// area. The sidebar has four sections: Pinned, the pinned files (a click toggles the file's
+// editor tile; shown only while something is pinned), Tasks, the to-dos sent to agents, Layout,
+// a live mirror of the Golden Layout tree (where things are on screen, and
 // the layout actions), and Containers, every Herdr pane by container (what is running, and the
 // process actions). The browser owns all layout: it never splits a Herdr pane or
 // shows a Herdr tab, and each pane it creates gets its own Herdr tab (`new_shell`). The protocol is
@@ -787,7 +788,6 @@ const LABELS = {
   pinFile: 'Pin file',
   unpinFile: 'Unpin file',
   newNote: 'New note…',
-  noPinnedFiles: 'No pinned files',
   tasks: 'Tasks',
   newTask: 'New task…',
   newTaskHere: 'New task here…',
@@ -1030,7 +1030,8 @@ function chevron() {
 }
 
 /**
- * The sidebar: the Pinned section (pinned files), the Layout section (the Golden Layout tree,
+ * The sidebar: the Pinned section (pinned files, only while something is pinned), the Tasks
+ * section, the Layout section (the Golden Layout tree,
  * single-child levels folded), then Containers (Container → Terminals → terminal, Container → Repos → repo → files, and
  * Container → Files → the container's own files from `/`).
  * Herdr tabs group nothing here: a pane the Herdr TUI split into a shared tab is just another pane.
@@ -2350,6 +2351,7 @@ function closeOutput() {
  * devc web window shows the same ones.
  */
 function pinnedFileRows() {
+  if (pinnedFiles.length === 0) return [];
   const rows = [
     sectionRow(
       LABELS.pinned,
@@ -2360,9 +2362,6 @@ function pinnedFileRows() {
     ),
   ];
   if (!sidebarState.pinnedOpen) return rows;
-  if (pinnedFiles.length === 0) {
-    rows.push(h('div', { class: 'empty' }, LABELS.noPinnedFiles));
-  }
   for (const pin of pinnedFiles) rows.push(filePinRow(pin));
   return rows;
 }
@@ -3081,8 +3080,8 @@ let taskDialog = null;
 
 /**
  * The task dialog, for a new task or `task`: its text, its route (a project and one of its repos,
- * or none) and an agent. **Save** keeps it on the list; **Send: plan** / **Send: implement** save
- * it, then send it (`send_task`) and show the agent's pane.
+ * or none) and an agent. **Save** keeps it on the list; the header's **Send: plan** /
+ * **Send: implement** icons save it, then send it (`send_task`) and show the agent's pane.
  *
  * A new task opens routed to `route` when it is given, else to the focused tile's project.
  *
@@ -3137,27 +3136,41 @@ function openTaskDialog(task, route) {
   const $repoLabel = h('label', {}, 'Repo', $repo);
   const $agent = /** @type {HTMLSelectElement} */ (h(
     'select',
-    { class: 'new-note-project', 'aria-label': 'Agent' },
+    {
+      class: 'new-note-project',
+      'aria-label': 'Agent',
+      onchange: () => titleSends(),
+    },
     ...TASK_AGENT_IDS.map((id) =>
       h('option', { value: id }, LABELS.agents[id])
     ),
   ));
   $agent.value = savedTaskAgent(storedTaskAgent());
   const $error = h('div', { class: 'new-note-error', hidden: true });
-  const button = (
-    label,
-    action,
-    primary = false,
-  ) => /** @type {HTMLButtonElement} */ (h('button', {
+  const $save = /** @type {HTMLButtonElement} */ (h('button', {
     type: 'button',
-    class: primary ? 'primary' : undefined,
-    onclick: () => void submitTask(action),
-  }, label));
-  const $save = button('Save', null);
-  const $send = [
-    button('Send: plan', 'plan'),
-    button('Send: implement', 'implement', true),
-  ];
+    class: 'primary',
+    onclick: () => void submitTask(null),
+  }, 'Save'));
+  /** @type {['plan', 'implement']} */
+  const actions = ['plan', 'implement'];
+  const $send = actions.map((
+    action,
+  ) => /** @type {HTMLButtonElement} */ (iconButton(
+    action,
+    '',
+    () => void submitTask(action),
+  )));
+  // The icons name the agent they send to, so they follow the Agent dropdown.
+  const titleSends = () => {
+    const agentLabel = LABELS.agents[$agent.value];
+    $send.forEach(($b, i) => {
+      const title = `Send to ${agentLabel}: ${actions[i]}`;
+      $b.title = title;
+      $b.setAttribute('aria-label', title);
+    });
+  };
+  titleSends();
   const el = /** @type {HTMLDialogElement} */ (h(
     'dialog',
     {
@@ -3172,7 +3185,7 @@ function openTaskDialog(task, route) {
       'header',
       { class: 'dialog-header' },
       h('span', {}, task ? 'Task' : 'New task'),
-      h('button', { type: 'button', onclick: () => el.close() }, 'Cancel'),
+      h('span', { class: 'task-send' }, ...$send),
     ),
     h(
       'div',
@@ -3195,7 +3208,12 @@ function openTaskDialog(task, route) {
         { class: 'picker-hint' },
         'Sending starts the agent in the repo',
       ),
-      h('span', { class: 'task-buttons' }, $save, ...$send),
+      h(
+        'span',
+        { class: 'task-buttons' },
+        h('button', { type: 'button', onclick: () => el.close() }, 'Cancel'),
+        $save,
+      ),
     ),
   ));
   taskDialog = {

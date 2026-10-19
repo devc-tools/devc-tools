@@ -116,6 +116,13 @@
   browser's outline, which overlapped the dropdown beside it and was clipped.
   **Implemented; the user's check in devc-desktop and a real row send outstanding.**
 
+- [devc-web-pinned-hide-save-primary](devc-web-pinned-hide-save-primary.md) — after
+  devc-web-tasks-actions. Page-only: the sidebar's Pinned section is not shown while nothing is
+  pinned (so **New note…** needs one pin first). The New task dialog's footer becomes
+  **Cancel**, **Save** (primary), and the two sends move to `plan` / `implement` icon buttons
+  in its header.
+  **Implemented; the user's look in their tab outstanding.**
+
 ### Standing rules for Feature work
 
 Not a plan group — these are the conventions every Feature plan in this file
@@ -2286,3 +2293,4 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
 | `devc web` copy on select — plain drag copies via `pane.selection.read`                                            | [devc-web-copy-on-select](archived/devc-web-copy-on-select.md)                     | complete    |
 | `devc web` tasks — a host-side task list, sent one-way to an agent with a known session id                         | [devc-web-tasks](devc-web-tasks.md)                                                | in progress |
 | `devc web` task actions — new task from a folder, send/delete icons on task rows, dialog focus ring                | [devc-web-tasks-actions](devc-web-tasks-actions.md)                                | in progress |
+| `devc web` empty Pinned hidden; task dialog: Save primary, send icons in header                                    | [devc-web-pinned-hide-save-primary](devc-web-pinned-hide-save-primary.md)          | in progress |
