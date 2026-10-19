@@ -138,6 +138,13 @@
   offers **New task here…**. Closed nodes are kept as `taskGroupsClosed`. Sent is unchanged.
   **Implemented; the user's look in their tab outstanding.**
 
+- [devc-web-sidebar-collapse-all](devc-web-sidebar-collapse-all.md) — after devc-web-tasks-grouped.
+  Page-only: a **Collapse all** hover icon (VS Code's stacked squares with a minus) on the
+  **Tasks** and **Containers** headings closes every row under that heading, at every level, and
+  saves that. Open/closed state is already saved per browser for every collapsible row
+  (`devc-web-sidebar-v1`); this plan only adds a reload check to Validation.
+  **Implemented; the user's check in their tab outstanding.**
+
 ### Standing rules for Feature work
 
 Not a plan group — these are the conventions every Feature plan in this file
@@ -2311,3 +2318,4 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
 | `devc web` worktree git marks — local fetch timeout, per-folder broadcast, `?` with the reason                     | [devc-web-worktree-git-marks](devc-web-worktree-git-marks.md)                      | in progress |
 | `devc web` empty Pinned hidden; task dialog: Save primary, send icons in header                                    | [devc-web-pinned-hide-save-primary](devc-web-pinned-hide-save-primary.md)          | in progress |
 | `devc web` grouped tasks — one collapsible node per project + repo route, `not routed` last                        | [devc-web-tasks-grouped](devc-web-tasks-grouped.md)                                | in progress |
+| `devc web` sidebar Collapse all — on the Tasks and Containers headings, at every level                             | [devc-web-sidebar-collapse-all](devc-web-sidebar-collapse-all.md)                  | in progress |

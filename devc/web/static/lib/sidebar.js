@@ -218,3 +218,40 @@ export function clampSidebarWidth(width, viewportWidth) {
   const w = Number.isFinite(width) ? Math.round(width) : SIDEBAR_DEFAULT_WIDTH;
   return Math.min(max, Math.max(SIDEBAR_MIN_WIDTH, w));
 }
+
+/**
+ * The Tasks section's open/closed fields with every row in it closed (its Collapse all): each
+ * task group in `taskGroups` (the ones there are now) and Sent. Groups already closed stay so.
+ * `state` is not changed.
+ *
+ * @param {{taskGroupsClosed: Set<string>}} state
+ * @param {Iterable<string>} taskGroups
+ */
+export function collapseTasksState(state, taskGroups) {
+  return {
+    taskGroupsClosed: new Set([...state.taskGroupsClosed, ...taskGroups]),
+    sentOpen: false,
+  };
+}
+
+/**
+ * The Containers section's open/closed fields with every row in it closed, at every level (its
+ * Collapse all): each container in `folders` (every container and project there is now) and its
+ * Terminals row, every Repos row, file tree and folder, Not running and the projects under it.
+ * Folders already listed stay listed. `state` is not changed.
+ *
+ * @param {{collapsed: Set<string>, terminalsClosed: Set<string>}} state
+ * @param {Iterable<string>} folders
+ */
+export function collapseContainersState(state, folders) {
+  const known = [...folders];
+  return {
+    collapsed: new Set([...state.collapsed, ...known]),
+    terminalsClosed: new Set([...state.terminalsClosed, ...known]),
+    reposOpen: new Set(),
+    projectsOpen: new Set(),
+    /** @type {Record<string, string[]>} */
+    filesOpen: {},
+    inactiveOpen: false,
+  };
+}

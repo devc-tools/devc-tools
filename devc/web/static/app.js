@@ -30,6 +30,8 @@ import {
 import {
   agentStatus,
   clampSidebarWidth,
+  collapseContainersState,
+  collapseTasksState,
   containerLabel,
   gitRollup,
   gitSync,
@@ -792,6 +794,7 @@ const LABELS = {
   tasks: 'Tasks',
   newTask: 'New task…',
   newTaskHere: 'New task here…',
+  collapseAll: 'Collapse all',
   noTasks: 'No tasks',
   sentTasks: 'Sent',
   notRouted: 'not routed',
@@ -970,6 +973,36 @@ function toggleSentTasks() {
   renderTree();
 }
 
+/** The Tasks heading's Collapse all: closes its task groups and Sent; the section stays open. */
+function collapseTasks() {
+  Object.assign(
+    sidebarState,
+    collapseTasksState(sidebarState, groupTasks(tasks).map((g) => g.key)),
+  );
+  saveSidebarState();
+  renderTree();
+}
+
+/**
+ * The Containers heading's Collapse all: closes every row under it, at every level, including the
+ * saved folders of file trees not drawn yet. Containers and projects known now stay collapsed
+ * when they come back.
+ */
+function collapseContainers() {
+  // Each clear() saves its tree's (now empty) open folders: before the state below, not after.
+  for (const { tree } of fileTrees.values()) tree.clear();
+  restoringFiles.clear();
+  Object.assign(
+    sidebarState,
+    collapseContainersState(sidebarState, [
+      ...[...containers.values()].map((c) => c.localFolder),
+      ...projects.keys(),
+    ]),
+  );
+  saveSidebarState();
+  renderTree();
+}
+
 function toggleLayoutSection() {
   sidebarState.layoutOpen = !sidebarState.layoutOpen;
   saveSidebarState();
@@ -1075,9 +1108,12 @@ function renderTree() {
       'Containers',
       undefined,
       undefined,
-      projectStarts
-        ? rowTrail(hoverActions(iconButton('plus', 'Add project…', addProject)))
-        : '',
+      rowTrail(
+        hoverActions(
+          projectStarts ? iconButton('plus', 'Add project…', addProject) : '',
+          iconButton('collapseAll', LABELS.collapseAll, collapseContainers),
+        ),
+      ),
       projectStarts
         ? (e) => openMenu(e, [['Add project…', addProject]])
         : undefined,
@@ -1366,6 +1402,8 @@ const ICON_PATHS = {
   implement: 'M5.5 5L2.5 8l3 3M10.5 5l3 3-3 3M9 3.5l-2 9',
   // A checklist: a new task.
   task: 'M3 4l1.2 1.2L6.5 3M8.5 4.5H13M3 9l1.2 1.2L6.5 8M8.5 9.5H13',
+  // Two stacked squares, a minus on the front one: a section's Collapse all (VS Code's).
+  collapseAll: 'M5.5 2.5h8v8M2.5 5.5h8v8h-8zM4.5 9.5h4',
 };
 
 /**
@@ -2827,6 +2865,7 @@ function taskRows() {
       rowTrail(
         hoverActions(
           iconButton('plus', LABELS.newTask, () => openTaskDialog()),
+          iconButton('collapseAll', LABELS.collapseAll, collapseTasks),
         ),
       ),
       (e) => openMenu(e, [[LABELS.newTask, () => openTaskDialog()]]),

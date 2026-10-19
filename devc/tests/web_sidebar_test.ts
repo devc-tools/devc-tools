@@ -2,6 +2,8 @@ import { assertEquals } from 'jsr:@std/assert';
 import {
   agentStatus,
   clampSidebarWidth,
+  collapseContainersState,
+  collapseTasksState,
   containerLabel,
   gitRollup,
   gitSync,
@@ -306,4 +308,52 @@ Deno.test('statusShort gives every status four letters, unknown for the rest', (
   for (const s of STATUS_ORDER) assertEquals(statusShort(s).length, 4);
   assertEquals(statusShort('working'), 'work');
   assertEquals(statusShort('sleeping'), 'unkn');
+});
+
+Deno.test('collapseTasksState closes Sent and adds the known task groups', () => {
+  const state = { taskGroupsClosed: new Set(['k1']) };
+  const out = collapseTasksState(state, ['k2', '']);
+  assertEquals(out, {
+    taskGroupsClosed: new Set(['k1', 'k2', '']),
+    sentOpen: false,
+  });
+  assertEquals(state.taskGroupsClosed, new Set(['k1']));
+  assertEquals(out.taskGroupsClosed === state.taskGroupsClosed, false);
+});
+
+Deno.test('collapseContainersState closes every row and adds the known folders', () => {
+  const state = {
+    collapsed: new Set(['/a']),
+    terminalsClosed: new Set<string>(),
+  };
+  const out = collapseContainersState(state, ['/b', '/c']);
+  assertEquals(out, {
+    collapsed: new Set(['/a', '/b', '/c']),
+    terminalsClosed: new Set(['/b', '/c']),
+    reposOpen: new Set(),
+    projectsOpen: new Set(),
+    filesOpen: {},
+    inactiveOpen: false,
+  });
+  assertEquals(state.collapsed, new Set(['/a']));
+  assertEquals(state.terminalsClosed, new Set());
+  assertEquals(out.collapsed === state.collapsed, false);
+  assertEquals(out.terminalsClosed === state.terminalsClosed, false);
+});
+
+Deno.test('collapseContainersState with nothing known still closes everything', () => {
+  assertEquals(
+    collapseContainersState(
+      { collapsed: new Set(), terminalsClosed: new Set() },
+      [],
+    ),
+    {
+      collapsed: new Set<string>(),
+      terminalsClosed: new Set<string>(),
+      reposOpen: new Set(),
+      projectsOpen: new Set(),
+      filesOpen: {},
+      inactiveOpen: false,
+    },
+  );
 });

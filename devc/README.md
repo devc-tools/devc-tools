@@ -284,8 +284,10 @@ is published from any container: the host server finds devcontainers with
   tile shows; a workspace row appears only when there is more than one. Herdr
   tabs don't appear: a pane split in Herdr's own UI is listed like any other.
   Click a container to collapse it; a collapsed one shows its most urgent agent
-  status. Containers without a running Herdr server are grouped under **Not
-  running** at the bottom; hover one for its play button,
+  status. Which rows are open is remembered per browser; hover the **Tasks** or
+  **Containers** heading for **Collapse all**, which closes every row under it,
+  at every level. Containers without a running Herdr server are grouped under
+  **Not running** at the bottom; hover one for its play button,
   **Start Herdr** (`herdr --session devc server`, detached), and **Retry**. The same group
   lists **projects** whose container is stopped or was never created: every
   folder a devc command has started (kept, with your pins, in
