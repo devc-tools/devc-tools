@@ -293,7 +293,7 @@ function h(tag, attrs = {}, ...children) {
 
 /**
  * A message in the corner for a few seconds. With `action`, it carries a button that runs it
- * (and dismisses the toast), and stays a little longer.
+ * (and dismisses the toast), and stays a little longer. Returns the toast's element.
  *
  * @param {string} message @param {{label: string, run: () => void}} [action]
  */
@@ -311,6 +311,12 @@ function toast(message, action) {
   }
   $toasts.append(el);
   setTimeout(() => el.remove(), action ? 12000 : 6000);
+  return el;
+}
+
+/** A {@link toast} for a failure: outlined as an error. @param {string} message */
+function errorToast(message) {
+  toast(message).classList.add('error');
 }
 
 /** Releases `boot.js`'s guard: from here on, errors are toasts, not its overlay. */
@@ -321,10 +327,10 @@ function markBooted() {
 }
 
 window.addEventListener('error', (e) => {
-  if (booted && e.message) toast(e.message);
+  if (booted && e.message) errorToast(e.message);
 });
 window.addEventListener('unhandledrejection', (e) => {
-  if (booted) toast(String(e.reason?.message ?? e.reason));
+  if (booted) errorToast(String(e.reason?.message ?? e.reason));
 });
 
 // ---------------------------------------------------------------------------------------------
@@ -650,7 +656,7 @@ function onResult(msg) {
   const what = pendingRequests.get(msg.id);
   pendingRequests.delete(msg.id);
   if (!msg.ok) {
-    toast(
+    errorToast(
       `${what ?? 'Request'} failed: ${msg.error?.message ?? msg.error?.code}`,
     );
   }
@@ -943,7 +949,7 @@ window.addEventListener('resize', applySidebarLayout);
 document.getElementById('copy-url')?.addEventListener('click', () => {
   navigator.clipboard?.writeText(location.href).then(
     () => toast('Copied page URL'),
-    (e) => toast(`Copy failed: ${e?.message ?? e}`),
+    (e) => errorToast(`Copy failed: ${e?.message ?? e}`),
   );
 });
 
@@ -1458,7 +1464,7 @@ async function createPane(c, msg, place, what) {
   try {
     result = await created;
   } catch (e) {
-    toast(`${what} failed: ${e?.message ?? e}`);
+    errorToast(`${what} failed: ${e?.message ?? e}`);
     return;
   }
   placePane(c.localFolder, result, place);
@@ -1556,7 +1562,7 @@ function killPane(c, pane) {
       );
       for (const t of shown) tiling?.close(t.id);
     },
-    (err) => toast(`${LABELS.closeRequest} failed: ${err.message}`),
+    (err) => errorToast(`${LABELS.closeRequest} failed: ${err.message}`),
   );
 }
 
@@ -2339,7 +2345,7 @@ async function openFilePin(pin, where) {
     result = await call({ type: 'open_pinned', pin: pin.id });
   } catch (e) {
     if (e?.code === 'not_running') openFilePinReadOnly(pin, where);
-    else toast(`Open ${filePinName(pin)} failed: ${e?.message ?? e}`);
+    else errorToast(`Open ${filePinName(pin)} failed: ${e?.message ?? e}`);
     return;
   } finally {
     openingFilePins.delete(pin.id);
@@ -2414,7 +2420,7 @@ function pinFile(fr, path) {
       saveSidebarState();
       renderTree();
     },
-    (e) => toast(`${LABELS.pinFile} failed: ${e?.message ?? e}`),
+    (e) => errorToast(`${LABELS.pinFile} failed: ${e?.message ?? e}`),
   );
 }
 
@@ -2424,7 +2430,7 @@ function unpinFile(pin) {
     () => {
       if (filePinPanes.delete(pin.id)) saveFilePinPanes();
     },
-    (e) => toast(`${LABELS.unpinFile} failed: ${e?.message ?? e}`),
+    (e) => errorToast(`${LABELS.unpinFile} failed: ${e?.message ?? e}`),
   );
 }
 
@@ -2434,7 +2440,7 @@ function renameFilePin(pin) {
   if (name === null) return;
   const label = name.trim() === basename(pin.path) ? '' : name.trim();
   call({ type: 'rename_pin', pin: pin.id, label }).catch((e) =>
-    toast(`Rename failed: ${e?.message ?? e}`)
+    errorToast(`Rename failed: ${e?.message ?? e}`)
   );
 }
 
@@ -2923,7 +2929,7 @@ function copyPath(fr, path) {
     (path === '' ? fr.root : childPath(fr.root, path));
   navigator.clipboard?.writeText(text).then(
     () => toast(`Copied ${text}`),
-    (e) => toast(`Copy failed: ${e?.message ?? e}`),
+    (e) => errorToast(`Copy failed: ${e?.message ?? e}`),
   );
 }
 
@@ -3230,7 +3236,7 @@ async function deleteEntry(fr, path, kind) {
         : { root: fr.root, path }),
     });
   } catch (e) {
-    toast(`Delete failed: ${e?.message ?? e}`);
+    errorToast(`Delete failed: ${e?.message ?? e}`);
     return;
   }
   fileTree(fr).refresh(treeParent(path));
@@ -3733,7 +3739,7 @@ function openPicker() {
       renderPicker();
     },
     (e) => {
-      toast(`Add project failed: ${e?.message ?? e}`);
+      errorToast(`Add project failed: ${e?.message ?? e}`);
       if (picker?.tree === tree) el.close();
     },
   );
@@ -4438,7 +4444,9 @@ function copySelection(t, anchor, cursor) {
     pendingSelections.set(id, { resolve, reject, timer });
   });
   send({ type: 'read_selection', id, ...t, anchor, cursor });
-  writeClipboard(text).catch((e) => toast(`Copy failed: ${e?.message ?? e}`));
+  writeClipboard(text).catch((e) =>
+    errorToast(`Copy failed: ${e?.message ?? e}`)
+  );
 }
 
 /**
@@ -4520,7 +4528,7 @@ async function openLink(t, link) {
   const pane = findPane(t.container, t.pane_id);
   const path = resolvePath(pane?.foreground_cwd || pane?.cwd || '', link.path);
   if (!path) {
-    toast(`Can't open ${link.path}: the terminal's folder is unknown`);
+    errorToast(`Can't open ${link.path}: the terminal's folder is unknown`);
     return;
   }
   try {
@@ -4531,7 +4539,7 @@ async function openLink(t, link) {
     });
     openFileAt(file, link.line, link.column);
   } catch (e) {
-    toast(`Can't open ${link.path}: ${e?.message ?? e}`);
+    errorToast(`Can't open ${link.path}: ${e?.message ?? e}`);
   }
 }
 
