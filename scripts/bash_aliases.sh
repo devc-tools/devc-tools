@@ -7,6 +7,8 @@
 #   devc-bridge2 start | stop | status | restart
 #   devc2 config | up | attach | claude | exec | build | mounts | stop | down | status
 #
+# On macOS, `devcd` opens the built devc-desktop app (devc-desktop/dist/<arch>/devcd.app).
+#
 # The from-source tools carry a `2` suffix so they don't shadow the installed `devc` /
 # `devc-bridge` binaries on PATH — both can coexist, and the plain names always mean the
 # released build.
@@ -80,5 +82,20 @@ _devc_tools_run() {
 devc-bridge2() { _devc_tools_run devc-bridge2 "${DEVC_BRIDGE_MAIN:-}" "$@"; }
 
 devc2() { _devc_tools_run devc2 "${DEVC_MAIN:-}" "$@"; }
+
+# macOS only: opens devc-desktop's built app for this Mac's CPU, as `npm run build:mac` in
+# devc-desktop/ packs it (dist/mac-arm64/ for Apple silicon, dist/mac/ for Intel).
+if [ "$(uname -s)" = Darwin ]; then
+  devcd() {
+    local dir=mac
+    [ "$(uname -m)" = arm64 ] && dir=mac-arm64
+    local app="${DEVC_TOOLS_ROOT:-}/devc-desktop/dist/$dir/devcd.app"
+    if [ ! -d "$app" ]; then
+      echo "devcd: $app not found; run 'npm run build:mac' in devc-desktop/" >&2
+      return 1
+    fi
+    open "$app"
+  }
+fi
 
 # Adding a tool: export its <TOOL>_MAIN above, then one function line here.

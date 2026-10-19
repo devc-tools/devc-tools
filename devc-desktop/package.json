@@ -32,7 +32,7 @@
   },
   "build": {
     "appId": "com.devc-tools.devc-desktop",
-    "productName": "devc",
+    "productName": "devcd",
     "files": [
       "build/**",
       "package.json"

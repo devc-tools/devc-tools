@@ -24,8 +24,8 @@ npm ci              # dependencies; npm 11 runs only the install scripts listed 
                     # "allowScripts" in package.json (esbuild, node-pty)
 npm run build       # for this OS and CPU: dist/linux-unpacked/ on Linux, dist/mac/ or
                     # dist/mac-arm64/ on macOS
-npm run build:mac   # both macOS apps from Linux: dist/mac/devc.app (Intel) and
-                    # dist/mac-arm64/devc.app (Apple silicon)
+npm run build:mac   # both macOS apps from Linux: dist/mac/devcd.app (Intel) and
+                    # dist/mac-arm64/devcd.app (Apple silicon)
 ```
 
 **Building the macOS apps from a Linux container.** `npm run build:mac` cross-builds an Intel
@@ -35,20 +35,20 @@ land on the Mac's disk. They are **unsigned**. If macOS refuses to open one, sig
 on that Mac:
 
 ```sh
-codesign --force --deep --sign - dist/mac-arm64/devc.app   # or dist/mac/devc.app (Intel)
+codesign --force --deep --sign - dist/mac-arm64/devcd.app   # or dist/mac/devcd.app (Intel)
 ```
 
 **Taking an app to another Mac.** Zip it with `ditto`, which keeps the bundle intact:
 
 ```sh
-ditto -c -k --keepParent dist/mac-arm64/devc.app devc-arm64.zip
+ditto -c -k --keepParent dist/mac-arm64/devcd.app devcd-arm64.zip
 ```
 
 A copy that arrives by download, AirDrop or Messages is quarantined, and macOS blocks an
 unsigned quarantined app. Clear the quarantine there, then sign it ad hoc:
 
 ```sh
-xattr -dr com.apple.quarantine devc.app && codesign --force --deep --sign - devc.app
+xattr -dr com.apple.quarantine devcd.app && codesign --force --deep --sign - devcd.app
 ```
 
 Building on the Mac itself (`npm ci && npm run build`) also works. Its `node-pty` comes from
@@ -58,14 +58,14 @@ Each app is about 330 MB on macOS and 290 MB on Linux, unpacked.
 
 ## Run
 
-Open `dist/mac/devc.app` (Intel) or `dist/mac-arm64/devc.app` (Apple silicon), or run `dist/linux-unpacked/devc-desktop` on Linux. From
+Open `dist/mac/devcd.app` (Intel) or `dist/mac-arm64/devcd.app` (Apple silicon), or run `dist/linux-unpacked/devc-desktop` on Linux. From
 source, `npm start`.
 
 A terminal launch passes its arguments on to `devc web`. Chromium's own switches
 (`--remote-debugging-port`, `--inspect`, `--no-sandbox` and the like) are not passed on.
 
 ```sh
-dist/mac/devc.app/Contents/MacOS/devc --live-yolo
+dist/mac/devcd.app/Contents/MacOS/devcd --live-yolo
 ```
 
 Launched with no arguments (from the Dock or Finder), the app reads them from

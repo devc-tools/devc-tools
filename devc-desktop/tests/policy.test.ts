@@ -37,7 +37,7 @@ test("devcMayNavigate: devc web's own origin only", () => {
       'http://localhost:48228/',
       'https://127.0.0.1:48228/',
       'https://example.com/',
-      'file:///Applications/devc.app/Contents/Resources/app.asar/build/renderer/host.html',
+      'file:///Applications/devcd.app/Contents/Resources/app.asar/build/renderer/host.html',
       'javascript:alert(1)',
       'about:blank',
       'not a url',
