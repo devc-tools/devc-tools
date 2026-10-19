@@ -393,6 +393,8 @@ Deno.test('materialized (zero-config) devcontainer.json has no local Feature, ke
       dc.features['ghcr.io/devc-tools/features/git-container-config:0'],
       {},
     );
+    // ...micro, the editor devc web's Open in editor falls back to when EDITOR is unset...
+    assertEquals(dc.features['ghcr.io/devc-tools/features/micro:0'], {});
     // ...and the devc-config Feature is deliberately absent here too — devc contributes it
     // dynamically, via withBaselineFeatures/--additional-features, never by declaring it in the
     // bundled config itself. What this Feature does (running a devc-post-create.sh a project
