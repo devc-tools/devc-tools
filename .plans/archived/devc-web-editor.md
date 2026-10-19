@@ -10,7 +10,7 @@
 
 Make editing files in containers a first-class path in `devc web`: a terminal editor that is
 good out of the box, and creating files and folders from the Files trees. Opening a file in an
-editor already exists ([devc-web-files](../devc-web-files.md): `open_file`, `editorCommand`,
+editor already exists ([devc-web-files](devc-web-files.md): `open_file`, `editorCommand`,
 `${EDITOR:-vi}` in a new pane). This plan does not change that mechanism. It supplies the
 editor, adds creation, and names the panes.
 

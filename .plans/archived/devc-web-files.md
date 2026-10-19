@@ -6,7 +6,7 @@
 - [x] Open a file → editor pane placed in the layout; Copy path; Open shell here
 - [x] "Add project…" opens a host folder tree (the Files tree component) instead of `prompt()`
 - [x] `.plans/devc-web.md` protocol section updated
-- [ ] Verify (below) and ask the user to try it in their open tab
+- [x] Verify (below) and ask the user to try it in their open tab
 
 Browse a project's files from the `devc web` sidebar and open them. Opening a file runs an
 editor in a new pane: the container's `$EDITOR`, falling back to `vi`. That pane is placed in
@@ -25,14 +25,14 @@ PROJECTS
       shell
 ```
 
-Depends on [devc-web-layout-sidebar](archived/devc-web-layout-sidebar.md) (`createShell`, `addBeside`) and
+Depends on [devc-web-layout-sidebar](devc-web-layout-sidebar.md) (`createShell`, `addBeside`) and
 [devc-web-projects](devc-web-projects.md) (the projects list that confines what can be browsed,
 and `add_project`). Read `/workspaces/devc-dev/.claude/skills/devc-web/SKILL.md` first.
 
 **Not in this plan** (possible follow-ons):
 
 - a read-only viewer tile (a second Golden Layout component type);
-- an in-browser editor (overlaps with [feature-headless-vscode](feature-headless-vscode.md));
+- an in-browser editor (overlaps with [feature-headless-vscode](../feature-headless-vscode.md));
 - ~~browsing container paths outside the bind-mounted workspace~~: done as each container's Files node (`list_container_dir`, `read_container_file`; see `.plans/devc-web.md`);
 - file watching;
 - a "Browse with system dialog…" button (Chromium only): bind each code root once via

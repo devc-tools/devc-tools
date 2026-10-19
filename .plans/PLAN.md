@@ -11,15 +11,6 @@
 
 ### Pending
 
-- [devc-container-connection](devc-container-connection.md) — one way to reach a devcontainer.
-  `devc web` built its own `docker exec` path (`remoteUser` from the metadata label, no
-  `remoteEnv`), so Herdr servers it starts miss `TZ`/`LANG`/`PROJECT_PATH`. Adds
-  `connectionFor` (a `ContainerInfo` for a running container, no `up`, same `remoteEnv`
-  derivation as `startContainer`) and one `dockerExecArgv`/`loginShellArgv` builder that
-  `exec`, `attach`, the Herdr watcher and every web exec use, enforced by a test.
-  `remoteUser` and the workspace folder come from `devcontainer read-configuration
-  --container-id`. **Implemented; host Validation outstanding.**
-
 - [git-protect-live-check](git-protect-live-check.md) — a read-only `.git/config` mount can
   vanish from a running container when the host rewrites the file (seen on Docker Desktop:
   VS Code's config writes), leaving the repo's config writable from inside while `devc status`
@@ -27,30 +18,6 @@
   container's kernel mount table (`/proc/<pid>/mountinfo`) in `gitProtectState`'s callers:
   `devc status` reports `MISMATCH`, and the bridge refuses grants. Step 0 measures the
   mechanism on a host first. Surviving the rewrite is left to a later plan.
-
-- [devc-web-projects](devc-web-projects.md) — next up (devc-web-layout-sidebar is done). Projects, not
-  just running containers: a `~/.config/devc/projects.json` of pinned and recent projects
-  (written by every CLI start path), stopped containers from `docker ps -a`, a `projects`
-  message, and `start_project` / `stop_project` / pin / forget / add from the page (spawning
-  `devc up` / `devc stop`, streaming the output). Tiles whose project is down offer Start.
-
-- [devc-web-files](devc-web-files.md) — after devc-web-projects. A lazily loaded Files tree
-  under each project, read from the host side of the bind mount (`list_dir`, confined to the
-  project, symlinks included). Opening a file runs `$EDITOR` in a new pane via `createShell`
-  and places it in the layout. A host folder tree (`list_host_dir`, same tree
-  component) opening on the configured `codeRoots` replaces the "Add project…" prompt.
-
-- [devc-desktop-electron](devc-desktop-electron.md) — devc-desktop moves from `deno desktop`
-  to Electron so one window can hold a **host terminal** devc web cannot reach: a `BaseWindow`
-  with a devc view (sandboxed, own persistent partition, no preload, no dialogs, no windows,
-  navigation pinned to devc web's origin, permissions limited to clipboard write), a status view,
-  and a host view that slides up (Cmd+J) running `node-pty` over checked IPC, loaded from the
-  bundle with no loopback listener. Config, finding `devc`, restart and quit carry over. Step 1
-  replaces devc web's `confirm()`/`prompt()` with in-page dialogs. Step 0 measures `node-pty`,
-  real devc web in the locked-down view, and re-runs the focus attacks; the macOS app is built
-  on the Mac. **Implemented and verified on Linux; macOS checks outstanding** (the Mac app is
-  cross-built here: `npm run build:mac`). Why: [devc-desktop-host-terminal](archived/devc-desktop-host-terminal.md) (the
-  `deno desktop` drawer failed isolation; Electron passed).
 
 - [keepawake-ping-telemetry](keepawake-ping-telemetry.md) — record every keepawake ping
   and report the distribution of gaps between them, so
@@ -77,37 +44,6 @@
   and runs it against the extension under development on an `xvfb` display with a CDP port,
   generalized from vscode-deephaven's `vscode-dev.sh`. chrome-devtools-mcp registration stays
   with the consuming project. Replaces the `feature-electron-deps` placeholder.
-
-- [devc-web-tasks](devc-web-tasks.md) — a task list in `devc web`: to-dos kept in
-  `~/.config/devc/tasks.json`, optionally routed to a project and repo, then sent one-way to an
-  agent there (Claude, Copilot or pi) to **write a plan** or **implement** it. The task text
-  goes to `/tmp/devc-tasks/<uuid>.md` in the container, and the agent starts with that uuid as
-  its session id. A **Sent** history keeps the session id and repo, so a click reopens the live
-  pane or resumes the session in a new tab. Agents never write back to the list.
-  **Implemented; a real send and resume in the user's tab outstanding.**
-
-- [devc-web-tasks-actions](devc-web-tasks-actions.md) — after devc-web-tasks. Page-only: a
-  **New task here…** button and menu item on folders that offer a new terminal, which opens the
-  dialog routed to that folder's project and repo. Hover icons on task rows for **Send: plan**,
-  **Send: implement** (with the dialog's last agent) and a trash can for **Delete…**, in place of
-  the row's context menu. The dialog's dropdowns get the accent border on focus instead of the
-  browser's outline, which overlapped the dropdown beside it and was clipped.
-  **Implemented; the user's check in devc-desktop and a real row send outstanding.**
-
-- [devc-web-worktree-git-marks](devc-web-worktree-git-marks.md) — worktree rows under
-  **Repos › repo** show no push/pull mark: the fetch from the folder into a cold mirror outlasts
-  its 10 s timeout, is killed with nothing kept, and fails every pass (`null`, which also hides
-  the row). Local fetches get 10 minutes, the watch broadcasts per folder, and a repo whose
-  status can't be read keeps its row with a muted `?` whose tooltip carries the reason
-  (`gitProblem`: `detached HEAD`, `git fetch: timed out`, or git's own error line).
-  **Implemented; the user's check in their open tab outstanding.**
-
-- [devc-web-task-default](devc-web-task-default.md) — after devc-web-pinned-hide-save-primary.
-  Page-only: a pin icon in the task dialog makes its Project, Repo and Agent the default for new
-  tasks (`localStorage` `devc-web-task-default-v1`, per window; unrouted pins only the agent).
-  A pinned route beats the focused tile's project; **New task here…** and an edited task's own
-  route still win. Row sends use the default's agent over the last sent one.
-  **Implemented; the user's check in their tab and devc-desktop outstanding.**
 
 ### Standing rules for Feature work
 
@@ -151,6 +87,44 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
   take it too.
 
 ### Completed
+
+- [devc-container-connection](archived/devc-container-connection.md) — ✅ Done: one way to reach a
+  devcontainer: `connectionFor` (no `up`, same `remoteEnv` as `startContainer`,
+  `remoteUser`/workspace folder from `devcontainer read-configuration --container-id`) and one
+  `dockerExecArgv`/`loginShellArgv` builder for `exec`, `attach`, the Herdr watcher and every web
+  exec. Closed after the user's check on 2026-10-19.
+
+- [devc-desktop-electron](archived/devc-desktop-electron.md) — ✅ Done: devc-desktop runs on
+  Electron, one window holding devc web and an isolated host terminal; verified on Linux under Xvfb
+  and by the user on macOS. Closed after the user's check on 2026-10-19.
+
+- [devc-web-files](archived/devc-web-files.md) — ✅ Done: a Files node browses each container's
+  filesystem and opens files in the container's `$EDITOR` in a new pane; Add project… picks folders
+  from `codeRoots`. Closed after the user's check on 2026-10-19.
+
+- [devc-web-projects](archived/devc-web-projects.md) — ✅ Done: `devc web` lists projects that aren't
+  running (stopped, not created) and starts, stops, pins and forgets them from the page. Closed
+  after the user's check on 2026-10-19.
+
+- [devc-web-worktree-git-marks](archived/devc-web-worktree-git-marks.md) — ✅ Done: local fetches
+  into the mirror get 10 minutes, the watch broadcasts per folder, and a worktree whose status can't
+  be read keeps its row with a muted `?` naming the reason. Closed after the user's check on
+  2026-10-19.
+
+- [devc-web-task-default](archived/devc-web-task-default.md) — ✅ Done: a pin in the task dialog
+  makes its Project, Repo and Agent the default for new tasks (`localStorage`
+  `devc-web-task-default-v1`); row sends use the default's agent. Closed after the user's check on
+  2026-10-19.
+
+- [devc-web-tasks-actions](archived/devc-web-tasks-actions.md) — ✅ Done: **New task here…** on
+  folders, hover Send: plan / Send: implement / Delete… icons on task rows, and the accent focus
+  border on the dialog's dropdowns. Closed after the user's check on 2026-10-19.
+
+- [devc-web-tasks](archived/devc-web-tasks.md) — ✅ Done: a task list in `devc web`
+  (`~/.config/devc/tasks.json`), optionally routed to a project and repo and sent one-way to Claude,
+  Copilot or pi to plan or implement; the task file goes to `/tmp/devc-tasks/<uuid>.md` and the uuid
+  is the session id, so a Sent entry reopens the pane or resumes the session. Closed after the
+  user's check on 2026-10-19.
 
 - [agents-update-tools-on-start](archived/agents-update-tools-on-start.md) — ✅ Done: `agents` option
   `updateToolsOnStart` (default `true`) updates each installed agent CLI from a `postStartCommand`,
@@ -2262,80 +2236,80 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
 
 ## Development Phases
 
-| Phase                                                                                                              | Plan                                                                               | Status      |
-| ------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------- | ----------- |
-| Host command bridge (socket server + client + tray)                                                                | [host-command-bridge](archived/host-command-bridge.md)                             | complete    |
-| Host `devc-bridge` lifecycle CLI + zero-setup seeding                                                              | [host-lifecycle-cli](archived/host-lifecycle-cli.md)                               | complete    |
-| devc-tui core — scan, model, fenced-region file surgery                                                            | [devc-tui-core](archived/devc-tui-core.md)                                         | complete    |
-| devc-tui interactive UI — checkbox project tree                                                                    | [devc-tui-ui](archived/devc-tui-ui.md)                                             | complete    |
-| devc-tui tree reshape — folder tree, collapsed by default                                                          | [devc-tui-folder-tree](archived/devc-tui-folder-tree.md)                           | complete    |
-| devc-tui workspace folders — host paths, not container paths                                                       | [devc-tui-host-folder-paths](archived/devc-tui-host-folder-paths.md)               | complete    |
-| devc-tui home directory support — `$HOME` in config, `${localEnv:HOME}` in mounts                                  | [devc-tui-home-paths](archived/devc-tui-home-paths.md)                             | complete    |
-| devc lifecycle core — container commands + bundled default (ported)                                                | [devc-lifecycle-core](archived/devc-lifecycle-core.md)                             | complete    |
-| devc baseline as a devcontainer Feature — composable postCreate                                                    | [devc-container-feature](archived/devc-container-feature.md)                       | complete    |
-| devc global config + wizard TUI foundation                                                                         | [devc-global-config](archived/devc-global-config.md)                               | complete    |
-| devc config wizard — project `.devcontainer/` via managed fences                                                   | [devc-config-wizard](archived/devc-config-wizard.md)                               | complete    |
-| devc help output — clap-style `--help`/`--version` + per-command help                                              | [devc-help-output](archived/devc-help-output.md)                                   | complete    |
-| devc container baseline fix — out-of-tree Feature + drop in-container tmux                                         | [devc-container-feature-fix](archived/devc-container-feature-fix.md)               | complete    |
-| devc wizard modernize — inline sequential flow + multi-select folder picker                                        | [devc-wizard-modernize](archived/devc-wizard-modernize.md)                         | complete    |
-| devc worktree-aware mounts — root-relative source targets + primary `.git` mount                                   | [devc-worktree-mounts](archived/devc-worktree-mounts.md)                           | complete    |
-| devc `~/.claude` seed dir — one read-only directory bind, symlinked in postCreate                                  | [devc-claude-seed-dir](archived/devc-claude-seed-dir.md)                           | complete    |
-| devc `init` command — scaffold the bundled default `.devcontainer/` into a project                                 | [devc-init-command](archived/devc-init-command.md)                                 | complete    |
-| devc drop Feature — Dockerfile + top-level `postCreateCommand`; `scripts/` + user hook                             | [devc-drop-feature](archived/devc-drop-feature.md)                                 | complete    |
-| devc `build` command + change-aware `config` rebuild prompt                                                        | [devc-build-command](archived/devc-build-command.md)                               | complete    |
-| devc wizard screens — picker chrome per `.plans/design/wizard/` mockups                                            | [devc-wizard-screens](archived/devc-wizard-screens.md)                             | complete    |
-| devc picker derived mounts — implied primary `.git` shown in the picks list                                        | [devc-picker-derived-mounts](archived/devc-picker-derived-mounts.md)               | complete    |
-| devc picker free navigation — roots as shortcuts + worktree mirror base                                            | [devc-picker-free-navigation](archived/devc-picker-free-navigation.md)             | complete    |
-| devc config overlay — `devc.json` in both modes + user template layer                                              | [devc-config-overlay](archived/devc-config-overlay.md)                             | complete    |
-| devc-bridge keepalive — `ping` builtin + idle-timeout caffeinate                                                   | [devc-bridge-keepawake](archived/devc-bridge-keepawake.md)                         | complete    |
-| devc attach exit-code handling — stop crashing on non-zero `docker exec`                                           | [devc-attach-exit-code](archived/devc-attach-exit-code.md)                         | complete    |
-| devc mounts to overlay — wizard fences move into `devc.json`, out of `devcontainer.json`                           | [devc-mounts-to-overlay](archived/devc-mounts-to-overlay.md)                       | complete    |
-| devc project post-create hook — restore `devc-post-create.sh` for zero-config projects                             | [devc-project-post-create-hook](archived/devc-project-post-create-hook.md)         | complete    |
-| devc-bridge client by read-only mount — every container, no per-repo build                                         | [devc-bridge-client-mount](archived/devc-bridge-client-mount.md)                   | complete    |
-| devc-bridge as a devcontainer Feature — one opt-in line, one mechanism                                             | [devc-bridge-feature](archived/devc-bridge-feature.md)                             | complete    |
-| devc-bridge tray decoupling — headless by default, tray as an add-on                                               | [devc-bridge-tray-decouple](archived/devc-bridge-tray-decouple.md)                 | complete    |
-| releases + installer — GH Action builds every binary; `curl \| sh` installs them                                   | [release-and-installer](archived/release-and-installer.md)                         | complete    |
-| `features/` as a real collection — guard and test every Feature, not just the bridge                               | [features-collection](archived/features-collection.md)                             | complete    |
-| `node-nvmrc` Feature — `.nvmrc` install at create, `nvm use` on `cd`                                               | [feature-node-nvmrc](archived/feature-node-nvmrc.md)                               | complete    |
-| Features version independently — unpin the collection from the repo tag                                            | [feature-independent-versions](archived/feature-independent-versions.md)           | complete    |
-| `shell-dirs` Feature — sourced `*.sh` layers; devc keeps the read-only user layer                                  | [feature-shell-dirs](archived/feature-shell-dirs.md)                               | complete    |
-| `bash-config` Feature — two fixed dirs, static blocks; supersedes `shell-dirs`                                     | [feature-bash-config](archived/feature-bash-config.md)                             | complete    |
-| `bash-config` 0.2.0 — `~/.bashrc` only; the login profile half dropped entirely                                    | [feature-bash-config-bashrc-only](archived/feature-bash-config-bashrc-only.md)     | complete    |
-| `git-container-config` Feature — container-scope git settings; identity stays devc's                               | [feature-git-config](archived/feature-git-config.md)                               | complete    |
-| `agents` Feature — agent CLIs + `~/.claude` wiring; seed stays devc's (renamed from `claude-config`)               | [feature-claude-config](archived/feature-claude-config.md)                         | complete    |
-| `project-hook` Feature — runs the project's own `devc-post-create.sh` at create                                    | [feature-project-hook](archived/feature-project-hook.md)                           | complete    |
-| devc injects `devc-config` — the baseline reaches project-mode containers too (renamed from `project-hook`)        | [devc-inject-project-hook](archived/devc-inject-project-hook.md)                   | complete    |
-| `node-nvmrc` 0.2.0 — `containerEnv` PATH pin for every process; drop the `cd` hook                                 | [feature-node-nvmrc-container-wide](archived/feature-node-nvmrc-container-wide.md) | complete    |
-| devc surfaces the container's agent to Herdr — rotating `HERDR_AGENT` sidecar                                      | [herdr-agent-sidecar](archived/herdr-agent-sidecar.md)                             | complete    |
-| Keepawake ping telemetry — measure inter-ping gaps before touching the idle timeout                                | [keepawake-ping-telemetry](keepawake-ping-telemetry.md)                            |             |
-| devc auto-mounts the host's devc-bridge client read-only into bridge-enabled containers                            | [devc-bridge-client-auto-mount](archived/devc-bridge-client-auto-mount.md)         | complete    |
-| devc-bridge agent help — local `help`/guide, real `git-doctor` transport probe, BrokenPipe-safe client             | [devc-bridge-agent-help](archived/devc-bridge-agent-help.md)                       | complete    |
-| devc-bridge `git-push` over HTTPS with gh's credential — one host setup                                            | [devc-bridge-push-via-gh](archived/devc-bridge-push-via-gh.md)                     | complete    |
-| `@devc-tools/core` version bump script — keeps the consumer deno.lock files in step                                | [core-version-bump-script](archived/core-version-bump-script.md)                   | complete    |
-| devc-bridge `pr-request-review` — ask Copilot to re-review the current head                                        | [bridge-pr-request-review](archived/bridge-pr-request-review.md)                   | complete    |
-| devc-bridge `gh-*` capability and command names, `--bridge-allow gh`, GitHub-only push                             | [bridge-gh-capabilities](archived/bridge-gh-capabilities.md)                       | complete    |
-| devc-bridge Copilot review-loop gaps — review body, timeline-sourced `pending`, policy refusal exit codes          | [bridge-copilot-review-gaps](archived/bridge-copilot-review-gaps.md)               | complete    |
-| devc Feature lockfile — `devc lock` on demand; project-mode starts honor an existing lock                          | [devc-feature-lockfile](devc-feature-lockfile.md)                                  |             |
-| `headless-vscode` Feature — Electron libraries + headless VS Code launcher over `xvfb`                             | [feature-headless-vscode](feature-headless-vscode.md)                              |             |
-| `agents` `updateToolsOnStart` — update installed agent CLIs at container start                                     | [agents-update-tools-on-start](archived/agents-update-tools-on-start.md)           | complete    |
-| devc repo overlay — one `devc.jsonc` per git repo, shared by its worktrees                                         | [devc-repo-overlay](archived/devc-repo-overlay.md)                                 | complete    |
-| devc-bridge pin hardening — refuse the default branch; refresh revokes instead of moving the pin                   | [bridge-pin-hardening](archived/bridge-pin-hardening.md)                           | complete    |
-| devc-bridge multi-repo pins — `--bridge-repo PATH`, v2 policy, `--repo` selector                                   | [bridge-multi-repo-pins](archived/bridge-multi-repo-pins.md)                       | complete    |
-| devc-bridge worktree extra repos — linked worktrees in `--bridge-repo`, same-repo pins, mirror lock, trap race fix | [bridge-worktree-extra-repos](archived/bridge-worktree-extra-repos.md)             | complete    |
-| `devc web` — browser UI for in-container Herdr sessions over `docker exec`                                         | [devc-web](archived/devc-web.md)                                                   | complete    |
-| `devc web` Golden Layout tiling — drag/drop, stacks, nesting                                                       | [devc-web-golden-layout](archived/devc-web-golden-layout.md)                       | complete    |
-| `devc web` sidebar — resizable and hideable                                                                        | [devc-web-sidebar-resize](archived/devc-web-sidebar-resize.md)                     | complete    |
-| `devc web` copy on select — plain drag copies via `pane.selection.read`                                            | [devc-web-copy-on-select](archived/devc-web-copy-on-select.md)                     | complete    |
-| `devc web` tasks — a host-side task list, sent one-way to an agent with a known session id                         | [devc-web-tasks](devc-web-tasks.md)                                                | in progress |
-| `devc web` task actions — new task from a folder, send/delete icons on task rows, dialog focus ring                | [devc-web-tasks-actions](devc-web-tasks-actions.md)                                | in progress |
-| `devc web` worktree git marks — local fetch timeout, per-folder broadcast, `?` with the reason                     | [devc-web-worktree-git-marks](devc-web-worktree-git-marks.md)                      | in progress |
-| `devc web` empty Pinned hidden; task dialog: Save primary, send icons in header                                    | [devc-web-pinned-hide-save-primary](archived/devc-web-pinned-hide-save-primary.md) | complete    |
-| `devc web` task default — a pin in the task dialog sets the default project, repo and agent                        | [devc-web-task-default](devc-web-task-default.md)                                  | in progress |
-| `devc web` grouped tasks — one collapsible node per project + repo route, `not routed` last                        | [devc-web-tasks-grouped](archived/devc-web-tasks-grouped.md)                       | complete    |
-| `devc web` sidebar Collapse all — on the Tasks and Containers headings, at every level                             | [devc-web-sidebar-collapse-all](archived/devc-web-sidebar-collapse-all.md)         | complete    |
-| `devc web` workspace paths — repo rows under `/workspaces`, window title, Files shortcuts                          | [devc-web-workspace-paths](archived/devc-web-workspace-paths.md)                   | complete    |
-| `devc web` projects — list stopped projects; start, stop, pin from the page                                        | [devc-web-projects](devc-web-projects.md)                                          | in progress |
-| `devc web` files — a Files node browses each container's filesystem and opens files in `$EDITOR`                   | [devc-web-files](devc-web-files.md)                                                | in progress |
-| devc container connection — one `docker exec` path with `remoteEnv` for the CLI and devc web                       | [devc-container-connection](devc-container-connection.md)                          | in progress |
-| devc-desktop on Electron — one window with devc web and a host terminal                                            | [devc-desktop-electron](devc-desktop-electron.md)                                  | in progress |
-| git-protect live check — `devc status` and the bridge read the container's mountinfo                               | [git-protect-live-check](git-protect-live-check.md)                                |             |
+| Phase                                                                                                              | Plan                                                                               | Status   |
+| ------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------- | -------- |
+| Host command bridge (socket server + client + tray)                                                                | [host-command-bridge](archived/host-command-bridge.md)                             | complete |
+| Host `devc-bridge` lifecycle CLI + zero-setup seeding                                                              | [host-lifecycle-cli](archived/host-lifecycle-cli.md)                               | complete |
+| devc-tui core — scan, model, fenced-region file surgery                                                            | [devc-tui-core](archived/devc-tui-core.md)                                         | complete |
+| devc-tui interactive UI — checkbox project tree                                                                    | [devc-tui-ui](archived/devc-tui-ui.md)                                             | complete |
+| devc-tui tree reshape — folder tree, collapsed by default                                                          | [devc-tui-folder-tree](archived/devc-tui-folder-tree.md)                           | complete |
+| devc-tui workspace folders — host paths, not container paths                                                       | [devc-tui-host-folder-paths](archived/devc-tui-host-folder-paths.md)               | complete |
+| devc-tui home directory support — `$HOME` in config, `${localEnv:HOME}` in mounts                                  | [devc-tui-home-paths](archived/devc-tui-home-paths.md)                             | complete |
+| devc lifecycle core — container commands + bundled default (ported)                                                | [devc-lifecycle-core](archived/devc-lifecycle-core.md)                             | complete |
+| devc baseline as a devcontainer Feature — composable postCreate                                                    | [devc-container-feature](archived/devc-container-feature.md)                       | complete |
+| devc global config + wizard TUI foundation                                                                         | [devc-global-config](archived/devc-global-config.md)                               | complete |
+| devc config wizard — project `.devcontainer/` via managed fences                                                   | [devc-config-wizard](archived/devc-config-wizard.md)                               | complete |
+| devc help output — clap-style `--help`/`--version` + per-command help                                              | [devc-help-output](archived/devc-help-output.md)                                   | complete |
+| devc container baseline fix — out-of-tree Feature + drop in-container tmux                                         | [devc-container-feature-fix](archived/devc-container-feature-fix.md)               | complete |
+| devc wizard modernize — inline sequential flow + multi-select folder picker                                        | [devc-wizard-modernize](archived/devc-wizard-modernize.md)                         | complete |
+| devc worktree-aware mounts — root-relative source targets + primary `.git` mount                                   | [devc-worktree-mounts](archived/devc-worktree-mounts.md)                           | complete |
+| devc `~/.claude` seed dir — one read-only directory bind, symlinked in postCreate                                  | [devc-claude-seed-dir](archived/devc-claude-seed-dir.md)                           | complete |
+| devc `init` command — scaffold the bundled default `.devcontainer/` into a project                                 | [devc-init-command](archived/devc-init-command.md)                                 | complete |
+| devc drop Feature — Dockerfile + top-level `postCreateCommand`; `scripts/` + user hook                             | [devc-drop-feature](archived/devc-drop-feature.md)                                 | complete |
+| devc `build` command + change-aware `config` rebuild prompt                                                        | [devc-build-command](archived/devc-build-command.md)                               | complete |
+| devc wizard screens — picker chrome per `.plans/design/wizard/` mockups                                            | [devc-wizard-screens](archived/devc-wizard-screens.md)                             | complete |
+| devc picker derived mounts — implied primary `.git` shown in the picks list                                        | [devc-picker-derived-mounts](archived/devc-picker-derived-mounts.md)               | complete |
+| devc picker free navigation — roots as shortcuts + worktree mirror base                                            | [devc-picker-free-navigation](archived/devc-picker-free-navigation.md)             | complete |
+| devc config overlay — `devc.json` in both modes + user template layer                                              | [devc-config-overlay](archived/devc-config-overlay.md)                             | complete |
+| devc-bridge keepalive — `ping` builtin + idle-timeout caffeinate                                                   | [devc-bridge-keepawake](archived/devc-bridge-keepawake.md)                         | complete |
+| devc attach exit-code handling — stop crashing on non-zero `docker exec`                                           | [devc-attach-exit-code](archived/devc-attach-exit-code.md)                         | complete |
+| devc mounts to overlay — wizard fences move into `devc.json`, out of `devcontainer.json`                           | [devc-mounts-to-overlay](archived/devc-mounts-to-overlay.md)                       | complete |
+| devc project post-create hook — restore `devc-post-create.sh` for zero-config projects                             | [devc-project-post-create-hook](archived/devc-project-post-create-hook.md)         | complete |
+| devc-bridge client by read-only mount — every container, no per-repo build                                         | [devc-bridge-client-mount](archived/devc-bridge-client-mount.md)                   | complete |
+| devc-bridge as a devcontainer Feature — one opt-in line, one mechanism                                             | [devc-bridge-feature](archived/devc-bridge-feature.md)                             | complete |
+| devc-bridge tray decoupling — headless by default, tray as an add-on                                               | [devc-bridge-tray-decouple](archived/devc-bridge-tray-decouple.md)                 | complete |
+| releases + installer — GH Action builds every binary; `curl \| sh` installs them                                   | [release-and-installer](archived/release-and-installer.md)                         | complete |
+| `features/` as a real collection — guard and test every Feature, not just the bridge                               | [features-collection](archived/features-collection.md)                             | complete |
+| `node-nvmrc` Feature — `.nvmrc` install at create, `nvm use` on `cd`                                               | [feature-node-nvmrc](archived/feature-node-nvmrc.md)                               | complete |
+| Features version independently — unpin the collection from the repo tag                                            | [feature-independent-versions](archived/feature-independent-versions.md)           | complete |
+| `shell-dirs` Feature — sourced `*.sh` layers; devc keeps the read-only user layer                                  | [feature-shell-dirs](archived/feature-shell-dirs.md)                               | complete |
+| `bash-config` Feature — two fixed dirs, static blocks; supersedes `shell-dirs`                                     | [feature-bash-config](archived/feature-bash-config.md)                             | complete |
+| `bash-config` 0.2.0 — `~/.bashrc` only; the login profile half dropped entirely                                    | [feature-bash-config-bashrc-only](archived/feature-bash-config-bashrc-only.md)     | complete |
+| `git-container-config` Feature — container-scope git settings; identity stays devc's                               | [feature-git-config](archived/feature-git-config.md)                               | complete |
+| `agents` Feature — agent CLIs + `~/.claude` wiring; seed stays devc's (renamed from `claude-config`)               | [feature-claude-config](archived/feature-claude-config.md)                         | complete |
+| `project-hook` Feature — runs the project's own `devc-post-create.sh` at create                                    | [feature-project-hook](archived/feature-project-hook.md)                           | complete |
+| devc injects `devc-config` — the baseline reaches project-mode containers too (renamed from `project-hook`)        | [devc-inject-project-hook](archived/devc-inject-project-hook.md)                   | complete |
+| `node-nvmrc` 0.2.0 — `containerEnv` PATH pin for every process; drop the `cd` hook                                 | [feature-node-nvmrc-container-wide](archived/feature-node-nvmrc-container-wide.md) | complete |
+| devc surfaces the container's agent to Herdr — rotating `HERDR_AGENT` sidecar                                      | [herdr-agent-sidecar](archived/herdr-agent-sidecar.md)                             | complete |
+| Keepawake ping telemetry — measure inter-ping gaps before touching the idle timeout                                | [keepawake-ping-telemetry](keepawake-ping-telemetry.md)                            |          |
+| devc auto-mounts the host's devc-bridge client read-only into bridge-enabled containers                            | [devc-bridge-client-auto-mount](archived/devc-bridge-client-auto-mount.md)         | complete |
+| devc-bridge agent help — local `help`/guide, real `git-doctor` transport probe, BrokenPipe-safe client             | [devc-bridge-agent-help](archived/devc-bridge-agent-help.md)                       | complete |
+| devc-bridge `git-push` over HTTPS with gh's credential — one host setup                                            | [devc-bridge-push-via-gh](archived/devc-bridge-push-via-gh.md)                     | complete |
+| `@devc-tools/core` version bump script — keeps the consumer deno.lock files in step                                | [core-version-bump-script](archived/core-version-bump-script.md)                   | complete |
+| devc-bridge `pr-request-review` — ask Copilot to re-review the current head                                        | [bridge-pr-request-review](archived/bridge-pr-request-review.md)                   | complete |
+| devc-bridge `gh-*` capability and command names, `--bridge-allow gh`, GitHub-only push                             | [bridge-gh-capabilities](archived/bridge-gh-capabilities.md)                       | complete |
+| devc-bridge Copilot review-loop gaps — review body, timeline-sourced `pending`, policy refusal exit codes          | [bridge-copilot-review-gaps](archived/bridge-copilot-review-gaps.md)               | complete |
+| devc Feature lockfile — `devc lock` on demand; project-mode starts honor an existing lock                          | [devc-feature-lockfile](devc-feature-lockfile.md)                                  |          |
+| `headless-vscode` Feature — Electron libraries + headless VS Code launcher over `xvfb`                             | [feature-headless-vscode](feature-headless-vscode.md)                              |          |
+| `agents` `updateToolsOnStart` — update installed agent CLIs at container start                                     | [agents-update-tools-on-start](archived/agents-update-tools-on-start.md)           | complete |
+| devc repo overlay — one `devc.jsonc` per git repo, shared by its worktrees                                         | [devc-repo-overlay](archived/devc-repo-overlay.md)                                 | complete |
+| devc-bridge pin hardening — refuse the default branch; refresh revokes instead of moving the pin                   | [bridge-pin-hardening](archived/bridge-pin-hardening.md)                           | complete |
+| devc-bridge multi-repo pins — `--bridge-repo PATH`, v2 policy, `--repo` selector                                   | [bridge-multi-repo-pins](archived/bridge-multi-repo-pins.md)                       | complete |
+| devc-bridge worktree extra repos — linked worktrees in `--bridge-repo`, same-repo pins, mirror lock, trap race fix | [bridge-worktree-extra-repos](archived/bridge-worktree-extra-repos.md)             | complete |
+| `devc web` — browser UI for in-container Herdr sessions over `docker exec`                                         | [devc-web](archived/devc-web.md)                                                   | complete |
+| `devc web` Golden Layout tiling — drag/drop, stacks, nesting                                                       | [devc-web-golden-layout](archived/devc-web-golden-layout.md)                       | complete |
+| `devc web` sidebar — resizable and hideable                                                                        | [devc-web-sidebar-resize](archived/devc-web-sidebar-resize.md)                     | complete |
+| `devc web` copy on select — plain drag copies via `pane.selection.read`                                            | [devc-web-copy-on-select](archived/devc-web-copy-on-select.md)                     | complete |
+| `devc web` tasks — a host-side task list, sent one-way to an agent with a known session id                         | [devc-web-tasks](archived/devc-web-tasks.md)                                       | complete |
+| `devc web` task actions — new task from a folder, send/delete icons on task rows, dialog focus ring                | [devc-web-tasks-actions](archived/devc-web-tasks-actions.md)                       | complete |
+| `devc web` worktree git marks — local fetch timeout, per-folder broadcast, `?` with the reason                     | [devc-web-worktree-git-marks](archived/devc-web-worktree-git-marks.md)             | complete |
+| `devc web` empty Pinned hidden; task dialog: Save primary, send icons in header                                    | [devc-web-pinned-hide-save-primary](archived/devc-web-pinned-hide-save-primary.md) | complete |
+| `devc web` task default — a pin in the task dialog sets the default project, repo and agent                        | [devc-web-task-default](archived/devc-web-task-default.md)                         | complete |
+| `devc web` grouped tasks — one collapsible node per project + repo route, `not routed` last                        | [devc-web-tasks-grouped](archived/devc-web-tasks-grouped.md)                       | complete |
+| `devc web` sidebar Collapse all — on the Tasks and Containers headings, at every level                             | [devc-web-sidebar-collapse-all](archived/devc-web-sidebar-collapse-all.md)         | complete |
+| `devc web` workspace paths — repo rows under `/workspaces`, window title, Files shortcuts                          | [devc-web-workspace-paths](archived/devc-web-workspace-paths.md)                   | complete |
+| `devc web` projects — list stopped projects; start, stop, pin from the page                                        | [devc-web-projects](archived/devc-web-projects.md)                                 | complete |
+| `devc web` files — a Files node browses each container's filesystem and opens files in `$EDITOR`                   | [devc-web-files](archived/devc-web-files.md)                                       | complete |
+| devc container connection — one `docker exec` path with `remoteEnv` for the CLI and devc web                       | [devc-container-connection](archived/devc-container-connection.md)                 | complete |
+| devc-desktop on Electron — one window with devc web and a host terminal                                            | [devc-desktop-electron](archived/devc-desktop-electron.md)                         | complete |
+| git-protect live check — `devc status` and the bridge read the container's mountinfo                               | [git-protect-live-check](git-protect-live-check.md)                                |          |

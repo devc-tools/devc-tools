@@ -19,7 +19,7 @@ connection resolver and one argv builder in devc-core and makes every exec site 
 - [x] Step 4: `devc web` resolves a `ContainerInfo` per container and every exec uses it (§ Step 4)
 - [x] Step 5: the single-path test, README, doc comments (§ Step 5)
 - [x] Tests (§ Tests): the `connectionFor` test runs the real CLI against a stub `docker` (`devc-core/tests/connection_for_test.ts`)
-- [ ] Validation on a host (§ Validation), including Step 0's cases (a)–(d) against real containers
+- [x] Validation on a host (§ Validation), including Step 0's cases (a)–(d) against real containers
 
 ### Implementation notes (2026-10-18)
 

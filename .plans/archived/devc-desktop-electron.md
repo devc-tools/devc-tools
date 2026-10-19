@@ -10,14 +10,14 @@
 - [x] Step 5: `devc-desktop/README.md` rewritten (build, run, config, host terminal, threat model);
       `.gitignore`; `.plans/PLAN.md`
 - [x] Verify on Linux (§ Verification results)
-- [ ] macOS checks by the user (§ Verify, last list)
+- [x] macOS checks by the user (§ Verify, last list)
 
 **devc-desktop moves from `deno desktop` (CEF) to Electron**, so that one window can hold a host
 terminal that devc web cannot reach. `deno desktop` gives one webview per window, and a host
 terminal drawn in the same page as devc web fails isolation: a sandboxed cross-origin iframe
 took every keystroke from it. Electron, with two separate `WebContentsView`s, passed the same
 attacks. The measurements are in
-[devc-desktop-host-terminal](archived/devc-desktop-host-terminal.md) ("Step 0 results" and
+[devc-desktop-host-terminal](devc-desktop-host-terminal.md) ("Step 0 results" and
 "Electron probe results"). Read that plan's threat model first. It still holds, and this plan
 does not restate it.
 

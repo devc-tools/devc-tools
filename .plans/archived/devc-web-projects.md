@@ -7,10 +7,10 @@
 - [x] Sidebar: projects that aren't running sit under the "Not running" group, with Start / Pin / Forget
 - [x] Tiles whose project isn't running offer Start in their overlay
 - [x] `.plans/devc-web.md` protocol section and `devc/README.md` (`devc web`) updated
-- [ ] Verify (below) and ask the user to try it in their open tab
+- [x] Verify (below) and ask the user to try it in their open tab
 
 Let `devc web` list **projects**, not only running containers. The sidebar's Projects section
-(from [devc-web-layout-sidebar](archived/devc-web-layout-sidebar.md)) gains:
+(from [devc-web-layout-sidebar](devc-web-layout-sidebar.md)) gains:
 
 - projects whose container is stopped;
 - projects devc has started before but whose container is gone;
@@ -29,7 +29,7 @@ PROJECTS
       blog  📌        not created  [Start]
 ```
 
-Depends on [devc-web-layout-sidebar](archived/devc-web-layout-sidebar.md). Read
+Depends on [devc-web-layout-sidebar](devc-web-layout-sidebar.md). Read
 `/workspaces/devc-dev/.claude/skills/devc-web/SKILL.md` first: the user runs `devc web` in live
 mode, so every save reaches their tab, and a server-side save restarts the server.
 

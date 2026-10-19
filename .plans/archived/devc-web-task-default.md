@@ -5,7 +5,7 @@ icon. Today a new task starts on the focused tile's project, that project's firs
 agent last sent with. With a default pinned, it starts on the pinned project, repo and agent.
 
 Builds on [devc-web-tasks](devc-web-tasks.md), [devc-web-tasks-actions](devc-web-tasks-actions.md)
-and [devc-web-pinned-hide-save-primary](archived/devc-web-pinned-hide-save-primary.md). All three edit the
+and [devc-web-pinned-hide-save-primary](devc-web-pinned-hide-save-primary.md). All three edit the
 same dialog in `app.js`. Page-only: there are no new messages and no server changes.
 
 ```
@@ -194,7 +194,7 @@ anywhere outside the dialog, a default for the Sent list or New note.
     default's agent;
   - the pin's bounding box is inside `.task-route`, on the same row as the Agent select, at the
     dialog's default width.
-- [ ] Ask the user to pin a default in their tab, and to look at the pin in devc-desktop.
+- [x] Ask the user to pin a default in their tab, and to look at the pin in devc-desktop.
 
 ## Verification (2026-10-19)
 

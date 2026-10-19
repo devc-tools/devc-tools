@@ -1,6 +1,6 @@
 # devc-web-pinned-hide-save-primary
 
-Two page-only changes to `devc web`, after [devc-web-tasks-actions](../devc-web-tasks-actions.md)
+Two page-only changes to `devc web`, after [devc-web-tasks-actions](devc-web-tasks-actions.md)
 (both edit `app.js`; implement this one on top of it):
 
 1. **No empty Pinned section.** While nothing is pinned, the sidebar has no Pinned section: no

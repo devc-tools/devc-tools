@@ -162,7 +162,7 @@ entries, any server or protocol change.
   - with the task dialog open, focusing the Project select gives it a computed `outline-style`
     of `none` and a `border-color` equal to `--accent`. Its bounding box stays inside the
     `.task-route` box, and it does not overlap the Repo select.
-- [ ] Ask the user to look at the dialog's dropdown focus in devc-desktop on macOS and in a
+- [x] Ask the user to look at the dialog's dropdown focus in devc-desktop on macOS and in a
       browser tab, and to send a routed task with a row icon in their tab.
 
 ## Verification (2026-10-19)

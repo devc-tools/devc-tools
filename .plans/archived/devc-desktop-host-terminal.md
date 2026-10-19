@@ -1,6 +1,6 @@
 # devc-desktop-host-terminal
 
-> **Superseded by [devc-desktop-electron](../devc-desktop-electron.md)** (2026-10-19). Kept for its
+> **Superseded by [devc-desktop-electron](devc-desktop-electron.md)** (2026-10-19). Kept for its
 > measurements and threat model, which that plan relies on.
 
 > **No-go (2026-10-18): G3 failed.** A cross-origin, sandboxed iframe in the shell page took

@@ -42,7 +42,7 @@ the row's tooltip gets git's own error line (see "A status that can't be read").
 - [x] `style.css`: `[data-dir='unknown']` muted, like `synced` / `local`
 - [x] Tests in `web_git_status_test.ts`, `web_sidebar_test.ts`, `web_projects_test.ts`
 - [x] `.plans/devc-web.md`: the `projects` row of the protocol table documents `gitProblem`
-- [ ] Verify (below) and ask the user to check it in their open tab
+- [x] Verify (below) and ask the user to check it in their open tab
 
 ## Design
 
@@ -130,7 +130,7 @@ changed still calls it zero times. `refresh`'s coalescing (`#again`) stays as it
 - [x] `web_sidebar_test.ts`: `gitSync(null, 'detached HEAD')` → `{marks: [{dir: 'unknown', text: '?'}], diverged: false, title: 'git status unavailable: detached HEAD'}`. `gitSync(null)` and `gitSync(undefined, '')` → `null`. `gitRollup` of an unknown repo and a local one → `•`. Of only unknown repos → `?`. Of an unknown repo and one with `↑2` → `↑2`
 - [x] `web_projects_test.ts`: `buildProjects` sets `gitProblem` on the repo with one and leaves it off the others
 - [x] In this container, with a fresh mirror dir: `readGitStatus('/workspaces/web-client-ui.worktrees/pr-review', {root: <empty scratch dir>})` returns a `GitStatus` (it returned `null` before this change). Done: 15.2 s cold, then `web-client-ui` 23.0 s and a second worktree 0.2 s, all with a status. The problem tests call `readGitState`; `readGitStatus` keeps returning `GitStatus | null`
-- [ ] Ask the user to check in their open tab (needs `--live-yolo` or an updated `devc`):
+- [x] Ask the user to check in their open tab (needs `--live-yolo` or an updated `devc`):
   1. Stop `devc web`, move `~/.cache/devc/web/git` aside, and start it again. Within a few minutes, every worktree row under **Repos › <repo>** shows `✓`, `•` or arrows, and repos that are already read show marks before the slow ones finish.
   2. A worktree that still can't be read shows a muted `?`. Its tooltip names the reason, for example `git status unavailable: git fetch: fatal: unknown repository extension found: relativeworktrees` (meaning the host git is older than 2.48).
   3. A detached worktree keeps its row, with `?` and `detached HEAD`.

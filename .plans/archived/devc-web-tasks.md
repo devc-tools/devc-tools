@@ -22,7 +22,7 @@ CONTAINERS
 ```
 
 Depends on nothing pending. Follows the pattern of
-[devc-web-pinned-files](archived/devc-web-pinned-files.md): server-side store in
+[devc-web-pinned-files](devc-web-pinned-files.md): server-side store in
 `~/.config/devc/`, a broadcast message, request/reply client messages, a sidebar section.
 
 ## Decisions
@@ -145,7 +145,7 @@ applies the change and writes it (as `changePinnedFiles` does).
   tasks, the empty row reads `No tasks`.
 - **Task rows** show the title and, dimmed, the project's label or `not routed`. They are now
   grouped under a node per project and repo, and that label moved to the node: see
-  [devc-web-tasks-grouped](archived/devc-web-tasks-grouped.md). The tooltip is
+  [devc-web-tasks-grouped](devc-web-tasks-grouped.md). The tooltip is
   the whole text. A click opens the task dialog. Hover icons (send, delete) replaced the
   `Edit…` / `Delete…` menu: see [devc-web-tasks-actions](devc-web-tasks-actions.md).
 - **Sent** row (under the task rows, collapsible, `sentOpen`, default closed): `Sent (n)`.
@@ -162,7 +162,7 @@ applies the change and writes it (as `changePinnedFiles` does).
     agent) comes first: see [devc-web-task-default](devc-web-task-default.md).
 
   Footer: **Cancel**, **Save** (primary); **Send: plan** and **Send: implement** are icon
-  buttons in the header (see [devc-web-pinned-hide-save-primary](archived/devc-web-pinned-hide-save-primary.md)). A new task with no route defaults its
+  buttons in the header (see [devc-web-pinned-hide-save-primary](devc-web-pinned-hide-save-primary.md)). A new task with no route defaults its
   project to the pinned default's, else the focused tile's project
   ([devc-web-task-default](devc-web-task-default.md)). The send buttons are disabled while not routed. A send
   saves the text and route first (`add_task` or `update_task`), then sends `send_task`. On
@@ -209,7 +209,7 @@ starting a stopped container from Send, choosing a subfolder.
   - the Sent row lists it with the agent icon, and a click sends `open_sent`;
   - Back to tasks sends `restore_task`;
   - Delete confirms and then sends `delete_task`.
-- [ ] Ask the user to check, in their tab: send a real task to Claude in a running project,
+- [x] Ask the user to check, in their tab: send a real task to Claude in a running project,
       and see the tab named after it with the task file read; close that tab, then click the
       Sent entry and see the conversation resumed.
 
