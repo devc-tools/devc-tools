@@ -100,6 +100,13 @@
   restarted for. One log line per tool, 120 s cap each, never fails the start. Not
   agent-browser.
 
+- [devc-web-tasks](devc-web-tasks.md) — a task list in `devc web`: to-dos kept in
+  `~/.config/devc/tasks.json`, optionally routed to a project and repo, then sent one-way to an
+  agent there (Claude, Copilot or pi) to **write a plan** or **implement** it. The task text
+  goes to `/tmp/devc-tasks/<uuid>.md` in the container, and the agent starts with that uuid as
+  its session id. A **Sent** history keeps the session id and repo, so a click reopens the live
+  pane or resumes the session in a new tab. Agents never write back to the list.
+
 ### Standing rules for Feature work
 
 Not a plan group — these are the conventions every Feature plan in this file
@@ -2268,3 +2275,4 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
 | `devc web` Golden Layout tiling — drag/drop, stacks, nesting                                                       | [devc-web-golden-layout](devc-web-golden-layout.md)                                | in progress |
 | `devc web` sidebar — resizable and hideable                                                                        | [devc-web-sidebar-resize](archived/devc-web-sidebar-resize.md)                     | complete    |
 | `devc web` copy on select — plain drag copies via `pane.selection.read`                                            | [devc-web-copy-on-select](archived/devc-web-copy-on-select.md)                     | complete    |
+| `devc web` tasks — a host-side task list, sent one-way to an agent with a known session id                         | [devc-web-tasks](devc-web-tasks.md)                                                | in progress |
