@@ -73,7 +73,12 @@ export function buildProjects(
       : 'missing' as const,
     starting: starting.has(e.localFolder),
     repos: (repos.get(e.localFolder) ??
-      [{ folder: e.localFolder, worktreeOf: null, containerFolder: null }])
+      [{
+        folder: e.localFolder,
+        worktreeOf: null,
+        containerFolder: null,
+        primaryFolder: null,
+      }])
       .map((r) => ({
         ...r,
         name: repoName(r.folder, r.containerFolder),

@@ -480,6 +480,7 @@ export async function startWeb(
       folder: record.localFolder,
       worktreeOf: null,
       containerFolder: null,
+      primaryFolder: null,
     }]);
     const mounts = await inspectMounts(record.id);
     const binds = mounts.filter((m) => m.type === 'bind');

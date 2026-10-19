@@ -79,17 +79,25 @@ Deno.test("buildProjects lists each project's repos with their git state", () =>
         folder: '/src/api',
         worktreeOf: null,
         containerFolder: '/workspaces/src/api',
+        primaryFolder: null,
       },
-      { folder: '/tools/lib', worktreeOf: null, containerFolder: '/src/lib' },
+      {
+        folder: '/tools/lib',
+        worktreeOf: null,
+        containerFolder: '/src/lib',
+        primaryFolder: null,
+      },
       {
         folder: '/tools/lib.worktrees/x',
         worktreeOf: '/tools/lib',
         containerFolder: '/workspaces/lib.worktrees/x',
+        primaryFolder: null,
       },
       {
         folder: '/tools/lib.worktrees/y',
         worktreeOf: '/tools/lib',
         containerFolder: null,
+        primaryFolder: null,
       },
     ]]]),
     new Map<string, GitReading>([
@@ -103,6 +111,7 @@ Deno.test("buildProjects lists each project's repos with their git state", () =>
       folder: '/src/api',
       worktreeOf: null,
       containerFolder: '/workspaces/src/api',
+      primaryFolder: null,
       name: 'src/api',
       git,
     },
@@ -110,6 +119,7 @@ Deno.test("buildProjects lists each project's repos with their git state", () =>
       folder: '/tools/lib',
       worktreeOf: null,
       containerFolder: '/src/lib',
+      primaryFolder: null,
       name: 'lib',
       git: null,
     },
@@ -117,12 +127,14 @@ Deno.test("buildProjects lists each project's repos with their git state", () =>
       folder: '/tools/lib.worktrees/x',
       worktreeOf: '/tools/lib',
       containerFolder: '/workspaces/lib.worktrees/x',
+      primaryFolder: null,
       name: 'lib.worktrees/x',
     },
     {
       folder: '/tools/lib.worktrees/y',
       worktreeOf: '/tools/lib',
       containerFolder: null,
+      primaryFolder: null,
       name: 'y',
       git: null,
       gitProblem: 'git fetch: timed out',
@@ -134,6 +146,7 @@ Deno.test("buildProjects lists each project's repos with their git state", () =>
       folder: '/src/blog',
       worktreeOf: null,
       containerFolder: null,
+      primaryFolder: null,
       name: 'blog',
     },
   ]);
@@ -171,12 +184,23 @@ Deno.test("isProjectRepo: only a listed project's own repo folders are roots", (
     ['/src/web'],
     new Set(),
     new Map([['/src/api', [
-      { folder: '/src/api', worktreeOf: null, containerFolder: null },
-      { folder: '/src/shared-lib', worktreeOf: null, containerFolder: null },
+      {
+        folder: '/src/api',
+        worktreeOf: null,
+        containerFolder: null,
+        primaryFolder: null,
+      },
+      {
+        folder: '/src/shared-lib',
+        worktreeOf: null,
+        containerFolder: null,
+        primaryFolder: null,
+      },
       {
         folder: '/src/api.worktrees/fix',
         worktreeOf: '/src/api',
         containerFolder: null,
+        primaryFolder: null,
       },
     ]]]),
   );
@@ -201,12 +225,23 @@ Deno.test('repoFileFor: the innermost repo of that project holding the path', ()
     ['/src/web'],
     new Set(),
     new Map([['/src/api', [
-      { folder: '/src/api', worktreeOf: null, containerFolder: null },
-      { folder: '/src/shared-lib', worktreeOf: null, containerFolder: null },
+      {
+        folder: '/src/api',
+        worktreeOf: null,
+        containerFolder: null,
+        primaryFolder: null,
+      },
+      {
+        folder: '/src/shared-lib',
+        worktreeOf: null,
+        containerFolder: null,
+        primaryFolder: null,
+      },
       {
         folder: '/src/api/vendor/lib',
         worktreeOf: null,
         containerFolder: null,
+        primaryFolder: null,
       },
     ]]]),
   );

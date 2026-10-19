@@ -177,6 +177,11 @@ export interface MountedRepo {
   worktreeOf: string | null;
   /** Its path inside the container; null when no mount covers it or the mounts aren't read. */
   containerFolder: string | null;
+  /**
+   * The folder of the repo it belongs to (its own for a primary, the main repo's for a linked
+   * worktree, whether or not that one is listed), from its git common dir; null when unknown.
+   */
+  primaryFolder: string | null;
 }
 
 /**
@@ -231,11 +236,25 @@ export async function mountedRepos(
   const tops = listed.filter((f) => f !== primary && parentOf(f) === null).sort(
     byName,
   );
+  const primaryOf = (f: string) => {
+    const common = commonOf.get(f);
+    return common ? dirname(common) : null;
+  };
   const out: MountedRepo[] = [];
   for (const top of [primary, ...tops]) {
-    out.push({ folder: top, worktreeOf: null, containerFolder: null });
+    out.push({
+      folder: top,
+      worktreeOf: null,
+      containerFolder: null,
+      primaryFolder: primaryOf(top),
+    });
     for (const wt of listed.filter((f) => parentOf(f) === top).sort(byName)) {
-      out.push({ folder: wt, worktreeOf: top, containerFolder: null });
+      out.push({
+        folder: wt,
+        worktreeOf: top,
+        containerFolder: null,
+        primaryFolder: primaryOf(wt),
+      });
     }
   }
   return out;

@@ -152,21 +152,21 @@ Deno.test('mountedRepos lists the primary, other repos, and worktrees under thei
       alpha,
       `${dir}/skills`,
     ]);
+    const repo = (
+      folder: string,
+      worktreeOf: string | null,
+      primaryFolder: string,
+    ) => ({ folder, worktreeOf, containerFolder: null, primaryFolder });
     assertEquals(repos, [
-      { folder: `${dir}/proj`, worktreeOf: null, containerFolder: null },
-      { folder: alpha, worktreeOf: null, containerFolder: null },
-      {
-        folder: `${dir}/tools/alpha.worktrees/a`,
-        worktreeOf: alpha,
-        containerFolder: null,
-      },
-      {
-        folder: `${dir}/tools/alpha.worktrees/b`,
-        worktreeOf: alpha,
-        containerFolder: null,
-      },
-      { folder: `${dir}/tools/zeta`, worktreeOf: null, containerFolder: null },
+      repo(`${dir}/proj`, null, `${dir}/proj`),
+      repo(alpha, null, alpha),
+      repo(`${dir}/tools/alpha.worktrees/a`, alpha, alpha),
+      repo(`${dir}/tools/alpha.worktrees/b`, alpha, alpha),
+      repo(`${dir}/tools/zeta`, null, `${dir}/tools/zeta`),
     ]);
+    // A project opened on a worktree, its main repo not mounted: still names that repo.
+    const [wt] = await mountedRepos(`${dir}/tools/alpha.worktrees/a`, []);
+    assertEquals(wt, repo(`${dir}/tools/alpha.worktrees/a`, null, alpha));
   } finally {
     await Deno.remove(dir, { recursive: true });
   }

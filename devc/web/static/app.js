@@ -1518,8 +1518,8 @@ function updateCurrent() {
 }
 
 /**
- * The repo a tile is in, for the window title: its label as its repo row shows it and its
- * branch (none while unread, detached or unreadable). That is a repo file's own repo, else the
+ * The repo a tile is in, for the window title: the basename of the repo it belongs to (a
+ * worktree's main repo, from `primaryFolder`; else its own folder), and its branch (none while unread, detached or unreadable). That is a repo file's own repo, else the
  * repo whose container folder holds the pane's directory or the container file. Outside every
  * repo, the label is its project's name, as its container row shows it; none for an empty tile.
  */
@@ -1537,7 +1537,12 @@ function activeRepo(tile) {
     const { pane } = resolveRef(tile.ref);
     repo = repoAt(repos, pane?.foreground_cwd || pane?.cwd || '');
   }
-  if (repo?.name) return { label: repo.name, branch: repo.git?.branch };
+  if (repo) {
+    return {
+      label: basename(repo.primaryFolder ?? repo.worktreeOf ?? repo.folder),
+      branch: repo.git?.branch,
+    };
+  }
   const c = containerByFolder(localFolder);
   if (c) return { label: displayName(c) };
   const p = projects.get(localFolder);

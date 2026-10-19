@@ -45,8 +45,9 @@ It builds on the current sidebar (`devc/web/static/app.js`). Other open `devc we
 ### Window title
 
 - **Text:** `<repo>:<branch> — devc web` (an em dash, U+2014, with a space each side).
-  `<repo>` is the label (`RepoView.name`) of the repo the tile is in: a repo file's own repo
-  (`root`); for a pane, its directory (`foreground_cwd || cwd`), and for a container file, its
+  `<repo>` is the basename of the main repo of the repo the tile is in (`primaryFolder`, so a
+  worktree `some-repo.worktrees/fix` gives `some-repo`; its own folder's basename when
+  `primaryFolder` is null). The repo the tile is in: a repo file's own repo (`root`); for a pane, its directory (`foreground_cwd || cwd`), and for a container file, its
   path, matched against the project's repos' `containerFolder`s, the innermost winning
   (`repoAt` in `lib/sidebar.js`). `<branch>` is that repo's `git.branch` from the `projects`
   message, so it updates on the next git read (about 15 s), not on the checkout itself.
@@ -55,7 +56,7 @@ It builds on the current sidebar (`devc/web/static/app.js`). Other open `devc we
   container row shows it (`containerLabel`), with no branch. An empty tile or no tile:
   `devc web`, as in `index.html`. (The title went through `<folder> — devc web`, `<folder> —
   <project> — devc web`, `<folder>: <project> — devc web` and `<folder>: <repo> — devc web`
-  as the user refined it.)
+  and `<repo label>:<branch> — devc web` as the user refined it.)
 - **The active tile** is `targetTile()`: the focused tile, else the last focused, else the
   first — the same tile the sidebar marks current.
 - **Pure helpers** in `devc/web/static/lib/sidebar.js`, tested in
@@ -118,6 +119,12 @@ It builds on the current sidebar (`devc/web/static/app.js`). Other open `devc we
 
 - [x] `devc/web/git_repo.ts`: `MountedRepo.containerFolder: string | null`; `mountedRepos`
       sets it to `null` (the server fills it in)
+- [x] `devc/web/git_repo.ts`: `MountedRepo.primaryFolder: string | null`, `dirname` of the
+      repo's real git common dir (its own folder for a primary, the main repo's for a linked
+      worktree, listed or not); `null` for the server's placeholder and `buildProjects`'s
+      default entry
+- [x] `devc/tests/web_git_repo_test.ts`: `primaryFolder` in every expected repo, and a project
+      opened on a worktree with its main repo unmounted still gets the main repo's folder
 - [x] `devc/web/server.ts` `loadRepos`: one `inspectMounts` read; bind sources to
       `mountedRepos`; `containerFolder` via `hostToContainerPath`; placeholder `null`
 - [x] `devc/web/projects_view.ts`: exported `repoName(folder, containerFolder)`;
@@ -184,13 +191,17 @@ It builds on the current sidebar (`devc/web/static/app.js`). Other open `devc we
   - opening **Repos** shows rows labelled `tools/devc-tools` and `lib`; the first's `title`
     is `/h/devc-tools\n/workspaces/tools/devc-tools`;
   - New task's Repo select shows `tools/devc-tools` and `lib`;
-  - with the first repo's `git: {branch: 'main', …}`, focusing `p1`'s tile:
-    `document.title === 'tools/devc-tools:main — devc web'`; focusing `p2`'s:
+  - with the first repo's `git: {branch: 'main', …}` and `primaryFolder: '/h/devc-tools'`, focusing `p1`'s tile:
+    `document.title === 'devc-tools:main — devc web'`; focusing `p2`'s:
     `'devc-tools — devc web'` (no repo holds `/home/vscode`: the project);
   - a `pane_updated` for `p2` with `foreground_cwd: '/workspaces/tools/devc-tools/devc'` while
-    it is focused: `'tools/devc-tools:main — devc web'`;
-  - a `projects` message with that repo's branch `next`: `'tools/devc-tools:next — devc web'`;
-    with `git: null, gitProblem: 'detached HEAD'`: `'tools/devc-tools — devc web'`;
+    it is focused: `'devc-tools:main — devc web'`;
+  - a `projects` message with that repo's branch `next`: `'devc-tools:next — devc web'`;
+    with `git: null, gitProblem: 'detached HEAD'`: `'devc-tools — devc web'`;
+  - a third repo, the worktree `{folder: '/h/some-repo.worktrees/fix', containerFolder:
+    '/workspaces/some-repo.worktrees/fix', primaryFolder: '/h/some-repo', name:
+    'some-repo.worktrees/fix', git: {branch: 'fix', …}}`, with a pane in it focused:
+    `'some-repo:fix — devc web'`;
   - opening a container file `/src/lib/x.ts` in a tile and focusing it: `'lib — devc web'`
     (`lib` has no git state in the fixture);
   - closing every tile: `'devc web'`;
@@ -208,7 +219,7 @@ It builds on the current sidebar (`devc/web/static/app.js`). Other open `devc we
 - [ ] Against a real running devcontainer (`devc web`): the repo row reads `tools/devc-tools`,
       Files shows `/workspaces` and `/home/vscode` and both list their contents, and `cd /tmp`
       in the active terminal of `devc-tools` retitles the browser tab `devc-tools — devc web`, and
-      `cd` back into the repo shows `tools/devc-tools:<branch> — devc web`.
+      `cd` back into the repo shows `devc-tools:<branch> — devc web`.
 - [ ] Ask the user to check the window title in devc-desktop (switch tiles, `cd`, restart
       devc web from the status view).
 
