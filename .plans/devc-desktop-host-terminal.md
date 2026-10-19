@@ -4,7 +4,10 @@
 > keyboard focus from the drawer with a plain `window.focus()` and received every real
 > keystroke typed there, with no user activation, through `inert` and an overlay, same-site or
 > not. See [Step 0 results](#step-0-results-linux-2026-10-18). The single-window drawer is not
-> built. [The fallback](#fallback-open-iterm-from-the-app-menu) is the plan instead.
+> built in `deno desktop`. **Electron, though, passed the same tests** with two
+> `WebContentsView`s in one window ([results](#electron-probe-results-linux-2026-10-18)): an
+> Electron port of devc-desktop is the candidate, pending a rewritten plan.
+> [The iTerm fallback](#fallback-open-iterm-from-the-app-menu) stays as the alternative.
 
 - [x] Step 0: isolation gate (§ Step 0). **Failed (G3): no-go.** Do
       not build the drawer. Offer the fallback ([§ Fallback](#fallback-open-iterm-from-the-app-menu)) instead.
@@ -185,6 +188,38 @@ web's page code. That fails the requirement outright, so macOS was not tested.
   window the way it takes focus within its own frame tree. But it is not what was wanted: a pane
   in one window.
 - **Overlays drawn by the main process.** `deno desktop` has no API for them.
+
+## Electron probe results (Linux, 2026-10-18)
+
+After the `deno desktop` no-go, the same attacks were run against **Electron 44.5.0** (Chromium
+152), again throwaway and under Xvfb with real `xdotool` keystrokes. The layout: one
+`BaseWindow` holding two `WebContentsView`s.
+
+- **devc stand-in** (top): the same hostile page, served from `http://localhost:<A>`, with
+  `sandbox: true`, `contextIsolation: true`, `partition: 'devc'` and no preload.
+- **host stand-in** (bottom): a `<textarea>` drawer with `partition: 'host'` and a preload
+  exposing one IPC call through `contextBridge`.
+
+`chrome-sandbox` was setuid, so the OS sandbox was on, as it would be in production.
+
+| Check                 | Result                                                                                                                                                                                                                                                                                                                                                                     |
+| --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **G3** focus theft    | **Pass:** `window.focus()`, `element.focus()`, `autofocus`, `showModal`, `window.open` and all at once, every 300 ms, with and without a prior click in the devc view: **20/20 keystrokes in the host view, 0 leaked**. A click in the host view moved focus there, and the devc view never got it back.                                                                   |
+| `alert()`             | Without `disableDialogs`, the native dialog swallowed the keystrokes (0 to either view): not a leak, but a nuisance and a spoofing surface. **With `webPreferences.disableDialogs: true` on the devc view: 20/20 in the host view.**                                                                                                                                       |
+| Fullscreen            | `requestFullscreen()` succeeds by default. The **window** goes fullscreen, but the devc view keeps its bounds and does not cover the host view, and keystrokes stay in the host view. A `setPermissionCheckHandler`/`setPermissionRequestHandler` on the `devc` session refuses it (`Permissions check failed`).                                                           |
+| Bridge reach          | The devc view has no `bindings`, `hostTerm`, `require` or `process`, and no IPC message came from it. Its `opener`, `parent` and `top` are itself.                                                                                                                                                                                                                         |
+| Storage               | A `BroadcastChannel` message never reached the host view, and the host's `localStorage` is not readable: separate partitions.                                                                                                                                                                                                                                              |
+| Windows               | `window.open` (to the host URL, or a link) is denied by `setWindowOpenHandler` and returns `null`.                                                                                                                                                                                                                                                                         |
+| Navigation            | The devc view **can navigate itself** to the host page's URL (`will-navigate` fired). It then shows a copy of the host page in its own area, in its own partition, without the preload. That is a spoof inside its own rectangle only. The real app should `preventDefault` any devc navigation off its own origin, and serve the host page from no network origin at all. |
+| Network               | The devc page's `fetch` to the host page's HTTP server was blocked from reading the response (CORS), but the **request reached the server**. So the real host page must not come from a loopback server: load it from the app bundle (`file://` or a custom protocol) and reach the PTY over IPC only, with no listener.                                                   |
+| **G7** synthetic keys | **Pass:** a `KeyboardEvent` dispatched in the devc view never reached `before-input-event` for the host view, nor any main-process handler.                                                                                                                                                                                                                                |
+
+**Electron, with the settings above, gives the separation the single-window drawer needs.** What
+was not measured:
+
+- **macOS** (the user's platform), including native menus, accelerators and IME.
+- **`node-pty`** under Electron.
+- **A real devc web** in the sandboxed view: clipboard, links, WebSocket, live reload.
 
 ## Concept boundaries
 

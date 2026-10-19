@@ -45,8 +45,11 @@
   iframe (devc web) took keyboard focus from a host-terminal drawer in its embedding page with a
   plain `window.focus()`. It received every keystroke typed there, with no user activation, and
   `inert`, an overlay, the `focus-without-user-activation` policy and same-site serving did not
-  stop it. Containment otherwise held (G1, G2, G7). What remains to build is the fallback: an
-  **Open iTerm at Project ▸** app-menu item (macOS, native menu only).
+  stop it. Containment otherwise held (G1, G2, G7). **Electron 44.5.0 passed the same probe**:
+  two `WebContentsView`s in one `BaseWindow` (devc web sandboxed in its own partition, the
+  host pane with a preload), and 0 of 20 keystrokes leaked under every focus attack;
+  `disableDialogs` and a permission handler close `alert()` and fullscreen. Next: rewrite this
+  plan as an Electron port of devc-desktop, or build the **Open iTerm at Project ▸** fallback.
 
 - [devc-web-golden-layout](devc-web-golden-layout.md) — replace `devc web`'s hand-written
   split-tree tiling with vendored Golden Layout 2.6.0 (bundled to one ES module): drag sidebar
