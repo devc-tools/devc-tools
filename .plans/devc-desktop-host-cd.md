@@ -75,7 +75,12 @@ host view ──IPC host-term:context-menu──▶ main ──GET /desktop/acti
   (`mountsOf(session.record.id)`). Steps:
   1. `activePane === null` → `no_active_pane`.
   2. No session for the container → `no_session`.
-  3. Find the pane in `snapshot.panes` (an array or an object of values, read the way
+  3. *(Changed during implementation: the session's cached snapshot keeps a pane's `cwd` from
+     when it was taken, so a shell's `cd` never reached it, and the route answered
+     `not_mounted` for folders you'd `cd`'d into. The route now asks Herdr `pane.get` live,
+     waiting up to 2 s, and falls back to the cached snapshot. devc-desktop's fetch timeout is
+     3 s.)*
+     Find the pane in `snapshot.panes` (an array or an object of values, read the way
      `paneAtFolder` reads it) by `pane_id`. Read its `cwd`, the shell's own directory, and never
      `foreground_cwd`. Missing pane, or `cwd` not a non-empty string starting with `/` →
      `no_cwd`. Agent panes count: their `cwd` is where the agent runs.
@@ -242,7 +247,10 @@ real `node:fs/promises` ones in main and fakes in tests. It returns
 - [x] Linux: a mounted folder named `a&b` shows `cd …/a&b` in the menu
 - [ ] Linux: the devc view still has no `window.hostTerm`, `require` or `process` (devtools
       console), and `ss -ltnp` shows no listener owned by the Electron process
-- [ ] macOS, by the user: the first Linux check, the busy check with `vim`, and the `a&b` label
+- [ ] macOS, by the user: the first Linux check, the busy check with `vim`, and the `a&b` label.
+      **Busy check passed (2026-10-19):** with `vim` running, the item was greyed out with
+      `(busy: vim)`. **The first Linux check passed too:** the item `cd`'d the host prompt into
+      the focused pane's folder. The `a&b` label is still open.
 
 ## Verification results (Linux, Xvfb, 2026-10-19)
 

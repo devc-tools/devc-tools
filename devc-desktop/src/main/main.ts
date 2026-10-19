@@ -444,7 +444,7 @@ async function main(): Promise<void> {
       // server refuses on `/desktop/`.
       const res = await fetch(`${origin}/desktop/active-folder`, {
         headers: { Authorization: `Bearer ${devcWebToken}` },
-        signal: AbortSignal.timeout(1000),
+        signal: AbortSignal.timeout(3000),
       });
       if (res.status !== 200) throw new Error(String(res.status));
       answer = await res.json();

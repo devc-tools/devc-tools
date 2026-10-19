@@ -215,6 +215,9 @@ export function authorize(
 /** The paths only devc-desktop's main process asks for. */
 const DESKTOP_PREFIX = '/desktop/';
 
+/** How long `GET /desktop/active-folder` waits for Herdr's live `pane.get`. */
+const LIVE_PANE_MS = 2000;
+
 /** What `GET /desktop/active-folder` answers. */
 export type ActiveFolder =
   | {
@@ -2045,14 +2048,47 @@ export async function startWeb(
     socket.onerror = () => {};
   };
 
+  /**
+   * The active pane as Herdr has it now: a shell's `cd` does not reach the cached snapshot, so
+   * `pane.get` is asked live, for up to {@link LIVE_PANE_MS}. `null` (the cached snapshot is
+   * used) when there is no target, or the request fails or is slow.
+   */
+  const livePane = async (
+    session: ContainerSession,
+    paneId: string,
+  ): Promise<Record<string, unknown> | null> => {
+    const target = session.target;
+    if (!target) return null;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const result = await Promise.race([
+        bridgeRequest(target, 'pane.get', { pane_id: paneId }),
+        new Promise<null>((r) =>
+          timer = setTimeout(() => r(null), LIVE_PANE_MS)
+        ),
+      ]) as { pane?: unknown } | null;
+      const pane = result?.pane;
+      return typeof pane === 'object' && pane !== null
+        ? pane as Record<string, unknown>
+        : null;
+    } catch {
+      return null;
+    } finally {
+      clearTimeout(timer);
+    }
+  };
+
   const serveActiveFolder = async () => {
     const active = activePane;
     const session = active ? sessions.get(active.container) : undefined;
+    const live = session && active
+      ? await livePane(session, active.pane_id)
+      : null;
     const answer = activeFolder(
       active,
       session
         ? {
-          snapshot: session.snapshot,
+          snapshot: live ? { panes: [live] } : session.snapshot,
           mounts: await mountsOf(session.record.id),
         }
         : null,
