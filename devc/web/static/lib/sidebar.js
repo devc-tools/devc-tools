@@ -62,14 +62,14 @@ export function paneTitle(pane) {
 }
 
 /**
- * The window title for the active tile: `<repo>:<branch> — <pane title> — devc web`, `<repo>`
+ * The window title for the active tile: `<repo>:<branch> — <pane title> — devcd`, `<repo>`
  * being the repo it is in (or its project's name outside any), `<branch>` that repo's branch and
  * `<pane title>` the title its pane's program (an agent, say) sets. Each part is left out when
- * empty or missing: `<repo> — devc web` without a branch or pane title, `devc web` with nothing.
+ * empty or missing: `<repo> — devcd` without a branch or pane title, `devcd` with nothing.
  */
 export function windowTitle(repo, branch, paneTitle) {
   const head = repo && branch ? `${repo}:${branch}` : repo;
-  return [head, paneTitle, 'devc web'].filter((s) => s).join(' — ');
+  return [head, paneTitle, 'devcd'].filter((s) => s).join(' — ');
 }
 
 /**

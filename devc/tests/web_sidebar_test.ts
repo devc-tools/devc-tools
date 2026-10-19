@@ -360,28 +360,28 @@ Deno.test('collapseContainersState with nothing known still closes everything', 
   );
 });
 
-Deno.test('windowTitle: repo:branch — pane title — devc web, leaving out what is missing', () => {
+Deno.test('windowTitle: repo:branch — pane title — devcd, leaving out what is missing', () => {
   assertEquals(
     windowTitle('devc-tools', 'main', '✳ Fixing the title'),
-    'devc-tools:main — ✳ Fixing the title — devc web',
+    'devc-tools:main — ✳ Fixing the title — devcd',
   );
-  assertEquals(windowTitle('devc-tools', 'main'), 'devc-tools:main — devc web');
+  assertEquals(windowTitle('devc-tools', 'main'), 'devc-tools:main — devcd');
   assertEquals(
     windowTitle('devc-tools', 'main', ''),
-    'devc-tools:main — devc web',
+    'devc-tools:main — devcd',
   );
   assertEquals(
     windowTitle('app', 'feature/x'),
-    'app:feature/x — devc web',
+    'app:feature/x — devcd',
   );
   assertEquals(
     windowTitle('app', undefined, 'Claude Code'),
-    'app — Claude Code — devc web',
+    'app — Claude Code — devcd',
   );
-  assertEquals(windowTitle('app', ''), 'app — devc web');
-  assertEquals(windowTitle(undefined, 'main'), 'devc web');
-  assertEquals(windowTitle(undefined, undefined, 'vim'), 'vim — devc web');
-  assertEquals(windowTitle(), 'devc web');
+  assertEquals(windowTitle('app', ''), 'app — devcd');
+  assertEquals(windowTitle(undefined, 'main'), 'devcd');
+  assertEquals(windowTitle(undefined, undefined, 'vim'), 'vim — devcd');
+  assertEquals(windowTitle(), 'devcd');
 });
 
 Deno.test('repoAt: the innermost repo whose container folder holds the path', () => {

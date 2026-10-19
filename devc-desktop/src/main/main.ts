@@ -91,7 +91,7 @@ void app.whenReady().then(main);
 /** Everything after Electron is ready: the window, its views, devc web and the host terminal. */
 async function main(): Promise<void> {
   const win = new BaseWindow({
-    title: 'devc web',
+    title: 'devcd',
     width: 1400,
     height: 900,
     backgroundColor: '#0d0f14',
@@ -158,14 +158,14 @@ async function main(): Promise<void> {
   }
   win.on('resize', relayout);
 
-  // The window's title is devc web's page title (the active tile's folder) while it shows, and
-  // `devc web` otherwise: a BaseWindow doesn't follow its views' titles by itself.
-  let devcTitle = 'devc web';
+  // The window's title is devc web's page title (the active tile's repo, branch and pane title)
+  // while it shows, and `devcd` otherwise: a BaseWindow doesn't follow its views' titles by itself.
+  let devcTitle = 'devcd';
   function updateTitle(): void {
-    win.setTitle(showingDevc ? devcTitle : 'devc web');
+    win.setTitle(showingDevc ? devcTitle : 'devcd');
   }
   devcView.webContents.on('page-title-updated', (_e, title) => {
-    devcTitle = title || 'devc web';
+    devcTitle = title || 'devcd';
     updateTitle();
   });
 
@@ -249,7 +249,7 @@ async function main(): Promise<void> {
   function showStatus(): void {
     showingDevc = false;
     origin = null;
-    devcTitle = 'devc web';
+    devcTitle = 'devcd';
     relayout();
     updateTitle();
   }
@@ -306,7 +306,7 @@ async function main(): Promise<void> {
       if (current !== child || stopping) return;
       origin = devcOrigin(url);
       showingDevc = true;
-      devcTitle = 'devc web';
+      devcTitle = 'devcd';
       relayout();
       updateTitle();
       void devcView.webContents.loadURL(url);

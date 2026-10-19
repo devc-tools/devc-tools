@@ -4,7 +4,7 @@ Three asks for `devc web`, all about where things are inside the container:
 
 1. **Repo rows show their path under `/workspaces`.** A repo mounted at
    `/workspaces/tools/devc-tools` is labelled `tools/devc-tools`, not `devc-tools`.
-2. **The window title follows the active tile's repo**: `<repo label>:<branch> — devc web`,
+2. **The window title follows the active tile's repo**: `<repo label>:<branch> — devcd`,
    updated as the focus or the shell's directory changes. In the browser this is the tab
    title; in devc-desktop, the window's.
 3. **A container's Files row gets two shortcut rows** above the `/` listing: `/workspaces` and
@@ -44,7 +44,7 @@ It builds on the current sidebar (`devc/web/static/app.js`). Other open `devc we
 
 ### Window title
 
-- **Text:** `<repo>:<branch> — <pane title> — devc web` (em dashes, U+2014, with a space each
+- **Text:** `<repo>:<branch> — <pane title> — devcd` (em dashes, U+2014, with a space each
   side). `<pane title>` is the active pane's terminal title as its tab shows it after the name
   (`paneLabel(pane).title`: `terminal_title_stripped`, left out when it repeats the name or,
   for a non-agent pane, its folder), so an agent's title follows it as it works through
@@ -57,12 +57,12 @@ It builds on the current sidebar (`devc/web/static/app.js`). Other open `devc we
   (`repoAt` in `lib/sidebar.js`). `<branch>` is that repo's `git.branch` from the `projects`
   message, so it updates on the next git read (about 15 s), not on the checkout itself.
   Without a branch (not read yet, detached HEAD, or a failed read, which carries only
-  `gitProblem`): `<repo> — devc web`. Outside every repo, `<repo>` is the project's name as its
+  `gitProblem`): `<repo> — devcd`. Outside every repo, `<repo>` is the project's name as its
   container row shows it (`containerLabel`), with no branch. An empty tile or no tile:
-  `devc web`, as in `index.html`. (The title went through `<folder> — devc web`, `<folder> —
+  `devcd`, as in `index.html` (and devc-desktop's window and status page). (The title went through `<folder> — devc web`, `<folder> —
   <project> — devc web`, `<folder>: <project> — devc web` and `<folder>: <repo> — devc web`
   `<repo label>:<branch> — devc web` and `<main repo>:<branch> — devc web` as the user
-  refined it.)
+  refined it, then the pane title, and `devcd` in place of the trailing `devc web`.)
 - **The active tile** is `targetTile()`: the focused tile, else the last focused, else the
   first — the same tile the sidebar marks current.
 - **Pure helpers** in `devc/web/static/lib/sidebar.js`, tested in
@@ -74,8 +74,8 @@ It builds on the current sidebar (`devc/web/static/app.js`). Other open `devc we
 - **devc-desktop** holds the page in a `WebContentsView` inside a `BaseWindow`, so the window
   title doesn't follow the page by itself. In `devc-desktop/src/main/main.ts`:
   `devcView.webContents.on('page-title-updated', (e, title) => …)` calls
-  `win.setTitle(title || 'devc web')` while the devc view is the one shown, and every switch
-  to the status view (`showStatus()`, a restart's `about:blank`) sets `win.setTitle('devc web')`.
+  `win.setTitle(title || 'devcd')` while the devc view is the one shown, and every switch
+  to the status view (`showStatus()`, a restart's `about:blank`) sets `win.setTitle('devcd')`.
 
 ### Files shortcuts
 
@@ -176,12 +176,12 @@ It builds on the current sidebar (`devc/web/static/app.js`). Other open `devc we
       (`/h/app`, `/src/app`) → `app`; (`/h/app`, `null`) → `app`; (`/`, `null`) → `/`;
       (`/h/x`, `/workspacesx/y`) → `x`.
 - [x] `windowTitle(repo, branch, paneTitle)` tests: (`'devc-tools'`, `'main'`,
-      `'✳ Fixing the title'`) → `'devc-tools:main — ✳ Fixing the title — devc web'`;
-      (`'devc-tools'`, `'main'`) and (…, `''`) → `'devc-tools:main — devc web'`; (`'app'`,
-      `'feature/x'`) → `'app:feature/x — devc web'`; (`'app'`, `undefined`, `'Claude Code'`) →
-      `'app — Claude Code — devc web'`; (`'app'`, `''`) → `'app — devc web'`; (`undefined`,
-      `'main'`) and no arguments → `'devc web'`; (`undefined`, `undefined`, `'vim'`) →
-      `'vim — devc web'`.
+      `'✳ Fixing the title'`) → `'devc-tools:main — ✳ Fixing the title — devcd'`;
+      (`'devc-tools'`, `'main'`) and (…, `''`) → `'devc-tools:main — devcd'`; (`'app'`,
+      `'feature/x'`) → `'app:feature/x — devcd'`; (`'app'`, `undefined`, `'Claude Code'`) →
+      `'app — Claude Code — devcd'`; (`'app'`, `''`) → `'app — devcd'`; (`undefined`,
+      `'main'`) and no arguments → `'devcd'`; (`undefined`, `undefined`, `'vim'`) →
+      `'vim — devcd'`.
 - [x] `repoAt` tests: repos `/workspaces/app`, `/workspaces/app/wt/` (nested), `/src/lib` and
       one with `containerFolder: null`: `/workspaces/app` and `/workspaces/app/src` → app;
       `/workspaces/app/wt/src` → wt; `/src/lib` → lib; `/workspaces/application`, `/tmp`,
@@ -201,22 +201,22 @@ It builds on the current sidebar (`devc/web/static/app.js`). Other open `devc we
     is `/h/devc-tools\n/workspaces/tools/devc-tools`;
   - New task's Repo select shows `tools/devc-tools` and `lib`;
   - with the first repo's `git: {branch: 'main', …}` and `primaryFolder: '/h/devc-tools'`, focusing `p1`'s tile:
-    `document.title === 'devc-tools:main — devc web'`; focusing `p2`'s:
-    `'devc-tools — devc web'` (no repo holds `/home/vscode`: the project);
+    `document.title === 'devc-tools:main — devcd'`; focusing `p2`'s:
+    `'devc-tools — devcd'` (no repo holds `/home/vscode`: the project);
   - a `pane_updated` for `p2` with `foreground_cwd: '/workspaces/tools/devc-tools/devc'` while
-    it is focused: `'devc-tools:main — devc web'`;
-  - a `projects` message with that repo's branch `next`: `'devc-tools:next — devc web'`;
-    with `git: null, gitProblem: 'detached HEAD'`: `'devc-tools — devc web'`;
+    it is focused: `'devc-tools:main — devcd'`;
+  - a `projects` message with that repo's branch `next`: `'devc-tools:next — devcd'`;
+    with `git: null, gitProblem: 'detached HEAD'`: `'devc-tools — devcd'`;
   - a third repo, the worktree `{folder: '/h/some-repo.worktrees/fix', containerFolder:
     '/workspaces/some-repo.worktrees/fix', primaryFolder: '/h/some-repo', name:
     'some-repo.worktrees/fix', git: {branch: 'fix', …}}`, with a pane in it focused:
-    `'some-repo:fix — devc web'`;
+    `'some-repo:fix — devcd'`;
   - a `pane_updated` giving the focused agent pane (`agent: 'claude'`)
     `terminal_title_stripped: '✳ Fixing the title'`: `'devc-tools:main — ✳ Fixing the title —
-    devc web'`, and the next title it sets replaces it;
-  - opening a container file `/src/lib/x.ts` in a tile and focusing it: `'lib — devc web'`
+    devcd'`, and the next title it sets replaces it;
+  - opening a container file `/src/lib/x.ts` in a tile and focusing it: `'lib — devcd'`
     (`lib` has no git state in the fixture);
-  - closing every tile: `'devc web'`;
+  - closing every tile: `'devcd'`;
   - opening **Files**: the rows under it start `/workspaces`, `/home/vscode`, then the `/`
     listing's entries; opening `/workspaces` sends `list_container_dir` with path
     `/workspaces`, and its child `tools` with `/workspaces/tools`; `workspaces` in the `/`
@@ -230,8 +230,8 @@ It builds on the current sidebar (`devc/web/static/app.js`). Other open `devc we
   - Collapse all on Containers closes the shortcut rows too.
 - [ ] Against a real running devcontainer (`devc web`): the repo row reads `tools/devc-tools`,
       Files shows `/workspaces` and `/home/vscode` and both list their contents, and `cd /tmp`
-      in the active terminal of `devc-tools` retitles the browser tab `devc-tools — devc web`, and
-      `cd` back into the repo shows `devc-tools:<branch> — devc web`.
+      in the active terminal of `devc-tools` retitles the browser tab `devc-tools — devcd`, and
+      `cd` back into the repo shows `devc-tools:<branch> — devcd`.
 - [ ] Ask the user to check the window title in devc-desktop (switch tiles, `cd`, restart
       devc web from the status view).
 
