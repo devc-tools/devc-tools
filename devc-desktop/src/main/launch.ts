@@ -1,11 +1,13 @@
 // devc-desktop's child: finding the installed `devc`, the `devc web` arguments and environment,
-// and the running process, whose ready line carries the page URL. No window code here, so this
-// module type-checks and tests under plain `deno`; `main.ts` wires it to the window. See
-// `.plans/devc-desktop.md`.
+// and the running process, whose ready line carries the page URL. No Electron here, so this
+// module type-checks and tests under plain Node; `main.ts` wires it to the window. See
+// `.plans/devc-desktop-electron.md`.
 //
-// The app never runs devc's code itself, and never re-executes its own binary: a `deno desktop`
-// binary started again with arguments is another GUI instance, not a CLI, so devc's self-exec of
-// its embedded devcontainer CLI could not work in here. It runs the separately installed `devc`.
+// The app never runs devc's code itself. It runs the separately installed `devc` (or the
+// checkout's, for `devc2`), as the `deno desktop` app before it did.
+
+import { spawn } from 'node:child_process';
+import { stat } from 'node:fs/promises';
 
 /**
  * The line `devc web` prints once its page is served (`devc/main.ts`, and the supervisor's
@@ -80,16 +82,21 @@ export function devcArgs(appArgs: string[], configArgs: string[]): string[] {
 }
 
 /**
- * The child's environment: the app's, with `PATH` replaced when the login shell supplied one,
- * and never `DENO_SERVE_ADDRESS`. The desktop runtime sets that for the app's own server, and a
- * `Deno.serve` in any process that inherits it binds there instead of its own port.
+ * The environment a child of the app gets (`devc web`, and the host terminal's shell): the
+ * app's, with `PATH` replaced when the login shell supplied one, and never an `ELECTRON_*`
+ * variable (`ELECTRON_RUN_AS_NODE` would turn any Electron app the shell starts into Node) nor
+ * `DENO_SERVE_ADDRESS` (it moves a `Deno.serve`'s first server, should anything set it).
  */
 export function childEnv(
-  env: Record<string, string>,
+  env: Record<string, string | undefined>,
   path: string | undefined,
 ): Record<string, string> {
-  const out = { ...env };
-  delete out.DENO_SERVE_ADDRESS;
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(env)) {
+    if (v === undefined || k.startsWith('ELECTRON_')) continue;
+    if (k === 'DENO_SERVE_ADDRESS') continue;
+    out[k] = v;
+  }
   if (path !== undefined) out.PATH = path;
   return out;
 }
@@ -198,8 +205,8 @@ export async function onPath(
     if (dir === '') continue;
     const file = `${dir}/${name}`;
     try {
-      const st = await Deno.stat(file);
-      if (st.isFile && ((st.mode ?? 0o111) & 0o111) !== 0) return file;
+      const st = await stat(file);
+      if (st.isFile() && (st.mode & 0o111) !== 0) return file;
     } catch { /* not here */ }
   }
   return null;
@@ -216,30 +223,35 @@ const LOGIN_SHELL_MS = 5000;
  * interactive as well so rc files (`.zshrc`, `.bashrc`, where `bash_aliases.sh` is sourced)
  * count. `null` on failure or after 5 s.
  */
-export async function loginEnv(
-  shell = Deno.env.get('SHELL') || '/bin/zsh',
+export function loginEnv(
+  shell = process.env.SHELL || '/bin/zsh',
 ): Promise<LoginEnv | null> {
-  try {
-    const out = await new Deno.Command(shell, {
-      args: [
+  return new Promise((resolve) => {
+    let child;
+    try {
+      child = spawn(shell, [
         '-ilc',
         `printf '${MARK}%s${MARK}%s${MARK}' "$PATH" "\${DEVC_BIN:-}"`,
-      ],
-      stdin: 'null',
-      stdout: 'piped',
-      stderr: 'null',
-      signal: AbortSignal.timeout(LOGIN_SHELL_MS),
-    }).output();
-    const text = new TextDecoder().decode(out.stdout);
-    const m = new RegExp(`${MARK}(.*?)${MARK}(.*?)${MARK}`, 's').exec(text);
-    if (!m?.[1]) return null;
-    return m[2] ? { path: m[1], devcBin: m[2] } : { path: m[1] };
-  } catch {
-    return null;
-  }
+      ], {
+        stdio: ['ignore', 'pipe', 'ignore'],
+        timeout: LOGIN_SHELL_MS,
+      });
+    } catch {
+      return resolve(null);
+    }
+    let text = '';
+    child.stdout.setEncoding('utf8');
+    child.stdout.on('data', (d: string) => text += d);
+    child.on('error', () => resolve(null));
+    child.on('close', () => {
+      const m = new RegExp(`${MARK}(.*?)${MARK}(.*?)${MARK}`, 's').exec(text);
+      if (!m?.[1]) return resolve(null);
+      resolve(m[2] ? { path: m[1], devcBin: m[2] } : { path: m[1] });
+    });
+  });
 }
 
-/** How many of the child's last stderr lines are kept, for the status page. */
+/** How many of the child's last stderr lines are kept, for the status view. */
 export const STDERR_LINES = 40;
 
 /** How long a stopping child gets after SIGTERM before SIGKILL. */
@@ -258,23 +270,19 @@ export interface DevcWeb {
 }
 
 /**
- * Starts `cmd` (a {@link Found}'s) with `args` after it, and `env`. stdout and stderr are read for the child's whole life, so
- * a full pipe never blocks it; stdout is only scanned for the ready line, never kept or printed,
- * since it carries the token.
+ * Starts `cmd` (a {@link Found}'s) with `args` after it, and `env`. stdout and stderr are read
+ * for the child's whole life, so a full pipe never blocks it; stdout is only scanned for the
+ * ready line, never kept or printed, since it carries the token. Throws if it cannot be spawned.
  */
 export function startDevcWeb(
   cmd: string[],
   args: string[],
   env: Record<string, string>,
 ): DevcWeb {
-  const child = new Deno.Command(cmd[0], {
-    args: [...cmd.slice(1), ...args],
+  const child = spawn(cmd[0], [...cmd.slice(1), ...args], {
     env,
-    clearEnv: true,
-    stdin: 'null',
-    stdout: 'piped',
-    stderr: 'piped',
-  }).spawn();
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
   let resolveReady!: (url: string) => void;
   const ready = new Promise<string>((r) => resolveReady = r);
   const tail: string[] = [];
@@ -282,21 +290,24 @@ export function startDevcWeb(
     tail.push(line);
     if (tail.length > STDERR_LINES) tail.shift();
   };
-  const outDone = eachLine(child.stdout, (line) => {
+  eachLine(child.stdout, (line) => {
     const url = readyUrl(line);
     if (url !== null) resolveReady(url);
   });
-  const errDone = eachLine(child.stderr, keep);
-  const exited = child.status.then(async (s) => {
-    await Promise.allSettled([outDone, errDone]);
-    return s.signal ?? String(s.code);
+  eachLine(child.stderr, keep);
+  const exited = new Promise<string>((resolve) => {
+    child.on('error', (e) => {
+      keep(String(e.message));
+      resolve('spawn failed');
+    });
+    child.on('close', (code, signal) => resolve(signal ?? String(code)));
   });
   return {
     ready,
     exited,
     stderr: () => [...tail],
     async stop() {
-      const signal = (sig: Deno.Signal) => {
+      const signal = (sig: NodeJS.Signals) => {
         try {
           child.kill(sig);
         } catch { /* already exited */ }
@@ -310,18 +321,22 @@ export function startDevcWeb(
 }
 
 /** Calls `fn` with each line of `stream` (without its newline) until the stream ends. */
-async function eachLine(
-  stream: ReadableStream<Uint8Array>,
+function eachLine(
+  stream: NodeJS.ReadableStream,
   fn: (line: string) => void,
-): Promise<void> {
+): void {
   let buf = '';
-  for await (const chunk of stream.pipeThrough(new TextDecoderStream())) {
+  stream.setEncoding('utf8');
+  stream.on('data', (chunk: string) => {
     buf += chunk;
     let nl;
     while ((nl = buf.indexOf('\n')) >= 0) {
       fn(buf.slice(0, nl));
       buf = buf.slice(nl + 1);
     }
-  }
-  if (buf !== '') fn(buf);
+  });
+  stream.on('end', () => {
+    if (buf !== '') fn(buf);
+    buf = '';
+  });
 }

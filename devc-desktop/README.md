@@ -1,33 +1,54 @@
 # devc-desktop
 
-`devc web` in its own window instead of a browser tab. The app runs the installed
-`devc web --no-open` as a child process. It shows a status page while that starts, then
-points its window at the URL `devc web` prints. Everything else is `devc web` itself,
-live mode (`--live`, `--live-yolo`) included.
+`devc web` in its own window, with a **host terminal** that slides up from the bottom and that
+devc web cannot reach. The app runs the installed `devc web --no-open` as a child process. It
+shows a status page while that starts, then shows the page `devc web` serves. Live mode
+(`--live`, `--live-yolo`) works as in a browser tab.
 
-It is a [`deno desktop`](https://docs.deno.com/runtime/desktop/) app with the CEF
-(Chromium) backend, so the page renders as it does in Chrome. `deno desktop` is
-experimental in Deno 2.9.
+It is an [Electron](https://www.electronjs.org/) app. One window holds three separate views, each
+its own browser instance (not frames of one page):
+
+| View              | Shows                                                    | Can reach                               |
+| ----------------- | -------------------------------------------------------- | --------------------------------------- |
+| **devc web**      | devc web's page                                          | devc web's own server, and nothing else |
+| **status**        | the status page while devc web starts, or why it stopped | Restart, nothing else                   |
+| **host terminal** | your login shell on this machine                         | the shell, through the app              |
 
 ## Build
 
-Requires Deno 2.9 or later. From this directory:
+Run these in this directory. You need Node 24 and npm 11.
 
 ```sh
-deno task build   # dist/devc.app on macOS; dist/devc/ (launcher and CEF) on Linux
+npm ci              # dependencies; npm 11 runs only the install scripts listed under
+                    # "allowScripts" in package.json (esbuild, node-pty)
+npm run build       # for this OS: dist/linux-unpacked/ on Linux, dist/mac-arm64/devc.app on macOS
+npm run build:mac   # devc.app for Apple silicon from Linux (dist/mac-arm64/devc.app)
 ```
 
-The first build downloads the CEF backend. The bundle is about 310 MB on macOS (arm64)
-and 450 MB on Linux, unpacked. A macOS app can be cross-built from Linux with
-`--target aarch64-apple-darwin`, but only without `--icon`.
+**Building the macOS app from a Linux container.** `npm run build:mac` cross-builds it, using
+`node-pty`'s own macOS prebuild, so nothing is compiled. The checkout is bind-mounted, so the
+app lands on the Mac's disk. It is **unsigned**. If macOS refuses to open it, sign it ad hoc
+once on the Mac:
+
+```sh
+codesign --force --deep --sign - dist/mac-arm64/devc.app
+```
+
+Building on the Mac itself (`npm ci && npm run build`) also works. Its `node-pty` comes from
+the same prebuild.
+
+The app is about 330 MB on macOS and 290 MB on Linux, unpacked.
 
 ## Run
 
-Open `dist/devc.app`, or run `dist/devc/devc` on Linux. A terminal launch passes its
-arguments on to `devc web`:
+Open `dist/mac-arm64/devc.app`, or run `dist/linux-unpacked/devc-desktop` on Linux. From
+source, `npm start`.
+
+A terminal launch passes its arguments on to `devc web`. Chromium's own switches
+(`--remote-debugging-port`, `--inspect`, `--no-sandbox` and the like) are not passed on.
 
 ```sh
-dist/devc.app/Contents/MacOS/laufey --live-yolo   # laufey: deno desktop's launcher
+dist/mac-arm64/devc.app/Contents/MacOS/devc --live-yolo
 ```
 
 Launched with no arguments (from the Dock or Finder), the app reads them from
@@ -37,8 +58,8 @@ Launched with no arguments (from the Dock or Finder), the app reads them from
 { "desktopWebArgs": ["--live-yolo"] }
 ```
 
-`--no-open` is always added. The app never passes `--port`: it uses whichever port
-`devc web` picks, read from the URL it prints.
+`--no-open` is always added. The app never passes `--port`. It uses whichever port `devc web`
+picks, read from the URL `devc web` prints.
 
 ### Which `devc`
 
@@ -54,63 +75,128 @@ Launched with no arguments (from the Dock or Finder), the app reads them from
 { "desktopDevc": "devc2", "desktopWebArgs": ["--live-yolo"] }
 ```
 
-- **`installed`:** `devc` on the app's `PATH`, else on your login shell's
-  (`$SHELL -ilc`, else `/bin/zsh`).
-- **`devc2`:** `$DEVC_BIN`, which sourcing
-  [`scripts/bash_aliases.sh`](../scripts/bash_aliases.sh) exports as `devc2`'s
-  from-source invocation (`deno run … devc/main.ts`), so no build of devc is needed.
-  It comes from the app's environment, else your login shell's, so the shell that
-  sets it must source that file.
-- **`$DEVC_DESKTOP_DEVC`** (an absolute path) overrides `desktopDevc` for a terminal
-  launch.
+- **`installed`:** `devc` on the app's `PATH`, else on your login shell's (`$SHELL -ilc`, else
+  `/bin/zsh`).
+- **`devc2`:** `$DEVC_BIN`. Sourcing [`scripts/bash_aliases.sh`](../scripts/bash_aliases.sh)
+  exports it as `devc2`'s from-source invocation (`deno run … devc/main.ts`), so no build of
+  devc is needed. It comes from the app's environment, else your login shell's, so the shell
+  that sets it must source that file.
+- **`$DEVC_DESKTOP_DEVC`** (an absolute path) overrides `desktopDevc` for a terminal launch.
 
-An app opened from the Dock gets a minimal `PATH` without `~/.local/bin`, `docker` or
-`deno`, and none of your shell's variables, so the login shell is asked. Its `PATH` is
-also passed on to `devc web`.
+An app opened from the Dock gets a minimal `PATH` without `~/.local/bin`, `docker` or `deno`,
+and none of your shell's variables, so the app asks your login shell. Its `PATH` is also passed
+on to `devc web`.
 
-The app always passes `--no-open`, which `devc` has had only since the release after
-0.10.0. An older installed `devc` refuses it, so use `devc2` until you update.
+If `devc` can't be found or `devc web` exits, the window shows why, with the last lines of its
+stderr and a **Restart devc web** button.
 
-If `devc` can't be found or `devc web` exits, the window shows why, with the last lines
-of its stderr and a **Restart devc web** button.
+### Shortcuts
 
-### Restarting
+| macOS         | Linux                       | Does                                                               |
+| ------------- | --------------------------- | ------------------------------------------------------------------ |
+| Cmd+J         | Ctrl+Shift+J                | Opens or closes the host terminal                                  |
+| Cmd+R         | Ctrl+Shift+R                | Restarts `devc web` (a new token; a copied page URL stops working) |
+| Cmd+Q         | Ctrl+Shift+Q                | Quits                                                              |
+| Cmd+C / Cmd+V | Ctrl+Shift+C / Ctrl+Shift+V | Copy / paste                                                       |
+| Alt+Cmd+I     | Ctrl+Shift+I                | devc web's developer tools                                         |
 
-On macOS, **Restart devc web** (`Cmd+R`) in the app menu stops `devc web` and starts
-it again in the same window. That picks up devc changes outside live mode, and it gives
-a new token, so a copied page URL stops working. Linux has no app menu, so this is
-macOS-only.
+On Linux the app's own shortcuts take Ctrl+Shift, because Ctrl+C, Ctrl+R and the like belong
+to the terminals. The menu bar shows when you press Alt.
 
 ### Closing
 
-Closing the window stops `devc web` (SIGTERM, then SIGKILL after 5 s) and then exits.
-SIGINT or SIGTERM to the app does the same.
+Closing the window or quitting stops `devc web` (SIGTERM, then SIGKILL after 5 s) and the host
+shell (SIGHUP to its process group, then SIGKILL), and then exits.
 
-### The page URL
+## The host terminal
 
-The window has no address bar. **Copy page URL** in the sidebar header copies the page's
-URL, token included, for opening the same session in a browser or from a container.
+Cmd+J (Ctrl+Shift+J on Linux) opens a drawer at the bottom of the window running your login
+shell (`$SHELL -l`) in your home folder. Drag its **HOST** strip to resize it. The height is
+remembered. Closing the drawer keeps the shell, so reopening it finds the same session.
+Restarting `devc web` does not touch it. If the shell exits, a key press starts a new one.
+
+A paste with a line break in it is shown in a bar first, and goes in only when you press
+**Paste**.
+
+### Why devc web cannot reach it
+
+An agent in a container can control devc web's page, for example through `--live` code from a
+checkout it can write, or a token it learns. So devc web's view is locked down:
+
+- **No access to the app:** no preload and no IPC. The page sees no `require`, no `process`,
+  and nothing of the app's own.
+- **No dialogs:** `alert`, `confirm` and `prompt` are off. devc web asks with its own in-page
+  dialogs.
+- **No windows:** a `window.open` of an `http(s)` URL goes to your system browser, and anything
+  else is dropped.
+- **No navigation off devc web's own address**, and no `<webview>`.
+- **No permission but copying:** no clipboard reading (it would see what you copied from the
+  host terminal), no fullscreen, no media, no notifications.
+- **Its own storage partition**, separate from the host terminal's.
+
+The host terminal's page is loaded from the app itself, never from a server. It talks to the
+shell only over IPC, and the app checks every message's sender. The app runs **no** network
+listener of its own. The drawer only opens from the app menu. Started with a debugging switch
+(`--remote-debugging-port`, `--inspect`), the app keeps the host terminal off, because those
+would let any local process drive it.
+
+**What was tested:** Electron 44.5.0 under Xvfb on Linux, with real keystrokes. A hostile copy
+of devc web tried to take keyboard focus every 300 ms, with `window.focus()`, focusing an input,
+`autofocus`, `showModal`, dialogs, fullscreen and `window.open`, both before and after the user
+had clicked in devc web.
+
+- **Keystrokes:** none of the keystrokes typed into the host terminal reached devc web.
+- **Reach:** it found no bridge to the app and could not read the clipboard.
+
+The measurements are in
+[`.plans/devc-desktop-electron.md`](../.plans/devc-desktop-electron.md) and
+[`.plans/archived/devc-desktop-host-terminal.md`](../.plans/archived/devc-desktop-host-terminal.md).
+
+**What it does not protect against:**
+
+- **Live modes run code a container may have written.** `--live-yolo` runs devc web's server
+  code from the checkout on this machine, and `desktopDevc: "devc2"` runs devc itself from
+  source. When that checkout is mounted into a container, an agent that edits it runs code here
+  at the next start. That holds with or without the host terminal.
+- **The app's own source.** The host terminal is only as trustworthy as the checkout it was
+  built from.
+- **Spoofing inside devc web's area.** devc web can draw something that looks like a terminal
+  in its own part of the window. The real one is always below it, under the **HOST** strip,
+  where devc web cannot draw.
+- **The toggle shortcut is visible.** Pressing Cmd+J while devc web has focus shows devc web
+  that keypress, but nothing typed in the host terminal. devc web could also swallow it while
+  it has focus. The menu item works regardless.
+- **Pasting what an agent put on the clipboard.** devc web can write the clipboard (copy). The
+  paste bar shows multi-line pastes before they run, but a one-liner goes straight in.
+- **`cd` into a container-writable repo and running git there**, as in any terminal. devc's
+  git-protect is the defence there.
 
 ## Development
 
 ```sh
-deno task check   # launch.ts, status.ts and the tests
-deno task test
+npm run check   # tsc over src/ and tests/
+npm test        # node --test: launch, policy and PTY rules
+npm start       # bundle and run from source
 ```
 
-`main.ts` uses `Deno.BrowserWindow`, which only `deno desktop` type-checks, so
-`deno task build` is its check. The window logic is kept small. Finding `devc`, the
-arguments, the child process and the status page live in `launch.ts` and `status.ts`,
-which plain `deno` checks and tests.
+**Layout:**
 
-On Linux without a display, `xvfb-run -a dist/devc/devc` runs the app headless. Point
-`DEVC_DESKTOP_DEVC` at a stand-in script, or put a stub `docker` first on `PATH`, to try
-it without Docker. `LAUFEY_REMOTE_DEBUGGING_PORT=9333` at launch exposes the window's
-page to the Chrome DevTools Protocol (`http://127.0.0.1:9333/json/list`).
+- `src/main/`: the main process. `main.ts` holds the window, views, menus and IPC.
+  `launch.ts` finds `devc` and runs `devc web`. `policy.ts` holds the pure rules (navigation,
+  windows, permissions, IPC senders, drawer geometry). `pty.ts` is the host shell.
+- `src/preload/`: the status and host bridges.
+- `src/renderer/`: the two bundled pages.
 
-## Why not compile devc itself
+`build.mjs` bundles them with esbuild into `build/`, which electron-builder packs.
+`after-pack.cjs` makes `node-pty`'s `spawn-helper` executable in the packed app.
 
-A `deno desktop` binary started again with arguments is another GUI instance, not a CLI.
-`devc` runs its own binary again to embed the devcontainer CLI
-(`devc/devcontainer_selfexec.ts`), so devc can't be the desktop binary. The app runs
-the installed `devc` instead. See `.plans/devc-desktop.md`.
+**Versions:** exact, each at least two weeks old when added: Electron 44.5.0, `node-pty` 1.1.0,
+`@xterm/xterm` 6.0.0, `@xterm/addon-fit` 0.11.0, esbuild 0.28.2, TypeScript 7.0.2,
+electron-builder 26.17.0. `deno fmt` (run from the repo root) formats the sources. The
+`deno.json` here only carries its settings.
+
+**Running headless on Linux:** `xvfb-run -a npm start`, with `DEVC_DESKTOP_DISABLE_GPU=1` if the
+GPU process fails under Xvfb. To try the app without Docker, point `DEVC_DESKTOP_DEVC` at a
+stand-in script, or put a stub `docker` first on `PATH`. The `chrome-sandbox` helper must be
+setuid root (`sudo chown root:root …/chrome-sandbox && sudo chmod 4755 …/chrome-sandbox`), or
+the app will not start.

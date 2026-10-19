@@ -1,0 +1,63 @@
+{
+  "name": "devc-desktop",
+  "version": "0.2.0",
+  "private": true,
+  "description": "devc web in its own window, with a host terminal devc web cannot reach",
+  "license": "MIT",
+  "main": "build/main.js",
+  "scripts": {
+    "bundle": "node build.mjs",
+    "check": "tsc --noEmit -p .",
+    "test": "node --test \"tests/*.test.ts\"",
+    "start": "node build.mjs && electron .",
+    "rebuild": "electron-rebuild -f -w node-pty",
+    "build": "node build.mjs && electron-builder --publish never",
+    "build:mac": "node build.mjs && electron-builder --mac dir --arm64 --publish never -c.npmRebuild=false"
+  },
+  "dependencies": {
+    "node-pty": "1.1.0"
+  },
+  "devDependencies": {
+    "@electron/rebuild": "4.2.0",
+    "@types/node": "24.19.1",
+    "@xterm/addon-fit": "0.11.0",
+    "@xterm/xterm": "6.0.0",
+    "electron": "44.5.0",
+    "electron-builder": "26.17.0",
+    "esbuild": "0.28.2",
+    "typescript": "7.0.2"
+  },
+  "build": {
+    "appId": "com.devc-tools.devc-desktop",
+    "productName": "devc",
+    "files": [
+      "build/**",
+      "package.json"
+    ],
+    "asarUnpack": [
+      "node_modules/node-pty/**"
+    ],
+    "mac": {
+      "target": "dir",
+      "icon": "icon.png",
+      "category": "public.app-category.developer-tools",
+      "identity": null,
+      "files": [
+        "!node_modules/node-pty/build/**",
+        "!node_modules/node-pty/bin/**",
+        "!node_modules/node-pty/prebuilds/win32-*/**"
+      ]
+    },
+    "linux": {
+      "target": "dir",
+      "icon": "icon.png",
+      "executableName": "devc-desktop"
+    },
+    "afterPack": "./after-pack.cjs"
+  },
+  "allowScripts": {
+    "esbuild@0.28.2": true,
+    "node-pty@1.1.0": true,
+    "electron-winstaller": false
+  }
+}

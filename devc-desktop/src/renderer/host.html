@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="Content-Security-Policy"
+      content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'">
+    <title>host terminal</title>
+    <link rel="stylesheet" href="xterm.css">
+    <link rel="stylesheet" href="host.css">
+  </head>
+  <body>
+    <header id="strip" title="Drag to resize">
+      <span id="who">HOST</span>
+      <span id="hint"></span>
+    </header>
+    <div id="paste" hidden>
+      <span>Paste <b id="paste-lines"></b> into the host shell?</span>
+      <pre id="paste-text"></pre>
+      <button id="paste-ok" type="button">Paste</button>
+      <button id="paste-cancel" type="button">Cancel</button>
+    </div>
+    <div id="term"></div>
+    <script src="host.js"></script>
+  </body>
+</html>

@@ -1,0 +1,66 @@
+:root {
+  --bg: #0d0f14;
+  --panel: #161922;
+  --border: #2a2f3c;
+  --text: #d7dae0;
+  --muted: #8a90a0;
+  --host: #f0b54a;
+}
+html,
+body {
+  margin: 0;
+  height: 100%;
+  background: var(--bg);
+  color: var(--text);
+  font: 12px/1.4 system-ui, sans-serif;
+  overflow: hidden;
+}
+body {
+  display: grid;
+  grid-template-rows: auto auto 1fr;
+}
+/* The host terminal's own strip: devc web is a separate view and cannot draw here. */
+#strip {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 3px 10px;
+  background: var(--panel);
+  border-top: 2px solid var(--host);
+  border-bottom: 1px solid var(--border);
+  cursor: row-resize;
+  user-select: none;
+}
+#who {
+  color: var(--host);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+#hint {
+  color: var(--muted);
+}
+#paste {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  align-items: center;
+  gap: 6px 8px;
+  padding: 6px 10px;
+  background: #2a2312;
+  border-bottom: 1px solid var(--host);
+}
+#paste[hidden] {
+  display: none;
+}
+#paste pre {
+  grid-column: 1 / -1;
+  grid-row: 2;
+  margin: 0;
+  max-height: 6em;
+  overflow: auto;
+  font: 11px/1.3 ui-monospace, monospace;
+  white-space: pre-wrap;
+}
+#term {
+  min-height: 0;
+  padding: 4px 0 0 6px;
+}

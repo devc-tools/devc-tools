@@ -48,7 +48,8 @@
   bundle with no loopback listener. Config, finding `devc`, restart and quit carry over. Step 1
   replaces devc web's `confirm()`/`prompt()` with in-page dialogs. Step 0 measures `node-pty`,
   real devc web in the locked-down view, and re-runs the focus attacks; the macOS app is built
-  on the Mac. Why: [devc-desktop-host-terminal](archived/devc-desktop-host-terminal.md) (the
+  on the Mac. **Implemented and verified on Linux; macOS checks outstanding** (the Mac app is
+  cross-built here: `npm run build:mac`). Why: [devc-desktop-host-terminal](archived/devc-desktop-host-terminal.md) (the
   `deno desktop` drawer failed isolation; Electron passed).
 
 - [devc-web-golden-layout](devc-web-golden-layout.md) — replace `devc web`'s hand-written

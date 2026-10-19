@@ -3,13 +3,14 @@
 - [x] Step 0: measure (§ Step 0) and record the answers here (M1–M3 done; M4 runs in Verify). **Stop and report to the user if
       M4 (the adversarial re-run) leaks anything.**
 - [x] Step 1: devc web: in-page dialogs replace `confirm()` / `prompt()` (works in any browser)
-- [ ] Step 2: devc-desktop rewritten on Electron: child `devc web`, status view, devc view, menus,
+- [x] Step 2: devc-desktop rewritten on Electron: child `devc web`, status view, devc view, menus,
       restart, quit — feature parity with today's `deno desktop` app, no host terminal yet
-- [ ] Step 3: the devc view's lockdown (§ The devc view), with tests of every policy function
-- [ ] Step 4: the host terminal: host view, `node-pty`, IPC bridge, drawer, toggle
-- [ ] Step 5: `devc-desktop/README.md` rewritten (build, run, config, host terminal, threat model);
+- [x] Step 3: the devc view's lockdown (§ The devc view), with tests of every policy function
+- [x] Step 4: the host terminal: host view, `node-pty`, IPC bridge, drawer, toggle
+- [x] Step 5: `devc-desktop/README.md` rewritten (build, run, config, host terminal, threat model);
       `.gitignore`; `.plans/PLAN.md`
-- [ ] Verify (below), then hand the user the macOS checks
+- [x] Verify on Linux (§ Verification results)
+- [ ] macOS checks by the user (§ Verify, last list)
 
 **devc-desktop moves from `deno desktop` (CEF) to Electron**, so that one window can hold a host
 terminal that devc web cannot reach. `deno desktop` gives one webview per window, and a host
@@ -134,6 +135,64 @@ Electron 44.5.0 (Chromium 152) under Xvfb in the container.
   sees the key, so it reaches neither devc web nor the host shell.
 - **M4** runs on the built app (Verify).
 
+## Implementation notes (2026-10-19)
+
+Where the build differs from the contracts above, and why:
+
+- **The macOS app is cross-built on Linux.** `npm run build:mac` packs `dist/mac-arm64/devc.app`
+  with `npmRebuild: false`.
+  - `node-pty` 1.1.0's N-API prebuild (`prebuilds/darwin-arm64/pty.node` and `spawn-helper`)
+    is what loads on the Mac. The Linux and Windows binaries are excluded from the Mac build
+    (`build.mac.files`).
+  - The app is unsigned. The README gives the one-time `codesign --sign -` if macOS refuses it.
+  - Building on the Mac (`npm ci && npm run build`) also works, and was not needed.
+- **`after-pack.cjs`.** npm unpacks the darwin `spawn-helper` without its execute bit, and
+  `node-pty`'s postinstall only fixes the host platform's. Without the bit, every shell fails
+  with `posix_spawnp failed`, so the hook chmods it in the packed app.
+- **The PTY gets the app's environment (stripped by `childEnv`), not `loginEnv`'s.** It runs
+  `$SHELL -l` in a PTY, which sources the login and interactive files itself, as Terminal.app
+  does.
+- **Linux shortcuts all take Ctrl+Shift.** That covers Restart, Host Terminal, Quit and the Edit
+  roles' copy, paste and the rest. Electron's default Ctrl+C / Ctrl+V accelerators would take
+  those keys from every terminal. On macOS the Cmd shortcuts are the defaults.
+- **`devc-desktop/deno.json` stays, for `deno fmt` only.** With a `package.json` and no
+  `deno.json`, `deno fmt` fell back to its defaults (double quotes) in this folder.
+- **Electron 44 has no install script** (it downloads its binary on first use), so
+  `allowScripts` lists only esbuild and node-pty. `electron-winstaller` is denied.
+- **The status page is a bundled page with a preload**, so the app has **no** network listener.
+
+## Verification results (Linux, Xvfb, 2026-10-19)
+
+- `npm run check` (tsc 7.0.2) is clean, `npm test` passes 27 tests (launch, policy, PTY), and
+  repo-wide `deno fmt --check` passes. devc's `deno task test` passes 462 tests (Step 1).
+- **The app from source and packaged** (`dist/linux-unpacked/devc-desktop`), against the
+  checkout's `devc web` with a stub `docker`:
+  - The status view showed, then devc web.
+  - Ctrl+Shift+J opened the drawer as `HOST — <user>@<host>`, and a login shell ran commands.
+  - Closing and reopening kept the same shell (an exported variable survived).
+  - A two-line paste stopped at the confirm bar.
+  - Ctrl+Shift+R gave `devc web` a new process while the shell kept its PID.
+  - Ctrl+Shift+Q left no Electron process, no `devc web` and no shell.
+  - `--remote-debugging-port=9339` kept the host terminal off, with its reason in the drawer,
+    and was not passed to `devc web`.
+- **M4 on the real app:** an attack script appended to a scratch copy of devc web's `app.js`
+  (`--live --source`) ran `window.focus()`, focusing an input, `autofocus` and `showModal` every
+  300 ms. Typed into the host terminal, 20/20 keystrokes reached the shell in both rounds (with
+  and without a prior click in devc web). Its probes:
+  - **Bridges:** `hostTerm`, `devcDesktop`, `require`, `process`, `electron` and `ipcRenderer`
+    are all undefined.
+  - **Dialogs:** `alert` does nothing, `confirm` returns false, `prompt` is not supported.
+  - **Windows:** `window.open('file:…' / 'javascript:…')` returns `null`.
+  - **Fullscreen:** "Permissions check failed". **Clipboard read:** "Read permission denied".
+  - **Navigation:** to `file:` it was blocked.
+
+  devc web **did** see the toggle's own keypresses (Control, Shift, J) whenever it had focus
+  when the shortcut was pressed. That reveals the toggle, not anything typed in the host
+  terminal, and the README says so.
+- **Not verified:** anything on macOS, paste into a real devc web terminal, a page swallowing
+  the toggle accelerator while it has focus (by design, the menu item still works), and the
+  cross-built `devc.app` actually launching.
+
 ## Concept boundaries
 
 - **Three views, three partitions.** These are separate `WebContentsView`s, never iframes of
@@ -196,8 +255,8 @@ promptDialog(message, defaultValue = '') → Promise<string | null>
   - `npm start`: run from source.
   - `npm run build`: `electron-builder` for the host OS. On macOS that is
     `dist/mac-arm64/devc.app`, unsigned. On Linux it is `dist/linux-unpacked/`.
-- **Native module:** `node-pty` must be built for the target, so **the macOS app is built on
-  the Mac** (`npm ci && npm run build`). Linux builds happen here.
+- **Native module:** `node-pty` is N-API with macOS prebuilds, so the macOS app is cross-built
+  here (`npm run build:mac`); see Implementation notes.
 - **TypeScript:** source is TypeScript, compiled or bundled to the JS Electron loads. The
   implementer picks the tool and records why.
 - **Repo checks:** `deno fmt` keeps formatting the TS. Add a root-level note if `deno fmt`
