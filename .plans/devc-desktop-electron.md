@@ -156,6 +156,11 @@ Where the build differs from the contracts above, and why:
 - **Linux shortcuts all take Ctrl+Shift.** That covers Restart, Host Terminal, Quit and the Edit
   roles' copy, paste and the rest. Electron's default Ctrl+C / Ctrl+V accelerators would take
   those keys from every terminal. On macOS the Cmd shortcuts are the defaults.
+- **Ctrl+`toggles the host terminal too** (2026-10-19, at the user's request: VS Code's
+  terminal toggle). On macOS it is a second, hidden menu item beside Cmd+J
+  (`acceleratorWorksWhenHidden`), because a menu item has one accelerator. On Linux it replaces
+  Ctrl+Shift+J. It never reaches a terminal program, which rarely uses it. On macOS the first
+  menu shows under the app's name (**devc**), not "devc web".
 - **`devc-desktop/deno.json` stays, for `deno fmt` only.** With a `package.json` and no
   `deno.json`, `deno fmt` fell back to its defaults (double quotes) in this folder.
 - **Electron 44 has no install script** (it downloads its binary on first use), so

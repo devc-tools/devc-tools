@@ -108,16 +108,18 @@ stderr and a **Restart devc web** button.
 
 ### Shortcuts
 
-| macOS         | Linux                       | Does                                                               |
-| ------------- | --------------------------- | ------------------------------------------------------------------ |
-| Cmd+J         | Ctrl+Shift+J                | Opens or closes the host terminal                                  |
-| Cmd+R         | Ctrl+Shift+R                | Restarts `devc web` (a new token; a copied page URL stops working) |
-| Cmd+Q         | Ctrl+Shift+Q                | Quits                                                              |
-| Cmd+C / Cmd+V | Ctrl+Shift+C / Ctrl+Shift+V | Copy / paste                                                       |
-| Alt+Cmd+I     | Ctrl+Shift+I                | devc web's developer tools                                         |
+| macOS           | Linux                       | Does                                                               |
+| --------------- | --------------------------- | ------------------------------------------------------------------ |
+| Cmd+J or Ctrl+` | Ctrl+`                      | Opens or closes the host terminal                                  |
+| Cmd+R           | Ctrl+Shift+R                | Restarts `devc web` (a new token; a copied page URL stops working) |
+| Cmd+Q           | Ctrl+Shift+Q                | Quits                                                              |
+| Cmd+C / Cmd+V   | Ctrl+Shift+C / Ctrl+Shift+V | Copy / paste                                                       |
+| Alt+Cmd+I       | Ctrl+Shift+I                | devc web's developer tools                                         |
 
-On Linux the app's own shortcuts take Ctrl+Shift, because Ctrl+C, Ctrl+R and the like belong
-to the terminals. The menu bar shows when you press Alt.
+Ctrl+` is VS Code's terminal toggle, and Cmd+J its panel toggle. On Linux the app's other
+shortcuts take Ctrl+Shift, because Ctrl+C, Ctrl+R and the like belong to the terminals. The menu
+bar shows when you press Alt. On macOS the menu is in the screen's menu bar, under the app's
+name (**devc**).
 
 ### Closing
 
@@ -126,10 +128,10 @@ shell (SIGHUP to its process group, then SIGKILL), and then exits.
 
 ## The host terminal
 
-Cmd+J (Ctrl+Shift+J on Linux) opens a drawer at the bottom of the window running your login
+Ctrl+`(or Cmd+J on macOS) opens a drawer at the bottom of the window running your login
 shell (`$SHELL -l`) in your home folder. Drag its **HOST** strip to resize it. The height is
 remembered. Closing the drawer keeps the shell, so reopening it finds the same session.
-Restarting `devc web` does not touch it. If the shell exits, a key press starts a new one.
+Restarting`devc web` does not touch it. If the shell exits, a key press starts a new one.
 
 A paste with a line break in it is shown in a bar first, and goes in only when you press
 **Paste**.
@@ -179,7 +181,7 @@ The measurements are in
 - **Spoofing inside devc web's area.** devc web can draw something that looks like a terminal
   in its own part of the window. The real one is always below it, under the **HOST** strip,
   where devc web cannot draw.
-- **The toggle shortcut is visible.** Pressing Cmd+J while devc web has focus shows devc web
+- **The toggle shortcut is visible.** Pressing Ctrl+` or Cmd+J while devc web has focus shows devc web
   that keypress, but nothing typed in the host terminal. devc web could also swallow it while
   it has focus. The menu item works regardless.
 - **Pasting what an agent put on the clipboard.** devc web can write the clipboard (copy). The

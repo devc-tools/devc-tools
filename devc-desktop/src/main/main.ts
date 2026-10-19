@@ -53,8 +53,11 @@ const CONFIG_PATH = join(app.getPath('home'), '.config/devc/config.json');
 /** The drawer's height, remembered across launches. */
 const STATE_PATH = join(app.getPath('userData'), 'desktop-state.json');
 const IS_MAC = process.platform === 'darwin';
-/** The host terminal's toggle, as the menu shows it and the drawer's strip names it. */
-const TOGGLE = IS_MAC ? 'Cmd+J' : 'Ctrl+Shift+J';
+/**
+ * The host terminal's toggle, as the drawer's strip names it: Ctrl+` everywhere (VS Code's
+ * terminal toggle), and on macOS Cmd+J too (VS Code's panel toggle).
+ */
+const TOGGLE = IS_MAC ? 'Cmd+J or Ctrl+`' : 'Ctrl+`';
 
 interface Status {
   phase: 'starting' | 'failed';
@@ -444,7 +447,7 @@ async function main(): Promise<void> {
   /**
    * The app menu. On macOS the Cmd shortcuts never reach a terminal. Elsewhere Ctrl+C, Ctrl+R and
    * the like belong to the terminals, so the app's own shortcuts take Ctrl+Shift, and the Edit
-   * items do too.
+   * items do too. Ctrl+` (the host terminal) is taken on both: nothing in a terminal uses it.
    */
   function menu(): MenuItemConstructorOptions[] {
     const key = (mac: string, other: string) => (IS_MAC ? mac : other);
@@ -459,9 +462,20 @@ async function main(): Promise<void> {
           },
           {
             label: 'Host Terminal',
-            accelerator: key('Cmd+J', 'Ctrl+Shift+J'),
+            accelerator: key('Cmd+J', 'Ctrl+`'),
             click: toggleHost,
           },
+          // A menu item has one shortcut, so on macOS Ctrl+` is a second, hidden item; macOS
+          // fires a hidden item's shortcut (`acceleratorWorksWhenHidden`).
+          ...(IS_MAC
+            ? [{
+              label: 'Host Terminal',
+              accelerator: 'Ctrl+`',
+              visible: false,
+              acceleratorWorksWhenHidden: true,
+              click: toggleHost,
+            }]
+            : []),
           { type: 'separator' },
           {
             label: 'Quit devc web',
