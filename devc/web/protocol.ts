@@ -90,6 +90,13 @@ export type ClientMessage =
     path: string;
   }
   | {
+    type: 'preview_file';
+    id: string;
+    localFolder: string;
+    root: string;
+    path: string;
+  }
+  | {
     type: 'open_file';
     id: string;
     container: string;
@@ -141,7 +148,10 @@ export type ClientMessage =
   | { type: 'open_pinned'; id: string; pin: string }
   | { type: 'rename_pin'; id: string; pin: string; label: string }
   | {
-    type: 'list_container_dir' | 'read_container_file';
+    type:
+      | 'list_container_dir'
+      | 'read_container_file'
+      | 'preview_container_file';
     id: string;
     container: string;
     /** An absolute path inside the container. */
@@ -451,8 +461,9 @@ function parseFields(m: Obj): ClientMessage {
     case 'list_host_dir':
       return { type: 'list_host_dir', id: str(m, 'id'), path: text(m, 'path') };
     case 'read_file':
+    case 'preview_file':
       return {
-        type: 'read_file',
+        type: m.type,
         id: str(m, 'id'),
         localFolder: folder(m),
         root: absolute(m, 'root'),
@@ -523,6 +534,7 @@ function parseFields(m: Obj): ClientMessage {
       };
     case 'list_container_dir':
     case 'read_container_file':
+    case 'preview_container_file':
       return {
         type: m.type,
         id: str(m, 'id'),

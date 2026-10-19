@@ -30,6 +30,7 @@ import {
   createContainerEntry,
   deleteContainerEntry,
   listContainerDir,
+  readContainerBytes,
   readContainerFile,
   renameContainerEntry,
 } from './container_files.ts';
@@ -46,8 +47,15 @@ import {
   listHostDir,
   listProjectDir,
   pickerRoots,
+  readProjectBytes,
   readProjectFile,
 } from './files.ts';
+import {
+  MAX_PREVIEW_BYTES,
+  previewPath,
+  type PreviewRead,
+  previews,
+} from './preview.ts';
 import {
   BridgeError,
   bridgeRequest,
@@ -327,6 +335,7 @@ export async function startWeb(
 
   const token = opts.token;
   const openLink = openRedirect(opts.openNonce, token);
+  const previewList = previews();
   const sessions = new Map<string, ContainerSession>();
   const clients = new Set<Client>();
   const controllers = new ControllerManager();
@@ -579,10 +588,13 @@ export async function startWeb(
     c: Client,
     msg: Extract<
       ClientMessage,
-      { type: 'list_dir' | 'list_host_dir' | 'read_file' }
+      { type: 'list_dir' | 'list_host_dir' | 'read_file' | 'preview_file' }
     >,
   ) => {
-    if (msg.type === 'list_dir' || msg.type === 'read_file') {
+    if (
+      msg.type === 'list_dir' || msg.type === 'read_file' ||
+      msg.type === 'preview_file'
+    ) {
       if (!isListedProject(msg.localFolder)) {
         reject(c, {
           id: msg.id,
@@ -601,6 +613,24 @@ export async function startWeb(
         try {
           const result = await readProjectFile(msg.root, msg.path);
           reply(c, { id: msg.id, ok: true, result });
+        } catch (e) {
+          fail(c, msg.id, e instanceof FilesError ? e.code : 'read_failed', e);
+        }
+        return;
+      }
+      if (msg.type === 'preview_file') {
+        const root = msg.root;
+        const read: PreviewRead = async (rel, max) =>
+          (await readProjectBytes(root, rel, max)).bytes;
+        try {
+          // Read once here, so a missing or unreadable file fails the request, not the tab.
+          await read(msg.path, MAX_PREVIEW_BYTES);
+          const nonce = previewList.mint(`repo\n${root}`, read);
+          reply(c, {
+            id: msg.id,
+            ok: true,
+            result: { path: previewPath(nonce, msg.path) },
+          });
         } catch (e) {
           fail(c, msg.id, e instanceof FilesError ? e.code : 'read_failed', e);
         }
@@ -902,11 +932,28 @@ export async function startWeb(
     session: ContainerSession,
     msg: Extract<
       ClientMessage,
-      { type: 'list_container_dir' | 'read_container_file' }
+      {
+        type:
+          | 'list_container_dir'
+          | 'read_container_file'
+          | 'preview_container_file';
+      }
     >,
   ) => {
     try {
       const info = await connectionOf(session);
+      if (msg.type === 'preview_container_file') {
+        const read: PreviewRead = async (path, max) =>
+          readContainerBytes(await connectionOf(session), `/${path}`, max);
+        await readContainerBytes(info, msg.path, MAX_PREVIEW_BYTES);
+        const nonce = previewList.mint(`container\n${msg.container}`, read);
+        reply(c, {
+          id: msg.id,
+          ok: true,
+          result: { path: previewPath(nonce, msg.path) },
+        });
+        return;
+      }
       const result = msg.type === 'list_container_dir'
         ? await listContainerDir(info, msg.path)
         : await readContainerFile(info, msg.path);
@@ -1177,7 +1224,7 @@ export async function startWeb(
     c: Client,
     msg: Exclude<
       Extract<ClientMessage, { localFolder: string }>,
-      { type: 'list_dir' | 'read_file' }
+      { type: 'list_dir' | 'read_file' | 'preview_file' }
     >,
   ) => {
     const folder = msg.localFolder;
@@ -1268,7 +1315,7 @@ export async function startWeb(
     }
     if (
       msg.type === 'list_dir' || msg.type === 'list_host_dir' ||
-      msg.type === 'read_file'
+      msg.type === 'read_file' || msg.type === 'preview_file'
     ) {
       await handleListing(c, msg);
       return;
@@ -1322,6 +1369,7 @@ export async function startWeb(
         return;
       case 'list_container_dir':
       case 'read_container_file':
+      case 'preview_container_file':
         await containerFiles(c, session, msg);
         return;
       case 'create_file':
@@ -1559,6 +1607,9 @@ export async function startWeb(
       }
       if (req.method !== 'GET' && req.method !== 'HEAD') {
         return new Response('method not allowed', { status: 405 });
+      }
+      if (url.pathname.startsWith('/preview/')) {
+        return previewList.serve(url.pathname, req.method === 'HEAD');
       }
       const opened = openLink(url.pathname);
       if (opened !== null) return opened;

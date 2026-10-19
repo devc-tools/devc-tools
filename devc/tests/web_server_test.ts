@@ -421,25 +421,27 @@ Deno.test('parseClientMessage: file messages take a root and a path, empty meani
     root: '/src/lib',
     path: 'src/x',
   });
-  ok({
-    type: 'read_file',
-    id: 'r1',
-    localFolder: '/src/app',
-    root: '/src/lib',
-    path: 'src/a.ts',
-  });
-  for (
-    const bad of [
-      { localFolder: 'rel', root: '/a', path: 'x' },
-      { localFolder: '/a', root: 'rel', path: 'x' },
-      { localFolder: '/a', root: '/a', path: '' },
-      { localFolder: '/a', root: '/a' },
-    ]
-  ) {
-    assertEquals(
-      rejected({ type: 'read_file', id: 'r2', ...bad }).code,
-      'bad_request',
-    );
+  for (const type of ['read_file', 'preview_file']) {
+    ok({
+      type,
+      id: 'r1',
+      localFolder: '/src/app',
+      root: '/src/lib',
+      path: 'src/a.ts',
+    });
+    for (
+      const bad of [
+        { localFolder: 'rel', root: '/a', path: 'x' },
+        { localFolder: '/a', root: 'rel', path: 'x' },
+        { localFolder: '/a', root: '/a', path: '' },
+        { localFolder: '/a', root: '/a' },
+      ]
+    ) {
+      assertEquals(
+        rejected({ type, id: 'r2', ...bad }).code,
+        'bad_request',
+      );
+    }
   }
   ok({ type: 'list_host_dir', id: 'f3', path: '' });
   ok({ type: 'list_host_dir', id: 'f4', path: '/Users/me' });
@@ -538,7 +540,13 @@ Deno.test('parseClientMessage: locate_file takes an absolute container path with
 });
 
 Deno.test('parseClientMessage: container file messages take an absolute path without .. or NUL', () => {
-  for (const type of ['list_container_dir', 'read_container_file']) {
+  for (
+    const type of [
+      'list_container_dir',
+      'read_container_file',
+      'preview_container_file',
+    ]
+  ) {
     for (const path of ['/', '/etc/hosts', '/home/me/.config']) {
       const msg = { type, id: 'f1', container: 'c1', path };
       assertEquals(

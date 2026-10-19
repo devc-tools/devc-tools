@@ -53,6 +53,7 @@ import {
   createDirTree,
   formatSize,
   isHiddenName,
+  isHtmlPath,
   newEntryNameError,
   opensAsDir,
   opensAsFile,
@@ -2955,6 +2956,46 @@ function openInEditor(fr, path, where) {
 }
 
 /**
+ * Opens an HTML file in a new browser tab, with the files beside it: the server serves it at a
+ * one-off `/preview/…` URL (`preview_file`, `preview_container_file`), sandboxed so the page's own
+ * scripts can't reach this one. A container file needs the container running.
+ */
+async function openInBrowser(fr, path) {
+  const c = fr.container ? containerByFolder(fr.localFolder) : null;
+  if (fr.container && !c) {
+    toast('Start the container first');
+    return;
+  }
+  // Opened now, inside the click, so a popup blocker lets it through; navigated once answered.
+  const win = window.open('about:blank', '_blank');
+  if (win) win.opener = null;
+  let result;
+  try {
+    result = await call(
+      c
+        ? {
+          type: 'preview_container_file',
+          container: c.id,
+          path: childPath('/', path),
+        }
+        : {
+          type: 'preview_file',
+          localFolder: fr.localFolder,
+          root: fr.root,
+          path,
+        },
+    );
+  } catch (e) {
+    win?.close();
+    errorToast(`Open in browser failed: ${e?.message ?? e}`);
+    return;
+  }
+  const url = new URL(String(result?.path ?? ''), location.origin).href;
+  if (win) win.location.href = url;
+  else window.open(url, '_blank', 'noopener,noreferrer');
+}
+
+/**
  * A Herdr tab at a repo folder (`open_tab`), shown in the focused stack: with `reuse`, a shell
  * already there (its tile focused if it has one), else a new tab. Starts Herdr in a running
  * container that has no session; never starts the container.
@@ -3285,6 +3326,9 @@ function fileMenuItems(fr, path) {
       'Open in editor to the right',
       () => openInEditor(fr, path, 'right'),
     ],
+    ...(isHtmlPath(path)
+      ? [['Open in browser', () => openInBrowser(fr, path)]]
+      : []),
     ['Copy path', () => copyPath(fr, path)],
     // A repo file only: the container's own files are outside the bind mount.
     ...(fr.container ? [] : [filePinItem(fr, path)]),
@@ -3491,8 +3535,11 @@ function fileTileMenuItems(tile) {
     if (view) items.push(['Reload', () => loadFile(view)]);
     items.push(
       ['Open in editor', () => openInEditor(fr, file.path, 'stack')],
-      ['Copy path', () => copyPath(fr, file.path)],
     );
+    if (isHtmlPath(file.path)) {
+      items.push(['Open in browser', () => openInBrowser(fr, file.path)]);
+    }
+    items.push(['Copy path', () => copyPath(fr, file.path)]);
     if (!file.container) items.push(filePinItem(fr, file.path));
   }
   if (tile.preview) items.push(keepOpenItem(tile));

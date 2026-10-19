@@ -4,6 +4,7 @@ import {
   childPath,
   createDirTree,
   formatSize,
+  isHtmlPath,
   isWithin,
   newEntryNameError,
   opensAsDir,
@@ -164,4 +165,13 @@ Deno.test('formatSize', () => {
   assertEquals(formatSize(5), '5 B');
   assertEquals(formatSize(1536), '1.5 KB');
   assertEquals(formatSize(20 * 1024 * 1024), '20 MB');
+});
+
+Deno.test('isHtmlPath: .html, .htm and .xhtml, any case', () => {
+  for (const p of ['index.html', 'a/b.HTM', '/srv/page.xhtml', '.html']) {
+    assertEquals(isHtmlPath(p), true, p);
+  }
+  for (const p of ['html', 'a.html.bak', 'a.xhtm', 'notes.md', 'dir.html/x']) {
+    assertEquals(isHtmlPath(p), false, p);
+  }
 });

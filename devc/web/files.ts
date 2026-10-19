@@ -180,6 +180,19 @@ export async function readProjectFile(
   root: string,
   rel: string,
 ): Promise<{ text: string; size: number; mtimeMs: number }> {
+  const { bytes, mtimeMs } = await readProjectBytes(root, rel, MAX_READ_BYTES);
+  return { ...fileText(bytes, rel), mtimeMs };
+}
+
+/**
+ * A project file's bytes: `rel` under `root`, confined as {@link readProjectFile}. Refuses a
+ * non-file (`bad_request`) and one over `max` bytes (`too_large`). Throws {@link FilesError}.
+ */
+export async function readProjectBytes(
+  root: string,
+  rel: string,
+  max: number,
+): Promise<{ bytes: Uint8Array; mtimeMs: number }> {
   let path: string | null;
   try {
     path = await confine(root, rel);
@@ -204,19 +217,19 @@ export async function readProjectFile(
     if (!info.isFile) {
       throw new FilesError('bad_request', `${rel} is not a file`);
     }
-    if (info.size > MAX_READ_BYTES) {
+    if (info.size > max) {
       throw new FilesError(
         'too_large',
-        `${rel} is ${info.size} bytes; the viewer shows files up to ${MAX_READ_BYTES} bytes`,
+        `${rel} is ${info.size} bytes; files up to ${max} bytes can be read`,
       );
     }
     // Read through the open handle, so the checks above apply to the bytes returned. Capped one
     // past the limit in case the file grew since the stat.
-    const bytes = await readUpTo(file, MAX_READ_BYTES + 1);
-    return {
-      ...fileText(bytes, rel),
-      mtimeMs: info.mtime?.getTime() ?? 0,
-    };
+    const bytes = await readUpTo(file, max + 1);
+    if (bytes.length > max) {
+      throw new FilesError('too_large', `${rel} is over ${max} bytes`);
+    }
+    return { bytes, mtimeMs: info.mtime?.getTime() ?? 0 };
   } catch (e) {
     throw e instanceof FilesError ? e : filesError(e, rel);
   } finally {

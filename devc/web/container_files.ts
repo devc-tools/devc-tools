@@ -111,9 +111,9 @@ const READ_SCRIPT = [
   'exec head -c "$1" -- "$2"',
 ].join('\n');
 
-/** The command that reads `path`, one byte past {@link MAX_READ_BYTES}. */
-export function readArgv(path: string): string[] {
-  return ['sh', '-c', READ_SCRIPT, 'sh', String(MAX_READ_BYTES + 1), path];
+/** The command that reads `path`, one byte past `max`. */
+export function readArgv(path: string, max = MAX_READ_BYTES): string[] {
+  return ['sh', '-c', READ_SCRIPT, 'sh', String(max + 1), path];
 }
 
 /** A failed command as a {@link FilesError} where its stderr says what went wrong. */
@@ -165,12 +165,28 @@ export async function readContainerFile(
   path: string,
   run: DockerRun = runDocker,
 ): Promise<{ text: string; size: number }> {
+  return fileText(
+    await readContainerBytes(info, path, MAX_READ_BYTES, run),
+    path,
+  );
+}
+
+/**
+ * A container file's bytes, `path` absolute: up to one past `max`, which the caller refuses.
+ * Throws {@link FilesError}, or an `Error` carrying the command's stderr.
+ */
+export async function readContainerBytes(
+  info: ContainerInfo,
+  path: string,
+  max: number,
+  run: DockerRun = runDocker,
+): Promise<Uint8Array> {
   const out = await run(
-    dockerExecArgv(info, { cwd: '/', cmd: readArgv(path) }),
+    dockerExecArgv(info, { cwd: '/', cmd: readArgv(path, max) }),
   );
   switch (out.code) {
     case 0:
-      return fileText(out.stdout, path);
+      return out.stdout;
     case READ_NOT_FOUND:
       throw new FilesError('not_found', `${path} does not exist`);
     case READ_NOT_FILE:
