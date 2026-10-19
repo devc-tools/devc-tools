@@ -1497,9 +1497,8 @@ function revealTile(tileId) {
 /** Marks the focused tile's Layout row and its pane's Containers row(s). */
 function updateCurrent() {
   const tile = targetTile();
-  const title = tile
-    ? windowTitle(activeFolder(tile), activeRepo(tile))
-    : windowTitle();
+  const { label, branch } = tile ? activeRepo(tile) : {};
+  const title = windowTitle(label, branch);
   if (document.title !== title) document.title = title;
   const { c } = resolveRef(tile?.ref ?? null);
   const key = c && tile?.ref ? paneKey(c.id, tile.ref.pane_id) : null;
@@ -1519,26 +1518,15 @@ function updateCurrent() {
 }
 
 /**
- * The folder a tile is in, for the window title: its pane's directory (a container path), or the
- * folder holding its file; null for an empty tile or a pane that isn't there.
- */
-function activeFolder(tile) {
-  if (tile.kind === 'file') {
-    return tile.file ? parentDir(fileHostPath(tile.file)) : null;
-  }
-  const { pane } = resolveRef(tile.ref);
-  return pane?.foreground_cwd || pane?.cwd || null;
-}
-
-/**
- * The label of the repo a tile is in, as its repo row shows it: a repo file's own repo, else the
+ * The repo a tile is in, for the window title: its label as its repo row shows it and its
+ * branch (none while unread, detached or unreadable). That is a repo file's own repo, else the
  * repo whose container folder holds the pane's directory or the container file. Outside every
- * repo, its project's name, as its container row shows it; null for an empty tile.
+ * repo, the label is its project's name, as its container row shows it; none for an empty tile.
  */
 function activeRepo(tile) {
   const file = tile.kind === 'file' ? tile.file : null;
   const localFolder = file ? file.localFolder : tile.ref?.localFolder;
-  if (!localFolder) return null;
+  if (!localFolder) return {};
   const repos = projectRepos(localFolder);
   let repo;
   if (file && !file.container) {
@@ -1549,11 +1537,13 @@ function activeRepo(tile) {
     const { pane } = resolveRef(tile.ref);
     repo = repoAt(repos, pane?.foreground_cwd || pane?.cwd || '');
   }
-  if (repo?.name) return repo.name;
+  if (repo?.name) return { label: repo.name, branch: repo.git?.branch };
   const c = containerByFolder(localFolder);
-  if (c) return displayName(c);
+  if (c) return { label: displayName(c) };
   const p = projects.get(localFolder);
-  return p ? containerLabel(p, projects.values()) : basename(localFolder);
+  return {
+    label: p ? containerLabel(p, projects.values()) : basename(localFolder),
+  };
 }
 
 // Hovering a pane's row in either section highlights its rows in the other.

@@ -360,16 +360,18 @@ Deno.test('collapseContainersState with nothing known still closes everything', 
   );
 });
 
-Deno.test('windowTitle: folder: repo — devc web, leaving out what is missing', () => {
+Deno.test('windowTitle: repo:branch — devc web, leaving out what is missing', () => {
   assertEquals(
-    windowTitle('/workspaces/tools/devc-tools/devc', 'tools/devc-tools'),
-    'devc: tools/devc-tools — devc web',
+    windowTitle('tools/devc-tools', 'main'),
+    'tools/devc-tools:main — devc web',
   );
-  assertEquals(windowTitle('/workspaces/app/', 'app'), 'app: app — devc web');
-  assertEquals(windowTitle('/', 'app'), '/: app — devc web');
-  assertEquals(windowTitle('/tmp', null), 'tmp — devc web');
-  assertEquals(windowTitle(null, 'app'), 'app — devc web');
-  assertEquals(windowTitle('', ''), 'devc web');
+  assertEquals(
+    windowTitle('app', 'feature/x'),
+    'app:feature/x — devc web',
+  );
+  assertEquals(windowTitle('app', undefined), 'app — devc web');
+  assertEquals(windowTitle('app', ''), 'app — devc web');
+  assertEquals(windowTitle(undefined, 'main'), 'devc web');
   assertEquals(windowTitle(), 'devc web');
 });
 

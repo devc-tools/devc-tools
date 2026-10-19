@@ -62,15 +62,13 @@ export function paneTitle(pane) {
 }
 
 /**
- * The window title for the active tile: `<folder>: <repo> — devc web`, `<folder>` being the
- * basename of its folder (a path; `/` for the root) and `<repo>` the label of the repo it is in
- * (or its project's name outside any). Either one is left out when empty or missing:
- * `<folder> — devc web`, `<repo> — devc web`.
+ * The window title for the active tile: `<repo>:<branch> — devc web`, `<repo>` being the label
+ * of the repo it is in (or its project's name outside any) and `<branch>` that repo's branch.
+ * Without a branch, `<repo> — devc web`; without a repo, `devc web`.
  */
-export function windowTitle(folder, repo) {
-  const name = folder ? basename(folder) || '/' : '';
-  const head = name && repo ? `${name}: ${repo}` : name || repo;
-  return head ? `${head} — devc web` : 'devc web';
+export function windowTitle(repo, branch) {
+  if (!repo) return 'devc web';
+  return `${branch ? `${repo}:${branch}` : repo} — devc web`;
 }
 
 /**
