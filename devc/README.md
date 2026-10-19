@@ -286,7 +286,7 @@ is published from any container: the host server finds devcontainers with
   Click a container to collapse it; a collapsed one shows its most urgent agent
   status. A repo row is named by its path under `/workspaces` in the container
   (`tools/devc-tools`), else by its folder's name. The window title follows the
-  active tile: `<folder> — <project> — devc web`, the folder being its
+  active tile: `<folder>: <project> — devc web`, the folder being its
   terminal's current directory or the one holding its file. Which rows are open is remembered per browser; hover the **Tasks** or
   **Containers** heading for **Collapse all**, which closes every row under it,
   at every level. Containers without a running Herdr server are grouped under

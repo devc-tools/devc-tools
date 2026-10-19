@@ -62,13 +62,14 @@ export function paneTitle(pane) {
 }
 
 /**
- * The window title for the active tile: `<folder> — <project> — devc web`, `<folder>` being the
+ * The window title for the active tile: `<folder>: <project> — devc web`, `<folder>` being the
  * basename of its folder (a path; `/` for the root) and `<project>` its project's name. Either
- * one is left out when empty or missing.
+ * one is left out when empty or missing: `<folder> — devc web`, `<project> — devc web`.
  */
 export function windowTitle(folder, project) {
-  return [folder ? basename(folder) || '/' : '', project, 'devc web']
-    .filter((s) => s).join(' — ');
+  const name = folder ? basename(folder) || '/' : '';
+  const head = name && project ? `${name}: ${project}` : name || project;
+  return head ? `${head} — devc web` : 'devc web';
 }
 
 /**
