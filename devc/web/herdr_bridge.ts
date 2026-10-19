@@ -527,7 +527,7 @@ export class ContainerSession {
   #snapshotRunning = false;
   #snapshotDirty = false;
   #lastStart = 0;
-  #awaiting = false;
+  #awaiting: Promise<void> | null = null;
   readonly #deps: SessionDeps;
 
   constructor(
@@ -641,7 +641,7 @@ export class ContainerSession {
    * A container sitting in `no-session` reconnects once that has brought a server up.
    */
   async herdrLaunched(): Promise<void> {
-    if (this.state !== 'no-session' || this.#awaiting) return;
+    if (this.state !== 'no-session') return;
     await this.#awaitServer();
   }
 
@@ -652,23 +652,29 @@ export class ContainerSession {
    * state stays `no-session` throughout instead of flickering through `connecting` on every try:
    * an exec that merely mentions `herdr` (see {@link isHerdrLaunch}) starts one too. Stops when
    * the session is retried or disposed meanwhile.
+   *
+   * One poll at a time: {@link startSession}'s own exec reads as a launch, so its
+   * {@link herdrLaunched} would otherwise poll alongside it, and whichever connected first would
+   * supersede the other's run and leave {@link startSession} returning mid-`connecting`.
    */
-  async #awaitServer(): Promise<void> {
-    this.#awaiting = true;
+  #awaitServer(): Promise<void> {
+    this.#awaiting ??= this.#pollServer().finally(() => {
+      this.#awaiting = null;
+    });
+    return this.#awaiting;
+  }
+
+  async #pollServer(): Promise<void> {
     let gen = this.#gen;
-    try {
-      for (let i = 0; i < this.#deps.startTries; i++) {
-        if (this.target === null || gen !== this.#gen) return;
-        if (await this.#deps.serverUp(this.target)) {
-          if (gen !== this.#gen) return;
-          await this.run();
-          if (this.state !== 'no-session') return;
-          gen = this.#gen;
-        }
-        await new Promise((r) => setTimeout(r, this.#deps.startWaitMs));
+    for (let i = 0; i < this.#deps.startTries; i++) {
+      if (this.target === null || gen !== this.#gen) return;
+      if (await this.#deps.serverUp(this.target)) {
+        if (gen !== this.#gen) return;
+        await this.run();
+        if (this.state !== 'no-session') return;
+        gen = this.#gen;
       }
-    } finally {
-      this.#awaiting = false;
+      await new Promise((r) => setTimeout(r, this.#deps.startWaitMs));
     }
   }
 

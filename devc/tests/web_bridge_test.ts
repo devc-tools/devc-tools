@@ -362,6 +362,37 @@ Deno.test('herdrLaunched never runs the lifecycle while there is no server', asy
   assertEquals([probes, s.runs, s.state], [4, 0, 'no-session']);
 });
 
+Deno.test('startSession waits out the run its own exec launched', async () => {
+  // The start's `docker exec … herdr server` reads as a launch, so `herdrLaunched` polls too.
+  class SlowRunSession extends NoServerSession {
+    override async run(): Promise<void> {
+      this.runs++;
+      this.state = 'connecting';
+      await new Promise((r) => setTimeout(r, 20));
+      this.state = 'connected';
+    }
+  }
+  const s: SlowRunSession = new SlowRunSession(
+    { id: 'c1' } as ConstructorParameters<typeof ContainerSession>[0],
+    'devc',
+    hooks,
+    {
+      runText: () => {
+        void s.herdrLaunched();
+        return Promise.resolve({ code: 0, stdout: '', stderr: '' });
+      },
+      startTries: 5,
+      startWaitMs: 1,
+      serverUp: () => Promise.resolve(true),
+      resolve: () => Promise.resolve(INFO),
+    },
+  );
+  s.target = target;
+  s.state = 'no-session';
+  await s.startSession();
+  assertEquals([s.runs, s.state], [1, 'connected']);
+});
+
 Deno.test('serverLogTail is empty when the log is unreadable', async () => {
   assertEquals(
     await serverLogTail(
