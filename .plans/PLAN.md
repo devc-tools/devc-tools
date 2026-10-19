@@ -131,13 +131,6 @@
   route still win. Row sends use the default's agent over the last sent one.
   **Implemented; the user's check in their tab and devc-desktop outstanding.**
 
-- [devc-web-workspace-paths](devc-web-workspace-paths.md) — repo rows named by their path
-  under `/workspaces` (`tools/devc-tools`, server-side `RepoView.name` from the mount's
-  container path); the window title is `<active folder basename> — devc web` (pane cwd or a
-  file tile's folder; devc-desktop follows it); a container's **Files** row gets `/workspaces`
-  and home (`$HOME`, read lazily, new `containers` field `home`) shortcut rows.
-  **Implemented; the real-container and devc-desktop checks outstanding.**
-
 ### Standing rules for Feature work
 
 Not a plan group — these are the conventions every Feature plan in this file
@@ -180,6 +173,16 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
   take it too.
 
 ### Completed
+
+- [devc-web-workspace-paths](archived/devc-web-workspace-paths.md) — ✅ Done: repo rows are
+  named by their path under `/workspaces` (`RepoView.name` from the mount's container path);
+  the window title is `<main repo>:<branch> — <pane title> — devcd` (the repo holding the
+  active pane's directory or file, its branch as last read, the pane's terminal title as its
+  tab shows it; devc-desktop's window follows it); a container's **Files** row lists
+  `/workspaces` and the remote user's home (`containers` field `home`) first. Validated by
+  `deno task check`, `deno task test`, devc-desktop `npm run check` / `npm test`, unit tests
+  and headless Chromium with a fake WebSocket; the user confirmed the Files rows in a real
+  container and the title in devc-desktop.
 
 - [devc-web-tasks-grouped](archived/devc-web-tasks-grouped.md) — ✅ Done: the Tasks section
   groups tasks under one collapsible node per project + repo route (`project` /
@@ -2336,4 +2339,4 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
 | `devc web` task default — a pin in the task dialog sets the default project, repo and agent                        | [devc-web-task-default](devc-web-task-default.md)                                  | in progress |
 | `devc web` grouped tasks — one collapsible node per project + repo route, `not routed` last                        | [devc-web-tasks-grouped](archived/devc-web-tasks-grouped.md)                       | complete    |
 | `devc web` sidebar Collapse all — on the Tasks and Containers headings, at every level                             | [devc-web-sidebar-collapse-all](archived/devc-web-sidebar-collapse-all.md)         | complete    |
-| `devc web` workspace paths — repo rows under `/workspaces`, window title, Files shortcuts                          | [devc-web-workspace-paths](devc-web-workspace-paths.md)                            | in progress |
+| `devc web` workspace paths — repo rows under `/workspaces`, window title, Files shortcuts                          | [devc-web-workspace-paths](archived/devc-web-workspace-paths.md)                   | complete    |

@@ -228,11 +228,11 @@ It builds on the current sidebar (`devc/web/static/app.js`). Other open `devc we
   - a `containers` entry with no `home` shows only the `/workspaces` row; `home: '/'` and
     `home: '/workspaces/me'` likewise;
   - Collapse all on Containers closes the shortcut rows too.
-- [ ] Against a real running devcontainer (`devc web`): the repo row reads `tools/devc-tools`,
+- [x] Against a real running devcontainer (`devc web`): the repo row reads `tools/devc-tools`,
       Files shows `/workspaces` and `/home/vscode` and both list their contents, and `cd /tmp`
       in the active terminal of `devc-tools` retitles the browser tab `devc-tools — devcd`, and
       `cd` back into the repo shows `devc-tools:<branch> — devcd`.
-- [ ] Ask the user to check the window title in devc-desktop (switch tiles, `cd`, restart
+- [x] Ask the user to check the window title in devc-desktop (switch tiles, `cd`, restart
       devc web from the status view).
 
 ## Verification (2026-10-19)
@@ -249,8 +249,8 @@ It builds on the current sidebar (`devc/web/static/app.js`). Other open `devc we
   as `/workspaces/` (fixed: `containerFilePath`). That run used the first title format
   (`<name> — devc web`); after the switch to `<repo>:<branch> — devc web` only the unit
   tests were rerun (the container rebuild removed the scratch Playwright install).
-- Not done here (no Docker in this container): the real-container check and the devc-desktop
-  check, both left for the user.
+- The user checked a real container (Files shortcuts, repo rows) and the window title in a
+  rebuilt devc-desktop.
 
 ## Relevant Files
 
