@@ -2,8 +2,8 @@
   "pinned_version": {
     "image": "mcr.microsoft.com/devcontainers/base:ubuntu",
     "features": {
-      "helix": {
-        "version": "25.07.1"
+      "micro": {
+        "version": "2.0.15"
       }
     }
   }

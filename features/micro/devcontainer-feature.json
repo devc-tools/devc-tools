@@ -1,0 +1,15 @@
+{
+  "id": "micro",
+  "version": "0.1.0",
+  "name": "micro editor",
+  "description": "Installs the micro terminal editor at build time from micro-editor/micro's own release tarball — by default the latest release, resolved at build time rather than a version this repo tracks — verified against the release's published SHA-256. micro is non-modal: typing inserts, Ctrl+S saves, Ctrl+Q quits, the mouse selects, with syntax highlighting for over a hundred languages built in. Sets no EDITOR: devc web already prefers micro when EDITOR is unset, and `export EDITOR=micro` is yours to choose everywhere else.",
+  "documentationURL": "https://github.com/devc-tools/devc-tools/tree/main/features/micro",
+  "licenseURL": "https://github.com/devc-tools/devc-tools/blob/main/LICENSE",
+  "options": {
+    "version": {
+      "type": "string",
+      "default": "latest",
+      "description": "micro release to install. 'latest' resolves the newest release from micro-editor/micro at build time — this repo does not pin or track a version. Otherwise a release version such as '2.0.15' (a leading 'v', as GitHub's tag has it, is accepted too)."
+    }
+  }
+}
