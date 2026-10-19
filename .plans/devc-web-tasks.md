@@ -158,11 +158,13 @@ applies the change and writes it (as `changePinnedFiles` does).
   - **Project**: `(not routed)` plus the projects, by `byPinThenRecent`;
   - **Repo**: that project's repos (hidden when not routed or when the project has only one);
   - **Agent**: Claude / Copilot / Pi, defaulting to the last one used (`localStorage`
-    `devc-web-task-agent-v1`), else Claude.
+    `devc-web-task-agent-v1`), else Claude. A pinned default for new tasks (project, repo and
+    agent) comes first: see [devc-web-task-default](devc-web-task-default.md).
 
   Footer: **Cancel**, **Save** (primary); **Send: plan** and **Send: implement** are icon
   buttons in the header (see [devc-web-pinned-hide-save-primary](archived/devc-web-pinned-hide-save-primary.md)). A new task with no route defaults its
-  project to the focused tile's project. The send buttons are disabled while not routed. A send
+  project to the pinned default's, else the focused tile's project
+  ([devc-web-task-default](devc-web-task-default.md)). The send buttons are disabled while not routed. A send
   saves the text and route first (`add_task` or `update_task`), then sends `send_task`. On
   success, the dialog closes and the pane is placed in the focused stack. An error is shown
   inside the dialog, and the task stays.

@@ -1303,17 +1303,32 @@ button.primary.danger {
   border-color: var(--accent);
 }
 
+/* The labels share the row; the default pin takes only its own width, at the bottom. */
 .task-route {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  display: flex;
+  flex-wrap: wrap;
   gap: 10px;
+  align-items: flex-end;
 }
 
 .task-route label {
   display: grid;
+  flex: 1 1 140px;
+  min-width: 0;
   gap: 4px;
   color: var(--muted);
   font-size: 12px;
+}
+
+/* Centred on the selects, which are taller than an icon button. */
+.task-route > .icon-btn {
+  margin-bottom: 4px;
+}
+
+/* The task dialog's pin while it shows the default for new tasks. */
+.icon-btn[aria-pressed='true'],
+.icon-btn[aria-pressed='true']:hover {
+  color: var(--accent);
 }
 
 .task-route label[hidden] {

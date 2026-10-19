@@ -1,6 +1,7 @@
 import { assert, assertEquals } from 'jsr:@std/assert';
 import {
   groupTasks,
+  parseTaskDefault,
   parseTasks,
   savedTaskAgent,
   sentTaskTooltip,
@@ -80,6 +81,40 @@ Deno.test('savedTaskAgent: a saved session agent, else Claude', () => {
   for (const v of [null, '', 'opencode', 'toString']) {
     assertEquals(savedTaskAgent(v), 'claude', String(v));
   }
+});
+
+Deno.test('parseTaskDefault: an agent, with a whole route or none', () => {
+  for (
+    const v of [
+      null,
+      '',
+      'nope',
+      'null',
+      '"pi"',
+      '[]',
+      '{"agent":"opencode"}',
+      '{"agent":"toString"}',
+      '{"localFolder":"/a","root":"/b"}',
+    ]
+  ) {
+    assertEquals(parseTaskDefault(v), null, String(v));
+  }
+  assertEquals(parseTaskDefault('{"agent":"pi"}'), { agent: 'pi' });
+  assertEquals(parseTaskDefault('{"localFolder":"/a","agent":"pi"}'), {
+    agent: 'pi',
+  });
+  assertEquals(
+    parseTaskDefault('{"localFolder":"/a","root":"","agent":"pi"}'),
+    { agent: 'pi' },
+  );
+  assertEquals(
+    parseTaskDefault('{"localFolder":"/a","root":7,"agent":"copilot"}'),
+    { agent: 'copilot' },
+  );
+  assertEquals(
+    parseTaskDefault('{"localFolder":"/a","root":"/b","agent":"pi","x":1}'),
+    { localFolder: '/a', root: '/b', agent: 'pi' },
+  );
 });
 
 Deno.test('sentTaskTooltip names the action, agent and folder', () => {

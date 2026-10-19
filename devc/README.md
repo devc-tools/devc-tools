@@ -369,9 +369,13 @@ is published from any container: the host server finds devcontainers with
   (`claude --resume <id>`, `copilot --resume <id>`, `pi --session-id <id>`).
   Tasks are grouped under a node per project and repo (ones with no project
   under **not routed**, last); a node's **New task here…** opens the dialog
-  routed there. Clicking a task edits it. Its hover icons send a routed task for a plan or
-  to implement, to the agent last chosen in the dialog, and the trash can
-  deletes it.
+  routed there. The pin beside the dialog's Agent makes its project, repo and
+  agent the default for new tasks (click it again to clear it). The default is
+  kept per window, so a browser tab and devc-desktop each have their own.
+  Without one, a new task starts on the focused tile's project. Clicking a
+  task edits it. Its hover icons send a routed task for a plan or to
+  implement, to the default's agent (else the agent last chosen in the
+  dialog), and the trash can deletes it.
   A sent task's menu has **Back to tasks** and **Remove**. Sending is
   one-way: nothing in a container writes to the list. Tasks are kept in
   `~/.config/devc/tasks.json` (the 50 newest sent ones), shared by every

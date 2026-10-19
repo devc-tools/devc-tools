@@ -144,6 +144,28 @@ export function savedTaskAgent(saved) {
 }
 
 /**
+ * The default for new tasks, pinned in the task dialog: a route (both `localFolder` and `root`,
+ * or neither) and an agent. `null` for anything else, including an unknown agent.
+ *
+ * @typedef {{localFolder?: string, root?: string, agent: TaskAgentId}} TaskDefault
+ * @param {string | null} text
+ * @returns {TaskDefault | null}
+ */
+export function parseTaskDefault(text) {
+  let v;
+  try {
+    v = JSON.parse(text ?? '');
+  } catch {
+    return null;
+  }
+  if (typeof v !== 'object' || v === null || Array.isArray(v)) return null;
+  if (!TASK_AGENT_IDS.includes(v.agent)) return null;
+  return nonEmpty(v.localFolder) && nonEmpty(v.root)
+    ? { localFolder: v.localFolder, root: v.root, agent: v.agent }
+    : { agent: v.agent };
+}
+
+/**
  * A sent task's tooltip: what it was sent as, when, and where the agent started.
  *
  * @param {SentTask} s

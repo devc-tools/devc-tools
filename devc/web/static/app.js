@@ -72,6 +72,7 @@ import {
 } from './lib/pinned_files.js';
 import {
   groupTasks,
+  parseTaskDefault,
   parseTasks,
   savedTaskAgent,
   sentTaskTooltip,
@@ -183,6 +184,8 @@ let tasks = [];
 let sentTasks = [];
 /** The agent the task dialog last sent to. */
 const TASK_AGENT_KEY = 'devc-web-task-agent-v1';
+/** The default route and agent for new tasks, pinned in the task dialog. */
+const TASK_DEFAULT_KEY = 'devc-web-task-default-v1';
 /** Each pinned file's editor pane (pin id → pane_id), from `open_pinned` replies. */
 const filePinPanes = loadFilePinPanes();
 
@@ -794,6 +797,8 @@ const LABELS = {
   tasks: 'Tasks',
   newTask: 'New task…',
   newTaskHere: 'New task here…',
+  pinTaskDefault: 'Make these the default for new tasks',
+  unpinTaskDefault: 'Default for new tasks: click to clear',
   collapseAll: 'Collapse all',
   noTasks: 'No tasks',
   sentTasks: 'Sent',
@@ -2961,7 +2966,7 @@ function taskGroupRow(group) {
  * @param {import('./lib/tasks.js').Task} task
  */
 function taskRow(task) {
-  const agentLabel = LABELS.agents[savedTaskAgent(storedTaskAgent())];
+  const agentLabel = LABELS.agents[taskSendAgent()];
   return h(
     'div',
     {
@@ -3005,6 +3010,32 @@ function storedTaskAgent() {
   }
 }
 
+/** The default for new tasks pinned in the task dialog; `null` when there is none. */
+function storedTaskDefault() {
+  try {
+    return parseTaskDefault(localStorage.getItem(TASK_DEFAULT_KEY));
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Pins `value` as the default for new tasks, or clears it with `null`.
+ *
+ * @param {import('./lib/tasks.js').TaskDefault | null} value
+ */
+function storeTaskDefault(value) {
+  try {
+    if (value === null) localStorage.removeItem(TASK_DEFAULT_KEY);
+    else localStorage.setItem(TASK_DEFAULT_KEY, JSON.stringify(value));
+  } catch { /* storage unavailable */ }
+}
+
+/** The agent a task starts on: the pinned default's, else the last one sent to, else Claude. */
+function taskSendAgent() {
+  return storedTaskDefault()?.agent ?? savedTaskAgent(storedTaskAgent());
+}
+
 /** Tasks with a `send_task` from their row in flight: a second click waits for the first. */
 const sendingTasks = new Set();
 
@@ -3032,7 +3063,7 @@ async function sendTaskFromRow(task, action) {
       task: task.id,
       localFolder,
       root,
-      agent: savedTaskAgent(storedTaskAgent()),
+      agent: taskSendAgent(),
       action,
     });
   } catch (e) {
@@ -3181,7 +3212,9 @@ let taskDialog = null;
  * or none) and an agent. **Save** keeps it on the list; the header's **Send: plan** /
  * **Send: implement** icons save it, then send it (`send_task`) and show the agent's pane.
  *
- * A new task opens routed to `route` when it is given, else to the focused tile's project.
+ * A new task opens routed to `route` when it is given, else to the pinned default's route, else
+ * (with no default pinned) to the focused tile's project. The header row's pin makes the
+ * dialog's project, repo and agent the default for new tasks, or clears it.
  *
  * @param {import('./lib/tasks.js').Task} [task]
  * @param {{localFolder: string, root: string}} [route]
@@ -3189,14 +3222,25 @@ let taskDialog = null;
 function openTaskDialog(task, route) {
   taskDialog?.el.close();
   const candidates = [...projects.values()].sort(byPinThenRecent);
+  const pinned = storedTaskDefault();
+  const pinnedRoute = pinned?.localFolder !== undefined &&
+      projects.has(pinned.localFolder)
+    ? { localFolder: pinned.localFolder, root: pinned.root ?? null }
+    : null;
   const focused = targetTile();
-  const near = route?.localFolder ?? focused?.ref?.localFolder ??
-    focused?.file?.localFolder;
+  // A default pinned without a route means "not routed": the focused tile does not count.
+  const pinnedUnrouted = pinned !== null && pinned.localFolder === undefined;
+  const near = route?.localFolder ?? pinnedRoute?.localFolder ??
+    (pinnedUnrouted
+      ? undefined
+      : focused?.ref?.localFolder ?? focused?.file?.localFolder);
   const initial = task
     ? task.localFolder ?? ''
     : near && projects.has(near)
     ? near
     : '';
+  const initialRoot = task ? task.root ?? null : route?.root ??
+    (initial === pinnedRoute?.localFolder ? pinnedRoute.root : null);
   const $text = /** @type {HTMLTextAreaElement} */ (h('textarea', {
     class: 'task-text',
     spellcheck: 'true',
@@ -3216,7 +3260,10 @@ function openTaskDialog(task, route) {
     {
       class: 'new-note-project',
       'aria-label': 'Project',
-      onchange: () => fillTaskRepos(null),
+      onchange: () => {
+        fillTaskRepos(null);
+        showPinned();
+      },
     },
     h('option', { value: '', selected: initial === '' }, '(not routed)'),
     ...candidates.map((p) =>
@@ -3230,6 +3277,7 @@ function openTaskDialog(task, route) {
   const $repo = /** @type {HTMLSelectElement} */ (h('select', {
     class: 'new-note-project',
     'aria-label': 'Repo',
+    onchange: () => showPinned(),
   }));
   const $repoLabel = h('label', {}, 'Repo', $repo);
   const $agent = /** @type {HTMLSelectElement} */ (h(
@@ -3237,13 +3285,16 @@ function openTaskDialog(task, route) {
     {
       class: 'new-note-project',
       'aria-label': 'Agent',
-      onchange: () => titleSends(),
+      onchange: () => {
+        titleSends();
+        showPinned();
+      },
     },
     ...TASK_AGENT_IDS.map((id) =>
       h('option', { value: id }, LABELS.agents[id])
     ),
   ));
-  $agent.value = savedTaskAgent(storedTaskAgent());
+  $agent.value = taskSendAgent();
   const $error = h('div', { class: 'new-note-error', hidden: true });
   const $save = /** @type {HTMLButtonElement} */ (h('button', {
     type: 'button',
@@ -3269,6 +3320,32 @@ function openTaskDialog(task, route) {
     });
   };
   titleSends();
+  // The dialog's project, repo and agent, as a default for new tasks would store them.
+  const current = () =>
+    $project.value === '' ? { agent: /** @type {any} */ ($agent.value) } : {
+      localFolder: $project.value,
+      root: $repo.value,
+      agent: /** @type {any} */ ($agent.value),
+    };
+  const isPinned = () => {
+    const saved = storedTaskDefault();
+    const now = current();
+    return saved !== null && saved.agent === now.agent &&
+      saved.localFolder === now.localFolder && saved.root === now.root;
+  };
+  const $pin = /** @type {HTMLButtonElement} */ (iconButton('pin', '', () => {
+    storeTaskDefault(isPinned() ? null : current());
+    showPinned();
+    renderTree();
+  }));
+  // The pin is pressed while the dialog shows the pinned default.
+  const showPinned = () => {
+    const on = isPinned();
+    const title = on ? LABELS.unpinTaskDefault : LABELS.pinTaskDefault;
+    $pin.setAttribute('aria-pressed', String(on));
+    $pin.title = title;
+    $pin.setAttribute('aria-label', title);
+  };
   const el = /** @type {HTMLDialogElement} */ (h(
     'dialog',
     {
@@ -3295,6 +3372,7 @@ function openTaskDialog(task, route) {
         h('label', {}, 'Project', $project),
         $repoLabel,
         h('label', {}, 'Agent', $agent),
+        $pin,
       ),
       $error,
     ),
@@ -3322,14 +3400,15 @@ function openTaskDialog(task, route) {
     $repoLabel,
     $agent,
     $error,
-    $buttons: [$save, ...$send],
+    $buttons: [$save, ...$send, $pin],
     $send,
     taskId: task?.id ?? null,
     busy: false,
   };
   document.body.append(el);
   el.showModal();
-  fillTaskRepos(task?.root ?? route?.root ?? null);
+  fillTaskRepos(initialRoot);
+  showPinned();
   $text.focus();
 }
 

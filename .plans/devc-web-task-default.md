@@ -133,39 +133,39 @@ anywhere outside the dialog, a default for the Sent list or New note.
 
 ## Checklist
 
-- [ ] `lib/tasks.js`: `parseTaskDefault(text)` as specified; its doc comment
-- [ ] `app.js`: `TASK_DEFAULT_KEY = 'devc-web-task-default-v1'`; read / save / clear helpers
+- [x] `lib/tasks.js`: `parseTaskDefault(text)` as specified; its doc comment
+- [x] `app.js`: `TASK_DEFAULT_KEY = 'devc-web-task-default-v1'`; read / save / clear helpers
       (try/catch); one helper for the agent a send uses (default's agent, else the last sent,
       else Claude), used by the dialog, `sendTaskFromRow` and the task rows' tooltips
-- [ ] `app.js`: `openTaskDialog` picks Project and Repo for a new task by the precedence in
+- [x] `app.js`: `openTaskDialog` picks Project and Repo for a new task by the precedence in
       Decisions, and passes the default's `root` to its **first** `fillTaskRepos` call
-- [ ] `app.js`: the pin button in `.task-route`; pressed state, title and aria-label refreshed
+- [x] `app.js`: the pin button in `.task-route`; pressed state, title and aria-label refreshed
       on open and on Project/Repo/Agent change; click saves or clears; part of `$buttons`;
       `LABELS.pinTaskDefault` / `LABELS.unpinTaskDefault`; update `openTaskDialog`'s doc comment
-- [ ] `style.css`: `.task-route` as a flex row; pressed `.icon-btn` in the accent colour
-- [ ] `devc/tests/web_tasks_page_test.ts`: `parseTaskDefault` cases from the table above
-- [ ] `devc/README.md`: the **Tasks** bullet says the dialog's pin makes its project, repo and
+- [x] `style.css`: `.task-route` as a flex row; pressed `.icon-btn` in the accent colour
+- [x] `devc/tests/web_tasks_page_test.ts`: `parseTaskDefault` cases from the table above
+- [x] `devc/README.md`: the **Tasks** bullet says the dialog's pin makes its project, repo and
       agent the default for new tasks (kept per window), and that row sends use the default's
       agent when one is set
-- [ ] `.plans/devc-web-tasks.md` `### Page`: the **Agent** default and "A new task with no route
+- [x] `.plans/devc-web-tasks.md` `### Page`: the **Agent** default and "A new task with no route
       defaults its project to the focused tile's project" point to this plan
 
 ## Validation
 
-- [ ] `cd devc && deno task check && deno task test` pass. One failure is known and unrelated:
+- [x] `cd devc && deno task check && deno task test` pass. One failure is known and unrelated:
       `docker_exec_single_path_test.ts` fails when a git-ignored `devc-core/dist/` exists. If
       it fails here, move `devc-core/dist/` aside (don't delete it; devc-desktop's build uses
       it), rerun, and put it back.
-- [ ] `deno fmt --check devc/web/static/app.js devc/web/static/lib/tasks.js
+- [x] `deno fmt --check devc/web/static/app.js devc/web/static/lib/tasks.js
       devc/web/static/style.css devc/tests/web_tasks_page_test.ts devc/README.md
       .plans/devc-web-task-default.md .plans/devc-web-tasks.md` passes
-- [ ] `parseTaskDefault` tests cover: `null`; `''`; `'nope'`; `'null'`; `'"pi"'`; `'[]'`;
+- [x] `parseTaskDefault` tests cover: `null`; `''`; `'nope'`; `'null'`; `'"pi"'`; `'[]'`;
       `{"agent":"opencode"}` → `null`; `{"agent":"pi"}` → `{agent:'pi'}`;
       `{"localFolder":"/a","agent":"pi"}` → `{agent:'pi'}`;
       `{"localFolder":"/a","root":"","agent":"pi"}` → `{agent:'pi'}`;
       `{"localFolder":"/a","root":"/b","agent":"pi","x":1}` →
       `{localFolder:'/a',root:'/b',agent:'pi'}`
-- [ ] Headless Chromium (Playwright, installed in a scratch folder for the run) against
+- [x] Headless Chromium (Playwright, installed in a scratch folder for the run) against
       `devc/web/static`, with a fake WebSocket as in devc-web-tasks' Verification. Projects
       `/src/app` (repos `/src/app`, `/src/lib`) and `/src/other` (one repo), both containers
       `connected`, a tile of `/src/other` focused, one routed task (`/src/app` + `/src/app`).
@@ -195,6 +195,19 @@ anywhere outside the dialog, a default for the Sent list or New note.
   - the pin's bounding box is inside `.task-route`, on the same row as the Agent select, at the
     dialog's default width.
 - [ ] Ask the user to pin a default in their tab, and to look at the pin in devc-desktop.
+
+## Verification (2026-10-19)
+
+- `deno task check` passes; `deno task test` gave 490 passed, 0 failed (no `devc-core/dist/`
+  present). `deno fmt --check` passes for every touched file.
+- Headless Chromium (Playwright 1.49.1 in a scratch folder) against `devc/web/static`, with a
+  fake WebSocket: all the browser checks above passed, with no page errors. The focused tile was
+  opened by clicking `/src/other`'s pane row, and **New task here…** was taken from
+  `/src/other`'s Terminals row. The screenshot shows the pin at the right end of the route row,
+  in the accent colour while pressed. It sat about 3px below the selects' centre, so it got
+  `margin-bottom: 4px` (`.task-route > .icon-btn`).
+- **Not verified — needs the user:** pinning a default in their tab, and the pin's look in
+  devc-desktop.
 
 ## Relevant Files
 
