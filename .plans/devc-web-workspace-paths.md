@@ -204,10 +204,10 @@ It builds on the current sidebar (`devc/web/static/app.js`). Other open `devc we
 ## Verification (2026-10-19)
 
 - `deno task check` clean; `deno task test` 493 passed, 0 failed.
-- devc-desktop: `npm ci` fails in the container: node-pty has no linux-arm64 prebuild and its
-  `node-gyp` build needs Python's `shlex`, which the container's minimal Python lacks.
-  `npm ci --ignore-scripts` then `npm run check` (clean) and `npm test` (27 passed). The
-  host needs its own `npm ci` in `devc-desktop/` afterwards.
+- devc-desktop: `npm ci` (node-pty built from source: it has no linux-arm64 prebuild, and
+  `node-gyp` needs the full Python standard library, added to the container), then `npm run
+  check` (clean) and `npm test` (27 passed). The host needs its own `npm ci` in
+  `devc-desktop/` afterwards.
 - Headless Chromium against `devc/web/static` with a fake WebSocket: all 21 checks pass. The
   fake lists `src/` and `a.txt` in every folder, so the file-tile check opened
   `/workspaces/src/a.txt`: title `src — devc web`, saved as `{root: '/', path:
