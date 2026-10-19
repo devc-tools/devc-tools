@@ -1,8 +1,8 @@
 # devc-desktop-electron
 
-- [ ] Step 0: measure (§ Step 0) and record the answers here. **Stop and report to the user if
+- [x] Step 0: measure (§ Step 0) and record the answers here (M1–M3 done; M4 runs in Verify). **Stop and report to the user if
       M4 (the adversarial re-run) leaks anything.**
-- [ ] Step 1: devc web: in-page dialogs replace `confirm()` / `prompt()` (works in any browser)
+- [x] Step 1: devc web: in-page dialogs replace `confirm()` / `prompt()` (works in any browser)
 - [ ] Step 2: devc-desktop rewritten on Electron: child `devc web`, status view, devc view, menus,
       restart, quit — feature parity with today's `deno desktop` app, no host terminal yet
 - [ ] Step 3: the devc view's lockdown (§ The devc view), with tests of every policy function
@@ -96,6 +96,43 @@ Run on Linux under Xvfb in the container, as the probes were (`xdotool` for real
   `devc web --live --source <copy>` with the attack script appended to the copy's `app.js`.
   Run it against the Step 2–4 app, not a probe. **0 keystrokes may leak and 0 host-term IPC
   messages may come from the devc view.** A leak stops the plan.
+
+## Step 0 results (Linux, 2026-10-19)
+
+Electron 44.5.0 (Chromium 152) under Xvfb in the container.
+
+- **M1 `node-pty`: pass.** `node-pty` 1.1.0 rebuilt with `@electron/rebuild` 4.2.0 for Electron
+  44.5.0. In the main process it spawned `bash -l`, echoed input (`HELLO-42`), reported a resize
+  (`stty size` → `40 132`) and the exit code (`exit 3` → 3). SIGKILLing the Electron main process
+  closed the PTY and the shell exited (SIGHUP): no orphan. `node-pty` 1.1.0 is N-API and ships
+  prebuilds for `darwin-arm64` and `darwin-x64` (and win32), so a macOS build may not need
+  compiling on the Mac. The Mac build checks that.
+- **M2 real devc web, locked down: pass.** The checkout's `devc web --live --source <copy>`
+  ran with a stub `docker`. The view had every `webPreferences` and policy in "The devc view".
+  - **Connection:** the WebSocket connected (Origin and Host passed `authorize`), and the page
+    rendered the Pinned, Layout and Containers sections.
+  - **Persistence:** `localStorage` survived an app restart with `partition: 'persist:devc'`.
+  - **Copy:** **Copy page URL** (a trusted click) asked for **`clipboard-sanitized-write`**, the
+    only permission devc web requested in normal use. The page URL landed on the clipboard.
+  - **Clipboard read:** `navigator.clipboard.readText()` asked for `clipboard-read`, which the
+    policy denies (`NotAllowedError`). devc web never reads it: paste uses the `paste` event.
+    **Paste into a real terminal was not measured** (no container), so it is a macOS check.
+  - **Links:** `window.open('https://…')` reached `setWindowOpenHandler` (deny +
+    `openExternal`). `window.open('about:blank')` returns `null`, so `openInBrowser` takes its
+    existing fallback, `window.open(url)`, which then reaches the handler with the real URL.
+  - **Live reload:** a `--live` save of `style.css` then `app.js` reloaded the view, and the
+    WebSocket reconnected. `/safe/` (same origin) loads, and navigating to `https://example.com/`
+    is blocked by `will-navigate`.
+  - **Never log permission `details`:** `details.requestingUrl` carries the page URL **with its
+    `#token=`**. The app may log the permission name only.
+  - **Harness quirks:** under Xvfb, Electron's `clipboard.readText()` in the main process hung.
+    A synchronous `xclip` from the main process deadlocks too, because the app owns the
+    selection. Read the clipboard asynchronously, from outside. Run with
+    `app.disableHardwareAcceleration()` under Xvfb (the GPU process crashed otherwise).
+- **M3 shortcuts: Cmd+J / Ctrl+Shift+J are kept.** devc web binds no J, and its only global
+  shortcut is Ctrl/Cmd+Alt+N (pins). An Electron menu accelerator acts before the focused page
+  sees the key, so it reaches neither devc web nor the host shell.
+- **M4** runs on the built app (Verify).
 
 ## Concept boundaries
 

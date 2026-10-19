@@ -1545,8 +1545,13 @@ function placeInFocusedStack(ref) {
  * Ends a pane's process (and closes its Herdr tab), after asking. Once Herdr confirms, every tile
  * showing the pane closes too, rather than staying behind with "Pane gone".
  */
-function killPane(c, pane) {
-  if (!confirm(`Close terminal "${paneLabel(pane).name}"? Its process ends.`)) {
+async function killPane(c, pane) {
+  if (
+    !await confirmDialog(
+      `Close terminal "${paneLabel(pane).name}"? Its process ends.`,
+      { okLabel: 'Close terminal', danger: true },
+    )
+  ) {
     return;
   }
   call({
@@ -2104,15 +2109,116 @@ function projectRequest(type, localFolder, what, extra = {}) {
   send({ type, id, localFolder, ...extra });
 }
 
+// ---------------------------------------------------------------------------------------------
+// Dialogs
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * Asks a yes/no question in a modal `<dialog>`, never the browser's `confirm()`: the desktop app
+ * shows devc web with native dialogs turned off, where `confirm()` would answer no unasked.
+ * Resolves true on the OK button (or Enter on it), false on Cancel or Escape.
+ *
+ * @param {string} message
+ * @param {{okLabel?: string, danger?: boolean}} [opts]
+ * @returns {Promise<boolean>}
+ */
+function confirmDialog(message, { okLabel = 'OK', danger = false } = {}) {
+  return askDialog(message, null, okLabel, danger).then((v) => v !== null);
+}
+
+/**
+ * Asks for a line of text in a modal `<dialog>`, never the browser's `prompt()` (see
+ * {@link confirmDialog}). Resolves the text on OK or Enter, `null` on Cancel or Escape.
+ *
+ * @param {string} message
+ * @param {string} [defaultValue]
+ * @returns {Promise<string | null>}
+ */
+function promptDialog(message, defaultValue = '') {
+  return askDialog(message, defaultValue, 'OK', false);
+}
+
+/**
+ * The one dialog behind {@link confirmDialog} and {@link promptDialog}: with `value` (a string)
+ * it has a text field. Resolves the field's text (`''` without one) on OK, `null` otherwise. The
+ * message is text, never markup.
+ *
+ * @param {string} message @param {string | null} value
+ * @param {string} okLabel @param {boolean} danger
+ * @returns {Promise<string | null>}
+ */
+function askDialog(message, value, okLabel, danger) {
+  return new Promise((resolve) => {
+    let answer = null;
+    const $input = value === null ? null : /** @type {HTMLInputElement} */ (h(
+      'input',
+      {
+        type: 'text',
+        class: 'ask-input',
+        spellcheck: 'false',
+        autocomplete: 'off',
+        'aria-label': message,
+        onkeydown: (e) => {
+          if (e.key !== 'Enter') return;
+          e.preventDefault();
+          ok();
+        },
+      },
+    ));
+    if ($input) $input.value = value ?? '';
+    const ok = () => {
+      answer = $input ? $input.value : '';
+      el.close();
+    };
+    const $ok = /** @type {HTMLButtonElement} */ (h('button', {
+      type: 'button',
+      class: danger ? 'primary danger' : 'primary',
+      onclick: ok,
+    }, okLabel));
+    const el = /** @type {HTMLDialogElement} */ (h(
+      'dialog',
+      {
+        class: 'dialog ask',
+        'aria-label': message,
+        onclose: () => {
+          el.remove();
+          resolve(answer);
+        },
+      },
+      h(
+        'div',
+        { class: 'ask-body' },
+        h('p', { class: 'ask-message' }, message),
+        $input,
+      ),
+      h(
+        'footer',
+        { class: 'dialog-footer ask-footer' },
+        h('button', { type: 'button', onclick: () => el.close() }, 'Cancel'),
+        $ok,
+      ),
+    ));
+    document.body.append(el);
+    el.showModal();
+    if ($input) {
+      $input.focus();
+      $input.select();
+    } else {
+      $ok.focus();
+    }
+  });
+}
+
 function startProject(localFolder) {
   projectOutput.set(localFolder, []);
   projectRequest('start_project', localFolder, 'Start container');
 }
 
-function stopProject(p) {
+async function stopProject(p) {
   if (
-    confirm(
+    await confirmDialog(
       `Stop the container for ${p.name}? Its panes end with it.`,
+      { okLabel: 'Stop container', danger: true },
     )
   ) {
     projectRequest('stop_project', p.localFolder, 'Stop container');
@@ -2436,8 +2542,8 @@ function unpinFile(pin) {
 }
 
 /** Relabels a pin; an empty name, or the file's own, goes back to the file's name. */
-function renameFilePin(pin) {
-  const name = prompt('Pinned file name', filePinName(pin));
+async function renameFilePin(pin) {
+  const name = await promptDialog('Pinned file name', filePinName(pin));
   if (name === null) return;
   const label = name.trim() === basename(pin.path) ? '' : name.trim();
   call({ type: 'rename_pin', pin: pin.id, label }).catch((e) =>
@@ -3267,7 +3373,9 @@ async function deleteEntry(fr, path, kind) {
   const question = kind === 'dir'
     ? `Delete the folder "${name}" and everything in it? This can't be undone.`
     : `Delete "${name}"? This can't be undone.`;
-  if (!confirm(question)) return;
+  if (!await confirmDialog(question, { okLabel: 'Delete', danger: true })) {
+    return;
+  }
   try {
     await call({
       type: 'delete_file',
@@ -3925,8 +4033,8 @@ function paneMenu(rec) {
   const tile = tileShowing(c, pane);
   if (tile) items.push(['Show in layout', () => revealTile(tile.id)]);
   items.push(
-    ['Rename…', () => {
-      const label = prompt(LABELS.renamePrompt, paneTitle(pane));
+    ['Rename…', async () => {
+      const label = await promptDialog(LABELS.renamePrompt, paneTitle(pane));
       if (label) {
         request(
           c.id,

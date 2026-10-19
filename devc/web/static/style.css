@@ -1199,3 +1199,44 @@ button.primary:disabled {
 .new-note-error {
   color: var(--danger);
 }
+
+/* confirmDialog / promptDialog */
+.dialog.ask {
+  grid-template-rows: auto auto;
+  width: min(420px, calc(100vw - 32px));
+  height: fit-content;
+}
+
+.dialog.ask:not([open]) {
+  display: none;
+}
+
+.ask-body {
+  display: grid;
+  gap: 10px;
+  padding: 14px 14px 10px;
+}
+
+.ask-message {
+  margin: 0;
+  white-space: pre-wrap;
+}
+
+.ask-input {
+  padding: 4px 6px;
+  font: inherit;
+  color: var(--text);
+  background: var(--term-bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+
+.ask-footer {
+  justify-content: flex-end;
+}
+
+button.primary.danger {
+  color: #0d0f14;
+  background: var(--danger);
+  border-color: var(--danger);
+}
