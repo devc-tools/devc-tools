@@ -1496,7 +1496,9 @@ function revealTile(tileId) {
 /** Marks the focused tile's Layout row and its pane's Containers row(s). */
 function updateCurrent() {
   const tile = targetTile();
-  const title = windowTitle(tile ? activeFolder(tile) : null);
+  const title = tile
+    ? windowTitle(activeFolder(tile), activeProject(tile))
+    : windowTitle();
   if (document.title !== title) document.title = title;
   const { c } = resolveRef(tile?.ref ?? null);
   const key = c && tile?.ref ? paneKey(c.id, tile.ref.pane_id) : null;
@@ -1525,6 +1527,18 @@ function activeFolder(tile) {
   }
   const { pane } = resolveRef(tile.ref);
   return pane?.foreground_cwd || pane?.cwd || null;
+}
+
+/** A tile's project name, as its container's sidebar row shows it; null for an empty tile. */
+function activeProject(tile) {
+  const localFolder = tile.kind === 'file'
+    ? tile.file?.localFolder
+    : tile.ref?.localFolder;
+  if (!localFolder) return null;
+  const c = containerByFolder(localFolder);
+  if (c) return displayName(c);
+  const p = projects.get(localFolder);
+  return p ? containerLabel(p, projects.values()) : basename(localFolder);
 }
 
 // Hovering a pane's row in either section highlights its rows in the other.
