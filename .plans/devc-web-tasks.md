@@ -144,8 +144,8 @@ applies the change and writes it (as `changePinnedFiles` does).
   state, default open. The header's **+** (and its context menu) opens **New task…**. With no
   tasks, the empty row reads `No tasks`.
 - **Task rows** show the title and, dimmed, the project's label or `not routed`. The tooltip is
-  the whole text. A click opens the task dialog. Menu: `Edit…`, `Delete…` (with a confirm
-  dialog).
+  the whole text. A click opens the task dialog. Hover icons (send, delete) replaced the
+  `Edit…` / `Delete…` menu: see [devc-web-tasks-actions](devc-web-tasks-actions.md).
 - **Sent** row (under the task rows, collapsible, `sentOpen`, default closed): `Sent (n)`.
   Each entry shows the agent icon, the title and the project label dimmed. Its tooltip gives the
   action (`Plan` / `Implement`), the sent time and `cwd`. A click sends `open_sent` and places

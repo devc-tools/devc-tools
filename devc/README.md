@@ -352,7 +352,9 @@ is published from any container: the host server finds devcontainers with
 - **Tasks:** the **Tasks** section, under Pinned, is a to-do list for agents.
   Its **+** opens a dialog: write the task (the first line is its title),
   optionally choose a project and repo, then **Save** it for later or send it
-  straight away. **Send: plan** asks the agent for an implementation plan (a
+  straight away. **New task here…** on a folder (its hover button beside the
+  new-terminal **+**, or its menu) opens the same dialog routed to that folder's
+  project and repo. **Send: plan** asks the agent for an implementation plan (a
   `.plans/` doc if the repo has a `.plans/` folder); **Send: implement** asks
   it to do the task. The agent is Claude, Copilot or pi (opencode can't be
   given a session id), and the container must be running. Sending writes the
@@ -361,6 +363,9 @@ is published from any container: the host server finds devcontainers with
   its session id. The task then moves under **Sent**: clicking it shows that
   terminal while it is still open, or resumes the session in a new one
   (`claude --resume <id>`, `copilot --resume <id>`, `pi --session-id <id>`).
+  Clicking a task edits it. Its hover icons send a routed task for a plan or
+  to implement, to the agent last chosen in the dialog, and the trash can
+  deletes it.
   A sent task's menu has **Back to tasks** and **Remove**. Sending is
   one-way: nothing in a container writes to the list. Tasks are kept in
   `~/.config/devc/tasks.json` (the 50 newest sent ones), shared by every

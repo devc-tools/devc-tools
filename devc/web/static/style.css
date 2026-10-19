@@ -1210,6 +1210,14 @@ button.primary:disabled {
   background: var(--term-bg);
   border: 1px solid var(--border);
   border-radius: 4px;
+  /* A long project label must not widen its `.task-route` column. */
+  min-width: 0;
+}
+
+/* The browser's outline overlaps the select beside it and is clipped at the dialog's edge. */
+.new-note-project:focus {
+  outline: none;
+  border-color: var(--accent);
 }
 
 .new-note-error {

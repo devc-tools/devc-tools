@@ -790,6 +790,7 @@ const LABELS = {
   noPinnedFiles: 'No pinned files',
   tasks: 'Tasks',
   newTask: 'New task…',
+  newTaskHere: 'New task here…',
   noTasks: 'No tasks',
   sentTasks: 'Sent',
   notRouted: 'not routed',
@@ -1341,6 +1342,12 @@ const ICON_PATHS = {
   agent: 'M3 6h10v7H3zM8 3v3M6 9.5v.01M10 9.5v.01M1.5 9v1.5M14.5 9v1.5',
   // A page with a folded corner: a file tile.
   file: 'M4 1.5h5l3 3v10H4zM9 1.5v3h3',
+  // A page of lines: send a task for a plan.
+  plan: 'M4 2h8v12H4zM6 5h4M6 7.5h4M6 10h2.5',
+  // `</>`: send a task to be implemented.
+  implement: 'M5.5 5L2.5 8l3 3M10.5 5l3 3-3 3M9 3.5l-2 9',
+  // A checklist: a new task.
+  task: 'M3 4l1.2 1.2L6.5 3M8.5 4.5H13M3 9l1.2 1.2L6.5 8M8.5 9.5H13',
 };
 
 /**
@@ -2845,21 +2852,22 @@ function taskProjectLabel(localFolder, root) {
     : `${name} · ${basename(root)}`;
 }
 
-/** @param {import('./lib/tasks.js').Task} task */
+/**
+ * A task's row: a click edits it. Its hover buttons send it (to the agent the dialog last sent
+ * to) when it is routed, and delete it.
+ *
+ * @param {import('./lib/tasks.js').Task} task
+ */
 function taskRow(task) {
+  const agentLabel = LABELS.agents[savedTaskAgent(storedTaskAgent())];
   return h(
     'div',
     {
       class: 'row task',
       style: '--depth: 1',
       'data-task': task.id,
-      title: `${task.text}\n\nClick to edit or send it`,
+      title: `${task.text}\n\nClick to edit`,
       onclick: () => openTaskDialog(task),
-      oncontextmenu: (e) =>
-        openMenu(e, [
-          ['Edit…', () => openTaskDialog(task)],
-          ['Delete…', () => void deleteTask(task)],
-        ]),
     },
     h(
       'span',
@@ -2871,7 +2879,81 @@ function taskRow(task) {
         taskProjectLabel(task.localFolder, task.root),
       ),
     ),
+    rowTrail(
+      hoverActions(
+        ...(task.localFolder === undefined ? [] : [
+          iconButton(
+            'plan',
+            `Send to ${agentLabel}: plan`,
+            () => void sendTaskFromRow(task, 'plan'),
+          ),
+          iconButton(
+            'implement',
+            `Send to ${agentLabel}: implement`,
+            () => void sendTaskFromRow(task, 'implement'),
+          ),
+        ]),
+        iconButton('trash', LABELS.deleteEntry, () => void deleteTask(task)),
+      ),
+    ),
   );
+}
+
+/** The agent the task dialog last sent to, as stored; `null` when there is none. */
+function storedTaskAgent() {
+  try {
+    return localStorage.getItem(TASK_AGENT_KEY);
+  } catch {
+    return null;
+  }
+}
+
+/** Tasks with a `send_task` from their row in flight: a second click waits for the first. */
+const sendingTasks = new Set();
+
+/**
+ * Sends a routed task from its row (`send_task`) to the agent the dialog last sent to, and shows
+ * the agent's pane in the focused stack.
+ *
+ * @param {import('./lib/tasks.js').Task} task @param {'plan' | 'implement'} action
+ */
+async function sendTaskFromRow(task, action) {
+  const { localFolder, root } = task;
+  if (localFolder === undefined || root === undefined) return;
+  if (!tiling || sendingTasks.has(task.id)) return;
+  const c = containerByFolder(localFolder);
+  if (!c) {
+    notRunningToast(localFolder, taskTitle(task.text));
+    return;
+  }
+  if (c.state === 'no-session') toast('Starting Herdr…');
+  sendingTasks.add(task.id);
+  let result;
+  try {
+    result = await call({
+      type: 'send_task',
+      task: task.id,
+      localFolder,
+      root,
+      agent: savedTaskAgent(storedTaskAgent()),
+      action,
+    });
+  } catch (e) {
+    if (e?.code === 'not_running') {
+      notRunningToast(localFolder, taskTitle(task.text));
+    } else errorToast(`Send failed: ${e?.message ?? e}`);
+    return;
+  } finally {
+    sendingTasks.delete(task.id);
+  }
+  if (typeof result?.pane_id === 'string') {
+    placePane(localFolder, result, placeInFocusedStack);
+  }
+}
+
+/** A new task routed to folder root `fr`'s project and repo. */
+function newTaskIn(fr) {
+  openTaskDialog(undefined, { localFolder: fr.localFolder, root: fr.root });
 }
 
 /** @param {import('./lib/tasks.js').SentTask} s */
@@ -3002,13 +3084,17 @@ let taskDialog = null;
  * or none) and an agent. **Save** keeps it on the list; **Send: plan** / **Send: implement** save
  * it, then send it (`send_task`) and show the agent's pane.
  *
+ * A new task opens routed to `route` when it is given, else to the focused tile's project.
+ *
  * @param {import('./lib/tasks.js').Task} [task]
+ * @param {{localFolder: string, root: string}} [route]
  */
-function openTaskDialog(task) {
+function openTaskDialog(task, route) {
   taskDialog?.el.close();
   const candidates = [...projects.values()].sort(byPinThenRecent);
   const focused = targetTile();
-  const near = focused?.ref?.localFolder ?? focused?.file?.localFolder;
+  const near = route?.localFolder ?? focused?.ref?.localFolder ??
+    focused?.file?.localFolder;
   const initial = task
     ? task.localFolder ?? ''
     : near && projects.has(near)
@@ -3056,11 +3142,7 @@ function openTaskDialog(task) {
       h('option', { value: id }, LABELS.agents[id])
     ),
   ));
-  let savedAgent = null;
-  try {
-    savedAgent = localStorage.getItem(TASK_AGENT_KEY);
-  } catch { /* unavailable: Claude */ }
-  $agent.value = savedTaskAgent(savedAgent);
+  $agent.value = savedTaskAgent(storedTaskAgent());
   const $error = h('div', { class: 'new-note-error', hidden: true });
   const button = (
     label,
@@ -3131,7 +3213,7 @@ function openTaskDialog(task) {
   };
   document.body.append(el);
   el.showModal();
-  fillTaskRepos(task?.root ?? null);
+  fillTaskRepos(task?.root ?? route?.root ?? null);
   $text.focus();
 }
 
@@ -3637,12 +3719,14 @@ function openHerdrTab(fr, path, reuse, agent) {
 
 /**
  * A row's + (the Terminals row, or a folder's in a running container): opens
- * {@link newTerminalMenuItems} for folder `path` under the row's right end.
+ * {@link newTerminalMenuItems} for folder `path` under the row's right end. Before it, a button
+ * for a new task routed to the folder's project and repo.
  *
  * @param {HTMLElement} row @param {FileRoot} fr @param {string} path
  */
 function newTerminalButton(row, fr, path) {
   return hoverActions(
+    iconButton('task', LABELS.newTaskHere, () => newTaskIn(fr)),
     iconButton('plus', LABELS.newTerminal, () => {
       // Under the + at the row's right end. The row, not the button: hover buttons can be
       // hidden (zero-sized) by the time the click lands.
@@ -3698,6 +3782,7 @@ function dirMenuItems(fr, path) {
     fr.container
       ? [LABELS.newTerminalHere, () => newShellIn(fr, path)]
       : [LABELS.openHere, () => openHerdrTab(fr, path, true)],
+    ...(fr.container ? [] : [[LABELS.newTaskHere, () => newTaskIn(fr)]]),
     [LABELS.newFile, () => startNewEntry(fr, path, 'file')],
     [LABELS.newFolder, () => startNewEntry(fr, path, 'dir')],
     ['Refresh', () => fileTree(fr).refresh(path)],
