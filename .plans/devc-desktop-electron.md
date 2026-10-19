@@ -139,10 +139,11 @@ Electron 44.5.0 (Chromium 152) under Xvfb in the container.
 
 Where the build differs from the contracts above, and why:
 
-- **The macOS app is cross-built on Linux.** `npm run build:mac` packs `dist/mac-arm64/devc.app`
-  with `npmRebuild: false`.
+- **The macOS apps are cross-built on Linux.** `npm run build:mac` packs `dist/mac/devc.app`
+  (Intel, for the user's host Mac) and `dist/mac-arm64/devc.app` (Apple silicon, their M2), with
+  `npmRebuild: false`.
   - `node-pty` 1.1.0's N-API prebuild (`prebuilds/darwin-arm64/pty.node` and `spawn-helper`)
-    is what loads on the Mac. The Linux and Windows binaries are excluded from the Mac build
+    and `darwin-x64` are what load on the Mac, by CPU. The Linux and Windows binaries are excluded from the Mac build
     (`build.mac.files`).
   - The app is unsigned. The README gives the one-time `codesign --sign -` if macOS refuses it.
   - Building on the Mac (`npm ci && npm run build`) also works, and was not needed.
@@ -191,7 +192,7 @@ Where the build differs from the contracts above, and why:
   terminal, and the README says so.
 - **Not verified:** anything on macOS, paste into a real devc web terminal, a page swallowing
   the toggle accelerator while it has focus (by design, the menu item still works), and the
-  cross-built `devc.app` actually launching.
+  cross-built apps (Intel and Apple silicon) actually launching.
 
 ## Concept boundaries
 

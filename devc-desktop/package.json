@@ -12,7 +12,7 @@
     "start": "node build.mjs && electron .",
     "rebuild": "electron-rebuild -f -w node-pty",
     "build": "node build.mjs && electron-builder --publish never",
-    "build:mac": "node build.mjs && electron-builder --mac dir --arm64 --publish never -c.npmRebuild=false"
+    "build:mac": "node build.mjs && electron-builder --mac dir --x64 --arm64 --publish never -c.npmRebuild=false"
   },
   "dependencies": {
     "node-pty": "1.1.0"

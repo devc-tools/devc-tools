@@ -21,34 +21,50 @@ Run these in this directory. You need Node 24 and npm 11.
 ```sh
 npm ci              # dependencies; npm 11 runs only the install scripts listed under
                     # "allowScripts" in package.json (esbuild, node-pty)
-npm run build       # for this OS: dist/linux-unpacked/ on Linux, dist/mac-arm64/devc.app on macOS
-npm run build:mac   # devc.app for Apple silicon from Linux (dist/mac-arm64/devc.app)
+npm run build       # for this OS and CPU: dist/linux-unpacked/ on Linux, dist/mac/ or
+                    # dist/mac-arm64/ on macOS
+npm run build:mac   # both macOS apps from Linux: dist/mac/devc.app (Intel) and
+                    # dist/mac-arm64/devc.app (Apple silicon)
 ```
 
-**Building the macOS app from a Linux container.** `npm run build:mac` cross-builds it, using
-`node-pty`'s own macOS prebuild, so nothing is compiled. The checkout is bind-mounted, so the
-app lands on the Mac's disk. It is **unsigned**. If macOS refuses to open it, sign it ad hoc
-once on the Mac:
+**Building the macOS apps from a Linux container.** `npm run build:mac` cross-builds an Intel
+and an Apple silicon app. It uses `node-pty`'s own macOS prebuilds, so nothing is compiled, and
+each app carries both, loading the one for its CPU. The checkout is bind-mounted, so the apps
+land on the Mac's disk. They are **unsigned**. If macOS refuses to open one, sign it ad hoc once
+on that Mac:
 
 ```sh
-codesign --force --deep --sign - dist/mac-arm64/devc.app
+codesign --force --deep --sign - dist/mac-arm64/devc.app   # or dist/mac/devc.app (Intel)
+```
+
+**Taking an app to another Mac.** Zip it with `ditto`, which keeps the bundle intact:
+
+```sh
+ditto -c -k --keepParent dist/mac-arm64/devc.app devc-arm64.zip
+```
+
+A copy that arrives by download, AirDrop or Messages is quarantined, and macOS blocks an
+unsigned quarantined app. Clear the quarantine there, then sign it ad hoc:
+
+```sh
+xattr -dr com.apple.quarantine devc.app && codesign --force --deep --sign - devc.app
 ```
 
 Building on the Mac itself (`npm ci && npm run build`) also works. Its `node-pty` comes from
 the same prebuild.
 
-The app is about 330 MB on macOS and 290 MB on Linux, unpacked.
+Each app is about 330 MB on macOS and 290 MB on Linux, unpacked.
 
 ## Run
 
-Open `dist/mac-arm64/devc.app`, or run `dist/linux-unpacked/devc-desktop` on Linux. From
+Open `dist/mac/devc.app` (Intel) or `dist/mac-arm64/devc.app` (Apple silicon), or run `dist/linux-unpacked/devc-desktop` on Linux. From
 source, `npm start`.
 
 A terminal launch passes its arguments on to `devc web`. Chromium's own switches
 (`--remote-debugging-port`, `--inspect`, `--no-sandbox` and the like) are not passed on.
 
 ```sh
-dist/mac-arm64/devc.app/Contents/MacOS/devc --live-yolo
+dist/mac/devc.app/Contents/MacOS/devc --live-yolo
 ```
 
 Launched with no arguments (from the Dock or Finder), the app reads them from
