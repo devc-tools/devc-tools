@@ -23,7 +23,7 @@ buttons and a reload check to Validation.
 
 The page is the only thing that changes. There are no new messages and no server changes. It
 edits `app.js`, as do the other open `devc web` page plans. Implement it on top of
-[devc-web-tasks-grouped](devc-web-tasks-grouped.md), because `taskGroupsClosed` and
+[devc-web-tasks-grouped](../devc-web-tasks-grouped.md), because `taskGroupsClosed` and
 `groupTasks` come from that plan.
 
 ## Decisions
@@ -164,7 +164,8 @@ what is saved or to its defaults.
     shown collapsed, while one for `/src/new` (unknown at the click) is open. A task with a new
     route added after the click shows an open group;
   - the sidebar's width and hidden state are unchanged, and there are no page errors.
-- [ ] Ask the user to try both Collapse all buttons and a reload in their tab.
+- [x] Ask the user to try both Collapse all buttons and a reload in their tab (2026-10-19: the
+      user confirmed it works).
 
 ## Verification (2026-10-19)
 

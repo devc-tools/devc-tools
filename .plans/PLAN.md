@@ -144,13 +144,6 @@
   offers **New task here…**. Closed nodes are kept as `taskGroupsClosed`. Sent is unchanged.
   **Implemented; the user's look in their tab outstanding.**
 
-- [devc-web-sidebar-collapse-all](devc-web-sidebar-collapse-all.md) — after devc-web-tasks-grouped.
-  Page-only: a **Collapse all** hover icon (VS Code's stacked squares with a minus) on the
-  **Tasks** and **Containers** headings closes every row under that heading, at every level, and
-  saves that. Open/closed state is already saved per browser for every collapsible row
-  (`devc-web-sidebar-v1`); this plan only adds a reload check to Validation.
-  **Implemented; the user's check in their tab outstanding.**
-
 ### Standing rules for Feature work
 
 Not a plan group — these are the conventions every Feature plan in this file
@@ -193,6 +186,13 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
   take it too.
 
 ### Completed
+
+- [devc-web-sidebar-collapse-all](archived/devc-web-sidebar-collapse-all.md) — ✅ Done: a
+  **Collapse all** hover icon (VS Code's stacked squares with a minus) on the **Tasks** and
+  **Containers** headings closes every row under that heading, at every level, and saves that
+  (`devc-web-sidebar-v1`, already saved per browser for every collapsible row). Validated by
+  `deno task check`, `deno task test`, `deno fmt --check` and headless Chromium with a fake
+  WebSocket (29 checks, including a reload); the user confirmed it in their tab.
 
 - [devc-web-pinned-files](archived/devc-web-pinned-files.md) — ✅ Done: notes as pinned files. A
   **Pinned** section at the top of the sidebar, stored server-side in
@@ -2325,4 +2325,4 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
 | `devc web` empty Pinned hidden; task dialog: Save primary, send icons in header                                    | [devc-web-pinned-hide-save-primary](devc-web-pinned-hide-save-primary.md)          | in progress |
 | `devc web` task default — a pin in the task dialog sets the default project, repo and agent                        | [devc-web-task-default](devc-web-task-default.md)                                  |             |
 | `devc web` grouped tasks — one collapsible node per project + repo route, `not routed` last                        | [devc-web-tasks-grouped](devc-web-tasks-grouped.md)                                | in progress |
-| `devc web` sidebar Collapse all — on the Tasks and Containers headings, at every level                             | [devc-web-sidebar-collapse-all](devc-web-sidebar-collapse-all.md)                  | in progress |
+| `devc web` sidebar Collapse all — on the Tasks and Containers headings, at every level                             | [devc-web-sidebar-collapse-all](archived/devc-web-sidebar-collapse-all.md)         | complete    |
