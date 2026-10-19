@@ -23,7 +23,7 @@ buttons and a reload check to Validation.
 
 The page is the only thing that changes. There are no new messages and no server changes. It
 edits `app.js`, as do the other open `devc web` page plans. Implement it on top of
-[devc-web-tasks-grouped](../devc-web-tasks-grouped.md), because `taskGroupsClosed` and
+[devc-web-tasks-grouped](devc-web-tasks-grouped.md), because `taskGroupsClosed` and
 `groupTasks` come from that plan.
 
 ## Decisions

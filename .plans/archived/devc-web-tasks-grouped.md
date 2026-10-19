@@ -20,11 +20,11 @@ TASKS                          +         TASKS                          +
 ```
 
 The page is the only thing that changes. There are no new messages and no server or store
-changes. Builds on [devc-web-tasks](devc-web-tasks.md),
-[devc-web-tasks-actions](devc-web-tasks-actions.md) and
+changes. Builds on [devc-web-tasks](../devc-web-tasks.md),
+[devc-web-tasks-actions](../devc-web-tasks-actions.md) and
 [devc-web-pinned-hide-save-primary](devc-web-pinned-hide-save-primary.md) (all edit `app.js`;
 implement this one on top of them). It is independent of
-[devc-web-task-default](devc-web-task-default.md): that one changes the task dialog, this one
+[devc-web-task-default](../devc-web-task-default.md): that one changes the task dialog, this one
 only the Tasks section rows, so either can go first.
 
 ## Decisions
@@ -150,7 +150,8 @@ or protocol change.
   - a task row's `implement` icon still sends exactly one `send_task` with its route;
   - with `tasks: []` the section shows `No tasks` and no `.row.task-group`;
   - no page errors.
-- [ ] Ask the user to look at the grouped Tasks section in their tab.
+- [x] Ask the user to look at the grouped Tasks section in their tab (2026-10-19: the user
+      confirmed it looks good).
 
 ## Verification (2026-10-19)
 

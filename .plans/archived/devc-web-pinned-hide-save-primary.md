@@ -1,6 +1,6 @@
 # devc-web-pinned-hide-save-primary
 
-Two page-only changes to `devc web`, after [devc-web-tasks-actions](devc-web-tasks-actions.md)
+Two page-only changes to `devc web`, after [devc-web-tasks-actions](../devc-web-tasks-actions.md)
 (both edit `app.js`; implement this one on top of it):
 
 1. **No empty Pinned section.** While nothing is pinned, the sidebar has no Pinned section: no
@@ -156,8 +156,9 @@ changes to the Tasks section or other dialogs.
     textarea does the same;
   - with the project chosen, clicking the `implement` icon sends `add_task` then `send_task`
     with `action: 'implement'` and `agent: 'pi'`, and the dialog closes.
-- [ ] Ask the user to look at the sidebar with no pins and at the New task dialog's header icons
-      and footer in their tab.
+- [x] Ask the user to look at the sidebar with no pins and at the New task dialog's header icons
+      and footer in their tab. (2026-10-19: the user confirmed the hidden
+      Pinned section looks good; the dialog's header icons and footer were not mentioned).
 
 ## Relevant Files
 

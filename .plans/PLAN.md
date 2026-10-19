@@ -124,25 +124,11 @@
   (`gitProblem`: `detached HEAD`, `git fetch: timed out`, or git's own error line).
   **Implemented; the user's check in their open tab outstanding.**
 
-- [devc-web-pinned-hide-save-primary](devc-web-pinned-hide-save-primary.md) — after
-  devc-web-tasks-actions. Page-only: the sidebar's Pinned section is not shown while nothing is
-  pinned (so **New note…** needs one pin first). The New task dialog's footer becomes
-  **Cancel**, **Save** (primary), and the two sends move to `plan` / `implement` icon buttons
-  in its header.
-  **Implemented; the user's look in their tab outstanding.**
-
 - [devc-web-task-default](devc-web-task-default.md) — after devc-web-pinned-hide-save-primary.
   Page-only: a pin icon in the task dialog makes its Project, Repo and Agent the default for new
   tasks (`localStorage` `devc-web-task-default-v1`, per window; unrouted pins only the agent).
   A pinned route beats the focused tile's project; **New task here…** and an edited task's own
   route still win. Row sends use the default's agent over the last sent one.
-
-- [devc-web-tasks-grouped](devc-web-tasks-grouped.md) — after devc-web-pinned-hide-save-primary.
-  Page-only: the Tasks section groups tasks under one collapsible node per project + repo route
-  (`project` / `project · repo`, with a count), in the order of each route's first task, and a
-  last `not routed` node. Task rows move under them without their dimmed route. A routed node
-  offers **New task here…**. Closed nodes are kept as `taskGroupsClosed`. Sent is unchanged.
-  **Implemented; the user's look in their tab outstanding.**
 
 ### Standing rules for Feature work
 
@@ -186,6 +172,22 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
   take it too.
 
 ### Completed
+
+- [devc-web-tasks-grouped](archived/devc-web-tasks-grouped.md) — ✅ Done: the Tasks section
+  groups tasks under one collapsible node per project + repo route (`project` /
+  `project · repo`, with a count), in the order of each route's first task, with a last
+  `not routed` node; task rows sit under them without their dimmed route; a routed node offers
+  **New task here…**; closed nodes are kept as `taskGroupsClosed`. Validated by
+  `deno task check`, `deno task test`, `deno fmt --check`, `groupTasks` unit tests and headless
+  Chromium with a fake WebSocket (14 checks, including a reload); the user confirmed it in their
+  tab.
+
+- [devc-web-pinned-hide-save-primary](archived/devc-web-pinned-hide-save-primary.md) — ✅ Done:
+  the sidebar has no Pinned section while nothing is pinned (so **New note…** needs one pin
+  first), and the New task dialog's footer is **Cancel**, **Save** (primary) with the two sends
+  as `plan` / `implement` icons in its header. Validated by `deno task check`, `deno task test`,
+  `deno fmt --check` and headless Chromium with a fake WebSocket; the user confirmed the hidden
+  Pinned section in their tab (the dialog's new header and footer were not mentioned).
 
 - [devc-web-sidebar-collapse-all](archived/devc-web-sidebar-collapse-all.md) — ✅ Done: a
   **Collapse all** hover icon (VS Code's stacked squares with a minus) on the **Tasks** and
@@ -2322,7 +2324,7 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
 | `devc web` tasks — a host-side task list, sent one-way to an agent with a known session id                         | [devc-web-tasks](devc-web-tasks.md)                                                | in progress |
 | `devc web` task actions — new task from a folder, send/delete icons on task rows, dialog focus ring                | [devc-web-tasks-actions](devc-web-tasks-actions.md)                                | in progress |
 | `devc web` worktree git marks — local fetch timeout, per-folder broadcast, `?` with the reason                     | [devc-web-worktree-git-marks](devc-web-worktree-git-marks.md)                      | in progress |
-| `devc web` empty Pinned hidden; task dialog: Save primary, send icons in header                                    | [devc-web-pinned-hide-save-primary](devc-web-pinned-hide-save-primary.md)          | in progress |
+| `devc web` empty Pinned hidden; task dialog: Save primary, send icons in header                                    | [devc-web-pinned-hide-save-primary](archived/devc-web-pinned-hide-save-primary.md) | complete    |
 | `devc web` task default — a pin in the task dialog sets the default project, repo and agent                        | [devc-web-task-default](devc-web-task-default.md)                                  |             |
-| `devc web` grouped tasks — one collapsible node per project + repo route, `not routed` last                        | [devc-web-tasks-grouped](devc-web-tasks-grouped.md)                                | in progress |
+| `devc web` grouped tasks — one collapsible node per project + repo route, `not routed` last                        | [devc-web-tasks-grouped](archived/devc-web-tasks-grouped.md)                       | complete    |
 | `devc web` sidebar Collapse all — on the Tasks and Containers headings, at every level                             | [devc-web-sidebar-collapse-all](archived/devc-web-sidebar-collapse-all.md)         | complete    |

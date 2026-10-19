@@ -145,7 +145,7 @@ applies the change and writes it (as `changePinnedFiles` does).
   tasks, the empty row reads `No tasks`.
 - **Task rows** show the title and, dimmed, the project's label or `not routed`. They are now
   grouped under a node per project and repo, and that label moved to the node: see
-  [devc-web-tasks-grouped](devc-web-tasks-grouped.md). The tooltip is
+  [devc-web-tasks-grouped](archived/devc-web-tasks-grouped.md). The tooltip is
   the whole text. A click opens the task dialog. Hover icons (send, delete) replaced the
   `Edit…` / `Delete…` menu: see [devc-web-tasks-actions](devc-web-tasks-actions.md).
 - **Sent** row (under the task rows, collapsible, `sentOpen`, default closed): `Sent (n)`.
@@ -161,7 +161,7 @@ applies the change and writes it (as `changePinnedFiles` does).
     `devc-web-task-agent-v1`), else Claude.
 
   Footer: **Cancel**, **Save** (primary); **Send: plan** and **Send: implement** are icon
-  buttons in the header (see [devc-web-pinned-hide-save-primary](devc-web-pinned-hide-save-primary.md)). A new task with no route defaults its
+  buttons in the header (see [devc-web-pinned-hide-save-primary](archived/devc-web-pinned-hide-save-primary.md)). A new task with no route defaults its
   project to the focused tile's project. The send buttons are disabled while not routed. A send
   saves the text and route first (`add_task` or `update_task`), then sends `send_task`. On
   success, the dialog closes and the pane is placed in the focused stack. An error is shown
