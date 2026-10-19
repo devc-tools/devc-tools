@@ -1256,3 +1256,51 @@ button.primary.danger {
   background: var(--danger);
   border-color: var(--danger);
 }
+
+/* Tasks */
+.row.sent-tasks {
+  color: var(--muted);
+}
+
+.dialog.task-dialog {
+  width: min(560px, calc(100vw - 32px));
+}
+
+.task-text {
+  width: 100%;
+  min-height: 120px;
+  padding: 6px 8px;
+  font: inherit;
+  color: var(--text);
+  background: var(--term-bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  resize: vertical;
+}
+
+.task-text:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.task-route {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 10px;
+}
+
+.task-route label {
+  display: grid;
+  gap: 4px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.task-route label[hidden] {
+  display: none;
+}
+
+.task-buttons {
+  display: inline-flex;
+  gap: 6px;
+}

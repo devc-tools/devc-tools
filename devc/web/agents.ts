@@ -17,3 +17,80 @@ export const AGENT_COMMANDS: Readonly<Record<AgentId, string>> = {
 export function isAgentId(v: unknown): v is AgentId {
   return typeof v === 'string' && Object.hasOwn(AGENT_COMMANDS, v);
 }
+
+// Agents a task can be sent to (`send_task`): those whose CLI takes a session id chosen at
+// launch, so the task's Sent entry can find the session again. opencode can only continue a
+// session it already has. Every command is built from fixed text and the server's uuid; the
+// task's own text goes in a file (`taskFilePath`), never on the command line.
+
+export type SessionAgentId = 'claude' | 'copilot' | 'pi';
+
+export type TaskAction = 'plan' | 'implement';
+
+const SESSION_AGENTS: readonly SessionAgentId[] = ['claude', 'copilot', 'pi'];
+
+export function isSessionAgentId(v: unknown): v is SessionAgentId {
+  return SESSION_AGENTS.includes(v as SessionAgentId);
+}
+
+export function isTaskAction(v: unknown): v is TaskAction {
+  return v === 'plan' || v === 'implement';
+}
+
+/** The folder in the container a sent task's text is written to. */
+export const TASK_FILE_DIR = '/tmp/devc-tasks';
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
+function checkedUuid(sessionId: string): string {
+  if (!UUID.test(sessionId)) throw new Error(`not a uuid: ${sessionId}`);
+  return sessionId;
+}
+
+/** Where a sent task's text is written in the container: named by its session id. */
+export function taskFilePath(sessionId: string): string {
+  return `${TASK_FILE_DIR}/${checkedUuid(sessionId)}.md`;
+}
+
+/** The agent's first prompt: points at the task file. Never contains `'`. */
+export function taskPrompt(action: TaskAction, file: string): string {
+  return action === 'implement'
+    ? `Implement the task described in ${file}.`
+    : `Write an implementation plan for the task described in ${file}, following the ` +
+      `conventions this project uses for plans (a .plans/ doc if the project has a .plans/ ` +
+      `folder). Do not implement it yet.`;
+}
+
+/** The command typed into a new tab's shell to start `agent` on a task, as session `sessionId`. */
+export function startTaskCommand(
+  agent: SessionAgentId,
+  sessionId: string,
+  action: TaskAction,
+): string {
+  const id = checkedUuid(sessionId);
+  const prompt = `'${taskPrompt(action, taskFilePath(id))}'`;
+  switch (agent) {
+    case 'claude':
+      return `claude --session-id ${id} ${prompt}`;
+    case 'copilot':
+      return `copilot --session-id ${id} -i ${prompt}`;
+    case 'pi':
+      return `pi --session-id ${id} ${prompt}`;
+  }
+}
+
+/** The command typed into a new tab's shell to resume session `sessionId`. */
+export function resumeTaskCommand(
+  agent: SessionAgentId,
+  sessionId: string,
+): string {
+  const id = checkedUuid(sessionId);
+  switch (agent) {
+    case 'claude':
+      return `claude --resume ${id}`;
+    case 'copilot':
+      return `copilot --resume ${id}`;
+    case 'pi':
+      return `pi --session-id ${id}`;
+  }
+}

@@ -102,9 +102,10 @@ The prompts contain no `'`, so the single-quoted forms below are the exact text 
 Prompts:
 
 - `implement`: `Implement the task described in <file>.`
-- `plan`: `Write an implementation plan for the task described in <file>, following this
-  project's conventions for plans (a .plans/ doc if the project has a .plans/ folder). Do not
-  implement it yet.` (one line)
+- `plan`: `Write an implementation plan for the task described in <file>, following the
+  conventions this project uses for plans (a .plans/ doc if the project has a .plans/ folder).
+  Do not implement it yet.` (one line). **No `'` in either prompt**: it is single-quoted on the
+  command line (a test enforces it).
 
 The file's content is the task text plus a trailing `\n`. It is written as the container's
 remote user with `sh -c 'mkdir -p "$1" && cat > "$2"' sh /tmp/devc-tasks <file>`, through
@@ -170,21 +171,22 @@ starting a stopped container from Send, choosing a subfolder.
 
 ## Checklist
 
-- [ ] `devc/web/tasks.ts`: store (read/write/trim), pure list changes, title, `tasksMessage`
-- [ ] `devc/web/agents.ts`: session agents, start/resume command builders, prompts
-- [ ] `devc/web/container_files.ts`: write a file in a container through stdin
-- [ ] `devc/web/protocol.ts`: the six messages
-- [ ] `devc/web/server.ts`: handlers, `tasks` on connect and broadcast, file watch
-- [ ] `devc/web/static/lib/tasks.js` + `app.js` + `style.css`: Tasks section, Sent, dialog
-- [ ] Tests: `web_tasks_test.ts`, `web_tasks_page_test.ts`, parser cases in `web_server_test.ts`,
+- [x] `devc/web/tasks.ts`: store (read/write/trim), pure list changes, title, `tasksMessage`
+- [x] `devc/web/agents.ts`: session agents, start/resume command builders, prompts
+- [x] `devc/web/container_files.ts`: write a file in a container through stdin
+- [x] `devc/web/protocol.ts`: the six messages
+- [x] `devc/web/server.ts`: handlers, `tasks` on connect and broadcast, file watch
+- [x] `devc/web/static/lib/tasks.js` + `app.js` + `style.css`: Tasks section, Sent, dialog
+- [x] Tests: `web_tasks_test.ts`, `web_tasks_page_test.ts`, parser cases in `web_tasks_test.ts`,
       write helper in `web_container_files_test.ts`
-- [ ] Docs: `devc/README.md` devc web section, `.plans/devc-web.md` protocol tables
+- [x] Docs: `devc/README.md` devc web section, `.plans/devc-web.md` protocol tables
 
 ## Validation
 
-- [ ] `cd devc && deno task check && deno task test` pass
-- [ ] `deno fmt --check` passes for every touched file
-- [ ] Unit tests cover:
+- [x] `cd devc && deno task check && deno task test` pass (see Verification: one unrelated
+      failure from git-ignored `devc-core/dist/`)
+- [x] `deno fmt --check` passes for every touched file
+- [x] Unit tests cover:
   - the store: missing or corrupt file, malformed and repeated entries, atomic write, trimming
     `sent` to 50, `last` never in the message;
   - the command builders: the exact strings in the table above for all three agents and both
@@ -192,10 +194,10 @@ starting a stopped container from Send, choosing a subfolder.
   - `open_sent`'s reuse decision: alive, dead, or in another container;
   - the parsers: unknown agent, `opencode`, a bad action, a route with only one of its two
     fields, empty text, text over 20 000.
-- [ ] Each CLI really honours a chosen id. `claude -p --session-id <uuid> 'Reply OK'`, then
+- [x] Each CLI really honours a chosen id. `claude -p --session-id <uuid> 'Reply OK'`, then
       `claude -p --resume <uuid> 'What did you reply?'`, recalls it. Do the same for copilot
       and pi where they are signed in here; record any that could not be run.
-- [ ] Headless browser against the page with a fake WebSocket:
+- [x] Headless browser against the page with a fake WebSocket:
   - New task saves (`add_task`), and the row shows the title and `not routed`;
   - edit changes the route (`update_task`);
   - Send: implement sends `update_task` then `send_task` and places the pane;
@@ -205,6 +207,43 @@ starting a stopped container from Send, choosing a subfolder.
 - [ ] Ask the user to check, in their tab: send a real task to Claude in a running project,
       and see the tab named after it with the task file read; close that tab, then click the
       Sent entry and see the conversation resumed.
+
+## Verification (2026-10-19)
+
+- `deno task check` passes. `deno task test`: 481 passed, 1 failed. The failure is
+  `docker_exec_single_path_test.ts`, which finds `docker exec` in
+  `devc-core/dist/container.d.ts`, a git-ignored build output from earlier the same day. It
+  fails the same way with this plan's changes stashed. The 68 tests in the touched test files
+  all pass. `deno fmt --check` passes for every touched file.
+- Session ids, run here with a chosen uuid and then resumed with `-p`: **claude** 2.1.303 and
+  **pi** 1.3.0 both recalled the first answer (pi prints "No project session found … creating
+  a new session with that id" on the first run). **copilot** 1.0.98 is not signed in here, so
+  it could not be run. Its own error output lists `copilot --session-id=<valid-uuid>` to
+  start a new session with that id.
+- The real server (this checkout's `main.ts web`, a stub `docker`, a scratch `HOME` with one
+  project), driven by a Deno WebSocket client: `tasks` on connect; `add_task` unrouted and
+  routed; unknown project, unknown repo and empty text refused with `bad_request`;
+  `update_task` and an unknown id `not_found`; `send_task` with no container `not_running`;
+  `opencode` refused with `bad_request`; unknown task `not_found` for `send_task`, `open_sent`
+  and `restore_task`; `delete_task` twice (`not_found` the second time); a sent entry written
+  to the file from outside was broadcast with `last` left out; `open_sent` for it gave
+  `not_running`; and `restore_task` moved it back, routed.
+- The page in headless Chromium (Playwright) against `devc/web/static`, with a fake
+  WebSocket: the sections in order (Pinned, Tasks, Layout, Containers) and `No tasks`; in the
+  New task dialog, Send disabled and Repo hidden while not routed; Save sends `add_task`
+  and the row reads `not routed`; editing keeps the text, shows Repo for a two-repo
+  project, and **Send: implement** with Pi sends `update_task` then `send_task` (route
+  `/src/app` + `/src/lib`), closes the dialog, opens a tile and saves the agent; `Sent (1)`
+  with the pi icon, the label `app · lib` and its tooltip; a click sends `open_sent`; the menu
+  (Open session, Copy task text, Back to tasks, Remove); Back to tasks sends `restore_task`; the
+  dialog reopens on its route and agent; Delete… confirms in the in-page dialog, then sends
+  `delete_task`; empty text is refused in the page; Ctrl+Enter saves (routed to the focused
+  tile's project). No page errors (the one 404 is the static server's missing favicon).
+- **Not verified — needs the user's tab:** a real send into a running container (the task
+  file written by `docker exec -i`, the agent starting in the repo, the tab named after the
+  task), and resuming from Sent after closing that tab. There is no Docker here. Under
+  `devc web --live` the installed server doesn't know the new messages, so this needs
+  `--live-yolo` or an updated `devc`.
 
 ## Relevant Files
 
@@ -218,7 +257,7 @@ starting a stopped container from Send, choosing a subfolder.
 - `devc/web/static/style.css`
 - `devc/tests/web_tasks_test.ts` (new)
 - `devc/tests/web_tasks_page_test.ts` (new)
-- `devc/tests/web_server_test.ts`
+- `devc/deno.json` (the `check` task)
 - `devc/tests/web_container_files_test.ts`
 - `devc/README.md`
 - `.plans/devc-web.md`

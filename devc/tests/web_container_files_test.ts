@@ -13,6 +13,8 @@ import {
   readContainerFile,
   renameArgv,
   renameContainerEntry,
+  writeArgv,
+  writeContainerFile,
 } from '../web/container_files.ts';
 import { FilesError, MAX_READ_BYTES } from '../web/files.ts';
 
@@ -450,4 +452,67 @@ Deno.test('deleteContainerEntry deletes a file, a link (not its target) and a fo
   } finally {
     await Deno.remove(dir, { recursive: true });
   }
+});
+
+Deno.test('writeContainerFile pipes the text to sh as the remote user, making the folder', async () => {
+  const dir = await Deno.realPath(await Deno.makeTempDir());
+  try {
+    const calls: string[][] = [];
+    const sub = join(dir, 'devc-tasks');
+    const file = join(sub, "it's.md");
+    await writeContainerFile(
+      info,
+      sub,
+      file,
+      'Fix $(rm -rf /) `now`\n',
+      async (args, input) => {
+        calls.push(args);
+        const cmd = args.slice(args.indexOf(info.containerId) + 1);
+        const child = new Deno.Command(cmd[0], {
+          args: cmd.slice(1),
+          stdin: 'piped',
+          stdout: 'piped',
+          stderr: 'piped',
+        }).spawn();
+        const w = child.stdin.getWriter();
+        await w.write(input);
+        await w.close();
+        const out = await child.output();
+        return {
+          code: out.code,
+          stdout: out.stdout,
+          stderr: new TextDecoder().decode(out.stderr),
+        };
+      },
+    );
+    assertEquals(await Deno.readTextFile(file), 'Fix $(rm -rf /) `now`\n');
+    const args = calls[0];
+    assertEquals(args[1], '-i');
+    assertEquals(args.slice(args.indexOf(info.containerId) + 1), [
+      ...writeArgv(sub, file),
+    ]);
+  } finally {
+    await Deno.remove(dir, { recursive: true });
+  }
+});
+
+Deno.test('writeContainerFile: a stopped container is not_running', async () => {
+  const err = await assertRejects(
+    () =>
+      writeContainerFile(
+        info,
+        '/tmp/x',
+        '/tmp/x/a.md',
+        'a',
+        () =>
+          Promise.resolve({
+            code: 1,
+            stdout: new Uint8Array(),
+            stderr:
+              'Error response from daemon: container c0ffee is not running',
+          }),
+      ),
+    FilesError,
+  );
+  assertEquals(err.code, 'not_running');
 });

@@ -106,6 +106,7 @@
   goes to `/tmp/devc-tasks/<uuid>.md` in the container, and the agent starts with that uuid as
   its session id. A **Sent** history keeps the session id and repo, so a click reopens the live
   pane or resumes the session in a new tab. Agents never write back to the list.
+  **Implemented; a real send and resume in the user's tab outstanding.**
 
 ### Standing rules for Feature work
 

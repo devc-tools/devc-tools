@@ -33,6 +33,7 @@ import {
   readContainerBytes,
   readContainerFile,
   renameContainerEntry,
+  writeContainerFile,
 } from './container_files.ts';
 import { loadGlobalConfig } from '@devc-tools/core/config.ts';
 import {
@@ -69,7 +70,27 @@ import {
   snapshotPanes,
 } from './herdr_bridge.ts';
 import { ControllerManager, type Subscriber } from './controllers.ts';
-import { AGENT_COMMANDS } from './agents.ts';
+import {
+  AGENT_COMMANDS,
+  resumeTaskCommand,
+  startTaskCommand,
+  TASK_FILE_DIR,
+  taskFilePath,
+} from './agents.ts';
+import {
+  addTask,
+  deleteTask,
+  markSent,
+  readTasks,
+  restoreTask,
+  TASKS_PATH,
+  tasksMessage,
+  type TaskState,
+  taskTitle,
+  updateTask,
+  withSentPane,
+  writeTasks,
+} from './tasks.ts';
 import { openRedirect } from './browser.ts';
 import {
   forget as forgetProject,
@@ -393,6 +414,24 @@ export async function startWeb(
     await writePinnedFiles(next);
     filePins = next;
     broadcast(pinnedFilesMessage(filePins));
+    return next;
+  };
+
+  // The task list (`tasks.json`), kept in its own file for the same reason as pinned files.
+  let taskState: TaskState = await readTasks();
+  const reloadTasks = async () => {
+    taskState = await readTasks();
+    broadcast(tasksMessage(taskState));
+  };
+  /** As {@link changePinnedFiles}: read → `change` → write, null when nothing changed. */
+  const changeTasks = async (
+    change: (state: TaskState) => TaskState | null,
+  ): Promise<TaskState | null> => {
+    const next = change(await readTasks());
+    if (next === null) return null;
+    await writeTasks(next);
+    taskState = await readTasks();
+    broadcast(tasksMessage(taskState));
     return next;
   };
 
@@ -1219,6 +1258,202 @@ export async function startWeb(
     reply(c, { id: msg.id, ok: true, result: { ...created, reused: false } });
   };
 
+  /**
+   * The task list: add, edit, delete and restore change `tasks.json` only. `send_task` writes the
+   * task's text into its project's container, starts the agent on it in a new tab with a session
+   * id chosen here, and moves the task to `sent`. `open_sent` answers with that agent's pane while
+   * it is still in the session, else resumes the session in a new tab. Nothing a container says
+   * is written to the list.
+   */
+  const handleTask = async (
+    c: Client,
+    msg: Extract<
+      ClientMessage,
+      {
+        type:
+          | 'add_task'
+          | 'update_task'
+          | 'delete_task'
+          | 'restore_task'
+          | 'send_task'
+          | 'open_sent';
+      }
+    >,
+  ) => {
+    const badRoute = (localFolder?: string, root?: string) => {
+      if (localFolder === undefined || root === undefined) return null;
+      if (!isListedProject(localFolder)) return 'unknown project';
+      if (!isProjectRepo(projectsMessage().projects, localFolder, root)) {
+        return 'unknown repo';
+      }
+      return null;
+    };
+    /** Applies `change`; answers `not_found` when it gives null, `tasks_error` when writing fails. */
+    const change = async (
+      apply: (state: TaskState) => TaskState | null,
+      result: Record<string, unknown> = {},
+    ) => {
+      let changed: TaskState | null;
+      try {
+        changed = await changeTasks(apply);
+      } catch (e) {
+        fail(c, msg.id, 'tasks_error', e);
+        return;
+      }
+      if (changed === null) {
+        fail(c, msg.id, 'not_found', 'no such task');
+        return;
+      }
+      reply(c, { id: msg.id, ok: true, result });
+    };
+    if (msg.type === 'add_task' || msg.type === 'update_task') {
+      const refusal = badRoute(msg.localFolder, msg.root);
+      if (refusal !== null) {
+        reject(c, { id: msg.id, code: 'bad_request', message: refusal });
+        return;
+      }
+      const task = {
+        text: msg.text,
+        ...(msg.localFolder !== undefined && msg.root !== undefined
+          ? { route: { localFolder: msg.localFolder, root: msg.root } }
+          : {}),
+      };
+      if (msg.type === 'update_task') {
+        await change((state) => updateTask(state, msg.task, task));
+        return;
+      }
+      const id = crypto.randomUUID();
+      await change(
+        (state) => addTask(state, task, new Date(), () => id).state,
+        { task: id },
+      );
+      return;
+    }
+    if (msg.type === 'delete_task') {
+      await change((state) => deleteTask(state, msg.task));
+      return;
+    }
+    if (msg.type === 'restore_task') {
+      await change((state) => restoreTask(state, msg.task));
+      return;
+    }
+    const localFolder = msg.type === 'send_task'
+      ? msg.localFolder
+      : taskState.sent.find((t) => t.id === msg.task)?.localFolder;
+    const task = msg.type === 'send_task'
+      ? taskState.tasks.find((t) => t.id === msg.task)
+      : taskState.sent.find((t) => t.id === msg.task);
+    if (!task || localFolder === undefined) {
+      fail(c, msg.id, 'not_found', 'no such task');
+      return;
+    }
+    if (msg.type === 'send_task') {
+      const refusal = badRoute(msg.localFolder, msg.root);
+      if (refusal !== null) {
+        reject(c, { id: msg.id, code: 'bad_request', message: refusal });
+        return;
+      }
+    }
+    const session = [...sessions.values()].find((s) =>
+      s.record.localFolder === localFolder
+    );
+    if (!session) {
+      fail(c, msg.id, 'not_running', 'the container is not running');
+      return;
+    }
+    const target = await readyTarget(c, session, msg.id);
+    if (target === null) return;
+    const containerId = session.record.id;
+    const sent = msg.type === 'open_sent'
+      ? taskState.sent.find((t) => t.id === msg.task)!
+      : null;
+    if (sent !== null) {
+      const reused = reusablePinnedPane(
+        sent.last,
+        containerId,
+        snapshotPanes(session.snapshot),
+      );
+      if (reused !== null) {
+        reply(c, { id: msg.id, ok: true, result: { ...reused, reused: true } });
+        return;
+      }
+    }
+    const root = msg.type === 'send_task' ? msg.root : sent!.root;
+    const agent = msg.type === 'send_task' ? msg.agent : sent!.agent;
+    const cwd = await repoContainerPath(
+      c,
+      session,
+      { id: msg.id, root, path: '' },
+      'dir',
+    );
+    if (cwd === null) return;
+    if (!(await commandInstalled(target, AGENT_COMMANDS[agent]))) {
+      fail(
+        c,
+        msg.id,
+        'not_installed',
+        `${AGENT_COMMANDS[agent]} isn't installed in this container`,
+      );
+      return;
+    }
+    const sessionId = sent?.sessionId ?? crypto.randomUUID();
+    let command: string;
+    if (msg.type === 'send_task') {
+      try {
+        await writeContainerFile(
+          await connectionOf(session),
+          TASK_FILE_DIR,
+          taskFilePath(sessionId),
+          `${task.text}\n`,
+        );
+      } catch (e) {
+        fail(c, msg.id, e instanceof FilesError ? e.code : 'write_failed', e);
+        return;
+      }
+      command = startTaskCommand(agent, sessionId, msg.action);
+    } else {
+      command = resumeTaskCommand(agent, sessionId);
+    }
+    let created: { pane_id: string; tab_id: string };
+    try {
+      created = await createShell(target, { cwd });
+      // Not `exec`: quitting the agent leaves the shell.
+      await bridgeRequest(target, 'pane.send_text', {
+        pane_id: created.pane_id,
+        text: `${command}\n`,
+      });
+    } catch (e) {
+      fail(c, msg.id, e instanceof BridgeError ? e.code : 'herdr_error', e);
+      return;
+    }
+    // Named after the task; the agent is already starting, so a failed rename is no error.
+    await bridgeRequest(target, 'pane.rename', {
+      pane_id: created.pane_id,
+      label: taskTitle(task.text),
+    }).then((r) => renamed(session, r), () => {});
+    const last = { containerId, paneId: created.pane_id };
+    try {
+      await changeTasks((state) =>
+        msg.type === 'send_task'
+          ? markSent(state, msg.task, {
+            action: msg.action,
+            agent: msg.agent,
+            sentAt: new Date().toISOString(),
+            localFolder: msg.localFolder,
+            root: msg.root,
+            cwd,
+            sessionId,
+            last,
+          })
+          : withSentPane(state, msg.task, last)
+      );
+    } catch (e) {
+      // The agent is already running, so the send still answers ok: only its Sent entry is lost.
+      console.error(`devc web: ${e instanceof Error ? e.message : e}`);
+    }
+    reply(c, { id: msg.id, ok: true, result: { ...created, reused: false } });
+  };
+
   /** The messages about projects, which name a folder rather than a running container. */
   const handleProject = async (
     c: Client,
@@ -1325,6 +1560,15 @@ export async function startWeb(
       msg.type === 'rename_pin' || msg.type === 'open_pinned'
     ) {
       await handleFilePin(c, msg);
+      return;
+    }
+    // Before the `localFolder` check: a routed task names a project too.
+    if (
+      msg.type === 'add_task' || msg.type === 'update_task' ||
+      msg.type === 'delete_task' || msg.type === 'restore_task' ||
+      msg.type === 'send_task' || msg.type === 'open_sent'
+    ) {
+      await handleTask(c, msg);
       return;
     }
     if ('localFolder' in msg) {
@@ -1548,6 +1792,7 @@ export async function startWeb(
       client.send(JSON.stringify(containersMessage()));
       client.send(JSON.stringify(projectsMessage()));
       client.send(JSON.stringify(pinnedFilesMessage(filePins)));
+      client.send(JSON.stringify(tasksMessage(taskState)));
       if (bridgeStatus !== null) {
         client.send(JSON.stringify(bridgeStatusMessage(bridgeStatus)));
       }
@@ -1649,6 +1894,8 @@ export async function startWeb(
     PINNED_FILES_PATH,
     () => void reloadPinnedFiles(),
   );
+  // Another devc web adding, sending or deleting a task.
+  const tasksWatch = watchConfigFile(TASKS_PATH, () => void reloadTasks());
   const bridgeWatch = watchBridgeStatus(
     bridgeStatePaths(Deno.env, Deno.env.get('HOME') ?? '.'),
     (s) => {
@@ -1672,6 +1919,7 @@ export async function startWeb(
       gitWatch.stop();
       projectsWatch.stop();
       pinnedFilesWatch.stop();
+      tasksWatch.stop();
       bridgeWatch.stop();
       usageWatch.stop();
       for (const c of clients) {

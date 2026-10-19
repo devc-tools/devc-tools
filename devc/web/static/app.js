@@ -67,6 +67,13 @@ import {
   parseFilePinPanes,
   parsePinnedFiles,
 } from './lib/pinned_files.js';
+import {
+  parseTasks,
+  savedTaskAgent,
+  sentTaskTooltip,
+  TASK_AGENT_IDS,
+  taskTitle,
+} from './lib/tasks.js';
 
 const LAYOUT_KEY = 'devc-web-layout-v2';
 /** The split-tree layout before Golden Layout: removed on load, not migrated. */
@@ -166,6 +173,12 @@ let selectTreeKey = null;
 let pinnedFiles = [];
 /** Where {@link filePinPanes} is saved, so a reload still knows which tiles are a pin's. */
 const FILE_PIN_PANES_KEY = 'devc-web-file-pin-panes-v1';
+/** The task list, as the last `tasks` message gave it. @type {import('./lib/tasks.js').Task[]} */
+let tasks = [];
+/** Sent tasks, newest first. @type {import('./lib/tasks.js').SentTask[]} */
+let sentTasks = [];
+/** The agent the task dialog last sent to. */
+const TASK_AGENT_KEY = 'devc-web-task-agent-v1';
 /** Each pinned file's editor pane (pin id → pane_id), from `open_pinned` replies. */
 const filePinPanes = loadFilePinPanes();
 
@@ -512,6 +525,13 @@ function onMessage(msg) {
     case 'pinned_files':
       onPinnedFiles(msg);
       break;
+    case 'tasks': {
+      const parsed = parseTasks(msg);
+      tasks = parsed.tasks;
+      sentTasks = parsed.sent;
+      renderTree();
+      break;
+    }
     case 'bridge_status':
       hostBridgeStatus = parseBridgeStatus(msg);
       renderHostStatus();
@@ -768,6 +788,11 @@ const LABELS = {
   unpinFile: 'Unpin file',
   newNote: 'New note…',
   noPinnedFiles: 'No pinned files',
+  tasks: 'Tasks',
+  newTask: 'New task…',
+  noTasks: 'No tasks',
+  sentTasks: 'Sent',
+  notRouted: 'not routed',
   notRunning: 'The container is not running',
   plainTerminal: 'Terminal',
   /** The + menu's agents (ids from `lib/agent_icons.js`). */
@@ -841,6 +866,8 @@ function loadSidebarState() {
     filesOpen: savedFilesOpen(saved?.rootsOpen),
     layoutOpen: saved?.layoutOpen !== false,
     pinnedOpen: saved?.pinnedOpen !== false,
+    tasksOpen: saved?.tasksOpen !== false,
+    sentOpen: saved?.sentOpen === true,
     width: Number.isFinite(saved?.width) ? saved.width : SIDEBAR_DEFAULT_WIDTH,
     hidden: saved?.hidden === true,
   };
@@ -872,6 +899,8 @@ function saveSidebarState() {
         rootsOpen: sidebarState.filesOpen,
         layoutOpen: sidebarState.layoutOpen,
         pinnedOpen: sidebarState.pinnedOpen,
+        tasksOpen: sidebarState.tasksOpen,
+        sentOpen: sidebarState.sentOpen,
         width: sidebarState.width,
         hidden: sidebarState.hidden,
       }),
@@ -907,6 +936,18 @@ function toggleRepos(localFolder) {
 
 function togglePinnedSection() {
   sidebarState.pinnedOpen = !sidebarState.pinnedOpen;
+  saveSidebarState();
+  renderTree();
+}
+
+function toggleTasksSection() {
+  sidebarState.tasksOpen = !sidebarState.tasksOpen;
+  saveSidebarState();
+  renderTree();
+}
+
+function toggleSentTasks() {
+  sidebarState.sentOpen = !sidebarState.sentOpen;
   saveSidebarState();
   renderTree();
 }
@@ -1009,6 +1050,7 @@ function renderTree() {
     : null;
   const rows = [
     ...pinnedFileRows(),
+    ...taskRows(),
     ...layoutRows(),
     sectionRow(
       'Containers',
@@ -2741,6 +2783,471 @@ async function submitNewNote() {
   const shown = filePinTiles(pin);
   if (shown.length) revealTile(shown[0].id);
   else void openFilePin(pin, 'stack');
+}
+
+// ---------------------------------------------------------------------------------------------
+// Sidebar: Tasks section
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * The Tasks section: to-dos kept by the server (`~/.config/devc/tasks.json`), each routed to a
+ * project's repo or not yet. Sending one starts an agent on it there and moves it under Sent,
+ * which reopens that agent's session. Agents never write to the list.
+ */
+function taskRows() {
+  const rows = [
+    sectionRow(
+      LABELS.tasks,
+      sidebarState.tasksOpen,
+      toggleTasksSection,
+      rowTrail(
+        hoverActions(
+          iconButton('plus', LABELS.newTask, () => openTaskDialog()),
+        ),
+      ),
+      (e) => openMenu(e, [[LABELS.newTask, () => openTaskDialog()]]),
+    ),
+  ];
+  if (!sidebarState.tasksOpen) return rows;
+  if (tasks.length === 0) {
+    rows.push(h('div', { class: 'empty' }, LABELS.noTasks));
+  }
+  for (const task of tasks) rows.push(taskRow(task));
+  if (sentTasks.length === 0) return rows;
+  rows.push(h(
+    'div',
+    {
+      class: 'row sent-tasks',
+      style: '--depth: 1',
+      'aria-expanded': String(sidebarState.sentOpen),
+      onclick: toggleSentTasks,
+    },
+    h(
+      'span',
+      { class: 'label' },
+      chevron(),
+      `${LABELS.sentTasks} (${sentTasks.length})`,
+    ),
+  ));
+  if (sidebarState.sentOpen) {
+    for (const s of sentTasks) rows.push(sentTaskRow(s));
+  }
+  return rows;
+}
+
+/** The dimmed route after a task's title: its project, and its repo when that is another. */
+function taskProjectLabel(localFolder, root) {
+  if (localFolder === undefined) return LABELS.notRouted;
+  const p = projects.get(localFolder);
+  const name = p ? containerLabel(p, projects.values()) : basename(localFolder);
+  return root === undefined || root === localFolder
+    ? name
+    : `${name} · ${basename(root)}`;
+}
+
+/** @param {import('./lib/tasks.js').Task} task */
+function taskRow(task) {
+  return h(
+    'div',
+    {
+      class: 'row task',
+      style: '--depth: 1',
+      'data-task': task.id,
+      title: `${task.text}\n\nClick to edit or send it`,
+      onclick: () => openTaskDialog(task),
+      oncontextmenu: (e) =>
+        openMenu(e, [
+          ['Edit…', () => openTaskDialog(task)],
+          ['Delete…', () => void deleteTask(task)],
+        ]),
+    },
+    h(
+      'span',
+      { class: 'label' },
+      taskTitle(task.text),
+      h(
+        'span',
+        { class: 'pane-title' },
+        taskProjectLabel(task.localFolder, task.root),
+      ),
+    ),
+  );
+}
+
+/** @param {import('./lib/tasks.js').SentTask} s */
+function sentTaskRow(s) {
+  return h(
+    'div',
+    {
+      class: 'row sent-task',
+      style: '--depth: 2',
+      'data-sent-task': s.id,
+      title: sentTaskTooltip(s, LABELS.agents[s.agent]),
+      onclick: () => void openSentTask(s),
+      oncontextmenu: (e) =>
+        openMenu(e, [
+          ['Open session', () => void openSentTask(s)],
+          ['Copy task text', () => void copyTaskText(s)],
+          ['Back to tasks', () => restoreSentTask(s)],
+          ['Remove', () => removeSentTask(s)],
+        ]),
+    },
+    h(
+      'span',
+      { class: 'label' },
+      rowIcon({ agent: s.agent }),
+      taskTitle(s.text),
+      h(
+        'span',
+        { class: 'pane-title' },
+        taskProjectLabel(s.localFolder, s.root),
+      ),
+    ),
+  );
+}
+
+/** @param {import('./lib/tasks.js').Task} task */
+async function deleteTask(task) {
+  if (
+    !await confirmDialog(`Delete the task “${taskTitle(task.text)}”?`, {
+      okLabel: 'Delete',
+      danger: true,
+    })
+  ) return;
+  call({ type: 'delete_task', task: task.id }).catch((e) =>
+    errorToast(`Delete failed: ${e?.message ?? e}`)
+  );
+}
+
+/** Sent tasks with an `open_sent` in flight: a second click waits for the first. */
+const openingSentTasks = new Set();
+
+/**
+ * A sent task's session, in the focused stack: its agent's pane while that is still running,
+ * else the session resumed in a new tab (`open_sent`). A pane already in a tile is focused.
+ *
+ * @param {import('./lib/tasks.js').SentTask} s
+ */
+async function openSentTask(s) {
+  if (!tiling || openingSentTasks.has(s.id)) return;
+  const c = containerByFolder(s.localFolder);
+  if (!c) {
+    notRunningToast(s.localFolder, taskTitle(s.text));
+    return;
+  }
+  if (c.state === 'no-session') toast('Starting Herdr…');
+  openingSentTasks.add(s.id);
+  let result;
+  try {
+    result = await call({ type: 'open_sent', task: s.id });
+  } catch (e) {
+    if (e?.code === 'not_running') {
+      notRunningToast(s.localFolder, taskTitle(s.text));
+    } else errorToast(`Open session failed: ${e?.message ?? e}`);
+    return;
+  } finally {
+    openingSentTasks.delete(s.id);
+  }
+  if (typeof result?.pane_id !== 'string') return;
+  placePane(s.localFolder, result, placeInFocusedStack);
+}
+
+/** "`what`: the container is not running", offering to start it. */
+function notRunningToast(localFolder, what) {
+  const p = projects.get(localFolder);
+  toast(
+    `${what}: the container is not running.`,
+    projectStarts && p && !p.starting
+      ? { label: 'Start', run: () => startProject(localFolder) }
+      : undefined,
+  );
+}
+
+/** @param {import('./lib/tasks.js').SentTask} s */
+async function copyTaskText(s) {
+  try {
+    await writeClipboard(s.text);
+    toast('Copied');
+  } catch (e) {
+    errorToast(`Copy failed: ${e?.message ?? e}`);
+  }
+}
+
+/** @param {import('./lib/tasks.js').SentTask} s */
+function restoreSentTask(s) {
+  call({ type: 'restore_task', task: s.id }).catch((e) =>
+    errorToast(`Back to tasks failed: ${e?.message ?? e}`)
+  );
+}
+
+/** Forgets a sent task; its agent's pane, if still running, stays. */
+function removeSentTask(s) {
+  call({ type: 'delete_task', task: s.id }).catch((e) =>
+    errorToast(`Remove failed: ${e?.message ?? e}`)
+  );
+}
+
+/**
+ * The open task dialog. `taskId` is the task being edited, or set once a new one is saved.
+ *
+ * @type {{el: HTMLDialogElement, $text: HTMLTextAreaElement, $project: HTMLSelectElement,
+ *   $repo: HTMLSelectElement, $repoLabel: HTMLElement, $agent: HTMLSelectElement,
+ *   $error: HTMLElement, $buttons: HTMLButtonElement[], $send: HTMLButtonElement[],
+ *   taskId: string | null, busy: boolean} | null}
+ */
+let taskDialog = null;
+
+/**
+ * The task dialog, for a new task or `task`: its text, its route (a project and one of its repos,
+ * or none) and an agent. **Save** keeps it on the list; **Send: plan** / **Send: implement** save
+ * it, then send it (`send_task`) and show the agent's pane.
+ *
+ * @param {import('./lib/tasks.js').Task} [task]
+ */
+function openTaskDialog(task) {
+  taskDialog?.el.close();
+  const candidates = [...projects.values()].sort(byPinThenRecent);
+  const focused = targetTile();
+  const near = focused?.ref?.localFolder ?? focused?.file?.localFolder;
+  const initial = task
+    ? task.localFolder ?? ''
+    : near && projects.has(near)
+    ? near
+    : '';
+  const $text = /** @type {HTMLTextAreaElement} */ (h('textarea', {
+    class: 'task-text',
+    spellcheck: 'true',
+    rows: 8,
+    'aria-label': 'Task',
+    placeholder: 'What should be done? The first line is its title.',
+    oninput: () => showTaskError(null),
+    onkeydown: (e) => {
+      if (e.key !== 'Enter' || !(e.metaKey || e.ctrlKey)) return;
+      e.preventDefault();
+      void submitTask(null);
+    },
+  }));
+  $text.value = task?.text ?? '';
+  const $project = /** @type {HTMLSelectElement} */ (h(
+    'select',
+    {
+      class: 'new-note-project',
+      'aria-label': 'Project',
+      onchange: () => fillTaskRepos(null),
+    },
+    h('option', { value: '', selected: initial === '' }, '(not routed)'),
+    ...candidates.map((p) =>
+      h(
+        'option',
+        { value: p.localFolder, selected: p.localFolder === initial },
+        containerLabel(p, projects.values()),
+      )
+    ),
+  ));
+  const $repo = /** @type {HTMLSelectElement} */ (h('select', {
+    class: 'new-note-project',
+    'aria-label': 'Repo',
+  }));
+  const $repoLabel = h('label', {}, 'Repo', $repo);
+  const $agent = /** @type {HTMLSelectElement} */ (h(
+    'select',
+    { class: 'new-note-project', 'aria-label': 'Agent' },
+    ...TASK_AGENT_IDS.map((id) =>
+      h('option', { value: id }, LABELS.agents[id])
+    ),
+  ));
+  let savedAgent = null;
+  try {
+    savedAgent = localStorage.getItem(TASK_AGENT_KEY);
+  } catch { /* unavailable: Claude */ }
+  $agent.value = savedTaskAgent(savedAgent);
+  const $error = h('div', { class: 'new-note-error', hidden: true });
+  const button = (
+    label,
+    action,
+    primary = false,
+  ) => /** @type {HTMLButtonElement} */ (h('button', {
+    type: 'button',
+    class: primary ? 'primary' : undefined,
+    onclick: () => void submitTask(action),
+  }, label));
+  const $save = button('Save', null);
+  const $send = [
+    button('Send: plan', 'plan'),
+    button('Send: implement', 'implement', true),
+  ];
+  const el = /** @type {HTMLDialogElement} */ (h(
+    'dialog',
+    {
+      class: 'dialog new-note task-dialog',
+      'aria-label': task ? 'Task' : 'New task',
+      onclose: () => {
+        if (taskDialog?.el === el) taskDialog = null;
+        el.remove();
+      },
+    },
+    h(
+      'header',
+      { class: 'dialog-header' },
+      h('span', {}, task ? 'Task' : 'New task'),
+      h('button', { type: 'button', onclick: () => el.close() }, 'Cancel'),
+    ),
+    h(
+      'div',
+      { class: 'new-note-body' },
+      $text,
+      h(
+        'div',
+        { class: 'task-route' },
+        h('label', {}, 'Project', $project),
+        $repoLabel,
+        h('label', {}, 'Agent', $agent),
+      ),
+      $error,
+    ),
+    h(
+      'footer',
+      { class: 'dialog-footer' },
+      h(
+        'span',
+        { class: 'picker-hint' },
+        'Sending starts the agent in the repo',
+      ),
+      h('span', { class: 'task-buttons' }, $save, ...$send),
+    ),
+  ));
+  taskDialog = {
+    el,
+    $text,
+    $project,
+    $repo,
+    $repoLabel,
+    $agent,
+    $error,
+    $buttons: [$save, ...$send],
+    $send,
+    taskId: task?.id ?? null,
+    busy: false,
+  };
+  document.body.append(el);
+  el.showModal();
+  fillTaskRepos(task?.root ?? null);
+  $text.focus();
+}
+
+/**
+ * Lists the selected project's repos (selecting `root` when it is one of them), hides the Repo
+ * field when there is no choice, and enables Send only for a routed task.
+ */
+function fillTaskRepos(root) {
+  const td = taskDialog;
+  if (!td) return;
+  const localFolder = td.$project.value;
+  const repos = localFolder === ''
+    ? []
+    : projectRepos(localFolder).filter((r, i) => i === 0 || r.git !== null);
+  if (localFolder !== '' && repos.length === 0) {
+    repos.push({ folder: localFolder });
+  }
+  td.$repo.replaceChildren(
+    ...repos.map((r) =>
+      h(
+        'option',
+        { value: r.folder, title: r.folder, selected: r.folder === root },
+        basename(r.folder),
+      )
+    ),
+  );
+  if (root !== null && repos.some((r) => r.folder === root)) {
+    td.$repo.value = root;
+  }
+  td.$repoLabel.hidden = repos.length < 2;
+  for (const b of td.$send) b.disabled = td.busy || localFolder === '';
+  showTaskError(null);
+}
+
+/** Shows `message` under the task dialog's fields, or hides it with `null`. */
+function showTaskError(message) {
+  if (!taskDialog) return;
+  taskDialog.$error.textContent = message ?? '';
+  taskDialog.$error.hidden = message === null;
+}
+
+/**
+ * Saves the dialog's task (`add_task` or `update_task`), then with `action` sends it
+ * (`send_task`) and shows the agent's pane in the focused stack. A failure keeps the dialog open
+ * with the error; a task saved before a failed send stays saved, and stays on the list.
+ *
+ * @param {'plan' | 'implement' | null} action
+ */
+async function submitTask(action) {
+  const td = taskDialog;
+  if (!td || td.busy) return;
+  const text = td.$text.value.trim();
+  if (text === '') {
+    showTaskError('Write the task first');
+    return;
+  }
+  const localFolder = td.$project.value;
+  const root = td.$repo.value;
+  const route = localFolder !== '' && root !== '' ? { localFolder, root } : {};
+  if (action !== null && !('localFolder' in route)) {
+    showTaskError('Choose a project to send it to');
+    return;
+  }
+  if (action !== null && !containerByFolder(localFolder)) {
+    showTaskError('The container is not running: start it first');
+    notRunningToast(localFolder, taskTitle(text));
+    return;
+  }
+  const busy = (on) => {
+    td.busy = on;
+    for (const b of td.$buttons) b.disabled = on;
+    if (!on) fillTaskRepos(td.$repo.value);
+  };
+  busy(true);
+  try {
+    if (td.taskId === null) {
+      td.taskId = (await call({ type: 'add_task', text, ...route }))?.task ??
+        null;
+    } else {
+      await call({ type: 'update_task', task: td.taskId, text, ...route });
+    }
+  } catch (e) {
+    busy(false);
+    showTaskError(String(e?.message ?? e));
+    return;
+  }
+  if (!sidebarState.tasksOpen) toggleTasksSection();
+  if (action === null || td.taskId === null) {
+    td.el.close();
+    return;
+  }
+  const agent = td.$agent.value;
+  try {
+    localStorage.setItem(TASK_AGENT_KEY, agent);
+  } catch { /* storage unavailable */ }
+  const c = containerByFolder(localFolder);
+  if (c?.state === 'no-session') toast('Starting Herdr…');
+  let result;
+  try {
+    result = await call({
+      type: 'send_task',
+      task: td.taskId,
+      localFolder,
+      root,
+      agent,
+      action,
+    });
+  } catch (e) {
+    busy(false);
+    showTaskError(String(e?.message ?? e));
+    return;
+  }
+  td.el.close();
+  if (typeof result?.pane_id === 'string') {
+    placePane(localFolder, result, placeInFocusedStack);
+  }
 }
 
 // ---------------------------------------------------------------------------------------------

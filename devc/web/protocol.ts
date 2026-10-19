@@ -3,7 +3,15 @@
 // validates a browser message's shape; whether its container or pane exists is the server's
 // check.
 
-import { type AgentId, isAgentId } from './agents.ts';
+import {
+  type AgentId,
+  isAgentId,
+  isSessionAgentId,
+  isTaskAction,
+  type SessionAgentId,
+  type TaskAction,
+} from './agents.ts';
+import { MAX_TASK_TEXT, taskText } from './tasks.ts';
 
 /** The only Herdr methods a browser `request` may call. */
 export const REQUEST_METHODS: ReadonlySet<string> = new Set([
@@ -167,6 +175,35 @@ export type ClientMessage =
     /** Start this agent in the new tab (never with `reuse`). */
     agent?: AgentId;
   }
+  | {
+    type: 'add_task';
+    id: string;
+    /** Trimmed, non-empty. */
+    text: string;
+    /** The route: both or neither. */
+    localFolder?: string;
+    root?: string;
+  }
+  | {
+    type: 'update_task';
+    id: string;
+    task: string;
+    text: string;
+    localFolder?: string;
+    root?: string;
+  }
+  | { type: 'delete_task'; id: string; task: string }
+  | { type: 'restore_task'; id: string; task: string }
+  | { type: 'open_sent'; id: string; task: string }
+  | {
+    type: 'send_task';
+    id: string;
+    task: string;
+    localFolder: string;
+    root: string;
+    agent: SessionAgentId;
+    action: TaskAction;
+  }
   | { type: 'retry'; container: string }
   | { type: 'client_ready'; generation: string };
 
@@ -295,6 +332,26 @@ function repoPath(o: Obj): string {
   }
   if (v.includes('\0')) throw new Invalid(`'path' must not contain NUL`);
   return v;
+}
+
+/** A task's text, trimmed: not empty, at most {@link MAX_TASK_TEXT}. */
+function taskBody(o: Obj): string {
+  const t = taskText(text(o, 'text'));
+  if (t === null) {
+    throw new Invalid(
+      `'text' must be 1 to ${MAX_TASK_TEXT} characters, once trimmed`,
+    );
+  }
+  return t;
+}
+
+/** A task's route: `localFolder` and `root` together, or neither. */
+function taskRoute(o: Obj): { localFolder?: string; root?: string } {
+  if (o.localFolder === undefined && o.root === undefined) return {};
+  if (o.localFolder === undefined || o.root === undefined) {
+    throw new Invalid(`'localFolder' and 'root' go together`);
+  }
+  return { localFolder: folder(o), root: absolute(o, 'root') };
 }
 
 function pane(o: Obj): { container: string; pane_id: string } {
@@ -559,6 +616,45 @@ function parseFields(m: Obj): ClientMessage {
         path: text(m, 'path'),
         reuse: m.reuse,
         ...(m.agent !== undefined ? { agent: m.agent } : {}),
+      };
+    case 'add_task':
+      return {
+        type: 'add_task',
+        id: str(m, 'id'),
+        text: taskBody(m),
+        ...taskRoute(m),
+      };
+    case 'update_task':
+      return {
+        type: 'update_task',
+        id: str(m, 'id'),
+        task: str(m, 'task'),
+        text: taskBody(m),
+        ...taskRoute(m),
+      };
+    case 'delete_task':
+    case 'restore_task':
+    case 'open_sent':
+      return {
+        type: m.type,
+        id: str(m, 'id'),
+        task: str(m, 'task'),
+      } as ClientMessage;
+    case 'send_task':
+      if (!isSessionAgentId(m.agent)) {
+        throw new Invalid(`agent '${String(m.agent)}' can't be sent a task`);
+      }
+      if (!isTaskAction(m.action)) {
+        throw new Invalid(`'action' must be one of plan, implement`);
+      }
+      return {
+        type: 'send_task',
+        id: str(m, 'id'),
+        task: str(m, 'task'),
+        localFolder: folder(m),
+        root: absolute(m, 'root'),
+        agent: m.agent,
+        action: m.action,
       };
     case 'retry':
       return { type: 'retry', container: str(m, 'container') };

@@ -336,3 +336,66 @@ export async function deleteContainerEntry(
   if (out.code !== 0) throw changeError(path, out, 'deleted');
   return {};
 }
+
+/** Runs `docker args…` with `input` as its stdin. */
+export type DockerRunInput = (
+  args: string[],
+  input: Uint8Array,
+) => Promise<ExecOutput>;
+
+/** `docker args…` to completion with `input` piped to stdin, killed after the same timeout. */
+export const runDockerInput: DockerRunInput = async (args, input) => {
+  const child = new Deno.Command('docker', {
+    args,
+    stdin: 'piped',
+    stdout: 'piped',
+    stderr: 'piped',
+    signal: AbortSignal.timeout(EXEC_TIMEOUT_MS),
+  }).spawn();
+  const writer = child.stdin.getWriter();
+  try {
+    await writer.write(input);
+    await writer.close();
+  } catch { /* the child exited first: its status says why */ }
+  const out = await child.output();
+  return {
+    code: out.code,
+    stdout: out.stdout,
+    stderr: new TextDecoder().decode(out.stderr),
+  };
+};
+
+/**
+ * The command that writes stdin to `file`, making folder `dir` first. Both ride in as
+ * arguments, never spliced into the script.
+ */
+export function writeArgv(dir: string, file: string): string[] {
+  return ['sh', '-c', 'mkdir -p "$1" && cat > "$2"', 'sh', dir, file];
+}
+
+/**
+ * Writes `text` to `file` (absolute) in the container, as the remote user, making `dir` first.
+ * Throws {@link FilesError} `not_running`, or an `Error` carrying the command's stderr.
+ */
+export async function writeContainerFile(
+  info: ContainerInfo,
+  dir: string,
+  file: string,
+  text: string,
+  run: DockerRunInput = runDockerInput,
+): Promise<void> {
+  const out = await run(
+    dockerExecArgv(info, {
+      interactive: true,
+      cwd: '/',
+      cmd: writeArgv(dir, file),
+    }),
+    new TextEncoder().encode(text),
+  );
+  if (out.code === 0) return;
+  const msg = out.stderr.trim();
+  if (/is not running|no such container/i.test(msg)) {
+    throw new FilesError('not_running', 'the container is not running');
+  }
+  throw new Error(msg || `writing ${file} failed`);
+}
