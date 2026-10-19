@@ -107,6 +107,26 @@ export type ClientMessage =
     path: string;
     kind: 'file' | 'dir';
   }
+  | {
+    type: 'rename_file';
+    id: string;
+    container: string;
+    /** A repo folder `path` is relative to; without one, `path` is a container path. */
+    root?: string;
+    /** The entry to rename: a file, a link or a folder, never the root itself. */
+    path: string;
+    /** Its new name, in the same folder: one path segment. */
+    to: string;
+  }
+  | {
+    type: 'delete_file';
+    id: string;
+    container: string;
+    /** A repo folder `path` is relative to; without one, `path` is a container path. */
+    root?: string;
+    /** The entry to delete (a folder with everything in it), never the root itself. */
+    path: string;
+  }
   | { type: 'locate_file'; id: string; container: string; path: string }
   | {
     type: 'pin_file';
@@ -227,7 +247,7 @@ function containerPath(o: Obj): string {
 }
 
 /**
- * A `create_file` path: its last segment is a name (not empty, `.` or `..`), and nothing in it is
+ * A `create_file`, `rename_file` or `delete_file` path: its last segment is a name (not empty, `.` or `..`), and nothing in it is
  * NUL. With a `root`, relative with no `..` segment; without, a {@link containerPath}.
  */
 function newEntryPath(o: Obj, rooted: boolean): string {
@@ -243,6 +263,16 @@ function newEntryPath(o: Obj, rooted: boolean): string {
   if (name === '' || name === '.' || name === '..') {
     throw new Invalid(`'path' must end in a name`);
   }
+  return v;
+}
+
+/** A new name for `rename_file`: one path segment, not `.` or `..`, with no NUL. */
+function entryName(o: Obj, key: string): string {
+  const v = str(o, key);
+  if (v === '' || v === '.' || v === '..' || v.includes('/')) {
+    throw new Invalid(`'${key}' must be a name`);
+  }
+  if (v.includes('\0')) throw new Invalid(`'${key}' must not contain NUL`);
   return v;
 }
 
@@ -447,6 +477,17 @@ function parseFields(m: Obj): ClientMessage {
           : { root: absolute(m, 'root'), path: newEntryPath(m, true) }),
         kind: oneOf(m, 'kind', ['file', 'dir']),
       };
+    case 'rename_file':
+    case 'delete_file':
+      return {
+        type: m.type,
+        id: str(m, 'id'),
+        container: str(m, 'container'),
+        ...(m.root === undefined
+          ? { path: newEntryPath(m, false) }
+          : { root: absolute(m, 'root'), path: newEntryPath(m, true) }),
+        ...(m.type === 'rename_file' ? { to: entryName(m, 'to') } : {}),
+      } as ClientMessage;
     case 'locate_file': {
       const path = absolute(m, 'path');
       if (path.split('/').includes('..')) {

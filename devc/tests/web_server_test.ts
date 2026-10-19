@@ -617,6 +617,42 @@ Deno.test('parseClientMessage: create_file takes a kind and a path that ends in 
   );
 });
 
+Deno.test('parseClientMessage: rename_file and delete_file take a named entry, rename a new name', () => {
+  for (
+    const msg of [
+      { type: 'rename_file', path: 'src/a.ts', root: '/src/app', to: 'b.ts' },
+      { type: 'rename_file', path: '/home/me/x', to: '.hidden' },
+      { type: 'delete_file', path: 'src', root: '/src/app' },
+      { type: 'delete_file', path: '/tmp/x' },
+    ]
+  ) {
+    const full = { id: 'r1', container: 'c1', ...msg };
+    assertEquals(
+      parseClientMessage(JSON.stringify(full)),
+      { ok: true, msg: full } as never,
+    );
+  }
+  for (
+    const bad of [
+      // never the root itself, and the same path rules as create_file
+      { type: 'delete_file', root: '/src/app', path: '' },
+      { type: 'delete_file', path: '/' },
+      { type: 'delete_file', root: '/src/app', path: '../x' },
+      { type: 'delete_file', path: 'etc/x' },
+      { type: 'rename_file', root: '/src/app', path: '', to: 'x' },
+      // the new name: one segment
+      { type: 'rename_file', root: '/src/app', path: 'a', to: '' },
+      { type: 'rename_file', root: '/src/app', path: 'a', to: '..' },
+      { type: 'rename_file', root: '/src/app', path: 'a', to: 'sub/b' },
+      { type: 'rename_file', root: '/src/app', path: 'a', to: 'a\0b' },
+      { type: 'rename_file', root: '/src/app', path: 'a' },
+    ]
+  ) {
+    const r = rejected({ id: 'r2', container: 'c1', ...bad });
+    assertEquals([r.id, r.code], ['r2', 'bad_request'], JSON.stringify(bad));
+  }
+});
+
 Deno.test('parseClientMessage: open_tab needs root, a path (may be empty) and reuse', () => {
   const base = {
     type: 'open_tab' as const,

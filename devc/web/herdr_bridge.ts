@@ -763,13 +763,27 @@ export class ContainerSession {
     this.hooks.onAgentStatus(paneId, ev.data.agent, ev.data.agent_status);
   }
 
-  /** Keeps the cached snapshot current, so a browser that connects later sees the latest. */
-  #patchPane(pane: Record<string, unknown>, merge = false): void {
+  /**
+   * A pane Herdr changed without telling the event stream: `pane.rename` answers with the
+   * renamed pane but sends no `pane.updated`. Patched in and broadcast as that event would be,
+   * and a snapshot follows, so one already on its way with the old name can't leave it stale.
+   */
+  paneChanged(pane: Record<string, unknown>): void {
+    if (this.#patchPane(pane)) this.hooks.onPaneUpdated(pane);
+    this.#scheduleSnapshot(this.#gen);
+  }
+
+  /**
+   * Keeps the cached snapshot current, so a browser that connects later sees the latest. False
+   * when the snapshot has no such pane (yet).
+   */
+  #patchPane(pane: Record<string, unknown>, merge = false): boolean {
     const panes = this.snapshot?.panes;
-    if (!Array.isArray(panes)) return;
+    if (!Array.isArray(panes)) return false;
     const i = panes.findIndex((p) => p?.pane_id === pane.pane_id);
-    if (i === -1) return;
+    if (i === -1) return false;
     panes[i] = merge ? { ...panes[i], ...pane } : pane;
+    return true;
   }
 
   #scheduleSnapshot(gen: number): void {

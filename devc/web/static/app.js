@@ -146,10 +146,12 @@ let renderGeneration = 0;
 /**
  * The inline name row of a **New file…** / **New folder…** in progress: under folder `dir` of
  * file root `fr`, kept across renders (so typing survives them) until Enter creates the entry or
- * Escape cancels. A render that no longer shows its folder drops it.
+ * Escape cancels. A render that no longer shows its folder drops it. For a **Rename…**, `rename`
+ * is the entry's path, and the row stands in place of that entry's own.
  *
- * @type {{fr: FileRoot, dir: string, kind: 'file' | 'dir', row: HTMLElement,
- *   input: HTMLInputElement, error: HTMLElement, busy: boolean, seen: number} | null}
+ * @type {{fr: FileRoot, dir: string, kind: 'file' | 'dir', rename: string | null,
+ *   row: HTMLElement, input: HTMLInputElement, error: HTMLElement, busy: boolean,
+ *   seen: number} | null}
  */
 let newEntry = null;
 /** The tree key of a row just created, focused by the first render that shows it. */
@@ -751,6 +753,8 @@ const LABELS = {
   newTerminalHere: 'New terminal here',
   newFile: 'New file…',
   newFolder: 'New folder…',
+  renameEntry: 'Rename…',
+  deleteEntry: 'Delete…',
   /** Pinned files; never "pin" alone, which a project and a preview tile also use. */
   pinned: 'Pinned',
   pinFile: 'Pin file',
@@ -3038,7 +3042,23 @@ function dirMenuItems(fr, path) {
     [LABELS.newFolder, () => startNewEntry(fr, path, 'dir')],
     ['Refresh', () => fileTree(fr).refresh(path)],
     ['Copy path', () => copyPath(fr, path)],
+    // Not a root: it is the project's repo, or the container's `/`.
+    ...(path === '' ? [] : changeEntryItems(fr, path, 'dir')),
   ];
+}
+
+/** **Rename…** and **Delete…** for an entry (not a root) of `fr`. */
+function changeEntryItems(fr, path, kind) {
+  return [
+    [LABELS.renameEntry, () => startNewEntry(fr, treeParent(path), kind, path)],
+    [LABELS.deleteEntry, () => void deleteEntry(fr, path, kind)],
+  ];
+}
+
+/** The folder a tree path is in: `''` for the root's own entries. */
+function treeParent(path) {
+  const i = path.lastIndexOf('/');
+  return i < 0 ? '' : path.slice(0, i);
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -3047,11 +3067,14 @@ function dirMenuItems(fr, path) {
 
 /**
  * Opens the inline name row under folder `path` of `fr`, expanding the folder. Creating needs a
- * running container: the entry is made inside it, as the remote user (`create_file`).
+ * running container: the entry is made inside it, as the remote user (`create_file`). With
+ * `rename` (an entry of `path`), the row takes that entry's place with its name to edit
+ * (`rename_file`).
  *
  * @param {FileRoot} fr @param {string} path @param {'file' | 'dir'} kind
+ * @param {string | null} [rename]
  */
-function startNewEntry(fr, path, kind) {
+function startNewEntry(fr, path, kind, rename = null) {
   if (!containerByFolder(fr.localFolder)) {
     toast('Start the container first');
     return;
@@ -3061,9 +3084,17 @@ function startNewEntry(fr, path, kind) {
     class: 'new-entry-input',
     spellcheck: 'false',
     autocomplete: 'off',
-    'aria-label': kind === 'file' ? 'New file name' : 'New folder name',
+    'aria-label': rename !== null
+      ? 'New name'
+      : kind === 'file'
+      ? 'New file name'
+      : 'New folder name',
     placeholder: kind === 'file' ? 'File name' : 'Folder name',
   }));
+  const oldName = rename === null
+    ? ''
+    : rename.slice(rename.lastIndexOf('/') + 1);
+  input.value = oldName;
   const error = h('div', { class: 'new-entry-error', hidden: '' });
   const row = h(
     'div',
@@ -3080,6 +3111,7 @@ function startNewEntry(fr, path, kind) {
     fr,
     dir: path,
     kind,
+    rename,
     row,
     input,
     error,
@@ -3103,6 +3135,9 @@ function startNewEntry(fr, path, kind) {
   if (!tree.isOpen(path)) tree.expand(path);
   renderTree();
   input.focus();
+  // A file's name without its extension, ready to retype, as a desktop rename selects it.
+  const dot = oldName.lastIndexOf('.');
+  input.setSelectionRange(0, kind === 'file' && dot > 0 ? dot : oldName.length);
 }
 
 function cancelNewEntry(entry) {
@@ -3137,16 +3172,24 @@ async function submitNewEntry(entry) {
     return;
   }
   const path = childPath(dir, name);
+  const where = (p) =>
+    fr.container ? { path: childPath('/', p) } : { root: fr.root, path: p };
+  if (entry.rename === path) {
+    cancelNewEntry(entry);
+    return;
+  }
   entry.busy = true;
   try {
-    await call({
-      type: 'create_file',
-      container: c.id,
-      ...(fr.container
-        ? { path: childPath('/', path) }
-        : { root: fr.root, path }),
-      kind,
-    });
+    await call(
+      entry.rename !== null
+        ? {
+          type: 'rename_file',
+          container: c.id,
+          ...where(entry.rename),
+          to: name,
+        }
+        : { type: 'create_file', container: c.id, ...where(path), kind },
+    );
   } catch (e) {
     entry.busy = false;
     showNewEntryError(
@@ -3158,7 +3201,39 @@ async function submitNewEntry(entry) {
   if (newEntry === entry) newEntry = null;
   selectTreeKey = `${treeId(fr)}\n${path}`;
   fileTree(fr).refresh(dir);
-  if (kind === 'file') openInEditor(fr, path, 'stack');
+  if (kind === 'file' && entry.rename === null) openInEditor(fr, path, 'stack');
+}
+
+/**
+ * Deletes an entry of `fr` in the container (`delete_file`), once confirmed: a folder with
+ * everything in it. Its folder is listed again; a failure is a toast.
+ *
+ * @param {FileRoot} fr @param {string} path @param {'file' | 'dir'} kind
+ */
+async function deleteEntry(fr, path, kind) {
+  const c = containerByFolder(fr.localFolder);
+  if (!c) {
+    toast('Start the container first');
+    return;
+  }
+  const name = path.slice(path.lastIndexOf('/') + 1);
+  const question = kind === 'dir'
+    ? `Delete the folder "${name}" and everything in it? This can't be undone.`
+    : `Delete "${name}"? This can't be undone.`;
+  if (!confirm(question)) return;
+  try {
+    await call({
+      type: 'delete_file',
+      container: c.id,
+      ...(fr.container
+        ? { path: childPath('/', path) }
+        : { root: fr.root, path }),
+    });
+  } catch (e) {
+    toast(`Delete failed: ${e?.message ?? e}`);
+    return;
+  }
+  fileTree(fr).refresh(treeParent(path));
 }
 
 /**
@@ -3171,6 +3246,17 @@ function withNewEntryRow(fr, depth, rows) {
   const entry = newEntry;
   if (entry === null || treeId(entry.fr) !== treeId(fr)) return rows;
   if (!fileTree(fr).isOpen(entry.dir)) return rows;
+  if (entry.rename !== null) {
+    const key = `${treeId(fr)}\n${entry.rename}`;
+    const at = rows.findIndex((r) => r.dataset.treeKey === key);
+    if (at === -1) return rows;
+    entry.row.style.setProperty(
+      '--depth',
+      rows[at].dataset.depth ?? String(depth),
+    );
+    entry.seen = renderGeneration;
+    return [...rows.slice(0, at), entry.row, ...rows.slice(at + 1)];
+  }
   let at = 0;
   let rowDepth = depth;
   if (entry.dir !== '') {
@@ -3196,6 +3282,7 @@ function fileMenuItems(fr, path) {
     ['Copy path', () => copyPath(fr, path)],
     // A repo file only: the container's own files are outside the bind mount.
     ...(fr.container ? [] : [filePinItem(fr, path)]),
+    ...changeEntryItems(fr, path, 'file'),
   ];
 }
 
@@ -3240,11 +3327,10 @@ function fileEntryRow(fr, tree, item) {
       oncontextmenu: (e) =>
         openMenu(
           e,
-          dir
-            ? dirMenuItems(fr, path)
-            : file
-            ? fileMenuItems(fr, path)
-            : [['Copy path', () => copyPath(fr, path)]],
+          dir ? dirMenuItems(fr, path) : file ? fileMenuItems(fr, path) : [
+            ['Copy path', () => copyPath(fr, path)],
+            ...changeEntryItems(fr, path, 'file'),
+          ],
         ),
     },
     entry.name,

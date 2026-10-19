@@ -5,10 +5,14 @@ import {
   createArgv,
   createContainerEntry,
   createError,
+  deleteArgv,
+  deleteContainerEntry,
   type DockerRun,
   listContainerDir,
   parseListing,
   readContainerFile,
+  renameArgv,
+  renameContainerEntry,
 } from '../web/container_files.ts';
 import { FilesError, MAX_READ_BYTES } from '../web/files.ts';
 
@@ -341,4 +345,109 @@ Deno.test('createError maps docker and shell failures to codes', () => {
   );
   assertEquals(codeOf(err('something else\n')), 'something else');
   assertEquals(codeOf(err('')), 'creating failed');
+});
+
+Deno.test('renameArgv and deleteArgv: the paths are arguments, never script', () => {
+  const from = `/w/$(touch pwned)'"; x`;
+  const to = '/w/b; rm -rf /';
+  const argv = renameArgv(from, to);
+  assertEquals(argv.slice(-2), [from, to]);
+  assertEquals(argv[2].includes(from) || argv[2].includes(to), false);
+  assertEquals(deleteArgv(from), ['rm', '-r', '--', from]);
+});
+
+Deno.test('renameContainerEntry renames a file, a folder and a link itself', async () => {
+  const dir = await fixture();
+  try {
+    assertEquals(
+      await renameContainerEntry(
+        info,
+        join(dir, 'a.txt'),
+        join(dir, 'b.txt'),
+        localRun(),
+      ),
+      { path: join(dir, 'b.txt') },
+    );
+    assertEquals(await Deno.readTextFile(join(dir, 'b.txt')), 'hello');
+    await renameContainerEntry(
+      info,
+      join(dir, 'src'),
+      join(dir, 'lib'),
+      localRun(),
+    );
+    assertEquals((await Deno.stat(join(dir, 'lib'))).isDirectory, true);
+    await renameContainerEntry(
+      info,
+      join(dir, 'broken'),
+      join(dir, 'still-broken'),
+      localRun(),
+    );
+    assertEquals(
+      (await Deno.lstat(join(dir, 'still-broken'))).isSymlink,
+      true,
+    );
+  } finally {
+    await Deno.remove(dir, { recursive: true });
+  }
+});
+
+Deno.test('renameContainerEntry never replaces what is there', async () => {
+  const dir = await fixture();
+  try {
+    for (const to of ['src', 'to-file', 'broken']) {
+      const e = await assertRejects(
+        () =>
+          renameContainerEntry(
+            info,
+            join(dir, 'a.txt'),
+            join(dir, to),
+            localRun(),
+          ),
+        FilesError,
+      );
+      assertEquals(e.code, 'exists', to);
+    }
+    assertEquals(await Deno.readTextFile(join(dir, 'a.txt')), 'hello');
+    const gone = await assertRejects(
+      () =>
+        renameContainerEntry(
+          info,
+          join(dir, 'nope'),
+          join(dir, 'x'),
+          localRun(),
+        ),
+      FilesError,
+    );
+    assertEquals(gone.code, 'not_found');
+  } finally {
+    await Deno.remove(dir, { recursive: true });
+  }
+});
+
+Deno.test('deleteContainerEntry deletes a file, a link (not its target) and a folder', async () => {
+  const dir = await fixture();
+  try {
+    await Deno.writeTextFile(join(dir, 'src', 'inner.ts'), '');
+    assertEquals(
+      await deleteContainerEntry(info, join(dir, 'to-dir'), localRun()),
+      {},
+    );
+    assertEquals((await Deno.stat(join(dir, 'src', 'inner.ts'))).isFile, true);
+    await deleteContainerEntry(info, join(dir, 'a.txt'), localRun());
+    await deleteContainerEntry(info, join(dir, 'src'), localRun());
+    for (const name of ['to-dir', 'a.txt', 'src']) {
+      assertEquals(
+        await Deno.lstat(join(dir, name)).then(() => true, () => false),
+        false,
+        name,
+      );
+    }
+    const e = await assertRejects(
+      () => deleteContainerEntry(info, join(dir, 'nope'), localRun()),
+      FilesError,
+    );
+    assertEquals(e.code, 'not_found');
+  } finally {
+    await Deno.remove(dir, { recursive: true });
+  }
 });

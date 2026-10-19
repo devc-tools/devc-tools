@@ -328,8 +328,11 @@ is published from any container: the host server finds devcontainers with
   (Escape cancels), and a new file opens in the editor. Entries are created
   inside the container as its remote user, so they have the owner the editor's
   saves will have; a name that is already taken is reported under the row. The
-  container must be running. See [Editing in a terminal](#editing-in-a-terminal)
-  for the editor.
+  container must be running. **Rename…** (the name is edited in place) and
+  **Delete…** (after a confirmation; a folder goes with everything in it) are on
+  every file and folder below a root, and run in the container the same way. An
+  editor's terminal is named after its file, in the sidebar and on its tab. See
+  [Editing in a terminal](#editing-in-a-terminal) for the editor.
 - **Pinned files and notes:** the **Pinned** section at the top of the sidebar
   keeps repo files one click away. Right-click a repo file (or a file tile) for
   **Pin file** / **Unpin file**; the section's **+** is **New note…**, which

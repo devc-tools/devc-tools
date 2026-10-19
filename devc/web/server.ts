@@ -28,8 +28,10 @@ import type {
 } from '@devc-tools/core/container.ts';
 import {
   createContainerEntry,
+  deleteContainerEntry,
   listContainerDir,
   readContainerFile,
+  renameContainerEntry,
 } from './container_files.ts';
 import { loadGlobalConfig } from '@devc-tools/core/config.ts';
 import {
@@ -684,11 +686,19 @@ export async function startWeb(
       await bridgeRequest(target, 'pane.rename', {
         pane_id: result.pane_id,
         label: basenamePosix(containerPath),
-      }).catch(() => {});
+      }).then((r) => renamed(session, r), () => {});
       return result;
     } catch (e) {
       fail(c, msg.id, e instanceof BridgeError ? e.code : 'herdr_error', e);
       return null;
+    }
+  };
+
+  /** Passes on a `pane.rename` reply's pane, which Herdr announces with no event of its own. */
+  const renamed = (session: ContainerSession, result: unknown) => {
+    const pane = (result as { pane?: unknown } | null)?.pane;
+    if (typeof pane === 'object' && pane !== null) {
+      session.paneChanged(pane as Record<string, unknown>);
     }
   };
 
@@ -772,6 +782,62 @@ export async function startWeb(
       reply(c, { id: msg.id, ok: true, result });
     } catch (e) {
       fail(c, msg.id, e instanceof FilesError ? e.code : 'create_failed', e);
+    }
+  };
+
+  /**
+   * An existing entry's container path for {@link changeFile}: with `root`, its folder is
+   * confined to that repo folder and the name taken as it is, so a link is renamed or deleted
+   * itself, never what it points to; without, the path as given. Null once refused.
+   */
+  const entryContainerPath = async (
+    c: Client,
+    session: ContainerSession,
+    msg: { id: string; root?: string; path: string },
+  ): Promise<string | null> => {
+    if (msg.root === undefined) return msg.path;
+    const parent = await repoContainerPath(
+      c,
+      session,
+      { id: msg.id, root: msg.root, path: dirnamePosix(msg.path) },
+      'dir',
+    );
+    if (parent === null) return null;
+    return `${parent === '/' ? '' : parent}/${basenamePosix(msg.path)}`;
+  };
+
+  /**
+   * Renames or deletes a file or folder in the container, as the remote user, the way
+   * {@link createFile} creates one. A rename stays in the entry's folder.
+   */
+  const changeFile = async (
+    c: Client,
+    session: ContainerSession,
+    msg: Extract<ClientMessage, { type: 'rename_file' | 'delete_file' }>,
+  ) => {
+    const path = await entryContainerPath(c, session, msg);
+    if (path === null) return;
+    try {
+      const info = await connectionOf(session);
+      const result = msg.type === 'rename_file'
+        ? await renameContainerEntry(
+          info,
+          path,
+          `${dirnamePosix(path) === '/' ? '' : dirnamePosix(path)}/${msg.to}`,
+        )
+        : await deleteContainerEntry(info, path);
+      reply(c, { id: msg.id, ok: true, result });
+    } catch (e) {
+      fail(
+        c,
+        msg.id,
+        e instanceof FilesError
+          ? e.code
+          : msg.type === 'rename_file'
+          ? 'rename_failed'
+          : 'delete_failed',
+        e,
+      );
     }
   };
 
@@ -1221,7 +1287,10 @@ export async function startWeb(
     const session = sessions.get(msg.container);
     const id = 'id' in msg ? msg.id : undefined;
     if (!session) {
-      if (msg.type === 'create_file') {
+      if (
+        msg.type === 'create_file' || msg.type === 'rename_file' ||
+        msg.type === 'delete_file'
+      ) {
         fail(c, msg.id, 'not_running', 'the container is not running');
         return;
       }
@@ -1257,6 +1326,10 @@ export async function startWeb(
         return;
       case 'create_file':
         await createFile(c, session, msg);
+        return;
+      case 'rename_file':
+      case 'delete_file':
+        await changeFile(c, session, msg);
         return;
     }
     const target = session.target;
@@ -1393,6 +1466,7 @@ export async function startWeb(
       case 'request':
         try {
           const result = await bridgeRequest(target, msg.method, msg.params);
+          if (msg.method === 'pane.rename') renamed(session, result);
           reply(c, { id: msg.id, ok: true, result: result ?? {} });
         } catch (e) {
           reply(c, {

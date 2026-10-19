@@ -1,8 +1,9 @@
 // A running container's own filesystem for `devc web`'s Files node (`list_container_dir`,
 // `read_container_file`): any absolute path inside the container, read with `docker exec` as the
 // remote user, so what is listed is what that user can see. Unlike the repo trees (`files.ts`),
-// nothing is confined: the container is the boundary. `create_file` writes here too, for both
-// trees, so a new file has the owner the editor's saves will have.
+// nothing is confined: the container is the boundary. `create_file`, `rename_file` and
+// `delete_file` write here too, for both trees, so an entry has the owner the editor's saves will
+// have.
 //
 // The commands are GNU findutils and POSIX `sh`/`head`, as in devc-vscode's container file
 // system. BusyBox `find` (Alpine) has no `-printf`, so listing fails there with find's own error.
@@ -231,4 +232,91 @@ export async function createContainerEntry(
   );
   if (out.code !== 0) throw createError(path, out);
   return { path };
+}
+
+/**
+ * The command that renames `from` to `to` (the same folder, a new name): refused when anything,
+ * a broken link included, is already at `to`, and `mv -T` so a folder named `to` is never
+ * moved into. Both paths ride in as arguments.
+ */
+export function renameArgv(from: string, to: string): string[] {
+  return [
+    'sh',
+    '-c',
+    'if [ -e "$2" ] || [ -L "$2" ]; then echo "$2: File exists" >&2; exit 1; fi; exec mv -T -- "$1" "$2"',
+    'sh',
+    from,
+    to,
+  ];
+}
+
+/** The command that deletes `path`: a file, a link (never what it points to), or a whole folder. */
+export function deleteArgv(path: string): string[] {
+  return ['rm', '-r', '--', path];
+}
+
+/**
+ * A failed rename or delete of `path` as an error with its `code`: `exists` (the new name is
+ * taken), `not_found`, `forbidden` or `not_running`, else an `Error` carrying stderr.
+ */
+export function changeError(
+  path: string,
+  out: ExecOutput,
+  what: string,
+): Error {
+  const msg = out.stderr.trim();
+  if (/file exists/i.test(msg)) {
+    return new FilesError(
+      'exists',
+      `${msg.replace(/: File exists$/i, '')} already exists`,
+    );
+  }
+  if (/no such file or directory|not a directory/i.test(msg)) {
+    return new FilesError('not_found', `${path} does not exist`);
+  }
+  if (
+    /permission denied|read-only file system|operation not permitted/i.test(msg)
+  ) {
+    return new FilesError('forbidden', `${path} can't be ${what} here`);
+  }
+  if (/is not running|no such container/i.test(msg)) {
+    return new FilesError('not_running', 'the container is not running');
+  }
+  return new Error(
+    msg || `${what === 'renamed' ? 'renaming' : 'deleting'} failed`,
+  );
+}
+
+/**
+ * Renames `from` to `to` (both absolute, in the same folder) in the container, as the remote
+ * user. Resolves with the new path; throws {@link FilesError} (`exists`, `not_found`,
+ * `forbidden`, `not_running`), or an `Error` carrying the command's stderr.
+ */
+export async function renameContainerEntry(
+  info: ContainerInfo,
+  from: string,
+  to: string,
+  run: DockerRun = runDocker,
+): Promise<{ path: string }> {
+  const out = await run(
+    dockerExecArgv(info, { cwd: '/', cmd: renameArgv(from, to) }),
+  );
+  if (out.code !== 0) throw changeError(from, out, 'renamed');
+  return { path: to };
+}
+
+/**
+ * Deletes `path` (absolute) in the container, as the remote user: a folder with everything in
+ * it. Throws as {@link renameContainerEntry} does, `exists` aside.
+ */
+export async function deleteContainerEntry(
+  info: ContainerInfo,
+  path: string,
+  run: DockerRun = runDocker,
+): Promise<Record<string, never>> {
+  const out = await run(
+    dockerExecArgv(info, { cwd: '/', cmd: deleteArgv(path) }),
+  );
+  if (out.code !== 0) throw changeError(path, out, 'deleted');
+  return {};
 }
