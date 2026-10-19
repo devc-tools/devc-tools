@@ -62,14 +62,30 @@ export function paneTitle(pane) {
 }
 
 /**
- * The window title for the active tile: `<folder>: <project> — devc web`, `<folder>` being the
- * basename of its folder (a path; `/` for the root) and `<project>` its project's name. Either
- * one is left out when empty or missing: `<folder> — devc web`, `<project> — devc web`.
+ * The window title for the active tile: `<folder>: <repo> — devc web`, `<folder>` being the
+ * basename of its folder (a path; `/` for the root) and `<repo>` the label of the repo it is in
+ * (or its project's name outside any). Either one is left out when empty or missing:
+ * `<folder> — devc web`, `<repo> — devc web`.
  */
-export function windowTitle(folder, project) {
+export function windowTitle(folder, repo) {
   const name = folder ? basename(folder) || '/' : '';
-  const head = name && project ? `${name}: ${project}` : name || project;
+  const head = name && repo ? `${name}: ${repo}` : name || repo;
   return head ? `${head} — devc web` : 'devc web';
+}
+
+/**
+ * The repo (of a project's `repos`) whose container folder holds container path `path`, the
+ * innermost when they nest; null when none does.
+ */
+export function repoAt(repos, path) {
+  let best = null;
+  for (const r of repos) {
+    const dir = r.containerFolder?.replace(/\/+$/, '');
+    if (!dir || !path) continue;
+    const inside = path === dir || path.startsWith(`${dir}/`);
+    if (inside && (!best || dir.length > best.dir.length)) best = { r, dir };
+  }
+  return best?.r ?? null;
 }
 
 /**

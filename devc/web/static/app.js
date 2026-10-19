@@ -38,6 +38,7 @@ import {
   labelText,
   paneLabel,
   paneTitle,
+  repoAt,
   SIDEBAR_DEFAULT_WIDTH,
   statusShort,
   topStatus,
@@ -1497,7 +1498,7 @@ function revealTile(tileId) {
 function updateCurrent() {
   const tile = targetTile();
   const title = tile
-    ? windowTitle(activeFolder(tile), activeProject(tile))
+    ? windowTitle(activeFolder(tile), activeRepo(tile))
     : windowTitle();
   if (document.title !== title) document.title = title;
   const { c } = resolveRef(tile?.ref ?? null);
@@ -1529,12 +1530,26 @@ function activeFolder(tile) {
   return pane?.foreground_cwd || pane?.cwd || null;
 }
 
-/** A tile's project name, as its container's sidebar row shows it; null for an empty tile. */
-function activeProject(tile) {
-  const localFolder = tile.kind === 'file'
-    ? tile.file?.localFolder
-    : tile.ref?.localFolder;
+/**
+ * The label of the repo a tile is in, as its repo row shows it: a repo file's own repo, else the
+ * repo whose container folder holds the pane's directory or the container file. Outside every
+ * repo, its project's name, as its container row shows it; null for an empty tile.
+ */
+function activeRepo(tile) {
+  const file = tile.kind === 'file' ? tile.file : null;
+  const localFolder = file ? file.localFolder : tile.ref?.localFolder;
   if (!localFolder) return null;
+  const repos = projectRepos(localFolder);
+  let repo;
+  if (file && !file.container) {
+    repo = repos.find((r) => r.folder === file.root);
+  } else if (file) {
+    repo = repoAt(repos, fileHostPath(file));
+  } else {
+    const { pane } = resolveRef(tile.ref);
+    repo = repoAt(repos, pane?.foreground_cwd || pane?.cwd || '');
+  }
+  if (repo?.name) return repo.name;
   const c = containerByFolder(localFolder);
   if (c) return displayName(c);
   const p = projects.get(localFolder);

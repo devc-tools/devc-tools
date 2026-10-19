@@ -10,6 +10,7 @@ import {
   labelText,
   paneLabel,
   paneTitle,
+  repoAt,
   SIDEBAR_DEFAULT_WIDTH,
   SIDEBAR_MIN_WIDTH,
   STATUS_ORDER,
@@ -359,10 +360,10 @@ Deno.test('collapseContainersState with nothing known still closes everything', 
   );
 });
 
-Deno.test('windowTitle: folder: project — devc web, leaving out what is missing', () => {
+Deno.test('windowTitle: folder: repo — devc web, leaving out what is missing', () => {
   assertEquals(
-    windowTitle('/workspaces/tools/devc-tools/devc', 'devc-tools'),
-    'devc: devc-tools — devc web',
+    windowTitle('/workspaces/tools/devc-tools/devc', 'tools/devc-tools'),
+    'devc: tools/devc-tools — devc web',
   );
   assertEquals(windowTitle('/workspaces/app/', 'app'), 'app: app — devc web');
   assertEquals(windowTitle('/', 'app'), '/: app — devc web');
@@ -370,4 +371,20 @@ Deno.test('windowTitle: folder: project — devc web, leaving out what is missin
   assertEquals(windowTitle(null, 'app'), 'app — devc web');
   assertEquals(windowTitle('', ''), 'devc web');
   assertEquals(windowTitle(), 'devc web');
+});
+
+Deno.test('repoAt: the innermost repo whose container folder holds the path', () => {
+  const app = { name: 'app', containerFolder: '/workspaces/app' };
+  const wt = { name: 'app/wt', containerFolder: '/workspaces/app/wt/' };
+  const lib = { name: 'lib', containerFolder: '/src/lib' };
+  const unread = { name: 'x', containerFolder: null };
+  const repos = [unread, app, wt, lib];
+  assertEquals(repoAt(repos, '/workspaces/app'), app);
+  assertEquals(repoAt(repos, '/workspaces/app/src'), app);
+  assertEquals(repoAt(repos, '/workspaces/app/wt/src'), wt);
+  assertEquals(repoAt(repos, '/src/lib'), lib);
+  assertEquals(repoAt(repos, '/workspaces/application'), null);
+  assertEquals(repoAt(repos, '/tmp'), null);
+  assertEquals(repoAt(repos, ''), null);
+  assertEquals(repoAt([], '/workspaces/app'), null);
 });
