@@ -11,6 +11,12 @@
 
 ### Pending
 
+- **micro in devc's baseline** — next, once `features/micro` is on `main` and its publish job
+  has pushed `ghcr.io/devc-tools/features/micro:0`: add
+  `"ghcr.io/devc-tools/features/micro:0": {}` to `devc-core/default/devcontainer.json`, so every
+  devc container has a non-modal editor for devc web's **Open in editor**. Not before: a baseline
+  naming an unpublished ref breaks every `devc up`.
+
 - [devc-container-connection](devc-container-connection.md) — one way to reach a devcontainer.
   `devc web` built its own `docker exec` path (`remoteUser` from the metadata label, no
   `remoteEnv`), so Herdr servers it starts miss `TZ`/`LANG`/`PROJECT_PATH`. Adds
@@ -176,6 +182,9 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
   here), the browser's own key handling (`Ctrl+W`, Mac `Option`), and the three checks in the
   user's tab (Helix in a tile named after the file, New file/New folder against a real
   container and its owner, `exists`); `create_file` needs `--live-yolo` or an updated `devc`.
+  **Superseded since:** the `helix` Feature was removed before it was ever published, in favour
+  of a non-modal `micro` Feature (0.1.0, SHA-256 verified), and `open_file`'s fallback is now
+  `$EDITOR`, else the first of `micro`, `nano` and `vi` that is installed.
 
 - [devc-desktop](archived/devc-desktop.md) — ✅ Done: `devc web` in its own window. A thin
   `deno desktop` app (CEF) in `devc-desktop/` runs `devc web --no-open …` as a child

@@ -2178,7 +2178,7 @@ function closeOutput() {
 // ---------------------------------------------------------------------------------------------
 
 /**
- * A pin's row toggles its file's editor tile. Closing closes the tile only: the Helix pane keeps
+ * A pin's row toggles its file's editor tile. Closing closes the tile only: the editor pane keeps
  * running in Herdr, so the next open (`open_pinned`, which reuses it) brings back the same buffer
  * and unsaved edits. Pins are kept by the server (`~/.config/devc/pinned-files.json`), so every
  * devc web window shows the same ones.

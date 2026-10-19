@@ -330,12 +330,14 @@ export async function listHostDir(
 }
 
 /**
- * The shell line that opens `containerPath` in the container's editor: `$EDITOR`, else `vi`.
+ * The shell line that opens `containerPath` in the container's editor: `$EDITOR`, else the first
+ * of `micro` (the `micro` Feature), `nano` and `vi` that is installed. The non-modal ones come
+ * first so an unset `EDITOR` never lands someone in `vi` by surprise.
  * `exec`, so quitting the editor ends the pane. The path is single-quoted, so nothing in a file
  * name reaches the shell as syntax.
  */
 export function editorCommand(containerPath: string): string {
-  return `exec "\${EDITOR:-vi}" -- '${
+  return `exec "\${EDITOR:-\$(command -v micro || command -v nano || echo vi)}" -- '${
     containerPath.replaceAll("'", `'\\''`)
   }'\n`;
 }

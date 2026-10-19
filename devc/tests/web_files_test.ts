@@ -192,14 +192,14 @@ Deno.test('listHostDir refuses relative paths and .., and has no parent at /', a
   assertEquals((await listHostDir('/', new Set())).parent, null);
 });
 
-Deno.test('editorCommand single-quotes the path and execs the editor', () => {
+Deno.test('editorCommand single-quotes the path and execs EDITOR, else micro, nano or vi', () => {
   assertEquals(
     editorCommand('/w/src/a.ts'),
-    `exec "\${EDITOR:-vi}" -- '/w/src/a.ts'\n`,
+    `exec "\${EDITOR:-\$(command -v micro || command -v nano || echo vi)}" -- '/w/src/a.ts'\n`,
   );
   assertEquals(
     editorCommand("/w/it's $(rm).txt"),
-    `exec "\${EDITOR:-vi}" -- '/w/it'\\''s $(rm).txt'\n`,
+    `exec "\${EDITOR:-\$(command -v micro || command -v nano || echo vi)}" -- '/w/it'\\''s $(rm).txt'\n`,
   );
 });
 
