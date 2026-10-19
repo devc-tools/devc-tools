@@ -851,6 +851,22 @@ body.resizing-sidebar {
   pointer-events: none;
 }
 
+/*
+ * devc-desktop's Electron, on macOS, shows a `title` tooltip only while the pointer is on the
+ * titled element itself, never on a child of it (electron/electron#49843). So a titled row's
+ * insides and a button's ignore the pointer, except the row's own controls and titled marks
+ * (their insides still don't). Pane and file rows keep their marks pointer-less: they drag.
+ */
+.row[title] *,
+button * {
+  pointer-events: none;
+}
+
+.row[title] :is(button, input),
+.row[title]:not(.pane, .file-drag) [title] {
+  pointer-events: auto;
+}
+
 .tile-body {
   position: relative;
   width: 100%;
