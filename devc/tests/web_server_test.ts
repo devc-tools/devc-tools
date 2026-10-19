@@ -930,6 +930,7 @@ Deno.test("activeFolder maps the active pane's cwd through the bind mounts", () 
       cwd: '/x',
     }]),
     mounts,
+    localFolder: '',
   });
   assertEquals(activeFolder(null, found('/workspaces/foo')), {
     ok: false,
@@ -952,10 +953,13 @@ Deno.test("activeFolder maps the active pane's cwd through the bind mounts", () 
     ok: false,
     reason: 'no_cwd',
   });
-  assertEquals(activeFolder(active, { snapshot: null, mounts }), {
-    ok: false,
-    reason: 'no_cwd',
-  });
+  assertEquals(
+    activeFolder(active, { snapshot: null, mounts, localFolder: '' }),
+    {
+      ok: false,
+      reason: 'no_cwd',
+    },
+  );
   assertEquals(activeFolder(active, found('/tmp')), {
     ok: false,
     reason: 'not_mounted',
@@ -984,6 +988,7 @@ Deno.test("activeFolder maps the active pane's cwd through the bind mounts", () 
     activeFolder(active, {
       snapshot: snapshot({ a: { pane_id: 'w1:p1', cwd: '/workspaces/foo' } }),
       mounts,
+      localFolder: '',
     }),
     {
       ok: true,
@@ -993,4 +998,62 @@ Deno.test("activeFolder maps the active pane's cwd through the bind mounts", () 
       containerFolder: '/workspaces/foo',
     },
   );
+});
+
+Deno.test("activeFolder names the container's own folder as primary when a mount covers it", () => {
+  const mounts = [
+    {
+      type: 'bind' as const,
+      source: '/h/wksp',
+      destination: '/workspaces/wksp',
+      rw: true,
+    },
+    {
+      type: 'bind' as const,
+      source: '/h/foo',
+      destination: '/workspaces/foo',
+      rw: true,
+    },
+  ];
+  const active = { container: 'c1', pane_id: 'p' };
+  const at = (cwd: string, localFolder = '/h/wksp') => ({
+    snapshot: { panes: [{ pane_id: 'p', cwd }] },
+    mounts,
+    localFolder,
+  });
+  const primary = { folder: '/h/wksp', mount: '/h/wksp' };
+  assertEquals(activeFolder(active, at('/workspaces/foo/sub')), {
+    ok: true,
+    folder: '/h/foo/sub',
+    mount: '/h/foo',
+    container: 'c1',
+    containerFolder: '/workspaces/foo/sub',
+    primary,
+  });
+  // The pane's folder is unknown or unmounted: the primary repo still comes back.
+  assertEquals(activeFolder(active, at('/tmp')), {
+    ok: false,
+    reason: 'not_mounted',
+    primary,
+  });
+  assertEquals(activeFolder({ ...active, pane_id: 'x' }, at('/tmp')), {
+    ok: false,
+    reason: 'no_cwd',
+    primary,
+  });
+  // No mount covers the container's folder, or it has none: no primary.
+  assertEquals(activeFolder(active, at('/tmp', '/h/other')), {
+    ok: false,
+    reason: 'not_mounted',
+  });
+  assertEquals(activeFolder(active, at('/tmp', '')), {
+    ok: false,
+    reason: 'not_mounted',
+  });
+  // Without an active pane or a session there is no container to name.
+  assertEquals(activeFolder(null, at('/tmp')), {
+    ok: false,
+    reason: 'no_active_pane',
+  });
+  assertEquals(activeFolder(active, null), { ok: false, reason: 'no_session' });
 });

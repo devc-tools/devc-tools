@@ -140,8 +140,10 @@ A paste with a line break in it is shown in a bar first, and goes in only when y
 Right-click in the host terminal for **`cd <folder>`**: the folder on this machine behind devc
 web's focused terminal pane (the pane's own directory, through its container's bind mounts).
 Clicking it clears whatever is typed at the prompt (Ctrl+E, Ctrl+U) and runs `cd '<folder>'`.
-The item is disabled, with the reason, when there is no such folder, and while a program runs
-in the shell (`(busy: vim)`). If devc web is open in a browser too, the window you used last
+A second item, **`cd <folder> (primary)`**, goes to that pane's container's own folder on
+this machine, the one it was created from. It is left out when it is the same folder. The item is
+disabled, with the reason, when there is no such folder, and both are disabled while a program
+runs in the shell (`(busy: vim)`). If devc web is open in a browser too, the window you used last
 decides which pane counts.
 
 ### Why devc web cannot reach it
@@ -175,7 +177,9 @@ from, must be a folder, and must have a printable name of at most 256 characters
 control, bidi or zero-width characters. That real path is what it types, quoted. The item shows
 it with `~` for your home folder. A label longer than 80 characters shortens the mount's own part
 to `…/<mount name>`, but never the part below the mount, which is the part a container chooses.
-It is checked again when you click, and nothing is typed if the folder changed. Anything holding the token (devc web's page,
+It is checked again when you click, and nothing is typed if the folder changed. The primary
+folder comes from the container's `devcontainer.local_folder` label, which is set on this machine
+when the container is created, and gets the same checks. Anything holding the token (devc web's page,
 an agent with it) can choose **which** pane counts.
 
 **What was tested:** Electron 44.5.0 under Xvfb on Linux, with real keystrokes. A hostile copy

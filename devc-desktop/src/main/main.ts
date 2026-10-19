@@ -430,14 +430,21 @@ async function main(): Promise<void> {
   // folder comes from devc web's server, never from its page directly, and is checked by
   // `cdTarget` before it is shown, and again before it is typed.
 
-  /** The checked folder, or the reason there is none, as the item's label says it. */
-  async function activeCd(): Promise<CdTarget> {
+  /**
+   * The checked folders: the pane's (or the reason there is none, as the item's label says it),
+   * and its container's primary repo, `null` when devc web names none or it fails the checks.
+   */
+  async function activeCd(): Promise<
+    { pane: CdTarget; primary: CdTarget | null }
+  > {
+    const none = (label: string) => ({
+      pane: { ok: false as const, label },
+      primary: null,
+    });
     if (origin === null || devcWebToken === null) {
-      return { ok: false, label: "devc web isn't running" };
+      return none("devc web isn't running");
     }
-    if (!hostPty.running) {
-      return { ok: false, label: "The host shell isn't running" };
-    }
+    if (!hostPty.running) return none("The host shell isn't running");
     let answer: unknown;
     try {
       // Node's fetch, not Electron's `net`: Chromium's stack may add an Origin, which the
@@ -449,9 +456,18 @@ async function main(): Promise<void> {
       if (res.status !== 200) throw new Error(String(res.status));
       answer = await res.json();
     } catch {
-      return { ok: false, label: 'devc web gave no folder' };
+      return none('devc web gave no folder');
     }
-    return cdTarget(answer, { realpath, stat });
+    const fs = { realpath, stat };
+    const p = (answer as { primary?: { folder?: unknown; mount?: unknown } })
+      ?.primary;
+    const primary = typeof p === 'object' && p !== null
+      ? await cdTarget({ ok: true, folder: p.folder, mount: p.mount }, fs)
+      : null;
+    return {
+      pane: await cdTarget(answer, fs),
+      primary: primary?.ok ? primary : null,
+    };
   }
 
   /** Whether the shell is at its prompt; otherwise the busy program's name. */
@@ -465,33 +481,42 @@ async function main(): Promise<void> {
   ipcMain.on('host-term:context-menu', (e) => {
     if (!fromHost(e) || !drawerOpen || menuPending) return;
     menuPending = true;
-    void activeCd().then((target) => {
-      const busy = target.ok ? busyWith() : null;
-      const label = target.ok
-        ? menuLabel(
+    void activeCd().then(({ pane, primary }) => {
+      const busy = busyWith();
+      const busySuffix = busy !== null ? ` (busy: ${busy})` : '';
+      const item = (
+        which: 'pane' | 'primary',
+        target: CdTarget,
+        suffix: string,
+      ): MenuItemConstructorOptions => {
+        if (!target.ok) return { label: target.label, enabled: false };
+        const label = menuLabel(
           target,
           app.getPath('home'),
           process.platform,
-          busy !== null ? ` (busy: ${busy})` : '',
-        )
-        : null;
-      const item: MenuItemConstructorOptions = !target.ok
-        ? { label: target.label, enabled: false }
-        : label === null
-        ? { label: "The folder's name is too long to show", enabled: false }
-        : {
-          label,
-          enabled: busy === null,
-          click: () => void cdTo(target.path),
-        };
-      Menu.buildFromTemplate([item]).popup({ window: win });
+          suffix + busySuffix,
+        );
+        return label === null
+          ? { label: "The folder's name is too long to show", enabled: false }
+          : {
+            label,
+            enabled: busy === null,
+            click: () => void cdTo(which, target.path),
+          };
+      };
+      const items = [item('pane', pane, '')];
+      // The primary repo, unless the pane's item already goes there.
+      if (primary?.ok && !(pane.ok && pane.path === primary.path)) {
+        items.push(item('primary', primary, ' (primary)'));
+      }
+      Menu.buildFromTemplate(items).popup({ window: win });
     }).finally(() => menuPending = false);
   });
 
   /** Checks again, and types the `cd` only if it still names the folder the item showed. */
-  async function cdTo(shown: string): Promise<void> {
-    const target = await activeCd();
-    if (!target.ok || target.path !== shown || busyWith() !== null) {
+  async function cdTo(which: 'pane' | 'primary', shown: string): Promise<void> {
+    const target = (await activeCd())[which];
+    if (!target?.ok || target.path !== shown || busyWith() !== null) {
       shell.beep();
       return;
     }

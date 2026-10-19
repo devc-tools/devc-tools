@@ -41,6 +41,7 @@ import { loadGlobalConfig } from '@devc-tools/core/config.ts';
 import {
   containerToHostPath,
   findMountForContainerPath,
+  findMountForHostPath,
   hostToContainerPath,
 } from '@devc-tools/core/mount_paths.ts';
 import { basenamePosix, dirnamePosix } from '@devc-tools/core/posix.ts';
@@ -228,26 +229,56 @@ export type ActiveFolder =
     mount: string;
     container: string;
     containerFolder: string;
+    primary?: PrimaryFolder;
   }
   | {
     ok: false;
     reason: 'no_active_pane' | 'no_session' | 'no_cwd' | 'not_mounted';
+    primary?: PrimaryFolder;
   };
+
+/**
+ * The pane's container's own folder on this machine (its `devcontainer.local_folder` label, set
+ * when it was created), and the bind mount that covers it. Absent when no mount does.
+ */
+export interface PrimaryFolder {
+  folder: string;
+  mount: string;
+}
 
 /**
  * The host folder of the active pane, the last one any page reported: its shell's own `cwd`
  * (never `foreground_cwd`) mapped through the container's bind mounts. `found` is the pane's
- * container's snapshot and mounts, or `null` when no session runs for it. Everything here
- * comes from a page or a container, so devc-desktop verifies the answer before using it.
+ * container's snapshot, mounts and `localFolder`, or `null` when no session runs for it. With
+ * a session, `primary` names the container's own folder too, when a mount covers it.
+ * Everything here comes from a page or a container, so devc-desktop verifies the answer
+ * before using it.
  */
 export function activeFolder(
   active: { container: string; pane_id: string } | null,
   found:
-    | { snapshot: Record<string, unknown> | null; mounts: ContainerMount[] }
+    | {
+      snapshot: Record<string, unknown> | null;
+      mounts: ContainerMount[];
+      localFolder: string;
+    }
     | null,
 ): ActiveFolder {
   if (active === null) return { ok: false, reason: 'no_active_pane' };
   if (found === null) return { ok: false, reason: 'no_session' };
+  const own = found.localFolder
+    ? findMountForHostPath(found.localFolder, found.mounts)
+    : null;
+  const primary = own
+    ? { primary: { folder: found.localFolder, mount: own.mount.source } }
+    : {};
+  return { ...paneFolder(active, found), ...primary };
+}
+
+function paneFolder(
+  active: { container: string; pane_id: string },
+  found: { snapshot: Record<string, unknown> | null; mounts: ContainerMount[] },
+): ActiveFolder {
   const pane = snapshotPanes(found.snapshot).find((p) =>
     p.pane_id === active.pane_id
   ) as Record<string, unknown> | undefined;
@@ -2090,6 +2121,7 @@ export async function startWeb(
         ? {
           snapshot: live ? { panes: [live] } : session.snapshot,
           mounts: await mountsOf(session.record.id),
+          localFolder: session.record.localFolder,
         }
         : null,
     );
