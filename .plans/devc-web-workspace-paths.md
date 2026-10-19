@@ -44,7 +44,12 @@ It builds on the current sidebar (`devc/web/static/app.js`). Other open `devc we
 
 ### Window title
 
-- **Text:** `<repo>:<branch> — devc web` (an em dash, U+2014, with a space each side).
+- **Text:** `<repo>:<branch> — <pane title> — devc web` (em dashes, U+2014, with a space each
+  side). `<pane title>` is the active pane's terminal title as its tab shows it after the name
+  (`paneLabel(pane).title`: `terminal_title_stripped`, left out when it repeats the name or,
+  for a non-agent pane, its folder), so an agent's title follows it as it works through
+  `pane_updated`. A file tile, an empty tile or a pane with no such title has none, and its
+  `—` goes with it.
   `<repo>` is the basename of the main repo of the repo the tile is in (`primaryFolder`, so a
   worktree `some-repo.worktrees/fix` gives `some-repo`; its own folder's basename when
   `primaryFolder` is null). The repo the tile is in: a repo file's own repo (`root`); for a pane, its directory (`foreground_cwd || cwd`), and for a container file, its
@@ -56,11 +61,12 @@ It builds on the current sidebar (`devc/web/static/app.js`). Other open `devc we
   container row shows it (`containerLabel`), with no branch. An empty tile or no tile:
   `devc web`, as in `index.html`. (The title went through `<folder> — devc web`, `<folder> —
   <project> — devc web`, `<folder>: <project> — devc web` and `<folder>: <repo> — devc web`
-  and `<repo label>:<branch> — devc web` as the user refined it.)
+  `<repo label>:<branch> — devc web` and `<main repo>:<branch> — devc web` as the user
+  refined it.)
 - **The active tile** is `targetTile()`: the focused tile, else the last focused, else the
   first — the same tile the sidebar marks current.
 - **Pure helpers** in `devc/web/static/lib/sidebar.js`, tested in
-  `devc/tests/web_sidebar_test.ts`: `windowTitle(repo, branch)` and `repoAt(repos, path)`.
+  `devc/tests/web_sidebar_test.ts`: `windowTitle(repo, branch, paneTitle)` and `repoAt(repos, path)`.
 - **When it updates:** `document.title` is set (only when it changed) every time
   `updateCurrent()` runs, and after each `snapshot`, `pane_updated` and `projects` message, so
   a `cd` into another repo or a new branch read retitles the window. A tile closing or a preview tile switching files goes
@@ -169,10 +175,13 @@ It builds on the current sidebar (`devc/web/static/app.js`). Other open `devc we
       `/workspaces/a.worktrees/fix`) → `a.worktrees/fix`; (`/h/ws`, `/workspaces`) → `ws`;
       (`/h/app`, `/src/app`) → `app`; (`/h/app`, `null`) → `app`; (`/`, `null`) → `/`;
       (`/h/x`, `/workspacesx/y`) → `x`.
-- [x] `windowTitle(repo, branch)` tests: (`'tools/devc-tools'`, `'main'`) →
-      `'tools/devc-tools:main — devc web'`; (`'app'`, `'feature/x'`) →
-      `'app:feature/x — devc web'`; (`'app'`, `undefined`) and (`'app'`, `''`) →
-      `'app — devc web'`; (`undefined`, `'main'`) and no arguments → `'devc web'`.
+- [x] `windowTitle(repo, branch, paneTitle)` tests: (`'devc-tools'`, `'main'`,
+      `'✳ Fixing the title'`) → `'devc-tools:main — ✳ Fixing the title — devc web'`;
+      (`'devc-tools'`, `'main'`) and (…, `''`) → `'devc-tools:main — devc web'`; (`'app'`,
+      `'feature/x'`) → `'app:feature/x — devc web'`; (`'app'`, `undefined`, `'Claude Code'`) →
+      `'app — Claude Code — devc web'`; (`'app'`, `''`) → `'app — devc web'`; (`undefined`,
+      `'main'`) and no arguments → `'devc web'`; (`undefined`, `undefined`, `'vim'`) →
+      `'vim — devc web'`.
 - [x] `repoAt` tests: repos `/workspaces/app`, `/workspaces/app/wt/` (nested), `/src/lib` and
       one with `containerFolder: null`: `/workspaces/app` and `/workspaces/app/src` → app;
       `/workspaces/app/wt/src` → wt; `/src/lib` → lib; `/workspaces/application`, `/tmp`,
@@ -202,6 +211,9 @@ It builds on the current sidebar (`devc/web/static/app.js`). Other open `devc we
     '/workspaces/some-repo.worktrees/fix', primaryFolder: '/h/some-repo', name:
     'some-repo.worktrees/fix', git: {branch: 'fix', …}}`, with a pane in it focused:
     `'some-repo:fix — devc web'`;
+  - a `pane_updated` giving the focused agent pane (`agent: 'claude'`)
+    `terminal_title_stripped: '✳ Fixing the title'`: `'devc-tools:main — ✳ Fixing the title —
+    devc web'`, and the next title it sets replaces it;
   - opening a container file `/src/lib/x.ts` in a tile and focusing it: `'lib — devc web'`
     (`lib` has no git state in the fixture);
   - closing every tile: `'devc web'`;

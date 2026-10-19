@@ -1498,7 +1498,9 @@ function revealTile(tileId) {
 function updateCurrent() {
   const tile = targetTile();
   const { label, branch } = tile ? activeRepo(tile) : {};
-  const title = windowTitle(label, branch);
+  // The title the pane's program sets, as its tab shows it after the name.
+  const pane = tile?.ref ? resolveRef(tile.ref).pane : null;
+  const title = windowTitle(label, branch, pane ? paneLabel(pane).title : '');
   if (document.title !== title) document.title = title;
   const { c } = resolveRef(tile?.ref ?? null);
   const key = c && tile?.ref ? paneKey(c.id, tile.ref.pane_id) : null;

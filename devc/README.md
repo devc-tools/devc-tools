@@ -286,10 +286,11 @@ is published from any container: the host server finds devcontainers with
   Click a container to collapse it; a collapsed one shows its most urgent agent
   status. A repo row is named by its path under `/workspaces` in the container
   (`tools/devc-tools`), else by its folder's name. The window title follows the
-  active tile: `<repo>:<branch> — devc web`, where `<repo>` is the folder name of
-  the repo its terminal's current directory or its file is in (a worktree's main
-  repo; the project's name outside every repo) and `<branch>` is that folder's
-  branch as last read. Which rows are open is remembered per browser; hover the **Tasks** or
+  active tile: `<repo>:<branch> — <title> — devc web`, where `<repo>` is the
+  folder name of the repo its terminal's current directory or its file is in (a
+  worktree's main repo; the project's name outside every repo), `<branch>` is
+  that folder's branch as last read, and `<title>` is the title the terminal's
+  program sets (an agent's, as it works), as the tile's tab shows it. Which rows are open is remembered per browser; hover the **Tasks** or
   **Containers** heading for **Collapse all**, which closes every row under it,
   at every level. Containers without a running Herdr server are grouped under
   **Not running** at the bottom; hover one for its play button,
