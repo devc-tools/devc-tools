@@ -341,7 +341,14 @@ is published from any container: the host server finds devcontainers with
   every file and folder below a root, and run in the container the same way. An
   editor's terminal is named after its file, in the sidebar and on its tab. A
   container's **Files** row lists `/workspaces` and the remote user's home first,
-  each a folder of its own, then everything under `/`. See
+  each a folder of its own, then everything under `/`. Every file and folder
+  under a repo or **Files**, and the repo and **Files** rows themselves, offer
+  **Copy path** (the host path), **Copy container path**, and **Open in Code**,
+  which runs VS Code's `code` on the host path (on macOS without `code` on
+  `PATH`, the app itself). Each is there when its path is known: a container
+  file has a host path only under a bind mount, and opens in Code only inside
+  one of the project's repos. Hovering shows the host path (a container file
+  also shows its container path). See
   [Editing in a terminal](#editing-in-a-terminal) for the editor.
 - **Pinned files and notes:** the **Pinned** section at the top of the sidebar
   keeps repo files one click away. It appears once something is pinned:
@@ -356,7 +363,8 @@ is published from any container: the host server finds devcontainers with
   **Ctrl+Alt+N** (**⌘⌥N** on a Mac) toggles the first pin, even while a
   terminal has focus. While the container is stopped a pin opens read-only in
   the file viewer, with a **Start** offer. A pin's menu has **Open to the
-  right**, **Open read-only**, **Rename…**, **Copy path** and **Unpin file**.
+  right**, **Open read-only**, **Rename…**, **Copy path**, **Copy container
+  path**, **Open in Code** and **Unpin file**.
   Pins are kept in `~/.config/devc/pinned-files.json`, so a browser tab and the
   devc-desktop window show the same ones. They are not pinned projects (a
   project kept in the Containers list) and not a preview tile's **Keep open**.

@@ -793,6 +793,9 @@ const LABELS = {
   newFolder: 'New folder…',
   renameEntry: 'Rename…',
   deleteEntry: 'Delete…',
+  copyPath: 'Copy path',
+  copyContainerPath: 'Copy container path',
+  openInCode: 'Open in Code',
   /** Pinned files; never "pin" alone, which a project and a preview tile also use. */
   pinned: 'Pinned',
   pinFile: 'Pin file',
@@ -2150,7 +2153,7 @@ function containerFileRows(c) {
       tree.isOpen(''),
       {
         class: 'files',
-        title: '/',
+        title: pathTitle(fr, ''),
         onclick: () => tree.toggle(''),
         oncontextmenu: (e) => openMenu(e, dirMenuItems(fr, '')),
       },
@@ -2168,7 +2171,7 @@ function containerFileRows(c) {
         stree.isOpen(''),
         {
           class: 'files-shortcut',
-          title: root,
+          title: pathTitle(sfr, ''),
           onclick: () => stree.toggle(''),
           oncontextmenu: (e) => openMenu(e, dirMenuItems(sfr, '')),
         },
@@ -2683,7 +2686,7 @@ function filePinMenuItems(pin) {
     ['Open to the right', () => void openFilePin(pin, 'right')],
     ['Open read-only', () => openFileTile(fr, pin.path, 'stack')],
     ['Rename…', () => renameFilePin(pin)],
-    ['Copy path', () => copyPath(fr, pin.path)],
+    ...pathMenuItems(fr, pin.path),
     [LABELS.unpinFile, () => unpinFile(pin)],
   ];
 }
@@ -3890,29 +3893,111 @@ function relistForContainers() {
   }
 }
 
-/** `path`'s container path, from the nearest listed folder at or above it; null if none knows. */
+/**
+ * `path`'s container path: for a repo, from the nearest listed folder at or above it, else from
+ * where the container mounts the repo; null if neither knows.
+ */
 function containerPathOf(fr, path) {
   if (fr.container) return containerFilePath(fr, path);
-  if (!containerByFolder(fr.localFolder)) return null;
+  const parts = path === '' ? [] : path.split('/');
+  if (containerByFolder(fr.localFolder)) {
+    const tree = fileTree(fr);
+    for (let n = parts.length; n >= 0; n--) {
+      const l = tree.listing(parts.slice(0, n).join('/'));
+      if (l?.state === 'ok' && typeof l.containerPath === 'string') {
+        return parts.slice(n).reduce(childPath, l.containerPath);
+      }
+    }
+  }
+  const mounted = projectRepos(fr.localFolder).find((r) => r.folder === fr.root)
+    ?.containerFolder;
+  return typeof mounted === 'string' ? parts.reduce(childPath, mounted) : null;
+}
+
+/**
+ * `path`'s host path: a repo's is under its folder; a container's is known from the nearest
+ * listed folder at or above it that a bind mount covers (`hostPath`), or that lists a mount
+ * (`mounted`). Null if none does.
+ */
+function hostPathOf(fr, path) {
+  if (!fr.container) return path === '' ? fr.root : childPath(fr.root, path);
   const tree = fileTree(fr);
   const parts = path === '' ? [] : path.split('/');
   for (let n = parts.length; n >= 0; n--) {
     const l = tree.listing(parts.slice(0, n).join('/'));
-    if (l?.state === 'ok' && typeof l.containerPath === 'string') {
-      return parts.slice(n).reduce(childPath, l.containerPath);
+    if (l?.state !== 'ok') continue;
+    if (typeof l.hostPath === 'string') {
+      return parts.slice(n).reduce(childPath, l.hostPath);
     }
+    const at = n < parts.length ? l.mounted?.[parts[n]] : undefined;
+    if (typeof at === 'string') return parts.slice(n + 1).reduce(childPath, at);
   }
   return null;
 }
 
-/** Copies a repo path: where the running container sees it, else the host path. */
-function copyPath(fr, path) {
-  const text = containerPathOf(fr, path) ??
-    (path === '' ? fr.root : childPath(fr.root, path));
+/**
+ * A file or folder's tooltip lines for its path: the host path, then for a container's own file
+ * its container path (alone when no bind mount covers it).
+ */
+function pathTitle(fr, path) {
+  const host = hostPathOf(fr, path);
+  if (!fr.container) return host;
+  const inContainer = containerFilePath(fr, path);
+  return host === null ? inContainer : `${host}\n${inContainer}`;
+}
+
+function copyText(text) {
   navigator.clipboard?.writeText(text).then(
     () => toast(`Copied ${text}`),
     (e) => errorToast(`Copy failed: ${e?.message ?? e}`),
   );
+}
+
+/**
+ * **Copy path** (the host path), **Copy container path** and **Open in Code** for a file or
+ * folder, each when its path is known. Open in Code needs the host path in one of the project's
+ * repos, as the server does.
+ */
+function pathMenuItems(fr, path) {
+  const host = hostPathOf(fr, path);
+  const inContainer = containerPathOf(fr, path);
+  const inRepo = host !== null &&
+    (!fr.container ||
+      projectRepos(fr.localFolder).some((r) => isWithin(r.folder, host)));
+  return [
+    ...(host !== null ? [[LABELS.copyPath, () => copyText(host)]] : []),
+    ...(inContainer !== null
+      ? [[LABELS.copyContainerPath, () => copyText(inContainer)]]
+      : []),
+    ...(inRepo ? [[LABELS.openInCode, () => void openInCode(fr, path)]] : []),
+  ];
+}
+
+/** Opens a file or folder in VS Code on the host (`open_in_code`). */
+async function openInCode(fr, path) {
+  const c = fr.container ? containerByFolder(fr.localFolder) : null;
+  if (fr.container && !c) {
+    toast('Start the container first');
+    return;
+  }
+  try {
+    await call(
+      c
+        ? {
+          type: 'open_in_code',
+          container: c.id,
+          path: containerFilePath(fr, path),
+        }
+        : {
+          type: 'open_in_code',
+          localFolder: fr.localFolder,
+          root: fr.root,
+          path,
+        },
+    );
+  } catch (e) {
+    errorToast(`Open in Code failed: ${e?.message ?? e}`);
+  }
 }
 
 /** Opens a repo file in a new pane running the container's editor. */
@@ -4072,7 +4157,7 @@ function dirMenuItems(fr, path) {
     [LABELS.newFile, () => startNewEntry(fr, path, 'file')],
     [LABELS.newFolder, () => startNewEntry(fr, path, 'dir')],
     ['Refresh', () => fileTree(fr).refresh(path)],
-    ['Copy path', () => copyPath(fr, path)],
+    ...pathMenuItems(fr, path),
     // Not a root: it is the project's repo, or the container's `/`.
     ...(path === '' ? [] : changeEntryItems(fr, path, 'dir')),
   ];
@@ -4317,7 +4402,7 @@ function fileMenuItems(fr, path) {
     ...(isHtmlPath(path)
       ? [['Open in browser', () => openInBrowser(fr, path)]]
       : []),
-    ['Copy path', () => copyPath(fr, path)],
+    ...pathMenuItems(fr, path),
     // A repo file only: the container's own files are outside the bind mount.
     ...(fr.container ? [] : [filePinItem(fr, path)]),
     ...changeEntryItems(fr, path, 'file'),
@@ -4348,7 +4433,7 @@ function fileEntryRow(fr, tree, item) {
       'data-kind': entry.kind,
       'data-dim': isHiddenName(entry.name) || (!dir && !file) || undefined,
       title: [
-        childPath(fr.root, path),
+        pathTitle(fr, path),
         entry.size !== undefined ? formatSize(entry.size) : '',
         entry.kind === 'symlink'
           ? entry.to ? 'Symbolic link' : 'Broken symbolic link'
@@ -4366,7 +4451,7 @@ function fileEntryRow(fr, tree, item) {
         openMenu(
           e,
           dir ? dirMenuItems(fr, path) : file ? fileMenuItems(fr, path) : [
-            ['Copy path', () => copyPath(fr, path)],
+            ...pathMenuItems(fr, path),
             ...changeEntryItems(fr, path, 'file'),
           ],
         ),
@@ -4527,7 +4612,7 @@ function fileTileMenuItems(tile) {
     if (isHtmlPath(file.path)) {
       items.push(['Open in browser', () => openInBrowser(fr, file.path)]);
     }
-    items.push(['Copy path', () => copyPath(fr, file.path)]);
+    items.push(...pathMenuItems(fr, file.path));
     if (!file.container) items.push(filePinItem(fr, file.path));
   }
   if (tile.preview) items.push(keepOpenItem(tile));

@@ -10,8 +10,10 @@
 
 import {
   type ContainerInfo,
+  type ContainerMount,
   dockerExecArgv,
 } from '@devc-tools/core/container.ts';
+import { containerToHostPath } from '@devc-tools/core/mount_paths.ts';
 import {
   type DirEntry,
   FilesError,
@@ -177,6 +179,29 @@ export async function listContainerDir(
     entries: sorted.slice(0, MAX_ENTRIES),
     truncated: sorted.length > MAX_ENTRIES,
   };
+}
+
+/**
+ * `listing` of container directory `path` with where it is on the host, for the page's tooltips
+ * and copied paths: `hostPath` when a bind mount covers `path`; otherwise `mounted`, the host path
+ * of each entry that is itself a bind mount's destination (by name), when there is one.
+ */
+export function withHostPaths<T extends { entries: DirEntry[] }>(
+  listing: T,
+  path: string,
+  mounts: ContainerMount[],
+): T & { hostPath?: string; mounted?: Record<string, string> } {
+  const hostPath = containerToHostPath(path, mounts);
+  if (hostPath !== null) return { ...listing, hostPath };
+  const mounted: Record<string, string> = {};
+  for (const { name } of listing.entries) {
+    const at = containerToHostPath(
+      path === '/' ? `/${name}` : `${path}/${name}`,
+      mounts,
+    );
+    if (at !== null) mounted[name] = at;
+  }
+  return Object.keys(mounted).length ? { ...listing, mounted } : listing;
 }
 
 /**

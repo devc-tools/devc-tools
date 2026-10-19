@@ -144,6 +144,21 @@ export type ClientMessage =
   }
   | { type: 'locate_file'; id: string; container: string; path: string }
   | {
+    type: 'open_in_code';
+    id: string;
+    localFolder: string;
+    /** One of the project's repo folders; `path` is relative to it ('' is the folder). */
+    root: string;
+    path: string;
+  }
+  | {
+    type: 'open_in_code';
+    id: string;
+    container: string;
+    /** An absolute container path, in one of the project's repos as mounted. */
+    path: string;
+  }
+  | {
     type: 'pin_file';
     id: string;
     localFolder: string;
@@ -568,6 +583,21 @@ function parseFields(m: Obj): ClientMessage {
         path,
       };
     }
+    case 'open_in_code':
+      return m.container === undefined
+        ? {
+          type: 'open_in_code',
+          id: str(m, 'id'),
+          localFolder: folder(m),
+          root: absolute(m, 'root'),
+          path: text(m, 'path'),
+        }
+        : {
+          type: 'open_in_code',
+          id: str(m, 'id'),
+          container: str(m, 'container'),
+          path: containerPath(m),
+        };
     case 'pin_file':
       return {
         type: 'pin_file',

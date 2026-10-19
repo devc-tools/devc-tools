@@ -539,6 +539,45 @@ Deno.test('parseClientMessage: locate_file takes an absolute container path with
   }
 });
 
+Deno.test('parseClientMessage: open_in_code takes a repo path or a container path', () => {
+  const repo = {
+    type: 'open_in_code',
+    id: 'o1',
+    localFolder: '/a',
+    root: '/a',
+    path: '',
+  };
+  assertEquals(
+    parseClientMessage(JSON.stringify(repo)),
+    { ok: true, msg: repo } as never,
+  );
+  const inContainer = {
+    type: 'open_in_code',
+    id: 'o2',
+    container: 'c1',
+    path: '/workspaces/app/src',
+  };
+  assertEquals(
+    parseClientMessage(JSON.stringify(inContainer)),
+    { ok: true, msg: inContainer } as never,
+  );
+  for (
+    const bad of [
+      { localFolder: '/a', root: 'a', path: '' },
+      { localFolder: '/a', root: '/a' },
+      { root: '/a', path: '' },
+      { container: 'c1', path: 'src' },
+      { container: 'c1', path: '/workspaces/app/../etc' },
+      { container: '', path: '/workspaces' },
+    ]
+  ) {
+    assertEquals(
+      rejected({ type: 'open_in_code', id: 'o3', ...bad }).code,
+      'bad_request',
+    );
+  }
+});
+
 Deno.test('parseClientMessage: container file messages take an absolute path without .. or NUL', () => {
   for (
     const type of [

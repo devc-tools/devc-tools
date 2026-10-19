@@ -1,6 +1,9 @@
 import { assertEquals, assertRejects } from 'jsr:@std/assert';
 import { join } from 'jsr:@std/path';
-import type { ContainerInfo } from '@devc-tools/core/container.ts';
+import type {
+  ContainerInfo,
+  ContainerMount,
+} from '@devc-tools/core/container.ts';
 import {
   containerHome,
   createArgv,
@@ -14,6 +17,7 @@ import {
   readContainerFile,
   renameArgv,
   renameContainerEntry,
+  withHostPaths,
   writeArgv,
   writeContainerFile,
 } from '../web/container_files.ts';
@@ -548,5 +552,43 @@ Deno.test('containerHome reads $HOME as the remote user, an absolute path or nul
   assertEquals(
     await containerHome(info, () => Promise.reject(new Error('no docker'))),
     null,
+  );
+});
+
+Deno.test("withHostPaths: the folder's host path, else each mounted entry's", () => {
+  const mounts: ContainerMount[] = [
+    {
+      type: 'bind',
+      source: '/Users/me/code/app',
+      destination: '/workspaces/app',
+      rw: true,
+    },
+    {
+      type: 'volume',
+      source: '/var/lib/docker/volumes/x/_data',
+      destination: '/workspaces/cache',
+      rw: true,
+    },
+  ];
+  const entry = (name: string) => ({ name, kind: 'dir' as const });
+  const listing = (...names: string[]) => ({
+    entries: names.map(entry),
+    truncated: false,
+  });
+  assertEquals(
+    withHostPaths(listing('src'), '/workspaces/app', mounts),
+    { ...listing('src'), hostPath: '/Users/me/code/app' },
+  );
+  assertEquals(
+    withHostPaths(listing('src'), '/workspaces/app/src', mounts),
+    { ...listing('src'), hostPath: '/Users/me/code/app/src' },
+  );
+  assertEquals(
+    withHostPaths(listing('app', 'cache', 'x'), '/workspaces', mounts),
+    { ...listing('app', 'cache', 'x'), mounted: { app: '/Users/me/code/app' } },
+  );
+  assertEquals(
+    withHostPaths(listing('workspaces', 'etc'), '/', mounts),
+    listing('workspaces', 'etc'),
   );
 });

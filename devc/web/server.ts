@@ -33,6 +33,7 @@ import {
   readContainerBytes,
   readContainerFile,
   renameContainerEntry,
+  withHostPaths,
   writeContainerFile,
 } from './container_files.ts';
 import { loadGlobalConfig } from '@devc-tools/core/config.ts';
@@ -92,6 +93,7 @@ import {
   writeTasks,
 } from './tasks.ts';
 import { openRedirect } from './browser.ts';
+import { openInVSCode } from './vscode.ts';
 import {
   forget as forgetProject,
   loadProjects,
@@ -1021,7 +1023,11 @@ export async function startWeb(
         return;
       }
       const result = msg.type === 'list_container_dir'
-        ? await listContainerDir(info, msg.path)
+        ? withHostPaths(
+          await listContainerDir(info, msg.path),
+          msg.path,
+          await mountsOf(session.record.id),
+        )
         : await readContainerFile(info, msg.path);
       reply(c, { id: msg.id, ok: true, result });
     } catch (e) {
@@ -1036,6 +1042,84 @@ export async function startWeb(
         e,
       );
     }
+  };
+
+  /**
+   * Opens a project file or folder in VS Code on the host (`open_in_code`): a repo path, or a
+   * container path that a bind mount puts in one of the project's repos. Confined like
+   * `read_file`, symlinks included.
+   */
+  const openInCode = async (
+    c: Client,
+    msg: Extract<ClientMessage, { type: 'open_in_code' }>,
+  ) => {
+    let file: { root: string; path: string };
+    if ('container' in msg) {
+      const session = sessions.get(msg.container);
+      if (!session) {
+        reject(c, {
+          id: msg.id,
+          code: 'bad_request',
+          message: 'unknown container',
+        });
+        return;
+      }
+      const hostPath = containerToHostPath(
+        msg.path,
+        await mountsOf(session.record.id),
+      );
+      if (hostPath === null) {
+        fail(
+          c,
+          msg.id,
+          'not_mounted',
+          `${msg.path} is not in a mounted folder`,
+        );
+        return;
+      }
+      const found = repoFileFor(
+        projectsMessage().projects,
+        session.record.localFolder,
+        hostPath,
+      );
+      if (found === null) {
+        fail(
+          c,
+          msg.id,
+          'forbidden',
+          `${msg.path} is outside the project's repos`,
+        );
+        return;
+      }
+      file = found;
+    } else {
+      if (
+        !isListedProject(msg.localFolder) ||
+        !isProjectRepo(projectsMessage().projects, msg.localFolder, msg.root)
+      ) {
+        reject(c, { id: msg.id, code: 'bad_request', message: 'unknown repo' });
+        return;
+      }
+      file = msg;
+    }
+    let confined: string | null;
+    try {
+      confined = await confine(file.root, file.path);
+    } catch {
+      fail(c, msg.id, 'not_found', `${msg.path} does not exist`);
+      return;
+    }
+    if (confined === null) {
+      fail(c, msg.id, 'forbidden', `${msg.path} is outside the repo`);
+      return;
+    }
+    try {
+      openInVSCode(confined);
+    } catch (e) {
+      fail(c, msg.id, 'no_code', e);
+      return;
+    }
+    reply(c, { id: msg.id, ok: true, result: {} });
   };
 
   /**
@@ -1587,6 +1671,11 @@ export async function startWeb(
       msg.type === 'rename_pin' || msg.type === 'open_pinned'
     ) {
       await handleFilePin(c, msg);
+      return;
+    }
+    // Before the `localFolder` check: it names a project or a container.
+    if (msg.type === 'open_in_code') {
+      await openInCode(c, msg);
       return;
     }
     // Before the `localFolder` check: a routed task names a project too.
