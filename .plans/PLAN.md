@@ -131,6 +131,12 @@
   in its header.
   **Implemented; the user's look in their tab outstanding.**
 
+- [devc-web-task-default](devc-web-task-default.md) — after devc-web-pinned-hide-save-primary.
+  Page-only: a pin icon in the task dialog makes its Project, Repo and Agent the default for new
+  tasks (`localStorage` `devc-web-task-default-v1`, per window; unrouted pins only the agent).
+  A pinned route beats the focused tile's project; **New task here…** and an edited task's own
+  route still win. Row sends use the default's agent over the last sent one.
+
 - [devc-web-tasks-grouped](devc-web-tasks-grouped.md) — after devc-web-pinned-hide-save-primary.
   Page-only: the Tasks section groups tasks under one collapsible node per project + repo route
   (`project` / `project · repo`, with a count), in the order of each route's first task, and a
@@ -2317,5 +2323,6 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
 | `devc web` task actions — new task from a folder, send/delete icons on task rows, dialog focus ring                | [devc-web-tasks-actions](devc-web-tasks-actions.md)                                | in progress |
 | `devc web` worktree git marks — local fetch timeout, per-folder broadcast, `?` with the reason                     | [devc-web-worktree-git-marks](devc-web-worktree-git-marks.md)                      | in progress |
 | `devc web` empty Pinned hidden; task dialog: Save primary, send icons in header                                    | [devc-web-pinned-hide-save-primary](devc-web-pinned-hide-save-primary.md)          | in progress |
+| `devc web` task default — a pin in the task dialog sets the default project, repo and agent                        | [devc-web-task-default](devc-web-task-default.md)                                  |             |
 | `devc web` grouped tasks — one collapsible node per project + repo route, `not routed` last                        | [devc-web-tasks-grouped](devc-web-tasks-grouped.md)                                | in progress |
 | `devc web` sidebar Collapse all — on the Tasks and Containers headings, at every level                             | [devc-web-sidebar-collapse-all](devc-web-sidebar-collapse-all.md)                  | in progress |
