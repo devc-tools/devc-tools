@@ -1,9 +1,17 @@
 import { assertEquals } from 'jsr:@std/assert';
 import {
   agentStatus,
+  clampSidebarWidth,
   containerLabel,
+  gitRollup,
+  gitSync,
+  labelText,
   paneLabel,
-  tabName,
+  paneTitle,
+  SIDEBAR_DEFAULT_WIDTH,
+  SIDEBAR_MIN_WIDTH,
+  STATUS_ORDER,
+  statusShort,
   topStatus,
 } from '../web/static/lib/sidebar.js';
 
@@ -30,61 +38,88 @@ Deno.test('containerLabel falls back to the full folder when the parent is share
   assertEquals(containerLabel(a, [a, b]), 'app · /Users/me/one/x/app');
 });
 
-Deno.test('paneLabel calls a shell in the container folder "shell"', () => {
-  const c = container('devc-dev', '/Users/me/code/tools/devc-dev');
+Deno.test('paneLabel names a shell after its folder alone', () => {
   assertEquals(
-    paneLabel(c, {
+    paneLabel({
       pane_id: 'p1',
       cwd: '/workspaces/devc-dev',
       terminal_title_stripped: 'devc-dev',
     }),
-    'shell',
+    { name: 'devc-dev', title: '' },
   );
-  // No title at all: still a shell.
   assertEquals(
-    paneLabel(c, { pane_id: 'p1', cwd: '/workspaces/devc-dev' }),
-    'shell',
-  );
-});
-
-Deno.test('paneLabel names the folder of a shell elsewhere', () => {
-  const c = container('multi', '/Users/me/code/multi');
-  assertEquals(
-    paneLabel(c, {
-      pane_id: 'p1',
-      cwd: '/workspaces/multi',
-      foreground_cwd: '/workspaces/multi/client',
-      terminal_title_stripped: 'client',
-    }),
-    'shell · client',
+    paneLabel({ pane_id: 'p1', cwd: '/workspaces/devc-dev' }),
+    { name: 'devc-dev', title: '' },
   );
 });
 
-Deno.test('paneLabel keeps agent and command titles', () => {
-  const c = container('devc-dev', '/Users/me/code/tools/devc-dev');
+Deno.test('paneLabel keeps agent and command titles next to the folder', () => {
   assertEquals(
-    paneLabel(c, {
+    paneLabel({
       pane_id: 'p1',
       cwd: '/workspaces/devc-dev',
-      terminal_title_stripped: 'devc-dev',
+      terminal_title_stripped: 'Claude Code',
       agent: 'claude',
     }),
-    'devc-dev',
+    { name: 'devc-dev', title: 'Claude Code' },
   );
   assertEquals(
-    paneLabel(c, {
+    paneLabel({
       pane_id: 'p1',
       cwd: '/workspaces/devc-dev',
       terminal_title_stripped: 'npm run dev',
     }),
-    'npm run dev',
+    { name: 'devc-dev', title: 'npm run dev' },
   );
 });
 
-Deno.test('tabName spells out numeric labels', () => {
-  assertEquals(tabName({ label: '2', number: 2 }), 'tab 2');
-  assertEquals(tabName({ number: 3 }), 'tab 3');
-  assertEquals(tabName({ label: 'servers', number: 1 }), 'servers');
+Deno.test('paneLabel prefers where the foreground process is', () => {
+  assertEquals(
+    paneLabel({
+      pane_id: 'p1',
+      cwd: '/workspaces/multi',
+      foreground_cwd: '/workspaces/multi/client',
+      terminal_title_stripped: 'multi',
+    }),
+    { name: 'client', title: '' },
+  );
+});
+
+Deno.test('paneLabel keeps a rename, and falls back to the title without a folder', () => {
+  assertEquals(
+    paneLabel({
+      pane_id: 'p1',
+      label: 'logs',
+      cwd: '/workspaces/app',
+      terminal_title_stripped: 'app',
+    }),
+    { name: 'logs', title: '' },
+  );
+  assertEquals(
+    paneLabel({ pane_id: 'p1', terminal_title_stripped: 'zsh' }),
+    { name: 'zsh', title: '' },
+  );
+});
+
+Deno.test('labelText joins a label into one line', () => {
+  assertEquals(
+    labelText({ name: 'multi · client', title: 'Claude Code' }),
+    'multi · client · Claude Code',
+  );
+  assertEquals(labelText({ name: 'multi', title: '' }), 'multi');
+});
+
+Deno.test('paneTitle prefers a rename, then the terminal title, folder and id', () => {
+  assertEquals(
+    paneTitle({ pane_id: 'p1', label: 'logs', terminal_title_stripped: 'zsh' }),
+    'logs',
+  );
+  assertEquals(
+    paneTitle({ pane_id: 'p1', label: null, terminal_title_stripped: 'zsh' }),
+    'zsh',
+  );
+  assertEquals(paneTitle({ pane_id: 'p1', cwd: '/workspaces/app' }), 'app');
+  assertEquals(paneTitle({ pane_id: 'p1' }), 'p1');
 });
 
 Deno.test('agentStatus maps missing or unknown statuses to unknown', () => {
@@ -111,4 +146,132 @@ Deno.test('topStatus picks the status most in need of attention and counts it', 
     ]),
     { status: 'blocked', count: 1 },
   );
+});
+
+Deno.test('clampSidebarWidth keeps a width in range, rounded', () => {
+  assertEquals(clampSidebarWidth(320.4, 1600), 320);
+});
+
+Deno.test('clampSidebarWidth raises a width below the minimum', () => {
+  assertEquals(clampSidebarWidth(40, 1600), SIDEBAR_MIN_WIDTH);
+});
+
+Deno.test('clampSidebarWidth caps a width at 60% of the viewport', () => {
+  assertEquals(clampSidebarWidth(1200, 1000), 600);
+});
+
+Deno.test('clampSidebarWidth lets the minimum win in a tiny viewport', () => {
+  assertEquals(clampSidebarWidth(200, 100), SIDEBAR_MIN_WIDTH);
+});
+
+Deno.test('clampSidebarWidth uses the default for a non-finite width', () => {
+  assertEquals(clampSidebarWidth(NaN, 1600), SIDEBAR_DEFAULT_WIDTH);
+  assertEquals(clampSidebarWidth(Infinity, 1600), SIDEBAR_DEFAULT_WIDTH);
+  assertEquals(clampSidebarWidth(NaN, 300), 180);
+});
+
+Deno.test('gitSync shows commits to push and pull, a quiet mark when in sync', () => {
+  const git = {
+    branch: 'feature',
+    upstream: 'origin/feature',
+    ahead: 0,
+    behind: 0,
+    gone: false,
+  };
+  assertEquals(gitSync(git), {
+    marks: [{ dir: 'synced', text: '✓' }],
+    diverged: false,
+    title: 'feature → origin/feature: in sync (as of the last fetch)',
+  });
+  assertEquals(gitSync({ ...git, upstream: null, ahead: 3 }), {
+    marks: [{ dir: 'local', text: '•' }],
+    diverged: false,
+    title: 'feature: no upstream',
+  });
+  assertEquals(gitSync(null), null);
+  assertEquals(gitSync(undefined), null);
+  assertEquals(gitSync({ ...git, ahead: 2 }), {
+    marks: [{ dir: 'ahead', text: '↑2' }],
+    diverged: false,
+    title: 'feature → origin/feature: 2 to push (as of the last fetch)',
+  });
+  const both = gitSync({ ...git, ahead: 1, behind: 4 });
+  assertEquals(both?.marks.map((m) => m.text), ['↑1', '↓4']);
+  assertEquals(both?.diverged, true);
+  assertEquals(gitSync({ ...git, gone: true })?.marks, [
+    { dir: 'gone', text: 'gone' },
+  ]);
+});
+
+Deno.test('gitRollup sums every repo and lists the ones with something to do', () => {
+  const git = (ahead: number, behind: number) => ({
+    branch: 'main',
+    upstream: 'origin/main',
+    ahead,
+    behind,
+    gone: false,
+  });
+  assertEquals(
+    gitRollup([{ name: 'b', git: null }, { name: 'c' }]),
+    null,
+  );
+  const r = gitRollup([
+    { name: 'app', git: git(1, 0) },
+    { name: 'lib', git: git(2, 3) },
+    { name: 'docs', git: git(0, 0) },
+  ]);
+  assertEquals(r?.marks, [
+    { dir: 'ahead', text: '↑3' },
+    { dir: 'behind', text: '↓3' },
+  ]);
+  assertEquals(r?.diverged, true);
+  assertEquals(r?.title.split('\n').map((l) => l.split(':')[0]), [
+    'app',
+    'lib',
+  ]);
+});
+
+Deno.test('gitRollup shows a quiet ✓ (or • when no repo has an upstream) when none has anything to sync', () => {
+  const git = (upstream: string | null) => ({
+    branch: 'main',
+    upstream,
+    ahead: 0,
+    behind: 0,
+    gone: false,
+  });
+  const synced = gitRollup([
+    { name: 'a', git: git('origin/main') },
+    { name: 'b', git: null },
+    { name: 'c', git: git('origin/main') },
+  ]);
+  assertEquals(synced?.marks, [{ dir: 'synced', text: '✓' }]);
+  assertEquals(synced?.diverged, false);
+  assertEquals(synced?.title.split('\n'), [
+    'a: main → origin/main: in sync (as of the last fetch)',
+    'c: main → origin/main: in sync (as of the last fetch)',
+  ]);
+  const local = gitRollup([
+    { name: 'a', git: git(null) },
+    { name: 'b', git: git(null) },
+  ]);
+  assertEquals(local?.marks, [{ dir: 'local', text: '•' }]);
+  assertEquals(local?.title, 'a: main: no upstream\nb: main: no upstream');
+  const localAndSynced = gitRollup([
+    { name: 'a', git: git(null) },
+    { name: 'b', git: git('origin/main') },
+  ]);
+  assertEquals(localAndSynced?.marks, [{ dir: 'synced', text: '✓' }]);
+  const mixed = gitRollup([
+    { name: 'a', git: git('origin/main') },
+    { name: 'b', git: { ...git('origin/main'), ahead: 2 } },
+    { name: 'c', git: git(null) },
+  ]);
+  assertEquals(mixed?.marks, [{ dir: 'ahead', text: '↑2' }]);
+  assertEquals(mixed?.title.split('\n').map((l) => l.split(':')[0]), ['b']);
+});
+
+Deno.test('statusShort gives every status four letters, unknown for the rest', () => {
+  for (const s of STATUS_ORDER) assertEquals(statusShort(s).length, 4);
+  assertEquals(statusShort('working'), 'work');
+  assertEquals(statusShort('sleeping'), 'unkn');
 });

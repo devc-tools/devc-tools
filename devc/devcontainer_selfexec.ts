@@ -83,7 +83,7 @@ export function devcontainerArgv(
 }
 
 /** {@link devcontainerArgv}'s runtime input, read from the live `Deno` namespace. */
-function currentRuntime(): SelfExecRuntime {
+export function currentRuntime(): SelfExecRuntime {
   return {
     execPath: Deno.execPath(),
     standalone: Deno.build.standalone,

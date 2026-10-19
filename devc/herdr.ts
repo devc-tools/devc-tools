@@ -26,6 +26,10 @@
 // why it's a file rather than stderr. No-op, and untouched by every test, when unset.
 
 import { fromFileUrl } from 'jsr:@std/path';
+import {
+  type ContainerInfo,
+  dockerExecArgv,
+} from '@devc-tools/core/container.ts';
 import type { SelfExecRuntime } from './devcontainer_selfexec.ts';
 
 /**
@@ -195,21 +199,11 @@ while :; do
 done`;
 }
 
-/** Full `docker exec` argv for the watcher: `-u`/`-i`/`-t` matter here — see the call site. */
-function herdrWatcherArgs(
-  remoteUser: string,
-  containerId: string,
-  watchId: string,
-): string[] {
-  return [
-    'exec',
-    '-u',
-    remoteUser,
-    containerId,
-    'sh',
-    '-c',
-    herdrWatcherScript(watchId),
-  ];
+/** Full `docker exec` argv for the watcher: no `-i`, no `-t` — see the call site. */
+function herdrWatcherArgs(info: ContainerInfo, watchId: string): string[] {
+  return dockerExecArgv(info, {
+    cmd: ['sh', '-c', herdrWatcherScript(watchId)],
+  });
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -408,12 +402,12 @@ export interface HerdrController {
  * spawning the new one (or spawns nothing, on `null`). Never the two overlapping — see that
  * function's doc comment for why.
  *
- * `info` is the subset of `ContainerInfo` the watcher's `docker exec -u <remoteUser>
- * <containerId>` needs — `-u` is required, not cosmetic: reading `/proc/<pid>/environ` needs the
- * same uid as the attach shell.
+ * `info` is the attach's own `ContainerInfo`: the watcher execs the way every devc exec does
+ * ({@link dockerExecArgv}), and its `-u` is required, not cosmetic: reading `/proc/<pid>/environ`
+ * needs the same uid as the attach shell.
  */
 export function startHerdrSidecar(
-  info: { containerId: string; remoteUser: string },
+  info: ContainerInfo,
   spec: HerdrAttachSpec,
   seedCommand: string | undefined,
   runtime: SelfExecRuntime = currentSelfExecRuntime(),
@@ -442,7 +436,7 @@ export function startHerdrSidecar(
     }
     // No `-i`, no `-t` — this must never touch the pane's terminal.
     watcherChild = new Deno.Command('docker', {
-      args: herdrWatcherArgs(info.remoteUser, info.containerId, spec.watchId),
+      args: herdrWatcherArgs(info, spec.watchId),
       stdin: 'null',
       stdout: 'piped',
       stderr: 'null',

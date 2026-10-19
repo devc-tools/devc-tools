@@ -7,10 +7,15 @@
 // Not to be confused with `devc/bridge.ts`, which is devc-bridge (host commands granted to a
 // container). Nothing here touches it.
 
+import {
+  type ContainerInfo,
+  dockerExecArgv,
+  loginShellArgv,
+} from '@devc-tools/core/container.ts';
 import { closeGracefully, type LineProc, runText, spawnLines } from './proc.ts';
 import {
   type ContainerRecord,
-  inspectRemoteUser,
+  resolveConnection,
   resolveHerdrPath,
 } from './containers.ts';
 
@@ -23,28 +28,35 @@ export type ContainerState =
   | 'unsupported'
   | 'error';
 
-/** What every Herdr process for one container is started with. */
+/**
+ * What every Herdr process for one container is started with: how to reach the container (the
+ * same `ContainerInfo` `devc attach` uses, from `resolveConnection`), plus which `herdr` and
+ * which session.
+ */
 export interface HerdrTarget {
-  containerId: string;
-  user: string;
+  info: ContainerInfo;
   herdrPath: string;
   session: string;
 }
 
 /** `docker exec -i …` argv for `herdr --session <S> <rest…>`. Never `-t`: a pty corrupts JSON. */
 export function herdrArgv(t: HerdrTarget, rest: string[]): string[] {
-  return [
-    'exec',
-    '-i',
-    '-u',
-    t.user,
-    t.containerId,
-    t.herdrPath,
-    '--session',
-    t.session,
-    ...rest,
-  ];
+  return dockerExecArgv(t.info, {
+    interactive: true,
+    cmd: [t.herdrPath, '--session', t.session, ...rest],
+  });
 }
+
+/**
+ * The login-shell script `herdr server` runs inside when devc web starts it (via
+ * `loginShellArgv`, as `devc herdr`'s attach does), so the server — and every pane it spawns,
+ * which inherits its environment — gets the user's profile (`~/.local/bin` on `PATH`, say) on top
+ * of the `remoteEnv` every exec carries. `SHELL` is exported because Herdr gives a pane `$SHELL`,
+ * else `/bin/sh` (no rc files, no prompt); a project config need not set it in `remoteEnv`, and
+ * bash only sets it, from the passwd entry, without exporting it. The command rides along as
+ * `$0`/`$@`.
+ */
+export const SERVER_SCRIPT = 'export SHELL; exec "$0" "$@"';
 
 /** The global event types the lifecycle connection subscribes to. */
 export const GLOBAL_EVENT_TYPES = [
@@ -95,6 +107,18 @@ export function isStructuralEvent(name: string): boolean {
   return name.startsWith('workspace.') || name.startsWith('tab.') ||
     name.startsWith('worktree.') || name.startsWith('layout.') ||
     STRUCTURAL_PANE_EVENTS.has(name);
+}
+
+/**
+ * Whether a `docker exec` command (as `docker events` space-joins it) runs `herdr` in a way that
+ * may have started a server: any token named `herdr` — `devc herdr` wraps it as
+ * `/bin/bash -lc '…' herdr --session devc` — but never a `remote-api-bridge`, which is devc
+ * web's own probing and would otherwise retrigger itself.
+ */
+export function isHerdrLaunch(command: string): boolean {
+  const tokens = command.split(/\s+/);
+  return !tokens.includes('remote-api-bridge') &&
+    tokens.some((t) => t.split('/').pop() === 'herdr');
 }
 
 /** The bridge's stderr when the session has no server. */
@@ -165,6 +189,110 @@ export async function bridgeRequest(
   } finally {
     void closeGracefully(proc);
   }
+}
+
+/**
+ * A new pane in its own Herdr tab — how the browser makes every pane, since it owns all layout
+ * and never splits one. Herdr 0.9.5's `tab.create` result carries the tab's `root_pane`, though
+ * its bundled schema doesn't list it; without one, the pane is found with `pane.list` in the
+ * tab's workspace. Never focuses the tab: a Herdr TUI attached to the same session keeps its
+ * focus. A session with no workspace (a server just started, with no TUI) has nowhere to put a
+ * tab — `tab.create` answers `workspace_not_found` — so the pane comes from `workspace.create`.
+ */
+export async function createShell(
+  t: HerdrTarget,
+  opts: { workspace_id?: string; cwd?: string },
+): Promise<{ pane_id: string; tab_id: string }> {
+  const cwd = opts.cwd !== undefined ? { cwd: opts.cwd } : {};
+  const created = await bridgeRequest(t, 'tab.create', {
+    ...(opts.workspace_id !== undefined
+      ? { workspace_id: opts.workspace_id }
+      : {}),
+    ...cwd,
+    focus: false,
+  }).catch((e) => {
+    if (
+      !(e instanceof BridgeError && e.code === 'workspace_not_found') ||
+      opts.workspace_id !== undefined
+    ) {
+      throw e;
+    }
+    return bridgeRequest(t, 'workspace.create', { ...cwd, focus: false });
+  }) as
+    | {
+      tab?: { tab_id?: unknown; workspace_id?: unknown };
+      root_pane?: { pane_id?: unknown };
+    }
+    | undefined;
+  const tab_id = created?.tab?.tab_id;
+  const workspace_id = created?.tab?.workspace_id;
+  if (typeof tab_id !== 'string' || typeof workspace_id !== 'string') {
+    throw new BridgeError('herdr_error', 'tab.create returned no tab');
+  }
+  const root = created?.root_pane?.pane_id;
+  if (typeof root === 'string') return { pane_id: root, tab_id };
+  const listed = await bridgeRequest(t, 'pane.list', { workspace_id }) as
+    | { panes?: unknown }
+    | undefined;
+  const panes = Array.isArray(listed?.panes) ? listed.panes : [];
+  const pane = panes.find((p) =>
+    (p as { tab_id?: unknown })?.tab_id === tab_id
+  ) as { pane_id?: unknown } | undefined;
+  if (typeof pane?.pane_id !== 'string') {
+    throw new BridgeError('herdr_error', `no pane in new tab ${tab_id}`);
+  }
+  return { pane_id: pane.pane_id, tab_id };
+}
+
+/** A path compared as a folder: without its trailing `/` (but `/` stays `/`). */
+function folderKey(path: string): string {
+  return path.length > 1 ? path.replace(/\/+$/, '') || '/' : path;
+}
+
+/**
+ * The shell pane (no `agent`) whose `cwd` is `dir` (a container path), or null. `cwd` is the
+ * shell's own directory; `foreground_cwd` (a child's) is ignored, and agent panes never count.
+ * Several matches: the lowest-numbered tab wins (workspace number, then tab number, from the
+ * snapshot's `workspaces` / `tabs`), else the first in snapshot order.
+ */
+export function paneAtFolder(
+  snapshot: Record<string, unknown> | null,
+  dir: string,
+): { pane_id: string; tab_id: string } | null {
+  if (snapshot === null) return null;
+  const list = (v: unknown): Record<string, unknown>[] =>
+    (Array.isArray(v)
+      ? v
+      : typeof v === 'object' && v !== null
+      ? Object.values(v)
+      : []).filter((x) => typeof x === 'object' && x !== null);
+  const num = (v: unknown) => typeof v === 'number' ? v : Infinity;
+  const wsNumber = new Map(
+    list(snapshot.workspaces).map((w) => [w.workspace_id, num(w.number)]),
+  );
+  const tabOrder = new Map(
+    list(snapshot.tabs).map((t) => [
+      t.tab_id,
+      [wsNumber.get(t.workspace_id) ?? Infinity, num(t.number)],
+    ]),
+  );
+  const want = folderKey(dir);
+  const matches = list(snapshot.panes).filter((p) =>
+    (p.agent === undefined || p.agent === null || p.agent === '') &&
+    typeof p.cwd === 'string' && folderKey(p.cwd) === want &&
+    typeof p.pane_id === 'string' && typeof p.tab_id === 'string'
+  );
+  const order = (p: Record<string, unknown>) =>
+    tabOrder.get(p.tab_id) ?? [Infinity, Infinity];
+  matches.sort((a, b) => {
+    const [aw, at] = order(a);
+    const [bw, bt] = order(b);
+    return aw !== bw ? (aw < bw ? -1 : 1) : at !== bt ? (at < bt ? -1 : 1) : 0;
+  });
+  const found = matches[0];
+  return found
+    ? { pane_id: found.pane_id as string, tab_id: found.tab_id as string }
+    : null;
 }
 
 /** An open `events.subscribe` connection. */
@@ -287,21 +415,93 @@ export interface SessionHooks {
 
 const SNAPSHOT_COALESCE_MS = 50;
 const START_SESSION_WAIT_MS = 300;
-const START_SESSION_TRIES = 20;
+/** With {@link START_SESSION_WAIT_MS}, about 15 s: Herdr's first start can be slow. */
+const START_SESSION_TRIES = 50;
 /** A lifecycle connection that dies sooner than this after (re)starting is not restarted. */
 const MIN_RESTART_INTERVAL_MS = 5000;
 
 /** The `pane_id` of every pane in a snapshot. `panes` may be an array or a map. */
 export function snapshotPaneIds(snapshot: Record<string, unknown>): string[] {
-  const panes = snapshot.panes;
+  return snapshotPanes(snapshot)
+    .map((p) => p.pane_id)
+    .filter((id): id is string => typeof id === 'string');
+}
+
+/** A snapshot's panes (a list or an object of them), each an object; none for `null`. */
+export function snapshotPanes(
+  snapshot: Record<string, unknown> | null,
+): { pane_id?: unknown; tab_id?: unknown }[] {
+  const panes = snapshot?.panes;
   const list = Array.isArray(panes)
     ? panes
     : typeof panes === 'object' && panes !== null
     ? Object.values(panes)
     : [];
-  return list
-    .map((p) => (p as { pane_id?: unknown })?.pane_id)
-    .filter((id): id is string => typeof id === 'string');
+  return list.filter((p) => typeof p === 'object' && p !== null);
+}
+
+/** What a {@link ContainerSession} runs commands with; tests replace it. */
+export interface SessionDeps {
+  runText: typeof runText;
+  startTries: number;
+  startWaitMs: number;
+  /** Whether the session has a server: see {@link serverAnswers}. */
+  serverUp: (t: HerdrTarget) => Promise<boolean>;
+  /** How to reach the container: see {@link resolveConnection}. */
+  resolve: (record: ContainerRecord) => Promise<ContainerInfo>;
+  /** The container's `herdr`, `''` for none: see {@link resolveHerdrPath}. */
+  herdrPath: (info: ContainerInfo) => Promise<string>;
+}
+
+/**
+ * Whether `t`'s session has a server, by one bridge request. Only `no_session` counts as no:
+ * any other failure is for the lifecycle to report.
+ */
+export async function serverAnswers(t: HerdrTarget): Promise<boolean> {
+  try {
+    await bridgeRequest(t, 'workspace.list', {});
+    return true;
+  } catch (e) {
+    return !(e instanceof BridgeError && e.code === 'no_session');
+  }
+}
+
+/** The last 10 lines of the session's `herdr-server.log` in the container, or '' when unreadable. */
+export async function serverLogTail(
+  t: HerdrTarget,
+  run: typeof runText = runText,
+): Promise<string> {
+  const out = await run(
+    'docker',
+    dockerExecArgv(t.info, {
+      cmd: [
+        'sh',
+        '-c',
+        'tail -n 10 "$HOME/.config/herdr/sessions/$1/herdr-server.log"',
+        '_',
+        t.session,
+      ],
+    }),
+  ).catch(() => null);
+  return out !== null && out.code === 0 ? out.stdout.trimEnd() : '';
+}
+
+/**
+ * Whether `command` is on the PATH of a login shell for the container's remote user: the PATH
+ * `devc claude` gets, and the one a new Herdr tab's shell has.
+ */
+export async function commandInstalled(
+  t: HerdrTarget,
+  command: string,
+  run: typeof runText = runText,
+): Promise<boolean> {
+  const out = await run(
+    'docker',
+    dockerExecArgv(t.info, {
+      cmd: loginShellArgv('command -v "$1" >/dev/null', '_', command),
+    }),
+  ).catch(() => null);
+  return out !== null && out.code === 0;
 }
 
 /**
@@ -327,12 +527,25 @@ export class ContainerSession {
   #snapshotRunning = false;
   #snapshotDirty = false;
   #lastStart = 0;
+  #awaiting: Promise<void> | null = null;
+  readonly #deps: SessionDeps;
 
   constructor(
     readonly record: ContainerRecord,
     readonly session: string,
     private hooks: SessionHooks,
-  ) {}
+    deps: Partial<SessionDeps> = {},
+  ) {
+    this.#deps = {
+      runText,
+      startTries: START_SESSION_TRIES,
+      startWaitMs: START_SESSION_WAIT_MS,
+      serverUp: serverAnswers,
+      resolve: resolveConnection,
+      herdrPath: resolveHerdrPath,
+      ...deps,
+    };
+  }
 
   #setState(state: ContainerState, error?: string): void {
     this.state = state;
@@ -341,28 +554,14 @@ export class ContainerSession {
     this.hooks.onState();
   }
 
-  /** Runs the lifecycle from the top. Safe to call again (Retry): it tears the old run down. */
+  /**
+   * Runs the lifecycle from the top. Safe to call again: it tears the old run down. Resolves the
+   * connection and `herdr` first when there is no target yet.
+   */
   async run(): Promise<void> {
     const gen = await this.#reset('retry');
     try {
-      if (this.target === null) {
-        const user = await inspectRemoteUser(this.record.id);
-        const herdrPath = await resolveHerdrPath(this.record.id, user);
-        if (gen !== this.#gen) return;
-        if (herdrPath === '') {
-          this.#setState(
-            'no-herdr',
-            'herdr is not installed in this container',
-          );
-          return;
-        }
-        this.target = {
-          containerId: this.record.id,
-          user,
-          herdrPath,
-          session: this.session,
-        };
-      }
+      if (this.target === null && !await this.#resolve(gen)) return;
       await this.#connect(gen);
     } catch (e) {
       if (gen !== this.#gen) return;
@@ -370,32 +569,112 @@ export class ContainerSession {
     }
   }
 
-  /** `herdr --session <S> server`, detached, then the lifecycle from the bridge check on. */
+  /** The page's Retry: resolves the connection again (a config edit since), then {@link run}. */
+  async retry(): Promise<void> {
+    this.target = null;
+    await this.run();
+  }
+
+  /**
+   * How to reach the container and its `herdr`, into `target`. `false` when this run should stop
+   * here: superseded, no `herdr` (state `no-herdr`), or a thrown resolution (left to the caller's
+   * catch, which reports it as `error`).
+   */
+  async #resolve(gen: number): Promise<boolean> {
+    const info = await this.#deps.resolve(this.record);
+    const herdrPath = await this.#deps.herdrPath(info);
+    if (gen !== this.#gen) return false;
+    if (herdrPath === '') {
+      this.target = null;
+      this.#setState('no-herdr', 'herdr is not installed in this container');
+      return false;
+    }
+    this.target = { info, herdrPath, session: this.session };
+    return true;
+  }
+
+  /**
+   * `herdr --session <S> server`, detached and inside {@link SERVER_SCRIPT}'s login shell, then
+   * the lifecycle
+   * from the bridge check on. Throws
+   * a `no_session` {@link BridgeError} carrying the server log's tail when, after the retries,
+   * there is still no server.
+   */
   async startSession(): Promise<void> {
-    const t = this.target;
-    if (t === null) {
+    if (this.target === null) {
       throw new Error('herdr has not been located in this container');
     }
-    const out = await runText('docker', [
-      'exec',
-      '-d',
-      '-u',
-      t.user,
-      t.containerId,
-      t.herdrPath,
-      '--session',
-      t.session,
-      'server',
-    ]);
+    // Resolved again, so a server started now gets the config's current `remoteEnv`.
+    const info = await this.#deps.resolve(this.record);
+    const t: HerdrTarget = { ...this.target, info };
+    this.target = t;
+    const out = await this.#deps.runText(
+      'docker',
+      dockerExecArgv(t.info, {
+        detach: true,
+        cmd: loginShellArgv(
+          SERVER_SCRIPT,
+          t.herdrPath,
+          '--session',
+          t.session,
+          'server',
+        ),
+      }),
+    );
     if (out.code !== 0) {
       throw new Error(out.stderr.trim() || 'starting the Herdr server failed');
     }
-    // The server needs a moment to create its socket: retry while it still reads as no session.
-    // Bounded, and only right after a start — `no-session` itself is never polled.
-    for (let i = 0; i < START_SESSION_TRIES; i++) {
-      await this.run();
-      if (this.state !== 'no-session') return;
-      await new Promise((r) => setTimeout(r, START_SESSION_WAIT_MS));
+    await this.#awaitServer();
+    if (this.state === 'no-session') {
+      const { startTries, startWaitMs } = this.#deps;
+      const seconds = Math.round(startTries * startWaitMs / 1000);
+      const logTail = await serverLogTail(t, this.#deps.runText);
+      throw new BridgeError(
+        'no_session',
+        `Herdr didn't come up in ${seconds}s.\n${logTail}`,
+      );
+    }
+  }
+
+  /**
+   * `herdr` was just exec'd in the container (see {@link isHerdrLaunch}) — by `devc herdr`, say.
+   * A container sitting in `no-session` reconnects once that has brought a server up.
+   */
+  async herdrLaunched(): Promise<void> {
+    if (this.state !== 'no-session') return;
+    await this.#awaitServer();
+  }
+
+  /**
+   * The server needs a moment to create its socket: poll for it while it still reads as no
+   * session, and run the lifecycle once it answers. Bounded, and only right after a start —
+   * `no-session` itself is never polled. The poll is a bare probe, not the lifecycle, so the
+   * state stays `no-session` throughout instead of flickering through `connecting` on every try:
+   * an exec that merely mentions `herdr` (see {@link isHerdrLaunch}) starts one too. Stops when
+   * the session is retried or disposed meanwhile.
+   *
+   * One poll at a time: {@link startSession}'s own exec reads as a launch, so its
+   * {@link herdrLaunched} would otherwise poll alongside it, and whichever connected first would
+   * supersede the other's run and leave {@link startSession} returning mid-`connecting`.
+   */
+  #awaitServer(): Promise<void> {
+    this.#awaiting ??= this.#pollServer().finally(() => {
+      this.#awaiting = null;
+    });
+    return this.#awaiting;
+  }
+
+  async #pollServer(): Promise<void> {
+    let gen = this.#gen;
+    for (let i = 0; i < this.#deps.startTries; i++) {
+      if (this.target === null || gen !== this.#gen) return;
+      if (await this.#deps.serverUp(this.target)) {
+        if (gen !== this.#gen) return;
+        await this.run();
+        if (this.state !== 'no-session') return;
+        gen = this.#gen;
+      }
+      await new Promise((r) => setTimeout(r, this.#deps.startWaitMs));
     }
   }
 
@@ -490,13 +769,27 @@ export class ContainerSession {
     this.hooks.onAgentStatus(paneId, ev.data.agent, ev.data.agent_status);
   }
 
-  /** Keeps the cached snapshot current, so a browser that connects later sees the latest. */
-  #patchPane(pane: Record<string, unknown>, merge = false): void {
+  /**
+   * A pane Herdr changed without telling the event stream: `pane.rename` answers with the
+   * renamed pane but sends no `pane.updated`. Patched in and broadcast as that event would be,
+   * and a snapshot follows, so one already on its way with the old name can't leave it stale.
+   */
+  paneChanged(pane: Record<string, unknown>): void {
+    if (this.#patchPane(pane)) this.hooks.onPaneUpdated(pane);
+    this.#scheduleSnapshot(this.#gen);
+  }
+
+  /**
+   * Keeps the cached snapshot current, so a browser that connects later sees the latest. False
+   * when the snapshot has no such pane (yet).
+   */
+  #patchPane(pane: Record<string, unknown>, merge = false): boolean {
     const panes = this.snapshot?.panes;
-    if (!Array.isArray(panes)) return;
+    if (!Array.isArray(panes)) return false;
     const i = panes.findIndex((p) => p?.pane_id === pane.pane_id);
-    if (i === -1) return;
+    if (i === -1) return false;
     panes[i] = merge ? { ...panes[i], ...pane } : pane;
+    return true;
   }
 
   #scheduleSnapshot(gen: number): void {

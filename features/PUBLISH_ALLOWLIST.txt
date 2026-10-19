@@ -15,6 +15,7 @@ devc-bridge
 devc-config
 git-container-config
 godot
+micro
 node-nvmrc
 podman-as-docker
 rootless-remap

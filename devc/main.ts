@@ -46,7 +46,11 @@ import {
   type RepoOverlay,
   unprotectedRowStatus,
 } from '@devc-tools/core/overlay.ts';
-import { displayPath } from '@devc-tools/core/config.ts';
+import {
+  displayPath,
+  loadGlobalConfig,
+  webSourceFromConfig,
+} from '@devc-tools/core/config.ts';
 import { initProject } from '@devc-tools/core/init.ts';
 import {
   globalConfigExists,
@@ -56,7 +60,17 @@ import {
 } from './tui/config_flow.ts';
 import { COMMAND_HELP, COMMANDS, helpRequested, topLevelHelp } from './help.ts';
 import { versionLine } from './version_info.ts';
-import { serveWeb, WebStartError } from './web/server.ts';
+import {
+  mintToken,
+  startWeb,
+  stopCapped,
+  type WebHandle,
+  WebStartError,
+} from './web/server.ts';
+import { resolve as resolvePath } from 'jsr:@std/path';
+import { superviseWeb } from './web/supervisor.ts';
+import { LEGACY_TOKEN_PATH, tokenWellFormed } from './web/token.ts';
+import { openBrowser, openPath } from './web/browser.ts';
 
 const subcommand = Deno.args[0];
 const KNOWN_COMMANDS = new Set(COMMANDS.map((c) => c.name));
@@ -351,8 +365,93 @@ if (subcommand === 'web') {
     console.error(`devc web: ${e instanceof Error ? e.message : e}`);
     Deno.exit(1);
   }
+  // The supervised child of `devc web --live-yolo` (web/supervisor.ts): live mode, with the
+  // supervisor's token and no URL line. It ignores --live, --live-yolo and --source, so it
+  // never supervises a child of its own.
+  const child = Deno.env.get('DEVC_WEB_CHILD') === '1';
+  const configWebSource = async () => {
+    try {
+      return webSourceFromConfig(await loadGlobalConfig());
+    } catch (e) {
+      throw new WebStartError(e instanceof Error ? e.message : String(e));
+    }
+  };
+  const runUntilSignal = async (handle: WebHandle): Promise<never> => {
+    for (const sig of ['SIGINT', 'SIGTERM'] as const) {
+      try {
+        Deno.addSignalListener(sig, async () => {
+          await stopCapped(handle);
+          Deno.exit(0);
+        });
+      } catch { /* signal unsupported on this platform */ }
+    }
+    await handle.finished;
+    return Deno.exit(0);
+  };
   try {
-    await serveWeb(webArgs);
+    if (child) {
+      const token = Deno.env.get('DEVC_WEB_TOKEN');
+      if (!tokenWellFormed(token)) {
+        throw new WebStartError('DEVC_WEB_TOKEN is missing or malformed');
+      }
+      // The supervisor's one-time link, when this child is the first server it announces.
+      const openNonce = Deno.env.get('DEVC_WEB_OPEN_NONCE');
+      await runUntilSignal(
+        await startWeb({
+          ...webArgs,
+          token,
+          live: true,
+          ...(tokenWellFormed(openNonce) ? { openNonce } : {}),
+        }),
+      );
+    }
+    // Live only when asked for, run by run: --source, else config.json's `webSource`. Without
+    // --live (or --source), the built-in copy, whatever the config says.
+    const source = webArgs.live
+      ? webArgs.source ?? (await configWebSource()) ?? undefined
+      : undefined;
+    if (webArgs.live && source === undefined) {
+      throw new WebStartError(
+        '--live needs --source DIR or "webSource" in ~/.config/devc/config.json',
+      );
+    }
+    // A fresh token every run, held in memory only: a URL from an earlier run never works
+    // again. In live mode the supervisor keeps it across its server swaps.
+    const token = mintToken();
+    // Earlier versions kept the token in a file; it is never read now.
+    await Deno.remove(LEGACY_TOKEN_PATH).catch(() => {});
+    const dir = source === undefined
+      ? undefined
+      : resolvePath(Deno.cwd(), source);
+    // --live-yolo: the checkout's server code too, under a supervisor. Full trust.
+    if (dir !== undefined && webArgs.liveServer) {
+      Deno.exit(await superviseWeb({ ...webArgs, token, source: dir }));
+    }
+    // --live: devc's own server, serving and watching the checkout's page. The page is the only
+    // checkout code that runs, and the server starts no containers on its behalf.
+    const staticDir = dir === undefined ? undefined : `${dir}/web/static`;
+    if (staticDir !== undefined) {
+      try {
+        if (!(await Deno.stat(`${staticDir}/index.html`)).isFile) throw 0;
+      } catch {
+        throw new WebStartError(
+          `${dir}: no web/static/index.html there (expected the devc/ directory of a devc-tools checkout)`,
+        );
+      }
+    }
+    const openNonce = webArgs.open ? mintToken() : undefined;
+    const handle = await startWeb({
+      ...webArgs,
+      token,
+      live: staticDir !== undefined,
+      ...(staticDir !== undefined ? { staticDir, projectStarts: false } : {}),
+      ...(openNonce !== undefined ? { openNonce } : {}),
+    });
+    console.log(`devc web: http://127.0.0.1:${webArgs.port}/#token=${token}`);
+    if (openNonce !== undefined) {
+      openBrowser(`http://127.0.0.1:${webArgs.port}${openPath(openNonce)}`);
+    }
+    await runUntilSignal(handle);
   } catch (e) {
     // `docker` missing reads exactly as it does for the lookup commands.
     const message = e instanceof Error ? e.message : String(e);

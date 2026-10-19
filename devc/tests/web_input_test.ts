@@ -1,10 +1,11 @@
 import { assertEquals } from 'jsr:@std/assert';
 import {
+  createWheelAccumulator,
   decodeBase64,
   encodeInput,
   mouseButton,
   pixelToCell,
-  wheelToScroll,
+  selectionSpan,
   wrapPaste,
 } from '../web/static/lib/input.js';
 
@@ -31,13 +32,29 @@ Deno.test('pixelToCell is zero-based and clamped to the grid', () => {
   });
 });
 
-Deno.test('wheelToScroll clamps lines to 1..10', () => {
-  assertEquals(wheelToScroll(-3, 16), { direction: 'up', lines: 1 });
-  assertEquals(wheelToScroll(48, 16), { direction: 'down', lines: 3 });
-  assertEquals(wheelToScroll(5000, 16), { direction: 'down', lines: 10 });
-  assertEquals(wheelToScroll(-2, 16, 1), { direction: 'up', lines: 2 });
-  assertEquals(wheelToScroll(1, 16, 2), { direction: 'down', lines: 10 });
-  assertEquals(wheelToScroll(0, 16), null);
+Deno.test('createWheelAccumulator converts line and page deltas directly', () => {
+  const wheel = createWheelAccumulator();
+  assertEquals(wheel(-2, 16, 1), { direction: 'up', lines: 2 });
+  assertEquals(wheel(0.4, 16, 1), { direction: 'down', lines: 1 });
+  assertEquals(wheel(1, 16, 2), { direction: 'down', lines: 10 });
+  assertEquals(wheel(0, 16), null);
+});
+
+Deno.test('createWheelAccumulator accumulates small pixel deltas into whole lines', () => {
+  const wheel = createWheelAccumulator();
+  assertEquals(wheel(4, 16), null);
+  assertEquals(wheel(4, 16), null);
+  assertEquals(wheel(4, 16), null);
+  assertEquals(wheel(6, 16), { direction: 'down', lines: 1 });
+  assertEquals(wheel(46, 16), { direction: 'down', lines: 3 });
+  assertEquals(wheel(5000, 16), { direction: 'down', lines: 10 });
+});
+
+Deno.test('createWheelAccumulator drops the remainder when direction reverses', () => {
+  const wheel = createWheelAccumulator();
+  assertEquals(wheel(15, 16), null);
+  assertEquals(wheel(-15, 16), null);
+  assertEquals(wheel(-2, 16), { direction: 'up', lines: 1 });
 });
 
 Deno.test('mouseButton maps 0/1/2 to left/middle/right', () => {
@@ -53,5 +70,32 @@ Deno.test('encodeInput is UTF-8 then base64, and decodeBase64 inverts it', () =>
   assertEquals(
     new TextDecoder().decode(decodeBase64(encodeInput(text))),
     text,
+  );
+});
+
+Deno.test('selectionSpan covers one row inclusively', () => {
+  assertEquals(
+    selectionSpan({ column: 2, row: 1 }, { column: 5, row: 1 }, 80),
+    {
+      column: 2,
+      row: 1,
+      length: 4,
+    },
+  );
+});
+
+Deno.test('selectionSpan wraps across rows and ignores order', () => {
+  const span = { column: 70, row: 3, length: 15 };
+  assertEquals(
+    selectionSpan({ column: 70, row: 3 }, { column: 4, row: 4 }, 80),
+    span,
+  );
+  assertEquals(
+    selectionSpan({ column: 4, row: 4 }, { column: 70, row: 3 }, 80),
+    span,
+  );
+  assertEquals(
+    selectionSpan({ column: 9, row: 2 }, { column: 3, row: 2 }, 80),
+    { column: 3, row: 2, length: 7 },
   );
 });

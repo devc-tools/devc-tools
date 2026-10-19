@@ -11,6 +11,52 @@
 
 ### Pending
 
+- [devc-container-connection](devc-container-connection.md) — one way to reach a devcontainer.
+  `devc web` built its own `docker exec` path (`remoteUser` from the metadata label, no
+  `remoteEnv`), so Herdr servers it starts miss `TZ`/`LANG`/`PROJECT_PATH`. Adds
+  `connectionFor` (a `ContainerInfo` for a running container, no `up`, same `remoteEnv`
+  derivation as `startContainer`) and one `dockerExecArgv`/`loginShellArgv` builder that
+  `exec`, `attach`, the Herdr watcher and every web exec use, enforced by a test.
+  `remoteUser` and the workspace folder come from `devcontainer read-configuration
+  --container-id`. **Implemented; host Validation outstanding.**
+
+- [git-protect-live-check](git-protect-live-check.md) — a read-only `.git/config` mount can
+  vanish from a running container when the host rewrites the file (seen on Docker Desktop:
+  VS Code's config writes), leaving the repo's config writable from inside while `devc status`
+  still prints `protected`, because it checks `docker inspect`'s create-time mounts. Read the
+  container's kernel mount table (`/proc/<pid>/mountinfo`) in `gitProtectState`'s callers:
+  `devc status` reports `MISMATCH`, and the bridge refuses grants. Step 0 measures the
+  mechanism on a host first. Surviving the rewrite is left to a later plan.
+
+- [devc-web-projects](devc-web-projects.md) — next up (devc-web-layout-sidebar is done). Projects, not
+  just running containers: a `~/.config/devc/projects.json` of pinned and recent projects
+  (written by every CLI start path), stopped containers from `docker ps -a`, a `projects`
+  message, and `start_project` / `stop_project` / pin / forget / add from the page (spawning
+  `devc up` / `devc stop`, streaming the output). Tiles whose project is down offer Start.
+
+- [devc-web-files](devc-web-files.md) — after devc-web-projects. A lazily loaded Files tree
+  under each project, read from the host side of the bind mount (`list_dir`, confined to the
+  project, symlinks included). Opening a file runs `$EDITOR` in a new pane via `createShell`
+  and places it in the layout. A host folder tree (`list_host_dir`, same tree
+  component) opening on the configured `codeRoots` replaces the "Add project…" prompt.
+
+- [devc-desktop-electron](devc-desktop-electron.md) — devc-desktop moves from `deno desktop`
+  to Electron so one window can hold a **host terminal** devc web cannot reach: a `BaseWindow`
+  with a devc view (sandboxed, own persistent partition, no preload, no dialogs, no windows,
+  navigation pinned to devc web's origin, permissions limited to clipboard write), a status view,
+  and a host view that slides up (Cmd+J) running `node-pty` over checked IPC, loaded from the
+  bundle with no loopback listener. Config, finding `devc`, restart and quit carry over. Step 1
+  replaces devc web's `confirm()`/`prompt()` with in-page dialogs. Step 0 measures `node-pty`,
+  real devc web in the locked-down view, and re-runs the focus attacks; the macOS app is built
+  on the Mac. Why: [devc-desktop-host-terminal](archived/devc-desktop-host-terminal.md) (the
+  `deno desktop` drawer failed isolation; Electron passed).
+
+- [devc-web-golden-layout](devc-web-golden-layout.md) — replace `devc web`'s hand-written
+  split-tree tiling with vendored Golden Layout 2.6.0 (bundled to one ES module): drag sidebar
+  panes onto tile edges or into tab stacks, move and nest tiles, maximise and close, with
+  `localStorage` persistence. One module (`layout.js`) is the only Golden Layout importer;
+  server, protocol and renderer are unchanged apart from a `.png` content type.
+
 - [devc-web](devc-web.md) — `devc web`: a loopback-only (127.0.0.1, token + Host/Origin
   checked) web UI for the Herdr sessions running inside devcontainers. The host server
   discovers containers via `docker ps` + `docker events`, reaches each Herdr through
@@ -95,6 +141,228 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
   take it too.
 
 ### Completed
+
+- [devc-web-pinned-files](archived/devc-web-pinned-files.md) — ✅ Done: notes as pinned files. A
+  **Pinned** section at the top of the sidebar, stored server-side in
+  `~/.config/devc/pinned-files.json` (tolerant read, atomic write, watched so another devc web's
+  changes are broadcast); `pinned_files` on connect and after every change. `pin_file` /
+  `unpin_file` / `rename_pin` manage them; `open_pinned` reuses the pin's last editor pane while
+  its session's snapshot lists it, else makes one as `open_file` does. A click closes the tiles
+  showing the pane (never the pane) or opens it in the focused stack; a stopped container opens
+  the file read-only with a **Start** toast. **New note…** creates `.plans/notes.md` (or
+  `NOTES.md`), pins and opens it; **Pin file** / **Unpin file** on repo file rows, file tiles and
+  pinned editor tiles; Ctrl+Alt+N (Cmd+Alt+N on a Mac) toggles the first pin from the capture
+  phase. Validated by `deno task check`, `deno task test`, `deno fmt --check`, the checkout's
+  server driven by a WebSocket client (stub `docker`, scratch `HOME`), and headless Chromium with
+  a fake WebSocket (New note…, toggle reusing the same pane, the shortcut from a focused terminal
+  on both platforms, reload, menus, the read-only path). **Not verified:** the plan's six checks
+  in the user's tab and the devc-desktop window (unsaved Helix text surviving a toggle, the
+  shortcut in real browsers and on a real Mac, both windows agreeing, a real stopped
+  container); the new messages need `--live-yolo` or an updated `devc`.
+- [devc-web-editor](archived/devc-web-editor.md) — ✅ Done: editing files in containers,
+  first-class. A new `helix` Feature (0.1.0) installs Helix's release binary and runtime under
+  `/usr/local/lib/helix` (`hx` on `PATH`, `HELIX_RUNTIME` set, no language servers, no
+  `EDITOR`, not in devc's baseline); the user picks it with `export EDITOR=hx`. `create_file`
+  creates a file (noclobber) or folder inside the container as the remote user, confining a
+  repo path's parent; folder, repo and Files rows get **New file…** / **New folder…** (an inline
+  name row, `exists` shown under it, a new file opening in the editor); `open_file` names its
+  pane after the file (`pane.rename`). Step 0 measured Helix through a throwaway Herdr 0.9.5
+  pane driven like devc web's server: truecolor (Herdr sets `COLORTERM`), every key tried
+  arrives, click and drag work, the wheel does not scroll Helix, no OSC 52 reaches the client,
+  bracketed paste lands as typed, `deno lsp` attaches via `.helix/languages.toml`;
+  `Ctrl+Alt+N` is free for devc-web-pinned-files. Validated by `deno task check`, `deno task
+  test`, `deno fmt --check`, the Feature's offline install harness and a real install run, and
+  headless Chromium with a fake WebSocket (the inline row, errors, Escape, the messages sent,
+  re-listing and opening). **Not verified:** the Feature's Docker scenario test (no Docker
+  here), the browser's own key handling (`Ctrl+W`, Mac `Option`), and the three checks in the
+  user's tab (Helix in a tile named after the file, New file/New folder against a real
+  container and its owner, `exists`); `create_file` needs `--live-yolo` or an updated `devc`.
+  **Superseded since:** the `helix` Feature was removed before it was ever published, in favour
+  of a non-modal `micro` Feature (0.1.0, SHA-256 verified), and `open_file`'s fallback is now
+  `$EDITOR`, else the first of `micro`, `nano` and `vi` that is installed. Once
+  `ghcr.io/devc-tools/features/micro:0` was published, devc's baseline
+  (`devc-core/default/devcontainer.json`) declared it, so every devc container has micro from
+  its next rebuild.
+
+- [devc-desktop](archived/devc-desktop.md) — ✅ Done: `devc web` in its own window. A thin
+  `deno desktop` app (CEF) in `devc-desktop/` runs `devc web --no-open …` as a child
+  (`$DEVC_DESKTOP_DEVC`, else `$DEVC_BIN` as `bash_aliases.sh` exports it for `devc2`, else
+  `devc` on `PATH`, else the same from the login shell), shows a status page while it starts
+  or after it fails (with Restart), and navigates the window to the `#token` URL the child
+  prints, so live mode works unchanged. Closing the window or Cmd+Q (a macOS app menu) stops
+  the child first. The page gained **Copy page URL**. devc itself can't be the desktop binary
+  (re-executing it starts another GUI instance), and children must not inherit
+  `DENO_SERVE_ADDRESS`. Validated by unit tests, an Xvfb run on Linux against `devc2` with a
+  stub `docker`, and on macOS: keyboard, clipboard, `--live-yolo` swaps and reloads, closing,
+  a Finder launch finding `devc2` through the login shell, and the failure page. Release
+  packaging is not done.
+
+- [devc-web-preview-tiles](archived/devc-web-preview-tiles.md) — ✅ Done: VS Code-style preview
+  tiles. A click on a terminal or file no tile shows opens it in the focused stack's preview
+  tile (italic tab title and Layout row), switching a terminal in place or swapping the tile
+  (`tiling.replace`) when the kind changes, else a new preview tile in that stack.
+  Double-clicking the tab or sidebar row, typing or pasting, dragging (`itemDropped`) or **Keep
+  open** pins it; Ctrl/Cmd-click and menu items that name a place open pinned tiles.
+  `preview: true` rides in the component state (`tileContent`, `previewFromState`), so it
+  survives a reload. Validated by `deno task check`, `deno task test` (`previewFromState`,
+  `tileContent` with the flag) and `deno fmt --check`, and in a headless page with a fake
+  WebSocket: pinned A, click B (italic second tab), click C (replaces B), double-click the tab
+  (upright), click D (new italic), type into D (upright), a file preview replaced by a terminal
+  preview and back, the italic Layout row, and previews surviving a reload. **Not verified:**
+  pinning by drag and by the Keep open item, and anything in the user's tab.
+
+- [devc-web-terminal-agents](archived/devc-web-terminal-agents.md) — ✅ Done: the Terminals
+  row's **+** opens a menu (Terminal, Claude, Copilot, Pi, OpenCode). `open_tab` gained an
+  optional `agent` id: the server maps it to a command through `AGENT_COMMANDS`
+  (`web/agents.ts`), refuses with `not_installed` when `command -v` fails in a login shell (no
+  tab made), else creates the tab and types the command without `exec`. Terminal rows and
+  terminal tiles' Layout rows lead with an icon: the agent's own mark (Lobe Icons 1.95.1, MIT,
+  vendored in `static/vendor/agent-icons/`, path data inlined in `static/lib/agent_icons.js`
+  because the server doesn't serve `.svg`; a test keeps them identical), a generic agent glyph,
+  or a terminal glyph; file tiles get a file glyph. Validated by `deno check main.ts`,
+  `deno task check`, `deno task test` (agent ids, the `open_tab` parser, `commandInstalled`'s
+  argv and failure, icon kinds, marks vs files) and `deno fmt --check`, and in a headless page
+  with a fake WebSocket: each agent's icon on its row and in Layout, the file glyph, the menu's
+  five items under the +, and Claude sending `open_tab` with `agent: 'claude'`. **Not
+  verified:** an agent actually starting in a real container, the `not_installed` toast end to
+  end, and the icons in the user's tab.
+
+- [devc-web-usage-5h](archived/devc-web-usage-5h.md) — ✅ Done: the host status strip's usage
+  item shows only the 5h window (picked by its `5h` label, else the source's first window) as
+  used / time to reset, `33%/3h10m` (`—` once reset), and its tooltip has one row per window
+  (`5h 33%/3h10m`, `7d 18%/6d4h`, the agent's name first when there are several sources); `high`
+  still looks at every window not yet reset. `usageItems` in `devc/web/static/lib/host_status.js`
+  rewritten, its tests and `devc/README.md` to match. Validated by `deno task check`,
+  `deno task test` and `deno fmt --check`, and in headless Chromium (agent-browser, the
+  checkout's `devc/web/static` over `python3 -m http.server`, a fake WebSocket and a fake clock):
+  the strip read `33%/3h10m` with a two-line title, and after moving the clock past the 5h reset
+  the page's one-minute re-render showed `—` with state `reset` and the `7d` row still in the
+  tooltip. **Still to be done by the user:** the plan's checks in their open tab.
+
+- [devc-web-containers-kill-closes](archived/devc-web-containers-kill-closes.md) — ✅ Done: the
+  sidebar's Projects heading reads **Containers** and the tile menu's item **Reveal in
+  Containers** (`revealInContainers`), with the section's comments and `devc/README.md` to match;
+  the `projects` message, Add project…, Not running and the saved sidebar keys are unchanged.
+  Kill pane… now awaits `pane.close` through `call` and, on success, closes every pane tile
+  showing that pane; on failure it toasts `Close terminal failed: <message>` (today's text) and
+  leaves the tiles. The server's `close` handler was confirmed a no-op for a pane it has no
+  stream for. Validated by `deno task check`, `deno task test` (387 passed), `deno fmt --check`,
+  and headless Chromium with a fake WebSocket: the Containers heading with Add project… on hover
+  and right-click; Reveal in Containers flashing the pane row; Kill from the pane row menu and
+  the tile menu (`ok: true`) closing both tiles showing the pane and keeping the other; the
+  hover trash button with `ok: false` toasting and keeping the tiles; a cancelled `confirm`
+  sending nothing. **Still to be done by the user:** the plan's checks in their open tab.
+
+- [devc-web-terminals-group](archived/devc-web-terminals-group.md) — ✅ Done: every running
+  container lists a **Terminals** group first (open by default, the agents' most urgent status
+  while collapsed, kept as `terminalsClosed`; "No terminals" when empty) and a **Repos** group
+  second, now on every container whatever its repo count. Herdr spaces get no rows: terminals
+  are listed in Herdr's order, the space named in the tooltip when there are several.
+  User-visible "pane" / "Herdr tab" / "shell" wording became "terminal" (Open / New terminal
+  here, New terminal, Close terminal…, Rename terminal, Terminal closed, the split and stack
+  items, the empty-tile hints), all from `LABELS` in `app.js`; code and protocol keep `pane`.
+  Validated by `deno task check`, `deno task test` and `deno fmt --check`, and in a headless
+  page with a fake WebSocket: row order and depths, a two-space container's tooltips, "No
+  terminals", a one-repo Repos row, no Terminals row on a `no-session` container, the
+  collapsed rollup badge, `terminalsClosed` written to `localStorage`, and the new menu
+  wording. **Not verified:** the collapsed state surviving a real reload (the harness reseeds
+  storage on load), and anything on screen in the user's tab.
+
+- [devc-web-open-tab-here](archived/devc-web-open-tab-here.md) — ✅ Done: "Open Herdr tab here"
+  / "New Herdr tab here" replace "New shell here" on repo and folder rows. A new `open_tab`
+  message starts the container's Herdr session when it has none (never the container), then
+  with `reuse` answers with a shell pane (no `agent`) whose `cwd` is that folder
+  (`paneAtFolder`, lowest-numbered tab wins), else creates a tab there; the page focuses a tile
+  already showing a reused pane, else places it in the focused stack. `startSession` waits about
+  15 s and throws `no_session` with the tail of `herdr-server.log` instead of reporting success.
+  Confirmed first in a throwaway Herdr session that `cwd` is the shell's directory and
+  `foreground_cwd` the foreground process's (`(cd /etc && sleep 30)` from `/var`: `cwd` `/var`,
+  `foreground_cwd` `/etc`), and that `tab.create` honours `cwd`. Validated by `deno check
+  main.ts`, `deno task check`, `deno task test` (`paneAtFolder`, the `startSession` throw with
+  `runText` stubbed, `open_tab` parsing) and `deno fmt --check`. Not exercised end to end against
+  a real container from this one. **Still to be done by the user:** the plan's six checks in
+  their open tab under `--live-yolo`.
+
+- [devc-web-repos-group](archived/devc-web-repos-group.md) — ✅ Done: under an expanded
+  container with several repos, a collapsible **Repos** row (collapsed by default, the
+  `gitRollup` mark while collapsed, open state in `sidebarState.reposOpen`); a repo's worktrees
+  then its files hide behind its chevron. Running containers without a usable Herdr stay in the
+  main list, expandable, with Start Herdr / Retry; "Not running" holds only projects without a
+  running container. `gitRollup` gives `•` when no repo has an upstream. Validated by
+  `deno task check`, `deno task test` (`gitRollup`) and `deno fmt --check`, and in headless
+  Chromium against the checkout's page with a fake WebSocket shaped like the user's sidebar dump
+  (Repos at depth 1, repos at 2, a worktree at 3 before its parent's files, no Repos row for a
+  single repo, the `no-session` container under Projects with Start Herdr / Retry, Retry not
+  toggling the row, click and Enter toggling Repos, `reposOpen` saved). **Still to be done by
+  the user:** the plan's five checks in their open tab.
+
+- [devc-web-file-viewer](archived/devc-web-file-viewer.md) — ✅ Done: a `file` tile (second
+  Golden Layout component type, state a `FileRef`) showing a file read-only in vendored
+  CodeMirror 6 (one 1.3 MB bundle, `scripts/vendor-codemirror.sh`); `read_file` reads the host
+  side (confined to a repo root, 2 MiB cap, NUL-sniffed binary refused). Clicking a file opens
+  or focuses its tile; "Open in editor" moved to the row and tile menus. Validated by
+  `deno task check`, `deno task test` (`readProjectFile`, `read_file` parsing, `fileRefFromState`
+  / `tileContent`, `languageFor`) and `deno fmt --check`, and in headless Chromium against the
+  checkout's page with a fake WebSocket (highlighted `.ts` / `Dockerfile` / `.md`, no duplicate
+  tile, Ctrl-F, typing ignored, the `too_large` overlay, tab-menu Reload, a drag to the right
+  edge, tiles restored on reload, no `open` / `resize` sent). The server's `read_file` handler
+  is not tested end to end. **Still to be done by the user:** the plan's checks in their open
+  tab (needs `--live-yolo` or an updated `devc` for `read_file`).
+
+- [devc-web-repo-tree](archived/devc-web-repo-tree.md) — ✅ Done: a muted `✓` (in sync) / `•`
+  (no upstream) mark and a `✓` rollup; the Files node replaced by per-repo file trees on each
+  repo row (a stopped project lists its folder's files under its own row); `list_dir` /
+  `open_file` take a `root` checked against the project's repo folders. Validated by
+  `deno task check`, `deno task test` (marks and rollup, `root` parsing, `isProjectRepo`, a
+  sibling-repo listing with escapes refused) and `deno fmt --check`, and in headless Chromium
+  against the live page with a fake WebSocket (repo rows and marks, sibling-repo `list_dir` /
+  `open_file` carrying `root`, the stopped project's files, `rootsOpen` saved, collapsed
+  rollup). The server's `unknown repo` refusal is tested only through `isProjectRepo`, not
+  end to end. **Still to be done by the user:** the plan's checks in their open tab (needs
+  `--live-yolo` or an updated `devc`).
+
+- [devc-web-usage](archived/devc-web-usage.md) — ✅ Done, validated by `deno check main.ts`,
+  `deno task check`, `deno task test` (new `web_usage_test.ts`: file paths, the file contract
+  and malformed files, newest-observation merge, the debounced watch with atomic replaces and a
+  dir that appears later and is never created, and `scripts/devc-usage-tap` itself: output
+  parsed back, silent, exit 0, never overwriting a good file; `web_host_status_test.ts` gains
+  the usage items, ages and reset state) and `deno fmt --check`, and in this container against
+  a throwaway `devc web` (stub `docker`, temp `HOME`): a WebSocket client saw `usage` on
+  connect and ~200 ms after each tap write, the newer of the two Claude homes winning, and
+  headless Chromium showed `5h 55%` in the strip, a window flip to `5h —` on the minute timer
+  once its reset passed, and a `<b>` label rendered as text. **Still to be done by the user:**
+  the plan's "Verify first" capture of a real status-line input (`rate_limits` shape,
+  `resets_at` unit; the tap accepts epoch s, ms or ISO), copying the tap next to
+  `statusline.sh` and wiring it in (devc/README.md), and on the macOS host: two containers, use
+  one, the strip updates; idle past `resets_at`, it shows reset (needs `--live-yolo` or an
+  updated `devc`, since the server changed). Watches `~/.config/devc/.claude/devc-usage.json`
+  (every devc container's Claude home) and `${CLAUDE_CONFIG_DIR:-~/.claude}/devc-usage.json`.
+
+- [devc-web-bridge-status](archived/devc-web-bridge-status.md) — ✅ Done, validated by
+  `deno check main.ts`, `deno task check`, `deno task test` (new `web_bridge_status_test.ts`:
+  paths and overrides, pidfile liveness, markers, the debounced watch, dirs that appear later
+  and are never created; new `web_host_status_test.ts`: strip items) and `deno fmt --check`,
+  and in this container against a throwaway `devc web` (stub `docker`, temp
+  `DEVC_BRIDGE_BASE`): a WebSocket client saw `bridge_status` on connect and within ~200 ms of
+  each marker and pidfile change, and headless Chromium showed the strip update live with a
+  marker named `<b>odd` rendered as text. **Still to be done by the user on the macOS host:**
+  the strip flips to "awake" within a second of a real keepawake ping and back after
+  `DEVC_BRIDGE_KEEPAWAKE_IDLE_MS` (needs `--live-yolo` or an updated `devc`, since the server
+  changed). `web/bridge_status.ts` reads devc-bridge's state dir and pidfile (no devc-bridge
+  change); the sidebar's foot gains a one-line host status strip (`bridge ●` / `bridge ○ off`,
+  `☕ awake`, other markers verbatim) that devc-web-usage extends.
+
+- [devc-web-live](archived/devc-web-live.md) — ✅ Done, validated by `deno task check`,
+  `deno task test` (new `web_live_test.ts`: token file, generations, snapshot, `/safe/`
+  routing) and `deno fmt --check`, and by the plan's manual steps in a Linux devcontainer with a
+  stub `docker` and headless Chromium. **The manual run on the macOS host with real containers
+  and open panes is still to be done by the user.** `devc web --source DIR` (or
+  `DEVC_WEB_SOURCE`) supervises a `deno run` child serving a checkout: page edits reload the tab
+  (CSS swaps in place), server `.ts` edits restart the child after a `deno check` gate, and a
+  crash falls back to the built-in server in-process. The token persists in
+  `~/.config/devc/web-token` (`--new-token`); `boot.js` shows an error overlay with **Load last
+  good** (`/safe/`, the last-rendered snapshot). Protocol gains `hello`, `static_changed`,
+  `client_ready`.
 
 - [bridge-worktree-extra-repos](archived/bridge-worktree-extra-repos.md) — ✅ Done, validated by
   the devc-core tests (`extensions.worktreeConfig` detection; `resolvePin` refusing it), the devc
@@ -1996,3 +2264,6 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
 | devc-bridge multi-repo pins — `--bridge-repo PATH`, v2 policy, `--repo` selector                                   | [bridge-multi-repo-pins](archived/bridge-multi-repo-pins.md)                       | complete    |
 | devc-bridge worktree extra repos — linked worktrees in `--bridge-repo`, same-repo pins, mirror lock, trap race fix | [bridge-worktree-extra-repos](archived/bridge-worktree-extra-repos.md)             | complete    |
 | `devc web` — browser UI for in-container Herdr sessions over `docker exec`                                         | [devc-web](devc-web.md)                                                            | in progress |
+| `devc web` Golden Layout tiling — drag/drop, stacks, nesting                                                       | [devc-web-golden-layout](devc-web-golden-layout.md)                                | in progress |
+| `devc web` sidebar — resizable and hideable                                                                        | [devc-web-sidebar-resize](archived/devc-web-sidebar-resize.md)                     | complete    |
+| `devc web` copy on select — plain drag copies via `pane.selection.read`                                            | [devc-web-copy-on-select](archived/devc-web-copy-on-select.md)                     | complete    |

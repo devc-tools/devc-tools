@@ -1,0 +1,61 @@
+#!/usr/bin/env bash
+# devc-usage-tap: record Claude Code's account-wide usage limits for `devc web`.
+#
+# Reads one Claude Code status-line JSON object on stdin and, when it carries `rate_limits`,
+# replaces ${CLAUDE_CONFIG_DIR:-$HOME/.claude}/devc-usage.json atomically (temp file in the same
+# dir, then rename). `devc web` watches that file and shows the newest observation once, in its
+# host status strip. Copy it next to statusline.sh in the Claude home, and wire it in after the
+# status line has read its input (see devc/README.md, "The host status strip and usage limits"):
+#
+#   input=$(cat)
+#   tap="$(dirname "$0")/devc-usage-tap"
+#   [ -x "$tap" ] && printf '%s' "$input" | "$tap" >/dev/null 2>&1 &
+#
+# It runs inside the status line, so it never prints, never fails (always exits 0), and never
+# writes when `rate_limits` is absent or empty: that would erase a good observation. Needs `jq`.
+# The file's contract is in devc-tools' .plans/archived/devc-web-usage.md.
+
+{
+  command -v jq || exit 0
+  dir="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
+  [ -d "$dir" ] || exit 0
+  now=$(date +%s) || exit 0
+
+  out=$(jq -c --argjson now "$now" '
+    # Epoch seconds from epoch seconds, epoch milliseconds or an ISO 8601 UTC string; else null.
+    def secs:
+      if type == "number" then (if . > 1e12 then . / 1000 else . end | floor)
+      elif type == "string" then
+        (sub("\\.[0-9]+"; "") | sub("(\\+00:?00)$"; "Z") | try fromdateiso8601 catch null)
+      else null end;
+    # five_hour -> 5h, seven_day -> 7d, seven_day_opus -> 7d opus.
+    def short_label:
+      split("_")
+      | map({"one": "1", "two": "2", "three": "3", "four": "4", "five": "5", "six": "6",
+             "seven": "7", "eight": "8", "nine": "9", "ten": "10", "twelve": "12",
+             "fourteen": "14", "thirty": "30", "hour": "h", "hours": "h", "day": "d",
+             "days": "d", "week": "w", "weeks": "w", "month": "mo", "months": "mo"}[.] // .)
+      | join(" ")
+      | gsub("(?<n>[0-9]+) (?<u>h|d|w|mo)\\b"; "\(.n)\(.u)");
+    .rate_limits
+    | if type == "object" then . else {} end
+    | [ to_entries[]
+        | select(.value | type == "object")
+        | select(.value.used_percentage | type == "number")
+        | { id: .key,
+            label: (.key | short_label),
+            used_percentage: .value.used_percentage,
+            resets_at: (.value.resets_at | secs) } ]
+    | if length == 0 then empty
+      else {v: 1, agent: "claude", observed_at: $now, windows: .} end
+  ') || exit 0
+  [ -n "$out" ] || exit 0
+
+  tmp=$(mktemp "$dir/.devc-usage.XXXXXX") || exit 0
+  if printf '%s\n' "$out" >"$tmp" && mv -f "$tmp" "$dir/devc-usage.json"; then
+    :
+  else
+    rm -f "$tmp"
+  fi
+} >/dev/null 2>&1
+exit 0

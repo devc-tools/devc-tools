@@ -256,6 +256,17 @@ exactly that version regardless of what "latest" resolves to that day) and `proj
 volume staying at the workspace root rather than following `projectDir`, mirroring
 node-nvmrc's `project_subdir` scenario).
 
+**micro** — offline: `install_options_test.sh` (version resolution — latest via a
+non-redirecting `file://` fixture standing in for the releases/latest redirect, and a pinned
+version with and without its `v` — architecture mapping for `x86_64`, `aarch64` and `arm64` from
+one host, the values that must fail the build, and a missing release, a checksum mismatch or a
+tarball without `micro` failing with nothing installed).
+
+With Docker: the default scenario is the bare `{}` case, resolving `"latest"` for real and
+asserting, as the remote user, that `micro -version` runs from `/usr/local/bin/micro` and
+`EDITOR` is left alone. `scenarios.json` adds `pinned_version` (`2.0.15`, asserting the
+installed binary reports exactly that).
+
 **node-nvmrc** — offline: `install_options_test.sh` (all four options through to the baked
 `post-create.sh`, the values that must fail the build, the ones that must survive
 verbatim, the empty-`projectDir` distinction, the user-owned `pin/`, that no startup file
@@ -394,6 +405,14 @@ behind.
 separated, no `sha512sum -b`-style `*` prefix. The `*` is stripped defensively anyway, the way
 `devc-bridge/install.sh`'s `checksums.txt` parse already does, in case a future release changes
 that.
+
+### micro
+
+micro's release tags are `v2.0.15` while its asset names carry the bare `2.0.15`; `install.sh`
+accepts either form for `version` and derives both. Each asset has a `.sha` beside it (one line,
+`<sha256>  <asset>`), which `install.sh` checks before unpacking. `"latest"` follows the
+`releases/latest` redirect for the same reason `godot`'s does. Both Linux assets used are
+statically linked, so unlike a glibc-linked release there is no musl check.
 
 ### node-nvmrc
 

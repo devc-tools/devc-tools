@@ -183,6 +183,29 @@ export async function saveGlobalConfig(cfg: GlobalConfig): Promise<void> {
   await writeFile(cfg.path, JSON.stringify(out, null, 2) + '\n');
 }
 
+/**
+ * `webSource`: the `devc/` directory of a devc-tools checkout that `devc web --live` serves
+ * when `--source` is not given (never without `--live`). Kept in `extra`, so every save preserves
+ * it. Returns `null` when absent or empty; expands `~` / `$VAR` like the roots. Throws when it
+ * is not a string, or not absolute once expanded.
+ */
+export function webSourceFromConfig(cfg: GlobalConfig): string | null {
+  const raw = cfg.extra.webSource;
+  if (raw === undefined || raw === null || raw === '') return null;
+  if (typeof raw !== 'string') {
+    throw new Error(`${displayPath(cfg.path)}: "webSource" must be a string`);
+  }
+  const expanded = expandPath(raw);
+  if (!expanded.startsWith('/')) {
+    throw new Error(
+      `${
+        displayPath(cfg.path)
+      }: "webSource" must be an absolute path (or start with ~), got '${raw}'`,
+    );
+  }
+  return expanded;
+}
+
 /** Construct a config value from explicit lists (used by tests and the wizard save path). */
 export function makeGlobalConfig(
   codeRoots: string[],

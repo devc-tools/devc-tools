@@ -44,7 +44,7 @@ devc stop    [PATH]                                   Stop the container
 devc down    [PATH]                                   Stop and remove the container (and its devc-bridge files)
 devc prune   [--dry-run]                              Remove devc-bridge key dirs/policies no container uses
 devc status  [PATH]                                   Print `running` / `stopped` / `missing`, then protection and bridge lines
-devc web     [--port N] [--session NAME]              Serve a browser UI for the Herdr sessions in every running devcontainer
+devc web     [--port N] [--session NAME] [--no-open] [--live] [--live-yolo] [--source DIR] Serve a browser UI for the Herdr sessions in every running devcontainer
 ```
 
 Run `devc --help` for the full command list, `devc <COMMAND> --help` for a
@@ -195,6 +195,17 @@ Notes:
   substitutes variables itself — inside the merged config they are the
   devcontainer CLI's to resolve, which is why `${devcontainerId}` and
   `${containerEnv:…}` work there.
+- **Every exec reaches the container the same way.** CLI commands and
+  `devc web` alike carry `-u remoteUser`, the full `remoteEnv` and
+  `-w remoteWorkspaceFolder`, built by one function (`dockerExecArgv` in
+  `devc-core/container.ts`; a test fails on any other `docker exec` argv).
+  `devc web` doesn't start containers, so it can't take these from
+  `devcontainer up`. It gets them from `connectionFor` instead: the same
+  merged config and `remoteEnv` derivation, with the workspace folder and
+  `remoteUser` from `devcontainer read-configuration --container-id`. A Herdr
+  server started from the page therefore gets the same `TZ`, `LANG` and
+  `PROJECT_PATH` a `devc herdr` attach does. A server that is already running
+  keeps the environment it started with.
 - **The workspace mount is the git root, not `<PATH>`.** The CLI's
   `--mount-workspace-git-root` (on by default) mounts the nearest ancestor
   holding a `.git`. When that is an ancestor of `<PATH>` (a fresh project nobody
@@ -253,32 +264,99 @@ config.
 
 `devc web` serves one page, on `127.0.0.1` only, for the Herdr sessions running
 **inside** every running devcontainer. It prints exactly one line,
-`devc web: http://127.0.0.1:48228/#token=…`, and runs until Ctrl-C. Open that URL
-(the `#token=` part included — a new token is minted on every start). Nothing
+`devc web: http://127.0.0.1:48228/#token=…`, opens the page in the default
+browser, and runs until Ctrl-C. To open it elsewhere, use that URL (the
+`#token=` part included). The browser is opened through a one-time
+`/open/<nonce>` link that redirects to the URL, so the token never appears in
+the opener's command line; without a display (Linux with no `DISPLAY` or
+`WAYLAND_DISPLAY`) nothing is opened. `--no-open` skips it. Every run mints a new token and keeps it only in
+memory, so a URL printed by an earlier run never works again; restarting
+`devc web` is how to revoke one. Nothing
 is published from any container: the host server finds devcontainers with
 `docker ps` + `docker events` and reaches each container's Herdr through
 `docker exec … herdr --session devc remote-api-bridge` and
 `terminal session control`. Updates are pushed end to end; nothing is polled.
 
-- **Sidebar:** each container with its panes and an agent status per pane.
-  Workspace and tab rows appear only when there is more than one to choose
-  from. Click a container to collapse it; a collapsed one shows its most urgent
-  agent status. Containers without a running Herdr server are grouped under
-  **Not running** at the bottom; hover one for **Start**
-  (`herdr --session devc server`, detached) and **Retry**. Right-click a
-  container, workspace, tab or pane to create, rename, split or close.
-- **Tiles:** click a pane to open it in the focused tile; split tiles right or
-  down and drag the dividers. Tiles are the browser's own layout and never
-  change Herdr's. The layout is kept in the browser's `localStorage`; a tile
-  whose pane has since closed shows "Pane gone".
+- **Sidebar:** two sections. **Layout** mirrors the tiles: rows, columns and
+  tab stacks as they nest (a level with a single child is folded away), each
+  tile with its pane's agent status; click a tile to bring it forward.
+  **Containers** lists each container with every pane in it, marking the ones a
+  tile shows; a workspace row appears only when there is more than one. Herdr
+  tabs don't appear: a pane split in Herdr's own UI is listed like any other.
+  Click a container to collapse it; a collapsed one shows its most urgent agent
+  status. Containers without a running Herdr server are grouped under **Not
+  running** at the bottom; hover one for its play button,
+  **Start Herdr** (`herdr --session devc server`, detached), and **Retry**. The same group
+  lists **projects** whose container is stopped or was never created: every
+  folder a devc command has started (kept, with your pins, in
+  `~/.config/devc/projects.json`; the 20 most recent unpinned ones) and every
+  folder you pinned. Hover one for its play button, **Start container** (the same start as `devc attach`,
+  with its output under **Show output**); right-click any project for **Stop
+  container**, **Pin**/**Unpin** and **Forget**, and the **+** on the Containers
+  heading adds a folder. A tile whose project is down offers **Start
+  container**.
+- **Menus:** right-click a tile (its tab, or its Layout row) for **Split
+  vertically** (a new terminal to its right), **Split horizontally** (below),
+  **New pane in this stack**, **Close** (the tile only) and **Kill pane** (ends
+  the process and closes every tile showing it). Stacks, rows and columns offer a new shell inside them; a
+  container or workspace row offers **New shell** in the focused stack; a pane
+  row offers **Open in new tile**, **Rename** and **Kill**. A new shell is
+  always its own Herdr tab, created without moving the focus of a Herdr TUI
+  attached to the same session. Hovering a Layout row shows **×** to close its
+  tiles; hovering a pane under Containers shows a trash button to kill it.
+- **Tiles:** click a pane to show it (bringing its tile forward if one already
+  shows it, else opening it in the focused tile; Ctrl/⌘-click always opens a
+  new tile), or drag it from the sidebar onto any tile's edge (a new split) or
+  tab strip (a new tab in that stack). Drag a tile's tab to move it; rows,
+  columns and tab stacks nest to any depth, the dividers resize, and each tab
+  can be maximised or closed. The same pane may be open in several tiles. Tiles
+  are the browser's own layout
+  ([Golden Layout](https://github.com/golden-layout/golden-layout), vendored)
+  and never change Herdr's. The layout is kept in the browser's
+  `localStorage`; a tile whose pane has since closed shows "Pane gone".
 - **Input:** keys go through as typed. A multi-line paste is sent as one
   bracketed paste, so a shell or agent prompt does not submit each line. Mouse
   clicks and drags go to the app (Herdr encodes them in the app's own mouse
-  mode); **Shift+drag** selects locally and copies. The wheel scrolls the app
+  mode), except a right-click, which opens the tile's menu (the same one as
+  its tab); **Shift+drag** selects locally and copies. The wheel scrolls the app
   when it tracks the mouse, and Herdr's scrollback otherwise.
+- **Files and editing:** right-click a file for **Open in editor**, which runs
+  `$EDITOR` on it in a new terminal named after the file (unset, the first of
+  `micro`, `nano` and `vi` that the container has). Right-click a
+  folder, a repo or a container's **Files** row for **New file…** or **New
+  folder…**: type the name in the row that opens under it, Enter creates it
+  (Escape cancels), and a new file opens in the editor. Entries are created
+  inside the container as its remote user, so they have the owner the editor's
+  saves will have; a name that is already taken is reported under the row. The
+  container must be running. **Rename…** (the name is edited in place) and
+  **Delete…** (after a confirmation; a folder goes with everything in it) are on
+  every file and folder below a root, and run in the container the same way. An
+  editor's terminal is named after its file, in the sidebar and on its tab. See
+  [Editing in a terminal](#editing-in-a-terminal) for the editor.
+- **Pinned files and notes:** the **Pinned** section at the top of the sidebar
+  keeps repo files one click away. Right-click a repo file (or a file tile) for
+  **Pin file** / **Unpin file**; the section's **+** is **New note…**, which
+  creates a file in a project's repo (`.plans/notes.md` when the repo has a
+  `.plans/` folder, else `NOTES.md`; an existing file is pinned as it is, and a
+  missing folder is reported, not created), pins it and opens it. Clicking a
+  pin opens its file in the editor, or closes its tile again (a dot marks it
+  open). Closing hides the tile only: the editor keeps running in Herdr, so the
+  next click brings back the same buffer, unsaved edits included.
+  **Ctrl+Alt+N** (**⌘⌥N** on a Mac) toggles the first pin, even while a
+  terminal has focus. While the container is stopped a pin opens read-only in
+  the file viewer, with a **Start** offer. A pin's menu has **Open to the
+  right**, **Open read-only**, **Rename…**, **Copy path** and **Unpin file**.
+  Pins are kept in `~/.config/devc/pinned-files.json`, so a browser tab and the
+  devc-desktop window show the same ones. They are not pinned projects (a
+  project kept in the Containers list) and not a preview tile's **Keep open**.
 - `--port N` picks another port (default 48228); `--session NAME` another Herdr
   session (default `devc`, the one `devc herdr` uses). A port already in use
   exits 1 with a `devc web:` message.
+- `--live` serves the **page** of the devc-tools checkout named by
+  `"webSource"` in `~/.config/devc/config.json` live (`~` and `$VAR` expand; it
+  must be absolute); `--live-yolo` runs its server code as well; `--source DIR`
+  names a checkout for this run. Both imply `--live`. Neither: the built-in
+  copy. See below.
 
 Security: Herdr panes are shells, so `/ws` only accepts requests whose `Host`
 is `127.0.0.1:<port>`, `localhost:<port>` or `host.docker.internal:<port>`,
@@ -293,6 +371,119 @@ that has the token can drive every pane, so restart `devc web` for a fresh
 token when the agent is done. On Linux Docker, `host.docker.internal` is the
 bridge gateway rather than the host's loopback, so this needs Docker Desktop.
 
+#### The host status strip and usage limits
+
+The sidebar's foot is a one-line strip of host-level indicators: the
+account-wide agent usage limits (Claude's 5h window as used / time to reset,
+`33%/3h10m`), then devc-bridge (`bridge ●` / `bridge ○ off`, `☕ awake` while
+keepawake holds the host awake). Hover the usage for every window on its own
+row (`5h 33%/3h10m`, `7d 18%/6d4h`). Usage is shown once for every session,
+from whichever one reported last; once a window's reset time passes with no
+newer report it shows as `—` rather than the old percentage. An observation
+over 15 minutes old is dimmed, and the item is highlighted when any window,
+shown or not, is at 90% or more.
+
+Claude Code hands its usage limits only to the status line, so the status line
+has to write them down. [`scripts/devc-usage-tap`](../scripts/devc-usage-tap)
+(needs `jq`) reads one status-line input on stdin and replaces
+`${CLAUDE_CONFIG_DIR:-~/.claude}/devc-usage.json`; it never prints, never fails,
+and skips inputs without `rate_limits` (early in a session, or API-key auth).
+`devc web` watches that file in the Claude home devc mounts into every container
+(`~/.config/devc/.claude`) and in the host's own (`$CLAUDE_CONFIG_DIR`, default
+`~/.claude`); the newer observation wins. To wire it up, copy the script next to
+your `statusline.sh` in each Claude home whose sessions should report:
+
+```sh
+cp scripts/devc-usage-tap ~/.config/devc/.claude/   # every devc container
+cp scripts/devc-usage-tap ~/.claude/                # sessions on the host
+```
+
+and add the tap to `statusline.sh` straight after it reads its input:
+
+```bash
+input=$(cat)
+tap="$(dirname "$0")/devc-usage-tap"
+[ -x "$tap" ] && printf '%s' "$input" | "$tap" >/dev/null 2>&1 &
+```
+
+Until a session reports, the strip shows no usage. Seeing usage needs a server
+with the `usage` message (`--live-yolo`, or a `devc` built from this version).
+
+#### Live mode: `devc web --live` and `--live-yolo`
+
+Live mode serves a devc-tools checkout's `devc/` directory on the **host** (the
+one holding `main.ts`), e.g. `~/code/tools/devc-tools/devc`, instead of the
+built-in copy. It is the same checkout that containers with the `devc:source`
+mount see read-write at `/workspaces/tools/devc-tools`: two names for one
+directory, from either side. Name it once in `~/.config/devc/config.json`:
+
+```json
+{ "webSource": "~/code/tools/devc-tools/devc" }
+```
+
+`devc config --global` keeps the key when it rewrites the file. `--source DIR`
+names a checkout for one run instead. Without `--live`, `--live-yolo` or
+`--source`, `devc web` serves the built-in copy, whatever the config says: any
+agent that can write to the checkout can change what live mode runs, so it is
+only ever on when asked for, run by run.
+
+- **`devc web --live`: the page only.** The server is the built-in one; it
+  serves and watches the checkout's `web/static/`. The page is the only
+  checkout code that runs, in your browser tab, and the server will not act on
+  its behalf beyond the containers already running: it starts no containers,
+  adds no projects and pins none (the page hides those controls; start a
+  project from a terminal). A page change that needs a server change the
+  installed `devc` doesn't have needs `--live-yolo`, or a newer `devc`.
+- **`devc web --live-yolo`: the page and the server code.** The `devc` you started
+  becomes a supervisor: it runs `deno run … main.ts web` in `DIR` as a child,
+  which serves the checkout's own server code, and restarts it on every change
+  that passes `deno check`. That code runs on the host as you, so use it only
+  while working on the server. Needs `deno` on the host `PATH`; a missing
+  `DIR/main.ts` or `deno` exits 1 with a `devc web:` message.
+
+Edits reach the open tab without a new URL:
+
+- **Page** (`web/static/**`, both modes): the tab reloads (tile layout is in
+  `localStorage`, terminal contents in Herdr), or for a CSS-only change swaps the
+  stylesheet in place.
+- **Server** (`.ts` under `devc/` or `devc-core/`, not `tests/`;
+  `--live-yolo` only): the supervisor runs `deno check main.ts` while the old
+  server keeps serving. If it fails, it prints
+  `devc web: not restarting: deno check failed` and the errors, and keeps the
+  old server. If it passes, it restarts the child; the page reconnects by itself
+  within a few seconds.
+- **A crash** (`--live-yolo` only): if the child exits on its own, the
+  supervisor serves the built-in copy on the same port and token
+  (`devc web: server exited (…); serving the built-in copy until the next
+  change`) until a change passes `deno check` again.
+- **A broken page** (both modes): an error before the page has rendered (or
+  5 s without rendering) shows an overlay with **Reload** and **Load last
+  good**. The latter opens `/safe/`, a snapshot of the last page a browser
+  rendered (`~/.cache/devc/web/last-good/`), with a "Safe mode" banner and a
+  link back.
+
+Running `deno task run web` directly in a checkout (no `--live`) is not live:
+it serves the files from disk, so a browser refresh shows page edits, but
+nothing is watched.
+
+#### Changing devc web while using it
+
+For an agent in a pane of `devc web` asked to change the UI:
+
+- **Where the code is:** the page is `devc/web/static/` (`app.js`, `layout.js`,
+  `renderer.js`, `lib/`, `style.css`, `index.html`, `boot.js`); the server is
+  `devc/web/*.ts`. From a container with the `devc:source` mount, that is
+  `/workspaces/tools/devc-tools/devc/…`.
+- **What happens on save:** a page file reloads the user's tab (a `.css` file
+  swaps in place); a server `.ts` file restarts the server, but only once
+  `deno check main.ts` passes. Your own pane reconnects too.
+- **How to verify:** `deno task check` and `deno task test` in `devc/`.
+- **If the UI breaks:** the user can click **Load last good** (or open
+  `/safe/`), or fall back to `devc herdr` in a terminal. Fix forward, or
+  `git checkout` the file. Keep page URLs relative (`./x.js`), so the page also
+  works under `/safe/`. **Never edit `boot.js` together with other page
+  files**: it is what shows the way out of a broken page.
+
 Known limitations:
 
 - **Application cursor key mode is not honored.** Herdr's frames are its own
@@ -303,6 +494,31 @@ Known limitations:
   persists. A Herdr TUI (`devc herdr`) showing the same pane draws it at the
   browser's size until the TUI takes it back, and opening the pane elsewhere
   with `--takeover` disconnects the tile (it offers **Reconnect**).
+
+#### Editing in a terminal
+
+**Open in editor** runs `$EDITOR`. When that is unset, it runs the first of
+`micro`, `nano` and `vi` that is installed in the container. The non-modal
+editors come first, so you never land in `vi` without asking for it. The
+[`micro`](../features/micro/README.md) Feature installs micro: typing inserts
+text, Ctrl+S saves, Ctrl+Q quits (which closes the pane), and Ctrl+G shows the
+help. To use another editor, set `EDITOR` in your shell prefs
+(`~/.config/devc/shell/10-prefs.sh`, see
+[Shell setup](#shell-setup-shell-folders)).
+
+What reaches an editor through devc web and Herdr 0.9.5 (measured with Helix):
+
+- **Colors** are truecolor: Herdr sets `COLORTERM=truecolor` in every pane.
+- **Keys** reach the editor, except what the browser keeps for itself: off a
+  Mac, `Ctrl+W` closes the browser tab. On a Mac, `Option+key` types a character, not `Alt+key`.
+- **Mouse:** a click places the cursor and a drag selects, but the **wheel may
+  not scroll the editor** (devc web's wheel scrolls Herdr's scrollback). Use the
+  editor's page keys (micro: PageUp/PageDown).
+- **Copying:** an editor's own copy (micro's Ctrl+C) stays inside the
+  container. It cannot reach your clipboard, because Herdr does not pass OSC 52
+  to devc web. A plain drag copies the screen text under it to your clipboard.
+  **Shift+drag** selects without the editor seeing it. Pasting from the page
+  inserts the text as it was copied.
 
 ### The library: `@devc-tools/core`
 

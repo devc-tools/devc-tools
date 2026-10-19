@@ -6,6 +6,7 @@ import {
   loadGlobalConfig,
   makeGlobalConfig,
   saveGlobalConfig,
+  webSourceFromConfig,
 } from '../config.ts';
 import { withTemp } from './helpers.ts';
 
@@ -104,5 +105,38 @@ Deno.test('globalConfigExists true after save', async () => {
     assertEquals(await globalConfigExists(path), false);
     await saveGlobalConfig(makeGlobalConfig([], [], path));
     assertEquals(await globalConfigExists(path), true);
+  });
+});
+
+Deno.test('webSourceFromConfig: absent, expanded, preserved on save, and refused when bad', async () => {
+  await withTemp(async (dir) => {
+    const path = `${dir}/config.json`;
+    const home = Deno.env.get('HOME')!;
+    assertEquals(webSourceFromConfig(await loadGlobalConfig(path)), null);
+
+    await Deno.writeTextFile(
+      path,
+      JSON.stringify({ codeRoots: [], webSource: '~/co/devc' }),
+    );
+    const cfg = await loadGlobalConfig(path);
+    assertEquals(webSourceFromConfig(cfg), `${home}/co/devc`);
+    // A wizard rewrite keeps it, as written.
+    await saveGlobalConfig(
+      makeGlobalConfig(['~/code'], [], path, cfg.extra, cfg.recentSkills),
+    );
+    assertEquals(
+      JSON.parse(await Deno.readTextFile(path)).webSource,
+      '~/co/devc',
+    );
+
+    for (const [value, ok] of [['', null], ['/abs/devc', '/abs/devc']]) {
+      await Deno.writeTextFile(path, JSON.stringify({ webSource: value }));
+      assertEquals(webSourceFromConfig(await loadGlobalConfig(path)), ok);
+    }
+    for (const bad of ['rel/devc', 7]) {
+      await Deno.writeTextFile(path, JSON.stringify({ webSource: bad }));
+      const loaded = await loadGlobalConfig(path);
+      assertThrows(() => webSourceFromConfig(loaded), Error, 'webSource');
+    }
   });
 });

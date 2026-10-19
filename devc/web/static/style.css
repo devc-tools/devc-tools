@@ -14,8 +14,6 @@
   --unknown: #a07cff;
   --danger: #ff6b6b;
   --sidebar-width: 280px;
-  --header-height: 28px;
-  --divider: 5px;
   font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
   font-size: 13px;
   color-scheme: dark;
@@ -49,25 +47,97 @@ button:hover {
 }
 
 .app {
+  position: relative;
   display: grid;
-  grid-template-columns: var(--sidebar-width) 1fr;
+  grid-template-columns: var(--sidebar-width) 5px 1fr;
   height: 100%;
+}
+
+.app[data-sidebar='hidden'] {
+  grid-template-columns: 0 0 1fr;
+}
+
+.app[data-sidebar='hidden'] > .sidebar,
+.app[data-sidebar='hidden'] > .sidebar-resizer {
+  display: none;
 }
 
 /* Sidebar */
 
 .sidebar {
+  grid-column: 1;
   display: grid;
-  grid-template-rows: auto 1fr;
+  grid-template-rows: auto 1fr auto;
   min-height: 0;
   background: var(--panel);
-  border-right: 1px solid var(--border);
+}
+
+/* Host status strip: one line of host-level indicators at the foot of the sidebar. */
+.host-status {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 10px;
+  border-top: 1px solid var(--border);
+  font-size: 11px;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.host-status[hidden] {
+  display: none;
+}
+
+.host-status-item {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.host-status-item[data-state='on'] {
+  color: var(--done);
+}
+
+.host-status-item[data-state='awake'] {
+  color: var(--blocked);
+}
+
+/* Usage limits: `high` near the limit, `stale` an old observation, `reset` a passed window. */
+.host-status-item[data-state='usage'] {
+  color: var(--text);
+}
+
+.host-status-item[data-state='high'] {
+  color: var(--danger);
+}
+
+.host-status-item[data-state='stale'],
+.host-status-item[data-state='reset'] {
+  opacity: 0.6;
+}
+
+/* Drag to resize the sidebar, double-click to reset; colored like `.lm_splitter`. */
+.sidebar-resizer {
+  grid-column: 2;
+  background: var(--border);
+  cursor: col-resize;
+  touch-action: none;
+}
+
+.sidebar-resizer:hover,
+.sidebar-resizer.dragging {
+  background: var(--accent);
+}
+
+body.resizing-sidebar {
+  cursor: col-resize;
+  user-select: none;
 }
 
 .sidebar-header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  gap: 8px;
   padding: 8px 10px;
   border-bottom: 1px solid var(--border);
 }
@@ -77,8 +147,54 @@ button:hover {
 }
 
 .conn {
+  margin-left: auto;
   font-size: 11px;
   color: var(--muted);
+}
+
+/* An SVG rather than a « / » glyph: a glyph sits wherever its font puts it, not centered. */
+.sidebar-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 18px;
+  padding: 0 5px;
+  color: var(--muted);
+}
+
+.sidebar-toggle svg {
+  display: block;
+  width: 12px;
+  height: 12px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.sidebar-toggle:hover {
+  color: var(--text);
+}
+
+/* Over the top-left stack's header while the sidebar is hidden; headers make room for it. */
+.sidebar-show {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 5;
+  width: 22px;
+  height: 20px;
+  padding: 0;
+  border-radius: 0 0 4px 0;
+}
+
+.app:not([data-sidebar='hidden']) > .sidebar-show {
+  display: none;
+}
+
+.app[data-sidebar='hidden'] .lm_header .lm_tabs {
+  margin-left: 24px;
 }
 
 .conn[data-state='open'] {
@@ -95,6 +211,9 @@ button:hover {
 }
 
 .row {
+  /* What a row's hover buttons sit on, kept in step with its own background. */
+  --row-bg: var(--panel);
+  position: relative;
   display: grid;
   grid-template-columns: 1fr auto;
   align-items: center;
@@ -122,21 +241,365 @@ button:hover {
   color: var(--muted);
 }
 
-.row.workspace,
-.row.tab {
+/* "Layout" and "Projects" headings. */
+.row.section {
+  margin-top: 10px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
   color: var(--muted);
+}
+
+.row.section:first-child {
+  margin-top: 0;
+}
+
+.row.section[aria-expanded] {
+  cursor: pointer;
+}
+
+/* Layout section: rows, columns and stacks (muted), and tiles. */
+.row.layout-node {
+  color: var(--muted);
+}
+
+.row.layout-node.tile {
+  color: var(--text);
+  cursor: pointer;
+}
+
+.row.layout-node.tile.background {
+  color: var(--muted);
+}
+
+/* A preview tile (the next sidebar click replaces it), as its tab title shows it. */
+.row.layout-node.tile.preview .label {
+  font-style: italic;
+}
+
+.row.layout-node .label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* A tile's row: its icon sits inline like a terminal row's (not flex-centered), so the two line
+   up the same in every font; always the accent color, since every tile is on screen. */
+.row.layout-node.tile .label {
+  display: block;
+}
+
+.row.layout-node.tile .term-icon {
+  margin-right: 3px;
+  color: var(--accent);
+}
+
+/* What a terminal runs (an agent's mark, a generic agent, a shell) or a file tile: a 14px slot,
+   the width a chevron takes, so names line up with the tree rows beside them. */
+.term-icon {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  width: 14px;
+  height: 14px;
+  vertical-align: -2px;
+}
+
+.term-icon svg {
+  display: block;
+  width: 11px;
+  height: 11px;
+}
+
+/* The in-house glyphs (terminal, agent, file) are stroked, like the icon buttons. */
+.term-icon svg[data-stroked] {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* The agents' own marks are filled. */
+.term-icon svg:not([data-stroked]) {
+  fill: currentColor;
+  fill-rule: evenodd;
+}
+
+/* An empty tile: nothing runs there. */
+.term-icon[data-empty] {
+  opacity: 0.5;
+}
+
+/* The + menu: an icon column before each label. */
+.menu button .term-icon {
+  margin-right: 8px;
+}
+
+/* A small window glyph: split down the middle for a row, across for a column, tabbed for a stack. */
+.node-icon {
+  position: relative;
+  flex: none;
+  width: 12px;
+  height: 9px;
+  border: 1.5px solid currentColor;
+  border-radius: 2px;
+}
+
+.node-icon[data-kind='row']::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: calc(50% - 0.75px);
+  border-left: 1.5px solid currentColor;
+}
+
+.node-icon[data-kind='column']::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc(50% - 0.75px);
+  border-top: 1.5px solid currentColor;
+}
+
+.node-icon[data-kind='stack'] {
+  border-top-width: 3px;
+}
+
+/* A row's badge and its hover buttons. */
+.row-trail {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.icon-btn {
+  display: block;
+  flex: none;
+  width: 18px;
+  height: 18px;
+  padding: 2px;
+  border: none;
+  border-radius: 3px;
+  background: none;
+  color: var(--muted);
+  /* Pane rows' children ignore the pointer (Golden Layout drags start on the row); not this. */
+  pointer-events: auto;
+}
+
+.icon-btn svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* Over the row's right end, fading in from the left, so the row's own content never moves. */
+.row-hover {
+  position: absolute;
+  top: 0;
+  right: 6px;
+  bottom: 0;
+  display: none;
+  align-items: center;
+  gap: 4px;
+  padding-left: 16px;
+  background: linear-gradient(to right, transparent, var(--row-bg) 14px);
+}
+
+.row:hover .row-hover,
+.row:focus-within .row-hover {
+  display: flex;
+}
+
+.row-hover button:not(.icon-btn) {
+  font-size: 11px;
+  padding: 0 6px;
+}
+
+.icon-btn:hover {
+  color: var(--text);
+  background: var(--panel);
+}
+
+/* The play triangle and stop square are solid; the other icons are strokes. */
+.icon-btn[data-icon='play'] svg,
+.icon-btn[data-icon='stop'] svg {
+  fill: currentColor;
+}
+
+.icon-btn[data-icon='stop'] {
+  color: var(--danger);
+}
+
+.icon-btn[data-icon='play']:hover {
+  color: var(--done);
+}
+
+.icon-btn[data-icon='trash']:hover {
+  color: var(--danger);
+}
+
+/* A pinned project. */
+.pin-mark {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  margin-left: 4px;
+  color: var(--muted);
+  vertical-align: middle;
+}
+
+.pin-mark svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* A project's container starting. */
+.spinner {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  margin-right: 5px;
+  border: 1.5px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  vertical-align: -1px;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.row .state[data-state='starting'] {
+  color: var(--working);
+}
+
+/* A container start's output. */
+.dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 25;
+  display: grid;
+  place-items: center;
+  background: rgb(0 0 0 / 0.45);
+}
+
+.dialog {
+  display: grid;
+  grid-template-rows: auto 1fr;
+  width: min(820px, calc(100vw - 32px));
+  height: min(520px, calc(100vh - 32px));
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 10px 30px rgb(0 0 0 / 0.5);
+}
+
+.dialog-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  font-weight: 600;
+}
+
+.dialog-output {
+  margin: 0;
+  padding: 10px 12px;
+  overflow: auto;
+  font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: var(--text);
+  background: var(--term-bg);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* Containers: a terminal some tile shows has its icon in the accent color. */
+.row.pane.visible .term-icon {
+  color: var(--accent);
+}
+
+/* Pinned: a pinned file whose tile is open has its icon in the accent color, and a dot. */
+.row.file-pin {
+  cursor: pointer;
+}
+
+.row.file-pin.visible .term-icon {
+  color: var(--accent);
+}
+
+.file-pin-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+/* The focused tile's rows, and the other section's rows for a hovered pane. */
+.row[data-current] {
+  --row-bg: color-mix(in srgb, var(--accent) 10%, var(--panel));
+  box-shadow: inset 2px 0 0 var(--accent);
+  background: var(--row-bg);
+}
+
+.row.linked {
+  --row-bg: var(--panel-2);
+  background: var(--row-bg);
+}
+
+@keyframes flash {
+  from {
+    background: color-mix(in srgb, var(--accent) 35%, transparent);
+  }
+}
+
+.row.flash {
+  animation: flash 1s ease-out;
 }
 
 .row.pane {
   cursor: pointer;
 }
 
+/* An agent's or command's title, after the terminal's folder name (sidebar rows and tabs). */
+.row .pane-title,
+.lm_header .lm_tab .tile-title-muted {
+  margin-left: 6px;
+  color: var(--muted);
+}
+
+/* Golden Layout switches and drags a tab only from the tab or its title element itself. */
+.lm_header .lm_tab .tile-title-muted,
+.lm_header .lm_tab .tile-badge {
+  pointer-events: none;
+}
+
 .row.container:hover,
 .row.group:hover,
 .row.pane:hover,
-.row.workspace:hover,
-.row.tab:hover {
-  background: var(--panel-2);
+.row.layout-node:hover {
+  --row-bg: var(--panel-2);
+  background: var(--row-bg);
 }
 
 .chevron {
@@ -161,18 +624,6 @@ button:hover {
   gap: 6px;
 }
 
-.row-actions button {
-  display: none;
-  font-size: 11px;
-  padding: 0 6px;
-}
-
-/* Buttons only on hover, so the names have the room otherwise. */
-.row.inactive:hover .row-actions button,
-.row.inactive:focus-within .row-actions button {
-  display: inline-block;
-}
-
 .row .state {
   font-size: 11px;
   font-weight: 400;
@@ -190,6 +641,51 @@ button:hover {
   color: var(--muted);
 }
 
+/* Push/pull: ↑ commits to push, ↓ commits to pull, against the branch's upstream. */
+.git-sync {
+  display: inline-flex;
+  gap: 4px;
+  margin-left: 6px;
+  font-size: 11px;
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+  vertical-align: middle;
+}
+
+.git-sync [data-dir='ahead'] {
+  color: var(--done);
+}
+
+.git-sync [data-dir='behind'] {
+  color: var(--blocked);
+}
+
+.git-sync [data-dir='gone'] {
+  color: var(--muted);
+}
+
+/* Nothing to push or pull: ✓ level with the upstream, • no upstream. Quieter than the arrows. */
+.git-sync [data-dir='synced'],
+.git-sync [data-dir='local'] {
+  color: var(--muted);
+}
+
+/* A repo a container mounts, listed above its workspaces: its name and marks, and a chevron
+   opening its worktrees and files. The Repos, Terminals and Files group rows read the same. */
+.row.repo,
+.row.repos,
+.row.terminals,
+.row.files {
+  color: var(--muted);
+}
+
+/* Both ways: the branch has diverged, so a pull needs a merge or rebase. */
+.git-sync[data-diverged] {
+  padding: 0 4px;
+  border: 1px solid var(--blocked);
+  border-radius: 3px;
+}
+
 /* Agent badges */
 
 /* A colored dot and the status word. */
@@ -199,6 +695,8 @@ button:hover {
   gap: 5px;
   font-size: 11px;
   font-weight: 400;
+  /* Monospace, so every four-letter status (statusShort) is the same width. */
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   color: var(--idle);
   white-space: nowrap;
 }
@@ -227,107 +725,136 @@ button:hover {
   color: var(--unknown);
 }
 
-/* Tiling */
+/* Tiling: Golden Layout (layout.js), themed with the tokens above. */
 
 .tiles {
-  display: flex;
+  grid-column: 3;
+  position: relative;
   min-width: 0;
   min-height: 0;
 }
 
-.split {
-  display: flex;
-  flex: 1 1 0;
-  min-width: 0;
-  min-height: 0;
+.layout-root {
+  position: absolute;
+  inset: 0;
 }
 
-.split[data-dir='row'] {
-  flex-direction: row;
-}
-
-.split[data-dir='col'] {
-  flex-direction: column;
-}
-
-.split > .slot {
-  display: flex;
-  min-width: 0;
-  min-height: 0;
-}
-
-.divider {
-  flex: 0 0 var(--divider);
-  background: var(--border);
-}
-
-.split[data-dir='row'] > .divider {
-  cursor: col-resize;
-}
-
-.split[data-dir='col'] > .divider {
-  cursor: row-resize;
-}
-
-.divider:hover,
-.divider.dragging {
-  background: var(--accent);
-}
-
-.tile {
+.tiles-placeholder {
+  position: absolute;
+  inset: 0;
   display: grid;
-  grid-template-rows: var(--header-height) 1fr;
-  flex: 1 1 0;
-  min-width: 0;
-  min-height: 0;
+  place-content: center;
+  color: var(--muted);
+  pointer-events: none;
+}
+
+.tiles-placeholder[hidden] {
+  display: none;
+}
+
+.lm_goldenlayout {
+  background: var(--bg);
+}
+
+.lm_content {
+  background: var(--term-bg);
   border: 1px solid var(--border);
 }
 
-.tile.focused {
-  border-color: var(--accent);
-}
-
-.tile-header {
-  display: grid;
-  grid-template-columns: auto 1fr auto auto;
-  align-items: center;
-  gap: 8px;
-  padding: 0 6px;
+/*
+ * The tabs and the controls share one row, so a long title stops at the controls instead of
+ * running under them. Golden Layout moves tabs that don't fit to its dropdown but never shrinks
+ * the active one, so only that tab may shrink (its title truncates).
+ */
+.lm_header {
+  display: flex;
   background: var(--panel);
-  border-bottom: 1px solid var(--border);
-  white-space: nowrap;
-  overflow: hidden;
 }
 
-.tile-header .where {
+.lm_header .lm_tabs {
+  position: static;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.lm_header .lm_controls {
+  position: static;
+  flex: none;
+  margin-right: 3px;
+}
+
+.lm_header .lm_tabs .lm_tab {
+  flex-shrink: 0;
+}
+
+.lm_header .lm_tabs .lm_tab.lm_active {
+  flex-shrink: 1;
+  min-width: 0;
+}
+
+.lm_header .lm_tab {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-family: inherit;
+  font-size: 12px;
   color: var(--muted);
+  background: var(--panel-2);
+  box-shadow: none;
 }
 
-.tile-header .title {
+.lm_header .lm_tab.lm_active {
+  color: var(--text);
+  background: var(--term-bg);
+}
+
+.lm_header .lm_tab.lm_active.lm_focused {
+  box-shadow: inset 0 -2px 0 var(--accent);
+}
+
+/* One line, cut with an ellipsis: the tab is a flex row, so min-width lets the title shrink. */
+.lm_header .lm_tab .lm_title {
+  min-width: 0;
+  white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-.tile-header .buttons {
-  display: flex;
-  gap: 2px;
+/* A preview tile's tab: italic until it is pinned (double-click, typing, dragging, Keep open). */
+.lm_header .lm_tab.tile-preview .lm_title {
+  font-style: italic;
 }
 
-.tile-header .buttons button {
-  padding: 0 6px;
-  border: none;
-  background: none;
-  color: var(--muted);
+.lm_splitter {
+  background: var(--border);
+  opacity: 1;
 }
 
-.tile-header .buttons button:hover {
-  color: var(--text);
+.lm_splitter:hover,
+.lm_splitter.lm_dragging {
+  background: var(--accent);
+}
+
+.lm_dropTargetIndicator {
+  outline: 1px dashed var(--accent);
+  box-shadow: none;
+}
+
+.lm_dropTargetIndicator .lm_inner {
+  background: var(--accent);
+  opacity: 0.15;
+}
+
+/* Golden Layout only starts a drag on the registered row itself, not on its children. */
+.row.pane > *,
+.row.file-drag > * {
+  pointer-events: none;
 }
 
 .tile-body {
   position: relative;
-  min-width: 0;
-  min-height: 0;
+  width: 100%;
+  height: 100%;
   background: var(--term-bg);
   overflow: hidden;
 }
@@ -335,6 +862,16 @@ button:hover {
 .term {
   position: absolute;
   inset: 4px;
+}
+
+/* A file tile's viewer (viewer.js): CodeMirror fills it and scrolls inside. */
+.file-view {
+  position: absolute;
+  inset: 0;
+}
+
+.file-view .cm-editor {
+  height: 100%;
 }
 
 .overlay {
@@ -396,8 +933,269 @@ button:hover {
 
 .toast {
   max-width: 420px;
+  white-space: pre-line;
   padding: 8px 12px;
   background: var(--panel-2);
-  border: 1px solid var(--danger);
+  border: 1px solid var(--border);
   border-radius: 6px;
+}
+
+.toast.error {
+  border-color: var(--danger);
+}
+
+.toast-action {
+  margin-left: 8px;
+  padding: 1px 10px;
+}
+
+/* Safe mode (/safe/, the last-good snapshot) */
+
+.safe-banner {
+  position: fixed;
+  top: 6px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 30;
+  padding: 4px 12px;
+  background: var(--panel-2);
+  border: 1px solid var(--blocked);
+  border-radius: 999px;
+  color: var(--blocked);
+  font-size: 12px;
+}
+
+.safe-banner-link {
+  color: var(--accent);
+  margin-left: 6px;
+}
+
+/* Directory trees: a project's Files node, and the folder picker. */
+.row.tree-row,
+.row.project {
+  cursor: pointer;
+}
+
+.row.tree-row:hover,
+.row.project:hover {
+  --row-bg: var(--panel-2);
+  background: var(--row-bg);
+}
+
+.row.tree-row:focus {
+  outline: none;
+}
+
+.row.tree-row:focus-visible {
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+/* A file row keeps a chevron's width, so names line up with folders'. */
+.row.tree-row:not([aria-expanded]) > .label > .chevron::before,
+.row.new-entry > .label > .chevron::before {
+  content: '';
+}
+
+/* Dotfiles, and links that lead nowhere. */
+.row[data-dim] > .label {
+  color: var(--muted);
+  opacity: 0.75;
+}
+
+.link-mark {
+  margin-left: 4px;
+  color: var(--muted);
+}
+
+.row.tree-note {
+  color: var(--muted);
+  font-style: italic;
+}
+
+.row.tree-note[data-note='error'] {
+  color: var(--danger);
+}
+
+/* The inline name row of New file… / New folder…, its error (an existing name) under it. */
+.row.new-entry {
+  grid-template-columns: 1fr;
+}
+
+.row.new-entry .label {
+  display: flex;
+  align-items: center;
+}
+
+.new-entry-input {
+  flex: 1;
+  min-width: 0;
+  font: inherit;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--accent);
+  border-radius: 3px;
+  padding: 1px 4px;
+  outline: none;
+}
+
+.new-entry-error {
+  padding-left: 14px;
+  color: var(--danger);
+  white-space: normal;
+}
+
+.row.tree-note .label {
+  padding-left: 14px;
+}
+
+dialog.dialog {
+  padding: 0;
+  color: var(--text);
+}
+
+dialog.dialog::backdrop {
+  background: rgb(0 0 0 / 0.45);
+}
+
+.dialog.picker {
+  grid-template-rows: auto 1fr auto;
+  width: min(640px, calc(100vw - 32px));
+  height: min(560px, calc(100vh - 32px));
+}
+
+.dialog.picker:not([open]) {
+  display: none;
+}
+
+.picker-body {
+  display: grid;
+  grid-template-rows: auto 1fr;
+  gap: 8px;
+  min-height: 0;
+  padding: 10px 12px;
+}
+
+.picker-path {
+  width: 100%;
+  padding: 6px 8px;
+  font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: var(--text);
+  background: var(--term-bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+
+.picker-path:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.picker-tree {
+  min-height: 0;
+  overflow: auto;
+  padding: 4px 0;
+  background: var(--term-bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+
+.picker-tree .row {
+  --row-bg: var(--term-bg);
+}
+
+.row.picker-up {
+  color: var(--muted);
+}
+
+.row[data-selected] {
+  --row-bg: color-mix(in srgb, var(--accent) 18%, var(--term-bg));
+  background: var(--row-bg);
+}
+
+.project-mark {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  vertical-align: middle;
+  color: var(--accent);
+}
+
+.row .project-mark {
+  margin-left: 6px;
+}
+
+.project-mark svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.3;
+  stroke-linejoin: round;
+}
+
+.picker-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.dialog-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 12px;
+  border-top: 1px solid var(--border);
+}
+
+button.primary {
+  padding: 4px 12px;
+  color: #0d0f14;
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+button.primary:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+/* New note… */
+.dialog.new-note {
+  grid-template-rows: auto auto auto;
+  width: min(480px, calc(100vw - 32px));
+  height: fit-content;
+}
+
+.dialog.new-note:not([open]) {
+  display: none;
+}
+
+.new-note-body {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+}
+
+.new-note-body label {
+  display: grid;
+  gap: 4px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.new-note-project {
+  padding: 4px 6px;
+  font: inherit;
+  color: var(--text);
+  background: var(--term-bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+
+.new-note-error {
+  color: var(--danger);
 }

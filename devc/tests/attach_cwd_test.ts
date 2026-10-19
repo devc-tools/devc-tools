@@ -89,16 +89,28 @@ const info = {
   containerId: 'abc123',
   remoteUser: 'vscode',
   remoteWorkspaceFolder: '/workspaces/devc-dev',
+  remoteEnv: { TZ: 'Europe/Paris', TERM: 'from-remote-env' },
 };
 
-Deno.test('attachExecArgs defaults -w to the container workspace folder', () => {
+const hostEnv = (env: Record<string, string>) => (k: string) => env[k];
+
+Deno.test('attachExecArgs: a plain attach is an interactive login shell in the workspace folder', () => {
   assertEquals(
-    attachExecArgs(info, ['-e', 'TERM=xterm'], ['/bin/bash', '-l']),
+    attachExecArgs(
+      { ...info, remoteEnv: { TZ: 'Europe/Paris' } },
+      {},
+      hostEnv({ TERM: 'xterm' }),
+    ),
     [
       'exec',
-      '-it',
+      '-i',
+      '-t',
       '-e',
       'TERM=xterm',
+      '-e',
+      'TZ=Europe/Paris',
+      '-e',
+      'DEVC_ATTACH=1',
       '-u',
       'vscode',
       '-w',
@@ -110,23 +122,43 @@ Deno.test('attachExecArgs defaults -w to the container workspace folder', () => 
   );
 });
 
-Deno.test('attachExecArgs uses cwd for -w when given', () => {
+Deno.test('attachExecArgs: remoteEnv beats the host TERM; TMUX and the watch id ride above it', () => {
   const args = attachExecArgs(
     info,
-    [],
-    ['/bin/bash', '-lc', 'exec claude'],
-    '/workspaces/tools/devc-tools.worktrees/feature-x',
+    { herdr: { mode: 'watch', watchId: 'w1' } },
+    hostEnv({ TERM: 'tmux-256color', TMUX: '/tmp/tmux-1/default,1,0' }),
+  );
+  const e = args.flatMap((a, i) => a === '-e' ? [args[i + 1]] : []);
+  assertEquals(e.includes('TERM=from-remote-env'), true);
+  assertEquals(e.includes('TERM=tmux-256color'), false);
+  assertEquals(e.includes('TMUX=/tmp/tmux-1/default,1,0'), true);
+  assertEquals(e.some((v) => v.endsWith('=w1')), true);
+});
+
+Deno.test('attachExecArgs uses cwd for -w, and a command runs in a login shell', () => {
+  const args = attachExecArgs(
+    info,
+    {
+      command: 'claude',
+      commandArgs: ['--resume'],
+      noClear: true,
+      cwd: '/workspaces/tools/devc-tools.worktrees/feature-x',
+    },
+    hostEnv({}),
   );
   assertEquals(
     args.slice(args.indexOf('-w'), args.indexOf('-w') + 2),
     ['-w', '/workspaces/tools/devc-tools.worktrees/feature-x'],
   );
-  // The shell args stay last, after the container id.
-  assertEquals(args.slice(-4), [
+  // A command gets no DEVC_ATTACH, and the shell args stay last, after the container id.
+  assertEquals(args.includes('DEVC_ATTACH=1'), false);
+  assertEquals(args.slice(-6), [
     'abc123',
     '/bin/bash',
     '-lc',
-    'exec claude',
+    'exec "$0" "$@"',
+    'claude',
+    '--resume',
   ]);
 });
 

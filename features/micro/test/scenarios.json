@@ -1,0 +1,10 @@
+{
+  "pinned_version": {
+    "image": "mcr.microsoft.com/devcontainers/base:ubuntu",
+    "features": {
+      "micro": {
+        "version": "2.0.15"
+      }
+    }
+  }
+}
