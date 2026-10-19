@@ -1,5 +1,6 @@
 import { assert, assertEquals } from 'jsr:@std/assert';
 import {
+  groupTasks,
   parseTasks,
   savedTaskAgent,
   sentTaskTooltip,
@@ -91,4 +92,43 @@ Deno.test('sentTaskTooltip names the action, agent and folder', () => {
       .split('\n')[2],
     'Implement · Pi · garbage',
   );
+});
+
+Deno.test('groupTasks: no tasks, no groups', () => {
+  assertEquals(groupTasks([]), []);
+});
+
+Deno.test('groupTasks groups by route, in order of first task, unrouted last', () => {
+  const at = (id: string, localFolder?: string, root?: string) => ({
+    id,
+    text: id,
+    createdAt: '2026-10-19T10:00:00.000Z',
+    ...(localFolder && root ? { localFolder, root } : {}),
+  });
+  const a = at('a', '/src/app', '/src/app');
+  const b = at('b');
+  const c = at('c', '/src/app', '/src/lib');
+  const d = at('d', '/src/app', '/src/app');
+  assertEquals(groupTasks([a, b, c, d]), [
+    {
+      key: '/src/app\n/src/app',
+      localFolder: '/src/app',
+      root: '/src/app',
+      tasks: [a, d],
+    },
+    {
+      key: '/src/app\n/src/lib',
+      localFolder: '/src/app',
+      root: '/src/lib',
+      tasks: [c],
+    },
+    { key: '', tasks: [b] },
+  ]);
+  assertEquals(groupTasks([b, at('e')]), [{ key: '', tasks: [b, at('e')] }]);
+  const x = at('x', '/one/app', '/one/app');
+  const y = at('y', '/two/app', '/two/app');
+  assertEquals(groupTasks([x, y]).map((g) => g.key), [
+    '/one/app\n/one/app',
+    '/two/app\n/two/app',
+  ]);
 });

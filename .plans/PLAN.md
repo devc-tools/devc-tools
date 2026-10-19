@@ -136,6 +136,7 @@
   (`project` / `project · repo`, with a count), in the order of each route's first task, and a
   last `not routed` node. Task rows move under them without their dimmed route. A routed node
   offers **New task here…**. Closed nodes are kept as `taskGroupsClosed`. Sent is unchanged.
+  **Implemented; the user's look in their tab outstanding.**
 
 ### Standing rules for Feature work
 
@@ -2309,4 +2310,4 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
 | `devc web` task actions — new task from a folder, send/delete icons on task rows, dialog focus ring                | [devc-web-tasks-actions](devc-web-tasks-actions.md)                                | in progress |
 | `devc web` worktree git marks — local fetch timeout, per-folder broadcast, `?` with the reason                     | [devc-web-worktree-git-marks](devc-web-worktree-git-marks.md)                      | in progress |
 | `devc web` empty Pinned hidden; task dialog: Save primary, send icons in header                                    | [devc-web-pinned-hide-save-primary](devc-web-pinned-hide-save-primary.md)          | in progress |
-| `devc web` grouped tasks — one collapsible node per project + repo route, `not routed` last                        | [devc-web-tasks-grouped](devc-web-tasks-grouped.md)                                |             |
+| `devc web` grouped tasks — one collapsible node per project + repo route, `not routed` last                        | [devc-web-tasks-grouped](devc-web-tasks-grouped.md)                                | in progress |

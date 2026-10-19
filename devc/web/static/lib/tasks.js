@@ -102,6 +102,36 @@ export function taskTitle(text) {
 }
 
 /**
+ * Tasks grouped by route, for the Tasks section's nodes: one group per project and repo, in the
+ * order of each route's first task, then the unrouted ones (key `''`). Each group keeps the
+ * tasks' order; no group is empty.
+ *
+ * @param {Task[]} tasks in creation order
+ * @returns {{key: string, localFolder?: string, root?: string, tasks: Task[]}[]}
+ */
+export function groupTasks(tasks) {
+  /** @type {Map<string, {key: string, localFolder?: string, root?: string, tasks: Task[]}>} */
+  const groups = new Map();
+  /** @type {Task[]} */
+  const unrouted = [];
+  for (const task of tasks) {
+    const { localFolder, root } = task;
+    if (localFolder === undefined || root === undefined) {
+      unrouted.push(task);
+      continue;
+    }
+    // Paths never hold a newline, so no two routes share a key.
+    const key = `${localFolder}\n${root}`;
+    let group = groups.get(key);
+    if (!group) groups.set(key, group = { key, localFolder, root, tasks: [] });
+    group.tasks.push(task);
+  }
+  const out = [...groups.values()];
+  if (unrouted.length) out.push({ key: '', tasks: unrouted });
+  return out;
+}
+
+/**
  * The agent the task dialog starts on: the one saved from the last send, else Claude.
  *
  * @param {string | null} saved

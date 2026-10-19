@@ -69,6 +69,7 @@ import {
   parsePinnedFiles,
 } from './lib/pinned_files.js';
 import {
+  groupTasks,
   parseTasks,
   savedTaskAgent,
   sentTaskTooltip,
@@ -868,6 +869,12 @@ function loadSidebarState() {
     layoutOpen: saved?.layoutOpen !== false,
     pinnedOpen: saved?.pinnedOpen !== false,
     tasksOpen: saved?.tasksOpen !== false,
+    /** Task groups (by `groupTasks` key) that are collapsed; new ones start open. */
+    taskGroupsClosed: new Set(
+      Array.isArray(saved?.taskGroupsClosed)
+        ? saved.taskGroupsClosed.filter((f) => typeof f === 'string')
+        : [],
+    ),
     sentOpen: saved?.sentOpen === true,
     width: Number.isFinite(saved?.width) ? saved.width : SIDEBAR_DEFAULT_WIDTH,
     hidden: saved?.hidden === true,
@@ -901,6 +908,7 @@ function saveSidebarState() {
         layoutOpen: sidebarState.layoutOpen,
         pinnedOpen: sidebarState.pinnedOpen,
         tasksOpen: sidebarState.tasksOpen,
+        taskGroupsClosed: [...sidebarState.taskGroupsClosed],
         sentOpen: sidebarState.sentOpen,
         width: sidebarState.width,
         hidden: sidebarState.hidden,
@@ -943,6 +951,15 @@ function togglePinnedSection() {
 
 function toggleTasksSection() {
   sidebarState.tasksOpen = !sidebarState.tasksOpen;
+  saveSidebarState();
+  renderTree();
+}
+
+/** Opens or closes a task group (by its `groupTasks` key). */
+function toggleTaskGroup(key) {
+  if (!sidebarState.taskGroupsClosed.delete(key)) {
+    sidebarState.taskGroupsClosed.add(key);
+  }
   saveSidebarState();
   renderTree();
 }
@@ -2797,8 +2814,9 @@ async function submitNewNote() {
 
 /**
  * The Tasks section: to-dos kept by the server (`~/.config/devc/tasks.json`), each routed to a
- * project's repo or not yet. Sending one starts an agent on it there and moves it under Sent,
- * which reopens that agent's session. Agents never write to the list.
+ * project's repo or not yet, grouped under a node per route (the unrouted ones last). Sending one
+ * starts an agent on it there and moves it under Sent, which reopens that agent's session.
+ * Agents never write to the list.
  */
 function taskRows() {
   const rows = [
@@ -2818,7 +2836,12 @@ function taskRows() {
   if (tasks.length === 0) {
     rows.push(h('div', { class: 'empty' }, LABELS.noTasks));
   }
-  for (const task of tasks) rows.push(taskRow(task));
+  for (const group of groupTasks(tasks)) {
+    rows.push(taskGroupRow(group));
+    if (!sidebarState.taskGroupsClosed.has(group.key)) {
+      for (const task of group.tasks) rows.push(taskRow(task));
+    }
+  }
   if (sentTasks.length === 0) return rows;
   rows.push(h(
     'div',
@@ -2852,8 +2875,49 @@ function taskProjectLabel(localFolder, root) {
 }
 
 /**
- * A task's row: a click edits it. Its hover buttons send it (to the agent the dialog last sent
- * to) when it is routed, and delete it.
+ * A task group's node: its route (or `not routed`) and how many tasks it holds. A click opens or
+ * closes it; a routed one offers a new task routed there.
+ *
+ * @param {ReturnType<typeof groupTasks>[number]} group
+ */
+function taskGroupRow(group) {
+  const { key, localFolder, root } = group;
+  const route = localFolder === undefined || root === undefined
+    ? null
+    : { localFolder, root };
+  return h(
+    'div',
+    {
+      class: 'row task-group',
+      style: '--depth: 1',
+      'data-task-group': key,
+      'aria-expanded': String(!sidebarState.taskGroupsClosed.has(key)),
+      title: route?.root,
+      onclick: () => toggleTaskGroup(key),
+      oncontextmenu: route
+        ? (e) => openMenu(e, [[LABELS.newTaskHere, () => newTaskIn(route)]])
+        : undefined,
+    },
+    h(
+      'span',
+      { class: 'label' },
+      chevron(),
+      taskProjectLabel(localFolder, root),
+    ),
+    rowTrail(
+      h('span', { class: 'pane-title' }, String(group.tasks.length)),
+      route
+        ? hoverActions(
+          iconButton('task', LABELS.newTaskHere, () => newTaskIn(route)),
+        )
+        : '',
+    ),
+  );
+}
+
+/**
+ * A task's row, under its group: a click edits it. Its hover buttons send it (to the agent the
+ * dialog last sent to) when it is routed, and delete it.
  *
  * @param {import('./lib/tasks.js').Task} task
  */
@@ -2863,7 +2927,7 @@ function taskRow(task) {
     'div',
     {
       class: 'row task',
-      style: '--depth: 1',
+      style: '--depth: 2',
       'data-task': task.id,
       title: `${task.text}\n\nClick to edit`,
       onclick: () => openTaskDialog(task),
@@ -2872,11 +2936,6 @@ function taskRow(task) {
       'span',
       { class: 'label' },
       taskTitle(task.text),
-      h(
-        'span',
-        { class: 'pane-title' },
-        taskProjectLabel(task.localFolder, task.root),
-      ),
     ),
     rowTrail(
       hoverActions(

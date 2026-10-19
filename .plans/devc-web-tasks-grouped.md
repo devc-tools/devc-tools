@@ -103,36 +103,36 @@ or protocol change.
 
 ## Checklist
 
-- [ ] `lib/tasks.js`: `groupTasks`
-- [ ] `app.js`: `taskGroupsClosed` in the sidebar state (load and save) and a toggle function
-- [ ] `app.js`: `taskRows()` renders a group row per `groupTasks(tasks)` group, then its task
+- [x] `lib/tasks.js`: `groupTasks`
+- [x] `app.js`: `taskGroupsClosed` in the sidebar state (load and save) and a toggle function
+- [x] `app.js`: `taskRows()` renders a group row per `groupTasks(tasks)` group, then its task
       rows when open; the group row's hover button and context menu for routed groups
-- [ ] `app.js`: `taskRow` at `--depth: 2` without the dimmed route; update the doc comments of
+- [x] `app.js`: `taskRow` at `--depth: 2` without the dimmed route; update the doc comments of
       `taskRows` / `taskRow`
-- [ ] `tests/web_tasks_page_test.ts`: `groupTasks` cases
-- [ ] `devc/README.md`: the **Tasks** bullet says tasks are grouped under a node per project and
+- [x] `tests/web_tasks_page_test.ts`: `groupTasks` cases
+- [x] `devc/README.md`: the **Tasks** bullet says tasks are grouped under a node per project and
       repo (unrouted ones under **not routed**), and that a node's **New task here…** opens the
       dialog routed there
-- [ ] `.plans/devc-web-tasks.md` `### Page`: the **Task rows** bullet points to this plan for the
+- [x] `.plans/devc-web-tasks.md` `### Page`: the **Task rows** bullet points to this plan for the
       grouping
 
 ## Validation
 
-- [ ] `cd devc && deno task check && deno task test` pass. One failure is known and unrelated:
+- [x] `cd devc && deno task check && deno task test` pass. One failure is known and unrelated:
       `docker_exec_single_path_test.ts` fails when a git-ignored `devc-core/dist/` exists (see
       devc-web-tasks' Verification). If it fails, move `devc-core/dist/` aside (don't delete
       it: devc-desktop's build may use it), rerun, and put it back.
-- [ ] `deno fmt --check devc/web/static/app.js devc/web/static/lib/tasks.js
+- [x] `deno fmt --check devc/web/static/app.js devc/web/static/lib/tasks.js
       devc/tests/web_tasks_page_test.ts devc/README.md .plans/devc-web-tasks-grouped.md
       .plans/devc-web-tasks.md` passes
-- [ ] Unit tests (`web_tasks_page_test.ts`) for `groupTasks`:
+- [x] Unit tests (`web_tasks_page_test.ts`) for `groupTasks`:
   - `[]` → `[]`;
   - tasks `a` (`/src/app` + `/src/app`), `b` unrouted, `c` (`/src/app` + `/src/lib`), `d`
     (`/src/app` + `/src/app`) → keys `"/src/app\n/src/app"` (`a`, `d`), `"/src/app\n/src/lib"`
     (`c`), `''` (`b`), in that order;
   - only unrouted tasks → one group with key `''`;
   - two projects whose `root`s share a basename stay two groups.
-- [ ] Headless Chromium (Playwright, installed in a scratch folder for the run) against
+- [x] Headless Chromium (Playwright, installed in a scratch folder for the run) against
       `devc/web/static`, with a fake WebSocket as in devc-web-tasks' Verification. One project
       `/src/app` with repos `/src/app` and `/src/lib`, container `connected`. Tasks, in order:
       `A` (`/src/app` + `/src/app`), `B` unrouted, `C` (`/src/app` + `/src/lib`), `D`
@@ -151,6 +151,20 @@ or protocol change.
   - with `tasks: []` the section shows `No tasks` and no `.row.task-group`;
   - no page errors.
 - [ ] Ask the user to look at the grouped Tasks section in their tab.
+
+## Verification (2026-10-19)
+
+- `deno task check` passes. `deno task test`: 486 passed, 0 failed (no `devc-core/dist/` was
+  present). `deno fmt --check` passes for every touched file.
+- Headless Chromium (Playwright, chromium 1148) against `devc/web/static`, with a fake
+  WebSocket and the tasks `A`–`D` above plus one sent entry: the nodes read `app` (2),
+  `app · lib` (1), `not routed` (1), each followed by its tasks, then `Sent (1)`; task rows at
+  `--depth: 2` with no `.pane-title`; the `app · lib` node closed by a click stays closed after
+  a reload while the others stay open; its **New task here…** button opens `New task` on
+  `/src/app` + `/src/lib`, and its menu is exactly `New task here…`; the `not routed` node has
+  no hover button and no devc menu; a click on a node opens no dialog; a row's `implement`
+  sends one `send_task` with its route; `tasks: []` shows only `No tasks`. No page errors.
+- **Not verified — needs the user:** the grouped section in their tab.
 
 ## Relevant Files
 

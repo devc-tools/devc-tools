@@ -143,7 +143,9 @@ applies the change and writes it (as `changePinnedFiles` does).
 - **Tasks section** between Pinned and Layout. It is collapsible: `tasksOpen` in `SIDEBAR_KEY`
   state, default open. The header's **+** (and its context menu) opens **New task…**. With no
   tasks, the empty row reads `No tasks`.
-- **Task rows** show the title and, dimmed, the project's label or `not routed`. The tooltip is
+- **Task rows** show the title and, dimmed, the project's label or `not routed`. They are now
+  grouped under a node per project and repo, and that label moved to the node: see
+  [devc-web-tasks-grouped](devc-web-tasks-grouped.md). The tooltip is
   the whole text. A click opens the task dialog. Hover icons (send, delete) replaced the
   `Edit…` / `Delete…` menu: see [devc-web-tasks-actions](devc-web-tasks-actions.md).
 - **Sent** row (under the task rows, collapsible, `sentOpen`, default closed): `Sent (n)`.

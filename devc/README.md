@@ -365,7 +365,9 @@ is published from any container: the host server finds devcontainers with
   its session id. The task then moves under **Sent**: clicking it shows that
   terminal while it is still open, or resumes the session in a new one
   (`claude --resume <id>`, `copilot --resume <id>`, `pi --session-id <id>`).
-  Clicking a task edits it. Its hover icons send a routed task for a plan or
+  Tasks are grouped under a node per project and repo (ones with no project
+  under **not routed**, last); a node's **New task here…** opens the dialog
+  routed there. Clicking a task edits it. Its hover icons send a routed task for a plan or
   to implement, to the agent last chosen in the dialog, and the trash can
   deletes it.
   A sent task's menu has **Back to tasks** and **Remove**. Sending is
