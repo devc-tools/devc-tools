@@ -40,16 +40,16 @@
   and places it in the layout. A host folder tree (`list_host_dir`, same tree
   component) opening on the configured `codeRoots` replaces the "Add project…" prompt.
 
-- [devc-desktop-host-terminal](devc-desktop-host-terminal.md) — **No-go for the single-window
-  drawer (Step 0, G3 failed).** In Chromium 149 under `deno desktop`, a sandboxed cross-origin
-  iframe (devc web) took keyboard focus from a host-terminal drawer in its embedding page with a
-  plain `window.focus()`. It received every keystroke typed there, with no user activation, and
-  `inert`, an overlay, the `focus-without-user-activation` policy and same-site serving did not
-  stop it. Containment otherwise held (G1, G2, G7). **Electron 44.5.0 passed the same probe**:
-  two `WebContentsView`s in one `BaseWindow` (devc web sandboxed in its own partition, the
-  host pane with a preload), and 0 of 20 keystrokes leaked under every focus attack;
-  `disableDialogs` and a permission handler close `alert()` and fullscreen. Next: rewrite this
-  plan as an Electron port of devc-desktop, or build the **Open iTerm at Project ▸** fallback.
+- [devc-desktop-electron](devc-desktop-electron.md) — devc-desktop moves from `deno desktop`
+  to Electron so one window can hold a **host terminal** devc web cannot reach: a `BaseWindow`
+  with a devc view (sandboxed, own persistent partition, no preload, no dialogs, no windows,
+  navigation pinned to devc web's origin, permissions limited to clipboard write), a status view,
+  and a host view that slides up (Cmd+J) running `node-pty` over checked IPC, loaded from the
+  bundle with no loopback listener. Config, finding `devc`, restart and quit carry over. Step 1
+  replaces devc web's `confirm()`/`prompt()` with in-page dialogs. Step 0 measures `node-pty`,
+  real devc web in the locked-down view, and re-runs the focus attacks; the macOS app is built
+  on the Mac. Why: [devc-desktop-host-terminal](archived/devc-desktop-host-terminal.md) (the
+  `deno desktop` drawer failed isolation; Electron passed).
 
 - [devc-web-golden-layout](devc-web-golden-layout.md) — replace `devc web`'s hand-written
   split-tree tiling with vendored Golden Layout 2.6.0 (bundled to one ES module): drag sidebar

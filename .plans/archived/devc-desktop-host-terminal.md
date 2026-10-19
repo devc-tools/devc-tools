@@ -1,5 +1,8 @@
 # devc-desktop-host-terminal
 
+> **Superseded by [devc-desktop-electron](../devc-desktop-electron.md)** (2026-10-19). Kept for its
+> measurements and threat model, which that plan relies on.
+
 > **No-go (2026-10-18): G3 failed.** A cross-origin, sandboxed iframe in the shell page took
 > keyboard focus from the drawer with a plain `window.focus()` and received every real
 > keystroke typed there, with no user activation, through `inert` and an overlay, same-site or
@@ -87,7 +90,7 @@ touch.
 
 ## Step 0: isolation gate (do first, record answers here)
 
-Use throwaway probe apps (as in the [devc-desktop](archived/devc-desktop.md) spike): a shell page
+Use throwaway probe apps (as in the [devc-desktop](devc-desktop.md) spike): a shell page
 with a sandboxed cross-origin iframe running an **attack page**, and xterm.js in the shell. Run
 them on Linux under Xvfb, then on macOS. Every check must pass.
 
