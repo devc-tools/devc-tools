@@ -5,6 +5,7 @@ import {
   projectRefusal,
   repoFileFor,
 } from '../web/projects_view.ts';
+import type { GitReading } from '../web/git_status.ts';
 
 Deno.test('buildProjects merges the list with running and stopped containers', () => {
   const views = buildProjects(
@@ -76,13 +77,25 @@ Deno.test("buildProjects lists each project's repos with their git state", () =>
       { folder: '/src/api', worktreeOf: null },
       { folder: '/tools/lib', worktreeOf: null },
       { folder: '/tools/lib.worktrees/x', worktreeOf: '/tools/lib' },
+      { folder: '/tools/lib.worktrees/y', worktreeOf: '/tools/lib' },
     ]]]),
-    new Map([['/src/api', git], ['/tools/lib', null]]),
+    new Map<string, GitReading>([
+      ['/src/api', git],
+      ['/tools/lib', null],
+      ['/tools/lib.worktrees/y', { problem: 'git fetch: timed out' }],
+    ]),
   );
   assertEquals(api.repos, [
     { folder: '/src/api', worktreeOf: null, name: 'api', git },
     { folder: '/tools/lib', worktreeOf: null, name: 'lib', git: null },
     { folder: '/tools/lib.worktrees/x', worktreeOf: '/tools/lib', name: 'x' },
+    {
+      folder: '/tools/lib.worktrees/y',
+      worktreeOf: '/tools/lib',
+      name: 'y',
+      git: null,
+      gitProblem: 'git fetch: timed out',
+    },
   ]);
   // No container mounts known: just the folder itself, not read yet.
   assertEquals(blog.repos, [

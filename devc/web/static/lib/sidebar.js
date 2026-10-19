@@ -104,11 +104,19 @@ export function labelText({ name, title }) {
  * A folder's push/pull marks from its `git` field (see the `projects` message): `ahead` (↑N,
  * to push), `behind` (↓N, to pull) or `gone` (the upstream was deleted), with a tooltip naming
  * the branch. A branch level with its upstream gets a quiet `synced` mark (✓), and one with no
- * upstream a `local` mark (•). `null` only when there is no repo (or a detached HEAD, or no
- * status read yet).
+ * upstream a `local` mark (•). With no `git` but a `problem` (its `gitProblem`: a detached HEAD,
+ * a timed-out or failed git call), a quiet `unknown` mark (?) whose tooltip gives the reason.
+ * `null` only when there is no repo, or no status read yet.
  */
-export function gitSync(git) {
-  if (!git) return null;
+export function gitSync(git, problem) {
+  if (!git) {
+    if (!problem) return null;
+    return {
+      marks: [{ dir: 'unknown', text: '?' }],
+      diverged: false,
+      title: `git status unavailable: ${problem}`,
+    };
+  }
   if (!git.upstream) {
     return {
       marks: [{ dir: 'local', text: '•' }],
@@ -141,29 +149,35 @@ export function gitSync(git) {
   };
 }
 
-/** Mark `dir`s that mean "nothing to push or pull". */
-const QUIET_DIRS = ['synced', 'local'];
+/** Mark `dir`s that mean "nothing to push or pull" (or nothing known). */
+const QUIET_DIRS = ['synced', 'local', 'unknown'];
 
 /**
  * One mark for several repos (a collapsed container's, say). When any repo has something to
  * push or pull (or a deleted upstream): their ↑ and ↓ counts summed, with every such repo listed
  * in the tooltip. Otherwise a quiet ✓ listing every repo's own tooltip, or • when no repo has
- * an upstream. `null` when none of `repos` is a repo.
+ * an upstream, or ? when no repo's status could be read. `null` when none of `repos` is a repo.
  */
 export function gitRollup(repos) {
-  const all = [...repos].map((r) => ({ name: r.name, sync: gitSync(r.git) }))
+  const all = [...repos].map((r) => ({
+    name: r.name,
+    sync: gitSync(r.git, r.gitProblem),
+  }))
     .filter((r) => r.sync);
   if (all.length === 0) return null;
   const busy = all.filter((r) =>
     r.sync.marks.some((m) => !QUIET_DIRS.includes(m.dir))
   );
   if (busy.length === 0) {
-    const anySynced = all.some((r) =>
-      r.sync.marks.some((m) => m.dir === 'synced')
-    );
+    const any = (dir) =>
+      all.some((r) => r.sync.marks.some((m) => m.dir === dir));
     return {
       marks: [
-        anySynced ? { dir: 'synced', text: '✓' } : { dir: 'local', text: '•' },
+        any('synced')
+          ? { dir: 'synced', text: '✓' }
+          : any('local')
+          ? { dir: 'local', text: '•' }
+          : { dir: 'unknown', text: '?' },
       ],
       diverged: false,
       title: all.map((r) => `${r.name}: ${r.sync.title}`).join('\n'),

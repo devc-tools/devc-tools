@@ -190,6 +190,16 @@ Deno.test('gitSync shows commits to push and pull, a quiet mark when in sync', (
   });
   assertEquals(gitSync(null), null);
   assertEquals(gitSync(undefined), null);
+  assertEquals(gitSync(undefined, ''), null);
+  assertEquals(gitSync(null, 'detached HEAD'), {
+    marks: [{ dir: 'unknown', text: '?' }],
+    diverged: false,
+    title: 'git status unavailable: detached HEAD',
+  });
+  // A status wins over a stale problem.
+  assertEquals(gitSync(git, 'detached HEAD')?.marks, [
+    { dir: 'synced', text: '✓' },
+  ]);
   assertEquals(gitSync({ ...git, ahead: 2 }), {
     marks: [{ dir: 'ahead', text: '↑2' }],
     diverged: false,
@@ -268,6 +278,28 @@ Deno.test('gitRollup shows a quiet ✓ (or • when no repo has an upstream) whe
   ]);
   assertEquals(mixed?.marks, [{ dir: 'ahead', text: '↑2' }]);
   assertEquals(mixed?.title.split('\n').map((l) => l.split(':')[0]), ['b']);
+});
+
+Deno.test('gitRollup counts a repo whose status is unreadable as quiet, ? when all are', () => {
+  const git = (upstream: string | null, ahead = 0) => ({
+    branch: 'main',
+    upstream,
+    ahead,
+    behind: 0,
+    gone: false,
+  });
+  const unknown = { name: 'u', git: null, gitProblem: 'git fetch: timed out' };
+  assertEquals(
+    gitRollup([unknown, { name: 'l', git: git(null) }])?.marks,
+    [{ dir: 'local', text: '•' }],
+  );
+  const only = gitRollup([unknown]);
+  assertEquals(only?.marks, [{ dir: 'unknown', text: '?' }]);
+  assertEquals(only?.title, 'u: git status unavailable: git fetch: timed out');
+  assertEquals(
+    gitRollup([unknown, { name: 'a', git: git('origin/main', 2) }])?.marks,
+    [{ dir: 'ahead', text: '↑2' }],
+  );
 });
 
 Deno.test('statusShort gives every status four letters, unknown for the rest', () => {

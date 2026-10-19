@@ -1,9 +1,11 @@
 import { assertEquals } from 'jsr:@std/assert';
 import {
   fetchUpstream,
+  type GitReading,
   type GitStatus,
   GitStatusWatch,
   type MirrorOpts,
+  readGitState,
   readGitStatus,
 } from '../web/git_status.ts';
 
@@ -104,6 +106,46 @@ Deno.test('readGitStatus: no repo, a gone upstream, and a refused remote', async
   }
 });
 
+Deno.test('readGitState says why a repo has no status: a timeout, a detached HEAD, a failed fetch', async () => {
+  const dir = await Deno.makeTempDir();
+  try {
+    const opts: MirrorOpts = { root: `${dir}/mirrors` };
+    assertEquals(await readGitState(dir, opts), null);
+    const work = `${dir}/work`;
+    await git(dir, 'init', '-q', '-b', 'main', work);
+    await git(work, 'commit', '-q', '--allow-empty', '-m', 'one');
+    await git(work, 'remote', 'add', 'origin', `${dir}/remote.git`);
+    await git(work, 'config', 'branch.main.remote', 'origin');
+    await git(work, 'config', 'branch.main.merge', 'refs/heads/main');
+    // Killed by its timeout, and not retried without the remote-tracking ref.
+    assertEquals(
+      await readGitState(work, { ...opts, localFetchTimeoutMs: 1 }),
+      { problem: 'git fetch: timed out' },
+    );
+    assertEquals(counts(await readGitStatus(work, opts))?.[0], 'main');
+
+    // A branch HEAD names but the repo lacks: git's own error line.
+    await git(work, 'symbolic-ref', 'HEAD', 'refs/heads/ghost');
+    await git(work, 'config', 'branch.ghost.remote', 'origin');
+    await git(work, 'config', 'branch.ghost.merge', 'refs/heads/ghost');
+    const failed = await readGitState(work, opts);
+    assertEquals(
+      failed !== null && 'problem' in failed &&
+        failed.problem.startsWith('git fetch: ') &&
+        failed.problem.length > 'git fetch: '.length &&
+        !failed.problem.endsWith('timed out'),
+      true,
+      JSON.stringify(failed),
+    );
+    assertEquals(await readGitStatus(work, opts), null);
+
+    await git(work, 'checkout', '-q', '--detach', 'main');
+    assertEquals(await readGitState(work, opts), { problem: 'detached HEAD' });
+  } finally {
+    await Deno.remove(dir, { recursive: true });
+  }
+});
+
 Deno.test("readGitStatus never runs the repo's hooks or fsmonitor", async () => {
   const dir = await Deno.makeTempDir();
   try {
@@ -139,7 +181,7 @@ Deno.test("readGitStatus never runs the repo's hooks or fsmonitor", async () => 
 
 Deno.test('GitStatusWatch reports only changes, and drops folders no longer listed', async () => {
   let folders = ['/a', '/b'];
-  const statuses: Record<string, GitStatus | null> = {
+  const statuses: Record<string, GitReading> = {
     '/a': {
       branch: 'main',
       upstream: 'origin/main',
@@ -155,17 +197,30 @@ Deno.test('GitStatusWatch reports only changes, and drops folders no longer list
     onChange: () => changes++,
     read: (f) => Promise.resolve(statuses[f] ?? null),
   });
+  // One call per folder read for the first time.
   await watch.refresh();
-  assertEquals(changes, 1);
+  assertEquals(changes, 2);
   assertEquals(watch.statuses.get('/b'), null);
   await watch.refresh();
-  assertEquals(changes, 1);
-  statuses['/a'] = { ...statuses['/a']!, behind: 2 };
+  assertEquals(changes, 2);
+  statuses['/a'] = { ...(statuses['/a'] as GitStatus), behind: 2 };
   await watch.refresh();
-  assertEquals([changes, watch.statuses.get('/a')?.behind], [2, 2]);
+  assertEquals(
+    [changes, (watch.statuses.get('/a') as GitStatus).behind],
+    [3, 2],
+  );
+  // A reason alone, or a new one, is a change.
+  statuses['/b'] = { problem: 'detached HEAD' };
+  await watch.refresh();
+  assertEquals([changes, watch.statuses.get('/b')], [4, {
+    problem: 'detached HEAD',
+  }]);
+  statuses['/b'] = { problem: 'git fetch: timed out' };
+  await watch.refresh();
+  assertEquals(changes, 5);
   folders = ['/a'];
   await watch.refresh();
-  assertEquals([changes, watch.statuses.has('/b')], [3, false]);
+  assertEquals([changes, watch.statuses.has('/b')], [6, false]);
 });
 
 Deno.test('GitStatusWatch.fetchAll fetches every folder, then reads them again', async () => {

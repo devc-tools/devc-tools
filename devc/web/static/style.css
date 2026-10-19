@@ -674,9 +674,11 @@ body.resizing-sidebar {
   color: var(--muted);
 }
 
-/* Nothing to push or pull: ✓ level with the upstream, • no upstream. Quieter than the arrows. */
+/* Nothing to push or pull: ✓ level with the upstream, • no upstream, ? status unreadable (the
+   tooltip says why). Quieter than the arrows. */
 .git-sync [data-dir='synced'],
-.git-sync [data-dir='local'] {
+.git-sync [data-dir='local'],
+.git-sync [data-dir='unknown'] {
   color: var(--muted);
 }
 

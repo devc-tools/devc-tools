@@ -33,10 +33,29 @@ export interface GitStatus {
   gone: boolean;
 }
 
-/** Where the mirrors live, and which remotes may be fetched (tests widen it to local paths). */
+/**
+ * Why a folder that is a repo has no {@link GitStatus}: `detached HEAD`, `git fetch: timed out`,
+ * or `git <subcommand>: <git's first stderr line>`. Shown in the sidebar's tooltip.
+ */
+export interface GitProblem {
+  problem: string;
+}
+
+/** What a read of one folder gives: its status, why it has none, or `null` when it is no repo. */
+export type GitReading = GitStatus | GitProblem | null;
+
+export function isGitProblem(r: object | null | undefined): r is GitProblem {
+  return r != null && 'problem' in r;
+}
+
+/**
+ * Where the mirrors live, and which remotes may be fetched (tests widen it to local paths).
+ * `localFetchTimeoutMs` bounds each fetch from the folder (tests shorten it).
+ */
 export interface MirrorOpts {
   root: string;
   fetchable?: (url: string) => boolean;
+  localFetchTimeoutMs?: number;
 }
 
 export function defaultMirrorOpts(): MirrorOpts {
@@ -50,8 +69,14 @@ const GIT_ENV = {
   SSH_ASKPASS_REQUIRE: 'never',
 };
 
-/** Runs git with no repo of its own (`cwd: /`); `null` when it fails. Never throws. */
-async function git(args: string[], timeoutMs = 10_000): Promise<string | null> {
+/** A git call's output, or why it failed, as a {@link GitProblem}'s text. */
+type GitRun = { out: string } | { failed: string };
+
+/** Runs git with no repo of its own (`cwd: /`). Never throws. */
+async function run(args: string[], timeoutMs = 10_000): Promise<GitRun> {
+  const sub = args.find((a) => !a.startsWith('--git-dir=')) ?? '';
+  const signal = AbortSignal.timeout(timeoutMs);
+  const timedOut = { failed: `git ${sub}: timed out` };
   try {
     const out = await new Deno.Command('git', {
       args,
@@ -59,13 +84,24 @@ async function git(args: string[], timeoutMs = 10_000): Promise<string | null> {
       env: GIT_ENV,
       stdin: 'null',
       stdout: 'piped',
-      stderr: 'null',
-      signal: AbortSignal.timeout(timeoutMs),
+      stderr: 'piped',
+      signal,
     }).output();
-    return out.success ? new TextDecoder().decode(out.stdout) : null;
+    if (out.success) return { out: new TextDecoder().decode(out.stdout) };
+    // The timeout kills git, and `output()` resolves with that failure rather than throwing.
+    if (signal.aborted) return timedOut;
+    const line = new TextDecoder().decode(out.stderr).split('\n')
+      .map((l) => l.trim()).find((l) => l);
+    return { failed: line ? `git ${sub}: ${line}` : `git ${sub} failed` };
   } catch {
-    return null;
+    return signal.aborted ? timedOut : { failed: `git ${sub} failed` };
   }
+}
+
+/** Runs git with no repo of its own (`cwd: /`); `null` when it fails. Never throws. */
+async function git(args: string[], timeoutMs = 10_000): Promise<string | null> {
+  const r = await run(args, timeoutMs);
+  return 'out' in r ? r.out : null;
 }
 
 async function hash(text: string): Promise<string> {
@@ -116,11 +152,11 @@ interface Located {
 async function locate(
   folder: string,
   opts: MirrorOpts,
-): Promise<Located | null> {
+): Promise<Located | GitProblem | null> {
   const dirs = await resolveRepo(folder);
   if (dirs === null) return null;
   const branch = await readBranch(dirs.gitDir);
-  if (branch === null) return null;
+  if (branch === null) return { problem: 'detached HEAD' };
   const upstream = await readUpstream(dirs.commonDir, branch);
   return {
     branch,
@@ -139,34 +175,52 @@ const FETCH_FLAGS = [
 ];
 
 /**
- * `folder`'s status, or `null` when it is no repo, is detached, or its branch can't be
- * fetched from it. Fetches the branch and its remote-tracking ref from the folder into the
- * mirror, then counts against whichever upstream copy is newer: the repo's own (after a push
- * or the editor's fetch) or the mirror's (after {@link fetchUpstream}). Never throws.
+ * How long a fetch from the folder may take. Into a cold mirror it copies the branch's whole
+ * history, and a killed fetch keeps nothing, so a short limit would fail on every pass. A local
+ * fetch has no network or prompt to wait on: this only guards against a hang.
  */
-export async function readGitStatus(
+export const LOCAL_FETCH_TIMEOUT_MS = 10 * 60_000;
+
+/**
+ * `folder`'s status, or `null` when it is no repo. A detached HEAD, or a branch that can't be
+ * fetched from the folder or counted, gives a {@link GitProblem} instead. Fetches the branch and its remote-tracking ref from the
+ * folder into the mirror, then counts against whichever upstream copy is newer: the repo's own
+ * (after a push or the editor's fetch) or the mirror's (after {@link fetchUpstream}). Never
+ * throws.
+ */
+export async function readGitState(
   folder: string,
   opts: MirrorOpts = defaultMirrorOpts(),
-): Promise<GitStatus | null> {
+): Promise<GitReading> {
   const at = await locate(folder, opts);
-  if (at === null) return null;
+  if (at === null || isGitProblem(at)) return at;
   const { branch, upstream, mirror, prefix } = at;
   if (upstream === null) {
     return { branch, upstream: null, ahead: 0, behind: 0, gone: false };
   }
-  if (mirror === null) return null;
+  if (mirror === null) return { problem: 'could not create the git mirror' };
   const inMirror = (...args: string[]) => git([`--git-dir=${mirror}`, ...args]);
+  const fetchFrom = (...refspecs: string[]) =>
+    run(
+      [`--git-dir=${mirror}`, ...FETCH_FLAGS, folder, ...refspecs],
+      opts.localFetchTimeoutMs ?? LOCAL_FETCH_TIMEOUT_MS,
+    );
   const local = `+refs/heads/${branch}:${prefix}/local`;
   const tracking = upstream.trackingRef === null
     ? null
     : `+${upstream.trackingRef}:${prefix}/tracking`;
+  const both = tracking === null ? null : await fetchFrom(local, tracking);
   if (
-    tracking === null ||
-    await inMirror(...FETCH_FLAGS, folder, local, tracking) === null
+    both !== null && 'failed' in both && both.failed.endsWith(': timed out')
   ) {
+    // It would time out again: retrying only doubles the wait.
+    return { problem: both.failed };
+  }
+  if (both === null || 'failed' in both) {
     // No remote-tracking ref in the repo (never fetched, or the branch was deleted): fetch
     // just the branch, and forget a stale copy of the ref.
-    if (await inMirror(...FETCH_FLAGS, folder, local) === null) return null;
+    const alone = await fetchFrom(local);
+    if ('failed' in alone) return { problem: alone.failed };
     await inMirror('update-ref', '-d', `${prefix}/tracking`);
   }
   const refs = new Set(
@@ -185,15 +239,28 @@ export async function readGitStatus(
   if (against === null) {
     return { branch, upstream: name, ahead: 0, behind: 0, gone: true };
   }
-  const counts = await inMirror(
+  const counts = await run([
+    `--git-dir=${mirror}`,
     'rev-list',
     '--left-right',
     '--count',
     `${prefix}/local...${against}`,
-  );
-  const [ahead, behind] = (counts ?? '').trim().split(/\s+/).map(Number);
-  if (!Number.isInteger(ahead) || !Number.isInteger(behind)) return null;
+  ]);
+  if ('failed' in counts) return { problem: counts.failed };
+  const [ahead, behind] = counts.out.trim().split(/\s+/).map(Number);
+  if (!Number.isInteger(ahead) || !Number.isInteger(behind)) {
+    return { problem: 'git rev-list: unexpected output' };
+  }
   return { branch, upstream: name, ahead, behind, gone: false };
+}
+
+/** {@link readGitState} without the reason: `null` for no status at all. Never throws. */
+export async function readGitStatus(
+  folder: string,
+  opts: MirrorOpts = defaultMirrorOpts(),
+): Promise<GitStatus | null> {
+  const r = await readGitState(folder, opts);
+  return isGitProblem(r) ? null : r;
 }
 
 const FETCH_TIMEOUT_MS = 60_000;
@@ -208,7 +275,8 @@ export async function fetchUpstream(
   opts: MirrorOpts = defaultMirrorOpts(),
 ): Promise<boolean> {
   const at = await locate(folder, opts);
-  if (at?.upstream == null || at.mirror === null) return false;
+  if (at === null || isGitProblem(at)) return false;
+  if (at.upstream === null || at.mirror === null) return false;
   if (!(opts.fetchable ?? isFetchableRemote)(at.upstream.url)) return false;
   return await git([
     `--git-dir=${at.mirror}`,
@@ -225,12 +293,13 @@ export const GIT_FETCH_MS = 5 * 60_000;
 export const GIT_POLL_MS = 15_000;
 
 /**
- * Keeps every folder's {@link GitStatus} current by reading them all every {@link GIT_POLL_MS}
+ * Keeps every folder's {@link GitReading} current by reading them all every {@link GIT_POLL_MS}
  * and fetching their upstreams every {@link GIT_FETCH_MS}, and sooner on {@link refresh}.
- * Calls `onChange` after a pass that changed any of them.
+ * Calls `onChange` after each folder whose reading changed, so a slow one (a cold mirror) holds
+ * back none read before it, and once after dropping folders no longer listed.
  */
 export class GitStatusWatch {
-  #statuses = new Map<string, GitStatus | null>();
+  #statuses = new Map<string, GitReading>();
   #timer: ReturnType<typeof setInterval> | undefined;
   #fetchTimer: ReturnType<typeof setInterval> | undefined;
   #fetching = false;
@@ -241,15 +310,15 @@ export class GitStatusWatch {
     private readonly opts: {
       folders: () => Iterable<string>;
       onChange: () => void;
-      read?: (folder: string) => Promise<GitStatus | null>;
+      read?: (folder: string) => Promise<GitReading>;
       fetch?: (folder: string) => Promise<boolean>;
       pollMs?: number;
       fetchMs?: number;
     },
   ) {}
 
-  /** Every folder's last-read status; a folder not read yet is absent. */
-  get statuses(): ReadonlyMap<string, GitStatus | null> {
+  /** Every folder's last reading; a folder not read yet is absent. */
+  get statuses(): ReadonlyMap<string, GitReading> {
     return this.#statuses;
   }
 
@@ -303,27 +372,27 @@ export class GitStatusWatch {
   }
 
   async #pass() {
-    const read = this.opts.read ?? ((f: string) => readGitStatus(f));
+    const read = this.opts.read ?? ((f: string) => readGitState(f));
     const folders = new Set(this.opts.folders());
-    let changed = false;
+    let dropped = false;
     for (const folder of this.#statuses.keys()) {
       if (!folders.has(folder)) {
         this.#statuses.delete(folder);
-        changed = true;
+        dropped = true;
       }
     }
+    if (dropped) this.opts.onChange();
     for (const folder of folders) {
       const next = await read(folder);
       const prev = this.#statuses.get(folder);
       if (!this.#statuses.has(folder) || !sameStatus(prev ?? null, next)) {
         this.#statuses.set(folder, next);
-        changed = true;
+        this.opts.onChange();
       }
     }
-    if (changed) this.opts.onChange();
   }
 }
 
-function sameStatus(a: GitStatus | null, b: GitStatus | null): boolean {
+function sameStatus(a: GitReading, b: GitReading): boolean {
   return JSON.stringify(a) === JSON.stringify(b);
 }

@@ -116,6 +116,14 @@
   browser's outline, which overlapped the dropdown beside it and was clipped.
   **Implemented; the user's check in devc-desktop and a real row send outstanding.**
 
+- [devc-web-worktree-git-marks](devc-web-worktree-git-marks.md) — worktree rows under
+  **Repos › repo** show no push/pull mark: the fetch from the folder into a cold mirror outlasts
+  its 10 s timeout, is killed with nothing kept, and fails every pass (`null`, which also hides
+  the row). Local fetches get 10 minutes, the watch broadcasts per folder, and a repo whose
+  status can't be read keeps its row with a muted `?` whose tooltip carries the reason
+  (`gitProblem`: `detached HEAD`, `git fetch: timed out`, or git's own error line).
+  **Implemented; the user's check in their open tab outstanding.**
+
 - [devc-web-pinned-hide-save-primary](devc-web-pinned-hide-save-primary.md) — after
   devc-web-tasks-actions. Page-only: the sidebar's Pinned section is not shown while nothing is
   pinned (so **New note…** needs one pin first). The New task dialog's footer becomes
@@ -2293,4 +2301,5 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
 | `devc web` copy on select — plain drag copies via `pane.selection.read`                                            | [devc-web-copy-on-select](archived/devc-web-copy-on-select.md)                     | complete    |
 | `devc web` tasks — a host-side task list, sent one-way to an agent with a known session id                         | [devc-web-tasks](devc-web-tasks.md)                                                | in progress |
 | `devc web` task actions — new task from a folder, send/delete icons on task rows, dialog focus ring                | [devc-web-tasks-actions](devc-web-tasks-actions.md)                                | in progress |
+| `devc web` worktree git marks — local fetch timeout, per-folder broadcast, `?` with the reason                     | [devc-web-worktree-git-marks](devc-web-worktree-git-marks.md)                      | in progress |
 | `devc web` empty Pinned hidden; task dialog: Save primary, send icons in header                                    | [devc-web-pinned-hide-save-primary](devc-web-pinned-hide-save-primary.md)          | in progress |

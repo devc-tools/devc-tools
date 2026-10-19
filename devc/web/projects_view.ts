@@ -5,7 +5,7 @@
 import { basename } from 'jsr:@std/path';
 import type { ProjectEntry } from '../projects.ts';
 import type { MountedRepo } from './git_repo.ts';
-import type { GitStatus } from './git_status.ts';
+import { type GitReading, type GitStatus, isGitProblem } from './git_status.ts';
 
 /** A project's container: running, only stopped ones, or none at all. */
 export type ProjectContainer = 'running' | 'stopped' | 'missing';
@@ -30,13 +30,15 @@ export interface RepoView extends MountedRepo {
   name: string;
   /** Its branch against its upstream; `null` when it is no repo or detached, absent until read. */
   git?: GitStatus | null;
+  /** Why `git` is `null` for a folder that is a repo: `detached HEAD`, a timed-out or failed git call. */
+  gitProblem?: string;
 }
 
 /**
  * Merges the projects list with what discovery knows. `running` and `stopped` are the
  * `localFolder`s of running and stopped containers; a folder with both counts as running.
  * `repos` holds each container's mounted repos by project folder (a folder missing from it has
- * just itself), and `git` each repo's push/pull state, when read. Sorted by name, then folder.
+ * just itself), and `git` each repo's push/pull state (or why it has none), when read. Sorted by name, then folder.
  */
 export function buildProjects(
   entries: readonly ProjectEntry[],
@@ -44,7 +46,7 @@ export function buildProjects(
   stopped: Iterable<string>,
   starting: ReadonlySet<string>,
   repos: ReadonlyMap<string, readonly MountedRepo[]> = new Map(),
-  git: ReadonlyMap<string, GitStatus | null> = new Map(),
+  git: ReadonlyMap<string, GitReading> = new Map(),
 ): ProjectView[] {
   const runningSet = new Set(running);
   const stoppedSet = new Set(stopped);
@@ -74,11 +76,23 @@ export function buildProjects(
       [{ folder: e.localFolder, worktreeOf: null }]).map((r) => ({
         ...r,
         name: basename(r.folder) || r.folder,
-        ...(git.has(r.folder) ? { git: git.get(r.folder) } : {}),
+        ...gitFields(git, r.folder),
       })),
   })).sort((a, b) =>
     a.name.localeCompare(b.name) || a.localFolder.localeCompare(b.localFolder)
   );
+}
+
+/** A repo's `git` (and `gitProblem`) fields from its reading; none until it is read. */
+function gitFields(
+  git: ReadonlyMap<string, GitReading>,
+  folder: string,
+): Pick<RepoView, 'git' | 'gitProblem'> {
+  if (!git.has(folder)) return {};
+  const reading = git.get(folder) ?? null;
+  return isGitProblem(reading)
+    ? { git: null, gitProblem: reading.problem }
+    : { git: reading };
 }
 
 /**

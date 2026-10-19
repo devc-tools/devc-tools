@@ -1971,12 +1971,12 @@ function projectRepos(localFolder) {
  * An expanded container's repo rows, above its workspaces. With more than one repo they sit under
  * a Repos row (collapsed until opened); with one, its row is directly under the container. A repo
  * row, while expanded, is followed by its worktrees (repo rows of their own), then its files. The
- * project folder always gets a row; a later folder that turned out to be no repo (`git: null`)
- * gets none.
+ * project folder always gets a row; a later folder that turned out to be no repo (`git: null`
+ * with no `gitProblem`) gets none. One whose status can't be read keeps its row, marked `?`.
  */
 function repoRows(localFolder) {
   const repos = projectRepos(localFolder).filter((r, i) =>
-    i === 0 || r.git !== null
+    i === 0 || r.git !== null || !!r.gitProblem
   );
   if (repos.length === 0) return [];
   const folders = new Set(repos.map((r) => r.folder));
@@ -1997,7 +1997,7 @@ function repoRows(localFolder) {
           oncontextmenu: (e) => openMenu(e, dirMenuItems(fr, '')),
         },
         r.name,
-        gitMark(gitSync(r.git)),
+        gitMark(gitSync(r.git, r.gitProblem)),
       ),
     ];
     folderTerminalButton(rows[0], fr, '');
