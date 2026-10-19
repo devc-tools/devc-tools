@@ -50,6 +50,13 @@
   generalized from vscode-deephaven's `vscode-dev.sh`. chrome-devtools-mcp registration stays
   with the consuming project. Replaces the `feature-electron-deps` placeholder.
 
+- [devc-desktop-host-cd](devc-desktop-host-cd.md) — right-click in the host terminal offers
+  `cd <host path>` for devc web's active terminal pane. The page reports its active pane to the
+  server over `/ws` (`active_pane`). Main asks the server with `GET /desktop/active-folder`
+  (Bearer token, no `Origin`), then verifies the answer (realpath inside the bind mount, a
+  directory, a printable name) before showing it or typing `cd '<path>'`. The devc view still
+  gets no channel to the app.
+
 ### Standing rules for Feature work
 
 Not a plan group — these are the conventions every Feature plan in this file
@@ -2319,3 +2326,4 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
 | devc-desktop on Electron — one window with devc web and a host terminal                                            | [devc-desktop-electron](archived/devc-desktop-electron.md)                         | complete    |
 | git-protect live check — `devc status` and the bridge read the container's mountinfo                               | [git-protect-live-check](git-protect-live-check.md)                                |             |
 | `devc web` editable viewer — file tiles edit and save through `write_file`                                         | [devc-web-editable-viewer](devc-web-editable-viewer.md)                            | in progress |
+| devc-desktop host cd — the host terminal's right-click `cd`s to devc web's active pane folder                      | [devc-desktop-host-cd](devc-desktop-host-cd.md)                                    |             |
