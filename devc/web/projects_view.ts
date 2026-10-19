@@ -73,14 +73,31 @@ export function buildProjects(
       : 'missing' as const,
     starting: starting.has(e.localFolder),
     repos: (repos.get(e.localFolder) ??
-      [{ folder: e.localFolder, worktreeOf: null }]).map((r) => ({
+      [{ folder: e.localFolder, worktreeOf: null, containerFolder: null }])
+      .map((r) => ({
         ...r,
-        name: basename(r.folder) || r.folder,
+        name: repoName(r.folder, r.containerFolder),
         ...gitFields(git, r.folder),
       })),
   })).sort((a, b) =>
     a.name.localeCompare(b.name) || a.localFolder.localeCompare(b.localFolder)
   );
+}
+
+/**
+ * A repo's name in the sidebar: its path under `/workspaces` in the container
+ * (`/workspaces/tools/devc-tools` → `tools/devc-tools`), else its folder's basename.
+ */
+export function repoName(
+  folder: string,
+  containerFolder: string | null,
+): string {
+  const inside = containerFolder?.replace(/\/+$/, '') ?? '';
+  const prefix = '/workspaces/';
+  if (inside.startsWith(prefix) && inside.length > prefix.length) {
+    return inside.slice(prefix.length);
+  }
+  return basename(folder) || folder;
 }
 
 /** A repo's `git` (and `gitProblem`) fields from its reading; none until it is read. */

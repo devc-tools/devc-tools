@@ -17,7 +17,6 @@ import {
 import {
   type ContainerRecord,
   Discovery,
-  inspectBindSources,
   inspectMounts,
   probeDocker,
   resolveConnection,
@@ -27,6 +26,7 @@ import type {
   ContainerMount,
 } from '@devc-tools/core/container.ts';
 import {
+  containerHome,
   createContainerEntry,
   deleteContainerEntry,
   listContainerDir,
@@ -358,6 +358,10 @@ export async function startWeb(
   const openLink = openRedirect(opts.openNonce, token);
   const previewList = previews();
   const sessions = new Map<string, ContainerSession>();
+  // Each running container's remote user's home, for its Files node's home row: read once, on
+  // the first container file request (the connection is resolved then anyway). `null` when it
+  // couldn't be read; not retried.
+  const containerHomes = new Map<string, string | null>();
   const clients = new Set<Client>();
   const controllers = new ControllerManager();
 
@@ -366,6 +370,7 @@ export async function startWeb(
     for (const c of clients) c.send(text);
   };
 
+  const homeField = (home: string | null | undefined) => home ? { home } : {};
   const containersMessage = () => ({
     type: 'containers',
     containers: [...sessions.values()]
@@ -375,6 +380,7 @@ export async function startWeb(
         name: basename(s.record.localFolder) || s.record.id.slice(0, 12),
         state: s.state,
         ...(s.error !== undefined ? { error: s.error } : {}),
+        ...homeField(containerHomes.get(s.record.id)),
       }))
       .sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id)),
   });
@@ -473,11 +479,20 @@ export async function startWeb(
     containerRepos.set(record.id, [{
       folder: record.localFolder,
       worktreeOf: null,
+      containerFolder: null,
     }]);
-    const sources = await inspectBindSources(record.id);
+    const mounts = await inspectMounts(record.id);
+    const binds = mounts.filter((m) => m.type === 'bind');
+    const repos = await mountedRepos(
+      record.localFolder,
+      binds.map((m) => m.source),
+    );
     containerRepos.set(
       record.id,
-      await mountedRepos(record.localFolder, sources),
+      repos.map((r) => ({
+        ...r,
+        containerFolder: hostToContainerPath(r.folder, binds),
+      })),
     );
     broadcastProjects();
     void gitWatch.refresh();
@@ -522,6 +537,15 @@ export async function startWeb(
     }
     return info;
   };
+  const loadHome = async (session: ContainerSession, info: ContainerInfo) => {
+    const id = session.record.id;
+    if (containerHomes.has(id)) return;
+    containerHomes.set(id, null);
+    const home = await containerHome(info);
+    if (sessions.get(id) !== session) return;
+    containerHomes.set(id, home);
+    if (home !== null) broadcast(containersMessage());
+  };
   const isListedProject = (localFolder: string) =>
     projectsMessage().projects.some((p) => p.localFolder === localFolder);
 
@@ -557,6 +581,7 @@ export async function startWeb(
     sessions.delete(id);
     containerMounts.delete(id);
     containerConnections.delete(id);
+    containerHomes.delete(id);
     void controllers.closeContainer(id, 'container stopped');
     void session.dispose();
     broadcast(containersMessage());
@@ -981,6 +1006,7 @@ export async function startWeb(
   ) => {
     try {
       const info = await connectionOf(session);
+      void loadHome(session, info);
       if (msg.type === 'preview_container_file') {
         const read: PreviewRead = async (path, max) =>
           readContainerBytes(await connectionOf(session), `/${path}`, max);

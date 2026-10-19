@@ -2,6 +2,7 @@ import { assertEquals, assertRejects } from 'jsr:@std/assert';
 import { join } from 'jsr:@std/path';
 import type { ContainerInfo } from '@devc-tools/core/container.ts';
 import {
+  containerHome,
   createArgv,
   createContainerEntry,
   createError,
@@ -515,4 +516,37 @@ Deno.test('writeContainerFile: a stopped container is not_running', async () => 
     FilesError,
   );
   assertEquals(err.code, 'not_running');
+});
+
+Deno.test('containerHome reads $HOME as the remote user, an absolute path or null', async () => {
+  const fake =
+    (code: number, stdout: string, calls: string[][] = []): DockerRun =>
+    async (args) => {
+      calls.push(args);
+      return { code, stdout: new TextEncoder().encode(stdout), stderr: '' };
+    };
+  const calls: string[][] = [];
+  assertEquals(
+    await containerHome(info, fake(0, '/home/vscode', calls)),
+    '/home/vscode',
+  );
+  assertEquals(calls[0].slice(-8), [
+    '-u',
+    'vscode',
+    '-w',
+    '/',
+    'c0ffee',
+    'sh',
+    '-c',
+    'printf %s "$HOME"',
+  ]);
+  assertEquals(await containerHome(info, fake(0, '/root')), '/root');
+  assertEquals(await containerHome(info, fake(1, '/home/vscode')), null);
+  assertEquals(await containerHome(info, fake(0, '')), null);
+  assertEquals(await containerHome(info, fake(0, 'home/vscode')), null);
+  assertEquals(await containerHome(info, fake(0, '/a\n/b')), null);
+  assertEquals(
+    await containerHome(info, () => Promise.reject(new Error('no docker'))),
+    null,
+  );
 });

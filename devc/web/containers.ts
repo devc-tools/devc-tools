@@ -101,13 +101,6 @@ export async function inspectMounts(id: string): Promise<ContainerMount[]> {
   return parseMounts(stdout.trim());
 }
 
-/** A container's bind-mount sources, as host paths; `[]` on failure. */
-export async function inspectBindSources(id: string): Promise<string[]> {
-  return (await inspectMounts(id))
-    .filter((m) => m.type === 'bind')
-    .map((m) => m.source);
-}
-
 /** How many trailing CLI output lines a failed {@link resolveConnection} carries. */
 const RESOLVE_ERROR_TAIL_LINES = 5;
 

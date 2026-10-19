@@ -136,6 +136,30 @@ export function execError(
 }
 
 /**
+ * The remote user's `$HOME` in the container, for the Files node's home row: an absolute path,
+ * or null when it can't be read or isn't one. Docker sets `HOME` from `/etc/passwd` for `-u`; a
+ * `remoteEnv` `HOME` wins, as it does in that user's shells.
+ */
+export async function containerHome(
+  info: ContainerInfo,
+  run: DockerRun = runDocker,
+): Promise<string | null> {
+  try {
+    const out = await run(
+      dockerExecArgv(info, {
+        cwd: '/',
+        cmd: ['sh', '-c', 'printf %s "$HOME"'],
+      }),
+    );
+    if (out.code !== 0) return null;
+    const home = new TextDecoder().decode(out.stdout);
+    return home.startsWith('/') && !/[\n\0]/.test(home) ? home : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * One directory in the container: `path` absolute. Sorted, capped at {@link MAX_ENTRIES}. Throws
  * {@link FilesError}, or an `Error` carrying the command's stderr.
  */

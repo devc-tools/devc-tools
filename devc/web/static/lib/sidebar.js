@@ -62,6 +62,15 @@ export function paneTitle(pane) {
 }
 
 /**
+ * The window title for the active tile's folder (a path; empty or missing for none):
+ * `<basename> — devc web`, `/` for the root.
+ */
+export function windowTitle(folder) {
+  if (!folder) return 'devc web';
+  return `${basename(folder) || '/'} — devc web`;
+}
+
+/**
  * A container's name in the sidebar and tile headers, `all` being every container listed.
  * Containers sharing a name (two `feature1` worktrees, say) get their parent folder appended,
  * and the full folder when even that is shared.

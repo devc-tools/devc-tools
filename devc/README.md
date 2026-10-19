@@ -284,7 +284,10 @@ is published from any container: the host server finds devcontainers with
   tile shows; a workspace row appears only when there is more than one. Herdr
   tabs don't appear: a pane split in Herdr's own UI is listed like any other.
   Click a container to collapse it; a collapsed one shows its most urgent agent
-  status. Which rows are open is remembered per browser; hover the **Tasks** or
+  status. A repo row is named by its path under `/workspaces` in the container
+  (`tools/devc-tools`), else by its folder's name. The window title follows the
+  active tile: `<folder> — devc web`, the folder being its terminal's current
+  directory or the one holding its file. Which rows are open is remembered per browser; hover the **Tasks** or
   **Containers** heading for **Collapse all**, which closes every row under it,
   at every level. Containers without a running Herdr server are grouped under
   **Not running** at the bottom; hover one for its play button,
@@ -333,7 +336,9 @@ is published from any container: the host server finds devcontainers with
   container must be running. **Rename…** (the name is edited in place) and
   **Delete…** (after a confirmation; a folder goes with everything in it) are on
   every file and folder below a root, and run in the container the same way. An
-  editor's terminal is named after its file, in the sidebar and on its tab. See
+  editor's terminal is named after its file, in the sidebar and on its tab. A
+  container's **Files** row lists `/workspaces` and the remote user's home first,
+  each a folder of its own, then everything under `/`. See
   [Editing in a terminal](#editing-in-a-terminal) for the editor.
 - **Pinned files and notes:** the **Pinned** section at the top of the sidebar
   keeps repo files one click away. It appears once something is pinned:

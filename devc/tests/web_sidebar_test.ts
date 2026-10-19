@@ -15,6 +15,7 @@ import {
   STATUS_ORDER,
   statusShort,
   topStatus,
+  windowTitle,
 } from '../web/static/lib/sidebar.js';
 
 const container = (name: string, localFolder: string) => ({
@@ -356,4 +357,16 @@ Deno.test('collapseContainersState with nothing known still closes everything', 
       inactiveOpen: false,
     },
   );
+});
+
+Deno.test("windowTitle: the active folder's basename, else devc web", () => {
+  assertEquals(
+    windowTitle('/workspaces/tools/devc-tools'),
+    'devc-tools — devc web',
+  );
+  assertEquals(windowTitle('/workspaces/app/'), 'app — devc web');
+  assertEquals(windowTitle('/'), '/ — devc web');
+  assertEquals(windowTitle(''), 'devc web');
+  assertEquals(windowTitle(null), 'devc web');
+  assertEquals(windowTitle(undefined), 'devc web');
 });

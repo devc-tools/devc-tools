@@ -153,11 +153,19 @@ Deno.test('mountedRepos lists the primary, other repos, and worktrees under thei
       `${dir}/skills`,
     ]);
     assertEquals(repos, [
-      { folder: `${dir}/proj`, worktreeOf: null },
-      { folder: alpha, worktreeOf: null },
-      { folder: `${dir}/tools/alpha.worktrees/a`, worktreeOf: alpha },
-      { folder: `${dir}/tools/alpha.worktrees/b`, worktreeOf: alpha },
-      { folder: `${dir}/tools/zeta`, worktreeOf: null },
+      { folder: `${dir}/proj`, worktreeOf: null, containerFolder: null },
+      { folder: alpha, worktreeOf: null, containerFolder: null },
+      {
+        folder: `${dir}/tools/alpha.worktrees/a`,
+        worktreeOf: alpha,
+        containerFolder: null,
+      },
+      {
+        folder: `${dir}/tools/alpha.worktrees/b`,
+        worktreeOf: alpha,
+        containerFolder: null,
+      },
+      { folder: `${dir}/tools/zeta`, worktreeOf: null, containerFolder: null },
     ]);
   } finally {
     await Deno.remove(dir, { recursive: true });

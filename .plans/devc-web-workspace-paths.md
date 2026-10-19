@@ -115,60 +115,60 @@ It builds on the current sidebar (`devc/web/static/app.js`). Other open `devc we
 
 ## Checklist
 
-- [ ] `devc/web/git_repo.ts`: `MountedRepo.containerFolder: string | null`; `mountedRepos`
+- [x] `devc/web/git_repo.ts`: `MountedRepo.containerFolder: string | null`; `mountedRepos`
       sets it to `null` (the server fills it in)
-- [ ] `devc/web/server.ts` `loadRepos`: one `inspectMounts` read; bind sources to
+- [x] `devc/web/server.ts` `loadRepos`: one `inspectMounts` read; bind sources to
       `mountedRepos`; `containerFolder` via `hostToContainerPath`; placeholder `null`
-- [ ] `devc/web/projects_view.ts`: exported `repoName(folder, containerFolder)`;
+- [x] `devc/web/projects_view.ts`: exported `repoName(folder, containerFolder)`;
       `buildProjects` uses it for `RepoView.name`; the default single-repo entry gets
       `containerFolder: null`
-- [ ] `devc/tests/web_projects_test.ts`: `repoName` cases from Validation; `buildProjects`
+- [x] `devc/tests/web_projects_test.ts`: `repoName` cases from Validation; `buildProjects`
       names a repo with a `/workspaces/…` container folder by its relative path
-- [ ] `devc/tests/web_git_repo_test.ts`: expectations include `containerFolder: null`
-- [ ] `app.js` `repoRows`: tooltip adds the container path line
-- [ ] `app.js` task dialog Repo select and `taskProjectLabel`: the repo's `name`, falling back
+- [x] `devc/tests/web_git_repo_test.ts`: expectations include `containerFolder: null`
+- [x] `app.js` `repoRows`: tooltip adds the container path line
+- [x] `app.js` task dialog Repo select and `taskProjectLabel`: the repo's `name`, falling back
       to `basename`
-- [ ] `lib/sidebar.js`: exported `windowTitle(folder)`
-- [ ] `devc/tests/web_sidebar_test.ts`: `windowTitle` cases from Validation
-- [ ] `app.js`: the active folder of `targetTile()`; `document.title` set in `updateCurrent()`
+- [x] `lib/sidebar.js`: exported `windowTitle(folder)`
+- [x] `devc/tests/web_sidebar_test.ts`: `windowTitle` cases from Validation
+- [x] `app.js`: the active folder of `targetTile()`; `document.title` set in `updateCurrent()`
       and after `snapshot` / `pane_updated`
-- [ ] `devc-desktop/src/main/main.ts`: window title follows the devc view's page title;
+- [x] `devc-desktop/src/main/main.ts`: window title follows the devc view's page title;
       `devc web` while the status view shows
-- [ ] `devc/web/container_files.ts`: `containerHome(info, run)`
-- [ ] `devc/tests/web_container_files_test.ts`: `containerHome` cases from Validation
-- [ ] `devc/web/server.ts`: per-container home cache, read on the first container file
+- [x] `devc/web/container_files.ts`: `containerHome(info, run)`
+- [x] `devc/tests/web_container_files_test.ts`: `containerHome` cases from Validation
+- [x] `devc/web/server.ts`: per-container home cache, read on the first container file
       request, broadcast on success, dropped in `removeContainer`; `home` on each
       `containers` entry that has one
-- [ ] `app.js`: `ContainerInfo` typedef gains `home?: string`; `containerFileRows` renders the
+- [x] `app.js`: `ContainerInfo` typedef gains `home?: string`; `containerFileRows` renders the
       `/workspaces` and home shortcut rows before the `/` entries, with the skip rules above
-- [ ] `app.js`: container roots other than `/` — `treeId`, `openKey`, `fileTree`'s list call,
+- [x] `app.js`: container roots other than `/` — `treeId`, `openKey`, `fileTree`'s list call,
       `fileRefOf`, and every `childPath('/', path)` for a container root use `fr.root`
-- [ ] `devc/README.md`: the **Sidebar** bullet says repo rows show their path under
+- [x] `devc/README.md`: the **Sidebar** bullet says repo rows show their path under
       `/workspaces` and the window title follows the active tile's folder; the **Files and
       editing** bullet mentions the `/workspaces` and home rows under a container's **Files**
 
 ## Validation
 
-- [ ] `cd devc && deno task check && deno task test` pass. One failure is known and unrelated:
+- [x] `cd devc && deno task check && deno task test` pass. One failure is known and unrelated:
       `docker_exec_single_path_test.ts` fails when a git-ignored `devc-core/dist/` exists. If
       it fails here, move `devc-core/dist/` aside (don't delete it; devc-desktop's build uses
       it), rerun, and put it back.
-- [ ] `cd devc-desktop && npm ci && npm run check && npm test` pass.
-- [ ] `deno fmt --check` passes on every changed `.ts`, `.js`, `.css` and `.md` file under
+- [x] `cd devc-desktop && npm ci && npm run check && npm test` pass.
+- [x] `deno fmt --check` passes on every changed `.ts`, `.js`, `.css` and `.md` file under
       `devc/` and on `.plans/devc-web-workspace-paths.md`.
-- [ ] `repoName` tests: (`/h/devc-tools`, `/workspaces/tools/devc-tools`) → `tools/devc-tools`;
+- [x] `repoName` tests: (`/h/devc-tools`, `/workspaces/tools/devc-tools`) → `tools/devc-tools`;
       (`/h/app`, `/workspaces/app/`) → `app`; (`/h/a.worktrees/fix`,
       `/workspaces/a.worktrees/fix`) → `a.worktrees/fix`; (`/h/ws`, `/workspaces`) → `ws`;
       (`/h/app`, `/src/app`) → `app`; (`/h/app`, `null`) → `app`; (`/`, `null`) → `/`;
       (`/h/x`, `/workspacesx/y`) → `x`.
-- [ ] `windowTitle` tests: `'/workspaces/tools/devc-tools'` → `'devc-tools — devc web'`;
+- [x] `windowTitle` tests: `'/workspaces/tools/devc-tools'` → `'devc-tools — devc web'`;
       `'/workspaces/app/'` → `'app — devc web'`; `'/'` → `'/ — devc web'`; `''`, `null` and
       `undefined` → `'devc web'`.
-- [ ] `containerHome` tests with a fake `run`: the argv ends in
+- [x] `containerHome` tests with a fake `run`: the argv ends in
       `['-u', <remoteUser>, '-w', '/', <containerId>, 'sh', '-c', 'printf %s "$HOME"']`;
       stdout `/home/vscode` → `'/home/vscode'`; `/root` → `'/root'`; exit 1 → `null`; empty →
       `null`; `home/vscode` → `null`; `/a\n/b` → `null`.
-- [ ] Headless Chromium (Playwright, installed in a scratch folder for the run) against
+- [x] Headless Chromium (Playwright, installed in a scratch folder for the run) against
       `devc/web/static`, with a fake WebSocket as in devc-web-tasks' Verification. One project
       `/h/devc-tools`, container `connected`, `containers` entry with `home: '/home/vscode'`,
       repos `{folder: '/h/devc-tools', containerFolder: '/workspaces/tools/devc-tools',
@@ -200,6 +200,21 @@ It builds on the current sidebar (`devc/web/static/app.js`). Other open `devc we
       in the active terminal retitles the browser tab `tmp — devc web`.
 - [ ] Ask the user to check the window title in devc-desktop (switch tiles, `cd`, restart
       devc web from the status view).
+
+## Verification (2026-10-19)
+
+- `deno task check` clean; `deno task test` 493 passed, 0 failed.
+- devc-desktop: `npm ci` fails in the container: node-pty has no linux-arm64 prebuild and its
+  `node-gyp` build needs Python's `shlex`, which the container's minimal Python lacks.
+  `npm ci --ignore-scripts` then `npm run check` (clean) and `npm test` (27 passed). The
+  host needs its own `npm ci` in `devc-desktop/` afterwards.
+- Headless Chromium against `devc/web/static` with a fake WebSocket: all 21 checks pass. The
+  fake lists `src/` and `a.txt` in every folder, so the file-tile check opened
+  `/workspaces/src/a.txt`: title `src — devc web`, saved as `{root: '/', path:
+  'workspaces/src/a.txt', container: true}`. It caught a shortcut's own folder being sent
+  as `/workspaces/` (fixed: `containerFilePath`).
+- Not done here (no Docker in this container): the real-container check and the devc-desktop
+  check, both left for the user.
 
 ## Relevant Files
 

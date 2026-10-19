@@ -175,13 +175,16 @@ export interface MountedRepo {
   folder: string;
   /** The folder of the repo it is a linked worktree of, when that repo is listed too. */
   worktreeOf: string | null;
+  /** Its path inside the container; null when no mount covers it or the mounts aren't read. */
+  containerFolder: string | null;
 }
 
 /**
  * The repos a container has: `primary` (its project folder) first, then every other bind
  * mount `sources` (host paths) that is a repo, and the worktrees in any `<repo>.worktrees`
  * mount. A worktree follows the repo it belongs to; the rest go by name. Mounts inside the
- * primary or inside a `.git` (devc's git protection) are skipped.
+ * primary or inside a `.git` (devc's git protection) are skipped. `containerFolder` is left
+ * null: the caller has the mount table.
  */
 export async function mountedRepos(
   primary: string,
@@ -230,9 +233,9 @@ export async function mountedRepos(
   );
   const out: MountedRepo[] = [];
   for (const top of [primary, ...tops]) {
-    out.push({ folder: top, worktreeOf: null });
+    out.push({ folder: top, worktreeOf: null, containerFolder: null });
     for (const wt of listed.filter((f) => parentOf(f) === top).sort(byName)) {
-      out.push({ folder: wt, worktreeOf: top });
+      out.push({ folder: wt, worktreeOf: top, containerFolder: null });
     }
   }
   return out;

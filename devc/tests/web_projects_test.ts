@@ -4,6 +4,7 @@ import {
   isProjectRepo,
   projectRefusal,
   repoFileFor,
+  repoName,
 } from '../web/projects_view.ts';
 import type { GitReading } from '../web/git_status.ts';
 
@@ -74,10 +75,22 @@ Deno.test("buildProjects lists each project's repos with their git state", () =>
     [],
     new Set(),
     new Map([['/src/api', [
-      { folder: '/src/api', worktreeOf: null },
-      { folder: '/tools/lib', worktreeOf: null },
-      { folder: '/tools/lib.worktrees/x', worktreeOf: '/tools/lib' },
-      { folder: '/tools/lib.worktrees/y', worktreeOf: '/tools/lib' },
+      {
+        folder: '/src/api',
+        worktreeOf: null,
+        containerFolder: '/workspaces/src/api',
+      },
+      { folder: '/tools/lib', worktreeOf: null, containerFolder: '/src/lib' },
+      {
+        folder: '/tools/lib.worktrees/x',
+        worktreeOf: '/tools/lib',
+        containerFolder: '/workspaces/lib.worktrees/x',
+      },
+      {
+        folder: '/tools/lib.worktrees/y',
+        worktreeOf: '/tools/lib',
+        containerFolder: null,
+      },
     ]]]),
     new Map<string, GitReading>([
       ['/src/api', git],
@@ -86,12 +99,30 @@ Deno.test("buildProjects lists each project's repos with their git state", () =>
     ]),
   );
   assertEquals(api.repos, [
-    { folder: '/src/api', worktreeOf: null, name: 'api', git },
-    { folder: '/tools/lib', worktreeOf: null, name: 'lib', git: null },
-    { folder: '/tools/lib.worktrees/x', worktreeOf: '/tools/lib', name: 'x' },
+    {
+      folder: '/src/api',
+      worktreeOf: null,
+      containerFolder: '/workspaces/src/api',
+      name: 'src/api',
+      git,
+    },
+    {
+      folder: '/tools/lib',
+      worktreeOf: null,
+      containerFolder: '/src/lib',
+      name: 'lib',
+      git: null,
+    },
+    {
+      folder: '/tools/lib.worktrees/x',
+      worktreeOf: '/tools/lib',
+      containerFolder: '/workspaces/lib.worktrees/x',
+      name: 'lib.worktrees/x',
+    },
     {
       folder: '/tools/lib.worktrees/y',
       worktreeOf: '/tools/lib',
+      containerFolder: null,
       name: 'y',
       git: null,
       gitProblem: 'git fetch: timed out',
@@ -99,7 +130,12 @@ Deno.test("buildProjects lists each project's repos with their git state", () =>
   ]);
   // No container mounts known: just the folder itself, not read yet.
   assertEquals(blog.repos, [
-    { folder: '/src/blog', worktreeOf: null, name: 'blog' },
+    {
+      folder: '/src/blog',
+      worktreeOf: null,
+      containerFolder: null,
+      name: 'blog',
+    },
   ]);
 });
 
@@ -135,9 +171,13 @@ Deno.test("isProjectRepo: only a listed project's own repo folders are roots", (
     ['/src/web'],
     new Set(),
     new Map([['/src/api', [
-      { folder: '/src/api', worktreeOf: null },
-      { folder: '/src/shared-lib', worktreeOf: null },
-      { folder: '/src/api.worktrees/fix', worktreeOf: '/src/api' },
+      { folder: '/src/api', worktreeOf: null, containerFolder: null },
+      { folder: '/src/shared-lib', worktreeOf: null, containerFolder: null },
+      {
+        folder: '/src/api.worktrees/fix',
+        worktreeOf: '/src/api',
+        containerFolder: null,
+      },
     ]]]),
   );
   assertEquals(isProjectRepo(views, '/src/api', '/src/api'), true);
@@ -161,9 +201,13 @@ Deno.test('repoFileFor: the innermost repo of that project holding the path', ()
     ['/src/web'],
     new Set(),
     new Map([['/src/api', [
-      { folder: '/src/api', worktreeOf: null },
-      { folder: '/src/shared-lib', worktreeOf: null },
-      { folder: '/src/api/vendor/lib', worktreeOf: null },
+      { folder: '/src/api', worktreeOf: null, containerFolder: null },
+      { folder: '/src/shared-lib', worktreeOf: null, containerFolder: null },
+      {
+        folder: '/src/api/vendor/lib',
+        worktreeOf: null,
+        containerFolder: null,
+      },
     ]]]),
   );
   assertEquals(repoFileFor(views, '/src/api', '/src/api/src/a.ts'), {
@@ -186,4 +230,20 @@ Deno.test('repoFileFor: the innermost repo of that project holding the path', ()
   assertEquals(repoFileFor(views, '/src/api', '/src/api2/a.ts'), null);
   assertEquals(repoFileFor(views, '/src/api', '/src/web/a.ts'), null);
   assertEquals(repoFileFor(views, '/src/api', '/etc/passwd'), null);
+});
+
+Deno.test('repoName: the path under /workspaces, else the basename', () => {
+  const cases: [string, string | null, string][] = [
+    ['/h/devc-tools', '/workspaces/tools/devc-tools', 'tools/devc-tools'],
+    ['/h/app', '/workspaces/app/', 'app'],
+    ['/h/a.worktrees/fix', '/workspaces/a.worktrees/fix', 'a.worktrees/fix'],
+    ['/h/ws', '/workspaces', 'ws'],
+    ['/h/app', '/src/app', 'app'],
+    ['/h/app', null, 'app'],
+    ['/', null, '/'],
+    ['/h/x', '/workspacesx/y', 'x'],
+  ];
+  for (const [folder, containerFolder, want] of cases) {
+    assertEquals(repoName(folder, containerFolder), want, folder);
+  }
 });

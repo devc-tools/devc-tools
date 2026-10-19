@@ -41,6 +41,7 @@ import {
   SIDEBAR_DEFAULT_WIDTH,
   statusShort,
   topStatus,
+  windowTitle,
 } from './lib/sidebar.js';
 import { AGENT_IDS, AGENT_MARKS, terminalIconKind } from './lib/agent_icons.js';
 import { resolvePath } from './lib/links.js';
@@ -57,6 +58,7 @@ import {
   formatSize,
   isHiddenName,
   isHtmlPath,
+  isWithin,
   newEntryNameError,
   opensAsDir,
   opensAsFile,
@@ -107,7 +109,8 @@ const SAFE_MODE = location.pathname.startsWith('/safe/');
 // ---------------------------------------------------------------------------------------------
 
 /**
- * @typedef {{id: string, localFolder: string, name: string, state: string, error?: string}} ContainerInfo
+ * @typedef {{id: string, localFolder: string, name: string, state: string, error?: string,
+ *   home?: string}} ContainerInfo
  * @typedef {import('./lib/layout_state.js').PaneRef} PaneRef
  * @typedef {import('./lib/layout_state.js').FileRef} FileRef
  * @typedef {import('./layout.js').Tile} Tile
@@ -1493,6 +1496,8 @@ function revealTile(tileId) {
 /** Marks the focused tile's Layout row and its pane's Containers row(s). */
 function updateCurrent() {
   const tile = targetTile();
+  const title = windowTitle(tile ? activeFolder(tile) : null);
+  if (document.title !== title) document.title = title;
   const { c } = resolveRef(tile?.ref ?? null);
   const key = c && tile?.ref ? paneKey(c.id, tile.ref.pane_id) : null;
   for (const row of $tree.querySelectorAll('[data-current]')) {
@@ -1508,6 +1513,18 @@ function updateCurrent() {
       el.setAttribute('data-current', '');
     }
   }
+}
+
+/**
+ * The folder a tile is in, for the window title: its pane's directory (a container path), or the
+ * folder holding its file; null for an empty tile or a pane that isn't there.
+ */
+function activeFolder(tile) {
+  if (tile.kind === 'file') {
+    return tile.file ? parentDir(fileHostPath(tile.file)) : null;
+  }
+  const { pane } = resolveRef(tile.ref);
+  return pane?.foreground_cwd || pane?.cwd || null;
 }
 
 // Hovering a pane's row in either section highlights its rows in the other.
@@ -2052,7 +2069,9 @@ function repoRows(localFolder) {
         tree.isOpen(''),
         {
           class: 'repo',
-          title: r.folder,
+          title: r.containerFolder && r.containerFolder !== r.folder
+            ? `${r.folder}\n${r.containerFolder}`
+            : r.folder,
           onclick: () => tree.toggle(''),
           oncontextmenu: (e) => openMenu(e, dirMenuItems(fr, '')),
         },
@@ -2092,7 +2111,8 @@ function repoRows(localFolder) {
 
 /**
  * A running container's Files row: its own filesystem from `/`, read with `docker exec` whatever
- * Herdr's state (`list_container_dir`). Collapsed until opened.
+ * Herdr's state (`list_container_dir`). Collapsed until opened. Open, `/workspaces` and the
+ * remote user's home (once the server knows it) come first, each a folder row of its own.
  */
 function containerFileRows(c) {
   const fr = containerRoot(c.localFolder);
@@ -2111,8 +2131,37 @@ function containerFileRows(c) {
       LABELS.files,
     ),
   ];
-  if (tree.isOpen('')) rows.push(...rootEntryRows(fr, 2));
+  if (!tree.isOpen('')) return rows;
+  for (const root of containerShortcuts(c)) {
+    const sfr = containerRoot(c.localFolder, root);
+    const stree = fileTree(sfr);
+    rows.push(
+      treeRow(
+        `${treeId(sfr)}\n`,
+        2,
+        stree.isOpen(''),
+        {
+          class: 'files-shortcut',
+          title: root,
+          onclick: () => stree.toggle(''),
+          oncontextmenu: (e) => openMenu(e, dirMenuItems(sfr, '')),
+        },
+        root,
+      ),
+    );
+    if (stree.isOpen('')) rows.push(...rootEntryRows(sfr, 3));
+  }
+  rows.push(...rootEntryRows(fr, 2));
   return rows;
+}
+
+/** The folders a container's Files row lists first: `/workspaces`, then the home when apart. */
+function containerShortcuts(c) {
+  const home = c.home;
+  const apart = typeof home === 'string' && home.startsWith('/') &&
+    home !== '/' &&
+    !isWithin('/workspaces', home);
+  return apart ? ['/workspaces', home] : ['/workspaces'];
 }
 
 const PROJECT_STATE_TEXT = {
@@ -2913,9 +2962,9 @@ function taskProjectLabel(localFolder, root) {
   if (localFolder === undefined) return LABELS.notRouted;
   const p = projects.get(localFolder);
   const name = p ? containerLabel(p, projects.values()) : basename(localFolder);
-  return root === undefined || root === localFolder
-    ? name
-    : `${name} · ${basename(root)}`;
+  if (root === undefined || root === localFolder) return name;
+  const repo = list(p?.repos).find((r) => r.folder === root);
+  return `${name} · ${repo?.name ?? basename(root)}`;
 }
 
 /**
@@ -3431,7 +3480,7 @@ function fillTaskRepos(root) {
       h(
         'option',
         { value: r.folder, title: r.folder, selected: r.folder === root },
-        basename(r.folder),
+        r.name ?? basename(r.folder),
       )
     ),
   );
@@ -3700,9 +3749,17 @@ $tree.addEventListener('keydown', (e) =>
  * @typedef {{localFolder: string, root: string, container?: true}} FileRoot
  */
 
-/** The file root of a project's container's own filesystem. @returns {FileRoot} */
-function containerRoot(localFolder) {
-  return { localFolder, root: '/', container: true };
+/**
+ * The file root of a project's container's own filesystem: `/` (the Files row), or a folder in it
+ * (the `/workspaces` and home rows under it). @returns {FileRoot}
+ */
+function containerRoot(localFolder, root = '/') {
+  return { localFolder, root, container: true };
+}
+
+/** `path` under container root `fr` as an absolute container path; the root itself for `''`. */
+function containerFilePath(fr, path) {
+  return path === '' ? fr.root : childPath(fr.root, path);
 }
 
 /**
@@ -3710,22 +3767,30 @@ function containerRoot(localFolder) {
  * A container root's never matches a repo's: those are absolute.
  */
 function treeId(fr) {
-  return `${fr.localFolder}\n${fr.container ? 'container' : fr.root}`;
+  if (!fr.container) return `${fr.localFolder}\n${fr.root}`;
+  return `${fr.localFolder}\ncontainer${fr.root === '/' ? '' : `:${fr.root}`}`;
 }
 
 /** Where a file root's open folders are saved in `sidebarState.filesOpen`. */
 function openKey(fr) {
-  return fr.container ? `container:${fr.localFolder}` : fr.root;
+  if (!fr.container) return fr.root;
+  return `container:${fr.localFolder}${fr.root === '/' ? '' : `\n${fr.root}`}`;
 }
 
-/** A file under `fr`, as a file tile names it. @returns {FileRef} */
+/**
+ * A file under `fr`, as a file tile names it. A container file is always under `/`, whichever
+ * row it was opened from, so it is one file to tiles and saved layouts. @returns {FileRef}
+ */
 function fileRefOf(fr, path) {
-  return {
-    localFolder: fr.localFolder,
-    root: fr.root,
-    path,
-    ...(fr.container ? { container: true } : {}),
-  };
+  if (fr.container) {
+    return {
+      localFolder: fr.localFolder,
+      root: '/',
+      path: containerFilePath(fr, path).slice(1),
+      container: true,
+    };
+  }
+  return { localFolder: fr.localFolder, root: fr.root, path };
 }
 
 /** Each file root's tree, by {@link treeId}: made when its row is first drawn. */
@@ -3754,7 +3819,7 @@ function fileTree(fr) {
         ? call({
           type: 'list_container_dir',
           container: c.id,
-          path: childPath('/', path),
+          path: containerFilePath(fr, path),
         })
         : Promise.reject(new Error(LABELS.notRunning));
     },
@@ -3801,7 +3866,7 @@ function relistForContainers() {
 
 /** `path`'s container path, from the nearest listed folder at or above it; null if none knows. */
 function containerPathOf(fr, path) {
-  if (fr.container) return childPath('/', path);
+  if (fr.container) return containerFilePath(fr, path);
   if (!containerByFolder(fr.localFolder)) return null;
   const tree = fileTree(fr);
   const parts = path === '' ? [] : path.split('/');
@@ -3836,7 +3901,7 @@ function openInEditor(fr, path, where) {
   createPane(
     c,
     fr.container
-      ? { type: 'open_file', path: childPath('/', path) }
+      ? { type: 'open_file', path: containerFilePath(fr, path) }
       : { type: 'open_file', root: fr.root, path },
     where === 'right'
       ? (ref) => tiling.addBeside(targetTile()?.id ?? null, ref, 'right')
@@ -3866,7 +3931,7 @@ async function openInBrowser(fr, path) {
         ? {
           type: 'preview_container_file',
           container: c.id,
-          path: childPath('/', path),
+          path: containerFilePath(fr, path),
         }
         : {
           type: 'preview_file',
@@ -3968,7 +4033,7 @@ function newShellIn(fr, path) {
     );
     return;
   }
-  newShell(c, { cwd: childPath('/', path) }, placeInFocusedStack);
+  newShell(c, { cwd: containerFilePath(fr, path) }, placeInFocusedStack);
 }
 
 /** A folder's menu: the root itself (`path` '', its repo or Files row) or a directory under it. */
@@ -4113,7 +4178,9 @@ async function submitNewEntry(entry) {
   }
   const path = childPath(dir, name);
   const where = (p) =>
-    fr.container ? { path: childPath('/', p) } : { root: fr.root, path: p };
+    fr.container
+      ? { path: containerFilePath(fr, p) }
+      : { root: fr.root, path: p };
   if (entry.rename === path) {
     cancelNewEntry(entry);
     return;
@@ -4168,7 +4235,7 @@ async function deleteEntry(fr, path, kind) {
       type: 'delete_file',
       container: c.id,
       ...(fr.container
-        ? { path: childPath('/', path) }
+        ? { path: containerFilePath(fr, path) }
         : { root: fr.root, path }),
     });
   } catch (e) {

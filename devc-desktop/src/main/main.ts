@@ -158,6 +158,17 @@ async function main(): Promise<void> {
   }
   win.on('resize', relayout);
 
+  // The window's title is devc web's page title (the active tile's folder) while it shows, and
+  // `devc web` otherwise: a BaseWindow doesn't follow its views' titles by itself.
+  let devcTitle = 'devc web';
+  function updateTitle(): void {
+    win.setTitle(showingDevc ? devcTitle : 'devc web');
+  }
+  devcView.webContents.on('page-title-updated', (_e, title) => {
+    devcTitle = title || 'devc web';
+    updateTitle();
+  });
+
   async function loadState(): Promise<void> {
     try {
       const s = JSON.parse(await readFile(STATE_PATH, 'utf8'));
@@ -238,7 +249,9 @@ async function main(): Promise<void> {
   function showStatus(): void {
     showingDevc = false;
     origin = null;
+    devcTitle = 'devc web';
     relayout();
+    updateTitle();
   }
 
   async function readConfig(): Promise<string | null> {
@@ -293,7 +306,9 @@ async function main(): Promise<void> {
       if (current !== child || stopping) return;
       origin = devcOrigin(url);
       showingDevc = true;
+      devcTitle = 'devc web';
       relayout();
+      updateTitle();
       void devcView.webContents.loadURL(url);
     });
     void child.exited.then((code) => {
