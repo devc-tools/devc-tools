@@ -45,6 +45,7 @@ function fakeSpawn() {
       made.push(p);
       return {
         pid: 999999,
+        process: 'zsh',
         onData: (cb: (d: string) => void) => p.data = cb,
         onExit: (cb: (e: { exitCode: number }) => void) => {
           const prev = p.exit;
@@ -111,4 +112,20 @@ test('HostPty: sizes from the page are whole numbers in range, else the defaults
   assertEquals([made[0].opts.cols, made[0].opts.rows], [80, 24]);
   pty.resize(0, 2.5);
   assertEquals(made[0].sizes, [[80, 24]]);
+});
+
+test('HostPty: shell and foreground', () => {
+  const { spawn, made } = fakeSpawn();
+  const pty = new HostPty({
+    shell: '/bin/zsh',
+    cwd: '/',
+    env: {},
+    onOutput: () => {},
+    onExit: () => {},
+  }, spawn);
+  assertEquals([pty.shell, pty.foreground], ['/bin/zsh', null]);
+  pty.start(80, 24);
+  assertEquals(pty.foreground, 'zsh');
+  made[0].exit({ exitCode: 0 });
+  assertEquals(pty.foreground, null);
 });

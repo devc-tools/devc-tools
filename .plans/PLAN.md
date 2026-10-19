@@ -2326,4 +2326,4 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
 | devc-desktop on Electron — one window with devc web and a host terminal                                            | [devc-desktop-electron](archived/devc-desktop-electron.md)                         | complete    |
 | git-protect live check — `devc status` and the bridge read the container's mountinfo                               | [git-protect-live-check](git-protect-live-check.md)                                |             |
 | `devc web` editable viewer — file tiles edit and save through `write_file`                                         | [devc-web-editable-viewer](devc-web-editable-viewer.md)                            | in progress |
-| devc-desktop host cd — the host terminal's right-click `cd`s to devc web's active pane folder                      | [devc-desktop-host-cd](devc-desktop-host-cd.md)                                    |             |
+| devc-desktop host cd — the host terminal's right-click `cd`s to devc web's active pane folder                      | [devc-desktop-host-cd](devc-desktop-host-cd.md)                                    | in progress |

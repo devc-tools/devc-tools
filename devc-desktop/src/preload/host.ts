@@ -18,4 +18,5 @@ contextBridge.exposeInMainWorld('hostTerm', {
   },
   info: () => ipcRenderer.invoke('host-term:info'),
   dragDrawer: (dy: number) => ipcRenderer.send('host-term:drag', dy),
+  contextMenu: () => ipcRenderer.send('host-term:context-menu'),
 });

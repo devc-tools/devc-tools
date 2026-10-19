@@ -76,6 +76,9 @@ export type ClientMessage =
     cursor: Cell;
   }
   | { type: 'start_session'; id: string; container: string }
+  /** The page's focused terminal pane, or none: devc-desktop's host terminal `cd`s to its folder. */
+  | { type: 'active_pane'; container: string; pane_id: string }
+  | { type: 'active_pane' }
   | {
     type: 'start_project' | 'stop_project' | 'forget_project' | 'add_project';
     id: string;
@@ -385,6 +388,9 @@ function pane(o: Obj): { container: string; pane_id: string } {
   return { container: str(o, 'container'), pane_id: str(o, 'pane_id') };
 }
 
+/** The longest `container` / `pane_id` an `active_pane` may carry. */
+const MAX_ACTIVE_ID = 256;
+
 /** Herdr's `pane.selection.read` takes a `u16` column. */
 const MAX_COLUMN = 65535;
 
@@ -513,6 +519,20 @@ function parseFields(m: Obj): ClientMessage {
         anchor: cell(m, 'anchor'),
         cursor: cell(m, 'cursor'),
       };
+    case 'active_pane': {
+      if (m.container === undefined && m.pane_id === undefined) {
+        return { type: 'active_pane' };
+      }
+      const p = pane(m);
+      if (
+        p.container.length > MAX_ACTIVE_ID || p.pane_id.length > MAX_ACTIVE_ID
+      ) {
+        throw new Invalid(
+          `'container' and 'pane_id' must be at most ${MAX_ACTIVE_ID} characters`,
+        );
+      }
+      return { type: 'active_pane', ...p };
+    }
     case 'start_session':
       return {
         type: 'start_session',

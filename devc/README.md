@@ -416,7 +416,11 @@ is published from any container: the host server finds devcontainers with
 Security: Herdr panes are shells, so `/ws` only accepts requests whose `Host`
 is `127.0.0.1:<port>`, `localhost:<port>` or `host.docker.internal:<port>`,
 whose `Origin` is that page or absent (a non-browser client), and that carry
-the token. There is no remote access by design.
+the token. There is no remote access by design. Routes under `/desktop/` are
+for devc-desktop's main process: they need `Authorization: Bearer <token>`
+(never `?token=`) and refuse any request that has an `Origin`. The only one is
+`GET /desktop/active-folder`, the host folder behind the terminal pane a page
+last reported as focused, for devc-desktop's right-click `cd`.
 
 **From a container:** on Docker Desktop, a container reaches the server at
 `host.docker.internal:<port>`. Give an agent the printed URL with the host

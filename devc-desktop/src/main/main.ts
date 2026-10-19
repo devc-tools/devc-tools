@@ -9,7 +9,7 @@
 //     through node-pty, opened only from the app menu.
 // Why this shape, and what it was measured against: `.plans/devc-desktop-electron.md`.
 
-import { readFile } from 'node:fs/promises';
+import { readFile, realpath, stat } from 'node:fs/promises';
 import { hostname, userInfo } from 'node:os';
 import { join } from 'node:path';
 import {
@@ -36,15 +36,22 @@ import {
 } from './launch.ts';
 import {
   appArgs,
+  baseName,
+  type CdTarget,
+  cdTarget,
   clampDrawer,
   debugReason,
   devcMayNavigate,
   devcOrigin,
   devcPermission,
+  devcToken,
   DRAWER_DEFAULT_SHARE,
   externalUrl,
   fromView,
   layout,
+  menuLabel,
+  shellIdle,
+  shellQuote,
 } from './policy.ts';
 import { accountShell, HostPty, hostShell, ptyEnv } from './pty.ts';
 
@@ -72,6 +79,8 @@ let retiring: Promise<void> | null = null;
 let stopping = false;
 /** devc web's origin while its page is shown; navigation off it is refused. */
 let origin: string | null = null;
+/** That devc web's token, for `/desktop/` requests. Never logged. */
+let devcWebToken: string | null = null;
 
 /** The drawer's height in px, or `null` while closed; `drawerHeight` survives closing. */
 let drawerOpen = false;
@@ -249,6 +258,7 @@ async function main(): Promise<void> {
   function showStatus(): void {
     showingDevc = false;
     origin = null;
+    devcWebToken = null;
     devcTitle = 'devcd';
     relayout();
     updateTitle();
@@ -305,6 +315,7 @@ async function main(): Promise<void> {
     void child.ready.then((url) => {
       if (current !== child || stopping) return;
       origin = devcOrigin(url);
+      devcWebToken = devcToken(url);
       showingDevc = true;
       devcTitle = 'devcd';
       relayout();
@@ -414,6 +425,80 @@ async function main(): Promise<void> {
       toggle: TOGGLE,
     };
   });
+
+  // The right-click item: `cd` to the host folder behind devc web's active terminal pane. The
+  // folder comes from devc web's server, never from its page directly, and is checked by
+  // `cdTarget` before it is shown, and again before it is typed.
+
+  /** The checked folder, or the reason there is none, as the item's label says it. */
+  async function activeCd(): Promise<CdTarget> {
+    if (origin === null || devcWebToken === null) {
+      return { ok: false, label: "devc web isn't running" };
+    }
+    if (!hostPty.running) {
+      return { ok: false, label: "The host shell isn't running" };
+    }
+    let answer: unknown;
+    try {
+      // Node's fetch, not Electron's `net`: Chromium's stack may add an Origin, which the
+      // server refuses on `/desktop/`.
+      const res = await fetch(`${origin}/desktop/active-folder`, {
+        headers: { Authorization: `Bearer ${devcWebToken}` },
+        signal: AbortSignal.timeout(1000),
+      });
+      if (res.status !== 200) throw new Error(String(res.status));
+      answer = await res.json();
+    } catch {
+      return { ok: false, label: 'devc web gave no folder' };
+    }
+    return cdTarget(answer, { realpath, stat });
+  }
+
+  /** Whether the shell is at its prompt; otherwise the busy program's name. */
+  function busyWith(): string | null {
+    const fg = hostPty.foreground;
+    if (fg === null || shellIdle(fg, hostPty.shell)) return null;
+    return baseName(fg);
+  }
+
+  let menuPending = false;
+  ipcMain.on('host-term:context-menu', (e) => {
+    if (!fromHost(e) || !drawerOpen || menuPending) return;
+    menuPending = true;
+    void activeCd().then((target) => {
+      const busy = target.ok ? busyWith() : null;
+      const label = target.ok
+        ? menuLabel(
+          target,
+          app.getPath('home'),
+          process.platform,
+          busy !== null ? ` (busy: ${busy})` : '',
+        )
+        : null;
+      const item: MenuItemConstructorOptions = !target.ok
+        ? { label: target.label, enabled: false }
+        : label === null
+        ? { label: "The folder's name is too long to show", enabled: false }
+        : {
+          label,
+          enabled: busy === null,
+          click: () => void cdTo(target.path),
+        };
+      Menu.buildFromTemplate([item]).popup({ window: win });
+    }).finally(() => menuPending = false);
+  });
+
+  /** Checks again, and types the `cd` only if it still names the folder the item showed. */
+  async function cdTo(shown: string): Promise<void> {
+    const target = await activeCd();
+    if (!target.ok || target.path !== shown || busyWith() !== null) {
+      shell.beep();
+      return;
+    }
+    // Ctrl+E, Ctrl+U: whatever was typed on the prompt goes first.
+    hostPty.write(`\x05\x15cd ${shellQuote(target.path)}\r`);
+    hostView.webContents.focus();
+  }
 
   // ---- the status view ---------------------------------------------------------------------------
 

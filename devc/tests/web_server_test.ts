@@ -1,6 +1,7 @@
 // Pure checks only: the `test` task has no --allow-net, so nothing here opens a socket.
 import { assert, assertEquals, assertThrows } from 'jsr:@std/assert';
 import {
+  activeFolder,
   authorize,
   hostAllowed,
   mintToken,
@@ -838,4 +839,158 @@ Deno.test('parseClientMessage: unpin_file, rename_pin and open_pinned name a pin
     const r = rejected(bad);
     assertEquals([r.id, r.code], ['f1', 'bad_request'], JSON.stringify(bad));
   }
+});
+
+Deno.test('authorize: /desktop/ needs Bearer <token> and no Origin', () => {
+  const host = `127.0.0.1:${PORT}`;
+  const path = '/desktop/active-folder';
+  const bearer = `Bearer ${TOKEN}`;
+  assertEquals(check(path, { host, authorization: bearer }), null);
+  for (
+    const origin of [`http://127.0.0.1:${PORT}`, 'https://evil.test', 'null']
+  ) {
+    assertEquals(check(path, { host, authorization: bearer, origin }), 403);
+  }
+  assertEquals(check(path, { host }), 401);
+  assertEquals(
+    check(path, { host, authorization: `Bearer ${'b'.repeat(64)}` }),
+    401,
+  );
+  assertEquals(check(path, { host, authorization: TOKEN }), 401);
+  assertEquals(check(`${path}?token=${TOKEN}`, { host }), 401);
+  assertEquals(
+    check(path, { host: `evil.test:${PORT}`, authorization: bearer }),
+    403,
+  );
+  // Other routes are unchanged: a Bearer header does not open /ws, and static needs none.
+  assertEquals(check('/ws', { ...wsHeaders(), authorization: bearer }), 401);
+  assertEquals(check('/desktop', { host }), null);
+});
+
+Deno.test('parseClientMessage: active_pane names a pane or none', () => {
+  const ok = (m: unknown) => {
+    const r = parseClientMessage(JSON.stringify(m));
+    assert(r.ok, JSON.stringify(m));
+    return r.msg;
+  };
+  assertEquals(ok({ type: 'active_pane' }), { type: 'active_pane' });
+  assertEquals(ok({ type: 'active_pane', container: 'c', pane_id: 'w1:p1' }), {
+    type: 'active_pane',
+    container: 'c',
+    pane_id: 'w1:p1',
+  });
+  assertEquals(
+    rejected({ type: 'active_pane', container: 'c' }).code,
+    'bad_request',
+  );
+  assertEquals(
+    rejected({ type: 'active_pane', pane_id: 'p' }).code,
+    'bad_request',
+  );
+  assertEquals(
+    rejected({ type: 'active_pane', container: '', pane_id: 'p' }).code,
+    'bad_request',
+  );
+  assertEquals(
+    rejected({ type: 'active_pane', container: 'c'.repeat(257), pane_id: 'p' })
+      .code,
+    'bad_request',
+  );
+  assert(
+    parseClientMessage(
+      JSON.stringify({
+        type: 'active_pane',
+        container: 'c'.repeat(256),
+        pane_id: 'p',
+      }),
+    ).ok,
+  );
+});
+
+Deno.test("activeFolder maps the active pane's cwd through the bind mounts", () => {
+  const mounts = [
+    {
+      type: 'bind' as const,
+      source: '/h/foo',
+      destination: '/workspaces/foo',
+      rw: true,
+    },
+    {
+      type: 'volume' as const,
+      source: '/var/lib/docker/v',
+      destination: '/data',
+      rw: true,
+    },
+  ];
+  const snapshot = (panes: unknown) => ({ panes });
+  const active = { container: 'c1', pane_id: 'w1:p1' };
+  const found = (cwd: unknown, extra: Record<string, unknown> = {}) => ({
+    snapshot: snapshot([{ pane_id: 'w1:p1', cwd, ...extra }, {
+      pane_id: 'w1:p2',
+      cwd: '/x',
+    }]),
+    mounts,
+  });
+  assertEquals(activeFolder(null, found('/workspaces/foo')), {
+    ok: false,
+    reason: 'no_active_pane',
+  });
+  assertEquals(activeFolder(active, null), { ok: false, reason: 'no_session' });
+  assertEquals(
+    activeFolder({ ...active, pane_id: 'w9:p9' }, found('/workspaces/foo')),
+    { ok: false, reason: 'no_cwd' },
+  );
+  assertEquals(activeFolder(active, found(undefined)), {
+    ok: false,
+    reason: 'no_cwd',
+  });
+  assertEquals(activeFolder(active, found('')), {
+    ok: false,
+    reason: 'no_cwd',
+  });
+  assertEquals(activeFolder(active, found('rel/dir')), {
+    ok: false,
+    reason: 'no_cwd',
+  });
+  assertEquals(activeFolder(active, { snapshot: null, mounts }), {
+    ok: false,
+    reason: 'no_cwd',
+  });
+  assertEquals(activeFolder(active, found('/tmp')), {
+    ok: false,
+    reason: 'not_mounted',
+  });
+  // A volume is not a host folder.
+  assertEquals(activeFolder(active, found('/data/x')), {
+    ok: false,
+    reason: 'not_mounted',
+  });
+  // The shell's own cwd, never a child's.
+  assertEquals(
+    activeFolder(
+      active,
+      found('/workspaces/foo/sub', { foreground_cwd: '/tmp' }),
+    ),
+    {
+      ok: true,
+      folder: '/h/foo/sub',
+      mount: '/h/foo',
+      container: 'c1',
+      containerFolder: '/workspaces/foo/sub',
+    },
+  );
+  // `panes` as an object of panes, as Herdr may send it.
+  assertEquals(
+    activeFolder(active, {
+      snapshot: snapshot({ a: { pane_id: 'w1:p1', cwd: '/workspaces/foo' } }),
+      mounts,
+    }),
+    {
+      ok: true,
+      folder: '/h/foo',
+      mount: '/h/foo',
+      container: 'c1',
+      containerFolder: '/workspaces/foo',
+    },
+  );
 });

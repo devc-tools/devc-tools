@@ -254,6 +254,8 @@ const pendingShells = new Map();
 const pendingCalls = new Map();
 
 let socket = /** @type {WebSocket | null} */ (null);
+/** The `active_pane` last sent, as `container\npane_id` ('' for none); `null` until one is. */
+let sentActivePane = null;
 let nextRequestId = 0;
 /** The static generation this page was loaded from: the first `hello`'s. */
 let bootGeneration = /** @type {string | null} */ (null);
@@ -402,6 +404,7 @@ function connect() {
   ws.onopen = () => {
     $conn.dataset.state = 'open';
     $conn.textContent = 'live';
+    reportActivePane(true);
   };
   ws.onmessage = (ev) => {
     let msg;
@@ -1513,6 +1516,7 @@ function updateCurrent() {
   if (document.title !== title) document.title = title;
   const { c } = resolveRef(tile?.ref ?? null);
   const key = c && tile?.ref ? paneKey(c.id, tile.ref.pane_id) : null;
+  reportActivePane(false);
   for (const row of $tree.querySelectorAll('[data-current]')) {
     row.removeAttribute('data-current');
   }
@@ -1527,6 +1531,28 @@ function updateCurrent() {
     }
   }
 }
+
+/**
+ * Tells the server which terminal pane is focused (none when the focused tile isn't one), for
+ * devc-desktop's host terminal, which offers to `cd` to its folder. Sent when it changes, and
+ * with `force` whatever it is: on connecting, and when this window gains focus, so the window
+ * last used is the one that counts.
+ *
+ * @param {boolean} force
+ */
+function reportActivePane(force) {
+  const tile = targetTile();
+  const { c } = resolveRef(tile?.ref ?? null);
+  const msg = c && tile?.ref
+    ? { type: 'active_pane', container: c.id, pane_id: tile.ref.pane_id }
+    : { type: 'active_pane' };
+  const now = 'container' in msg ? `${msg.container}\n${msg.pane_id}` : '';
+  if (!force && now === sentActivePane) return;
+  if (!socket || socket.readyState !== WebSocket.OPEN) return;
+  sentActivePane = now;
+  send(msg);
+}
+window.addEventListener('focus', () => reportActivePane(true));
 
 /**
  * The repo a tile is in, for the window title: the basename of the repo it belongs to (a

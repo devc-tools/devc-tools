@@ -14,6 +14,8 @@ interface HostTerm {
     { user: string; host: string; refused: string | null; toggle: string }
   >;
   dragDrawer(dy: number): void;
+  /** Asks the app for its right-click menu: `cd` to devc web's active terminal folder. */
+  contextMenu(): void;
 }
 
 declare global {
@@ -65,6 +67,12 @@ term.onResize(({ cols, rows }) => {
   if (running) host.resize(cols, rows);
 });
 new ResizeObserver(() => fit.fit()).observe($('term'));
+
+// The right-click menu is the app's own (a native menu), built by the main process.
+$('term').addEventListener('contextmenu', (e) => {
+  e.preventDefault();
+  host.contextMenu();
+});
 
 // A paste with a line break in it would run commands at once: show it and ask first. A
 // single line goes straight in, as in any terminal.

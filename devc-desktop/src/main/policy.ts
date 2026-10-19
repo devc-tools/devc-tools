@@ -156,3 +156,134 @@ function stripHash(u: string): string {
   const i = u.indexOf('#');
   return i < 0 ? u : u.slice(0, i);
 }
+
+// ---- the host terminal's `cd` item -----------------------------------------------------------
+// devc web's server names the host folder behind devc web's active terminal pane
+// (`GET /desktop/active-folder`). The page, Herdr and the container all feed that answer, so
+// it is checked here before anything is shown or typed. Why: `.plans/devc-desktop-host-cd.md`.
+
+/** devc web's token, from its ready-line URL's `#token=`; `null` without one. */
+export function devcToken(pageUrl: string): string | null {
+  const m = /#token=([0-9a-f]{64})$/.exec(pageUrl);
+  return m ? m[1] : null;
+}
+
+/** The longest folder the menu shows: a longer one could be cut off where the user can't see. */
+const MAX_SHOWN = 256;
+
+/** Controls, bidi overrides and zero-width characters: a name with one may not read as it is. */
+const UNSHOWABLE = /[\u0000-\u001f\u007f-\u009f؜​-‏‪-‮⁠-⁩﻿]/;
+
+const NO_FOLDER = 'devc web gave no folder';
+
+const REASON_LABELS: Record<string, string> = {
+  no_active_pane: 'No active terminal in devc web',
+  no_session: "Its container isn't running",
+  no_cwd: "The terminal's folder isn't known",
+  not_mounted: "The terminal's folder isn't mounted from this machine",
+};
+
+export interface CdFs {
+  realpath(path: string): Promise<string>;
+  stat(path: string): Promise<{ isDirectory(): boolean }>;
+}
+
+export type CdTarget =
+  | { ok: true; path: string; mount: string }
+  | { ok: false; label: string };
+
+const pathLike = (v: unknown): v is string =>
+  typeof v === 'string' && v.startsWith('/') && v.length <= 4096 &&
+  !v.includes('\0');
+
+/**
+ * The folder the host terminal may `cd` to, from devc web's answer: its realpath, which must be
+ * the mount's own realpath or inside it (a container can plant `x -> /etc` in a mount, which on
+ * this machine is this machine's `/etc`), a directory, and showable. Otherwise the disabled
+ * item's label.
+ */
+export async function cdTarget(answer: unknown, fs: CdFs): Promise<CdTarget> {
+  const a = typeof answer === 'object' && answer !== null
+    ? answer as Record<string, unknown>
+    : {};
+  if (a.ok !== true) {
+    const label = typeof a.reason === 'string'
+      ? REASON_LABELS[a.reason]
+      : undefined;
+    return { ok: false, label: label ?? NO_FOLDER };
+  }
+  if (!pathLike(a.folder) || !pathLike(a.mount)) {
+    return { ok: false, label: NO_FOLDER };
+  }
+  let real: string, realMount: string;
+  try {
+    real = await fs.realpath(a.folder);
+    realMount = await fs.realpath(a.mount);
+  } catch {
+    return { ok: false, label: "The folder doesn't exist on this machine" };
+  }
+  const inside = real === realMount ||
+    real.startsWith(realMount.endsWith('/') ? realMount : `${realMount}/`);
+  if (!inside) return { ok: false, label: 'The folder is outside its mount' };
+  try {
+    if (!(await fs.stat(real)).isDirectory()) {
+      return { ok: false, label: 'Not a folder' };
+    }
+  } catch {
+    return { ok: false, label: 'Not a folder' };
+  }
+  if (real.length > MAX_SHOWN || UNSHOWABLE.test(real)) {
+    return { ok: false, label: "The folder's name can't be shown safely" };
+  }
+  return { ok: true, path: real, mount: realMount };
+}
+
+/** `p` in single quotes for bash, zsh and fish: each `'` becomes `'\''`. */
+export function shellQuote(p: string): string {
+  return `'${p.replaceAll("'", "'\\''")}'`;
+}
+
+/**
+ * The longest label the menu shows in full: Chromium's menus on Linux cut a label off at about
+ * 800 px, with no ellipsis.
+ */
+export const MAX_LABEL = 80;
+
+/**
+ * The menu item's label, `cd <folder>` and then `suffix`, at most {@link MAX_LABEL} characters;
+ * `null` when it can't fit. The folder shows `~` for `home`. When that is too long, the mount's
+ * part (the host's own, from its mount table) shortens to `…/<mount's name>`. The part below
+ * the mount, which a container chose, always shows in full. Electron reads `&` as a mnemonic
+ * marker on Windows and Linux, so there it is doubled to show as itself.
+ */
+export function menuLabel(
+  target: { path: string; mount: string },
+  home: string,
+  platform: string,
+  suffix = '',
+): string | null {
+  const tilde = (p: string) =>
+    home !== '/' && (p === home || p.startsWith(`${home}/`))
+      ? `~${p.slice(home.length)}`
+      : p;
+  const below = target.path.slice(target.mount.length).replace(/^\/*/, '');
+  const short = `…/${baseName(target.mount)}${below ? `/${below}` : ''}`;
+  const shown = [tilde(target.path), short]
+    .map((f) => `cd ${f}${suffix}`)
+    .find((l) => l.length <= MAX_LABEL);
+  if (shown === undefined) return null;
+  return platform === 'darwin' ? shown : shown.replaceAll('&', '&&');
+}
+
+/** The last segment of a path: node-pty names the foreground process by name or by path. */
+export function baseName(p: string): string {
+  return p.replace(/\/+$/, '').split('/').pop() ?? p;
+}
+
+/**
+ * Whether the host shell is at its prompt: its foreground process (node-pty's `IPty.process`)
+ * is the shell itself, compared by basename, a login shell's leading `-` dropped.
+ */
+export function shellIdle(foreground: string, shell: string): boolean {
+  return baseName(foreground).replace(/^-/, '') === baseName(shell);
+}

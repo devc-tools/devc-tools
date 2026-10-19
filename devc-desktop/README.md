@@ -137,6 +137,13 @@ Restarting`devc web` does not touch it. If the shell exits, a key press starts a
 A paste with a line break in it is shown in a bar first, and goes in only when you press
 **Paste**.
 
+Right-click in the host terminal for **`cd <folder>`**: the folder on this machine behind devc
+web's focused terminal pane (the pane's own directory, through its container's bind mounts).
+Clicking it clears whatever is typed at the prompt (Ctrl+E, Ctrl+U) and runs `cd '<folder>'`.
+The item is disabled, with the reason, when there is no such folder, and while a program runs
+in the shell (`(busy: vim)`). If devc web is open in a browser too, the window you used last
+decides which pane counts.
+
 ### Why devc web cannot reach it
 
 An agent in a container can control devc web's page, for example through `--live` code from a
@@ -158,6 +165,18 @@ shell only over IPC, and the app checks every message's sender. The app runs **n
 listener of its own. The drawer only opens from the app menu. Started with a debugging switch
 (`--remote-debugging-port`, `--inspect`), the app keeps the host terminal off, because those
 would let any local process drive it.
+
+**The right-click `cd`** gets its folder from devc web's server, never from devc web's page
+directly. The page tells the server which pane is focused, and the app asks the server
+(`GET /desktop/active-folder` with the token). The page still has no way to reach the app. The
+answer comes from the page, Herdr and the container, so the app checks it before showing it:
+the folder's real path (symlinks resolved on this machine) must be inside the bind mount it came
+from, must be a folder, and must have a printable name of at most 256 characters, with no
+control, bidi or zero-width characters. That real path is what it types, quoted. The item shows
+it with `~` for your home folder. A label longer than 80 characters shortens the mount's own part
+to `…/<mount name>`, but never the part below the mount, which is the part a container chooses.
+It is checked again when you click, and nothing is typed if the folder changed. Anything holding the token (devc web's page,
+an agent with it) can choose **which** pane counts.
 
 **What was tested:** Electron 44.5.0 under Xvfb on Linux, with real keystrokes. A hostile copy
 of devc web tried to take keyboard focus every 300 ms, with `window.focus()`, focusing an input,
@@ -189,6 +208,11 @@ The measurements are in
   paste bar shows multi-line pastes before they run, but a one-liner goes straight in.
 - **`cd` into a container-writable repo and running git there**, as in any terminal. devc's
   git-protect is the defence there.
+- **Which folder the right-click `cd` offers.** A container can steer it to any folder inside
+  your bind mounts. You see the folder before you click.
+- **A folder swapped after the check.** A container can replace a folder with a symlink between
+  the app's check and the `cd`. Look at the prompt afterwards.
+- **vi-mode shells.** Ctrl+E and Ctrl+U may not clear the prompt before the `cd`.
 
 ## Development
 

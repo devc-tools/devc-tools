@@ -66,6 +66,20 @@ export class HostPty {
     return this.#pty !== null;
   }
 
+  /** The shell it runs. */
+  get shell(): string {
+    return this.#opts.shell;
+  }
+
+  /** The foreground process's name (node-pty's `process`), or `null` while no shell runs. */
+  get foreground(): string | null {
+    try {
+      return this.#pty?.process ?? null;
+    } catch {
+      return null;
+    }
+  }
+
   start(cols: number, rows: number): void {
     if (this.#pty !== null) {
       this.resize(cols, rows);

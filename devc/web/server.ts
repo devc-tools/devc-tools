@@ -40,6 +40,7 @@ import {
 import { loadGlobalConfig } from '@devc-tools/core/config.ts';
 import {
   containerToHostPath,
+  findMountForContainerPath,
   hostToContainerPath,
 } from '@devc-tools/core/mount_paths.ts';
 import { basenamePosix, dirnamePosix } from '@devc-tools/core/posix.ts';
@@ -189,7 +190,8 @@ export function tokenMatches(given: string | null, expected: string): boolean {
 /**
  * The HTTP status a request is refused with, or `null` when it may proceed. Host is checked on
  * every request (403); `/ws` additionally needs this page's Origin or none (403) and the token
- * (401).
+ * (401). `/desktop/` routes are for devc-desktop's main process, never a page: any Origin is
+ * refused (403), and the token comes only as `Authorization: Bearer` (401).
  */
 export function authorize(
   headers: Headers,
@@ -198,10 +200,70 @@ export function authorize(
   token: string,
 ): 401 | 403 | null {
   if (!hostAllowed(headers.get('host'), port)) return 403;
+  if (url.pathname.startsWith(DESKTOP_PREFIX)) {
+    if (headers.get('origin') !== null) return 403;
+    const auth = headers.get('authorization');
+    const given = auth?.startsWith('Bearer ') ? auth.slice(7) : null;
+    return tokenMatches(given, token) ? null : 401;
+  }
   if (url.pathname !== '/ws') return null;
   if (!originAllowed(headers.get('origin'), port)) return 403;
   if (!tokenMatches(url.searchParams.get('token'), token)) return 401;
   return null;
+}
+
+/** The paths only devc-desktop's main process asks for. */
+const DESKTOP_PREFIX = '/desktop/';
+
+/** What `GET /desktop/active-folder` answers. */
+export type ActiveFolder =
+  | {
+    ok: true;
+    /** The host path behind the pane's folder, unresolved: devc-desktop checks it. */
+    folder: string;
+    /** The bind mount's host `source` that covers it. */
+    mount: string;
+    container: string;
+    containerFolder: string;
+  }
+  | {
+    ok: false;
+    reason: 'no_active_pane' | 'no_session' | 'no_cwd' | 'not_mounted';
+  };
+
+/**
+ * The host folder of the active pane, the last one any page reported: its shell's own `cwd`
+ * (never `foreground_cwd`) mapped through the container's bind mounts. `found` is the pane's
+ * container's snapshot and mounts, or `null` when no session runs for it. Everything here
+ * comes from a page or a container, so devc-desktop verifies the answer before using it.
+ */
+export function activeFolder(
+  active: { container: string; pane_id: string } | null,
+  found:
+    | { snapshot: Record<string, unknown> | null; mounts: ContainerMount[] }
+    | null,
+): ActiveFolder {
+  if (active === null) return { ok: false, reason: 'no_active_pane' };
+  if (found === null) return { ok: false, reason: 'no_session' };
+  const pane = snapshotPanes(found.snapshot).find((p) =>
+    p.pane_id === active.pane_id
+  ) as Record<string, unknown> | undefined;
+  const cwd = pane?.cwd;
+  if (typeof cwd !== 'string' || !cwd.startsWith('/')) {
+    return { ok: false, reason: 'no_cwd' };
+  }
+  const match = findMountForContainerPath(cwd, found.mounts);
+  const folder = containerToHostPath(cwd, found.mounts);
+  if (match === null || folder === null) {
+    return { ok: false, reason: 'not_mounted' };
+  }
+  return {
+    ok: true,
+    folder,
+    mount: match.mount.source,
+    container: active.container,
+    containerFolder: cwd,
+  };
 }
 
 /** A fresh 32-byte token, hex. */
@@ -361,6 +423,9 @@ export async function startWeb(
   const openLink = openRedirect(opts.openNonce, token);
   const previewList = previews();
   const sessions = new Map<string, ContainerSession>();
+  // The focused terminal pane the last page to report one named (any client's), for
+  // devc-desktop's host terminal. A client closing leaves it.
+  let activePane: { container: string; pane_id: string } | null = null;
   // Each running container's remote user's home, for its Files node's home row: read once, on
   // the first container file request (the connection is resolved then anyway). `null` when it
   // couldn't be read; not retried.
@@ -1683,6 +1748,12 @@ export async function startWeb(
   };
 
   const handle = async (c: Client, msg: ClientMessage) => {
+    if (msg.type === 'active_pane') {
+      activePane = 'container' in msg
+        ? { container: msg.container, pane_id: msg.pane_id }
+        : null;
+      return;
+    }
     if (msg.type === 'client_ready') {
       await liveStatic?.clientReady(msg.generation);
       return;
@@ -1974,6 +2045,26 @@ export async function startWeb(
     socket.onerror = () => {};
   };
 
+  const serveActiveFolder = async () => {
+    const active = activePane;
+    const session = active ? sessions.get(active.container) : undefined;
+    const answer = activeFolder(
+      active,
+      session
+        ? {
+          snapshot: session.snapshot,
+          mounts: await mountsOf(session.record.id),
+        }
+        : null,
+    );
+    return new Response(JSON.stringify(answer), {
+      headers: {
+        'Content-Type': 'application/json; charset=utf-8',
+        'Cache-Control': 'no-store',
+      },
+    });
+  };
+
   let server: Deno.HttpServer;
   try {
     server = Deno.serve({
@@ -1996,6 +2087,15 @@ export async function startWeb(
         const { socket, response } = Deno.upgradeWebSocket(req);
         onSocket(socket);
         return response;
+      }
+      if (url.pathname.startsWith(DESKTOP_PREFIX)) {
+        if (req.method !== 'GET') {
+          return new Response('method not allowed', { status: 405 });
+        }
+        if (url.pathname !== `${DESKTOP_PREFIX}active-folder`) {
+          return new Response('not found', { status: 404 });
+        }
+        return serveActiveFolder();
       }
       if (req.method !== 'GET' && req.method !== 'HEAD') {
         return new Response('method not allowed', { status: 405 });

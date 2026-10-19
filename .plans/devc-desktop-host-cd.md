@@ -23,13 +23,13 @@ host view ──IPC host-term:context-menu──▶ main ──GET /desktop/acti
 
 ## Checklist
 
-- [ ] Step 1 (devc web page): `active_pane` reports
-- [ ] Step 2 (devc web server): `active_pane` message, remembered active pane, `GET /desktop/active-folder`
-- [ ] Step 3 (devc-desktop policy): pure verification, quoting, label and idle-shell functions, with tests
-- [ ] Step 4 (devc-desktop): token kept in main, `host-term:context-menu` IPC, the native menu, the click
-- [ ] Step 5 (devc-desktop host page): `contextmenu` on the terminal sends the IPC
-- [ ] Step 6: `devc-desktop/README.md` and `devc/README.md`
-- [ ] Validation (below) on Linux, then ask the user to run the macOS checks
+- [x] Step 1 (devc web page): `active_pane` reports
+- [x] Step 2 (devc web server): `active_pane` message, remembered active pane, `GET /desktop/active-folder`
+- [x] Step 3 (devc-desktop policy): pure verification, quoting, label and idle-shell functions, with tests
+- [x] Step 4 (devc-desktop): token kept in main, `host-term:context-menu` IPC, the native menu, the click
+- [x] Step 5 (devc-desktop host page): `contextmenu` on the terminal sends the IPC
+- [x] Step 6: `devc-desktop/README.md` and `devc/README.md`
+- [x] Validation (below) on Linux, as far as this container allows (see Verification results); macOS checks handed to the user
 
 ## Step 1: the page reports its active pane
 
@@ -121,16 +121,24 @@ real `node:fs/promises` ones in main and fakes in tests. It returns
 6. `real` must be **showable**: ≤ 256 characters, and no character in U+0000–U+001F,
    U+007F–U+009F, U+061C, U+200B–U+200F, U+202A–U+202E, U+2060–U+2069 or U+FEFF (controls,
    bidi overrides, zero-width). Otherwise → `The folder's name can't be shown safely`.
-7. → `{ ok: true, path: real }`. **`real` is both what the menu shows and what gets typed.**
+7. → `{ ok: true, path: real, mount: realMount }`. **`real` is what gets typed, and the menu
+   shows it (see `menuLabel` for shortening).**
 
 ### Quoting and the label
 
 - `shellQuote(p)`: `'` + `p` with every `'` replaced by `'\''` + `'`. The command is
-  `cd ` + `shellQuote(path)`. There is no `--`: `path` is absolute, so it never starts with `-`,
+  `cd` + `shellQuote(path)`. There is no `--`: `path` is absolute, so it never starts with `-`,
   and a plain `cd '<abs>'` works the same in bash, zsh and fish.
-- `menuLabel(path, platform)`: `cd ` + `path`. **Gotcha:** Electron treats `&` in a menu label as
-  a mnemonic marker on Windows and Linux, so there every `&` becomes `&&`. On `darwin` the label
-  is used unchanged. Check this in Validation: a folder named `a&b` must show `a&b`.
+- `menuLabel({path, mount}, home, platform, suffix)`: `cd <folder>` + `suffix`, at most **80**
+  characters, else `null`, which gives a disabled `The folder's name is too long to show`.
+  `<folder>` is `path` with `home` shown as `~`. If that is too long, it is `…/<basename of
+  mount>/<path below mount>`. **The part below the mount, which the container chooses, is always
+  shown in full.** Only the mount's part, which comes from the host's mount table, is shortened.
+  _(Changed during implementation: Chromium's menus on Linux cut a label off at about 800 px
+  with no ellipsis, as seen under Xvfb, so the full real path could not always be shown.)_
+  **Gotcha:** Electron treats `&` in a menu label as a mnemonic marker on Windows and Linux, so
+  there every `&` becomes `&&`. On `darwin` the label is used unchanged. Check this in
+  Validation: a folder named `a&b` must show `a&b`.
 
 ### Whether the shell is idle
 
@@ -152,8 +160,8 @@ real `node:fs/promises` ones in main and fakes in tests. It returns
   - Drop it unless `fromHost(e)` and `drawerOpen`.
   - If no devc web is ready → a menu with one disabled item `devc web isn't running`.
   - If the host shell isn't running → one disabled item `The host shell isn't running`.
-  - Otherwise `fetch(`${origin}/desktop/active-folder`, { headers: { Authorization: `Bearer
-    ${token}` }, signal: AbortSignal.timeout(1000) })`. Use **Node's global `fetch`**, not
+  - Otherwise `fetch(`${origin}/desktop/active-folder`, { headers: { Authorization:`Bearer
+    ${token}`}, signal: AbortSignal.timeout(1000) })`. Use **Node's global `fetch`**, not
     Electron's `net.fetch`: `net` uses Chromium's stack, which may attach an `Origin` and
     session cookies, and the server refuses any request with an `Origin`. A network error,
     timeout, non-200 response or bad JSON → `devc web gave no folder`.
@@ -195,32 +203,35 @@ real `node:fs/promises` ones in main and fakes in tests. It returns
 
 ## Validation
 
-- [ ] `(cd devc && deno task check && deno task test)` passes
-- [ ] `(cd devc-core && deno task check && deno task test)` passes
-- [ ] `(cd devc-desktop && npm ci && npm run check && npm test)` passes
-- [ ] `devc/tests/web_server_test.ts`: `parseClientMessage` accepts both `active_pane` shapes and
+- [x] `(cd devc && deno task check && deno task test)` passes
+- [ ] `(cd devc-core && deno task check && deno task test)` passes. **Not met:** check passes;
+      `cliWorktreeMounts matches what the pinned devcontainer CLI computes` fails, also on the
+      tree before this plan (`git stash`), which devc-core does not touch
+- [x] `(cd devc-desktop && npm ci && npm run check && npm test)` passes
+- [x] `devc/tests/web_server_test.ts`: `parseClientMessage` accepts both `active_pane` shapes and
       rejects `container` without `pane_id`, empty strings and >256-character values
-- [ ] `devc/tests/web_server_test.ts`: `authorize` on `/desktop/active-folder` → 403 with any
+- [x] `devc/tests/web_server_test.ts`: `authorize` on `/desktop/active-folder` → 403 with any
       `Origin`; 401 with no `Authorization`, a wrong token, or the token only in `?token=`;
       `null` with `Bearer <token>` and no `Origin`; `/ws` and static rules unchanged
-- [ ] `devc/tests/web_server_test.ts`: the resolver returns each of the four `reason`s, ignores
+- [x] `devc/tests/web_server_test.ts`: the resolver returns each of the four `reason`s, ignores
       `foreground_cwd`, and maps `/workspaces/foo/sub` under a bind mount `src=/h/foo
       dst=/workspaces/foo` to `folder: "/h/foo/sub", mount: "/h/foo"`
-- [ ] `devc-desktop/tests/policy.test.ts`: `cdTarget` covers every label above, including
+- [x] `devc-desktop/tests/policy.test.ts`: `cdTarget` covers every label above, including
       a symlink inside the mount pointing outside (faked `realpath` → `The folder is outside its
       mount`), a `mount` sibling prefix (`/h/foo` vs `/h/foobar` → outside), U+202E in the name,
       a 257-character path, and the happy path returning the realpath
-- [ ] `devc-desktop/tests/policy.test.ts`: `shellQuote("/a/it's")` → `'/a/it'\''s'`;
-      `menuLabel('/a&b', 'linux')` → `cd /a&&b`; `menuLabel('/a&b', 'darwin')` → `cd /a&b`;
+- [x] `devc-desktop/tests/policy.test.ts`: `shellQuote("/a/it's")` → `'/a/it'\''s'`;
+      `menuLabel` doubles `&` on linux, not on darwin, shows `~`, shortens only the mount's part,
+      and returns `null` past 80 characters;
       `shellIdle('-zsh', '/bin/zsh')`, `shellIdle('/bin/bash', '/bin/bash')` true;
       `shellIdle('vim', '/bin/zsh')` false
 - [ ] Linux (Xvfb, as in devc-desktop-electron's Verify): with a running container, focus a
       devc web terminal, `cd` into a subfolder of a mounted repo there, open the host drawer,
       right-click → the item reads `cd <host path of that subfolder>`; clicking it → the host
       prompt is in that folder and `pwd` prints it
-- [ ] Linux: type `echo hi` at the host prompt without Enter, then use the item → the line runs
+- [x] Linux: type `echo hi` at the host prompt without Enter, then use the item → the line runs
       only `cd …` (`echo hi` is gone, not prefixed)
-- [ ] Linux: run `sleep 100` in the host shell, right-click → the item is disabled with
+- [x] Linux: run `sleep 100` in the host shell, right-click → the item is disabled with
       `(busy: sleep)`
 - [ ] Linux, adversarial: from inside the container, `ln -s /etc /workspaces/<repo>/evil`,
       `cd evil` in the focused pane, right-click → disabled `The folder is outside its mount`
@@ -228,26 +239,52 @@ real `node:fs/promises` ones in main and fakes in tests. It returns
       `{type:'active_pane', container:'<id>', pane_id:'<nonexistent>'}` → the item reads `The
       terminal's folder isn't known`; and `curl -H 'Origin: http://127.0.0.1:<port>' -H
       'Authorization: Bearer <token>' http://127.0.0.1:<port>/desktop/active-folder` → 403
-- [ ] Linux: a mounted folder named `a&b` shows `cd …/a&b` in the menu
+- [x] Linux: a mounted folder named `a&b` shows `cd …/a&b` in the menu
 - [ ] Linux: the devc view still has no `window.hostTerm`, `require` or `process` (devtools
       console), and `ss -ltnp` shows no listener owned by the Electron process
 - [ ] macOS, by the user: the first Linux check, the busy check with `vim`, and the `a&b` label
 
+## Verification results (Linux, Xvfb, 2026-10-19)
+
+- `devc`: `deno task check` clean, `deno task test` 506 passed. devc-desktop: `npm ci`,
+  `npm run check` clean, `npm test` 31 passed. `deno fmt --check` clean on the changed trees.
+- **The route, on the real `devc web` from source** (stub `docker`, no containers): `Bearer` →
+  200 `no_active_pane`; with an `Origin` → 403; `?token=` only → 401; no auth → 401; `POST` →
+  405; `/desktop/x` → 404. After a `/ws` client sent `active_pane` naming a container that isn't
+  running → `no_session`.
+- **The app** (Electron 44.5.0 under Xvfb, `xdotool`), with a fake `devc` that prints a ready
+  line and serves `/desktop/active-folder` from a file. Every request it got had the right
+  Bearer token and no `Origin`.
+  - The item read `cd …/repo/sub dir` and clicking it ran `cd '<realpath>'`. `pwd` printed the
+    folder, space included. `echo hi` typed beforehand was cleared, not run.
+  - `sleep 100` running → disabled `cd …/repo/sub dir (busy: sleep)`.
+  - `repo/evil -> /etc` → disabled `The folder is outside its mount`. `no_cwd` → disabled
+    `The terminal's folder isn't known`. `a&b` → `cd …/mnt/a&b`.
+  - The answer changed between showing the menu and the click → nothing typed.
+  - `ss -ltnp`: no listener owned by Electron. The devc view's construction, preload and IPC
+    are unchanged (no diff touches them). It was not re-probed in devtools.
+- **Found and fixed:** Chromium's Linux menus cut long labels off at about 800 px with no
+  ellipsis, so a long real path and its `(busy: …)` were hidden. See `menuLabel`.
+- **Not verified here (no Docker in this container):** the first Linux check and the two
+  in-container adversarial checks against a real container, Herdr pane and `cwd`. The page's
+  `active_pane` reporting is covered only by reading the code, and the server's resolver only
+  by unit tests. macOS is not verified at all.
+
 ## Relevant Files
 
-| File                                  | Change                                                                          |
-| ------------------------------------- | ------------------------------------------------------------------------------- |
-| `devc/web/static/app.js`              | `active_pane` sent from `updateCurrent()`, on socket open, and on window focus  |
-| `devc/web/protocol.ts`                | `active_pane` in `ClientMessage` and `parseClientMessage`                       |
-| `devc/web/server.ts`                  | `activePane`, the resolver, `/desktop/` auth in `authorize`, the route          |
-| `devc/tests/web_server_test.ts`       | protocol, auth and resolver tests                                               |
-| `devc-desktop/src/main/policy.ts`     | `cdTarget`, `shellQuote`, `menuLabel`, `shellIdle`                              |
-| `devc-desktop/tests/policy.test.ts`   | their tests                                                                     |
-| `devc-desktop/src/main/pty.ts`        | `HostPty.foreground`, exposed `shell`                                           |
-| `devc-desktop/tests/pty.test.ts`      | `foreground` is `null` before start, a string while running                     |
-| `devc-desktop/src/main/main.ts`       | token kept, `host-term:context-menu`, menu, click                               |
-| `devc-desktop/src/preload/host.ts`    | `contextMenu()`                                                                 |
-| `devc-desktop/src/renderer/host.ts`   | `contextmenu` listener, `HostTerm.contextMenu`                                  |
-| `devc-desktop/README.md`              | host terminal section, threat model additions                                   |
-| `devc/README.md`                      | Security: `/desktop/` routes                                                    |
-| `.plans/PLAN.md`                      | Pending entry and Development Phases row                                        |
+| File                                | Change                                                                         |
+| ----------------------------------- | ------------------------------------------------------------------------------ |
+| `devc/web/static/app.js`            | `active_pane` sent from `updateCurrent()`, on socket open, and on window focus |
+| `devc/web/protocol.ts`              | `active_pane` in `ClientMessage` and `parseClientMessage`                      |
+| `devc/web/server.ts`                | `activePane`, the resolver, `/desktop/` auth in `authorize`, the route         |
+| `devc/tests/web_server_test.ts`     | protocol, auth and resolver tests                                              |
+| `devc-desktop/src/main/policy.ts`   | `cdTarget`, `shellQuote`, `menuLabel`, `shellIdle`                             |
+| `devc-desktop/tests/policy.test.ts` | their tests                                                                    |
+| `devc-desktop/src/main/pty.ts`      | `HostPty.foreground`, exposed `shell`                                          |
+| `devc-desktop/tests/pty.test.ts`    | `foreground` is `null` before start, a string while running                    |
+| `devc-desktop/src/main/main.ts`     | token kept, `host-term:context-menu`, menu, click                              |
+| `devc-desktop/src/preload/host.ts`  | `contextMenu()`                                                                |
+| `devc-desktop/src/renderer/host.ts` | `contextmenu` listener, `HostTerm.contextMenu`                                 |
+| `devc-desktop/README.md`            | host terminal section, threat model additions                                  |
+| `devc/README.md`                    | Security: `/desktop/` routes                                                   |
+| `.plans/PLAN.md`                    | Pending entry and Development Phases row                                       |
