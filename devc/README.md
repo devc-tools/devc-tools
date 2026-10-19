@@ -328,7 +328,15 @@ is published from any container: the host server finds devcontainers with
   mode), except a right-click, which opens the tile's menu (the same one as
   its tab); **Shift+drag** selects locally and copies. The wheel scrolls the app
   when it tracks the mouse, and Herdr's scrollback otherwise.
-- **Files and editing:** right-click a file for **Open in editor**, which runs
+- **Files and editing:** click a file to open it in a file tile, with syntax
+  highlighting, search (Ctrl/⌘+F) and folding. While the project's container
+  runs, the tile is an editor too: type, and **Ctrl+S** (**⌘S**) saves. Its tab
+  shows **●** until then, and editing a preview tile keeps it open. A save is
+  written inside the container as its remote user, in place (owner and mode
+  are kept). If the file changed on disk since the tile read it, you are asked
+  before it is overwritten. Reloading or closing a tile with unsaved edits
+  (its tab's ×, or **Close**) asks first, and so does leaving the page. While
+  the container is stopped, the tile is read-only. Right-click a file for **Open in editor**, which runs
   `$EDITOR` on it in a new terminal named after the file (unset, the first of
   `micro`, `nano` and `vi` that the container has). Right-click a
   folder, a repo or a container's **Files** row for **New file…** or **New

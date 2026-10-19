@@ -142,6 +142,18 @@ export type ClientMessage =
     /** The entry to delete (a folder with everything in it), never the root itself. */
     path: string;
   }
+  | {
+    type: 'write_file';
+    id: string;
+    container: string;
+    /** A repo folder `path` is relative to; without one, `path` is a container path. */
+    root?: string;
+    /** An existing file, saved in place. */
+    path: string;
+    text: string;
+    /** The `hash` its last read returned: refused with `conflict` if the file changed since. */
+    base?: string;
+  }
   | { type: 'locate_file'; id: string; container: string; path: string }
   | {
     type: 'open_in_code';
@@ -571,6 +583,23 @@ function parseFields(m: Obj): ClientMessage {
           : { root: absolute(m, 'root'), path: newEntryPath(m, true) }),
         ...(m.type === 'rename_file' ? { to: entryName(m, 'to') } : {}),
       } as ClientMessage;
+    case 'write_file':
+      if (
+        m.base !== undefined &&
+        (typeof m.base !== 'string' || !/^[0-9a-f]{64}$/.test(m.base))
+      ) {
+        throw new Invalid(`'base' must be a SHA-256 hash in lowercase hex`);
+      }
+      return {
+        type: 'write_file',
+        id: str(m, 'id'),
+        container: str(m, 'container'),
+        ...(m.root === undefined
+          ? { path: newEntryPath(m, false) }
+          : { root: absolute(m, 'root'), path: newEntryPath(m, true) }),
+        text: text(m, 'text'),
+        ...(m.base !== undefined ? { base: m.base as string } : {}),
+      };
     case 'locate_file': {
       const path = absolute(m, 'path');
       if (path.split('/').includes('..')) {

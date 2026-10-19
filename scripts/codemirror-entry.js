@@ -17,10 +17,16 @@ export {
   foldGutter,
   foldKeymap,
   HighlightStyle,
+  indentOnInput,
   StreamLanguage,
   syntaxHighlighting,
 } from 'npm:@codemirror/language@6.13.1';
-export { defaultKeymap } from 'npm:@codemirror/commands@6.11.1';
+export {
+  defaultKeymap,
+  history,
+  historyKeymap,
+  indentWithTab,
+} from 'npm:@codemirror/commands@6.11.1';
 export {
   highlightSelectionMatches,
   search,

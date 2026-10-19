@@ -1,12 +1,13 @@
-// The `devc web` file viewer: a read-only CodeMirror 6 view of one file, with line numbers,
-// syntax highlighting by file name, code folding, bracket matching and search. The only module
-// that imports CodeMirror (as `renderer.js` is for xterm.js and `layout.js` for Golden Layout),
-// so app.js talks to it through `createViewer` alone. See `.plans/devc-web-file-viewer.md`.
-//
-// Editing is a later step: the same view with `readOnly` off.
+// The `devc web` file viewer and editor: a CodeMirror 6 view of one file, with line numbers,
+// syntax highlighting by file name, code folding, bracket matching and search, editable when
+// app.js says the file can be saved (undo, Tab indents, Ctrl/Cmd-S asks app.js to save). The only
+// module that imports CodeMirror (as `renderer.js` is for xterm.js and `layout.js` for Golden
+// Layout), so app.js talks to it through `createViewer` alone. See
+// `.plans/devc-web-file-viewer.md` and `.plans/devc-web-editable-viewer.md`.
 
 import {
   bracketMatching,
+  Compartment,
   css,
   defaultKeymap,
   dockerFile,
@@ -21,7 +22,11 @@ import {
   highlightSelectionMatches,
   highlightSpecialChars,
   HighlightStyle,
+  history,
+  historyKeymap,
   html,
+  indentOnInput,
+  indentWithTab,
   javascript,
   json,
   keymap,
@@ -45,7 +50,12 @@ import { languageFor as pickLanguage } from './lib/languages.js';
 
 /**
  * @typedef {object} Viewer
- * @property {(text: string) => void} setText   replaces the content, keeping the scroll position when it can
+ * @property {(text: string) => void} setText
+ *   replaces the content with what is on disk (so it is clean), keeping the scroll position when it can
+ * @property {(on: boolean) => void} setEditable
+ * @property {() => string} getText  the content, with the file's own line breaks
+ * @property {() => void} markClean  the content is what is on disk now (after a save)
+ * @property {boolean} dirty         the content differs from what is on disk
  * @property {(line: number, column?: number) => void} revealLine
  *   puts the cursor at a 1-based line and column (clamped to the file) and scrolls it to the middle
  * @property {() => void} focus
@@ -221,47 +231,87 @@ const highlight = HighlightStyle.define([
 ]);
 
 /**
- * Mounts a read-only view of `text` into `el`, highlighted for `name` (a file name: its
- * extension, or the whole name for `Dockerfile`, `Makefile` and dotfiles like `.bashrc`, picks
- * the language; unknown gives plain text).
+ * Mounts a view of `text` into `el`, highlighted for `name` (a file name: its extension, or the
+ * whole name for `Dockerfile`, `Makefile` and dotfiles like `.bashrc`, picks the language;
+ * unknown gives plain text). Read-only unless `editable`. A file whose first line break is CRLF
+ * keeps CRLF in {@link Viewer.getText}.
  *
  * @param {HTMLElement} el
- * @param {{name: string, text: string}} opts
+ * @param {{name: string, text: string, editable?: boolean,
+ *   onChange?: (dirty: boolean) => void, onSave?: () => void}} opts
+ *   `onChange` follows every edit; `onSave` is Ctrl/Cmd-S
  * @returns {Viewer}
  */
-export function createViewer(el, { name, text }) {
+export function createViewer(
+  el,
+  { name, text, editable = false, onChange, onSave },
+) {
   const lang = languageFor(name);
+  const access = new Compartment();
+  /** @param {boolean} on */
+  const accessFor = (on) => [
+    EditorState.readOnly.of(!on),
+    EditorView.editable.of(on),
+  ];
+  const crlf = /\r\n|\r|\n/.exec(text)?.[0] === '\r\n';
   const view = new EditorView({
     parent: el,
     state: EditorState.create({
       doc: text,
       extensions: [
+        crlf ? EditorState.lineSeparator.of('\r\n') : [],
         lineNumbers(),
         highlightActiveLineGutter(),
         highlightSpecialChars(),
+        history(),
         foldGutter(),
         drawSelection(),
+        indentOnInput(),
         highlightActiveLine(),
         bracketMatching(),
         highlightSelectionMatches(),
         search({ top: true }),
-        keymap.of([...searchKeymap, ...foldKeymap, ...defaultKeymap]),
-        EditorState.readOnly.of(true),
-        EditorView.editable.of(false),
+        keymap.of([
+          {
+            key: 'Mod-s',
+            preventDefault: true,
+            run: () => {
+              onSave?.();
+              return true;
+            },
+          },
+          ...searchKeymap,
+          ...foldKeymap,
+          ...historyKeymap,
+          ...defaultKeymap,
+          indentWithTab,
+        ]),
+        access.of(accessFor(editable)),
         // Not editable means not focusable: a tabindex lets the view take focus, so the
         // keymap (Ctrl/Cmd-F, folding, selection) still works.
         EditorView.contentAttributes.of({ tabindex: '0' }),
+        EditorView.updateListener.of((u) => {
+          if (u.docChanged) onChange?.(!u.state.doc.eq(clean));
+        }),
         theme,
         syntaxHighlighting(highlight),
         lang ? LANGUAGES[lang]() : [],
       ],
     }),
   });
+  /** The doc as it is on disk. */
+  let clean = view.state.doc;
 
   return {
     setText(next) {
       const doc = view.state.doc.toString();
-      if (next === doc) return;
+      // In doc terms: line breaks as the doc splits them, joined with `\n`.
+      next = view.state.toText(next).toString();
+      if (next === doc) {
+        clean = view.state.doc;
+        onChange?.(false);
+        return;
+      }
       // Only the changed middle is replaced, so CodeMirror keeps the scroll position and the
       // selection where the text around them is unchanged.
       let start = 0;
@@ -276,6 +326,8 @@ export function createViewer(el, { name, text }) {
           next.charCodeAt(next.length - 1 - end)
       ) end++;
       const scrollTop = view.scrollDOM.scrollTop;
+      // Set first, so the update listener sees the new text as clean.
+      clean = view.state.toText(next);
       view.dispatch({
         changes: {
           from: start,
@@ -284,6 +336,19 @@ export function createViewer(el, { name, text }) {
         },
       });
       view.scrollDOM.scrollTop = scrollTop;
+    },
+    setEditable(on) {
+      view.dispatch({ effects: access.reconfigure(accessFor(on)) });
+    },
+    getText() {
+      return view.state.sliceDoc();
+    },
+    markClean() {
+      clean = view.state.doc;
+      onChange?.(false);
+    },
+    get dirty() {
+      return !view.state.doc.eq(clean);
     },
     revealLine(line, column = 1) {
       const doc = view.state.doc;

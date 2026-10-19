@@ -15,6 +15,7 @@ import {
 } from '@devc-tools/core/container.ts';
 import { containerToHostPath } from '@devc-tools/core/mount_paths.ts';
 import {
+  contentHash,
   type DirEntry,
   FilesError,
   fileText,
@@ -206,18 +207,16 @@ export function withHostPaths<T extends { entries: DirEntry[] }>(
 
 /**
  * A container file's text, for the page's file viewer: `path` absolute. The same limits as a
- * repo file (see {@link fileText}). Throws {@link FilesError}, or an `Error` carrying the
- * command's stderr.
+ * repo file (see {@link fileText}); `hash` is {@link contentHash} of the bytes read. Throws
+ * {@link FilesError}, or an `Error` carrying the command's stderr.
  */
 export async function readContainerFile(
   info: ContainerInfo,
   path: string,
   run: DockerRun = runDocker,
-): Promise<{ text: string; size: number }> {
-  return fileText(
-    await readContainerBytes(info, path, MAX_READ_BYTES, run),
-    path,
-  );
+): Promise<{ text: string; size: number; hash: string }> {
+  const bytes = await readContainerBytes(info, path, MAX_READ_BYTES, run);
+  return { ...fileText(bytes, path), hash: await contentHash(bytes) };
 }
 
 /**
@@ -447,4 +446,65 @@ export async function writeContainerFile(
     throw new FilesError('not_running', 'the container is not running');
   }
   throw new Error(msg || `writing ${file} failed`);
+}
+
+/**
+ * Saves the file viewer's `text` to `path` (absolute) in the container, as the remote user, in
+ * place (`cat >`: owner, mode and inode are kept). With `base`, the file's current bytes must
+ * still hash to it ({@link contentHash}), else `conflict`: it changed since the page read it.
+ * Resolves with the written bytes' hash and size; throws {@link FilesError} (`too_large`,
+ * `conflict`, `not_running`, and a read's codes), or an `Error` carrying the command's stderr.
+ */
+export async function writeContainerText(
+  info: ContainerInfo,
+  path: string,
+  text: string,
+  base: string | undefined,
+  run: DockerRun = runDocker,
+  runInput: DockerRunInput = runDockerInput,
+): Promise<{ hash: string; size: number }> {
+  const bytes = new TextEncoder().encode(text);
+  if (bytes.length > MAX_READ_BYTES) {
+    throw new FilesError(
+      'too_large',
+      `${path} would be ${bytes.length} bytes; files up to ${MAX_READ_BYTES} bytes can be saved`,
+    );
+  }
+  if (base !== undefined) {
+    let current: string | null;
+    try {
+      current = await contentHash(
+        await readContainerBytes(info, path, MAX_READ_BYTES, run),
+      );
+    } catch (e) {
+      if (!(e instanceof FilesError && e.code === 'not_found')) throw e;
+      current = null;
+    }
+    if (current !== base) {
+      throw new FilesError('conflict', `${path} changed since it was opened`);
+    }
+  }
+  const out = await runInput(
+    dockerExecArgv(info, {
+      interactive: true,
+      cwd: '/',
+      cmd: ['sh', '-c', 'cat > "$1"', 'sh', path],
+    }),
+    bytes,
+  );
+  if (out.code !== 0) {
+    const msg = out.stderr.trim();
+    if (
+      /permission denied|read-only file system|operation not permitted/i.test(
+        msg,
+      )
+    ) {
+      throw new FilesError('forbidden', `${path} can't be saved here`);
+    }
+    if (/is not running|no such container/i.test(msg)) {
+      throw new FilesError('not_running', 'the container is not running');
+    }
+    throw new Error(msg || `saving ${path} failed`);
+  }
+  return { hash: await contentHash(bytes), size: bytes.length };
 }

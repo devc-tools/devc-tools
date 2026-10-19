@@ -35,7 +35,8 @@ export class FilesError extends Error {
       | 'too_large'
       | 'binary'
       | 'exists'
-      | 'not_running',
+      | 'not_running'
+      | 'conflict',
     message: string,
   ) {
     super(message);
@@ -170,18 +171,33 @@ export const MAX_READ_BYTES = 2 * 1024 * 1024;
 const BINARY_SNIFF_BYTES = 8 * 1024;
 
 /**
+ * The lowercase hex SHA-256 of `bytes`: a read's `hash`, which a `write_file` names as its `base`
+ * to refuse overwriting a file that changed since.
+ */
+export async function contentHash(bytes: Uint8Array): Promise<string> {
+  const digest = await crypto.subtle.digest(
+    'SHA-256',
+    bytes as Uint8Array<ArrayBuffer>,
+  );
+  return Array.from(
+    new Uint8Array(digest),
+    (b) => b.toString(16).padStart(2, '0'),
+  ).join('');
+}
+
+/**
  * A project file's text, for the page's file viewer: `rel` under `root`, confined to it (see
  * {@link confine}). Refuses a non-file (`bad_request`), one over {@link MAX_READ_BYTES}
  * (`too_large`) and one with a NUL byte in its first 8 KiB (`binary`). Decodes as UTF-8 with
- * replacement characters. `mtimeMs` is the modification time (0 when the platform has none).
- * Throws {@link FilesError}.
+ * replacement characters. `mtimeMs` is the modification time (0 when the platform has none);
+ * `hash` is {@link contentHash} of the bytes read. Throws {@link FilesError}.
  */
 export async function readProjectFile(
   root: string,
   rel: string,
-): Promise<{ text: string; size: number; mtimeMs: number }> {
+): Promise<{ text: string; size: number; mtimeMs: number; hash: string }> {
   const { bytes, mtimeMs } = await readProjectBytes(root, rel, MAX_READ_BYTES);
-  return { ...fileText(bytes, rel), mtimeMs };
+  return { ...fileText(bytes, rel), mtimeMs, hash: await contentHash(bytes) };
 }
 
 /**

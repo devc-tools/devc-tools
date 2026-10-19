@@ -35,6 +35,7 @@ import {
   renameContainerEntry,
   withHostPaths,
   writeContainerFile,
+  writeContainerText,
 } from './container_files.ts';
 import { loadGlobalConfig } from '@devc-tools/core/config.ts';
 import {
@@ -939,6 +940,33 @@ export async function startWeb(
   };
 
   /**
+   * Saves the file viewer's text (`write_file`) in the container, as the remote user, in place:
+   * with `root`, `path` must be an existing file in that repo folder (confined, mounted);
+   * without, it is a container path. Never written from the host side, as {@link createFile}.
+   */
+  const writeFile = async (
+    c: Client,
+    session: ContainerSession,
+    msg: Extract<ClientMessage, { type: 'write_file' }>,
+  ) => {
+    const path = msg.root === undefined
+      ? msg.path
+      : await repoContainerPath(c, session, {
+        id: msg.id,
+        root: msg.root,
+        path: msg.path,
+      });
+    if (path === null) return;
+    try {
+      const info = await connectionOf(session);
+      const result = await writeContainerText(info, path, msg.text, msg.base);
+      reply(c, { id: msg.id, ok: true, result });
+    } catch (e) {
+      fail(c, msg.id, e instanceof FilesError ? e.code : 'write_failed', e);
+    }
+  };
+
+  /**
    * Where a container path a terminal printed is on the host, for the page's file viewer:
    * `{localFolder, root, path}` as `read_file` takes them, when the file is in one of the
    * container's project repos (confined like `read_file`, symlinks included).
@@ -1696,7 +1724,7 @@ export async function startWeb(
     if (!session) {
       if (
         msg.type === 'create_file' || msg.type === 'rename_file' ||
-        msg.type === 'delete_file'
+        msg.type === 'delete_file' || msg.type === 'write_file'
       ) {
         fail(c, msg.id, 'not_running', 'the container is not running');
         return;
@@ -1734,6 +1762,9 @@ export async function startWeb(
         return;
       case 'create_file':
         await createFile(c, session, msg);
+        return;
+      case 'write_file':
+        await writeFile(c, session, msg);
         return;
       case 'rename_file':
       case 'delete_file':

@@ -11608,9 +11608,9 @@ function runHandlers(map, event, view, scope) {
   let ran = /* @__PURE__ */ new Set();
   let runFor = (binding) => {
     if (binding) {
-      for (let cmd of binding.run) if (!ran.has(cmd)) {
-        ran.add(cmd);
-        if (cmd(view)) {
+      for (let cmd2 of binding.run) if (!ran.has(cmd2)) {
+        ran.add(cmd2);
+        if (cmd2(view)) {
           if (binding.stopPropagation) stopPropagation = true;
           return true;
         }
@@ -16802,6 +16802,40 @@ function continuedIndent({ except, units = 1 } = {}) {
     return context.baseIndent + (matchExcept ? 0 : units * context.unit);
   };
 }
+var DontIndentBeyond = 200;
+function indentOnInput() {
+  return EditorState.transactionFilter.of((tr) => {
+    if (!tr.docChanged || !tr.isUserEvent("input.type") && !tr.isUserEvent("input.complete")) return tr;
+    let rules = tr.startState.languageDataAt("indentOnInput", tr.startState.selection.main.head);
+    if (!rules.length) return tr;
+    let doc2 = tr.newDoc, { head } = tr.newSelection.main, line = doc2.lineAt(head);
+    if (head > line.from + DontIndentBeyond) return tr;
+    let lineStart = doc2.sliceString(line.from, head);
+    if (!rules.some((r) => r.test(lineStart))) return tr;
+    let { state } = tr, last2 = -1, changes = [];
+    for (let { head: head2 } of state.selection.ranges) {
+      let line2 = state.doc.lineAt(head2);
+      if (line2.from == last2) continue;
+      last2 = line2.from;
+      let indent2 = getIndentation(state, line2.from);
+      if (indent2 == null) continue;
+      let cur = /^\s*/.exec(line2.text)[0];
+      let norm = indentString(state, indent2);
+      if (cur != norm) changes.push({
+        from: line2.from,
+        to: line2.from + cur.length,
+        insert: norm
+      });
+    }
+    return changes.length ? [
+      tr,
+      {
+        changes,
+        sequential: true
+      }
+    ] : tr;
+  });
+}
 var foldService = /* @__PURE__ */ Facet.define();
 var foldNodeProp = /* @__PURE__ */ new NodeProp();
 function foldInside(node) {
@@ -18185,7 +18219,84 @@ function changeLineComment(option, state, ranges = state.selection.ranges) {
   return null;
 }
 var fromHistory = /* @__PURE__ */ Annotation.define();
+var isolateHistory = /* @__PURE__ */ Annotation.define();
 var invertedEffects = /* @__PURE__ */ Facet.define();
+var historyConfig = /* @__PURE__ */ Facet.define({
+  combine(configs) {
+    return combineConfig(configs, {
+      minDepth: 100,
+      newGroupDelay: 500,
+      joinToEvent: (_t, isAdjacent2) => isAdjacent2
+    }, {
+      minDepth: Math.max,
+      newGroupDelay: Math.min,
+      joinToEvent: (a, b) => (tr, adj) => a(tr, adj) || b(tr, adj)
+    });
+  }
+});
+var historyField_ = /* @__PURE__ */ StateField.define({
+  create() {
+    return HistoryState.empty;
+  },
+  update(state, tr) {
+    let config = tr.state.facet(historyConfig);
+    let fromHist = tr.annotation(fromHistory);
+    if (fromHist) {
+      let item = HistEvent.fromTransaction(tr, fromHist.selection), from2 = fromHist.side;
+      let other = from2 == 0 ? state.undone : state.done;
+      if (item) other = updateBranch(other, other.length, config.minDepth, item);
+      else other = addSelection(other, tr.startState.selection);
+      return new HistoryState(from2 == 0 ? fromHist.rest : other, from2 == 0 ? other : fromHist.rest);
+    }
+    let isolate = tr.annotation(isolateHistory);
+    if (isolate == "full" || isolate == "before") state = state.isolate();
+    if (tr.annotation(Transaction.addToHistory) === false) return !tr.changes.empty ? state.addMapping(tr.changes.desc) : state;
+    let event = HistEvent.fromTransaction(tr);
+    let time = tr.annotation(Transaction.time), userEvent = tr.annotation(Transaction.userEvent);
+    if (event) state = state.addChanges(event, time, userEvent, config, tr);
+    else if (tr.selection) state = state.addSelection(tr.startState.selection, time, userEvent, config.newGroupDelay);
+    if (isolate == "full" || isolate == "after") state = state.isolate();
+    return state;
+  },
+  toJSON(value) {
+    return {
+      done: value.done.map((e) => e.toJSON()),
+      undone: value.undone.map((e) => e.toJSON())
+    };
+  },
+  fromJSON(json2) {
+    return new HistoryState(json2.done.map(HistEvent.fromJSON), json2.undone.map(HistEvent.fromJSON));
+  }
+});
+function history(config = {}) {
+  return [
+    historyField_,
+    historyConfig.of(config),
+    EditorView.domEventHandlers({
+      beforeinput(e, view) {
+        let command2 = e.inputType == "historyUndo" ? undo : e.inputType == "historyRedo" ? redo : null;
+        if (!command2) return false;
+        e.preventDefault();
+        return command2(view);
+      }
+    })
+  ];
+}
+function cmd(side, selection) {
+  return function({ state, dispatch }) {
+    if (!selection && state.readOnly) return false;
+    let historyState = state.field(historyField_, false);
+    if (!historyState) return false;
+    let tr = historyState.pop(side, state, selection);
+    if (!tr) return false;
+    dispatch(tr);
+    return true;
+  };
+}
+var undo = /* @__PURE__ */ cmd(0, false);
+var redo = /* @__PURE__ */ cmd(1, false);
+var undoSelection = /* @__PURE__ */ cmd(0, true);
+var redoSelection = /* @__PURE__ */ cmd(1, true);
 var HistEvent = class _HistEvent {
   constructor(changes, effects, mapped, startSelection, selectionsAfter) {
     this.changes = changes;
@@ -18363,6 +18474,35 @@ var HistoryState = class _HistoryState {
   }
 };
 HistoryState.empty = /* @__PURE__ */ new HistoryState(none2, none2);
+var historyKeymap = [
+  {
+    key: "Mod-z",
+    run: undo,
+    preventDefault: true
+  },
+  {
+    key: "Mod-y",
+    mac: "Mod-Shift-z",
+    run: redo,
+    preventDefault: true
+  },
+  {
+    linux: "Ctrl-Shift-z",
+    run: redo,
+    preventDefault: true
+  },
+  {
+    key: "Mod-u",
+    run: undoSelection,
+    preventDefault: true
+  },
+  {
+    key: "Alt-u",
+    mac: "Mod-Shift-u",
+    run: redoSelection,
+    preventDefault: true
+  }
+];
 function updateSel(sel, by) {
   return EditorSelection.create(sel.ranges.map(by), sel.mainIndex);
 }
@@ -19326,6 +19466,11 @@ var defaultKeymap = /* @__PURE__ */ [
     run: toggleTabFocusMode
   }
 ].concat(standardKeymap);
+var indentWithTab = {
+  key: "Tab",
+  run: indentMore,
+  shift: indentLess
+};
 
 // npm:@codemirror/search/6.7.2/dist/index.js
 var basicNormalize = typeof String.prototype.normalize == "function" ? (x) => x.normalize("NFKD") : (x) => x;
@@ -32886,7 +33031,11 @@ export {
   highlightActiveLineGutter,
   highlightSelectionMatches,
   highlightSpecialChars,
+  history,
+  historyKeymap,
   html,
+  indentOnInput,
+  indentWithTab,
   javascript,
   json,
   keymap,

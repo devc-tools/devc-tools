@@ -700,6 +700,44 @@ Deno.test('parseClientMessage: rename_file and delete_file take a named entry, r
   }
 });
 
+Deno.test('parseClientMessage: write_file takes an existing file, its text and an optional base', () => {
+  const hash = 'ab'.repeat(32);
+  for (
+    const msg of [
+      { type: 'write_file', root: '/src/app', path: 'src/a.ts', text: 'x\n' },
+      { type: 'write_file', path: '/home/me/.bashrc', text: '' },
+      {
+        type: 'write_file',
+        root: '/src/app',
+        path: 'a.md',
+        text: 'y',
+        base: hash,
+      },
+    ]
+  ) {
+    const full = { id: 'w1', container: 'c1', ...msg };
+    assertEquals(
+      parseClientMessage(JSON.stringify(full)),
+      { ok: true, msg: full } as never,
+    );
+  }
+  for (
+    const bad of [
+      { type: 'write_file', root: '/src/app', path: 'a.md' },
+      { type: 'write_file', root: '/src/app', path: 'a.md', text: 1 },
+      { type: 'write_file', root: '/src/app', path: '', text: 'x' },
+      { type: 'write_file', root: '/src/app', path: '../a', text: 'x' },
+      { type: 'write_file', path: 'etc/x', text: 'x' },
+      { type: 'write_file', path: '/tmp/x', text: 'x', base: 'abc' },
+      { type: 'write_file', path: '/tmp/x', text: 'x', base: 'AB'.repeat(32) },
+      { type: 'write_file', path: '/tmp/x', text: 'x', base: 7 },
+    ]
+  ) {
+    const r = rejected({ id: 'w2', container: 'c1', ...bad });
+    assertEquals([r.id, r.code], ['w2', 'bad_request'], JSON.stringify(bad));
+  }
+});
+
 Deno.test('parseClientMessage: open_tab needs root, a path (may be empty) and reuse', () => {
   const base = {
     type: 'open_tab' as const,

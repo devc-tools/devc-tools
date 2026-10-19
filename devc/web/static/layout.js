@@ -123,6 +123,8 @@ export function createTiling(root, hooks) {
   const applyBadge = (container, tile) => {
     const tab = container.tab;
     if (!tab) return;
+    // app.js finds the tile a tab's × closes by it.
+    tab.element.dataset.tile = tile.id;
     tab.element.classList.toggle('tile-preview', tile.preview);
     // Golden Layout writes the title as plain text; this puts its muted part in its own span.
     const split = splitTitles.get(tile);

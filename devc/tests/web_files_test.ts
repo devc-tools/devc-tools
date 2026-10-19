@@ -203,13 +203,18 @@ Deno.test('editorCommand single-quotes the path and execs EDITOR, else micro, na
   );
 });
 
-Deno.test('readProjectFile reads a file with its size and mtime', async () => {
+Deno.test('readProjectFile reads a file with its size, mtime and hash', async () => {
   const { project } = await fixture();
   try {
     const got = await readProjectFile(project, 'README.md');
     assertEquals([got.text, got.size], ['hello', 5]);
     const info = await Deno.stat(join(project, 'README.md'));
     assertEquals(got.mtimeMs, info.mtime?.getTime());
+    // `sha256sum` of `hello`.
+    assertEquals(
+      got.hash,
+      '2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824',
+    );
   } finally {
     await Deno.remove(dirname(project), { recursive: true });
   }

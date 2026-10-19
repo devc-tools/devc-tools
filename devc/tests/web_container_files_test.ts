@@ -20,8 +20,9 @@ import {
   withHostPaths,
   writeArgv,
   writeContainerFile,
+  writeContainerText,
 } from '../web/container_files.ts';
-import { FilesError, MAX_READ_BYTES } from '../web/files.ts';
+import { contentHash, FilesError, MAX_READ_BYTES } from '../web/files.ts';
 
 const info: ContainerInfo = {
   containerId: 'c0ffee',
@@ -148,16 +149,20 @@ Deno.test('parseListing keeps sockets and devices as files that do not open', ()
   ]);
 });
 
+/** `sha256sum` of `hello`. */
+const HELLO_HASH =
+  '2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824';
+
 Deno.test('readContainerFile reads a file, through a link too', async () => {
   const dir = await fixture();
   try {
     assertEquals(
       await readContainerFile(info, join(dir, 'a.txt'), localRun()),
-      { text: 'hello', size: 5 },
+      { text: 'hello', size: 5, hash: HELLO_HASH },
     );
     assertEquals(
       await readContainerFile(info, join(dir, 'to-file'), localRun()),
-      { text: 'hello', size: 5 },
+      { text: 'hello', size: 5, hash: HELLO_HASH },
     );
   } finally {
     await Deno.remove(dir, { recursive: true });
@@ -198,7 +203,11 @@ Deno.test('readContainerFile passes a path to the script as an argument, never a
     await Deno.writeTextFile(join(dir, name), 'ok');
     assertEquals(
       await readContainerFile(info, join(dir, name), localRun([], dir)),
-      { text: 'ok', size: 2 },
+      {
+        text: 'ok',
+        size: 2,
+        hash: await contentHash(new TextEncoder().encode('ok')),
+      },
     );
     assertEquals(
       await Deno.stat(join(dir, 'pwned')).then(() => true, () => false),
@@ -591,4 +600,161 @@ Deno.test("withHostPaths: the folder's host path, else each mounted entry's", ()
     withHostPaths(listing('workspaces', 'etc'), '/', mounts),
     listing('workspaces', 'etc'),
   );
+});
+
+/** Runs what follows `docker exec … <container>` here, with `input` on its stdin. */
+async function localRunInput(args: string[], input: Uint8Array) {
+  const cmd = args.slice(args.indexOf(info.containerId) + 1);
+  const child = new Deno.Command(cmd[0], {
+    args: cmd.slice(1),
+    stdin: 'piped',
+    stdout: 'piped',
+    stderr: 'piped',
+  }).spawn();
+  const w = child.stdin.getWriter();
+  await w.write(input);
+  await w.close();
+  const out = await child.output();
+  return {
+    code: out.code,
+    stdout: out.stdout,
+    stderr: new TextDecoder().decode(out.stderr),
+  };
+}
+
+Deno.test('readContainerFile: hash is the SHA-256 of the bytes read', async () => {
+  const dir = await Deno.realPath(await Deno.makeTempDir());
+  try {
+    const file = join(dir, 'a.txt');
+    await Deno.writeTextFile(file, 'héllo\r\n');
+    const read = await readContainerFile(info, file, localRun());
+    assertEquals(read.text, 'héllo\r\n');
+    assertEquals(
+      read.hash,
+      await contentHash(new TextEncoder().encode('héllo\r\n')),
+    );
+    assertEquals(read.hash.length, 64);
+  } finally {
+    await Deno.remove(dir, { recursive: true });
+  }
+});
+
+Deno.test('writeContainerText saves in place when the file still has the read hash', async () => {
+  const dir = await Deno.realPath(await Deno.makeTempDir());
+  try {
+    const file = join(dir, "it's.txt");
+    await Deno.writeTextFile(file, 'old\n');
+    await Deno.chmod(file, 0o640);
+    const ino = (await Deno.stat(file)).ino;
+    const { hash } = await readContainerFile(info, file, localRun());
+    const result = await writeContainerText(
+      info,
+      file,
+      'new $(x) `y`\n',
+      hash,
+      localRun(),
+      localRunInput,
+    );
+    assertEquals(await Deno.readTextFile(file), 'new $(x) `y`\n');
+    assertEquals(result, {
+      hash: await contentHash(new TextEncoder().encode('new $(x) `y`\n')),
+      size: 13,
+    });
+    const after = await Deno.stat(file);
+    assertEquals(after.ino, ino);
+    assertEquals(after.mode! & 0o777, 0o640);
+  } finally {
+    await Deno.remove(dir, { recursive: true });
+  }
+});
+
+Deno.test('writeContainerText: a file changed since it was read is a conflict, and kept', async () => {
+  const dir = await Deno.realPath(await Deno.makeTempDir());
+  try {
+    const file = join(dir, 'a.txt');
+    await Deno.writeTextFile(file, 'one\n');
+    const { hash } = await readContainerFile(info, file, localRun());
+    await Deno.writeTextFile(file, 'two\n');
+    const e = await assertRejects(
+      () =>
+        writeContainerText(
+          info,
+          file,
+          'mine\n',
+          hash,
+          localRun(),
+          localRunInput,
+        ),
+      FilesError,
+    );
+    assertEquals(e.code, 'conflict');
+    assertEquals(await Deno.readTextFile(file), 'two\n');
+    // No base: overwritten as asked.
+    await writeContainerText(
+      info,
+      file,
+      'mine\n',
+      undefined,
+      localRun(),
+      localRunInput,
+    );
+    assertEquals(await Deno.readTextFile(file), 'mine\n');
+  } finally {
+    await Deno.remove(dir, { recursive: true });
+  }
+});
+
+Deno.test('writeContainerText: a deleted file is a conflict', async () => {
+  const dir = await Deno.realPath(await Deno.makeTempDir());
+  try {
+    const file = join(dir, 'gone.txt');
+    const e = await assertRejects(
+      () =>
+        writeContainerText(
+          info,
+          file,
+          'x',
+          '0'.repeat(64),
+          localRun(),
+          localRunInput,
+        ),
+      FilesError,
+    );
+    assertEquals(e.code, 'conflict');
+  } finally {
+    await Deno.remove(dir, { recursive: true });
+  }
+});
+
+Deno.test('writeContainerText: too large, and a stopped container', async () => {
+  const big = await assertRejects(
+    () =>
+      writeContainerText(
+        info,
+        '/tmp/a',
+        'x'.repeat(MAX_READ_BYTES + 1),
+        undefined,
+      ),
+    FilesError,
+  );
+  assertEquals(big.code, 'too_large');
+  const stopped = await assertRejects(
+    () =>
+      writeContainerText(
+        info,
+        '/tmp/a',
+        'a',
+        undefined,
+        localRun(),
+        () =>
+          Promise.resolve({
+            code: 1,
+            stdout: new Uint8Array(),
+            stderr:
+              'Error response from daemon: container c0ffee is not running',
+          }),
+      ),
+    FilesError,
+  );
+  assertEquals(stopped.code, 'not_running');
 });

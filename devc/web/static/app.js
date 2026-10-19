@@ -216,7 +216,9 @@ const views = new Map();
 
 /**
  * A file tile's live view: the viewer once the file has been read, else an overlay saying why
- * not. `seq` numbers the reads, so only the latest one's answer lands.
+ * not. `seq` numbers the reads, so only the latest one's answer lands. The viewer is an editor
+ * while the file's container runs (saves are written in the container); `hash` is what the last
+ * read or save left on disk, sent as a save's `base`.
  *
  * @typedef {object} FileView
  * @property {Tile} tile
@@ -227,6 +229,9 @@ const views = new Map();
  * @property {string} error          the message shown while `state` is 'error'
  * @property {boolean} [noContainer] the error is that a container file's container isn't running
  * @property {number} seq
+ * @property {string | null} hash
+ * @property {boolean} dirty         edited since the last read or save
+ * @property {boolean} saving
  */
 
 /** @type {Map<string, FileView>} file tiles' views, by Tile.id */
@@ -513,6 +518,7 @@ function onMessage(msg) {
       relistForContainers();
       for (const view of fileViews.values()) {
         if (view.noContainer) loadFile(view);
+        else syncFileEditable(view);
       }
       renderTree();
       reconcileTiles();
@@ -1328,11 +1334,11 @@ function layoutFileTileRow(tile, active, depth) {
       'span',
       { class: 'label' },
       rowIcon({ kind: 'file' }),
-      fileTileTitle(tile.file),
+      fileTileTitle(tile.file, fileViews.get(tile.id)?.dirty),
     ),
     rowTrail(
       hoverActions(
-        iconButton('close', 'Close tile', () => tiling?.close(tile.id)),
+        iconButton('close', 'Close tile', () => closeTile(tile.id)),
       ),
     ),
   );
@@ -4514,9 +4520,10 @@ function fileRootOf(file) {
     : { localFolder: file.localFolder, root: file.root };
 }
 
-/** A file tile's title: the file's name. */
-function fileTileTitle(file) {
-  return file ? basename(file.path) : 'unknown file';
+/** A file tile's title: the file's name, after a dot while it has unsaved edits. */
+function fileTileTitle(file, dirty = false) {
+  const name = file ? basename(file.path) : 'unknown file';
+  return dirty ? `● ${name}` : name;
 }
 
 /** The open file tile showing `file`, the most recently focused one if there are several. */
@@ -4605,7 +4612,10 @@ function fileTileMenuItems(tile) {
   const view = fileViews.get(tile.id);
   if (file) {
     const fr = fileRootOf(file);
-    if (view) items.push(['Reload', () => loadFile(view)]);
+    if (view?.dirty && fileEditable(view)) {
+      items.push(['Save', () => saveFile(view)]);
+    }
+    if (view) items.push(['Reload', () => reloadFile(view)]);
     items.push(
       ['Open in editor', () => openInEditor(fr, file.path, 'stack')],
     );
@@ -4616,7 +4626,7 @@ function fileTileMenuItems(tile) {
     if (!file.container) items.push(filePinItem(fr, file.path));
   }
   if (tile.preview) items.push(keepOpenItem(tile));
-  items.push(['Close', () => tiling?.close(tile.id)]);
+  items.push(['Close', () => closeTile(tile.id)]);
   return items;
 }
 
@@ -4639,7 +4649,7 @@ function mountFileTile(tile) {
   // After the factory returns: a title change mid-build would save a half-built layout.
   queueMicrotask(() => {
     if (!fileViews.has(tile.id)) return;
-    tile.setTitle(fileTileTitle(tile.file));
+    tile.setTitle(fileTileTitle(tile.file, fileViews.get(tile.id)?.dirty));
     if (tile.file) tile.setTooltip(fileHostPath(tile.file));
   });
   /** @type {FileView} */
@@ -4651,6 +4661,9 @@ function mountFileTile(tile) {
     state: 'loading',
     error: '',
     seq: 0,
+    hash: null,
+    dirty: false,
+    saving: false,
   };
   fileViews.set(tile.id, view);
   if (tile.file) loadFile(view);
@@ -4718,18 +4731,149 @@ async function loadFile(view) {
   }
   if (seq !== view.seq || !fileViews.has(view.tile.id)) return;
   const text = typeof result?.text === 'string' ? result.text : '';
+  view.hash = typeof result?.hash === 'string' ? result.hash : null;
   if (view.viewer) view.viewer.setText(text);
   else {
     view.viewer = createViewer(view.host, {
       name: basename(file.path),
       text,
+      onChange: (dirty) => setFileDirty(view, dirty),
+      onSave: () => saveFile(view),
     });
   }
   revealPendingLine(view);
   view.state = 'ok';
   view.error = '';
+  syncFileEditable(view);
   updateFileOverlay(view);
 }
+
+/**
+ * Whether a file tile can be edited: its file is shown and its project's container runs, since
+ * saves are written in the container as its remote user, never from the host side.
+ */
+function fileEditable(view) {
+  const file = view.tile.file;
+  return Boolean(
+    file && view.viewer && view.state === 'ok' &&
+      containerByFolder(file.localFolder)?.state === 'connected',
+  );
+}
+
+/** Makes a file tile's viewer editable or read-only to match {@link fileEditable}. */
+function syncFileEditable(view) {
+  view.viewer?.setEditable(fileEditable(view));
+}
+
+/** Marks a file tile edited or not, in its tab and Layout row. A first edit keeps a preview. */
+function setFileDirty(view, dirty) {
+  if (view.dirty === dirty) return;
+  view.dirty = dirty;
+  view.tile.setTitle(fileTileTitle(view.tile.file, dirty));
+  if (dirty && view.tile.preview) keepOpen(view.tile);
+  queueRender();
+}
+
+/** Re-reads a file tile's file, after asking when that would drop unsaved edits. */
+async function reloadFile(view) {
+  if (
+    view.dirty &&
+    !await confirmDialog(
+      `Discard your changes to ${fileTileTitle(view.tile.file)}?`,
+      { okLabel: 'Discard', danger: true },
+    )
+  ) return;
+  loadFile(view);
+}
+
+/**
+ * Saves a file tile's text in the container (`write_file`). Refused because the file changed on
+ * disk since it was read, it asks before overwriting; `overwrite` skips that check.
+ *
+ * @param {FileView} view @param {boolean} [overwrite]
+ */
+async function saveFile(view, overwrite = false) {
+  const file = view.tile.file;
+  if (!file || !view.viewer || view.saving || !view.dirty) return;
+  const name = fileTileTitle(file);
+  const c = containerByFolder(file.localFolder);
+  if (!fileEditable(view) || !c) {
+    errorToast(`Can't save ${name}: its container is not running`);
+    return;
+  }
+  if (!socket || socket.readyState !== WebSocket.OPEN) {
+    errorToast(`Can't save ${name}: not connected to devc web`);
+    return;
+  }
+  const text = view.viewer.getText();
+  view.saving = true;
+  let result;
+  try {
+    result = await call({
+      type: 'write_file',
+      container: c.id,
+      ...(file.container
+        ? { path: childPath('/', file.path) }
+        : { root: file.root, path: file.path }),
+      text,
+      ...(view.hash && !overwrite ? { base: view.hash } : {}),
+    });
+  } catch (e) {
+    view.saving = false;
+    if (e?.code !== 'conflict') {
+      errorToast(`Couldn't save ${name}: ${e?.message ?? e}`);
+      return;
+    }
+    if (
+      fileViews.has(view.tile.id) &&
+      await confirmDialog(
+        `${name} changed on disk since it was opened. Overwrite it with your changes?`,
+        { okLabel: 'Overwrite', danger: true },
+      )
+    ) saveFile(view, true);
+    return;
+  }
+  view.saving = false;
+  view.hash = typeof result?.hash === 'string' ? result.hash : null;
+  // Edits typed while the save was on its way stay unsaved.
+  if (view.viewer?.getText() === text) view.viewer.markClean();
+}
+
+/** Closes a tile, after asking when it is a file tile with unsaved edits. */
+async function closeTile(tileId) {
+  const view = fileViews.get(tileId);
+  if (
+    view?.dirty &&
+    !await confirmDialog(
+      `Close ${fileTileTitle(view.tile.file)} without saving?`,
+      { okLabel: 'Close', danger: true },
+    )
+  ) return;
+  tiling?.close(tileId);
+}
+
+// Golden Layout closes a tab on its × (and a middle click) with no way to refuse: a file tile
+// with unsaved edits asks first. Capture phase, ahead of Golden Layout's own listener.
+document.addEventListener('click', (e) => {
+  const target = /** @type {HTMLElement} */ (e.target);
+  const tab = /** @type {HTMLElement | null} */ (target.closest?.('.lm_tab'));
+  if (!tab || !(target.closest('.lm_close_tab') || e.button === 1)) return;
+  const tileId = tab.dataset.tile;
+  if (!tileId || !fileViews.get(tileId)?.dirty) return;
+  e.preventDefault();
+  e.stopPropagation();
+  closeTile(tileId);
+}, true);
+
+// Leaving the page with unsaved edits: the browser asks.
+window.addEventListener('beforeunload', (e) => {
+  for (const view of fileViews.values()) {
+    if (view.dirty) {
+      e.preventDefault();
+      return;
+    }
+  }
+});
 
 /** A file tile's overlay: "Loading…", or why the file can't be shown (with "Open in editor"). */
 function updateFileOverlay(view) {
