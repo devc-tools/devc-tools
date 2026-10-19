@@ -16,7 +16,8 @@ its own browser instance (not frames of one page):
 
 ## Build
 
-Run these in this directory. You need Node 24 and npm 11.
+Run these in this directory. You need Node 24 and npm 11. `.nvmrc` names the Node version, so
+`nvm install` (or `nvm use`, or fnm) here picks it, on a Mac as in a container.
 
 ```sh
 npm ci              # dependencies; npm 11 runs only the install scripts listed under

@@ -5,6 +5,9 @@
   "description": "devc web in its own window, with a host terminal devc web cannot reach",
   "license": "MIT",
   "main": "build/main.js",
+  "engines": {
+    "node": ">=24"
+  },
   "scripts": {
     "bundle": "node build.mjs",
     "check": "tsc --noEmit -p .",
