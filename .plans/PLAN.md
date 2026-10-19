@@ -129,6 +129,13 @@
   tasks (`localStorage` `devc-web-task-default-v1`, per window; unrouted pins only the agent).
   A pinned route beats the focused tile's project; **New task here…** and an edited task's own
   route still win. Row sends use the default's agent over the last sent one.
+  **Implemented; the user's check in their tab and devc-desktop outstanding.**
+
+- [devc-web-workspace-paths](devc-web-workspace-paths.md) — repo rows named by their path
+  under `/workspaces` (`tools/devc-tools`, server-side `RepoView.name` from the mount's
+  container path); the window title is `<active folder basename> — devc web` (pane cwd or a
+  file tile's folder; devc-desktop follows it); a container's **Files** row gets `/workspaces`
+  and home (`$HOME`, read lazily, new `containers` field `home`) shortcut rows.
 
 ### Standing rules for Feature work
 
@@ -2328,3 +2335,4 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
 | `devc web` task default — a pin in the task dialog sets the default project, repo and agent                        | [devc-web-task-default](devc-web-task-default.md)                                  |             |
 | `devc web` grouped tasks — one collapsible node per project + repo route, `not routed` last                        | [devc-web-tasks-grouped](archived/devc-web-tasks-grouped.md)                       | complete    |
 | `devc web` sidebar Collapse all — on the Tasks and Containers headings, at every level                             | [devc-web-sidebar-collapse-all](archived/devc-web-sidebar-collapse-all.md)         | complete    |
+| `devc web` workspace paths — repo rows under `/workspaces`, window title, Files shortcuts                          | [devc-web-workspace-paths](devc-web-workspace-paths.md)                            |             |
