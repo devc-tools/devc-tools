@@ -1,6 +1,6 @@
 // The `devc web` file viewer and editor: a CodeMirror 6 view of one file, with line numbers,
 // syntax highlighting by file name, code folding, bracket matching and search, editable when
-// app.js says the file can be saved (undo, Tab indents, Ctrl/Cmd-S asks app.js to save). The only
+// app.js says the file can be saved (undo, Tab indents; app.js saves on Ctrl/Cmd-S). The only
 // module that imports CodeMirror (as `renderer.js` is for xterm.js and `layout.js` for Golden
 // Layout), so app.js talks to it through `createViewer` alone. See
 // `.plans/devc-web-file-viewer.md` and `.plans/devc-web-editable-viewer.md`.
@@ -238,13 +238,13 @@ const highlight = HighlightStyle.define([
  *
  * @param {HTMLElement} el
  * @param {{name: string, text: string, editable?: boolean,
- *   onChange?: (dirty: boolean) => void, onSave?: () => void}} opts
- *   `onChange` follows every edit; `onSave` is Ctrl/Cmd-S
+ *   onChange?: (dirty: boolean) => void}} opts
+ *   `onChange` follows every edit. Saving is app.js's: its own Ctrl/Cmd-S listener
  * @returns {Viewer}
  */
 export function createViewer(
   el,
-  { name, text, editable = false, onChange, onSave },
+  { name, text, editable = false, onChange },
 ) {
   const lang = languageFor(name);
   const access = new Compartment();
@@ -272,14 +272,6 @@ export function createViewer(
         highlightSelectionMatches(),
         search({ top: true }),
         keymap.of([
-          {
-            key: 'Mod-s',
-            preventDefault: true,
-            run: () => {
-              onSave?.();
-              return true;
-            },
-          },
           ...searchKeymap,
           ...foldKeymap,
           ...historyKeymap,

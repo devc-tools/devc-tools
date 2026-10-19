@@ -4738,7 +4738,6 @@ async function loadFile(view) {
       name: basename(file.path),
       text,
       onChange: (dirty) => setFileDirty(view, dirty),
-      onSave: () => saveFile(view),
     });
   }
   revealPendingLine(view);
@@ -4794,8 +4793,12 @@ async function reloadFile(view) {
  */
 async function saveFile(view, overwrite = false) {
   const file = view.tile.file;
-  if (!file || !view.viewer || view.saving || !view.dirty) return;
+  if (!file || !view.viewer || view.saving) return;
   const name = fileTileTitle(file);
+  if (!view.dirty) {
+    toast(`${name} has no unsaved changes`);
+    return;
+  }
   const c = containerByFolder(file.localFolder);
   if (!fileEditable(view) || !c) {
     errorToast(`Can't save ${name}: its container is not running`);
@@ -4837,6 +4840,7 @@ async function saveFile(view, overwrite = false) {
   view.hash = typeof result?.hash === 'string' ? result.hash : null;
   // Edits typed while the save was on its way stay unsaved.
   if (view.viewer?.getText() === text) view.viewer.markClean();
+  toast(`Saved ${name}`);
 }
 
 /** Closes a tile, after asking when it is a file tile with unsaved edits. */
@@ -4863,6 +4867,22 @@ document.addEventListener('click', (e) => {
   e.preventDefault();
   e.stopPropagation();
   closeTile(tileId);
+}, true);
+
+// Ctrl+S or Cmd+S (either on a Mac) in a file tile saves it. Here, in the capture phase, rather
+// than in CodeMirror's keymap: the page sees the key before anything in the view can type it,
+// and a terminal's Ctrl+S (XOFF) is left alone, since only keys aimed at a file view count.
+document.addEventListener('keydown', (e) => {
+  if (e.key.toLowerCase() !== 's' || e.altKey || e.shiftKey) return;
+  if (!(IS_MAC ? e.metaKey || e.ctrlKey : e.ctrlKey && !e.metaKey)) return;
+  const target = /** @type {Node} */ (e.target);
+  for (const view of fileViews.values()) {
+    if (!view.host.contains(target)) continue;
+    e.preventDefault();
+    e.stopPropagation();
+    if (!e.repeat) saveFile(view);
+    return;
+  }
 }, true);
 
 // Leaving the page with unsaved edits: the browser asks.

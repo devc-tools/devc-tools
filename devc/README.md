@@ -330,8 +330,8 @@ is published from any container: the host server finds devcontainers with
   when it tracks the mouse, and Herdr's scrollback otherwise.
 - **Files and editing:** click a file to open it in a file tile, with syntax
   highlighting, search (Ctrl/⌘+F) and folding. While the project's container
-  runs, the tile is an editor too: type, and **Ctrl+S** (**⌘S**) saves. Its tab
-  shows **●** until then, and editing a preview tile keeps it open. A save is
+  runs, the tile is an editor too: type, and **Ctrl+S** (**⌘S** or **Ctrl+S** on
+  a Mac) saves, with a "Saved" toast. Its tab shows **●** until then, and editing a preview tile keeps it open. A save is
   written inside the container as its remote user, in place (owner and mode
   are kept). If the file changed on disk since the tile read it, you are asked
   before it is overwritten. Reloading or closing a tile with unsaved edits
