@@ -12,8 +12,8 @@ import { mkdtemp, readdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 
 import {
-  buildExecArgs,
   buildUpArgs,
+  dockerExecArgv,
   downContainer,
   execInContainer,
   initProject,
@@ -23,17 +23,32 @@ import {
 
 // Pure functions work with no I/O at all.
 assert.deepEqual(
-  buildExecArgs({
-    containerId: 'abc',
-    remoteUser: 'vscode',
-    cwd: '/workspaces/p',
-    remoteEnv: {},
-    env: {},
-    cmd: ['echo', 'hi'],
-  }),
-  ['exec', '-i', '-u', 'vscode', '-w', '/workspaces/p', 'abc', 'echo', 'hi'],
+  dockerExecArgv(
+    {
+      containerId: 'abc',
+      remoteUser: 'vscode',
+      remoteWorkspaceFolder: '/workspaces/p',
+      remoteEnv: { TZ: 'UTC' },
+    },
+    { interactive: true, env: { FOO: 'bar' }, cmd: ['echo', 'hi'] },
+  ),
+  [
+    'exec',
+    '-i',
+    '-e',
+    'TZ=UTC',
+    '-e',
+    'FOO=bar',
+    '-u',
+    'vscode',
+    '-w',
+    '/workspaces/p',
+    'abc',
+    'echo',
+    'hi',
+  ],
 );
-console.log('ok: buildExecArgs (pure)');
+console.log('ok: dockerExecArgv (pure)');
 
 assert.deepEqual(
   buildUpArgs({
