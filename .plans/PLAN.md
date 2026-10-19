@@ -52,21 +52,6 @@
   cross-built here: `npm run build:mac`). Why: [devc-desktop-host-terminal](archived/devc-desktop-host-terminal.md) (the
   `deno desktop` drawer failed isolation; Electron passed).
 
-- [devc-web-golden-layout](devc-web-golden-layout.md) — replace `devc web`'s hand-written
-  split-tree tiling with vendored Golden Layout 2.6.0 (bundled to one ES module): drag sidebar
-  panes onto tile edges or into tab stacks, move and nest tiles, maximise and close, with
-  `localStorage` persistence. One module (`layout.js`) is the only Golden Layout importer;
-  server, protocol and renderer are unchanged apart from a `.png` content type.
-
-- [devc-web](devc-web.md) — `devc web`: a loopback-only (127.0.0.1, token + Host/Origin
-  checked) web UI for the Herdr sessions running inside devcontainers. The host server
-  discovers containers via `docker ps` + `docker events`, reaches each Herdr through
-  `docker exec … herdr remote-api-bridge` (push events, no polling) and
-  `terminal session control` (per-pane streams), and serves an xterm.js page with
-  browser-owned tiling across containers, agent status badges, pane management and mouse
-  forwarding. The Herdr 0.9.5 control protocol was measured in throwaway sessions and is
-  written down in the plan.
-
 - [keepawake-ping-telemetry](keepawake-ping-telemetry.md) — record every keepawake ping
   and report the distribution of gaps between them, so
   `DEVC_BRIDGE_KEEPAWAKE_IDLE_MS` can be set from measurement rather than the
@@ -92,13 +77,6 @@
   and runs it against the extension under development on an `xvfb` display with a CDP port,
   generalized from vscode-deephaven's `vscode-dev.sh`. chrome-devtools-mcp registration stays
   with the consuming project. Replaces the `feature-electron-deps` placeholder.
-
-- [agents-update-tools-on-start](agents-update-tools-on-start.md) — new `agents` option
-  `updateToolsOnStart` (default `true`): a `postStartCommand` runs `claude`/`copilot`/`pi`/
-  `herdr update` for each CLI the Feature installed, so a cached image build no longer leaves
-  Claude Code on an old version that it then replaces in the background and asks to be
-  restarted for. One log line per tool, 120 s cap each, never fails the start. Not
-  agent-browser.
 
 - [devc-web-tasks](devc-web-tasks.md) — a task list in `devc web`: to-dos kept in
   `~/.config/devc/tasks.json`, optionally routed to a project and repo, then sent one-way to an
@@ -173,6 +151,22 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
   take it too.
 
 ### Completed
+
+- [agents-update-tools-on-start](archived/agents-update-tools-on-start.md) — ✅ Done: `agents` option
+  `updateToolsOnStart` (default `true`) updates each installed agent CLI from a `postStartCommand`,
+  one log line per tool, 120 s cap, never fails the start (agents 0.8.0). Closed by the user on
+  2026-10-19; the host-side Validation items and `shellcheck` were not run here.
+
+- [devc-web-golden-layout](archived/devc-web-golden-layout.md) — ✅ Done: `devc web` tiles with
+  vendored Golden Layout 2.6.0 (drag/drop onto edges and stacks, nesting, maximise/close,
+  `localStorage` persistence), `layout.js` the only importer. Closed by the user on 2026-10-19; the
+  remaining manual Validation items were accepted from day-to-day use, not re-run one by one.
+
+- [devc-web](archived/devc-web.md) — ✅ Done: `devc web` serves a loopback-only, token + Host/Origin
+  checked page for the Herdr sessions in running devcontainers, over `docker exec`
+  (remote-api-bridge events, per-pane `terminal session control` streams), with xterm.js tiles,
+  agent badges, pane management and mouse forwarding. Closed by the user on 2026-10-19; the
+  remaining manual Validation items were accepted from day-to-day use, not re-run one by one.
 
 - [devc-web-workspace-paths](archived/devc-web-workspace-paths.md) — ✅ Done: repo rows are
   named by their path under `/workspaces` (`RepoView.name` from the mount's container path);
@@ -2323,13 +2317,13 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
 | devc-bridge Copilot review-loop gaps — review body, timeline-sourced `pending`, policy refusal exit codes          | [bridge-copilot-review-gaps](archived/bridge-copilot-review-gaps.md)               | complete    |
 | devc Feature lockfile — `devc lock` on demand; project-mode starts honor an existing lock                          | [devc-feature-lockfile](devc-feature-lockfile.md)                                  |             |
 | `headless-vscode` Feature — Electron libraries + headless VS Code launcher over `xvfb`                             | [feature-headless-vscode](feature-headless-vscode.md)                              |             |
-| `agents` `updateToolsOnStart` — update installed agent CLIs at container start                                     | [agents-update-tools-on-start](agents-update-tools-on-start.md)                    | in progress |
+| `agents` `updateToolsOnStart` — update installed agent CLIs at container start                                     | [agents-update-tools-on-start](archived/agents-update-tools-on-start.md)           | complete    |
 | devc repo overlay — one `devc.jsonc` per git repo, shared by its worktrees                                         | [devc-repo-overlay](archived/devc-repo-overlay.md)                                 | complete    |
 | devc-bridge pin hardening — refuse the default branch; refresh revokes instead of moving the pin                   | [bridge-pin-hardening](archived/bridge-pin-hardening.md)                           | complete    |
 | devc-bridge multi-repo pins — `--bridge-repo PATH`, v2 policy, `--repo` selector                                   | [bridge-multi-repo-pins](archived/bridge-multi-repo-pins.md)                       | complete    |
 | devc-bridge worktree extra repos — linked worktrees in `--bridge-repo`, same-repo pins, mirror lock, trap race fix | [bridge-worktree-extra-repos](archived/bridge-worktree-extra-repos.md)             | complete    |
-| `devc web` — browser UI for in-container Herdr sessions over `docker exec`                                         | [devc-web](devc-web.md)                                                            | in progress |
-| `devc web` Golden Layout tiling — drag/drop, stacks, nesting                                                       | [devc-web-golden-layout](devc-web-golden-layout.md)                                | in progress |
+| `devc web` — browser UI for in-container Herdr sessions over `docker exec`                                         | [devc-web](archived/devc-web.md)                                                   | complete    |
+| `devc web` Golden Layout tiling — drag/drop, stacks, nesting                                                       | [devc-web-golden-layout](archived/devc-web-golden-layout.md)                       | complete    |
 | `devc web` sidebar — resizable and hideable                                                                        | [devc-web-sidebar-resize](archived/devc-web-sidebar-resize.md)                     | complete    |
 | `devc web` copy on select — plain drag copies via `pane.selection.read`                                            | [devc-web-copy-on-select](archived/devc-web-copy-on-select.md)                     | complete    |
 | `devc web` tasks — a host-side task list, sent one-way to an agent with a known session id                         | [devc-web-tasks](devc-web-tasks.md)                                                | in progress |
@@ -2340,3 +2334,8 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
 | `devc web` grouped tasks — one collapsible node per project + repo route, `not routed` last                        | [devc-web-tasks-grouped](archived/devc-web-tasks-grouped.md)                       | complete    |
 | `devc web` sidebar Collapse all — on the Tasks and Containers headings, at every level                             | [devc-web-sidebar-collapse-all](archived/devc-web-sidebar-collapse-all.md)         | complete    |
 | `devc web` workspace paths — repo rows under `/workspaces`, window title, Files shortcuts                          | [devc-web-workspace-paths](archived/devc-web-workspace-paths.md)                   | complete    |
+| `devc web` projects — list stopped projects; start, stop, pin from the page                                        | [devc-web-projects](devc-web-projects.md)                                          | in progress |
+| `devc web` files — a Files node browses each container's filesystem and opens files in `$EDITOR`                   | [devc-web-files](devc-web-files.md)                                                | in progress |
+| devc container connection — one `docker exec` path with `remoteEnv` for the CLI and devc web                       | [devc-container-connection](devc-container-connection.md)                          | in progress |
+| devc-desktop on Electron — one window with devc web and a host terminal                                            | [devc-desktop-electron](devc-desktop-electron.md)                                  | in progress |
+| git-protect live check — `devc status` and the bridge read the container's mountinfo                               | [git-protect-live-check](git-protect-live-check.md)                                |             |

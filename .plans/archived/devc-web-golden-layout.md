@@ -225,6 +225,8 @@ Easy to confuse, so keep these straight in names and comments:
 
 ## Validation
 
+**Closed 2026-10-19 by the user:** the items below that were still open were accepted without being re-run for this close-out.
+
 Automated:
 
 - [x] `deno fmt --check` at the repo root passes
@@ -237,20 +239,20 @@ Automated:
 
 Manual (macOS host, two running devcontainers with Herdr sessions):
 
-- [ ] Drag a sidebar pane onto each edge of a tile and into its stack: a tile appears in each
+- [x] Drag a sidebar pane onto each edge of a tile and into its stack: a tile appears in each
       spot and renders that pane
-- [ ] Nest three levels (a column inside a row inside a column) and drag tiles between stacks;
+- [x] Nest three levels (a column inside a row inside a column) and drag tiles between stacks;
       every terminal keeps rendering and accepting input after each move
-- [ ] Close and maximise tiles from their tab controls; closing the last tile shows the
+- [x] Close and maximise tiles from their tab controls; closing the last tile shows the
       placeholder, and clicking a pane brings back a tile
-- [ ] The same pane in two tiles: closing one keeps the other live
-- [ ] A tile in a background stack tab, after its stack is resized, shows at the right size
+- [x] The same pane in two tiles: closing one keeps the other live
+- [x] A tile in a background stack tab, after its stack is resized, shows at the right size
       when brought to the front
-- [ ] Tab titles and agent badges update with `pane_updated` and agent status changes
-- [ ] Reload restores the exact layout, including stacks and the active tab in each; a closed
+- [x] Tab titles and agent badges update with `pane_updated` and agent status changes
+- [x] Reload restores the exact layout, including stacks and the active tab in each; a closed
       pane's tile shows "Pane gone"; an old `v1` layout in `localStorage` loads as empty
       without errors
-- [ ] With external network blocked in devtools, the page loads fully, Golden Layout icons
+- [x] With external network blocked in devtools, the page loads fully, Golden Layout icons
       included
 
 ## Relevant Files

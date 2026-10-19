@@ -14,10 +14,10 @@ the checkout (any devcontainer with the `devc:source` mount has it read-write at
 using. The tab also shows the agent doing the work, so a broken edit can't be allowed to cost
 the user that view. The safety nets below are part of this plan, not a follow-on.
 
-**Depends on:** [devc-web-golden-layout](../devc-web-golden-layout.md). It rewrites `index.html`,
+**Depends on:** [devc-web-golden-layout](devc-web-golden-layout.md). It rewrites `index.html`,
 `app.js` and the tiling, which this plan also touches. Implement this plan only after that one
 is merged, and read `devc/web/static/` as it stands then, not as described in
-[devc-web](../devc-web.md).
+[devc-web](devc-web.md).
 
 Out of scope: Hot module replacement that keeps JS state across a reload (a full reload is
 fine: tile layout is in `localStorage`, and terminal contents live in Herdr), remote access,
@@ -187,7 +187,7 @@ Browser → server (validated in `protocol.ts`; `generation` must be a non-empty
 
 The server answers `client_ready` with nothing. It is a no-op in embedded mode. Add it to
 `ClientMessage` and `parseFields`, and document all three in
-[devc-web](../devc-web.md) § "Browser ⇄ server WebSocket protocol".
+[devc-web](devc-web.md) § "Browser ⇄ server WebSocket protocol".
 
 ### Page behavior
 

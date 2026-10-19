@@ -10,8 +10,8 @@ Make `devc web`'s sidebar **resizable** (drag its right edge) and **hideable** (
 completely, and a small button over the tiles brings it back). Both survive a reload. This is a
 page-only change: no server, protocol or Golden Layout changes.
 
-Builds on [devc-web](../devc-web.md) ("Browser UI → Sidebar") and
-[devc-web-golden-layout](../devc-web-golden-layout.md). Read
+Builds on [devc-web](devc-web.md) ("Browser UI → Sidebar") and
+[devc-web-golden-layout](devc-web-golden-layout.md). Read
 `/workspaces/devc-dev/.claude/skills/devc-web/SKILL.md` first: the user runs `devc web` in live
 mode, so every save reaches their tab.
 

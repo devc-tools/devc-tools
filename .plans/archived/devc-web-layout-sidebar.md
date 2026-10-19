@@ -40,7 +40,7 @@ PROJECTS
   and it carries the process actions. A pane shown in a tile gets a marker (👁 above; use a
   small icon, not an emoji).
 
-Builds on [devc-web](../devc-web.md) and [devc-web-golden-layout](../devc-web-golden-layout.md). It comes
+Builds on [devc-web](devc-web.md) and [devc-web-golden-layout](devc-web-golden-layout.md). It comes
 before [devc-web-projects](../devc-web-projects.md) and [devc-web-files](../devc-web-files.md). Read
 `/workspaces/devc-dev/.claude/skills/devc-web/SKILL.md` first: the user runs `devc web` in live
 mode, so every save reaches their tab.

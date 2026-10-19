@@ -13,7 +13,7 @@ way it is in a Herdr TUI. A plain drag is still forwarded to Herdr as `mouse`, e
 The copy happens alongside it. The existing **Shift+drag** (local xterm.js selection, copied on
 mouseup) is unchanged.
 
-Builds on [devc-web](../devc-web.md). Read `/workspaces/devc-dev/.claude/skills/devc-web/SKILL.md`
+Builds on [devc-web](devc-web.md). Read `/workspaces/devc-dev/.claude/skills/devc-web/SKILL.md`
 first: the user runs `devc web` in live mode, and protocol changes go **server first**.
 
 ## Background: what Herdr 0.9.5 does with a drag (measured 2026-10-16)
