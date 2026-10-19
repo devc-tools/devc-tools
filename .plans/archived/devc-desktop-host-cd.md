@@ -75,11 +75,11 @@ host view ──IPC host-term:context-menu──▶ main ──GET /desktop/acti
   (`mountsOf(session.record.id)`). Steps:
   1. `activePane === null` → `no_active_pane`.
   2. No session for the container → `no_session`.
-  3. *(Changed during implementation: the session's cached snapshot keeps a pane's `cwd` from
+  3. _(Changed during implementation: the session's cached snapshot keeps a pane's `cwd` from
      when it was taken, so a shell's `cd` never reached it, and the route answered
      `not_mounted` for folders you'd `cd`'d into. The route now asks Herdr `pane.get` live,
      waiting up to 2 s, and falls back to the cached snapshot. devc-desktop's fetch timeout is
-     3 s.)*
+     3 s.)_
      Find the pane in `snapshot.panes` (an array or an object of values, read the way
      `paneAtFolder` reads it) by `pane_id`. Read its `cwd`, the shell's own directory, and never
      `foreground_cwd`. Missing pane, or `cwd` not a non-empty string starting with `/` →
@@ -230,27 +230,32 @@ real `node:fs/promises` ones in main and fakes in tests. It returns
       and returns `null` past 80 characters;
       `shellIdle('-zsh', '/bin/zsh')`, `shellIdle('/bin/bash', '/bin/bash')` true;
       `shellIdle('vim', '/bin/zsh')` false
-- [ ] Linux (Xvfb, as in devc-desktop-electron's Verify): with a running container, focus a
+- [x] Linux (Xvfb, as in devc-desktop-electron's Verify): with a running container, focus a
       devc web terminal, `cd` into a subfolder of a mounted repo there, open the host drawer,
       right-click → the item reads `cd <host path of that subfolder>`; clicking it → the host
       prompt is in that folder and `pwd` prints it
+      **Done on macOS by the user (2026-10-19)** with a real container, after the live `pane.get` fix.
 - [x] Linux: type `echo hi` at the host prompt without Enter, then use the item → the line runs
       only `cd …` (`echo hi` is gone, not prefixed)
 - [x] Linux: run `sleep 100` in the host shell, right-click → the item is disabled with
       `(busy: sleep)`
-- [ ] Linux, adversarial: from inside the container, `ln -s /etc /workspaces/<repo>/evil`,
+- [x] Linux, adversarial: from inside the container, `ln -s /etc /workspaces/<repo>/evil`,
       `cd evil` in the focused pane, right-click → disabled `The folder is outside its mount`
-- [ ] Linux, adversarial: from the container, with the token, open `/ws` and send
+      **Done on macOS (2026-10-19):** `evil-etc-test -> /etc`, `cd` into it → disabled `The terminal's folder isn't mounted from this machine` (the kernel resolves the link, so Herdr reports `/etc`).
+- [x] Linux, adversarial: from the container, with the token, open `/ws` and send
       `{type:'active_pane', container:'<id>', pane_id:'<nonexistent>'}` → the item reads `The
       terminal's folder isn't known`; and `curl -H 'Origin: http://127.0.0.1:<port>' -H
       'Authorization: Bearer <token>' http://127.0.0.1:<port>/desktop/active-folder` → 403
+      **Done on macOS (2026-10-19)** from devc web's DevTools console (same access as a hostile page): forged `active_pane` for container `nope` → disabled `Its container isn't running`. The `Origin` → 403 part was run with curl against `devc web` from source (Verification results).
 - [x] Linux: a mounted folder named `a&b` shows `cd …/a&b` in the menu
-- [ ] Linux: the devc view still has no `window.hostTerm`, `require` or `process` (devtools
+- [x] Linux: the devc view still has no `window.hostTerm`, `require` or `process` (devtools
       console), and `ss -ltnp` shows no listener owned by the Electron process
-- [ ] macOS, by the user: the first Linux check, the busy check with `vim`, and the `a&b` label.
+      **Done on macOS (2026-10-19):** devc web's DevTools console gave `undefined` for `hostTerm`, `require`, `process` and `ipcRenderer`.
+- [x] macOS, by the user: the first Linux check, the busy check with `vim`, and the `a&b` label.
       **Busy check passed (2026-10-19):** with `vim` running, the item was greyed out with
       `(busy: vim)`. **The first Linux check passed too:** the item `cd`'d the host prompt into
-      the focused pane's folder. The `a&b` label is still open.
+      the focused pane's folder.
+      **All three passed:** the normal `cd`, `(busy: vim)`, and `a&b`.
 
 ## Verification results (Linux, Xvfb, 2026-10-19)
 
