@@ -1,6 +1,12 @@
 # devc-desktop-host-terminal
 
-- [ ] Step 0: isolation gate (§ Step 0). **If any check fails, stop and report to the user.** Do
+> **No-go (2026-10-18): G3 failed.** A cross-origin, sandboxed iframe in the shell page took
+> keyboard focus from the drawer with a plain `window.focus()` and received every real
+> keystroke typed there, with no user activation, through `inert` and an overlay, same-site or
+> not. See [Step 0 results](#step-0-results-linux-2026-10-18). The single-window drawer is not
+> built. [The fallback](#fallback-open-iterm-from-the-app-menu) is the plan instead.
+
+- [x] Step 0: isolation gate (§ Step 0). **Failed (G3): no-go.** Do
       not build the drawer. Offer the fallback ([§ Fallback](#fallback-open-iterm-from-the-app-menu)) instead.
 - [ ] Step 1: devc web can be framed by the shell: `--frame-ancestor`, and no `confirm()`/`prompt()`
 - [ ] Step 2: host PTY helper and its framing, with tests
@@ -144,6 +150,41 @@ reach the main process's `keydown` listeners or menu accelerators.
 **Outcome:** if G2, G3, G6 or G7 fails, or G5 has no fix, write "No-go" and the failing check at
 the top of this file, set the `PLAN.md` entry to **No-go**, and tell the user. The fallback below
 is then the plan.
+
+## Step 0 results (Linux, 2026-10-18)
+
+The run used Deno 2.9.7 `deno desktop --backend cef` (Chromium 149) under Xvfb in this
+devcontainer.
+
+- **Probe app:** throwaway and not in the repo. The window's first `Deno.serve` was the shell
+  page on `127.0.0.1:<S>`. The iframe was served from `http://localhost:<A>`, or from
+  `127.0.0.1:<A>` for the same-site runs. It had
+  `sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox allow-downloads"`
+  and stood in for a hostile devc web: it logged every key it received and ran an attack every
+  300 ms.
+- **Input:** real X keystrokes typed with `xdotool` into a `<textarea>` drawer, 20 per run.
+
+| Check                     | Result                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **G1** bindings           | **Pass** (iframe side): `win.bind` reached the shell's top frame (`bindings.probe` → `pong`). In the iframe, `typeof bindings` is `undefined`. Not checked for popups.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| **G2** containment        | **Pass:** `parent.document`/`top.document` throw `SecurityError`. `top.location` and `parent.location.href` assignments throw. `alert`/`confirm`/`prompt` are silently blocked (no `allow-modals`). `requestFullscreen` is refused by the permissions policy and `requestPointerLock` by the sandbox. The shell origin's `localStorage` is not readable, and a `BroadcastChannel` message never reached the shell. `window.open(<shell URL>)` gave no scriptable handle. `postMessage` to the parent **is delivered**, so the shell must ignore it, as designed.                                                                                                                               |
+| **G3** focus theft        | **FAIL:** every focus-taking attack — `window.focus()`, `element.focus()`, an `autofocus` input, `dialog.showModal()`, or all at once — received **20/20** keystrokes typed into the focused drawer. The iframe took focus back about 70 ms after the drawer got it, with **no** user activation in the plain runs. These defences changed nothing: a prior click in the iframe (sticky activation), the shell's pointer overlay, `inert` on the iframe (confirmed set: `devc.inert === true`, `:is([inert])` matched), `allow="focus-without-user-activation 'none'"`, and a same-site iframe with `inert`. `window.open`, `location.reload()` and self-navigation did not move focus (0/20). |
+| **G4** process separation | Not measured: moot after G3.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| **G5** popups             | Partial: `window.open` from the iframe did not steal focus. Where the popup went was not recorded.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| **G6** debug port         | Not measured: moot after G3.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| **G7** native input       | **Pass:** a `KeyboardEvent` dispatched in the iframe (Meta/Ctrl+J) never reached the main process's `keydown` listener, which logged every real `xdotool` keystroke.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+
+So in this Chromium, a sandboxed cross-origin iframe can always take keyboard focus from its
+embedder. No attribute, policy or overlay available to the page stops it. Anything typed into a
+same-window host terminal would be readable by devc web, and so by an agent that controls devc
+web's page code. That fails the requirement outright, so macOS was not tested.
+
+**Not tried:**
+
+- **A second native window** (G1 option (b)). A page cannot take OS-level focus from another
+  window the way it takes focus within its own frame tree. But it is not what was wanted: a pane
+  in one window.
+- **Overlays drawn by the main process.** `deno desktop` has no API for them.
 
 ## Concept boundaries
 

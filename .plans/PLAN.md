@@ -40,15 +40,13 @@
   and places it in the layout. A host folder tree (`list_host_dir`, same tree
   component) opening on the configured `codeRoots` replaces the "Add project…" prompt.
 
-- [devc-desktop-host-terminal](devc-desktop-host-terminal.md) — **gated: Step 0 must prove
-  complete isolation, or it falls back to an "Open iTerm at Project" app-menu item.** A host
-  terminal in a drawer that slides up at the bottom of the devc-desktop window. The window's top
-  frame is a desktop-owned shell page that draws the drawer itself (xterm.js on a Go PTY helper),
-  and devc web runs in a sandboxed cross-origin iframe inside it (no modals, no top navigation,
-  no fullscreen). The deciding check is G3: no programmatic way for the iframe to take keyboard
-  focus. The PTY is reached through per-window `deno desktop` bindings when they prove
-  top-frame-only, else a one-shot-secret loopback socket. devc web gains `--frame-ancestor` and
-  loses `confirm()`/`prompt()`. The live modes' existing host-exec path is out of scope.
+- [devc-desktop-host-terminal](devc-desktop-host-terminal.md) — **No-go for the single-window
+  drawer (Step 0, G3 failed).** In Chromium 149 under `deno desktop`, a sandboxed cross-origin
+  iframe (devc web) took keyboard focus from a host-terminal drawer in its embedding page with a
+  plain `window.focus()`. It received every keystroke typed there, with no user activation, and
+  `inert`, an overlay, the `focus-without-user-activation` policy and same-site serving did not
+  stop it. Containment otherwise held (G1, G2, G7). What remains to build is the fallback: an
+  **Open iTerm at Project ▸** app-menu item (macOS, native menu only).
 
 - [devc-web-golden-layout](devc-web-golden-layout.md) — replace `devc web`'s hand-written
   split-tree tiling with vendored Golden Layout 2.6.0 (bundled to one ES module): drag sidebar
