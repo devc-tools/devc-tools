@@ -11,6 +11,22 @@
 
 ### Pending
 
+- [devc-web-menu-groups-reveal](devc-web-menu-groups-reveal.md) — context menus get dividers
+  (a `null` item; edge and doubled dividers dropped) and the sidebar and file-tile menus are
+  grouped with them. A new `reveal_path` message selects a repo file or folder in the host's file
+  manager (`open -R`, `explorer /select,`, FileManager1 or `xdg-open` on the parent), labelled by
+  `hello.hostOs`, wherever **Open in Code** appears.
+
+- [devc-web-media-tiles](devc-web-media-tiles.md) — file tiles gain `view: 'media'`: images
+  drawn as images (fit/1:1, pixelated when enlarged) and HTML rendered in a sandboxed iframe,
+  both loaded through the existing `/preview/` URLs. **Preview** on HTML/SVG; a save in a text
+  tile reloads its media tiles.
+
+- [devc-web-aseprite-viewer](devc-web-aseprite-viewer.md) — after devc-web-media-tiles: a
+  clean-room `.aseprite` decoder and compositor (`static/lib/aseprite.js`, from the public spec
+  only) and a media view with frame playback, tags and layer toggles. Normal blend only at first;
+  tilemap layers are refused.
+
 - [devc-web-editable-viewer](devc-web-editable-viewer.md) — the file viewer becomes the editor:
   the same CodeMirror view, editable while the file's container runs, saved with Ctrl/⌘+S through a
   new `write_file` message that writes inside the container as the remote user and refuses with
