@@ -363,6 +363,19 @@ is published from any container: the host server finds devcontainers with
   their items with dividers. Hovering shows the host path (a container file
   also shows its container path). See
   [Editing in a terminal](#editing-in-a-terminal) for the editor.
+- **Images and HTML pages:** an image (`.png`, `.jpg`, `.gif`, `.webp`,
+  `.avif`, `.bmp`, `.ico`) opens as an image rather than as text: scaled down
+  to fit the tile, never up, over a checkerboard where it is transparent, with
+  its size in the corner. Click it to toggle between fit and 1:1 (which
+  scrolls); pixels stay crisp whenever it is drawn larger than it is. An HTML
+  file or an SVG opens as text, and its menu adds **Preview** and **Preview to
+  the right**, which render it in a tile (an HTML page in a sandboxed frame,
+  with the files beside it); an HTML file also has **Open in browser**, which
+  opens it in a browser tab instead. The source and its rendering can sit side
+  by side: a rendering's tab menu has **Open as text**, a source's has
+  **Preview**, and saving the source reloads its renderings. A rendering is
+  read-only; its **Reload** reads the file again. A container file's rendering
+  needs the container running.
 - **Pinned files and notes:** the **Pinned** section at the top of the sidebar
   keeps repo files one click away. It appears once something is pinned:
   right-click a repo file (or a file tile) for **Pin file** / **Unpin file**.

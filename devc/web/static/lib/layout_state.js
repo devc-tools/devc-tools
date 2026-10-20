@@ -1,13 +1,18 @@
 // Pure tiling-state helpers for the `devc web` page, shared by `layout.js` and `app.js` and
 // tested from `devc/tests/web_layout_test.ts`. No DOM access and no Golden Layout import here.
 
+import { defaultView, fileView } from './media.js';
+
 /** @typedef {{localFolder: string, pane_id: string}} PaneRef */
 /**
  * A file shown in a file tile: `path` is relative to `root`, one of the repo folders of the
  * project at `localFolder` (the `read_file` message's fields). With `container`, `root` is `/`
- * inside the running container of the project at `localFolder` (`read_container_file`).
+ * inside the running container of the project at `localFolder` (`read_container_file`). `view`
+ * shows it as text or as media (see `media.js`); it is set only when it differs from the
+ * default, so the same file always has the same reference.
  *
- * @typedef {{localFolder: string, root: string, path: string, container?: true}} FileRef
+ * @typedef {{localFolder: string, root: string, path: string, container?: true,
+ *   view?: 'text' | 'media'}} FileRef
  */
 
 /**
@@ -39,21 +44,43 @@ export function fileRefFromState(state) {
   if (typeof state !== 'object' || state === null || Array.isArray(state)) {
     return null;
   }
-  const { localFolder, root, path, container } =
+  const { localFolder, root, path, container, view } =
     /** @type {Record<string, unknown>} */ (state);
   for (const v of [localFolder, root, path]) {
     if (typeof v !== 'string' || v === '') return null;
   }
-  return /** @type {FileRef} */ ({
-    localFolder,
-    root,
-    path,
-    ...(container === true ? { container: true } : {}),
-  });
+  return withView(
+    /** @type {FileRef} */ ({
+      localFolder,
+      root,
+      path,
+      ...(container === true ? { container: true } : {}),
+    }),
+    view === 'text' || view === 'media' ? view : undefined,
+  );
 }
 
 /**
- * Whether two file references name the same file.
+ * `file` shown as `view` (`undefined`: the default), with `view` kept only when it differs from
+ * the default.
+ *
+ * @param {FileRef} file
+ * @param {'text' | 'media'} [view]
+ * @returns {FileRef}
+ */
+export function withView(file, view) {
+  const { view: _, ...ref } = file;
+  if (
+    view === undefined ||
+    fileView({ path: ref.path, view }) === defaultView(ref.path)
+  ) {
+    return ref;
+  }
+  return { ...ref, view };
+}
+
+/**
+ * Whether two file references name the same file, however each shows it.
  *
  * @param {FileRef} a
  * @param {FileRef} b
@@ -61,6 +88,17 @@ export function fileRefFromState(state) {
 export function sameFile(a, b) {
   return a.localFolder === b.localFolder && a.root === b.root &&
     a.path === b.path && !a.container === !b.container;
+}
+
+/**
+ * Whether two file references name the same file shown the same way: a file as text and as
+ * media are two tiles' worth.
+ *
+ * @param {FileRef} a
+ * @param {FileRef} b
+ */
+export function sameFileView(a, b) {
+  return sameFile(a, b) && fileView(a) === fileView(b);
 }
 
 /**
@@ -91,7 +129,10 @@ export function tilesShowingPane(tiles, ref) {
 export function tileContent(ref, preview = false) {
   const flag = preview ? { preview: true } : {};
   if (ref && 'file' in ref) {
-    const { localFolder, root, path, container } = ref.file;
+    const { localFolder, root, path, container, view } = withView(
+      ref.file,
+      ref.file.view,
+    );
     return {
       type: 'file',
       state: {
@@ -99,6 +140,7 @@ export function tileContent(ref, preview = false) {
         root,
         path,
         ...(container ? { container: true } : {}),
+        ...(view ? { view } : {}),
         ...flag,
       },
     };

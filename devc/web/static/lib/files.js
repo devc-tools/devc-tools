@@ -70,11 +70,6 @@ export function isHiddenName(name) {
   return name.startsWith('.');
 }
 
-/** A file a browser renders as a page (`.html`, `.htm`, `.xhtml`): offered **Open in browser**. */
-export function isHtmlPath(path) {
-  return /\.(?:html?|xhtml)$/i.test(path);
-}
-
 /** An entry that expands: a directory, or a symlink to one. */
 export function opensAsDir(entry) {
   return entry.kind === 'dir' || entry.to === 'dir';

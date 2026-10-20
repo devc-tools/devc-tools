@@ -2,15 +2,15 @@
 
 ## Checklist
 
-- [ ] `static/lib/media.js`: `mediaKind(path)`, `defaultView(path)`, with tests
-- [ ] `FileRef` gains `view?: 'text' | 'media'`; `layout_state.js` round-trips it, and file identity (`fileKey`, `tileShowingFile`, same-file checks) includes the effective view, with tests
-- [ ] File tiles mount a media view instead of CodeMirror when the effective view is `media`: an image view and an HTML view
-- [ ] Image view: fit / 1:1 zoom, checkerboard behind transparency, pixelated scaling when enlarged, a dimensions line
-- [ ] HTML view: sandboxed `<iframe>`; **Reload** re-mints the preview URL
-- [ ] Menus: **Preview** / **Preview to the right** for HTML and SVG; **Open as text** for SVG; image files open as media
-- [ ] A successful save in a text tile reloads media tiles showing the same file
-- [ ] devc-desktop: the iframe loads, and its links and popups behave (see Verification)
-- [ ] `devc/README.md` (devc web, "Files and editing") updated
+- [x] `static/lib/media.js`: `mediaKind(path)`, `defaultView(path)`, with tests
+- [x] `FileRef` gains `view?: 'text' | 'media'`; `layout_state.js` round-trips it, and file identity (`fileKey`, `tileShowingFile`, same-file checks) includes the effective view, with tests
+- [x] File tiles mount a media view instead of CodeMirror when the effective view is `media`: an image view and an HTML view
+- [x] Image view: fit / 1:1 zoom, checkerboard behind transparency, pixelated scaling when enlarged, a dimensions line
+- [x] HTML view: sandboxed `<iframe>`; **Reload** re-mints the preview URL
+- [x] Menus: **Preview** / **Preview to the right** for HTML and SVG; **Open as text** for SVG; image files open as media
+- [x] A successful save in a text tile reloads media tiles showing the same file
+- [ ] devc-desktop: the iframe loads, and its links and popups behave (see Verification) — not verifiable from the container; left for a by-hand check
+- [x] `devc/README.md` (devc web, "Files and editing") updated
 
 File tiles in `devc web` can show a file as media rather than text:
 - an **image** (`.png`, `.gif`, `.jpg`, …), drawn as an image;

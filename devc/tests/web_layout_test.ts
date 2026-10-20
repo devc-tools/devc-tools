@@ -6,9 +6,11 @@ import {
   parseSavedLayout,
   previewFromState,
   sameFile,
+  sameFileView,
   tileContent,
   tileTitle,
   treeSignature,
+  withView,
 } from '../web/static/lib/layout_state.js';
 
 Deno.test('fileRefFromState accepts a full file reference', () => {
@@ -243,4 +245,62 @@ Deno.test('tileContent: a preview carries preview: true, and the refs still pars
     tileContent({ localFolder: '/a', pane_id: 'p' }).state.preview,
     undefined,
   );
+});
+
+Deno.test('fileRefFromState keeps a view only when it differs from the default', () => {
+  const at = (path: string) => ({ localFolder: '/a', root: '/a', path });
+  // Saved before views existed: unchanged.
+  assertEquals(fileRefFromState(at('x.png')), at('x.png'));
+  assertEquals(fileRefFromState(at('x.svg')), at('x.svg'));
+  assertEquals(fileRefFromState({ ...at('x.svg'), view: 'media' }), {
+    ...at('x.svg'),
+    view: 'media',
+  });
+  assertEquals(fileRefFromState({ ...at('x.png'), view: 'text' }), {
+    ...at('x.png'),
+    view: 'text',
+  });
+  // The default, a view a non-media file can't have, and junk are all dropped.
+  assertEquals(
+    fileRefFromState({ ...at('x.png'), view: 'media' }),
+    at('x.png'),
+  );
+  assertEquals(fileRefFromState({ ...at('x.svg'), view: 'text' }), at('x.svg'));
+  assertEquals(fileRefFromState({ ...at('x.ts'), view: 'media' }), at('x.ts'));
+  assertEquals(fileRefFromState({ ...at('x.svg'), view: 'big' }), at('x.svg'));
+});
+
+Deno.test('tileContent round-trips a file view through fileRefFromState', () => {
+  const base = { localFolder: '/a', root: '/r', path: 'p/x.html' };
+  for (
+    const file of [
+      base,
+      withView(base, 'media'),
+      { ...base, path: 'x.gif' },
+      withView({ ...base, path: 'x.gif' }, 'text'),
+    ]
+  ) {
+    const { state } = tileContent({ file }, true);
+    assertEquals(fileRefFromState(state), file);
+  }
+  assertEquals(
+    tileContent({ file: { ...base, view: 'text' } }).state,
+    base,
+  );
+  assertEquals(
+    tileContent({ file: { ...base, view: 'media' } }).state,
+    { ...base, view: 'media' },
+  );
+});
+
+Deno.test('sameFileView tells a file as text from the same file as media', () => {
+  const svg = { localFolder: '/a', root: '/a', path: 'i.svg' };
+  const asMedia = withView(svg, 'media');
+  assertEquals(sameFile(svg, asMedia), true);
+  assertEquals(sameFileView(svg, asMedia), false);
+  assertEquals(sameFileView(svg, withView(svg, 'text')), true);
+  // An explicit default view is the default.
+  const png = { localFolder: '/a', root: '/a', path: 'i.png' };
+  assertEquals(sameFileView(png, { ...png, view: 'media' }), true);
+  assertEquals(sameFileView(png, { ...png, view: 'text' }), false);
 });

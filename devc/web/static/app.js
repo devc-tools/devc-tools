@@ -16,8 +16,10 @@ import {
   foldTree,
   parseSavedLayout,
   sameFile,
+  sameFileView,
   tilesShowingPane,
   treeSignature,
+  withView,
 } from './lib/layout_state.js';
 import {
   createWheelAccumulator,
@@ -47,6 +49,7 @@ import {
 import { AGENT_IDS, AGENT_MARKS, terminalIconKind } from './lib/agent_icons.js';
 import { resolvePath } from './lib/links.js';
 import { trimDividers } from './lib/menu.js';
+import { defaultView, fileView, mediaKind } from './lib/media.js';
 import {
   bridgeStatusItems,
   parseBridgeStatus,
@@ -59,7 +62,6 @@ import {
   createDirTree,
   formatSize,
   isHiddenName,
-  isHtmlPath,
   isWithin,
   newEntryNameError,
   opensAsDir,
@@ -221,13 +223,15 @@ const views = new Map();
  * A file tile's live view: the viewer once the file has been read, else an overlay saying why
  * not. `seq` numbers the reads, so only the latest one's answer lands. The viewer is an editor
  * while the file's container runs (saves are written in the container); `hash` is what the last
- * read or save left on disk, sent as a save's `base`.
+ * read or save left on disk, sent as a save's `base`. A tile showing its file as media has a
+ * media view instead, and never a viewer.
  *
  * @typedef {object} FileView
  * @property {Tile} tile
  * @property {HTMLElement} host      where the viewer mounts
  * @property {HTMLElement} overlay
  * @property {import('./viewer.js').Viewer | null} viewer
+ * @property {MediaView | null} media
  * @property {'loading' | 'ok' | 'error'} state
  * @property {string} error          the message shown while `state` is 'error'
  * @property {boolean} [noContainer] the error is that a container file's container isn't running
@@ -235,6 +239,17 @@ const views = new Map();
  * @property {string | null} hash
  * @property {boolean} dirty         edited since the last read or save
  * @property {boolean} saving
+ */
+
+/**
+ * A file tile's media view: an image, or an HTML page in a sandboxed frame, loaded from a one-off
+ * `/preview/…` URL. `show` loads a URL, `clear` drops what is shown.
+ *
+ * @typedef {object} MediaView
+ * @property {'image' | 'html'} kind
+ * @property {(url: string) => void} show
+ * @property {() => void} clear
+ * @property {() => void} dispose
  */
 
 /** @type {Map<string, FileView>} file tiles' views, by Tile.id */
@@ -524,7 +539,10 @@ function onMessage(msg) {
       }
       relistForContainers();
       for (const view of fileViews.values()) {
-        if (view.noContainer) loadFile(view);
+        // A container file's rendering goes when its container does: its URL reads from it.
+        const gone = view.media && view.tile.file?.container &&
+          !containerByFolder(view.tile.file.localFolder);
+        if (view.noContainer || gone) loadFile(view);
         else syncFileEditable(view);
       }
       renderTree();
@@ -809,6 +827,10 @@ const LABELS = {
   copyPath: 'Copy path',
   copyContainerPath: 'Copy container path',
   openInCode: 'Open in Code',
+  /** Renders a file in a media view; not a preview tile (`keepOpen`), whatever the name. */
+  preview: 'Preview',
+  previewRight: 'Preview to the right',
+  openAsText: 'Open as text',
   /** Read when a menu opens: named for the host's file manager. */
   get reveal() {
     return hostOs === 'darwin'
@@ -3860,19 +3882,20 @@ function openKey(fr) {
 }
 
 /**
- * A file under `fr`, as a file tile names it. A container file is always under `/`, whichever
- * row it was opened from, so it is one file to tiles and saved layouts. @returns {FileRef}
+ * A file under `fr`, as a file tile names it, shown as `view` (by default, its default). A
+ * container file is always under `/`, whichever row it was opened from, so it is one file to
+ * tiles and saved layouts. @returns {FileRef}
  */
-function fileRefOf(fr, path) {
+function fileRefOf(fr, path, view) {
   if (fr.container) {
-    return {
+    return withView({
       localFolder: fr.localFolder,
       root: '/',
       path: containerFilePath(fr, path).slice(1),
       container: true,
-    };
+    }, view);
   }
-  return { localFolder: fr.localFolder, root: fr.root, path };
+  return withView({ localFolder: fr.localFolder, root: fr.root, path }, view);
 }
 
 /** Each file root's tree, by {@link treeId}: made when its row is first drawn. */
@@ -4115,6 +4138,31 @@ function openInEditor(fr, path, where) {
 }
 
 /**
+ * A one-off `/preview/…` URL serving a file, and the files beside it (`preview_file`,
+ * `preview_container_file`). `c` is the running container of a container file. The server keeps
+ * only so many, so each use mints its own.
+ *
+ * @param {ContainerInfo | null} c @param {FileRoot} fr @param {string} path @returns {Promise<string>}
+ */
+async function mintPreviewUrl(c, fr, path) {
+  const result = await call(
+    c
+      ? {
+        type: 'preview_container_file',
+        container: c.id,
+        path: containerFilePath(fr, path),
+      }
+      : {
+        type: 'preview_file',
+        localFolder: fr.localFolder,
+        root: fr.root,
+        path,
+      },
+  );
+  return new URL(String(result?.path ?? ''), location.origin).href;
+}
+
+/**
  * Opens an HTML file in a new browser tab, with the files beside it: the server serves it at a
  * one-off `/preview/…` URL (`preview_file`, `preview_container_file`), sandboxed so the page's own
  * scripts can't reach this one. A container file needs the container running.
@@ -4128,28 +4176,14 @@ async function openInBrowser(fr, path) {
   // Opened now, inside the click, so a popup blocker lets it through; navigated once answered.
   const win = window.open('about:blank', '_blank');
   if (win) win.opener = null;
-  let result;
+  let url;
   try {
-    result = await call(
-      c
-        ? {
-          type: 'preview_container_file',
-          container: c.id,
-          path: containerFilePath(fr, path),
-        }
-        : {
-          type: 'preview_file',
-          localFolder: fr.localFolder,
-          root: fr.root,
-          path,
-        },
-    );
+    url = await mintPreviewUrl(c, fr, path);
   } catch (e) {
     win?.close();
     errorToast(`Open in browser failed: ${e?.message ?? e}`);
     return;
   }
-  const url = new URL(String(result?.path ?? ''), location.origin).href;
   if (win) win.location.href = url;
   else window.open(url, '_blank', 'noopener,noreferrer');
 }
@@ -4489,10 +4523,21 @@ function withNewEntryRow(fr, depth, rows) {
   return [...rows.slice(0, at), entry.row, ...rows.slice(at)];
 }
 
+/** Whether a file opens as text but can also be shown as media: HTML, and SVG. */
+function previewable(path) {
+  return mediaKind(path) !== null && defaultView(path) === 'text';
+}
+
 function fileMenuItems(fr, path) {
   return [
     ['Open', () => openFileTile(fr, path, 'stack')],
     ['Open to the right', () => openFileTile(fr, path, 'right')],
+    ...(previewable(path)
+      ? [
+        [LABELS.preview, () => openFileTile(fr, path, 'stack', 'media')],
+        [LABELS.previewRight, () => openFileTile(fr, path, 'right', 'media')],
+      ]
+      : []),
     null,
     ['Open in editor', () => openInEditor(fr, path, 'stack')],
     [
@@ -4500,7 +4545,7 @@ function fileMenuItems(fr, path) {
       () => openInEditor(fr, path, 'right'),
     ],
     null,
-    ...(isHtmlPath(path)
+    ...(mediaKind(path) === 'html'
       ? [['Open in browser', () => openInBrowser(fr, path)]]
       : []),
     ...hostOpenItems(fr, path),
@@ -4628,11 +4673,14 @@ function fileTileTitle(file, dirty = false) {
   return dirty ? `● ${name}` : name;
 }
 
-/** The open file tile showing `file`, the most recently focused one if there are several. */
+/**
+ * The open file tile showing `file` as `file` names it (as text or as media), the most recently
+ * focused one if there are several.
+ */
 function tileShowingFile(file) {
   let best = null;
   for (const tile of tiling?.tiles() ?? []) {
-    if (!tile.file || !sameFile(tile.file, file)) continue;
+    if (!tile.file || !sameFileView(tile.file, file)) continue;
     if (!best || (focusSeq.get(tile.id) ?? 0) > (focusSeq.get(best.id) ?? 0)) {
       best = tile;
     }
@@ -4644,13 +4692,15 @@ function tileShowingFile(file) {
  * Opens a repo file in a file tile: in the focused stack's preview tile (`'preview'`, a click),
  * in a new tile in the focused stack (`'stack'`), or split to the right of the focused tile. A
  * tile already showing the file is brought forward instead, except for `'right'`. Works whether
- * or not the container runs: the server reads the host side of the mount.
+ * or not the container runs: the server reads the host side of the mount. `view` shows it as text
+ * or as media; by default, as its kind of file opens.
  *
  * @param {FileRoot} fr @param {string} path @param {'preview' | 'stack' | 'right'} where
+ * @param {'text' | 'media'} [view]
  */
-function openFileTile(fr, path, where) {
+function openFileTile(fr, path, where, view) {
   if (!tiling) return;
-  const file = fileRefOf(fr, path);
+  const file = fileRefOf(fr, path, view);
   if (where === 'preview') {
     const shown = tileShowingFile(file);
     if (shown) revealTile(shown.id);
@@ -4682,7 +4732,7 @@ const pendingLines = new Map();
 function fileKey(file) {
   return `${file.localFolder}\n${file.root}\n${file.path}${
     file.container ? '\ncontainer' : ''
-  }`;
+  }${fileView(file) === 'media' ? '\nmedia' : ''}`;
 }
 
 /** Jumps a loaded file tile to the line it was opened at, if any. */
@@ -4714,15 +4764,27 @@ function fileTileMenuItems(tile) {
   const view = fileViews.get(tile.id);
   if (file) {
     const fr = fileRootOf(file);
-    if (view?.dirty && fileEditable(view)) {
+    const asMedia = fileView(file) === 'media';
+    if (!asMedia && view?.dirty && fileEditable(view)) {
       items.push(['Save', () => saveFile(view)]);
     }
     if (view) items.push(['Reload', () => reloadFile(view)]);
-    items.push(
-      null,
-      ['Open in editor', () => openInEditor(fr, file.path, 'stack')],
-    );
-    if (isHtmlPath(file.path)) {
+    items.push(null);
+    if (previewable(file.path)) {
+      items.push(
+        asMedia
+          ? [
+            LABELS.openAsText,
+            () => openFileTile(fr, file.path, 'stack', 'text'),
+          ]
+          : [
+            LABELS.preview,
+            () => openFileTile(fr, file.path, 'stack', 'media'),
+          ],
+      );
+    }
+    items.push(['Open in editor', () => openInEditor(fr, file.path, 'stack')]);
+    if (mediaKind(file.path) === 'html') {
       items.push(['Open in browser', () => openInBrowser(fr, file.path)]);
     }
     items.push(...hostOpenItems(fr, file.path));
@@ -4746,15 +4808,21 @@ function mountFileTile(tile) {
     tile.focus();
   }, true);
   body.addEventListener('contextmenu', (e) => {
-    // The viewer's own text keeps the browser's menu (copy); the margins get the tile's.
+    // The viewer's own text keeps the browser's menu (copy); the margins get the tile's. A
+    // right-click inside an HTML media view's frame never gets here: it is the page's.
     if (/** @type {HTMLElement} */ (e.target).closest('.cm-content')) return;
     openMenu(e, tileMenuItems(tile));
   });
   // After the factory returns: a title change mid-build would save a half-built layout.
   queueMicrotask(() => {
     if (!fileViews.has(tile.id)) return;
-    tile.setTitle(fileTileTitle(tile.file, fileViews.get(tile.id)?.dirty));
-    if (tile.file) tile.setTooltip(fileHostPath(tile.file));
+    const file = tile.file;
+    // A rendering of a file people also edit as text: told apart from its source's tab.
+    const muted = file && fileView(file) === 'media' && previewable(file.path)
+      ? LABELS.preview
+      : '';
+    tile.setTitle(fileTileTitle(file, fileViews.get(tile.id)?.dirty), muted);
+    if (file) tile.setTooltip(fileHostPath(file));
   });
   /** @type {FileView} */
   const view = {
@@ -4762,6 +4830,7 @@ function mountFileTile(tile) {
     host,
     overlay,
     viewer: null,
+    media: null,
     state: 'loading',
     error: '',
     seq: 0,
@@ -4770,6 +4839,10 @@ function mountFileTile(tile) {
     saving: false,
   };
   fileViews.set(tile.id, view);
+  const kind = tile.file && fileView(tile.file) === 'media'
+    ? mediaKind(tile.file.path)
+    : null;
+  if (kind) view.media = createMediaView(view, kind);
   if (tile.file) loadFile(view);
   else {
     view.state = 'error';
@@ -4790,7 +4863,7 @@ async function loadFile(view) {
   const file = view.tile.file;
   if (!file) return;
   const seq = ++view.seq;
-  if (!view.viewer) {
+  if (view.media ? view.state !== 'ok' : !view.viewer) {
     view.state = 'loading';
     updateFileOverlay(view);
   }
@@ -4805,7 +4878,12 @@ async function loadFile(view) {
     view.error = LABELS.notRunning;
     view.viewer?.destroy();
     view.viewer = null;
+    view.media?.clear();
     updateFileOverlay(view);
+    return;
+  }
+  if (view.media) {
+    loadMedia(view, view.media, c, seq);
     return;
   }
   let result;
@@ -4849,6 +4927,113 @@ async function loadFile(view) {
   view.error = '';
   syncFileEditable(view);
   updateFileOverlay(view);
+}
+
+/**
+ * Shows a media view's file from a freshly minted preview URL. An HTML page counts as shown once
+ * its frame is pointed at it; an image, once it has loaded (see {@link createMediaView}).
+ *
+ * @param {FileView} view @param {MediaView} media @param {ContainerInfo | null} c @param {number} seq
+ */
+async function loadMedia(view, media, c, seq) {
+  const file = /** @type {FileRef} */ (view.tile.file);
+  let url;
+  try {
+    url = await mintPreviewUrl(c, fileRootOf(file), file.path);
+  } catch (e) {
+    if (seq !== view.seq || !fileViews.has(view.tile.id)) return;
+    view.state = 'error';
+    view.error = String(e?.message ?? e);
+    media.clear();
+    updateFileOverlay(view);
+    return;
+  }
+  if (seq !== view.seq || !fileViews.has(view.tile.id)) return;
+  media.show(url);
+  if (media.kind === 'html') {
+    view.state = 'ok';
+    view.error = '';
+    updateFileOverlay(view);
+  }
+}
+
+/**
+ * Builds a file tile's media view in its host. Media views are read-only: never dirty, never
+ * editable. An image fits the tile (never enlarged) until a click shows it 1:1, and back; an HTML
+ * page gets a frame sandboxed as `/preview/` responses are, never same-origin with this page.
+ *
+ * @param {FileView} view @param {'image' | 'html'} kind @returns {MediaView}
+ */
+function createMediaView(view, kind) {
+  const name = fileTileTitle(view.tile.file);
+  if (kind === 'html') {
+    const frame = /** @type {HTMLIFrameElement} */ (h('iframe', {
+      sandbox:
+        'allow-scripts allow-forms allow-modals allow-popups allow-downloads',
+      title: name,
+    }));
+    view.host.append(h('div', { class: 'media-view' }, frame));
+    return {
+      kind,
+      show: (url) => frame.src = url,
+      clear: () => frame.src = 'about:blank',
+      dispose: () => {},
+    };
+  }
+  const img = /** @type {HTMLImageElement} */ (h('img', {
+    alt: name,
+    draggable: 'false',
+  }));
+  const info = h('div', { class: 'media-info' });
+  const scroll = h('div', {
+    class: 'media-scroll',
+    'data-zoom': 'fit',
+    title: 'Click to toggle fit and 1:1',
+  }, img);
+  // Crisp pixels whenever the image is drawn larger than it is, device pixels included. An SVG
+  // has no pixels of its own to keep.
+  const vector = /\.svg$/i.test(view.tile.file?.path ?? '');
+  const sharpen = () => {
+    const drawn = img.getBoundingClientRect().width * devicePixelRatio;
+    img.classList.toggle(
+      'pixelated',
+      !vector && img.naturalWidth > 0 && drawn > img.naturalWidth + 0.5,
+    );
+  };
+  scroll.addEventListener('click', () => {
+    scroll.dataset.zoom = scroll.dataset.zoom === 'fit' ? '1:1' : 'fit';
+    sharpen();
+  });
+  img.addEventListener('load', () => {
+    if (!fileViews.has(view.tile.id)) return;
+    img.hidden = false;
+    info.textContent = `${img.naturalWidth} × ${img.naturalHeight}`;
+    sharpen();
+    view.state = 'ok';
+    view.error = '';
+    updateFileOverlay(view);
+  });
+  img.addEventListener('error', () => {
+    if (!fileViews.has(view.tile.id) || !img.getAttribute('src')) return;
+    // Not the browser's broken-image mark on a checkerboard behind the overlay.
+    img.hidden = true;
+    info.textContent = '';
+    view.state = 'error';
+    view.error = `Couldn't show ${name} as an image`;
+    updateFileOverlay(view);
+  });
+  const resized = new ResizeObserver(sharpen);
+  resized.observe(scroll);
+  view.host.append(h('div', { class: 'media-view' }, scroll, info));
+  return {
+    kind,
+    show: (url) => img.src = url,
+    clear: () => {
+      img.removeAttribute('src');
+      info.textContent = '';
+    },
+    dispose: () => resized.disconnect(),
+  };
 }
 
 /**
@@ -4945,6 +5130,12 @@ async function saveFile(view, overwrite = false) {
   // Edits typed while the save was on its way stay unsaved.
   if (view.viewer?.getText() === text) view.viewer.markClean();
   toast(`Saved ${name}`);
+  // Renderings of the file show what was just saved.
+  for (const other of fileViews.values()) {
+    if (other.media && other.tile.file && sameFile(other.tile.file, file)) {
+      loadFile(other);
+    }
+  }
 }
 
 /** Closes a tile, after asking when it is a file tile with unsaved edits. */
@@ -5027,6 +5218,7 @@ function unmountFileTile(tile) {
   if (!view) return;
   view.seq++;
   view.viewer?.destroy();
+  view.media?.dispose();
   fileViews.delete(tile.id);
   focusSeq.delete(tile.id);
   if (focusedTileId === tile.id) focusedTileId = null;
