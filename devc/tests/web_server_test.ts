@@ -579,6 +579,50 @@ Deno.test('parseClientMessage: open_in_code takes a repo path or a container pat
   }
 });
 
+Deno.test('parseClientMessage: reveal_path takes a repo path or a container path', () => {
+  const repo = {
+    type: 'reveal_path',
+    id: 'r1',
+    localFolder: '/a',
+    root: '/a',
+    path: 'src/x.ts',
+  };
+  assertEquals(
+    parseClientMessage(JSON.stringify(repo)),
+    { ok: true, msg: repo } as never,
+  );
+  const repoRoot = { ...repo, id: 'r2', path: '' };
+  assertEquals(
+    parseClientMessage(JSON.stringify(repoRoot)),
+    { ok: true, msg: repoRoot } as never,
+  );
+  const inContainer = {
+    type: 'reveal_path',
+    id: 'r3',
+    container: 'c1',
+    path: '/workspaces/app/src',
+  };
+  assertEquals(
+    parseClientMessage(JSON.stringify(inContainer)),
+    { ok: true, msg: inContainer } as never,
+  );
+  for (
+    const bad of [
+      { localFolder: '/a', root: 'a', path: '' },
+      { localFolder: '/a', root: '/a' },
+      { root: '/a', path: '' },
+      { container: 'c1', path: 'src' },
+      { container: 'c1', path: '/workspaces/app/../etc' },
+      { container: '', path: '/workspaces' },
+    ]
+  ) {
+    assertEquals(
+      rejected({ type: 'reveal_path', id: 'r4', ...bad }).code,
+      'bad_request',
+    );
+  }
+});
+
 Deno.test('parseClientMessage: container file messages take an absolute path without .. or NUL', () => {
   for (
     const type of [

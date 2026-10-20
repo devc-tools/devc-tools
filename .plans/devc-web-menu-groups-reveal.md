@@ -2,15 +2,15 @@
 
 ## Checklist
 
-- [ ] `openMenuAt` renders dividers: a `null` item is a divider; leading, trailing and repeated dividers are dropped
-- [ ] `style.css`: `.menu .menu-sep`
-- [ ] Sidebar and file-tile menus grouped with dividers (groups below); `pathMenuItems` split so its copy items and its open-on-host items land in different groups
-- [ ] `devc/web/reveal.ts`: `revealCommands(os, path)` and `revealOnHost(path)`, with tests for `revealCommands`
-- [ ] Protocol: `reveal_path` message (both addressings), parser case, with tests
-- [ ] Server: `reveal_path` handler, sharing `open_in_code`'s path resolution and confinement
-- [ ] `hello` gains `hostOs`; the page labels the item by it
-- [ ] Reveal item in every menu that has **Open in Code**, under the same condition
-- [ ] `devc/README.md` (devc web, "Files and editing") updated
+- [x] `openMenuAt` renders dividers: a `null` item is a divider; leading, trailing and repeated dividers are dropped
+- [x] `style.css`: `.menu .menu-sep`
+- [x] Sidebar and file-tile menus grouped with dividers (groups below); `pathMenuItems` split so its copy items and its open-on-host items land in different groups
+- [x] `devc/web/reveal.ts`: `revealCommands(os, path)` and `revealOnHost(path)`, with tests for `revealCommands`
+- [x] Protocol: `reveal_path` message (both addressings), parser case, with tests
+- [x] Server: `reveal_path` handler, sharing `open_in_code`'s path resolution and confinement
+- [x] `hello` gains `hostOs`; the page labels the item by it
+- [x] Reveal item in every menu that has **Open in Code**, under the same condition
+- [x] `devc/README.md` (devc web, "Files and editing") updated
 
 Two sidebar menu changes in `devc web`:
 

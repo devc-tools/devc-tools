@@ -97,6 +97,7 @@ import {
 } from './tasks.ts';
 import { openRedirect } from './browser.ts';
 import { openInVSCode } from './vscode.ts';
+import { revealOnHost } from './reveal.ts';
 import {
   forget as forgetProject,
   loadProjects,
@@ -1172,14 +1173,14 @@ export async function startWeb(
   };
 
   /**
-   * Opens a project file or folder in VS Code on the host (`open_in_code`): a repo path, or a
-   * container path that a bind mount puts in one of the project's repos. Confined like
-   * `read_file`, symlinks included.
+   * The host path of an `open_in_code` or `reveal_path` target: a repo path, or a container path
+   * that a bind mount puts in one of the project's repos. Confined like `read_file`, symlinks
+   * included. Null once a failure is answered.
    */
-  const openInCode = async (
+  const hostPathFor = async (
     c: Client,
-    msg: Extract<ClientMessage, { type: 'open_in_code' }>,
-  ) => {
+    msg: Extract<ClientMessage, { type: 'open_in_code' | 'reveal_path' }>,
+  ): Promise<string | null> => {
     let file: { root: string; path: string };
     if ('container' in msg) {
       const session = sessions.get(msg.container);
@@ -1189,7 +1190,7 @@ export async function startWeb(
           code: 'bad_request',
           message: 'unknown container',
         });
-        return;
+        return null;
       }
       const hostPath = containerToHostPath(
         msg.path,
@@ -1202,7 +1203,7 @@ export async function startWeb(
           'not_mounted',
           `${msg.path} is not in a mounted folder`,
         );
-        return;
+        return null;
       }
       const found = repoFileFor(
         projectsMessage().projects,
@@ -1216,7 +1217,7 @@ export async function startWeb(
           'forbidden',
           `${msg.path} is outside the project's repos`,
         );
-        return;
+        return null;
       }
       file = found;
     } else {
@@ -1225,7 +1226,7 @@ export async function startWeb(
         !isProjectRepo(projectsMessage().projects, msg.localFolder, msg.root)
       ) {
         reject(c, { id: msg.id, code: 'bad_request', message: 'unknown repo' });
-        return;
+        return null;
       }
       file = msg;
     }
@@ -1234,16 +1235,45 @@ export async function startWeb(
       confined = await confine(file.root, file.path);
     } catch {
       fail(c, msg.id, 'not_found', `${msg.path} does not exist`);
-      return;
+      return null;
     }
     if (confined === null) {
       fail(c, msg.id, 'forbidden', `${msg.path} is outside the repo`);
-      return;
+      return null;
     }
+    return confined;
+  };
+
+  /** Opens a project file or folder in VS Code on the host (`open_in_code`). */
+  const openInCode = async (
+    c: Client,
+    msg: Extract<ClientMessage, { type: 'open_in_code' }>,
+  ) => {
+    const path = await hostPathFor(c, msg);
+    if (path === null) return;
     try {
-      openInVSCode(confined);
+      openInVSCode(path);
     } catch (e) {
       fail(c, msg.id, 'no_code', e);
+      return;
+    }
+    reply(c, { id: msg.id, ok: true, result: {} });
+  };
+
+  /**
+   * Shows a project file or folder selected in the host's file manager (`reveal_path`), resolved
+   * as `open_in_code` resolves it.
+   */
+  const revealPath = async (
+    c: Client,
+    msg: Extract<ClientMessage, { type: 'reveal_path' }>,
+  ) => {
+    const path = await hostPathFor(c, msg);
+    if (path === null) return;
+    try {
+      revealOnHost(path);
+    } catch (e) {
+      fail(c, msg.id, 'reveal_failed', e);
       return;
     }
     reply(c, { id: msg.id, ok: true, result: {} });
@@ -1811,6 +1841,10 @@ export async function startWeb(
       await openInCode(c, msg);
       return;
     }
+    if (msg.type === 'reveal_path') {
+      await revealPath(c, msg);
+      return;
+    }
     // Before the `localFolder` check: a routed task names a project too.
     if (
       msg.type === 'add_task' || msg.type === 'update_task' ||
@@ -2040,6 +2074,7 @@ export async function startWeb(
         generation: generation(),
         live: opts.live,
         projectStarts,
+        hostOs: Deno.build.os,
       }));
       client.send(JSON.stringify(containersMessage()));
       client.send(JSON.stringify(projectsMessage()));

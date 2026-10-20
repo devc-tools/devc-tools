@@ -950,6 +950,13 @@ button * {
   color: var(--danger);
 }
 
+/* A divider between groups of items: no hover, no click. */
+.menu .menu-sep {
+  height: 1px;
+  margin: 4px 0;
+  background: var(--border);
+}
+
 .toasts {
   position: fixed;
   right: 12px;

@@ -352,11 +352,15 @@ is published from any container: the host server finds devcontainers with
   container's **Files** row lists `/workspaces` and the remote user's home first,
   each a folder of its own, then everything under `/`. Every file and folder
   under a repo or **Files**, and the repo and **Files** rows themselves, offer
-  **Copy path** (the host path), **Copy container path**, and **Open in Code**,
+  **Copy path** (the host path), **Copy container path**, **Open in Code**,
   which runs VS Code's `code` on the host path (on macOS without `code` on
-  `PATH`, the app itself). Each is there when its path is known: a container
-  file has a host path only under a bind mount, and opens in Code only inside
-  one of the project's repos. Hovering shows the host path (a container file
+  `PATH`, the app itself), and **Reveal in Finder**, which shows the entry
+  selected in the host's file manager (**Reveal in File Explorer** on Windows;
+  **Open containing folder** on Linux, which tries the desktop's file manager
+  over D-Bus and falls back to `xdg-open` on the folder). Each is there when its
+  path is known: a container file has a host path only under a bind mount, and
+  opens in Code or reveals only inside one of the project's repos. Menus group
+  their items with dividers. Hovering shows the host path (a container file
   also shows its container path). See
   [Editing in a terminal](#editing-in-a-terminal) for the editor.
 - **Pinned files and notes:** the **Pinned** section at the top of the sidebar
@@ -372,8 +376,8 @@ is published from any container: the host server finds devcontainers with
   **Ctrl+Alt+N** (**⌘⌥N** on a Mac) toggles the first pin, even while a
   terminal has focus. While the container is stopped a pin opens read-only in
   the file viewer, with a **Start** offer. A pin's menu has **Open to the
-  right**, **Open read-only**, **Rename…**, **Copy path**, **Copy container
-  path**, **Open in Code** and **Unpin file**.
+  right**, **Open read-only**, **Open in Code**, **Reveal in Finder**, **Copy
+  path**, **Copy container path**, **Rename…** and **Unpin file**.
   Pins are kept in `~/.config/devc/pinned-files.json`, so a browser tab and the
   devc-desktop window show the same ones. They are not pinned projects (a
   project kept in the Containers list) and not a preview tile's **Keep open**.

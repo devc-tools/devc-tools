@@ -174,6 +174,21 @@ export type ClientMessage =
     path: string;
   }
   | {
+    type: 'reveal_path';
+    id: string;
+    localFolder: string;
+    /** One of the project's repo folders; `path` is relative to it ('' is the folder). */
+    root: string;
+    path: string;
+  }
+  | {
+    type: 'reveal_path';
+    id: string;
+    container: string;
+    /** An absolute container path, in one of the project's repos as mounted. */
+    path: string;
+  }
+  | {
     type: 'pin_file';
     id: string;
     localFolder: string;
@@ -452,6 +467,29 @@ export function parseClientMessage(raw: string): ParseResult {
   }
 }
 
+/**
+ * `open_in_code`'s and `reveal_path`'s fields: a repo path (`root` + relative `path`, '' is the
+ * root itself) or an absolute container path.
+ */
+function hostPathFields(
+  m: Obj,
+):
+  | { id: string; localFolder: string; root: string; path: string }
+  | { id: string; container: string; path: string } {
+  return m.container === undefined
+    ? {
+      id: str(m, 'id'),
+      localFolder: folder(m),
+      root: absolute(m, 'root'),
+      path: text(m, 'path'),
+    }
+    : {
+      id: str(m, 'id'),
+      container: str(m, 'container'),
+      path: containerPath(m),
+    };
+}
+
 function parseFields(m: Obj): ClientMessage {
   switch (m.type) {
     case 'open':
@@ -633,20 +671,9 @@ function parseFields(m: Obj): ClientMessage {
       };
     }
     case 'open_in_code':
-      return m.container === undefined
-        ? {
-          type: 'open_in_code',
-          id: str(m, 'id'),
-          localFolder: folder(m),
-          root: absolute(m, 'root'),
-          path: text(m, 'path'),
-        }
-        : {
-          type: 'open_in_code',
-          id: str(m, 'id'),
-          container: str(m, 'container'),
-          path: containerPath(m),
-        };
+      return { type: 'open_in_code', ...hostPathFields(m) };
+    case 'reveal_path':
+      return { type: 'reveal_path', ...hostPathFields(m) };
     case 'pin_file':
       return {
         type: 'pin_file',

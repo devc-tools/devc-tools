@@ -46,6 +46,7 @@ import {
 } from './lib/sidebar.js';
 import { AGENT_IDS, AGENT_MARKS, terminalIconKind } from './lib/agent_icons.js';
 import { resolvePath } from './lib/links.js';
+import { trimDividers } from './lib/menu.js';
 import {
   bridgeStatusItems,
   parseBridgeStatus,
@@ -142,6 +143,8 @@ let nextFocusSeq = 0;
 const newPanes = new Map();
 /** Whether the server starts containers and adds projects for this page (see `onHello`). */
 let projectStarts = true;
+/** The host's OS (`hello`'s `hostOs`), which names the reveal item. */
+let hostOs = '';
 /** The Layout section's last rendered tree, as `treeSignature` plus the tiles' refs. */
 let layoutSignature = '';
 /**
@@ -444,6 +447,7 @@ function onHello(msg) {
   // `devc web --live` starts no containers for the page (its code comes from a checkout agents can
   // write to): hide what would only be refused. A server that doesn't say allows them.
   projectStarts = msg.projectStarts !== false;
+  hostOs = typeof msg.hostOs === 'string' ? msg.hostOs : '';
   // Listings and file reads asked for while disconnected never got an answer.
   for (const { tree } of fileTrees.values()) tree.refresh('');
   for (const view of fileViews.values()) {
@@ -805,6 +809,14 @@ const LABELS = {
   copyPath: 'Copy path',
   copyContainerPath: 'Copy container path',
   openInCode: 'Open in Code',
+  /** Read when a menu opens: named for the host's file manager. */
+  get reveal() {
+    return hostOs === 'darwin'
+      ? 'Reveal in Finder'
+      : hostOs === 'windows'
+      ? 'Reveal in File Explorer'
+      : 'Open containing folder';
+  },
   /** Pinned files; never "pin" alone, which a project and a preview tile also use. */
   pinned: 'Pinned',
   pinFile: 'Pin file',
@@ -1790,14 +1802,17 @@ function tileMenuItems(tile) {
     );
   }
   if (c && pane) {
-    items.push(['Reveal in Containers', () => revealInContainers(c, pane)]);
+    items.push(null, [
+      'Reveal in Containers',
+      () => revealInContainers(c, pane),
+    ]);
   }
   const filePin = filePinOfTile(tile);
   if (filePin) {
-    items.push([LABELS.unpinFile, () => unpinFile(filePin)]);
+    items.push(null, [LABELS.unpinFile, () => unpinFile(filePin)]);
   }
-  if (tile.preview) items.push(keepOpenItem(tile));
-  items.push(['Close', () => tiling?.close(tile.id)]);
+  if (tile.preview) items.push(null, keepOpenItem(tile));
+  items.push(null, ['Close', () => tiling?.close(tile.id)]);
   if (c && pane) items.push(killPaneItem(c, pane));
   return items;
 }
@@ -2255,6 +2270,7 @@ function projectRow(p) {
       oncontextmenu: (e) =>
         openMenu(e, [
           ...projectMenuItems(p.localFolder),
+          null,
           ...dirMenuItems(
             { localFolder: p.localFolder, root: p.localFolder },
             '',
@@ -2717,8 +2733,13 @@ function filePinMenuItems(pin) {
   return [
     ['Open to the right', () => void openFilePin(pin, 'right')],
     ['Open read-only', () => openFileTile(fr, pin.path, 'stack')],
+    null,
+    ...hostOpenItems(fr, pin.path),
+    null,
+    ...copyPathItems(fr, pin.path),
+    null,
     ['Rename…', () => renameFilePin(pin)],
-    ...pathMenuItems(fr, pin.path),
+    null,
     [LABELS.unpinFile, () => unpinFile(pin)],
   ];
 }
@@ -3986,23 +4007,35 @@ function copyText(text) {
 }
 
 /**
- * **Copy path** (the host path), **Copy container path** and **Open in Code** for a file or
- * folder, each when its path is known. Open in Code needs the host path in one of the project's
- * repos, as the server does.
+ * **Copy path** (the host path) and **Copy container path** for a file or folder, each when its
+ * path is known.
  */
-function pathMenuItems(fr, path) {
+function copyPathItems(fr, path) {
   const host = hostPathOf(fr, path);
   const inContainer = containerPathOf(fr, path);
-  const inRepo = host !== null &&
-    (!fr.container ||
-      projectRepos(fr.localFolder).some((r) => isWithin(r.folder, host)));
   return [
     ...(host !== null ? [[LABELS.copyPath, () => copyText(host)]] : []),
     ...(inContainer !== null
       ? [[LABELS.copyContainerPath, () => copyText(inContainer)]]
       : []),
-    ...(inRepo ? [[LABELS.openInCode, () => void openInCode(fr, path)]] : []),
   ];
+}
+
+/**
+ * **Open in Code** and the reveal item for a file or folder: both need the host path in one of
+ * the project's repos, as the server does.
+ */
+function hostOpenItems(fr, path) {
+  const host = hostPathOf(fr, path);
+  const inRepo = host !== null &&
+    (!fr.container ||
+      projectRepos(fr.localFolder).some((r) => isWithin(r.folder, host)));
+  return inRepo
+    ? [
+      [LABELS.openInCode, () => void openInCode(fr, path)],
+      [LABELS.reveal, () => void revealPath(fr, path)],
+    ]
+    : [];
 }
 
 /** Opens a file or folder in VS Code on the host (`open_in_code`). */
@@ -4029,6 +4062,34 @@ async function openInCode(fr, path) {
     );
   } catch (e) {
     errorToast(`Open in Code failed: ${e?.message ?? e}`);
+  }
+}
+
+/** Shows a file or folder selected in the host's file manager (`reveal_path`). */
+async function revealPath(fr, path) {
+  const c = fr.container ? containerByFolder(fr.localFolder) : null;
+  if (fr.container && !c) {
+    toast('Start the container first');
+    return;
+  }
+  const label = LABELS.reveal;
+  try {
+    await call(
+      c
+        ? {
+          type: 'reveal_path',
+          container: c.id,
+          path: containerFilePath(fr, path),
+        }
+        : {
+          type: 'reveal_path',
+          localFolder: fr.localFolder,
+          root: fr.root,
+          path,
+        },
+    );
+  } catch (e) {
+    errorToast(`${label} failed: ${e?.message ?? e}`);
   }
 }
 
@@ -4186,10 +4247,16 @@ function dirMenuItems(fr, path) {
       ? [LABELS.newTerminalHere, () => newShellIn(fr, path)]
       : [LABELS.openHere, () => openHerdrTab(fr, path, true)],
     ...(fr.container ? [] : [[LABELS.newTaskHere, () => newTaskIn(fr)]]),
+    null,
     [LABELS.newFile, () => startNewEntry(fr, path, 'file')],
     [LABELS.newFolder, () => startNewEntry(fr, path, 'dir')],
+    null,
+    ...hostOpenItems(fr, path),
+    null,
+    ...copyPathItems(fr, path),
+    null,
     ['Refresh', () => fileTree(fr).refresh(path)],
-    ...pathMenuItems(fr, path),
+    null,
     // Not a root: it is the project's repo, or the container's `/`.
     ...(path === '' ? [] : changeEntryItems(fr, path, 'dir')),
   ];
@@ -4426,17 +4493,23 @@ function fileMenuItems(fr, path) {
   return [
     ['Open', () => openFileTile(fr, path, 'stack')],
     ['Open to the right', () => openFileTile(fr, path, 'right')],
+    null,
     ['Open in editor', () => openInEditor(fr, path, 'stack')],
     [
       'Open in editor to the right',
       () => openInEditor(fr, path, 'right'),
     ],
+    null,
     ...(isHtmlPath(path)
       ? [['Open in browser', () => openInBrowser(fr, path)]]
       : []),
-    ...pathMenuItems(fr, path),
+    ...hostOpenItems(fr, path),
+    null,
+    ...copyPathItems(fr, path),
+    null,
     // A repo file only: the container's own files are outside the bind mount.
     ...(fr.container ? [] : [filePinItem(fr, path)]),
+    null,
     ...changeEntryItems(fr, path, 'file'),
   ];
 }
@@ -4483,7 +4556,10 @@ function fileEntryRow(fr, tree, item) {
         openMenu(
           e,
           dir ? dirMenuItems(fr, path) : file ? fileMenuItems(fr, path) : [
-            ...pathMenuItems(fr, path),
+            ...hostOpenItems(fr, path),
+            null,
+            ...copyPathItems(fr, path),
+            null,
             ...changeEntryItems(fr, path, 'file'),
           ],
         ),
@@ -4643,16 +4719,18 @@ function fileTileMenuItems(tile) {
     }
     if (view) items.push(['Reload', () => reloadFile(view)]);
     items.push(
+      null,
       ['Open in editor', () => openInEditor(fr, file.path, 'stack')],
     );
     if (isHtmlPath(file.path)) {
       items.push(['Open in browser', () => openInBrowser(fr, file.path)]);
     }
-    items.push(...pathMenuItems(fr, file.path));
-    if (!file.container) items.push(filePinItem(fr, file.path));
+    items.push(...hostOpenItems(fr, file.path));
+    items.push(null, ...copyPathItems(fr, file.path));
+    if (!file.container) items.push(null, filePinItem(fr, file.path));
   }
-  if (tile.preview) items.push(keepOpenItem(tile));
-  items.push(['Close', () => closeTile(tile.id)]);
+  if (tile.preview) items.push(null, keepOpenItem(tile));
+  items.push(null, ['Close', () => closeTile(tile.id)]);
   return items;
 }
 
@@ -5357,7 +5435,9 @@ function startSession(containerId) {
   send({ type: 'start_session', id, container: containerId });
 }
 
-/** @param {MouseEvent} e @param {[string, () => void, boolean?][]} items */
+/** @typedef {[string, () => void, boolean?, Node?] | null} MenuItem  null: a divider */
+
+/** @param {MouseEvent} e @param {MenuItem[]} items */
 function openMenu(e, items) {
   e.preventDefault();
   openMenuAt(e.clientX, e.clientY, items);
@@ -5365,15 +5445,19 @@ function openMenu(e, items) {
 
 /**
  * The menu at (`x`, `y`), kept inside the window. An item may carry an icon (a fourth element)
- * shown before its label.
+ * shown before its label; a `null` item is a divider between groups (see {@link trimDividers}).
  *
  * @param {number} x @param {number} y
- * @param {[string, () => void, boolean?, Node?][]} items
+ * @param {MenuItem[]} items
  */
 function openMenuAt(x, y, items) {
   $menu.replaceChildren(
-    ...items.map(([label, action, danger, icon]) =>
-      h(
+    ...trimDividers(items).map((item) => {
+      if (item === null) {
+        return h('div', { class: 'menu-sep', role: 'separator' });
+      }
+      const [label, action, danger, icon] = item;
+      return h(
         'button',
         {
           class: danger ? 'danger' : undefined,
@@ -5384,8 +5468,8 @@ function openMenuAt(x, y, items) {
         },
         icon ?? '',
         label,
-      )
-    ),
+      );
+    }),
   );
   $menu.hidden = false;
   const { innerWidth, innerHeight } = window;
