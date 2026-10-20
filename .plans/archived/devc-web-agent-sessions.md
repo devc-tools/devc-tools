@@ -200,7 +200,7 @@ Sessions view across all projects.
       rows with icon, title and age (repo name shown for a two-repo project); refresh re-sends;
       `No sessions` for an empty result; a click sends `resume_session` and places the pane;
       a `reused: true` reply focuses the existing tile; the menu has both items
-- [ ] Ask the user to check, in their tab: open Sessions on a running project, resume a Claude
+- [x] Ask the user to check, in their tab: open Sessions on a running project, resume a Claude
       session they recognise, and see it continue in a new terminal named after it; click it
       again and see that terminal focused
 
@@ -234,9 +234,9 @@ Sessions view across all projects.
 - Beyond the plan: a reconnect (`hello`) clears the page's lists so open Sessions rows list
   again, and a `not_found` from `resume_session` re-lists with a toast, since the server's
   listing is in memory and lost on restart.
-- **Not verified — needs the user's tab:** a real `docker exec` listing and resume in a running
-  container. There is no Docker here, and under `devc web --live` the installed server doesn't
-  know the new messages (`--live-yolo` or an updated `devc`).
+- **Confirmed by the user (2026-10-20)** in their own tab: a real listing and resume in a running
+  container work. (There is no Docker where this was built, so that part could only be checked
+  there.)
 
 ## Relevant Files
 
