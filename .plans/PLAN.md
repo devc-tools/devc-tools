@@ -62,6 +62,14 @@
   generalized from vscode-deephaven's `vscode-dev.sh`. chrome-devtools-mcp registration stays
   with the consuming project. Replaces the `feature-electron-deps` placeholder.
 
+- [devc-desktop-pr-review](devc-desktop-pr-review.md) — a **PR Review** panel in devc-desktop
+  (Ctrl/⌘+Shift+G) picks a github.com PR and shows its changed-file tree with GitHub's Viewed
+  state (host `gh`, main process only). A click opens the file's diff as a devc web tile (the
+  app POSTs it to `/desktop/review-diff`). Review threads show there, and replies and Copilot
+  resolves post, only through `devc-bridge` in a running container granted `gh-pr-review` on the
+  PR's branch. devc web never runs `gh`. A repo row's **Open PRs** reaches the panel over
+  `/desktop/events`, which only changes what the panel shows.
+
 ### Standing rules for Feature work
 
 Not a plan group — these are the conventions every Feature plan in this file
@@ -2367,3 +2375,4 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
 | devc-desktop host cd — the host terminal's right-click `cd`s to devc web's active pane folder                      | [devc-desktop-host-cd](archived/devc-desktop-host-cd.md)                           | complete    |
 | bridge skip unpinnable repos — pin the candidates that pass, error only when none do                               | [bridge-skip-unpinnable-repos](bridge-skip-unpinnable-repos.md)                    | in progress |
 | `devc web` agent sessions — a Sessions node per container lists and resumes recent agent sessions                  | [devc-web-agent-sessions](archived/devc-web-agent-sessions.md)                     | complete    |
+| devc-desktop PR review — panel tree + Viewed via host `gh`, diffs as devc web tiles, threads via devc-bridge       | [devc-desktop-pr-review](devc-desktop-pr-review.md)                                |             |
