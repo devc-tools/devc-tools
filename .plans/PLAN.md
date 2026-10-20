@@ -11,11 +11,6 @@
 
 ### Pending
 
-- [devc-web-media-tiles](devc-web-media-tiles.md) — file tiles gain `view: 'media'`: images
-  drawn as images (fit/1:1, pixelated when enlarged) and HTML rendered in a sandboxed iframe,
-  both loaded through the existing `/preview/` URLs. **Preview** on HTML/SVG; a save in a text
-  tile reloads its media tiles.
-
 - [devc-web-aseprite-viewer](devc-web-aseprite-viewer.md) — after devc-web-media-tiles: a
   clean-room `.aseprite` decoder and compositor (`static/lib/aseprite.js`, from the public spec
   only) and a media view with frame playback, tags and layer toggles. Normal blend only at first;
@@ -109,6 +104,14 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
   take it too.
 
 ### Completed
+
+- [devc-web-media-tiles](archived/devc-web-media-tiles.md) — ✅ Done: file tiles take
+  `view: 'media'` (`static/lib/media.js`: `mediaKind`, `defaultView`, `fileView`; saved only
+  when it differs from the default). Images open as images (fit/1:1, checkerboard, pixelated when
+  enlarged, size line); HTML and SVG gain **Preview** / **Preview to the right** (HTML in a
+  sandboxed iframe), media tiles **Open as text** and **Reload**, all through the existing
+  `/preview/` URLs; a save reloads the file's renderings. The devc-desktop iframe check (links,
+  popups) is still to be done by hand.
 
 - [devc-web-menu-groups-reveal](archived/devc-web-menu-groups-reveal.md) — ✅ Done: context
   menus take `null` items as dividers, dropping edge and doubled ones (`trimDividers` in

@@ -9,7 +9,7 @@
 - [ ] Unsupported content (tilemap layers, an unknown color depth) shows a clear error overlay, not a blank canvas
 - [ ] `devc/README.md` (devc web, "Files and editing") updated
 
-**Depends on [devc-web-media-tiles](devc-web-media-tiles.md)** (`mediaKind`, `view: 'media'`,
+**Depends on [devc-web-media-tiles](archived/devc-web-media-tiles.md)** (`mediaKind`, `view: 'media'`,
 and minting preview URLs for a media view).
 
 A file tile renders `.aseprite` / `.ase` sprites. It shows the composited frames, plays animation
