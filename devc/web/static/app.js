@@ -86,6 +86,7 @@ import {
   TASK_AGENT_IDS,
   taskTitle,
 } from './lib/tasks.js';
+import { parseSessions, sessionAge, sessionTooltip } from './lib/sessions.js';
 
 const LAYOUT_KEY = 'devc-web-layout-v2';
 /** The split-tree layout before Golden Layout: removed on load, not migrated. */
@@ -464,6 +465,9 @@ function onHello(msg) {
   hostOs = typeof msg.hostOs === 'string' ? msg.hostOs : '';
   // Listings and file reads asked for while disconnected never got an answer.
   for (const { tree } of fileTrees.values()) tree.refresh('');
+  // The server's own copy of each list may be gone (a restart): open Sessions rows list again.
+  sessionLists.clear();
+  queueRender();
   for (const view of fileViews.values()) {
     if (view.state === 'loading') loadFile(view);
   }
@@ -862,6 +866,12 @@ const LABELS = {
     opencode: 'OpenCode',
   },
   noTerminals: 'No terminals',
+  sessions: 'Sessions',
+  noSessions: 'No sessions',
+  loadingSessions: 'Loading…',
+  refreshSessions: 'Refresh sessions',
+  resumeSession: 'Resume session',
+  copySessionId: 'Copy session id',
   openHere: 'Open terminal here',
   newTerminal: 'New terminal',
   splitRight: 'Split vertically',
@@ -908,6 +918,12 @@ function loadSidebarState() {
     terminalsClosed: new Set(
       Array.isArray(saved?.terminalsClosed)
         ? saved.terminalsClosed.filter((f) => typeof f === 'string')
+        : [],
+    ),
+    /** Containers (by local folder) whose Sessions row is open; new ones start closed. */
+    sessionsOpen: new Set(
+      Array.isArray(saved?.sessionsOpen)
+        ? saved.sessionsOpen.filter((f) => typeof f === 'string')
         : [],
     ),
     reposOpen: new Set(
@@ -957,6 +973,7 @@ function saveSidebarState() {
       JSON.stringify({
         collapsed: [...sidebarState.collapsed],
         terminalsClosed: [...sidebarState.terminalsClosed],
+        sessionsOpen: [...sidebarState.sessionsOpen],
         reposOpen: [...sidebarState.reposOpen],
         inactiveOpen: sidebarState.inactiveOpen,
         projectsOpen: [...sidebarState.projectsOpen],
@@ -986,6 +1003,16 @@ function toggleContainer(c) {
 function toggleTerminals(localFolder) {
   if (!sidebarState.terminalsClosed.delete(localFolder)) {
     sidebarState.terminalsClosed.add(localFolder);
+  }
+  saveSidebarState();
+  renderTree();
+}
+
+/** Opens or closes a container's Sessions row; opening lists its sessions again. */
+function toggleSessions(c) {
+  if (!sidebarState.sessionsOpen.delete(c.localFolder)) {
+    sidebarState.sessionsOpen.add(c.localFolder);
+    void loadSessions(c);
   }
   saveSidebarState();
   renderTree();
@@ -1138,7 +1165,8 @@ function chevron() {
 /**
  * The sidebar: the Pinned section (pinned files, only while something is pinned), the Tasks
  * section, the Layout section (the Golden Layout tree,
- * single-child levels folded), then Containers (Container → Terminals → terminal, Container → Repos → repo → files, and
+ * single-child levels folded), then Containers (Container → Terminals → terminal, Container →
+ * Sessions → recent agent session, Container → Repos → repo → files, and
  * Container → Files → the container's own files from `/`).
  * Herdr tabs group nothing here: a pane the Herdr TUI split into a shared tab is just another pane.
  * Every running container is listed, Herdr or not; projects without one are listed last, under a
@@ -1460,6 +1488,8 @@ const ICON_PATHS = {
   task: 'M3 4l1.2 1.2L6.5 3M8.5 4.5H13M3 9l1.2 1.2L6.5 8M8.5 9.5H13',
   // Two stacked squares, a minus on the front one: a section's Collapse all (VS Code's).
   collapseAll: 'M5.5 2.5h8v8M2.5 5.5h8v8h-8zM4.5 9.5h4',
+  // A circular arrow: list again.
+  refresh: 'M13 8a5 5 0 1 1-1.5-3.55M13 2.5v3h-3',
 };
 
 /**
@@ -1987,6 +2017,7 @@ function containerRows(c) {
   ];
   if (collapsed) return rows;
   rows.push(...terminalRows(c, workspaces, tabs, panes, only));
+  rows.push(...sessionRows(c));
   rows.push(...repoRows(c.localFolder));
   rows.push(...containerFileRows(c));
   return rows;
@@ -2042,6 +2073,153 @@ function terminalRows(c, workspaces, tabs, panes, only) {
     );
   }
   return rows;
+}
+
+/**
+ * Each running container's last `list_sessions` answer, by container id. `sessions` stays from
+ * the previous answer while a new one loads.
+ *
+ * @type {Map<string, {loading: boolean, sessions: import('./lib/sessions.js').AgentSession[],
+ *   error: string | null}>}
+ */
+const sessionLists = new Map();
+
+/** Lists a container's recent agent sessions again (`list_sessions`). */
+async function loadSessions(c) {
+  const prev = sessionLists.get(c.id);
+  if (prev?.loading) return;
+  const entry = { loading: true, sessions: prev?.sessions ?? [], error: null };
+  sessionLists.set(c.id, entry);
+  queueRender();
+  try {
+    entry.sessions = parseSessions(
+      await call({ type: 'list_sessions', container: c.id }),
+    );
+  } catch (e) {
+    entry.error = String(e?.message ?? e);
+  }
+  entry.loading = false;
+  if (sessionLists.get(c.id) === entry) queueRender();
+}
+
+/**
+ * A running container's Sessions row, and while it is open a row per recent agent session that
+ * started in one of its repos, newest first (`list_sessions`). Its refresh button lists again.
+ */
+function sessionRows(c) {
+  const open = sidebarState.sessionsOpen.has(c.localFolder);
+  const head = treeRow(
+    `${c.localFolder}\n\nsessions`,
+    1,
+    open,
+    { class: 'sessions', onclick: () => toggleSessions(c) },
+    LABELS.sessions,
+  );
+  head.append(
+    rowTrail(
+      hoverActions(
+        iconButton('refresh', LABELS.refreshSessions, () => {
+          if (!sidebarState.sessionsOpen.has(c.localFolder)) {
+            toggleSessions(c);
+          } else void loadSessions(c);
+        }),
+      ),
+    ),
+  );
+  const rows = [head];
+  if (!open) return rows;
+  const listed = sessionLists.get(c.id);
+  // Opened before this page listed it (a saved open row): list now.
+  if (!listed) void loadSessions(c);
+  const note = (text, error = false) =>
+    h(
+      'div',
+      {
+        class: 'row tree-note',
+        style: '--depth: 2',
+        'data-note': error ? 'error' : undefined,
+      },
+      h('span', { class: 'label' }, text),
+    );
+  if (listed?.error) rows.push(note(listed.error, true));
+  else if (!listed || (listed.loading && listed.sessions.length === 0)) {
+    rows.push(note(LABELS.loadingSessions));
+  } else if (listed.sessions.length === 0) rows.push(note(LABELS.noSessions));
+  const repos = projectRepos(c.localFolder);
+  const now = Date.now();
+  for (const s of listed?.error ? [] : listed?.sessions ?? []) {
+    rows.push(sessionRow(c, s, repos.length > 1 ? repos : null, now));
+  }
+  return rows;
+}
+
+/**
+ * One recent session: its agent's icon, title and age (after its repo's name when the project
+ * has several). A click resumes it.
+ *
+ * @param {import('./lib/sessions.js').AgentSession} s
+ */
+function sessionRow(c, s, repos, now) {
+  const age = sessionAge(s.updatedAt, now);
+  const repo = repos
+    ? repos.find((r) => r.folder === s.root)?.name ?? basename(s.root)
+    : null;
+  return h(
+    'div',
+    {
+      class: 'row agent-session',
+      style: '--depth: 2',
+      'data-session': s.session,
+      title: sessionTooltip(s, LABELS.agents[s.agent]),
+      onclick: () => void resumeSession(c, s),
+      oncontextmenu: (e) =>
+        openMenu(e, [
+          [LABELS.resumeSession, () => void resumeSession(c, s)],
+          [LABELS.copySessionId, () => copyText(s.session)],
+        ]),
+    },
+    // In the slot a chevron would take, as a terminal's and a Sent task's.
+    h('span', { class: 'label' }, rowIcon({ agent: s.agent }), s.title),
+    rowTrail(
+      h('span', { class: 'pane-title' }, repo ? `${repo} · ${age}` : age),
+    ),
+  );
+}
+
+/** Sessions with a `resume_session` in flight: a second click waits for the first. */
+const resumingSessions = new Set();
+
+/**
+ * A listed session in the focused stack: the pane this server resumed it in while that is still
+ * open, else resumed in a new tab at the folder it started in (`resume_session`).
+ *
+ * @param {import('./lib/sessions.js').AgentSession} s
+ */
+async function resumeSession(c, s) {
+  const key = `${c.id}\n${s.agent}\n${s.session}`;
+  if (!tiling || resumingSessions.has(key)) return;
+  if (c.state === 'no-session') toast('Starting Herdr…');
+  resumingSessions.add(key);
+  let result;
+  try {
+    result = await call({
+      type: 'resume_session',
+      container: c.id,
+      agent: s.agent,
+      session: s.session,
+    });
+  } catch (e) {
+    if (e?.code === 'not_found') {
+      // The server no longer lists it (a restart, or another window listed since): list again.
+      void loadSessions(c);
+      errorToast('That session is no longer listed: the list was refreshed');
+    } else errorToast(`Resume failed: ${e?.message ?? e}`);
+    return;
+  } finally {
+    resumingSessions.delete(key);
+  }
+  if (typeof result?.pane_id !== 'string') return;
+  placePane(c.localFolder, result, placeInFocusedStack);
 }
 
 /** A container row's Stop button, when its project is known to be running. */

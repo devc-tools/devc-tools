@@ -422,6 +422,18 @@ is published from any container: the host server finds devcontainers with
   one-way: nothing in a container writes to the list. Tasks are kept in
   `~/.config/devc/tasks.json` (the 50 newest sent ones), shared by every
   devc web window.
+- **Sessions:** each running container's **Sessions** row (between Terminals
+  and its repos, closed until opened) lists the 20 most recent Claude, Copilot
+  and pi sessions that started in one of the project's repos, newest first:
+  the agent's icon, the session's title (its name, else Claude's own title or
+  your last prompt, pi's first message) and how long ago it was used. Opening
+  the row, or its refresh button, reads them again from the agents' folders in
+  the container (`~/.claude/projects`, `~/.copilot/session-state`,
+  `~/.pi/agent/sessions`). Clicking one resumes it in a new terminal in the
+  folder it started in, named after it (the same commands as **Sent**); a
+  session already resumed this way is shown in its terminal instead while that
+  is still open. Its menu also copies the session id. devc web can't tell when
+  a session is already open in some other terminal.
 - `--port N` picks another port (default 48228); `--session NAME` another Herdr
   session (default `devc`, the one `devc herdr` uses). A port already in use
   exits 1 with a `devc web:` message.

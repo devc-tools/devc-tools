@@ -263,7 +263,7 @@ export function collapseTasksState(state, taskGroups) {
 /**
  * The Containers section's open/closed fields with every row in it closed, at every level (its
  * Collapse all): each container in `folders` (every container and project there is now) and its
- * Terminals row, every Repos row, file tree and folder, Not running and the projects under it.
+ * Terminals row, every Sessions row, every Repos row, file tree and folder, Not running and the projects under it.
  * Folders already listed stay listed. `state` is not changed.
  *
  * @param {{collapsed: Set<string>, terminalsClosed: Set<string>}} state
@@ -274,6 +274,7 @@ export function collapseContainersState(state, folders) {
   return {
     collapsed: new Set([...state.collapsed, ...known]),
     terminalsClosed: new Set([...state.terminalsClosed, ...known]),
+    sessionsOpen: new Set(),
     reposOpen: new Set(),
     projectsOpen: new Set(),
     /** @type {Record<string, string[]>} */

@@ -62,6 +62,12 @@
   generalized from vscode-deephaven's `vscode-dev.sh`. chrome-devtools-mcp registration stays
   with the consuming project. Replaces the `feature-electron-deps` placeholder.
 
+- [devc-web-agent-sessions](devc-web-agent-sessions.md) — a **Sessions** node under each
+  running container lists its project's 20 newest Claude, Copilot and pi sessions (read from the
+  agent homes inside the container with one `docker exec`, filtered by `cwd` to the project's
+  repos); a click resumes one in a new terminal at the folder it started in (`list_sessions`,
+  `resume_session`). Step 0 records where pi and copilot keep a session's name.
+
 ### Standing rules for Feature work
 
 Not a plan group — these are the conventions every Feature plan in this file
@@ -2359,3 +2365,4 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
 | `devc web` editable viewer — file tiles edit and save through `write_file`                                         | [devc-web-editable-viewer](devc-web-editable-viewer.md)                            | in progress |
 | devc-desktop host cd — the host terminal's right-click `cd`s to devc web's active pane folder                      | [devc-desktop-host-cd](archived/devc-desktop-host-cd.md)                           | complete    |
 | bridge skip unpinnable repos — pin the candidates that pass, error only when none do                               | [bridge-skip-unpinnable-repos](bridge-skip-unpinnable-repos.md)                    | in progress |
+| `devc web` agent sessions — a Sessions node per container lists and resumes recent agent sessions                  | [devc-web-agent-sessions](devc-web-agent-sessions.md)                              | in progress |

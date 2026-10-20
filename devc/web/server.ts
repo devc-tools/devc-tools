@@ -95,6 +95,7 @@ import {
   withSentPane,
   writeTasks,
 } from './tasks.ts';
+import { type AgentSession, listAgentSessions } from './sessions.ts';
 import { openRedirect } from './browser.ts';
 import { openInVSCode } from './vscode.ts';
 import { revealOnHost } from './reveal.ts';
@@ -650,6 +651,14 @@ export async function startWeb(
     containerHomes.set(id, home);
     if (home !== null) broadcast(containersMessage());
   };
+  // Each running container's last `list_sessions` answer, by container id: what `resume_session`
+  // takes a session's folder and title from, never from the page.
+  const sessionLists = new Map<string, AgentSession[]>();
+  // The panes `resume_session` opened, by `container\nagent\nsession`, while the server runs.
+  const resumedPanes = new Map<
+    string,
+    { containerId: string; paneId: string }
+  >();
   const isListedProject = (localFolder: string) =>
     projectsMessage().projects.some((p) => p.localFolder === localFolder);
 
@@ -686,6 +695,10 @@ export async function startWeb(
     containerMounts.delete(id);
     containerConnections.delete(id);
     containerHomes.delete(id);
+    sessionLists.delete(id);
+    for (const key of resumedPanes.keys()) {
+      if (key.startsWith(`${id}\n`)) resumedPanes.delete(key);
+    }
     void controllers.closeContainer(id, 'container stopped');
     void session.dispose();
     broadcast(containersMessage());
@@ -1722,6 +1735,88 @@ export async function startWeb(
     reply(c, { id: msg.id, ok: true, result: { ...created, reused: false } });
   };
 
+  /**
+   * A container's recent agent sessions (`list_sessions`, see `sessions.ts`), and resuming one
+   * of them in a new tab at the folder it started in (`resume_session`): the pane `resume_session`
+   * opened before while it is still in the session, else a new shell running the agent's resume
+   * command. The folder and title come from the container's last listing.
+   */
+  const handleAgentSession = async (
+    c: Client,
+    session: ContainerSession,
+    msg: Extract<
+      ClientMessage,
+      { type: 'list_sessions' | 'resume_session' }
+    >,
+  ) => {
+    const containerId = session.record.id;
+    if (msg.type === 'list_sessions') {
+      const repos = projectsMessage().projects.find((p) =>
+        p.localFolder === session.record.localFolder
+      )?.repos ?? [];
+      try {
+        const listed = await listAgentSessions(
+          await connectionOf(session),
+          repos,
+        );
+        if (sessions.get(containerId) === session) {
+          sessionLists.set(containerId, listed);
+        }
+        reply(c, { id: msg.id, ok: true, result: { sessions: listed } });
+      } catch (e) {
+        fail(c, msg.id, 'list_failed', e);
+      }
+      return;
+    }
+    const listed = sessionLists.get(containerId)?.find((s) =>
+      s.agent === msg.agent && s.session === msg.session
+    );
+    if (!listed) {
+      fail(c, msg.id, 'not_found', 'no such session');
+      return;
+    }
+    const key = `${containerId}\n${listed.agent}\n${listed.session}`;
+    const target = await readyTarget(c, session, msg.id);
+    if (target === null) return;
+    const reused = reusablePinnedPane(
+      resumedPanes.get(key),
+      containerId,
+      snapshotPanes(session.snapshot),
+    );
+    if (reused !== null) {
+      reply(c, { id: msg.id, ok: true, result: { ...reused, reused: true } });
+      return;
+    }
+    if (!(await commandInstalled(target, AGENT_COMMANDS[listed.agent]))) {
+      fail(
+        c,
+        msg.id,
+        'not_installed',
+        `${AGENT_COMMANDS[listed.agent]} isn't installed in this container`,
+      );
+      return;
+    }
+    let created: { pane_id: string; tab_id: string };
+    try {
+      created = await createShell(target, { cwd: listed.cwd });
+      // Not `exec`: quitting the agent leaves the shell.
+      await bridgeRequest(target, 'pane.send_text', {
+        pane_id: created.pane_id,
+        text: `${resumeTaskCommand(listed.agent, listed.session)}\n`,
+      });
+    } catch (e) {
+      fail(c, msg.id, e instanceof BridgeError ? e.code : 'herdr_error', e);
+      return;
+    }
+    // The agent is already starting, so a failed rename is no error.
+    await bridgeRequest(target, 'pane.rename', {
+      pane_id: created.pane_id,
+      label: listed.title,
+    }).then((r) => renamed(session, r), () => {});
+    resumedPanes.set(key, { containerId, paneId: created.pane_id });
+    reply(c, { id: msg.id, ok: true, result: { ...created, reused: false } });
+  };
+
   /** The messages about projects, which name a folder rather than a running container. */
   const handleProject = async (
     c: Client,
@@ -1898,6 +1993,10 @@ export async function startWeb(
       case 'read_container_file':
       case 'preview_container_file':
         await containerFiles(c, session, msg);
+        return;
+      case 'list_sessions':
+      case 'resume_session':
+        await handleAgentSession(c, session, msg);
         return;
       case 'create_file':
         await createFile(c, session, msg);

@@ -1,0 +1,308 @@
+// A running container's recent agent sessions, for `devc web`'s Sessions node (`list_sessions`):
+// the newest Claude, Copilot and pi sessions that started in one of its project's repos, read
+// from the agent homes inside the container with one `docker exec`, as the remote user.
+//
+// Everything read here is the container's, so it is untrusted: the session id must be a uuid (it
+// goes on the resume command line), `cwd` an absolute path (it becomes a new shell's folder), and
+// titles are only ever shown. Nothing is stored. The agent homes devc bind-mounts are shared by
+// every devc container on the host, so sessions are kept only when they started under one of
+// this container's repo folders.
+//
+// The script is POSIX `sh` with `stat -c`, `grep -E`, `sort`, `awk`, `sed` and `head`: GNU and
+// BusyBox both have them. It never prints a whole session line (one Claude line can be megabytes),
+// only `grep -o` matches of `"key":"<JSON string>"`, decoded here.
+
+import type { ContainerInfo } from '@devc-tools/core/container.ts';
+import { dockerExecArgv } from '@devc-tools/core/container.ts';
+import { type DockerRun, runDocker } from './container_files.ts';
+import { isSessionId, type SessionAgentId } from './agents.ts';
+import { taskTitle } from './tasks.ts';
+
+/** How many sessions a container's Sessions node lists. */
+export const MAX_SESSIONS = 20;
+
+/** One listed session, as `list_sessions` answers it. */
+export interface AgentSession {
+  agent: SessionAgentId;
+  /** The agent's session id: a uuid. */
+  session: string;
+  /** First line, at most 80 characters; `(untitled)` when the session has none. */
+  title: string;
+  /** The container folder it started in, where it has to be resumed. */
+  cwd: string;
+  /** The host folder of the repo whose container folder holds `cwd`. */
+  root: string;
+  /** Last activity, ISO, from the file's mtime. */
+  updatedAt: string;
+}
+
+/** A session as the script reports it, before it is matched to a repo. */
+export interface RawSession {
+  agent: SessionAgentId;
+  session: string;
+  title: string;
+  cwd: string;
+  /** Epoch seconds. */
+  mtime: number;
+}
+
+/** A repo of the container's project: its host folder, and its container folder when mounted. */
+export interface SessionRepo {
+  folder: string;
+  containerFolder: string | null;
+}
+
+export const UNTITLED = '(untitled)';
+
+/** Claude's session folder names: the start folder with every non-alphanumeric made `-`. */
+export function claudeDirPrefix(containerFolder: string): string {
+  return containerFolder.replace(/[^A-Za-z0-9]/g, '-');
+}
+
+/** pi's: `--` + the folder without its leading `/`, slashes made `-` (a subfolder's continues). */
+export function piDirPrefix(containerFolder: string): string {
+  return `--${containerFolder.slice(1).replaceAll('/', '-')}`;
+}
+
+/**
+ * Lists candidate sessions, newest first, `$1` per agent: Claude's only in the folders whose names
+ * start with the arguments before `:`, pi's with those after it, Copilot's all (it keeps no
+ * per-folder dirs). Per session a line `S <agent> <mtime> <path>`, then tagged `grep -o` matches:
+ * claude `C` (first cwd) and `T` (last of each title key); pi `H` (header id and cwd), `N` (last
+ * session name), `U` (first user text); copilot `Y` (`workspace.yaml` lines). No `${…}` in it:
+ * this is a template literal.
+ */
+export const SESSIONS_SCRIPT = String.raw`cap=$1; shift
+S='"(\\.|[^"\\])*"'
+c=$CLAUDE_CONFIG_DIR; [ -n "$c" ] || c=$HOME/.claude; c=$c/projects
+o=$COPILOT_HOME; [ -n "$o" ] || o=$HOME/.copilot; o=$o/session-state
+p=$HOME/.pi/agent/sessions
+newest() { sort -rn | uniq | head -n "$cap"; }
+for a; do [ "$a" = : ] && break; stat -c '%Y %n' "$c/$a"*/*.jsonl; done 2>/dev/null |
+newest | while read -r m f; do
+  printf 'S claude %s %s\n' "$m" "$f"
+  grep -m1 -oE "\"cwd\":$S" "$f" | head -n1 | sed 's/^/C /'
+  grep -oE "\"(customTitle|aiTitle|lastPrompt)\":$S" "$f" |
+    awk -F'"' '{l[$2]=$0} END{for(k in l) print "T " l[k]}'
+done
+on=; for a; do [ -n "$on" ] && stat -c '%Y %n' "$p/$a"*/*.jsonl; [ "$a" = : ] && on=1; done 2>/dev/null |
+newest | while read -r m f; do
+  printf 'S pi %s %s\n' "$m" "$f"
+  head -n1 "$f" | grep -oE "\"(id|cwd)\":$S" | sed 's/^/H /'
+  grep -F '"type":"session_info"' "$f" | grep -oE "\"name\":$S" | tail -n1 | sed 's/^/N /'
+  grep -m1 -F '"role":"user"' "$f" | grep -oE "\"text\":$S" | head -n1 | sed 's/^/U /'
+done
+stat -c '%Y %n' "$o"/*/workspace.yaml "$o"/*/events.jsonl 2>/dev/null | sort -rn |
+awk '{d=$0; sub(/^[0-9]+ /,"",d); sub(/\/[^\/]*$/,"",d); if(!s[d]++) print $1, d}' |
+head -n "$cap" | while read -r m d; do
+  [ -f "$d/workspace.yaml" ] || continue
+  printf 'S copilot %s %s\n' "$m" "$d"
+  grep -E '^(id|cwd|name|summary):' "$d/workspace.yaml" | sed 's/^/Y /'
+done
+true
+`;
+
+/**
+ * The `sh -c` argv after the script: the candidate cap, Claude's folder prefixes, `:`, pi's. `:`
+ * is never a prefix (pi's start with `--`, Claude's are alphanumerics and `-`).
+ */
+export function sessionsArgs(containerFolders: readonly string[]): string[] {
+  const folders = [...new Set(containerFolders)].filter((f) =>
+    f.startsWith('/') && f !== '/'
+  );
+  return [
+    String(2 * MAX_SESSIONS),
+    ...folders.map(claudeDirPrefix),
+    ':',
+    ...folders.map(piDirPrefix),
+  ];
+}
+
+/** `"key":"…"` (a `grep -o` match) as `[key, value]`, or null. */
+function jsonPair(match: string): [string, string] | null {
+  try {
+    const o = JSON.parse(`{${match}}`) as Record<string, unknown>;
+    const [entry] = Object.entries(o);
+    return entry && typeof entry[1] === 'string' ? [entry[0], entry[1]] : null;
+  } catch {
+    return null;
+  }
+}
+
+/** A YAML scalar as Copilot writes one: plain, `"double"` (JSON-like) or `'single'` quoted. */
+function yamlScalar(raw: string): string {
+  const v = raw.trim();
+  if (v.length >= 2 && v.startsWith('"') && v.endsWith('"')) {
+    try {
+      const s = JSON.parse(v);
+      return typeof s === 'string' ? s : v;
+    } catch {
+      return v.slice(1, -1);
+    }
+  }
+  if (v.length >= 2 && v.startsWith("'") && v.endsWith("'")) {
+    return v.slice(1, -1).replaceAll("''", "'");
+  }
+  return v;
+}
+
+function baseName(path: string): string {
+  return path.slice(path.lastIndexOf('/') + 1);
+}
+
+interface Block {
+  agent: SessionAgentId;
+  mtime: number;
+  path: string;
+  lines: [string, string][];
+}
+
+function rawSession(b: Block): RawSession | null {
+  const pairs = (tag: string) =>
+    b.lines.filter(([t]) => t === tag).map(([, v]) => jsonPair(v)).filter((
+      p,
+    ): p is [string, string] => p !== null);
+  let session = '';
+  let cwd = '';
+  let title = '';
+  if (b.agent === 'claude') {
+    session = baseName(b.path).replace(/\.jsonl$/, '');
+    cwd = pairs('C').find(([k]) => k === 'cwd')?.[1] ?? '';
+    const titles = new Map(pairs('T'));
+    title = [
+      titles.get('customTitle'),
+      titles.get('aiTitle'),
+      titles.get('lastPrompt'),
+    ].map((t) => taskTitle(t ?? '')).find((t) => t !== '') ?? '';
+  } else if (b.agent === 'pi') {
+    const header = new Map(pairs('H'));
+    session = header.get('id') ?? '';
+    cwd = header.get('cwd') ?? '';
+    title = [pairs('N')[0]?.[1], pairs('U')[0]?.[1]]
+      .map((t) => taskTitle(t ?? '')).find((t) => t !== '') ?? '';
+  } else {
+    session = baseName(b.path);
+    const yaml = new Map<string, string>();
+    for (const [, line] of b.lines.filter(([t]) => t === 'Y')) {
+      const i = line.indexOf(':');
+      if (i > 0 && !yaml.has(line.slice(0, i))) {
+        yaml.set(line.slice(0, i), yamlScalar(line.slice(i + 1)));
+      }
+    }
+    cwd = yaml.get('cwd') ?? '';
+    title = [yaml.get('name'), yaml.get('summary')]
+      .map((t) => taskTitle(t ?? '')).find((t) => t !== '') ?? '';
+  }
+  if (!isSessionId(session)) return null;
+  if (!cwd.startsWith('/') || /[\n\0]/.test(cwd)) return null;
+  return {
+    agent: b.agent,
+    session,
+    title: title || UNTITLED,
+    cwd,
+    mtime: b.mtime,
+  };
+}
+
+/** {@link SESSIONS_SCRIPT}'s output as sessions. Drops anything malformed; never throws. */
+export function parseSessionsOutput(out: string): RawSession[] {
+  const blocks: Block[] = [];
+  for (const line of out.split('\n')) {
+    const sp = line.indexOf(' ');
+    if (sp < 0) continue;
+    const tag = line.slice(0, sp);
+    const rest = line.slice(sp + 1);
+    if (tag === 'S') {
+      const m = /^(claude|copilot|pi) (\d+) (\/.*)$/.exec(rest);
+      blocks.push(
+        m
+          ? {
+            agent: m[1] as SessionAgentId,
+            mtime: Number(m[2]),
+            path: m[3],
+            lines: [],
+          }
+          // A malformed head: its lines are dropped with it.
+          : { agent: 'claude', mtime: NaN, path: '', lines: [] },
+      );
+      continue;
+    }
+    blocks.at(-1)?.lines.push([tag, rest]);
+  }
+  return blocks.filter((b) => Number.isFinite(b.mtime) && b.path !== '')
+    .map(rawSession)
+    .filter((s): s is RawSession => s !== null);
+}
+
+/**
+ * The sessions that started in one of `repos`' container folders (the deepest one wins), newest
+ * first, one per agent and id, at most {@link MAX_SESSIONS}.
+ */
+export function pickSessions(
+  raw: readonly RawSession[],
+  repos: readonly SessionRepo[],
+  max = MAX_SESSIONS,
+): AgentSession[] {
+  const mounted = repos.filter((r): r is SessionRepo & {
+    containerFolder: string;
+  } => r.containerFolder !== null)
+    .sort((a, b) => b.containerFolder.length - a.containerFolder.length);
+  const seen = new Set<string>();
+  const out: AgentSession[] = [];
+  const sorted = [...raw].sort((a, b) =>
+    b.mtime - a.mtime || a.session.localeCompare(b.session)
+  );
+  for (const s of sorted) {
+    const repo = mounted.find((r) =>
+      s.cwd === r.containerFolder ||
+      s.cwd.startsWith(
+        r.containerFolder.endsWith('/')
+          ? r.containerFolder
+          : `${r.containerFolder}/`,
+      )
+    );
+    const key = `${s.agent}\n${s.session}`;
+    if (!repo || seen.has(key)) continue;
+    seen.add(key);
+    out.push({
+      agent: s.agent,
+      session: s.session,
+      title: s.title,
+      cwd: s.cwd,
+      root: repo.folder,
+      updatedAt: new Date(s.mtime * 1000).toISOString(),
+    });
+    if (out.length >= max) break;
+  }
+  return out;
+}
+
+/**
+ * The container's recent sessions in `repos`. Throws on a failed `docker exec` (the command's
+ * stderr in the message).
+ */
+export async function listAgentSessions(
+  info: ContainerInfo,
+  repos: readonly SessionRepo[],
+  run: DockerRun = runDocker,
+): Promise<AgentSession[]> {
+  const folders = repos.flatMap((r) =>
+    r.containerFolder === null ? [] : [r.containerFolder]
+  );
+  if (folders.length === 0) return [];
+  const out = await run(
+    dockerExecArgv(info, {
+      cwd: '/',
+      cmd: ['sh', '-c', SESSIONS_SCRIPT, 'sh', ...sessionsArgs(folders)],
+    }),
+  );
+  if (out.code !== 0) {
+    throw new Error(
+      out.stderr.trim() || `listing sessions failed (exit ${out.code})`,
+    );
+  }
+  return pickSessions(
+    parseSessionsOutput(new TextDecoder().decode(out.stdout)),
+    repos,
+  );
+}

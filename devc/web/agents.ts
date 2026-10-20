@@ -42,8 +42,13 @@ export const TASK_FILE_DIR = '/tmp/devc-tasks';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
+/** Whether `v` is a session id as the agents' commands take one: a lowercase uuid. */
+export function isSessionId(v: unknown): v is string {
+  return typeof v === 'string' && UUID.test(v);
+}
+
 function checkedUuid(sessionId: string): string {
-  if (!UUID.test(sessionId)) throw new Error(`not a uuid: ${sessionId}`);
+  if (!isSessionId(sessionId)) throw new Error(`not a uuid: ${sessionId}`);
   return sessionId;
 }
 

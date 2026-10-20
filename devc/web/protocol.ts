@@ -7,6 +7,7 @@ import {
   type AgentId,
   isAgentId,
   isSessionAgentId,
+  isSessionId,
   isTaskAction,
   type SessionAgentId,
   type TaskAction,
@@ -248,6 +249,15 @@ export type ClientMessage =
     root: string;
     agent: SessionAgentId;
     action: TaskAction;
+  }
+  | { type: 'list_sessions'; id: string; container: string }
+  | {
+    type: 'resume_session';
+    id: string;
+    container: string;
+    agent: SessionAgentId;
+    /** The agent's session id: a uuid. */
+    session: string;
   }
   | { type: 'retry'; container: string }
   | { type: 'client_ready'; generation: string };
@@ -761,6 +771,26 @@ function parseFields(m: Obj): ClientMessage {
         root: absolute(m, 'root'),
         agent: m.agent,
         action: m.action,
+      };
+    case 'list_sessions':
+      return {
+        type: 'list_sessions',
+        id: str(m, 'id'),
+        container: str(m, 'container'),
+      };
+    case 'resume_session':
+      if (!isSessionAgentId(m.agent)) {
+        throw new Invalid(`agent '${String(m.agent)}' can't resume a session`);
+      }
+      if (!isSessionId(m.session)) {
+        throw new Invalid(`'session' must be a uuid`);
+      }
+      return {
+        type: 'resume_session',
+        id: str(m, 'id'),
+        container: str(m, 'container'),
+        agent: m.agent,
+        session: m.session,
       };
     case 'retry':
       return { type: 'retry', container: str(m, 'container') };
