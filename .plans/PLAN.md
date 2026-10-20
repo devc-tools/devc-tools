@@ -11,12 +11,6 @@
 
 ### Pending
 
-- [devc-web-menu-groups-reveal](devc-web-menu-groups-reveal.md) — context menus get dividers
-  (a `null` item; edge and doubled dividers dropped) and the sidebar and file-tile menus are
-  grouped with them. A new `reveal_path` message selects a repo file or folder in the host's file
-  manager (`open -R`, `explorer /select,`, FileManager1 or `xdg-open` on the parent), labelled by
-  `hello.hostOs`, wherever **Open in Code** appears.
-
 - [devc-web-media-tiles](devc-web-media-tiles.md) — file tiles gain `view: 'media'`: images
   drawn as images (fit/1:1, pixelated when enlarged) and HTML rendered in a sandboxed iframe,
   both loaded through the existing `/preview/` URLs. **Preview** on HTML/SVG; a save in a text
@@ -115,6 +109,16 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
   take it too.
 
 ### Completed
+
+- [devc-web-menu-groups-reveal](archived/devc-web-menu-groups-reveal.md) — ✅ Done: context
+  menus take `null` items as dividers, dropping edge and doubled ones (`trimDividers` in
+  `static/lib/menu.js`), and the file, folder, file-tile, pin, terminal-tile and project menus are
+  grouped with them; `pathMenuItems` split into `copyPathItems` and `hostOpenItems`. A new
+  `reveal_path` message (repo or container addressing, resolved and confined by the same
+  `hostPathFor` as `open_in_code`) runs `revealOnHost` from `web/reveal.ts`: `open -R` on macOS,
+  `explorer /select,` on Windows, FileManager1 over D-Bus then `xdg-open` on the parent elsewhere.
+  `hello` carries `hostOs`, which labels the item **Reveal in Finder**, **Reveal in File Explorer**
+  or **Open containing folder**; it appears wherever **Open in Code** does.
 
 - [devc-desktop-host-cd](archived/devc-desktop-host-cd.md) — ✅ Done: right-click in the host
   terminal offers `cd <host folder>` for devc web's focused terminal pane. The page reports its
