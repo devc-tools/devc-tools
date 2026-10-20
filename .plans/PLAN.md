@@ -24,6 +24,13 @@
   `devc status` reports `MISMATCH`, and the bridge refuses grants. Step 0 measures the
   mechanism on a host first. Surviving the rewrite is left to a later plan.
 
+- [bridge-skip-unpinnable-repos](bridge-skip-unpinnable-repos.md) — a `--bridge-allow` grant
+  checks the workspace repo and each `--bridge-repo` on its own: ones failing a per-repo
+  precondition (no `origin`, detached `HEAD`, not GitHub, protection not in force) are skipped
+  with `devc: --bridge-allow: not pinning <label>: <reason>`, and the grant fails only when none
+  pass. Container-wide checks, `--bridge-repo` eligibility errors and same-repo conflicts stay
+  hard errors; refresh still revokes whole. No `--bridge-repo` → unchanged.
+
 - [keepawake-ping-telemetry](keepawake-ping-telemetry.md) — record every keepawake ping
   and report the distribution of gaps between them, so
   `DEVC_BRIDGE_KEEPAWAKE_IDLE_MS` can be set from measurement rather than the
@@ -2328,3 +2335,4 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
 | git-protect live check — `devc status` and the bridge read the container's mountinfo                               | [git-protect-live-check](git-protect-live-check.md)                                |             |
 | `devc web` editable viewer — file tiles edit and save through `write_file`                                         | [devc-web-editable-viewer](devc-web-editable-viewer.md)                            | in progress |
 | devc-desktop host cd — the host terminal's right-click `cd`s to devc web's active pane folder                      | [devc-desktop-host-cd](archived/devc-desktop-host-cd.md)                           | complete    |
+| bridge skip unpinnable repos — pin the candidates that pass, error only when none do                               | [bridge-skip-unpinnable-repos](bridge-skip-unpinnable-repos.md)                    | in progress |
