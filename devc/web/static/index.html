@@ -30,17 +30,6 @@
               <path d="M5.5 5.5h8v8h-8zM10.5 5.5v-3h-8v8h3" />
             </svg>
           </button>
-          <button
-            class="sidebar-toggle"
-            id="sidebar-hide"
-            type="button"
-            aria-label="Hide sidebar"
-            title="Hide sidebar"
-          >
-            <svg viewBox="0 0 16 16" aria-hidden="true">
-              <path d="M12 4l-4 4 4 4M7.5 4l-4 4 4 4" />
-            </svg>
-          </button>
         </header>
         <nav class="tree" id="tree" aria-label="Containers"></nav>
       </aside>
@@ -54,13 +43,16 @@
       ></div>
       <main class="tiles" id="tiles"></main>
       <button
-        class="sidebar-toggle sidebar-show"
-        id="sidebar-show"
+        class="sidebar-toggle sidebar-corner"
+        id="sidebar-toggle"
         type="button"
-        aria-label="Show sidebar"
-        title="Show sidebar"
+        aria-label="Hide sidebar"
+        title="Hide sidebar"
       >
-        <svg viewBox="0 0 16 16" aria-hidden="true">
+        <svg class="icon-hide" viewBox="0 0 16 16" aria-hidden="true">
+          <path d="M12 4l-4 4 4 4M7.5 4l-4 4 4 4" />
+        </svg>
+        <svg class="icon-show" viewBox="0 0 16 16" aria-hidden="true">
           <path d="M4 4l4 4-4 4M8.5 4l4 4-4 4" />
         </svg>
       </button>

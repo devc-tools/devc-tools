@@ -7,6 +7,7 @@ import {
   containerLabel,
   gitRollup,
   gitSync,
+  isSidebarToggleShortcut,
   labelText,
   paneLabel,
   paneTitle,
@@ -398,4 +399,27 @@ Deno.test('repoAt: the innermost repo whose container folder holds the path', ()
   assertEquals(repoAt(repos, '/tmp'), null);
   assertEquals(repoAt(repos, ''), null);
   assertEquals(repoAt([], '/workspaces/app'), null);
+});
+
+Deno.test('isSidebarToggleShortcut is Cmd+B on a Mac only', () => {
+  const key = (mods: Partial<Record<string, boolean>>, code = 'KeyB') => ({
+    code,
+    ctrlKey: false,
+    altKey: false,
+    metaKey: false,
+    shiftKey: false,
+    ...mods,
+  });
+  assertEquals(isSidebarToggleShortcut(key({ metaKey: true }), true), true);
+  assertEquals(isSidebarToggleShortcut(key({ metaKey: true }), false), false);
+  assertEquals(isSidebarToggleShortcut(key({ ctrlKey: true }), true), false);
+  assertEquals(isSidebarToggleShortcut(key({ ctrlKey: true }), false), false);
+  assertEquals(
+    isSidebarToggleShortcut(key({ metaKey: true, shiftKey: true }), true),
+    false,
+  );
+  assertEquals(
+    isSidebarToggleShortcut(key({ metaKey: true }, 'KeyN'), true),
+    false,
+  );
 });

@@ -37,6 +37,7 @@ import {
   containerLabel,
   gitRollup,
   gitSync,
+  isSidebarToggleShortcut,
   labelText,
   paneLabel,
   paneTitle,
@@ -291,15 +292,13 @@ const $app = /** @type {HTMLElement} */ (document.querySelector('.app'));
 const $resizer = /** @type {HTMLElement} */ (document.getElementById(
   'sidebar-resizer',
 ));
-const $sidebarHide = /** @type {HTMLElement} */ (document.getElementById(
-  'sidebar-hide',
-));
-const $sidebarShow = /** @type {HTMLElement} */ (document.getElementById(
-  'sidebar-show',
+const $sidebarToggle = /** @type {HTMLElement} */ (document.getElementById(
+  'sidebar-toggle',
 ));
 
 /**
- * The host status strip at the foot of the sidebar: host-level indicators, the account-wide
+ * The host status strip across the foot of the page, under the sidebar and the tiles alike:
+ * host-level indicators, the account-wide
  * agent usage limits (`usage`) then devc-bridge's (`bridge_status`). Hidden while it has nothing
  * to show.
  */
@@ -309,7 +308,7 @@ const $hostStatus = h('footer', {
   'aria-label': 'Host status',
   hidden: true,
 });
-document.querySelector('.sidebar')?.append($hostStatus);
+$app.append($hostStatus);
 /** @type {{running: boolean, active: string[]} | null} The last `bridge_status`. */
 let hostBridgeStatus = null;
 /** @type {import('./lib/host_status.js').UsageSource[] | null} The last `usage`. */
@@ -1076,6 +1075,9 @@ function toggleInactive() {
  */
 function applySidebarLayout() {
   $app.dataset.sidebar = sidebarState.hidden ? 'hidden' : 'shown';
+  const toggleLabel = sidebarState.hidden ? 'Show sidebar' : 'Hide sidebar';
+  $sidebarToggle.setAttribute('aria-label', toggleLabel);
+  $sidebarToggle.title = toggleLabel;
   $app.style.setProperty(
     '--sidebar-width',
     `${clampSidebarWidth(sidebarState.width, innerWidth)}px`,
@@ -1088,8 +1090,7 @@ function toggleSidebarHidden() {
   applySidebarLayout();
 }
 
-$sidebarHide.addEventListener('click', toggleSidebarHidden);
-$sidebarShow.addEventListener('click', toggleSidebarHidden);
+$sidebarToggle.addEventListener('click', toggleSidebarHidden);
 window.addEventListener('resize', applySidebarLayout);
 
 // The page's URL, token included: devc-desktop's window has no address bar, and a container or
@@ -6079,6 +6080,14 @@ document.addEventListener('keydown', (e) => {
   if (e.repeat) return;
   if (pinnedFiles.length) toggleFilePin(pinnedFiles[0]);
   else openNewNote();
+}, true);
+
+// Cmd+B (Mac only) shows or hides the sidebar, in the capture phase for the same reason.
+document.addEventListener('keydown', (e) => {
+  if (!isSidebarToggleShortcut(e, IS_MAC)) return;
+  e.preventDefault();
+  e.stopPropagation();
+  if (!e.repeat) toggleSidebarHidden();
 }, true);
 
 /** The tooltip over a terminal link. */

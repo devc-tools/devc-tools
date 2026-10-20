@@ -281,3 +281,15 @@ export function collapseContainersState(state, folders) {
     inactiveOpen: false,
   };
 }
+
+/**
+ * Whether a keydown is the shortcut that shows or hides the sidebar: Cmd+B on a Mac. There is
+ * none elsewhere, since Ctrl+B belongs to the terminals (tmux's prefix, readline's back a char).
+ *
+ * @param {{code: string, ctrlKey: boolean, altKey: boolean, metaKey: boolean, shiftKey: boolean}} e
+ * @param {boolean} isMac
+ */
+export function isSidebarToggleShortcut(e, isMac) {
+  return isMac && e.code === 'KeyB' && e.metaKey && !e.ctrlKey && !e.altKey &&
+    !e.shiftKey;
+}
