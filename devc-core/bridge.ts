@@ -199,8 +199,9 @@ export const MAX_PINNED_REPOS = 16;
 
 /**
  * A policy file: the capabilities granted (canonical order, non-empty), shared by every pinned
- * repo, and the pinned repos — the workspace repo first, then each `--bridge-repo` in the order it
- * was given. 1–{@link MAX_PINNED_REPOS} of them, with distinct `repo`s and distinct `target`s.
+ * repo, and the pinned repos — the workspace repo first when it could be pinned, then each
+ * `--bridge-repo` that could, in the order it was given. 1–{@link MAX_PINNED_REPOS} of them, with
+ * distinct `repo`s and distinct `target`s.
  */
 export interface PolicyRecord {
   grants: BridgeCapability[];

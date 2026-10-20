@@ -565,8 +565,9 @@ into.
 
 Each token **identifies** its caller as that workspace's key. That is what a
 publishing verb needs: `~/.config/devc-bridge/policy/<key>.conf`, written by
-devc, pins the repos that container's capabilities act on — the workspace repo,
-plus any the user named with `devc up --bridge-repo` — each with its remote and
+devc, pins the repos that container's capabilities act on — the workspace repo when
+it passes devc's checks, plus any the user named with `devc up --bridge-repo`
+that do — each with its remote and
 branch, and lists the capabilities it has —
 **one branch per pinned repo**, and a bind mount is not a grant. The
 policy lives outside every mounted directory, because a policy the container
@@ -586,7 +587,7 @@ Two independent tools share this directory: devc writes `keys/<key>/` and
 never deletes what devc created. What they share beyond the paths is the policy
 format, parsed by the same `devc-core` code on both sides (and by each built-in
 script's bash copy of the same rules): 1–16 lines, each `\n`-terminated, one per
-pinned repo with the workspace repo first —
+pinned repo, the workspace repo first when it is pinned —
 
 ```text
 <repo>\t<remote>\t<branch>\t<grants>\t<target>
@@ -680,7 +681,8 @@ host does, with your credentials, after checking what it is about to send.
 
 > **One branch per pinned repo.** The token identifies the container; the
 > policy names the repos and branches it may publish — the workspace repo, and
-> each extra repo you named with `devc up --bridge-allow … --bridge-repo PATH`.
+> each extra repo you named with `devc up --bridge-allow … --bridge-repo PATH`
+> (devc skips, with a notice, any of them that fails its checks).
 > A `devc:source` mount you did not name is never pushable — a bind mount you
 > added for convenience is not a grant. A container with no policy has exactly
 > the capabilities it has today.

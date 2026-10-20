@@ -119,7 +119,8 @@ Notes:
   whose `origin` must be a github.com remote. `up`/`build` **without** it revoke
   any earlier grant. `--bridge-repo PATH` (repeatable, only with
   `--bridge-allow`) pins an extra git-protected repo mount alongside the
-  workspace repo. No other command accepts either flag, and the old
+  workspace repo; a repo that fails its checks is skipped with a notice, and
+  the grant fails only when none pass. No other command accepts either flag, and the old
   `--bridge-git-push` is refused with a pointer to `--bridge-allow gh-push` — see
   [Per-container identity](#per-container-identity-and-github-capabilities).
 - `prune` removes every `~/.config/devc-bridge/keys/<key>/` and
@@ -1432,7 +1433,7 @@ unaffected: they always run the Feature's downloaded client.
 container; `~/.config/devc-bridge/policy/<key>.conf` names each repo its
 capabilities act on — the workspace repo, plus any you named with
 `--bridge-repo` — with its remote and branch, and which capabilities it has. One
-line per pinned repo, the workspace repo first, at most 16:
+line per pinned repo, the workspace repo first when it is pinned, at most 16:
 
 ```text
 <host path of the repo><TAB><remote.origin.url><TAB><branch><TAB><grants><TAB><container path>
@@ -1477,7 +1478,7 @@ The bridge ships all of them and checks the grant on every call — see the
 [bridge README](../devc-bridge/README.md#capabilities).
 
 **Extra repos are pinned by name, never by discovery.** The workspace repo is
-always pinned. To let the same grant act on another repo the container mounts —
+always tried. To let the same grant act on another repo the container mounts —
 a `devc:source` sibling, say — name it on the same command:
 
 ```sh
@@ -1495,8 +1496,8 @@ devc up ~/code/tools/devc-dev --bridge-allow gh --bridge-repo ~/code/tools/devc-
 - It must name a **git-protected repo mount** of this workspace — a bind-mounted
   row whose `.git` is a directory and that git protection froze — or a **linked
   worktree** (below). devc refuses, and grants nothing, for a path that does not
-  exist, the workspace repo itself (`this is the workspace repo, which is always
-  pinned`), and anything else — that message lists the repo mounts you can pin.
+  exist, the workspace repo itself (`this is the workspace repo, which devc
+  always tries to pin`), and anything else — that message lists the repo mounts you can pin.
 - A **linked worktree** (its `.git` is a file) has no config or hooks of its
   own: git uses its primary's, so it is as protected as that primary. It can be
   pinned — another worktree of the workspace's own repo too — when each of these
@@ -1525,26 +1526,45 @@ devc up ~/code/tools/devc-dev --bridge-allow gh --bridge-repo ~/code/tools/devc-
 - A repo whose config turns on `extensions.worktreeConfig` is never pinned,
   the workspace repo included: git would then also read a per-worktree
   `config.worktree`, which is not frozen. Unset it on the host to pin the repo.
-- **All or nothing.** One repo that fails fails the whole grant: no policy is
-  written, any earlier one is removed, and the error names the repo.
+- **Each repo on its own.** The grant considers the workspace repo, then each
+  `--bridge-repo` in order, and pins each one that passes its own checks
+  (below: a branch `HEAD`, one GitHub `origin`, protection in force). One that
+  fails is skipped, and `up` says so before the grant lines:
 
-| Command                                              | With `--bridge-allow LIST [--bridge-repo PATH]...`              | Without it                                                                                 |
-| ---------------------------------------------------- | --------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
-| `up`, `build`                                        | write the policy with exactly LIST and these repos (no merging) | **delete** this workspace's policy                                                         |
-| `attach`, `claude`, `copilot`, `pi`, `herdr`, `exec` | refused — not accepted                                          | re-check an existing policy; revoke it if any pinned repo's repo, origin or branch changed |
+  ```
+  devc: --bridge-allow: not pinning the workspace repo: the repo has no remote.origin.url
+  devc: devc-bridge capabilities granted: gh-push, gh-pr-review, gh-pr-resolve, gh-pr-request-review
+  devc:   /workspaces/extra: feat/x → git@github.com:acme/extra.git (/Users/me/code/extra)
+  ```
+
+  So a workspace that is not itself pushable — no `origin`, a local-path
+  remote — can still grant its `--bridge-repo`s. These still fail the whole
+  grant (no policy is written, any earlier one is removed):
+  - **no repo passing.** Without `--bridge-repo` that is the workspace repo's
+    own reason, as before; with it, `no repo can be pinned — the workspace
+    repo: <reason>; <PATH>: <reason>; …`;
+  - a **container-wide** check (1, 2 and the key-directory half of 5 below);
+  - a `--bridge-repo` that names **nothing pinnable** (the refusals above —
+    a typo is never silently dropped);
+  - two pinned repos that **conflict** on one GitHub repo (above).
+
+| Command                                              | With `--bridge-allow LIST [--bridge-repo PATH]...`                      | Without it                                                                                 |
+| ---------------------------------------------------- | ----------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| `up`, `build`                                        | write the policy with exactly LIST and the repos that pass (no merging) | **delete** this workspace's policy                                                         |
+| `attach`, `claude`, `copilot`, `pi`, `herdr`, `exec` | refused — not accepted                                                  | re-check an existing policy; revoke it if any pinned repo's repo, origin or branch changed |
 
 Both are **flags, deliberately not config keys**: every `devc.jsonc` layer with
 the priority to set them lives inside the bind-mounted workspace, where an agent
 could grant itself the capability, or widen it to another repo, before your next
 `up`. A flag is typed per invocation and never persisted.
 
-Before writing (or refreshing) a policy devc checks, and with the flag given
-exits non-zero naming the first that fails — 1, 2 and the key-directory half of
-5 once for the container, the rest for every pinned repo:
+Before writing (or refreshing) a policy devc checks the following — 1, 2 and
+the key-directory half of 5 once for the container, first, failing the grant;
+the rest for every candidate repo, where a failure skips that repo (see above):
 
 1. a `devc-bridge` Feature is declared;
 2. `gitProtect` is not off;
-3. the workspace is a bind-mounted repo whose `HEAD` names a branch (a detached
+3. the repo is a bind-mounted repo whose `HEAD` names a branch (a detached
    `HEAD` fails) and whose config has exactly one `remote.origin.url` (none,
    two, or any `[include]` fails);
 4. that `remote.origin.url` is a github.com remote — `git@github.com:<owner>/<name>`,
@@ -1571,8 +1591,10 @@ planted `core.fsmonitor`.
 **Refresh** re-checks an existing policy on each `attach`/`claude`/… and never
 rewrites it. `HEAD` is writable from inside the container, so a pin that
 followed it would let an agent choose the branch it publishes to. Every line is
-re-derived — an extra repo by finding its mount again at the stored host path
-and container path. When any pin derived now differs from the stored one — the
+re-derived — the line at the workspace's container path as the workspace repo,
+any other by finding its mount again at the stored host path and container path.
+A grant that skipped the workspace repo has no line for it, and refresh never
+adds one: re-run `devc up --bridge-allow …` once the workspace is pushable. When any pin derived now differs from the stored one — the
 workspace repo, the origin or the branch changed — or can no longer be derived
 at all — a detached `HEAD`, protection gone, an origin that stopped being
 GitHub, the mount gone, a malformed file — the refresh **removes** the whole
@@ -1582,8 +1604,8 @@ policy and says so:
 devc: devc-bridge capabilities revoked — the branch is now feat/next, but they were granted for feat/x. Run `devc up --bridge-allow gh-push,gh-pr-review` to grant it.
 ```
 
-With more than one repo pinned, the message starts with the repo's host path and
-the hint carries `--bridge-repo …`:
+With more than one repo pinned, the message starts with the repo's host path; the
+hint carries `--bridge-repo …` whenever an extra repo is pinned:
 
 ```
 devc: devc-bridge capabilities revoked — /Users/me/code/tools/devc-tools: the branch is now main, but they were granted for feat/x. Run `devc up --bridge-allow gh --bridge-repo …` to grant it.

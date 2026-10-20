@@ -29,7 +29,8 @@ repo.
 
 ## What gets pushed
 
-- **The pinned repos:** the primary workspace repo, plus each extra repo the
+- **The pinned repos:** the primary workspace repo when it could be pinned
+  (a workspace with no GitHub `origin` is skipped), plus each extra repo the
   user named on the host with `devc up --bridge-allow … --bridge-repo PATH`. A
   sibling `devc:source` mount the user did not name is never pushable.
   `gh-doctor` prints a `target    <path>` line for each pinned repo: that is its
