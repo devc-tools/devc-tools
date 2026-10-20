@@ -152,6 +152,39 @@ Deno.test("buildProjects lists each project's repos with their git state", () =>
   ]);
 });
 
+Deno.test('buildProjects orders repos by name, the project folder first', () => {
+  const repo = (
+    folder: string,
+    containerFolder: string | null,
+    worktreeOf: string | null = null,
+  ) => ({ folder, worktreeOf, containerFolder, primaryFolder: null });
+  const [p] = buildProjects(
+    [{ localFolder: '/src/zed', pinned: false, lastUsed: null }],
+    ['/src/zed'],
+    [],
+    new Set(),
+    // As mountedRepos lists them: by folder basename.
+    new Map([['/src/zed', [
+      repo('/src/zed', '/workspaces/zed'),
+      repo('/src/zed.worktrees/b', '/workspaces/zed.worktrees/b', '/src/zed'),
+      repo('/h/alpha', '/workspaces/x/alpha'),
+      repo('/h/alpha.worktrees/m', '/workspaces/a/m', '/h/alpha'),
+      repo('/h/alpha.worktrees/n', '/workspaces/0/n', '/h/alpha'),
+      repo('/h/beta', '/workspaces/b/beta'),
+      repo('/h/orphan.worktrees/o', '/workspaces/c/o', '/h/orphan'),
+    ]]]),
+  );
+  assertEquals(p.repos.map((r) => r.name), [
+    'zed',
+    'zed.worktrees/b',
+    'b/beta',
+    'c/o',
+    'x/alpha',
+    '0/n',
+    'a/m',
+  ]);
+});
+
 Deno.test('buildProjects sorts same-named folders by path', () => {
   const views = buildProjects(
     [],

@@ -20,7 +20,8 @@ export interface ProjectView {
   starting: boolean;
   /**
    * Its repos, the folder itself first: with a container, every repo that container mounts and
-   * the worktrees beside them; without one, just the folder.
+   * the worktrees beside them; without one, just the folder. The rest go by `name`, each
+   * followed by its worktrees, also by `name`.
    */
   repos: RepoView[];
 }
@@ -72,21 +73,48 @@ export function buildProjects(
       ? 'stopped' as const
       : 'missing' as const,
     starting: starting.has(e.localFolder),
-    repos: (repos.get(e.localFolder) ??
-      [{
-        folder: e.localFolder,
-        worktreeOf: null,
-        containerFolder: null,
-        primaryFolder: null,
-      }])
-      .map((r) => ({
-        ...r,
-        name: repoName(r.folder, r.containerFolder),
-        ...gitFields(git, r.folder),
-      })),
+    repos: byRepoName(
+      (repos.get(e.localFolder) ??
+        [{
+          folder: e.localFolder,
+          worktreeOf: null,
+          containerFolder: null,
+          primaryFolder: null,
+        }])
+        .map((r) => ({
+          ...r,
+          name: repoName(r.folder, r.containerFolder),
+          ...gitFields(git, r.folder),
+        })),
+    ),
   })).sort((a, b) =>
     a.name.localeCompare(b.name) || a.localFolder.localeCompare(b.localFolder)
   );
+}
+
+/**
+ * `repos` (the project folder first) reordered by the names the sidebar shows: the first stays
+ * first, the other repos follow by name, then folder, and each is followed by its worktrees
+ * (`worktreeOf` it) in the same order. A worktree whose repo is not listed goes as a repo.
+ */
+function byRepoName(repos: readonly RepoView[]): RepoView[] {
+  if (repos.length === 0) return [];
+  const [first, ...rest] = repos;
+  const order = (a: RepoView, b: RepoView) =>
+    a.name.localeCompare(b.name) || a.folder.localeCompare(b.folder);
+  const folders = new Set(repos.map((r) => r.folder));
+  const isTop = (r: RepoView) =>
+    r.worktreeOf === null || !folders.has(r.worktreeOf);
+  const out: RepoView[] = [];
+  for (const top of [first, ...rest.filter(isTop).sort(order)]) {
+    out.push(top);
+    out.push(
+      ...rest.filter((r) => !isTop(r) && r.worktreeOf === top.folder).sort(
+        order,
+      ),
+    );
+  }
+  return out;
 }
 
 /**
