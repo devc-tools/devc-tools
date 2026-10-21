@@ -55,6 +55,13 @@
   generalized from vscode-deephaven's `vscode-dev.sh`. chrome-devtools-mcp registration stays
   with the consuming project. Replaces the `feature-electron-deps` placeholder.
 
+- [devc-web-open-in-jira](devc-web-open-in-jira.md) — when the branch devc web shows for a
+  terminal, a file tile or a repo row holds a Jira key (`feature/AB-12345-fix`), its right-click
+  menu offers **Open AB-12345 in Jira** (tiles, pane rows, repo rows, In use folder rows).
+  `"jira": {"pattern", "url"}` in `~/.config/devc/config.json` sets which keys match (a
+  case-insensitive regex) and the browse URL (`{key}`); the server validates it, sends it as a
+  `jira` message and re-sends on change. Absent: menus unchanged.
+
 ### Standing rules for Feature work
 
 Not a plan group — these are the conventions every Feature plan in this file
@@ -2398,3 +2405,4 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
 | devc-bridge PR grant split — read vs write, `gh-pr-reply`, any-thread resolve + `gh-pr-resolve-copilot`            | [bridge-pr-grant-split](archived/bridge-pr-grant-split.md)                         | complete    |
 | devc web PR review — sidebar PR tree + Viewed, diff tiles with threads, all through the container's bridge         | [devc-web-pr-review](archived/devc-web-pr-review.md)                               | complete    |
 | devc web sidebar scale fixes — Tasks section, In use merged by folder, running sessions not resumed twice          | [devc-web-sidebar-scale-fixes](archived/devc-web-sidebar-scale-fixes.md)           | complete    |
+| `devc web` open in Jira — a branch's Jira key opens from terminal, file and repo menus, `"jira"` in config.json    | [devc-web-open-in-jira](devc-web-open-in-jira.md)                                  |             |
