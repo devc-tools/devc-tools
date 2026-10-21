@@ -456,9 +456,9 @@ body.resizing-zones {
 .in-use-run {
   margin: 6px 4px 10px;
   padding: 0 5px 5px;
-  border: 1px solid #2a3648;
+  border: 1px solid #36465d;
   border-radius: 7px;
-  background: #11161e;
+  background: #1f2836;
 }
 
 .in-use-run > .in-use-card {
