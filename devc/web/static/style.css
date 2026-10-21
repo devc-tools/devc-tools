@@ -1229,7 +1229,8 @@ body.resizing-sidebar {
 .lm_header .lm_tab .lm_close_tab {
   top: 50%;
   right: 8px;
-  transform: translateY(-50%);
+  /* Centered on the label's line: the box sits half a pixel low, and × a little low in it. */
+  transform: translateY(calc(-50% - 1px));
 }
 
 /* One line, cut with an ellipsis: the tab is a flex row, so min-width lets the title shrink. */
@@ -1255,9 +1256,31 @@ body.resizing-sidebar {
   max-width: 60%;
 }
 
+/*
+ * The label keeps its width (any share of a shrink, however small, ellipsizes it) except where
+ * nothing else is left to give way: among several tabs, and in the narrowest headers.
+ */
+.lm_header .lm_tabs:has(.lm_tab + .lm_tab) .lm_title,
+.lm_header:has(.lm_tabdropdown_list .lm_tab) .lm_title {
+  flex-shrink: 1;
+  /* A couple of letters and an ellipsis, never a sliver. */
+  min-width: 2.5em;
+}
+
+/* Among several tabs, the title gives way entirely, and no tab runs into the next. */
+.lm_header .lm_tabs:has(.lm_tab + .lm_tab) .tile-title-muted,
+.lm_header:has(.lm_tabdropdown_list .lm_tab) .tile-title-muted {
+  min-width: 0;
+}
+
+.lm_header .lm_tab {
+  overflow: hidden;
+}
+
 .lm_header .lm_tab .tile-title-muted {
   flex: 0 1000 auto;
-  min-width: 0;
+  /* Shortened to a few letters and an ellipsis, never a sliver (narrow headers drop it). */
+  min-width: 2.5em;
   margin-left: 0;
   overflow: hidden;
   white-space: nowrap;
@@ -1269,8 +1292,13 @@ body.resizing-sidebar {
 .lm_header .lm_tab .tile-context {
   display: flex;
   min-width: 0;
-  flex: 0 0 auto;
+  /* After the title, before the label: the label shrinks last. */
+  flex: 0 100 auto;
   max-width: 45%;
+}
+
+.lm_header .lm_tab .tile-badge {
+  flex: none;
 }
 
 .lm_header .lm_tab .tile-context > span {
@@ -1303,7 +1331,8 @@ body.resizing-sidebar {
 }
 
 @container (max-width: 440px) {
-  .lm_tab .tile-branch {
+  .lm_tab .tile-branch,
+  .lm_tab .tile-title-muted {
     display: none;
   }
 }
@@ -1311,6 +1340,10 @@ body.resizing-sidebar {
 @container (max-width: 320px) {
   .lm_tab .tile-context {
     display: none;
+  }
+
+  .lm_tab .lm_title {
+    flex-shrink: 1;
   }
 }
 

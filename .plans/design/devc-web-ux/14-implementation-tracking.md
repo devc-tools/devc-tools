@@ -48,6 +48,9 @@ Each is a place the implementation differs from the mockup on purpose. Say which
    skips that check.
 8. **Narrow headers** drop the container, then the branch, then all of the context, at fixed
    header widths (560 / 440 / 320px), rather than squeezing each to an ellipsis.
+   The agent's title goes at 440px too; the label keeps its full width until 320px. Known edge:
+   a stack with two tabs squeezed to ~450px still lets the front tab's status run under its ×,
+   since Golden Layout keeps the other tab at full width.
 
 ### F2: sidebar restyle
 
