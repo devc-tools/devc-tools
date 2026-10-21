@@ -9,7 +9,8 @@
 //
 // **Grants are read from the host-only policy on every message** (`readPolicy`, keyed by
 // `projectKey(localFolder)`), never cached and never taken from the container: they decide which
-// commands are offered and which are refused here, ahead of the bridge's own check.
+// commands are offered and which are refused here, ahead of the bridge's own check. Each line
+// carries its own grants, so a repo is offered only what the line pinning it grants.
 //
 // **The bridge's output passes through the container, so it is untrusted** (a container could
 // shadow `devc-bridge` on its own `PATH`). Every listing is parsed defensively, with caps, and
@@ -555,7 +556,7 @@ export class PrReview {
     }
   }
 
-  /** The policy line for `root`, read now, when it grants `gh-pr-read`. */
+  /** The policy line pinning `root`, read now, when that line grants `gh-pr-read`. */
   async #grantLine(
     localFolder: string,
     root: string,
@@ -569,10 +570,12 @@ export class PrReview {
       return null;
     }
     if (policy.kind !== 'present') return null;
-    const { grants, repos } = policy.record;
-    if (!grants.includes('gh-pr-read')) return null;
-    const pinned = repos.find((r) => dropSlash(r.repo) === root);
-    return pinned ? { target: pinned.target, grants } : null;
+    // Grants are per line: the line pinning `root` decides, never another repo's.
+    const pinned = policy.record.repos.find((r) => dropSlash(r.repo) === root);
+    if (pinned === undefined || !pinned.grants.includes('gh-pr-read')) {
+      return null;
+    }
+    return { target: pinned.target, grants: pinned.grants };
   }
 
   /** Runs `devc-bridge <command> --repo <target> …args` in the container. */

@@ -8,18 +8,27 @@
 //
 // **The policy is the whole grant.** `policy/<key>.conf` names the repos a container's
 // capabilities act on — each one's host path, remote, branch and container path, one line each —
-// and which capabilities it has (`gh-push`, `gh-pr-read`, `gh-pr-reply`, `gh-pr-viewed`,
-// `gh-pr-resolve`, `gh-pr-resolve-copilot`, `gh-pr-request-review`), always as the explicit list — `--bridge-allow gh` is
-// expanded before it gets here. A grant tries the workspace repo, then each extra repo the user names with
-// `--bridge-repo PATH` on the same command — devc never pins a mounted repo it was not told to —
-// and pins each that passes its own checks, in that order, skipping the rest with a notice; it
-// fails only when none pass. Only `devc up` / `devc build` create it (with
-// `--bridge-allow <list>`, or without it from `bridgeDefaultAllow` in `~/.config/devc/config.json`)
-// or delete it (`--bridge-allow none`, or no flag and no default), and only on GitHub remotes. The
-// default lives in that file and never in a devc config layer: every layer `up` merges is
-// agent-writable or merged with one that is, and no container mounts `config.json`. A default
-// grant that cannot pin anything logs why and lets the start succeed, where an explicit one fails
-// it. Every other start path only *refreshes* one that exists:
+// and which capabilities each line has (`gh-push`, `gh-pr-read`, `gh-pr-reply`, `gh-pr-viewed`,
+// `gh-pr-resolve`, `gh-pr-resolve-copilot`, `gh-pr-request-review`), always as the explicit list —
+// `--bridge-allow gh` is expanded before it gets here. Only `devc up` / `devc build` create it, and
+// only on GitHub remotes, in one of two ways:
+//
+// - **Flags.** `--bridge-allow <list>` tries the workspace repo, then each extra repo the user
+//   names with `--bridge-repo PATH` on the same command, and pins each that passes its own checks
+//   with exactly `<list>`, skipping the rest with a notice; it fails only when none pass. Neither
+//   default key is read.
+// - **Defaults** (no `--bridge-allow`). `bridgeDefaultAllow` and `bridgeRepoAllow` in
+//   `~/.config/devc/config.json` decide: the workspace repo and each `--bridge-repo` get their
+//   repo's `bridgeRepoAllow` entry, else `bridgeDefaultAllow`; every other git-protected repo
+//   mount whose repo has a non-empty entry is pinned too. A repo's entry is chosen by the common
+//   git dir of the frozen `config` the pin's remote is read from — never by a container-writable
+//   `.git` file or `commondir`. A default grant that cannot pin something logs why and lets the
+//   start succeed, where an explicit one fails it.
+//
+// `--bridge-allow none`, or no flag and neither default key, deletes it. The defaults live in that
+// file and never in a devc config layer: every layer `up` merges is agent-writable or merged with
+// one that is, and no container mounts `config.json`. Every other start path only *refreshes* one
+// that exists:
 // it re-derives every line and revokes the whole policy when any of them fails or no longer
 // matches, since a policy that outlives its preconditions is a grant nobody asked for. Refresh
 // never writes the policy — `HEAD` is agent-writable, so a pin that followed it would let the agent
@@ -36,14 +45,17 @@ import {
   bridgePaths,
   gitHubRepoOf,
   isGitHubRemote,
+  MAX_PINNED_REPOS,
   parseGitdirPointer,
   parsePolicy,
   type PinnedRepo,
+  type PolicyLine,
   policyProblem,
   type PolicyRecord,
   resolvePin,
   serializePolicy,
   targetProblem,
+  uniformGrants,
 } from '@devc-tools/core/bridge.ts';
 import {
   type ContainerMount,
@@ -61,6 +73,7 @@ import {
   unfoldHome,
 } from '@devc-tools/core/mounts.ts';
 import { isAbsolutePosix, resolvePosix } from '@devc-tools/core/posix.ts';
+import { RepoMetadataError, resolveRepo } from '@devc-tools/core/repo.ts';
 import {
   BRIDGE_CLIENT_TARGET,
   gitProtectState,
@@ -68,21 +81,37 @@ import {
   workspaceMountRow,
   worktreeCommonDirRow,
 } from '@devc-tools/core/overlay.ts';
-import { BRIDGE_REPO_FLAG, expandBridgeRepo } from './args.ts';
+import {
+  BRIDGE_REPO_FLAG,
+  type BridgeRepoAllowEntry,
+  expandBridgeRepo,
+} from './args.ts';
 
 /** Where the bridge mount lands in every container. */
 const BRIDGE_TARGET = '/run/devc-bridge';
 
 /**
+ * `bridgeRepoAllow` resolved ({@link resolveRepoAllow}): each repo's realpathed common git dir to
+ * its grants (canonical order; `[]` is "no default for this repo").
+ */
+export type RepoAllow = ReadonlyMap<string, BridgeCapability[]>;
+
+/**
  * What a start path does with the policy. See the module header. A grant carries its capabilities
  * (canonical order, validated by `parseBridgeAllow`) and the `--bridge-repo` paths as typed, and
  * replaces any earlier policy whole. A default grant carries `bridgeDefaultAllow`'s capabilities
- * (validated by `parseBridgeDefaultAllow`), never pins a `--bridge-repo`, and never fails.
+ * (validated by `parseBridgeDefaultAllow`; null when it is not set), the `--bridge-repo` paths as
+ * typed, and `bridgeRepoAllow` resolved; it fails only for an ineligible `--bridge-repo` or, with
+ * one given, pins that cannot stand together.
  */
 export type PolicyMode = 'revoke' | 'refresh' | {
   grant: BridgeCapability[];
   repos?: string[];
-} | { defaultGrant: BridgeCapability[] };
+} | {
+  defaultGrant: BridgeCapability[] | null;
+  repos?: string[];
+  repoAllow?: RepoAllow;
+};
 
 /** Injected so the tests can run against a temp home and a fake mount table. */
 export interface BridgeDeps {
@@ -137,10 +166,21 @@ function notGitHubReason(remote: string): string {
   return `origin ${remote} is not a github.com remote`;
 }
 
-/** A repo's pin and container path, or the first precondition that failed. */
+/**
+ * A repo's pin and container path, or the first precondition that failed. `commonDir` is the
+ * realpathed git dir holding the frozen `config` the pin's remote was read from — the host source
+ * of the live container's read-only `config` mount, which the container cannot change — and is
+ * what picks the repo's `bridgeRepoAllow` entry. Null before `up` (no mount table yet) or when that
+ * source no longer resolves.
+ */
 export type DerivedPin =
-  | { ok: true; record: PinnedRepo }
+  | { ok: true; record: PinnedRepo; commonDir: string | null }
   | { ok: false; reason: string };
+
+/** The common git dir a frozen `config` mount's host source lives in, realpathed, or null. */
+async function frozenCommonDir(configSource: string): Promise<string | null> {
+  return await realPathOrNull(dirOf(configSource));
+}
 
 /** A mount target with trailing slashes dropped, as the mount table and the policy spell it. */
 function normalizeTarget(target: string): string {
@@ -224,7 +264,9 @@ async function derivePin(
   if (!isGitHubRemote(pin.record.remote)) {
     return { ok: false, reason: notGitHubReason(pin.record.remote) };
   }
-  if (mounts === 'skip') return { ok: true, record: { ...pin.record, target } };
+  if (mounts === 'skip') {
+    return { ok: true, record: { ...pin.record, target }, commonDir: null };
+  }
   if (mounts === null) {
     return {
       ok: false,
@@ -274,7 +316,11 @@ async function derivePin(
   if (!isGitHubRemote(frozen.record.remote)) {
     return { ok: false, reason: notGitHubReason(frozen.record.remote) };
   }
-  return { ok: true, record: { ...frozen.record, target } };
+  return {
+    ok: true,
+    record: { ...frozen.record, target },
+    commonDir: await frozenCommonDir(configMount.source),
+  };
 }
 
 /**
@@ -303,7 +349,9 @@ async function deriveExtraPin(
   if (!isGitHubRemote(pin.record.remote)) {
     return { ok: false, reason: notGitHubReason(pin.record.remote) };
   }
-  if (mounts === 'skip') return { ok: true, record: { ...pin.record, target } };
+  if (mounts === 'skip') {
+    return { ok: true, record: { ...pin.record, target }, commonDir: null };
+  }
   if (mounts === null) {
     return {
       ok: false,
@@ -327,7 +375,11 @@ async function deriveExtraPin(
   if (!isGitHubRemote(frozen.record.remote)) {
     return { ok: false, reason: notGitHubReason(frozen.record.remote) };
   }
-  return { ok: true, record: { ...frozen.record, target } };
+  return {
+    ok: true,
+    record: { ...frozen.record, target },
+    commonDir: await frozenCommonDir(configMount.source),
+  };
 }
 
 /** `path` with a leading `home` shown as `~`, the way the user wrote it in `devc:source`. */
@@ -543,7 +595,11 @@ async function deriveWorktreePin(
     return { ok: false, reason: notGitHubReason(pin.record.remote) };
   }
   if (mounts === 'skip') {
-    return { ok: true, record: { ...pin.record, target: match.target } };
+    return {
+      ok: true,
+      record: { ...pin.record, target: match.target },
+      commonDir: null,
+    };
   }
   if (mounts === null) {
     return {
@@ -570,7 +626,13 @@ async function deriveWorktreePin(
   if (!isGitHubRemote(frozen.record.remote)) {
     return { ok: false, reason: notGitHubReason(frozen.record.remote) };
   }
-  return { ok: true, record: { ...frozen.record, target: match.target } };
+  // The entry follows the frozen `config` mount git protection verified, not the `.git` pointer
+  // `matchWorktree` followed to choose it: that pointer is container-writable.
+  return {
+    ok: true,
+    record: { ...frozen.record, target: match.target },
+    commonDir: await frozenCommonDir(configMount.source),
+  };
 }
 
 /**
@@ -651,6 +713,43 @@ async function matchBridgeRepo(
 }
 
 /**
+ * What each `--bridge-repo` names ({@link matchBridgeRepo}), in order, or throws
+ * {@link BridgeGrantError} for the first that names nothing pinnable or the same repo as an
+ * earlier one.
+ */
+async function matchBridgeRepos(
+  repos: readonly string[],
+  rows: EligibleRow[],
+  merged: MergedConfig,
+  localFolder: string,
+  home: string,
+): Promise<{ arg: string; match: EligibleRow | WorktreeMatch }[]> {
+  const used = new Set<string>();
+  const out: { arg: string; match: EligibleRow | WorktreeMatch }[] = [];
+  for (const arg of repos) {
+    const match = await matchBridgeRepo(arg, rows, merged, localFolder, home);
+    if (used.has(match.repo)) {
+      throw new BridgeGrantError(
+        `${BRIDGE_REPO_FLAG} ${arg} given more than once`,
+      );
+    }
+    used.add(match.repo);
+    out.push({ arg, match });
+  }
+  return out;
+}
+
+/** The pin for what {@link matchBridgeRepo} matched: a whole repo row or a linked worktree. */
+async function deriveMatch(
+  match: EligibleRow | WorktreeMatch,
+  mounts: ContainerMount[] | null | 'skip',
+): Promise<DerivedPin> {
+  return 'row' in match
+    ? await deriveExtraPin(match.row, match.repo, mounts)
+    : await deriveWorktreePin(match, mounts);
+}
+
+/**
  * Why two of `pins` cannot stand together, or null. Pins on one GitHub `<owner>/<name>` share
  * `gh-push`'s per-remote mirror, which is fine for different branches — worktrees of one primary —
  * but not for the same branch twice, and not through two URL spellings: the mirror's `origin`
@@ -719,21 +818,16 @@ async function derivePins(
   const rows = repos.length === 0
     ? []
     : await eligibleRows(merged, localFolder, home);
-  const used = new Set<string>();
-  for (const arg of repos) {
-    const match = await matchBridgeRepo(arg, rows, merged, localFolder, home);
-    if (used.has(match.repo)) {
-      throw new BridgeGrantError(
-        `${BRIDGE_REPO_FLAG} ${arg} given more than once`,
-      );
-    }
-    used.add(match.repo);
-    candidates.push({
-      label: arg,
-      pin: 'row' in match
-        ? await deriveExtraPin(match.row, match.repo, mounts)
-        : await deriveWorktreePin(match, mounts),
-    });
+  for (
+    const { arg, match } of await matchBridgeRepos(
+      repos,
+      rows,
+      merged,
+      localFolder,
+      home,
+    )
+  ) {
+    candidates.push({ label: arg, pin: await deriveMatch(match, mounts) });
   }
 
   const pins: PinnedRepo[] = [];
@@ -839,6 +933,61 @@ function describeRepo(r: PinnedRepo): string {
   return `${r.target}: ${r.branch} → ${r.remote} (${r.repo})`;
 }
 
+/** One policy line with its own grants, for a policy whose lines differ (and the defaults' log). */
+function describeLine(r: PolicyLine): string {
+  return `${describeRepo(r)}: ${r.grants.join(', ')}`;
+}
+
+/** `bridgeRepoAllow` named two repos that are one, or another problem only resolving shows. */
+export class RepoAllowError extends Error {}
+
+/**
+ * Resolve `bridgeRepoAllow`'s entries ({@link BridgeRepoAllowEntry}, already validated) to their
+ * repos' common git dirs (`resolveRepo(...).commonDir`, the identity repo overlays use). A key
+ * that is not a folder, or not in a git repo, or whose git metadata cannot be read, is ignored
+ * with `devc: bridgeRepoAllow: ignoring <key>: <reason>` — the list is global, and a repo may have
+ * been moved or deleted. Two keys naming one repo throw {@link RepoAllowError}. These are the
+ * user's own host paths, read once, before anything starts — nothing here comes from a container.
+ */
+export async function resolveRepoAllow(
+  entries: readonly BridgeRepoAllowEntry[],
+  log: (message: string) => void,
+): Promise<RepoAllow> {
+  const grants = new Map<string, BridgeCapability[]>();
+  const keyOf = new Map<string, string>();
+  for (const entry of entries) {
+    let reason: string | null = null;
+    let commonDir = '';
+    try {
+      if (!(await Deno.stat(entry.path)).isDirectory) reason = 'no such folder';
+    } catch {
+      reason = 'no such folder';
+    }
+    if (reason === null) {
+      try {
+        const identity = await resolveRepo(entry.path);
+        if (identity === null) reason = 'not in a git repo';
+        else commonDir = identity.commonDir;
+      } catch (e) {
+        reason = e instanceof RepoMetadataError ? e.message : String(e);
+      }
+    }
+    if (reason !== null) {
+      log(`devc: bridgeRepoAllow: ignoring ${entry.key}: ${reason}`);
+      continue;
+    }
+    const earlier = keyOf.get(commonDir);
+    if (earlier !== undefined) {
+      throw new RepoAllowError(
+        `${earlier} and ${entry.key} name the same repo`,
+      );
+    }
+    keyOf.set(commonDir, entry.key);
+    grants.set(commonDir, entry.grants);
+  }
+  return grants;
+}
+
 /**
  * Before `devcontainer up`, for an explicit `--bridge-allow`: fail fast when the preconditions
  * that do not need a container already leave nothing to pin — the container-wide ones, an
@@ -867,17 +1016,205 @@ export async function checkGrantBeforeUp(
 }
 
 /**
+ * Before `devcontainer up`, for a default grant with `--bridge-repo`s: a typo still fails the
+ * start. Each `--bridge-repo` must name something pinnable ({@link matchBridgeRepo}); per-repo
+ * preconditions are not checked — the defaults never fail a start for those. Nothing is checked
+ * when a container-wide problem stands (logged after `up`, or silent without the Feature). Removes
+ * any existing policy on failure, as {@link checkGrantBeforeUp} does.
+ */
+export async function checkDefaultsBeforeUp(
+  merged: MergedConfig,
+  localFolder: string,
+  deps: BridgeDeps = defaultDeps(),
+  repos: readonly string[] = [],
+): Promise<void> {
+  if (repos.length === 0) return;
+  if (containerProblem(merged, 'skip', deps.home) !== null) return;
+  try {
+    await matchBridgeRepos(
+      repos,
+      await eligibleRows(merged, localFolder, deps.home),
+      merged,
+      localFolder,
+      deps.home,
+    );
+  } catch (e) {
+    await removePolicy(await projectKey(localFolder), deps);
+    throw e;
+  }
+}
+
+/** The defaults' label for a mounted repo pinned because `bridgeRepoAllow` names it. */
+function autoLabel(row: ProtectedRow, home: string): string {
+  return tildePath(unfoldHome(row.source, home), home);
+}
+
+/** The prefix of every notice the defaults log about a repo or the whole grant. */
+const DEFAULTS = 'defaults';
+
+/**
+ * The lines a default grant writes, and the notices to log first, or why it grants nothing at
+ * all. Candidates, in order: the workspace repo, each `--bridge-repo`, then each other
+ * {@link eligibleRows} repo whose `bridgeRepoAllow` entry is non-empty. A candidate's grants are
+ * its repo's entry, else `bridgeDefaultAllow`, else none — the repo being the one whose frozen
+ * `config` the pin's remote came from ({@link DerivedPin}'s `commonDir`). Whether a candidate is
+ * tried at all is decided first, from its host git dir, so a repo with nothing to grant costs no
+ * notice; the grants themselves only ever come from the frozen identity.
+ *
+ * Throws {@link BridgeGrantError} for an ineligible `--bridge-repo`, and — with a `--bridge-repo`
+ * given — for pins that cannot stand together ({@link sameRepoProblem}).
+ */
+async function deriveDefaultLines(
+  mode: {
+    defaultGrant: BridgeCapability[] | null;
+    repos?: string[];
+    repoAllow?: RepoAllow;
+  },
+  merged: MergedConfig,
+  localFolder: string,
+  mounts: ContainerMount[] | null,
+  home: string,
+): Promise<
+  | { ok: true; lines: PolicyLine[]; notices: string[] }
+  | { ok: false; reason: string; notices: string[] }
+> {
+  const notices: string[] = [];
+  const problem = containerProblem(merged, mounts, home);
+  if (problem !== null) return { ok: false, reason: problem, notices };
+  const repoAllow: RepoAllow = mode.repoAllow ?? new Map();
+  const repos = mode.repos ?? [];
+  const fallback = mode.defaultGrant ?? [];
+  const grantsFor = (commonDir: string | null) =>
+    commonDir !== null && repoAllow.has(commonDir)
+      ? repoAllow.get(commonDir)!
+      : fallback;
+
+  type Candidate = {
+    label: string;
+    kind: 'workspace' | 'flag' | 'map';
+    /** The host git dir, for deciding whether to try; never for the grants. */
+    hostDir: string | null;
+    derive: () => Promise<DerivedPin>;
+  };
+  const candidates: Candidate[] = [];
+  const workspace = await workspaceMountRow(merged.config, localFolder);
+  let workspaceDir: string | null = null;
+  if (workspace !== null) {
+    try {
+      workspaceDir =
+        (await resolveRepo(unfoldHome(workspace.source, home)))?.commonDir ??
+          null;
+    } catch { /* derivePin reports it, if it is tried */ }
+  }
+  candidates.push({
+    label: WORKSPACE_LABEL,
+    kind: 'workspace',
+    hostDir: workspaceDir,
+    derive: () => derivePin(merged, localFolder, mounts),
+  });
+  const rows = repos.length === 0 && repoAllow.size === 0
+    ? []
+    : await eligibleRows(merged, localFolder, home);
+  const flagged = await matchBridgeRepos(
+    repos,
+    rows,
+    merged,
+    localFolder,
+    home,
+  );
+  const used = new Set(flagged.map((f) => f.match.repo));
+  for (const { arg, match } of flagged) {
+    candidates.push({
+      label: arg,
+      kind: 'flag',
+      hostDir: await hostGitDir(
+        'row' in match ? match.row : match.gitDirRow,
+        home,
+      ),
+      derive: () => deriveMatch(match, mounts),
+    });
+  }
+  for (const r of rows) {
+    if (used.has(r.repo)) continue;
+    const hostDir = await hostGitDir(r.row, home);
+    if (hostDir === null || (repoAllow.get(hostDir)?.length ?? 0) === 0) {
+      continue;
+    }
+    candidates.push({
+      label: autoLabel(r.row, home),
+      kind: 'map',
+      hostDir,
+      derive: () => deriveExtraPin(r.row, r.repo, mounts),
+    });
+  }
+
+  const noGrants = (c: Candidate) => {
+    if (c.kind === 'flag') {
+      notices.push(
+        `devc: not pinning ${c.label}: no default grants for it — pass --bridge-allow`,
+      );
+    }
+  };
+  const lines: PolicyLine[] = [];
+  const labels: string[] = [];
+  for (const c of candidates) {
+    if (grantsFor(c.hostDir).length === 0) {
+      noGrants(c);
+      continue;
+    }
+    if (lines.length >= MAX_PINNED_REPOS) {
+      notices.push(
+        `devc: ${DEFAULTS}: not pinning ${c.label}: a policy pins at most ${MAX_PINNED_REPOS} repos`,
+      );
+      continue;
+    }
+    const pin = await c.derive();
+    if (!pin.ok) {
+      notices.push(`devc: ${DEFAULTS}: not pinning ${c.label}: ${pin.reason}`);
+      continue;
+    }
+    // A mounted repo is pinned only for its own entry, read from the frozen identity.
+    if (
+      c.kind === 'map' &&
+      (pin.commonDir === null ||
+        (repoAllow.get(pin.commonDir)?.length ?? 0) === 0)
+    ) {
+      continue;
+    }
+    const grants = grantsFor(pin.commonDir);
+    if (grants.length === 0) {
+      noGrants(c);
+      continue;
+    }
+    lines.push({ ...pin.record, grants });
+    labels.push(c.kind === 'workspace' ? pin.record.repo : c.label);
+  }
+  const shared = sameRepoProblem(lines, labels);
+  if (shared !== null) {
+    if (repos.length > 0) {
+      throw new BridgeGrantError(
+        `the container is up, but the defaults were not granted: ${shared}`,
+      );
+    }
+    return { ok: false, reason: shared, notices };
+  }
+  return { ok: true, lines, notices };
+}
+
+/**
  * After `devcontainer up`: apply `mode` to this workspace's policy.
  *
  * - `revoke` — unlink it. What `up`/`build` do with `--bridge-allow none`, or with neither the
- *   flag nor a `bridgeDefaultAllow`.
+ *   flag nor a default key.
  * - `{ grant }` — derive the workspace pin and one per `--bridge-repo` against the live mount
  *   table and write the ones that pass with exactly these capabilities, logging each candidate
  *   skipped and why; or, when {@link derivePins} fails, remove any policy and throw
  *   {@link BridgeGrantError} with its reason.
- * - `{ defaultGrant }` — as a grant with no `--bridge-repo`, logged as `bridgeDefaultAllow`'s, but
- *   never throws a {@link BridgeGrantError}: a workspace without the Feature is revoked (logged
- *   only when a policy was removed), and any other failure removes any policy and logs why.
+ * - `{ defaultGrant }` — the defaults ({@link deriveDefaultLines}): each line with its own
+ *   grants, every skip logged with the `defaults:` prefix. A workspace without the Feature is
+ *   revoked (logged only when a policy was removed); a container-wide failure, or pins that cannot
+ *   stand together without a `--bridge-repo`, remove any policy and log why; no pins at all remove
+ *   any policy quietly. It throws only for a `--bridge-repo` mistake.
  * - `refresh` — only when a policy exists: re-derive every line and compare it with the stored
  *   one. All identical → nothing is written or logged. Any line can no longer be derived, differs
  *   in repo, origin, branch or container path, or the file is malformed → remove the whole policy
@@ -921,49 +1258,71 @@ export async function applyPolicy(
     return;
   }
 
-  const byDefault = 'defaultGrant' in mode;
-  const grants = byDefault ? mode.defaultGrant : mode.grant;
-  const source = byDefault ? 'bridgeDefaultAllow' : '--bridge-allow';
+  const write = async (record: PolicyRecord) => {
+    const unchanged = current.kind === 'present' &&
+      serializePolicy(current.record) === serializePolicy(record);
+    if (!unchanged) await writePolicy(key, record, deps);
+  };
+
+  if ('defaultGrant' in mode) {
+    let derived;
+    try {
+      derived = await deriveDefaultLines(
+        mode,
+        merged,
+        localFolder,
+        await deps.mounts(localFolder),
+        deps.home,
+      );
+    } catch (e) {
+      await removePolicy(key, deps);
+      throw e;
+    }
+    for (const n of derived.notices) deps.log(n);
+    if (!derived.ok) {
+      await removePolicy(key, deps);
+      deps.log(`devc: ${DEFAULTS}: not granted: ${derived.reason}`);
+      return;
+    }
+    if (derived.lines.length === 0) {
+      await removePolicy(key, deps);
+      return;
+    }
+    await write({ repos: derived.lines });
+    deps.log('devc: devc-bridge capabilities granted (defaults):');
+    for (const r of derived.lines) deps.log(`devc:   ${describeLine(r)}`);
+    return;
+  }
+
+  const grants = mode.grant;
   let pins;
   try {
     pins = await derivePins(
       merged,
       localFolder,
-      byDefault ? [] : mode.repos ?? [],
+      mode.repos ?? [],
       await deps.mounts(localFolder),
       deps.home,
     );
   } catch (e) {
     await removePolicy(key, deps);
-    if (byDefault && e instanceof BridgeGrantError) {
-      deps.log(`devc: bridgeDefaultAllow: not granted: ${e.message}`);
-      return;
-    }
     throw e;
   }
   if (!pins.ok) {
     await removePolicy(key, deps);
-    if (byDefault) {
-      deps.log(`devc: bridgeDefaultAllow: not granted: ${pins.reason}`);
-      return;
-    }
     throw new BridgeGrantError(
       `the container is up, but --bridge-allow was not granted: ${pins.reason}`,
     );
   }
 
-  const record: PolicyRecord = { grants, repos: pins.pins };
-  const unchanged = current.kind === 'present' &&
-    serializePolicy(current.record) === serializePolicy(record);
-  if (!unchanged) await writePolicy(key, record, deps);
+  const record: PolicyRecord = {
+    repos: pins.pins.map((p) => ({ ...p, grants })),
+  };
+  await write(record);
   for (const r of pins.skipped) {
-    deps.log(`devc: ${source}: not pinning ${r.label}: ${r.reason}`);
+    deps.log(`devc: --bridge-allow: not pinning ${r.label}: ${r.reason}`);
   }
-  deps.log(
-    `devc: devc-bridge capabilities granted${
-      byDefault ? ' (bridgeDefaultAllow)' : ''
-    }: ${grants.join(', ')}`,
-  );
+  deps.log(`devc: devc-bridge capabilities granted: ${grants.join(', ')}`);
   for (const r of record.repos) deps.log(`devc:   ${describeRepo(r)}`);
 }
 
@@ -990,9 +1349,13 @@ async function refreshPolicy(
     ? null
     : normalizeTarget(workspace.target);
   const extras = stored.repos.some((line) => line.target !== workspaceTarget);
-  const regrant = `devc up --bridge-allow ${stored.grants.join(',')}${
-    extras ? ` ${BRIDGE_REPO_FLAG} …` : ''
-  }`;
+  // Lines that differ came from the defaults, and a plain `devc up` re-applies them.
+  const uniform = uniformGrants(stored);
+  const regrant = uniform === null
+    ? 'devc up'
+    : `devc up --bridge-allow ${uniform.join(',')}${
+      extras ? ` ${BRIDGE_REPO_FLAG} …` : ''
+    }`;
   const prefix = (line: PinnedRepo) => multi ? `${line.repo}: ` : '';
   const revoke = async (message: string) => {
     await removePolicy(key, deps);
@@ -1215,15 +1578,22 @@ export async function bridgeStatusLines(
   }
 
   const policy = await readPolicy(key, deps);
-  lines.push(
-    policy.kind === 'absent'
-      ? '  bridge:    absent — `devc up --bridge-allow <capabilities>` grants them'
-      : policy.kind === 'malformed'
-      ? `  bridge:    MALFORMED policy at ${paths.policyFile} (${policy.reason}) — grants nothing`
-      : `  bridge:    ${policy.record.grants.join(', ')}`,
-  );
-  if (policy.kind === 'present') {
+  if (policy.kind !== 'present') {
+    lines.push(
+      policy.kind === 'absent'
+        ? '  bridge:    absent — `devc up --bridge-allow <capabilities>` grants them'
+        : `  bridge:    MALFORMED policy at ${paths.policyFile} (${policy.reason}) — grants nothing`,
+    );
+    return lines;
+  }
+  const uniform = uniformGrants(policy.record);
+  if (uniform !== null) {
+    lines.push(`  bridge:    ${uniform.join(', ')}`);
     for (const r of policy.record.repos) lines.push(`    ${describeRepo(r)}`);
+  } else {
+    // Grants differ per line: each repo carries its own, and there is no single grants line.
+    lines.push('  bridge:');
+    for (const r of policy.record.repos) lines.push(`    ${describeLine(r)}`);
   }
   return lines;
 }

@@ -597,7 +597,9 @@ pinned repo, the workspace repo first when it is pinned —
 
 — where `<repo>` is the working tree's host path, `<target>` its path in the
 container (absolute, no trailing `/`, no `//`, `.` or `..` segment), `<grants>`
-the same on every line, and `<repo>` and `<target>` each distinct across lines.
+that line's own (each line valid on its own: non-empty, canonical order, known
+names, requirements met — lines may differ), and `<repo>` and `<target>` each
+distinct across lines.
 The format is unversioned: a file either side cannot parse grants nothing,
 including a four-field file from an older devc (before `<target>`) and a
 three-field one from before grants existed.
@@ -617,9 +619,11 @@ devc up --bridge-allow gh-push,gh-pr-read,gh-pr-reply,gh-pr-resolve-copilot,gh-p
 devc up --bridge-allow none      # none: removes any earlier grant
 ```
 
-Without the flag, `devc up` and `devc build` grant `bridgeDefaultAllow` from
-`~/.config/devc/config.json` — see
+Without the flag, `devc up` and `devc build` grant the defaults from
+`~/.config/devc/config.json` — `bridgeDefaultAllow`, and per repo
+`bridgeRepoAllow` — see
 [devc § Default grant](../devc/README.md#a-default-grant-bridgedefaultallow).
+So one policy can grant different repos different capabilities.
 
 `gh` and `gh-*` expand to every capability named `gh-*`. devc expands them when
 it parses the flag, so the policy (and so the bridge) only ever sees the
@@ -644,9 +648,24 @@ file paths, the review a request follows).
 
 **A built-in runs when the policy grants any capability that lists it.**
 `gh-pr-resolve` is under both `gh-pr-resolve` and `gh-pr-resolve-copilot`, and
-the script picks the scope from the grants: with `gh-pr-resolve` (alone or
-with `gh-pr-resolve-copilot`, as `gh` grants) any thread on the PR; with only
-`gh-pr-resolve-copilot`, a thread Copilot didn't start is exit 3.
+the script picks the scope from the grants of the line `--repo` selected: with
+`gh-pr-resolve` (alone or with `gh-pr-resolve-copilot`, as `gh` grants) any
+thread on the PR; with only `gh-pr-resolve-copilot`, a thread Copilot didn't
+start is exit 3.
+
+**Grants are per line, checked in two layers.** The server lets a built-in
+through when **any** line grants any of its capabilities — it cannot know which
+repo the call is for — and its refusal's `(it has: …)` lists every line's
+grants, once each, in canonical order. The script, a host-side built-in the
+container cannot change, then enforces the grants of the line its `--repo`
+selected; that is the binding per-repo check. With more than one line its
+refusal names the target:
+
+```text
+gh-pr-reply: this container was not granted gh-pr-reply for /workspaces/app
+```
+
+A one-line policy keeps `this container was not granted <cap>`.
 
 ### Migrating from `gh-pr-review`
 
@@ -670,8 +689,9 @@ So the old `gh-push,gh-pr-review,gh-pr-resolve,gh-pr-request-review` is now
 `gh-push,gh-pr-read,gh-pr-reply,gh-pr-resolve-copilot,gh-pr-request-review`.
 
 `devc up`/`devc build` with `--bridge-allow` write exactly that set (replacing
-any earlier one), shared by every repo pinned with it; with `--bridge-allow none`,
-or without the flag and with no `bridgeDefaultAllow`, they delete the policy. Every other start path never changes a pin: it re-checks each one, and
+any earlier one) on every line; without the flag they write the defaults, each
+line with its own repo's; with `--bridge-allow none`, or without the flag and
+with neither `bridgeDefaultAllow` nor `bridgeRepoAllow`, they delete the policy. Every other start path never changes a pin: it re-checks each one, and
 revokes the whole policy when any pinned repo, origin or branch has changed. See
 [devc § Per-container identity](../devc/README.md#per-container-identity-and-github-capabilities).
 
@@ -712,14 +732,18 @@ any `<cap> requires gh-pr-read` — it reads `re-run devc up --bridge-allow <eve
 capability this container needs> (gh-pr-review is now gh-pr-read,gh-pr-reply;
 gh-pr-resolve now resolves any thread, gh-pr-resolve-copilot only Copilot's)`.
 
-Each script checks its own capability again (exit `2`) as a second layer.
+Each script checks its own capability again (exit `2`), against the selected
+line — see the two layers above.
 
 **Where they run from.** Embedded files cannot be executed, so every start
 writes the built-ins to `~/.local/state/devc-bridge/builtin/` — host-only, never
 mounted, outside `commands/` and `run/` — replacing the whole directory. An
 upgrade therefore applies on `devc-bridge restart`, with nothing to reinstall.
 `install.sh` stops a running bridge when it replaces the binary; start it again
-to finish the upgrade.
+to finish the upgrade. **Restart the bridge after upgrading devc**, too: a bridge
+from before per-line grants rejects a policy whose lines differ (`grants differ
+from line 1's`) and refuses every built-in for that container until it is
+restarted.
 A file in `commands/` with a built-in's name is never run; the bridge logs
 `commands/<name> is shadowed by the built-in <name> — remove it` on start.
 

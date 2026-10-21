@@ -16,12 +16,15 @@ import {
   BRIDGE_ALLOW_FLAG,
   BRIDGE_DEFAULT_ALLOW_KEY,
   BRIDGE_GIT_PUSH_FLAG,
+  BRIDGE_REPO_ALLOW_KEY,
   BRIDGE_REPO_FLAG,
+  checkBareBridgeRepos,
   herdrLaunchArgs,
   isBridgeAllowArg,
   isBridgeRepoArg,
   parseAttachArgs,
   parseBridgeDefaultAllow,
+  parseBridgeRepoAllow,
   parseBuildArgs,
   parseConfigArgs,
   parseUpArgs,
@@ -31,6 +34,7 @@ import {
   bridgeStatusLines,
   type PolicyMode,
   pruneBridgeFiles,
+  resolveRepoAllow,
 } from './bridge.ts';
 import type { BridgeCapability } from '@devc-tools/core/bridge.ts';
 import {
@@ -55,6 +59,7 @@ import {
 } from '@devc-tools/core/overlay.ts';
 import {
   bridgeDefaultAllowFromConfig,
+  bridgeRepoAllowFromConfig,
   displayPath,
   loadGlobalConfig,
   webSourceFromConfig,
@@ -136,10 +141,12 @@ function parseOrExit2<T>(parse: (args: string[]) => T, args: string[]): T {
 
 /**
  * What `up` / `build` do with the devc-bridge policy: an explicit `--bridge-allow <list>` grants
- * it, `--bridge-allow none` revokes, and without the flag `bridgeDefaultAllow` from the global
- * config — and only from there, never a devc config layer — is a default grant, or revoke when it
- * is not set. An invalid default is a usage error (exit 2), checked before anything starts; it is
- * read only here, so it never breaks another command.
+ * it, `--bridge-allow none` revokes, and without the flag the defaults — `bridgeDefaultAllow` and
+ * `bridgeRepoAllow` from the global config, and only from there, never a devc config layer — are
+ * a default grant, carrying any `--bridge-repo`s; revoke when neither key is set. With the flag,
+ * neither key is read. An invalid default is a usage error (exit 2), checked before anything
+ * starts, and so is a bare `--bridge-repo` with neither key set; they are read only here, so they
+ * never break another command.
  */
 async function upPolicyMode(
   bridgeAllow: BridgeCapability[] | 'none' | null,
@@ -148,17 +155,41 @@ async function upPolicyMode(
   if (bridgeAllow === 'none') return 'revoke';
   if (bridgeAllow !== null) return { grant: bridgeAllow, repos: bridgeRepos };
   const cfg = await loadGlobalConfig();
+  /** `read()`, or exit 2 naming the config file and `key` with its reason. */
+  const orExit2 = async <T>(key: string, read: () => T | Promise<T>) => {
+    try {
+      return await read();
+    } catch (e) {
+      console.error(
+        `devc: ${displayPath(cfg.path)}: ${key}: ${
+          e instanceof Error ? e.message : e
+        }`,
+      );
+      Deno.exit(2);
+    }
+  };
+  const defaultGrant = await orExit2(
+    BRIDGE_DEFAULT_ALLOW_KEY,
+    () => parseBridgeDefaultAllow(bridgeDefaultAllowFromConfig(cfg)),
+  );
+  const entries = await orExit2(
+    BRIDGE_REPO_ALLOW_KEY,
+    () => parseBridgeRepoAllow(bridgeRepoAllowFromConfig(cfg)),
+  );
   try {
-    const grants = parseBridgeDefaultAllow(bridgeDefaultAllowFromConfig(cfg));
-    return grants === null ? 'revoke' : { defaultGrant: grants };
+    checkBareBridgeRepos(bridgeRepos, defaultGrant, entries);
   } catch (e) {
-    console.error(
-      `devc: ${displayPath(cfg.path)}: ${BRIDGE_DEFAULT_ALLOW_KEY}: ${
-        e instanceof Error ? e.message : e
-      }`,
-    );
+    console.error(`devc: ${e instanceof Error ? e.message : e}`);
     Deno.exit(2);
   }
+  if (defaultGrant === null && (entries === null || entries.length === 0)) {
+    return 'revoke';
+  }
+  const repoAllow = await orExit2(
+    BRIDGE_REPO_ALLOW_KEY,
+    () => resolveRepoAllow(entries ?? [], (m) => console.error(m)),
+  );
+  return { defaultGrant, repos: bridgeRepos, repoAllow };
 }
 
 /** Prints a `devc:`-prefixed error to stderr and exits 1 (never returns). */

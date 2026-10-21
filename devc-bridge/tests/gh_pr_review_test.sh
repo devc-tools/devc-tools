@@ -9,6 +9,8 @@
 #
 #   bash devc-bridge/tests/gh_pr_review_test.sh
 
+# SC2016: `bash -c '…' _ "$x"` and literal expected text are single-quoted on purpose.
+# shellcheck disable=SC2016
 set -uo pipefail
 
 here=$(cd "$(dirname "$0")" && pwd)
@@ -245,7 +247,6 @@ ZWSP=$'\xe2\x80\x8b' # U+200B ZERO WIDTH SPACE, as Copilot puts in a path after 
 # then "Previously missed (<n>)" holding three nested findings (so <n> ≠ 3 is a count mismatch), one
 # path carrying a U+200B. Full of JSON- and printf-hostile characters.
 ccr_body() {
-  local sev
   sev() { printf '<picture><img alt="%s severity" src="https://x/%s.svg"></picture>' "$1" "$1"; }
   cat <<BODY
 <!-- ccr-overview-v2 -->
@@ -575,6 +576,59 @@ check "  … says so" has_err "thread PRRT_c1 is not on https://github.com/me/s/
 run gh-pr-comments --repo /workspaces/r
 expect_rc 0 "gh-pr-comments --repo /workspaces/r"
 check "  … reads up/r#7" test "$(q .pr.number)" = 7
+
+echo "per-line grants"
+# fresh's me/r at /workspaces/r granting only gh-push, then me/s at /workspaces/tools/s granting
+# the PR read and reply: each script enforces the line --repo selected.
+split() {
+  fresh
+  pin git@github.com:me/r.git "$BRANCH" "${1:-gh-push}"
+  pin_more /Users/you/code/s git@github.com:me/s.git feat/s "${2:-gh-pr-read,gh-pr-reply}" /workspaces/tools/s
+  repo_fx me/s
+  prs_fx me/s me/s 9
+  node_fx PRRT_s1 PR_9 false copilot
+  node_fx PRRT_s2 PR_9 false human
+}
+split
+run gh-pr-reply --repo /workspaces/r PRRT_c1 hi
+expect_rc 2 "gh-pr-reply on line 1, which grants only gh-push"
+check "  … names the grant and the target" test "$err" = \
+  "gh-pr-reply: this container was not granted gh-pr-reply for /workspaces/r"
+check "  … and GitHub was never asked" test -z "$(calls)"
+run gh-pr-comments --repo /workspaces/r
+expect_rc 2 "gh-pr-comments on line 1"
+check "  … names gh-pr-read and the target" test "$err" = \
+  "gh-pr-comments: this container was not granted gh-pr-read for /workspaces/r"
+run gh-pr-reply --repo /workspaces/tools/s PRRT_s1 hi
+expect_rc 0 "gh-pr-reply on line 2, which grants it"
+check "  … replies, looking its PR up in me/s" grep -q "repos/me/s " "$SHIM/calls.log"
+check "  … and posts it" test "$(cat "$SHIM/posted")" = "🤖 hi"
+run gh-pr-resolve --repo /workspaces/tools/s PRRT_s1
+expect_rc 2 "gh-pr-resolve on line 2, which grants neither resolve"
+check "  … names both and the target" has_err \
+  "this container was not granted gh-pr-resolve or gh-pr-resolve-copilot for /workspaces/tools/s"
+# The resolve scope is the selected line's: line 1 any thread, line 2 Copilot's only.
+split gh-pr-read,gh-pr-resolve gh-pr-read,gh-pr-resolve-copilot
+run gh-pr-resolve --repo /workspaces/tools/s PRRT_s2
+expect_rc 3 "a human thread on the Copilot-only line, while line 1 resolves any"
+check "  … the Copilot-only refusal" has_err "was not started by Copilot — this container has gh-pr-resolve-copilot"
+check "  … no mutation" test ! -e "$SHIM/resolved-PRRT_s2"
+run gh-pr-resolve --repo /workspaces/tools/s PRRT_s1
+expect_rc 0 "  … a Copilot thread there resolves"
+run gh-pr-resolve --repo /workspaces/r PRRT_h1
+expect_rc 0 "a human thread on the any-thread line"
+check "  … the mutation was sent" test -e "$SHIM/resolved-PRRT_h1"
+split gh-pr-read,gh-pr-resolve-copilot gh-pr-read,gh-pr-resolve
+run gh-pr-resolve --repo /workspaces/tools/s PRRT_s2
+expect_rc 0 "the scopes swapped: the human thread on line 2 resolves"
+run gh-pr-resolve --repo /workspaces/r PRRT_h1
+expect_rc 3 "  … and the one on line 1 does not"
+fresh
+pin git@github.com:me/r.git "$BRANCH" gh-pr-read
+run gh-pr-reply PRRT_c1 hi
+expect_rc 2 "a one-line policy without gh-pr-reply"
+check "  … keeps today's refusal, byte for byte" test "$err" = \
+  "gh-pr-reply: this container was not granted gh-pr-reply"
 
 echo "remote shapes"
 for remote in git@github.com:o/r.git ssh://git@github.com/o/r https://github.com/o/r.git \

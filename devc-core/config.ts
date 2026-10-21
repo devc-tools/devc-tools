@@ -217,6 +217,16 @@ export function bridgeDefaultAllowFromConfig(cfg: GlobalConfig): unknown {
   return cfg.extra.bridgeDefaultAllow;
 }
 
+/**
+ * `bridgeRepoAllow`: per-repo default grants — an object mapping a host path of one checkout of a
+ * repo to the capabilities `devc up` and `devc build` grant there (and on every other checkout of
+ * that repo) when `--bridge-allow` is not given. Kept in `extra` and returned **raw**, exactly as
+ * {@link bridgeDefaultAllowFromConfig}, for the same reasons.
+ */
+export function bridgeRepoAllowFromConfig(cfg: GlobalConfig): unknown {
+  return cfg.extra.bridgeRepoAllow;
+}
+
 /** Construct a config value from explicit lists (used by tests and the wizard save path). */
 export function makeGlobalConfig(
   codeRoots: string[],

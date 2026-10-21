@@ -816,21 +816,37 @@ Options:
                           gh-pr-resolve-copilot, gh-pr-request-review;
                           gh or 'gh-*' for all),
                           comma-separated, or none to remove any earlier
-                          grant; without it, bridgeDefaultAllow in
-                          ~/.config/devc/config.json is granted, or any
-                          earlier grant is removed when that is unset
+                          grant. With it, only the flags count. Without
+                          it, the defaults in ~/.config/devc/config.json
+                          are granted: each repo its bridgeRepoAllow
+                          entry, else bridgeDefaultAllow, and other
+                          mounted repos with an entry are pinned too; any
+                          earlier grant is removed when neither is set
       --bridge-repo PATH  Also pin the repo at host PATH, a git-protected
                           mount of this workspace, so the capabilities
-                          act on it too; repeatable (at most 15), with
-                          --bridge-allow LIST only
+                          act on it too; repeatable (at most 15), not
+                          with --bridge-allow none; without
+                          --bridge-allow it takes the defaults
   -h, --help              Print help
 ```
 
 `--bridge-repo PATH` names an extra repo by **host** path — `~`/`~/` expand to
 `$HOME` even after `=` or in quotes, a relative path resolves against the cwd —
 and must be a git-protected repo mount of this workspace (a `devc:source` row
-whose `.git` is a directory). devc never pins a mounted repo it was not told
-to. See [devc/README.md](../../devc/README.md) for the grant rules.
+whose `.git` is a directory, or a linked worktree of one). With `--bridge-allow`
+devc never pins a mounted repo it was not told to; without it, a mounted repo
+whose `bridgeRepoAllow` entry is non-empty is pinned too. See
+[devc/README.md](../../devc/README.md) for the grant rules.
+
+The policy devc writes (`~/.config/devc-bridge/policy/<key>.conf`, host-only) is
+1–16 lines, one per pinned repo, the workspace repo first:
+`<repo>\t<remote>\t<branch>\t<grants>\t<target>\n`. `<grants>` is that line's
+own comma-separated list in canonical order — each line valid on its own, and
+lines may differ (an explicit `--bridge-allow` writes the same list on every
+line; the defaults give each repo its own); `<repo>` and `<target>` are each
+distinct. The bridge lets a built-in through when any line grants one of its
+capabilities, and the script enforces the grants of the line its `--repo`
+selected.
 
 ## `build`
 

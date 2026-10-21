@@ -23,10 +23,12 @@ import {
   parseHead,
   parseOriginUrl,
   parsePolicy,
+  policyGrantsUnion,
   policyProblem,
   type PolicyRecord,
   resolvePin,
   serializePolicy,
+  uniformGrants,
   WORKTREE_CONFIG_REASON,
 } from '../bridge.ts';
 import { projectKey } from '../merged_config.ts';
@@ -112,11 +114,11 @@ const line = (
 
 Deno.test('policy: a one-line policy round-trips as five tab-separated fields', () => {
   const record: PolicyRecord = {
-    grants: ['gh-push', 'gh-pr-read'],
     repos: [{
       repo: '/Users/me/code/app',
       remote: 'git@github.com:acme/app.git',
       branch: 'feat/x',
+      grants: ['gh-push', 'gh-pr-read'],
       target: '/workspaces/app',
     }],
   };
@@ -128,32 +130,40 @@ Deno.test('policy: a one-line policy round-trips as five tab-separated fields', 
   assertEquals(parsePolicy(text), record);
 });
 
-Deno.test('policy: a three-line policy round-trips, workspace first, grants on every line', () => {
+Deno.test('policy: a three-line explicit-grant policy round-trips, the same grants on every line', () => {
+  const grantList: BridgeCapability[] = [
+    'gh-push',
+    'gh-pr-read',
+    'gh-pr-resolve',
+  ];
   const record: PolicyRecord = {
-    grants: ['gh-push', 'gh-pr-read', 'gh-pr-resolve'],
     repos: [
       {
         repo: '/Users/me/code/app',
         remote: 'git@github.com:acme/app.git',
         branch: 'feat/x',
+        grants: grantList,
         target: '/workspaces/app',
       },
       {
         repo: '/Users/me/code/tools/lib',
         remote: 'https://github.com/acme/lib',
         branch: 'feat/lib',
+        grants: grantList,
         target: '/workspaces/tools/lib',
       },
       {
         repo: '/Users/me/code/docs',
         remote: 'ssh://git@github.com-work/acme/docs.git',
         branch: 'fix/typo',
+        grants: grantList,
         target: '/workspaces/docs',
       },
     ],
   };
   const text = serializePolicy(record);
   const grants = 'gh-push,gh-pr-read,gh-pr-resolve';
+  // Byte-identical to the format aecc225 wrote, when every line held the same grants.
   assertEquals(
     text,
     `/Users/me/code/app\tgit@github.com:acme/app.git\tfeat/x\t${grants}\t/workspaces/app\n` +
@@ -161,6 +171,40 @@ Deno.test('policy: a three-line policy round-trips, workspace first, grants on e
       `/Users/me/code/docs\tssh://git@github.com-work/acme/docs.git\tfix/typo\t${grants}\t/workspaces/docs\n`,
   );
   assertEquals(parsePolicy(text), record);
+  assertEquals(uniformGrants(record), grantList);
+  assertEquals(policyGrantsUnion(record), grantList);
+});
+
+Deno.test('policy: lines with different valid grants parse, and serializePolicy round-trips them', () => {
+  const text = line('/a', '/w', 'gh-push') +
+    line('/b', '/x', 'gh-pr-read,gh-pr-reply', 'git@github.com:acme/lib.git');
+  assertEquals(policyProblem(text), null);
+  const record = parsePolicy(text);
+  assertEquals(record, {
+    repos: [
+      {
+        repo: '/a',
+        remote: 'git@github.com:acme/app.git',
+        branch: 'feat/x',
+        grants: ['gh-push'],
+        target: '/w',
+      },
+      {
+        repo: '/b',
+        remote: 'git@github.com:acme/lib.git',
+        branch: 'feat/x',
+        grants: ['gh-pr-read', 'gh-pr-reply'],
+        target: '/x',
+      },
+    ],
+  });
+  assertEquals(serializePolicy(record!), text);
+  assertEquals(uniformGrants(record!), null);
+  assertEquals(policyGrantsUnion(record!), [
+    'gh-push',
+    'gh-pr-read',
+    'gh-pr-reply',
+  ]);
 });
 
 Deno.test('policy: every valid grant set round-trips', () => {
@@ -185,8 +229,7 @@ Deno.test('policy: every valid grant set round-trips', () => {
   ];
   for (const grants of sets) {
     const record: PolicyRecord = {
-      grants,
-      repos: [{ repo: '/a', remote: 'r', branch: 'b', target: '/w' }],
+      repos: [{ repo: '/a', remote: 'r', branch: 'b', grants, target: '/w' }],
     };
     assertEquals(
       parsePolicy(serializePolicy(record)),
@@ -236,7 +279,7 @@ Deno.test('policy: a malformed file parses to null', () => {
       line('/a', '/w', 'gh-pr-read,gh-pr-resolve-copilot,gh-pr-resolve'), // out of canonical order
       line('/a', '/w', 'gh-pr-viewed'), // gh-pr-viewed without gh-pr-read
       line('/a', '/w', 'gh-pr-reply,gh-pr-read'), // out of canonical order
-      line('/a', '/w') + line('/b', '/x', 'gh-push,gh-pr-read'), // grants differ
+      line('/a', '/w') + line('/b', '/x', 'gh-pr-reply'), // line 2's grants alone are invalid
       line('/a', '/w') + line('/a', '/x'), // the same repo twice
       line('/a', '/w') + line('/b', '/w'), // the same target twice
       line('/a', '/w') + '\n' + line('/b', '/x'), // an empty middle line
@@ -301,9 +344,11 @@ Deno.test('policy: policyProblem names the first problem, and parsePolicy agrees
       line('/a', '/w') + line('/b', '/x', 'gh-push,gh-pr-review'),
       'line 2: gh-pr-review was split — grant gh-pr-read,gh-pr-reply instead',
     ],
+    // Lines may differ, but each must hold on its own.
+    [line('/a', '/w') + line('/b', '/x', 'gh-push,gh-pr-read'), null],
     [
-      line('/a', '/w') + line('/b', '/x', 'gh-push,gh-pr-read'),
-      "line 2: grants differ from line 1's",
+      line('/a', '/w', 'gh-pr-read') + line('/b', '/x', 'gh-pr-reply'),
+      'line 2: gh-pr-reply requires gh-pr-read',
     ],
     [line('/a', '/w') + line('/a', '/x'), "line 2: repo repeats line 1's"],
     [
@@ -345,21 +390,39 @@ Deno.test('policy: policyProblem names the first problem, and parsePolicy agrees
 });
 
 Deno.test('policy: serialize refuses a field that would not read back', () => {
-  const ok = { repo: '/a', remote: 'r', branch: 'main', target: '/w' };
+  const ok = {
+    repo: '/a',
+    remote: 'r',
+    branch: 'main',
+    grants: ['gh-push'] as BridgeCapability[],
+    target: '/w',
+  };
+  const g = (grants: string[]) => ({
+    repos: [{ ...ok, grants: grants as BridgeCapability[] }],
+  });
   const bad: PolicyRecord[] = [
-    { grants: ['gh-push'], repos: [{ ...ok, remote: 'x\ty' }] },
-    { grants: ['gh-push'], repos: [{ ...ok, branch: 'x\ny' }] },
-    { grants: ['gh-push'], repos: [{ ...ok, target: '/w/' }] },
-    { grants: ['gh-push'], repos: [] },
-    { grants: ['gh-push'], repos: [ok, { ...ok, target: '/x' }] },
-    { grants: [], repos: [ok] },
-    { grants: ['gh-pr-read', 'gh-push'], repos: [ok] },
-    { grants: ['gh-pr-review' as BridgeCapability], repos: [ok] },
-    { grants: ['gh-pr-reply'], repos: [ok] },
-    { grants: ['gh-push', 'gh-push'], repos: [ok] },
-    { grants: ['gh-pr-resolve'], repos: [ok] },
-    { grants: ['gh-pr-request-review'], repos: [ok] },
-    { grants: ['nope' as BridgeCapability], repos: [ok] },
+    { repos: [{ ...ok, remote: 'x\ty' }] },
+    { repos: [{ ...ok, branch: 'x\ny' }] },
+    { repos: [{ ...ok, target: '/w/' }] },
+    { repos: [] },
+    { repos: [ok, { ...ok, target: '/x' }] },
+    g([]),
+    g(['gh-pr-read', 'gh-push']),
+    g(['gh-pr-review']),
+    g(['gh-pr-reply']),
+    g(['gh-push', 'gh-push']),
+    g(['gh-pr-resolve']),
+    g(['gh-pr-request-review']),
+    g(['nope']),
+    // A second line's own grants are checked too.
+    {
+      repos: [ok, {
+        ...ok,
+        repo: '/b',
+        target: '/x',
+        grants: ['gh-pr-reply'],
+      }],
+    },
   ];
   for (const record of bad) {
     assertThrows(

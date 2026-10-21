@@ -238,18 +238,43 @@ export interface PinnedRepo extends Pin {
   target: string;
 }
 
-/** The most repos one policy pins: the workspace repo plus fifteen `--bridge-repo`s. */
+/** The most repos one policy pins: the workspace repo plus fifteen others. */
 export const MAX_PINNED_REPOS = 16;
 
+/** One policy line: a pinned repo and the capabilities granted there (canonical order, non-empty). */
+export interface PolicyLine extends PinnedRepo {
+  grants: BridgeCapability[];
+}
+
 /**
- * A policy file: the capabilities granted (canonical order, non-empty), shared by every pinned
- * repo, and the pinned repos — the workspace repo first when it could be pinned, then each
- * `--bridge-repo` that could, in the order it was given. 1–{@link MAX_PINNED_REPOS} of them, with
- * distinct `repo`s and distinct `target`s.
+ * A policy file: the pinned repos, each with its own grants — the workspace repo first when it
+ * could be pinned, then each `--bridge-repo` that could, in the order it was given, then (for a
+ * default grant) each other mounted repo `bridgeRepoAllow` names. 1–{@link MAX_PINNED_REPOS} of
+ * them, with distinct `repo`s and distinct `target`s. An explicit `--bridge-allow` writes the same
+ * grants on every line; a default grant may not.
  */
 export interface PolicyRecord {
-  grants: BridgeCapability[];
-  repos: PinnedRepo[];
+  repos: PolicyLine[];
+}
+
+/**
+ * Every capability any line of `record` grants, once each, in canonical order. The bridge lets a
+ * built-in through when this holds one of its capabilities; the script then checks the line its
+ * `--repo` selected.
+ */
+export function policyGrantsUnion(record: PolicyRecord): BridgeCapability[] {
+  return BRIDGE_CAPABILITIES.filter((cap) =>
+    record.repos.some((r) => r.grants.includes(cap))
+  );
+}
+
+/** The grants every line of `record` holds when they are all the same, or null when they differ. */
+export function uniformGrants(record: PolicyRecord): BridgeCapability[] | null {
+  if (record.repos.length === 0) return null;
+  const first = record.repos[0].grants.join(',');
+  return record.repos.every((r) => r.grants.join(',') === first)
+    ? record.repos[0].grants
+    : null;
 }
 
 // A field may hold anything but the separator and line breaks; control characters are refused
@@ -286,18 +311,17 @@ export function targetProblem(target: string): string | null {
 
 /**
  * The policy file's contents: one `<repo>\t<remote>\t<branch>\t<grants>\t<target>\n` line per
- * pinned repo, grants comma-joined in canonical order and the same on every line. Throws for
- * anything {@link policyProblem} would refuse to read back — callers validate first, so reaching
- * this is a bug.
+ * pinned repo, each line's own grants comma-joined in canonical order. Throws for anything
+ * {@link policyProblem} would refuse to read back — callers validate first, so reaching this is a
+ * bug.
  */
 export function serializePolicy(record: PolicyRecord): string {
-  const grants = record.grants.join(',');
   const text = record.repos.map((r) =>
-    `${r.repo}\t${r.remote}\t${r.branch}\t${grants}\t${r.target}\n`
+    `${r.repo}\t${r.remote}\t${r.branch}\t${r.grants.join(',')}\t${r.target}\n`
   ).join('');
-  const problem = record.repos.length === 0
-    ? 'has no repos'
-    : grantsProblem(record.grants) ?? policyProblem(text);
+  const problem = record.repos.length === 0 ? 'has no repos' : record.repos
+    .map((r) => grantsProblem(r.grants)).find((p) => p !== null) ??
+    policyProblem(text);
   if (problem !== null) throw new Error(`policy ${problem}`);
   return text;
 }
@@ -305,8 +329,9 @@ export function serializePolicy(record: PolicyRecord): string {
 /**
  * Why `text` is not a policy file, or null when it is: the **first** problem in the order
  * {@link parsePolicy} checks — the final newline, the line count, then per line (`line <n>: …`)
- * an empty line, the field count, each field, the target and the grant list, and last the
- * cross-line rules (grants identical to line 1's, `repo` and `target` each distinct).
+ * an empty line, the field count, each field, the target and the line's own grant list, and last
+ * the cross-line rules (`repo` and `target` each distinct). Lines may grant different
+ * capabilities.
  * {@link parsePolicy} is built on this, so the two never disagree. The bridge scripts' bash
  * parsers apply the same rules.
  */
@@ -318,7 +343,6 @@ export function policyProblem(text: string): string | null {
   }
   const seenRepo = new Map<string, number>();
   const seenTarget = new Map<string, number>();
-  let firstGrants = '';
   for (let i = 0; i < lines.length; i++) {
     const n = i + 1;
     if (lines[i] === '') return `line ${n} is empty`;
@@ -341,10 +365,6 @@ export function policyProblem(text: string): string | null {
     const problem = targetProblem(target) ??
       grantsProblem(grantField.split(','));
     if (problem !== null) return `line ${n}: ${problem}`;
-    if (i === 0) firstGrants = grantField;
-    else if (grantField !== firstGrants) {
-      return `line ${n}: grants differ from line 1's`;
-    }
     const repoAt = seenRepo.get(repo);
     if (repoAt !== undefined) return `line ${n}: repo repeats line ${repoAt}'s`;
     const targetAt = seenTarget.get(target);
@@ -367,12 +387,16 @@ export function policyProblem(text: string): string | null {
 export function parsePolicy(text: string): PolicyRecord | null {
   if (policyProblem(text) !== null) return null;
   const repos = text.slice(0, -1).split('\n').map((line) => {
-    const [repo, remote, branch, , target] = line.split('\t');
-    return { repo, remote, branch, target };
+    const [repo, remote, branch, grants, target] = line.split('\t');
+    return {
+      repo,
+      remote,
+      branch,
+      grants: grants.split(',') as BridgeCapability[],
+      target,
+    };
   });
-  const grants = text.slice(0, text.indexOf('\n')).split('\t')[3]
-    .split(',') as BridgeCapability[];
-  return { grants, repos };
+  return { repos };
 }
 
 // ── reading the pin out of a repo ───────────────────────────────────────────────────────────

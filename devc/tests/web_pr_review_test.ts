@@ -616,3 +616,65 @@ Deno.test('pr_diff: fetches a listing when none is stored, and names the file on
     await t.done();
   }
 });
+
+Deno.test('pr lookup: grants are per line — each repo is offered what its own line grants', async () => {
+  const t = await setup();
+  try {
+    const LIB = '/src/lib';
+    const LIB_TARGET = '/workspaces/lib';
+    await Deno.mkdir(join(t.dir, 'home/.config/devc-bridge/policy'), {
+      recursive: true,
+    });
+    await Deno.writeTextFile(
+      t.policyFile,
+      `${ROOT}\thttps://github.com/o/app.git\tfeat\tgh-pr-read,gh-pr-reply\t${TARGET}\n` +
+        `${LIB}\thttps://github.com/o/lib.git\tfeat\tgh-pr-read\t${LIB_TARGET}\n`,
+    );
+    const review = new PrReview({
+      isRepo: (l, r) => l === LOCAL && (r === ROOT || r === LIB),
+      container: () => Promise.resolve({ info, name: 'app' }),
+      home: join(t.dir, 'home'),
+      docker: join(t.dir, 'docker'),
+    });
+    const app = result(await review.handle(files));
+    assertEquals(app.canReply, true);
+    const lib = result(await review.handle({ ...files, root: LIB }));
+    assertEquals(lib.canReply, false);
+    // Line 2's own target is the one the bridge is asked about.
+    assertEquals((await t.calls())[1].slice(6), [
+      'devc-bridge',
+      'gh-pr-files',
+      '--repo',
+      LIB_TARGET,
+    ]);
+    const reply = (root: string): PrMessage => ({
+      type: 'pr_reply',
+      localFolder: LOCAL,
+      root,
+      path: 'src/a.ts',
+      thread: 'PRRT_human',
+      body: 'hi',
+    });
+    result(await review.handle({ ...at('pr_threads'), root: LIB }));
+    failed(
+      await review.handle(reply(LIB)),
+      'bad_request',
+      'Needs --bridge-allow gh-pr-reply on this repo',
+    );
+    result(await review.handle(at('pr_threads')));
+    assertEquals(result(await review.handle(reply(ROOT))), {});
+    // A line without gh-pr-read offers nothing, whatever another line grants.
+    await Deno.writeTextFile(
+      t.policyFile,
+      `${ROOT}\thttps://github.com/o/app.git\tfeat\tgh-push\t${TARGET}\n` +
+        `${LIB}\thttps://github.com/o/lib.git\tfeat\tgh-pr-read\t${LIB_TARGET}\n`,
+    );
+    assertEquals(result(await review.handle(files)).reason, 'no_grant');
+    assertEquals(
+      result(await review.handle({ ...files, root: LIB })).available,
+      true,
+    );
+  } finally {
+    await t.done();
+  }
+});

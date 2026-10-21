@@ -11,14 +11,6 @@
 
 ### Pending
 
-- [bridge-per-repo-grants](bridge-per-repo-grants.md) — `"bridgeRepoAllow"` in
-  `~/.config/devc/config.json` maps a repo (every checkout of it, by git common dir) to its own
-  default grants (`[]` = no default). Without `--bridge-allow`, the workspace repo and each (now
-  bare-allowed) `--bridge-repo` get their entry else `bridgeDefaultAllow`, and other mounted repos
-  with a non-empty entry are pinned too; with the flag, only the flags count. Policy grants become
-  per line: the bridge passes a built-in when any line grants it, and the script enforces the
-  selected line's grants.
-
 - [devc-web-aseprite-viewer](devc-web-aseprite-viewer.md) — after devc-web-media-tiles: a
   clean-room `.aseprite` decoder and compositor (`static/lib/aseprite.js`, from the public spec
   only) and a media view with frame playback, tags and layer toggles. Normal blend only at first;
@@ -112,6 +104,14 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
   take it too.
 
 ### Completed
+
+- [bridge-per-repo-grants](archived/bridge-per-repo-grants.md) — `"bridgeRepoAllow"` in
+  `~/.config/devc/config.json` maps a repo (every checkout of it, by git common dir) to its own
+  default grants (`[]` = no default). Without `--bridge-allow`, the workspace repo and each (now
+  bare-allowed) `--bridge-repo` get their entry else `bridgeDefaultAllow`, and other mounted repos
+  with a non-empty entry are pinned too; with the flag, only the flags count. Policy grants become
+  per line: the bridge passes a built-in when any line grants it, and the script enforces the
+  selected line's grants.
 
 - [devc-web-pr-review](archived/devc-web-pr-review.md) — after bridge-pr-grant-split: a **Pull
   request** row under each repo of a running container shows the pinned branch's PR as a tree of
@@ -2414,4 +2414,4 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
 | devc web PR review — sidebar PR tree + Viewed, diff tiles with threads, all through the container's bridge         | [devc-web-pr-review](archived/devc-web-pr-review.md)                               | complete    |
 | devc web sidebar scale fixes — Tasks section, In use merged by folder, running sessions not resumed twice          | [devc-web-sidebar-scale-fixes](archived/devc-web-sidebar-scale-fixes.md)           | complete    |
 | `devc web` open in Jira — a branch's Jira key opens from terminal, file and repo menus, `"jira"` in config.json    | [devc-web-open-in-jira](devc-web-open-in-jira.md)                                  |             |
-| devc-bridge per-repo default grants — `bridgeRepoAllow` map, per-line policy grants                                | [bridge-per-repo-grants](bridge-per-repo-grants.md)                                |             |
+| devc-bridge per-repo default grants — `bridgeRepoAllow` map, per-line policy grants                                | [bridge-per-repo-grants](archived/bridge-per-repo-grants.md)                       | complete    |

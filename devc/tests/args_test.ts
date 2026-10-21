@@ -4,11 +4,13 @@ import {
   assertThrows,
 } from 'jsr:@std/assert@^1';
 import {
+  checkBareBridgeRepos,
   DEVC_HERDR_SESSION,
   herdrLaunchArgs,
   parseAttachArgs,
   parseBridgeAllow,
   parseBridgeDefaultAllow,
+  parseBridgeRepoAllow,
   parseBuildArgs,
   parseConfigArgs,
   parseUpArgs,
@@ -510,6 +512,110 @@ Deno.test('bridgeDefaultAllow refuses bad values with each documented reason', (
   }
 });
 
+Deno.test('bridgeRepoAllow: keys expanded, values canonicalized, [] kept; absent or null is none', () => {
+  const home = Deno.env.get('HOME')!;
+  assertEquals(parseBridgeRepoAllow(undefined), null);
+  assertEquals(parseBridgeRepoAllow(null), null);
+  assertEquals(parseBridgeRepoAllow({}), []);
+  Deno.env.set('DEVC_TEST_REPOS', '/srv/repos');
+  try {
+    assertEquals(
+      parseBridgeRepoAllow({
+        '~/code/shared-lib/': ['gh-pr-reply', ' gh-pr-read', 'gh-pr-read'],
+        '~/code/secrets': [],
+        '$DEVC_TEST_REPOS/x': ['gh-push'],
+        '/abs': ['gh-pr-read'],
+      }),
+      [
+        {
+          key: '~/code/shared-lib/',
+          path: `${home}/code/shared-lib`,
+          grants: ['gh-pr-read', 'gh-pr-reply'],
+        },
+        { key: '~/code/secrets', path: `${home}/code/secrets`, grants: [] },
+        {
+          key: '$DEVC_TEST_REPOS/x',
+          path: '/srv/repos/x',
+          grants: ['gh-push'],
+        },
+        { key: '/abs', path: '/abs', grants: ['gh-pr-read'] },
+      ],
+    );
+  } finally {
+    Deno.env.delete('DEVC_TEST_REPOS');
+  }
+});
+
+Deno.test('bridgeRepoAllow refuses bad values with each documented reason', () => {
+  Deno.env.delete('DEVC_TEST_UNSET');
+  const object = 'must be an object mapping repo paths to capability lists';
+  const cases: [unknown, string][] = [
+    [['/a'], object],
+    ['/a', object],
+    [7, object],
+    [true, object],
+    [{ 'code/lib': ['gh-pr-read'] }, 'code/lib: not an absolute path'],
+    [{ '~user/lib': ['gh-pr-read'] }, '~user/lib: not an absolute path'],
+    [
+      { '$DEVC_TEST_UNSET/lib': ['gh-pr-read'] },
+      '$DEVC_TEST_UNSET/lib: $DEVC_TEST_UNSET is not set',
+    ],
+    [{ '/a': 'gh-pr-read' }, '/a: must be an array of capability names'],
+    [{ '/a': null }, '/a: must be an array of capability names'],
+    [{ '/a': ['gh-pr-read', 7] }, '/a: must be an array of capability names'],
+    [
+      { '/a': ['gh-pr-nope'] },
+      '/a: unknown capability gh-pr-nope — valid: gh-push, gh-pr-read, gh-pr-reply, gh-pr-viewed, gh-pr-resolve, gh-pr-resolve-copilot, gh-pr-request-review',
+    ],
+    [{ '/a': ['gh'] }, '/a: "gh" is not allowed here — list each capability'],
+    [
+      { '/a': ['gh-*'] },
+      '/a: "gh-*" is not allowed here — list each capability',
+    ],
+    [
+      { '/a': ['gh-pr-review'] },
+      '/a: gh-pr-review was split — grant gh-pr-read,gh-pr-reply instead',
+    ],
+    [{ '/a': ['gh-pr-reply'] }, '/a: gh-pr-reply requires gh-pr-read'],
+    // The first bad key is the one named.
+    [
+      { '/ok': ['gh-pr-read'], '/b': ['gh-pr-viewed'] },
+      '/b: gh-pr-viewed requires gh-pr-read',
+    ],
+  ];
+  for (const [value, reason] of cases) {
+    const e = assertThrows(() => parseBridgeRepoAllow(value));
+    assertEquals((e as Error).message, reason, JSON.stringify(value));
+  }
+});
+
+Deno.test('a bare --bridge-repo parses, and is refused only when neither default key is set', () => {
+  assertEquals(parseUpArgs(['--bridge-repo', '/a']).bridgeRepos, ['/a']);
+  assertEquals(parseUpArgs(['--bridge-repo', '/a']).bridgeAllow, null);
+  assertEquals(parseBuildArgs(['--bridge-repo=/a', 'proj']).bridgeRepos, [
+    '/a',
+  ]);
+  const refusal =
+    '--bridge-repo requires --bridge-allow, "bridgeDefaultAllow" or "bridgeRepoAllow"';
+  assertThrows(
+    () => checkBareBridgeRepos(['/a'], null, null),
+    Error,
+    refusal,
+  );
+  assertThrows(
+    () => checkBareBridgeRepos(['/a'], null, []),
+    Error,
+    refusal,
+  );
+  checkBareBridgeRepos(['/a'], ['gh-pr-read'], null);
+  checkBareBridgeRepos(['/a'], null, [
+    { key: '/a', path: '/a', grants: ['gh-pr-read'] },
+  ]);
+  // An entry of [] still counts as set: the repo is then skipped with a notice.
+  checkBareBridgeRepos(['/a'], null, [{ key: '/a', path: '/a', grants: [] }]);
+  checkBareBridgeRepos([], null, null);
+});
+
 Deno.test('--bridge-repo is repeatable in both spellings, and its value is never the target', () => {
   assertEquals(
     parseUpArgs([
@@ -554,8 +660,6 @@ Deno.test('--bridge-repo refuses bad uses with the documented messages', () => {
     (_, i) => `--bridge-repo=/r${i}`,
   );
   const cases: [string[], string][] = [
-    [['--bridge-repo', '/a'], '--bridge-repo requires --bridge-allow'],
-    [['--bridge-repo=/a', 'proj'], '--bridge-repo requires --bridge-allow'],
     [
       ['--bridge-allow', 'none', '--bridge-repo', '/a'],
       '--bridge-repo requires --bridge-allow with capabilities',
@@ -608,7 +712,16 @@ Deno.test('--bridge-repo: two spellings of one directory are the same repo', asy
 async function cli(
   ...args: string[]
 ): Promise<{ code: number; stderr: string }> {
+  return await cliIn(undefined, ...args);
+}
+
+/** {@link cli}, with `HOME` set to `home` when given. */
+async function cliIn(
+  home: string | undefined,
+  ...args: string[]
+): Promise<{ code: number; stderr: string }> {
   const { code, stderr } = await new Deno.Command(Deno.execPath(), {
+    env: home === undefined ? undefined : { HOME: home },
     args: [
       'run',
       '-A',
@@ -659,12 +772,57 @@ Deno.test('CLI: --bridge-allow and --bridge-repo are refused by every attach-fam
     execRepo.stderr,
     '--bridge-repo is accepted by `devc up` and `devc build` only, not `devc exec`',
   );
-  const noAllow = await cli('up', '/nonexistent', '--bridge-repo', '/a');
-  assertEquals(noAllow.code, 2, noAllow.stderr);
-  assertStringIncludes(
-    noAllow.stderr,
-    'devc: --bridge-repo requires --bridge-allow',
-  );
+  const home = await Deno.makeTempDir();
+  try {
+    const noAllow = await cliIn(
+      home,
+      'up',
+      '/nonexistent',
+      '--bridge-repo',
+      '/a',
+    );
+    assertEquals(noAllow.code, 2, noAllow.stderr);
+    assertStringIncludes(
+      noAllow.stderr,
+      'devc: --bridge-repo requires --bridge-allow, "bridgeDefaultAllow" or "bridgeRepoAllow"',
+    );
+    await Deno.mkdir(`${home}/.config/devc`, { recursive: true });
+    await Deno.writeTextFile(
+      `${home}/.config/devc/config.json`,
+      JSON.stringify({ bridgeRepoAllow: { 'lib': ['gh-pr-read'] } }),
+    );
+    const badMap = await cliIn(home, 'up', '/nonexistent');
+    assertEquals(badMap.code, 2, badMap.stderr);
+    assertStringIncludes(
+      badMap.stderr,
+      'devc: ~/.config/devc/config.json: bridgeRepoAllow: lib: not an absolute path',
+    );
+    // Two keys naming one repo — here a repo and a folder inside it.
+    await Deno.mkdir(`${home}/code/lib/.git`, { recursive: true });
+    await Deno.mkdir(`${home}/code/lib/src`, { recursive: true });
+    await Deno.writeTextFile(
+      `${home}/.config/devc/config.json`,
+      JSON.stringify({
+        bridgeRepoAllow: {
+          '~/code/gone': ['gh-pr-read'],
+          '~/code/lib': ['gh-pr-read'],
+          '~/code/lib/src': [],
+        },
+      }),
+    );
+    const twice = await cliIn(home, 'up', '/nonexistent');
+    assertEquals(twice.code, 2, twice.stderr);
+    assertStringIncludes(
+      twice.stderr,
+      'devc: bridgeRepoAllow: ignoring ~/code/gone: no such folder',
+    );
+    assertStringIncludes(
+      twice.stderr,
+      'devc: ~/.config/devc/config.json: bridgeRepoAllow: ~/code/lib and ~/code/lib/src name the same repo',
+    );
+  } finally {
+    await Deno.remove(home, { recursive: true });
+  }
   for (const command of ['up', 'build', 'attach']) {
     const r = await cli(command, '/nonexistent', '--bridge-git-push');
     assertEquals(r.code, 2, `${command}: ${r.stderr}`);

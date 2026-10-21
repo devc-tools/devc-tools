@@ -200,16 +200,16 @@ pointer_problem() {
 
 # ── shared with gh-push and the gh-pr-* prelude: keep the copies identical ───────────────
 
-# parse_policy FILE — read a policy into grants and the arrays pol_repo/pol_remote/pol_branch/
+# parse_policy FILE — read a policy into the arrays pol_repo/pol_remote/pol_branch/pol_grants/
 # pol_target (one entry per line, file order), or set pol_why and fail. The rules are devc-core's
 # policyProblem: 1–16 lines, each `\n`-terminated, each exactly five non-empty, control-free,
 # tab-separated fields `<repo> <remote> <branch> <grants> <target>`; the target absolute and
-# normalized; grants identical on every line; repo and target each distinct. A four-field v1 file
+# normalized; each line's own grants; repo and target each distinct. A four-field v1 file
 # is malformed. The whole file is read with the `x` sentinel (so trailing newlines survive) and split
 # by hand: `read` cannot split it, because tab is IFS whitespace and empty fields would collapse.
 parse_policy() {
   local text line rest tabs field n=0 i r_repo r_remote r_branch r_grants r_target
-  pol_repo=() pol_remote=() pol_branch=() pol_target=() grants='' pol_why=''
+  pol_repo=() pol_remote=() pol_branch=() pol_grants=() pol_target=() grants='' pol_why=''
   text=$(cat -- "$1" && printf x) || {
     pol_why="unreadable"
     return 1
@@ -280,12 +280,6 @@ parse_policy() {
         return 1
         ;;
     esac
-    if [ "$n" -eq 1 ]; then
-      grants=$r_grants
-    elif [ "$r_grants" != "$grants" ]; then
-      pol_why="line $n: grants differ from line 1's"
-      return 1
-    fi
     i=0
     while [ "$i" -lt "${#pol_repo[@]}" ]; do
       [ "${pol_repo[$i]}" != "$r_repo" ] || {
@@ -301,6 +295,7 @@ parse_policy() {
     pol_repo+=("$r_repo")
     pol_remote+=("$r_remote")
     pol_branch+=("$r_branch")
+    pol_grants+=("$r_grants")
     pol_target+=("$r_target")
     case $text in
       *$'\n'*) text=${text#*$'\n'} ;;
@@ -349,8 +344,9 @@ for key in "${keys[@]}"; do
     continue
   fi
   if [ -n "${DEVC_BRIDGE_KEY-}" ]; then
-    case ,$grants, in
-      *,gh-push,*) ;;
+    # Through the bridge, some line must grant gh-push: the report covers every pinned repo.
+    case ,"${pol_grants[*]}", in
+      *[,\ ]gh-push[,\ ]*) ;;
       *)
         echo "gh-doctor: this container was not granted gh-push" >&2
         exit 2
@@ -365,6 +361,7 @@ for key in "${keys[@]}"; do
     remote=${pol_remote[$i]}
     branch=${pol_branch[$i]}
     echo "  target    ${pol_target[$i]}"
+    grants=${pol_grants[$i]}
     echo "  policy    ${grants//,/, } for $branch → $remote"
     echo "  repo      $repo"
 

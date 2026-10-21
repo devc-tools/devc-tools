@@ -23,6 +23,7 @@ import {
   builtinCommandNames,
   capabilitiesForCommand,
   parsePolicy,
+  policyGrantsUnion,
   policyProblem,
   RETIRED_CAPABILITIES,
 } from '@devc-tools/core/bridge.ts';
@@ -315,19 +316,20 @@ async function grantRefusal(
         `this container's policy is malformed and grants nothing: ${problem} (${policyFile}) — on the host: ${fix}`,
     };
   }
-  // policyProblem found nothing, so this parses. The grants are one list shared by every pinned
-  // repo, so the check is per container, not per repo — which repo a command acts on is the
-  // script's to select (`--repo`).
-  const policy = parsePolicy(text)!;
-  if (capabilities.some((c) => policy.grants.includes(c))) return null;
+  // policyProblem found nothing, so this parses. Each line has its own grants, but which line a
+  // command acts on is the script's to select (`--repo`), so this is only the coarse first layer:
+  // any line granting any of the command's capabilities lets it through, and the script — a
+  // host-side built-in the container cannot change — enforces the selected line's grants.
+  const granted = policyGrantsUnion(parsePolicy(text)!);
+  if (capabilities.some((c) => granted.includes(c))) return null;
   return {
     exitCode: 1,
     message: `${name} needs capability ${
       capabilities.join(' or ')
     }, which this container was not granted (it has: ${
-      policy.grants.join(', ')
+      granted.join(', ')
     }) — on the host: devc up --bridge-allow ${
-      suggestGrants(policy.grants, capability)
+      suggestGrants(granted, capability)
     }`,
   };
 }

@@ -25,6 +25,7 @@ import type { DevcontainerRunner } from '@devc-tools/core/devcontainer.ts';
 import { selfExecDevcontainerRunner } from './devcontainer_selfexec.ts';
 import {
   applyPolicy,
+  checkDefaultsBeforeUp,
   checkGrantBeforeUp,
   ensureKeyDir,
   type PolicyMode,
@@ -64,8 +65,8 @@ export type { AttachOptions } from './attach.ts';
 export interface CliStartOptions extends StartOptions {
   /**
    * `refresh` (the default) for every start path except `up`/`build`, which pass `{ grant }` with
-   * `--bridge-allow <list>`, `{ defaultGrant }` without it when `bridgeDefaultAllow` is set, and
-   * `revoke` otherwise. See `bridge.ts`.
+   * `--bridge-allow <list>`, `{ defaultGrant }` without it when `bridgeDefaultAllow` or
+   * `bridgeRepoAllow` is set, and `revoke` otherwise. See `bridge.ts`.
    */
   bridgePolicy?: PolicyMode;
   /**
@@ -96,9 +97,12 @@ function startHooks(
         confirm: guard ? guard.confirm : terminalConfirm(),
         warn: guard ? guard.warn : (m) => console.error(m),
       });
-      // A default grant has no pre-`up` check: it never fails the start.
+      // A default grant never fails the start for a repo's preconditions, but a `--bridge-repo`
+      // that names nothing pinnable is still a mistake on the command line.
       if (typeof mode === 'object' && 'grant' in mode) {
         await checkGrantBeforeUp(merged, localFolder, undefined, mode.repos);
+      } else if (typeof mode === 'object' && 'defaultGrant' in mode) {
+        await checkDefaultsBeforeUp(merged, localFolder, undefined, mode.repos);
       }
       await ensureKeyDir(merged);
     },

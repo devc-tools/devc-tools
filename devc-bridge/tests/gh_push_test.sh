@@ -11,6 +11,8 @@
 # The bridge-side half — that the server sets DEVC_BRIDGE_KEY from the caller's token — is
 # `host/tests/keys_test.ts`.
 
+# SC2016: `bash -c '…' _ "$x"` is single-quoted on purpose.
+# shellcheck disable=SC2016
 set -uo pipefail
 
 here=$(cd "$(dirname "$0")" && pwd)
@@ -233,7 +235,7 @@ done
 printf '%s' "$REPO"$'\t'"$GH_PIN"$'\t'feat"$G$T" >"$POLICY_DIR/$KEY.conf"
 push
 expect_rc 2 "malformed policy: no final newline"
-for n in $(seq 1 17); do printf '%s\n' "$W/r$n"$'\t'"$GH_PIN"$'\t'feat"$G"$'\t'/w$n; done \
+for n in $(seq 1 17); do printf '%s\n' "$W/r$n"$'\t'"$GH_PIN"$'\t'feat"$G"$'\t'/w"$n"; done \
   >"$POLICY_DIR/$KEY.conf"
 push
 expect_rc 2 "malformed policy: 17 lines"
@@ -451,6 +453,48 @@ expect_rc 0 "gh-doctor on the two-line policy"
 check "  … a target line for the first repo" has "  target    /workspaces/repo"
 check "  … and for the second" has "  target    /workspaces/tools/repo2"
 check "  … each with its own mirror" has "mirror    $MIRRORS/ws-1/acme/gadget.git (origin matches"
+
+echo "per-line grants"
+fresh
+GADGET=git@github.com:acme/gadget.git
+git init -q --bare "$W/gadget.git"
+git -C "$W/seed" push -q "$W/gadget.git" HEAD:refs/heads/main
+git clone -q "$W/gadget.git" "$W/repo2"
+git -C "$W/repo2" checkout -q -b feat2
+echo gadget >"$W/repo2/gadget.txt"
+git -C "$W/repo2" add gadget.txt
+git -C "$W/repo2" commit -q -m gadget
+# Line 1 grants gh-push, line 2 only the PR read and reply.
+pin_more "$W/repo2" "$GADGET" feat2 gh-pr-read,gh-pr-reply /workspaces/tools/repo2
+push --repo /workspaces/tools/repo2
+expect_rc 2 "gh-push from a line that does not grant it"
+check "  … names that line's target" \
+  has "gh-push: this container was not granted gh-push for /workspaces/tools/repo2"
+check "  … and pushes nothing to acme/gadget" \
+  test "$(git --git-dir="$W/gadget.git" rev-parse -q --verify refs/heads/feat2 || echo none)" = none
+push --repo /workspaces/repo
+expect_rc 0 "gh-push from line 1, which grants it"
+check "  … pushes feat to acme/widget" test "$(remote_ref refs/heads/feat)" = "$(repo_ref feat)"
+doctor
+expect_rc 0 "gh-doctor on a policy whose lines differ"
+check "  … shows line 1's grants for its target" \
+  has "  policy    gh-push for feat → $GH_PIN"
+check "  … and line 2's for its own" \
+  has "  policy    gh-pr-read, gh-pr-reply for feat2 → $GADGET"
+out=$(PATH=$W/ghbin:$PATH DEVC_BRIDGE_KEY=$KEY DEVC_BRIDGE_POLICY_DIR=$POLICY_DIR "$DOCTOR" 2>&1)
+rc=$?
+check "gh-doctor through the bridge runs when any line grants gh-push" test "$rc" != 2
+pin "$REPO" "$GH_PIN" feat gh-pr-read
+pin_more "$W/repo2" "$GADGET" feat2 gh-pr-read,gh-pr-reply /workspaces/tools/repo2
+out=$(PATH=$W/ghbin:$PATH DEVC_BRIDGE_KEY=$KEY DEVC_BRIDGE_POLICY_DIR=$POLICY_DIR "$DOCTOR" 2>&1)
+rc=$?
+expect_rc 2 "gh-doctor through the bridge when no line grants gh-push"
+check "  … says so" has "gh-doctor: this container was not granted gh-push"
+pin "$REPO" "$GH_PIN" feat gh-pr-read
+push
+expect_rc 2 "a one-line policy without gh-push"
+check "  … keeps today's refusal, byte for byte" \
+  test "$out" = "gh-push: this container was not granted gh-push"
 
 echo "TOCTOU"
 fresh

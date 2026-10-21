@@ -168,92 +168,93 @@ In the defaults row:
 
 ## Checklist
 
-- [ ] `devc-core/bridge.ts`: per-line grants in `PolicyRecord`, `policyProblem`, `parsePolicy`,
+- [x] `devc-core/bridge.ts`: per-line grants in `PolicyRecord`, `policyProblem`, `parsePolicy`,
       `serializePolicy`, and comments
-- [ ] `devc-core/config.ts`: the `bridgeRepoAllow` accessor (raw from `extra`)
-- [ ] `devc/args.ts`: validate `bridgeRepoAllow`; accept a bare `--bridge-repo` and give the new
+- [x] `devc-core/config.ts`: the `bridgeRepoAllow` accessor (raw from `extra`)
+- [x] `devc/args.ts`: validate `bridgeRepoAllow`; accept a bare `--bridge-repo` and give the new
       refusal; reuse `parseBridgeDefaultAllow`'s per-capability reasons
-- [ ] `devc/bridge.ts`: key resolution to common dirs (with the ignore notice), the
+- [x] `devc/bridge.ts`: key resolution to common dirs (with the ignore notice), the
       trusted-common-dir lookup per pin kind, candidates and grants for defaults, auto-pinning
       map repos, skip and cap notices, the new grant log, per-line `refreshPolicy` and its hint,
       and `bridgeStatusLines`
-- [ ] `devc/container.ts` / `devc/main.ts`: the defaults mode now carries `--bridge-repo`s and the
+- [x] `devc/container.ts` / `devc/main.ts`: the defaults mode now carries `--bridge-repo`s and the
       map. The pre-`up` check runs when a `--bridge-repo` is given
-- [ ] `devc-bridge/host/core.ts`: union-of-lines check and refusal text
-- [ ] The six `pr-prelude` copies (byte-identical): per-line grants, the selected line's
+- [x] `devc-bridge/host/core.ts`: union-of-lines check and refusal text
+- [x] The six `pr-prelude` copies (byte-identical): per-line grants, the selected line's
       `require_grant`, and `for <target>` on multi-line refusals
-- [ ] `devc-bridge/builtin/gh-push`, `gh-doctor`: their `parse_policy` and selection, and
+- [x] `devc-bridge/builtin/gh-push`, `gh-doctor`: their `parse_policy` and selection, and
       `gh-doctor`'s per-target grants
-- [ ] `devc-bridge/builtin/gh-pr-resolve`: the scope from the selected line
-- [ ] `devc/web/pr_review.ts`: the matched line's grants
-- [ ] `devc/help.ts`: `--bridge-repo` without `--bridge-allow`, and `bridgeRepoAllow`
-- [ ] Tests: `devc-core/tests/bridge_test.ts`, `devc-core/tests/global_config_test.ts`,
+- [x] `devc-bridge/builtin/gh-pr-resolve`: the scope from the selected line
+- [x] `devc/web/pr_review.ts`: the matched line's grants
+- [x] `devc/help.ts`: `--bridge-repo` without `--bridge-allow`, and `bridgeRepoAllow`
+- [x] Tests: `devc-core/tests/bridge_test.ts`, `devc-core/tests/global_config_test.ts`,
       `devc/tests/args_test.ts`, `devc/tests/bridge_test.ts`,
       `devc-bridge/host/tests/capabilities_test.ts`, `devc-bridge/tests/gh_pr_review_test.sh`,
       `devc-bridge/tests/gh_push_test.sh`, `devc/tests/web_pr_review_test.ts`
-- [ ] Docs:
-  - [ ] `devc/README.md`: `bridgeRepoAllow`, the flags-vs-defaults rule, bare `--bridge-repo`,
+- [x] Docs:
+  - [x] `devc/README.md`: `bridgeRepoAllow`, the flags-vs-defaults rule, bare `--bridge-repo`,
         and the per-repo `devc status` lines. Note that nothing checks who wrote a
         `--bridge-repo`'s `.git/config`: a repo the agent created and got mounted carries a remote
         it chose;
-  - [ ] `devc-bridge/README.md`: per-line grants, the two-layer check, and restart after upgrade;
-  - [ ] `docs/bridge-github.md`: per-repo grants and `gh-doctor`'s output;
-  - [ ] `devc-bridge/docs/testing.md`: the new cases and a manual row;
-  - [ ] `.plans/design/devc-design.md`: the policy format
+  - [x] `devc-bridge/README.md`: per-line grants, the two-layer check, and restart after upgrade;
+  - [x] `docs/bridge-github.md`: per-repo grants and `gh-doctor`'s output;
+  - [x] `devc-bridge/docs/testing.md`: the new cases and a manual row;
+  - [x] `.plans/design/devc-design.md`: the policy format
 
 ## Validation
 
-- [ ] `(cd devc && deno task check && deno task test)` passes
-- [ ] `(cd devc-core && deno task check && deno task test)` passes, apart from the known
+- [x] `(cd devc && deno task check && deno task test)` passes
+- [x] `(cd devc-core && deno task check && deno task test)` passes, apart from the known
       `cliWorktreeMounts` failure
-- [ ] `(cd devc-bridge/host && deno task check && deno task test)` passes
-- [ ] `bash devc-bridge/tests/gh_pr_review_test.sh` and `bash devc-bridge/tests/gh_push_test.sh`
+- [x] `(cd devc-bridge/host && deno task check && deno task test)` passes
+- [x] `bash devc-bridge/tests/gh_pr_review_test.sh` and `bash devc-bridge/tests/gh_push_test.sh`
       pass
-- [ ] `deno fmt --check` on every touched file, and `shellcheck` on every touched script
-- [ ] `devc-core/tests/bridge_test.ts`:
-  - [ ] A two-line policy with different valid grants parses, and `serializePolicy` round-trips
+- [x] `deno fmt --check` on every touched file, and `shellcheck` on every touched script
+- [x] `devc-core/tests/bridge_test.ts`:
+  - [x] A two-line policy with different valid grants parses, and `serializePolicy` round-trips
         it.
-  - [ ] A line with `gh-pr-reply` alone fails `line 2: gh-pr-reply requires gh-pr-read`.
-  - [ ] An explicit-grant record serializes byte-identical to `aecc225`'s format.
-- [ ] `global_config_test.ts`: `bridgeRepoAllow` survives a load and save unchanged.
-- [ ] `args_test.ts`:
-  - [ ] Each `<reason>` in the table.
-  - [ ] `[]` accepted, and a value canonicalized.
-  - [ ] A bare `--bridge-repo` is accepted with either key set, and refused with the new text
+  - [x] A line with `gh-pr-reply` alone fails `line 2: gh-pr-reply requires gh-pr-read`.
+  - [x] An explicit-grant record serializes byte-identical to `aecc225`'s format.
+- [x] `global_config_test.ts`: `bridgeRepoAllow` survives a load and save unchanged.
+- [x] `args_test.ts`:
+  - [x] Each `<reason>` in the table.
+  - [x] `[]` accepted, and a value canonicalized.
+  - [x] A bare `--bridge-repo` is accepted with either key set, and refused with the new text
         with neither.
-  - [ ] `--bridge-allow none --bridge-repo x` is still refused.
-- [ ] `devc/tests/bridge_test.ts` (temp home with real repos, linked worktrees and fake mounts):
-  - [ ] Workspace with an entry → the entry's grants. Without one → `bridgeDefaultAllow`.
-  - [ ] A `--bridge-repo` worktree of a mapped repo → the entry's grants. A `[]` entry → the
+  - [x] `--bridge-allow none --bridge-repo x` is still refused.
+- [x] `devc/tests/bridge_test.ts` (temp home with real repos, linked worktrees and fake mounts):
+  - [x] Workspace with an entry → the entry's grants. Without one → `bridgeDefaultAllow`.
+  - [x] A `--bridge-repo` worktree of a mapped repo → the entry's grants. A `[]` entry → the
         `no default grants` notice and no line.
-  - [ ] An unnamed mounted repo with a non-empty entry → auto-pinned. With `[]`, or with no entry
+  - [x] An unnamed mounted repo with a non-empty entry → auto-pinned. With `[]`, or with no entry
         → not pinned.
-  - [ ] A worktree whose `.git` file is rewritten to point at a mapped repo, without the frozen
+  - [x] A worktree whose `.git` file is rewritten to point at a mapped repo, without the frozen
         data agreeing, → not given that entry.
-  - [ ] Two keys naming one repo → the config error. A key for a deleted folder → the ignore
+  - [x] Two keys naming one repo → the config error. A key for a deleted folder → the ignore
         notice.
-  - [ ] `--bridge-allow gh-push` with a map → every pin `gh-push`, and no map repo pinned.
-  - [ ] 17 candidates → the cap notice for the 17th.
-  - [ ] Refresh of a mixed policy re-derives every line, and its hint is `devc up`.
-  - [ ] `bridgeStatusLines` per-repo lines for mixed grants, and today's lines for uniform ones.
-  - [ ] The grant log matches the contract.
-- [ ] `capabilities_test.ts`:
-  - [ ] A policy whose line 1 grants `gh-push` and line 2 `gh-pr-read` runs `gh-pr-comments`.
-  - [ ] With no line granting it, `gh-pr-comments` is refused, and `(it has: …)` is the union.
-- [ ] `gh_pr_review_test.sh`, `gh_push_test.sh` (stub `gh`):
-  - [ ] With line 1 `gh-push` and line 2 `gh-pr-read,gh-pr-reply`:
-    - [ ] `gh-pr-reply --repo <line 1 target>` exits 2 with `… not granted gh-pr-reply for <target>`;
-    - [ ] `--repo <line 2 target>` replies;
-    - [ ] `gh-push` from line 2's target is refused, and from line 1's it pushes.
-  - [ ] `gh-pr-resolve`'s scope follows the selected line.
-  - [ ] `gh-doctor` shows each target's grants.
-  - [ ] One-line policies keep every existing message byte for byte (the existing cases pass
+  - [x] `--bridge-allow gh-push` with a map → every pin `gh-push`, and no map repo pinned.
+  - [x] 17 candidates → the cap notice for the 17th.
+  - [x] Refresh of a mixed policy re-derives every line, and its hint is `devc up`.
+  - [x] `bridgeStatusLines` per-repo lines for mixed grants, and today's lines for uniform ones.
+  - [x] The grant log matches the contract.
+- [x] `capabilities_test.ts`:
+  - [x] A policy whose line 1 grants `gh-push` and line 2 `gh-pr-read` runs `gh-pr-comments`.
+  - [x] With no line granting it, `gh-pr-comments` is refused, and `(it has: …)` is the union.
+- [x] `gh_pr_review_test.sh`, `gh_push_test.sh` (stub `gh`):
+  - [x] With line 1 `gh-push` and line 2 `gh-pr-read,gh-pr-reply`:
+    - [x] `gh-pr-reply --repo <line 1 target>` exits 2 with `… not granted gh-pr-reply for <target>`;
+    - [x] `--repo <line 2 target>` replies;
+    - [x] `gh-push` from line 2's target is refused, and from line 1's it pushes.
+  - [x] `gh-pr-resolve`'s scope follows the selected line.
+  - [x] `gh-doctor` shows each target's grants.
+  - [x] One-line policies keep every existing message byte for byte (the existing cases pass
         unchanged).
-  - [ ] The six preludes are identical.
-- [ ] `web_pr_review_test.ts`: with line 1 `gh-pr-read,gh-pr-reply` and line 2 `gh-pr-read`,
+  - [x] The six preludes are identical.
+- [x] `web_pr_review_test.ts`: with line 1 `gh-pr-read,gh-pr-reply` and line 2 `gh-pr-read`,
       `canReply` is true for line 1's repo, false for line 2's, and `pr_reply` on line 2's repo
       is refused.
-- [ ] By hand, on a host (add as a `testing.md` row):
+- [ ] By hand, on a host (add as a `testing.md` row): _2026-10-21: not run — needs a macOS host
+      with Docker and a GitHub PR; added as `devc-bridge/docs/testing.md` row B26._
   - [ ] With `"bridgeDefaultAllow": ["gh-pr-read"]` and
         `"bridgeRepoAllow": {"<sibling>": ["gh-pr-read","gh-pr-reply"]}` in a workspace mounting
         that sibling, `devc up` prints both pins with their grants.
@@ -261,6 +262,41 @@ In the defaults row:
         `--repo <sibling target>` works.
   - [ ] `devc status` shows both lines.
   - [ ] `devc up --bridge-allow gh-pr-read` leaves only the workspace pin.
+
+## Notes
+
+Implementation decisions where the plan left room (2026-10-21):
+
+- **The trusted common dir, per pin kind.** Every kind already reads its remote from the host
+  source of the live container's read-only `config` mount (Docker's mount table, fixed at create
+  time; the container cannot change it), so the pin's repo is `realpath(dirname(<that source>))`
+  for all three: the workspace repo (`<root>/.git/config`, or for a worktree workspace the CLI's
+  common-dir mount), an extra repo row (`<target>/.git/config`), and a linked worktree
+  (`<gitDir>/config` of the protected row `matchWorktree` matched). No `.git` file or `commondir`
+  is re-read for it. When that source no longer resolves, the pin takes `bridgeDefaultAllow`
+  (an auto-pinned map repo is then not pinned). Before `up` no grant is computed at all.
+- **Whether to try a candidate** is decided first from its host git dir (the workspace mount's
+  `resolveRepo`, an eligible row's `<source>/.git`), so a repo with nothing to grant costs no
+  skip notice; the grants themselves only ever come from the frozen identity above. An auto-pin
+  candidate whose frozen identity has no non-empty entry is silently not pinned.
+- **Mixed `devc status`:** a bare `bridge:` header line, then each repo line ending
+  `: <grants>`. `<grants>` in the defaults log and status is joined with `,`, as the existing
+  grants lines are.
+- **A same-repo clash in the defaults with a `--bridge-repo`** throws
+  `the container is up, but the defaults were not granted: <reason>` (the plan gives no text).
+- **"Either key set"** for a bare `--bridge-repo`: `bridgeDefaultAllow` non-empty, or a
+  `bridgeRepoAllow` with at least one key (even if every value is `[]`). With neither, a flagless
+  `up` without `--bridge-repo` revokes as before. `"bridgeRepoAllow": null` counts as absent, as
+  `null` does for `bridgeDefaultAllow`.
+- **Ignore reasons** for an unresolvable key: `no such folder`, `not in a git repo`, or
+  `resolveRepo`'s metadata error.
+- **The defaults' pre-`up` check** only checks `--bridge-repo` eligibility, and is skipped when a
+  container-wide problem stands (no Feature, `gitProtect` off) — that is logged after `up`.
+- **`gh-doctor`** takes no `--repo`, so through the bridge it refuses only when no line grants
+  `gh-push`, and reports each target with its own line's grants. **`gh-push`** now checks the
+  grant after `select_repo`; one-line policies keep every message.
+- **Shellcheck:** the two harnesses had eight pre-existing findings (SC2016 on intentional
+  single-quoted `bash -c`, SC2034, SC2086); fixed so `shellcheck` on every touched script is clean.
 
 ## Relevant Files
 

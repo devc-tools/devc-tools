@@ -64,16 +64,16 @@ fi
 
 # ── the caller and its policy (gh-push's parse and selection, verbatim) ──────────────────
 
-# parse_policy FILE — read a policy into grants and the arrays pol_repo/pol_remote/pol_branch/
+# parse_policy FILE — read a policy into the arrays pol_repo/pol_remote/pol_branch/pol_grants/
 # pol_target (one entry per line, file order), or set pol_why and fail. The rules are devc-core's
 # policyProblem: 1–16 lines, each `\n`-terminated, each exactly five non-empty, control-free,
 # tab-separated fields `<repo> <remote> <branch> <grants> <target>`; the target absolute and
-# normalized; grants identical on every line; repo and target each distinct. A four-field v1 file
+# normalized; each line's own grants; repo and target each distinct. A four-field v1 file
 # is malformed. The whole file is read with the `x` sentinel (so trailing newlines survive) and split
 # by hand: `read` cannot split it, because tab is IFS whitespace and empty fields would collapse.
 parse_policy() {
   local text line rest tabs field n=0 i r_repo r_remote r_branch r_grants r_target
-  pol_repo=() pol_remote=() pol_branch=() pol_target=() grants='' pol_why=''
+  pol_repo=() pol_remote=() pol_branch=() pol_grants=() pol_target=() grants='' pol_why=''
   text=$(cat -- "$1" && printf x) || {
     pol_why="unreadable"
     return 1
@@ -144,12 +144,6 @@ parse_policy() {
         return 1
         ;;
     esac
-    if [ "$n" -eq 1 ]; then
-      grants=$r_grants
-    elif [ "$r_grants" != "$grants" ]; then
-      pol_why="line $n: grants differ from line 1's"
-      return 1
-    fi
     i=0
     while [ "$i" -lt "${#pol_repo[@]}" ]; do
       [ "${pol_repo[$i]}" != "$r_repo" ] || {
@@ -165,6 +159,7 @@ parse_policy() {
     pol_repo+=("$r_repo")
     pol_remote+=("$r_remote")
     pol_branch+=("$r_branch")
+    pol_grants+=("$r_grants")
     pol_target+=("$r_target")
     case $text in
       *$'\n'*) text=${text#*$'\n'} ;;
@@ -174,8 +169,9 @@ parse_policy() {
 }
 
 # select_repo WANT — pick the policy line whose target is WANT (trailing `/`s dropped), or, with
-# WANT empty, the only line; sets repo/remote/branch/target from it, or exits 2 listing the pinned
-# targets. Plain string comparison: devc writes every target normalized.
+# WANT empty, the only line; sets repo/remote/branch/grants/target from it — the grants are that
+# line's own — or exits 2 listing the pinned targets. Plain string comparison: devc writes every
+# target normalized.
 select_repo() {
   local want=$1 t list='' i=0 pick=-1
   while [ "$i" -lt "${#pol_target[@]}" ]; do
@@ -199,6 +195,7 @@ select_repo() {
   repo=${pol_repo[$pick]}
   remote=${pol_remote[$pick]}
   branch=${pol_branch[$pick]}
+  grants=${pol_grants[$pick]}
   target=${pol_target[$pick]}
 }
 
@@ -220,14 +217,16 @@ load_policy() {
   parse_remote "$remote" || die 2 "unsupported remote $remote — only github.com"
 }
 
-# require_grant CAP… — exit 2 unless the policy grants at least one CAP. The bridge already refused
-# an ungranted call before running this; this is the second layer.
+# require_grant CAP… — exit 2 unless the selected line grants at least one CAP. The bridge only
+# refused a call no line grants; this is the binding, per-repo check. With several lines the
+# refusal names the selected target.
 require_grant() {
   local cap want=''
   for cap in "$@"; do
     case ,$grants, in *,"$cap",*) return 0 ;; esac
     want=${want:+$want or }$cap
   done
+  [ "${#pol_target[@]}" -le 1 ] || want="$want for $target"
   die 2 "this container was not granted $want"
 }
 
@@ -509,6 +508,7 @@ gh_ready
 resolve_pr
 load_thread "$thread"
 
+# The scope is the selected line's: another pinned repo's gh-pr-resolve does not widen this one.
 case ,$grants, in
   *,gh-pr-resolve,*) ;;
   *)

@@ -6,6 +6,7 @@ import {
   MAX_PINNED_REPOS,
   retiredCapabilityReason,
 } from '@devc-tools/core/bridge.ts';
+import { expandPath } from '@devc-tools/core/config.ts';
 import { unfoldHome } from '@devc-tools/core/mounts.ts';
 import { isAbsolutePosix, resolvePosix } from '@devc-tools/core/posix.ts';
 
@@ -225,15 +226,17 @@ export interface UpArgs {
   /**
    * `--bridge-allow <list>`: write this workspace's devc-bridge policy granting exactly these
    * capabilities (canonical order) on its current branch. `'none'` — `--bridge-allow none` —
-   * means *delete* the policy. `null` — the flag is absent — means `bridgeDefaultAllow` from
-   * `~/.config/devc/config.json` when it is set, and delete otherwise. Never a devc config key:
-   * see `bridge.ts`.
+   * means *delete* the policy. `null` — the flag is absent — means the defaults,
+   * `bridgeDefaultAllow` and `bridgeRepoAllow` from `~/.config/devc/config.json`, when either is
+   * set, and delete otherwise. Never a devc config key: see `bridge.ts`.
    */
   bridgeAllow: BridgeCapability[] | 'none' | null;
   /**
    * `--bridge-repo PATH`, each as typed, in command-line order: extra repos the grant pins
-   * alongside the workspace repo. Empty when none were given; never non-empty without
-   * {@link bridgeAllow}. Resolved and checked against the container in `bridge.ts`.
+   * alongside the workspace repo. Empty when none were given; never non-empty with
+   * {@link bridgeAllow} `'none'`. Without {@link bridgeAllow} they take the defaults, and `main.ts`
+   * refuses them when neither default key is set ({@link checkBareBridgeRepos}). Resolved and
+   * checked against the container in `bridge.ts`.
    */
   bridgeRepos: string[];
 }
@@ -243,7 +246,7 @@ export const BRIDGE_ALLOW_FLAG = '--bridge-allow';
 
 /**
  * Names one extra repo for the grant to pin, by host path. Accepted by `up` and `build` only,
- * repeatable, and only alongside {@link BRIDGE_ALLOW_FLAG}. A flag and never a config key, for
+ * repeatable, and not with `--bridge-allow none`. A flag and never a config key, for
  * the same reason as `--bridge-allow`: every config layer that could set it is agent-writable.
  */
 export const BRIDGE_REPO_FLAG = '--bridge-repo';
@@ -360,10 +363,18 @@ export function parseBridgeDefaultAllow(
   raw: unknown,
 ): BridgeCapability[] | null {
   if (raw === undefined || raw === null) return null;
+  const grants = defaultGrantList(raw);
+  return grants.length === 0 ? null : grants;
+}
+
+/**
+ * {@link parseBridgeDefaultAllow}'s check of one capability list, shared with
+ * {@link parseBridgeRepoAllow}'s values: `[]` stays `[]`. Throws the bare `<reason>`.
+ */
+function defaultGrantList(raw: unknown): BridgeCapability[] {
   if (!Array.isArray(raw) || raw.some((v) => typeof v !== 'string')) {
     throw new Error('must be an array of capability names');
   }
-  if (raw.length === 0) return null;
   const wanted = new Set<string>();
   for (const entry of raw as string[]) {
     const n = entry.trim();
@@ -383,12 +394,79 @@ export function parseBridgeDefaultAllow(
   return canonicalGrants(wanted);
 }
 
+/** The key in `~/.config/devc/config.json` that holds the per-repo default grants. */
+export const BRIDGE_REPO_ALLOW_KEY = 'bridgeRepoAllow';
+
+/** One `bridgeRepoAllow` entry: the key as written, its expanded path, and its grants. */
+export interface BridgeRepoAllowEntry {
+  key: string;
+  path: string;
+  /** Canonical order; `[]` means "no default for this repo". */
+  grants: BridgeCapability[];
+}
+
+/**
+ * Validate `bridgeRepoAllow` as read raw from the global config: an object mapping host paths
+ * (`~` and `$VAR` expanded with `expandPath`, then absolute) to capability lists, each checked and
+ * canonicalized as {@link parseBridgeDefaultAllow}'s is — except that `[]` is kept: it means no
+ * default for that repo. Absent or `null` → null. Returned in key order. Throws the bare
+ * `<reason>`; the caller names the file and key. Whether two keys name one repo needs the
+ * filesystem, so `bridge.ts` checks that when it resolves them.
+ */
+export function parseBridgeRepoAllow(
+  raw: unknown,
+): BridgeRepoAllowEntry[] | null {
+  if (raw === undefined || raw === null) return null;
+  if (typeof raw !== 'object' || Array.isArray(raw)) {
+    throw new Error('must be an object mapping repo paths to capability lists');
+  }
+  const entries: BridgeRepoAllowEntry[] = [];
+  for (const [key, value] of Object.entries(raw)) {
+    let path: string;
+    try {
+      path = expandPath(key);
+    } catch (e) {
+      throw new Error(`${key}: ${e instanceof Error ? e.message : e}`);
+    }
+    if (!isAbsolutePosix(path)) throw new Error(`${key}: not an absolute path`);
+    let grants: BridgeCapability[];
+    try {
+      grants = defaultGrantList(value);
+    } catch (e) {
+      throw new Error(`${key}: ${e instanceof Error ? e.message : e}`);
+    }
+    entries.push({ key, path: path.replace(/(?<=.)\/+$/, ''), grants });
+  }
+  return entries;
+}
+
+/**
+ * Refuse a bare `--bridge-repo` — given without `--bridge-allow` — when neither default key is
+ * set, so it could only ever be skipped: `defaultAllow` is {@link parseBridgeDefaultAllow}'s
+ * answer and `repoAllow` {@link parseBridgeRepoAllow}'s. A `bridgeRepoAllow` with any key counts
+ * as set, even one whose entries are all `[]`. Throws the user-facing message.
+ */
+export function checkBareBridgeRepos(
+  bridgeRepos: readonly string[],
+  defaultAllow: BridgeCapability[] | null,
+  repoAllow: readonly BridgeRepoAllowEntry[] | null,
+): void {
+  if (
+    bridgeRepos.length > 0 && defaultAllow === null &&
+    (repoAllow === null || repoAllow.length === 0)
+  ) {
+    throw new Error(
+      `${BRIDGE_REPO_FLAG} requires ${BRIDGE_ALLOW_FLAG}, "${BRIDGE_DEFAULT_ALLOW_KEY}" or "${BRIDGE_REPO_ALLOW_KEY}"`,
+    );
+  }
+}
+
 /**
  * Split `--bridge-allow` and `--bridge-repo` (both spellings each) out of `args`: the
  * capabilities, or null when absent, the repos as typed, and the remaining args. The space forms
  * consume the next arg as their value, so it can never be read as the target path. Throws for
  * `--bridge-allow` given twice, a missing or invalid value, the removed `--bridge-git-push`,
- * `--bridge-repo` without `--bridge-allow` or with `--bridge-allow none`, the same repo named twice, or more than
+ * `--bridge-repo` with `--bridge-allow none`, the same repo named twice, or more than
  * {@link MAX_BRIDGE_REPOS} of them.
  */
 function takeBridgeFlags(
@@ -430,9 +508,6 @@ function takeBridgeFlags(
     }
   }
   const bridgeAllow = value === null ? null : parseBridgeAllow(value);
-  if (bridgeRepos.length > 0 && bridgeAllow === null) {
-    throw new Error(`${BRIDGE_REPO_FLAG} requires ${BRIDGE_ALLOW_FLAG}`);
-  }
   if (bridgeRepos.length > 0 && bridgeAllow === BRIDGE_ALLOW_NONE) {
     throw new Error(
       `${BRIDGE_REPO_FLAG} requires ${BRIDGE_ALLOW_FLAG} with capabilities`,

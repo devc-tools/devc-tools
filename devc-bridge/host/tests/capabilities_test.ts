@@ -408,7 +408,7 @@ Deno.test('a broken policy is refused with exit 2, the reason, and a whole-list 
   });
 });
 
-Deno.test('a multi-repo policy grants by its one shared grant list', async () => {
+Deno.test('a multi-repo policy with the same grants on every line grants them', async () => {
   const second =
     `/s\tgit@github.com:o/s.git\tfix\tgh-push,gh-pr-read,gh-pr-reply\t/workspaces/s\n`;
   await withServer(
@@ -423,15 +423,70 @@ Deno.test('a multi-repo policy grants by its one shared grant list', async () =>
           'gh-pr-resolve needs capability gh-pr-resolve or gh-pr-resolve-copilot, which this container was not granted (it has: gh-push, gh-pr-read, gh-pr-reply) — on the host: devc up --bridge-allow gh-push,gh-pr-read,gh-pr-reply,gh-pr-resolve',
         ),
       );
-      // Grants that differ between lines are malformed: one list for every repo, or none.
+      // Lines may differ, but each must hold on its own: a bad line 2 breaks the whole policy.
       await Deno.writeTextFile(
         policyFile,
         policyLine('gh-push,gh-pr-read,gh-pr-reply') +
-          second.replace(',gh-pr-reply', ''),
+          second.replace('gh-push,gh-pr-read,gh-pr-reply', 'gh-pr-reply'),
       );
       const resp = await call(port, token, 'gh-push');
       assertEquals(resp.exitCode, 2);
-      assertStringIncludes(resp.stderr!, "line 2: grants differ from line 1's");
+      assertStringIncludes(
+        resp.stderr!,
+        'line 2: gh-pr-reply requires gh-pr-read',
+      );
+    },
+  );
+});
+
+Deno.test('grants per line: a built-in runs when any line grants it, and a refusal lists the union', async () => {
+  const lib = '/l\tgit@github.com:o/l.git\tfeat\tgh-pr-read\t/workspaces/l\n';
+  await withServer(
+    policyLine('gh-push') + lib,
+    async ({ port, token }) => {
+      // Line 1 grants gh-push, line 2 gh-pr-read: both run; the script picks the line.
+      assertEquals(
+        (await call(port, token, 'gh-pr-comments')).stdout,
+        `builtin gh-pr-comments key=${KEY}\n`,
+      );
+      assertEquals(
+        (await call(port, token, 'gh-push')).stdout,
+        `builtin gh-push key=${KEY}\n`,
+      );
+      assertEquals(
+        await call(port, token, 'gh-pr-reply'),
+        refused(
+          1,
+          'gh-pr-reply needs capability gh-pr-reply, which this container was not granted (it has: gh-push, gh-pr-read) — on the host: devc up --bridge-allow gh-push,gh-pr-read,gh-pr-reply',
+        ),
+      );
+    },
+  );
+  await withServer(
+    policyLine('gh-push') +
+      '/l\tgit@github.com:o/l.git\tfeat\tgh-push\t/workspaces/l\n',
+    async ({ port, token }) => {
+      // No line grants gh-pr-read: refused, listing every line's grants once.
+      assertEquals(
+        await call(port, token, 'gh-pr-comments'),
+        refused(
+          1,
+          'gh-pr-comments needs capability gh-pr-read, which this container was not granted (it has: gh-push) — on the host: devc up --bridge-allow gh-push,gh-pr-read',
+        ),
+      );
+    },
+  );
+  await withServer(
+    policyLine('gh-pr-read,gh-pr-viewed') +
+      '/l\tgit@github.com:o/l.git\tfeat\tgh-push,gh-pr-read,gh-pr-reply\t/workspaces/l\n',
+    async ({ port, token }) => {
+      assertEquals(
+        await call(port, token, 'gh-pr-resolve'),
+        refused(
+          1,
+          'gh-pr-resolve needs capability gh-pr-resolve or gh-pr-resolve-copilot, which this container was not granted (it has: gh-push, gh-pr-read, gh-pr-reply, gh-pr-viewed) — on the host: devc up --bridge-allow gh-push,gh-pr-read,gh-pr-reply,gh-pr-viewed,gh-pr-resolve',
+        ),
+      );
     },
   );
 });

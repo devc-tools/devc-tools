@@ -1,6 +1,7 @@
 import { assert, assertEquals, assertThrows } from 'jsr:@std/assert@^1';
 import {
   bridgeDefaultAllowFromConfig,
+  bridgeRepoAllowFromConfig,
   displayPath,
   expandPath,
   globalConfigExists,
@@ -165,6 +166,51 @@ Deno.test('bridgeDefaultAllowFromConfig: raw, and a load and save keeps it uncha
       const cfg = await loadGlobalConfig(path);
       assertEquals(bridgeDefaultAllowFromConfig(cfg), value);
       // The wizard's save path: fresh lists, the loaded extras.
+      await saveGlobalConfig(
+        makeGlobalConfig(
+          cfg.codeRoots,
+          cfg.skillsRoots,
+          path,
+          cfg.extra,
+          cfg.recentSkills,
+        ),
+      );
+      assertEquals(await Deno.readTextFile(path), text);
+    }
+  });
+});
+
+Deno.test('bridgeRepoAllowFromConfig: raw, and a load and save keeps it unchanged', async () => {
+  await withTemp(async (dir) => {
+    const path = `${dir}/config.json`;
+    assertEquals(
+      bridgeRepoAllowFromConfig(await loadGlobalConfig(path)),
+      undefined,
+    );
+    // Kept exactly as written, even a value devc would refuse: only `up`/`build` validate it.
+    for (
+      const value of [
+        {
+          '~/code/shared-lib': ['gh-pr-reply', 'gh-pr-read'],
+          '~/code/secrets': [],
+        },
+        ['not', 'an', 'object'],
+      ]
+    ) {
+      const text = JSON.stringify(
+        {
+          codeRoots: ['~/a'],
+          skillsRoots: [],
+          recentSkills: [],
+          bridgeDefaultAllow: ['gh-pr-read'],
+          bridgeRepoAllow: value,
+        },
+        null,
+        2,
+      ) + '\n';
+      await Deno.writeTextFile(path, text);
+      const cfg = await loadGlobalConfig(path);
+      assertEquals(bridgeRepoAllowFromConfig(cfg), value);
       await saveGlobalConfig(
         makeGlobalConfig(
           cfg.codeRoots,
