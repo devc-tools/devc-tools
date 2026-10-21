@@ -273,8 +273,9 @@ body.resizing-sidebar {
   font-size: 11px;
 }
 
-/* Two zones, each scrolling on its own: what is in use (at most a little over half), then the
-   containers, under a thick rule, their heading kept at the top as they scroll. */
+/* Three zones, each scrolling on its own: what is in use (at most a little over half), then
+   the tasks and the containers, each under a thick rule with its heading kept at the top as it
+   scrolls. */
 .zone {
   min-height: 0;
   overflow: auto;
@@ -288,8 +289,16 @@ body.resizing-sidebar {
   max-height: 56%;
 }
 
-/* Containers takes what In use leaves (its basis 0, so it never squeezes In use below what In
-   use needs), and with Containers folded In use may take it all. */
+/* Tasks takes what it needs, up to a quarter. */
+.zone-tasks {
+  flex: 0 1 auto;
+  max-height: 25%;
+  padding-top: 0;
+  border-top: 3px solid #3a4b63;
+}
+
+/* Containers takes what In use and Tasks leave (its basis 0, so it never squeezes them below
+   what they need), and with Containers folded In use may take the rest. */
 .zone-browse {
   flex: 1 1 0;
   padding-top: 0;
@@ -304,6 +313,7 @@ body.resizing-sidebar {
   flex: 0 0 auto;
 }
 
+.zone-tasks > .row.section:first-child,
 .zone-browse > .row.section:first-child {
   position: sticky;
   top: 0;

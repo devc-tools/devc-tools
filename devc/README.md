@@ -394,7 +394,7 @@ is published from any container: the host server finds devcontainers with
   Pins are kept in `~/.config/devc/pinned-files.json`, so a browser tab and the
   devc-desktop window show the same ones. They are not pinned projects (a
   project kept in the Containers list) and not a preview tile's **Keep open**.
-- **Tasks:** the **Tasks** section, at the top of the sidebar,
+- **Tasks:** the **Tasks** section, between In use and Containers,
   is a to-do list for agents. Its **+** opens a dialog: write the task (the
   first line is its title), optionally choose a project and repo, then **Save**
   it for later or send it straight away with the two icons at the dialog's top,

@@ -293,6 +293,7 @@ const $tree = /** @type {HTMLElement} */ (document.getElementById('tree'));
  * Tasks, the Layout tree) above, the containers to browse and manage below.
  */
 const $zoneInUse = h('div', { class: 'zone zone-in-use' });
+const $zoneTasks = h('div', { class: 'zone zone-tasks' });
 const $zoneBrowse = h('div', { class: 'zone zone-browse' });
 
 const $tiles = /** @type {HTMLElement} */ (document.getElementById('tiles'));
@@ -1208,9 +1209,9 @@ function chevron() {
 }
 
 /**
- * The sidebar, in two zones. Above: the Tasks section, the Pinned section (pinned files, only
- * while something is pinned), In use, and the Layout section (the Golden Layout tree,
- * single-child levels folded). Below: Containers, collapsible as a whole (Container → Terminals →
+ * The sidebar, in three zones, each scrolling on its own. Top: In use, the Pinned section
+ * (pinned files, only while something is pinned) and the Layout section (the Golden Layout tree,
+ * single-child levels folded). Middle: the Tasks section. Bottom: Containers, collapsible as a whole (Container → Terminals →
  * terminal, Container → Sessions → recent agent session, Container → Repos → repo → files, and
  * Container → Files → the container's own files from `/`).
  * Herdr tabs group nothing here: a pane the Herdr TUI split into a shared tab is just another pane.
@@ -1219,7 +1220,11 @@ function chevron() {
  */
 function renderTree() {
   const generation = ++renderGeneration;
-  const scroll = [$zoneInUse.scrollTop, $zoneBrowse.scrollTop];
+  const scroll = [
+    $zoneInUse.scrollTop,
+    $zoneTasks.scrollTop,
+    $zoneBrowse.scrollTop,
+  ];
   const focusKey = focusedTreeKey($tree);
   // A just-created row takes the focus only from the sidebar, never from a terminal.
   const active = document.activeElement;
@@ -1230,9 +1235,8 @@ function renderTree() {
     ? [newEntry.input.selectionStart, newEntry.input.selectionEnd]
     : null;
   const upper = [
-    ...taskRows(),
-    ...pinnedFileRows(),
     ...inUseRows(),
+    ...pinnedFileRows(),
     ...layoutRows(),
   ];
   const rows = [
@@ -1271,12 +1275,13 @@ function renderTree() {
     if (idle.length > 0) rows.push(...inactiveRows(idle));
   }
   $zoneInUse.replaceChildren(...upper);
+  $zoneTasks.replaceChildren(...taskRows());
   $zoneBrowse.replaceChildren(...rows);
   if ($zoneInUse.parentNode !== $tree) {
-    $tree.replaceChildren($zoneInUse, $zoneBrowse);
+    $tree.replaceChildren($zoneInUse, $zoneTasks, $zoneBrowse);
   }
   $tree.classList.toggle('containers-closed', !sidebarState.containersOpen);
-  [$zoneInUse.scrollTop, $zoneBrowse.scrollTop] = scroll;
+  [$zoneInUse.scrollTop, $zoneTasks.scrollTop, $zoneBrowse.scrollTop] = scroll;
   const created = selectTreeKey === null
     ? null
     : treeRowByKey($tree, selectTreeKey);
