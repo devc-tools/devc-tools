@@ -8,13 +8,18 @@
 //
 // **The policy is the whole grant.** `policy/<key>.conf` names the repos a container's
 // capabilities act on — each one's host path, remote, branch and container path, one line each —
-// and which capabilities it has (`gh-push`, `gh-pr-review`, `gh-pr-resolve`,
-// `gh-pr-request-review`), always as the explicit list — `--bridge-allow gh` is expanded before it
-// gets here. A grant tries the workspace repo, then each extra repo the user names with
+// and which capabilities it has (`gh-push`, `gh-pr-read`, `gh-pr-review`, `gh-pr-viewed`,
+// `gh-pr-resolve`, `gh-pr-request-review`), always as the explicit list — `--bridge-allow gh` is
+// expanded before it gets here. A grant tries the workspace repo, then each extra repo the user names with
 // `--bridge-repo PATH` on the same command — devc never pins a mounted repo it was not told to —
 // and pins each that passes its own checks, in that order, skipping the rest with a notice; it
 // fails only when none pass. Only `devc up` / `devc build` create it (with
-// `--bridge-allow <list>`) or delete it (without), and only on GitHub remotes. Every other start path only *refreshes* one that exists:
+// `--bridge-allow <list>`, or without it from `bridgeDefaultAllow` in `~/.config/devc/config.json`)
+// or delete it (`--bridge-allow none`, or no flag and no default), and only on GitHub remotes. The
+// default lives in that file and never in a devc config layer: every layer `up` merges is
+// agent-writable or merged with one that is, and no container mounts `config.json`. A default
+// grant that cannot pin anything logs why and lets the start succeed, where an explicit one fails
+// it. Every other start path only *refreshes* one that exists:
 // it re-derives every line and revokes the whole policy when any of them fails or no longer
 // matches, since a policy that outlives its preconditions is a grant nobody asked for. Refresh
 // never writes the policy — `HEAD` is agent-writable, so a pin that followed it would let the agent
@@ -71,12 +76,13 @@ const BRIDGE_TARGET = '/run/devc-bridge';
 /**
  * What a start path does with the policy. See the module header. A grant carries its capabilities
  * (canonical order, validated by `parseBridgeAllow`) and the `--bridge-repo` paths as typed, and
- * replaces any earlier policy whole.
+ * replaces any earlier policy whole. A default grant carries `bridgeDefaultAllow`'s capabilities
+ * (validated by `parseBridgeDefaultAllow`), never pins a `--bridge-repo`, and never fails.
  */
 export type PolicyMode = 'revoke' | 'refresh' | {
   grant: BridgeCapability[];
   repos?: string[];
-};
+} | { defaultGrant: BridgeCapability[] };
 
 /** Injected so the tests can run against a temp home and a fake mount table. */
 export interface BridgeDeps {
@@ -863,11 +869,15 @@ export async function checkGrantBeforeUp(
 /**
  * After `devcontainer up`: apply `mode` to this workspace's policy.
  *
- * - `revoke` — unlink it. What `up`/`build` do without the flag.
+ * - `revoke` — unlink it. What `up`/`build` do with `--bridge-allow none`, or with neither the
+ *   flag nor a `bridgeDefaultAllow`.
  * - `{ grant }` — derive the workspace pin and one per `--bridge-repo` against the live mount
  *   table and write the ones that pass with exactly these capabilities, logging each candidate
  *   skipped and why; or, when {@link derivePins} fails, remove any policy and throw
  *   {@link BridgeGrantError} with its reason.
+ * - `{ defaultGrant }` — as a grant with no `--bridge-repo`, logged as `bridgeDefaultAllow`'s, but
+ *   never throws a {@link BridgeGrantError}: a workspace without the Feature is revoked (logged
+ *   only when a policy was removed), and any other failure removes any policy and logs why.
  * - `refresh` — only when a policy exists: re-derive every line and compare it with the stored
  *   one. All identical → nothing is written or logged. Any line can no longer be derived, differs
  *   in repo, origin, branch or container path, or the file is malformed → remove the whole policy
@@ -882,7 +892,11 @@ export async function applyPolicy(
 ): Promise<void> {
   const key = await projectKey(localFolder);
 
-  if (mode === 'revoke') {
+  if (
+    mode === 'revoke' ||
+    (typeof mode === 'object' && 'defaultGrant' in mode &&
+      merged.bridgeKey === null)
+  ) {
     if (await removePolicy(key, deps)) {
       deps.log(
         'devc: devc-bridge capabilities revoked for this workspace (pass --bridge-allow to keep them)',
@@ -907,22 +921,32 @@ export async function applyPolicy(
     return;
   }
 
-  const grants = mode.grant;
+  const byDefault = 'defaultGrant' in mode;
+  const grants = byDefault ? mode.defaultGrant : mode.grant;
+  const source = byDefault ? 'bridgeDefaultAllow' : '--bridge-allow';
   let pins;
   try {
     pins = await derivePins(
       merged,
       localFolder,
-      mode.repos ?? [],
+      byDefault ? [] : mode.repos ?? [],
       await deps.mounts(localFolder),
       deps.home,
     );
   } catch (e) {
     await removePolicy(key, deps);
+    if (byDefault && e instanceof BridgeGrantError) {
+      deps.log(`devc: bridgeDefaultAllow: not granted: ${e.message}`);
+      return;
+    }
     throw e;
   }
   if (!pins.ok) {
     await removePolicy(key, deps);
+    if (byDefault) {
+      deps.log(`devc: bridgeDefaultAllow: not granted: ${pins.reason}`);
+      return;
+    }
     throw new BridgeGrantError(
       `the container is up, but --bridge-allow was not granted: ${pins.reason}`,
     );
@@ -933,9 +957,13 @@ export async function applyPolicy(
     serializePolicy(current.record) === serializePolicy(record);
   if (!unchanged) await writePolicy(key, record, deps);
   for (const r of pins.skipped) {
-    deps.log(`devc: --bridge-allow: not pinning ${r.label}: ${r.reason}`);
+    deps.log(`devc: ${source}: not pinning ${r.label}: ${r.reason}`);
   }
-  deps.log(`devc: devc-bridge capabilities granted: ${grants.join(', ')}`);
+  deps.log(
+    `devc: devc-bridge capabilities granted${
+      byDefault ? ' (bridgeDefaultAllow)' : ''
+    }: ${grants.join(', ')}`,
+  );
   for (const r of record.repos) deps.log(`devc:   ${describeRepo(r)}`);
 }
 

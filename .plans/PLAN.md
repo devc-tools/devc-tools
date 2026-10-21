@@ -55,14 +55,6 @@
   generalized from vscode-deephaven's `vscode-dev.sh`. chrome-devtools-mcp registration stays
   with the consuming project. Replaces the `feature-electron-deps` placeholder.
 
-- [bridge-read-tier-defaults](bridge-read-tier-defaults.md) — new capabilities `gh-pr-read`
-  (`gh-pr-comments`, which `gh-pr-review` still enables too, and a new `gh-pr-files`: the pinned
-  PR's changed files, patches and Viewed state) and `gh-pr-viewed` (new `gh-pr-viewed`, requires
-  `gh-pr-read`). A built-in runs when any of its capabilities is granted. `"bridgeDefaultAllow"`
-  in `~/.config/devc/config.json` is what `devc up`/`devc build` grant without `--bridge-allow`
-  (never read from a devc config layer; a default that can't pin logs and doesn't fail);
-  `--bridge-allow none` grants nothing. Refresh paths still never create a policy.
-
 - [devc-web-pr-review](devc-web-pr-review.md) — after bridge-read-tier-defaults: a **Pull
   request** row under each repo of a running container shows the pinned branch's PR as a tree of
   changed files with Viewed checkboxes, and a click opens a `diff` tile with its review threads.
@@ -112,6 +104,14 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
   take it too.
 
 ### Completed
+
+- [bridge-read-tier-defaults](archived/bridge-read-tier-defaults.md) — new capabilities `gh-pr-read`
+  (`gh-pr-comments`, which `gh-pr-review` still enables too, and a new `gh-pr-files`: the pinned
+  PR's changed files, patches and Viewed state) and `gh-pr-viewed` (new `gh-pr-viewed`, requires
+  `gh-pr-read`). A built-in runs when any of its capabilities is granted. `"bridgeDefaultAllow"`
+  in `~/.config/devc/config.json` is what `devc up`/`devc build` grant without `--bridge-allow`
+  (never read from a devc config layer; a default that can't pin logs and doesn't fail);
+  `--bridge-allow none` grants nothing. Refresh paths still never create a policy.
 
 - [bridge-skip-unpinnable-repos](archived/bridge-skip-unpinnable-repos.md) — a `--bridge-allow` grant
   checks the workspace repo and each `--bridge-repo` on its own: ones failing a per-repo
@@ -2388,6 +2388,6 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
 | devc-desktop host cd — the host terminal's right-click `cd`s to devc web's active pane folder                      | [devc-desktop-host-cd](archived/devc-desktop-host-cd.md)                           | complete    |
 | bridge skip unpinnable repos — pin the candidates that pass, error only when none do                               | [bridge-skip-unpinnable-repos](archived/bridge-skip-unpinnable-repos.md)           | complete    |
 | `devc web` agent sessions — a Sessions node per container lists and resumes recent agent sessions                  | [devc-web-agent-sessions](archived/devc-web-agent-sessions.md)                     | complete    |
-| devc-bridge read tier — `gh-pr-read`/`gh-pr-files`, `gh-pr-viewed`, `bridgeDefaultAllow` in config.json            | [bridge-read-tier-defaults](bridge-read-tier-defaults.md)                          |             |
+| devc-bridge read tier — `gh-pr-read`/`gh-pr-files`, `gh-pr-viewed`, `bridgeDefaultAllow` in config.json            | [bridge-read-tier-defaults](archived/bridge-read-tier-defaults.md)                 | complete    |
 | devc web PR review — sidebar PR tree + Viewed, diff tiles with threads, all through the container's bridge         | [devc-web-pr-review](devc-web-pr-review.md)                                        |             |
 | devc web sidebar scale fixes — Tasks section, In use merged by folder, running sessions not resumed twice          | [devc-web-sidebar-scale-fixes](archived/devc-web-sidebar-scale-fixes.md)           | complete    |

@@ -23,10 +23,12 @@
 # shellcheck disable=SC2016,SC2034
 me=gh-pr-request-review
 usage="usage: gh-pr-request-review [--repo <path>]"
+grant_hint=gh-pr-review,gh-pr-request-review
 # ── BEGIN pr-prelude ──
-# Shared by gh-pr-comments, gh-pr-reply, gh-pr-resolve and gh-pr-request-review: keep the four
-# copies byte-identical (the harness checks). Recipes are installed one file at a time, so there is
-# no library to source.
+# Shared by gh-pr-comments, gh-pr-files, gh-pr-viewed, gh-pr-reply, gh-pr-resolve and
+# gh-pr-request-review: keep the six copies byte-identical (the harness checks). Recipes are
+# installed one file at a time, so there is no library to source. Each script sets `me`, `usage`
+# and `grant_hint` (the `--bridge-allow` value that would let it run) before this block.
 #
 # The container's repo is never touched — not read, not run in. Everything comes from the policy
 # (which remote, which branch — of the pinned repo `--repo` selects, when it pins several) and from
@@ -215,16 +217,21 @@ load_policy() {
   policy_dir=${DEVC_BRIDGE_POLICY_DIR:-$HOME/.config/devc-bridge/policy}
   policy=$policy_dir/$key.conf
   [ -f "$policy" ] ||
-    die 2 "no policy for this container — on the host: devc up --bridge-allow gh-pr-review"
+    die 2 "no policy for this container — on the host: devc up --bridge-allow $grant_hint"
   parse_policy "$policy" || die 2 "malformed policy $policy: $pol_why"
   select_repo "$want_repo"
   parse_remote "$remote" || die 2 "unsupported remote $remote — only github.com"
 }
 
-# require_grant CAP — exit 2 unless the policy grants CAP. The bridge already refused an ungranted
-# call before running this; this is the second layer.
+# require_grant CAP… — exit 2 unless the policy grants at least one CAP. The bridge already refused
+# an ungranted call before running this; this is the second layer.
 require_grant() {
-  case ,$grants, in *,"$1",*) ;; *) die 2 "this container was not granted $1" ;; esac
+  local cap want=''
+  for cap in "$@"; do
+    case ,$grants, in *,"$cap",*) return 0 ;; esac
+    want=${want:+$want or }$cap
+  done
+  die 2 "this container was not granted $want"
 }
 
 # parse_remote URL — sets head_owner/head_name. Three shapes, github.com or a `github.com-*` ssh

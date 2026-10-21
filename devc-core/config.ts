@@ -206,6 +206,17 @@ export function webSourceFromConfig(cfg: GlobalConfig): string | null {
   return expanded;
 }
 
+/**
+ * `bridgeDefaultAllow`: the devc-bridge capabilities `devc up` and `devc build` grant when
+ * `--bridge-allow` is not given. Kept in `extra`, so every save — the wizard's included, which
+ * has no UI for it — preserves it verbatim. Returned **raw** (`undefined` when absent): the CLI
+ * validates it, and only when it is about to use it, so a bad value never breaks another command.
+ * Read from this file only, never from a devc config layer: no container mounts `config.json`.
+ */
+export function bridgeDefaultAllowFromConfig(cfg: GlobalConfig): unknown {
+  return cfg.extra.bridgeDefaultAllow;
+}
+
 /** Construct a config value from explicit lists (used by tests and the wizard save path). */
 export function makeGlobalConfig(
   codeRoots: string[],

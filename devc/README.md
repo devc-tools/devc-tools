@@ -113,12 +113,15 @@ Notes:
   <path>`, or `No container for <path>` when there was nothing to remove. Both
   exit 0 either way — neither is an error.
 - `--bridge-allow LIST` on `up`/`build` grants the container devc-bridge
-  capabilities — a comma-separated subset of `gh-push`, `gh-pr-review`,
-  `gh-pr-resolve` and `gh-pr-request-review` (the last two each require
-  `gh-pr-review`), or `gh` / `'gh-*'` for all of them — on its current branch,
-  whose `origin` must be a github.com remote. `up`/`build` **without** it revoke
-  any earlier grant. `--bridge-repo PATH` (repeatable, only with
-  `--bridge-allow`) pins an extra git-protected repo mount alongside the
+  capabilities — a comma-separated subset of `gh-push`, `gh-pr-read`,
+  `gh-pr-review`, `gh-pr-viewed` (requires `gh-pr-read`), `gh-pr-resolve` and
+  `gh-pr-request-review` (each requires `gh-pr-review`), or `gh` / `'gh-*'` for
+  all of them — on its current branch, whose `origin` must be a github.com
+  remote. `--bridge-allow none` revokes any earlier grant. `up`/`build`
+  **without** the flag grant `bridgeDefaultAllow` from
+  `~/.config/devc/config.json` when it is set, and otherwise revoke — see
+  [A default grant](#a-default-grant-bridgedefaultallow). `--bridge-repo PATH`
+  (repeatable, only with `--bridge-allow LIST`) pins an extra git-protected repo mount alongside the
   workspace repo; a repo that fails its checks is skipped with a notice, and
   the grant fails only when none pass. No other command accepts either flag, and the old
   `--bridge-git-push` is refused with a pointer to `--bridge-allow gh-push` — see
@@ -1485,13 +1488,15 @@ one.
 | Capability             | Lets the container run                        |
 | ---------------------- | --------------------------------------------- |
 | `gh-push`              | `gh-push`, `gh-doctor`                        |
+| `gh-pr-read`           | `gh-pr-comments`, `gh-pr-files` (read only)   |
 | `gh-pr-review`         | `gh-pr-comments`, `gh-pr-reply`               |
+| `gh-pr-viewed`         | `gh-pr-viewed` (needs `gh-pr-read`)           |
 | `gh-pr-resolve`        | `gh-pr-resolve` (needs `gh-pr-review`)        |
 | `gh-pr-request-review` | `gh-pr-request-review` (needs `gh-pr-review`) |
 
 **`gh` and `gh-*` mean all of them.** In a `--bridge-allow` list, the exact
 entries `gh` and `gh-*` each expand to every capability whose name starts with
-`gh-` — today, all four — and mix freely with explicit names. No other pattern
+`gh-` — today, all six — and mix freely with explicit names. No other pattern
 is accepted (`*`, `gh-pr-*` and `GH` are unknown capabilities). devc expands
 them when it parses the flag, so the policy always stores the explicit list: a
 capability a later release adds is **not** granted to an existing container
@@ -1520,7 +1525,9 @@ devc up ~/code/tools/devc-dev --bridge-allow gh --bridge-repo ~/code/tools/devc-
 ```
 
 - `--bridge-repo PATH` is accepted by `up` and `build` only, requires
-  `--bridge-allow` (`devc: --bridge-repo requires --bridge-allow`, exit 2), and
+  `--bridge-allow` (`devc: --bridge-repo requires --bridge-allow`, exit 2) with
+  capabilities (`devc: --bridge-repo requires --bridge-allow with capabilities`
+  for `--bridge-allow none`), and
   repeats, one path each, at most 15 times. Both `--bridge-repo PATH` and
   `--bridge-repo=PATH` work; the same repo twice is a usage error.
 - `PATH` is a **host** path, as you wrote it in `devc:source`: a leading `~` or
@@ -1582,15 +1589,59 @@ devc up ~/code/tools/devc-dev --bridge-allow gh --bridge-repo ~/code/tools/devc-
     a typo is never silently dropped);
   - two pinned repos that **conflict** on one GitHub repo (above).
 
-| Command                                              | With `--bridge-allow LIST [--bridge-repo PATH]...`                      | Without it                                                                                 |
-| ---------------------------------------------------- | ----------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
-| `up`, `build`                                        | write the policy with exactly LIST and the repos that pass (no merging) | **delete** this workspace's policy                                                         |
-| `attach`, `claude`, `copilot`, `pi`, `herdr`, `exec` | refused — not accepted                                                  | re-check an existing policy; revoke it if any pinned repo's repo, origin or branch changed |
+| Command                                              | With `--bridge-allow LIST [--bridge-repo PATH]...`                      | Without it                                                                                                                                                              |
+| ---------------------------------------------------- | ----------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `up`, `build`                                        | write the policy with exactly LIST and the repos that pass (no merging) | grant `bridgeDefaultAllow` when it is set ([below](#a-default-grant-bridgedefaultallow)); otherwise, and with `--bridge-allow none`, **delete** this workspace's policy |
+| `attach`, `claude`, `copilot`, `pi`, `herdr`, `exec` | refused — not accepted                                                  | re-check an existing policy; revoke it if any pinned repo's repo, origin or branch changed                                                                              |
 
-Both are **flags, deliberately not config keys**: every `devc.jsonc` layer with
-the priority to set them lives inside the bind-mounted workspace, where an agent
-could grant itself the capability, or widen it to another repo, before your next
-`up`. A flag is typed per invocation and never persisted.
+Both are **flags, deliberately not devc config keys**: every `devc.jsonc` layer
+with the priority to set them lives inside the bind-mounted workspace, where an
+agent could grant itself the capability, or widen it to another repo, before
+your next `up`. A flag is typed per invocation and never persisted.
+
+#### A default grant (`bridgeDefaultAllow`)
+
+To stop typing the same grant on every `up`, name it once in
+`~/.config/devc/config.json`:
+
+```json
+{ "bridgeDefaultAllow": ["gh-pr-read", "gh-pr-viewed"] }
+```
+
+`devc up` and `devc build` grant that list whenever `--bridge-allow` is not
+given; the flag still replaces it, and `--bridge-allow none` grants nothing.
+Every other start path — `attach`, `herdr`, devc web's **Start container**, the
+TUI — still only re-checks an existing policy and never creates one.
+
+- **Only this file.** The key is never read from `devc.jsonc` or any repo
+  overlay. No container mounts `config.json` (devc mounts only
+  `~/.config/devc/.claude`, `shell/` and `git-identity/`), and only `devc config`
+  writes it — keeping it verbatim. **devc web never writes it**, and must not:
+  an agent can drive devc web's page.
+- **Explicit names only.** `gh` and `gh-*` are refused here: a default
+  re-expanded on every `up` would grant a later release's capabilities
+  silently. Entries are trimmed, duplicates dropped, and the list put in
+  canonical order; absent, `null` or `[]` is no default.
+- **Any capability can be a default — your call.** A write capability in it
+  (`gh-push`, `gh-pr-review`, `gh-pr-viewed`, `gh-pr-resolve`,
+  `gh-pr-request-review`) is granted to **every** container you `devc up`,
+  on whatever branch it has checked out. The read tier (`gh-pr-read`, plus
+  `gh-pr-viewed`, which only marks files Viewed for you) is what devc web needs
+  to show a PR.
+- **It never fails the start.** A value that is not valid exits 2 before
+  anything starts, as `devc: ~/.config/devc/config.json: bridgeDefaultAllow:
+  <reason>` (`must be an array of capability names`, `"gh" is not allowed here —
+  list each capability`, `unknown capability <name> — valid: …`, or
+  `<cap> requires <needed>`). A valid default that cannot pin anything — no
+  GitHub origin, a detached `HEAD`, git protection off — removes any earlier
+  policy, logs `devc: bridgeDefaultAllow: not granted: <reason>`, and the start
+  succeeds. A workspace without the devc-bridge Feature gets no line at all.
+  When it pins, `up` logs `devc: bridgeDefaultAllow: not pinning …` for each
+  skipped repo, then
+  `devc: devc-bridge capabilities granted (bridgeDefaultAllow): <list>` and the
+  usual repo lines. It never pins a `--bridge-repo`.
+- The policy file does not record whether a grant came from the flag or the
+  default.
 
 Before writing (or refreshing) a policy devc checks the following — 1, 2 and
 the key-directory half of 5 once for the container, first, failing the grant;

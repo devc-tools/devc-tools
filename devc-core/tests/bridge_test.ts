@@ -14,7 +14,8 @@ import {
   BRIDGE_CAPABILITY_COMMANDS,
   type BridgeCapability,
   bridgePaths,
-  capabilityForCommand,
+  builtinCommandNames,
+  capabilitiesForCommand,
   enablesWorktreeConfig,
   gitHubRepoOf,
   isGitHubRemote,
@@ -171,6 +172,10 @@ Deno.test('policy: every valid grant set round-trips', () => {
     ['gh-push', 'gh-pr-review', 'gh-pr-resolve'],
     ['gh-pr-review', 'gh-pr-request-review'],
     ['gh-push', 'gh-pr-review', 'gh-pr-resolve', 'gh-pr-request-review'],
+    ['gh-pr-read'],
+    ['gh-pr-read', 'gh-pr-viewed'],
+    ['gh-push', 'gh-pr-read', 'gh-pr-review', 'gh-pr-viewed'],
+    [...BRIDGE_CAPABILITIES],
   ];
   for (const grants of sets) {
     const record: PolicyRecord = {
@@ -219,6 +224,8 @@ Deno.test('policy: a malformed file parses to null', () => {
       line('/a', '/w', 'gh-pr-request-review'), // gh-pr-request-review without gh-pr-review
       line('/a', '/w', 'gh-push,gh-pr-resolve,gh-pr-request-review'), // … even alongside gh-pr-resolve
       line('/a', '/w', 'gh-pr-review,gh-pr-request-review,gh-pr-resolve'), // out of canonical order
+      line('/a', '/w', 'gh-pr-viewed'), // gh-pr-viewed without gh-pr-read
+      line('/a', '/w', 'gh-pr-review,gh-pr-read'), // out of canonical order
       line('/a', '/w') + line('/b', '/x', 'gh-push,gh-pr-review'), // grants differ
       line('/a', '/w') + line('/a', '/x'), // the same repo twice
       line('/a', '/w') + line('/b', '/w'), // the same target twice
@@ -281,6 +288,17 @@ Deno.test('policy: policyProblem names the first problem, and parsePolicy agrees
     [seventeen, 'more than 16 lines'],
     [sixteen, null],
     [line('/a', '/w', 'gh-push,gh-pr-review'), null],
+    // A policy from before gh-pr-read existed is still valid: the old names kept their order.
+    [line('/a', '/w', 'gh-push,gh-pr-review,gh-pr-resolve'), null],
+    [
+      line('/a', '/w', 'gh-pr-viewed'),
+      'line 1: gh-pr-viewed requires gh-pr-read',
+    ],
+    [
+      line('/a', '/w', 'gh-pr-review,gh-pr-read'),
+      'line 1: grants are duplicated or out of canonical order',
+    ],
+    [line('/a', '/w', 'gh-pr-read,gh-pr-viewed'), null],
     [line('/a', '/w') + line('/b', '/x'), null],
   ];
   for (const [text, want] of cases) {
@@ -336,26 +354,51 @@ Deno.test('gitHubRepoOf: owner/name from each remote shape, null otherwise', () 
 Deno.test('capabilities: the canonical order', () => {
   assertEquals(
     [...BRIDGE_CAPABILITIES],
-    ['gh-push', 'gh-pr-review', 'gh-pr-resolve', 'gh-pr-request-review'],
+    [
+      'gh-push',
+      'gh-pr-read',
+      'gh-pr-review',
+      'gh-pr-viewed',
+      'gh-pr-resolve',
+      'gh-pr-request-review',
+    ],
   );
 });
 
-Deno.test('capabilities: every built-in command maps to exactly one capability', () => {
-  assertEquals(capabilityForCommand('gh-push'), 'gh-push');
-  assertEquals(capabilityForCommand('gh-doctor'), 'gh-push');
-  assertEquals(capabilityForCommand('gh-pr-comments'), 'gh-pr-review');
-  assertEquals(capabilityForCommand('gh-pr-reply'), 'gh-pr-review');
-  assertEquals(capabilityForCommand('gh-pr-resolve'), 'gh-pr-resolve');
-  assertEquals(
-    capabilityForCommand('gh-pr-request-review'),
+Deno.test('capabilities: every capability enabling each built-in, in canonical order', () => {
+  assertEquals(capabilitiesForCommand('gh-push'), ['gh-push']);
+  assertEquals(capabilitiesForCommand('gh-doctor'), ['gh-push']);
+  assertEquals(capabilitiesForCommand('gh-pr-comments'), [
+    'gh-pr-read',
+    'gh-pr-review',
+  ]);
+  assertEquals(capabilitiesForCommand('gh-pr-files'), ['gh-pr-read']);
+  assertEquals(capabilitiesForCommand('gh-pr-viewed'), ['gh-pr-viewed']);
+  assertEquals(capabilitiesForCommand('gh-pr-reply'), ['gh-pr-review']);
+  assertEquals(capabilitiesForCommand('gh-pr-resolve'), ['gh-pr-resolve']);
+  assertEquals(capabilitiesForCommand('gh-pr-request-review'), [
     'gh-pr-request-review',
-  );
-  assertEquals(capabilityForCommand('caffeinate'), null);
+  ]);
+  assertEquals(capabilitiesForCommand('echo'), []);
+  assertEquals(capabilitiesForCommand('caffeinate'), []);
   for (const old of ['git-push', 'git-doctor', 'pr-comments', 'pr-resolve']) {
-    assertEquals(capabilityForCommand(old), null, old);
+    assertEquals(capabilitiesForCommand(old), [], old);
   }
-  const all = BRIDGE_CAPABILITIES.flatMap((c) => BRIDGE_CAPABILITY_COMMANDS[c]);
-  assertEquals(new Set(all).size, all.length);
+  // Within one capability no command repeats; across them only gh-pr-comments does.
+  for (const c of BRIDGE_CAPABILITIES) {
+    const names = BRIDGE_CAPABILITY_COMMANDS[c];
+    assertEquals(new Set(names).size, names.length, c);
+  }
+  assertEquals(builtinCommandNames(), [
+    'gh-push',
+    'gh-doctor',
+    'gh-pr-comments',
+    'gh-pr-files',
+    'gh-pr-reply',
+    'gh-pr-viewed',
+    'gh-pr-resolve',
+    'gh-pr-request-review',
+  ]);
 });
 
 // ── HEAD and gitdir ─────────────────────────────────────────────────────────────────────────

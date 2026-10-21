@@ -298,6 +298,120 @@ Deno.test('grant with gitProtect off, no Feature, or no container: each named', 
   });
 });
 
+// ── default grant (bridgeDefaultAllow) ──────────────────────────────────────────────────────
+
+const DEFAULT_GRANT: PolicyMode = {
+  defaultGrant: ['gh-pr-read', 'gh-pr-viewed'],
+};
+
+Deno.test('a default grant writes the policy and logs the (bridgeDefaultAllow) lines', async () => {
+  await withFixture(async (f) => {
+    await applyPolicy(
+      DEFAULT_GRANT,
+      await f.merged(),
+      f.project,
+      f.deps(f.frozen),
+    );
+    const file = bridgePaths(f.home, await projectKey(f.project)).policyFile;
+    assertEquals(
+      await Deno.readTextFile(file),
+      `${f.project}\tgit@github.com:acme/proj.git\tfeat/x\tgh-pr-read,gh-pr-viewed\t/workspaces/proj\n`,
+    );
+    assertEquals(f.logs, [
+      'devc: devc-bridge capabilities granted (bridgeDefaultAllow): gh-pr-read, gh-pr-viewed',
+      `devc:   /workspaces/proj: feat/x → git@github.com:acme/proj.git (${f.project})`,
+    ]);
+    // The same default again: unchanged, and the policy file is not rewritten.
+    const before = (await Deno.stat(file)).mtime;
+    f.logs.length = 0;
+    await applyPolicy(
+      DEFAULT_GRANT,
+      await f.merged(),
+      f.project,
+      f.deps(f.frozen),
+    );
+    assertEquals((await Deno.stat(file)).mtime, before);
+    assertEquals(f.logs.length, 2);
+  });
+});
+
+Deno.test('a default grant with no GitHub origin logs not granted, removes an old policy and does not throw', async () => {
+  await withFixture(async (f) => {
+    const merged = await f.merged();
+    await applyPolicy(GRANT, merged, f.project, f.deps(f.frozen));
+    const origin = 'git@gitlab.com:acme/proj.git';
+    await Deno.writeTextFile(
+      `${f.project}/.git/config`,
+      `[remote "origin"]\n\turl = ${origin}\n`,
+    );
+    f.logs.length = 0;
+    await applyPolicy(DEFAULT_GRANT, merged, f.project, f.deps(f.frozen));
+    assertEquals(f.logs, [
+      `devc: bridgeDefaultAllow: not granted: origin ${origin} is not a github.com remote`,
+    ]);
+    assertEquals(
+      await readPolicy(await projectKey(f.project), f.deps(null)),
+      { kind: 'absent' },
+    );
+  });
+});
+
+Deno.test('a default grant never fails: a detached HEAD, gitProtect off, no container', async () => {
+  await withFixture(async (f) => {
+    await f.setHead(`${SHA1}\n`);
+    await applyPolicy(
+      DEFAULT_GRANT,
+      await f.merged(),
+      f.project,
+      f.deps(f.frozen),
+    );
+    await f.setHead('ref: refs/heads/feat/x\n');
+    await applyPolicy(
+      DEFAULT_GRANT,
+      await f.merged({ gitProtect: false }),
+      f.project,
+      f.deps(f.frozen),
+    );
+    await applyPolicy(DEFAULT_GRANT, await f.merged(), f.project, f.deps(null));
+    assertEquals(f.logs.length, 3, f.logs.join('\n'));
+    for (const line of f.logs) {
+      assert(line.startsWith('devc: bridgeDefaultAllow: not granted: '), line);
+    }
+    assertStringIncludes(f.logs[0], 'detached');
+    assertStringIncludes(f.logs[1], 'gitProtect is off');
+    assertStringIncludes(f.logs[2], 'no container');
+  });
+});
+
+Deno.test('a default grant with no Feature logs nothing, and removes a policy as revoke does', async () => {
+  await withFixture(async (f) => {
+    const noFeature = await f.merged({ features: { [BRIDGE_FEATURE]: null } });
+    await applyPolicy(DEFAULT_GRANT, noFeature, f.project, f.deps(f.frozen));
+    assertEquals(f.logs, []);
+    await applyPolicy(GRANT, await f.merged(), f.project, f.deps(f.frozen));
+    f.logs.length = 0;
+    await applyPolicy(DEFAULT_GRANT, noFeature, f.project, f.deps(f.frozen));
+    assertEquals(f.logs, [
+      'devc: devc-bridge capabilities revoked for this workspace (pass --bridge-allow to keep them)',
+    ]);
+  });
+});
+
+Deno.test('refresh with no policy and a default configured still writes nothing', async () => {
+  await withFixture(async (f) => {
+    await write(
+      `${f.home}/.config/devc/config.json`,
+      JSON.stringify({ bridgeDefaultAllow: ['gh-pr-read'] }),
+    );
+    await applyPolicy('refresh', await f.merged(), f.project, f.deps(f.frozen));
+    assertEquals(
+      await readPolicy(await projectKey(f.project), f.deps(null)),
+      { kind: 'absent' },
+    );
+    assertEquals(f.logs, []);
+  });
+});
+
 Deno.test('checkGrantBeforeUp fails fast on a detached HEAD, before any container exists', async () => {
   await withFixture(async (f) => {
     await f.setHead(`${SHA1}\n`);
@@ -941,8 +1055,9 @@ Deno.test('--bridge-repo: ~/x after =, a literal ~/x and the absolute path pin t
           'gh-push',
           ...args,
         ]);
+        assert(Array.isArray(bridgeAllow));
         await applyPolicy(
-          { grant: bridgeAllow!, repos: bridgeRepos },
+          { grant: bridgeAllow, repos: bridgeRepos },
           merged,
           f.project,
           f.deps(frozen),

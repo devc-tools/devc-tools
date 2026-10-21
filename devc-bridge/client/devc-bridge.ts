@@ -39,7 +39,11 @@ Built-in commands (capability in brackets, granted on the host with
 \`devc up --bridge-allow <caps>\`):
   gh-push [--repo <path>]          publish the pinned branch                [gh-push]
   gh-doctor                        show every pin and why a push would fail [gh-push]
-  gh-pr-comments [--repo <path>]   unresolved threads on your PR, as JSON   [gh-pr-review]
+  gh-pr-comments [--repo <path>]   unresolved threads on your PR, as JSON
+                                                                            [gh-pr-read|gh-pr-review]
+  gh-pr-files [--repo <path>]      your PR's changed files and patches      [gh-pr-read]
+  gh-pr-viewed [--repo <path>] <viewed|unviewed> <file>
+                                   mark one of those files Viewed or not    [gh-pr-viewed]
   gh-pr-reply [--repo <path>] <thread-id> <body>
                                    reply to a review thread                 [gh-pr-review]
   gh-pr-resolve [--repo <path>] <thread-id>

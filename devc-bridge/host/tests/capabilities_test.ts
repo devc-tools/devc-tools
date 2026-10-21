@@ -4,10 +4,7 @@
 
 import { assert, assertEquals, assertStringIncludes } from '@std/assert';
 import { join } from '@std/path';
-import {
-  BRIDGE_CAPABILITIES,
-  BRIDGE_CAPABILITY_COMMANDS,
-} from '@devc-tools/core/bridge.ts';
+import { builtinCommandNames } from '@devc-tools/core/bridge.ts';
 import { listBuiltins, materializeBuiltins, seedCommands } from '../config.ts';
 import { type RunningServer, startServer } from '../core.ts';
 import { resetToken } from '../token.ts';
@@ -38,7 +35,7 @@ async function script(path: string, body: string): Promise<void> {
 
 /**
  * A server over a temp tree with one keyed container, stub built-ins (each echoes `builtin
- * <name>`), and a `commands/gh-push` that must never run. `policy` is the key's policy file
+ * <name>`), and a `commands/gh-push` and `commands/gh-pr-comments` that must never run. `policy` is the key's policy file
  * contents, or null for none.
  */
 async function withServer(
@@ -60,6 +57,7 @@ async function withServer(
     );
   }
   await script(join(commandsDir, 'gh-push'), 'echo shadow');
+  await script(join(commandsDir, 'gh-pr-comments'), 'echo shadow');
   await script(join(commandsDir, 'echo'), 'echo ok');
   const policyFile = join(policyDir, `${KEY}.conf`);
   if (policy !== null) await Deno.writeTextFile(policyFile, policy);
@@ -151,6 +149,27 @@ Deno.test('a granted built-in runs from builtinDir, with the caller key', async 
   );
 });
 
+Deno.test('gh-pr-comments runs under either gh-pr-read or gh-pr-review', async () => {
+  for (const grants of ['gh-pr-read', 'gh-pr-review']) {
+    await withServer(policyLine(grants), async ({ port, token }) => {
+      assertEquals(await call(port, token, 'gh-pr-comments'), {
+        ok: true,
+        exitCode: 0,
+        stdout: `builtin gh-pr-comments key=${KEY}\n`,
+        stderr: '',
+      } as Resp, grants);
+    });
+  }
+  await withServer(
+    policyLine('gh-pr-read,gh-pr-viewed'),
+    async ({ port, token }) => {
+      assertEquals((await call(port, token, 'gh-pr-files')).exitCode, 0);
+      assertEquals((await call(port, token, 'gh-pr-viewed')).exitCode, 0);
+      assertEquals((await call(port, token, 'gh-pr-reply')).exitCode, 1);
+    },
+  );
+});
+
 Deno.test('a built-in is refused, with the exact message, for each ungranted case', async () => {
   await withServer(null, async ({ port, shared, token, policyFile }) => {
     assertEquals(
@@ -181,13 +200,41 @@ Deno.test('a built-in is refused, with the exact message, for each ungranted cas
         'no capabilities granted to this container — on the host: devc up --bridge-allow gh-pr-review,gh-pr-request-review',
       ),
     );
+    assertEquals(
+      await call(port, token, 'gh-pr-comments'),
+      refused(
+        1,
+        'no capabilities granted to this container — on the host: devc up --bridge-allow gh-pr-read',
+      ),
+    );
+    assertEquals(
+      await call(port, token, 'gh-pr-viewed'),
+      refused(
+        1,
+        'no capabilities granted to this container — on the host: devc up --bridge-allow gh-pr-read,gh-pr-viewed',
+      ),
+    );
 
     await Deno.writeTextFile(policyFile, policyLine('gh-push'));
     assertEquals(
       await call(port, token, 'gh-pr-comments'),
       refused(
         1,
-        'gh-pr-comments needs capability gh-pr-review, which this container was not granted (it has: gh-push) — on the host: devc up --bridge-allow gh-push,gh-pr-review',
+        'gh-pr-comments needs capability gh-pr-read or gh-pr-review, which this container was not granted (it has: gh-push) — on the host: devc up --bridge-allow gh-push,gh-pr-read',
+      ),
+    );
+    assertEquals(
+      await call(port, token, 'gh-pr-files'),
+      refused(
+        1,
+        'gh-pr-files needs capability gh-pr-read, which this container was not granted (it has: gh-push) — on the host: devc up --bridge-allow gh-push,gh-pr-read',
+      ),
+    );
+    assertEquals(
+      await call(port, token, 'gh-pr-viewed'),
+      refused(
+        1,
+        'gh-pr-viewed needs capability gh-pr-viewed, which this container was not granted (it has: gh-push) — on the host: devc up --bridge-allow gh-push,gh-pr-read,gh-pr-viewed',
       ),
     );
     assertEquals(
@@ -348,6 +395,15 @@ Deno.test('a commands/ file named like a built-in is never run, and is reported 
       ),
       logs.join('\n'),
     );
+    // gh-pr-comments belongs to two capabilities, and is still reported once.
+    assertEquals(
+      logs.filter((l) =>
+        l ===
+          'commands/gh-pr-comments is shadowed by the built-in gh-pr-comments — remove it'
+      ).length,
+      1,
+      logs.join('\n'),
+    );
   });
 });
 
@@ -387,16 +443,15 @@ Deno.test('materializeBuiltins writes every built-in and replaces a stale set wh
     assertEquals(names, [
       'gh-doctor',
       'gh-pr-comments',
+      'gh-pr-files',
       'gh-pr-reply',
       'gh-pr-request-review',
       'gh-pr-resolve',
+      'gh-pr-viewed',
       'gh-push',
     ]);
     // The bridge dispatches by file name: the built-ins are exactly the capability map's commands.
-    assertEquals(
-      BRIDGE_CAPABILITIES.flatMap((c) => BRIDGE_CAPABILITY_COMMANDS[c]).sort(),
-      names,
-    );
+    assertEquals(builtinCommandNames().sort(), names);
     const present = [...Deno.readDirSync(target)].map((e) => e.name).sort();
     assertEquals(present, names);
     for (const name of names) {

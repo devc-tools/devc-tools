@@ -18,10 +18,10 @@
 import { dirname, join, resolve } from '@std/path';
 import {
   BRIDGE_CAPABILITIES,
-  BRIDGE_CAPABILITY_COMMANDS,
   BRIDGE_CAPABILITY_REQUIRES,
   type BridgeCapability,
-  capabilityForCommand,
+  builtinCommandNames,
+  capabilitiesForCommand,
   parsePolicy,
   policyProblem,
 } from '@devc-tools/core/bridge.ts';
@@ -141,14 +141,16 @@ async function dispatch(req: Request, d: Dispatch): Promise<Response> {
     };
   }
 
-  // A built-in resolves in builtinDir only, and only for a caller its policy grants it to.
-  const capability = d.builtinDir === undefined
-    ? null
-    : capabilityForCommand(name);
-  if (capability !== null) {
+  // A built-in resolves in builtinDir only, and only for a caller its policy grants any of its
+  // capabilities to.
+  const capabilities = d.builtinDir === undefined
+    ? []
+    : capabilitiesForCommand(name);
+  const builtin = capabilities.length > 0;
+  if (builtin) {
     // A refusal is a normal exit, not a transport error, so the exit code reaches the caller: the
     // shipped client prints `stderr` and exits with `exitCode`, but maps every `ok: false` to 1.
-    const refusal = await grantRefusal(name, capability, d);
+    const refusal = await grantRefusal(name, capabilities, d);
     if (refusal !== null) {
       return {
         ok: true,
@@ -159,7 +161,7 @@ async function dispatch(req: Request, d: Dispatch): Promise<Response> {
     }
   }
   const commandsRoot = resolve(
-    capability !== null ? d.builtinDir! : commandsDir,
+    builtin ? d.builtinDir! : commandsDir,
   );
   const scriptPath = resolve(commandsRoot, name);
   // Defense in depth: the resolved path must sit directly inside commandsDir.
@@ -242,15 +244,17 @@ const REGRANT =
   're-run devc up --bridge-allow <every capability this container needs>';
 
 /**
- * Why the caller may not run built-in `name`, or null when its policy grants `capability`. The
- * policy is read on every request, so deleting it (`devc up` without `--bridge-allow`) revokes a
- * running container without a restart.
+ * Why the caller may not run built-in `name`, or null when its policy grants any of
+ * `capabilities` (canonical order, non-empty). Suggestions name the first of them. The policy is
+ * read on every request, so deleting it (`devc up --bridge-allow none`) revokes a running
+ * container without a restart.
  */
 async function grantRefusal(
   name: string,
-  capability: BridgeCapability,
+  capabilities: readonly BridgeCapability[],
   d: Dispatch,
 ): Promise<Refusal | null> {
+  const capability = capabilities[0];
   const key = d.caller.key;
   if (key === null) {
     return {
@@ -301,15 +305,16 @@ async function grantRefusal(
   // repo, so the check is per container, not per repo — which repo a command acts on is the
   // script's to select (`--repo`).
   const policy = parsePolicy(text)!;
-  if (policy.grants.includes(capability)) return null;
+  if (capabilities.some((c) => policy.grants.includes(c))) return null;
   return {
     exitCode: 1,
-    message:
-      `${name} needs capability ${capability}, which this container was not granted (it has: ${
-        policy.grants.join(', ')
-      }) — on the host: devc up --bridge-allow ${
-        suggestGrants(policy.grants, capability)
-      }`,
+    message: `${name} needs capability ${
+      capabilities.join(' or ')
+    }, which this container was not granted (it has: ${
+      policy.grants.join(', ')
+    }) — on the host: devc up --bridge-allow ${
+      suggestGrants(policy.grants, capability)
+    }`,
   };
 }
 
@@ -318,13 +323,11 @@ async function warnShadowed(
   commandsDir: string,
   log: (msg: string) => void,
 ): Promise<void> {
-  for (const cap of BRIDGE_CAPABILITIES) {
-    for (const name of BRIDGE_CAPABILITY_COMMANDS[cap]) {
-      try {
-        await Deno.lstat(join(commandsDir, name));
-        log(`commands/${name} is shadowed by the built-in ${name} — remove it`);
-      } catch { /* not there — nothing shadowed */ }
-    }
+  for (const name of builtinCommandNames()) {
+    try {
+      await Deno.lstat(join(commandsDir, name));
+      log(`commands/${name} is shadowed by the built-in ${name} — remove it`);
+    } catch { /* not there — nothing shadowed */ }
   }
 }
 

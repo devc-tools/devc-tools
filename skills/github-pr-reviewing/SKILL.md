@@ -39,8 +39,9 @@ to rebuild the container with the current `devc-bridge` feature.
 2. `git branch --show-current` must print that same `<branch>`. The pin is set on the host and
    switching branches in the container does **not** move it. If they differ, stop and tell the
    user. Don't push a branch that isn't the one you were working on.
-3. Check which grants you have. You need `gh-push` and `gh-pr-review` for the loop. Without
-   `gh-pr-resolve`, reply but don't resolve. Without `gh-pr-request-review`, you can't ask for a
+3. Check which grants you have. You need `gh-push` and `gh-pr-review` for the loop:
+   `gh-pr-read` alone is enough to read threads with `gh-pr-comments`, but replying needs
+   `gh-pr-review`. Without `gh-pr-resolve`, reply but don't resolve. Without `gh-pr-request-review`, you can't ask for a
    new review, so run one round and then hand back to the user.
 4. Run `devc-bridge gh-pr-comments` once. On exit 2 with `no open PR with head …`, stop and ask
    the user to open the PR. You can't create one from the container. `more than one open PR …`

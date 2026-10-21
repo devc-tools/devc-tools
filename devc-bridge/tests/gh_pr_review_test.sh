@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Offline harness for the gh-pr-comments, gh-pr-reply, gh-pr-resolve and gh-pr-request-review
-# built-ins. A `gh` shim first on PATH stands in for GitHub: it logs every call (cwd and argv, one
+# Offline harness for the gh-pr-comments, gh-pr-files, gh-pr-viewed, gh-pr-reply, gh-pr-resolve
+# and gh-pr-request-review built-ins. A `gh` shim first on PATH stands in for GitHub: it logs every call (cwd and argv, one
 # line each) and
 # answers from fixture files this script writes per case, applying `--jq` with the real `jq` — so the harness needs `jq`,
 # the scripts do not. gh evaluates `--jq` with gojq, not jq: when `gojq` is on PATH the shim uses it
@@ -44,7 +44,8 @@ cat >"$root/bin/gh" <<'SHIM'
 #!/usr/bin/env bash
 # Log, then answer from $SHIM/fixtures. SHIM_AUTH_RC fails `auth status`; SHIM_SLEEP hangs with a
 # grandchild holding stdout; SHIM_FAIL (a substring of the path or query) answers with an error.
-# Every `-X POST` is also logged to posts.log (path and its -f fields, one line).
+# Every `-X POST` is also logged to posts.log (path and its -f fields, one line), and every
+# (un)markFileAsViewed mutation to viewed.log (`<mutation> <id> <path>`, one line).
 {
   printf 'cwd=%s ' "$PWD"
   printf '%q ' "$@"
@@ -60,7 +61,7 @@ if [ "$1" = auth ]; then exit "${SHIM_AUTH_RC:-0}"; fi
   exit 99
 }
 shift
-jqf='' path='' query='' owner='' name='' id='' body='' method=GET fields=''
+jqf='' path='' query='' owner='' name='' id='' body='' fpath='' method=GET fields=''
 while [ $# -gt 0 ]; do
   case $1 in
     --jq) jqf=$2 && shift 2 ;;
@@ -70,6 +71,7 @@ while [ $# -gt 0 ]; do
       k=${2%%=*} v=${2#*=}
       case $k in
         query) query=$v ;; owner) owner=$v ;; name) name=$v ;; id) id=$v ;; body) body=$v ;;
+        path) fpath=$v ;;
       esac
       fields+=" $2"
       shift 2
@@ -93,6 +95,12 @@ if [ "$path" = graphql ]; then
       [ -f "${files[0]}" ] || echo '{"data":{"repository":{"pullRequests":{"nodes":[]}}}}' >"${files[0]}"
       ;;
     *reviewThreads*) files=("$F"/threads-*.json) ;;
+    *markFileAsViewed*)
+      case $query in *unmarkFileAsViewed*) m=unmarkFileAsViewed ;; *) m=markFileAsViewed ;; esac
+      printf '%s %s %s\n' "$m" "$id" "$fpath" >>"$SHIM/viewed.log"
+      files=("$F/viewed.json")
+      ;;
+    *'files(first'*) files=("$F"/gqlfiles-*.json) ;;
     *addPullRequestReviewThreadReply*)
       printf '%s' "$body" >"$SHIM/posted"
       files=("$F/reply.json")
@@ -115,6 +123,10 @@ elif [ "$method" = POST ]; then
   esac
 elif [ "$method" = GET ]; then
   case $path in
+    repos/*/*/pulls/*/files'?per_page=100')
+      # restfiles-1.json, -2.json, …: one page each, as --paginate would fetch them.
+      files=("$F"/restfiles-*.json)
+      ;;
     repos/*/*/issues/*/timeline)
       # timeline.json is page 1, timeline-2.json (if any) page 2: --jq runs per page, as in gh.
       files=("$F/timeline.json")
@@ -307,9 +319,49 @@ fresh() {
   echo '{"data":{"addPullRequestReviewThreadReply":{"comment":{"url":"https://github.com/up/r/pull/7#r1"}}}}' \
     >"$FX/reply.json"
   echo '{"data":{"resolveReviewThread":{"thread":{"isResolved":true}}}}' >"$FX/resolve.json"
+  echo '{"data":{"markFileAsViewed":{"clientMutationId":null}}}' >"$FX/viewed.json"
+  files_fx
 }
 
-ALL_PR=gh-pr-review,gh-pr-resolve,gh-pr-request-review
+PATCH_TRICKY='@@ -1,2 +1,3 @@
+-const a = "x";
++const a = "y\t%s";
++	tabbed \ back </script>'
+
+# gqlfiles_page <n> <changedFiles> <path>:<state>… — page n of the PR's GraphQL files, with the
+# header fields every page carries.
+gqlfiles_page() {
+  local n=$1 changed=$2
+  shift 2
+  local e
+  for e in "$@"; do jq -c -n --arg p "${e%:*}" --arg v "${e##*:}" '{path: $p, viewerViewedState: $v}'; done |
+    jq -s --argjson c "$changed" '{data: {repository: {pullRequest: {title: "Fix \"it\" — all of it",
+      state: "OPEN", isDraft: false, baseRefName: "main", headRefName: "feat/pr-branch",
+      changedFiles: $c, author: {login: "alice"},
+      files: {pageInfo: {hasNextPage: false, endCursor: null}, nodes: .}}}}}' >"$FX/gqlfiles-$n.json"
+}
+
+# files_fx — the PR's changed files, over two pages of each API. REST (in its order): src/a.ts,
+# docs/b.md (patch full of JSON-hostile characters), then on page 2 img.png (no patch), new/c.ts
+# renamed from old/c.ts, and src/missing.ts, which no GraphQL page lists.
+files_fx() {
+  rm -f "$FX"/gqlfiles-*.json "$FX"/restfiles-*.json
+  gqlfiles_page 1 5 src/a.ts:VIEWED docs/b.md:UNVIEWED
+  gqlfiles_page 2 5 img.png:DISMISSED new/c.ts:VIEWED
+  jq -n --arg p "$PATCH_TRICKY" '[
+    {filename: "src/a.ts", status: "modified", additions: 3, deletions: 1, patch: "@@ -1 +1 @@\n-a\n+b",
+      sha: "x", blob_url: "u"},
+    {filename: "docs/b.md", status: "modified", additions: 2, deletions: 1, patch: $p}]' \
+    >"$FX/restfiles-1.json"
+  jq -n '[
+    {filename: "img.png", status: "added", additions: 0, deletions: 0},
+    {filename: "new/c.ts", previous_filename: "old/c.ts", status: "renamed", additions: 0,
+      deletions: 0, patch: ""},
+    {filename: "src/missing.ts", status: "removed", additions: 0, deletions: 4, patch: "@@ -1,4 +0,0 @@"}]' \
+    >"$FX/restfiles-2.json"
+}
+
+ALL_PR=gh-pr-read,gh-pr-review,gh-pr-viewed,gh-pr-resolve,gh-pr-request-review
 pin() { # pin <remote> <branch> [grants, default $ALL_PR] — one line, container path /workspaces/r
   mkdir -p "$POLICY_DIR"
   printf '%s\t%s\t%s\t%s\t%s\n' /Users/you/code/r "$1" "$2" "${3:-$ALL_PR}" /workspaces/r \
@@ -342,7 +394,7 @@ posts() { cat "$SHIM/posts.log" 2>/dev/null; }
 # ── cases ─────────────────────────────────────────────────────────────────────────────────
 
 echo "the shared prelude"
-for r in gh-pr-reply gh-pr-resolve gh-pr-request-review; do
+for r in gh-pr-files gh-pr-viewed gh-pr-reply gh-pr-resolve gh-pr-request-review; do
   check "$r's pr-prelude is byte-identical to gh-pr-comments'" cmp -s \
     <(sed -n '/^# ── BEGIN pr-prelude ──$/,/^# ── END pr-prelude ──$/p' "$RECIPES/gh-pr-comments") \
     <(sed -n '/^# ── BEGIN pr-prelude ──$/,/^# ── END pr-prelude ──$/p' "$RECIPES/$r")
@@ -351,9 +403,10 @@ check "  … and the block is not empty" test \
   "$(sed -n '/^# ── BEGIN pr-prelude ──$/,/^# ── END pr-prelude ──$/p' "$RECIPES/gh-pr-comments" | wc -l)" -gt 50
 
 echo "the caller and its policy"
-for r in gh-pr-comments gh-pr-reply gh-pr-resolve gh-pr-request-review; do
+for r in gh-pr-comments gh-pr-files gh-pr-viewed gh-pr-reply gh-pr-resolve gh-pr-request-review; do
   case $r in
-    gh-pr-comments | gh-pr-request-review) args=() ;; gh-pr-reply) args=(PRRT_c1 hi) ;; gh-pr-resolve) args=(PRRT_c1) ;;
+    gh-pr-comments | gh-pr-files | gh-pr-request-review) args=() ;; gh-pr-reply) args=(PRRT_c1 hi) ;;
+    gh-pr-resolve) args=(PRRT_c1) ;; gh-pr-viewed) args=(viewed src/a.ts) ;;
   esac
   fresh
   rm "$POLICY_DIR/$KEY.conf"
@@ -398,6 +451,31 @@ fresh
 pin git@github.com:me/r.git "$BRANCH" gh-pr-review,gh-pr-request-review
 run gh-pr-request-review
 expect_rc 0 "gh-pr-request-review with gh-pr-review,gh-pr-request-review (no gh-pr-resolve)"
+for grants in gh-pr-read gh-pr-review; do
+  fresh
+  pin git@github.com:me/r.git "$BRANCH" "$grants"
+  run gh-pr-comments
+  expect_rc 0 "gh-pr-comments with only $grants"
+done
+fresh
+pin git@github.com:me/r.git "$BRANCH" gh-push,gh-pr-resolve
+run gh-pr-comments
+expect_rc 2 "gh-pr-comments with neither gh-pr-read nor gh-pr-review"
+check "  … names both" has_err "this container was not granted gh-pr-read or gh-pr-review"
+fresh
+pin git@github.com:me/r.git "$BRANCH" gh-pr-review,gh-pr-resolve,gh-pr-request-review
+run gh-pr-files
+expect_rc 2 "gh-pr-files without gh-pr-read"
+check "  … says so" has_err "this container was not granted gh-pr-read"
+check "  … and GitHub was never asked" test -z "$(calls)"
+fresh
+pin git@github.com:me/r.git "$BRANCH" gh-pr-read
+run gh-pr-viewed viewed src/a.ts
+expect_rc 2 "gh-pr-viewed with gh-pr-read but not gh-pr-viewed"
+check "  … says so" has_err "this container was not granted gh-pr-viewed"
+check "  … and GitHub was never asked" test -z "$(calls)"
+run gh-pr-files
+expect_rc 0 "  … while gh-pr-files still works"
 
 
 echo "arguments"
@@ -447,9 +525,10 @@ multi() {
   prs_fx me/s me/s 9
   node_fx PRRT_s1 PR_9 false copilot
 }
-for r in gh-pr-comments gh-pr-reply gh-pr-resolve gh-pr-request-review; do
+for r in gh-pr-comments gh-pr-files gh-pr-viewed gh-pr-reply gh-pr-resolve gh-pr-request-review; do
   case $r in
-    gh-pr-comments | gh-pr-request-review) args=() ;; gh-pr-reply) args=(PRRT_c1 hi) ;; gh-pr-resolve) args=(PRRT_c1) ;;
+    gh-pr-comments | gh-pr-files | gh-pr-request-review) args=() ;; gh-pr-reply) args=(PRRT_c1 hi) ;;
+    gh-pr-resolve) args=(PRRT_c1) ;; gh-pr-viewed) args=(viewed src/a.ts) ;;
   esac
   multi
   run "$r" "${args[@]}"
@@ -796,8 +875,133 @@ SHIM_FAIL=timeline run gh-pr-request-review
 expect_rc 4 "the timeline read failing"
 check "  … no POST" test -z "$(posts)"
 
+echo "gh-pr-files"
+fresh
+run gh-pr-files
+expect_rc 0 "two pages of each API"
+want_pr='{"repo":"up/r","number":7,"url":"https://github.com/up/r/pull/7","headSha":"'"$(sha 7)"'","title":"Fix \"it\" — all of it","state":"OPEN","isDraft":false,"author":"alice","baseRef":"main","headRef":"feat/pr-branch","changedFiles":5}'
+check "  … pr: every field, in contract order" test "$(jq -c .pr <<<"$out")" = "$want_pr"
+check "  … pr is emitted verbatim in that order" test "${out:0:6}" = '{"pr":'
+check "  … top-level key order" test "$(jq -c keys_unsorted <<<"$out")" = '["pr","files","truncated"]'
+check "  … files in REST order, across both pages" \
+  test "$(q '[.files[].path] | join(",")')" = src/a.ts,docs/b.md,img.png,new/c.ts,src/missing.ts
+check "  … viewed joined from both GraphQL pages" \
+  test "$(q '[.files[].viewed] | join(",")')" = VIEWED,UNVIEWED,DISMISSED,VIEWED,UNVIEWED
+check "  … a path no GraphQL page lists is UNVIEWED" test "$(q '.files[4].viewed')" = UNVIEWED
+check "  … file key order" test "$(jq -c '.files[0] | keys_unsorted' <<<"$out")" = \
+  '["path","previousPath","status","additions","deletions","patch","viewed"]'
+check "  … a file, exactly" test "$(jq -c '.files[0]' <<<"$out")" = \
+  '{"path":"src/a.ts","previousPath":null,"status":"modified","additions":3,"deletions":1,"patch":"@@ -1 +1 @@\n-a\n+b","viewed":"VIEWED"}'
+check "  … a hostile patch round-trips exactly" test "$(q '.files[1].patch')" = "$PATCH_TRICKY"
+check "  … no patch is null" test "$(jq -c '.files[2].patch' <<<"$out")" = null
+check "  … a rename keeps previousPath" test "$(q '.files[3].previousPath')" = old/c.ts
+check "  … truncated false when every file is listed" test "$(q .truncated)" = false
+check "  … one line on stdout" test "$(printf '%s\n' "$out" | wc -l | tr -d ' ')" = 1
+check "  … no container value in a query string" test -z "$(grep -E 'pr-branch' "$SHIM/queries.log")"
+fresh
+gqlfiles_page 1 5 src/a.ts:VIEWED
+rm -f "$FX/gqlfiles-2.json"
+jq -n '{data: {repository: {pullRequest: {title: "t", state: "OPEN", isDraft: true,
+  baseRefName: "main", headRefName: "x", changedFiles: 5, author: null,
+  files: {pageInfo: {hasNextPage: false, endCursor: null}, nodes: []}}}}}' >"$FX/gqlfiles-1.json"
+run gh-pr-files
+expect_rc 0 "a deleted author, a draft, and no Viewed state at all"
+check "  … author null" test "$(jq -c .pr.author <<<"$out")" = null
+check "  … isDraft true" test "$(q .pr.isDraft)" = true
+check "  … every file UNVIEWED" test "$(q '[.files[].viewed] | unique | join(",")')" = UNVIEWED
+fresh
+gqlfiles_page 1 3001
+rm -f "$FX"/gqlfiles-2.json "$FX"/restfiles-*.json
+jq -n '[range(3000) | {filename: "f/\(.)", status: "added", additions: 1, deletions: 0,
+  patch: "@@ -0,0 +1 @@"}]' >"$FX/restfiles-1.json"
+run gh-pr-files
+expect_rc 0 "changedFiles 3001, 3000 listed"
+check "  … truncated true" test "$(q .truncated)" = true
+check "  … all 3000 listed" test "$(q '.files | length')" = 3000
+fresh
+files_fx
+jq -n '[]' >"$FX/restfiles-1.json"
+rm -f "$FX/restfiles-2.json"
+gqlfiles_page 1 0
+rm -f "$FX/gqlfiles-2.json"
+run gh-pr-files
+expect_rc 0 "a PR with no files"
+check "  … files []" test "$(jq -c .files <<<"$out")" = '[]'
+check "  … truncated false" test "$(q .truncated)" = false
+fresh
+run gh-pr-files extra
+expect_rc 2 "gh-pr-files with an argument"
+check "  … prints its usage" has_err "usage: gh-pr-files [--repo <path>]"
+run gh-pr-files --repo /workspaces/r extra
+expect_rc 2 "gh-pr-files with an argument after --repo <path>"
+fresh
+run gh-pr-files --repo /workspaces/r
+expect_rc 0 "gh-pr-files --repo <path>"
+fresh
+SHIM_FAIL=files run gh-pr-files
+expect_rc 4 "a GitHub error"
+check "  … relays gh's message" has_err "HTTP 502"
+check "  … prints nothing on stdout" test -z "$out"
+
+echo "gh-pr-viewed"
+viewed_log() { cat "$SHIM/viewed.log" 2>/dev/null; }
+fresh
+run gh-pr-viewed viewed src/a.ts
+expect_rc 0 "viewed src/a.ts"
+check "  … prints the result" test "$out" = '{"path":"src/a.ts","viewed":"VIEWED"}'
+check "  … sends markFileAsViewed with the PR's id and that path" \
+  test "$(viewed_log)" = "markFileAsViewed PR_7 src/a.ts"
+check "  … the path goes as -f, never in the query" test -z "$(grep -F 'src/a.ts' "$SHIM/queries.log")"
+check "  … the id goes as -f" grep -qF -- "-f id=PR_7 -f path=src/a.ts" "$SHIM/calls.log"
+fresh
+run gh-pr-viewed unviewed new/c.ts
+expect_rc 0 "unviewed a file on the second GraphQL page"
+check "  … prints the result" test "$out" = '{"path":"new/c.ts","viewed":"UNVIEWED"}'
+check "  … sends unmarkFileAsViewed" test "$(viewed_log)" = "unmarkFileAsViewed PR_7 new/c.ts"
+fresh
+gqlfiles_page 2 5 'a "quoted" \ path.ts:VIEWED'
+run gh-pr-viewed viewed 'a "quoted" \ path.ts'
+expect_rc 0 "a path with quotes and a backslash"
+check "  … JSON-encoded" test "$(q .path)" = 'a "quoted" \ path.ts'
+fresh
+run gh-pr-viewed viewed src/missing.ts
+expect_rc 2 "a path GraphQL does not list"
+check "  … says so" has_err "src/missing.ts is not a file in https://github.com/up/r/pull/7"
+check "  … no mutation" test -z "$(viewed_log)"
+run gh-pr-viewed viewed src/a
+expect_rc 2 "a prefix of a path is not that path"
+run gh-pr-viewed viewed 'src/a.t.'
+expect_rc 2 "a path is matched exactly, not as a pattern"
+check "  … no mutation" test -z "$(viewed_log)"
+fresh
+run gh-pr-viewed viewed $'src/a.ts\nsrc/a.ts'
+expect_rc 2 "a path with a newline"
+check "  … prints the usage" has_err "usage: gh-pr-viewed [--repo <path>] <viewed|unviewed> <file>"
+run gh-pr-viewed viewed src/a.ts extra
+expect_rc 2 "a third argument"
+run gh-pr-viewed seen src/a.ts
+expect_rc 2 "seen in place of viewed"
+run gh-pr-viewed viewed ''
+expect_rc 2 "an empty path"
+run gh-pr-viewed viewed "$(printf 'a%.0s' $(seq 4097))"
+expect_rc 2 "a 4097-byte path"
+run gh-pr-viewed viewed
+expect_rc 2 "no path"
+check "  … none of these reached GitHub" test -z "$(calls)"
+check "  … or sent a mutation" test -z "$(viewed_log)"
+fresh
+run gh-pr-viewed --repo /workspaces/r viewed src/a.ts
+expect_rc 0 "gh-pr-viewed --repo <path>"
+fresh
+SHIM_FAIL=markFileAsViewed run gh-pr-viewed viewed src/a.ts
+expect_rc 4 "the mutation failing"
+check "  … relays gh's message" has_err "HTTP 502"
+check "  … prints nothing on stdout" test -z "$out"
+
 echo "how gh is driven"
 fresh
+run gh-pr-files
+run gh-pr-viewed viewed src/a.ts
 run gh-pr-comments
 run gh-pr-reply PRRT_c1 "secret-body-text"
 run gh-pr-resolve PRRT_c1

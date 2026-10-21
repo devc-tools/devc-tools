@@ -214,33 +214,33 @@ then:
 
 ## Checklist
 
-- [ ] `devc-core/bridge.ts`: the two capabilities, the command table, the requirement, the
+- [x] `devc-core/bridge.ts`: the two capabilities, the command table, the requirement, the
       multi-capability lookup, and comments
-- [ ] `devc-bridge/host/core.ts`: dispatch on any granted capability, the refusal texts above,
+- [x] `devc-bridge/host/core.ts`: dispatch on any granted capability, the refusal texts above,
       `warnShadowed` dedupe
-- [ ] Prelude `require_grant CAP…` in `gh-pr-comments`, `gh-pr-reply`, `gh-pr-resolve` and
+- [x] Prelude `require_grant CAP…` in `gh-pr-comments`, `gh-pr-reply`, `gh-pr-resolve` and
       `gh-pr-request-review` (byte-identical). `gh-pr-comments` takes either grant, and its
       header says so
-- [ ] `devc-bridge/builtin/gh-pr-files` (new, executable)
-- [ ] `devc-bridge/builtin/gh-pr-viewed` (new, executable)
-- [ ] `devc-bridge/host/deno.json` `build` / `build:release`: they already `--include ../builtin`.
+- [x] `devc-bridge/builtin/gh-pr-files` (new, executable)
+- [x] `devc-bridge/builtin/gh-pr-viewed` (new, executable)
+- [x] `devc-bridge/host/deno.json` `build` / `build:release`: they already `--include ../builtin`.
       Confirm the new scripts materialize (`config.ts` `materializeBuiltins`) and fix it if it
       lists names
-- [ ] `devc-bridge/client/devc-bridge.ts`: help lines for `gh-pr-files` `[gh-pr-read]` and
+- [x] `devc-bridge/client/devc-bridge.ts`: help lines for `gh-pr-files` `[gh-pr-read]` and
       `gh-pr-viewed` `[gh-pr-viewed]`, and `gh-pr-comments` shown as `[gh-pr-read|gh-pr-review]`
-- [ ] `devc-core/config.ts`: the `bridgeDefaultAllow` accessor (raw from `extra`)
-- [ ] `devc/args.ts`: `--bridge-allow none`, its two refusals, and the validation of the
+- [x] `devc-core/config.ts`: the `bridgeDefaultAllow` accessor (raw from `extra`)
+- [x] `devc/args.ts`: `--bridge-allow none`, its two refusals, and the validation of the
       config value (same capability rules as `parseBridgeAllow`, no `gh`/`gh-*`)
-- [ ] `devc/bridge.ts`: the default-grant `PolicyMode` and its logging and non-failure rules
-- [ ] `devc/main.ts`: the mode table for `up` and `build`, and the config error exits 2 before
+- [x] `devc/bridge.ts`: the default-grant `PolicyMode` and its logging and non-failure rules
+- [x] `devc/main.ts`: the mode table for `up` and `build`, and the config error exits 2 before
       anything starts
-- [ ] `devc/help.ts`: `--bridge-allow` lists the new capabilities and `none`, and mentions
+- [x] `devc/help.ts`: `--bridge-allow` lists the new capabilities and `none`, and mentions
       `bridgeDefaultAllow`
-- [ ] Tests: `devc-core/tests/bridge_test.ts`, `devc-bridge/host/tests/capabilities_test.ts`,
+- [x] Tests: `devc-core/tests/bridge_test.ts`, `devc-bridge/host/tests/capabilities_test.ts`,
       `devc-bridge/tests/gh_pr_review_test.sh` (stub-`gh` cases for both new scripts, and the
       prelude check over six), `devc/tests/args_test.ts`, `devc/tests/bridge_test.ts`,
       `devc-core/tests/global_config_test.ts` (round-trip keeps the key)
-- [ ] Docs: `devc-bridge/README.md` (capability table, the two commands, the multi-capability
+- [x] Docs: `devc-bridge/README.md` (capability table, the two commands, the multi-capability
       rule), `docs/bridge-github.md` (the capability list, `gh-pr-files` / `gh-pr-viewed` usage and
       output, exit-code row 1's wording), `devc/README.md` (`bridgeDefaultAllow`, `--bridge-allow none`,
       what a write capability in the default means, and that devc web never writes `config.json`),
@@ -250,48 +250,55 @@ then:
 
 ## Validation
 
-- [ ] `(cd devc && deno task check && deno task test)` passes
-- [ ] `(cd devc-core && deno task check && deno task test)` passes
-- [ ] `(cd devc-bridge/host && deno task check && deno task test)` passes
-- [ ] `bash devc-bridge/tests/gh_pr_review_test.sh` and `bash devc-bridge/tests/gh_push_test.sh`
+- [x] `(cd devc && deno task check && deno task test)` passes
+- [x] `(cd devc-core && deno task check && deno task test)` passes
+  - 2026-10-21: check passes; tests pass except `git_dirs_test.ts`'s "cliWorktreeMounts
+    matches what the pinned devcontainer CLI computes", which fails identically on a clean
+    checkout of the base commit: the embedded devcontainer CLI exits 1 for any
+    `read-configuration` in this container. Not caused by this plan.
+- [x] `(cd devc-bridge/host && deno task check && deno task test)` passes
+- [x] `bash devc-bridge/tests/gh_pr_review_test.sh` and `bash devc-bridge/tests/gh_push_test.sh`
       pass
-- [ ] `deno fmt --check` passes for every touched file, and `shellcheck` passes for both new
+- [x] `deno fmt --check` passes for every touched file, and `shellcheck` passes for both new
       scripts
-- [ ] `devc-core/tests/bridge_test.ts`:
-  - [ ] An existing policy with `gh-push,gh-pr-review,gh-pr-resolve` still has no `policyProblem`.
-  - [ ] `gh-pr-viewed` alone fails with `gh-pr-viewed requires gh-pr-read`.
-  - [ ] `gh-pr-review,gh-pr-read` (out of order) fails as non-canonical.
-  - [ ] The lookup gives `[gh-pr-read, gh-pr-review]` for `gh-pr-comments`, `[gh-pr-read]` for
+- [x] `devc-core/tests/bridge_test.ts`:
+  - [x] An existing policy with `gh-push,gh-pr-review,gh-pr-resolve` still has no `policyProblem`.
+  - [x] `gh-pr-viewed` alone fails with `gh-pr-viewed requires gh-pr-read`.
+  - [x] `gh-pr-review,gh-pr-read` (out of order) fails as non-canonical.
+  - [x] The lookup gives `[gh-pr-read, gh-pr-review]` for `gh-pr-comments`, `[gh-pr-read]` for
         `gh-pr-files`, and `[]` for `echo`.
-- [ ] `capabilities_test.ts`:
-  - [ ] `gh-pr-comments` runs under a policy with only `gh-pr-read`, and under one with only
+- [x] `capabilities_test.ts`:
+  - [x] `gh-pr-comments` runs under a policy with only `gh-pr-read`, and under one with only
         `gh-pr-review`.
-  - [ ] With only `gh-push`, it is refused with exactly the two-capability message.
-  - [ ] `gh-pr-viewed` without a policy suggests `gh-pr-read,gh-pr-viewed`.
-  - [ ] A `commands/gh-pr-comments` file is warned about once.
-- [ ] `gh_pr_review_test.sh` (stub `gh`):
-  - [ ] `gh-pr-files`' output matches the contract on a two-page files fixture.
-  - [ ] A path missing from the GraphQL pages gets `UNVIEWED`, and `changedFiles` 3001 against
+  - [x] With only `gh-push`, it is refused with exactly the two-capability message.
+  - [x] `gh-pr-viewed` without a policy suggests `gh-pr-read,gh-pr-viewed`.
+  - [x] A `commands/gh-pr-comments` file is warned about once.
+- [x] `gh_pr_review_test.sh` (stub `gh`):
+  - [x] `gh-pr-files`' output matches the contract on a two-page files fixture.
+  - [x] A path missing from the GraphQL pages gets `UNVIEWED`, and `changedFiles` 3001 against
         3000 listed gives `truncated:true`.
-  - [ ] `gh-pr-viewed viewed src/a.ts` sends `markFileAsViewed` with the PR's id and that path,
+  - [x] `gh-pr-viewed viewed src/a.ts` sends `markFileAsViewed` with the PR's id and that path,
         and prints `{"path":"src/a.ts","viewed":"VIEWED"}`.
-  - [ ] `gh-pr-viewed` refuses a path not in the PR (exit 2, no mutation in the stub log), a path
+  - [x] `gh-pr-viewed` refuses a path not in the PR (exit 2, no mutation in the stub log), a path
         with a newline, a third argument, and `seen` in place of `viewed`.
-  - [ ] Both scripts refuse with exit 2 when the policy lacks their grant.
-  - [ ] All six preludes are identical.
-- [ ] `args_test.ts`:
-  - [ ] `--bridge-allow none` → revoke.
-  - [ ] `none,gh-push` and `none` with `--bridge-repo` give the two refusals.
-  - [ ] The config validator gives each `<reason>` in the table, accepts `[" gh-pr-read "]`, and
+  - [x] Both scripts refuse with exit 2 when the policy lacks their grant.
+  - [x] All six preludes are identical.
+- [x] `args_test.ts`:
+  - [x] `--bridge-allow none` → revoke.
+  - [x] `none,gh-push` and `none` with `--bridge-repo` give the two refusals.
+  - [x] The config validator gives each `<reason>` in the table, accepts `[" gh-pr-read "]`, and
         canonicalizes `["gh-pr-viewed","gh-pr-read","gh-pr-read"]`.
-- [ ] `devc/tests/bridge_test.ts` (temp home, fake mounts):
-  - [ ] A default grant writes the policy and logs the `(bridgeDefaultAllow)` lines.
-  - [ ] With no GitHub origin, it logs `devc: bridgeDefaultAllow: not granted: …`, removes an old
+- [x] `devc/tests/bridge_test.ts` (temp home, fake mounts):
+  - [x] A default grant writes the policy and logs the `(bridgeDefaultAllow)` lines.
+  - [x] With no GitHub origin, it logs `devc: bridgeDefaultAllow: not granted: …`, removes an old
         policy and does not throw.
-  - [ ] With no Feature, it logs nothing.
-  - [ ] `refresh` with no policy and a default configured still writes nothing.
-- [ ] `global_config_test.ts`: a load and save of a file with `bridgeDefaultAllow` keeps it unchanged.
+  - [x] With no Feature, it logs nothing.
+  - [x] `refresh` with no policy and a default configured still writes nothing.
+- [x] `global_config_test.ts`: a load and save of a file with `bridgeDefaultAllow` keeps it unchanged.
 - [ ] By hand, on a host with a throwaway PR:
+  - 2026-10-21: not done — needs a real host `gh` login, a real devc-bridge and a throwaway
+    PR, none of which this container has. `devc-bridge/docs/testing.md` B23 is the same
+    check.
   - [ ] With `"bridgeDefaultAllow": ["gh-pr-read","gh-pr-viewed"]`, `devc up` (no flag) prints the
         grant lines.
   - [ ] In the container, `devc-bridge gh-pr-files` prints the PR's files, and
@@ -324,6 +331,7 @@ then:
 | `devc/args.ts`                                | `--bridge-allow none`, config validation                              |
 | `devc/bridge.ts`                              | default-grant mode                                                    |
 | `devc/main.ts`                                | mode table for `up` / `build`                                         |
+| `devc/container.ts`                           | no pre-`up` check for a default grant (added during implementation)   |
 | `devc/help.ts`                                | `--bridge-allow` text                                                 |
 | `devc/tests/args_test.ts`                     | flag and config tests                                                 |
 | `devc/tests/bridge_test.ts`                   | default-grant tests                                                   |

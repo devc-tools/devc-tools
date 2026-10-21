@@ -1,5 +1,6 @@
 import { assert, assertEquals, assertThrows } from 'jsr:@std/assert@^1';
 import {
+  bridgeDefaultAllowFromConfig,
   displayPath,
   expandPath,
   globalConfigExists,
@@ -137,6 +138,43 @@ Deno.test('webSourceFromConfig: absent, expanded, preserved on save, and refused
       await Deno.writeTextFile(path, JSON.stringify({ webSource: bad }));
       const loaded = await loadGlobalConfig(path);
       assertThrows(() => webSourceFromConfig(loaded), Error, 'webSource');
+    }
+  });
+});
+
+Deno.test('bridgeDefaultAllowFromConfig: raw, and a load and save keeps it unchanged', async () => {
+  await withTemp(async (dir) => {
+    const path = `${dir}/config.json`;
+    assertEquals(
+      bridgeDefaultAllowFromConfig(await loadGlobalConfig(path)),
+      undefined,
+    );
+    // Kept exactly as written, even a value devc would refuse: only `up`/`build` validate it.
+    for (const value of [[' gh-pr-viewed', 'gh-pr-read', 'gh-pr-read'], 'gh']) {
+      const text = JSON.stringify(
+        {
+          codeRoots: ['~/a'],
+          skillsRoots: [],
+          recentSkills: [],
+          bridgeDefaultAllow: value,
+        },
+        null,
+        2,
+      ) + '\n';
+      await Deno.writeTextFile(path, text);
+      const cfg = await loadGlobalConfig(path);
+      assertEquals(bridgeDefaultAllowFromConfig(cfg), value);
+      // The wizard's save path: fresh lists, the loaded extras.
+      await saveGlobalConfig(
+        makeGlobalConfig(
+          cfg.codeRoots,
+          cfg.skillsRoots,
+          path,
+          cfg.extra,
+          cfg.recentSkills,
+        ),
+      );
+      assertEquals(await Deno.readTextFile(path), text);
     }
   });
 });

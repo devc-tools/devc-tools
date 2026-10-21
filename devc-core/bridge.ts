@@ -53,7 +53,9 @@ export function bridgePaths(home: string, key: string): BridgePaths {
  */
 export const BRIDGE_CAPABILITIES = [
   'gh-push',
+  'gh-pr-read',
   'gh-pr-review',
+  'gh-pr-viewed',
   'gh-pr-resolve',
   'gh-pr-request-review',
 ] as const;
@@ -63,35 +65,52 @@ export type BridgeCapability = typeof BRIDGE_CAPABILITIES[number];
 
 /**
  * The built-in bridge commands each capability enables. The bridge dispatches by file name, so
- * every name here is also the name of a script in `devc-bridge/builtin/`.
+ * every name here is also the name of a script in `devc-bridge/builtin/`. A command may appear
+ * under more than one capability — `gh-pr-comments` is both `gh-pr-read`'s and `gh-pr-review`'s,
+ * so policies granted before `gh-pr-read` existed keep it — and runs when **any** of them is
+ * granted.
  */
 export const BRIDGE_CAPABILITY_COMMANDS: Readonly<
   Record<BridgeCapability, readonly string[]>
 > = {
   'gh-push': ['gh-push', 'gh-doctor'],
+  'gh-pr-read': ['gh-pr-comments', 'gh-pr-files'],
   'gh-pr-review': ['gh-pr-comments', 'gh-pr-reply'],
+  'gh-pr-viewed': ['gh-pr-viewed'],
   'gh-pr-resolve': ['gh-pr-resolve'],
   'gh-pr-request-review': ['gh-pr-request-review'],
 };
 
 /**
- * Capabilities that are only granted alongside another — `gh-pr-resolve` acts on
- * `gh-pr-comments`' ids, and `gh-pr-request-review` asks for a review whose threads only
- * `gh-pr-review` can read.
+ * Capabilities that are only granted alongside another — `gh-pr-viewed` marks paths only
+ * `gh-pr-files` lists, `gh-pr-resolve` acts on `gh-pr-comments`' ids, and `gh-pr-request-review`
+ * asks for a review whose threads `gh-pr-review` replies to.
  */
 export const BRIDGE_CAPABILITY_REQUIRES: Readonly<
   Partial<Record<BridgeCapability, BridgeCapability>>
 > = {
+  'gh-pr-viewed': 'gh-pr-read',
   'gh-pr-resolve': 'gh-pr-review',
   'gh-pr-request-review': 'gh-pr-review',
 };
 
-/** The capability that enables built-in command `name`, or null when `name` is not a built-in. */
-export function capabilityForCommand(name: string): BridgeCapability | null {
-  for (const cap of BRIDGE_CAPABILITIES) {
-    if (BRIDGE_CAPABILITY_COMMANDS[cap].includes(name)) return cap;
-  }
-  return null;
+/**
+ * Every capability that enables built-in command `name`, in canonical order — empty when `name`
+ * is not a built-in. The bridge runs the command when the caller's policy grants any of them.
+ */
+export function capabilitiesForCommand(name: string): BridgeCapability[] {
+  return BRIDGE_CAPABILITIES.filter((cap) =>
+    BRIDGE_CAPABILITY_COMMANDS[cap].includes(name)
+  );
+}
+
+/** Every built-in command name, once each, in the order the capabilities list them. */
+export function builtinCommandNames(): string[] {
+  return [
+    ...new Set(
+      BRIDGE_CAPABILITIES.flatMap((c) => BRIDGE_CAPABILITY_COMMANDS[c]),
+    ),
+  ];
 }
 
 export function isBridgeCapability(name: string): name is BridgeCapability {

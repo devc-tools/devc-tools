@@ -64,7 +64,8 @@ export type { AttachOptions } from './attach.ts';
 export interface CliStartOptions extends StartOptions {
   /**
    * `refresh` (the default) for every start path except `up`/`build`, which pass `{ grant }` with
-   * `--bridge-allow` and `revoke` without it. See `bridge.ts`.
+   * `--bridge-allow <list>`, `{ defaultGrant }` without it when `bridgeDefaultAllow` is set, and
+   * `revoke` otherwise. See `bridge.ts`.
    */
   bridgePolicy?: PolicyMode;
   /**
@@ -95,7 +96,8 @@ function startHooks(
         confirm: guard ? guard.confirm : terminalConfirm(),
         warn: guard ? guard.warn : (m) => console.error(m),
       });
-      if (typeof mode === 'object') {
+      // A default grant has no pre-`up` check: it never fails the start.
+      if (typeof mode === 'object' && 'grant' in mode) {
         await checkGrantBeforeUp(merged, localFolder, undefined, mode.repos);
       }
       await ensureKeyDir(merged);

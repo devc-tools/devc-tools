@@ -223,10 +223,12 @@ export interface UpArgs {
   json: boolean;
   /**
    * `--bridge-allow <list>`: write this workspace's devc-bridge policy granting exactly these
-   * capabilities (canonical order) on its current branch. `null` — the flag is absent — means
-   * *delete* the policy. A flag and never a config key: see `bridge.ts`.
+   * capabilities (canonical order) on its current branch. `'none'` — `--bridge-allow none` —
+   * means *delete* the policy. `null` — the flag is absent — means `bridgeDefaultAllow` from
+   * `~/.config/devc/config.json` when it is set, and delete otherwise. Never a devc config key:
+   * see `bridge.ts`.
    */
-  bridgeAllow: BridgeCapability[] | null;
+  bridgeAllow: BridgeCapability[] | 'none' | null;
   /**
    * `--bridge-repo PATH`, each as typed, in command-line order: extra repos the grant pins
    * alongside the workspace repo. Empty when none were given; never non-empty without
@@ -287,19 +289,43 @@ export function isBridgeAllowArg(arg: string): boolean {
  */
 const BRIDGE_ALLOW_ALL_GH = ['gh', 'gh-*'];
 
+/** The `--bridge-allow` value that grants nothing: the policy is removed. */
+export const BRIDGE_ALLOW_NONE = 'none';
+
+/** `wanted` in canonical order, or throws `<cap> requires <needed>` for a missing requirement. */
+function canonicalGrants(wanted: ReadonlySet<string>): BridgeCapability[] {
+  const grants = BRIDGE_CAPABILITIES.filter((c) => wanted.has(c));
+  for (const g of grants) {
+    const needs = BRIDGE_CAPABILITY_REQUIRES[g];
+    if (needs !== undefined && !grants.includes(needs)) {
+      throw new Error(`${g} requires ${needs}`);
+    }
+  }
+  return grants;
+}
+
 /**
  * Validate a `--bridge-allow` value: comma-separated, entries trimmed, empties dropped, `gh` and
- * `gh-*` expanded to every `gh-` capability, every other name known, `gh-pr-resolve` and
- * `gh-pr-request-review` only with `gh-pr-review`; returned deduplicated in canonical order.
- * Throws with the user-facing message.
+ * `gh-*` expanded to every `gh-` capability, every other name known, and each capability's
+ * requirement (`BRIDGE_CAPABILITY_REQUIRES`) present; returned deduplicated in canonical order.
+ * `none` alone returns `'none'`, and combined with anything else is refused. Throws with the
+ * user-facing message.
  */
-export function parseBridgeAllow(value: string): BridgeCapability[] {
+export function parseBridgeAllow(value: string): BridgeCapability[] | 'none' {
   const valid = `${BRIDGE_CAPABILITIES.join(', ')} (or ${
     BRIDGE_ALLOW_ALL_GH.join(' / ')
   } for all of them)`;
   const names = value.split(',').map((n) => n.trim()).filter((n) => n !== '');
   if (names.length === 0) {
     throw new Error(`${BRIDGE_ALLOW_FLAG} needs at least one of: ${valid}`);
+  }
+  if (names.includes(BRIDGE_ALLOW_NONE)) {
+    if (names.length > 1) {
+      throw new Error(
+        `${BRIDGE_ALLOW_FLAG} ${BRIDGE_ALLOW_NONE} can't be combined with capabilities`,
+      );
+    }
+    return BRIDGE_ALLOW_NONE;
   }
   const wanted = new Set<string>();
   for (const n of names) {
@@ -313,14 +339,43 @@ export function parseBridgeAllow(value: string): BridgeCapability[] {
       throw new Error(`unknown capability ${n} — valid: ${valid}`);
     }
   }
-  const grants = BRIDGE_CAPABILITIES.filter((c) => wanted.has(c));
-  for (const g of grants) {
-    const needs = BRIDGE_CAPABILITY_REQUIRES[g];
-    if (needs !== undefined && !grants.includes(needs)) {
-      throw new Error(`${g} requires ${needs}`);
-    }
+  return canonicalGrants(wanted);
+}
+
+/** The key in `~/.config/devc/config.json` that holds the default grant. */
+export const BRIDGE_DEFAULT_ALLOW_KEY = 'bridgeDefaultAllow';
+
+/**
+ * Validate `bridgeDefaultAllow` as read raw from the global config: an array of capability names,
+ * each trimmed, every one known — `gh` and `gh-*` refused, since a default re-expanded on every
+ * `up` would grant a later release's capabilities silently — and each requirement present;
+ * returned deduplicated in canonical order. Absent, `null` or `[]` → null (no default). Throws
+ * the bare `<reason>`; the caller names the file and key.
+ */
+export function parseBridgeDefaultAllow(
+  raw: unknown,
+): BridgeCapability[] | null {
+  if (raw === undefined || raw === null) return null;
+  if (!Array.isArray(raw) || raw.some((v) => typeof v !== 'string')) {
+    throw new Error('must be an array of capability names');
   }
-  return grants;
+  if (raw.length === 0) return null;
+  const wanted = new Set<string>();
+  for (const entry of raw as string[]) {
+    const n = entry.trim();
+    if (BRIDGE_ALLOW_ALL_GH.includes(n)) {
+      throw new Error(
+        `${JSON.stringify(n)} is not allowed here — list each capability`,
+      );
+    }
+    if (!isBridgeCapability(n)) {
+      throw new Error(
+        `unknown capability ${n} — valid: ${BRIDGE_CAPABILITIES.join(', ')}`,
+      );
+    }
+    wanted.add(n);
+  }
+  return canonicalGrants(wanted);
 }
 
 /**
@@ -328,13 +383,13 @@ export function parseBridgeAllow(value: string): BridgeCapability[] {
  * capabilities, or null when absent, the repos as typed, and the remaining args. The space forms
  * consume the next arg as their value, so it can never be read as the target path. Throws for
  * `--bridge-allow` given twice, a missing or invalid value, the removed `--bridge-git-push`,
- * `--bridge-repo` without `--bridge-allow`, the same repo named twice, or more than
+ * `--bridge-repo` without `--bridge-allow` or with `--bridge-allow none`, the same repo named twice, or more than
  * {@link MAX_BRIDGE_REPOS} of them.
  */
 function takeBridgeFlags(
   args: string[],
 ): {
-  bridgeAllow: BridgeCapability[] | null;
+  bridgeAllow: BridgeCapability[] | 'none' | null;
   bridgeRepos: string[];
   rest: string[];
 } {
@@ -372,6 +427,11 @@ function takeBridgeFlags(
   const bridgeAllow = value === null ? null : parseBridgeAllow(value);
   if (bridgeRepos.length > 0 && bridgeAllow === null) {
     throw new Error(`${BRIDGE_REPO_FLAG} requires ${BRIDGE_ALLOW_FLAG}`);
+  }
+  if (bridgeRepos.length > 0 && bridgeAllow === BRIDGE_ALLOW_NONE) {
+    throw new Error(
+      `${BRIDGE_REPO_FLAG} requires ${BRIDGE_ALLOW_FLAG} with capabilities`,
+    );
   }
   if (bridgeRepos.length > MAX_BRIDGE_REPOS) {
     throw new Error(
@@ -412,7 +472,7 @@ export interface BuildArgs {
   noCache: boolean;
   json: boolean;
   /** As {@link UpArgs.bridgeAllow}. */
-  bridgeAllow: BridgeCapability[] | null;
+  bridgeAllow: BridgeCapability[] | 'none' | null;
   /** As {@link UpArgs.bridgeRepos}. */
   bridgeRepos: string[];
 }

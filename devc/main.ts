@@ -14,18 +14,25 @@ import {
 import { describeBindMounts, resolveAttachCwd } from './attach.ts';
 import {
   BRIDGE_ALLOW_FLAG,
+  BRIDGE_DEFAULT_ALLOW_KEY,
   BRIDGE_GIT_PUSH_FLAG,
   BRIDGE_REPO_FLAG,
   herdrLaunchArgs,
   isBridgeAllowArg,
   isBridgeRepoArg,
   parseAttachArgs,
+  parseBridgeDefaultAllow,
   parseBuildArgs,
   parseConfigArgs,
   parseUpArgs,
   parseWebArgs,
 } from './args.ts';
-import { bridgeStatusLines, pruneBridgeFiles } from './bridge.ts';
+import {
+  bridgeStatusLines,
+  type PolicyMode,
+  pruneBridgeFiles,
+} from './bridge.ts';
+import type { BridgeCapability } from '@devc-tools/core/bridge.ts';
 import {
   DEVCONTAINER_SUBCOMMAND,
   runEmbeddedDevcontainerCli,
@@ -47,6 +54,7 @@ import {
   unprotectedRowStatus,
 } from '@devc-tools/core/overlay.ts';
 import {
+  bridgeDefaultAllowFromConfig,
   displayPath,
   loadGlobalConfig,
   webSourceFromConfig,
@@ -122,6 +130,33 @@ function parseOrExit2<T>(parse: (args: string[]) => T, args: string[]): T {
     return parse(args);
   } catch (e) {
     console.error(`devc: ${e instanceof Error ? e.message : e}`);
+    Deno.exit(2);
+  }
+}
+
+/**
+ * What `up` / `build` do with the devc-bridge policy: an explicit `--bridge-allow <list>` grants
+ * it, `--bridge-allow none` revokes, and without the flag `bridgeDefaultAllow` from the global
+ * config — and only from there, never a devc config layer — is a default grant, or revoke when it
+ * is not set. An invalid default is a usage error (exit 2), checked before anything starts; it is
+ * read only here, so it never breaks another command.
+ */
+async function upPolicyMode(
+  bridgeAllow: BridgeCapability[] | 'none' | null,
+  bridgeRepos: string[],
+): Promise<PolicyMode> {
+  if (bridgeAllow === 'none') return 'revoke';
+  if (bridgeAllow !== null) return { grant: bridgeAllow, repos: bridgeRepos };
+  const cfg = await loadGlobalConfig();
+  try {
+    const grants = parseBridgeDefaultAllow(bridgeDefaultAllowFromConfig(cfg));
+    return grants === null ? 'revoke' : { defaultGrant: grants };
+  } catch (e) {
+    console.error(
+      `devc: ${displayPath(cfg.path)}: ${BRIDGE_DEFAULT_ALLOW_KEY}: ${
+        e instanceof Error ? e.message : e
+      }`,
+    );
     Deno.exit(2);
   }
 }
@@ -610,11 +645,10 @@ if (subcommand === 'up') {
     Deno.exit(0);
   }
 
-  const info = await startContainer(target, false, {
-    bridgePolicy: bridgeAllow
-      ? { grant: bridgeAllow, repos: bridgeRepos }
-      : 'revoke',
-  }).catch(fail);
+  const bridgePolicy = await upPolicyMode(bridgeAllow, bridgeRepos);
+  const info = await startContainer(target, false, { bridgePolicy }).catch(
+    fail,
+  );
   if (json) {
     console.log(JSON.stringify(info));
   } else {
@@ -632,13 +666,11 @@ if (subcommand === 'build') {
   const { target: rawTarget, noCache, json, bridgeAllow, bridgeRepos } =
     parseOrExit2(parseBuildArgs, Deno.args.slice(1));
   const target = resolveLocalFolder(rawTarget);
+  const bridgePolicy = await upPolicyMode(bridgeAllow, bridgeRepos);
   if (!json) console.log(`Rebuilding dev container for ${target}...`);
-  const info = await rebuildContainer(target, {
-    noCache,
-    bridgePolicy: bridgeAllow
-      ? { grant: bridgeAllow, repos: bridgeRepos }
-      : 'revoke',
-  }).catch(fail);
+  const info = await rebuildContainer(target, { noCache, bridgePolicy }).catch(
+    fail,
+  );
   if (json) {
     console.log(JSON.stringify(info));
   } else {
