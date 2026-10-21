@@ -1,5 +1,11 @@
 # Review of concept 04 (layout-preserving)
 
+> **Revised after this review was written:** the user starts from containers when finding or
+> managing things, but once a repo is in use the repo/folder matters more than its container. The
+> "keep containers as the top level" point below applies to the browse and manage tree only. Surfaces
+> for active work (tile headers, Layout list, Recent sessions) should lead with the repo/folder and
+> show the container last. See the README's user preferences.
+
 Reviewer feedback on `04-layout-preserving.{html,png}` (all paths here are relative to `.plans/design/devc-web-ux/`), checked against:
 
 - `real-layout.png` — the user's real populated three-tile layout. "Real layout"

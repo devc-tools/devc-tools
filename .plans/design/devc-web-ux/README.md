@@ -30,6 +30,15 @@ The original request was for investigation and mockups, **not application change
 - Keep the improved visual styling: compact short-name tile headers, muted context, status pinned to the right, consistent status colors, and a strong active-panel highlight.
 - **The current vertical expander pattern is not mandatory.** The user explicitly wants to explore tabs or other compact ways of presenting the same hierarchy.
 - The other agent's feedback is useful input, **not the final say**.
+- **Containers come first for finding things; repos and folders come first for work in progress.**
+  The user starts from containers when looking for something they know is in a particular
+  container, or when managing its lifecycle. Once a repo is in use, its container is secondary and
+  the repo/folder is what matters. So the surfaces for active work (tile headers, the Layout list,
+  running agents, Recent sessions) should lead with the repo/folder (plus the worktree or branch when
+  it differs) and show the container muted or only in a tooltip. Keep the container tree as the
+  browse and manage view. This favors a two-zone sidebar: an "in use" area organized by repo/folder
+  above the container tree. This revises `05-review-feedback.md`, which treated containers as the top
+  level everywhere.
 
 ### Preserve the data model, not necessarily its current visualization
 
