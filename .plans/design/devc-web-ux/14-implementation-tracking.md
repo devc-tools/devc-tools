@@ -16,10 +16,10 @@ or protocol change so far. To undo a feature, revert its commit.
 | F2 | Sidebar restyle: the mockup's palette, section headings, row sizes and status badges | done | `ea8f18f` |
 | F3 | "In use" zone: tiles, running panes not in the layout, and recent sessions, grouped by repo / worktree | done | `b97dddf` |
 | F4 | Two zones: In use above, Containers below, each scrolling on its own | done | `b97dddf` |
-| F5 | Container tabs: Terminals / Sessions / Repos / Files under each expanded container, remembered per container | done | (this commit) |
-| F6 | Container row: per-status agent counts, shown expanded too | done | (this commit) |
-| F7 | Repo labels: parent path muted before the bold name (`.plans/` deephaven-core) | done | (this commit) |
-| F8 | Tasks as one compact row with counts | pending | |
+| F5 | Container tabs: Terminals / Sessions / Repos / Files under each expanded container, remembered per container | done | `41447e0` |
+| F6 | Container row: per-status agent counts, shown expanded too | done | `41447e0` |
+| F7 | Repo labels: parent path muted before the bold name (`.plans/` deephaven-core) | done | `41447e0` |
+| F8 | Tasks as one compact row with counts | done | (this commit) |
 
 ## Exceptions
 
@@ -103,8 +103,21 @@ Each is a place the implementation differs from the mockup on purpose. Say which
 28. **Repo labels:** a worktree listed under its repo shows just its own name; a session row
     shows its repo's short name (a worktree's main repo), like its In use group.
 
+### F8: Tasks
+
+29. **Tasks is one row** in the In use zone ("Tasks · N open · M sent"), opening to its groups
+    and Sent as before; its + (new task) and collapse-all are hover buttons on that row. Its open
+    state is the one saved before, so it stays open if it was.
+
 ## Notes for the review
 
-- Verified in a headless browser against the live server's page with a fake WebSocket
-  (containers, panes, repos), at 1920×1050 and at a narrow width. Not verified against real
-  containers: that is the user's tab.
+- **How it was checked:** a headless browser against the live server's page, with a fake
+  WebSocket supplying one container, six panes (four in tiles, one agent outside the layout, one
+  shell), five repos with a worktree and five sessions, at 1920×1050 and at a narrow width.
+  Not against real containers, Herdr or real session lists: that is your tab.
+- **Worth trying live:** keyboard through the sidebar (Up / Down across both zones, Left / Right
+  on a tab strip); a container with many panes or repos (zone split, scrolling); the Files view
+  on a real container; resuming a session from In use; a renamed vs unrenamed pane in a header.
+- **Server / protocol:** none changed. `deno task check` and all tests pass after each commit.
+- **Not done:** file tiles' header context (exception 6); cleanup of the now-unused
+  Terminals / Sessions / Repos open states (exception 22).

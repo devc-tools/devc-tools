@@ -432,6 +432,18 @@ body.resizing-sidebar {
   font-size: 9px;
 }
 
+/* Tasks: one row in the In use zone, its counts on the right. */
+.row.tasks-row {
+  min-height: 28px;
+  margin-top: 8px;
+  cursor: pointer;
+}
+
+.row.tasks-row:hover {
+  --row-bg: var(--row-hover);
+  background: var(--row-bg);
+}
+
 /* An agent that no tile shows. */
 .tag {
   padding: 0 4px;
@@ -452,10 +464,13 @@ body.resizing-sidebar {
   cursor: pointer;
 }
 
-/* Its repo and age give way before its title does. */
+/* Its repo and age give way once its title has half the row. */
+.row.agent-session {
+  grid-template-columns: minmax(50%, 1fr) minmax(0, auto);
+}
+
 .row.agent-session .row-trail {
   min-width: 0;
-  max-width: 45%;
   overflow: hidden;
 }
 

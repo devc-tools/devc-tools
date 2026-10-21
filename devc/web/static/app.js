@@ -3584,23 +3584,41 @@ async function submitNewNote() {
  * Agents never write to the list.
  */
 function taskRows() {
+  // One row, as In use's groups are: its counts on the right, open or closed.
+  const counts = [
+    `${tasks.length} open`,
+    sentTasks.length ? `${sentTasks.length} sent` : '',
+  ].filter((t) => t).join(' · ');
   const rows = [
-    sectionRow(
-      LABELS.tasks,
-      sidebarState.tasksOpen,
-      toggleTasksSection,
+    h(
+      'div',
+      {
+        class: 'row tasks-row',
+        style: '--depth: 0',
+        'aria-expanded': String(sidebarState.tasksOpen),
+        onclick: toggleTasksSection,
+        oncontextmenu: (e) =>
+          openMenu(e, [[LABELS.newTask, () => openTaskDialog()]]),
+      },
+      h('span', { class: 'label' }, chevron(), LABELS.tasks),
       rowTrail(
+        h('span', { class: 'section-count' }, counts),
         hoverActions(
           iconButton('plus', LABELS.newTask, () => openTaskDialog()),
           iconButton('collapseAll', LABELS.collapseAll, collapseTasks),
         ),
       ),
-      (e) => openMenu(e, [[LABELS.newTask, () => openTaskDialog()]]),
     ),
   ];
   if (!sidebarState.tasksOpen) return rows;
   if (tasks.length === 0) {
-    rows.push(h('div', { class: 'empty' }, LABELS.noTasks));
+    rows.push(
+      h(
+        'div',
+        { class: 'row tree-note', style: '--depth: 1' },
+        h('span', { class: 'label' }, LABELS.noTasks),
+      ),
+    );
   }
   for (const group of groupTasks(tasks)) {
     rows.push(taskGroupRow(group));

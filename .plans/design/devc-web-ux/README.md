@@ -2,7 +2,7 @@
 
 ## Current state
 
-**Design exploration only. No application code has been changed.** The user accepted [13](13-starting-mockup.png) as a good starting point (2026-10-20). Repo labels put their parent path in front, muted (`.plans/deephaven-core`), so labels are never ambiguous. Interactive details are meant to be worked out live in devc web.
+**Implemented from mockup 13, awaiting review.** The user accepted [13](13-starting-mockup.png) as a good starting point (2026-10-20). It is now implemented in devc web, feature by feature; progress and every deliberate difference from the mockup are in [14-implementation-tracking.md](14-implementation-tracking.md), awaiting the user's review. Repo labels put their parent path in front, muted (`.plans/deephaven-core`), so labels are never ambiguous. Interactive details are meant to be worked out live in devc web.
 
 The user likes the proposed visual styling, especially clearer tile headers and a stronger active-terminal highlight. The main open question is how to make container navigation more compact while preserving the existing data relationships.
 
