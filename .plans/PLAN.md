@@ -55,12 +55,6 @@
   generalized from vscode-deephaven's `vscode-dev.sh`. chrome-devtools-mcp registration stays
   with the consuming project. Replaces the `feature-electron-deps` placeholder.
 
-- [bridge-pr-grant-split](bridge-pr-grant-split.md) — PR grants split by read/write: `gh-pr-read`
-  reads (`gh-pr-comments` now lists all threads, with `--state unresolved|resolved|all` and
-  `isResolved`; `gh-pr-files`), and every write requires it. `gh-pr-review` becomes `gh-pr-reply`,
-  `gh-pr-resolve` resolves any thread, and the new `gh-pr-resolve-copilot` keeps today's
-  Copilot-only rule for the review-loop skill. Old policies fail closed with a migration hint.
-
 - [devc-web-pr-review](devc-web-pr-review.md) — after bridge-pr-grant-split: a **Pull
   request** row under each repo of a running container shows the pinned branch's PR as a tree of
   changed files with Viewed checkboxes, and a click opens a `diff` tile with its review threads.
@@ -110,6 +104,12 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
   take it too.
 
 ### Completed
+
+- [bridge-pr-grant-split](archived/bridge-pr-grant-split.md) — PR grants split by read/write: `gh-pr-read`
+  reads (`gh-pr-comments` now lists all threads, with `--state unresolved|resolved|all` and
+  `isResolved`; `gh-pr-files`), and every write requires it. `gh-pr-review` becomes `gh-pr-reply`,
+  `gh-pr-resolve` resolves any thread, and the new `gh-pr-resolve-copilot` keeps today's
+  Copilot-only rule for the review-loop skill. Old policies fail closed with a migration hint.
 
 - [bridge-read-tier-defaults](archived/bridge-read-tier-defaults.md) — new capabilities `gh-pr-read`
   (`gh-pr-comments`, which `gh-pr-review` still enables too, and a new `gh-pr-files`: the pinned
@@ -2395,6 +2395,6 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
 | bridge skip unpinnable repos — pin the candidates that pass, error only when none do                               | [bridge-skip-unpinnable-repos](archived/bridge-skip-unpinnable-repos.md)           | complete    |
 | `devc web` agent sessions — a Sessions node per container lists and resumes recent agent sessions                  | [devc-web-agent-sessions](archived/devc-web-agent-sessions.md)                     | complete    |
 | devc-bridge read tier — `gh-pr-read`/`gh-pr-files`, `gh-pr-viewed`, `bridgeDefaultAllow` in config.json            | [bridge-read-tier-defaults](archived/bridge-read-tier-defaults.md)                 | complete    |
-| devc-bridge PR grant split — read vs write, `gh-pr-reply`, any-thread resolve + `gh-pr-resolve-copilot`            | [bridge-pr-grant-split](bridge-pr-grant-split.md)                                  |             |
+| devc-bridge PR grant split — read vs write, `gh-pr-reply`, any-thread resolve + `gh-pr-resolve-copilot`            | [bridge-pr-grant-split](archived/bridge-pr-grant-split.md)                         | complete    |
 | devc web PR review — sidebar PR tree + Viewed, diff tiles with threads, all through the container's bridge         | [devc-web-pr-review](devc-web-pr-review.md)                                        |             |
 | devc web sidebar scale fixes — Tasks section, In use merged by folder, running sessions not resumed twice          | [devc-web-sidebar-scale-fixes](archived/devc-web-sidebar-scale-fixes.md)           | complete    |

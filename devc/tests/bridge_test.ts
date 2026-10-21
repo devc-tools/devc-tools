@@ -153,7 +153,7 @@ async function withFixture(fn: (f: Fixture) => Promise<void>): Promise<void> {
 const SHA1 = '0123456789abcdef0123456789abcdef01234567';
 
 /** The grant most tests make: two capabilities, so the fourth field is visibly a list. */
-const GRANT: PolicyMode = { grant: ['gh-push', 'gh-pr-review'] };
+const GRANT: PolicyMode = { grant: ['gh-push', 'gh-pr-read'] };
 
 // ── the key directory ───────────────────────────────────────────────────────────────────────
 
@@ -186,11 +186,11 @@ Deno.test('grant writes the pin when the container has the repo frozen', async (
     const file = bridgePaths(f.home, key).policyFile;
     assertEquals(
       await Deno.readTextFile(file),
-      `${f.project}\tgit@github.com:acme/proj.git\tfeat/x\tgh-push,gh-pr-review\t/workspaces/proj\n`,
+      `${f.project}\tgit@github.com:acme/proj.git\tfeat/x\tgh-push,gh-pr-read\t/workspaces/proj\n`,
     );
     assertEquals((await Deno.stat(file)).mode! & 0o777, 0o600);
     assertEquals(f.logs, [
-      'devc: devc-bridge capabilities granted: gh-push, gh-pr-review',
+      'devc: devc-bridge capabilities granted: gh-push, gh-pr-read',
       `devc:   /workspaces/proj: feat/x → git@github.com:acme/proj.git (${f.project})`,
     ]);
   });
@@ -455,7 +455,7 @@ Deno.test('refresh revokes, never moves, the pin after a branch switch', async (
     assertStringIncludes(
       f.logs.join('\n'),
       'devc: devc-bridge capabilities revoked — the branch is now feat/next, but they were ' +
-        'granted for feat/x. Run `devc up --bridge-allow gh-push,gh-pr-review` to grant it.',
+        'granted for feat/x. Run `devc up --bridge-allow gh-push,gh-pr-read` to grant it.',
     );
     assert(!f.logs.some((l) => l.includes('refreshed')));
   });
@@ -478,7 +478,7 @@ Deno.test('refresh revokes, and says so, when the pin can no longer be derived',
     );
     assertStringIncludes(
       f.logs.join('\n'),
-      'Re-run `devc up --bridge-allow gh-push,gh-pr-review` once that is fixed.',
+      'Re-run `devc up --bridge-allow gh-push,gh-pr-read` once that is fixed.',
     );
   });
 });
@@ -552,7 +552,7 @@ Deno.test('refresh revokes a grant whose origin stopped being GitHub', async () 
     assertStringIncludes(
       f.logs.join('\n'),
       `devc: devc-bridge capabilities revoked — origin ${origin} is not a github.com remote. ` +
-        'Re-run `devc up --bridge-allow gh-push,gh-pr-review` once that is fixed.',
+        'Re-run `devc up --bridge-allow gh-push,gh-pr-read` once that is fixed.',
     );
   });
 });
@@ -611,12 +611,30 @@ Deno.test('refresh removes a policy holding a pre-rename capability name', async
   });
 });
 
+Deno.test('refresh removes a policy from before the PR grants split, naming the rename', async () => {
+  await withFixture(async (f) => {
+    const merged = await f.merged();
+    const deps = f.deps(f.frozen);
+    const file = bridgePaths(f.home, merged.bridgeKey!).policyFile;
+    await write(
+      file,
+      `${f.project}\tgit@github.com:acme/proj.git\tfeat/x\tgh-push,gh-pr-review,gh-pr-resolve\t/workspaces/proj\n`,
+    );
+    await applyPolicy('refresh', merged, f.project, deps);
+    assertEquals(await exists(file), false);
+    assertStringIncludes(
+      f.logs.join('\n'),
+      'was malformed (line 1: gh-pr-review was split — grant gh-pr-read,gh-pr-reply instead) and has been removed — re-run devc up --bridge-allow <list>',
+    );
+  });
+});
+
 Deno.test('a new grant replaces the earlier set rather than merging', async () => {
   await withFixture(async (f) => {
     const merged = await f.merged();
     const deps = f.deps(f.frozen);
     await applyPolicy(
-      { grant: ['gh-push', 'gh-pr-review', 'gh-pr-resolve'] },
+      { grant: ['gh-push', 'gh-pr-read', 'gh-pr-resolve'] },
       merged,
       f.project,
       deps,
@@ -730,7 +748,7 @@ Deno.test('status prints absent as absent, and the pin when there is one', async
     const after = await bridgeStatusLines(merged, f.project, f.deps(null));
     assertStringIncludes(
       after.join('\n'),
-      `  bridge:    gh-push, gh-pr-review\n` +
+      `  bridge:    gh-push, gh-pr-read\n` +
         `    /workspaces/proj: feat/x → git@github.com:acme/proj.git (${f.project})`,
     );
   });
@@ -912,7 +930,7 @@ Deno.test('a worktree container is granted once the primary git dir is frozen', 
     assertEquals(policy, {
       kind: 'present',
       record: {
-        grants: ['gh-push', 'gh-pr-review'],
+        grants: ['gh-push', 'gh-pr-read'],
         repos: [{
           repo: wt,
           remote: 'git@github.com:acme/proj.git',
@@ -1012,7 +1030,7 @@ async function withExtra(
 }
 
 const EXTRA_GRANT: PolicyMode = {
-  grant: ['gh-push', 'gh-pr-review'],
+  grant: ['gh-push', 'gh-pr-read'],
   repos: ['~/extra'],
 };
 
@@ -1021,7 +1039,7 @@ Deno.test('--bridge-repo pins an extra protected repo as line 2, and logs one li
     const { extra, merged, frozen } = await withExtra(f);
     await checkGrantBeforeUp(merged, f.project, f.deps(null), ['~/extra']);
     await applyPolicy(EXTRA_GRANT, merged, f.project, f.deps(frozen));
-    const grants = 'gh-push,gh-pr-review';
+    const grants = 'gh-push,gh-pr-read';
     assertEquals(
       await Deno.readTextFile(
         bridgePaths(f.home, merged.bridgeKey!).policyFile,
@@ -1030,7 +1048,7 @@ Deno.test('--bridge-repo pins an extra protected repo as line 2, and logs one li
         `${extra}\tgit@github.com:acme/extra.git\tfeat/extra\t${grants}\t/workspaces/extra\n`,
     );
     assertEquals(f.logs, [
-      'devc: devc-bridge capabilities granted: gh-push, gh-pr-review',
+      'devc: devc-bridge capabilities granted: gh-push, gh-pr-read',
       `devc:   /workspaces/proj: feat/x → git@github.com:acme/proj.git (${f.project})`,
       `devc:   /workspaces/extra: feat/extra → git@github.com:acme/extra.git (${extra})`,
     ]);
@@ -1195,7 +1213,7 @@ Deno.test('an extra repo whose .git/config is writable in the container is skipp
       'devc: --bridge-allow: not pinning ~/extra: git protection is not in force in this ' +
       'container for /workspaces/extra (/workspaces/extra/.git/config is mounted read-write) — ' +
       'recreate it with `devc build`',
-      'devc: devc-bridge capabilities granted: gh-push, gh-pr-review',
+      'devc: devc-bridge capabilities granted: gh-push, gh-pr-read',
       `devc:   /workspaces/proj: feat/x → git@github.com:acme/proj.git (${f.project})`,
     ]);
   });
@@ -1232,11 +1250,11 @@ Deno.test('a workspace repo with no origin is skipped, and the extra repo pinned
       await Deno.readTextFile(
         bridgePaths(f.home, merged.bridgeKey!).policyFile,
       ),
-      `${extra}\tgit@github.com:acme/extra.git\tfeat/extra\tgh-push,gh-pr-review\t/workspaces/extra\n`,
+      `${extra}\tgit@github.com:acme/extra.git\tfeat/extra\tgh-push,gh-pr-read\t/workspaces/extra\n`,
     );
     assertEquals(f.logs, [
       'devc: --bridge-allow: not pinning the workspace repo: the repo has no remote.origin.url',
-      'devc: devc-bridge capabilities granted: gh-push, gh-pr-review',
+      'devc: devc-bridge capabilities granted: gh-push, gh-pr-read',
       `devc:   /workspaces/extra: feat/extra → git@github.com:acme/extra.git (${extra})`,
     ]);
 
@@ -1263,7 +1281,7 @@ Deno.test('a workspace repo with no origin is skipped, and the extra repo pinned
     assertEquals(await pinnedRepos(f, merged), null);
     assertEquals(f.logs, [
       'devc: devc-bridge capabilities revoked — the branch is now main, but they were granted ' +
-      'for feat/extra. Run `devc up --bridge-allow gh-push,gh-pr-review --bridge-repo …` to ' +
+      'for feat/extra. Run `devc up --bridge-allow gh-push,gh-pr-read --bridge-repo …` to ' +
       'grant it.',
     ]);
   });
@@ -1475,7 +1493,7 @@ Deno.test("refresh revokes the whole policy when an extra repo's HEAD moves, nam
     assertStringIncludes(
       f.logs.join('\n'),
       `devc: devc-bridge capabilities revoked — ${extra}: the branch is now feat/other, but ` +
-        'they were granted for feat/extra. Run `devc up --bridge-allow gh-push,gh-pr-review ' +
+        'they were granted for feat/extra. Run `devc up --bridge-allow gh-push,gh-pr-read ' +
         '--bridge-repo …` to grant it.',
     );
   });
@@ -1514,7 +1532,7 @@ Deno.test('refresh revokes, with the repo named, when an extra repo is no longer
     );
     assertStringIncludes(
       f.logs.join('\n'),
-      'Re-run `devc up --bridge-allow gh-push,gh-pr-review --bridge-repo …` once that is fixed.',
+      'Re-run `devc up --bridge-allow gh-push,gh-pr-read --bridge-repo …` once that is fixed.',
     );
   });
 });
@@ -1524,7 +1542,7 @@ Deno.test('status prints one indented line per pinned repo', async () => {
     const { extra, merged, frozen } = await withExtra(f);
     await applyPolicy(EXTRA_GRANT, merged, f.project, f.deps(frozen));
     const lines = await bridgeStatusLines(merged, f.project, f.deps(null));
-    const at = lines.indexOf('  bridge:    gh-push, gh-pr-review');
+    const at = lines.indexOf('  bridge:    gh-push, gh-pr-read');
     assert(at >= 0, lines.join('\n'));
     assertEquals(lines.slice(at + 1), [
       `    /workspaces/proj: feat/x → git@github.com:acme/proj.git (${f.project})`,

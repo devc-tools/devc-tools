@@ -114,9 +114,9 @@ Notes:
   exit 0 either way — neither is an error.
 - `--bridge-allow LIST` on `up`/`build` grants the container devc-bridge
   capabilities — a comma-separated subset of `gh-push`, `gh-pr-read`,
-  `gh-pr-review`, `gh-pr-viewed` (requires `gh-pr-read`), `gh-pr-resolve` and
-  `gh-pr-request-review` (each requires `gh-pr-review`), or `gh` / `'gh-*'` for
-  all of them — on its current branch, whose `origin` must be a github.com
+  `gh-pr-reply`, `gh-pr-viewed`, `gh-pr-resolve`, `gh-pr-resolve-copilot` and
+  `gh-pr-request-review` (every `gh-pr-` write requires `gh-pr-read`), or `gh` /
+  `'gh-*'` for all of them — on its current branch, whose `origin` must be a github.com
   remote. `--bridge-allow none` revokes any earlier grant. `up`/`build`
   **without** the flag grant `bridgeDefaultAllow` from
   `~/.config/devc/config.json` when it is set, and otherwise revoke — see
@@ -1476,7 +1476,7 @@ line per pinned repo, the workspace repo first when it is pinned, at most 16:
 <host path of the repo><TAB><remote.origin.url><TAB><branch><TAB><grants><TAB><container path>
 ```
 
-`<grants>` is comma-separated in canonical order, e.g. `gh-push,gh-pr-review`,
+`<grants>` is comma-separated in canonical order, e.g. `gh-push,gh-pr-read`,
 and the same on every line: one grant list covers every pinned repo.
 `<container path>` is where the repo is mounted in the container (absolute, no
 trailing `/`); it is what the bridge commands' `--repo <path>` selects. That
@@ -1485,18 +1485,26 @@ mounted. A three- or four-field file from an older devc grants nothing: the next
 refresh removes it and says so, and `devc up --bridge-allow …` writes a new
 one.
 
-| Capability             | Lets the container run                        |
-| ---------------------- | --------------------------------------------- |
-| `gh-push`              | `gh-push`, `gh-doctor`                        |
-| `gh-pr-read`           | `gh-pr-comments`, `gh-pr-files` (read only)   |
-| `gh-pr-review`         | `gh-pr-comments`, `gh-pr-reply`               |
-| `gh-pr-viewed`         | `gh-pr-viewed` (needs `gh-pr-read`)           |
-| `gh-pr-resolve`        | `gh-pr-resolve` (needs `gh-pr-review`)        |
-| `gh-pr-request-review` | `gh-pr-request-review` (needs `gh-pr-review`) |
+| Capability              | Lets the container run                                         |
+| ----------------------- | -------------------------------------------------------------- |
+| `gh-push`               | `gh-push`, `gh-doctor`                                         |
+| `gh-pr-read`            | `gh-pr-comments`, `gh-pr-files` (read only)                    |
+| `gh-pr-reply`           | `gh-pr-reply` (needs `gh-pr-read`)                             |
+| `gh-pr-viewed`          | `gh-pr-viewed` (needs `gh-pr-read`)                            |
+| `gh-pr-resolve`         | `gh-pr-resolve` on any thread (needs `gh-pr-read`)             |
+| `gh-pr-resolve-copilot` | `gh-pr-resolve` on Copilot's threads only (needs `gh-pr-read`) |
+| `gh-pr-request-review`  | `gh-pr-request-review` (needs `gh-pr-read`)                    |
+
+`gh-pr-review` no longer exists: it was split into `gh-pr-read,gh-pr-reply`,
+and an old `gh-pr-resolve` (Copilot-only then) is `gh-pr-resolve-copilot` now.
+A policy holding the old name, or a PR write without `gh-pr-read`, is malformed:
+the next refresh removes it, and `--bridge-allow gh-pr-review` is refused with
+`gh-pr-review was split — grant gh-pr-read,gh-pr-reply instead`. See
+[devc-bridge § Migrating](../devc-bridge/README.md#migrating-from-gh-pr-review).
 
 **`gh` and `gh-*` mean all of them.** In a `--bridge-allow` list, the exact
 entries `gh` and `gh-*` each expand to every capability whose name starts with
-`gh-` — today, all six — and mix freely with explicit names. No other pattern
+`gh-` — today, all seven — and mix freely with explicit names. No other pattern
 is accepted (`*`, `gh-pr-*` and `GH` are unknown capabilities). devc expands
 them when it parses the flag, so the policy always stores the explicit list: a
 capability a later release adds is **not** granted to an existing container
@@ -1574,7 +1582,7 @@ devc up ~/code/tools/devc-dev --bridge-allow gh --bridge-repo ~/code/tools/devc-
 
   ```
   devc: --bridge-allow: not pinning the workspace repo: the repo has no remote.origin.url
-  devc: devc-bridge capabilities granted: gh-push, gh-pr-review, gh-pr-resolve, gh-pr-request-review
+  devc: devc-bridge capabilities granted: gh-push, gh-pr-read, gh-pr-reply, gh-pr-resolve-copilot, gh-pr-request-review
   devc:   /workspaces/extra: feat/x → git@github.com:acme/extra.git (/Users/me/code/extra)
   ```
 
@@ -1608,6 +1616,20 @@ To stop typing the same grant on every `up`, name it once in
 { "bridgeDefaultAllow": ["gh-pr-read", "gh-pr-viewed"] }
 ```
 
+or, for an agent's review loop on every container:
+
+```json
+{
+  "bridgeDefaultAllow": [
+    "gh-push",
+    "gh-pr-read",
+    "gh-pr-reply",
+    "gh-pr-resolve-copilot",
+    "gh-pr-request-review"
+  ]
+}
+```
+
 `devc up` and `devc build` grant that list whenever `--bridge-allow` is not
 given; the flag still replaces it, and `--bridge-allow none` grants nothing.
 Every other start path — `attach`, `herdr`, devc web's **Start container**, the
@@ -1623,15 +1645,16 @@ TUI — still only re-checks an existing policy and never creates one.
   silently. Entries are trimmed, duplicates dropped, and the list put in
   canonical order; absent, `null` or `[]` is no default.
 - **Any capability can be a default — your call.** A write capability in it
-  (`gh-push`, `gh-pr-review`, `gh-pr-viewed`, `gh-pr-resolve`,
-  `gh-pr-request-review`) is granted to **every** container you `devc up`,
+  (`gh-push`, `gh-pr-reply`, `gh-pr-viewed`, `gh-pr-resolve`,
+  `gh-pr-resolve-copilot`, `gh-pr-request-review`) is granted to **every** container you `devc up`,
   on whatever branch it has checked out. The read tier (`gh-pr-read`, plus
   `gh-pr-viewed`, which only marks files Viewed for you) is what devc web needs
   to show a PR.
 - **It never fails the start.** A value that is not valid exits 2 before
   anything starts, as `devc: ~/.config/devc/config.json: bridgeDefaultAllow:
   <reason>` (`must be an array of capability names`, `"gh" is not allowed here —
-  list each capability`, `unknown capability <name> — valid: …`, or
+  list each capability`, `unknown capability <name> — valid: …`,
+  `gh-pr-review was split — grant gh-pr-read,gh-pr-reply instead`, or
   `<cap> requires <needed>`). A valid default that cannot pin anything — no
   GitHub origin, a detached `HEAD`, git protection off — removes any earlier
   policy, logs `devc: bridgeDefaultAllow: not granted: <reason>`, and the start
@@ -1686,7 +1709,7 @@ GitHub, the mount gone, a malformed file — the refresh **removes** the whole
 policy and says so:
 
 ```
-devc: devc-bridge capabilities revoked — the branch is now feat/next, but they were granted for feat/x. Run `devc up --bridge-allow gh-push,gh-pr-review` to grant it.
+devc: devc-bridge capabilities revoked — the branch is now feat/next, but they were granted for feat/x. Run `devc up --bridge-allow gh-push,gh-pr-read` to grant it.
 ```
 
 With more than one repo pinned, the message starts with the repo's host path; the
@@ -1719,7 +1742,7 @@ is present, and the pins in force — `absent` when there are none. A grant logs
 and `devc status` shows, the capabilities and then one line per pinned repo:
 
 ```
-devc: devc-bridge capabilities granted: gh-push, gh-pr-review, gh-pr-resolve, gh-pr-request-review
+devc: devc-bridge capabilities granted: gh-push, gh-pr-read, gh-pr-reply, gh-pr-resolve-copilot, gh-pr-request-review
 devc:   /workspaces/devc-dev: feat/x → git@github.com:acme/devc-dev.git (/Users/me/code/tools/devc-dev)
 devc:   /workspaces/tools/devc-tools: feat/y → git@github.com:acme/devc-tools.git (/Users/me/code/tools/devc-tools)
 ```

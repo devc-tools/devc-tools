@@ -133,7 +133,7 @@ const policyLine = (grants: string) =>
 
 Deno.test('a granted built-in runs from builtinDir, with the caller key', async () => {
   await withServer(
-    policyLine('gh-push,gh-pr-review'),
+    policyLine('gh-push,gh-pr-read,gh-pr-reply'),
     async ({ port, token }) => {
       const push = await call(port, token, 'gh-push');
       assertEquals(push, {
@@ -149,17 +149,28 @@ Deno.test('a granted built-in runs from builtinDir, with the caller key', async 
   );
 });
 
-Deno.test('gh-pr-comments runs under either gh-pr-read or gh-pr-review', async () => {
-  for (const grants of ['gh-pr-read', 'gh-pr-review']) {
-    await withServer(policyLine(grants), async ({ port, token }) => {
-      assertEquals(await call(port, token, 'gh-pr-comments'), {
-        ok: true,
-        exitCode: 0,
-        stdout: `builtin gh-pr-comments key=${KEY}\n`,
-        stderr: '',
-      } as Resp, grants);
-    });
-  }
+Deno.test('gh-pr-read runs the reads, and no write', async () => {
+  await withServer(policyLine('gh-pr-read'), async ({ port, token }) => {
+    assertEquals(await call(port, token, 'gh-pr-comments'), {
+      ok: true,
+      exitCode: 0,
+      stdout: `builtin gh-pr-comments key=${KEY}\n`,
+      stderr: '',
+    } as Resp);
+    assertEquals((await call(port, token, 'gh-pr-files')).exitCode, 0);
+    assertEquals(
+      await call(port, token, 'gh-pr-reply'),
+      refused(
+        1,
+        'gh-pr-reply needs capability gh-pr-reply, which this container was not granted (it has: gh-pr-read) — on the host: devc up --bridge-allow gh-pr-read,gh-pr-reply',
+      ),
+    );
+    for (
+      const name of ['gh-pr-viewed', 'gh-pr-resolve', 'gh-pr-request-review']
+    ) {
+      assertEquals((await call(port, token, name)).exitCode, 1, name);
+    }
+  });
   await withServer(
     policyLine('gh-pr-read,gh-pr-viewed'),
     async ({ port, token }) => {
@@ -168,6 +179,26 @@ Deno.test('gh-pr-comments runs under either gh-pr-read or gh-pr-review', async (
       assertEquals((await call(port, token, 'gh-pr-reply')).exitCode, 1);
     },
   );
+});
+
+Deno.test('gh-pr-resolve runs under either resolve grant', async () => {
+  for (
+    const grants of [
+      'gh-pr-read,gh-pr-resolve',
+      'gh-pr-read,gh-pr-resolve-copilot',
+      'gh-pr-read,gh-pr-resolve,gh-pr-resolve-copilot',
+    ]
+  ) {
+    await withServer(policyLine(grants), async ({ port, token }) => {
+      assertEquals(await call(port, token, 'gh-pr-resolve'), {
+        ok: true,
+        exitCode: 0,
+        stdout: `builtin gh-pr-resolve key=${KEY}\n`,
+        stderr: '',
+      } as Resp, grants);
+      assertEquals((await call(port, token, 'gh-pr-reply')).exitCode, 1);
+    });
+  }
 });
 
 Deno.test('a built-in is refused, with the exact message, for each ungranted case', async () => {
@@ -190,14 +221,21 @@ Deno.test('a built-in is refused, with the exact message, for each ungranted cas
       await call(port, token, 'gh-pr-resolve'),
       refused(
         1,
-        'no capabilities granted to this container — on the host: devc up --bridge-allow gh-pr-review,gh-pr-resolve',
+        'no capabilities granted to this container — on the host: devc up --bridge-allow gh-pr-read,gh-pr-resolve',
       ),
     );
     assertEquals(
       await call(port, token, 'gh-pr-request-review'),
       refused(
         1,
-        'no capabilities granted to this container — on the host: devc up --bridge-allow gh-pr-review,gh-pr-request-review',
+        'no capabilities granted to this container — on the host: devc up --bridge-allow gh-pr-read,gh-pr-request-review',
+      ),
+    );
+    assertEquals(
+      await call(port, token, 'gh-pr-reply'),
+      refused(
+        1,
+        'no capabilities granted to this container — on the host: devc up --bridge-allow gh-pr-read,gh-pr-reply',
       ),
     );
     assertEquals(
@@ -220,7 +258,7 @@ Deno.test('a built-in is refused, with the exact message, for each ungranted cas
       await call(port, token, 'gh-pr-comments'),
       refused(
         1,
-        'gh-pr-comments needs capability gh-pr-read or gh-pr-review, which this container was not granted (it has: gh-push) — on the host: devc up --bridge-allow gh-push,gh-pr-read',
+        'gh-pr-comments needs capability gh-pr-read, which this container was not granted (it has: gh-push) — on the host: devc up --bridge-allow gh-push,gh-pr-read',
       ),
     );
     assertEquals(
@@ -241,19 +279,19 @@ Deno.test('a built-in is refused, with the exact message, for each ungranted cas
       await call(port, token, 'gh-pr-resolve'),
       refused(
         1,
-        'gh-pr-resolve needs capability gh-pr-resolve, which this container was not granted (it has: gh-push) — on the host: devc up --bridge-allow gh-push,gh-pr-review,gh-pr-resolve',
+        'gh-pr-resolve needs capability gh-pr-resolve or gh-pr-resolve-copilot, which this container was not granted (it has: gh-push) — on the host: devc up --bridge-allow gh-push,gh-pr-read,gh-pr-resolve',
       ),
     );
 
     await Deno.writeTextFile(
       policyFile,
-      policyLine('gh-pr-review,gh-pr-resolve'),
+      policyLine('gh-pr-read,gh-pr-resolve-copilot'),
     );
     assertEquals(
       await call(port, token, 'gh-pr-request-review'),
       refused(
         1,
-        'gh-pr-request-review needs capability gh-pr-request-review, which this container was not granted (it has: gh-pr-review, gh-pr-resolve) — on the host: devc up --bridge-allow gh-pr-review,gh-pr-resolve,gh-pr-request-review',
+        'gh-pr-request-review needs capability gh-pr-request-review, which this container was not granted (it has: gh-pr-read, gh-pr-resolve-copilot) — on the host: devc up --bridge-allow gh-pr-read,gh-pr-resolve-copilot,gh-pr-request-review',
       ),
     );
   });
@@ -309,11 +347,39 @@ Deno.test('a broken policy is refused with exit 2, the reason, and a whole-list 
       ),
     );
 
+    // A policy from before the PR grants split by read/write fails closed, with what changed.
+    const migrate =
+      `${regrant} (gh-pr-review is now gh-pr-read,gh-pr-reply; gh-pr-resolve now resolves any thread, gh-pr-resolve-copilot only Copilot's)`;
+    await Deno.writeTextFile(
+      policyFile,
+      policyLine('gh-push,gh-pr-review,gh-pr-resolve'),
+    );
+    for (const name of ['gh-pr-comments', 'gh-push', 'gh-pr-resolve']) {
+      assertEquals(
+        await call(port, token, name),
+        refused(
+          2,
+          `this container's policy is malformed and grants nothing: line 1: gh-pr-review was split — grant gh-pr-read,gh-pr-reply instead (${policyFile}) — on the host: ${migrate}`,
+        ),
+        name,
+      );
+    }
+    // … and so does one without the old name that holds a PR write without gh-pr-read.
+    await Deno.writeTextFile(policyFile, policyLine('gh-push,gh-pr-resolve'));
+    assertEquals(
+      await call(port, token, 'gh-pr-resolve'),
+      refused(
+        2,
+        `this container's policy is malformed and grants nothing: line 1: gh-pr-resolve requires gh-pr-read (${policyFile}) — on the host: ${migrate}`,
+      ),
+    );
+
     for (
       const text of [
         '/r\tgit@github.com:o/r.git\tfeat\n',
         policyLine('gh-push,gh-nope'),
         policyLine('gh-pr-resolve'),
+        policyLine('gh-pr-review'),
       ]
     ) {
       await Deno.writeTextFile(policyFile, text);
@@ -344,9 +410,9 @@ Deno.test('a broken policy is refused with exit 2, the reason, and a whole-list 
 
 Deno.test('a multi-repo policy grants by its one shared grant list', async () => {
   const second =
-    `/s\tgit@github.com:o/s.git\tfix\tgh-push,gh-pr-review\t/workspaces/s\n`;
+    `/s\tgit@github.com:o/s.git\tfix\tgh-push,gh-pr-read,gh-pr-reply\t/workspaces/s\n`;
   await withServer(
-    policyLine('gh-push,gh-pr-review') + second,
+    policyLine('gh-push,gh-pr-read,gh-pr-reply') + second,
     async ({ port, token, policyFile }) => {
       assertEquals((await call(port, token, 'gh-push')).ok, true);
       assertEquals((await call(port, token, 'gh-pr-reply')).ok, true);
@@ -354,14 +420,14 @@ Deno.test('a multi-repo policy grants by its one shared grant list', async () =>
         await call(port, token, 'gh-pr-resolve'),
         refused(
           1,
-          'gh-pr-resolve needs capability gh-pr-resolve, which this container was not granted (it has: gh-push, gh-pr-review) — on the host: devc up --bridge-allow gh-push,gh-pr-review,gh-pr-resolve',
+          'gh-pr-resolve needs capability gh-pr-resolve or gh-pr-resolve-copilot, which this container was not granted (it has: gh-push, gh-pr-read, gh-pr-reply) — on the host: devc up --bridge-allow gh-push,gh-pr-read,gh-pr-reply,gh-pr-resolve',
         ),
       );
       // Grants that differ between lines are malformed: one list for every repo, or none.
       await Deno.writeTextFile(
         policyFile,
-        policyLine('gh-push,gh-pr-review') +
-          second.replace(',gh-pr-review', ''),
+        policyLine('gh-push,gh-pr-read,gh-pr-reply') +
+          second.replace(',gh-pr-reply', ''),
       );
       const resp = await call(port, token, 'gh-push');
       assertEquals(resp.exitCode, 2);
@@ -395,7 +461,7 @@ Deno.test('a commands/ file named like a built-in is never run, and is reported 
       ),
       logs.join('\n'),
     );
-    // gh-pr-comments belongs to two capabilities, and is still reported once.
+    // Reported once, as is every built-in — gh-pr-resolve's two capabilities included.
     assertEquals(
       logs.filter((l) =>
         l ===
@@ -409,7 +475,7 @@ Deno.test('a commands/ file named like a built-in is never run, and is reported 
 
 Deno.test('a pre-rename command name is an unknown command, with no hint', async () => {
   await withServer(
-    policyLine('gh-push,gh-pr-review'),
+    policyLine('gh-push,gh-pr-read,gh-pr-reply'),
     async ({ port, token }) => {
       for (const old of ['git-push', 'git-doctor', 'pr-comments', 'pr-reply']) {
         assertEquals(await call(port, token, old), {

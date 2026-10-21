@@ -54,22 +54,22 @@ daemon.
 Run these inside the devcontainer, as `devc-bridge <command> [args...]`. Out
 of the box:
 
-| Command                                  | Does                                                                                                                                                                                                                                                            |
-| ---------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `ping [label]`                           | **The normal way to keep the host awake.** Reserved builtin — records activity and starts/stops `caffeinate` for you on an idle timeout. Wire it into hooks per [Wiring into Claude Code hooks](#wiring-into-claude-code-hooks) and forget it exists.           |
-| `caffeinate start\|stop\|status`         | The keepalive's own on/off switch, exposed directly (macOS-only; runs the real `caffeinate(8)`). Manual/advanced use only — see below.                                                                                                                          |
-| `echo <args...>`                         | Round-trip smoke test — echoes args back                                                                                                                                                                                                                        |
-| `toggle on\|off`                         | Demo command that flips a state marker (exercises `status`/the tray without needing macOS)                                                                                                                                                                      |
-| `gh-push`                                | **Built in — needs capability `gh-push`.** Publish a pinned branch to its pinned remote. Takes only `--repo <path>`, required once more than one repo is pinned. See [Publishing a branch](#publishing-a-branch-gh-push)                                        |
-| `gh-doctor`                              | **Built in — needs capability `gh-push`.** Explain why `gh-push` would or would not work, for every pinned repo: the pin, worktree pointers, the mirror, and a read-only probe of the remote. Changes nothing                                                   |
-| `gh-pr-comments`                         | **Built in — needs capability `gh-pr-read` or `gh-pr-review`.** The unresolved review threads on the pinned repo's PR, as JSON, plus Copilot's latest reviewed commit. Takes only `--repo <path>`. See [Iterating on PR review](#iterating-on-pr-review-gh-pr-) |
-| `gh-pr-files`                            | **Built in — needs capability `gh-pr-read`.** That PR's changed files, as JSON: each one's patch and your Viewed state. Takes only `--repo <path>`                                                                                                              |
-| `gh-pr-viewed <viewed\|unviewed> <file>` | **Built in — needs capability `gh-pr-viewed`.** Mark one of those files Viewed, or not Viewed, as you. Takes a leading `--repo <path>` like the others                                                                                                          |
-| `gh-pr-reply <thread> <body>`            | **Built in — needs capability `gh-pr-review`.** Reply to any review thread on that PR, prefixed `🤖`. Takes a leading `--repo <path>` like the others                                                                                                           |
-| `gh-pr-resolve <thread>`                 | **Built in — needs capability `gh-pr-resolve`.** Resolve a review thread on that PR — only one Copilot started. Takes a leading `--repo <path>` like the others                                                                                                 |
-| `gh-pr-request-review`                   | **Built in — needs capability `gh-pr-request-review`.** Ask Copilot to review that PR's current head — nothing is requested while a review is pending or already of the head. Takes only `--repo <path>`                                                        |
-| `help [guide]`                           | **Answered by the client itself**, never sent to the host (also `--help` / `-h`; no arguments prints it to stderr, exit 2) — every command and its capability, or with `guide` the embedded [agent guide](../docs/bridge-github.md)                             |
-| `version`                                | **Answered by the client itself**, never sent to the host (also `--version` / `-V`) — which client is actually mounted in here, answerable with the bridge down                                                                                                 |
+| Command                                  | Does                                                                                                                                                                                                                                                                                          |
+| ---------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ping [label]`                           | **The normal way to keep the host awake.** Reserved builtin — records activity and starts/stops `caffeinate` for you on an idle timeout. Wire it into hooks per [Wiring into Claude Code hooks](#wiring-into-claude-code-hooks) and forget it exists.                                         |
+| `caffeinate start\|stop\|status`         | The keepalive's own on/off switch, exposed directly (macOS-only; runs the real `caffeinate(8)`). Manual/advanced use only — see below.                                                                                                                                                        |
+| `echo <args...>`                         | Round-trip smoke test — echoes args back                                                                                                                                                                                                                                                      |
+| `toggle on\|off`                         | Demo command that flips a state marker (exercises `status`/the tray without needing macOS)                                                                                                                                                                                                    |
+| `gh-push`                                | **Built in — needs capability `gh-push`.** Publish a pinned branch to its pinned remote. Takes only `--repo <path>`, required once more than one repo is pinned. See [Publishing a branch](#publishing-a-branch-gh-push)                                                                      |
+| `gh-doctor`                              | **Built in — needs capability `gh-push`.** Explain why `gh-push` would or would not work, for every pinned repo: the pin, worktree pointers, the mirror, and a read-only probe of the remote. Changes nothing                                                                                 |
+| `gh-pr-comments`                         | **Built in — needs capability `gh-pr-read`.** The review threads on the pinned repo's PR — all of them, or `--state unresolved\|resolved` — as JSON, plus Copilot's latest reviewed commit. Takes `--repo <path>` and `--state`. See [Iterating on PR review](#iterating-on-pr-review-gh-pr-) |
+| `gh-pr-files`                            | **Built in — needs capability `gh-pr-read`.** That PR's changed files, as JSON: each one's patch and your Viewed state. Takes only `--repo <path>`                                                                                                                                            |
+| `gh-pr-viewed <viewed\|unviewed> <file>` | **Built in — needs capability `gh-pr-viewed`.** Mark one of those files Viewed, or not Viewed, as you. Takes a leading `--repo <path>` like the others                                                                                                                                        |
+| `gh-pr-reply <thread> <body>`            | **Built in — needs capability `gh-pr-reply`.** Reply to any review thread on that PR, prefixed `🤖`. Takes a leading `--repo <path>` like the others                                                                                                                                          |
+| `gh-pr-resolve <thread>`                 | **Built in — needs capability `gh-pr-resolve` or `gh-pr-resolve-copilot`.** Resolve a review thread on that PR — any thread under `gh-pr-resolve`, only one Copilot started under `gh-pr-resolve-copilot` alone. Takes a leading `--repo <path>` like the others                              |
+| `gh-pr-request-review`                   | **Built in — needs capability `gh-pr-request-review`.** Ask Copilot to review that PR's current head — nothing is requested while a review is pending or already of the head. Takes only `--repo <path>`                                                                                      |
+| `help [guide]`                           | **Answered by the client itself**, never sent to the host (also `--help` / `-h`; no arguments prints it to stderr, exit 2) — every command and its capability, or with `guide` the embedded [agent guide](../docs/bridge-github.md)                                                           |
+| `version`                                | **Answered by the client itself**, never sent to the host (also `--version` / `-V`) — which client is actually mounted in here, answerable with the bridge down                                                                                                                               |
 
 **In normal use you never call `caffeinate` yourself** — `ping` drives it
 automatically once it's wired into hooks. Reach for `caffeinate start`/`stop`/
@@ -613,7 +613,7 @@ its policy's grant**, written by devc from one flag:
 
 ```sh
 devc up --bridge-allow gh        # all of them; 'gh-*' (quoted) is the same
-devc up --bridge-allow gh-push,gh-pr-review,gh-pr-resolve,gh-pr-request-review
+devc up --bridge-allow gh-push,gh-pr-read,gh-pr-reply,gh-pr-resolve-copilot,gh-pr-request-review
 devc up --bridge-allow none      # none: removes any earlier grant
 ```
 
@@ -629,18 +629,45 @@ aborts an unquoted one with `zsh: no matches found: gh-*` before devc runs.
 Every capability acts through the host's `gh` login, so the pinned `origin` must
 be a github.com remote; devc refuses to grant on any other.
 
-| Capability             | Commands                        | Notes                                                               |
-| ---------------------- | ------------------------------- | ------------------------------------------------------------------- |
-| `gh-push`              | `gh-push`, `gh-doctor`          | [Publishing a branch](#publishing-a-branch-gh-push)                 |
-| `gh-pr-read`           | `gh-pr-comments`, `gh-pr-files` | Read only. [Iterating on PR review](#iterating-on-pr-review-gh-pr-) |
-| `gh-pr-review`         | `gh-pr-comments`, `gh-pr-reply` | [Iterating on PR review](#iterating-on-pr-review-gh-pr-)            |
-| `gh-pr-viewed`         | `gh-pr-viewed`                  | Requires `gh-pr-read` — devc refuses it alone                       |
-| `gh-pr-resolve`        | `gh-pr-resolve`                 | Requires `gh-pr-review` — devc refuses it alone                     |
-| `gh-pr-request-review` | `gh-pr-request-review`          | Requires `gh-pr-review`. Each request spends a Copilot review       |
+| Kind  | Capability              | Commands                                | Notes                                                               |
+| ----- | ----------------------- | --------------------------------------- | ------------------------------------------------------------------- |
+| write | `gh-push`               | `gh-push`, `gh-doctor`                  | [Publishing a branch](#publishing-a-branch-gh-push)                 |
+| read  | `gh-pr-read`            | `gh-pr-comments`, `gh-pr-files`         | Read only. [Iterating on PR review](#iterating-on-pr-review-gh-pr-) |
+| write | `gh-pr-reply`           | `gh-pr-reply`                           | Requires `gh-pr-read` — devc refuses it alone                       |
+| write | `gh-pr-viewed`          | `gh-pr-viewed`                          | Requires `gh-pr-read`                                               |
+| write | `gh-pr-resolve`         | `gh-pr-resolve`, any thread             | Requires `gh-pr-read`                                               |
+| write | `gh-pr-resolve-copilot` | `gh-pr-resolve`, Copilot's threads only | Requires `gh-pr-read`. For an agent's review loop                   |
+| write | `gh-pr-request-review`  | `gh-pr-request-review`                  | Requires `gh-pr-read`. Each request spends a Copilot review         |
+
+Every PR write requires `gh-pr-read`: it acts on what a read shows (thread ids,
+file paths, the review a request follows).
 
 **A built-in runs when the policy grants any capability that lists it.**
-`gh-pr-comments` is under both `gh-pr-read` and `gh-pr-review`, so a policy
-granted before `gh-pr-read` existed keeps it with no re-grant.
+`gh-pr-resolve` is under both `gh-pr-resolve` and `gh-pr-resolve-copilot`, and
+the script picks the scope from the grants: with `gh-pr-resolve` (alone or
+with `gh-pr-resolve-copilot`, as `gh` grants) any thread on the PR; with only
+`gh-pr-resolve-copilot`, a thread Copilot didn't start is exit 3.
+
+### Migrating from `gh-pr-review`
+
+The PR grants split by read and write. **A policy granted before the split
+fails closed — re-grant it.** `gh-pr-review` no longer exists, and every PR
+write now requires `gh-pr-read`, so an old policy holding a PR grant is
+malformed: the bridge refuses every built-in for it (exit 2), and devc's next
+start removes it. Old names never widen: an old `gh-pr-resolve` meant
+Copilot-only, and nothing granted before the split can resolve a human
+reviewer's thread without a new `devc up`. A policy with only `gh-push` is
+unaffected. The same goes for a `bridgeDefaultAllow` with the old names:
+`devc up` exits 2 until it is fixed.
+
+| Old grant              | New grant                                                                                 |
+| ---------------------- | ----------------------------------------------------------------------------------------- |
+| `gh-pr-review`         | `gh-pr-read,gh-pr-reply`                                                                  |
+| `gh-pr-resolve`        | `gh-pr-resolve-copilot` (Copilot's threads, as before), or `gh-pr-resolve` for any thread |
+| `gh-pr-request-review` | `gh-pr-request-review`, now with `gh-pr-read`                                             |
+
+So the old `gh-push,gh-pr-review,gh-pr-resolve,gh-pr-request-review` is now
+`gh-push,gh-pr-read,gh-pr-reply,gh-pr-resolve-copilot,gh-pr-request-review`.
 
 `devc up`/`devc build` with `--bridge-allow` write exactly that set (replacing
 any earlier one), shared by every repo pinned with it; with `--bridge-allow none`,
@@ -658,7 +685,7 @@ server's. Exit `1` means not granted:
 <cmd> needs a per-container token — the shared token has no capabilities
 no capabilities granted to this container — on the host: devc up --bridge-allow <cap>
 <cmd> needs capability <cap>, which this container was not granted (it has: <grants>) — on the host: devc up --bridge-allow <grants>,<cap>
-gh-pr-comments needs capability gh-pr-read or gh-pr-review, which this container was not granted (it has: <grants>) — on the host: devc up --bridge-allow <grants>,gh-pr-read
+gh-pr-resolve needs capability gh-pr-resolve or gh-pr-resolve-copilot, which this container was not granted (it has: <grants>) — on the host: devc up --bridge-allow <grants>,gh-pr-read,gh-pr-resolve
 ```
 
 A suggestion names the command's first capability plus anything it requires,
@@ -678,6 +705,12 @@ For an `unknown capability "…"` reason — most likely a newer `devc` than the
 running bridge — the hint reads `if devc is newer than the running bridge, run
 devc-bridge restart; otherwise re-run devc up --bridge-allow <every capability
 this container needs>`.
+
+For a policy from before the [PR grant split](#migrating-from-gh-pr-review) —
+the reason `gh-pr-review was split — grant gh-pr-read,gh-pr-reply instead`, or
+any `<cap> requires gh-pr-read` — it reads `re-run devc up --bridge-allow <every
+capability this container needs> (gh-pr-review is now gh-pr-read,gh-pr-reply;
+gh-pr-resolve now resolves any thread, gh-pr-resolve-copilot only Copilot's)`.
 
 Each script checks its own capability again (exit `2`) as a second layer.
 
@@ -854,23 +887,24 @@ refuses any other key.
 ## Iterating on PR review (`gh-pr-*`)
 
 The same trade as `gh-push`, for the other half of a review loop: the agent
-reads Copilot's review threads on its PR, replies, resolves Copilot's, and asks
+reads the review threads on its PR, replies, resolves Copilot's, and asks
 for the next review —
 **with no GitHub credential in the container at all**, not even a read-only
 one. Each call runs `gh api` on the host with your credentials.
 
 ### Enabling it
 
-`gh-pr-read` grants reading only (`gh-pr-comments`, `gh-pr-files`), and
-`gh-pr-viewed` on top of it marking files Viewed. `gh-pr-review` grants reading
-threads and replying; `gh-pr-resolve` and `gh-pr-request-review`
-are separate, so replies without resolves is simply leaving `gh-pr-resolve` out.
-`gh-pr-request-review` is separate because each request spends a Copilot review
-(org quota or premium requests), which granting read-and-reply did not consent
-to:
+`gh-pr-read` grants reading only (`gh-pr-comments`, `gh-pr-files`). Each write
+is its own grant on top of it: `gh-pr-reply` replying, `gh-pr-viewed` marking
+files Viewed, `gh-pr-resolve` resolving any thread or `gh-pr-resolve-copilot`
+only Copilot's, and `gh-pr-request-review` asking for a review — separate
+because each request spends a Copilot review (org quota or premium requests),
+which granting read-and-reply did not consent to. Replies without resolves is
+simply leaving both resolve grants out:
 
 ```sh
 devc up --bridge-allow gh   # all of them; the same pin gh-push uses
+devc up --bridge-allow gh-push,gh-pr-read,gh-pr-reply,gh-pr-resolve-copilot,gh-pr-request-review   # the review loop
 ```
 
 The host needs `gh` on the bridge's `PATH`, authenticated (`gh auth login`, or
@@ -900,13 +934,13 @@ node id — PR numbers repeat across repos), or it is exit 2.
 
 ### The verbs
 
-| Verb                                     | Does                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
-| ---------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `gh-pr-comments`                         | Prints one JSON object: `pr` (`repo`, `number`, `url`, `headSha`), `threads` (unresolved only: `id`, `path`, `line`, `isOutdated`, `copilot`, `comments[]` of `author`/`body`/`createdAt`/`url`), and `copilotReview` (`commit`, `state`, `submittedAt`, `body` — the review's markdown overview, verbatim — and `findings`, the open findings parsed out of `body` (`section`, `severity`, `title`, `path`, `line`, `text`; `null` when the body isn't parseable, so read `body`), of Copilot's latest delivered review — `null`s if none — and `pending`, true while the latest Copilot timeline event is a review request) |
-| `gh-pr-files`                            | Prints one JSON object: `pr` (`repo`, `number`, `url`, `headSha`, `title`, `state`, `isDraft`, `author` — `null` for a deleted account — `baseRef`, `headRef`, `changedFiles`), `files` in GitHub's order (`path`, `previousPath` — `null` unless renamed — `status`, `additions`, `deletions`, `patch` — `null` where GitHub sends none — and `viewed`: `VIEWED`, `UNVIEWED` or `DISMISSED`, as the host user), and `truncated`, true when GitHub listed fewer files than `changedFiles` (it lists at most 3000)                                                                                                             |
-| `gh-pr-viewed <viewed\|unviewed> <file>` | Marks `<file>` — exactly a `path` `gh-pr-files` prints, 1–4096 bytes, no control characters — Viewed or not Viewed on the PR, as the host user. A file not in the PR is exit 2 and nothing is sent. Prints `{"path":<file>,"viewed":"VIEWED"}` (or `"UNVIEWED"`)                                                                                                                                                                                                                                                                                                                                                              |
-| `gh-pr-reply <thread> <body>`            | Replies to **any** thread on the PR — a human reviewer's too, resolved or not. Posted under your identity with the fixed prefix `🤖`. The body must be non-empty, at most **4000 bytes**, with no control characters other than newline and tab; anything else is exit 3 with a message saying what to change, and nothing is sent                                                                                                                                                                                                                                                                                            |
-| `gh-pr-resolve <thread>`                 | Resolves a thread **only if Copilot started it** (its first comment's author is the `copilot-pull-request-reviewer` bot). A human reviewer's thread is exit 3 — resolving hides feedback, which is the one thing a misbehaving agent would want. Already resolved is exit 0                                                                                                                                                                                                                                                                                                                                                   |
+| Verb                                     | Does                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| ---------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `gh-pr-comments`                         | Prints one JSON object: `pr` (`repo`, `number`, `url`, `headSha`), `threads` (every thread by default; `--state unresolved`, `resolved` or `all` picks — a filter, not a grant: `id`, `path`, `line`, `isResolved`, `isOutdated`, `copilot`, `comments[]` of `author`/`body`/`createdAt`/`url`), and `copilotReview` (`commit`, `state`, `submittedAt`, `body` — the review's markdown overview, verbatim — and `findings`, the open findings parsed out of `body` (`section`, `severity`, `title`, `path`, `line`, `text`; `null` when the body isn't parseable, so read `body`), of Copilot's latest delivered review — `null`s if none — and `pending`, true while the latest Copilot timeline event is a review request) |
+| `gh-pr-files`                            | Prints one JSON object: `pr` (`repo`, `number`, `url`, `headSha`, `title`, `state`, `isDraft`, `author` — `null` for a deleted account — `baseRef`, `headRef`, `changedFiles`), `files` in GitHub's order (`path`, `previousPath` — `null` unless renamed — `status`, `additions`, `deletions`, `patch` — `null` where GitHub sends none — and `viewed`: `VIEWED`, `UNVIEWED` or `DISMISSED`, as the host user), and `truncated`, true when GitHub listed fewer files than `changedFiles` (it lists at most 3000)                                                                                                                                                                                                            |
+| `gh-pr-viewed <viewed\|unviewed> <file>` | Marks `<file>` — exactly a `path` `gh-pr-files` prints, 1–4096 bytes, no control characters — Viewed or not Viewed on the PR, as the host user. A file not in the PR is exit 2 and nothing is sent. Prints `{"path":<file>,"viewed":"VIEWED"}` (or `"UNVIEWED"`)                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| `gh-pr-reply <thread> <body>`            | Replies to **any** thread on the PR — a human reviewer's too, resolved or not. Posted under your identity with the fixed prefix `🤖`. The body must be non-empty, at most **4000 bytes**, with no control characters other than newline and tab; anything else is exit 3 with a message saying what to change, and nothing is sent                                                                                                                                                                                                                                                                                                                                                                                           |
+| `gh-pr-resolve <thread>`                 | Resolves a thread. With `gh-pr-resolve` granted, any thread on the PR. With only `gh-pr-resolve-copilot`, **only one Copilot started** (its first comment's author is the `copilot-pull-request-reviewer` bot): a human reviewer's thread is exit 3 — resolving hides feedback, which an agent's review loop must not do. Already resolved is exit 0                                                                                                                                                                                                                                                                                                                                                                         |
 
 | `gh-pr-request-review` | Asks Copilot to review the PR's current head (REST `POST repos/<repo>/pulls/<n>/requested_reviewers` with `copilot-pull-request-reviewer[bot]`). Idempotent, so it bounds spend to one review per head: while a Copilot review is pending it prints `pending: Copilot is already reviewing <pr-url>`; when Copilot's latest review is of the head, `up to date: Copilot already reviewed <sha12> on <pr-url>` — both exit 0 with nothing posted. Otherwise `requested: Copilot review of <sha12> on <pr-url>`. A 2xx is the success signal: GitHub's response never lists Copilot among the requested reviewers |
 

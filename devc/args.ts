@@ -4,6 +4,7 @@ import {
   type BridgeCapability,
   isBridgeCapability,
   MAX_PINNED_REPOS,
+  retiredCapabilityReason,
 } from '@devc-tools/core/bridge.ts';
 import { unfoldHome } from '@devc-tools/core/mounts.ts';
 import { isAbsolutePosix, resolvePosix } from '@devc-tools/core/posix.ts';
@@ -336,7 +337,10 @@ export function parseBridgeAllow(value: string): BridgeCapability[] | 'none' {
     } else if (isBridgeCapability(n)) {
       wanted.add(n);
     } else {
-      throw new Error(`unknown capability ${n} — valid: ${valid}`);
+      throw new Error(
+        retiredCapabilityReason(n) ??
+          `unknown capability ${n} — valid: ${valid}`,
+      );
     }
   }
   return canonicalGrants(wanted);
@@ -370,7 +374,8 @@ export function parseBridgeDefaultAllow(
     }
     if (!isBridgeCapability(n)) {
       throw new Error(
-        `unknown capability ${n} — valid: ${BRIDGE_CAPABILITIES.join(', ')}`,
+        retiredCapabilityReason(n) ??
+          `unknown capability ${n} — valid: ${BRIDGE_CAPABILITIES.join(', ')}`,
       );
     }
     wanted.add(n);

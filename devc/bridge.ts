@@ -8,8 +8,8 @@
 //
 // **The policy is the whole grant.** `policy/<key>.conf` names the repos a container's
 // capabilities act on — each one's host path, remote, branch and container path, one line each —
-// and which capabilities it has (`gh-push`, `gh-pr-read`, `gh-pr-review`, `gh-pr-viewed`,
-// `gh-pr-resolve`, `gh-pr-request-review`), always as the explicit list — `--bridge-allow gh` is
+// and which capabilities it has (`gh-push`, `gh-pr-read`, `gh-pr-reply`, `gh-pr-viewed`,
+// `gh-pr-resolve`, `gh-pr-resolve-copilot`, `gh-pr-request-review`), always as the explicit list — `--bridge-allow gh` is
 // expanded before it gets here. A grant tries the workspace repo, then each extra repo the user names with
 // `--bridge-repo PATH` on the same command — devc never pins a mounted repo it was not told to —
 // and pins each that passes its own checks, in that order, skipping the rest with a notice; it

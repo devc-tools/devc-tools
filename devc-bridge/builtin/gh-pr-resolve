@@ -1,25 +1,26 @@
 #!/usr/bin/env bash
-# gh-pr-resolve — resolve one Copilot review thread on the pinned repo's one PR.
+# gh-pr-resolve — resolve one review thread on the pinned repo's one PR.
 #   devc-bridge gh-pr-resolve [--repo <path>] <thread-id>
 #   (`--repo` names the pinned repo by its container path; required once more than one is pinned)
 #
-# Built in: runs only for a container whose policy grants `gh-pr-resolve`
-# (`devc up --bridge-allow gh-pr-review,gh-pr-resolve`).
-#
-# Only threads Copilot started: resolving hides review feedback, so a human reviewer's thread stays
-# out of an agent's reach (it can still reply with gh-pr-reply). The PR is the one open PR whose head
-# is the policy's remote + branch (see gh-pr-comments).
+# Built in: runs for a container whose policy grants `gh-pr-resolve` or `gh-pr-resolve-copilot`
+# (`devc up --bridge-allow gh-pr-read,gh-pr-resolve`). The grant sets the scope:
+#   gh-pr-resolve          any thread on the PR (also when gh-pr-resolve-copilot is granted too)
+#   gh-pr-resolve-copilot  only threads Copilot started; any other exits 3
+# Copilot-only exists for an agent's review loop: resolving hides review feedback, so a human
+# reviewer's thread stays out of the loop's reach (it can still reply with gh-pr-reply). The PR is
+# the one open PR whose head is the policy's remote + branch (see gh-pr-comments).
 #
 # Exit codes: 0 resolved (or already resolved), 2 no/malformed policy, wrong arguments, an
-# unsupported remote, no single open PR, or a thread not on it, 3 a thread Copilot did not start,
-# 4 GitHub/transport failure, gh not authenticated, or timeout.
+# unsupported remote, no single open PR, or a thread not on it, 3 a thread Copilot did not start
+# under gh-pr-resolve-copilot alone, 4 GitHub/transport failure, gh not authenticated, or timeout.
 
 # SC2016: GraphQL variables are $-prefixed and must not expand. SC2034: the shared prelude sets
 # some variables only another recipe reads.
 # shellcheck disable=SC2016,SC2034
 me=gh-pr-resolve
 usage="usage: gh-pr-resolve [--repo <path>] <thread-id>"
-grant_hint=gh-pr-review,gh-pr-resolve
+grant_hint=gh-pr-read,gh-pr-resolve
 # ── BEGIN pr-prelude ──
 # Shared by gh-pr-comments, gh-pr-files, gh-pr-viewed, gh-pr-reply, gh-pr-resolve and
 # gh-pr-request-review: keep the six copies byte-identical (the harness checks). Recipes are
@@ -503,13 +504,18 @@ copilot_review() {
 thread=$1
 valid_thread_id "$thread" || die 2 "not a review thread id (want PRRT_…): $thread"
 load_policy
-require_grant gh-pr-resolve
+require_grant gh-pr-resolve gh-pr-resolve-copilot
 gh_ready
 resolve_pr
 load_thread "$thread"
 
-[ "$thread_copilot" = true ] ||
-  die 3 "refused: thread $thread was not started by Copilot — only Copilot threads can be resolved from a container; reply instead"
+case ,$grants, in
+  *,gh-pr-resolve,*) ;;
+  *)
+    [ "$thread_copilot" = true ] ||
+      die 3 "refused: thread $thread was not started by Copilot — this container has gh-pr-resolve-copilot, which resolves only Copilot's threads; reply instead"
+    ;;
+esac
 if [ "$thread_resolved" = true ]; then
   echo "already resolved: $thread"
   exit 0

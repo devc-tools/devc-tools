@@ -1,16 +1,18 @@
 #!/usr/bin/env bash
-# gh-pr-comments — the unresolved review threads on the pinned repo's one PR, as JSON.
-#   devc-bridge gh-pr-comments [--repo <path>]
+# gh-pr-comments — the review threads on the pinned repo's one PR, as JSON.
+#   devc-bridge gh-pr-comments [--repo <path>] [--state unresolved|resolved|all]
 #   (`--repo` names the pinned repo by its container path; required once more than one is pinned)
 #
-# Built in: runs for a container whose policy grants either `gh-pr-read` or `gh-pr-review`
-# (`devc up --bridge-allow gh-pr-read`; policies granted before `gh-pr-read` existed keep it
-# through `gh-pr-review`).
+# Built in: runs for a container whose policy grants `gh-pr-read`
+# (`devc up --bridge-allow gh-pr-read`).
+#
+# `--state` picks which threads are listed: `unresolved`, `resolved`, or `all` (the default). It
+# is a filter, not a grant — every thread on the pinned PR is readable under `gh-pr-read`.
 #
 # The PR is the one open PR whose head is the policy's remote + branch (gh-push's pin), searched in
 # that repo and its fork parent. Output is one JSON object on stdout:
 #   {"pr":{"repo","number","url","headSha"},
-#    "threads":[{"id","path","line","isOutdated","copilot","comments":[{"author","body","createdAt","url"}]}],
+#    "threads":[{"id","path","line","isResolved","isOutdated","copilot","comments":[{"author","body","createdAt","url"}]}],
 #    "copilotReview":{"commit","state","submittedAt","body","findings":[{"section","severity","title",
 #      "path","line","text"}],"pending"}}
 # copilotReview is Copilot's latest delivered review, from the issue timeline: body is its markdown
@@ -24,7 +26,7 @@
 # some variables only another recipe reads.
 # shellcheck disable=SC2016,SC2034
 me=gh-pr-comments
-usage="usage: gh-pr-comments [--repo <path>]"
+usage="usage: gh-pr-comments [--repo <path>] [--state unresolved|resolved|all]"
 grant_hint=gh-pr-read
 # ── BEGIN pr-prelude ──
 # Shared by gh-pr-comments, gh-pr-files, gh-pr-viewed, gh-pr-reply, gh-pr-resolve and
@@ -505,13 +507,28 @@ copilot_review() {
 }
 # ── END pr-prelude ──
 
-[ $# -eq 0 ] || die 2 "$usage"
+# Only the space form: `--state=all` is an argument error, like `--repo=…`.
+state=all
+if [ $# -eq 2 ] && [ "$1" = --state ]; then
+  case $2 in
+    unresolved | resolved | all) state=$2 ;;
+    *) die 2 "$usage" ;;
+  esac
+elif [ $# -ne 0 ]; then
+  die 2 "$usage"
+fi
+# A constant per state, never container data, so interpolating it into the filter is safe.
+case $state in
+  unresolved) keep='select(.isResolved | not)' ;;
+  resolved) keep='select(.isResolved)' ;;
+  all) keep='.' ;;
+esac
 load_policy
-require_grant gh-pr-read gh-pr-review
+require_grant gh-pr-read
 gh_ready
 resolve_pr
 
-# ── unresolved threads, every page ────────────────────────────────────────────────────────
+# ── the threads --state keeps, every page ─────────────────────────────────────────────────
 
 q='query($owner:String!,$name:String!,$number:Int!,$endCursor:String){repository(owner:$owner,
   name:$name){pullRequest(number:$number){reviewThreads(first:100,after:$endCursor){
@@ -519,8 +536,8 @@ q='query($owner:String!,$name:String!,$number:Int!,$endCursor:String){repository
   comments(first:100){nodes{author{__typename login} body createdAt url}}}}}}}'
 gh_run "reading review threads on $pr_url" api graphql --paginate -f query="$q" \
   -f owner="$pr_owner" -f name="$pr_name" -F number="$pr_number" \
-  --jq ".data.repository.pullRequest.reviewThreads.nodes[] | select(.isResolved | not) |
-    {id, path, line, isOutdated, copilot: (.comments.nodes[0].author | $IS_COPILOT),
+  --jq ".data.repository.pullRequest.reviewThreads.nodes[] | $keep |
+    {id, path, line, isResolved, isOutdated, copilot: (.comments.nodes[0].author | $IS_COPILOT),
      comments: [.comments.nodes[] | {author: (.author.login // null), body, createdAt, url}]} |
     tojson"
 mv "$tmp/out" "$tmp/threads"

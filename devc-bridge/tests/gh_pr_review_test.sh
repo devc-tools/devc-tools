@@ -361,7 +361,9 @@ files_fx() {
     >"$FX/restfiles-2.json"
 }
 
-ALL_PR=gh-pr-read,gh-pr-review,gh-pr-viewed,gh-pr-resolve,gh-pr-request-review
+# The review loop's grants plus gh-pr-viewed: resolving is Copilot-only unless a case pins
+# gh-pr-resolve.
+ALL_PR=gh-pr-read,gh-pr-reply,gh-pr-viewed,gh-pr-resolve-copilot,gh-pr-request-review
 pin() { # pin <remote> <branch> [grants, default $ALL_PR] — one line, container path /workspaces/r
   mkdir -p "$POLICY_DIR"
   printf '%s\t%s\t%s\t%s\t%s\n' /Users/you/code/r "$1" "$2" "${3:-$ALL_PR}" /workspaces/r \
@@ -435,35 +437,41 @@ for r in gh-pr-comments gh-pr-files gh-pr-viewed gh-pr-reply gh-pr-resolve gh-pr
   check "  … and GitHub was never asked" test -z "$(calls)"
 done
 fresh
-pin git@github.com:me/r.git "$BRANCH" gh-pr-review
+pin git@github.com:me/r.git "$BRANCH" gh-pr-read,gh-pr-reply
 run gh-pr-resolve PRRT_c1
-expect_rc 2 "gh-pr-resolve with gh-pr-review but not gh-pr-resolve"
-check "  … says so" has_err "this container was not granted gh-pr-resolve"
+expect_rc 2 "gh-pr-resolve with gh-pr-reply but neither resolve grant"
+check "  … names both" has_err "this container was not granted gh-pr-resolve or gh-pr-resolve-copilot"
 run gh-pr-reply PRRT_c1 hi
 expect_rc 0 "  … while gh-pr-reply still works"
 fresh
-pin git@github.com:me/r.git "$BRANCH" gh-pr-review
+pin git@github.com:me/r.git "$BRANCH" gh-pr-read,gh-pr-resolve
+run gh-pr-reply PRRT_c1 hi
+expect_rc 2 "gh-pr-reply with gh-pr-read,gh-pr-resolve but not gh-pr-reply"
+check "  … says so" has_err "this container was not granted gh-pr-reply"
+check "  … and GitHub was never asked" test -z "$(calls)"
+fresh
+pin git@github.com:me/r.git "$BRANCH" gh-pr-read,gh-pr-reply
 run gh-pr-request-review
-expect_rc 2 "gh-pr-request-review with gh-pr-review but not gh-pr-request-review"
+expect_rc 2 "gh-pr-request-review with gh-pr-read,gh-pr-reply but not gh-pr-request-review"
 check "  … says so" has_err "this container was not granted gh-pr-request-review"
 check "  … and GitHub was never asked" test -z "$(calls)"
 fresh
-pin git@github.com:me/r.git "$BRANCH" gh-pr-review,gh-pr-request-review
+pin git@github.com:me/r.git "$BRANCH" gh-pr-read,gh-pr-request-review
 run gh-pr-request-review
-expect_rc 0 "gh-pr-request-review with gh-pr-review,gh-pr-request-review (no gh-pr-resolve)"
-for grants in gh-pr-read gh-pr-review; do
+expect_rc 0 "gh-pr-request-review with gh-pr-read,gh-pr-request-review (no reply or resolve)"
+fresh
+pin git@github.com:me/r.git "$BRANCH" gh-pr-read
+run gh-pr-comments
+expect_rc 0 "gh-pr-comments with only gh-pr-read"
+for grants in gh-push gh-push,gh-pr-reply,gh-pr-resolve; do
   fresh
   pin git@github.com:me/r.git "$BRANCH" "$grants"
   run gh-pr-comments
-  expect_rc 0 "gh-pr-comments with only $grants"
+  expect_rc 2 "gh-pr-comments with $grants but not gh-pr-read"
+  check "  … names gh-pr-read alone" test "$err" = "gh-pr-comments: this container was not granted gh-pr-read"
 done
 fresh
-pin git@github.com:me/r.git "$BRANCH" gh-push,gh-pr-resolve
-run gh-pr-comments
-expect_rc 2 "gh-pr-comments with neither gh-pr-read nor gh-pr-review"
-check "  … names both" has_err "this container was not granted gh-pr-read or gh-pr-review"
-fresh
-pin git@github.com:me/r.git "$BRANCH" gh-pr-review,gh-pr-resolve,gh-pr-request-review
+pin git@github.com:me/r.git "$BRANCH" gh-pr-reply,gh-pr-resolve,gh-pr-request-review
 run gh-pr-files
 expect_rc 2 "gh-pr-files without gh-pr-read"
 check "  … says so" has_err "this container was not granted gh-pr-read"
@@ -507,7 +515,18 @@ expect_rc 2 "gh-pr-resolve --repo <path> and no thread"
 check "  … prints the usage" has_err "usage: gh-pr-resolve [--repo <path>] <thread-id>"
 run gh-pr-comments --repo=/workspaces/r
 expect_rc 2 "--repo=<path> is not accepted"
-check "  … prints the usage" has_err "usage: gh-pr-comments [--repo <path>]"
+check "  … prints the usage" has_err "usage: gh-pr-comments [--repo <path>] [--state unresolved|resolved|all]"
+for a in "--state bogus" "--state" "--state=all" "--state all extra" "--state Unresolved" \
+  "--state unresolved --state all" "all"; do
+  read -ra args <<<"$a"
+  run gh-pr-comments "${args[@]}"
+  expect_rc 2 "gh-pr-comments $a"
+  check "  … prints the usage" has_err "usage: gh-pr-comments [--repo <path>] [--state unresolved|resolved|all]"
+done
+run gh-pr-comments --state ''
+expect_rc 2 "gh-pr-comments --state ''"
+run gh-pr-comments --state all --repo /workspaces/r
+expect_rc 2 "--repo after --state is not accepted"
 check "  … none of these reached GitHub either" test -z "$(calls)"
 run gh-pr-reply PRRT_c1 --repo
 expect_rc 0 "gh-pr-reply <thread> --repo: --repo after the thread is the body"
@@ -622,10 +641,41 @@ fresh
 run gh-pr-comments
 expect_rc 0 "the default world"
 check "  … is one valid JSON object" jq -e 'type == "object"' <<<"$out" >/dev/null
-check "  … only unresolved threads, across both pages" test "$(q '[.threads[].id] | join(",")')" = PRRT_c1,PRRT_h1,PRRT_c4
-check "  … copilot flags" test "$(q '[.threads[].copilot] | join(",")')" = true,false,true
-check "  … a hostile body round-trips exactly" test "$(q '.threads[2].comments[0].body')" = "$TRICKY"
+check "  … every thread by default, resolved too, across both pages" \
+  test "$(q '[.threads[].id] | join(",")')" = PRRT_c1,PRRT_h1,PRRT_c2,PRRT_c4
+check "  … isResolved on each" test "$(q '[.threads[].isResolved] | join(",")')" = false,false,true,false
+check "  … isResolved is a boolean" test "$(q '[.threads[].isResolved | type] | unique | join(",")')" = boolean
+check "  … thread key order" test "$(jq -c '.threads[0] | keys_unsorted' <<<"$out")" = \
+  '["id","path","line","isResolved","isOutdated","copilot","comments"]'
+check "  … copilot flags" test "$(q '[.threads[].copilot] | join(",")')" = true,false,true,true
+check "  … a hostile body round-trips exactly" test "$(q '.threads[3].comments[0].body')" = "$TRICKY"
 check "  … comment author" test "$(q '.threads[1].comments[0].author')" = alice
+all_out=$out
+run gh-pr-comments --state all
+expect_rc 0 "--state all"
+check "  … is the default's output" test "$out" = "$all_out"
+run gh-pr-comments --state unresolved
+expect_rc 0 "--state unresolved"
+check "  … keeps the unresolved threads" test "$(q '[.threads[].id] | join(",")')" = PRRT_c1,PRRT_h1,PRRT_c4
+check "  … each isResolved false" test "$(q '[.threads[].isResolved] | join(",")')" = false,false,false
+check "  … copilotReview unchanged" test "$(q .copilotReview.commit)" = "$(sha 2)"
+run gh-pr-comments --state resolved
+expect_rc 0 "--state resolved"
+check "  … keeps the resolved thread" test "$(q '[.threads[].id] | join(",")')" = PRRT_c2
+check "  … isResolved true" test "$(q '.threads[0].isResolved')" = true
+run gh-pr-comments --repo /workspaces/r --state resolved
+expect_rc 0 "--repo <path> --state resolved"
+check "  … the same thread" test "$(q '[.threads[].id] | join(",")')" = PRRT_c2
+fresh
+rm "$FX"/threads-*.json
+threads_page 1 "$(thread PRRT_h1 true human 'why?')" "$(thread PRRT_c1 false copilot 'use const')"
+run gh-pr-comments
+check "one resolved and one unresolved thread: both listed by default" \
+  test "$(q '[.threads[] | "\(.id)=\(.isResolved)"] | join(",")')" = PRRT_h1=true,PRRT_c1=false
+run gh-pr-comments --state unresolved
+check "  … --state unresolved keeps the unresolved one" test "$(q '[.threads[].id] | join(",")')" = PRRT_c1
+run gh-pr-comments --state resolved
+check "  … --state resolved keeps the resolved one" test "$(q '[.threads[].id] | join(",")')" = PRRT_h1
 check "  … copilotReview is the later Copilot review" test "$(q .copilotReview.commit)" = "$(sha 2)"
 check "  … not pending" test "$(q .copilotReview.pending)" = false
 check "  … read from the timeline, not REST requested_reviewers" \
@@ -705,7 +755,7 @@ check "  … text: the explanation, path span and tags removed, trimmed" \
   test "$(q '.copilotReview.findings[0].text')" = 'An empty list reaches `mean()` — divide by zero; use `%s` \ carefully.'
 check "  … finding key order" test "$(jq -c '.copilotReview.findings[0] | keys_unsorted' <<<"$out")" = \
   '["section","severity","title","path","line","text"]'
-check "  … the other fields are unchanged" test "$(q '[.threads[].id] | join(",")')" = PRRT_c1,PRRT_h1,PRRT_c4
+check "  … the other fields are unchanged" test "$(q '[.threads[].id] | join(",")')" = PRRT_c1,PRRT_h1,PRRT_c2,PRRT_c4
 ccr_body 4 >"$FX/body-ccr"
 timeline_fx copilot-reviewed:7:commented:body-ccr
 run gh-pr-comments
@@ -820,9 +870,30 @@ expect_rc 0 "a Copilot thread"
 check "  … prints it" test "$out" = "resolved: PRRT_c1"
 check "  … the mutation was sent" test -e "$SHIM/resolved-PRRT_c1"
 run gh-pr-resolve PRRT_h1
-expect_rc 3 "a human reviewer's thread"
-check "  … says to reply instead" has_err "reply instead"
+expect_rc 3 "a human reviewer's thread, with gh-pr-resolve-copilot only"
+check "  … the exact refusal" test "$err" = \
+  "gh-pr-resolve: refused: thread PRRT_h1 was not started by Copilot — this container has gh-pr-resolve-copilot, which resolves only Copilot's threads; reply instead"
 check "  … no mutation" test ! -e "$SHIM/resolved-PRRT_h1"
+for grants in gh-pr-read,gh-pr-resolve gh-pr-read,gh-pr-resolve,gh-pr-resolve-copilot; do
+  fresh
+  pin git@github.com:me/r.git "$BRANCH" "$grants"
+  run gh-pr-resolve PRRT_h1
+  expect_rc 0 "a human reviewer's thread, with $grants"
+  check "  … prints it" test "$out" = "resolved: PRRT_h1"
+  check "  … the mutation was sent" test -e "$SHIM/resolved-PRRT_h1"
+  run gh-pr-resolve PRRT_c1
+  expect_rc 0 "  … and a Copilot thread"
+  run gh-pr-resolve PRRT_c2
+  expect_rc 0 "  … an already-resolved thread"
+  check "  … says so" test "$out" = "already resolved: PRRT_c2"
+  node_fx PRRT_n1 PR_7 false none
+  run gh-pr-resolve PRRT_n1
+  expect_rc 0 "  … a thread whose author was deleted"
+  run gh-pr-resolve PRRT_x9
+  expect_rc 2 "  … but never a thread on another PR"
+  check "  … no mutation" test ! -e "$SHIM/resolved-PRRT_x9"
+done
+fresh
 run gh-pr-resolve PRRT_c2
 expect_rc 0 "an already-resolved Copilot thread"
 check "  … says so" test "$out" = "already resolved: PRRT_c2"

@@ -305,19 +305,19 @@ Deno.test('--bridge-allow is parsed by up and build in both spellings, and is ne
     bridgeRepos: [],
   });
   assertEquals(
-    parseUpArgs(['--bridge-allow=gh-push,gh-pr-review']).bridgeAllow,
+    parseUpArgs(['--bridge-allow=gh-push,gh-pr-read']).bridgeAllow,
     [
       'gh-push',
-      'gh-pr-review',
+      'gh-pr-read',
     ],
   );
   assertEquals(
-    parseUpArgs(['--bridge-allow', 'gh-pr-review,gh-pr-resolve', '/path']),
+    parseUpArgs(['--bridge-allow', 'gh-pr-read,gh-pr-resolve', '/path']),
     {
       target: '/path',
       printConfig: false,
       json: false,
-      bridgeAllow: ['gh-pr-review', 'gh-pr-resolve'],
+      bridgeAllow: ['gh-pr-read', 'gh-pr-resolve'],
       bridgeRepos: [],
     },
   );
@@ -331,23 +331,30 @@ Deno.test('--bridge-allow is parsed by up and build in both spellings, and is ne
 });
 
 Deno.test('--bridge-allow trims, dedupes and sorts into canonical order', () => {
-  assertEquals(parseBridgeAllow(' gh-pr-resolve , gh-pr-review '), [
-    'gh-pr-review',
+  assertEquals(parseBridgeAllow(' gh-pr-resolve , gh-pr-read '), [
+    'gh-pr-read',
     'gh-pr-resolve',
   ]);
-  assertEquals(parseBridgeAllow('gh-pr-review,gh-push,gh-pr-review,'), [
+  assertEquals(parseBridgeAllow('gh-pr-read,gh-push,gh-pr-read,'), [
     'gh-push',
-    'gh-pr-review',
+    'gh-pr-read',
   ]);
+  assertEquals(
+    parseBridgeAllow(
+      'gh-pr-resolve-copilot,gh-pr-reply,gh-pr-resolve,gh-pr-read',
+    ),
+    ['gh-pr-read', 'gh-pr-reply', 'gh-pr-resolve', 'gh-pr-resolve-copilot'],
+  );
 });
 
 Deno.test('--bridge-allow gh and gh-* expand to every gh- capability', () => {
   const all: BridgeCapability[] = [
     'gh-push',
     'gh-pr-read',
-    'gh-pr-review',
+    'gh-pr-reply',
     'gh-pr-viewed',
     'gh-pr-resolve',
+    'gh-pr-resolve-copilot',
     'gh-pr-request-review',
   ];
   for (
@@ -364,39 +371,53 @@ Deno.test('--bridge-allow gh and gh-* expand to every gh- capability', () => {
   }
   assertEquals(parseUpArgs(['--bridge-allow', 'gh']).bridgeAllow, all);
   assertEquals(parseBuildArgs(['--bridge-allow=gh-*']).bridgeAllow, all);
+  assertEquals(all.length, 7);
 });
 
 Deno.test('--bridge-allow refuses bad values with the documented messages', () => {
   const cases: [string[], string][] = [
     [
       ['--bridge-allow'],
-      '--bridge-allow needs at least one of: gh-push, gh-pr-read, gh-pr-review, gh-pr-viewed, gh-pr-resolve, gh-pr-request-review (or gh / gh-* for all of them)',
+      '--bridge-allow needs at least one of: gh-push, gh-pr-read, gh-pr-reply, gh-pr-viewed, gh-pr-resolve, gh-pr-resolve-copilot, gh-pr-request-review (or gh / gh-* for all of them)',
     ],
     [
       ['--bridge-allow='],
-      '--bridge-allow needs at least one of: gh-push, gh-pr-read, gh-pr-review, gh-pr-viewed, gh-pr-resolve, gh-pr-request-review (or gh / gh-* for all of them)',
+      '--bridge-allow needs at least one of: gh-push, gh-pr-read, gh-pr-reply, gh-pr-viewed, gh-pr-resolve, gh-pr-resolve-copilot, gh-pr-request-review (or gh / gh-* for all of them)',
     ],
     [['--bridge-allow', ' , '], '--bridge-allow needs at least one of'],
     [
       ['--bridge-allow', 'git-pull'],
-      'unknown capability git-pull — valid: gh-push, gh-pr-read, gh-pr-review, gh-pr-viewed, gh-pr-resolve, gh-pr-request-review (or gh / gh-* for all of them)',
+      'unknown capability git-pull — valid: gh-push, gh-pr-read, gh-pr-reply, gh-pr-viewed, gh-pr-resolve, gh-pr-resolve-copilot, gh-pr-request-review (or gh / gh-* for all of them)',
     ],
     [
       ['--bridge-allow', 'git-push'],
-      'unknown capability git-push — valid: gh-push, gh-pr-read, gh-pr-review, gh-pr-viewed, gh-pr-resolve, gh-pr-request-review (or gh / gh-* for all of them)',
+      'unknown capability git-push — valid: gh-push, gh-pr-read, gh-pr-reply, gh-pr-viewed, gh-pr-resolve, gh-pr-resolve-copilot, gh-pr-request-review (or gh / gh-* for all of them)',
     ],
     [['--bridge-allow', 'pr-review'], 'unknown capability pr-review — valid:'],
+    [
+      ['--bridge-allow', 'gh-pr-review'],
+      'gh-pr-review was split — grant gh-pr-read,gh-pr-reply instead',
+    ],
+    [
+      ['--bridge-allow', 'gh-push,gh-pr-review,gh-pr-resolve'],
+      'gh-pr-review was split — grant gh-pr-read,gh-pr-reply instead',
+    ],
     [['--bridge-allow', '*'], 'unknown capability * — valid:'],
     [['--bridge-allow', 'gh-pr-*'], 'unknown capability gh-pr-* — valid:'],
     [['--bridge-allow', 'GH'], 'unknown capability GH — valid:'],
     [['--bridge-allow', 'gh-push,gh*'], 'unknown capability gh* — valid:'],
     [
       ['--bridge-allow', 'gh-pr-resolve'],
-      'gh-pr-resolve requires gh-pr-review',
+      'gh-pr-resolve requires gh-pr-read',
     ],
     [
+      ['--bridge-allow', 'gh-pr-resolve-copilot'],
+      'gh-pr-resolve-copilot requires gh-pr-read',
+    ],
+    [['--bridge-allow', 'gh-pr-reply'], 'gh-pr-reply requires gh-pr-read'],
+    [
       ['--bridge-allow', 'gh-pr-request-review'],
-      'gh-pr-request-review requires gh-pr-review',
+      'gh-pr-request-review requires gh-pr-read',
     ],
     [['--bridge-allow', 'gh-pr-viewed'], 'gh-pr-viewed requires gh-pr-read'],
     [
@@ -408,7 +429,7 @@ Deno.test('--bridge-allow refuses bad values with the documented messages', () =
       "--bridge-allow none can't be combined with capabilities",
     ],
     [
-      ['--bridge-allow', 'gh-push', '--bridge-allow=gh-pr-review'],
+      ['--bridge-allow', 'gh-push', '--bridge-allow=gh-pr-read'],
       '--bridge-allow given more than once',
     ],
     [
@@ -445,9 +466,10 @@ Deno.test('bridgeDefaultAllow: canonical, trimmed, deduplicated; absent, null or
     parseBridgeDefaultAllow([
       'gh-pr-request-review',
       'gh-push',
-      'gh-pr-review',
+      'gh-pr-reply',
+      'gh-pr-read',
     ]),
-    ['gh-push', 'gh-pr-review', 'gh-pr-request-review'],
+    ['gh-push', 'gh-pr-read', 'gh-pr-reply', 'gh-pr-request-review'],
   );
 });
 
@@ -465,14 +487,22 @@ Deno.test('bridgeDefaultAllow refuses bad values with each documented reason', (
     ],
     [
       ['gh-pr-nope'],
-      'unknown capability gh-pr-nope — valid: gh-push, gh-pr-read, gh-pr-review, gh-pr-viewed, gh-pr-resolve, gh-pr-request-review',
+      'unknown capability gh-pr-nope — valid: gh-push, gh-pr-read, gh-pr-reply, gh-pr-viewed, gh-pr-resolve, gh-pr-resolve-copilot, gh-pr-request-review',
     ],
     [
       ['none'],
-      'unknown capability none — valid: gh-push, gh-pr-read, gh-pr-review, gh-pr-viewed, gh-pr-resolve, gh-pr-request-review',
+      'unknown capability none — valid: gh-push, gh-pr-read, gh-pr-reply, gh-pr-viewed, gh-pr-resolve, gh-pr-resolve-copilot, gh-pr-request-review',
     ],
     [['gh-pr-viewed'], 'gh-pr-viewed requires gh-pr-read'],
-    [['gh-pr-resolve', 'gh-pr-read'], 'gh-pr-resolve requires gh-pr-review'],
+    [['gh-pr-resolve', 'gh-push'], 'gh-pr-resolve requires gh-pr-read'],
+    [
+      ['gh-pr-review'],
+      'gh-pr-review was split — grant gh-pr-read,gh-pr-reply instead',
+    ],
+    [
+      ['gh-push', 'gh-pr-review'],
+      'gh-pr-review was split — grant gh-pr-read,gh-pr-reply instead',
+    ],
   ];
   for (const [value, reason] of cases) {
     const e = assertThrows(() => parseBridgeDefaultAllow(value));
@@ -497,9 +527,10 @@ Deno.test('--bridge-repo is repeatable in both spellings, and its value is never
       bridgeAllow: [
         'gh-push',
         'gh-pr-read',
-        'gh-pr-review',
+        'gh-pr-reply',
         'gh-pr-viewed',
         'gh-pr-resolve',
+        'gh-pr-resolve-copilot',
         'gh-pr-request-review',
       ],
       bridgeRepos: ['/a', '/b'],
@@ -649,7 +680,18 @@ Deno.test('CLI: --bridge-allow and --bridge-repo are refused by every attach-fam
     'gh-pr-resolve',
   );
   assertEquals(bad.code, 2, bad.stderr);
-  assertStringIncludes(bad.stderr, 'gh-pr-resolve requires gh-pr-review');
+  assertStringIncludes(bad.stderr, 'gh-pr-resolve requires gh-pr-read');
+  const renamed = await cli(
+    'up',
+    '/nonexistent',
+    '--bridge-allow',
+    'gh-pr-review',
+  );
+  assertEquals(renamed.code, 2, renamed.stderr);
+  assertStringIncludes(
+    renamed.stderr,
+    'gh-pr-review was split — grant gh-pr-read,gh-pr-reply instead',
+  );
   const lone = await cli(
     'up',
     '/nonexistent',
@@ -659,7 +701,7 @@ Deno.test('CLI: --bridge-allow and --bridge-repo are refused by every attach-fam
   assertEquals(lone.code, 2, lone.stderr);
   assertStringIncludes(
     lone.stderr,
-    'gh-pr-request-review requires gh-pr-review',
+    'gh-pr-request-review requires gh-pr-read',
   );
 });
 

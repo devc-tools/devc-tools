@@ -32,7 +32,7 @@ replaces the earlier `devc-desktop-pr-review` design, which had a devc-desktop p
 
 **Depends on [bridge-read-tier-defaults](archived/bridge-read-tier-defaults.md)** (`gh-pr-read`,
 `gh-pr-files`, `gh-pr-viewed`, `bridgeDefaultAllow`; done) **and
-[bridge-pr-grant-split](bridge-pr-grant-split.md)** (`gh-pr-reply`, the two resolve grants,
+[bridge-pr-grant-split](archived/bridge-pr-grant-split.md)** (`gh-pr-reply`, the two resolve grants,
 `gh-pr-comments --state`, `isResolved`). Implement those first. Grant names here are the split's.
 
 Read `devc/web/server.ts`'s per-container `switch` in `handle` (`list_sessions` is the model),

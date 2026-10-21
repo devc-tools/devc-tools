@@ -4,7 +4,7 @@
 #   (`--repo` names the pinned repo by its container path; required once more than one is pinned)
 #
 # Built in: runs only for a container whose policy grants `gh-pr-request-review`
-# (`devc up --bridge-allow gh-pr-review,gh-pr-request-review`).
+# (`devc up --bridge-allow gh-pr-read,gh-pr-request-review`).
 #
 # Each request spends a Copilot review, so it asks only when one would do something: while a
 # Copilot review is already pending, or when Copilot's latest review is of the head, it posts
@@ -23,7 +23,7 @@
 # shellcheck disable=SC2016,SC2034
 me=gh-pr-request-review
 usage="usage: gh-pr-request-review [--repo <path>]"
-grant_hint=gh-pr-review,gh-pr-request-review
+grant_hint=gh-pr-read,gh-pr-request-review
 # ── BEGIN pr-prelude ──
 # Shared by gh-pr-comments, gh-pr-files, gh-pr-viewed, gh-pr-reply, gh-pr-resolve and
 # gh-pr-request-review: keep the six copies byte-identical (the harness checks). Recipes are

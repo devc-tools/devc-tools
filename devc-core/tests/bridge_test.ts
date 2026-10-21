@@ -112,7 +112,7 @@ const line = (
 
 Deno.test('policy: a one-line policy round-trips as five tab-separated fields', () => {
   const record: PolicyRecord = {
-    grants: ['gh-push', 'gh-pr-review'],
+    grants: ['gh-push', 'gh-pr-read'],
     repos: [{
       repo: '/Users/me/code/app',
       remote: 'git@github.com:acme/app.git',
@@ -123,14 +123,14 @@ Deno.test('policy: a one-line policy round-trips as five tab-separated fields', 
   const text = serializePolicy(record);
   assertEquals(
     text,
-    '/Users/me/code/app\tgit@github.com:acme/app.git\tfeat/x\tgh-push,gh-pr-review\t/workspaces/app\n',
+    '/Users/me/code/app\tgit@github.com:acme/app.git\tfeat/x\tgh-push,gh-pr-read\t/workspaces/app\n',
   );
   assertEquals(parsePolicy(text), record);
 });
 
 Deno.test('policy: a three-line policy round-trips, workspace first, grants on every line', () => {
   const record: PolicyRecord = {
-    grants: ['gh-push', 'gh-pr-review', 'gh-pr-resolve'],
+    grants: ['gh-push', 'gh-pr-read', 'gh-pr-resolve'],
     repos: [
       {
         repo: '/Users/me/code/app',
@@ -153,7 +153,7 @@ Deno.test('policy: a three-line policy round-trips, workspace first, grants on e
     ],
   };
   const text = serializePolicy(record);
-  const grants = 'gh-push,gh-pr-review,gh-pr-resolve';
+  const grants = 'gh-push,gh-pr-read,gh-pr-resolve';
   assertEquals(
     text,
     `/Users/me/code/app\tgit@github.com:acme/app.git\tfeat/x\t${grants}\t/workspaces/app\n` +
@@ -166,15 +166,21 @@ Deno.test('policy: a three-line policy round-trips, workspace first, grants on e
 Deno.test('policy: every valid grant set round-trips', () => {
   const sets: BridgeCapability[][] = [
     ['gh-push'],
-    ['gh-pr-review'],
-    ['gh-push', 'gh-pr-review'],
-    ['gh-pr-review', 'gh-pr-resolve'],
-    ['gh-push', 'gh-pr-review', 'gh-pr-resolve'],
-    ['gh-pr-review', 'gh-pr-request-review'],
-    ['gh-push', 'gh-pr-review', 'gh-pr-resolve', 'gh-pr-request-review'],
     ['gh-pr-read'],
+    ['gh-push', 'gh-pr-read'],
+    ['gh-pr-read', 'gh-pr-reply'],
+    ['gh-pr-read', 'gh-pr-resolve'],
+    ['gh-pr-read', 'gh-pr-resolve-copilot'],
+    ['gh-pr-read', 'gh-pr-reply', 'gh-pr-resolve', 'gh-pr-resolve-copilot'],
+    ['gh-pr-read', 'gh-pr-request-review'],
     ['gh-pr-read', 'gh-pr-viewed'],
-    ['gh-push', 'gh-pr-read', 'gh-pr-review', 'gh-pr-viewed'],
+    [
+      'gh-push',
+      'gh-pr-read',
+      'gh-pr-reply',
+      'gh-pr-resolve-copilot',
+      'gh-pr-request-review',
+    ],
     [...BRIDGE_CAPABILITIES],
   ];
   for (const grants of sets) {
@@ -217,16 +223,20 @@ Deno.test('policy: a malformed file parses to null', () => {
       line('/a', '/w', 'gh-push,pr-review'), // … even alongside a current one
       line('/a', '/w', 'gh'), // the wildcard is devc's to expand, never a policy's
       line('/a', '/w', 'gh-push,gh-push'), // duplicate
-      line('/a', '/w', 'gh-pr-review,gh-push'), // out of canonical order
-      line('/a', '/w', 'gh-push, gh-pr-review'), // a space
+      line('/a', '/w', 'gh-pr-read,gh-push'), // out of canonical order
+      line('/a', '/w', 'gh-push, gh-pr-read'), // a space
       line('/a', '/w', 'gh-push,'), // trailing comma
-      line('/a', '/w', 'gh-pr-resolve'), // gh-pr-resolve without gh-pr-review
-      line('/a', '/w', 'gh-pr-request-review'), // gh-pr-request-review without gh-pr-review
+      line('/a', '/w', 'gh-pr-review'), // split into gh-pr-read,gh-pr-reply
+      line('/a', '/w', 'gh-push,gh-pr-review,gh-pr-resolve'), // … the old era's full grant
+      line('/a', '/w', 'gh-pr-reply'), // gh-pr-reply without gh-pr-read
+      line('/a', '/w', 'gh-pr-resolve'), // gh-pr-resolve without gh-pr-read
+      line('/a', '/w', 'gh-pr-resolve-copilot'), // gh-pr-resolve-copilot without gh-pr-read
+      line('/a', '/w', 'gh-pr-request-review'), // gh-pr-request-review without gh-pr-read
       line('/a', '/w', 'gh-push,gh-pr-resolve,gh-pr-request-review'), // … even alongside gh-pr-resolve
-      line('/a', '/w', 'gh-pr-review,gh-pr-request-review,gh-pr-resolve'), // out of canonical order
+      line('/a', '/w', 'gh-pr-read,gh-pr-resolve-copilot,gh-pr-resolve'), // out of canonical order
       line('/a', '/w', 'gh-pr-viewed'), // gh-pr-viewed without gh-pr-read
-      line('/a', '/w', 'gh-pr-review,gh-pr-read'), // out of canonical order
-      line('/a', '/w') + line('/b', '/x', 'gh-push,gh-pr-review'), // grants differ
+      line('/a', '/w', 'gh-pr-reply,gh-pr-read'), // out of canonical order
+      line('/a', '/w') + line('/b', '/x', 'gh-push,gh-pr-read'), // grants differ
       line('/a', '/w') + line('/a', '/x'), // the same repo twice
       line('/a', '/w') + line('/b', '/w'), // the same target twice
       line('/a', '/w') + '\n' + line('/b', '/x'), // an empty middle line
@@ -271,11 +281,28 @@ Deno.test('policy: policyProblem names the first problem, and parsePolicy agrees
       'line 1: unknown capability "gh-nope"',
     ],
     [
-      line('/a', '/w', 'gh-pr-resolve'),
-      'line 1: gh-pr-resolve requires gh-pr-review',
+      line('/a', '/w', 'gh-pr-reply'),
+      'line 1: gh-pr-reply requires gh-pr-read',
+    ],
+    // An old-era grant without the rename fails on the missing read, never widens.
+    [
+      line('/a', '/w', 'gh-push,gh-pr-resolve'),
+      'line 1: gh-pr-resolve requires gh-pr-read',
+    ],
+    [
+      line('/a', '/w', 'gh-pr-review'),
+      'line 1: gh-pr-review was split — grant gh-pr-read,gh-pr-reply instead',
+    ],
+    [
+      line('/a', '/w', 'gh-push,gh-pr-review,gh-pr-resolve'),
+      'line 1: gh-pr-review was split — grant gh-pr-read,gh-pr-reply instead',
     ],
     [
       line('/a', '/w') + line('/b', '/x', 'gh-push,gh-pr-review'),
+      'line 2: gh-pr-review was split — grant gh-pr-read,gh-pr-reply instead',
+    ],
+    [
+      line('/a', '/w') + line('/b', '/x', 'gh-push,gh-pr-read'),
       "line 2: grants differ from line 1's",
     ],
     [line('/a', '/w') + line('/a', '/x'), "line 2: repo repeats line 1's"],
@@ -287,15 +314,21 @@ Deno.test('policy: policyProblem names the first problem, and parsePolicy agrees
     [line('/a', '/w') + '\n', 'line 2 is empty'],
     [seventeen, 'more than 16 lines'],
     [sixteen, null],
-    [line('/a', '/w', 'gh-push,gh-pr-review'), null],
-    // A policy from before gh-pr-read existed is still valid: the old names kept their order.
-    [line('/a', '/w', 'gh-push,gh-pr-review,gh-pr-resolve'), null],
+    [line('/a', '/w', 'gh-push,gh-pr-read'), null],
+    [
+      line(
+        '/a',
+        '/w',
+        'gh-pr-read,gh-pr-reply,gh-pr-resolve,gh-pr-resolve-copilot',
+      ),
+      null,
+    ],
     [
       line('/a', '/w', 'gh-pr-viewed'),
       'line 1: gh-pr-viewed requires gh-pr-read',
     ],
     [
-      line('/a', '/w', 'gh-pr-review,gh-pr-read'),
+      line('/a', '/w', 'gh-pr-reply,gh-pr-read'),
       'line 1: grants are duplicated or out of canonical order',
     ],
     [line('/a', '/w', 'gh-pr-read,gh-pr-viewed'), null],
@@ -320,7 +353,9 @@ Deno.test('policy: serialize refuses a field that would not read back', () => {
     { grants: ['gh-push'], repos: [] },
     { grants: ['gh-push'], repos: [ok, { ...ok, target: '/x' }] },
     { grants: [], repos: [ok] },
-    { grants: ['gh-pr-review', 'gh-push'], repos: [ok] },
+    { grants: ['gh-pr-read', 'gh-push'], repos: [ok] },
+    { grants: ['gh-pr-review' as BridgeCapability], repos: [ok] },
+    { grants: ['gh-pr-reply'], repos: [ok] },
     { grants: ['gh-push', 'gh-push'], repos: [ok] },
     { grants: ['gh-pr-resolve'], repos: [ok] },
     { grants: ['gh-pr-request-review'], repos: [ok] },
@@ -357,9 +392,10 @@ Deno.test('capabilities: the canonical order', () => {
     [
       'gh-push',
       'gh-pr-read',
-      'gh-pr-review',
+      'gh-pr-reply',
       'gh-pr-viewed',
       'gh-pr-resolve',
+      'gh-pr-resolve-copilot',
       'gh-pr-request-review',
     ],
   );
@@ -368,23 +404,31 @@ Deno.test('capabilities: the canonical order', () => {
 Deno.test('capabilities: every capability enabling each built-in, in canonical order', () => {
   assertEquals(capabilitiesForCommand('gh-push'), ['gh-push']);
   assertEquals(capabilitiesForCommand('gh-doctor'), ['gh-push']);
-  assertEquals(capabilitiesForCommand('gh-pr-comments'), [
-    'gh-pr-read',
-    'gh-pr-review',
-  ]);
+  assertEquals(capabilitiesForCommand('gh-pr-comments'), ['gh-pr-read']);
   assertEquals(capabilitiesForCommand('gh-pr-files'), ['gh-pr-read']);
   assertEquals(capabilitiesForCommand('gh-pr-viewed'), ['gh-pr-viewed']);
-  assertEquals(capabilitiesForCommand('gh-pr-reply'), ['gh-pr-review']);
-  assertEquals(capabilitiesForCommand('gh-pr-resolve'), ['gh-pr-resolve']);
+  assertEquals(capabilitiesForCommand('gh-pr-reply'), ['gh-pr-reply']);
+  assertEquals(capabilitiesForCommand('gh-pr-resolve'), [
+    'gh-pr-resolve',
+    'gh-pr-resolve-copilot',
+  ]);
   assertEquals(capabilitiesForCommand('gh-pr-request-review'), [
     'gh-pr-request-review',
   ]);
   assertEquals(capabilitiesForCommand('echo'), []);
   assertEquals(capabilitiesForCommand('caffeinate'), []);
-  for (const old of ['git-push', 'git-doctor', 'pr-comments', 'pr-resolve']) {
+  for (
+    const old of [
+      'git-push',
+      'git-doctor',
+      'pr-comments',
+      'pr-resolve',
+      'gh-pr-review',
+    ]
+  ) {
     assertEquals(capabilitiesForCommand(old), [], old);
   }
-  // Within one capability no command repeats; across them only gh-pr-comments does.
+  // Within one capability no command repeats; across them only gh-pr-resolve does.
   for (const c of BRIDGE_CAPABILITIES) {
     const names = BRIDGE_CAPABILITY_COMMANDS[c];
     assertEquals(new Set(names).size, names.length, c);

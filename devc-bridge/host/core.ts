@@ -24,6 +24,7 @@ import {
   capabilitiesForCommand,
   parsePolicy,
   policyProblem,
+  RETIRED_CAPABILITIES,
 } from '@devc-tools/core/bridge.ts';
 import { Keepawake, type KeepawakeStatus } from './keepawake.ts';
 import { type Caller, TokenRegistry } from './token.ts';
@@ -243,6 +244,17 @@ interface Refusal {
 const REGRANT =
   're-run devc up --bridge-allow <every capability this container needs>';
 
+// A policy written before the PR grants split by read/write: it names `gh-pr-review`, or holds a
+// PR write without `gh-pr-read`. Old names never widen, so the fix spells out what changed.
+const PR_SPLIT_REGRANT =
+  `${REGRANT} (gh-pr-review is now gh-pr-read,gh-pr-reply; gh-pr-resolve now resolves any thread, gh-pr-resolve-copilot only Copilot's)`;
+
+function isPrSplitProblem(problem: string): boolean {
+  const reason = problem.replace(/^line \d+: /, '');
+  return Object.values(RETIRED_CAPABILITIES).includes(reason) ||
+    / requires gh-pr-read$/.test(reason);
+}
+
 /**
  * Why the caller may not run built-in `name`, or null when its policy grants any of
  * `capabilities` (canonical order, non-empty). Suggestions name the first of them. The policy is
@@ -292,7 +304,9 @@ async function grantRefusal(
   const problem = policyProblem(text);
   if (problem !== null) {
     // The likeliest cause of an unknown capability is a newer devc than the running bridge.
-    const fix = /^line \d+: unknown capability/.test(problem)
+    const fix = isPrSplitProblem(problem)
+      ? PR_SPLIT_REGRANT
+      : /^line \d+: unknown capability/.test(problem)
       ? `if devc is newer than the running bridge, run devc-bridge restart; otherwise ${REGRANT}`
       : REGRANT;
     return {

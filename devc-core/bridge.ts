@@ -54,9 +54,10 @@ export function bridgePaths(home: string, key: string): BridgePaths {
 export const BRIDGE_CAPABILITIES = [
   'gh-push',
   'gh-pr-read',
-  'gh-pr-review',
+  'gh-pr-reply',
   'gh-pr-viewed',
   'gh-pr-resolve',
+  'gh-pr-resolve-copilot',
   'gh-pr-request-review',
 ] as const;
 
@@ -66,33 +67,54 @@ export type BridgeCapability = typeof BRIDGE_CAPABILITIES[number];
 /**
  * The built-in bridge commands each capability enables. The bridge dispatches by file name, so
  * every name here is also the name of a script in `devc-bridge/builtin/`. A command may appear
- * under more than one capability — `gh-pr-comments` is both `gh-pr-read`'s and `gh-pr-review`'s,
- * so policies granted before `gh-pr-read` existed keep it — and runs when **any** of them is
- * granted.
+ * under more than one capability and runs when **any** of them is granted: `gh-pr-resolve` is
+ * both `gh-pr-resolve`'s (any thread) and `gh-pr-resolve-copilot`'s (Copilot's threads only), and
+ * the script reads the policy's grants to pick the scope. Reads are `gh-pr-read`'s alone.
  */
 export const BRIDGE_CAPABILITY_COMMANDS: Readonly<
   Record<BridgeCapability, readonly string[]>
 > = {
   'gh-push': ['gh-push', 'gh-doctor'],
   'gh-pr-read': ['gh-pr-comments', 'gh-pr-files'],
-  'gh-pr-review': ['gh-pr-comments', 'gh-pr-reply'],
+  'gh-pr-reply': ['gh-pr-reply'],
   'gh-pr-viewed': ['gh-pr-viewed'],
   'gh-pr-resolve': ['gh-pr-resolve'],
+  'gh-pr-resolve-copilot': ['gh-pr-resolve'],
   'gh-pr-request-review': ['gh-pr-request-review'],
 };
 
 /**
- * Capabilities that are only granted alongside another — `gh-pr-viewed` marks paths only
- * `gh-pr-files` lists, `gh-pr-resolve` acts on `gh-pr-comments`' ids, and `gh-pr-request-review`
- * asks for a review whose threads `gh-pr-review` replies to.
+ * Capabilities that are only granted alongside another. Every PR write acts on what a read shows
+ * — `gh-pr-viewed` marks paths `gh-pr-files` lists, the reply and resolve grants act on
+ * `gh-pr-comments`' thread ids, and `gh-pr-request-review` asks for a review whose threads
+ * `gh-pr-comments` lists — so each requires `gh-pr-read`.
  */
 export const BRIDGE_CAPABILITY_REQUIRES: Readonly<
   Partial<Record<BridgeCapability, BridgeCapability>>
 > = {
+  'gh-pr-reply': 'gh-pr-read',
   'gh-pr-viewed': 'gh-pr-read',
-  'gh-pr-resolve': 'gh-pr-review',
-  'gh-pr-request-review': 'gh-pr-review',
+  'gh-pr-resolve': 'gh-pr-read',
+  'gh-pr-resolve-copilot': 'gh-pr-read',
+  'gh-pr-request-review': 'gh-pr-read',
 };
+
+/**
+ * Capability names that no longer exist, each with the reason given in place of
+ * `unknown capability …` wherever a name is checked. `gh-pr-review` bundled the thread read with
+ * replying; it was split rather than aliased so no grant keeps that bundle.
+ */
+export const RETIRED_CAPABILITIES: Readonly<Record<string, string>> = {
+  'gh-pr-review':
+    'gh-pr-review was split — grant gh-pr-read,gh-pr-reply instead',
+};
+
+/** Why `name` is a retired capability name, or null when it isn't one. */
+export function retiredCapabilityReason(name: string): string | null {
+  return Object.hasOwn(RETIRED_CAPABILITIES, name)
+    ? RETIRED_CAPABILITIES[name]
+    : null;
+}
 
 /**
  * Every capability that enables built-in command `name`, in canonical order — empty when `name`
@@ -126,7 +148,10 @@ export function grantsProblem(grants: readonly string[]): string | null {
   let last = -1;
   for (const g of grants) {
     const i = (BRIDGE_CAPABILITIES as readonly string[]).indexOf(g);
-    if (i < 0) return `unknown capability ${JSON.stringify(g)}`;
+    if (i < 0) {
+      return retiredCapabilityReason(g) ??
+        `unknown capability ${JSON.stringify(g)}`;
+    }
     if (i <= last) return 'grants are duplicated or out of canonical order';
     last = i;
   }

@@ -97,68 +97,68 @@ and `gh-pr-comments` first.
 
 ## Checklist
 
-- [ ] `devc-core/bridge.ts`: the capability list, commands, requirements, the rename reason in
+- [x] `devc-core/bridge.ts`: the capability list, commands, requirements, the rename reason in
       `grantsProblem`/`policyProblem`, and comments
-- [ ] `devc-bridge/host/core.ts`: the fix texts for the rename and for `requires gh-pr-read`
-- [ ] `devc/args.ts`: the rename reason in `parseBridgeAllow` and `parseBridgeDefaultAllow`
-- [ ] `devc/bridge.ts`: check the refresh's malformed-policy message reads well with the new
+- [x] `devc-bridge/host/core.ts`: the fix texts for the rename and for `requires gh-pr-read`
+- [x] `devc/args.ts`: the rename reason in `parseBridgeAllow` and `parseBridgeDefaultAllow`
+- [x] `devc/bridge.ts`: check the refresh's malformed-policy message reads well with the new
       reason. Change it only if needed
-- [ ] `devc-bridge/builtin/gh-pr-comments`: `--state`, `isResolved`, the grant, usage, header
-- [ ] `devc-bridge/builtin/gh-pr-resolve`: the two scopes, the grant, the exit-3 text, header
-- [ ] `devc-bridge/builtin/gh-pr-reply`, `gh-pr-request-review`: grant and `grant_hint`
-- [ ] `devc-bridge/client/devc-bridge.ts`: help lines with the new grants and `--state`
-- [ ] `devc/help.ts`: the capability list
-- [ ] `skills/github-pr-reviewing/SKILL.md`:
-  - [ ] the grants are `gh-push,gh-pr-read,gh-pr-reply,gh-pr-resolve-copilot,gh-pr-request-review`;
-  - [ ] every `gh-pr-comments` call passes `--state unresolved`;
-  - [ ] resolving stays Copilot-only by the skill's own rule, even when the container holds
+- [x] `devc-bridge/builtin/gh-pr-comments`: `--state`, `isResolved`, the grant, usage, header
+- [x] `devc-bridge/builtin/gh-pr-resolve`: the two scopes, the grant, the exit-3 text, header
+- [x] `devc-bridge/builtin/gh-pr-reply`, `gh-pr-request-review`: grant and `grant_hint`
+- [x] `devc-bridge/client/devc-bridge.ts`: help lines with the new grants and `--state`
+- [x] `devc/help.ts`: the capability list
+- [x] `skills/github-pr-reviewing/SKILL.md`:
+  - [x] the grants are `gh-push,gh-pr-read,gh-pr-reply,gh-pr-resolve-copilot,gh-pr-request-review`;
+  - [x] every `gh-pr-comments` call passes `--state unresolved`;
+  - [x] resolving stays Copilot-only by the skill's own rule, even when the container holds
         `gh-pr-resolve`;
-  - [ ] the keywords line is updated
-- [ ] Tests: `devc-core/tests/bridge_test.ts`, `devc-bridge/host/tests/capabilities_test.ts`,
+  - [x] the keywords line is updated
+- [x] Tests: `devc-core/tests/bridge_test.ts`, `devc-bridge/host/tests/capabilities_test.ts`,
       `devc-bridge/tests/gh_pr_review_test.sh`, `devc/tests/args_test.ts`,
       `devc/tests/bridge_test.ts`
-- [ ] Docs:
-  - [ ] `devc-bridge/README.md`: the capability table, the any-capability note, and a
+- [x] Docs:
+  - [x] `devc-bridge/README.md`: the capability table, the any-capability note, and a
         **Migrating** note: re-grant, with the old → new mapping;
-  - [ ] `docs/bridge-github.md`: grants, `--state`, `isResolved`, the resolve scopes, and the
+  - [x] `docs/bridge-github.md`: grants, `--state`, `isResolved`, the resolve scopes, and the
         exit-code rows;
-  - [ ] `devc/README.md`: the `--bridge-allow` list and `bridgeDefaultAllow` examples;
-  - [ ] `devc-bridge/docs/testing.md`: the new cases, and B23's grant list;
-  - [ ] `.plans/design/devc-design.md`: the capability list
+  - [x] `devc/README.md`: the `--bridge-allow` list and `bridgeDefaultAllow` examples;
+  - [x] `devc-bridge/docs/testing.md`: the new cases, and B23's grant list;
+  - [x] `.plans/design/devc-design.md`: the capability list
 
 ## Validation
 
-- [ ] `(cd devc && deno task check && deno task test)` passes
-- [ ] `(cd devc-core && deno task check && deno task test)` passes, apart from the known
+- [x] `(cd devc && deno task check && deno task test)` passes
+- [x] `(cd devc-core && deno task check && deno task test)` passes, apart from the known
       `cliWorktreeMounts` failure (the embedded devcontainer CLI exits 1 in this container; it
       fails the same way on `aecc225`)
-- [ ] `(cd devc-bridge/host && deno task check && deno task test)` passes
-- [ ] `bash devc-bridge/tests/gh_pr_review_test.sh` and `bash devc-bridge/tests/gh_push_test.sh`
+- [x] `(cd devc-bridge/host && deno task check && deno task test)` passes
+- [x] `bash devc-bridge/tests/gh_pr_review_test.sh` and `bash devc-bridge/tests/gh_push_test.sh`
       pass
-- [ ] `deno fmt --check` on every touched file, and `shellcheck` on every touched script
-- [ ] `devc-core/tests/bridge_test.ts`:
-  - [ ] `gh-pr-read,gh-pr-reply,gh-pr-resolve,gh-pr-resolve-copilot` is valid.
-  - [ ] `gh-pr-reply` alone fails `requires gh-pr-read`, and so does `gh-push,gh-pr-resolve`.
-  - [ ] A policy line with `gh-pr-review` fails with the rename reason.
-  - [ ] `gh-pr-comments` → `[gh-pr-read]`, and `gh-pr-resolve` →
+- [x] `deno fmt --check` on every touched file, and `shellcheck` on every touched script
+- [x] `devc-core/tests/bridge_test.ts`:
+  - [x] `gh-pr-read,gh-pr-reply,gh-pr-resolve,gh-pr-resolve-copilot` is valid.
+  - [x] `gh-pr-reply` alone fails `requires gh-pr-read`, and so does `gh-push,gh-pr-resolve`.
+  - [x] A policy line with `gh-pr-review` fails with the rename reason.
+  - [x] `gh-pr-comments` → `[gh-pr-read]`, and `gh-pr-resolve` →
         `[gh-pr-resolve, gh-pr-resolve-copilot]`.
-- [ ] `capabilities_test.ts`:
-  - [ ] An old-era policy (`gh-push,gh-pr-review,gh-pr-resolve`) refuses `gh-pr-comments` with
+- [x] `capabilities_test.ts`:
+  - [x] An old-era policy (`gh-push,gh-pr-review,gh-pr-resolve`) refuses `gh-pr-comments` with
         exit 2 and the migration fix text.
-  - [ ] `gh-pr-read,gh-pr-resolve-copilot` runs `gh-pr-resolve`.
-  - [ ] `gh-pr-read` alone refuses `gh-pr-reply`, suggesting `gh-pr-read,gh-pr-reply`.
-- [ ] `gh_pr_review_test.sh` (stub `gh`):
-  - [ ] `gh-pr-comments` with no flag lists a resolved and an unresolved fixture thread, each
+  - [x] `gh-pr-read,gh-pr-resolve-copilot` runs `gh-pr-resolve`.
+  - [x] `gh-pr-read` alone refuses `gh-pr-reply`, suggesting `gh-pr-read,gh-pr-reply`.
+- [x] `gh_pr_review_test.sh` (stub `gh`):
+  - [x] `gh-pr-comments` with no flag lists a resolved and an unresolved fixture thread, each
         with the right `isResolved`.
-  - [ ] `--state unresolved` and `--state resolved` each keep one.
-  - [ ] `--state bogus`, `--state` with no value, and `--state=all` exit 2 with the usage.
-  - [ ] `gh-pr-resolve` on a human's thread: with `gh-pr-resolve-copilot` only → exit 3, the
+  - [x] `--state unresolved` and `--state resolved` each keep one.
+  - [x] `--state bogus`, `--state` with no value, and `--state=all` exit 2 with the usage.
+  - [x] `gh-pr-resolve` on a human's thread: with `gh-pr-resolve-copilot` only → exit 3, the
         exact text, and no mutation in the stub log. With `gh-pr-resolve` → the mutation is sent.
         With both → sent.
-  - [ ] The six preludes are identical.
-- [ ] `args_test.ts`: `--bridge-allow gh-pr-review` and `bridgeDefaultAllow: ["gh-pr-review"]`
+  - [x] The six preludes are identical.
+- [x] `args_test.ts`: `--bridge-allow gh-pr-review` and `bridgeDefaultAllow: ["gh-pr-review"]`
       give the rename reason. `--bridge-allow gh` gives all seven.
-- [ ] `devc/tests/bridge_test.ts`: refresh of an old-era policy removes it, and the log names the
+- [x] `devc/tests/bridge_test.ts`: refresh of an old-era policy removes it, and the log names the
       rename.
 - [ ] By hand, on a host with a throwaway PR that has a human reviewer's thread (as
       `testing.md` B23), with
@@ -167,6 +167,8 @@ and `gh-pr-comments` first.
   - [ ] `gh-pr-resolve` on it exits 3.
   - [ ] After `devc up --bridge-allow gh-pr-read,gh-pr-resolve` it resolves, and
         `gh-pr-comments --state resolved` lists it.
+  - _2026-10-21: not run — needs host `gh`, a running devc-bridge and a real PR, none of which
+    this container has. The steps are `devc-bridge/docs/testing.md` rows B24 and B25._
 
 ## Relevant Files
 

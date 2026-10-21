@@ -3,8 +3,8 @@
 #   devc-bridge gh-pr-reply [--repo <path>] <thread-id> <body>
 #   (`--repo` names the pinned repo by its container path; required once more than one is pinned)
 #
-# Built in: runs only for a container whose policy grants `gh-pr-review`
-# (`devc up --bridge-allow gh-pr-review`).
+# Built in: runs only for a container whose policy grants `gh-pr-reply`
+# (`devc up --bridge-allow gh-pr-read,gh-pr-reply`).
 #
 # Any thread on the PR — a human reviewer's too, resolved or not. The PR is the one open PR whose
 # head is the policy's remote + branch (see gh-pr-comments). The reply is posted under the host user's
@@ -19,7 +19,7 @@
 # shellcheck disable=SC2016,SC2034
 me=gh-pr-reply
 usage="usage: gh-pr-reply [--repo <path>] <thread-id> <body>"
-grant_hint=gh-pr-review
+grant_hint=gh-pr-read,gh-pr-reply
 # ── BEGIN pr-prelude ──
 # Shared by gh-pr-comments, gh-pr-files, gh-pr-viewed, gh-pr-reply, gh-pr-resolve and
 # gh-pr-request-review: keep the six copies byte-identical (the harness checks). Recipes are
@@ -507,7 +507,7 @@ thread=$1
 body=$2
 valid_thread_id "$thread" || die 2 "not a review thread id (want PRRT_…): $thread"
 load_policy
-require_grant gh-pr-review
+require_grant gh-pr-reply
 
 # Checked before anything touches the network, so a retry costs nothing. LC_ALL=C: ${#} is bytes.
 [ -n "${body//[[:space:]]/}" ] || die 3 "body is empty"
