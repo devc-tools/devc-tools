@@ -929,7 +929,8 @@ const LABELS = {
   loadingSessions: 'Loading…',
   refreshSessions: 'Refresh sessions',
   resumeSession: 'Resume session',
-  resumeSessionMenu: 'Resume…',
+  showPastSessions: (n) => `Show past sessions (${n})`,
+  hidePastSessions: 'Hide past sessions',
   copySessionId: 'Copy session id',
   pullRequest: 'Pull request',
   openHere: 'Open terminal here',
@@ -1540,7 +1541,7 @@ function sectionRow(title, open, onToggle, trail = '', oncontextmenu) {
 /** How old a session may be to give a repo with nothing else open its own In use group. */
 const IN_USE_SESSION_MS = 24 * 60 * 60 * 1000;
 
-/** In use groups whose Resume… row is open (per page). */
+/** In use groups with something running whose past sessions are shown (per page). */
 const inUseSessionsOpen = new Set();
 
 /** The tiles in layout order, each with whether it is the front tab of its stack. */
@@ -1724,8 +1725,9 @@ function rowContainer(localFolder) {
 /**
  * An In use group: its folder's row (parent path muted, name, branch; the same parts on every
  * group, no container), then while open its tiles, the agents running in it outside the layout,
- * each ending with its container, and a Resume… row (its count at the right) that opens
- * to its past sessions. Open by default unless it has only sessions.
+ * each ending with its container, then its past sessions: always, in a group with only sessions
+ * (its own row folds them); in another, while its row's history button shows them. Open by
+ * default unless it has only sessions.
  */
 function inUseGroupRows(g, now) {
   const sessionsOnly = g.tiles.length === 0 && g.panes.length === 0;
@@ -1764,7 +1766,32 @@ function inUseGroupRows(g, now) {
       : [h('span', { class: 'repo-base' }, containerNameOf(g.localFolder))]),
     branch ? h('span', { class: 'repo-branch' }, branch) : '',
   );
-  const actions = inUseGroupActions(head, g);
+  // Past sessions apart from what runs now: hidden until its history button shows them.
+  const shown = sessionsOnly || inUseSessionsOpen.has(g.key);
+  const history = !sessionsOnly && g.sessions.length > 0
+    ? iconButton(
+      'history',
+      shown
+        ? LABELS.hidePastSessions
+        : LABELS.showPastSessions(g.sessions.length),
+      () => {
+        if (inUseSessionsOpen.delete(g.key)) renderTree();
+        else {
+          inUseSessionsOpen.add(g.key);
+          // Showing them opens a folded group: otherwise the click shows nothing.
+          if (!open) toggle();
+          else renderTree();
+        }
+      },
+    )
+    : null;
+  let actions = inUseGroupActions(head, g);
+  if (history) {
+    history.setAttribute('aria-pressed', String(shown));
+    // First of its hover buttons: one strip over the row's right end.
+    if (actions) actions.prepend(history);
+    else actions = hoverActions(history);
+  }
   if (actions) head.append(rowTrail(actions));
   const rows = [head];
   if (!open) return rows;
@@ -1772,30 +1799,9 @@ function inUseGroupRows(g, now) {
     rows.push(layoutTileRow(tile, active, 1, true));
   }
   for (const { c, pane } of g.panes) rows.push(inUsePaneRow(c, pane));
-  if (g.sessions.length > 0) {
-    // One row for all of them, closed by default: past sessions apart from what runs now.
-    const shown = inUseSessionsOpen.has(g.key);
-    const head = treeRow(
-      `inuse-sessions\n${g.key}`,
-      1,
-      shown,
-      {
-        class: 'in-use-resume',
-        onclick: () => {
-          if (!inUseSessionsOpen.delete(g.key)) inUseSessionsOpen.add(g.key);
-          renderTree();
-        },
-      },
-      LABELS.resumeSessionMenu,
-    );
-    head.append(
-      rowTrail(h('span', { class: 'section-count' }, `${g.sessions.length}`)),
-    );
-    rows.push(head);
-    if (shown) {
-      for (const { c, s } of g.sessions) {
-        rows.push(sessionRow(c, s, null, now, 2, true));
-      }
+  if (shown) {
+    for (const { c, s } of g.sessions) {
+      rows.push(sessionRow(c, s, null, now, 1, true));
     }
   }
   return rows;
@@ -2118,6 +2124,8 @@ const ICON_PATHS = {
   collapseAll: 'M5.5 2.5h8v8M2.5 5.5h8v8h-8zM4.5 9.5h4',
   // A circular arrow: list again.
   refresh: 'M13 8a5 5 0 1 1-1.5-3.55M13 2.5v3h-3',
+  // A clock, its rim an arrow turning back: past sessions.
+  history: 'M2.5 8a5.5 5.5 0 1 0 1.6-3.9M2.5 2.5v2.5H5M8 5v3l2 1.5',
   // An arrow out of a box: open on github.com.
   external: 'M9 2.5h4.5V7M13.5 2.5L7.5 8.5M11.5 9.5v4h-9v-9h4',
 };

@@ -534,19 +534,6 @@ body.resizing-zones {
   cursor: pointer;
 }
 
-/* An In use group's past sessions, behind one row: muted, so it reads apart from what runs. */
-.row.in-use-resume {
-  font-size: calc(var(--font-size) - 0.5px);
-  color: #8a9cb5;
-  cursor: pointer;
-}
-
-.row.in-use-resume:hover {
-  --row-bg: var(--row-hover);
-  background: var(--row-bg);
-  color: var(--text);
-}
-
 .row {
   /* What a row's hover buttons sit on, kept in step with its own background. */
   --row-bg: var(--panel);
