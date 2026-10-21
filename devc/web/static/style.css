@@ -917,20 +917,32 @@ body.resizing-sidebar {
   background: var(--row-bg);
 }
 
+/* Drawn, not a glyph: `⌄` sits on the baseline while `›` sits mid-height, and neither is centered
+   in its own box, so a glyph chevron moves when it opens. Two borders of a square, turned to
+   point right, or down when open; centered on the text's middle either way. */
 .chevron {
+  position: relative;
   display: inline-block;
   width: 14px;
+  height: 1em;
+  vertical-align: -0.15em;
   color: #7e92af;
-  font-weight: 400;
-  font-size: 12px;
 }
 
 .chevron::before {
-  content: '⌄';
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 2px;
+  width: 4px;
+  height: 4px;
+  border-right: 1.3px solid currentColor;
+  border-bottom: 1.3px solid currentColor;
+  transform: translateY(-50%) rotate(-45deg);
 }
 
-[aria-expanded='false'] > .label > .chevron::before {
-  content: '›';
+[aria-expanded='true'] > .label > .chevron::before {
+  transform: translateY(-75%) rotate(45deg);
 }
 
 /* Containers under "Not running": the state and its buttons on the one row. */
@@ -1682,7 +1694,7 @@ body:is(.lm_dragging, .resizing-sidebar) .media-view iframe {
 /* A file row keeps a chevron's width, so names line up with folders'. */
 .row.tree-row:not([aria-expanded]) > .label > .chevron::before,
 .row.new-entry > .label > .chevron::before {
-  content: '';
+  display: none;
 }
 
 /* Dotfiles, and links that lead nowhere. */
