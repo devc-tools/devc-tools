@@ -1741,8 +1741,10 @@ function inUseGroupCard(g, now) {
         sessionsOnly ? 'idle' : '',
         g.sessions.length > 0 ? '' : 'inert',
       ].filter((c) => c).join(' '),
+      // Its path in the container, then where that is mounted from on the host.
       title: [
         g.repo?.containerFolder ?? g.repo?.folder ?? g.localFolder,
+        g.repo?.containerFolder ? `Host: ${g.repo.folder}` : '',
         branch ? `Branch: ${branch}` : '',
         `In: ${[...g.folders].map(containerNameOf).join(', ')}`,
       ].filter((t) => t).join('\n'),
