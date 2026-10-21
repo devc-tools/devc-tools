@@ -130,7 +130,7 @@ The CONTAINERS heading gets a chevron and collapses like Tasks. Saved as `contai
   - no `.in-use-group` row contains `.repo-container`
   - every in-group tile / pane / session row has a `.row-container`
   - CONTAINERS collapses and stays collapsed after a reload
-- [ ] After the user restarts `devc web` (server code): this Claude session's session row is absent
+- [x] After the user restarts `devc web` (server code): this Claude session's session row is absent
   from In use and has a `running` tag in code-wksp's Sessions tab
 - [ ] `resume_session` for a session running in a pane returns `reused: true` and no new pane
   appears (checked live by resuming this session from the Sessions tab)
