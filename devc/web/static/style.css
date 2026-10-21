@@ -383,6 +383,11 @@ body.resizing-zones {
   color: #dde7f5;
 }
 
+.row.in-use-group.idle,
+.row.in-use-group.idle .repo-branch {
+  color: var(--muted);
+}
+
 .repo-prefix {
   font-weight: 400;
   color: #7d8fa8;
@@ -521,25 +526,6 @@ body.resizing-zones {
   font-size: 10.5px;
   color: #9fb0c7;
   cursor: pointer;
-}
-
-/* Its repo and age give way once its title has half the row. */
-.row.agent-session {
-  grid-template-columns: minmax(50%, 1fr) minmax(0, auto);
-}
-
-.row.agent-session .row-trail {
-  min-width: 0;
-  overflow: hidden;
-}
-
-.row.agent-session .row-trail .pane-title {
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.row.agent-session .row-trail .tag {
-  flex: none;
 }
 
 /* An In use group's past sessions, behind one row: muted, so it reads apart from what runs. */

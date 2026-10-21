@@ -9,6 +9,7 @@ import {
   gitRollup,
   gitSync,
   inUseGroupKey,
+  inUseLabel,
   isSidebarToggleShortcut,
   labelText,
   paneLabel,
@@ -534,4 +535,12 @@ Deno.test('settleZones: a folded bottom zone is its heading, the middle zone fil
   assertEquals(settleZones(folded), { top: 100, mid: 768 });
   // A window too short for everything: the middle zone gives, then the top one.
   assertEquals(settleZones({ ...zones, total: 150 }), { top: 86, mid: 32 });
+});
+
+Deno.test('inUseLabel: what the agent is doing, else its name', () => {
+  assertEquals(
+    inUseLabel({ name: 'devc-tools', title: 'Fix the tabs' }),
+    'Fix the tabs',
+  );
+  assertEquals(inUseLabel({ name: 'Fix the tabs', title: '' }), 'Fix the tabs');
 });

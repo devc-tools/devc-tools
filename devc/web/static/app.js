@@ -39,6 +39,7 @@ import {
   gitRollup,
   gitSync,
   inUseGroupKey,
+  inUseLabel,
   isSidebarToggleShortcut,
   labelText,
   paneLabel,
@@ -1692,7 +1693,8 @@ function inUseGroupRows(g, now) {
     0,
     open,
     {
-      class: 'in-use-group',
+      // Nothing runs in it: its name is muted, so what is at work stands out.
+      class: sessionsOnly ? 'in-use-group idle' : 'in-use-group',
       title: [
         g.repo?.containerFolder ?? g.repo?.folder ?? g.localFolder,
         branch ? `Branch: ${branch}` : '',
@@ -1811,7 +1813,7 @@ function inUsePaneRow(c, pane) {
       'span',
       { class: 'label' },
       rowIcon({ agent: pane.agent }),
-      ...labelParts(paneLabel(pane)),
+      inUseLabel(paneLabel(pane)),
       rowContainer(c.localFolder),
     ),
     // Its white icon says no tile shows it (a tile's is the accent color), as in Terminals.
@@ -1925,8 +1927,10 @@ function layoutTileRow(tile, active, depth, withContainer = false) {
       'span',
       { class: 'label' },
       rowIcon({ agent: pane?.agent, empty: !tile.ref }),
-      ...labelParts(refLabel(tile.ref)),
-      withContainer && tile.ref ? rowContainer(tile.ref.localFolder) : '',
+      // In use: what it is doing, then its container; its group names the folder.
+      ...(withContainer && tile.ref
+        ? [inUseLabel(refLabel(tile.ref)), rowContainer(tile.ref.localFolder)]
+        : labelParts(refLabel(tile.ref))),
     ),
     rowTrail(
       badge(pane),
@@ -2812,9 +2816,9 @@ function sessionRows(c) {
 }
 
 /**
- * One recent session: its agent's icon, title and age (after its repo's name when the project
- * has several), tagged `running` while a pane has it open; `withContainer` (In use) ends its label
- * with its container. A click resumes it (the server reuses the pane it runs in).
+ * One recent session: its agent's icon, title (then its repo's name, muted, when the project has
+ * several; its container instead with `withContainer`, in In use) and age, after the status of
+ * the pane running it, if one is. A click resumes it (the server reuses the pane it runs in).
  *
  * @param {import('./lib/sessions.js').AgentSession} s
  */
@@ -2840,16 +2844,22 @@ function sessionRow(c, s, repos, now, depth = 2, withContainer = false) {
         ]),
     },
     // In the slot a chevron would take, as a terminal's and a Sent task's.
+    // Its repo or container is the label's last part, the first to give way; the age (and a
+    // running pane's status) always shows.
     h(
       'span',
       { class: 'label' },
       rowIcon({ agent: s.agent }),
       s.title,
-      withContainer ? rowContainer(c.localFolder) : '',
+      withContainer
+        ? rowContainer(c.localFolder)
+        : repo
+        ? h('span', { class: 'row-container' }, repo)
+        : '',
     ),
     rowTrail(
-      sessionPane(c, s) ? h('span', { class: 'tag' }, 'running') : '',
-      h('span', { class: 'pane-title' }, repo ? `${repo} · ${age}` : age),
+      badge(sessionPane(c, s)),
+      h('span', { class: 'pane-title' }, age),
     ),
   );
 }
@@ -3936,14 +3946,35 @@ function taskRows() {
   return rows;
 }
 
-/** The dimmed route after a task's title: its project, and its repo when that is another. */
+/**
+ * A task's route, repo first as In use has it: its repo's name (null when routed to the project
+ * alone, or to a repo that goes by the container's own name) and its container's.
+ */
+function taskRoute(localFolder, root) {
+  const p = projects.get(localFolder);
+  const container = p
+    ? containerLabel(p, projects.values())
+    : basename(localFolder);
+  if (root === undefined) return { repo: null, container };
+  const name = list(p?.repos).find((r) => r.folder === root)?.name ??
+    basename(root);
+  return { repo: name === container ? null : name, container };
+}
+
+/** The dimmed route after a task's title: its repo, then its container. */
 function taskProjectLabel(localFolder, root) {
   if (localFolder === undefined) return LABELS.notRouted;
-  const p = projects.get(localFolder);
-  const name = p ? containerLabel(p, projects.values()) : basename(localFolder);
-  if (root === undefined || root === localFolder) return name;
-  const repo = list(p?.repos).find((r) => r.folder === root);
-  return `${name} · ${repo?.name ?? basename(root)}`;
+  const { repo, container } = taskRoute(localFolder, root);
+  return repo ? `${repo} · ${container}` : container;
+}
+
+/** A task group's route: its repo, then its container muted, as an In use row ends. */
+function taskRouteParts(localFolder, root) {
+  if (localFolder === undefined) return [LABELS.notRouted];
+  const { repo, container } = taskRoute(localFolder, root);
+  return repo
+    ? [repo, h('span', { class: 'row-container' }, container)]
+    : [container];
 }
 
 /**
@@ -3974,7 +4005,7 @@ function taskGroupRow(group) {
       'span',
       { class: 'label' },
       chevron(),
-      taskProjectLabel(localFolder, root),
+      ...taskRouteParts(localFolder, root),
     ),
     rowTrail(
       h('span', { class: 'pane-title' }, String(group.tasks.length)),

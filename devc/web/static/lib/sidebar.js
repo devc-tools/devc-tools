@@ -223,6 +223,16 @@ export function paneLabel(pane) {
   };
 }
 
+/**
+ * What an agent's row in an In use group says: what it is doing (its title), else its name. The
+ * folder name a label starts with is left out there, since the group's own row names the folder.
+ *
+ * @param {{name: string, title: string}} label  see {@link paneLabel}
+ */
+export function inUseLabel({ name, title }) {
+  return title || name;
+}
+
 /** A label as one line of plain text, for places that can't style part of it. */
 export function labelText({ name, title }) {
   return tileTitle(name, title);
