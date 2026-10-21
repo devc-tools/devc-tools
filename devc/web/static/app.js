@@ -1590,13 +1590,11 @@ function inUseRows() {
     const { localFolder, repo } = tileRepo(t.tile);
     if (localFolder) groupFor(localFolder, repo).tiles.push(t);
   }
-  let hidden = 0;
   for (const c of containers.values()) {
     if (c.state !== 'connected') continue;
     const repos = projectRepos(c.localFolder);
     for (const pane of list(snapshots.get(c.id)?.panes)) {
       if (!pane.agent || tileShowing(c, pane)) continue;
-      hidden++;
       groupFor(
         c.localFolder,
         repoAt(repos, pane.foreground_cwd || pane.cwd || ''),
@@ -1638,17 +1636,12 @@ function inUseRows() {
       !g.runningIds.has(`${s.agent}\n${s.session}`)
     ).sort((a, b) => Date.parse(b.s.updatedAt) - Date.parse(a.s.updatedAt));
   }
-  const counts = [
-    tiles.length === 1 ? '1 tile' : `${tiles.length} tiles`,
-    hidden ? `${hidden} not in layout` : '',
-  ].filter((t) => t).join(' · ');
   const rows = [
     sectionRow(
       'In use',
       undefined,
       undefined,
       rowTrail(
-        h('span', { class: 'section-count' }, counts),
         hoverActions(
           iconButton('refresh', LABELS.refreshSessions, refreshInUseSessions),
         ),
