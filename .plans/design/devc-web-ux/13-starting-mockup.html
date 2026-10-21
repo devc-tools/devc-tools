@@ -1,0 +1,228 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>13 / STARTING MOCKUP · devc UX proposal</title><style>
+*{box-sizing:border-box}html{color-scheme:dark}[hidden]{display:none!important}
+body{margin:0;color:#cbd5e3;background:#0e1218;font:12px system-ui,-apple-system,'Segoe UI',sans-serif}
+button{font:inherit;color:inherit}
+.app{height:100vh;display:grid;grid-template-columns:350px minmax(0,1fr);grid-template-rows:minmax(0,1fr) 24px}
+
+/* sidebar */
+.sidebar{min-height:0;background:#181e27;border-right:1px solid #344151;display:flex;flex-direction:column}
+.sidebar-head{height:30px;flex-shrink:0;display:flex;align-items:center;gap:9px;padding:0 12px;border-bottom:1px solid #303a49;background:#1b222d}
+.brand{font-size:13px;font-weight:700;letter-spacing:-.3px}.brand span{color:#a5c6b9}
+.connection{font-size:10px;color:#8bcca9;margin-left:auto}.collapse{color:#91a1b5;font-size:13px}
+.zone{min-height:0;overflow:auto;padding:0 10px 10px;scrollbar-width:thin;scrollbar-color:#46566e #1b222c}
+.zone.in-use{flex:0 1 auto;max-height:56%}
+.zone.browse{flex:1;border-top:3px solid #3a4b63;padding-top:0}
+.section{height:26px;margin:9px 3px 3px;display:flex;align-items:center;gap:8px;color:#9caac0;font-size:9px;font-weight:650;letter-spacing:1.2px}
+.zone.browse .section{position:sticky;top:0;z-index:2;background:#181e27;margin:0 -10px 3px;padding:0 13px;height:32px}
+.section .action{margin-left:auto;font-weight:400;letter-spacing:0;color:#8194af;font-size:10px}
+.truncate{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.status{display:flex;align-items:center;gap:5px;font-size:10px;white-space:nowrap;flex-shrink:0}
+.status i{width:5px;height:5px;border-radius:50%;background:currentColor}
+.idle{color:#9aa9bd}.work{color:#8dbcf9}.done{color:#8bd6ae}.wait{color:#e9b87e}.unkn{color:#7f8da1}
+kbd{font:9px ui-monospace,monospace;color:#7f93ae;width:18px;text-align:right;flex-shrink:0}
+.muted{color:#71839c}
+summary{list-style:none;cursor:pointer}summary::-webkit-details-marker{display:none}
+.chev:before{content:'›';display:inline-block;width:9px;color:#7e92af;font-size:12px;flex-shrink:0}
+details[open]>summary .chev:before{content:'⌄'}
+
+/* In use: repo groups */
+.repo{margin:2px 0 4px}
+.repo>summary{height:30px;display:flex;align-items:center;gap:6px;padding:0 6px;border-radius:4px}
+.repo>summary:hover{background:#222c3a}
+.repo-name{font-size:11.5px;font-weight:600;color:#dde7f5;flex-shrink:0;max-width:150px}
+.wt{font:10px ui-monospace,monospace;color:#a6bad6;flex:1}
+.wt:before{content:'⎇ ';color:#7d93b3}
+.ctr{font-size:9px;color:#6d7f98;flex-shrink:0}
+.repo.focused>summary{background:#1f2a39}
+.repo-body{margin-left:10px;border-left:1px solid #2c3a4e;padding-left:4px}
+.item{height:27px;display:flex;align-items:center;gap:7px;padding:0 6px;border:1px solid transparent;border-radius:4px;font-size:11px;cursor:pointer}
+.item:hover{background:#243042}
+.item .truncate{flex:1}
+.item.selected{background:#2a3c55;border-color:#5b81b3;color:#e5eefb}
+.glyph{width:12px;text-align:center;flex-shrink:0;font-size:10px;color:#96abc8}
+.item.pane .truncate{color:#aebbd0}
+.tag{font-size:9px;color:#7d90ab;border:1px solid #34445a;border-radius:3px;padding:0 4px;line-height:14px;flex-shrink:0}
+.item.session{color:#9fb0c7;font-size:10.5px}
+.item.session time{font-size:9px;color:#7d90ab;flex-shrink:0}
+.item.session .resume{opacity:0;font-size:9px;color:#a3c5ee;flex-shrink:0}
+.item.session:hover .resume{opacity:1}
+.more{font-size:10px;color:#7f93ae;padding:3px 6px 3px 25px;cursor:pointer}
+.more:hover{color:#a3c5ee}
+.tasks>summary{height:26px;display:flex;align-items:center;gap:6px;padding:0 6px;font-size:11px;border-radius:4px}
+.tasks>summary:hover{background:#222c3a}
+.count{margin-left:auto;font-size:10px;color:#8598b4}
+.taskline{font-size:10.5px;color:#b8c8de;padding:5px 6px 5px 26px}
+
+/* Containers */
+.container>summary{height:30px;display:flex;align-items:center;gap:6px;padding:0 6px;border-radius:4px;font-size:11px;font-weight:550}
+.container>summary:hover{background:#222c3a}
+.container[open]>summary{background:#212c3b;color:#dfebfb}
+.container-name{flex:1}
+.rollup{display:flex;gap:6px;flex-shrink:0}.rollup b{font-size:9px;font-weight:400}
+.ctr-actions{display:none;gap:8px;color:#8ea3c0;font-size:11px;margin-left:4px}
+.container>summary:hover .ctr-actions{display:flex}
+.widget{margin:2px 0 8px 12px;border:1px solid #33435a;border-radius:5px;background:#151d28;overflow:hidden}
+.tabs{display:flex;gap:2px;padding:3px;border-bottom:1px solid #2f3e53;background:#18212e}
+.tabs button{flex:1;border:0;border-radius:3px;background:transparent;color:#8fa5c3;font-size:10px;padding:5px 0;cursor:pointer;display:flex;justify-content:center;gap:4px}
+.tabs button:hover{background:#243349}
+.tabs button[aria-selected=true]{background:#2d4362;color:#e3eeff;box-shadow:inset 0 -2px #8fb4eb}
+.tabs button:focus-visible{outline:2px solid #a3c5f6;outline-offset:-2px}
+.tabs .n{color:#7d90ab;font-size:9px}
+.tabs button[aria-selected=true] .n{color:#a9c2e4}
+.panel-body{padding:4px 4px 6px;max-height:330px;overflow:auto;scrollbar-width:thin}
+.row{height:25px;display:flex;align-items:center;gap:6px;padding:0 5px;font-size:10.5px;border-radius:3px;cursor:pointer}
+.row:hover{background:#243042}
+.row .truncate{flex:1}
+details.dir>summary.row{padding-left:calc(5px + var(--l,0)*12px)}
+.row.file{padding-left:calc(17px + var(--l,0)*12px);color:#aab9cd}
+.root-label{font-weight:550;color:#d3deec}
+.pfx{color:#6f829c;font-weight:400}.repo-name .pfx{color:#7d8fa8}
+.root-path{font:9px ui-monospace,monospace;color:#6f829c;flex-shrink:0}
+.git{font:9px ui-monospace,monospace;color:#d8b37c;flex-shrink:0}
+.scope-action{font-size:10px;color:#a3c5ee;padding:6px 6px 2px;cursor:pointer}
+.empty{font-size:10px;color:#8396b0;padding:8px 6px}
+.inactive>summary{height:28px;display:flex;align-items:center;gap:6px;padding:0 6px;font-size:11px;color:#9aabc2;border-top:1px solid #2d3a4d;margin-top:8px}
+
+/* workspace */
+.main{min-width:0;min-height:0;padding:5px;display:grid;grid-template-columns:1fr 1.05fr;grid-template-rows:1fr 1fr;gap:5px}
+.tile{display:flex;flex-direction:column;border:1px solid #354459;border-radius:5px;min-height:0;min-width:0;overflow:hidden;background:#101318}
+.tile.large{grid-row:span 2}
+.tile.active{border-color:#83aff0;box-shadow:0 0 0 1px #83aff030}
+.head{height:29px;flex-shrink:0;display:flex;align-items:center;gap:8px;background:#1d2734;border-bottom:1px solid #344155;padding:0 9px;cursor:pointer}
+.tile.active .head{background:#2c405f}
+.head strong{font-size:11px;font-weight:600;color:#e0eaf7;white-space:nowrap}
+.head .ctx{display:flex;align-items:baseline;gap:6px;min-width:0;flex:1;overflow:hidden;white-space:nowrap}
+.head .ctx .repo-n{font-size:10px;color:#b3c6e0}
+.head .ctx .wt{flex:0 1 auto;overflow:hidden;text-overflow:ellipsis;font-size:9.5px;color:#93a9c8}
+.head .ctx .ctr{font-size:9px;color:#62748d}
+.tile.active .head .ctx .ctr{color:#7b8fac}
+.controls{font-size:12px;color:#a0b3ce;white-space:nowrap;margin-left:6px;letter-spacing:6px}
+.capture{flex:1;min-height:0}.capture canvas{height:100%;width:100%;display:block}
+.footer{grid-column:1/-1;display:flex;gap:16px;align-items:center;padding:0 10px;background:#19212c;border-top:1px solid #354358;color:#8fa2be;font-size:9px}
+.footer .green{color:#8acfab}.footer .caption{margin-left:auto;color:#aebed3}
+</style></head><body><div class="app">
+<aside class="sidebar">
+  <div class="sidebar-head"><span class="collapse">«</span><span class="brand"><span>d</span>evc web</span><span class="connection">● live</span><span class="collapse">▢</span></div>
+
+  <!-- Zone 1: work in progress, led by repo/folder -->
+  <div class="zone in-use">
+    <div class="section"><span>IN USE</span><span class="action" title="Tiles in the browser layout · running panes not in the layout">3 tiles · 1 hidden &nbsp;＋</span></div>
+
+    <details class="repo focused" open data-repo="devc-tools">
+      <summary title="code-wksp · /workspaces/tools/devc-tools · branch devc-web-agent-sessions"><span class="chev"></span><span class="repo-name truncate"><span class="pfx">tools/</span>devc-tools</span><span class="wt truncate">devc-web-agent-sessions</span><span class="ctr">code-wksp</span></summary>
+      <div class="repo-body">
+        <div class="item tile-link" data-focus="1" title="Browser tile · pane “I want a Github PR review feature added…”"><span class="glyph">▣</span><span class="truncate">GitHub PR review</span><span class="status work"><i></i>work</span><kbd>⌥2</kbd></div>
+        <div class="item tile-link selected" data-focus="2" title="Browser tile · pane “I’d like a way to list last n agent sessions…”"><span class="glyph">▣</span><span class="truncate">Agent session history</span><span class="status done"><i></i>done</span><kbd>⌥3</kbd></div>
+        <div class="item session" title="Claude Code session · code-wksp · cwd /workspaces/tools/devc-tools · resumes with its original agent and session ID"><span class="glyph">↺</span><span class="truncate">Implementation plan for devc task</span><span class="resume">resume</span><time>39m</time></div>
+        <div class="more">4 more sessions</div>
+      </div>
+    </details>
+
+    <details class="repo" open data-repo="vscode-deephaven">
+      <summary title="code-wksp · /workspaces/vscode-deephaven.worktrees/DH-24092_vsix-sbom"><span class="chev"></span><span class="repo-name truncate">vscode-deephaven</span><span class="wt truncate">DH-24092_vsix-sbom</span><span class="ctr">code-wksp</span></summary>
+      <div class="repo-body">
+        <div class="item tile-link" data-focus="0" title="Browser tile · pane “vsix-sbom plan implementation”"><span class="glyph">▣</span><span class="truncate">VSIX SBOM</span><span class="status idle"><i></i>idle</span><kbd>⌥1</kbd></div>
+        <div class="item pane" title="Running Herdr pane that is not in the browser layout. Click to open it in a tile."><span class="glyph">▱</span><span class="truncate">Resume npm publish:prerelease</span><span class="tag">not in layout</span><span class="status idle"><i></i>idle</span><kbd></kbd></div>
+      </div>
+    </details>
+
+    <details class="repo" data-repo="deephaven-core">
+      <summary title="code-wksp · /workspaces/deephaven-core · recent sessions only"><span class="chev"></span><span class="repo-name truncate">deephaven-core</span><span class="wt truncate" style="visibility:hidden">main</span><span class="ctr">code-wksp</span></summary>
+      <div class="repo-body">
+        <div class="item session" title="code-wksp · cwd /workspaces/deephaven-core"><span class="glyph">↺</span><span class="truncate">Groovy connection review</span><span class="resume">resume</span><time>6h</time></div>
+      </div>
+    </details>
+
+    <details class="tasks"><summary><span class="chev"></span>Tasks<span class="count">1 open · 13 sent</span></summary><div class="taskline">Open issue references in Jira</div></details>
+  </div>
+
+  <!-- Zone 2: browse and manage, led by container -->
+  <div class="zone browse">
+    <div class="section"><span>CONTAINERS</span><span class="action">＋ &nbsp; ⋯</span></div>
+
+    <details class="container" open>
+      <summary><span class="chev"></span><span class="container-name truncate">code-wksp</span><span class="rollup"><b class="work">● 1</b><b class="done">● 1</b><b class="idle">● 2</b></span><span class="ctr-actions" title="Container actions">↻ ⋯</span></summary>
+      <div class="widget" data-scope="code-wksp">
+        <div class="tabs" role="tablist" aria-label="Views in code-wksp">
+          <button role="tab" data-tab="Terminals" aria-selected="false" tabindex="-1">Terminals <span class="n">4</span></button>
+          <button role="tab" data-tab="Sessions" aria-selected="false" tabindex="-1">Sessions</button>
+          <button role="tab" data-tab="Repos" aria-selected="true" tabindex="0">Repos <span class="n">5</span></button>
+          <button role="tab" data-tab="Files" aria-selected="false" tabindex="-1">Files</button>
+        </div>
+        <section class="panel-body" role="tabpanel" data-panel="Terminals" hidden>
+          <div class="row"><span class="glyph">▣</span><span class="truncate">vsix-sbom plan implementation</span><span class="status idle"><i></i>idle</span></div>
+          <div class="row"><span class="glyph">▣</span><span class="truncate">I want a Github PR review feature added…</span><span class="status work"><i></i>work</span></div>
+          <div class="row"><span class="glyph">▣</span><span class="truncate">I’d like a way to list last n agent sessions…</span><span class="status done"><i></i>done</span></div>
+          <div class="row"><span class="glyph">▱</span><span class="truncate">Resume npm publish:prerelease</span><span class="status idle"><i></i>idle</span></div>
+          <div class="scope-action">＋ New terminal in code-wksp</div>
+        </section>
+        <section class="panel-body" role="tabpanel" data-panel="Sessions" hidden>
+          <div class="row" title="cwd /workspaces/tools/devc-tools"><span class="glyph">↺</span><span class="truncate">Implementation plan for devc task</span><span class="root-path">devc-tools · 39m</span></div>
+          <div class="row" title="cwd /workspaces/vscode-deephaven.worktrees/DH-24092_vsix-sbom"><span class="glyph">↺</span><span class="truncate">Resume npm publish…</span><span class="root-path">vscode-deephaven · 38m</span></div>
+          <div class="row" title="cwd /workspaces/deephaven-core"><span class="glyph">↺</span><span class="truncate">Groovy connection review</span><span class="root-path">deephaven-core · 6h</span></div>
+          <div class="row" title="cwd /workspaces/tools/devc-tools"><span class="glyph">↺</span><span class="truncate">Devc up --bridge-repo</span><span class="root-path">devc-tools · 20h</span></div>
+          <div class="scope-action">↻ Refresh code-wksp sessions</div>
+        </section>
+        <section class="panel-body" role="tabpanel" data-panel="Repos">
+          <details class="dir" open><summary class="row"><span class="chev"></span><span class="root-label truncate"><span class="pfx">tools/</span>devc-tools</span><span class="git">↑4</span></summary>
+            <details class="dir" style="--l:1"><summary class="row"><span class="chev"></span><span class="truncate">.plans</span></summary></details>
+            <details class="dir" style="--l:1" open><summary class="row"><span class="chev"></span><span class="truncate">devc</span></summary>
+              <details class="dir" style="--l:2"><summary class="row"><span class="chev"></span><span class="truncate">tests</span></summary></details>
+              <details class="dir" style="--l:2"><summary class="row"><span class="chev"></span><span class="truncate">web</span></summary></details>
+            </details>
+            <details class="dir" style="--l:1"><summary class="row"><span class="chev"></span><span class="truncate">devc-desktop</span></summary></details>
+          </details>
+          <details class="dir" open><summary class="row"><span class="chev"></span><span class="root-label truncate">vscode-deephaven</span><span class="root-path">2 worktrees</span></summary>
+            <details class="dir" style="--l:1"><summary class="row"><span class="chev"></span><span class="truncate">DH-24092_vsix-sbom</span><span class="git">●3</span></summary></details>
+            <details class="dir" style="--l:1"><summary class="row"><span class="chev"></span><span class="truncate">DH-23956_mcp-ts-sdk-v2</span></summary></details>
+          </details>
+          <details class="dir"><summary class="row"><span class="chev"></span><span class="root-label truncate">deephaven-core</span></summary></details>
+          <details class="dir"><summary class="row"><span class="chev"></span><span class="root-label truncate"><span class="pfx">.plans/</span>deephaven-core</span></summary></details>
+          <details class="dir"><summary class="row"><span class="chev"></span><span class="root-label truncate"><span class="pfx">.plans/</span>deephaven-plugins</span></summary></details>
+        </section>
+        <section class="panel-body" role="tabpanel" data-panel="Files" hidden>
+          <details class="dir" open><summary class="row"><span class="chev"></span><span class="truncate">/workspaces</span></summary>
+            <details class="dir" style="--l:1"><summary class="row"><span class="chev"></span><span class="truncate">tools</span></summary></details>
+            <details class="dir" style="--l:1"><summary class="row"><span class="chev"></span><span class="truncate">vscode-deephaven.worktrees</span></summary></details>
+          </details>
+          <details class="dir"><summary class="row"><span class="chev"></span><span class="truncate">/home/vscode</span></summary></details>
+          <details class="dir"><summary class="row"><span class="chev"></span><span class="truncate">/</span></summary></details>
+        </section>
+      </div>
+    </details>
+
+    <details class="container">
+      <summary><span class="chev"></span><span class="container-name truncate">devc-dev</span><span class="rollup"><b class="idle">shell</b></span><span class="ctr-actions">↻ ⋯</span></summary>
+      <div class="widget" data-scope="devc-dev">
+        <div class="tabs" role="tablist" aria-label="Views in devc-dev">
+          <button role="tab" data-tab="Terminals" aria-selected="true" tabindex="0">Terminals <span class="n">1</span></button>
+          <button role="tab" data-tab="Sessions" aria-selected="false" tabindex="-1">Sessions</button>
+          <button role="tab" data-tab="Repos" aria-selected="false" tabindex="-1">Repos <span class="n">1</span></button>
+          <button role="tab" data-tab="Files" aria-selected="false" tabindex="-1">Files</button>
+        </div>
+        <section class="panel-body" role="tabpanel" data-panel="Terminals"><div class="row"><span class="glyph">▱</span><span class="truncate">devc-dev</span><span class="muted">shell</span></div><div class="scope-action">＋ New terminal in devc-dev</div></section>
+        <section class="panel-body" role="tabpanel" data-panel="Sessions" hidden><div class="empty">No sessions in this mockup.</div></section>
+        <section class="panel-body" role="tabpanel" data-panel="Repos" hidden><details class="dir"><summary class="row"><span class="chev"></span><span class="root-label truncate"><span class="pfx">tools/</span>devc-tools</span></summary></details></section>
+        <section class="panel-body" role="tabpanel" data-panel="Files" hidden><details class="dir"><summary class="row"><span class="chev"></span><span class="truncate">/workspaces</span></summary></details></section>
+      </div>
+    </details>
+    <details class="container"><summary><span class="chev"></span><span class="container-name truncate">.agents</span><span class="rollup"><b class="idle">shell</b></span><span class="ctr-actions">↻ ⋯</span></summary><div class="empty">Same four tabs; omitted in this mockup.</div></details>
+    <details class="container"><summary><span class="chev"></span><span class="container-name truncate">DH-23956_mcp-ts-sdk-v2</span><span class="rollup"><b class="idle">● idle</b></span><span class="ctr-actions">↻ ⋯</span></summary><div class="empty">Same four tabs; omitted in this mockup.</div></details>
+    <details class="inactive"><summary><span class="chev"></span>Not running<span class="count">15</span></summary><div class="empty">Start / pin / forget stay container-scoped.</div></details>
+  </div>
+</aside>
+
+<main class="main">
+  <section class="tile large" data-tile="0"><div class="head" data-focus="0" title="Tile alias “VSIX SBOM” · pane “vsix-sbom plan implementation” · code-wksp · /workspaces/vscode-deephaven.worktrees/DH-24092_vsix-sbom"><strong>VSIX SBOM</strong><span class="ctx"><span class="repo-n">vscode-deephaven</span><span class="wt">DH-24092_vsix-sbom</span><span class="ctr">code-wksp</span></span><span class="status idle"><i></i>idle</span><span class="controls">⋯⤢×</span></div><div class="capture"><canvas data-crop="780,106,1474,1943"></canvas></div></section>
+  <section class="tile" data-tile="1"><div class="head" data-focus="1" title="Tile alias “GitHub PR review” · code-wksp · /workspaces/tools/devc-tools"><strong>GitHub PR review</strong><span class="ctx"><span class="repo-n"><span class="pfx">tools/</span>devc-tools</span><span class="wt">devc-web-agent-sessions</span><span class="ctr">code-wksp</span></span><span class="status work"><i></i>work</span><span class="controls">⋯⤢×</span></div><div class="capture"><canvas data-crop="2268,106,1560,941"></canvas></div></section>
+  <section class="tile active" data-tile="2"><div class="head" data-focus="2" title="Tile alias “Agent session history” · code-wksp · /workspaces/tools/devc-tools"><strong>Agent session history</strong><span class="ctx"><span class="repo-n"><span class="pfx">tools/</span>devc-tools</span><span class="wt">devc-web-agent-sessions</span><span class="ctr">code-wksp</span></span><span class="status done"><i></i>done</span><span class="controls">⋯⤢×</span></div><div class="capture"><canvas data-crop="2268,1113,1560,936"></canvas></div></section>
+</main>
+<footer class="footer"><span class="green">● bridge</span><span>☕ awake</span><span class="caption">13 / STARTING MOCKUP · design proposal · terminal content is a screenshot, not a live connection</span></footer>
+</div>
+<script>
+const image=new Image();image.onload=()=>{document.querySelectorAll('canvas').forEach(c=>{const [x,y,w,h]=c.dataset.crop.split(',').map(Number);c.width=w;c.height=h;c.getContext('2d').drawImage(image,x,y,w,h,0,0,w,h)});document.body.dataset.ready='true'};image.src='real-layout.png';
+const repoOf={0:'vscode-deephaven',1:'devc-tools',2:'devc-tools'};
+function focusTile(id){document.querySelectorAll('[data-tile]').forEach(t=>t.classList.toggle('active',t.dataset.tile===id));document.querySelectorAll('.tile-link').forEach(l=>l.classList.toggle('selected',l.dataset.focus===id));document.querySelectorAll('.repo').forEach(r=>r.classList.toggle('focused',r.dataset.repo===repoOf[id]))}
+document.querySelectorAll('[data-focus]').forEach(el=>el.addEventListener('click',()=>focusTile(el.dataset.focus)));
+document.querySelectorAll('.widget').forEach(w=>{const tabs=[...w.querySelectorAll('[role=tab]')];const pick=b=>{tabs.forEach(t=>{t.setAttribute('aria-selected',String(t===b));t.tabIndex=t===b?0:-1});w.querySelectorAll('[data-panel]').forEach(p=>p.hidden=p.dataset.panel!==b.dataset.tab)};tabs.forEach((b,i)=>{b.addEventListener('click',()=>pick(b));b.addEventListener('keydown',e=>{const k={ArrowRight:(i+1)%tabs.length,ArrowLeft:(i+tabs.length-1)%tabs.length,Home:0,End:tabs.length-1}[e.key];if(k===undefined)return;e.preventDefault();tabs[k].focus();pick(tabs[k])})})});
+</script></body></html>
