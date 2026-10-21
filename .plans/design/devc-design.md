@@ -380,9 +380,26 @@ the user for:
 - **Skills folder roots** — one or more directories where agent skills live.
 
 These values are saved as lists in a global config file at
-`~/.config/devc/config.json`. Once that file exists, the global config prompt no
-longer runs automatically before other commands. The user can re-run it later
-via `devc config` (global settings step) if they want to change the root lists.
+`~/.config/devc/config.json`. Once that file — or `~/.config/devc/config.jsonc`
+— exists, the global config prompt no longer runs automatically before other
+commands. The user can re-run it later via `devc config` (global settings step)
+if they want to change the root lists.
+
+**`config.jsonc`.** The global config may instead be
+`~/.config/devc/config.jsonc` (comments, trailing commas). When it exists it is
+the config and `config.json` is ignored — never merged — with one stderr notice
+per process: `devc: ~/.config/devc/config.json is ignored because
+~/.config/devc/config.jsonc exists`. The choice is made on every load
+(`resolveGlobalConfigPath` in `devc-core/config.ts`); the first-run flow and the
+wizard create `config.json`, and a user opts in by renaming it. Both names parse
+as JSONC. A file that exists but does not parse, or is not an object, loads as
+empty with one notice: `devc: <file>: not valid JSONC (<reason>), ignored`.
+Saving a `.jsonc` never re-serializes it: each of `codeRoots`, `skillsRoots`
+and `recentSkills` whose value changed has its elements replaced between its
+brackets (a missing one is inserted as the first key), and every other byte
+stays. Messages about a loaded key name the file in use. devc-desktop reads the
+same file by the same rule, and watches of the global config react to both
+names. Both files sit in the same host-only folder, which no container mounts.
 
 Example global config:
 
@@ -413,8 +430,8 @@ distinct key and never rewritten. See
 ## First-run flow
 
 1. User runs `devc <command>` for the first time.
-2. If `~/.config/devc/config.json` does not exist, the TUI global config prompt
-   appears.
+2. If neither `~/.config/devc/config.jsonc` nor `~/.config/devc/config.json`
+   exists, the TUI global config prompt appears.
 3. User adds one or more code roots and one or more skills roots.
 4. The global config file is saved.
 5. The originally requested command continues.
@@ -473,7 +490,7 @@ Markers: `◯` not picked · `◉` picked · `◎` mounted regardless of the sel
 When the user runs `devc config [PATH]`:
 
 1. Resolve the project directory (`PATH` or cwd).
-2. If `~/.config/devc/config.json` is missing, run the **Global config** step
+2. If the global config (`config.jsonc` or `config.json`) is missing, run the **Global config** step
    first and persist the code/skills root lists.
 3. Resolve the overlay to write (`resolveProjectOverlayTarget`, or with
    `--repo` the repo overlay from `findRepoOverlay` — outside a git repo that
@@ -695,7 +712,7 @@ it.
 
 **Non-interactive by construction.** `init` never prompts, never offers a
 rebuild, and is dispatched _before_ the first-run global-config hook, so a user
-with no `~/.config/devc/config.json` is not sent through the roots wizard for a
+with no global config (`~/.config/devc/config.jsonc` or `config.json`) is not sent through the roots wizard for a
 command that has no use for roots.
 
 ## `attach`
@@ -817,11 +834,12 @@ Options:
                           gh or 'gh-*' for all),
                           comma-separated, or none to remove any earlier
                           grant. With it, only the flags count. Without
-                          it, the defaults in ~/.config/devc/config.json
-                          are granted: each repo its bridgeRepoAllow
-                          entry, else bridgeDefaultAllow, and other
-                          mounted repos with an entry are pinned too; any
-                          earlier grant is removed when neither is set
+                          it, the defaults in ~/.config/devc/config.jsonc
+                          (or config.json) are granted: each repo its
+                          bridgeRepoAllow entry, else bridgeDefaultAllow,
+                          and other mounted repos with an entry are
+                          pinned too; any earlier grant is removed when
+                          neither is set
       --bridge-repo PATH  Also pin the repo at host PATH, a git-protected
                           mount of this workspace, so the capabilities
                           act on it too; repeatable (at most 15), not

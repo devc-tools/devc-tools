@@ -620,7 +620,7 @@ devc up --bridge-allow none      # none: removes any earlier grant
 ```
 
 Without the flag, `devc up` and `devc build` grant the defaults from
-`~/.config/devc/config.json` — `bridgeDefaultAllow`, and per repo
+`~/.config/devc/config.jsonc` (or `config.json`) — `bridgeDefaultAllow`, and per repo
 `bridgeRepoAllow` — see
 [devc § Default grant](../devc/README.md#a-default-grant-bridgedefaultallow).
 So one policy can grant different repos different capabilities.

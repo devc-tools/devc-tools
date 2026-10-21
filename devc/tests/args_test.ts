@@ -1,4 +1,5 @@
 import {
+  assert,
   assertEquals,
   assertStringIncludes,
   assertThrows,
@@ -856,6 +857,30 @@ Deno.test('CLI: --bridge-allow and --bridge-repo are refused by every attach-fam
       twice.stderr,
       'devc: ~/.config/devc/config.json: bridgeRepoAllow: ~/code/lib and ~/code/lib/src name the same repo',
     );
+    // A config.jsonc wins over config.json, and the message names it.
+    await Deno.writeTextFile(
+      `${home}/.config/devc/config.jsonc`,
+      '{\n  // defaults\n  "bridgeDefaultAllow": ["gh"],\n}\n',
+    );
+    const jsonc = await cliIn(home, 'up', '/nonexistent');
+    assertEquals(jsonc.code, 2, jsonc.stderr);
+    assertStringIncludes(
+      jsonc.stderr,
+      'devc: ~/.config/devc/config.json is ignored because ~/.config/devc/config.jsonc exists',
+    );
+    assertStringIncludes(
+      jsonc.stderr,
+      'devc: ~/.config/devc/config.jsonc: bridgeDefaultAllow: "gh" is not allowed here — list each capability',
+    );
+    // Only a config.jsonc: the same message, and no ignored notice.
+    await Deno.remove(`${home}/.config/devc/config.json`);
+    const only = await cliIn(home, 'up', '/nonexistent');
+    assertEquals(only.code, 2, only.stderr);
+    assertStringIncludes(
+      only.stderr,
+      'devc: ~/.config/devc/config.jsonc: bridgeDefaultAllow: "gh" is not allowed here — list each capability',
+    );
+    assert(!only.stderr.includes('is ignored'), only.stderr);
   } finally {
     await Deno.remove(home, { recursive: true });
   }

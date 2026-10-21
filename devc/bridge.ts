@@ -18,17 +18,17 @@
 //   with exactly `<list>`, skipping the rest with a notice; it fails only when none pass. Neither
 //   default key is read.
 // - **Defaults** (no `--bridge-allow`). `bridgeDefaultAllow` and `bridgeRepoAllow` in
-//   `~/.config/devc/config.json` decide: the workspace repo and each `--bridge-repo` get their
-//   repo's `bridgeRepoAllow` entry, else `bridgeDefaultAllow`; every other git-protected repo
-//   mount whose repo has a non-empty entry is pinned too. A repo's entry is chosen by the common
+//   `~/.config/devc/config.jsonc` (or `config.json`) decide: the workspace repo and each
+//   `--bridge-repo` get their repo's `bridgeRepoAllow` entry, else `bridgeDefaultAllow`; every
+//   other git-protected repo mount whose repo has a non-empty entry is pinned too. A repo's entry is chosen by the common
 //   git dir of the frozen `config` the pin's remote is read from — never by a container-writable
 //   `.git` file or `commondir`. A default grant that cannot pin something logs why and lets the
 //   start succeed, where an explicit one fails it.
 //
 // `--bridge-allow none`, or no flag and neither default key, deletes it. The defaults live in that
 // file and never in a devc config layer: every layer `up` merges is agent-writable or merged with
-// one that is, and no container mounts `config.json`. Every other start path only *refreshes* one
-// that exists:
+// one that is, and no container mounts `config.jsonc` or `config.json` (the same host-only
+// folder). Every other start path only *refreshes* one that exists:
 // it re-derives every line and revokes the whole policy when any of them fails or no longer
 // matches, since a policy that outlives its preconditions is a grant nobody asked for. Refresh
 // never writes the policy — `HEAD` is agent-writable, so a pin that followed it would let the agent

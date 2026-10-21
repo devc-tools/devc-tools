@@ -227,8 +227,9 @@ export interface UpArgs {
    * `--bridge-allow <list>`: write this workspace's devc-bridge policy granting exactly these
    * capabilities (canonical order) on its current branch. `'none'` — `--bridge-allow none` —
    * means *delete* the policy. `null` — the flag is absent — means the defaults,
-   * `bridgeDefaultAllow` and `bridgeRepoAllow` from `~/.config/devc/config.json`, when either is
-   * set, and delete otherwise. Never a devc config key: see `bridge.ts`.
+   * `bridgeDefaultAllow` and `bridgeRepoAllow` from the global config
+   * (`~/.config/devc/config.jsonc`, or `config.json`), when either is set, and delete otherwise.
+   * Never a devc config key: see `bridge.ts`.
    */
   bridgeAllow: BridgeCapability[] | 'none' | null;
   /**
@@ -349,7 +350,7 @@ export function parseBridgeAllow(value: string): BridgeCapability[] | 'none' {
   return canonicalGrants(wanted);
 }
 
-/** The key in `~/.config/devc/config.json` that holds the default grant. */
+/** The key in the global config (`config.jsonc`, or `config.json`) that holds the default grant. */
 export const BRIDGE_DEFAULT_ALLOW_KEY = 'bridgeDefaultAllow';
 
 /**
@@ -394,7 +395,7 @@ function defaultGrantList(raw: unknown): BridgeCapability[] {
   return canonicalGrants(wanted);
 }
 
-/** The key in `~/.config/devc/config.json` that holds the per-repo default grants. */
+/** The key in the global config (`config.jsonc`, or `config.json`) that holds the per-repo grants. */
 export const BRIDGE_REPO_ALLOW_KEY = 'bridgeRepoAllow';
 
 /** One `bridgeRepoAllow` entry: the key as written, its expanded path, and its grants. */

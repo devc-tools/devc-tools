@@ -68,12 +68,18 @@ A terminal launch passes its arguments on to `devc web`. Chromium's own switches
 dist/mac/devcd.app/Contents/MacOS/devcd --live-yolo
 ```
 
-Launched with no arguments (from the Dock or Finder), the app reads them from
-`~/.config/devc/config.json`:
+Launched with no arguments (from the Dock or Finder), the app reads them from devc's global
+config, `~/.config/devc/config.jsonc` when it exists, else `~/.config/devc/config.json` (never
+both, as devc reads it; comments and trailing commas allowed in either):
 
-```json
-{ "desktopWebArgs": ["--live-yolo"] }
+```jsonc
+{
+  // What the Dock icon runs.
+  "desktopWebArgs": ["--live-yolo"]
+}
 ```
+
+The app only reads the file, on every start; a message about it names the file read.
 
 `--no-open` is always added. The app never passes `--port`. It uses whichever port `devc web`
 picks, read from the URL `devc web` prints.

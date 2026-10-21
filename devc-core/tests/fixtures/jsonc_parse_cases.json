@@ -1,0 +1,67 @@
+[
+  {
+    "name": "line and block comments, trailing commas",
+    "src": "{\n  // c\n  \"a\": [1, 2,], /* x\n y */ \"b\": {\"c\": \"d\",},\n}\n",
+    "value": {
+      "a": [
+        1,
+        2
+      ],
+      "b": {
+        "c": "d"
+      }
+    }
+  },
+  {
+    "name": "comment markers inside strings stay",
+    "src": "{\"s\": \"/* no */\", \"t\": \"// nor this\"}",
+    "value": {
+      "s": "/* no */",
+      "t": "// nor this"
+    }
+  },
+  {
+    "name": "a // in a URL string stays",
+    "src": "{\"u\": \"https://example.com//x\" // but this goes\n}",
+    "value": {
+      "u": "https://example.com//x"
+    }
+  },
+  {
+    "name": "a block comment across lines is removed",
+    "src": "{\n  /* one\n     two\n  */\n  \"k\": true\n}",
+    "value": {
+      "k": true
+    }
+  },
+  {
+    "name": "a ,] inside a string stays",
+    "src": "{\"q\": \"a\\\",]\", }",
+    "value": {
+      "q": "a\",]"
+    }
+  },
+  {
+    "name": "an escaped backslash ends the string",
+    "src": "{\"p\": \"C:\\\\\", // c\n\"n\": 1}",
+    "value": {
+      "p": "C:\\",
+      "n": 1
+    }
+  },
+  {
+    "name": "a doubled comma is refused",
+    "src": "{\"a\": [1,,]}",
+    "throws": true
+  },
+  {
+    "name": "a missing colon is refused",
+    "src": "{\"a\" 1}",
+    "throws": true
+  },
+  {
+    "name": "an unterminated object is refused",
+    "src": "{",
+    "throws": true
+  }
+]

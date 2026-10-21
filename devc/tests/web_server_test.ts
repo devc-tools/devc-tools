@@ -3,12 +3,14 @@ import { assert, assertEquals, assertThrows } from 'jsr:@std/assert';
 import {
   activeFolder,
   authorize,
+  configEventMatches,
   hostAllowed,
   mintToken,
   originAllowed,
   staticPathAllowed,
   tokenMatches,
 } from '../web/server.ts';
+import { GLOBAL_CONFIG_PATHS } from '@devc-tools/core/config.ts';
 import { parseClientMessage } from '../web/protocol.ts';
 import { DEVC_HERDR_SESSION, parseWebArgs } from '../args.ts';
 
@@ -1149,4 +1151,17 @@ Deno.test('parseClientMessage: the pr_* messages take a project, a repo root and
     assertEquals(r.code, 'bad_request', JSON.stringify(bad));
     assertEquals(r.id, 'p1');
   }
+});
+
+Deno.test('configEventMatches: a global-config watch reacts to both names', () => {
+  const names = GLOBAL_CONFIG_PATHS.map((p) => p.slice(p.lastIndexOf('/') + 1));
+  assertEquals(names, ['config.jsonc', 'config.json']);
+  const dir = '/home/u/.config/devc';
+  assert(configEventMatches([`${dir}/config.jsonc`], names));
+  assert(configEventMatches([`${dir}/config.json`], names));
+  assert(configEventMatches([`${dir}/x`, `${dir}/config.json`], names));
+  assert(!configEventMatches([`${dir}/projects.json`], names));
+  assert(!configEventMatches([`${dir}/config.json.tmp`], names));
+  // A one-file watch still matches only its own name.
+  assert(!configEventMatches([`${dir}/config.jsonc`], ['config.json']));
 });

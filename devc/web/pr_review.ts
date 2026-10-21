@@ -20,6 +20,10 @@ import type { ContainerInfo } from '@devc-tools/core/container.ts';
 import { dockerExecArgv } from '@devc-tools/core/container.ts';
 import type { BridgeCapability } from '@devc-tools/core/bridge.ts';
 import { projectKey } from '@devc-tools/core/merged_config.ts';
+import {
+  displayPath,
+  resolveGlobalConfigPath,
+} from '@devc-tools/core/config.ts';
 import { readPolicy } from '../bridge.ts';
 
 // ── limits ──────────────────────────────────────────────────────────────────────────────────
@@ -47,8 +51,12 @@ const MAX_STDERR = 64 * 1024;
 
 export const NOT_RUNNING_MESSAGE =
   'Start the container to see its pull request';
-export const NO_GRANT_MESSAGE =
-  'Needs a grant on this repo: devc up --bridge-allow gh-pr-read, or "bridgeDefaultAllow" in ~/.config/devc/config.json';
+/** The `no_grant` message, naming the global config file in use (`configPath`). */
+export function noGrantMessage(configPath: string): string {
+  return `Needs a grant on this repo: devc up --bridge-allow gh-pr-read, or "bridgeDefaultAllow" in ${
+    displayPath(configPath)
+  }`;
+}
 export const UNEXPECTED_OUTPUT = 'unexpected bridge output';
 export const OUTPUT_TOO_LARGE = 'bridge output too large';
 export const FILE_GONE = 'This file is not in the pull request any more';
@@ -532,7 +540,12 @@ export class PrReview {
       return unavailable('not_running', NOT_RUNNING_MESSAGE);
     }
     const line = await this.#grantLine(msg.localFolder, root);
-    if (line === null) return unavailable('no_grant', NO_GRANT_MESSAGE);
+    if (line === null) {
+      const configPath = await resolveGlobalConfigPath(
+        `${this.#deps.home}/.config/devc`,
+      );
+      return unavailable('no_grant', noGrantMessage(configPath));
+    }
     const ctx: Ctx = {
       key: `${msg.localFolder}\n${root}`,
       info: container.info,

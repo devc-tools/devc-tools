@@ -32,8 +32,8 @@ repo.
 - **The pinned repos:** the primary workspace repo when it could be pinned
   (a workspace with no GitHub `origin` is skipped), plus each extra repo the
   user named on the host with `devc up … --bridge-repo PATH`, plus any mounted
-  repo the user's `bridgeRepoAllow` (in `~/.config/devc/config.json` on the
-  host) gives grants of its own. Any other sibling `devc:source` mount is never
+  repo the user's `bridgeRepoAllow` (in `~/.config/devc/config.jsonc`, or
+  `config.json`, on the host) gives grants of its own. Any other sibling `devc:source` mount is never
   pushable. `gh-doctor` prints a `target    <path>` line for each pinned repo:
   that is its path in this container.
 - **Grants are per repo.** Each pinned repo has its own grants: the workspace

@@ -1,4 +1,9 @@
-import { assert, assertEquals, assertThrows } from 'jsr:@std/assert@^1';
+import {
+  assert,
+  assertEquals,
+  assertRejects,
+  assertThrows,
+} from 'jsr:@std/assert@^1';
 import {
   bridgeDefaultAllowFromConfig,
   bridgeRepoAllowFromConfig,
@@ -7,9 +12,12 @@ import {
   globalConfigExists,
   loadGlobalConfig,
   makeGlobalConfig,
+  resolveGlobalConfigPath,
   saveGlobalConfig,
   webSourceFromConfig,
 } from '../config.ts';
+import { parseJsonc } from '../jsonc_edit.ts';
+import { setLogger } from '../log.ts';
 import { withTemp } from './helpers.ts';
 
 Deno.test('expandPath: leading ~ and ~/ expand to $HOME', () => {
@@ -222,5 +230,283 @@ Deno.test('bridgeRepoAllowFromConfig: raw, and a load and save keeps it unchange
       );
       assertEquals(await Deno.readTextFile(path), text);
     }
+  });
+});
+
+/** Run `fn`, returning every warning core logged meanwhile. */
+async function captureWarnings(fn: () => Promise<void>): Promise<string[]> {
+  const seen: string[] = [];
+  setLogger((level, message) => {
+    if (level === 'warning') seen.push(message);
+  });
+  try {
+    await fn();
+  } finally {
+    setLogger(null);
+  }
+  return seen;
+}
+
+/** Load the config the resolver picks in `dir`, as a command does. */
+async function loadIn(dir: string) {
+  return await loadGlobalConfig(await resolveGlobalConfigPath(dir));
+}
+
+Deno.test('config file choice: only config.json is read', async () => {
+  await withTemp(async (dir) => {
+    await Deno.writeTextFile(
+      `${dir}/config.json`,
+      JSON.stringify({ codeRoots: ['~/json'] }),
+    );
+    const cfg = await loadIn(dir);
+    assertEquals(cfg.path, `${dir}/config.json`);
+    assertEquals(cfg.codeRoots, ['~/json']);
+  });
+});
+
+Deno.test('config file choice: only config.jsonc, with comments and trailing commas, is read', async () => {
+  await withTemp(async (dir) => {
+    await Deno.writeTextFile(
+      `${dir}/config.jsonc`,
+      [
+        '// my devc config',
+        '{',
+        '  /* roots,',
+        '     across lines */',
+        '  "codeRoots": ["~/a", "~/b",], // trailing',
+        '  "webSource": "https://example.com//x", // a // in a string stays',
+        '}',
+        '',
+      ].join('\n'),
+    );
+    const cfg = await loadIn(dir);
+    assertEquals(cfg.path, `${dir}/config.jsonc`);
+    assertEquals(cfg.codeRoots, ['~/a', '~/b']);
+    assertEquals(cfg.extra, { webSource: 'https://example.com//x' });
+  });
+});
+
+Deno.test('config file choice: both -> config.jsonc only, and the ignored notice once', async () => {
+  await withTemp(async (dir) => {
+    await Deno.writeTextFile(
+      `${dir}/config.json`,
+      JSON.stringify({ codeRoots: ['~/json'], bridgeDefaultAllow: ['x'] }),
+    );
+    await Deno.writeTextFile(
+      `${dir}/config.jsonc`,
+      '{ "skillsRoots": ["~/s"] }',
+    );
+    const loads: Array<Awaited<ReturnType<typeof loadIn>>> = [];
+    const warnings = await captureWarnings(async () => {
+      loads.push(await loadIn(dir));
+      loads.push(await loadIn(dir));
+    });
+    for (const cfg of loads) {
+      assertEquals(cfg.path, `${dir}/config.jsonc`);
+      assertEquals(cfg.codeRoots, []);
+      assertEquals(cfg.skillsRoots, ['~/s']);
+      assertEquals(cfg.extra, {});
+    }
+    assertEquals(warnings, [
+      `devc: ${displayPath(`${dir}/config.json`)} is ignored because ${
+        displayPath(`${dir}/config.jsonc`)
+      } exists`,
+    ]);
+  });
+});
+
+Deno.test('config file choice: a symlinked config.jsonc counts', async () => {
+  await withTemp(async (dir) => {
+    await Deno.writeTextFile(`${dir}/real.jsonc`, '{"codeRoots": ["~/l"]}');
+    await Deno.symlink(`${dir}/real.jsonc`, `${dir}/config.jsonc`);
+    const cfg = await loadIn(dir);
+    assertEquals(cfg.path, `${dir}/config.jsonc`);
+    assertEquals(cfg.codeRoots, ['~/l']);
+  });
+});
+
+Deno.test('config file choice: neither -> empty, and path is config.json', async () => {
+  await withTemp(async (dir) => {
+    const warnings = await captureWarnings(async () => {
+      const cfg = await loadIn(dir);
+      assertEquals(cfg.path, `${dir}/config.json`);
+      assertEquals(cfg.codeRoots, []);
+      assertEquals(cfg.extra, {});
+    });
+    assertEquals(warnings, []);
+  });
+});
+
+Deno.test('an invalid config.jsonc loads empty, with the invalid notice once', async () => {
+  await withTemp(async (dir) => {
+    const path = `${dir}/config.jsonc`;
+    await Deno.writeTextFile(path, '{ "codeRoots": ["~/a" "~/b"] }');
+    const warnings = await captureWarnings(async () => {
+      for (let i = 0; i < 2; i++) {
+        const cfg = await loadIn(dir);
+        assertEquals(cfg.path, path);
+        assertEquals(cfg.codeRoots, []);
+        assertEquals(cfg.extra, {});
+      }
+    });
+    assertEquals(warnings.length, 1);
+    assert(
+      warnings[0].startsWith(`devc: ${displayPath(path)}: not valid JSONC (`),
+      warnings[0],
+    );
+    assert(warnings[0].endsWith('), ignored'), warnings[0]);
+
+    // Valid JSONC that is not an object is refused the same way.
+    const arr = `${dir}/array.jsonc`;
+    await Deno.writeTextFile(arr, '["~/a"]');
+    const arrWarnings = await captureWarnings(async () => {
+      assertEquals((await loadGlobalConfig(arr)).codeRoots, []);
+    });
+    assertEquals(arrWarnings, [
+      `devc: ${displayPath(arr)}: not valid JSONC (not a JSON object), ignored`,
+    ]);
+  });
+});
+
+const COMMENTED_JSONC = [
+  '// devc global config',
+  '{',
+  '  // where my code lives',
+  '  "codeRoots": [',
+  '    "~/code", // main',
+  '    /* old */ "~/work",',
+  '  ],',
+  '  "skillsRoots": [],',
+  '  "recentSkills": ["~/skills/a"],',
+  '  // not a devc key yet',
+  '  "future": { "x": 1 },',
+  '  "bridgeRepoAllow": {',
+  '    "~/code/lib": ["gh-pr-read"], // reviews only',
+  '  },',
+  '}',
+  '',
+].join('\n');
+
+Deno.test('saving a .jsonc changes only the bytes inside the changed array', async () => {
+  await withTemp(async (dir) => {
+    const path = `${dir}/config.jsonc`;
+    await Deno.writeTextFile(path, COMMENTED_JSONC);
+    const cfg = await loadGlobalConfig(path);
+    assertEquals(cfg.codeRoots, ['~/code', '~/work']);
+    assertEquals(cfg.recentSkills, ['~/skills/a']);
+    await saveGlobalConfig(
+      makeGlobalConfig(cfg.codeRoots, cfg.skillsRoots, path, cfg.extra, [
+        '~/skills/b',
+        '~/skills/"q"',
+      ]),
+    );
+    const out = await Deno.readTextFile(path);
+    const marker = '"recentSkills": [';
+    const open = COMMENTED_JSONC.indexOf(marker) + marker.length;
+    const close = COMMENTED_JSONC.indexOf(']', open);
+    const outClose = out.lastIndexOf(
+      COMMENTED_JSONC.slice(close),
+    );
+    // Everything before the `[` and from the `]` on is byte-identical.
+    assertEquals(out.slice(0, open), COMMENTED_JSONC.slice(0, open));
+    assertEquals(out.slice(outClose), COMMENTED_JSONC.slice(close));
+    assertEquals(
+      out.slice(open, outClose),
+      '\n    "~/skills/b",\n    "~/skills/\\"q\\""\n  ',
+    );
+    // It parses, and loads back to the new value with everything else intact.
+    parseJsonc(out);
+    const back = await loadGlobalConfig(path);
+    assertEquals(back.recentSkills, ['~/skills/b', '~/skills/"q"']);
+    assertEquals(back.codeRoots, ['~/code', '~/work']);
+    assertEquals(back.extra, cfg.extra);
+  });
+});
+
+Deno.test('saving a .jsonc inserts a missing key first and keeps every other byte', async () => {
+  await withTemp(async (dir) => {
+    const path = `${dir}/config.jsonc`;
+    const text = COMMENTED_JSONC.replace('  "skillsRoots": [],\n', '');
+    await Deno.writeTextFile(path, text);
+    const cfg = await loadGlobalConfig(path);
+    await saveGlobalConfig(
+      makeGlobalConfig(
+        cfg.codeRoots,
+        ['~/skills'],
+        path,
+        cfg.extra,
+        cfg.recentSkills,
+      ),
+    );
+    const out = await Deno.readTextFile(path);
+    const brace = text.indexOf('{') + 1;
+    const inserted = '\n  "skillsRoots": [\n    "~/skills"\n  ],';
+    assertEquals(
+      out,
+      text.slice(0, brace) + inserted + text.slice(brace),
+    );
+    assertEquals((await loadGlobalConfig(path)).skillsRoots, ['~/skills']);
+  });
+});
+
+Deno.test('saving a .jsonc with nothing changed leaves it byte-identical', async () => {
+  await withTemp(async (dir) => {
+    const path = `${dir}/config.jsonc`;
+    // No `skillsRoots` at all: absent and still empty is not a change.
+    const text = COMMENTED_JSONC.replace('  "skillsRoots": [],\n', '');
+    await Deno.writeTextFile(path, text);
+    const cfg = await loadGlobalConfig(path);
+    await saveGlobalConfig(cfg);
+    await saveGlobalConfig(
+      makeGlobalConfig(
+        cfg.codeRoots,
+        cfg.skillsRoots,
+        path,
+        cfg.extra,
+        cfg.recentSkills,
+      ),
+    );
+    assertEquals(await Deno.readTextFile(path), text);
+  });
+});
+
+Deno.test('saving a .jsonc: a one-line array goes multi-line only when it changes', async () => {
+  await withTemp(async (dir) => {
+    const path = `${dir}/config.jsonc`;
+    const text =
+      '{\n  "codeRoots": ["~/a"], // one line\n  "skillsRoots": ["~/s"]\n}\n';
+    await Deno.writeTextFile(path, text);
+    const cfg = await loadGlobalConfig(path);
+    await saveGlobalConfig(
+      makeGlobalConfig(['~/a', '~/b'], cfg.skillsRoots, path, cfg.extra),
+    );
+    assertEquals(
+      await Deno.readTextFile(path),
+      '{\n  "codeRoots": [\n    "~/a",\n    "~/b"\n  ], // one line\n  "skillsRoots": ["~/s"]\n}\n',
+    );
+  });
+});
+
+Deno.test('saving a .jsonc that no longer parses is refused, the file untouched', async () => {
+  await withTemp(async (dir) => {
+    const path = `${dir}/config.jsonc`;
+    await Deno.writeTextFile(path, '{ oops');
+    await assertRejects(
+      () => saveGlobalConfig(makeGlobalConfig(['~/a'], [], path)),
+      Error,
+      'not valid JSONC',
+    );
+    assertEquals(await Deno.readTextFile(path), '{ oops');
+  });
+});
+
+Deno.test('globalConfigExists: true for either file', async () => {
+  await withTemp(async (dir) => {
+    assertEquals(await globalConfigExists(undefined, dir), false);
+    await Deno.writeTextFile(`${dir}/config.jsonc`, '{}');
+    assertEquals(await globalConfigExists(undefined, dir), true);
+    await Deno.remove(`${dir}/config.jsonc`);
+    await Deno.writeTextFile(`${dir}/config.json`, '{}');
+    assertEquals(await globalConfigExists(undefined, dir), true);
   });
 });

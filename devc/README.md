@@ -119,7 +119,7 @@ Notes:
   `'gh-*'` for all of them — on its current branch, whose `origin` must be a github.com
   remote. `--bridge-allow none` revokes any earlier grant. **Flags given: exactly
   what you typed. No flags: the defaults.** `up`/`build` **without** the flag
-  grant the defaults from `~/.config/devc/config.json` — each repo's
+  grant the defaults from the [global config](#the-global-config) — each repo's
   `bridgeRepoAllow` entry, else `bridgeDefaultAllow` — when either is set, and
   otherwise revoke; with it, neither key is read — see
   [A default grant](#a-default-grant-bridgedefaultallow) and
@@ -469,7 +469,7 @@ is published from any container: the host server finds devcontainers with
   session (default `devc`, the one `devc herdr` uses). A port already in use
   exits 1 with a `devc web:` message.
 - `--live` serves the **page** of the devc-tools checkout named by
-  `"webSource"` in `~/.config/devc/config.json` live (`~` and `$VAR` expand; it
+  `"webSource"` in the [global config](#the-global-config) live (`~` and `$VAR` expand; it
   must be absolute); `--live-yolo` runs its server code as well; `--source DIR`
   names a checkout for this run. Both imply `--live`. Neither: the built-in
   copy. See below.
@@ -541,7 +541,9 @@ Live mode serves a devc-tools checkout's `devc/` directory on the **host** (the
 one holding `main.ts`), e.g. `~/code/tools/devc-tools/devc`, instead of the
 built-in copy. It is the same checkout that containers with the `devc:source`
 mount see read-write at `/workspaces/tools/devc-tools`: two names for one
-directory, from either side. Name it once in `~/.config/devc/config.json`:
+directory, from either side. Name it once in the
+[global config](#the-global-config) (`~/.config/devc/config.jsonc`, or
+`config.json`):
 
 ```json
 { "webSource": "~/code/tools/devc-tools/devc" }
@@ -1641,17 +1643,22 @@ your next `up`. A flag is typed per invocation and never persisted.
 
 #### A default grant (`bridgeDefaultAllow`)
 
-To stop typing the same grant on every `up`, name it once in
-`~/.config/devc/config.json`:
+To stop typing the same grant on every `up`, name it once in the
+[global config](#the-global-config), `~/.config/devc/config.jsonc` (or
+`config.json`):
 
-```json
-{ "bridgeDefaultAllow": ["gh-pr-read", "gh-pr-viewed"] }
+```jsonc
+{
+  // Every container I `devc up` may read PRs and mark files Viewed.
+  "bridgeDefaultAllow": ["gh-pr-read", "gh-pr-viewed"]
+}
 ```
 
 or, for an agent's review loop on every container:
 
-```json
+```jsonc
 {
+  // Push, read, reply, resolve Copilot's threads, and re-request its review.
   "bridgeDefaultAllow": [
     "gh-push",
     "gh-pr-read",
@@ -1670,7 +1677,7 @@ Every other start path — `attach`, `herdr`, devc web's **Start container**, th
 TUI — still only re-checks an existing policy and never creates one.
 
 - **Only this file.** The key is never read from `devc.jsonc` or any repo
-  overlay. No container mounts `config.json` (devc mounts only
+  overlay. No container mounts `config.jsonc` or `config.json` (devc mounts only
   `~/.config/devc/.claude`, `shell/` and `git-identity/`), and only `devc config`
   writes it — keeping it verbatim. **devc web never writes it**, and must not:
   an agent can drive devc web's page.
@@ -1685,8 +1692,8 @@ TUI — still only re-checks an existing policy and never creates one.
   `gh-pr-viewed`, which only marks files Viewed for you) is what devc web needs
   to show a PR.
 - **It never fails the start for a repo's preconditions.** A value that is not
-  valid exits 2 before anything starts, as `devc: ~/.config/devc/config.json:
-  bridgeDefaultAllow: <reason>` (`must be an array of capability names`, `"gh"
+  valid exits 2 before anything starts, as `devc: ~/.config/devc/config.jsonc:
+  bridgeDefaultAllow: <reason>` (naming the file in use) (`must be an array of capability names`, `"gh"
   is not allowed here — list each capability`, `unknown capability <name> —
   valid: …`, `gh-pr-review was split — grant gh-pr-read,gh-pr-reply instead`,
   or `<cap> requires <needed>`). A repo that cannot be pinned — no GitHub
@@ -1762,7 +1769,8 @@ or less — than the rest, map it to its own list:
   expansion, an unset `$VAR`, a value that is not an array of capability
   names, a bad capability (`bridgeDefaultAllow`'s reasons), or two keys naming
   one repo — `up`/`build` exit 2 before anything starts, as
-  `devc: ~/.config/devc/config.json: bridgeRepoAllow: <key>: <reason>` (or
+  `devc: ~/.config/devc/config.jsonc: bridgeRepoAllow: <key>: <reason>`, naming
+  the file in use (or
   `<key1> and <key2> name the same repo`). A key whose folder is gone, or is not
   in a git repo, is ignored with `devc: bridgeRepoAllow: ignoring <key>:
   <reason>`: the list is global, and repos move. Like `bridgeDefaultAllow` it is
@@ -1975,10 +1983,32 @@ typing paths:
     change and the file is not even rewritten. Declining a rebuild prints a
     reminder to run `devc build` later.
 
-**Roots** (where the pickers are scoped) live in `~/.config/devc/config.json`,
-stored folded to `~/…`. On first run — or any time roots are missing —
-`devc config` collects them first with a free-navigation picker. Run
-**`devc config --global`** to reconfigure them at any time.
+**Roots** (where the pickers are scoped) live in the
+[global config](#the-global-config), stored folded to `~/…`. On first run — or
+any time roots are missing — `devc config` collects them first with a
+free-navigation picker. Run **`devc config --global`** to reconfigure them at
+any time.
+
+#### The global config
+
+devc's own settings — the roots above, and `bridgeDefaultAllow`,
+`bridgeRepoAllow`, `webSource`, devc-desktop's `desktopWebArgs` and
+`desktopDevc` — live in one host-only file that no container mounts:
+`~/.config/devc/config.json`, which the first run creates, or
+**`~/.config/devc/config.jsonc`**. Rename it to `config.jsonc` to keep comments
+(`//`, `/* */`) and trailing commas in it:
+
+- **`config.jsonc` wins.** When it exists it is the config and `config.json` is
+  ignored — the two are never merged — with one notice:
+  `devc: ~/.config/devc/config.json is ignored because ~/.config/devc/config.jsonc exists`.
+- **Saves keep your edits.** `devc config` changes only the arrays it owns
+  (`codeRoots`, `skillsRoots`, `recentSkills`) and only when their values
+  change; every other byte of a `config.jsonc` — comments, formatting, the keys
+  devc does not know — stays exactly as you wrote it. A `config.json` is
+  rewritten as pretty JSON, its unknown keys kept.
+- **A file that does not parse** loads as empty, with
+  `devc: <file>: not valid JSONC (<reason>), ignored`, so a typo never drops
+  every key silently. Messages about a key name the file in use.
 
 #### Which file it writes
 

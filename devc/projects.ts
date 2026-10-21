@@ -3,9 +3,9 @@
 // (`container.ts`), and `devc web` lists them — so a project shows up there even while its
 // container is stopped or gone.
 //
-// Not the global config (`~/.config/devc/config.json`, which the config wizard edits) and not
-// devc-core's `~/.cache/devc/projects/<key>/` merged-config cache: this file is rewritten by
-// starts and by `devc web`, and holds nothing but folders.
+// Not the global config (`~/.config/devc/config.jsonc` or `config.json`, which the config wizard
+// edits) and not devc-core's `~/.cache/devc/projects/<key>/` merged-config cache: this file is
+// rewritten by starts and by `devc web`, and holds nothing but folders.
 
 import { dirname } from 'jsr:@std/path';
 import { CONFIG_DIR } from '@devc-tools/core/default_config.ts';

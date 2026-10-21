@@ -15,6 +15,7 @@ import {
   parseFenceEntries,
   parseJsonc,
   splitElements,
+  stripComments,
   UnterminatedFenceError,
   writeBlocks,
 } from '../jsonc_edit.ts';
@@ -181,7 +182,8 @@ Deno.test('comma-hostile input round-trips: trailing comma, block comment, ] and
     },
     { id: 'skills', lines: [] },
   ]);
-  const parsed = parseJsonc(out) as {
+  // Strict JSON once comments are gone: the trailing comma was normalized away, not tolerated.
+  const parsed = JSON.parse(stripComments(out)) as {
     mounts: string[];
     runArgs: string[];
     name: string;
@@ -204,7 +206,7 @@ Deno.test('normalizeArrayCommas only moves commas', () => {
   const span = findArraySpan(src, 'a')!;
   const out = normalizeArrayCommas(src, span);
   assertEquals(out, '{\n  "a": [\n    1,\n    2,\n    3\n  ]\n}\n');
-  assertEquals((parseJsonc(out) as { a: number[] }).a, [1, 2, 3]);
+  assertEquals((JSON.parse(out) as { a: number[] }).a, [1, 2, 3]);
 });
 
 Deno.test('missing array: ensureArray inserts the key with the right comma', () => {
@@ -251,4 +253,36 @@ Deno.test('findArraySpan only matches a top-level array key', () => {
   assertEquals(src.slice(span.open, span.close + 1), '[2]');
   assertEquals(findArraySpan('{ "mounts": {} }', 'mounts'), null);
   assertEquals(findArraySpan('{ "name": "mounts" }', 'mounts'), null);
+});
+
+Deno.test('parseJsonc: comments and trailing commas, never inside a string', () => {
+  assertEquals(
+    parseJsonc(
+      '{\n  // c\n  "a": [1, 2,], /* x\n y */ "b": {"c": "d",},\n}\n',
+    ),
+    { a: [1, 2], b: { c: 'd' } },
+  );
+  // Comment markers and `,]` inside strings are text.
+  assertEquals(
+    parseJsonc('{"u": "https://x//y", "s": "/* no */", "t": ",]"}'),
+    {
+      u: 'https://x//y',
+      s: '/* no */',
+      t: ',]',
+    },
+  );
+  assertEquals(parseJsonc('{"q": "a\\",]", }'), { q: 'a",]' });
+  assertThrows(() => parseJsonc('{"a": [1,,]}'), SyntaxError);
+  assertThrows(() => parseJsonc('{"a" 1}'), SyntaxError);
+});
+
+Deno.test('parseJsonc: the cases shared with devc-desktop', async () => {
+  // devc-desktop's copy of this parser runs the same file (devc-desktop/tests/launch.test.ts).
+  const cases = JSON.parse(await fixture('jsonc_parse_cases.json')) as Array<
+    { name: string; src: string; value?: unknown; throws?: boolean }
+  >;
+  for (const c of cases) {
+    if (c.throws) assertThrows(() => parseJsonc(c.src), SyntaxError);
+    else assertEquals(parseJsonc(c.src), c.value, c.name);
+  }
 });

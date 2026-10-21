@@ -31,7 +31,10 @@ export type DevcChoice =
   | { kind: 'devc2' }
   | { kind: 'path'; path: string };
 
-/** The app's keys in `~/.config/devc/config.json`, with their defaults filled in. */
+/**
+ * The app's keys in devc's global config (`~/.config/devc/config.jsonc`, else `config.json`),
+ * with their defaults filled in.
+ */
 export interface DesktopConfig {
   /** `"desktopWebArgs"`: the `devc web` arguments when the app is launched with none. */
   webArgs: string[];
@@ -40,12 +43,111 @@ export interface DesktopConfig {
 }
 
 /**
- * The app's keys from the text of `~/.config/devc/config.json` (`null`: no file, so the
- * defaults). devc keeps keys it does not know, so they live beside devc's own. Throws on
- * malformed JSON or a malformed value, with a message naming the key.
+ * Which of devc's global config files is in use in `dir` (`~/.config/devc`): `config.jsonc` when
+ * it exists (anything `stat` follows), else `config.json`, whether or not that exists — devc's
+ * own rule (`resolveGlobalConfigPath` in `devc-core/config.ts`). Never merged.
+ */
+export async function globalConfigPath(dir: string): Promise<string> {
+  const jsonc = `${dir}/config.jsonc`;
+  try {
+    await stat(jsonc);
+    return jsonc;
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e;
+    return `${dir}/config.json`;
+  }
+}
+
+// --- JSONC ----------------------------------------------------------------------
+//
+// A copy of `devc-core/jsonc_edit.ts`'s `stripComments`, `stripTrailingCommas` and `parseJsonc`
+// (the app does not import devc-core): `//` and `/* */` comments and trailing commas allowed,
+// strings never looked inside. Both run the cases in
+// `devc-core/tests/fixtures/jsonc_parse_cases.json`; change them together.
+
+/** End offset (past the closing quote) of the string literal opening at `quote`. */
+function stringEnd(src: string, quote: number): number {
+  let i = quote + 1;
+  while (i < src.length) {
+    if (src[i] === '\\') {
+      i += 2;
+      continue;
+    }
+    if (src[i] === '"') return i + 1;
+    i++;
+  }
+  return src.length;
+}
+
+/** Comments blanked to spaces (newlines kept), every other byte as it was. */
+function stripComments(src: string): string {
+  let out = '';
+  let i = 0;
+  while (i < src.length) {
+    const c = src[i];
+    if (c === '"') {
+      const end = stringEnd(src, i);
+      out += src.slice(i, end);
+      i = end;
+    } else if (c === '/' && src[i + 1] === '/') {
+      while (i < src.length && src[i] !== '\n') {
+        out += ' ';
+        i++;
+      }
+    } else if (c === '/' && src[i + 1] === '*') {
+      const close = src.indexOf('*/', i + 2);
+      const end = close === -1 ? src.length : close + 2;
+      for (; i < end; i++) out += src[i] === '\n' ? '\n' : ' ';
+    } else {
+      out += c;
+      i++;
+    }
+  }
+  return out;
+}
+
+/** Each comma that only whitespace separates from a `]` or `}` blanked (comments are gone). */
+function stripTrailingCommas(src: string): string {
+  let out = '';
+  let i = 0;
+  while (i < src.length) {
+    const c = src[i];
+    if (c === '"') {
+      const end = stringEnd(src, i);
+      out += src.slice(i, end);
+      i = end;
+      continue;
+    }
+    if (c === ',') {
+      let j = i + 1;
+      while (j < src.length && /\s/.test(src[j])) j++;
+      if (src[j] === ']' || src[j] === '}') {
+        out += ' ';
+        i++;
+        continue;
+      }
+    }
+    out += c;
+    i++;
+  }
+  return out;
+}
+
+/** Parse JSONC as devc does. Throws `JSON.parse`'s `SyntaxError` for anything else. */
+export function parseJsonc(src: string): unknown {
+  return JSON.parse(stripTrailingCommas(stripComments(src)));
+}
+
+/**
+ * The app's keys from the text of devc's global config file (`null`: no file, so the
+ * defaults), parsed as JSONC. devc keeps keys it does not know, so they live beside devc's own.
+ * Throws on malformed JSONC or a malformed value, with a message naming the key.
  */
 export function desktopConfig(text: string | null): DesktopConfig {
-  const cfg = text === null ? {} : JSON.parse(text);
+  const cfg = text === null ? {} : parseJsonc(text) as {
+    desktopWebArgs?: unknown;
+    desktopDevc?: unknown;
+  } | null;
   return {
     webArgs: webArgsFrom(cfg?.desktopWebArgs),
     devc: devcChoiceFrom(cfg?.desktopDevc),

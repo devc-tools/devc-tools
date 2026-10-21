@@ -1,6 +1,13 @@
 import { test } from 'node:test';
 import { deepStrictEqual as assertEquals, throws } from 'node:assert/strict';
-import { chmod, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import {
+  chmod,
+  mkdtemp,
+  readFile,
+  rm,
+  symlink,
+  writeFile,
+} from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
@@ -10,10 +17,12 @@ import {
   devcArgs,
   type FindDeps,
   findDevc,
+  globalConfigPath,
   type LoginEnv,
   loginEnv,
   looked,
   onPath,
+  parseJsonc,
   readyUrl,
   startDevcWeb,
 } from '../src/main/launch.ts';
@@ -57,6 +66,58 @@ test('desktopConfig: defaults, desktopWebArgs, and desktopDevc', () => {
   throws(() => desktopConfig('{"desktopDevc":"devc3"}'), /desktopDevc/);
   throws(() => desktopConfig('{"desktopDevc":"bin/devc"}'));
   throws(() => desktopConfig('{'));
+});
+
+test('desktopConfig: JSONC, with comments and trailing commas', () => {
+  const text = [
+    '// devc global config',
+    '{',
+    "  /* the app's",
+    '     keys */',
+    '  "desktopWebArgs": ["--live", "--source", "https://x//y",], // trailing',
+    '  "desktopDevc": "devc2",',
+    '}',
+  ].join('\n');
+  assertEquals(desktopConfig(text), {
+    webArgs: ['--live', '--source', 'https://x//y'],
+    devc: { kind: 'devc2' },
+  });
+});
+
+test("parseJsonc agrees with devc-core's on the shared cases", async () => {
+  const cases = JSON.parse(
+    await readFile(
+      new URL(
+        '../../devc-core/tests/fixtures/jsonc_parse_cases.json',
+        import.meta.url,
+      ),
+      'utf8',
+    ),
+  ) as Array<{ name: string; src: string; value?: unknown; throws?: boolean }>;
+  assertEquals(cases.length > 0, true);
+  for (const c of cases) {
+    if (c.throws) throws(() => parseJsonc(c.src), SyntaxError, c.name);
+    else assertEquals(parseJsonc(c.src), c.value, c.name);
+  }
+});
+
+test('globalConfigPath: config.jsonc before config.json, never both', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'devcd-config-'));
+  try {
+    assertEquals(await globalConfigPath(dir), `${dir}/config.json`);
+    await writeFile(join(dir, 'config.json'), '{}');
+    assertEquals(await globalConfigPath(dir), `${dir}/config.json`);
+    await writeFile(join(dir, 'config.jsonc'), '{}');
+    assertEquals(await globalConfigPath(dir), `${dir}/config.jsonc`);
+    // A symlinked config.jsonc counts; a dangling one does not.
+    await rm(join(dir, 'config.jsonc'));
+    await symlink(join(dir, 'gone.jsonc'), join(dir, 'config.jsonc'));
+    assertEquals(await globalConfigPath(dir), `${dir}/config.json`);
+    await writeFile(join(dir, 'gone.jsonc'), '{}');
+    assertEquals(await globalConfigPath(dir), `${dir}/config.jsonc`);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
 });
 
 test("devcArgs: --no-open first; the app's own args win over the config's", () => {

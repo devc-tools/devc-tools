@@ -1,4 +1,4 @@
-import { assert, assertEquals } from 'jsr:@std/assert';
+import { assert, assertEquals, assertStringIncludes } from 'jsr:@std/assert';
 import { join } from 'jsr:@std/path';
 import type { ContainerInfo } from '@devc-tools/core/container.ts';
 import { bridgePaths } from '@devc-tools/core/bridge.ts';
@@ -9,7 +9,7 @@ import {
   MAX_COMMENTS,
   MAX_FILES,
   MAX_PATCH_BYTES,
-  NO_GRANT_MESSAGE,
+  noGrantMessage,
   NOT_RUNNING_MESSAGE,
   parsePrFiles,
   parsePrThreads,
@@ -161,6 +161,7 @@ exit "$(cat "$d/$cmd.code" 2>/dev/null || echo 0)"
     Deno.writeTextFile(join(dir, name), text);
   return {
     dir,
+    home,
     review,
     policy,
     policyFile,
@@ -198,7 +199,7 @@ Deno.test('pr lookup: no policy, another repo, gh-push only and a malformed poli
     const noGrant = {
       available: false,
       reason: 'no_grant',
-      message: NO_GRANT_MESSAGE,
+      message: noGrantMessage(join(t.home, '.config/devc/config.json')),
     };
     assertEquals(result(await t.review().handle(files)), noGrant);
     await t.policy('gh-pr-read', '/src/other');
@@ -209,6 +210,17 @@ Deno.test('pr lookup: no policy, another repo, gh-push only and a malformed poli
     await t.policy('gh-pr-reply');
     assertEquals(result(await t.review().handle(files)), noGrant);
     assertEquals(await t.calls(), []);
+    // The message names the config file in use: config.jsonc once it exists.
+    await Deno.mkdir(join(t.home, '.config/devc'), { recursive: true });
+    await Deno.writeTextFile(join(t.home, '.config/devc/config.jsonc'), '{}');
+    assertEquals(
+      result(await t.review().handle(files)).message,
+      noGrantMessage(join(t.home, '.config/devc/config.jsonc')),
+    );
+    assertStringIncludes(
+      String(result(await t.review().handle(files)).message),
+      'config.jsonc',
+    );
     await t.policy('gh-pr-read');
     assertEquals(result(await t.review().handle(files)).available, true);
   } finally {

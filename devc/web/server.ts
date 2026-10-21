@@ -2478,14 +2478,32 @@ const CONFIG_DEBOUNCE_MS = 200;
 const OPEN_TAB_WAIT_MS = 15_000;
 
 /**
+ * Whether a watch event on `eventPaths` concerns one of the files `names` (basenames). A watch of
+ * the global config passes both `config.jsonc` and `config.json`: creating or deleting
+ * `config.jsonc` switches which one is read.
+ */
+export function configEventMatches(
+  eventPaths: readonly string[],
+  names: readonly string[],
+): boolean {
+  return eventPaths.some((p) => names.includes(basename(p)));
+}
+
+/**
  * Calls `onChange` (debounced) whenever a file of devc's config dir changes: the projects file (a
  * start in some terminal records its project there) or the pinned files (another devc web pinned
- * one). Watches the file's directory, since the file is replaced by a rename and may not exist
- * yet. Never throws: without a watch, the list just refreshes on the page's own changes.
+ * one). `path` may list several files of one directory — a global-config watch must pass
+ * `GLOBAL_CONFIG_PATHS` (both `config.jsonc` and `config.json`) — and a change to any counts.
+ * Watches the directory, since the file is replaced by a rename and may not exist yet. Never
+ * throws: without a watch, the list just refreshes on the page's own changes.
  */
-function watchConfigFile(path: string, onChange: () => void): { stop(): void } {
-  const dir = dirname(path);
-  const file = basename(path);
+function watchConfigFile(
+  path: string | readonly string[],
+  onChange: () => void,
+): { stop(): void } {
+  const paths = typeof path === 'string' ? [path] : path;
+  const dir = dirname(paths[0]);
+  const names = paths.map((p) => basename(p));
   let watcher: Deno.FsWatcher | null = null;
   let timer: ReturnType<typeof setTimeout> | undefined;
   (async () => {
@@ -2493,7 +2511,7 @@ function watchConfigFile(path: string, onChange: () => void): { stop(): void } {
       await Deno.mkdir(dir, { recursive: true });
       watcher = Deno.watchFs(dir, { recursive: false });
       for await (const ev of watcher) {
-        if (!ev.paths.some((p) => basename(p) === file)) continue;
+        if (!configEventMatches(ev.paths, names)) continue;
         clearTimeout(timer);
         timer = setTimeout(onChange, CONFIG_DEBOUNCE_MS);
       }

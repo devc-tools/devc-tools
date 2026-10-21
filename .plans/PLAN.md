@@ -11,12 +11,6 @@
 
 ### Pending
 
-- [devc-config-jsonc](devc-config-jsonc.md) — the global config may be
-  `~/.config/devc/config.jsonc` (comments, trailing commas); it wins over `config.json` when it
-  exists (never merged; one stderr notice that `config.json` is ignored). Saves to a `.jsonc`
-  splice only the changed wizard arrays, keeping comments byte for byte; an invalid file loads
-  empty with a notice. devc-desktop reads it by the same rule.
-
 - [devc-web-aseprite-viewer](devc-web-aseprite-viewer.md) — after devc-web-media-tiles: a
   clean-room `.aseprite` decoder and compositor (`static/lib/aseprite.js`, from the public spec
   only) and a media view with frame playback, tags and layer toggles. Normal blend only at first;
@@ -110,6 +104,12 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
   take it too.
 
 ### Completed
+
+- [devc-config-jsonc](archived/devc-config-jsonc.md) — the global config may be
+  `~/.config/devc/config.jsonc` (comments, trailing commas); it wins over `config.json` when it
+  exists (never merged; one stderr notice that `config.json` is ignored). Saves to a `.jsonc`
+  splice only the changed wizard arrays, keeping comments byte for byte; an invalid file loads
+  empty with a notice. devc-desktop reads it by the same rule.
 
 - [bridge-per-repo-grants](archived/bridge-per-repo-grants.md) — `"bridgeRepoAllow"` in
   `~/.config/devc/config.json` maps a repo (every checkout of it, by git common dir) to its own
@@ -2421,4 +2421,4 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
 | devc web sidebar scale fixes — Tasks section, In use merged by folder, running sessions not resumed twice          | [devc-web-sidebar-scale-fixes](archived/devc-web-sidebar-scale-fixes.md)           | complete    |
 | `devc web` open in Jira — a branch's Jira key opens from terminal, file and repo menus, `"jira"` in config.json    | [devc-web-open-in-jira](devc-web-open-in-jira.md)                                  |             |
 | devc-bridge per-repo default grants — `bridgeRepoAllow` map, per-line policy grants                                | [bridge-per-repo-grants](archived/bridge-per-repo-grants.md)                       | complete    |
-| devc global config as JSONC — `config.jsonc` before `config.json`, comment-keeping saves                           | [devc-config-jsonc](devc-config-jsonc.md)                                          |             |
+| devc global config as JSONC — `config.jsonc` before `config.json`, comment-keeping saves                           | [devc-config-jsonc](archived/devc-config-jsonc.md)                                 | complete    |

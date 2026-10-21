@@ -61,6 +61,7 @@ import {
   bridgeDefaultAllowFromConfig,
   bridgeRepoAllowFromConfig,
   displayPath,
+  GLOBAL_CONFIG_PATH,
   loadGlobalConfig,
   webSourceFromConfig,
 } from '@devc-tools/core/config.ts';
@@ -435,9 +436,13 @@ if (subcommand === 'web') {
   // supervisor's token and no URL line. It ignores --live, --live-yolo and --source, so it
   // never supervises a child of its own.
   const child = Deno.env.get('DEVC_WEB_CHILD') === '1';
+  /** The global config file `configWebSource` last read, for the message naming it. */
+  let webConfigPath = GLOBAL_CONFIG_PATH;
   const configWebSource = async () => {
     try {
-      return webSourceFromConfig(await loadGlobalConfig());
+      const cfg = await loadGlobalConfig();
+      webConfigPath = cfg.path;
+      return webSourceFromConfig(cfg);
     } catch (e) {
       throw new WebStartError(e instanceof Error ? e.message : String(e));
     }
@@ -471,14 +476,16 @@ if (subcommand === 'web') {
         }),
       );
     }
-    // Live only when asked for, run by run: --source, else config.json's `webSource`. Without
-    // --live (or --source), the built-in copy, whatever the config says.
+    // Live only when asked for, run by run: --source, else the global config's `webSource`.
+    // Without --live (or --source), the built-in copy, whatever the config says.
     const source = webArgs.live
       ? webArgs.source ?? (await configWebSource()) ?? undefined
       : undefined;
     if (webArgs.live && source === undefined) {
       throw new WebStartError(
-        '--live needs --source DIR or "webSource" in ~/.config/devc/config.json',
+        `--live needs --source DIR or "webSource" in ${
+          displayPath(webConfigPath)
+        }`,
       );
     }
     // A fresh token every run, held in memory only: a URL from an earlier run never works

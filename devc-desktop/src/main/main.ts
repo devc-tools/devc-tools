@@ -29,6 +29,7 @@ import {
   devcArgs,
   type DevcWeb,
   findDevc,
+  globalConfigPath,
   loginEnv,
   looked,
   onPath,
@@ -55,8 +56,11 @@ import {
 } from './policy.ts';
 import { accountShell, HostPty, hostShell, ptyEnv } from './pty.ts';
 
-/** devc's global config, where `desktopWebArgs` and `desktopDevc` live. */
-const CONFIG_PATH = join(app.getPath('home'), '.config/devc/config.json');
+/**
+ * devc's global config folder. Its `config.jsonc`, else its `config.json`, is where
+ * `desktopWebArgs` and `desktopDevc` live: {@link globalConfigPath} picks, on every start.
+ */
+const CONFIG_DIR = join(app.getPath('home'), '.config/devc');
 /** The drawer's height, remembered across launches. */
 const STATE_PATH = join(app.getPath('userData'), 'desktop-state.json');
 const IS_MAC = process.platform === 'darwin';
@@ -264,11 +268,15 @@ async function main(): Promise<void> {
     updateTitle();
   }
 
-  async function readConfig(): Promise<string | null> {
+  /** The global config file in use, and its text (`null`: no file). */
+  async function readConfig(): Promise<{ path: string; text: string | null }> {
+    const path = await globalConfigPath(CONFIG_DIR);
     try {
-      return await readFile(CONFIG_PATH, 'utf8');
+      return { path, text: await readFile(path, 'utf8') };
     } catch (e) {
-      if ((e as NodeJS.ErrnoException).code === 'ENOENT') return null;
+      if ((e as NodeJS.ErrnoException).code === 'ENOENT') {
+        return { path, text: null };
+      }
       throw e;
     }
   }
@@ -278,10 +286,13 @@ async function main(): Promise<void> {
     if (current !== null || retiring !== null || stopping) return;
     setStatus({ phase: 'starting', message: 'Looking for devc…', stderr: [] });
     let config;
+    let configPath = join(CONFIG_DIR, 'config.json');
     try {
-      config = desktopConfig(await readConfig());
+      const read = await readConfig();
+      configPath = read.path;
+      config = desktopConfig(read.text);
     } catch (e) {
-      return fail(`${CONFIG_PATH}: ${e instanceof Error ? e.message : e}`);
+      return fail(`${configPath}: ${e instanceof Error ? e.message : e}`);
     }
     const found = await findDevc({
       env: (k) => process.env[k],

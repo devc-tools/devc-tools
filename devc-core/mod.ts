@@ -20,7 +20,7 @@ export * from './exec.ts';
 // `node:fs` error predicates (`isNotFound` et al.).
 export * from './errors.ts';
 
-// Global user config (`~/.config/devc/config.json`): code/skills roots.
+// Global user config (`~/.config/devc/config.jsonc`, else `config.json`): code/skills roots.
 export * from './config.ts';
 
 // The `devc.json` overlay: the devc-only layer merged on top of a project's devcontainer.json.

@@ -141,9 +141,39 @@ export function stripComments(src: string): string {
   return out;
 }
 
-/** Parse JSONC (comments allowed, trailing commas are not — we never emit them). */
+/**
+ * Blank every comma that only trivia separates from a closing `]` or `}` (a trailing comma),
+ * preserving every other byte. Strings are code to the scanner, so a `,]` inside one stays.
+ */
+export function stripTrailingCommas(src: string): string {
+  const kinds = classify(src);
+  let out = '';
+  for (let i = 0; i < src.length; i++) {
+    if (src[i] === ',' && kindAt(kinds, i) === 'code') {
+      const next = nextCode(kinds, i + 1, src.length);
+      if (src[next] === ']' || src[next] === '}') {
+        out += ' ';
+        continue;
+      }
+    }
+    out += src[i];
+    if (src[i] === '"' && kindAt(kinds, i) === 'code') {
+      // Copy the whole string literal, so a comma inside it is never looked at.
+      const end = stringEnd(src, i);
+      out += src.slice(i + 1, end);
+      i = end - 1;
+    }
+  }
+  return out;
+}
+
+/**
+ * Parse JSONC: `//` and `/* *\/` comments and trailing commas allowed (we never emit a trailing
+ * comma, but a hand-edited file — `~/.config/devc/config.jsonc` — may have one). Throws
+ * `JSON.parse`'s `SyntaxError` for anything else.
+ */
 export function parseJsonc(src: string): unknown {
-  return JSON.parse(stripComments(src));
+  return JSON.parse(stripTrailingCommas(stripComments(src)));
 }
 
 // --- queries -------------------------------------------------------------------
@@ -429,6 +459,24 @@ export function normalizeArrayCommas(src: string, span: ArraySpan): string {
     out = out.slice(0, e.at) + e.insert + out.slice(e.at + e.remove);
   }
   return out;
+}
+
+/**
+ * Replace the elements of the array at `span` with `values`, JSON-encoded one per line at
+ * `indent`, the `]` on its own line at the key's indentation; `[]` when `values` is empty. Only
+ * the bytes between the brackets change — comments inside the array go with its old elements.
+ */
+export function replaceArrayElements(
+  src: string,
+  span: ArraySpan,
+  values: readonly unknown[],
+  indent: string,
+): string {
+  const inner = values.length === 0
+    ? ''
+    : '\n' + values.map((v) => indent + JSON.stringify(v)).join(',\n') +
+      '\n' + lineIndent(src, span.open);
+  return src.slice(0, span.open + 1) + inner + src.slice(span.close);
 }
 
 /**
