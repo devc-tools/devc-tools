@@ -904,6 +904,7 @@ const LABELS = {
   loadingSessions: 'Loading…',
   refreshSessions: 'Refresh sessions',
   resumeSession: 'Resume session',
+  resumeSessionMenu: 'Resume session…',
   copySessionId: 'Copy session id',
   openHere: 'Open terminal here',
   newTerminal: 'New terminal',
@@ -1486,7 +1487,7 @@ function sectionRow(title, open, onToggle, trail = '', oncontextmenu) {
 /** How old a session may be to give a repo with nothing else open its own In use group. */
 const IN_USE_SESSION_MS = 24 * 60 * 60 * 1000;
 
-/** In use groups whose sessions past the newest are shown (per page). */
+/** In use groups whose Resume session… row is open (per page). */
 const inUseSessionsOpen = new Set();
 
 /** The tiles in layout order, each with whether it is the front tab of its stack. */
@@ -1670,8 +1671,8 @@ function rowContainer(localFolder) {
 /**
  * An In use group: its folder's row (parent path muted, name, branch; the same parts on every
  * group, no container), then while open its tiles, the agents running in it outside the layout,
- * and its newest session (the rest behind "N more"), each ending with its container. Open by
- * default unless it has only sessions.
+ * each ending with its container, and a Resume session… row (its count at the right) that opens
+ * to its past sessions. Open by default unless it has only sessions.
  */
 function inUseGroupRows(g, now) {
   const sessionsOnly = g.tiles.length === 0 && g.panes.length === 0;
@@ -1713,34 +1714,29 @@ function inUseGroupRows(g, now) {
   }
   for (const { c, pane } of g.panes) rows.push(inUsePaneRow(c, pane));
   if (g.sessions.length > 0) {
-    const all = inUseSessionsOpen.has(g.key);
-    for (const { c, s } of all ? g.sessions : g.sessions.slice(0, 1)) {
-      rows.push(sessionRow(c, s, null, now, 1, true));
-    }
-    const more = g.sessions.length - 1;
-    if (more > 0) {
-      rows.push(
-        h(
-          'div',
-          {
-            class: 'row in-use-more',
-            style: '--depth: 1',
-            onclick: () => {
-              if (!inUseSessionsOpen.delete(g.key)) {
-                inUseSessionsOpen.add(g.key);
-              }
-              renderTree();
-            },
-          },
-          h(
-            'span',
-            { class: 'label' },
-            all
-              ? 'Fewer sessions'
-              : `${more} more session${more === 1 ? '' : 's'}`,
-          ),
-        ),
-      );
+    // One row for all of them, closed by default: past sessions apart from what runs now.
+    const shown = inUseSessionsOpen.has(g.key);
+    const head = treeRow(
+      `inuse-sessions\n${g.key}`,
+      1,
+      shown,
+      {
+        class: 'in-use-resume',
+        onclick: () => {
+          if (!inUseSessionsOpen.delete(g.key)) inUseSessionsOpen.add(g.key);
+          renderTree();
+        },
+      },
+      LABELS.resumeSessionMenu,
+    );
+    head.append(
+      rowTrail(h('span', { class: 'section-count' }, `${g.sessions.length}`)),
+    );
+    rows.push(head);
+    if (shown) {
+      for (const { c, s } of g.sessions) {
+        rows.push(sessionRow(c, s, null, now, 2, true));
+      }
     }
   }
   return rows;

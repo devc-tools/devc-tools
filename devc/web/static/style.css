@@ -542,16 +542,17 @@ body.resizing-zones {
   flex: none;
 }
 
-.row.in-use-more {
-  min-height: 22px;
-  padding-left: calc(25px + var(--depth, 0) * 12px);
-  font-size: 10px;
-  color: #7f93ae;
+/* An In use group's past sessions, behind one row: muted, so it reads apart from what runs. */
+.row.in-use-resume {
+  font-size: 10.5px;
+  color: #8a9cb5;
   cursor: pointer;
 }
 
-.row.in-use-more:hover {
-  color: var(--accent);
+.row.in-use-resume:hover {
+  --row-bg: var(--row-hover);
+  background: var(--row-bg);
+  color: var(--text);
 }
 
 .row {
