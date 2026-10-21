@@ -289,9 +289,9 @@ body.resizing-sidebar {
   max-height: 56%;
 }
 
-/* Tasks takes what it needs, up to a quarter. */
+/* Tasks takes what it needs, up to a quarter, and In use never squeezes it. */
 .zone-tasks {
-  flex: 0 1 auto;
+  flex: 0 0 auto;
   max-height: 25%;
   padding-top: 0;
   border-top: 3px solid #3a4b63;
@@ -323,6 +323,16 @@ body.resizing-sidebar {
   padding: 0 17px 0 13px;
   border-radius: 0;
   background: var(--panel);
+}
+
+/* A folded section (its heading alone in its zone) sits centered between the rules. */
+.zone:has(> .row.section:only-child) {
+  padding-bottom: 0;
+}
+
+.zone-tasks > .row.section:only-child,
+.zone-browse > .row.section:only-child {
+  margin-bottom: 0;
 }
 
 /* In use: a folder's row (parent path muted, the name, the branch); the same parts on every one. */
