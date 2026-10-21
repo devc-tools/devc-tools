@@ -380,10 +380,44 @@ body.resizing-zones {
   margin-bottom: 0;
 }
 
+/* In use: a card per folder that never folds, its rows flush with its own row (no chevrons). */
+.in-use-card {
+  --card-bg: #151d28;
+  margin: 4px 4px 6px;
+  padding: 2px;
+  border: 1px solid #2c394b;
+  border-radius: 5px;
+  background: var(--card-bg);
+}
+
+/* Its row's click shows or hides the card's past sessions, so hovering it lights the card. */
+.in-use-card:has(> .row.in-use-group:not(.inert):hover) {
+  --card-bg: var(--row-hover);
+}
+
+.in-use-card .row {
+  --row-bg: var(--card-bg);
+  padding-left: 6px;
+}
+
+.in-use-card .row.in-use-group .chevron {
+  display: none;
+}
+
+/* The card's own row takes the card's color, hovered or not; without past sessions, no pointer. */
+.in-use-card .row.in-use-group,
+.in-use-card .row.in-use-group:hover {
+  --row-bg: var(--card-bg);
+  background: transparent;
+}
+
+.in-use-card .row.in-use-group.inert {
+  cursor: default;
+}
+
 /* In use: a folder's row (parent path muted, the name, the branch); the same parts on every one. */
 .row.in-use-group {
   min-height: 30px;
-  margin-top: 2px;
   font-size: calc(var(--font-size) + 0.5px);
   font-weight: 600;
   color: #dde7f5;

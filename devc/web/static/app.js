@@ -1023,12 +1023,6 @@ function loadSidebarState() {
     layoutOpen: saved?.layoutTreeOpen === true,
     /** Each container's shown view (by local folder): one of `CONTAINER_TABS`. */
     containerTab: savedContainerTabs(saved?.containerTab),
-    /** In use groups opened or closed against their default (see `inUseGroupRows`). */
-    inUseToggled: new Set(
-      Array.isArray(saved?.inUseToggled)
-        ? saved.inUseToggled.filter((f) => typeof f === 'string')
-        : [],
-    ),
     pinnedOpen: saved?.pinnedOpen !== false,
     tasksOpen: saved?.tasksOpen !== false,
     containersOpen: saved?.containersOpen !== false,
@@ -1105,7 +1099,6 @@ function saveSidebarState() {
         // Not `filesOpen`: entries saved under that name were keyed by project, not by repo.
         rootsOpen: sidebarState.filesOpen,
         layoutTreeOpen: sidebarState.layoutOpen,
-        inUseToggled: [...sidebarState.inUseToggled],
         containerTab: sidebarState.containerTab,
         pinnedOpen: sidebarState.pinnedOpen,
         tasksOpen: sidebarState.tasksOpen,
@@ -1541,7 +1534,7 @@ function sectionRow(title, open, onToggle, trail = '', oncontextmenu) {
 /** How old a session may be to give a repo with nothing else open its own In use group. */
 const IN_USE_SESSION_MS = 24 * 60 * 60 * 1000;
 
-/** In use groups with something running whose past sessions are shown (per page). */
+/** In use groups whose past sessions are shown (per page). */
 const inUseSessionsOpen = new Set();
 
 /** The tiles in layout order, each with whether it is the front tab of its stack. */
@@ -1670,7 +1663,7 @@ function inUseRows() {
       ),
     );
   }
-  for (const g of groups.values()) rows.push(...inUseGroupRows(g, now));
+  for (const g of groups.values()) rows.push(inUseGroupCard(g, now));
   return rows;
 }
 
@@ -1723,38 +1716,37 @@ function rowContainer(localFolder) {
 }
 
 /**
- * An In use group: its folder's row (parent path muted, name, branch; the same parts on every
- * group, no container), then while open its tiles, the agents running in it outside the layout,
- * each ending with its container, then its past sessions: always, in a group with only sessions
- * (its own row folds them); in another, while its row's history button shows them. Open by
- * default unless it has only sessions.
+ * An In use group, as a card that never folds: its folder's row (parent path muted, name, branch;
+ * the same parts on every group, no container), its tiles and the agents running in it outside
+ * the layout, each ending with its container, then its past sessions while its row's history
+ * button (or a click on the row) shows them.
  */
-function inUseGroupRows(g, now) {
+function inUseGroupCard(g, now) {
   const sessionsOnly = g.tiles.length === 0 && g.panes.length === 0;
-  const open = sidebarState.inUseToggled.has(g.key)
-    ? sessionsOnly
-    : !sessionsOnly;
-  const toggle = () => {
-    if (!sidebarState.inUseToggled.delete(g.key)) {
-      sidebarState.inUseToggled.add(g.key);
-    }
-    saveSidebarState();
+  const shown = inUseSessionsOpen.has(g.key);
+  const toggleSessions = () => {
+    if (!inUseSessionsOpen.delete(g.key)) inUseSessionsOpen.add(g.key);
     renderTree();
   };
   const branch = g.repo?.git?.branch;
   const head = treeRow(
     `inuse\n${g.key}`,
     0,
-    open,
+    undefined,
     {
-      // Nothing runs in it: its name is muted, so what is at work stands out.
-      class: sessionsOnly ? 'in-use-group idle' : 'in-use-group',
+      // Nothing runs in it: its name is muted, so what is at work stands out. Without past
+      // sessions a click does nothing, so it doesn't look clickable.
+      class: [
+        'in-use-group',
+        sessionsOnly ? 'idle' : '',
+        g.sessions.length > 0 ? '' : 'inert',
+      ].filter((c) => c).join(' '),
       title: [
         g.repo?.containerFolder ?? g.repo?.folder ?? g.localFolder,
         branch ? `Branch: ${branch}` : '',
         `In: ${[...g.folders].map(containerNameOf).join(', ')}`,
       ].filter((t) => t).join('\n'),
-      onclick: toggle,
+      onclick: g.sessions.length > 0 ? toggleSessions : undefined,
       // Only to open a Jira key in its branch: without one, the right-click is as it always was.
       oncontextmenu: (e) => {
         const items = jiraItems(g.repo?.git?.branch);
@@ -1767,22 +1759,13 @@ function inUseGroupRows(g, now) {
     branch ? h('span', { class: 'repo-branch' }, branch) : '',
   );
   // Past sessions apart from what runs now: hidden until its history button shows them.
-  const shown = sessionsOnly || inUseSessionsOpen.has(g.key);
-  const history = !sessionsOnly && g.sessions.length > 0
+  const history = g.sessions.length > 0
     ? iconButton(
       'history',
       shown
         ? LABELS.hidePastSessions
         : LABELS.showPastSessions(g.sessions.length),
-      () => {
-        if (inUseSessionsOpen.delete(g.key)) renderTree();
-        else {
-          inUseSessionsOpen.add(g.key);
-          // Showing them opens a folded group: otherwise the click shows nothing.
-          if (!open) toggle();
-          else renderTree();
-        }
-      },
+      toggleSessions,
     )
     : null;
   let actions = inUseGroupActions(head, g);
@@ -1794,7 +1777,6 @@ function inUseGroupRows(g, now) {
   }
   if (actions) head.append(rowTrail(actions));
   const rows = [head];
-  if (!open) return rows;
   for (const { tile, active } of g.tiles) {
     rows.push(layoutTileRow(tile, active, 1, true));
   }
@@ -1804,7 +1786,7 @@ function inUseGroupRows(g, now) {
       rows.push(sessionRow(c, s, null, now, 1, true));
     }
   }
-  return rows;
+  return h('div', { class: 'in-use-card' }, ...rows);
 }
 
 /**
