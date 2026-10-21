@@ -8,7 +8,7 @@
 // sees.
 
 import type { DevcontainerRunner } from '@devc-tools/core/devcontainer.ts';
-import { startContainer, stopContainer } from '../container.ts';
+import { downContainer, startContainer, stopContainer } from '../container.ts';
 import { currentRuntime, devcontainerArgv } from '../devcontainer_selfexec.ts';
 import { splitLines } from './proc.ts';
 
@@ -73,4 +73,12 @@ export async function startProject(
 /** Stops the project's container; `false` when none was running. */
 export function stopProject(localFolder: string): Promise<boolean> {
   return stopContainer(localFolder);
+}
+
+/**
+ * Removes the project's container, as `devc down`: stopped first if running, then `docker rm`,
+ * plus its devc-bridge files. `false` when there was no container.
+ */
+export function downProject(localFolder: string): Promise<boolean> {
+  return downContainer(localFolder);
 }

@@ -111,7 +111,7 @@ import {
   setPinned,
   updateProjects,
 } from '../projects.ts';
-import { startProject, stopProject } from './project_control.ts';
+import { downProject, startProject, stopProject } from './project_control.ts';
 import {
   addFilePin,
   type FilePin,
@@ -1887,6 +1887,24 @@ export async function startWeb(
           reply(c, { id: msg.id, ok: true, result: { stopped } });
         } catch (e) {
           fail(c, msg.id, 'stop_failed', e);
+        }
+        return;
+      case 'down_project':
+        if (!isListedProject(folder)) {
+          reject(c, {
+            id: msg.id,
+            code: 'bad_request',
+            message: 'unknown project',
+          });
+          return;
+        }
+        try {
+          const removed = await downProject(folder);
+          reply(c, { id: msg.id, ok: true, result: { removed } });
+        } catch (e) {
+          fail(c, msg.id, 'down_failed', e);
+        } finally {
+          await reloadProjects();
         }
         return;
       case 'add_project': {

@@ -81,7 +81,12 @@ export type ClientMessage =
   | { type: 'active_pane'; container: string; pane_id: string }
   | { type: 'active_pane' }
   | {
-    type: 'start_project' | 'stop_project' | 'forget_project' | 'add_project';
+    type:
+      | 'start_project'
+      | 'stop_project'
+      | 'down_project'
+      | 'forget_project'
+      | 'add_project';
     id: string;
     localFolder: string;
   }
@@ -589,6 +594,7 @@ function parseFields(m: Obj): ClientMessage {
       };
     case 'start_project':
     case 'stop_project':
+    case 'down_project':
     case 'forget_project':
     case 'add_project':
       return { type: m.type, id: str(m, 'id'), localFolder: folder(m) };

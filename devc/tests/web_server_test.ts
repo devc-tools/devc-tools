@@ -362,6 +362,7 @@ Deno.test('parseClientMessage: project messages name an absolute folder', () => 
     const type of [
       'start_project',
       'stop_project',
+      'down_project',
       'forget_project',
       'add_project',
     ]

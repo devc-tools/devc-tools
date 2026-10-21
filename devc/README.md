@@ -303,7 +303,9 @@ is published from any container: the host server finds devcontainers with
   `~/.config/devc/projects.json`; the 20 most recent unpinned ones) and every
   folder you pinned. Hover one for its play button, **Start container** (the same start as `devc attach`,
   with its output under **Show output**); right-click any project for **Stop
-  container**, **Pin**/**Unpin** and **Forget**, and the **+** on the Containers
+  container**, **Remove container** (as `devc down`: stopped, then deleted),
+  **Pin**/**Unpin** and **Forget**; hovering a running container's row shows a
+  trash button for **Remove container** left of its stop button, and the **+** on the Containers
   heading adds a folder. A tile whose project is down offers **Start
   container**.
 - **Menus:** right-click a tile (its tab, or its Layout row) for **Split
@@ -314,7 +316,8 @@ is published from any container: the host server finds devcontainers with
   row offers **Open in new tile**, **Rename** and **Kill**. A new shell is
   always its own Herdr tab, created without moving the focus of a Herdr TUI
   attached to the same session. Hovering a Layout row shows **×** to close its
-  tiles; hovering a pane under Containers shows a trash button to kill it.
+  tiles (and, on a terminal tile's row, a trash button left of it to kill the
+  pane); hovering a pane under Containers shows a trash button to kill it.
 - **Tiles:** click a pane to show it (bringing its tile forward if one already
   shows it, else opening it in the focused tile; Ctrl/⌘-click always opens a
   new tile), or drag it from the sidebar onto any tile's edge (a new split) or

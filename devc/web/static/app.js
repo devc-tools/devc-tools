@@ -2578,7 +2578,7 @@ function containerRows(c) {
         ? h('span', { class: 'row-actions' }, stateText, herdrActions(c))
         : rowTrail(
           c.state !== 'connected' ? stateText : statusRollup(panes),
-          hoverActions(stopButton(c)),
+          hoverActions(downButton(c), stopButton(c)),
         ),
     ),
   ];
@@ -2903,9 +2903,18 @@ function stopButton(c) {
     : '';
 }
 
-/** A Herdr-less container's hover buttons: Stop, Start Herdr (no session only) and Retry. */
+/** A container row's Remove button (`devc down`), beside Stop: only while Stop is shown. */
+function downButton(c) {
+  const p = projects.get(c.localFolder);
+  return p?.container === 'running'
+    ? iconButton('trash', 'Remove container…', () => downProject(p))
+    : '';
+}
+
+/** A Herdr-less container's hover buttons: Remove, Stop, Start Herdr (no session only) and Retry. */
 function herdrActions(c) {
   return hoverActions(
+    downButton(c),
     stopButton(c),
     c.state === 'no-session'
       ? iconButton(
@@ -3182,6 +3191,9 @@ function projectMenuItems(localFolder) {
   } else if (!p.starting && projectStarts) {
     items.push(['Start container', () => startProject(localFolder)]);
   }
+  if (p.container !== 'missing' && !p.starting) {
+    items.push(['Remove container…', () => downProject(p), true]);
+  }
   if (p.pinned || projectStarts) {
     items.push([
       p.pinned ? 'Unpin' : 'Pin',
@@ -3323,6 +3335,18 @@ async function stopProject(p) {
     )
   ) {
     projectRequest('stop_project', p.localFolder, 'Stop container');
+  }
+}
+
+/** `devc down`: the container is stopped and deleted; the project stays listed. */
+async function downProject(p) {
+  if (
+    await confirmDialog(
+      `Remove the container for ${p.name}? Like devc down, it is stopped and deleted: its panes end, and anything outside its mounted folders and volumes is lost.`,
+      { okLabel: 'Remove container', danger: true },
+    )
+  ) {
+    projectRequest('down_project', p.localFolder, 'Remove container');
   }
 }
 

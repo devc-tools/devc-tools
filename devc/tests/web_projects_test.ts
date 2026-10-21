@@ -205,7 +205,9 @@ Deno.test('projectRefusal: with starts off, nothing starts, adds or pins', () =>
   assertEquals(projectRefusal(pin, true), null);
   assertEquals(typeof projectRefusal(pin, false), 'string');
   assertEquals(projectRefusal(unpin, false), null);
-  for (const type of ['stop_project', 'forget_project', 'list_dir']) {
+  for (
+    const type of ['stop_project', 'down_project', 'forget_project', 'list_dir']
+  ) {
     assertEquals(projectRefusal({ type }, false), null);
   }
 });
