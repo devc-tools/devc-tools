@@ -14,7 +14,9 @@ import {
   repoAt,
   SIDEBAR_DEFAULT_WIDTH,
   SIDEBAR_MIN_WIDTH,
+  splitRepoName,
   STATUS_ORDER,
+  statusCounts,
   statusShort,
   topStatus,
   windowTitle,
@@ -424,4 +426,37 @@ Deno.test('isSidebarToggleShortcut is Cmd+B on a Mac only', () => {
     isSidebarToggleShortcut(key({ metaKey: true }, 'KeyN'), true),
     false,
   );
+});
+
+Deno.test('statusCounts: each status with its count, most urgent first, agents only', () => {
+  assertEquals(
+    statusCounts([
+      { agent: 'claude', agent_status: 'idle' },
+      { agent: 'claude', agent_status: 'working' },
+      { agent: 'pi', agent_status: 'idle' },
+      { agent: 'claude', agent_status: 'nonsense' },
+      {},
+    ]),
+    [
+      { status: 'working', count: 1 },
+      { status: 'unknown', count: 1 },
+      { status: 'idle', count: 2 },
+    ],
+  );
+  assertEquals(statusCounts([{}]), []);
+});
+
+Deno.test('splitRepoName: the parent path apart from the repo own name', () => {
+  assertEquals(splitRepoName('tools/devc-tools'), {
+    prefix: 'tools/',
+    base: 'devc-tools',
+  });
+  assertEquals(splitRepoName('.plans/deephaven-core'), {
+    prefix: '.plans/',
+    base: 'deephaven-core',
+  });
+  assertEquals(splitRepoName('deephaven-core'), {
+    prefix: '',
+    base: 'deephaven-core',
+  });
 });

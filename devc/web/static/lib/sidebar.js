@@ -54,6 +54,31 @@ export function topStatus(panes) {
   };
 }
 
+/**
+ * How many of `panes`' agents have each status, most in need of attention first, statuses no
+ * agent has left out: a container row's summary.
+ *
+ * @returns {{status: string, count: number}[]}
+ */
+export function statusCounts(panes) {
+  const agents = panes.filter((p) => p.agent);
+  return STATUS_ORDER.map((status) => ({
+    status,
+    count: agents.filter((p) => agentStatus(p) === status).length,
+  })).filter((s) => s.count > 0);
+}
+
+/**
+ * A repo's sidebar name (`tools/devc-tools`) as its parent path, shown muted, and its own name
+ * (`tools/`, `devc-tools`); `prefix` is '' for a name with no slash.
+ */
+export function splitRepoName(name) {
+  const i = String(name ?? '').replace(/\/+$/, '').lastIndexOf('/');
+  return i < 0
+    ? { prefix: '', base: String(name ?? '') }
+    : { prefix: name.slice(0, i + 1), base: name.slice(i + 1) };
+}
+
 /** A pane's name: the one it was renamed to, else its title as Herdr reports it, else its folder, else its id. */
 export function paneTitle(pane) {
   return pane?.label || pane?.terminal_title_stripped || basename(pane?.cwd) ||
