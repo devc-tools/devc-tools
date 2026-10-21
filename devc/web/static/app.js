@@ -971,6 +971,7 @@ function loadSidebarState() {
     ),
     pinnedOpen: saved?.pinnedOpen !== false,
     tasksOpen: saved?.tasksOpen !== false,
+    containersOpen: saved?.containersOpen !== false,
     /** Task groups (by `groupTasks` key) that are collapsed; new ones start open. */
     taskGroupsClosed: new Set(
       Array.isArray(saved?.taskGroupsClosed)
@@ -1023,6 +1024,7 @@ function saveSidebarState() {
         containerTab: sidebarState.containerTab,
         pinnedOpen: sidebarState.pinnedOpen,
         tasksOpen: sidebarState.tasksOpen,
+        containersOpen: sidebarState.containersOpen,
         taskGroupsClosed: [...sidebarState.taskGroupsClosed],
         sentOpen: sidebarState.sentOpen,
         width: sidebarState.width,
@@ -1056,6 +1058,12 @@ function selectContainerTab(c, tab) {
 
 function togglePinnedSection() {
   sidebarState.pinnedOpen = !sidebarState.pinnedOpen;
+  saveSidebarState();
+  renderTree();
+}
+
+function toggleContainersSection() {
+  sidebarState.containersOpen = !sidebarState.containersOpen;
   saveSidebarState();
   renderTree();
 }
@@ -1190,10 +1198,10 @@ function chevron() {
 }
 
 /**
- * The sidebar: the Pinned section (pinned files, only while something is pinned), the Tasks
- * section, the Layout section (the Golden Layout tree,
- * single-child levels folded), then Containers (Container → Terminals → terminal, Container →
- * Sessions → recent agent session, Container → Repos → repo → files, and
+ * The sidebar, in two zones. Above: the Tasks section, the Pinned section (pinned files, only
+ * while something is pinned), In use, and the Layout section (the Golden Layout tree,
+ * single-child levels folded). Below: Containers, collapsible as a whole (Container → Terminals →
+ * terminal, Container → Sessions → recent agent session, Container → Repos → repo → files, and
  * Container → Files → the container's own files from `/`).
  * Herdr tabs group nothing here: a pane the Herdr TUI split into a shared tab is just another pane.
  * Every running container is listed, Herdr or not; projects without one are listed last, under a
@@ -1212,16 +1220,16 @@ function renderTree() {
     ? [newEntry.input.selectionStart, newEntry.input.selectionEnd]
     : null;
   const upper = [
+    ...taskRows(),
     ...pinnedFileRows(),
     ...inUseRows(),
-    ...taskRows(),
     ...layoutRows(),
   ];
   const rows = [
     sectionRow(
       'Containers',
-      undefined,
-      undefined,
+      sidebarState.containersOpen,
+      toggleContainersSection,
       rowTrail(
         hoverActions(
           projectStarts ? iconButton('plus', 'Add project…', addProject) : '',
@@ -1237,7 +1245,9 @@ function renderTree() {
   const idle = [...projects.values()].filter((p) =>
     p.container !== 'running' && !containerByFolder(p.localFolder)
   ).sort(byPinThenRecent);
-  if (containers.size === 0 && idle.length === 0) {
+  if (
+    sidebarState.containersOpen && containers.size === 0 && idle.length === 0
+  ) {
     rows.push(
       h(
         'div',
@@ -1246,8 +1256,10 @@ function renderTree() {
       ),
     );
   }
-  for (const c of containers.values()) rows.push(...containerRows(c));
-  if (idle.length > 0) rows.push(...inactiveRows(idle));
+  if (sidebarState.containersOpen) {
+    for (const c of containers.values()) rows.push(...containerRows(c));
+    if (idle.length > 0) rows.push(...inactiveRows(idle));
+  }
   $zoneInUse.replaceChildren(...upper);
   $zoneBrowse.replaceChildren(...rows);
   if ($zoneInUse.parentNode !== $tree) {
@@ -3584,23 +3596,15 @@ async function submitNewNote() {
  * Agents never write to the list.
  */
 function taskRows() {
-  // One row, as In use's groups are: its counts on the right, open or closed.
   const counts = [
     `${tasks.length} open`,
     sentTasks.length ? `${sentTasks.length} sent` : '',
   ].filter((t) => t).join(' · ');
   const rows = [
-    h(
-      'div',
-      {
-        class: 'row tasks-row',
-        style: '--depth: 0',
-        'aria-expanded': String(sidebarState.tasksOpen),
-        onclick: toggleTasksSection,
-        oncontextmenu: (e) =>
-          openMenu(e, [[LABELS.newTask, () => openTaskDialog()]]),
-      },
-      h('span', { class: 'label' }, chevron(), LABELS.tasks),
+    sectionRow(
+      LABELS.tasks,
+      sidebarState.tasksOpen,
+      toggleTasksSection,
       rowTrail(
         h('span', { class: 'section-count' }, counts),
         hoverActions(
@@ -3608,6 +3612,7 @@ function taskRows() {
           iconButton('collapseAll', LABELS.collapseAll, collapseTasks),
         ),
       ),
+      (e) => openMenu(e, [[LABELS.newTask, () => openTaskDialog()]]),
     ),
   ];
   if (!sidebarState.tasksOpen) return rows;

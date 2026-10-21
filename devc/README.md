@@ -293,7 +293,7 @@ is published from any container: the host server finds devcontainers with
   that folder's branch as last read, and `<title>` is the title the terminal's
   program sets (an agent's, as it works), as the tile's tab shows it. Which rows are open is remembered per browser; hover the **Tasks** or
   **Containers** heading for **Collapse all**, which closes every row under it,
-  at every level. Containers without a running Herdr server are grouped under
+  at every level; a click on either heading folds the whole section. Containers without a running Herdr server are grouped under
   **Not running** at the bottom; hover one for its play button,
   **Start Herdr** (`herdr --session devc server`, detached), and **Retry**. The same group
   lists **projects** whose container is stopped or was never created: every
@@ -394,7 +394,7 @@ is published from any container: the host server finds devcontainers with
   Pins are kept in `~/.config/devc/pinned-files.json`, so a browser tab and the
   devc-desktop window show the same ones. They are not pinned projects (a
   project kept in the Containers list) and not a preview tile's **Keep open**.
-- **Tasks:** the **Tasks** section, at the top of the sidebar or under Pinned,
+- **Tasks:** the **Tasks** section, at the top of the sidebar,
   is a to-do list for agents. Its **+** opens a dialog: write the task (the
   first line is its title), optionally choose a project and repo, then **Save**
   it for later or send it straight away with the two icons at the dialog's top,

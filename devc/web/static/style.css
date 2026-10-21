@@ -432,18 +432,6 @@ body.resizing-sidebar {
   font-size: 9px;
 }
 
-/* Tasks: one row in the In use zone, its counts on the right. */
-.row.tasks-row {
-  min-height: 28px;
-  margin-top: 8px;
-  cursor: pointer;
-}
-
-.row.tasks-row:hover {
-  --row-bg: var(--row-hover);
-  background: var(--row-bg);
-}
-
 /* An agent that no tile shows. */
 .tag {
   padding: 0 4px;
