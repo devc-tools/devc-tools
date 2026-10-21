@@ -953,6 +953,8 @@ function loadSidebarState() {
      * old open-by-default `layoutOpen` doesn't carry over.
      */
     layoutOpen: saved?.layoutTreeOpen === true,
+    /** Each container's shown view (by local folder): one of `CONTAINER_TABS`. */
+    containerTab: savedContainerTabs(saved?.containerTab),
     /** In use groups opened or closed against their default (see `inUseGroupRows`). */
     inUseToggled: new Set(
       Array.isArray(saved?.inUseToggled)
@@ -971,6 +973,24 @@ function loadSidebarState() {
     width: Number.isFinite(saved?.width) ? saved.width : SIDEBAR_DEFAULT_WIDTH,
     hidden: saved?.hidden === true,
   };
+}
+
+/** A container's views, one at a time under its row; Terminals until another is chosen. */
+const CONTAINER_TABS = /** @type {const} */ ([
+  'terminals',
+  'sessions',
+  'repos',
+  'files',
+]);
+
+function savedContainerTabs(v) {
+  /** @type {Record<string, string>} */
+  const out = {};
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return out;
+  for (const [folder, tab] of Object.entries(v)) {
+    if (CONTAINER_TABS.includes(/** @type {any} */ (tab))) out[folder] = tab;
+  }
+  return out;
 }
 
 function savedFilesOpen(v) {
@@ -1000,6 +1020,7 @@ function saveSidebarState() {
         rootsOpen: sidebarState.filesOpen,
         layoutTreeOpen: sidebarState.layoutOpen,
         inUseToggled: [...sidebarState.inUseToggled],
+        containerTab: sidebarState.containerTab,
         pinnedOpen: sidebarState.pinnedOpen,
         tasksOpen: sidebarState.tasksOpen,
         taskGroupsClosed: [...sidebarState.taskGroupsClosed],
@@ -1019,30 +1040,16 @@ function toggleContainer(c) {
   renderTree();
 }
 
-/** Opens or closes a container's Terminals row (by its local folder). */
-function toggleTerminals(localFolder) {
-  if (!sidebarState.terminalsClosed.delete(localFolder)) {
-    sidebarState.terminalsClosed.add(localFolder);
-  }
-  saveSidebarState();
-  renderTree();
+/** The view a container shows under its row. */
+function containerTab(c) {
+  return sidebarState.containerTab[c.localFolder] ?? 'terminals';
 }
 
-/** Opens or closes a container's Sessions row; opening lists its sessions again. */
-function toggleSessions(c) {
-  if (!sidebarState.sessionsOpen.delete(c.localFolder)) {
-    sidebarState.sessionsOpen.add(c.localFolder);
-    void loadSessions(c);
-  }
-  saveSidebarState();
-  renderTree();
-}
-
-/** Opens or closes a container's Repos row (by its local folder). */
-function toggleRepos(localFolder) {
-  if (!sidebarState.reposOpen.delete(localFolder)) {
-    sidebarState.reposOpen.add(localFolder);
-  }
+/** Shows container `c`'s view `tab`; Sessions lists its sessions again. */
+function selectContainerTab(c, tab) {
+  if (containerTab(c) === tab) return;
+  sidebarState.containerTab[c.localFolder] = tab;
+  if (tab === 'sessions') void loadSessions(c);
   saveSidebarState();
   renderTree();
 }
@@ -2306,22 +2313,127 @@ function containerRows(c) {
       INACTIVE_STATES.has(c.state)
         ? h('span', { class: 'row-actions' }, stateText, herdrActions(c))
         : rowTrail(
-          c.state !== 'connected'
-            ? stateText
-            // Expanded, each agent's own badge is right below.
-            : collapsed
-            ? rollupBadge(panes)
-            : '',
+          c.state !== 'connected' ? stateText : statusRollup(panes),
           hoverActions(stopButton(c)),
         ),
     ),
   ];
   if (collapsed) return rows;
-  rows.push(...terminalRows(c, workspaces, tabs, panes, only));
-  rows.push(...sessionRows(c));
-  rows.push(...repoRows(c.localFolder));
-  rows.push(...containerFileRows(c));
+  const tab = containerTab(c);
+  const body = tab === 'terminals'
+    ? terminalRows(c, workspaces, tabs, panes, only)
+    : tab === 'sessions'
+    ? sessionRows(c)
+    : tab === 'repos'
+    ? repoRows(c.localFolder)
+    : containerFileRows(c);
+  rows.push(
+    h(
+      'div',
+      { class: 'container-widget' },
+      containerTabStrip(c, tab, {
+        terminals: panes.length,
+        repos: topRepos(shownRepos(c.localFolder)).length,
+      }),
+      h(
+        'div',
+        {
+          class: 'container-panel',
+          role: 'tabpanel',
+          'aria-label': `${CONTAINER_TAB_LABELS[tab]} in ${displayName(c)}`,
+        },
+        ...body,
+      ),
+    ),
+  );
   return rows;
+}
+
+const CONTAINER_TAB_LABELS = {
+  terminals: LABELS.terminals,
+  sessions: LABELS.sessions,
+  repos: 'Repos',
+  files: LABELS.files,
+};
+
+/**
+ * An expanded container's tab strip: Terminals, Sessions, Repos and Files, with counts. A row of
+ * the tree, so Up / Down reach it; Left / Right (Home / End) on it choose the view. Right-click
+ * on Files gives the container root's menu, as its Files row did.
+ */
+function containerTabStrip(c, tab, counts) {
+  const fr = containerRoot(c.localFolder);
+  const buttons = CONTAINER_TABS.map((t) =>
+    h(
+      'button',
+      {
+        type: 'button',
+        role: 'tab',
+        tabindex: '-1',
+        'aria-selected': String(t === tab),
+        onclick: (e) => {
+          e.stopPropagation();
+          selectContainerTab(c, t);
+        },
+        oncontextmenu: t === 'files'
+          ? (e) => openMenu(e, dirMenuItems(fr, ''))
+          : undefined,
+      },
+      CONTAINER_TAB_LABELS[t],
+      counts[t] ? h('span', { class: 'tab-count' }, String(counts[t])) : '',
+    )
+  );
+  return h(
+    'div',
+    {
+      class: 'row container-tabs',
+      role: 'tablist',
+      'aria-label': `Views in ${displayName(c)}`,
+      tabindex: '-1',
+      'data-tree-key': `${c.localFolder}\n\ntabs`,
+      'data-depth': 1,
+      style: '--depth: 1',
+      onkeydown: (e) => {
+        const i = CONTAINER_TABS.indexOf(tab);
+        const n = CONTAINER_TABS.length;
+        const next = e.key === 'ArrowRight'
+          ? (i + 1) % n
+          : e.key === 'ArrowLeft'
+          ? (i + n - 1) % n
+          : e.key === 'Home'
+          ? 0
+          : e.key === 'End'
+          ? n - 1
+          : -1;
+        if (next < 0) return;
+        e.preventDefault();
+        e.stopPropagation();
+        selectContainerTab(c, CONTAINER_TABS[next]);
+      },
+    },
+    ...buttons,
+  );
+}
+
+/**
+ * A container row's agents, a colored dot and count per status (most in need of attention
+ * first), shown whichever view is open. Every agent is in the tooltip.
+ */
+function statusRollup(panes) {
+  const counts = statusCounts(panes);
+  if (counts.length === 0) return '';
+  return h(
+    'span',
+    {
+      class: 'status-rollup',
+      title: panes.filter((p) => p.agent).map((p) =>
+        `${paneTitle(p)}: ${p.agent} ${agentStatus(p)}`
+      ).join('\n'),
+    },
+    ...counts.map(({ status, count }) =>
+      h('span', { class: 'badge', 'data-status': status }, String(count))
+    ),
+  );
 }
 
 /**
@@ -2331,48 +2443,43 @@ function containerRows(c) {
  * API), so they get no rows of their own; with several, a terminal's tooltip names its space.
  */
 function terminalRows(c, workspaces, tabs, panes, only) {
-  const open = !sidebarState.terminalsClosed.has(c.localFolder);
-  const head = treeRow(
-    // No file root is empty, so this never matches a repo's key.
-    `${c.localFolder}\n\nterminals`,
-    1,
-    open,
-    { class: 'terminals', onclick: () => toggleTerminals(c.localFolder) },
-    LABELS.terminals,
-  );
-  head.append(
-    rowTrail(
-      // Open, each agent's own badge is right below.
-      open ? '' : rollupBadge(panes),
-      newTerminalButton(head, {
-        localFolder: c.localFolder,
-        root: c.localFolder,
-      }, ''),
-    ),
-  );
-  const rows = [head];
-  if (!open) return rows;
+  const rows = [];
   const listed = new Set();
   for (const ws of workspaces) {
     const space = only ? '' : ws.label || `space ${ws.number ?? ''}`;
     for (const pane of workspacePanes(ws, tabs, panes)) {
       listed.add(pane.pane_id);
-      rows.push(paneRow(c, pane, 2, space));
+      rows.push(paneRow(c, pane, 1, space));
     }
   }
   // Anything the snapshot didn't place in a workspace's tab still gets a row.
   for (const pane of panes) {
-    if (!listed.has(pane.pane_id)) rows.push(paneRow(c, pane, 2));
+    if (!listed.has(pane.pane_id)) rows.push(paneRow(c, pane, 1));
   }
-  if (rows.length === 1) {
+  if (rows.length === 0) {
     rows.push(
       h(
         'div',
-        { class: 'row tree-note', style: '--depth: 2' },
+        { class: 'row tree-note', style: '--depth: 1' },
         h('span', { class: 'label' }, LABELS.noTerminals),
       ),
     );
   }
+  const fr = { localFolder: c.localFolder, root: c.localFolder };
+  const action = treeRow(
+    `${c.localFolder}\n\nnew-terminal`,
+    1,
+    undefined,
+    {
+      class: 'scope-action',
+      onclick: () => {
+        const r = action.getBoundingClientRect();
+        openMenuAt(r.left + 24, r.bottom + 2, newTerminalMenuItems(fr, ''));
+      },
+    },
+    `＋ ${LABELS.newTerminal} in ${displayName(c)}`,
+  );
+  rows.push(action);
   return rows;
 }
 
@@ -2408,27 +2515,7 @@ async function loadSessions(c) {
  * started in one of its repos, newest first (`list_sessions`). Its refresh button lists again.
  */
 function sessionRows(c) {
-  const open = sidebarState.sessionsOpen.has(c.localFolder);
-  const head = treeRow(
-    `${c.localFolder}\n\nsessions`,
-    1,
-    open,
-    { class: 'sessions', onclick: () => toggleSessions(c) },
-    LABELS.sessions,
-  );
-  head.append(
-    rowTrail(
-      hoverActions(
-        iconButton('refresh', LABELS.refreshSessions, () => {
-          if (!sidebarState.sessionsOpen.has(c.localFolder)) {
-            toggleSessions(c);
-          } else void loadSessions(c);
-        }),
-      ),
-    ),
-  );
-  const rows = [head];
-  if (!open) return rows;
+  const rows = [];
   const listed = sessionLists.get(c.id);
   // Opened before this page listed it (a saved open row): list now.
   if (!listed) void loadSessions(c);
@@ -2437,7 +2524,7 @@ function sessionRows(c) {
       'div',
       {
         class: 'row tree-note',
-        style: '--depth: 2',
+        style: '--depth: 1',
         'data-note': error ? 'error' : undefined,
       },
       h('span', { class: 'label' }, text),
@@ -2449,8 +2536,17 @@ function sessionRows(c) {
   const repos = projectRepos(c.localFolder);
   const now = Date.now();
   for (const s of listed?.error ? [] : listed?.sessions ?? []) {
-    rows.push(sessionRow(c, s, repos.length > 1 ? repos : null, now));
+    rows.push(sessionRow(c, s, repos.length > 1 ? repos : null, now, 1));
   }
+  rows.push(
+    treeRow(
+      `${c.localFolder}\n\nrefresh-sessions`,
+      1,
+      undefined,
+      { class: 'scope-action', onclick: () => void loadSessions(c) },
+      `↻ ${LABELS.refreshSessions}`,
+    ),
+  );
   return rows;
 }
 
@@ -2462,8 +2558,10 @@ function sessionRows(c) {
  */
 function sessionRow(c, s, repos, now, depth = 2) {
   const age = sessionAge(s.updatedAt, now);
+  // Its repo's own name (a worktree's main repo's), as its In use group shows it.
+  const found = repos?.find((r) => r.folder === s.root);
   const repo = repos
-    ? repos.find((r) => r.folder === s.root)?.name ?? basename(s.root)
+    ? found ? repoGroupName(c.localFolder, found).base : basename(s.root)
     : null;
   return h(
     'div',
@@ -2630,14 +2728,10 @@ function projectRepos(localFolder) {
  * with no `gitProblem`) gets none. One whose status can't be read keeps its row, marked `?`.
  */
 function repoRows(localFolder) {
-  const repos = projectRepos(localFolder).filter((r, i) =>
-    i === 0 || r.git !== null || !!r.gitProblem
-  );
+  const repos = shownRepos(localFolder);
   if (repos.length === 0) return [];
-  const folders = new Set(repos.map((r) => r.folder));
-  // A worktree whose repo has no row of its own is listed as a repo.
-  const top = repos.filter((r) => !r.worktreeOf || !folders.has(r.worktreeOf));
-  const repoRow = (r, depth) => {
+  const top = topRepos(repos);
+  const repoRow = (r, depth, nested = false) => {
     const fr = { localFolder, root: r.folder };
     const tree = fileTree(fr);
     const rows = [
@@ -2653,7 +2747,12 @@ function repoRows(localFolder) {
           onclick: () => tree.toggle(''),
           oncontextmenu: (e) => openMenu(e, dirMenuItems(fr, '')),
         },
-        r.name,
+        // A worktree under its repo's row goes by its own name: the row above says whose.
+        ...repoNameParts(
+          nested
+            ? { prefix: '', base: basename(r.folder) }
+            : splitRepoName(r.name),
+        ),
         gitMark(gitSync(r.git, r.gitProblem)),
       ),
     ];
@@ -2661,30 +2760,32 @@ function repoRows(localFolder) {
     if (tree.isOpen('')) {
       for (const w of repos) {
         if (w !== r && w.worktreeOf === r.folder) {
-          rows.push(...repoRow(w, depth + 1));
+          rows.push(...repoRow(w, depth + 1, true));
         }
       }
       rows.push(...rootEntryRows(fr, depth + 1));
     }
     return rows;
   };
-  const open = sidebarState.reposOpen.has(localFolder);
-  const rows = [
-    treeRow(
-      // No file root is empty, so this never matches a repo's key.
-      `${localFolder}\n\nrepos`,
-      1,
-      open,
-      { class: 'repos', onclick: () => toggleRepos(localFolder) },
-      'Repos',
-      // Open, each repo's own marks are right below.
-      open ? '' : gitMark(gitRollup(repos)),
-    ),
-  ];
-  if (open) {
-    for (const r of top) rows.push(...repoRow(r, 2));
-  }
-  return rows;
+  return top.flatMap((r) => repoRow(r, 1));
+}
+
+/** The repos listed at the top of a Repos view: all but the worktrees listed under their repo. */
+function topRepos(repos) {
+  const folders = new Set(repos.map((r) => r.folder));
+  // A worktree whose repo has no row of its own is listed as a repo.
+  return repos.filter((r) => !r.worktreeOf || !folders.has(r.worktreeOf));
+}
+
+/**
+ * A project's repos as its Repos view lists them: the project folder always; a later folder
+ * that turned out to be no repo (`git: null` with no `gitProblem`) not. One whose status can't
+ * be read stays, marked `?`.
+ */
+function shownRepos(localFolder) {
+  return projectRepos(localFolder).filter((r, i) =>
+    i === 0 || r.git !== null || !!r.gitProblem
+  );
 }
 
 /**
@@ -2695,28 +2796,16 @@ function repoRows(localFolder) {
 function containerFileRows(c) {
   const fr = containerRoot(c.localFolder);
   const tree = fileTree(fr);
-  const rows = [
-    treeRow(
-      `${treeId(fr)}\n`,
-      1,
-      tree.isOpen(''),
-      {
-        class: 'files',
-        title: pathTitle(fr, ''),
-        onclick: () => tree.toggle(''),
-        oncontextmenu: (e) => openMenu(e, dirMenuItems(fr, '')),
-      },
-      LABELS.files,
-    ),
-  ];
-  if (!tree.isOpen('')) return rows;
+  // The view is the root's listing: opening the view opens it.
+  if (!tree.isOpen('')) tree.expand('');
+  const rows = [];
   for (const root of containerShortcuts(c)) {
     const sfr = containerRoot(c.localFolder, root);
     const stree = fileTree(sfr);
     rows.push(
       treeRow(
         `${treeId(sfr)}\n`,
-        2,
+        1,
         stree.isOpen(''),
         {
           class: 'files-shortcut',
@@ -2727,9 +2816,9 @@ function containerFileRows(c) {
         root,
       ),
     );
-    if (stree.isOpen('')) rows.push(...rootEntryRows(sfr, 3));
+    if (stree.isOpen('')) rows.push(...rootEntryRows(sfr, 2));
   }
-  rows.push(...rootEntryRows(fr, 2));
+  rows.push(...rootEntryRows(fr, 1));
   return rows;
 }
 

@@ -340,6 +340,98 @@ body.resizing-sidebar {
   color: #8194af;
 }
 
+/* An expanded container's views: a boxed tab strip, then the shown view's rows. */
+.container-widget {
+  margin: 2px 0 8px 12px;
+  border: 1px solid #33435a;
+  border-radius: 5px;
+  background: #151d28;
+  overflow: hidden;
+}
+
+.container-widget .row {
+  --row-bg: #151d28;
+  padding-left: calc(5px + (var(--depth, 0) - 1) * 12px);
+}
+
+.container-panel {
+  padding: 4px 4px 6px;
+}
+
+.row.container-tabs {
+  display: flex;
+  gap: 2px;
+  min-height: 0;
+  margin: 0;
+  padding: 3px;
+  border: 0;
+  border-bottom: 1px solid #2f3e53;
+  border-radius: 0;
+  background: #18212e;
+}
+
+.row.container-tabs:focus {
+  outline: none;
+}
+
+.row.container-tabs:focus-visible {
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+.row.container-tabs button {
+  display: flex;
+  flex: 1;
+  justify-content: center;
+  gap: 4px;
+  padding: 5px 0;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: #8fa5c3;
+  font-size: 10px;
+}
+
+.row.container-tabs button:hover {
+  background: #243349;
+}
+
+.row.container-tabs button[aria-selected='true'] {
+  background: #2d4362;
+  color: #e3eeff;
+  box-shadow: inset 0 -2px #8fb4eb;
+}
+
+.tab-count {
+  font-size: 9px;
+  color: #7d90ab;
+}
+
+.row.container-tabs button[aria-selected='true'] .tab-count {
+  color: #a9c2e4;
+}
+
+/* A repo's row: its own name stands out from its parent path. */
+.row.repo .repo-base {
+  font-weight: 550;
+  color: #d3deec;
+}
+
+/* A view's own action (New terminal, Refresh sessions), in the link color. */
+.row.scope-action {
+  color: #a3c5ee;
+  font-size: 10px;
+}
+
+/* A container row's agents: a dot and count per status. */
+.status-rollup {
+  display: inline-flex;
+  gap: 7px;
+}
+
+.status-rollup .badge {
+  font-size: 9px;
+}
+
 /* An agent that no tile shows. */
 .tag {
   padding: 0 4px;
@@ -358,6 +450,18 @@ body.resizing-sidebar {
   font-size: 10.5px;
   color: #9fb0c7;
   cursor: pointer;
+}
+
+/* Its repo and age give way before its title does. */
+.row.agent-session .row-trail {
+  min-width: 0;
+  max-width: 45%;
+  overflow: hidden;
+}
+
+.row.agent-session .row-trail .pane-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .row.in-use-more {

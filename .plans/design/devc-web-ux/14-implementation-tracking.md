@@ -14,11 +14,11 @@ or protocol change so far. To undo a feature, revert its commit.
 | --- | --- | --- | --- |
 | F1 | Tile headers: label, then repo / ⎇ branch / container muted, status at the right; framed tiles with a focused-tile highlight | done | `e51ebf3` |
 | F2 | Sidebar restyle: the mockup's palette, section headings, row sizes and status badges | done | `ea8f18f` |
-| F3 | "In use" zone: tiles, running panes not in the layout, and recent sessions, grouped by repo / worktree | done | (this commit) |
-| F4 | Two zones: In use above, Containers below, each scrolling on its own | done | (same commit as F3) |
-| F5 | Container tabs: Terminals / Sessions / Repos / Files under each expanded container, remembered per container | pending | |
-| F6 | Container row: per-status agent counts, shown expanded too | pending | |
-| F7 | Repo labels: parent path muted before the bold name (`.plans/` deephaven-core) | pending | |
+| F3 | "In use" zone: tiles, running panes not in the layout, and recent sessions, grouped by repo / worktree | done | `b97dddf` |
+| F4 | Two zones: In use above, Containers below, each scrolling on its own | done | `b97dddf` |
+| F5 | Container tabs: Terminals / Sessions / Repos / Files under each expanded container, remembered per container | done | (this commit) |
+| F6 | Container row: per-status agent counts, shown expanded too | done | (this commit) |
+| F7 | Repo labels: parent path muted before the bold name (`.plans/` deephaven-core) | done | (this commit) |
 | F8 | Tasks as one compact row with counts | pending | |
 
 ## Exceptions
@@ -80,6 +80,28 @@ Each is a place the implementation differs from the mockup on purpose. Say which
 19. **Session rows** show the agent's mark and age; a click resumes, as before. No "resume"
     word on hover.
 20. **The zones split at 56%**: In use takes what it needs up to that, Containers the rest.
+
+### F5 / F6 / F7: container tabs, status counts, repo labels
+
+21. **The tab strip is one stop in the sidebar's keyboard tree**: Up / Down reach it like any
+    row, Left / Right (Home / End) on it switch the view. Not a separate tab stop per tab.
+22. **The views replace the four expanders.** Which view is shown is saved per container
+    (Terminals until another is chosen); the old Terminals / Sessions / Repos open states are
+    still saved but no longer used (left in place for now; cleanup once this is signed off).
+23. **Each view's actions moved into the view**: a "＋ New terminal in <container>" row (the
+    + menu: shell or an agent) and a "↻ Refresh sessions" row. The Terminals row's "New task
+    here" button is gone from there; repo and folder rows still have it.
+24. **Files shows the container's root listing directly.** Right-click on the Files tab gives
+    the root's menu (new file, new folder…), which the Files row had.
+25. **Repos always lists the repos**, even one (it used to show a single repo straight under
+    the container, and several under a Repos row). The mockup's help lines ("Repository roots
+    mounted in …") are left out to save room.
+26. **Tab counts** on Terminals (panes) and Repos (top-level repos); Sessions and Files have
+    none (sessions load on demand, files are a tree).
+27. **The container row's status counts show expanded and collapsed** (one dot and count per
+    status). Its git push / pull summary still shows only collapsed, as before.
+28. **Repo labels:** a worktree listed under its repo shows just its own name; a session row
+    shows its repo's short name (a worktree's main repo), like its In use group.
 
 ## Notes for the review
 
