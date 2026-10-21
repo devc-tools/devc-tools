@@ -20,7 +20,7 @@ or protocol change so far. To undo a feature, revert its commit.
 | F6 | Container row: per-status agent counts, shown expanded too | done | `41447e0` |
 | F7 | Repo labels: parent path muted before the bold name (`.plans/` deephaven-core) | done | `41447e0` |
 | F8 | Tasks as one compact row with counts | done | `951f20a` |
-| F9 | Tasks as a top-level section, first in the upper zone (supersedes F8's placement) | done | `0a09316` |
+| F9 | Tasks as a top-level section in a zone of its own, between In use and Containers, at most a quarter of the sidebar (supersedes F8's placement) | done | `0a09316`, `fa141a0` |
 | F10 | Chevrons drawn, turned when open, centered on the text | done | `4b664c3` |
 | F11 | In use group rows: hover new task and + (shell / agent) at the folder, per running container | done | `df12fd7` |
 | F12 | In use: one group per host folder across containers; each session once | done | `df12fd7` |
