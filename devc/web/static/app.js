@@ -767,6 +767,15 @@ function findPane(containerId, paneId) {
   ) ?? null;
 }
 
+/**
+ * The pane a listed session is running in, while that pane is still there with an agent in it
+ * (`pane_id` is as of the last listing); null otherwise.
+ */
+function sessionPane(c, s) {
+  const pane = s.pane_id ? findPane(c.id, s.pane_id) : null;
+  return pane?.agent ? pane : null;
+}
+
 /** A pane's agent status as a dot and its short word; the agent's name and full status are in the tooltip. */
 function badge(pane) {
   if (!pane?.agent) return '';
@@ -1342,12 +1351,12 @@ function layoutTiles() {
  * What is open now, by the folder (repo or worktree) it is in, whichever containers mount it: per
  * folder, the tiles showing it, then the agents running in it that no tile shows, then its recent
  * agent sessions, newest first, each once (to resume in the folder's own container if it has one,
- * else the first that mounts it). A folder with nothing open but a session
+ * else the first that mounts it), leaving out those running in a pane. A folder with nothing open but a session
  * from the last day gets a group of its own, collapsed. Groups come in layout order. A container
  * with anything in use has its sessions listed the first time.
  */
 function inUseRows() {
-  /** @type {Map<string, {key: string, localFolder: string, folders: Set<string>, repo: any, tiles: {tile: Tile, active: boolean}[], panes: {c: any, pane: any}[], sessions: {c: any, s: any}[], sessionsById: Map<string, {c: any, s: any}>}>} */
+  /** @type {Map<string, {key: string, localFolder: string, folders: Set<string>, repo: any, tiles: {tile: Tile, active: boolean}[], panes: {c: any, pane: any}[], sessions: {c: any, s: any}[], sessionsById: Map<string, {c: any, s: any}>, runningIds: Set<string>}>} */
   const groups = new Map();
   const groupFor = (localFolder, repo) => {
     const key = inUseGroupKey(localFolder, repo);
@@ -1362,6 +1371,7 @@ function inUseRows() {
         panes: [],
         sessions: [],
         sessionsById: new Map(),
+        runningIds: new Set(),
       };
       groups.set(key, g);
     }
@@ -1403,8 +1413,10 @@ function inUseRows() {
       if (groups.has(inUseGroupKey(c.localFolder, repo)) || recent) {
         const g = groupFor(c.localFolder, repo);
         // Agent homes are shared, so every container mounting the folder lists the same
-        // session: keep one, to resume in the folder's own container when it has one.
+        // session: keep one, to resume in the folder's own container when it has one. One
+        // running in a pane is left out: the pane's row stands for it.
         const id = `${s.agent}\n${s.session}`;
+        if (sessionPane(c, s)) g.runningIds.add(id);
         const had = g.sessionsById.get(id);
         if (
           !had || (c.localFolder === s.root && had.c.localFolder !== s.root)
@@ -1415,9 +1427,9 @@ function inUseRows() {
     }
   }
   for (const g of groups.values()) {
-    g.sessions = [...g.sessionsById.values()].sort((a, b) =>
-      Date.parse(b.s.updatedAt) - Date.parse(a.s.updatedAt)
-    );
+    g.sessions = [...g.sessionsById.values()].filter(({ s }) =>
+      !g.runningIds.has(`${s.agent}\n${s.session}`)
+    ).sort((a, b) => Date.parse(b.s.updatedAt) - Date.parse(a.s.updatedAt));
   }
   const counts = [
     tiles.length === 1 ? '1 tile' : `${tiles.length} tiles`,
@@ -1764,6 +1776,9 @@ function layoutTileRow(tile, active, depth, withContainer = false) {
     rowTrail(
       badge(pane),
       hoverActions(
+        c && pane
+          ? iconButton('trash', LABELS.close, () => killPane(c, pane))
+          : '',
         iconButton('close', 'Close tile', () => tiling?.close(tile.id)),
       ),
     ),
@@ -2643,7 +2658,8 @@ function sessionRows(c) {
 
 /**
  * One recent session: its agent's icon, title and age (after its repo's name when the project
- * has several); `withContainer` (In use) ends its label with its container. A click resumes it.
+ * has several), tagged `running` while a pane has it open; `withContainer` (In use) ends its label
+ * with its container. A click resumes it (the server reuses the pane it runs in).
  *
  * @param {import('./lib/sessions.js').AgentSession} s
  */
@@ -2677,6 +2693,7 @@ function sessionRow(c, s, repos, now, depth = 2, withContainer = false) {
       withContainer ? rowContainer(c.localFolder) : '',
     ),
     rowTrail(
+      sessionPane(c, s) ? h('span', { class: 'tag' }, 'running') : '',
       h('span', { class: 'pane-title' }, repo ? `${repo} · ${age}` : age),
     ),
   );
@@ -2716,6 +2733,8 @@ async function resumeSession(c, s) {
   }
   if (typeof result?.pane_id !== 'string') return;
   placePane(c.localFolder, result, placeInFocusedStack);
+  // List again once the agent has had time to start, so the list knows the pane it runs in.
+  if (!result.reused) setTimeout(() => void loadSessions(c), 5000);
 }
 
 /** A container row's Stop button, when its project is known to be running. */

@@ -33,6 +33,18 @@ Deno.test('parseSessions keeps well-formed sessions in order, drops the rest', (
   assertEquals(parseSessions({ sessions: 'no' }), []);
 });
 
+Deno.test('parseSessions keeps a string pane_id, drops any other', () => {
+  assertEquals(
+    parseSessions({
+      sessions: [
+        { ...session, pane_id: 'w1:pG' },
+        { ...session, pane_id: 7 },
+      ],
+    }),
+    [{ ...session, pane_id: 'w1:pG' }, session],
+  );
+});
+
 Deno.test('sessionAge: now, minutes, hours, days', () => {
   const t = Date.parse(session.updatedAt);
   assertEquals(sessionAge(session.updatedAt, t + 30_000), 'now');

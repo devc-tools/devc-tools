@@ -5,11 +5,15 @@ import type { DockerRun } from '../web/container_files.ts';
 import {
   claudeDirPrefix,
   listAgentSessions,
+  markRunning,
   MAX_SESSIONS,
+  parseRunningOutput,
   parseSessionsOutput,
   pickSessions,
   piDirPrefix,
   type RawSession,
+  RUNNING_SCRIPT,
+  runningPane,
   sessionsArgs,
   UNTITLED,
 } from '../web/sessions.ts';
@@ -311,10 +315,15 @@ Deno.test({
           stderr: new TextDecoder().decode(out.stderr),
         };
       };
-      const sessions = await listAgentSessions(info, [
-        { folder: '/host/app', containerFolder: '/workspaces/app' },
-        { folder: '/host/nowhere', containerFolder: null },
-      ], run);
+      const sessions = await listAgentSessions(
+        info,
+        [
+          { folder: '/host/app', containerFolder: '/workspaces/app' },
+          { folder: '/host/nowhere', containerFolder: null },
+        ],
+        'devc',
+        run,
+      );
       assertEquals(
         sessions.map((s) => [s.agent, s.session, s.title, s.cwd, s.root]),
         [
@@ -356,6 +365,7 @@ Deno.test('listAgentSessions runs nothing when no repo is mounted, throws on a f
     await listAgentSessions(
       info,
       [{ folder: '/h', containerFolder: null }],
+      'devc',
       failing,
     ),
     [],
@@ -366,12 +376,116 @@ Deno.test('listAgentSessions runs nothing when no repo is mounted, throws on a f
     await listAgentSessions(
       info,
       [{ folder: '/h', containerFolder: '/w' }],
+      'devc',
       failing,
     );
   } catch (e) {
     message = (e as Error).message;
   }
   assertEquals(message, 'exec failed');
+});
+
+Deno.test('parseRunningOutput reads R lines anywhere and drops malformed ones', () => {
+  const out = [
+    `S claude 5 /h/.claude/projects/-w/${U1}.jsonl`,
+    `R ${U1} devc w1:pG`,
+    `R not-a-uuid devc w1:p2`,
+    `R ${U2} devc w1:p 2`,
+    `R ${U3} other w2:p7`,
+    'R',
+  ].join('\n');
+  assertEquals(parseRunningOutput(out), [
+    { session: U1, herdrSession: 'devc', paneId: 'w1:pG' },
+    { session: U3, herdrSession: 'other', paneId: 'w2:p7' },
+  ]);
+  // The listing ignores them: an R line is no session line of the block before it.
+  assertEquals(
+    parseSessionsOutput(`${out}\nC "cwd":"/w"`).map((s) => s.session),
+    [U1],
+  );
+});
+
+Deno.test('markRunning sets pane_id on Claude sessions running in this Herdr session only', () => {
+  const base = {
+    title: 't',
+    cwd: '/w',
+    root: '/h',
+    updatedAt: '2026-10-21T00:00:00.000Z',
+  };
+  const sessions = [
+    { ...base, agent: 'claude' as const, session: U1 },
+    { ...base, agent: 'claude' as const, session: U2 },
+    { ...base, agent: 'pi' as const, session: U3 },
+  ];
+  assertEquals(
+    markRunning(sessions, [
+      { session: U1, herdrSession: 'devc', paneId: 'w1:pA' },
+      { session: U1, herdrSession: 'devc', paneId: 'w1:pB' },
+      { session: U2, herdrSession: 'other', paneId: 'w1:pC' },
+      { session: U3, herdrSession: 'devc', paneId: 'w1:pD' },
+    ], 'devc'),
+    [{ ...sessions[0], pane_id: 'w1:pA' }, sessions[1], sessions[2]],
+  );
+});
+
+Deno.test({
+  name:
+    'RUNNING_SCRIPT finds a live process by its record, and not a stale record',
+  // `/proc` is Linux's.
+  ignore: Deno.build.os !== 'linux',
+  fn: async () => {
+    const home = await Deno.realPath(await Deno.makeTempDir());
+    const child = new Deno.Command('sleep', {
+      args: ['30'],
+      clearEnv: true,
+      env: { HERDR_PANE_ID: 'w1:p9', HERDR_SESSION: 'devc' },
+      stdout: 'null',
+      stderr: 'null',
+    }).spawn();
+    try {
+      // Through `cat`: Deno's permissions refuse `/proc` reads short of --allow-all.
+      const stat = new TextDecoder().decode(
+        (await new Deno.Command('cat', { args: [`/proc/${child.pid}/stat`] })
+          .output()).stdout,
+      );
+      const procStart = stat.slice(stat.lastIndexOf(') ') + 2).split(' ')[19];
+      await Deno.mkdir(join(home, '.claude/sessions'), { recursive: true });
+      const record = (pid: number, session: string, start: string) =>
+        Deno.writeTextFile(
+          join(home, `.claude/sessions/${pid}.json`),
+          JSON.stringify({ pid, sessionId: session, procStart: start }),
+        );
+      await record(child.pid, U1, procStart);
+      // Same pid, another start: a reused pid's old record.
+      await record(child.pid + 1_000_000, U2, procStart);
+      await Deno.writeTextFile(join(home, '.claude/sessions/x.json'), '{}');
+      const run: DockerRun = async (args) => {
+        const cmd = args.slice(args.indexOf(info.containerId) + 1);
+        const out = await new Deno.Command(cmd[0], {
+          args: cmd.slice(1),
+          clearEnv: true,
+          env: { HOME: home, PATH: Deno.env.get('PATH') ?? '/usr/bin:/bin' },
+          stdout: 'piped',
+          stderr: 'piped',
+        }).output();
+        return {
+          code: out.code,
+          stdout: out.stdout,
+          stderr: new TextDecoder().decode(out.stderr),
+        };
+      };
+      assertEquals(await runningPane(info, U1, 'devc', run), 'w1:p9');
+      assertEquals(await runningPane(info, U1, 'other', run), null);
+      assertEquals(await runningPane(info, U2, 'devc', run), null);
+      await record(child.pid, U3, `${procStart}0`);
+      assertEquals(await runningPane(info, U3, 'devc', run), null);
+      assertEquals(RUNNING_SCRIPT.includes('${'), false);
+    } finally {
+      child.kill();
+      await child.status;
+      await Deno.remove(home, { recursive: true });
+    }
+  },
 });
 
 const parse = (m: Record<string, unknown>) =>

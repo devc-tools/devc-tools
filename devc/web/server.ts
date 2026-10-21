@@ -95,7 +95,11 @@ import {
   withSentPane,
   writeTasks,
 } from './tasks.ts';
-import { type AgentSession, listAgentSessions } from './sessions.ts';
+import {
+  type AgentSession,
+  listAgentSessions,
+  runningPane,
+} from './sessions.ts';
 import { openRedirect } from './browser.ts';
 import { openInVSCode } from './vscode.ts';
 import { revealOnHost } from './reveal.ts';
@@ -1738,8 +1742,8 @@ export async function startWeb(
   /**
    * A container's recent agent sessions (`list_sessions`, see `sessions.ts`), and resuming one
    * of them in a new tab at the folder it started in (`resume_session`): the pane `resume_session`
-   * opened before while it is still in the session, else a new shell running the agent's resume
-   * command. The folder and title come from the container's last listing.
+   * opened before while it is still in the session, else the pane a live agent process has it
+   * open in, else a new shell running the agent's resume command. The folder and title come from the container's last listing.
    */
   const handleAgentSession = async (
     c: Client,
@@ -1758,6 +1762,7 @@ export async function startWeb(
         const listed = await listAgentSessions(
           await connectionOf(session),
           repos,
+          opts.session,
         );
         if (sessions.get(containerId) === session) {
           sessionLists.set(containerId, listed);
@@ -1778,10 +1783,24 @@ export async function startWeb(
     const key = `${containerId}\n${listed.agent}\n${listed.session}`;
     const target = await readyTarget(c, session, msg.id);
     if (target === null) return;
+    // The pane this server resumed it in, else one a live agent process has it open in (started
+    // by hand, or before this server): never a second process on the same session.
+    const panes = snapshotPanes(session.snapshot);
+    const live = listed.agent === 'claude'
+      ? await runningPane(
+        await connectionOf(session),
+        listed.session,
+        opts.session,
+      )
+      : null;
     const reused = reusablePinnedPane(
       resumedPanes.get(key),
       containerId,
-      snapshotPanes(session.snapshot),
+      panes,
+    ) ?? reusablePinnedPane(
+      live === null ? undefined : { containerId, paneId: live },
+      containerId,
+      panes,
     );
     if (reused !== null) {
       reply(c, { id: msg.id, ok: true, result: { ...reused, reused: true } });

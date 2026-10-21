@@ -3,13 +3,15 @@
 
 /**
  * @typedef {{agent: 'claude' | 'copilot' | 'pi', session: string, title: string, cwd: string,
- *   root: string, updatedAt: string}} AgentSession
+ *   root: string, updatedAt: string, pane_id?: string}} AgentSession  `pane_id`: the Herdr pane
+ *   a live agent process has it open in
  */
 
 const AGENTS = new Set(['claude', 'copilot', 'pi']);
 
 /**
- * `list_sessions`' result as sessions, in its order; anything malformed is dropped.
+ * `list_sessions`' result as sessions, in its order; anything malformed is dropped, and a
+ * `pane_id` that is no string.
  *
  * @param {unknown} result
  * @returns {AgentSession[]}
@@ -22,7 +24,11 @@ export function parseSessions(result) {
     ['session', 'title', 'cwd', 'root', 'updatedAt'].every((k) =>
       typeof s[k] === 'string'
     )
-  );
+  ).map((s) => {
+    if (s.pane_id === undefined || typeof s.pane_id === 'string') return s;
+    const { pane_id: _, ...rest } = s;
+    return rest;
+  });
 }
 
 /**

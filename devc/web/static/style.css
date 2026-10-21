@@ -479,6 +479,10 @@ body.resizing-sidebar {
   text-overflow: ellipsis;
 }
 
+.row.agent-session .row-trail .tag {
+  flex: none;
+}
+
 .row.in-use-more {
   min-height: 22px;
   padding-left: calc(25px + var(--depth, 0) * 12px);
