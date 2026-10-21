@@ -1558,8 +1558,9 @@ function layoutTiles() {
  * folder, the tiles showing it, then the agents running in it that no tile shows, then its recent
  * agent sessions, newest first, each once (to resume in the folder's own container if it has one,
  * else the first that mounts it), leaving out those running in a pane. A folder with nothing open but a session
- * from the last day gets a group of its own, collapsed. Groups come in layout order. A container
- * with anything in use has its sessions listed the first time.
+ * from the last day gets a group of its own, collapsed. Groups come in layout order, except that
+ * those of one container sit together in a card under its name (a group several containers run in, with its
+ * first). A container with anything in use has its sessions listed the first time.
  */
 function inUseRows() {
   /** @type {Map<string, {key: string, localFolder: string, folders: Set<string>, repo: any, tiles: {tile: Tile, active: boolean}[], panes: {c: any, pane: any}[], sessions: {c: any, s: any}[], sessionsById: Map<string, {c: any, s: any}>, runningIds: Set<string>}>} */
@@ -1663,7 +1664,34 @@ function inUseRows() {
       ),
     );
   }
-  for (const g of groups.values()) rows.push(inUseGroupCard(g, now));
+  // By container, each where its first group was; a sort is stable, so layout order stays inside.
+  const ranks = new Map();
+  const containerOf = (g) => inUseRunIn(g)[0] ?? g.localFolder;
+  for (const g of groups.values()) {
+    if (!ranks.has(containerOf(g))) ranks.set(containerOf(g), ranks.size);
+  }
+  const ordered = [...groups.values()].sort((a, b) =>
+    ranks.get(containerOf(a)) - ranks.get(containerOf(b))
+  );
+  // Each container's groups in a card of its own, under its name.
+  let run = null;
+  let card = null;
+  for (const g of ordered) {
+    if (containerOf(g) !== run) {
+      run = containerOf(g);
+      card = h(
+        'div',
+        { class: 'in-use-run' },
+        h(
+          'div',
+          { class: 'in-use-run-name' },
+          h('span', { class: 'label' }, containerNameOf(run)),
+        ),
+      );
+      rows.push(card);
+    }
+    card.append(inUseGroupCard(g, now));
+  }
   return rows;
 }
 
@@ -1715,14 +1743,30 @@ function rowContainer(localFolder) {
   return h('span', { class: 'row-container' }, containerNameOf(localFolder));
 }
 
+/** An In use group's tiles, then its agents not in the layout, each with its container's folder. */
+function inUseLive(g) {
+  return [
+    ...g.tiles.map((t) => ({ folder: tileRepo(t.tile).localFolder, t })),
+    ...g.panes.map((p) => ({ folder: p.c.localFolder, p })),
+  ];
+}
+
+/** The containers (by folder) something in an In use group runs in, in the order its rows come. */
+function inUseRunIn(g) {
+  return [...new Set(inUseLive(g).map((r) => r.folder))];
+}
+
 /**
- * An In use group, as a card that never folds: its folder's row (parent path muted, name, branch;
- * the same parts on every group, no container), its tiles and the agents running in it outside
- * the layout, each ending with its container, then its past sessions while its row's history
- * button (or a click on the row) shows them.
+ * An In use group, as a card that never folds: its folder's row (parent path muted, name, branch),
+ * its tiles and the agents running in it outside the layout, then its past sessions while its
+ * row's history button (or a click on the row) shows them. Its container's card names its
+ * container; when several run something in it, a label per container inside it does, each with
+ * its tiles (in layout order) then its agents.
  */
 function inUseGroupCard(g, now) {
   const sessionsOnly = g.tiles.length === 0 && g.panes.length === 0;
+  const live = inUseLive(g);
+  const runIn = inUseRunIn(g);
   const shown = inUseSessionsOpen.has(g.key);
   const toggleSessions = () => {
     if (!inUseSessionsOpen.delete(g.key)) inUseSessionsOpen.add(g.key);
@@ -1788,10 +1832,24 @@ function inUseGroupCard(g, now) {
   }
   if (actions) head.append(rowTrail(actions));
   const rows = [head];
-  for (const { tile, active } of g.tiles) {
-    rows.push(layoutTileRow(tile, active, 1, true));
+  for (const folder of runIn) {
+    if (runIn.length > 1) {
+      rows.push(
+        h(
+          'div',
+          { class: 'row in-use-container', style: '--depth: 1' },
+          h('span', { class: 'label' }, containerNameOf(folder)),
+        ),
+      );
+    }
+    for (const { t, p } of live.filter((r) => r.folder === folder)) {
+      rows.push(
+        t
+          ? layoutTileRow(t.tile, t.active, 1, true)
+          : inUsePaneRow(p.c, p.pane),
+      );
+    }
   }
-  for (const { c, pane } of g.panes) rows.push(inUsePaneRow(c, pane));
   if (shown) {
     for (const { c, s } of g.sessions) {
       rows.push(sessionRow(c, s, null, now, 1, true));
@@ -1845,7 +1903,8 @@ function inUseGroupActions(row, g) {
 
 /**
  * An agent running outside the layout, in its In use group: a click opens it as a terminal row's
- * does (in the focused stack's preview tile; Ctrl/Cmd-click, a new tile).
+ * does (in the focused stack's preview tile; Ctrl/Cmd-click, a new tile). Its card names its
+ * container.
  */
 function inUsePaneRow(c, pane) {
   const rec = { c, pane };
@@ -1871,7 +1930,6 @@ function inUsePaneRow(c, pane) {
       { class: 'label' },
       rowIcon({ agent: pane.agent }),
       inUseLabel(paneLabel(pane)),
-      rowContainer(c.localFolder),
     ),
     // Its white icon says no tile shows it (a tile's is the accent color), as in Terminals.
     rowTrail(badge(pane)),
@@ -1965,7 +2023,11 @@ function tileRowClass(tile, active) {
   ].filter((s) => s).join(' ');
 }
 
-function layoutTileRow(tile, active, depth, withContainer = false) {
+/**
+ * A tile's row. `inUse` is an In use card's: it says what it is doing and has its pane's Open in
+ * Code; the card names its folder and container.
+ */
+function layoutTileRow(tile, active, depth, inUse = false) {
   if (tile.kind === 'file') return layoutFileTileRow(tile, active, depth);
   if (tile.kind === 'diff') return layoutDiffTileRow(tile, active, depth);
   const { c, pane } = resolveRef(tile.ref);
@@ -1983,7 +2045,7 @@ function layoutTileRow(tile, active, depth, withContainer = false) {
       onclick: () => revealTile(tile.id),
       oncontextmenu: (e) =>
         openMenu(e, [
-          ...(withContainer && c && pane ? paneCodeItems(c, pane) : []),
+          ...(inUse && c && pane ? paneCodeItems(c, pane) : []),
           ...tileMenuItems(tile),
         ]),
     },
@@ -1991,9 +2053,8 @@ function layoutTileRow(tile, active, depth, withContainer = false) {
       'span',
       { class: 'label' },
       rowIcon({ agent: pane?.agent, empty: !tile.ref }),
-      // In use: what it is doing, then its container; its group names the folder.
-      ...(withContainer && tile.ref
-        ? [inUseLabel(refLabel(tile.ref)), rowContainer(tile.ref.localFolder)]
+      ...(inUse && tile.ref
+        ? [inUseLabel(refLabel(tile.ref))]
         : labelParts(refLabel(tile.ref))),
     ),
     rowTrail(

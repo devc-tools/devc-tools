@@ -444,12 +444,51 @@ body.resizing-zones {
   color: #7d93b3;
 }
 
-/* The container a row inside an In use group is in: its label's last part, so the first cut. */
+/* The container an In use session row is in: its label's last part, so the first cut. */
 .row-container {
   margin-left: 6px;
   font-size: calc(var(--font-size) - 1.5px);
   font-weight: 400;
   color: #6d7f98;
+}
+
+/* In use: a card per container holding its folders' cards, its name centered on top. */
+.in-use-run {
+  margin: 6px 4px 10px;
+  padding: 0 5px 5px;
+  border: 1px solid #2a3648;
+  border-radius: 7px;
+  background: #11161e;
+}
+
+.in-use-run > .in-use-card {
+  margin: 0 0 5px;
+}
+
+.in-use-run > .in-use-card:last-child {
+  margin-bottom: 0;
+}
+
+.in-use-run-name {
+  display: flex;
+  justify-content: center;
+  padding: 5px 6px 4px;
+  font-size: calc(var(--font-size) - 1.5px);
+  color: #7d8fa8;
+  white-space: nowrap;
+}
+
+.in-use-run-name .label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* A card's label for the container its rows under it run in, when several do: text only. */
+.in-use-card .row.in-use-container {
+  min-height: 20px;
+  font-size: calc(var(--font-size) - 1.5px);
+  color: #6d7f98;
+  cursor: default;
 }
 
 .section-count {
