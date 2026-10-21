@@ -1,19 +1,26 @@
 :root {
-  --bg: #0d0f14;
-  --panel: #161922;
-  --panel-2: #1d212c;
-  --border: #2a2f3c;
-  --text: #d7dae0;
-  --muted: #8a90a0;
-  --accent: #6aa7ff;
+  /* The UX mockup's slate palette (.plans/design/devc-web-ux/13-starting-mockup). */
+  --bg: #0e1218;
+  --panel: #181e27;
+  --panel-2: #222c3a;
+  --border: #303a49;
+  --text: #cbd5e3;
+  --muted: #8598b4;
+  --accent: #83aff0;
   --term-bg: #11131a;
-  --idle: #7d8597;
-  --working: #4fb3ff;
-  --blocked: #ffb347;
-  --done: #5fd38d;
-  --unknown: #a07cff;
-  --danger: #ff6b6b;
-  --sidebar-width: 280px;
+  --idle: #9aa9bd;
+  --working: #8dbcf9;
+  --blocked: #e9b87e;
+  --done: #8bd6ae;
+  --unknown: #b59cf0;
+  --danger: #ff7b7b;
+  /* Sidebar rows: the focused tile's (and a hovered one's), and section headings. */
+  --row-hover: #253042;
+  --row-current: #2a3c55;
+  --row-current-line: #5b81b3;
+  --section: #9caac0;
+  --sidebar-head: #1b222d;
+  --sidebar-width: 350px;
   /* Tiles (Golden Layout): frame, header and the context after a tile's label. */
   --tile-border: #354459;
   --tile-focus: #83aff0;
@@ -139,7 +146,9 @@ button:hover {
 .sidebar-resizer {
   grid-row: 1;
   grid-column: 2;
-  background: var(--border);
+  /* The sidebar's 1px edge; the rest is the gap before the tiles' margin. */
+  background: var(--bg);
+  box-shadow: inset 1px 0 0 #344151;
   cursor: col-resize;
   touch-action: none;
 }
@@ -154,24 +163,38 @@ body.resizing-sidebar {
   user-select: none;
 }
 
-/* As tall as a tile header, with room on the left for the corner toggle. */
+/*
+ * Level with the tile headers' bottom edge (the tiles' 5px margin plus a 29px header), with room
+ * on the left for the corner toggle.
+ */
 .sidebar-header {
   display: flex;
   align-items: center;
-  gap: 8px;
-  height: 20px;
-  padding: 0 10px 0 28px;
+  gap: 9px;
+  height: 34px;
+  padding: 0 12px 0 30px;
   border-bottom: 1px solid var(--border);
+  background: var(--sidebar-head);
 }
 
 .brand {
-  font-weight: 600;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: -0.3px;
+}
+
+.brand::first-letter {
+  color: #a5c6b9;
 }
 
 .conn {
   margin-left: auto;
-  font-size: 11px;
+  font-size: 10px;
   color: var(--muted);
+}
+
+.conn::before {
+  content: '● ';
 }
 
 /* An SVG rather than a « / » glyph: a glyph sits wherever its font puts it, not centered. */
@@ -208,10 +231,21 @@ body.resizing-sidebar {
   top: 0;
   left: 0;
   z-index: 5;
-  width: 22px;
-  height: 20px;
+  width: 26px;
+  height: 34px;
   padding: 0;
-  border-radius: 0 0 4px 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+/* Hidden, it sits in the top-left tile's header, inside the tile's frame. */
+.app[data-sidebar='hidden'] > .sidebar-corner {
+  top: 6px;
+  left: 6px;
+  width: 22px;
+  height: 27px;
+  border-radius: 4px 0 0 0;
 }
 
 .app[data-sidebar='hidden'] > .sidebar-corner .icon-hide,
@@ -233,7 +267,10 @@ body.resizing-sidebar {
 
 .tree {
   overflow: auto;
-  padding: 6px 0;
+  padding: 2px 10px 12px;
+  font-size: 11px;
+  scrollbar-width: thin;
+  scrollbar-color: #46566e transparent;
 }
 
 .row {
@@ -244,7 +281,10 @@ body.resizing-sidebar {
   grid-template-columns: 1fr auto;
   align-items: center;
   gap: 6px;
-  padding: 3px 10px 3px calc(10px + var(--depth, 0) * 14px);
+  min-height: 27px;
+  padding: 0 7px 0 calc(6px + var(--depth, 0) * 12px);
+  border: 1px solid transparent;
+  border-radius: 4px;
   white-space: nowrap;
   cursor: default;
   user-select: none;
@@ -257,24 +297,41 @@ body.resizing-sidebar {
 
 .row.container,
 .row.group {
-  font-weight: 600;
-  margin-top: 4px;
+  min-height: 30px;
+  font-weight: 550;
+  margin-top: 2px;
   cursor: pointer;
 }
 
+.row.container[aria-expanded='true'] {
+  --row-bg: #212c3b;
+  background: var(--row-bg);
+  color: #dfebfb;
+}
+
 .row.group {
-  margin-top: 12px;
+  margin-top: 10px;
+  border-top-color: transparent;
   color: var(--muted);
 }
 
 /* "Layout" and "Projects" headings. */
 .row.section {
-  margin-top: 10px;
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.06em;
+  min-height: 26px;
+  margin-top: 9px;
+  padding-left: 3px;
+  font-size: 9px;
+  font-weight: 650;
+  letter-spacing: 1.2px;
   text-transform: uppercase;
-  color: var(--muted);
+  color: var(--section);
+}
+
+.row.section .row-trail {
+  font-size: 10px;
+  font-weight: 400;
+  letter-spacing: 0;
+  text-transform: none;
 }
 
 .row.section:first-child {
@@ -593,9 +650,10 @@ body.resizing-sidebar {
 
 /* The focused tile's rows, and the other section's rows for a hovered pane. */
 .row[data-current] {
-  --row-bg: color-mix(in srgb, var(--accent) 10%, var(--panel));
-  box-shadow: inset 2px 0 0 var(--accent);
+  --row-bg: var(--row-current);
+  border-color: var(--row-current-line);
   background: var(--row-bg);
+  color: #e5eefb;
 }
 
 .row.linked {
@@ -634,24 +692,27 @@ body.resizing-sidebar {
 .row.container:hover,
 .row.group:hover,
 .row.pane:hover,
-.row.layout-node:hover {
-  --row-bg: var(--panel-2);
+.row.layout-node:hover,
+.row.tree-row:hover,
+.row.agent-session:hover {
+  --row-bg: var(--row-hover);
   background: var(--row-bg);
 }
 
 .chevron {
   display: inline-block;
   width: 14px;
-  color: var(--muted);
+  color: #7e92af;
   font-weight: 400;
+  font-size: 12px;
 }
 
 .chevron::before {
-  content: '▾';
+  content: '⌄';
 }
 
 [aria-expanded='false'] > .label > .chevron::before {
-  content: '▸';
+  content: '›';
 }
 
 /* Containers under "Not running": the state and its buttons on the one row. */
@@ -734,7 +795,7 @@ body.resizing-sidebar {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 400;
   /* Monospace, so every four-letter status (statusShort) is the same width. */
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
@@ -744,8 +805,8 @@ body.resizing-sidebar {
 
 .badge::before {
   content: '';
-  width: 7px;
-  height: 7px;
+  width: 5px;
+  height: 5px;
   border-radius: 50%;
   background: currentColor;
 }
@@ -1072,16 +1133,6 @@ body.resizing-sidebar {
   color: var(--tile-container-focus);
 }
 
-/* The status in a tab: smaller than the sidebar's, the dot too. */
-.lm_header .lm_tab .badge {
-  font-size: 10px;
-}
-
-.lm_header .lm_tab .badge::before {
-  width: 5px;
-  height: 5px;
-}
-
 /*
  * Among several tabs, a tab shows its label and status only: the context would widen the front
  * tab until Golden Layout moved the others to its dropdown.
@@ -1365,7 +1416,7 @@ body:is(.lm_dragging, .resizing-sidebar) .media-view iframe {
 
 .row.tree-row:hover,
 .row.project:hover {
-  --row-bg: var(--panel-2);
+  --row-bg: var(--row-hover);
   background: var(--row-bg);
 }
 

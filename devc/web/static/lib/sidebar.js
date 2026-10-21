@@ -229,7 +229,7 @@ export function gitRollup(repos) {
 
 /** Sidebar bounds in CSS px. */
 export const SIDEBAR_MIN_WIDTH = 160;
-export const SIDEBAR_DEFAULT_WIDTH = 280;
+export const SIDEBAR_DEFAULT_WIDTH = 350;
 
 /**
  * Clamps a sidebar width to [SIDEBAR_MIN_WIDTH, max(SIDEBAR_MIN_WIDTH, 60% of the viewport)].
