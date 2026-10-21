@@ -355,8 +355,9 @@ export const BRIDGE_DEFAULT_ALLOW_KEY = 'bridgeDefaultAllow';
 
 /**
  * Validate `bridgeDefaultAllow` as read raw from the global config: an array of capability names,
- * each trimmed, every one known — `gh` and `gh-*` refused, since a default re-expanded on every
- * `up` would grant a later release's capabilities silently — and each requirement present;
+ * each trimmed, every one known — `gh` and `gh-*` expanded to every `gh-` capability, as on the
+ * flag; re-expanded on every `up`, so a later release's capabilities are granted at the next one
+ * — and each requirement present;
  * returned deduplicated in canonical order. Absent, `null` or `[]` → null (no default). Throws
  * the bare `<reason>`; the caller names the file and key.
  */
@@ -380,9 +381,10 @@ function defaultGrantList(raw: unknown): BridgeCapability[] {
   for (const entry of raw as string[]) {
     const n = entry.trim();
     if (BRIDGE_ALLOW_ALL_GH.includes(n)) {
-      throw new Error(
-        `${JSON.stringify(n)} is not allowed here — list each capability`,
-      );
+      for (const c of BRIDGE_CAPABILITIES) {
+        if (c.startsWith('gh-')) wanted.add(c);
+      }
+      continue;
     }
     if (!isBridgeCapability(n)) {
       throw new Error(

@@ -476,6 +476,29 @@ Deno.test('bridgeDefaultAllow: canonical, trimmed, deduplicated; absent, null or
   );
 });
 
+Deno.test('gh and gh-* in the config defaults expand to every gh- capability, as on the flag', () => {
+  const all = [
+    'gh-push',
+    'gh-pr-read',
+    'gh-pr-reply',
+    'gh-pr-viewed',
+    'gh-pr-resolve',
+    'gh-pr-resolve-copilot',
+    'gh-pr-request-review',
+  ];
+  assertEquals(parseBridgeDefaultAllow(['gh']), all);
+  assertEquals(parseBridgeDefaultAllow([' gh-* ', 'gh-push']), all);
+  assertEquals(parseBridgeRepoAllow({ '/a;/b': ['gh-*'] }), [
+    { key: '/a', path: '/a', grants: all },
+    { key: '/b', path: '/b', grants: all },
+  ]);
+  // Other patterns are still unknown names.
+  for (const n of ['*', 'gh-pr-*', 'GH']) {
+    const e = assertThrows(() => parseBridgeDefaultAllow([n]));
+    assertStringIncludes((e as Error).message, `unknown capability ${n}`);
+  }
+});
+
 Deno.test('bridgeDefaultAllow refuses bad values with each documented reason', () => {
   const cases: [unknown, string][] = [
     ['gh-pr-read', 'must be an array of capability names'],
@@ -483,11 +506,6 @@ Deno.test('bridgeDefaultAllow refuses bad values with each documented reason', (
     [7, 'must be an array of capability names'],
     [['gh-pr-read', 7], 'must be an array of capability names'],
     [['gh-pr-read', null], 'must be an array of capability names'],
-    [['gh'], '"gh" is not allowed here — list each capability'],
-    [
-      ['gh-push', ' gh-* '],
-      '"gh-*" is not allowed here — list each capability',
-    ],
     [
       ['gh-pr-nope'],
       'unknown capability gh-pr-nope — valid: gh-push, gh-pr-read, gh-pr-reply, gh-pr-viewed, gh-pr-resolve, gh-pr-resolve-copilot, gh-pr-request-review',
@@ -595,11 +613,6 @@ Deno.test('bridgeRepoAllow refuses bad values with each documented reason', () =
     [
       { '/a': ['gh-pr-nope'] },
       '/a: unknown capability gh-pr-nope — valid: gh-push, gh-pr-read, gh-pr-reply, gh-pr-viewed, gh-pr-resolve, gh-pr-resolve-copilot, gh-pr-request-review',
-    ],
-    [{ '/a': ['gh'] }, '/a: "gh" is not allowed here — list each capability'],
-    [
-      { '/a': ['gh-*'] },
-      '/a: "gh-*" is not allowed here — list each capability',
     ],
     [
       { '/a': ['gh-pr-review'] },
@@ -860,7 +873,7 @@ Deno.test('CLI: --bridge-allow and --bridge-repo are refused by every attach-fam
     // A config.jsonc wins over config.json, and the message names it.
     await Deno.writeTextFile(
       `${home}/.config/devc/config.jsonc`,
-      '{\n  // defaults\n  "bridgeDefaultAllow": ["gh"],\n}\n',
+      '{\n  // defaults\n  "bridgeDefaultAllow": ["gh-nope"],\n}\n',
     );
     const jsonc = await cliIn(home, 'up', '/nonexistent');
     assertEquals(jsonc.code, 2, jsonc.stderr);
@@ -870,7 +883,7 @@ Deno.test('CLI: --bridge-allow and --bridge-repo are refused by every attach-fam
     );
     assertStringIncludes(
       jsonc.stderr,
-      'devc: ~/.config/devc/config.jsonc: bridgeDefaultAllow: "gh" is not allowed here — list each capability',
+      'devc: ~/.config/devc/config.jsonc: bridgeDefaultAllow: unknown capability gh-nope',
     );
     // Only a config.jsonc: the same message, and no ignored notice.
     await Deno.remove(`${home}/.config/devc/config.json`);
@@ -878,7 +891,7 @@ Deno.test('CLI: --bridge-allow and --bridge-repo are refused by every attach-fam
     assertEquals(only.code, 2, only.stderr);
     assertStringIncludes(
       only.stderr,
-      'devc: ~/.config/devc/config.jsonc: bridgeDefaultAllow: "gh" is not allowed here — list each capability',
+      'devc: ~/.config/devc/config.jsonc: bridgeDefaultAllow: unknown capability gh-nope',
     );
     assert(!only.stderr.includes('is ignored'), only.stderr);
   } finally {

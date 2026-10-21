@@ -1681,10 +1681,12 @@ TUI — still only re-checks an existing policy and never creates one.
   `~/.config/devc/.claude`, `shell/` and `git-identity/`), and only `devc config`
   writes it — keeping it verbatim. **devc web never writes it**, and must not:
   an agent can drive devc web's page.
-- **Explicit names only.** `gh` and `gh-*` are refused here: a default
-  re-expanded on every `up` would grant a later release's capabilities
-  silently. Entries are trimmed, duplicates dropped, and the list put in
-  canonical order; absent, `null` or `[]` is no default.
+- **`gh` and `gh-*` mean all of them**, as on the flag, here and in
+  `bridgeRepoAllow`. Unlike the flag, the config is expanded again on **every**
+  `up`, so a `gh-*` capability a later release adds is granted at the next `up`
+  without your editing anything. List names instead to keep a fixed set.
+  Entries are trimmed, duplicates dropped, and the list put in canonical order;
+  absent, `null` or `[]` is no default.
 - **Any capability can be a default — your call.** A write capability in it
   (`gh-push`, `gh-pr-reply`, `gh-pr-viewed`, `gh-pr-resolve`,
   `gh-pr-resolve-copilot`, `gh-pr-request-review`) is granted to **every** container you `devc up`,
@@ -1693,8 +1695,7 @@ TUI — still only re-checks an existing policy and never creates one.
   to show a PR.
 - **It never fails the start for a repo's preconditions.** A value that is not
   valid exits 2 before anything starts, as `devc: ~/.config/devc/config.jsonc:
-  bridgeDefaultAllow: <reason>` (naming the file in use) (`must be an array of capability names`, `"gh"
-  is not allowed here — list each capability`, `unknown capability <name> —
+  bridgeDefaultAllow: <reason>` (naming the file in use) (`must be an array of capability names`, `unknown capability <name> —
   valid: …`, `gh-pr-review was split — grant gh-pr-read,gh-pr-reply instead`,
   or `<cap> requires <needed>`). A repo that cannot be pinned — no GitHub
   origin, a detached `HEAD`, protection not in force — is skipped with
