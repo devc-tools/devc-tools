@@ -45,6 +45,8 @@ const COMPONENT_TYPES = /** @type {const} */ (['pane', 'file']);
  * @property {(title: string, muted?: string) => void} setTitle  `muted` follows the title, muted
  * @property {(text: string) => void} setTooltip  the tab's tooltip (default: the title)
  * @property {(el: Node | null) => void} setBadge     agent badge shown in the tile's tab
+ * @property {(el: Node | null) => void} setContext   where the tile is (repo, branch, container),
+ *   after its title in the tab
  * @property {() => void} focus
  */
 
@@ -70,10 +72,17 @@ const SETTINGS = {
   showCloseIcon: true,
 };
 const HEADER = { popout: false };
+/** A tile header's height in px, whatever a saved layout says (style.css lays the header out for it). */
+const HEADER_HEIGHT = 29;
 
 /** An empty layout carrying our settings. */
 function emptyConfig() {
-  return { settings: SETTINGS, header: HEADER, root: undefined };
+  return {
+    settings: SETTINGS,
+    header: HEADER,
+    dimensions: { headerHeight: HEADER_HEIGHT },
+    root: undefined,
+  };
 }
 
 let nextTileId = 0;
@@ -93,6 +102,8 @@ export function createTiling(root, hooks) {
   const byContainer = new Map();
   /** @type {Map<Tile, Node | null>} each tile's badge, re-applied when its tab is rebuilt */
   const badges = new Map();
+  /** @type {Map<Tile, Node | null>} */
+  const contexts = new Map();
   /** @type {Map<Tile, string>} each tile's tooltip, re-applied the same way */
   const tooltips = new Map();
   /** @type {Map<Tile, {title: string, muted: string}>} titles with a muted part, the same way */
@@ -117,7 +128,7 @@ export function createTiling(root, hooks) {
   };
 
   /**
-   * Puts `tile`'s badge, tooltip, muted title part and preview styling into its current tab
+   * Puts `tile`'s context, badge, tooltip, muted title part and preview styling into its current tab
    * element (tabs are recreated on moves, and a title change resets the tooltip).
    */
   const applyBadge = (container, tile) => {
@@ -126,23 +137,32 @@ export function createTiling(root, hooks) {
     // app.js finds the tile a tab's × closes by it.
     tab.element.dataset.tile = tile.id;
     tab.element.classList.toggle('tile-preview', tile.preview);
-    // Golden Layout writes the title as plain text; this puts its muted part in its own span.
+    // Golden Layout writes the title as plain text, muted part and all: the title element keeps
+    // the label, and after it come the context, the muted part (the first to give way when the
+    // tab is short of room) and the badge.
     const split = splitTitles.get(tile);
-    if (split) {
-      const muted = document.createElement('span');
-      muted.className = 'tile-title-muted';
-      muted.textContent = split.muted;
-      tab.titleElement.replaceChildren(split.title, muted);
-    }
+    if (split) tab.titleElement.textContent = split.title;
+    for (
+      const old of tab.element.querySelectorAll(
+        ':scope > :is(.tile-context, .tile-title-muted, .tile-badge)',
+      )
+    ) old.remove();
     const tooltip = tooltips.get(tile);
     if (tooltip !== undefined) tab.element.title = tooltip;
-    tab.element.querySelector('.tile-badge')?.remove();
+    /** @type {HTMLElement} */
+    let last = tab.titleElement;
+    const place = (className, content) => {
+      const el = document.createElement('span');
+      el.className = className;
+      el.append(content);
+      last.after(el);
+      last = el;
+    };
+    const context = contexts.get(tile);
+    if (context) place('tile-context', context);
+    if (split) place('tile-title-muted', split.muted);
     const badge = badges.get(tile);
-    if (!badge) return;
-    const slot = document.createElement('span');
-    slot.className = 'tile-badge';
-    slot.append(badge);
-    tab.titleElement.after(slot);
+    if (badge) place('tile-badge', badge);
   };
 
   for (const type of COMPONENT_TYPES) {
@@ -186,6 +206,14 @@ export function createTiling(root, hooks) {
           badges.set(tile, el);
           applyBadge(container, tile);
         },
+        setContext(el) {
+          const changed = contexts.get(tile)?.textContent !== el?.textContent;
+          contexts.set(tile, el);
+          applyBadge(container, tile);
+          // A new context widens or narrows the tab: Golden Layout measured it without, and
+          // would otherwise leave a sibling tab in its dropdown until the next resize.
+          if (changed) container.parent?.parentItem?.header?.updateTabSizes();
+        },
         focus() {
           container.focus();
         },
@@ -198,6 +226,7 @@ export function createTiling(root, hooks) {
         byContainer.delete(container);
         containerById.delete(tile.id);
         badges.delete(tile);
+        contexts.delete(tile);
         tooltips.delete(tile);
         splitTitles.delete(tile);
         hooks.unmount(tile);
@@ -465,6 +494,10 @@ export function createTiling(root, hooks) {
           .../** @type {object} */ (saved),
           settings: SETTINGS,
           header: HEADER,
+          dimensions: {
+            .../** @type {any} */ (saved)?.dimensions,
+            headerHeight: HEADER_HEIGHT,
+          },
         });
         return true;
       } catch {

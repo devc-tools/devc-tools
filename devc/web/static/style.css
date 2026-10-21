@@ -14,6 +14,20 @@
   --unknown: #a07cff;
   --danger: #ff6b6b;
   --sidebar-width: 280px;
+  /* Tiles (Golden Layout): frame, header and the context after a tile's label. */
+  --tile-border: #354459;
+  --tile-focus: #83aff0;
+  --tile-focus-glow: #83aff028;
+  --tile-head: #1d2734;
+  --tile-head-focus: #2c405f;
+  --tile-head-line: #344155;
+  --tile-tab-front: #26364c;
+  --tile-label: #e0eaf7;
+  --tile-repo: #b3c6e0;
+  --tile-branch: #93a9c8;
+  --tile-branch-mark: #7d93b3;
+  --tile-container: #62748d;
+  --tile-container-focus: #7b8fac;
   font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
   font-size: 13px;
   color-scheme: dark;
@@ -612,6 +626,7 @@ body.resizing-sidebar {
 
 /* Golden Layout switches and drags a tab only from the tab or its title element itself. */
 .lm_header .lm_tab .tile-title-muted,
+.lm_header .lm_tab .tile-context,
 .lm_header .lm_tab .tile-badge {
   pointer-events: none;
 }
@@ -761,9 +776,10 @@ body.resizing-sidebar {
   min-height: 0;
 }
 
+/* A margin round the tiles, as wide as the gaps between them (Golden Layout's borderWidth). */
 .layout-root {
   position: absolute;
-  inset: 0;
+  inset: 5px;
 }
 
 .tiles-placeholder {
@@ -783,31 +799,110 @@ body.resizing-sidebar {
   background: var(--bg);
 }
 
+/*
+ * A tile is a framed, rounded box: its header and body share one border, drawn over both (so it
+ * takes no room from either), accent-colored on the focused tile. Isolated, so nothing in the
+ * terminal can paint over the frame.
+ */
+.lm_stack {
+  border-radius: 5px;
+  overflow: hidden;
+  isolation: isolate;
+}
+
+.lm_stack::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border: 1px solid var(--tile-border);
+  border-radius: 5px;
+  pointer-events: none;
+  z-index: 10;
+}
+
+.lm_stack:has(.lm_tab.lm_focused)::after {
+  border-color: var(--tile-focus);
+  box-shadow: inset 0 0 0 2px var(--tile-focus-glow);
+}
+
 .lm_content {
   background: var(--term-bg);
-  border: 1px solid var(--border);
+  border: 0;
 }
 
 /*
  * The tabs and the controls share one row, so a long title stops at the controls instead of
  * running under them. Golden Layout moves tabs that don't fit to its dropdown but never shrinks
- * the active one, so only that tab may shrink (its title truncates).
+ * the active one, so only that tab may shrink (its title truncates). The header's height is
+ * `HEADER_HEIGHT` in layout.js; its bottom line is a shadow so it takes no height.
  */
 .lm_header {
   display: flex;
-  background: var(--panel);
+  align-items: stretch;
+  background: var(--tile-head);
+  box-shadow: inset 0 -1px 0 var(--tile-head-line);
+}
+
+.lm_stack:has(.lm_tab.lm_focused) > .lm_header {
+  background: var(--tile-head-focus);
 }
 
 .lm_header .lm_tabs {
   position: static;
   flex: 1 1 auto;
   min-width: 0;
+  height: calc(100% - 1px);
 }
 
 .lm_header .lm_controls {
   position: static;
   flex: none;
-  margin-right: 3px;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-right: 5px;
+}
+
+.lm_header .lm_controls > * {
+  width: 18px;
+  height: 18px;
+  opacity: 0.75;
+  background-size: 12px;
+}
+
+/* The mockup's ⤢ and × in place of Golden Layout's bitmaps: glyphs, so they take its color. */
+.lm_header .lm_controls > *,
+.lm_header .lm_tab .lm_close_tab {
+  display: grid;
+  place-items: center;
+  background-image: none;
+  color: #a0b3ce;
+  font-size: 13px;
+  line-height: 1;
+}
+
+.lm_header .lm_controls .lm_maximise::before {
+  content: '⤢';
+}
+
+.lm_maximised .lm_header .lm_controls .lm_maximise::before {
+  content: '⤡';
+}
+
+.lm_header .lm_controls .lm_close::before,
+.lm_header .lm_tab .lm_close_tab::before {
+  content: '×';
+  font-size: 15px;
+}
+
+.lm_header .lm_tab .lm_close_tab {
+  width: 14px;
+  height: 14px;
+  opacity: 0.75;
+}
+
+.lm_header .lm_controls > *:hover {
+  opacity: 1;
 }
 
 .lm_header .lm_tabs .lm_tab {
@@ -822,21 +917,40 @@ body.resizing-sidebar {
 .lm_header .lm_tab {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
+  height: 100%;
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0 26px 0 9px;
   font-family: inherit;
-  font-size: 12px;
+  font-size: 11px;
   color: var(--muted);
-  background: var(--panel-2);
+  background: transparent;
   box-shadow: none;
 }
 
-.lm_header .lm_tab.lm_active {
-  color: var(--text);
-  background: var(--term-bg);
+.lm_header .lm_tab.lm_active,
+.lm_header .lm_tab.lm_active.lm_focused {
+  color: var(--tile-label);
+  background: transparent;
+  box-shadow: none;
 }
 
-.lm_header .lm_tab.lm_active.lm_focused {
-  box-shadow: inset 0 -2px 0 var(--accent);
+/* Among several tabs, the front one stands out, and the focused one is underlined. */
+.lm_header .lm_tabs:has(.lm_tab + .lm_tab) .lm_tab.lm_active,
+.lm_header:has(.lm_tabdropdown_list .lm_tab) .lm_tab.lm_active {
+  background: var(--tile-tab-front);
+}
+
+.lm_header .lm_tabs:has(.lm_tab + .lm_tab) .lm_tab.lm_active.lm_focused,
+.lm_header:has(.lm_tabdropdown_list .lm_tab) .lm_tab.lm_active.lm_focused {
+  box-shadow: inset 0 -2px 0 var(--tile-focus);
+}
+
+.lm_header .lm_tab .lm_close_tab {
+  top: 50%;
+  right: 8px;
+  transform: translateY(-50%);
 }
 
 /* One line, cut with an ellipsis: the tab is a flex row, so min-width lets the title shrink. */
@@ -845,6 +959,7 @@ body.resizing-sidebar {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  font-weight: 600;
 }
 
 /* A preview tile's tab: italic until it is pinned (double-click, typing, dragging, Keep open). */
@@ -852,8 +967,160 @@ body.resizing-sidebar {
   font-style: italic;
 }
 
+/*
+ * After the label (bold, the last to give way) and its context comes the agent's or command's
+ * title, regular, which gives way first.
+ */
+.lm_header .lm_tab .lm_title {
+  flex: 0 0 auto;
+  max-width: 60%;
+}
+
+.lm_header .lm_tab .tile-title-muted {
+  flex: 0 1000 auto;
+  min-width: 0;
+  margin-left: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-weight: 400;
+}
+
+/* Where the tile is: repo, branch, then container, quieter still. It gives way first when short of room. */
+.lm_header .lm_tab .tile-context {
+  display: flex;
+  min-width: 0;
+  flex: 0 0 auto;
+  max-width: 45%;
+}
+
+.lm_header .lm_tab .tile-context > span {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.lm_header .lm_tab .tile-context span span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/*
+ * Short of room, the container goes first, then the branch, then the repo: whole, at header
+ * widths, rather than squeezed to an ellipsis.
+ */
+.lm_header {
+  container-type: inline-size;
+}
+
+@container (max-width: 560px) {
+  .lm_tab .tile-container {
+    display: none;
+  }
+}
+
+@container (max-width: 440px) {
+  .lm_tab .tile-branch {
+    display: none;
+  }
+}
+
+@container (max-width: 320px) {
+  .lm_tab .tile-context {
+    display: none;
+  }
+}
+
+.lm_header .lm_tab .tile-repo {
+  flex-shrink: 1;
+}
+
+.lm_header .lm_tab .tile-branch {
+  flex-shrink: 10;
+}
+
+.lm_header .lm_tab .tile-container {
+  flex-shrink: 100;
+}
+
+.lm_header .lm_tab .tile-repo {
+  font-size: 10px;
+  color: var(--tile-repo);
+}
+
+.lm_header .lm_tab .tile-branch {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 9.5px;
+  color: var(--tile-branch);
+}
+
+.lm_header .lm_tab .tile-branch::before {
+  content: '⎇ ';
+  color: var(--tile-branch-mark);
+}
+
+.lm_header .lm_tab .tile-container {
+  font-size: 9px;
+  color: var(--tile-container);
+}
+
+.lm_stack:has(.lm_tab.lm_focused) .lm_tab .tile-container {
+  color: var(--tile-container-focus);
+}
+
+/* The status in a tab: smaller than the sidebar's, the dot too. */
+.lm_header .lm_tab .badge {
+  font-size: 10px;
+}
+
+.lm_header .lm_tab .badge::before {
+  width: 5px;
+  height: 5px;
+}
+
+/*
+ * Among several tabs, a tab shows its label and status only: the context would widen the front
+ * tab until Golden Layout moved the others to its dropdown.
+ */
+.lm_header .lm_tabs:has(.lm_tab + .lm_tab) .tile-context,
+.lm_header:has(.lm_tabdropdown_list .lm_tab) .tile-context {
+  display: none;
+}
+
+/*
+ * A stack's only tab fills its header, so the status sits at the right, by the controls, and
+ * the tab's own × stands in for the stack's (which skips the unsaved-file check), last in the
+ * row: placed against the header rather than the tab, past the maximise button.
+ */
+.lm_header:not(:has(.lm_tabdropdown_list .lm_tab)) .lm_tab:only-child {
+  flex: 1 1 auto;
+  position: static;
+  padding-right: 4px;
+}
+
+.lm_header:not(:has(.lm_tabdropdown_list .lm_tab)) .lm_tab:only-child .lm_close_tab {
+  right: 9px;
+}
+
+.lm_header:not(:has(.lm_tabdropdown_list .lm_tab)):has(.lm_tab:only-child) .lm_controls {
+  margin-right: 28px;
+}
+
+.lm_header:not(:has(.lm_tabdropdown_list .lm_tab)) .lm_tab:only-child .tile-badge {
+  margin-left: auto;
+}
+
+.lm_header:not(:has(.lm_tabdropdown_list .lm_tab)):has(.lm_tab:only-child) .lm_controls .lm_close {
+  display: none;
+}
+
+/* The gaps between tiles show the background; a splitter lights up only to drag. */
 .lm_splitter {
-  background: var(--border);
+  background: transparent;
   opacity: 1;
 }
 

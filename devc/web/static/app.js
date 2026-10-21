@@ -6036,13 +6036,33 @@ function renderTileTitles() {
     if (!ref) {
       view.tile.setTitle('empty');
       view.tile.setBadge(null);
+      view.tile.setContext(null);
       continue;
     }
     const { name, title } = refLabel(ref);
     view.tile.setTitle(name, title);
     view.tile.setTooltip(refTooltip(ref).join('\n'));
     view.tile.setBadge(badge(resolveRef(ref).pane) || null);
+    view.tile.setContext(tileContext(view.tile, name));
   }
+}
+
+/**
+ * Where a pane tile is, after its label in the tab: its repo (left out when the label already
+ * says it), the repo's branch, then its container, muted. Null until its container is known.
+ */
+function tileContext(tile, name) {
+  const { c } = resolveRef(tile.ref);
+  if (!c) return null;
+  const container = displayName(c);
+  const { label, branch } = activeRepo(tile);
+  const parts = [];
+  if (label && label !== container && label !== name) {
+    parts.push(h('span', { class: 'tile-repo' }, label));
+  }
+  if (branch) parts.push(h('span', { class: 'tile-branch' }, branch));
+  parts.push(h('span', { class: 'tile-container' }, container));
+  return h('span', {}, ...parts);
 }
 
 /** Shown over the tiling area while it has no tiles. */
