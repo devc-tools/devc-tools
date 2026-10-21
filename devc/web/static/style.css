@@ -452,13 +452,47 @@ body.resizing-zones {
   color: #6d7f98;
 }
 
-/* In use: a card per container holding its folders' cards, its name centered on top. */
-.in-use-run {
+/* In use: a card per container holding its folders' cards, its name centered on top. Containers
+   draws each container, and Not running, as the same card. */
+.in-use-run,
+.container-card {
+  --box-bg: #1f2836;
   margin: 6px 4px 10px;
   padding: 0 5px 5px;
   border: 1px solid #36465d;
   border-radius: 7px;
-  background: #1f2836;
+  background: var(--box-bg);
+}
+
+/* Containers: a folded card is just its own row; its row's click folds it, so hovering lights it. */
+.container-card {
+  margin: 6px 4px;
+}
+
+.container-card:not(.open) {
+  padding-bottom: 0;
+}
+
+.container-card:has(> .row.container:hover, > .row.group:hover) {
+  --box-bg: var(--row-hover);
+}
+
+.container-card > .row {
+  --row-bg: var(--box-bg);
+}
+
+.container-card > .row.container,
+.container-card > .row.group,
+.container-card > .row.container:hover,
+.container-card > .row.group:hover,
+.container-card > .row.container[aria-expanded='true'] {
+  margin-top: 0;
+  padding-left: 1px;
+  background: transparent;
+}
+
+.container-card > .container-widget {
+  margin: 0;
 }
 
 .in-use-run > .in-use-card {

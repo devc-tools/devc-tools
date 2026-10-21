@@ -2646,7 +2646,7 @@ function containerRows(c) {
         ),
     ),
   ];
-  if (collapsed) return rows;
+  if (collapsed) return [containerCard(rows, false)];
   const tab = containerTab(c);
   const body = tab === 'terminals'
     ? terminalRows(c, workspaces, tabs, panes, only)
@@ -2674,7 +2674,16 @@ function containerRows(c) {
       ),
     ),
   );
-  return rows;
+  return [containerCard(rows, true)];
+}
+
+/** A container's rows (or Not running's) as a card, as In use's: its own row on top, then the rest. */
+function containerCard(rows, open) {
+  return h(
+    'div',
+    { class: open ? 'container-card open' : 'container-card' },
+    ...rows,
+  );
 }
 
 const CONTAINER_TAB_LABELS = {
@@ -3021,7 +3030,7 @@ function inactiveRows(idle) {
       ),
     ),
   ];
-  if (!sidebarState.inactiveOpen) return rows;
+  if (!sidebarState.inactiveOpen) return [containerCard(rows, false)];
   for (const p of idle) {
     rows.push(projectRow(p));
     if (sidebarState.projectsOpen.has(p.localFolder)) {
@@ -3032,7 +3041,7 @@ function inactiveRows(idle) {
       rows.push(...rootEntryRows(fr, 2));
     }
   }
-  return rows;
+  return [containerCard(rows, true)];
 }
 
 // ---------------------------------------------------------------------------------------------
