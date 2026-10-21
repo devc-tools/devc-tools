@@ -245,10 +245,10 @@ body.resizing-sidebar {
   background: transparent;
 }
 
-/* Hidden, it sits in the top-left tile's header, inside the tile's frame. */
+/* Hidden, it sits in the top-left tile's header, inside the tile's 1px frame. */
 .app[data-sidebar='hidden'] > .sidebar-corner {
-  top: 6px;
-  left: 6px;
+  top: calc(var(--tile-gap) + 1px);
+  left: calc(var(--tile-gap) + 1px);
   width: 22px;
   height: 27px;
   border-radius: 4px 0 0 0;
@@ -1123,11 +1123,15 @@ body.resizing-zones {
   min-height: 0;
 }
 
-/* A margin round the tiles, half the gap between them: with the sidebar resizer's 5px, the
-   sidebar sits a tile gap from the tiles. */
+/* A margin round the tiles as wide as the gaps between them; on the left, less the sidebar
+   resizer's 5px, so the sidebar too sits a tile gap from the tiles. */
 .layout-root {
   position: absolute;
-  inset: calc(var(--tile-gap) / 2);
+  inset: var(--tile-gap) var(--tile-gap) var(--tile-gap) calc(var(--tile-gap) - 5px);
+}
+
+.app[data-sidebar='hidden'] .layout-root {
+  left: var(--tile-gap);
 }
 
 .tiles-placeholder {
