@@ -19,7 +19,7 @@ or protocol change so far. To undo a feature, revert its commit.
 | F5 | Container tabs: Terminals / Sessions / Repos / Files under each expanded container, remembered per container | done | `41447e0` |
 | F6 | Container row: per-status agent counts, shown expanded too | done | `41447e0` |
 | F7 | Repo labels: parent path muted before the bold name (`.plans/` deephaven-core) | done | `41447e0` |
-| F8 | Tasks as one compact row with counts | done | (this commit) |
+| F8 | Tasks as one compact row with counts | done | `951f20a` |
 
 ## Exceptions
 
