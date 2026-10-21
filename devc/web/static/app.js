@@ -37,6 +37,7 @@ import {
   containerLabel,
   gitRollup,
   gitSync,
+  inUseGroupKey,
   isSidebarToggleShortcut,
   labelText,
   paneLabel,
@@ -1265,6 +1266,7 @@ function renderTree() {
   if ($zoneInUse.parentNode !== $tree) {
     $tree.replaceChildren($zoneInUse, $zoneBrowse);
   }
+  $tree.classList.toggle('containers-closed', !sidebarState.containersOpen);
   [$zoneInUse.scrollTop, $zoneBrowse.scrollTop] = scroll;
   const created = selectTreeKey === null
     ? null
@@ -1337,21 +1339,33 @@ function layoutTiles() {
 }
 
 /**
- * What is open now, by the repo (or worktree) it is in: per repo, the tiles showing it, then the
- * agents running in it that no tile shows, then its recent agent sessions. A repo with nothing
- * open but a session from the last day gets a group of its own, collapsed. Groups come in layout
- * order. A container with anything in use has its sessions listed the first time.
+ * What is open now, by the folder (repo or worktree) it is in, whichever containers mount it: per
+ * folder, the tiles showing it, then the agents running in it that no tile shows, then its recent
+ * agent sessions, newest first, each once (to resume in the folder's own container if it has one,
+ * else the first that mounts it). A folder with nothing open but a session
+ * from the last day gets a group of its own, collapsed. Groups come in layout order. A container
+ * with anything in use has its sessions listed the first time.
  */
 function inUseRows() {
-  /** @type {Map<string, {key: string, localFolder: string, repo: any, tiles: {tile: Tile, active: boolean}[], panes: {c: any, pane: any}[], sessions: any[]}>} */
+  /** @type {Map<string, {key: string, localFolder: string, folders: Set<string>, repo: any, tiles: {tile: Tile, active: boolean}[], panes: {c: any, pane: any}[], sessions: {c: any, s: any}[], sessionsById: Map<string, {c: any, s: any}>}>} */
   const groups = new Map();
   const groupFor = (localFolder, repo) => {
-    const key = `${localFolder}\n${repo?.folder ?? ''}`;
+    const key = inUseGroupKey(localFolder, repo);
     let g = groups.get(key);
     if (!g) {
-      g = { key, localFolder, repo, tiles: [], panes: [], sessions: [] };
+      g = {
+        key,
+        localFolder,
+        folders: new Set(),
+        repo,
+        tiles: [],
+        panes: [],
+        sessions: [],
+        sessionsById: new Map(),
+      };
       groups.set(key, g);
     }
+    g.folders.add(localFolder);
     return g;
   };
   const tiles = layoutTiles();
@@ -1377,7 +1391,7 @@ function inUseRows() {
     if (c.state !== 'connected') continue;
     const listed = sessionLists.get(c.id);
     if (!listed) {
-      if ([...groups.values()].some((g) => g.localFolder === c.localFolder)) {
+      if ([...groups.values()].some((g) => g.folders.has(c.localFolder))) {
         void loadSessions(c);
       }
       continue;
@@ -1385,12 +1399,25 @@ function inUseRows() {
     const repos = projectRepos(c.localFolder);
     for (const s of listed.error ? [] : listed.sessions) {
       const repo = repos.find((r) => r.folder === s.root) ?? null;
-      const key = `${c.localFolder}\n${repo?.folder ?? ''}`;
       const recent = now - Date.parse(s.updatedAt) < IN_USE_SESSION_MS;
-      if (groups.has(key) || recent) {
-        groupFor(c.localFolder, repo).sessions.push(s);
+      if (groups.has(inUseGroupKey(c.localFolder, repo)) || recent) {
+        const g = groupFor(c.localFolder, repo);
+        // Agent homes are shared, so every container mounting the folder lists the same
+        // session: keep one, to resume in the folder's own container when it has one.
+        const id = `${s.agent}\n${s.session}`;
+        const had = g.sessionsById.get(id);
+        if (
+          !had || (c.localFolder === s.root && had.c.localFolder !== s.root)
+        ) {
+          g.sessionsById.set(id, { c, s });
+        }
       }
     }
+  }
+  for (const g of groups.values()) {
+    g.sessions = [...g.sessionsById.values()].sort((a, b) =>
+      Date.parse(b.s.updatedAt) - Date.parse(a.s.updatedAt)
+    );
   }
   const counts = [
     tiles.length === 1 ? '1 tile' : `${tiles.length} tiles`,
@@ -1455,19 +1482,28 @@ function repoNameParts({ prefix, base }) {
   ];
 }
 
+/** A container's name as rows show it, running or not. */
+function containerNameOf(localFolder) {
+  const c = containerByFolder(localFolder);
+  if (c) return displayName(c);
+  const project = projects.get(localFolder);
+  return project
+    ? containerLabel(project, projects.values())
+    : basename(localFolder);
+}
+
+/** A row's container, muted, as the last part of its label: the first to give way. */
+function rowContainer(localFolder) {
+  return h('span', { class: 'row-container' }, containerNameOf(localFolder));
+}
+
 /**
- * An In use group: its repo's row (parent path muted, name, branch; the container at the right),
- * then while open its tiles, the agents running in it outside the layout, and its newest
- * session (the rest behind "N more"). Open by default unless it has only sessions.
+ * An In use group: its folder's row (parent path muted, name, branch; the same parts on every
+ * group, no container), then while open its tiles, the agents running in it outside the layout,
+ * and its newest session (the rest behind "N more"), each ending with its container. Open by
+ * default unless it has only sessions.
  */
 function inUseGroupRows(g, now) {
-  const c = containerByFolder(g.localFolder);
-  const project = projects.get(g.localFolder);
-  const containerName = c
-    ? displayName(c)
-    : project
-    ? containerLabel(project, projects.values())
-    : basename(g.localFolder);
   const sessionsOnly = g.tiles.length === 0 && g.panes.length === 0;
   const open = sidebarState.inUseToggled.has(g.key)
     ? sessionsOnly
@@ -1487,32 +1523,29 @@ function inUseGroupRows(g, now) {
     {
       class: 'in-use-group',
       title: [
-        containerName,
         g.repo?.containerFolder ?? g.repo?.folder ?? g.localFolder,
         branch ? `Branch: ${branch}` : '',
+        `In: ${[...g.folders].map(containerNameOf).join(', ')}`,
       ].filter((t) => t).join('\n'),
       onclick: toggle,
     },
     ...(g.repo
       ? repoNameParts(repoGroupName(g.localFolder, g.repo))
-      : [h('span', { class: 'repo-base' }, containerName)]),
+      : [h('span', { class: 'repo-base' }, containerNameOf(g.localFolder))]),
     branch ? h('span', { class: 'repo-branch' }, branch) : '',
   );
-  head.append(
-    rowTrail(
-      g.repo ? h('span', { class: 'repo-container' }, containerName) : '',
-    ),
-  );
+  const actions = inUseGroupActions(head, g);
+  if (actions) head.append(rowTrail(actions));
   const rows = [head];
   if (!open) return rows;
   for (const { tile, active } of g.tiles) {
-    rows.push(layoutTileRow(tile, active, 1));
+    rows.push(layoutTileRow(tile, active, 1, true));
   }
-  for (const { c: pc, pane } of g.panes) rows.push(inUsePaneRow(pc, pane));
-  if (c && g.sessions.length > 0) {
+  for (const { c, pane } of g.panes) rows.push(inUsePaneRow(c, pane));
+  if (g.sessions.length > 0) {
     const all = inUseSessionsOpen.has(g.key);
-    for (const s of all ? g.sessions : g.sessions.slice(0, 1)) {
-      rows.push(sessionRow(c, s, null, now, 1));
+    for (const { c, s } of all ? g.sessions : g.sessions.slice(0, 1)) {
+      rows.push(sessionRow(c, s, null, now, 1, true));
     }
     const more = g.sessions.length - 1;
     if (more > 0) {
@@ -1544,6 +1577,49 @@ function inUseGroupRows(g, now) {
 }
 
 /**
+ * An In use group's hover buttons: a new task and the + menu (a shell or an agent) at its folder,
+ * as a repo row's (see {@link newTerminalButton}), in each running container that mounts it. With
+ * several, each menu has a block per container, its items naming it. Null when none runs.
+ */
+function inUseGroupActions(row, g) {
+  const targets = [...g.folders].filter((f) => containerByFolder(f)).map(
+    (localFolder) => ({
+      fr: { localFolder, root: g.repo ? g.repo.folder : localFolder },
+      name: containerNameOf(localFolder),
+    }),
+  );
+  if (targets.length === 0) return null;
+  if (targets.length === 1) return newTerminalButton(row, targets[0].fr, '');
+  /** @param {(t: (typeof targets)[number]) => MenuItem[]} items */
+  const menu = (items) => () => {
+    // Under the row's right end, as newTerminalButton's.
+    const r = row.getBoundingClientRect();
+    openMenuAt(
+      r.right - 20,
+      r.bottom + 2,
+      targets.flatMap((t) => [
+        null,
+        ...items(t).map((item) =>
+          item && [`${item[0]} · ${t.name}`, ...item.slice(1)]
+        ),
+      ]),
+    );
+  };
+  return hoverActions(
+    iconButton(
+      'task',
+      LABELS.newTaskHere,
+      menu((t) => [[LABELS.newTask, () => newTaskIn(t.fr)]]),
+    ),
+    iconButton(
+      'plus',
+      LABELS.newTerminal,
+      menu((t) => newTerminalMenuItems(t.fr, '')),
+    ),
+  );
+}
+
+/**
  * An agent running outside the layout, in its In use group: a click opens it as a terminal row's
  * does (in the focused stack's preview tile; Ctrl/Cmd-click, a new tile).
  */
@@ -1559,6 +1635,7 @@ function inUsePaneRow(c, pane) {
         paneTitle(pane),
         pane.foreground_cwd || pane.cwd || '',
         `${pane.agent}: ${agentStatus(pane)}`,
+        displayName(c),
         'Not in the layout: click to open it',
       ].filter((t) => t).join('\n'),
       onclick: (e) => onPaneClick(rec, e),
@@ -1569,6 +1646,7 @@ function inUsePaneRow(c, pane) {
       { class: 'label' },
       rowIcon({ agent: pane.agent }),
       ...labelParts(paneLabel(pane)),
+      rowContainer(c.localFolder),
     ),
     rowTrail(h('span', { class: 'tag' }, 'not in layout'), badge(pane)),
   );
@@ -1659,7 +1737,7 @@ function tileRowClass(tile, active) {
   ].filter((s) => s).join(' ');
 }
 
-function layoutTileRow(tile, active, depth) {
+function layoutTileRow(tile, active, depth, withContainer = false) {
   if (tile.kind === 'file') return layoutFileTileRow(tile, active, depth);
   const { c, pane } = resolveRef(tile.ref);
   return h(
@@ -1681,6 +1759,7 @@ function layoutTileRow(tile, active, depth) {
       { class: 'label' },
       rowIcon({ agent: pane?.agent, empty: !tile.ref }),
       ...labelParts(refLabel(tile.ref)),
+      withContainer && tile.ref ? rowContainer(tile.ref.localFolder) : '',
     ),
     rowTrail(
       badge(pane),
@@ -2564,11 +2643,11 @@ function sessionRows(c) {
 
 /**
  * One recent session: its agent's icon, title and age (after its repo's name when the project
- * has several). A click resumes it.
+ * has several); `withContainer` (In use) ends its label with its container. A click resumes it.
  *
  * @param {import('./lib/sessions.js').AgentSession} s
  */
-function sessionRow(c, s, repos, now, depth = 2) {
+function sessionRow(c, s, repos, now, depth = 2, withContainer = false) {
   const age = sessionAge(s.updatedAt, now);
   // Its repo's own name (a worktree's main repo's), as its In use group shows it.
   const found = repos?.find((r) => r.folder === s.root);
@@ -2590,7 +2669,13 @@ function sessionRow(c, s, repos, now, depth = 2) {
         ]),
     },
     // In the slot a chevron would take, as a terminal's and a Sent task's.
-    h('span', { class: 'label' }, rowIcon({ agent: s.agent }), s.title),
+    h(
+      'span',
+      { class: 'label' },
+      rowIcon({ agent: s.agent }),
+      s.title,
+      withContainer ? rowContainer(c.localFolder) : '',
+    ),
     rowTrail(
       h('span', { class: 'pane-title' }, repo ? `${repo} · ${age}` : age),
     ),

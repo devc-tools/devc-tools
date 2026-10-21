@@ -113,6 +113,15 @@ export function repoAt(repos, path) {
 }
 
 /**
+ * The In use group of something in container `localFolder` and in `repo` (null outside every
+ * repo): one group per host folder, so a folder several containers mount is one group; outside
+ * every repo, one per container.
+ */
+export function inUseGroupKey(localFolder, repo) {
+  return repo ? `repo\n${repo.folder}` : `container\n${localFolder}`;
+}
+
+/**
  * A container's name in the sidebar and tile headers, `all` being every container listed.
  * Containers sharing a name (two `feature1` worktrees, say) get their parent folder appended,
  * and the full folder when even that is shared.

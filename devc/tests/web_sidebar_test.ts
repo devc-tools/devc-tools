@@ -7,6 +7,7 @@ import {
   containerLabel,
   gitRollup,
   gitSync,
+  inUseGroupKey,
   isSidebarToggleShortcut,
   labelText,
   paneLabel,
@@ -459,4 +460,23 @@ Deno.test('splitRepoName: the parent path apart from the repo own name', () => {
     prefix: '',
     base: 'deephaven-core',
   });
+});
+
+Deno.test('inUseGroupKey: one group per folder whichever container mounts it', () => {
+  const worktree = { folder: '/src/app.worktrees/fix' };
+  assertEquals(
+    inUseGroupKey('/src/app.worktrees/fix', worktree),
+    inUseGroupKey('/src/code-wksp', worktree),
+  );
+  assertEquals(
+    inUseGroupKey('/src/code-wksp', { folder: '/src/app' }) ===
+      inUseGroupKey('/src/code-wksp', worktree),
+    false,
+  );
+  // Outside every repo: one group per container.
+  assertEquals(
+    inUseGroupKey('/src/a', null) === inUseGroupKey('/src/b', null),
+    false,
+  );
+  assertEquals(inUseGroupKey('/src/a', null), inUseGroupKey('/src/a', null));
 });
