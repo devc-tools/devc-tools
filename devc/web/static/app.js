@@ -1814,7 +1814,8 @@ function inUsePaneRow(c, pane) {
       ...labelParts(paneLabel(pane)),
       rowContainer(c.localFolder),
     ),
-    rowTrail(h('span', { class: 'tag' }, 'not in layout'), badge(pane)),
+    // Its white icon says no tile shows it (a tile's is the accent color), as in Terminals.
+    rowTrail(badge(pane)),
   );
 }
 

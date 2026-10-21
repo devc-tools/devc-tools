@@ -145,6 +145,9 @@ Each is a place the implementation differs from the mockup on purpose. Say which
     started by hand in the same folder. Out of scope here.
 35. **A session row's container is part of its label in In use**, so it gives way before the
     title; the age stays.
+36. **No `not in layout` tag on agent rows:** an agent no tile shows has a white icon (a tile's
+    is the accent color), as in a container's Terminals tab; the In use heading keeps its
+    "N not in layout" count, and the row's tooltip says it.
 
 ## Notes for the review
 
