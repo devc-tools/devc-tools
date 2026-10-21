@@ -959,8 +959,8 @@ const STATE_TEXT = {
 /** A container's views, one at a time under its row; Terminals until another is chosen. */
 const CONTAINER_TABS = /** @type {const} */ ([
   'terminals',
-  'sessions',
   'repos',
+  'sessions',
   'files',
 ]);
 
@@ -1864,7 +1864,8 @@ function inUsePaneRow(c, pane) {
         'Not in the layout: click to open it',
       ].filter((t) => t).join('\n'),
       onclick: (e) => onPaneClick(rec, e),
-      oncontextmenu: (e) => openMenu(e, paneMenu(rec)),
+      oncontextmenu: (e) =>
+        openMenu(e, [...paneCodeItems(c, pane), ...paneMenu(rec)]),
     },
     h(
       'span',
@@ -1981,7 +1982,11 @@ function layoutTileRow(tile, active, depth, withContainer = false) {
       title: [...refTooltip(tile.ref), active ? '' : 'Background tab']
         .filter((s) => s).join('\n') || undefined,
       onclick: () => revealTile(tile.id),
-      oncontextmenu: (e) => openMenu(e, tileMenuItems(tile)),
+      oncontextmenu: (e) =>
+        openMenu(e, [
+          ...(withContainer && c && pane ? paneCodeItems(c, pane) : []),
+          ...tileMenuItems(tile),
+        ]),
     },
     h(
       'span',
@@ -2293,6 +2298,17 @@ function paneRepo(localFolder, pane) {
     projectRepos(localFolder),
     pane?.foreground_cwd || pane?.cwd || '',
   );
+}
+
+/**
+ * An In use terminal's **Open in Code**, on the repo its cwd is in, then a divider: none outside
+ * every repo.
+ */
+function paneCodeItems(c, pane) {
+  const repo = paneRepo(c.localFolder, pane);
+  if (!repo) return [];
+  const fr = { localFolder: c.localFolder, root: repo.folder };
+  return [[LABELS.openInCode, () => void openInCode(fr, '')], null];
 }
 
 /**
@@ -2714,7 +2730,7 @@ const CONTAINER_TAB_LABELS = {
 };
 
 /**
- * An expanded container's tab strip: Terminals, Sessions, Repos and Files, with counts. A row of
+ * An expanded container's tab strip: Terminals, Repos, Sessions and Files, with counts. A row of
  * the tree, so Up / Down reach it; Left / Right (Home / End) on it choose the view. Right-click
  * on Files gives the container root's menu, as its Files row did.
  */

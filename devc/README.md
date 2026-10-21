@@ -320,7 +320,9 @@ is published from any container: the host server finds devcontainers with
   **New pane in this stack**, **Close** (the tile only) and **Kill pane** (ends
   the process and closes every tile showing it). Stacks, rows and columns offer a new shell inside them; a
   container or workspace row offers **New shell** in the focused stack; a pane
-  row offers **Open in new tile**, **Rename** and **Kill**. A new shell is
+  row offers **Open in new tile**, **Rename** and **Kill**. A terminal's row
+  under In use also offers **Open in Code** first, on the repo its current
+  directory is in (none outside every repo). A new shell is
   always its own Herdr tab, created without moving the focus of a Herdr TUI
   attached to the same session. Hovering a Layout row shows **×** to close its
   tiles (and, on a terminal tile's row, a trash button left of it to kill the
