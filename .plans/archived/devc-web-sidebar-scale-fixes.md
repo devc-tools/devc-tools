@@ -1,6 +1,6 @@
 # devc web: sidebar fixes from a many-container review
 
-Follow-up to the mockup-13 implementation ([design/devc-web-ux/14-implementation-tracking.md](design/devc-web-ux/14-implementation-tracking.md)),
+Follow-up to the mockup-13 implementation ([design/devc-web-ux/14-implementation-tracking.md](../design/devc-web-ux/14-implementation-tracking.md)),
 from a live review on a machine with ~20 containers. Decisions were made with the user on
 2026-10-21; this doc is the spec. Features continue 14's numbering (F9 on) and each gets a row
 there when done.
@@ -132,8 +132,8 @@ The CONTAINERS heading gets a chevron and collapses like Tasks. Saved as `contai
   - CONTAINERS collapses and stays collapsed after a reload
 - [x] After the user restarts `devc web` (server code): this Claude session's session row is absent
   from In use and has a `running` tag in code-wksp's Sessions tab
-- [ ] `resume_session` for a session running in a pane returns `reused: true` and no new pane
-  appears (checked live by resuming this session from the Sessions tab)
+- [x] `resume_session` for a session running in a pane returns `reused: true` and no new pane
+  appears (checked live by the user, resuming a running session from code-wksp's Sessions tab)
 
 ## Relevant Files
 

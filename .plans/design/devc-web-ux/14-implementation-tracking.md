@@ -29,7 +29,7 @@ or protocol change so far. To undo a feature, revert its commit.
 | F15 | Containers section collapses; In use may then take the whole sidebar | done | `0a09316` |
 
 F9–F15 come from a live review on a machine with ~20 containers, specified in
-[devc-web-sidebar-scale-fixes](../../devc-web-sidebar-scale-fixes.md).
+[devc-web-sidebar-scale-fixes](../../archived/devc-web-sidebar-scale-fixes.md).
 
 ## Exceptions
 

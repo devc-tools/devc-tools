@@ -70,13 +70,6 @@
   PR's branch. devc web never runs `gh`. A repo row's **Open PRs** reaches the panel over
   `/desktop/events`, which only changes what the panel shows.
 
-- [devc-web-sidebar-scale-fixes](devc-web-sidebar-scale-fixes.md) — from a live review with ~20
-  containers: Tasks as its own top-level section, chevrons that stay centered, In use repo rows that
-  open terminals and tasks, one In use group per folder across containers (container shown on each
-  row inside instead), Claude sessions already running in a pane hidden from In use and reused by
-  `resume_session` (Claude's `~/.claude/sessions/<pid>.json` + `HERDR_PANE_ID`), labels that truncate
-  from the right, and a collapsible Containers section.
-
 ### Standing rules for Feature work
 
 Not a plan group — these are the conventions every Feature plan in this file
@@ -120,6 +113,12 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
 
 ### Completed
 
+- [devc-web-sidebar-scale-fixes](archived/devc-web-sidebar-scale-fixes.md) — from a live review with ~20
+  containers: Tasks as its own top-level section, chevrons that stay centered, In use repo rows that
+  open terminals and tasks, one In use group per folder across containers (container shown on each
+  row inside instead), Claude sessions already running in a pane hidden from In use and reused by
+  `resume_session` (Claude's `~/.claude/sessions/<pid>.json` + `HERDR_PANE_ID`), labels that truncate
+  from the right, and a collapsible Containers section.
 - [devc-web-agent-sessions](archived/devc-web-agent-sessions.md) — ✅ Done: each running
   container's **Sessions** row lists its project's 20 newest Claude, Copilot and pi sessions
   (`list_sessions`: one `docker exec` reading the agent homes in the container, kept to sessions
@@ -2383,4 +2382,4 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
 | bridge skip unpinnable repos — pin the candidates that pass, error only when none do                               | [bridge-skip-unpinnable-repos](bridge-skip-unpinnable-repos.md)                    | in progress |
 | `devc web` agent sessions — a Sessions node per container lists and resumes recent agent sessions                  | [devc-web-agent-sessions](archived/devc-web-agent-sessions.md)                     | complete    |
 | devc-desktop PR review — panel tree + Viewed via host `gh`, diffs as devc web tiles, threads via devc-bridge       | [devc-desktop-pr-review](devc-desktop-pr-review.md)                                |             |
-| devc web sidebar scale fixes — Tasks section, In use merged by folder, running sessions not resumed twice           | [devc-web-sidebar-scale-fixes](devc-web-sidebar-scale-fixes.md)                    | in progress |
+| devc web sidebar scale fixes — Tasks section, In use merged by folder, running sessions not resumed twice           | [devc-web-sidebar-scale-fixes](archived/devc-web-sidebar-scale-fixes.md)           | complete    |
