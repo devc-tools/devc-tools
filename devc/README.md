@@ -1729,6 +1729,11 @@ or less — than the rest, map it to its own list:
   so the entry applies to the primary checkout and every linked worktree of it.
   `[]` means "no default for this repo" — not even `bridgeDefaultAllow`. There
   is no per-worktree entry: use the flags for that.
+- **One key can list several repos**, separated by `;`, to give them all the
+  same list: `"~/code/app; ~/code/app-docs": ["gh-pr-read", "gh-pr-reply"]`.
+  Spaces around each path are dropped. Each path is resolved, ignored or
+  refused on its own, and messages name the one path they are about. A path
+  that itself contains `;` can't be written as a key.
 - **Who gets what**, without `--bridge-allow`: the workspace repo, then each
   `--bridge-repo` in order, then every other git-protected repo mount of the
   workspace whose repo has a **non-empty** entry — pinned without being named.

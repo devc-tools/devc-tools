@@ -407,7 +407,8 @@ export interface BridgeRepoAllowEntry {
 
 /**
  * Validate `bridgeRepoAllow` as read raw from the global config: an object mapping host paths
- * (`~` and `$VAR` expanded with `expandPath`, then absolute) to capability lists, each checked and
+ * (`~` and `$VAR` expanded with `expandPath`, then absolute; a key may list several,
+ * `;`-separated, one entry each) to capability lists, each checked and
  * canonicalized as {@link parseBridgeDefaultAllow}'s is — except that `[]` is kept: it means no
  * default for that repo. Absent or `null` → null. Returned in key order. Throws the bare
  * `<reason>`; the caller names the file and key. Whether two keys name one repo needs the
@@ -422,20 +423,32 @@ export function parseBridgeRepoAllow(
   }
   const entries: BridgeRepoAllowEntry[] = [];
   for (const [key, value] of Object.entries(raw)) {
-    let path: string;
-    try {
-      path = expandPath(key);
-    } catch (e) {
-      throw new Error(`${key}: ${e instanceof Error ? e.message : e}`);
-    }
-    if (!isAbsolutePosix(path)) throw new Error(`${key}: not an absolute path`);
     let grants: BridgeCapability[];
     try {
       grants = defaultGrantList(value);
     } catch (e) {
       throw new Error(`${key}: ${e instanceof Error ? e.message : e}`);
     }
-    entries.push({ key, path: path.replace(/(?<=.)\/+$/, ''), grants });
+    // One key may name several repos, `;`-separated, sharing its list. Each becomes an entry of
+    // its own, so every later message names the one path it is about.
+    for (const raw of key.split(';')) {
+      const part = raw.trim();
+      if (part === '') throw new Error(`${key}: empty path in the list`);
+      let path: string;
+      try {
+        path = expandPath(part);
+      } catch (e) {
+        throw new Error(`${part}: ${e instanceof Error ? e.message : e}`);
+      }
+      if (!isAbsolutePosix(path)) {
+        throw new Error(`${part}: not an absolute path`);
+      }
+      entries.push({
+        key: part,
+        path: path.replace(/(?<=.)\/+$/, ''),
+        grants,
+      });
+    }
   }
   return entries;
 }

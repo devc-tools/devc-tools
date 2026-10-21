@@ -546,6 +546,34 @@ Deno.test('bridgeRepoAllow: keys expanded, values canonicalized, [] kept; absent
   }
 });
 
+Deno.test('bridgeRepoAllow: a ;-separated key gives each path its own entry with the shared list', () => {
+  const home = Deno.env.get('HOME')!;
+  assertEquals(
+    parseBridgeRepoAllow({
+      '~/code/a; /srv/b/ ;~/code/c': ['gh-pr-viewed', 'gh-pr-read'],
+      '/solo': [],
+    }),
+    [
+      {
+        key: '~/code/a',
+        path: `${home}/code/a`,
+        grants: ['gh-pr-read', 'gh-pr-viewed'],
+      },
+      {
+        key: '/srv/b/',
+        path: '/srv/b',
+        grants: ['gh-pr-read', 'gh-pr-viewed'],
+      },
+      {
+        key: '~/code/c',
+        path: `${home}/code/c`,
+        grants: ['gh-pr-read', 'gh-pr-viewed'],
+      },
+      { key: '/solo', path: '/solo', grants: [] },
+    ],
+  );
+});
+
 Deno.test('bridgeRepoAllow refuses bad values with each documented reason', () => {
   Deno.env.delete('DEVC_TEST_UNSET');
   const object = 'must be an object mapping repo paths to capability lists';
@@ -582,6 +610,14 @@ Deno.test('bridgeRepoAllow refuses bad values with each documented reason', () =
       { '/ok': ['gh-pr-read'], '/b': ['gh-pr-viewed'] },
       '/b: gh-pr-viewed requires gh-pr-read',
     ],
+    // A `;` list: a bad list names the whole key, a bad path only that path.
+    [
+      { '/a;/b': ['gh-pr-reply'] },
+      '/a;/b: gh-pr-reply requires gh-pr-read',
+    ],
+    [{ '/a;code/b': ['gh-pr-read'] }, 'code/b: not an absolute path'],
+    [{ '/a;;/b': ['gh-pr-read'] }, '/a;;/b: empty path in the list'],
+    [{ '/a;': ['gh-pr-read'] }, '/a;: empty path in the list'],
   ];
   for (const [value, reason] of cases) {
     const e = assertThrows(() => parseBridgeRepoAllow(value));

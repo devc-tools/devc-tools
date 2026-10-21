@@ -36,7 +36,7 @@ import {
   RepoAllowError,
   resolveRepoAllow,
 } from '../bridge.ts';
-import { parseUpArgs } from '../args.ts';
+import { parseBridgeRepoAllow, parseUpArgs } from '../args.ts';
 
 const BRIDGE_FEATURE = 'ghcr.io/devc-tools/features/devc-bridge:0';
 
@@ -2247,6 +2247,38 @@ Deno.test('bridgeRepoAllow: two keys naming one repo fail, a key for a deleted f
     ]]);
     assertEquals(f.logs, [
       'devc: bridgeRepoAllow: ignoring /plain: not in a git repo',
+    ]);
+  });
+});
+
+Deno.test('bridgeRepoAllow: the paths of one ;-separated key resolve on their own', async () => {
+  await withFixture(async (f) => {
+    const { extra, wt } = await withExtraWorktree(f);
+    await Deno.mkdir(`${f.dir}/plain`);
+    // Two paths of one key that name the same repo are the same refusal as two keys.
+    const err = await assertRejects(
+      () =>
+        resolveRepoAllow(
+          parseBridgeRepoAllow({ [`${extra};${wt}`]: ['gh-pr-read'] })!,
+          (m) => f.logs.push(m),
+        ),
+      RepoAllowError,
+    );
+    assertEquals(err.message, `${extra} and ${wt} name the same repo`);
+    // Each path stands alone: one not in a repo is ignored, the other still applies.
+    f.logs.length = 0;
+    const ok = await resolveRepoAllow(
+      parseBridgeRepoAllow({
+        [`${f.dir}/plain ; ${extra}`]: ['gh-pr-read', 'gh-pr-viewed'],
+      })!,
+      (m) => f.logs.push(m),
+    );
+    assertEquals([...ok.entries()], [[
+      await Deno.realPath(`${extra}/.git`),
+      ['gh-pr-read', 'gh-pr-viewed'],
+    ]]);
+    assertEquals(f.logs, [
+      `devc: bridgeRepoAllow: ignoring ${f.dir}/plain: not in a git repo`,
     ]);
   });
 });
