@@ -442,6 +442,25 @@ is published from any container: the host server finds devcontainers with
   session already resumed this way is shown in its terminal instead while that
   is still open. Its menu also copies the session id. devc web can't tell when
   a session is already open in some other terminal.
+- **Pull requests:** under each repo of a running container, a **Pull request**
+  row (its first child, closed until opened) shows the open PR of the repo's
+  pinned branch: `#<n> <title>`, how many files you've marked Viewed, and the
+  changed files as a tree with GitHub's own **Viewed** checkboxes. Clicking a
+  file opens its unified diff in a tile (as a Files click opens a file), with
+  the PR's review threads after their lines (by new-file line number; the rest
+  under **File threads**), resolved ones folded under `Resolved (n)` (**Show
+  resolved** opens them all). What works follows the repo's grants in the
+  host-only policy, read on every message: reading needs `gh-pr-read`, the
+  checkboxes `gh-pr-viewed`, **Reply** `gh-pr-reply` (posted as you with the
+  bridge's `🤖` prefix), and **Resolve** `gh-pr-resolve` (any thread) or
+  `gh-pr-resolve-copilot` (Copilot's only). Without `gh-pr-read` the row says
+  which grant to add (`devc up --bridge-allow gh-pr-read`, or
+  `"bridgeDefaultAllow"`). Everything goes through that container's
+  devc-bridge (`gh-pr-files`, `gh-pr-comments`, `gh-pr-viewed`, `gh-pr-reply`,
+  `gh-pr-resolve`), so the PR is always that pinned branch's, and nothing is
+  polled: the row lists on opening and on its ⟳, a diff tile on opening, on its
+  ⟳ and after each write. Needs a server with the `pr_*` messages
+  (`--live-yolo`, or a `devc` built from this version).
 - `--port N` picks another port (default 48228); `--session NAME` another Herdr
   session (default `devc`, the one `devc herdr` uses). A port already in use
   exits 1 with a `devc web:` message.
@@ -459,7 +478,12 @@ for devc-desktop's main process: they need `Authorization: Bearer <token>`
 (never `?token=`) and refuse any request that has an `Origin`. The only one is
 `GET /desktop/active-folder`, the host folder behind the terminal pane a page
 last reported as focused, and that pane's container's own folder, for
-devc-desktop's right-click `cd`.
+devc-desktop's right-click `cd`. devc web runs no `gh`: its pull request reads
+and writes are devc-bridge commands run in the container (`docker exec`, argv
+only), so the page can do only what that container's bridge grant already
+allows from its own terminals. Their output passes through the container, so
+it is parsed with caps and shown as text only, with bidi and zero-width
+characters as visible markers.
 
 **From a container:** on Docker Desktop, a container reaches the server at
 `host.docker.internal:<port>`. Give an agent the printed URL with the host

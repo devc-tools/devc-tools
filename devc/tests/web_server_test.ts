@@ -1102,3 +1102,51 @@ Deno.test("activeFolder names the container's own folder as primary when a mount
   });
   assertEquals(activeFolder(active, null), { ok: false, reason: 'no_session' });
 });
+
+Deno.test('parseClientMessage: the pr_* messages take a project, a repo root and their fields', () => {
+  const base = { id: 'p1', localFolder: '/src/app', root: '/src/app' };
+  const ok = (m: Record<string, unknown>) => {
+    const r = parseClientMessage(JSON.stringify(m));
+    assert(r.ok, JSON.stringify(m));
+    return r.msg;
+  };
+  assertEquals(ok({ type: 'pr_files', ...base }), {
+    type: 'pr_files',
+    ...base,
+  });
+  for (const type of ['pr_diff', 'pr_threads']) {
+    assertEquals(ok({ type, ...base, path: 'src/a.ts' }), {
+      type,
+      ...base,
+      path: 'src/a.ts',
+    } as unknown);
+  }
+  assertEquals(
+    ok({ type: 'pr_viewed', ...base, path: 'a', viewed: false }),
+    { type: 'pr_viewed', ...base, path: 'a', viewed: false },
+  );
+  assertEquals(
+    ok({ type: 'pr_reply', ...base, path: 'a', thread: 'PRRT_1', body: 'hi' }),
+    { type: 'pr_reply', ...base, path: 'a', thread: 'PRRT_1', body: 'hi' },
+  );
+  assertEquals(
+    ok({ type: 'pr_resolve', ...base, path: 'a', thread: 'PRRT_1' }),
+    { type: 'pr_resolve', ...base, path: 'a', thread: 'PRRT_1' },
+  );
+  for (
+    const bad of [
+      { type: 'pr_files', ...base, root: 'rel' },
+      { type: 'pr_files', id: 'p1', root: '/src/app' },
+      { type: 'pr_diff', ...base },
+      { type: 'pr_threads', ...base, path: '' },
+      { type: 'pr_viewed', ...base, path: 'a', viewed: 'yes' },
+      { type: 'pr_reply', ...base, path: 'a', thread: 'PRRT_1' },
+      { type: 'pr_reply', ...base, path: 'a', thread: 'PRRT_1', body: 3 },
+      { type: 'pr_resolve', ...base, path: 'a' },
+    ]
+  ) {
+    const r = rejected(bad);
+    assertEquals(r.code, 'bad_request', JSON.stringify(bad));
+    assertEquals(r.id, 'p1');
+  }
+});

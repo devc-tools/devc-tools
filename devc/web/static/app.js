@@ -15,6 +15,7 @@ import { createViewer } from './viewer.js';
 import {
   foldTree,
   parseSavedLayout,
+  sameDiff,
   sameFile,
   sameFileView,
   tilesShowingPane,
@@ -94,6 +95,13 @@ import {
   taskTitle,
 } from './lib/tasks.js';
 import { parseSessions, sessionAge, sessionTooltip } from './lib/sessions.js';
+import {
+  buildPrTree,
+  folderOpenByDefault,
+  splitMarkers,
+  statusLetter,
+} from './lib/pr_tree.js';
+import { parsePatch, placeThreads } from './lib/diff.js';
 
 const LAYOUT_KEY = 'devc-web-layout-v2';
 /** The split-tree layout before Golden Layout: removed on load, not migrated. */
@@ -492,9 +500,13 @@ function onHello(msg) {
   for (const { tree } of fileTrees.values()) tree.refresh('');
   // The server's own copy of each list may be gone (a restart): open Sessions rows list again.
   sessionLists.clear();
+  prLists.clear();
   queueRender();
   for (const view of fileViews.values()) {
     if (view.state === 'loading') loadFile(view);
+  }
+  for (const view of diffViews.values()) {
+    if (view.state === 'loading') void loadDiff(view);
   }
   for (const top of picker?.tops ?? []) picker?.tree.refresh(top);
   if (bootGeneration === null) {
@@ -907,6 +919,7 @@ const LABELS = {
   resumeSession: 'Resume session',
   resumeSessionMenu: 'Resume…',
   copySessionId: 'Copy session id',
+  pullRequest: 'Pull request',
   openHere: 'Open terminal here',
   newTerminal: 'New terminal',
   splitRight: 'Split vertically',
@@ -969,6 +982,14 @@ function loadSidebarState() {
         ? saved.sessionsOpen.filter((f) => typeof f === 'string')
         : [],
     ),
+    /** Repos (by `localFolder\nroot`) whose Pull request row is open; new ones start closed. */
+    prOpen: new Set(
+      Array.isArray(saved?.prOpen)
+        ? saved.prOpen.filter((f) => typeof f === 'string')
+        : [],
+    ),
+    /** PR folders opened or closed, by `prFoldersKey` then folder path. */
+    prFolders: savedPrFolders(saved?.prFolders),
     reposOpen: new Set(
       Array.isArray(saved?.reposOpen)
         ? saved.reposOpen.filter((f) => typeof f === 'string')
@@ -1013,6 +1034,22 @@ function loadSidebarState() {
   };
 }
 
+function savedPrFolders(v) {
+  /** @type {Record<string, Record<string, boolean>>} */
+  const out = {};
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return out;
+  for (const [key, folders] of Object.entries(v)) {
+    if (!folders || typeof folders !== 'object' || Array.isArray(folders)) {
+      continue;
+    }
+    const kept = Object.fromEntries(
+      Object.entries(folders).filter(([, open]) => typeof open === 'boolean'),
+    );
+    if (Object.keys(kept).length) out[key] = kept;
+  }
+  return out;
+}
+
 function savedFraction(v) {
   return typeof v === 'number' && v > 0 && v < 1 ? v : null;
 }
@@ -1047,6 +1084,8 @@ function saveSidebarState() {
         collapsed: [...sidebarState.collapsed],
         terminalsClosed: [...sidebarState.terminalsClosed],
         sessionsOpen: [...sidebarState.sessionsOpen],
+        prOpen: [...sidebarState.prOpen],
+        prFolders: sidebarState.prFolders,
         reposOpen: [...sidebarState.reposOpen],
         inactiveOpen: sidebarState.inactiveOpen,
         projectsOpen: [...sidebarState.projectsOpen],
@@ -1143,6 +1182,7 @@ function collapseContainers() {
   // Each clear() saves its tree's (now empty) open folders: before the state below, not after.
   for (const { tree } of fileTrees.values()) tree.clear();
   restoringFiles.clear();
+  sidebarState.prOpen.clear();
   Object.assign(
     sidebarState,
     collapseContainersState(sidebarState, [
@@ -1833,6 +1873,8 @@ function layoutState() {
       `${t.id}=${
         t.file
           ? fileKey(t.file)
+          : t.diff
+          ? `diff\n${t.diff.localFolder}\n${t.diff.root}\n${t.diff.path}`
           : t.ref
           ? `${t.ref.localFolder}\n${t.ref.pane_id}`
           : ''
@@ -1908,6 +1950,7 @@ function tileRowClass(tile, active) {
 
 function layoutTileRow(tile, active, depth, withContainer = false) {
   if (tile.kind === 'file') return layoutFileTileRow(tile, active, depth);
+  if (tile.kind === 'diff') return layoutDiffTileRow(tile, active, depth);
   const { c, pane } = resolveRef(tile.ref);
   return h(
     'div',
@@ -2053,6 +2096,8 @@ const ICON_PATHS = {
   collapseAll: 'M5.5 2.5h8v8M2.5 5.5h8v8h-8zM4.5 9.5h4',
   // A circular arrow: list again.
   refresh: 'M13 8a5 5 0 1 1-1.5-3.55M13 2.5v3h-3',
+  // An arrow out of a box: open on github.com.
+  external: 'M9 2.5h4.5V7M13.5 2.5L7.5 8.5M11.5 9.5v4h-9v-9h4',
 };
 
 /**
@@ -2210,12 +2255,12 @@ function activeRepo(tile) {
  * outside every repo.
  */
 function tileRepo(tile) {
-  const file = tile.kind === 'file' ? tile.file : null;
+  const file = tile.kind === 'file' ? tile.file : tile.diff;
   const localFolder = file ? file.localFolder : tile.ref?.localFolder;
   if (!localFolder) return { localFolder: null, repo: null };
   const repos = projectRepos(localFolder);
   let repo;
-  if (file && !file.container) {
+  if (file && !('container' in file && file.container)) {
     repo = repos.find((r) => r.folder === file.root);
   } else if (file) {
     repo = repoAt(repos, fileHostPath(file));
@@ -2405,6 +2450,7 @@ function killPaneItem(c, pane) {
 /** @param {Tile} tile @returns {[string, () => void, boolean?][]} */
 function tileMenuItems(tile) {
   if (tile.kind === 'file') return fileTileMenuItems(tile);
+  if (tile.kind === 'diff') return diffTileMenuItems(tile);
   const { c, pane } = resolveRef(tile.ref);
   const items = [];
   if (c && c.state === 'connected') {
@@ -3048,6 +3094,10 @@ function repoRows(localFolder) {
     ];
     folderTerminalButton(rows[0], fr, '');
     if (tree.isOpen('')) {
+      // A running container's repo: its pull request comes first.
+      if (containerByFolder(localFolder)) {
+        rows.push(...prRows(localFolder, r.folder, depth + 1));
+      }
       for (const w of repos) {
         if (w !== r && w.worktreeOf === r.folder) {
           rows.push(...repoRow(w, depth + 1, true));
@@ -3119,6 +3169,322 @@ function containerShortcuts(c) {
     home !== '/' &&
     !isWithin('/workspaces', home);
   return apart ? ['/workspaces', home] : ['/workspaces'];
+}
+
+// ---------------------------------------------------------------------------------------------
+// Sidebar: pull requests
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * Each repo's last `pr_files` answer, by `localFolder\nroot`: what its Pull request row shows.
+ * `result` is the server's `{available, …}`; `error` a failed call's message.
+ *
+ * @type {Map<string, {loading: boolean, result: any, error: string | null}>}
+ */
+const prLists = new Map();
+
+function prKey(localFolder, root) {
+  return `${localFolder}\n${root}`;
+}
+
+/** `text` with its bidi controls and zero-width characters shown as markers (`splitMarkers`). */
+function markedText(text) {
+  return splitMarkers(String(text ?? '')).map((part) =>
+    typeof part === 'string' ? part : h('span', {
+      class: 'invisible-mark',
+      title: 'An invisible or direction-changing character',
+    }, part.marker)
+  );
+}
+
+/** Lists a repo's PR files again (`pr_files`), keeping what is shown until the answer. */
+async function loadPr(localFolder, root) {
+  const key = prKey(localFolder, root);
+  const prev = prLists.get(key);
+  if (prev?.loading) return;
+  const entry = { loading: true, result: prev?.result ?? null, error: null };
+  prLists.set(key, entry);
+  queueRender();
+  try {
+    const result = await call({ type: 'pr_files', localFolder, root });
+    entry.result = result && typeof result === 'object' ? result : null;
+  } catch (e) {
+    entry.result = null;
+    entry.error = String(e?.message ?? e);
+  }
+  entry.loading = false;
+  if (prLists.get(key) === entry) queueRender();
+}
+
+/** Opens or closes a repo's Pull request row; opening it lists the PR's files. */
+function togglePr(localFolder, root) {
+  const key = prKey(localFolder, root);
+  if (!sidebarState.prOpen.delete(key)) {
+    sidebarState.prOpen.add(key);
+    void loadPr(localFolder, root);
+  }
+  saveSidebarState();
+  renderTree();
+}
+
+/** Where a PR's folder rows keep their open state: per repo and PR number. */
+function prFoldersKey(localFolder, root, number) {
+  return `${localFolder}\n${root}\n${number}`;
+}
+
+/**
+ * Each PR folder's open-by-default state as it was when this page first drew it, by
+ * `prFoldersKey\npath`: a folder whose last file is marked Viewed stays open until closed.
+ */
+const prFolderDefaults = new Map();
+
+/** @param {string} key @param {import('./lib/pr_tree.js').PrDir} dir */
+function prFolderOpen(key, dir) {
+  const saved = sidebarState.prFolders[key]?.[dir.path];
+  if (saved !== undefined) return saved;
+  const id = `${key}\n${dir.path}`;
+  if (!prFolderDefaults.has(id)) {
+    prFolderDefaults.set(id, folderOpenByDefault(dir));
+  }
+  return prFolderDefaults.get(id);
+}
+
+/** The most PRs whose folders' open state is kept: the oldest is dropped. */
+const MAX_PR_FOLDER_KEYS = 50;
+
+/** @param {string} key @param {import('./lib/pr_tree.js').PrDir} dir */
+function togglePrFolder(key, dir) {
+  const open = prFolderOpen(key, dir);
+  const folders = sidebarState.prFolders[key] ?? {};
+  delete sidebarState.prFolders[key];
+  sidebarState.prFolders[key] = { ...folders, [dir.path]: !open };
+  const keys = Object.keys(sidebarState.prFolders);
+  for (const old of keys.slice(0, -MAX_PR_FOLDER_KEYS)) {
+    delete sidebarState.prFolders[old];
+  }
+  saveSidebarState();
+  renderTree();
+}
+
+/**
+ * A running container's repo's Pull request row: closed until opened. Open, the PR of the repo's
+ * pinned branch (`pr_files`): a header row and its changed files as a tree, or one dimmed line
+ * saying why there is none.
+ */
+function prRows(localFolder, root, depth) {
+  const key = prKey(localFolder, root);
+  const open = sidebarState.prOpen.has(key);
+  const fr = { localFolder, root };
+  const rows = [
+    treeRow(`${treeId(fr)}\npr`, depth, open, {
+      class: 'pr-row',
+      title:
+        "The pull request of this repo's pinned branch, through its container's devc-bridge",
+      onclick: () => togglePr(localFolder, root),
+    }, LABELS.pullRequest),
+  ];
+  if (!open) return rows;
+  // Opened before this page listed it (a saved open row): list now.
+  if (!prLists.has(key)) void loadPr(localFolder, root);
+  const listed = prLists.get(key);
+  const note = (text, kind) =>
+    h(
+      'div',
+      {
+        class: 'row tree-note',
+        style: `--depth: ${depth + 1}`,
+        'data-note': kind,
+        title: text,
+      },
+      h('span', { class: 'label' }, ...markedText(text)),
+    );
+  const result = listed?.result;
+  if (listed?.error) rows.push(note(listed.error, 'error'));
+  else if (!result) rows.push(note('Loading…', 'loading'));
+  else if (result.available !== true) {
+    const hint = result.reason === 'no_grant' ||
+      result.reason === 'not_running';
+    rows.push(note(String(result.message ?? ''), hint ? 'hint' : 'error'));
+  } else rows.push(...prListingRows(fr, result, depth + 1));
+  return rows;
+}
+
+/** A listed PR's header row, then its files as a tree (`buildPrTree`). */
+function prListingRows(fr, result, depth) {
+  const pr = result.pr;
+  const files = list(result.files);
+  const tree = buildPrTree(files);
+  const id = treeId(fr);
+  const header = treeRow(
+    `${id}\npr\n#`,
+    depth,
+    undefined,
+    {
+      class: 'pr-header',
+      title: [
+        `${pr.repo}#${pr.number}`,
+        pr.title,
+        `${pr.headRef} → ${pr.baseRef}${pr.author ? ` · ${pr.author}` : ''}`,
+        `via ${result.container}'s bridge`,
+      ].join('\n'),
+    },
+    h('span', { class: 'pr-number' }, `#${pr.number}`),
+    ...markedText(
+      pr.title,
+    ),
+  );
+  header.append(rowTrail(
+    pr.state !== 'OPEN'
+      ? h('span', { class: 'pr-state' }, String(pr.state).toLowerCase())
+      : '',
+    pr.isDraft ? h('span', { class: 'pr-state' }, 'draft') : '',
+    h('span', { class: 'pr-count' }, `${tree.viewed}/${tree.total}`),
+    hoverActions(
+      iconButton(
+        'refresh',
+        'Refresh',
+        () => void loadPr(fr.localFolder, fr.root),
+      ),
+      iconButton(
+        'external',
+        'Open on GitHub',
+        () => window.open(pr.url, '_blank', 'noopener'),
+      ),
+    ),
+  ));
+  const rows = [header];
+  if (result.truncated) {
+    rows.push(
+      h(
+        'div',
+        {
+          class: 'row tree-note',
+          style: `--depth: ${depth}`,
+          'data-note': 'truncated',
+        },
+        h('span', { class: 'label' }, 'GitHub lists at most 3000 files'),
+      ),
+    );
+  }
+  const foldersKey = prFoldersKey(fr.localFolder, fr.root, pr.number);
+  const walk = (dir, d) => {
+    for (const sub of dir.dirs) {
+      const open = prFolderOpen(foldersKey, sub);
+      const row = treeRow(`${id}\npr\n${sub.path}/`, d, open, {
+        class: 'pr-dir',
+        'data-dim': sub.viewed === sub.total || undefined,
+        title: sub.path,
+        onclick: () => togglePrFolder(foldersKey, sub),
+      }, ...markedText(sub.name));
+      row.append(
+        rowTrail(
+          h('span', { class: 'pr-count' }, `${sub.viewed}/${sub.total}`),
+        ),
+      );
+      rows.push(row);
+      if (open) walk(sub, d + 1);
+    }
+    for (const node of dir.files) {
+      rows.push(prFileRow(fr, result, node, d));
+    }
+  };
+  walk(tree, depth);
+  return rows;
+}
+
+/**
+ * A PR file's row: its Viewed checkbox (GitHub's own state; disabled without `canViewed`), its
+ * status letter, name and `+a −d`. A click opens its diff tile as a Files click opens a file.
+ *
+ * @param {FileRoot} fr @param {any} result
+ * @param {import('./lib/pr_tree.js').PrFileNode} node
+ */
+function prFileRow(fr, result, node, depth) {
+  const file = node.file;
+  const letter = statusLetter(file.status);
+  const dismissed = file.viewed === 'DISMISSED';
+  const stop = (e) => e.stopPropagation();
+  const checkbox = h('input', {
+    type: 'checkbox',
+    class: 'pr-viewed',
+    'aria-label': `Viewed: ${file.path}`,
+    title: !result.canViewed
+      ? 'Marking Viewed needs --bridge-allow gh-pr-viewed'
+      : dismissed
+      ? 'Viewed, changed since viewed'
+      : 'Viewed',
+    disabled: !result.canViewed,
+    onclick: stop,
+    onmousedown: stop,
+    ondblclick: stop,
+    onchange: (e) =>
+      void toggleViewed(fr, file, /** @type {HTMLInputElement} */ (e.target)),
+  });
+  /** @type {HTMLInputElement} */ (checkbox).checked = file.viewed === 'VIEWED';
+  const ref = { localFolder: fr.localFolder, root: fr.root, path: file.path };
+  const row = treeRow(
+    `${treeId(fr)}\npr\n${file.path}`,
+    depth,
+    undefined,
+    {
+      class: 'pr-file',
+      'data-viewed': file.viewed,
+      title: [
+        file.previousPath ? `${file.previousPath} → ${file.path}` : file.path,
+        dismissed ? 'changed since viewed' : '',
+      ].filter((s) => s).join('\n'),
+      onclick: (e) =>
+        openDiffTile(ref, e.ctrlKey || e.metaKey ? 'stack' : 'preview'),
+      ondblclick: () => keepOpen(tileShowingDiff(ref)),
+    },
+    checkbox,
+    h('span', {
+      class: 'pr-status',
+      'data-status': letter,
+    }, letter),
+    ...markedText(node.name),
+  );
+  row.append(rowTrail(h('span', { class: 'pr-stat' }, diffStat(file))));
+  return row;
+}
+
+/** `+a −d`. */
+function diffStat(file) {
+  return `+${file.additions} −${file.deletions}`;
+}
+
+/**
+ * Marks a PR file Viewed or not (`pr_viewed`): the counts change at once, and a failure puts
+ * the checkbox back with a toast.
+ *
+ * @param {FileRoot} fr @param {any} file @param {HTMLInputElement} checkbox
+ */
+async function toggleViewed(fr, file, checkbox) {
+  const before = file.viewed;
+  const viewed = checkbox.checked;
+  file.viewed = viewed ? 'VIEWED' : 'UNVIEWED';
+  queueRender();
+  let message = null;
+  try {
+    const r = await call({
+      type: 'pr_viewed',
+      localFolder: fr.localFolder,
+      root: fr.root,
+      path: file.path,
+      viewed,
+    });
+    if (r?.available === false) message = String(r.message ?? 'failed');
+    else if (r?.viewed === 'VIEWED' || r?.viewed === 'UNVIEWED') {
+      file.viewed = r.viewed;
+    }
+  } catch (e) {
+    message = String(e?.message ?? e);
+  }
+  if (message !== null) {
+    file.viewed = before;
+    errorToast(`Marking Viewed failed: ${message}`);
+  }
+  queueRender();
 }
 
 const PROJECT_STATE_TEXT = {
@@ -6132,6 +6498,721 @@ function unmountFileTile(tile) {
 }
 
 // ---------------------------------------------------------------------------------------------
+// Diff tiles: a pull request file's patch and its review threads (`pr_diff`, `pr_threads`)
+// ---------------------------------------------------------------------------------------------
+
+/** Where **Show resolved** is remembered, per browser. */
+const SHOW_RESOLVED_KEY = 'devc-web-pr-show-resolved-v1';
+let showResolved = loadShowResolved();
+
+function loadShowResolved() {
+  try {
+    return localStorage.getItem(SHOW_RESOLVED_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * A reply being written to one thread: kept across re-renders and ⟳ (while it has text), so
+ * typing survives them.
+ *
+ * @typedef {{thread: string, el: HTMLElement, textarea: HTMLTextAreaElement,
+ *   note: HTMLElement, error: HTMLElement, gone: HTMLElement, buttons: HTMLButtonElement[],
+ *   sending: boolean}} Composer
+ */
+
+/**
+ * A diff tile's live view. `seq` and `threadSeq` number the `pr_diff` and `pr_threads` reads,
+ * so only the latest one's answer lands. `data` is the last `pr_diff` result, `threads` the last
+ * `pr_threads` listing (this file's threads), `null` until one arrives.
+ *
+ * @typedef {object} DiffView
+ * @property {Tile} tile
+ * @property {HTMLElement} body
+ * @property {'loading' | 'ok' | 'error'} state
+ * @property {string} error
+ * @property {any} data
+ * @property {import('./lib/diff.js').ParsedPatch | null} parsed
+ * @property {any[] | null} threads
+ * @property {string | null} threadsError
+ * @property {boolean} threadsLoading
+ * @property {number} seq
+ * @property {number} threadSeq
+ * @property {Set<string>} openFolds   rows (`placeThreads` keys, `file`) whose Resolved fold is open
+ * @property {Map<string, Composer>} composers  by thread id
+ * @property {Set<string>} resolving   threads with a `pr_resolve` in flight
+ */
+
+/** @type {Map<string, DiffView>} diff tiles' views, by Tile.id */
+const diffViews = new Map();
+
+/**
+ * The open diff tile showing `ref`, the most recently focused one if there are several.
+ *
+ * @param {import('./lib/layout_state.js').DiffRef} ref
+ */
+function tileShowingDiff(ref) {
+  let best = null;
+  for (const tile of tiling?.tiles() ?? []) {
+    if (!tile.diff || !sameDiff(tile.diff, ref)) continue;
+    if (!best || (focusSeq.get(tile.id) ?? 0) > (focusSeq.get(best.id) ?? 0)) {
+      best = tile;
+    }
+  }
+  return best;
+}
+
+/**
+ * Opens a PR file's diff the way a Files click opens a file: a tile already showing it is
+ * brought forward; else the focused stack's preview tile shows it (`'preview'`), or a new tile in
+ * the focused stack does (`'stack'`, a Ctrl/⌘-click).
+ *
+ * @param {import('./lib/layout_state.js').DiffRef} ref
+ * @param {'preview' | 'stack'} where
+ */
+function openDiffTile(ref, where) {
+  if (!tiling) return;
+  const shown = tileShowingDiff(ref);
+  if (shown) {
+    revealTile(shown.id);
+    if (where === 'stack') keepOpen(shown);
+    return;
+  }
+  if (where === 'preview') {
+    openInPreview({ diff: ref });
+    return;
+  }
+  const tile = placeInFocusedStack({ diff: ref });
+  focusedTileId = tile.id;
+  focusSeq.set(tile.id, ++nextFocusSeq);
+  layoutChanged();
+}
+
+/** A diff tile's title: `<basename> · #<n>` once its PR is known. */
+function diffTileTitle(tile) {
+  const ref = tile.diff;
+  const name = ref ? basename(ref.path) : 'unknown file';
+  const pr = diffViews.get(tile.id)?.data?.pr;
+  return pr ? `${name} · #${pr.number}` : name;
+}
+
+function setDiffTitle(view) {
+  const ref = view.tile.diff;
+  const pr = view.data?.pr;
+  view.tile.setTitle(diffTileTitle(view.tile));
+  view.tile.setTooltip(
+    [pr ? `${pr.repo}#${pr.number}` : '', ref?.path ?? ''].filter((s) => s)
+      .join('\n'),
+  );
+}
+
+/** A diff tile's menu (its tab, its Layout row, and a right-click in it). */
+function diffTileMenuItems(tile) {
+  const view = diffViews.get(tile.id);
+  const items = [];
+  if (view) items.push(['Refresh', () => refreshDiff(view)]);
+  if (view?.data?.fileUrl) {
+    items.push([
+      'Open on GitHub',
+      () => window.open(view.data.fileUrl, '_blank', 'noopener'),
+    ]);
+  }
+  if (tile.preview) items.push(null, keepOpenItem(tile));
+  items.push(null, ['Close', () => tiling?.close(tile.id)]);
+  return items;
+}
+
+/** A diff tile's Layout row: its title, the PR file's path as the tooltip. */
+function layoutDiffTileRow(tile, active, depth) {
+  return h(
+    'div',
+    {
+      class: tileRowClass(tile, active),
+      style: `--depth: ${depth}`,
+      'data-tile': tile.id,
+      title: [tile.diff?.path ?? '', active ? '' : 'Background tab']
+        .filter((s) => s).join('\n') || undefined,
+      onclick: () => revealTile(tile.id),
+      oncontextmenu: (e) => openMenu(e, tileMenuItems(tile)),
+    },
+    h(
+      'span',
+      { class: 'label' },
+      rowIcon({ kind: 'file' }),
+      diffTileTitle(tile),
+    ),
+    rowTrail(
+      hoverActions(
+        iconButton('close', 'Close tile', () => tiling?.close(tile.id)),
+      ),
+    ),
+  );
+}
+
+/** Builds a diff tile's view and asks for its file (`pr_diff`). */
+function mountDiffTile(tile) {
+  const body = h('div', { class: 'diff-view' });
+  tile.element.append(h('div', { class: 'tile-body' }, body));
+  tile.element.addEventListener('mousedown', () => {
+    focusedTileId = tile.id;
+    focusSeq.set(tile.id, ++nextFocusSeq);
+    tile.focus();
+  }, true);
+  body.addEventListener('contextmenu', (e) => {
+    // Text keeps the browser's menu (copy); the rest gets the tile's.
+    const target = /** @type {HTMLElement} */ (e.target);
+    if (target.closest('.diff-text, .thread-body, textarea')) return;
+    openMenu(e, tileMenuItems(tile));
+  });
+  /** @type {DiffView} */
+  const view = {
+    tile,
+    body,
+    state: 'loading',
+    error: '',
+    data: null,
+    parsed: null,
+    threads: null,
+    threadsError: null,
+    threadsLoading: false,
+    seq: 0,
+    threadSeq: 0,
+    openFolds: new Set(),
+    composers: new Map(),
+    resolving: new Set(),
+  };
+  diffViews.set(tile.id, view);
+  // After the factory returns: a title change mid-build would save a half-built layout.
+  queueMicrotask(() => {
+    if (diffViews.get(tile.id) === view) setDiffTitle(view);
+  });
+  if (tile.diff) void loadDiff(view);
+  else {
+    view.state = 'error';
+    view.error = 'This tile names no file.';
+  }
+  renderDiff(view);
+  queueMicrotask(updatePlaceholder);
+}
+
+function unmountDiffTile(tile) {
+  const view = diffViews.get(tile.id);
+  if (!view) return;
+  view.seq++;
+  view.threadSeq++;
+  diffViews.delete(tile.id);
+  focusSeq.delete(tile.id);
+  if (focusedTileId === tile.id) focusedTileId = null;
+  queueMicrotask(updatePlaceholder);
+}
+
+/**
+ * Reads (or re-reads) a diff tile's file (`pr_diff`), then its threads. What it shows stays up
+ * while the new read is on its way. Asked while disconnected, the read waits for the next
+ * `hello`.
+ *
+ * @param {DiffView} view
+ */
+async function loadDiff(view) {
+  const ref = view.tile.diff;
+  if (!ref) return;
+  const seq = ++view.seq;
+  if (view.state !== 'ok') {
+    view.state = 'loading';
+    renderDiff(view);
+  }
+  let result = null;
+  let error = null;
+  try {
+    result = await call({ type: 'pr_diff', ...ref });
+  } catch (e) {
+    error = String(e?.message ?? e);
+  }
+  if (seq !== view.seq || diffViews.get(view.tile.id) !== view) return;
+  if (error === null && result?.available !== true) {
+    error = String(result?.message ?? 'The pull request is not available');
+  }
+  if (error !== null) {
+    view.state = 'error';
+    view.error = error;
+    renderDiff(view);
+    return;
+  }
+  view.state = 'ok';
+  view.error = '';
+  view.data = result;
+  const patch = result.file?.patch;
+  view.parsed = typeof patch === 'string' ? parsePatch(patch) : null;
+  setDiffTitle(view);
+  renderDiff(view);
+  layoutChanged();
+  void loadThreads(view);
+}
+
+/** Lists the file's review threads again (`pr_threads`). @param {DiffView} view */
+async function loadThreads(view) {
+  const ref = view.tile.diff;
+  if (!ref || view.state !== 'ok') return;
+  const seq = ++view.threadSeq;
+  view.threadsLoading = true;
+  renderDiff(view);
+  let result = null;
+  let error = null;
+  try {
+    result = await call({ type: 'pr_threads', ...ref });
+  } catch (e) {
+    error = String(e?.message ?? e);
+  }
+  if (seq !== view.threadSeq || diffViews.get(view.tile.id) !== view) return;
+  view.threadsLoading = false;
+  if (error === null && result?.available !== true) {
+    error = String(result?.message ?? 'The threads are not available');
+  }
+  if (error !== null) view.threadsError = error;
+  else {
+    view.threadsError = null;
+    view.threads = list(result.threads);
+  }
+  renderDiff(view);
+}
+
+/** ⟳: the file, then its threads, again. A reply with text in it stays. */
+function refreshDiff(view) {
+  for (const [id, c] of view.composers) {
+    if (c.textarea.value.trim() === '' && !c.sending) view.composers.delete(id);
+  }
+  void loadDiff(view);
+}
+
+function toggleShowResolved() {
+  showResolved = !showResolved;
+  try {
+    localStorage.setItem(SHOW_RESOLVED_KEY, showResolved ? '1' : '0');
+  } catch { /* storage unavailable: it just won't survive a reload */ }
+  for (const view of diffViews.values()) renderDiff(view);
+}
+
+/** Draws a diff tile from its view: the header, then File threads and the hunks. */
+function renderDiff(view) {
+  const active = /** @type {HTMLElement | null} */ (document.activeElement);
+  const caret = active instanceof HTMLTextAreaElement
+    ? [active.selectionStart, active.selectionEnd]
+    : null;
+  const scroll = view.body.querySelector('.diff-body')?.scrollTop ?? 0;
+  const body = h('div', { class: 'diff-body' });
+  view.body.replaceChildren(diffHeader(view), body);
+  if (view.state === 'loading') {
+    body.append(h('div', { class: 'diff-message' }, 'Loading…'));
+  } else if (view.state === 'error') {
+    body.append(
+      h(
+        'div',
+        { class: 'diff-message' },
+        h('div', {}, ...markedText(view.error)),
+        view.tile.diff
+          ? h('button', {
+            type: 'button',
+            onclick: () => void loadDiff(view),
+          }, 'Retry')
+          : '',
+      ),
+    );
+  } else body.append(...diffContent(view));
+  body.scrollTop = scroll;
+  if (active && active.isConnected && active !== document.activeElement) {
+    active.focus({ preventScroll: true });
+    if (caret && active instanceof HTMLTextAreaElement) {
+      active.setSelectionRange(caret[0], caret[1]);
+    }
+  }
+}
+
+/** The path (`old → new` for a rename), status, `+a −d`, `#n`, ⟳ and ↗, and whose bridge. */
+function diffHeader(view) {
+  const ref = view.tile.diff;
+  const data = view.state === 'ok' ? view.data : null;
+  const file = data?.file;
+  const pr = data?.pr;
+  const line = h('div', { class: 'diff-head-line' });
+  const path = file?.previousPath
+    ? [...markedText(file.previousPath), ' → ', ...markedText(file.path)]
+    : markedText(file?.path ?? ref?.path ?? '');
+  line.append(h('span', { class: 'diff-path' }, ...path));
+  if (file) {
+    const letter = statusLetter(file.status);
+    line.append(
+      h('span', { class: 'pr-status', 'data-status': letter }, letter),
+      h('span', { class: 'pr-stat' }, diffStat(file)),
+    );
+  }
+  if (pr) {
+    line.append(
+      h('span', { class: 'pr-number', title: pr.url }, `#${pr.number}`),
+    );
+  }
+  const resolvedToggle = h('input', {
+    type: 'checkbox',
+    onchange: toggleShowResolved,
+  });
+  /** @type {HTMLInputElement} */ (resolvedToggle).checked = showResolved;
+  line.append(
+    h('span', { class: 'diff-head-fill' }),
+    h(
+      'label',
+      { class: 'diff-show-resolved' },
+      resolvedToggle,
+      'Show resolved',
+    ),
+    iconButton('refresh', 'Refresh', () => refreshDiff(view)),
+    data?.fileUrl
+      ? iconButton(
+        'external',
+        'Open on GitHub',
+        () => window.open(data.fileUrl, '_blank', 'noopener'),
+      )
+      : '',
+  );
+  const head = h('div', { class: 'diff-header' }, line);
+  if (data) {
+    head.append(
+      h('div', { class: 'diff-via' }, `threads via ${data.container}'s bridge`),
+    );
+  }
+  return head;
+}
+
+/** File threads, then each hunk with its threads, then any text the parse stopped at. */
+function diffContent(view) {
+  const data = view.data;
+  const threads = view.threads ?? [];
+  const placed = placeThreads(view.parsed, threads);
+  const listed = new Set(threads.map((t) => t.id));
+  const out = [];
+  // Replies whose thread the last listing no longer has: kept for their text.
+  const orphans = [...view.composers.values()].filter((c) =>
+    view.threads !== null && !listed.has(c.thread)
+  );
+  const fileBlock = h('div', { class: 'file-threads' });
+  if (view.threadsError) {
+    fileBlock.append(
+      h(
+        'div',
+        { class: 'diff-note', 'data-note': 'error' },
+        ...markedText(
+          view.threadsError,
+        ),
+      ),
+    );
+  } else if (view.threads === null && view.threadsLoading) {
+    fileBlock.append(h('div', { class: 'diff-note' }, 'Loading threads…'));
+  }
+  if (placed.file.length || orphans.length) {
+    fileBlock.append(h('div', { class: 'file-threads-title' }, 'File threads'));
+    fileBlock.append(...threadGroup(view, 'file', placed.file));
+    for (const c of orphans) {
+      c.gone.hidden = false;
+      fileBlock.append(composerEl(view, c));
+    }
+  }
+  if (fileBlock.childNodes.length) out.push(fileBlock);
+  if (!view.parsed) {
+    out.push(
+      h(
+        'div',
+        { class: 'diff-message' },
+        h('div', {}, 'No diff available for this file'),
+        data.fileUrl
+          ? h('button', {
+            type: 'button',
+            onclick: () => window.open(data.fileUrl, '_blank', 'noopener'),
+          }, 'Open on GitHub')
+          : '',
+      ),
+    );
+    return out;
+  }
+  const table = h('div', { class: 'diff-table' });
+  view.parsed.hunks.forEach((hunk, hi) => {
+    table.append(h('div', { class: 'diff-hunk' }, ...markedText(hunk.header)));
+    hunk.rows.forEach((row, ri) => {
+      table.append(
+        h(
+          'div',
+          { class: 'diff-row', 'data-kind': row.kind },
+          h(
+            'span',
+            { class: 'diff-num' },
+            row.old === null ? '' : String(row.old),
+          ),
+          h(
+            'span',
+            { class: 'diff-num' },
+            row.new === null ? '' : String(row.new),
+          ),
+          h('span', { class: 'diff-text' }, ...markedText(row.text)),
+        ),
+      );
+      const here = placed.rows.get(`${hi}:${ri}`);
+      if (here) {
+        table.append(
+          h(
+            'div',
+            { class: 'diff-threads' },
+            ...threadGroup(view, `${hi}:${ri}`, here),
+          ),
+        );
+      }
+    });
+  });
+  out.push(table);
+  if (view.parsed.rest !== null) {
+    out.push(h('pre', { class: 'diff-rest' }, ...markedText(view.parsed.rest)));
+  }
+  return out;
+}
+
+/**
+ * One place's threads: each unresolved one as a card, then the resolved ones folded into one
+ * `Resolved (n)` line, closed until opened (or **Show resolved**).
+ *
+ * @param {DiffView} view @param {string} key @param {any[]} threads
+ */
+function threadGroup(view, key, threads) {
+  const open = threads.filter((t) => !t.isResolved);
+  const resolved = threads.filter((t) => t.isResolved);
+  const out = open.map((t) => threadCard(view, t));
+  if (resolved.length) {
+    const unfolded = showResolved || view.openFolds.has(key);
+    out.push(h(
+      'button',
+      {
+        type: 'button',
+        class: 'resolved-fold',
+        'aria-expanded': String(unfolded),
+        onclick: () => {
+          if (!view.openFolds.delete(key)) view.openFolds.add(key);
+          renderDiff(view);
+        },
+      },
+      chevron(),
+      `Resolved (${resolved.length})`,
+    ));
+    if (unfolded) out.push(...resolved.map((t) => threadCard(view, t)));
+  }
+  return out;
+}
+
+/** Whether this tile's grants let it resolve `thread`. */
+function canResolve(view, thread) {
+  const scope = view.data?.resolveScope;
+  return !thread.isResolved &&
+    (scope === 'any' || (scope === 'copilot' && thread.copilot === true));
+}
+
+/** A thread's card: each comment, then Reply, Resolve and ↗ as the grants allow. */
+function threadCard(view, thread) {
+  const now = Date.now();
+  const card = h('div', {
+    class: 'thread-card',
+    'data-thread': thread.id,
+    'data-resolved': thread.isResolved || undefined,
+  });
+  for (const c of list(thread.comments)) {
+    card.append(
+      h(
+        'div',
+        { class: 'thread-comment' },
+        h(
+          'div',
+          { class: 'thread-meta' },
+          h(
+            'span',
+            { class: 'thread-author' },
+            ...markedText(c.author ?? 'ghost'),
+          ),
+          h(
+            'span',
+            { class: 'thread-age', title: String(c.createdAt) },
+            sessionAge(
+              String(c.createdAt),
+              now,
+            ),
+          ),
+          thread.isOutdated
+            ? h('span', { class: 'thread-tag' }, 'outdated')
+            : '',
+        ),
+        h('div', { class: 'thread-body' }, ...markedText(c.body)),
+      ),
+    );
+  }
+  const actions = h('div', { class: 'thread-actions' });
+  const composer = view.composers.get(thread.id);
+  if (view.data?.canReply && !composer) {
+    actions.append(h('button', {
+      type: 'button',
+      onclick: () => openComposer(view, thread.id),
+    }, 'Reply'));
+  }
+  if (canResolve(view, thread)) {
+    actions.append(h('button', {
+      type: 'button',
+      disabled: view.resolving.has(thread.id),
+      onclick: () => void resolveThread(view, thread),
+    }, 'Resolve'));
+  }
+  const url = list(thread.comments)[0]?.url;
+  if (typeof url === 'string' && url.startsWith('https://github.com/')) {
+    actions.append(
+      iconButton(
+        'external',
+        'Open on GitHub',
+        () => window.open(url, '_blank', 'noopener'),
+      ),
+    );
+  }
+  if (actions.childNodes.length) card.append(actions);
+  if (composer) {
+    composer.gone.hidden = true;
+    card.append(composerEl(view, composer));
+  }
+  return card;
+}
+
+/** A composer's element, its note naming the container as it is now. */
+function composerEl(view, c) {
+  c.note.textContent =
+    `Posted as you through ${view.data?.container}'s devc-bridge, prefixed with 🤖. Max 4000 bytes.`;
+  return c.el;
+}
+
+/** Opens a reply composer under a thread, focused. */
+function openComposer(view, thread) {
+  let c = view.composers.get(thread);
+  if (!c) {
+    const textarea = /** @type {HTMLTextAreaElement} */ (h('textarea', {
+      class: 'composer-text',
+      rows: '4',
+      'aria-label': 'Reply',
+    }));
+    const send = /** @type {HTMLButtonElement} */ (h('button', {
+      type: 'button',
+      class: 'composer-send',
+      onclick: () => void sendReply(view, c),
+    }, 'Reply'));
+    const cancel = /** @type {HTMLButtonElement} */ (h('button', {
+      type: 'button',
+      onclick: () => closeComposer(view, c),
+    }, 'Cancel'));
+    textarea.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+        e.preventDefault();
+        void sendReply(view, c);
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        closeComposer(view, c);
+      }
+    });
+    const gone = h(
+      'div',
+      { class: 'composer-gone', hidden: true },
+      THREAD_GONE,
+    );
+    const note = h('div', { class: 'composer-note' });
+    const error = h('div', { class: 'composer-error', hidden: true });
+    const el = h(
+      'div',
+      { class: 'composer' },
+      gone,
+      textarea,
+      h('div', { class: 'composer-actions' }, send, cancel),
+      note,
+      error,
+    );
+    c = {
+      thread,
+      el,
+      textarea,
+      note,
+      error,
+      gone,
+      buttons: [send, cancel],
+      sending: false,
+    };
+    view.composers.set(thread, c);
+  }
+  renderDiff(view);
+  c.textarea.focus();
+}
+
+const THREAD_GONE = 'This thread is resolved or gone';
+
+function closeComposer(view, c) {
+  if (c.sending) return;
+  view.composers.delete(c.thread);
+  renderDiff(view);
+}
+
+/**
+ * Sends a composer's reply (`pr_reply`). The composer is disabled while it goes; on success it
+ * closes and the threads are listed again; on failure its text stays, the error under it.
+ *
+ * @param {DiffView} view @param {Composer} c
+ */
+async function sendReply(view, c) {
+  const ref = view.tile.diff;
+  if (c.sending || !ref) return;
+  c.sending = true;
+  c.textarea.disabled = true;
+  for (const b of c.buttons) b.disabled = true;
+  c.error.hidden = true;
+  let message = null;
+  try {
+    const r = await call({
+      type: 'pr_reply',
+      ...ref,
+      thread: c.thread,
+      body: c.textarea.value,
+    });
+    if (r?.available === false) message = String(r.message ?? 'failed');
+  } catch (e) {
+    message = String(e?.message ?? e);
+  }
+  c.sending = false;
+  c.textarea.disabled = false;
+  for (const b of c.buttons) b.disabled = false;
+  if (diffViews.get(view.tile.id) !== view) return;
+  if (message !== null) {
+    c.error.textContent = message;
+    c.error.hidden = false;
+    c.textarea.focus();
+    return;
+  }
+  view.composers.delete(c.thread);
+  renderDiff(view);
+  void loadThreads(view);
+}
+
+/** Resolves a thread (`pr_resolve`), then lists the threads again. */
+async function resolveThread(view, thread) {
+  const ref = view.tile.diff;
+  if (!ref || view.resolving.has(thread.id)) return;
+  view.resolving.add(thread.id);
+  renderDiff(view);
+  try {
+    const r = await call({ type: 'pr_resolve', ...ref, thread: thread.id });
+    if (r?.available === false) errorToast(`Resolve failed: ${r.message}`);
+  } catch (e) {
+    errorToast(`Resolve failed: ${e?.message ?? e}`);
+  } finally {
+    view.resolving.delete(thread.id);
+  }
+  if (diffViews.get(view.tile.id) !== view) return;
+  void loadThreads(view);
+}
+
+// ---------------------------------------------------------------------------------------------
 // "Add project…": the host folder picker
 // ---------------------------------------------------------------------------------------------
 
@@ -6423,17 +7504,18 @@ function previewTileNear(anchor) {
 }
 
 /**
- * Shows `ref` (a pane, or `{file}`) in the focused stack's preview tile: in place for a pane
- * replacing a pane, else a new tile in that tile's place; with no preview tile there, an empty
- * focused tile takes it, or a new preview tile joins the stack. The tile is revealed and focused.
+ * Shows `ref` (a pane, `{file}` or `{diff}`) in the focused stack's preview tile: in place for a
+ * pane replacing a pane, else a new tile in that tile's place; with no preview tile there, an
+ * empty focused tile takes a pane, or a new preview tile joins the stack. The tile is revealed and
+ * focused.
  *
- * @param {PaneRef | {file: FileRef}} ref
+ * @param {PaneRef | {file: FileRef} | {diff: import('./lib/layout_state.js').DiffRef}} ref
  */
 function openInPreview(ref) {
   if (!tiling) return;
   const anchor = targetTile();
   const preview = previewTileNear(anchor);
-  const isFile = 'file' in ref;
+  const isFile = 'file' in ref || 'diff' in ref;
   let tile;
   if (preview && !isFile && preview.kind === 'pane') {
     closeTilePane(preview.id);
@@ -6833,6 +7915,10 @@ function mountTile(tile) {
     mountFileTile(tile);
     return;
   }
+  if (tile.kind === 'diff') {
+    mountDiffTile(tile);
+    return;
+  }
   const termEl = h('div', { class: 'term' });
   const overlay = h('div', { class: 'overlay' });
   const body = h('div', { class: 'tile-body' }, termEl, overlay);
@@ -6914,6 +8000,10 @@ function mountTile(tile) {
 function unmountTile(tile) {
   if (tile.kind === 'file') {
     unmountFileTile(tile);
+    return;
+  }
+  if (tile.kind === 'diff') {
+    unmountDiffTile(tile);
     return;
   }
   const view = views.get(tile.id);

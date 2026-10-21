@@ -233,101 +233,101 @@ interface PrFile {
 
 **Stage 1: listing and tree**
 
-- [ ] `devc/web/pr_review.ts` (new): the lookup and grant check, bridge runs with the timeout and
+- [x] `devc/web/pr_review.ts` (new): the lookup and grant check, bridge runs with the timeout and
       cap, the `gh-pr-files` defensive parse, and the listing store
-- [ ] `protocol.ts`, `server.ts`: `pr_files`
-- [ ] `static/lib/pr_tree.js` (new): tree build and compaction, folder counts, and the
+- [x] `protocol.ts`, `server.ts`: `pr_files`
+- [x] `static/lib/pr_tree.js` (new): tree build and compaction, folder counts, and the
       bidi/zero-width marker split
-- [ ] `app.js`, `style.css`: the PR row, header, tree, and disabled checkboxes
-- [ ] `devc/deno.json`: `web/pr_review.ts` in the `check` task
+- [x] `app.js`, `style.css`: the PR row, header, tree, and disabled checkboxes
+- [x] `devc/deno.json`: `web/pr_review.ts` in the `check` task
 
 **Stage 2: diff tiles**
 
-- [ ] `pr_review.ts`, `protocol.ts`, `server.ts`: `pr_diff`, `fileUrl`
-- [ ] `static/lib/diff.js` (new): patch parser
-- [ ] `layout.js` (`COMPONENT_TYPES` gains `diff`), `layout_state.js` (`DiffRef`), `app.js`,
+- [x] `pr_review.ts`, `protocol.ts`, `server.ts`: `pr_diff`, `fileUrl`
+- [x] `static/lib/diff.js` (new): patch parser
+- [x] `layout.js` (`COMPONENT_TYPES` gains `diff`), `layout_state.js` (`DiffRef`), `app.js`,
       `style.css`: the tile, its restore, and opening from the tree
 
 **Stage 3: threads**
 
-- [ ] `pr_review.ts`, `protocol.ts`, `server.ts`: `pr_threads`, the thread parse, and `other_pr`
-- [ ] `diff.js`, `app.js`: placement, File threads, and cards
+- [x] `pr_review.ts`, `protocol.ts`, `server.ts`: `pr_threads`, the thread parse, and `other_pr`
+- [x] `diff.js`, `app.js`: placement, File threads, and cards
 
 **Stage 4: writes**
 
-- [ ] `pr_review.ts`, `protocol.ts`, `server.ts`: `pr_viewed`, `pr_reply`, `pr_resolve`
-- [ ] `app.js`: the Viewed toggle, composer, Resolve, and re-listing
+- [x] `pr_review.ts`, `protocol.ts`, `server.ts`: `pr_viewed`, `pr_reply`, `pr_resolve`
+- [x] `app.js`: the Viewed toggle, composer, Resolve, and re-listing
 
 **Docs and plan cleanup**
 
-- [ ] `devc/README.md`: a **Pull requests** bullet in the devc web section (the row, the diff
+- [x] `devc/README.md`: a **Pull requests** bullet in the devc web section (the row, the diff
       tile, which grant enables what, the `🤖` prefix, and that everything goes through the
       container's bridge). Security: devc web runs no `gh`, and its PR reads and writes are
       bridge commands in the container.
-- [ ] `docs/bridge-github.md`: a short note that devc web uses these commands, so a grant also
+- [x] `docs/bridge-github.md`: a short note that devc web uses these commands, so a grant also
       enables them in devc web for that repo
-- [ ] `.plans/PLAN.md`: this plan's entry replaces `devc-desktop-pr-review`'s
+- [x] `.plans/PLAN.md`: this plan's entry replaces `devc-desktop-pr-review`'s
 
 ## Validation
 
-- [ ] `(cd devc && deno task check && deno task test)` passes
-- [ ] `deno fmt --check` passes for every touched file (from the repo root)
-- [ ] `devc/tests/web_pr_review_test.ts` (new; temp home with policy files, and a stub
+- [x] `(cd devc && deno task check && deno task test)` passes
+- [x] `deno fmt --check` passes for every touched file (from the repo root)
+- [x] `devc/tests/web_pr_review_test.ts` (new; temp home with policy files, and a stub
       `docker` that logs argv and answers from fixtures):
-  - [ ] **Lookup:**
-    - [ ] no policy → `no_grant`;
-    - [ ] a line for another repo → `no_grant`;
-    - [ ] `gh-push` only → `no_grant`;
-    - [ ] `gh-pr-read` → runs, and `gh-pr-reply` without `gh-pr-read` (a malformed policy) →
+  - [x] **Lookup:**
+    - [x] no policy → `no_grant`;
+    - [x] a line for another repo → `no_grant`;
+    - [x] `gh-push` only → `no_grant`;
+    - [x] `gh-pr-read` → runs, and `gh-pr-reply` without `gh-pr-read` (a malformed policy) →
           `no_grant`;
-    - [ ] `resolveScope` is `any`, `copilot` and `null` for the three grant sets;
-    - [ ] a trailing `/` on `root` matches;
-    - [ ] a stopped container → `not_running`;
-    - [ ] the policy is re-read per message (delete it between two `pr_files` → the second is
+    - [x] `resolveScope` is `any`, `copilot` and `null` for the three grant sets;
+    - [x] a trailing `/` on `root` matches;
+    - [x] a stopped container → `not_running`;
+    - [x] the policy is re-read per message (delete it between two `pr_files` → the second is
           `no_grant`).
-  - [ ] **Argv:** exactly
+  - [x] **Argv:** exactly
         `docker exec … devc-bridge gh-pr-files --repo <target>`. A reply body of `--repo x`, one of
         `@/etc/passwd` and one of `$(id)` are each one argv element, passed through untouched.
-  - [ ] **Parse:**
-    - [ ] a bad `pr.url`, a 39-hex `headSha` → `unexpected bridge output`;
-    - [ ] a file with `\0` in its path is dropped;
-    - [ ] status `weird` → `modified`;
-    - [ ] a 4 MiB + 1 patch → `null`;
-    - [ ] 3001 files → 3000;
-    - [ ] a thread id `x` is dropped;
-    - [ ] bodies are capped.
-  - [ ] **Limits:** a stub that sleeps past a 200 ms test timeout gives `bridge`, and one that
+  - [x] **Parse:**
+    - [x] a bad `pr.url`, a 39-hex `headSha` → `unexpected bridge output`;
+    - [x] a file with `\0` in its path is dropped;
+    - [x] status `weird` → `modified`;
+    - [x] a 4 MiB + 1 patch → `null`;
+    - [x] 3001 files → 3000;
+    - [x] a thread id `x` is dropped;
+    - [x] bodies are capped.
+  - [x] **Limits:** a stub that sleeps past a 200 ms test timeout gives `bridge`, and one that
         writes 64 MiB + 1 gives `bridge output too large`.
-  - [ ] **Writes:**
-    - [ ] `pr_viewed` without `gh-pr-viewed` is refused, and a path not in the listing →
+  - [x] **Writes:**
+    - [x] `pr_viewed` without `gh-pr-viewed` is refused, and a path not in the listing →
           `not_found`;
-    - [ ] the body rules for `pr_reply` hold;
-    - [ ] `pr_resolve` is refused with neither resolve grant, for a human's thread with only
+    - [x] the body rules for `pr_reply` hold;
+    - [x] `pr_resolve` is refused with neither resolve grant, for a human's thread with only
           `gh-pr-resolve-copilot`, and for a resolved thread. It runs for a human's thread with
           `gh-pr-resolve`.
-    - [ ] `pr_threads` runs `gh-pr-comments --state all`.
-  - [ ] **Diff:** `fileUrl` for `src/a.ts` is the PR URL + `/files#diff-` + its SHA-256, and
+    - [x] `pr_threads` runs `gh-pr-comments --state all`.
+  - [x] **Diff:** `fileUrl` for `src/a.ts` is the PR URL + `/files#diff-` + its SHA-256, and
         `pr_diff` with no stored listing fetches one.
-- [ ] `devc/tests/web_pr_tree_test.ts` (new, pure): `a/b/c/x.ts`, `a/b/c/y.ts`, `a/z.ts`
+- [x] `devc/tests/web_pr_tree_test.ts` (new, pure): `a/b/c/x.ts`, `a/b/c/y.ts`, `a/z.ts`
       compact to `a` holding `b/c` and `z.ts`. Also sort order, folder counts, and U+202E and
       U+200B as markers.
-- [ ] `devc/tests/web_diff_test.ts` (new, pure): hunk parse with numbering, the
+- [x] `devc/tests/web_diff_test.ts` (new, pure): hunk parse with numbering, the
       `\ No newline` row, raw text after a bad line, and thread placement (new-file line, `null`
       and unmatched → File threads).
-- [ ] `web_server_test.ts`: the new messages parse, and a bad shape is `bad_request`.
-- [ ] Headless Chromium (Playwright, as devc-web-agent-sessions), devc web page with a fake
+- [x] `web_server_test.ts`: the new messages parse, and a bad shape is `bad_request`.
+- [x] Headless Chromium (Playwright, as devc-web-agent-sessions), devc web page with a fake
       WebSocket:
-  - [ ] Opening the PR row sends `pr_files`, then shows the header and a compacted tree.
+  - [x] Opening the PR row sends `pr_files`, then shows the header and a compacted tree.
         `no_grant` shows the hint line.
-  - [ ] Checkboxes are disabled without `canViewed`. With it, a toggle sends `pr_viewed` and
+  - [x] Checkboxes are disabled without `canViewed`. With it, a toggle sends `pr_viewed` and
         updates the counts, and a failing reply puts it back with a toast.
-  - [ ] A file click opens a `diff` tile with numbered hunks, and a second click reuses it. A
+  - [x] A file click opens a `diff` tile with numbered hunks, and a second click reuses it. A
         reload restores it by sending `pr_diff`.
-  - [ ] Threads land after their new-file line, and unmatched ones in File threads. Resolve shows on
+  - [x] Threads land after their new-file line, and unmatched ones in File threads. Resolve shows on
         every unresolved thread with `resolveScope:'any'`, only on Copilot's with `'copilot'`, and on
         none with `null`. Resolved threads fold into `Resolved (n)`, and **Show resolved** opens them. Reply hides without `canReply`.
-  - [ ] Reply sends `pr_reply` and re-lists, and on failure keeps the text.
-  - [ ] A title `<img src=x onerror=alert(1)>`, and a comment body with HTML and U+202E, show as
+  - [x] Reply sends `pr_reply` and re-lists, and on failure keeps the text.
+  - [x] A title `<img src=x onerror=alert(1)>`, and a comment body with HTML and U+202E, show as
         text and a marker, with no new element and no page error.
 - [ ] By the user, with real `gh` and a container started with
       `--bridge-allow gh-pr-read,gh-pr-reply,gh-pr-viewed,gh-pr-resolve` (or the same as
@@ -343,6 +343,43 @@ interface PrFile {
   - [ ] Re-run `devc up --bridge-allow gh-pr-read`: Viewed checkboxes, Reply and Resolve are
         gone after ⟳.
   - [ ] `devc up --bridge-allow none`: the row shows the grant hint.
+
+**Not verified — needs the user (2026-10-21):** the "By the user, with real `gh`" items above.
+There is no Docker or GitHub login where this was built, so the real bridge round trip could
+only be stubbed (`web_pr_review_test.ts`'s fake `docker`).
+
+## Verification (2026-10-21)
+
+- `deno task check` passes; `deno task test`: 581 passed, 0 failed. `deno fmt --check` passes
+  for every touched file.
+- Headless Chromium (Playwright 1.48.2, chromium 1140, installed in a scratch folder for the
+  run) against `devc/web/static` with a fake WebSocket answering `list_dir` and the six `pr_*`
+  messages: 51 checks pass, no page errors. Covered: the closed row sends nothing until opened;
+  opening sends `pr_files` with only `localFolder` and `root`; `no_grant` shows the hint line;
+  the header (`#7`, an `<img onerror>` title as text with no element), `1/4`, the `src` →
+  `web/lib` compaction, sort order, status letters, folder counts, the rename tooltip, and
+  `DISMISSED` unchecked; disabled checkboxes with their tooltip, then ⟳ with `canViewed`, a
+  toggle sending `pr_viewed` and moving the counts, and a failing one put back with a toast; a
+  file click opening a `diff` tile (`x.ts · #7`, numbered rows, `threads via app's bridge`), a
+  second click reusing it, and a reload restoring it with `pr_diff`; threads after their
+  new-file rows, unmatched and `null` ones in File threads; Resolve on every unresolved thread
+  with `'any'`, only Copilot's with `'copilot'`, none with `null`; `Resolved (1)` closed, its
+  fold and **Show resolved** opening it, with Reply but no Resolve; Reply hidden without
+  `canReply`; Resolve sending `pr_resolve` and re-listing; a failed reply keeping its text and
+  error, a sent one closing and re-listing; a composer with text surviving ⟳, and saying
+  `This thread is resolved or gone` once its thread is gone; Escape cancelling; a comment body
+  with HTML and U+202E shown as text with a `⟨U+202E⟩` marker; `not_found` showing the message
+  and Retry.
+- Beyond the plan: a folder's open-by-default state is taken when the page first draws it, so
+  marking the last file of a folder Viewed doesn't snap the folder shut under the pointer (it
+  starts closed on the next page load). Ctrl/⌘-click on a PR file opens a new tile in the
+  focused stack unless one already shows it (then that one is kept open), as the plan's
+  "same DiffRef again activates the existing tile" asks. The Containers Collapse all also closes
+  Pull request rows.
+- The `pr_*` messages are routed in `server.ts`'s `handle` **before** the `localFolder` →
+  `handleProject` check, not after it as the gotcha says: they carry `localFolder`, so after
+  that check they would never reach the per-container switch. They find the project's running
+  container themselves.
 
 ## Relevant Files
 

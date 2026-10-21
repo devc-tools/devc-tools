@@ -16,6 +16,14 @@ import { defaultView, fileView } from './media.js';
  */
 
 /**
+ * A pull request file shown in a diff tile: `path` is the file's path in the PR of the repo at
+ * `root`, one of the repo folders of the project at `localFolder` (the `pr_diff` message's
+ * fields).
+ *
+ * @typedef {{localFolder: string, root: string, path: string}} DiffRef
+ */
+
+/**
  * A tile's component state as a pane reference: only an object with string `localFolder` and
  * `pane_id` (both non-empty) is one. Anything else — `{}` for an empty tile included — is `null`.
  *
@@ -58,6 +66,36 @@ export function fileRefFromState(state) {
     }),
     view === 'text' || view === 'media' ? view : undefined,
   );
+}
+
+/**
+ * A diff tile's component state as a diff reference: only an object whose `localFolder`, `root`
+ * and `path` are all non-empty strings is one. Anything else is `null`.
+ *
+ * @param {unknown} state
+ * @returns {DiffRef | null}
+ */
+export function diffRefFromState(state) {
+  if (typeof state !== 'object' || state === null || Array.isArray(state)) {
+    return null;
+  }
+  const { localFolder, root, path } =
+    /** @type {Record<string, unknown>} */ (state);
+  for (const v of [localFolder, root, path]) {
+    if (typeof v !== 'string' || v === '') return null;
+  }
+  return /** @type {DiffRef} */ ({ localFolder, root, path });
+}
+
+/**
+ * Whether two diff references name the same file of the same repo's PR.
+ *
+ * @param {DiffRef} a
+ * @param {DiffRef} b
+ */
+export function sameDiff(a, b) {
+  return a.localFolder === b.localFolder && a.root === b.root &&
+    a.path === b.path;
 }
 
 /**
@@ -118,16 +156,20 @@ export function tilesShowingPane(tiles, ref) {
 }
 
 /**
- * What a tile shows, as its Golden Layout component type and state: `{file}` a file tile, a
- * `PaneRef` a pane tile, `null` an empty pane tile. A preview tile (see {@link previewFromState})
- * carries `preview: true` beside the reference.
+ * What a tile shows, as its Golden Layout component type and state: `{file}` a file tile,
+ * `{diff}` a diff tile, a `PaneRef` a pane tile, `null` an empty pane tile. A preview tile (see
+ * {@link previewFromState}) carries `preview: true` beside the reference.
  *
- * @param {PaneRef | {file: FileRef} | null} ref
+ * @param {PaneRef | {file: FileRef} | {diff: DiffRef} | null} ref
  * @param {boolean} [preview]
- * @returns {{type: 'pane' | 'file', state: Record<string, string | boolean>}}
+ * @returns {{type: 'pane' | 'file' | 'diff', state: Record<string, string | boolean>}}
  */
 export function tileContent(ref, preview = false) {
   const flag = preview ? { preview: true } : {};
+  if (ref && 'diff' in ref) {
+    const { localFolder, root, path } = ref.diff;
+    return { type: 'diff', state: { localFolder, root, path, ...flag } };
+  }
   if (ref && 'file' in ref) {
     const { localFolder, root, path, container, view } = withView(
       ref.file,

@@ -13,6 +13,7 @@ import {
   ResolvedItemConfig,
 } from './vendor/golden-layout/golden-layout.mjs';
 import {
+  diffRefFromState,
   fileRefFromState,
   paneRefFromState,
   previewFromState,
@@ -20,23 +21,27 @@ import {
 } from './lib/layout_state.js';
 
 /**
- * The component types: `pane`, whose state is a PaneRef (or `{}` for an empty tile), and `file`,
- * whose state is a FileRef; either with `preview: true` on a preview tile.
+ * The component types: `pane`, whose state is a PaneRef (or `{}` for an empty tile), `file`,
+ * whose state is a FileRef, and `diff`, whose state is a DiffRef (a pull request file); any of
+ * them with `preview: true` on a preview tile.
  */
-const COMPONENT_TYPES = /** @type {const} */ (['pane', 'file']);
+const COMPONENT_TYPES = /** @type {const} */ (['pane', 'file', 'diff']);
 
 /** @typedef {import('./lib/layout_state.js').PaneRef} PaneRef */
 /** @typedef {import('./lib/layout_state.js').FileRef} FileRef */
-/** What a new tile shows: a pane, a file, or nothing (an empty pane tile). */
-/** @typedef {PaneRef | {file: FileRef} | null} TileRef */
+/** @typedef {import('./lib/layout_state.js').DiffRef} DiffRef */
+/** What a new tile shows: a pane, a file, a PR file's diff, or nothing (an empty pane tile). */
+/** @typedef {PaneRef | {file: FileRef} | {diff: DiffRef} | null} TileRef */
 /** @typedef {import('./lib/layout_state.js').LayoutNode} LayoutNode */
 
 /**
  * @typedef {object} Tile
  * @property {string} id                 stable for the tile's lifetime
- * @property {'pane' | 'file'} kind      a pane tile (a terminal) or a file tile (a viewer)
- * @property {PaneRef | null} ref        the pane this tile shows; always null on a file tile
- * @property {FileRef | null} file       the file a file tile shows; null on a pane tile
+ * @property {'pane' | 'file' | 'diff'} kind  a pane tile (a terminal), a file tile (a viewer)
+ *   or a diff tile (a pull request file)
+ * @property {PaneRef | null} ref        the pane this tile shows; always null on other tiles
+ * @property {FileRef | null} file       the file a file tile shows; null on other tiles
+ * @property {DiffRef | null} diff       the PR file a diff tile shows; null on other tiles
  * @property {HTMLElement} element       where app.js mounts the renderer and overlay
  * @property {(ref: PaneRef | null) => void} setRef   persists into the component state (pane tiles)
  * @property {boolean} preview           a preview tile: the next sidebar click replaces what it
@@ -168,12 +173,14 @@ export function createTiling(root, hooks) {
   for (const type of COMPONENT_TYPES) {
     layout.registerComponentFactoryFunction(type, (container, state) => {
       const file = type === 'file' ? fileRefFromState(state) : null;
+      const diff = type === 'diff' ? diffRefFromState(state) : null;
       /** @type {Tile} */
       const tile = {
         id: `t${++nextTileId}`,
         kind: type,
         ref: type === 'pane' ? paneRefFromState(state) : null,
         file,
+        diff,
         preview: previewFromState(state),
         element: container.element,
         setRef(ref) {
@@ -185,7 +192,14 @@ export function createTiling(root, hooks) {
           if (tile.preview === on) return;
           tile.preview = on;
           container.setState(
-            tileContent(tile.file ? { file: tile.file } : tile.ref, on).state,
+            tileContent(
+              tile.file
+                ? { file: tile.file }
+                : tile.diff
+                ? { diff: tile.diff }
+                : tile.ref,
+              on,
+            ).state,
           );
           applyBadge(container, tile);
         },

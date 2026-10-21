@@ -13,6 +13,7 @@ import {
   type TaskAction,
 } from './agents.ts';
 import { MAX_TASK_TEXT, taskText } from './tasks.ts';
+import type { PrMessage } from './pr_review.ts';
 
 /** The only Herdr methods a browser `request` may call. */
 export const REQUEST_METHODS: ReadonlySet<string> = new Set([
@@ -264,6 +265,8 @@ export type ClientMessage =
     /** The agent's session id: a uuid. */
     session: string;
   }
+  /** A repo's pull request, through its container's devc-bridge (see `pr_review.ts`). */
+  | PrMessage & { id: string }
   | { type: 'retry'; container: string }
   | { type: 'client_ready'; generation: string };
 
@@ -797,6 +800,53 @@ function parseFields(m: Obj): ClientMessage {
         container: str(m, 'container'),
         agent: m.agent,
         session: m.session,
+      };
+    case 'pr_files':
+      return {
+        type: 'pr_files',
+        id: str(m, 'id'),
+        localFolder: folder(m),
+        root: absolute(m, 'root'),
+      };
+    case 'pr_diff':
+    case 'pr_threads':
+      return {
+        type: m.type,
+        id: str(m, 'id'),
+        localFolder: folder(m),
+        root: absolute(m, 'root'),
+        path: str(m, 'path'),
+      };
+    case 'pr_viewed':
+      if (typeof m.viewed !== 'boolean') {
+        throw new Invalid(`'viewed' must be a boolean`);
+      }
+      return {
+        type: 'pr_viewed',
+        id: str(m, 'id'),
+        localFolder: folder(m),
+        root: absolute(m, 'root'),
+        path: str(m, 'path'),
+        viewed: m.viewed,
+      };
+    case 'pr_reply':
+      return {
+        type: 'pr_reply',
+        id: str(m, 'id'),
+        localFolder: folder(m),
+        root: absolute(m, 'root'),
+        path: str(m, 'path'),
+        thread: str(m, 'thread'),
+        body: text(m, 'body'),
+      };
+    case 'pr_resolve':
+      return {
+        type: 'pr_resolve',
+        id: str(m, 'id'),
+        localFolder: folder(m),
+        root: absolute(m, 'root'),
+        path: str(m, 'path'),
+        thread: str(m, 'thread'),
       };
     case 'retry':
       return { type: 'retry', container: str(m, 'container') };

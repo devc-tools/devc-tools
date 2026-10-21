@@ -143,6 +143,7 @@ import {
   type Rejection,
   rejectionReply,
 } from './protocol.ts';
+import { type PrMessage, PrReview } from './pr_review.ts';
 import { closeGracefully, liveProcs } from './proc.ts';
 import { paneScroll, toTextPoint } from './selection.ts';
 import {
@@ -665,6 +666,23 @@ export async function startWeb(
   >();
   const isListedProject = (localFolder: string) =>
     projectsMessage().projects.some((p) => p.localFolder === localFolder);
+  // Each repo's pull request, through its running container's devc-bridge: grants read from the
+  // host-only policy on every message, the last listing per repo kept here.
+  const prReview = new PrReview({
+    isRepo: (localFolder, root) =>
+      isProjectRepo(projectsMessage().projects, localFolder, root),
+    container: async (localFolder) => {
+      const session = [...sessions.values()].find((s) =>
+        s.record.localFolder === localFolder
+      );
+      if (!session) return null;
+      return {
+        info: await connectionOf(session),
+        name: basename(localFolder) || session.record.id.slice(0, 12),
+      };
+    },
+    home: Deno.env.get('HOME') ?? '.',
+  });
 
   const addContainer = (record: ContainerRecord) => {
     const id = record.id;
@@ -1836,6 +1854,27 @@ export async function startWeb(
     reply(c, { id: msg.id, ok: true, result: { ...created, reused: false } });
   };
 
+  /** A repo's pull request (`pr_files` … `pr_resolve`, see `pr_review.ts`). */
+  const handlePr = async (
+    c: Client,
+    msg: Extract<ClientMessage, { type: PrMessage['type'] }>,
+  ) => {
+    const { id, ...rest } = msg;
+    if (!isListedProject(msg.localFolder)) {
+      reject(c, { id, code: 'bad_request', message: 'unknown project' });
+      return;
+    }
+    let answer;
+    try {
+      answer = await prReview.handle(rest as PrMessage);
+    } catch (e) {
+      fail(c, id, 'pr_failed', e);
+      return;
+    }
+    if (answer.ok) reply(c, { id, ok: true, result: answer.result });
+    else fail(c, id, answer.code, answer.message);
+  };
+
   /** The messages about projects, which name a folder rather than a running container. */
   const handleProject = async (
     c: Client,
@@ -1984,6 +2023,15 @@ export async function startWeb(
       msg.type === 'send_task' || msg.type === 'open_sent'
     ) {
       await handleTask(c, msg);
+      return;
+    }
+    // Before the `localFolder` check: these name a repo of a project, and need its container.
+    if (
+      msg.type === 'pr_files' || msg.type === 'pr_diff' ||
+      msg.type === 'pr_threads' || msg.type === 'pr_viewed' ||
+      msg.type === 'pr_reply' || msg.type === 'pr_resolve'
+    ) {
+      await handlePr(c, msg);
       return;
     }
     if ('localFolder' in msg) {

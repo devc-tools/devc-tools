@@ -274,6 +274,13 @@ reply instead`. It prints one line on success, and both exit 0:
   GitHub or a human, can resolve a thread between your reply and the resolve.
   That isn't an error.
 
+**devc web uses these same commands.** Its **Pull request** rows and diff tiles
+run `gh-pr-files`, `gh-pr-comments`, `gh-pr-viewed`, `gh-pr-reply` and
+`gh-pr-resolve` in the container, never `gh` on the host, so a grant on a repo
+also enables the matching controls in devc web for that repo: Viewed
+checkboxes with `gh-pr-viewed`, Reply with `gh-pr-reply`, Resolve with either
+resolve grant.
+
 ### The loop
 
 1. `gh-pr-comments --state unresolved`. If `copilotReview.pending` is `true`, or `copilotReview.commit`

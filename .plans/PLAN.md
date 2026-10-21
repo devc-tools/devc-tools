@@ -55,13 +55,6 @@
   generalized from vscode-deephaven's `vscode-dev.sh`. chrome-devtools-mcp registration stays
   with the consuming project. Replaces the `feature-electron-deps` placeholder.
 
-- [devc-web-pr-review](devc-web-pr-review.md) — after bridge-pr-grant-split: a **Pull
-  request** row under each repo of a running container shows the pinned branch's PR as a tree of
-  changed files with Viewed checkboxes, and a click opens a `diff` tile with its review threads.
-  Every read and write is a `devc-bridge` command in that container, enabled by the host-only
-  policy's grants (read on every message). devc web never runs `gh`, and devc-desktop doesn't
-  change. Replaces the devc-desktop panel design.
-
 ### Standing rules for Feature work
 
 Not a plan group — these are the conventions every Feature plan in this file
@@ -104,6 +97,13 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
   take it too.
 
 ### Completed
+
+- [devc-web-pr-review](archived/devc-web-pr-review.md) — after bridge-pr-grant-split: a **Pull
+  request** row under each repo of a running container shows the pinned branch's PR as a tree of
+  changed files with Viewed checkboxes, and a click opens a `diff` tile with its review threads.
+  Every read and write is a `devc-bridge` command in that container, enabled by the host-only
+  policy's grants (read on every message). devc web never runs `gh`, and devc-desktop doesn't
+  change. Replaces the devc-desktop panel design.
 
 - [bridge-pr-grant-split](archived/bridge-pr-grant-split.md) — PR grants split by read/write: `gh-pr-read`
   reads (`gh-pr-comments` now lists all threads, with `--state unresolved|resolved|all` and
@@ -2396,5 +2396,5 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
 | `devc web` agent sessions — a Sessions node per container lists and resumes recent agent sessions                  | [devc-web-agent-sessions](archived/devc-web-agent-sessions.md)                     | complete    |
 | devc-bridge read tier — `gh-pr-read`/`gh-pr-files`, `gh-pr-viewed`, `bridgeDefaultAllow` in config.json            | [bridge-read-tier-defaults](archived/bridge-read-tier-defaults.md)                 | complete    |
 | devc-bridge PR grant split — read vs write, `gh-pr-reply`, any-thread resolve + `gh-pr-resolve-copilot`            | [bridge-pr-grant-split](archived/bridge-pr-grant-split.md)                         | complete    |
-| devc web PR review — sidebar PR tree + Viewed, diff tiles with threads, all through the container's bridge         | [devc-web-pr-review](devc-web-pr-review.md)                                        |             |
+| devc web PR review — sidebar PR tree + Viewed, diff tiles with threads, all through the container's bridge         | [devc-web-pr-review](archived/devc-web-pr-review.md)                               | complete    |
 | devc web sidebar scale fixes — Tasks section, In use merged by folder, running sessions not resumed twice          | [devc-web-sidebar-scale-fixes](archived/devc-web-sidebar-scale-fixes.md)           | complete    |

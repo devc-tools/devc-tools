@@ -2068,3 +2068,330 @@ button.primary.danger {
   gap: 6px;
   align-items: center;
 }
+
+/* Pull request rows (`pr_files`): the header, the changed files as a tree, Viewed checkboxes. */
+.row.tree-note[data-note='hint'] {
+  font-style: normal;
+}
+
+.pr-number {
+  margin-right: 5px;
+  color: var(--muted);
+}
+
+.pr-state {
+  font-size: 11px;
+  color: var(--blocked);
+}
+
+.pr-count,
+.pr-stat {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.row.pr-dir[data-dim] .pr-count {
+  opacity: 0.75;
+}
+
+.pr-viewed {
+  flex: none;
+  width: 12px;
+  height: 12px;
+  margin: 0 5px 0 0;
+  vertical-align: -2px;
+  accent-color: var(--accent);
+}
+
+.pr-status {
+  display: inline-block;
+  width: 1.1em;
+  margin-right: 3px;
+  font-family: ui-monospace, monospace;
+  font-size: 11px;
+  font-weight: 650;
+  text-align: center;
+  color: var(--blocked);
+}
+
+.pr-status[data-status='A'] {
+  color: var(--done);
+}
+
+.pr-status[data-status='D'] {
+  color: var(--danger);
+}
+
+.pr-status[data-status='R'],
+.pr-status[data-status='C'] {
+  color: var(--working);
+}
+
+/* A bidi control or zero-width character in untrusted text, shown instead of applied. */
+.invisible-mark {
+  display: inline-block;
+  margin: 0 1px;
+  padding: 0 3px;
+  border-radius: 3px;
+  font-family: ui-monospace, monospace;
+  font-size: 10px;
+  font-style: normal;
+  white-space: nowrap;
+  color: #1a1206;
+  background: var(--blocked);
+}
+
+/* A diff tile: a PR file's unified diff with its review threads. */
+.diff-view {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  color: var(--text);
+}
+
+.diff-header {
+  flex: none;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--tile-head-line);
+  background: var(--panel);
+}
+
+.diff-head-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.diff-path {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: ui-monospace, monospace;
+  font-size: 12px;
+}
+
+.diff-head-fill {
+  flex: 1;
+}
+
+.diff-show-resolved {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.diff-via {
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.diff-body {
+  flex: 1;
+  overflow: auto;
+}
+
+.diff-message {
+  display: grid;
+  gap: 8px;
+  justify-items: center;
+  padding: 24px 16px;
+  text-align: center;
+  color: var(--muted);
+}
+
+.diff-note {
+  padding: 4px 10px;
+  font-style: italic;
+  color: var(--muted);
+}
+
+.diff-note[data-note='error'] {
+  color: var(--danger);
+}
+
+.file-threads {
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.file-threads-title {
+  padding: 2px 10px;
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--section);
+}
+
+.diff-table {
+  font-family: ui-monospace, monospace;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.diff-hunk {
+  padding: 2px 10px;
+  color: var(--muted);
+  background: var(--panel-2);
+  white-space: pre;
+}
+
+.diff-row {
+  display: grid;
+  grid-template-columns: 4.5em 4.5em 1fr;
+}
+
+.diff-row[data-kind='add'] {
+  background: #17331f;
+}
+
+.diff-row[data-kind='del'] {
+  background: #3a1a1d;
+}
+
+.diff-row[data-kind='note'] {
+  color: var(--muted);
+  opacity: 0.75;
+}
+
+.diff-num {
+  padding: 0 6px;
+  text-align: right;
+  color: var(--muted);
+  user-select: none;
+}
+
+.diff-text {
+  padding-left: 8px;
+  white-space: pre;
+}
+
+.diff-rest {
+  margin: 0;
+  padding: 6px 10px;
+  font-size: 12px;
+  white-space: pre-wrap;
+  color: var(--muted);
+}
+
+.diff-threads {
+  padding: 4px 10px 4px 9em;
+  font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+  font-size: 13px;
+}
+
+.file-threads .thread-card,
+.file-threads .resolved-fold,
+.file-threads .composer {
+  margin-left: 10px;
+  margin-right: 10px;
+}
+
+.thread-card {
+  margin: 4px 0;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--panel);
+}
+
+.thread-card[data-resolved] {
+  opacity: 0.8;
+}
+
+.thread-comment + .thread-comment {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid var(--border);
+}
+
+.thread-meta {
+  display: flex;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.thread-author {
+  font-weight: 600;
+  color: var(--tile-repo);
+}
+
+.thread-tag {
+  color: var(--blocked);
+}
+
+.thread-body {
+  margin-top: 2px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.thread-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.resolved-fold {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin: 4px 0;
+  padding: 1px 6px;
+  border: none;
+  background: none;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.resolved-fold[aria-expanded='true'] > .chevron::before {
+  transform: translateY(-75%) rotate(45deg);
+}
+
+.composer {
+  display: grid;
+  gap: 4px;
+  margin: 6px 0 2px;
+}
+
+.composer-text {
+  width: 100%;
+  min-height: 4em;
+  resize: vertical;
+  font: inherit;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 4px 6px;
+}
+
+.composer-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.composer-note {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.composer-error,
+.composer-gone {
+  font-size: 12px;
+  color: var(--danger);
+  white-space: pre-wrap;
+}
+
+.composer-error[hidden],
+.composer-gone[hidden] {
+  display: none;
+}
