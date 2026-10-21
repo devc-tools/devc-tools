@@ -32,7 +32,7 @@ export interface AgentSession {
   cwd: string;
   /** The host folder of the repo whose container folder holds `cwd`. */
   root: string;
-  /** Last activity, ISO, from the file's mtime. */
+  /** Last activity, ISO: a Claude session's last `timestamp`, else the file's mtime. */
   updatedAt: string;
   /** The Herdr pane (of the server's Herdr session) a live agent process has it open in. */
   pane_id?: string;
@@ -105,7 +105,8 @@ true
  * Lists candidate sessions, newest first, `$1` per agent: Claude's only in the folders whose names
  * start with the arguments before `:`, pi's with those after it, Copilot's all (it keeps no
  * per-folder dirs). Per session a line `S <agent> <mtime> <path>`, then tagged `grep -o` matches:
- * claude `C` (first cwd) and `T` (last of each title key); pi `H` (header id and cwd), `N` (last
+ * claude `C` (first cwd), `T` (last of each title key) and `L` (last `timestamp` in its last
+ * 256 KiB); pi `H` (header id and cwd), `N` (last
  * session name), `U` (first user text); copilot `Y` (`workspace.yaml` lines). Then
  * {@link RUNNING_SCRIPT}'s `R` lines. No `${…}` in it: this is a template literal.
  */
@@ -121,6 +122,7 @@ newest | while read -r m f; do
   grep -m1 -oE "\"cwd\":$S" "$f" | head -n1 | sed 's/^/C /'
   grep -oE "\"(customTitle|aiTitle|lastPrompt)\":$S" "$f" |
     awk -F'"' '{l[$2]=$0} END{for(k in l) print "T " l[k]}'
+  tail -c 262144 "$f" | grep -oE '"timestamp":"[0-9]{4}-[0-9]{2}-[0-9]{2}T[^"]*"' | tail -n1 | sed 's/^/L /'
 done
 on=; for a; do [ -n "$on" ] && stat -c '%Y %n' "$p/$a"*/*.jsonl; [ "$a" = : ] && on=1; done 2>/dev/null |
 newest | while read -r m f; do
@@ -201,6 +203,7 @@ function rawSession(b: Block): RawSession | null {
   let session = '';
   let cwd = '';
   let title = '';
+  let mtime = b.mtime;
   if (b.agent === 'claude') {
     session = baseName(b.path).replace(/\.jsonl$/, '');
     cwd = pairs('C').find(([k]) => k === 'cwd')?.[1] ?? '';
@@ -210,6 +213,10 @@ function rawSession(b: Block): RawSession | null {
       titles.get('aiTitle'),
       titles.get('lastPrompt'),
     ].map((t) => taskTitle(t ?? '')).find((t) => t !== '') ?? '';
+    // Claude appends untimed lines (`away_summary`, `mode`) to old sessions, touching the file:
+    // its last timestamped line is when the session was last at work.
+    const last = Date.parse(pairs('L').at(-1)?.[1] ?? '');
+    if (Number.isFinite(last)) mtime = Math.floor(last / 1000);
   } else if (b.agent === 'pi') {
     const header = new Map(pairs('H'));
     session = header.get('id') ?? '';
@@ -236,7 +243,7 @@ function rawSession(b: Block): RawSession | null {
     session,
     title: title || UNTITLED,
     cwd,
-    mtime: b.mtime,
+    mtime,
   };
 }
 

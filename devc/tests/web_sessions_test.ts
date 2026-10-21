@@ -165,6 +165,20 @@ Deno.test('parseSessionsOutput cuts titles at 80 characters', () => {
   assertEquals(s.title, `${'x'.repeat(79)}…`);
 });
 
+Deno.test('parseSessionsOutput dates a Claude session by its last timestamp, else its mtime', () => {
+  const out = [
+    `S claude 900 /p/${U1}.jsonl`,
+    'C "cwd":"/w"',
+    'L "timestamp":"1970-01-01T00:01:40.900Z"',
+    `S claude 800 /p/${U2}.jsonl`,
+    'C "cwd":"/w"',
+    'L "timestamp":"not a date"',
+    `S claude 700 /p/${U3}.jsonl`,
+    'C "cwd":"/w"',
+  ].join('\n');
+  assertEquals(parseSessionsOutput(out).map((s) => s.mtime), [100, 800, 700]);
+});
+
 const raw = (
   session: string,
   cwd: string,
@@ -231,12 +245,23 @@ async function homeFixture(): Promise<string> {
       type: 'attachment',
       attachment: { text: 'mentions "cwd":"/elsewhere" escaped' },
     },
-    { type: 'user', cwd: '/workspaces/app', message: { content: 'hi' } },
-    { type: 'user', cwd: '/workspaces/app/sub' },
+    {
+      type: 'user',
+      cwd: '/workspaces/app',
+      message: { content: 'hi' },
+      timestamp: '1970-01-01T00:13:20.000Z',
+    },
+    {
+      type: 'user',
+      cwd: '/workspaces/app/sub',
+      timestamp: '1970-01-01T00:16:40.500Z',
+    },
     { type: 'ai-title', aiTitle: 'Old title' },
     { type: 'custom-title', customTitle: 'My "named" session' },
     { type: 'ai-title', aiTitle: 'Newer ai title' },
-  ], 1000);
+    // Claude appends untimed lines to an old session, touching the file long after its last turn.
+    { type: 'system', subtype: 'away_summary', content: 'later' },
+  ], 9000);
   await write(`${claude}/-workspaces-app-sub/${U2}.jsonl`, [
     { type: 'user', cwd: '/workspaces/app/sub' },
     { type: 'last-prompt', lastPrompt: 'first\nprompt' },
@@ -335,6 +360,7 @@ Deno.test({
         ],
       );
       assertEquals(sessions[0].updatedAt, new Date(4_000_000).toISOString());
+      assertEquals(sessions[3].updatedAt, new Date(1_000_000).toISOString());
       assertEquals(calls.length, 1);
       const sh = calls[0].indexOf('sh');
       assertEquals(calls[0].slice(sh, sh + 2), ['sh', '-c']);
