@@ -904,7 +904,7 @@ const LABELS = {
   loadingSessions: 'Loading…',
   refreshSessions: 'Refresh sessions',
   resumeSession: 'Resume session',
-  resumeSessionMenu: 'Resume session…',
+  resumeSessionMenu: 'Resume…',
   copySessionId: 'Copy session id',
   openHere: 'Open terminal here',
   newTerminal: 'New terminal',
@@ -1487,7 +1487,7 @@ function sectionRow(title, open, onToggle, trail = '', oncontextmenu) {
 /** How old a session may be to give a repo with nothing else open its own In use group. */
 const IN_USE_SESSION_MS = 24 * 60 * 60 * 1000;
 
-/** In use groups whose Resume session… row is open (per page). */
+/** In use groups whose Resume… row is open (per page). */
 const inUseSessionsOpen = new Set();
 
 /** The tiles in layout order, each with whether it is the front tab of its stack. */
@@ -1671,7 +1671,7 @@ function rowContainer(localFolder) {
 /**
  * An In use group: its folder's row (parent path muted, name, branch; the same parts on every
  * group, no container), then while open its tiles, the agents running in it outside the layout,
- * each ending with its container, and a Resume session… row (its count at the right) that opens
+ * each ending with its container, and a Resume… row (its count at the right) that opens
  * to its past sessions. Open by default unless it has only sessions.
  */
 function inUseGroupRows(g, now) {
