@@ -126,9 +126,10 @@ Each is a place the implementation differs from the mockup on purpose. Say which
 ### F9–F15: many-container fixes
 
 30. **One group per host folder, so the same path can appear twice:** two different host folders
-    mounted at the same container path (`~/code/vscode-deephaven` and `~/.plans/vscode-deephaven`,
-    both at `/workspaces/vscode-deephaven`) are two groups with the same name and branch. Correct,
-    but they look alike; their tooltips differ. Open question for the review.
+    mounted at the same container path show as two groups with the same name. Resolved as no UI
+    issue: the one case seen was a mis-mounted `.plans` folder (`~/.plans/vscode-deephaven` at
+    `/workspaces/vscode-deephaven` in one container); every other container keeps `.plans` in the
+    container path, so names stay distinct.
 31. **A session's container is where it will be resumed, not where it ran.** Agent homes are
     shared, so every container mounting a folder lists the same sessions and nothing records which
     one ran it. In use keeps one row per session, in the folder's own container when it has one,
