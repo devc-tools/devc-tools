@@ -905,6 +905,14 @@ const STATE_TEXT = {
   error: 'error',
 };
 
+/** A container's views, one at a time under its row; Terminals until another is chosen. */
+const CONTAINER_TABS = /** @type {const} */ ([
+  'terminals',
+  'sessions',
+  'repos',
+  'files',
+]);
+
 /**
  * Collapsed containers (by local folder), containers whose Repos row is open, whether "Not
  * running" is open, which of its projects are expanded, each repo's open folders, and the
@@ -974,14 +982,6 @@ function loadSidebarState() {
     hidden: saved?.hidden === true,
   };
 }
-
-/** A container's views, one at a time under its row; Terminals until another is chosen. */
-const CONTAINER_TABS = /** @type {const} */ ([
-  'terminals',
-  'sessions',
-  'repos',
-  'files',
-]);
 
 function savedContainerTabs(v) {
   /** @type {Record<string, string>} */
