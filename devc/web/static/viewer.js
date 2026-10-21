@@ -101,7 +101,7 @@ const theme = EditorView.theme({
     height: '100%',
     color: 'var(--text)',
     backgroundColor: 'var(--term-bg)',
-    fontSize: '13px',
+    fontSize: 'var(--code-font-size)',
   },
   '.cm-scroller': {
     fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',

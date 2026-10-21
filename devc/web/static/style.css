@@ -35,8 +35,14 @@
   --tile-branch-mark: #7d93b3;
   --tile-container: #62748d;
   --tile-container-focus: #7b8fac;
+  /* Sizes to change to taste: UI text (VS Code's 13px; every other UI size is relative to it),
+     the terminals' and viewers' code text, and the gap between tiles (Golden Layout's
+     borderWidth, read once when the layout is made). */
+  --font-size: 13px;
+  --code-font-size: 13px;
+  --tile-gap: 10px;
   font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
-  font-size: 13px;
+  font-size: var(--font-size);
   color-scheme: dark;
 }
 
@@ -105,7 +111,7 @@ button:hover {
   padding: 4px 10px;
   border-top: 1px solid var(--border);
   background: var(--panel);
-  font-size: 11px;
+  font-size: calc(var(--font-size) - 1px);
   color: var(--muted);
   white-space: nowrap;
   overflow: hidden;
@@ -178,7 +184,7 @@ body.resizing-sidebar {
 }
 
 .brand {
-  font-size: 13px;
+  font-size: calc(var(--font-size) + 2px);
   font-weight: 700;
   letter-spacing: -0.3px;
 }
@@ -189,7 +195,7 @@ body.resizing-sidebar {
 
 .conn {
   margin-left: auto;
-  font-size: 10px;
+  font-size: calc(var(--font-size) - 1px);
   color: var(--muted);
 }
 
@@ -270,7 +276,7 @@ body.resizing-sidebar {
   flex-direction: column;
   min-height: 0;
   overflow: hidden;
-  font-size: 11px;
+  font-size: var(--font-size);
 }
 
 /* Three zones, each scrolling on its own, its heading kept at the top as it scrolls: the tasks,
@@ -378,7 +384,7 @@ body.resizing-zones {
 .row.in-use-group {
   min-height: 30px;
   margin-top: 2px;
-  font-size: 11.5px;
+  font-size: calc(var(--font-size) + 0.5px);
   font-weight: 600;
   color: #dde7f5;
 }
@@ -407,7 +413,7 @@ body.resizing-zones {
 /* The container a row inside an In use group is in: its label's last part, so the first cut. */
 .row-container {
   margin-left: 6px;
-  font-size: 9.5px;
+  font-size: calc(var(--font-size) - 1.5px);
   font-weight: 400;
   color: #6d7f98;
 }
@@ -464,7 +470,7 @@ body.resizing-zones {
   border-radius: 3px;
   background: transparent;
   color: #8fa5c3;
-  font-size: 10px;
+  font-size: calc(var(--font-size) - 1px);
 }
 
 .row.container-tabs button:hover {
@@ -478,7 +484,7 @@ body.resizing-zones {
 }
 
 .tab-count {
-  font-size: 9px;
+  font-size: calc(var(--font-size) - 2px);
   color: #7d90ab;
 }
 
@@ -495,7 +501,7 @@ body.resizing-zones {
 /* A view's own action (New terminal, Refresh sessions), in the link color. */
 .row.scope-action {
   color: #a3c5ee;
-  font-size: 10px;
+  font-size: calc(var(--font-size) - 1px);
 }
 
 /* A container row's agents: a dot and count per status. */
@@ -505,7 +511,7 @@ body.resizing-zones {
 }
 
 .status-rollup .badge {
-  font-size: 9px;
+  font-size: calc(var(--font-size) - 2px);
 }
 
 /* An agent that no tile shows. */
@@ -513,7 +519,7 @@ body.resizing-zones {
   padding: 0 4px;
   border: 1px solid #34445a;
   border-radius: 3px;
-  font-size: 9px;
+  font-size: calc(var(--font-size) - 2px);
   line-height: 14px;
   color: #7d90ab;
 }
@@ -523,14 +529,14 @@ body.resizing-zones {
 }
 
 .row.agent-session {
-  font-size: 10.5px;
+  font-size: calc(var(--font-size) - 0.5px);
   color: #9fb0c7;
   cursor: pointer;
 }
 
 /* An In use group's past sessions, behind one row: muted, so it reads apart from what runs. */
 .row.in-use-resume {
-  font-size: 10.5px;
+  font-size: calc(var(--font-size) - 0.5px);
   color: #8a9cb5;
   cursor: pointer;
 }
@@ -588,7 +594,7 @@ body.resizing-zones {
   min-height: 26px;
   margin-top: 9px;
   padding-left: 3px;
-  font-size: 9px;
+  font-size: calc(var(--font-size) - 2px);
   font-weight: 650;
   letter-spacing: 1.2px;
   text-transform: uppercase;
@@ -596,7 +602,7 @@ body.resizing-zones {
 }
 
 .row.section .row-trail {
-  font-size: 10px;
+  font-size: calc(var(--font-size) - 1px);
   font-weight: 400;
   letter-spacing: 0;
   text-transform: none;
@@ -771,7 +777,7 @@ body.resizing-zones {
 }
 
 .row-hover button:not(.icon-btn) {
-  font-size: 11px;
+  font-size: var(--font-size);
   padding: 0 6px;
 }
 
@@ -1003,7 +1009,7 @@ body.resizing-zones {
 }
 
 .row .state {
-  font-size: 11px;
+  font-size: var(--font-size);
   font-weight: 400;
   color: var(--muted);
 }
@@ -1024,7 +1030,7 @@ body.resizing-zones {
   display: inline-flex;
   gap: 4px;
   margin-left: 6px;
-  font-size: 11px;
+  font-size: var(--font-size);
   font-weight: 400;
   font-variant-numeric: tabular-nums;
   vertical-align: middle;
@@ -1075,7 +1081,7 @@ body.resizing-zones {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  font-size: 10px;
+  font-size: calc(var(--font-size) - 1px);
   font-weight: 400;
   /* Monospace, so every four-letter status (statusShort) is the same width. */
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
@@ -1117,10 +1123,11 @@ body.resizing-zones {
   min-height: 0;
 }
 
-/* A margin round the tiles, as wide as the gaps between them (Golden Layout's borderWidth). */
+/* A margin round the tiles, half the gap between them: with the sidebar resizer's 5px, the
+   sidebar sits a tile gap from the tiles. */
 .layout-root {
   position: absolute;
-  inset: 5px;
+  inset: calc(var(--tile-gap) / 2);
 }
 
 .tiles-placeholder {
@@ -1264,7 +1271,7 @@ body.resizing-zones {
   margin: 0;
   padding: 0 26px 0 9px;
   font-family: inherit;
-  font-size: 11px;
+  font-size: var(--font-size);
   color: var(--muted);
   background: transparent;
   box-shadow: none;
@@ -1422,13 +1429,13 @@ body.resizing-zones {
 }
 
 .lm_header .lm_tab .tile-repo {
-  font-size: 10px;
+  font-size: calc(var(--font-size) - 1px);
   color: var(--tile-repo);
 }
 
 .lm_header .lm_tab .tile-branch {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 9.5px;
+  font-size: calc(var(--font-size) - 1.5px);
   color: var(--tile-branch);
 }
 
@@ -1438,7 +1445,7 @@ body.resizing-zones {
 }
 
 .lm_header .lm_tab .tile-container {
-  font-size: 9px;
+  font-size: calc(var(--font-size) - 2px);
   color: var(--tile-container);
 }
 
@@ -1608,7 +1615,7 @@ body:is(.lm_dragging, .resizing-sidebar) .media-view iframe {
   bottom: 6px;
   padding: 1px 6px;
   border-radius: 4px;
-  font-size: 11px;
+  font-size: calc(var(--font-size) - 2px);
   color: var(--muted);
   background: color-mix(in srgb, var(--term-bg) 80%, transparent);
   pointer-events: none;
@@ -1713,7 +1720,7 @@ body:is(.lm_dragging, .resizing-sidebar) .media-view iframe {
   border: 1px solid var(--blocked);
   border-radius: 999px;
   color: var(--blocked);
-  font-size: 12px;
+  font-size: calc(var(--font-size) - 1px);
 }
 
 .safe-banner-link {
@@ -1890,7 +1897,7 @@ dialog.dialog::backdrop {
   align-items: center;
   gap: 6px;
   color: var(--muted);
-  font-size: 12px;
+  font-size: calc(var(--font-size) - 1px);
 }
 
 .dialog-footer {
@@ -1935,7 +1942,7 @@ button.primary:disabled {
   display: grid;
   gap: 4px;
   color: var(--muted);
-  font-size: 12px;
+  font-size: calc(var(--font-size) - 1px);
 }
 
 .new-note-project {
@@ -2040,7 +2047,7 @@ button.primary.danger {
   min-width: 0;
   gap: 4px;
   color: var(--muted);
-  font-size: 12px;
+  font-size: calc(var(--font-size) - 1px);
 }
 
 /* Centred on the selects, which are taller than an icon button. */
@@ -2080,13 +2087,13 @@ button.primary.danger {
 }
 
 .pr-state {
-  font-size: 11px;
+  font-size: calc(var(--font-size) - 2px);
   color: var(--blocked);
 }
 
 .pr-count,
 .pr-stat {
-  font-size: 11px;
+  font-size: calc(var(--font-size) - 2px);
   color: var(--muted);
 }
 
@@ -2108,7 +2115,7 @@ button.primary.danger {
   width: 1.1em;
   margin-right: 3px;
   font-family: ui-monospace, monospace;
-  font-size: 11px;
+  font-size: calc(var(--font-size) - 2px);
   font-weight: 650;
   text-align: center;
   color: var(--blocked);
@@ -2134,7 +2141,7 @@ button.primary.danger {
   padding: 0 3px;
   border-radius: 3px;
   font-family: ui-monospace, monospace;
-  font-size: 10px;
+  font-size: calc(var(--font-size) - 3px);
   font-style: normal;
   white-space: nowrap;
   color: #1a1206;
@@ -2169,7 +2176,7 @@ button.primary.danger {
   text-overflow: ellipsis;
   white-space: nowrap;
   font-family: ui-monospace, monospace;
-  font-size: 12px;
+  font-size: calc(var(--font-size) - 1px);
 }
 
 .diff-head-fill {
@@ -2180,14 +2187,14 @@ button.primary.danger {
   display: flex;
   align-items: center;
   gap: 4px;
-  font-size: 11px;
+  font-size: calc(var(--font-size) - 2px);
   color: var(--muted);
   white-space: nowrap;
 }
 
 .diff-via {
   margin-top: 2px;
-  font-size: 11px;
+  font-size: calc(var(--font-size) - 2px);
   color: var(--muted);
 }
 
@@ -2222,7 +2229,7 @@ button.primary.danger {
 
 .file-threads-title {
   padding: 2px 10px;
-  font-size: 10px;
+  font-size: calc(var(--font-size) - 3px);
   font-weight: 650;
   letter-spacing: 1px;
   text-transform: uppercase;
@@ -2231,7 +2238,7 @@ button.primary.danger {
 
 .diff-table {
   font-family: ui-monospace, monospace;
-  font-size: 12px;
+  font-size: calc(var(--font-size) - 1px);
   line-height: 1.45;
 }
 
@@ -2275,7 +2282,7 @@ button.primary.danger {
 .diff-rest {
   margin: 0;
   padding: 6px 10px;
-  font-size: 12px;
+  font-size: calc(var(--font-size) - 1px);
   white-space: pre-wrap;
   color: var(--muted);
 }
@@ -2283,7 +2290,7 @@ button.primary.danger {
 .diff-threads {
   padding: 4px 10px 4px 9em;
   font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
-  font-size: 13px;
+  font-size: var(--font-size);
 }
 
 .file-threads .thread-card,
@@ -2314,7 +2321,7 @@ button.primary.danger {
 .thread-meta {
   display: flex;
   gap: 6px;
-  font-size: 11px;
+  font-size: calc(var(--font-size) - 2px);
   color: var(--muted);
 }
 
@@ -2348,7 +2355,7 @@ button.primary.danger {
   padding: 1px 6px;
   border: none;
   background: none;
-  font-size: 12px;
+  font-size: calc(var(--font-size) - 1px);
   color: var(--muted);
 }
 
@@ -2380,13 +2387,13 @@ button.primary.danger {
 }
 
 .composer-note {
-  font-size: 11px;
+  font-size: calc(var(--font-size) - 2px);
   color: var(--muted);
 }
 
 .composer-error,
 .composer-gone {
-  font-size: 12px;
+  font-size: calc(var(--font-size) - 1px);
   color: var(--danger);
   white-space: pre-wrap;
 }

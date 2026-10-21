@@ -80,12 +80,33 @@ const HEADER = { popout: false };
 /** A tile header's height in px, whatever a saved layout says (style.css lays the header out for it). */
 const HEADER_HEIGHT = 29;
 
+/**
+ * The page's custom property `name` (style.css's `:root`) in px, or `fallback` when it is unset
+ * or not a px length.
+ *
+ * @param {string} name
+ * @param {number} fallback
+ * @returns {number}
+ */
+function cssPx(name, fallback) {
+  const value = getComputedStyle(document.documentElement).getPropertyValue(
+    name,
+  ).trim();
+  const px = /^(\d+(?:\.\d+)?)px$/.exec(value);
+  return px ? Number(px[1]) : fallback;
+}
+
+/** The gap between tiles in px: style.css's `--tile-gap`, whatever a saved layout says. */
+function borderWidth() {
+  return cssPx('--tile-gap', 10);
+}
+
 /** An empty layout carrying our settings. */
 function emptyConfig() {
   return {
     settings: SETTINGS,
     header: HEADER,
-    dimensions: { headerHeight: HEADER_HEIGHT },
+    dimensions: { headerHeight: HEADER_HEIGHT, borderWidth: borderWidth() },
     root: undefined,
   };
 }
@@ -511,6 +532,7 @@ export function createTiling(root, hooks) {
           dimensions: {
             .../** @type {any} */ (saved)?.dimensions,
             headerHeight: HEADER_HEIGHT,
+            borderWidth: borderWidth(),
           },
         });
         return true;

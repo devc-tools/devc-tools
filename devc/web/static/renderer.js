@@ -32,6 +32,22 @@ import { findLinks, linkAt } from './lib/links.js';
  */
 
 /**
+ * The page's custom property `name` (style.css's `:root`) in px, or `fallback` when it is unset
+ * or not a px length.
+ *
+ * @param {string} name
+ * @param {number} fallback
+ * @returns {number}
+ */
+function cssPx(name, fallback) {
+  const value = getComputedStyle(document.documentElement).getPropertyValue(
+    name,
+  ).trim();
+  const px = /^(\d+(?:\.\d+)?)px$/.exec(value);
+  return px ? Number(px[1]) : fallback;
+}
+
+/**
  * Mounts a renderer into `element`. Links (see `lib/links.js`) are underlined under the pointer,
  * with `linkHint` as their tooltip, and get a pointer cursor while `linkModifier` says the key
  * that opens them is held; opening one is the caller's (clicks never reach xterm.js).
@@ -51,7 +67,7 @@ export function createRenderer(
     allowProposedApi: false,
     fontFamily:
       'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace',
-    fontSize: 13,
+    fontSize: cssPx('--code-font-size', 13),
     theme: { background: '#11131a' },
   });
   const fit = new FitAddon();
