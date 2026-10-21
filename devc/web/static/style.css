@@ -273,9 +273,9 @@ body.resizing-sidebar {
   font-size: 11px;
 }
 
-/* Three zones, each scrolling on its own: what is in use (at most a little over half), then
-   the tasks and the containers, each under a thick rule with its heading kept at the top as it
-   scrolls. */
+/* Three zones, each scrolling on its own, its heading kept at the top as it scrolls: the tasks,
+   what is in use (at most a little over half), and the containers, a draggable rule between each
+   two. A dragged Tasks or In use gets its height inline (applyZoneSizes). */
 .zone {
   min-height: 0;
   overflow: auto;
@@ -287,6 +287,7 @@ body.resizing-sidebar {
 .zone-in-use {
   flex: 0 1 auto;
   max-height: 56%;
+  padding-top: 0;
 }
 
 /* Tasks takes what it needs, up to a quarter, and In use never squeezes it. */
@@ -294,18 +295,54 @@ body.resizing-sidebar {
   flex: 0 0 auto;
   max-height: 25%;
   padding-top: 0;
-  border-top: 3px solid #3a4b63;
 }
 
-/* Containers takes what In use and Tasks leave (its basis 0, so it never squeezes them below
-   what they need), and with Containers folded In use may take the rest. */
+/* Containers takes what Tasks and In use leave (its basis 0, so it never squeezes them below
+   what they need), and with Containers folded In use takes the rest. */
 .zone-browse {
   flex: 1 1 0;
   padding-top: 0;
-  border-top: 3px solid #3a4b63;
+}
+
+/* The thick rule between two zones; drag it to resize them, double-click to reset. Its grab area
+   reaches 3px past each edge. Inert (a plain rule) when there is nothing to resize. */
+.zone-divider {
+  position: relative;
+  flex: none;
+  height: 3px;
+  background: #3a4b63;
+  cursor: row-resize;
+  touch-action: none;
+}
+
+.zone-divider::before {
+  content: '';
+  position: absolute;
+  inset: -3px 0;
+  z-index: 3;
+}
+
+.zone-divider:hover,
+.zone-divider.dragging {
+  background: var(--accent);
+}
+
+.zone-divider[data-inert='true'] {
+  cursor: default;
+  background: #3a4b63;
+}
+
+.zone-divider[data-inert='true']::before {
+  display: none;
+}
+
+body.resizing-zones {
+  cursor: row-resize;
+  user-select: none;
 }
 
 .tree.containers-closed .zone-in-use {
+  flex: 1 1 0;
   max-height: none;
 }
 
@@ -314,6 +351,7 @@ body.resizing-sidebar {
 }
 
 .zone-tasks > .row.section:first-child,
+.zone-in-use > .row.section:first-child,
 .zone-browse > .row.section:first-child {
   position: sticky;
   top: 0;
@@ -331,6 +369,7 @@ body.resizing-sidebar {
 }
 
 .zone-tasks > .row.section:only-child,
+.zone-in-use > .row.section:only-child,
 .zone-browse > .row.section:only-child {
   margin-bottom: 0;
 }

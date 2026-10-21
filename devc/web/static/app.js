@@ -35,6 +35,7 @@ import {
   collapseContainersState,
   collapseTasksState,
   containerLabel,
+  dragZones,
   gitRollup,
   gitSync,
   inUseGroupKey,
@@ -43,12 +44,14 @@ import {
   paneLabel,
   paneTitle,
   repoAt,
+  settleZones,
   SIDEBAR_DEFAULT_WIDTH,
   splitRepoName,
   statusCounts,
   statusShort,
   topStatus,
   windowTitle,
+  ZONE_MIN_HEIGHT,
 } from './lib/sidebar.js';
 import { AGENT_IDS, AGENT_MARKS, terminalIconKind } from './lib/agent_icons.js';
 import { resolvePath } from './lib/links.js';
@@ -289,12 +292,22 @@ const token = new URLSearchParams(location.hash.slice(1)).get('token') ?? '';
 
 const $tree = /** @type {HTMLElement} */ (document.getElementById('tree'));
 /**
- * The sidebar's two zones, each scrolling on its own: what is in use now (pinned files, In use,
- * Tasks, the Layout tree) above, the containers to browse and manage below.
+ * The sidebar's three zones, each scrolling on its own: Tasks, what is in use now (In use,
+ * pinned files, the Layout tree), and the containers to browse and manage; a draggable divider
+ * between each two.
  */
 const $zoneInUse = h('div', { class: 'zone zone-in-use' });
 const $zoneTasks = h('div', { class: 'zone zone-tasks' });
 const $zoneBrowse = h('div', { class: 'zone zone-browse' });
+const zoneDivider = () =>
+  h('div', {
+    class: 'zone-divider',
+    role: 'separator',
+    'aria-orientation': 'horizontal',
+    title: 'Drag to resize, double-click to reset',
+  });
+const $dividerTasks = zoneDivider();
+const $dividerBrowse = zoneDivider();
 
 const $tiles = /** @type {HTMLElement} */ (document.getElementById('tiles'));
 const $menu = /** @type {HTMLElement} */ (document.getElementById('menu'));
@@ -983,6 +996,9 @@ function loadSidebarState() {
     pinnedOpen: saved?.pinnedOpen !== false,
     tasksOpen: saved?.tasksOpen !== false,
     containersOpen: saved?.containersOpen !== false,
+    /** In use's and Tasks' dragged heights, as fractions of the zones'; null: default sizing. */
+    inUseSize: savedFraction(saved?.inUseSize),
+    tasksSize: savedFraction(saved?.tasksSize),
     /** Task groups (by `groupTasks` key) that are collapsed; new ones start open. */
     taskGroupsClosed: new Set(
       Array.isArray(saved?.taskGroupsClosed)
@@ -993,6 +1009,10 @@ function loadSidebarState() {
     width: Number.isFinite(saved?.width) ? saved.width : SIDEBAR_DEFAULT_WIDTH,
     hidden: saved?.hidden === true,
   };
+}
+
+function savedFraction(v) {
+  return typeof v === 'number' && v > 0 && v < 1 ? v : null;
 }
 
 function savedContainerTabs(v) {
@@ -1036,6 +1056,8 @@ function saveSidebarState() {
         pinnedOpen: sidebarState.pinnedOpen,
         tasksOpen: sidebarState.tasksOpen,
         containersOpen: sidebarState.containersOpen,
+        inUseSize: sidebarState.inUseSize,
+        tasksSize: sidebarState.tasksSize,
         taskGroupsClosed: [...sidebarState.taskGroupsClosed],
         sentOpen: sidebarState.sentOpen,
         width: sidebarState.width,
@@ -1204,14 +1226,138 @@ $resizer.addEventListener('dblclick', () => {
   applySidebarLayout();
 });
 
+/** The space the zones share: the sidebar's tree less its dividers. */
+function zonesHeight() {
+  return $tree.clientHeight - $dividerTasks.offsetHeight -
+    $dividerBrowse.offsetHeight;
+}
+
+/** A zone's height with nothing squeezing or capping it: all of its rows. */
+function naturalHeight(zone) {
+  const { flex, maxHeight } = zone.style;
+  zone.style.flex = '0 0 auto';
+  zone.style.maxHeight = 'none';
+  const height = zone.offsetHeight;
+  zone.style.flex = flex;
+  zone.style.maxHeight = maxHeight;
+  return height;
+}
+
+/**
+ * The zones' heights now and their limits, for `dragZones` / `settleZones`: Tasks on top, between
+ * a heading and a row (or less, if that is all it has) and all of its rows, its heading alone when
+ * folded; In use in the middle, from its heading to all of its rows, or filling what is left while
+ * Containers is folded; Containers at the bottom, exactly its heading when folded.
+ */
+function zoneLimits() {
+  const { containersOpen, tasksOpen } = sidebarState;
+  const tasksAll = naturalHeight($zoneTasks);
+  const browseAll = containersOpen ? Infinity : naturalHeight($zoneBrowse);
+  return {
+    total: zonesHeight(),
+    top: $zoneTasks.offsetHeight,
+    mid: $zoneInUse.offsetHeight,
+    topMin: tasksOpen ? Math.min(tasksAll, 2 * ZONE_MIN_HEIGHT) : tasksAll,
+    topMax: tasksAll,
+    midMin: ZONE_MIN_HEIGHT,
+    midMax: containersOpen
+      ? Math.max(ZONE_MIN_HEIGHT, naturalHeight($zoneInUse))
+      : Infinity,
+    botMin: containersOpen ? ZONE_MIN_HEIGHT : browseAll,
+    botMax: browseAll,
+  };
+}
+
+/**
+ * Gives Tasks and In use their dragged heights, kept to their limits (rows come and go, the
+ * window resizes), or their default sizing when none was dragged. With Containers folded, In use
+ * fills what Tasks leaves. A divider with nothing it can move is inert: the one under a folded
+ * Tasks, the one over a folded Containers.
+ */
+function applyZoneSizes() {
+  const { containersOpen, tasksOpen } = sidebarState;
+  $dividerTasks.dataset.inert = String(!tasksOpen);
+  $dividerBrowse.dataset.inert = String(!containersOpen);
+  const set = (el, px) => {
+    el.style.flex = px === null ? '' : `0 0 ${px}px`;
+    el.style.maxHeight = px === null ? '' : 'none';
+  };
+  if (sidebarState.inUseSize === null || sidebarState.tasksSize === null) {
+    set($zoneTasks, null);
+    set($zoneInUse, null);
+    return;
+  }
+  const lim = zoneLimits();
+  if (lim.total <= 0) return;
+  const z = settleZones({
+    ...lim,
+    top: sidebarState.tasksSize * lim.total,
+    mid: sidebarState.inUseSize * lim.total,
+  });
+  set($zoneTasks, z.top);
+  set($zoneInUse, containersOpen ? z.mid : null);
+}
+
+window.addEventListener('resize', applyZoneSizes);
+
+/**
+ * Drags a zone divider (`top`: Tasks | In use, `bottom`: In use | Containers), with pointer
+ * capture as the sidebar's resizer does; see `dragZones` for how the zones follow. A
+ * double-click puts every zone back to its default size.
+ *
+ * @param {HTMLElement} divider @param {'top' | 'bottom'} line
+ */
+function dragZoneDivider(divider, line) {
+  divider.addEventListener('pointerdown', (ev) => {
+    if (ev.button !== 0 || divider.dataset.inert === 'true') return;
+    ev.preventDefault();
+    ev.stopPropagation();
+    divider.setPointerCapture(ev.pointerId);
+    divider.classList.add('dragging');
+    document.body.classList.add('resizing-zones');
+    const start = zoneLimits();
+    // The divider's top edge, in the zones' own coordinates (dividers left out).
+    const origin = $zoneTasks.getBoundingClientRect().top +
+      (line === 'bottom' ? $dividerTasks.offsetHeight : 0);
+    const grab = ev.clientY - divider.getBoundingClientRect().top;
+    let moved = false;
+    const onMove = (/** @type {PointerEvent} */ e) => {
+      moved = true;
+      const z = dragZones(start, line, e.clientY - grab - origin);
+      sidebarState.tasksSize = z.top / start.total;
+      sidebarState.inUseSize = z.mid / start.total;
+      applyZoneSizes();
+    };
+    const onEnd = () => {
+      divider.removeEventListener('pointermove', onMove);
+      divider.removeEventListener('lostpointercapture', onEnd);
+      divider.classList.remove('dragging');
+      document.body.classList.remove('resizing-zones');
+      // A click (or a double-click's two) moves nothing and saves nothing.
+      if (moved) saveSidebarState();
+    };
+    divider.addEventListener('pointermove', onMove);
+    divider.addEventListener('lostpointercapture', onEnd);
+  });
+  divider.addEventListener('dblclick', () => {
+    sidebarState.inUseSize = null;
+    sidebarState.tasksSize = null;
+    saveSidebarState();
+    applyZoneSizes();
+  });
+}
+
+dragZoneDivider($dividerTasks, 'top');
+dragZoneDivider($dividerBrowse, 'bottom');
+
 function chevron() {
   return h('span', { class: 'chevron', 'aria-hidden': 'true' });
 }
 
 /**
- * The sidebar, in three zones, each scrolling on its own. Top: In use, the Pinned section
- * (pinned files, only while something is pinned) and the Layout section (the Golden Layout tree,
- * single-child levels folded). Middle: the Tasks section. Bottom: Containers, collapsible as a whole (Container → Terminals →
+ * The sidebar, in three zones, each scrolling on its own. Top: the Tasks section. Middle: In use,
+ * the Pinned section (pinned files, only while something is pinned) and the Layout section (the
+ * Golden Layout tree, single-child levels folded). Bottom: Containers, collapsible as a whole (Container → Terminals →
  * terminal, Container → Sessions → recent agent session, Container → Repos → repo → files, and
  * Container → Files → the container's own files from `/`).
  * Herdr tabs group nothing here: a pane the Herdr TUI split into a shared tab is just another pane.
@@ -1278,9 +1424,16 @@ function renderTree() {
   $zoneTasks.replaceChildren(...taskRows());
   $zoneBrowse.replaceChildren(...rows);
   if ($zoneInUse.parentNode !== $tree) {
-    $tree.replaceChildren($zoneInUse, $zoneTasks, $zoneBrowse);
+    $tree.replaceChildren(
+      $zoneTasks,
+      $dividerTasks,
+      $zoneInUse,
+      $dividerBrowse,
+      $zoneBrowse,
+    );
   }
   $tree.classList.toggle('containers-closed', !sidebarState.containersOpen);
+  applyZoneSizes();
   [$zoneInUse.scrollTop, $zoneTasks.scrollTop, $zoneBrowse.scrollTop] = scroll;
   const created = selectTreeKey === null
     ? null

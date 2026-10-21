@@ -112,6 +112,74 @@ export function repoAt(repos, path) {
   return best?.r ?? null;
 }
 
+/** The least a sidebar zone with rows keeps when dragged: its section heading. */
+export const ZONE_MIN_HEIGHT = 32;
+
+const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+
+/**
+ * @typedef {{total: number, top: number, mid: number, topMin: number, topMax: number,
+ *   midMin: number, midMax: number, botMin: number, botMax: number}} Zones
+ *   Three stacked zones' heights now (`top`, `mid`; the bottom one takes the rest of `total`)
+ *   and each one's limits.
+ */
+
+/**
+ * The sidebar's zones after a divider is dragged to `y` (pixels from the top of the zones, the
+ * dividers left out). The `top` divider sizes the top zone; the middle zone keeps its height,
+ * so the other divider moves with it, unless that would leave the bottom zone outside its
+ * limits. The `bottom` divider sizes the middle zone while it can, then carries the top divider
+ * along: the whole middle zone moves.
+ *
+ * @param {Zones} z @param {'top' | 'bottom'} line @param {number} y
+ * @returns {{top: number, mid: number}}
+ */
+export function dragZones(z, line, y) {
+  let top, mid;
+  if (line === 'top') {
+    top = clamp(Math.round(y), z.topMin, z.topMax);
+    mid = z.mid;
+  } else {
+    // Never past the bottom zone's heading: there the divider stops, rather than counting as
+    // the middle zone being full.
+    const at = Math.min(Math.round(y), z.total - z.botMin);
+    mid = clamp(at - z.top, z.midMin, z.midMax);
+    top = clamp(at - mid, z.topMin, z.topMax);
+  }
+  return settleZones({ ...z, top, mid });
+}
+
+/**
+ * Heights kept to their limits: each zone's own, then the bottom zone's, which the middle zone
+ * makes up first and the top zone after it. Used after a drag, and when the window or a zone's
+ * rows changed size.
+ *
+ * @param {Zones} z
+ * @returns {{top: number, mid: number}}
+ */
+export function settleZones(z) {
+  let top = clamp(z.top, z.topMin, Math.max(z.topMin, z.topMax));
+  let mid = clamp(z.mid, z.midMin, Math.max(z.midMin, z.midMax));
+  const bot = z.total - top - mid;
+  // Too little left at the bottom: the middle zone gives first, then the top one; too much
+  // (a folded bottom zone is exactly its heading): the middle zone takes it first.
+  const need = bot < z.botMin
+    ? z.botMin - bot
+    : bot > z.botMax
+    ? z.botMax - bot
+    : 0;
+  if (need > 0) {
+    const fromMid = Math.min(need, mid - z.midMin);
+    mid -= fromMid;
+    top = Math.max(z.topMin, top - (need - fromMid));
+  } else if (need < 0) {
+    const toMid = Math.min(-need, Math.max(0, z.midMax - mid));
+    mid += toMid;
+    top = Math.min(z.topMax, top + (-need - toMid));
+  }
+  return { top: Math.round(top), mid: Math.round(mid) };
+}
+
 /**
  * The In use group of something in container `localFolder` and in `repo` (null outside every
  * repo): one group per host folder, so a folder several containers mount is one group; outside

@@ -5,6 +5,7 @@ import {
   collapseContainersState,
   collapseTasksState,
   containerLabel,
+  dragZones,
   gitRollup,
   gitSync,
   inUseGroupKey,
@@ -13,6 +14,7 @@ import {
   paneLabel,
   paneTitle,
   repoAt,
+  settleZones,
   SIDEBAR_DEFAULT_WIDTH,
   SIDEBAR_MIN_WIDTH,
   splitRepoName,
@@ -479,4 +481,57 @@ Deno.test('inUseGroupKey: one group per folder whichever container mounts it', (
     false,
   );
   assertEquals(inUseGroupKey('/src/a', null), inUseGroupKey('/src/a', null));
+});
+
+// Tasks on top (rows: 40–200px), In use in the middle (32–500), Containers the rest (≥ 32).
+const zones = {
+  total: 900,
+  top: 100,
+  mid: 300,
+  topMin: 40,
+  topMax: 200,
+  midMin: 32,
+  midMax: 500,
+  botMin: 32,
+  botMax: Infinity,
+};
+
+Deno.test('dragZones: the top divider sizes the top zone, the middle zone moving with it', () => {
+  assertEquals(dragZones(zones, 'top', 150), { top: 150, mid: 300 });
+  // Past the top zone's own limits it stops.
+  assertEquals(dragZones(zones, 'top', 600), { top: 200, mid: 300 });
+  assertEquals(dragZones(zones, 'top', 0), { top: 40, mid: 300 });
+});
+
+Deno.test('dragZones: the bottom divider sizes the middle zone, then moves the whole of it', () => {
+  assertEquals(dragZones(zones, 'bottom', 450), { top: 100, mid: 350 });
+  // Shrunk to its heading, the middle zone pushes the top divider up.
+  assertEquals(dragZones(zones, 'bottom', 100), { top: 68, mid: 32 });
+  // At all of its rows, it pulls the top divider down, as far as the top zone may grow.
+  assertEquals(dragZones(zones, 'bottom', 650), { top: 150, mid: 500 });
+  assertEquals(dragZones(zones, 'bottom', 800), { top: 200, mid: 500 });
+  // A middle zone that cannot change size (min = max) just moves.
+  const fixed = { ...zones, midMin: 300, midMax: 300 };
+  assertEquals(dragZones(fixed, 'bottom', 450), { top: 150, mid: 300 });
+});
+
+Deno.test('dragZones keeps the bottom zone its heading, the middle zone giving first', () => {
+  const big = { ...zones, midMax: 2000 };
+  assertEquals(dragZones(big, 'bottom', 2000), { top: 100, mid: 768 });
+  // Stopping at the bottom zone's heading is not the middle zone being full: the top stays.
+  assertEquals(dragZones({ ...big, midMax: 1300 }, 'bottom', 2000), {
+    top: 100,
+    mid: 768,
+  });
+  assertEquals(dragZones({ ...big, mid: 780 }, 'top', 200), {
+    top: 200,
+    mid: 668,
+  });
+});
+
+Deno.test('settleZones: a folded bottom zone is its heading, the middle zone filling the rest', () => {
+  const folded = { ...zones, midMax: Infinity, botMin: 32, botMax: 32 };
+  assertEquals(settleZones(folded), { top: 100, mid: 768 });
+  // A window too short for everything: the middle zone gives, then the top one.
+  assertEquals(settleZones({ ...zones, total: 150 }), { top: 86, mid: 32 });
 });
