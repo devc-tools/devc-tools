@@ -1730,7 +1730,12 @@ export async function startWeb(
         fail(c, msg.id, e instanceof FilesError ? e.code : 'write_failed', e);
         return;
       }
-      command = startTaskCommand(agent, sessionId, msg.action);
+      command = startTaskCommand(
+        agent,
+        sessionId,
+        msg.action,
+        taskTitle(task.text),
+      );
     } else {
       command = resumeTaskCommand(agent, sessionId);
     }

@@ -3,6 +3,7 @@ import { join } from 'jsr:@std/path';
 import {
   isSessionAgentId,
   resumeTaskCommand,
+  sessionName,
   startTaskCommand,
   taskFilePath,
 } from '../web/agents.ts';
@@ -231,6 +232,49 @@ Deno.test('start and resume commands, exactly', () => {
   assertEquals(resumeTaskCommand('claude', ID), `claude --resume ${ID}`);
   assertEquals(resumeTaskCommand('copilot', ID), `copilot --resume ${ID}`);
   assertEquals(resumeTaskCommand('pi', ID), `pi --session-id ${ID}`);
+});
+
+Deno.test('Claude is named after the task; the others are not', () => {
+  const implement =
+    `'Implement the task described in /tmp/devc-tasks/${ID}.md.'`;
+  assertEquals(
+    startTaskCommand('claude', ID, 'implement', 'Fix the login page'),
+    `claude --session-id ${ID} --name 'Fix the login page' ${implement}`,
+  );
+  assertEquals(
+    startTaskCommand('claude', ID, 'implement', ' -\x1b\\ '),
+    `claude --session-id ${ID} ${implement}`,
+  );
+  assertEquals(
+    startTaskCommand('copilot', ID, 'implement', 'Fix the login page'),
+    `copilot --session-id ${ID} -i ${implement}`,
+  );
+  assertEquals(
+    startTaskCommand('pi', ID, 'implement', 'Fix the login page'),
+    `pi --session-id ${ID} ${implement}`,
+  );
+});
+
+Deno.test('a session name holds nothing a shell or terminal acts on', () => {
+  assertEquals(sessionName("Don't break"), 'Don’t break');
+  assertEquals(sessionName('a\tb\r\nc\u2028d'), 'a b c d');
+  assertEquals(sessionName('x\x1b[31m\x03\x7f\u009b\u202e\u200dy'), 'x[31my');
+  assertEquals(sessionName("x\\'; rm -rf ~; echo '"), 'x’; rm -rf ~; echo ’');
+  assertEquals(sessionName('--help me'), 'help me');
+  assertEquals(sessionName('#'.repeat(200)), '#'.repeat(80));
+  assertEquals(sessionName('🙂 ok'), '🙂 ok');
+  for (
+    const title of [
+      "'\\''",
+      "a'$(id)'`id`",
+      "\\'",
+      '\x1b]0;x\x07',
+      '\u0000\n-',
+    ]
+  ) {
+    const name = sessionName(title);
+    assert(!/[\p{C}\\'\n]/u.test(name) && !name.startsWith('-'), name);
+  }
 });
 
 Deno.test('the single-quoted prompts hold no quote, and only a uuid names the file', () => {

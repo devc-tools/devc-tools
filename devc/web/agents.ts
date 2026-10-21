@@ -21,7 +21,9 @@ export function isAgentId(v: unknown): v is AgentId {
 // Agents a task can be sent to (`send_task`): those whose CLI takes a session id chosen at
 // launch, so the task's Sent entry can find the session again. opencode can only continue a
 // session it already has. Every command is built from fixed text and the server's uuid; the
-// task's own text goes in a file (`taskFilePath`), never on the command line.
+// task's own text goes in a file (`taskFilePath`), never on the command line. The one exception
+// is Claude's session name, its title cut down by `sessionName` to text no shell reads anything
+// in when it is single-quoted.
 
 export type SessionAgentId = 'claude' | 'copilot' | 'pi';
 
@@ -66,17 +68,44 @@ export function taskPrompt(action: TaskAction, file: string): string {
       `folder). Do not implement it yet.`;
 }
 
-/** The command typed into a new tab's shell to start `agent` on a task, as session `sessionId`. */
+const MAX_SESSION_NAME = 80;
+
+/**
+ * A task's title made safe to type single-quoted into an interactive shell (sh, bash, zsh or
+ * fish): no control or format characters (a typed one acts on the terminal or line editor even
+ * inside quotes), no line breaks, no `'` (it would end the quoting; `’` is shown instead), no `\`
+ * (fish reads `\'` inside single quotes), and no leading `-` (it would read as an option). Spaces
+ * are collapsed and it is cut to {@link MAX_SESSION_NAME}. `''` when nothing is left.
+ */
+export function sessionName(title: string): string {
+  const name = title
+    .replace(/\s+/g, ' ')
+    .replace(/[\p{C}\\]/gu, '')
+    .replaceAll("'", '’')
+    .replace(/^[\s-]+/, '')
+    .trim();
+  return [...name].slice(0, MAX_SESSION_NAME).join('').trim();
+}
+
+/**
+ * The command typed into a new tab's shell to start `agent` on a task, as session `sessionId`.
+ * Claude is also given `title` as its session name (see {@link sessionName}): it names a session
+ * after its first prompt otherwise, and that is only the task file's path.
+ */
 export function startTaskCommand(
   agent: SessionAgentId,
   sessionId: string,
   action: TaskAction,
+  title = '',
 ): string {
   const id = checkedUuid(sessionId);
   const prompt = `'${taskPrompt(action, taskFilePath(id))}'`;
+  const name = sessionName(title);
   switch (agent) {
     case 'claude':
-      return `claude --session-id ${id} ${prompt}`;
+      return name
+        ? `claude --session-id ${id} --name '${name}' ${prompt}`
+        : `claude --session-id ${id} ${prompt}`;
     case 'copilot':
       return `copilot --session-id ${id} -i ${prompt}`;
     case 'pi':
