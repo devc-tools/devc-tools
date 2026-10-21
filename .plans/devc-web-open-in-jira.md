@@ -2,15 +2,15 @@
 
 ## Checklist
 
-- [ ] `devc-core/config.ts`: `jiraFromConfig(cfg)` reads and validates `"jira"` from `~/.config/devc/config.json`, with tests in `devc-core/tests/global_config_test.ts`
-- [ ] `devc/web/static/lib/jira.js` (new): `jiraKeys(branch, jira)` and `jiraUrl(jira, key)`, with tests in `devc/tests/web_jira_test.ts` (new)
-- [ ] `devc/web/server.ts`: a `jira` message sent to each page on connect and broadcast when `config.json` changes
-- [ ] `devc/web/static/app.js`: handles `jira`; one shared helper builds the **Open `<KEY>` in Jira** group from a branch
-- [ ] `app.js`: terminal tile menu (tab, Layout row, right-click in the terminal) and pane row menu under Containers
-- [ ] `app.js`: file tile menu
-- [ ] `app.js`: repo row menu under Containers, and a new right-click menu on an In use group's folder row
-- [ ] `devc/README.md`: the devc web **Menus** bullet, and a `"jira"` config example
-- [ ] `.plans/design/devc-design.md`: "Global user configuration" lists `"jira"`
+- [x] `devc-core/config.ts`: `jiraFromConfig(cfg)` reads and validates `"jira"` from `~/.config/devc/config.json`, with tests in `devc-core/tests/global_config_test.ts`
+- [x] `devc/web/static/lib/jira.js` (new): `jiraKeys(branch, jira)` and `jiraUrl(jira, key)`, with tests in `devc/tests/web_jira_test.ts` (new)
+- [x] `devc/web/server.ts`: a `jira` message sent to each page on connect and broadcast when `config.json` changes
+- [x] `devc/web/static/app.js`: handles `jira`; one shared helper builds the **Open `<KEY>` in Jira** group from a branch
+- [x] `app.js`: terminal tile menu (tab, Layout row, right-click in the terminal) and pane row menu under Containers
+- [x] `app.js`: file tile menu
+- [x] `app.js`: repo row menu under Containers, and a new right-click menu on an In use group's folder row
+- [x] `devc/README.md`: the devc web **Menus** bullet, and a `"jira"` config example
+- [x] `.plans/design/devc-design.md`: "Global user configuration" lists `"jira"`
 
 When the branch devc web shows for a terminal, a file tile or a repo row contains a Jira issue key
 (`feature/AB-12345-fix`), that thing's right-click menu offers **Open AB-12345 in Jira**. Which
@@ -162,6 +162,14 @@ export function jiraUrl(jira, key) {}
 - `onMessage` gains `case 'jira'`: store `msg.jira` (anything that isn't an object with string
   `pattern` and `url` is stored as `null`). No re-render needed; menus read it when opened.
 
+## Implementation notes
+
+- Since this plan was written the global config may be `config.jsonc` (devc-config-jsonc).
+  `loadGlobalConfig()` already picks the file, and the server watches `GLOBAL_CONFIG_PATHS`
+  (both names), not `GLOBAL_CONFIG_PATH`. Error messages name whichever file is in use.
+- Diff tiles (devc-web-pr-review, landed after this plan) are not covered, like other
+  surfaces outside the plan's list.
+
 ## Relevant Files
 
 - `devc-core/config.ts` — `jiraFromConfig`
@@ -177,8 +185,13 @@ export function jiraUrl(jira, key) {}
 ## Validation
 
 - [ ] `cd devc-core && deno task check && deno task test` passes, including new `jiraFromConfig` tests covering every row of its table, and that `"jira"` survives a `saveGlobalConfig` round trip
-- [ ] `cd devc && deno task check && deno task test` passes, with `web_jira_test.ts` covering every row of the `jiraKeys` table and `jiraUrl` encoding (`{key}` twice in the URL; a key with a character `encodeURIComponent` changes)
+  - 2026-10-21: check passes and the new test passes; the suite has one failure,
+    `cliWorktreeMounts matches what the pinned devcontainer CLI computes`
+    (`tests/git_dirs_test.ts`), which fails the same way on a clean checkout of the base commit.
+- [x] `cd devc && deno task check && deno task test` passes, with `web_jira_test.ts` covering every row of the `jiraKeys` table and `jiraUrl` encoding (`{key}` twice in the URL; a key with a character `encodeURIComponent` changes)
 - [ ] `deno fmt --check` passes at the repo root
+  - 2026-10-21: every file this plan touches passes; the repo-wide check still fails on 15
+    files under `.plans/` it does not touch (archived plans, `design/devc-web-ux/`).
 - [ ] Manual (`devc web --live`, a running container): with no `"jira"`, the menus of a terminal tile, a pane row, a file tile and a repo row are unchanged, and right-clicking an In use folder row behaves as before
 - [ ] Manual: add `{"jira": {"pattern": "AB-\\d+", "url": "https://example.atlassian.net/browse/{key}"}}` to `~/.config/devc/config.json` without restarting; with a repo on `ab-123-test`, **Open AB-123 in Jira** appears on: right-click inside a terminal in that repo, its tab, its Layout row, its pane row under Containers; a file tile of a file in that repo (tab and Layout row); the repo's row under Containers; its In use folder row. Each opens `https://example.atlassian.net/browse/AB-123` in a new browser tab (and in the default browser from devc-desktop)
 - [ ] Manual: a worktree of that repo on `ab-456-other` shows **Open AB-456 in Jira** on its own nested repo row, not AB-123

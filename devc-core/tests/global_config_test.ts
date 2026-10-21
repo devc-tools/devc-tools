@@ -10,6 +10,7 @@ import {
   displayPath,
   expandPath,
   globalConfigExists,
+  jiraFromConfig,
   loadGlobalConfig,
   makeGlobalConfig,
   resolveGlobalConfigPath,
@@ -147,6 +148,68 @@ Deno.test('webSourceFromConfig: absent, expanded, preserved on save, and refused
       await Deno.writeTextFile(path, JSON.stringify({ webSource: bad }));
       const loaded = await loadGlobalConfig(path);
       assertThrows(() => webSourceFromConfig(loaded), Error, 'webSource');
+    }
+  });
+});
+
+Deno.test('jiraFromConfig: absent, valid, preserved on save, and each refusal', async () => {
+  await withTemp(async (dir) => {
+    const path = `${dir}/config.json`;
+    const load = async (jira: unknown) => {
+      await Deno.writeTextFile(path, JSON.stringify({ jira }));
+      return await loadGlobalConfig(path);
+    };
+    assertEquals(jiraFromConfig(await loadGlobalConfig(path)), null);
+    assertEquals(jiraFromConfig(await load(null)), null);
+
+    const jira = {
+      pattern: 'AB-\\d+',
+      url: 'https://acme.atlassian.net/browse/{key}',
+    };
+    const cfg = await load(jira);
+    assertEquals(jiraFromConfig(cfg), jira);
+    // A wizard rewrite keeps it, as written.
+    await saveGlobalConfig(
+      makeGlobalConfig(['~/code'], [], path, cfg.extra, cfg.recentSkills),
+    );
+    assertEquals(JSON.parse(await Deno.readTextFile(path)).jira, jira);
+
+    const url = jira.url;
+    for (
+      const [value, message] of [
+        [['x'], '"jira" must be an object'],
+        ['x', '"jira" must be an object'],
+        [{ url }, '"jira.pattern" must be a non-empty string'],
+        [{ pattern: '', url }, '"jira.pattern" must be a non-empty string'],
+        [
+          { pattern: '(', url },
+          '"jira.pattern" is not a valid regular expression: ',
+        ],
+        [
+          { pattern: 'AB-\\d*|', url },
+          '"jira.pattern" must not match an empty string',
+        ],
+        [{ pattern: 'AB', url: 7 }, '"jira.url" must be an http(s) URL'],
+        [
+          { pattern: 'AB', url: 'not a url' },
+          '"jira.url" must be an http(s) URL',
+        ],
+        [
+          { pattern: 'AB', url: 'javascript:alert({key})' },
+          '"jira.url" must be an http(s) URL',
+        ],
+        [
+          { pattern: 'AB', url: 'https://acme.atlassian.net/browse/' },
+          '"jira.url" must contain {key}',
+        ],
+      ] as const
+    ) {
+      const loaded = await load(value);
+      assertThrows(
+        () => jiraFromConfig(loaded),
+        Error,
+        `${displayPath(path)}: ${message}`,
+      );
     }
   });
 });

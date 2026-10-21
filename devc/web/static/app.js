@@ -56,6 +56,7 @@ import {
   ZONE_MIN_HEIGHT,
 } from './lib/sidebar.js';
 import { AGENT_IDS, AGENT_MARKS, terminalIconKind } from './lib/agent_icons.js';
+import { jiraKeys, jiraUrl } from './lib/jira.js';
 import { resolvePath } from './lib/links.js';
 import { trimDividers } from './lib/menu.js';
 import { defaultView, fileView, mediaKind } from './lib/media.js';
@@ -347,6 +348,8 @@ $app.append($hostStatus);
 let hostBridgeStatus = null;
 /** @type {import('./lib/host_status.js').UsageSource[] | null} The last `usage`. */
 let hostUsage = null;
+/** @type {import('./lib/jira.js').JiraConfig | null} The last `jira`: the global config's. */
+let jiraConfig = null;
 // Usage windows reset and observations age with no server traffic: re-evaluate every minute.
 setInterval(() => {
   if (hostUsage?.length) renderHostStatus();
@@ -622,6 +625,14 @@ function onMessage(msg) {
       hostUsage = parseUsage(msg);
       renderHostStatus();
       break;
+    case 'jira': {
+      const j = msg.jira;
+      jiraConfig =
+        j && typeof j.pattern === 'string' && typeof j.url === 'string'
+          ? { pattern: j.pattern, url: j.url }
+          : null;
+      break;
+    }
     case 'snapshot':
       snapshots.set(msg.container, msg.snapshot);
       renderTree();
@@ -876,6 +887,7 @@ const LABELS = {
   copyPath: 'Copy path',
   copyContainerPath: 'Copy container path',
   openInCode: 'Open in Code',
+  openInJira: (key) => `Open ${key} in Jira`,
   /** Renders a file in a media view; not a preview tile (`keepOpen`), whatever the name. */
   preview: 'Preview',
   previewRight: 'Preview to the right',
@@ -1741,6 +1753,11 @@ function inUseGroupRows(g, now) {
         `In: ${[...g.folders].map(containerNameOf).join(', ')}`,
       ].filter((t) => t).join('\n'),
       onclick: toggle,
+      // Only to open a Jira key in its branch: without one, the right-click is as it always was.
+      oncontextmenu: (e) => {
+        const items = jiraItems(g.repo?.git?.branch);
+        if (items.length > 0) openMenu(e, items);
+      },
     },
     ...(g.repo
       ? repoNameParts(repoGroupName(g.localFolder, g.repo))
@@ -2265,10 +2282,38 @@ function tileRepo(tile) {
   } else if (file) {
     repo = repoAt(repos, fileHostPath(file));
   } else {
-    const { pane } = resolveRef(tile.ref);
-    repo = repoAt(repos, pane?.foreground_cwd || pane?.cwd || '');
+    repo = paneRepo(localFolder, resolveRef(tile.ref).pane);
   }
   return { localFolder, repo: repo ?? null };
+}
+
+/** The repo of project `localFolder` that holds `pane`'s folder, as its tile's tab says. */
+function paneRepo(localFolder, pane) {
+  return repoAt(
+    projectRepos(localFolder),
+    pane?.foreground_cwd || pane?.cwd || '',
+  );
+}
+
+/**
+ * An **Open `<KEY>` in Jira** group for each Jira key in `branch` (none without one, or without
+ * `"jira"` in devc's config), after a divider. Read when a menu opens, so it follows the branch.
+ *
+ * @param {string | null | undefined} branch
+ * @returns {MenuItem[]}
+ */
+function jiraItems(branch) {
+  const jira = jiraConfig;
+  const keys = jiraKeys(branch, jira);
+  if (!jira || keys.length === 0) return [];
+  return [
+    null,
+    ...keys.map((key) => [
+      LABELS.openInJira(key),
+      () =>
+        void window.open(jiraUrl(jira, key), '_blank', 'noopener,noreferrer'),
+    ]),
+  ];
 }
 
 // Hovering a pane's row in either section highlights its rows in the other.
@@ -2478,6 +2523,7 @@ function tileMenuItems(tile) {
       'Reveal in Containers',
       () => revealInContainers(c, pane),
     ]);
+    items.push(...jiraItems(activeRepo(tile).branch));
   }
   const filePin = filePinOfTile(tile);
   if (filePin) {
@@ -3081,7 +3127,8 @@ function repoRows(localFolder) {
             ? `${r.folder}\n${r.containerFolder}`
             : r.folder,
           onclick: () => tree.toggle(''),
-          oncontextmenu: (e) => openMenu(e, dirMenuItems(fr, '')),
+          oncontextmenu: (e) =>
+            openMenu(e, [...dirMenuItems(fr, ''), ...jiraItems(r.git?.branch)]),
         },
         // A worktree under its repo's row goes by its own name: the row above says whose.
         ...repoNameParts(
@@ -6062,6 +6109,7 @@ function fileTileMenuItems(tile) {
     items.push(...hostOpenItems(fr, file.path));
     items.push(null, ...copyPathItems(fr, file.path));
     if (!file.container) items.push(null, filePinItem(fr, file.path));
+    items.push(...jiraItems(activeRepo(tile).branch));
   }
   if (tile.preview) items.push(null, keepOpenItem(tile));
   items.push(null, ['Close', () => closeTile(tile.id)]);
@@ -7444,6 +7492,8 @@ function paneMenu(rec) {
   ];
   const tile = tileShowing(c, pane);
   if (tile) items.push(['Show in layout', () => revealTile(tile.id)]);
+  const jira = jiraItems(paneRepo(c.localFolder, pane)?.git?.branch);
+  if (jira.length > 0) items.push(...jira, null);
   items.push(
     ['Rename…', async () => {
       const label = await promptDialog(LABELS.renamePrompt, paneTitle(pane));

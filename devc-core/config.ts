@@ -385,6 +385,52 @@ export function webSourceFromConfig(cfg: GlobalConfig): string | null {
   return expanded;
 }
 
+/** `jira`: which issue keys devc web finds in a branch name, and the page that opens one. */
+export interface JiraConfig {
+  /** A `RegExp` source matching one key, matched case-insensitively. */
+  pattern: string;
+  /** An http(s) URL in which every `{key}` is replaced by the key. */
+  url: string;
+}
+
+/**
+ * `jira`, validated: `null` when absent. Throws (naming the file) when it is not an object, its
+ * `pattern` is not a regular expression or can match an empty string, or its `url` is not an
+ * http(s) URL containing `{key}`. Both are returned exactly as stored.
+ */
+export function jiraFromConfig(cfg: GlobalConfig): JiraConfig | null {
+  const raw = cfg.extra.jira;
+  if (raw === undefined || raw === null) return null;
+  const fail = (message: string): never => {
+    throw new Error(`${displayPath(cfg.path)}: ${message}`);
+  };
+  if (typeof raw !== 'object' || Array.isArray(raw)) {
+    fail('"jira" must be an object');
+  }
+  const { pattern, url } = raw as Record<string, unknown>;
+  if (typeof pattern !== 'string' || pattern === '') {
+    return fail('"jira.pattern" must be a non-empty string');
+  }
+  try {
+    new RegExp(pattern, 'i');
+  } catch (e) {
+    fail(`"jira.pattern" is not a valid regular expression: ${reason(e)}`);
+  }
+  if (new RegExp(`^(?:${pattern})$`, 'i').test('')) {
+    fail('"jira.pattern" must not match an empty string');
+  }
+  let protocol = '';
+  try {
+    if (typeof url === 'string') protocol = new URL(url).protocol;
+  } catch { /* not a URL */ }
+  if (typeof url !== 'string' || !['http:', 'https:'].includes(protocol)) {
+    return fail('"jira.url" must be an http(s) URL');
+  }
+  // On the raw string: `URL` percent-encodes `{` and `}` in a path.
+  if (!url.includes('{key}')) fail('"jira.url" must contain {key}');
+  return { pattern, url };
+}
+
 /**
  * `bridgeDefaultAllow`: the devc-bridge capabilities `devc up` and `devc build` grant when
  * `--bridge-allow` is not given. Kept in `extra`, so every save — the wizard's included, which

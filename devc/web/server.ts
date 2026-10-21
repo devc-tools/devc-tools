@@ -37,7 +37,12 @@ import {
   writeContainerFile,
   writeContainerText,
 } from './container_files.ts';
-import { loadGlobalConfig } from '@devc-tools/core/config.ts';
+import {
+  GLOBAL_CONFIG_PATHS,
+  type JiraConfig,
+  jiraFromConfig,
+  loadGlobalConfig,
+} from '@devc-tools/core/config.ts';
 import {
   containerToHostPath,
   findMountForContainerPath,
@@ -534,6 +539,18 @@ export async function startWeb(
 
   // The task list (`tasks.json`), kept in its own file for the same reason as pinned files.
   let taskState: TaskState = await readTasks();
+  /** `"jira"` from the global config, for the page's Open in Jira items; null when unset or bad. */
+  let jira: JiraConfig | null = null;
+  const readJira = async () => {
+    try {
+      jira = jiraFromConfig(await loadGlobalConfig());
+    } catch (e) {
+      jira = null;
+      console.error(`devc web: ${e instanceof Error ? e.message : e}`);
+    }
+  };
+  await readJira();
+  const jiraMessage = () => ({ type: 'jira', jira });
   const reloadTasks = async () => {
     taskState = await readTasks();
     broadcast(tasksMessage(taskState));
@@ -2264,6 +2281,7 @@ export async function startWeb(
       client.send(JSON.stringify(projectsMessage()));
       client.send(JSON.stringify(pinnedFilesMessage(filePins)));
       client.send(JSON.stringify(tasksMessage(taskState)));
+      client.send(JSON.stringify(jiraMessage()));
       if (bridgeStatus !== null) {
         client.send(JSON.stringify(bridgeStatusMessage(bridgeStatus)));
       }
@@ -2430,6 +2448,11 @@ export async function startWeb(
   );
   // Another devc web adding, sending or deleting a task.
   const tasksWatch = watchConfigFile(TASKS_PATH, () => void reloadTasks());
+  // An edit to the global config's `"jira"`.
+  const globalConfigWatch = watchConfigFile(GLOBAL_CONFIG_PATHS, async () => {
+    await readJira();
+    broadcast(jiraMessage());
+  });
   const bridgeWatch = watchBridgeStatus(
     bridgeStatePaths(Deno.env, Deno.env.get('HOME') ?? '.'),
     (s) => {
@@ -2454,6 +2477,7 @@ export async function startWeb(
       projectsWatch.stop();
       pinnedFilesWatch.stop();
       tasksWatch.stop();
+      globalConfigWatch.stop();
       bridgeWatch.stop();
       usageWatch.stop();
       for (const c of clients) {

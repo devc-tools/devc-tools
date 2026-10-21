@@ -410,6 +410,14 @@ Example global config:
 }
 ```
 
+**`jira`.** Optional: `{"pattern", "url"}` turns on devc web's **Open `<KEY>` in
+Jira** menu items for any branch it shows (terminals, file tiles, repo rows, In
+use folder rows). `pattern` is a JavaScript `RegExp` source for one issue key,
+matched case-insensitively where no letter or digit adjoins it; `url` is an
+http(s) URL with `{key}`. The devc web server validates it (`jiraFromConfig`),
+sends it to the page as a `jira` message and re-sends it when the file changes;
+a bad value is logged and sent as `null`. Nothing else reads it.
+
 **Namespace.** One namespace throughout: `devc` — binary name, container-name
 prefix, image path under `/usr/local/share/devc`, and the global config
 directory `~/.config/devc/` (a single code-level constant, `CONFIG_DIR`). An

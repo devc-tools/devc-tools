@@ -325,6 +325,28 @@ is published from any container: the host server finds devcontainers with
   attached to the same session. Hovering a Layout row shows **×** to close its
   tiles (and, on a terminal tile's row, a trash button left of it to kill the
   pane); hovering a pane under Containers shows a trash button to kill it.
+- **Open in Jira:** with `"jira"` in the [global config](#the-global-config),
+  a branch that holds an issue key (`feature/AB-12345-fix`) offers **Open
+  AB-12345 in Jira** wherever devc web shows that branch: a terminal (right-click
+  inside it, its tab, its Layout row or its pane row under Containers — the
+  branch of the repo it is in), a file tile (its file's repo), a repo row under
+  Containers, and an In use folder row (its only right-click item). Up to three
+  keys per branch, each its own item; it opens in your browser.
+
+  ```json
+  {
+    "jira": {
+      "pattern": "AB-\\d+",
+      "url": "https://acme.atlassian.net/browse/{key}"
+    }
+  }
+  ```
+
+  `pattern` is a JavaScript regular expression for one key (`"(?:AB|CD)-\\d+"`
+  for several projects), matched case-insensitively where no letter or digit
+  adjoins it; the key is upper-cased. `url` is an http(s) URL in which `{key}`
+  is replaced. Edits apply without a restart; a bad value prints a
+  `devc web:` message and turns the items off.
 - **Tiles:** click a pane to show it (bringing its tile forward if one already
   shows it, else opening it in the focused tile; Ctrl/⌘-click always opens a
   new tile), or drag it from the sidebar onto any tile's edge (a new split) or
@@ -1993,8 +2015,9 @@ any time.
 #### The global config
 
 devc's own settings — the roots above, and `bridgeDefaultAllow`,
-`bridgeRepoAllow`, `webSource`, devc-desktop's `desktopWebArgs` and
-`desktopDevc` — live in one host-only file that no container mounts:
+`bridgeRepoAllow`, `webSource`, `jira` (devc web's
+[Open in Jira](#devc-web-browser-ui-for-in-container-herdr)), devc-desktop's
+`desktopWebArgs` and `desktopDevc` — live in one host-only file that no container mounts:
 `~/.config/devc/config.json`, which the first run creates, or
 **`~/.config/devc/config.jsonc`**. Rename it to `config.jsonc` to keep comments
 (`//`, `/* */`) and trailing commas in it:
