@@ -51,7 +51,6 @@ import {
   splitRepoName,
   statusCounts,
   statusShort,
-  topStatus,
   windowTitle,
   ZONE_MIN_HEIGHT,
 } from './lib/sidebar.js';
@@ -829,28 +828,6 @@ function badge(pane) {
   );
 }
 
-/**
- * A collapsed container row's summary of its agents: the status most in need of attention,
- * with how many agents share it when more than one does. Every agent is in the tooltip.
- */
-function rollupBadge(panes) {
-  const top = topStatus(panes);
-  if (!top) return '';
-  return h(
-    'span',
-    {
-      class: 'badge',
-      'data-status': top.status,
-      title: panes.filter((p) => p.agent).map((p) =>
-        `${paneTitle(p)}: ${p.agent} ${agentStatus(p)}`
-      ).join('\n'),
-    },
-    top.count > 1
-      ? `${top.count} ${statusShort(top.status)}`
-      : statusShort(top.status),
-  );
-}
-
 /** A container's name, told apart from any other container with the same name. */
 function displayName(c) {
   return containerLabel(c, containers.values());
@@ -1016,11 +993,6 @@ function loadSidebarState() {
     ),
     /** @type {Record<string, string[]>} repo folder (file root) → open paths ('' is the root) */
     filesOpen: savedFilesOpen(saved?.rootsOpen),
-    /**
-     * The Layout tree, now below In use: closed until opened. Saved under a new name, so the
-     * old open-by-default `layoutOpen` doesn't carry over.
-     */
-    layoutOpen: saved?.layoutTreeOpen === true,
     /** Each container's shown view (by local folder): one of `CONTAINER_TABS`. */
     containerTab: savedContainerTabs(saved?.containerTab),
     pinnedOpen: saved?.pinnedOpen !== false,
@@ -1098,7 +1070,6 @@ function saveSidebarState() {
         projectsOpen: [...sidebarState.projectsOpen],
         // Not `filesOpen`: entries saved under that name were keyed by project, not by repo.
         rootsOpen: sidebarState.filesOpen,
-        layoutTreeOpen: sidebarState.layoutOpen,
         containerTab: sidebarState.containerTab,
         pinnedOpen: sidebarState.pinnedOpen,
         tasksOpen: sidebarState.tasksOpen,
@@ -1196,12 +1167,6 @@ function collapseContainers() {
       ...projects.keys(),
     ]),
   );
-  saveSidebarState();
-  renderTree();
-}
-
-function toggleLayoutSection() {
-  sidebarState.layoutOpen = !sidebarState.layoutOpen;
   saveSidebarState();
   renderTree();
 }
@@ -1428,11 +1393,9 @@ function renderTree() {
   const caret = typing
     ? [newEntry.input.selectionStart, newEntry.input.selectionEnd]
     : null;
-  const upper = [
-    ...inUseRows(),
-    ...pinnedFileRows(),
-    ...layoutRows(),
-  ];
+  // In use lists the tiles: it is re-rendered when the layout changes (layoutChanged).
+  layoutSignature = layoutState().signature;
+  const upper = [...inUseRows(), ...pinnedFileRows()];
   const rows = [
     sectionRow(
       'Containers',
@@ -1837,9 +1800,7 @@ function inUseGroupCard(g, now) {
     }
     for (const { t, p } of live.filter((r) => r.folder === folder)) {
       rows.push(
-        t
-          ? layoutTileRow(t.tile, t.active, 1, true)
-          : inUsePaneRow(p.c, p.pane),
+        t ? layoutTileRow(t.tile, t.active, 1) : inUsePaneRow(p.c, p.pane),
       );
     }
   }
@@ -1930,7 +1891,7 @@ function inUsePaneRow(c, pane) {
 }
 
 // ---------------------------------------------------------------------------------------------
-// Sidebar: Layout section
+// Sidebar: the layout's tiles, as In use lists them
 // ---------------------------------------------------------------------------------------------
 
 /** The folded layout tree, and a signature that also covers what each tile shows. */
@@ -1955,31 +1916,6 @@ function layoutState() {
 /** Re-renders the sidebar when the layout's shape or the tiles' panes changed. */
 function layoutChanged() {
   if (layoutState().signature !== layoutSignature) renderTree();
-}
-
-function layoutRows() {
-  const { tree, signature } = layoutState();
-  layoutSignature = signature;
-  const rows = [
-    sectionRow('Layout', sidebarState.layoutOpen, toggleLayoutSection),
-  ];
-  if (!sidebarState.layoutOpen) return rows;
-  if (!tree) {
-    rows.push(h('div', { class: 'empty' }, 'No tiles open'));
-    return rows;
-  }
-  const tilesById = new Map(tiling.tiles().map((t) => [t.id, t]));
-  const walk = (node, depth) => {
-    if (node.kind === 'tile') {
-      const tile = tilesById.get(node.id);
-      if (tile) rows.push(layoutTileRow(tile, node.active, depth));
-      return;
-    }
-    rows.push(layoutNodeRow(node, depth, tilesById));
-    for (const child of node.children) walk(child, depth + 1);
-  };
-  walk(tree, 1);
-  return rows;
 }
 
 /** The container and pane a ref points at, when they are known. */
@@ -2017,10 +1953,10 @@ function tileRowClass(tile, active) {
 }
 
 /**
- * A tile's row. `inUse` is an In use card's: it says what it is doing and has its pane's Open in
- * Code; the card names its folder and container.
+ * A tile's row in its In use card: what it is doing, and its pane's Open in Code on a right-click;
+ * the card names its folder and container.
  */
-function layoutTileRow(tile, active, depth, inUse = false) {
+function layoutTileRow(tile, active, depth) {
   if (tile.kind === 'file') return layoutFileTileRow(tile, active, depth);
   if (tile.kind === 'diff') return layoutDiffTileRow(tile, active, depth);
   const { c, pane } = resolveRef(tile.ref);
@@ -2038,7 +1974,7 @@ function layoutTileRow(tile, active, depth, inUse = false) {
       onclick: () => revealTile(tile.id),
       oncontextmenu: (e) =>
         openMenu(e, [
-          ...(inUse && c && pane ? paneCodeItems(c, pane) : []),
+          ...(c && pane ? paneCodeItems(c, pane) : []),
           ...tileMenuItems(tile),
         ]),
     },
@@ -2046,9 +1982,7 @@ function layoutTileRow(tile, active, depth, inUse = false) {
       'span',
       { class: 'label' },
       rowIcon({ agent: pane?.agent, empty: !tile.ref }),
-      ...(inUse && tile.ref
-        ? [inUseLabel(refLabel(tile.ref))]
-        : labelParts(refLabel(tile.ref))),
+      inUseLabel(refLabel(tile.ref)),
     ),
     rowTrail(
       badge(pane),
@@ -2098,40 +2032,6 @@ function nodeTiles(node, tilesById) {
     return tile ? [tile] : [];
   }
   return node.children.flatMap((child) => nodeTiles(child, tilesById));
-}
-
-function layoutNodeRow(node, depth, tilesById) {
-  const tiles = nodeTiles(node, tilesById);
-  const panes = tiles.map((t) => resolveRef(t.ref).pane).filter((p) => p);
-  return h(
-    'div',
-    {
-      class: 'row layout-node',
-      style: `--depth: ${depth}`,
-      title: node.kind === 'row'
-        ? 'Side by side'
-        : node.kind === 'column'
-        ? 'Stacked vertically'
-        : 'Tabs',
-      oncontextmenu: (e) => openMenu(e, nodeMenuItems(node, tiles)),
-    },
-    h(
-      'span',
-      { class: 'label' },
-      h('span', { class: 'node-icon', 'data-kind': node.kind }),
-      `${node.kind} · ${tiles.length}`,
-    ),
-    rowTrail(
-      rollupBadge(panes),
-      hoverActions(iconButton(
-        'close',
-        `Close ${
-          tiles.length === 1 ? 'its tile' : `its ${tiles.length} tiles`
-        }`,
-        () => tiling?.close(node.id),
-      )),
-    ),
-  );
 }
 
 /** A row's right-hand side: its badge, then buttons shown on hover. */

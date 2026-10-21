@@ -285,9 +285,10 @@ is published from any container: the host server finds devcontainers with
 `docker exec … herdr --session devc remote-api-bridge` and
 `terminal session control`. Updates are pushed end to end; nothing is polled.
 
-- **Sidebar:** two sections. **Layout** mirrors the tiles: rows, columns and
-  tab stacks as they nest (a level with a single child is folded away), each
-  tile with its pane's agent status; click a tile to bring it forward.
+- **Sidebar:** **In use** lists what is open by the repo or worktree it is in:
+  a card per folder with its tiles, the agents running in it that no tile
+  shows, and its recent agent sessions, the folders of each container together
+  in a card under its name; click a tile to bring it forward.
   **Containers** lists each container with every pane in it, marking the ones a
   tile shows; a workspace row appears only when there is more than one. Herdr
   tabs don't appear: a pane split in Herdr's own UI is listed like any other.
