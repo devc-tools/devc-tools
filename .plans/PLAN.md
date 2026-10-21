@@ -29,13 +29,6 @@
   `devc status` reports `MISMATCH`, and the bridge refuses grants. Step 0 measures the
   mechanism on a host first. Surviving the rewrite is left to a later plan.
 
-- [bridge-skip-unpinnable-repos](bridge-skip-unpinnable-repos.md) — a `--bridge-allow` grant
-  checks the workspace repo and each `--bridge-repo` on its own: ones failing a per-repo
-  precondition (no `origin`, detached `HEAD`, not GitHub, protection not in force) are skipped
-  with `devc: --bridge-allow: not pinning <label>: <reason>`, and the grant fails only when none
-  pass. Container-wide checks, `--bridge-repo` eligibility errors and same-repo conflicts stay
-  hard errors; refresh still revokes whole. No `--bridge-repo` → unchanged.
-
 - [keepawake-ping-telemetry](keepawake-ping-telemetry.md) — record every keepawake ping
   and report the distribution of gaps between them, so
   `DEVC_BRIDGE_KEEPAWAKE_IDLE_MS` can be set from measurement rather than the
@@ -62,13 +55,20 @@
   generalized from vscode-deephaven's `vscode-dev.sh`. chrome-devtools-mcp registration stays
   with the consuming project. Replaces the `feature-electron-deps` placeholder.
 
-- [devc-desktop-pr-review](devc-desktop-pr-review.md) — a **PR Review** panel in devc-desktop
-  (Ctrl/⌘+Shift+G) picks a github.com PR and shows its changed-file tree with GitHub's Viewed
-  state (host `gh`, main process only). A click opens the file's diff as a devc web tile (the
-  app POSTs it to `/desktop/review-diff`). Review threads show there, and replies and Copilot
-  resolves post, only through `devc-bridge` in a running container granted `gh-pr-review` on the
-  PR's branch. devc web never runs `gh`. A repo row's **Open PRs** reaches the panel over
-  `/desktop/events`, which only changes what the panel shows.
+- [bridge-read-tier-defaults](bridge-read-tier-defaults.md) — new capabilities `gh-pr-read`
+  (`gh-pr-comments`, which `gh-pr-review` still enables too, and a new `gh-pr-files`: the pinned
+  PR's changed files, patches and Viewed state) and `gh-pr-viewed` (new `gh-pr-viewed`, requires
+  `gh-pr-read`). A built-in runs when any of its capabilities is granted. `"bridgeDefaultAllow"`
+  in `~/.config/devc/config.json` is what `devc up`/`devc build` grant without `--bridge-allow`
+  (never read from a devc config layer; a default that can't pin logs and doesn't fail);
+  `--bridge-allow none` grants nothing. Refresh paths still never create a policy.
+
+- [devc-web-pr-review](devc-web-pr-review.md) — after bridge-read-tier-defaults: a **Pull
+  request** row under each repo of a running container shows the pinned branch's PR as a tree of
+  changed files with Viewed checkboxes, and a click opens a `diff` tile with its review threads.
+  Every read and write is a `devc-bridge` command in that container, enabled by the host-only
+  policy's grants (read on every message). devc web never runs `gh`, and devc-desktop doesn't
+  change. Replaces the devc-desktop panel design.
 
 ### Standing rules for Feature work
 
@@ -112,6 +112,13 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
   take it too.
 
 ### Completed
+
+- [bridge-skip-unpinnable-repos](archived/bridge-skip-unpinnable-repos.md) — a `--bridge-allow` grant
+  checks the workspace repo and each `--bridge-repo` on its own: ones failing a per-repo
+  precondition (no `origin`, detached `HEAD`, not GitHub, protection not in force) are skipped
+  with `devc: --bridge-allow: not pinning <label>: <reason>`, and the grant fails only when none
+  pass. Container-wide checks, `--bridge-repo` eligibility errors and same-repo conflicts stay
+  hard errors; refresh still revokes whole. No `--bridge-repo` → unchanged.
 
 - [devc-web-sidebar-scale-fixes](archived/devc-web-sidebar-scale-fixes.md) — from a live review with ~20
   containers: Tasks as its own top-level section, chevrons that stay centered, In use repo rows that
@@ -2379,7 +2386,8 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
 | git-protect live check — `devc status` and the bridge read the container's mountinfo                               | [git-protect-live-check](git-protect-live-check.md)                                |             |
 | `devc web` editable viewer — file tiles edit and save through `write_file`                                         | [devc-web-editable-viewer](devc-web-editable-viewer.md)                            | in progress |
 | devc-desktop host cd — the host terminal's right-click `cd`s to devc web's active pane folder                      | [devc-desktop-host-cd](archived/devc-desktop-host-cd.md)                           | complete    |
-| bridge skip unpinnable repos — pin the candidates that pass, error only when none do                               | [bridge-skip-unpinnable-repos](bridge-skip-unpinnable-repos.md)                    | in progress |
+| bridge skip unpinnable repos — pin the candidates that pass, error only when none do                               | [bridge-skip-unpinnable-repos](archived/bridge-skip-unpinnable-repos.md)           | complete    |
 | `devc web` agent sessions — a Sessions node per container lists and resumes recent agent sessions                  | [devc-web-agent-sessions](archived/devc-web-agent-sessions.md)                     | complete    |
-| devc-desktop PR review — panel tree + Viewed via host `gh`, diffs as devc web tiles, threads via devc-bridge       | [devc-desktop-pr-review](devc-desktop-pr-review.md)                                |             |
-| devc web sidebar scale fixes — Tasks section, In use merged by folder, running sessions not resumed twice           | [devc-web-sidebar-scale-fixes](archived/devc-web-sidebar-scale-fixes.md)           | complete    |
+| devc-bridge read tier — `gh-pr-read`/`gh-pr-files`, `gh-pr-viewed`, `bridgeDefaultAllow` in config.json            | [bridge-read-tier-defaults](bridge-read-tier-defaults.md)                          |             |
+| devc web PR review — sidebar PR tree + Viewed, diff tiles with threads, all through the container's bridge         | [devc-web-pr-review](devc-web-pr-review.md)                                        |             |
+| devc web sidebar scale fixes — Tasks section, In use merged by folder, running sessions not resumed twice          | [devc-web-sidebar-scale-fixes](archived/devc-web-sidebar-scale-fixes.md)           | complete    |
