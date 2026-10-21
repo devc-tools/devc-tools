@@ -1749,9 +1749,18 @@ function inUseGroupCard(g, now) {
         `In: ${[...g.folders].map(containerNameOf).join(', ')}`,
       ].filter((t) => t).join('\n'),
       onclick: g.sessions.length > 0 ? toggleSessions : undefined,
-      // Only to open a Jira key in its branch: without one, the right-click is as it always was.
+      // Its repo's paths, as the repo's own row copies them, and a Jira key in its branch.
+      // Without either, the right-click is as it always was.
       oncontextmenu: (e) => {
-        const items = jiraItems(g.repo?.git?.branch);
+        const items = [
+          ...(g.repo
+            ? copyPathItems(
+              { localFolder: g.localFolder, root: g.repo.folder },
+              '',
+            )
+            : []),
+          ...jiraItems(g.repo?.git?.branch),
+        ];
         if (items.length > 0) openMenu(e, items);
       },
     },
