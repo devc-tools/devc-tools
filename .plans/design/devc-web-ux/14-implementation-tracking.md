@@ -20,6 +20,16 @@ or protocol change so far. To undo a feature, revert its commit.
 | F6 | Container row: per-status agent counts, shown expanded too | done | `41447e0` |
 | F7 | Repo labels: parent path muted before the bold name (`.plans/` deephaven-core) | done | `41447e0` |
 | F8 | Tasks as one compact row with counts | done | `951f20a` |
+| F9 | Tasks as a top-level section, first in the upper zone (supersedes F8's placement) | done | `0a09316` |
+| F10 | Chevrons drawn, turned when open, centered on the text | done | `4b664c3` |
+| F11 | In use group rows: hover new task and + (shell / agent) at the folder, per running container | done | `df12fd7` |
+| F12 | In use: one group per host folder across containers; each session once | done | `df12fd7` |
+| F13 | Claude sessions running in a pane: not offered in In use, tagged `running` in Sessions, never resumed twice | done | `215aa11` |
+| F14 | Same parts on every row of a kind; labels give way from the right (container first) | done | `df12fd7` |
+| F15 | Containers section collapses; In use may then take the whole sidebar | done | `0a09316` |
+
+F9–F15 come from a live review on a machine with ~20 containers, specified in
+[devc-web-sidebar-scale-fixes](../../devc-web-sidebar-scale-fixes.md).
 
 ## Exceptions
 
@@ -78,11 +88,12 @@ Each is a place the implementation differs from the mockup on purpose. Say which
     the In use heading lists them again. A repo with nothing open shows up only for a session
     from the last 24 hours, collapsed.
 18. **A session matches a repo by the folder it started in**, so a worktree's sessions sit
-    under the worktree. A session already running in a pane is still listed: nothing ties a
-    pane to its session id.
+    under the worktree. A Claude session running in a pane is left out (F13).
 19. **Session rows** show the agent's mark and age; a click resumes, as before. No "resume"
     word on hover.
-20. **The zones split at 56%**: In use takes what it needs up to that, Containers the rest.
+20. **The zones split at 56%**: In use takes what it needs up to that, Containers the rest
+    (now enforced: Containers' flex basis is 0, so it no longer squeezes In use). With Containers
+    folded, In use may take the whole sidebar (F15).
 
 ### F5 / F6 / F7: container tabs, status counts, repo labels
 
@@ -111,6 +122,27 @@ Each is a place the implementation differs from the mockup on purpose. Say which
 29. **Tasks is one row** in the In use zone ("Tasks · N open · M sent"), opening to its groups
     and Sent as before; its + (new task) and collapse-all are hover buttons on that row. Its open
     state is the one saved before, so it stays open if it was.
+
+### F9–F15: many-container fixes
+
+30. **One group per host folder, so the same path can appear twice:** two different host folders
+    mounted at the same container path (`~/code/vscode-deephaven` and `~/.plans/vscode-deephaven`,
+    both at `/workspaces/vscode-deephaven`) are two groups with the same name and branch. Correct,
+    but they look alike; their tooltips differ. Open question for the review.
+31. **A session's container is where it will be resumed, not where it ran.** Agent homes are
+    shared, so every container mounting a folder lists the same sessions and nothing records which
+    one ran it. In use keeps one row per session, in the folder's own container when it has one,
+    else the first that mounts it.
+32. **A group several containers mount has long + / task menus:** a block per container (15 items
+    for a worktree in three containers). Fine for now; a container picker could replace it.
+33. **Running detection is Claude only**, from Claude Code's undocumented per-process records
+    (`~/.claude/sessions/<pid>.json`). Copilot and pi keep the old reuse (panes this server
+    resumed). `pane_id` is as of the last listing; the page also checks the pane still has an
+    agent, and `resume_session` re-checks just before launching. Needs a `devc web` restart.
+34. **A resumed pane is renamed to the session title** (unchanged): its label differs from a pane
+    started by hand in the same folder. Out of scope here.
+35. **A session row's container is part of its label in In use**, so it gives way before the
+    title; the age stays.
 
 ## Notes for the review
 
