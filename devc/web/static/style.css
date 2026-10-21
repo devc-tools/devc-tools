@@ -1123,11 +1123,11 @@ body.resizing-zones {
   min-height: 0;
 }
 
-/* A margin round the tiles as wide as the gaps between them; on the left, less the sidebar
-   resizer's 5px, so the sidebar too sits a tile gap from the tiles. */
+/* A margin round the tiles as wide as the gaps between them; on the left, less the 4px of the
+   sidebar resizer after the sidebar's 1px edge, so the sidebar too sits a tile gap from them. */
 .layout-root {
   position: absolute;
-  inset: var(--tile-gap) var(--tile-gap) var(--tile-gap) calc(var(--tile-gap) - 5px);
+  inset: var(--tile-gap) var(--tile-gap) var(--tile-gap) calc(var(--tile-gap) - 4px);
 }
 
 .app[data-sidebar='hidden'] .layout-root {
