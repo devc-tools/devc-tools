@@ -17,6 +17,7 @@ import {
   menuLabel,
   shellIdle,
   shellQuote,
+  TITLEBAR_HEIGHT,
 } from '../src/main/policy.ts';
 
 const TOKEN = 'ab'.repeat(32);
@@ -145,16 +146,19 @@ test('clampDrawer: at least 120 px, at most 85% of the height', () => {
   assertEquals(clampDrawer(500, 100), DRAWER_MIN);
 });
 
-test('layout: the drawer below devc web, never overlapping it', () => {
-  assertEquals(layout(1200, 800, null), {
-    main: { x: 0, y: 0, width: 1200, height: 800 },
+test('layout: the title bar on top, the drawer below devc web, none overlapping', () => {
+  const bar = { x: 0, y: 0, width: 1200, height: TITLEBAR_HEIGHT };
+  assertEquals(layout(1200, 832, null), {
+    bar,
+    main: { x: 0, y: 32, width: 1200, height: 800 },
     host: null,
   });
-  const { main, host } = layout(1200, 800, 300);
-  assertEquals(main, { x: 0, y: 0, width: 1200, height: 500 });
-  assertEquals(host, { x: 0, y: 500, width: 1200, height: 300 });
+  const { main, host } = layout(1200, 832, 300);
+  assertEquals(main, { x: 0, y: 32, width: 1200, height: 500 });
+  assertEquals(host, { x: 0, y: 532, width: 1200, height: 300 });
+  assertEquals(bar.y + bar.height, main.y);
   assertEquals(main.y + main.height, host!.y);
-  assertEquals(layout(1200, 800, 5000).host!.height, 680);
+  assertEquals(layout(1200, 832, 5000).host!.height, 680);
 });
 
 test("fromView: only the view's own main frame, at its bundled page", () => {

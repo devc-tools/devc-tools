@@ -1,0 +1,37 @@
+/*
+ * The window's title bar, drawn in place of the OS's own. The whole bar drags the window. The
+ * window's buttons sit over it: macOS's on the left, the overlay's on the right elsewhere, so the
+ * title keeps clear of them. Its colour is TITLEBAR_COLOR in main.ts.
+ */
+:root {
+  --bg: #161922;
+  --border: #2a2f3c;
+  --muted: #8a90a0;
+}
+html,
+body {
+  height: 100%;
+}
+body {
+  margin: 0;
+  box-sizing: border-box;
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+  color: var(--muted);
+  font: 12px/1 system-ui, sans-serif;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 152px 0 16px;
+  -webkit-app-region: drag;
+  user-select: none;
+  cursor: default;
+}
+body[data-platform='darwin'] {
+  padding: 0 16px 0 80px;
+}
+#title {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}

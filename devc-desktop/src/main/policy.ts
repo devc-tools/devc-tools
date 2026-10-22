@@ -112,23 +112,31 @@ export function clampDrawer(height: number, total: number): number {
   return Math.round(Math.min(max, Math.max(DRAWER_MIN, height)));
 }
 
+/** The title bar's height, in pixels: the window's own bar is hidden, and this one is drawn. */
+export const TITLEBAR_HEIGHT = 32;
+
 /**
- * Where the views go in a `width` × `height` content area: devc web (or the status view) on top,
- * the host drawer below it when open. A closed drawer has no rectangle. The two never overlap, so
- * devc web never draws over the host terminal.
+ * Where the views go in a `width` × `height` content area: the title bar across the top, devc web
+ * (or the status view) below it, and the host drawer at the bottom when open. A closed drawer has
+ * no rectangle. None overlap, so devc web never draws over the host terminal. `drawer` is clamped
+ * against the height below the title bar.
  */
 export function layout(
   width: number,
   height: number,
   drawer: number | null,
-): { main: Rect; host: Rect | null } {
+): { bar: Rect; main: Rect; host: Rect | null } {
+  const bar = { x: 0, y: 0, width, height: TITLEBAR_HEIGHT };
+  const top = TITLEBAR_HEIGHT;
+  const area = Math.max(0, height - top);
   if (drawer === null) {
-    return { main: { x: 0, y: 0, width, height }, host: null };
+    return { bar, main: { x: 0, y: top, width, height: area }, host: null };
   }
-  const h = clampDrawer(drawer, height);
+  const h = clampDrawer(drawer, area);
   return {
-    main: { x: 0, y: 0, width, height: height - h },
-    host: { x: 0, y: height - h, width, height: h },
+    bar,
+    main: { x: 0, y: top, width, height: area - h },
+    host: { x: 0, y: top + area - h, width, height: h },
   };
 }
 

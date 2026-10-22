@@ -1,12 +1,15 @@
 // devc-desktop: `devc web` in its own window, with a host terminal devc web cannot reach.
 //
-// One BaseWindow holds three WebContentsViews, never frames of each other:
+// One BaseWindow holds four WebContentsViews, never frames of each other:
 //   - the devc view: devc web's page (`devc web --no-open …` runs as a child), locked down
 //     because an agent can control that page: sandboxed, its own partition, no preload, no
 //     dialogs, no windows, no navigation off its origin, no permission but copying;
 //   - the status view (bundled page + preload) while devc web starts, or after it stopped;
 //   - the host view (bundled page + preload): a drawer at the bottom running the user's shell
-//     through node-pty, opened only from the app menu.
+//     through node-pty, opened only from the app menu;
+//   - the title bar view (bundled page + preload): the OS's own bar is hidden, so this one draws
+//     the title and drags the window; the window's buttons sit over it. The window's title is
+//     still set as before, for the taskbar and anything else that reads it.
 // Why this shape, and what it was measured against: `.plans/devc-desktop-electron.md`.
 
 import { readFile, realpath, stat } from 'node:fs/promises';
@@ -53,6 +56,7 @@ import {
   menuLabel,
   shellIdle,
   shellQuote,
+  TITLEBAR_HEIGHT,
 } from './policy.ts';
 import { accountShell, HostPty, hostShell, ptyEnv } from './pty.ts';
 
@@ -69,6 +73,9 @@ const IS_MAC = process.platform === 'darwin';
  * terminal toggle), and on macOS Cmd+J too (VS Code's panel toggle).
  */
 const TOGGLE = IS_MAC ? 'Cmd+J or Ctrl+`' : 'Ctrl+`';
+/** The title bar's colour (as in titlebar.css), and its window buttons' outside macOS. */
+const TITLEBAR_COLOR = '#161922';
+const TITLEBAR_SYMBOL_COLOR = '#d7dae0';
 
 interface Status {
   phase: 'starting' | 'failed';
@@ -109,6 +116,27 @@ async function main(): Promise<void> {
     height: 900,
     backgroundColor: '#0d0f14',
     autoHideMenuBar: !IS_MAC,
+    titleBarStyle: 'hidden',
+    // macOS keeps its traffic lights, centred in the bar; elsewhere the overlay draws the buttons.
+    ...(IS_MAC
+      ? { trafficLightPosition: { x: 12, y: (TITLEBAR_HEIGHT - 16) / 2 } }
+      : {
+        titleBarOverlay: {
+          color: TITLEBAR_COLOR,
+          symbolColor: TITLEBAR_SYMBOL_COLOR,
+          height: TITLEBAR_HEIGHT,
+        },
+      }),
+  });
+
+  const titleBarView = new WebContentsView({
+    webPreferences: {
+      sandbox: true,
+      contextIsolation: true,
+      nodeIntegration: false,
+      partition: 'titlebar',
+      preload: join(__dirname, 'preload-titlebar.js'),
+    },
   });
 
   const statusView = new WebContentsView({
@@ -144,13 +172,17 @@ async function main(): Promise<void> {
     v.setBackgroundColor('#0d0f14');
     win.contentView.addChildView(v);
   }
+  titleBarView.setBackgroundColor(TITLEBAR_COLOR);
+  win.contentView.addChildView(titleBarView);
 
   const STATUS_URL = pageUrl('status.html');
   const HOST_URL = pageUrl('host.html');
+  const TITLEBAR_URL = pageUrl('titlebar.html');
 
   lockDownDevc();
   lockDownBundled(statusView, STATUS_URL);
   lockDownBundled(hostView, HOST_URL);
+  lockDownBundled(titleBarView, TITLEBAR_URL);
 
   // ---- layout -------------------------------------------------------------------------------
 
@@ -159,10 +191,12 @@ async function main(): Promise<void> {
 
   function relayout(): void {
     const { width, height } = win.getContentBounds();
+    const area = height - TITLEBAR_HEIGHT;
     const h = drawerOpen
-      ? clampDrawer(drawerHeight ?? height * DRAWER_DEFAULT_SHARE, height)
+      ? clampDrawer(drawerHeight ?? area * DRAWER_DEFAULT_SHARE, area)
       : null;
-    const { main, host } = layout(width, height, h);
+    const { bar, main, host } = layout(width, height, h);
+    titleBarView.setBounds(bar);
     devcView.setVisible(showingDevc);
     statusView.setVisible(!showingDevc);
     (showingDevc ? devcView : statusView).setBounds(main);
@@ -173,10 +207,14 @@ async function main(): Promise<void> {
 
   // The window's title is devc web's page title (the active tile's repo, branch and pane title)
   // while it shows, and `devcd` otherwise: a BaseWindow doesn't follow its views' titles by itself.
+  // The title bar view shows the same.
   let devcTitle = 'devcd';
   function updateTitle(): void {
-    win.setTitle(showingDevc ? devcTitle : 'devcd');
+    const title = showingDevc ? devcTitle : 'devcd';
+    win.setTitle(title);
+    titleBarView.webContents.send('titlebar:title', title);
   }
+  titleBarView.webContents.on('did-finish-load', updateTitle);
   devcView.webContents.on('page-title-updated', (_e, title) => {
     devcTitle = title || 'devcd';
     updateTitle();
@@ -419,10 +457,10 @@ async function main(): Promise<void> {
       !fromHost(e) || !drawerOpen || typeof dy !== 'number' ||
       !Number.isFinite(dy)
     ) return;
-    const { height } = win.getContentBounds();
+    const area = win.getContentBounds().height - TITLEBAR_HEIGHT;
     drawerHeight = clampDrawer(
-      (drawerHeight ?? height * DRAWER_DEFAULT_SHARE) - dy,
-      height,
+      (drawerHeight ?? area * DRAWER_DEFAULT_SHARE) - dy,
+      area,
     );
     relayout();
     saveState();
@@ -652,6 +690,7 @@ async function main(): Promise<void> {
 
   await loadState();
   void statusView.webContents.loadURL(STATUS_URL);
+  void titleBarView.webContents.loadURL(TITLEBAR_URL);
   showStatus();
   void start();
 }

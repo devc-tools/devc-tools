@@ -5,7 +5,7 @@ devc web cannot reach. The app runs the installed `devc web --no-open` as a chil
 shows a status page while that starts, then shows the page `devc web` serves. Live mode
 (`--live`, `--live-yolo`) works as in a browser tab.
 
-It is an [Electron](https://www.electronjs.org/) app. One window holds three separate views, each
+It is an [Electron](https://www.electronjs.org/) app. One window holds four separate views, each
 its own browser instance (not frames of one page):
 
 | View              | Shows                                                    | Can reach                               |
@@ -13,6 +13,7 @@ its own browser instance (not frames of one page):
 | **devc web**      | devc web's page                                          | devc web's own server, and nothing else |
 | **status**        | the status page while devc web starts, or why it stopped | Restart, nothing else                   |
 | **host terminal** | your login shell on this machine                         | the shell, through the app              |
+| **title bar**     | the window's title, in place of the OS's own bar        | nothing                                 |
 
 ## Build
 
