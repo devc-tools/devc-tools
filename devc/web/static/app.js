@@ -1610,7 +1610,6 @@ function repoCards() {
     const repo = projectRepos(c.localFolder).find((r) => r.folder === s.root);
     cardFor(c.localFolder, repo ?? null).sessions.push({ c, s });
   }
-  const now = Date.now();
   for (const card of cards.values()) {
     card.sessions.sort((a, b) =>
       Date.parse(b.s.updatedAt) - Date.parse(a.s.updatedAt)
@@ -1618,8 +1617,7 @@ function repoCards() {
     card.active = repoCardActive({
       tiles: card.tiles.length,
       agents: card.panes.filter(({ pane }) => pane.agent).length,
-      lastSessionAt: card.sessions[0]?.s.updatedAt ?? null,
-    }, now);
+    });
   }
   return cards;
 }

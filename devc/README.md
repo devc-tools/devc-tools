@@ -298,13 +298,13 @@ is published from any container: the host server finds devcontainers with
   **Containers**, a worktree's card is indented under its repo's, joined by a
   rail; with nothing open, a click on that repo's header hides or shows them
   (its chevron, on the left, points down while they show). Anywhere else, with nothing open, the
-  header's click does nothing. A card is **active** while it has a tile, an agent no tile
-  shows, or a session from the last day: active cards are under **In use**, each container's in a
+  header's click does nothing. A card is **active** while it has a tile or an agent no tile
+  shows (past sessions don't count): active cards are under **In use**, each container's in a
   card under its name, most urgent agent first (blocked, done, working, then idle; cards with no
   agent last, ties in layout order) and re-sorted as statuses change; the rest are under **Containers**, in their container's
   card, after its header and before its **Files** row (the container's own
-  filesystem from `/`). A repo mounted in two containers has a card in each;
-  each past session is listed once. Click a tile or pane row to bring it
+  filesystem from `/`). A repo mounted in two containers has a card in each,
+  each listing its past sessions. Click a tile or pane row to bring it
   forward. Click a container to collapse it; a collapsed one shows its most
   urgent agent status. A repo is named by its path under `/workspaces` in the
   container (`tools/devc-tools`), else by its folder's name. The window title follows the

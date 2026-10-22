@@ -200,21 +200,14 @@ export function repoCardKey(localFolder, repoFolder) {
   return `card\n${localFolder}\n${repoFolder ?? ''}`;
 }
 
-/** How recent a past session keeps its repo card active. */
-export const IN_USE_SESSION_MS = 24 * 60 * 60 * 1000;
-
 /**
- * Whether a repo card is active (shown in In use, else in Containers): it has a tile, an agent no
- * tile shows, or a past session from the last {@link IN_USE_SESSION_MS}. A plain shell no tile
- * shows doesn't count. An unparseable `lastSessionAt` is not recent.
+ * Whether a repo card is active (shown in In use, else in Containers): it has a tile or an agent no
+ * tile shows. A plain shell no tile shows doesn't count, nor do past sessions.
  *
- * @param {{tiles: number, agents: number, lastSessionAt: string | null}} card
- * @param {number} nowMs
+ * @param {{tiles: number, agents: number}} card
  */
-export function repoCardActive({ tiles, agents, lastSessionAt }, nowMs) {
-  if (tiles > 0 || agents > 0) return true;
-  const at = lastSessionAt === null ? NaN : Date.parse(lastSessionAt);
-  return nowMs - at < IN_USE_SESSION_MS;
+export function repoCardActive({ tiles, agents }) {
+  return tiles > 0 || agents > 0;
 }
 
 /**

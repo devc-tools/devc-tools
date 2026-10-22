@@ -534,25 +534,11 @@ Deno.test('repoCardKey: one card per repo per container', () => {
   );
 });
 
-Deno.test('repoCardActive: a tile, an untiled agent or a session in the last day', () => {
-  const now = Date.parse('2026-10-21T12:00:00Z');
-  const hoursAgo = (n: number) => new Date(now - n * 3600_000).toISOString();
-  const card = { tiles: 0, agents: 0, lastSessionAt: null };
-  assertEquals(repoCardActive({ ...card, tiles: 1 }, now), true);
-  assertEquals(repoCardActive({ ...card, agents: 1 }, now), true);
-  assertEquals(
-    repoCardActive({ ...card, lastSessionAt: hoursAgo(23) }, now),
-    true,
-  );
-  assertEquals(
-    repoCardActive({ ...card, lastSessionAt: hoursAgo(25) }, now),
-    false,
-  );
-  assertEquals(
-    repoCardActive({ ...card, lastSessionAt: 'nonsense' }, now),
-    false,
-  );
-  assertEquals(repoCardActive(card, now), false);
+Deno.test('repoCardActive: a tile or an untiled agent', () => {
+  const card = { tiles: 0, agents: 0 };
+  assertEquals(repoCardActive({ ...card, tiles: 1 }), true);
+  assertEquals(repoCardActive({ ...card, agents: 1 }), true);
+  assertEquals(repoCardActive(card), false);
 });
 
 // Tasks on top (rows: 40–200px), In use in the middle (32–500), Containers the rest (≥ 32).
