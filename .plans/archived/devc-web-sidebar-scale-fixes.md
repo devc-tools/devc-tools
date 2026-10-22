@@ -27,7 +27,7 @@ An In use group's row gets the hover buttons a repo row in the container tree ha
 (`newTerminalButton`: "New task here" and the + menu of shell / agents), at the group's repo
 folder (a container's root when the group has no repo). Shown only while a container that mounts
 the folder is running (`containerByFolder`). When more than one running container mounts it
-(F12), each menu lists one block per container, divided, each item suffixed ` · <container>`;
+(F12), each menu lists one block per container, divided, each item suffixed `· <container>`;
 the task button then opens a menu of `New task · <container>` items. With one, behavior is
 exactly the repo row's.
 
@@ -114,13 +114,13 @@ The CONTAINERS heading gets a chevron and collapses like Tasks. Saved as `contai
 
 - [x] `cd devc && deno task check` passes
 - [x] `cd devc && deno task test` passes, including new cases: `parseSessionsOutput` reads `R`
-  lines into a running map and ignores malformed ones; `pickSessions` (or its caller) sets
-  `pane_id` only for a matching Herdr session; the page's `parseSessions` keeps a string `pane_id`
-  and drops a non-string one; the In use grouping helper puts one folder's items from two
-  containers in one group
+      lines into a running map and ignores malformed ones; `pickSessions` (or its caller) sets
+      `pane_id` only for a matching Herdr session; the page's `parseSessions` keeps a string `pane_id`
+      and drops a non-string one; the In use grouping helper puts one folder's items from two
+      containers in one group
 - [x] `cd devc && deno fmt --check` passes
 - [x] In the container, `RUNNING_SCRIPT` run by hand (`sh -c "$RUNNING_SCRIPT"`) prints an `R` line
-  for this Claude session whose pane id equals this shell's `$HERDR_PANE_ID`
+      for this Claude session whose pane id equals this shell's `$HERDR_PANE_ID`
 - [x] Live, headless browser against the user's devc web (read-only):
   - the upper zone's first row is the TASKS heading
   - every expanded chevron's glyph box is vertically centered on its row (within 1px), checked
@@ -131,9 +131,9 @@ The CONTAINERS heading gets a chevron and collapses like Tasks. Saved as `contai
   - every in-group tile / pane / session row has a `.row-container`
   - CONTAINERS collapses and stays collapsed after a reload
 - [x] After the user restarts `devc web` (server code): this Claude session's session row is absent
-  from In use and has a `running` tag in code-wksp's Sessions tab
+      from In use and has a `running` tag in code-wksp's Sessions tab
 - [x] `resume_session` for a session running in a pane returns `reused: true` and no new pane
-  appears (checked live by the user, resuming a running session from code-wksp's Sessions tab)
+      appears (checked live by the user, resuming a running session from code-wksp's Sessions tab)
 
 ## Relevant Files
 

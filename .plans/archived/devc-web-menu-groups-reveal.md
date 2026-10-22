@@ -69,14 +69,15 @@ color, with a few px of vertical margin, full width. It takes no hover and no cl
 
 Separate each group with `null`. A group that comes out empty disappears (see above).
 
-| Menu                | Groups, in order                                                                                                                                         |
-| ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Menu                | Groups, in order                                                                                                                                                                   |
+| ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `fileMenuItems`     | Open, Open to the right · Open in editor, Open in editor to the right · Open in browser, Open in Code, Reveal · Copy path, Copy container path · Pin/Unpin file · Rename…, Delete… |
-| `dirMenuItems`      | terminal-here / task-here · New file…, New folder… · Open in Code, Reveal · Copy path, Copy container path · Refresh · Rename…, Delete…                     |
-| `fileTileMenuItems` | Save, Reload · Open in editor, Open in browser, Open in Code, Reveal · Copy path, Copy container path · Pin/Unpin file · Keep open · Close                 |
-| `filePinMenuItems`  | Open to the right, Open read-only · Open in Code, Reveal · Copy path, Copy container path · Rename… · Unpin file                                          |
+| `dirMenuItems`      | terminal-here / task-here · New file…, New folder… · Open in Code, Reveal · Copy path, Copy container path · Refresh · Rename…, Delete…                                            |
+| `fileTileMenuItems` | Save, Reload · Open in editor, Open in browser, Open in Code, Reveal · Copy path, Copy container path · Pin/Unpin file · Keep open · Close                                         |
+| `filePinMenuItems`  | Open to the right, Open read-only · Open in Code, Reveal · Copy path, Copy container path · Rename… · Unpin file                                                                   |
 
 Split `pathMenuItems(fr, path)` into two functions so the groups can be placed apart:
+
 - `copyPathItems(fr, path)`: the copy items.
 - `hostOpenItems(fr, path)`: Open in Code and Reveal, under the existing `inRepo` condition.
 
@@ -87,15 +88,18 @@ Destructive items (`danger`) go last, behind a divider.
 
 ```ts
 /** argv lists to try in order; the first whose command exists is spawned. */
-export function revealCommands(os: typeof Deno.build.os, path: string): string[][];
+export function revealCommands(
+  os: typeof Deno.build.os,
+  path: string,
+): string[][];
 /** Spawns the first runnable command without waiting; throws if none can run. */
 export function revealOnHost(path: string): void;
 ```
 
-| `os`      | Commands, in order                                                                                                                                                                                                  |
-| --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `darwin`  | `['open', '-R', path]`                                                                                                                                                                                              |
-| `windows` | `['explorer.exe', '/select,' + path]` (explorer exits 1 on success, so its status is never read)                                                                                                                   |
+| `os`      | Commands, in order                                                                                                                                                                                                                                   |
+| --------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `darwin`  | `['open', '-R', path]`                                                                                                                                                                                                                               |
+| `windows` | `['explorer.exe', '/select,' + path]` (explorer exits 1 on success, so its status is never read)                                                                                                                                                     |
 | other     | `['dbus-send', '--session', '--dest=org.freedesktop.FileManager1', '--type=method_call', '/org/freedesktop/FileManager1', 'org.freedesktop.FileManager1.ShowItems', 'array:string:' + fileUrl(path), 'string:']`, then `['xdg-open', dirname(path)]` |
 
 `fileUrl` is `toFileUrl` from `jsr:@std/path`. The fallback order is about `NotFound` only, as in

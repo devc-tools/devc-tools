@@ -13,6 +13,7 @@
 - [x] `devc/README.md` (devc web, "Files and editing") updated
 
 File tiles in `devc web` can show a file as media rather than text:
+
 - an **image** (`.png`, `.gif`, `.jpg`, …), drawn as an image;
 - an **HTML page**, rendered in a sandboxed iframe inside a tile.
 
