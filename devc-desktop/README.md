@@ -13,7 +13,7 @@ its own browser instance (not frames of one page):
 | **devc web**      | devc web's page                                          | devc web's own server, and nothing else |
 | **status**        | the status page while devc web starts, or why it stopped | Restart, nothing else                   |
 | **host terminal** | your login shell on this machine                         | the shell, through the app              |
-| **title bar**     | the window's title, in place of the OS's own bar        | nothing                                 |
+| **title bar**     | the window's title, in place of the OS's own bar         | nothing                                 |
 
 ## Build
 
