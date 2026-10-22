@@ -5,8 +5,9 @@
 1. `bash scripts/bump-version.sh` — it shows the current version and prompts
    for the new one (`X.Y.Z`, or `X.Y.Z-rc.N` for a prerelease); or pass it as
    an argument.
-2. **Only if publishing core:** `bash scripts/bump-core-version.sh <x.y.z>`
-   (`bump-version.sh` says whether `devc-core/` changed since the last tag).
+2. **Only if publishing core:** `bash scripts/bump-core-version.sh` — it
+   prompts the same way (`bump-version.sh` says whether `devc-core/` changed
+   since the last tag).
 3. Review the diff, commit, push.
 4. On the host: `bash scripts/preflight-core-publish.sh`
 5. `git tag v<x.y.z> && git push origin v<x.y.z>` — never `git push --tags`.

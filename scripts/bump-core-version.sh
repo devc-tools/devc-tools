@@ -15,6 +15,8 @@
 #   bash scripts/bump-core-version.sh 0.5.0
 #   bash scripts/bump-core-version.sh 0.5.0-rc.1
 #
+# With no argument it shows the current version and prompts for the new one.
+#
 # Runs on the host or in the devcontainer: nothing here touches node_modules (devc-core has no
 # npm lifecycle scripts, and no deno.json sets nodeModulesDir). It edits, verifies and reports a
 # diff; it never commits, tags, pushes or publishes.
@@ -30,22 +32,6 @@ case "${1:-}" in
     ;;
 esac
 
-new="${1:-}"
-if [ -z "$new" ]; then
-  echo "usage: bash scripts/bump-core-version.sh <new-version>" >&2
-  echo "        e.g. bash scripts/bump-core-version.sh 0.5.0" >&2
-  exit 2
-fi
-
-# Loose semver check — X.Y.Z with an optional -prerelease, the same shape bump-version.sh accepts.
-case "$new" in
-  [0-9]*.[0-9]*.[0-9]*) ;;
-  *)
-    echo "error: '$new' doesn't look like X.Y.Z (or X.Y.Z-suffix)" >&2
-    exit 2
-    ;;
-esac
-
 die() {
   echo "error: $*" >&2
   exit 1
@@ -58,6 +44,30 @@ read_json() {
 
 current="$(read_json devc-core/package.json)"
 [ -n "$current" ] || die "could not read the current version from devc-core/package.json"
+
+new="${1:-}"
+if [ -z "$new" ]; then
+  if [ ! -t 0 ]; then
+    echo "usage: bash scripts/bump-core-version.sh <new-version>" >&2
+    echo "        e.g. bash scripts/bump-core-version.sh 0.5.0" >&2
+    exit 2
+  fi
+  read -r -p "current version is $current; new version: " new
+  if [ -z "$new" ]; then
+    echo "error: no version given" >&2
+    exit 2
+  fi
+fi
+
+# Loose semver check — X.Y.Z with an optional -prerelease, the same shape bump-version.sh accepts.
+case "$new" in
+  [0-9]*.[0-9]*.[0-9]*) ;;
+  *)
+    echo "error: '$new' doesn't look like X.Y.Z (or X.Y.Z-suffix)" >&2
+    exit 2
+    ;;
+esac
+
 if [ "$current" = "$new" ]; then
   echo "devc-core/package.json is already $new — nothing to do." >&2
   exit 1
