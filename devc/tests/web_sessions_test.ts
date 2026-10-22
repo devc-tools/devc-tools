@@ -14,6 +14,7 @@ import {
   type RawSession,
   RUNNING_SCRIPT,
   runningPane,
+  SESSIONS_SCRIPT,
   sessionsArgs,
   UNTITLED,
 } from '../web/sessions.ts';
@@ -210,18 +211,26 @@ Deno.test('pickSessions keeps sessions under a repo, deepest repo wins, newest f
   );
 });
 
-Deno.test('pickSessions caps the list at MAX_SESSIONS across agents', () => {
+Deno.test('pickSessions caps each repo at MAX_SESSIONS across agents; a busy repo leaves the others theirs', () => {
   const many = Array.from({ length: 30 }, (_, i) =>
     raw(
       `${String(i).padStart(8, '0')}-0000-4000-8000-000000000000`,
       '/w',
-      i,
+      100 + i,
       i % 2 ? 'pi' : 'claude',
     ));
-  const picked = pickSessions(many, [{ folder: '/h', containerFolder: '/w' }]);
-  assertEquals(picked.length, MAX_SESSIONS);
-  assertEquals(picked[0].updatedAt, new Date(29_000).toISOString());
-  assertEquals(picked.at(-1)!.updatedAt, new Date(10_000).toISOString());
+  const picked = pickSessions([...many, raw(U1, '/v', 1)], [
+    { folder: '/h', containerFolder: '/w' },
+    { folder: '/g', containerFolder: '/v' },
+  ]);
+  const busy = picked.filter((s) => s.root === '/h');
+  assertEquals(busy.length, MAX_SESSIONS);
+  assertEquals(busy[0].updatedAt, new Date(129_000).toISOString());
+  assertEquals(busy.at(-1)!.updatedAt, new Date(110_000).toISOString());
+  assertEquals(
+    picked.filter((s) => s.root === '/g').map((s) => s.session),
+    [U1],
+  );
 });
 
 /** A scratch `HOME` holding each agent's sessions, with set mtimes. */
@@ -370,6 +379,47 @@ Deno.test({
         '-workspaces-app',
         ':',
         '--workspaces-app',
+      ]);
+    } finally {
+      await Deno.remove(home, { recursive: true });
+    }
+  },
+});
+
+Deno.test({
+  name:
+    'SESSIONS_SCRIPT caps candidates per folder, so a busy one leaves the others theirs',
+  ignore: Deno.build.os !== 'linux',
+  fn: async () => {
+    const home = await homeFixture();
+    try {
+      // The cap is 1; `app` has newer sessions than `other` in every agent.
+      const out = await new Deno.Command('sh', {
+        args: [
+          '-c',
+          SESSIONS_SCRIPT,
+          'sh',
+          '1',
+          '-workspaces-app',
+          '-workspaces-other',
+          ':',
+          '--workspaces-app',
+        ],
+        clearEnv: true,
+        env: { HOME: home, PATH: Deno.env.get('PATH') ?? '/usr/bin:/bin' },
+        stdout: 'piped',
+      }).output();
+      const heads = new TextDecoder().decode(out.stdout).split('\n')
+        .filter((l) => l.startsWith('S '))
+        .map((l) => l.split(' ').slice(1, 3).join(' '));
+      // Claude: app's newest file (U1, 9000) and other's one; `app` also prefixes `app2` and
+      // `app-sub`, so they share its one. pi: one for its one folder. Copilot: 1 × 2 folders.
+      assertEquals(heads, [
+        'claude 9000',
+        'claude 5000',
+        'pi 2000',
+        'copilot 7000',
+        'copilot 4000',
       ]);
     } finally {
       await Deno.remove(home, { recursive: true });

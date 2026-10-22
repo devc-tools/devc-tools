@@ -18,7 +18,7 @@ import { type DockerRun, runDocker } from './container_files.ts';
 import { isSessionId, type SessionAgentId } from './agents.ts';
 import { taskTitle } from './tasks.ts';
 
-/** How many sessions a container's Sessions node lists. */
+/** How many sessions are listed per repo. */
 export const MAX_SESSIONS = 20;
 
 /** One listed session, as `list_sessions` answers it. */
@@ -102,9 +102,10 @@ true
 `;
 
 /**
- * Lists candidate sessions, newest first, `$1` per agent: Claude's only in the folders whose names
- * start with the arguments before `:`, pi's with those after it, Copilot's all (it keeps no
- * per-folder dirs). Per session a line `S <agent> <mtime> <path>`, then tagged `grep -o` matches:
+ * Lists candidate sessions, newest first: per agent, `$1` for each argument after it, so a busy
+ * repo doesn't crowd out the others. Claude's only in the folders whose names start with the
+ * arguments before `:`, `$1` each; pi's with those after it, `$1` each; Copilot's (it keeps no
+ * per-folder dirs) `$1` times as many as there are folders, from all of them. Per session a line `S <agent> <mtime> <path>`, then tagged `grep -o` matches:
  * claude `C` (first cwd), `T` (last of each title key) and `L` (last `timestamp` in its last
  * 256 KiB); pi `H` (header id and cwd), `N` (last
  * session name), `U` (first user text); copilot `Y` (`workspace.yaml` lines). Then
@@ -116,16 +117,17 @@ c=$CLAUDE_CONFIG_DIR; [ -n "$c" ] || c=$HOME/.claude; c=$c/projects
 o=$COPILOT_HOME; [ -n "$o" ] || o=$HOME/.copilot; o=$o/session-state
 p=$HOME/.pi/agent/sessions
 newest() { sort -rn | uniq | head -n "$cap"; }
-for a; do [ "$a" = : ] && break; stat -c '%Y %n' "$c/$a"*/*.jsonl; done 2>/dev/null |
-newest | while read -r m f; do
+n=0; for a; do [ "$a" = : ] && break; n=$((n + 1)); done
+for a; do [ "$a" = : ] && break; stat -c '%Y %n' "$c/$a"*/*.jsonl 2>/dev/null | newest; done |
+sort -rn | uniq | while read -r m f; do
   printf 'S claude %s %s\n' "$m" "$f"
   grep -m1 -oE "\"cwd\":$S" "$f" | head -n1 | sed 's/^/C /'
   grep -oE "\"(customTitle|aiTitle|lastPrompt)\":$S" "$f" |
     awk -F'"' '{l[$2]=$0} END{for(k in l) print "T " l[k]}'
   tail -c 262144 "$f" | grep -oE '"timestamp":"[0-9]{4}-[0-9]{2}-[0-9]{2}T[^"]*"' | tail -n1 | sed 's/^/L /'
 done
-on=; for a; do [ -n "$on" ] && stat -c '%Y %n' "$p/$a"*/*.jsonl; [ "$a" = : ] && on=1; done 2>/dev/null |
-newest | while read -r m f; do
+on=; for a; do [ -n "$on" ] && stat -c '%Y %n' "$p/$a"*/*.jsonl 2>/dev/null | newest; [ "$a" = : ] && on=1; done |
+sort -rn | uniq | while read -r m f; do
   printf 'S pi %s %s\n' "$m" "$f"
   head -n1 "$f" | grep -oE "\"(id|cwd)\":$S" | sed 's/^/H /'
   grep -F '"type":"session_info"' "$f" | grep -oE "\"name\":$S" | tail -n1 | sed 's/^/N /'
@@ -133,7 +135,7 @@ newest | while read -r m f; do
 done
 stat -c '%Y %n' "$o"/*/workspace.yaml "$o"/*/events.jsonl 2>/dev/null | sort -rn |
 awk '{d=$0; sub(/^[0-9]+ /,"",d); sub(/\/[^\/]*$/,"",d); if(!s[d]++) print $1, d}' |
-head -n "$cap" | while read -r m d; do
+head -n "$((cap * n))" | while read -r m d; do
   [ -f "$d/workspace.yaml" ] || continue
   printf 'S copilot %s %s\n' "$m" "$d"
   grep -E '^(id|cwd|name|summary):' "$d/workspace.yaml" | sed 's/^/Y /'
@@ -141,7 +143,8 @@ done
 ` + RUNNING_SCRIPT;
 
 /**
- * The `sh -c` argv after the script: the candidate cap, Claude's folder prefixes, `:`, pi's. `:`
+ * The `sh -c` argv after the script: the candidate cap per folder, Claude's folder prefixes, `:`,
+ * pi's. `:`
  * is never a prefix (pi's start with `--`, Claude's are alphanumerics and `-`).
  */
 export function sessionsArgs(containerFolders: readonly string[]): string[] {
@@ -313,7 +316,7 @@ export function markRunning(
 
 /**
  * The sessions that started in one of `repos`' container folders (the deepest one wins), newest
- * first, one per agent and id, at most {@link MAX_SESSIONS}.
+ * first, one per agent and id, at most `max` per repo.
  */
 export function pickSessions(
   raw: readonly RawSession[],
@@ -325,6 +328,7 @@ export function pickSessions(
   } => r.containerFolder !== null)
     .sort((a, b) => b.containerFolder.length - a.containerFolder.length);
   const seen = new Set<string>();
+  const perRepo = new Map<string, number>();
   const out: AgentSession[] = [];
   const sorted = [...raw].sort((a, b) =>
     b.mtime - a.mtime || a.session.localeCompare(b.session)
@@ -341,6 +345,9 @@ export function pickSessions(
     const key = `${s.agent}\n${s.session}`;
     if (!repo || seen.has(key)) continue;
     seen.add(key);
+    const n = perRepo.get(repo.folder) ?? 0;
+    if (n >= max) continue;
+    perRepo.set(repo.folder, n + 1);
     out.push({
       agent: s.agent,
       session: s.session,
@@ -349,7 +356,6 @@ export function pickSessions(
       root: repo.folder,
       updatedAt: new Date(s.mtime * 1000).toISOString(),
     });
-    if (out.length >= max) break;
   }
   return out;
 }

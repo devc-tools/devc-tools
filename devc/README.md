@@ -489,7 +489,8 @@ is published from any container: the host server finds devcontainers with
   devc web window.
 - **Sessions:** each running container's **Sessions** row (between Terminals
   and its repos, closed until opened) lists the 20 most recent Claude, Copilot
-  and pi sessions that started in one of the project's repos, newest first:
+  and pi sessions of each of the project's repos (those that started in it),
+  newest first:
   the agent's icon, the session's title (its name, else Claude's own title or
   your last prompt, pi's first message) and how long ago it was used. Opening
   the row, or its refresh button, reads them again from the agents' folders in
