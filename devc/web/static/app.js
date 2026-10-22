@@ -39,13 +39,14 @@ import {
   dragZones,
   gitRollup,
   gitSync,
-  inUseGroupKey,
   inUseLabel,
   isSidebarToggleShortcut,
   labelText,
   paneLabel,
   paneTitle,
   repoAt,
+  repoCardActive,
+  repoCardKey,
   settleZones,
   SIDEBAR_DEFAULT_WIDTH,
   splitRepoName,
@@ -854,7 +855,6 @@ const INACTIVE_STATES = new Set([
  * is one edit.
  */
 const LABELS = {
-  terminals: 'Terminals',
   files: 'Files',
   newTerminalHere: 'New terminal here',
   newFile: 'New file…',
@@ -900,10 +900,6 @@ const LABELS = {
     pi: 'Pi',
     opencode: 'OpenCode',
   },
-  noTerminals: 'No terminals',
-  sessions: 'Sessions',
-  noSessions: 'No sessions',
-  loadingSessions: 'Loading…',
   refreshSessions: 'Refresh sessions',
   resumeSession: 'Resume session',
   showPastSessions: (n) => `Show past sessions (${n})`,
@@ -934,16 +930,8 @@ const STATE_TEXT = {
   error: 'error',
 };
 
-/** A container's views, one at a time under its row; Terminals until another is chosen. */
-const CONTAINER_TABS = /** @type {const} */ ([
-  'terminals',
-  'repos',
-  'sessions',
-  'files',
-]);
-
 /**
- * Collapsed containers (by local folder), containers whose Repos row is open, whether "Not
+ * Collapsed containers (by local folder), repo cards' and containers' open parts, whether "Not
  * running" is open, which of its projects are expanded, each repo's open folders, and the
  * sidebar's own width and hidden state, per browser.
  */
@@ -960,16 +948,16 @@ function loadSidebarState() {
         ? saved.collapsed.filter((f) => typeof f === 'string')
         : [],
     ),
-    /** Containers (by local folder) whose Terminals row is collapsed; new ones start open. */
-    terminalsClosed: new Set(
-      Array.isArray(saved?.terminalsClosed)
-        ? saved.terminalsClosed.filter((f) => typeof f === 'string')
+    /** Repo cards (by `repoCardKey`) whose past sessions are shown; new ones start hidden. */
+    cardHistoryOpen: new Set(
+      Array.isArray(saved?.cardHistoryOpen)
+        ? saved.cardHistoryOpen.filter((f) => typeof f === 'string')
         : [],
     ),
-    /** Containers (by local folder) whose Sessions row is open; new ones start closed. */
-    sessionsOpen: new Set(
-      Array.isArray(saved?.sessionsOpen)
-        ? saved.sessionsOpen.filter((f) => typeof f === 'string')
+    /** Containers (by local folder) whose Files row is open; new ones start closed. */
+    containerFilesOpen: new Set(
+      Array.isArray(saved?.containerFilesOpen)
+        ? saved.containerFilesOpen.filter((f) => typeof f === 'string')
         : [],
     ),
     /** Repos (by `localFolder\nroot`) whose Pull request row is open; new ones start closed. */
@@ -980,11 +968,6 @@ function loadSidebarState() {
     ),
     /** PR folders opened or closed, by `prFoldersKey` then folder path. */
     prFolders: savedPrFolders(saved?.prFolders),
-    reposOpen: new Set(
-      Array.isArray(saved?.reposOpen)
-        ? saved.reposOpen.filter((f) => typeof f === 'string')
-        : [],
-    ),
     inactiveOpen: saved?.inactiveOpen === true,
     projectsOpen: new Set(
       Array.isArray(saved?.projectsOpen)
@@ -993,8 +976,6 @@ function loadSidebarState() {
     ),
     /** @type {Record<string, string[]>} repo folder (file root) → open paths ('' is the root) */
     filesOpen: savedFilesOpen(saved?.rootsOpen),
-    /** Each container's shown view (by local folder): one of `CONTAINER_TABS`. */
-    containerTab: savedContainerTabs(saved?.containerTab),
     pinnedOpen: saved?.pinnedOpen !== false,
     tasksOpen: saved?.tasksOpen !== false,
     containersOpen: saved?.containersOpen !== false,
@@ -1033,16 +1014,6 @@ function savedFraction(v) {
   return typeof v === 'number' && v > 0 && v < 1 ? v : null;
 }
 
-function savedContainerTabs(v) {
-  /** @type {Record<string, string>} */
-  const out = {};
-  if (!v || typeof v !== 'object' || Array.isArray(v)) return out;
-  for (const [folder, tab] of Object.entries(v)) {
-    if (CONTAINER_TABS.includes(/** @type {any} */ (tab))) out[folder] = tab;
-  }
-  return out;
-}
-
 function savedFilesOpen(v) {
   /** @type {Record<string, string[]>} */
   const out = {};
@@ -1061,16 +1032,14 @@ function saveSidebarState() {
       SIDEBAR_KEY,
       JSON.stringify({
         collapsed: [...sidebarState.collapsed],
-        terminalsClosed: [...sidebarState.terminalsClosed],
-        sessionsOpen: [...sidebarState.sessionsOpen],
+        cardHistoryOpen: [...sidebarState.cardHistoryOpen],
+        containerFilesOpen: [...sidebarState.containerFilesOpen],
         prOpen: [...sidebarState.prOpen],
         prFolders: sidebarState.prFolders,
-        reposOpen: [...sidebarState.reposOpen],
         inactiveOpen: sidebarState.inactiveOpen,
         projectsOpen: [...sidebarState.projectsOpen],
         // Not `filesOpen`: entries saved under that name were keyed by project, not by repo.
         rootsOpen: sidebarState.filesOpen,
-        containerTab: sidebarState.containerTab,
         pinnedOpen: sidebarState.pinnedOpen,
         tasksOpen: sidebarState.tasksOpen,
         containersOpen: sidebarState.containersOpen,
@@ -1089,20 +1058,6 @@ function toggleContainer(c) {
   if (!sidebarState.collapsed.delete(c.localFolder)) {
     sidebarState.collapsed.add(c.localFolder);
   }
-  saveSidebarState();
-  renderTree();
-}
-
-/** The view a container shows under its row. */
-function containerTab(c) {
-  return sidebarState.containerTab[c.localFolder] ?? 'terminals';
-}
-
-/** Shows container `c`'s view `tab`; Sessions lists its sessions again. */
-function selectContainerTab(c, tab) {
-  if (containerTab(c) === tab) return;
-  sidebarState.containerTab[c.localFolder] = tab;
-  if (tab === 'sessions') void loadSessions(c);
   saveSidebarState();
   renderTree();
 }
@@ -1395,7 +1350,8 @@ function renderTree() {
     : null;
   // In use lists the tiles: it is re-rendered when the layout changes (layoutChanged).
   layoutSignature = layoutState().signature;
-  const upper = [...inUseRows(), ...pinnedFileRows()];
+  const cards = repoCards();
+  const upper = [...inUseRows(cards), ...pinnedFileRows()];
   const rows = [
     sectionRow(
       'Containers',
@@ -1428,7 +1384,7 @@ function renderTree() {
     );
   }
   if (sidebarState.containersOpen) {
-    for (const c of containers.values()) rows.push(...containerRows(c));
+    for (const c of containers.values()) rows.push(...containerRows(c, cards));
     if (idle.length > 0) rows.push(...inactiveRows(idle));
   }
   $zoneInUse.replaceChildren(...upper);
@@ -1494,12 +1450,6 @@ function sectionRow(title, open, onToggle, trail = '', oncontextmenu) {
 // Sidebar: In use section
 // ---------------------------------------------------------------------------------------------
 
-/** How old a session may be to give a repo with nothing else open its own In use group. */
-const IN_USE_SESSION_MS = 24 * 60 * 60 * 1000;
-
-/** In use groups whose past sessions are shown (per page). */
-const inUseSessionsOpen = new Set();
-
 /** The tiles in layout order, each with whether it is the front tab of its stack. */
 function layoutTiles() {
   const tree = tiling ? foldTree(tiling.tree()) : null;
@@ -1517,88 +1467,126 @@ function layoutTiles() {
 }
 
 /**
- * What is open now, by the folder (repo or worktree) it is in, whichever containers mount it: per
- * folder, the tiles showing it, then the agents running in it that no tile shows, then its recent
- * agent sessions, newest first, each once (to resume in the folder's own container if it has one,
- * else the first that mounts it), leaving out those running in a pane. A folder with nothing open but a session
- * from the last day gets a group of its own, collapsed. Groups come in layout order, except that
- * those of one container sit together in a card under its name (a group several containers run in, with its
- * first). A container with anything in use has its sessions listed the first time.
+ * Every repo card (see `repoCardKey`): one per repo or worktree a listed container shows, in
+ * {@link cardRepoOrder}, then one wherever a tile, pane or session is outside those (a repo no
+ * longer listed, or outside every repo: `repo` null). A card holds its tiles in layout order, its
+ * container's panes no tile shows, and its past sessions, newest first: each session once, on its
+ * folder's card in the container whose project folder it is when that one runs, else in the first
+ * that lists it, and none running in a pane (the pane's row stands for it). A running container's
+ * sessions are listed the first time.
  */
-function inUseRows() {
-  /** @type {Map<string, {key: string, localFolder: string, folders: Set<string>, repo: any, tiles: {tile: Tile, active: boolean}[], panes: {c: any, pane: any}[], sessions: {c: any, s: any}[], sessionsById: Map<string, {c: any, s: any}>, runningIds: Set<string>}>} */
-  const groups = new Map();
-  const groupFor = (localFolder, repo) => {
-    const key = inUseGroupKey(localFolder, repo);
-    let g = groups.get(key);
-    if (!g) {
-      g = {
+function repoCards() {
+  /** @type {Map<string, any>} */
+  const cards = new Map();
+  const cardFor = (localFolder, repo) => {
+    const key = repoCardKey(localFolder, repo?.folder ?? null);
+    let card = cards.get(key);
+    if (!card) {
+      card = {
         key,
         localFolder,
-        folders: new Set(),
         repo,
+        order: cards.size,
+        firstTile: Infinity,
         tiles: [],
         panes: [],
         sessions: [],
-        sessionsById: new Map(),
-        runningIds: new Set(),
+        active: false,
       };
-      groups.set(key, g);
+      cards.set(key, card);
     }
-    g.folders.add(localFolder);
-    return g;
+    return card;
   };
-  const tiles = layoutTiles();
-  for (const t of tiles) {
-    const { localFolder, repo } = tileRepo(t.tile);
-    if (localFolder) groupFor(localFolder, repo).tiles.push(t);
+  for (const c of containers.values()) {
+    for (const r of cardRepoOrder(c.localFolder)) cardFor(c.localFolder, r);
   }
+  layoutTiles().forEach((t, i) => {
+    const { localFolder, repo } = tileRepo(t.tile);
+    if (!localFolder) return;
+    const card = cardFor(localFolder, repo);
+    card.tiles.push(t);
+    card.firstTile = Math.min(card.firstTile, i);
+  });
+  const chosen = new Map();
+  const running = new Set();
   for (const c of containers.values()) {
     if (c.state !== 'connected') continue;
+    const snap = snapshots.get(c.id);
     const repos = projectRepos(c.localFolder);
-    for (const pane of list(snapshots.get(c.id)?.panes)) {
-      if (!pane.agent || tileShowing(c, pane)) continue;
-      groupFor(
+    const spaces = paneSpaces(snap);
+    for (const pane of list(snap?.panes)) {
+      if (tileShowing(c, pane)) continue;
+      cardFor(
         c.localFolder,
         repoAt(repos, pane.foreground_cwd || pane.cwd || ''),
-      ).panes.push({ c, pane });
+      )
+        .panes.push({ c, pane, space: spaces.get(pane.pane_id) ?? '' });
     }
-  }
-  const now = Date.now();
-  for (const c of containers.values()) {
-    if (c.state !== 'connected') continue;
     const listed = sessionLists.get(c.id);
     if (!listed) {
-      if ([...groups.values()].some((g) => g.folders.has(c.localFolder))) {
-        void loadSessions(c);
-      }
+      void loadSessions(c);
       continue;
     }
-    const repos = projectRepos(c.localFolder);
     for (const s of listed.error ? [] : listed.sessions) {
-      const repo = repos.find((r) => r.folder === s.root) ?? null;
-      const recent = now - Date.parse(s.updatedAt) < IN_USE_SESSION_MS;
-      if (groups.has(inUseGroupKey(c.localFolder, repo)) || recent) {
-        const g = groupFor(c.localFolder, repo);
-        // Agent homes are shared, so every container mounting the folder lists the same
-        // session: keep one, to resume in the folder's own container when it has one. One
-        // running in a pane is left out: the pane's row stands for it.
-        const id = `${s.agent}\n${s.session}`;
-        if (sessionPane(c, s)) g.runningIds.add(id);
-        const had = g.sessionsById.get(id);
-        if (
-          !had || (c.localFolder === s.root && had.c.localFolder !== s.root)
-        ) {
-          g.sessionsById.set(id, { c, s });
-        }
+      // Agent homes are shared, so every container mounting a folder lists its sessions.
+      const id = `${s.agent}\n${s.session}`;
+      if (sessionPane(c, s)) running.add(id);
+      const had = chosen.get(id);
+      if (!had || (c.localFolder === s.root && had.c.localFolder !== s.root)) {
+        chosen.set(id, { c, s });
       }
     }
   }
-  for (const g of groups.values()) {
-    g.sessions = [...g.sessionsById.values()].filter(({ s }) =>
-      !g.runningIds.has(`${s.agent}\n${s.session}`)
-    ).sort((a, b) => Date.parse(b.s.updatedAt) - Date.parse(a.s.updatedAt));
+  for (const [id, { c, s }] of chosen) {
+    if (running.has(id)) continue;
+    const repo = projectRepos(c.localFolder).find((r) => r.folder === s.root);
+    cardFor(c.localFolder, repo ?? null).sessions.push({ c, s });
   }
+  const now = Date.now();
+  for (const card of cards.values()) {
+    card.sessions.sort((a, b) =>
+      Date.parse(b.s.updatedAt) - Date.parse(a.s.updatedAt)
+    );
+    card.active = repoCardActive({
+      tiles: card.tiles.length,
+      agents: card.panes.filter(({ pane }) => pane.agent).length,
+      lastSessionAt: card.sessions[0]?.s.updatedAt ?? null,
+    }, now);
+  }
+  return cards;
+}
+
+/** A project's repos in card order: each repo, then its worktrees. */
+function cardRepoOrder(localFolder) {
+  const repos = shownRepos(localFolder);
+  return topRepos(repos).flatMap((r) => [
+    r,
+    ...repos.filter((w) => w !== r && w.worktreeOf === r.folder),
+  ]);
+}
+
+/** Each pane's Herdr space, by pane id, when a container has more than one; else none. */
+function paneSpaces(snap) {
+  const workspaces = list(snap?.workspaces).sort(byNumber);
+  const out = new Map();
+  if (workspaces.length < 2) return out;
+  for (const ws of workspaces) {
+    const space = ws.label || `space ${ws.number ?? ''}`;
+    for (
+      const pane of workspacePanes(ws, list(snap?.tabs), list(snap?.panes))
+    ) {
+      out.set(pane.pane_id, space);
+    }
+  }
+  return out;
+}
+
+/**
+ * The In use section: the active repo cards (see `repoCardActive`), each container's in a card of
+ * its own under its name. Cards come in the layout order of their first tile, then those with
+ * none in their container's card order; containers where their first card is.
+ */
+function inUseRows(cards) {
   const rows = [
     sectionRow(
       'In use',
@@ -1606,12 +1594,16 @@ function inUseRows() {
       undefined,
       rowTrail(
         hoverActions(
-          iconButton('refresh', LABELS.refreshSessions, refreshInUseSessions),
+          iconButton('refresh', LABELS.refreshSessions, refreshSessions),
         ),
       ),
     ),
   ];
-  if (groups.size === 0) {
+  const active = [...cards.values()].filter((card) => card.active).sort((
+    a,
+    b,
+  ) => (a.firstTile - b.firstTile) || (a.order - b.order));
+  if (active.length === 0) {
     rows.push(
       h(
         'div',
@@ -1620,47 +1612,31 @@ function inUseRows() {
       ),
     );
   }
-  // By container, each where its first group was; a sort is stable, so layout order stays inside.
-  const ranks = new Map();
-  const containerOf = (g) => inUseRunIn(g)[0] ?? g.localFolder;
-  for (const g of groups.values()) {
-    if (!ranks.has(containerOf(g))) ranks.set(containerOf(g), ranks.size);
-  }
-  const ordered = [...groups.values()].sort((a, b) =>
-    ranks.get(containerOf(a)) - ranks.get(containerOf(b))
-  );
-  // Each container's groups in a card of its own, under its name.
-  let run = null;
-  let card = null;
-  for (const g of ordered) {
-    if (containerOf(g) !== run) {
-      run = containerOf(g);
-      card = h(
+  const runs = new Map();
+  for (const card of active) {
+    let run = runs.get(card.localFolder);
+    if (!run) {
+      run = h(
         'div',
         { class: 'in-use-run' },
         h(
           'div',
           { class: 'in-use-run-name' },
-          h('span', { class: 'label' }, containerNameOf(run)),
+          h('span', { class: 'label' }, containerNameOf(card.localFolder)),
         ),
       );
-      rows.push(card);
+      runs.set(card.localFolder, run);
+      rows.push(run);
     }
-    card.append(inUseGroupCard(g, now));
+    run.append(repoCard(card));
   }
   return rows;
 }
 
-/** Lists again the sessions of every container with something in use. */
-function refreshInUseSessions() {
-  const used = new Set(layoutTiles().map((t) => tileRepo(t.tile).localFolder));
+/** Lists every running container's sessions again. */
+function refreshSessions() {
   for (const c of containers.values()) {
-    if (
-      c.state === 'connected' &&
-      (used.has(c.localFolder) || sessionLists.has(c.id))
-    ) {
-      void loadSessions(c);
-    }
+    if (c.state === 'connected') void loadSessions(c);
   }
 }
 
@@ -1694,200 +1670,125 @@ function containerNameOf(localFolder) {
     : basename(localFolder);
 }
 
-/** A row's container, muted, as the last part of its label: the first to give way. */
-function rowContainer(localFolder) {
-  return h('span', { class: 'row-container' }, containerNameOf(localFolder));
-}
-
-/** An In use group's tiles, then its agents not in the layout, each with its container's folder. */
-function inUseLive(g) {
-  return [
-    ...g.tiles.map((t) => ({ folder: tileRepo(t.tile).localFolder, t })),
-    ...g.panes.map((p) => ({ folder: p.c.localFolder, p })),
-  ];
-}
-
-/** The containers (by folder) something in an In use group runs in, in the order its rows come. */
-function inUseRunIn(g) {
-  return [...new Set(inUseLive(g).map((r) => r.folder))];
-}
-
 /**
- * An In use group, as a card that never folds: its folder's row (parent path muted, name, branch),
- * its tiles and the agents running in it outside the layout, then its past sessions while its
- * row's history button (or a click on the row) shows them. Its container's card names its
- * container; when several run something in it, a label per container inside it does, each with
- * its tiles (in layout order) then its agents.
+ * A repo card, in In use or in its container's card: its header (repo name, branch and sync mark;
+ * the container's name for the card of what is outside every repo), its terminals (tiles, then
+ * panes no tile shows, shells too), then while their toggles are on its past sessions, its pull
+ * request and its files. The toggles' state is the card's wherever it is shown. The header's click
+ * shows or hides its past sessions; without any it does nothing and doesn't look clickable.
  */
-function inUseGroupCard(g, now) {
-  const sessionsOnly = g.tiles.length === 0 && g.panes.length === 0;
-  const live = inUseLive(g);
-  const runIn = inUseRunIn(g);
-  const shown = inUseSessionsOpen.has(g.key);
-  const toggleSessions = () => {
-    if (!inUseSessionsOpen.delete(g.key)) inUseSessionsOpen.add(g.key);
+function repoCard(card) {
+  const { key, localFolder, repo } = card;
+  const c = containerByFolder(localFolder);
+  const fr = { localFolder, root: repo ? repo.folder : localFolder };
+  const branch = repo?.git?.branch;
+  const hasHistory = card.sessions.length > 0;
+  const historyOn = hasHistory && sidebarState.cardHistoryOpen.has(key);
+  const canPr = !!repo && !!c;
+  const prOn = canPr && sidebarState.prOpen.has(prKey(localFolder, fr.root));
+  const tree = repo ? fileTree(fr) : null;
+  const filesOn = !!tree && tree.isOpen('');
+  const toggleHistory = () => {
+    if (!sidebarState.cardHistoryOpen.delete(key)) {
+      sidebarState.cardHistoryOpen.add(key);
+    }
+    saveSidebarState();
     renderTree();
   };
-  const branch = g.repo?.git?.branch;
+  const idle = card.tiles.length === 0 && card.panes.length === 0;
   const head = treeRow(
-    `inuse\n${g.key}`,
+    key,
     0,
     undefined,
     {
-      // Nothing runs in it: its name is muted, so what is at work stands out. Without past
-      // sessions a click does nothing, so it doesn't look clickable.
+      // Nothing runs in it: its name is muted, so what is at work stands out.
       class: [
-        'in-use-group',
-        sessionsOnly ? 'idle' : '',
-        g.sessions.length > 0 ? '' : 'inert',
-      ].filter((c) => c).join(' '),
+        'repo-card-head',
+        idle ? 'idle' : '',
+        hasHistory ? '' : 'inert',
+      ].filter((k) => k).join(' '),
       // Its path in the container, then where that is mounted from on the host.
       title: [
-        g.repo?.containerFolder ?? g.repo?.folder ?? g.localFolder,
-        g.repo?.containerFolder ? `Host: ${g.repo.folder}` : '',
+        repo?.containerFolder ?? repo?.folder ?? localFolder,
+        repo?.containerFolder ? `Host: ${repo.folder}` : '',
         branch ? `Branch: ${branch}` : '',
-        `In: ${[...g.folders].map(containerNameOf).join(', ')}`,
       ].filter((t) => t).join('\n'),
-      onclick: g.sessions.length > 0 ? toggleSessions : undefined,
-      // Its repo's paths, as the repo's own row copies them, and a Jira key in its branch.
-      // Without either, the right-click is as it always was.
-      oncontextmenu: (e) => {
-        const items = [
-          ...(g.repo
-            ? copyPathItems(
-              { localFolder: g.localFolder, root: g.repo.folder },
-              '',
-            )
-            : []),
-          ...jiraItems(g.repo?.git?.branch),
-        ];
-        if (items.length > 0) openMenu(e, items);
-      },
-    },
-    ...(g.repo
-      ? repoNameParts(repoGroupName(g.localFolder, g.repo))
-      : [h('span', { class: 'repo-base' }, containerNameOf(g.localFolder))]),
-    branch ? h('span', { class: 'repo-branch' }, branch) : '',
-  );
-  // Past sessions apart from what runs now: hidden until its history button shows them.
-  const history = g.sessions.length > 0
-    ? iconButton(
-      'history',
-      shown
-        ? LABELS.hidePastSessions
-        : LABELS.showPastSessions(g.sessions.length),
-      toggleSessions,
-    )
-    : null;
-  let actions = inUseGroupActions(head, g);
-  if (history) {
-    history.setAttribute('aria-pressed', String(shown));
-    // First of its hover buttons: one strip over the row's right end.
-    if (actions) actions.prepend(history);
-    else actions = hoverActions(history);
-  }
-  if (actions) head.append(rowTrail(actions));
-  const rows = [head];
-  for (const folder of runIn) {
-    if (runIn.length > 1) {
-      rows.push(
-        h(
-          'div',
-          { class: 'row in-use-container', style: '--depth: 1' },
-          h('span', { class: 'label' }, containerNameOf(folder)),
-        ),
-      );
-    }
-    for (const { t, p } of live.filter((r) => r.folder === folder)) {
-      rows.push(
-        t ? layoutTileRow(t.tile, t.active, 1) : inUsePaneRow(p.c, p.pane),
-      );
-    }
-  }
-  if (shown) {
-    for (const { c, s } of g.sessions) {
-      rows.push(sessionRow(c, s, null, now, 1, true));
-    }
-  }
-  return h('div', { class: 'in-use-card' }, ...rows);
-}
-
-/**
- * An In use group's hover buttons: a new task and the + menu (a shell or an agent) at its folder,
- * as a repo row's (see {@link newTerminalButton}), in each running container that mounts it. With
- * several, each menu has a block per container, its items naming it. Null when none runs.
- */
-function inUseGroupActions(row, g) {
-  const targets = [...g.folders].filter((f) => containerByFolder(f)).map(
-    (localFolder) => ({
-      fr: { localFolder, root: g.repo ? g.repo.folder : localFolder },
-      name: containerNameOf(localFolder),
-    }),
-  );
-  if (targets.length === 0) return null;
-  if (targets.length === 1) return newTerminalButton(row, targets[0].fr, '');
-  /** @param {(t: (typeof targets)[number]) => MenuItem[]} items */
-  const menu = (items) => () => {
-    // Under the row's right end, as newTerminalButton's.
-    const r = row.getBoundingClientRect();
-    openMenuAt(
-      r.right - 20,
-      r.bottom + 2,
-      targets.flatMap((t) => [
-        null,
-        ...items(t).map((item) =>
-          item && [`${item[0]} · ${t.name}`, ...item.slice(1)]
-        ),
-      ]),
-    );
-  };
-  return hoverActions(
-    iconButton(
-      'task',
-      LABELS.newTaskHere,
-      menu((t) => [[LABELS.newTask, () => newTaskIn(t.fr)]]),
-    ),
-    iconButton(
-      'plus',
-      LABELS.newTerminal,
-      menu((t) => newTerminalMenuItems(t.fr, '')),
-    ),
-  );
-}
-
-/**
- * An agent running outside the layout, in its In use group: a click opens it as a terminal row's
- * does (in the focused stack's preview tile; Ctrl/Cmd-click, a new tile). Its card names its
- * container.
- */
-function inUsePaneRow(c, pane) {
-  const rec = { c, pane };
-  return h(
-    'div',
-    {
-      class: 'row pane in-use-pane',
-      style: '--depth: 1',
-      'data-pane-key': paneKey(c.id, pane.pane_id),
-      title: [
-        paneTitle(pane),
-        pane.foreground_cwd || pane.cwd || '',
-        `${pane.agent}: ${agentStatus(pane)}`,
-        displayName(c),
-        'Not in the layout: click to open it',
-      ].filter((t) => t).join('\n'),
-      onclick: (e) => onPaneClick(rec, e),
+      onclick: hasHistory ? toggleHistory : undefined,
       oncontextmenu: (e) =>
-        openMenu(e, [...paneCodeItems(c, pane), ...paneMenu(rec)]),
+        openMenu(
+          e,
+          repo
+            ? [...dirMenuItems(fr, ''), ...jiraItems(branch)]
+            : projectMenuItems(localFolder),
+        ),
     },
-    h(
-      'span',
-      { class: 'label' },
-      rowIcon({ agent: pane.agent }),
-      inUseLabel(paneLabel(pane)),
-    ),
-    // Its white icon says no tile shows it (a tile's is the accent color), as in Terminals.
-    rowTrail(badge(pane)),
+    ...(repo
+      ? [
+        ...repoNameParts(repoGroupName(localFolder, repo)),
+        branch ? h('span', { class: 'repo-branch' }, branch) : '',
+        gitMark(gitSync(repo.git, repo.gitProblem)),
+      ]
+      : [h('span', { class: 'repo-base' }, containerNameOf(localFolder))]),
   );
+  /** @type {[string, string, boolean, () => void][]} */
+  const toggles = [];
+  if (hasHistory) {
+    toggles.push([
+      'history',
+      historyOn
+        ? LABELS.hidePastSessions
+        : LABELS.showPastSessions(card.sessions.length),
+      historyOn,
+      toggleHistory,
+    ]);
+  }
+  if (canPr) {
+    toggles.push([
+      'pullRequest',
+      LABELS.pullRequest,
+      prOn,
+      () => togglePr(localFolder, fr.root),
+    ]);
+  }
+  if (tree) {
+    toggles.push(['folder', LABELS.files, filesOn, () => tree.toggle('')]);
+  }
+  const toggleButton = ([icon, title, on, action]) => {
+    const b = iconButton(icon, title, action);
+    b.setAttribute('aria-pressed', String(on));
+    return b;
+  };
+  head.append(
+    rowTrail(
+      // The toggles that are on stay in sight; the hover strip covers them with all of them.
+      h(
+        'span',
+        { class: 'row-toggles' },
+        ...toggles.filter((t) => t[2]).map(toggleButton),
+      ),
+      hoverActions(
+        ...toggles.map(toggleButton),
+        ...(c ? newTerminalButtons(head, fr, '') : []),
+      ),
+    ),
+  );
+  const now = Date.now();
+  const rows = [head];
+  for (const { tile, active } of card.tiles) {
+    rows.push(layoutTileRow(tile, active, 1));
+  }
+  for (const { c: pc, pane, space } of card.panes) {
+    rows.push(paneRow(pc, pane, 1, space));
+  }
+  if (historyOn) {
+    for (const { c: sc, s } of card.sessions) {
+      rows.push(sessionRow(sc, s, now, 1));
+    }
+  }
+  // The open Pull request row's contents, without the row: the toggle stands for it.
+  if (prOn) rows.push(...prRows(localFolder, fr.root, 0).slice(1));
+  if (filesOn) rows.push(...rootEntryRows(fr, 1));
+  return h('div', { class: 'repo-card', 'data-card-key': key }, ...rows);
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -2075,6 +1976,13 @@ const ICON_PATHS = {
   history: 'M2.5 8a5.5 5.5 0 1 0 1.6-3.9M2.5 2.5v2.5H5M8 5v3l2 1.5',
   // An arrow out of a box: open on github.com.
   external: 'M9 2.5h4.5V7M13.5 2.5L7.5 8.5M11.5 9.5v4h-9v-9h4',
+  // Two commits on a line, a third's line curving back into it: a repo card's pull request.
+  pullRequest:
+    'M3 3.5a1.5 1.5 0 1 0 3 0a1.5 1.5 0 1 0-3 0M3 12.5a1.5 1.5 0 1 0 3 0a1.5 1.5 0 1 0-3 0' +
+    'M10 12.5a1.5 1.5 0 1 0 3 0a1.5 1.5 0 1 0-3 0M4.5 5v6M11.5 11V6.5a2 2 0 0 0-2-2H7.5' +
+    'M9 3L7.5 4.5L9 6',
+  // A folder with a tab: a repo card's files.
+  folder: 'M1.5 3.5h5L8 5h6.5v8h-13z',
 };
 
 /**
@@ -2606,78 +2514,72 @@ function workspacePanes(ws, tabs, panes) {
   return wsTabs.flatMap((tab) => panes.filter((p) => p.tab_id === tab.tab_id));
 }
 
-function containerRows(c) {
+/**
+ * A container's card in Containers: its row, then while it is expanded its repo cards that are not
+ * in In use (see `repoCardActive`), in card order, and its Files row.
+ */
+function containerRows(c, cards) {
   const snap = c.state === 'connected' ? snapshots.get(c.id) : undefined;
-  const workspaces = list(snap?.workspaces).sort(byNumber);
-  const tabs = list(snap?.tabs);
   const panes = list(snap?.panes);
   const collapsed = sidebarState.collapsed.has(c.localFolder);
-  const only = workspaces.length === 1 ? workspaces[0] : null;
   const stateText = h(
     'span',
     { class: 'state', 'data-state': c.state },
     STATE_TEXT[c.state] ?? c.state,
   );
-  const rows = [
+  const fr = { localFolder: c.localFolder, root: c.localFolder };
+  /** @type {HTMLElement} */
+  const head = h(
+    'div',
+    {
+      class: 'row container',
+      style: '--depth: 0',
+      title: c.error ? `${c.localFolder}\n${c.error}` : c.localFolder,
+      'aria-expanded': String(!collapsed),
+      onclick: () => toggleContainer(c),
+      oncontextmenu: (e) => openMenu(e, projectMenuItems(c.localFolder)),
+    },
     h(
-      'div',
-      {
-        class: 'row container',
-        style: '--depth: 0',
-        title: c.error ? `${c.localFolder}\n${c.error}` : c.localFolder,
-        'aria-expanded': String(!collapsed),
-        onclick: () => toggleContainer(c),
-        oncontextmenu: (e) => openMenu(e, projectMenuItems(c.localFolder)),
-      },
-      h(
-        'span',
-        { class: 'label' },
-        chevron(),
-        displayName(c),
-        pinMark(c),
-        // Expanded, each repo's own marks are right below.
-        collapsed ? gitMark(gitRollup(projectRepos(c.localFolder))) : '',
-      ),
-      INACTIVE_STATES.has(c.state)
-        ? h('span', { class: 'row-actions' }, stateText, herdrActions(c))
-        : rowTrail(
-          c.state !== 'connected' ? stateText : statusRollup(panes),
-          hoverActions(downButton(c), stopButton(c)),
+      'span',
+      { class: 'label' },
+      chevron(),
+      displayName(c),
+      pinMark(c),
+      // Expanded, each repo card's own marks are right below.
+      collapsed ? gitMark(gitRollup(projectRepos(c.localFolder))) : '',
+    ),
+    INACTIVE_STATES.has(c.state)
+      ? h('span', { class: 'row-actions' }, stateText, herdrActions(c))
+      : rowTrail(
+        c.state !== 'connected' ? stateText : statusRollup(panes),
+        hoverActions(
+          // A new terminal at the project folder, starting Herdr first if it has no session.
+          iconButton('plus', LABELS.newTerminal, () => {
+            // Under the + at the row's right end, as newTerminalButton's.
+            const r = head.getBoundingClientRect();
+            openMenuAt(
+              r.right - 20,
+              r.bottom + 2,
+              newTerminalMenuItems(fr, ''),
+            );
+          }),
+          downButton(c),
+          stopButton(c),
         ),
-    ),
-  ];
-  if (collapsed) return [containerCard(rows, false)];
-  const tab = containerTab(c);
-  const body = tab === 'terminals'
-    ? terminalRows(c, workspaces, tabs, panes, only)
-    : tab === 'sessions'
-    ? sessionRows(c)
-    : tab === 'repos'
-    ? repoRows(c.localFolder)
-    : containerFileRows(c);
-  rows.push(
-    h(
-      'div',
-      { class: 'container-widget' },
-      containerTabStrip(c, tab, {
-        terminals: panes.length,
-        repos: topRepos(shownRepos(c.localFolder)).length,
-      }),
-      h(
-        'div',
-        {
-          class: 'container-panel',
-          role: 'tabpanel',
-          'aria-label': `${CONTAINER_TAB_LABELS[tab]} in ${displayName(c)}`,
-        },
-        ...body,
       ),
-    ),
   );
+  const rows = [head];
+  if (collapsed) return [containerCard(rows, false)];
+  for (const card of cards.values()) {
+    if (card.localFolder === c.localFolder && !card.active) {
+      rows.push(repoCard(card));
+    }
+  }
+  rows.push(...containerFilesRows(c));
   return [containerCard(rows, true)];
 }
 
-/** A container's rows (or Not running's) as a card, as In use's: its own row on top, then the rest. */
+/** A container's card as In use's: its own row on top, then the rest. */
 function containerCard(rows, open) {
   return h(
     'div',
@@ -2686,70 +2588,29 @@ function containerCard(rows, open) {
   );
 }
 
-const CONTAINER_TAB_LABELS = {
-  terminals: LABELS.terminals,
-  sessions: LABELS.sessions,
-  repos: 'Repos',
-  files: LABELS.files,
-};
-
-/**
- * An expanded container's tab strip: Terminals, Repos, Sessions and Files, with counts. A row of
- * the tree, so Up / Down reach it; Left / Right (Home / End) on it choose the view. Right-click
- * on Files gives the container root's menu, as its Files row did.
- */
-function containerTabStrip(c, tab, counts) {
-  const fr = containerRoot(c.localFolder);
-  const buttons = CONTAINER_TABS.map((t) =>
-    h(
-      'button',
-      {
-        type: 'button',
-        role: 'tab',
-        tabindex: '-1',
-        'aria-selected': String(t === tab),
-        onclick: (e) => {
-          e.stopPropagation();
-          selectContainerTab(c, t);
-        },
-        oncontextmenu: t === 'files'
-          ? (e) => openMenu(e, dirMenuItems(fr, ''))
-          : undefined,
-      },
-      CONTAINER_TAB_LABELS[t],
-      counts[t] ? h('span', { class: 'tab-count' }, String(counts[t])) : '',
-    )
-  );
-  return h(
-    'div',
+/** A container's Files row, closed until opened; open, its filesystem under it. */
+function containerFilesRows(c) {
+  const open = sidebarState.containerFilesOpen.has(c.localFolder);
+  const row = treeRow(
+    `${c.localFolder}\n\nfiles`,
+    0,
+    open,
     {
-      class: 'row container-tabs',
-      role: 'tablist',
-      'aria-label': `Views in ${displayName(c)}`,
-      tabindex: '-1',
-      'data-tree-key': `${c.localFolder}\n\ntabs`,
-      'data-depth': 1,
-      style: '--depth: 1',
-      onkeydown: (e) => {
-        const i = CONTAINER_TABS.indexOf(tab);
-        const n = CONTAINER_TABS.length;
-        const next = e.key === 'ArrowRight'
-          ? (i + 1) % n
-          : e.key === 'ArrowLeft'
-          ? (i + n - 1) % n
-          : e.key === 'Home'
-          ? 0
-          : e.key === 'End'
-          ? n - 1
-          : -1;
-        if (next < 0) return;
-        e.preventDefault();
-        e.stopPropagation();
-        selectContainerTab(c, CONTAINER_TABS[next]);
+      class: 'container-files',
+      title: `The container's own filesystem, from /`,
+      onclick: () => {
+        if (!sidebarState.containerFilesOpen.delete(c.localFolder)) {
+          sidebarState.containerFilesOpen.add(c.localFolder);
+        }
+        saveSidebarState();
+        renderTree();
       },
+      oncontextmenu: (e) =>
+        openMenu(e, dirMenuItems(containerRoot(c.localFolder), '')),
     },
-    ...buttons,
+    LABELS.files,
   );
+  return open ? [row, ...containerFileRows(c)] : [row];
 }
 
 /**
@@ -2771,53 +2632,6 @@ function statusRollup(panes) {
       h('span', { class: 'badge', 'data-status': status }, String(count))
     ),
   );
-}
-
-/**
- * A running container's Terminals row, whatever its Herdr state, and while it is open a row per
- * terminal (Herdr pane) in Herdr's order, space by space. Its + opens a new terminal at the
- * project folder, starting Herdr first when the container has no session (`open_tab`). devc web doesn't manage Herdr spaces (workspaces in the
- * API), so they get no rows of their own; with several, a terminal's tooltip names its space.
- */
-function terminalRows(c, workspaces, tabs, panes, only) {
-  const rows = [];
-  const listed = new Set();
-  for (const ws of workspaces) {
-    const space = only ? '' : ws.label || `space ${ws.number ?? ''}`;
-    for (const pane of workspacePanes(ws, tabs, panes)) {
-      listed.add(pane.pane_id);
-      rows.push(paneRow(c, pane, 1, space));
-    }
-  }
-  // Anything the snapshot didn't place in a workspace's tab still gets a row.
-  for (const pane of panes) {
-    if (!listed.has(pane.pane_id)) rows.push(paneRow(c, pane, 1));
-  }
-  if (rows.length === 0) {
-    rows.push(
-      h(
-        'div',
-        { class: 'row tree-note', style: '--depth: 1' },
-        h('span', { class: 'label' }, LABELS.noTerminals),
-      ),
-    );
-  }
-  const fr = { localFolder: c.localFolder, root: c.localFolder };
-  const action = treeRow(
-    `${c.localFolder}\n\nnew-terminal`,
-    1,
-    undefined,
-    {
-      class: 'scope-action',
-      onclick: () => {
-        const r = action.getBoundingClientRect();
-        openMenuAt(r.left + 24, r.bottom + 2, newTerminalMenuItems(fr, ''));
-      },
-    },
-    `＋ ${LABELS.newTerminal} in ${displayName(c)}`,
-  );
-  rows.push(action);
-  return rows;
 }
 
 /**
@@ -2848,59 +2662,12 @@ async function loadSessions(c) {
 }
 
 /**
- * A running container's Sessions row, and while it is open a row per recent agent session that
- * started in one of its repos, newest first (`list_sessions`). Its refresh button lists again.
- */
-function sessionRows(c) {
-  const rows = [];
-  const listed = sessionLists.get(c.id);
-  // Opened before this page listed it (a saved open row): list now.
-  if (!listed) void loadSessions(c);
-  const note = (text, error = false) =>
-    h(
-      'div',
-      {
-        class: 'row tree-note',
-        style: '--depth: 1',
-        'data-note': error ? 'error' : undefined,
-      },
-      h('span', { class: 'label' }, text),
-    );
-  if (listed?.error) rows.push(note(listed.error, true));
-  else if (!listed || (listed.loading && listed.sessions.length === 0)) {
-    rows.push(note(LABELS.loadingSessions));
-  } else if (listed.sessions.length === 0) rows.push(note(LABELS.noSessions));
-  const repos = projectRepos(c.localFolder);
-  const now = Date.now();
-  for (const s of listed?.error ? [] : listed?.sessions ?? []) {
-    rows.push(sessionRow(c, s, repos.length > 1 ? repos : null, now, 1));
-  }
-  rows.push(
-    treeRow(
-      `${c.localFolder}\n\nrefresh-sessions`,
-      1,
-      undefined,
-      { class: 'scope-action', onclick: () => void loadSessions(c) },
-      `↻ ${LABELS.refreshSessions}`,
-    ),
-  );
-  return rows;
-}
-
-/**
- * One recent session: its agent's icon, title (then its repo's name, muted, when the project has
- * several; its container instead with `withContainer`, in In use) and age, after the status of
- * the pane running it, if one is. A click resumes it (the server reuses the pane it runs in).
+ * One past session in its repo card: its agent's icon, title and age, after the status of the pane
+ * running it, if one is. A click resumes it (the server reuses the pane it runs in).
  *
  * @param {import('./lib/sessions.js').AgentSession} s
  */
-function sessionRow(c, s, repos, now, depth = 2, withContainer = false) {
-  const age = sessionAge(s.updatedAt, now);
-  // Its repo's own name (a worktree's main repo's), as its In use group shows it.
-  const found = repos?.find((r) => r.folder === s.root);
-  const repo = repos
-    ? found ? repoGroupName(c.localFolder, found).base : basename(s.root)
-    : null;
+function sessionRow(c, s, now, depth) {
   return h(
     'div',
     {
@@ -2915,23 +2682,12 @@ function sessionRow(c, s, repos, now, depth = 2, withContainer = false) {
           [LABELS.copySessionId, () => copyText(s.session)],
         ]),
     },
-    // In the slot a chevron would take, as a terminal's and a Sent task's.
-    // Its repo or container is the label's last part, the first to give way; the age (and a
+    // In the slot a chevron would take, as a terminal's and a Sent task's. The age (and a
     // running pane's status) always shows.
-    h(
-      'span',
-      { class: 'label' },
-      rowIcon({ agent: s.agent }),
-      s.title,
-      withContainer
-        ? rowContainer(c.localFolder)
-        : repo
-        ? h('span', { class: 'row-container' }, repo)
-        : '',
-    ),
+    h('span', { class: 'label' }, rowIcon({ agent: s.agent }), s.title),
     rowTrail(
       badge(sessionPane(c, s)),
-      h('span', { class: 'pane-title' }, age),
+      h('span', { class: 'pane-title' }, sessionAge(s.updatedAt, now)),
     ),
   );
 }
@@ -3080,61 +2836,6 @@ function gitMark(sync) {
 /** A project's repos (its `repos` field), the folder itself first. */
 function projectRepos(localFolder) {
   return list(projects.get(localFolder)?.repos);
-}
-
-/**
- * An expanded container's repo rows, above its workspaces. With more than one repo they sit under
- * a Repos row (collapsed until opened); with one, its row is directly under the container. A repo
- * row, while expanded, is followed by its worktrees (repo rows of their own), then its files. The
- * project folder always gets a row; a later folder that turned out to be no repo (`git: null`
- * with no `gitProblem`) gets none. One whose status can't be read keeps its row, marked `?`.
- */
-function repoRows(localFolder) {
-  const repos = shownRepos(localFolder);
-  if (repos.length === 0) return [];
-  const top = topRepos(repos);
-  const repoRow = (r, depth, nested = false) => {
-    const fr = { localFolder, root: r.folder };
-    const tree = fileTree(fr);
-    const rows = [
-      treeRow(
-        `${treeId(fr)}\n`,
-        depth,
-        tree.isOpen(''),
-        {
-          class: 'repo',
-          title: r.containerFolder && r.containerFolder !== r.folder
-            ? `${r.folder}\n${r.containerFolder}`
-            : r.folder,
-          onclick: () => tree.toggle(''),
-          oncontextmenu: (e) =>
-            openMenu(e, [...dirMenuItems(fr, ''), ...jiraItems(r.git?.branch)]),
-        },
-        // A worktree under its repo's row goes by its own name: the row above says whose.
-        ...repoNameParts(
-          nested
-            ? { prefix: '', base: basename(r.folder) }
-            : splitRepoName(r.name),
-        ),
-        gitMark(gitSync(r.git, r.gitProblem)),
-      ),
-    ];
-    folderTerminalButton(rows[0], fr, '');
-    if (tree.isOpen('')) {
-      // A running container's repo: its pull request comes first.
-      if (containerByFolder(localFolder)) {
-        rows.push(...prRows(localFolder, r.folder, depth + 1));
-      }
-      for (const w of repos) {
-        if (w !== r && w.worktreeOf === r.folder) {
-          rows.push(...repoRow(w, depth + 1, true));
-        }
-      }
-      rows.push(...rootEntryRows(fr, depth + 1));
-    }
-    return rows;
-  };
-  return top.flatMap((r) => repoRow(r, 1));
 }
 
 /** The repos listed at the top of a Repos view: all but the worktrees listed under their repo. */
@@ -5522,7 +5223,12 @@ function openHerdrTab(fr, path, reuse, agent) {
  * @param {HTMLElement} row @param {FileRoot} fr @param {string} path
  */
 function newTerminalButton(row, fr, path) {
-  return hoverActions(
+  return hoverActions(...newTerminalButtons(row, fr, path));
+}
+
+/** {@link newTerminalButton}'s two buttons, for a row with more hover buttons of its own. */
+function newTerminalButtons(row, fr, path) {
+  return [
     iconButton('task', LABELS.newTaskHere, () => newTaskIn(fr)),
     iconButton('plus', LABELS.newTerminal, () => {
       // Under the + at the row's right end. The row, not the button: hover buttons can be
@@ -5530,7 +5236,7 @@ function newTerminalButton(row, fr, path) {
       const r = row.getBoundingClientRect();
       openMenuAt(r.right - 20, r.bottom + 2, newTerminalMenuItems(fr, path));
     }),
-  );
+  ];
 }
 
 /** Gives a folder's row a {@link newTerminalButton} while its container is running. */
@@ -7573,14 +7279,10 @@ function openInPreview(ref) {
   else views.get(tile.id)?.renderer.focus();
 }
 
-/** A label's row text (see `paneLabel`): its name, then any agent or command title, muted. */
-function labelParts({ name, title }) {
-  return title ? [name, h('span', { class: 'pane-title' }, title)] : [name];
-}
-
 /**
- * A pane's sidebar row: the kept one for this pane (see {@link paneRows}), brought up to date.
- * `space` names its Herdr space in the tooltip; '' when the container has just one.
+ * A pane no tile shows, in its repo card: the kept row for this pane (see {@link paneRows}),
+ * brought up to date. It says what it is doing, as In use rows do; its card names its folder and
+ * container. `space` names its Herdr space in the tooltip; '' when the container has just one.
  */
 function paneRow(c, pane, depth, space = '') {
   const key = paneKey(c.id, pane.pane_id);
@@ -7591,7 +7293,8 @@ function paneRow(c, pane, depth, space = '') {
       onclick: (e) => onPaneClick(rec, e),
       // The two clicks opened it (as a preview); a double-click also keeps it.
       ondblclick: () => keepOpen(tileShowing(rec.c, rec.pane)),
-      oncontextmenu: (e) => openMenu(e, paneMenu(rec)),
+      oncontextmenu: (e) =>
+        openMenu(e, [...paneCodeItems(rec.c, rec.pane), ...paneMenu(rec)]),
     });
     rec = { row, c, pane, seen: 0, remove: null };
     paneRows.set(key, rec);
@@ -7627,7 +7330,7 @@ function paneRow(c, pane, depth, space = '') {
       // In the slot a chevron would take, so terminals line up with the tree rows at their depth.
       // Shown in a tile, it turns the accent color (the row's `visible` class).
       rowIcon({ agent: pane.agent }),
-      ...labelParts(paneLabel(pane)),
+      inUseLabel(paneLabel(pane)),
     ),
     rowTrail(
       badge(pane),

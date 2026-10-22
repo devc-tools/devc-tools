@@ -181,12 +181,31 @@ export function settleZones(z) {
 }
 
 /**
- * The In use group of something in container `localFolder` and in `repo` (null outside every
- * repo): one group per host folder, so a folder several containers mount is one group; outside
- * every repo, one per container.
+ * A repo card's key: one card per repo or worktree (`repoFolder`, its host folder) per container
+ * (`localFolder`); `repoFolder` null for the container's card of what is outside every repo.
+ *
+ * @param {string} localFolder
+ * @param {string | null} repoFolder
  */
-export function inUseGroupKey(localFolder, repo) {
-  return repo ? `repo\n${repo.folder}` : `container\n${localFolder}`;
+export function repoCardKey(localFolder, repoFolder) {
+  return `card\n${localFolder}\n${repoFolder ?? ''}`;
+}
+
+/** How recent a past session keeps its repo card active. */
+export const IN_USE_SESSION_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Whether a repo card is active (shown in In use, else in Containers): it has a tile, an agent no
+ * tile shows, or a past session from the last {@link IN_USE_SESSION_MS}. A plain shell no tile
+ * shows doesn't count. An unparseable `lastSessionAt` is not recent.
+ *
+ * @param {{tiles: number, agents: number, lastSessionAt: string | null}} card
+ * @param {number} nowMs
+ */
+export function repoCardActive({ tiles, agents, lastSessionAt }, nowMs) {
+  if (tiles > 0 || agents > 0) return true;
+  const at = lastSessionAt === null ? NaN : Date.parse(lastSessionAt);
+  return nowMs - at < IN_USE_SESSION_MS;
 }
 
 /**

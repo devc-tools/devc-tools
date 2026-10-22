@@ -16,7 +16,7 @@ or protocol change so far. To undo a feature, revert its commit.
 | F2 | Sidebar restyle: the mockup's palette, section headings, row sizes and status badges | done | `ea8f18f` |
 | F3 | "In use" zone: tiles, running panes not in the layout, and recent sessions, grouped by repo / worktree | done | `b97dddf` |
 | F4 | Two zones: In use above, Containers below, each scrolling on its own | done | `b97dddf` |
-| F5 | Container tabs: Terminals / Sessions / Repos / Files under each expanded container, remembered per container | done | `41447e0` |
+| F5 | Container tabs: Terminals / Sessions / Repos / Files under each expanded container, remembered per container (superseded by F17–F20: repo cards and a Files row) | done | `41447e0` |
 | F6 | Container row: per-status agent counts, shown expanded too | done | `41447e0` |
 | F7 | Repo labels: parent path muted before the bold name (`.plans/` deephaven-core) | done | `41447e0` |
 | F8 | Tasks as one compact row with counts | done | `951f20a` |
@@ -24,13 +24,18 @@ or protocol change so far. To undo a feature, revert its commit.
 | F16 | Draggable rules between Tasks, In use and Containers: In use (middle) resizes, then moves whole; sizes saved per browser, double-click resets | done | `f5c7be6` |
 | F10 | Chevrons drawn, turned when open, centered on the text | done | `4b664c3` |
 | F11 | In use group rows: hover new task and + (shell / agent) at the folder, per running container | done | `df12fd7` |
-| F12 | In use: one group per host folder across containers; each session once | done | `df12fd7` |
-| F13 | Claude sessions running in a pane: not offered in In use, tagged `running` in Sessions, never resumed twice | done | `215aa11` |
+| F12 | In use: one group per host folder across containers; each session once (superseded by F19: a card per container) | done | `df12fd7` |
+| F13 | Claude sessions running in a pane: not offered in In use, tagged `running` in Sessions, never resumed twice (the tag went with the Sessions tab, F20: a running session is on no card) | done | `215aa11` |
 | F14 | Same parts on every row of a kind; labels give way from the right (container first) | done | `df12fd7` |
 | F15 | Containers section collapses; In use may then take the whole sidebar | done | `0a09316` |
+| F17 | Repo cards: one per repo or worktree per container, terminals always shown, toggles for past sessions, PR and files | done | — |
+| F18 | Active repo cards (tile, untiled agent, session in the last day) in In use under their container; the rest in their container's card in Containers | done | — |
+| F19 | A repo mounted in two containers has a card in each; each past session on one card | done | — |
+| F20 | Container cards lose their tabs: a + on the header and a Files row for the container's filesystem | done | — |
 
 F9–F15 come from a live review on a machine with ~20 containers, specified in
-[devc-web-sidebar-scale-fixes](../../archived/devc-web-sidebar-scale-fixes.md).
+[devc-web-sidebar-scale-fixes](../../archived/devc-web-sidebar-scale-fixes.md). F17–F20 are
+specified in [devc-web-repo-cards](../../devc-web-repo-cards.md).
 
 ## Exceptions
 

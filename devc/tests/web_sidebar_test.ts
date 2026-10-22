@@ -8,13 +8,14 @@ import {
   dragZones,
   gitRollup,
   gitSync,
-  inUseGroupKey,
   inUseLabel,
   isSidebarToggleShortcut,
   labelText,
   paneLabel,
   paneTitle,
   repoAt,
+  repoCardActive,
+  repoCardKey,
   settleZones,
   SIDEBAR_DEFAULT_WIDTH,
   SIDEBAR_MIN_WIDTH,
@@ -473,23 +474,34 @@ Deno.test('splitRepoName: the parent path apart from the repo own name', () => {
   });
 });
 
-Deno.test('inUseGroupKey: one group per folder whichever container mounts it', () => {
-  const worktree = { folder: '/src/app.worktrees/fix' };
+Deno.test('repoCardKey: one card per repo per container', () => {
+  assertEquals(repoCardKey('/p', '/p/a'), 'card\n/p\n/p/a');
+  assertEquals(repoCardKey('/p', null), 'card\n/p\n');
   assertEquals(
-    inUseGroupKey('/src/app.worktrees/fix', worktree),
-    inUseGroupKey('/src/code-wksp', worktree),
-  );
-  assertEquals(
-    inUseGroupKey('/src/code-wksp', { folder: '/src/app' }) ===
-      inUseGroupKey('/src/code-wksp', worktree),
+    repoCardKey('/p', '/src/wt') === repoCardKey('/q', '/src/wt'),
     false,
   );
-  // Outside every repo: one group per container.
+});
+
+Deno.test('repoCardActive: a tile, an untiled agent or a session in the last day', () => {
+  const now = Date.parse('2026-10-21T12:00:00Z');
+  const hoursAgo = (n: number) => new Date(now - n * 3600_000).toISOString();
+  const card = { tiles: 0, agents: 0, lastSessionAt: null };
+  assertEquals(repoCardActive({ ...card, tiles: 1 }, now), true);
+  assertEquals(repoCardActive({ ...card, agents: 1 }, now), true);
   assertEquals(
-    inUseGroupKey('/src/a', null) === inUseGroupKey('/src/b', null),
+    repoCardActive({ ...card, lastSessionAt: hoursAgo(23) }, now),
+    true,
+  );
+  assertEquals(
+    repoCardActive({ ...card, lastSessionAt: hoursAgo(25) }, now),
     false,
   );
-  assertEquals(inUseGroupKey('/src/a', null), inUseGroupKey('/src/a', null));
+  assertEquals(
+    repoCardActive({ ...card, lastSessionAt: 'nonsense' }, now),
+    false,
+  );
+  assertEquals(repoCardActive(card, now), false);
 });
 
 // Tasks on top (rows: 40–200px), In use in the middle (32–500), Containers the rest (≥ 32).

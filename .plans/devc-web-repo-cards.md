@@ -143,31 +143,31 @@ All of it is page code (`devc/web/static/`). No server or protocol change.
 
 ## Checklist
 
-- [ ] `lib/sidebar.js`: `repoCardKey`, `repoCardActive`; delete `inUseGroupKey`; tests in
+- [x] `lib/sidebar.js`: `repoCardKey`, `repoCardActive`; delete `inUseGroupKey`; tests in
       `web_sidebar_test.ts`
-- [ ] F17 one card builder used by both zones: header, buttons, click, right-click, body parts
-- [ ] F17 `cardHistoryOpen` saved; `inUseSessionsOpen` removed
-- [ ] F18 In use built from active repo cards per container, ordered as specified
-- [ ] F19 sessions placed on one card; per-container label rows and multi-container menus removed;
+- [x] F17 one card builder used by both zones: header, buttons, click, right-click, body parts
+- [x] F17 `cardHistoryOpen` saved; `inUseSessionsOpen` removed
+- [x] F18 In use built from active repo cards per container, ordered as specified
+- [x] F19 sessions placed on one card; per-container label rows and multi-container menus removed;
       sessions listed for every running container on first render; In use refresh lists all
-- [ ] F18 Containers: expanded container card holds its inactive cards, container-level card, Files row
-- [ ] F20 container header `plus`; Files row with saved `containerFilesOpen`
-- [ ] F20 tabs and their state, rows and CSS removed; unused saved fields removed
-- [ ] Styling: `.repo-card` rename, header hover, pressed toggles stay visible
-- [ ] `devc/README.md` sidebar paragraphs describe repo cards, In use and Containers as built
-- [ ] 14-implementation-tracking.md: F17–F20 rows (F5 marked superseded by F20), any exceptions
+- [x] F18 Containers: expanded container card holds its inactive cards, container-level card, Files row
+- [x] F20 container header `plus`; Files row with saved `containerFilesOpen`
+- [x] F20 tabs and their state, rows and CSS removed; unused saved fields removed
+- [x] Styling: `.repo-card` rename, header hover, pressed toggles stay visible
+- [x] `devc/README.md` sidebar paragraphs describe repo cards, In use and Containers as built
+- [x] 14-implementation-tracking.md: F17–F20 rows (F5 marked superseded by F20), any exceptions
 
 ## Validation
 
-- [ ] `cd devc && deno task check` passes
-- [ ] `cd devc && deno task test` passes, including new cases: `repoCardKey('/p', '/p/a')` is
+- [x] `cd devc && deno task check` passes
+- [x] `cd devc && deno task test` passes, including new cases: `repoCardKey('/p', '/p/a')` is
       `'card\n/p\n/p/a'` and `repoCardKey('/p', null)` is `'card\n/p\n'`; `repoCardActive` is true for
       `{tiles: 1, agents: 0, lastSessionAt: null}`, true for `{tiles: 0, agents: 1, …}`, true for a
       session 23 h old, false for one 25 h old, false for `lastSessionAt: 'nonsense'`, false for all
       zero / null
-- [ ] `cd devc && deno fmt --check web/static/app.js web/static/lib/sidebar.js tests/web_sidebar_test.ts`
+- [x] `cd devc && deno fmt --check web/static/app.js web/static/lib/sidebar.js tests/web_sidebar_test.ts`
       passes (`style.css` has one pre-existing unformatted line; add no new ones)
-- [ ] `grep -n "containerTab\|CONTAINER_TABS\|inUseGroupKey\|in-use-container\|inUseSessionsOpen" devc/web/static/app.js devc/web/static/lib/sidebar.js devc/web/static/style.css`
+- [x] `grep -n "containerTab\|CONTAINER_TABS\|inUseGroupKey\|in-use-container\|inUseSessionsOpen" devc/web/static/app.js devc/web/static/lib/sidebar.js devc/web/static/style.css`
       prints nothing
 - [ ] Live, in a browser against the user's devc web (`devc web --live`), checked in the console:
   - every `[data-card-key]` value occurs once in the document

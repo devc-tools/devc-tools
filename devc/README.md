@@ -285,16 +285,21 @@ is published from any container: the host server finds devcontainers with
 `docker exec … herdr --session devc remote-api-bridge` and
 `terminal session control`. Updates are pushed end to end; nothing is polled.
 
-- **Sidebar:** **In use** lists what is open by the repo or worktree it is in:
-  a card per folder with its tiles, the agents running in it that no tile
-  shows, and its recent agent sessions, the folders of each container together
-  in a card under its name; click a tile to bring it forward.
-  **Containers** lists each container with every pane in it, marking the ones a
-  tile shows; a workspace row appears only when there is more than one. Herdr
-  tabs don't appear: a pane split in Herdr's own UI is listed like any other.
-  Click a container to collapse it; a collapsed one shows its most urgent agent
-  status. A repo row is named by its path under `/workspaces` in the container
-  (`tools/devc-tools`), else by its folder's name. The window title follows the
+- **Sidebar:** each repo or worktree of a container is a **repo card**: its
+  name, branch and sync mark on top, then its terminals (its tiles, then every
+  pane in it no tile shows, shells too); terminals outside every repo get a
+  card named after the container. A card's header buttons show its past agent
+  sessions, its pull request and its files under its terminals, and open a new
+  terminal or task there; a click on the header shows its past sessions. A
+  card is **active** while it has a tile, an agent no tile shows, or a session
+  from the last day: active cards are under **In use**, each container's in a
+  card under its name; the rest are under **Containers**, in their container's
+  card, after its header and before its **Files** row (the container's own
+  filesystem from `/`). A repo mounted in two containers has a card in each;
+  each past session is listed once. Click a tile or pane row to bring it
+  forward. Click a container to collapse it; a collapsed one shows its most
+  urgent agent status. A repo is named by its path under `/workspaces` in the
+  container (`tools/devc-tools`), else by its folder's name. The window title follows the
   active tile: `<repo>:<branch> — <title> — devcd`, where `<repo>` is the
   folder name of the repo its terminal's current directory or its file is in (a
   worktree's main repo; the project's name outside every repo), `<branch>` is
@@ -316,24 +321,23 @@ is published from any container: the host server finds devcontainers with
   trash button for **Remove container** left of its stop button, and the **+** on the Containers
   heading adds a folder. A tile whose project is down offers **Start
   container**.
-- **Menus:** right-click a tile (its tab, or its Layout row) for **Split
+- **Menus:** right-click a tile (its tab, or its row in a repo card) for **Split
   vertically** (a new terminal to its right), **Split horizontally** (below),
   **New pane in this stack**, **Close** (the tile only) and **Kill pane** (ends
   the process and closes every tile showing it). Stacks, rows and columns offer a new shell inside them; a
   container or workspace row offers **New shell** in the focused stack; a pane
   row offers **Open in new tile**, **Rename** and **Kill**. A terminal's row
-  under In use also offers **Open in Code** first, on the repo its current
+  in a repo card also offers **Open in Code** first, on the repo its current
   directory is in (none outside every repo). A new shell is
   always its own Herdr tab, created without moving the focus of a Herdr TUI
-  attached to the same session. Hovering a Layout row shows **×** to close its
-  tiles (and, on a terminal tile's row, a trash button left of it to kill the
-  pane); hovering a pane under Containers shows a trash button to kill it.
+  attached to the same session. Hovering a tile's row shows **×** to close the
+  tile (and, on a terminal's, a trash button left of it to kill the pane);
+  hovering a pane's row shows a trash button to kill it.
 - **Open in Jira:** with `"jira"` in the [global config](#the-global-config),
   a branch that holds an issue key (`feature/AB-12345-fix`) offers **Open
   AB-12345 in Jira** wherever devc web shows that branch: a terminal (right-click
-  inside it, its tab, its Layout row or its pane row under Containers — the
-  branch of the repo it is in), a file tile (its file's repo), a repo row under
-  Containers, and an In use folder row (its only right-click item). Up to three
+  inside it, its tab or its row in a repo card — the branch of the repo it is
+  in), a file tile (its file's repo) and a repo card's header. Up to three
   keys per branch, each its own item; it opens in your browser.
 
   ```json

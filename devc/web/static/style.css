@@ -380,52 +380,62 @@ body.resizing-zones {
   margin-bottom: 0;
 }
 
-/* In use: a card per folder that never folds, its rows flush with its own row (no chevrons). */
-.in-use-card {
+/* A repo card, in In use or in its container's card: its rows flush with its own (no chevrons). */
+.repo-card {
   --card-bg: #151d28;
-  margin: 4px 4px 6px;
   padding: 2px;
   border: 1px solid #2c394b;
   border-radius: 5px;
   background: var(--card-bg);
 }
 
-/* Its row's click shows or hides the card's past sessions, so hovering it lights the card. */
-.in-use-card:has(> .row.in-use-group:not(.inert):hover) {
+/* Its header's click shows or hides the card's past sessions, so hovering it lights the card. */
+.repo-card:has(> .row.repo-card-head:not(.inert):hover) {
   --card-bg: var(--row-hover);
 }
 
-.in-use-card .row {
+.repo-card .row {
   --row-bg: var(--card-bg);
   padding-left: 6px;
 }
 
-.in-use-card .row.in-use-group .chevron {
+.repo-card .row.repo-card-head .chevron {
   display: none;
 }
 
-/* The card's own row takes the card's color, hovered or not; without past sessions, no pointer. */
-.in-use-card .row.in-use-group,
-.in-use-card .row.in-use-group:hover {
+/* The header takes the card's color, hovered or not; without past sessions, no pointer. */
+.repo-card .row.repo-card-head,
+.repo-card .row.repo-card-head:hover {
   --row-bg: var(--card-bg);
   background: transparent;
 }
 
-.in-use-card .row.in-use-group.inert {
+.repo-card .row.repo-card-head.inert {
   cursor: default;
 }
 
-/* In use: a folder's row (parent path muted, the name, the branch); the same parts on every one. */
-.row.in-use-group {
+/* A repo card's header (parent path muted, the name, the branch, the sync mark). */
+.row.repo-card-head {
   min-height: 30px;
   font-size: calc(var(--font-size) + 0.5px);
   font-weight: 600;
   color: #dde7f5;
 }
 
-.row.in-use-group.idle,
-.row.in-use-group.idle .repo-branch {
+.row.repo-card-head.idle,
+.row.repo-card-head.idle .repo-branch {
   color: var(--muted);
+}
+
+/* A header's toggles that are on, kept in sight; hovered, its strip covers them with all of them. */
+.row-toggles {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.row-toggles:empty {
+  display: none;
 }
 
 .repo-prefix {
@@ -442,14 +452,6 @@ body.resizing-zones {
 .repo-branch::before {
   content: '⎇ ';
   color: #7d93b3;
-}
-
-/* The container an In use session row is in: its label's last part, so the first cut. */
-.row-container {
-  margin-left: 6px;
-  font-size: calc(var(--font-size) - 1.5px);
-  font-weight: 400;
-  color: #6d7f98;
 }
 
 /* In use: a card per container holding its folders' cards, its name centered on top. Containers
@@ -491,15 +493,12 @@ body.resizing-zones {
   background: transparent;
 }
 
-.container-card > .container-widget {
-  margin: 0;
-}
-
-.in-use-run > .in-use-card {
+.in-use-run > .repo-card,
+.container-card > .repo-card {
   margin: 0 0 5px;
 }
 
-.in-use-run > .in-use-card:last-child {
+.in-use-run > .repo-card:last-child {
   margin-bottom: 0;
 }
 
@@ -517,98 +516,8 @@ body.resizing-zones {
   text-overflow: ellipsis;
 }
 
-/* A card's label for the container its rows under it run in, when several do: text only. */
-.in-use-card .row.in-use-container {
-  min-height: 20px;
-  font-size: calc(var(--font-size) - 1.5px);
-  color: #6d7f98;
-  cursor: default;
-}
-
 .section-count {
   color: #8194af;
-}
-
-/* An expanded container's views: a boxed tab strip, then the shown view's rows. */
-.container-widget {
-  margin: 2px 0 8px 12px;
-  border: 1px solid #33435a;
-  border-radius: 5px;
-  background: #151d28;
-  overflow: hidden;
-}
-
-.container-widget .row {
-  --row-bg: #151d28;
-  padding-left: calc(5px + (var(--depth, 0) - 1) * 12px);
-}
-
-.container-panel {
-  padding: 4px 4px 6px;
-}
-
-.row.container-tabs {
-  display: flex;
-  gap: 2px;
-  min-height: 0;
-  margin: 0;
-  padding: 3px;
-  border: 0;
-  border-bottom: 1px solid #2f3e53;
-  border-radius: 0;
-  background: #18212e;
-}
-
-.row.container-tabs:focus {
-  outline: none;
-}
-
-.row.container-tabs:focus-visible {
-  box-shadow: inset 0 0 0 1px var(--accent);
-}
-
-.row.container-tabs button {
-  display: flex;
-  flex: 1;
-  justify-content: center;
-  gap: 4px;
-  padding: 5px 0;
-  border: 0;
-  border-radius: 3px;
-  background: transparent;
-  color: #8fa5c3;
-  font-size: calc(var(--font-size) - 1px);
-}
-
-.row.container-tabs button:hover {
-  background: #243349;
-}
-
-.row.container-tabs button[aria-selected='true'] {
-  background: #2d4362;
-  color: #e3eeff;
-  box-shadow: inset 0 -2px #8fb4eb;
-}
-
-.tab-count {
-  font-size: calc(var(--font-size) - 2px);
-  color: #7d90ab;
-}
-
-.row.container-tabs button[aria-selected='true'] .tab-count {
-  color: #a9c2e4;
-}
-
-/* A repo's row: its own name stands out from its parent path. */
-.row.repo .repo-base {
-  font-weight: 550;
-  color: #d3deec;
-}
-
-/* A view's own action (New terminal, Refresh sessions), in the link color. */
-.row.scope-action {
-  color: #a3c5ee;
-  font-size: calc(var(--font-size) - 1px);
 }
 
 /* A container row's agents: a dot and count per status. */
@@ -619,20 +528,6 @@ body.resizing-zones {
 
 .status-rollup .badge {
   font-size: calc(var(--font-size) - 2px);
-}
-
-/* An agent that no tile shows. */
-.tag {
-  padding: 0 4px;
-  border: 1px solid #34445a;
-  border-radius: 3px;
-  font-size: calc(var(--font-size) - 2px);
-  line-height: 14px;
-  color: #7d90ab;
-}
-
-.row.in-use-pane .pane-title {
-  color: #8d9bb0;
 }
 
 .row.agent-session {
@@ -1115,17 +1010,6 @@ body.resizing-zones {
 .git-sync [data-dir='synced'],
 .git-sync [data-dir='local'],
 .git-sync [data-dir='unknown'] {
-  color: var(--muted);
-}
-
-/* A repo a container mounts, listed above its workspaces: its name and marks, and a chevron
-   opening its worktrees and files. The Repos, Terminals, Sessions and Files group rows read the
-   same. */
-.row.repo,
-.row.repos,
-.row.terminals,
-.row.sessions,
-.row.files {
   color: var(--muted);
 }
 
