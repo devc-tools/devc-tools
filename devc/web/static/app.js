@@ -1542,10 +1542,10 @@ function layoutTiles() {
  * Every repo card (see `repoCardKey`): one per repo or worktree a listed container shows, in
  * {@link cardRepoOrder}, then one wherever a tile, pane or session is outside those (a repo no
  * longer listed, or outside every repo: `repo` null). A card holds its tiles in layout order, its
- * container's panes no tile shows, and its past sessions, newest first: each session once, on its
- * folder's card in the container whose project folder it is when that one runs, else in the first
- * that lists it, and none running in a pane (the pane's row stands for it). A running container's
- * sessions are listed the first time.
+ * container's panes no tile shows, and its past sessions, newest first. Agent homes are shared, so
+ * every container mounting a folder lists its sessions: each is on that folder's card in each of
+ * them, to resume there, unless it runs in a pane of any of them (the pane's row stands for it,
+ * on its own card only). A running container's sessions are listed the first time.
  */
 function repoCards() {
   /** @type {Map<string, any>} */
@@ -1579,7 +1579,8 @@ function repoCards() {
     card.tiles.push(t);
     card.firstTile = Math.min(card.firstTile, i);
   });
-  const chosen = new Map();
+  /** @type {{c: any, s: any}[]} */
+  const listedSessions = [];
   const running = new Set();
   for (const c of containers.values()) {
     if (c.state !== 'connected') continue;
@@ -1600,17 +1601,12 @@ function repoCards() {
       continue;
     }
     for (const s of listed.error ? [] : listed.sessions) {
-      // Agent homes are shared, so every container mounting a folder lists its sessions.
-      const id = `${s.agent}\n${s.session}`;
-      if (sessionPane(c, s)) running.add(id);
-      const had = chosen.get(id);
-      if (!had || (c.localFolder === s.root && had.c.localFolder !== s.root)) {
-        chosen.set(id, { c, s });
-      }
+      if (sessionPane(c, s)) running.add(`${s.agent}\n${s.session}`);
+      listedSessions.push({ c, s });
     }
   }
-  for (const [id, { c, s }] of chosen) {
-    if (running.has(id)) continue;
+  for (const { c, s } of listedSessions) {
+    if (running.has(`${s.agent}\n${s.session}`)) continue;
     const repo = projectRepos(c.localFolder).find((r) => r.folder === s.root);
     cardFor(c.localFolder, repo ?? null).sessions.push({ c, s });
   }

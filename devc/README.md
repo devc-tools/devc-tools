@@ -289,7 +289,9 @@ is published from any container: the host server finds devcontainers with
   name, branch and sync mark on top, then its terminals (its tiles, then every
   pane in it no tile shows, shells too); terminals outside every repo get a
   card named after the container. A card's header buttons show its past agent
-  sessions, its pull request and its files under its terminals, and open a new
+  sessions (a repo in several containers lists the same ones on each container's
+  card, resumed in that container; a session open in a terminal is on none of
+  them, its terminal's row stands for it), its pull request and its files under its terminals, and open a new
   terminal or task there; those open under the card until you click their
   button again or click the header, which closes them all; each scrolls in a
   box of capped height, so a long one doesn't stretch the sidebar. Under
