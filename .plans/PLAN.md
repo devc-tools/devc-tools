@@ -103,6 +103,12 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
   window; `feature-git-container-config-fixed-identity` above is sequenced to
   take it too.
 
+- [devc-web-repo-cards](devc-web-repo-cards.md) — one repo card (a repo or worktree in one
+  container) used by both sidebar sections: active cards (a tile, an untiled agent, or a session in
+  the last 24 h) sit under their container in In use, the rest under it in Containers. A card's
+  terminals always show; toggles add its past sessions, PR and file tree. The container tabs go:
+  a container card keeps its header and gains a Files row.
+
 ### Completed
 
 - [devc-config-jsonc](archived/devc-config-jsonc.md) — the global config may be
@@ -2422,3 +2428,4 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
 | `devc web` open in Jira — a branch's Jira key opens from terminal, file and repo menus, `"jira"` in config.json    | [devc-web-open-in-jira](devc-web-open-in-jira.md)                                  | in progress |
 | devc-bridge per-repo default grants — `bridgeRepoAllow` map, per-line policy grants                                | [bridge-per-repo-grants](archived/bridge-per-repo-grants.md)                       | complete    |
 | devc global config as JSONC — `config.jsonc` before `config.json`, comment-keeping saves                           | [devc-config-jsonc](archived/devc-config-jsonc.md)                                 | complete    |
+| devc web repo cards — one card per repo per container, in In use when active, else in Containers; tabs removed     | [devc-web-repo-cards](devc-web-repo-cards.md)                                      |             |
