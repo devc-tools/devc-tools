@@ -2128,6 +2128,89 @@ Deno.test('defaults: an unnamed mounted repo is pinned only for a non-empty entr
   });
 });
 
+Deno.test("defaults: a mapped repo's mounted worktrees are pinned with its entry, unnamed", async () => {
+  await withFixture(async (f) => {
+    const { extra, wt, merged, frozen } = await withExtraWorktree(f);
+    // In the mirror with an absolute pointer: skipped, with its reason.
+    const bad = `${f.home}/extra.worktrees/bad`;
+    await linkWorktree(
+      extra,
+      bad,
+      'bad',
+      `${extra}/.git/worktrees/bad`,
+      'feat/bad',
+    );
+    // Outside every mount: not in this container, passed over silently.
+    await linkWorktree(
+      extra,
+      `${f.home}/elsewhere/wt3`,
+      'wt3',
+      '../../extra/.git/worktrees/wt3',
+      'feat/wt3',
+    );
+    const deps = f.deps(frozen);
+    const mode: PolicyMode = {
+      defaultGrant: ['gh-pr-read'],
+      repoAllow: await repoAllow(f, {
+        [extra]: ['gh-pr-read', 'gh-pr-reply'],
+      }),
+    };
+    await applyPolicy(mode, merged, f.project, deps);
+    assertEquals(await policyLines(f, merged), [
+      [f.project, 'gh-pr-read'],
+      [extra, 'gh-pr-read,gh-pr-reply'],
+      [wt, 'gh-pr-read,gh-pr-reply'],
+    ]);
+    assertEquals(f.logs, [
+      'devc: defaults: not pinning ~/extra.worktrees/bad: its .git uses an absolute gitdir: ' +
+      'path, which does not resolve inside the container — run git worktree repair --relative-paths',
+      'devc: devc-bridge capabilities granted (defaults):',
+      `devc:   /workspaces/proj: feat/x → git@github.com:acme/proj.git (${f.project}): gh-pr-read`,
+      `devc:   /workspaces/extra: feat/extra → git@github.com:acme/extra.git (${extra}): gh-pr-read, gh-pr-reply`,
+      `devc:   /workspaces/extra.worktrees/wt: feat/extra-wt → git@github.com:acme/extra.git (${wt}): gh-pr-read, gh-pr-reply`,
+    ]);
+
+    // Refresh re-derives the worktree line and keeps the policy as it is.
+    const file = bridgePaths(f.home, merged.bridgeKey!).policyFile;
+    const before = await Deno.readTextFile(file);
+    f.logs.length = 0;
+    await applyPolicy('refresh', merged, f.project, deps);
+    assertEquals(await Deno.readTextFile(file), before);
+    assertEquals(f.logs, []);
+
+    // An [] entry pins neither the repo nor its worktrees, and says nothing about them.
+    f.logs.length = 0;
+    await applyPolicy(
+      { ...mode, repoAllow: await repoAllow(f, { [extra]: [] }) },
+      merged,
+      f.project,
+      deps,
+    );
+    assertEquals(await policyLines(f, merged), [[f.project, 'gh-pr-read']]);
+    assertEquals(f.logs.some((l) => l.includes('not pinning')), false);
+  });
+});
+
+Deno.test('defaults: in a worktree workspace, a sibling worktree of the mapped repo is pinned', async () => {
+  await withFixture(async (f) => {
+    const { wt, wt2, merged, frozen } = await worktreePair(f);
+    await applyPolicy(
+      {
+        defaultGrant: null,
+        repoAllow: await repoAllow(f, { [f.project]: ['gh-pr-read'] }),
+      },
+      merged,
+      wt,
+      f.deps(frozen),
+    );
+    // The workspace worktree once, as line 1; its sibling after it.
+    assertEquals(await policyLines(f, merged), [
+      [wt, 'gh-pr-read'],
+      [wt2, 'gh-pr-read'],
+    ]);
+  });
+});
+
 Deno.test('defaults: a worktree whose .git is repointed at a mapped repo is not given its entry', async () => {
   await withFixture(async (f) => {
     // 1. The mapped repo is not mounted here: the repointed worktree names nothing pinnable.

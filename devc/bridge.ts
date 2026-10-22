@@ -20,7 +20,8 @@
 // - **Defaults** (no `--bridge-allow`). `bridgeDefaultAllow` and `bridgeRepoAllow` in
 //   `~/.config/devc/config.jsonc` (or `config.json`) decide: the workspace repo and each
 //   `--bridge-repo` get their repo's `bridgeRepoAllow` entry, else `bridgeDefaultAllow`; every
-//   other git-protected repo mount whose repo has a non-empty entry is pinned too. A repo's entry is chosen by the common
+//   other git-protected repo mount whose repo has a non-empty entry is pinned too, and so is each
+//   linked worktree of it mounted here (a `<repo>.worktrees` mirror). A repo's entry is chosen by the common
 //   git dir of the frozen `config` the pin's remote is read from — never by a container-writable
 //   `.git` file or `commondir`. A default grant that cannot pin something logs why and lets the
 //   start succeed, where an explicit one fails it.
@@ -444,6 +445,40 @@ async function readTextOrNull(path: string): Promise<string | null> {
 }
 
 /**
+ * The deepest bind mount of this workspace whose host source (resolved through symlinks) is or
+ * contains `repo`, or null. The workspace mount is not in `mounts`, so it is a candidate of its own.
+ */
+async function containingMount(
+  repo: string,
+  merged: MergedConfig,
+  localFolder: string,
+  home: string,
+): Promise<{ source: string; target: string } | null> {
+  const candidates: { source: string; target: string }[] = [];
+  const workspace = await workspaceMountRow(merged.config, localFolder);
+  if (workspace !== null) candidates.push(workspace);
+  if (Array.isArray(merged.config.mounts)) {
+    for (const entry of merged.config.mounts) {
+      const spec = parseMountSpec(entry);
+      if (spec === null || spec.type !== 'bind' || spec.source === null) {
+        continue;
+      }
+      candidates.push({ source: spec.source, target: spec.target });
+    }
+  }
+  let best: { source: string; target: string } | null = null;
+  for (const c of candidates) {
+    const source = await realPathOrNull(unfoldHome(c.source, home));
+    if (source === null) continue;
+    if (repo !== source && !repo.startsWith(`${source}/`)) continue;
+    if (best === null || source.length > best.source.length) {
+      best = { source, target: c.target };
+    }
+  }
+  return best;
+}
+
+/**
  * Whether the linked worktree at `repo` (a host path, resolved through symlinks, whose `.git` is a
  * file) may be pinned as an extra repo, and where it sits in the container. Each check is the one
  * that keeps the container's git on the frozen config; the first that fails is the reason:
@@ -467,29 +502,8 @@ async function matchWorktree(
   localFolder: string,
   home: string,
 ): Promise<{ ok: true; match: WorktreeMatch } | { ok: false; reason: string }> {
-  // 1. The deepest bind mount containing it. The workspace mount is not in `mounts`, so it is a
-  // candidate of its own.
-  const candidates: { source: string; target: string }[] = [];
-  const workspace = await workspaceMountRow(merged.config, localFolder);
-  if (workspace !== null) candidates.push(workspace);
-  if (Array.isArray(merged.config.mounts)) {
-    for (const entry of merged.config.mounts) {
-      const spec = parseMountSpec(entry);
-      if (spec === null || spec.type !== 'bind' || spec.source === null) {
-        continue;
-      }
-      candidates.push({ source: spec.source, target: spec.target });
-    }
-  }
-  let best: { source: string; target: string } | null = null;
-  for (const c of candidates) {
-    const source = await realPathOrNull(unfoldHome(c.source, home));
-    if (source === null) continue;
-    if (repo !== source && !repo.startsWith(`${source}/`)) continue;
-    if (best === null || source.length > best.source.length) {
-      best = { source, target: c.target };
-    }
-  }
+  // 1. The deepest bind mount containing it.
+  const best = await containingMount(repo, merged, localFolder, home);
   if (best === null) {
     return {
       ok: false,
@@ -1044,6 +1058,34 @@ export async function checkDefaultsBeforeUp(
   }
 }
 
+/**
+ * The host working trees of the linked worktrees registered in the common git dir `commonDir`
+ * (realpathed), by name: each `worktrees/<name>/gitdir` back-pointer's directory, resolved through
+ * symlinks. One whose working tree is gone is left out. Only which worktrees to try comes from
+ * here — {@link matchWorktree} checks each one's pointers, and {@link deriveWorktreePin} reads
+ * the grants' identity from the frozen `config`.
+ */
+async function linkedWorktrees(commonDir: string): Promise<string[]> {
+  const names: string[] = [];
+  try {
+    for await (const e of Deno.readDir(`${commonDir}/worktrees`)) {
+      if (e.isDirectory) names.push(e.name);
+    }
+  } catch {
+    return [];
+  }
+  const out: string[] = [];
+  for (const name of names.sort()) {
+    const g = `${commonDir}/worktrees/${name}`;
+    const back = (await readTextOrNull(`${g}/gitdir`))?.trim();
+    if (back === undefined || back === '') continue;
+    const backPath = isAbsolutePosix(back) ? back : resolvePosix(g, back);
+    const wt = await realPathOrNull(dirOf(backPath));
+    if (wt !== null && !out.includes(wt)) out.push(wt);
+  }
+  return out;
+}
+
 /** The defaults' label for a mounted repo pinned because `bridgeRepoAllow` names it. */
 function autoLabel(row: ProtectedRow, home: string): string {
   return tildePath(unfoldHome(row.source, home), home);
@@ -1055,7 +1097,8 @@ const DEFAULTS = 'defaults';
 /**
  * The lines a default grant writes, and the notices to log first, or why it grants nothing at
  * all. Candidates, in order: the workspace repo, each `--bridge-repo`, then each other
- * {@link eligibleRows} repo whose `bridgeRepoAllow` entry is non-empty. A candidate's grants are
+ * {@link eligibleRows} repo whose `bridgeRepoAllow` entry is non-empty, then each linked worktree
+ * of such a repo inside a bind mount of this workspace ({@link linkedWorktrees}). A candidate's grants are
  * its repo's entry, else `bridgeDefaultAllow`, else none — the repo being the one whose frozen
  * `config` the pin's remote came from ({@link DerivedPin}'s `commonDir`). Whether a candidate is
  * tried at all is decided first, from its host git dir, so a repo with nothing to grant costs no
@@ -1146,6 +1189,42 @@ async function deriveDefaultLines(
       hostDir,
       derive: () => deriveExtraPin(r.row, r.repo, mounts),
     });
+  }
+  // Then each linked worktree of a mapped repo that sits in a bind mount here — a
+  // `<repo>.worktrees` mirror, say — other than the workspace itself and any `--bridge-repo`.
+  // One outside every mount is not in this container and is passed over silently.
+  const workspaceRepo = workspace === null
+    ? null
+    : await realPathOrNull(unfoldHome(workspace.source, home));
+  const listed = new Set<string>();
+  for (const row of repoAllow.size === 0 ? [] : merged.protectedRows) {
+    const hostDir = await hostGitDir(row, home);
+    if (
+      hostDir === null || listed.has(hostDir) ||
+      (repoAllow.get(hostDir)?.length ?? 0) === 0
+    ) {
+      continue;
+    }
+    listed.add(hostDir);
+    for (const wt of await linkedWorktrees(hostDir)) {
+      if (wt === workspaceRepo || used.has(wt)) continue;
+      if (await containingMount(wt, merged, localFolder, home) === null) {
+        continue;
+      }
+      used.add(wt);
+      const label = tildePath(wt, home);
+      candidates.push({
+        label,
+        kind: 'map',
+        hostDir,
+        derive: async () => {
+          const match = await matchWorktree(wt, merged, localFolder, home);
+          return match.ok
+            ? await deriveWorktreePin(match.match, mounts)
+            : { ok: false, reason: match.reason };
+        },
+      });
+    }
   }
 
   const noGrants = (c: Candidate) => {

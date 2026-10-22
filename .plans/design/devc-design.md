@@ -861,7 +861,8 @@ Options:
 and must be a git-protected repo mount of this workspace (a `devc:source` row
 whose `.git` is a directory, or a linked worktree of one). With `--bridge-allow`
 devc never pins a mounted repo it was not told to; without it, a mounted repo
-whose `bridgeRepoAllow` entry is non-empty is pinned too. See
+whose `bridgeRepoAllow` entry is non-empty is pinned too, with each of its linked
+worktrees that sits inside a bind mount of the workspace. See
 [devc/README.md](../../devc/README.md) for the grant rules.
 
 The policy devc writes (`~/.config/devc-bridge/policy/<key>.conf`, host-only) is

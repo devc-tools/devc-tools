@@ -1782,8 +1782,11 @@ or less — than the rest, map it to its own list:
   Each gets its repo's entry, else `bridgeDefaultAllow`, else nothing; a repo
   with nothing is not pinned (silently for the workspace; a `--bridge-repo`
   logs `devc: not pinning <PATH>: no default grants for it — pass
-  --bridge-allow`). Linked worktrees in a `<repo>.worktrees` mirror are not
-  pinned unless named. Past 16 pins, the rest are skipped with `devc: defaults:
+  --bridge-allow`). Then, for each such repo, every linked worktree of it
+  that sits inside a bind mount of the workspace — a `<repo>.worktrees`
+  mirror, say — gets the same entry, also unnamed; a worktree that fails a
+  check is skipped with `devc: defaults: not pinning <path>: <reason>`. A
+  worktree created after `up` is pinned at the next `up`. Past 16 pins, the rest are skipped with `devc: defaults:
   not pinning <repo>: a policy pins at most 16 repos`. Two pins that conflict on
   one GitHub repo fail the command when a `--bridge-repo` was given, and are
   logged as `devc: defaults: not granted: <reason>` otherwise.
