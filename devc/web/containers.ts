@@ -229,13 +229,19 @@ export class Discovery {
   }
 
   async #reconcile(): Promise<void> {
-    let current: ListedContainer[];
     try {
-      current = await listDevcontainers(true);
+      await this.refresh();
     } catch (e) {
       this.hooks.onError(e instanceof Error ? e.message : String(e));
-      return;
     }
+  }
+
+  /**
+   * Lists the devcontainers again and brings the running and stopped sets in line with it, for
+   * whatever `docker events` missed. Throws when `docker ps` fails.
+   */
+  async refresh(): Promise<void> {
+    const current = await listDevcontainers(true);
     const running = new Set(current.filter((r) => r.running).map((r) => r.id));
     for (const id of [...this.#known.keys()]) {
       if (!running.has(id)) this.#remove(id);

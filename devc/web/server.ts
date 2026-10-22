@@ -2015,6 +2015,16 @@ export async function startWeb(
       await liveStatic?.clientReady(msg.generation);
       return;
     }
+    if (msg.type === 'refresh_containers') {
+      try {
+        await discovery.refresh();
+        await reloadProjects();
+        reply(c, { id: msg.id, ok: true, result: {} });
+      } catch (e) {
+        fail(c, msg.id, 'refresh_failed', e);
+      }
+      return;
+    }
     if (
       msg.type === 'list_dir' || msg.type === 'list_host_dir' ||
       msg.type === 'read_file' || msg.type === 'preview_file'

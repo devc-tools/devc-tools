@@ -449,6 +449,8 @@ Deno.test('parseClientMessage: file messages take a root and a path, empty meani
   }
   ok({ type: 'list_host_dir', id: 'f3', path: '' });
   ok({ type: 'list_host_dir', id: 'f4', path: '/Users/me' });
+  ok({ type: 'refresh_containers', id: 'f9' });
+  assertEquals(rejected({ type: 'refresh_containers' }).code, 'bad_request');
   ok({
     type: 'open_file',
     id: 'f5',

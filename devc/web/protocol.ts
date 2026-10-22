@@ -100,6 +100,8 @@ export type ClientMessage =
     path: string;
   }
   | { type: 'list_host_dir'; id: string; path: string }
+  /** Lists the devcontainers (`docker ps`) and reads devc's projects list again. */
+  | { type: 'refresh_containers'; id: string }
   | {
     type: 'read_file';
     id: string;
@@ -621,6 +623,8 @@ function parseFields(m: Obj): ClientMessage {
       };
     case 'list_host_dir':
       return { type: 'list_host_dir', id: str(m, 'id'), path: text(m, 'path') };
+    case 'refresh_containers':
+      return { type: 'refresh_containers', id: str(m, 'id') };
     case 'read_file':
     case 'preview_file':
       return {

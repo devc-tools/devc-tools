@@ -318,8 +318,9 @@ is published from any container: the host server finds devcontainers with
   with its output under **Show output**); right-click any project for **Stop
   container**, **Remove container** (as `devc down`: stopped, then deleted),
   **Pin**/**Unpin** and **Forget**; hovering a running container's row shows a
-  trash button for **Remove container** left of its stop button, and the **+** on the Containers
-  heading adds a folder. A tile whose project is down offers **Start
+  trash button for **Remove container** left of its stop button, the **+** on the Containers
+  heading adds a folder, and its refresh button lists the containers and
+  projects again (for a change devc web missed). A tile whose project is down offers **Start
   container**.
 - **Menus:** right-click a tile (its tab, or its row in a repo card) for **Split
   vertically** (a new terminal to its right), **Split horizontally** (below),

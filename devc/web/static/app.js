@@ -901,6 +901,7 @@ const LABELS = {
     opencode: 'OpenCode',
   },
   refreshSessions: 'Refresh sessions',
+  refreshContainers: 'Refresh containers',
   resumeSession: 'Resume session',
   showPastSessions: (n) => `Show past sessions (${n})`,
   hidePastSessions: 'Hide past sessions',
@@ -1360,6 +1361,7 @@ function renderTree() {
       rowTrail(
         hoverActions(
           projectStarts ? iconButton('plus', 'Add project…', addProject) : '',
+          iconButton('refresh', LABELS.refreshContainers, refreshContainers),
           iconButton('collapseAll', LABELS.collapseAll, collapseContainers),
         ),
       ),
@@ -1631,6 +1633,13 @@ function inUseRows(cards) {
     run.append(repoCard(card));
   }
   return rows;
+}
+
+/** Lists the devcontainers and projects again, for what the server's `docker events` missed. */
+function refreshContainers() {
+  const id = `r${++nextRequestId}`;
+  pendingRequests.set(id, 'Refresh');
+  send({ type: 'refresh_containers', id });
 }
 
 /** Lists every running container's sessions again. */
@@ -4648,7 +4657,6 @@ async function submitTask(action) {
     showTaskError(String(e?.message ?? e));
     return;
   }
-  if (!sidebarState.tasksOpen) toggleTasksSection();
   if (action === null || td.taskId === null) {
     td.el.close();
     return;
