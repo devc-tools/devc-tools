@@ -1,12 +1,1106 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>11 / CONTAINER INSPECTOR + PINNED VIEW · devc UX proposal</title><style>
-*{box-sizing:border-box}body{margin:0;color:#cbd5e3;background:#0e1218;font:12px system-ui,-apple-system,'Segoe UI',sans-serif}.app{height:100vh;display:grid;grid-template-columns:322px minmax(0,1fr);grid-template-rows:minmax(0,1fr) 24px}.sidebar{min-height:0;background:#181e27;border-right:1px solid #344151;display:flex;flex-direction:column}.sidebar-head{height:30px;flex-shrink:0;display:flex;align-items:center;gap:9px;padding:0 12px;border-bottom:1px solid #303a49;background:#1b222d}.brand{font-size:13px;font-weight:700;letter-spacing:-.3px}.brand span{color:#a5c6b9}.connection{font-size:10px;color:#8bcca9;margin-left:auto}.collapse{color:#91a1b5;font-size:13px}.scroll{flex:1;min-height:0;overflow:auto;padding:0 10px 12px;scrollbar-width:thin;scrollbar-color:#46566e #1b222c}.section{height:31px;margin:12px 3px 4px;display:flex;align-items:center;justify-content:space-between;color:#9caac0;font-size:9px;font-weight:650;letter-spacing:1.2px}.section-action{font-weight:400;letter-spacing:0;color:#8194af;font-size:10px}.tile-link{height:29px;padding:0 7px;display:flex;align-items:center;gap:7px;font-size:11px;border:1px solid transparent;border-radius:4px;cursor:pointer}.tile-link.selected{background:#2a3c55;border-color:#5b81b3}.symbol{font-size:11px;color:#96abc8;flex-shrink:0}.truncate{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}.tile-link .truncate{flex:1}.status{display:flex;align-items:center;gap:5px;font-size:10px;white-space:nowrap;flex-shrink:0}.status i{width:5px;height:5px;border-radius:50%;background:currentColor}.idle{color:#9aa9bd}.work{color:#8dbcf9}.done{color:#8bd6ae}.wait{color:#e9b87e}kbd{font:9px ui-monospace,monospace;color:#92a5bf;margin-left:4px}.tree-row{height:27px;display:flex;align-items:center;gap:7px;padding:0 5px;font-size:11px;cursor:pointer;position:relative;list-style:none;border-radius:3px}summary::-webkit-details-marker{display:none}summary:before{content:'›';font-size:12px;color:#7e92af;flex-shrink:0;width:9px;display:inline-block}details[open]>summary:before{content:'⌄'}summary:hover,.leaf:hover{background:#253042}.tree-row .truncate{flex:1}.count,.quiet{margin-left:auto;flex-shrink:0;font-size:10px;color:#8598b4}.quiet{font-family:ui-monospace,monospace;font-size:9px}.container>summary{height:30px;font-weight:550}.container.current>summary{color:#dfebfb;background:#202c3c}.container-name{font-size:11px;flex:1}.rollup{margin-left:auto;display:flex;gap:7px;flex-shrink:0}.rollup b{font-size:9px;font-weight:400}.branch>summary{padding-left:calc(9px + var(--level)*12px)}.leaf{padding-left:calc(21px + var(--level)*12px);height:25px;font-size:10px}.leaf .status{font-size:9px;margin-left:auto}.related{background:#223047}.cwd-note{font-size:9px;color:#8296b2;padding:0 5px 6px 52px}.taskline{font-size:11px;line-height:1.5;color:#c1d1e8;padding:7px 6px 7px 22px}.ellipsis{float:right;color:#8a9ab2}.recent-toggle{display:flex;align-items:center;gap:7px;font-size:10px;color:#8fa3bf;padding:4px 6px;cursor:pointer}.session{padding:7px 5px;border-bottom:1px solid #293443}.session-title{display:flex;gap:7px;align-items:center;font-size:10px}.session-title time{margin-left:auto;color:#8497b1;font-size:9px;flex-shrink:0}.session-context{font-size:9px;color:#859bb9;margin:4px 0 0 18px}.recent-note{font-size:9px;color:#6f88ab;padding:9px 5px 2px}.inactive{border-top:1px solid #303d50;margin-top:10px;padding-top:6px}.empty{font-size:10px;color:#91a1b8;line-height:1.8;padding:8px 12px}.main{min-width:0;min-height:0;padding:5px;display:grid;grid-template-columns:1fr 1.05fr;grid-template-rows:1fr 1fr;gap:5px}.panel{display:flex;flex-direction:column;border:1px solid #354459;border-radius:5px;min-height:0;min-width:0;overflow:hidden;background:#101318}.panel.large{grid-row:span 2}.panel.active{border-color:#83aff0;box-shadow:0 0 0 1px #83aff028}.panelhead{height:29px;flex-shrink:0;display:flex;align-items:center;gap:8px;background:#1d2734;border-bottom:1px solid #344155;padding:0 9px;cursor:pointer}.panel.active .panelhead{background:#2c405f}.panelhead strong{font-size:11px;font-weight:600;color:#e0eaf7;white-space:nowrap}.panel-context{font-size:9px;color:#8fa7c7;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}.controls{font-size:12px;color:#a0b3ce;white-space:nowrap;margin-left:7px}.capture{flex:1;min-height:0}.capture canvas{height:100%;width:100%;display:block}.footer{grid-column:1/-1;display:flex;gap:16px;align-items:center;padding:0 10px;background:#19212c;border-top:1px solid #354358;color:#8fa2be;font-size:9px}.footer .green{color:#8acfab}.footer .caption{margin-left:auto;color:#aebed3}.split .upper{flex:0 0 459px;padding:0 10px 7px;overflow:auto;border-bottom:3px solid #465a77;scrollbar-width:thin}.split .lower{flex:1;min-height:0;overflow:auto;padding:0 10px 9px;scrollbar-width:thin;scrollbar-color:#46566e #1b222c}.split .lower .section{position:sticky;top:0;background:#181e27;margin-top:0;height:34px;z-index:1}.split .upper .section{margin-top:8px;height:26px}.split .session{padding-top:5px;padding-bottom:5px}.tree-first .app{grid-template-columns:344px minmax(0,1fr)}.tree-first .section{margin-top:8px;height:27px}.tree-first .branch>summary{height:25px}.tree-first .leaf{height:23px}.tree-first .session{padding-top:5px;padding-bottom:5px}.tree-first .session-context{margin-top:3px}.container-detail .section{margin-top:6px}.hint{color:#6e86a9;font-size:9px;padding:8px 6px 0}.container details{border-left:1px solid #2a3a50;margin-left:5px}.container>.branch{margin-left:6px}button{font:inherit}
-</style><style>
-html{color-scheme:dark}[hidden]{display:none!important}.app{grid-template-columns:370px minmax(0,1fr)!important}.sidebar{background:#181e27}.section{margin-top:9px;height:26px}.scope-widget{min-width:0}.inline-widget{margin:2px 0 10px 15px;padding:0 5px 8px;border:1px solid #344459;border-radius:5px;background:#151d28}.container details{margin-left:0}.scope-tabs{display:flex;align-items:center;gap:3px;min-height:35px;border-bottom:1px solid #334257;padding:4px 3px}.scope-tabs button{border:0;border-radius:4px;background:transparent;color:#92a8c6;font:10px system-ui;padding:6px 8px;cursor:pointer;white-space:nowrap}.scope-tabs button[aria-selected=true]{background:#304766;color:#e1edff;box-shadow:inset 0 -2px #8fb4eb}.scope-tabs button:focus-visible{outline:2px solid #a3c5f6;outline-offset:1px}.scope-panel{padding:5px 3px;outline:none}.scope-panel:focus-visible,.primary-view:focus-visible{outline:1px solid #819fc8;outline-offset:-1px}.scope-help{font-size:9px;color:#879dbb;line-height:1.7;padding:8px 6px}.scope-action{color:#a3c5ee;font-size:10px;padding:10px 7px}.scope-panel .branch,.primary-view .branch{border-left:1px solid #2d3d53;margin-left:3px}.scope-panel .tree-row,.primary-view .tree-row{height:26px}.scope-panel .leaf{padding-left:calc(10px + var(--level)*12px)}.scope-panel .branch>summary,.primary-view .branch>summary{padding-left:calc(8px + var(--level)*13px)}.scope-panel .session,.pinned-content .session{padding:8px 7px}.container>summary{height:31px}.container.current>summary{background:#25364b}.inspector-upper{padding:0 10px 9px;flex-shrink:0;border-bottom:3px solid #4b6282}.inspector-upper .section{margin-top:8px;height:24px}.container-picker{display:flex;flex-direction:column;gap:3px}.pick{display:flex;gap:6px;align-items:center;width:100%;height:29px;border:1px solid transparent;border-radius:4px;padding:0 7px;background:transparent;color:#bccce3;font:11px system-ui;text-align:left;cursor:pointer}.pick .truncate{flex:1}.pick.picked{background:#283c57;border-color:#6189bb}.pick:focus-visible{outline:2px solid #9fc0ed}.inspector-lower{min-height:0;flex:1;overflow:auto;scrollbar-width:thin;padding:0 10px 8px}.inspector-title{display:flex;align-items:center;gap:10px;position:sticky;top:0;z-index:2;height:35px;background:#1c2634;border-bottom:1px solid #34475f;margin:0 -10px;padding:0 13px}.inspector-title>span:first-child{font-size:9px;letter-spacing:1px}.inspector-title strong{font-size:11px}.inspector-title .quiet{margin-left:auto}.inspector-widget{padding-top:4px}.pin-toolbar{display:flex;align-items:center;justify-content:space-between;padding:6px 4px;border-bottom:1px solid #2b3b51}.scope-kind{font-size:9px;color:#8199ba}.keep-view{border:1px solid #425a79;border-radius:4px;background:#23344c;color:#b5ceed;font:9px system-ui;padding:4px 6px;cursor:pointer}.primary-view{padding-top:1px}.pinned-view{margin-top:12px;border:1px solid #465b76;border-radius:5px;overflow:hidden;background:#141d29}.pinned-title{display:flex;align-items:center;gap:6px;padding:7px 8px;border-bottom:1px solid #3c4f68;background:#243348;font-size:10px;color:#acc6e8}.pinned-title strong{font-weight:550}.pinned-scope{font-size:9px;color:#89a2c3}.unpin-view{background:transparent;border:0;color:#a5b9d4;font-size:14px;cursor:pointer}.pinned-content{max-height:240px;overflow:auto;scrollbar-width:thin}.pinned-content .scope-help{display:none}.pinned-content .scope-action{padding:8px}.scope-panel .status{margin-left:auto}.primary-view .status{margin-left:auto}.scope-panel .leaf .truncate{flex:1}.scope-panel .leaf{font-size:10px}.scroll{scrollbar-width:thin}.scope-tabs+section[hidden]{display:none}.rollup{gap:6px}.caption{font-size:9px}.scope-tabs button:hover{background:#26374e}.inspector-lower{display:flex;flex-direction:column;overflow:hidden}.inspector-title,.inspector-widget .scope-tabs,.pin-toolbar{flex-shrink:0}.inspector-widget{flex:1;min-height:0;display:flex;flex-direction:column}.primary-view{flex:1;min-height:100px;overflow:auto;scrollbar-width:thin}.pinned-view{flex-shrink:0}.pinned-content{max-height:155px}.inspector-upper{max-height:44vh;overflow:auto;scrollbar-width:thin}
-</style></head><body class="tab-exploration"><div class="app"><aside class="sidebar"><div class="sidebar-head"><span class="collapse">«</span><span class="brand"><span>d</span>evc web</span><span class="connection">● live</span><span class="collapse">▢</span></div><div class="inspector-upper"><div class="section"><span>LAYOUT</span><span class="section-action">3 tiles</span></div><div class="layout-list"><div class="tile-link " data-focus="0" title="Browser tile 1 · code-wksp · DH-24092_vsix-sbom"><span class="symbol">✳</span><span class="truncate">VSIX SBOM</span><span class="status idle"><i></i>idle</span><kbd>⌥1</kbd></div><div class="tile-link " data-focus="1" title="Browser tile 2 · code-wksp · tools/devc-tools"><span class="symbol">✳</span><span class="truncate">GitHub PR review</span><span class="status work"><i></i>work</span><kbd>⌥2</kbd></div><div class="tile-link selected" data-focus="2" title="Browser tile 3 · code-wksp · tools/devc-tools"><span class="symbol">✳</span><span class="truncate">Agent session history</span><span class="status done"><i></i>done</span><kbd>⌥3</kbd></div></div><div class="section"><span>TASKS</span><span class="section-action">＋</span></div><details><summary class="tree-row"><span class="truncate">code-wksp · tools/devc-tools</span><span class="count">1</span></summary><div class="taskline">Open issue references in Jira</div></details><div class="section"><span>RECENT SESSIONS</span><span class="section-action">↻</span></div><details><summary class="tree-row">Across containers<span class="count">5</span></summary><div class="session" title="Container: code-wksp · cwd: /workspaces/tools/devc-tools · original agent and session ID retained"><div class="session-title"><span class="symbol">✳</span><span class="truncate">Implementation plan for devc task</span><time>now</time></div><div class="session-context">code-wksp · tools/devc-tools</div></div></details><div class="section"><span>CONTAINERS</span><span class="section-action">＋ &nbsp; ⋯</span></div><div class="container-picker"><button class="pick picked" data-container="code-wksp" aria-pressed="true"><span class="truncate">code-wksp</span><span class="rollup"><b class="work">● work 1</b><b class="done">● done 1</b><b class="idle">● idle 1</b></span></button><button class="pick " data-container="devc-dev" aria-pressed="false"><span class="truncate">devc-dev</span><span class="quiet">shell</span></button><button class="pick " data-container=".agents" aria-pressed="false"><span class="truncate">.agents</span><span class="quiet">shell</span></button></div><div class="scope-help">Selecting a container browses it; it does not focus a terminal.</div></div><div class="inspector-lower"><div class="inspector-title"><span class="muted">BROWSE</span><strong id="scope-name">code-wksp</strong><span class="quiet">⋯</span></div><div class="scope-widget inspector-widget" data-scope="code-wksp" data-active="Repos" data-pinned="Sessions" ><div class="scope-tabs" role="tablist" aria-label="Views in code-wksp"><button type="button" role="tab" aria-selected="false" tabindex="-1" data-tab="Terminals" id="inspect-0-Terminals-tab" aria-controls="inspect-0-primary">Terminals</button><button type="button" role="tab" aria-selected="false" tabindex="-1" data-tab="Sessions" id="inspect-0-Sessions-tab" aria-controls="inspect-0-primary">Sessions</button><button type="button" role="tab" aria-selected="true" tabindex="0" data-tab="Repos" id="inspect-0-Repos-tab" aria-controls="inspect-0-primary">Repos</button><button type="button" role="tab" aria-selected="false" tabindex="-1" data-tab="Files" id="inspect-0-Files-tab" aria-controls="inspect-0-primary">Files</button></div><div class="pin-toolbar"><span class="scope-kind">Repository roots</span><button class="keep-view" type="button" title="Keep this view below the next tab you open">⌖ Keep alongside</button></div><div class="primary-view" role="tabpanel" tabindex="0" id="inspect-0-primary" aria-labelledby="inspect-0-Repos-tab"><div class="scope-help">Repository roots mounted in code-wksp</div><details class="branch" style="--level:0" ><summary class="tree-row"><span class="truncate" title=".plans/deephaven-core">.plans/deephaven-core</span></summary><div class="tree-row leaf" style="--level:2" title="README.md"><span class="symbol">▱</span><span class="truncate">README.md</span></div></details><details class="branch" style="--level:0" ><summary class="tree-row"><span class="truncate" title=".plans/deephaven-plugins">.plans/deephaven-plugins</span></summary></details><details class="branch" style="--level:0" open><summary class="tree-row"><span class="truncate" title="tools/devc-tools">tools/devc-tools</span><span class="quiet">↑4</span></summary><details class="branch" style="--level:1" ><summary class="tree-row"><span class="truncate" title=".plans">.plans</span></summary><div class="tree-row leaf" style="--level:2" title="PLAN.md"><span class="symbol">▱</span><span class="truncate">PLAN.md</span></div></details><details class="branch" style="--level:1" open><summary class="tree-row"><span class="truncate" title="devc">devc</span></summary><details class="branch" style="--level:2" ><summary class="tree-row"><span class="truncate" title="web">web</span></summary></details><details class="branch" style="--level:2" ><summary class="tree-row"><span class="truncate" title="tests">tests</span></summary></details></details><details class="branch" style="--level:1" ><summary class="tree-row"><span class="truncate" title="devc-desktop">devc-desktop</span></summary></details></details><details class="branch" style="--level:0" open><summary class="tree-row"><span class="truncate" title="vscode-deephaven.worktrees">vscode-deephaven.worktrees</span></summary><details class="branch" style="--level:1" ><summary class="tree-row"><span class="truncate" title="DH-24092_vsix-sbom">DH-24092_vsix-sbom</span></summary><div class="tree-row leaf" style="--level:2" title="package.json"><span class="symbol">▱</span><span class="truncate">package.json</span></div></details><details class="branch" style="--level:1" ><summary class="tree-row"><span class="truncate" title="DH-23956_mcp-ts-sdk-v2">DH-23956_mcp-ts-sdk-v2</span></summary></details></details><div class="scope-help">Repo/file context menus keep their own root.</div></div><div class="pinned-view" ><div class="pinned-title"><span>⌖ <strong class="pinned-name">Sessions</strong></span><span class="grow"></span><span class="pinned-scope">code-wksp</span><button type="button" class="unpin-view" aria-label="Unpin secondary view">×</button></div><div class="pinned-content"><div class="scope-help">Sessions in code-wksp’s repos · original cwd retained.</div><div class="session" title="Container: code-wksp · cwd: /workspaces/tools/devc-tools · original agent and session ID retained"><div class="session-title"><span class="symbol">✳</span><span class="truncate">Implementation plan for devc task</span><time>now</time></div><div class="session-context">tools/devc-tools</div></div><div class="session" title="Container: code-wksp · cwd: /workspaces/vscode-deephaven · original agent and session ID retained"><div class="session-title"><span class="symbol">✳</span><span class="truncate">Resume npm publish:prerelease</span><time>38m</time></div><div class="session-context">vscode-deephaven</div></div><div class="session" title="Container: code-wksp · cwd: /workspaces/deephaven-core · original agent and session ID retained"><div class="session-title"><span class="symbol">✳</span><span class="truncate">Groovy connection review</span><time>6h</time></div><div class="session-context">deephaven-core</div></div><div class="scope-action">↻ Refresh this container’s sessions</div></div></div></div><div class="scope-widget inspector-widget" data-scope="devc-dev" data-active="Repos" data-pinned="" hidden><div class="scope-tabs" role="tablist" aria-label="Views in devc-dev"><button type="button" role="tab" aria-selected="false" tabindex="-1" data-tab="Terminals" id="inspect-1-Terminals-tab" aria-controls="inspect-1-primary">Terminals</button><button type="button" role="tab" aria-selected="false" tabindex="-1" data-tab="Sessions" id="inspect-1-Sessions-tab" aria-controls="inspect-1-primary">Sessions</button><button type="button" role="tab" aria-selected="true" tabindex="0" data-tab="Repos" id="inspect-1-Repos-tab" aria-controls="inspect-1-primary">Repos</button><button type="button" role="tab" aria-selected="false" tabindex="-1" data-tab="Files" id="inspect-1-Files-tab" aria-controls="inspect-1-primary">Files</button></div><div class="pin-toolbar"><span class="scope-kind">Repository roots</span><button class="keep-view" type="button" title="Keep this view below the next tab you open">⌖ Keep alongside</button></div><div class="primary-view" role="tabpanel" tabindex="0" id="inspect-1-primary" aria-labelledby="inspect-1-Repos-tab"><div class="scope-help">Separate repo roots for devc-dev</div><details class="branch" style="--level:0" ><summary class="tree-row"><span class="truncate" title="tools/devc-tools">tools/devc-tools</span></summary></details></div><div class="pinned-view" hidden><div class="pinned-title"><span>⌖ <strong class="pinned-name">Sessions</strong></span><span class="grow"></span><span class="pinned-scope">devc-dev</span><button type="button" class="unpin-view" aria-label="Unpin secondary view">×</button></div><div class="pinned-content"></div></div></div><div class="scope-widget inspector-widget" data-scope=".agents" data-active="Repos" data-pinned="" hidden><div class="scope-tabs" role="tablist" aria-label="Views in .agents"><button type="button" role="tab" aria-selected="false" tabindex="-1" data-tab="Terminals" id="inspect-2-Terminals-tab" aria-controls="inspect-2-primary">Terminals</button><button type="button" role="tab" aria-selected="false" tabindex="-1" data-tab="Sessions" id="inspect-2-Sessions-tab" aria-controls="inspect-2-primary">Sessions</button><button type="button" role="tab" aria-selected="true" tabindex="0" data-tab="Repos" id="inspect-2-Repos-tab" aria-controls="inspect-2-primary">Repos</button><button type="button" role="tab" aria-selected="false" tabindex="-1" data-tab="Files" id="inspect-2-Files-tab" aria-controls="inspect-2-primary">Files</button></div><div class="pin-toolbar"><span class="scope-kind">Repository roots</span><button class="keep-view" type="button" title="Keep this view below the next tab you open">⌖ Keep alongside</button></div><div class="primary-view" role="tabpanel" tabindex="0" id="inspect-2-primary" aria-labelledby="inspect-2-Repos-tab"><div class="empty">Repo data is not included for this container in the static mockup.</div></div><div class="pinned-view" hidden><div class="pinned-title"><span>⌖ <strong class="pinned-name">Sessions</strong></span><span class="grow"></span><span class="pinned-scope">.agents</span><button type="button" class="unpin-view" aria-label="Unpin secondary view">×</button></div><div class="pinned-content"></div></div></div></div></aside><main class="main"><section class="panel large " data-tile="0"><div class="panelhead" data-focus="0" title="Proposed user-renamed tile. Double-click rename is a proposal, not implemented here. Original title: vsix-sbom plan implementation"><span class="symbol">✳</span><strong>VSIX SBOM</strong><span class="panel-context">code-wksp / DH-24092_vsix-sbom</span><span class="status idle"><i></i>idle</span><span class="controls">⋯ &nbsp; ⤢ &nbsp; ×</span></div><div class="capture"><canvas data-crop="780,106,1474,1943"></canvas></div></section><section class="panel  " data-tile="1"><div class="panelhead" data-focus="1" title="Proposed user-renamed tile. Double-click rename is a proposal, not implemented here. Original title: I want a Github PR review feature added to my devc web tool. It needs to show a…"><span class="symbol">✳</span><strong>GitHub PR review</strong><span class="panel-context">code-wksp / tools/devc-tools</span><span class="status work"><i></i>work</span><span class="controls">⋯ &nbsp; ⤢ &nbsp; ×</span></div><div class="capture"><canvas data-crop="2268,106,1560,941"></canvas></div></section><section class="panel  active" data-tile="2"><div class="panelhead" data-focus="2" title="Proposed user-renamed tile. Double-click rename is a proposal, not implemented here. Original title: I’d like a way to list last n agent sessions to resume. Not sure of best place…"><span class="symbol">✳</span><strong>Agent session history</strong><span class="panel-context">code-wksp / tools/devc-tools</span><span class="status done"><i></i>done</span><span class="controls">⋯ &nbsp; ⤢ &nbsp; ×</span></div><div class="capture"><canvas data-crop="2268,1113,1560,936"></canvas></div></section></main><footer class="footer"><span class="green">● bridge</span><span>☕ awake</span><span>Proposed aliases · ⌥N shortcuts subject to terminal/OS conflicts</span><span class="caption">11 / CONTAINER INSPECTOR + PINNED VIEW · DESIGN PROPOSAL · original screenshot content, not a live connection</span></footer></div><script>const image=new Image();image.onload=()=>{document.querySelectorAll('canvas').forEach(c=>{const [x,y,w,h]=c.dataset.crop.split(',').map(Number);c.width=w;c.height=h;c.getContext('2d').drawImage(image,x,y,w,h,0,0,w,h)});document.body.dataset.ready='true'};image.src='real-layout.png';document.querySelectorAll('[data-focus]').forEach(el=>el.addEventListener('click',()=>{const id=el.dataset.focus;document.querySelectorAll('[data-tile]').forEach(p=>p.classList.toggle('active',p.dataset.tile===id));document.querySelectorAll('.tile-link').forEach(p=>p.classList.toggle('selected',p.dataset.focus===id))}));</script><script>
-(()=>{const content={"code-wksp":{"Terminals":"<div class=\"scope-help\">All running panes in code-wksp, including offscreen panes.</div><div class=\"tree-row leaf\" style=\"--level:1\" title=\"DH-24092_vsix-sbom\"><span class=\"symbol\">▱</span><span class=\"truncate\">DH-24092_vsix-sbom</span><span class=\"status idle\"><i></i>idle</span></div><div class=\"tree-row leaf\" style=\"--level:1\" title=\"I want a Github PR review feature added to my devc web tool\"><span class=\"symbol\">▱</span><span class=\"truncate\">I want a Github PR review feature added to my devc web tool</span><span class=\"status work\"><i></i>work</span></div><div class=\"tree-row leaf\" style=\"--level:1\" title=\"I’d like a way to list last n agent sessions to resume\"><span class=\"symbol\">▱</span><span class=\"truncate\">I’d like a way to list last n agent sessions to resume</span><span class=\"status done\"><i></i>done</span></div><div class=\"scope-action\">＋ New terminal in this container</div>","Sessions":"<div class=\"scope-help\">Sessions in code-wksp’s repos · original cwd retained.</div><div class=\"session\" title=\"Container: code-wksp · cwd: /workspaces/tools/devc-tools · original agent and session ID retained\"><div class=\"session-title\"><span class=\"symbol\">✳</span><span class=\"truncate\">Implementation plan for devc task</span><time>now</time></div><div class=\"session-context\">tools/devc-tools</div></div><div class=\"session\" title=\"Container: code-wksp · cwd: /workspaces/vscode-deephaven · original agent and session ID retained\"><div class=\"session-title\"><span class=\"symbol\">✳</span><span class=\"truncate\">Resume npm publish:prerelease</span><time>38m</time></div><div class=\"session-context\">vscode-deephaven</div></div><div class=\"session\" title=\"Container: code-wksp · cwd: /workspaces/deephaven-core · original agent and session ID retained\"><div class=\"session-title\"><span class=\"symbol\">✳</span><span class=\"truncate\">Groovy connection review</span><time>6h</time></div><div class=\"session-context\">deephaven-core</div></div><div class=\"scope-action\">↻ Refresh this container’s sessions</div>","Repos":"<div class=\"scope-help\">Repository roots mounted in code-wksp</div><details class=\"branch\" style=\"--level:0\" ><summary class=\"tree-row\"><span class=\"truncate\" title=\".plans/deephaven-core\">.plans/deephaven-core</span></summary><div class=\"tree-row leaf\" style=\"--level:2\" title=\"README.md\"><span class=\"symbol\">▱</span><span class=\"truncate\">README.md</span></div></details><details class=\"branch\" style=\"--level:0\" ><summary class=\"tree-row\"><span class=\"truncate\" title=\".plans/deephaven-plugins\">.plans/deephaven-plugins</span></summary></details><details class=\"branch\" style=\"--level:0\" open><summary class=\"tree-row\"><span class=\"truncate\" title=\"tools/devc-tools\">tools/devc-tools</span><span class=\"quiet\">↑4</span></summary><details class=\"branch\" style=\"--level:1\" ><summary class=\"tree-row\"><span class=\"truncate\" title=\".plans\">.plans</span></summary><div class=\"tree-row leaf\" style=\"--level:2\" title=\"PLAN.md\"><span class=\"symbol\">▱</span><span class=\"truncate\">PLAN.md</span></div></details><details class=\"branch\" style=\"--level:1\" open><summary class=\"tree-row\"><span class=\"truncate\" title=\"devc\">devc</span></summary><details class=\"branch\" style=\"--level:2\" ><summary class=\"tree-row\"><span class=\"truncate\" title=\"web\">web</span></summary></details><details class=\"branch\" style=\"--level:2\" ><summary class=\"tree-row\"><span class=\"truncate\" title=\"tests\">tests</span></summary></details></details><details class=\"branch\" style=\"--level:1\" ><summary class=\"tree-row\"><span class=\"truncate\" title=\"devc-desktop\">devc-desktop</span></summary></details></details><details class=\"branch\" style=\"--level:0\" open><summary class=\"tree-row\"><span class=\"truncate\" title=\"vscode-deephaven.worktrees\">vscode-deephaven.worktrees</span></summary><details class=\"branch\" style=\"--level:1\" ><summary class=\"tree-row\"><span class=\"truncate\" title=\"DH-24092_vsix-sbom\">DH-24092_vsix-sbom</span></summary><div class=\"tree-row leaf\" style=\"--level:2\" title=\"package.json\"><span class=\"symbol\">▱</span><span class=\"truncate\">package.json</span></div></details><details class=\"branch\" style=\"--level:1\" ><summary class=\"tree-row\"><span class=\"truncate\" title=\"DH-23956_mcp-ts-sdk-v2\">DH-23956_mcp-ts-sdk-v2</span></summary></details></details><div class=\"scope-help\">Repo/file context menus keep their own root.</div>","Files":"<div class=\"scope-help\">code-wksp’s filesystem — not just the selected repo</div><details class=\"branch\" style=\"--level:0\" open><summary class=\"tree-row\"><span class=\"truncate\" title=\"/workspaces\">/workspaces</span></summary><details class=\"branch\" style=\"--level:1\" open><summary class=\"tree-row\"><span class=\"truncate\" title=\"tools\">tools</span></summary><details class=\"branch\" style=\"--level:2\" ><summary class=\"tree-row\"><span class=\"truncate\" title=\"devc-tools\">devc-tools</span></summary></details></details><details class=\"branch\" style=\"--level:1\" ><summary class=\"tree-row\"><span class=\"truncate\" title=\"vscode-deephaven.worktrees\">vscode-deephaven.worktrees</span></summary></details></details><details class=\"branch\" style=\"--level:0\" open><summary class=\"tree-row\"><span class=\"truncate\" title=\"/home/vscode\">/home/vscode</span></summary><details class=\"branch\" style=\"--level:1\" ><summary class=\"tree-row\"><span class=\"truncate\" title=\".claude\">.claude</span></summary></details><details class=\"branch\" style=\"--level:1\" ><summary class=\"tree-row\"><span class=\"truncate\" title=\".pi\">.pi</span></summary></details></details><details class=\"branch\" style=\"--level:0\" ><summary class=\"tree-row\"><span class=\"truncate\" title=\"/\">/</span></summary></details>"},"devc-dev":{"Terminals":"<div class=\"scope-help\">Running panes in devc-dev</div><div class=\"tree-row leaf\" style=\"--level:1\" title=\"devc-dev\"><span class=\"symbol\">▱</span><span class=\"truncate\">devc-dev</span><span class=\"quiet\">shell</span></div><div class=\"scope-action\">＋ New terminal in this container</div>","Sessions":"<div class=\"empty\">Session data is not included for this container in the static mockup.</div>","Repos":"<div class=\"scope-help\">Separate repo roots for devc-dev</div><details class=\"branch\" style=\"--level:0\" ><summary class=\"tree-row\"><span class=\"truncate\" title=\"tools/devc-tools\">tools/devc-tools</span></summary></details>","Files":"<div class=\"scope-help\">devc-dev’s container filesystem</div><details class=\"branch\" style=\"--level:0\" ><summary class=\"tree-row\"><span class=\"truncate\" title=\"/workspaces\">/workspaces</span></summary></details><details class=\"branch\" style=\"--level:0\" ><summary class=\"tree-row\"><span class=\"truncate\" title=\"/home/vscode\">/home/vscode</span></summary></details>"},".agents":{"Terminals":"<div class=\"tree-row leaf\" style=\"--level:1\" title=\".agents_agents\"><span class=\"symbol\">▱</span><span class=\"truncate\">.agents_agents</span><span class=\"quiet\">shell</span></div>","Sessions":"<div class=\"empty\">Session data is not included for this container in the static mockup.</div>","Repos":"<div class=\"empty\">Repo data is not included for this container in the static mockup.</div>","Files":"<div class=\"scope-help\">.agents container filesystem</div><details class=\"branch\" style=\"--level:0\" ><summary class=\"tree-row\"><span class=\"truncate\" title=\"/workspaces\">/workspaces</span></summary></details><details class=\"branch\" style=\"--level:0\" ><summary class=\"tree-row\"><span class=\"truncate\" title=\"/home/vscode\">/home/vscode</span></summary></details>"}};const labels={Terminals:'Running Herdr panes',Sessions:'Original agent sessions',Repos:'Repository roots',Files:'Container filesystem'};
-function wireKeys(widget){const buttons=[...widget.querySelectorAll('[role=tab]')];buttons.forEach((button,index)=>button.addEventListener('keydown',event=>{let next;if(event.key==='ArrowRight')next=(index+1)%buttons.length;else if(event.key==='ArrowLeft')next=(index+buttons.length-1)%buttons.length;else if(event.key==='Home')next=0;else if(event.key==='End')next=buttons.length-1;else return;event.preventDefault();buttons[next].focus();buttons[next].click()}))}
-document.querySelectorAll('.inline-widget').forEach(widget=>{wireKeys(widget);widget.querySelectorAll('[data-tab]').forEach(button=>button.addEventListener('click',()=>{const name=button.dataset.tab;widget.querySelectorAll('[data-tab]').forEach(b=>{b.setAttribute('aria-selected',String(b===button));b.tabIndex=b===button?0:-1});widget.querySelectorAll('[data-panel]').forEach(p=>p.hidden=p.dataset.panel!==name)}))});
-function render(widget){const scope=widget.dataset.scope;const active=widget.dataset.active,pinned=widget.dataset.pinned;widget.querySelectorAll('[data-tab]').forEach(b=>{const chosen=b.dataset.tab===active;b.setAttribute('aria-selected',String(chosen));b.tabIndex=chosen?0:-1});const primary=widget.querySelector('.primary-view');primary.innerHTML=content[scope][active];primary.setAttribute('aria-labelledby',widget.querySelector('[data-tab="'+active+'"]').id);widget.querySelector('.scope-kind').textContent=labels[active];const secondary=widget.querySelector('.pinned-view');secondary.hidden=!pinned;if(pinned){widget.querySelector('.pinned-name').textContent=pinned;widget.querySelector('.pinned-content').innerHTML=content[scope][pinned]}}
-document.querySelectorAll('.inspector-widget').forEach(widget=>{wireKeys(widget);widget.querySelectorAll('[data-tab]').forEach(button=>button.addEventListener('click',()=>{const next=button.dataset.tab,previous=widget.dataset.active;if(next===widget.dataset.pinned)widget.dataset.pinned=previous;widget.dataset.active=next;render(widget)}));widget.querySelector('.keep-view').addEventListener('click',()=>{const previous=widget.dataset.active,next=widget.dataset.pinned||['Repos','Sessions','Terminals','Files'].find(n=>n!==previous);widget.dataset.pinned=previous;widget.dataset.active=next;render(widget)});widget.querySelector('.unpin-view').addEventListener('click',()=>{widget.dataset.pinned='';render(widget)});render(widget)});
-document.querySelectorAll('[data-container]').forEach(button=>button.addEventListener('click',()=>{const name=button.dataset.container;document.querySelectorAll('[data-container]').forEach(b=>{b.classList.toggle('picked',b===button);b.setAttribute('aria-pressed',String(b===button))});document.getElementById('scope-name').textContent=name;document.querySelectorAll('.inspector-widget').forEach(w=>w.hidden=w.dataset.scope!==name)}));})();
-</script></body></html>
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>11 / CONTAINER INSPECTOR + PINNED VIEW · devc UX proposal</title>
+    <style>
+    * {
+      box-sizing: border-box;
+    }
+    body {
+      margin: 0;
+      color: #cbd5e3;
+      background: #0e1218;
+      font: 12px system-ui,-apple-system,'Segoe UI',sans-serif;
+    }
+    .app {
+      height: 100vh;
+      display: grid;
+      grid-template-columns: 322px minmax(0,1fr);
+      grid-template-rows: minmax(0,1fr) 24px;
+    }
+    .sidebar {
+      min-height: 0;
+      background: #181e27;
+      border-right: 1px solid #344151;
+      display: flex;
+      flex-direction: column;
+    }
+    .sidebar-head {
+      height: 30px;
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      padding: 0 12px;
+      border-bottom: 1px solid #303a49;
+      background: #1b222d;
+    }
+    .brand {
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: -.3px;
+    }
+    .brand span {
+      color: #a5c6b9;
+    }
+    .connection {
+      font-size: 10px;
+      color: #8bcca9;
+      margin-left: auto;
+    }
+    .collapse {
+      color: #91a1b5;
+      font-size: 13px;
+    }
+    .scroll {
+      flex: 1;
+      min-height: 0;
+      overflow: auto;
+      padding: 0 10px 12px;
+      scrollbar-width: thin;
+      scrollbar-color: #46566e #1b222c;
+    }
+    .section {
+      height: 31px;
+      margin: 12px 3px 4px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      color: #9caac0;
+      font-size: 9px;
+      font-weight: 650;
+      letter-spacing: 1.2px;
+    }
+    .section-action {
+      font-weight: 400;
+      letter-spacing: 0;
+      color: #8194af;
+      font-size: 10px;
+    }
+    .tile-link {
+      height: 29px;
+      padding: 0 7px;
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      font-size: 11px;
+      border: 1px solid transparent;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    .tile-link.selected {
+      background: #2a3c55;
+      border-color: #5b81b3;
+    }
+    .symbol {
+      font-size: 11px;
+      color: #96abc8;
+      flex-shrink: 0;
+    }
+    .truncate {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      min-width: 0;
+    }
+    .tile-link .truncate {
+      flex: 1;
+    }
+    .status {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 10px;
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+    .status i {
+      width: 5px;
+      height: 5px;
+      border-radius: 50%;
+      background: currentColor;
+    }
+    .idle {
+      color: #9aa9bd;
+    }
+    .work {
+      color: #8dbcf9;
+    }
+    .done {
+      color: #8bd6ae;
+    }
+    .wait {
+      color: #e9b87e;
+    }
+    kbd {
+      font: 9px ui-monospace,monospace;
+      color: #92a5bf;
+      margin-left: 4px;
+    }
+    .tree-row {
+      height: 27px;
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      padding: 0 5px;
+      font-size: 11px;
+      cursor: pointer;
+      position: relative;
+      list-style: none;
+      border-radius: 3px;
+    }
+    summary::-webkit-details-marker {
+      display: none;
+    }
+    summary:before {
+      content: '›';
+      font-size: 12px;
+      color: #7e92af;
+      flex-shrink: 0;
+      width: 9px;
+      display: inline-block;
+    }
+    details[open] > summary:before {
+      content: '⌄';
+    }
+    summary:hover,
+    .leaf:hover {
+      background: #253042;
+    }
+    .tree-row .truncate {
+      flex: 1;
+    }
+    .count,
+    .quiet {
+      margin-left: auto;
+      flex-shrink: 0;
+      font-size: 10px;
+      color: #8598b4;
+    }
+    .quiet {
+      font-family: ui-monospace,monospace;
+      font-size: 9px;
+    }
+    .container > summary {
+      height: 30px;
+      font-weight: 550;
+    }
+    .container.current > summary {
+      color: #dfebfb;
+      background: #202c3c;
+    }
+    .container-name {
+      font-size: 11px;
+      flex: 1;
+    }
+    .rollup {
+      margin-left: auto;
+      display: flex;
+      gap: 7px;
+      flex-shrink: 0;
+    }
+    .rollup b {
+      font-size: 9px;
+      font-weight: 400;
+    }
+    .branch > summary {
+      padding-left: calc(9px + var(--level)*12px);
+    }
+    .leaf {
+      padding-left: calc(21px + var(--level)*12px);
+      height: 25px;
+      font-size: 10px;
+    }
+    .leaf .status {
+      font-size: 9px;
+      margin-left: auto;
+    }
+    .related {
+      background: #223047;
+    }
+    .cwd-note {
+      font-size: 9px;
+      color: #8296b2;
+      padding: 0 5px 6px 52px;
+    }
+    .taskline {
+      font-size: 11px;
+      line-height: 1.5;
+      color: #c1d1e8;
+      padding: 7px 6px 7px 22px;
+    }
+    .ellipsis {
+      float: right;
+      color: #8a9ab2;
+    }
+    .recent-toggle {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      font-size: 10px;
+      color: #8fa3bf;
+      padding: 4px 6px;
+      cursor: pointer;
+    }
+    .session {
+      padding: 7px 5px;
+      border-bottom: 1px solid #293443;
+    }
+    .session-title {
+      display: flex;
+      gap: 7px;
+      align-items: center;
+      font-size: 10px;
+    }
+    .session-title time {
+      margin-left: auto;
+      color: #8497b1;
+      font-size: 9px;
+      flex-shrink: 0;
+    }
+    .session-context {
+      font-size: 9px;
+      color: #859bb9;
+      margin: 4px 0 0 18px;
+    }
+    .recent-note {
+      font-size: 9px;
+      color: #6f88ab;
+      padding: 9px 5px 2px;
+    }
+    .inactive {
+      border-top: 1px solid #303d50;
+      margin-top: 10px;
+      padding-top: 6px;
+    }
+    .empty {
+      font-size: 10px;
+      color: #91a1b8;
+      line-height: 1.8;
+      padding: 8px 12px;
+    }
+    .main {
+      min-width: 0;
+      min-height: 0;
+      padding: 5px;
+      display: grid;
+      grid-template-columns: 1fr 1.05fr;
+      grid-template-rows: 1fr 1fr;
+      gap: 5px;
+    }
+    .panel {
+      display: flex;
+      flex-direction: column;
+      border: 1px solid #354459;
+      border-radius: 5px;
+      min-height: 0;
+      min-width: 0;
+      overflow: hidden;
+      background: #101318;
+    }
+    .panel.large {
+      grid-row: span 2;
+    }
+    .panel.active {
+      border-color: #83aff0;
+      box-shadow: 0 0 0 1px #83aff028;
+    }
+    .panelhead {
+      height: 29px;
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      background: #1d2734;
+      border-bottom: 1px solid #344155;
+      padding: 0 9px;
+      cursor: pointer;
+    }
+    .panel.active .panelhead {
+      background: #2c405f;
+    }
+    .panelhead strong {
+      font-size: 11px;
+      font-weight: 600;
+      color: #e0eaf7;
+      white-space: nowrap;
+    }
+    .panel-context {
+      font-size: 9px;
+      color: #8fa7c7;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      flex: 1;
+    }
+    .controls {
+      font-size: 12px;
+      color: #a0b3ce;
+      white-space: nowrap;
+      margin-left: 7px;
+    }
+    .capture {
+      flex: 1;
+      min-height: 0;
+    }
+    .capture canvas {
+      height: 100%;
+      width: 100%;
+      display: block;
+    }
+    .footer {
+      grid-column: 1/-1;
+      display: flex;
+      gap: 16px;
+      align-items: center;
+      padding: 0 10px;
+      background: #19212c;
+      border-top: 1px solid #354358;
+      color: #8fa2be;
+      font-size: 9px;
+    }
+    .footer .green {
+      color: #8acfab;
+    }
+    .footer .caption {
+      margin-left: auto;
+      color: #aebed3;
+    }
+    .split .upper {
+      flex: 0 0 459px;
+      padding: 0 10px 7px;
+      overflow: auto;
+      border-bottom: 3px solid #465a77;
+      scrollbar-width: thin;
+    }
+    .split .lower {
+      flex: 1;
+      min-height: 0;
+      overflow: auto;
+      padding: 0 10px 9px;
+      scrollbar-width: thin;
+      scrollbar-color: #46566e #1b222c;
+    }
+    .split .lower .section {
+      position: sticky;
+      top: 0;
+      background: #181e27;
+      margin-top: 0;
+      height: 34px;
+      z-index: 1;
+    }
+    .split .upper .section {
+      margin-top: 8px;
+      height: 26px;
+    }
+    .split .session {
+      padding-top: 5px;
+      padding-bottom: 5px;
+    }
+    .tree-first .app {
+      grid-template-columns: 344px minmax(0,1fr);
+    }
+    .tree-first .section {
+      margin-top: 8px;
+      height: 27px;
+    }
+    .tree-first .branch > summary {
+      height: 25px;
+    }
+    .tree-first .leaf {
+      height: 23px;
+    }
+    .tree-first .session {
+      padding-top: 5px;
+      padding-bottom: 5px;
+    }
+    .tree-first .session-context {
+      margin-top: 3px;
+    }
+    .container-detail .section {
+      margin-top: 6px;
+    }
+    .hint {
+      color: #6e86a9;
+      font-size: 9px;
+      padding: 8px 6px 0;
+    }
+    .container details {
+      border-left: 1px solid #2a3a50;
+      margin-left: 5px;
+    }
+    .container > .branch {
+      margin-left: 6px;
+    }
+    button {
+      font: inherit;
+    }
+    </style>
+    <style>
+    html {
+      color-scheme: dark;
+    }
+    [hidden] {
+      display: none!important;
+    }
+    .app {
+      grid-template-columns: 370px minmax(0,1fr)!important;
+    }
+    .sidebar {
+      background: #181e27;
+    }
+    .section {
+      margin-top: 9px;
+      height: 26px;
+    }
+    .scope-widget {
+      min-width: 0;
+    }
+    .inline-widget {
+      margin: 2px 0 10px 15px;
+      padding: 0 5px 8px;
+      border: 1px solid #344459;
+      border-radius: 5px;
+      background: #151d28;
+    }
+    .container details {
+      margin-left: 0;
+    }
+    .scope-tabs {
+      display: flex;
+      align-items: center;
+      gap: 3px;
+      min-height: 35px;
+      border-bottom: 1px solid #334257;
+      padding: 4px 3px;
+    }
+    .scope-tabs button {
+      border: 0;
+      border-radius: 4px;
+      background: transparent;
+      color: #92a8c6;
+      font: 10px system-ui;
+      padding: 6px 8px;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    .scope-tabs button[aria-selected=true] {
+      background: #304766;
+      color: #e1edff;
+      box-shadow: inset 0 -2px #8fb4eb;
+    }
+    .scope-tabs button:focus-visible {
+      outline: 2px solid #a3c5f6;
+      outline-offset: 1px;
+    }
+    .scope-panel {
+      padding: 5px 3px;
+      outline: none;
+    }
+    .scope-panel:focus-visible,
+    .primary-view:focus-visible {
+      outline: 1px solid #819fc8;
+      outline-offset: -1px;
+    }
+    .scope-help {
+      font-size: 9px;
+      color: #879dbb;
+      line-height: 1.7;
+      padding: 8px 6px;
+    }
+    .scope-action {
+      color: #a3c5ee;
+      font-size: 10px;
+      padding: 10px 7px;
+    }
+    .scope-panel .branch,
+    .primary-view .branch {
+      border-left: 1px solid #2d3d53;
+      margin-left: 3px;
+    }
+    .scope-panel .tree-row,
+    .primary-view .tree-row {
+      height: 26px;
+    }
+    .scope-panel .leaf {
+      padding-left: calc(10px + var(--level)*12px);
+    }
+    .scope-panel .branch > summary,
+    .primary-view .branch > summary {
+      padding-left: calc(8px + var(--level)*13px);
+    }
+    .scope-panel .session,
+    .pinned-content .session {
+      padding: 8px 7px;
+    }
+    .container > summary {
+      height: 31px;
+    }
+    .container.current > summary {
+      background: #25364b;
+    }
+    .inspector-upper {
+      padding: 0 10px 9px;
+      flex-shrink: 0;
+      border-bottom: 3px solid #4b6282;
+    }
+    .inspector-upper .section {
+      margin-top: 8px;
+      height: 24px;
+    }
+    .container-picker {
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+    }
+    .pick {
+      display: flex;
+      gap: 6px;
+      align-items: center;
+      width: 100%;
+      height: 29px;
+      border: 1px solid transparent;
+      border-radius: 4px;
+      padding: 0 7px;
+      background: transparent;
+      color: #bccce3;
+      font: 11px system-ui;
+      text-align: left;
+      cursor: pointer;
+    }
+    .pick .truncate {
+      flex: 1;
+    }
+    .pick.picked {
+      background: #283c57;
+      border-color: #6189bb;
+    }
+    .pick:focus-visible {
+      outline: 2px solid #9fc0ed;
+    }
+    .inspector-lower {
+      min-height: 0;
+      flex: 1;
+      overflow: auto;
+      scrollbar-width: thin;
+      padding: 0 10px 8px;
+    }
+    .inspector-title {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      position: sticky;
+      top: 0;
+      z-index: 2;
+      height: 35px;
+      background: #1c2634;
+      border-bottom: 1px solid #34475f;
+      margin: 0 -10px;
+      padding: 0 13px;
+    }
+    .inspector-title > span:first-child {
+      font-size: 9px;
+      letter-spacing: 1px;
+    }
+    .inspector-title strong {
+      font-size: 11px;
+    }
+    .inspector-title .quiet {
+      margin-left: auto;
+    }
+    .inspector-widget {
+      padding-top: 4px;
+    }
+    .pin-toolbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 6px 4px;
+      border-bottom: 1px solid #2b3b51;
+    }
+    .scope-kind {
+      font-size: 9px;
+      color: #8199ba;
+    }
+    .keep-view {
+      border: 1px solid #425a79;
+      border-radius: 4px;
+      background: #23344c;
+      color: #b5ceed;
+      font: 9px system-ui;
+      padding: 4px 6px;
+      cursor: pointer;
+    }
+    .primary-view {
+      padding-top: 1px;
+    }
+    .pinned-view {
+      margin-top: 12px;
+      border: 1px solid #465b76;
+      border-radius: 5px;
+      overflow: hidden;
+      background: #141d29;
+    }
+    .pinned-title {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 7px 8px;
+      border-bottom: 1px solid #3c4f68;
+      background: #243348;
+      font-size: 10px;
+      color: #acc6e8;
+    }
+    .pinned-title strong {
+      font-weight: 550;
+    }
+    .pinned-scope {
+      font-size: 9px;
+      color: #89a2c3;
+    }
+    .unpin-view {
+      background: transparent;
+      border: 0;
+      color: #a5b9d4;
+      font-size: 14px;
+      cursor: pointer;
+    }
+    .pinned-content {
+      max-height: 240px;
+      overflow: auto;
+      scrollbar-width: thin;
+    }
+    .pinned-content .scope-help {
+      display: none;
+    }
+    .pinned-content .scope-action {
+      padding: 8px;
+    }
+    .scope-panel .status {
+      margin-left: auto;
+    }
+    .primary-view .status {
+      margin-left: auto;
+    }
+    .scope-panel .leaf .truncate {
+      flex: 1;
+    }
+    .scope-panel .leaf {
+      font-size: 10px;
+    }
+    .scroll {
+      scrollbar-width: thin;
+    }
+    .scope-tabs + section[hidden] {
+      display: none;
+    }
+    .rollup {
+      gap: 6px;
+    }
+    .caption {
+      font-size: 9px;
+    }
+    .scope-tabs button:hover {
+      background: #26374e;
+    }
+    .inspector-lower {
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    .inspector-title,
+    .inspector-widget .scope-tabs,
+    .pin-toolbar {
+      flex-shrink: 0;
+    }
+    .inspector-widget {
+      flex: 1;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+    }
+    .primary-view {
+      flex: 1;
+      min-height: 100px;
+      overflow: auto;
+      scrollbar-width: thin;
+    }
+    .pinned-view {
+      flex-shrink: 0;
+    }
+    .pinned-content {
+      max-height: 155px;
+    }
+    .inspector-upper {
+      max-height: 44vh;
+      overflow: auto;
+      scrollbar-width: thin;
+    }
+    </style>
+  </head>
+  <body class="tab-exploration">
+    <div class="app">
+      <aside class="sidebar">
+        <div
+          class="sidebar-head"><span class="collapse">«</span><span class="brand"><span>d</span>evc web</span><span class="connection">● live</span><span class="collapse">▢</span></div>
+        <div class="inspector-upper">
+          <div
+            class="section"><span>LAYOUT</span><span class="section-action">3 tiles</span></div>
+          <div class="layout-list">
+            <div class="tile-link " data-focus="0"
+              title="Browser tile 1 · code-wksp · DH-24092_vsix-sbom"><span class="symbol">✳</span><span class="truncate">VSIX SBOM</span><span class="status idle"><i></i>idle</span><kbd>⌥1</kbd></div>
+            <div class="tile-link " data-focus="1"
+              title="Browser tile 2 · code-wksp · tools/devc-tools"><span class="symbol">✳</span><span class="truncate">GitHub PR review</span><span class="status work"><i></i>work</span><kbd>⌥2</kbd></div>
+            <div class="tile-link selected" data-focus="2"
+              title="Browser tile 3 · code-wksp · tools/devc-tools"><span class="symbol">✳</span><span class="truncate">Agent session history</span><span class="status done"><i></i>done</span><kbd>⌥3</kbd></div>
+          </div>
+          <div
+            class="section"><span>TASKS</span><span class="section-action">＋</span></div>
+          <details>
+            <summary
+              class="tree-row"><span class="truncate">code-wksp · tools/devc-tools</span><span class="count">1</span></summary>
+            <div class="taskline">Open issue references in Jira</div>
+          </details>
+          <div
+            class="section"><span>RECENT SESSIONS</span><span class="section-action">↻</span></div>
+          <details>
+            <summary
+              class="tree-row">Across containers<span class="count">5</span></summary>
+            <div class="session"
+              title="Container: code-wksp · cwd: /workspaces/tools/devc-tools · original agent and session ID retained">
+              <div
+                class="session-title"><span class="symbol">✳</span><span class="truncate">Implementation plan for devc task</span><time>now</time></div>
+              <div class="session-context">code-wksp · tools/devc-tools</div>
+            </div>
+          </details>
+          <div
+            class="section"><span>CONTAINERS</span><span class="section-action">＋ &nbsp; ⋯</span></div>
+          <div
+            class="container-picker"><button class="pick picked" data-container="code-wksp" aria-pressed="true"><span class="truncate">code-wksp</span><span class="rollup"><b class="work">● work 1</b><b class="done">● done 1</b><b class="idle">● idle 1</b></span></button><button class="pick " data-container="devc-dev" aria-pressed="false"><span class="truncate">devc-dev</span><span class="quiet">shell</span></button><button class="pick " data-container=".agents" aria-pressed="false"><span class="truncate">.agents</span><span class="quiet">shell</span></button></div>
+          <div
+            class="scope-help">Selecting a container browses it; it does not focus a terminal.</div>
+        </div>
+        <div class="inspector-lower">
+          <div
+            class="inspector-title"><span class="muted">BROWSE</span><strong id="scope-name">code-wksp</strong><span class="quiet">⋯</span></div>
+          <div class="scope-widget inspector-widget" data-scope="code-wksp"
+            data-active="Repos" data-pinned="Sessions">
+            <div class="scope-tabs" role="tablist"
+              aria-label="Views in code-wksp"><button type="button" role="tab" aria-selected="false" tabindex="-1" data-tab="Terminals" id="inspect-0-Terminals-tab" aria-controls="inspect-0-primary">Terminals</button><button type="button" role="tab" aria-selected="false" tabindex="-1" data-tab="Sessions" id="inspect-0-Sessions-tab" aria-controls="inspect-0-primary">Sessions</button><button type="button" role="tab" aria-selected="true" tabindex="0" data-tab="Repos" id="inspect-0-Repos-tab" aria-controls="inspect-0-primary">Repos</button><button type="button" role="tab" aria-selected="false" tabindex="-1" data-tab="Files" id="inspect-0-Files-tab" aria-controls="inspect-0-primary">Files</button></div>
+            <div
+              class="pin-toolbar"><span class="scope-kind">Repository roots</span><button class="keep-view" type="button" title="Keep this view below the next tab you open">⌖ Keep alongside</button></div>
+            <div class="primary-view" role="tabpanel" tabindex="0"
+              id="inspect-0-primary" aria-labelledby="inspect-0-Repos-tab">
+              <div
+                class="scope-help">Repository roots mounted in code-wksp</div>
+              <details class="branch" style="--level:0">
+                <summary
+                  class="tree-row"><span class="truncate" title=".plans/deephaven-core">.plans/deephaven-core</span></summary>
+                <div class="tree-row leaf" style="--level:2"
+                  title="README.md"><span class="symbol">▱</span><span class="truncate">README.md</span></div>
+              </details>
+              <details class="branch" style="--level:0">
+                <summary
+                  class="tree-row"><span class="truncate" title=".plans/deephaven-plugins">.plans/deephaven-plugins</span></summary>
+              </details>
+              <details class="branch" style="--level:0" open>
+                <summary
+                  class="tree-row"><span class="truncate" title="tools/devc-tools">tools/devc-tools</span><span class="quiet">↑4</span></summary>
+                <details class="branch" style="--level:1">
+                  <summary
+                    class="tree-row"><span class="truncate" title=".plans">.plans</span></summary>
+                  <div class="tree-row leaf" style="--level:2"
+                    title="PLAN.md"><span class="symbol">▱</span><span class="truncate">PLAN.md</span></div>
+                </details>
+                <details class="branch" style="--level:1" open>
+                  <summary
+                    class="tree-row"><span class="truncate" title="devc">devc</span></summary>
+                  <details class="branch" style="--level:2">
+                    <summary
+                      class="tree-row"><span class="truncate" title="web">web</span></summary>
+                  </details>
+                  <details class="branch" style="--level:2">
+                    <summary
+                      class="tree-row"><span class="truncate" title="tests">tests</span></summary>
+                  </details>
+                </details>
+                <details class="branch" style="--level:1">
+                  <summary
+                    class="tree-row"><span class="truncate" title="devc-desktop">devc-desktop</span></summary>
+                </details>
+              </details>
+              <details class="branch" style="--level:0" open>
+                <summary
+                  class="tree-row"><span class="truncate" title="vscode-deephaven.worktrees">vscode-deephaven.worktrees</span></summary>
+                <details class="branch" style="--level:1">
+                  <summary
+                    class="tree-row"><span class="truncate" title="DH-24092_vsix-sbom">DH-24092_vsix-sbom</span></summary>
+                  <div class="tree-row leaf" style="--level:2"
+                    title="package.json"><span class="symbol">▱</span><span class="truncate">package.json</span></div>
+                </details>
+                <details class="branch" style="--level:1">
+                  <summary
+                    class="tree-row"><span class="truncate" title="DH-23956_mcp-ts-sdk-v2">DH-23956_mcp-ts-sdk-v2</span></summary>
+                </details>
+              </details>
+              <div
+                class="scope-help">Repo/file context menus keep their own root.</div>
+            </div>
+            <div class="pinned-view">
+              <div
+                class="pinned-title"><span>⌖ <strong class="pinned-name">Sessions</strong></span><span class="grow"></span><span class="pinned-scope">code-wksp</span><button type="button" class="unpin-view" aria-label="Unpin secondary view">×</button></div>
+              <div class="pinned-content">
+                <div
+                  class="scope-help">Sessions in code-wksp’s repos · original cwd retained.</div>
+                <div class="session"
+                  title="Container: code-wksp · cwd: /workspaces/tools/devc-tools · original agent and session ID retained">
+                  <div
+                    class="session-title"><span class="symbol">✳</span><span class="truncate">Implementation plan for devc task</span><time>now</time></div>
+                  <div class="session-context">tools/devc-tools</div>
+                </div>
+                <div class="session"
+                  title="Container: code-wksp · cwd: /workspaces/vscode-deephaven · original agent and session ID retained">
+                  <div
+                    class="session-title"><span class="symbol">✳</span><span class="truncate">Resume npm publish:prerelease</span><time>38m</time></div>
+                  <div class="session-context">vscode-deephaven</div>
+                </div>
+                <div class="session"
+                  title="Container: code-wksp · cwd: /workspaces/deephaven-core · original agent and session ID retained">
+                  <div
+                    class="session-title"><span class="symbol">✳</span><span class="truncate">Groovy connection review</span><time>6h</time></div>
+                  <div class="session-context">deephaven-core</div>
+                </div>
+                <div
+                  class="scope-action">↻ Refresh this container’s sessions</div>
+              </div>
+            </div>
+          </div>
+          <div class="scope-widget inspector-widget" data-scope="devc-dev"
+            data-active="Repos" data-pinned="" hidden>
+            <div class="scope-tabs" role="tablist"
+              aria-label="Views in devc-dev"><button type="button" role="tab" aria-selected="false" tabindex="-1" data-tab="Terminals" id="inspect-1-Terminals-tab" aria-controls="inspect-1-primary">Terminals</button><button type="button" role="tab" aria-selected="false" tabindex="-1" data-tab="Sessions" id="inspect-1-Sessions-tab" aria-controls="inspect-1-primary">Sessions</button><button type="button" role="tab" aria-selected="true" tabindex="0" data-tab="Repos" id="inspect-1-Repos-tab" aria-controls="inspect-1-primary">Repos</button><button type="button" role="tab" aria-selected="false" tabindex="-1" data-tab="Files" id="inspect-1-Files-tab" aria-controls="inspect-1-primary">Files</button></div>
+            <div
+              class="pin-toolbar"><span class="scope-kind">Repository roots</span><button class="keep-view" type="button" title="Keep this view below the next tab you open">⌖ Keep alongside</button></div>
+            <div class="primary-view" role="tabpanel" tabindex="0"
+              id="inspect-1-primary" aria-labelledby="inspect-1-Repos-tab">
+              <div class="scope-help">Separate repo roots for devc-dev</div>
+              <details class="branch" style="--level:0">
+                <summary
+                  class="tree-row"><span class="truncate" title="tools/devc-tools">tools/devc-tools</span></summary>
+              </details>
+            </div>
+            <div class="pinned-view" hidden>
+              <div
+                class="pinned-title"><span>⌖ <strong class="pinned-name">Sessions</strong></span><span class="grow"></span><span class="pinned-scope">devc-dev</span><button type="button" class="unpin-view" aria-label="Unpin secondary view">×</button></div>
+              <div class="pinned-content"></div>
+            </div>
+          </div>
+          <div class="scope-widget inspector-widget" data-scope=".agents"
+            data-active="Repos" data-pinned="" hidden>
+            <div class="scope-tabs" role="tablist"
+              aria-label="Views in .agents"><button type="button" role="tab" aria-selected="false" tabindex="-1" data-tab="Terminals" id="inspect-2-Terminals-tab" aria-controls="inspect-2-primary">Terminals</button><button type="button" role="tab" aria-selected="false" tabindex="-1" data-tab="Sessions" id="inspect-2-Sessions-tab" aria-controls="inspect-2-primary">Sessions</button><button type="button" role="tab" aria-selected="true" tabindex="0" data-tab="Repos" id="inspect-2-Repos-tab" aria-controls="inspect-2-primary">Repos</button><button type="button" role="tab" aria-selected="false" tabindex="-1" data-tab="Files" id="inspect-2-Files-tab" aria-controls="inspect-2-primary">Files</button></div>
+            <div
+              class="pin-toolbar"><span class="scope-kind">Repository roots</span><button class="keep-view" type="button" title="Keep this view below the next tab you open">⌖ Keep alongside</button></div>
+            <div class="primary-view" role="tabpanel" tabindex="0"
+              id="inspect-2-primary" aria-labelledby="inspect-2-Repos-tab">
+              <div
+                class="empty">Repo data is not included for this container in the static mockup.</div>
+            </div>
+            <div class="pinned-view" hidden>
+              <div
+                class="pinned-title"><span>⌖ <strong class="pinned-name">Sessions</strong></span><span class="grow"></span><span class="pinned-scope">.agents</span><button type="button" class="unpin-view" aria-label="Unpin secondary view">×</button></div>
+              <div class="pinned-content"></div>
+            </div>
+          </div>
+        </div>
+      </aside>
+      <main class="main">
+        <section class="panel large " data-tile="0">
+          <div class="panelhead" data-focus="0"
+            title="Proposed user-renamed tile. Double-click rename is a proposal, not implemented here. Original title: vsix-sbom plan implementation"><span class="symbol">✳</span><strong>VSIX SBOM</strong><span class="panel-context">code-wksp / DH-24092_vsix-sbom</span><span class="status idle"><i></i>idle</span><span class="controls">⋯ &nbsp; ⤢ &nbsp; ×</span></div>
+          <div class="capture">
+            <canvas data-crop="780,106,1474,1943"></canvas>
+          </div>
+        </section>
+        <section class="panel  " data-tile="1">
+          <div class="panelhead" data-focus="1"
+            title="Proposed user-renamed tile. Double-click rename is a proposal, not implemented here. Original title: I want a Github PR review feature added to my devc web tool. It needs to show a…"><span class="symbol">✳</span><strong>GitHub PR review</strong><span class="panel-context">code-wksp / tools/devc-tools</span><span class="status work"><i></i>work</span><span class="controls">⋯ &nbsp; ⤢ &nbsp; ×</span></div>
+          <div class="capture">
+            <canvas data-crop="2268,106,1560,941"></canvas>
+          </div>
+        </section>
+        <section class="panel  active" data-tile="2">
+          <div class="panelhead" data-focus="2"
+            title="Proposed user-renamed tile. Double-click rename is a proposal, not implemented here. Original title: I’d like a way to list last n agent sessions to resume. Not sure of best place…"><span class="symbol">✳</span><strong>Agent session history</strong><span class="panel-context">code-wksp / tools/devc-tools</span><span class="status done"><i></i>done</span><span class="controls">⋯ &nbsp; ⤢ &nbsp; ×</span></div>
+          <div class="capture">
+            <canvas data-crop="2268,1113,1560,936"></canvas>
+          </div>
+        </section>
+      </main>
+      <footer
+        class="footer"><span class="green">● bridge</span><span>☕ awake</span><span>Proposed aliases · ⌥N shortcuts subject to terminal/OS conflicts</span><span class="caption">11 / CONTAINER INSPECTOR + PINNED VIEW · DESIGN PROPOSAL · original screenshot content, not a live connection</span></footer>
+    </div>
+    <script>
+    const image = new Image();
+    image.onload = () => {
+      document.querySelectorAll('canvas').forEach((c) => {
+        const [x, y, w, h] = c.dataset.crop.split(',').map(Number);
+        c.width = w;
+        c.height = h;
+        c.getContext('2d').drawImage(image, x, y, w, h, 0, 0, w, h);
+      });
+      document.body.dataset.ready = 'true';
+    };
+    image.src = 'real-layout.png';
+    document.querySelectorAll('[data-focus]').forEach((el) =>
+      el.addEventListener('click', () => {
+        const id = el.dataset.focus;
+        document.querySelectorAll('[data-tile]').forEach((p) =>
+          p.classList.toggle('active', p.dataset.tile === id)
+        );
+        document.querySelectorAll('.tile-link').forEach((p) =>
+          p.classList.toggle('selected', p.dataset.focus === id)
+        );
+      })
+    );
+    </script>
+    <script>
+    (() => {
+      const content = {
+        'code-wksp': {
+          'Terminals':
+            '<div class="scope-help">All running panes in code-wksp, including offscreen panes.</div><div class="tree-row leaf" style="--level:1" title="DH-24092_vsix-sbom"><span class="symbol">▱</span><span class="truncate">DH-24092_vsix-sbom</span><span class="status idle"><i></i>idle</span></div><div class="tree-row leaf" style="--level:1" title="I want a Github PR review feature added to my devc web tool"><span class="symbol">▱</span><span class="truncate">I want a Github PR review feature added to my devc web tool</span><span class="status work"><i></i>work</span></div><div class="tree-row leaf" style="--level:1" title="I’d like a way to list last n agent sessions to resume"><span class="symbol">▱</span><span class="truncate">I’d like a way to list last n agent sessions to resume</span><span class="status done"><i></i>done</span></div><div class="scope-action">＋ New terminal in this container</div>',
+          'Sessions':
+            '<div class="scope-help">Sessions in code-wksp’s repos · original cwd retained.</div><div class="session" title="Container: code-wksp · cwd: /workspaces/tools/devc-tools · original agent and session ID retained"><div class="session-title"><span class="symbol">✳</span><span class="truncate">Implementation plan for devc task</span><time>now</time></div><div class="session-context">tools/devc-tools</div></div><div class="session" title="Container: code-wksp · cwd: /workspaces/vscode-deephaven · original agent and session ID retained"><div class="session-title"><span class="symbol">✳</span><span class="truncate">Resume npm publish:prerelease</span><time>38m</time></div><div class="session-context">vscode-deephaven</div></div><div class="session" title="Container: code-wksp · cwd: /workspaces/deephaven-core · original agent and session ID retained"><div class="session-title"><span class="symbol">✳</span><span class="truncate">Groovy connection review</span><time>6h</time></div><div class="session-context">deephaven-core</div></div><div class="scope-action">↻ Refresh this container’s sessions</div>',
+          'Repos':
+            '<div class="scope-help">Repository roots mounted in code-wksp</div><details class="branch" style="--level:0" ><summary class="tree-row"><span class="truncate" title=".plans/deephaven-core">.plans/deephaven-core</span></summary><div class="tree-row leaf" style="--level:2" title="README.md"><span class="symbol">▱</span><span class="truncate">README.md</span></div></details><details class="branch" style="--level:0" ><summary class="tree-row"><span class="truncate" title=".plans/deephaven-plugins">.plans/deephaven-plugins</span></summary></details><details class="branch" style="--level:0" open><summary class="tree-row"><span class="truncate" title="tools/devc-tools">tools/devc-tools</span><span class="quiet">↑4</span></summary><details class="branch" style="--level:1" ><summary class="tree-row"><span class="truncate" title=".plans">.plans</span></summary><div class="tree-row leaf" style="--level:2" title="PLAN.md"><span class="symbol">▱</span><span class="truncate">PLAN.md</span></div></details><details class="branch" style="--level:1" open><summary class="tree-row"><span class="truncate" title="devc">devc</span></summary><details class="branch" style="--level:2" ><summary class="tree-row"><span class="truncate" title="web">web</span></summary></details><details class="branch" style="--level:2" ><summary class="tree-row"><span class="truncate" title="tests">tests</span></summary></details></details><details class="branch" style="--level:1" ><summary class="tree-row"><span class="truncate" title="devc-desktop">devc-desktop</span></summary></details></details><details class="branch" style="--level:0" open><summary class="tree-row"><span class="truncate" title="vscode-deephaven.worktrees">vscode-deephaven.worktrees</span></summary><details class="branch" style="--level:1" ><summary class="tree-row"><span class="truncate" title="DH-24092_vsix-sbom">DH-24092_vsix-sbom</span></summary><div class="tree-row leaf" style="--level:2" title="package.json"><span class="symbol">▱</span><span class="truncate">package.json</span></div></details><details class="branch" style="--level:1" ><summary class="tree-row"><span class="truncate" title="DH-23956_mcp-ts-sdk-v2">DH-23956_mcp-ts-sdk-v2</span></summary></details></details><div class="scope-help">Repo/file context menus keep their own root.</div>',
+          'Files':
+            '<div class="scope-help">code-wksp’s filesystem — not just the selected repo</div><details class="branch" style="--level:0" open><summary class="tree-row"><span class="truncate" title="/workspaces">/workspaces</span></summary><details class="branch" style="--level:1" open><summary class="tree-row"><span class="truncate" title="tools">tools</span></summary><details class="branch" style="--level:2" ><summary class="tree-row"><span class="truncate" title="devc-tools">devc-tools</span></summary></details></details><details class="branch" style="--level:1" ><summary class="tree-row"><span class="truncate" title="vscode-deephaven.worktrees">vscode-deephaven.worktrees</span></summary></details></details><details class="branch" style="--level:0" open><summary class="tree-row"><span class="truncate" title="/home/vscode">/home/vscode</span></summary><details class="branch" style="--level:1" ><summary class="tree-row"><span class="truncate" title=".claude">.claude</span></summary></details><details class="branch" style="--level:1" ><summary class="tree-row"><span class="truncate" title=".pi">.pi</span></summary></details></details><details class="branch" style="--level:0" ><summary class="tree-row"><span class="truncate" title="/">/</span></summary></details>',
+        },
+        'devc-dev': {
+          'Terminals':
+            '<div class="scope-help">Running panes in devc-dev</div><div class="tree-row leaf" style="--level:1" title="devc-dev"><span class="symbol">▱</span><span class="truncate">devc-dev</span><span class="quiet">shell</span></div><div class="scope-action">＋ New terminal in this container</div>',
+          'Sessions':
+            '<div class="empty">Session data is not included for this container in the static mockup.</div>',
+          'Repos':
+            '<div class="scope-help">Separate repo roots for devc-dev</div><details class="branch" style="--level:0" ><summary class="tree-row"><span class="truncate" title="tools/devc-tools">tools/devc-tools</span></summary></details>',
+          'Files':
+            '<div class="scope-help">devc-dev’s container filesystem</div><details class="branch" style="--level:0" ><summary class="tree-row"><span class="truncate" title="/workspaces">/workspaces</span></summary></details><details class="branch" style="--level:0" ><summary class="tree-row"><span class="truncate" title="/home/vscode">/home/vscode</span></summary></details>',
+        },
+        '.agents': {
+          'Terminals':
+            '<div class="tree-row leaf" style="--level:1" title=".agents_agents"><span class="symbol">▱</span><span class="truncate">.agents_agents</span><span class="quiet">shell</span></div>',
+          'Sessions':
+            '<div class="empty">Session data is not included for this container in the static mockup.</div>',
+          'Repos':
+            '<div class="empty">Repo data is not included for this container in the static mockup.</div>',
+          'Files':
+            '<div class="scope-help">.agents container filesystem</div><details class="branch" style="--level:0" ><summary class="tree-row"><span class="truncate" title="/workspaces">/workspaces</span></summary></details><details class="branch" style="--level:0" ><summary class="tree-row"><span class="truncate" title="/home/vscode">/home/vscode</span></summary></details>',
+        },
+      };
+      const labels = {
+        Terminals: 'Running Herdr panes',
+        Sessions: 'Original agent sessions',
+        Repos: 'Repository roots',
+        Files: 'Container filesystem',
+      };
+      function wireKeys(widget) {
+        const buttons = [...widget.querySelectorAll('[role=tab]')];
+        buttons.forEach((button, index) =>
+          button.addEventListener('keydown', (event) => {
+            let next;
+            if (event.key === 'ArrowRight') next = (index + 1) % buttons.length;
+            else if (event.key === 'ArrowLeft') {
+              next = (index + buttons.length - 1) % buttons.length;
+            } else if (event.key === 'Home') next = 0;
+            else if (event.key === 'End') next = buttons.length - 1;
+            else return;
+            event.preventDefault();
+            buttons[next].focus();
+            buttons[next].click();
+          })
+        );
+      }
+      document.querySelectorAll('.inline-widget').forEach((widget) => {
+        wireKeys(widget);
+        widget.querySelectorAll('[data-tab]').forEach((button) =>
+          button.addEventListener('click', () => {
+            const name = button.dataset.tab;
+            widget.querySelectorAll('[data-tab]').forEach((b) => {
+              b.setAttribute('aria-selected', String(b === button));
+              b.tabIndex = b === button ? 0 : -1;
+            });
+            widget.querySelectorAll('[data-panel]').forEach((p) =>
+              p.hidden = p.dataset.panel !== name
+            );
+          })
+        );
+      });
+      function render(widget) {
+        const scope = widget.dataset.scope;
+        const active = widget.dataset.active, pinned = widget.dataset.pinned;
+        widget.querySelectorAll('[data-tab]').forEach((b) => {
+          const chosen = b.dataset.tab === active;
+          b.setAttribute('aria-selected', String(chosen));
+          b.tabIndex = chosen ? 0 : -1;
+        });
+        const primary = widget.querySelector('.primary-view');
+        primary.innerHTML = content[scope][active];
+        primary.setAttribute(
+          'aria-labelledby',
+          widget.querySelector('[data-tab="' + active + '"]').id,
+        );
+        widget.querySelector('.scope-kind').textContent = labels[active];
+        const secondary = widget.querySelector('.pinned-view');
+        secondary.hidden = !pinned;
+        if (pinned) {
+          widget.querySelector('.pinned-name').textContent = pinned;
+          widget.querySelector('.pinned-content').innerHTML =
+            content[scope][pinned];
+        }
+      }
+      document.querySelectorAll('.inspector-widget').forEach((widget) => {
+        wireKeys(widget);
+        widget.querySelectorAll('[data-tab]').forEach((button) =>
+          button.addEventListener('click', () => {
+            const next = button.dataset.tab, previous = widget.dataset.active;
+            if (next === widget.dataset.pinned) widget.dataset.pinned = previous;
+            widget.dataset.active = next;
+            render(widget);
+          })
+        );
+        widget.querySelector('.keep-view').addEventListener('click', () => {
+          const previous = widget.dataset.active,
+            next = widget.dataset.pinned ||
+              ['Repos', 'Sessions', 'Terminals', 'Files'].find((n) =>
+                n !== previous
+              );
+          widget.dataset.pinned = previous;
+          widget.dataset.active = next;
+          render(widget);
+        });
+        widget.querySelector('.unpin-view').addEventListener('click', () => {
+          widget.dataset.pinned = '';
+          render(widget);
+        });
+        render(widget);
+      });
+      document.querySelectorAll('[data-container]').forEach((button) =>
+        button.addEventListener('click', () => {
+          const name = button.dataset.container;
+          document.querySelectorAll('[data-container]').forEach((b) => {
+            b.classList.toggle('picked', b === button);
+            b.setAttribute('aria-pressed', String(b === button));
+          });
+          document.getElementById('scope-name').textContent = name;
+          document.querySelectorAll('.inspector-widget').forEach((w) =>
+            w.hidden = w.dataset.scope !== name
+          );
+        })
+      );
+    })();
+    </script>
+  </body>
+</html>

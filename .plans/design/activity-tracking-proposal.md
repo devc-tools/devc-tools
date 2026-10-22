@@ -16,21 +16,29 @@ other dimensions turn out to be meaningful (see [Other data worth recording](#ot
 
 ## What devc web can already observe
 
-| Signal | Source today |
-|---|---|
-| Agent working state | Herdr `pane.agent_status_changed`, already subscribed per container (`devc/web/herdr_bridge.ts`, `onAgentStatus` → `agent_status` messages in `server.ts`). Values seen: `working`, `idle`, `blocked`, `unknown`. Agent-agnostic: claude, copilot, pi, opencode. |
-| Pane metadata | Herdr snapshot / `pane list`: `agent`, `agent_status`, `cwd`, `foreground_cwd`, `terminal_title_stripped`, `focused` (the Herdr TUI's focus), `pane_id`, `tab_id`, `workspace_id`, `terminal_id`, `label`. |
-| User activity in the page | Every keystroke / mouse / scroll passes through the server as `input`, `mouse`, `scroll` client messages. |
-| Page's focused pane | `active_pane` client message (already sent for devc-desktop's host terminal `cd`). |
-| Container ↔ repo | Server knows each container's record (`localFolder`), its mounts, and maps container paths to host paths (`hostToContainerPath`, `repoContainerPath`). |
-| Session id | **Not exposed by Herdr.** Known only for agents started via "send task" (`tasks.ts`, `sessionId`). |
+| Signal                    | Source today                                                                                                                                                                                                                                                     |
+| ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Agent working state       | Herdr `pane.agent_status_changed`, already subscribed per container (`devc/web/herdr_bridge.ts`, `onAgentStatus` → `agent_status` messages in `server.ts`). Values seen: `working`, `idle`, `blocked`, `unknown`. Agent-agnostic: claude, copilot, pi, opencode. |
+| Pane metadata             | Herdr snapshot / `pane list`: `agent`, `agent_status`, `cwd`, `foreground_cwd`, `terminal_title_stripped`, `focused` (the Herdr TUI's focus), `pane_id`, `tab_id`, `workspace_id`, `terminal_id`, `label`.                                                       |
+| User activity in the page | Every keystroke / mouse / scroll passes through the server as `input`, `mouse`, `scroll` client messages.                                                                                                                                                        |
+| Page's focused pane       | `active_pane` client message (already sent for devc-desktop's host terminal `cd`).                                                                                                                                                                               |
+| Container ↔ repo          | Server knows each container's record (`localFolder`), its mounts, and maps container paths to host paths (`hostToContainerPath`, `repoContainerPath`).                                                                                                           |
+| Session id                | **Not exposed by Herdr.** Known only for agents started via "send task" (`tasks.ts`, `sessionId`).                                                                                                                                                               |
 
 Example `pane list` entry (agent pane):
 
 ```json
-{"agent":"claude","agent_status":"working","cwd":"/workspaces/tools/devc-tools","focused":false,
- "pane_id":"w1:p5","tab_id":"w1:t5","terminal_id":"term_65e3d4e5251805",
- "terminal_title_stripped":"Time tracking for user and agent activity","workspace_id":"w1"}
+{
+  "agent": "claude",
+  "agent_status": "working",
+  "cwd": "/workspaces/tools/devc-tools",
+  "focused": false,
+  "pane_id": "w1:p5",
+  "tab_id": "w1:t5",
+  "terminal_id": "term_65e3d4e5251805",
+  "terminal_title_stripped": "Time tracking for user and agent activity",
+  "workspace_id": "w1"
+}
 ```
 
 ### Joining a session id to a pane
@@ -53,12 +61,12 @@ Agents run with Herdr's env in the pane: `HERDR_PANE_ID`, `HERDR_TAB_ID`, `HERDR
 The devc web server records **state changes** (not samples) to an append-only JSONL log on the
 host, e.g. `~/.config/devc/activity/YYYY-MM-DD.jsonl`. Spans are derived at report time.
 
-| Event | Fields |
-|---|---|
-| `agent` | ts, container, pane_id, terminal_id, agent, status |
-| `pane_meta` (on change) | ts, container, pane_id, title, cwd, repo, branch, session_id, model |
-| `focus` | ts, page's active pane (or none), page visible/hidden, window focused/blurred |
-| `user_active` | ts, container, pane_id — throttled to at most one per N seconds; idle after a timeout with no input |
+| Event                   | Fields                                                                                              |
+| ----------------------- | --------------------------------------------------------------------------------------------------- |
+| `agent`                 | ts, container, pane_id, terminal_id, agent, status                                                  |
+| `pane_meta` (on change) | ts, container, pane_id, title, cwd, repo, branch, session_id, model                                 |
+| `focus`                 | ts, page's active pane (or none), page visible/hidden, window focused/blurred                       |
+| `user_active`           | ts, container, pane_id — throttled to at most one per N seconds; idle after a timeout with no input |
 
 - **Repo** derived from pane `cwd` → git root → project / `localFolder` via the mounts the
   server already resolves.

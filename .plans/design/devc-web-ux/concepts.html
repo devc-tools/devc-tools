@@ -1,21 +1,869 @@
-<!doctype html><html><head><meta charset="utf-8"><title>devc · UX concepts</title><style>
-*{box-sizing:border-box}body{margin:0;background:#101216;color:#dce1e9;font:14px system-ui,-apple-system,'Segoe UI',sans-serif}button,input{font:inherit}button{cursor:pointer}.app{height:100vh;display:flex;flex-direction:column}.top{height:62px;flex-shrink:0;border-bottom:1px solid #2a2e37;display:flex;align-items:center;justify-content:space-between;padding:0 24px;background:#15181e}.brand{font-size:19px;font-weight:720;letter-spacing:-.7px;display:flex;align-items:center;gap:10px}.logo{background:#a6d9c1;color:#112d22;border-radius:7px;padding:2px 8px;font:700 20px monospace}.muted{color:#929ba9}.dim{color:#6e7889}.small{font-size:12px}.tiny{font-size:11px}.flex{display:flex;align-items:center;gap:12px}.grow{flex:1}.pill{display:inline-flex;align-items:center;gap:6px;border:1px solid #343a46;border-radius:5px;padding:5px 8px;font-size:11px;color:#aab4c4;background:#20242c}.green{color:#8bceb0}.blue{color:#92b9f4}.amber{color:#edbe79}.dot{width:6px;height:6px;display:inline-block;background:currentColor;border-radius:50%}.btn{display:inline-flex;align-items:center;gap:8px;background:#222730;color:#dce1e9;border:1px solid #3b424e;border-radius:6px;padding:8px 12px;font-size:12px}.primary{background:#9cd5b9;color:#132b21;border-color:#9cd5b9;font-weight:650}.body{display:flex;flex:1;min-height:0}.sidebar{width:278px;flex-shrink:0;background:#15181e;border-right:1px solid #2b3039;padding:20px 14px;display:flex;flex-direction:column}.search{border:1px solid #333944;color:#8993a2;border-radius:6px;padding:9px 10px;font-size:12px;display:flex;justify-content:space-between;background:#191d24}.label{display:flex;align-items:center;justify-content:space-between;margin:24px 9px 10px;color:#929ba9;font-size:10px;letter-spacing:1.3px;font-weight:650}.navrow{display:flex;align-items:center;gap:10px;padding:10px;border-radius:6px;font-size:12px;color:#aeb8c6;margin:2px 0}.navrow.active{background:#26372f;color:#b8e3cd}.count{margin-left:auto;font-size:11px;color:#9ba7b6}.project{padding:12px 9px;border-bottom:1px solid #242932}.project.active{background:#202936;border:1px solid #3b526d;border-radius:7px;margin:2px 0 5px}.project .name{font-size:12px;font-weight:600;display:flex;align-items:center;gap:8px}.project .meta{margin:7px 0 0 19px;color:#8490a1;font-size:11px;display:flex;gap:9px}.subnav{display:flex;gap:4px;margin:13px 0 2px 17px}.subnav span{padding:5px;font-size:10px;color:#8a96a6}.subnav .selected{background:#2b3a4e;color:#bad3f2;border-radius:4px}.sidebar-foot{margin-top:auto;border-top:1px solid #2b3039;padding:15px 8px 0;display:flex;gap:8px;color:#8894a2;font-size:11px}.main{flex:1;min-width:0;display:flex;flex-direction:column}.workspacebar{height:68px;display:flex;align-items:center;justify-content:space-between;padding:0 24px;border-bottom:1px solid #292e37;background:#13161b}.workspacebar h1{font-size:17px;letter-spacing:-.35px;margin:0 0 5px;font-weight:620}.workspacebar p{margin:0;font-size:11px;color:#8c97a7}.toolbar{display:flex;align-items:center;gap:8px}.tool{border:1px solid #333b46;border-radius:5px;color:#a4afbd;padding:7px 10px;font-size:11px}.panels{display:grid;grid-template-columns:1.08fr 1fr;grid-template-rows:1.08fr 1fr;gap:9px;padding:13px;flex:1;min-height:0}.panel{background:#11151b;border:1px solid #303640;border-radius:7px;display:flex;flex-direction:column;overflow:hidden;min-width:0;min-height:0}.panel.focused{border-color:#6c9acb;box-shadow:0 0 0 1px #6c9acb22}.panel.large{grid-row:span 2}.panelhead{min-height:42px;display:flex;align-items:center;gap:9px;padding:0 13px;background:#1c2129;border-bottom:1px solid #303640;font-size:12px}.agenticon{display:inline-flex;align-items:center;justify-content:center;border-radius:5px;width:23px;height:23px;background:#33312d;color:#ddb18c;font:600 13px monospace}.agenticon.pi{background:#2d3545;color:#a4beed}.panelhead .title{font-weight:550}.panelmeta{height:29px;padding:7px 14px;font-size:10px;color:#8391a3;border-bottom:1px solid #222933;display:flex;gap:14px}.terminal{padding:20px 22px;overflow:hidden;font:12px/1.8 ui-monospace,SFMono-Regular,Consolas,'Liberation Mono',monospace;color:#b5bfcd;flex:1}.terminal p{margin:0 0 14px}.terminal h3{font-size:12px;margin:0 0 14px;color:#e3e8ef;font-weight:600}.terminal .prompt{border-left:2px solid #8eb7ed;background:#1a2431;padding:10px 13px;color:#dce5f1;margin-bottom:22px}.terminal .path{color:#9eb7d7}.terminal .ok{color:#83c8a5}.terminal .hint{color:#66758a}.terminal .rule{border-top:1px solid #2b333e;margin:17px 0}.termfoot{font:10px monospace;color:#7e8da1;border-top:1px solid #252e3a;padding:10px 15px;display:flex;justify-content:space-between}.statusbar{height:28px;flex-shrink:0;border-top:1px solid #2c313a;background:#171b21;padding:0 17px;display:flex;align-items:center;gap:19px;color:#8c97a6;font-size:10px}.concept{color:#c1c9d5;margin-left:auto}.running{color:#93baf0}.waiting{color:#e5bd82}.idle{color:#9ba6b6}.state{font-size:10px;display:inline-flex;align-items:center;gap:5px;white-space:nowrap}.tabs{display:flex;align-items:center;gap:22px;padding:0 24px;height:47px;border-bottom:1px solid #2b3039;font-size:12px;color:#8490a1}.tabs .on{height:47px;padding-top:15px;color:#c5e7d5;border-bottom:2px solid #91caaa}.content{padding:29px 32px;overflow:hidden;flex:1}.eyebrow{color:#8e9aaa;font-size:10px;letter-spacing:1.6px;margin-bottom:12px}.headline{font-size:27px;letter-spacing:-.8px;font-weight:600;margin:0 0 9px}.subtitle{font-size:12px;color:#929eae;margin:0}.summary{display:flex;gap:40px;margin:28px 0;border-bottom:1px solid #2c323d;padding-bottom:24px}.summary .number{font-size:25px;font-weight:550;letter-spacing:-.7px}.summary .caption{font-size:11px;color:#919dad;margin-top:5px}.attention{border:1px solid #665037;background:#231f1a;border-radius:8px;padding:18px 21px;display:flex;align-items:center;gap:16px}.attention h3{font-size:13px;margin:0 0 5px;color:#edc797}.attention p{font-size:12px;color:#b2a89c;margin:0}.attention .symbol{width:34px;height:34px;border-radius:8px;background:#433222;color:#e5b97b;display:grid;place-items:center;font-size:18px}.sectionhead{display:flex;justify-content:space-between;align-items:center;margin:29px 0 15px}.sectionhead h2{font-size:14px;font-weight:580;margin:0}.cards{display:grid;grid-template-columns:repeat(3,1fr);gap:13px}.card{border:1px solid #343c49;border-radius:8px;background:#191e26;padding:18px}.card .projectname{font-size:10px;color:#8292a5;margin:13px 0 7px}.card h3{font-size:14px;margin:0 0 12px;font-weight:580;line-height:1.5}.card .excerpt{color:#98a5b7;font-size:11px;line-height:1.8;min-height:58px}.card .cardfoot{display:flex;justify-content:space-between;align-items:center;border-top:1px solid #2e3744;margin-top:17px;padding-top:13px;font-size:10px;color:#8999ac}.table{border:1px solid #2e3540;border-radius:7px;overflow:hidden}.tr{display:grid;grid-template-columns:1.7fr 1fr .65fr .6fr;align-items:center;gap:18px;padding:12px 15px;font-size:12px;border-top:1px solid #2a303a;background:#171b22}.tr:first-child{border-top:0;background:#1b2028;color:#8b98aa;font-size:10px}.tr .meta{color:#7d8ca1;font-size:11px}.rail{width:61px;border-right:1px solid #303641;background:#161a20;display:flex;flex-direction:column;align-items:center;padding:21px 0;gap:18px}.rail .railicon{height:33px;width:33px;display:grid;place-items:center;font-size:17px;color:#8392a6;border-radius:7px}.rail .railicon.on{background:#293b34;color:#abd9c3}.focusbody{display:flex;flex:1;min-height:0;padding:16px;gap:14px}.focusterm{flex:1;min-width:0;display:flex;flex-direction:column;gap:12px}.focusbody .panel{flex:1}.inspector{width:300px;background:#171c23;border:1px solid #303944;border-radius:8px;display:flex;flex-direction:column;overflow:hidden}.inspector .heading{padding:18px;border-bottom:1px solid #2b333e}.inspector h2{font-size:13px;margin:0 0 7px}.inspector .block{padding:19px;border-bottom:1px solid #2b333e}.inspector .blocktitle{color:#8d9bac;font-size:10px;letter-spacing:1.1px;margin-bottom:15px}.checkrow{display:flex;gap:10px;font-size:12px;line-height:1.7;margin:11px 0}.checkrow .check{color:#8dccaa}.file{display:flex;justify-content:space-between;margin:15px 0;font:11px monospace;color:#b7c4d6}.activity{font-size:11px;color:#9daabc;line-height:1.7;padding:12px 0;border-bottom:1px solid #2b323c}.switcher{height:91px;display:flex;gap:10px;flex-shrink:0}.switchcard{border:1px solid #343c49;background:#1a2029;border-radius:7px;padding:12px 15px;flex:1;min-width:0}.switchcard.on{border-color:#789fc7;background:#202b39}.switchcard h4{font-size:11px;margin:8px 0 0;font-weight:500;color:#c3cfdf}.switchcard .mini{font-size:10px;color:#8393a9;margin-top:6px}.docline{display:block;margin:10px 0;font-size:12px}.focus-terminal{font-size:12px;line-height:1.75;padding:24px 30px}.diff{background:#18281f;color:#b2d1be;padding:10px 15px;border-left:2px solid #71aa89;white-space:pre;font-size:11px;line-height:1.8;margin:15px 0}.inputline{margin-top:24px;border-top:1px solid #394352;border-bottom:1px solid #394352;padding:12px 0;color:#a9b8cc}.righttag{margin-left:auto}.subtlelink{color:#9fbce1;font-size:11px}.livehint{font-size:10px;color:#7b899c}
-</style></head><body><div id="root"></div><script>
-(()=>{
-const q=new URLSearchParams(location.search).get('view')||'refined';
-const dot=(state,label)=>`<span class="state ${state}"><i class="dot"></i>${label}</span>`;
-const brand=`<div class="brand"><span class="logo">d</span> devc <span style="font-size:11px;color:#657488;font-weight:450;margin-left:10px;letter-spacing:0">AGENT WORKSPACE</span></div>`;
-const top=(actions)=>`<header class="top">${brand}<div class="flex">${actions}<span style="width:1px;height:19px;background:#343b46;margin:0 6px"></span><span class="small muted">⌘ K</span><span class="pill green"><i class="dot"></i> Connected</span></div></header>`;
-const foot=(label)=>`<footer class="statusbar"><span class="green">● Bridge connected</span><span>Keep awake on</span><span>18 running projects</span><span class="concept">${label} · DESIGN CONCEPT · illustrative panel content & status counts</span></footer>`;
-const project=(name,meta,active=false,state='idle')=>`<div class="project ${active?'active':''}"><div class="name"><span class="${state==='running'?'blue':'dim'}">▱</span>${name}<span class="righttag ${state}">●</span></div><div class="meta">${meta}</div>${active?'<div class="subnav"><span class="selected">Agents 2</span><span>Files</span><span>Git ↑4</span></div>':''}</div>`;
-const sidebar=(mode)=>`<aside class="sidebar"><div class="search"><span>⌕ &nbsp; Find project or agent</span><span>⌘ P</span></div><div class="navrow ${mode==='overview'?'active':''}" style="margin-top:16px"><span>◫</span> Overview <span class="count">18</span></div><div class="navrow"><span class="amber">◉</span> Needs attention <span class="count amber">2</span></div><div class="navrow"><span>☷</span> Tasks <span class="count">1</span></div><div class="label"><span>PINNED PROJECTS</span><span>＋</span></div>${project('tools/devc-tools','<span>code-wksp</span><span>·</span><span>2 agents</span>',mode!=='overview','running')}${project('vscode-deephaven','<span>main</span><span>·</span><span>1 agent</span>')}${project('time-tracking','<span>main</span><span>·</span><span>1 agent</span>')}<div class="label"><span>RECENT PROJECTS</span><span>9</span></div>${project('DH-24092 · vsix-sbom','<span>code-wksp</span><span>·</span><span>Idle</span>')}${project('DH-23855 · npm-audit-fix','<span>1 agent</span><span>·</span><span class="amber">Needs input</span>',false,'waiting')}${project('DH-23956 · mcp-ts-sdk-v2','<span>1 agent</span><span>·</span><span>Idle</span>')}${project('DH-24018 · release-scripts','<span>Terminal only</span>')}<div class="navrow small dim" style="margin-top:12px">All projects <span class="count">18 →</span></div><div class="sidebar-foot"><span>▱</span><span>Not running</span><span class="count">15 &nbsp; ›</span></div></aside>`;
-const panel=(title,agent,state,label,body,extra='')=>`<section class="panel ${extra}"><header class="panelhead"><span class="agenticon ${agent==='π'?'pi':''}">${agent}</span><span class="title">${title}</span><span class="grow"></span>${dot(state,label)}<span class="dim" style="margin-left:10px">⋯ &nbsp; ⤢</span></header><div class="panelmeta"><span>${title.includes('SBOM')?'code-wksp / DH-24092_vsix-sbom':'code-wksp / tools/devc-tools'}</span><span class="righttag">⌥ ${title.includes('SBOM')?'2':'1'}</span></div><div class="terminal">${body}</div><div class="termfoot"><span>${agent==='π'?'pi':'Claude Code'}</span><span>${state==='running'?'Working · 24s':state==='waiting'?'Waiting for your input':'Idle · ready for a prompt'}</span></div></section>`;
-const uxbody=`<p class="hint">π &nbsp; devc-tools</p><div class="prompt">Review the orchestration UX and propose visual directions.<br>Do not change the codebase.</div><h3>Reviewing the current workspace</h3><p>I can access the app and inspect the sidebar without<br>sending input to running agents.</p><p class="ok">✓ Connected to devc web<br>✓ Captured the current navigation<br>✓ Repository left unchanged</p><div class="rule"></div><p class="path">Observations</p><p>1. Repeated project subtrees dominate navigation.<br>2. Long project and session titles are truncated.<br>3. Agent status is hard to scan across projects.</p><p class="path">Proposed directions</p><p>• Group navigation by project and reveal details on demand.<br>• Surface agents that need input.<br>• Keep terminal content dense; simplify surrounding chrome.</p><div class="rule"></div><p><span class="blue">◌</span> Rendering visual concepts…</p><p class="hint">No source files modified.</p>`;
-const sbombody=`<p class="hint">Claude Code · vsix-sbom plan implementation</p><p class="ok">✓ Implementation plan prepared</p><p>Plan covers the SBOM generation step, release artifacts,<br>and validation of the packaged extension.</p><p class="path">.plans/vsix-sbom.md</p><div class="rule"></div><p class="hint">› Send a message to continue</p>`;
-const taskbody=`<p class="hint">Preview · saved task</p><h3>Open issue references in Jira</h3><p>Show “Open in Jira” when a terminal contains<br>an issue reference such as AB-12345.</p><p class="hint">tools/devc-tools &nbsp; · &nbsp; Not started</p><div class="rule"></div><p><span class="path">Plan first</span> &nbsp; or &nbsp; <span class="ok">Implement</span></p>`;
-function refined(){return `<div class="app">${top('<button class="btn">▦ &nbsp; Saved layouts ▾</button><button class="btn primary">＋ New task</button>')}<div class="body">${sidebar('refined')}<main class="main"><div class="workspacebar"><div><h1>tools/devc-tools</h1><p>code-wksp &nbsp; / &nbsp; main &nbsp; · &nbsp; 2 agents</p></div><div class="toolbar"><span class="tool">◫ &nbsp; Split</span><span class="tool">＋ &nbsp; Terminal</span><span class="tool">▱ &nbsp; Files</span><span class="tool">⌥ Z &nbsp; Focus</span></div></div><div class="panels">${panel('UX exploration','π','running','Working',uxbody,'large focused')}${panel('VSIX SBOM plan','✳','idle','Idle',sbombody)}${panel('Task details','☷','idle','Draft',taskbody)}</div></main></div>${foot('01 / REFINED WORKSPACE')}</div>`}
-function overview(){return `<div class="app">${top('<button class="btn">View: All projects ▾</button><button class="btn primary">＋ New task</button>')}<div class="body">${sidebar('overview')}<main class="main"><div class="tabs"><span class="on">Overview</span><span>Agents <span class="dim">20</span></span><span>Tasks</span><span>Sessions</span></div><div class="content"><div class="eyebrow">WORKSPACE OVERVIEW</div><div class="flex"><div><h1 class="headline">Know what needs you. Then get back to work.</h1><p class="subtitle">Agent activity across your projects, without opening every terminal.</p></div></div><div class="summary"><div><div class="number amber">2</div><div class="caption">Need your input</div></div><div><div class="number blue">3</div><div class="caption">Working</div></div><div><div class="number">15</div><div class="caption">Idle</div></div><div><div class="number">1</div><div class="caption">Unsent task</div></div><div class="grow"></div><span class="pill" style="align-self:center">● &nbsp; Updates live</span></div><div class="attention"><span class="symbol">!</span><div><h3>npm audit failures after pre-release</h3><p>Claude is waiting for a decision about the dependency update strategy.</p></div><span class="grow"></span><span class="small muted">DH-23855</span><button class="btn" style="border-color:#775d3e;color:#edc797;background:#30271d">Review request →</button></div><div class="sectionhead"><h2>Working now <span class="dim small">&nbsp; 3 agents</span></h2><span class="subtlelink">Open workspace →</span></div><div class="cards"><article class="card"><div class="flex"><span class="agenticon pi">π</span>${dot('running','Working')}<span class="grow"></span><span class="dim">⋯</span></div><div class="projectname">TOOLS / DEVC-TOOLS</div><h3>UX exploration</h3><div class="excerpt">Inspecting the current workspace and rendering three visual concepts.</div><div class="cardfoot"><span>Started 6 min ago</span><span class="subtlelink">Open panel ↗</span></div></article><article class="card"><div class="flex"><span class="agenticon">✳</span>${dot('running','Working')}<span class="grow"></span><span class="dim">⋯</span></div><div class="projectname">DH-24092 / VSIX-SBOM</div><h3>Verify release artifacts</h3><div class="excerpt">Checking the proposed SBOM generation and extension packaging steps.</div><div class="cardfoot"><span>Started 12 min ago</span><span class="subtlelink">Open panel ↗</span></div></article><article class="card"><div class="flex"><span class="agenticon">✳</span>${dot('running','Working')}<span class="grow"></span><span class="dim">⋯</span></div><div class="projectname">DH-23956 / MCP-TS-SDK-V2</div><h3>Review latest PR feedback</h3><div class="excerpt">Reviewing the latest comments and comparing the SDK integration changes.</div><div class="cardfoot"><span>Started 18 min ago</span><span class="subtlelink">Open panel ↗</span></div></article></div><div class="sectionhead"><h2>Ready to return to</h2><span class="subtlelink">All sessions →</span></div><div class="table"><div class="tr"><span>SESSION</span><span>PROJECT</span><span>AGENT</span><span>STATUS</span></div><div class="tr"><span>Resume npm publish:prerelease</span><span class="meta">vscode-deephaven</span><span class="meta">Claude</span>${dot('idle','Idle')}</div><div class="tr"><span>Report unaccounted entries</span><span class="meta">time-tracking</span><span class="meta">Claude</span>${dot('idle','Idle')}</div><div class="tr"><span>Deephaven Docs MCP server access</span><span class="meta">notebooks</span><span class="meta">Claude</span>${dot('idle','Idle')}</div></div></div></main></div>${foot('02 / AGENT-FIRST OVERVIEW')}</div>`}
-function focus(){return `<div class="app">${top('<span class="small muted">tools/devc-tools &nbsp; / &nbsp; UX exploration</span><button class="btn">◫ &nbsp; Exit focus <span class="dim">⌥ Z</span></button>')}<div class="body"><nav class="rail"><span class="railicon">⌕</span><span class="railicon">◫</span><span class="railicon on">▱</span><span class="railicon">☷</span><span class="railicon">◷</span><span class="grow"></span><span class="railicon amber">◉</span></nav><main class="main"><div class="workspacebar"><div><h1>UX exploration</h1><p>tools/devc-tools &nbsp; · &nbsp; main &nbsp; · &nbsp; pi agent</p></div><div class="toolbar"><span class="tool">▱ &nbsp; Files</span><span class="tool">⑂ &nbsp; Changes <span class="green">0</span></span><span class="tool">＋ &nbsp; Add panel</span></div></div><div class="focusbody"><div class="focusterm"><section class="panel focused"><header class="panelhead"><span class="agenticon pi">π</span><span class="title">Agent terminal</span><span class="grow"></span>${dot('running','Working')}<span class="dim">&nbsp; ⋯ &nbsp; ⤢</span></header><div class="terminal focus-terminal"><div class="prompt">Look at the UX and propose screenshots of how it could look better.<br>Don't change any of the codebase.</div><h3>Workspace inspection complete</h3><p>The app is reachable. The existing navigation supports projects,<br>terminals, sessions, repositories, files, tasks, and saved layouts.</p><p class="ok">✓ Connected to the live interface<br>✓ Captured a baseline screenshot<br>✓ No input sent to other agents</p><div class="rule"></div><h3>Three visual directions</h3><p><span class="path">01 &nbsp; Refined workspace</span><br>&nbsp;&nbsp;&nbsp;&nbsp;Project-first navigation. Less repetition. Clearer panel context.</p><p><span class="path">02 &nbsp; Agent-first overview</span><br>&nbsp;&nbsp;&nbsp;&nbsp;Surface requests for input and activity across all projects.</p><p><span class="path">03 &nbsp; Focus workspace</span><br>&nbsp;&nbsp;&nbsp;&nbsp;Keep one agent prominent, with its task and other agents nearby.</p><p class="hint">Mockups are standalone files. Live agent output is not modified.</p><div class="inputline"><span class="blue">◌</span> &nbsp; Rendering screenshot concepts…</div></div><div class="termfoot"><span>pi · tools/devc-tools</span><span>⌘ K commands &nbsp; · &nbsp; ⌥ 1–4 switch panels</span></div></section><div class="switcher"><div class="switchcard on"><div class="flex">${dot('running','Working')}<span class="grow"></span><span class="tiny dim">⌥ 1</span></div><h4>UX exploration</h4><div class="mini">tools/devc-tools · pi</div></div><div class="switchcard"><div class="flex">${dot('idle','Idle')}<span class="grow"></span><span class="tiny dim">⌥ 2</span></div><h4>VSIX SBOM plan</h4><div class="mini">DH-24092 · Claude</div></div><div class="switchcard"><div class="flex">${dot('waiting','Needs input')}<span class="grow"></span><span class="tiny dim">⌥ 3</span></div><h4>npm audit failures</h4><div class="mini">DH-23855 · Claude</div></div></div></div><aside class="inspector"><div class="heading"><h2>Task context</h2><span class="small muted">Visible to you, beside the agent</span></div><div class="block"><div class="blocktitle">REQUEST</div><div style="font-size:13px;line-height:1.8;color:#c6d1df">Explore a clearer orchestration UX and present screenshot concepts.</div><div class="pill green" style="margin-top:15px">Read-only review</div></div><div class="block"><div class="blocktitle">DELIVERABLES</div><div class="checkrow"><span class="check">✓</span><span>Inspect current interface</span></div><div class="checkrow"><span class="check">✓</span><span>Capture baseline</span></div><div class="checkrow"><span class="blue">◌</span><span>Render three concepts</span></div><div class="checkrow"><span class="dim">○</span><span>Compare trade-offs</span></div></div><div class="block"><div class="blocktitle">MOCKUP OUTPUTS</div><div class="file"><span>01-refined-workspace.png</span><span class="dim">↗</span></div><div class="file"><span>02-agent-overview.png</span><span class="dim">↗</span></div><div class="file"><span>03-focus-workspace.png</span><span class="dim">↗</span></div><div class="small dim" style="line-height:1.7;margin-top:15px">Standalone files in /tmp.<br>No repository changes.</div></div><div class="block" style="border-bottom:0"><div class="blocktitle">OTHER AGENTS</div><div class="activity"><span class="amber">● &nbsp; npm audit failures</span><br>Needs a decision <span class="dim">· DH-23855</span></div><div class="activity"><span class="muted">● &nbsp; VSIX SBOM plan</span><br>Idle <span class="dim">· DH-24092</span></div><div class="subtlelink" style="margin-top:17px">View all agents →</div></div></aside></div></main></div>${foot('03 / FOCUS WORKSPACE')}</div>`}
-document.getElementById('root').innerHTML=q==='overview'?overview():q==='focus'?focus():refined();
-})();
-</script></body></html>
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <title>devc · UX concepts</title>
+    <style>
+    * {
+      box-sizing: border-box;
+    }
+    body {
+      margin: 0;
+      background: #101216;
+      color: #dce1e9;
+      font: 14px system-ui,-apple-system,'Segoe UI',sans-serif;
+    }
+    button,
+    input {
+      font: inherit;
+    }
+    button {
+      cursor: pointer;
+    }
+    .app {
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+    .top {
+      height: 62px;
+      flex-shrink: 0;
+      border-bottom: 1px solid #2a2e37;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 24px;
+      background: #15181e;
+    }
+    .brand {
+      font-size: 19px;
+      font-weight: 720;
+      letter-spacing: -.7px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .logo {
+      background: #a6d9c1;
+      color: #112d22;
+      border-radius: 7px;
+      padding: 2px 8px;
+      font: 700 20px monospace;
+    }
+    .muted {
+      color: #929ba9;
+    }
+    .dim {
+      color: #6e7889;
+    }
+    .small {
+      font-size: 12px;
+    }
+    .tiny {
+      font-size: 11px;
+    }
+    .flex {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .grow {
+      flex: 1;
+    }
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      border: 1px solid #343a46;
+      border-radius: 5px;
+      padding: 5px 8px;
+      font-size: 11px;
+      color: #aab4c4;
+      background: #20242c;
+    }
+    .green {
+      color: #8bceb0;
+    }
+    .blue {
+      color: #92b9f4;
+    }
+    .amber {
+      color: #edbe79;
+    }
+    .dot {
+      width: 6px;
+      height: 6px;
+      display: inline-block;
+      background: currentColor;
+      border-radius: 50%;
+    }
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      background: #222730;
+      color: #dce1e9;
+      border: 1px solid #3b424e;
+      border-radius: 6px;
+      padding: 8px 12px;
+      font-size: 12px;
+    }
+    .primary {
+      background: #9cd5b9;
+      color: #132b21;
+      border-color: #9cd5b9;
+      font-weight: 650;
+    }
+    .body {
+      display: flex;
+      flex: 1;
+      min-height: 0;
+    }
+    .sidebar {
+      width: 278px;
+      flex-shrink: 0;
+      background: #15181e;
+      border-right: 1px solid #2b3039;
+      padding: 20px 14px;
+      display: flex;
+      flex-direction: column;
+    }
+    .search {
+      border: 1px solid #333944;
+      color: #8993a2;
+      border-radius: 6px;
+      padding: 9px 10px;
+      font-size: 12px;
+      display: flex;
+      justify-content: space-between;
+      background: #191d24;
+    }
+    .label {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin: 24px 9px 10px;
+      color: #929ba9;
+      font-size: 10px;
+      letter-spacing: 1.3px;
+      font-weight: 650;
+    }
+    .navrow {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px;
+      border-radius: 6px;
+      font-size: 12px;
+      color: #aeb8c6;
+      margin: 2px 0;
+    }
+    .navrow.active {
+      background: #26372f;
+      color: #b8e3cd;
+    }
+    .count {
+      margin-left: auto;
+      font-size: 11px;
+      color: #9ba7b6;
+    }
+    .project {
+      padding: 12px 9px;
+      border-bottom: 1px solid #242932;
+    }
+    .project.active {
+      background: #202936;
+      border: 1px solid #3b526d;
+      border-radius: 7px;
+      margin: 2px 0 5px;
+    }
+    .project .name {
+      font-size: 12px;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .project .meta {
+      margin: 7px 0 0 19px;
+      color: #8490a1;
+      font-size: 11px;
+      display: flex;
+      gap: 9px;
+    }
+    .subnav {
+      display: flex;
+      gap: 4px;
+      margin: 13px 0 2px 17px;
+    }
+    .subnav span {
+      padding: 5px;
+      font-size: 10px;
+      color: #8a96a6;
+    }
+    .subnav .selected {
+      background: #2b3a4e;
+      color: #bad3f2;
+      border-radius: 4px;
+    }
+    .sidebar-foot {
+      margin-top: auto;
+      border-top: 1px solid #2b3039;
+      padding: 15px 8px 0;
+      display: flex;
+      gap: 8px;
+      color: #8894a2;
+      font-size: 11px;
+    }
+    .main {
+      flex: 1;
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+    }
+    .workspacebar {
+      height: 68px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 24px;
+      border-bottom: 1px solid #292e37;
+      background: #13161b;
+    }
+    .workspacebar h1 {
+      font-size: 17px;
+      letter-spacing: -.35px;
+      margin: 0 0 5px;
+      font-weight: 620;
+    }
+    .workspacebar p {
+      margin: 0;
+      font-size: 11px;
+      color: #8c97a7;
+    }
+    .toolbar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .tool {
+      border: 1px solid #333b46;
+      border-radius: 5px;
+      color: #a4afbd;
+      padding: 7px 10px;
+      font-size: 11px;
+    }
+    .panels {
+      display: grid;
+      grid-template-columns: 1.08fr 1fr;
+      grid-template-rows: 1.08fr 1fr;
+      gap: 9px;
+      padding: 13px;
+      flex: 1;
+      min-height: 0;
+    }
+    .panel {
+      background: #11151b;
+      border: 1px solid #303640;
+      border-radius: 7px;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      min-width: 0;
+      min-height: 0;
+    }
+    .panel.focused {
+      border-color: #6c9acb;
+      box-shadow: 0 0 0 1px #6c9acb22;
+    }
+    .panel.large {
+      grid-row: span 2;
+    }
+    .panelhead {
+      min-height: 42px;
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      padding: 0 13px;
+      background: #1c2129;
+      border-bottom: 1px solid #303640;
+      font-size: 12px;
+    }
+    .agenticon {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 5px;
+      width: 23px;
+      height: 23px;
+      background: #33312d;
+      color: #ddb18c;
+      font: 600 13px monospace;
+    }
+    .agenticon.pi {
+      background: #2d3545;
+      color: #a4beed;
+    }
+    .panelhead .title {
+      font-weight: 550;
+    }
+    .panelmeta {
+      height: 29px;
+      padding: 7px 14px;
+      font-size: 10px;
+      color: #8391a3;
+      border-bottom: 1px solid #222933;
+      display: flex;
+      gap: 14px;
+    }
+    .terminal {
+      padding: 20px 22px;
+      overflow: hidden;
+      font: 12px/1.8
+        ui-monospace,SFMono-Regular,Consolas,'Liberation Mono',monospace;
+      color: #b5bfcd;
+      flex: 1;
+    }
+    .terminal p {
+      margin: 0 0 14px;
+    }
+    .terminal h3 {
+      font-size: 12px;
+      margin: 0 0 14px;
+      color: #e3e8ef;
+      font-weight: 600;
+    }
+    .terminal .prompt {
+      border-left: 2px solid #8eb7ed;
+      background: #1a2431;
+      padding: 10px 13px;
+      color: #dce5f1;
+      margin-bottom: 22px;
+    }
+    .terminal .path {
+      color: #9eb7d7;
+    }
+    .terminal .ok {
+      color: #83c8a5;
+    }
+    .terminal .hint {
+      color: #66758a;
+    }
+    .terminal .rule {
+      border-top: 1px solid #2b333e;
+      margin: 17px 0;
+    }
+    .termfoot {
+      font: 10px monospace;
+      color: #7e8da1;
+      border-top: 1px solid #252e3a;
+      padding: 10px 15px;
+      display: flex;
+      justify-content: space-between;
+    }
+    .statusbar {
+      height: 28px;
+      flex-shrink: 0;
+      border-top: 1px solid #2c313a;
+      background: #171b21;
+      padding: 0 17px;
+      display: flex;
+      align-items: center;
+      gap: 19px;
+      color: #8c97a6;
+      font-size: 10px;
+    }
+    .concept {
+      color: #c1c9d5;
+      margin-left: auto;
+    }
+    .running {
+      color: #93baf0;
+    }
+    .waiting {
+      color: #e5bd82;
+    }
+    .idle {
+      color: #9ba6b6;
+    }
+    .state {
+      font-size: 10px;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      white-space: nowrap;
+    }
+    .tabs {
+      display: flex;
+      align-items: center;
+      gap: 22px;
+      padding: 0 24px;
+      height: 47px;
+      border-bottom: 1px solid #2b3039;
+      font-size: 12px;
+      color: #8490a1;
+    }
+    .tabs .on {
+      height: 47px;
+      padding-top: 15px;
+      color: #c5e7d5;
+      border-bottom: 2px solid #91caaa;
+    }
+    .content {
+      padding: 29px 32px;
+      overflow: hidden;
+      flex: 1;
+    }
+    .eyebrow {
+      color: #8e9aaa;
+      font-size: 10px;
+      letter-spacing: 1.6px;
+      margin-bottom: 12px;
+    }
+    .headline {
+      font-size: 27px;
+      letter-spacing: -.8px;
+      font-weight: 600;
+      margin: 0 0 9px;
+    }
+    .subtitle {
+      font-size: 12px;
+      color: #929eae;
+      margin: 0;
+    }
+    .summary {
+      display: flex;
+      gap: 40px;
+      margin: 28px 0;
+      border-bottom: 1px solid #2c323d;
+      padding-bottom: 24px;
+    }
+    .summary .number {
+      font-size: 25px;
+      font-weight: 550;
+      letter-spacing: -.7px;
+    }
+    .summary .caption {
+      font-size: 11px;
+      color: #919dad;
+      margin-top: 5px;
+    }
+    .attention {
+      border: 1px solid #665037;
+      background: #231f1a;
+      border-radius: 8px;
+      padding: 18px 21px;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+    .attention h3 {
+      font-size: 13px;
+      margin: 0 0 5px;
+      color: #edc797;
+    }
+    .attention p {
+      font-size: 12px;
+      color: #b2a89c;
+      margin: 0;
+    }
+    .attention .symbol {
+      width: 34px;
+      height: 34px;
+      border-radius: 8px;
+      background: #433222;
+      color: #e5b97b;
+      display: grid;
+      place-items: center;
+      font-size: 18px;
+    }
+    .sectionhead {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin: 29px 0 15px;
+    }
+    .sectionhead h2 {
+      font-size: 14px;
+      font-weight: 580;
+      margin: 0;
+    }
+    .cards {
+      display: grid;
+      grid-template-columns: repeat(3,1fr);
+      gap: 13px;
+    }
+    .card {
+      border: 1px solid #343c49;
+      border-radius: 8px;
+      background: #191e26;
+      padding: 18px;
+    }
+    .card .projectname {
+      font-size: 10px;
+      color: #8292a5;
+      margin: 13px 0 7px;
+    }
+    .card h3 {
+      font-size: 14px;
+      margin: 0 0 12px;
+      font-weight: 580;
+      line-height: 1.5;
+    }
+    .card .excerpt {
+      color: #98a5b7;
+      font-size: 11px;
+      line-height: 1.8;
+      min-height: 58px;
+    }
+    .card .cardfoot {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-top: 1px solid #2e3744;
+      margin-top: 17px;
+      padding-top: 13px;
+      font-size: 10px;
+      color: #8999ac;
+    }
+    .table {
+      border: 1px solid #2e3540;
+      border-radius: 7px;
+      overflow: hidden;
+    }
+    .tr {
+      display: grid;
+      grid-template-columns: 1.7fr 1fr .65fr .6fr;
+      align-items: center;
+      gap: 18px;
+      padding: 12px 15px;
+      font-size: 12px;
+      border-top: 1px solid #2a303a;
+      background: #171b22;
+    }
+    .tr:first-child {
+      border-top: 0;
+      background: #1b2028;
+      color: #8b98aa;
+      font-size: 10px;
+    }
+    .tr .meta {
+      color: #7d8ca1;
+      font-size: 11px;
+    }
+    .rail {
+      width: 61px;
+      border-right: 1px solid #303641;
+      background: #161a20;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 21px 0;
+      gap: 18px;
+    }
+    .rail .railicon {
+      height: 33px;
+      width: 33px;
+      display: grid;
+      place-items: center;
+      font-size: 17px;
+      color: #8392a6;
+      border-radius: 7px;
+    }
+    .rail .railicon.on {
+      background: #293b34;
+      color: #abd9c3;
+    }
+    .focusbody {
+      display: flex;
+      flex: 1;
+      min-height: 0;
+      padding: 16px;
+      gap: 14px;
+    }
+    .focusterm {
+      flex: 1;
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .focusbody .panel {
+      flex: 1;
+    }
+    .inspector {
+      width: 300px;
+      background: #171c23;
+      border: 1px solid #303944;
+      border-radius: 8px;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    .inspector .heading {
+      padding: 18px;
+      border-bottom: 1px solid #2b333e;
+    }
+    .inspector h2 {
+      font-size: 13px;
+      margin: 0 0 7px;
+    }
+    .inspector .block {
+      padding: 19px;
+      border-bottom: 1px solid #2b333e;
+    }
+    .inspector .blocktitle {
+      color: #8d9bac;
+      font-size: 10px;
+      letter-spacing: 1.1px;
+      margin-bottom: 15px;
+    }
+    .checkrow {
+      display: flex;
+      gap: 10px;
+      font-size: 12px;
+      line-height: 1.7;
+      margin: 11px 0;
+    }
+    .checkrow .check {
+      color: #8dccaa;
+    }
+    .file {
+      display: flex;
+      justify-content: space-between;
+      margin: 15px 0;
+      font: 11px monospace;
+      color: #b7c4d6;
+    }
+    .activity {
+      font-size: 11px;
+      color: #9daabc;
+      line-height: 1.7;
+      padding: 12px 0;
+      border-bottom: 1px solid #2b323c;
+    }
+    .switcher {
+      height: 91px;
+      display: flex;
+      gap: 10px;
+      flex-shrink: 0;
+    }
+    .switchcard {
+      border: 1px solid #343c49;
+      background: #1a2029;
+      border-radius: 7px;
+      padding: 12px 15px;
+      flex: 1;
+      min-width: 0;
+    }
+    .switchcard.on {
+      border-color: #789fc7;
+      background: #202b39;
+    }
+    .switchcard h4 {
+      font-size: 11px;
+      margin: 8px 0 0;
+      font-weight: 500;
+      color: #c3cfdf;
+    }
+    .switchcard .mini {
+      font-size: 10px;
+      color: #8393a9;
+      margin-top: 6px;
+    }
+    .docline {
+      display: block;
+      margin: 10px 0;
+      font-size: 12px;
+    }
+    .focus-terminal {
+      font-size: 12px;
+      line-height: 1.75;
+      padding: 24px 30px;
+    }
+    .diff {
+      background: #18281f;
+      color: #b2d1be;
+      padding: 10px 15px;
+      border-left: 2px solid #71aa89;
+      white-space: pre;
+      font-size: 11px;
+      line-height: 1.8;
+      margin: 15px 0;
+    }
+    .inputline {
+      margin-top: 24px;
+      border-top: 1px solid #394352;
+      border-bottom: 1px solid #394352;
+      padding: 12px 0;
+      color: #a9b8cc;
+    }
+    .righttag {
+      margin-left: auto;
+    }
+    .subtlelink {
+      color: #9fbce1;
+      font-size: 11px;
+    }
+    .livehint {
+      font-size: 10px;
+      color: #7b899c;
+    }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script>
+    (() => {
+      const q = new URLSearchParams(location.search).get('view') || 'refined';
+      const dot = (state, label) =>
+        `<span class="state ${state}"><i class="dot"></i>${label}</span>`;
+      const brand =
+        `<div class="brand"><span class="logo">d</span> devc <span style="font-size:11px;color:#657488;font-weight:450;margin-left:10px;letter-spacing:0">AGENT WORKSPACE</span></div>`;
+      const top = (actions) =>
+        `<header class="top">${brand}<div class="flex">${actions}<span style="width:1px;height:19px;background:#343b46;margin:0 6px"></span><span class="small muted">⌘ K</span><span class="pill green"><i class="dot"></i> Connected</span></div></header>`;
+      const foot = (label) =>
+        `<footer class="statusbar"><span class="green">● Bridge connected</span><span>Keep awake on</span><span>18 running projects</span><span class="concept">${label} · DESIGN CONCEPT · illustrative panel content & status counts</span></footer>`;
+      const project = (name, meta, active = false, state = 'idle') =>
+        `<div class="project ${
+          active ? 'active' : ''
+        }"><div class="name"><span class="${
+          state === 'running' ? 'blue' : 'dim'
+        }">▱</span>${name}<span class="righttag ${state}">●</span></div><div class="meta">${meta}</div>${
+          active
+            ? '<div class="subnav"><span class="selected">Agents 2</span><span>Files</span><span>Git ↑4</span></div>'
+            : ''
+        }</div>`;
+      const sidebar = (mode) =>
+        `<aside class="sidebar"><div class="search"><span>⌕ &nbsp; Find project or agent</span><span>⌘ P</span></div><div class="navrow ${
+          mode === 'overview' ? 'active' : ''
+        }" style="margin-top:16px"><span>◫</span> Overview <span class="count">18</span></div><div class="navrow"><span class="amber">◉</span> Needs attention <span class="count amber">2</span></div><div class="navrow"><span>☷</span> Tasks <span class="count">1</span></div><div class="label"><span>PINNED PROJECTS</span><span>＋</span></div>${
+          project(
+            'tools/devc-tools',
+            '<span>code-wksp</span><span>·</span><span>2 agents</span>',
+            mode !== 'overview',
+            'running',
+          )
+        }${
+          project(
+            'vscode-deephaven',
+            '<span>main</span><span>·</span><span>1 agent</span>',
+          )
+        }${
+          project(
+            'time-tracking',
+            '<span>main</span><span>·</span><span>1 agent</span>',
+          )
+        }<div class="label"><span>RECENT PROJECTS</span><span>9</span></div>${
+          project(
+            'DH-24092 · vsix-sbom',
+            '<span>code-wksp</span><span>·</span><span>Idle</span>',
+          )
+        }${
+          project(
+            'DH-23855 · npm-audit-fix',
+            '<span>1 agent</span><span>·</span><span class="amber">Needs input</span>',
+            false,
+            'waiting',
+          )
+        }${
+          project(
+            'DH-23956 · mcp-ts-sdk-v2',
+            '<span>1 agent</span><span>·</span><span>Idle</span>',
+          )
+        }${
+          project('DH-24018 · release-scripts', '<span>Terminal only</span>')
+        }<div class="navrow small dim" style="margin-top:12px">All projects <span class="count">18 →</span></div><div class="sidebar-foot"><span>▱</span><span>Not running</span><span class="count">15 &nbsp; ›</span></div></aside>`;
+      const panel = (title, agent, state, label, body, extra = '') =>
+        `<section class="panel ${extra}"><header class="panelhead"><span class="agenticon ${
+          agent === 'π' ? 'pi' : ''
+        }">${agent}</span><span class="title">${title}</span><span class="grow"></span>${
+          dot(state, label)
+        }<span class="dim" style="margin-left:10px">⋯ &nbsp; ⤢</span></header><div class="panelmeta"><span>${
+          title.includes('SBOM')
+            ? 'code-wksp / DH-24092_vsix-sbom'
+            : 'code-wksp / tools/devc-tools'
+        }</span><span class="righttag">⌥ ${
+          title.includes('SBOM') ? '2' : '1'
+        }</span></div><div class="terminal">${body}</div><div class="termfoot"><span>${
+          agent === 'π' ? 'pi' : 'Claude Code'
+        }</span><span>${
+          state === 'running'
+            ? 'Working · 24s'
+            : state === 'waiting'
+            ? 'Waiting for your input'
+            : 'Idle · ready for a prompt'
+        }</span></div></section>`;
+      const uxbody =
+        `<p class="hint">π &nbsp; devc-tools</p><div class="prompt">Review the orchestration UX and propose visual directions.<br>Do not change the codebase.</div><h3>Reviewing the current workspace</h3><p>I can access the app and inspect the sidebar without<br>sending input to running agents.</p><p class="ok">✓ Connected to devc web<br>✓ Captured the current navigation<br>✓ Repository left unchanged</p><div class="rule"></div><p class="path">Observations</p><p>1. Repeated project subtrees dominate navigation.<br>2. Long project and session titles are truncated.<br>3. Agent status is hard to scan across projects.</p><p class="path">Proposed directions</p><p>• Group navigation by project and reveal details on demand.<br>• Surface agents that need input.<br>• Keep terminal content dense; simplify surrounding chrome.</p><div class="rule"></div><p><span class="blue">◌</span> Rendering visual concepts…</p><p class="hint">No source files modified.</p>`;
+      const sbombody =
+        `<p class="hint">Claude Code · vsix-sbom plan implementation</p><p class="ok">✓ Implementation plan prepared</p><p>Plan covers the SBOM generation step, release artifacts,<br>and validation of the packaged extension.</p><p class="path">.plans/vsix-sbom.md</p><div class="rule"></div><p class="hint">› Send a message to continue</p>`;
+      const taskbody =
+        `<p class="hint">Preview · saved task</p><h3>Open issue references in Jira</h3><p>Show “Open in Jira” when a terminal contains<br>an issue reference such as AB-12345.</p><p class="hint">tools/devc-tools &nbsp; · &nbsp; Not started</p><div class="rule"></div><p><span class="path">Plan first</span> &nbsp; or &nbsp; <span class="ok">Implement</span></p>`;
+      function refined() {
+        return `<div class="app">${
+          top(
+            '<button class="btn">▦ &nbsp; Saved layouts ▾</button><button class="btn primary">＋ New task</button>',
+          )
+        }<div class="body">${
+          sidebar('refined')
+        }<main class="main"><div class="workspacebar"><div><h1>tools/devc-tools</h1><p>code-wksp &nbsp; / &nbsp; main &nbsp; · &nbsp; 2 agents</p></div><div class="toolbar"><span class="tool">◫ &nbsp; Split</span><span class="tool">＋ &nbsp; Terminal</span><span class="tool">▱ &nbsp; Files</span><span class="tool">⌥ Z &nbsp; Focus</span></div></div><div class="panels">${
+          panel(
+            'UX exploration',
+            'π',
+            'running',
+            'Working',
+            uxbody,
+            'large focused',
+          )
+        }${panel('VSIX SBOM plan', '✳', 'idle', 'Idle', sbombody)}${
+          panel('Task details', '☷', 'idle', 'Draft', taskbody)
+        }</div></main></div>${foot('01 / REFINED WORKSPACE')}</div>`;
+      }
+      function overview() {
+        return `<div class="app">${
+          top(
+            '<button class="btn">View: All projects ▾</button><button class="btn primary">＋ New task</button>',
+          )
+        }<div class="body">${
+          sidebar('overview')
+        }<main class="main"><div class="tabs"><span class="on">Overview</span><span>Agents <span class="dim">20</span></span><span>Tasks</span><span>Sessions</span></div><div class="content"><div class="eyebrow">WORKSPACE OVERVIEW</div><div class="flex"><div><h1 class="headline">Know what needs you. Then get back to work.</h1><p class="subtitle">Agent activity across your projects, without opening every terminal.</p></div></div><div class="summary"><div><div class="number amber">2</div><div class="caption">Need your input</div></div><div><div class="number blue">3</div><div class="caption">Working</div></div><div><div class="number">15</div><div class="caption">Idle</div></div><div><div class="number">1</div><div class="caption">Unsent task</div></div><div class="grow"></div><span class="pill" style="align-self:center">● &nbsp; Updates live</span></div><div class="attention"><span class="symbol">!</span><div><h3>npm audit failures after pre-release</h3><p>Claude is waiting for a decision about the dependency update strategy.</p></div><span class="grow"></span><span class="small muted">DH-23855</span><button class="btn" style="border-color:#775d3e;color:#edc797;background:#30271d">Review request →</button></div><div class="sectionhead"><h2>Working now <span class="dim small">&nbsp; 3 agents</span></h2><span class="subtlelink">Open workspace →</span></div><div class="cards"><article class="card"><div class="flex"><span class="agenticon pi">π</span>${
+          dot('running', 'Working')
+        }<span class="grow"></span><span class="dim">⋯</span></div><div class="projectname">TOOLS / DEVC-TOOLS</div><h3>UX exploration</h3><div class="excerpt">Inspecting the current workspace and rendering three visual concepts.</div><div class="cardfoot"><span>Started 6 min ago</span><span class="subtlelink">Open panel ↗</span></div></article><article class="card"><div class="flex"><span class="agenticon">✳</span>${
+          dot('running', 'Working')
+        }<span class="grow"></span><span class="dim">⋯</span></div><div class="projectname">DH-24092 / VSIX-SBOM</div><h3>Verify release artifacts</h3><div class="excerpt">Checking the proposed SBOM generation and extension packaging steps.</div><div class="cardfoot"><span>Started 12 min ago</span><span class="subtlelink">Open panel ↗</span></div></article><article class="card"><div class="flex"><span class="agenticon">✳</span>${
+          dot('running', 'Working')
+        }<span class="grow"></span><span class="dim">⋯</span></div><div class="projectname">DH-23956 / MCP-TS-SDK-V2</div><h3>Review latest PR feedback</h3><div class="excerpt">Reviewing the latest comments and comparing the SDK integration changes.</div><div class="cardfoot"><span>Started 18 min ago</span><span class="subtlelink">Open panel ↗</span></div></article></div><div class="sectionhead"><h2>Ready to return to</h2><span class="subtlelink">All sessions →</span></div><div class="table"><div class="tr"><span>SESSION</span><span>PROJECT</span><span>AGENT</span><span>STATUS</span></div><div class="tr"><span>Resume npm publish:prerelease</span><span class="meta">vscode-deephaven</span><span class="meta">Claude</span>${
+          dot('idle', 'Idle')
+        }</div><div class="tr"><span>Report unaccounted entries</span><span class="meta">time-tracking</span><span class="meta">Claude</span>${
+          dot('idle', 'Idle')
+        }</div><div class="tr"><span>Deephaven Docs MCP server access</span><span class="meta">notebooks</span><span class="meta">Claude</span>${
+          dot('idle', 'Idle')
+        }</div></div></div></main></div>${foot('02 / AGENT-FIRST OVERVIEW')}</div>`;
+      }
+      function focus() {
+        return `<div class="app">${
+          top(
+            '<span class="small muted">tools/devc-tools &nbsp; / &nbsp; UX exploration</span><button class="btn">◫ &nbsp; Exit focus <span class="dim">⌥ Z</span></button>',
+          )
+        }<div class="body"><nav class="rail"><span class="railicon">⌕</span><span class="railicon">◫</span><span class="railicon on">▱</span><span class="railicon">☷</span><span class="railicon">◷</span><span class="grow"></span><span class="railicon amber">◉</span></nav><main class="main"><div class="workspacebar"><div><h1>UX exploration</h1><p>tools/devc-tools &nbsp; · &nbsp; main &nbsp; · &nbsp; pi agent</p></div><div class="toolbar"><span class="tool">▱ &nbsp; Files</span><span class="tool">⑂ &nbsp; Changes <span class="green">0</span></span><span class="tool">＋ &nbsp; Add panel</span></div></div><div class="focusbody"><div class="focusterm"><section class="panel focused"><header class="panelhead"><span class="agenticon pi">π</span><span class="title">Agent terminal</span><span class="grow"></span>${
+          dot('running', 'Working')
+        }<span class="dim">&nbsp; ⋯ &nbsp; ⤢</span></header><div class="terminal focus-terminal"><div class="prompt">Look at the UX and propose screenshots of how it could look better.<br>Don't change any of the codebase.</div><h3>Workspace inspection complete</h3><p>The app is reachable. The existing navigation supports projects,<br>terminals, sessions, repositories, files, tasks, and saved layouts.</p><p class="ok">✓ Connected to the live interface<br>✓ Captured a baseline screenshot<br>✓ No input sent to other agents</p><div class="rule"></div><h3>Three visual directions</h3><p><span class="path">01 &nbsp; Refined workspace</span><br>&nbsp;&nbsp;&nbsp;&nbsp;Project-first navigation. Less repetition. Clearer panel context.</p><p><span class="path">02 &nbsp; Agent-first overview</span><br>&nbsp;&nbsp;&nbsp;&nbsp;Surface requests for input and activity across all projects.</p><p><span class="path">03 &nbsp; Focus workspace</span><br>&nbsp;&nbsp;&nbsp;&nbsp;Keep one agent prominent, with its task and other agents nearby.</p><p class="hint">Mockups are standalone files. Live agent output is not modified.</p><div class="inputline"><span class="blue">◌</span> &nbsp; Rendering screenshot concepts…</div></div><div class="termfoot"><span>pi · tools/devc-tools</span><span>⌘ K commands &nbsp; · &nbsp; ⌥ 1–4 switch panels</span></div></section><div class="switcher"><div class="switchcard on"><div class="flex">${
+          dot('running', 'Working')
+        }<span class="grow"></span><span class="tiny dim">⌥ 1</span></div><h4>UX exploration</h4><div class="mini">tools/devc-tools · pi</div></div><div class="switchcard"><div class="flex">${
+          dot('idle', 'Idle')
+        }<span class="grow"></span><span class="tiny dim">⌥ 2</span></div><h4>VSIX SBOM plan</h4><div class="mini">DH-24092 · Claude</div></div><div class="switchcard"><div class="flex">${
+          dot('waiting', 'Needs input')
+        }<span class="grow"></span><span class="tiny dim">⌥ 3</span></div><h4>npm audit failures</h4><div class="mini">DH-23855 · Claude</div></div></div></div><aside class="inspector"><div class="heading"><h2>Task context</h2><span class="small muted">Visible to you, beside the agent</span></div><div class="block"><div class="blocktitle">REQUEST</div><div style="font-size:13px;line-height:1.8;color:#c6d1df">Explore a clearer orchestration UX and present screenshot concepts.</div><div class="pill green" style="margin-top:15px">Read-only review</div></div><div class="block"><div class="blocktitle">DELIVERABLES</div><div class="checkrow"><span class="check">✓</span><span>Inspect current interface</span></div><div class="checkrow"><span class="check">✓</span><span>Capture baseline</span></div><div class="checkrow"><span class="blue">◌</span><span>Render three concepts</span></div><div class="checkrow"><span class="dim">○</span><span>Compare trade-offs</span></div></div><div class="block"><div class="blocktitle">MOCKUP OUTPUTS</div><div class="file"><span>01-refined-workspace.png</span><span class="dim">↗</span></div><div class="file"><span>02-agent-overview.png</span><span class="dim">↗</span></div><div class="file"><span>03-focus-workspace.png</span><span class="dim">↗</span></div><div class="small dim" style="line-height:1.7;margin-top:15px">Standalone files in /tmp.<br>No repository changes.</div></div><div class="block" style="border-bottom:0"><div class="blocktitle">OTHER AGENTS</div><div class="activity"><span class="amber">● &nbsp; npm audit failures</span><br>Needs a decision <span class="dim">· DH-23855</span></div><div class="activity"><span class="muted">● &nbsp; VSIX SBOM plan</span><br>Idle <span class="dim">· DH-24092</span></div><div class="subtlelink" style="margin-top:17px">View all agents →</div></div></aside></div></main></div>${
+          foot('03 / FOCUS WORKSPACE')
+        }</div>`;
+      }
+      document.getElementById('root').innerHTML = q === 'overview'
+        ? overview()
+        : q === 'focus'
+        ? focus()
+        : refined();
+    })();
+    </script>
+  </body>
+</html>

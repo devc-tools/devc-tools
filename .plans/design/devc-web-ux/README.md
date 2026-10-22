@@ -8,10 +8,10 @@ The user likes the proposed visual styling, especially clearer tile headers and 
 
 **Latest alternatives:**
 
-| Concept | Idea | Preview | Explore |
-| --- | --- | --- | --- |
+| Concept                        | Idea                                                                                                                                 | Preview                                    | Explore                                         |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------ | ----------------------------------------------- |
 | **10 — Inline container tabs** | Each expanded container has its own Terminals / Sessions / Repos / Files tabs. Several containers can remain open on different tabs. | [Screenshot](10-inline-container-tabs.png) | [HTML prototype](10-inline-container-tabs.html) |
-| **11 — Container inspector** | Select a container, then browse its tabs in a separate, explicitly scoped area. Optionally keep a second view visible. | [Screenshot](11-container-inspector.png) | [HTML prototype](11-container-inspector.html) |
+| **11 — Container inspector**   | Select a container, then browse its tabs in a separate, explicitly scoped area. Optionally keep a second view visible.               | [Screenshot](11-container-inspector.png)   | [HTML prototype](11-container-inspector.html)   |
 
 **Starting mockup (combines the above with the repo-first decision):** [13 — screenshot](13-starting-mockup.png) · [HTML](13-starting-mockup.html). The top "In use" zone groups tiles, running panes that aren't in the layout, and recent sessions by repo/worktree, with the container muted. Below it, the container tree uses 10's inline tabs. Tile headers show the alias, then the repo and worktree, then the container muted. Interaction details are meant to be worked out live in devc web.
 

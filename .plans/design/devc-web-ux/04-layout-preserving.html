@@ -1,5 +1,456 @@
-<!doctype html><html><head><meta charset="utf-8"><title>devc · Layout-preserving UX proposal</title><style>
-*{box-sizing:border-box}body{margin:0;background:#101318;color:#ced5df;font:12px system-ui,-apple-system,'Segoe UI',sans-serif}.app{height:100vh;display:grid;grid-template-columns:282px 1fr;grid-template-rows:36px 1fr 24px}header{grid-column:1/-1;background:#1a1e26;border-bottom:1px solid #333a45;display:flex;align-items:center;padding:0 13px;gap:13px}.brand{font-weight:720;font-size:14px;color:#e1e8f2}.brand span{background:#b0d4c1;border-radius:4px;color:#1c3028;padding:0 5px;margin-right:6px}.muted{color:#8d98aa}.tiny{font-size:10px}.small{font-size:11px}.grow{flex:1}.green{color:#8ed5aa}.blue{color:#90baf0}.amber{color:#e7bc78}.dot{display:inline-block;width:6px;height:6px;border-radius:50%;background:currentColor}.flex{display:flex;align-items:center;gap:8px}.button{background:#252c37;border:1px solid #414d5f;border-radius:4px;padding:4px 9px;font-size:11px}.shortcut{font-size:10px;color:#8d9caf;margin-left:auto}.sidebar{background:#191e26;border-right:1px solid #343c48;display:flex;flex-direction:column;padding:12px 10px;overflow:hidden}.search{border:1px solid #3b4656;background:#202731;border-radius:5px;padding:8px 9px;display:flex;align-items:center;gap:9px;color:#8e9bad;font-size:11px}.section{font-weight:600;font-size:9px;letter-spacing:1.1px;color:#95a2b4;display:flex;align-items:center;justify-content:space-between;margin:22px 5px 10px}.open{border:1px solid transparent;border-radius:5px;padding:10px 9px;margin:2px 0 5px;background:#1d242e}.open.active{background:#28364a;border-color:#5a82b6}.title{font-size:11px;font-weight:580;color:#d6dfeb;display:flex;align-items:center;gap:7px}.projectmeta{font-size:10px;color:#91a1b7;line-height:1.6;margin:4px 0 0 20px}.openstate{display:flex;gap:6px;align-items:center;font-size:10px;margin:5px 0 0 20px}.agent{color:#a9b8cb;font-size:12px}.task{padding:10px;border:1px solid #343f50;background:#1e2632;border-radius:5px}.tasktitle{font-size:11px;line-height:1.6;color:#c4d0e1}.taskfoot{display:flex;gap:13px;margin-top:10px;font-size:10px;color:#a4c3ec}.row{padding:8px 6px;display:flex;align-items:center;gap:8px;font-size:11px;color:#b0bdd0}.row .sub{margin-left:auto;color:#7f8fa6;font-size:10px}.projectrow{padding:8px 7px;border-radius:4px;display:flex;align-items:center;font-size:11px;gap:8px}.projectrow.selected{background:#242e3c}.history{font-size:11px;line-height:1.5;padding:8px 5px;border-bottom:1px solid #2d3644}.history .path{font-size:10px;color:#8495ad;margin-top:3px}.footnav{margin-top:auto;border-top:1px solid #333c49;padding-top:10px}.main{display:flex;flex-direction:column;min-height:0;min-width:0;background:#0c1015}.workbar{height:34px;display:flex;align-items:center;padding:0 11px;border-bottom:1px solid #303946;gap:13px;background:#161c24;font-size:11px;flex-shrink:0}.workbar .workspace{color:#cfdae9;font-weight:550}.seg{font-size:10px;color:#a7b6c9;border:1px solid #354252;padding:3px 8px;border-radius:4px}.panels{flex:1;min-height:0;display:grid;grid-template-columns:1fr 1.05fr;grid-template-rows:1fr 1fr;gap:6px;padding:7px}.panel{border:1px solid #354152;border-radius:5px;display:flex;flex-direction:column;overflow:hidden;background:#0f1217;min-height:0;min-width:0}.panel.large{grid-row:span 2}.panel.active{border-color:#82a9e4;box-shadow:0 0 0 1px #82a9e422}.panelhead{height:30px;display:flex;align-items:center;padding:0 10px;gap:8px;background:#1e2631;border-bottom:1px solid #354152;font-size:11px;flex-shrink:0}.active .panelhead{background:#2a3b55}.panelhead strong{font-weight:550;color:#d3dfef}.panelhead .context{color:#8da1bd;font-size:10px}.state{display:flex;align-items:center;gap:5px;font-size:10px;margin-left:auto;white-space:nowrap}.chrome{color:#9caec6;font-size:12px;margin-left:10px}.capture{flex:1;min-height:0;position:relative}.capture canvas{width:100%;height:100%;display:block}.bottom{grid-column:1/-1;border-top:1px solid #354151;background:#191f28;display:flex;align-items:center;padding:0 12px;gap:17px;color:#91a1b6;font-size:10px}.bottom .proposal{margin-left:auto;color:#b7c5d7}.number{font:10px monospace;color:#9caec6;background:#293548;border-radius:3px;padding:1px 4px}.navtabs{display:flex;gap:3px;font-size:10px;padding:8px 4px 3px}.navtabs span{padding:5px 8px;color:#92a2b7}.navtabs .on{background:#2b3b50;color:#c7daf3;border-radius:4px}
-</style></head><body><div class="app"><header><div class="brand"><span>d</span>devc</div><span style="color:#4a586b">/</span><span class="small">Development workspace</span><span class="tiny muted">3 open panels · 2 projects</span><span class="grow"></span><span class="button">＋ New task</span><span class="button">⌘ K &nbsp; Commands</span><span class="tiny green">● Connected</span></header><aside class="sidebar"><div class="search">⌕ <span>Find project, agent, or session</span><span class="shortcut">⌘ P</span></div><div class="section"><span>OPEN PANELS <span style="color:#6f829c">&nbsp; 3</span></span><span>▦ &nbsp; ＋</span></div><div class="open"><div class="title"><span class="agent">✳</span> VSIX SBOM <span class="shortcut">⌥ 1</span></div><div class="projectmeta">DH-24092_vsix-sbom</div><div class="openstate muted"><span class="dot"></span>Idle</div></div><div class="open"><div class="title"><span class="agent">✳</span> GitHub PR review <span class="shortcut">⌥ 2</span></div><div class="projectmeta">tools/devc-tools</div><div class="openstate blue"><span class="dot"></span>Working</div></div><div class="open active"><div class="title"><span class="agent">✳</span> Agent session history <span class="shortcut">⌥ 3</span></div><div class="projectmeta">tools/devc-tools</div><div class="openstate green"><span class="dot"></span>Done</div></div><div class="section"><span>TASKS <span style="color:#6f829c">&nbsp; 1</span></span><span>＋</span></div><div class="task"><div class="tasktitle">Open issue references in Jira</div><div class="tiny muted" style="margin-top:5px">tools/devc-tools</div><div class="taskfoot"><span>Send: plan ↗</span><span>Implement ↗</span><span style="margin-left:auto">⋯</span></div></div><div class="row" style="margin-top:4px"><span class="muted">›</span> Sent tasks <span class="sub">13</span></div><div class="section"><span>PROJECTS</span><span>＋</span></div><div class="projectrow selected"><span class="muted">⌄</span><span>tools/devc-tools</span><span class="shortcut blue">2 open</span></div><div class="navtabs"><span class="on">Files</span><span>Repos</span><span>Sessions</span></div><div class="row tiny muted" style="padding-left:23px">› &nbsp; .plans</div><div class="row tiny muted" style="padding-left:23px">› &nbsp; devc</div><div class="row tiny muted" style="padding-left:23px">› &nbsp; devc-desktop</div><div class="projectrow"><span class="muted">›</span><span>DH-24092_vsix-sbom</span><span class="shortcut">1 open</span></div><div class="row muted"><span>›</span> Other projects <span class="sub">Browse all →</span></div><div class="section"><span>RECENT SESSIONS</span><span>View all →</span></div><div class="history">Resume npm publish:prerelease<div class="path">vscode-deephaven · 38m ago</div></div><div class="history">Groovy connection review<div class="path">deephaven-core · 6h ago</div></div><div class="footnav"><div class="row muted">› &nbsp; Not running <span class="sub">Browse →</span></div></div></aside><main class="main"><div class="workbar"><span class="workspace">▦ &nbsp; Review & planning</span><span class="muted tiny">Saved layout</span><span class="grow"></span><span class="seg">＋ Terminal</span><span class="seg">◫ Split</span><span class="seg">⤢ Focus panel</span><span class="seg">Save layout ▾</span></div><div class="panels"><section class="panel large"><div class="panelhead"><span class="agent">✳</span><strong>VSIX SBOM</strong><span class="context">DH-24092_vsix-sbom</span><span class="state muted"><span class="dot"></span>Idle</span><span class="chrome">⋯ &nbsp; ⤢ &nbsp; ×</span></div><div class="capture"><canvas data-crop="780,106,1474,1943"></canvas></div></section><section class="panel"><div class="panelhead"><span class="agent">✳</span><strong>GitHub PR review</strong><span class="context">devc-tools</span><span class="state blue"><span class="dot"></span>Working</span><span class="chrome">⋯ &nbsp; ⤢ &nbsp; ×</span></div><div class="capture"><canvas data-crop="2268,106,1560,941"></canvas></div></section><section class="panel active"><div class="panelhead"><span class="agent">✳</span><strong>Agent session history</strong><span class="context">devc-tools</span><span class="state green"><span class="dot"></span>Done</span><span class="chrome">⋯ &nbsp; ⤢ &nbsp; ×</span></div><div class="capture"><canvas data-crop="2268,1113,1560,936"></canvas></div></section></div></main><footer class="bottom"><span class="green">● Bridge connected</span><span>Keep awake on</span><span>⌥ 1–3 switch panels</span><span class="proposal">04 / LAYOUT-PRESERVING CONCEPT · real terminal content cropped from your screenshot; proposed navigation</span></footer></div><script>
-const image=new Image();image.onload=()=>{document.querySelectorAll('canvas').forEach(canvas=>{const [x,y,w,h]=canvas.dataset.crop.split(',').map(Number);canvas.width=w;canvas.height=h;canvas.getContext('2d').drawImage(image,x,y,w,h,0,0,w,h)});document.body.dataset.ready='true'};image.src='real-layout.png';
-</script></body></html>
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <title>devc · Layout-preserving UX proposal</title>
+    <style>
+    * {
+      box-sizing: border-box;
+    }
+    body {
+      margin: 0;
+      background: #101318;
+      color: #ced5df;
+      font: 12px system-ui,-apple-system,'Segoe UI',sans-serif;
+    }
+    .app {
+      height: 100vh;
+      display: grid;
+      grid-template-columns: 282px 1fr;
+      grid-template-rows: 36px 1fr 24px;
+    }
+    header {
+      grid-column: 1/-1;
+      background: #1a1e26;
+      border-bottom: 1px solid #333a45;
+      display: flex;
+      align-items: center;
+      padding: 0 13px;
+      gap: 13px;
+    }
+    .brand {
+      font-weight: 720;
+      font-size: 14px;
+      color: #e1e8f2;
+    }
+    .brand span {
+      background: #b0d4c1;
+      border-radius: 4px;
+      color: #1c3028;
+      padding: 0 5px;
+      margin-right: 6px;
+    }
+    .muted {
+      color: #8d98aa;
+    }
+    .tiny {
+      font-size: 10px;
+    }
+    .small {
+      font-size: 11px;
+    }
+    .grow {
+      flex: 1;
+    }
+    .green {
+      color: #8ed5aa;
+    }
+    .blue {
+      color: #90baf0;
+    }
+    .amber {
+      color: #e7bc78;
+    }
+    .dot {
+      display: inline-block;
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: currentColor;
+    }
+    .flex {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .button {
+      background: #252c37;
+      border: 1px solid #414d5f;
+      border-radius: 4px;
+      padding: 4px 9px;
+      font-size: 11px;
+    }
+    .shortcut {
+      font-size: 10px;
+      color: #8d9caf;
+      margin-left: auto;
+    }
+    .sidebar {
+      background: #191e26;
+      border-right: 1px solid #343c48;
+      display: flex;
+      flex-direction: column;
+      padding: 12px 10px;
+      overflow: hidden;
+    }
+    .search {
+      border: 1px solid #3b4656;
+      background: #202731;
+      border-radius: 5px;
+      padding: 8px 9px;
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      color: #8e9bad;
+      font-size: 11px;
+    }
+    .section {
+      font-weight: 600;
+      font-size: 9px;
+      letter-spacing: 1.1px;
+      color: #95a2b4;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin: 22px 5px 10px;
+    }
+    .open {
+      border: 1px solid transparent;
+      border-radius: 5px;
+      padding: 10px 9px;
+      margin: 2px 0 5px;
+      background: #1d242e;
+    }
+    .open.active {
+      background: #28364a;
+      border-color: #5a82b6;
+    }
+    .title {
+      font-size: 11px;
+      font-weight: 580;
+      color: #d6dfeb;
+      display: flex;
+      align-items: center;
+      gap: 7px;
+    }
+    .projectmeta {
+      font-size: 10px;
+      color: #91a1b7;
+      line-height: 1.6;
+      margin: 4px 0 0 20px;
+    }
+    .openstate {
+      display: flex;
+      gap: 6px;
+      align-items: center;
+      font-size: 10px;
+      margin: 5px 0 0 20px;
+    }
+    .agent {
+      color: #a9b8cb;
+      font-size: 12px;
+    }
+    .task {
+      padding: 10px;
+      border: 1px solid #343f50;
+      background: #1e2632;
+      border-radius: 5px;
+    }
+    .tasktitle {
+      font-size: 11px;
+      line-height: 1.6;
+      color: #c4d0e1;
+    }
+    .taskfoot {
+      display: flex;
+      gap: 13px;
+      margin-top: 10px;
+      font-size: 10px;
+      color: #a4c3ec;
+    }
+    .row {
+      padding: 8px 6px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 11px;
+      color: #b0bdd0;
+    }
+    .row .sub {
+      margin-left: auto;
+      color: #7f8fa6;
+      font-size: 10px;
+    }
+    .projectrow {
+      padding: 8px 7px;
+      border-radius: 4px;
+      display: flex;
+      align-items: center;
+      font-size: 11px;
+      gap: 8px;
+    }
+    .projectrow.selected {
+      background: #242e3c;
+    }
+    .history {
+      font-size: 11px;
+      line-height: 1.5;
+      padding: 8px 5px;
+      border-bottom: 1px solid #2d3644;
+    }
+    .history .path {
+      font-size: 10px;
+      color: #8495ad;
+      margin-top: 3px;
+    }
+    .footnav {
+      margin-top: auto;
+      border-top: 1px solid #333c49;
+      padding-top: 10px;
+    }
+    .main {
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+      min-width: 0;
+      background: #0c1015;
+    }
+    .workbar {
+      height: 34px;
+      display: flex;
+      align-items: center;
+      padding: 0 11px;
+      border-bottom: 1px solid #303946;
+      gap: 13px;
+      background: #161c24;
+      font-size: 11px;
+      flex-shrink: 0;
+    }
+    .workbar .workspace {
+      color: #cfdae9;
+      font-weight: 550;
+    }
+    .seg {
+      font-size: 10px;
+      color: #a7b6c9;
+      border: 1px solid #354252;
+      padding: 3px 8px;
+      border-radius: 4px;
+    }
+    .panels {
+      flex: 1;
+      min-height: 0;
+      display: grid;
+      grid-template-columns: 1fr 1.05fr;
+      grid-template-rows: 1fr 1fr;
+      gap: 6px;
+      padding: 7px;
+    }
+    .panel {
+      border: 1px solid #354152;
+      border-radius: 5px;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      background: #0f1217;
+      min-height: 0;
+      min-width: 0;
+    }
+    .panel.large {
+      grid-row: span 2;
+    }
+    .panel.active {
+      border-color: #82a9e4;
+      box-shadow: 0 0 0 1px #82a9e422;
+    }
+    .panelhead {
+      height: 30px;
+      display: flex;
+      align-items: center;
+      padding: 0 10px;
+      gap: 8px;
+      background: #1e2631;
+      border-bottom: 1px solid #354152;
+      font-size: 11px;
+      flex-shrink: 0;
+    }
+    .active .panelhead {
+      background: #2a3b55;
+    }
+    .panelhead strong {
+      font-weight: 550;
+      color: #d3dfef;
+    }
+    .panelhead .context {
+      color: #8da1bd;
+      font-size: 10px;
+    }
+    .state {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 10px;
+      margin-left: auto;
+      white-space: nowrap;
+    }
+    .chrome {
+      color: #9caec6;
+      font-size: 12px;
+      margin-left: 10px;
+    }
+    .capture {
+      flex: 1;
+      min-height: 0;
+      position: relative;
+    }
+    .capture canvas {
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
+    .bottom {
+      grid-column: 1/-1;
+      border-top: 1px solid #354151;
+      background: #191f28;
+      display: flex;
+      align-items: center;
+      padding: 0 12px;
+      gap: 17px;
+      color: #91a1b6;
+      font-size: 10px;
+    }
+    .bottom .proposal {
+      margin-left: auto;
+      color: #b7c5d7;
+    }
+    .number {
+      font: 10px monospace;
+      color: #9caec6;
+      background: #293548;
+      border-radius: 3px;
+      padding: 1px 4px;
+    }
+    .navtabs {
+      display: flex;
+      gap: 3px;
+      font-size: 10px;
+      padding: 8px 4px 3px;
+    }
+    .navtabs span {
+      padding: 5px 8px;
+      color: #92a2b7;
+    }
+    .navtabs .on {
+      background: #2b3b50;
+      color: #c7daf3;
+      border-radius: 4px;
+    }
+    </style>
+  </head>
+  <body>
+    <div class="app">
+      <header><div class="brand"><span>d</span>devc</div><span style="color:#4a586b">/</span><span class="small">Development workspace</span><span class="tiny muted">3 open panels · 2 projects</span><span class="grow"></span><span class="button">＋ New task</span><span class="button">⌘ K &nbsp; Commands</span><span class="tiny green">● Connected</span></header>
+      <aside class="sidebar">
+        <div
+          class="search">⌕ <span>Find project, agent, or session</span><span class="shortcut">⌘ P</span></div>
+        <div
+          class="section"><span>OPEN PANELS <span style="color:#6f829c">&nbsp; 3</span></span><span>▦ &nbsp; ＋</span></div>
+        <div class="open">
+          <div
+            class="title"><span class="agent">✳</span> VSIX SBOM <span class="shortcut">⌥ 1</span></div>
+          <div class="projectmeta">DH-24092_vsix-sbom</div>
+          <div class="openstate muted"><span class="dot"></span>Idle</div>
+        </div>
+        <div class="open">
+          <div
+            class="title"><span class="agent">✳</span> GitHub PR review <span class="shortcut">⌥ 2</span></div>
+          <div class="projectmeta">tools/devc-tools</div>
+          <div class="openstate blue"><span class="dot"></span>Working</div>
+        </div>
+        <div class="open active">
+          <div
+            class="title"><span class="agent">✳</span> Agent session history <span class="shortcut">⌥ 3</span></div>
+          <div class="projectmeta">tools/devc-tools</div>
+          <div class="openstate green"><span class="dot"></span>Done</div>
+        </div>
+        <div
+          class="section"><span>TASKS <span style="color:#6f829c">&nbsp; 1</span></span><span>＋</span></div>
+        <div class="task">
+          <div class="tasktitle">Open issue references in Jira</div>
+          <div class="tiny muted" style="margin-top:5px">tools/devc-tools</div>
+          <div
+            class="taskfoot"><span>Send: plan ↗</span><span>Implement ↗</span><span style="margin-left:auto">⋯</span></div>
+        </div>
+        <div class="row"
+          style="margin-top:4px"><span class="muted">›</span> Sent tasks <span class="sub">13</span></div>
+        <div class="section"><span>PROJECTS</span><span>＋</span></div>
+        <div
+          class="projectrow selected"><span class="muted">⌄</span><span>tools/devc-tools</span><span class="shortcut blue">2 open</span></div>
+        <div
+          class="navtabs"><span class="on">Files</span><span>Repos</span><span>Sessions</span></div>
+        <div class="row tiny muted"
+          style="padding-left:23px">› &nbsp; .plans</div>
+        <div class="row tiny muted"
+          style="padding-left:23px">› &nbsp; devc</div>
+        <div class="row tiny muted"
+          style="padding-left:23px">› &nbsp; devc-desktop</div>
+        <div
+          class="projectrow"><span class="muted">›</span><span>DH-24092_vsix-sbom</span><span class="shortcut">1 open</span></div>
+        <div
+          class="row muted"><span>›</span> Other projects <span class="sub">Browse all →</span></div>
+        <div
+          class="section"><span>RECENT SESSIONS</span><span>View all →</span></div>
+        <div
+          class="history">Resume npm publish:prerelease<div class="path">vscode-deephaven · 38m ago</div></div>
+        <div
+          class="history">Groovy connection review<div class="path">deephaven-core · 6h ago</div></div>
+        <div class="footnav">
+          <div
+            class="row muted">› &nbsp; Not running <span class="sub">Browse →</span></div>
+        </div>
+      </aside>
+      <main class="main">
+        <div
+          class="workbar"><span class="workspace">▦ &nbsp; Review & planning</span><span class="muted tiny">Saved layout</span><span class="grow"></span><span class="seg">＋ Terminal</span><span class="seg">◫ Split</span><span class="seg">⤢ Focus panel</span><span class="seg">Save layout ▾</span></div>
+        <div class="panels">
+          <section class="panel large">
+            <div
+              class="panelhead"><span class="agent">✳</span><strong>VSIX SBOM</strong><span class="context">DH-24092_vsix-sbom</span><span class="state muted"><span class="dot"></span>Idle</span><span class="chrome">⋯ &nbsp; ⤢ &nbsp; ×</span></div>
+            <div class="capture">
+              <canvas data-crop="780,106,1474,1943"></canvas>
+            </div>
+          </section>
+          <section class="panel">
+            <div
+              class="panelhead"><span class="agent">✳</span><strong>GitHub PR review</strong><span class="context">devc-tools</span><span class="state blue"><span class="dot"></span>Working</span><span class="chrome">⋯ &nbsp; ⤢ &nbsp; ×</span></div>
+            <div class="capture">
+              <canvas data-crop="2268,106,1560,941"></canvas>
+            </div>
+          </section>
+          <section class="panel active">
+            <div
+              class="panelhead"><span class="agent">✳</span><strong>Agent session history</strong><span class="context">devc-tools</span><span class="state green"><span class="dot"></span>Done</span><span class="chrome">⋯ &nbsp; ⤢ &nbsp; ×</span></div>
+            <div class="capture">
+              <canvas data-crop="2268,1113,1560,936"></canvas>
+            </div>
+          </section>
+        </div>
+      </main>
+      <footer
+        class="bottom"><span class="green">● Bridge connected</span><span>Keep awake on</span><span>⌥ 1–3 switch panels</span><span class="proposal">04 / LAYOUT-PRESERVING CONCEPT · real terminal content cropped from your screenshot; proposed navigation</span></footer>
+    </div>
+    <script>
+    const image = new Image();
+    image.onload = () => {
+      document.querySelectorAll('canvas').forEach((canvas) => {
+        const [x, y, w, h] = canvas.dataset.crop.split(',').map(Number);
+        canvas.width = w;
+        canvas.height = h;
+        canvas.getContext('2d').drawImage(image, x, y, w, h, 0, 0, w, h);
+      });
+      document.body.dataset.ready = 'true';
+    };
+    image.src = 'real-layout.png';
+    </script>
+  </body>
+</html>

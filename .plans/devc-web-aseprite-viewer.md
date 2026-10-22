@@ -41,10 +41,10 @@ devc-tools has its own decoder, with no runtime or source dependency on any othe
 ## Concept boundaries
 
 - **"Frame" vs. "tile".** In this plan a frame is an animation frame of the sprite. Tiles stay
-  `devc web`'s layout tiles. Aseprite *tilemap* layers (layer type 2) are unsupported, so the
+  `devc web`'s layout tiles. Aseprite _tilemap_ layers (layer type 2) are unsupported, so the
   decoder never says "tile" in any other sense than in its error message.
 - **Layer visibility here is view state.** Unchecking a layer hides it in this tile only. It
-  never touches the file, and it overrides the file's own *visible* flag. That flag is only the
+  never touches the file, and it overrides the file's own _visible_ flag. That flag is only the
   initial state.
 
 ## Contracts
@@ -117,7 +117,7 @@ Required coverage, all from the spec:
   - Space toggles play while the tile is focused; `,` / `.` step one frame.
   - Playback uses each frame's `durationMs`, with a `setTimeout` chain and no fixed rate.
 - **Tags.**
-  - A `<select>`: *All frames* (the default), then each tag.
+  - A `<select>`: _All frames_ (the default), then each tag.
   - Choosing a tag plays only `from…to`, in its `direction`. Ping-pong does not repeat the end
     frames.
 - **Layers.**

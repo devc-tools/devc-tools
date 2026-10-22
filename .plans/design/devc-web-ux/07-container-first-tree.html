@@ -1,3 +1,843 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>07 / CONTAINER-FIRST TREE · devc UX proposal</title><style>
-*{box-sizing:border-box}body{margin:0;color:#cbd5e3;background:#0e1218;font:12px system-ui,-apple-system,'Segoe UI',sans-serif}.app{height:100vh;display:grid;grid-template-columns:322px minmax(0,1fr);grid-template-rows:minmax(0,1fr) 24px}.sidebar{min-height:0;background:#181e27;border-right:1px solid #344151;display:flex;flex-direction:column}.sidebar-head{height:30px;flex-shrink:0;display:flex;align-items:center;gap:9px;padding:0 12px;border-bottom:1px solid #303a49;background:#1b222d}.brand{font-size:13px;font-weight:700;letter-spacing:-.3px}.brand span{color:#a5c6b9}.connection{font-size:10px;color:#8bcca9;margin-left:auto}.collapse{color:#91a1b5;font-size:13px}.scroll{flex:1;min-height:0;overflow:auto;padding:0 10px 12px;scrollbar-width:thin;scrollbar-color:#46566e #1b222c}.section{height:31px;margin:12px 3px 4px;display:flex;align-items:center;justify-content:space-between;color:#9caac0;font-size:9px;font-weight:650;letter-spacing:1.2px}.section-action{font-weight:400;letter-spacing:0;color:#8194af;font-size:10px}.tile-link{height:29px;padding:0 7px;display:flex;align-items:center;gap:7px;font-size:11px;border:1px solid transparent;border-radius:4px;cursor:pointer}.tile-link.selected{background:#2a3c55;border-color:#5b81b3}.symbol{font-size:11px;color:#96abc8;flex-shrink:0}.truncate{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}.tile-link .truncate{flex:1}.status{display:flex;align-items:center;gap:5px;font-size:10px;white-space:nowrap;flex-shrink:0}.status i{width:5px;height:5px;border-radius:50%;background:currentColor}.idle{color:#9aa9bd}.work{color:#8dbcf9}.done{color:#8bd6ae}.wait{color:#e9b87e}kbd{font:9px ui-monospace,monospace;color:#92a5bf;margin-left:4px}.tree-row{height:27px;display:flex;align-items:center;gap:7px;padding:0 5px;font-size:11px;cursor:pointer;position:relative;list-style:none;border-radius:3px}summary::-webkit-details-marker{display:none}summary:before{content:'›';font-size:12px;color:#7e92af;flex-shrink:0;width:9px;display:inline-block}details[open]>summary:before{content:'⌄'}summary:hover,.leaf:hover{background:#253042}.tree-row .truncate{flex:1}.count,.quiet{margin-left:auto;flex-shrink:0;font-size:10px;color:#8598b4}.quiet{font-family:ui-monospace,monospace;font-size:9px}.container>summary{height:30px;font-weight:550}.container.current>summary{color:#dfebfb;background:#202c3c}.container-name{font-size:11px;flex:1}.rollup{margin-left:auto;display:flex;gap:7px;flex-shrink:0}.rollup b{font-size:9px;font-weight:400}.branch>summary{padding-left:calc(9px + var(--level)*12px)}.leaf{padding-left:calc(21px + var(--level)*12px);height:25px;font-size:10px}.leaf .status{font-size:9px;margin-left:auto}.related{background:#223047}.cwd-note{font-size:9px;color:#8296b2;padding:0 5px 6px 52px}.taskline{font-size:11px;line-height:1.5;color:#c1d1e8;padding:7px 6px 7px 22px}.ellipsis{float:right;color:#8a9ab2}.recent-toggle{display:flex;align-items:center;gap:7px;font-size:10px;color:#8fa3bf;padding:4px 6px;cursor:pointer}.session{padding:7px 5px;border-bottom:1px solid #293443}.session-title{display:flex;gap:7px;align-items:center;font-size:10px}.session-title time{margin-left:auto;color:#8497b1;font-size:9px;flex-shrink:0}.session-context{font-size:9px;color:#859bb9;margin:4px 0 0 18px}.recent-note{font-size:9px;color:#6f88ab;padding:9px 5px 2px}.inactive{border-top:1px solid #303d50;margin-top:10px;padding-top:6px}.empty{font-size:10px;color:#91a1b8;line-height:1.8;padding:8px 12px}.main{min-width:0;min-height:0;padding:5px;display:grid;grid-template-columns:1fr 1.05fr;grid-template-rows:1fr 1fr;gap:5px}.panel{display:flex;flex-direction:column;border:1px solid #354459;border-radius:5px;min-height:0;min-width:0;overflow:hidden;background:#101318}.panel.large{grid-row:span 2}.panel.active{border-color:#83aff0;box-shadow:0 0 0 1px #83aff028}.panelhead{height:29px;flex-shrink:0;display:flex;align-items:center;gap:8px;background:#1d2734;border-bottom:1px solid #344155;padding:0 9px;cursor:pointer}.panel.active .panelhead{background:#2c405f}.panelhead strong{font-size:11px;font-weight:600;color:#e0eaf7;white-space:nowrap}.panel-context{font-size:9px;color:#8fa7c7;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}.controls{font-size:12px;color:#a0b3ce;white-space:nowrap;margin-left:7px}.capture{flex:1;min-height:0}.capture canvas{height:100%;width:100%;display:block}.footer{grid-column:1/-1;display:flex;gap:16px;align-items:center;padding:0 10px;background:#19212c;border-top:1px solid #354358;color:#8fa2be;font-size:9px}.footer .green{color:#8acfab}.footer .caption{margin-left:auto;color:#aebed3}.split .upper{flex:0 0 459px;padding:0 10px 7px;overflow:auto;border-bottom:3px solid #465a77;scrollbar-width:thin}.split .lower{flex:1;min-height:0;overflow:auto;padding:0 10px 9px;scrollbar-width:thin;scrollbar-color:#46566e #1b222c}.split .lower .section{position:sticky;top:0;background:#181e27;margin-top:0;height:34px;z-index:1}.split .upper .section{margin-top:8px;height:26px}.split .session{padding-top:5px;padding-bottom:5px}.tree-first .app{grid-template-columns:344px minmax(0,1fr)}.tree-first .section{margin-top:8px;height:27px}.tree-first .branch>summary{height:25px}.tree-first .leaf{height:23px}.tree-first .session{padding-top:5px;padding-bottom:5px}.tree-first .session-context{margin-top:3px}.container-detail .section{margin-top:6px}.hint{color:#6e86a9;font-size:9px;padding:8px 6px 0}.container details{border-left:1px solid #2a3a50;margin-left:5px}.container>.branch{margin-left:6px}button{font:inherit}
-</style></head><body class="tree-first"><div class="app"><aside class="sidebar"><div class="sidebar-head"><span class="collapse">«</span><span class="brand"><span>d</span>evc web</span><span class="connection">● live</span><span class="collapse">▢</span></div><div class="scroll"><div class="section"><span>LAYOUT</span><span class="section-action">3 tiles</span></div><div class="layout-list"><div class="tile-link " data-focus="0" title="Browser tile 1 · code-wksp · DH-24092_vsix-sbom"><span class="symbol">✳</span><span class="truncate">VSIX SBOM</span><span class="status idle"><i></i>idle</span><kbd>⌥1</kbd></div><div class="tile-link " data-focus="1" title="Browser tile 2 · code-wksp · tools/devc-tools"><span class="symbol">✳</span><span class="truncate">GitHub PR review</span><span class="status work"><i></i>work</span><kbd>⌥2</kbd></div><div class="tile-link selected" data-focus="2" title="Browser tile 3 · code-wksp · tools/devc-tools"><span class="symbol">✳</span><span class="truncate">Agent session history</span><span class="status done"><i></i>done</span><kbd>⌥3</kbd></div></div><div class="section"><span>RECENT SESSIONS</span><span class="section-action">↻</span></div><details  class="recents"><summary class="recent-toggle">Show recent sessions<span class="count">5</span></summary><div class="session" title="code-wksp · tools/devc-tools · original session cwd and session ID retained"><div class="session-title"><span class="symbol">✳</span><span class="truncate">Implementation plan for devc task</span><time>now</time></div><div class="session-context">code-wksp · tools/devc-tools</div></div><div class="session" title="code-wksp · vscode-deephaven · original session cwd and session ID retained"><div class="session-title"><span class="symbol">✳</span><span class="truncate">Resume npm publish:prerelease</span><time>38m</time></div><div class="session-context">code-wksp · vscode-deephaven</div></div><div class="session" title="code-wksp · deephaven-core · original session cwd and session ID retained"><div class="session-title"><span class="symbol">✳</span><span class="truncate">Groovy connection review</span><time>6h</time></div><div class="session-context">code-wksp · deephaven-core</div></div><div class="session" title="code-wksp · tools/devc-tools · original session cwd and session ID retained"><div class="session-title"><span class="symbol">✳</span><span class="truncate">Devc up bridge repo</span><time>20h</time></div><div class="session-context">code-wksp · tools/devc-tools</div></div><div class="session" title="code-wksp · tools/devc-tools · original session cwd and session ID retained"><div class="session-title"><span class="symbol">✳</span><span class="truncate">Devc task file</span><time>20h</time></div><div class="session-context">code-wksp · tools/devc-tools</div></div><div class="recent-note">Scoped to original container &amp; session cwd</div></details><div class="section"><span>CONTAINERS</span><span class="section-action">＋ &nbsp; ⋯</span></div><details class="container current" open><summary class="tree-row" title="code-wksp"><span class="container-name truncate">code-wksp</span><span class="rollup" title="Agent statuses among this container’s three illustrated terminals"><b class="work">● work 1</b><b class="done">● done 1</b><b class="idle">● idle 1</b></span></summary><details class="branch" open style="--level:1"><summary class="tree-row"><span class="truncate">Terminals</span><span class="count">3 &nbsp; ＋</span></summary><div class="tree-row leaf " title="DH-24092_vsix-sbom" style="--level:2"><span class="symbol">✳</span><span class="truncate">DH-24092_vsix-sbom</span><span class="status idle"><i></i>idle</span></div><div class="tree-row leaf " title="I want a Github PR review feature added to my devc web tool" style="--level:2"><span class="symbol">✳</span><span class="truncate">I want a Github PR review feature added to my devc web tool</span><span class="status work"><i></i>work</span></div><div class="tree-row leaf related" title="I’d like a way to list last n agent sessions to resume" style="--level:2"><span class="symbol">✳</span><span class="truncate">I’d like a way to list last n agent sessions to resume</span><span class="status done"><i></i>done</span></div></details><details class="branch"  style="--level:1"><summary class="tree-row"><span class="truncate">Sessions</span><span class="quiet">↻</span></summary><div class="tree-row leaf " title="Implementation plan for devc task" style="--level:2"><span class="symbol">▱</span><span class="truncate">Implementation plan for devc task</span></div><div class="cwd-note">tools/devc-tools · now</div></details><details class="branch" open style="--level:1"><summary class="tree-row"><span class="truncate">Repos</span><span class="quiet">↑4 ↓209</span></summary><details class="branch"  style="--level:2"><summary class="tree-row"><span class="truncate">.plans/deephaven-core</span></summary><details class="branch"  style="--level:3"><summary class="tree-row"><span class="truncate">main</span></summary><div class="tree-row leaf " title="README.md" style="--level:4"><span class="symbol">▱</span><span class="truncate">README.md</span></div></details><details class="branch"  style="--level:3"><summary class="tree-row"><span class="truncate">feature1</span></summary><div class="tree-row leaf " title="NOTES.md" style="--level:4"><span class="symbol">▱</span><span class="truncate">NOTES.md</span></div></details></details><details class="branch"  style="--level:2"><summary class="tree-row"><span class="truncate">.plans/deephaven-plugins</span></summary></details><details class="branch" open style="--level:2"><summary class="tree-row"><span class="truncate">tools/devc-tools</span></summary><details class="branch"  style="--level:3"><summary class="tree-row"><span class="truncate">.plans</span></summary></details><details class="branch"  style="--level:3"><summary class="tree-row"><span class="truncate">devc</span></summary></details><details class="branch"  style="--level:3"><summary class="tree-row"><span class="truncate">devc-desktop</span></summary></details></details><details class="branch"  style="--level:2"><summary class="tree-row"><span class="truncate">vscode-deephaven.worktrees</span></summary></details></details><details class="branch" open style="--level:1"><summary class="tree-row"><span class="truncate">Files</span></summary><details class="branch"  style="--level:2"><summary class="tree-row"><span class="truncate">/workspaces</span></summary><details class="branch"  style="--level:3"><summary class="tree-row"><span class="truncate">tools</span></summary></details></details><details class="branch"  style="--level:2"><summary class="tree-row"><span class="truncate">/home/vscode</span></summary></details></details></details><details class="container " ><summary class="tree-row" title=".agents"><span class="container-name truncate">.agents</span><span class="quiet">shell</span></summary><details class="branch"  style="--level:1"><summary class="tree-row"><span class="truncate">Terminals</span><span class="count">3 &nbsp; ＋</span></summary><div class="tree-row leaf " title="DH-24092_vsix-sbom" style="--level:2"><span class="symbol">✳</span><span class="truncate">DH-24092_vsix-sbom</span><span class="status idle"><i></i>idle</span></div><div class="tree-row leaf " title="I want a Github PR review feature added to my devc web tool" style="--level:2"><span class="symbol">✳</span><span class="truncate">I want a Github PR review feature added to my devc web tool</span><span class="status work"><i></i>work</span></div><div class="tree-row leaf related" title="I’d like a way to list last n agent sessions to resume" style="--level:2"><span class="symbol">✳</span><span class="truncate">I’d like a way to list last n agent sessions to resume</span><span class="status done"><i></i>done</span></div></details><details class="branch"  style="--level:1"><summary class="tree-row"><span class="truncate">Sessions</span><span class="quiet">↻</span></summary><div class="tree-row leaf " title="Implementation plan for devc task" style="--level:2"><span class="symbol">▱</span><span class="truncate">Implementation plan for devc task</span></div><div class="cwd-note">tools/devc-tools · now</div></details><details class="branch"  style="--level:1"><summary class="tree-row"><span class="truncate">Repos</span><span class="quiet">↑4 ↓209</span></summary><details class="branch"  style="--level:2"><summary class="tree-row"><span class="truncate">.plans/deephaven-core</span></summary><details class="branch"  style="--level:3"><summary class="tree-row"><span class="truncate">main</span></summary><div class="tree-row leaf " title="README.md" style="--level:4"><span class="symbol">▱</span><span class="truncate">README.md</span></div></details><details class="branch"  style="--level:3"><summary class="tree-row"><span class="truncate">feature1</span></summary><div class="tree-row leaf " title="NOTES.md" style="--level:4"><span class="symbol">▱</span><span class="truncate">NOTES.md</span></div></details></details><details class="branch"  style="--level:2"><summary class="tree-row"><span class="truncate">.plans/deephaven-plugins</span></summary></details><details class="branch"  style="--level:2"><summary class="tree-row"><span class="truncate">tools/devc-tools</span></summary><details class="branch"  style="--level:3"><summary class="tree-row"><span class="truncate">.plans</span></summary></details><details class="branch"  style="--level:3"><summary class="tree-row"><span class="truncate">devc</span></summary></details><details class="branch"  style="--level:3"><summary class="tree-row"><span class="truncate">devc-desktop</span></summary></details></details><details class="branch"  style="--level:2"><summary class="tree-row"><span class="truncate">vscode-deephaven.worktrees</span></summary></details></details><details class="branch"  style="--level:1"><summary class="tree-row"><span class="truncate">Files</span></summary><details class="branch"  style="--level:2"><summary class="tree-row"><span class="truncate">/workspaces</span></summary><details class="branch"  style="--level:3"><summary class="tree-row"><span class="truncate">tools</span></summary></details></details><details class="branch"  style="--level:2"><summary class="tree-row"><span class="truncate">/home/vscode</span></summary></details></details></details><details class="container " ><summary class="tree-row" title="devc-dev"><span class="container-name truncate">devc-dev</span><span class="quiet">shell</span></summary><details class="branch"  style="--level:1"><summary class="tree-row"><span class="truncate">Terminals</span><span class="count">3 &nbsp; ＋</span></summary><div class="tree-row leaf " title="DH-24092_vsix-sbom" style="--level:2"><span class="symbol">✳</span><span class="truncate">DH-24092_vsix-sbom</span><span class="status idle"><i></i>idle</span></div><div class="tree-row leaf " title="I want a Github PR review feature added to my devc web tool" style="--level:2"><span class="symbol">✳</span><span class="truncate">I want a Github PR review feature added to my devc web tool</span><span class="status work"><i></i>work</span></div><div class="tree-row leaf related" title="I’d like a way to list last n agent sessions to resume" style="--level:2"><span class="symbol">✳</span><span class="truncate">I’d like a way to list last n agent sessions to resume</span><span class="status done"><i></i>done</span></div></details><details class="branch"  style="--level:1"><summary class="tree-row"><span class="truncate">Sessions</span><span class="quiet">↻</span></summary><div class="tree-row leaf " title="Implementation plan for devc task" style="--level:2"><span class="symbol">▱</span><span class="truncate">Implementation plan for devc task</span></div><div class="cwd-note">tools/devc-tools · now</div></details><details class="branch"  style="--level:1"><summary class="tree-row"><span class="truncate">Repos</span><span class="quiet">↑4 ↓209</span></summary><details class="branch"  style="--level:2"><summary class="tree-row"><span class="truncate">.plans/deephaven-core</span></summary><details class="branch"  style="--level:3"><summary class="tree-row"><span class="truncate">main</span></summary><div class="tree-row leaf " title="README.md" style="--level:4"><span class="symbol">▱</span><span class="truncate">README.md</span></div></details><details class="branch"  style="--level:3"><summary class="tree-row"><span class="truncate">feature1</span></summary><div class="tree-row leaf " title="NOTES.md" style="--level:4"><span class="symbol">▱</span><span class="truncate">NOTES.md</span></div></details></details><details class="branch"  style="--level:2"><summary class="tree-row"><span class="truncate">.plans/deephaven-plugins</span></summary></details><details class="branch"  style="--level:2"><summary class="tree-row"><span class="truncate">tools/devc-tools</span></summary><details class="branch"  style="--level:3"><summary class="tree-row"><span class="truncate">.plans</span></summary></details><details class="branch"  style="--level:3"><summary class="tree-row"><span class="truncate">devc</span></summary></details><details class="branch"  style="--level:3"><summary class="tree-row"><span class="truncate">devc-desktop</span></summary></details></details><details class="branch"  style="--level:2"><summary class="tree-row"><span class="truncate">vscode-deephaven.worktrees</span></summary></details></details><details class="branch"  style="--level:1"><summary class="tree-row"><span class="truncate">Files</span></summary><details class="branch"  style="--level:2"><summary class="tree-row"><span class="truncate">/workspaces</span></summary><details class="branch"  style="--level:3"><summary class="tree-row"><span class="truncate">tools</span></summary></details></details><details class="branch"  style="--level:2"><summary class="tree-row"><span class="truncate">/home/vscode</span></summary></details></details></details><details class="container " ><summary class="tree-row" title="DH-21980_python-managed-servers"><span class="container-name truncate">DH-21980_python-managed-servers</span><span class="quiet">idle</span></summary></details><details class="container " ><summary class="tree-row" title="DH-23855_devcontainer-config"><span class="container-name truncate">DH-23855_devcontainer-config</span><span class="quiet">idle</span></summary></details><details class="container " ><summary class="tree-row" title="DH-23956_mcp-ts-sdk-v2"><span class="container-name truncate">DH-23956_mcp-ts-sdk-v2</span><span class="quiet">idle</span></summary></details><details class="container " ><summary class="tree-row" title="feature1 · deephaven-core.worktrees"><span class="container-name truncate">feature1 · deephaven-core.worktrees</span><span class="quiet">idle</span></summary></details><details class="container " ><summary class="tree-row" title="time-tracking"><span class="container-name truncate">time-tracking</span><span class="quiet">idle</span></summary></details><details class="inactive"><summary class="tree-row">Not running <span class="count">15</span></summary><div class="empty">Stopped containers and known project folders.<br>Start / pin / forget actions stay scoped here.</div></details><div class="section"><span>TASKS</span><span class="section-action">＋</span></div><details ><summary class="tree-row"><span class="truncate">code-wksp · tools/devc-tools</span><span class="count">1</span></summary><div class="taskline">Open issue references in Jira <span class="ellipsis">⋯</span></div></details><details><summary class="tree-row"><span>Sent</span><span class="count">13</span></summary><div class="empty">Sent tasks remain grouped by container and repo.</div></details></div></aside><main class="main"><section class="panel large " data-tile="0"><div class="panelhead" data-focus="0" title="Proposed user-renamed tile. Double-click rename is a proposal, not implemented here. Original title: vsix-sbom plan implementation"><span class="symbol">✳</span><strong>VSIX SBOM</strong><span class="panel-context">code-wksp / DH-24092_vsix-sbom</span><span class="status idle"><i></i>idle</span><span class="controls">⋯ &nbsp; ⤢ &nbsp; ×</span></div><div class="capture"><canvas data-crop="780,106,1474,1943"></canvas></div></section><section class="panel  " data-tile="1"><div class="panelhead" data-focus="1" title="Proposed user-renamed tile. Double-click rename is a proposal, not implemented here. Original title: I want a Github PR review feature added to my devc web tool. It needs to show a…"><span class="symbol">✳</span><strong>GitHub PR review</strong><span class="panel-context">code-wksp / tools/devc-tools</span><span class="status work"><i></i>work</span><span class="controls">⋯ &nbsp; ⤢ &nbsp; ×</span></div><div class="capture"><canvas data-crop="2268,106,1560,941"></canvas></div></section><section class="panel  active" data-tile="2"><div class="panelhead" data-focus="2" title="Proposed user-renamed tile. Double-click rename is a proposal, not implemented here. Original title: I’d like a way to list last n agent sessions to resume. Not sure of best place…"><span class="symbol">✳</span><strong>Agent session history</strong><span class="panel-context">code-wksp / tools/devc-tools</span><span class="status done"><i></i>done</span><span class="controls">⋯ &nbsp; ⤢ &nbsp; ×</span></div><div class="capture"><canvas data-crop="2268,1113,1560,936"></canvas></div></section></main><footer class="footer"><span class="green">● bridge</span><span>☕ awake</span><span>Proposed aliases · ⌥N shortcuts subject to terminal/OS conflicts</span><span class="caption">07 / CONTAINER-FIRST TREE · DESIGN PROPOSAL · original screenshot content, not a live connection</span></footer></div><script>const image=new Image();image.onload=()=>{document.querySelectorAll('canvas').forEach(c=>{const [x,y,w,h]=c.dataset.crop.split(',').map(Number);c.width=w;c.height=h;c.getContext('2d').drawImage(image,x,y,w,h,0,0,w,h)});document.body.dataset.ready='true'};image.src='real-layout.png';document.querySelectorAll('[data-focus]').forEach(el=>el.addEventListener('click',()=>{const id=el.dataset.focus;document.querySelectorAll('[data-tile]').forEach(p=>p.classList.toggle('active',p.dataset.tile===id));document.querySelectorAll('.tile-link').forEach(p=>p.classList.toggle('selected',p.dataset.focus===id))}));</script></body></html>
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>07 / CONTAINER-FIRST TREE · devc UX proposal</title>
+    <style>
+    * {
+      box-sizing: border-box;
+    }
+    body {
+      margin: 0;
+      color: #cbd5e3;
+      background: #0e1218;
+      font: 12px system-ui,-apple-system,'Segoe UI',sans-serif;
+    }
+    .app {
+      height: 100vh;
+      display: grid;
+      grid-template-columns: 322px minmax(0,1fr);
+      grid-template-rows: minmax(0,1fr) 24px;
+    }
+    .sidebar {
+      min-height: 0;
+      background: #181e27;
+      border-right: 1px solid #344151;
+      display: flex;
+      flex-direction: column;
+    }
+    .sidebar-head {
+      height: 30px;
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      padding: 0 12px;
+      border-bottom: 1px solid #303a49;
+      background: #1b222d;
+    }
+    .brand {
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: -.3px;
+    }
+    .brand span {
+      color: #a5c6b9;
+    }
+    .connection {
+      font-size: 10px;
+      color: #8bcca9;
+      margin-left: auto;
+    }
+    .collapse {
+      color: #91a1b5;
+      font-size: 13px;
+    }
+    .scroll {
+      flex: 1;
+      min-height: 0;
+      overflow: auto;
+      padding: 0 10px 12px;
+      scrollbar-width: thin;
+      scrollbar-color: #46566e #1b222c;
+    }
+    .section {
+      height: 31px;
+      margin: 12px 3px 4px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      color: #9caac0;
+      font-size: 9px;
+      font-weight: 650;
+      letter-spacing: 1.2px;
+    }
+    .section-action {
+      font-weight: 400;
+      letter-spacing: 0;
+      color: #8194af;
+      font-size: 10px;
+    }
+    .tile-link {
+      height: 29px;
+      padding: 0 7px;
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      font-size: 11px;
+      border: 1px solid transparent;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    .tile-link.selected {
+      background: #2a3c55;
+      border-color: #5b81b3;
+    }
+    .symbol {
+      font-size: 11px;
+      color: #96abc8;
+      flex-shrink: 0;
+    }
+    .truncate {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      min-width: 0;
+    }
+    .tile-link .truncate {
+      flex: 1;
+    }
+    .status {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 10px;
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+    .status i {
+      width: 5px;
+      height: 5px;
+      border-radius: 50%;
+      background: currentColor;
+    }
+    .idle {
+      color: #9aa9bd;
+    }
+    .work {
+      color: #8dbcf9;
+    }
+    .done {
+      color: #8bd6ae;
+    }
+    .wait {
+      color: #e9b87e;
+    }
+    kbd {
+      font: 9px ui-monospace,monospace;
+      color: #92a5bf;
+      margin-left: 4px;
+    }
+    .tree-row {
+      height: 27px;
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      padding: 0 5px;
+      font-size: 11px;
+      cursor: pointer;
+      position: relative;
+      list-style: none;
+      border-radius: 3px;
+    }
+    summary::-webkit-details-marker {
+      display: none;
+    }
+    summary:before {
+      content: '›';
+      font-size: 12px;
+      color: #7e92af;
+      flex-shrink: 0;
+      width: 9px;
+      display: inline-block;
+    }
+    details[open] > summary:before {
+      content: '⌄';
+    }
+    summary:hover,
+    .leaf:hover {
+      background: #253042;
+    }
+    .tree-row .truncate {
+      flex: 1;
+    }
+    .count,
+    .quiet {
+      margin-left: auto;
+      flex-shrink: 0;
+      font-size: 10px;
+      color: #8598b4;
+    }
+    .quiet {
+      font-family: ui-monospace,monospace;
+      font-size: 9px;
+    }
+    .container > summary {
+      height: 30px;
+      font-weight: 550;
+    }
+    .container.current > summary {
+      color: #dfebfb;
+      background: #202c3c;
+    }
+    .container-name {
+      font-size: 11px;
+      flex: 1;
+    }
+    .rollup {
+      margin-left: auto;
+      display: flex;
+      gap: 7px;
+      flex-shrink: 0;
+    }
+    .rollup b {
+      font-size: 9px;
+      font-weight: 400;
+    }
+    .branch > summary {
+      padding-left: calc(9px + var(--level)*12px);
+    }
+    .leaf {
+      padding-left: calc(21px + var(--level)*12px);
+      height: 25px;
+      font-size: 10px;
+    }
+    .leaf .status {
+      font-size: 9px;
+      margin-left: auto;
+    }
+    .related {
+      background: #223047;
+    }
+    .cwd-note {
+      font-size: 9px;
+      color: #8296b2;
+      padding: 0 5px 6px 52px;
+    }
+    .taskline {
+      font-size: 11px;
+      line-height: 1.5;
+      color: #c1d1e8;
+      padding: 7px 6px 7px 22px;
+    }
+    .ellipsis {
+      float: right;
+      color: #8a9ab2;
+    }
+    .recent-toggle {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      font-size: 10px;
+      color: #8fa3bf;
+      padding: 4px 6px;
+      cursor: pointer;
+    }
+    .session {
+      padding: 7px 5px;
+      border-bottom: 1px solid #293443;
+    }
+    .session-title {
+      display: flex;
+      gap: 7px;
+      align-items: center;
+      font-size: 10px;
+    }
+    .session-title time {
+      margin-left: auto;
+      color: #8497b1;
+      font-size: 9px;
+      flex-shrink: 0;
+    }
+    .session-context {
+      font-size: 9px;
+      color: #859bb9;
+      margin: 4px 0 0 18px;
+    }
+    .recent-note {
+      font-size: 9px;
+      color: #6f88ab;
+      padding: 9px 5px 2px;
+    }
+    .inactive {
+      border-top: 1px solid #303d50;
+      margin-top: 10px;
+      padding-top: 6px;
+    }
+    .empty {
+      font-size: 10px;
+      color: #91a1b8;
+      line-height: 1.8;
+      padding: 8px 12px;
+    }
+    .main {
+      min-width: 0;
+      min-height: 0;
+      padding: 5px;
+      display: grid;
+      grid-template-columns: 1fr 1.05fr;
+      grid-template-rows: 1fr 1fr;
+      gap: 5px;
+    }
+    .panel {
+      display: flex;
+      flex-direction: column;
+      border: 1px solid #354459;
+      border-radius: 5px;
+      min-height: 0;
+      min-width: 0;
+      overflow: hidden;
+      background: #101318;
+    }
+    .panel.large {
+      grid-row: span 2;
+    }
+    .panel.active {
+      border-color: #83aff0;
+      box-shadow: 0 0 0 1px #83aff028;
+    }
+    .panelhead {
+      height: 29px;
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      background: #1d2734;
+      border-bottom: 1px solid #344155;
+      padding: 0 9px;
+      cursor: pointer;
+    }
+    .panel.active .panelhead {
+      background: #2c405f;
+    }
+    .panelhead strong {
+      font-size: 11px;
+      font-weight: 600;
+      color: #e0eaf7;
+      white-space: nowrap;
+    }
+    .panel-context {
+      font-size: 9px;
+      color: #8fa7c7;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      flex: 1;
+    }
+    .controls {
+      font-size: 12px;
+      color: #a0b3ce;
+      white-space: nowrap;
+      margin-left: 7px;
+    }
+    .capture {
+      flex: 1;
+      min-height: 0;
+    }
+    .capture canvas {
+      height: 100%;
+      width: 100%;
+      display: block;
+    }
+    .footer {
+      grid-column: 1/-1;
+      display: flex;
+      gap: 16px;
+      align-items: center;
+      padding: 0 10px;
+      background: #19212c;
+      border-top: 1px solid #354358;
+      color: #8fa2be;
+      font-size: 9px;
+    }
+    .footer .green {
+      color: #8acfab;
+    }
+    .footer .caption {
+      margin-left: auto;
+      color: #aebed3;
+    }
+    .split .upper {
+      flex: 0 0 459px;
+      padding: 0 10px 7px;
+      overflow: auto;
+      border-bottom: 3px solid #465a77;
+      scrollbar-width: thin;
+    }
+    .split .lower {
+      flex: 1;
+      min-height: 0;
+      overflow: auto;
+      padding: 0 10px 9px;
+      scrollbar-width: thin;
+      scrollbar-color: #46566e #1b222c;
+    }
+    .split .lower .section {
+      position: sticky;
+      top: 0;
+      background: #181e27;
+      margin-top: 0;
+      height: 34px;
+      z-index: 1;
+    }
+    .split .upper .section {
+      margin-top: 8px;
+      height: 26px;
+    }
+    .split .session {
+      padding-top: 5px;
+      padding-bottom: 5px;
+    }
+    .tree-first .app {
+      grid-template-columns: 344px minmax(0,1fr);
+    }
+    .tree-first .section {
+      margin-top: 8px;
+      height: 27px;
+    }
+    .tree-first .branch > summary {
+      height: 25px;
+    }
+    .tree-first .leaf {
+      height: 23px;
+    }
+    .tree-first .session {
+      padding-top: 5px;
+      padding-bottom: 5px;
+    }
+    .tree-first .session-context {
+      margin-top: 3px;
+    }
+    .container-detail .section {
+      margin-top: 6px;
+    }
+    .hint {
+      color: #6e86a9;
+      font-size: 9px;
+      padding: 8px 6px 0;
+    }
+    .container details {
+      border-left: 1px solid #2a3a50;
+      margin-left: 5px;
+    }
+    .container > .branch {
+      margin-left: 6px;
+    }
+    button {
+      font: inherit;
+    }
+    </style>
+  </head>
+  <body class="tree-first">
+    <div class="app">
+      <aside class="sidebar">
+        <div
+          class="sidebar-head"><span class="collapse">«</span><span class="brand"><span>d</span>evc web</span><span class="connection">● live</span><span class="collapse">▢</span></div>
+        <div class="scroll">
+          <div
+            class="section"><span>LAYOUT</span><span class="section-action">3 tiles</span></div>
+          <div class="layout-list">
+            <div class="tile-link " data-focus="0"
+              title="Browser tile 1 · code-wksp · DH-24092_vsix-sbom"><span class="symbol">✳</span><span class="truncate">VSIX SBOM</span><span class="status idle"><i></i>idle</span><kbd>⌥1</kbd></div>
+            <div class="tile-link " data-focus="1"
+              title="Browser tile 2 · code-wksp · tools/devc-tools"><span class="symbol">✳</span><span class="truncate">GitHub PR review</span><span class="status work"><i></i>work</span><kbd>⌥2</kbd></div>
+            <div class="tile-link selected" data-focus="2"
+              title="Browser tile 3 · code-wksp · tools/devc-tools"><span class="symbol">✳</span><span class="truncate">Agent session history</span><span class="status done"><i></i>done</span><kbd>⌥3</kbd></div>
+          </div>
+          <div
+            class="section"><span>RECENT SESSIONS</span><span class="section-action">↻</span></div>
+          <details class="recents">
+            <summary
+              class="recent-toggle">Show recent sessions<span class="count">5</span></summary>
+            <div class="session"
+              title="code-wksp · tools/devc-tools · original session cwd and session ID retained">
+              <div
+                class="session-title"><span class="symbol">✳</span><span class="truncate">Implementation plan for devc task</span><time>now</time></div>
+              <div class="session-context">code-wksp · tools/devc-tools</div>
+            </div>
+            <div class="session"
+              title="code-wksp · vscode-deephaven · original session cwd and session ID retained">
+              <div
+                class="session-title"><span class="symbol">✳</span><span class="truncate">Resume npm publish:prerelease</span><time>38m</time></div>
+              <div class="session-context">code-wksp · vscode-deephaven</div>
+            </div>
+            <div class="session"
+              title="code-wksp · deephaven-core · original session cwd and session ID retained">
+              <div
+                class="session-title"><span class="symbol">✳</span><span class="truncate">Groovy connection review</span><time>6h</time></div>
+              <div class="session-context">code-wksp · deephaven-core</div>
+            </div>
+            <div class="session"
+              title="code-wksp · tools/devc-tools · original session cwd and session ID retained">
+              <div
+                class="session-title"><span class="symbol">✳</span><span class="truncate">Devc up bridge repo</span><time>20h</time></div>
+              <div class="session-context">code-wksp · tools/devc-tools</div>
+            </div>
+            <div class="session"
+              title="code-wksp · tools/devc-tools · original session cwd and session ID retained">
+              <div
+                class="session-title"><span class="symbol">✳</span><span class="truncate">Devc task file</span><time>20h</time></div>
+              <div class="session-context">code-wksp · tools/devc-tools</div>
+            </div>
+            <div
+              class="recent-note">Scoped to original container &amp; session cwd</div>
+          </details>
+          <div
+            class="section"><span>CONTAINERS</span><span class="section-action">＋ &nbsp; ⋯</span></div>
+          <details class="container current" open>
+            <summary class="tree-row"
+              title="code-wksp"><span class="container-name truncate">code-wksp</span><span class="rollup" title="Agent statuses among this container’s three illustrated terminals"><b class="work">● work 1</b><b class="done">● done 1</b><b class="idle">● idle 1</b></span></summary>
+            <details class="branch" open style="--level:1">
+              <summary
+                class="tree-row"><span class="truncate">Terminals</span><span class="count">3 &nbsp; ＋</span></summary>
+              <div class="tree-row leaf " title="DH-24092_vsix-sbom"
+                style="--level:2"><span class="symbol">✳</span><span class="truncate">DH-24092_vsix-sbom</span><span class="status idle"><i></i>idle</span></div>
+              <div class="tree-row leaf "
+                title="I want a Github PR review feature added to my devc web tool"
+                style="--level:2"><span class="symbol">✳</span><span class="truncate">I want a Github PR review feature added to my devc web tool</span><span class="status work"><i></i>work</span></div>
+              <div class="tree-row leaf related"
+                title="I’d like a way to list last n agent sessions to resume"
+                style="--level:2"><span class="symbol">✳</span><span class="truncate">I’d like a way to list last n agent sessions to resume</span><span class="status done"><i></i>done</span></div>
+            </details>
+            <details class="branch" style="--level:1">
+              <summary
+                class="tree-row"><span class="truncate">Sessions</span><span class="quiet">↻</span></summary>
+              <div class="tree-row leaf "
+                title="Implementation plan for devc task"
+                style="--level:2"><span class="symbol">▱</span><span class="truncate">Implementation plan for devc task</span></div>
+              <div class="cwd-note">tools/devc-tools · now</div>
+            </details>
+            <details class="branch" open style="--level:1">
+              <summary
+                class="tree-row"><span class="truncate">Repos</span><span class="quiet">↑4 ↓209</span></summary>
+              <details class="branch" style="--level:2">
+                <summary
+                  class="tree-row"><span class="truncate">.plans/deephaven-core</span></summary>
+                <details class="branch" style="--level:3">
+                  <summary
+                    class="tree-row"><span class="truncate">main</span></summary>
+                  <div class="tree-row leaf " title="README.md"
+                    style="--level:4"><span class="symbol">▱</span><span class="truncate">README.md</span></div>
+                </details>
+                <details class="branch" style="--level:3">
+                  <summary
+                    class="tree-row"><span class="truncate">feature1</span></summary>
+                  <div class="tree-row leaf " title="NOTES.md"
+                    style="--level:4"><span class="symbol">▱</span><span class="truncate">NOTES.md</span></div>
+                </details>
+              </details>
+              <details class="branch" style="--level:2">
+                <summary
+                  class="tree-row"><span class="truncate">.plans/deephaven-plugins</span></summary>
+              </details>
+              <details class="branch" open style="--level:2">
+                <summary
+                  class="tree-row"><span class="truncate">tools/devc-tools</span></summary>
+                <details class="branch" style="--level:3">
+                  <summary
+                    class="tree-row"><span class="truncate">.plans</span></summary>
+                </details>
+                <details class="branch" style="--level:3">
+                  <summary
+                    class="tree-row"><span class="truncate">devc</span></summary>
+                </details>
+                <details class="branch" style="--level:3">
+                  <summary
+                    class="tree-row"><span class="truncate">devc-desktop</span></summary>
+                </details>
+              </details>
+              <details class="branch" style="--level:2">
+                <summary
+                  class="tree-row"><span class="truncate">vscode-deephaven.worktrees</span></summary>
+              </details>
+            </details>
+            <details class="branch" open style="--level:1">
+              <summary
+                class="tree-row"><span class="truncate">Files</span></summary>
+              <details class="branch" style="--level:2">
+                <summary
+                  class="tree-row"><span class="truncate">/workspaces</span></summary>
+                <details class="branch" style="--level:3">
+                  <summary
+                    class="tree-row"><span class="truncate">tools</span></summary>
+                </details>
+              </details>
+              <details class="branch" style="--level:2">
+                <summary
+                  class="tree-row"><span class="truncate">/home/vscode</span></summary>
+              </details>
+            </details>
+          </details>
+          <details class="container ">
+            <summary class="tree-row"
+              title=".agents"><span class="container-name truncate">.agents</span><span class="quiet">shell</span></summary>
+            <details class="branch" style="--level:1">
+              <summary
+                class="tree-row"><span class="truncate">Terminals</span><span class="count">3 &nbsp; ＋</span></summary>
+              <div class="tree-row leaf " title="DH-24092_vsix-sbom"
+                style="--level:2"><span class="symbol">✳</span><span class="truncate">DH-24092_vsix-sbom</span><span class="status idle"><i></i>idle</span></div>
+              <div class="tree-row leaf "
+                title="I want a Github PR review feature added to my devc web tool"
+                style="--level:2"><span class="symbol">✳</span><span class="truncate">I want a Github PR review feature added to my devc web tool</span><span class="status work"><i></i>work</span></div>
+              <div class="tree-row leaf related"
+                title="I’d like a way to list last n agent sessions to resume"
+                style="--level:2"><span class="symbol">✳</span><span class="truncate">I’d like a way to list last n agent sessions to resume</span><span class="status done"><i></i>done</span></div>
+            </details>
+            <details class="branch" style="--level:1">
+              <summary
+                class="tree-row"><span class="truncate">Sessions</span><span class="quiet">↻</span></summary>
+              <div class="tree-row leaf "
+                title="Implementation plan for devc task"
+                style="--level:2"><span class="symbol">▱</span><span class="truncate">Implementation plan for devc task</span></div>
+              <div class="cwd-note">tools/devc-tools · now</div>
+            </details>
+            <details class="branch" style="--level:1">
+              <summary
+                class="tree-row"><span class="truncate">Repos</span><span class="quiet">↑4 ↓209</span></summary>
+              <details class="branch" style="--level:2">
+                <summary
+                  class="tree-row"><span class="truncate">.plans/deephaven-core</span></summary>
+                <details class="branch" style="--level:3">
+                  <summary
+                    class="tree-row"><span class="truncate">main</span></summary>
+                  <div class="tree-row leaf " title="README.md"
+                    style="--level:4"><span class="symbol">▱</span><span class="truncate">README.md</span></div>
+                </details>
+                <details class="branch" style="--level:3">
+                  <summary
+                    class="tree-row"><span class="truncate">feature1</span></summary>
+                  <div class="tree-row leaf " title="NOTES.md"
+                    style="--level:4"><span class="symbol">▱</span><span class="truncate">NOTES.md</span></div>
+                </details>
+              </details>
+              <details class="branch" style="--level:2">
+                <summary
+                  class="tree-row"><span class="truncate">.plans/deephaven-plugins</span></summary>
+              </details>
+              <details class="branch" style="--level:2">
+                <summary
+                  class="tree-row"><span class="truncate">tools/devc-tools</span></summary>
+                <details class="branch" style="--level:3">
+                  <summary
+                    class="tree-row"><span class="truncate">.plans</span></summary>
+                </details>
+                <details class="branch" style="--level:3">
+                  <summary
+                    class="tree-row"><span class="truncate">devc</span></summary>
+                </details>
+                <details class="branch" style="--level:3">
+                  <summary
+                    class="tree-row"><span class="truncate">devc-desktop</span></summary>
+                </details>
+              </details>
+              <details class="branch" style="--level:2">
+                <summary
+                  class="tree-row"><span class="truncate">vscode-deephaven.worktrees</span></summary>
+              </details>
+            </details>
+            <details class="branch" style="--level:1">
+              <summary
+                class="tree-row"><span class="truncate">Files</span></summary>
+              <details class="branch" style="--level:2">
+                <summary
+                  class="tree-row"><span class="truncate">/workspaces</span></summary>
+                <details class="branch" style="--level:3">
+                  <summary
+                    class="tree-row"><span class="truncate">tools</span></summary>
+                </details>
+              </details>
+              <details class="branch" style="--level:2">
+                <summary
+                  class="tree-row"><span class="truncate">/home/vscode</span></summary>
+              </details>
+            </details>
+          </details>
+          <details class="container ">
+            <summary class="tree-row"
+              title="devc-dev"><span class="container-name truncate">devc-dev</span><span class="quiet">shell</span></summary>
+            <details class="branch" style="--level:1">
+              <summary
+                class="tree-row"><span class="truncate">Terminals</span><span class="count">3 &nbsp; ＋</span></summary>
+              <div class="tree-row leaf " title="DH-24092_vsix-sbom"
+                style="--level:2"><span class="symbol">✳</span><span class="truncate">DH-24092_vsix-sbom</span><span class="status idle"><i></i>idle</span></div>
+              <div class="tree-row leaf "
+                title="I want a Github PR review feature added to my devc web tool"
+                style="--level:2"><span class="symbol">✳</span><span class="truncate">I want a Github PR review feature added to my devc web tool</span><span class="status work"><i></i>work</span></div>
+              <div class="tree-row leaf related"
+                title="I’d like a way to list last n agent sessions to resume"
+                style="--level:2"><span class="symbol">✳</span><span class="truncate">I’d like a way to list last n agent sessions to resume</span><span class="status done"><i></i>done</span></div>
+            </details>
+            <details class="branch" style="--level:1">
+              <summary
+                class="tree-row"><span class="truncate">Sessions</span><span class="quiet">↻</span></summary>
+              <div class="tree-row leaf "
+                title="Implementation plan for devc task"
+                style="--level:2"><span class="symbol">▱</span><span class="truncate">Implementation plan for devc task</span></div>
+              <div class="cwd-note">tools/devc-tools · now</div>
+            </details>
+            <details class="branch" style="--level:1">
+              <summary
+                class="tree-row"><span class="truncate">Repos</span><span class="quiet">↑4 ↓209</span></summary>
+              <details class="branch" style="--level:2">
+                <summary
+                  class="tree-row"><span class="truncate">.plans/deephaven-core</span></summary>
+                <details class="branch" style="--level:3">
+                  <summary
+                    class="tree-row"><span class="truncate">main</span></summary>
+                  <div class="tree-row leaf " title="README.md"
+                    style="--level:4"><span class="symbol">▱</span><span class="truncate">README.md</span></div>
+                </details>
+                <details class="branch" style="--level:3">
+                  <summary
+                    class="tree-row"><span class="truncate">feature1</span></summary>
+                  <div class="tree-row leaf " title="NOTES.md"
+                    style="--level:4"><span class="symbol">▱</span><span class="truncate">NOTES.md</span></div>
+                </details>
+              </details>
+              <details class="branch" style="--level:2">
+                <summary
+                  class="tree-row"><span class="truncate">.plans/deephaven-plugins</span></summary>
+              </details>
+              <details class="branch" style="--level:2">
+                <summary
+                  class="tree-row"><span class="truncate">tools/devc-tools</span></summary>
+                <details class="branch" style="--level:3">
+                  <summary
+                    class="tree-row"><span class="truncate">.plans</span></summary>
+                </details>
+                <details class="branch" style="--level:3">
+                  <summary
+                    class="tree-row"><span class="truncate">devc</span></summary>
+                </details>
+                <details class="branch" style="--level:3">
+                  <summary
+                    class="tree-row"><span class="truncate">devc-desktop</span></summary>
+                </details>
+              </details>
+              <details class="branch" style="--level:2">
+                <summary
+                  class="tree-row"><span class="truncate">vscode-deephaven.worktrees</span></summary>
+              </details>
+            </details>
+            <details class="branch" style="--level:1">
+              <summary
+                class="tree-row"><span class="truncate">Files</span></summary>
+              <details class="branch" style="--level:2">
+                <summary
+                  class="tree-row"><span class="truncate">/workspaces</span></summary>
+                <details class="branch" style="--level:3">
+                  <summary
+                    class="tree-row"><span class="truncate">tools</span></summary>
+                </details>
+              </details>
+              <details class="branch" style="--level:2">
+                <summary
+                  class="tree-row"><span class="truncate">/home/vscode</span></summary>
+              </details>
+            </details>
+          </details>
+          <details class="container ">
+            <summary class="tree-row"
+              title="DH-21980_python-managed-servers"><span class="container-name truncate">DH-21980_python-managed-servers</span><span class="quiet">idle</span></summary>
+          </details>
+          <details class="container ">
+            <summary class="tree-row"
+              title="DH-23855_devcontainer-config"><span class="container-name truncate">DH-23855_devcontainer-config</span><span class="quiet">idle</span></summary>
+          </details>
+          <details class="container ">
+            <summary class="tree-row"
+              title="DH-23956_mcp-ts-sdk-v2"><span class="container-name truncate">DH-23956_mcp-ts-sdk-v2</span><span class="quiet">idle</span></summary>
+          </details>
+          <details class="container ">
+            <summary class="tree-row"
+              title="feature1 · deephaven-core.worktrees"><span class="container-name truncate">feature1 · deephaven-core.worktrees</span><span class="quiet">idle</span></summary>
+          </details>
+          <details class="container ">
+            <summary class="tree-row"
+              title="time-tracking"><span class="container-name truncate">time-tracking</span><span class="quiet">idle</span></summary>
+          </details>
+          <details class="inactive">
+            <summary
+              class="tree-row">Not running <span class="count">15</span></summary>
+            <div
+              class="empty">Stopped containers and known project folders.<br>Start / pin / forget actions stay scoped here.</div>
+          </details>
+          <div
+            class="section"><span>TASKS</span><span class="section-action">＋</span></div>
+          <details>
+            <summary
+              class="tree-row"><span class="truncate">code-wksp · tools/devc-tools</span><span class="count">1</span></summary>
+            <div
+              class="taskline">Open issue references in Jira <span class="ellipsis">⋯</span></div>
+          </details>
+          <details>
+            <summary
+              class="tree-row"><span>Sent</span><span class="count">13</span></summary>
+            <div
+              class="empty">Sent tasks remain grouped by container and repo.</div>
+          </details>
+        </div>
+      </aside>
+      <main class="main">
+        <section class="panel large " data-tile="0">
+          <div class="panelhead" data-focus="0"
+            title="Proposed user-renamed tile. Double-click rename is a proposal, not implemented here. Original title: vsix-sbom plan implementation"><span class="symbol">✳</span><strong>VSIX SBOM</strong><span class="panel-context">code-wksp / DH-24092_vsix-sbom</span><span class="status idle"><i></i>idle</span><span class="controls">⋯ &nbsp; ⤢ &nbsp; ×</span></div>
+          <div class="capture">
+            <canvas data-crop="780,106,1474,1943"></canvas>
+          </div>
+        </section>
+        <section class="panel  " data-tile="1">
+          <div class="panelhead" data-focus="1"
+            title="Proposed user-renamed tile. Double-click rename is a proposal, not implemented here. Original title: I want a Github PR review feature added to my devc web tool. It needs to show a…"><span class="symbol">✳</span><strong>GitHub PR review</strong><span class="panel-context">code-wksp / tools/devc-tools</span><span class="status work"><i></i>work</span><span class="controls">⋯ &nbsp; ⤢ &nbsp; ×</span></div>
+          <div class="capture">
+            <canvas data-crop="2268,106,1560,941"></canvas>
+          </div>
+        </section>
+        <section class="panel  active" data-tile="2">
+          <div class="panelhead" data-focus="2"
+            title="Proposed user-renamed tile. Double-click rename is a proposal, not implemented here. Original title: I’d like a way to list last n agent sessions to resume. Not sure of best place…"><span class="symbol">✳</span><strong>Agent session history</strong><span class="panel-context">code-wksp / tools/devc-tools</span><span class="status done"><i></i>done</span><span class="controls">⋯ &nbsp; ⤢ &nbsp; ×</span></div>
+          <div class="capture">
+            <canvas data-crop="2268,1113,1560,936"></canvas>
+          </div>
+        </section>
+      </main>
+      <footer
+        class="footer"><span class="green">● bridge</span><span>☕ awake</span><span>Proposed aliases · ⌥N shortcuts subject to terminal/OS conflicts</span><span class="caption">07 / CONTAINER-FIRST TREE · DESIGN PROPOSAL · original screenshot content, not a live connection</span></footer>
+    </div>
+    <script>
+    const image = new Image();
+    image.onload = () => {
+      document.querySelectorAll('canvas').forEach((c) => {
+        const [x, y, w, h] = c.dataset.crop.split(',').map(Number);
+        c.width = w;
+        c.height = h;
+        c.getContext('2d').drawImage(image, x, y, w, h, 0, 0, w, h);
+      });
+      document.body.dataset.ready = 'true';
+    };
+    image.src = 'real-layout.png';
+    document.querySelectorAll('[data-focus]').forEach((el) =>
+      el.addEventListener('click', () => {
+        const id = el.dataset.focus;
+        document.querySelectorAll('[data-tile]').forEach((p) =>
+          p.classList.toggle('active', p.dataset.tile === id)
+        );
+        document.querySelectorAll('.tile-link').forEach((p) =>
+          p.classList.toggle('selected', p.dataset.focus === id)
+        );
+      })
+    );
+    </script>
+  </body>
+</html>
