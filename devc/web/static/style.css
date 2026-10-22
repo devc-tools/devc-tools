@@ -389,7 +389,8 @@ body.resizing-zones {
   background: var(--card-bg);
 }
 
-/* Its header's click shows or hides the card's past sessions, so hovering it lights the card. */
+/* Its header's click hides what the card's toggles opened, or its worktrees' cards: hovering it
+   lights the card. */
 .repo-card:has(> .row.repo-card-head:not(.inert):hover) {
   --card-bg: var(--row-hover);
 }
@@ -399,11 +400,12 @@ body.resizing-zones {
   padding-left: 6px;
 }
 
-.repo-card .row.repo-card-head .chevron {
+/* No chevron's gap, but on a repo's card with worktrees' cards under it. */
+.repo-card .row.repo-card-head:not([aria-expanded]) .chevron {
   display: none;
 }
 
-/* The header takes the card's color, hovered or not; without past sessions, no pointer. */
+/* The header takes the card's color, hovered or not; when its click does nothing, no pointer. */
 .repo-card .row.repo-card-head,
 .repo-card .row.repo-card-head:hover {
   --row-bg: var(--card-bg);
@@ -496,6 +498,34 @@ body.resizing-zones {
 .in-use-run > .repo-card,
 .container-card > .repo-card {
   margin: 0 0 5px;
+}
+
+/* A worktree's card, indented under its repo's with a rail joining it to the cards above. */
+.container-card > .repo-card.worktree {
+  position: relative;
+  margin-left: 14px;
+}
+
+.container-card > .repo-card.worktree::before,
+.container-card > .repo-card.worktree-continues::after {
+  content: '';
+  position: absolute;
+  left: -10px;
+  width: 8px;
+  border-left: 1px solid #46597a;
+  pointer-events: none;
+}
+
+.container-card > .repo-card.worktree::before {
+  top: -7px;
+  height: calc(50% + 7px);
+  border-bottom: 1px solid #46597a;
+  border-bottom-left-radius: 4px;
+}
+
+.container-card > .repo-card.worktree-continues::after {
+  top: 50%;
+  bottom: -7px;
 }
 
 .in-use-run > .repo-card:last-child {

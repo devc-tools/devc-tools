@@ -290,9 +290,13 @@ is published from any container: the host server finds devcontainers with
   pane in it no tile shows, shells too); terminals outside every repo get a
   card named after the container. A card's header buttons show its past agent
   sessions, its pull request and its files under its terminals, and open a new
-  terminal or task there; a click on the header shows its past sessions. A
-  card is **active** while it has a tile, an agent no tile shows, or a session
-  from the last day: active cards are under **In use**, each container's in a
+  terminal or task there; those open under the card until you click their
+  button again or click the header, which closes them all. Under
+  **Containers**, a worktree's card is indented under its repo's, joined by a
+  rail; with nothing open, a click on that repo's header hides or shows them
+  (its chevron, on the left, points down while they show). Anywhere else, with nothing open, the
+  header's click does nothing. A card is **active** while it has a tile, an agent no tile
+  shows, or a session from the last day: active cards are under **In use**, each container's in a
   card under its name; the rest are under **Containers**, in their container's
   card, after its header and before its **Files** row (the container's own
   filesystem from `/`). A repo mounted in two containers has a card in each;

@@ -905,6 +905,7 @@ const LABELS = {
   resumeSession: 'Resume session',
   showPastSessions: (n) => `Show past sessions (${n})`,
   hidePastSessions: 'Hide past sessions',
+  worktreesHidden: (n) => `${n} worktree${n === 1 ? '' : 's'} hidden`,
   copySessionId: 'Copy session id',
   pullRequest: 'Pull request',
   openHere: 'Open terminal here',
@@ -953,6 +954,12 @@ function loadSidebarState() {
     cardHistoryOpen: new Set(
       Array.isArray(saved?.cardHistoryOpen)
         ? saved.cardHistoryOpen.filter((f) => typeof f === 'string')
+        : [],
+    ),
+    /** Repo cards (by `repoCardKey`) whose worktrees' cards are hidden; new ones show them. */
+    worktreesClosed: new Set(
+      Array.isArray(saved?.worktreesClosed)
+        ? saved.worktreesClosed.filter((f) => typeof f === 'string')
         : [],
     ),
     /** Containers (by local folder) whose Files row is open; new ones start closed. */
@@ -1034,6 +1041,7 @@ function saveSidebarState() {
       JSON.stringify({
         collapsed: [...sidebarState.collapsed],
         cardHistoryOpen: [...sidebarState.cardHistoryOpen],
+        worktreesClosed: [...sidebarState.worktreesClosed],
         containerFilesOpen: [...sidebarState.containerFilesOpen],
         prOpen: [...sidebarState.prOpen],
         prFolders: sidebarState.prFolders,
@@ -1684,9 +1692,11 @@ function containerNameOf(localFolder) {
  * the container's name for the card of what is outside every repo), its terminals (tiles, then
  * panes no tile shows, shells too), then while their toggles are on its past sessions, its pull
  * request and its files. The toggles' state is the card's wherever it is shown. The header's click
- * shows or hides its past sessions; without any it does nothing and doesn't look clickable.
+ * hides what its toggles opened; with none open, a repo's card in Containers shows or hides its
+ * worktrees' cards there (see `containerRows`), and any other does nothing and doesn't look
+ * clickable. `worktrees` is how many worktrees' cards follow it in Containers, hidden or not.
  */
-function repoCard(card) {
+function repoCard(card, worktrees = 0) {
   const { key, localFolder, repo } = card;
   const c = containerByFolder(localFolder);
   const fr = { localFolder, root: repo ? repo.folder : localFolder };
@@ -1704,25 +1714,46 @@ function repoCard(card) {
     saveSidebarState();
     renderTree();
   };
+  const worktreesHidden = worktrees > 0 &&
+    sidebarState.worktreesClosed.has(key);
+  const anyOpen = historyOn || prOn || filesOn;
+  const headClick = () => {
+    if (anyOpen) {
+      sidebarState.cardHistoryOpen.delete(key);
+      sidebarState.prOpen.delete(prKey(localFolder, fr.root));
+      saveSidebarState();
+      // Saves and renders again itself.
+      if (filesOn) tree.collapse('');
+      else renderTree();
+    } else if (worktrees > 0) {
+      if (!sidebarState.worktreesClosed.delete(key)) {
+        sidebarState.worktreesClosed.add(key);
+      }
+      saveSidebarState();
+      renderTree();
+    }
+  };
   const idle = card.tiles.length === 0 && card.panes.length === 0;
   const head = treeRow(
     key,
     0,
-    undefined,
+    // A chevron on a repo's card with worktrees' cards under it, open while they show.
+    worktrees > 0 ? !worktreesHidden : undefined,
     {
       // Nothing runs in it: its name is muted, so what is at work stands out.
       class: [
         'repo-card-head',
         idle ? 'idle' : '',
-        hasHistory ? '' : 'inert',
+        anyOpen || worktrees > 0 ? '' : 'inert',
       ].filter((k) => k).join(' '),
       // Its path in the container, then where that is mounted from on the host.
       title: [
         repo?.containerFolder ?? repo?.folder ?? localFolder,
         repo?.containerFolder ? `Host: ${repo.folder}` : '',
         branch ? `Branch: ${branch}` : '',
+        worktreesHidden ? LABELS.worktreesHidden(worktrees) : '',
       ].filter((t) => t).join('\n'),
-      onclick: hasHistory ? toggleHistory : undefined,
+      onclick: anyOpen || worktrees > 0 ? headClick : undefined,
       oncontextmenu: (e) =>
         openMenu(
           e,
@@ -2525,7 +2556,8 @@ function workspacePanes(ws, tabs, panes) {
 
 /**
  * A container's card in Containers: its row, then while it is expanded its repo cards that are not
- * in In use (see `repoCardActive`), in card order, and its Files row.
+ * in In use (see `repoCardActive`) nor a worktree's whose repo's card hides them, in card order,
+ * and its Files row.
  */
 function containerRows(c, cards) {
   const snap = c.state === 'connected' ? snapshots.get(c.id) : undefined;
@@ -2579,11 +2611,32 @@ function containerRows(c, cards) {
   );
   const rows = [head];
   if (collapsed) return [containerCard(rows, false)];
-  for (const card of cards.values()) {
-    if (card.localFolder === c.localFolder && !card.active) {
-      rows.push(repoCard(card));
+  const shown = [...cards.values()].filter((card) =>
+    card.localFolder === c.localFolder && !card.active
+  );
+  // A worktree's card goes under its repo's when that one is here too, else as a repo's.
+  const mainOf = (card) => {
+    const main = card.repo?.worktreeOf;
+    const key = main ? repoCardKey(c.localFolder, main) : null;
+    return key && cards.get(key) && !cards.get(key).active ? key : null;
+  };
+  shown.forEach((card, i) => {
+    const main = mainOf(card);
+    if (main) {
+      if (sidebarState.worktreesClosed.has(main)) return;
+      const el = repoCard(card);
+      el.classList.add('worktree');
+      // The rail on its left runs on to the next worktree's card under the same repo's.
+      if (shown[i + 1] && mainOf(shown[i + 1]) === main) {
+        el.classList.add('worktree-continues');
+      }
+      rows.push(el);
+      return;
     }
-  }
+    rows.push(
+      repoCard(card, shown.filter((w) => mainOf(w) === card.key).length),
+    );
+  });
   rows.push(...containerFilesRows(c));
   return [containerCard(rows, true)];
 }
