@@ -4,8 +4,8 @@
 
 1. Pick the target version: `git describe --tags --abbrev=0 --match 'v[0-9]*'`
    shows the last release; use `X.Y.Z-rc.N` for a prerelease.
-2. `bash scripts/bump-version.sh <x.y.z>` — or with no argument, it prompts and
-   offers the next minor version as the default.
+2. `bash scripts/bump-version.sh <x.y.z>` — or with no argument, it shows the
+   current version and prompts for the new one.
 3. **Only if publishing core:** `bash scripts/bump-core-version.sh <x.y.z>`
    (`bump-version.sh` says whether `devc-core/` changed since the last tag).
 4. Review the diff, commit, push.

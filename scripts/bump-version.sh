@@ -12,8 +12,7 @@
 #   bash scripts/bump-version.sh 0.2.0
 #   bash scripts/bump-version.sh 0.1.0-rc.1
 #
-# With no argument it prompts for the version, offering the next minor (0.11.0 -> 0.12.0) as the
-# default.
+# With no argument it shows the current version and prompts for the new one.
 #
 # It edits, formats and reports a diff; it does not commit, tag or push.
 set -uo pipefail
@@ -46,22 +45,16 @@ fi
 
 new="${1:-}"
 if [ -z "$new" ]; then
-  # No argument: offer the next minor — or, from a prerelease, the release it leads up to
-  # (0.2.0-rc.1 -> 0.2.0) — and take whatever is typed instead.
-  base="${current%%-*}"
-  if [ "$base" != "$current" ]; then
-    suggest="$base"
-  else
-    IFS=. read -r major minor _ <<< "$base"
-    suggest="$major.$((minor + 1)).0"
-  fi
   if [ ! -t 0 ]; then
     echo "usage: bash scripts/bump-version.sh <new-version>" >&2
-    echo "        e.g. bash scripts/bump-version.sh $suggest" >&2
+    echo "        e.g. bash scripts/bump-version.sh 0.2.0" >&2
     exit 2
   fi
-  read -r -p "current version is $current; new version [$suggest]: " new
-  new="${new:-$suggest}"
+  read -r -p "current version is $current; new version: " new
+  if [ -z "$new" ]; then
+    echo "error: no version given" >&2
+    exit 2
+  fi
 fi
 
 # Loose semver check — X.Y.Z with an optional -prerelease, same shape release.yml accepts.
