@@ -263,6 +263,21 @@ body.resizing-sidebar {
   margin-left: 24px;
 }
 
+/* The zen mode button, lit while zen mode is on. */
+.sidebar-toggle[aria-pressed='true'] {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+/* In zen mode with the sidebar hidden, the corner toggle sits over the terminal: shown on hover. */
+.app[data-zen='on'][data-sidebar='hidden'] > .sidebar-corner {
+  opacity: 0;
+}
+
+.app[data-zen='on'][data-sidebar='hidden'] > .sidebar-corner:is(:hover, :focus-visible) {
+  opacity: 1;
+}
+
 .conn[data-state='open'] {
   color: var(--done);
 }
@@ -508,6 +523,56 @@ body.resizing-zones {
 .in-use-run > .repo-card,
 .container-card > .repo-card {
   margin: 0 0 5px;
+}
+
+/*
+ * Zen mode's one card fills In use, which never scrolls: its container's box is as far from the
+ * zone's top and foot as from its sides, the card fills the box, and its open sections share
+ * what its rows leave, each scrolling on its own.
+ */
+.app[data-zen='on'] .zone-in-use {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.app[data-zen='on'] .zone-in-use > * {
+  flex: none;
+}
+
+/* No In use heading: the card is all there is. */
+.app[data-zen='on'] .zone-in-use > .row.section:first-child {
+  display: none;
+}
+
+.app[data-zen='on'] .zone-in-use > .in-use-run {
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  min-height: 0;
+  margin: 14px 4px 4px;
+}
+
+.app[data-zen='on'] .in-use-run > * {
+  flex: none;
+}
+
+.app[data-zen='on'] .in-use-run > .repo-card {
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.app[data-zen='on'] .repo-card > * {
+  flex: none;
+}
+
+.app[data-zen='on'] .repo-card > .card-section {
+  flex: 1 1 0;
+  min-height: 0;
+  max-height: none;
 }
 
 /* A worktree's card, indented under its repo's with a rail joining it to the cards above. */
@@ -1184,6 +1249,12 @@ body.resizing-zones {
 .lm_content {
   background: var(--term-bg);
   border: 0;
+}
+
+/* Zen mode's stack (layout.js maximises it): the focused tile alone, with no header or frame. */
+.lm_stack.tile-zen > .lm_header,
+.lm_stack.tile-zen::after {
+  display: none;
 }
 
 /*

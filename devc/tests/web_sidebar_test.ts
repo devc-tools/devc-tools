@@ -10,6 +10,7 @@ import {
   gitSync,
   inUseLabel,
   isSidebarToggleShortcut,
+  isZenShortcut,
   labelText,
   paneLabel,
   paneTitle,
@@ -454,6 +455,39 @@ Deno.test('isSidebarToggleShortcut is Cmd+B on a Mac only', () => {
   );
   assertEquals(
     isSidebarToggleShortcut(key({ metaKey: true }, 'KeyN'), true),
+    false,
+  );
+});
+
+Deno.test('isZenShortcut is Ctrl+Alt+Z, Cmd+Alt+Z on a Mac', () => {
+  const key = (mods: Partial<Record<string, boolean>>, code = 'KeyZ') => ({
+    code,
+    ctrlKey: false,
+    altKey: false,
+    metaKey: false,
+    shiftKey: false,
+    ...mods,
+  });
+  assertEquals(
+    isZenShortcut(key({ ctrlKey: true, altKey: true }), false),
+    true,
+  );
+  assertEquals(isZenShortcut(key({ metaKey: true, altKey: true }), true), true);
+  assertEquals(
+    isZenShortcut(key({ metaKey: true, altKey: true }), false),
+    false,
+  );
+  assertEquals(
+    isZenShortcut(key({ ctrlKey: true, altKey: true }), true),
+    false,
+  );
+  assertEquals(isZenShortcut(key({ ctrlKey: true }), false), false);
+  assertEquals(
+    isZenShortcut(key({ ctrlKey: true, altKey: true, shiftKey: true }), false),
+    false,
+  );
+  assertEquals(
+    isZenShortcut(key({ ctrlKey: true, altKey: true }, 'KeyN'), false),
     false,
   );
 });

@@ -41,6 +41,7 @@ import {
   gitSync,
   inUseLabel,
   isSidebarToggleShortcut,
+  isZenShortcut,
   labelText,
   paneLabel,
   paneTitle,
@@ -168,6 +169,8 @@ let projectStarts = true;
 let hostOs = '';
 /** The Layout section's last rendered tree, as `treeSignature` plus the tiles' refs. */
 let layoutSignature = '';
+/** The repo card zen mode showed at the last render (`zenCardKey`). */
+let shownZenCard = /** @type {string | null} */ (null);
 /**
  * Sidebar file rows (each a Golden Layout drag source) by tree key, kept across renders for the
  * same reason as {@link paneRows}.
@@ -329,6 +332,7 @@ const $app = /** @type {HTMLElement} */ (document.querySelector('.app'));
 const $resizer = /** @type {HTMLElement} */ (document.getElementById(
   'sidebar-resizer',
 ));
+const $zenToggle = /** @type {HTMLElement} */ (document.getElementById('zen'));
 const $sidebarToggle = /** @type {HTMLElement} */ (document.getElementById(
   'sidebar-toggle',
 ));
@@ -918,6 +922,8 @@ const LABELS = {
   newAtEnd: 'New terminal at end',
   close: 'Close terminal…',
   keepOpen: 'Keep open',
+  zenOn: 'Zen mode',
+  zenOff: 'Leave zen mode',
   closeRequest: 'Close terminal',
   rename: 'Rename terminal',
   renamePrompt: 'Terminal name',
@@ -1001,6 +1007,8 @@ function loadSidebarState() {
     sentOpen: saved?.sentOpen === true,
     width: Number.isFinite(saved?.width) ? saved.width : SIDEBAR_DEFAULT_WIDTH,
     hidden: saved?.hidden === true,
+    /** Zen mode: the focused tile alone, and the sidebar's Tasks and that tile's repo card. */
+    zen: saved?.zen === true,
   };
 }
 
@@ -1060,6 +1068,7 @@ function saveSidebarState() {
         sentOpen: sidebarState.sentOpen,
         width: sidebarState.width,
         hidden: sidebarState.hidden,
+        zen: sidebarState.zen,
       }),
     );
   } catch { /* storage unavailable: collapsing just won't survive a reload */ }
@@ -1165,6 +1174,32 @@ function toggleSidebarHidden() {
 }
 
 $sidebarToggle.addEventListener('click', toggleSidebarHidden);
+
+/**
+ * Applies zen mode: the focused tile fills the tiling area alone, with no header (layout.js), and
+ * the sidebar shows Tasks and the focused tile's repo card alone (renderTree).
+ */
+function applyZen() {
+  $app.dataset.zen = sidebarState.zen ? 'on' : 'off';
+  const label = sidebarState.zen ? LABELS.zenOff : LABELS.zenOn;
+  $zenToggle.setAttribute('aria-pressed', String(sidebarState.zen));
+  $zenToggle.setAttribute('aria-label', label);
+  $zenToggle.title = `${label} (${IS_MAC ? 'Cmd' : 'Ctrl'}+Alt+Z)`;
+  tiling?.setZen(sidebarState.zen);
+}
+
+function toggleZen() {
+  sidebarState.zen = !sidebarState.zen;
+  saveSidebarState();
+  applyZen();
+  renderTree();
+}
+
+function zenItem() {
+  return [sidebarState.zen ? LABELS.zenOff : LABELS.zenOn, toggleZen];
+}
+
+$zenToggle.addEventListener('click', toggleZen);
 window.addEventListener('resize', applySidebarLayout);
 
 // The page's URL, token included: devc-desktop's window has no address bar, and a container or
@@ -1205,6 +1240,11 @@ $resizer.addEventListener('dblclick', () => {
   applySidebarLayout();
 });
 
+/** Whether the Containers section is open: zen mode hides it, as if folded. */
+function containersShown() {
+  return sidebarState.containersOpen && !sidebarState.zen;
+}
+
 /** The space the zones share: the sidebar's tree less its dividers. */
 function zonesHeight() {
   return $tree.clientHeight - $dividerTasks.offsetHeight -
@@ -1229,7 +1269,8 @@ function naturalHeight(zone) {
  * Containers is folded; Containers at the bottom, exactly its heading when folded.
  */
 function zoneLimits() {
-  const { containersOpen, tasksOpen } = sidebarState;
+  const { tasksOpen } = sidebarState;
+  const containersOpen = containersShown();
   const tasksAll = naturalHeight($zoneTasks);
   const browseAll = containersOpen ? Infinity : naturalHeight($zoneBrowse);
   return {
@@ -1254,7 +1295,8 @@ function zoneLimits() {
  * Tasks, the one over a folded Containers.
  */
 function applyZoneSizes() {
-  const { containersOpen, tasksOpen } = sidebarState;
+  const { tasksOpen } = sidebarState;
+  const containersOpen = containersShown();
   $dividerTasks.dataset.inert = String(!tasksOpen);
   $dividerBrowse.dataset.inert = String(!containersOpen);
   const set = (el, px) => {
@@ -1369,7 +1411,11 @@ function renderTree() {
   // In use lists the tiles: it is re-rendered when the layout changes (layoutChanged).
   layoutSignature = layoutState().signature;
   const cards = repoCards();
-  const upper = [...inUseRows(cards), ...pinnedFileRows()];
+  const { zen } = sidebarState;
+  shownZenCard = zen ? zenCardKey() : null;
+  const upper = zen
+    ? inUseRows(cards, shownZenCard)
+    : [...inUseRows(cards), ...pinnedFileRows()];
   const rows = [
     sectionRow(
       'Containers',
@@ -1402,13 +1448,15 @@ function renderTree() {
       ),
     );
   }
-  if (sidebarState.containersOpen) {
+  if (sidebarState.containersOpen && !zen) {
     for (const c of containers.values()) rows.push(...containerRows(c, cards));
     if (idle.length > 0) rows.push(...inactiveRows(idle));
   }
   $zoneInUse.replaceChildren(...upper);
   $zoneTasks.replaceChildren(...taskRows());
-  $zoneBrowse.replaceChildren(...rows);
+  $zoneBrowse.replaceChildren(...(zen ? [] : rows));
+  $zoneBrowse.hidden = zen;
+  $dividerBrowse.hidden = zen;
   if ($zoneInUse.parentNode !== $tree) {
     $tree.replaceChildren(
       $zoneTasks,
@@ -1418,7 +1466,7 @@ function renderTree() {
       $zoneBrowse,
     );
   }
-  $tree.classList.toggle('containers-closed', !sidebarState.containersOpen);
+  $tree.classList.toggle('containers-closed', !containersShown());
   applyZoneSizes();
   [$zoneInUse.scrollTop, $zoneTasks.scrollTop, $zoneBrowse.scrollTop] = scroll;
   for (const el of $tree.querySelectorAll('.card-section')) {
@@ -1610,9 +1658,10 @@ function paneSpaces(snap) {
  * its own under its name. Cards come most urgent agent first (see `statusRank`), those with no
  * agent last, then in the layout order of their first tile, then those with none in their
  * container's card order; containers where their first card is. A status change renders the
- * sidebar again, so cards move as their agents' statuses change.
+ * sidebar again, so cards move as their agents' statuses change. With `only` (zen mode), the card
+ * with that key alone, active or not (none for null).
  */
-function inUseRows(cards) {
+function inUseRows(cards, only) {
   const rows = [
     sectionRow(
       'In use',
@@ -1627,7 +1676,8 @@ function inUseRows(cards) {
   ];
   const rank = new Map();
   for (const card of cards.values()) {
-    if (card.active) rank.set(card, statusRank(cardPanes(card)));
+    const shown = only === undefined ? card.active : card.key === only;
+    if (shown) rank.set(card, statusRank(cardPanes(card)));
   }
   const active = [...rank.keys()].sort((a, b) =>
     (rank.get(a) - rank.get(b)) || (a.firstTile - b.firstTile) ||
@@ -1661,6 +1711,14 @@ function inUseRows(cards) {
     run.append(repoCard(card));
   }
   return rows;
+}
+
+/** The key of the repo card zen mode shows: the focused tile's; null for none or an empty tile. */
+function zenCardKey() {
+  const tile = targetTile();
+  if (!tile) return null;
+  const { localFolder, repo } = tileRepo(tile);
+  return localFolder ? repoCardKey(localFolder, repo?.folder ?? null) : null;
 }
 
 /** A card's panes: its tiles' (those still running), then those no tile shows. */
@@ -2490,6 +2548,11 @@ function tileMenuItems(tile) {
   items.push(null, ['Close', () => tiling?.close(tile.id)]);
   if (c && pane) items.push(killPaneItem(c, pane));
   return items;
+}
+
+/** The menu of a tile's tab and body (not of its sidebar row): the tile's, then zen mode. */
+function tileOwnMenuItems(tile) {
+  return [...tileMenuItems(tile), null, zenItem()];
 }
 
 /** Pins a preview tile: the next sidebar click opens a new preview instead of replacing it. */
@@ -5987,7 +6050,7 @@ function mountFileTile(tile) {
     // The viewer's own text keeps the browser's menu (copy); the margins get the tile's. A
     // right-click inside an HTML media view's frame never gets here: it is the page's.
     if (/** @type {HTMLElement} */ (e.target).closest('.cm-content')) return;
-    openMenu(e, tileMenuItems(tile));
+    openMenu(e, tileOwnMenuItems(tile));
   });
   // After the factory returns: a title change mid-build would save a half-built layout.
   queueMicrotask(() => {
@@ -6567,7 +6630,7 @@ function mountDiffTile(tile) {
     // Text keeps the browser's menu (copy); the rest gets the tile's.
     const target = /** @type {HTMLElement} */ (e.target);
     if (target.closest('.diff-text, .thread-body, textarea')) return;
-    openMenu(e, tileMenuItems(tile));
+    openMenu(e, tileOwnMenuItems(tile));
   });
   /** @type {DiffView} */
   const view = {
@@ -8018,6 +8081,15 @@ document.addEventListener('keydown', (e) => {
   if (!e.repeat) toggleSidebarHidden();
 }, true);
 
+// Ctrl+Alt+Z (Cmd+Alt+Z on a Mac) turns zen mode on or off, in the capture phase for the same
+// reason.
+document.addEventListener('keydown', (e) => {
+  if (!isZenShortcut(e, IS_MAC)) return;
+  e.preventDefault();
+  e.stopPropagation();
+  if (!e.repeat) toggleZen();
+}, true);
+
 /** The tooltip over a terminal link. */
 const LINK_HINT = `${IS_MAC ? 'Cmd' : 'Ctrl'}+click to open`;
 
@@ -8077,7 +8149,7 @@ async function openLink(t, link) {
 function attachMouse(view, termEl, target) {
   termEl.addEventListener('contextmenu', (ev) => {
     ev.preventDefault();
-    openMenu(ev, tileMenuItems(view.tile));
+    openMenu(ev, tileOwnMenuItems(view.tile));
   });
   termEl.addEventListener('mousedown', (ev) => {
     if (ev.button === 2) {
@@ -8179,6 +8251,8 @@ tiling = createTiling($layoutRoot, {
       focusSeq.set(tile.id, ++nextFocusSeq);
     }
     updateCurrent();
+    // Zen mode's card is the focused tile's.
+    if (sidebarState.zen && zenCardKey() !== shownZenCard) queueRender();
   },
   // A drop is a change too: the dropped tile is placed now, so it may open its pane.
   changed: () => {
@@ -8186,13 +8260,14 @@ tiling = createTiling($layoutRoot, {
     reconcileTiles();
     layoutChanged();
   },
-  tileMenu: (tile, e) => openMenu(e, tileMenuItems(tile)),
+  tileMenu: (tile, e) => openMenu(e, tileOwnMenuItems(tile)),
   stackMenu,
   tabDoubleClick: keepOpen,
 });
 if (SAFE_MODE) showSafeBanner();
 applySidebarLayout();
 restoreLayout();
+applyZen();
 reconcileTiles();
 renderTree();
 connect();

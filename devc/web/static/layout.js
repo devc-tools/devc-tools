@@ -302,6 +302,8 @@ export function createTiling(root, hooks) {
   layout.on('itemDropped', (item) => {
     const tile = item?.container && byContainer.get(item.container);
     tile?.setPreview(false);
+    // Golden Layout's drop zones include the stacks under zen mode's: the dropped tile is shown.
+    if (tile && zenOn) item.focus();
   });
   // A right-click on a stack header outside its tabs (tabs handle their own, above).
   root.addEventListener('contextmenu', (e) => {
@@ -316,8 +318,63 @@ export function createTiling(root, hooks) {
     e.preventDefault();
     hooks.stackMenu(nodeId(stack), e);
   });
-  layout.on('focus', () => hooks.focused(focusedTile()));
-  layout.on('stateChanged', () => hooks.changed());
+  layout.on('focus', () => {
+    syncZen();
+    hooks.focused(focusedTile());
+  });
+  layout.on('stateChanged', () => {
+    // A drop, a close or a new tile may have moved the focused tile out of the zen stack.
+    if (zenOn) queueMicrotask(syncZen);
+    hooks.changed();
+  });
+
+  /*
+   * Zen mode: the focused tile's stack maximised, its header hidden, so the focused tile fills
+   * the tiling area alone with no chrome. It follows the focus to another stack.
+   */
+  let zenOn = false;
+  /** The stack zen mode maximised; null when none. */
+  let zenStack = null;
+
+  /**
+   * Golden Layout can't hide a stack's header once it is built: its header's own flag, which
+   * the stack's sizing reads (the header takes no height while it is off), is set directly.
+   */
+  const showHeader = (stack, show) => {
+    stack.header._show = show;
+    stack.element.classList.toggle('tile-zen', !show);
+  };
+
+  const leaveZenStack = () => {
+    const stack = zenStack;
+    if (!stack) return;
+    zenStack = null;
+    showHeader(stack, true);
+    if (stack.isMaximised) stack.minimise();
+    else if (stack.element.isConnected) stack.updateSize(false);
+  };
+
+  /** Puts zen mode on the focused tile's stack (or off, while it is off). */
+  function syncZen() {
+    if (!zenOn) {
+      leaveZenStack();
+      return;
+    }
+    const component = layout.focusedComponentItem ??
+      layout.maximisedStack?.getActiveComponentItem() ??
+      allItems().find((item) => item.isComponent);
+    const stack = component?.parentItem;
+    if (!stack?.isStack) {
+      leaveZenStack();
+      return;
+    }
+    if (stack === zenStack && stack.isMaximised) return;
+    leaveZenStack();
+    zenStack = stack;
+    showHeader(stack, false);
+    if (stack.isMaximised) stack.updateSize(true);
+    else stack.maximise();
+  }
 
   /** @returns {Tile | null} */
   function focusedTile() {
@@ -428,6 +485,8 @@ export function createTiling(root, hooks) {
     addBeside(id, ref, where, opts = {}) {
       const target = id === null ? null : itemById(id);
       if (!target) return this.add(ref, opts);
+      // A maximised stack sits outside its place in the tree: put it back before moving things.
+      leaveZenStack();
       const config = itemConfig(ref, '', opts.preview);
       let component;
       if (target.isRow || target.isColumn) {
@@ -471,6 +530,7 @@ export function createTiling(root, hooks) {
       }
       const tile = byContainer.get(component.container);
       component.parentItem.setActiveComponentItem(component, true);
+      syncZen();
       hooks.changed();
       return /** @type {Tile} */ (tile);
     },
@@ -536,6 +596,8 @@ export function createTiling(root, hooks) {
      * @returns {boolean}
      */
     load(saved) {
+      // The old layout's stacks go with it.
+      zenStack = null;
       try {
         layout.loadLayout({
           .../** @type {object} */ (saved),
@@ -547,6 +609,7 @@ export function createTiling(root, hooks) {
             borderWidth: borderWidth(),
           },
         });
+        syncZen();
         return true;
       } catch {
         try {
@@ -554,6 +617,17 @@ export function createTiling(root, hooks) {
         } catch { /* nothing more to try */ }
         return false;
       }
+    },
+
+    /**
+     * Turns zen mode on or off: the focused tile alone, filling the tiling area with no header
+     * (its stack maximised); it follows the focus. The layout under it is kept as it was.
+     *
+     * @param {boolean} on
+     */
+    setZen(on) {
+      zenOn = on;
+      syncZen();
     },
 
     /** @returns {Tile[]} */

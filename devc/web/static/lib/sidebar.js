@@ -434,3 +434,15 @@ export function isSidebarToggleShortcut(e, isMac) {
   return isMac && e.code === 'KeyB' && e.metaKey && !e.ctrlKey && !e.altKey &&
     !e.shiftKey;
 }
+
+/**
+ * Whether a keydown is the shortcut that turns zen mode on or off: Ctrl+Alt+Z, Cmd+Alt+Z on a
+ * Mac, like the pinned file's Ctrl+Alt+N. Matched on `code`, since a Mac's Option changes `key`.
+ *
+ * @param {{code: string, ctrlKey: boolean, altKey: boolean, metaKey: boolean, shiftKey: boolean}} e
+ * @param {boolean} isMac
+ */
+export function isZenShortcut(e, isMac) {
+  return e.code === 'KeyZ' && e.altKey && !e.shiftKey &&
+    (isMac ? e.metaKey && !e.ctrlKey : e.ctrlKey && !e.metaKey);
+}

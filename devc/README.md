@@ -375,6 +375,16 @@ is published from any container: the host server finds devcontainers with
   ([Golden Layout](https://github.com/golden-layout/golden-layout), vendored)
   and never change Herdr's. The layout is kept in the browser's
   `localStorage`; a tile whose pane has since closed shows "Pane gone".
+- **Zen mode:** the sidebar header's corners button, a tile's menu, or
+  **Ctrl+Alt+Z** (**⌘⌥Z** on a Mac, even while a terminal has focus) shows
+  the focused tile alone, filling the tiling area with no tab header or frame.
+  The sidebar keeps **Tasks** and the focused tile's repo card alone; the
+  Containers section, the **In use** heading and pinned files are hidden. The
+  card fills the sidebar under Tasks, which does not scroll; its open sections (files, pull request,
+  past sessions) share the card's height, each scrolling on its own. Clicking a pane in the card
+  switches the tile shown, and the card follows. The layout under it is kept,
+  and comes back when zen mode is turned off the same way. Zen mode is kept
+  across reloads.
 - **Input:** keys go through as typed. A multi-line paste is sent as one
   bracketed paste, so a shell or agent prompt does not submit each line. Mouse
   clicks and drags go to the app (Herdr encodes them in the app's own mouse
