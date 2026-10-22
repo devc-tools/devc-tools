@@ -50,6 +50,7 @@ const COMPONENT_TYPES = /** @type {const} */ (['pane', 'file', 'diff']);
  * @property {(title: string, muted?: string) => void} setTitle  `muted` follows the title, muted
  * @property {(text: string) => void} setTooltip  the tab's tooltip (default: the title)
  * @property {(el: Node | null) => void} setBadge     agent badge shown in the tile's tab
+ * @property {(el: Node | null) => void} setActions   buttons last in the tile's tab, left of its ×
  * @property {(el: Node | null) => void} setContext   where the tile is (repo, branch, container),
  *   after its title in the tab
  * @property {() => void} focus
@@ -130,6 +131,8 @@ export function createTiling(root, hooks) {
   const badges = new Map();
   /** @type {Map<Tile, Node | null>} */
   const contexts = new Map();
+  /** @type {Map<Tile, Node | null>} each tile's tab buttons, the same way */
+  const actions = new Map();
   /** @type {Map<Tile, string>} each tile's tooltip, re-applied the same way */
   const tooltips = new Map();
   /** @type {Map<Tile, {title: string, muted: string}>} titles with a muted part, the same way */
@@ -170,7 +173,7 @@ export function createTiling(root, hooks) {
     if (split) tab.titleElement.textContent = split.title;
     for (
       const old of tab.element.querySelectorAll(
-        ':scope > :is(.tile-context, .tile-title-muted, .tile-badge)',
+        ':scope > :is(.tile-context, .tile-title-muted, .tile-badge, .tile-actions)',
       )
     ) old.remove();
     const tooltip = tooltips.get(tile);
@@ -189,6 +192,8 @@ export function createTiling(root, hooks) {
     if (split) place('tile-title-muted', split.muted);
     const badge = badges.get(tile);
     if (badge) place('tile-badge', badge);
+    const buttons = actions.get(tile);
+    if (buttons) place('tile-actions', buttons);
   };
 
   for (const type of COMPONENT_TYPES) {
@@ -241,6 +246,12 @@ export function createTiling(root, hooks) {
           badges.set(tile, el);
           applyBadge(container, tile);
         },
+        setActions(el) {
+          if (actions.get(tile) === el) return;
+          actions.set(tile, el);
+          applyBadge(container, tile);
+          container.parent?.parentItem?.header?.updateTabSizes();
+        },
         setContext(el) {
           const changed = contexts.get(tile)?.textContent !== el?.textContent;
           contexts.set(tile, el);
@@ -262,6 +273,7 @@ export function createTiling(root, hooks) {
         containerById.delete(tile.id);
         badges.delete(tile);
         contexts.delete(tile);
+        actions.delete(tile);
         tooltips.delete(tile);
         splitTitles.delete(tile);
         hooks.unmount(tile);

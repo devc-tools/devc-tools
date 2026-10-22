@@ -1378,6 +1378,27 @@ body.resizing-zones {
   flex: none;
 }
 
+/* A pane tile's trash button, last before the tab's ×. */
+.lm_header .lm_tab .tile-actions {
+  flex: none;
+  display: flex;
+  align-items: center;
+  margin-right: -4px;
+}
+
+.lm_header .lm_tab .tile-actions .icon-btn {
+  width: 16px;
+  height: 16px;
+  color: #a0b3ce;
+  opacity: 0.75;
+}
+
+.lm_header .lm_tab .tile-actions .icon-btn:hover {
+  color: var(--danger);
+  opacity: 1;
+  background: none;
+}
+
 .lm_header .lm_tab .tile-context > span {
   display: flex;
   align-items: baseline;
@@ -1491,6 +1512,19 @@ body.resizing-zones {
 
 .lm_header:not(:has(.lm_tabdropdown_list .lm_tab)) .lm_tab:only-child .tile-badge {
   margin-left: auto;
+}
+
+/* The trash button keeps beside the ×, past the maximise button too. */
+.lm_header:not(:has(.lm_tabdropdown_list .lm_tab)) .lm_tab:only-child .tile-actions {
+  position: absolute;
+  top: 50%;
+  right: 26px;
+  margin-right: 0;
+  transform: translateY(-50%);
+}
+
+.lm_header:not(:has(.lm_tabdropdown_list .lm_tab)):has(.lm_tab:only-child .tile-actions) .lm_controls {
+  margin-right: 46px;
 }
 
 .lm_header:not(:has(.lm_tabdropdown_list .lm_tab)):has(.lm_tab:only-child) .lm_controls .lm_close {

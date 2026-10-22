@@ -233,6 +233,7 @@ const filePinPanes = loadFilePinPanes();
  * @property {ReturnType<typeof setTimeout> | undefined} flashTimer  clears the copy highlight
  * @property {number} frames  frames painted so far: whether the app redrew during a drag
  * @property {ResizeObserver} observer
+ * @property {HTMLElement} killButton  the tab's trash button, shown while the pane is known
  */
 
 /** @type {Map<string, TileView>} pane tiles' views, by Tile.id */
@@ -7669,7 +7670,10 @@ function updateOverlay(tileId) {
   );
 }
 
-/** Each tile's tab: its label (`refLabel`), and the pane's agent badge. */
+/**
+ * Each tile's tab: its label (`refLabel`), the pane's agent badge, and a trash button that ends
+ * the pane (`killPane`).
+ */
 function renderTileTitles() {
   for (const view of views.values()) {
     const ref = view.tile.ref;
@@ -7677,12 +7681,15 @@ function renderTileTitles() {
       view.tile.setTitle('empty');
       view.tile.setBadge(null);
       view.tile.setContext(null);
+      view.tile.setActions(null);
       continue;
     }
     const { name, title } = refLabel(ref);
+    const { pane } = resolveRef(ref);
     view.tile.setTitle(name, title);
     view.tile.setTooltip(refTooltip(ref).join('\n'));
-    view.tile.setBadge(badge(resolveRef(ref).pane) || null);
+    view.tile.setBadge(badge(pane) || null);
+    view.tile.setActions(pane ? view.killButton : null);
     view.tile.setContext(tileContext(view.tile, name));
   }
 }
@@ -7780,6 +7787,10 @@ function mountTile(tile) {
     observer: new ResizeObserver(() => {
       clearTimeout(view.resizeTimer);
       view.resizeTimer = setTimeout(() => refit(view), RESIZE_DEBOUNCE_MS);
+    }),
+    killButton: iconButton('trash', LABELS.close, () => {
+      const { c, pane } = resolveRef(tile.ref);
+      if (c && pane) killPane(c, pane);
     }),
   };
   views.set(tile.id, view);
