@@ -2004,11 +2004,27 @@ export async function startWeb(
     }
   };
 
+  /**
+   * Focuses a page's active pane in its container's Herdr, which marks its agent's finished turn
+   * seen: `done` becomes `idle`, and a turn it finishes while still focused ends `idle`. Moves
+   * the focus of a Herdr TUI attached to the session too. A pane not in the snapshot, or a
+   * failed request, is left alone.
+   */
+  const focusPane = async (container: string, paneId: string) => {
+    const session = sessions.get(container);
+    const target = session?.target;
+    if (!target || !session.snapshot) return;
+    if (!snapshotPaneIds(session.snapshot).includes(paneId)) return;
+    await bridgeRequest(target, 'pane.focus', { pane_id: paneId })
+      .catch(() => {});
+  };
+
   const handle = async (c: Client, msg: ClientMessage) => {
     if (msg.type === 'active_pane') {
       activePane = 'container' in msg
         ? { container: msg.container, pane_id: msg.pane_id }
         : null;
+      if ('container' in msg) void focusPane(msg.container, msg.pane_id);
       return;
     }
     if (msg.type === 'client_ready') {

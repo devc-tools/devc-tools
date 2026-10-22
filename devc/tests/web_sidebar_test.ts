@@ -22,6 +22,7 @@ import {
   splitRepoName,
   STATUS_ORDER,
   statusCounts,
+  statusRank,
   statusShort,
   topStatus,
   windowTitle,
@@ -166,6 +167,22 @@ Deno.test('topStatus picks the status most in need of attention and counts it', 
     ]),
     { status: 'blocked', count: 1 },
   );
+});
+
+Deno.test('statusRank: the most urgent status first, no agent last', () => {
+  const rank = (...statuses: (string | null)[]) =>
+    statusRank(
+      statuses.map((s) =>
+        s === null ? {} : { agent: 'claude', agent_status: s }
+      ),
+    );
+  assertEquals(rank('blocked'), 0);
+  assertEquals(rank('idle', 'done', 'working'), 1);
+  assertEquals(rank('idle', 'working'), 2);
+  assertEquals(rank('bogus'), 3);
+  assertEquals(rank('idle'), 4);
+  assertEquals(rank(null), STATUS_ORDER.length);
+  assertEquals(rank(), STATUS_ORDER.length);
 });
 
 Deno.test('clampSidebarWidth keeps a width in range, rounded', () => {

@@ -51,6 +51,7 @@ import {
   SIDEBAR_DEFAULT_WIDTH,
   splitRepoName,
   statusCounts,
+  statusRank,
   statusShort,
   windowTitle,
   ZONE_MIN_HEIGHT,
@@ -1593,8 +1594,10 @@ function paneSpaces(snap) {
 
 /**
  * The In use section: the active repo cards (see `repoCardActive`), each container's in a card of
- * its own under its name. Cards come in the layout order of their first tile, then those with
- * none in their container's card order; containers where their first card is.
+ * its own under its name. Cards come most urgent agent first (see `statusRank`), those with no
+ * agent last, then in the layout order of their first tile, then those with none in their
+ * container's card order; containers where their first card is. A status change renders the
+ * sidebar again, so cards move as their agents' statuses change.
  */
 function inUseRows(cards) {
   const rows = [
@@ -1609,10 +1612,14 @@ function inUseRows(cards) {
       ),
     ),
   ];
-  const active = [...cards.values()].filter((card) => card.active).sort((
-    a,
-    b,
-  ) => (a.firstTile - b.firstTile) || (a.order - b.order));
+  const rank = new Map();
+  for (const card of cards.values()) {
+    if (card.active) rank.set(card, statusRank(cardPanes(card)));
+  }
+  const active = [...rank.keys()].sort((a, b) =>
+    (rank.get(a) - rank.get(b)) || (a.firstTile - b.firstTile) ||
+    (a.order - b.order)
+  );
   if (active.length === 0) {
     rows.push(
       h(
@@ -1641,6 +1648,14 @@ function inUseRows(cards) {
     run.append(repoCard(card));
   }
   return rows;
+}
+
+/** A card's panes: its tiles' (those still running), then those no tile shows. */
+function cardPanes(card) {
+  return [
+    ...card.tiles.map(({ tile }) => resolveRef(tile.ref).pane).filter((p) => p),
+    ...card.panes.map(({ pane }) => pane),
+  ];
 }
 
 /** Lists the devcontainers and projects again, for what the server's `docker events` missed. */
@@ -2132,7 +2147,8 @@ function updateCurrent() {
 
 /**
  * Tells the server which terminal pane is focused (none when the focused tile isn't one), for
- * devc-desktop's host terminal, which offers to `cd` to its folder. Sent when it changes, and
+ * devc-desktop's host terminal, which offers to `cd` to its folder; the server focuses it in
+ * Herdr too, which marks its agent's finished turn seen (`done` to `idle`). Sent when it changes, and
  * with `force` whatever it is: on connecting, and when this window gains focus, so the window
  * last used is the one that counts.
  *

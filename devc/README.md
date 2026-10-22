@@ -297,7 +297,8 @@ is published from any container: the host server finds devcontainers with
   (its chevron, on the left, points down while they show). Anywhere else, with nothing open, the
   header's click does nothing. A card is **active** while it has a tile, an agent no tile
   shows, or a session from the last day: active cards are under **In use**, each container's in a
-  card under its name; the rest are under **Containers**, in their container's
+  card under its name, most urgent agent first (blocked, done, working, then idle; cards with no
+  agent last, ties in layout order) and re-sorted as statuses change; the rest are under **Containers**, in their container's
   card, after its header and before its **Files** row (the container's own
   filesystem from `/`). A repo mounted in two containers has a card in each;
   each past session is listed once. Click a tile or pane row to bring it
@@ -335,7 +336,11 @@ is published from any container: the host server finds devcontainers with
   in a repo card also offers **Open in Code** first, on the repo its current
   directory is in (none outside every repo). A new shell is
   always its own Herdr tab, created without moving the focus of a Herdr TUI
-  attached to the same session. Hovering a tile's row shows **×** to close the
+  attached to the same session. The focused tile's pane, though, is focused in
+  its container's Herdr whenever the focused tile changes and when the window
+  gains focus (so a Herdr TUI attached to that session follows it): that marks
+  its agent's finished turn seen, so its status goes from **done** to **idle**.
+  Hovering a tile's row shows **×** to close the
   tile (and, on a terminal's, a trash button left of it to kill the pane);
   hovering a pane's row shows a trash button to kill it.
 - **Open in Jira:** with `"jira"` in the [global config](#the-global-config),

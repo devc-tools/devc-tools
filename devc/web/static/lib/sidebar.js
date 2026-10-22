@@ -55,6 +55,15 @@ export function topStatus(panes) {
 }
 
 /**
+ * Where a card with `panes` sorts by its agents: its most urgent status's place in
+ * {@link STATUS_ORDER}, after them all when no pane runs an agent.
+ */
+export function statusRank(panes) {
+  const top = topStatus(panes);
+  return top ? STATUS_ORDER.indexOf(top.status) : STATUS_ORDER.length;
+}
+
+/**
  * How many of `panes`' agents have each status, most in need of attention first, statuses no
  * agent has left out: a container row's summary.
  *

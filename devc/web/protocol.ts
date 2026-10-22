@@ -78,7 +78,7 @@ export type ClientMessage =
     cursor: Cell;
   }
   | { type: 'start_session'; id: string; container: string }
-  /** The page's focused terminal pane, or none: devc-desktop's host terminal `cd`s to its folder. */
+  /** The page's focused terminal pane, or none: devc-desktop's host terminal `cd`s to its folder; the server focuses it in Herdr. */
   | { type: 'active_pane'; container: string; pane_id: string }
   | { type: 'active_pane' }
   | {
