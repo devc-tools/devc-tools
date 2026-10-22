@@ -400,6 +400,16 @@ body.resizing-zones {
   padding-left: 6px;
 }
 
+/* An open section (past sessions, pull request, files) scrolls within the card past a cap. */
+.repo-card > .card-section {
+  max-height: min(320px, 40vh);
+  overflow-y: auto;
+}
+
+.repo-card > .card-section + .card-section {
+  border-top: 1px solid #2c394b;
+}
+
 /* No chevron's gap, but on a repo's card with worktrees' cards under it. */
 .repo-card .row.repo-card-head:not([aria-expanded]) .chevron {
   display: none;

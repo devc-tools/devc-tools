@@ -1349,6 +1349,13 @@ function renderTree() {
     $zoneTasks.scrollTop,
     $zoneBrowse.scrollTop,
   ];
+  const sectionScroll = new Map();
+  for (const el of $tree.querySelectorAll('.card-section')) {
+    const box = /** @type {HTMLElement} */ (el);
+    if (box.scrollTop > 0) {
+      sectionScroll.set(box.dataset.sectionKey, box.scrollTop);
+    }
+  }
   const focusKey = focusedTreeKey($tree);
   // A just-created row takes the focus only from the sidebar, never from a terminal.
   const active = document.activeElement;
@@ -1413,6 +1420,11 @@ function renderTree() {
   $tree.classList.toggle('containers-closed', !sidebarState.containersOpen);
   applyZoneSizes();
   [$zoneInUse.scrollTop, $zoneTasks.scrollTop, $zoneBrowse.scrollTop] = scroll;
+  for (const el of $tree.querySelectorAll('.card-section')) {
+    const box = /** @type {HTMLElement} */ (el);
+    const top = sectionScroll.get(box.dataset.sectionKey);
+    if (top) box.scrollTop = top;
+  }
   const created = selectTreeKey === null
     ? null
     : treeRowByKey($tree, selectTreeKey);
@@ -1835,14 +1847,23 @@ function repoCard(card, worktrees = 0) {
   for (const { c: pc, pane, space } of card.panes) {
     rows.push(paneRow(pc, pane, 1, space));
   }
+  // Each open section scrolls in a box of capped height, so a long one doesn't stretch the zone.
+  const section = (name, sectionRows) =>
+    h('div', {
+      class: 'card-section',
+      'data-section-key': `${key}\n${name}`,
+    }, ...sectionRows);
   if (historyOn) {
-    for (const { c: sc, s } of card.sessions) {
-      rows.push(sessionRow(sc, s, now, 1));
-    }
+    rows.push(section(
+      'history',
+      card.sessions.map(({ c: sc, s }) => sessionRow(sc, s, now, 1)),
+    ));
   }
   // The open Pull request row's contents, without the row: the toggle stands for it.
-  if (prOn) rows.push(...prRows(localFolder, fr.root, 0).slice(1));
-  if (filesOn) rows.push(...rootEntryRows(fr, 1));
+  if (prOn) {
+    rows.push(section('pr', prRows(localFolder, fr.root, 0).slice(1)));
+  }
+  if (filesOn) rows.push(section('files', rootEntryRows(fr, 1)));
   return h('div', { class: 'repo-card', 'data-card-key': key }, ...rows);
 }
 

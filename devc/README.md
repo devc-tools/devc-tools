@@ -291,7 +291,8 @@ is published from any container: the host server finds devcontainers with
   card named after the container. A card's header buttons show its past agent
   sessions, its pull request and its files under its terminals, and open a new
   terminal or task there; those open under the card until you click their
-  button again or click the header, which closes them all. Under
+  button again or click the header, which closes them all; each scrolls in a
+  box of capped height, so a long one doesn't stretch the sidebar. Under
   **Containers**, a worktree's card is indented under its repo's, joined by a
   rail; with nothing open, a click on that repo's header hides or shows them
   (its chevron, on the left, points down while they show). Anywhere else, with nothing open, the
