@@ -12,26 +12,13 @@
 #   bash scripts/bump-version.sh 0.2.0
 #   bash scripts/bump-version.sh 0.1.0-rc.1
 #
+# With no argument it prompts for the version, offering the next minor (0.11.0 -> 0.12.0) as the
+# default.
+#
 # It edits, formats and reports a diff; it does not commit, tag or push.
 set -uo pipefail
 
 cd "$(dirname "$0")/.."
-
-new="${1:-}"
-if [ -z "$new" ]; then
-  echo "usage: bash scripts/bump-version.sh <new-version>" >&2
-  echo "        e.g. bash scripts/bump-version.sh 0.2.0" >&2
-  exit 2
-fi
-
-# Loose semver check — X.Y.Z with an optional -prerelease, same shape release.yml accepts.
-case "$new" in
-  [0-9]*.[0-9]*.[0-9]*) ;;
-  *)
-    echo "error: '$new' doesn't look like X.Y.Z (or X.Y.Z-suffix)" >&2
-    exit 2
-    ;;
-esac
 
 # release.yml's first gate is `deno fmt --check` over the whole tree, and preflight-core-publish.sh
 # repeats it — both after the bump is committed and likely pushed. Catch it here, before anything
@@ -56,6 +43,35 @@ if [ -z "$current" ]; then
   echo "error: could not read the current VERSION from devc/help.ts" >&2
   exit 1
 fi
+
+new="${1:-}"
+if [ -z "$new" ]; then
+  # No argument: offer the next minor — or, from a prerelease, the release it leads up to
+  # (0.2.0-rc.1 -> 0.2.0) — and take whatever is typed instead.
+  base="${current%%-*}"
+  if [ "$base" != "$current" ]; then
+    suggest="$base"
+  else
+    IFS=. read -r major minor _ <<< "$base"
+    suggest="$major.$((minor + 1)).0"
+  fi
+  if [ ! -t 0 ]; then
+    echo "usage: bash scripts/bump-version.sh <new-version>" >&2
+    echo "        e.g. bash scripts/bump-version.sh $suggest" >&2
+    exit 2
+  fi
+  read -r -p "current version is $current; new version [$suggest]: " new
+  new="${new:-$suggest}"
+fi
+
+# Loose semver check — X.Y.Z with an optional -prerelease, same shape release.yml accepts.
+case "$new" in
+  [0-9]*.[0-9]*.[0-9]*) ;;
+  *)
+    echo "error: '$new' doesn't look like X.Y.Z (or X.Y.Z-suffix)" >&2
+    exit 2
+    ;;
+esac
 
 if [ "$current" = "$new" ]; then
   echo "devc/help.ts is already $new — nothing to do." >&2

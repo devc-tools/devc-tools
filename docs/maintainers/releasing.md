@@ -1,5 +1,23 @@
 # Releasing
 
+## Quick steps
+
+1. Pick the target version: `git describe --tags --abbrev=0 --match 'v[0-9]*'`
+   shows the last release; use `X.Y.Z-rc.N` for a prerelease.
+2. `bash scripts/bump-version.sh <x.y.z>` — or with no argument, it prompts and
+   offers the next minor version as the default.
+3. **Only if publishing core:** `bash scripts/bump-core-version.sh <x.y.z>`
+   (`bump-version.sh` says whether `devc-core/` changed since the last tag).
+4. Review the diff, commit, push.
+5. On the host: `bash scripts/preflight-core-publish.sh`
+6. `git tag v<x.y.z> && git push origin v<x.y.z>` — never `git push --tags`.
+7. Wait for [`release.yml`](../../.github/workflows/release.yml) to go green.
+8. **Only if you did step 3:** `cd devc-core && npm publish --access public`
+
+The rest of this page explains each step and why it is ordered this way.
+
+## Details
+
 **One version for both binaries, moving in lockstep.** A single `vX.Y.Z` tag
 gates `devc` and `devc-bridge` together, because the installer fetches all eight
 tarballs from one release and must not reason about compatible pairs. The tag is
@@ -69,7 +87,8 @@ is recoverable: a tag and its release can be deleted and re-cut, an npm version
 can never be republished. Let `release.yml` go green first.
 
 To cut a release — these steps, in this order, are the whole process; a
-script's closing "Next" lines summarize them and never add to them:
+script's closing "Next" lines and [Quick steps](#quick-steps) summarize them and
+never add to them:
 
 1. Bump the version in **all three binaries** — `VERSION` in `devc/help.ts`,
    `devc-bridge/host/version.ts` and `devc-bridge/client/version.ts`, plus
