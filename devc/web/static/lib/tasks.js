@@ -181,6 +181,6 @@ export function sentTaskTooltip(s, agentLabel) {
     '',
     `${s.action === 'plan' ? 'Plan' : 'Implement'} · ${agentLabel} · ${sentAt}`,
     s.cwd,
-    'Click to open its session',
+    'Click to view it',
   ].join('\n');
 }

@@ -4346,9 +4346,10 @@ function sentTaskRow(s) {
       style: '--depth: 2',
       'data-sent-task': s.id,
       title: sentTaskTooltip(s, LABELS.agents[s.agent]),
-      onclick: () => void openSentTask(s),
+      onclick: () => viewSentTask(s),
       oncontextmenu: (e) =>
         openMenu(e, [
+          ['View task', () => viewSentTask(s)],
           ['Open session', () => void openSentTask(s)],
           ['Copy task text', () => void copyTaskText(s)],
           ['Back to tasks', () => restoreSentTask(s)],
@@ -4367,6 +4368,76 @@ function sentTaskRow(s) {
       ),
     ),
   );
+}
+
+/**
+ * A sent task, read-only: its text, where it went and how. **Open session** opens its session
+ * as a click on its row once did ({@link openSentTask}).
+ *
+ * @param {import('./lib/tasks.js').SentTask} s
+ */
+function viewSentTask(s) {
+  taskDialog?.el.close();
+  const $text = /** @type {HTMLTextAreaElement} */ (h('textarea', {
+    class: 'task-text',
+    readonly: true,
+    rows: 8,
+    'aria-label': 'Task',
+  }));
+  $text.value = s.text;
+  const field = (label, value) =>
+    h(
+      'label',
+      {},
+      label,
+      h('span', { class: 'task-field', title: value }, value),
+    );
+  const sentAt = new Date(s.sentAt);
+  const el = /** @type {HTMLDialogElement} */ (h(
+    'dialog',
+    {
+      class: 'dialog new-note task-dialog',
+      'aria-label': 'Sent task',
+      onclose: () => el.remove(),
+    },
+    h('header', { class: 'dialog-header' }, h('span', {}, 'Sent task')),
+    h(
+      'div',
+      { class: 'new-note-body' },
+      $text,
+      h(
+        'div',
+        { class: 'task-route' },
+        field('Route', taskProjectLabel(s.localFolder, s.root)),
+        field('Agent', LABELS.agents[s.agent]),
+        field('Sent as', s.action === 'plan' ? 'Plan' : 'Implement'),
+        field(
+          'Sent',
+          Number.isNaN(sentAt.getTime()) ? s.sentAt : sentAt.toLocaleString(),
+        ),
+      ),
+    ),
+    h(
+      'footer',
+      { class: 'dialog-footer' },
+      h('span', { class: 'picker-hint', title: s.cwd }, s.cwd),
+      h(
+        'span',
+        { class: 'task-buttons' },
+        h('button', { type: 'button', onclick: () => el.close() }, 'Close'),
+        h('button', {
+          type: 'button',
+          class: 'primary',
+          onclick: () => {
+            el.close();
+            void openSentTask(s);
+          },
+        }, 'Open session'),
+      ),
+    ),
+  ));
+  document.body.append(el);
+  el.showModal();
 }
 
 /** @param {import('./lib/tasks.js').Task} task */

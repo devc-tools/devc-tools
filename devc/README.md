@@ -458,9 +458,11 @@ is published from any container: the host server finds devcontainers with
   given a session id), and the container must be running. Sending writes the
   text to `/tmp/devc-tasks/<id>.md` in the container, opens a new terminal in
   the repo named after the task, and starts the agent there with `<id>` as
-  its session id. The task then moves under **Sent**: clicking it shows that
-  terminal while it is still open, or resumes the session in a new one
-  (`claude --resume <id>`, `copilot --resume <id>`, `pi --session-id <id>`).
+  its session id. The task then moves under **Sent**: clicking it shows it
+  read-only (its text, route, agent and when it was sent), and the dialog's
+  **Open session** shows that terminal while it is still open, or resumes the
+  session in a new one (`claude --resume <id>`, `copilot --resume <id>`,
+  `pi --session-id <id>`).
   Tasks are grouped under a node per project and repo (ones with no project
   under **not routed**, last); a node's **New task here…** opens the dialog
   routed there. The pin beside the dialog's Agent makes its project, repo and
@@ -470,7 +472,8 @@ is published from any container: the host server finds devcontainers with
   task edits it. Its hover icons send a routed task for a plan or to
   implement, to the default's agent (else the agent last chosen in the
   dialog), and the trash can deletes it.
-  A sent task's menu has **Back to tasks** and **Remove**. Sending is
+  A sent task's menu also has **Open session**, **Back to tasks** and
+  **Remove**. Sending is
   one-way: nothing in a container writes to the list. Tasks are kept in
   `~/.config/devc/tasks.json` (the 50 newest sent ones), shared by every
   devc web window.

@@ -2103,6 +2103,15 @@ button.primary.danger {
   color: var(--accent);
 }
 
+/* A sent task's read-only fields, in place of the task dialog's selects. */
+.task-field {
+  overflow: hidden;
+  color: var(--text);
+  font-size: var(--font-size);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
 .task-route label[hidden] {
   display: none;
 }
