@@ -148,6 +148,14 @@ Deno.test('topStatus picks the status most in need of attention and counts it', 
       { agent: 'pi', agent_status: 'working' },
       { agent: 'claude', agent_status: 'done' },
     ]),
+    { status: 'done', count: 1 },
+  );
+  assertEquals(
+    topStatus([
+      { agent: 'claude', agent_status: 'idle' },
+      { agent: 'claude', agent_status: 'working' },
+      { agent: 'pi', agent_status: 'working' },
+    ]),
     { status: 'working', count: 2 },
   );
   assertEquals(

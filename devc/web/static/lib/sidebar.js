@@ -4,7 +4,7 @@
 import { tileTitle } from './layout_state.js';
 
 /** Agent statuses, most in need of attention first. */
-export const STATUS_ORDER = ['blocked', 'working', 'done', 'unknown', 'idle'];
+export const STATUS_ORDER = ['blocked', 'done', 'working', 'unknown', 'idle'];
 
 function basename(path) {
   const parts = String(path ?? '').split('/').filter(Boolean);

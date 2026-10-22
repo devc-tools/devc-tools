@@ -9,7 +9,7 @@
   --accent: #83aff0;
   --term-bg: #11131a;
   --idle: #9aa9bd;
-  --working: #8dbcf9;
+  --working: #6cc7e8;
   --blocked: #e9b87e;
   --done: #8bd6ae;
   --unknown: #b59cf0;
@@ -1161,6 +1161,23 @@ body.resizing-zones {
 
 .badge[data-status='working'] {
   color: var(--working);
+}
+
+/* A working agent's dot pulses: busy, but nothing for you to do yet. */
+.badge[data-status='working']::before {
+  animation: pulse 2s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  50% {
+    opacity: 0.3;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .badge[data-status='working']::before {
+    animation: none;
+  }
 }
 
 .badge[data-status='blocked'] {
