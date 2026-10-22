@@ -2,17 +2,16 @@
 
 ## Quick steps
 
-1. Pick the target version: `git describe --tags --abbrev=0 --match 'v[0-9]*'`
-   shows the last release; use `X.Y.Z-rc.N` for a prerelease.
-2. `bash scripts/bump-version.sh <x.y.z>` — or with no argument, it shows the
-   current version and prompts for the new one.
-3. **Only if publishing core:** `bash scripts/bump-core-version.sh <x.y.z>`
+1. `bash scripts/bump-version.sh` — it shows the current version and prompts
+   for the new one (`X.Y.Z`, or `X.Y.Z-rc.N` for a prerelease); or pass it as
+   an argument.
+2. **Only if publishing core:** `bash scripts/bump-core-version.sh <x.y.z>`
    (`bump-version.sh` says whether `devc-core/` changed since the last tag).
-4. Review the diff, commit, push.
-5. On the host: `bash scripts/preflight-core-publish.sh`
-6. `git tag v<x.y.z> && git push origin v<x.y.z>` — never `git push --tags`.
-7. Wait for [`release.yml`](../../.github/workflows/release.yml) to go green.
-8. **Only if you did step 3:** `cd devc-core && npm publish --access public`
+3. Review the diff, commit, push.
+4. On the host: `bash scripts/preflight-core-publish.sh`
+5. `git tag v<x.y.z> && git push origin v<x.y.z>` — never `git push --tags`.
+6. Wait for [`release.yml`](../../.github/workflows/release.yml) to go green.
+7. **Only if you did step 2:** `cd devc-core && npm publish --access public`
 
 The rest of this page explains each step and why it is ordered this way.
 
