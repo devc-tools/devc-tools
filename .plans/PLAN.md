@@ -11,11 +11,6 @@
 
 ### Pending
 
-- [devc-web-split-entry-points](devc-web-split-entry-points.md) — phase 2 of running the sidebar
-  and the tiling area as separate pages: `app.js` splits into `ui.js`, `client.js`, `tiles.js`
-  (`mountTiles`) and `sidebar.js` (`mountSidebar`), the tiling area reaches the sidebar only through
-  a new `SidebarIntents` contract, and `app.js` composes both for `/`. Page code only.
-
 - [devc-web-sidebar-main-routes](devc-web-sidebar-main-routes.md) — phase 3, after the split:
   `/sidebar` and `/main` serve each half as its own page, paired by a view id in the URL hash; the
   server relays `view_state`, `view_intent` and `sidebar_intent` between them and keeps each view's
@@ -120,6 +115,11 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
   a container card keeps its header and gains a Files row.
 
 ### Completed
+
+- ✅ Done — [devc-web-split-entry-points](archived/devc-web-split-entry-points.md) — phase 2 of
+  running the sidebar and the tiling area as separate pages: `app.js` split into `ui.js`,
+  `client.js`, `menus.js`, `tiles.js` (`mountTiles`) and `sidebar.js` (`mountSidebar`); the tiling
+  area reaches the sidebar only through `SidebarIntents`, and `app.js` composes both for `/`.
 
 - [devc-config-jsonc](archived/devc-config-jsonc.md) — the global config may be
   `~/.config/devc/config.jsonc` (comments, trailing commas); it wins over `config.json` when it
