@@ -20,6 +20,7 @@ import {
   tileShowingPane,
   VIEW_INTENT_NAMES,
   viewIdFromHash,
+  zenFromSearch,
 } from '../web/static/lib/view.js';
 
 type TileState = import('../web/static/lib/view.js').TileState;
@@ -245,4 +246,17 @@ Deno.test('encodeDrag and parseDrag: a pane or a file round-trips; junk is null'
       'https://example.com/',
     ]
   ) assertEquals(parseDrag(junk), null, junk);
+});
+
+Deno.test('zenFromSearch: a scope or on/off from ?zen=, else null', () => {
+  assertEquals(zenFromSearch('?zen=container'), {
+    on: true,
+    scope: 'container',
+  });
+  assertEquals(zenFromSearch('zen=repo&x=1'), { on: true, scope: 'repo' });
+  assertEquals(zenFromSearch('?zen=on'), { on: true });
+  assertEquals(zenFromSearch('?zen=off'), { on: false });
+  for (const s of ['', '?', '?zen=', '?zen=terminal', '?zen=REPO', '?x=repo']) {
+    assertEquals(zenFromSearch(s), null, s);
+  }
 });

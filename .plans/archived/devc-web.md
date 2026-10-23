@@ -391,6 +391,11 @@ Browser → server:
   `view_intent` and replays it to a `tiles` joiner, so a reloaded `/main` comes back in zen
   ([devc-web-cross-page-drag](devc-web-cross-page-drag.md)); `/sidebar` rows drag into `/main`
   by native drag and drop (`application/x-devc-web-tile`).
+- **`?zen=` (every page, `/safe/` too):** `container` or `repo` starts the page in zen mode in
+  that scope, `on` in the scope saved, `off` out of it; anything else (or none) starts as saved.
+  It is only where the page starts: the zen button, shortcut and tile menu still toggle it, and
+  the URL's value is never saved to the browser (a toggle is). `/main` takes on/off from it; once
+  a `/sidebar` of its view joins, the sidebar's zen rules.
 
 ### Browser UI
 

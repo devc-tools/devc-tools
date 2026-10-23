@@ -44,7 +44,8 @@
     if (!safe) {
       buttons.appendChild(button('Load last good', function () {
         // The same page, last good: `/sidebar` → `/safe/sidebar`, `/` → `/safe/`.
-        location.href = '/safe' + location.pathname + location.hash;
+        location.href = '/safe' + location.pathname + location.search +
+          location.hash;
       }));
     }
     box.appendChild(title);

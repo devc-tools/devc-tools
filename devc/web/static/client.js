@@ -272,7 +272,9 @@ export function showSafeBanner() {
     'a',
     {
       // The same page live: `/safe/sidebar` → `/sidebar`, `/safe/` → `/`.
-      href: `${location.pathname.slice('/safe'.length)}${location.hash}`,
+      href: `${
+        location.pathname.slice('/safe'.length)
+      }${location.search}${location.hash}`,
       class: 'safe-banner-link',
     },
     'Back to live',

@@ -312,6 +312,22 @@ export function viewIdFromHash(hash) {
   return id !== null && VIEW_ID.test(id) ? id : 'default';
 }
 
+/**
+ * Zen mode as a page URL's query asks for it, the page's starting point (`?zen=…`): `container`
+ * or `repo` is on in that scope, `on` is on in the scope saved, `off` is off. Null when the query
+ * names none (or an unknown value): the page starts as it was saved.
+ *
+ * @param {string} search  `location.search`, `?` included or not
+ * @returns {{on: boolean, scope?: 'container' | 'repo'} | null}
+ */
+export function zenFromSearch(search) {
+  const zen = new URLSearchParams(search.replace(/^\?/, '')).get('zen');
+  if (zen === 'container' || zen === 'repo') return { on: true, scope: zen };
+  if (zen === 'on') return { on: true };
+  if (zen === 'off') return { on: false };
+  return null;
+}
+
 /** The state of a tiling area not heard from yet: no tiles. @returns {ViewState} */
 export function emptyViewState() {
   return { tiles: [], tree: null, focused: null };

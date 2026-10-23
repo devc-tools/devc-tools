@@ -14,6 +14,7 @@ import {
   tileShowingDiff,
   tileShowingFile,
   tileShowingPane,
+  zenFromSearch,
 } from './lib/view.js';
 import {
   agentStatus,
@@ -256,6 +257,13 @@ const STATE_TEXT = {
  * browser. Saved under {@link SIDEBAR_KEY} with the sidebar's own width and hidden state, which
  * are the page's (`app.js`): each saves its own fields and keeps the other's.
  */
+/**
+ * Zen mode and its scope as saved in this browser, which a save writes: the page URL's `?zen=…`
+ * (`zenFromSearch`) only sets where the page starts, and is never saved; a zen change is.
+ *
+ * @type {{zen: boolean, zenScope: import('./lib/sidebar.js').ZenScope}}
+ */
+let storedZen = savedZen(null);
 const sidebarState = loadSidebarState();
 
 function loadSidebarState() {
@@ -318,9 +326,20 @@ function loadSidebarState() {
     sentOpen: saved?.sentOpen === true,
     /**
      * Zen mode (`zen`): the focused tile alone, and the sidebar's Tasks and that tile's container
-     * (`zenScope` `container`) or repo card (`repo`). The scope is kept with zen mode off.
+     * (`zenScope` `container`) or repo card (`repo`). The scope is kept with zen mode off. The
+     * page URL's `?zen=…` overrides what was saved.
      */
-    ...savedZen(saved),
+    ...startingZen(saved),
+  };
+}
+
+/** Zen mode at load: the page URL's `?zen=…` over what was saved, which {@link storedZen} keeps. */
+function startingZen(saved) {
+  storedZen = savedZen(saved);
+  const asked = zenFromSearch(location.search);
+  return {
+    zen: asked?.on ?? storedZen.zen,
+    zenScope: asked?.scope ?? storedZen.zenScope,
   };
 }
 
@@ -394,8 +413,8 @@ function saveSidebarState() {
         sentOpen: sidebarState.sentOpen,
         width: saved?.width,
         hidden: saved?.hidden,
-        zen: sidebarState.zen,
-        zenScope: sidebarState.zenScope,
+        zen: storedZen.zen,
+        zenScope: storedZen.zenScope,
       }),
     );
   } catch { /* storage unavailable: collapsing just won't survive a reload */ }
@@ -521,6 +540,7 @@ function setZen(change) {
   if (change?.scope === 'container' || change?.scope === 'repo') {
     sidebarState.zenScope = change.scope;
   }
+  storedZen = { zen: sidebarState.zen, zenScope: sidebarState.zenScope };
   saveSidebarState();
   applyZen();
   renderTree();
