@@ -2228,6 +2228,31 @@ button.primary.danger {
   color: var(--muted);
 }
 
+/* A task group's container, after its repo: muted and apart, as an In use row ends. */
+.row-container {
+  margin-left: 6px;
+  font-weight: 400;
+  color: var(--muted);
+}
+
+/* A task's checkbox: selects it for queueing. */
+.task-check {
+  flex: none;
+  width: 12px;
+  height: 12px;
+  margin: 0 5px 0 0;
+  vertical-align: -2px;
+  accent-color: var(--accent);
+}
+
+.row.task-selection {
+  color: var(--accent);
+}
+
+.row.task[data-queued='failed'] .task-queued {
+  color: var(--danger);
+}
+
 .dialog.task-dialog {
   width: min(560px, calc(100vw - 32px));
 }

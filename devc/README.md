@@ -489,6 +489,17 @@ is published from any container: the host server finds devcontainers with
   task edits it. Its hover icons send a routed task for a plan or to
   implement, to the default's agent (else the agent last chosen in the
   dialog), and the trash can deletes it.
+  Each task's checkbox selects it (a node's menu selects all of its tasks);
+  with any selected, a row under the heading queues the routed ones, in list
+  order, for a plan or to implement, to that same agent. Each repo has its own
+  queue and sends one task at a time: the next once the agent on the one
+  before it (or on a task sent by hand there) has worked and stopped, or its
+  terminal was closed. Different repos' queues run side by side, and a queue
+  waits while its container is stopped. A queued task shows its place
+  (`queued #n`); its hover **×** takes it out of the queue. One that fails to
+  send shows `failed` and its queue waits on it until it is queued again (its
+  hover ↻) or taken out. An agent whose status Herdr can't follow never counts
+  as done: close its terminal to move its queue on.
   A sent task's menu also has **Open session**, **Back to tasks** and
   **Remove**. Sending is
   one-way: nothing in a container writes to the list. Tasks are kept in

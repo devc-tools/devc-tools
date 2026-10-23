@@ -90,12 +90,18 @@ import {
   addTask,
   deleteTask,
   markSent,
+  queueFailed,
+  queueHeads,
+  queueTasks,
   readTasks,
   restoreTask,
+  routeKey,
+  type Task,
   TASKS_PATH,
   tasksMessage,
   type TaskState,
   taskTitle,
+  unqueueTask,
   updateTask,
   withSentPane,
   writeTasks,
@@ -580,9 +586,58 @@ export async function startWeb(
   };
   await readJira();
   const jiraMessage = () => ({ type: 'jira', jira });
+  /** Sends what the repos' task queues have ready; set once the queue runner is (below). */
+  let schedulePump = () => {};
+  /**
+   * The agents this server started on tasks and that are still at work, by route
+   * (`routeKey`), each by `${containerId}\n${paneId}`. A repo's queue sends its next task only
+   * once its route has none. `worked`: the agent was seen working (or blocked) since it started,
+   * so a `done` or `idle` after that is its end; before that it is still starting up. `seen`: its
+   * pane was in a snapshot, so one without it means the pane closed rather than a snapshot taken
+   * before the pane was made.
+   */
+  const taskRuns = new Map<
+    string,
+    Map<
+      string,
+      { containerId: string; paneId: string; worked: boolean; seen: boolean }
+    >
+  >();
+  /**
+   * Forgets the runs whose pane was in container `id`'s snapshots and no longer is (all, with
+   * null: the container stopped).
+   */
+  const taskRunsSeen = (
+    id: string,
+    snapshot: Record<string, unknown> | null,
+  ) => {
+    const live = new Set(snapshot ? snapshotPaneIds(snapshot) : []);
+    for (const runs of taskRuns.values()) {
+      for (const [k, run] of runs) {
+        if (run.containerId !== id) continue;
+        if (live.has(run.paneId)) run.seen = true;
+        else if (run.seen || snapshot === null) runs.delete(k);
+      }
+    }
+    schedulePump();
+  };
+  /** Follows a task run's agent status: working or blocked, then done or idle, ends it. */
+  const taskRunStatus = (id: string, paneId: string, status: unknown) => {
+    const k = `${id}\n${paneId}`;
+    for (const runs of taskRuns.values()) {
+      const run = runs.get(k);
+      if (!run) continue;
+      if (status === 'working' || status === 'blocked') run.worked = true;
+      else if ((status === 'done' || status === 'idle') && run.worked) {
+        runs.delete(k);
+        schedulePump();
+      }
+    }
+  };
   const reloadTasks = async () => {
     taskState = await readTasks();
     broadcast(tasksMessage(taskState));
+    schedulePump();
   };
   /** As {@link changePinnedFiles}: read → `change` → write, null when nothing changed. */
   const changeTasks = async (
@@ -593,6 +648,7 @@ export async function startWeb(
     await writeTasks(next);
     taskState = await readTasks();
     broadcast(tasksMessage(taskState));
+    schedulePump();
     return next;
   };
 
@@ -733,19 +789,26 @@ export async function startWeb(
   const addContainer = (record: ContainerRecord) => {
     const id = record.id;
     const session = new ContainerSession(record, opts.session, {
-      onState: () => broadcast(containersMessage()),
-      onSnapshot: (snapshot) =>
-        broadcast({ type: 'snapshot', container: id, snapshot }),
+      onState: () => {
+        broadcast(containersMessage());
+        schedulePump();
+      },
+      onSnapshot: (snapshot) => {
+        broadcast({ type: 'snapshot', container: id, snapshot });
+        taskRunsSeen(id, snapshot);
+      },
       onPaneUpdated: (pane) =>
         broadcast({ type: 'pane_updated', container: id, pane }),
-      onAgentStatus: (pane_id, agent, agent_status) =>
+      onAgentStatus: (pane_id, agent, agent_status) => {
         broadcast({
           type: 'agent_status',
           container: id,
           pane_id,
           agent,
           agent_status,
-        }),
+        });
+        taskRunStatus(id, pane_id, agent_status);
+      },
       onTeardown: (reason) => void controllers.closeContainer(id, reason),
     });
     sessions.set(id, session);
@@ -767,6 +830,7 @@ export async function startWeb(
     for (const key of resumedPanes.keys()) {
       if (key.startsWith(`${id}\n`)) resumedPanes.delete(key);
     }
+    taskRunsSeen(id, null);
     void controllers.closeContainer(id, 'container stopped');
     void session.dispose();
     broadcast(containersMessage());
@@ -1611,8 +1675,9 @@ export async function startWeb(
    * The task list: add, edit, delete and restore change `tasks.json` only. `send_task` writes the
    * task's text into its project's container, starts the agent on it in a new tab with a session
    * id chosen here, and moves the task to `sent`. `open_sent` answers with that agent's pane while
-   * it is still in the session, else resumes the session in a new tab. Nothing a container says
-   * is written to the list.
+   * it is still in the session, else resumes the session in a new tab. `queue_tasks` and
+   * `unqueue_task` put tasks in their repo's queue and take them out; the queue runner
+   * (`pumpQueues`) sends them. Nothing a container says is written to the list.
    */
   const handleTask = async (
     c: Client,
@@ -1624,6 +1689,8 @@ export async function startWeb(
           | 'update_task'
           | 'delete_task'
           | 'restore_task'
+          | 'queue_tasks'
+          | 'unqueue_task'
           | 'send_task'
           | 'open_sent';
       }
@@ -1641,6 +1708,7 @@ export async function startWeb(
     const change = async (
       apply: (state: TaskState) => TaskState | null,
       result: Record<string, unknown> = {},
+      notFound = 'no such task',
     ) => {
       let changed: TaskState | null;
       try {
@@ -1650,7 +1718,7 @@ export async function startWeb(
         return;
       }
       if (changed === null) {
-        fail(c, msg.id, 'not_found', 'no such task');
+        fail(c, msg.id, 'not_found', notFound);
         return;
       }
       reply(c, { id: msg.id, ok: true, result });
@@ -1684,6 +1752,19 @@ export async function startWeb(
     }
     if (msg.type === 'restore_task') {
       await change((state) => restoreTask(state, msg.task));
+      return;
+    }
+    if (msg.type === 'queue_tasks') {
+      const how = { action: msg.action, agent: msg.agent };
+      await change(
+        (state) => queueTasks(state, msg.tasks, how, new Date()),
+        {},
+        'no routed task to queue',
+      );
+      return;
+    }
+    if (msg.type === 'unqueue_task') {
+      await change((state) => unqueueTask(state, msg.task), {}, 'not queued');
       return;
     }
     const localFolder = msg.type === 'send_task'
@@ -1786,6 +1867,16 @@ export async function startWeb(
       label: taskTitle(task.text),
     }).then((r) => renamed(session, r), () => {});
     const last = { containerId, paneId: created.pane_id };
+    if (msg.type === 'send_task') {
+      const key = routeKey({ localFolder: msg.localFolder, root: msg.root });
+      const runs = taskRuns.get(key) ?? new Map();
+      runs.set(`${containerId}\n${created.pane_id}`, {
+        ...last,
+        worked: false,
+        seen: false,
+      });
+      taskRuns.set(key, runs);
+    }
     try {
       await changeTasks((state) =>
         msg.type === 'send_task'
@@ -1807,6 +1898,112 @@ export async function startWeb(
     }
     reply(c, { id: msg.id, ok: true, result: { ...created, reused: false } });
   };
+
+  /**
+   * Whether a route has an agent at work on a task: one this server started (`taskRuns`), else,
+   * after a restart, a sent task's pane there still working or blocked, which is then adopted.
+   */
+  const routeBusy = (key: string, localFolder: string, root: string) => {
+    const runs = taskRuns.get(key);
+    if (runs?.size) return true;
+    const session = [...sessions.values()].find((s) =>
+      s.record.localFolder === localFolder
+    );
+    if (!session) return false;
+    const panes = snapshotPanes(session.snapshot) as {
+      pane_id?: unknown;
+      agent_status?: unknown;
+    }[];
+    for (const t of taskState.sent) {
+      if (t.localFolder !== localFolder || t.root !== root) continue;
+      if (t.last?.containerId !== session.record.id) continue;
+      const pane = panes.find((p) => p.pane_id === t.last!.paneId);
+      if (
+        pane?.agent_status !== 'working' && pane?.agent_status !== 'blocked'
+      ) {
+        continue;
+      }
+      taskRuns.set(
+        key,
+        new Map([[`${t.last.containerId}\n${t.last.paneId}`, {
+          ...t.last,
+          worked: true,
+          seen: true,
+        }]]),
+      );
+      return true;
+    }
+    return false;
+  };
+
+  /** Routes with a queued task being sent now. */
+  const dispatching = new Set<string>();
+
+  /**
+   * Sends queued task `task` as `send_task` would. A container that stopped or whose Herdr is
+   * still connecting leaves it queued for the next try; any other failure halts its queue on it.
+   */
+  const dispatchQueued = async (task: Task, key: string) => {
+    const { localFolder, root, queued } = task;
+    if (localFolder === undefined || root === undefined || !queued) return;
+    dispatching.add(key);
+    let answer: { ok?: boolean; error?: { code: string; message: string } } =
+      {};
+    // Answers go here, not to a page.
+    const sink = {
+      send: (text: string) => answer = JSON.parse(text),
+    } as unknown as Client;
+    try {
+      await handleTask(sink, {
+        type: 'send_task',
+        id: 'queue',
+        task: task.id,
+        localFolder,
+        root,
+        agent: queued.agent,
+        action: queued.action,
+      });
+      const code = answer.error?.code;
+      if (answer.ok || code === 'not_running' || code === 'not_ready') return;
+      const message = answer.error?.message ?? 'send failed';
+      console.error(`devc web: queued task ${task.id}: ${message}`);
+      await changeTasks((state) => queueFailed(state, task.id, message));
+    } catch (e) {
+      console.error(`devc web: ${e instanceof Error ? e.message : e}`);
+    } finally {
+      dispatching.delete(key);
+    }
+  };
+
+  /**
+   * Each repo's queue sends its next task once nothing runs there and its container runs; the
+   * queues of different repos run side by side.
+   */
+  const pumpQueues = () => {
+    for (const head of queueHeads(taskState)) {
+      const { localFolder, root } = head;
+      if (localFolder === undefined || root === undefined) continue;
+      const key = routeKey({ localFolder, root });
+      if (dispatching.has(key) || routeBusy(key, localFolder, root)) continue;
+      const session = [...sessions.values()].find((s) =>
+        s.record.localFolder === localFolder
+      );
+      if (session?.state !== 'connected' && session?.state !== 'no-session') {
+        continue;
+      }
+      void dispatchQueued(head, key);
+    }
+  };
+  let pumpScheduled = false;
+  schedulePump = () => {
+    if (pumpScheduled) return;
+    pumpScheduled = true;
+    queueMicrotask(() => {
+      pumpScheduled = false;
+      pumpQueues();
+    });
+  };
+  schedulePump();
 
   /**
    * A container's recent agent sessions (`list_sessions`, see `sessions.ts`), and resuming one
@@ -2111,6 +2308,7 @@ export async function startWeb(
     if (
       msg.type === 'add_task' || msg.type === 'update_task' ||
       msg.type === 'delete_task' || msg.type === 'restore_task' ||
+      msg.type === 'queue_tasks' || msg.type === 'unqueue_task' ||
       msg.type === 'send_task' || msg.type === 'open_sent'
     ) {
       await handleTask(c, msg);

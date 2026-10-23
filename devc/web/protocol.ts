@@ -250,6 +250,15 @@ export type ClientMessage =
   | { type: 'restore_task'; id: string; task: string }
   | { type: 'open_sent'; id: string; task: string }
   | {
+    type: 'queue_tasks';
+    id: string;
+    /** Task ids, in the order they are queued. */
+    tasks: string[];
+    agent: SessionAgentId;
+    action: TaskAction;
+  }
+  | { type: 'unqueue_task'; id: string; task: string }
+  | {
     type: 'send_task';
     id: string;
     task: string;
@@ -498,6 +507,23 @@ function taskRoute(o: Obj): { localFolder?: string; root?: string } {
     throw new Invalid(`'localFolder' and 'root' go together`);
   }
   return { localFolder: folder(o), root: absolute(o, 'root') };
+}
+
+/** The most tasks one `queue_tasks` may name. */
+export const MAX_QUEUE_TASKS = 500;
+
+/** `queue_tasks`'s ids: 1 to {@link MAX_QUEUE_TASKS} non-empty strings. */
+function taskIds(o: Obj): string[] {
+  const v = o.tasks;
+  if (
+    !Array.isArray(v) || v.length === 0 || v.length > MAX_QUEUE_TASKS ||
+    !v.every((t) => typeof t === 'string' && t !== '')
+  ) {
+    throw new Invalid(
+      `'tasks' must be 1 to ${MAX_QUEUE_TASKS} non-empty strings`,
+    );
+  }
+  return v;
 }
 
 function pane(o: Obj): { container: string; pane_id: string } {
@@ -855,11 +881,26 @@ function parseFields(m: Obj): ClientMessage {
     case 'delete_task':
     case 'restore_task':
     case 'open_sent':
+    case 'unqueue_task':
       return {
         type: m.type,
         id: str(m, 'id'),
         task: str(m, 'task'),
       } as ClientMessage;
+    case 'queue_tasks':
+      if (!isSessionAgentId(m.agent)) {
+        throw new Invalid(`agent '${String(m.agent)}' can't be sent a task`);
+      }
+      if (!isTaskAction(m.action)) {
+        throw new Invalid(`'action' must be one of plan, implement`);
+      }
+      return {
+        type: 'queue_tasks',
+        id: str(m, 'id'),
+        tasks: taskIds(m),
+        agent: m.agent,
+        action: m.action,
+      };
     case 'send_task':
       if (!isSessionAgentId(m.agent)) {
         throw new Invalid(`agent '${String(m.agent)}' can't be sent a task`);

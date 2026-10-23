@@ -3,6 +3,8 @@ import {
   groupTasks,
   parseTaskDefault,
   parseTasks,
+  queueableTasks,
+  queuePlaces,
   savedTaskAgent,
   sentTaskTooltip,
   TASK_AGENT_IDS,
@@ -166,4 +168,61 @@ Deno.test('groupTasks groups by route, in order of first task, unrouted last', (
     '/one/app\n/one/app',
     '/two/app\n/two/app',
   ]);
+});
+
+Deno.test("parseTasks keeps a routed task's queue entry and drops a bad one", () => {
+  const queued = {
+    action: 'plan' as const,
+    agent: 'claude' as const,
+    queuedAt: '2026-10-20T09:00:00.000Z',
+  };
+  const { tasks } = parseTasks({
+    tasks: [
+      { ...task, queued },
+      { ...task, id: 't2', queued: { ...queued, error: 'boom' } },
+      { ...task, id: 't3', queued: { ...queued, agent: 'codex' } },
+      { id: 't4', text: 'x', createdAt: task.createdAt, queued },
+    ],
+  });
+  assertEquals(tasks[0], { ...task, queued });
+  assertEquals(tasks[1].queued, { ...queued, error: 'boom' });
+  assertEquals(tasks[2], { ...task, id: 't3' });
+  assertEquals(tasks[3].queued, undefined);
+});
+
+Deno.test("queuePlaces numbers each repo's queue by queuedAt", () => {
+  const q = (at: string) => ({
+    action: 'plan' as const,
+    agent: 'claude' as const,
+    queuedAt: `2026-10-20T09:00:00.00${at}Z`,
+  });
+  const places = queuePlaces([
+    { ...task, id: 'a', queued: q('2') },
+    { ...task, id: 'b', queued: q('1') },
+    { ...task, id: 'c', root: '/src/lib', queued: q('3') },
+    { ...task, id: 'd' },
+  ]);
+  assertEquals(
+    Object.fromEntries(places),
+    { a: 2, b: 1, c: 1 },
+  );
+});
+
+Deno.test('queueableTasks: selected routed tasks not waiting in a queue', () => {
+  const queued = {
+    action: 'plan' as const,
+    agent: 'claude' as const,
+    queuedAt: '2026-10-20T09:00:00.000Z',
+  };
+  const list = [
+    { ...task, id: 'a' },
+    { ...task, id: 'b', queued },
+    { ...task, id: 'c', queued: { ...queued, error: 'x' } },
+    { id: 'd', text: 'd', createdAt: task.createdAt },
+    { ...task, id: 'e' },
+  ];
+  assertEquals(
+    queueableTasks(list, new Set(['a', 'b', 'c', 'd'])).map((t) => t.id),
+    ['a', 'c'],
+  );
 });

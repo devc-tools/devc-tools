@@ -5,6 +5,10 @@
 // Sending is one-way: the host writes the task into the container and starts the agent, and
 // nothing in a container writes here. A sent task moves to `sent`, which keeps the agent's
 // session id and where it ran, so its session can be found again.
+//
+// A routed task can also be *queued* with an action and agent: the server sends the queued tasks
+// of one repo one at a time, each once the agent before it in that repo has finished, while
+// repos' queues run side by side (see `queueHeads`).
 
 import { dirname } from 'jsr:@std/path';
 import { CONFIG_DIR } from '@devc-tools/core/default_config.ts';
@@ -42,6 +46,18 @@ export interface Task {
   /** The route, when set: both fields or neither. */
   localFolder?: string;
   root?: string;
+  /** Set while it waits in its repo's queue: routed tasks only. */
+  queued?: TaskQueued;
+}
+
+/** How a queued task is to be sent, and since when it waits. */
+export interface TaskQueued {
+  action: TaskAction;
+  agent: SessionAgentId;
+  /** ISO time it was queued: its place in its repo's queue. */
+  queuedAt: string;
+  /** Why sending it failed; the repo's queue halts on it until it is queued again or removed. */
+  error?: string;
 }
 
 export interface SentTask {
@@ -78,6 +94,13 @@ const nonEmpty = (v: unknown): v is string => typeof v === 'string' && v !== '';
 const absolute = (v: unknown): v is string =>
   typeof v === 'string' && v.startsWith('/');
 
+function isQueued(v: unknown): v is TaskQueued {
+  if (typeof v !== 'object' || v === null) return false;
+  const q = v as Obj;
+  return isTaskAction(q.action) && isSessionAgentId(q.agent) &&
+    nonEmpty(q.queuedAt) && (q.error === undefined || nonEmpty(q.error));
+}
+
 function isTask(v: unknown): v is Task {
   if (typeof v !== 'object' || v === null) return false;
   const t = v as Obj;
@@ -108,8 +131,22 @@ function cleanTask(t: Task): Task {
     text: t.text,
     createdAt: t.createdAt,
     ...(t.localFolder !== undefined && t.root !== undefined
-      ? { localFolder: t.localFolder, root: t.root }
+      ? {
+        localFolder: t.localFolder,
+        root: t.root,
+        // A malformed queue entry unqueues the task rather than dropping it.
+        ...(isQueued(t.queued) ? { queued: cleanQueued(t.queued) } : {}),
+      }
       : {}),
+  };
+}
+
+function cleanQueued(q: TaskQueued): TaskQueued {
+  return {
+    action: q.action,
+    agent: q.agent,
+    queuedAt: q.queuedAt,
+    ...(q.error !== undefined ? { error: q.error } : {}),
   };
 }
 
@@ -226,7 +263,10 @@ export function addTask(
   };
 }
 
-/** Replaces task `id`'s text and route (none: not routed). Null when there is no such task. Pure. */
+/**
+ * Replaces task `id`'s text and route (none: not routed). A queued task stays queued, in its new
+ * route's queue, unless it is no longer routed. Null when there is no such task. Pure.
+ */
 export function updateTask(
   state: TaskState,
   id: string,
@@ -242,6 +282,7 @@ export function updateTask(
           text: task.text,
           createdAt: t.createdAt,
           ...(task.route ?? {}),
+          ...(task.route && t.queued ? { queued: t.queued } : {}),
         }
         : t
     ),
@@ -305,6 +346,99 @@ export function withSentPane(
     ...state,
     sent: state.sent.map((t) => t.id === id ? { ...t, last } : t),
   };
+}
+
+/** A route's key: no path holds a newline, so no two routes share one. */
+export function routeKey(r: TaskRoute): string {
+  return `${r.localFolder}\n${r.root}`;
+}
+
+/**
+ * Queues the routed tasks among `ids` to be sent as `action` to `agent`, each at the end of its
+ * repo's queue in `ids`' order. One already queued without an error keeps its place and how it
+ * is sent; a failed one is queued again at the end. Unrouted and unknown ids are skipped. Null
+ * when no task was queued. Pure.
+ */
+export function queueTasks(
+  state: TaskState,
+  ids: string[],
+  how: { action: TaskAction; agent: SessionAgentId },
+  now: Date,
+): TaskState | null {
+  const order = new Map<string, number>();
+  for (const id of ids) if (!order.has(id)) order.set(id, order.size);
+  const base = now.getTime();
+  let changed = false;
+  const tasks = state.tasks.map((t) => {
+    const i = order.get(t.id);
+    if (i === undefined || t.localFolder === undefined) return t;
+    if (t.queued && t.queued.error === undefined) return t;
+    changed = true;
+    // A millisecond apart, so the queue keeps `ids`' order however the list is sorted.
+    const queuedAt = new Date(base + i).toISOString();
+    return { ...t, queued: { ...how, queuedAt } };
+  });
+  return changed ? { ...state, tasks } : null;
+}
+
+/** Takes task `id` out of its queue. Null when it is not queued. Pure. */
+export function unqueueTask(state: TaskState, id: string): TaskState | null {
+  if (!state.tasks.some((t) => t.id === id && t.queued)) return null;
+  return {
+    ...state,
+    tasks: state.tasks.map((t) => {
+      if (t.id !== id) return t;
+      const { queued: _, ...rest } = t;
+      return rest;
+    }),
+  };
+}
+
+/** Marks queued task `id` failed with `error`, halting its queue. Null when not queued. Pure. */
+export function queueFailed(
+  state: TaskState,
+  id: string,
+  error: string,
+): TaskState | null {
+  if (!state.tasks.some((t) => t.id === id && t.queued)) return null;
+  return {
+    ...state,
+    tasks: state.tasks.map((t) =>
+      t.id === id && t.queued ? { ...t, queued: { ...t.queued, error } } : t
+    ),
+  };
+}
+
+/**
+ * Each repo's queue, in order: queued tasks by `queuedAt`, ties in list order. Keyed by
+ * {@link routeKey}, in the order each queue's first task is on the list.
+ */
+export function taskQueues(state: TaskState): Map<string, Task[]> {
+  const queues = new Map<string, Task[]>();
+  for (const t of state.tasks) {
+    if (!t.queued || t.localFolder === undefined || t.root === undefined) {
+      continue;
+    }
+    const key = routeKey({ localFolder: t.localFolder, root: t.root });
+    const q = queues.get(key);
+    if (q) q.push(t);
+    else queues.set(key, [t]);
+  }
+  for (const q of queues.values()) {
+    // Stable: ties keep list order.
+    q.sort((a, b) => a.queued!.queuedAt.localeCompare(b.queued!.queuedAt));
+  }
+  return queues;
+}
+
+/**
+ * The task each repo's queue would send next: its first, unless that one failed (the queue
+ * halts on it).
+ */
+export function queueHeads(state: TaskState): Task[] {
+  return [...taskQueues(state).values()].map((q) => q[0]).filter((t) =>
+    t.queued!.error === undefined
+  );
 }
 
 /** What the page is sent: everything but a sent task's `last`, which only the server checks. */

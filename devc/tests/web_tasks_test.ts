@@ -14,14 +14,19 @@ import {
   deleteTask,
   markSent,
   MAX_SENT,
+  queueFailed,
+  queueHeads,
+  queueTasks,
   readTasks,
   restoreTask,
   type SentTask,
   type Task,
+  taskQueues,
   tasksMessage,
   type TaskState,
   taskText,
   taskTitle,
+  unqueueTask,
   updateTask,
   withSentPane,
   writeTasks,
@@ -387,12 +392,180 @@ Deno.test('parseClientMessage: send_task takes a session agent and an action', (
   }
 });
 
-Deno.test('parseClientMessage: delete_task, restore_task and open_sent name a task', () => {
-  for (const type of ['delete_task', 'restore_task', 'open_sent'] as const) {
+Deno.test('parseClientMessage: delete_task, restore_task, open_sent and unqueue_task name a task', () => {
+  for (
+    const type of [
+      'delete_task',
+      'restore_task',
+      'open_sent',
+      'unqueue_task',
+    ] as const
+  ) {
     assertEquals(parse({ type, id: 'r1', task: 't1' }), {
       ok: true,
       msg: { type, id: 'r1', task: 't1' },
     });
     assert(!parse({ type, id: 'r1' }).ok, type);
   }
+});
+
+Deno.test('parseClientMessage: queue_tasks takes task ids, a session agent and an action', () => {
+  const base = {
+    type: 'queue_tasks' as const,
+    id: 'r1',
+    tasks: ['t1', 't2'],
+    agent: 'claude' as const,
+    action: 'implement' as const,
+  };
+  assertEquals(parse(base), { ok: true, msg: base });
+  for (
+    const bad of [
+      { tasks: [] },
+      { tasks: 't1' },
+      { tasks: ['t1', ''] },
+      { tasks: [1] },
+      { tasks: Array(501).fill('t') },
+      { agent: 'codex' },
+      { action: 'review' },
+    ]
+  ) {
+    const r = parse({ ...base, ...bad });
+    assert(!r.ok, JSON.stringify(bad).slice(0, 80));
+    assertEquals(r.rejection.code, 'bad_request');
+  }
+});
+
+const NOW = new Date('2026-10-20T09:00:00.000Z');
+const routed = (id: string, root: string): Task => ({
+  id,
+  text: id,
+  createdAt: '2026-10-19T10:00:00.000Z',
+  localFolder: '/src/app',
+  root,
+});
+
+Deno.test('queueTasks: queues routed tasks in the given order, skipping unrouted ones', () => {
+  const state: TaskState = {
+    tasks: [
+      routed('a', '/src/app'),
+      routed('b', '/src/app'),
+      { id: 'u', text: 'u', createdAt: '2026-10-19T10:00:00.000Z' },
+      routed('c', '/src/lib'),
+    ],
+    sent: [],
+  };
+  const how = { action: 'implement' as const, agent: 'claude' as const };
+  const next = queueTasks(state, ['b', 'u', 'a', 'c', 'zz'], how, NOW)!;
+  assertEquals(next.tasks[2], state.tasks[2]);
+  const queues = taskQueues(next);
+  assertEquals(
+    [...queues.entries()].map(([k, q]) => [k, q.map((t) => t.id)]),
+    [['/src/app\n/src/app', ['b', 'a']], ['/src/app\n/src/lib', ['c']]],
+  );
+  assertEquals(next.tasks[1].queued, {
+    ...how,
+    queuedAt: '2026-10-20T09:00:00.000Z',
+  });
+  assertEquals(queueHeads(next).map((t) => t.id), ['b', 'c']);
+  // Nothing new to queue: null.
+  assertEquals(queueTasks(next, ['a', 'u'], how, NOW), null);
+});
+
+Deno.test('queueTasks: a queued task keeps its place; a failed one goes to the end', () => {
+  const how = { action: 'plan' as const, agent: 'pi' as const };
+  let state: TaskState = {
+    tasks: [routed('a', '/r'), routed('b', '/r')],
+    sent: [],
+  };
+  state = queueTasks(state, ['a', 'b'], how, NOW)!;
+  state = queueFailed(state, 'a', 'not installed')!;
+  assertEquals(state.tasks[0].queued?.error, 'not installed');
+  // The queue halts on its failed head.
+  assertEquals(queueHeads(state), []);
+  const later = new Date(NOW.getTime() + 60_000);
+  state = queueTasks(
+    state,
+    ['a', 'b'],
+    { ...how, action: 'implement' },
+    later,
+  )!;
+  assertEquals(state.tasks[1].queued?.action, 'plan');
+  assertEquals(state.tasks[0].queued?.error, undefined);
+  assertEquals(queueHeads(state).map((t) => t.id), ['b']);
+  assertEquals([...taskQueues(state).values()][0].map((t) => t.id), ['b', 'a']);
+});
+
+Deno.test('unqueueTask and queueFailed: null for a task not queued', () => {
+  const how = { action: 'plan' as const, agent: 'claude' as const };
+  const state = queueTasks(
+    { tasks: [routed('a', '/r'), routed('b', '/r')], sent: [] },
+    ['a'],
+    how,
+    NOW,
+  )!;
+  assertEquals(unqueueTask(state, 'b'), null);
+  assertEquals(queueFailed(state, 'b', 'x'), null);
+  const out = unqueueTask(state, 'a')!;
+  assertEquals(out.tasks[0], routed('a', '/r'));
+  assert(!('queued' in out.tasks[0]));
+});
+
+Deno.test('updateTask keeps a task queued while it stays routed; markSent drops the entry', () => {
+  const how = { action: 'plan' as const, agent: 'claude' as const };
+  const state = queueTasks(
+    { tasks: [routed('a', '/r')], sent: [] },
+    ['a'],
+    how,
+    NOW,
+  )!;
+  const moved = updateTask(state, 'a', {
+    text: 'new',
+    route: { localFolder: '/src/app', root: '/s' },
+  })!;
+  assertEquals(moved.tasks[0].queued, state.tasks[0].queued);
+  const unrouted = updateTask(state, 'a', { text: 'new' })!;
+  assertEquals(unrouted.tasks[0].queued, undefined);
+  const sentState = markSent(state, 'a', {
+    action: 'plan',
+    agent: 'claude',
+    sentAt: NOW.toISOString(),
+    localFolder: '/src/app',
+    root: '/r',
+    cwd: '/w',
+    sessionId: ID,
+  })!;
+  assert(!('queued' in sentState.sent[0]));
+});
+
+Deno.test('readTasks keeps a queue entry, and unqueues a malformed one', async () => {
+  await inTemp(async (path) => {
+    const queued = {
+      action: 'implement' as const,
+      agent: 'copilot' as const,
+      queuedAt: NOW.toISOString(),
+      error: 'boom',
+    };
+    await Deno.writeTextFile(
+      path,
+      JSON.stringify({
+        version: 1,
+        tasks: [
+          { ...routed('a', '/r'), queued },
+          { ...routed('b', '/r'), queued: { ...queued, agent: 'codex' } },
+          {
+            id: 'u',
+            text: 'u',
+            createdAt: NOW.toISOString(),
+            queued,
+          },
+        ],
+        sent: [],
+      }),
+    );
+    const { tasks } = await readTasks(path);
+    assertEquals(tasks[0].queued, queued);
+    assertEquals(tasks[1], routed('b', '/r'));
+    assert(!('queued' in tasks[2]));
+    assertEquals(tasksMessage({ tasks, sent: [] }).tasks[0].queued, queued);
+  });
 });

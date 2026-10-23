@@ -3,10 +3,19 @@
 // already handed to an agent, kept with that agent's session.
 
 /**
- * A task as the page knows it. A route is both `localFolder` and `root`, or neither.
+ * A task as the page knows it. A route is both `localFolder` and `root`, or neither; only a
+ * routed task can be `queued`.
  *
  * @typedef {{id: string, text: string, createdAt: string, localFolder?: string,
- *   root?: string}} Task
+ *   root?: string, queued?: TaskQueued}} Task
+ */
+
+/**
+ * How a queued task will be sent, its place in its repo's queue (`queuedAt`), and why sending it
+ * failed, when it did: its queue then waits on it.
+ *
+ * @typedef {{action: 'plan' | 'implement', agent: TaskAgentId, queuedAt: string,
+ *   error?: string}} TaskQueued
  */
 
 /**
@@ -44,11 +53,13 @@ export function parseTasks(msg) {
     const { id, text, createdAt, localFolder, root } = t;
     if (!nonEmpty(id) || !nonEmpty(text) || !nonEmpty(createdAt)) continue;
     const routed = nonEmpty(localFolder) && nonEmpty(root);
+    const queued = routed ? parseQueued(t.queued) : null;
     tasks.push({
       id,
       text,
       createdAt,
       ...(routed ? { localFolder, root } : {}),
+      ...(queued ? { queued } : {}),
     });
   }
   /** @type {SentTask[]} */
@@ -88,6 +99,66 @@ export function parseTasks(msg) {
     });
   }
   return { tasks, sent };
+}
+
+/**
+ * A task's queue entry, or null when it is malformed.
+ *
+ * @param {unknown} v
+ * @returns {TaskQueued | null}
+ */
+function parseQueued(v) {
+  if (typeof v !== 'object' || v === null) return null;
+  const { action, agent, queuedAt, error } = /** @type {any} */ (v);
+  if (
+    (action !== 'plan' && action !== 'implement') ||
+    !TASK_AGENT_IDS.includes(agent) || !nonEmpty(queuedAt) ||
+    (error !== undefined && !nonEmpty(error))
+  ) return null;
+  return { action, agent, queuedAt, ...(error ? { error } : {}) };
+}
+
+/**
+ * Each queued task's place in its repo's queue, from 1, as the server sends them: by `queuedAt`,
+ * ties in list order.
+ *
+ * @param {Task[]} tasks
+ * @returns {Map<string, number>} task id → place
+ */
+export function queuePlaces(tasks) {
+  /** @type {Map<string, Task[]>} */
+  const queues = new Map();
+  for (const t of tasks) {
+    if (!t.queued) continue;
+    const key = `${t.localFolder}\n${t.root}`;
+    const q = queues.get(key);
+    if (q) q.push(t);
+    else queues.set(key, [t]);
+  }
+  const places = new Map();
+  for (const q of queues.values()) {
+    q.sort((a, b) =>
+      /** @type {TaskQueued} */ (a.queued).queuedAt.localeCompare(
+        /** @type {TaskQueued} */ (b.queued).queuedAt,
+      )
+    );
+    q.forEach((t, i) => places.set(t.id, i + 1));
+  }
+  return places;
+}
+
+/**
+ * The selected tasks that can be queued, in list order: routed ones not already waiting in a
+ * queue (a failed one can be queued again).
+ *
+ * @param {Task[]} tasks @param {Set<string>} selected
+ * @returns {Task[]}
+ */
+export function queueableTasks(tasks, selected) {
+  return tasks.filter((t) =>
+    selected.has(t.id) && t.localFolder !== undefined &&
+    (!t.queued || t.queued.error !== undefined)
+  );
 }
 
 /**

@@ -63,6 +63,8 @@ import {
 import {
   groupTasks,
   parseTaskDefault,
+  queueableTasks,
+  queuePlaces,
   savedTaskAgent,
   sentTaskTooltip,
   TASK_AGENT_IDS,
@@ -3025,10 +3027,12 @@ function taskRows() {
       ),
     );
   }
+  if (selectedTasks.size) rows.push(taskSelectionRow());
+  const places = queuePlaces(tasks);
   for (const group of groupTasks(tasks)) {
     rows.push(taskGroupRow(group));
     if (!sidebarState.taskGroupsClosed.has(group.key)) {
-      for (const task of group.tasks) rows.push(taskRow(task));
+      for (const task of group.tasks) rows.push(taskRow(task, places));
     }
   }
   if (sentTasks.length === 0) return rows;
@@ -3051,6 +3055,116 @@ function taskRows() {
     for (const s of sentTasks) rows.push(sentTaskRow(s));
   }
   return rows;
+}
+
+/**
+ * The selected tasks' row, while any are: how many, then hover-free buttons that queue the
+ * routed ones (`queue_tasks`) to the agent a row's send uses, for a plan or to be implemented,
+ * and one that clears the selection. Each repo's queue sends its tasks one at a time, each
+ * once the agent before it there is done; different repos' queues run side by side.
+ */
+function taskSelectionRow() {
+  const agentLabel = LABELS.agents[taskSendAgent()];
+  const queueable = queueableTasks(tasks, selectedTasks);
+  const n = queueable.length;
+  const skipped = selectedTasks.size - n;
+  const queueButton = (/** @type {'plan' | 'implement'} */ action) => {
+    const b = iconButton(
+      action,
+      n
+        ? `Queue ${n} for ${agentLabel}: ${action}`
+        : 'Nothing to queue: only routed tasks not already queued can be',
+      () => void queueSelected(action),
+    );
+    /** @type {HTMLButtonElement} */ (b).disabled = n === 0;
+    return b;
+  };
+  return h(
+    'div',
+    {
+      class: 'row task-selection',
+      style: '--depth: 1',
+      title: [
+        `${selectedTasks.size} selected`,
+        skipped
+          ? `${skipped} not routed or already queued: queueing leaves them`
+          : '',
+        'Each repo sends its queued tasks one at a time, repos side by side',
+      ].filter((t) => t).join('\n'),
+    },
+    h('span', { class: 'label' }, `${selectedTasks.size} selected`),
+    rowTrail(
+      queueButton('plan'),
+      queueButton('implement'),
+      iconButton('close', 'Clear selection', clearTaskSelection),
+    ),
+  );
+}
+
+/** Tasks ticked in the Tasks section, for queueing; this page's own, forgotten on reload. */
+const selectedTasks = new Set();
+
+/** Ticks or unticks task `id`. */
+function selectTask(id, on) {
+  if (on) selectedTasks.add(id);
+  else selectedTasks.delete(id);
+  renderTree();
+}
+
+function clearTaskSelection() {
+  selectedTasks.clear();
+  renderTree();
+}
+
+/** Ticks every task of a group, or unticks them all when all are ticked. */
+function selectTaskGroup(group) {
+  const all = group.tasks.every((t) => selectedTasks.has(t.id));
+  for (const t of group.tasks) {
+    if (all) selectedTasks.delete(t.id);
+    else selectedTasks.add(t.id);
+  }
+  renderTree();
+}
+
+/**
+ * Queues the selected routed tasks (`queue_tasks`), in list order, to be sent as `action` to the
+ * agent a row's send uses, and clears the selection.
+ *
+ * @param {'plan' | 'implement'} action
+ */
+async function queueSelected(action) {
+  const ids = queueableTasks(tasks, selectedTasks).map((t) => t.id);
+  if (!ids.length) return;
+  try {
+    await call({
+      type: 'queue_tasks',
+      tasks: ids,
+      agent: taskSendAgent(),
+      action,
+    });
+  } catch (e) {
+    errorToast(`Queue failed: ${e?.message ?? e}`);
+    return;
+  }
+  clearTaskSelection();
+}
+
+/** Takes a task out of its repo's queue (`unqueue_task`). */
+function unqueue(task) {
+  call({ type: 'unqueue_task', task: task.id }).catch((e) =>
+    errorToast(`Remove from queue failed: ${e?.message ?? e}`)
+  );
+}
+
+/** Queues a task that failed to send again, at the end of its repo's queue, as it was. */
+function requeue(task) {
+  if (!task.queued) return;
+  call({
+    type: 'queue_tasks',
+    tasks: [task.id],
+    agent: task.queued.agent,
+    action: task.queued.action,
+  }).catch((e) => errorToast(`Queue failed: ${e?.message ?? e}`));
 }
 
 /**
@@ -3095,6 +3209,13 @@ function taskGroupRow(group) {
   const route = localFolder === undefined || root === undefined
     ? null
     : { localFolder, root };
+  const queued = group.tasks.filter((t) => t.queued).length;
+  const selectItem = [
+    group.tasks.every((t) => selectedTasks.has(t.id))
+      ? 'Deselect these tasks'
+      : 'Select these tasks',
+    () => selectTaskGroup(group),
+  ];
   return h(
     'div',
     {
@@ -3104,9 +3225,13 @@ function taskGroupRow(group) {
       'aria-expanded': String(!sidebarState.taskGroupsClosed.has(key)),
       title: route?.root,
       onclick: () => toggleTaskGroup(key),
-      oncontextmenu: route
-        ? (e) => openMenu(e, [[LABELS.newTaskHere, () => newTaskIn(route)]])
-        : undefined,
+      oncontextmenu: (e) =>
+        openMenu(
+          e,
+          route
+            ? [[LABELS.newTaskHere, () => newTaskIn(route)], selectItem]
+            : [selectItem],
+        ),
     },
     h(
       'span',
@@ -3115,7 +3240,13 @@ function taskGroupRow(group) {
       ...taskRouteParts(localFolder, root),
     ),
     rowTrail(
-      h('span', { class: 'pane-title' }, String(group.tasks.length)),
+      h(
+        'span',
+        { class: 'pane-title' },
+        queued
+          ? `${queued} queued · ${group.tasks.length}`
+          : String(group.tasks.length),
+      ),
       route
         ? hoverActions(
           iconButton('task', LABELS.newTaskHere, () => newTaskIn(route)),
@@ -3126,29 +3257,73 @@ function taskGroupRow(group) {
 }
 
 /**
- * A task's row, under its group: a click edits it. Its hover buttons send it (to the agent the
- * dialog last sent to) when it is routed, and delete it.
+ * A task's row, under its group: its checkbox selects it for queueing, and a click edits it. A
+ * queued one shows its place in its repo's queue (or `failed`, its queue halted on it). Its
+ * hover buttons send it now (to the agent the dialog last sent to) when it is routed, take it
+ * out of its queue or queue it again, and delete it.
  *
  * @param {import('./lib/tasks.js').Task} task
+ * @param {Map<string, number>} places from `queuePlaces`
  */
-function taskRow(task) {
+function taskRow(task, places) {
   const agentLabel = LABELS.agents[taskSendAgent()];
+  const stop = (e) => e.stopPropagation();
+  const checkbox = h('input', {
+    type: 'checkbox',
+    class: 'task-check',
+    'aria-label': `Select: ${taskTitle(task.text)}`,
+    title: 'Select, to queue with others',
+    onclick: stop,
+    onmousedown: stop,
+    onchange: (e) =>
+      selectTask(task.id, /** @type {HTMLInputElement} */ (e.target).checked),
+  });
+  /** @type {HTMLInputElement} */ (checkbox).checked = selectedTasks.has(
+    task.id,
+  );
+  const q = task.queued;
+  const place = places.get(task.id);
+  const queueNote = !q
+    ? ''
+    : q.error
+    ? `Sending failed: ${q.error}\nIts repo's queue waits on it.`
+    : `Queued #${place} for ${LABELS.agents[q.agent]}: ${q.action}` +
+      (place === 1 ? '\nSent once nothing else runs in its repo.' : '');
   return h(
     'div',
     {
       class: 'row task',
       style: '--depth: 2',
       'data-task': task.id,
-      title: `${task.text}\n\nClick to edit`,
+      ...(q ? { 'data-queued': q.error ? 'failed' : String(place) } : {}),
+      title: [task.text, queueNote, 'Click to edit'].filter((t) => t).join(
+        '\n\n',
+      ),
       onclick: () => openTaskDialog(task),
     },
     h(
       'span',
       { class: 'label' },
+      checkbox,
       taskTitle(task.text),
     ),
     rowTrail(
+      q
+        ? h(
+          'span',
+          { class: 'pane-title task-queued' },
+          q.error ? 'failed' : `queued #${place}`,
+        )
+        : '',
       hoverActions(
+        ...(q
+          ? [
+            ...(q.error
+              ? [iconButton('refresh', 'Queue again', () => requeue(task))]
+              : []),
+            iconButton('close', 'Remove from queue', () => unqueue(task)),
+          ]
+          : []),
         ...(task.localFolder === undefined ? [] : [
           iconButton(
             'plan',
@@ -4861,6 +5036,12 @@ function onSidebarMessage(msg) {
     case 'projects':
     case 'pinned_files':
     case 'tasks':
+      // A task sent, deleted or edited away elsewhere is no longer selected.
+      for (const id of selectedTasks) {
+        if (!tasks.some((t) => t.id === id)) selectedTasks.delete(id);
+      }
+      renderTree();
+      break;
     case 'snapshot':
     case 'pane_updated':
     case 'agent_status':
