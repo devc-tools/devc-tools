@@ -10,11 +10,11 @@ Code webviews, and only them, frame the two split pages. Small and independent o
 
 ## Checklist
 
-- [ ] 1. `securityHeaders` takes the request's path; `/sidebar` and `/main` (and their `/safe/`
+- [x] 1. `securityHeaders` takes the request's path; `/sidebar` and `/main` (and their `/safe/`
       forms) get `frame-ancestors vscode-webview:`; everything else keeps `'none'`
-- [ ] 2. Tests in `devc/tests/web_server_test.ts`
-- [ ] 3. Spec note in `.plans/archived/devc-web.md` (§ Views, or where the CSP is described)
-- [ ] 4. Validation (below), then commit
+- [x] 2. Tests in `devc/tests/web_server_test.ts`
+- [x] 3. Spec note in `.plans/archived/devc-web.md` (§ Views, or where the CSP is described)
+- [x] 4. Validation (below), then commit
 
 ## Touchpoints
 
@@ -55,3 +55,13 @@ Code webviews, and only them, frame the two split pages. Small and independent o
    with their next restart. The extension's plan can't be validated in VS Code before then.
 
 Commit with a message in the repo's style (`devc web: …`).
+
+## Implementation notes
+
+- **`frame-ancestors vscode-webview: vscode-file:`, not `vscode-webview:` alone.** `frame-ancestors`
+  is checked against every ancestor up to the top, and a webview's frames are nested in the
+  workbench, whose origin on the desktop is `vscode-file://vscode-app`; with `vscode-webview:` alone
+  the view would stay blank.
+- The tests are in `devc/tests/web_live_test.ts` (where `routeStatic`'s are), not
+  `web_server_test.ts`.
+- Validation 2 (curl against a real server) and 3 (the user's restart) were not run here.

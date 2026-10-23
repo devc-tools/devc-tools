@@ -337,7 +337,20 @@ export function staticPathAllowed(pathname: string): boolean {
     .test(pathname) && !pathname.split('/').includes('..');
 }
 
-function securityHeaders(port: number): Record<string, string> {
+/**
+ * Who may frame a page: VS Code webviews (devc-vscode's devc web view, Simple Browser) for the
+ * split pages, nobody for anything else. `frame-ancestors` checks every ancestor, and a webview's
+ * frames sit in the workbench, whose origin on the desktop is `vscode-file://vscode-app`.
+ */
+const WEBVIEW_ANCESTORS = 'vscode-webview: vscode-file:';
+
+/** The split pages' routes, the only responses a VS Code webview may frame. Not their `.html` names. */
+const FRAMABLE_ROUTES = new Set(['/sidebar', '/main']);
+
+function securityHeaders(
+  port: number,
+  framable = false,
+): Record<string, string> {
   return {
     'Cache-Control': 'no-store',
     'X-Content-Type-Options': 'nosniff',
@@ -346,7 +359,7 @@ function securityHeaders(port: number): Record<string, string> {
       "default-src 'self'",
       "style-src 'self' 'unsafe-inline'",
       `connect-src 'self' ws://127.0.0.1:${port} ws://localhost:${port}`,
-      "frame-ancestors 'none'",
+      `frame-ancestors ${framable ? WEBVIEW_ANCESTORS : "'none'"}`,
     ].join('; '),
   };
 }
@@ -379,7 +392,10 @@ export async function serveStatic(
   try {
     const body = await Deno.readFile(new URL(`.${path}`, root));
     return new Response(body, {
-      headers: { 'Content-Type': type, ...securityHeaders(port) },
+      headers: {
+        'Content-Type': type,
+        ...securityHeaders(port, FRAMABLE_ROUTES.has(pathname)),
+      },
     });
   } catch {
     return new Response('not found', { status: 404 });

@@ -187,6 +187,7 @@ Deno.test('routeStatic serves /sidebar and /main, live and under /safe/', async 
       'index.html': 'live index',
       'sidebar.html': 'live sidebar',
       'main.html': 'live main',
+      'x.js': 'live x',
     });
     await writeTree(safe, {
       'index.html': 'good index',
@@ -209,11 +210,28 @@ Deno.test('routeStatic serves /sidebar and /main, live and under /safe/', async 
       assertEquals(r.status, 200, path);
       assertEquals(await r.text(), body, path);
       assertEquals(r.headers.get('Content-Type'), 'text/html; charset=utf-8');
+      // Only the split pages' routes may be framed, and only by VS Code webviews.
+      const framable = path.endsWith('/sidebar') || path.endsWith('/main');
+      const csp = r.headers.get('Content-Security-Policy') ?? '';
       assert(
-        r.headers.get('Content-Security-Policy')?.includes(
+        csp.endsWith(
+          framable
+            ? 'frame-ancestors vscode-webview: vscode-file:'
+            : "frame-ancestors 'none'",
+        ),
+        `${path}: ${csp}`,
+      );
+      assert(csp.startsWith("default-src 'self'; "), path);
+    }
+    for (const path of ['/sidebar.html', '/main.html', '/x.js']) {
+      const r = await get(path);
+      assert(
+        r.headers.get('Content-Security-Policy')?.endsWith(
           "frame-ancestors 'none'",
         ),
+        path,
       );
+      await r.body?.cancel();
     }
     for (const path of ['/sidebar/', '/main/x', '/Sidebar']) {
       const r = await get(path);

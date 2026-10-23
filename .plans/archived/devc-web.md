@@ -169,6 +169,10 @@ that would hand it a shell in every container:
   Origin is a non-browser client such as an agent's script. Anything else gets 403.
 - Static responses carry `Cache-Control: no-store`. The page loads nothing from any
   origin but its own.
+- Every static response carries `frame-ancestors 'none'`, except the split pages' routes
+  (`/sidebar`, `/main` and their `/safe/` forms), which carry `frame-ancestors vscode-webview:
+  vscode-file:` so devc-vscode's webview view can frame them (`frame-ancestors` checks every
+  ancestor, and the desktop workbench is `vscode-file://vscode-app`). The token stays in the hash.
 
 ### Container discovery (push, not poll)
 
