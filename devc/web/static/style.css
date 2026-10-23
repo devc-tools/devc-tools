@@ -1482,6 +1482,15 @@ body.resizing-zones {
   min-width: 2.5em;
 }
 
+/*
+ * Among several tabs, each is as wide as its content: a share of a width the tab takes from
+ * its content can't cap that content, and would only leave a gap before the ×.
+ */
+.lm_header .lm_tabs:has(.lm_tab + .lm_tab) :is(.lm_title, .tile-context),
+.lm_header:has(.lm_tabdropdown_list .lm_tab) .lm_tabs :is(.lm_title, .tile-context) {
+  max-width: none;
+}
+
 /* Among several tabs, the title gives way entirely, and no tab runs into the next. */
 .lm_header .lm_tabs:has(.lm_tab + .lm_tab) .tile-title-muted,
 .lm_header:has(.lm_tabdropdown_list .lm_tab) .tile-title-muted {
@@ -1521,6 +1530,7 @@ body.resizing-zones {
   flex: none;
   display: flex;
   align-items: center;
+  margin-left: auto;
   margin-right: -4px;
 }
 
