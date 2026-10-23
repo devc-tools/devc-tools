@@ -48,6 +48,11 @@ bash tests/workflow_guards_test.sh                          # workflows
 bash tests/features_test.sh                                 # Features
 ```
 
+Run `deno test`, `deno check` and `deno run` from the package's directory, as
+above, even for a single file (`cd devc && deno task test tests/web_sidebar_test.ts`).
+From the repo root, deno reads the root `deno.json`, not the package's, so its
+import map doesn't apply.
+
 Each Feature also has its own harnesses. See
 [Running a Feature's tests](features/CONTRIBUTING.md#running-a-features-tests).
 

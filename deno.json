@@ -1,4 +1,7 @@
 {
+  // The root holds only shared fmt settings, no dependencies: a deno run from here must not
+  // write a stray deno.lock. Each package keeps its own (devc/, devc-core/, devc-bridge/host/).
+  "lock": false,
   "fmt": {
     "useTabs": false,
     "lineWidth": 80,
