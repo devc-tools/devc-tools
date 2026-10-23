@@ -11,6 +11,15 @@
 
 ### Pending
 
+- [devc-web-cross-page-drag](devc-web-cross-page-drag.md) — phase 4: rows dragged from a
+  `/sidebar` page into a `/main` page by native drag and drop (`application/x-devc-web-tile`, a
+  pane or file ref), landing right, below or in the stack of the tile under the pointer; and the
+  server replays a view's last `setZen` to a reloaded `/main`.
+
+- [devc-web-vscode-embedding](devc-web-vscode-embedding.md) — phase 5, devc-tools' half: `/sidebar`
+  and `/main` (and their `/safe/` forms) send `frame-ancestors vscode-webview:` so devc-vscode's
+  view and Simple Browser can frame them; every other response keeps `'none'`.
+
 - [devc-web-aseprite-viewer](devc-web-aseprite-viewer.md) — after devc-web-media-tiles: a
   clean-room `.aseprite` decoder and compositor (`static/lib/aseprite.js`, from the public spec
   only) and a media view with frame playback, tags and layer toggles. Normal blend only at first;
