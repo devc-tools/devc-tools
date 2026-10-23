@@ -440,6 +440,14 @@ body.resizing-zones {
   overflow-y: auto;
 }
 
+/* The pull request's `#n title` row stays at the top of its section while the files scroll. */
+.repo-card > .card-section > .row.pr-header {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--row-bg);
+}
+
 .repo-card > .card-section + .card-section {
   border-top: 1px solid #2c394b;
 }
