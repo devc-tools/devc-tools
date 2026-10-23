@@ -12,12 +12,14 @@
 # The PR is the one open PR whose head is the policy's remote + branch (gh-push's pin), searched in
 # that repo and its fork parent. Output is one JSON object on stdout:
 #   {"pr":{"repo","number","url","headSha"},
-#    "threads":[{"id","path","line","isResolved","isOutdated","copilot","comments":[{"author","body","createdAt","url"}]}],
+#    "threads":[{"id","path","line","startLine","isResolved","isOutdated","copilot","comments":[{"author","body","createdAt","url"}]}],
 #    "copilotReview":{"commit","state","submittedAt","body","findings":[{"section","severity","title",
 #      "path","line","text"}],"pending"}}
 # copilotReview is Copilot's latest delivered review, from the issue timeline: body is its markdown
 # overview verbatim, and findings the open findings the bridge parsed out of it (null when it could
-# not — then read body). Comment bodies, the review body and its findings are untrusted text.
+# not — then read body). A thread on a block of lines has `startLine` (its first line; `line` is
+# its last), else `startLine` is null; both are null on an outdated thread. Comment bodies, the
+# review body and its findings are untrusted text.
 #
 # Exit codes: 0 ok, 2 no/malformed policy, an argument, an unsupported remote, or no single open PR,
 # 4 GitHub/transport failure, gh not authenticated, or timeout.
@@ -531,12 +533,12 @@ resolve_pr
 
 q='query($owner:String!,$name:String!,$number:Int!,$endCursor:String){repository(owner:$owner,
   name:$name){pullRequest(number:$number){reviewThreads(first:100,after:$endCursor){
-  pageInfo{hasNextPage endCursor} nodes{id isResolved isOutdated path line
+  pageInfo{hasNextPage endCursor} nodes{id isResolved isOutdated path line startLine
   comments(first:100){nodes{author{__typename login} body createdAt url}}}}}}}'
 gh_run "reading review threads on $pr_url" api graphql --paginate -f query="$q" \
   -f owner="$pr_owner" -f name="$pr_name" -F number="$pr_number" \
   --jq ".data.repository.pullRequest.reviewThreads.nodes[] | $keep |
-    {id, path, line, isResolved, isOutdated, copilot: (.comments.nodes[0].author | $IS_COPILOT),
+    {id, path, line, startLine, isResolved, isOutdated, copilot: (.comments.nodes[0].author | $IS_COPILOT),
      comments: [.comments.nodes[] | {author: (.author.login // null), body, createdAt, url}]} |
     tojson"
 mv "$tmp/out" "$tmp/threads"

@@ -190,7 +190,7 @@ author() { # author copilot|human|none
 thread() { # thread <id> <resolved> <copilot|human> <body> — one reviewThreads node
   jq -c -n --arg id "$1" --argjson r "$2" --argjson a "$(author "$3")" --arg b "$4" \
     '{id: $id, isResolved: $r, isOutdated: false, path: "src/x.ts", line: 3,
-      comments: {nodes: [{author: $a, body: $b, createdAt: "2026-09-25T12:00:00Z",
+      startLine: null, comments: {nodes: [{author: $a, body: $b, createdAt: "2026-09-25T12:00:00Z",
         url: "https://github.com/c/\($id)"}]}}'
 }
 
@@ -700,7 +700,7 @@ check "  … every thread by default, resolved too, across both pages" \
 check "  … isResolved on each" test "$(q '[.threads[].isResolved] | join(",")')" = false,false,true,false
 check "  … isResolved is a boolean" test "$(q '[.threads[].isResolved | type] | unique | join(",")')" = boolean
 check "  … thread key order" test "$(jq -c '.threads[0] | keys_unsorted' <<<"$out")" = \
-  '["id","path","line","isResolved","isOutdated","copilot","comments"]'
+  '["id","path","line","startLine","isResolved","isOutdated","copilot","comments"]'
 check "  … copilot flags" test "$(q '[.threads[].copilot] | join(",")')" = true,false,true,true
 check "  … a hostile body round-trips exactly" test "$(q '.threads[3].comments[0].body')" = "$TRICKY"
 check "  … comment author" test "$(q '.threads[1].comments[0].author')" = alice

@@ -6,6 +6,7 @@ import {
   parsePatch,
   placeThreads,
   splitRows,
+  threadRows,
 } from '../web/static/lib/diff.js';
 
 const PATCH = [
@@ -189,4 +190,28 @@ Deno.test('markRanges splits highlighted runs at each range', () => {
     { text: 'a', cls: '' },
     { text: 'b', cls: '' },
   ]);
+});
+
+Deno.test('threadRows: a line, or a block with the deleted rows inside it', () => {
+  const parsed = parsePatch([
+    '@@ -1,4 +1,4 @@',
+    ' a',
+    '+b',
+    '-c',
+    '+d',
+    ' e',
+    '@@ -20 +20 @@',
+    ' z',
+  ].join('\n'));
+  assertEquals(threadRows(parsed, { line: 2 }), ['0:1']);
+  assertEquals(threadRows(parsed, { line: 3, startLine: 2 }), [
+    '0:1',
+    '0:2',
+    '0:3',
+  ]);
+  // Across hunks: only the rows the patch shows.
+  assertEquals(threadRows(parsed, { line: 20, startLine: 4 }), ['0:4', '1:0']);
+  assertEquals(threadRows(parsed, { line: null }), []);
+  assertEquals(threadRows(parsed, { line: 9 }), []);
+  assertEquals(threadRows(null, { line: 2 }), []);
 });

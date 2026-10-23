@@ -115,6 +115,9 @@ export interface PrThread {
   id: string;
   path: string;
   line: number | null;
+  /** A block's first line (`line` is its last); null on a one-line thread, and from a bridge
+   * that predates it. */
+  startLine: number | null;
   isResolved: boolean;
   isOutdated: boolean;
   copilot: boolean;
@@ -270,7 +273,16 @@ function parseComment(v: unknown): PrComment | null {
 
 function parseThread(v: unknown): PrThread | null {
   if (!isObj(v)) return null;
-  const { id, path, line, isResolved, isOutdated, copilot, comments } = v;
+  const {
+    id,
+    path,
+    line,
+    startLine,
+    isResolved,
+    isOutdated,
+    copilot,
+    comments,
+  } = v;
   if (typeof id !== 'string' || !THREAD_ID.test(id)) return null;
   if (!isPrPath(path)) return null;
   if (
@@ -281,6 +293,12 @@ function parseThread(v: unknown): PrThread | null {
     typeof isResolved !== 'boolean' || typeof isOutdated !== 'boolean' ||
     typeof copilot !== 'boolean' || !Array.isArray(comments)
   ) return null;
+  // Kept only as a block's start: a whole number before `line`. Anything else is a one-line
+  // thread, so a bridge without the field still lists its threads.
+  const start = typeof line === 'number' && typeof startLine === 'number' &&
+      Number.isInteger(startLine) && startLine >= 1 && startLine < line
+    ? startLine
+    : null;
   const kept: PrComment[] = [];
   for (const raw of comments) {
     if (kept.length >= MAX_COMMENTS) break;
@@ -291,6 +309,7 @@ function parseThread(v: unknown): PrThread | null {
     id,
     path,
     line,
+    startLine: start,
     isResolved,
     isOutdated,
     copilot,

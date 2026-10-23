@@ -72,6 +72,7 @@ import { parseSessions, sessionAge, sessionTooltip } from './lib/sessions.js';
 import {
   buildPrTree,
   folderOpenByDefault,
+  prFileUrl,
   statusLetter,
 } from './lib/pr_tree.js';
 import {
@@ -2034,6 +2035,7 @@ function prListingRows(fr, result, depth) {
         'data-dim': sub.viewed === sub.total || undefined,
         title: sub.path,
         onclick: () => togglePrFolder(foldersKey, sub),
+        oncontextmenu: (e) => openMenu(e, prDirMenuItems(fr, result, sub)),
       }, ...markedText(sub.name));
       row.append(
         rowTrail(
@@ -2077,7 +2079,11 @@ function prFileRow(fr, result, node, depth) {
     onmousedown: stop,
     ondblclick: stop,
     onchange: (e) =>
-      void toggleViewed(fr, file, /** @type {HTMLInputElement} */ (e.target)),
+      void setViewed(
+        fr,
+        file,
+        /** @type {HTMLInputElement} */ (e.target).checked,
+      ),
   });
   /** @type {HTMLInputElement} */ (checkbox).checked = file.viewed === 'VIEWED';
   const ref = { localFolder: fr.localFolder, root: fr.root, path: file.path };
@@ -2095,6 +2101,7 @@ function prFileRow(fr, result, node, depth) {
       onclick: (e) =>
         tileArea.openDiff(ref, e.ctrlKey || e.metaKey ? 'stack' : 'preview'),
       ondblclick: () => keepOpen(tileShowingDiff(tileArea.state(), ref)),
+      oncontextmenu: (e) => openMenu(e, prFileMenuItems(fr, result, file)),
     },
     checkbox,
     h('span', {
@@ -2108,14 +2115,109 @@ function prFileRow(fr, result, node, depth) {
 }
 
 /**
- * Marks a PR file Viewed or not (`pr_viewed`): the counts change at once, and a failure puts
- * the checkbox back with a toast.
+ * A PR file's menu: its diff, the file itself as the Files tree opens it (not for a deleted
+ * file, which is no longer in the checkout), GitHub, and the file's paths and pin. Viewed is
+ * the row's checkbox.
  *
- * @param {FileRoot} fr @param {any} file @param {HTMLInputElement} checkbox
+ * @param {FileRoot} fr @param {any} result @param {any} file
  */
-async function toggleViewed(fr, file, checkbox) {
+function prFileMenuItems(fr, result, file) {
+  const ref = { localFolder: fr.localFolder, root: fr.root, path: file.path };
+  const path = file.path;
+  const exists = file.status !== 'removed';
+  return [
+    ['Open diff', () => tileArea.openDiff(ref, 'stack')],
+    ['Open diff to the right', () => tileArea.openDiff(ref, 'right')],
+    null,
+    ...(exists
+      ? [
+        ['Open file', () => openFileTile(fr, path, 'stack')],
+        ['Open file to the right', () => openFileTile(fr, path, 'right')],
+        ['Open in editor', () => openInEditor(fr, path, 'stack')],
+        ...hostOpenItems(fr, path),
+        null,
+      ]
+      : []),
+    [
+      'Open on GitHub',
+      () =>
+        void prFileUrl(result.pr.url, path).then((url) =>
+          window.open(url, '_blank', 'noopener')
+        ),
+    ],
+    null,
+    ...copyPathItems(fr, path),
+    ...(exists && !fr.container ? [null, filePinItem(fr, path)] : []),
+  ];
+}
+
+/**
+ * A PR folder's menu: every file under it marked Viewed (or, when all are, not), the folder in
+ * Code or the file manager, and its paths.
+ *
+ * @param {FileRoot} fr @param {any} result
+ * @param {import('./lib/pr_tree.js').PrDir} dir
+ */
+function prDirMenuItems(fr, result, dir) {
+  const allViewed = dir.viewed === dir.total;
+  return [
+    ...(result.canViewed
+      ? [[
+        allViewed ? 'Mark all as not viewed' : 'Mark all as viewed',
+        () => void setFolderViewed(fr, dir, !allViewed),
+      ]]
+      : []),
+    null,
+    ...hostOpenItems(fr, dir.path),
+    null,
+    ...copyPathItems(fr, dir.path),
+  ];
+}
+
+/**
+ * Marks every file under `dir` Viewed or not, one `pr_viewed` at a time (GitHub has one file per
+ * call), skipping those already so. The first failure stops the rest, with its toast.
+ *
+ * @param {FileRoot} fr @param {import('./lib/pr_tree.js').PrDir} dir @param {boolean} viewed
+ */
+async function setFolderViewed(fr, dir, viewed) {
+  /** @param {import('./lib/pr_tree.js').PrDir} d @returns {any[]} */
+  const filesOf = (d) => [
+    ...d.files.map((n) => n.file),
+    ...d.dirs.flatMap(filesOf),
+  ];
+  for (const file of filesOf(dir)) {
+    if ((file.viewed === 'VIEWED') === viewed) continue;
+    if (!await setViewed(fr, file, viewed)) return;
+  }
+}
+
+/**
+ * A diff tile marked a PR file Viewed or not (`SidebarIntents.prViewed`): the PR tree's listing
+ * of that repo, if it has one, shows it.
+ *
+ * @param {{localFolder: string, root: string, path: string}} ref
+ * @param {'VIEWED' | 'UNVIEWED'} viewed
+ */
+function prViewed(ref, viewed) {
+  if (viewed !== 'VIEWED' && viewed !== 'UNVIEWED') return;
+  const result = prLists.get(prKey(ref?.localFolder, ref?.root))?.result;
+  const file = list(result?.files).find((f) => f.path === ref?.path);
+  if (!file || file.viewed === viewed) return;
+  file.viewed = viewed;
+  queueRender();
+}
+
+/**
+ * Marks a PR file Viewed or not (`pr_viewed`): the counts change at once, and a failure puts
+ * the checkbox back with a toast. Its diff tiles hear of a success (`ViewIntents.prViewed`).
+ * Resolves whether it worked.
+ *
+ * @param {FileRoot} fr @param {any} file @param {boolean} viewed
+ * @returns {Promise<boolean>}
+ */
+async function setViewed(fr, file, viewed) {
   const before = file.viewed;
-  const viewed = checkbox.checked;
   file.viewed = viewed ? 'VIEWED' : 'UNVIEWED';
   queueRender();
   let message = null;
@@ -2139,6 +2241,12 @@ async function toggleViewed(fr, file, checkbox) {
     errorToast(`Marking Viewed failed: ${message}`);
   }
   queueRender();
+  if (message !== null) return false;
+  tileArea.prViewed(
+    { localFolder: fr.localFolder, root: fr.root, path: file.path },
+    file.viewed,
+  );
+  return true;
 }
 
 const PROJECT_STATE_TEXT = {
@@ -4682,5 +4790,5 @@ export function mountSidebar(root, opts) {
   onConnectionChange(onSidebarConnection);
   applyZen();
   renderTree();
-  return { intents: { revealInContainers, setZen }, onViewState };
+  return { intents: { revealInContainers, setZen, prViewed }, onViewState };
 }

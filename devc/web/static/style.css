@@ -2447,6 +2447,11 @@ button.primary.danger {
   white-space: nowrap;
 }
 
+.diff-viewed {
+  font-size: calc(var(--font-size) - 2px);
+  color: var(--muted);
+}
+
 .diff-body {
   flex: 1;
   overflow: auto;
@@ -2507,6 +2512,15 @@ button.primary.danger {
   grid-template-columns: 4.5em 4.5em 1fr;
 }
 
+/* An added or removed file: its one side's number and text. */
+.diff-table[data-layout='single'] .diff-row {
+  grid-template-columns: 4.5em 1fr;
+}
+
+.diff-table[data-layout='single'] .diff-threads {
+  padding-left: 4.5em;
+}
+
 /* Side by side: old number and text, new number and text. Long lines wrap, so both sides show. */
 .diff-table[data-layout='split'] .diff-row {
   grid-template-columns: 4.5em minmax(0, 1fr) 4.5em minmax(0, 1fr);
@@ -2556,6 +2570,37 @@ button.primary.danger {
 .diff-row [data-kind='del'] .diff-word {
   background: #7a2c33;
   border-radius: 2px;
+}
+
+/*
+ * Rows a review thread is on: a bar down their left edge (the new side's, when split), one row
+ * long for a line, the block's length for a block. Hovering a thread's card tints its rows.
+ */
+.diff-row[data-covered] {
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+.diff-row[data-covered='resolved'] {
+  box-shadow: inset 3px 0 0 color-mix(in srgb, var(--muted) 60%, transparent);
+}
+
+.diff-table[data-layout='split'] .diff-row[data-covered] {
+  box-shadow: none;
+}
+
+.diff-table[data-layout='split'] .diff-row[data-covered] .diff-num:nth-child(3) {
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+.diff-table[data-layout='split'] .diff-row[data-covered='resolved'] .diff-num:nth-child(3) {
+  box-shadow: inset 3px 0 0 color-mix(in srgb, var(--muted) 60%, transparent);
+}
+
+.diff-row[data-hot] > * {
+  background-image: linear-gradient(
+    color-mix(in srgb, var(--accent) 20%, transparent),
+    color-mix(in srgb, var(--accent) 20%, transparent)
+  );
 }
 
 .diff-num {
@@ -2623,6 +2668,18 @@ button.primary.danger {
 
 .thread-tag {
   color: var(--blocked);
+}
+
+/* A thread's place: `Line n`, or `Lines a–b` for a block. */
+.thread-where {
+  margin-bottom: 4px;
+  font-family: ui-monospace, monospace;
+  font-size: calc(var(--font-size) - 2px);
+  color: var(--muted);
+}
+
+.thread-where[data-block] {
+  color: var(--accent);
 }
 
 .thread-body {

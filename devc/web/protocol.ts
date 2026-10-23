@@ -300,10 +300,15 @@ export const VIEW_INTENT_NAMES = [
   'save',
   'reload',
   'setZen',
+  'prViewed',
 ] as const;
 export type ViewIntentName = typeof VIEW_INTENT_NAMES[number];
 /** The `SidebarIntents` methods (`static/lib/view.js`) a `sidebar_intent` may name. */
-export const SIDEBAR_INTENT_NAMES = ['revealInContainers', 'setZen'] as const;
+export const SIDEBAR_INTENT_NAMES = [
+  'revealInContainers',
+  'setZen',
+  'prViewed',
+] as const;
 export type SidebarIntentName = typeof SIDEBAR_INTENT_NAMES[number];
 /** The most arguments a relayed intent carries. */
 export const MAX_INTENT_ARGS = 4;

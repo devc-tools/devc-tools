@@ -41,6 +41,7 @@ import {
   parsePatch,
   placeThreads,
   splitRows,
+  threadRows,
 } from './lib/diff.js';
 import {
   badge,
@@ -150,6 +151,7 @@ const tileArea = {
     if (diff) refreshDiff(diff);
   },
   setZen: (on) => tiling?.setZen(on),
+  prViewed: (ref, viewed) => showViewed(ref, viewed),
   dragSource: (el, ref, title) =>
     tiling ? tiling.dragSource(el, ref, title) : () => {},
 };
@@ -746,6 +748,7 @@ function saveFlag(key, on) {
  * @property {Set<string>} openFolds   rows (`placeThreads` keys, `file`) whose Resolved fold is open
  * @property {Map<string, Composer>} composers  by thread id
  * @property {Set<string>} resolving   threads with a `pr_resolve` in flight
+ * @property {boolean} viewedSending   a `pr_viewed` from the header's Viewed is in flight
  */
 
 /**
@@ -766,14 +769,15 @@ const diffViews = new Map();
 /**
  * Opens a PR file's diff the way a Files click opens a file: a tile already showing it is
  * brought forward; else the focused stack's preview tile shows it (`'preview'`), or a new tile in
- * the focused stack does (`'stack'`, a Ctrl/⌘-click).
+ * the focused stack does (`'stack'`, a Ctrl/⌘-click). `'right'` always opens a new tile beside
+ * the focused one.
  *
  * @param {import('./lib/layout_state.js').DiffRef} ref
- * @param {'preview' | 'stack'} where
+ * @param {'preview' | 'stack' | 'right'} where
  */
 function openDiff(ref, where) {
   if (!tiling) return;
-  const shown = tileShowingDiff(viewState(), ref);
+  const shown = where === 'right' ? null : tileShowingDiff(viewState(), ref);
   if (shown) {
     revealTile(shown.id);
     if (where === 'stack') keepTileOpen(tileOf(shown.id));
@@ -786,7 +790,7 @@ function openDiff(ref, where) {
   const tile = tiling.addBeside(
     targetTile()?.id ?? null,
     { diff: ref },
-    'stack',
+    where,
   );
   focusedTileId = tile.id;
   focusSeq.set(tile.id, ++nextFocusSeq);
@@ -844,6 +848,7 @@ function mountDiffTile(tile) {
     openFolds: new Set(),
     composers: new Map(),
     resolving: new Set(),
+    viewedSending: false,
   };
   diffViews.set(tile.id, view);
   // After the factory returns: a title change mid-build would save a half-built layout.
@@ -945,6 +950,61 @@ function refreshDiff(view) {
     if (c.textarea.value.trim() === '' && !c.sending) view.composers.delete(id);
   }
   void loadDiff(view);
+}
+
+/**
+ * The header's **Viewed** (`pr_viewed`): shown at once, put back with a toast on a failure. A
+ * success shows in the file's other diff tiles and the sidebar's PR tree.
+ *
+ * @param {DiffView} view @param {boolean} viewed
+ */
+async function setDiffViewed(view, viewed) {
+  const ref = view.tile.diff;
+  const file = view.data?.file;
+  if (!ref || !file) return;
+  const before = file.viewed;
+  file.viewed = viewed ? 'VIEWED' : 'UNVIEWED';
+  view.viewedSending = true;
+  renderDiff(view);
+  let message = null;
+  try {
+    const r = await call({ type: 'pr_viewed', ...ref, viewed });
+    if (r?.available === false) message = String(r.message ?? 'failed');
+    else if (r?.viewed === 'VIEWED' || r?.viewed === 'UNVIEWED') {
+      file.viewed = r.viewed;
+    }
+  } catch (e) {
+    message = String(e?.message ?? e);
+  }
+  view.viewedSending = false;
+  if (message !== null) {
+    file.viewed = before;
+    errorToast(`Marking Viewed failed: ${message}`);
+  }
+  if (diffViews.get(view.tile.id) === view) renderDiff(view);
+  if (message !== null) return;
+  showViewed(ref, file.viewed);
+  sidebarIntents?.prViewed(ref, file.viewed);
+}
+
+/**
+ * A PR file was marked Viewed or not (here, or in the sidebar: `ViewIntents.prViewed`): each
+ * diff tile showing it shows that.
+ *
+ * @param {DiffRef} ref @param {'VIEWED' | 'UNVIEWED'} viewed
+ */
+function showViewed(ref, viewed) {
+  if (viewed !== 'VIEWED' && viewed !== 'UNVIEWED') return;
+  for (const view of diffViews.values()) {
+    const d = view.tile.diff;
+    const file = view.data?.file;
+    if (
+      !d || !file || d.localFolder !== ref?.localFolder ||
+      d.root !== ref?.root || d.path !== ref?.path || file.viewed === viewed
+    ) continue;
+    file.viewed = viewed;
+    renderDiff(view);
+  }
 }
 
 function toggleShowResolved() {
@@ -1089,8 +1149,32 @@ function diffHeader(view) {
       h('span', { class: 'pr-number', title: pr.url }, `#${pr.number}`),
     );
   }
+  line.append(h('span', { class: 'diff-head-fill' }));
+  if (file && data.canViewed) {
+    const viewed = h('input', {
+      type: 'checkbox',
+      class: 'pr-viewed',
+      disabled: view.viewedSending,
+      onchange: (e) =>
+        void setDiffViewed(
+          view,
+          /** @type {HTMLInputElement} */ (e.target).checked,
+        ),
+    });
+    /** @type {HTMLInputElement} */ (viewed).checked = file.viewed === 'VIEWED';
+    line.append(h(
+      'label',
+      {
+        class: 'diff-toggle diff-viewed',
+        title: file.viewed === 'DISMISSED'
+          ? 'Viewed, changed since viewed'
+          : 'Mark this file Viewed on GitHub',
+      },
+      viewed,
+      'Viewed',
+    ));
+  }
   line.append(
-    h('span', { class: 'diff-head-fill' }),
     iconButton('refresh', 'Refresh', () => refreshDiff(view)),
     data?.fileUrl
       ? iconButton(
@@ -1142,6 +1226,33 @@ function diffContent(view) {
   const threads = view.threads ?? [];
   const shown = shownPatch(view);
   const placed = placeThreads(shown?.parsed ?? null, threads);
+  /** The rows a thread is on (see `threadRows`): `open` when an unresolved one is. */
+  const covered = new Map();
+  for (const t of threads) {
+    for (const key of threadRows(shown?.parsed ?? null, t)) {
+      if (covered.get(key) !== 'open') {
+        covered.set(key, t.isResolved ? 'resolved' : 'open');
+      }
+    }
+  }
+  /**
+   * A row's keys (both sides' in a split row), for a thread card's hover to find it, and its
+   * thread marker.
+   *
+   * @param {(string | null)[]} keys
+   */
+  const rowAttrs = (keys) => {
+    const ks = [...new Set(keys.filter((k) => k !== null))];
+    const marks = ks.map((k) => covered.get(k));
+    return {
+      'data-keys': ks.join(' '),
+      'data-covered': marks.includes('open')
+        ? 'open'
+        : marks.includes('resolved')
+        ? 'resolved'
+        : undefined,
+    };
+  };
   const listed = new Set(threads.map((t) => t.id));
   const out = [];
   // Replies whose thread the last listing no longer has: kept for their text.
@@ -1187,9 +1298,17 @@ function diffContent(view) {
     );
     return out;
   }
+  // An added or removed file has one side only: its rows and numbers, in either layout.
+  const status = data.file?.status;
+  /** @type {'old' | 'new' | null} */
+  const single = status === 'added'
+    ? 'new'
+    : status === 'removed'
+    ? 'old'
+    : null;
   const table = h('div', {
     class: 'diff-table',
-    'data-layout': diffSplit ? 'split' : 'unified',
+    'data-layout': single ? 'single' : diffSplit ? 'split' : 'unified',
   });
   /** A split row's line number, coloured as its side. */
   const num = (n, kind = 'empty') =>
@@ -1218,6 +1337,28 @@ function diffContent(view) {
           : '',
       ),
     );
+    if (single) {
+      hunk.rows.forEach((row, ri) => {
+        table.append(
+          h(
+            'div',
+            {
+              class: 'diff-row',
+              'data-kind': row.kind,
+              ...rowAttrs([`${hi}:${ri}`]),
+            },
+            h(
+              'span',
+              { class: 'diff-num' },
+              row[single] === null ? '' : String(row[single]),
+            ),
+            h('span', { class: 'diff-text' }, ...rowText(shown, row)),
+          ),
+        );
+        threadsAt(`${hi}:${ri}`);
+      });
+      return;
+    }
     if (diffSplit) {
       for (const sr of splitRows(hunk)) {
         /** @param {import('./lib/diff.js').DiffRow | null} row */
@@ -1230,7 +1371,13 @@ function diffContent(view) {
         table.append(
           h(
             'div',
-            { class: 'diff-row' },
+            {
+              class: 'diff-row',
+              ...rowAttrs([
+                sr.leftIndex === null ? null : `${hi}:${sr.leftIndex}`,
+                sr.rightIndex === null ? null : `${hi}:${sr.rightIndex}`,
+              ]),
+            },
             num(sr.left?.old, sr.left?.kind),
             side(sr.left),
             num(sr.right?.new, sr.right?.kind),
@@ -1248,7 +1395,11 @@ function diffContent(view) {
       table.append(
         h(
           'div',
-          { class: 'diff-row', 'data-kind': row.kind },
+          {
+            class: 'diff-row',
+            'data-kind': row.kind,
+            ...rowAttrs([`${hi}:${ri}`]),
+          },
           h(
             'span',
             { class: 'diff-num' },
@@ -1315,11 +1466,35 @@ function canResolve(view, thread) {
 /** A thread's card: each comment, then Reply, Resolve and ↗ as the grants allow. */
 function threadCard(view, thread) {
   const now = Date.now();
+  const keys = threadRows(view.shown?.parsed ?? null, thread);
+  /** Hovering a card marks the rows it is on. @param {boolean} on */
+  const hot = (on) => {
+    for (const key of keys) {
+      for (
+        const row of view.body.querySelectorAll(
+          `.diff-row[data-keys~="${key}"]`,
+        )
+      ) row.toggleAttribute('data-hot', on);
+    }
+  };
   const card = h('div', {
     class: 'thread-card',
     'data-thread': thread.id,
     'data-resolved': thread.isResolved || undefined,
+    onmouseenter: () => hot(true),
+    onmouseleave: () => hot(false),
   });
+  // Where it is: a block's lines, or its one line (none on an outdated thread).
+  if (thread.line !== null && thread.line !== undefined) {
+    const block = typeof thread.startLine === 'number';
+    card.append(h(
+      'div',
+      { class: 'thread-where', 'data-block': block || undefined },
+      block
+        ? `Lines ${thread.startLine}–${thread.line}`
+        : `Line ${thread.line}`,
+    ));
+  }
   for (const c of list(thread.comments)) {
     card.append(
       h(
@@ -2246,6 +2421,8 @@ function reportActivePane(force) {
 
 /** How the tiling area tells the sidebar what it shows: set by {@link mountTiles}. */
 let onViewChange = (/** @type {ViewState} */ _state) => {};
+/** How the tiling area reaches the sidebar: set by {@link mountTiles}; null with none. */
+let sidebarIntents = /** @type {SidebarIntents | null} */ (null);
 
 /** Golden Layout's root, in the tiling area's element. */
 const $layoutRoot = h('div', { class: 'layout-root' });
@@ -2476,6 +2653,7 @@ function acceptNativeDrops(root) {
 export function mountTiles(root, opts) {
   $tiles = root;
   onViewChange = opts.onViewChange;
+  sidebarIntents = opts.sidebar;
   setMenuContext({ tileArea, sidebar: opts.sidebar });
   $tiles.replaceChildren($layoutRoot, $placeholder);
   tiling = createTiling($layoutRoot, {

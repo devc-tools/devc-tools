@@ -384,3 +384,33 @@ function markRange(spans, from, to) {
   }
   return out;
 }
+
+/**
+ * The rows a thread is on, as {@link placeThreads} keys: those whose new-file number is from its
+ * `startLine` (its `line` when it has none) to its `line`, and the deleted rows between two of
+ * them in a hunk. None for a thread with no `line`, or whose lines the patch doesn't show.
+ *
+ * @param {ParsedPatch | null} parsed
+ * @param {{line: number | null, startLine?: number | null}} thread
+ * @returns {string[]}
+ */
+export function threadRows(parsed, thread) {
+  const last = thread.line;
+  if (parsed === null || last === null) return [];
+  const first = thread.startLine ?? last;
+  /** @type {string[]} */
+  const out = [];
+  parsed.hunks.forEach((h, hi) => {
+    /** @type {number[]} */
+    const inRange = [];
+    h.rows.forEach((r, ri) => {
+      if (r.new !== null && r.new >= first && r.new <= last) inRange.push(ri);
+    });
+    if (inRange.length === 0) return;
+    for (let ri = inRange[0]; ri <= inRange[inRange.length - 1]; ri++) {
+      const r = h.rows[ri];
+      if (r.new !== null || r.kind === 'del') out.push(`${hi}:${ri}`);
+    }
+  });
+  return out;
+}

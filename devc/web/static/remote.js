@@ -36,6 +36,7 @@ export function remoteSidebar() {
   return {
     revealInContainers: (ref) => intent('revealInContainers', [ref]),
     setZen: (change) => intent('setZen', [change]),
+    prViewed: (diff, viewed) => intent('prViewed', [diff, viewed]),
   };
 }
 
@@ -101,6 +102,7 @@ export function remoteTileArea() {
     keepOpen: (id) => intent('keepOpen', [id]),
     save: (id) => intent('save', [id]),
     reload: (id) => intent('reload', [id]),
+    prViewed: (diff, viewed) => intent('prViewed', [diff, viewed]),
     setZen: (on) => {
       zen = on;
       intent('setZen', [on]);

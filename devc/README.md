@@ -513,13 +513,21 @@ is published from any container: the host server finds devcontainers with
   changed files as a tree with GitHub's own **Viewed** checkboxes. Clicking a
   file opens its diff in a tile (as a Files click opens a file), with
   the PR's review threads after their lines (by new-file line number; the rest
-  under **File threads**), resolved ones folded under `Resolved (n)` (**Show
+  under **File threads**). A bar marks the rows each thread is on, one row for
+  a line and the whole block for a multi-line comment; its card says `Line n`
+  or `Lines a–b`, and hovering the card tints its rows. Resolved threads fold under `Resolved (n)` (**Show
   resolved** opens them all). Rows are syntax-highlighted as the file viewer
   highlights the file, and a changed line's changed words are marked against
   the line it replaces. **Unified | Split** picks one column or old and new
-  side by side; **Hide whitespace** shows lines that changed only whitespace as
+  side by side (an added or removed file shows its one side either way);
+  **Hide whitespace** shows lines that changed only whitespace as
   unchanged (`git diff -w`, worked out from the patch in the page). All three
-  toggles are remembered per browser. What works follows the grants of the repo's own line in the
+  toggles are remembered per browser. A file's right-click menu opens its diff
+  (here or to the right), the file itself (as Files does; not for a deleted
+  file), GitHub's page for it, copies its paths and pins it; a folder's marks
+  every file under it Viewed (or, when all are, not), opens it in Code or the
+  file manager and copies its paths. A diff tile's header has the file's own
+  **Viewed** checkbox, kept in step with the tree's. What works follows the grants of the repo's own line in the
   host-only policy, read on every message: reading needs `gh-pr-read`, the
   checkboxes `gh-pr-viewed`, **Reply** `gh-pr-reply` (posted as you with the
   bridge's `🤖` prefix), and **Resolve** `gh-pr-resolve` (any thread) or

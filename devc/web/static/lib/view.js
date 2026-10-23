@@ -67,7 +67,7 @@ import {
  *   showing it instead, if any.
  * @property {(file: FileRef, where: 'preview' | 'stack' | 'right') => void} openFile
  *   A tile already showing the file comes forward instead, except for `'right'`.
- * @property {(diff: DiffRef, where: 'preview' | 'stack') => void} openDiff
+ * @property {(diff: DiffRef, where: 'preview' | 'stack' | 'right') => void} openDiff
  *   A tile already showing the PR file comes forward instead (and stays, for `'stack'`).
  * @property {(id: string) => void} reveal    brings a tile forward and focuses it
  * @property {(id: string) => void} close     a tile (asking first when it has unsaved edits), or a
@@ -76,6 +76,8 @@ import {
  * @property {(id: string) => void} save      a file tile's edits
  * @property {(id: string) => void} reload    a file or diff tile's content, read again
  * @property {(on: boolean) => void} setZen   the focused tile alone, filling the area
+ * @property {(diff: DiffRef, viewed: 'VIEWED' | 'UNVIEWED') => void} prViewed
+ *   a PR file was marked Viewed or not in the sidebar: its diff tiles show it
  */
 
 /**
@@ -95,6 +97,8 @@ import {
  * @property {(ref: PaneRef) => void} revealInContainers  a tile menu's **Reveal in Containers**
  * @property {(change: {on?: boolean, scope?: 'container' | 'repo'}) => void} setZen  a tile
  *   menu's zen items: zen mode on or off, and its scope, each left as it is when not given
+ * @property {(diff: DiffRef, viewed: 'VIEWED' | 'UNVIEWED') => void} prViewed
+ *   a PR file was marked Viewed or not in a diff tile: the sidebar's PR tree shows it
  */
 
 /** @param {ViewState} state @param {string | null | undefined} id */
@@ -291,12 +295,14 @@ export const VIEW_INTENT_NAMES = Object.freeze([
   'save',
   'reload',
   'setZen',
+  'prViewed',
 ]);
 
 /** The {@link SidebarIntents} a `sidebar_intent` may name. */
 export const SIDEBAR_INTENT_NAMES = Object.freeze([
   'revealInContainers',
   'setZen',
+  'prViewed',
 ]);
 
 /** The view id pattern: what pairs a `/sidebar` page with a `/main` page. */

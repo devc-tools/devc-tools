@@ -2,9 +2,11 @@ import { assertEquals } from 'jsr:@std/assert';
 import {
   buildPrTree,
   folderOpenByDefault,
+  prFileUrl,
   splitMarkers,
   statusLetter,
 } from '../web/static/lib/pr_tree.js';
+import { fileUrl } from '../web/pr_review.ts';
 
 const file = (path: string, viewed = 'UNVIEWED') => ({
   path,
@@ -93,4 +95,11 @@ Deno.test('splitMarkers shows bidi controls and zero-width characters as markers
     { marker: '⟨U+2066⟩' },
   ]);
   assertEquals(splitMarkers(''), []);
+});
+
+Deno.test("prFileUrl is the server's fileUrl: GitHub's per-file anchor", async () => {
+  const pr = 'https://github.com/o/r/pull/7';
+  for (const path of ['a.ts', 'dir/ünï code.md']) {
+    assertEquals(await prFileUrl(pr, path), await fileUrl(pr, path));
+  }
 });

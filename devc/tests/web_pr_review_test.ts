@@ -405,6 +405,31 @@ Deno.test('pr parse: thread ids, wrong types, urls and caps', () => {
   assertEquals(parsePrThreads(JSON.stringify({ pr: {}, threads: [] })), null);
 });
 
+Deno.test("pr parse: a block's startLine, kept only before its line", () => {
+  const parsed = parsePrThreads(JSON.stringify({
+    pr: { url: URL },
+    threads: [
+      thread('PRRT_block', { line: 9, startLine: 4 }),
+      thread('PRRT_old', { line: 9 }),
+      thread('PRRT_same', { line: 9, startLine: 9 }),
+      thread('PRRT_after', { line: 9, startLine: 12 }),
+      thread('PRRT_text', { line: 9, startLine: '4' }),
+      thread('PRRT_outdated', { line: null, startLine: 4 }),
+    ],
+  }))!;
+  assertEquals(
+    parsed.threads.map((t) => [t.id, t.startLine]),
+    [
+      ['PRRT_block', 4],
+      ['PRRT_old', null],
+      ['PRRT_same', null],
+      ['PRRT_after', null],
+      ['PRRT_text', null],
+      ['PRRT_outdated', null],
+    ],
+  );
+});
+
 Deno.test('pr limits: a command past its timeout, and one writing past the cap, are bridge results', async () => {
   const t = await setup();
   try {

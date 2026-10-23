@@ -17,6 +17,26 @@
  * @typedef {{name: string, file: PrFile}} PrFileNode
  */
 
+/**
+ * GitHub's page for one file of a PR: `<pr url>/files#diff-<sha256 hex of the path>`, as the
+ * server's `fileUrl` (`pr_review.ts`) builds it. Without `crypto.subtle` (a page served over
+ * plain http from another host), the PR's Files page.
+ *
+ * @param {string} prUrl @param {string} path
+ * @returns {Promise<string>}
+ */
+export async function prFileUrl(prUrl, path) {
+  if (!globalThis.crypto?.subtle) return `${prUrl}/files`;
+  const digest = await crypto.subtle.digest(
+    'SHA-256',
+    new TextEncoder().encode(path),
+  );
+  const hex = Array.from(new Uint8Array(digest))
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('');
+  return `${prUrl}/files#diff-${hex}`;
+}
+
 /** @param {string} a @param {string} b */
 const byName = (a, b) => a.localeCompare(b, 'en');
 
