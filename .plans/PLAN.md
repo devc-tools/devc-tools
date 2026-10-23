@@ -11,11 +11,6 @@
 
 ### Pending
 
-- [devc-web-sidebar-main-routes](devc-web-sidebar-main-routes.md) — phase 3, after the split:
-  `/sidebar` and `/main` serve each half as its own page, paired by a view id in the URL hash; the
-  server relays `view_state`, `view_intent` and `sidebar_intent` between them and keeps each view's
-  last state. `/` stays in-process.
-
 - [devc-web-aseprite-viewer](devc-web-aseprite-viewer.md) — after devc-web-media-tiles: a
   clean-room `.aseprite` decoder and compositor (`static/lib/aseprite.js`, from the public spec
   only) and a media view with frame playback, tags and layer toggles. Normal blend only at first;
@@ -115,6 +110,11 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
   a container card keeps its header and gains a Files row.
 
 ### Completed
+
+- ✅ Done — [devc-web-sidebar-main-routes](archived/devc-web-sidebar-main-routes.md) — phase 3:
+  `/sidebar` and `/main` serve each half as its own page, paired by a view id in the URL hash
+  (`#token=…&view=<id>`); the server relays `view_state`, `view_intent` and `sidebar_intent`
+  between them (`web/views.ts`) and keeps each view's last state. `/` stays in-process.
 
 - ✅ Done — [devc-web-split-entry-points](archived/devc-web-split-entry-points.md) — phase 2 of
   running the sidebar and the tiling area as separate pages: `app.js` split into `ui.js`,

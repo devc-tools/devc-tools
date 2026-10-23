@@ -6,7 +6,7 @@ browser). Phase 1 (commit `16129aa`) put the sidebar → tiling area traffic beh
 `static/lib/view.js`. This phase splits `static/app.js` (≈8.3k lines) into modules so each half
 can be mounted on its own. **Page code only: no server or protocol change**, and `/` must look and
 behave exactly as it does now. Phase 3 is
-[devc-web-sidebar-main-routes](../devc-web-sidebar-main-routes.md).
+[devc-web-sidebar-main-routes](devc-web-sidebar-main-routes.md).
 
 ## Checklist
 

@@ -1,7 +1,7 @@
 # devc web: `/sidebar` and `/main`, two pages relayed by the server
 
 Decided with the user on 2026-10-22. Phase 3 of 5. After
-[devc-web-split-entry-points](archived/devc-web-split-entry-points.md), the sidebar and the tiling area are
+[devc-web-split-entry-points](devc-web-split-entry-points.md), the sidebar and the tiling area are
 modules (`static/sidebar.js`, `static/tiles.js`) talking through `lib/view.js`'s contracts
 (`ViewIntents` + `ViewState` one way, `SidebarIntents` the other), wired in-process by `app.js`
 for `/`. This phase serves each half as a page of its own, and the server relays the contracts
