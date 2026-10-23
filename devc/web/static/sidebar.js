@@ -603,6 +603,54 @@ function zoneLimits() {
   };
 }
 
+/** The least an open card section in In use's one box shrinks to: six rows, or all of it. */
+const SECTION_MIN_HEIGHT = 6 * 27;
+
+/**
+ * Keeps In use's one box (style.css `.one-run`) from squeezing an open section to nothing: each
+ * card with one is held to its rows plus SECTION_MIN_HEIGHT of each section, and the box to its
+ * cards' floors (not their heights now: the window may shrink). Past that the box runs taller
+ * than the zone, which scrolls. CSS can't say this: a card's floor from its content is all of
+ * its content.
+ */
+function floorInUseSections() {
+  const run = $zoneInUse.classList.contains('one-run')
+    ? /** @type {HTMLElement | null} */ ($zoneInUse.querySelector(
+      '.in-use-run',
+    ))
+    : null;
+  if (run === null) return;
+  const cards = [...run.querySelectorAll(':scope > .repo-card')].map((
+    el,
+  ) => /** @type {HTMLElement} */ (el)).filter((card) =>
+    card.querySelector(':scope > .card-section')
+  );
+  if (cards.length === 0) return;
+  const floors = cards.map((card) => {
+    let floor = card.scrollHeight;
+    for (const el of card.querySelectorAll(':scope > .card-section')) {
+      const section = /** @type {HTMLElement} */ (el);
+      const border = section.offsetHeight - section.clientHeight;
+      floor += Math.min(SECTION_MIN_HEIGHT, section.scrollHeight) + border -
+        section.offsetHeight;
+    }
+    card.style.minHeight = `${floor}px`;
+    return floor;
+  });
+  const slack = cards.reduce(
+    (sum, card, i) => sum + Math.max(0, card.offsetHeight - floors[i]),
+    0,
+  );
+  const last = /** @type {HTMLElement} */ (run.lastElementChild);
+  const style = getComputedStyle(run);
+  run.style.minHeight = `${
+    last.getBoundingClientRect().bottom +
+    parseFloat(getComputedStyle(last).marginBottom) +
+    parseFloat(style.paddingBottom) + parseFloat(style.borderBottomWidth) -
+    run.getBoundingClientRect().top - slack
+  }px`;
+}
+
 /**
  * Gives Tasks and In use their dragged heights, kept to their limits (rows come and go, the
  * window resizes), or their default sizing when none was dragged. With Containers folded, In use
@@ -780,6 +828,7 @@ function renderTree() {
     );
   }
   $tree.classList.toggle('containers-closed', !containersShown());
+  floorInUseSections();
   applyZoneSizes();
   [$zoneInUse.scrollTop, $zoneTasks.scrollTop, $zoneBrowse.scrollTop] = scroll;
   for (const el of $tree.querySelectorAll('.card-section')) {

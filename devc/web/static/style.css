@@ -590,6 +590,11 @@ body.resizing-zones {
   overflow-y: auto;
 }
 
+/* With a card's section open, the cards with none keep their height: only the open one shrinks. */
+.zone-in-use.one-run .in-use-run:has(> .repo-card > .card-section) > .repo-card:not(:has(> .card-section)) {
+  flex-shrink: 0;
+}
+
 .zone-in-use.one-run .repo-card > * {
   flex: none;
 }
@@ -600,10 +605,10 @@ body.resizing-zones {
   max-height: none;
 }
 
-/* Zen mode's In use never scrolls, and has no heading: the box is all there is, as far from the
-   zone's top as from its sides. */
+/* Zen mode's In use has no heading: the box is all there is, as far from the zone's top as from
+   its sides. It scrolls only when its open sections' floors (sidebar.js) outgrow it. */
 .app:not([data-zen='off']) .zone-in-use {
-  overflow: hidden;
+  overflow-x: hidden;
 }
 
 .app:not([data-zen='off']) .zone-in-use > .row.section:first-child {
