@@ -13,15 +13,24 @@ import { createRenderer } from './renderer.js';
 import { createTiling } from './layout.js';
 import { createViewer } from './viewer.js';
 import {
-  foldTree,
   parseSavedLayout,
-  sameDiff,
   sameFile,
-  sameFileView,
   tilesShowingPane,
-  treeSignature,
   withView,
 } from './lib/layout_state.js';
+import {
+  fileKey,
+  focusedTile,
+  layoutSignature,
+  layoutTiles,
+  nodeById,
+  nodeTiles,
+  previewTileNear,
+  tileMarks,
+  tileShowingDiff,
+  tileShowingFile,
+  tileShowingPane,
+} from './lib/view.js';
 import {
   createWheelAccumulator,
   decodeBase64,
@@ -140,6 +149,9 @@ const SAFE_MODE = location.pathname.startsWith('/safe/');
  * @typedef {import('./lib/layout_state.js').PaneRef} PaneRef
  * @typedef {import('./lib/layout_state.js').FileRef} FileRef
  * @typedef {import('./layout.js').Tile} Tile
+ * @typedef {import('./lib/view.js').TileState} TileState
+ * @typedef {import('./lib/view.js').ViewState} ViewState
+ * @typedef {import('./lib/view.js').ViewIntents} ViewIntents
  */
 
 /** @type {Map<string, ContainerInfo>} by container id */
@@ -158,6 +170,35 @@ const OUTPUT_LINES = 500;
 
 /** @type {ReturnType<typeof createTiling> | null} set once the page has started */
 let tiling = null;
+/**
+ * The tiling area as the sidebar reaches it (see `lib/view.js`): its state, the intents, and
+ * `dragSource`, the one part that needs both halves in one page.
+ *
+ * @type {ViewIntents & {state: () => ViewState, dragSource: (el: HTMLElement,
+ *   ref: () => PaneRef | {file: FileRef}, title: () => string) => () => void}}
+ */
+const tileArea = {
+  state: viewState,
+  openPane,
+  openFile,
+  openDiff,
+  reveal: revealTile,
+  close: closeTile,
+  keepOpen: (id) => keepTileOpen(tileOf(id)),
+  save: (id) => {
+    const view = fileViews.get(id);
+    if (view) void saveFile(view);
+  },
+  reload: (id) => {
+    const file = fileViews.get(id);
+    if (file) void reloadFile(file);
+    const diff = diffViews.get(id);
+    if (diff) refreshDiff(diff);
+  },
+  setZen: (on) => tiling?.setZen(on),
+  dragSource: (el, ref, title) =>
+    tiling ? tiling.dragSource(el, ref, title) : () => {},
+};
 /** @type {string | null} */
 let focusedTileId = null;
 /** Tile ids by when they were last focused (higher is later), to pick the one to reveal. */
@@ -169,8 +210,9 @@ const newPanes = new Map();
 let projectStarts = true;
 /** The host's OS (`hello`'s `hostOs`), which names the reveal item. */
 let hostOs = '';
-/** The Layout section's last rendered tree, as `treeSignature` plus the tiles' refs. */
-let layoutSignature = '';
+/** The tile rows' last render: the view's `layoutSignature` and `tileMarks` then. */
+let shownLayout = '';
+let shownMarks = '';
 /** The focused tile's repo card at zen mode's last render (`zenCardKey`). */
 let shownZenCard = /** @type {string | null} */ (null);
 /**
@@ -1200,7 +1242,7 @@ function applyZen() {
   $zenToggle.setAttribute('aria-pressed', String(zen !== 'off'));
   $zenToggle.setAttribute('aria-label', label);
   $zenToggle.title = `${label} (${IS_MAC ? 'Cmd' : 'Ctrl'}+Alt+Z)`;
-  tiling?.setZen(zen !== 'off');
+  tileArea.setZen(zen !== 'off');
 }
 
 /** @param {import('./lib/sidebar.js').ZenScope} scope */
@@ -1437,8 +1479,10 @@ function renderTree() {
   const caret = typing
     ? [newEntry.input.selectionStart, newEntry.input.selectionEnd]
     : null;
-  // In use lists the tiles: it is re-rendered when the layout changes (layoutChanged).
-  layoutSignature = layoutState().signature;
+  // In use lists the tiles: it is re-rendered when they change (onViewState).
+  const view = tileArea.state();
+  shownLayout = layoutSignature(view);
+  shownMarks = tileMarks(view);
   const cards = repoCards();
   const zen = sidebarState.zen !== 'off';
   shownZenCard = zen ? zenCardKey() : null;
@@ -1556,22 +1600,6 @@ function sectionRow(title, open, onToggle, trail = '', oncontextmenu) {
 // Sidebar: In use section
 // ---------------------------------------------------------------------------------------------
 
-/** The tiles in layout order, each with whether it is the front tab of its stack. */
-function layoutTiles() {
-  const tree = tiling ? foldTree(tiling.tree()) : null;
-  if (!tree) return [];
-  const byId = new Map(tiling.tiles().map((t) => [t.id, t]));
-  const out = [];
-  const walk = (node) => {
-    if (node.kind === 'tile') {
-      const tile = byId.get(node.id);
-      if (tile) out.push({ tile, active: node.active });
-    } else node.children.forEach(walk);
-  };
-  walk(tree);
-  return out;
-}
-
 /**
  * Every repo card (see `repoCardKey`): one per repo or worktree a listed container shows, in
  * {@link cardRepoOrder}, then one wherever a tile, pane or session is outside those (a repo no
@@ -1606,7 +1634,7 @@ function repoCards() {
   for (const c of containers.values()) {
     for (const r of cardRepoOrder(c.localFolder)) cardFor(c.localFolder, r);
   }
-  layoutTiles().forEach((t, i) => {
+  layoutTiles(tileArea.state()).forEach((t, i) => {
     const { localFolder, repo } = tileRepo(t.tile);
     if (!localFolder) return;
     const card = cardFor(localFolder, repo);
@@ -1758,7 +1786,7 @@ function zenShows(cards, key) {
 
 /** The focused tile's repo card's key, which zen mode shows; null for none or an empty tile. */
 function zenCardKey() {
-  const tile = targetTile();
+  const tile = focusedTile(tileArea.state());
   if (!tile) return null;
   const { localFolder, repo } = tileRepo(tile);
   return localFolder ? repoCardKey(localFolder, repo?.folder ?? null) : null;
@@ -1982,28 +2010,24 @@ function repoCard(card, worktrees = 0) {
 // Sidebar: the layout's tiles, as In use lists them
 // ---------------------------------------------------------------------------------------------
 
-/** The folded layout tree, and a signature that also covers what each tile shows. */
-function layoutState() {
-  const tree = tiling ? foldTree(tiling.tree()) : null;
-  const refs = tiling
-    ? tiling.tiles().map((t) =>
-      `${t.id}=${
-        t.file
-          ? fileKey(t.file)
-          : t.diff
-          ? `diff\n${t.diff.localFolder}\n${t.diff.root}\n${t.diff.path}`
-          : t.ref
-          ? `${t.ref.localFolder}\n${t.ref.pane_id}`
-          : ''
-      }${t.preview ? '*' : ''}`
-    ).sort().join(';')
-    : '';
-  return { tree, signature: `${treeSignature(tree)}|${refs}` };
-}
-
-/** Re-renders the sidebar when the layout's shape or the tiles' panes changed. */
-function layoutChanged() {
-  if (layoutState().signature !== layoutSignature) renderTree();
+/**
+ * The tiling area's state changed (see {@link viewChanged}): renders again what shows it. A
+ * change of layout or of what a tile shows rebuilds the tile rows; a title or unsaved mark
+ * renders them again; focus moves the current-row marks, and in zen mode, the card shown.
+ *
+ * @param {ViewState} view
+ */
+function onViewState(view) {
+  if (layoutSignature(view) !== shownLayout) {
+    renderTree();
+    return;
+  }
+  if (tileMarks(view) !== shownMarks) queueRender();
+  updateCurrent();
+  // Zen mode's container or card is the focused tile's.
+  if (sidebarState.zen !== 'off' && zenCardKey() !== shownZenCard) {
+    queueRender();
+  }
 }
 
 /** The container and pane a ref points at, when they are known. */
@@ -2059,7 +2083,7 @@ function layoutTileRow(tile, active, depth) {
         : undefined,
       title: [...refTooltip(tile.ref), active ? '' : 'Background tab']
         .filter((s) => s).join('\n') || undefined,
-      onclick: () => revealTile(tile.id),
+      onclick: () => tileArea.reveal(tile.id),
       oncontextmenu: (e) =>
         openMenu(e, [
           ...(c && pane ? paneCodeItems(c, pane) : []),
@@ -2078,7 +2102,7 @@ function layoutTileRow(tile, active, depth) {
         c && pane
           ? iconButton('trash', LABELS.close, () => killPane(c, pane))
           : '',
-        iconButton('close', 'Close tile', () => tiling?.close(tile.id)),
+        iconButton('close', 'Close tile', () => tileArea.close(tile.id)),
       ),
     ),
   );
@@ -2096,30 +2120,48 @@ function layoutFileTileRow(tile, active, depth) {
         tile.file ? fileHostPath(tile.file) : '',
         active ? '' : 'Background tab',
       ].filter((s) => s).join('\n') || undefined,
-      onclick: () => revealTile(tile.id),
+      onclick: () => tileArea.reveal(tile.id),
       oncontextmenu: (e) => openMenu(e, tileMenuItems(tile)),
     },
     h(
       'span',
       { class: 'label' },
       rowIcon({ kind: 'file' }),
-      fileTileTitle(tile.file, fileViews.get(tile.id)?.dirty),
+      tile.title,
     ),
     rowTrail(
       hoverActions(
-        iconButton('close', 'Close tile', () => closeTile(tile.id)),
+        iconButton('close', 'Close tile', () => tileArea.close(tile.id)),
       ),
     ),
   );
 }
 
-/** Every tile under a layout node, in order. */
-function nodeTiles(node, tilesById) {
-  if (node.kind === 'tile') {
-    const tile = tilesById.get(node.id);
-    return tile ? [tile] : [];
-  }
-  return node.children.flatMap((child) => nodeTiles(child, tilesById));
+/** A diff tile's Layout row: its title, the PR file's path as the tooltip. */
+function layoutDiffTileRow(tile, active, depth) {
+  return h(
+    'div',
+    {
+      class: tileRowClass(tile, active),
+      style: `--depth: ${depth}`,
+      'data-tile': tile.id,
+      title: [tile.diff?.path ?? '', active ? '' : 'Background tab']
+        .filter((s) => s).join('\n') || undefined,
+      onclick: () => tileArea.reveal(tile.id),
+      oncontextmenu: (e) => openMenu(e, tileMenuItems(tile)),
+    },
+    h(
+      'span',
+      { class: 'label' },
+      rowIcon({ kind: 'file' }),
+      tile.title,
+    ),
+    rowTrail(
+      hoverActions(
+        iconButton('close', 'Close tile', () => tileArea.close(tile.id)),
+      ),
+    ),
+  );
 }
 
 /** A row's right-hand side: its badge, then buttons shown on hover. */
@@ -2243,17 +2285,9 @@ function iconButton(icon, title, action) {
   }, svg);
 }
 
-/** Brings a tile to the front of its stack and focuses its terminal (or file viewer). */
-function revealTile(tileId) {
-  tiling?.reveal(tileId);
-  focusedTileId = tileId;
-  views.get(tileId)?.renderer.focus();
-  fileViews.get(tileId)?.viewer?.focus();
-}
-
 /** Marks the focused tile's Layout row and its pane's Containers row(s). */
 function updateCurrent() {
-  const tile = targetTile();
+  const tile = focusedTile(tileArea.state());
   const { label, branch } = tile ? activeRepo(tile) : {};
   // The title the pane's program sets, as its tab shows it after the name.
   const pane = tile?.ref ? resolveRef(tile.ref).pane : null;
@@ -2287,7 +2321,7 @@ function updateCurrent() {
  * @param {boolean} force
  */
 function reportActivePane(force) {
-  const tile = targetTile();
+  const tile = focusedTile(tileArea.state());
   const { c } = resolveRef(tile?.ref ?? null);
   const msg = c && tile?.ref
     ? { type: 'active_pane', container: c.id, pane_id: tile.ref.pane_id }
@@ -2408,19 +2442,26 @@ $tree.addEventListener('mouseleave', () => {
 // ---------------------------------------------------------------------------------------------
 
 /**
- * Creates a pane in its own Herdr tab and places it with `place`. The tile is placed as soon as
- * the server answers, before Herdr's snapshot lists the pane, so its overlay waits out
+ * Where a pane a message answered with goes (see `ViewIntents.openPane`): by default, a new tile
+ * in the focused stack.
+ *
+ * @typedef {{where?: import('./lib/view.js').Where, at?: string | null}} Placement
+ */
+
+/**
+ * Creates a pane in its own Herdr tab and shows it as `placement` says. The tile is placed as
+ * soon as the server answers, before Herdr's snapshot lists the pane, so its overlay waits out
  * {@link NEW_PANE_GRACE_MS} instead of saying `LABELS.closed`.
  *
  * @param {ContainerInfo} c
  * @param {{workspace_id?: string, cwd?: string}} opts
- * @param {(ref: PaneRef) => Tile} place
+ * @param {Placement} [placement]
  */
-function newShell(c, opts, place) {
+function newShell(c, opts, placement = {}) {
   return createPane(
     c,
     { type: 'new_shell', ...opts },
-    place,
+    placement,
     LABELS.newTerminal,
   );
 }
@@ -2434,10 +2475,10 @@ function newShell(c, opts, place) {
  *
  * @param {ContainerInfo} c
  * @param {Record<string, unknown> & {type: string}} msg
- * @param {(ref: PaneRef) => Tile} place
+ * @param {Placement} placement
  * @param {string} what
  */
-async function createPane(c, msg, place, what) {
+async function createPane(c, msg, placement, what) {
   const id = `n${++nextRequestId}`;
   /** @type {Promise<{pane_id: string, reused?: boolean}>} */
   const created = new Promise((resolve, reject) =>
@@ -2451,44 +2492,22 @@ async function createPane(c, msg, place, what) {
     errorToast(`${what} failed: ${e?.message ?? e}`);
     return;
   }
-  placePane(c.localFolder, result, place);
+  placePane(c.localFolder, result, placement);
 }
 
 /**
- * Places a pane a message answered with (see {@link createPane}), in the project at
+ * Shows a pane a message answered with (see {@link createPane}), in the project at
  * `localFolder`. A reused pane already shown in a tile focuses that tile instead.
  *
  * @param {string} localFolder
  * @param {{pane_id: string, reused?: boolean}} result
- * @param {(ref: PaneRef) => Tile} place
+ * @param {Placement} [placement]
  */
-function placePane(localFolder, result, place) {
-  if (!tiling) return;
-  const ref = { localFolder, pane_id: result.pane_id };
-  const shown = result.reused ? tileShowing({ localFolder }, ref) : null;
-  if (shown) {
-    revealTile(shown.id);
-    return;
-  }
-  newPanes.set(
-    `${ref.localFolder}\n${ref.pane_id}`,
-    Date.now() + NEW_PANE_GRACE_MS,
-  );
-  setTimeout(reconcileTiles, NEW_PANE_GRACE_MS + 50);
-  const tile = place(ref);
-  focusedTileId = tile.id;
-  reconcileTiles();
-  views.get(tile.id)?.renderer.focus();
-}
-
-/** Whether a tile's missing pane is one this page just created and Herdr hasn't listed yet. */
-function isNewPane(ref) {
-  const key = `${ref.localFolder}\n${ref.pane_id}`;
-  const until = newPanes.get(key);
-  if (until === undefined) return false;
-  if (Date.now() < until) return true;
-  newPanes.delete(key);
-  return false;
+function placePane(localFolder, result, placement = {}) {
+  tileArea.openPane({ localFolder, pane_id: result.pane_id }, {
+    ...placement,
+    created: result.reused ? 'reused' : 'new',
+  });
 }
 
 /** The workspace a pane belongs to, through its Herdr tab. */
@@ -2518,12 +2537,6 @@ function shellOrigin(tiles) {
   return null;
 }
 
-/** Places a ref in the focused tile's stack, or in a fresh tile when the layout is empty. */
-function placeInFocusedStack(ref) {
-  const tile = targetTile();
-  return tiling.addBeside(tile?.id ?? null, ref, 'stack');
-}
-
 /**
  * Ends a pane's process (and closes its Herdr tab), after asking. Once Herdr confirms, every tile
  * showing the pane closes too, rather than staying behind with "Pane gone".
@@ -2544,12 +2557,11 @@ async function killPane(c, pane) {
     params: { pane_id: pane.pane_id },
   }).then(
     () => {
-      // Collected first: each close changes `tiling.tiles()`.
-      const shown = (tiling?.tiles() ?? []).filter((t) =>
+      const shown = tileArea.state().tiles.filter((t) =>
         t.kind !== 'file' && t.ref?.localFolder === c.localFolder &&
         t.ref.pane_id === pane.pane_id
       );
-      for (const t of shown) tiling?.close(t.id);
+      for (const t of shown) tileArea.close(t.id);
     },
     (err) => errorToast(`${LABELS.closeRequest} failed: ${err.message}`),
   );
@@ -2559,7 +2571,11 @@ function killPaneItem(c, pane) {
   return [LABELS.close, () => killPane(c, pane), true];
 }
 
-/** @param {Tile} tile @returns {[string, () => void, boolean?][]} */
+/**
+ * A tile's menu, on its tab, in it, and on its sidebar row.
+ *
+ * @param {TileState} tile @returns {MenuItem[]}
+ */
 function tileMenuItems(tile) {
   if (tile.kind === 'file') return fileTileMenuItems(tile);
   if (tile.kind === 'diff') return diffTileMenuItems(tile);
@@ -2570,18 +2586,15 @@ function tileMenuItems(tile) {
     items.push(
       [
         LABELS.splitRight,
-        () =>
-          newShell(c, opts, (ref) => tiling.addBeside(tile.id, ref, 'right')),
+        () => newShell(c, opts, { at: tile.id, where: 'right' }),
       ],
       [
         LABELS.splitBelow,
-        () =>
-          newShell(c, opts, (ref) => tiling.addBeside(tile.id, ref, 'below')),
+        () => newShell(c, opts, { at: tile.id, where: 'below' }),
       ],
       [
         LABELS.newInStack,
-        () =>
-          newShell(c, opts, (ref) => tiling.addBeside(tile.id, ref, 'stack')),
+        () => newShell(c, opts, { at: tile.id, where: 'stack' }),
       ],
     );
   }
@@ -2597,21 +2610,27 @@ function tileMenuItems(tile) {
     items.push(null, [LABELS.unpinFile, () => unpinFile(filePin)]);
   }
   if (tile.preview) items.push(null, keepOpenItem(tile));
-  items.push(null, ['Close', () => tiling?.close(tile.id)]);
+  items.push(null, ['Close', () => tileArea.close(tile.id)]);
   if (c && pane) items.push(killPaneItem(c, pane));
   return items;
 }
 
-/** The menu of a tile's tab and body (not of its sidebar row): the tile's, then zen mode. */
+/**
+ * The menu of a tile's tab and body (not of its sidebar row): the tile's, then zen mode.
+ *
+ * @param {TileState} tile
+ */
 function tileOwnMenuItems(tile) {
   return [...tileMenuItems(tile), null, ...zenItems()];
 }
 
-/** Pins a preview tile: the next sidebar click opens a new preview instead of replacing it. */
+/**
+ * Pins a preview tile: the next sidebar click opens a new preview instead of replacing it.
+ *
+ * @param {TileState | null} tile
+ */
 function keepOpen(tile) {
-  if (!tile?.preview) return;
-  tile.setPreview(false);
-  layoutChanged();
+  if (tile?.preview) tileArea.keepOpen(tile.id);
 }
 
 function keepOpenItem(tile) {
@@ -2626,37 +2645,22 @@ function nodeMenuItems(node, tiles) {
     const opts = shellOptsNear(origin.c, origin.pane);
     items.push([
       node.kind === 'stack' ? LABELS.newInStack : LABELS.newAtEnd,
-      () =>
-        newShell(
-          origin.c,
-          opts,
-          (ref) => tiling.addBeside(node.id, ref, 'stack'),
-        ),
+      () => newShell(origin.c, opts, { at: node.id, where: 'stack' }),
     ]);
   }
   if (node.kind === 'stack') {
-    items.push(['Close stack', () => tiling?.close(node.id)]);
+    items.push(['Close stack', () => tileArea.close(node.id)]);
   }
   return items;
 }
 
 /** A right-click on a stack header's empty area. */
 function stackMenu(stackId, e) {
-  const { tree } = layoutState();
-  const tilesById = new Map((tiling?.tiles() ?? []).map((t) => [t.id, t]));
-  // The folded tree has no node for a stack holding one tile: use the raw one.
-  const find = (node) => {
-    if (!node || node.kind === 'tile') return null;
-    if (node.id === stackId) return node;
-    for (const child of node.children) {
-      const found = find(child);
-      if (found) return found;
-    }
-    return null;
-  };
-  const stack = find(tiling?.tree() ?? null) ?? find(tree);
+  const view = tileArea.state();
+  // The unfolded tree: the folded one has no node for a stack holding one tile.
+  const stack = nodeById(view, stackId);
   if (!stack) return;
-  const items = nodeMenuItems(stack, nodeTiles(stack, tilesById));
+  const items = nodeMenuItems(stack, nodeTiles(view, stack));
   if (items.length > 0) openMenu(e, items);
 }
 
@@ -2680,24 +2684,15 @@ function revealInContainers(c, pane) {
 
 /** Whether some tile shows the pane. */
 function isVisible(c, pane) {
-  return (tiling?.tiles() ?? []).some((t) =>
-    t.ref?.localFolder === c.localFolder && t.ref.pane_id === pane.pane_id
-  );
+  return tileShowing(c, pane) !== null;
 }
 
 /** The most recently focused tile showing the pane, if any. */
 function tileShowing(c, pane) {
-  let best = null;
-  for (const tile of tiling?.tiles() ?? []) {
-    if (
-      tile.ref?.localFolder !== c.localFolder ||
-      tile.ref.pane_id !== pane.pane_id
-    ) continue;
-    if (!best || (focusSeq.get(tile.id) ?? 0) > (focusSeq.get(best.id) ?? 0)) {
-      best = tile;
-    }
-  }
-  return best;
+  return tileShowingPane(tileArea.state(), {
+    localFolder: c.localFolder,
+    pane_id: pane.pane_id,
+  });
 }
 
 /** A workspace's panes in Herdr's order: by tab number, then as listed within the tab. */
@@ -2918,7 +2913,7 @@ const resumingSessions = new Set();
  */
 async function resumeSession(c, s) {
   const key = `${c.id}\n${s.agent}\n${s.session}`;
-  if (!tiling || resumingSessions.has(key)) return;
+  if (resumingSessions.has(key)) return;
   if (c.state === 'no-session') toast('Starting Herdr…');
   resumingSessions.add(key);
   let result;
@@ -2940,7 +2935,7 @@ async function resumeSession(c, s) {
     resumingSessions.delete(key);
   }
   if (typeof result?.pane_id !== 'string') return;
-  placePane(c.localFolder, result, placeInFocusedStack);
+  placePane(c.localFolder, result);
   // List again once the agent has had time to start, so the list knows the pane it runs in.
   if (!result.reused) setTimeout(() => void loadSessions(c), 5000);
 }
@@ -3377,8 +3372,8 @@ function prFileRow(fr, result, node, depth) {
         dismissed ? 'changed since viewed' : '',
       ].filter((s) => s).join('\n'),
       onclick: (e) =>
-        openDiffTile(ref, e.ctrlKey || e.metaKey ? 'stack' : 'preview'),
-      ondblclick: () => keepOpen(tileShowingDiff(ref)),
+        tileArea.openDiff(ref, e.ctrlKey || e.metaKey ? 'stack' : 'preview'),
+      ondblclick: () => keepOpen(tileShowingDiff(tileArea.state(), ref)),
     },
     checkbox,
     h('span', {
@@ -3826,7 +3821,7 @@ function saveFilePinPanes() {
  * @param {import('./lib/pinned_files.js').FilePin} pin
  */
 function filePinTiles(pin) {
-  const tiles = tiling?.tiles() ?? [];
+  const tiles = tileArea.state().tiles;
   const paneId = filePinPanes.get(pin.id);
   const shown = paneId
     ? tilesShowingPane(tiles, { localFolder: pin.localFolder, pane_id: paneId })
@@ -3842,7 +3837,7 @@ function filePinTiles(pin) {
   return shown;
 }
 
-/** The pin whose editor pane a tile shows, if any. @param {Tile} tile */
+/** The pin whose editor pane a tile shows, if any. @param {TileState} tile */
 function filePinOfTile(tile) {
   const ref = tile.ref;
   if (!ref) return null;
@@ -3863,7 +3858,7 @@ function toggleFilePin(pin) {
     void openFilePin(pin, 'stack');
     return;
   }
-  for (const t of shown) tiling?.close(t.id);
+  for (const t of shown) tileArea.close(t.id);
 }
 
 /** Pins with an `open_pinned` in flight: a second click waits for the first. */
@@ -3878,7 +3873,7 @@ const openingFilePins = new Set();
  * @param {'stack' | 'right'} where
  */
 async function openFilePin(pin, where) {
-  if (!tiling || openingFilePins.has(pin.id)) return;
+  if (openingFilePins.has(pin.id)) return;
   const c = containerByFolder(pin.localFolder);
   if (!c) {
     openFilePinReadOnly(pin, where);
@@ -3899,13 +3894,7 @@ async function openFilePin(pin, where) {
   if (typeof result?.pane_id !== 'string') return;
   filePinPanes.set(pin.id, result.pane_id);
   saveFilePinPanes();
-  placePane(
-    pin.localFolder,
-    result,
-    where === 'right'
-      ? (ref) => tiling.addBeside(targetTile()?.id ?? null, ref, 'right')
-      : placeInFocusedStack,
-  );
+  placePane(pin.localFolder, result, { where });
 }
 
 /**
@@ -4020,7 +4009,7 @@ function openNewNote() {
     toast('No projects yet: add one under Containers first');
     return;
   }
-  const focused = targetTile();
+  const focused = focusedTile(tileArea.state());
   const near = focused?.ref?.localFolder ?? focused?.file?.localFolder;
   const initial = (near && projects.has(near) ? near : null) ??
     candidates.find((p) => containerByFolder(p.localFolder))?.localFolder ??
@@ -4183,7 +4172,7 @@ async function submitNewNote() {
   const pin = pinnedFiles.find((p) => p.id === pinId);
   if (!pin) return;
   const shown = filePinTiles(pin);
-  if (shown.length) revealTile(shown[0].id);
+  if (shown.length) tileArea.reveal(shown[0].id);
   else void openFilePin(pin, 'stack');
 }
 
@@ -4416,7 +4405,7 @@ const sendingTasks = new Set();
 async function sendTaskFromRow(task, action) {
   const { localFolder, root } = task;
   if (localFolder === undefined || root === undefined) return;
-  if (!tiling || sendingTasks.has(task.id)) return;
+  if (sendingTasks.has(task.id)) return;
   const c = containerByFolder(localFolder);
   if (!c) {
     notRunningToast(localFolder, taskTitle(task.text));
@@ -4442,9 +4431,7 @@ async function sendTaskFromRow(task, action) {
   } finally {
     sendingTasks.delete(task.id);
   }
-  if (typeof result?.pane_id === 'string') {
-    placePane(localFolder, result, placeInFocusedStack);
-  }
+  if (typeof result?.pane_id === 'string') placePane(localFolder, result);
 }
 
 /** A new task routed to folder root `fr`'s project and repo. */
@@ -4578,7 +4565,7 @@ const openingSentTasks = new Set();
  * @param {import('./lib/tasks.js').SentTask} s
  */
 async function openSentTask(s) {
-  if (!tiling || openingSentTasks.has(s.id)) return;
+  if (openingSentTasks.has(s.id)) return;
   const c = containerByFolder(s.localFolder);
   if (!c) {
     notRunningToast(s.localFolder, taskTitle(s.text));
@@ -4598,7 +4585,7 @@ async function openSentTask(s) {
     openingSentTasks.delete(s.id);
   }
   if (typeof result?.pane_id !== 'string') return;
-  placePane(s.localFolder, result, placeInFocusedStack);
+  placePane(s.localFolder, result);
 }
 
 /** "`what`: the container is not running", offering to start it. */
@@ -4666,7 +4653,7 @@ function openTaskDialog(task, route) {
       projects.has(pinned.localFolder)
     ? { localFolder: pinned.localFolder, root: pinned.root ?? null }
     : null;
-  const focused = targetTile();
+  const focused = focusedTile(tileArea.state());
   // A default pinned without a route means "not routed": the focused tile does not count.
   const pinnedUnrouted = pinned !== null && pinned.localFolder === undefined;
   const near = route?.localFolder ?? pinnedRoute?.localFolder ??
@@ -4960,9 +4947,7 @@ async function submitTask(action) {
     return;
   }
   td.el.close();
-  if (typeof result?.pane_id === 'string') {
-    placePane(localFolder, result, placeInFocusedStack);
-  }
+  if (typeof result?.pane_id === 'string') placePane(localFolder, result);
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -5404,7 +5389,7 @@ async function revealPath(fr, path) {
 /** Opens a repo file in a new pane running the container's editor. */
 function openInEditor(fr, path, where) {
   const c = containerByFolder(fr.localFolder);
-  if (!c || c.state !== 'connected' || !tiling) {
+  if (!c || c.state !== 'connected') {
     toast(
       c ? 'Start Herdr in this container first' : 'Start the container first',
     );
@@ -5415,9 +5400,7 @@ function openInEditor(fr, path, where) {
     fr.container
       ? { type: 'open_file', path: containerFilePath(fr, path) }
       : { type: 'open_file', root: fr.root, path },
-    where === 'right'
-      ? (ref) => tiling.addBeside(targetTile()?.id ?? null, ref, 'right')
-      : placeInFocusedStack,
+    { where },
     'Open in editor',
   );
 }
@@ -5484,7 +5467,6 @@ function openHerdrTab(fr, path, reuse, agent) {
     toast('Start the container first');
     return;
   }
-  if (!tiling) return;
   if (c.state === 'no-session') toast('Starting Herdr…');
   createPane(
     c,
@@ -5495,7 +5477,7 @@ function openHerdrTab(fr, path, reuse, agent) {
       reuse,
       ...(agent ? { agent } : {}),
     },
-    placeInFocusedStack,
+    {},
     agent ? LABELS.agents[agent] : reuse ? LABELS.openHere : LABELS.newTerminal,
   );
 }
@@ -5555,13 +5537,13 @@ function newTerminalMenuItems(fr, path) {
 /** A new terminal at a container folder (`new_shell`), shown in the focused stack. */
 function newShellIn(fr, path) {
   const c = containerByFolder(fr.localFolder);
-  if (!c || c.state !== 'connected' || !tiling) {
+  if (!c || c.state !== 'connected') {
     toast(
       c ? 'Start Herdr in this container first' : 'Start the container first',
     );
     return;
   }
-  newShell(c, { cwd: containerFilePath(fr, path) }, placeInFocusedStack);
+  newShell(c, { cwd: containerFilePath(fr, path) });
 }
 
 /** A folder's menu: the root itself (`path` '', its repo or Files row) or a directory under it. */
@@ -5869,7 +5851,7 @@ function fileEntryRow(fr, tree, item) {
     item.depth,
     dir ? item.open : undefined,
     {
-      class: file && tiling ? 'file-entry file-drag' : 'file-entry',
+      class: file ? 'file-entry file-drag' : 'file-entry',
       'data-kind': entry.kind,
       'data-dim': isHiddenName(entry.name) || (!dir && !file) || undefined,
       title: [
@@ -5885,7 +5867,7 @@ function fileEntryRow(fr, tree, item) {
         ? () => openFileTile(fr, path, 'preview')
         : undefined,
       ondblclick: file
-        ? () => keepOpen(tileShowingFile(fileRefOf(fr, path)))
+        ? () => keepOpen(tileShowingFile(tileArea.state(), fileRefOf(fr, path)))
         : undefined,
       oncontextmenu: (e) =>
         openMenu(
@@ -5903,7 +5885,7 @@ function fileEntryRow(fr, tree, item) {
     entry.kind === 'symlink' ? h('span', { class: 'link-mark' }, '→') : '',
   );
   if (dir) folderTerminalButton(row, fr, path);
-  return file && tiling ? keptFileRow(key, row, fr, path) : row;
+  return file ? keptFileRow(key, row, fr, path) : row;
 }
 
 /**
@@ -5921,7 +5903,7 @@ function keptFileRow(key, fresh, fr, path) {
     fileRows.set(key, {
       row: fresh,
       seen: renderGeneration,
-      remove: tiling.dragSource(
+      remove: tileArea.dragSource(
         fresh,
         () => ({ file: ref }),
         () => basename(path),
@@ -5964,49 +5946,38 @@ function fileTileTitle(file, dirty = false) {
 }
 
 /**
- * The open file tile showing `file` as `file` names it (as text or as media), the most recently
- * focused one if there are several.
- */
-function tileShowingFile(file) {
-  let best = null;
-  for (const tile of tiling?.tiles() ?? []) {
-    if (!tile.file || !sameFileView(tile.file, file)) continue;
-    if (!best || (focusSeq.get(tile.id) ?? 0) > (focusSeq.get(best.id) ?? 0)) {
-      best = tile;
-    }
-  }
-  return best;
-}
-
-/**
- * Opens a repo file in a file tile: in the focused stack's preview tile (`'preview'`, a click),
- * in a new tile in the focused stack (`'stack'`), or split to the right of the focused tile. A
- * tile already showing the file is brought forward instead, except for `'right'`. Works whether
- * or not the container runs: the server reads the host side of the mount. `view` shows it as text
- * or as media; by default, as its kind of file opens.
+ * Opens a repo file in a file tile (see `ViewIntents.openFile`). Works whether or not the
+ * container runs: the server reads the host side of the mount. `view` shows it as text or as
+ * media; by default, as its kind of file opens.
  *
  * @param {FileRoot} fr @param {string} path @param {'preview' | 'stack' | 'right'} where
  * @param {'text' | 'media'} [view]
  */
 function openFileTile(fr, path, where, view) {
+  tileArea.openFile(fileRefOf(fr, path, view), where);
+}
+
+/**
+ * Opens a file in a file tile: in the focused stack's preview tile (`'preview'`), in a new tile in
+ * the focused stack (`'stack'`), or split to the right of the focused tile. A tile already showing
+ * the file is brought forward instead, except for `'right'`.
+ *
+ * @param {FileRef} file @param {'preview' | 'stack' | 'right'} where
+ */
+function openFile(file, where) {
   if (!tiling) return;
-  const file = fileRefOf(fr, path, view);
-  if (where === 'preview') {
-    const shown = tileShowingFile(file);
-    if (shown) revealTile(shown.id);
-    else openInPreview({ file });
-    return;
-  }
-  if (where === 'stack') {
-    const shown = tileShowingFile(file);
+  if (where !== 'right') {
+    const shown = tileShowingFile(viewState(), file);
     if (shown) {
       revealTile(shown.id);
       return;
     }
   }
-  const tile = where === 'right'
-    ? tiling.addBeside(targetTile()?.id ?? null, { file }, 'right')
-    : placeInFocusedStack({ file });
+  if (where === 'preview') {
+    openInPreview({ file });
+    return;
+  }
+  const tile = tiling.addBeside(targetTile()?.id ?? null, { file }, where);
   focusedTileId = tile.id;
   focusSeq.set(tile.id, ++nextFocusSeq);
   fileViews.get(tile.id)?.viewer?.focus();
@@ -6018,12 +5989,6 @@ function openFileTile(fr, path, where, view) {
  * @type {Map<string, {line: number, column?: number}>}
  */
 const pendingLines = new Map();
-
-function fileKey(file) {
-  return `${file.localFolder}\n${file.root}\n${file.path}${
-    file.container ? '\ncontainer' : ''
-  }${fileView(file) === 'media' ? '\nmedia' : ''}`;
-}
 
 /** Jumps a loaded file tile to the line it was opened at, if any. */
 function revealPendingLine(view) {
@@ -6037,29 +6002,28 @@ function revealPendingLine(view) {
 /** Opens a repo file in the preview tile, at a 1-based `line` and `column` when given. */
 function openFileAt(file, line, column) {
   if (line) pendingLines.set(fileKey(file), { line, column });
-  openFileTile(
-    { localFolder: file.localFolder, root: file.root },
-    file.path,
+  openFile(
+    fileRefOf({ localFolder: file.localFolder, root: file.root }, file.path),
     'preview',
   );
-  const tile = tileShowingFile(file);
+  const tile = tileShowingFile(viewState(), file);
   const view = tile && fileViews.get(tile.id);
   if (view) revealPendingLine(view);
 }
 
-/** A file tile's menu (its tab, its Layout row, and a right-click in it). */
+/**
+ * A file tile's menu (its tab, its Layout row, and a right-click in it).
+ *
+ * @param {TileState} tile
+ */
 function fileTileMenuItems(tile) {
   const items = [];
   const file = tile.file;
-  const view = fileViews.get(tile.id);
   if (file) {
     const fr = fileRootOf(file);
     const asMedia = fileView(file) === 'media';
-    if (!asMedia && view?.dirty && fileEditable(view)) {
-      items.push(['Save', () => saveFile(view)]);
-    }
-    if (view) items.push(['Reload', () => reloadFile(view)]);
-    items.push(null);
+    if (tile.saveable) items.push(['Save', () => tileArea.save(tile.id)]);
+    items.push(['Reload', () => tileArea.reload(tile.id)], null);
     if (previewable(file.path)) {
       items.push(
         asMedia
@@ -6083,7 +6047,7 @@ function fileTileMenuItems(tile) {
     items.push(...jiraItems(activeRepo(tile).branch));
   }
   if (tile.preview) items.push(null, keepOpenItem(tile));
-  items.push(null, ['Close', () => closeTile(tile.id)]);
+  items.push(null, ['Close', () => tileArea.close(tile.id)]);
   return items;
 }
 
@@ -6102,7 +6066,7 @@ function mountFileTile(tile) {
     // The viewer's own text keeps the browser's menu (copy); the margins get the tile's. A
     // right-click inside an HTML media view's frame never gets here: it is the page's.
     if (/** @type {HTMLElement} */ (e.target).closest('.cm-content')) return;
-    openMenu(e, tileOwnMenuItems(tile));
+    openMenu(e, tileOwnMenuItems(tileState(tile)));
   });
   // After the factory returns: a title change mid-build would save a half-built layout.
   queueMicrotask(() => {
@@ -6349,8 +6313,8 @@ function setFileDirty(view, dirty) {
   if (view.dirty === dirty) return;
   view.dirty = dirty;
   view.tile.setTitle(fileTileTitle(view.tile.file, dirty));
-  if (dirty && view.tile.preview) keepOpen(view.tile);
-  queueRender();
+  if (dirty && view.tile.preview) keepTileOpen(view.tile);
+  viewChanged();
 }
 
 /** Re-reads a file tile's file, after asking when that would drop unsaved edits. */
@@ -6567,22 +6531,6 @@ function loadShowResolved() {
 const diffViews = new Map();
 
 /**
- * The open diff tile showing `ref`, the most recently focused one if there are several.
- *
- * @param {import('./lib/layout_state.js').DiffRef} ref
- */
-function tileShowingDiff(ref) {
-  let best = null;
-  for (const tile of tiling?.tiles() ?? []) {
-    if (!tile.diff || !sameDiff(tile.diff, ref)) continue;
-    if (!best || (focusSeq.get(tile.id) ?? 0) > (focusSeq.get(best.id) ?? 0)) {
-      best = tile;
-    }
-  }
-  return best;
-}
-
-/**
  * Opens a PR file's diff the way a Files click opens a file: a tile already showing it is
  * brought forward; else the focused stack's preview tile shows it (`'preview'`), or a new tile in
  * the focused stack does (`'stack'`, a Ctrl/⌘-click).
@@ -6590,22 +6538,26 @@ function tileShowingDiff(ref) {
  * @param {import('./lib/layout_state.js').DiffRef} ref
  * @param {'preview' | 'stack'} where
  */
-function openDiffTile(ref, where) {
+function openDiff(ref, where) {
   if (!tiling) return;
-  const shown = tileShowingDiff(ref);
+  const shown = tileShowingDiff(viewState(), ref);
   if (shown) {
     revealTile(shown.id);
-    if (where === 'stack') keepOpen(shown);
+    if (where === 'stack') keepTileOpen(tileOf(shown.id));
     return;
   }
   if (where === 'preview') {
     openInPreview({ diff: ref });
     return;
   }
-  const tile = placeInFocusedStack({ diff: ref });
+  const tile = tiling.addBeside(
+    targetTile()?.id ?? null,
+    { diff: ref },
+    'stack',
+  );
   focusedTileId = tile.id;
   focusSeq.set(tile.id, ++nextFocusSeq);
-  layoutChanged();
+  viewChanged();
 }
 
 /** A diff tile's title: `<basename> · #<n>` once its PR is known. */
@@ -6624,49 +6576,26 @@ function setDiffTitle(view) {
     [pr ? `${pr.repo}#${pr.number}` : '', ref?.path ?? ''].filter((s) => s)
       .join('\n'),
   );
+  viewChanged();
 }
 
-/** A diff tile's menu (its tab, its Layout row, and a right-click in it). */
+/**
+ * A diff tile's menu (its tab, its Layout row, and a right-click in it).
+ *
+ * @param {TileState} tile
+ */
 function diffTileMenuItems(tile) {
-  const view = diffViews.get(tile.id);
-  const items = [];
-  if (view) items.push(['Refresh', () => refreshDiff(view)]);
-  if (view?.data?.fileUrl) {
+  const items = [['Refresh', () => tileArea.reload(tile.id)]];
+  const url = tile.url;
+  if (url) {
     items.push([
       'Open on GitHub',
-      () => window.open(view.data.fileUrl, '_blank', 'noopener'),
+      () => window.open(url, '_blank', 'noopener'),
     ]);
   }
   if (tile.preview) items.push(null, keepOpenItem(tile));
-  items.push(null, ['Close', () => tiling?.close(tile.id)]);
+  items.push(null, ['Close', () => tileArea.close(tile.id)]);
   return items;
-}
-
-/** A diff tile's Layout row: its title, the PR file's path as the tooltip. */
-function layoutDiffTileRow(tile, active, depth) {
-  return h(
-    'div',
-    {
-      class: tileRowClass(tile, active),
-      style: `--depth: ${depth}`,
-      'data-tile': tile.id,
-      title: [tile.diff?.path ?? '', active ? '' : 'Background tab']
-        .filter((s) => s).join('\n') || undefined,
-      onclick: () => revealTile(tile.id),
-      oncontextmenu: (e) => openMenu(e, tileMenuItems(tile)),
-    },
-    h(
-      'span',
-      { class: 'label' },
-      rowIcon({ kind: 'file' }),
-      diffTileTitle(tile),
-    ),
-    rowTrail(
-      hoverActions(
-        iconButton('close', 'Close tile', () => tiling?.close(tile.id)),
-      ),
-    ),
-  );
 }
 
 /** Builds a diff tile's view and asks for its file (`pr_diff`). */
@@ -6682,7 +6611,7 @@ function mountDiffTile(tile) {
     // Text keeps the browser's menu (copy); the rest gets the tile's.
     const target = /** @type {HTMLElement} */ (e.target);
     if (target.closest('.diff-text, .thread-body, textarea')) return;
-    openMenu(e, tileOwnMenuItems(tile));
+    openMenu(e, tileOwnMenuItems(tileState(tile)));
   });
   /** @type {DiffView} */
   const view = {
@@ -6765,7 +6694,6 @@ async function loadDiff(view) {
   view.parsed = typeof patch === 'string' ? parsePatch(patch) : null;
   setDiffTitle(view);
   renderDiff(view);
-  layoutChanged();
   void loadThreads(view);
 }
 
@@ -7459,10 +7387,17 @@ function pickerRow(path, name, depth, open, project, hidden = false) {
 function paneMenu(rec) {
   const { c, pane } = rec;
   const items = [
-    ['Open in new tile', () => openInNewTile(c, pane.pane_id)],
+    [
+      'Open in new tile',
+      () =>
+        tileArea.openPane({
+          localFolder: c.localFolder,
+          pane_id: pane.pane_id,
+        }),
+    ],
   ];
   const tile = tileShowing(c, pane);
-  if (tile) items.push(['Show in layout', () => revealTile(tile.id)]);
+  if (tile) items.push(['Show in layout', () => tileArea.reveal(tile.id)]);
   const jira = jiraItems(paneRepo(c.localFolder, pane)?.git?.branch);
   if (jira.length > 0) items.push(...jira, null);
   items.push(
@@ -7487,81 +7422,14 @@ function paneMenu(rec) {
  * Ctrl/Cmd-click: a new tile that stays.
  */
 function onPaneClick(rec, e) {
+  const ref = { localFolder: rec.c.localFolder, pane_id: rec.pane.pane_id };
   if (e.ctrlKey || e.metaKey) {
-    openInNewTile(rec.c, rec.pane.pane_id);
+    tileArea.openPane(ref);
     return;
   }
   const tile = tileShowing(rec.c, rec.pane);
-  if (tile) revealTile(tile.id);
-  else {
-    openInPreview({
-      localFolder: rec.c.localFolder,
-      pane_id: rec.pane.pane_id,
-    });
-  }
-}
-
-/** The preview tile in `anchor`'s stack (`anchor` itself included), or null. */
-function previewTileNear(anchor) {
-  if (!tiling || !anchor) return null;
-  const byId = new Map(tiling.tiles().map((t) => [t.id, t]));
-  /** @returns {Tile | null | undefined} undefined: `anchor` isn't under `node` */
-  const search = (node) => {
-    if (node.kind === 'tile') return undefined;
-    if (node.kind === 'stack') {
-      if (!node.children.some((ch) => ch.id === anchor.id)) return undefined;
-      return node.children.map((ch) => byId.get(ch.id)).find((t) =>
-        t?.preview
-      ) ?? null;
-    }
-    for (const child of node.children) {
-      const found = search(child);
-      if (found !== undefined) return found;
-    }
-    return undefined;
-  };
-  const root = tiling.tree();
-  return (root && search(root)) ?? null;
-}
-
-/**
- * Shows `ref` (a pane, `{file}` or `{diff}`) in the focused stack's preview tile: in place for a
- * pane replacing a pane, else a new tile in that tile's place; with no preview tile there, an
- * empty focused tile takes a pane, or a new preview tile joins the stack. The tile is revealed and
- * focused.
- *
- * @param {PaneRef | {file: FileRef} | {diff: import('./lib/layout_state.js').DiffRef}} ref
- */
-function openInPreview(ref) {
-  if (!tiling) return;
-  const anchor = targetTile();
-  const preview = previewTileNear(anchor);
-  const isFile = 'file' in ref || 'diff' in ref;
-  let tile;
-  if (preview && !isFile && preview.kind === 'pane') {
-    closeTilePane(preview.id);
-    views.get(preview.id).closedReason = null;
-    preview.setRef(/** @type {PaneRef} */ (ref));
-    tiling.reveal(preview.id);
-    tile = preview;
-  } else if (preview) {
-    tile = tiling.replace(preview.id, ref);
-  } else if (!isFile && anchor?.kind === 'pane' && !anchor.ref) {
-    anchor.setRef(/** @type {PaneRef} */ (ref));
-    anchor.setPreview(true);
-    tile = anchor;
-  } else {
-    tile = tiling.addBeside(anchor?.id ?? null, ref, 'stack', {
-      preview: true,
-    });
-  }
-  if (!tile) return;
-  focusedTileId = tile.id;
-  focusSeq.set(tile.id, ++nextFocusSeq);
-  reconcileTiles();
-  layoutChanged();
-  if (isFile) fileViews.get(tile.id)?.viewer?.focus();
-  else views.get(tile.id)?.renderer.focus();
+  if (tile) tileArea.reveal(tile.id);
+  else tileArea.openPane(ref, { where: 'preview' });
 }
 
 /**
@@ -7587,9 +7455,9 @@ function paneRow(c, pane, depth, space = '') {
   Object.assign(rec, { c, pane, seen: renderGeneration });
   // Dragging the row into the tiling area opens the pane in a new tile where it lands. Golden
   // Layout only starts a drag on the row itself, so its children ignore the pointer (CSS).
-  if (!rec.remove && tiling) {
+  if (!rec.remove) {
     const r = rec;
-    rec.remove = tiling.dragSource(
+    rec.remove = tileArea.dragSource(
       r.row,
       () => ({ localFolder: r.c.localFolder, pane_id: r.pane.pane_id }),
       () => labelText(paneLabel(r.pane)),
@@ -7764,16 +7632,164 @@ function targetTile() {
     tiles[0] ?? null;
 }
 
-/** Opens a pane in a new tile in the focused tile's stack (or the first tile). */
-function openInNewTile(c, paneId) {
-  if (!tiling) return;
-  const tile = placeInFocusedStack({
-    localFolder: c.localFolder,
-    pane_id: paneId,
+/** The live tile with id `id`, if any. @param {string | null | undefined} id */
+function tileOf(id) {
+  return tiling?.tiles().find((t) => t.id === id) ?? null;
+}
+
+/**
+ * A tile as the sidebar sees it (`lib/view.js`).
+ *
+ * @param {Tile} tile @returns {TileState}
+ */
+function tileState(tile) {
+  const file = fileViews.get(tile.id);
+  return {
+    id: tile.id,
+    kind: tile.kind,
+    ref: tile.ref,
+    file: tile.file,
+    diff: tile.diff,
+    preview: tile.preview,
+    focusSeq: focusSeq.get(tile.id) ?? 0,
+    title: tile.kind === 'file'
+      ? fileTileTitle(tile.file, file?.dirty)
+      : tile.kind === 'diff'
+      ? diffTileTitle(tile)
+      : '',
+    dirty: file?.dirty ?? false,
+    saveable: Boolean(file?.dirty && fileEditable(file)),
+    url: diffViews.get(tile.id)?.data?.fileUrl ?? null,
+  };
+}
+
+/** What the tiling area shows, as the sidebar reads it. @returns {ViewState} */
+function viewState() {
+  return {
+    tiles: tiling ? tiling.tiles().map(tileState) : [],
+    tree: tiling?.tree() ?? null,
+    focused: targetTile()?.id ?? null,
+  };
+}
+
+let viewChangeQueued = false;
+
+/**
+ * Tells the sidebar what the tiling area shows may have changed (`onViewState`), once for all
+ * the changes made before the next microtask.
+ */
+function viewChanged() {
+  if (viewChangeQueued) return;
+  viewChangeQueued = true;
+  queueMicrotask(() => {
+    viewChangeQueued = false;
+    onViewState(viewState());
   });
+}
+
+/**
+ * Shows a pane, focused (see `ViewIntents.openPane`).
+ *
+ * @param {PaneRef} ref
+ * @param {Placement & {created?: 'new' | 'reused'}} [opts]
+ */
+function openPane(ref, { where = 'stack', at, created } = {}) {
+  if (!tiling) return;
+  if (created === 'reused') {
+    const shown = tileShowingPane(viewState(), ref);
+    if (shown) {
+      revealTile(shown.id);
+      return;
+    }
+  }
+  if (created === 'new') {
+    newPanes.set(
+      `${ref.localFolder}\n${ref.pane_id}`,
+      Date.now() + NEW_PANE_GRACE_MS,
+    );
+    setTimeout(reconcileTiles, NEW_PANE_GRACE_MS + 50);
+  }
+  if (where === 'preview') {
+    openInPreview(ref);
+    return;
+  }
+  const tile = tiling.addBeside(
+    at === undefined ? targetTile()?.id ?? null : at,
+    ref,
+    where,
+  );
   focusedTileId = tile.id;
   reconcileTiles();
   views.get(tile.id)?.renderer.focus();
+}
+
+/** Brings a tile to the front of its stack and focuses its terminal (or file viewer). */
+function revealTile(tileId) {
+  tiling?.reveal(tileId);
+  focusedTileId = tileId;
+  views.get(tileId)?.renderer.focus();
+  fileViews.get(tileId)?.viewer?.focus();
+}
+
+/** Whether a tile's missing pane is one this page just created and Herdr hasn't listed yet. */
+function isNewPane(ref) {
+  const key = `${ref.localFolder}\n${ref.pane_id}`;
+  const until = newPanes.get(key);
+  if (until === undefined) return false;
+  if (Date.now() < until) return true;
+  newPanes.delete(key);
+  return false;
+}
+
+/**
+ * Pins a preview tile: the next sidebar click opens a new preview instead of replacing it.
+ *
+ * @param {Tile | null} tile
+ */
+function keepTileOpen(tile) {
+  if (!tile?.preview) return;
+  tile.setPreview(false);
+  viewChanged();
+}
+
+/**
+ * Shows `ref` (a pane, `{file}` or `{diff}`) in the focused stack's preview tile: in place for a
+ * pane replacing a pane, else a new tile in that tile's place; with no preview tile there, an
+ * empty focused tile takes a pane, or a new preview tile joins the stack. The tile is revealed and
+ * focused.
+ *
+ * @param {PaneRef | {file: FileRef} | {diff: import('./lib/layout_state.js').DiffRef}} ref
+ */
+function openInPreview(ref) {
+  if (!tiling) return;
+  const anchor = targetTile();
+  const preview = tileOf(previewTileNear(viewState(), anchor?.id)?.id);
+  const isFile = 'file' in ref || 'diff' in ref;
+  let tile;
+  if (preview && !isFile && preview.kind === 'pane') {
+    closeTilePane(preview.id);
+    views.get(preview.id).closedReason = null;
+    preview.setRef(/** @type {PaneRef} */ (ref));
+    tiling.reveal(preview.id);
+    tile = preview;
+  } else if (preview) {
+    tile = tiling.replace(preview.id, ref);
+  } else if (!isFile && anchor?.kind === 'pane' && !anchor.ref) {
+    anchor.setRef(/** @type {PaneRef} */ (ref));
+    anchor.setPreview(true);
+    tile = anchor;
+  } else {
+    tile = tiling.addBeside(anchor?.id ?? null, ref, 'stack', {
+      preview: true,
+    });
+  }
+  if (!tile) return;
+  focusedTileId = tile.id;
+  focusSeq.set(tile.id, ++nextFocusSeq);
+  reconcileTiles();
+  viewChanged();
+  if (isFile) fileViews.get(tile.id)?.viewer?.focus();
+  else views.get(tile.id)?.renderer.focus();
 }
 
 /**
@@ -7992,7 +8008,7 @@ function mountTile(tile) {
     const t = target();
     if (!t) return;
     // Typing into a preview means using it: it stays.
-    keepOpen(tile);
+    keepTileOpen(tile);
     send({ type: 'input', ...t, bytes: encodeInput(data) });
   });
 
@@ -8013,7 +8029,7 @@ function mountTile(tile) {
     const t = target();
     const text = ev.clipboardData?.getData('text/plain') ?? '';
     if (t && text) {
-      keepOpen(tile);
+      keepTileOpen(tile);
       send({ type: 'input', ...t, bytes: encodeInput(wrapPaste(text)) });
     }
   }, true);
@@ -8201,7 +8217,7 @@ async function openLink(t, link) {
 function attachMouse(view, termEl, target) {
   termEl.addEventListener('contextmenu', (ev) => {
     ev.preventDefault();
-    openMenu(ev, tileOwnMenuItems(view.tile));
+    openMenu(ev, tileOwnMenuItems(tileState(view.tile)));
   });
   termEl.addEventListener('mousedown', (ev) => {
     if (ev.button === 2) {
@@ -8218,7 +8234,7 @@ function attachMouse(view, termEl, target) {
         ev.preventDefault();
         ev.stopPropagation();
         // The file opens in the preview tile, which must not be this terminal.
-        keepOpen(view.tile);
+        keepTileOpen(view.tile);
         openLink(t, link);
         return;
       }
@@ -8302,21 +8318,17 @@ tiling = createTiling($layoutRoot, {
       focusedTileId = tile.id;
       focusSeq.set(tile.id, ++nextFocusSeq);
     }
-    updateCurrent();
-    // Zen mode's container or card is the focused tile's.
-    if (sidebarState.zen !== 'off' && zenCardKey() !== shownZenCard) {
-      queueRender();
-    }
+    viewChanged();
   },
   // A drop is a change too: the dropped tile is placed now, so it may open its pane.
   changed: () => {
     saveLayout();
     reconcileTiles();
-    layoutChanged();
+    viewChanged();
   },
-  tileMenu: (tile, e) => openMenu(e, tileOwnMenuItems(tile)),
+  tileMenu: (tile, e) => openMenu(e, tileOwnMenuItems(tileState(tile))),
   stackMenu,
-  tabDoubleClick: keepOpen,
+  tabDoubleClick: keepTileOpen,
 });
 if (SAFE_MODE) showSafeBanner();
 applySidebarLayout();
