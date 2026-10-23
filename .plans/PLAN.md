@@ -71,6 +71,11 @@
   case-insensitive regex) and the browse URL (`{key}`); the server validates it, sends it as a
   `jira` message and re-sends on change. Absent: menus unchanged.
 
+- [devc-mount-preflight](devc-mount-preflight.md) — a bad bind mount fails before the image
+  build instead of after it: malformed specs are refused before `devcontainer up`, and devc appends
+  a source-existence check to the merged config's `initializeCommand`, so a missing host path stops
+  `up` right after init — before the build and before `devc build` removes the old container.
+
 ### Standing rules for Feature work
 
 Not a plan group — these are the conventions every Feature plan in this file
@@ -2448,3 +2453,4 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
 | devc-bridge per-repo default grants — `bridgeRepoAllow` map, per-line policy grants                                | [bridge-per-repo-grants](archived/bridge-per-repo-grants.md)                       | complete    |
 | devc global config as JSONC — `config.jsonc` before `config.json`, comment-keeping saves                           | [devc-config-jsonc](archived/devc-config-jsonc.md)                                 | complete    |
 | devc web repo cards — one card per repo per container, in In use when active, else in Containers; tabs removed     | [devc-web-repo-cards](devc-web-repo-cards.md)                                      | in progress |
+| devc mount preflight — bind mounts checked before the image build, right after `initializeCommand`                 | [devc-mount-preflight](devc-mount-preflight.md)                                    |             |
