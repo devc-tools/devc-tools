@@ -91,7 +91,8 @@ import {
  *
  * @typedef {object} SidebarIntents
  * @property {(ref: PaneRef) => void} revealInContainers  a tile menu's **Reveal in Containers**
- * @property {(scope: 'off' | 'container' | 'repo') => void} setZen  a tile menu's zen items
+ * @property {(change: {on?: boolean, scope?: 'container' | 'repo'}) => void} setZen  a tile
+ *   menu's zen items: zen mode on or off, and its scope, each left as it is when not given
  */
 
 /** @param {ViewState} state @param {string | null | undefined} id */

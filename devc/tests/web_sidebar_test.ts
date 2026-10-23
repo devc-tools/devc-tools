@@ -12,12 +12,13 @@ import {
   isSidebarToggleShortcut,
   isZenShortcut,
   labelText,
-  nextZenScope,
+  otherZenScope,
   paneLabel,
   paneTitle,
   repoAt,
   repoCardActive,
   repoCardKey,
+  savedZen,
   settleZones,
   SIDEBAR_DEFAULT_WIDTH,
   SIDEBAR_MIN_WIDTH,
@@ -28,7 +29,6 @@ import {
   statusShort,
   topStatus,
   windowTitle,
-  zenScope,
 } from '../web/static/lib/sidebar.js';
 
 const container = (name: string, localFolder: string) => ({
@@ -494,19 +494,35 @@ Deno.test('isZenShortcut is Ctrl+Alt+Z, Cmd+Alt+Z on a Mac', () => {
   );
 });
 
-Deno.test('zenScope reads a saved scope; true was zen mode before scopes, so repo', () => {
-  assertEquals(zenScope('container'), 'container');
-  assertEquals(zenScope('repo'), 'repo');
-  assertEquals(zenScope(true), 'repo');
-  assertEquals(zenScope(false), 'off');
-  assertEquals(zenScope(undefined), 'off');
-  assertEquals(zenScope('on'), 'off');
+Deno.test('savedZen reads zen mode and its scope apart', () => {
+  assertEquals(savedZen({ zen: true, zenScope: 'container' }), {
+    zen: true,
+    zenScope: 'container',
+  });
+  assertEquals(savedZen({ zen: false, zenScope: 'container' }), {
+    zen: false,
+    zenScope: 'container',
+  });
+  assertEquals(savedZen({ zen: true }), { zen: true, zenScope: 'repo' });
+  assertEquals(savedZen(null), { zen: false, zenScope: 'repo' });
+  assertEquals(savedZen({ zen: 'on', zenScope: 'x' }), {
+    zen: false,
+    zenScope: 'repo',
+  });
 });
 
-Deno.test('nextZenScope goes off, container, repo, then off again', () => {
-  assertEquals(nextZenScope('off'), 'container');
-  assertEquals(nextZenScope('container'), 'repo');
-  assertEquals(nextZenScope('repo'), 'off');
+Deno.test('savedZen reads one setting holding both: on, in that scope', () => {
+  assertEquals(savedZen({ zen: 'container' }), {
+    zen: true,
+    zenScope: 'container',
+  });
+  assertEquals(savedZen({ zen: 'repo' }), { zen: true, zenScope: 'repo' });
+  assertEquals(savedZen({ zen: 'off' }), { zen: false, zenScope: 'repo' });
+});
+
+Deno.test('otherZenScope switches container and repo', () => {
+  assertEquals(otherZenScope('container'), 'repo');
+  assertEquals(otherZenScope('repo'), 'container');
 });
 
 Deno.test('statusCounts: each status with its count, most urgent first, agents only', () => {

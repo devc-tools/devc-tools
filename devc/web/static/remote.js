@@ -33,7 +33,7 @@ export function remoteSidebar() {
     send({ type: 'sidebar_intent', view: VIEW_ID, name, args });
   return {
     revealInContainers: (ref) => intent('revealInContainers', [ref]),
-    setZen: (scope) => intent('setZen', [scope]),
+    setZen: (change) => intent('setZen', [change]),
   };
 }
 

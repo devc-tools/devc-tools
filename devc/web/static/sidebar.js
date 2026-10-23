@@ -26,17 +26,17 @@ import {
   inUseLabel,
   isZenShortcut,
   labelText,
-  nextZenScope,
+  otherZenScope,
   paneLabel,
   paneTitle,
   repoAt,
   repoCardActive,
   repoCardKey,
+  savedZen,
   settleZones,
   splitRepoName,
   statusCounts,
   statusRank,
-  zenScope,
   ZONE_MIN_HEIGHT,
 } from './lib/sidebar.js';
 import { AGENT_IDS } from './lib/agent_icons.js';
@@ -154,7 +154,6 @@ import {
   startProject,
   tileMenuItems,
   unpinFile,
-  ZEN_LABELS,
 } from './menus.js';
 
 /** @typedef {import('./lib/view.js').SidebarIntents} SidebarIntents */
@@ -202,10 +201,11 @@ const TASK_AGENT_KEY = 'devc-web-task-agent-v1';
 /** The default route and agent for new tasks, pinned in the task dialog. */
 const TASK_DEFAULT_KEY = 'devc-web-task-default-v1';
 
-/** The sidebar's tree, its connection indicator and zen button: set by {@link mountSidebar}. */
+/** The sidebar's tree, its connection indicator and zen buttons: set by {@link mountSidebar}. */
 let $tree = /** @type {HTMLElement} */ (null);
 let $conn = /** @type {HTMLElement | null} */ (null);
 let $zenToggle = /** @type {HTMLElement | null} */ (null);
+let $zenScopeToggle = /** @type {HTMLElement | null} */ (null);
 /** The page's `.app`, whose `data-zen` the stylesheet reads; null when the sidebar is not in one. */
 let $app = /** @type {HTMLElement | null} */ (null);
 /**
@@ -317,10 +317,10 @@ function loadSidebarState() {
     ),
     sentOpen: saved?.sentOpen === true,
     /**
-     * Zen mode: the focused tile alone, and the sidebar's Tasks and that tile's container
-     * (`container`) or repo card (`repo`).
+     * Zen mode (`zen`): the focused tile alone, and the sidebar's Tasks and that tile's container
+     * (`zenScope` `container`) or repo card (`repo`). The scope is kept with zen mode off.
      */
-    zen: zenScope(saved?.zen),
+    ...savedZen(saved),
   };
 }
 
@@ -395,6 +395,7 @@ function saveSidebarState() {
         width: saved?.width,
         hidden: saved?.hidden,
         zen: sidebarState.zen,
+        zenScope: sidebarState.zenScope,
       }),
     );
   } catch { /* storage unavailable: collapsing just won't survive a reload */ }
@@ -489,34 +490,53 @@ function toggleInactive() {
 /**
  * Applies zen mode: the focused tile fills the tiling area alone, with no header (layout.js), and
  * the sidebar shows Tasks and the focused tile's container or repo card alone (renderTree). The
- * button is lit in either scope and names the one its click goes to.
+ * scope button shows the scope, and names the other one, which its click switches to.
  */
 function applyZen() {
-  const { zen } = sidebarState;
-  if ($app) $app.dataset.zen = zen;
-  const label = ZEN_LABELS[nextZenScope(zen)];
-  $zenToggle.setAttribute('aria-pressed', String(zen !== 'off'));
+  const { zen, zenScope } = sidebarState;
+  if ($app) $app.dataset.zen = zen ? zenScope : 'off';
+  const label = zen ? LABELS.zenOff : LABELS.zenOn;
+  $zenToggle.setAttribute('aria-pressed', String(zen));
   $zenToggle.setAttribute('aria-label', label);
   $zenToggle.title = `${label} (${IS_MAC ? 'Cmd' : 'Ctrl'}+Alt+Z)`;
-  tileArea.setZen(zen !== 'off');
+  if ($zenScopeToggle) {
+    const scopeLabel = `${LABELS.zenScope[zenScope]} (click for ${
+      otherZenScope(zenScope)
+    })`;
+    $zenScopeToggle.dataset.scope = zenScope;
+    $zenScopeToggle.setAttribute('aria-label', scopeLabel);
+    $zenScopeToggle.title = scopeLabel;
+  }
+  tileArea.setZen(zen);
 }
 
-/** @param {import('./lib/sidebar.js').ZenScope} scope */
-function setZen(scope) {
-  sidebarState.zen = scope;
+/**
+ * Zen mode on or off, and its scope, each left as it is when not given: the zen buttons and
+ * shortcut, and a tile menu's zen items (`SidebarIntents.setZen`).
+ *
+ * @param {{on?: boolean, scope?: import('./lib/sidebar.js').ZenScope}} change
+ */
+function setZen(change) {
+  if (typeof change?.on === 'boolean') sidebarState.zen = change.on;
+  if (change?.scope === 'container' || change?.scope === 'repo') {
+    sidebarState.zenScope = change.scope;
+  }
   saveSidebarState();
   applyZen();
   renderTree();
 }
 
-/** The zen button and shortcut: off, then container, then repo, then off. */
-function cycleZen() {
-  setZen(nextZenScope(sidebarState.zen));
+function toggleZen() {
+  setZen({ on: !sidebarState.zen });
+}
+
+function toggleZenScope() {
+  setZen({ scope: otherZenScope(sidebarState.zenScope) });
 }
 
 /** Whether the Containers section is open: zen mode hides it, as if folded. */
 function containersShown() {
-  return sidebarState.containersOpen && sidebarState.zen === 'off';
+  return sidebarState.containersOpen && !sidebarState.zen;
 }
 
 /** The space the zones share: the sidebar's tree less its dividers. */
@@ -678,7 +698,7 @@ function renderTree() {
   shownLayout = layoutSignature(view);
   shownMarks = tileMarks(view);
   const cards = repoCards();
-  const zen = sidebarState.zen !== 'off';
+  const { zen } = sidebarState;
   shownZenCard = zen ? zenCardKey() : null;
   const upper = zen
     ? inUseRows(cards, zenShows(cards, shownZenCard))
@@ -972,7 +992,7 @@ function inUseRows(cards, only) {
 function zenShows(cards, key) {
   const focused = key === null ? undefined : cards.get(key);
   if (!focused) return () => false;
-  if (sidebarState.zen === 'repo') return (card) => card === focused;
+  if (sidebarState.zenScope === 'repo') return (card) => card === focused;
   return (card) =>
     card === focused ||
     (card.active && card.localFolder === focused.localFolder);
@@ -1219,7 +1239,7 @@ function onViewState(view) {
   if (tileMarks(view) !== shownMarks) queueRender();
   updateCurrent();
   // Zen mode's container or card is the focused tile's.
-  if (sidebarState.zen !== 'off' && zenCardKey() !== shownZenCard) {
+  if (sidebarState.zen && zenCardKey() !== shownZenCard) {
     queueRender();
   }
 }
@@ -4568,14 +4588,16 @@ export function mountSidebar(root, opts) {
   $tree = /** @type {HTMLElement} */ (root.querySelector('#tree'));
   $conn = root.querySelector('#conn');
   $zenToggle = root.querySelector('#zen');
+  $zenScopeToggle = root.querySelector('#zen-scope');
   $app = root.closest('.app');
   setMenuContext({
     tileArea,
-    zenScope: () => sidebarState.zen,
+    zen: () => ({ on: sidebarState.zen, scope: sidebarState.zenScope }),
     fileTreeOf: fileTree,
     filePinned: openPinnedSection,
   });
-  $zenToggle?.addEventListener('click', cycleZen);
+  $zenToggle?.addEventListener('click', toggleZen);
+  $zenScopeToggle?.addEventListener('click', toggleZenScope);
   // The page's URL, token included: devc-desktop's window has no address bar, and a container or
   // another browser may need it. The toast names it without showing it, since it is the token.
   root.querySelector('#copy-url')?.addEventListener('click', () => {
@@ -4633,7 +4655,7 @@ export function mountSidebar(root, opts) {
     if (!isZenShortcut(e, IS_MAC)) return;
     e.preventDefault();
     e.stopPropagation();
-    if (!e.repeat) cycleZen();
+    if (!e.repeat) toggleZen();
   }, true);
 
   onServerMessage(onSidebarMessage);

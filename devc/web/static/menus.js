@@ -6,7 +6,7 @@
 
 import { withView } from './lib/layout_state.js';
 import { nodeById, nodeTiles } from './lib/view.js';
-import { paneLabel } from './lib/sidebar.js';
+import { otherZenScope, paneLabel } from './lib/sidebar.js';
 import { jiraKeys, jiraUrl } from './lib/jira.js';
 import { defaultView, fileView, mediaKind } from './lib/media.js';
 import { childPath, isWithin } from './lib/files.js';
@@ -65,9 +65,11 @@ let tileArea = null;
  * @type {SidebarIntents | null}
  */
 let sidebar = null;
-/** The sidebar's zen scope, which a tile's zen items leave out. */
-let currentZenScope =
-  () => /** @type {import('./lib/sidebar.js').ZenScope} */ ('off');
+/** The sidebar's zen mode and scope, which a tile's zen items name the other of. */
+let currentZen = () => ({
+  on: false,
+  scope: /** @type {import('./lib/sidebar.js').ZenScope} */ ('repo'),
+});
 /**
  * The sidebar's directory tree of a file root, whose listings say where a container file is on
  * the host and a repo file in the container; null without a sidebar.
@@ -83,14 +85,14 @@ let filePinned = () => {};
  * it mounts.
  *
  * @param {{tileArea?: TileArea, sidebar?: SidebarIntents | null,
- *   zenScope?: () => import('./lib/sidebar.js').ZenScope,
+ *   zen?: () => {on: boolean, scope: import('./lib/sidebar.js').ZenScope},
  *   fileTreeOf?: (fr: FileRoot) => ReturnType<typeof import('./lib/files.js').createDirTree>,
  *   filePinned?: () => void}} parts
  */
 export function setMenuContext(parts) {
   if (parts.tileArea !== undefined) tileArea = parts.tileArea;
   if (parts.sidebar !== undefined) sidebar = parts.sidebar;
-  if (parts.zenScope !== undefined) currentZenScope = parts.zenScope;
+  if (parts.zen !== undefined) currentZen = parts.zen;
   if (parts.fileTreeOf !== undefined) fileTreeOf = parts.fileTreeOf;
   if (parts.filePinned !== undefined) filePinned = parts.filePinned;
 }
@@ -360,28 +362,20 @@ export function fileRootOf(file) {
     : { localFolder: file.localFolder, root: file.root };
 }
 
-/** What choosing each zen scope is called, in a menu or on the zen button. */
-export const ZEN_LABELS = {
-  off: LABELS.zenOff,
-  container: LABELS.zenContainer,
-  repo: LABELS.zenRepo,
-};
-
 /**
- * A tile's menu items for the zen scopes other than the current one; none without a sidebar,
+ * A tile's menu items for zen mode: on or off, and its other scope; none without a sidebar,
  * which zen mode is half of.
+ *
+ * @returns {MenuItem[]}
  */
 function zenItems() {
-  /** @type {MenuItem[]} */
-  const items = [];
-  if (!sidebar) return items;
-  const current = currentZenScope();
-  for (const scope of /** @type {const} */ (['container', 'repo', 'off'])) {
-    if (scope !== current) {
-      items.push([ZEN_LABELS[scope], () => sidebar.setZen(scope)]);
-    }
-  }
-  return items;
+  if (!sidebar) return [];
+  const { on, scope } = currentZen();
+  const other = otherZenScope(scope);
+  return [
+    [on ? LABELS.zenOff : LABELS.zenOn, () => sidebar.setZen({ on: !on })],
+    [LABELS.zenScope[other], () => sidebar.setZen({ scope: other })],
+  ];
 }
 
 /**

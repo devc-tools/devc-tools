@@ -193,7 +193,7 @@ const tileArea = mountTiles(
   {
     sidebar: {
       revealInContainers: (ref) => sidebar?.intents.revealInContainers(ref),
-      setZen: (scope) => sidebar?.intents.setZen(scope),
+      setZen: (change) => sidebar?.intents.setZen(change),
     },
     onViewChange: (state) => sidebar?.onViewState(state),
   },

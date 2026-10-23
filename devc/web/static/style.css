@@ -283,6 +283,12 @@ body.resizing-sidebar {
   border-color: var(--accent);
 }
 
+/* The zen scope button shows the scope's icon: a container's cube, or a repo card. */
+.zen-scope[data-scope='container'] .scope-repo,
+.zen-scope[data-scope='repo'] .scope-container {
+  display: none;
+}
+
 /* In zen mode with the sidebar hidden, the corner toggle sits over the terminal: shown on hover. */
 .app:not([data-zen='off'])[data-sidebar='hidden'] > .sidebar-corner {
   opacity: 0;

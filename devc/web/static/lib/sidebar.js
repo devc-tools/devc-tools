@@ -440,25 +440,29 @@ export function isZenShortcut(e, isMac) {
     (isMac ? e.metaKey && !e.ctrlKey : e.ctrlKey && !e.metaKey);
 }
 
-/** @typedef {'off' | 'container' | 'repo'} ZenScope */
+/** @typedef {'container' | 'repo'} ZenScope */
 
 /**
- * Zen mode's scope from what was saved: `true` (zen mode before it had scopes) is `repo`, and
- * anything unknown is `off`.
+ * Zen mode and its scope from what was saved, each on its own: `zen` on or off and `zenScope`.
+ * A `zen` of `container` or `repo` (when one setting held both) is on, in that scope.
  *
- * @param {unknown} saved @returns {ZenScope}
+ * @param {{zen?: unknown, zenScope?: unknown} | null | undefined} saved
+ * @returns {{zen: boolean, zenScope: ZenScope}}
  */
-export function zenScope(saved) {
-  if (saved === true) return 'repo';
-  return saved === 'container' || saved === 'repo' ? saved : 'off';
+export function savedZen(saved) {
+  const isScope = (v) => v === 'container' || v === 'repo';
+  const old = saved?.zen;
+  return {
+    zen: old === true || isScope(old),
+    zenScope: isScope(saved?.zenScope)
+      ? saved.zenScope
+      : isScope(old)
+      ? old
+      : 'repo',
+  };
 }
 
-/**
- * The scope the zen button and shortcut go to next: off, then the focused tile's container, then
- * its repo card alone, then off again.
- *
- * @param {ZenScope} scope @returns {ZenScope}
- */
-export function nextZenScope(scope) {
-  return scope === 'off' ? 'container' : scope === 'container' ? 'repo' : 'off';
+/** @param {ZenScope} scope @returns {ZenScope} the other scope */
+export function otherZenScope(scope) {
+  return scope === 'container' ? 'repo' : 'container';
 }

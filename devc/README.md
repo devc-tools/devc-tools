@@ -379,14 +379,15 @@ is published from any container: the host server finds devcontainers with
   ([Golden Layout](https://github.com/golden-layout/golden-layout), vendored)
   and never change Herdr's. The layout is kept in the browser's
   `localStorage`; a tile whose pane has since closed shows "Pane gone".
-- **Zen mode:** the sidebar header's corners button or **Ctrl+Alt+Z** (**⌘⌥Z**
-  on a Mac, even while a terminal has focus) steps through off, **container**
-  and **repo**; a tile's menu picks one directly. Either scope shows the focused
-  tile alone, filling the tiling area with no tab header or frame. The sidebar
-  keeps **Tasks** and, under it, the focused tile's container box: with its
-  other in-use repo cards (container), or with the focused tile's repo card
-  alone (repo). The Containers section, the **In use** heading and pinned files
-  are hidden. The box is as tall as what it holds, up to the bottom of the
+- **Zen mode:** the sidebar header's corners button, a tile's menu, or
+  **Ctrl+Alt+Z** (**⌘⌥Z** on a Mac, even while a terminal has focus) turns it
+  on or off. It shows the focused tile alone, filling the tiling area with no
+  tab header or frame. The sidebar keeps **Tasks** and, under it, the focused
+  tile's container box, which holds what the scope button next to it (or a
+  tile's menu) picks, on or off: **container**, the container's other in-use
+  repo cards too, or **repo**, the focused tile's repo card alone. The
+  Containers section, the **In use** heading and pinned files are hidden. The
+  box is as tall as what it holds, up to the bottom of the
   sidebar; past that, its cards' open sections (files, pull request, past
   sessions) shrink alike, each scrolling on its own. Clicking a pane in the card switches the tile shown, and the sidebar
   follows. The layout under it is kept, and comes back when zen mode is turned
