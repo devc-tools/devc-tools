@@ -1167,3 +1167,144 @@ Deno.test('configEventMatches: a global-config watch reacts to both names', () =
   // A one-file watch still matches only its own name.
   assert(!configEventMatches([`${dir}/config.jsonc`], ['config.json']));
 });
+
+Deno.test('parseClientMessage: view_join takes a view id and a role', () => {
+  assertEquals(
+    parseClientMessage(
+      JSON.stringify({ type: 'view_join', view: 'v1', role: 'sidebar' }),
+    ),
+    { ok: true, msg: { type: 'view_join', view: 'v1', role: 'sidebar' } },
+  );
+  assertEquals(
+    parseClientMessage(
+      JSON.stringify({ type: 'view_join', view: 'a_B-9', role: 'tiles' }),
+    ),
+    { ok: true, msg: { type: 'view_join', view: 'a_B-9', role: 'tiles' } },
+  );
+  for (
+    const bad of [
+      { type: 'view_join', view: 'v1', role: 'main' },
+      { type: 'view_join', view: 'v1' },
+      { type: 'view_join', view: '', role: 'tiles' },
+      { type: 'view_join', view: 'a b', role: 'tiles' },
+      { type: 'view_join', view: 'x'.repeat(65), role: 'tiles' },
+      { type: 'view_join', view: 7, role: 'tiles' },
+    ]
+  ) assertEquals(rejected(bad).code, 'bad_request', JSON.stringify(bad));
+});
+
+Deno.test('parseClientMessage: view_state checks the state shape, relays it as is', () => {
+  const state = {
+    tiles: [{ id: 't1', kind: 'pane', extra: { kept: true } }],
+    tree: { kind: 'row', children: [] },
+    focused: 't1',
+  };
+  assertEquals(
+    parseClientMessage(
+      JSON.stringify({ type: 'view_state', view: 'v', state }),
+    ),
+    { ok: true, msg: { type: 'view_state', view: 'v', state } },
+  );
+  assertEquals(
+    parseClientMessage(
+      JSON.stringify({
+        type: 'view_state',
+        view: 'v',
+        state: { tiles: [], tree: null, focused: null },
+      }),
+    ).ok,
+    true,
+  );
+  for (
+    const bad of [
+      { type: 'view_state', view: 'v' },
+      { type: 'view_state', view: 'v', state: [] },
+      { type: 'view_state', view: 'v', state: { tree: null } },
+      { type: 'view_state', view: 'v', state: { tiles: {}, tree: null } },
+      { type: 'view_state', view: 'v', state: { tiles: [], tree: [] } },
+      { type: 'view_state', view: 'v', state: { tiles: [], tree: 'x' } },
+      {
+        type: 'view_state',
+        view: 'v',
+        state: { tiles: new Array(501).fill({}), tree: null },
+      },
+      { type: 'view_state', view: '../x', state: { tiles: [], tree: null } },
+    ]
+  ) assertEquals(rejected(bad).code, 'bad_request', JSON.stringify(bad));
+  const huge = JSON.stringify({
+    type: 'view_state',
+    view: 'v',
+    state: { tiles: [{ title: 'x'.repeat(300 * 1024) }], tree: null },
+  });
+  const r = parseClientMessage(huge);
+  assertEquals(r.ok, false);
+});
+
+Deno.test('parseClientMessage: view_intent and sidebar_intent take a known name and ≤ 4 args', () => {
+  assertEquals(
+    parseClientMessage(
+      JSON.stringify({
+        type: 'view_intent',
+        view: 'v',
+        name: 'openPane',
+        args: [{ localFolder: '/w', pane_id: 'p1' }, { where: 'right' }],
+      }),
+    ),
+    {
+      ok: true,
+      msg: {
+        type: 'view_intent',
+        view: 'v',
+        name: 'openPane',
+        args: [{ localFolder: '/w', pane_id: 'p1' }, { where: 'right' }],
+      },
+    },
+  );
+  for (
+    const name of [
+      'openPane',
+      'openFile',
+      'openDiff',
+      'reveal',
+      'close',
+      'keepOpen',
+      'save',
+      'reload',
+      'setZen',
+    ]
+  ) {
+    assert(
+      parseClientMessage(
+        JSON.stringify({ type: 'view_intent', view: 'v', name, args: [] }),
+      ).ok,
+      name,
+    );
+  }
+  for (const name of ['revealInContainers', 'setZen']) {
+    assert(
+      parseClientMessage(
+        JSON.stringify({ type: 'sidebar_intent', view: 'v', name, args: [] }),
+      ).ok,
+      name,
+    );
+  }
+  for (
+    const bad of [
+      { type: 'view_intent', view: 'v', name: 'revealInContainers', args: [] },
+      { type: 'view_intent', view: 'v', name: 'state', args: [] },
+      { type: 'view_intent', view: 'v', name: 'dragSource', args: [] },
+      { type: 'view_intent', view: 'v', name: 'openPane' },
+      { type: 'view_intent', view: 'v', name: 'openPane', args: {} },
+      { type: 'view_intent', view: 'v', name: 'close', args: [1, 2, 3, 4, 5] },
+      { type: 'view_intent', view: 'v v', name: 'close', args: [] },
+      { type: 'sidebar_intent', view: 'v', name: 'openPane', args: [] },
+      {
+        type: 'sidebar_intent',
+        view: 'v',
+        name: 'setZen',
+        args: [1, 2, 3, 4, 5],
+      },
+      { type: 'sidebar_intent', name: 'setZen', args: ['off'] },
+    ]
+  ) assertEquals(rejected(bad).code, 'bad_request', JSON.stringify(bad));
+});

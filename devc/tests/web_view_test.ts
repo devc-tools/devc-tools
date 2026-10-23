@@ -1,5 +1,6 @@
 import { assertEquals, assertNotEquals } from 'jsr:@std/assert';
 import {
+  emptyViewState,
   fileKey,
   focusedTile,
   layoutSignature,
@@ -7,10 +8,15 @@ import {
   nodeById,
   nodeTiles,
   previewTileNear,
+  relayedIntent,
+  relayedState,
+  SIDEBAR_INTENT_NAMES,
   tileMarks,
   tileShowingDiff,
   tileShowingFile,
   tileShowingPane,
+  VIEW_INTENT_NAMES,
+  viewIdFromHash,
 } from '../web/static/lib/view.js';
 
 type TileState = import('../web/static/lib/view.js').TileState;
@@ -135,4 +141,69 @@ Deno.test('fileKey tells a file as media from the same file as text', () => {
   const html = file('index.html');
   assertNotEquals(fileKey(html), fileKey({ ...html, view: 'media' }));
   assertEquals(fileKey(file('a.ts')), fileKey(file('a.ts')));
+});
+
+Deno.test('viewIdFromHash: the hash view, else default', () => {
+  assertEquals(viewIdFromHash('#token=abc&view=v1'), 'v1');
+  assertEquals(viewIdFromHash('view=a_B-9'), 'a_B-9');
+  assertEquals(viewIdFromHash('#token=abc'), 'default');
+  assertEquals(viewIdFromHash('#view='), 'default');
+  assertEquals(viewIdFromHash('#view=a%20b'), 'default');
+  assertEquals(viewIdFromHash(`#view=${'x'.repeat(65)}`), 'default');
+  assertEquals(viewIdFromHash(''), 'default');
+});
+
+Deno.test('relayedIntent and relayedState: only their view, known names', () => {
+  assertEquals(
+    relayedIntent(
+      { type: 'view_intent', view: 'v', name: 'setZen', args: [true] },
+      'view_intent',
+      'v',
+      VIEW_INTENT_NAMES,
+    ),
+    { name: 'setZen', args: [true] },
+  );
+  assertEquals(
+    relayedIntent(
+      { type: 'view_intent', view: 'w', name: 'setZen', args: [true] },
+      'view_intent',
+      'v',
+      VIEW_INTENT_NAMES,
+    ),
+    null,
+  );
+  assertEquals(
+    relayedIntent(
+      { type: 'sidebar_intent', view: 'v', name: 'state', args: [] },
+      'sidebar_intent',
+      'v',
+      SIDEBAR_INTENT_NAMES,
+    ),
+    null,
+  );
+  assertEquals(
+    relayedIntent(
+      { type: 'sidebar_intent', view: 'v', name: 'setZen', args: 'off' },
+      'sidebar_intent',
+      'v',
+      SIDEBAR_INTENT_NAMES,
+    ),
+    null,
+  );
+  assertEquals(
+    relayedState({
+      type: 'view_state',
+      view: 'v',
+      state: { tiles: [], tree: null },
+    }, 'v'),
+    emptyViewState(),
+  );
+  assertEquals(
+    relayedState(
+      { type: 'view_state', view: 'w', state: emptyViewState() },
+      'v',
+    ),
+    null,
+  );
+  assertEquals(relayedState({ type: 'view_state', view: 'v' }, 'v'), null);
 });

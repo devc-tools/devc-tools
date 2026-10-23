@@ -270,7 +270,47 @@ export type ClientMessage =
   /** A repo's pull request, through its container's devc-bridge (see `pr_review.ts`). */
   | PrMessage & { id: string }
   | { type: 'retry'; container: string }
-  | { type: 'client_ready'; generation: string };
+  | { type: 'client_ready'; generation: string }
+  /** Joins a view as its sidebar or its tiling area (`/sidebar`, `/main`): see `views.ts`. */
+  | { type: 'view_join'; view: string; role: ViewRole }
+  /** The tiling area's `ViewState`, relayed verbatim to the view's sidebars. */
+  | { type: 'view_state'; view: string; state: Record<string, unknown> }
+  /** A `ViewIntents` call, relayed verbatim to the view's tiling areas. */
+  | { type: 'view_intent'; view: string; name: ViewIntentName; args: unknown[] }
+  /** A `SidebarIntents` call, relayed verbatim to the view's sidebars. */
+  | {
+    type: 'sidebar_intent';
+    view: string;
+    name: SidebarIntentName;
+    args: unknown[];
+  };
+
+/** A view id: the URL hash's `view`, pairing a `/sidebar` page with a `/main` page. */
+export const VIEW_ID = /^[A-Za-z0-9_-]{1,64}$/;
+/** What a page joins a view as: `/sidebar` is `sidebar`, `/main` is `tiles`. */
+export type ViewRole = 'sidebar' | 'tiles';
+/** The `ViewIntents` methods (`static/lib/view.js`) a `view_intent` may name. */
+export const VIEW_INTENT_NAMES = [
+  'openPane',
+  'openFile',
+  'openDiff',
+  'reveal',
+  'close',
+  'keepOpen',
+  'save',
+  'reload',
+  'setZen',
+] as const;
+export type ViewIntentName = typeof VIEW_INTENT_NAMES[number];
+/** The `SidebarIntents` methods (`static/lib/view.js`) a `sidebar_intent` may name. */
+export const SIDEBAR_INTENT_NAMES = ['revealInContainers', 'setZen'] as const;
+export type SidebarIntentName = typeof SIDEBAR_INTENT_NAMES[number];
+/** The most arguments a relayed intent carries. */
+export const MAX_INTENT_ARGS = 4;
+/** The most tiles a relayed `view_state` carries. */
+export const MAX_VIEW_TILES = 500;
+/** The longest `view_*` / `sidebar_intent` frame, in UTF-16 code units of its text. */
+export const MAX_VIEW_MESSAGE = 256 * 1024;
 
 /** A viewport cell, zero-based: the same space as `mouse`. */
 export type Cell = { column: number; row: number };
@@ -335,6 +375,42 @@ function oneOf<T extends string>(o: Obj, k: string, values: T[]): T {
 }
 
 const MAX_CELLS = 10_000;
+
+function viewId(o: Obj): string {
+  const v = o.view;
+  if (typeof v !== 'string' || !VIEW_ID.test(v)) {
+    throw new Invalid(`'view' must match ${VIEW_ID.source}`);
+  }
+  return v;
+}
+
+function intentArgs(o: Obj): unknown[] {
+  const v = o.args;
+  if (!Array.isArray(v) || v.length > MAX_INTENT_ARGS) {
+    throw new Invalid(`'args' must be an array of at most ${MAX_INTENT_ARGS}`);
+  }
+  return v;
+}
+
+/** A `ViewState`'s shape, as far as the server looks: `tiles` an array, `tree` an object or null. */
+function viewState(o: Obj): Record<string, unknown> {
+  const v = o.state;
+  if (typeof v !== 'object' || v === null || Array.isArray(v)) {
+    throw new Invalid(`'state' must be an object`);
+  }
+  const s = v as Obj;
+  if (!Array.isArray(s.tiles) || s.tiles.length > MAX_VIEW_TILES) {
+    throw new Invalid(
+      `'state.tiles' must be an array of at most ${MAX_VIEW_TILES}`,
+    );
+  }
+  if (
+    s.tree !== null && (typeof s.tree !== 'object' || Array.isArray(s.tree))
+  ) {
+    throw new Invalid(`'state.tree' must be an object or null`);
+  }
+  return s;
+}
 
 /** A host folder: an absolute path. */
 function absolute(o: Obj, k: string): string {
@@ -472,6 +548,16 @@ export function parseClientMessage(raw: string): ParseResult {
   }
   const m = o as Obj;
   const id = typeof m.id === 'string' && m.id !== '' ? m.id : undefined;
+  if (
+    (m.type === 'view_join' || m.type === 'view_state' ||
+      m.type === 'view_intent' || m.type === 'sidebar_intent') &&
+    raw.length > MAX_VIEW_MESSAGE
+  ) {
+    return {
+      ok: false,
+      rejection: { code: 'bad_request', message: 'message too large' },
+    };
+  }
   try {
     return { ok: true, msg: parseFields(m) };
   } catch (e) {
@@ -856,6 +942,28 @@ function parseFields(m: Obj): ClientMessage {
       return { type: 'retry', container: str(m, 'container') };
     case 'client_ready':
       return { type: 'client_ready', generation: str(m, 'generation') };
+    case 'view_join':
+      return {
+        type: 'view_join',
+        view: viewId(m),
+        role: oneOf(m, 'role', ['sidebar', 'tiles']),
+      };
+    case 'view_state':
+      return { type: 'view_state', view: viewId(m), state: viewState(m) };
+    case 'view_intent':
+      return {
+        type: 'view_intent',
+        view: viewId(m),
+        name: oneOf(m, 'name', [...VIEW_INTENT_NAMES]),
+        args: intentArgs(m),
+      };
+    case 'sidebar_intent':
+      return {
+        type: 'sidebar_intent',
+        view: viewId(m),
+        name: oneOf(m, 'name', [...SIDEBAR_INTENT_NAMES]),
+        args: intentArgs(m),
+      };
     default:
       throw new Invalid(`unknown message type '${String(m.type)}'`);
   }

@@ -90,6 +90,20 @@ button:hover {
   display: none;
 }
 
+/* The split pages: `/sidebar` is the sidebar alone, `/main` the tiles alone, each the whole window. */
+.app[data-page='sidebar'],
+.app[data-page='main'] {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.app[data-page='main'] > .tiles {
+  grid-column: 1;
+}
+
+.app[data-page='main'] .layout-root {
+  left: var(--tile-gap);
+}
+
 /* Sidebar */
 
 .sidebar {

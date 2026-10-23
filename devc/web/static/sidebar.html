@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>devcd sidebar</title>
+    <link rel="stylesheet" href="./vendor/xterm/xterm.css">
+    <link rel="stylesheet" href="./style.css">
+  </head>
+  <body>
+    <div class="app" data-page="sidebar">
+      <aside class="sidebar">
+        <header class="sidebar-header">
+          <span class="brand">devc web</span>
+          <span class="conn" id="conn" data-state="connecting">connecting</span>
+          <button
+            class="sidebar-toggle"
+            id="zen"
+            type="button"
+            aria-label="Zen mode"
+            aria-pressed="false"
+            title="Zen mode"
+          >
+            <svg viewBox="0 0 16 16" aria-hidden="true">
+              <path
+                d="M2.5 6V2.5H6M10 2.5h3.5V6M13.5 10v3.5H10M6 13.5H2.5V10" />
+            </svg>
+          </button>
+          <button
+            class="sidebar-toggle"
+            id="copy-url"
+            type="button"
+            aria-label="Copy page URL"
+            title="Copy page URL"
+          >
+            <svg viewBox="0 0 16 16" aria-hidden="true">
+              <path d="M5.5 5.5h8v8h-8zM10.5 5.5v-3h-8v8h3" />
+            </svg>
+          </button>
+        </header>
+        <nav class="tree" id="tree" aria-label="Containers"></nav>
+      </aside>
+    </div>
+    <div class="menu" id="menu" role="menu" hidden></div>
+    <div class="toasts" id="toasts" aria-live="polite"></div>
+    <script src="./boot.js"></script>
+    <script type="module" src="./sidebar-page.js"></script>
+  </body>
+</html>

@@ -11,6 +11,7 @@ import { childPath } from './lib/files.js';
 import { parseFilePinPanes, parsePinnedFiles } from './lib/pinned_files.js';
 import { parseTasks } from './lib/tasks.js';
 import { booted, errorToast, h, markBooted } from './ui.js';
+import { viewIdFromHash } from './lib/view.js';
 
 /** @typedef {import('./lib/view.js').TileState} TileState */
 
@@ -75,6 +76,11 @@ let nextRequestId = 0;
 let bootGeneration = /** @type {string | null} */ (null);
 
 const token = new URLSearchParams(location.hash.slice(1)).get('token') ?? '';
+/**
+ * The URL hash's view id (`#token=…&view=<id>`, `default` without one): what pairs a `/sidebar`
+ * page with a `/main` page. Not a file view or a `TileView`. `/` never uses it.
+ */
+export const VIEW_ID = viewIdFromHash(location.hash);
 
 /** @type {{running: boolean, active: string[]} | null} The last `bridge_status`. */
 export let hostBridgeStatus = null;
@@ -264,7 +270,11 @@ function onStaticChanged(msg) {
 export function showSafeBanner() {
   const back = h(
     'a',
-    { href: `/${location.hash}`, class: 'safe-banner-link' },
+    {
+      // The same page live: `/safe/sidebar` → `/sidebar`, `/safe/` → `/`.
+      href: `${location.pathname.slice('/safe'.length)}${location.hash}`,
+      class: 'safe-banner-link',
+    },
     'Back to live',
   );
   document.body.prepend(

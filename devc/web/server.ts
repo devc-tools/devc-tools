@@ -148,6 +148,7 @@ import {
   type Rejection,
   rejectionReply,
 } from './protocol.ts';
+import { type Delivery, ViewRegistry } from './views.ts';
 import { type PrMessage, PrReview } from './pr_review.ts';
 import { closeGracefully, liveProcs } from './proc.ts';
 import { paneScroll, toTextPoint } from './selection.ts';
@@ -357,13 +358,20 @@ function securityHeaders(port: number): Record<string, string> {
  */
 export const STATIC_ROOT = new URL('./static/', import.meta.url);
 
-/** Serves `pathname` (`/` meaning `/index.html`) from the directory `root`. */
+/** The page routes: `/` is the whole page; `/sidebar` and `/main` its halves, as pages of their own. */
+const PAGE_ROUTES: Record<string, string> = {
+  '/': '/index.html',
+  '/sidebar': '/sidebar.html',
+  '/main': '/main.html',
+};
+
+/** Serves `pathname` (a page route, see {@link PAGE_ROUTES}, or a file) from the directory `root`. */
 export async function serveStatic(
   root: URL,
   pathname: string,
   port: number,
 ): Promise<Response> {
-  const path = pathname === '/' ? '/index.html' : pathname;
+  const path = PAGE_ROUTES[pathname] ?? pathname;
   const type = CONTENT_TYPES[extname(path)];
   if (!staticPathAllowed(path) || type === undefined) {
     return new Response('not found', { status: 404 });
@@ -478,6 +486,11 @@ export async function startWeb(
   const containerHomes = new Map<string, string | null>();
   const clients = new Set<Client>();
   const controllers = new ControllerManager();
+  /** The `/sidebar` and `/main` pages' views, and what they relay to each other. */
+  const views = new ViewRegistry<Client>();
+  const deliver = (out: Delivery<Client>[]) => {
+    for (const d of out) d.to.send(JSON.stringify(d.msg));
+  };
 
   const broadcast = (msg: unknown) => {
     const text = JSON.stringify(msg);
@@ -2020,6 +2033,20 @@ export async function startWeb(
   };
 
   const handle = async (c: Client, msg: ClientMessage) => {
+    switch (msg.type) {
+      case 'view_join':
+        deliver(views.join(c, msg.view, msg.role));
+        return;
+      case 'view_state':
+        deliver(views.state(c, msg.view, msg.state));
+        return;
+      case 'view_intent':
+        deliver(views.viewIntent(c, msg.view, msg.name, msg.args));
+        return;
+      case 'sidebar_intent':
+        deliver(views.sidebarIntent(c, msg.view, msg.name, msg.args));
+        return;
+    }
     if (msg.type === 'active_pane') {
       activePane = 'container' in msg
         ? { container: msg.container, pane_id: msg.pane_id }
@@ -2342,6 +2369,7 @@ export async function startWeb(
     };
     socket.onclose = () => {
       clients.delete(client);
+      views.leave(client);
       controllers.closeAll(client);
     };
     socket.onerror = () => {};

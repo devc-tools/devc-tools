@@ -14,12 +14,12 @@ drag and drop), and the VS Code extension's shell (phase 5). Don't change the CS
 
 ## Checklist
 
-- [ ] 1. Protocol: the four `view_*` messages in `web/protocol.ts`, their tests, and the spec table
-- [ ] 2. Server: views, relay, last state, cleanup in `web/server.ts` (pure part in a new `web/views.ts`, tested)
-- [ ] 3. Server: `/sidebar` and `/main` serve `sidebar.html` and `main.html` (also under `/safe/`)
-- [ ] 4. Page: remote `tileArea` and remote `SidebarIntents` over the socket
-- [ ] 5. Page: `sidebar.html` + `sidebar-page.js`, `main.html` + `main-page.js`
-- [ ] 6. Validation (below), then commit
+- [x] 1. Protocol: the four `view_*` messages in `web/protocol.ts`, their tests, and the spec table
+- [x] 2. Server: views, relay, last state, cleanup in `web/server.ts` (pure part in a new `web/views.ts`, tested)
+- [x] 3. Server: `/sidebar` and `/main` serve `sidebar.html` and `main.html` (also under `/safe/`)
+- [x] 4. Page: remote `tileArea` and remote `SidebarIntents` over the socket
+- [x] 5. Page: `sidebar.html` + `sidebar-page.js`, `main.html` + `main-page.js`
+- [x] 6. Validation (below), then commit
 
 ## Touchpoints
 

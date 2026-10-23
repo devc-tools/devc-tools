@@ -272,3 +272,76 @@ export function nodeTiles(state, node) {
   }
   return node.children.flatMap((child) => nodeTiles(state, child));
 }
+
+// ---------------------------------------------------------------------------------------------
+// The contracts on the wire: `/sidebar` and `/main`, relayed by the server
+// ---------------------------------------------------------------------------------------------
+
+/** The {@link ViewIntents} a `view_intent` may name (the server checks the same list). */
+export const VIEW_INTENT_NAMES = Object.freeze([
+  'openPane',
+  'openFile',
+  'openDiff',
+  'reveal',
+  'close',
+  'keepOpen',
+  'save',
+  'reload',
+  'setZen',
+]);
+
+/** The {@link SidebarIntents} a `sidebar_intent` may name. */
+export const SIDEBAR_INTENT_NAMES = Object.freeze([
+  'revealInContainers',
+  'setZen',
+]);
+
+/** The view id pattern: what pairs a `/sidebar` page with a `/main` page. */
+const VIEW_ID = /^[A-Za-z0-9_-]{1,64}$/;
+
+/**
+ * The view id in a page URL's hash (`#token=…&view=<id>`): `default` when missing or invalid.
+ *
+ * @param {string} hash  `location.hash`, `#` included or not
+ */
+export function viewIdFromHash(hash) {
+  const id = new URLSearchParams(hash.replace(/^#/, '')).get('view');
+  return id !== null && VIEW_ID.test(id) ? id : 'default';
+}
+
+/** The state of a tiling area not heard from yet: no tiles. @returns {ViewState} */
+export function emptyViewState() {
+  return { tiles: [], tree: null, focused: null };
+}
+
+/**
+ * `msg` as a relayed intent for `view` naming one of `names`: its name and arguments, else null.
+ *
+ * @param {any} msg  a server message
+ * @param {'view_intent' | 'sidebar_intent'} type
+ * @param {string} view
+ * @param {readonly string[]} names
+ * @returns {{name: string, args: unknown[]} | null}
+ */
+export function relayedIntent(msg, type, view, names) {
+  if (msg?.type !== type || msg.view !== view) return null;
+  if (!names.includes(msg.name) || !Array.isArray(msg.args)) return null;
+  return { name: msg.name, args: msg.args };
+}
+
+/**
+ * `msg` as a relayed `view_state` for `view`: the state, else null.
+ *
+ * @param {any} msg @param {string} view
+ * @returns {ViewState | null}
+ */
+export function relayedState(msg, view) {
+  if (msg?.type !== 'view_state' || msg.view !== view) return null;
+  const s = msg.state;
+  if (!s || typeof s !== 'object' || !Array.isArray(s.tiles)) return null;
+  return {
+    tiles: s.tiles,
+    tree: s.tree && typeof s.tree === 'object' ? s.tree : null,
+    focused: typeof s.focused === 'string' ? s.focused : null,
+  };
+}

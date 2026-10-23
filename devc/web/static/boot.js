@@ -43,7 +43,8 @@
     }));
     if (!safe) {
       buttons.appendChild(button('Load last good', function () {
-        location.href = '/safe/' + location.hash;
+        // The same page, last good: `/sidebar` → `/safe/sidebar`, `/` → `/safe/`.
+        location.href = '/safe' + location.pathname + location.hash;
       }));
     }
     box.appendChild(title);

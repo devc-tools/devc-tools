@@ -179,6 +179,50 @@ Deno.test('routeStatic serves /safe/ from the snapshot, or 404s without one', as
   });
 });
 
+Deno.test('routeStatic serves /sidebar and /main, live and under /safe/', async () => {
+  await withTemp(async (dir) => {
+    const main = join(dir, 'static');
+    const safe = join(dir, 'last-good');
+    await writeTree(main, {
+      'index.html': 'live index',
+      'sidebar.html': 'live sidebar',
+      'main.html': 'live main',
+    });
+    await writeTree(safe, {
+      'index.html': 'good index',
+      'sidebar.html': 'good sidebar',
+      'main.html': 'good main',
+    });
+    const get = (path: string) =>
+      routeStatic(path, PORT, dirUrl(main), dirUrl(safe));
+    for (
+      const [path, body] of [
+        ['/', 'live index'],
+        ['/sidebar', 'live sidebar'],
+        ['/main', 'live main'],
+        ['/safe/', 'good index'],
+        ['/safe/sidebar', 'good sidebar'],
+        ['/safe/main', 'good main'],
+      ]
+    ) {
+      const r = await get(path);
+      assertEquals(r.status, 200, path);
+      assertEquals(await r.text(), body, path);
+      assertEquals(r.headers.get('Content-Type'), 'text/html; charset=utf-8');
+      assert(
+        r.headers.get('Content-Security-Policy')?.includes(
+          "frame-ancestors 'none'",
+        ),
+      );
+    }
+    for (const path of ['/sidebar/', '/main/x', '/Sidebar']) {
+      const r = await get(path);
+      assertEquals(r.status, 404, path);
+      await r.body?.cancel();
+    }
+  });
+});
+
 Deno.test('isServerCodePath: .ts outside tests/, node_modules/ and web/static/', () => {
   const roots = ['/co/devc', '/co/devc-core'];
   assert(isServerCodePath('/co/devc/web/server.ts', roots));
