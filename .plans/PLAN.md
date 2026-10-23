@@ -55,6 +55,16 @@
   generalized from vscode-deephaven's `vscode-dev.sh`. chrome-devtools-mcp registration stays
   with the consuming project. Replaces the `feature-electron-deps` placeholder.
 
+- [devc-web-pr-review-depth](devc-web-pr-review-depth.md) — three additions to devc web's PR
+  review: threads placed by diff side, with `File comment` and `Was line n` (plus the hunk) for
+  outdated ones; a viewed history (every devc web mark recorded with the PR head it was made at,
+  in `~/.config/devc/pr-viewed/`, since GitHub keeps no such commit) and a diff tile **Compare**
+  showing the changes since a file was last viewed (`gh-pr-file-at`, `diffTexts`); and pending
+  reviews — line and block comments and replies added to a review, submitted as Comment only,
+  through a new `gh-pr-pending-review` capability. Posting commands take `--as agent|human`
+  (default agent, `🤖`-prefixed); devc web posts `--as human`, unprefixed. Step 0 checks the
+  GitHub API on a throwaway PR.
+
 - [devc-web-open-in-jira](devc-web-open-in-jira.md) — when the branch devc web shows for a
   terminal, a file tile or a repo row holds a Jira key (`feature/AB-12345-fix`), its right-click
   menu offers **Open AB-12345 in Jira** (tiles, pane rows, repo rows, In use folder rows).
@@ -2456,3 +2466,4 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
 | devc web repo cards — one card per repo per container, in In use when active, else in Containers; tabs removed     | [devc-web-repo-cards](devc-web-repo-cards.md)                                      | in progress |
 | devc mount preflight — bind mounts checked before the image build, right after `initializeCommand`                 | [devc-mount-preflight](devc-mount-preflight.md)                                    |             |
 | devc web cross-page drag — `/sidebar` rows dragged natively into `/main`; zen replayed to a reloaded `/main`       | [devc-web-cross-page-drag](archived/devc-web-cross-page-drag.md)                   | complete    |
+| devc web PR review depth — side placement, viewed history + changes since viewed, pending reviews                  | [devc-web-pr-review-depth](devc-web-pr-review-depth.md)                            |             |
