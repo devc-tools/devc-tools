@@ -74,6 +74,7 @@ import {
   folderOpenByDefault,
   prFileUrl,
   statusLetter,
+  withoutViewed,
 } from './lib/pr_tree.js';
 import {
   badge,
@@ -304,6 +305,8 @@ function loadSidebarState() {
     ),
     /** PR folders opened or closed, by `prFoldersKey` then folder path. */
     prFolders: savedPrFolders(saved?.prFolders),
+    /** Whether PR trees leave out Viewed files and fully viewed folders; off at first. */
+    prHideViewed: saved?.prHideViewed === true,
     /** Open card sections' last settled heights in px, by `data-section-key` (`holdSections`). */
     sectionHeights: savedSectionHeights(saved?.sectionHeights),
     inactiveOpen: saved?.inactiveOpen === true,
@@ -413,6 +416,7 @@ function saveSidebarState() {
         containerFilesOpen: [...sidebarState.containerFilesOpen],
         prOpen: [...sidebarState.prOpen],
         prFolders: sidebarState.prFolders,
+        prHideViewed: sidebarState.prHideViewed,
         sectionHeights: sidebarState.sectionHeights,
         inactiveOpen: sidebarState.inactiveOpen,
         projectsOpen: [...sidebarState.projectsOpen],
@@ -2116,13 +2120,16 @@ function prListingRows(fr, result, depth) {
       pr.title,
     ),
   );
-  header.append(rowTrail(
-    pr.state !== 'OPEN'
-      ? h('span', { class: 'pr-state' }, String(pr.state).toLowerCase())
-      : '',
-    pr.isDraft ? h('span', { class: 'pr-state' }, 'draft') : '',
-    h('span', { class: 'pr-count' }, `${tree.viewed}/${tree.total}`),
-    hoverActions(
+  const hiding = sidebarState.prHideViewed;
+  const buttons = () => {
+    const toggle = iconButton(
+      'viewed',
+      hiding ? LABELS.showViewed(tree.viewed) : LABELS.hideViewed,
+      togglePrHideViewed,
+    );
+    toggle.setAttribute('aria-pressed', String(hiding));
+    return [
+      toggle,
       iconButton(
         'refresh',
         'Refresh',
@@ -2133,7 +2140,27 @@ function prListingRows(fr, result, depth) {
         'Open on GitHub',
         () => window.open(pr.url, '_blank', 'noopener'),
       ),
+    ];
+  };
+  header.append(rowTrail(
+    pr.state !== 'OPEN'
+      ? h('span', { class: 'pr-state' }, String(pr.state).toLowerCase())
+      : '',
+    pr.isDraft ? h('span', { class: 'pr-state' }, 'draft') : '',
+    h('span', { class: 'pr-count' }, `${tree.viewed}/${tree.total}`),
+    // Hide viewed, while on, stays in sight as a repo card's toggles do, the buttons after it
+    // kept as blank slots so it sits where hovering shows it.
+    h(
+      'span',
+      { class: 'row-toggles' },
+      ...(hiding
+        ? buttons().map((b, i) => {
+          if (i > 0) b.classList.add('slot');
+          return b;
+        })
+        : []),
     ),
+    hoverActions(...buttons()),
   ));
   const rows = [header];
   if (result.truncated) {
@@ -2172,8 +2199,28 @@ function prListingRows(fr, result, depth) {
       rows.push(prFileRow(fr, result, node, d));
     }
   };
-  walk(tree, depth);
+  walk(hiding ? withoutViewed(tree) : tree, depth);
+  if (hiding && tree.total > 0 && tree.viewed === tree.total) {
+    rows.push(
+      h(
+        'div',
+        {
+          class: 'row tree-note',
+          style: `--depth: ${depth}`,
+          'data-note': 'all-viewed',
+        },
+        h('span', { class: 'label' }, LABELS.allViewedHidden(tree.total)),
+      ),
+    );
+  }
   return rows;
+}
+
+/** Shows or hides every PR tree's Viewed files (the PR header's eye), kept per browser. */
+function togglePrHideViewed() {
+  sidebarState.prHideViewed = !sidebarState.prHideViewed;
+  saveSidebarState();
+  renderTree();
 }
 
 /**

@@ -161,3 +161,19 @@ export function splitMarkers(text) {
 export function folderOpenByDefault(dir) {
   return dir.total === 0 || dir.viewed < dir.total;
 }
+
+/**
+ * `dir` without its Viewed files, or the folders left holding none (the PR row's Hide viewed):
+ * a file changed since it was viewed (`DISMISSED`) stays. Folders keep their names and counts,
+ * so a row reads as it does with everything shown; nothing is compacted again.
+ *
+ * @param {PrDir} dir
+ * @returns {PrDir}
+ */
+export function withoutViewed(dir) {
+  return {
+    ...dir,
+    dirs: dir.dirs.filter((d) => d.viewed < d.total).map(withoutViewed),
+    files: dir.files.filter((f) => f.file.viewed !== 'VIEWED'),
+  };
+}

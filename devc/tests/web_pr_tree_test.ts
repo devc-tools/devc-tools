@@ -5,6 +5,7 @@ import {
   prFileUrl,
   splitMarkers,
   statusLetter,
+  withoutViewed,
 } from '../web/static/lib/pr_tree.js';
 import { fileUrl } from '../web/pr_review.ts';
 
@@ -70,6 +71,25 @@ Deno.test('buildPrTree counts viewed files per folder, DISMISSED as not viewed',
   assertEquals([b.viewed, b.total], [1, 1]);
   assertEquals(folderOpenByDefault(a), true);
   assertEquals(folderOpenByDefault(b), false);
+});
+
+Deno.test('withoutViewed drops Viewed files and fully viewed folders, keeping counts', () => {
+  const tree = buildPrTree([
+    file('a/x', 'VIEWED'),
+    file('a/y', 'DISMISSED'),
+    file('b/c/x', 'VIEWED'),
+    file('b/d', 'VIEWED'),
+    file('e', 'VIEWED'),
+    file('f'),
+  ]);
+  const shown = withoutViewed(tree);
+  assertEquals(shape(shown), [['a', ['y']], 'f']);
+  assertEquals([shown.viewed, shown.total], [4, 6]);
+  assertEquals([shown.dirs[0].viewed, shown.dirs[0].total], [1, 2]);
+  // Everything viewed: nothing is left.
+  assertEquals(shape(withoutViewed(buildPrTree([file('a/x', 'VIEWED')]))), []);
+  // The tree it was given is unchanged.
+  assertEquals(shape(tree).length, 4);
 });
 
 Deno.test('statusLetter: A, D, R, C, else M', () => {

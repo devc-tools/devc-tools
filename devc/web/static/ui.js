@@ -142,6 +142,9 @@ export const LABELS = {
   worktreesHidden: (n) => `${n} worktree${n === 1 ? '' : 's'} hidden`,
   copySessionId: 'Copy session id',
   pullRequest: 'Pull request',
+  hideViewed: 'Hide viewed files',
+  showViewed: (n) => `Show viewed files (${n} hidden)`,
+  allViewedHidden: (n) => `All ${n} file${n === 1 ? '' : 's'} viewed`,
   openHere: 'Open terminal here',
   newTerminal: 'New terminal',
   splitRight: 'Split vertically',
@@ -211,6 +214,9 @@ const ICON_PATHS = {
     'M3 3.5a1.5 1.5 0 1 0 3 0a1.5 1.5 0 1 0-3 0M3 12.5a1.5 1.5 0 1 0 3 0a1.5 1.5 0 1 0-3 0' +
     'M10 12.5a1.5 1.5 0 1 0 3 0a1.5 1.5 0 1 0-3 0M4.5 5v6M11.5 11V6.5a2 2 0 0 0-2-2H7.5' +
     'M9 3L7.5 4.5L9 6',
+  // An eye: a PR's Hide viewed files.
+  viewed: 'M1.5 8s2.5-4.5 6.5-4.5S14.5 8 14.5 8 12 12.5 8 12.5 1.5 8 1.5 8z' +
+    'M6 8a2 2 0 1 0 4 0a2 2 0 1 0-4 0',
   // A folder with a tab: a repo card's files.
   folder: 'M1.5 3.5h5L8 5h6.5v8h-13z',
 };

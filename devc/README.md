@@ -526,7 +526,10 @@ is published from any container: the host server finds devcontainers with
   (here or to the right), the file itself (as Files does; not for a deleted
   file), GitHub's page for it, copies its paths and pins it; a folder's marks
   every file under it Viewed (or, when all are, not), opens it in Code or the
-  file manager and copies its paths. A diff tile's header has the file's own
+  file manager and copies its paths. The PR header's eye (**Hide viewed
+  files**) leaves out the files marked Viewed and the folders left holding none
+  (a file changed since it was viewed stays), remembered per browser; a PR with
+  every file viewed then shows `All n files viewed`. A diff tile's header has the file's own
   **Viewed** checkbox, kept in step with the tree's. What works follows the grants of the repo's own line in the
   host-only policy, read on every message: reading needs `gh-pr-read`, the
   checkboxes `gh-pr-viewed`, **Reply** `gh-pr-reply` (posted as you with the
