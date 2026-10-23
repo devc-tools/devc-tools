@@ -77,6 +77,15 @@
   a source-existence check to the merged config's `initializeCommand`, so a missing host path stops
   `up` right after init — before the build and before `devc build` removes the old container.
 
+- [devc-web-host-environments](devc-web-host-environments.md) — devc web without containers:
+  an `Environment` / `EnvironmentSource` seam that every `docker` call goes through, the
+  devcontainer code as its first implementation and **this machine** as its second (one Herdr
+  session per host project folder, files via Deno FS, a login-shell PATH probe). Both kinds run
+  in one server, chosen per project (`"environment"` in `projects.json`); Docker becomes
+  optional; `--live` never gets host environments. The page's PR review works on host projects
+  through a `PrBackend` running the same `gh-pr-*` recipes with the host's `gh`. After
+  devc-web-pr-review-depth. SSH is designed for, not built.
+
 ### Standing rules for Feature work
 
 Not a plan group — these are the conventions every Feature plan in this file
@@ -2467,3 +2476,4 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
 | devc mount preflight — bind mounts checked before the image build, right after `initializeCommand`                 | [devc-mount-preflight](devc-mount-preflight.md)                                    |             |
 | devc web cross-page drag — `/sidebar` rows dragged natively into `/main`; zen replayed to a reloaded `/main`       | [devc-web-cross-page-drag](archived/devc-web-cross-page-drag.md)                   | complete    |
 | devc web PR review depth — side placement, viewed history + changes since viewed, pending reviews                  | [devc-web-pr-review-depth](devc-web-pr-review-depth.md)                            |             |
+| devc web host environments — an environment seam; projects on this machine beside devcontainers, Docker optional     | [devc-web-host-environments](devc-web-host-environments.md)                        |             |
