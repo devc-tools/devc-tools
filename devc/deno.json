@@ -24,6 +24,13 @@
     // Vendored, unmodified xterm.js — see scripts/vendor-xterm.sh.
     "exclude": ["web/static/vendor/"]
   },
+  "lint": {
+    // Vendored, unmodified xterm.js — see scripts/vendor-xterm.sh.
+    "exclude": ["web/static/vendor/"],
+    // `web/static/` is browser code, where `window` is the page's own global; the server code
+    // has no `window` to reach for.
+    "rules": { "exclude": ["no-window", "no-window-prefix"] }
+  },
   "imports": {
     "jsr:@std/path": "jsr:@std/path@^1",
     "jsr:@std/assert": "jsr:@std/assert@^1",
