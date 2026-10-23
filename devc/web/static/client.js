@@ -10,12 +10,17 @@ import { parseBridgeStatus, parseUsage } from './lib/host_status.js';
 import { childPath } from './lib/files.js';
 import { parseFilePinPanes, parsePinnedFiles } from './lib/pinned_files.js';
 import { parseTasks } from './lib/tasks.js';
-import { booted, errorToast, h, markBooted } from './ui.js';
+import { booted, errorToast, h, markBooted, toast } from './ui.js';
+import { loadedPaths, planStaticChange } from './lib/live_reload.js';
 import { viewIdFromHash } from './lib/view.js';
 
 /** @typedef {import('./lib/view.js').TileState} TileState */
 
 const RECONNECT_MS = 2000;
+/** A held live reload waits this long after the last key or click. */
+const RELOAD_IDLE_MS = 2000;
+/** How often a held live reload checks again whether the page is still busy. */
+const RELOAD_RETRY_MS = 1000;
 /** Served from the last-good snapshot (`/safe/`): no reloads, no `client_ready`. */
 export const SAFE_MODE = location.pathname.startsWith('/safe/');
 
@@ -241,19 +246,27 @@ function onHello(msg) {
   }
   // A reconnect to a server whose files changed while the socket was down (a restart, or the
   // fallback to the built-in copy and back).
-  if (!SAFE_MODE && msg.generation !== bootGeneration) location.reload();
+  if (!SAFE_MODE && msg.generation !== bootGeneration) requestReload();
 }
 
 function onStaticChanged(msg) {
   if (SAFE_MODE) return;
   const paths = Array.isArray(msg.paths) ? msg.paths : [];
-  if (paths.length === 0 || !paths.every((p) => p.endsWith('.css'))) {
-    location.reload();
+  const base = new URL('./', location.href).pathname;
+  const loaded = loadedPaths(
+    performance.getEntriesByType('resource').map((e) => e.name),
+    location.origin,
+    base,
+    location.pathname.slice(base.length),
+  );
+  // Files this page never loaded (another page's script) leave it alone.
+  const plan = planStaticChange(paths, loaded);
+  if (plan.reload) {
+    requestReload();
     return;
   }
   // CSS only: swap each changed stylesheet in place, so the terminals keep their state.
-  const base = new URL('./', location.href).pathname;
-  const changed = new Set(paths);
+  const changed = new Set(plan.css);
   for (const link of document.querySelectorAll('link[rel=stylesheet]')) {
     const url = new URL(/** @type {HTMLLinkElement} */ (link).href);
     const path = url.pathname.slice(base.length);
@@ -265,6 +278,52 @@ function onStaticChanged(msg) {
     }
   }
   bootGeneration = msg.generation;
+}
+
+/** Whether something on the page holds a live reload back: see {@link holdReloadWhile}. */
+const reloadHolds = /** @type {(() => boolean)[]} */ ([]);
+let reloadPending = false;
+let lastInputAt = 0;
+addEventListener('keydown', () => lastInputAt = Date.now(), true);
+addEventListener('pointerdown', () => lastInputAt = Date.now(), true);
+
+/** Holds a live reload back while `busy()` is true (unsaved edits, say). */
+export function holdReloadWhile(busy) {
+  reloadHolds.push(busy);
+}
+
+/**
+ * Reloads for a live edit once the page isn't busy: no open dialog, no text in a focused field,
+ * no hold, and nothing typed or clicked for {@link RELOAD_IDLE_MS}. A toast says so when it waits.
+ */
+function requestReload() {
+  if (reloadPending) return;
+  reloadPending = true;
+  if (!reloadBusy()) {
+    location.reload();
+    return;
+  }
+  toast('The UI changed: reloading when you’re done', {
+    label: 'Reload now',
+    run: () => location.reload(),
+  });
+  const retry = () => {
+    if (reloadBusy()) setTimeout(retry, RELOAD_RETRY_MS);
+    else location.reload();
+  };
+  setTimeout(retry, RELOAD_RETRY_MS);
+}
+
+function reloadBusy() {
+  if (Date.now() - lastInputAt < RELOAD_IDLE_MS) return true;
+  if (document.querySelector('dialog[open], .dialog-backdrop')) return true;
+  const el = document.activeElement;
+  // xterm's helper textarea holds a focused terminal's keys, not a draft.
+  if (
+    (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) &&
+    !el.classList.contains('xterm-helper-textarea') && el.value !== ''
+  ) return true;
+  return reloadHolds.some((busy) => busy());
 }
 
 export function showSafeBanner() {

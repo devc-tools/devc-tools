@@ -645,9 +645,12 @@ only ever on when asked for, run by run.
 
 Edits reach the open tab without a new URL:
 
-- **Page** (`web/static/**`, both modes): the tab reloads (tile layout is in
-  `localStorage`, terminal contents in Herdr), or for a CSS-only change swaps the
-  stylesheet in place.
+- **Page** (`web/static/**`, both modes): a tab that loaded the changed file
+  reloads (tile layout is in `localStorage`, terminal contents in Herdr), or for
+  a CSS-only change swaps the stylesheet in place; a tab that didn't load it
+  (`/sidebar` for a `tiles.js` edit) is left alone. A reload waits, with a
+  toast and **Reload now**, while a dialog is open, a focused field has text,
+  a file tile has unsaved edits, or a key or click came in the last 2 s.
 - **Server** (`.ts` under `devc/` or `devc-core/`, not `tests/`;
   `--live-yolo` only): the supervisor runs `deno check main.ts` while the old
   server keeps serving. If it fails, it prints
@@ -676,9 +679,9 @@ For an agent in a pane of `devc web` asked to change the UI:
   `renderer.js`, `lib/`, `style.css`, `index.html`, `boot.js`); the server is
   `devc/web/*.ts`. From a container with the `devc:source` mount, that is
   `/workspaces/tools/devc-tools/devc/…`.
-- **What happens on save:** a page file reloads the user's tab (a `.css` file
-  swaps in place); a server `.ts` file restarts the server, but only once
-  `deno check main.ts` passes. Your own pane reconnects too.
+- **What happens on save:** a page file reloads each tab that loaded it, once
+  the user is idle (a `.css` file swaps in place); a server `.ts` file restarts
+  the server, but only once `deno check main.ts` passes. Your own pane reconnects too.
 - **How to verify:** `deno task check` and `deno task test` in `devc/`.
 - **If the UI breaks:** the user can click **Load last good** (or open
   `/safe/`), or fall back to `devc herdr` in a terminal. Fix forward, or

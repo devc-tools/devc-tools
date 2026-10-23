@@ -66,6 +66,7 @@ import {
   displayName,
   fileHostPath,
   findPane,
+  holdReloadWhile,
   list,
   nextId,
   onConnectionChange,
@@ -2716,6 +2717,8 @@ export function mountTiles(root, opts) {
       }
     }
   });
+  // A live edit's reload waits for them to be saved or dropped.
+  holdReloadWhile(() => [...fileViews.values()].some((view) => view.dirty));
 
   window.addEventListener('focus', () => reportActivePane(true));
   onServerMessage(onTilesMessage);
