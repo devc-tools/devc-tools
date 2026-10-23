@@ -28,7 +28,6 @@
   --tile-head: #1d2734;
   --tile-head-focus: #2c405f;
   --tile-head-line: #344155;
-  --tile-tab-front: #26364c;
   --tile-label: #e0eaf7;
   --tile-repo: #b3c6e0;
   --tile-branch: #93a9c8;
@@ -1395,15 +1394,51 @@ body.resizing-zones {
   box-shadow: none;
 }
 
-/* Among several tabs, the front one stands out, and the focused one is underlined. */
-.lm_header .lm_tabs:has(.lm_tab + .lm_tab) .lm_tab.lm_active,
-.lm_header:has(.lm_tabdropdown_list .lm_tab) .lm_tab.lm_active {
-  background: var(--tile-tab-front);
+/*
+ * Among several tabs, the front one takes the content's color and runs into it over the
+ * header's line, flaring out at its foot as if its neighbours' bottom corners were rounded.
+ * The flares sit inside the tab, so every tab is `--tab-flare` wider on each side and the
+ * active one's widths don't change; its body is a pseudo-element so its top corners can round.
+ */
+.lm_header {
+  --tab-flare: 6px;
 }
 
-.lm_header .lm_tabs:has(.lm_tab + .lm_tab) .lm_tab.lm_active.lm_focused,
-.lm_header:has(.lm_tabdropdown_list .lm_tab) .lm_tab.lm_active.lm_focused {
-  box-shadow: inset 0 -2px 0 var(--tile-focus);
+.lm_header .lm_tabs:has(.lm_tab + .lm_tab),
+.lm_header:has(.lm_tabdropdown_list .lm_tab) .lm_tabs {
+  height: 100%;
+}
+
+.lm_header .lm_tabs:has(.lm_tab + .lm_tab) .lm_tab,
+.lm_header:has(.lm_tabdropdown_list .lm_tab) .lm_tabs .lm_tab {
+  padding: 0 calc(26px + var(--tab-flare)) 0 calc(9px + var(--tab-flare));
+}
+
+.lm_header .lm_tabs:has(.lm_tab + .lm_tab) .lm_tab .lm_close_tab,
+.lm_header:has(.lm_tabdropdown_list .lm_tab) .lm_tabs .lm_tab .lm_close_tab {
+  right: calc(8px + var(--tab-flare));
+}
+
+.lm_header .lm_tabs:has(.lm_tab + .lm_tab) .lm_tab.lm_active,
+.lm_header:has(.lm_tabdropdown_list .lm_tab) .lm_tab.lm_active {
+  --flare: transparent var(--tab-flare), var(--term-bg) calc(var(--tab-flare) + 0.5px);
+  isolation: isolate;
+  background-image:
+    radial-gradient(circle at 0 0, var(--flare)),
+    radial-gradient(circle at 100% 0, var(--flare));
+  background-position: left bottom, right bottom;
+  background-size: var(--tab-flare) var(--tab-flare);
+  background-repeat: no-repeat;
+}
+
+.lm_header .lm_tabs:has(.lm_tab + .lm_tab) .lm_tab.lm_active::before,
+.lm_header:has(.lm_tabdropdown_list .lm_tab) .lm_tab.lm_active::before {
+  content: '';
+  position: absolute;
+  inset: 0 var(--tab-flare);
+  z-index: -1;
+  border-radius: 5px 5px 0 0;
+  background: var(--term-bg);
 }
 
 .lm_header .lm_tab .lm_close_tab {
