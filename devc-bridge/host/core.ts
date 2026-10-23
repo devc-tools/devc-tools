@@ -465,7 +465,13 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
                 }`,
               };
             }
-            await conn.write(encoder.encode(JSON.stringify(resp) + '\n'));
+            // One write may take only part of a large reply (gh-pr-files' patches): the client
+            // would wait forever for the rest and its newline.
+            const bytes = encoder.encode(JSON.stringify(resp) + '\n');
+            let off = 0;
+            while (off < bytes.length) {
+              off += await conn.write(bytes.subarray(off));
+            }
           }
         } catch (e) {
           if (!closed) log(`connection error: ${e}`);

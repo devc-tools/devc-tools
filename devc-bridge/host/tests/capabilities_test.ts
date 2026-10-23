@@ -113,12 +113,15 @@ async function call(
         JSON.stringify({ token, command, args: [] }) + '\n',
       ),
     );
-    const buf = new Uint8Array(4096);
+    const buf = new Uint8Array(65536);
+    const decoder = new TextDecoder();
     let text = '';
-    while (!text.includes('\n')) {
+    while (true) {
       const n = await conn.read(buf);
       if (n === null) break;
-      text += new TextDecoder().decode(buf.subarray(0, n));
+      const part = decoder.decode(buf.subarray(0, n), { stream: true });
+      text += part;
+      if (part.includes('\n')) break;
     }
     return JSON.parse(text);
   } finally {
@@ -546,6 +549,19 @@ Deno.test('ordinary commands are unaffected by grants', async () => {
   await withServer(null, async ({ port, shared, token }) => {
     assertEquals((await call(port, token, 'echo')).stdout, 'ok\n');
     assertEquals((await call(port, shared, 'echo')).stdout, 'ok\n');
+  });
+});
+
+Deno.test('a reply larger than one socket write arrives whole', async () => {
+  await withServer(null, async ({ dir, port, token }) => {
+    // gh-pr-files on a big PR: megabytes of patches, more than a socket takes in one write.
+    await script(
+      join(dir, 'commands', 'big'),
+      'head -c 8000000 /dev/zero | tr "\\0" x',
+    );
+    const resp = await call(port, token, 'big');
+    assertEquals(resp.exitCode, 0);
+    assertEquals(resp.stdout, 'x'.repeat(8_000_000));
   });
 });
 

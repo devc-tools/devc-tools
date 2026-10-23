@@ -101,9 +101,11 @@ async function readLine(conn: Deno.Conn): Promise<string> {
   while (true) {
     const n = await conn.read(chunk);
     if (n === null) break;
-    buf += decoder.decode(chunk.subarray(0, n), { stream: true });
-    const idx = buf.indexOf('\n');
-    if (idx >= 0) return buf.slice(0, idx);
+    const part = decoder.decode(chunk.subarray(0, n), { stream: true });
+    // Only the new part is searched: rescanning `buf` is quadratic in a megabytes-long reply.
+    const idx = part.indexOf('\n');
+    if (idx >= 0) return buf + part.slice(0, idx);
+    buf += part;
   }
   return buf;
 }
