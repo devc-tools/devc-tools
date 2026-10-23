@@ -6,7 +6,9 @@
 
 import { onServerMessage, send, VIEW_ID } from './client.js';
 import {
+  DRAG_MIME,
   emptyViewState,
+  encodeDrag,
   relayedIntent,
   relayedState,
   SIDEBAR_INTENT_NAMES,
@@ -74,7 +76,8 @@ export function serveTileArea(tileArea) {
 /**
  * The tiling area as the `/sidebar` page's sidebar holds it: its state is the last `view_state`
  * relayed (no tiles before any), and each intent goes to the view's tiling areas as a
- * `view_intent`. Rows are not drag sources: dragging into another page is not supported.
+ * `view_intent`. Rows are native drag sources (`DRAG_MIME`), dropped on another page's tiling
+ * area: Golden Layout's drag can't leave its page.
  *
  * @returns {{tileArea: TileArea, setState: (state: ViewState) => void, rejoin: () => void}}
  *   `setState` keeps a relayed state; `rejoin` sends what the tiling areas should hear again
@@ -102,7 +105,7 @@ export function remoteTileArea() {
       zen = on;
       intent('setZen', [on]);
     },
-    dragSource: () => () => {},
+    dragSource: nativeDragSource,
   };
   return {
     tileArea,
@@ -110,6 +113,28 @@ export function remoteTileArea() {
     rejoin: () => {
       if (zen !== null) intent('setZen', [zen]);
     },
+  };
+}
+
+/**
+ * Makes `el` a native drag source of the tile content `ref()` names, for a tiling area in another
+ * page; returns a remover that undoes it.
+ *
+ * @type {TileArea['dragSource']}
+ */
+function nativeDragSource(el, ref, title) {
+  /** @param {DragEvent} e */
+  const start = (e) => {
+    if (!e.dataTransfer) return;
+    e.dataTransfer.setData(DRAG_MIME, encodeDrag(ref()));
+    e.dataTransfer.setData('text/plain', title());
+    e.dataTransfer.effectAllowed = 'copy';
+  };
+  el.draggable = true;
+  el.addEventListener('dragstart', start);
+  return () => {
+    el.draggable = false;
+    el.removeEventListener('dragstart', start);
   };
 }
 

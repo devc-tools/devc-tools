@@ -8,7 +8,9 @@
 
 import { fileView } from './media.js';
 import {
+  fileRefFromState,
   foldTree,
+  paneRefFromState,
   sameDiff,
   sameFileView,
   treeSignature,
@@ -345,4 +347,41 @@ export function relayedState(msg, view) {
     tree: s.tree && typeof s.tree === 'object' ? s.tree : null,
     focused: typeof s.focused === 'string' ? s.focused : null,
   };
+}
+
+/** The `DataTransfer` type of a sidebar row dragged into a tiling area. */
+export const DRAG_MIME = 'application/x-devc-web-tile';
+
+/**
+ * What a row's drag carries: the content a dropped tile shows.
+ *
+ * @param {PaneRef | {file: FileRef}} ref
+ * @returns {string}  JSON
+ */
+export function encodeDrag(ref) {
+  return JSON.stringify(ref);
+}
+
+/**
+ * A drag payload back, or null for anything that isn't one: a `PaneRef` (two non-empty strings)
+ * or `{file}` with a well-formed `FileRef` (as `layout_state.js`'s `fileRefFromState` accepts).
+ *
+ * @param {string} text
+ * @returns {PaneRef | {file: FileRef} | null}
+ */
+export function parseDrag(text) {
+  let value;
+  try {
+    value = JSON.parse(text);
+  } catch {
+    return null;
+  }
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return null;
+  }
+  if ('file' in value) {
+    const file = fileRefFromState(value.file);
+    return file ? { file } : null;
+  }
+  return paneRefFromState(value);
 }

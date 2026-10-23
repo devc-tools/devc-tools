@@ -11,11 +11,6 @@
 
 ### Pending
 
-- [devc-web-cross-page-drag](devc-web-cross-page-drag.md) — phase 4: rows dragged from a
-  `/sidebar` page into a `/main` page by native drag and drop (`application/x-devc-web-tile`, a
-  pane or file ref), landing right, below or in the stack of the tile under the pointer; and the
-  server replays a view's last `setZen` to a reloaded `/main`.
-
 - [devc-web-aseprite-viewer](devc-web-aseprite-viewer.md) — after devc-web-media-tiles: a
   clean-room `.aseprite` decoder and compositor (`static/lib/aseprite.js`, from the public spec
   only) and a media view with frame playback, tags and layer toggles. Normal blend only at first;
@@ -120,6 +115,11 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
   a container card keeps its header and gains a Files row.
 
 ### Completed
+
+- ✅ Done — [devc-web-cross-page-drag](archived/devc-web-cross-page-drag.md) — phase 4: rows dragged from a
+  `/sidebar` page into a `/main` page by native drag and drop (`application/x-devc-web-tile`, a
+  pane or file ref), landing right, below or in the stack of the tile under the pointer; and the
+  server replays a view's last `setZen` to a reloaded `/main`.
 
 - ✅ Done — [devc-web-vscode-embedding](archived/devc-web-vscode-embedding.md) — phase 5,
   devc-tools' half: `/sidebar` and `/main` (and their `/safe/` forms) send `frame-ancestors
@@ -2455,3 +2455,4 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
 | devc global config as JSONC — `config.jsonc` before `config.json`, comment-keeping saves                           | [devc-config-jsonc](archived/devc-config-jsonc.md)                                 | complete    |
 | devc web repo cards — one card per repo per container, in In use when active, else in Containers; tabs removed     | [devc-web-repo-cards](devc-web-repo-cards.md)                                      | in progress |
 | devc mount preflight — bind mounts checked before the image build, right after `initializeCommand`                 | [devc-mount-preflight](devc-mount-preflight.md)                                    |             |
+| devc web cross-page drag — `/sidebar` rows dragged natively into `/main`; zen replayed to a reloaded `/main`       | [devc-web-cross-page-drag](archived/devc-web-cross-page-drag.md)                   | complete    |

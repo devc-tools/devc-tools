@@ -1700,6 +1700,19 @@ body.resizing-zones {
   opacity: 0.15;
 }
 
+/* A `/sidebar` row dragged over a `/main` page's tiling area: where it would land (`tiles.js`). */
+.tile-drop-indicator {
+  position: fixed;
+  z-index: 50;
+  pointer-events: none;
+  outline: 1px dashed var(--accent);
+  background: color-mix(in srgb, var(--accent) 15%, transparent);
+}
+
+.tile-drop-indicator[hidden] {
+  display: none;
+}
+
 /* Golden Layout only starts a drag on the registered row itself, not on its children. */
 .row.pane > *,
 .row.file-drag > * {

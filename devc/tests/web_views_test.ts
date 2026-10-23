@@ -106,3 +106,28 @@ Deno.test('views: a memberless view keeps its state for the idle time, then drop
   assertEquals(reg.views(), []);
   assertEquals(reg.join('side', 'v1', 'sidebar'), []);
 });
+
+Deno.test('views: a tiles joiner gets the last setZen from a sidebar; the latest wins', () => {
+  const { reg, advance } = setup();
+  reg.join('main1', 'v1', 'tiles');
+  reg.join('side', 'v1', 'sidebar');
+  // No setZen yet: nothing to replay.
+  assertEquals(reg.join('main1b', 'v1', 'tiles'), []);
+  reg.viewIntent('side', 'v1', 'setZen', [true]);
+  reg.viewIntent('side', 'v1', 'close', ['t1']);
+  reg.viewIntent('side', 'v1', 'setZen', [false]);
+  reg.viewIntent('side', 'v1', 'setZen', [true]);
+  // A reloaded main page.
+  reg.leave('main1');
+  assertEquals(reg.join('main1', 'v1', 'tiles'), [{
+    to: 'main1',
+    msg: { type: 'view_intent', view: 'v1', name: 'setZen', args: [true] },
+  }]);
+  // Sidebars are not sent it; another view has none.
+  assertEquals(reg.join('side2', 'v1', 'sidebar'), []);
+  assertEquals(reg.join('main2', 'v2', 'tiles'), []);
+  // Dropped with the view.
+  for (const m of ['main1', 'main1b', 'side', 'side2', 'main2']) reg.leave(m);
+  advance(VIEW_IDLE_MS);
+  assertEquals(reg.join('main1', 'v1', 'tiles'), []);
+});

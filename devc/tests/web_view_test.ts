@@ -1,12 +1,15 @@
 import { assertEquals, assertNotEquals } from 'jsr:@std/assert';
 import {
+  DRAG_MIME,
   emptyViewState,
+  encodeDrag,
   fileKey,
   focusedTile,
   layoutSignature,
   layoutTiles,
   nodeById,
   nodeTiles,
+  parseDrag,
   previewTileNear,
   relayedIntent,
   relayedState,
@@ -206,4 +209,40 @@ Deno.test('relayedIntent and relayedState: only their view, known names', () => 
     null,
   );
   assertEquals(relayedState({ type: 'view_state', view: 'v' }, 'v'), null);
+});
+
+Deno.test('encodeDrag and parseDrag: a pane or a file round-trips; junk is null', () => {
+  assertEquals(DRAG_MIME, 'application/x-devc-web-tile');
+  const pane = { localFolder: '/w', pane_id: 'p1' };
+  assertEquals(parseDrag(encodeDrag(pane)), pane);
+  const file = {
+    file: { localFolder: '/w', root: '/workspaces/r', path: 'a.ts' },
+  };
+  assertEquals(parseDrag(encodeDrag(file)), file);
+  const media = {
+    file: {
+      localFolder: '/w',
+      root: '/',
+      path: 'x.png',
+      container: true as const,
+      view: 'text' as const,
+    },
+  };
+  assertEquals(parseDrag(encodeDrag(media)), media);
+  for (
+    const junk of [
+      '',
+      'not json',
+      'null',
+      '[]',
+      '"/w"',
+      '{}',
+      '{"localFolder":"/w"}',
+      '{"localFolder":"","pane_id":"p"}',
+      '{"localFolder":"/w","pane_id":3}',
+      '{"file":null}',
+      '{"file":{"localFolder":"/w","root":"/r"}}',
+      'https://example.com/',
+    ]
+  ) assertEquals(parseDrag(junk), null, junk);
 });

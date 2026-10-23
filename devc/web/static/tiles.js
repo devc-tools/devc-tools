@@ -11,8 +11,10 @@ import { createTiling } from './layout.js';
 import { createViewer } from './viewer.js';
 import { parseSavedLayout, sameFile } from './lib/layout_state.js';
 import {
+  DRAG_MIME,
   fileKey,
   focusedTile,
+  parseDrag,
   previewTileNear,
   tileShowingDiff,
   tileShowingFile,
@@ -2174,6 +2176,118 @@ function onTilesConnection(state) {
   reconcileTiles();
 }
 
+// ---------------------------------------------------------------------------------------------
+// Native drops: a `/sidebar` page's rows dragged into this tiling area (`lib/view.js`'s
+// `DRAG_MIME`). `/`'s own rows drag through Golden Layout instead (`tileArea.dragSource`).
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * Where a drop at the pointer lands: over a tile (its body or its tab), that tile, split right in
+ * its body's right quarter, below in its bottom quarter, else in its stack. Over no tile, null.
+ *
+ * @param {DragEvent} e
+ * @returns {{at: string, where: 'right' | 'below' | 'stack', rect: DOMRect} | null}
+ */
+function dropPlace(e) {
+  if (!tiling) return null;
+  const target = /** @type {Element} */ (e.target);
+  const tiles = tiling.tiles();
+  const tab = /** @type {HTMLElement | null} */ (target.closest?.('.lm_tab'));
+  let tile = tab ? tiles.find((t) => t.id === tab.dataset.tile) : undefined;
+  tile ??= tiles.find((t) => t.element.contains(target));
+  if (!tile) return null;
+  // The region is the body showing in the tile's stack: a background tab's own body is hidden.
+  const stack = tile.element.closest('.lm_stack');
+  const shown =
+    tiles.find((t) =>
+      stack?.contains(t.element) && t.element.getClientRects().length > 0
+    ) ?? tile;
+  const rect = shown.element.getBoundingClientRect();
+  const where = e.clientX >= rect.right - rect.width / 4
+    ? 'right'
+    : e.clientY >= rect.bottom - rect.height / 4
+    ? 'below'
+    : 'stack';
+  return { at: tile.id, where, rect };
+}
+
+/** The translucent region a native drop would fill, while one is dragged over. */
+const $dropIndicator = h('div', { class: 'tile-drop-indicator', hidden: '' });
+
+/** @param {{where: string, rect: DOMRect} | null} place */
+function showDropIndicator(place) {
+  const box = place?.rect ?? $tiles.getBoundingClientRect();
+  const right = place?.where === 'right';
+  const below = place?.where === 'below';
+  Object.assign($dropIndicator.style, {
+    left: `${right ? box.right - box.width / 4 : box.left}px`,
+    top: `${below ? box.bottom - box.height / 4 : box.top}px`,
+    width: `${right ? box.width / 4 : box.width}px`,
+    height: `${below ? box.height / 4 : box.height}px`,
+  });
+  $dropIndicator.hidden = false;
+}
+
+function hideDropIndicator() {
+  $dropIndicator.hidden = true;
+}
+
+/**
+ * Opens a dropped row's content in a new tile placed by {@link dropPlace}, focused: a tile already
+ * showing it is not reused, since the drag asked for a tile there.
+ *
+ * @param {PaneRef | {file: FileRef}} ref
+ * @param {{at: string, where: 'right' | 'below' | 'stack'} | null} place
+ */
+function openDropped(ref, place) {
+  if (!tiling) return;
+  const at = place ? place.at : targetTile()?.id ?? null;
+  const where = place?.where ?? 'stack';
+  if (!('file' in ref)) {
+    openPane(ref, { where, at });
+    return;
+  }
+  const tile = tiling.addBeside(at, ref, where);
+  focusedTileId = tile.id;
+  focusSeq.set(tile.id, ++nextFocusSeq);
+  fileViews.get(tile.id)?.viewer?.focus();
+}
+
+/**
+ * Makes `root` take native drops of `DRAG_MIME`. Capture phase, so a file viewer or terminal
+ * under the pointer never sees them (a viewer would insert the row's `text/plain`); every other
+ * drag (Golden Layout's, text into a viewer) is left alone.
+ *
+ * @param {HTMLElement} root
+ */
+function acceptNativeDrops(root) {
+  document.body.append($dropIndicator);
+  /** @param {DragEvent} e */
+  const ours = (e) => !!e.dataTransfer?.types.includes(DRAG_MIME);
+  root.addEventListener('dragover', (e) => {
+    if (!ours(e)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    /** @type {DataTransfer} */ (e.dataTransfer).dropEffect = 'copy';
+    showDropIndicator(dropPlace(e));
+  }, true);
+  root.addEventListener('dragleave', (e) => {
+    const to = /** @type {Node | null} */ (e.relatedTarget);
+    if (!to || !root.contains(to)) hideDropIndicator();
+  }, true);
+  root.addEventListener('drop', (e) => {
+    if (!ours(e)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    hideDropIndicator();
+    const ref = parseDrag(
+      /** @type {DataTransfer} */ (e.dataTransfer).getData(DRAG_MIME),
+    );
+    if (ref) openDropped(ref, dropPlace(e));
+  }, true);
+  document.addEventListener('dragend', hideDropIndicator);
+}
+
 /**
  * Mounts the tiling area into `root` (today's `#tiles`) and returns the sidebar's way in.
  * `sidebar` is how the tiling area reaches the sidebar; `null` when no sidebar is on the page.
@@ -2252,6 +2366,7 @@ export function mountTiles(root, opts) {
   window.addEventListener('focus', () => reportActivePane(true));
   onServerMessage(onTilesMessage);
   onConnectionChange(onTilesConnection);
+  acceptNativeDrops(root);
   restoreLayout();
   reconcileTiles();
   updateWindow();

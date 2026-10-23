@@ -11,11 +11,11 @@ drop across pages, and closes the zen gap phase 3 left. Phase 5 is the VS Code s
 
 ## Checklist
 
-- [ ] 1. `lib/view.js`: the drag payload's MIME type, encoder and parser (pure, tested)
-- [ ] 2. `/sidebar`: `remote.js`'s `dragSource` makes rows native drag sources
-- [ ] 3. `tiles.js`: the tiling area accepts native drops of that payload, with a drop indicator
-- [ ] 4. Server: a view's last `setZen` is replayed to a `tiles` joiner (`web/views.ts`)
-- [ ] 5. Validation (below), then commit
+- [x] 1. `lib/view.js`: the drag payload's MIME type, encoder and parser (pure, tested)
+- [x] 2. `/sidebar`: `remote.js`'s `dragSource` makes rows native drag sources
+- [x] 3. `tiles.js`: the tiling area accepts native drops of that payload, with a drop indicator
+- [x] 4. Server: a view's last `setZen` is replayed to a `tiles` joiner (`web/views.ts`)
+- [x] 5. Validation (below), then commit
 
 ## Touchpoints
 
@@ -102,6 +102,15 @@ joiners get no state). It is dropped with the view.
 
 ## Validation
 
+Done 2026-10-23: 1–4 pass (643 tests; `deno fmt --check` flags only the 4 plan docs it flagged
+before). 3–4 ran in Playwright's Chromium 1140 via `agent-browser` against a real server (stub
+`docker`, scratch `HOME`): drops landed in an empty layout, right, below and in the stack (body
+and tab), a file already shown got a new tile, junk payloads and plain `text/plain` drags were
+ignored; the `/sidebar` drag source set both types and its remover undid it; Golden Layout tab
+drags still worked; zen came back on a `/main` reload (on, then off, then on) and not in another
+view. The text-into-a-file-tile check could only be done as "not accepted" (no container to read
+a file from). A synthetic `dragstart` reads `effectAllowed` back as `none`; real drags set it.
+
 1. `cd devc && deno check main.ts && deno task check && deno task test`; `cd .. && deno fmt --check`
    reports nothing new.
 2. Unit tests: `encodeDrag`/`parseDrag` round-trip a pane and a file and reject junk;
@@ -115,7 +124,7 @@ joiners get no state). It is dropped with the view.
    below, stack, empty layout). Check `/` still drags rows into its layout through Golden Layout,
    and that a text selection dragged into a file tile still inserts text.
 4. Zen: with the sidebar page in zen, reload the main page: it comes back in zen.
-5. The user runs `devc web --live` with the installed server: the drop target and drag source are
+5. (Left to the user.) The user runs `devc web --live` with the installed server: the drop target and drag source are
    page code and reload live; the zen replay needs the checkout's server, so it arrives with their
    next restart.
 
