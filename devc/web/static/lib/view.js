@@ -1,9 +1,10 @@
 // The contract between the `devc web` sidebar and its tiling area: what the tiling area shows, as
-// plain data the sidebar reads (`ViewState`), and what the sidebar asks it to do (`ViewIntents`).
-// Both halves are one page today, and `app.js` implements the contract in-process; the sidebar
-// reaches the tiling area no other way, so the two can later run in pages of their own, with the
-// state and intents relayed by the server. Pure helpers over the state are here, tested from
-// `devc/tests/web_view_test.ts`. No DOM access here.
+// plain data the sidebar reads (`ViewState`), what the sidebar asks it to do (`ViewIntents`), and
+// what the tiling area asks of the sidebar (`SidebarIntents`). Both halves are one page today:
+// `tiles.js` implements the tiling area's side and `sidebar.js` the sidebar's, and `app.js` wires
+// them in-process; neither reaches the other any other way, so the two can later run in pages of
+// their own, with the state and intents relayed by the server. Pure helpers over the state are
+// here, tested from `devc/tests/web_view_test.ts`. No DOM access here.
 
 import { fileView } from './media.js';
 import {
@@ -73,6 +74,24 @@ import {
  * @property {(id: string) => void} save      a file tile's edits
  * @property {(id: string) => void} reload    a file or diff tile's content, read again
  * @property {(on: boolean) => void} setZen   the focused tile alone, filling the area
+ */
+
+/**
+ * The tiling area as the sidebar holds it (what `mountTiles` returns): the intents, its state,
+ * and `dragSource`, which makes a sidebar row a Golden Layout drag source (the one part that needs
+ * both halves in one page).
+ *
+ * @typedef {ViewIntents & {state: () => ViewState, dragSource: (el: HTMLElement,
+ *   ref: () => PaneRef | {file: FileRef}, title: () => string) => () => void}} TileArea
+ */
+
+/**
+ * What the tiling area asks of the sidebar: a tile menu's **Reveal in Containers** and zen items.
+ * Plain data in, nothing out, as {@link ViewIntents}.
+ *
+ * @typedef {object} SidebarIntents
+ * @property {(ref: PaneRef) => void} revealInContainers  a tile menu's **Reveal in Containers**
+ * @property {(scope: 'off' | 'container' | 'repo') => void} setZen  a tile menu's zen items
  */
 
 /** @param {ViewState} state @param {string | null | undefined} id */

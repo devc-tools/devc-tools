@@ -10,14 +10,14 @@ behave exactly as it does now. Phase 3 is
 
 ## Checklist
 
-- [ ] 1. `static/ui.js`: the DOM helpers and widgets both halves use
-- [ ] 2. `static/client.js`: the server connection and the server's data
-- [ ] 3. `lib/view.js` gains `SidebarIntents`; the tiling area calls the sidebar only through it
-- [ ] 4. `static/tiles.js`: the tiling area, exporting `mountTiles`
-- [ ] 5. `static/sidebar.js`: the sidebar, exporting `mountSidebar`
-- [ ] 6. `static/app.js` becomes the composer for `/`
-- [ ] 7. A source test that the halves stay apart
-- [ ] 8. Validation (below), then commit
+- [x] 1. `static/ui.js`: the DOM helpers and widgets both halves use
+- [x] 2. `static/client.js`: the server connection and the server's data
+- [x] 3. `lib/view.js` gains `SidebarIntents`; the tiling area calls the sidebar only through it
+- [x] 4. `static/tiles.js`: the tiling area, exporting `mountTiles`
+- [x] 5. `static/sidebar.js`: the sidebar, exporting `mountSidebar`
+- [x] 6. `static/app.js` becomes the composer for `/`
+- [x] 7. A source test that the halves stay apart
+- [x] 8. Validation (below), then commit
 
 ## Touchpoints
 
