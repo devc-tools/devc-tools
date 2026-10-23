@@ -108,6 +108,11 @@ import {
 const LAYOUT_KEY = 'devc-web-layout-v2';
 /** The split-tree layout before Golden Layout: removed on load, not migrated. */
 const OLD_LAYOUT_KEY = 'devc-web-layout-v1';
+/**
+ * Where the focused tile (its pane, file or diff) is kept across a reload of this tab, when the
+ * page had the keyboard as it went: `sessionStorage`, read once.
+ */
+const FOCUS_KEY = 'devc-web-focused-tile-v1';
 const RESIZE_DEBOUNCE_MS = 100;
 const DRAG_INTERVAL_MS = 50;
 /** How long a `read_selection` may go unanswered before its copy is dropped. */
@@ -1701,6 +1706,39 @@ function saveLayout() {
   } catch { /* storage unavailable: the layout just won't survive a reload */ }
 }
 
+/** On leaving the page: what {@link restoreFocus} brings back after a reload. */
+function saveFocus() {
+  const tile = tiling?.focusedTile() ?? tileOf(focusedTileId);
+  try {
+    if (!tile || !document.hasFocus()) sessionStorage.removeItem(FOCUS_KEY);
+    else {
+      sessionStorage.setItem(
+        FOCUS_KEY,
+        JSON.stringify({ ref: tile.ref, file: tile.file, diff: tile.diff }),
+      );
+    }
+  } catch { /* unavailable: a reload just won't refocus */ }
+}
+
+/** Focuses the tile {@link saveFocus} kept, so typing goes on where it was after a reload. */
+function restoreFocus() {
+  let saved = null;
+  try {
+    saved = JSON.parse(sessionStorage.getItem(FOCUS_KEY) ?? 'null');
+    sessionStorage.removeItem(FOCUS_KEY);
+  } catch { /* unavailable or malformed: nothing to refocus */ }
+  if (!saved || typeof saved !== 'object') return;
+  const state = viewState();
+  const tile = saved.ref
+    ? tileShowingPane(state, saved.ref)
+    : saved.file
+    ? tileShowingFile(state, saved.file)
+    : saved.diff
+    ? tileShowingDiff(state, saved.diff)
+    : null;
+  if (tile) revealTile(tile.id);
+}
+
 function restoreLayout() {
   let text = null;
   try {
@@ -2724,8 +2762,10 @@ export function mountTiles(root, opts) {
   onServerMessage(onTilesMessage);
   onConnectionChange(onTilesConnection);
   acceptNativeDrops(root);
+  window.addEventListener('pagehide', saveFocus);
   restoreLayout();
   reconcileTiles();
+  restoreFocus();
   updateWindow();
   return tileArea;
 }

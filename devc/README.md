@@ -646,8 +646,9 @@ only ever on when asked for, run by run.
 Edits reach the open tab without a new URL:
 
 - **Page** (`web/static/**`, both modes): a tab that loaded the changed file
-  reloads (tile layout is in `localStorage`, terminal contents in Herdr), or for
-  a CSS-only change swaps the stylesheet in place; a tab that didn't load it
+  reloads (tile layout is in `localStorage`, terminal contents in Herdr, and
+  the tile that had the keyboard gets it back), or for a CSS-only change swaps
+  the stylesheet in place; a tab that didn't load it
   (`/sidebar` for a `tiles.js` edit) is left alone. A reload waits, with a
   toast and **Reload now**, while a dialog is open, a focused field has text,
   a file tile has unsaved edits, or a key or click came in the last 2 s.
