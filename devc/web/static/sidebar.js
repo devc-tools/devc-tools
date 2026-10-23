@@ -304,6 +304,8 @@ function loadSidebarState() {
     ),
     /** PR folders opened or closed, by `prFoldersKey` then folder path. */
     prFolders: savedPrFolders(saved?.prFolders),
+    /** Open card sections' last settled heights in px, by `data-section-key` (`holdSections`). */
+    sectionHeights: savedSectionHeights(saved?.sectionHeights),
     inactiveOpen: saved?.inactiveOpen === true,
     projectsOpen: new Set(
       Array.isArray(saved?.projectsOpen)
@@ -360,6 +362,16 @@ function savedPrFolders(v) {
   return out;
 }
 
+function savedSectionHeights(v) {
+  /** @type {Record<string, number>} */
+  const out = {};
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return out;
+  for (const [key, px] of Object.entries(v)) {
+    if (typeof px === 'number' && px > 0) out[key] = px;
+  }
+  return out;
+}
+
 function savedFraction(v) {
   return typeof v === 'number' && v > 0 && v < 1 ? v : null;
 }
@@ -401,6 +413,7 @@ function saveSidebarState() {
         containerFilesOpen: [...sidebarState.containerFilesOpen],
         prOpen: [...sidebarState.prOpen],
         prFolders: sidebarState.prFolders,
+        sectionHeights: sidebarState.sectionHeights,
         inactiveOpen: sidebarState.inactiveOpen,
         projectsOpen: [...sidebarState.projectsOpen],
         // Not `filesOpen`: entries saved under that name were keyed by project, not by repo.
@@ -601,6 +614,48 @@ function zoneLimits() {
     botMin: containersOpen ? ZONE_MIN_HEIGHT : browseAll,
     botMax: browseAll,
   };
+}
+
+/** The most sections whose heights are kept: the oldest is dropped. */
+const MAX_SECTION_HEIGHTS = 50;
+
+/**
+ * A card section still loading (a `Loading…` note in it: a pull request not yet listed, a folder
+ * not yet read, sessions not yet listed) keeps the height it last had once loaded, saved across
+ * reloads, so it doesn't collapse to one row and grow back. Call before layout.
+ */
+function holdSections() {
+  for (const el of $tree.querySelectorAll('.card-section')) {
+    const box = /** @type {HTMLElement} */ (el);
+    const px = sidebarState.sectionHeights[box.dataset.sectionKey ?? ''];
+    if (px && sectionLoading(box)) box.style.minHeight = `${px}px`;
+  }
+}
+
+/** Saves the heights of the card sections that are loaded, after layout (`holdSections`). */
+function keepSectionHeights() {
+  const heights = sidebarState.sectionHeights;
+  let changed = false;
+  for (const el of $tree.querySelectorAll('.card-section')) {
+    const box = /** @type {HTMLElement} */ (el);
+    const key = box.dataset.sectionKey;
+    if (!key || sectionLoading(box)) continue;
+    const px = box.offsetHeight;
+    if (px === 0 || heights[key] === px) continue;
+    delete heights[key];
+    heights[key] = px;
+    changed = true;
+  }
+  if (!changed) return;
+  for (const old of Object.keys(heights).slice(0, -MAX_SECTION_HEIGHTS)) {
+    delete heights[old];
+  }
+  saveSidebarState();
+}
+
+/** @param {HTMLElement} box */
+function sectionLoading(box) {
+  return box.querySelector(':scope > .tree-note[data-note="loading"]') !== null;
 }
 
 /** The least an open card section in In use's one box shrinks to: six rows, or all of it. */
@@ -828,8 +883,10 @@ function renderTree() {
     );
   }
   $tree.classList.toggle('containers-closed', !containersShown());
+  holdSections();
   floorInUseSections();
   applyZoneSizes();
+  keepSectionHeights();
   [$zoneInUse.scrollTop, $zoneTasks.scrollTop, $zoneBrowse.scrollTop] = scroll;
   for (const el of $tree.querySelectorAll('.card-section')) {
     const box = /** @type {HTMLElement} */ (el);
@@ -1144,6 +1201,11 @@ function repoCard(card, worktrees = 0) {
   const branch = repo?.git?.branch;
   const hasHistory = card.sessions.length > 0;
   const historyOn = hasHistory && sidebarState.cardHistoryOpen.has(key);
+  // Opened before this page listed the container's sessions: a Loading… section holds its place.
+  const listed = c ? sessionLists.get(c.id) : undefined;
+  const historyLoading = !hasHistory && !!c &&
+    sidebarState.cardHistoryOpen.has(key) &&
+    (!listed || (listed.loading && !listed.error));
   const canPr = !!repo && !!c;
   const prOn = canPr && sidebarState.prOpen.has(prKey(localFolder, fr.root));
   const tree = repo ? fileTree(fr) : null;
@@ -1281,6 +1343,18 @@ function repoCard(card, worktrees = 0) {
       'history',
       card.sessions.map(({ c: sc, s }) => sessionRow(sc, s, now, 1)),
     ));
+  } else if (historyLoading) {
+    rows.push(section('history', [
+      h(
+        'div',
+        {
+          class: 'row tree-note',
+          style: '--depth: 1',
+          'data-note': 'loading',
+        },
+        h('span', { class: 'label' }, 'Loading…'),
+      ),
+    ]));
   }
   // The open Pull request row's contents, without the row: the toggle stands for it.
   if (prOn) {
