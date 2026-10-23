@@ -294,7 +294,9 @@ is published from any container: the host server finds devcontainers with
   them, its terminal's row stands for it), its pull request and its files under its terminals, and open a new
   terminal or task there; those open under the card until you click their
   button again or click the header, which closes them all; each scrolls in a
-  box of capped height, so a long one doesn't stretch the sidebar. Under
+  box of capped height, so a long one doesn't stretch the sidebar. While **In
+  use** holds one container, its open sections are uncapped instead: they grow
+  until **In use** is full, then shrink alike, each scrolling on its own. Under
   **Containers**, a worktree's card is indented under its repo's, joined by a
   rail; with nothing open, a click on that repo's header hides or shows them
   (its chevron, on the left, points down while they show). Anywhere else, with nothing open, the
@@ -377,16 +379,18 @@ is published from any container: the host server finds devcontainers with
   ([Golden Layout](https://github.com/golden-layout/golden-layout), vendored)
   and never change Herdr's. The layout is kept in the browser's
   `localStorage`; a tile whose pane has since closed shows "Pane gone".
-- **Zen mode:** the sidebar header's corners button, a tile's menu, or
-  **Ctrl+Alt+Z** (**⌘⌥Z** on a Mac, even while a terminal has focus) shows
-  the focused tile alone, filling the tiling area with no tab header or frame.
-  The sidebar keeps **Tasks** and the focused tile's repo card alone; the
-  Containers section, the **In use** heading and pinned files are hidden. The
-  card fills the sidebar under Tasks, which does not scroll; its open sections (files, pull request,
-  past sessions) share the card's height, each scrolling on its own. Clicking a pane in the card
-  switches the tile shown, and the card follows. The layout under it is kept,
-  and comes back when zen mode is turned off the same way. Zen mode is kept
-  across reloads.
+- **Zen mode:** the sidebar header's corners button or **Ctrl+Alt+Z** (**⌘⌥Z**
+  on a Mac, even while a terminal has focus) steps through off, **container**
+  and **repo**; a tile's menu picks one directly. Either scope shows the focused
+  tile alone, filling the tiling area with no tab header or frame. The sidebar
+  keeps **Tasks** and, under it, the focused tile's container box: with its
+  other in-use repo cards (container), or with the focused tile's repo card
+  alone (repo). The Containers section, the **In use** heading and pinned files
+  are hidden. The box is as tall as what it holds, up to the bottom of the
+  sidebar; past that, its cards' open sections (files, pull request, past
+  sessions) shrink alike, each scrolling on its own. Clicking a pane in the card switches the tile shown, and the sidebar
+  follows. The layout under it is kept, and comes back when zen mode is turned
+  off. Zen mode and its scope are kept across reloads.
 - **Input:** keys go through as typed. A multi-line paste is sent as one
   bracketed paste, so a shell or agent prompt does not submit each line. Mouse
   clicks and drags go to the app (Herdr encodes them in the app's own mouse

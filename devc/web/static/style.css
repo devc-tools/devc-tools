@@ -270,11 +270,11 @@ body.resizing-sidebar {
 }
 
 /* In zen mode with the sidebar hidden, the corner toggle sits over the terminal: shown on hover. */
-.app[data-zen='on'][data-sidebar='hidden'] > .sidebar-corner {
+.app:not([data-zen='off'])[data-sidebar='hidden'] > .sidebar-corner {
   opacity: 0;
 }
 
-.app[data-zen='on'][data-sidebar='hidden'] > .sidebar-corner:is(:hover, :focus-visible) {
+.app:not([data-zen='off'])[data-sidebar='hidden'] > .sidebar-corner:is(:hover, :focus-visible) {
   opacity: 1;
 }
 
@@ -465,6 +465,11 @@ body.resizing-zones {
   display: none;
 }
 
+/* A button after a toggle that is on, kept as a blank: the toggle stays where hovering shows it. */
+.row-toggles > .slot {
+  visibility: hidden;
+}
+
 .repo-prefix {
   font-weight: 400;
   color: #7d8fa8;
@@ -526,53 +531,60 @@ body.resizing-zones {
 }
 
 /*
- * Zen mode's one card fills In use, which never scrolls: its container's box is as far from the
- * zone's top and foot as from its sides, the card fills the box, and its open sections share
- * what its rows leave, each scrolling on its own.
+ * In use holding one container's box (always so in zen mode): the box as tall as what it holds,
+ * and no taller than the zone. Past that, its cards shrink, and their open sections with them (no
+ * cap of their own here), each section scrolling on its own.
  */
-.app[data-zen='on'] .zone-in-use {
+.zone-in-use.one-run {
   display: flex;
   flex-direction: column;
-  overflow: hidden;
 }
 
-.app[data-zen='on'] .zone-in-use > * {
+.zone-in-use.one-run > * {
   flex: none;
 }
 
-/* No In use heading: the card is all there is. */
-.app[data-zen='on'] .zone-in-use > .row.section:first-child {
-  display: none;
-}
-
-.app[data-zen='on'] .zone-in-use > .in-use-run {
+.zone-in-use.one-run > .in-use-run {
   display: flex;
-  flex: 1 1 0;
+  flex: 0 1 auto;
   flex-direction: column;
   min-height: 0;
-  margin: 14px 4px 4px;
 }
 
-.app[data-zen='on'] .in-use-run > * {
+.zone-in-use.one-run .in-use-run > * {
   flex: none;
 }
 
-.app[data-zen='on'] .in-use-run > .repo-card {
+.zone-in-use.one-run .in-use-run > .repo-card {
   display: flex;
-  flex: 1 1 0;
+  flex: 0 1 auto;
   flex-direction: column;
   min-height: 0;
   overflow-y: auto;
 }
 
-.app[data-zen='on'] .repo-card > * {
+.zone-in-use.one-run .repo-card > * {
   flex: none;
 }
 
-.app[data-zen='on'] .repo-card > .card-section {
-  flex: 1 1 0;
+.zone-in-use.one-run .repo-card > .card-section {
+  flex: 0 1 auto;
   min-height: 0;
   max-height: none;
+}
+
+/* Zen mode's In use never scrolls, and has no heading: the box is all there is, as far from the
+   zone's top as from its sides. */
+.app:not([data-zen='off']) .zone-in-use {
+  overflow: hidden;
+}
+
+.app:not([data-zen='off']) .zone-in-use > .row.section:first-child {
+  display: none;
+}
+
+.app:not([data-zen='off']) .zone-in-use > .in-use-run {
+  margin: 14px 4px 4px;
 }
 
 /* A worktree's card, indented under its repo's with a rail joining it to the cards above. */

@@ -12,6 +12,7 @@ import {
   isSidebarToggleShortcut,
   isZenShortcut,
   labelText,
+  nextZenScope,
   paneLabel,
   paneTitle,
   repoAt,
@@ -27,6 +28,7 @@ import {
   statusShort,
   topStatus,
   windowTitle,
+  zenScope,
 } from '../web/static/lib/sidebar.js';
 
 const container = (name: string, localFolder: string) => ({
@@ -490,6 +492,21 @@ Deno.test('isZenShortcut is Ctrl+Alt+Z, Cmd+Alt+Z on a Mac', () => {
     isZenShortcut(key({ ctrlKey: true, altKey: true }, 'KeyN'), false),
     false,
   );
+});
+
+Deno.test('zenScope reads a saved scope; true was zen mode before scopes, so repo', () => {
+  assertEquals(zenScope('container'), 'container');
+  assertEquals(zenScope('repo'), 'repo');
+  assertEquals(zenScope(true), 'repo');
+  assertEquals(zenScope(false), 'off');
+  assertEquals(zenScope(undefined), 'off');
+  assertEquals(zenScope('on'), 'off');
+});
+
+Deno.test('nextZenScope goes off, container, repo, then off again', () => {
+  assertEquals(nextZenScope('off'), 'container');
+  assertEquals(nextZenScope('container'), 'repo');
+  assertEquals(nextZenScope('repo'), 'off');
 });
 
 Deno.test('statusCounts: each status with its count, most urgent first, agents only', () => {

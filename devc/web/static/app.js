@@ -43,6 +43,7 @@ import {
   isSidebarToggleShortcut,
   isZenShortcut,
   labelText,
+  nextZenScope,
   paneLabel,
   paneTitle,
   repoAt,
@@ -55,6 +56,7 @@ import {
   statusRank,
   statusShort,
   windowTitle,
+  zenScope,
   ZONE_MIN_HEIGHT,
 } from './lib/sidebar.js';
 import { AGENT_IDS, AGENT_MARKS, terminalIconKind } from './lib/agent_icons.js';
@@ -169,7 +171,7 @@ let projectStarts = true;
 let hostOs = '';
 /** The Layout section's last rendered tree, as `treeSignature` plus the tiles' refs. */
 let layoutSignature = '';
-/** The repo card zen mode showed at the last render (`zenCardKey`). */
+/** The focused tile's repo card at zen mode's last render (`zenCardKey`). */
 let shownZenCard = /** @type {string | null} */ (null);
 /**
  * Sidebar file rows (each a Golden Layout drag source) by tree key, kept across renders for the
@@ -922,7 +924,8 @@ const LABELS = {
   newAtEnd: 'New terminal at end',
   close: 'Close terminal…',
   keepOpen: 'Keep open',
-  zenOn: 'Zen mode',
+  zenContainer: 'Zen mode: container',
+  zenRepo: 'Zen mode: repo',
   zenOff: 'Leave zen mode',
   closeRequest: 'Close terminal',
   rename: 'Rename terminal',
@@ -1007,8 +1010,11 @@ function loadSidebarState() {
     sentOpen: saved?.sentOpen === true,
     width: Number.isFinite(saved?.width) ? saved.width : SIDEBAR_DEFAULT_WIDTH,
     hidden: saved?.hidden === true,
-    /** Zen mode: the focused tile alone, and the sidebar's Tasks and that tile's repo card. */
-    zen: saved?.zen === true,
+    /**
+     * Zen mode: the focused tile alone, and the sidebar's Tasks and that tile's container
+     * (`container`) or repo card (`repo`).
+     */
+    zen: zenScope(saved?.zen),
   };
 }
 
@@ -1175,31 +1181,54 @@ function toggleSidebarHidden() {
 
 $sidebarToggle.addEventListener('click', toggleSidebarHidden);
 
+/** What choosing each zen scope is called, in a menu or on the zen button. */
+const ZEN_LABELS = {
+  off: LABELS.zenOff,
+  container: LABELS.zenContainer,
+  repo: LABELS.zenRepo,
+};
+
 /**
  * Applies zen mode: the focused tile fills the tiling area alone, with no header (layout.js), and
- * the sidebar shows Tasks and the focused tile's repo card alone (renderTree).
+ * the sidebar shows Tasks and the focused tile's container or repo card alone (renderTree). The
+ * button is lit in either scope and names the one its click goes to.
  */
 function applyZen() {
-  $app.dataset.zen = sidebarState.zen ? 'on' : 'off';
-  const label = sidebarState.zen ? LABELS.zenOff : LABELS.zenOn;
-  $zenToggle.setAttribute('aria-pressed', String(sidebarState.zen));
+  const { zen } = sidebarState;
+  $app.dataset.zen = zen;
+  const label = ZEN_LABELS[nextZenScope(zen)];
+  $zenToggle.setAttribute('aria-pressed', String(zen !== 'off'));
   $zenToggle.setAttribute('aria-label', label);
   $zenToggle.title = `${label} (${IS_MAC ? 'Cmd' : 'Ctrl'}+Alt+Z)`;
-  tiling?.setZen(sidebarState.zen);
+  tiling?.setZen(zen !== 'off');
 }
 
-function toggleZen() {
-  sidebarState.zen = !sidebarState.zen;
+/** @param {import('./lib/sidebar.js').ZenScope} scope */
+function setZen(scope) {
+  sidebarState.zen = scope;
   saveSidebarState();
   applyZen();
   renderTree();
 }
 
-function zenItem() {
-  return [sidebarState.zen ? LABELS.zenOff : LABELS.zenOn, toggleZen];
+/** The zen button and shortcut: off, then container, then repo, then off. */
+function cycleZen() {
+  setZen(nextZenScope(sidebarState.zen));
 }
 
-$zenToggle.addEventListener('click', toggleZen);
+/** A tile's menu items for the zen scopes other than the current one. */
+function zenItems() {
+  /** @type {MenuItem[]} */
+  const items = [];
+  for (const scope of /** @type {const} */ (['container', 'repo', 'off'])) {
+    if (scope !== sidebarState.zen) {
+      items.push([ZEN_LABELS[scope], () => setZen(scope)]);
+    }
+  }
+  return items;
+}
+
+$zenToggle.addEventListener('click', cycleZen);
 window.addEventListener('resize', applySidebarLayout);
 
 // The page's URL, token included: devc-desktop's window has no address bar, and a container or
@@ -1242,7 +1271,7 @@ $resizer.addEventListener('dblclick', () => {
 
 /** Whether the Containers section is open: zen mode hides it, as if folded. */
 function containersShown() {
-  return sidebarState.containersOpen && !sidebarState.zen;
+  return sidebarState.containersOpen && sidebarState.zen === 'off';
 }
 
 /** The space the zones share: the sidebar's tree less its dividers. */
@@ -1411,10 +1440,10 @@ function renderTree() {
   // In use lists the tiles: it is re-rendered when the layout changes (layoutChanged).
   layoutSignature = layoutState().signature;
   const cards = repoCards();
-  const { zen } = sidebarState;
+  const zen = sidebarState.zen !== 'off';
   shownZenCard = zen ? zenCardKey() : null;
   const upper = zen
-    ? inUseRows(cards, shownZenCard)
+    ? inUseRows(cards, zenShows(cards, shownZenCard))
     : [...inUseRows(cards), ...pinnedFileRows()];
   const rows = [
     sectionRow(
@@ -1453,6 +1482,11 @@ function renderTree() {
     if (idle.length > 0) rows.push(...inactiveRows(idle));
   }
   $zoneInUse.replaceChildren(...upper);
+  // One container's box (always so in zen mode) grows to fit its open sections (style.css).
+  $zoneInUse.classList.toggle(
+    'one-run',
+    upper.filter((row) => row.classList.contains('in-use-run')).length === 1,
+  );
   $zoneTasks.replaceChildren(...taskRows());
   $zoneBrowse.replaceChildren(...(zen ? [] : rows));
   $zoneBrowse.hidden = zen;
@@ -1652,8 +1686,10 @@ function paneSpaces(snap) {
  * its own under its name. Cards come most urgent agent first (see `statusRank`), those with no
  * agent last, then in the layout order of their first tile, then those with none in their
  * container's card order; containers where their first card is. A status change renders the
- * sidebar again, so cards move as their agents' statuses change. With `only` (zen mode), the card
- * with that key alone, active or not (none for null).
+ * sidebar again, so cards move as their agents' statuses change. With `only` (zen mode), the cards
+ * it takes instead, active or not.
+ *
+ * @param {(card: any) => boolean} [only]
  */
 function inUseRows(cards, only) {
   const rows = [
@@ -1670,7 +1706,7 @@ function inUseRows(cards, only) {
   ];
   const rank = new Map();
   for (const card of cards.values()) {
-    const shown = only === undefined ? card.active : card.key === only;
+    const shown = only ? only(card) : card.active;
     if (shown) rank.set(card, statusRank(cardPanes(card)));
   }
   const active = [...rank.keys()].sort((a, b) =>
@@ -1707,7 +1743,20 @@ function inUseRows(cards, only) {
   return rows;
 }
 
-/** The key of the repo card zen mode shows: the focused tile's; null for none or an empty tile. */
+/**
+ * The cards zen mode shows, given the focused tile's (`zenCardKey`; null shows none): that card
+ * alone (`repo`), or with its container's other active cards (`container`).
+ */
+function zenShows(cards, key) {
+  const focused = key === null ? undefined : cards.get(key);
+  if (!focused) return () => false;
+  if (sidebarState.zen === 'repo') return (card) => card === focused;
+  return (card) =>
+    card === focused ||
+    (card.active && card.localFolder === focused.localFolder);
+}
+
+/** The focused tile's repo card's key, which zen mode shows; null for none or an empty tile. */
 function zenCardKey() {
   const tile = targetTile();
   if (!tile) return null;
@@ -1878,18 +1927,27 @@ function repoCard(card, worktrees = 0) {
     b.setAttribute('aria-pressed', String(on));
     return b;
   };
+  // The toggles that are on stay in sight, where the hover strip that covers them has them: from
+  // the first one on, with the toggles and new-terminal buttons after it kept as blank slots.
+  const firstOn = toggles.findIndex((t) => t[2]);
+  const newButtons = () => c ? newTerminalButtons(head, fr, '') : [];
+  const slot = (b) => {
+    b.classList.add('slot');
+    return b;
+  };
   head.append(
     rowTrail(
-      // The toggles that are on stay in sight; the hover strip covers them with all of them.
       h(
         'span',
         { class: 'row-toggles' },
-        ...toggles.filter((t) => t[2]).map(toggleButton),
+        ...(firstOn < 0 ? [] : [
+          ...toggles.slice(firstOn).map((t) =>
+            t[2] ? toggleButton(t) : slot(toggleButton(t))
+          ),
+          ...newButtons().map(slot),
+        ]),
       ),
-      hoverActions(
-        ...toggles.map(toggleButton),
-        ...(c ? newTerminalButtons(head, fr, '') : []),
-      ),
+      hoverActions(...toggles.map(toggleButton), ...newButtons()),
     ),
   );
   const now = Date.now();
@@ -2546,7 +2604,7 @@ function tileMenuItems(tile) {
 
 /** The menu of a tile's tab and body (not of its sidebar row): the tile's, then zen mode. */
 function tileOwnMenuItems(tile) {
-  return [...tileMenuItems(tile), null, zenItem()];
+  return [...tileMenuItems(tile), null, ...zenItems()];
 }
 
 /** Pins a preview tile: the next sidebar click opens a new preview instead of replacing it. */
@@ -8081,7 +8139,7 @@ document.addEventListener('keydown', (e) => {
   if (!isZenShortcut(e, IS_MAC)) return;
   e.preventDefault();
   e.stopPropagation();
-  if (!e.repeat) toggleZen();
+  if (!e.repeat) cycleZen();
 }, true);
 
 /** The tooltip over a terminal link. */
@@ -8245,8 +8303,10 @@ tiling = createTiling($layoutRoot, {
       focusSeq.set(tile.id, ++nextFocusSeq);
     }
     updateCurrent();
-    // Zen mode's card is the focused tile's.
-    if (sidebarState.zen && zenCardKey() !== shownZenCard) queueRender();
+    // Zen mode's container or card is the focused tile's.
+    if (sidebarState.zen !== 'off' && zenCardKey() !== shownZenCard) {
+      queueRender();
+    }
   },
   // A drop is a change too: the dropped tile is placed now, so it may open its pane.
   changed: () => {

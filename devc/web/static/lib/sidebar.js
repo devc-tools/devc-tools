@@ -439,3 +439,26 @@ export function isZenShortcut(e, isMac) {
   return e.code === 'KeyZ' && e.altKey && !e.shiftKey &&
     (isMac ? e.metaKey && !e.ctrlKey : e.ctrlKey && !e.metaKey);
 }
+
+/** @typedef {'off' | 'container' | 'repo'} ZenScope */
+
+/**
+ * Zen mode's scope from what was saved: `true` (zen mode before it had scopes) is `repo`, and
+ * anything unknown is `off`.
+ *
+ * @param {unknown} saved @returns {ZenScope}
+ */
+export function zenScope(saved) {
+  if (saved === true) return 'repo';
+  return saved === 'container' || saved === 'repo' ? saved : 'off';
+}
+
+/**
+ * The scope the zen button and shortcut go to next: off, then the focused tile's container, then
+ * its repo card alone, then off again.
+ *
+ * @param {ZenScope} scope @returns {ZenScope}
+ */
+export function nextZenScope(scope) {
+  return scope === 'off' ? 'container' : scope === 'container' ? 'repo' : 'off';
+}
