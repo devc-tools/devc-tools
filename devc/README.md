@@ -511,10 +511,15 @@ is published from any container: the host server finds devcontainers with
   row (its first child, closed until opened) shows the open PR of the repo's
   pinned branch: `#<n> <title>`, how many files you've marked Viewed, and the
   changed files as a tree with GitHub's own **Viewed** checkboxes. Clicking a
-  file opens its unified diff in a tile (as a Files click opens a file), with
+  file opens its diff in a tile (as a Files click opens a file), with
   the PR's review threads after their lines (by new-file line number; the rest
   under **File threads**), resolved ones folded under `Resolved (n)` (**Show
-  resolved** opens them all). What works follows the grants of the repo's own line in the
+  resolved** opens them all). Rows are syntax-highlighted as the file viewer
+  highlights the file, and a changed line's changed words are marked against
+  the line it replaces. **Unified | Split** picks one column or old and new
+  side by side; **Hide whitespace** shows lines that changed only whitespace as
+  unchanged (`git diff -w`, worked out from the patch in the page). All three
+  toggles are remembered per browser. What works follows the grants of the repo's own line in the
   host-only policy, read on every message: reading needs `gh-pr-read`, the
   checkboxes `gh-pr-viewed`, **Reply** `gh-pr-reply` (posted as you with the
   bridge's `🤖` prefix), and **Resolve** `gh-pr-resolve` (any thread) or

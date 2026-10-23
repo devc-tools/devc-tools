@@ -32,7 +32,9 @@ export {
   search,
   searchKeymap,
 } from 'npm:@codemirror/search@6.7.2';
-export { tags } from 'npm:@lezer/highlight@1.2.5';
+export { highlightTree, tags } from 'npm:@lezer/highlight@1.2.5';
+// The diff tile highlights rows outside an EditorView, so it mounts the HighlightStyle itself.
+export { StyleModule } from 'npm:style-mod@4.1.4';
 export { javascript } from 'npm:@codemirror/lang-javascript@6.2.5';
 export { json } from 'npm:@codemirror/lang-json@6.0.2';
 export { markdown } from 'npm:@codemirror/lang-markdown@6.5.2';

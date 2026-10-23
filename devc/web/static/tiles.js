@@ -8,7 +8,7 @@
 
 import { createRenderer } from './renderer.js';
 import { createTiling } from './layout.js';
-import { createViewer } from './viewer.js';
+import { createViewer, highlightLines } from './viewer.js';
 import { parseSavedLayout, sameFile } from './lib/layout_state.js';
 import {
   DRAG_MIME,
@@ -34,7 +34,14 @@ import { fileView, mediaKind } from './lib/media.js';
 import { childPath } from './lib/files.js';
 import { sessionAge } from './lib/sessions.js';
 import { statusLetter } from './lib/pr_tree.js';
-import { parsePatch, placeThreads } from './lib/diff.js';
+import {
+  changedRanges,
+  ignoreWhitespace,
+  markRanges,
+  parsePatch,
+  placeThreads,
+  splitRows,
+} from './lib/diff.js';
 import {
   badge,
   chevron,
@@ -682,16 +689,30 @@ function unmountFileTile(tile) {
 // Diff tiles: a pull request file's patch and its review threads (`pr_diff`, `pr_threads`)
 // ---------------------------------------------------------------------------------------------
 
-/** Where **Show resolved** is remembered, per browser. */
+/** Where **Show resolved**, **Split** and **Hide whitespace** are remembered, per browser. */
 const SHOW_RESOLVED_KEY = 'devc-web-pr-show-resolved-v1';
-let showResolved = loadShowResolved();
+const DIFF_SPLIT_KEY = 'devc-web-pr-diff-split-v1';
+const HIDE_WHITESPACE_KEY = 'devc-web-pr-hide-whitespace-v1';
+let showResolved = loadFlag(SHOW_RESOLVED_KEY);
+/** Side by side (old left, new right) rather than unified. */
+let diffSplit = loadFlag(DIFF_SPLIT_KEY);
+/** Rows that change only whitespace shown as context (`git diff -w`). */
+let hideWhitespace = loadFlag(HIDE_WHITESPACE_KEY);
 
-function loadShowResolved() {
+/** @param {string} key */
+function loadFlag(key) {
   try {
-    return localStorage.getItem(SHOW_RESOLVED_KEY) === '1';
+    return localStorage.getItem(key) === '1';
   } catch {
     return false;
   }
+}
+
+/** @param {string} key @param {boolean} on */
+function saveFlag(key, on) {
+  try {
+    localStorage.setItem(key, on ? '1' : '0');
+  } catch { /* storage unavailable: it just won't survive a reload */ }
 }
 
 /**
@@ -715,6 +736,8 @@ function loadShowResolved() {
  * @property {string} error
  * @property {any} data
  * @property {import('./lib/diff.js').ParsedPatch | null} parsed
+ * @property {ShownPatch | null} shown  `parsed` as drawn, made again when it or
+ *   **Hide whitespace** changes
  * @property {any[] | null} threads
  * @property {string | null} threadsError
  * @property {boolean} threadsLoading
@@ -723,6 +746,18 @@ function loadShowResolved() {
  * @property {Set<string>} openFolds   rows (`placeThreads` keys, `file`) whose Resolved fold is open
  * @property {Map<string, Composer>} composers  by thread id
  * @property {Set<string>} resolving   threads with a `pr_resolve` in flight
+ */
+
+/**
+ * A diff tile's patch as drawn: `parsed` after **Hide whitespace** (when on), and each row's
+ * highlighted text (syntax colours, and the changed words of a deleted or added row that
+ * faces one on the other side). `\ No newline` notes have none.
+ *
+ * @typedef {object} ShownPatch
+ * @property {import('./lib/diff.js').ParsedPatch} source  the `parsed` it was made from
+ * @property {boolean} whitespace  whether it hides whitespace
+ * @property {import('./lib/diff.js').ParsedPatch} parsed
+ * @property {Map<import('./lib/diff.js').DiffRow, import('./lib/diff.js').Span[]>} spans
  */
 
 /** @type {Map<string, DiffView>} diff tiles' views, by Tile.id */
@@ -800,6 +835,7 @@ function mountDiffTile(tile) {
     error: '',
     data: null,
     parsed: null,
+    shown: null,
     threads: null,
     threadsError: null,
     threadsLoading: false,
@@ -913,10 +949,86 @@ function refreshDiff(view) {
 
 function toggleShowResolved() {
   showResolved = !showResolved;
-  try {
-    localStorage.setItem(SHOW_RESOLVED_KEY, showResolved ? '1' : '0');
-  } catch { /* storage unavailable: it just won't survive a reload */ }
+  saveFlag(SHOW_RESOLVED_KEY, showResolved);
   for (const view of diffViews.values()) renderDiff(view);
+}
+
+/** @param {boolean} on */
+function setDiffSplit(on) {
+  if (diffSplit === on) return;
+  diffSplit = on;
+  saveFlag(DIFF_SPLIT_KEY, on);
+  for (const view of diffViews.values()) renderDiff(view);
+}
+
+function toggleHideWhitespace() {
+  hideWhitespace = !hideWhitespace;
+  saveFlag(HIDE_WHITESPACE_KEY, hideWhitespace);
+  for (const view of diffViews.values()) {
+    // Row keys change with the rows: folds opened under the old ones would land elsewhere.
+    view.openFolds.clear();
+    renderDiff(view);
+  }
+}
+
+/**
+ * The patch as drawn (see {@link ShownPatch}), made on first use after a read or a
+ * **Hide whitespace** change. Each hunk's old side (context and deleted rows) and new side
+ * (context and added rows) are highlighted as one text each, under the old and new path.
+ *
+ * @param {DiffView} view
+ * @returns {ShownPatch | null}
+ */
+function shownPatch(view) {
+  const source = view.parsed;
+  if (!source) return null;
+  if (
+    view.shown?.source === source && view.shown.whitespace === hideWhitespace
+  ) {
+    return view.shown;
+  }
+  const parsed = hideWhitespace ? ignoreWhitespace(source) : source;
+  const file = view.data?.file;
+  const newName = file?.path ?? view.tile.diff?.path ?? '';
+  const oldName = file?.previousPath ?? newName;
+  /** @type {ShownPatch['spans']} */
+  const spans = new Map();
+  for (const hunk of parsed.hunks) {
+    const olds = hunk.rows.filter((r) =>
+      r.kind === 'context' || r.kind === 'del'
+    );
+    const news = hunk.rows.filter((r) =>
+      r.kind === 'context' || r.kind === 'add'
+    );
+    // A context row's text is the new side's (after Hide whitespace the sides can differ).
+    highlightLines(oldName, olds.map((r) => r.text)).forEach((line, i) => {
+      if (olds[i].kind === 'del') spans.set(olds[i], line);
+    });
+    highlightLines(newName, news.map((r) => r.text)).forEach((line, i) => {
+      spans.set(news[i], line);
+    });
+    for (const [i, ranges] of changedRanges(hunk)) {
+      const row = hunk.rows[i];
+      const line = spans.get(row);
+      if (line) spans.set(row, markRanges(line, ranges));
+    }
+  }
+  view.shown = { source, whitespace: hideWhitespace, parsed, spans };
+  return view.shown;
+}
+
+/** A row's text as nodes: its highlighted runs, or plain text for a note. */
+function rowText(shown, row) {
+  const spans = shown.spans.get(row);
+  if (!spans) return markedText(row.text);
+  return spans.flatMap((s) => {
+    const cls = [s.cls, s.changed ? 'diff-word' : ''].filter((c) => c).join(
+      ' ',
+    );
+    return cls
+      ? [h('span', { class: cls }, ...markedText(s.text))]
+      : markedText(s.text);
+  });
 }
 
 /** Draws a diff tile from its view: the header, then File threads and the hunks. */
@@ -977,19 +1089,8 @@ function diffHeader(view) {
       h('span', { class: 'pr-number', title: pr.url }, `#${pr.number}`),
     );
   }
-  const resolvedToggle = h('input', {
-    type: 'checkbox',
-    onchange: toggleShowResolved,
-  });
-  /** @type {HTMLInputElement} */ (resolvedToggle).checked = showResolved;
   line.append(
     h('span', { class: 'diff-head-fill' }),
-    h(
-      'label',
-      { class: 'diff-show-resolved' },
-      resolvedToggle,
-      'Show resolved',
-    ),
     iconButton('refresh', 'Refresh', () => refreshDiff(view)),
     data?.fileUrl
       ? iconButton(
@@ -999,20 +1100,48 @@ function diffHeader(view) {
       )
       : '',
   );
-  const head = h('div', { class: 'diff-header' }, line);
-  if (data) {
-    head.append(
-      h('div', { class: 'diff-via' }, `threads via ${data.container}'s bridge`),
-    );
-  }
-  return head;
+  /** @param {string} label @param {boolean} on @param {() => void} onchange */
+  const checkbox = (label, on, onchange) => {
+    const input = h('input', { type: 'checkbox', onchange });
+    /** @type {HTMLInputElement} */ (input).checked = on;
+    return h('label', { class: 'diff-toggle' }, input, label);
+  };
+  /** @param {string} label @param {boolean} split */
+  const layoutButton = (label, split) =>
+    h('button', {
+      type: 'button',
+      'aria-pressed': String(diffSplit === split),
+      onclick: () => setDiffSplit(split),
+    }, label);
+  const tools = h(
+    'div',
+    { class: 'diff-tools' },
+    h(
+      'span',
+      { class: 'diff-layout', role: 'group', 'aria-label': 'Diff layout' },
+      layoutButton('Unified', false),
+      layoutButton('Split', true),
+    ),
+    checkbox('Hide whitespace', hideWhitespace, toggleHideWhitespace),
+    checkbox('Show resolved', showResolved, toggleShowResolved),
+    h('span', { class: 'diff-head-fill' }),
+    data
+      ? h(
+        'span',
+        { class: 'diff-via' },
+        `threads via ${data.container}'s bridge`,
+      )
+      : '',
+  );
+  return h('div', { class: 'diff-header' }, line, tools);
 }
 
 /** File threads, then each hunk with its threads, then any text the parse stopped at. */
 function diffContent(view) {
   const data = view.data;
   const threads = view.threads ?? [];
-  const placed = placeThreads(view.parsed, threads);
+  const shown = shownPatch(view);
+  const placed = placeThreads(shown?.parsed ?? null, threads);
   const listed = new Set(threads.map((t) => t.id));
   const out = [];
   // Replies whose thread the last listing no longer has: kept for their text.
@@ -1042,7 +1171,7 @@ function diffContent(view) {
     }
   }
   if (fileBlock.childNodes.length) out.push(fileBlock);
-  if (!view.parsed) {
+  if (!shown) {
     out.push(
       h(
         'div',
@@ -1058,9 +1187,63 @@ function diffContent(view) {
     );
     return out;
   }
-  const table = h('div', { class: 'diff-table' });
-  view.parsed.hunks.forEach((hunk, hi) => {
-    table.append(h('div', { class: 'diff-hunk' }, ...markedText(hunk.header)));
+  const table = h('div', {
+    class: 'diff-table',
+    'data-layout': diffSplit ? 'split' : 'unified',
+  });
+  /** A split row's line number, coloured as its side. */
+  const num = (n, kind = 'empty') =>
+    h(
+      'span',
+      { class: 'diff-num', 'data-kind': kind },
+      n == null ? '' : String(n),
+    );
+  /** @param {string} key */
+  const threadsAt = (key) => {
+    const here = placed.rows.get(key);
+    if (here) {
+      table.append(
+        h('div', { class: 'diff-threads' }, ...threadGroup(view, key, here)),
+      );
+    }
+  };
+  shown.parsed.hunks.forEach((hunk, hi) => {
+    table.append(
+      h(
+        'div',
+        { class: 'diff-hunk' },
+        ...markedText(hunk.header),
+        hunk.whitespaceOnly
+          ? h('span', { class: 'diff-hunk-note' }, ' · whitespace only')
+          : '',
+      ),
+    );
+    if (diffSplit) {
+      for (const sr of splitRows(hunk)) {
+        /** @param {import('./lib/diff.js').DiffRow | null} row */
+        const side = (row) =>
+          h(
+            'span',
+            { class: 'diff-text', 'data-kind': row?.kind ?? 'empty' },
+            ...(row ? rowText(shown, row) : []),
+          );
+        table.append(
+          h(
+            'div',
+            { class: 'diff-row' },
+            num(sr.left?.old, sr.left?.kind),
+            side(sr.left),
+            num(sr.right?.new, sr.right?.kind),
+            side(sr.right),
+          ),
+        );
+        if (sr.rightIndex !== null) threadsAt(`${hi}:${sr.rightIndex}`);
+        if (sr.leftIndex !== null && sr.leftIndex !== sr.rightIndex) {
+          threadsAt(`${hi}:${sr.leftIndex}`);
+        }
+      }
+      return;
+    }
     hunk.rows.forEach((row, ri) => {
       table.append(
         h(
@@ -1076,24 +1259,17 @@ function diffContent(view) {
             { class: 'diff-num' },
             row.new === null ? '' : String(row.new),
           ),
-          h('span', { class: 'diff-text' }, ...markedText(row.text)),
+          h('span', { class: 'diff-text' }, ...rowText(shown, row)),
         ),
       );
-      const here = placed.rows.get(`${hi}:${ri}`);
-      if (here) {
-        table.append(
-          h(
-            'div',
-            { class: 'diff-threads' },
-            ...threadGroup(view, `${hi}:${ri}`, here),
-          ),
-        );
-      }
+      threadsAt(`${hi}:${ri}`);
     });
   });
   out.push(table);
-  if (view.parsed.rest !== null) {
-    out.push(h('pre', { class: 'diff-rest' }, ...markedText(view.parsed.rest)));
+  if (shown.parsed.rest !== null) {
+    out.push(
+      h('pre', { class: 'diff-rest' }, ...markedText(shown.parsed.rest)),
+    );
   }
   return out;
 }

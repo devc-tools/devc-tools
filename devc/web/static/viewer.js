@@ -2,7 +2,8 @@
 // syntax highlighting by file name, code folding, bracket matching and search, editable when
 // app.js says the file can be saved (undo, Tab indents; app.js saves on Ctrl/Cmd-S). The only
 // module that imports CodeMirror (as `renderer.js` is for xterm.js and `layout.js` for Golden
-// Layout), so app.js talks to it through `createViewer` alone. See
+// Layout), so app.js talks to it through `createViewer` alone, and diff tiles colour their rows
+// through `highlightLines`, with the same parsers and colours. See
 // `.plans/devc-web-file-viewer.md` and `.plans/devc-web-editable-viewer.md`.
 
 import {
@@ -22,6 +23,7 @@ import {
   highlightSelectionMatches,
   highlightSpecialChars,
   HighlightStyle,
+  highlightTree,
   history,
   historyKeymap,
   html,
@@ -39,6 +41,7 @@ import {
   shell,
   sql,
   StreamLanguage,
+  StyleModule,
   syntaxHighlighting,
   tags,
   toml,
@@ -229,6 +232,78 @@ const highlight = HighlightStyle.define([
   },
   { tag: tags.monospace, color: 'var(--done)' },
 ]);
+
+/** Past this many characters a diff side is shown unhighlighted, so a huge patch stays quick. */
+const HIGHLIGHT_LIMIT = 500_000;
+
+/** Each language's parser, made on first use. @type {Map<string, any>} */
+const parsers = new Map();
+let highlightMounted = false;
+
+/**
+ * `lines` (consecutive lines of a file named `name`, as a diff tile has them) cut into runs, each
+ * with the class names `highlight` gives its syntax (`''` for none). The lines are parsed as one
+ * text, so a construct spanning lines (a block comment, a template string) is coloured across
+ * them; what comes before the first line is unknown, so one opened above it is not. A file with
+ * no known language, or more than {@link HIGHLIGHT_LIMIT} characters, gives one plain run per
+ * line.
+ *
+ * @param {string} name
+ * @param {string[]} lines
+ * @returns {import('./lib/diff.js').Span[][]}
+ */
+export function highlightLines(name, lines) {
+  const lang = languageFor(name);
+  const text = lines.join('\n');
+  if (!lang || text.length > HIGHLIGHT_LIMIT) {
+    return lines.map((line) => [{ text: line, cls: '' }]);
+  }
+  if (!highlightMounted && highlight.module) {
+    // No EditorView mounts it for a diff tile.
+    StyleModule.mount(document, highlight.module);
+    highlightMounted = true;
+  }
+  let parser = parsers.get(lang);
+  if (!parser) {
+    const support = LANGUAGES[lang]();
+    // A LanguageSupport carries its Language; StreamLanguage.define returns the Language.
+    parser = (support.language ?? support).parser;
+    parsers.set(lang, parser);
+  }
+  /** @type {[number, number, string][]} */
+  const styled = [];
+  highlightTree(
+    parser.parse(text),
+    highlight,
+    (from, to, cls) => styled.push([from, to, cls]),
+  );
+  /** @type {import('./lib/diff.js').Span[][]} */
+  const out = [];
+  let k = 0;
+  let start = 0;
+  for (const line of lines) {
+    const end = start + line.length;
+    /** @type {import('./lib/diff.js').Span[]} */
+    const spans = [];
+    let at = start;
+    while (k < styled.length && styled[k][1] <= start) k++;
+    // A run may span lines: it is clipped to each, and stays for the next.
+    for (let j = k; j < styled.length && styled[j][0] < end; j++) {
+      const from = Math.max(styled[j][0], start);
+      const to = Math.min(styled[j][1], end);
+      if (from > at) spans.push({ text: text.slice(at, from), cls: '' });
+      if (to > from) {
+        spans.push({ text: text.slice(from, to), cls: styled[j][2] });
+      }
+      at = Math.max(at, to);
+    }
+    if (end > at) spans.push({ text: text.slice(at, end), cls: '' });
+    if (spans.length === 0) spans.push({ text: '', cls: '' });
+    out.push(spans);
+    start = end + 1;
+  }
+  return out;
+}
 
 /**
  * Mounts a view of `text` into `el`, highlighted for `name` (a file name: its extension, or the

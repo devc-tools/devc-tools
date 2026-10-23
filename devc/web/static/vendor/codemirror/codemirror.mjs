@@ -13032,7 +13032,7 @@ function highlightActiveLineGutter() {
   return activeLineGutterHighlighter;
 }
 
-// npm:@lezer/common/1.5.3/dist/index.js
+// npm:@lezer/common/1.5.4/dist/index.js
 var DefaultBufferLength = 1024;
 var nextPropID = 0;
 var Range2 = class {
@@ -14250,13 +14250,14 @@ function buildTree(data2) {
       cursor.next();
       let localChildren = [], localPositions = [];
       let localInRepeat = id2 >= minRepeatType ? id2 : -1;
-      let lastGroup = 0, lastEnd = end;
+      let lastGroup = 0, lastEnd = end, groupLookAhead = lookAheadAtStart;
       while (cursor.pos > endPos) {
         if (localInRepeat >= 0 && cursor.id == localInRepeat && cursor.size >= 0) {
           if (cursor.end <= lastEnd - maxBufferLength) {
-            makeRepeatLeaf(localChildren, localPositions, start, lastGroup, cursor.end, lastEnd, localInRepeat, lookAheadAtStart, contextAtStart);
+            makeRepeatLeaf(localChildren, localPositions, start, lastGroup, cursor.end, lastEnd, localInRepeat, groupLookAhead, contextAtStart);
             lastGroup = localChildren.length;
             lastEnd = cursor.end;
+            groupLookAhead = lookAhead;
           }
           cursor.next();
         } else if (depth > 2500) {
@@ -14265,7 +14266,7 @@ function buildTree(data2) {
           takeNode(start, endPos, localChildren, localPositions, localInRepeat, depth + 1);
         }
       }
-      if (localInRepeat >= 0 && lastGroup > 0 && lastGroup < localChildren.length) makeRepeatLeaf(localChildren, localPositions, start, lastGroup, start, lastEnd, localInRepeat, lookAheadAtStart, contextAtStart);
+      if (localInRepeat >= 0 && lastGroup > 0 && lastGroup < localChildren.length) makeRepeatLeaf(localChildren, localPositions, start, lastGroup, start, lastEnd, localInRepeat, groupLookAhead, contextAtStart);
       localChildren.reverse();
       localPositions.reverse();
       if (localInRepeat > -1 && lastGroup > 0) {
@@ -14312,7 +14313,7 @@ function buildTree(data2) {
       let lookAhead2 = 0, lastI = children2.length - 1, last2, lookAheadProp;
       if (lastI >= 0 && (last2 = children2[lastI]) instanceof Tree) {
         if (!lastI && last2.type == type && last2.length == length2) return last2;
-        if (lookAheadProp = last2.prop(NodeProp.lookAhead)) lookAhead2 = positions2[lastI] + last2.length + lookAheadProp;
+        if (lookAheadProp = last2.prop(NodeProp.lookAhead)) lookAhead2 = positions2[lastI] + last2.length + lookAheadProp - length2;
       }
       return makeTree(type, children2, positions2, length2, lookAhead2, contextHash2);
     };
@@ -22753,7 +22754,7 @@ var parser = LRParser.deserialize({
   tokenPrec: 15205
 });
 
-// npm:@codemirror/autocomplete/6.20.3/dist/index.js
+// npm:@codemirror/autocomplete/6.20.4/dist/index.js
 var CompletionContext = class {
   /**
     Create a new completion context. (Mostly useful for testing
@@ -23762,7 +23763,7 @@ function json() {
   return new LanguageSupport(jsonLanguage);
 }
 
-// npm:@lezer/markdown/1.8.0/dist/index.js
+// npm:@lezer/markdown/1.8.1/dist/index.js
 var CompositeBlock = class _CompositeBlock {
   static create(type, value, from2, parentHash, end) {
     let hash3 = parentHash + (parentHash << 8) + type + (value << 4) | 0;
@@ -23776,6 +23777,7 @@ var CompositeBlock = class _CompositeBlock {
     this.end = end;
     this.children = children;
     this.positions = positions;
+    this.blankFirstLine = false;
     this.hashProp = [
       [
         NodeProp.contextHash,
@@ -23964,7 +23966,7 @@ var DefaultSkipMarkup = {
     return true;
   },
   [Type.ListItem](bl, _cx, line) {
-    if (line.indent < line.baseIndent + bl.value && line.next > -1) return false;
+    if (line.next < 0 ? bl.blankFirstLine && bl.children.length == 1 : line.indent < line.baseIndent + bl.value) return false;
     line.moveBaseColumn(line.baseIndent + bl.value);
     return true;
   },
@@ -24031,7 +24033,7 @@ function isAtxHeading(line) {
   if (line.next != 35) return -1;
   let pos = line.pos + 1;
   while (pos < line.text.length && line.text.charCodeAt(pos) == 35) pos++;
-  if (pos < line.text.length && line.text.charCodeAt(pos) != 32) return -1;
+  if (pos < line.text.length && !space2(line.text.charCodeAt(pos))) return -1;
   let size = pos - line.pos;
   return size > 6 ? -1 : size;
 }
@@ -24048,8 +24050,8 @@ var CommentEnd = /-->/;
 var ProcessingEnd = /\?>/;
 var HTMLBlockStyle = [
   [
-    /^<(?:script|pre|style)(?:\s|>|$)/i,
-    /<\/(?:script|pre|style)>/i
+    /^<(?:script|pre|style|textarea)(?:\s|>|$)/i,
+    /<\/(?:script|pre|style|textarea)>/i
   ],
   [
     /^\s*<!--/,
@@ -24188,6 +24190,7 @@ var DefaultBlockParsers = {
     cx.startContext(Type.ListItem, line.basePos, newBase - line.baseIndent);
     cx.addNode(Type.ListMark, cx.lineStart + line.pos, cx.lineStart + line.pos + size);
     line.moveBaseColumn(newBase);
+    cx.block.blankFirstLine = newBase >= line.text.length;
     return null;
   },
   OrderedList(cx, line) {
@@ -24198,6 +24201,7 @@ var DefaultBlockParsers = {
     cx.startContext(Type.ListItem, line.basePos, newBase - line.baseIndent);
     cx.addNode(Type.ListMark, cx.lineStart + line.pos, cx.lineStart + line.pos + size);
     line.moveBaseColumn(newBase);
+    cx.block.blankFirstLine = newBase == line.text.length;
     return null;
   },
   ATXHeading(cx, line) {
@@ -24976,11 +24980,11 @@ var DefaultInline = {
         elt(Type.LinkMark, start + url[0].length, start + 1 + url[0].length)
       ]));
     }
-    let comment2 = /^!--[^>](?:-[^-]|[^-])*?-->/i.exec(after);
+    let comment2 = /^!--(?:-?>|[^]*?-->)/.exec(after);
     if (comment2) return cx.append(elt(Type.Comment, start, start + 1 + comment2[0].length));
     let procInst = /^\?[^]*?\?>/.exec(after);
     if (procInst) return cx.append(elt(Type.ProcessingInstruction, start, start + 1 + procInst[0].length));
-    let m = /^(?:![A-Z][^]*?>|!\[CDATA\[[^]*?\]\]>|\/\s*[a-zA-Z][\w-]*\s*>|\s*[a-zA-Z][\w-]*(\s+[a-zA-Z:_][\w-.:]*(?:\s*=\s*(?:[^\s"'=<>`]+|'[^']*'|"[^"]*"))?)*\s*(\/\s*)?>)/.exec(after);
+    let m = /^(?:![A-Z][^]*?>|!\[CDATA\[[^]*?\]\]>|\/[a-zA-Z][\w-]*\s*>|[a-zA-Z][\w-]*(\s+[a-zA-Z:_][\w-.:]*(?:\s*=\s*(?:[^\s"'=<>`]+|'[^']*'|"[^"]*"))?)*\s*\/?>)/.exec(after);
     if (!m) return -1;
     return cx.append(elt(Type.HTMLTag, start, start + 1 + m[0].length));
   },
@@ -25078,10 +25082,11 @@ function finishLink(cx, content2, type, start, startPos) {
 function parseURL(text, start, offset) {
   let next = text.charCodeAt(start);
   if (next == 60) {
-    for (let pos = start + 1; pos < text.length; pos++) {
+    for (let pos = start + 1, esc = false; pos < text.length; pos++) {
       let ch = text.charCodeAt(pos);
-      if (ch == 62) return elt(Type.URL, start + offset, pos + 1 + offset);
-      if (ch == 60 || ch == 10) return false;
+      if (ch == 62 && !esc) return elt(Type.URL, start + offset, pos + 1 + offset);
+      if (ch == 60 && !esc || ch == 10) return false;
+      esc = ch == 92;
     }
     return null;
   } else {
@@ -25338,7 +25343,7 @@ var FragmentCursor3 = class {
     }
     let c = this.cursor;
     if (!c) {
-      c = this.cursor = this.fragment.tree.cursor();
+      c = this.cursor = this.fragment.tree.cursor(IterMode.IncludeAnonymous | IterMode.IgnoreMounts);
       c.firstChild();
     }
     let rPos = pos + this.fragment.offset;
@@ -25350,14 +25355,16 @@ var FragmentCursor3 = class {
   }
   matches(hash3) {
     let tree = this.cursor.tree;
+    while (tree && tree.type.isAnonymous && tree.children[0] instanceof Tree) tree = tree.children[0];
     return tree && tree.prop(NodeProp.contextHash) == hash3;
   }
   takeNodes(cx) {
     let cur = this.cursor, off = this.fragment.offset, fragEnd = this.fragmentEnd - (this.fragment.openEnd ? 1 : 0);
     let start = cx.absoluteLineStart, end = start, blockI = cx.block.children.length;
+    let maxAnonSize = cx.lineStart - cx.block.from >> 2;
     let prevEnd = end, prevI = blockI;
-    for (; ; ) {
-      if (cur.to - off > fragEnd || cur.to - off > cx.to) {
+    scan: for (; ; ) {
+      if (cur.to - off > Math.min(fragEnd, cx.to) || cur.type.isAnonymous && cur.tree && (cur.to - cur.from > maxAnonSize || !canStopAfterLastChild(cur.tree))) {
         if (cur.type.isAnonymous && cur.firstChild()) continue;
         break;
       }
@@ -25369,8 +25376,8 @@ var FragmentCursor3 = class {
         cx.reusePlaceholders.set(dummy, cur.tree);
         cx.addNode(dummy, pos);
       }
-      if (cur.type.is("Block")) {
-        if (NotLast.indexOf(cur.type.id) < 0) {
+      if (cur.type.isAnonymous || cur.type.is("Block")) {
+        if (cur.type.isAnonymous || NotLast.indexOf(cur.type.id) < 0) {
           end = cur.to - off;
           blockI = cx.block.children.length;
         } else {
@@ -25380,7 +25387,10 @@ var FragmentCursor3 = class {
         prevEnd = cur.to - off;
         prevI = cx.block.children.length;
       }
-      if (!cur.nextSibling()) break;
+      for (; ; ) {
+        if (cur.nextSibling()) continue scan;
+        if (!cur.parent() || !cur.type.isAnonymous) break scan;
+      }
     }
     while (cx.block.children.length > blockI) {
       cx.block.children.pop();
@@ -25389,6 +25399,14 @@ var FragmentCursor3 = class {
     return end - start;
   }
 };
+function canStopAfterLastChild(tree) {
+  while (tree.type.isAnonymous) {
+    let last2 = tree.children[tree.children.length - 1];
+    if (last2 instanceof Tree) tree = last2;
+    else return false;
+  }
+  return tree.type.is("Block") && NotLast.indexOf(tree.type.id) < 0;
+}
 function toRelative(abs, ranges) {
   let pos = abs;
   for (let i = 1; i < ranges.length; i++) {
@@ -33019,6 +33037,7 @@ export {
   EditorView,
   HighlightStyle,
   StreamLanguage,
+  StyleModule,
   bracketMatching,
   css,
   defaultKeymap,
@@ -33031,6 +33050,7 @@ export {
   highlightActiveLineGutter,
   highlightSelectionMatches,
   highlightSpecialChars,
+  highlightTree,
   history,
   historyKeymap,
   html,
