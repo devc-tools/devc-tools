@@ -740,15 +740,11 @@ body.resizing-zones {
   overflow-x: hidden;
 }
 
-.sidebar:is([data-scope='container'], [data-scope='repo'])
-  .zone-in-use
-  > .row.section:first-child {
+.sidebar:is([data-scope='container'], [data-scope='repo']) .zone-in-use > .row.section:first-child {
   display: none;
 }
 
-.sidebar:is([data-scope='container'], [data-scope='repo'])
-  .zone-in-use
-  > .in-use-run {
+.sidebar:is([data-scope='container'], [data-scope='repo']) .zone-in-use > .in-use-run {
   margin: 14px 4px 4px;
 }
 
