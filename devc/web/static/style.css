@@ -2716,6 +2716,12 @@ button.primary.danger {
   background: #3a1a1d;
 }
 
+/* An added or removed file with **Tint rows** off: its rows on the plain background. */
+.diff-table[data-plain] .diff-row[data-kind='add'],
+.diff-table[data-plain] .diff-row[data-kind='del'] {
+  background: none;
+}
+
 .diff-row .diff-text[data-kind='empty'] {
   background: repeating-linear-gradient(
     -45deg,

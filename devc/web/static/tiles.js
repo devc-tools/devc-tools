@@ -764,15 +764,21 @@ function unmountFileTile(tile) {
 // Diff tiles: a pull request file's patch and its review threads (`pr_diff`, `pr_threads`)
 // ---------------------------------------------------------------------------------------------
 
-/** Where **Show resolved**, **Split** and **Hide whitespace** are remembered, per browser. */
+/**
+ * Where **Show resolved**, **Split**, **Hide whitespace** and **Tint rows** are remembered, per
+ * browser.
+ */
 const SHOW_RESOLVED_KEY = 'devc-web-pr-show-resolved-v1';
 const DIFF_SPLIT_KEY = 'devc-web-pr-diff-split-v1';
 const HIDE_WHITESPACE_KEY = 'devc-web-pr-hide-whitespace-v1';
+const PLAIN_ONE_SIDED_KEY = 'devc-web-pr-plain-one-sided-v1';
 let showResolved = loadFlag(SHOW_RESOLVED_KEY);
 /** Side by side (old left, new right) rather than unified. */
 let diffSplit = loadFlag(DIFF_SPLIT_KEY);
 /** Rows that change only whitespace shown as context (`git diff -w`). */
 let hideWhitespace = loadFlag(HIDE_WHITESPACE_KEY);
+/** An added or removed file's rows drawn without their green or red (**Tint rows** off). */
+let plainOneSided = loadFlag(PLAIN_ONE_SIDED_KEY);
 
 /** @param {string} key */
 function loadFlag(key) {
@@ -1266,6 +1272,12 @@ function setDiffSplit(on) {
   for (const view of diffViews.values()) renderDiff(view);
 }
 
+function togglePlainOneSided() {
+  plainOneSided = !plainOneSided;
+  saveFlag(PLAIN_ONE_SIDED_KEY, plainOneSided);
+  for (const view of diffViews.values()) renderDiff(view);
+}
+
 function toggleHideWhitespace() {
   hideWhitespace = !hideWhitespace;
   saveFlag(HIDE_WHITESPACE_KEY, hideWhitespace);
@@ -1334,6 +1346,18 @@ function rowText(shown, row) {
       ? [h('span', { class: cls }, ...markedText(s.text))]
       : markedText(s.text);
   });
+}
+
+/**
+ * The one side an added or removed file has: its rows and numbers, in either layout. A Since
+ * viewed comparison has both.
+ *
+ * @param {DiffView} view
+ * @returns {'old' | 'new' | null}
+ */
+function oneSided(view) {
+  const status = view.since ? null : view.data?.file?.status;
+  return status === 'added' ? 'new' : status === 'removed' ? 'old' : null;
 }
 
 /** Draws a diff tile from its view: the header, then File threads and the hunks. */
@@ -1499,6 +1523,9 @@ function diffHeader(view) {
       layoutButton('Split', true),
     ),
     checkbox('Hide whitespace', hideWhitespace, toggleHideWhitespace),
+    oneSided(view)
+      ? checkbox('Tint rows', !plainOneSided, togglePlainOneSided)
+      : '',
     checkbox('Show resolved', showResolved, toggleShowResolved),
     h('span', { class: 'diff-head-fill' }),
     review && pr && ref
@@ -1637,15 +1664,7 @@ function diffContent(view) {
     );
     return out;
   }
-  // An added or removed file has one side only: its rows and numbers, in either layout. A Since
-  // viewed comparison has both.
-  const status = since ? null : data.file?.status;
-  /** @type {'old' | 'new' | null} */
-  const single = status === 'added'
-    ? 'new'
-    : status === 'removed'
-    ? 'old'
-    : null;
+  const single = oneSided(view);
   // `+` on a line number: a new comment, on the PR's own diff only (GitHub takes comments on
   // lines in it, not on a Since viewed comparison).
   const commenting = !since && view.data?.canReview === true;
@@ -1687,6 +1706,7 @@ function diffContent(view) {
   const table = h('div', {
     class: 'diff-table',
     'data-layout': single ? 'single' : diffSplit ? 'split' : 'unified',
+    'data-plain': (single && plainOneSided) || undefined,
   });
   /** @param {string} key */
   const threadsAt = (key) => {
