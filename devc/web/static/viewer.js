@@ -61,6 +61,8 @@ import { languageFor as pickLanguage } from './lib/languages.js';
  * @property {boolean} dirty         the content differs from what is on disk
  * @property {(line: number, column?: number) => void} revealLine
  *   puts the cursor at a 1-based line and column (clamped to the file) and scrolls it to the middle
+ * @property {() => {text: string, startLine: number, endLine: number} | null} selection
+ *   the main selection's text and the 1-based lines it spans; null while nothing is selected
  * @property {() => void} focus
  * @property {() => void} destroy
  */
@@ -425,6 +427,18 @@ export function createViewer(
         selection: { anchor: pos },
         effects: EditorView.scrollIntoView(pos, { y: 'center' }),
       });
+    },
+    selection() {
+      const { from, to } = view.state.selection.main;
+      if (from === to) return null;
+      const doc = view.state.doc;
+      const startLine = doc.lineAt(from).number;
+      const last = doc.lineAt(to);
+      // A selection of whole lines ends at the start of the next one: that line is not in it.
+      const endLine = to === last.from && last.number > startLine
+        ? last.number - 1
+        : last.number;
+      return { text: view.state.sliceDoc(from, to), startLine, endLine };
     },
     focus() {
       view.focus();

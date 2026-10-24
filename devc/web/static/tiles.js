@@ -9,6 +9,7 @@
 import { createRenderer } from './renderer.js';
 import { createTiling } from './layout.js';
 import { createViewer, highlightLines } from './viewer.js';
+import { openAskDialog } from './ask.js';
 import { parseSavedLayout, sameFile } from './lib/layout_state.js';
 import {
   DRAG_MIME,
@@ -80,6 +81,7 @@ import {
   resolveRef,
   send,
   socket,
+  tileRepo,
 } from './client.js';
 import {
   discardPendingReview,
@@ -161,6 +163,7 @@ const tileArea = {
   },
   setZen: (on) => tiling?.setZen(on),
   prViewed: (ref, viewed) => showViewed(ref, viewed),
+  askAgent: (id) => askAgentFrom(id),
   dragSource: (el, ref, title) =>
     tiling ? tiling.dragSource(el, ref, title) : () => {},
 };
@@ -241,6 +244,53 @@ let sentActivePane = null;
 
 /** The tiling area's element: set by {@link mountTiles}. */
 let $tiles = /** @type {HTMLElement} */ (null);
+
+// ---------------------------------------------------------------------------------------------
+// Ask agent: a question about a file or diff tile's file (`ask.js`)
+// ---------------------------------------------------------------------------------------------
+
+/** A file or diff tile's tab button for {@link askAgentFrom}. */
+function askButton(tile) {
+  return iconButton('ask', LABELS.askAgent, () => askAgentFrom(tile.id));
+}
+
+/**
+ * Opens the Ask agent dialog for the file a file or diff tile shows, in the repo it is in, with
+ * what is selected in it: a file tile's selection with its lines, a diff tile's selected text.
+ * The agent's terminal opens to the right of the tile.
+ */
+function askAgentFrom(id) {
+  const tile = tileOf(id);
+  const ref = tile?.file ?? tile?.diff;
+  if (!tile || !ref) return;
+  const { localFolder, repo } = tileRepo(tile);
+  if (!localFolder || !repo) {
+    toast('Ask agent: this file is not in one of the project’s repos');
+    return;
+  }
+  // As the agent finds it from the repo: relative, or a container file's absolute path.
+  const path = tile.file?.container ? childPath('/', ref.path) : ref.path;
+  /** @type {{text: string, startLine?: number, endLine?: number} | null | undefined} */
+  let selection = fileViews.get(id)?.viewer?.selection();
+  if (tile.diff) {
+    const sel = window.getSelection();
+    const text = sel && !sel.isCollapsed && sel.anchorNode &&
+        tile.element.contains(sel.anchorNode)
+      ? sel.toString()
+      : '';
+    selection = text ? { text } : null;
+  }
+  openAskDialog({
+    at: id,
+    localFolder,
+    root: repo.folder,
+    context: {
+      path,
+      ...(selection ? { selection } : {}),
+      ...(tile.diff ? { diff: true } : {}),
+    },
+  });
+}
 
 // ---------------------------------------------------------------------------------------------
 // File tiles: a project file in the viewer (viewer.js), read from the host (`read_file`)
@@ -333,6 +383,7 @@ function mountFileTile(tile) {
       : '';
     tile.setTitle(fileTileTitle(file, fileViews.get(tile.id)?.dirty), muted);
     if (file) tile.setTooltip(fileHostPath(file));
+    if (file && !muted) tile.setActions(askButton(tile));
   });
   /** @type {FileView} */
   const view = {
@@ -913,7 +964,9 @@ function mountDiffTile(tile) {
   diffViews.set(tile.id, view);
   // After the factory returns: a title change mid-build would save a half-built layout.
   queueMicrotask(() => {
-    if (diffViews.get(tile.id) === view) setDiffTitle(view);
+    if (diffViews.get(tile.id) !== view) return;
+    setDiffTitle(view);
+    if (tile.diff) tile.setActions(askButton(tile));
   });
   if (tile.diff) void loadDiff(view);
   else {

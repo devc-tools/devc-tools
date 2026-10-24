@@ -684,6 +684,7 @@ function fileTileMenuItems(tile) {
     const asMedia = fileView(file) === 'media';
     if (tile.saveable) items.push(['Save', () => tileArea.save(tile.id)]);
     items.push(['Reload', () => tileArea.reload(tile.id)], null);
+    items.push([LABELS.askAgent, () => tileArea.askAgent(tile.id)], null);
     if (previewable(file.path)) {
       items.push(
         asMedia
@@ -717,7 +718,10 @@ function fileTileMenuItems(tile) {
  * @param {TileState} tile
  */
 function diffTileMenuItems(tile) {
-  const items = [['Refresh', () => tileArea.reload(tile.id)]];
+  const items = [
+    ['Refresh', () => tileArea.reload(tile.id)],
+    [LABELS.askAgent, () => tileArea.askAgent(tile.id)],
+  ];
   const url = tile.url;
   if (url) {
     items.push([

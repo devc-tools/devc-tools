@@ -1598,6 +1598,10 @@ body.resizing-zones {
   background: none;
 }
 
+.lm_header .lm_tab .tile-actions .icon-btn[data-icon='ask']:hover {
+  color: var(--accent);
+}
+
 .lm_header .lm_tab .tile-context > span {
   display: flex;
   align-items: baseline;
@@ -2781,6 +2785,31 @@ button.primary.danger {
 
 .diff-head-line .diff-note button {
   font-style: normal;
+}
+
+/* The Ask agent dialog (`ask.js`): what the question is about, above it. */
+.ask-about {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 6px;
+  align-items: baseline;
+  min-width: 0;
+  color: var(--muted);
+}
+
+.ask-where {
+  overflow: hidden;
+  color: var(--text);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+.new-note-body label.ask-include {
+  display: inline-flex;
+  gap: 4px;
+  align-items: center;
+  margin-left: auto;
 }
 
 .dialog.review-dialog {

@@ -80,6 +80,8 @@ import {
  * @property {(on: boolean) => void} setZen   the focused tile alone, filling the area
  * @property {(diff: DiffRef, viewed: 'VIEWED' | 'UNVIEWED') => void} prViewed
  *   a PR file was marked Viewed or not in the sidebar: its diff tiles show it
+ * @property {(id: string) => void} askAgent  a file or diff tile's **Ask agent…**: the dialog
+ *   asking an agent about its file, with what is selected in it
  */
 
 /**
@@ -298,6 +300,7 @@ export const VIEW_INTENT_NAMES = Object.freeze([
   'reload',
   'setZen',
   'prViewed',
+  'askAgent',
 ]);
 
 /** The {@link SidebarIntents} a `sidebar_intent` may name. */

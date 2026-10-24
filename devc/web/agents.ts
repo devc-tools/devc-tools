@@ -99,17 +99,27 @@ export function startTaskCommand(
   title = '',
 ): string {
   const id = checkedUuid(sessionId);
-  const prompt = `'${taskPrompt(action, taskFilePath(id))}'`;
+  return startCommand(agent, id, taskPrompt(action, taskFilePath(id)), title);
+}
+
+/** `agent` started as session `id` on `prompt` (fixed text with no `'`), named `title`. */
+function startCommand(
+  agent: SessionAgentId,
+  id: string,
+  prompt: string,
+  title: string,
+): string {
+  const quoted = `'${prompt}'`;
   const name = sessionName(title);
   switch (agent) {
     case 'claude':
       return name
-        ? `claude --session-id ${id} --name '${name}' ${prompt}`
-        : `claude --session-id ${id} ${prompt}`;
+        ? `claude --session-id ${id} --name '${name}' ${quoted}`
+        : `claude --session-id ${id} ${quoted}`;
     case 'copilot':
-      return `copilot --session-id ${id} -i ${prompt}`;
+      return `copilot --session-id ${id} -i ${quoted}`;
     case 'pi':
-      return `pi --session-id ${id} ${prompt}`;
+      return `pi --session-id ${id} ${quoted}`;
   }
 }
 
@@ -127,4 +137,43 @@ export function resumeTaskCommand(
     case 'pi':
       return `pi --session-id ${id}`;
   }
+}
+
+// Asking an agent a question from a file or diff tile (`ask_agent`). An agent already running in
+// a pane is prompted with the question itself, through Herdr's `agent.prompt` (no shell reads
+// it). A new or resumed session gets it as a task does: the text in a file named by a fresh uuid
+// (`taskFilePath`), its first prompt only pointing at that file.
+
+/** A question's first prompt: points at the question's file. Never contains `'`. */
+export function askPrompt(file: string): string {
+  return `Answer the question in ${file}. Do not change any files unless it asks you to.`;
+}
+
+/**
+ * The command typed into a new tab's shell to start `agent` as session `sessionId` on the
+ * question in file `askId` (see {@link taskFilePath}), named `title` as a task's is.
+ */
+export function startAskCommand(
+  agent: SessionAgentId,
+  sessionId: string,
+  askId: string,
+  title = '',
+): string {
+  return startCommand(
+    agent,
+    checkedUuid(sessionId),
+    askPrompt(taskFilePath(askId)),
+    title,
+  );
+}
+
+/** The command typed into a new tab's shell to resume session `sessionId` on question `askId`. */
+export function resumeAskCommand(
+  agent: SessionAgentId,
+  sessionId: string,
+  askId: string,
+): string {
+  const prompt = `'${askPrompt(taskFilePath(askId))}'`;
+  const resume = resumeTaskCommand(agent, sessionId);
+  return agent === 'copilot' ? `${resume} -i ${prompt}` : `${resume} ${prompt}`;
 }

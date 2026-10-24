@@ -276,6 +276,23 @@ export type ClientMessage =
     /** The agent's session id: a uuid. */
     session: string;
   }
+  | {
+    /**
+     * A question about a file of repo `root` (one of the container's project's repos), for an
+     * agent: the one running in pane `pane_id`, listed session `session` of `agent` (resumed
+     * unless running), or, with `agent` alone, a new session of it at the repo.
+     */
+    type: 'ask_agent';
+    id: string;
+    container: string;
+    root: string;
+    /** Trimmed, non-empty, at most `MAX_TASK_TEXT` characters. */
+    text: string;
+    pane_id?: string;
+    agent?: SessionAgentId;
+    /** The agent's session id: a uuid. Only with `agent`. */
+    session?: string;
+  }
   /** A repo's pull request, through its container's devc-bridge (see `pr_review.ts`). */
   | PrMessage & { id: string }
   | { type: 'retry'; container: string }
@@ -310,6 +327,7 @@ export const VIEW_INTENT_NAMES = [
   'reload',
   'setZen',
   'prViewed',
+  'askAgent',
 ] as const;
 export type ViewIntentName = typeof VIEW_INTENT_NAMES[number];
 /** The `SidebarIntents` methods (`static/lib/view.js`) a `sidebar_intent` may name. */
@@ -937,6 +955,32 @@ function parseFields(m: Obj): ClientMessage {
         agent: m.agent,
         session: m.session,
       };
+    case 'ask_agent': {
+      if ((m.pane_id === undefined) === (m.agent === undefined)) {
+        throw new Invalid(`exactly one of 'pane_id' and 'agent' is required`);
+      }
+      if (m.agent !== undefined && !isSessionAgentId(m.agent)) {
+        throw new Invalid(`agent '${String(m.agent)}' can't be asked`);
+      }
+      if (m.session !== undefined) {
+        if (m.agent === undefined) {
+          throw new Invalid(`'session' needs 'agent'`);
+        }
+        if (!isSessionId(m.session)) {
+          throw new Invalid(`'session' must be a uuid`);
+        }
+      }
+      return {
+        type: 'ask_agent',
+        id: str(m, 'id'),
+        container: str(m, 'container'),
+        root: absolute(m, 'root'),
+        text: taskBody(m),
+        ...(m.pane_id !== undefined ? { pane_id: str(m, 'pane_id') } : {}),
+        ...(m.agent !== undefined ? { agent: m.agent } : {}),
+        ...(m.session !== undefined ? { session: m.session } : {}),
+      };
+    }
     case 'pr_files':
       return {
         type: 'pr_files',

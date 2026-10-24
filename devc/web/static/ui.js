@@ -139,6 +139,7 @@ export const LABELS = {
   refreshSessions: 'Refresh sessions',
   refreshContainers: 'Refresh containers',
   resumeSession: 'Resume session',
+  askAgent: 'Ask agent…',
   showPastSessions: (n) => `Show past sessions (${n})`,
   hidePastSessions: 'Hide past sessions',
   worktreesHidden: (n) => `${n} worktree${n === 1 ? '' : 's'} hidden`,
@@ -255,6 +256,9 @@ const ICON_PATHS = {
   // An eye: a PR's Hide viewed files.
   viewed: 'M1.5 8s2.5-4.5 6.5-4.5S14.5 8 14.5 8 12 12.5 8 12.5 1.5 8 1.5 8z' +
     'M6 8a2 2 0 1 0 4 0a2 2 0 1 0-4 0',
+  // A speech bubble holding a question mark: ask an agent about a file.
+  ask:
+    'M2.5 2.5h11v8H8l-3 3v-3H2.5zM6.5 5.25a1.5 1.5 0 1 1 2.1 1.4c-.4.2-.6.5-.6.85M8 8.6v.01',
   // A folder with a tab: a repo card's files.
   folder: 'M1.5 3.5h5L8 5h6.5v8h-13z',
 };

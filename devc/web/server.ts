@@ -81,7 +81,9 @@ import {
 import { ControllerManager, type Subscriber } from './controllers.ts';
 import {
   AGENT_COMMANDS,
+  resumeAskCommand,
   resumeTaskCommand,
+  startAskCommand,
   startTaskCommand,
   TASK_FILE_DIR,
   taskFilePath,
@@ -2046,28 +2048,9 @@ export async function startWeb(
       fail(c, msg.id, 'not_found', 'no such session');
       return;
     }
-    const key = `${containerId}\n${listed.agent}\n${listed.session}`;
     const target = await readyTarget(c, session, msg.id);
     if (target === null) return;
-    // The pane this server resumed it in, else one a live agent process has it open in (started
-    // by hand, or before this server): never a second process on the same session.
-    const panes = snapshotPanes(session.snapshot);
-    const live = listed.agent === 'claude'
-      ? await runningPane(
-        await connectionOf(session),
-        listed.session,
-        opts.session,
-      )
-      : null;
-    const reused = reusablePinnedPane(
-      resumedPanes.get(key),
-      containerId,
-      panes,
-    ) ?? reusablePinnedPane(
-      live === null ? undefined : { containerId, paneId: live },
-      containerId,
-      panes,
-    );
+    const reused = await sessionPane(session, listed);
     if (reused !== null) {
       reply(c, { id: msg.id, ok: true, result: { ...reused, reused: true } });
       return;
@@ -2098,7 +2081,164 @@ export async function startWeb(
       pane_id: created.pane_id,
       label: listed.title,
     }).then((r) => renamed(session, r), () => {});
-    resumedPanes.set(key, { containerId, paneId: created.pane_id });
+    resumedPanes.set(resumedKey(containerId, listed), {
+      containerId,
+      paneId: created.pane_id,
+    });
+    reply(c, { id: msg.id, ok: true, result: { ...created, reused: false } });
+  };
+
+  const resumedKey = (containerId: string, listed: AgentSession) =>
+    `${containerId}\n${listed.agent}\n${listed.session}`;
+
+  /**
+   * The pane a listed session runs in: the one this server resumed it in, else one a live agent
+   * process has it open in (started by hand, or before this server); null when neither is in the
+   * container's session. Never a second process on the same session.
+   */
+  const sessionPane = async (
+    session: ContainerSession,
+    listed: AgentSession,
+  ): Promise<{ pane_id: string; tab_id: string } | null> => {
+    const containerId = session.record.id;
+    const panes = snapshotPanes(session.snapshot);
+    const live = listed.agent === 'claude'
+      ? await runningPane(
+        await connectionOf(session),
+        listed.session,
+        opts.session,
+      )
+      : null;
+    return reusablePinnedPane(
+      resumedPanes.get(resumedKey(containerId, listed)),
+      containerId,
+      panes,
+    ) ?? reusablePinnedPane(
+      live === null ? undefined : { containerId, paneId: live },
+      containerId,
+      panes,
+    );
+  };
+
+  /**
+   * A question for an agent about a file of one of the container's project's repos (`ask_agent`),
+   * answered with the agent's pane. An agent running in a pane (`pane_id`, or the pane a listed
+   * session runs in, see {@link sessionPane}) is prompted with the text through Herdr's
+   * `agent.prompt`; otherwise the text is written to a file and the listed session is resumed on
+   * it (at the folder it started in), or a new session of `agent` is started on it at the repo.
+   */
+  const askAgent = async (
+    c: Client,
+    session: ContainerSession,
+    msg: Extract<ClientMessage, { type: 'ask_agent' }>,
+  ) => {
+    const containerId = session.record.id;
+    const projects = projectsMessage().projects;
+    if (!isProjectRepo(projects, session.record.localFolder, msg.root)) {
+      fail(c, msg.id, 'bad_request', 'unknown repo');
+      return;
+    }
+    const listed = msg.session === undefined
+      ? undefined
+      : sessionLists.get(containerId)?.find((s) =>
+        s.agent === msg.agent && s.session === msg.session
+      );
+    if (msg.session !== undefined && !listed) {
+      fail(c, msg.id, 'not_found', 'no such session');
+      return;
+    }
+    const target = await readyTarget(c, session, msg.id);
+    if (target === null) return;
+    let running: { pane_id: string; tab_id: string } | null = null;
+    if (msg.pane_id !== undefined) {
+      const pane = snapshotPanes(session.snapshot).find((p) =>
+        p.pane_id === msg.pane_id
+      ) as { pane_id: string; tab_id?: unknown; agent?: unknown } | undefined;
+      if (!pane) {
+        fail(c, msg.id, 'not_found', 'that terminal is gone');
+        return;
+      }
+      if (typeof pane.agent !== 'string' || pane.agent === '') {
+        fail(c, msg.id, 'bad_request', 'no agent runs in that terminal');
+        return;
+      }
+      running = {
+        pane_id: pane.pane_id,
+        tab_id: typeof pane.tab_id === 'string' ? pane.tab_id : '',
+      };
+    } else if (listed) {
+      running = await sessionPane(session, listed);
+    }
+    if (running !== null) {
+      try {
+        await bridgeRequest(target, 'agent.prompt', {
+          target: running.pane_id,
+          text: msg.text,
+        });
+      } catch (e) {
+        fail(c, msg.id, e instanceof BridgeError ? e.code : 'herdr_error', e);
+        return;
+      }
+      reply(c, { id: msg.id, ok: true, result: { ...running, reused: true } });
+      return;
+    }
+    const agent = listed?.agent ?? msg.agent!;
+    const cwd = listed ? listed.cwd : await repoContainerPath(
+      c,
+      session,
+      { id: msg.id, root: msg.root, path: '' },
+      'dir',
+    );
+    if (cwd === null) return;
+    if (!(await commandInstalled(target, AGENT_COMMANDS[agent]))) {
+      fail(
+        c,
+        msg.id,
+        'not_installed',
+        `${AGENT_COMMANDS[agent]} isn't installed in this container`,
+      );
+      return;
+    }
+    const askId = crypto.randomUUID();
+    try {
+      await writeContainerFile(
+        await connectionOf(session),
+        TASK_FILE_DIR,
+        taskFilePath(askId),
+        `${msg.text}\n`,
+      );
+    } catch (e) {
+      fail(c, msg.id, e instanceof FilesError ? e.code : 'write_failed', e);
+      return;
+    }
+    const sessionId = listed?.session ?? crypto.randomUUID();
+    const title = listed?.title ?? taskTitle(msg.text);
+    const command = listed
+      ? resumeAskCommand(agent, sessionId, askId)
+      : startAskCommand(agent, sessionId, askId, title);
+    let created: { pane_id: string; tab_id: string };
+    try {
+      created = await createShell(target, { cwd });
+      // Not `exec`: quitting the agent leaves the shell.
+      await bridgeRequest(target, 'pane.send_text', {
+        pane_id: created.pane_id,
+        text: `${command}\n`,
+      });
+    } catch (e) {
+      fail(c, msg.id, e instanceof BridgeError ? e.code : 'herdr_error', e);
+      return;
+    }
+    // The agent is already starting, so a failed rename is no error.
+    await bridgeRequest(target, 'pane.rename', {
+      pane_id: created.pane_id,
+      label: title,
+    }).then((r) => renamed(session, r), () => {});
+    if (listed) {
+      resumedPanes.set(resumedKey(containerId, listed), {
+        containerId,
+        paneId: created.pane_id,
+      });
+    }
     reply(c, { id: msg.id, ok: true, result: { ...created, reused: false } });
   };
 
@@ -2331,7 +2471,8 @@ export async function startWeb(
     if (!session) {
       if (
         msg.type === 'create_file' || msg.type === 'rename_file' ||
-        msg.type === 'delete_file' || msg.type === 'write_file'
+        msg.type === 'delete_file' || msg.type === 'write_file' ||
+        msg.type === 'ask_agent'
       ) {
         fail(c, msg.id, 'not_running', 'the container is not running');
         return;
@@ -2370,6 +2511,9 @@ export async function startWeb(
       case 'list_sessions':
       case 'resume_session':
         await handleAgentSession(c, session, msg);
+        return;
+      case 'ask_agent':
+        await askAgent(c, session, msg);
         return;
       case 'create_file':
         await createFile(c, session, msg);
