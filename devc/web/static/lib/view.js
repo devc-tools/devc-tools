@@ -77,7 +77,6 @@ import {
  * @property {(id: string) => void} keepOpen  a preview tile stays
  * @property {(id: string) => void} save      a file tile's edits
  * @property {(id: string) => void} reload    a file or diff tile's content, read again
- * @property {(on: boolean) => void} setZen   the focused tile alone, filling the area
  * @property {(diff: DiffRef, viewed: 'VIEWED' | 'UNVIEWED') => void} prViewed
  *   a PR file was marked Viewed or not in the sidebar: its diff tiles show it
  * @property {(id: string) => void} askAgent  a file or diff tile's **Ask agent…**: the dialog
@@ -94,13 +93,12 @@ import {
  */
 
 /**
- * What the tiling area asks of the sidebar: a tile menu's **Reveal in Containers** and zen items.
+ * What the tiling area asks of the sidebar: a tile menu's **Reveal in Containers**, and a diff
+ * tile's Viewed.
  * Plain data in, nothing out, as {@link ViewIntents}.
  *
  * @typedef {object} SidebarIntents
  * @property {(ref: PaneRef) => void} revealInContainers  a tile menu's **Reveal in Containers**
- * @property {(change: {on?: boolean, scope?: 'container' | 'repo'}) => void} setZen  a tile
- *   menu's zen items: zen mode on or off, and its scope, each left as it is when not given
  * @property {(diff: DiffRef, viewed: 'VIEWED' | 'UNVIEWED') => void} prViewed
  *   a PR file was marked Viewed or not in a diff tile: the sidebar's PR tree shows it
  */
@@ -298,7 +296,6 @@ export const VIEW_INTENT_NAMES = Object.freeze([
   'keepOpen',
   'save',
   'reload',
-  'setZen',
   'prViewed',
   'askAgent',
 ]);
@@ -306,7 +303,6 @@ export const VIEW_INTENT_NAMES = Object.freeze([
 /** The {@link SidebarIntents} a `sidebar_intent` may name. */
 export const SIDEBAR_INTENT_NAMES = Object.freeze([
   'revealInContainers',
-  'setZen',
   'prViewed',
 ]);
 
@@ -324,19 +320,36 @@ export function viewIdFromHash(hash) {
 }
 
 /**
- * Zen mode as a page URL's query asks for it, the page's starting point (`?zen=…`): `container`
- * or `repo` is on in that scope, `on` is on in the scope saved, `off` is off. Null when the query
- * names none (or an unknown value): the page starts as it was saved.
+ * Zen mode as a page URL's query asks for it, the tiling area's starting point (`?zen=…`): `on`
+ * is on, `off` is off; `container` or `repo` (from when zen mode had a sidebar scope) is on. Null
+ * when the query names none (or an unknown value): the page starts as it was saved.
  *
  * @param {string} search  `location.search`, `?` included or not
- * @returns {{on: boolean, scope?: 'container' | 'repo'} | null}
+ * @returns {boolean | null}
  */
 export function zenFromSearch(search) {
   const zen = new URLSearchParams(search.replace(/^\?/, '')).get('zen');
-  if (zen === 'container' || zen === 'repo') return { on: true, scope: zen };
-  if (zen === 'on') return { on: true };
-  if (zen === 'off') return { on: false };
+  if (zen === 'on' || zen === 'container' || zen === 'repo') return true;
+  if (zen === 'off') return false;
   return null;
+}
+
+/**
+ * The sidebar's scope as a page URL's query asks for it, its starting point: `?scope=all`,
+ * `container` or `repo`, else `?zen=container` or `repo` (from when zen mode had a sidebar
+ * scope). Null when the query names none: the sidebar starts as it was saved.
+ *
+ * @param {string} search  `location.search`, `?` included or not
+ * @returns {'all' | 'container' | 'repo' | null}
+ */
+export function scopeFromSearch(search) {
+  const q = new URLSearchParams(search.replace(/^\?/, ''));
+  const scope = q.get('scope');
+  if (scope === 'all' || scope === 'container' || scope === 'repo') {
+    return scope;
+  }
+  const zen = q.get('zen');
+  return zen === 'container' || zen === 'repo' ? zen : null;
 }
 
 /** The state of a tiling area not heard from yet: no tiles. @returns {ViewState} */

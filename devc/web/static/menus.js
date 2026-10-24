@@ -6,7 +6,7 @@
 
 import { withView } from './lib/layout_state.js';
 import { nodeById, nodeTiles } from './lib/view.js';
-import { otherZenScope, paneLabel } from './lib/sidebar.js';
+import { paneLabel } from './lib/sidebar.js';
 import { jiraKeys, jiraUrl } from './lib/jira.js';
 import { defaultView, fileView, mediaKind } from './lib/media.js';
 import { childPath, isWithin } from './lib/files.js';
@@ -60,17 +60,15 @@ import {
  */
 let tileArea = null;
 /**
- * How a tile's menu reaches the sidebar (**Reveal in Containers**, the zen items): null when no
- * sidebar is on the page, and those items are left out.
+ * How a tile's menu reaches the sidebar (**Reveal in Containers**): null when no sidebar is on
+ * the page, and that item is left out.
  *
  * @type {SidebarIntents | null}
  */
 let sidebar = null;
-/** The sidebar's zen mode and scope, which a tile's zen items name the other of. */
-let currentZen = () => ({
-  on: false,
-  scope: /** @type {import('./lib/sidebar.js').ZenScope} */ ('repo'),
-});
+/** The tiling area's zen mode, which a tile's zen item turns on or off; null without one. */
+let zen =
+  /** @type {{on: () => boolean, set: (on: boolean) => void} | null} */ (null);
 /**
  * The sidebar's directory tree of a file root, whose listings say where a container file is on
  * the host and a repo file in the container; null without a sidebar.
@@ -86,14 +84,14 @@ let filePinned = () => {};
  * it mounts.
  *
  * @param {{tileArea?: TileArea, sidebar?: SidebarIntents | null,
- *   zen?: () => {on: boolean, scope: import('./lib/sidebar.js').ZenScope},
+ *   zen?: {on: () => boolean, set: (on: boolean) => void},
  *   fileTreeOf?: (fr: FileRoot) => ReturnType<typeof import('./lib/files.js').createDirTree>,
  *   filePinned?: () => void}} parts
  */
 export function setMenuContext(parts) {
   if (parts.tileArea !== undefined) tileArea = parts.tileArea;
   if (parts.sidebar !== undefined) sidebar = parts.sidebar;
-  if (parts.zen !== undefined) currentZen = parts.zen;
+  if (parts.zen !== undefined) zen = parts.zen;
   if (parts.fileTreeOf !== undefined) fileTreeOf = parts.fileTreeOf;
   if (parts.filePinned !== undefined) filePinned = parts.filePinned;
 }
@@ -364,19 +362,14 @@ export function fileRootOf(file) {
 }
 
 /**
- * A tile's menu items for zen mode: on or off, and its other scope; none without a sidebar,
- * which zen mode is half of.
+ * A tile's menu item for zen mode: on or off.
  *
  * @returns {MenuItem[]}
  */
 function zenItems() {
-  if (!sidebar) return [];
-  const { on, scope } = currentZen();
-  const other = otherZenScope(scope);
-  return [
-    [on ? LABELS.zenOff : LABELS.zenOn, () => sidebar.setZen({ on: !on })],
-    [LABELS.zenScope[other], () => sidebar.setZen({ scope: other })],
-  ];
+  if (!zen) return [];
+  const on = zen.on();
+  return [[on ? LABELS.zenOff : LABELS.zenOn, () => zen.set(!on)]];
 }
 
 /**

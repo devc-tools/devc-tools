@@ -10,11 +10,11 @@ import {
   focusedTile,
   layoutSignature,
   layoutTiles,
+  scopeFromSearch,
   tileMarks,
   tileShowingDiff,
   tileShowingFile,
   tileShowingPane,
-  zenFromSearch,
 } from './lib/view.js';
 import {
   agentStatus,
@@ -27,16 +27,16 @@ import {
   gitRollup,
   gitSync,
   inUseLabel,
-  isZenShortcut,
+  isSidebarScope,
   labelText,
-  otherZenScope,
   paneLabel,
   paneTitle,
   repoAt,
   repoCardActive,
   repoCardKey,
-  savedZen,
+  savedScope,
   settleZones,
+  SIDEBAR_SCOPES,
   splitRepoName,
   statusCounts,
   statusRank,
@@ -174,8 +174,8 @@ import {
 /** The tile rows' last render: the view's `layoutSignature` and `tileMarks` then. */
 let shownLayout = '';
 let shownMarks = '';
-/** The focused tile's repo card at zen mode's last render (`zenCardKey`). */
-let shownZenCard = /** @type {string | null} */ (null);
+/** The focused tile's repo card at a scoped sidebar's last render (`scopeCardKey`). */
+let shownScopeCard = /** @type {string | null} */ (null);
 /**
  * Sidebar file rows (each a Golden Layout drag source) by tree key, kept across renders for the
  * same reason as {@link paneRows}.
@@ -210,13 +210,11 @@ const TASK_AGENT_KEY = 'devc-web-task-agent-v1';
 /** The default route and agent for new tasks, pinned in the task dialog. */
 const TASK_DEFAULT_KEY = 'devc-web-task-default-v1';
 
-/** The sidebar's tree, its connection indicator and zen buttons: set by {@link mountSidebar}. */
+/** The sidebar, its tree, connection indicator and scope picker: set by {@link mountSidebar}. */
+let $sidebar = /** @type {HTMLElement} */ (null);
 let $tree = /** @type {HTMLElement} */ (null);
 let $conn = /** @type {HTMLElement | null} */ (null);
-let $zenToggle = /** @type {HTMLElement | null} */ (null);
-let $zenScopeToggle = /** @type {HTMLElement | null} */ (null);
-/** The page's `.app`, whose `data-zen` the stylesheet reads; null when the sidebar is not in one. */
-let $app = /** @type {HTMLElement | null} */ (null);
+let $scopePicker = /** @type {HTMLElement | null} */ (null);
 /** The filter box above the zones, and what it holds ({@link applyFilter}). */
 let $filter = /** @type {HTMLInputElement | null} */ (null);
 let filterQuery = '';
@@ -269,12 +267,12 @@ const STATE_TEXT = {
  * are the page's (`app.js`): each saves its own fields and keeps the other's.
  */
 /**
- * Zen mode and its scope as saved in this browser, which a save writes: the page URL's `?zen=…`
- * (`zenFromSearch`) only sets where the page starts, and is never saved; a zen change is.
+ * The sidebar's scope as saved in this browser, which a save writes: the page URL's `?scope=…`
+ * (`scopeFromSearch`) only sets where the page starts, and is never saved; a scope change is.
  *
- * @type {{zen: boolean, zenScope: import('./lib/sidebar.js').ZenScope}}
+ * @type {import('./lib/sidebar.js').SidebarScope}
  */
-let storedZen = savedZen(null);
+let storedScope = savedScope(null);
 const sidebarState = loadSidebarState();
 
 function loadSidebarState() {
@@ -340,22 +338,17 @@ function loadSidebarState() {
     ),
     sentOpen: saved?.sentOpen === true,
     /**
-     * Zen mode (`zen`): the focused tile alone, and the sidebar's Tasks and that tile's container
-     * (`zenScope` `container`) or repo card (`repo`). The scope is kept with zen mode off. The
-     * page URL's `?zen=…` overrides what was saved.
+     * What the sidebar shows: everything (`all`), or Tasks and the focused tile's container
+     * (`container`) or repo card (`repo`). The page URL's `?scope=…` overrides what was saved.
      */
-    ...startingZen(saved),
+    scope: startingScope(saved),
   };
 }
 
-/** Zen mode at load: the page URL's `?zen=…` over what was saved, which {@link storedZen} keeps. */
-function startingZen(saved) {
-  storedZen = savedZen(saved);
-  const asked = zenFromSearch(location.search);
-  return {
-    zen: asked?.on ?? storedZen.zen,
-    zenScope: asked?.scope ?? storedZen.zenScope,
-  };
+/** The scope at load: the page URL's `?scope=…` over what was saved, which {@link storedScope} keeps. */
+function startingScope(saved) {
+  storedScope = savedScope(saved);
+  return scopeFromSearch(location.search) ?? storedScope;
 }
 
 function savedPrFolders(v) {
@@ -440,8 +433,7 @@ function saveSidebarState() {
         sentOpen: sidebarState.sentOpen,
         width: saved?.width,
         hidden: saved?.hidden,
-        zen: storedZen.zen,
-        zenScope: storedZen.zenScope,
+        scope: storedScope,
       }),
     );
   } catch { /* storage unavailable: collapsing just won't survive a reload */ }
@@ -534,56 +526,54 @@ function toggleInactive() {
 }
 
 /**
- * Applies zen mode: the focused tile fills the tiling area alone, with no header (layout.js), and
- * the sidebar shows Tasks and the focused tile's container or repo card alone (renderTree). The
- * scope button shows the scope, and names the other one, which its click switches to.
+ * Applies the sidebar's scope: the picker's checked option, and the sidebar's `data-scope`, which
+ * the stylesheet reads.
  */
-function applyZen() {
-  const { zen, zenScope } = sidebarState;
-  if ($app) $app.dataset.zen = zen ? zenScope : 'off';
-  const label = zen ? LABELS.zenOff : LABELS.zenOn;
-  $zenToggle.setAttribute('aria-pressed', String(zen));
-  $zenToggle.setAttribute('aria-label', label);
-  $zenToggle.title = `${label} (${IS_MAC ? 'Cmd' : 'Ctrl'}+Alt+Z)`;
-  if ($zenScopeToggle) {
-    const scopeLabel = `${LABELS.zenScope[zenScope]} (click for ${
-      otherZenScope(zenScope)
-    })`;
-    $zenScopeToggle.dataset.scope = zenScope;
-    $zenScopeToggle.setAttribute('aria-label', scopeLabel);
-    $zenScopeToggle.title = scopeLabel;
+function applyScope() {
+  const { scope } = sidebarState;
+  $sidebar.dataset.scope = scope;
+  for (const option of $scopePicker?.querySelectorAll('[role="radio"]') ?? []) {
+    const checked = /** @type {HTMLElement} */ (option).dataset.scope === scope;
+    option.setAttribute('aria-checked', String(checked));
+    option.setAttribute('tabindex', checked ? '0' : '-1');
   }
-  tileArea.setZen(zen);
 }
 
 /**
- * Zen mode on or off, and its scope, each left as it is when not given: the zen buttons and
- * shortcut, and a tile menu's zen items (`SidebarIntents.setZen`).
+ * What the sidebar shows (the scope picker): everything (`all`), or Tasks and the focused tile's
+ * container (`container`) or repo card (`repo`), with the Containers section, the In use heading
+ * and pinned files hidden.
  *
- * @param {{on?: boolean, scope?: import('./lib/sidebar.js').ZenScope}} change
+ * @param {import('./lib/sidebar.js').SidebarScope} scope
  */
-function setZen(change) {
-  if (typeof change?.on === 'boolean') sidebarState.zen = change.on;
-  if (change?.scope === 'container' || change?.scope === 'repo') {
-    sidebarState.zenScope = change.scope;
-  }
-  storedZen = { zen: sidebarState.zen, zenScope: sidebarState.zenScope };
+function setScope(scope) {
+  if (!isSidebarScope(scope) || scope === sidebarState.scope) return;
+  sidebarState.scope = scope;
+  storedScope = scope;
   saveSidebarState();
-  applyZen();
+  applyScope();
   renderTree();
 }
 
-function toggleZen() {
-  setZen({ on: !sidebarState.zen });
+/** The scope picker's keys, as a radio group's: an arrow key checks the option before or after. */
+function scopePickerKeydown(e) {
+  const step =
+    { ArrowLeft: -1, ArrowUp: -1, ArrowRight: 1, ArrowDown: 1 }[e.key];
+  if (!step) return;
+  e.preventDefault();
+  const n = SIDEBAR_SCOPES.length;
+  const next = SIDEBAR_SCOPES[
+    (SIDEBAR_SCOPES.indexOf(sidebarState.scope) + step + n) % n
+  ];
+  setScope(next);
+  /** @type {HTMLElement | null} */ ($scopePicker?.querySelector(
+    `[data-scope="${next}"]`,
+  ))?.focus();
 }
 
-function toggleZenScope() {
-  setZen({ scope: otherZenScope(sidebarState.zenScope) });
-}
-
-/** Whether the Containers section is open: zen mode hides it, as if folded. */
+/** Whether the Containers section is open: a scoped sidebar hides it, as if folded. */
 function containersShown() {
-  return sidebarState.containersOpen && !sidebarState.zen;
+  return sidebarState.containersOpen && sidebarState.scope === 'all';
 }
 
 /** The space the zones share: the sidebar's tree less its dividers. */
@@ -836,10 +826,10 @@ function renderTree() {
   shownLayout = layoutSignature(view);
   shownMarks = tileMarks(view);
   const cards = repoCards();
-  const { zen } = sidebarState;
-  shownZenCard = zen ? zenCardKey() : null;
-  const upper = zen
-    ? inUseRows(cards, zenShows(cards, shownZenCard))
+  const scoped = sidebarState.scope !== 'all';
+  shownScopeCard = scoped ? scopeCardKey() : null;
+  const upper = scoped
+    ? inUseRows(cards, scopeShows(cards, shownScopeCard))
     : [...inUseRows(cards), ...pinnedFileRows()];
   const rows = [
     sectionRow(
@@ -873,15 +863,15 @@ function renderTree() {
       ),
     );
   }
-  if (sidebarState.containersOpen && !zen) {
+  if (sidebarState.containersOpen && !scoped) {
     for (const c of containers.values()) rows.push(...containerRows(c, cards));
     if (idle.length > 0) rows.push(...inactiveRows(idle));
   }
   $zoneInUse.replaceChildren(...upper);
   $zoneTasks.replaceChildren(...taskRows());
-  $zoneBrowse.replaceChildren(...(zen ? [] : rows));
-  $zoneBrowse.hidden = zen;
-  $dividerBrowse.hidden = zen;
+  $zoneBrowse.replaceChildren(...(scoped ? [] : rows));
+  $zoneBrowse.hidden = scoped;
+  $dividerBrowse.hidden = scoped;
   if ($zoneInUse.parentNode !== $tree) {
     $tree.replaceChildren(
       $zoneTasks,
@@ -1065,8 +1055,8 @@ function paneSpaces(snap) {
  * its own under its name. Cards come most urgent agent first (see `statusRank`), those with no
  * agent last, then in the layout order of their first tile, then those with none in their
  * container's card order; containers where their first card is. A status change renders the
- * sidebar again, so cards move as their agents' statuses change. With `only` (zen mode), the cards
- * it takes instead, active or not.
+ * sidebar again, so cards move as their agents' statuses change. With `only` (a scoped sidebar),
+ * the cards it takes instead, active or not.
  *
  * @param {(card: any) => boolean} [only]
  */
@@ -1123,20 +1113,20 @@ function inUseRows(cards, only) {
 }
 
 /**
- * The cards zen mode shows, given the focused tile's (`zenCardKey`; null shows none): that card
- * alone (`repo`), or with its container's other active cards (`container`).
+ * The cards a scoped sidebar shows, given the focused tile's (`scopeCardKey`; null shows none):
+ * that card alone (`repo`), or with its container's other active cards (`container`).
  */
-function zenShows(cards, key) {
+function scopeShows(cards, key) {
   const focused = key === null ? undefined : cards.get(key);
   if (!focused) return () => false;
-  if (sidebarState.zenScope === 'repo') return (card) => card === focused;
+  if (sidebarState.scope === 'repo') return (card) => card === focused;
   return (card) =>
     card === focused ||
     (card.active && card.localFolder === focused.localFolder);
 }
 
-/** The focused tile's repo card's key, which zen mode shows; null for none or an empty tile. */
-function zenCardKey() {
+/** The focused tile's repo card's key, which a scoped sidebar shows; null for none or an empty tile. */
+function scopeCardKey() {
   const tile = focusedTile(tileArea.state());
   if (!tile) return null;
   const { localFolder, repo } = tileRepo(tile);
@@ -1381,7 +1371,7 @@ function repoCard(card, worktrees = 0) {
 /**
  * The tiling area's state changed (see {@link viewChanged}): renders again what shows it. A
  * change of layout or of what a tile shows rebuilds the tile rows; a title or unsaved mark
- * renders them again; focus moves the current-row marks, and in zen mode, the card shown.
+ * renders them again; focus moves the current-row marks, and in a scoped sidebar, the card shown.
  *
  * @param {ViewState} view
  */
@@ -1392,8 +1382,8 @@ function onViewState(view) {
   }
   if (tileMarks(view) !== shownMarks) queueRender();
   updateCurrent();
-  // Zen mode's container or card is the focused tile's.
-  if (sidebarState.zen && zenCardKey() !== shownZenCard) {
+  // A scoped sidebar's container or card is the focused tile's.
+  if (sidebarState.scope !== 'all' && scopeCardKey() !== shownScopeCard) {
     queueRender();
   }
 }
@@ -5239,11 +5229,10 @@ function onSidebarMessage(msg) {
  */
 export function mountSidebar(root, opts) {
   tileArea = opts.tileArea;
+  $sidebar = root;
   $tree = /** @type {HTMLElement} */ (root.querySelector('#tree'));
   $conn = root.querySelector('#conn');
-  $zenToggle = root.querySelector('#zen');
-  $zenScopeToggle = root.querySelector('#zen-scope');
-  $app = root.closest('.app');
+  $scopePicker = root.querySelector('#scope');
   $filter = /** @type {HTMLInputElement} */ (h('input', {
     class: 'sidebar-filter-input',
     type: 'search',
@@ -5260,12 +5249,16 @@ export function mountSidebar(root, opts) {
   $tree.before(h('div', { class: 'sidebar-filter' }, $filter));
   setMenuContext({
     tileArea,
-    zen: () => ({ on: sidebarState.zen, scope: sidebarState.zenScope }),
     fileTreeOf: fileTree,
     filePinned: openPinnedSection,
   });
-  $zenToggle?.addEventListener('click', toggleZen);
-  $zenScopeToggle?.addEventListener('click', toggleZenScope);
+  $scopePicker?.addEventListener('click', (e) => {
+    const option = /** @type {HTMLElement} */ (e.target).closest?.(
+      '[data-scope]',
+    );
+    if (option) setScope(/** @type {any} */ (option).dataset.scope);
+  });
+  $scopePicker?.addEventListener('keydown', scopePickerKeydown);
   // The page's URL, token included: devc-desktop's window has no address bar, and a container or
   // another browser may need it. The toast names it without showing it, since it is the token.
   root.querySelector('#copy-url')?.addEventListener('click', () => {
@@ -5317,18 +5310,9 @@ export function mountSidebar(root, opts) {
     else openNewNote();
   }, true);
 
-  // Ctrl+Alt+Z (Cmd+Alt+Z on a Mac) turns zen mode on or off, in the capture phase for the same
-  // reason.
-  document.addEventListener('keydown', (e) => {
-    if (!isZenShortcut(e, IS_MAC)) return;
-    e.preventDefault();
-    e.stopPropagation();
-    if (!e.repeat) toggleZen();
-  }, true);
-
   onServerMessage(onSidebarMessage);
   onConnectionChange(onSidebarConnection);
-  applyZen();
+  applyScope();
   renderTree();
-  return { intents: { revealInContainers, setZen, prViewed }, onViewState };
+  return { intents: { revealInContainers, prViewed }, onViewState };
 }

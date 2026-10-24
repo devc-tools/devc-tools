@@ -1,9 +1,8 @@
 // The views of `devc web`'s split pages: a `/sidebar` page and a `/main` page with the same view
 // id (the URL hash's `view`) are one view, its sidebar and its tiling area, and the server relays
 // `lib/view.js`'s contracts between them (`view_state`, `view_intent`, `sidebar_intent`). This
-// module is pure: it keeps who joined which view in which role, each view's last state and its
-// last `setZen` intent (replayed to a reloaded tiling area), and says what to send to whom; the
-// server does the sending. Nothing here is persisted. Specified in
+// module is pure: it keeps who joined which view in which role and each view's last state, and
+// says what to send to whom; the server does the sending. Nothing here is persisted. Specified in
 // `.plans/devc-web-sidebar-main-routes.md` and `.plans/devc-web-cross-page-drag.md`; tested from
 // `devc/tests/web_views_test.ts`.
 
@@ -26,8 +25,6 @@ interface View<M> {
   members: Map<M, ViewRole>;
   /** The tiling area's last `view_state`, verbatim. */
   state: Record<string, unknown> | null;
-  /** The `args` of the last `setZen` `view_intent` from a sidebar, replayed to a tiles joiner. */
-  zen: unknown[] | null;
   /** When the last member left (`now()`'s), or null while it has members. */
   emptySince: number | null;
 }
@@ -47,14 +44,14 @@ export class ViewRegistry<M> {
 
   /**
    * `member` joins `view` as `role`, leaving any view it had joined. A sidebar is sent the view's
-   * last state, if any; a tiling area, the last `setZen` intent from a sidebar, if any.
+   * last state, if any.
    */
   join(member: M, view: string, role: ViewRole): Delivery<M>[] {
     this.leave(member);
     this.#prune();
     let v = this.#views.get(view);
     if (!v) {
-      v = { members: new Map(), state: null, zen: null, emptySince: null };
+      v = { members: new Map(), state: null, emptySince: null };
       this.#views.set(view, v);
     }
     v.members.set(member, role);
@@ -64,12 +61,6 @@ export class ViewRegistry<M> {
       return [{
         to: member,
         msg: { type: 'view_state', view, state: v.state },
-      }];
-    }
-    if (role === 'tiles' && v.zen !== null) {
-      return [{
-        to: member,
-        msg: { type: 'view_intent', view, name: 'setZen', args: v.zen },
       }];
     }
     return [];
@@ -108,7 +99,6 @@ export class ViewRegistry<M> {
   ): Delivery<M>[] {
     const v = this.#memberOf(member, view, 'sidebar');
     if (!v) return [];
-    if (name === 'setZen') v.zen = args;
     return this.#to(v, 'tiles', { type: 'view_intent', view, name, args });
   }
 

@@ -386,19 +386,25 @@ is published from any container: the host server finds devcontainers with
   while one of its repo cards (or projects) matches; past repo cards, only
   what is open is searched.
   **Escape** empties the box, **↓** steps into the rows.
-- **Zen mode:** the sidebar header's corners button, a tile's menu, or
+- **Zen mode:** the corners button at the tiling area's top right (over the
+  top-right tile's header; in zen mode, shown on hover), a tile's menu, or
   **Ctrl+Alt+Z** (**⌘⌥Z** on a Mac, even while a terminal has focus) turns it
   on or off. It shows the focused tile alone, filling the tiling area with no
-  tab header or frame. The sidebar keeps **Tasks** and, under it, the focused
-  tile's container box, which holds what the scope button next to it (or a
-  tile's menu) picks, on or off: **container**, the container's other in-use
-  repo cards too, or **repo**, the focused tile's repo card alone. The
-  Containers section, the **In use** heading and pinned files are hidden. The
-  box is as tall as what it holds, up to the bottom of the
-  sidebar; past that, its cards' open sections (files, pull request, past
-  sessions) shrink alike, each scrolling on its own. Clicking a pane in the card switches the tile shown, and the sidebar
-  follows. The layout under it is kept, and comes back when zen mode is turned
-  off. Zen mode and its scope are kept across reloads.
+  tab header or frame; it follows the focus. The layout under it is kept, and
+  comes back when zen mode is turned off. Zen mode is the tiling area's alone:
+  the sidebar is left as it is. It is kept across reloads; `?zen=on` or
+  `?zen=off` in the page URL starts the page that way without saving it.
+- **Sidebar scope:** the pill in the sidebar header picks what the sidebar
+  shows: **all** (lines), everything; **container** (cube), **Tasks** and the
+  focused tile's container box with its in-use repo cards; or **repo** (card),
+  **Tasks** and the focused tile's repo card alone. Click one, or use the arrow
+  keys while it has focus. Scoped, the Containers section, the **In use**
+  heading and pinned files are hidden; the box follows the focused tile, and is
+  as tall as what it holds, up to the bottom of the sidebar; past that, its
+  cards' open sections (files, pull request, past sessions) shrink alike, each
+  scrolling on its own. Clicking a pane in the card switches the tile shown.
+  The scope is kept across reloads; `?scope=all`, `container` or `repo` in the
+  page URL starts the sidebar that way without saving it.
 - **Input:** keys go through as typed. A multi-line paste is sent as one
   bracketed paste, so a shell or agent prompt does not submit each line. Mouse
   clicks and drags go to the app (Herdr encodes them in the app's own mouse

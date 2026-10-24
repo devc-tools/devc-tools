@@ -20,6 +20,7 @@ import {
   tileShowingDiff,
   tileShowingFile,
   tileShowingPane,
+  zenFromSearch,
 } from './lib/view.js';
 import {
   createWheelAccumulator,
@@ -29,7 +30,12 @@ import {
   pixelToCell,
   wrapPaste,
 } from './lib/input.js';
-import { paneLabel, windowTitle } from './lib/sidebar.js';
+import {
+  isZenShortcut,
+  paneLabel,
+  savedZen,
+  windowTitle,
+} from './lib/sidebar.js';
 import { resolvePath } from './lib/links.js';
 import { fileView, mediaKind } from './lib/media.js';
 import { childPath } from './lib/files.js';
@@ -57,6 +63,7 @@ import {
   LABELS,
   markedText,
   openMenu,
+  svgIcon,
   toast,
   writeClipboard,
 } from './ui.js';
@@ -118,6 +125,13 @@ const OLD_LAYOUT_KEY = 'devc-web-layout-v1';
  * page had the keyboard as it went: `sessionStorage`, read once.
  */
 const FOCUS_KEY = 'devc-web-focused-tile-v1';
+/**
+ * Zen mode, `true` or `false`, per browser. The page URL's `?zen=…` (`zenFromSearch`) only sets
+ * where the page starts, and is never saved; a zen change is. With nothing saved here, the
+ * sidebar's saved state from when it held zen mode (`devc-web-sidebar-v1`'s `zen`) says.
+ */
+const ZEN_KEY = 'devc-web-zen-v1';
+const OLD_ZEN_KEY = 'devc-web-sidebar-v1';
 const RESIZE_DEBOUNCE_MS = 100;
 const DRAG_INTERVAL_MS = 50;
 /** How long a `read_selection` may go unanswered before its copy is dropped. */
@@ -161,7 +175,6 @@ const tileArea = {
     const diff = diffViews.get(id);
     if (diff) refreshDiff(diff);
   },
-  setZen: (on) => tiling?.setZen(on),
   prViewed: (ref, viewed) => showViewed(ref, viewed),
   askAgent: (id) => askAgentFrom(id),
   dragSource: (el, ref, title) =>
@@ -3127,6 +3140,55 @@ let sidebarIntents = /** @type {SidebarIntents | null} */ (null);
 /** Golden Layout's root, in the tiling area's element. */
 const $layoutRoot = h('div', { class: 'layout-root' });
 
+/** Zen mode: the focused tile alone, filling the tiling area with no header or frame. */
+let zenOn = false;
+/** The tiling area's zen button, in its top-right corner (over the top-right tile's header). */
+const $zenToggle = h('button', {
+  class: 'sidebar-toggle zen-toggle',
+  type: 'button',
+  'aria-pressed': 'false',
+  onclick: () => setZen(!zenOn),
+}, svgIcon('zen'));
+
+/** Zen mode at load: the page URL's `?zen=…` over what was saved (`ZEN_KEY`). */
+function startingZen() {
+  const asked = zenFromSearch(location.search);
+  if (asked !== null) return asked;
+  const read = (key) => {
+    try {
+      return JSON.parse(localStorage.getItem(key) ?? 'null');
+    } catch {
+      return null;
+    }
+  };
+  return savedZen(read(ZEN_KEY), read(OLD_ZEN_KEY));
+}
+
+/**
+ * Turns zen mode on or off (`layout.js`): its button, a tile's menu and Ctrl+Alt+Z. The page's
+ * `.app` gets `data-zen` (`on` or `off`), which the stylesheet reads.
+ *
+ * @param {boolean} on
+ * @param {{save?: boolean}} [opts]  `save: false` leaves what is saved as it is (the page's start)
+ */
+function setZen(on, { save = true } = {}) {
+  zenOn = on;
+  if (save) {
+    try {
+      localStorage.setItem(ZEN_KEY, JSON.stringify(on));
+    } catch { /* storage unavailable: zen mode just won't survive a reload */ }
+  }
+  const app = /** @type {HTMLElement | null} */ ($tiles.closest('.app'));
+  if (app) app.dataset.zen = on ? 'on' : 'off';
+  const label = `${on ? LABELS.zenOff : LABELS.zenOn} (${
+    IS_MAC ? 'Cmd' : 'Ctrl'
+  }+Alt+Z)`;
+  $zenToggle.setAttribute('aria-pressed', String(on));
+  $zenToggle.setAttribute('aria-label', label);
+  $zenToggle.title = label;
+  tiling?.setZen(on);
+}
+
 /**
  * A server message, as the tiling area takes it once `client.js` has applied it: reads waiting on
  * a connection, panes to open or close, frames, tab titles, its own requests' results, and the
@@ -3354,8 +3416,12 @@ export function mountTiles(root, opts) {
   $tiles = root;
   onViewChange = opts.onViewChange;
   sidebarIntents = opts.sidebar;
-  setMenuContext({ tileArea, sidebar: opts.sidebar });
-  $tiles.replaceChildren($layoutRoot, $placeholder);
+  setMenuContext({
+    tileArea,
+    sidebar: opts.sidebar,
+    zen: { on: () => zenOn, set: setZen },
+  });
+  $tiles.replaceChildren($layoutRoot, $placeholder, $zenToggle);
   tiling = createTiling($layoutRoot, {
     mount: mountTile,
     unmount: unmountTile,
@@ -3419,6 +3485,15 @@ export function mountTiles(root, opts) {
   // A live edit's reload waits for them to be saved or dropped.
   holdReloadWhile(() => [...fileViews.values()].some((view) => view.dirty));
 
+  // Ctrl+Alt+Z (Cmd+Alt+Z on a Mac) turns zen mode on or off, in the capture phase so it works
+  // while a terminal has focus: xterm.js never sees the keys (on a Mac, Option would type one).
+  document.addEventListener('keydown', (e) => {
+    if (!isZenShortcut(e, IS_MAC)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    if (!e.repeat) setZen(!zenOn);
+  }, true);
+
   window.addEventListener('focus', () => reportActivePane(true));
   onServerMessage(onTilesMessage);
   onConnectionChange(onTilesConnection);
@@ -3427,6 +3502,7 @@ export function mountTiles(root, opts) {
   restoreLayout();
   reconcileTiles();
   restoreFocus();
+  setZen(startingZen(), { save: false });
   updateWindow();
   return tileArea;
 }

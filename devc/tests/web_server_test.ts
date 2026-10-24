@@ -1322,7 +1322,6 @@ Deno.test('parseClientMessage: view_intent and sidebar_intent take a known name 
       'keepOpen',
       'save',
       'reload',
-      'setZen',
       'prViewed',
     ]
   ) {
@@ -1355,7 +1354,7 @@ Deno.test('parseClientMessage: view_intent and sidebar_intent take a known name 
       },
     },
   );
-  for (const name of ['revealInContainers', 'setZen', 'prViewed']) {
+  for (const name of ['revealInContainers', 'prViewed']) {
     assert(
       parseClientMessage(
         JSON.stringify({ type: 'sidebar_intent', view: 'v', name, args: [] }),
@@ -1376,10 +1375,12 @@ Deno.test('parseClientMessage: view_intent and sidebar_intent take a known name 
       {
         type: 'sidebar_intent',
         view: 'v',
-        name: 'setZen',
+        name: 'prViewed',
         args: [1, 2, 3, 4, 5],
       },
-      { type: 'sidebar_intent', name: 'setZen', args: ['off'] },
+      { type: 'view_intent', view: 'v', name: 'setZen', args: [true] },
+      { type: 'sidebar_intent', view: 'v', name: 'setZen', args: [{}] },
+      { type: 'sidebar_intent', name: 'prViewed', args: ['off'] },
     ]
   ) assertEquals(rejected(bad).code, 'bad_request', JSON.stringify(bad));
 });

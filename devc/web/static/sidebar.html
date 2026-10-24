@@ -13,35 +13,52 @@
         <header class="sidebar-header">
           <span class="brand">devc web</span>
           <span class="conn" id="conn" data-state="connecting">connecting</span>
-          <button
-            class="sidebar-toggle"
-            id="zen"
-            type="button"
-            aria-label="Zen mode"
-            aria-pressed="false"
-            title="Zen mode"
+          <div
+            class="scope-picker"
+            id="scope"
+            role="radiogroup"
+            aria-label="Sidebar shows"
           >
-            <svg viewBox="0 0 16 16" aria-hidden="true">
-              <path
-                d="M2.5 6V2.5H6M10 2.5h3.5V6M13.5 10v3.5H10M6 13.5H2.5V10" />
-            </svg>
-          </button>
-          <button
-            class="sidebar-toggle zen-scope"
-            id="zen-scope"
-            type="button"
-            data-scope="repo"
-            aria-label="Zen scope: repo"
-            title="Zen scope: repo"
-          >
-            <svg class="scope-container" viewBox="0 0 16 16" aria-hidden="true">
-              <path
-                d="M8 2.5l5 2.75v5.5L8 13.5l-5-2.75v-5.5zM3 5.25L8 8l5-2.75M8 8v5.5" />
-            </svg>
-            <svg class="scope-repo" viewBox="0 0 16 16" aria-hidden="true">
-              <path d="M2.5 3.5h11v9h-11zM2.5 6.5h11" />
-            </svg>
-          </button>
+            <button
+              type="button"
+              role="radio"
+              data-scope="all"
+              aria-checked="true"
+              tabindex="0"
+              aria-label="Show all"
+              title="Show all"
+            >
+              <svg viewBox="0 0 16 16" aria-hidden="true">
+                <path d="M2.5 4h11M2.5 8h11M2.5 12h11" />
+              </svg>
+            </button>
+            <button
+              type="button"
+              role="radio"
+              data-scope="container"
+              aria-checked="false"
+              tabindex="-1"
+              aria-label="Show the focused tile's container"
+              title="Show the focused tile's container"
+            >
+              <svg viewBox="0 0 16 16" aria-hidden="true">
+                <path d="M8 2.5l5 2.75v5.5L8 13.5l-5-2.75v-5.5zM3 5.25L8 8l5-2.75M8 8v5.5" />
+              </svg>
+            </button>
+            <button
+              type="button"
+              role="radio"
+              data-scope="repo"
+              aria-checked="false"
+              tabindex="-1"
+              aria-label="Show the focused tile's repo"
+              title="Show the focused tile's repo"
+            >
+              <svg viewBox="0 0 16 16" aria-hidden="true">
+                <path d="M2.5 3.5h11v9h-11zM2.5 6.5h11" />
+              </svg>
+            </button>
+          </div>
           <button
             class="sidebar-toggle"
             id="copy-url"

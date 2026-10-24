@@ -35,7 +35,6 @@ export function remoteSidebar() {
     send({ type: 'sidebar_intent', view: VIEW_ID, name, args });
   return {
     revealInContainers: (ref) => intent('revealInContainers', [ref]),
-    setZen: (change) => intent('setZen', [change]),
     prViewed: (diff, viewed) => intent('prViewed', [diff, viewed]),
   };
 }
@@ -80,14 +79,11 @@ export function serveTileArea(tileArea) {
  * `view_intent`. Rows are native drag sources (`DRAG_MIME`), dropped on another page's tiling
  * area: Golden Layout's drag can't leave its page.
  *
- * @returns {{tileArea: TileArea, setState: (state: ViewState) => void, rejoin: () => void}}
- *   `setState` keeps a relayed state; `rejoin` sends what the tiling areas should hear again
- *   after a (re)join: the zen state last asked for, if any.
+ * @returns {{tileArea: TileArea, setState: (state: ViewState) => void}}
+ *   `setState` keeps a relayed state
  */
 export function remoteTileArea() {
   let state = emptyViewState();
-  /** @type {boolean | null} */
-  let zen = null;
   /** @param {string} name @param {unknown[]} args */
   const intent = (name, args) =>
     send({ type: 'view_intent', view: VIEW_ID, name, args });
@@ -104,18 +100,11 @@ export function remoteTileArea() {
     save: (id) => intent('save', [id]),
     reload: (id) => intent('reload', [id]),
     prViewed: (diff, viewed) => intent('prViewed', [diff, viewed]),
-    setZen: (on) => {
-      zen = on;
-      intent('setZen', [on]);
-    },
     dragSource: nativeDragSource,
   };
   return {
     tileArea,
     setState: (s) => state = s,
-    rejoin: () => {
-      if (zen !== null) intent('setZen', [zen]);
-    },
   };
 }
 
@@ -152,7 +141,6 @@ export function serveSidebar(remote, sidebar) {
   onServerMessage((msg) => {
     if (msg.type === 'hello') {
       send({ type: 'view_join', view: VIEW_ID, role: 'sidebar' });
-      remote.rejoin();
       return;
     }
     const state = relayedState(msg, VIEW_ID);

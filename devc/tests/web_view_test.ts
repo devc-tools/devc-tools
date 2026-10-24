@@ -13,6 +13,7 @@ import {
   previewTileNear,
   relayedIntent,
   relayedState,
+  scopeFromSearch,
   SIDEBAR_INTENT_NAMES,
   tileMarks,
   tileShowingDiff,
@@ -160,16 +161,16 @@ Deno.test('viewIdFromHash: the hash view, else default', () => {
 Deno.test('relayedIntent and relayedState: only their view, known names', () => {
   assertEquals(
     relayedIntent(
-      { type: 'view_intent', view: 'v', name: 'setZen', args: [true] },
+      { type: 'view_intent', view: 'v', name: 'reveal', args: ['t1'] },
       'view_intent',
       'v',
       VIEW_INTENT_NAMES,
     ),
-    { name: 'setZen', args: [true] },
+    { name: 'reveal', args: ['t1'] },
   );
   assertEquals(
     relayedIntent(
-      { type: 'view_intent', view: 'w', name: 'setZen', args: [true] },
+      { type: 'view_intent', view: 'w', name: 'reveal', args: ['t1'] },
       'view_intent',
       'v',
       VIEW_INTENT_NAMES,
@@ -187,7 +188,7 @@ Deno.test('relayedIntent and relayedState: only their view, known names', () => 
   );
   assertEquals(
     relayedIntent(
-      { type: 'sidebar_intent', view: 'v', name: 'setZen', args: 'off' },
+      { type: 'sidebar_intent', view: 'v', name: 'prViewed', args: 'off' },
       'sidebar_intent',
       'v',
       SIDEBAR_INTENT_NAMES,
@@ -248,15 +249,33 @@ Deno.test('encodeDrag and parseDrag: a pane or a file round-trips; junk is null'
   ) assertEquals(parseDrag(junk), null, junk);
 });
 
-Deno.test('zenFromSearch: a scope or on/off from ?zen=, else null', () => {
-  assertEquals(zenFromSearch('?zen=container'), {
-    on: true,
-    scope: 'container',
-  });
-  assertEquals(zenFromSearch('zen=repo&x=1'), { on: true, scope: 'repo' });
-  assertEquals(zenFromSearch('?zen=on'), { on: true });
-  assertEquals(zenFromSearch('?zen=off'), { on: false });
+Deno.test('zenFromSearch: on/off from ?zen= (an old scope is on), else null', () => {
+  assertEquals(zenFromSearch('?zen=on'), true);
+  assertEquals(zenFromSearch('?zen=off'), false);
+  assertEquals(zenFromSearch('?zen=container'), true);
+  assertEquals(zenFromSearch('zen=repo&x=1'), true);
   for (const s of ['', '?', '?zen=', '?zen=terminal', '?zen=REPO', '?x=repo']) {
     assertEquals(zenFromSearch(s), null, s);
+  }
+});
+
+Deno.test('scopeFromSearch: ?scope=, else an old ?zen= scope, else null', () => {
+  assertEquals(scopeFromSearch('?scope=all'), 'all');
+  assertEquals(scopeFromSearch('scope=container&x=1'), 'container');
+  assertEquals(scopeFromSearch('?scope=repo&zen=container'), 'repo');
+  assertEquals(scopeFromSearch('?zen=container'), 'container');
+  assertEquals(scopeFromSearch('?zen=repo'), 'repo');
+  for (
+    const s of [
+      '',
+      '?',
+      '?scope=',
+      '?scope=ALL',
+      '?zen=on',
+      '?zen=off',
+      '?x=repo',
+    ]
+  ) {
+    assertEquals(scopeFromSearch(s), null, s);
   }
 });

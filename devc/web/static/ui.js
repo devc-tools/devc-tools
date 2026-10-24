@@ -194,7 +194,6 @@ export const LABELS = {
   keepOpen: 'Keep open',
   zenOn: 'Zen mode',
   zenOff: 'Leave zen mode',
-  zenScope: { container: 'Zen scope: container', repo: 'Zen scope: repo' },
   closeRequest: 'Close terminal',
   rename: 'Rename terminal',
   renamePrompt: 'Terminal name',
@@ -228,6 +227,8 @@ const ICON_PATHS = {
   play: 'M5.5 3.5v9l7-4.5z',
   stop: 'M4.5 4.5h7v7h-7z',
   project: 'M8 2.5l5 2.75v5.5L8 13.5l-5-2.75v-5.5zM3 5.25L8 8l5-2.75M8 8v5.5',
+  // Four corners: zen mode, the focused tile filling the tiling area.
+  zen: 'M2.5 6V2.5H6M10 2.5h3.5V6M13.5 10v3.5H10M6 13.5H2.5V10',
   // A window with a `>_` prompt: a shell.
   terminal: 'M2 3h12v10H2zM4.5 6.5L6.5 8l-2 1.5M8 10.5h3',
   // A robot head: an agent without a mark of its own.

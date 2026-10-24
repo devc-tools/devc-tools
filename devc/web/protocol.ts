@@ -325,7 +325,6 @@ export const VIEW_INTENT_NAMES = [
   'keepOpen',
   'save',
   'reload',
-  'setZen',
   'prViewed',
   'askAgent',
 ] as const;
@@ -333,7 +332,6 @@ export type ViewIntentName = typeof VIEW_INTENT_NAMES[number];
 /** The `SidebarIntents` methods (`static/lib/view.js`) a `sidebar_intent` may name. */
 export const SIDEBAR_INTENT_NAMES = [
   'revealInContainers',
-  'setZen',
   'prViewed',
 ] as const;
 export type SidebarIntentName = typeof SIDEBAR_INTENT_NAMES[number];

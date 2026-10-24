@@ -14,12 +14,12 @@ import {
   isSidebarToggleShortcut,
   isZenShortcut,
   labelText,
-  otherZenScope,
   paneLabel,
   paneTitle,
   repoAt,
   repoCardActive,
   repoCardKey,
+  savedScope,
   savedZen,
   settleZones,
   SIDEBAR_DEFAULT_WIDTH,
@@ -496,35 +496,30 @@ Deno.test('isZenShortcut is Ctrl+Alt+Z, Cmd+Alt+Z on a Mac', () => {
   );
 });
 
-Deno.test('savedZen reads zen mode and its scope apart', () => {
-  assertEquals(savedZen({ zen: true, zenScope: 'container' }), {
-    zen: true,
-    zenScope: 'container',
-  });
-  assertEquals(savedZen({ zen: false, zenScope: 'container' }), {
-    zen: false,
-    zenScope: 'container',
-  });
-  assertEquals(savedZen({ zen: true }), { zen: true, zenScope: 'repo' });
-  assertEquals(savedZen(null), { zen: false, zenScope: 'repo' });
-  assertEquals(savedZen({ zen: 'on', zenScope: 'x' }), {
-    zen: false,
-    zenScope: 'repo',
-  });
+Deno.test('savedScope reads the scope, else the scope zen mode was on in', () => {
+  assertEquals(savedScope({ scope: 'all' }), 'all');
+  assertEquals(savedScope({ scope: 'container', zen: 'repo' }), 'container');
+  assertEquals(savedScope({ scope: 'repo' }), 'repo');
+  assertEquals(savedScope(null), 'all');
+  assertEquals(savedScope({ scope: 'x' }), 'all');
+  // Saved while zen mode held the scope: on was its scope, off was everything.
+  assertEquals(savedScope({ zen: true, zenScope: 'container' }), 'container');
+  assertEquals(savedScope({ zen: true }), 'repo');
+  assertEquals(savedScope({ zen: false, zenScope: 'container' }), 'all');
+  assertEquals(savedScope({ zen: 'container' }), 'container');
+  assertEquals(savedScope({ zen: 'repo' }), 'repo');
+  assertEquals(savedScope({ zen: 'off' }), 'all');
 });
 
-Deno.test('savedZen reads one setting holding both: on, in that scope', () => {
-  assertEquals(savedZen({ zen: 'container' }), {
-    zen: true,
-    zenScope: 'container',
-  });
-  assertEquals(savedZen({ zen: 'repo' }), { zen: true, zenScope: 'repo' });
-  assertEquals(savedZen({ zen: 'off' }), { zen: false, zenScope: 'repo' });
-});
-
-Deno.test('otherZenScope switches container and repo', () => {
-  assertEquals(otherZenScope('container'), 'repo');
-  assertEquals(otherZenScope('repo'), 'container');
+Deno.test('savedZen reads its own setting, else the sidebar zen mode was saved in', () => {
+  assertEquals(savedZen(true, { zen: false }), true);
+  assertEquals(savedZen(false, { zen: true }), false);
+  assertEquals(savedZen(null, { zen: true }), true);
+  assertEquals(savedZen(null, { zen: 'container' }), true);
+  assertEquals(savedZen(null, { zen: 'repo' }), true);
+  assertEquals(savedZen(null, { zen: 'off' }), false);
+  assertEquals(savedZen('on', null), false);
+  assertEquals(savedZen(null, null), false);
 });
 
 Deno.test('statusCounts: each status with its count, most urgent first, agents only', () => {

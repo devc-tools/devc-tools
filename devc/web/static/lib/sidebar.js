@@ -440,31 +440,47 @@ export function isZenShortcut(e, isMac) {
     (isMac ? e.metaKey && !e.ctrlKey : e.ctrlKey && !e.metaKey);
 }
 
-/** @typedef {'container' | 'repo'} ZenScope */
-
 /**
- * Zen mode and its scope from what was saved, each on its own: `zen` on or off and `zenScope`.
- * A `zen` of `container` or `repo` (when one setting held both) is on, in that scope.
+ * What the sidebar shows (its scope picker): `all`, everything; `container`, Tasks and the focused
+ * tile's container's in-use repo cards; `repo`, Tasks and the focused tile's repo card alone.
  *
- * @param {{zen?: unknown, zenScope?: unknown} | null | undefined} saved
- * @returns {{zen: boolean, zenScope: ZenScope}}
+ * @typedef {'all' | 'container' | 'repo'} SidebarScope
  */
-export function savedZen(saved) {
-  const isScope = (v) => v === 'container' || v === 'repo';
-  const old = saved?.zen;
-  return {
-    zen: old === true || isScope(old),
-    zenScope: isScope(saved?.zenScope)
-      ? saved.zenScope
-      : isScope(old)
-      ? old
-      : 'repo',
-  };
+
+/** The sidebar's scopes, in the picker's order. @type {readonly SidebarScope[]} */
+export const SIDEBAR_SCOPES = Object.freeze(['all', 'container', 'repo']);
+
+/** @returns {v is SidebarScope} */
+export function isSidebarScope(v) {
+  return SIDEBAR_SCOPES.includes(/** @type {any} */ (v));
 }
 
-/** @param {ZenScope} scope @returns {ZenScope} the other scope */
-export function otherZenScope(scope) {
-  return scope === 'container' ? 'repo' : 'container';
+/**
+ * The sidebar's scope from what was saved: `scope`, else what was saved while zen mode held it
+ * (zen mode on, `zen` true or a scope, was that scope: `zenScope`, else `repo`; off was `all`).
+ *
+ * @param {{scope?: unknown, zen?: unknown, zenScope?: unknown} | null | undefined} saved
+ * @returns {SidebarScope}
+ */
+export function savedScope(saved) {
+  if (isSidebarScope(saved?.scope)) return saved.scope;
+  const old = saved?.zen;
+  const isOld = (v) => v === 'container' || v === 'repo';
+  if (!(old === true || isOld(old))) return 'all';
+  return isOld(saved?.zenScope) ? saved.zenScope : isOld(old) ? old : 'repo';
+}
+
+/**
+ * Zen mode as saved: its own setting, `true` or `false`, else the sidebar's saved state from when
+ * that held zen mode (`zen` true, `container` or `repo` was on).
+ *
+ * @param {unknown} own
+ * @param {{zen?: unknown} | null | undefined} sidebar
+ */
+export function savedZen(own, sidebar) {
+  if (typeof own === 'boolean') return own;
+  const old = sidebar?.zen;
+  return old === true || old === 'container' || old === 'repo';
 }
 
 /**
