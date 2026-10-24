@@ -22,6 +22,8 @@ import {
   collapseTasksState,
   containerLabel,
   dragZones,
+  filterMatches,
+  filterOutline,
   gitRollup,
   gitSync,
   inUseLabel,
@@ -215,6 +217,9 @@ let $zenToggle = /** @type {HTMLElement | null} */ (null);
 let $zenScopeToggle = /** @type {HTMLElement | null} */ (null);
 /** The page's `.app`, whose `data-zen` the stylesheet reads; null when the sidebar is not in one. */
 let $app = /** @type {HTMLElement | null} */ (null);
+/** The filter box above the zones, and what it holds ({@link applyFilter}). */
+let $filter = /** @type {HTMLInputElement | null} */ (null);
+let filterQuery = '';
 /**
  * The sidebar's three zones, each scrolling on its own: Tasks, what is in use now (In use,
  * pinned files, the Layout tree), and the containers to browse and manage; a draggable divider
@@ -891,6 +896,7 @@ function renderTree() {
     );
   }
   $tree.classList.toggle('containers-closed', !containersShown());
+  applyFilter();
   holdSections();
   floorInUseSections();
   applyZoneSizes();
@@ -1578,7 +1584,12 @@ function workspacePanes(ws, tabs, panes) {
 function containerRows(c, cards) {
   const snap = c.state === 'connected' ? snapshots.get(c.id) : undefined;
   const panes = list(snap?.panes);
-  const collapsed = sidebarState.collapsed.has(c.localFolder);
+  const shown = [...cards.values()].filter((card) =>
+    card.localFolder === c.localFolder && !card.active
+  );
+  // Folded, it opens while the filter matches one of its repo cards.
+  const collapsed = sidebarState.collapsed.has(c.localFolder) &&
+    !shown.some(cardMatchesFilter);
   const stateText = h(
     'span',
     { class: 'state', 'data-state': c.state },
@@ -1627,9 +1638,6 @@ function containerRows(c, cards) {
   );
   const rows = [head];
   if (collapsed) return [containerCard(rows, false)];
-  const shown = [...cards.values()].filter((card) =>
-    card.localFolder === c.localFolder && !card.active
-  );
   // A worktree's card goes under its repo's when that one is here too, else as a repo's.
   const mainOf = (card) => {
     const main = card.repo?.worktreeOf;
@@ -1639,7 +1647,9 @@ function containerRows(c, cards) {
   shown.forEach((card, i) => {
     const main = mainOf(card);
     if (main) {
-      if (sidebarState.worktreesClosed.has(main)) return;
+      if (
+        sidebarState.worktreesClosed.has(main) && !cardMatchesFilter(card)
+      ) return;
       const el = repoCard(card);
       el.classList.add('worktree');
       // The rail on its left runs on to the next worktree's card under the same repo's.
@@ -1847,13 +1857,16 @@ function herdrActions(c) {
 
 /** The "Not running" group: projects without a running container (`idle`). */
 function inactiveRows(idle) {
+  // Folded, it opens while the filter matches one of its projects.
+  const open = sidebarState.inactiveOpen ||
+    idle.some((p) => filterHas(containerLabel(p, projects.values())));
   const rows = [
     h(
       'div',
       {
         class: 'row group',
         style: '--depth: 0',
-        'aria-expanded': String(sidebarState.inactiveOpen),
+        'aria-expanded': String(open),
         onclick: toggleInactive,
       },
       h(
@@ -1864,7 +1877,7 @@ function inactiveRows(idle) {
       ),
     ),
   ];
-  if (!sidebarState.inactiveOpen) return [containerCard(rows, false)];
+  if (!open) return [containerCard(rows, false)];
   for (const p of idle) {
     rows.push(projectRow(p));
     if (sidebarState.projectsOpen.has(p.localFolder)) {
@@ -4086,7 +4099,7 @@ function treeKeydown(e, actions) {
     ...(/** @type {HTMLElement} */ (e.currentTarget)).querySelectorAll(
       '[data-tree-key]',
     ),
-  ]);
+  ]).filter((r) => !r.closest('.filter-hidden'));
   const i = rows.indexOf(row);
   const expanded = row.getAttribute('aria-expanded');
   switch (e.key) {
@@ -4138,6 +4151,109 @@ function treeRowByKey(container, key) {
 function refocusTreeKey(container, key) {
   if (key === null) return;
   treeRowByKey(container, key)?.focus({ preventScroll: true });
+}
+
+// ---------------------------------------------------------------------------------------------
+// Sidebar: the filter
+// ---------------------------------------------------------------------------------------------
+
+/** Boxes whose first child heads the rest: a repo's card, a container's, an In use run. */
+const HEADED_BOXES = ['repo-card', 'container-card', 'in-use-run'];
+
+/** @typedef {import('./lib/sidebar.js').OutlineNode & {el: Element, children?: any[]}} FilterNode */
+
+/**
+ * Filters the rows rendered: with a query in the filter box, each zone shows the rows whose text
+ * matches it with everything under them, and the rows above them; section headings always show.
+ * A folded row's contents are not rendered, so they are not searched.
+ */
+function applyFilter() {
+  const query = filterQuery.trim();
+  for (const el of $tree.querySelectorAll('.filter-hidden, .filter-match')) {
+    el.classList.remove('filter-hidden', 'filter-match');
+  }
+  if (!query) return;
+  /** @type {(el: Element) => number} */
+  const depthOf = (el) =>
+    Number(
+      /** @type {HTMLElement} */ (el).style.getPropertyValue('--depth'),
+    ) || 0;
+  /** @type {(el: Element) => FilterNode} */
+  const nodeOf = (el) => {
+    if (
+      el.classList.contains('row') || el.classList.contains('in-use-run-name')
+    ) {
+      const text = el.querySelector('.label')?.textContent ?? el.textContent;
+      return {
+        el,
+        depth: depthOf(el),
+        // A name being typed shows, with the rows above it.
+        matches: el.classList.contains('new-entry') ||
+          filterMatches(text ?? '', query),
+        keep: el.classList.contains('section'),
+      };
+    }
+    const first = el.querySelector('.row');
+    const depth = first ? depthOf(first) : 0;
+    if (!first) return { el, depth, matches: false };
+    const [head, ...rest] = [...el.children].map(nodeOf);
+    if (head && HEADED_BOXES.some((k) => el.classList.contains(k))) {
+      head.children = rest;
+      return { el, depth, matches: false, children: [head] };
+    }
+    return {
+      el,
+      depth,
+      matches: false,
+      children: head ? [head, ...rest] : [],
+    };
+  };
+  /** @type {(nodes: FilterNode[]) => void} */
+  const mark = (nodes) => {
+    for (const node of nodes) {
+      node.el.classList.toggle('filter-hidden', !node.shown);
+      node.el.classList.toggle('filter-match', node.matches && !node.keep);
+      mark(node.children ?? []);
+    }
+  };
+  for (const zone of [$zoneTasks, $zoneInUse, $zoneBrowse]) {
+    const nodes = [...zone.children].map(nodeOf);
+    filterOutline(nodes);
+    mark(nodes);
+  }
+}
+
+/** Whether the filter has a query, and `text` matches it. */
+function filterHas(text) {
+  return filterQuery.trim() !== '' && filterMatches(text, filterQuery);
+}
+
+/**
+ * Whether the filter matches a repo card's header (its repo's name and branch, or for the card of
+ * what is outside every repo, its container's name), so a folded row it is under opens.
+ */
+function cardMatchesFilter(card) {
+  if (!card.repo) return filterHas(containerNameOf(card.localFolder));
+  const { prefix, base } = repoGroupName(card.localFolder, card.repo);
+  return filterHas(`${prefix}${base} ${card.repo.git?.branch ?? ''}`);
+}
+
+/** Typing in the filter box filters the rows; Escape empties it, Down steps into the rows. */
+function filterKeydown(e) {
+  if (e.key === 'Escape' && $filter.value) {
+    $filter.value = '';
+    filterQuery = '';
+    renderTree();
+  } else if (e.key === 'Escape') {
+    $filter.blur();
+  } else if (e.key === 'ArrowDown') {
+    const first = [...$tree.querySelectorAll('[data-tree-key]')].find((r) =>
+      !r.closest('.filter-hidden')
+    );
+    /** @type {HTMLElement | undefined} */ (first)?.focus();
+  } else return;
+  e.preventDefault();
+  e.stopPropagation();
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -5129,6 +5245,20 @@ export function mountSidebar(root, opts) {
   $zenToggle = root.querySelector('#zen');
   $zenScopeToggle = root.querySelector('#zen-scope');
   $app = root.closest('.app');
+  $filter = /** @type {HTMLInputElement} */ (h('input', {
+    class: 'sidebar-filter-input',
+    type: 'search',
+    placeholder: LABELS.filter,
+    'aria-label': LABELS.filter,
+    spellcheck: 'false',
+    autocomplete: 'off',
+    oninput: () => {
+      filterQuery = $filter.value;
+      renderTree();
+    },
+    onkeydown: filterKeydown,
+  }));
+  $tree.before(h('div', { class: 'sidebar-filter' }, $filter));
   setMenuContext({
     tileArea,
     zen: () => ({ on: sidebarState.zen, scope: sidebarState.zenScope }),

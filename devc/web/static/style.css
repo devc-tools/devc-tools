@@ -109,7 +109,7 @@ button:hover {
   grid-row: 1;
   grid-column: 1;
   display: grid;
-  grid-template-rows: auto 1fr;
+  grid-template-rows: auto auto 1fr;
   min-height: 0;
   background: var(--panel);
 }
@@ -303,6 +303,38 @@ body.resizing-sidebar {
 
 .conn[data-state='closed'] {
   color: var(--danger);
+}
+
+/* The filter box, between the header and the zones (applyFilter). */
+.sidebar-filter {
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.sidebar-filter-input {
+  box-sizing: border-box;
+  width: 100%;
+  padding: 3px 6px;
+  font: inherit;
+  font-size: var(--font-size);
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  outline: none;
+}
+
+.sidebar-filter-input:focus {
+  border-color: var(--accent);
+}
+
+.filter-hidden {
+  display: none !important;
+}
+
+/* A row whose own text matches the filter. */
+.row.filter-match {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
 }
 
 .tree {

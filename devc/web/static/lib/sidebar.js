@@ -466,3 +466,51 @@ export function savedZen(saved) {
 export function otherZenScope(scope) {
   return scope === 'container' ? 'repo' : 'container';
 }
+
+/**
+ * A sidebar row, or a box of them, as {@link filterOutline} sees it: its indent (`--depth`),
+ * whether its own text matches, whether it always shows (a section heading), and the nodes it
+ * holds itself (a box's, or a box's heading's: the rest of its box). A node's subtree is what it
+ * holds and the deeper nodes right after it among its siblings.
+ *
+ * @typedef {{depth: number, matches: boolean, keep?: boolean, children?: OutlineNode[],
+ *   shown?: boolean}} OutlineNode
+ */
+
+/**
+ * The sidebar filter: sets each node's `shown` — a node shows when it or something it is under
+ * matches (its whole subtree shows), or when something in its subtree does (the path down to it
+ * shows). A kept node (a section heading) always shows, and a match in it shows nothing more.
+ *
+ * @param {OutlineNode[]} nodes siblings, in order
+ * @param {boolean} [inherited] whether something they are under matched
+ * @returns {boolean} whether any of them (kept ones aside) shows
+ */
+export function filterOutline(nodes, inherited = false) {
+  let any = false;
+  for (let i = 0; i < nodes.length;) {
+    const node = nodes[i];
+    let end = i + 1;
+    while (end < nodes.length && nodes[end].depth > node.depth) end++;
+    const self = inherited || (!node.keep && node.matches);
+    const inner = filterOutline(node.children ?? [], self);
+    const below = filterOutline(nodes.slice(i + 1, end), self);
+    const shown = self || inner || below;
+    node.shown = !!node.keep || shown;
+    any ||= shown;
+    i = end;
+  }
+  return any;
+}
+
+/**
+ * Whether a row's text matches the sidebar filter: every word of `query`, in any order and case.
+ *
+ * @param {string} text
+ * @param {string} query
+ */
+export function filterMatches(text, query) {
+  const lower = text.toLowerCase();
+  return query.toLowerCase().split(/\s+/).filter((w) => w)
+    .every((w) => lower.includes(w));
+}

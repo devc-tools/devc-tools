@@ -379,6 +379,13 @@ is published from any container: the host server finds devcontainers with
   ([Golden Layout](https://github.com/golden-layout/golden-layout), vendored)
   and never change Herdr's. The layout is kept in the browser's
   `localStorage`; a tile whose pane has since closed shows "Pane gone".
+- **Filter:** the box under the sidebar header filters what the sidebar shows:
+  a row whose text has every word typed (in any order and case) shows with
+  everything under it, and the rows above it; section headings always show.
+  A folded container (or **Not running**, or a repo's hidden worktrees) opens
+  while one of its repo cards (or projects) matches; past repo cards, only
+  what is open is searched.
+  **Escape** empties the box, **↓** steps into the rows.
 - **Zen mode:** the sidebar header's corners button, a tile's menu, or
   **Ctrl+Alt+Z** (**⌘⌥Z** on a Mac, even while a terminal has focus) turns it
   on or off. It shows the focused tile alone, filling the tiling area with no

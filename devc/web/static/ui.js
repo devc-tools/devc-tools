@@ -116,6 +116,8 @@ export const LABELS = {
   pinFile: 'Pin file',
   unpinFile: 'Unpin file',
   newNote: 'New note…',
+  /** The sidebar's filter box. */
+  filter: 'Filter',
   tasks: 'Tasks',
   newTask: 'New task…',
   newTaskHere: 'New task here…',

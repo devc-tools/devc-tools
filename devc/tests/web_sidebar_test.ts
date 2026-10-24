@@ -6,6 +6,8 @@ import {
   collapseTasksState,
   containerLabel,
   dragZones,
+  filterMatches,
+  filterOutline,
   gitRollup,
   gitSync,
   inUseLabel,
@@ -633,4 +635,84 @@ Deno.test('inUseLabel: what the agent is doing, else its name', () => {
     'Fix the tabs',
   );
   assertEquals(inUseLabel({ name: 'Fix the tabs', title: '' }), 'Fix the tabs');
+});
+
+type Node = {
+  name: string;
+  depth: number;
+  matches: boolean;
+  keep?: boolean;
+  children?: Node[];
+  shown?: boolean;
+};
+
+const outlineRow = (
+  name: string,
+  depth: number,
+  matches = false,
+  children?: Node[],
+): Node => ({ name, depth, matches, children });
+
+const shownNames = (nodes: Node[]): string[] =>
+  nodes.flatMap((n) => [
+    ...(n.shown ? [n.name] : []),
+    ...shownNames(n.children ?? []),
+  ]);
+
+Deno.test('filterOutline shows a match with its subtree and the rows above it', () => {
+  const nodes = [
+    outlineRow('a', 0),
+    outlineRow('a/b', 1, true),
+    outlineRow('a/b/c', 2),
+    outlineRow('a/d', 1),
+    outlineRow('e', 0),
+    outlineRow('e/f', 1),
+  ];
+  assertEquals(filterOutline(nodes), true);
+  assertEquals(shownNames(nodes), ['a', 'a/b', 'a/b/c']);
+});
+
+Deno.test('filterOutline shows nothing but kept headings when nothing matches', () => {
+  const nodes = [
+    { ...outlineRow('Tasks', 0), keep: true, matches: true },
+    outlineRow('group', 1),
+    outlineRow('task', 2),
+  ];
+  assertEquals(filterOutline(nodes), false);
+  assertEquals(shownNames(nodes), ['Tasks']);
+});
+
+Deno.test('filterOutline treats what a node holds as its subtree', () => {
+  const head = outlineRow('container', 0, false, [
+    outlineRow('repo', 0),
+    outlineRow('Files', 0),
+    outlineRow('Files/src', 1, true),
+  ]);
+  const box = outlineRow('card', 0, false, [head]);
+  const other = outlineRow('other card', 0, false, [outlineRow('x', 0)]);
+  const nodes = [box, other];
+  filterOutline(nodes);
+  assertEquals(shownNames(nodes), ['card', 'container', 'Files', 'Files/src']);
+});
+
+Deno.test('filterOutline shows all a matching heading holds', () => {
+  const head = outlineRow('repo', 0, true, [
+    outlineRow('tile', 1),
+    outlineRow('section', 1, false, [outlineRow('session', 1)]),
+  ]);
+  const nodes = [outlineRow('card', 0, false, [head])];
+  filterOutline(nodes);
+  assertEquals(shownNames(nodes), [
+    'card',
+    'repo',
+    'tile',
+    'section',
+    'session',
+  ]);
+});
+
+Deno.test('filterMatches needs every word, in any order and case', () => {
+  assertEquals(filterMatches('devc-tools main ↑1', 'MAIN devc'), true);
+  assertEquals(filterMatches('devc-tools main', 'devc feature'), false);
+  assertEquals(filterMatches('anything', '  '), true);
 });
