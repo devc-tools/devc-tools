@@ -11,23 +11,23 @@ drop across pages, and closes the zen gap phase 3 left. Phase 5 is the VS Code s
 
 ## Checklist
 
-- [x] 1. `lib/view.js`: the drag payload's MIME type, encoder and parser (pure, tested)
-- [x] 2. `/sidebar`: `remote.js`'s `dragSource` makes rows native drag sources
-- [x] 3. `tiles.js`: the tiling area accepts native drops of that payload, with a drop indicator
-- [x] 4. Server: a view's last `setZen` is replayed to a `tiles` joiner (`web/views.ts`)
-- [x] 5. Validation (below), then commit
+- [x] 1\. `lib/view.js`: the drag payload's MIME type, encoder and parser (pure, tested)
+- [x] 2\. `/sidebar`: `remote.js`'s `dragSource` makes rows native drag sources
+- [x] 3\. `tiles.js`: the tiling area accepts native drops of that payload, with a drop indicator
+- [x] 4\. Server: a view's last `setZen` is replayed to a `tiles` joiner (`web/views.ts`)
+- [x] 5\. Validation (below), then commit
 
 ## Touchpoints
 
-| File | Role |
-|---|---|
-| `devc/web/static/lib/view.js` | `DRAG_MIME`, `encodeDrag`, `parseDrag` (below). |
-| `devc/web/static/remote.js` | The `/sidebar` page's `tileArea.dragSource`: a native drag source instead of a no-op. |
-| `devc/web/static/tiles.js` | A native `dragover`/`drop` handler on the tiling area's root, for every page that mounts tiles (`/` and `/main`), and the drop indicator. |
-| `devc/web/static/style.css` | The drop indicator. |
-| `devc/web/views.ts` | Keeps each view's last `setZen` `view_intent` and replays it to a `tiles` member on `join`. |
-| `devc/tests/web_view_test.ts`, `devc/tests/web_views_test.ts` | Tests. |
-| `.plans/archived/devc-web.md` | § Views: one line on the replay. |
+| File                                                          | Role                                                                                                                                      |
+| ------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| `devc/web/static/lib/view.js`                                 | `DRAG_MIME`, `encodeDrag`, `parseDrag` (below).                                                                                           |
+| `devc/web/static/remote.js`                                   | The `/sidebar` page's `tileArea.dragSource`: a native drag source instead of a no-op.                                                     |
+| `devc/web/static/tiles.js`                                    | A native `dragover`/`drop` handler on the tiling area's root, for every page that mounts tiles (`/` and `/main`), and the drop indicator. |
+| `devc/web/static/style.css`                                   | The drop indicator.                                                                                                                       |
+| `devc/web/views.ts`                                           | Keeps each view's last `setZen` `view_intent` and replays it to a `tiles` member on `join`.                                               |
+| `devc/tests/web_view_test.ts`, `devc/tests/web_views_test.ts` | Tests.                                                                                                                                    |
+| `.plans/archived/devc-web.md`                                 | § Views: one line on the replay.                                                                                                          |
 
 `/`'s own drag (Golden Layout's, through `tiles.js`'s `tileArea.dragSource`) is unchanged.
 

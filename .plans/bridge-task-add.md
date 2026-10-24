@@ -63,13 +63,13 @@ devc-bridge task-add [--repo <path>] <text>
   `select_repo` does).
 - Exactly one argument must remain after `--repo` is taken.
 - Success: stdout is the new task's id (a UUID) plus `\n`; exit 0.
-- Errors go to stderr, prefixed `task-add: `. Exit codes:
+- Errors go to stderr, prefixed `task-add:` and one space. Exit codes:
   - `1`: not granted (from the existing `grantRefusal`, unchanged)
   - `2`: wrong arguments (usage line `usage: task-add [--repo <path>] <text>`); more than one
     line and no `--repo` (`this container has <n> pinned repos — pass --repo <path>, one of:
     <targets>`); no line at `--repo` (`no pinned repo at <path> — pinned: <targets>`); the
     selected line not granting `task-add` (`this container was not granted task-add`, plus
-    ` for <target>` when there are several lines)
+    a space and `for <target>` when there are several lines)
   - `3`: text the agent should fix: `taskText` gives null (blank, or more than 20 000 UTF-16
     code units once trimmed); a control character other than `\n` and `\t`; or the
     per-container cap reached (`20 tasks from this container are waiting; ask the user to send
@@ -102,8 +102,14 @@ The handler's docker lookup and tasks path are injectable (an optional field on 
 ### `Task.source` in `tasks.json`
 
 ```json
-{ "id": "…", "text": "…", "createdAt": "…", "localFolder": "/…", "root": "/…",
-  "source": { "kind": "agent", "key": "myrepo-1a2b3c4d" } }
+{
+  "id": "…",
+  "text": "…",
+  "createdAt": "…",
+  "localFolder": "/…",
+  "root": "/…",
+  "source": { "kind": "agent", "key": "myrepo-1a2b3c4d" }
+}
 ```
 
 - Optional; when it's absent the task was added at the page. `kind` is exactly `"agent"`; `key`

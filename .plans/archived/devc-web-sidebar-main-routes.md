@@ -14,27 +14,27 @@ drag and drop), and the VS Code extension's shell (phase 5). Don't change the CS
 
 ## Checklist
 
-- [x] 1. Protocol: the four `view_*` messages in `web/protocol.ts`, their tests, and the spec table
-- [x] 2. Server: views, relay, last state, cleanup in `web/server.ts` (pure part in a new `web/views.ts`, tested)
-- [x] 3. Server: `/sidebar` and `/main` serve `sidebar.html` and `main.html` (also under `/safe/`)
-- [x] 4. Page: remote `tileArea` and remote `SidebarIntents` over the socket
-- [x] 5. Page: `sidebar.html` + `sidebar-page.js`, `main.html` + `main-page.js`
-- [x] 6. Validation (below), then commit
+- [x] 1\. Protocol: the four `view_*` messages in `web/protocol.ts`, their tests, and the spec table
+- [x] 2\. Server: views, relay, last state, cleanup in `web/server.ts` (pure part in a new `web/views.ts`, tested)
+- [x] 3\. Server: `/sidebar` and `/main` serve `sidebar.html` and `main.html` (also under `/safe/`)
+- [x] 4\. Page: remote `tileArea` and remote `SidebarIntents` over the socket
+- [x] 5\. Page: `sidebar.html` + `sidebar-page.js`, `main.html` + `main-page.js`
+- [x] 6\. Validation (below), then commit
 
 ## Touchpoints
 
-| File | Role |
-|---|---|
-| `devc/web/protocol.ts` | Validates the new browser messages (`ClientMessage` union, `parseFields`). |
-| `devc/web/views.ts` (new) | Pure: the view registry (who joined which view in which role, the last state per view) and what to relay to whom. No sockets; tested from `devc/tests/web_views_test.ts`. |
-| `devc/web/server.ts` | Holds one registry; `handle()` routes the new messages through it; `socket.onclose` leaves the client's views; `serveStatic` maps the two routes. |
-| `devc/web/static/client.js` | Exposes what the remote halves need (`send`, `onServerMessage`, the URL's `view`). |
-| `devc/web/static/lib/view.js` | Gains the message-shaped helpers (below) if useful; stays pure. |
-| `devc/web/static/sidebar.html`, `sidebar-page.js` (new) | The `/sidebar` page: `boot.js`, then the sidebar mounted against a remote `tileArea`. |
-| `devc/web/static/main.html`, `main-page.js` (new) | The `/main` page: `boot.js`, then the tiles mounted against a remote `SidebarIntents`. |
-| `devc/web/static/style.css` | Whatever the single-half pages need to fill the window (the sidebar page has no tiles column; the main page no sidebar column). |
-| `.plans/archived/devc-web.md` | The protocol tables gain the new messages (§ "Browser ⇄ server WebSocket protocol"). |
-| `devc/tests/web_protocol_test.ts` or the existing protocol test file, `devc/tests/web_views_test.ts` (new), `devc/tests/web_server_test.ts` | Tests. |
+| File                                                                                                                                        | Role                                                                                                                                                                      |
+| ------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `devc/web/protocol.ts`                                                                                                                      | Validates the new browser messages (`ClientMessage` union, `parseFields`).                                                                                                |
+| `devc/web/views.ts` (new)                                                                                                                   | Pure: the view registry (who joined which view in which role, the last state per view) and what to relay to whom. No sockets; tested from `devc/tests/web_views_test.ts`. |
+| `devc/web/server.ts`                                                                                                                        | Holds one registry; `handle()` routes the new messages through it; `socket.onclose` leaves the client's views; `serveStatic` maps the two routes.                         |
+| `devc/web/static/client.js`                                                                                                                 | Exposes what the remote halves need (`send`, `onServerMessage`, the URL's `view`).                                                                                        |
+| `devc/web/static/lib/view.js`                                                                                                               | Gains the message-shaped helpers (below) if useful; stays pure.                                                                                                           |
+| `devc/web/static/sidebar.html`, `sidebar-page.js` (new)                                                                                     | The `/sidebar` page: `boot.js`, then the sidebar mounted against a remote `tileArea`.                                                                                     |
+| `devc/web/static/main.html`, `main-page.js` (new)                                                                                           | The `/main` page: `boot.js`, then the tiles mounted against a remote `SidebarIntents`.                                                                                    |
+| `devc/web/static/style.css`                                                                                                                 | Whatever the single-half pages need to fill the window (the sidebar page has no tiles column; the main page no sidebar column).                                           |
+| `.plans/archived/devc-web.md`                                                                                                               | The protocol tables gain the new messages (§ "Browser ⇄ server WebSocket protocol").                                                                                      |
+| `devc/tests/web_protocol_test.ts` or the existing protocol test file, `devc/tests/web_views_test.ts` (new), `devc/tests/web_server_test.ts` | Tests.                                                                                                                                                                    |
 
 ## Contracts
 
@@ -50,12 +50,12 @@ drag and drop), and the VS Code extension's shell (phase 5). Don't change the CS
 
 ### Browser → server
 
-| `type` | Fields | Server |
-|---|---|---|
-| `view_join` | `view` (id as above), `role`: `"sidebar"` \| `"tiles"` | Records the client in that view and role (a client may join once; a second `view_join` on the same socket replaces the first). A `sidebar` joiner is sent the view's last `view_state`, if any. No reply. |
-| `view_state` | `view`, `state` (a `ViewState`, below) | From a `tiles` member only (else ignored). Stored as the view's last state and sent as `view_state` to the view's `sidebar` members. No reply. |
-| `view_intent` | `view`, `name` (a `ViewIntents` method name), `args` (JSON array, ≤ 4 items) | From a `sidebar` member only. Sent as `view_intent` to the view's `tiles` members. No reply. |
-| `sidebar_intent` | `view`, `name` (a `SidebarIntents` method name), `args` (JSON array, ≤ 4 items) | From a `tiles` member only. Sent as `sidebar_intent` to the view's `sidebar` members. No reply. |
+| `type`           | Fields                                                                          | Server                                                                                                                                                                                                    |
+| ---------------- | ------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `view_join`      | `view` (id as above), `role`: `"sidebar"` \| `"tiles"`                          | Records the client in that view and role (a client may join once; a second `view_join` on the same socket replaces the first). A `sidebar` joiner is sent the view's last `view_state`, if any. No reply. |
+| `view_state`     | `view`, `state` (a `ViewState`, below)                                          | From a `tiles` member only (else ignored). Stored as the view's last state and sent as `view_state` to the view's `sidebar` members. No reply.                                                            |
+| `view_intent`    | `view`, `name` (a `ViewIntents` method name), `args` (JSON array, ≤ 4 items)    | From a `sidebar` member only. Sent as `view_intent` to the view's `tiles` members. No reply.                                                                                                              |
+| `sidebar_intent` | `view`, `name` (a `SidebarIntents` method name), `args` (JSON array, ≤ 4 items) | From a `tiles` member only. Sent as `sidebar_intent` to the view's `sidebar` members. No reply.                                                                                                           |
 
 Validation in `protocol.ts` (shape only, `bad_request` otherwise): `view` matches the id pattern;
 `role` is one of the two; `name` is in the fixed set — `view_intent`: `openPane`, `openFile`,
@@ -67,11 +67,11 @@ message is already size-capped where `/ws` frames are parsed; if it is not, cap 
 
 ### Server → browser
 
-| `type` | Fields | When |
-|---|---|---|
-| `view_state` | `view`, `state` | To a view's `sidebar` members on every `view_state` from its `tiles`, and to a `sidebar` joiner when the view has a last state. |
-| `view_intent` | `view`, `name`, `args` | Relayed to the view's `tiles` members. |
-| `sidebar_intent` | `view`, `name`, `args` | Relayed to the view's `sidebar` members. |
+| `type`           | Fields                 | When                                                                                                                            |
+| ---------------- | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| `view_state`     | `view`, `state`        | To a view's `sidebar` members on every `view_state` from its `tiles`, and to a `sidebar` joiner when the view has a last state. |
+| `view_intent`    | `view`, `name`, `args` | Relayed to the view's `tiles` members.                                                                                          |
+| `sidebar_intent` | `view`, `name`, `args` | Relayed to the view's `sidebar` members.                                                                                        |
 
 A client that closes leaves its view. A view with no members left drops its last state after 10
 minutes (so a main page that reloads keeps its sidebar's state, and dead views don't pile up).
@@ -103,7 +103,7 @@ there), JSON as is. Nothing in it is a DOM object.
 ## Concept boundaries
 
 - **`view` (id) vs file views.** `app.js` already uses "view" for `TileView`, `FileView`,
-  `DiffView`, `fileViews`, and for a file's text/media `view`. The new id is a *view id* /
+  `DiffView`, `fileViews`, and for a file's text/media `view`. The new id is a _view id_ /
   `view` field on messages only; don't reuse those names for it.
 - **`role: "tiles"` is the `/main` page.** The route is `/main` (the user's name for it); the
   module and role are `tiles`. Not `devc/main.ts`, not the git branch.

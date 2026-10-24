@@ -52,30 +52,30 @@ Method and type names are at the implementer's discretion. The split and the beh
 type EnvironmentKind = 'container' | 'host';
 
 interface EnvExec {
-  cmd: string[];                 // argv, exec'd directly (no shell)
-  cwd?: string;                  // default: container → remoteWorkspaceFolder, host → localFolder
-  env?: Record<string, string>;  // on top of the environment's own
-  interactive?: boolean;         // stdin piped (Herdr's JSON lines)
+  cmd: string[]; // argv, exec'd directly (no shell)
+  cwd?: string; // default: container → remoteWorkspaceFolder, host → localFolder
+  env?: Record<string, string>; // on top of the environment's own
+  interactive?: boolean; // stdin piped (Herdr's JSON lines)
 }
 
 interface Environment {
   readonly id: string;
   readonly kind: EnvironmentKind;
   readonly localFolder: string;
-  readonly herdrSession: string;  // container: opts.session; host: D1's name
+  readonly herdrSession: string; // container: opts.session; host: D1's name
   /** Resolves how to reach it (container: connectionFor; host: D3's login-shell probe). Again on Retry/start. */
   prepare(): Promise<void>;
-  spawn(x: EnvExec): LineProc;                                   // long-lived (bridge, controller)
-  run(x: EnvExec, input?: Uint8Array): Promise<ExecOutput>;      // one-shot, bytes out
-  runDetached(x: EnvExec): Promise<ExecOutput>;                  // `herdr server`
-  loginShell(script: string, ...args: string[]): string[];       // argv running `script` in a login shell
-  herdrPath(): Promise<string>;                                  // absolute, or '' when none
+  spawn(x: EnvExec): LineProc; // long-lived (bridge, controller)
+  run(x: EnvExec, input?: Uint8Array): Promise<ExecOutput>; // one-shot, bytes out
+  runDetached(x: EnvExec): Promise<ExecOutput>; // `herdr server`
+  loginShell(script: string, ...args: string[]): string[]; // argv running `script` in a login shell
+  herdrPath(): Promise<string>; // absolute, or '' when none
   home(): Promise<string | null>;
   /** The path map. Container: its mount table. Host: [{type:'bind', source:'/', destination:'/'}]. */
   mounts(): Promise<ContainerMount[]>;
   /** Host folders `mountedRepos` looks for repos in, besides localFolder. */
   repoSources(): Promise<string[]>;
-  files: EnvFiles;   // list / read / readBytes / create / rename / delete / write / writeText, today's FilesError codes
+  files: EnvFiles; // list / read / readBytes / create / rename / delete / write / writeText, today's FilesError codes
   /** Live Claude processes: which session id runs in which Herdr pane (D8). */
   runningAgents(): Promise<RunningSession[]>;
   /** The page's PR review for this environment's repos (D10). */
@@ -85,18 +85,30 @@ interface Environment {
 
 interface PrBackend {
   /** The repo at host folder `root` as a pinned line (`target`, `grants`), or why there is none. */
-  pin(root: string): Promise<{ target: string; grants: BridgeCapability[] } | { problem: string }>;
+  pin(
+    root: string,
+  ): Promise<
+    { target: string; grants: BridgeCapability[] } | { problem: string }
+  >;
   /** `<command> --repo <target> …args`, the built-in recipe, under today's `runBridge` limits. */
-  run(command: string, target: string, args: string[], limits: RunLimits): Promise<BridgeRun>;
+  run(
+    command: string,
+    target: string,
+    args: string[],
+    limits: RunLimits,
+  ): Promise<BridgeRun>;
 }
 
 interface EnvironmentSource {
   readonly kind: EnvironmentKind;
-  start(hooks: DiscoveryHooks): void;  // onAdd(env) / onRemove(id) / onStoppedChange / onLaunch(id) / onError
+  start(hooks: DiscoveryHooks): void; // onAdd(env) / onRemove(id) / onStoppedChange / onLaunch(id) / onError
   stop(): void;
   refresh(): Promise<void>;
   stopped(): ReadonlyMap<string, { id: string; localFolder: string }>;
-  startProject(localFolder: string, onLine: (line: string) => void): Promise<void>;
+  startProject(
+    localFolder: string,
+    onLine: (line: string) => void,
+  ): Promise<void>;
   stopProject(localFolder: string): Promise<boolean>;
   downProject?(localFolder: string): Promise<boolean>;
 }
@@ -245,13 +257,14 @@ included, through the bridge connection D2 already moves onto `Environment`.
 once at the top of the script: `if stat -c %Y / >/dev/null 2>&1; then mt() { stat -c '%Y %n'
 "$@"; }; else mt() { stat -f '%m %N' "$@"; }; fi`, and use `mt` everywhere. **Gotcha:** do not
 chain `stat -c … || stat -f …`. GNU `stat` exits non-zero when any one glob match is missing, and
-GNU `stat -f` means *filesystem* status, which would print junk lines.
+GNU `stat -f` means _filesystem_ status, which would print junk lines.
 
 **Running sessions** (`runningAgents()`): which past Claude session is open in which pane, for
 Past sessions' running mark and for resume focusing that pane instead of starting a second
 `claude --resume`. Today's `RUNNING_SCRIPT` reads `/proc`, which exists only on Linux, so it moves
 behind `Environment.runningAgents()`, with the same `R <session id> <HERDR_SESSION>
 <HERDR_PANE_ID>` lines and parser:
+
 - **Container, and a Linux host:** today's `RUNNING_SCRIPT`, unchanged.
 - **macOS host:** the same loop over `$CLAUDE_CONFIG_DIR/sessions/*.json` (default
   `~/.claude/sessions`).
@@ -267,6 +280,7 @@ behind `Environment.runningAgents()`, with the same `R <session id> <HERDR_SESSI
 ### D9 — Not blocking SSH (design check only)
 
 An SSH environment later would be a third implementation:
+
 - `spawn` / `run` wrap argv as `ssh <dest> -- <quoted argv>`.
 - `mounts()` gives `[]`, so every host-path feature already falls back to its `not_mounted` /
   `null` path.

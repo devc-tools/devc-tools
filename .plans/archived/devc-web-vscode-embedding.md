@@ -10,19 +10,19 @@ Code webviews, and only them, frame the two split pages. Small and independent o
 
 ## Checklist
 
-- [x] 1. `securityHeaders` takes the request's path; `/sidebar` and `/main` (and their `/safe/`
+- [x] 1\. `securityHeaders` takes the request's path; `/sidebar` and `/main` (and their `/safe/`
       forms) get `frame-ancestors vscode-webview:`; everything else keeps `'none'`
-- [x] 2. Tests in `devc/tests/web_server_test.ts`
-- [x] 3. Spec note in `.plans/archived/devc-web.md` (§ Views, or where the CSP is described)
-- [x] 4. Validation (below), then commit
+- [x] 2\. Tests in `devc/tests/web_server_test.ts`
+- [x] 3\. Spec note in `.plans/archived/devc-web.md` (§ Views, or where the CSP is described)
+- [x] 4\. Validation (below), then commit
 
 ## Touchpoints
 
-| File | Role |
-|---|---|
-| `devc/web/server.ts` | `securityHeaders(port)` gains the path (or a `framable: boolean`); `serveStatic` passes it. |
-| `devc/tests/web_server_test.ts` | The headers per path. |
-| `.plans/archived/devc-web.md` | One line: which pages may be framed, by whom, and why. |
+| File                            | Role                                                                                        |
+| ------------------------------- | ------------------------------------------------------------------------------------------- |
+| `devc/web/server.ts`            | `securityHeaders(port)` gains the path (or a `framable: boolean`); `serveStatic` passes it. |
+| `devc/tests/web_server_test.ts` | The headers per path.                                                                       |
+| `.plans/archived/devc-web.md`   | One line: which pages may be framed, by whom, and why.                                      |
 
 ## Contracts
 

@@ -10,27 +10,27 @@ behave exactly as it does now. Phase 3 is
 
 ## Checklist
 
-- [x] 1. `static/ui.js`: the DOM helpers and widgets both halves use
-- [x] 2. `static/client.js`: the server connection and the server's data
-- [x] 3. `lib/view.js` gains `SidebarIntents`; the tiling area calls the sidebar only through it
-- [x] 4. `static/tiles.js`: the tiling area, exporting `mountTiles`
-- [x] 5. `static/sidebar.js`: the sidebar, exporting `mountSidebar`
-- [x] 6. `static/app.js` becomes the composer for `/`
-- [x] 7. A source test that the halves stay apart
-- [x] 8. Validation (below), then commit
+- [x] 1\. `static/ui.js`: the DOM helpers and widgets both halves use
+- [x] 2\. `static/client.js`: the server connection and the server's data
+- [x] 3\. `lib/view.js` gains `SidebarIntents`; the tiling area calls the sidebar only through it
+- [x] 4\. `static/tiles.js`: the tiling area, exporting `mountTiles`
+- [x] 5\. `static/sidebar.js`: the sidebar, exporting `mountSidebar`
+- [x] 6\. `static/app.js` becomes the composer for `/`
+- [x] 7\. A source test that the halves stay apart
+- [x] 8\. Validation (below), then commit
 
 ## Touchpoints
 
-| File | Role after this plan |
-|---|---|
-| `devc/web/static/app.js` | The composer for `/`: imports `client.js`, `tiles.js`, `sidebar.js`; owns what only the combined page has (the sidebar resizer, the hide-sidebar button and Cmd+B, `sidebarState.width`/`hidden`). Small. |
-| `devc/web/static/ui.js` (new) | `h`, toasts, menus (`openMenu`, `openMenuAt`, `closeMenu`), `confirmDialog`, `promptDialog`, icons (`ICON_PATHS`, `svgIcon`, `iconButton`, `rowIcon`), `LABELS`, `IS_MAC`, `markBooted`, row helpers both halves' menus use (`rowTrail`, `hoverActions`, `markedText`), `writeClipboard`. |
-| `devc/web/static/client.js` (new) | The `/ws` connection (`connect`, `send`, `call`, `request`, reconnect, `hello`/live reload, `/safe/` banner), the server's data (`containers`, `snapshots`, `projects`, pinned files, tasks, jira config, usage, bridge status) and the pure-ish lookups over it (`containerByFolder`, `findPane`, `resolveRef`, `projectRepos`, `paneRepo`, `activeRepo`, `tileRepo`, …). |
-| `devc/web/static/tiles.js` (new) | The tiling area: file tiles, diff tiles, pane tiles, layout persistence, preview tiles, `viewState`/`viewChanged`, the tile keyboard shortcuts (Ctrl/⌘+S), the window title and `active_pane` reporting. |
-| `devc/web/static/sidebar.js` (new) | Every `// Sidebar…` section of today's `app.js`, the task and new-note dialogs, the "Add project…" folder picker, and the Ctrl+Alt+N and Ctrl+Alt+Z shortcuts. |
-| `devc/web/static/lib/view.js` | Gains the `SidebarIntents` typedef (below). Stays pure. |
-| `devc/web/static/index.html` | Unchanged markup; still loads `boot.js` then `app.js`. |
-| `devc/tests/web_page_split_test.ts` (new) | The source test of step 7. |
+| File                                      | Role after this plan                                                                                                                                                                                                                                                                                                                                                       |
+| ----------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `devc/web/static/app.js`                  | The composer for `/`: imports `client.js`, `tiles.js`, `sidebar.js`; owns what only the combined page has (the sidebar resizer, the hide-sidebar button and Cmd+B, `sidebarState.width`/`hidden`). Small.                                                                                                                                                                  |
+| `devc/web/static/ui.js` (new)             | `h`, toasts, menus (`openMenu`, `openMenuAt`, `closeMenu`), `confirmDialog`, `promptDialog`, icons (`ICON_PATHS`, `svgIcon`, `iconButton`, `rowIcon`), `LABELS`, `IS_MAC`, `markBooted`, row helpers both halves' menus use (`rowTrail`, `hoverActions`, `markedText`), `writeClipboard`.                                                                                  |
+| `devc/web/static/client.js` (new)         | The `/ws` connection (`connect`, `send`, `call`, `request`, reconnect, `hello`/live reload, `/safe/` banner), the server's data (`containers`, `snapshots`, `projects`, pinned files, tasks, jira config, usage, bridge status) and the pure-ish lookups over it (`containerByFolder`, `findPane`, `resolveRef`, `projectRepos`, `paneRepo`, `activeRepo`, `tileRepo`, …). |
+| `devc/web/static/tiles.js` (new)          | The tiling area: file tiles, diff tiles, pane tiles, layout persistence, preview tiles, `viewState`/`viewChanged`, the tile keyboard shortcuts (Ctrl/⌘+S), the window title and `active_pane` reporting.                                                                                                                                                                   |
+| `devc/web/static/sidebar.js` (new)        | Every `// Sidebar…` section of today's `app.js`, the task and new-note dialogs, the "Add project…" folder picker, and the Ctrl+Alt+N and Ctrl+Alt+Z shortcuts.                                                                                                                                                                                                             |
+| `devc/web/static/lib/view.js`             | Gains the `SidebarIntents` typedef (below). Stays pure.                                                                                                                                                                                                                                                                                                                    |
+| `devc/web/static/index.html`              | Unchanged markup; still loads `boot.js` then `app.js`.                                                                                                                                                                                                                                                                                                                     |
+| `devc/tests/web_page_split_test.ts` (new) | The source test of step 7.                                                                                                                                                                                                                                                                                                                                                 |
 
 Where a function lands is the agent's call within these rules:
 
