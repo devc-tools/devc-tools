@@ -133,6 +133,14 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
   terminals always show; toggles add its past sessions, PR and file tree. The container tabs go:
   a container card keeps its header and gains a Files row.
 
+- [bridge-task-add](bridge-task-add.md) — agents add tasks to devc web's list through a new
+  host-granted devc-bridge built-in, `devc-bridge task-add [--repo <path>] <text>` (capability
+  `task-add`, not part of `gh`). The task store moves to `devc-core/tasks.ts` and the bridge
+  appends the task itself (its first native built-in, no script, never runs devc), routed to the
+  policy line's repo, marked `source: {kind: 'agent', key}` (🤖 on the page), and capped at 20
+  unsent per container. Add only: queueing and sending stay with the person. A lock file
+  serializes `tasks.json` writes between devc web and the bridge.
+
 ### Completed
 
 - ✅ Done — [devc-web-cross-page-drag](archived/devc-web-cross-page-drag.md) — phase 4: rows dragged from a
@@ -2477,3 +2485,4 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
 | devc web cross-page drag — `/sidebar` rows dragged natively into `/main`; zen replayed to a reloaded `/main`       | [devc-web-cross-page-drag](archived/devc-web-cross-page-drag.md)                   | complete    |
 | devc web PR review depth — side placement, viewed history + changes since viewed, pending reviews                  | [devc-web-pr-review-depth](devc-web-pr-review-depth.md)                            | in progress |
 | devc web host environments — an environment seam; projects on this machine beside devcontainers, Docker optional     | [devc-web-host-environments](devc-web-host-environments.md)                        |             |
+| Bridge task-add — agents add (never queue or send) devc web tasks via a granted `task-add` built-in                | [bridge-task-add](bridge-task-add.md)                                              |             |
