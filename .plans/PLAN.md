@@ -141,6 +141,31 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
   unsent per container. Add only: queueing and sending stay with the person. A lock file
   serializes `tasks.json` writes between devc web and the bridge.
 
+- [devc-web-lsp-core](devc-web-lsp-core.md) — language intelligence for devc web's file editor,
+  language-agnostic part: `@codemirror/lsp-client` in the viewer, `lsp_*` messages, and a host-side
+  multiplexer that is the one LSP client of each server in the container (cached `initialize`,
+  full-text sync, id remapping, pull→push diagnostics). Host-side `Deno.watchFs` feeds
+  `workspace/didChangeWatchedFiles`. It defines the `devc-lsp-<language> describe|serve`
+  launcher contract the language Features implement. Servers start on file open and stop after
+  30 idle minutes.
+
+- [devc-web-lsp-typescript](devc-web-lsp-typescript.md) — after devc-web-lsp-core: a
+  `typescript-lsp` Feature (private Node, vtsls 0.3.0) whose launcher picks `deno lsp` under a
+  `deno.json`, the workspace's own TypeScript ≥ 7 (`tsc --lsp`), or vtsls on the workspace's
+  TypeScript (bundled 5.9.3 without one), rooted at the topmost project marker.
+
+- [devc-web-lsp-python](devc-web-lsp-python.md) — after devc-web-lsp-core: a `python-lsp`
+  Feature (private Node, basedpyright 1.40.2) rooted at the **nearest** `pyproject.toml` /
+  `setup.py` / `setup.cfg`, so a non-editable installed copy is never what definitions open;
+  interpreter from the `python` option, then `.venv`, `$VIRTUAL_ENV`, `python3`.
+
+- [devc-web-lsp-java](devc-web-lsp-java.md) — after the TypeScript and Python plans: a
+  `java-lsp` Feature (JDT LS 1.63.0 on a private JDK 25) that writes nothing into the repo
+  (autobuild off, the `-Djava.import.generatesMetadataFilesAtProjectRoot=false` JVM flag, an
+  init script restoring `compileOnly` project deps and generated source folders), plus
+  IntelliJ-style **Build (Gradle)** / **Reload Gradle project** actions, automatic reload when
+  generated-source folders appear, and read-only `jdt:` class tiles.
+
 ### Completed
 
 - ✅ Done — [devc-web-cross-page-drag](archived/devc-web-cross-page-drag.md) — phase 4: rows dragged from a
@@ -2484,5 +2509,9 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
 | devc mount preflight — bind mounts checked before the image build, right after `initializeCommand`                 | [devc-mount-preflight](devc-mount-preflight.md)                                    |             |
 | devc web cross-page drag — `/sidebar` rows dragged natively into `/main`; zen replayed to a reloaded `/main`       | [devc-web-cross-page-drag](archived/devc-web-cross-page-drag.md)                   | complete    |
 | devc web PR review depth — side placement, viewed history + changes since viewed, pending reviews                  | [devc-web-pr-review-depth](devc-web-pr-review-depth.md)                            | in progress |
-| devc web host environments — an environment seam; projects on this machine beside devcontainers, Docker optional     | [devc-web-host-environments](devc-web-host-environments.md)                        |             |
+| devc web host environments — an environment seam; projects on this machine beside devcontainers, Docker optional   | [devc-web-host-environments](devc-web-host-environments.md)                        |             |
 | Bridge task-add — agents add (never queue or send) devc web tasks via a granted `task-add` built-in                | [bridge-task-add](bridge-task-add.md)                                              |             |
+| devc web language servers — core: lsp-client, host multiplexer, file watching, launcher contract                   | [devc-web-lsp-core](devc-web-lsp-core.md)                                          |             |
+| devc web language servers — TypeScript: `typescript-lsp` Feature (deno lsp / TS 7 / vtsls by repo)                 | [devc-web-lsp-typescript](devc-web-lsp-typescript.md)                              |             |
+| devc web language servers — Python: `python-lsp` Feature (basedpyright, nearest-project root)                      | [devc-web-lsp-python](devc-web-lsp-python.md)                                      |             |
+| devc web language servers — Java: `java-lsp` Feature (JDT LS, no repo writes, Gradle build/reload actions)         | [devc-web-lsp-java](devc-web-lsp-java.md)                                          |             |

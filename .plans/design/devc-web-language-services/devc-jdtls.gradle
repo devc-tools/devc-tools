@@ -1,0 +1,40 @@
+// Init script for JDT LS imports of deephaven-core (probe):
+//  1. class output under build/ instead of <project>/bin
+//  2. restore project deps the Eclipse model drops (compileOnly / compileOnlyApi)
+//  3. add annotation-processor output dirs (Gradle-generated) as source folders
+import org.gradle.api.artifacts.component.ProjectComponentIdentifier
+import org.gradle.plugins.ide.eclipse.model.ProjectDependency
+import org.gradle.plugins.ide.eclipse.model.SourceFolder
+
+allprojects { p ->
+    p.plugins.withId('java') {
+        p.apply plugin: 'eclipse'
+        p.eclipse.classpath.defaultOutputDir = p.file('build/jdtls-bin/default')
+        p.eclipse.classpath.file.whenMerged { cp ->
+            cp.entries.findAll { it.kind == 'src' && it.hasProperty('output') && it.output?.startsWith('bin/') }.each {
+                it.output = 'build/jdtls-bin/' + it.output.substring(4)
+            }
+            def have = cp.entries.findAll { it instanceof ProjectDependency }*.path as Set
+            ['compileClasspath', 'testCompileClasspath'].each { cn ->
+                def c = p.configurations.findByName(cn)
+                if (c == null) return
+                c.incoming.resolutionResult.allComponents
+                    .collect { it.id }.findAll { it instanceof ProjectComponentIdentifier && it.projectPath != p.path }
+                    .each { id ->
+                        def name = '/' + p.rootProject.project(id.projectPath).eclipse.project.name
+                        if (!have.contains(name)) { cp.entries.add(new ProjectDependency(name)); have << name }
+                    }
+            }
+            [['out/production/classes/generated', 'main'], ['out/test/classes/generated_tests', 'test'],
+             ['build/generated/sources/annotationProcessor/java/main', 'main'],
+             ['build/generated/sources/annotationProcessor/java/test', 'test']].each { dir, scope ->
+                if (p.file(dir).isDirectory() && !cp.entries.any { it.kind == 'src' && it.path == dir }) {
+                    def sf = new SourceFolder(dir, 'build/jdtls-bin/' + scope)
+                    if (scope == 'test') sf.entryAttributes['test'] = 'true'
+                    sf.entryAttributes['optional'] = 'true'
+                    cp.entries.add(sf)
+                }
+            }
+        }
+    }
+}
