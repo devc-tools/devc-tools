@@ -671,23 +671,24 @@ function sectionLoading(box) {
   return box.querySelector(':scope > .tree-note[data-note="loading"]') !== null;
 }
 
-/** The least an open card section in In use's one box shrinks to: six rows, or all of it. */
+/** The least an open card section in In use shrinks to: six rows, or all of it. */
 const SECTION_MIN_HEIGHT = 6 * 27;
 
 /**
- * Keeps In use's one box (style.css `.one-run`) from squeezing an open section to nothing: each
- * card with one is held to its rows plus SECTION_MIN_HEIGHT of each section, and the box to its
- * cards' floors (not their heights now: the window may shrink). Past that the box runs taller
+ * Keeps In use's boxes (style.css `.in-use-run`) from squeezing an open section to nothing: each
+ * card with one is held to its rows plus SECTION_MIN_HEIGHT of each section, and each box to its
+ * cards' floors (not their heights now: the window may shrink). Past that the boxes run taller
  * than the zone, which scrolls. CSS can't say this: a card's floor from its content is all of
  * its content.
  */
 function floorInUseSections() {
-  const run = $zoneInUse.classList.contains('one-run')
-    ? /** @type {HTMLElement | null} */ ($zoneInUse.querySelector(
-      '.in-use-run',
-    ))
-    : null;
-  if (run === null) return;
+  for (const el of $zoneInUse.querySelectorAll(':scope > .in-use-run')) {
+    floorRunSections(/** @type {HTMLElement} */ (el));
+  }
+}
+
+/** @param {HTMLElement} run */
+function floorRunSections(run) {
   const cards = [...run.querySelectorAll(':scope > .repo-card')].map((
     el,
   ) => /** @type {HTMLElement} */ (el)).filter((card) =>
@@ -877,11 +878,6 @@ function renderTree() {
     if (idle.length > 0) rows.push(...inactiveRows(idle));
   }
   $zoneInUse.replaceChildren(...upper);
-  // One container's box (always so in zen mode) grows to fit its open sections (style.css).
-  $zoneInUse.classList.toggle(
-    'one-run',
-    upper.filter((row) => row.classList.contains('in-use-run')).length === 1,
-  );
   $zoneTasks.replaceChildren(...taskRows());
   $zoneBrowse.replaceChildren(...(zen ? [] : rows));
   $zoneBrowse.hidden = zen;

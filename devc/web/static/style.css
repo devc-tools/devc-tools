@@ -446,7 +446,8 @@ body.resizing-zones {
   margin-bottom: 0;
 }
 
-/* A repo card, in In use or in its container's card: its rows flush with its own (no chevrons). */
+/* A repo card, in In use or in its container's card: its rows flush with its own (no chevrons),
+   a section's nested folders indented from there. */
 .repo-card {
   --card-bg: #151d28;
   padding: 2px;
@@ -463,7 +464,7 @@ body.resizing-zones {
 
 .repo-card .row {
   --row-bg: var(--card-bg);
-  padding-left: 6px;
+  padding-left: calc(6px + max(0, var(--depth, 0) - 1) * 12px);
 }
 
 /* An open section (past sessions, pull request, files) scrolls within the card past a cap. */
@@ -590,31 +591,36 @@ body.resizing-zones {
 }
 
 /*
- * In use holding one container's box (always so in zen mode): the box as tall as what it holds,
- * and no taller than the zone. Past that, its cards shrink, and their open sections with them (no
- * cap of their own here), each section scrolling on its own.
+ * In use's container boxes, each as tall as what it holds, together no taller than the zone. Past
+ * that, the boxes with an open section shrink, and their cards and open sections with them (no cap
+ * of their own here), each section scrolling on its own.
  */
-.zone-in-use.one-run {
+.zone-in-use {
   display: flex;
   flex-direction: column;
 }
 
-.zone-in-use.one-run > * {
+.zone-in-use > * {
   flex: none;
 }
 
-.zone-in-use.one-run > .in-use-run {
+.zone-in-use > .in-use-run {
   display: flex;
   flex: 0 1 auto;
   flex-direction: column;
   min-height: 0;
 }
 
-.zone-in-use.one-run .in-use-run > * {
+/* A box with no section open keeps its height: only the boxes with one shrink. */
+.zone-in-use > .in-use-run:not(:has(> .repo-card > .card-section)) {
+  flex-shrink: 0;
+}
+
+.zone-in-use .in-use-run > * {
   flex: none;
 }
 
-.zone-in-use.one-run .in-use-run > .repo-card {
+.zone-in-use .in-use-run > .repo-card {
   display: flex;
   flex: 0 1 auto;
   flex-direction: column;
@@ -623,15 +629,15 @@ body.resizing-zones {
 }
 
 /* With a card's section open, the cards with none keep their height: only the open one shrinks. */
-.zone-in-use.one-run .in-use-run:has(> .repo-card > .card-section) > .repo-card:not(:has(> .card-section)) {
+.zone-in-use .in-use-run:has(> .repo-card > .card-section) > .repo-card:not(:has(> .card-section)) {
   flex-shrink: 0;
 }
 
-.zone-in-use.one-run .repo-card > * {
+.zone-in-use .in-use-run > .repo-card > * {
   flex: none;
 }
 
-.zone-in-use.one-run .repo-card > .card-section {
+.zone-in-use .in-use-run > .repo-card > .card-section {
   flex: 0 1 auto;
   min-height: 0;
   max-height: none;
