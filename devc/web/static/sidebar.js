@@ -3170,7 +3170,10 @@ function taskSelectionRow() {
   );
 }
 
-/** Tasks ticked in the Tasks section, for queueing; this page's own, forgotten on reload. */
+/**
+ * Tasks ticked in the Tasks section, in the order ticked (their queue order), for queueing; this
+ * page's own, forgotten on reload.
+ */
 const selectedTasks = new Set();
 
 /** Ticks or unticks task `id`. */
@@ -3196,7 +3199,7 @@ function selectTaskGroup(group) {
 }
 
 /**
- * Queues the selected routed tasks (`queue_tasks`), in list order, to be sent as `action` to the
+ * Queues the selected routed tasks (`queue_tasks`), in the order they were ticked, to be sent as `action` to the
  * agent a row's send uses, and clears the selection.
  *
  * @param {'plan' | 'implement'} action

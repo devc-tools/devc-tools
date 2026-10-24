@@ -208,7 +208,7 @@ Deno.test("queuePlaces numbers each repo's queue by queuedAt", () => {
   );
 });
 
-Deno.test('queueableTasks: selected routed tasks not waiting in a queue', () => {
+Deno.test('queueableTasks: selected routed tasks not waiting in a queue, in tick order', () => {
   const queued = {
     action: 'plan' as const,
     agent: 'claude' as const,
@@ -224,5 +224,9 @@ Deno.test('queueableTasks: selected routed tasks not waiting in a queue', () => 
   assertEquals(
     queueableTasks(list, new Set(['a', 'b', 'c', 'd'])).map((t) => t.id),
     ['a', 'c'],
+  );
+  assertEquals(
+    queueableTasks(list, new Set(['e', 'x', 'c', 'a'])).map((t) => t.id),
+    ['e', 'c', 'a'],
   );
 });

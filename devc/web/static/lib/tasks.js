@@ -148,15 +148,16 @@ export function queuePlaces(tasks) {
 }
 
 /**
- * The selected tasks that can be queued, in list order: routed ones not already waiting in a
- * queue (a failed one can be queued again).
+ * The selected tasks that can be queued, in the order they were ticked: routed ones not already
+ * waiting in a queue (a failed one can be queued again).
  *
  * @param {Task[]} tasks @param {Set<string>} selected
  * @returns {Task[]}
  */
 export function queueableTasks(tasks, selected) {
-  return tasks.filter((t) =>
-    selected.has(t.id) && t.localFolder !== undefined &&
+  const byId = new Map(tasks.map((t) => [t.id, t]));
+  return [...selected].map((id) => byId.get(id)).filter((t) =>
+    t !== undefined && t.localFolder !== undefined &&
     (!t.queued || t.queued.error !== undefined)
   );
 }
