@@ -71,22 +71,37 @@ export function parsePatch(patch) {
 }
 
 /**
- * Where each thread goes: after the row with its `line` as the **new-file** number (an added or
- * context row), keyed `<hunk index>:<row index>`; in `file` (the File threads block) when its
- * `line` is `null` or matches no row. `gh-pr-comments` gives no diff side, so a thread on a
- * deleted line can land on the wrong row.
+ * A thread's place as {@link placeThreads} and {@link threadRows} read it: `line` on `diffSide`
+ * (`LEFT` counts the old file's numbers, anything else the new file's), a block from `startLine`
+ * on `startDiffSide` (`diffSide` when unset), and `subjectType: 'FILE'` for the whole file.
  *
- * @template {{line: number | null}} T
+ * @typedef {{line: number | null, startLine?: number | null, diffSide?: string,
+ *   startDiffSide?: string | null, subjectType?: string}} ThreadPlace
+ */
+
+/** The row field a side's line numbers are in. @param {string | null | undefined} side */
+function sideField(side) {
+  return side === 'LEFT' ? 'old' : 'new';
+}
+
+/**
+ * Where each thread goes: after the last row whose number on its side is its `line` — a `LEFT`
+ * thread's by the **old-file** number (a deleted or context row), any other's by the **new-file**
+ * number (an added or context row) — keyed `<hunk index>:<row index>`; in `file` (the File
+ * threads block) when it is a file comment, its `line` is `null`, or it matches no row.
+ *
+ * @template {ThreadPlace} T
  * @param {ParsedPatch | null} parsed
  * @param {T[]} threads
  * @returns {{rows: Map<string, T[]>, file: T[]}}
  */
 export function placeThreads(parsed, threads) {
-  /** @type {Map<number, string>} */
-  const byNew = new Map();
+  /** @type {{old: Map<number, string>, new: Map<number, string>}} */
+  const by = { old: new Map(), new: new Map() };
   parsed?.hunks.forEach((h, hi) =>
     h.rows.forEach((r, ri) => {
-      if (r.new !== null && !byNew.has(r.new)) byNew.set(r.new, `${hi}:${ri}`);
+      if (r.old !== null) by.old.set(r.old, `${hi}:${ri}`);
+      if (r.new !== null) by.new.set(r.new, `${hi}:${ri}`);
     })
   );
   /** @type {Map<string, T[]>} */
@@ -94,7 +109,9 @@ export function placeThreads(parsed, threads) {
   /** @type {T[]} */
   const file = [];
   for (const t of threads) {
-    const key = t.line === null ? undefined : byNew.get(t.line);
+    const key = t.line === null || t.subjectType === 'FILE'
+      ? undefined
+      : by[sideField(t.diffSide)].get(t.line);
     if (key === undefined) file.push(t);
     else rows.set(key, [...(rows.get(key) ?? []), t]);
   }
@@ -386,31 +403,246 @@ function markRange(spans, from, to) {
 }
 
 /**
- * The rows a thread is on, as {@link placeThreads} keys: those whose new-file number is from its
- * `startLine` (its `line` when it has none) to its `line`, and the deleted rows between two of
- * them in a hunk. None for a thread with no `line`, or whose lines the patch doesn't show.
+ * The rows a thread is on, as {@link placeThreads} keys: from the first row whose number on the
+ * start side (`startDiffSide`, else `diffSide`) is at least its `startLine` (its `line` when it
+ * has none) to the last row whose number on its side is at most its `line`, notes left out. On
+ * one side that is the rows numbered `startLine`–`line` there and the other side's rows between
+ * them. None for a file comment, a thread with no `line`, or one whose lines the patch doesn't
+ * show.
  *
  * @param {ParsedPatch | null} parsed
- * @param {{line: number | null, startLine?: number | null}} thread
+ * @param {ThreadPlace} thread
  * @returns {string[]}
  */
 export function threadRows(parsed, thread) {
   const last = thread.line;
-  if (parsed === null || last === null) return [];
+  if (parsed === null || last === null || thread.subjectType === 'FILE') {
+    return [];
+  }
+  const end = sideField(thread.diffSide);
+  const start = thread.startLine == null
+    ? end
+    : sideField(thread.startDiffSide ?? thread.diffSide);
   const first = thread.startLine ?? last;
-  /** @type {string[]} */
-  const out = [];
-  parsed.hunks.forEach((h, hi) => {
-    /** @type {number[]} */
-    const inRange = [];
-    h.rows.forEach((r, ri) => {
-      if (r.new !== null && r.new >= first && r.new <= last) inRange.push(ri);
-    });
-    if (inRange.length === 0) return;
-    for (let ri = inRange[0]; ri <= inRange[inRange.length - 1]; ri++) {
-      const r = h.rows[ri];
-      if (r.new !== null || r.kind === 'del') out.push(`${hi}:${ri}`);
+  /** @type {{key: string, row: DiffRow}[]} */
+  const all = parsed.hunks.flatMap((h, hi) =>
+    h.rows.map((row, ri) => ({ key: `${hi}:${ri}`, row }))
+  );
+  const from = all.findIndex(({ row }) =>
+    row[start] !== null && row[start] >= first
+  );
+  const to = all.findLastIndex(({ row }) =>
+    row[end] !== null && row[end] <= last
+  );
+  if (from < 0 || to < from) return [];
+  return all.slice(from, to + 1).filter(({ row }) => row.kind !== 'note')
+    .map(({ key }) => key);
+}
+
+/** Past this many lines on either side, {@link diffTexts} does not compare. */
+export const MAX_DIFF_LINES = 20_000;
+
+/**
+ * A text's lines as {@link diffTexts} compares them: split on `\n`, each line's trailing `\r`
+ * dropped, and the empty line after a final newline not a line.
+ *
+ * @param {string} text
+ */
+function textLines(text) {
+  const lines = text.split('\n').map((l) =>
+    l.endsWith('\r') ? l.slice(0, -1) : l
+  );
+  if (lines[lines.length - 1] === '') lines.pop();
+  return lines;
+}
+
+/**
+ * A unified diff of two whole texts, as {@link parsePatch} would read `diff -U<context>`'s: hunks
+ * of changed lines with `context` unchanged lines around them, merged when they touch, each
+ * headed `-a,b +c,d` between `@@`s. Lines are compared whole by Myers' O(ND) algorithm; a run of changes lists
+ * its deleted rows before its added ones. Identical texts give no hunks; `null` past
+ * {@link MAX_DIFF_LINES} lines on either side.
+ *
+ * @param {string} oldText @param {string} newText @param {number} [context]
+ * @returns {ParsedPatch | null}
+ */
+export function diffTexts(oldText, newText, context = 3) {
+  const a = textLines(oldText);
+  const b = textLines(newText);
+  if (a.length > MAX_DIFF_LINES || b.length > MAX_DIFF_LINES) return null;
+  // Lines as numbers, so the comparisons are cheap.
+  /** @type {Map<string, number>} */
+  const ids = new Map();
+  const id = (/** @type {string} */ l) => {
+    let n = ids.get(l);
+    if (n === undefined) ids.set(l, n = ids.size);
+    return n;
+  };
+  const ai = Int32Array.from(a, id);
+  const bi = Int32Array.from(b, id);
+  /** @type {DiffRow[]} */
+  const rows = [];
+  let i = 0;
+  let j = 0;
+  const changes = (/** @type {number} */ toA, /** @type {number} */ toB) => {
+    while (i < toA) {
+      rows.push({ kind: 'del', old: i + 1, new: null, text: a[i++] });
     }
-  });
+    while (j < toB) {
+      rows.push({ kind: 'add', old: null, new: j + 1, text: b[j++] });
+    }
+  };
+  // Two texts with no line in common (the worst case for Myers) need no search.
+  const inA = new Set(ai);
+  const shared = bi.some((n) => inA.has(n));
+  for (const [x, y] of shared ? commonLines(ai, bi) : []) {
+    changes(x, y);
+    rows.push({ kind: 'context', old: i + 1, new: j + 1, text: b[j] });
+    i++;
+    j++;
+  }
+  changes(a.length, b.length);
+  /** @type {Hunk[]} */
+  const hunks = [];
+  /** Where the last hunk's rows end, in `rows`. */
+  let end = 0;
+  let k = 0;
+  while (k < rows.length) {
+    if (rows[k].kind === 'context') {
+      k++;
+      continue;
+    }
+    let from = Math.max(0, k - context);
+    // Extend over changes whose context touches or overlaps this one's.
+    let last = k;
+    for (let m = k + 1; m < rows.length && m - last <= 2 * context + 1; m++) {
+      if (rows[m].kind !== 'context') last = m;
+    }
+    const to = Math.min(rows.length, last + context + 1);
+    if (from < end) from = end;
+    const hunkRows = rows.slice(from, to);
+    // A side with no rows here starts after the line before the hunk, as diff writes it.
+    const before = rows.slice(0, from);
+    const oldRows = hunkRows.filter((r) => r.old !== null);
+    const newRows = hunkRows.filter((r) => r.new !== null);
+    const oldStart = oldRows.length
+      ? /** @type {number} */ (oldRows[0].old)
+      : before.filter((r) => r.old !== null).length;
+    const newStart = newRows.length
+      ? /** @type {number} */ (newRows[0].new)
+      : before.filter((r) => r.new !== null).length;
+    hunks.push({
+      header:
+        `@@ -${oldStart},${oldRows.length} +${newStart},${newRows.length} @@`,
+      oldStart,
+      oldCount: oldRows.length,
+      newStart,
+      newCount: newRows.length,
+      section: '',
+      rows: hunkRows,
+    });
+    end = to;
+    k = to;
+  }
+  return { hunks, rest: null };
+}
+
+/**
+ * The index pairs `[x, y]` (both increasing) of a longest common subsequence of `a` and `b`, by
+ * Myers' linear-space O(ND) algorithm: each step finds the middle snake of the remaining box and
+ * recurses on the two halves around it.
+ *
+ * @param {Int32Array} a @param {Int32Array} b
+ * @returns {[number, number][]}
+ */
+function commonLines(a, b) {
+  /** @type {[number, number][]} */
+  const out = [];
+  const size = a.length + b.length + 2;
+  const vf = new Int32Array(2 * size + 1);
+  const vb = new Int32Array(2 * size + 1);
+  /** @param {number} aLo @param {number} aHi @param {number} bLo @param {number} bHi */
+  const walk = (aLo, aHi, bLo, bHi) => {
+    // Common head and tail first: most of a file is unchanged.
+    while (aLo < aHi && bLo < bHi && a[aLo] === b[bLo]) {
+      out.push([aLo++, bLo++]);
+    }
+    /** @type {[number, number][]} */
+    const tail = [];
+    while (aLo < aHi && bLo < bHi && a[aHi - 1] === b[bHi - 1]) {
+      tail.push([--aHi, --bHi]);
+    }
+    if (aLo < aHi && bLo < bHi) {
+      const [x, y, u, v] = middleSnake(a, aLo, aHi, b, bLo, bHi, vf, vb, size);
+      walk(aLo, x, bLo, y);
+      for (let s = 0; s < u - x; s++) out.push([x + s, y + s]);
+      walk(u, aHi, v, bHi);
+    }
+    for (let t = tail.length - 1; t >= 0; t--) out.push(tail[t]);
+  };
+  walk(0, a.length, 0, b.length);
   return out;
+}
+
+/**
+ * The middle snake of the box `a[aLo..aHi)` × `b[bLo..bHi)` (both non-empty, ends differing):
+ * `[x, y, u, v]`, the snake from `(x, y)` to `(u, v)` in absolute indexes on an optimal path.
+ * `vf` and `vb` are scratch arrays indexed by diagonal + `off`.
+ *
+ * @param {Int32Array} a @param {number} aLo @param {number} aHi
+ * @param {Int32Array} b @param {number} bLo @param {number} bHi
+ * @param {Int32Array} vf @param {Int32Array} vb @param {number} off
+ * @returns {[number, number, number, number]}
+ */
+function middleSnake(a, aLo, aHi, b, bLo, bHi, vf, vb, off) {
+  const n = aHi - aLo;
+  const m = bHi - bLo;
+  const delta = n - m;
+  const odd = (delta & 1) !== 0;
+  const max = Math.ceil((n + m) / 2);
+  vf[off + 1] = 0;
+  vb[off + 1] = 0;
+  for (let d = 0; d <= max; d++) {
+    // Forward: x on diagonal k = x - y, from (0, 0).
+    for (let k = -d; k <= d; k += 2) {
+      let x = k === -d || (k !== d && vf[off + k - 1] < vf[off + k + 1])
+        ? vf[off + k + 1]
+        : vf[off + k - 1] + 1;
+      let y = x - k;
+      const x0 = x;
+      const y0 = y;
+      while (x < n && y < m && a[aLo + x] === b[bLo + y]) {
+        x++;
+        y++;
+      }
+      vf[off + k] = x;
+      // Backward diagonal c = delta - k, its x counted from the end.
+      if (odd && k >= delta - (d - 1) && k <= delta + (d - 1)) {
+        if (x + vb[off + delta - k] >= n) {
+          return [aLo + x0, bLo + y0, aLo + x, bLo + y];
+        }
+      }
+    }
+    // Backward: x counted from (n, m) on diagonal c, the forward diagonal being delta - c.
+    for (let c = -d; c <= d; c += 2) {
+      let x = c === -d || (c !== d && vb[off + c - 1] < vb[off + c + 1])
+        ? vb[off + c + 1]
+        : vb[off + c - 1] + 1;
+      let y = x - c;
+      const x0 = x;
+      const y0 = y;
+      while (x < n && y < m && a[aHi - 1 - x] === b[bHi - 1 - y]) {
+        x++;
+        y++;
+      }
+      vb[off + c] = x;
+      const k = delta - c;
+      if (!odd && k >= -d && k <= d) {
+        if (x + vf[off + k] >= n) {
+          return [aHi - x, bHi - y, aHi - x0, bHi - y0];
+        }
+      }
+    }
+  }
+  throw new Error('middleSnake: no overlap');
 }

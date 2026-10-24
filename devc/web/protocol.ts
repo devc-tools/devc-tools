@@ -984,6 +984,83 @@ function parseFields(m: Obj): ClientMessage {
         path: str(m, 'path'),
         thread: str(m, 'thread'),
       };
+    case 'pr_file_at':
+      if (typeof m.sha !== 'string' || !/^[0-9a-f]{40}$/.test(m.sha)) {
+        throw new Invalid(`'sha' must be a commit id (40 lowercase hex)`);
+      }
+      return {
+        type: 'pr_file_at',
+        id: str(m, 'id'),
+        localFolder: folder(m),
+        root: absolute(m, 'root'),
+        path: str(m, 'path'),
+        sha: m.sha,
+      };
+    case 'pr_pending_show':
+    case 'pr_pending_discard':
+      return {
+        type: m.type,
+        id: str(m, 'id'),
+        localFolder: folder(m),
+        root: absolute(m, 'root'),
+      };
+    case 'pr_pending_comment': {
+      const line = int(m, 'line', 1);
+      if (
+        m.startLine !== null &&
+        (typeof m.startLine !== 'number' || !Number.isInteger(m.startLine) ||
+          m.startLine < 1 || m.startLine >= line)
+      ) {
+        throw new Invalid(
+          `'startLine' must be null or an integer in [1, line)`,
+        );
+      }
+      return {
+        type: 'pr_pending_comment',
+        id: str(m, 'id'),
+        localFolder: folder(m),
+        root: absolute(m, 'root'),
+        path: str(m, 'path'),
+        line,
+        side: oneOf(m, 'side', ['LEFT', 'RIGHT']),
+        startLine: m.startLine,
+        body: text(m, 'body'),
+      };
+    }
+    case 'pr_pending_reply':
+      return {
+        type: 'pr_pending_reply',
+        id: str(m, 'id'),
+        localFolder: folder(m),
+        root: absolute(m, 'root'),
+        thread: str(m, 'thread'),
+        body: text(m, 'body'),
+      };
+    case 'pr_pending_edit':
+      return {
+        type: 'pr_pending_edit',
+        id: str(m, 'id'),
+        localFolder: folder(m),
+        root: absolute(m, 'root'),
+        comment: str(m, 'comment'),
+        body: text(m, 'body'),
+      };
+    case 'pr_pending_delete':
+      return {
+        type: 'pr_pending_delete',
+        id: str(m, 'id'),
+        localFolder: folder(m),
+        root: absolute(m, 'root'),
+        comment: str(m, 'comment'),
+      };
+    case 'pr_pending_submit':
+      return {
+        type: 'pr_pending_submit',
+        id: str(m, 'id'),
+        localFolder: folder(m),
+        root: absolute(m, 'root'),
+        body: text(m, 'body'),
+      };
     case 'retry':
       return { type: 'retry', container: str(m, 'container') };
     case 'client_ready':

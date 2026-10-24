@@ -218,6 +218,7 @@ Deno.test('policy: every valid grant set round-trips', () => {
     ['gh-pr-read', 'gh-pr-reply', 'gh-pr-resolve', 'gh-pr-resolve-copilot'],
     ['gh-pr-read', 'gh-pr-request-review'],
     ['gh-pr-read', 'gh-pr-viewed'],
+    ['gh-pr-read', 'gh-pr-pending-review'],
     [
       'gh-push',
       'gh-pr-read',
@@ -326,6 +327,10 @@ Deno.test('policy: policyProblem names the first problem, and parsePolicy agrees
     [
       line('/a', '/w', 'gh-pr-reply'),
       'line 1: gh-pr-reply requires gh-pr-read',
+    ],
+    [
+      line('/a', '/w', 'gh-push,gh-pr-pending-review'),
+      'line 1: gh-pr-pending-review requires gh-pr-read',
     ],
     // An old-era grant without the rename fails on the missing read, never widens.
     [
@@ -456,6 +461,7 @@ Deno.test('capabilities: the canonical order', () => {
       'gh-push',
       'gh-pr-read',
       'gh-pr-reply',
+      'gh-pr-pending-review',
       'gh-pr-viewed',
       'gh-pr-resolve',
       'gh-pr-resolve-copilot',
@@ -469,6 +475,10 @@ Deno.test('capabilities: every capability enabling each built-in, in canonical o
   assertEquals(capabilitiesForCommand('gh-doctor'), ['gh-push']);
   assertEquals(capabilitiesForCommand('gh-pr-comments'), ['gh-pr-read']);
   assertEquals(capabilitiesForCommand('gh-pr-files'), ['gh-pr-read']);
+  assertEquals(capabilitiesForCommand('gh-pr-file-at'), ['gh-pr-read']);
+  assertEquals(capabilitiesForCommand('gh-pr-pending-review'), [
+    'gh-pr-pending-review',
+  ]);
   assertEquals(capabilitiesForCommand('gh-pr-viewed'), ['gh-pr-viewed']);
   assertEquals(capabilitiesForCommand('gh-pr-reply'), ['gh-pr-reply']);
   assertEquals(capabilitiesForCommand('gh-pr-resolve'), [
@@ -501,7 +511,9 @@ Deno.test('capabilities: every capability enabling each built-in, in canonical o
     'gh-doctor',
     'gh-pr-comments',
     'gh-pr-files',
+    'gh-pr-file-at',
     'gh-pr-reply',
+    'gh-pr-pending-review',
     'gh-pr-viewed',
     'gh-pr-resolve',
     'gh-pr-request-review',

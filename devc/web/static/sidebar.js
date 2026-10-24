@@ -139,6 +139,7 @@ import {
   containerRoot,
   copyPathItems,
   createPane,
+  discardPendingReview,
   filePinItem,
   fileRefOf,
   hostOpenItems,
@@ -157,6 +158,7 @@ import {
   projectRequest,
   setMenuContext,
   startProject,
+  submitPendingReview,
   tileMenuItems,
   unpinFile,
 } from './menus.js';
@@ -1976,9 +1978,11 @@ function containerShortcuts(c) {
 
 /**
  * Each repo's last `pr_files` answer, by `localFolder\nroot`: what its Pull request row shows.
- * `result` is the server's `{available, …}`; `error` a failed call's message.
+ * `result` is the server's `{available, …}`; `error` a failed call's message; `review` the
+ * viewer's pending review (`pr_pending_show`, read when the grants offer reviews).
  *
- * @type {Map<string, {loading: boolean, result: any, error: string | null}>}
+ * @type {Map<string, {loading: boolean, result: any, error: string | null,
+ *   review: {id: string, comments: number} | null}>}
  */
 const prLists = new Map();
 
@@ -1991,7 +1995,12 @@ async function loadPr(localFolder, root) {
   const key = prKey(localFolder, root);
   const prev = prLists.get(key);
   if (prev?.loading) return;
-  const entry = { loading: true, result: prev?.result ?? null, error: null };
+  const entry = {
+    loading: true,
+    result: prev?.result ?? null,
+    error: null,
+    review: prev?.review ?? null,
+  };
   prLists.set(key, entry);
   queueRender();
   try {
@@ -2001,8 +2010,21 @@ async function loadPr(localFolder, root) {
     entry.result = null;
     entry.error = String(e?.message ?? e);
   }
+  entry.review = entry.result?.canReview === true
+    ? await pendingReview(localFolder, root, entry.review)
+    : null;
   entry.loading = false;
   if (prLists.get(key) === entry) queueRender();
+}
+
+/** The viewer's pending review on a repo's PR (`pr_pending_show`); `kept` when it can't be read. */
+async function pendingReview(localFolder, root, kept) {
+  try {
+    const r = await call({ type: 'pr_pending_show', localFolder, root });
+    return r?.available === true ? r.review ?? null : kept;
+  } catch {
+    return kept;
+  }
 }
 
 /** Opens or closes a repo's Pull request row; opening it lists the PR's files. */
@@ -2101,6 +2123,7 @@ function prRows(localFolder, root, depth) {
 /** A listed PR's header row, then its files as a tree (`buildPrTree`). */
 function prListingRows(fr, result, depth) {
   const pr = result.pr;
+  const review = prLists.get(prKey(fr.localFolder, fr.root))?.review ?? null;
   const files = list(result.files);
   const tree = buildPrTree(files);
   const id = treeId(fr);
@@ -2149,6 +2172,7 @@ function prListingRows(fr, result, depth) {
       ? h('span', { class: 'pr-state' }, String(pr.state).toLowerCase())
       : '',
     pr.isDraft ? h('span', { class: 'pr-state' }, 'draft') : '',
+    review ? pendingReviewBar(fr, pr, review) : '',
     h('span', { class: 'pr-count' }, `${tree.viewed}/${tree.total}`),
     // Hide viewed, while on, stays in sight as a repo card's toggles do, the buttons after it
     // kept as blank slots so it sits where hovering shows it.
@@ -2216,6 +2240,36 @@ function prListingRows(fr, result, depth) {
     );
   }
   return rows;
+}
+
+/**
+ * The PR header's `Review · n pending`, with **Submit review…** and **Discard review…**; either
+ * lists the PR again after.
+ *
+ * @param {FileRoot} fr @param {any} pr @param {{comments: number}} review
+ */
+function pendingReviewBar(fr, pr, review) {
+  const repo = { localFolder: fr.localFolder, root: fr.root };
+  const stop = (e) => e.stopPropagation();
+  /** @param {string} label @param {() => Promise<boolean>} act */
+  const button = (label, act) =>
+    h('button', {
+      type: 'button',
+      class: 'pr-review-action',
+      onmousedown: stop,
+      ondblclick: stop,
+      onclick: async (e) => {
+        e.stopPropagation();
+        if (await act()) void loadPr(fr.localFolder, fr.root);
+      },
+    }, label);
+  return h(
+    'span',
+    { class: 'pr-pending' },
+    LABELS.reviewPending(review.comments),
+    button(LABELS.submitReview, () => submitPendingReview(repo, pr.url)),
+    button(LABELS.discardReview, () => discardPendingReview(repo)),
+  );
 }
 
 /** Shows or hides every PR tree's Viewed files (the PR header's eye), kept per browser. */
@@ -2300,6 +2354,12 @@ function prFileMenuItems(fr, result, file) {
   return [
     ['Open diff', () => tileArea.openDiff(ref, 'stack')],
     ['Open diff to the right', () => tileArea.openDiff(ref, 'right')],
+    ...(file.viewed === 'DISMISSED'
+      ? [[
+        LABELS.openChangesSinceViewed,
+        () => tileArea.openDiff(ref, 'stack', { compare: 'viewed' }),
+      ]]
+      : []),
     null,
     ...(exists
       ? [

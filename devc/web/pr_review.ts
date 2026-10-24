@@ -1,6 +1,8 @@
 // `devc web`'s pull request review: the PR of a repo's pinned branch, its changed files with
 // GitHub's Viewed state, each file's patch, and its review threads, plus marking Viewed, replying
-// and resolving. See `.plans/devc-web-pr-review.md`.
+// and resolving; each file at a commit (changes since viewed, against the viewed history devc
+// web records); and a pending review to add comments to and submit. See
+// `.plans/devc-web-pr-review.md` and `.plans/devc-web-pr-review-depth.md`.
 //
 // **Every GitHub call is a `devc-bridge` command run in the project's running container**
 // (`docker exec … devc-bridge gh-pr-* --repo <target> …`, argv only, never a shell). devc web
@@ -15,6 +17,9 @@
 // **The bridge's output passes through the container, so it is untrusted** (a container could
 // shadow `devc-bridge` on its own `PATH`). Every listing is parsed defensively, with caps, and
 // the page shows it as text only.
+//
+// **Every posting command runs `--as human`**: the page is driven by a person, so what it posts
+// carries no `🤖` prefix. It is a label the bridge cannot check, not a grant.
 
 import type { ContainerInfo } from '@devc-tools/core/container.ts';
 import { dockerExecArgv } from '@devc-tools/core/container.ts';
@@ -44,6 +49,14 @@ export const MAX_REF = 255;
 export const MAX_PATH = 4096;
 /** A reply's most UTF-8 bytes: the bridge's own limit. */
 export const MAX_REPLY_BYTES = 4000;
+/** The most of a thread's `diffHunk` kept. */
+export const MAX_HUNK_CHARS = 20_000;
+/** The most characters of a file read at a commit (`pr_file_at`). */
+export const MAX_FILE_CHARS = 4 * 1024 * 1024;
+/** A viewed history file keeps its last this many marks. */
+export const MAX_HISTORY_LINES = 5000;
+/** The most of a file's marks `pr_diff` returns. */
+export const MAX_HISTORY_ENTRIES = 50;
 /** The longest stderr line a `bridge` result carries. */
 const MAX_MESSAGE = 300;
 /** How much stderr is kept, for its last line. */
@@ -61,6 +74,9 @@ export const UNEXPECTED_OUTPUT = 'unexpected bridge output';
 export const OUTPUT_TOO_LARGE = 'bridge output too large';
 export const FILE_GONE = 'This file is not in the pull request any more';
 export const THREAD_GONE = 'This thread is resolved or gone';
+export const FILE_AT_MISSING = 'That commit no longer has this file on GitHub';
+export const FILE_AT_BINARY = 'Binary file';
+export const FILE_AT_TOO_LARGE = 'Larger than 1 MB';
 
 // ── the listing ─────────────────────────────────────────────────────────────────────────────
 
@@ -105,11 +121,17 @@ export interface PrFiles {
 }
 
 export interface PrComment {
+  /** Its node id; `''` from a bridge that predates it. */
+  id: string;
   author: string | null;
   body: string;
   createdAt: string;
   url: string;
+  /** In the viewer's own pending review, not yet submitted. */
+  pending: boolean;
 }
+
+export type DiffSide = 'LEFT' | 'RIGHT';
 
 export interface PrThread {
   id: string;
@@ -118,6 +140,17 @@ export interface PrThread {
   /** A block's first line (`line` is its last); null on a one-line thread, and from a bridge
    * that predates it. */
   startLine: number | null;
+  /** The side `line` counts on: `LEFT` the old file's numbers, `RIGHT` the new file's. */
+  diffSide: DiffSide;
+  /** `startLine`'s side; null without one. */
+  startDiffSide: DiffSide | null;
+  /** Where the thread was when written: kept on an outdated thread, whose `line` is null. */
+  originalLine: number | null;
+  originalStartLine: number | null;
+  /** `FILE` for a comment on the whole file. */
+  subjectType: 'LINE' | 'FILE';
+  /** The first comment's hunk, ending at its line; `''` when none. */
+  diffHunk: string;
   isResolved: boolean;
   isOutdated: boolean;
   copilot: boolean;
@@ -142,6 +175,10 @@ const VIEWED: readonly ViewedState[] = ['VIEWED', 'UNVIEWED', 'DISMISSED'];
 const PR_URL =
   /^https:\/\/github\.com\/[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+\/pull\/[0-9]+$/;
 const THREAD_ID = /^PRRT_[A-Za-z0-9_-]+$/;
+/** A node id the bridge checks the same way: a pending comment or review. */
+export const NODE_ID = /^[A-Za-z0-9_=-]{1,200}$/;
+/** A full commit id, as the bridge prints and takes it. */
+export const COMMIT_SHA = /^[0-9a-f]{40}$/;
 // deno-lint-ignore no-control-regex
 const CONTROL = /[\u0000-\u001f\u007f]/;
 
@@ -152,6 +189,12 @@ const isObj = (v: unknown): v is Obj =>
 
 const isCount = (v: unknown): v is number =>
   typeof v === 'number' && Number.isInteger(v) && v >= 0;
+
+const isLine = (v: unknown): v is number =>
+  typeof v === 'number' && Number.isInteger(v) && v >= 1;
+
+const side = (v: unknown): DiffSide | null =>
+  v === 'LEFT' || v === 'RIGHT' ? v : null;
 
 /** An owner or repo name, as a PR ref names them: `[A-Za-z0-9._-]`, not `.` or `..`. */
 function repoName(v: unknown): v is string {
@@ -259,15 +302,17 @@ export function parsePrFiles(text: string): PrFiles | null {
 
 function parseComment(v: unknown): PrComment | null {
   if (!isObj(v)) return null;
-  const { author, body, createdAt, url } = v;
+  const { id, author, body, createdAt, url } = v;
   if (author !== null && typeof author !== 'string') return null;
   if (typeof body !== 'string' || typeof createdAt !== 'string') return null;
   if (typeof url !== 'string') return null;
   return {
+    id: typeof id === 'string' && NODE_ID.test(id) ? id : '',
     author,
     body: body.slice(0, MAX_BODY_CHARS),
     createdAt,
     url: url.startsWith('https://github.com/') ? url : '',
+    pending: v.pending === true,
   };
 }
 
@@ -295,9 +340,16 @@ function parseThread(v: unknown): PrThread | null {
   ) return null;
   // Kept only as a block's start: a whole number before `line`. Anything else is a one-line
   // thread, so a bridge without the field still lists its threads.
-  const start = typeof line === 'number' && typeof startLine === 'number' &&
-      Number.isInteger(startLine) && startLine >= 1 && startLine < line
+  const start = typeof line === 'number' && isLine(startLine) &&
+      startLine < line
     ? startLine
+    : null;
+  // The fields after `startLine` are as lenient: a bridge that predates them lists RIGHT-side,
+  // one-line LINE threads with no original place.
+  const originalLine = isLine(v.originalLine) ? v.originalLine : null;
+  const originalStart = originalLine !== null &&
+      isLine(v.originalStartLine) && v.originalStartLine < originalLine
+    ? v.originalStartLine
     : null;
   const kept: PrComment[] = [];
   for (const raw of comments) {
@@ -310,6 +362,14 @@ function parseThread(v: unknown): PrThread | null {
     path,
     line,
     startLine: start,
+    diffSide: side(v.diffSide) ?? 'RIGHT',
+    startDiffSide: start === null ? null : side(v.startDiffSide),
+    originalLine,
+    originalStartLine: originalStart,
+    subjectType: v.subjectType === 'FILE' ? 'FILE' : 'LINE',
+    diffHunk: typeof v.diffHunk === 'string'
+      ? v.diffHunk.slice(0, MAX_HUNK_CHARS)
+      : '',
     isResolved,
     isOutdated,
     copilot,
@@ -363,6 +423,111 @@ export async function fileUrl(prUrl: string, path: string): Promise<string> {
     .map((b) => b.toString(16).padStart(2, '0'))
     .join('');
   return `${prUrl}/files#diff-${hex}`;
+}
+
+// ── the viewed history ──────────────────────────────────────────────────────────────────────
+
+/**
+ * One Viewed mark devc web made, with the PR's head when it was made: GitHub keeps only a file's
+ * state, never the commit it was viewed at.
+ */
+export interface ViewedMark {
+  path: string;
+  viewed: 'VIEWED' | 'UNVIEWED';
+  headSha: string;
+  /** `new Date().toISOString()` when it was made. */
+  at: string;
+}
+
+/**
+ * Where a PR's marks are kept: `<configDir>/pr-viewed/<owner>/<name>/<number>.jsonl`, one
+ * {@link ViewedMark} per line, oldest first. Keyed by the PR, so every worktree and container of
+ * it shares one file. `repo` is a checked `owner/name` (no `.` or `..` segment).
+ */
+export function viewedHistoryFile(
+  configDir: string,
+  repo: string,
+  number: number,
+): string {
+  return `${configDir}/pr-viewed/${repo}/${number}.jsonl`;
+}
+
+function parseMark(line: string): ViewedMark | null {
+  let v: unknown;
+  try {
+    v = JSON.parse(line);
+  } catch {
+    return null;
+  }
+  if (!isObj(v)) return null;
+  const { path, viewed, headSha, at } = v;
+  if (!isPrPath(path) || (viewed !== 'VIEWED' && viewed !== 'UNVIEWED')) {
+    return null;
+  }
+  if (typeof headSha !== 'string' || !COMMIT_SHA.test(headSha)) return null;
+  if (typeof at !== 'string' || Number.isNaN(Date.parse(at))) return null;
+  return { path, viewed, headSha, at };
+}
+
+/** A history file's marks, oldest first; lines that aren't marks are skipped. */
+export async function readViewedHistory(file: string): Promise<ViewedMark[]> {
+  let text: string;
+  try {
+    text = await Deno.readTextFile(file);
+  } catch {
+    return [];
+  }
+  const out: ViewedMark[] = [];
+  for (const line of text.split('\n')) {
+    const mark = line.trim() === '' ? null : parseMark(line);
+    if (mark !== null) out.push(mark);
+  }
+  return out;
+}
+
+/**
+ * Appends `mark` to `file`, creating its directories (0700) and the file (0600). Past
+ * {@link MAX_HISTORY_LINES} lines it is rewritten through a temp file, keeping the last ones.
+ */
+export async function appendViewedMark(
+  file: string,
+  mark: ViewedMark,
+): Promise<void> {
+  const dir = file.slice(0, file.lastIndexOf('/'));
+  await Deno.mkdir(dir, { recursive: true, mode: 0o700 });
+  const line = JSON.stringify({
+    path: mark.path,
+    viewed: mark.viewed,
+    headSha: mark.headSha,
+    at: mark.at,
+  }) + '\n';
+  await Deno.writeTextFile(file, line, { append: true, mode: 0o600 });
+  const lines = (await Deno.readTextFile(file)).split('\n').filter((l) =>
+    l !== ''
+  );
+  if (lines.length <= MAX_HISTORY_LINES) return;
+  const tmp = `${file}.${crypto.randomUUID()}.tmp`;
+  try {
+    await Deno.writeTextFile(
+      tmp,
+      lines.slice(-MAX_HISTORY_LINES).join('\n') + '\n',
+      { mode: 0o600 },
+    );
+    await Deno.rename(tmp, file);
+  } catch (e) {
+    await Deno.remove(tmp).catch(() => {});
+    throw e;
+  }
+}
+
+/** `marks`' entries for a file at `path` (or renamed from `previousPath`), newest first. */
+export function fileHistory(
+  marks: readonly ViewedMark[],
+  path: string,
+  previousPath: string | null,
+): ViewedMark[] {
+  return marks.filter((m) => m.path === path || m.path === previousPath)
+    .reverse().slice(0, MAX_HISTORY_ENTRIES);
 }
 
 // ── running a bridge command ────────────────────────────────────────────────────────────────
@@ -497,7 +662,70 @@ export type PrMessage =
     root: string;
     path: string;
     thread: string;
-  };
+  }
+  | {
+    type: 'pr_file_at';
+    localFolder: string;
+    root: string;
+    path: string;
+    sha: string;
+  }
+  | { type: 'pr_pending_show'; localFolder: string; root: string }
+  | {
+    type: 'pr_pending_comment';
+    localFolder: string;
+    root: string;
+    path: string;
+    line: number;
+    side: DiffSide;
+    startLine: number | null;
+    body: string;
+  }
+  | {
+    type: 'pr_pending_reply';
+    localFolder: string;
+    root: string;
+    thread: string;
+    body: string;
+  }
+  | {
+    type: 'pr_pending_edit';
+    localFolder: string;
+    root: string;
+    comment: string;
+    body: string;
+  }
+  | {
+    type: 'pr_pending_delete';
+    localFolder: string;
+    root: string;
+    comment: string;
+  }
+  | {
+    type: 'pr_pending_submit';
+    localFolder: string;
+    root: string;
+    body: string;
+  }
+  | { type: 'pr_pending_discard'; localFolder: string; root: string };
+
+/** Every {@link PrMessage} type: what the server hands to {@link PrReview}. */
+export const PR_MESSAGE_TYPES: readonly PrMessage['type'][] = [
+  'pr_files',
+  'pr_diff',
+  'pr_threads',
+  'pr_viewed',
+  'pr_reply',
+  'pr_resolve',
+  'pr_file_at',
+  'pr_pending_show',
+  'pr_pending_comment',
+  'pr_pending_reply',
+  'pr_pending_edit',
+  'pr_pending_delete',
+  'pr_pending_submit',
+  'pr_pending_discard',
+];
 
 export interface PrReviewDeps {
   /** Whether `root` (no trailing `/`) is one of the repos of the project at `localFolder`. */
@@ -506,7 +734,8 @@ export interface PrReviewDeps {
   container(
     localFolder: string,
   ): Promise<{ info: ContainerInfo; name: string } | null>;
-  /** Where `~/.config/devc-bridge/` is found (the policy). */
+  /** Where `~/.config/devc-bridge/` is found (the policy), and `~/.config/devc/` (the viewed
+   * history, `CONFIG_DIR`). */
   home: string;
   /** The `docker` command (tests stub it). */
   docker?: string;
@@ -525,6 +754,7 @@ function offers(grants: readonly BridgeCapability[]) {
   return {
     canViewed: grants.includes('gh-pr-viewed'),
     canReply: grants.includes('gh-pr-reply'),
+    canReview: grants.includes('gh-pr-pending-review'),
     resolveScope: grants.includes('gh-pr-resolve')
       ? 'any'
       : grants.includes('gh-pr-resolve-copilot')
@@ -544,6 +774,8 @@ const dropSlash = (p: string) => p.length > 1 ? p.replace(/\/+$/, '') : p;
 export class PrReview {
   readonly #deps: PrReviewDeps;
   readonly #stored = new Map<string, Stored>();
+  /** Each history file's last append, so two marks never interleave a rewrite. */
+  readonly #appending = new Map<string, Promise<void>>();
 
   constructor(deps: PrReviewDeps) {
     this.#deps = deps;
@@ -585,6 +817,10 @@ export class PrReview {
         return await this.#reply(ctx, msg.thread, msg.body);
       case 'pr_resolve':
         return await this.#resolve(ctx, msg.thread);
+      case 'pr_file_at':
+        return await this.#fileAt(ctx, msg.path, msg.sha);
+      default:
+        return await this.#pending(ctx, msg);
     }
   }
 
@@ -706,6 +942,7 @@ export class PrReview {
     const { pr, files } = got.stored.files;
     const file = files.find((f) => f.path === path);
     if (!file) return { ok: false, code: 'not_found', message: FILE_GONE };
+    const marks = await readViewedHistory(this.#historyFile(pr));
     return {
       ok: true,
       result: {
@@ -714,9 +951,31 @@ export class PrReview {
         pr,
         file,
         fileUrl: await fileUrl(pr.url, path),
+        viewedHistory: fileHistory(marks, file.path, file.previousPath),
         ...offers(ctx.grants),
       },
     };
+  }
+
+  #historyFile(pr: PrInfo): string {
+    return viewedHistoryFile(
+      `${this.#deps.home}/.config/devc`,
+      pr.repo,
+      pr.number,
+    );
+  }
+
+  /** Records a mark; a failure to write it is logged, never the mark's failure. */
+  async #record(pr: PrInfo, mark: ViewedMark): Promise<void> {
+    const file = this.#historyFile(pr);
+    const next = (this.#appending.get(file) ?? Promise.resolve())
+      .then(() => appendViewedMark(file, mark))
+      .catch((e) =>
+        console.error(`devc web: recording a Viewed mark in ${file}: ${e}`)
+      );
+    this.#appending.set(file, next);
+    await next;
+    if (this.#appending.get(file) === next) this.#appending.delete(file);
   }
 
   async #threads(ctx: Ctx, path: string): Promise<PrAnswer> {
@@ -746,10 +1005,11 @@ export class PrReview {
   async #viewed(ctx: Ctx, path: string, viewed: boolean): Promise<PrAnswer> {
     const missing = needs(ctx, 'gh-pr-viewed');
     if (missing) return missing;
-    const file = this.#stored.get(ctx.key)?.files.files.find((f) =>
-      f.path === path
-    );
-    if (!file) return { ok: false, code: 'not_found', message: FILE_GONE };
+    const listing = this.#stored.get(ctx.key)?.files;
+    const file = listing?.files.find((f) => f.path === path);
+    if (!listing || !file) {
+      return { ok: false, code: 'not_found', message: FILE_GONE };
+    }
     const out = await this.#run(
       ctx,
       'gh-pr-viewed',
@@ -766,7 +1026,119 @@ export class PrReview {
       (v.viewed !== 'VIEWED' && v.viewed !== 'UNVIEWED')
     ) return unavailable('bridge', UNEXPECTED_OUTPUT);
     file.viewed = v.viewed;
+    // A bridge that predates headSha still marks: there is just nothing to record.
+    if (typeof v.headSha === 'string' && COMMIT_SHA.test(v.headSha)) {
+      await this.#record(listing.pr, {
+        path,
+        viewed: v.viewed,
+        headSha: v.headSha,
+        at: new Date().toISOString(),
+      });
+    }
     return { ok: true, result: { path, viewed: v.viewed } };
+  }
+
+  /** The file at a commit (`gh-pr-file-at`): `path` is a listed file's path or previous path. */
+  async #fileAt(ctx: Ctx, path: string, sha: string): Promise<PrAnswer> {
+    if (!COMMIT_SHA.test(sha)) {
+      return { ok: false, code: 'bad_request', message: 'bad commit id' };
+    }
+    const got = await this.#listing(ctx);
+    if (!got.ok) return got.answer;
+    const known = got.stored.files.files.some((f) =>
+      f.path === path || f.previousPath === path
+    );
+    if (!known) return { ok: false, code: 'not_found', message: FILE_GONE };
+    const out = await this.#run(ctx, 'gh-pr-file-at', sha, path);
+    if (!out.ok) return out.answer;
+    return fileAtAnswer(out.stdout, path, sha);
+  }
+
+  /** The `pr_pending_*` messages: one `gh-pr-pending-review` subcommand each. */
+  async #pending(
+    ctx: Ctx,
+    msg: Exclude<
+      PrMessage,
+      {
+        type:
+          | 'pr_files'
+          | 'pr_diff'
+          | 'pr_threads'
+          | 'pr_viewed'
+          | 'pr_reply'
+          | 'pr_resolve'
+          | 'pr_file_at';
+      }
+    >,
+  ): Promise<PrAnswer> {
+    const missing = needs(ctx, 'gh-pr-pending-review');
+    if (missing) return missing;
+    const bad = (message: string): PrAnswer => ({
+      ok: false,
+      code: 'bad_request',
+      message,
+    });
+    const body = 'body' in msg ? msg.body : '';
+    if (msg.type !== 'pr_pending_submit' || body !== '') {
+      const problem = 'body' in msg ? replyBodyProblem(body) : null;
+      if (problem) return bad(problem);
+    }
+    let args: string[];
+    switch (msg.type) {
+      case 'pr_pending_show':
+        args = ['show'];
+        break;
+      case 'pr_pending_comment': {
+        const got = await this.#listing(ctx);
+        if (!got.ok) return got.answer;
+        if (!got.stored.files.files.some((f) => f.path === msg.path)) {
+          return { ok: false, code: 'not_found', message: FILE_GONE };
+        }
+        if (!isLine(msg.line)) return bad('bad line');
+        if (
+          msg.startLine !== null &&
+          (!isLine(msg.startLine) || msg.startLine >= msg.line)
+        ) return bad('bad start line');
+        args = [
+          '--as',
+          'human',
+          'comment',
+          msg.path,
+          String(msg.line),
+          msg.side,
+          ...(msg.startLine === null ? [] : ['--start', String(msg.startLine)]),
+          body,
+        ];
+        break;
+      }
+      case 'pr_pending_reply':
+        if (!this.#thread(ctx, msg.thread)) {
+          return { ok: false, code: 'not_found', message: THREAD_GONE };
+        }
+        args = ['--as', 'human', 'reply', msg.thread, body];
+        break;
+      case 'pr_pending_edit':
+        if (!NODE_ID.test(msg.comment)) return bad('bad comment id');
+        args = ['--as', 'human', 'edit', msg.comment, body];
+        break;
+      case 'pr_pending_delete':
+        if (!NODE_ID.test(msg.comment)) return bad('bad comment id');
+        args = ['delete', msg.comment];
+        break;
+      case 'pr_pending_submit':
+        args = [
+          '--as',
+          'human',
+          'submit',
+          ...(body === '' ? [] : ['--body', body]),
+        ];
+        break;
+      case 'pr_pending_discard':
+        args = ['discard'];
+        break;
+    }
+    const out = await this.#run(ctx, 'gh-pr-pending-review', ...args);
+    return out.ok ? pendingAnswer(out.stdout) : out.answer;
   }
 
   #thread(ctx: Ctx, id: string): PrThread | null {
@@ -783,7 +1155,14 @@ export class PrReview {
     if (!this.#thread(ctx, thread)) {
       return { ok: false, code: 'not_found', message: THREAD_GONE };
     }
-    const out = await this.#run(ctx, 'gh-pr-reply', thread, body);
+    const out = await this.#run(
+      ctx,
+      'gh-pr-reply',
+      '--as',
+      'human',
+      thread,
+      body,
+    );
     return out.ok ? { ok: true, result: {} } : out.answer;
   }
 
@@ -810,6 +1189,64 @@ export class PrReview {
     thread.isResolved = true;
     return { ok: true, result: {} };
   }
+}
+
+/** A `gh-pr-file-at` answer: the text, or why there is none. */
+function fileAtAnswer(
+  stdout: string,
+  path: string,
+  sha: string,
+): PrAnswer {
+  let v: unknown;
+  try {
+    v = JSON.parse(stdout);
+  } catch { /* checked below */ }
+  if (!isObj(v) || v.path !== path || v.sha !== sha) {
+    return unavailable('bridge', UNEXPECTED_OUTPUT);
+  }
+  if (typeof v.content === 'string') {
+    if (v.content.length > MAX_FILE_CHARS) {
+      return unavailable('too_large', FILE_AT_TOO_LARGE);
+    }
+    return {
+      ok: true,
+      result: { available: true, path, sha, text: v.content },
+    };
+  }
+  if (v.missing === true) return unavailable('missing', FILE_AT_MISSING);
+  if (v.binary === true) return unavailable('binary', FILE_AT_BINARY);
+  if (v.tooLarge === true) return unavailable('too_large', FILE_AT_TOO_LARGE);
+  return unavailable('bridge', UNEXPECTED_OUTPUT);
+}
+
+/** A `gh-pr-pending-review` answer passed through: one object of ids (and a url). */
+function pendingAnswer(stdout: string): PrAnswer {
+  let v: unknown;
+  try {
+    v = JSON.parse(stdout);
+  } catch { /* checked below */ }
+  if (!isObj(v)) return unavailable('bridge', UNEXPECTED_OUTPUT);
+  const result: Record<string, unknown> = { available: true };
+  for (const key of ['review', 'thread', 'comment'] as const) {
+    if (!(key in v)) continue;
+    const id = v[key];
+    if (key === 'review' && id === null) result.review = null;
+    else if (key === 'review' && isObj(id)) {
+      if (
+        typeof id.id !== 'string' || !NODE_ID.test(id.id) ||
+        !isCount(id.comments)
+      ) return unavailable('bridge', UNEXPECTED_OUTPUT);
+      result.review = { id: id.id, comments: id.comments };
+    } else if (typeof id === 'string' && NODE_ID.test(id)) result[key] = id;
+    else return unavailable('bridge', UNEXPECTED_OUTPUT);
+  }
+  if ('url' in v) {
+    if (typeof v.url !== 'string' || !v.url.startsWith('https://github.com/')) {
+      return unavailable('bridge', UNEXPECTED_OUTPUT);
+    }
+    result.url = v.url;
+  }
+  return { ok: true, result };
 }
 
 interface Ctx {

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Offline harness for the gh-pr-comments, gh-pr-files, gh-pr-viewed, gh-pr-reply, gh-pr-resolve
-# and gh-pr-request-review built-ins. A `gh` shim first on PATH stands in for GitHub: it logs every call (cwd and argv, one
+# Offline harness for the gh-pr-comments, gh-pr-files, gh-pr-viewed, gh-pr-reply, gh-pr-resolve,
+# gh-pr-request-review, gh-pr-file-at and gh-pr-pending-review built-ins. A `gh` shim first on PATH stands in for GitHub: it logs every call (cwd and argv, one
 # line each) and
 # answers from fixture files this script writes per case, applying `--jq` with the real `jq` — so the harness needs `jq`,
 # the scripts do not. gh evaluates `--jq` with gojq, not jq: when `gojq` is on PATH the shim uses it
@@ -47,7 +47,8 @@ cat >"$root/bin/gh" <<'SHIM'
 # Log, then answer from $SHIM/fixtures. SHIM_AUTH_RC fails `auth status`; SHIM_SLEEP hangs with a
 # grandchild holding stdout; SHIM_FAIL (a substring of the path or query) answers with an error.
 # Every `-X POST` is also logged to posts.log (path and its -f fields, one line), and every
-# (un)markFileAsViewed mutation to viewed.log (`<mutation> <id> <path>`, one line).
+# (un)markFileAsViewed mutation to viewed.log (`<mutation> <id> <path>`, one line). A mutation
+# that posts a body writes it to `posted`.
 {
   printf 'cwd=%s ' "$PWD"
   printf '%q ' "$@"
@@ -103,9 +104,35 @@ if [ "$path" = graphql ]; then
       files=("$F/viewed.json")
       ;;
     *'files(first'*) files=("$F"/gqlfiles-*.json) ;;
+    *'reviews(states:PENDING'*) files=("$F/pending.json") ;;
     *addPullRequestReviewThreadReply*)
       printf '%s' "$body" >"$SHIM/posted"
       files=("$F/reply.json")
+      ;;
+    *addPullRequestReviewThread*)
+      printf '%s' "$body" >"$SHIM/posted"
+      files=("$F/thread.json")
+      ;;
+    *addPullRequestReview*)
+      : >"$SHIM/started"
+      files=("$F/review.json")
+      ;;
+    *updatePullRequestReviewComment*)
+      printf '%s' "$body" >"$SHIM/posted"
+      files=("$F/edit.json")
+      ;;
+    *deletePullRequestReviewComment*)
+      : >"$SHIM/deleted-$id"
+      files=("$F/delcomment.json")
+      ;;
+    *submitPullRequestReview*)
+      printf '%s' "$body" >"$SHIM/posted"
+      : >"$SHIM/submitted"
+      files=("$F/submit.json")
+      ;;
+    *deletePullRequestReview*)
+      : >"$SHIM/discarded"
+      files=("$F/discard.json")
       ;;
     *resolveReviewThread*)
       : >"$SHIM/resolved-$id"
@@ -134,6 +161,8 @@ elif [ "$method" = GET ]; then
       files=("$F/timeline.json")
       [ ! -f "$F/timeline-2.json" ] || files+=("$F/timeline-2.json")
       ;;
+    # contents/<path>?ref=<sha> → contents/<owner>__<name>__contents__<path, / as __>?ref=<sha>.json
+    repos/*/*/contents/*) c=${path#repos/} && files=("$F/contents/${c//\//__}.json") ;;
     repos/*/*/*) ;;
     repos/*/*) r=${path#repos/} && files=("$F/repo-${r%%/*}-${r#*/}.json") ;;
   esac
@@ -190,8 +219,11 @@ author() { # author copilot|human|none
 thread() { # thread <id> <resolved> <copilot|human> <body> — one reviewThreads node
   jq -c -n --arg id "$1" --argjson r "$2" --argjson a "$(author "$3")" --arg b "$4" \
     '{id: $id, isResolved: $r, isOutdated: false, path: "src/x.ts", line: 3,
-      startLine: null, comments: {nodes: [{author: $a, body: $b, createdAt: "2026-09-25T12:00:00Z",
-        url: "https://github.com/c/\($id)"}]}}'
+      startLine: null, diffSide: "RIGHT", startDiffSide: null, originalLine: 3,
+      originalStartLine: null, subjectType: "LINE",
+      comments: {nodes: [{id: "PRRC_\($id)", author: $a, body: $b, createdAt: "2026-09-25T12:00:00Z",
+        url: "https://github.com/c/\($id)", diffHunk: "@@ -1,3 +1,3 @@\n a\n-b\n+c",
+        state: "SUBMITTED"}]}}'
 }
 
 threads_page() { # threads_page <n> <node>… — page n of reviewThreads
@@ -317,8 +349,19 @@ fresh() {
     copilot-reviewed:2 human-reviewed
   echo '{"url":"https://api.github.com/repos/up/r/pulls/7","requested_reviewers":[]}' \
     >"$FX/request.json"
-  echo '{"data":{"addPullRequestReviewThreadReply":{"comment":{"url":"https://github.com/up/r/pull/7#r1"}}}}' \
+  echo '{"data":{"addPullRequestReviewThreadReply":{"comment":{"id":"PRRC_reply","url":"https://github.com/up/r/pull/7#r1"}}}}' \
     >"$FX/reply.json"
+  pending_fx
+  echo '{"data":{"addPullRequestReview":{"pullRequestReview":{"id":"PRR_new"}}}}' >"$FX/review.json"
+  echo '{"data":{"addPullRequestReviewThread":{"thread":{"id":"PRRT_new"}}}}' >"$FX/thread.json"
+  echo '{"data":{"updatePullRequestReviewComment":{"pullRequestReviewComment":{"id":"PRRC_p1"}}}}' \
+    >"$FX/edit.json"
+  echo '{"data":{"deletePullRequestReviewComment":{"pullRequestReview":{"id":"PRR_p"}}}}' \
+    >"$FX/delcomment.json"
+  echo '{"data":{"submitPullRequestReview":{"pullRequestReview":{"id":"PRR_p","url":"https://github.com/up/r/pull/7#pullrequestreview-1"}}}}' \
+    >"$FX/submit.json"
+  echo '{"data":{"deletePullRequestReview":{"pullRequestReview":{"id":"PRR_p"}}}}' >"$FX/discard.json"
+  mkdir -p "$FX/contents"
   echo '{"data":{"resolveReviewThread":{"thread":{"isResolved":true}}}}' >"$FX/resolve.json"
   echo '{"data":{"markFileAsViewed":{"clientMutationId":null}}}' >"$FX/viewed.json"
   files_fx
@@ -328,6 +371,26 @@ PATCH_TRICKY='@@ -1,2 +1,3 @@
 -const a = "x";
 +const a = "y\t%s";
 +	tabbed \ back </script>'
+
+# pending_fx [<review id> <comment id>…] — the PR's PENDING reviews: none, or the viewer's with
+# those comments; someone else's pending review is listed too (GitHub hides it; the script must
+# not pick it).
+pending_fx() {
+  local nodes='[{"id":"PRR_other","viewerDidAuthor":false,"comments":{"totalCount":1,"nodes":[{"id":"PRRC_other"}]}}]'
+  if [ $# -gt 0 ]; then
+    nodes=$(printf '%s\n' "${@:2}" | jq -R . | jq -s -c --arg id "$1" --argjson o "$nodes" \
+      '[map(select(. != "")) as $c | {id: $id, viewerDidAuthor: true,
+        comments: {totalCount: ($c | length), nodes: ($c | map({id: .}))}}] + $o')
+  fi
+  jq -n --argjson n "$nodes" '{data: {repository: {pullRequest: {reviews: {nodes: $n}}}}}' \
+    >"$FX/pending.json"
+}
+
+# contents_fx <path as encoded in the URL> <sha n> <json> — the contents API's answer for up/r's
+# head repo me/r.
+contents_fx() {
+  printf '%s\n' "$3" >"$FX/contents/me__r__contents__${1//\//__}?ref=$(sha "$2").json"
+}
 
 # gqlfiles_page <n> <changedFiles> <path>:<state>… — page n of the PR's GraphQL files, with the
 # header fields every page carries.
@@ -364,7 +427,7 @@ files_fx() {
 
 # The review loop's grants plus gh-pr-viewed: resolving is Copilot-only unless a case pins
 # gh-pr-resolve.
-ALL_PR=gh-pr-read,gh-pr-reply,gh-pr-viewed,gh-pr-resolve-copilot,gh-pr-request-review
+ALL_PR=gh-pr-read,gh-pr-reply,gh-pr-pending-review,gh-pr-viewed,gh-pr-resolve-copilot,gh-pr-request-review
 pin() { # pin <remote> <branch> [grants, default $ALL_PR] — one line, container path /workspaces/r
   mkdir -p "$POLICY_DIR"
   printf '%s\t%s\t%s\t%s\t%s\n' /Users/you/code/r "$1" "$2" "${3:-$ALL_PR}" /workspaces/r \
@@ -397,7 +460,8 @@ posts() { cat "$SHIM/posts.log" 2>/dev/null; }
 # ── cases ─────────────────────────────────────────────────────────────────────────────────
 
 echo "the shared prelude"
-for r in gh-pr-files gh-pr-viewed gh-pr-reply gh-pr-resolve gh-pr-request-review; do
+for r in gh-pr-files gh-pr-viewed gh-pr-reply gh-pr-resolve gh-pr-request-review gh-pr-file-at \
+  gh-pr-pending-review; do
   check "$r's pr-prelude is byte-identical to gh-pr-comments'" cmp -s \
     <(sed -n '/^# ── BEGIN pr-prelude ──$/,/^# ── END pr-prelude ──$/p' "$RECIPES/gh-pr-comments") \
     <(sed -n '/^# ── BEGIN pr-prelude ──$/,/^# ── END pr-prelude ──$/p' "$RECIPES/$r")
@@ -406,10 +470,12 @@ check "  … and the block is not empty" test \
   "$(sed -n '/^# ── BEGIN pr-prelude ──$/,/^# ── END pr-prelude ──$/p' "$RECIPES/gh-pr-comments" | wc -l)" -gt 50
 
 echo "the caller and its policy"
-for r in gh-pr-comments gh-pr-files gh-pr-viewed gh-pr-reply gh-pr-resolve gh-pr-request-review; do
+for r in gh-pr-comments gh-pr-files gh-pr-viewed gh-pr-reply gh-pr-resolve gh-pr-request-review \
+  gh-pr-file-at gh-pr-pending-review; do
   case $r in
     gh-pr-comments | gh-pr-files | gh-pr-request-review) args=() ;; gh-pr-reply) args=(PRRT_c1 hi) ;;
     gh-pr-resolve) args=(PRRT_c1) ;; gh-pr-viewed) args=(viewed src/a.ts) ;;
+    gh-pr-file-at) args=("$(sha 3)" src/a.ts) ;; gh-pr-pending-review) args=(show) ;;
   esac
   fresh
   rm "$POLICY_DIR/$KEY.conf"
@@ -510,7 +576,7 @@ check "  … none of these reached GitHub" test -z "$(calls)"
 
 run gh-pr-reply --repo
 expect_rc 2 "gh-pr-reply --repo with no value"
-check "  … prints the usage" has_err "usage: gh-pr-reply [--repo <path>] <thread-id> <body>"
+check "  … prints the usage" has_err "usage: gh-pr-reply [--repo <path>] [--as agent|human] <thread-id> <body>"
 run gh-pr-resolve --repo /workspaces/r
 expect_rc 2 "gh-pr-resolve --repo <path> and no thread"
 check "  … prints the usage" has_err "usage: gh-pr-resolve [--repo <path>] <thread-id>"
@@ -545,10 +611,12 @@ multi() {
   prs_fx me/s me/s 9
   node_fx PRRT_s1 PR_9 false copilot
 }
-for r in gh-pr-comments gh-pr-files gh-pr-viewed gh-pr-reply gh-pr-resolve gh-pr-request-review; do
+for r in gh-pr-comments gh-pr-files gh-pr-viewed gh-pr-reply gh-pr-resolve gh-pr-request-review \
+  gh-pr-file-at gh-pr-pending-review; do
   case $r in
     gh-pr-comments | gh-pr-files | gh-pr-request-review) args=() ;; gh-pr-reply) args=(PRRT_c1 hi) ;;
     gh-pr-resolve) args=(PRRT_c1) ;; gh-pr-viewed) args=(viewed src/a.ts) ;;
+    gh-pr-file-at) args=("$(sha 3)" src/a.ts) ;; gh-pr-pending-review) args=(show) ;;
   esac
   multi
   run "$r" "${args[@]}"
@@ -700,7 +768,14 @@ check "  … every thread by default, resolved too, across both pages" \
 check "  … isResolved on each" test "$(q '[.threads[].isResolved] | join(",")')" = false,false,true,false
 check "  … isResolved is a boolean" test "$(q '[.threads[].isResolved | type] | unique | join(",")')" = boolean
 check "  … thread key order" test "$(jq -c '.threads[0] | keys_unsorted' <<<"$out")" = \
-  '["id","path","line","startLine","isResolved","isOutdated","copilot","comments"]'
+  '["id","path","line","startLine","diffSide","startDiffSide","originalLine","originalStartLine","subjectType","diffHunk","isResolved","isOutdated","copilot","comments"]'
+check "  … comment key order" test "$(jq -c '.threads[0].comments[0] | keys_unsorted' <<<"$out")" = \
+  '["id","author","body","createdAt","url","pending"]'
+check "  … the comment's node id" test "$(q '.threads[0].comments[0].id')" = PRRC_PRRT_c1
+check "  … side, original line, subject type and hunk" test \
+  "$(jq -c '.threads[0] | [.diffSide, .startDiffSide, .originalLine, .originalStartLine, .subjectType, .diffHunk]' <<<"$out")" = \
+  '["RIGHT",null,3,null,"LINE","@@ -1,3 +1,3 @@\n a\n-b\n+c"]'
+check "  … a submitted comment is not pending" test "$(q '.threads[0].comments[0].pending')" = false
 check "  … copilot flags" test "$(q '[.threads[].copilot] | join(",")')" = true,false,true,true
 check "  … a hostile body round-trips exactly" test "$(q '.threads[3].comments[0].body')" = "$TRICKY"
 check "  … comment author" test "$(q '.threads[1].comments[0].author')" = alice
@@ -1073,7 +1148,8 @@ viewed_log() { cat "$SHIM/viewed.log" 2>/dev/null; }
 fresh
 run gh-pr-viewed viewed src/a.ts
 expect_rc 0 "viewed src/a.ts"
-check "  … prints the result" test "$out" = '{"path":"src/a.ts","viewed":"VIEWED"}'
+check "  … prints the result, with the head it was marked at" test "$out" = \
+  '{"path":"src/a.ts","viewed":"VIEWED","headSha":"'"$(sha 7)"'"}'
 check "  … sends markFileAsViewed with the PR's id and that path" \
   test "$(viewed_log)" = "markFileAsViewed PR_7 src/a.ts"
 check "  … the path goes as -f, never in the query" test -z "$(grep -F 'src/a.ts' "$SHIM/queries.log")"
@@ -1081,7 +1157,8 @@ check "  … the id goes as -f" grep -qF -- "-f id=PR_7 -f path=src/a.ts" "$SHIM
 fresh
 run gh-pr-viewed unviewed new/c.ts
 expect_rc 0 "unviewed a file on the second GraphQL page"
-check "  … prints the result" test "$out" = '{"path":"new/c.ts","viewed":"UNVIEWED"}'
+check "  … prints the result" test "$out" = \
+  '{"path":"new/c.ts","viewed":"UNVIEWED","headSha":"'"$(sha 7)"'"}'
 check "  … sends unmarkFileAsViewed" test "$(viewed_log)" = "unmarkFileAsViewed PR_7 new/c.ts"
 fresh
 gqlfiles_page 2 5 'a "quoted" \ path.ts:VIEWED'
@@ -1123,6 +1200,258 @@ expect_rc 4 "the mutation failing"
 check "  … relays gh's message" has_err "HTTP 502"
 check "  … prints nothing on stdout" test -z "$out"
 
+echo "--as agent|human"
+fresh
+run gh-pr-reply --as agent PRRT_c1 hi
+expect_rc 0 "gh-pr-reply --as agent"
+check "  … posts with the 🤖 prefix" test "$(cat "$SHIM/posted")" = "🤖 hi"
+fresh
+run gh-pr-reply --as human PRRT_c1 hi
+expect_rc 0 "gh-pr-reply --as human"
+check "  … posts the body as written" test "$(cat "$SHIM/posted")" = "hi"
+fresh
+run gh-pr-reply --repo /workspaces/r --as human PRRT_c1 hi
+expect_rc 0 "--repo <path> --as human"
+check "  … as written" test "$(cat "$SHIM/posted")" = "hi"
+fresh
+for a in "--as bot PRRT_c1 hi" "--as" "PRRT_c1 hi --as" "--as human --repo /workspaces/r PRRT_c1 hi" \
+  "--as=human PRRT_c1 hi" "--as Human PRRT_c1 hi"; do
+  read -ra args <<<"$a"
+  run gh-pr-reply "${args[@]}"
+  expect_rc 2 "gh-pr-reply $a"
+done
+check "  … prints the usage" has_err "usage: gh-pr-reply [--repo <path>] [--as agent|human] <thread-id> <body>"
+check "  … none of these posted" test ! -e "$SHIM/posted"
+check "  … or reached GitHub" test -z "$(calls)"
+run gh-pr-reply PRRT_c1 --as
+expect_rc 0 "a body that is literally --as"
+check "  … is a body" test "$(cat "$SHIM/posted")" = "🤖 --as"
+fresh
+run gh-pr-comments --as human
+expect_rc 2 "a command that posts nothing takes no --as"
+
+echo "gh-pr-comments: sides, file comments, outdated and pending"
+fresh
+rm "$FX"/threads-*.json
+left=$(thread PRRT_l1 false human 'old line' | jq -c '.line = 5 | .diffSide = "LEFT" | .originalLine = 5')
+filec=$(thread PRRT_f1 false human 'whole file' | jq -c '.line = null | .originalLine = null |
+  .subjectType = "FILE" | .comments.nodes[0].diffHunk = null')
+outd=$(thread PRRT_o1 false human 'moved' | jq -c '.line = null | .isOutdated = true |
+  .originalLine = 9 | .originalStartLine = 7 | .startDiffSide = "RIGHT"')
+pend=$(thread PRRT_p1 false human 'draft' | jq -c '.comments.nodes[0].state = "PENDING"')
+threads_page 1 "$left" "$filec" "$outd" "$pend"
+run gh-pr-comments
+expect_rc 0 "four kinds of thread"
+check "  … a LEFT thread keeps its side and old-file line" \
+  test "$(q '.threads[0] | "\(.diffSide) \(.line)"')" = "LEFT 5"
+check "  … a file comment is FILE with no line" \
+  test "$(q '.threads[1] | "\(.subjectType) \(.line)"')" = "FILE null"
+check "  … a comment with no hunk has diffHunk \"\"" test "$(jq -c '.threads[1].diffHunk' <<<"$out")" = '""'
+check "  … an outdated thread keeps where it was" \
+  test "$(q '.threads[2] | "\(.line) \(.originalStartLine)-\(.originalLine) \(.startDiffSide)"')" = "null 7-9 RIGHT"
+check "  … its hunk" test "$(q '.threads[2].diffHunk')" = $'@@ -1,3 +1,3 @@\n a\n-b\n+c'
+check "  … a PENDING comment is pending" test "$(q '.threads[3].comments[0].pending')" = true
+check "  … others are not" test "$(q '[.threads[0:3][].comments[].pending] | unique | join(",")')" = false
+
+echo "gh-pr-file-at"
+b64() { printf '%s' "$1" | base64 | tr -d '\n' | fold -w 60; } # GitHub wraps its base64
+filejson() { # filejson <bytes> — a contents API file answer
+  jq -n --arg c "$(b64 "$1")" --argjson s "$(printf '%s' "$1" | wc -c)" \
+    '{type: "file", encoding: "base64", size: $s, content: $c, path: "x"}'
+}
+fresh
+TEXT=$'line "one" \\ \t%s\r\nline two </script>\n\n'
+contents_fx src/a.ts 3 "$(filejson "$TEXT")"
+run gh-pr-file-at "$(sha 3)" src/a.ts
+expect_rc 0 "a text file"
+check "  … path, sha, content in that order" test "$(jq -c keys_unsorted <<<"$out")" = '["path","sha","content"]'
+check "  … the content round-trips exactly (quotes, \\, tab, CRLF, trailing newlines)" \
+  cmp -s <(jq -j .content <<<"$out") <(printf '%s' "$TEXT")
+check "  … sha" test "$(q .sha)" = "$(sha 3)"
+check "  … read from the head repo me/r, not the base up/r" \
+  grep -qF "repos/me/r/contents/src/a.ts\?ref=$(sha 3)" "$SHIM/calls.log" # %q escapes ?
+check "  … one line on stdout" test "$(printf '%s\n' "$out" | wc -l | tr -d ' ')" = 1
+contents_fx old/c.ts 3 "$(filejson 'before')"
+run gh-pr-file-at "$(sha 3)" old/c.ts
+expect_rc 0 "the path a renamed file had"
+check "  … its content" test "$(q .content)" = before
+contents_fx src/empty.ts 3 "$(filejson '')"
+jq '. + [{filename: "src/empty.ts", status: "added", additions: 0, deletions: 0}]' \
+  "$FX/restfiles-2.json" >"$FX/r2" && mv "$FX/r2" "$FX/restfiles-2.json"
+run gh-pr-file-at "$(sha 3)" src/empty.ts
+expect_rc 0 "an empty file"
+check "  … content \"\"" test "$(jq -c .content <<<"$out")" = '""'
+run gh-pr-file-at "$(sha 4)" src/a.ts
+expect_rc 0 "a commit that has no such file (404)"
+check "  … missing" test "$out" = '{"path":"src/a.ts","sha":"'"$(sha 4)"'","missing":true}'
+contents_fx src/a.ts 5 '[{"type":"file","name":"x"}]'
+run gh-pr-file-at "$(sha 5)" src/a.ts
+expect_rc 0 "a directory at that path"
+check "  … missing" test "$(q .missing)" = true
+contents_fx src/a.ts 6 '{"type":"submodule","size":0}'
+run gh-pr-file-at "$(sha 6)" src/a.ts
+check "a submodule → missing" test "$(q .missing)" = true
+contents_fx src/a.ts 8 "$(filejson $'nul\x01' | jq --arg c "$(printf 'a\000b' | base64)" '.content = $c')"
+run gh-pr-file-at "$(sha 8)" src/a.ts
+expect_rc 0 "bytes holding a NUL"
+check "  … binary" test "$out" = '{"path":"src/a.ts","sha":"'"$(sha 8)"'","binary":true}'
+contents_fx src/a.ts 9 "$(filejson x | jq --arg c "$(printf 'caf\351' | base64)" '.content = $c')"
+run gh-pr-file-at "$(sha 9)" src/a.ts
+check "bytes that are not UTF-8 → binary" test "$(q .binary)" = true
+contents_fx src/a.ts 1 '{"type":"file","encoding":"none","size":2000000,"content":""}'
+run gh-pr-file-at "$(sha 1)" src/a.ts
+expect_rc 0 "over 1 MB"
+check "  … tooLarge" test "$out" = '{"path":"src/a.ts","sha":"'"$(sha 1)"'","tooLarge":true}'
+fresh
+jq -n '[{filename: "dir/a b é#?.ts", status: "added", additions: 1, deletions: 0}]' >"$FX/restfiles-3.json"
+contents_fx 'dir/a%20b%20%C3%A9%23%3F.ts' 3 "$(filejson 'ok')"
+run gh-pr-file-at "$(sha 3)" 'dir/a b é#?.ts'
+expect_rc 0 "a path with a space, é, # and ?"
+check "  … each segment percent-encoded, / kept" \
+  grep -qF "repos/me/r/contents/dir/a%20b%20%C3%A9%23%3F.ts\?ref=$(sha 3)" "$SHIM/calls.log"
+check "  … the path printed as given" test "$(q .path)" = 'dir/a b é#?.ts'
+fresh
+for a in "$(sha 3 | cut -c1-39) src/a.ts" "$(sha 3 | tr 0 A) src/a.ts" "HEAD src/a.ts" \
+  "$(sha 3)" "$(sha 3) src/a.ts extra"; do
+  read -ra args <<<"$a"
+  run gh-pr-file-at "${args[@]}"
+  expect_rc 2 "gh-pr-file-at $a"
+done
+run gh-pr-file-at "$(sha 3)" $'src/a.ts\nx'
+expect_rc 2 "a path with a newline"
+check "  … none of these reached GitHub" test -z "$(calls)"
+run gh-pr-file-at "$(sha 3)" src/nope.ts
+expect_rc 2 "a file not in the PR"
+check "  … says so" has_err "src/nope.ts is not a file in https://github.com/up/r/pull/7"
+check "  … and never read its contents" test -z "$(calls | grep contents)"
+run gh-pr-file-at "$(sha 3)" src/a
+expect_rc 2 "a prefix of a path is not that path"
+fresh
+pin git@github.com:me/r.git "$BRANCH" gh-push
+run gh-pr-file-at "$(sha 3)" src/a.ts
+expect_rc 2 "without gh-pr-read"
+fresh
+contents_fx src/a.ts 3 "$(filejson x)"
+SHIM_FAIL=contents run gh-pr-file-at "$(sha 3)" src/a.ts
+expect_rc 4 "a GitHub error other than 404"
+check "  … relays gh's message" has_err "HTTP 502"
+check "  … prints nothing on stdout" test -z "$out"
+
+echo "gh-pr-pending-review"
+fresh
+run gh-pr-pending-review show
+expect_rc 0 "show with no pending review of yours (someone else's is listed)"
+check "  … review null" test "$out" = '{"review":null}'
+pending_fx PRR_p PRRC_p1 PRRC_p2
+run gh-pr-pending-review show
+expect_rc 0 "show with yours"
+check "  … its id and comment count" test "$out" = '{"review":{"id":"PRR_p","comments":2}}'
+fresh
+run gh-pr-pending-review comment src/a.ts 3 RIGHT 'use const'
+expect_rc 0 "comment with no pending review"
+check "  … starts one" test -e "$SHIM/started"
+check "  … at the PR's head, on the PR" grep -qF -- "-f id=PR_7 -f commit=$(sha 7)" "$SHIM/calls.log"
+check "  … prints the review and thread" test "$out" = '{"review":"PRR_new","thread":"PRRT_new"}'
+check "  … posted with the 🤖 prefix" test "$(cat "$SHIM/posted")" = "🤖 use const"
+check "  … line, side and path as variables" \
+  grep -qF -- "-f review=PRR_new -f path=src/a.ts -F line=3 -f side=RIGHT" "$SHIM/calls.log"
+check "  … no startLine" test -z "$(grep -F 'startLine' "$SHIM/queries.log")"
+fresh
+pending_fx PRR_p PRRC_p1
+run gh-pr-pending-review --as human comment src/a.ts 3 LEFT --start 1 'block'
+expect_rc 0 "--as human, a block on the LEFT side, with a review pending"
+check "  … does not start another" test ! -e "$SHIM/started"
+check "  … adds to the pending one" grep -qF -- "-f review=PRR_p" "$SHIM/calls.log"
+check "  … startLine and startSide" grep -qF 'startLine:$start,startSide:$side' "$SHIM/queries.log"
+check "  … start 1, side LEFT" grep -qF -- "-F line=3 -f side=LEFT -F start=1" "$SHIM/calls.log"
+check "  … posted as written" test "$(cat "$SHIM/posted")" = "block"
+fresh
+for a in "comment src/a.ts 3 MIDDLE x" "comment src/a.ts 0 RIGHT x" "comment src/a.ts 3x RIGHT x" \
+  "comment src/a.ts 3 RIGHT --start 3 x" "comment src/a.ts 3 RIGHT --start 4 x" \
+  "comment src/a.ts 3 RIGHT" "comment src/a.ts 3 RIGHT x y" "reply PR_7 x" "edit bad/id x" \
+  "delete" "submit extra" "submit --body" "discard now" "approve" "" "show extra"; do
+  read -ra args <<<"$a"
+  run gh-pr-pending-review "${args[@]}"
+  expect_rc 2 "gh-pr-pending-review $a"
+done
+check "  … prints the usage" has_err "usage: gh-pr-pending-review"
+check "  … none of these reached GitHub" test -z "$(calls)"
+run gh-pr-pending-review comment src/a.ts 3 RIGHT $'  \n'
+expect_rc 3 "a blank comment"
+run gh-pr-pending-review reply PRRT_c1 "$(printf 'a%.0s' $(seq 4001))"
+expect_rc 3 "a 4001-byte reply"
+run gh-pr-pending-review submit --body $'bell\x01'
+expect_rc 3 "a review body with a control character"
+check "  … none reached GitHub" test -z "$(calls)"
+run gh-pr-pending-review comment src/nope.ts 3 RIGHT x
+expect_rc 2 "a file not in the PR"
+check "  … no review started" test ! -e "$SHIM/started"
+fresh
+run gh-pr-pending-review reply PRRT_h1 'agreed'
+expect_rc 0 "reply to a thread on the PR"
+check "  … starts a review" test -e "$SHIM/started"
+check "  … prints the review and the comment" test "$out" = '{"review":"PRR_new","comment":"PRRC_reply"}'
+check "  … the reply names the review" grep -qF -- "-f thread=PRRT_h1 -f review=PRR_new" "$SHIM/calls.log"
+check "  … prefixed" test "$(cat "$SHIM/posted")" = "🤖 agreed"
+fresh
+run gh-pr-pending-review reply PRRT_x9 'x'
+expect_rc 2 "reply to a thread on another PR"
+check "  … nothing posted" test ! -e "$SHIM/posted"
+check "  … no review started" test ! -e "$SHIM/started"
+fresh
+pending_fx PRR_p PRRC_p1
+run gh-pr-pending-review edit PRRC_p1 'better'
+expect_rc 0 "edit a pending comment"
+check "  … prints it" test "$out" = '{"comment":"PRRC_p1"}'
+check "  … posted" test "$(cat "$SHIM/posted")" = "🤖 better"
+fresh
+pending_fx PRR_p PRRC_p1
+run gh-pr-pending-review edit PRRC_other 'x'
+expect_rc 3 "edit someone else's pending comment"
+check "  … refused" has_err "refused: PRRC_other is not a comment in your pending review"
+check "  … nothing posted" test ! -e "$SHIM/posted"
+run gh-pr-pending-review edit PRRC_submitted 'x'
+expect_rc 3 "edit a comment that is not pending"
+run gh-pr-pending-review delete PRRC_submitted
+expect_rc 3 "delete a comment that is not pending"
+check "  … no deletion" test -z "$(ls "$SHIM" | grep deleted-)"
+run gh-pr-pending-review delete PRRC_p1
+expect_rc 0 "delete a pending comment"
+check "  … prints it" test "$out" = '{"comment":"PRRC_p1"}'
+check "  … deleted" test -e "$SHIM/deleted-PRRC_p1"
+fresh
+run gh-pr-pending-review submit
+expect_rc 3 "submit with no pending review"
+check "  … says so" has_err "no pending review on https://github.com/up/r/pull/7"
+run gh-pr-pending-review discard
+expect_rc 3 "discard with no pending review"
+check "  … says so" has_err "no pending review"
+check "  … neither sent a mutation" test ! -e "$SHIM/submitted" -a ! -e "$SHIM/discarded"
+pending_fx PRR_p PRRC_p1
+run gh-pr-pending-review submit
+expect_rc 0 "submit"
+check "  … prints the review and its url" \
+  test "$out" = '{"review":"PRR_p","url":"https://github.com/up/r/pull/7#pullrequestreview-1"}'
+check "  … as COMMENT" grep -qF 'event:COMMENT' "$SHIM/queries.log"
+check "  … with no body" test "$(cat "$SHIM/posted")" = ""
+fresh
+pending_fx PRR_p PRRC_p1
+run gh-pr-pending-review --as human submit --body 'looks good'
+expect_rc 0 "submit --as human --body"
+check "  … the body as written" test "$(cat "$SHIM/posted")" = "looks good"
+run gh-pr-pending-review discard
+expect_rc 0 "discard"
+check "  … prints the review" test "$out" = '{"review":"PRR_p"}'
+check "  … deleted it" test -e "$SHIM/discarded"
+check "no query ever approves or requests changes" \
+  test -z "$(grep -E 'APPROVE|REQUEST_CHANGES|DISMISS' "$SHIM/queries.log")"
+fresh
+pin git@github.com:me/r.git "$BRANCH" gh-pr-read,gh-pr-reply
+run gh-pr-pending-review show
+expect_rc 2 "without gh-pr-pending-review"
+check "  … says so" has_err "this container was not granted gh-pr-pending-review"
+check "  … and GitHub was never asked" test -z "$(calls)"
+
 echo "how gh is driven"
 fresh
 run gh-pr-files
@@ -1131,6 +1460,10 @@ run gh-pr-comments
 run gh-pr-reply PRRT_c1 "secret-body-text"
 run gh-pr-resolve PRRT_c1
 run gh-pr-request-review
+contents_fx src/a.ts 3 '{"type":"file","size":1,"content":"eA=="}'
+run gh-pr-file-at "$(sha 3)" src/a.ts
+run gh-pr-pending-review comment src/a.ts 3 RIGHT "secret-body-text"
+run gh-pr-pending-review reply PRRT_c1 "secret-body-text"
 check "every call ran from /" test -z "$(calls | grep -v '^cwd=/ ')"
 check "only gh api and gh auth, never gh pr" test -z "$(calls | grep -Ev '^cwd=/ (api|auth) ')"
 check "no container value inside a query string" test -z "$(grep -E 'PRRT_|secret-body|pr-branch' "$SHIM/queries.log")"

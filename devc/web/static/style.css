@@ -2642,10 +2642,127 @@ button.primary.danger {
 }
 
 .diff-num {
+  position: relative;
   padding: 0 6px;
   text-align: right;
   color: var(--muted);
   user-select: none;
+}
+
+/* A line number's `+`: a new comment on that line (Shift: the block from the last one). Shown
+   while the number is hovered or the button has focus. */
+.diff-add-comment {
+  position: absolute;
+  top: 0;
+  left: 1px;
+  width: 1.4em;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  border-radius: 3px;
+  font: inherit;
+  line-height: 1;
+  color: var(--bg);
+  background: var(--accent);
+  cursor: pointer;
+  opacity: 0;
+}
+
+.diff-num:hover .diff-add-comment,
+.diff-add-comment:focus-visible {
+  opacity: 1;
+}
+
+/* An outdated thread's hunk: the last rows of the code it was written against. */
+.thread-hunk {
+  margin: 0 0 6px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  overflow-x: auto;
+  font-family: ui-monospace, monospace;
+  font-size: calc(var(--font-size) - 1px);
+}
+
+.thread-hunk .diff-row {
+  grid-template-columns: 3.5em 3.5em 1fr;
+}
+
+.thread-comment-actions {
+  display: inline-flex;
+  gap: 4px;
+  margin-left: auto;
+}
+
+.thread-comment-actions button {
+  padding: 0 6px;
+  font-size: calc(var(--font-size) - 2px);
+}
+
+.thread-comment[data-pending] .thread-body {
+  font-style: italic;
+}
+
+.thread-card.new-comment {
+  border-color: var(--accent);
+}
+
+.composer-actions button[hidden] {
+  display: none;
+}
+
+/* The pending review: `Review · n pending`, Submit and Discard, in a diff tile's tool row and
+   the sidebar's PR header. */
+.pr-pending {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: calc(var(--font-size) - 2px);
+  color: var(--accent);
+}
+
+.pr-pending button {
+  padding: 0 6px;
+  font-size: calc(var(--font-size) - 2px);
+}
+
+.row .pr-pending {
+  margin-right: 6px;
+}
+
+.diff-compare {
+  font: inherit;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+
+.diff-head-line .diff-note {
+  padding: 0 6px;
+}
+
+.diff-head-line .diff-note button {
+  font-style: normal;
+}
+
+.dialog.review-dialog {
+  width: min(520px, calc(100vw - 32px));
+}
+
+.review-body {
+  min-height: 6em;
+  resize: vertical;
+  padding: 4px 6px;
+  font: inherit;
+  color: var(--text);
+  background: var(--term-bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+
+.review-github {
+  font-size: calc(var(--font-size) - 1px);
+  color: var(--accent);
 }
 
 .diff-text {

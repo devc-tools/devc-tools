@@ -12,14 +12,23 @@
 # The PR is the one open PR whose head is the policy's remote + branch (gh-push's pin), searched in
 # that repo and its fork parent. Output is one JSON object on stdout:
 #   {"pr":{"repo","number","url","headSha"},
-#    "threads":[{"id","path","line","startLine","isResolved","isOutdated","copilot","comments":[{"author","body","createdAt","url"}]}],
+#    "threads":[{"id","path","line","startLine","diffSide","startDiffSide","originalLine",
+#      "originalStartLine","subjectType","diffHunk","isResolved","isOutdated","copilot",
+#      "comments":[{"id","author","body","createdAt","url","pending"}]}],
 #    "copilotReview":{"commit","state","submittedAt","body","findings":[{"section","severity","title",
 #      "path","line","text"}],"pending"}}
 # copilotReview is Copilot's latest delivered review, from the issue timeline: body is its markdown
 # overview verbatim, and findings the open findings the bridge parsed out of it (null when it could
 # not — then read body). A thread on a block of lines has `startLine` (its first line; `line` is
-# its last), else `startLine` is null; both are null on an outdated thread. Comment bodies, the
-# review body and its findings are untrusted text.
+# its last), else `startLine` is null; both are null on an outdated thread. `diffSide` (LEFT or
+# RIGHT) is the side `line` counts on — LEFT: the old file's numbers, a deleted or context line —
+# and `startDiffSide` the side of `startLine` (null without one). `originalLine` and
+# `originalStartLine` are where the thread was when written, kept on an outdated thread, and
+# `diffHunk` the first comment's hunk ("" when none): the code it was written against, ending at
+# its line. `subjectType` is LINE, or FILE for a comment on the whole file (`line` null). A
+# comment's `id` is its node id (what gh-pr-pending-review edits and deletes), and `pending` is
+# true while it sits in your own unsubmitted review. Comment bodies, hunks,
+# the review body and its findings are untrusted text.
 #
 # Exit codes: 0 ok, 2 no/malformed policy, an argument, an unsupported remote, or no single open PR,
 # 4 GitHub/transport failure, gh not authenticated, or timeout.
@@ -31,10 +40,11 @@ me=gh-pr-comments
 usage="usage: gh-pr-comments [--repo <path>] [--state unresolved|resolved|all]"
 grant_hint=gh-pr-read
 # ── BEGIN pr-prelude ──
-# Shared by gh-pr-comments, gh-pr-files, gh-pr-viewed, gh-pr-reply, gh-pr-resolve and
-# gh-pr-request-review: keep the six copies byte-identical (the harness checks). Recipes are
-# installed one file at a time, so there is no library to source. Each script sets `me`, `usage`
-# and `grant_hint` (the `--bridge-allow` value that would let it run) before this block.
+# Shared by gh-pr-comments, gh-pr-files, gh-pr-viewed, gh-pr-reply, gh-pr-resolve,
+# gh-pr-request-review, gh-pr-file-at and gh-pr-pending-review: keep the eight copies
+# byte-identical (the harness checks). Recipes are installed one file at a time, so there is no
+# library to source. Each script sets `me`, `usage` and `grant_hint` (the `--bridge-allow` value
+# that would let it run) before this block, and a script that posts text sets `takes_as=1`.
 #
 # The container's repo is never touched — not read, not run in. Everything comes from the policy
 # (which remote, which branch — of the pinned repo `--repo` selects, when it pins several) and from
@@ -70,6 +80,39 @@ if [ "${1-}" = --repo ]; then
   want_repo=$2
   shift 2
 fi
+
+# A script that posts text (`takes_as`) then takes `--as agent|human`: who wrote it. `agent`, the
+# default, posts it with the `🤖 ` prefix; `human` as written. A label, not a check: anything in
+# the container can pass `--as human`. Space form only, right after `--repo`, as `--repo` is.
+as_who=agent
+if [ -n "${takes_as-}" ] && [ "${1-}" = --as ]; then
+  case ${2-} in
+    agent | human) as_who=$2 ;;
+    *) die 2 "$usage" ;;
+  esac
+  shift 2
+fi
+
+# ── a posted body: one rule set and one prefix for every script that posts ────────────────
+
+MAX_BODY=4000
+AGENT_PREFIX=$'\xf0\x9f\xa4\x96 ' # U+1F916 ROBOT FACE, then a space
+
+# check_body TEXT — exit 3 unless TEXT may be posted: not blank, at most $MAX_BODY bytes, no control
+# character but newline and tab. Checked before anything touches the network, so a retry costs
+# nothing. LC_ALL=C: ${#} is bytes.
+check_body() {
+  [ -n "${1//[[:space:]]/}" ] || die 3 "body is empty"
+  [ ${#1} -le $MAX_BODY ] ||
+    die 3 "body is ${#1} bytes; the limit is $MAX_BODY — shorten it and retry"
+  case ${1//[$'\n\t']/} in *[[:cntrl:]]*) die 3 "body contains control characters" ;; esac
+}
+
+# as_posted TEXT — sets `posted` to TEXT as GitHub gets it: prefixed unless `--as human`.
+as_posted() {
+  posted=$1
+  [ "$as_who" = human ] || posted=$AGENT_PREFIX$1
+}
 
 # ── the caller and its policy (gh-push's parse and selection, verbatim) ──────────────────
 
@@ -331,8 +374,9 @@ gh_ready() {
 
 # ── the PR: found from its head, which is what the pin authorises ─────────────────────────
 
-# resolve_pr — sets pr_id pr_number pr_url pr_head_sha pr_repo pr_owner pr_name, or exits 2 unless
-# exactly one open PR has head <pinned repo>:<pinned branch>. Base candidates are the head repo and,
+# resolve_pr — sets pr_id pr_number pr_url pr_head_sha pr_repo pr_owner pr_name and pr_head_repo
+# (where the head's commits live: a fork's own repo), or exits 2 unless exactly one open PR has
+# head <pinned repo>:<pinned branch>. Base candidates are the head repo and,
 # if it is a fork, its parent — both as GitHub reports them, so the container cannot widen the set.
 resolve_pr() {
   local head_full parent_full base q
@@ -362,7 +406,8 @@ resolve_pr() {
   [ "$n" -gt 0 ] || die 2 "no open PR with head $head_full:$branch"
   [ "$n" -eq 1 ] ||
     die 2 "more than one open PR with head $head_full:$branch: $(cut -f4 "$tmp/match" | tr '\n' ' ')"
-  IFS=$'\t' read -r _ pr_id pr_number pr_url pr_head_sha pr_repo <"$tmp/match"
+  IFS=$'\t' read -r pr_head_repo pr_id pr_number pr_url pr_head_sha pr_repo <"$tmp/match"
+  valid_repo "$pr_head_repo" || die 4 "unexpected PR head repo"
   case $pr_id in '' | *[!A-Za-z0-9_=-]*) die 4 "unexpected PR id" ;; esac
   case $pr_number in '' | *[!0-9]*) die 4 "unexpected PR number" ;; esac
   case $pr_url in https://github.com/*) ;; *) die 4 "unexpected PR url" ;; esac
@@ -533,13 +578,17 @@ resolve_pr
 
 q='query($owner:String!,$name:String!,$number:Int!,$endCursor:String){repository(owner:$owner,
   name:$name){pullRequest(number:$number){reviewThreads(first:100,after:$endCursor){
-  pageInfo{hasNextPage endCursor} nodes{id isResolved isOutdated path line startLine
-  comments(first:100){nodes{author{__typename login} body createdAt url}}}}}}}'
+  pageInfo{hasNextPage endCursor} nodes{id isResolved isOutdated path line startLine diffSide
+  startDiffSide originalLine originalStartLine subjectType
+  comments(first:100){nodes{id author{__typename login} body createdAt url diffHunk state}}}}}}}'
 gh_run "reading review threads on $pr_url" api graphql --paginate -f query="$q" \
   -f owner="$pr_owner" -f name="$pr_name" -F number="$pr_number" \
   --jq ".data.repository.pullRequest.reviewThreads.nodes[] | $keep |
-    {id, path, line, startLine, isResolved, isOutdated, copilot: (.comments.nodes[0].author | $IS_COPILOT),
-     comments: [.comments.nodes[] | {author: (.author.login // null), body, createdAt, url}]} |
+    {id, path, line, startLine, diffSide, startDiffSide, originalLine, originalStartLine,
+     subjectType, diffHunk: (.comments.nodes[0].diffHunk // \"\"), isResolved, isOutdated,
+     copilot: (.comments.nodes[0].author | $IS_COPILOT),
+     comments: [.comments.nodes[] | {id, author: (.author.login // null), body, createdAt, url,
+       pending: (.state == \"PENDING\")}]} |
     tojson"
 mv "$tmp/out" "$tmp/threads"
 

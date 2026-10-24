@@ -1,6 +1,6 @@
 ---
 name: github-pr-reviewing
-description: Runs the GitHub pull-request review loop from inside a devcontainer whose host has granted devc-bridge review capabilities — reads unresolved review threads on the PR (Copilot's and human reviewers'), fixes what is warranted, publishes the pinned branch through the bridge, requests a fresh Copilot review, replies to threads, resolves the Copilot threads it fixed, and repeats until the review is clean. Use only when the user asks to work through, iterate on, or respond to review comments on a GitHub PR from inside a devcontainer. Not for ordinary pushes or other git/GitHub work. Keywords: GitHub PR review loop, Copilot review, PR review threads, address review comments, reply to reviewers, resolve Copilot threads, re-request Copilot review, devc-bridge gh-pr-comments --state unresolved, gh-pr-reply, gh-pr-resolve, gh-pr-resolve-copilot, gh-pr-read, gh-pr-request-review.
+description: Runs the GitHub pull-request review loop from inside a devcontainer whose host has granted devc-bridge review capabilities — reads unresolved review threads on the PR (Copilot's and human reviewers'), fixes what is warranted, publishes the pinned branch through the bridge, requests a fresh Copilot review, replies to threads, resolves the Copilot threads it fixed, and repeats until the review is clean. Use only when the user asks to work through, iterate on, or respond to review comments on a GitHub PR from inside a devcontainer. Not for ordinary pushes or other git/GitHub work. Keywords: GitHub PR review loop, Copilot review, PR review threads, address review comments, reply to reviewers, resolve Copilot threads, re-request Copilot review, devc-bridge gh-pr-comments --state unresolved, gh-pr-reply, gh-pr-pending-review, gh-pr-resolve, gh-pr-resolve-copilot, gh-pr-read, gh-pr-request-review.
 ---
 
 # GitHub PR review loop
@@ -45,7 +45,8 @@ to rebuild the container with the current `devc-bridge` feature.
    threads with `gh-pr-comments`, but replying needs `gh-pr-reply`. Without
    `gh-pr-resolve-copilot` or `gh-pr-resolve`, reply but don't resolve. Without
    `gh-pr-request-review`, you can't ask for a new review, so run one round and then hand back to
-   the user.
+   the user. `gh-pr-pending-review`, if granted, lets you batch a round's replies into one review
+   (step 5).
 4. Run `devc-bridge gh-pr-comments --state unresolved` once. On exit 2 with `no open PR with head …`, stop and ask
    the user to open the PR. You can't create one from the container. `more than one open PR …`
    also stops: quote the URLs from the message to the user.
@@ -122,7 +123,8 @@ That's expected. Don't retry it.
 
 **5. Reply.** Use the thread `id` from `gh-pr-comments --state unresolved`. Cite the short SHA for fixes
 (`Fixed in 1a2b3c4d5e6f.`), or explain in a sentence or two why nothing changed. Don't add a `🤖`
-prefix; the bridge adds it. Keep bodies under 4000 bytes, with no control characters except
+prefix; the bridge adds it. **Never pass `--as human`**: it drops the prefix for text a person
+wrote, and your replies must stay marked as an agent's. Keep bodies under 4000 bytes, with no control characters except
 newline and tab. Pass the body through a quoted heredoc so quotes, backticks and `$` survive the
 shell:
 
@@ -132,6 +134,12 @@ Fixed in 1a2b3c4d5e6f — `parse()` now rejects an empty header.
 EOF
 )"
 ```
+
+With `gh-pr-pending-review` granted you may batch instead: `devc-bridge gh-pr-pending-review reply
+PRRT_xxx "<body>"` for each thread, then one `devc-bridge gh-pr-pending-review submit`, so the
+reviewer is notified once. It submits only as a Comment. If `show` finds a pending review you
+didn't start, it is the user's own in-progress review: add to it only if they asked, and never
+`discard` it.
 
 **6. Resolve** the Copilot threads you fixed: `devc-bridge gh-pr-resolve <id>`, only on threads
 with `copilot: true`, whichever resolve grant the container holds. Leave declined threads open, so

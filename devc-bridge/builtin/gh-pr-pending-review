@@ -1,0 +1,757 @@
+#!/usr/bin/env bash
+# gh-pr-pending-review — your pending (unsubmitted) review on the pinned repo's one PR.
+#   devc-bridge gh-pr-pending-review [--repo <path>] [--as agent|human] <subcommand> …
+#   (`--repo` names the pinned repo by its container path; required once more than one is pinned)
+#
+# Built in: runs only for a container whose policy grants `gh-pr-pending-review`
+# (`devc up --bridge-allow gh-pr-read,gh-pr-pending-review`).
+#
+# Comments and replies added here wait in one pending review, seen only by the host user, until it
+# is submitted or discarded. The review is the host user's own: GitHub shows no one else's
+# pending review. Subcommands, each printing one JSON object (node ids) on stdout:
+#   show                                     {"review":null} or {"review":{"id","comments":<n>}}
+#   comment <file> <line> <LEFT|RIGHT> [--start <line>] <body>
+#                                            {"review","thread"}: a new thread on <line> of
+#                                            <file> (a PR file), on the old (LEFT) or new (RIGHT)
+#                                            side; --start <line> (< <line>, the same side) makes
+#                                            it a block
+#   reply <thread-id> <body>                 {"review","comment"}: a reply to a thread on the PR
+#   edit <comment-id> <body>                 {"comment"}: one of the pending review's comments
+#   delete <comment-id>                      {"comment"}: likewise
+#   submit [--body <text>]                   {"review","url"}: submitted as a Comment
+#   discard                                  {"review"}: the pending review deleted
+# comment and reply start a pending review when there is none, at the PR's head. A review is only
+# ever submitted as COMMENT: approving or requesting changes is done on GitHub. Bodies take
+# `--as` as gh-pr-reply's do (`agent`, the default, prefixes `🤖 `), and the same limits.
+#
+# Exit codes: 0 ok, 2 no/malformed policy, wrong arguments, an unsupported remote, no single open
+# PR, or a file or thread not on it, 3 refused (a comment not in the pending review, no pending
+# review to submit or discard) or a body to fix and retry (empty, over 4000 bytes, control
+# characters), 4 GitHub/transport failure, gh not authenticated, or timeout.
+
+# SC2016: GraphQL variables are $-prefixed and must not expand. SC2034: the shared prelude sets
+# some variables only another recipe reads.
+# shellcheck disable=SC2016,SC2034
+me=gh-pr-pending-review
+usage="usage: gh-pr-pending-review [--repo <path>] [--as agent|human] show | comment <file> <line> <LEFT|RIGHT> [--start <line>] <body> | reply <thread-id> <body> | edit <comment-id> <body> | delete <comment-id> | submit [--body <text>] | discard"
+grant_hint=gh-pr-read,gh-pr-pending-review
+takes_as=1
+# ── BEGIN pr-prelude ──
+# Shared by gh-pr-comments, gh-pr-files, gh-pr-viewed, gh-pr-reply, gh-pr-resolve,
+# gh-pr-request-review, gh-pr-file-at and gh-pr-pending-review: keep the eight copies
+# byte-identical (the harness checks). Recipes are installed one file at a time, so there is no
+# library to source. Each script sets `me`, `usage` and `grant_hint` (the `--bridge-allow` value
+# that would let it run) before this block, and a script that posts text sets `takes_as=1`.
+#
+# The container's repo is never touched — not read, not run in. Everything comes from the policy
+# (which remote, which branch — of the pinned repo `--repo` selects, when it pins several) and from
+# GitHub. `gh` runs from `/`, only as `gh api`, with the repo
+# spelled out, so it never infers a repo from a git config the agent controls; container-supplied
+# values reach GitHub only as `-f` GraphQL variables (raw strings — `-F` would read `@file`).
+
+set -uo pipefail
+export LC_ALL=C
+cd / || exit 4
+
+die() {
+  local code=$1
+  shift
+  echo "$me: $*" >&2
+  exit "$code"
+}
+
+# The bot's login as GraphQL reports it (REST adds `[bot]`), and a jq test for "this author object
+# is Copilot". A constant, never container data, so interpolating it into a filter is safe.
+COPILOT_LOGIN=copilot-pull-request-reviewer
+IS_COPILOT="(. != null and .__typename == \"Bot\" and .login == \"$COPILOT_LOGIN\")"
+# The same bot has two more names: `copilot-pull-request-reviewer[bot]` when a review is requested
+# over REST, and `Copilot` in the issue timeline's events.
+COPILOT_TIMELINE_LOGIN=Copilot
+
+# A leading `--repo <path>` picks one of the pinned repos by its container path; `$usage` is the
+# script's own. Recognized only as the first argument, so a reply body that happens to read
+# `--repo` is still a body, and only in the space form.
+want_repo=''
+if [ "${1-}" = --repo ]; then
+  [ -n "${2-}" ] || die 2 "$usage"
+  want_repo=$2
+  shift 2
+fi
+
+# A script that posts text (`takes_as`) then takes `--as agent|human`: who wrote it. `agent`, the
+# default, posts it with the `🤖 ` prefix; `human` as written. A label, not a check: anything in
+# the container can pass `--as human`. Space form only, right after `--repo`, as `--repo` is.
+as_who=agent
+if [ -n "${takes_as-}" ] && [ "${1-}" = --as ]; then
+  case ${2-} in
+    agent | human) as_who=$2 ;;
+    *) die 2 "$usage" ;;
+  esac
+  shift 2
+fi
+
+# ── a posted body: one rule set and one prefix for every script that posts ────────────────
+
+MAX_BODY=4000
+AGENT_PREFIX=$'\xf0\x9f\xa4\x96 ' # U+1F916 ROBOT FACE, then a space
+
+# check_body TEXT — exit 3 unless TEXT may be posted: not blank, at most $MAX_BODY bytes, no control
+# character but newline and tab. Checked before anything touches the network, so a retry costs
+# nothing. LC_ALL=C: ${#} is bytes.
+check_body() {
+  [ -n "${1//[[:space:]]/}" ] || die 3 "body is empty"
+  [ ${#1} -le $MAX_BODY ] ||
+    die 3 "body is ${#1} bytes; the limit is $MAX_BODY — shorten it and retry"
+  case ${1//[$'\n\t']/} in *[[:cntrl:]]*) die 3 "body contains control characters" ;; esac
+}
+
+# as_posted TEXT — sets `posted` to TEXT as GitHub gets it: prefixed unless `--as human`.
+as_posted() {
+  posted=$1
+  [ "$as_who" = human ] || posted=$AGENT_PREFIX$1
+}
+
+# ── the caller and its policy (gh-push's parse and selection, verbatim) ──────────────────
+
+# parse_policy FILE — read a policy into the arrays pol_repo/pol_remote/pol_branch/pol_grants/
+# pol_target (one entry per line, file order), or set pol_why and fail. The rules are devc-core's
+# policyProblem: 1–16 lines, each `\n`-terminated, each exactly five non-empty, control-free,
+# tab-separated fields `<repo> <remote> <branch> <grants> <target>`; the target absolute and
+# normalized; each line's own grants; repo and target each distinct. A four-field v1 file
+# is malformed. The whole file is read with the `x` sentinel (so trailing newlines survive) and split
+# by hand: `read` cannot split it, because tab is IFS whitespace and empty fields would collapse.
+parse_policy() {
+  local text line rest tabs field n=0 i r_repo r_remote r_branch r_grants r_target
+  pol_repo=() pol_remote=() pol_branch=() pol_grants=() pol_target=() grants='' pol_why=''
+  text=$(cat -- "$1" && printf x) || {
+    pol_why="unreadable"
+    return 1
+  }
+  text=${text%x}
+  case $text in *$'\n') ;; *)
+    pol_why="the file does not end with a newline"
+    return 1
+    ;;
+  esac
+  text=${text%$'\n'}
+  while :; do
+    n=$((n + 1))
+    [ "$n" -le 16 ] || {
+      pol_why="more than 16 lines"
+      return 1
+    }
+    line=${text%%$'\n'*}
+    [ -n "$line" ] || {
+      pol_why="line $n is empty"
+      return 1
+    }
+    tabs=${line//[!$'\t']/}
+    [ ${#tabs} -eq 4 ] || {
+      pol_why="line $n: want 5 tab-separated fields, found $((${#tabs} + 1))"
+      return 1
+    }
+    r_repo=${line%%$'\t'*}
+    rest=${line#*$'\t'}
+    r_remote=${rest%%$'\t'*}
+    rest=${rest#*$'\t'}
+    r_branch=${rest%%$'\t'*}
+    rest=${rest#*$'\t'}
+    r_grants=${rest%%$'\t'*}
+    r_target=${rest#*$'\t'}
+    for field in "$r_repo" "$r_remote" "$r_branch" "$r_grants" "$r_target"; do
+      [ -n "$field" ] || {
+        pol_why="line $n: empty field"
+        return 1
+      }
+      case $field in *[[:cntrl:]]*)
+        pol_why="line $n: control character in a field"
+        return 1
+        ;;
+      esac
+    done
+    case $r_repo in /*) ;; *)
+      pol_why="line $n: repo is not an absolute path"
+      return 1
+      ;;
+    esac
+    case $r_remote in -*)
+      pol_why="line $n: remote looks like an option"
+      return 1
+      ;;
+    esac
+    git check-ref-format "refs/heads/$r_branch" || {
+      pol_why="line $n: branch is not a valid ref name"
+      return 1
+    }
+    [[ $r_grants =~ ^[a-z][a-z-]*(,[a-z][a-z-]*)*$ ]] || {
+      pol_why="line $n: bad grants field"
+      return 1
+    }
+    case $r_target in
+      / | */ | *//* | */./* | */../* | */. | */.. | [!/]*)
+        pol_why="line $n: target is not a normalized absolute path"
+        return 1
+        ;;
+    esac
+    i=0
+    while [ "$i" -lt "${#pol_repo[@]}" ]; do
+      [ "${pol_repo[$i]}" != "$r_repo" ] || {
+        pol_why="line $n: repo repeats line $((i + 1))'s"
+        return 1
+      }
+      [ "${pol_target[$i]}" != "$r_target" ] || {
+        pol_why="line $n: target repeats line $((i + 1))'s"
+        return 1
+      }
+      i=$((i + 1))
+    done
+    pol_repo+=("$r_repo")
+    pol_remote+=("$r_remote")
+    pol_branch+=("$r_branch")
+    pol_grants+=("$r_grants")
+    pol_target+=("$r_target")
+    case $text in
+      *$'\n'*) text=${text#*$'\n'} ;;
+      *) return 0 ;;
+    esac
+  done
+}
+
+# select_repo WANT — pick the policy line whose target is WANT (trailing `/`s dropped), or, with
+# WANT empty, the only line; sets repo/remote/branch/grants/target from it — the grants are that
+# line's own — or exits 2 listing the pinned targets. Plain string comparison: devc writes every
+# target normalized.
+select_repo() {
+  local want=$1 t list='' i=0 pick=-1
+  while [ "$i" -lt "${#pol_target[@]}" ]; do
+    list=${list:+$list, }${pol_target[$i]}
+    i=$((i + 1))
+  done
+  if [ -z "$want" ]; then
+    [ "${#pol_target[@]}" -eq 1 ] ||
+      die 2 "this container has ${#pol_target[@]} pinned repos — pass --repo <path>, one of: $list"
+    pick=0
+  else
+    t=$want
+    while [ "${t%/}" != "$t" ]; do t=${t%/}; done
+    i=0
+    while [ "$i" -lt "${#pol_target[@]}" ]; do
+      [ "${pol_target[$i]}" != "$t" ] || pick=$i
+      i=$((i + 1))
+    done
+    [ "$pick" -ge 0 ] || die 2 "no pinned repo at $want — pinned: $list"
+  fi
+  repo=${pol_repo[$pick]}
+  remote=${pol_remote[$pick]}
+  branch=${pol_branch[$pick]}
+  grants=${pol_grants[$pick]}
+  target=${pol_target[$pick]}
+}
+
+# load_policy — the caller's policy, parsed, and the pinned repo `--repo` selected: sets grants,
+# repo, remote, branch, target and head_owner/head_name, or exits 2.
+load_policy() {
+  local key policy_dir policy
+  key=${DEVC_BRIDGE_KEY-}
+  [ -n "$key" ] || die 2 "this caller has no workspace key (the shared token has no pinned PR)"
+  case $key in
+    . | .. | *[!A-Za-z0-9._-]*) die 2 "invalid workspace key" ;;
+  esac
+  policy_dir=${DEVC_BRIDGE_POLICY_DIR:-$HOME/.config/devc-bridge/policy}
+  policy=$policy_dir/$key.conf
+  [ -f "$policy" ] ||
+    die 2 "no policy for this container — on the host: devc up --bridge-allow $grant_hint"
+  parse_policy "$policy" || die 2 "malformed policy $policy: $pol_why"
+  select_repo "$want_repo"
+  parse_remote "$remote" || die 2 "unsupported remote $remote — only github.com"
+}
+
+# require_grant CAP… — exit 2 unless the selected line grants at least one CAP. The bridge only
+# refused a call no line grants; this is the binding, per-repo check. With several lines the
+# refusal names the selected target.
+require_grant() {
+  local cap want=''
+  for cap in "$@"; do
+    case ,$grants, in *,"$cap",*) return 0 ;; esac
+    want=${want:+$want or }$cap
+  done
+  [ "${#pol_target[@]}" -le 1 ] || want="$want for $target"
+  die 2 "this container was not granted $want"
+}
+
+# parse_remote URL — sets head_owner/head_name. Three shapes, github.com or a `github.com-*` ssh
+# host alias; anything else fails.
+parse_remote() {
+  local rest host path
+  case $1 in
+    git@*:*) rest=${1#git@} host=${rest%%:*} path=${rest#*:} ;;
+    ssh://git@*/*) rest=${1#ssh://git@} host=${rest%%/*} path=${rest#*/} ;;
+    https://*/*) rest=${1#https://} host=${rest%%/*} path=${rest#*/} ;;
+    *) return 1 ;;
+  esac
+  case $host in github.com | github.com-*) ;; *) return 1 ;; esac
+  case $host in *[!A-Za-z0-9.-]*) return 1 ;; esac
+  path=${path%.git}
+  case $path in */*) ;; *) return 1 ;; esac
+  head_owner=${path%%/*}
+  head_name=${path#*/}
+  valid_name "$head_owner" && valid_name "$head_name"
+}
+
+valid_name() { # an owner or repo name: also keeps `..` out of an API path
+  case $1 in '' | . | .. | *[!A-Za-z0-9._-]*) return 1 ;; esac
+}
+valid_repo() { valid_name "${1%%/*}" && valid_name "${1#*/}" && [ "${1#*/}" != "$1" ]; }
+
+# ── gh, hang-proofed ──────────────────────────────────────────────────────────────────────
+
+unset GH_REPO GH_ENTERPRISE_TOKEN GITHUB_ENTERPRISE_TOKEN GH_DEBUG GH_PAGER GH_CONFIG_DIR_OVERRIDE
+export GH_HOST=github.com GH_PROMPT_DISABLED=1 GH_NO_UPDATE_NOTIFIER=1 NO_COLOR=1
+
+timeout_s=${DEVC_BRIDGE_GH_TIMEOUT:-60}
+case $timeout_s in '' | *[!0-9]*) timeout_s=60 ;; esac
+
+tmp=$(mktemp -d "${TMPDIR:-/tmp}/devc-bridge-$me.XXXXXX") || die 4 "cannot create a temp dir"
+# The EXIT trap acts only in the main shell. run_t's watcher subshell, killed right after it forks,
+# can run an inherited copy of this trap and would delete $tmp mid-run. bash 3.2 (macOS) has no
+# BASHPID, so compare the trapping shell's pid (a child's $PPID) with the one saved here.
+main_pid=$$
+trap '[ "$(exec sh -c "echo \$PPID")" = "$main_pid" ] && rm -rf "$tmp"' EXIT
+
+# run_t CMD… — CMD with stdin closed, its whole process group killed after $timeout_s. macOS ships
+# no timeout(1); the group matters because a child holding the bridge's stdout would keep the
+# client waiting for EOF (gh-push's hang-proofing, verbatim).
+run_t() {
+  rm -f "$tmp/timedout"
+  set -m
+  "$@" </dev/null &
+  local pid=$!
+  (
+    sleep "$timeout_s"
+    : >"$tmp/timedout"
+    kill -s TERM -- "-$pid"
+    sleep 5
+    kill -s KILL -- "-$pid"
+  ) </dev/null >/dev/null 2>&1 &
+  local watcher=$!
+  set +m
+  local rc=0
+  wait "$pid" 2>/dev/null || rc=$?
+  kill -s TERM -- "-$watcher" 2>/dev/null
+  wait "$watcher" 2>/dev/null
+  return "$rc"
+}
+
+# gh_try STEP ARGS… — gh ARGS, stdout to $tmp/out, stderr to $tmp/err; returns gh's status. A
+# timeout is always exit 4.
+gh_try() {
+  local step=$1
+  shift
+  run_t gh "$@" >"$tmp/out" 2>"$tmp/err" && return 0
+  local rc=$?
+  [ -e "$tmp/timedout" ] && die 4 "$step: timed out after ${timeout_s}s"
+  return "$rc"
+}
+
+# gh_run STEP ARGS… — gh_try, and any failure is exit 4 with gh's stderr relayed.
+gh_run() {
+  gh_try "$@" && return 0
+  gh_fail "$1"
+}
+gh_fail() {
+  sed "s/^/$me: gh: /" "$tmp/err" >&2
+  die 4 "$1 failed"
+}
+
+gh_ready() {
+  command -v gh >/dev/null 2>&1 || die 4 "gh is not installed on the host (not on the bridge's PATH)"
+  gh_try "checking gh auth" auth status --hostname github.com ||
+    die 4 "gh is not authenticated in the bridge's environment — run gh auth login on the host, then devc-bridge restart"
+}
+
+# ── the PR: found from its head, which is what the pin authorises ─────────────────────────
+
+# resolve_pr — sets pr_id pr_number pr_url pr_head_sha pr_repo pr_owner pr_name and pr_head_repo
+# (where the head's commits live: a fork's own repo), or exits 2 unless exactly one open PR has
+# head <pinned repo>:<pinned branch>. Base candidates are the head repo and,
+# if it is a fork, its parent — both as GitHub reports them, so the container cannot widen the set.
+resolve_pr() {
+  local head_full parent_full base q
+  gh_run "reading $head_owner/$head_name" api "repos/$head_owner/$head_name" \
+    --jq '[.full_name, (.parent.full_name // "")] | @tsv'
+  IFS=$'\t' read -r head_full parent_full <"$tmp/out"
+  valid_repo "$head_full" || die 4 "unexpected response for $head_owner/$head_name"
+  [ -z "$parent_full" ] || valid_repo "$parent_full" ||
+    die 4 "unexpected parent for $head_full"
+
+  q='query($owner:String!,$name:String!,$branch:String!){repository(owner:$owner,name:$name){
+    pullRequests(headRefName:$branch,states:OPEN,first:20){nodes{id number url headRefOid
+    headRepository{nameWithOwner} baseRepository{nameWithOwner}}}}}'
+  : >"$tmp/prs"
+  for base in "$head_full" ${parent_full:+"$parent_full"}; do
+    gh_run "listing PRs in $base" api graphql -f query="$q" -f owner="${base%%/*}" \
+      -f name="${base#*/}" -f branch="$branch" \
+      --jq '.data.repository.pullRequests.nodes[] | [(.headRepository.nameWithOwner // ""), .id,
+        (.number | tostring), .url, .headRefOid, .baseRepository.nameWithOwner] | @tsv'
+    cat "$tmp/out" >>"$tmp/prs"
+  done
+  # headRefName alone matches any fork's branch of that name: the head repo is the restriction.
+  awk -F'\t' -v h="$head_full" 'tolower($1) == tolower(h)' "$tmp/prs" >"$tmp/match"
+
+  local n
+  n=$(wc -l <"$tmp/match" | tr -d ' ')
+  [ "$n" -gt 0 ] || die 2 "no open PR with head $head_full:$branch"
+  [ "$n" -eq 1 ] ||
+    die 2 "more than one open PR with head $head_full:$branch: $(cut -f4 "$tmp/match" | tr '\n' ' ')"
+  IFS=$'\t' read -r pr_head_repo pr_id pr_number pr_url pr_head_sha pr_repo <"$tmp/match"
+  valid_repo "$pr_head_repo" || die 4 "unexpected PR head repo"
+  case $pr_id in '' | *[!A-Za-z0-9_=-]*) die 4 "unexpected PR id" ;; esac
+  case $pr_number in '' | *[!0-9]*) die 4 "unexpected PR number" ;; esac
+  case $pr_url in https://github.com/*) ;; *) die 4 "unexpected PR url" ;; esac
+  case ${pr_url#https://github.com/} in *[!A-Za-z0-9._/-]*) die 4 "unexpected PR url" ;; esac
+  [[ $pr_head_sha =~ ^[0-9a-f]{40}$ ]] || die 4 "unexpected PR head sha"
+  valid_repo "$pr_repo" || die 4 "unexpected PR base repo"
+  pr_owner=${pr_repo%%/*}
+  pr_name=${pr_repo#*/}
+}
+
+# ── a review thread, checked against that PR ──────────────────────────────────────────────
+
+valid_thread_id() { [[ $1 =~ ^PRRT_[A-Za-z0-9_-]+$ ]]; }
+
+# load_thread ID — sets thread_resolved/thread_copilot (true|false), or exits 2 unless ID is a
+# review thread on the resolved PR. Node ids are compared, not numbers, which repeat across repos.
+load_thread() {
+  local q typename prid
+  q='query($id:ID!){node(id:$id){__typename ... on PullRequestReviewThread{isResolved
+    pullRequest{id} comments(first:1){nodes{author{__typename login}}}}}}'
+  if ! gh_try "reading thread $1" api graphql -f query="$q" -f id="$1" \
+    --jq "[(.data.node.__typename // \"\"), (.data.node.pullRequest.id // \"\"),
+      (.data.node.isResolved | tostring), (.data.node.comments.nodes[0].author | $IS_COPILOT |
+      tostring)] | @tsv"; then
+    grep -q 'Could not resolve to a node' "$tmp/err" && die 2 "thread $1 does not exist"
+    gh_fail "reading thread $1"
+  fi
+  IFS=$'\t' read -r typename prid thread_resolved thread_copilot <"$tmp/out"
+  [ "$typename" = PullRequestReviewThread ] || die 2 "$1 is not a review thread"
+  [ "$prid" = "$pr_id" ] || die 2 "thread $1 is not on $pr_url"
+}
+
+# ── Copilot's review state ────────────────────────────────────────────────────────────────
+
+# jq definitions for the timeline filter below. They run inside `gh api --jq`, which is gojq, not
+# jq (the harness runs them under jq), so they keep to what both agree on: RE2-valid regexes, no
+# regex flags but "g", "​" string escapes. gojq sorts object keys, so every object whose key
+# order is part of the contract is built as text (ccr_obj) rather than with tojson.
+#
+# ccr_findings: a review body → its open findings as JSON text, "[]" for none, or "null" when the
+# body is not Copilot's `<!-- ccr-overview-v2 -->` overview or does not parse exactly — never a
+# partial list, and never an error (the body is anyone's text, so a parse failure is only "null").
+# Sections are the top-level <details> whose <summary> reads "<name> (<n>)", except "Resolved since
+# last review" (threads already closed); each <details> directly inside one is a finding, and a
+# section holding other than <n> of them is a mismatch. Tags are walked in order with a depth
+# counter, because <details> nests and no one regex can find a block's end.
+CCR_JQ='
+def ccr_obj: "{" + (map((.[0] | tojson) + ":" + .[1]) | join(",")) + "}";
+def ccr_trim: sub("\\A[ \t\r\n]+"; "") | sub("[ \t\r\n]+\\z"; "");
+def ccr_flat: gsub("<[^>]*>"; "") | gsub("[ \t\r\n]+"; " ") | ccr_trim;
+def ccr_part:
+  split("</summary>") as $p
+  | if ($p | length) < 2 or ($p[0] | test("\\A[^<]*<summary[^>]*>") | not) then error("no summary")
+    else {summary: ($p[0] | sub("\\A[^<]*<summary[^>]*>"; "")), rest: ($p[1:] | join("</summary>"))}
+    end;
+def ccr_blocks:
+  "</?details(?:[ \t\r\n][^>]*)?>" as $re
+  | [splits($re)] as $txt
+  | [match($re; "g") | .string] as $tags
+  | reduce range(0; $txt | length) as $i ({d: 0, b: []};
+      (if .d == 1 then .b[-1].s += $txt[$i] elif .d >= 2 then .b[-1].f[-1] += $txt[$i] else . end)
+      | if $i >= ($tags | length) then .
+        elif ($tags[$i] | startswith("</")) then
+          (if .d == 0 then error("unbalanced") else .d -= 1 end)
+        else
+          (if .d == 0 then .b += [{s: "", f: []}] elif .d == 1 then .b[-1].f += [""] else . end)
+          | .d += 1
+        end)
+  | if .d != 0 then error("unbalanced") else .b end;
+def ccr_finding($section):
+  ccr_part as $p
+  | "`([^`\n]+):([0-9]+)`" as $loc_re
+  | ([$p.rest | match($loc_re)] | .[0]) as $loc
+  | [["section", ($section | tojson)],
+     ["severity", ([$p.summary | match("alt=\"(?:[^\"]* )?([A-Za-z]+) severity\"")
+       | .captures[0].string | ascii_downcase] | .[0] | tojson)],
+     ["title", ($p.summary | ccr_flat | tojson)],
+     ["path", (if $loc == null then null else $loc.captures[0].string | gsub("​"; "") end
+       | tojson)],
+     ["line", (if $loc == null then null else $loc.captures[1].string | tonumber end | tojson)],
+     ["text", ($p.rest | sub($loc_re; "") | gsub("<[^>]*>"; "") | gsub("​"; "") | ccr_trim
+       | tojson)]]
+  | ccr_obj;
+def ccr_findings:
+  try (
+    if type != "string" or (contains("<!-- ccr-overview-v2 -->") | not) then "null"
+    else
+      [ccr_blocks[]
+        | ([.s | try (ccr_part | .summary) catch "" | ccr_flat | match("^(.+) \\(([0-9]+)\\)$")
+            | .captures | map(.string)] | .[0]) as $m
+        | if $m == null then error("unknown section")
+          elif $m[0] == "Resolved since last review" then empty else . end
+        | if (.f | length) != ($m[1] | tonumber) then error("count mismatch") else . end
+        | .f[] | ccr_finding($m[0])]
+      | "[" + join(",") + "]"
+    end
+  ) catch "null";
+def ccr_review:
+  (.body // "") as $body
+  | [["commit", (.commit_id | tojson)],
+     ["state", (.state | if type == "string" then ascii_upcase else null end | tojson)],
+     ["submittedAt", (.submitted_at | tojson)],
+     ["body", ($body | tojson)],
+     ["findings", ($body | ccr_findings)]]
+  | ccr_obj;
+'
+
+# copilot_review — Copilot's review state on the resolved PR, all from the issue timeline (REST
+# requested_reviewers never lists Copilot), so `pending` and the review can never come from two
+# sources that GitHub updates at different times. Sets:
+#   pending        true iff the last Copilot event is a review request, not yet delivered
+#   review         the last delivered Copilot review (a `reviewed` event not in state pending) as
+#                  one JSON object {"commit","state","submittedAt","body","findings"}, all null when
+#                  there is none — even when a request follows it, which is "pending, previous shown"
+#   review_commit  its commit oid, or empty
+# With --paginate, --jq runs per page, so it emits one line per event (oldest first): either
+# `review_requested` or `reviewed<TAB><commit><TAB><review JSON>`.
+copilot_review() {
+  local line
+  gh_run "reading the timeline of $pr_url" api --paginate \
+    "repos/$pr_repo/issues/$pr_number/timeline" \
+    --jq "$CCR_JQ .[] | select((.event == \"review_requested\" and
+        .requested_reviewer.login == \"$COPILOT_TIMELINE_LOGIN\") or
+      (.event == \"reviewed\" and .user.login == \"$COPILOT_TIMELINE_LOGIN\" and
+        ((.state // \"\") | tostring | ascii_downcase) != \"pending\")) |
+      if .event == \"review_requested\" then .event
+      else \"reviewed\t\" + ((.commit_id // \"\") | tostring | gsub(\"[\t\r\n]\"; \" \")) + \"\t\" +
+        ccr_review end"
+  ! grep -qv -e '^review_requested$' -e "^reviewed"$'\t' "$tmp/out" ||
+    die 4 "unexpected response reading the timeline of $pr_url"
+  case $(tail -n 1 "$tmp/out") in review_requested) pending=true ;; *) pending=false ;; esac
+  line=$(grep "^reviewed"$'\t' "$tmp/out" | tail -n 1)
+  if [ -z "$line" ]; then
+    review_commit=
+    review='{"commit":null,"state":null,"submittedAt":null,"body":null,"findings":null}'
+    return 0
+  fi
+  line=${line#reviewed$'\t'}
+  review_commit=${line%%$'\t'*}
+  review=${line#*$'\t'}
+  [[ $review_commit =~ ^[0-9a-f]{40}$ ]] || die 4 "unexpected review commit on $pr_url"
+  case $review in '{'*'}') ;; *) die 4 "unexpected response reading the timeline of $pr_url" ;; esac
+}
+# ── END pr-prelude ──
+
+valid_id() { [[ $1 =~ ^[A-Za-z0-9_=-]+$ ]]; }
+valid_line() { [[ $1 =~ ^[1-9][0-9]{0,8}$ ]]; }
+
+# ── arguments: all checked before anything touches the network ───────────────────────────
+
+[ $# -ge 1 ] || die 2 "$usage"
+sub=$1
+shift
+start='' review_body=''
+case $sub in
+  show | discard) [ $# -eq 0 ] || die 2 "$usage" ;;
+  comment)
+    if [ $# -eq 6 ] && [ "$4" = --start ]; then
+      start=$5
+      set -- "$1" "$2" "$3" "$6"
+    fi
+    [ $# -eq 4 ] || die 2 "$usage"
+    file=$1 line=$2 side=$3 body=$4
+    [ -n "$file" ] && [ ${#file} -le 4096 ] || die 2 "$usage"
+    case $file in *[[:cntrl:]]*) die 2 "$usage" ;; esac
+    valid_line "$line" || die 2 "not a line number: $line"
+    case $side in LEFT | RIGHT) ;; *) die 2 "$usage" ;; esac
+    if [ -n "$start" ]; then
+      valid_line "$start" || die 2 "not a line number: $start"
+      [ "$start" -lt "$line" ] || die 2 "--start $start is not before line $line"
+    fi
+    ;;
+  reply)
+    [ $# -eq 2 ] || die 2 "$usage"
+    thread=$1 body=$2
+    valid_thread_id "$thread" || die 2 "not a review thread id (want PRRT_…): $thread"
+    ;;
+  edit | delete)
+    if [ "$sub" = edit ]; then [ $# -eq 2 ] || die 2 "$usage"; else [ $# -eq 1 ] || die 2 "$usage"; fi
+    comment=$1 body=${2-}
+    valid_id "$comment" || die 2 "not a comment id: $comment"
+    ;;
+  submit)
+    if [ $# -eq 2 ] && [ "$1" = --body ]; then
+      review_body=$2
+    elif [ $# -ne 0 ]; then
+      die 2 "$usage"
+    fi
+    ;;
+  *) die 2 "$usage" ;;
+esac
+load_policy
+require_grant gh-pr-pending-review
+case $sub in
+  comment | reply | edit) check_body "$body" ;;
+  submit) [ -z "$review_body" ] || check_body "$review_body" ;;
+esac
+gh_ready
+resolve_pr
+
+# ── the pending review ────────────────────────────────────────────────────────────────────
+
+# pending_review — sets review (its node id, empty for none) and review_count, and writes its
+# comments' ids to $tmp/comments, one per line. Only a review the viewer wrote counts.
+pending_review() {
+  local q
+  q='query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){
+    pullRequest(number:$number){reviews(states:PENDING,first:5){nodes{id viewerDidAuthor
+    comments(first:100){totalCount nodes{id}}}}}}}'
+  gh_run "reading your pending review on $pr_url" api graphql -f query="$q" \
+    -f owner="$pr_owner" -f name="$pr_name" -F number="$pr_number" \
+    --jq '[.data.repository.pullRequest.reviews.nodes[] | select(.viewerDidAuthor)] | first // empty
+      | "R\t" + .id + "\t" + (.comments.totalCount | tostring), (.comments.nodes[] | "C\t" + .id)'
+  review='' review_count=0
+  : >"$tmp/comments"
+  local kind a b
+  while IFS=$'\t' read -r kind a b; do
+    case $kind in
+      R) review=$a review_count=$b ;;
+      C) printf '%s\n' "$a" >>"$tmp/comments" ;;
+      *) die 4 "unexpected response reading your pending review" ;;
+    esac
+  done <"$tmp/out"
+  [ -z "$review" ] || valid_id "$review" || die 4 "unexpected pending review id"
+  case $review_count in '' | *[!0-9]*) die 4 "unexpected pending review" ;; esac
+  ! grep -qv '^[A-Za-z0-9_=-]*$' "$tmp/comments" || die 4 "unexpected pending comment id"
+}
+
+# start_review — the pending review, started at the PR's head when there is none.
+start_review() {
+  pending_review
+  [ -z "$review" ] || return 0
+  local q
+  q='mutation($id:ID!,$commit:GitObjectID!){addPullRequestReview(input:{pullRequestId:$id,
+    commitOID:$commit}){pullRequestReview{id}}}'
+  gh_run "starting a review on $pr_url" api graphql -f query="$q" -f id="$pr_id" \
+    -f commit="$pr_head_sha" --jq '.data.addPullRequestReview.pullRequestReview.id'
+  review=$(cat "$tmp/out")
+  valid_id "$review" || die 4 "unexpected review id"
+}
+
+# own_comment — exit 3 unless $comment is one of the pending review's comments.
+own_comment() {
+  pending_review
+  grep -Fxq -e "$comment" "$tmp/comments" ||
+    die 3 "refused: $comment is not a comment in your pending review on $pr_url"
+}
+
+# got STEP — sets new_id to the id the last call printed, or exits 4.
+got() {
+  new_id=$(cat "$tmp/out")
+  valid_id "$new_id" || die 4 "unexpected response $1"
+}
+
+case $sub in
+  show)
+    pending_review
+    if [ -z "$review" ]; then
+      echo '{"review":null}'
+    else
+      printf '{"review":{"id":"%s","comments":%s}}\n' "$review" "$review_count"
+    fi
+    ;;
+  comment)
+    # The file must be one of the PR's (as gh-pr-viewed checks it).
+    q='query($owner:String!,$name:String!,$number:Int!,$endCursor:String){repository(owner:$owner,
+      name:$name){pullRequest(number:$number){files(first:100,after:$endCursor){
+      pageInfo{hasNextPage endCursor} nodes{path}}}}}'
+    gh_run "reading the files of $pr_url" api graphql --paginate -f query="$q" \
+      -f owner="$pr_owner" -f name="$pr_name" -F number="$pr_number" \
+      --jq '.data.repository.pullRequest.files.nodes[].path | select(test("[[:cntrl:]]") | not)'
+    grep -Fxq -e "$file" "$tmp/out" || die 2 "$file is not a file in $pr_url"
+    start_review
+    as_posted "$body"
+    # Lines are checked digits, so -F (a number) is safe for them.
+    if [ -n "$start" ]; then
+      q='mutation($review:ID!,$path:String!,$line:Int!,$side:DiffSide!,$start:Int!,$body:String!){
+        addPullRequestReviewThread(input:{pullRequestReviewId:$review,path:$path,line:$line,
+        side:$side,startLine:$start,startSide:$side,body:$body}){thread{id}}}'
+      gh_run "commenting on $file" api graphql -f query="$q" -f review="$review" -f path="$file" \
+        -F line="$line" -f side="$side" -F start="$start" -f body="$posted" \
+        --jq '.data.addPullRequestReviewThread.thread.id'
+    else
+      q='mutation($review:ID!,$path:String!,$line:Int!,$side:DiffSide!,$body:String!){
+        addPullRequestReviewThread(input:{pullRequestReviewId:$review,path:$path,line:$line,
+        side:$side,body:$body}){thread{id}}}'
+      gh_run "commenting on $file" api graphql -f query="$q" -f review="$review" -f path="$file" \
+        -F line="$line" -f side="$side" -f body="$posted" \
+        --jq '.data.addPullRequestReviewThread.thread.id'
+    fi
+    got "commenting on $file"
+    printf '{"review":"%s","thread":"%s"}\n' "$review" "$new_id"
+    ;;
+  reply)
+    load_thread "$thread"
+    start_review
+    as_posted "$body"
+    q='mutation($thread:ID!,$review:ID!,$body:String!){addPullRequestReviewThreadReply(input:{
+      pullRequestReviewThreadId:$thread,pullRequestReviewId:$review,body:$body}){comment{id}}}'
+    gh_run "replying to $thread" api graphql -f query="$q" -f thread="$thread" \
+      -f review="$review" -f body="$posted" --jq '.data.addPullRequestReviewThreadReply.comment.id'
+    got "replying to $thread"
+    printf '{"review":"%s","comment":"%s"}\n' "$review" "$new_id"
+    ;;
+  edit)
+    own_comment
+    as_posted "$body"
+    q='mutation($id:ID!,$body:String!){updatePullRequestReviewComment(input:{
+      pullRequestReviewCommentId:$id,body:$body}){pullRequestReviewComment{id}}}'
+    gh_run "editing $comment" api graphql -f query="$q" -f id="$comment" -f body="$posted" \
+      --jq '.data.updatePullRequestReviewComment.pullRequestReviewComment.id'
+    printf '{"comment":"%s"}\n' "$comment"
+    ;;
+  delete)
+    own_comment
+    q='mutation($id:ID!){deletePullRequestReviewComment(input:{id:$id}){pullRequestReview{id}}}'
+    gh_run "deleting $comment" api graphql -f query="$q" -f id="$comment"
+    printf '{"comment":"%s"}\n' "$comment"
+    ;;
+  submit)
+    pending_review
+    [ -n "$review" ] || die 3 "no pending review on $pr_url"
+    # COMMENT is a constant here, never an argument: this command never approves or requests
+    # changes.
+    if [ -n "$review_body" ]; then
+      as_posted "$review_body"
+      q='mutation($id:ID!,$body:String!){submitPullRequestReview(input:{pullRequestReviewId:$id,
+        event:COMMENT,body:$body}){pullRequestReview{id url}}}'
+      gh_run "submitting your review on $pr_url" api graphql -f query="$q" -f id="$review" \
+        -f body="$posted" --jq '.data.submitPullRequestReview.pullRequestReview.url'
+    else
+      q='mutation($id:ID!){submitPullRequestReview(input:{pullRequestReviewId:$id,
+        event:COMMENT}){pullRequestReview{id url}}}'
+      gh_run "submitting your review on $pr_url" api graphql -f query="$q" -f id="$review" \
+        --jq '.data.submitPullRequestReview.pullRequestReview.url'
+    fi
+    url=$(cat "$tmp/out")
+    case $url in https://github.com/*) ;; *) die 4 "unexpected response submitting your review" ;; esac
+    case ${url#https://github.com/} in *[!A-Za-z0-9._/#-]*) die 4 "unexpected review url" ;; esac
+    printf '{"review":"%s","url":"%s"}\n' "$review" "$url"
+    ;;
+  discard)
+    pending_review
+    [ -n "$review" ] || die 3 "no pending review on $pr_url"
+    q='mutation($id:ID!){deletePullRequestReview(input:{pullRequestReviewId:$id}){
+      pullRequestReview{id}}}'
+    gh_run "discarding your review on $pr_url" api graphql -f query="$q" -f id="$review"
+    printf '{"review":"%s"}\n' "$review"
+    ;;
+esac

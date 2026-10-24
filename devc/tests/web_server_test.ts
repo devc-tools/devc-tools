@@ -1155,6 +1155,58 @@ Deno.test('parseClientMessage: the pr_* messages take a project, a repo root and
   }
 });
 
+Deno.test('parseClientMessage: pr_file_at and the pr_pending_* messages', () => {
+  const base = { id: 'p1', localFolder: '/src/app', root: '/src/app' };
+  const sha = 'a'.repeat(40);
+  const same = (m: Record<string, unknown>) => {
+    const r = parseClientMessage(JSON.stringify(m));
+    assert(r.ok, JSON.stringify(m));
+    assertEquals(r.msg as unknown, m);
+  };
+  same({ type: 'pr_file_at', ...base, path: 'src/a.ts', sha });
+  same({ type: 'pr_pending_show', ...base });
+  same({ type: 'pr_pending_discard', ...base });
+  const comment = {
+    type: 'pr_pending_comment',
+    ...base,
+    path: 'a',
+    line: 4,
+    side: 'LEFT',
+    startLine: null,
+    body: 'x',
+  };
+  same(comment);
+  same({ ...comment, side: 'RIGHT', startLine: 3 });
+  same({ type: 'pr_pending_reply', ...base, thread: 'PRRT_1', body: 'x' });
+  same({ type: 'pr_pending_edit', ...base, comment: 'PRRC_1', body: 'x' });
+  same({ type: 'pr_pending_delete', ...base, comment: 'PRRC_1' });
+  same({ type: 'pr_pending_submit', ...base, body: '' });
+  for (
+    const bad of [
+      { type: 'pr_file_at', ...base, path: 'a', sha: 'A'.repeat(40) },
+      { type: 'pr_file_at', ...base, path: 'a', sha: 'abc' },
+      { type: 'pr_file_at', ...base, sha },
+      { type: 'pr_pending_show', id: 'p1', root: '/src/app' },
+      { ...comment, line: 0 },
+      { ...comment, line: 2.5 },
+      { ...comment, side: 'BOTH' },
+      { ...comment, startLine: 4 },
+      { ...comment, startLine: 0 },
+      { ...comment, startLine: undefined },
+      { ...comment, body: undefined },
+      { ...comment, path: '' },
+      { type: 'pr_pending_reply', ...base, body: 'x' },
+      { type: 'pr_pending_edit', ...base, comment: '', body: 'x' },
+      { type: 'pr_pending_delete', ...base },
+      { type: 'pr_pending_submit', ...base },
+      { type: 'pr_pending_approve', ...base },
+    ]
+  ) {
+    const r = rejected(bad);
+    assertEquals(r.code, 'bad_request', JSON.stringify(bad));
+  }
+});
+
 Deno.test('configEventMatches: a global-config watch reacts to both names', () => {
   const names = GLOBAL_CONFIG_PATHS.map((p) => p.slice(p.lastIndexOf('/') + 1));
   assertEquals(names, ['config.jsonc', 'config.json']);
@@ -1281,6 +1333,28 @@ Deno.test('parseClientMessage: view_intent and sidebar_intent take a known name 
       name,
     );
   }
+  // openDiff's third argument ({compare: 'viewed'}) relays like the others.
+  assertEquals(
+    parseClientMessage(JSON.stringify({
+      type: 'view_intent',
+      view: 'v',
+      name: 'openDiff',
+      args: [{ localFolder: '/w', root: '/w', path: 'a' }, 'stack', {
+        compare: 'viewed',
+      }],
+    })),
+    {
+      ok: true,
+      msg: {
+        type: 'view_intent',
+        view: 'v',
+        name: 'openDiff',
+        args: [{ localFolder: '/w', root: '/w', path: 'a' }, 'stack', {
+          compare: 'viewed',
+        }],
+      },
+    },
+  );
   for (const name of ['revealInContainers', 'setZen', 'prViewed']) {
     assert(
       parseClientMessage(

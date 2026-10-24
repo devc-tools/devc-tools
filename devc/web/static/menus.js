@@ -16,6 +16,7 @@ import {
   errorToast,
   LABELS,
   openMenu,
+  reviewDialog,
   toast,
 } from './ui.js';
 import {
@@ -727,4 +728,55 @@ function diffTileMenuItems(tile) {
   if (tile.preview) items.push(null, keepOpenItem(tile));
   items.push(null, ['Close', () => tileArea.close(tile.id)]);
   return items;
+}
+
+/**
+ * A repo's pending review, submitted as a Comment (`pr_pending_submit`) after its summary is
+ * asked for (`reviewDialog`, which links to GitHub for approving). Resolves whether it was sent,
+ * failed or not, so the caller lists the threads and the review again.
+ *
+ * @param {{localFolder: string, root: string}} repo @param {string} prUrl
+ * @returns {Promise<boolean>}
+ */
+export async function submitPendingReview(repo, prUrl) {
+  const body = await reviewDialog(prUrl);
+  if (body === null) return false;
+  await pendingReviewCall(
+    { type: 'pr_pending_submit', ...repo, body },
+    'Submitting the review',
+    'Review submitted',
+  );
+  return true;
+}
+
+/**
+ * A repo's pending review discarded (`pr_pending_discard`), asked first. Resolves whether it
+ * was sent.
+ *
+ * @param {{localFolder: string, root: string}} repo
+ * @returns {Promise<boolean>}
+ */
+export async function discardPendingReview(repo) {
+  const ok = await confirmDialog(LABELS.discardReviewConfirm, {
+    okLabel: LABELS.discard,
+    danger: true,
+  });
+  if (!ok) return false;
+  await pendingReviewCall(
+    { type: 'pr_pending_discard', ...repo },
+    'Discarding the review',
+    'Review discarded',
+  );
+  return true;
+}
+
+/** @param {Record<string, unknown>} msg @param {string} what @param {string} done */
+async function pendingReviewCall(msg, what, done) {
+  try {
+    const r = await call(msg);
+    if (r?.available === false) errorToast(`${what} failed: ${r.message}`);
+    else toast(done);
+  } catch (e) {
+    errorToast(`${what} failed: ${e?.message ?? e}`);
+  }
 }

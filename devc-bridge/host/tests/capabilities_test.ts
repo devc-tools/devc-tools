@@ -161,6 +161,7 @@ Deno.test('gh-pr-read runs the reads, and no write', async () => {
       stderr: '',
     } as Resp);
     assertEquals((await call(port, token, 'gh-pr-files')).exitCode, 0);
+    assertEquals((await call(port, token, 'gh-pr-file-at')).exitCode, 0);
     assertEquals(
       await call(port, token, 'gh-pr-reply'),
       refused(
@@ -169,7 +170,12 @@ Deno.test('gh-pr-read runs the reads, and no write', async () => {
       ),
     );
     for (
-      const name of ['gh-pr-viewed', 'gh-pr-resolve', 'gh-pr-request-review']
+      const name of [
+        'gh-pr-viewed',
+        'gh-pr-resolve',
+        'gh-pr-request-review',
+        'gh-pr-pending-review',
+      ]
     ) {
       assertEquals((await call(port, token, name)).exitCode, 1, name);
     }
@@ -179,6 +185,16 @@ Deno.test('gh-pr-read runs the reads, and no write', async () => {
     async ({ port, token }) => {
       assertEquals((await call(port, token, 'gh-pr-files')).exitCode, 0);
       assertEquals((await call(port, token, 'gh-pr-viewed')).exitCode, 0);
+      assertEquals((await call(port, token, 'gh-pr-reply')).exitCode, 1);
+    },
+  );
+  await withServer(
+    policyLine('gh-pr-read,gh-pr-pending-review'),
+    async ({ port, token }) => {
+      assertEquals(
+        (await call(port, token, 'gh-pr-pending-review')).exitCode,
+        0,
+      );
       assertEquals((await call(port, token, 'gh-pr-reply')).exitCode, 1);
     },
   );
@@ -580,7 +596,9 @@ Deno.test('materializeBuiltins writes every built-in and replaces a stale set wh
     assertEquals(names, [
       'gh-doctor',
       'gh-pr-comments',
+      'gh-pr-file-at',
       'gh-pr-files',
+      'gh-pr-pending-review',
       'gh-pr-reply',
       'gh-pr-request-review',
       'gh-pr-resolve',

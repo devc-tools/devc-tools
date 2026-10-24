@@ -155,7 +155,7 @@ import {
   rejectionReply,
 } from './protocol.ts';
 import { type Delivery, ViewRegistry } from './views.ts';
-import { type PrMessage, PrReview } from './pr_review.ts';
+import { PR_MESSAGE_TYPES, type PrMessage, PrReview } from './pr_review.ts';
 import { closeGracefully, liveProcs } from './proc.ts';
 import { paneScroll, toTextPoint } from './selection.ts';
 import {
@@ -2102,7 +2102,7 @@ export async function startWeb(
     reply(c, { id: msg.id, ok: true, result: { ...created, reused: false } });
   };
 
-  /** A repo's pull request (`pr_files` … `pr_resolve`, see `pr_review.ts`). */
+  /** A repo's pull request (`pr_files` … `pr_pending_discard`, see `pr_review.ts`). */
   const handlePr = async (
     c: Client,
     msg: Extract<ClientMessage, { type: PrMessage['type'] }>,
@@ -2315,12 +2315,11 @@ export async function startWeb(
       return;
     }
     // Before the `localFolder` check: these name a repo of a project, and need its container.
-    if (
-      msg.type === 'pr_files' || msg.type === 'pr_diff' ||
-      msg.type === 'pr_threads' || msg.type === 'pr_viewed' ||
-      msg.type === 'pr_reply' || msg.type === 'pr_resolve'
-    ) {
-      await handlePr(c, msg);
+    if ((PR_MESSAGE_TYPES as readonly string[]).includes(msg.type)) {
+      await handlePr(
+        c,
+        msg as Extract<ClientMessage, { type: PrMessage['type'] }>,
+      );
       return;
     }
     if ('localFolder' in msg) {

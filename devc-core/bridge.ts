@@ -55,6 +55,7 @@ export const BRIDGE_CAPABILITIES = [
   'gh-push',
   'gh-pr-read',
   'gh-pr-reply',
+  'gh-pr-pending-review',
   'gh-pr-viewed',
   'gh-pr-resolve',
   'gh-pr-resolve-copilot',
@@ -75,8 +76,9 @@ export const BRIDGE_CAPABILITY_COMMANDS: Readonly<
   Record<BridgeCapability, readonly string[]>
 > = {
   'gh-push': ['gh-push', 'gh-doctor'],
-  'gh-pr-read': ['gh-pr-comments', 'gh-pr-files'],
+  'gh-pr-read': ['gh-pr-comments', 'gh-pr-files', 'gh-pr-file-at'],
   'gh-pr-reply': ['gh-pr-reply'],
+  'gh-pr-pending-review': ['gh-pr-pending-review'],
   'gh-pr-viewed': ['gh-pr-viewed'],
   'gh-pr-resolve': ['gh-pr-resolve'],
   'gh-pr-resolve-copilot': ['gh-pr-resolve'],
@@ -85,14 +87,15 @@ export const BRIDGE_CAPABILITY_COMMANDS: Readonly<
 
 /**
  * Capabilities that are only granted alongside another. Every PR write acts on what a read shows
- * — `gh-pr-viewed` marks paths `gh-pr-files` lists, the reply and resolve grants act on
- * `gh-pr-comments`' thread ids, and `gh-pr-request-review` asks for a review whose threads
+ * — `gh-pr-viewed` marks paths `gh-pr-files` lists, the reply, pending review and resolve grants
+ * act on `gh-pr-comments`' thread ids, and `gh-pr-request-review` asks for a review whose threads
  * `gh-pr-comments` lists — so each requires `gh-pr-read`.
  */
 export const BRIDGE_CAPABILITY_REQUIRES: Readonly<
   Partial<Record<BridgeCapability, BridgeCapability>>
 > = {
   'gh-pr-reply': 'gh-pr-read',
+  'gh-pr-pending-review': 'gh-pr-read',
   'gh-pr-viewed': 'gh-pr-read',
   'gh-pr-resolve': 'gh-pr-read',
   'gh-pr-resolve-copilot': 'gh-pr-read',

@@ -36,6 +36,7 @@ import { sessionAge } from './lib/sessions.js';
 import { statusLetter } from './lib/pr_tree.js';
 import {
   changedRanges,
+  diffTexts,
   ignoreWhitespace,
   markRanges,
   parsePatch,
@@ -81,6 +82,7 @@ import {
   socket,
 } from './client.js';
 import {
+  discardPendingReview,
   fileRefOf,
   fileRootOf,
   killPane,
@@ -90,6 +92,7 @@ import {
   setMenuContext,
   stackMenu,
   startProject,
+  submitPendingReview,
   tileOwnMenuItems,
 } from './menus.js';
 
@@ -733,6 +736,31 @@ function saveFlag(key, on) {
  */
 
 /**
+ * A new comment being written on a line or block (`pr_pending_comment`): `startLine` is a block's
+ * first line on `side` (null for one line), `hunk` the hunk both ends are in.
+ *
+ * @typedef {{side: 'LEFT' | 'RIGHT', startLine: number | null, line: number, hunk: number,
+ *   el: HTMLElement, label: HTMLElement, textarea: HTMLTextAreaElement, error: HTMLElement,
+ *   buttons: HTMLButtonElement[], sending: boolean}} NewComment
+ */
+
+/**
+ * A pending comment being edited (`pr_pending_edit`).
+ *
+ * @typedef {{el: HTMLElement, textarea: HTMLTextAreaElement, error: HTMLElement,
+ *   buttons: HTMLButtonElement[], sending: boolean}} CommentEdit
+ */
+
+/**
+ * A **Since viewed** comparison: the file at `sha` (the head it was last marked Viewed at)
+ * against the file at the PR's head, both read with `pr_file_at` and diffed here (`diffTexts`).
+ * `parsed` is set once both arrive; `message` says why there is none.
+ *
+ * @typedef {{sha: string, state: 'loading' | 'ok' | 'error',
+ *   parsed: import('./lib/diff.js').ParsedPatch | null, message: string}} SinceView
+ */
+
+/**
  * A diff tile's live view. `seq` and `threadSeq` number the `pr_diff` and `pr_threads` reads,
  * so only the latest one's answer lands. `data` is the last `pr_diff` result, `threads` the last
  * `pr_threads` listing (this file's threads), `null` until one arrives.
@@ -755,6 +783,16 @@ function saveFlag(key, on) {
  * @property {Map<string, Composer>} composers  by thread id
  * @property {Set<string>} resolving   threads with a `pr_resolve` in flight
  * @property {boolean} viewedSending   a `pr_viewed` from the header's Viewed is in flight
+ * @property {SinceView | null} since  the **Compare** choice when not `PR changes`; the tile's
+ *   own, never saved in the layout
+ * @property {boolean} wantViewed  opened with `compare: 'viewed'`: picks the newest Since viewed
+ *   choice once the file is read
+ * @property {boolean} noRecord  asked for changes since viewed with none recorded
+ * @property {{id: string, comments: number} | null} review  the viewer's pending review
+ * @property {NewComment | null} newComment
+ * @property {{side: 'LEFT' | 'RIGHT', line: number, hunk: number} | null} anchor  the last `+`
+ *   clicked: a Shift-click on another in its hunk and side makes a block
+ * @property {Map<string, CommentEdit>} editing  pending comments being edited, by comment id
  */
 
 /**
@@ -781,26 +819,35 @@ const diffViews = new Map();
  * @param {import('./lib/layout_state.js').DiffRef} ref
  * @param {'preview' | 'stack' | 'right'} where
  */
-function openDiff(ref, where) {
+function openDiff(ref, where, opts) {
   if (!tiling) return;
   const shown = where === 'right' ? null : tileShowingDiff(viewState(), ref);
   if (shown) {
     revealTile(shown.id);
     if (where === 'stack') keepTileOpen(tileOf(shown.id));
-    return;
-  }
-  if (where === 'preview') {
+  } else if (where === 'preview') {
     openInPreview({ diff: ref });
-    return;
+  } else {
+    const tile = tiling.addBeside(
+      targetTile()?.id ?? null,
+      { diff: ref },
+      where,
+    );
+    focusedTileId = tile.id;
+    focusSeq.set(tile.id, ++nextFocusSeq);
+    viewChanged();
   }
-  const tile = tiling.addBeside(
-    targetTile()?.id ?? null,
-    { diff: ref },
-    where,
-  );
-  focusedTileId = tile.id;
-  focusSeq.set(tile.id, ++nextFocusSeq);
-  viewChanged();
+  if (opts?.compare !== 'viewed') return;
+  const view = diffViews.get(focusedTileId ?? '');
+  if (!view || !sameDiff(view.tile.diff, ref)) return;
+  if (view.state === 'ok') applyViewedCompare(view);
+  else view.wantViewed = true;
+}
+
+/** @param {DiffRef | undefined} a @param {DiffRef | undefined} b */
+function sameDiff(a, b) {
+  return !!a && !!b && a.localFolder === b.localFolder && a.root === b.root &&
+    a.path === b.path;
 }
 
 /** A diff tile's title: `<basename> · #<n>` once its PR is known. */
@@ -855,6 +902,13 @@ function mountDiffTile(tile) {
     composers: new Map(),
     resolving: new Set(),
     viewedSending: false,
+    since: null,
+    wantViewed: false,
+    noRecord: false,
+    review: null,
+    newComment: null,
+    anchor: null,
+    editing: new Map(),
   };
   diffViews.set(tile.id, view);
   // After the factory returns: a title change mid-build would save a half-built layout.
@@ -919,8 +973,125 @@ async function loadDiff(view) {
   const patch = result.file?.patch;
   view.parsed = typeof patch === 'string' ? parsePatch(patch) : null;
   setDiffTitle(view);
+  if (view.wantViewed) {
+    view.wantViewed = false;
+    applyViewedCompare(view);
+  } else if (view.since) void loadSince(view, view.since.sha);
   renderDiff(view);
   void loadThreads(view);
+  void loadPending(view);
+}
+
+/** The viewer's pending review (`pr_pending_show`), when the grants offer reviews. */
+async function loadPending(view) {
+  const ref = view.tile.diff;
+  if (!ref || !view.data?.canReview) {
+    view.review = null;
+    return;
+  }
+  let review = view.review;
+  try {
+    const r = await call({
+      type: 'pr_pending_show',
+      localFolder: ref.localFolder,
+      root: ref.root,
+    });
+    if (r?.available === true) review = r.review ?? null;
+  } catch { /* keep what is shown */ }
+  if (diffViews.get(view.tile.id) !== view) return;
+  view.review = review;
+  renderDiff(view);
+}
+
+/**
+ * After a pending review changed: this repo's diff tiles list their threads and the review
+ * again.
+ *
+ * @param {DiffRef} ref
+ */
+function reviewChanged(ref) {
+  for (const v of diffViews.values()) {
+    const d = v.tile.diff;
+    if (!d || d.localFolder !== ref.localFolder || d.root !== ref.root) {
+      continue;
+    }
+    void loadThreads(v);
+    void loadPending(v);
+  }
+}
+
+/**
+ * The **Compare** choices besides `PR changes`: each head the file was marked Viewed at in devc
+ * web that is not the PR's head now, newest first, once each.
+ *
+ * @param {DiffView} view
+ * @returns {{headSha: string, path: string, at: string}[]}
+ */
+function sinceOptions(view) {
+  const head = view.data?.pr?.headSha;
+  /** @type {Map<string, {headSha: string, path: string, at: string}>} */
+  const out = new Map();
+  for (const m of list(view.data?.viewedHistory)) {
+    if (
+      m?.viewed !== 'VIEWED' || typeof m.headSha !== 'string' ||
+      m.headSha === head || out.has(m.headSha)
+    ) continue;
+    out.set(m.headSha, { headSha: m.headSha, path: m.path, at: m.at });
+  }
+  return [...out.values()];
+}
+
+/** Selects the newest Since viewed choice, or notes there is none. @param {DiffView} view */
+function applyViewedCompare(view) {
+  const newest = sinceOptions(view)[0];
+  view.noRecord = !newest;
+  if (newest) void loadSince(view, newest.headSha);
+  else renderDiff(view);
+}
+
+/**
+ * Shows the file since it was viewed at `sha` (or, with `null`, the PR's changes again): the
+ * file at `sha` and at the PR's head, read with `pr_file_at` and diffed here.
+ *
+ * @param {DiffView} view @param {string | null} sha
+ */
+async function loadSince(view, sha) {
+  const ref = view.tile.diff;
+  view.noRecord = false;
+  view.newComment = null;
+  view.anchor = null;
+  view.openFolds.clear();
+  const option = sinceOptions(view).find((o) => o.headSha === sha);
+  if (!ref || !option) {
+    view.since = null;
+    renderDiff(view);
+    return;
+  }
+  const since = { sha, state: 'loading', parsed: null, message: '' };
+  view.since = /** @type {SinceView} */ (since);
+  renderDiff(view);
+  const repo = { localFolder: ref.localFolder, root: ref.root };
+  const read = (path, at) =>
+    call({ type: 'pr_file_at', ...repo, path, sha: at }).then(
+      (r) => r,
+      (e) => ({ available: false, message: String(e?.message ?? e) }),
+    );
+  const [before, now] = await Promise.all([
+    read(option.path, sha),
+    read(view.data.file.path, view.data.pr.headSha),
+  ]);
+  if (view.since !== since || diffViews.get(view.tile.id) !== view) return;
+  const failed = [before, now].find((r) => r?.available !== true);
+  if (failed) {
+    since.state = 'error';
+    since.message = String(failed?.message ?? 'failed');
+  } else {
+    const parsed = diffTexts(String(before.text), String(now.text));
+    since.state = parsed ? 'ok' : 'error';
+    since.parsed = parsed;
+    since.message = parsed ? '' : LABELS.tooLargeToCompare;
+  }
+  renderDiff(view);
 }
 
 /** Lists the file's review threads again (`pr_threads`). @param {DiffView} view */
@@ -950,11 +1121,13 @@ async function loadThreads(view) {
   renderDiff(view);
 }
 
-/** ⟳: the file, then its threads, again. A reply with text in it stays. */
+/** ⟳: the file, then its threads, again. A reply or comment with text in it stays. */
 function refreshDiff(view) {
   for (const [id, c] of view.composers) {
     if (c.textarea.value.trim() === '' && !c.sending) view.composers.delete(id);
   }
+  const n = view.newComment;
+  if (n && n.textarea.value.trim() === '' && !n.sending) view.newComment = null;
   void loadDiff(view);
 }
 
@@ -1046,7 +1219,7 @@ function toggleHideWhitespace() {
  * @returns {ShownPatch | null}
  */
 function shownPatch(view) {
-  const source = view.parsed;
+  const source = view.since ? view.since.parsed : view.parsed;
   if (!source) return null;
   if (
     view.shown?.source === source && view.shown.whitespace === hideWhitespace
@@ -1180,6 +1353,22 @@ function diffHeader(view) {
       'Viewed',
     ));
   }
+  const options = data ? sinceOptions(view) : [];
+  if (file?.viewed === 'DISMISSED' && options.length && !view.since) {
+    line.append(h(
+      'span',
+      { class: 'diff-note' },
+      LABELS.changedSinceViewed,
+      ' ',
+      h('button', {
+        type: 'button',
+        onclick: () => void loadSince(view, options[0].headSha),
+      }, LABELS.showChanges),
+    ));
+  }
+  if (view.noRecord) {
+    line.append(h('span', { class: 'diff-note' }, LABELS.noViewedRecord));
+  }
   line.append(
     iconButton('refresh', 'Refresh', () => refreshDiff(view)),
     data?.fileUrl
@@ -1203,9 +1392,40 @@ function diffHeader(view) {
       'aria-pressed': String(diffSplit === split),
       onclick: () => setDiffSplit(split),
     }, label);
+  /** Compare: the PR's patch, or the file since one of the heads it was viewed at. */
+  const compare = () => {
+    const now = Date.now();
+    const select = /** @type {HTMLSelectElement} */ (h(
+      'select',
+      {
+        class: 'diff-compare',
+        'aria-label': LABELS.compare,
+        title: LABELS.compare,
+        onchange: (e) => {
+          const v = /** @type {HTMLSelectElement} */ (e.target).value;
+          void loadSince(view, v === '' ? null : v);
+        },
+      },
+      h('option', { value: '' }, LABELS.prChanges),
+      ...options.map((o) =>
+        h(
+          'option',
+          { value: o.headSha },
+          LABELS.sinceViewed(
+            sessionAge(String(o.at), now),
+            o.headSha.slice(0, 7),
+          ),
+        )
+      ),
+    ));
+    select.value = view.since?.sha ?? '';
+    return select;
+  };
+  const review = view.review;
   const tools = h(
     'div',
     { class: 'diff-tools' },
+    options.length ? compare() : '',
     h(
       'span',
       { class: 'diff-layout', role: 'group', 'aria-label': 'Diff layout' },
@@ -1215,6 +1435,27 @@ function diffHeader(view) {
     checkbox('Hide whitespace', hideWhitespace, toggleHideWhitespace),
     checkbox('Show resolved', showResolved, toggleShowResolved),
     h('span', { class: 'diff-head-fill' }),
+    review && pr && ref
+      ? h(
+        'span',
+        { class: 'pr-pending' },
+        LABELS.reviewPending(review.comments),
+        h('button', {
+          type: 'button',
+          onclick: async () => {
+            const repo = { localFolder: ref.localFolder, root: ref.root };
+            if (await submitPendingReview(repo, pr.url)) reviewChanged(ref);
+          },
+        }, LABELS.submitReview),
+        h('button', {
+          type: 'button',
+          onclick: async () => {
+            const repo = { localFolder: ref.localFolder, root: ref.root };
+            if (await discardPendingReview(repo)) reviewChanged(ref);
+          },
+        }, LABELS.discardReview),
+      )
+      : '',
     data
       ? h(
         'span',
@@ -1257,6 +1498,7 @@ function diffContent(view) {
         : marks.includes('resolved')
         ? 'resolved'
         : undefined,
+      'data-hot': ks.some((k) => hotKeys.has(k)) || undefined,
     };
   };
   const listed = new Set(threads.map((t) => t.id));
@@ -1288,6 +1530,31 @@ function diffContent(view) {
     }
   }
   if (fileBlock.childNodes.length) out.push(fileBlock);
+  const since = view.since;
+  if (since && since.state !== 'ok') {
+    out.push(h(
+      'div',
+      { class: 'diff-message' },
+      since.state === 'loading'
+        ? h('div', {}, 'Loading…')
+        : h('div', {}, ...markedText(since.message)),
+      since.state === 'error'
+        ? h('button', {
+          type: 'button',
+          onclick: () => void loadSince(view, null),
+        }, LABELS.prChanges)
+        : '',
+    ));
+    return out;
+  }
+  if (since && shown?.parsed.hunks.length === 0) {
+    out.push(h(
+      'div',
+      { class: 'diff-message' },
+      h('div', {}, LABELS.noChangesSinceViewed),
+    ));
+    return out;
+  }
   if (!shown) {
     out.push(
       h(
@@ -1304,25 +1571,57 @@ function diffContent(view) {
     );
     return out;
   }
-  // An added or removed file has one side only: its rows and numbers, in either layout.
-  const status = data.file?.status;
+  // An added or removed file has one side only: its rows and numbers, in either layout. A Since
+  // viewed comparison has both.
+  const status = since ? null : data.file?.status;
   /** @type {'old' | 'new' | null} */
   const single = status === 'added'
     ? 'new'
     : status === 'removed'
     ? 'old'
     : null;
+  // `+` on a line number: a new comment, on the PR's own diff only (GitHub takes comments on
+  // lines in it, not on a Since viewed comparison).
+  const commenting = !since && view.data?.canReview === true;
+  const nc = view.newComment;
+  /** The rows the open new comment is on: marked hot while it is open. */
+  const hotKeys = new Set(
+    nc
+      ? threadRows(shown.parsed, {
+        line: nc.line,
+        startLine: nc.startLine,
+        diffSide: nc.side,
+      })
+      : [],
+  );
+  const lastHot = [...hotKeys].pop();
+  /**
+   * A line number cell, with its `+` when commenting: `side` and `n` are what it comments on.
+   *
+   * @param {number | null | undefined} n @param {'LEFT' | 'RIGHT'} side @param {number} hi
+   * @param {string} [kind]
+   */
+  const numCell = (n, side, hi, kind) => {
+    const cell = h(
+      'span',
+      { class: 'diff-num', ...(kind ? { 'data-kind': kind } : {}) },
+      n == null ? '' : String(n),
+    );
+    if (commenting && n != null) {
+      cell.append(h('button', {
+        type: 'button',
+        class: 'diff-add-comment',
+        title: LABELS.commentOnLine(n),
+        'aria-label': LABELS.commentOnLine(n),
+        onclick: (e) => openNewComment(view, side, n, hi, e.shiftKey),
+      }, '+'));
+    }
+    return cell;
+  };
   const table = h('div', {
     class: 'diff-table',
     'data-layout': single ? 'single' : diffSplit ? 'split' : 'unified',
   });
-  /** A split row's line number, coloured as its side. */
-  const num = (n, kind = 'empty') =>
-    h(
-      'span',
-      { class: 'diff-num', 'data-kind': kind },
-      n == null ? '' : String(n),
-    );
   /** @param {string} key */
   const threadsAt = (key) => {
     const here = placed.rows.get(key);
@@ -1331,7 +1630,12 @@ function diffContent(view) {
         h('div', { class: 'diff-threads' }, ...threadGroup(view, key, here)),
       );
     }
+    if (nc && key === lastHot) {
+      table.append(h('div', { class: 'diff-threads' }, newCommentEl(nc)));
+      ncShown = true;
+    }
   };
+  let ncShown = false;
   shown.parsed.hunks.forEach((hunk, hi) => {
     table.append(
       h(
@@ -1353,11 +1657,7 @@ function diffContent(view) {
               'data-kind': row.kind,
               ...rowAttrs([`${hi}:${ri}`]),
             },
-            h(
-              'span',
-              { class: 'diff-num' },
-              row[single] === null ? '' : String(row[single]),
-            ),
+            numCell(row[single], single === 'old' ? 'LEFT' : 'RIGHT', hi),
             h('span', { class: 'diff-text' }, ...rowText(shown, row)),
           ),
         );
@@ -1384,9 +1684,9 @@ function diffContent(view) {
                 sr.rightIndex === null ? null : `${hi}:${sr.rightIndex}`,
               ]),
             },
-            num(sr.left?.old, sr.left?.kind),
+            numCell(sr.left?.old, 'LEFT', hi, sr.left?.kind ?? 'empty'),
             side(sr.left),
-            num(sr.right?.new, sr.right?.kind),
+            numCell(sr.right?.new, 'RIGHT', hi, sr.right?.kind ?? 'empty'),
             side(sr.right),
           ),
         );
@@ -1406,22 +1706,18 @@ function diffContent(view) {
             'data-kind': row.kind,
             ...rowAttrs([`${hi}:${ri}`]),
           },
-          h(
-            'span',
-            { class: 'diff-num' },
-            row.old === null ? '' : String(row.old),
-          ),
-          h(
-            'span',
-            { class: 'diff-num' },
-            row.new === null ? '' : String(row.new),
-          ),
+          numCell(row.old, 'LEFT', hi),
+          numCell(row.new, 'RIGHT', hi),
           h('span', { class: 'diff-text' }, ...rowText(shown, row)),
         ),
       );
       threadsAt(`${hi}:${ri}`);
     });
   });
+  // Its lines gone from the diff (a refresh): the comment stays, above it, for its text.
+  if (nc && !ncShown) {
+    out.push(h('div', { class: 'diff-threads' }, newCommentEl(nc)));
+  }
   out.push(table);
   if (shown.parsed.rest !== null) {
     out.push(
@@ -1469,6 +1765,60 @@ function canResolve(view, thread) {
     (scope === 'any' || (scope === 'copilot' && thread.copilot === true));
 }
 
+/**
+ * Where a thread is, for its card: `File comment`, its line or block, or on an outdated thread
+ * where it was (`Was line n`). Null when none of these is known.
+ */
+function threadPlace(thread) {
+  if (thread.subjectType === 'FILE') return LABELS.fileComment;
+  if (thread.line !== null && thread.line !== undefined) {
+    return typeof thread.startLine === 'number'
+      ? LABELS.lines(thread.startLine, thread.line)
+      : LABELS.line(thread.line);
+  }
+  if (typeof thread.originalLine === 'number') {
+    return typeof thread.originalStartLine === 'number'
+      ? LABELS.wasLines(thread.originalStartLine, thread.originalLine)
+      : LABELS.wasLine(thread.originalLine);
+  }
+  return null;
+}
+
+/** The last rows of an outdated thread's hunk: the code it was written against. */
+const HUNK_ROWS = 4;
+
+/** An outdated thread's hunk, its last rows highlighted as the tile's are, read-only. */
+function threadHunk(view, thread) {
+  if (typeof thread.diffHunk !== 'string' || thread.diffHunk === '') return '';
+  const rows = parsePatch(thread.diffHunk).hunks.flatMap((hk) => hk.rows)
+    .filter((r) => r.kind !== 'note').slice(-HUNK_ROWS);
+  if (rows.length === 0) return '';
+  const path = view.data?.file?.path ?? view.tile.diff?.path ?? '';
+  /** @type {import('./lib/diff.js').Span[][]} */
+  const spans = highlightLines(path, rows.map((r) => r.text));
+  return h(
+    'div',
+    { class: 'thread-hunk' },
+    ...rows.map((r, i) =>
+      h(
+        'div',
+        { class: 'diff-row', 'data-kind': r.kind },
+        h('span', { class: 'diff-num' }, r.old === null ? '' : String(r.old)),
+        h('span', { class: 'diff-num' }, r.new === null ? '' : String(r.new)),
+        h(
+          'span',
+          { class: 'diff-text' },
+          ...spans[i].flatMap((sp) =>
+            sp.cls
+              ? [h('span', { class: sp.cls }, ...markedText(sp.text))]
+              : markedText(sp.text)
+          ),
+        ),
+      )
+    ),
+  );
+}
+
 /** A thread's card: each comment, then Reply, Resolve and ↗ as the grants allow. */
 function threadCard(view, thread) {
   const now = Date.now();
@@ -1490,22 +1840,29 @@ function threadCard(view, thread) {
     onmouseenter: () => hot(true),
     onmouseleave: () => hot(false),
   });
-  // Where it is: a block's lines, or its one line (none on an outdated thread).
-  if (thread.line !== null && thread.line !== undefined) {
-    const block = typeof thread.startLine === 'number';
+  const place = threadPlace(thread);
+  if (place !== null) {
     card.append(h(
       'div',
-      { class: 'thread-where', 'data-block': block || undefined },
-      block
-        ? `Lines ${thread.startLine}–${thread.line}`
-        : `Line ${thread.line}`,
+      {
+        class: 'thread-where',
+        'data-block': typeof thread.startLine === 'number' || undefined,
+      },
+      place,
     ));
   }
+  if (
+    thread.line === null && thread.subjectType !== 'FILE' &&
+    typeof thread.originalLine === 'number'
+  ) card.append(threadHunk(view, thread));
+  const canReview = view.data?.canReview === true;
   for (const c of list(thread.comments)) {
+    const pending = c.pending === true;
+    const edit = pending ? view.editing.get(c.id) : undefined;
     card.append(
       h(
         'div',
-        { class: 'thread-comment' },
+        { class: 'thread-comment', 'data-pending': pending || undefined },
         h(
           'div',
           { class: 'thread-meta' },
@@ -1523,20 +1880,37 @@ function threadCard(view, thread) {
             ),
           ),
           thread.isOutdated
-            ? h('span', { class: 'thread-tag' }, 'outdated')
+            ? h('span', { class: 'thread-tag' }, LABELS.outdated)
+            : '',
+          pending ? h('span', { class: 'thread-tag' }, LABELS.pending) : '',
+          pending && canReview && c.id && !edit
+            ? h(
+              'span',
+              { class: 'thread-comment-actions' },
+              h('button', {
+                type: 'button',
+                onclick: () => openEdit(view, c),
+              }, LABELS.edit),
+              h('button', {
+                type: 'button',
+                onclick: () => void deletePending(view, c),
+              }, LABELS.deleteComment),
+            )
             : '',
         ),
-        h('div', { class: 'thread-body' }, ...markedText(c.body)),
+        edit
+          ? edit.el
+          : h('div', { class: 'thread-body' }, ...markedText(c.body)),
       ),
     );
   }
   const actions = h('div', { class: 'thread-actions' });
   const composer = view.composers.get(thread.id);
-  if (view.data?.canReply && !composer) {
+  if ((view.data?.canReply || canReview) && !composer) {
     actions.append(h('button', {
       type: 'button',
       onclick: () => openComposer(view, thread.id),
-    }, 'Reply'));
+    }, LABELS.reply));
   }
   if (canResolve(view, thread)) {
     actions.append(h('button', {
@@ -1566,7 +1940,11 @@ function threadCard(view, thread) {
 /** A composer's element, its note naming the container as it is now. */
 function composerEl(view, c) {
   c.note.textContent =
-    `Posted as you through ${view.data?.container}'s devc-bridge, prefixed with 🤖. Max 4000 bytes.`;
+    `Posted as you through ${view.data?.container}'s devc-bridge. Max 4000 bytes.`;
+  // The buttons follow the grants as they are now.
+  const [reply, add] = c.buttons;
+  reply.hidden = !view.data?.canReply;
+  add.hidden = !view.data?.canReview;
   return c.el;
 }
 
@@ -1582,16 +1960,22 @@ function openComposer(view, thread) {
     const send = /** @type {HTMLButtonElement} */ (h('button', {
       type: 'button',
       class: 'composer-send',
-      onclick: () => void sendReply(view, c),
-    }, 'Reply'));
+      onclick: () => void sendReply(view, c, false),
+    }, LABELS.reply));
+    const add = /** @type {HTMLButtonElement} */ (h('button', {
+      type: 'button',
+      class: 'composer-add',
+      onclick: () => void sendReply(view, c, true),
+    }, LABELS.addToReview));
     const cancel = /** @type {HTMLButtonElement} */ (h('button', {
       type: 'button',
       onclick: () => closeComposer(view, c),
-    }, 'Cancel'));
+    }, LABELS.cancel));
     textarea.addEventListener('keydown', (e) => {
       if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
         e.preventDefault();
-        void sendReply(view, c);
+        // Ctrl/⌘+Enter posts at once when it may, else adds to the review.
+        void sendReply(view, c, !view.data?.canReply);
       } else if (e.key === 'Escape') {
         e.preventDefault();
         closeComposer(view, c);
@@ -1609,7 +1993,7 @@ function openComposer(view, thread) {
       { class: 'composer' },
       gone,
       textarea,
-      h('div', { class: 'composer-actions' }, send, cancel),
+      h('div', { class: 'composer-actions' }, send, add, cancel),
       note,
       error,
     );
@@ -1620,7 +2004,7 @@ function openComposer(view, thread) {
       note,
       error,
       gone,
-      buttons: [send, cancel],
+      buttons: [send, add, cancel],
       sending: false,
     };
     view.composers.set(thread, c);
@@ -1638,26 +2022,51 @@ function closeComposer(view, c) {
 }
 
 /**
- * Sends a composer's reply (`pr_reply`). The composer is disabled while it goes; on success it
- * closes and the threads are listed again; on failure its text stays, the error under it.
+ * Sends a composer's reply: at once (`pr_reply`), or added to the pending review
+ * (`pr_pending_reply`). The composer is disabled while it goes; on success it closes and the
+ * threads (and the review) are listed again; on failure its text stays, the error under it.
  *
- * @param {DiffView} view @param {Composer} c
+ * @param {DiffView} view @param {Composer} c @param {boolean} toReview
  */
-async function sendReply(view, c) {
+async function sendReply(view, c, toReview) {
   const ref = view.tile.diff;
   if (c.sending || !ref) return;
+  const message = await sending(
+    c,
+    toReview
+      ? {
+        type: 'pr_pending_reply',
+        localFolder: ref.localFolder,
+        root: ref.root,
+        thread: c.thread,
+        body: c.textarea.value,
+      }
+      : { type: 'pr_reply', ...ref, thread: c.thread, body: c.textarea.value },
+  );
+  if (diffViews.get(view.tile.id) !== view || message !== null) return;
+  view.composers.delete(c.thread);
+  renderDiff(view);
+  if (toReview) reviewChanged(ref);
+  else void loadThreads(view);
+}
+
+/**
+ * Sends `msg` for a composer (`c`: a reply, a new comment or an edit), disabled while it goes.
+ * Resolves `null` on success, else the message, shown under it with its text kept.
+ *
+ * @param {{textarea: HTMLTextAreaElement, buttons: HTMLButtonElement[], error: HTMLElement,
+ *   sending: boolean}} c
+ * @param {Record<string, unknown>} msg
+ * @returns {Promise<string | null>}
+ */
+async function sending(c, msg) {
   c.sending = true;
   c.textarea.disabled = true;
   for (const b of c.buttons) b.disabled = true;
   c.error.hidden = true;
   let message = null;
   try {
-    const r = await call({
-      type: 'pr_reply',
-      ...ref,
-      thread: c.thread,
-      body: c.textarea.value,
-    });
+    const r = await call(msg);
     if (r?.available === false) message = String(r.message ?? 'failed');
   } catch (e) {
     message = String(e?.message ?? e);
@@ -1665,16 +2074,215 @@ async function sendReply(view, c) {
   c.sending = false;
   c.textarea.disabled = false;
   for (const b of c.buttons) b.disabled = false;
-  if (diffViews.get(view.tile.id) !== view) return;
   if (message !== null) {
     c.error.textContent = message;
     c.error.hidden = false;
     c.textarea.focus();
-    return;
   }
-  view.composers.delete(c.thread);
+  return message;
+}
+
+/**
+ * A line number's `+`: a new comment on that line, or with Shift, after a `+` in the same hunk
+ * and side, on the block between the two. The composer keeps what was typed.
+ *
+ * @param {DiffView} view @param {'LEFT' | 'RIGHT'} side @param {number} line
+ * @param {number} hunk @param {boolean} shift
+ */
+function openNewComment(view, side, line, hunk, shift) {
+  const a = view.anchor;
+  let startLine = null;
+  let last = line;
+  if (shift && a && a.side === side && a.hunk === hunk && a.line !== line) {
+    startLine = Math.min(a.line, line);
+    last = Math.max(a.line, line);
+  }
+  view.anchor = { side, line, hunk };
+  let nc = view.newComment;
+  if (!nc) {
+    const textarea = /** @type {HTMLTextAreaElement} */ (h('textarea', {
+      class: 'composer-text',
+      rows: '4',
+      'aria-label': LABELS.addToReview,
+    }));
+    const add = /** @type {HTMLButtonElement} */ (h('button', {
+      type: 'button',
+      class: 'composer-add',
+      onclick: () => void sendNewComment(view),
+    }, LABELS.addToReview));
+    const cancel = /** @type {HTMLButtonElement} */ (h('button', {
+      type: 'button',
+      onclick: () => closeNewComment(view),
+    }, LABELS.cancel));
+    textarea.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+        e.preventDefault();
+        void sendNewComment(view);
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        closeNewComment(view);
+      }
+    });
+    const label = h('div', { class: 'thread-where' });
+    const error = h('div', { class: 'composer-error', hidden: true });
+    nc = {
+      side,
+      startLine,
+      line: last,
+      hunk,
+      el: h(
+        'div',
+        { class: 'thread-card composer new-comment' },
+        label,
+        textarea,
+        h('div', { class: 'composer-actions' }, add, cancel),
+        error,
+      ),
+      label,
+      textarea,
+      error,
+      buttons: [add, cancel],
+      sending: false,
+    };
+    view.newComment = nc;
+  } else if (nc.sending) return;
+  nc.side = side;
+  nc.startLine = startLine;
+  nc.line = last;
+  nc.hunk = hunk;
   renderDiff(view);
-  void loadThreads(view);
+  nc.textarea.focus();
+}
+
+/** A new comment's element, its label naming its lines. @param {NewComment} nc */
+function newCommentEl(nc) {
+  nc.label.textContent = nc.startLine === null
+    ? LABELS.line(nc.line)
+    : LABELS.lines(nc.startLine, nc.line);
+  return nc.el;
+}
+
+/** @param {DiffView} view */
+function closeNewComment(view) {
+  if (view.newComment?.sending) return;
+  view.newComment = null;
+  view.anchor = null;
+  renderDiff(view);
+}
+
+/** Adds the new comment to the pending review (`pr_pending_comment`). @param {DiffView} view */
+async function sendNewComment(view) {
+  const ref = view.tile.diff;
+  const nc = view.newComment;
+  const path = view.data?.file?.path;
+  if (!ref || !nc || nc.sending || typeof path !== 'string') return;
+  const message = await sending(nc, {
+    type: 'pr_pending_comment',
+    localFolder: ref.localFolder,
+    root: ref.root,
+    path,
+    line: nc.line,
+    side: nc.side,
+    startLine: nc.startLine,
+    body: nc.textarea.value,
+  });
+  if (diffViews.get(view.tile.id) !== view || message !== null) return;
+  if (view.newComment === nc) {
+    view.newComment = null;
+    view.anchor = null;
+  }
+  renderDiff(view);
+  reviewChanged(ref);
+}
+
+/** Edits a pending comment in place: its body in a composer, **Save** / **Cancel**. */
+function openEdit(view, comment) {
+  if (view.editing.has(comment.id)) return;
+  const textarea = /** @type {HTMLTextAreaElement} */ (h('textarea', {
+    class: 'composer-text',
+    rows: '4',
+    'aria-label': LABELS.edit,
+  }));
+  textarea.value = String(comment.body ?? '');
+  const close = () => {
+    if (edit.sending) return;
+    view.editing.delete(comment.id);
+    renderDiff(view);
+  };
+  const save = async () => {
+    const ref = view.tile.diff;
+    if (!ref || edit.sending) return;
+    const message = await sending(edit, {
+      type: 'pr_pending_edit',
+      localFolder: ref.localFolder,
+      root: ref.root,
+      comment: comment.id,
+      body: textarea.value,
+    });
+    if (diffViews.get(view.tile.id) !== view || message !== null) return;
+    view.editing.delete(comment.id);
+    renderDiff(view);
+    reviewChanged(ref);
+  };
+  textarea.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+      e.preventDefault();
+      void save();
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      close();
+    }
+  });
+  const saveButton = /** @type {HTMLButtonElement} */ (h('button', {
+    type: 'button',
+    class: 'composer-send',
+    onclick: () => void save(),
+  }, LABELS.save));
+  const cancel = /** @type {HTMLButtonElement} */ (h('button', {
+    type: 'button',
+    onclick: close,
+  }, LABELS.cancel));
+  const error = h('div', { class: 'composer-error', hidden: true });
+  /** @type {CommentEdit} */
+  const edit = {
+    el: h(
+      'div',
+      { class: 'composer' },
+      textarea,
+      h('div', { class: 'composer-actions' }, saveButton, cancel),
+      error,
+    ),
+    textarea,
+    error,
+    buttons: [saveButton, cancel],
+    sending: false,
+  };
+  view.editing.set(comment.id, edit);
+  renderDiff(view);
+  textarea.focus();
+}
+
+/** Deletes a pending comment (`pr_pending_delete`), asked first. */
+async function deletePending(view, comment) {
+  const ref = view.tile.diff;
+  if (!ref) return;
+  const ok = await confirmDialog(LABELS.deleteCommentConfirm, {
+    okLabel: 'Delete',
+    danger: true,
+  });
+  if (!ok) return;
+  try {
+    const r = await call({
+      type: 'pr_pending_delete',
+      localFolder: ref.localFolder,
+      root: ref.root,
+      comment: comment.id,
+    });
+    if (r?.available === false) errorToast(`Delete failed: ${r.message}`);
+  } catch (e) {
+    errorToast(`Delete failed: ${e?.message ?? e}`);
+  }
+  if (diffViews.get(view.tile.id) === view) reviewChanged(ref);
 }
 
 /** Resolves a thread (`pr_resolve`), then lists the threads again. */

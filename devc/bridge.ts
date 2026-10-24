@@ -8,8 +8,9 @@
 //
 // **The policy is the whole grant.** `policy/<key>.conf` names the repos a container's
 // capabilities act on — each one's host path, remote, branch and container path, one line each —
-// and which capabilities each line has (`gh-push`, `gh-pr-read`, `gh-pr-reply`, `gh-pr-viewed`,
-// `gh-pr-resolve`, `gh-pr-resolve-copilot`, `gh-pr-request-review`), always as the explicit list —
+// and which capabilities each line has (`gh-push`, `gh-pr-read`, `gh-pr-reply`,
+// `gh-pr-pending-review`, `gh-pr-viewed`, `gh-pr-resolve`, `gh-pr-resolve-copilot`,
+// `gh-pr-request-review`), always as the explicit list —
 // `--bridge-allow gh` is expanded before it gets here. Only `devc up` / `devc build` create it, and
 // only on GitHub remotes, in one of two ways:
 //

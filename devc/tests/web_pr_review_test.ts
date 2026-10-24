@@ -4,10 +4,15 @@ import type { ContainerInfo } from '@devc-tools/core/container.ts';
 import { bridgePaths } from '@devc-tools/core/bridge.ts';
 import { projectKey } from '@devc-tools/core/merged_config.ts';
 import {
+  appendViewedMark,
+  fileHistory,
   fileUrl,
   MAX_BODY_CHARS,
   MAX_COMMENTS,
   MAX_FILES,
+  MAX_HISTORY_ENTRIES,
+  MAX_HISTORY_LINES,
+  MAX_HUNK_CHARS,
   MAX_PATCH_BYTES,
   noGrantMessage,
   NOT_RUNNING_MESSAGE,
@@ -16,7 +21,10 @@ import {
   type PrAnswer,
   type PrMessage,
   PrReview,
+  readViewedHistory,
   replyBodyProblem,
+  viewedHistoryFile,
+  type ViewedMark,
 } from '../web/pr_review.ts';
 
 const LOCAL = '/src/app';
@@ -234,17 +242,21 @@ Deno.test('pr lookup: resolveScope and the offers follow the grants', async () =
     const offers = async (grants: string) => {
       await t.policy(grants);
       const r = result(await t.review().handle(files));
-      return [r.canViewed, r.canReply, r.resolveScope];
+      return [r.canViewed, r.canReply, r.resolveScope, r.canReview];
     };
     assertEquals(
       await offers('gh-pr-read,gh-pr-reply,gh-pr-viewed,gh-pr-resolve'),
-      [true, true, 'any'],
+      [true, true, 'any', false],
     );
     assertEquals(
       await offers('gh-pr-read,gh-pr-resolve-copilot'),
-      [false, false, 'copilot'],
+      [false, false, 'copilot', false],
     );
-    assertEquals(await offers('gh-pr-read'), [false, false, null]);
+    assertEquals(await offers('gh-pr-read'), [false, false, null, false]);
+    assertEquals(
+      await offers('gh-pr-read,gh-pr-pending-review'),
+      [false, false, null, true],
+    );
   } finally {
     await t.done();
   }
@@ -283,7 +295,7 @@ Deno.test('pr lookup: trailing slashes match, a stopped container is not_running
   }
 });
 
-Deno.test('pr argv: docker exec … devc-bridge <cmd> --repo <target>, bodies one element each', async () => {
+Deno.test('pr argv: docker exec … devc-bridge <cmd> --repo <target>, replies --as human, bodies one element each', async () => {
   const t = await setup();
   try {
     await t.policy('gh-pr-read,gh-pr-reply');
@@ -331,6 +343,8 @@ Deno.test('pr argv: docker exec … devc-bridge <cmd> --repo <target>, bodies on
         'gh-pr-reply',
         '--repo',
         TARGET,
+        '--as',
+        'human',
         'PRRT_human',
         body,
       ]);
@@ -711,6 +725,486 @@ Deno.test('pr lookup: grants are per line — each repo is offered what its own 
       result(await review.handle({ ...files, root: LIB })).available,
       true,
     );
+  } finally {
+    await t.done();
+  }
+});
+
+Deno.test('pr parse: side, original lines, subject type, hunk and pending, leniently', () => {
+  const parsed = parsePrThreads(JSON.stringify({
+    pr: { url: URL },
+    threads: [
+      thread('PRRT_left', {
+        line: 5,
+        startLine: 3,
+        diffSide: 'LEFT',
+        startDiffSide: 'LEFT',
+        originalLine: 5,
+        originalStartLine: 3,
+        subjectType: 'LINE',
+        diffHunk: '@@ -1,5 +1,4 @@\n a\n-b',
+        comments: [{
+          id: 'PRRC_1',
+          author: 'me',
+          body: 'x',
+          createdAt: 'now',
+          url: '',
+          pending: true,
+        }],
+      }),
+      // A bridge that predates the fields.
+      thread('PRRT_old'),
+      thread('PRRT_odd', {
+        line: null,
+        diffSide: 'UP',
+        startDiffSide: 'LEFT',
+        originalLine: 9,
+        originalStartLine: 12,
+        subjectType: 'REPO',
+        diffHunk: 'h'.repeat(MAX_HUNK_CHARS + 5),
+        comments: [{
+          id: 'bad id!',
+          author: 'me',
+          body: 'x',
+          createdAt: 'now',
+          url: '',
+          pending: 'yes',
+        }],
+      }),
+      thread('PRRT_file', { line: null, subjectType: 'FILE', originalLine: 0 }),
+    ],
+  }))!;
+  const [left, old, odd, file] = parsed.threads;
+  assertEquals(
+    [
+      left.diffSide,
+      left.startDiffSide,
+      left.originalLine,
+      left.originalStartLine,
+      left.subjectType,
+      left.diffHunk,
+    ],
+    ['LEFT', 'LEFT', 5, 3, 'LINE', '@@ -1,5 +1,4 @@\n a\n-b'],
+  );
+  assertEquals([left.comments[0].id, left.comments[0].pending], [
+    'PRRC_1',
+    true,
+  ]);
+  assertEquals(
+    [
+      old.diffSide,
+      old.startDiffSide,
+      old.originalLine,
+      old.originalStartLine,
+      old.subjectType,
+      old.diffHunk,
+      old.comments[0].id,
+      old.comments[0].pending,
+    ],
+    ['RIGHT', null, null, null, 'LINE', '', '', false],
+  );
+  // startDiffSide only with a kept startLine; originalStartLine only before originalLine.
+  assertEquals(
+    [
+      odd.diffSide,
+      odd.startDiffSide,
+      odd.originalLine,
+      odd.originalStartLine,
+      odd.subjectType,
+      odd.diffHunk.length,
+      odd.comments[0].id,
+      odd.comments[0].pending,
+    ],
+    ['RIGHT', null, 9, null, 'LINE', MAX_HUNK_CHARS, '', false],
+  );
+  assertEquals([file.subjectType, file.originalLine], ['FILE', null]);
+});
+
+const mark = (path: string, n: number, viewed = 'VIEWED'): ViewedMark => ({
+  path,
+  viewed: viewed as 'VIEWED',
+  headSha: String(n % 10).repeat(40),
+  at: new Date(Date.UTC(2026, 9, 1) + n * 1000).toISOString(),
+});
+
+Deno.test('pr history: append, cap, read back newest first by path or previous path', async () => {
+  const dir = await Deno.makeTempDir({ prefix: 'pr-history-' });
+  try {
+    const file = viewedHistoryFile(join(dir, 'devc'), 'o/app', 7);
+    assertEquals(file, join(dir, 'devc/pr-viewed/o/app/7.jsonl'));
+    assertEquals(await readViewedHistory(file), []);
+    await appendViewedMark(file, mark('src/a.ts', 1));
+    assertEquals((await Deno.stat(file)).mode! & 0o777, 0o600);
+    assertEquals(
+      (await Deno.stat(join(dir, 'devc/pr-viewed/o'))).mode! & 0o777,
+      0o700,
+    );
+    assertEquals(
+      await Deno.readTextFile(file),
+      JSON.stringify(mark('src/a.ts', 1)) + '\n',
+    );
+    // Lines that don't parse to a mark are skipped.
+    await Deno.writeTextFile(
+      file,
+      'not json\n{"path":"x","viewed":"MAYBE","headSha":"' + '1'.repeat(40) +
+        '","at":"2026-10-01T00:00:00Z"}\n' +
+        JSON.stringify({ ...mark('x', 1), headSha: 'A'.repeat(40) }) + '\n',
+      { append: true },
+    );
+    await appendViewedMark(file, mark('old/a.ts', 2));
+    await appendViewedMark(file, mark('src/b.ts', 3));
+    await appendViewedMark(file, mark('src/a.ts', 4, 'UNVIEWED'));
+    const marks = await readViewedHistory(file);
+    assertEquals(marks.map((m) => m.path), [
+      'src/a.ts',
+      'old/a.ts',
+      'src/b.ts',
+      'src/a.ts',
+    ]);
+    assertEquals(
+      fileHistory(marks, 'src/a.ts', 'old/a.ts').map((m) => m.at),
+      [mark('', 4).at, mark('', 2).at, mark('', 1).at],
+    );
+    assertEquals(fileHistory(marks, 'src/b.ts', null).length, 1);
+    const many = Array.from({ length: 60 }, (_, i) => mark('m', i));
+    assertEquals(fileHistory(many, 'm', null).length, MAX_HISTORY_ENTRIES);
+    assertEquals(fileHistory(many, 'm', null)[0].at, mark('m', 59).at);
+    // Past the cap the file keeps its last MAX_HISTORY_LINES lines.
+    await Deno.writeTextFile(
+      file,
+      Array.from(
+        { length: MAX_HISTORY_LINES },
+        (_, i) => JSON.stringify(mark(`f${i}`, i)),
+      ).join('\n') + '\n',
+    );
+    await appendViewedMark(file, mark('last', 1));
+    const capped = (await Deno.readTextFile(file)).trimEnd().split('\n');
+    assertEquals(capped.length, MAX_HISTORY_LINES);
+    assertEquals(JSON.parse(capped[0]).path, 'f1');
+    assertEquals(JSON.parse(capped[capped.length - 1]).path, 'last');
+    assertEquals((await Deno.stat(file)).mode! & 0o777, 0o600);
+    assertEquals(
+      [...Deno.readDirSync(join(dir, 'devc/pr-viewed/o/app'))].map((e) =>
+        e.name
+      ),
+      ['7.jsonl'],
+    );
+  } finally {
+    await Deno.remove(dir, { recursive: true });
+  }
+});
+
+Deno.test("pr history: every pr_viewed is recorded with its head, and pr_diff lists the file's marks", async () => {
+  const t = await setup();
+  try {
+    await t.policy('gh-pr-read,gh-pr-viewed');
+    await t.write(
+      'gh-pr-files.out',
+      filesOut({
+        files: [file('src/a.ts', { previousPath: 'old/a.ts' }), file('b.md')],
+      }),
+    );
+    const review = t.review();
+    result(await review.handle(files));
+    const viewed = (path: string, v: boolean): PrMessage => ({
+      type: 'pr_viewed',
+      localFolder: LOCAL,
+      root: ROOT,
+      path,
+      viewed: v,
+    });
+    const history = viewedHistoryFile(
+      join(t.home, '.config/devc'),
+      'o/app',
+      7,
+    );
+    // A bridge without headSha still marks; nothing is recorded.
+    result(await review.handle(viewed('src/a.ts', true)));
+    assertEquals(await readViewedHistory(history), []);
+    await appendViewedMark(history, mark('old/a.ts', 1));
+    await t.write(
+      'gh-pr-viewed.out',
+      JSON.stringify({ path: 'src/a.ts', viewed: 'VIEWED', headSha: SHA }),
+    );
+    const before = Date.now();
+    result(await review.handle(viewed('src/a.ts', true)));
+    await t.write(
+      'gh-pr-viewed.out',
+      JSON.stringify({ path: 'b.md', viewed: 'UNVIEWED', headSha: SHA }),
+    );
+    result(await review.handle(viewed('b.md', false)));
+    const marks = await readViewedHistory(history);
+    assertEquals(marks.length, 3);
+    assertEquals(
+      [marks[1].path, marks[1].viewed, marks[1].headSha],
+      ['src/a.ts', 'VIEWED', SHA],
+    );
+    assert(Date.parse(marks[1].at) >= before - 1000);
+    assertEquals([marks[2].path, marks[2].viewed], ['b.md', 'UNVIEWED']);
+    // A bad headSha is not recorded.
+    await t.write(
+      'gh-pr-viewed.out',
+      JSON.stringify({ path: 'b.md', viewed: 'VIEWED', headSha: 'HEAD' }),
+    );
+    result(await review.handle(viewed('b.md', true)));
+    assertEquals((await readViewedHistory(history)).length, 3);
+    const diff = result(await review.handle(at('pr_diff')));
+    assertEquals(
+      (diff.viewedHistory as ViewedMark[]).map((m) => m.path),
+      ['src/a.ts', 'old/a.ts'],
+    );
+  } finally {
+    await t.done();
+  }
+});
+
+Deno.test('pr_file_at: argv, a listed path or previous path, and each answer', async () => {
+  const t = await setup();
+  try {
+    await t.policy('gh-pr-read');
+    await t.write(
+      'gh-pr-files.out',
+      filesOut({
+        files: [file('src/a.ts', { previousPath: 'old/a.ts' }), file('b.md')],
+      }),
+    );
+    const review = t.review();
+    const fileAt = (path: string, sha = SHA): PrMessage => ({
+      type: 'pr_file_at',
+      localFolder: LOCAL,
+      root: ROOT,
+      path,
+      sha,
+    });
+    const answer = async (out: Record<string, unknown>, path = 'src/a.ts') => {
+      await t.write('gh-pr-file-at.out', JSON.stringify(out));
+      return result(await review.handle(fileAt(path)));
+    };
+    assertEquals(await answer({ path: 'src/a.ts', sha: SHA, content: 'x\n' }), {
+      available: true,
+      path: 'src/a.ts',
+      sha: SHA,
+      text: 'x\n',
+    });
+    const calls = await t.calls();
+    assertEquals(calls[calls.length - 1].slice(6), [
+      'devc-bridge',
+      'gh-pr-file-at',
+      '--repo',
+      TARGET,
+      SHA,
+      'src/a.ts',
+    ]);
+    assertEquals(
+      (await answer({ path: 'old/a.ts', sha: SHA, content: '' }, 'old/a.ts'))
+        .text,
+      '',
+    );
+    assertEquals(await answer({ path: 'src/a.ts', sha: SHA, missing: true }), {
+      available: false,
+      reason: 'missing',
+      message: 'That commit no longer has this file on GitHub',
+    });
+    assertEquals(await answer({ path: 'src/a.ts', sha: SHA, binary: true }), {
+      available: false,
+      reason: 'binary',
+      message: 'Binary file',
+    });
+    assertEquals(
+      await answer({ path: 'src/a.ts', sha: SHA, tooLarge: true }),
+      { available: false, reason: 'too_large', message: 'Larger than 1 MB' },
+    );
+    for (
+      const bad of [
+        { path: 'b.md', sha: SHA, content: 'x' },
+        { path: 'src/a.ts', sha: 'b'.repeat(40), content: 'x' },
+        { path: 'src/a.ts', sha: SHA, content: 7 },
+        { path: 'src/a.ts', sha: SHA },
+      ]
+    ) {
+      assertEquals(
+        (await answer(bad)).message,
+        'unexpected bridge output',
+        JSON.stringify(bad),
+      );
+    }
+    const n = (await t.calls()).length;
+    failed(await review.handle(fileAt('nope.ts')), 'not_found');
+    failed(await review.handle(fileAt('src/a.ts', 'HEAD')), 'bad_request');
+    assertEquals((await t.calls()).length, n);
+    await t.policy('gh-push');
+    assertEquals(
+      result(await review.handle(fileAt('src/a.ts'))).reason,
+      'no_grant',
+    );
+  } finally {
+    await t.done();
+  }
+});
+
+Deno.test('pr_pending_*: each runs its gh-pr-pending-review subcommand, --as human on bodies', async () => {
+  const t = await setup();
+  try {
+    const base = { localFolder: LOCAL, root: ROOT };
+    const msgs: [PrMessage, string[]][] = [
+      [{ type: 'pr_pending_show', ...base }, ['show']],
+      [
+        {
+          type: 'pr_pending_comment',
+          ...base,
+          path: 'src/a.ts',
+          line: 4,
+          side: 'LEFT',
+          startLine: null,
+          body: 'one',
+        },
+        ['--as', 'human', 'comment', 'src/a.ts', '4', 'LEFT', 'one'],
+      ],
+      [
+        {
+          type: 'pr_pending_comment',
+          ...base,
+          path: 'src/a.ts',
+          line: 4,
+          side: 'RIGHT',
+          startLine: 2,
+          body: '--as agent',
+        },
+        [
+          '--as',
+          'human',
+          'comment',
+          'src/a.ts',
+          '4',
+          'RIGHT',
+          '--start',
+          '2',
+          '--as agent',
+        ],
+      ],
+      [
+        {
+          type: 'pr_pending_reply',
+          ...base,
+          thread: 'PRRT_human',
+          body: 'two',
+        },
+        ['--as', 'human', 'reply', 'PRRT_human', 'two'],
+      ],
+      [
+        { type: 'pr_pending_edit', ...base, comment: 'PRRC_1', body: 'three' },
+        ['--as', 'human', 'edit', 'PRRC_1', 'three'],
+      ],
+      [
+        { type: 'pr_pending_delete', ...base, comment: 'PRRC_1' },
+        ['delete', 'PRRC_1'],
+      ],
+      [
+        { type: 'pr_pending_submit', ...base, body: '' },
+        ['--as', 'human', 'submit'],
+      ],
+      [
+        { type: 'pr_pending_submit', ...base, body: 'done' },
+        ['--as', 'human', 'submit', '--body', 'done'],
+      ],
+      [{ type: 'pr_pending_discard', ...base }, ['discard']],
+    ];
+    await t.policy('gh-pr-read,gh-pr-reply');
+    for (const [msg] of msgs) {
+      failed(
+        await t.review().handle(msg),
+        'bad_request',
+        'Needs --bridge-allow gh-pr-pending-review on this repo',
+      );
+    }
+    assertEquals(await t.calls(), []);
+    await t.policy('gh-pr-read,gh-pr-pending-review');
+    const review = t.review();
+    result(await review.handle(files));
+    result(await review.handle(at('pr_threads')));
+    await t.write(
+      'gh-pr-pending-review.out',
+      JSON.stringify({ review: 'PRR_1', thread: 'PRRT_n', comment: 'PRRC_1' }),
+    );
+    for (const [msg, args] of msgs) {
+      result(await review.handle(msg));
+      const calls = await t.calls();
+      assertEquals(calls[calls.length - 1].slice(6), [
+        'devc-bridge',
+        'gh-pr-pending-review',
+        '--repo',
+        TARGET,
+        ...args,
+      ], msg.type);
+    }
+    // The bridge's JSON passes through, checked.
+    await t.write(
+      'gh-pr-pending-review.out',
+      JSON.stringify({ review: { id: 'PRR_1', comments: 2 } }),
+    );
+    assertEquals(result(await review.handle(msgs[0][0])), {
+      available: true,
+      review: { id: 'PRR_1', comments: 2 },
+    });
+    await t.write('gh-pr-pending-review.out', '{"review":null}');
+    assertEquals(result(await review.handle(msgs[0][0])), {
+      available: true,
+      review: null,
+    });
+    await t.write(
+      'gh-pr-pending-review.out',
+      JSON.stringify({
+        review: 'PRR_1',
+        url: 'https://github.com/o/app/pull/7#r',
+      }),
+    );
+    assertEquals(result(await review.handle(msgs[7][0])), {
+      available: true,
+      review: 'PRR_1',
+      url: 'https://github.com/o/app/pull/7#r',
+    });
+    for (
+      const bad of [
+        '{"review":"bad id!"}',
+        '{"review":{"id":"PRR_1","comments":-1}}',
+        '{"review":"PRR_1","url":"javascript:alert(1)"}',
+        '[]',
+      ]
+    ) {
+      await t.write('gh-pr-pending-review.out', bad);
+      assertEquals(
+        result(await review.handle(msgs[0][0])).message,
+        'unexpected bridge output',
+        bad,
+      );
+    }
+    // Refused here, before the bridge: bad bodies, unlisted files and threads, bad ids.
+    const n = (await t.calls()).length;
+    failed(
+      await review.handle({ ...msgs[1][0], body: '  ' } as PrMessage),
+      'bad_request',
+    );
+    failed(
+      await review.handle({ ...msgs[1][0], path: 'nope.ts' } as PrMessage),
+      'not_found',
+    );
+    failed(
+      await review.handle({ ...msgs[2][0], startLine: 4 } as PrMessage),
+      'bad_request',
+    );
+    failed(
+      await review.handle({ ...msgs[3][0], thread: 'PRRT_gone' } as PrMessage),
+      'not_found',
+    );
+    failed(
+      await review.handle({ ...msgs[4][0], comment: 'a b' } as PrMessage),
+      'bad_request',
+    );
+    failed(
+      await review.handle({ ...msgs[7][0], body: 'a\u0007' } as PrMessage),
+      'bad_request',
+    );
+    assertEquals((await t.calls()).length, n);
   } finally {
     await t.done();
   }

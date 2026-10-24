@@ -24,22 +24,22 @@ shippable on its own, in this order:
 ## Checklist
 
 - [ ] Step 0: verify the GitHub API behaviour this plan relies on, on a throwaway PR (§ Step 0)
-- [ ] Part 1: `gh-pr-comments` lists side, original lines, subject type, diff hunk and pending (§ 1.1)
-- [ ] Part 1: `pr_review.ts` parses and passes the new thread fields (§ 1.2)
-- [ ] Part 1: placement by side, `File comment`, `Was line n` and the hunk snippet (§ 1.3)
-- [ ] Part 2: `gh-pr-viewed` prints the head commit it marked at (§ 2.1)
-- [ ] Part 2: the viewed history file, written on every `pr_viewed` (§ 2.2)
-- [ ] Part 2: `gh-pr-file-at` built-in and the `pr_file_at` message (§ 2.3)
-- [ ] Part 2: `diffTexts` in `lib/diff.js` (§ 2.4)
-- [ ] Part 2: the diff tile's **Compare** control, and **Open changes since viewed** (§ 2.5)
-- [ ] Part 3: `--as agent|human` on `gh-pr-reply`; devc web passes `--as human` (§ 3.0)
-- [ ] Part 3: the `gh-pr-pending-review` capability, everywhere capabilities are listed (§ 3.1)
-- [ ] Part 3: `gh-pr-pending-review` built-in (§ 3.2)
-- [ ] Part 3: the `pr_pending_*` messages (§ 3.3)
-- [ ] Part 3: line and block comments, **Add to review** on replies, the review bar (§ 3.4)
-- [ ] Docs: both READMEs, `docs/bridge-github.md`, `skills/github-pr-reviewing/SKILL.md`,
+- [x] Part 1: `gh-pr-comments` lists side, original lines, subject type, diff hunk and pending (§ 1.1)
+- [x] Part 1: `pr_review.ts` parses and passes the new thread fields (§ 1.2)
+- [x] Part 1: placement by side, `File comment`, `Was line n` and the hunk snippet (§ 1.3)
+- [x] Part 2: `gh-pr-viewed` prints the head commit it marked at (§ 2.1)
+- [x] Part 2: the viewed history file, written on every `pr_viewed` (§ 2.2)
+- [x] Part 2: `gh-pr-file-at` built-in and the `pr_file_at` message (§ 2.3)
+- [x] Part 2: `diffTexts` in `lib/diff.js` (§ 2.4)
+- [x] Part 2: the diff tile's **Compare** control, and **Open changes since viewed** (§ 2.5)
+- [x] Part 3: `--as agent|human` on `gh-pr-reply`; devc web passes `--as human` (§ 3.0)
+- [x] Part 3: the `gh-pr-pending-review` capability, everywhere capabilities are listed (§ 3.1)
+- [x] Part 3: `gh-pr-pending-review` built-in (§ 3.2)
+- [x] Part 3: the `pr_pending_*` messages (§ 3.3)
+- [x] Part 3: line and block comments, **Add to review** on replies, the review bar (§ 3.4)
+- [x] Docs: both READMEs, `docs/bridge-github.md`, `skills/github-pr-reviewing/SKILL.md`,
       `devc/help.ts`, the bridge client's help, `devc-bridge/docs/testing.md` rows (§ Docs)
-- [ ] Tests (§ Tests), then Validation
+- [x] Tests (§ Tests), then Validation
 
 ## Step 0 — what to confirm before building
 
@@ -351,10 +351,10 @@ Bodies are checked with `replyBodyProblem`. Results pass the bridge's JSON throu
 
 ## Validation
 
-- [ ] `cd devc && deno task test` passes
+- [x] `cd devc && deno task test` passes
 - [ ] `cd devc-core && deno task test` passes
-- [ ] `cd devc-bridge/host && deno task test` passes
-- [ ] `bash devc-bridge/tests/gh_pr_review_test.sh` passes
+- [x] `cd devc-bridge/host && deno task test` passes
+- [x] `bash devc-bridge/tests/gh_pr_review_test.sh` passes
 - [ ] `deno fmt --check` and `shellcheck devc-bridge/builtin/gh-pr-*` are clean
 - [ ] Live (throwaway PR): a comment on a deleted line sits on that deleted row; a file comment is
       under **File threads** as `File comment`; after a push that changes a commented line, the
@@ -372,4 +372,36 @@ Bodies are checked with `replyBodyProblem`. Results pass the bridge's JSON throu
 
 ## Step 0 findings
 
-_(Fill in before Part 3.)_
+**Not run yet.** The implementing session ran in a devcontainer with no `gh` and no throwaway PR,
+so checks 1–8 are still to do on a host (they are also the live rows B27–B31 in
+`devc-bridge/docs/testing.md`). Parts 1–3 were built against the GraphQL reference as this plan
+reads it, including check 7's main path (the viewer's pending threads and replies come back in
+`reviewThreads` with comment `state: PENDING`). If check 7 fails, amend § 3.2 / § 3.4 as written
+above. Facts the code depends on, to confirm while running them:
+
+- `reviewThreads` nodes take `diffSide startDiffSide originalLine originalStartLine subjectType`,
+  comments `id diffHunk state` (`gh-pr-comments`' query).
+- `PullRequestReview.viewerDidAuthor` exists: `gh-pr-pending-review` keeps only a PENDING review
+  the viewer wrote, in case GitHub ever lists another's.
+- `addPullRequestReviewThread` takes `side`/`startSide` as `DiffSide` variables sent as strings
+  (`-f side=LEFT`); `submitPullRequestReview` without `body` is accepted.
+- The contents API's 404 shows in `gh`'s stderr as `HTTP 404` (`gh-pr-file-at`'s `missing`).
+
+### Deviations from the plan, made while implementing
+
+- **Comment ids.** § 3.4's **Edit** / **Delete…** need a pending comment's node id, which
+  `gh-pr-comments` did not list. Each comment now has `id` as its first key:
+  `id, author, body, createdAt, url, pending`. `pr_review.ts` keeps it (`''` from an older bridge,
+  which then offers no Edit/Delete).
+- **One source for the prefix.** The scripts are standalone files, so `--as` parsing, the body
+  checks (`check_body`) and the `🤖` prefix (`as_posted`) moved into the shared pr-prelude; a
+  posting script sets `takes_as=1` before it. The prelude also sets `pr_head_repo` (the matched
+  PR's `headRepository`), which `gh-pr-file-at` reads from (§ 2.3 called it `head_full`, a local).
+- `gh-pr-pending-review`'s line numbers go to GitHub as `-F` (they must be GraphQL `Int`s); they are
+  checked to be digits first, so `-F`'s `@file` reading cannot trigger.
+- `--as` with a command that posts nothing (e.g. `gh-pr-comments --as human`) is exit 2: only a
+  script that sets `takes_as` reads it. `gh-pr-pending-review` accepts it before any subcommand.
+- Validation: `cd devc-core && deno task test` has one failure, `cliWorktreeMounts matches what
+  the pinned devcontainer CLI computes` (`tests/git_dirs_test.ts`), which fails identically on a
+  clean checkout of `main` — unrelated. `shellcheck` was not installed in the session, and the
+  harness ran under `jq` only (no `gojq`).

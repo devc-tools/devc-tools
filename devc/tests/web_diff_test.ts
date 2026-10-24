@@ -1,8 +1,10 @@
 import { assertEquals } from 'jsr:@std/assert';
 import {
   changedRanges,
+  diffTexts,
   ignoreWhitespace,
   markRanges,
+  MAX_DIFF_LINES,
   parsePatch,
   placeThreads,
   splitRows,
@@ -214,4 +216,147 @@ Deno.test('threadRows: a line, or a block with the deleted rows inside it', () =
   assertEquals(threadRows(parsed, { line: null }), []);
   assertEquals(threadRows(parsed, { line: 9 }), []);
   assertEquals(threadRows(null, { line: 2 }), []);
+});
+
+Deno.test('placeThreads: a LEFT thread by its old-file line, a FILE thread in File threads', () => {
+  const parsed = parsePatch(PATCH);
+  const { rows, file } = placeThreads(parsed, [
+    { id: 'del', line: 11, diffSide: 'LEFT' },
+    { id: 'add', line: 11, diffSide: 'RIGHT' },
+    { id: 'ctx-old', line: 12, diffSide: 'LEFT' },
+    { id: 'hunk2-old', line: 20, diffSide: 'LEFT' },
+    // Old line 21 is in no hunk: the new file's 21 is not it.
+    { id: 'left-unmatched', line: 21, diffSide: 'LEFT' },
+    { id: 'file', line: 11, subjectType: 'FILE' },
+  ]);
+  assertEquals(
+    [...rows].map(([k, v]) => [k, v.map((x) => x.id)]),
+    [['0:2', ['del']], ['0:1', ['add']], ['0:3', ['ctx-old']], [
+      '1:0',
+      ['hunk2-old'],
+    ]],
+  );
+  assertEquals(file.map((x) => x.id), ['left-unmatched', 'file']);
+});
+
+Deno.test('threadRows: LEFT lines and blocks, a block across sides, and a file comment', () => {
+  const parsed = parsePatch([
+    '@@ -1,4 +1,4 @@',
+    ' a',
+    '+b',
+    '-c',
+    '+d',
+    ' e',
+  ].join('\n'));
+  // Old numbers: a 1, c 2, e 3. New: a 1, b 2, d 3, e 4.
+  assertEquals(threadRows(parsed, { line: 2, diffSide: 'LEFT' }), ['0:2']);
+  assertEquals(
+    threadRows(parsed, { line: 3, startLine: 1, diffSide: 'LEFT' }),
+    ['0:0', '0:1', '0:2', '0:3', '0:4'],
+  );
+  // From old line 2 (c) to new line 3 (d).
+  assertEquals(
+    threadRows(parsed, {
+      line: 3,
+      startLine: 2,
+      diffSide: 'RIGHT',
+      startDiffSide: 'LEFT',
+    }),
+    ['0:2', '0:3'],
+  );
+  assertEquals(
+    threadRows(parsed, { line: 2, diffSide: 'LEFT', subjectType: 'FILE' }),
+    [],
+  );
+});
+
+const lines = (...ls: string[]) => ls.map((l) => l + '\n').join('');
+const shape = (p: ReturnType<typeof diffTexts>) =>
+  p!.hunks.map((h) => [
+    h.header,
+    ...h.rows.map((r) =>
+      ({ context: ' ', add: '+', del: '-', note: '\\' })[r.kind] + r.text
+    ),
+  ]);
+
+Deno.test('diffTexts: identical, insert, delete and change', () => {
+  assertEquals(diffTexts(lines('a', 'b'), lines('a', 'b')), {
+    hunks: [],
+    rest: null,
+  });
+  assertEquals(diffTexts('', ''), { hunks: [], rest: null });
+  assertEquals(shape(diffTexts(lines('a', 'c'), lines('a', 'b', 'c'))), [
+    ['@@ -1,2 +1,3 @@', ' a', '+b', ' c'],
+  ]);
+  assertEquals(shape(diffTexts(lines('a', 'b', 'c'), lines('a', 'c'))), [
+    ['@@ -1,3 +1,2 @@', ' a', '-b', ' c'],
+  ]);
+  assertEquals(shape(diffTexts(lines('a', 'b', 'c'), lines('a', 'B', 'c'))), [
+    ['@@ -1,3 +1,3 @@', ' a', '-b', '+B', ' c'],
+  ]);
+  // A side with no lines starts at the line before, as diff writes it.
+  assertEquals(shape(diffTexts('', lines('x'))), [['@@ -0,0 +1,1 @@', '+x']]);
+  assertEquals(shape(diffTexts(lines('x'), ''))[0][0], '@@ -1,1 +0,0 @@');
+  const p = diffTexts(lines('a', 'b'), lines('a', 'c'))!;
+  assertEquals(p.rest, null);
+  assertEquals(
+    p.hunks[0].rows.map((r) => [r.kind, r.old, r.new]),
+    [['context', 1, 1], ['del', 2, null], ['add', null, 2]],
+  );
+  assertEquals(
+    [p.hunks[0].oldStart, p.hunks[0].oldCount, p.hunks[0].section],
+    [1, 2, ''],
+  );
+});
+
+Deno.test('diffTexts: context around changes, hunks merged when their context touches', () => {
+  const old = Array.from({ length: 30 }, (_, i) => `l${i + 1}`);
+  const far = [...old];
+  far[1] = 'X';
+  far[25] = 'Y';
+  assertEquals(shape(diffTexts(lines(...old), lines(...far))), [
+    ['@@ -1,5 +1,5 @@', ' l1', '-l2', '+X', ' l3', ' l4', ' l5'],
+    [
+      '@@ -23,7 +23,7 @@',
+      ' l23',
+      ' l24',
+      ' l25',
+      '-l26',
+      '+Y',
+      ' l27',
+      ' l28',
+      ' l29',
+    ],
+  ]);
+  // Six unchanged lines between: the two contexts touch, so one hunk.
+  const near = [...old];
+  near[9] = 'X';
+  near[16] = 'Y';
+  const merged = shape(diffTexts(lines(...old), lines(...near)));
+  assertEquals(merged.length, 1);
+  assertEquals(merged[0][0], '@@ -7,14 +7,14 @@');
+  // Seven: two hunks.
+  const apart = [...old];
+  apart[9] = 'X';
+  apart[17] = 'Y';
+  assertEquals(shape(diffTexts(lines(...old), lines(...apart))).length, 2);
+  assertEquals(
+    shape(diffTexts(lines(...old), lines(...far), 0)).map((h) => h[0]),
+    ['@@ -2,1 +2,1 @@', '@@ -26,1 +26,1 @@'],
+  );
+});
+
+Deno.test('diffTexts: CRLF and a missing final newline are not changes', () => {
+  assertEquals(diffTexts('a\r\nb\r\n', 'a\nb\n')!.hunks, []);
+  assertEquals(diffTexts('a\nb', 'a\nb\n')!.hunks, []);
+  const p = diffTexts('a\r\nb\r\n', 'a\r\nc\r\n')!;
+  assertEquals(p.hunks[0].rows.map((r) => r.text), ['a', 'b', 'c']);
+});
+
+Deno.test('diffTexts: past MAX_DIFF_LINES on either side, null', () => {
+  const big = 'x\n'.repeat(MAX_DIFF_LINES + 1);
+  const max = 'x\n'.repeat(MAX_DIFF_LINES);
+  assertEquals(diffTexts(big, 'x\n'), null);
+  assertEquals(diffTexts('x\n', big), null);
+  assertEquals(diffTexts(max, max)!.hunks, []);
 });

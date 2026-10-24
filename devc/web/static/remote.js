@@ -96,7 +96,8 @@ export function remoteTileArea() {
     state: () => state,
     openPane: (ref, opts) => intent('openPane', opts ? [ref, opts] : [ref]),
     openFile: (file, where) => intent('openFile', [file, where]),
-    openDiff: (diff, where) => intent('openDiff', [diff, where]),
+    openDiff: (diff, where, opts) =>
+      intent('openDiff', opts ? [diff, where, opts] : [diff, where]),
     reveal: (id) => intent('reveal', [id]),
     close: (id) => intent('close', [id]),
     keepOpen: (id) => intent('keepOpen', [id]),

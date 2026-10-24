@@ -145,6 +145,42 @@ export const LABELS = {
   hideViewed: 'Hide viewed files',
   showViewed: (n) => `Show viewed files (${n} hidden)`,
   allViewedHidden: (n) => `All ${n} file${n === 1 ? '' : 's'} viewed`,
+  /** A diff tile's review threads: where a thread is, and what it is. */
+  fileComment: 'File comment',
+  line: (n) => `Line ${n}`,
+  lines: (a, b) => `Lines ${a}–${b}`,
+  wasLine: (n) => `Was line ${n}`,
+  wasLines: (a, b) => `Was lines ${a}–${b}`,
+  outdated: 'outdated',
+  pending: 'pending',
+  /** A diff tile's Compare: the PR's patch, or the file since it was last marked Viewed. */
+  compare: 'Compare',
+  prChanges: 'PR changes',
+  sinceViewed: (age, sha) => `Since viewed ${age} · ${sha}`,
+  noChangesSinceViewed: 'No changes since you viewed this file',
+  changedSinceViewed: 'Changed since you viewed it',
+  showChanges: 'Show changes',
+  noViewedRecord: 'No record of when you viewed it in devc web',
+  tooLargeToCompare: 'Too large to compare',
+  openChangesSinceViewed: 'Open changes since viewed',
+  /** A pending review: comments and replies held until it is submitted. */
+  commentOnLine: (n) => `Comment on line ${n}`,
+  addToReview: 'Add to review',
+  reply: 'Reply',
+  edit: 'Edit',
+  save: 'Save',
+  cancel: 'Cancel',
+  deleteComment: 'Delete…',
+  deleteCommentConfirm: 'Delete this pending comment?',
+  reviewPending: (n) => `Review · ${n} pending`,
+  submitReview: 'Submit review…',
+  discardReview: 'Discard review…',
+  discardReviewConfirm:
+    'Discard your pending review and every comment in it? This cannot be undone.',
+  discard: 'Discard',
+  submitComments: 'Submit comments',
+  reviewSummary: 'Review summary (optional)',
+  approveOnGitHub: 'Approve or request changes on GitHub',
   openHere: 'Open terminal here',
   newTerminal: 'New terminal',
   splitRight: 'Split vertically',
@@ -337,6 +373,76 @@ export function confirmDialog(
  */
 export function promptDialog(message, defaultValue = '') {
   return askDialog(message, defaultValue, 'OK', false);
+}
+
+/**
+ * Asks for a pending review's summary before it is submitted as a Comment: a textarea, **Submit
+ * comments**, and a link to the PR's Files tab on GitHub, where approving or requesting changes
+ * is done (devc web never does either). Resolves the summary (`''` for none) on Submit, `null`
+ * on Cancel or Escape.
+ *
+ * @param {string} prUrl
+ * @returns {Promise<string | null>}
+ */
+export function reviewDialog(prUrl) {
+  return new Promise((resolve) => {
+    let answer = null;
+    const $body = /** @type {HTMLTextAreaElement} */ (h('textarea', {
+      class: 'review-body',
+      rows: '6',
+      'aria-label': LABELS.reviewSummary,
+      placeholder: LABELS.reviewSummary,
+      onkeydown: (e) => {
+        if (e.key !== 'Enter' || !(e.ctrlKey || e.metaKey)) return;
+        e.preventDefault();
+        ok();
+      },
+    }));
+    const ok = () => {
+      answer = $body.value;
+      el.close();
+    };
+    const el = /** @type {HTMLDialogElement} */ (h(
+      'dialog',
+      {
+        class: 'dialog ask review-dialog',
+        'aria-label': LABELS.submitReview,
+        onclose: () => {
+          el.remove();
+          resolve(answer);
+        },
+      },
+      h(
+        'div',
+        { class: 'ask-body' },
+        h('p', { class: 'ask-message' }, LABELS.submitReview.replace(/…$/, '')),
+        $body,
+        h('a', {
+          class: 'review-github',
+          href: `${prUrl}/files`,
+          target: '_blank',
+          rel: 'noopener',
+        }, LABELS.approveOnGitHub),
+      ),
+      h(
+        'footer',
+        { class: 'dialog-footer ask-footer' },
+        h(
+          'button',
+          { type: 'button', onclick: () => el.close() },
+          LABELS.cancel,
+        ),
+        h(
+          'button',
+          { type: 'button', class: 'primary', onclick: ok },
+          LABELS.submitComments,
+        ),
+      ),
+    ));
+    document.body.append(el);
+    el.showModal();
+    $body.focus();
+  });
 }
 
 /**

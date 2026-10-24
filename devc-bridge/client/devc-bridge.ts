@@ -42,10 +42,16 @@ Built-in commands (capability in brackets, granted on the host with
   gh-pr-comments [--repo <path>] [--state unresolved|resolved|all]
                                    review threads on your PR (default all)  [gh-pr-read]
   gh-pr-files [--repo <path>]      your PR's changed files and patches      [gh-pr-read]
+  gh-pr-file-at [--repo <path>] <sha> <file>
+                                   one of those files at a commit           [gh-pr-read]
   gh-pr-viewed [--repo <path>] <viewed|unviewed> <file>
                                    mark one of those files Viewed or not    [gh-pr-viewed]
-  gh-pr-reply [--repo <path>] <thread-id> <body>
+  gh-pr-reply [--repo <path>] [--as agent|human] <thread-id> <body>
                                    reply to a review thread                 [gh-pr-reply]
+  gh-pr-pending-review [--repo <path>] [--as agent|human] <subcommand> ...
+                                   show | comment | reply | edit | delete |
+                                   submit | discard: your pending review,
+                                   submitted only as Comment                [gh-pr-pending-review]
   gh-pr-resolve [--repo <path>] <thread-id>
                                    resolve any review thread                [gh-pr-resolve]
                                    or only Copilot's                        [gh-pr-resolve-copilot]
@@ -55,6 +61,8 @@ Built-in commands (capability in brackets, granted on the host with
 
 --repo <path> names a pinned repo by its path in this container; it is
 required once more than one repo is pinned (gh-doctor lists them).
+--as agent (the default) posts text prefixed with 🤖; agents never pass
+--as human, which is for a person's own words (devc web).
 
 Answered by this client, with the bridge up or down:
   help [guide]                     this overview, or the full agent guide

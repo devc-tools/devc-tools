@@ -67,8 +67,10 @@ import {
  *   showing it instead, if any.
  * @property {(file: FileRef, where: 'preview' | 'stack' | 'right') => void} openFile
  *   A tile already showing the file comes forward instead, except for `'right'`.
- * @property {(diff: DiffRef, where: 'preview' | 'stack' | 'right') => void} openDiff
+ * @property {(diff: DiffRef, where: 'preview' | 'stack' | 'right',
+ *   opts?: {compare?: 'viewed'}) => void} openDiff
  *   A tile already showing the PR file comes forward instead (and stays, for `'stack'`).
+ *   `compare: 'viewed'` selects its newest **Since viewed** comparison once the file is read.
  * @property {(id: string) => void} reveal    brings a tile forward and focuses it
  * @property {(id: string) => void} close     a tile (asking first when it has unsaved edits), or a
  *   stack, row or column

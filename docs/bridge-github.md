@@ -103,9 +103,10 @@ Refusals and failures go to stderr, prefixed with `gh-push:`.
 
 ## PR review loop
 
-Six more commands, enabled per container by six capabilities. `gh-pr-read`
-reads (`gh-pr-comments`, `gh-pr-files`). Each write is its own grant, and every
-one comes with `gh-pr-read`: `gh-pr-reply` (`gh-pr-reply`), `gh-pr-viewed`
+Eight more commands, enabled per container by seven capabilities. `gh-pr-read`
+reads (`gh-pr-comments`, `gh-pr-files`, `gh-pr-file-at`). Each write is its own
+grant, and every one comes with `gh-pr-read`: `gh-pr-reply` (`gh-pr-reply`),
+`gh-pr-pending-review` (`gh-pr-pending-review`), `gh-pr-viewed`
 (`gh-pr-viewed`), `gh-pr-resolve` (`gh-pr-resolve` on any thread),
 `gh-pr-resolve-copilot` (`gh-pr-resolve` on Copilot's threads only) and
 `gh-pr-request-review` (`gh-pr-request-review`). Any may be missing — the call
@@ -120,8 +121,10 @@ it.
 ```sh
 devc-bridge gh-pr-comments [--repo <path>] [--state unresolved|resolved|all]  # threads, as JSON
 devc-bridge gh-pr-files [--repo <path>]                        # changed files, patches, Viewed state
+devc-bridge gh-pr-file-at [--repo <path>] <sha> <file>         # one of those files at a commit
 devc-bridge gh-pr-viewed [--repo <path>] <viewed|unviewed> <file>  # mark a file Viewed or not
 devc-bridge gh-pr-reply [--repo <path>] <thread-id> '<body>'   # reply to any thread
+devc-bridge gh-pr-pending-review [--repo <path>] <subcommand> …  # batch replies into one review
 devc-bridge gh-pr-resolve [--repo <path>] <thread-id>          # resolve a thread (see below)
 devc-bridge gh-pr-request-review [--repo <path>]               # ask Copilot to review the current head
 ```
@@ -141,15 +144,24 @@ devc-bridge gh-pr-request-review [--repo <path>]               # ask Copilot to 
       "id": "PRRT_…",
       "path": "src/x.ts",
       "line": 17,
+      "startLine": null,
+      "diffSide": "RIGHT",
+      "startDiffSide": null,
+      "originalLine": 17,
+      "originalStartLine": null,
+      "subjectType": "LINE",
+      "diffHunk": "@@ -10,6 +10,8 @@ …",
       "isResolved": false,
       "isOutdated": false,
       "copilot": true,
       "comments": [
         {
+          "id": "PRRC_…",
           "author": "copilot-pull-request-reviewer",
           "body": "…",
           "createdAt": "…",
-          "url": "…"
+          "url": "…",
+          "pending": false
         }
       ]
     }
@@ -180,6 +192,15 @@ devc-bridge gh-pr-request-review [--repo <path>]               # ask Copilot to 
   `--state resolved` only resolved ones, and `--state all` is the default. Only
   the space form: `--state=all` is exit 2. `line` is `null` for outdated or
   file-level comments.
+- `diffSide` says which numbering `line` uses: `RIGHT` the new file's (an added
+  or unchanged line), `LEFT` the old file's (a deleted line). `startLine` (with
+  `startDiffSide`) is a block's first line. `subjectType` is `FILE` for a
+  comment on the whole file. An outdated thread keeps `originalLine` (and
+  `originalStartLine`), where it was when written, and `diffHunk`, the code it
+  was written against, ending at that line.
+- A comment's `pending` is `true` while it sits in your own unsubmitted review
+  (see `gh-pr-pending-review` below); `id` is what that command edits or
+  deletes.
 - `copilot: true` means Copilot started the thread. With `gh-pr-resolve-copilot`
   only those can be resolved; with `gh-pr-resolve`, any thread can.
 - `copilotReview` describes Copilot's latest review: `commit` is the commit it
@@ -250,14 +271,45 @@ devc-bridge gh-pr-request-review [--repo <path>]               # ask Copilot to 
 `gh-pr-viewed viewed <file>` (or `unviewed`) marks one file Viewed or not
 Viewed for the user. `<file>` must be exactly a `path` from `gh-pr-files`; a file
 not in the PR, a path with control characters, or any other argument is exit 2
-and nothing is sent. It prints `{"path":"<file>","viewed":"VIEWED"}` (or
-`"UNVIEWED"`).
+and nothing is sent. It prints `{"path":"<file>","viewed":"VIEWED","headSha":"<sha>"}`
+(or `"UNVIEWED"`), `headSha` being the PR's head it was marked at.
+
+`gh-pr-file-at <sha> <file>` prints one of the PR's files as it was at a commit
+(40 lowercase hex): `<file>` is a `path` or `previousPath` from `gh-pr-files`,
+else exit 2. It prints `{"path","sha","content"}`, or `"missing":true` (no such
+file at that commit, or GitHub no longer has it), `"binary":true` or
+`"tooLarge":true` (over 1 MB) in place of `content`. The content is untrusted.
 
 Reply rules for `gh-pr-reply`: a non-empty body, at most **4000 bytes**, and no
 control characters except newline and tab. Anything else is exit 3 with a
 message saying what to fix. Shorten the body or clean it up and retry; nothing
 was posted. Replies appear under the user's GitHub name with a `🤖` prefix
-added for you, so don't add your own.
+added for you, so don't add your own. The prefix is `--as agent`, the default;
+**never pass `--as human`** — it is for text a person wrote (devc web passes
+it), and the bridge can't tell who is calling.
+
+`gh-pr-pending-review` lets you batch your replies into one review instead of
+posting each at once, if the container was granted it. Everything is held in
+the user's pending review, which only they see, until it is submitted:
+
+```sh
+devc-bridge gh-pr-pending-review show                          # {"review":null} or {"review":{"id","comments"}}
+devc-bridge gh-pr-pending-review reply <thread-id> '<body>'    # {"review","comment"}
+devc-bridge gh-pr-pending-review comment <file> <line> <LEFT|RIGHT> [--start <line>] '<body>'  # {"review","thread"}
+devc-bridge gh-pr-pending-review edit <comment-id> '<body>'    # {"comment"}: a pending comment only
+devc-bridge gh-pr-pending-review delete <comment-id>           # {"comment"}: likewise
+devc-bridge gh-pr-pending-review submit [--body '<summary>']   # {"review","url"}: as a Comment
+devc-bridge gh-pr-pending-review discard                       # {"review"}
+```
+
+`reply` and `comment` start the pending review when there is none. `comment`'s
+`<line>` is on the new file (`RIGHT`) or the old file (`LEFT`) and must be in
+the PR's diff; `--start` makes it a block. Bodies follow `gh-pr-reply`'s rules
+and prefix. `submit` only ever submits as a Comment — approving or requesting
+changes is the user's, on GitHub. Editing or deleting a comment that isn't in
+your pending review, and submitting or discarding with none, are exit 3. If
+the user is reviewing too, it is one pending review: theirs and yours together,
+so don't `discard` what you didn't start.
 
 `gh-pr-request-review` takes no argument but `--repo` and prints one line. It spends a Copilot
 review only when one would do something, so calling it after every push is safe:
@@ -284,11 +336,13 @@ reply instead`. It prints one line on success, and both exit 0:
   That isn't an error.
 
 **devc web uses these same commands.** Its **Pull request** rows and diff tiles
-run `gh-pr-files`, `gh-pr-comments`, `gh-pr-viewed`, `gh-pr-reply` and
-`gh-pr-resolve` in the container, never `gh` on the host, so a grant on a repo
-also enables the matching controls in devc web for that repo: Viewed
-checkboxes with `gh-pr-viewed`, Reply with `gh-pr-reply`, Resolve with either
-resolve grant.
+run `gh-pr-files`, `gh-pr-comments`, `gh-pr-file-at`, `gh-pr-viewed`,
+`gh-pr-reply`, `gh-pr-pending-review` and `gh-pr-resolve` in the container,
+never `gh` on the host, so a grant on a repo also enables the matching controls
+in devc web for that repo: Viewed checkboxes with `gh-pr-viewed`, Reply with
+`gh-pr-reply`, line comments and Add to review with `gh-pr-pending-review`,
+Resolve with either resolve grant. devc web posts `--as human`: the person
+using it wrote the text.
 
 ### The loop
 
@@ -303,7 +357,9 @@ resolve grant.
 4. `gh-pr-request-review`, so Copilot reviews the new head. It is harmless on a
    repo that reviews on push: it answers `pending:` or `up to date:`.
 5. `gh-pr-reply` to each thread. Cite the short SHA from the `pushed:` line, or
-   explain why you didn't change anything.
+   explain why you didn't change anything. With `gh-pr-pending-review` you may
+   instead `reply` each into the pending review and `submit` once, so the
+   reviewer gets one notification.
 6. `gh-pr-resolve` the Copilot threads you fixed. Leave human reviewers' threads
    open, even when the container holds `gh-pr-resolve`: reply, and let them
    resolve.
@@ -318,7 +374,7 @@ Also stop and tell the user if `copilotReview.commit` never catches up to
 | Exit | Meaning                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   | What to do                                                                                      |
 | ---- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
 | `0`  | Done, already resolved, or (`gh-pr-request-review`) a review already pending or up to date                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                | Continue                                                                                        |
-| `1`  | Refused before the command ran: `… needs capability gh-pr-read` (or `gh-pr-reply`, `gh-pr-viewed`, `gh-pr-resolve or gh-pr-resolve-copilot`, `gh-pr-request-review`) `, which this container was not granted`, or the bridge isn't running                                                                                                                                                                                                                                                                                                                                                | Tell the user, quoting the suggested `devc up --bridge-allow …`. You can't fix this from inside |
+| `1`  | Refused before the command ran: `… needs capability gh-pr-read` (or `gh-pr-reply`, `gh-pr-pending-review`, `gh-pr-viewed`, `gh-pr-resolve or gh-pr-resolve-copilot`, `gh-pr-request-review`) `, which this container was not granted`, or the bridge isn't running                                                                                                                                                                                                                                                                                                                        | Tell the user, quoting the suggested `devc up --bridge-allow …`. You can't fix this from inside |
 | `2`  | The repo you picked not granted the command (`this container was not granted <cap> for <path>`), no policy, a malformed or unreadable policy (the message says what's wrong — a policy from before the PR grant split, naming `gh-pr-review` or a write without `gh-pr-read`, needs a new `devc up --bridge-allow`), wrong arguments (including a `--state` other than `unresolved`, `resolved` or `all`) or no single pinned repo selected (pass `--repo`), a non-github.com remote, no single open PR for the pinned branch, a thread that isn't on your PR, or a file that isn't in it | Check the thread id came from `gh-pr-comments`. Otherwise report it. Don't retry                |
-| `3`  | Refused: the reply body is empty, too long, or has control characters, or you tried to resolve a thread Copilot didn't start with only `gh-pr-resolve-copilot` granted                                                                                                                                                                                                                                                                                                                                                                                                                    | Fix the body and retry, or reply instead of resolving                                           |
+| `3`  | Refused: the body is empty, too long, or has control characters; you tried to resolve a thread Copilot didn't start with only `gh-pr-resolve-copilot` granted; or (`gh-pr-pending-review`) the comment isn't in your pending review, or there's no pending review to submit or discard                                                                                                                                                                                                                                                                                                    | Fix the body and retry, reply instead of resolving, or `show` the pending review                |
 | `4`  | GitHub or network failure, `gh` not set up on the host, or a timeout                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | Retry once for a transient error. Otherwise report it                                           |

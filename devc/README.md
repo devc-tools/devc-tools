@@ -523,10 +523,15 @@ is published from any container: the host server finds devcontainers with
   pinned branch: `#<n> <title>`, how many files you've marked Viewed, and the
   changed files as a tree with GitHub's own **Viewed** checkboxes. Clicking a
   file opens its diff in a tile (as a Files click opens a file), with
-  the PR's review threads after their lines (by new-file line number; the rest
-  under **File threads**). A bar marks the rows each thread is on, one row for
-  a line and the whole block for a multi-line comment; its card says `Line n`
-  or `Lines a–b`, and hovering the card tints its rows. Resolved threads fold under `Resolved (n)` (**Show
+  the PR's review threads after their lines, by the side GitHub records: a
+  thread on a deleted line sits on that deleted row (its old-file number), one
+  on an added or unchanged line by its new-file number. File comments, and
+  threads whose lines the patch doesn't show, are under **File threads**. A bar
+  marks the rows each thread is on, one row for a line and the whole block for
+  a multi-line comment; its card says `Line n`, `Lines a–b` or `File comment`,
+  and hovering the card tints its rows. An outdated thread (its code changed
+  since) says where it was, `Was line n`, over the last rows of the code it was
+  written against. Resolved threads fold under `Resolved (n)` (**Show
   resolved** opens them all). Rows are syntax-highlighted as the file viewer
   highlights the file, and a changed line's changed words are marked against
   the line it replaces. **Unified | Split** picks one column or old and new
@@ -541,15 +546,41 @@ is published from any container: the host server finds devcontainers with
   files**) leaves out the files marked Viewed and the folders left holding none
   (a file changed since it was viewed stays), remembered per browser; a PR with
   every file viewed then shows `All n files viewed`. A diff tile's header has the file's own
-  **Viewed** checkbox, kept in step with the tree's. What works follows the grants of the repo's own line in the
+  **Viewed** checkbox, kept in step with the tree's.
+  - **Changes since viewed.** GitHub records only whether a file is Viewed
+    (or changed since), never the commit it was viewed at, so devc web keeps
+    its own record: every mark it makes is added, with the PR's head at that
+    moment, to `~/.config/devc/pr-viewed/<owner>/<name>/<number>.jsonl` (one
+    file per PR, shared by its worktrees and containers; the last 5000 marks
+    kept). Only devc web's marks are recorded — not GitHub's own page's, nor an
+    agent's `devc-bridge gh-pr-viewed`. A diff tile's **Compare** then offers,
+    besides `PR changes`, `Since viewed <age> · <sha>` for each head the file
+    was marked Viewed at: the file at that commit against the file now,
+    compared in the page, with the same rows, highlighting, **Split** and
+    **Hide whitespace**. A file changed since you viewed it says so in the
+    tile's header (**Show changes**), and its sidebar menu has **Open changes
+    since viewed**. The choice is the tile's own, not kept across a reload.
+  - **Pending reviews.** With `gh-pr-pending-review`, hovering a line number
+    in `PR changes` shows a `+`: a comment on that line, or with Shift after
+    another `+` in the same hunk and side, on the lines between. A reply's
+    **Add to review** holds it the same way. Held comments show as `pending`
+    (only to you, on GitHub too), with **Edit** and **Delete…**, and the tile's
+    tool row and the PR header show `Review · n pending` with **Submit
+    review…** (an optional summary; submitted as a Comment) and **Discard
+    review…**. devc web never approves or requests changes — the submit dialog
+    links to the PR on GitHub for that.
+
+  What works follows the grants of the repo's own line in the
   host-only policy, read on every message: reading needs `gh-pr-read`, the
-  checkboxes `gh-pr-viewed`, **Reply** `gh-pr-reply` (posted as you with the
-  bridge's `🤖` prefix), and **Resolve** `gh-pr-resolve` (any thread) or
+  checkboxes `gh-pr-viewed`, **Reply** `gh-pr-reply` (posted as you, as
+  written: devc web passes the bridge `--as human`, so no `🤖`), pending
+  reviews `gh-pr-pending-review`, and **Resolve** `gh-pr-resolve` (any thread) or
   `gh-pr-resolve-copilot` (Copilot's only). Without `gh-pr-read` the row says
   which grant to add (`devc up --bridge-allow gh-pr-read`, or
   `"bridgeDefaultAllow"`). Everything goes through that container's
-  devc-bridge (`gh-pr-files`, `gh-pr-comments`, `gh-pr-viewed`, `gh-pr-reply`,
-  `gh-pr-resolve`), so the PR is always that pinned branch's, and nothing is
+  devc-bridge (`gh-pr-files`, `gh-pr-comments`, `gh-pr-file-at`,
+  `gh-pr-viewed`, `gh-pr-reply`, `gh-pr-pending-review`, `gh-pr-resolve`), so
+  the PR is always that pinned branch's, and nothing is
   polled: the row lists on opening and on its ⟳, a diff tile on opening, on its
   ⟳ and after each write. Needs a server with the `pr_*` messages
   (`--live-yolo`, or a `devc` built from this version).
@@ -1780,7 +1811,7 @@ TUI — still only re-checks an existing policy and never creates one.
   Entries are trimmed, duplicates dropped, and the list put in canonical order;
   absent, `null` or `[]` is no default.
 - **Any capability can be a default — your call.** A write capability in it
-  (`gh-push`, `gh-pr-reply`, `gh-pr-viewed`, `gh-pr-resolve`,
+  (`gh-push`, `gh-pr-reply`, `gh-pr-pending-review`, `gh-pr-viewed`, `gh-pr-resolve`,
   `gh-pr-resolve-copilot`, `gh-pr-request-review`) is granted to **every** container you `devc up`,
   on whatever branch it has checked out. The read tier (`gh-pr-read`, plus
   `gh-pr-viewed`, which only marks files Viewed for you) is what devc web needs
