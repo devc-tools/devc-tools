@@ -1,4 +1,4 @@
-import { assertEquals, assertStrictEquals } from 'jsr:@std/assert';
+import { assertEquals } from 'jsr:@std/assert';
 import { join } from 'jsr:@std/path';
 import {
   addFilePin,
@@ -6,7 +6,6 @@ import {
   pinnedFilesMessage,
   readPinnedFiles,
   reusablePinnedPane,
-  setDashboardPin,
   updateFilePin,
   withLabel,
   writePinnedFiles,
@@ -153,53 +152,4 @@ Deno.test('reusablePinnedPane: last alive, dead, in another container, or unset'
   assertEquals(reusablePinnedPane(last, 'c1', [panes[0]]), null);
   assertEquals(reusablePinnedPane(last, 'c2', panes), null);
   assertEquals(reusablePinnedPane(undefined, 'c1', panes), null);
-});
-
-Deno.test('readPinnedFiles: keeps the first dashboard flag only, and only true', async () => {
-  const dir = await Deno.makeTempDir();
-  const path = join(dir, 'pinned-files.json');
-  try {
-    await Deno.writeTextFile(
-      path,
-      JSON.stringify({
-        version: 1,
-        pins: [
-          { ...notes, dashboard: false },
-          { ...notes, id: 'p2', path: 'a.html', dashboard: true },
-          { ...notes, id: 'p3', path: 'b.html', dashboard: true },
-          { ...notes, id: 'p4', path: 'c.html', dashboard: 'yes' },
-        ],
-      }),
-    );
-    assertEquals(await readPinnedFiles(path), [
-      notes,
-      { ...notes, id: 'p2', path: 'a.html', dashboard: true },
-      { ...notes, id: 'p3', path: 'b.html' },
-    ]);
-  } finally {
-    await Deno.remove(dir, { recursive: true });
-  }
-});
-
-Deno.test('setDashboardPin: marks one, moves it, clears it, unknown id, no change', () => {
-  const page: FilePin = { ...notes, id: 'p2', path: 'dashboard.html' };
-  const marked = setDashboardPin([notes, page], 'p2');
-  assertEquals(marked, [notes, { ...page, dashboard: true }]);
-  assertEquals(setDashboardPin(marked!, 'p1'), [
-    { ...notes, dashboard: true },
-    page,
-  ]);
-  assertEquals(setDashboardPin(marked!, null), [notes, page]);
-  assertEquals(setDashboardPin(marked!, 'nope'), null);
-  assertStrictEquals(setDashboardPin(marked!, 'p2'), marked);
-  const none = [notes, page];
-  assertStrictEquals(setDashboardPin(none, null), none);
-});
-
-Deno.test('pinnedFilesMessage sends the dashboard flag', () => {
-  const pin: FilePin = { ...notes, dashboard: true };
-  assertEquals(pinnedFilesMessage([pin]), {
-    type: 'pinned_files',
-    pins: [pin],
-  });
 });

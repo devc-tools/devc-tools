@@ -9,6 +9,7 @@ import { containerLabel, labelText, paneLabel, repoAt } from './lib/sidebar.js';
 import { parseBridgeStatus, parseUsage } from './lib/host_status.js';
 import { childPath } from './lib/files.js';
 import { parseFilePinPanes, parsePinnedFiles } from './lib/pinned_files.js';
+import { parseDashboard } from './lib/dashboard.js';
 import { parseTasks } from './lib/tasks.js';
 import { booted, errorToast, h, markBooted, toast } from './ui.js';
 import { loadedPaths, planStaticChange } from './lib/live_reload.js';
@@ -57,6 +58,14 @@ export let hostOs = '';
  * @type {import('./lib/pinned_files.js').FilePin[]}
  */
 export let pinnedFiles = [];
+
+/**
+ * The dashboard (the `dashboard` message): the repo file the header button and an empty tiling
+ * area open. Not a pinned file. Null until the server says, or when none is set.
+ *
+ * @type {import('./lib/dashboard.js').DashboardFile | null}
+ */
+export let dashboard = null;
 /** Where {@link filePinPanes} is saved, so a reload still knows which tiles are a pin's. */
 const FILE_PIN_PANES_KEY = 'devc-web-file-pin-panes-v1';
 /** The task list, as the last `tasks` message gave it. @type {import('./lib/tasks.js').Task[]} */
@@ -395,6 +404,9 @@ function applyMessage(msg) {
       break;
     case 'pinned_files':
       onPinnedFiles(msg);
+      break;
+    case 'dashboard':
+      dashboard = parseDashboard(msg);
       break;
     case 'tasks': {
       const parsed = parseTasks(msg);

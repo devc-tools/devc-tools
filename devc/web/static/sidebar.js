@@ -61,7 +61,6 @@ import {
   parentDir,
 } from './lib/files.js';
 import {
-  dashboardPin,
   defaultNotePath,
   filePinName,
   isFilePinShortcut,
@@ -113,6 +112,7 @@ import {
   call,
   containerByFolder,
   containers,
+  dashboard,
   displayName,
   fileHostPath,
   filePinPanes,
@@ -147,6 +147,7 @@ import {
   copyPathItems,
   createPane,
   dashboardFileRef,
+  dashboardItem,
   discardPendingReview,
   filePinItem,
   fileRefOf,
@@ -164,6 +165,7 @@ import {
   placePane,
   previewable,
   projectRequest,
+  setDashboard,
   setMenuContext,
   startProject,
   submitPendingReview,
@@ -2386,7 +2388,9 @@ function prFileMenuItems(fr, result, file) {
     ],
     null,
     ...copyPathItems(fr, path),
-    ...(exists && !fr.container ? [null, filePinItem(fr, path)] : []),
+    ...(exists && !fr.container
+      ? [null, filePinItem(fr, path), dashboardItem(fr, path)]
+      : []),
   ];
 }
 
@@ -2725,17 +2729,6 @@ function filePinRow(pin) {
       'span',
       { class: 'label' },
       rowIcon({ kind: 'file' }),
-      pin.dashboard
-        ? h(
-          'span',
-          {
-            class: 'dashboard-mark',
-            title: LABELS.dashboard,
-            'aria-label': LABELS.dashboard,
-          },
-          svgIcon('dashboard'),
-        )
-        : '',
       filePinName(pin),
       h(
         'span',
@@ -2864,23 +2857,10 @@ function filePinMenuItems(pin) {
     ...copyPathItems(fr, pin.path),
     null,
     ['Rename…', () => renameFilePin(pin)],
-    pin.dashboard
-      ? [LABELS.stopDashboard, () => setDashboard(null)]
-      : [LABELS.useAsDashboard, () => setDashboard(pin.id)],
+    dashboardItem(fr, pin.path),
     null,
     [LABELS.unpinFile, () => unpinFile(pin)],
   ];
-}
-
-/** Marks a pin as the dashboard (`set_dashboard`); null stops using any. */
-function setDashboard(pinId) {
-  call({ type: 'set_dashboard', pin: pinId }).catch((e) =>
-    errorToast(
-      `${pinId ? LABELS.useAsDashboard : LABELS.stopDashboard} failed: ${
-        e?.message ?? e
-      }`,
-    )
-  );
 }
 
 /**
@@ -2888,12 +2868,11 @@ function setDashboard(pinId) {
  * (it may have been regenerated), else opens it. With none marked, says how to mark one.
  */
 function openDashboard() {
-  const pin = dashboardPin(pinnedFiles);
-  if (!pin) {
+  if (!dashboard) {
     toast(LABELS.noDashboard);
     return;
   }
-  const file = dashboardFileRef(pin);
+  const file = dashboardFileRef(dashboard);
   const shown = tileArea.state().tiles.find((t) =>
     t.file && sameFileView(t.file, file)
   );
@@ -2908,9 +2887,8 @@ function openDashboard() {
 /** The dashboard button's tooltip: the dashboard's name, or how to mark one. */
 function updateDashboardButton() {
   if (!$dashboardButton) return;
-  const pin = dashboardPin(pinnedFiles);
-  const label = pin
-    ? LABELS.openDashboard(filePinName(pin))
+  const label = dashboard
+    ? LABELS.openDashboard(basename(dashboard.path))
     : LABELS.noDashboard;
   $dashboardButton.title = label;
   $dashboardButton.setAttribute('aria-label', label);
@@ -4782,7 +4760,7 @@ function fileMenuItems(fr, path) {
     ...copyPathItems(fr, path),
     null,
     // A repo file only: the container's own files are outside the bind mount.
-    ...(fr.container ? [] : [filePinItem(fr, path)]),
+    ...(fr.container ? [] : [filePinItem(fr, path), dashboardItem(fr, path)]),
     null,
     ...changeEntryItems(fr, path, 'file'),
   ];
@@ -5270,10 +5248,12 @@ function onSidebarMessage(msg) {
       relistForContainers();
       renderTree();
       break;
+    case 'dashboard':
+      updateDashboardButton();
+      break;
     case 'projects':
     case 'pinned_files':
     case 'tasks':
-      if (msg.type === 'pinned_files') updateDashboardButton();
       // A task sent, deleted or edited away elsewhere is no longer selected.
       for (const id of selectedTasks) {
         if (!tasks.some((t) => t.id === id)) selectedTasks.delete(id);
@@ -5336,6 +5316,10 @@ export function mountSidebar(root, opts) {
   // another browser may need it. The toast names it without showing it, since it is the token.
   $dashboardButton = root.querySelector('#dashboard');
   $dashboardButton?.addEventListener('click', openDashboard);
+  $dashboardButton?.addEventListener('contextmenu', (e) => {
+    if (!dashboard) return;
+    openMenu(e, [[LABELS.stopDashboard, () => setDashboard(null)]]);
+  });
   updateDashboardButton();
   root.querySelector('#copy-url')?.addEventListener('click', () => {
     navigator.clipboard?.writeText(location.href).then(

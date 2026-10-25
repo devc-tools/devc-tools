@@ -890,11 +890,12 @@ Deno.test('parseClientMessage: unpin_file, rename_pin and open_pinned name a pin
   }
 });
 
-Deno.test('parseClientMessage: set_dashboard names a pin, or null to clear it', () => {
+Deno.test('parseClientMessage: set_dashboard takes a repo file, or null to clear it', () => {
+  const file = { localFolder: '/src/app', root: '/src/app', path: 'dash.html' };
   for (
     const msg of [
-      { type: 'set_dashboard', id: 'f1', pin: 'p1' },
-      { type: 'set_dashboard', id: 'f1', pin: null },
+      { type: 'set_dashboard', id: 'f1', file },
+      { type: 'set_dashboard', id: 'f1', file: null },
     ]
   ) {
     assertEquals(
@@ -905,8 +906,10 @@ Deno.test('parseClientMessage: set_dashboard names a pin, or null to clear it', 
   for (
     const bad of [
       { type: 'set_dashboard', id: 'f1' },
-      { type: 'set_dashboard', id: 'f1', pin: '' },
-      { type: 'set_dashboard', id: 'f1', pin: true },
+      { type: 'set_dashboard', id: 'f1', file: 'dash.html' },
+      { type: 'set_dashboard', id: 'f1', file: { ...file, root: 'rel' } },
+      { type: 'set_dashboard', id: 'f1', file: { ...file, path: '../x' } },
+      { type: 'set_dashboard', id: 'f1', file: { ...file, path: '' } },
     ]
   ) {
     const r = rejected(bad);

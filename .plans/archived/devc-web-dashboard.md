@@ -1,5 +1,11 @@
 # devc-web-dashboard
 
+> **Revised after it landed:** the dashboard is no longer a pin flag. Any repo file can be it
+> (**Use as dashboard** wherever **Pin file** is offered), kept in
+> `~/.config/devc/dashboard.json` by `devc/web/dashboard.ts`; `set_dashboard` takes
+> `file: {localFolder, root, path} | null`, and a `dashboard` message replaces the pin's
+> `dashboard` field. The header button, the file tile and opening into an empty area are as below.
+
 ## Checklist
 
 - [x] `devc/web/static/sidebar.js`: a pin's row menu gains **Preview** (previewable files) and

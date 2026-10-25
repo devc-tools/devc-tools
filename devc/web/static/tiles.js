@@ -41,7 +41,7 @@ import { fileView, mediaKind } from './lib/media.js';
 import { childPath } from './lib/files.js';
 import { sessionAge } from './lib/sessions.js';
 import { statusLetter } from './lib/pr_tree.js';
-import { dashboardPin, reopensDashboard } from './lib/pinned_files.js';
+import { reopensDashboard } from './lib/dashboard.js';
 import {
   changedRanges,
   diffTexts,
@@ -73,6 +73,7 @@ import {
   basename,
   call,
   containerByFolder,
+  dashboard,
   displayName,
   fileHostPath,
   findPane,
@@ -82,7 +83,6 @@ import {
   onConnectionChange,
   onServerMessage,
   paneKey,
-  pinnedFiles,
   projects,
   projectStarts,
   refLabel,
@@ -2542,13 +2542,14 @@ let viewChangeQueued = false;
 /** The tiles at the last view change: what a close that empties the area took away. */
 let lastTiles = /** @type {TileState[]} */ ([]);
 
-/** The dashboard pin's id at the last `pinned_files`; undefined until the first arrives. */
-let dashboardId = /** @type {string | null | undefined} */ (undefined);
+/** The dashboard's file at the last `dashboard` message; undefined until the first arrives. */
+let dashboardKey = /** @type {string | null | undefined} */ (undefined);
 
-/** Opens the dashboard (a pinned file marked as it) when the tiling area holds no tiles. */
+/** Opens the dashboard when the tiling area holds no tiles. */
 function openDashboardIfEmpty() {
-  const pin = dashboardPin(pinnedFiles);
-  if (pin && tiling?.isEmpty()) openFile(dashboardFileRef(pin), 'stack');
+  if (dashboard && tiling?.isEmpty()) {
+    openFile(dashboardFileRef(dashboard), 'stack');
+  }
 }
 
 /**
@@ -2565,7 +2566,7 @@ function viewChanged() {
     const before = lastTiles;
     lastTiles = state.tiles;
     if (
-      reopensDashboard(dashboardPin(pinnedFiles), before, state.tiles.length)
+      reopensDashboard(dashboard, before, state.tiles.length)
     ) {
       openDashboardIfEmpty();
     }
@@ -3241,11 +3242,11 @@ function setZen(on, { save = true } = {}) {
  */
 function onTilesMessage(msg) {
   switch (msg.type) {
-    // The first list after loading, or a newly marked dashboard, opens it into an empty area.
-    case 'pinned_files': {
-      const id = dashboardPin(pinnedFiles)?.id ?? null;
-      if (id !== dashboardId) {
-        dashboardId = id;
+    // The first one after loading, or a newly chosen dashboard, opens it into an empty area.
+    case 'dashboard': {
+      const key = dashboard ? fileKey(dashboard) : null;
+      if (key !== dashboardKey) {
+        dashboardKey = key;
         openDashboardIfEmpty();
       }
       break;

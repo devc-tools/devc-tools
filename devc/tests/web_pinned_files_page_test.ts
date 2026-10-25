@@ -1,13 +1,11 @@
 import { assertEquals } from 'jsr:@std/assert';
 import {
-  dashboardPin,
   defaultNotePath,
   filePinName,
   isFilePinShortcut,
   notePathError,
   parseFilePinPanes,
   parsePinnedFiles,
-  reopensDashboard,
 } from '../web/static/lib/pinned_files.js';
 import { tilesShowingPane } from '../web/static/lib/layout_state.js';
 
@@ -34,51 +32,6 @@ Deno.test('parsePinnedFiles keeps well-formed pins in order', () => {
   );
   assertEquals(parsePinnedFiles({ type: 'pinned_files' }), []);
   assertEquals(parsePinnedFiles(null), []);
-});
-
-Deno.test('parsePinnedFiles keeps the dashboard flag only when true; dashboardPin finds it', () => {
-  const pins = parsePinnedFiles({
-    type: 'pinned_files',
-    pins: [
-      { ...notes, dashboard: 'yes' },
-      { ...notes, id: 'p2', path: 'dashboard.html', dashboard: true },
-    ],
-  });
-  assertEquals(pins, [
-    notes,
-    { ...notes, id: 'p2', path: 'dashboard.html', dashboard: true },
-  ]);
-  assertEquals(dashboardPin(pins), pins[1]);
-  assertEquals(dashboardPin([notes]), null);
-});
-
-Deno.test('reopensDashboard: only when a close empties the area and the dashboard was not in it', () => {
-  const pin = {
-    ...notes,
-    id: 'p2',
-    path: 'dashboard.html',
-    dashboard: true as const,
-  };
-  const dash = {
-    file: {
-      localFolder: pin.localFolder,
-      root: pin.root,
-      path: pin.path,
-      view: 'media',
-    },
-  };
-  const other = { file: { ...notes } };
-  const term = { file: null };
-  assertEquals(reopensDashboard(pin, [other, term], 0), true);
-  assertEquals(reopensDashboard(pin, [dash], 0), false);
-  assertEquals(reopensDashboard(pin, [other, dash], 0), false);
-  assertEquals(reopensDashboard(pin, [other], 1), false);
-  assertEquals(reopensDashboard(pin, [], 0), false);
-  assertEquals(reopensDashboard(null, [other], 0), false);
-  assertEquals(
-    reopensDashboard(pin, [{ file: { ...dash.file, container: true } }], 0),
-    true,
-  );
 });
 
 Deno.test('filePinName: the label, else the basename', () => {

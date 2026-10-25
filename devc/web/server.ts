@@ -132,11 +132,17 @@ import {
   pinnedFilesMessage,
   readPinnedFiles,
   reusablePinnedPane,
-  setDashboardPin,
   updateFilePin,
   withLabel,
   writePinnedFiles,
 } from './pinned_files.ts';
+import {
+  DASHBOARD_PATH,
+  type DashboardFile,
+  dashboardMessage,
+  readDashboard,
+  writeDashboard,
+} from './dashboard.ts';
 import {
   buildProjects,
   isProjectRepo,
@@ -573,6 +579,14 @@ export async function startWeb(
     filePins = next;
     broadcast(pinnedFilesMessage(filePins));
     return next;
+  };
+
+  // The dashboard (`dashboard.json`): one repo file, kept apart from the pins so unpinning never
+  // loses it.
+  let dashboard: DashboardFile | null = await readDashboard();
+  const reloadDashboard = async () => {
+    dashboard = await readDashboard();
+    broadcast(dashboardMessage(dashboard));
   };
 
   // The task list (`tasks.json`), kept in its own file for the same reason as pinned files.
@@ -1555,6 +1569,63 @@ export async function startWeb(
   };
 
   /**
+   * Whether `file` is a file in one of a listed project's repos; if not, the request `id` is
+   * refused (`bad_request`, `not_found` or `forbidden`). What `pin_file` and `set_dashboard` take.
+   */
+  const checkRepoFile = async (
+    c: Client,
+    id: string,
+    file: { localFolder: string; root: string; path: string },
+  ): Promise<boolean> => {
+    if (
+      !isListedProject(file.localFolder) ||
+      !isProjectRepo(projectsMessage().projects, file.localFolder, file.root)
+    ) {
+      reject(c, {
+        id,
+        code: 'bad_request',
+        message: isListedProject(file.localFolder)
+          ? 'unknown repo'
+          : 'unknown project',
+      });
+      return false;
+    }
+    let hostPath: string | null;
+    try {
+      hostPath = await confine(file.root, file.path);
+    } catch {
+      fail(c, id, 'not_found', `${file.path} does not exist`);
+      return false;
+    }
+    if (hostPath === null) {
+      fail(c, id, 'forbidden', `${file.path} is outside the project`);
+      return false;
+    }
+    if (!(await Deno.stat(hostPath).catch(() => null))?.isFile) {
+      fail(c, id, 'bad_request', `${file.path} is not a file`);
+      return false;
+    }
+    return true;
+  };
+
+  /** Makes a repo file the dashboard, or clears it (`file: null`); every client is told. */
+  const setDashboard = async (
+    c: Client,
+    msg: Extract<ClientMessage, { type: 'set_dashboard' }>,
+  ) => {
+    if (msg.file && !(await checkRepoFile(c, msg.id, msg.file))) return;
+    try {
+      await writeDashboard(msg.file);
+    } catch (e) {
+      fail(c, msg.id, 'dashboard_error', e);
+      return;
+    }
+    dashboard = msg.file;
+    broadcast(dashboardMessage(dashboard));
+    reply(c, { id: msg.id, ok: true, result: {} });
+  };
+
+  /**
    * Pinned files: pin a repo file of a listed project, unpin or relabel one, and `open_pinned`,
    * which answers with the pin's editor pane, reusing the one it last opened while that pane is
    * still in its container's session, else making one as `open_file` does. Unpinning leaves the
@@ -1564,45 +1635,11 @@ export async function startWeb(
     c: Client,
     msg: Extract<
       ClientMessage,
-      {
-        type:
-          | 'pin_file'
-          | 'unpin_file'
-          | 'rename_pin'
-          | 'open_pinned'
-          | 'set_dashboard';
-      }
+      { type: 'pin_file' | 'unpin_file' | 'rename_pin' | 'open_pinned' }
     >,
   ) => {
     if (msg.type === 'pin_file') {
-      if (
-        !isListedProject(msg.localFolder) ||
-        !isProjectRepo(projectsMessage().projects, msg.localFolder, msg.root)
-      ) {
-        reject(c, {
-          id: msg.id,
-          code: 'bad_request',
-          message: isListedProject(msg.localFolder)
-            ? 'unknown repo'
-            : 'unknown project',
-        });
-        return;
-      }
-      let hostPath: string | null;
-      try {
-        hostPath = await confine(msg.root, msg.path);
-      } catch {
-        fail(c, msg.id, 'not_found', `${msg.path} does not exist`);
-        return;
-      }
-      if (hostPath === null) {
-        fail(c, msg.id, 'forbidden', `${msg.path} is outside the project`);
-        return;
-      }
-      if (!(await Deno.stat(hostPath).catch(() => null))?.isFile) {
-        fail(c, msg.id, 'bad_request', `${msg.path} is not a file`);
-        return;
-      }
+      if (!(await checkRepoFile(c, msg.id, msg))) return;
       let id = '';
       try {
         await changePinnedFiles((pins) => {
@@ -1615,23 +1652,6 @@ export async function startWeb(
         return;
       }
       reply(c, { id: msg.id, ok: true, result: { pin: id } });
-      return;
-    }
-    if (msg.type === 'set_dashboard') {
-      let changed: FilePin[] | null;
-      try {
-        changed = await changePinnedFiles((pins) =>
-          setDashboardPin(pins, msg.pin)
-        );
-      } catch (e) {
-        fail(c, msg.id, 'pinned_files_error', e);
-        return;
-      }
-      if (changed === null) {
-        fail(c, msg.id, 'not_found', 'no such pinned file');
-        return;
-      }
-      reply(c, { id: msg.id, ok: true, result: {} });
       return;
     }
     if (msg.type === 'unpin_file' || msg.type === 'rename_pin') {
@@ -2455,10 +2475,13 @@ export async function startWeb(
     }
     if (
       msg.type === 'pin_file' || msg.type === 'unpin_file' ||
-      msg.type === 'rename_pin' || msg.type === 'open_pinned' ||
-      msg.type === 'set_dashboard'
+      msg.type === 'rename_pin' || msg.type === 'open_pinned'
     ) {
       await handleFilePin(c, msg);
+      return;
+    }
+    if (msg.type === 'set_dashboard') {
+      await setDashboard(c, msg);
       return;
     }
     // Before the `localFolder` check: it names a project or a container.
@@ -2721,6 +2744,7 @@ export async function startWeb(
       client.send(JSON.stringify(containersMessage()));
       client.send(JSON.stringify(projectsMessage()));
       client.send(JSON.stringify(pinnedFilesMessage(filePins)));
+      client.send(JSON.stringify(dashboardMessage(dashboard)));
       client.send(JSON.stringify(tasksMessage(taskState)));
       client.send(JSON.stringify(jiraMessage()));
       if (bridgeStatus !== null) {
@@ -2888,6 +2912,11 @@ export async function startWeb(
     PINNED_FILES_PATH,
     () => void reloadPinnedFiles(),
   );
+  // Another devc web (or the user, by hand) changing the dashboard.
+  const dashboardWatch = watchConfigFile(
+    DASHBOARD_PATH,
+    () => void reloadDashboard(),
+  );
   // Another devc web adding, sending or deleting a task.
   const tasksWatch = watchConfigFile(TASKS_PATH, () => void reloadTasks());
   // An edit to the global config's `"jira"`.
@@ -2918,6 +2947,7 @@ export async function startWeb(
       gitWatch.stop();
       projectsWatch.stop();
       pinnedFilesWatch.stop();
+      dashboardWatch.stop();
       tasksWatch.stop();
       globalConfigWatch.stop();
       bridgeWatch.stop();

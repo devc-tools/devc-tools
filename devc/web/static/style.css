@@ -361,23 +361,30 @@ body.resizing-sidebar {
 /*
  * The tiling area's zen button (tiles.js): pinned to its top-right corner, in the top-right
  * tile's header, inside the tile's 1px frame (each header's controls make room for it). In zen
- * mode, with no header, it sits over the tile: shown on hover.
+ * mode, with no header, it sits over the tile: shown on hover. `--zen-room` is the room each
+ * header leaves for it at its right end, past its ×.
  */
 .zen-toggle {
   position: absolute;
-  top: calc(var(--tile-gap) + 1px);
+  top: var(--tile-gap);
   right: calc(var(--tile-gap) + 1px);
   z-index: 5;
   width: 22px;
-  height: 27px;
+  /* The header's row above its 1px line (layout.js's HEADER_HEIGHT less 1), so the icon is
+     centred as its tabs' × is. */
+  height: 28px;
   padding: 0;
   border: 0;
   border-radius: 0 4px 0 0;
   background: transparent;
 }
 
+.tiles {
+  --zen-room: 22px;
+}
+
 .tiles .lm_header .lm_controls {
-  margin-right: 27px;
+  margin-right: calc(5px + var(--zen-room));
 }
 
 .app[data-zen='on'] .zen-toggle {
@@ -1149,22 +1156,6 @@ body.resizing-zones {
   color: var(--accent);
 }
 
-/* The dashboard pin: a small four-panel glyph before its name. */
-.dashboard-mark {
-  display: inline-flex;
-  flex: none;
-  margin-right: 4px;
-  color: var(--accent);
-}
-
-.dashboard-mark svg {
-  width: 12px;
-  height: 12px;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 1.3;
-}
-
 .file-pin-dot {
   display: inline-block;
   width: 6px;
@@ -1816,11 +1807,11 @@ body.resizing-zones {
 }
 
 .lm_header:not(:has(.lm_tabdropdown_list .lm_tab)) .lm_tab:only-child .lm_close_tab {
-  right: 9px;
+  right: calc(9px + var(--zen-room, 0px));
 }
 
 .lm_header:not(:has(.lm_tabdropdown_list .lm_tab)):has(.lm_tab:only-child) .lm_controls {
-  margin-right: 28px;
+  margin-right: calc(28px + var(--zen-room, 0px));
 }
 
 .lm_header:not(:has(.lm_tabdropdown_list .lm_tab)) .lm_tab:only-child .tile-badge {
@@ -1831,13 +1822,13 @@ body.resizing-zones {
 .lm_header:not(:has(.lm_tabdropdown_list .lm_tab)) .lm_tab:only-child .tile-actions {
   position: absolute;
   top: 50%;
-  right: 26px;
+  right: calc(26px + var(--zen-room, 0px));
   margin-right: 0;
   transform: translateY(-50%);
 }
 
 .lm_header:not(:has(.lm_tabdropdown_list .lm_tab)):has(.lm_tab:only-child .tile-actions) .lm_controls {
-  margin-right: 46px;
+  margin-right: calc(46px + var(--zen-room, 0px));
 }
 
 .lm_header:not(:has(.lm_tabdropdown_list .lm_tab)):has(.lm_tab:only-child) .lm_controls .lm_close {

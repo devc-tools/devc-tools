@@ -209,8 +209,12 @@ export type ClientMessage =
   | { type: 'unpin_file'; id: string; pin: string }
   | { type: 'open_pinned'; id: string; pin: string }
   | { type: 'rename_pin'; id: string; pin: string; label: string }
-  /** Marks a pinned file as the dashboard; `pin: null` clears it. */
-  | { type: 'set_dashboard'; id: string; pin: string | null }
+  /** Makes a repo file the dashboard; `file: null` clears it. */
+  | {
+    type: 'set_dashboard';
+    id: string;
+    file: { localFolder: string; root: string; path: string } | null;
+  }
   | {
     type:
       | 'list_container_dir'
@@ -853,12 +857,24 @@ function parseFields(m: Obj): ClientMessage {
         pin: str(m, 'pin'),
         label: text(m, 'label'),
       };
-    case 'set_dashboard':
+    case 'set_dashboard': {
+      if (m.file === null) {
+        return { type: 'set_dashboard', id: str(m, 'id'), file: null };
+      }
+      if (typeof m.file !== 'object' || m.file === undefined) {
+        throw new Invalid(`'file' must be an object or null`);
+      }
+      const f = m.file as Obj;
       return {
         type: 'set_dashboard',
         id: str(m, 'id'),
-        pin: m.pin === null ? null : str(m, 'pin'),
+        file: {
+          localFolder: folder(f),
+          root: absolute(f, 'root'),
+          path: repoPath(f),
+        },
       };
+    }
     case 'list_container_dir':
     case 'read_container_file':
     case 'preview_container_file':

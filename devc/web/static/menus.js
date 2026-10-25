@@ -10,6 +10,7 @@ import { paneLabel } from './lib/sidebar.js';
 import { jiraKeys, jiraUrl } from './lib/jira.js';
 import { defaultView, fileView, mediaKind } from './lib/media.js';
 import { childPath, isWithin } from './lib/files.js';
+import { isDashboardFile } from './lib/dashboard.js';
 import {
   confirmDialog,
   copyText,
@@ -23,6 +24,7 @@ import {
   activeRepo,
   call,
   containerByFolder,
+  dashboard,
   filePinOfTile,
   filePinPanes,
   jiraConfig,
@@ -355,17 +357,43 @@ export function fileRefOf(fr, path, view) {
 }
 
 /**
- * The dashboard pin's file as a file tile names it: rendered when it can be (HTML, SVG, images),
- * else as text. Always the host-side viewer, never the pin's editor pane.
+ * The dashboard's file as a file tile names it: rendered when it can be (HTML, SVG, images), else
+ * as text. Always the host-side viewer.
  *
- * @param {import('./lib/pinned_files.js').FilePin} pin @returns {FileRef}
+ * @param {import('./lib/dashboard.js').DashboardFile} d @returns {FileRef}
  */
-export function dashboardFileRef(pin) {
+export function dashboardFileRef(d) {
   return fileRefOf(
-    { localFolder: pin.localFolder, root: pin.root },
-    pin.path,
-    previewable(pin.path) ? 'media' : undefined,
+    { localFolder: d.localFolder, root: d.root },
+    d.path,
+    previewable(d.path) ? 'media' : undefined,
   );
+}
+
+/**
+ * Makes a repo file the dashboard (`set_dashboard`), or with `file` null, stops using one.
+ *
+ * @param {import('./lib/dashboard.js').DashboardFile | null} file
+ */
+export function setDashboard(file) {
+  call({ type: 'set_dashboard', file }).catch((e) =>
+    errorToast(
+      `${file ? LABELS.useAsDashboard : LABELS.stopDashboard} failed: ${
+        e?.message ?? e
+      }`,
+    )
+  );
+}
+
+/**
+ * "Use as dashboard", or "Stop using as dashboard" on the dashboard itself, for a repo file's
+ * menus (beside **Pin file**). @param {FileRoot} fr @param {string} path
+ */
+export function dashboardItem(fr, path) {
+  const file = { localFolder: fr.localFolder, root: fr.root, path };
+  return isDashboardFile(dashboard, file)
+    ? [LABELS.stopDashboard, () => setDashboard(null)]
+    : [LABELS.useAsDashboard, () => setDashboard(file)];
 }
 
 /** The file root a file tile's file is under. @returns {FileRoot} */
@@ -711,7 +739,13 @@ function fileTileMenuItems(tile) {
     }
     items.push(...hostOpenItems(fr, file.path));
     items.push(null, ...copyPathItems(fr, file.path));
-    if (!file.container) items.push(null, filePinItem(fr, file.path));
+    if (!file.container) {
+      items.push(
+        null,
+        filePinItem(fr, file.path),
+        dashboardItem(fr, file.path),
+      );
+    }
     items.push(...jiraItems(activeRepo(tile).branch));
   }
   if (tile.preview) items.push(null, keepOpenItem(tile));

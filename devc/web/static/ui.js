@@ -115,11 +115,10 @@ export const LABELS = {
   pinned: 'Pinned',
   pinFile: 'Pin file',
   unpinFile: 'Unpin file',
-  dashboard: 'Dashboard',
   useAsDashboard: 'Use as dashboard',
   stopDashboard: 'Stop using as dashboard',
   openDashboard: (/** @type {string} */ name) => `Open dashboard (${name})`,
-  noDashboard: 'Dashboard: right-click a pinned file → Use as dashboard',
+  noDashboard: 'Dashboard: right-click a repo file → Use as dashboard',
   newNote: 'New note…',
   /** The sidebar's filter box. */
   filter: 'Filter',
@@ -238,9 +237,6 @@ const ICON_PATHS = {
   terminal: 'M2 3h12v10H2zM4.5 6.5L6.5 8l-2 1.5M8 10.5h3',
   // A robot head: an agent without a mark of its own.
   agent: 'M3 6h10v7H3zM8 3v3M6 9.5v.01M10 9.5v.01M1.5 9v1.5M14.5 9v1.5',
-  // Four panels: the dashboard (a pinned file marked as it).
-  dashboard:
-    'M2.5 2.5h4.5v4.5H2.5zM9 2.5h4.5v4.5H9zM2.5 9h4.5v4.5H2.5zM9 9h4.5v4.5H9z',
   // A page with a folded corner: a file tile.
   file: 'M4 1.5h5l3 3v10H4zM9 1.5v3h3',
   // A page of lines: send a task for a plan.

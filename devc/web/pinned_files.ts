@@ -23,8 +23,6 @@ export interface FilePin {
   label?: string;
   /** The editor pane last opened for it: a hint, checked before use. */
   last?: { containerId: string; paneId: string };
-  /** The user's dashboard: at most one pin carries it, and only as `true`. */
-  dashboard?: true;
 }
 
 export interface PinnedFilesFile {
@@ -47,14 +45,10 @@ function isFilePin(v: unknown): v is FilePin {
     typeof p.root === 'string' && p.root.startsWith('/') &&
     typeof p.path === 'string' && p.path !== '' &&
     (p.label === undefined || typeof p.label === 'string') &&
-    (p.last === undefined || isLast(p.last)) &&
-    (p.dashboard === undefined || typeof p.dashboard === 'boolean');
+    (p.last === undefined || isLast(p.last));
 }
 
-/**
- * Missing or unreadable file → []. Drops malformed and repeated entries, and the dashboard flag of
- * every pin after the first carrying it; never throws.
- */
+/** Missing or unreadable file → []. Drops malformed and repeated entries; never throws. */
 export async function readPinnedFiles(
   path = PINNED_FILES_PATH,
 ): Promise<FilePin[]> {
@@ -68,7 +62,6 @@ export async function readPinnedFiles(
   if (!Array.isArray(pins)) return [];
   const ids = new Set<string>();
   const files = new Set<string>();
-  let dashboard = false;
   return pins.filter((p): p is FilePin => {
     if (!isFilePin(p)) return false;
     const file = `${p.root}\n${p.path}`;
@@ -76,21 +69,16 @@ export async function readPinnedFiles(
     ids.add(p.id);
     files.add(file);
     return true;
-  }).map(({ id, localFolder, root, path, label, last, dashboard: flag }) => {
-    const first = flag === true && !dashboard;
-    if (first) dashboard = true;
-    return {
-      id,
-      localFolder,
-      root,
-      path,
-      ...(label ? { label } : {}),
-      ...(last
-        ? { last: { containerId: last.containerId, paneId: last.paneId } }
-        : {}),
-      ...(first ? { dashboard: true as const } : {}),
-    };
-  });
+  }).map(({ id, localFolder, root, path, label, last }) => ({
+    id,
+    localFolder,
+    root,
+    path,
+    ...(label ? { label } : {}),
+    ...(last
+      ? { last: { containerId: last.containerId, paneId: last.paneId } }
+      : {}),
+  }));
 }
 
 /**
@@ -152,21 +140,6 @@ export function updateFilePin(
 export function withLabel(pin: FilePin, label: string): FilePin {
   const { label: _, ...rest } = pin;
   return label === '' ? rest : { ...rest, label };
-}
-
-/**
- * Marks the pin `id` as the dashboard and clears every other pin's flag; `null` clears them all.
- * Null when `id` names no pin; `pins` itself when nothing changes. Pure.
- */
-export function setDashboardPin(
-  pins: FilePin[],
-  id: string | null,
-): FilePin[] | null {
-  if (id !== null && !pins.some((p) => p.id === id)) return null;
-  if (pins.every((p) => (p.dashboard === true) === (p.id === id))) return pins;
-  return pins.map(({ dashboard: _, ...p }) =>
-    p.id === id ? { ...p, dashboard: true as const } : p
-  );
 }
 
 /** What the page is sent: everything but `last`, which only the server checks. */
