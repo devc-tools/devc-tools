@@ -1469,6 +1469,8 @@ body.resizing-zones {
   flex: none;
   display: flex;
   align-items: center;
+  /* The row above the header's line, as the tabs and the zen button: centred as they are. */
+  height: calc(100% - 1px);
   gap: 2px;
   margin-right: 5px;
 }
@@ -1480,7 +1482,8 @@ body.resizing-zones {
   background-size: 12px;
 }
 
-/* The mockup's ⤢ and × in place of Golden Layout's bitmaps: glyphs, so they take its color. */
+/* The mockup's ⤢ and × in place of Golden Layout's bitmaps: SVG icons (layout.js), drawn as the
+   zen button's is, so they take its color and sit centred as it does. */
 .lm_header .lm_controls > *,
 .lm_header .lm_tab .lm_close_tab {
   display: grid;
@@ -1491,18 +1494,29 @@ body.resizing-zones {
   line-height: 1;
 }
 
-.lm_header .lm_controls .lm_maximise::before {
-  content: '⤢';
+.lm_header .header-icon {
+  display: block;
+  width: 12px;
+  height: 12px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
-.lm_maximised .lm_header .lm_controls .lm_maximise::before {
-  content: '⤡';
+.lm_header .lm_tab .lm_close_tab .header-icon {
+  width: 11px;
+  height: 11px;
 }
 
-.lm_header .lm_controls .lm_close::before,
-.lm_header .lm_tab .lm_close_tab::before {
-  content: '×';
-  font-size: 15px;
+.lm_header .lm_maximise .header-icon-restore,
+.lm_maximised .lm_header .lm_maximise .header-icon-maximise {
+  display: none;
+}
+
+.lm_maximised .lm_header .lm_maximise .header-icon-restore {
+  display: block;
 }
 
 .lm_header .lm_tab .lm_close_tab {
@@ -1596,8 +1610,7 @@ body.resizing-zones {
 .lm_header .lm_tab .lm_close_tab {
   top: 50%;
   right: 8px;
-  /* Centered on the label's line: the box sits half a pixel low, and × a little low in it. */
-  transform: translateY(calc(-50% - 1px));
+  transform: translateY(-50%);
 }
 
 /* One line, cut with an ellipsis: the tab is a flex row, so min-width lets the title shrink. */

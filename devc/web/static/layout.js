@@ -82,6 +82,52 @@ const HEADER = { popout: false };
 const HEADER_HEIGHT = 29;
 
 /**
+ * The header buttons' icons, drawn as SVG (style.css's `.header-icon`) rather than as text: a
+ * glyph sits wherever its font puts it, so ⤢ and × sat higher than the zen button's icon. The
+ * maximise button holds both of its own, its stack's `lm_maximised` showing one.
+ */
+const HEADER_ICONS = {
+  maximise: 'M9.5 2.5h4v4M13.5 2.5l-11 11M2.5 9.5v4h4',
+  restore: 'M2.5 6.5v-4h4M2.5 2.5l11 11M13.5 9.5v4h-4',
+  close: 'M4 4l8 8M12 4l-8 8',
+};
+
+/** @param {keyof HEADER_ICONS} name */
+function headerIcon(name) {
+  const ns = 'http://www.w3.org/2000/svg';
+  const svg = document.createElementNS(ns, 'svg');
+  svg.setAttribute('viewBox', '0 0 16 16');
+  svg.setAttribute('aria-hidden', 'true');
+  svg.setAttribute('class', `header-icon header-icon-${name}`);
+  const path = document.createElementNS(ns, 'path');
+  path.setAttribute('d', HEADER_ICONS[name]);
+  svg.append(path);
+  return svg;
+}
+
+/**
+ * Gives the header buttons and tab closes under `el` their icons, once each: Golden Layout
+ * builds them empty, a stack's with the stack and a tab's with the tab.
+ *
+ * @param {Element} el
+ */
+function addHeaderIcons(el) {
+  /** @type {[string, (keyof HEADER_ICONS)[]][]} */
+  const buttons = [
+    ['.lm_maximise', ['maximise', 'restore']],
+    ['.lm_controls .lm_close', ['close']],
+    ['.lm_close_tab', ['close']],
+  ];
+  for (const [selector, names] of buttons) {
+    for (const button of el.querySelectorAll(selector)) {
+      if (!button.querySelector('.header-icon')) {
+        button.append(...names.map(headerIcon));
+      }
+    }
+  }
+}
+
+/**
  * The page's custom property `name` (style.css's `:root`) in px, or `fallback` when it is unset
  * or not a px length.
  *
@@ -286,6 +332,7 @@ export function createTiling(root, hooks) {
   layout.on('tabCreated', (tab) => {
     const container = tab.componentItem?.container;
     const tile = container && byContainer.get(container);
+    addHeaderIcons(tab.element);
     if (!tile) return;
     queueMicrotask(() => applyBadge(container, tile));
     // Tabs are rebuilt on every move, and each new one fires this again.
@@ -323,6 +370,8 @@ export function createTiling(root, hooks) {
     hooks.focused(focusedTile());
   });
   layout.on('stateChanged', () => {
+    // A new stack's header buttons.
+    addHeaderIcons(root);
     // A drop, a close or a new tile may have moved the focused tile out of the zen stack.
     if (zenOn) queueMicrotask(syncZen);
     hooks.changed();
