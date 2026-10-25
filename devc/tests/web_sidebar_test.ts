@@ -511,15 +511,12 @@ Deno.test('savedScope reads the scope, else the scope zen mode was on in', () =>
   assertEquals(savedScope({ zen: 'off' }), 'all');
 });
 
-Deno.test('savedZen reads its own setting, else the sidebar zen mode was saved in', () => {
-  assertEquals(savedZen(true, { zen: false }), true);
-  assertEquals(savedZen(false, { zen: true }), false);
-  assertEquals(savedZen(null, { zen: true }), true);
-  assertEquals(savedZen(null, { zen: 'container' }), true);
-  assertEquals(savedZen(null, { zen: 'repo' }), true);
-  assertEquals(savedZen(null, { zen: 'off' }), false);
-  assertEquals(savedZen('on', null), false);
-  assertEquals(savedZen(null, null), false);
+Deno.test('savedZen reads its own setting, else the page default', () => {
+  assertEquals(savedZen(true, false), true);
+  assertEquals(savedZen(false, true), false);
+  assertEquals(savedZen(null, true), true);
+  assertEquals(savedZen(null, false), false);
+  assertEquals(savedZen('on', false), false);
 });
 
 Deno.test('statusCounts: each status with its count, most urgent first, agents only', () => {

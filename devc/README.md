@@ -392,8 +392,10 @@ is published from any container: the host server finds devcontainers with
   on or off. It shows the focused tile alone, filling the tiling area with no
   tab header or frame; it follows the focus. The layout under it is kept, and
   comes back when zen mode is turned off. Zen mode is the tiling area's alone:
-  the sidebar is left as it is. It is kept across reloads; `?zen=on` or
-  `?zen=off` in the page URL starts the page that way without saving it.
+  the sidebar is left as it is. It is off by default, except on `/main` alone
+  (as in a VS Code webview), and kept across reloads, separately for `/main`;
+  `?zen=on` or `?zen=off` in the page URL starts the page that way without
+  saving it.
 - **Sidebar scope:** the pill in the sidebar header picks what the sidebar
   shows: **all** (lines), everything; **container** (cube), **Tasks** and the
   focused tile's container box with its in-use repo cards; or **repo** (card),

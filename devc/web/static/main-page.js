@@ -9,7 +9,7 @@ import { remoteSidebar, sendViewState, serveTileArea } from './remote.js';
 if (SAFE_MODE) showSafeBanner();
 const tileArea = mountTiles(
   /** @type {HTMLElement} */ (document.getElementById('tiles')),
-  { sidebar: remoteSidebar(), onViewChange: sendViewState },
+  { sidebar: remoteSidebar(), onViewChange: sendViewState, zenByDefault: true },
 );
 serveTileArea(tileArea);
 connect();

@@ -126,12 +126,13 @@ const OLD_LAYOUT_KEY = 'devc-web-layout-v1';
  */
 const FOCUS_KEY = 'devc-web-focused-tile-v1';
 /**
- * Zen mode, `true` or `false`, per browser. The page URL's `?zen=…` (`zenFromSearch`) only sets
- * where the page starts, and is never saved; a zen change is. With nothing saved here, the
- * sidebar's saved state from when it held zen mode (`devc-web-sidebar-v1`'s `zen`) says.
+ * Zen mode, `true` or `false`, per browser and per page: the page with the sidebar
+ * (`ZEN_KEY`, off by default) and `/main` alone (`MAIN_ZEN_KEY`, on by default, as in a VS Code
+ * webview). The page URL's `?zen=…` (`zenFromSearch`) only sets where the page starts, and is
+ * never saved; a zen change is.
  */
 const ZEN_KEY = 'devc-web-zen-v1';
-const OLD_ZEN_KEY = 'devc-web-sidebar-v1';
+const MAIN_ZEN_KEY = 'devc-web-main-zen-v1';
 const RESIZE_DEBOUNCE_MS = 100;
 const DRAG_INTERVAL_MS = 50;
 /** How long a `read_selection` may go unanswered before its copy is dropped. */
@@ -3170,18 +3171,19 @@ const $zenToggle = h('button', {
   onclick: () => setZen(!zenOn),
 }, svgIcon('zen'));
 
-/** Zen mode at load: the page URL's `?zen=…` over what was saved (`ZEN_KEY`). */
+/** Whether zen mode is this page's default, and where it is saved: set by {@link mountTiles}. */
+let zenByDefault = false;
+let zenKey = ZEN_KEY;
+
+/** Zen mode at load: the page URL's `?zen=…` over what was saved, else the page's default. */
 function startingZen() {
   const asked = zenFromSearch(location.search);
   if (asked !== null) return asked;
-  const read = (key) => {
-    try {
-      return JSON.parse(localStorage.getItem(key) ?? 'null');
-    } catch {
-      return null;
-    }
-  };
-  return savedZen(read(ZEN_KEY), read(OLD_ZEN_KEY));
+  let own = null;
+  try {
+    own = JSON.parse(localStorage.getItem(zenKey) ?? 'null');
+  } catch { /* unreadable: the default */ }
+  return savedZen(own, zenByDefault);
 }
 
 /**
@@ -3195,7 +3197,7 @@ function setZen(on, { save = true } = {}) {
   zenOn = on;
   if (save) {
     try {
-      localStorage.setItem(ZEN_KEY, JSON.stringify(on));
+      localStorage.setItem(zenKey, JSON.stringify(on));
     } catch { /* storage unavailable: zen mode just won't survive a reload */ }
   }
   const app = /** @type {HTMLElement | null} */ ($tiles.closest('.app'));
@@ -3427,13 +3429,17 @@ function acceptNativeDrops(root) {
  * Mounts the tiling area into `root` (today's `#tiles`) and returns the sidebar's way in.
  * `sidebar` is how the tiling area reaches the sidebar; `null` when no sidebar is on the page.
  *
+ * `zenByDefault` (`/main` alone) starts it in zen mode until zen mode is turned off there.
+ *
  * @param {HTMLElement} root
  * @param {{sidebar: SidebarIntents | null,
- *   onViewChange: (state: ViewState) => void}} opts
+ *   onViewChange: (state: ViewState) => void, zenByDefault?: boolean}} opts
  * @returns {TileArea}
  */
 export function mountTiles(root, opts) {
   $tiles = root;
+  zenByDefault = opts.zenByDefault ?? false;
+  zenKey = zenByDefault ? MAIN_ZEN_KEY : ZEN_KEY;
   onViewChange = opts.onViewChange;
   sidebarIntents = opts.sidebar;
   setMenuContext({

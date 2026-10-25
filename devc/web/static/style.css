@@ -1365,9 +1365,12 @@ body.resizing-zones {
 }
 
 /* A margin round the tiles as wide as the gaps between them; on the left, less the 4px of the
-   sidebar resizer after the sidebar's 1px edge, so the sidebar too sits a tile gap from them. */
+   sidebar resizer after the sidebar's 1px edge, so the sidebar too sits a tile gap from them.
+   Isolated, so zen mode's maximised stack (Golden Layout's z-index 40) stays under the zen
+   button and the page's menus instead of covering them. */
 .layout-root {
   position: absolute;
+  isolation: isolate;
   inset: var(--tile-gap) var(--tile-gap) var(--tile-gap) calc(var(--tile-gap) -
     4px);
 }

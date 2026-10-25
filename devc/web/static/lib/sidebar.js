@@ -471,16 +471,14 @@ export function savedScope(saved) {
 }
 
 /**
- * Zen mode as saved: its own setting, `true` or `false`, else the sidebar's saved state from when
- * that held zen mode (`zen` true, `container` or `repo` was on).
+ * Zen mode as saved: its own setting, `true` or `false`, else the page's default (on for `/main`
+ * alone, off where the sidebar shares the page).
  *
  * @param {unknown} own
- * @param {{zen?: unknown} | null | undefined} sidebar
+ * @param {boolean} byDefault
  */
-export function savedZen(own, sidebar) {
-  if (typeof own === 'boolean') return own;
-  const old = sidebar?.zen;
-  return old === true || old === 'container' || old === 'repo';
+export function savedZen(own, byDefault) {
+  return typeof own === 'boolean' ? own : byDefault;
 }
 
 /**
