@@ -996,8 +996,8 @@ function repoCards() {
   const listedSessions = [];
   const running = new Set();
   for (const c of containers.values()) {
-    if (c.state !== 'connected') continue;
-    const snap = snapshots.get(c.id);
+    if (!listsSessions(c)) continue;
+    const snap = c.state === 'connected' ? snapshots.get(c.id) : undefined;
     const repos = projectRepos(c.localFolder);
     const spaces = paneSpaces(snap);
     for (const pane of list(snap?.panes)) {
@@ -1161,7 +1161,7 @@ function refreshContainers() {
 /** Lists every running container's sessions again. */
 function refreshSessions() {
   for (const c of containers.values()) {
-    if (c.state === 'connected') void loadSessions(c);
+    if (listsSessions(c)) void loadSessions(c);
   }
 }
 
@@ -1726,6 +1726,14 @@ function statusRollup(panes) {
  *   error: string | null}>}
  */
 const sessionLists = new Map();
+
+/**
+ * Whether a container's past sessions are listed: once Herdr is up, and before its session is
+ * (the server reads them with `docker exec`, and resuming one starts the session).
+ */
+function listsSessions(c) {
+  return c.state === 'connected' || c.state === 'no-session';
+}
 
 /** Lists a container's recent agent sessions again (`list_sessions`). */
 async function loadSessions(c) {
