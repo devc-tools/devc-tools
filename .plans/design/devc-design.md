@@ -1003,6 +1003,22 @@ On a successful listen, stdout gets exactly one line,
 `devc: docker not found on PATH` and exits 1. SIGINT/SIGTERM release every pane controller,
 close every bridge and exit 0.
 
+## `time`
+
+Show time spent by you and by agents, from the activity log `devc web` keeps while it runs
+(`~/.config/devc/activity/`; see `devc/README.md` § Time tracking). Reads files only: dispatched
+before the first-run global-config wizard, and needs no container.
+
+```text
+Usage: devc time [--days N] [--by repo|branch|agent] [--json]
+
+Options:
+      --days N   The last N days, today included (default: 7)
+      --by WHAT  Group by repo (default), branch or agent
+      --json     Print the rows as JSON
+  -h, --help     Print help
+```
+
 ## Implementation notes
 
 These behaviors are part of the intended implementation even though most are

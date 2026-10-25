@@ -85,6 +85,7 @@ import { resolve as resolvePath } from 'jsr:@std/path';
 import { superviseWeb } from './web/supervisor.ts';
 import { LEGACY_TOKEN_PATH, tokenWellFormed } from './web/token.ts';
 import { openBrowser, openPath } from './web/browser.ts';
+import { parseTimeArgs, runTime } from './time.ts';
 
 const subcommand = Deno.args[0];
 const KNOWN_COMMANDS = new Set(COMMANDS.map((c) => c.name));
@@ -418,6 +419,14 @@ if (subcommand === 'config') {
     includeGlobalStep,
     repo,
   );
+  Deno.exit(0);
+}
+
+// `devc time`: where time went, from devc web's activity log. Reads files only: dispatched before
+// the first-run global-config hook below, like `web`.
+if (subcommand === 'time') {
+  const timeArgs = parseOrExit2(parseTimeArgs, Deno.args.slice(1));
+  await runTime(timeArgs).catch(fail);
   Deno.exit(0);
 }
 

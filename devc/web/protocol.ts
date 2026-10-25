@@ -81,6 +81,8 @@ export type ClientMessage =
   /** The page's focused terminal pane, or none: devc-desktop's host terminal `cd`s to its folder; the server focuses it in Herdr. */
   | { type: 'active_pane'; container: string; pane_id: string }
   | { type: 'active_pane' }
+  /** Whether the page is visible and its window focused (activity tracking: `activity.ts`). */
+  | { type: 'page_state'; visible: boolean; focused: boolean }
   | {
     type:
       | 'start_project'
@@ -391,6 +393,12 @@ function str(o: Obj, k: string): string {
 function text(o: Obj, k: string): string {
   const v = o[k];
   if (typeof v !== 'string') throw new Invalid(`'${k}' must be a string`);
+  return v;
+}
+
+function bool(o: Obj, k: string): boolean {
+  const v = o[k];
+  if (typeof v !== 'boolean') throw new Invalid(`'${k}' must be a boolean`);
   return v;
 }
 
@@ -730,6 +738,12 @@ function parseFields(m: Obj): ClientMessage {
       }
       return { type: 'active_pane', ...p };
     }
+    case 'page_state':
+      return {
+        type: 'page_state',
+        visible: bool(m, 'visible'),
+        focused: bool(m, 'focused'),
+      };
     case 'start_session':
       return {
         type: 'start_session',

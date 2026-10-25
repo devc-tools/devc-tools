@@ -149,7 +149,15 @@ import {
   projectRefusal,
   repoFileFor,
 } from './projects_view.ts';
-import { GitStatusWatch } from './git_status.ts';
+import { GitStatusWatch, isGitProblem } from './git_status.ts';
+import {
+  ActivityRecorder,
+  catchUpRollups,
+  localDate,
+  paneFacts,
+  ROLLUP_EVERY_MS,
+  writeDayRollup,
+} from './activity.ts';
 import {
   bridgeStatePaths,
   type BridgeStatus,
@@ -445,6 +453,8 @@ export function routeStatic(
 
 interface Client extends Subscriber {
   socket: WebSocket;
+  /** This connection's id in the activity log: random, not the token. */
+  activityId: string;
 }
 
 /** Thrown by {@link startWeb} for a startup failure worth a one-line message. */
@@ -725,12 +735,16 @@ export async function startWeb(
     );
     broadcastProjects();
     void gitWatch.refresh();
+    recordPanes(record.id);
   };
   // Every listed repo's push/pull state, read again on a timer and whenever the list changes.
   const gitWatch: GitStatusWatch = new GitStatusWatch({
     folders: () =>
       projectsMessage().projects.flatMap((p) => p.repos.map((r) => r.folder)),
-    onChange: broadcastProjects,
+    onChange: () => {
+      broadcastProjects();
+      recordAllPanes();
+    },
   });
   const reloadProjects = async () => {
     projectEntries = await loadProjects();
@@ -803,6 +817,53 @@ export async function startWeb(
     home: Deno.env.get('HOME') ?? '.',
   });
 
+  // The activity log (`activity.ts`): what this server observes, as state changes, attributed to
+  // each container by its `localFolder`.
+  const activity = new ActivityRecorder({
+    onError: (e) =>
+      console.error(
+        `devc web: activity log: ${e instanceof Error ? e.message : e}`,
+      ),
+  });
+  /** A pane of running container `id`, for the log; null when it isn't one. */
+  const activityPane = (id: string, pane: Record<string, unknown>) => {
+    const session = sessions.get(id);
+    if (!session) return null;
+    const facts = paneFacts(
+      session.record.localFolder,
+      pane,
+      containerRepos.get(id) ?? [],
+      (folder) => {
+        const status = gitWatch.statuses.get(folder);
+        return status && !isGitProblem(status) ? status.branch : null;
+      },
+    );
+    if (!facts) return null;
+    // A pane a sent task started carries the task's session id.
+    const sent = taskState.sent.find((t) =>
+      t.last?.containerId === id && t.last.paneId === facts.pane
+    );
+    return sent ? { ...facts, sessionId: sent.sessionId } : facts;
+  };
+  /** Records container `id`'s panes from its cached snapshot. */
+  const recordPanes = (id: string) => {
+    const session = sessions.get(id);
+    if (!session?.snapshot) return;
+    activity.snapshot(
+      session.record.localFolder,
+      snapshotPanes(session.snapshot).flatMap((p) => {
+        const facts = activityPane(id, p as Record<string, unknown>);
+        return facts
+          ? [{ facts, status: (p as Record<string, unknown>).agent_status }]
+          : [];
+      }),
+    );
+  };
+  /** Records every running container's panes: a repo's branch or the repo list changed. */
+  const recordAllPanes = () => {
+    for (const id of sessions.keys()) recordPanes(id);
+  };
+
   const addContainer = (record: ContainerRecord) => {
     const id = record.id;
     const session = new ContainerSession(record, opts.session, {
@@ -813,9 +874,13 @@ export async function startWeb(
       onSnapshot: (snapshot) => {
         broadcast({ type: 'snapshot', container: id, snapshot });
         taskRunsSeen(id, snapshot);
+        recordPanes(id);
       },
-      onPaneUpdated: (pane) =>
-        broadcast({ type: 'pane_updated', container: id, pane }),
+      onPaneUpdated: (pane) => {
+        broadcast({ type: 'pane_updated', container: id, pane });
+        const facts = activityPane(id, pane);
+        if (facts) activity.pane(facts);
+      },
       onAgentStatus: (pane_id, agent, agent_status) => {
         broadcast({
           type: 'agent_status',
@@ -825,6 +890,25 @@ export async function startWeb(
           agent_status,
         });
         taskRunStatus(id, pane_id, agent_status);
+        // The bridge has patched the pane's agent into the cached snapshot, with no
+        // `pane_updated`: its `pane` event (a new or departed agent) comes from there.
+        const pane = snapshotPanes(sessions.get(id)?.snapshot ?? null).find((
+          p,
+        ) => p.pane_id === pane_id);
+        const facts = pane ? activityPane(id, pane) : null;
+        if (facts) activity.pane(facts);
+        if (
+          typeof agent_status === 'string' && typeof agent === 'string' &&
+          agent !== ''
+        ) {
+          activity.agentStatus(
+            record.localFolder,
+            pane_id,
+            null,
+            agent,
+            agent_status,
+          );
+        }
       },
       onTeardown: (reason) => void controllers.closeContainer(id, reason),
     });
@@ -848,6 +932,7 @@ export async function startWeb(
       if (key.startsWith(`${id}\n`)) resumedPanes.delete(key);
     }
     taskRunsSeen(id, null);
+    activity.containerGone(session.record.localFolder);
     void controllers.closeContainer(id, 'container stopped');
     void session.dispose();
     broadcast(containersMessage());
@@ -2450,6 +2535,21 @@ export async function startWeb(
         ? { container: msg.container, pane_id: msg.pane_id }
         : null;
       if ('container' in msg) void focusPane(msg.container, msg.pane_id);
+      const folder = 'container' in msg
+        ? sessions.get(msg.container)?.record.localFolder
+        : undefined;
+      activity.focus(c.activityId, {
+        active: 'container' in msg && folder
+          ? { container: folder, pane: msg.pane_id }
+          : null,
+      });
+      return;
+    }
+    if (msg.type === 'page_state') {
+      activity.focus(c.activityId, {
+        visible: msg.visible,
+        focused: msg.focused,
+      });
       return;
     }
     if (msg.type === 'client_ready') {
@@ -2609,6 +2709,7 @@ export async function startWeb(
         controllers.close(c, msg.container, msg.pane_id);
         return;
       case 'input':
+        activity.input(c.activityId, session.record.localFolder, msg.pane_id);
         controllers.send(c, msg.container, msg.pane_id, {
           type: 'terminal.input',
           bytes: msg.bytes,
@@ -2622,6 +2723,7 @@ export async function startWeb(
         });
         return;
       case 'scroll':
+        activity.input(c.activityId, session.record.localFolder, msg.pane_id);
         controllers.send(c, msg.container, msg.pane_id, {
           type: 'terminal.scroll',
           direction: msg.direction,
@@ -2629,6 +2731,7 @@ export async function startWeb(
         });
         return;
       case 'mouse':
+        activity.input(c.activityId, session.record.localFolder, msg.pane_id);
         controllers.send(c, msg.container, msg.pane_id, {
           type: 'terminal.mouse',
           action: msg.action,
@@ -2728,6 +2831,7 @@ export async function startWeb(
   const onSocket = (socket: WebSocket) => {
     const client: Client = {
       socket,
+      activityId: crypto.randomUUID(),
       send(text) {
         if (socket.readyState === WebSocket.OPEN) socket.send(text);
       },
@@ -2778,6 +2882,7 @@ export async function startWeb(
       clients.delete(client);
       views.leave(client);
       controllers.closeAll(client);
+      activity.clientGone(client.activityId);
     };
     socket.onerror = () => {};
   };
@@ -2903,6 +3008,27 @@ export async function startWeb(
   discovery.start();
   liveStatic?.watch();
   gitWatch.start();
+  // The activity log: this start, every past day's rollup it lacks, then today's every few
+  // minutes. A day that ends while the server runs is rolled up complete on the next tick.
+  activity.server('start');
+  const logActivityError = (e: unknown) =>
+    console.error(
+      `devc web: activity rollup: ${e instanceof Error ? e.message : e}`,
+    );
+  let rollupDayNow = localDate(new Date());
+  void activity.flush()
+    .then(() => catchUpRollups(rollupDayNow))
+    .catch(logActivityError);
+  const rollupTimer = setInterval(() => {
+    const now = new Date();
+    const today = localDate(now);
+    const ended = today !== rollupDayNow ? rollupDayNow : null;
+    rollupDayNow = today;
+    void activity.flush().then(async () => {
+      if (ended) await writeDayRollup(ended, { complete: true });
+      await writeDayRollup(today, { complete: false, until: now });
+    }).catch(logActivityError);
+  }, ROLLUP_EVERY_MS);
   const projectsWatch = watchConfigFile(
     PROJECTS_PATH,
     () => void reloadProjects(),
@@ -2952,11 +3078,17 @@ export async function startWeb(
       globalConfigWatch.stop();
       bridgeWatch.stop();
       usageWatch.stop();
+      clearInterval(rollupTimer);
       for (const c of clients) {
         try {
           c.socket.close();
         } catch { /* already closing */ }
+        activity.clientGone(c.activityId);
       }
+      activity.server('stop');
+      await activity.flush();
+      await writeDayRollup(localDate(new Date()), { complete: false })
+        .catch(logActivityError);
       await controllers.releaseAll();
       await Promise.all([...sessions.values()].map((s) => s.dispose()));
       await Promise.all(liveProcs().map((p) => closeGracefully(p, 1000)));

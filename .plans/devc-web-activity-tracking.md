@@ -2,16 +2,16 @@
 
 ## Checklist
 
-- [ ] `devc/web/activity.ts` (new, pure where possible): event types, the append-only log writer,
+- [x] `devc/web/activity.ts` (new, pure where possible): event types, the append-only log writer,
       the reader, and `rollupDay`. Tests in `devc/tests/web_activity_test.ts` (new)
-- [ ] `devc/web/server.ts`: records `server`, `agent`, `pane`, `input` and `focus` events (see
+- [x] `devc/web/server.ts`: records `server`, `agent`, `pane`, `input` and `focus` events (see
       Contracts); writes rollups; prunes old raw logs
-- [ ] `devc/web/protocol.ts`: new client message `page_state`. Tests in
+- [x] `devc/web/protocol.ts`: new client message `page_state`. Tests in
       `devc/tests/web_server_test.ts`
-- [ ] `devc/web/static/tiles.js`: sends `page_state` on connect and on every visibility or focus
+- [x] `devc/web/static/tiles.js`: sends `page_state` on connect and on every visibility or focus
       change (pages with a tiling area: `/` and `/main`)
-- [ ] `devc time` CLI: `devc/main.ts` dispatch, `devc/help.ts`, and the command module (new)
-- [ ] Docs: `devc/README.md` (a **Time tracking** section and `devc time`), the protocol table in
+- [x] `devc time` CLI: `devc/main.ts` dispatch, `devc/help.ts`, and the command module (new)
+- [x] Docs: `devc/README.md` (a **Time tracking** section and `devc time`), the protocol table in
       `.plans/archived/devc-web.md`, and a pointer from `.plans/design/activity-tracking-proposal.md`
       to this plan
 - [ ] Cockpit (`/workspaces/cockpit`, a separate repo): `scripts/dashboard.ts` reads the rollups
@@ -153,7 +153,33 @@ consumer.
   - With no rollups, keep today's commit-based panel unchanged.
   - `--text` mode says which source it used.
 
-## Verify
+## Implementation notes
+
+Where the code settled a detail the contracts left open, or departs from them:
+
+- **`page_state` needs no guard.** Every server since the first devc web commit answers a rejected
+  message only when it carries an `id` (`reject` in `server.ts`), so an older server drops
+  `page_state` silently: no toast, no error. Checked against a running server with an unknown
+  message and an invalid `page_state`: no reply. `hello` carries no `activity` flag.
+- **The pane's folder** is `foreground_cwd`, else `cwd`: the same lookup the page uses for a
+  tile's repo (`paneRepo` in `client.js`). The `pane` event's `cwd` is that folder.
+- **An agent that goes away ends as `unknown`.** A pane that leaves the snapshot, a container that
+  stops, or an agent that leaves its pane writes an `agent` event with `status: 'unknown'`, so a
+  pane closed while `working` doesn't count until the end of the day.
+- **A snapshot's agent status is used once per agent pane** (startup, a new pane, a different
+  agent). After that only Herdr's `pane.agent_status_changed` events count, so a snapshot taken
+  just before an event can't flip the status back.
+- **An agent starting or leaving writes a `pane` event too.** The bridge patches the agent into its
+  cached snapshot on `pane.agent_status_changed` and sends no `pane_updated`, so `onAgentStatus`
+  re-reads the pane from there.
+- **`rollupDay` is given three days of events** (the day before, the day, the day after) so it
+  knows what was going on at midnight and where a span past midnight ends. A `focus` that turns
+  a page hidden or unfocused ends that client's span: focus coming back without input does not
+  resume it.
+- **Today's rollup from the running server** counts what is still going on up to the write time:
+  it rolls up with a `stop` at that moment, which is not written to the log. `devc time` reads
+  today from the raw log as it is, so an agent still working counts up to the last event.
+- **`devc time` reads a past day's rollup only when it is complete,** else that day's raw log.
 
 - `deno task check`, `deno task test` (in `devc/`), and `deno fmt --check` at the repo root.
 - `rollupDay` tests: idle cutoff, page hidden mid-span, two clients overlapping, a missing `stop`,

@@ -5,7 +5,7 @@
 /** CLI version. Single source of truth — the compiled binary cannot read `deno.json` at runtime. */
 export const VERSION = '0.12.0';
 
-/** The sixteen subcommands, in the order they appear in the top-level `Commands:` list. */
+/** The seventeen subcommands, in the order they appear in the top-level `Commands:` list. */
 export const COMMANDS: { name: string; summary: string }[] = [
   {
     name: 'init',
@@ -61,6 +61,10 @@ export const COMMANDS: { name: string; summary: string }[] = [
     name: 'web',
     summary:
       'Serve a browser UI for the Herdr sessions in running dev containers',
+  },
+  {
+    name: 'time',
+    summary: 'Show time spent by you and by agents, from devc web',
   },
 ];
 
@@ -330,6 +334,21 @@ export const COMMAND_HELP: Record<string, string> = {
     '  --source DIR    Use this checkout\'s devc/ directory instead of "webSource"',
     '                  (implies --live)',
     '  -h, --help      Print help',
+  ].join('\n'),
+
+  time: [
+    'Usage: devc time [--days N] [--by repo|branch|agent] [--json]',
+    '',
+    'Options:',
+    '      --days N   The last N days, today included (default: 7)',
+    '      --by WHAT  Group by repo (default), branch or agent',
+    '      --json     Print the rows as JSON',
+    '  -h, --help     Print help',
+    '',
+    'Time is recorded only while devc web runs: your input through its pages',
+    '(while the page is visible and focused, idle after 5 minutes) and each',
+    "agent's working and blocked time, per Herdr pane. It stays on this machine,",
+    'in ~/.config/devc/activity/.',
   ].join('\n'),
 };
 

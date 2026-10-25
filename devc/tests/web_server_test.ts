@@ -943,6 +943,26 @@ Deno.test('authorize: /desktop/ needs Bearer <token> and no Origin', () => {
   assertEquals(check('/desktop', { host }), null);
 });
 
+Deno.test('parseClientMessage: page_state carries two booleans', () => {
+  const r = parseClientMessage(
+    JSON.stringify({ type: 'page_state', visible: true, focused: false }),
+  );
+  assert(r.ok);
+  assertEquals(r.msg, { type: 'page_state', visible: true, focused: false });
+  for (
+    const bad of [
+      { type: 'page_state', visible: true },
+      { type: 'page_state', visible: 'yes', focused: true },
+      { type: 'page_state', visible: true, focused: 1 },
+    ]
+  ) {
+    const no = rejected(bad);
+    assertEquals(no.code, 'bad_request');
+    // No `id`: an old server, like this one, answers nothing a page would show.
+    assertEquals(no.id, undefined);
+  }
+});
+
 Deno.test('parseClientMessage: active_pane names a pane or none', () => {
   const ok = (m: unknown) => {
     const r = parseClientMessage(JSON.stringify(m));

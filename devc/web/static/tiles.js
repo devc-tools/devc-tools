@@ -3173,6 +3173,19 @@ function reportActivePane(force) {
   send(msg);
 }
 
+/**
+ * Tells the server whether this page is visible and its window focused, for its activity log
+ * (input counts as the user's time only then). Sent after each `hello` and on every change. A
+ * server that doesn't know `page_state` ignores it: it carries no `id`, so nothing answers.
+ */
+function reportPageState() {
+  send({
+    type: 'page_state',
+    visible: document.visibilityState === 'visible',
+    focused: document.hasFocus(),
+  });
+}
+
 // ---------------------------------------------------------------------------------------------
 // Tiles: mounting
 // ---------------------------------------------------------------------------------------------
@@ -3259,6 +3272,7 @@ function onTilesMessage(msg) {
       for (const view of diffViews.values()) {
         if (view.state === 'loading') void loadDiff(view);
       }
+      reportPageState();
       reportActivePane(true);
       break;
     case 'containers':
@@ -3553,7 +3567,12 @@ export function mountTiles(root, opts) {
     if (!e.repeat) setZen(!zenOn);
   }, true);
 
-  window.addEventListener('focus', () => reportActivePane(true));
+  window.addEventListener('focus', () => {
+    reportPageState();
+    reportActivePane(true);
+  });
+  window.addEventListener('blur', reportPageState);
+  document.addEventListener('visibilitychange', reportPageState);
   onServerMessage(onTilesMessage);
   onConnectionChange(onTilesConnection);
   acceptNativeDrops(root);

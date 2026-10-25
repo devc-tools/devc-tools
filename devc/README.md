@@ -45,6 +45,7 @@ devc down    [PATH]                                   Stop and remove the contai
 devc prune   [--dry-run]                              Remove devc-bridge key dirs/policies no container uses
 devc status  [PATH]                                   Print `running` / `stopped` / `missing`, then protection and bridge lines
 devc web     [--port N] [--session NAME] [--no-open] [--live] [--live-yolo] [--source DIR] Serve a browser UI for the Herdr sessions in every running devcontainer
+devc time    [--days N] [--by repo|branch|agent] [--json] Show time spent by you and by agents, as devc web recorded it
 ```
 
 Run `devc --help` for the full command list, `devc <COMMAND> --help` for a
@@ -139,6 +140,7 @@ Notes:
   itself missing from `PATH` they fail hard — `devc: docker not found on PATH`,
   exit 1 — rather than reporting the container as absent.
 - `web` — see [`devc web`](#devc-web-browser-ui-for-in-container-herdr).
+- `time` — see [Time tracking](#time-tracking).
 
 ## How it works
 
@@ -695,6 +697,41 @@ tap="$(dirname "$0")/devc-usage-tap"
 
 Until a session reports, the strip shows no usage. Seeing usage needs a server
 with the `usage` message (`--live-yolo`, or a `devc` built from this version).
+
+#### Time tracking
+
+While it runs, `devc web` keeps a log of how time is spent, by you and by
+agents, per Herdr pane, attributed to the container (its project folder), the
+repo the pane's folder is in, that repo's branch, the agent and the pane's
+title. A pane started by **Send task** also carries its task's session id.
+
+- **Your time** is input (keys, mouse, scroll) through a devc web page (a
+  browser tab, devc-desktop, `/main` in VS Code), counted only while that page
+  is visible and its window focused. Five minutes without input is idle, and a
+  hidden or unfocused page is idle at once. Typing in VS Code's own editor or
+  in a directly attached Herdr TUI is not counted.
+- **Agent time** is Herdr's agent status: `working` and `blocked` (waiting on
+  you) count; `idle`, `done` and `unknown` don't.
+- **Only while devc web runs.** Agents keep working when it is stopped, and
+  that time is a gap in the log.
+- **Local only.** Titles can hold task text, so nothing is sent anywhere.
+
+The raw log is `~/.config/devc/activity/YYYY-MM-DD.jsonl`: state changes, one
+JSON object per line. The server rolls each day up into
+`~/.config/devc/activity/rollup/YYYY-MM-DD.json`
+(`{version: 1, date, complete, rows}`, a row per container, repo, branch and
+agent with `userActiveMs`, `agentWorkingMs` and `agentBlockedMs`), today's
+every 5 minutes and when it stops. At startup it completes any past day's
+rollup, then deletes raw logs older than 90 days whose rollup is complete.
+Rollups are kept, and are what other tools should read.
+
+`devc time` prints the last 7 days as a table, grouped by repo, with your time,
+agent working and agent blocked time, and a total. `--days N` changes the
+range, `--by branch` or `--by agent` the grouping, and `--json` prints the
+rows themselves. It reads the files only, so it works whether or not
+`devc web` is running. Recording needs a server with the `page_state` message
+(`--live-yolo`, or a `devc` built from this version); the page sends it either
+way, and an older server ignores it.
 
 #### Live mode: `devc web --live` and `--live-yolo`
 
