@@ -11,11 +11,6 @@
 
 ### Pending
 
-- [devc-web-dashboard](devc-web-dashboard.md) — one pinned file marked as the **dashboard**
-  (`dashboard: true` in `pinned-files.json`, so each machine has its own): a header button opens it
-  in a file tile (a media view for HTML), and devc web opens it by itself when no tiles are open.
-  Also adds **Preview** / **Open in browser** to a pin's menu. New `set_dashboard` message.
-
 - [devc-web-aseprite-viewer](devc-web-aseprite-viewer.md) — after devc-web-media-tiles: a
   clean-room `.aseprite` decoder and compositor (`static/lib/aseprite.js`, from the public spec
   only) and a media view with frame playback, tags and layer toggles. Normal blend only at first;
@@ -176,6 +171,12 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
   generated-source folders appear, and read-only `jdt:` class tiles.
 
 ### Completed
+
+- ✅ Done — [devc-web-dashboard](archived/devc-web-dashboard.md) — one pinned file marked as the
+  **dashboard** (`dashboard: true` in `pinned-files.json`, so each machine has its own; new
+  `set_dashboard` message): a header button opens it in a file tile (a media view for HTML), and
+  devc web opens it by itself into an empty tiling area. A pin's menu also gains **Preview** /
+  **Open in browser**.
 
 - ✅ Done — [devc-web-cross-page-drag](archived/devc-web-cross-page-drag.md) — phase 4: rows dragged from a
   `/sidebar` page into a `/main` page by native drag and drop (`application/x-devc-web-tile`, a
