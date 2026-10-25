@@ -146,18 +146,22 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
   multiplexer that is the one LSP client of each server in the container (cached `initialize`,
   full-text sync, id remapping, pull→push diagnostics). Host-side `Deno.watchFs` feeds
   `workspace/didChangeWatchedFiles`. It defines the `devc-lsp-<language> describe|serve`
-  launcher contract the language Features implement. Servers start on file open and stop after
-  30 idle minutes.
+  launcher contract the language Features implement (`--root`/`--options`, `options`). Servers
+  start on file open and stop after 30 idle minutes. Per-project root overrides and settings
+  live in `~/.config/devc/repos/<key>/language-servers.json`, edited from **Language server
+  settings…**; Feature options are only container-wide defaults.
 
 - [devc-web-lsp-typescript](devc-web-lsp-typescript.md) — after devc-web-lsp-core: a
-  `typescript-lsp` Feature (private Node, vtsls 0.3.0) whose launcher picks `deno lsp` under a
-  `deno.json`, the workspace's own TypeScript ≥ 7 (`tsc --lsp`), or vtsls on the workspace's
-  TypeScript (bundled 5.9.3 without one), rooted at the topmost project marker.
+  `typescript-lsp` Feature (private Node, vtsls 0.3.0) for TypeScript, Node, Deno and Bun:
+  the nearest marker picks the runtime, and the launcher runs `deno lsp` for a Deno root, the
+  workspace's own TypeScript ≥ 7 (`tsc --lsp`, which `bun init` projects get), or vtsls on the
+  workspace's TypeScript (bundled 5.9.3 without one), overridable per project.
 
 - [devc-web-lsp-python](devc-web-lsp-python.md) — after devc-web-lsp-core: a `python-lsp`
   Feature (private Node, basedpyright 1.40.2) rooted at the **nearest** `pyproject.toml` /
   `setup.py` / `setup.cfg`, so a non-editable installed copy is never what definitions open;
-  interpreter from the `python` option, then `.venv`, `$VIRTUAL_ENV`, `python3`.
+  interpreter per project from devc web's settings, else the Feature's `python` default, then
+  `.venv`, `$VIRTUAL_ENV`, `python3`.
 
 - [devc-web-lsp-java](devc-web-lsp-java.md) — after the TypeScript and Python plans: a
   `java-lsp` Feature (JDT LS 1.63.0 on a private JDK 25) that writes nothing into the repo

@@ -21,9 +21,12 @@ launcher that satisfies its [launcher contract](devc-web-lsp-core.md#launcher-co
 web itself does not change here.
 
 A new Feature, `python-lsp`, gives devc web Python intelligence through **basedpyright**,
-rooted at the **nearest** `pyproject.toml` / `setup.py` / `setup.cfg` above the file, with the
-interpreter taken from a Feature option or found by convention. Measurements behind both
-choices are in
+rooted at the **nearest** `pyproject.toml` / `setup.py` / `setup.cfg` above the file. A
+container may hold several Python projects, each with its own interpreter. devc web's
+**Language server settings…** sets the root, interpreter, `typeCheckingMode` and extra settings
+**per project** ([core plan](devc-web-lsp-core.md#per-project-settings-lsp_configts)). The
+Feature's options are container-wide defaults, and without either the interpreter is found by
+convention. Measurements behind the root and server choices are in
 [design/devc-web-language-services.md § Python](design/devc-web-language-services.md#python).
 
 ## Concept boundaries
@@ -104,21 +107,26 @@ Same shape as `typescript-lsp`'s (self-contained; the shared steps are copied, p
 `devc-lsp-python` is an ES module run by the private Node. Its shebang is
 `#!/usr/local/share/devc-features/python-lsp/node/bin/node`. It uses Node built-ins only.
 
-**`describe <file>`:**
+**`describe <file> [--root <dir>] [--options <b64>]`:**
+
+Each option's value is the per-project value from `--options` if present, else the baked
+Feature value, else the built-in default.
 
 1. **Language id.** Extension `py` or `pyi` → `python`. Anything else exits 3 with
    `not a Python file`.
 2. **Top**, as in `typescript-lsp`: `git rev-parse --show-toplevel`, or `/` when that fails.
-3. **Root.** The **nearest** directory, from the file's directory up to and including top,
-   holding `pyproject.toml`, `setup.py` or `setup.cfg`. With none, it is top, or the file's
-   directory when top is `/`.
+3. **Root.**
+   - `--root` when given. It must be the file's directory or an ancestor, else exit 3.
+   - Otherwise the **nearest** directory, from the file's directory up to and including top,
+     holding `pyproject.toml`, `setup.py` or `setup.cfg`. With none, it is top, or the file's
+     directory when top is `/`.
 4. **Interpreter.** The first that exists and is executable:
-   1. the baked `python` option
+   1. the `python` option (per project, else baked)
    2. `<root>/.venv/bin/python`
    3. `$VIRTUAL_ENV/bin/python`
    4. `python3` on `PATH`
 
-   If the baked option is set but not executable, exit 1 with
+   If the `python` option is set but not executable, exit 1 with
    `python option <path> is not executable`, so a broken config is visible, not silently
    replaced. If none is found, `pythonPath` is omitted.
 5. **Python version.** `<interp> -c 'import sys; print("%d.%d" % sys.version_info[:2])'` with a
@@ -127,10 +135,16 @@ Same shape as `typescript-lsp`'s (self-contained; the shared steps are copied, p
    - server `basedpyright 1.40.2 (Python 3.12)`, or `basedpyright 1.40.2` without a version
    - `initializationOptions` `{}`
    - `settings`
-     `{"python": {"pythonPath": <interp>}, "basedpyright": {"analysis": {"typeCheckingMode": <baked>, "diagnosticMode": "openFilesOnly"}}}`,
-     deep-merged with the baked `settings`
+     `{"python": {"pythonPath": <interp>}, "basedpyright": {"analysis": {"typeCheckingMode": <option>, "diagnosticMode": "openFilesOnly"}}}`,
+     deep-merged with the `settings` option
 
-**`serve --root <root>`** spawns
+**`options`** prints:
+
+- `python`: path; default the baked value
+- `typeCheckingMode`: enum (the manifest's six values); default the baked value
+- `settings`: json; default the baked value
+
+**`serve --root <root> [--options <b64>]`** spawns
 `<node> <prefix>/node_modules/basedpyright/langserver.index.js --stdio` with `stdio: 'inherit'`
 and `cwd: root`. It forwards `SIGTERM` and `SIGINT` and exits with the child's code.
 
@@ -141,7 +155,9 @@ and `cwd: root`. It forwards `SIGTERM` and `SIGINT` and exits with the child's c
   sessions, and why rooting at the repo is wrong when the package is also installed
   non-editable.
 - The interpreter order.
-- A deephaven-core snippet:
+- deephaven-core: in devc web, **Language server settings…** on a `py/server` file sets
+  **Python** to `/usr/local/share/deephaven-core/venv/bin/python` for that project only. The
+  container-wide alternative, when every Python project there shares the venv:
   `"ghcr.io/devc-tools/features/python-lsp:0": {"python": "/usr/local/share/deephaven-core/venv/bin/python"}`.
 - The `typeCheckingMode` and `settings` options.
 - Note that a project's own checks (mypy, ruff) can disagree with basedpyright.
@@ -165,18 +181,22 @@ and `cwd: root`. It forwards `SIGTERM` and `SIGINT` and exits with the child's c
 `mktemp -d` and runs `node features/python-lsp/devc-lsp-python describe …`. Baked values are
 changed by editing a copy of the launcher.
 
-| Fixture                                                                                                  | Expect                                               |
-| -------------------------------------------------------------------------------------------------------- | ---------------------------------------------------- |
-| git repo, `py/server/pyproject.toml`, file `py/server/pkg/a.py`                                          | root = `<repo>/py/server`                            |
-| same plus `<repo>/pyproject.toml`                                                                        | root still `<repo>/py/server` (nearest)              |
-| git repo, no markers, file `x/a.py`                                                                      | root = repo                                          |
-| `<root>/.venv/bin/python` (a symlink to `python3`)                                                       | `pythonPath` = that path                             |
-| no `.venv`, `VIRTUAL_ENV=<dir>` with `bin/python`                                                        | `pythonPath` = `<dir>/bin/python`                    |
-| neither                                                                                                  | `pythonPath` = `command -v python3`                  |
-| baked `python` = an existing executable                                                                  | it wins over `.venv`                                 |
-| baked `python` = `/nope/python`                                                                          | exit 1, message names the path                       |
-| baked `typeCheckingMode` `strict`, baked settings `{"basedpyright":{"analysis":{"extraPaths":["src"]}}}` | both present; `diagnosticMode` still `openFilesOnly` |
-| `a.ts`                                                                                                   | exit 3                                               |
+| Fixture                                                                                                           | Expect                                                                                            |
+| ----------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| git repo, `py/server/pyproject.toml`, file `py/server/pkg/a.py`                                                   | root = `<repo>/py/server`                                                                         |
+| same plus `<repo>/pyproject.toml`                                                                                 | root still `<repo>/py/server` (nearest)                                                           |
+| git repo, no markers, file `x/a.py`                                                                               | root = repo                                                                                       |
+| `<root>/.venv/bin/python` (a symlink to `python3`)                                                                | `pythonPath` = that path                                                                          |
+| no `.venv`, `VIRTUAL_ENV=<dir>` with `bin/python`                                                                 | `pythonPath` = `<dir>/bin/python`                                                                 |
+| neither                                                                                                           | `pythonPath` = `command -v python3`                                                               |
+| baked `python` = an existing executable                                                                           | it wins over `.venv`                                                                              |
+| baked `python` = `/nope/python`                                                                                   | exit 1, message names the path                                                                    |
+| baked `typeCheckingMode` `strict`, baked settings `{"basedpyright":{"analysis":{"extraPaths":["src"]}}}`          | both present; `diagnosticMode` still `openFilesOnly`                                              |
+| `a.ts`                                                                                                            | exit 3                                                                                            |
+| `--root <repo>` on `py/server/pkg/a.py` (nested `pyproject.toml`s)                                                | root = repo                                                                                       |
+| `--options` base64 `{"python": "<.venv python>", "typeCheckingMode": "strict"}` with baked `python` set elsewhere | the per-project values win                                                                        |
+| `--options` base64 `{"python": "/nope/python"}`                                                                   | exit 1, message names the path                                                                    |
+| `options` subcommand                                                                                              | keys `python` (path), `typeCheckingMode` (enum), `settings` (json); defaults are the baked values |
 
 Docker scenarios (image `mcr.microsoft.com/devcontainers/base:ubuntu`; it has `python3`):
 
@@ -210,6 +230,12 @@ Docker scenarios (image `mcr.microsoft.com/devcontainers/base:ubuntu`; it has `p
       `py/client`.
 - [ ] Manual: without the `python` option, a repo with `.venv` gets that interpreter (status
       text), and imports from packages installed only there resolve.
+- [ ] Manual (per project, no Feature option): in deephaven-core, **Language server
+      settings…** on `py/server/deephaven/pandas.py` sets **Python** to the deephaven venv.
+      `py/server` restarts with `basedpyright 1.40.2 (Python 3.12)` and its imports resolve.
+      `py/client`, with no entry, keeps its own detected interpreter.
+      `~/.config/devc/repos/deephaven-core-<hash>/language-servers.json` holds exactly one
+      `python` entry, root `py/server`.
 - [ ] `git status` in every repo used shows nothing the server wrote
 - [ ] `deno fmt --check` passes for every touched `.md` / `.json`
 

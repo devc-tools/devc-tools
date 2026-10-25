@@ -6,7 +6,8 @@
 - [ ] `features/java-lsp/install.sh`, per [install.sh](#installsh)
 - [ ] `features/java-lsp/devc-jdtls.gradle`, the Gradle init script, per
       [Init script](#init-script)
-- [ ] `features/java-lsp/devc-lsp-java`, the launcher, per [Launcher](#launcher)
+- [ ] `features/java-lsp/devc-lsp-java`, the launcher, and `features/java-lsp/DevcLspJavaOptions.java`,
+      its options helper, per [Launcher](#launcher)
 - [ ] `features/java-lsp/README.md`, per [README](#readme)
 - [ ] Offline harness `features/java-lsp/test/launcher_test.sh`, per [Tests](#tests)
 - [ ] Docker scenarios: `test/test.sh`, `test/scenarios.json` plus one script per scenario,
@@ -50,7 +51,11 @@ measurements are in
 - **Nothing may be written into the repo by the language server**, and no ignore file may be
   changed to hide output. That rules out JDT LS's defaults (`<project>/bin`, metadata at
   project roots).
-- **Settings live in Feature options.**
+- **Settings are per project, set from devc web** (revised 2026-10-24). A container can hold
+  several Gradle builds: sibling repos and worktrees. `buildCommand`, `jdk`, `maxHeap` and
+  `gradleArguments` come from devc web's **Language server settings…** per project
+  ([core plan](devc-web-lsp-core.md#per-project-settings-lsp_configts)), as does the root
+  override. The Feature's options are container-wide defaults.
 
 ## Concept boundaries
 
@@ -58,6 +63,12 @@ measurements are in
   `<project>/bin`. With it off, the probe wrote no class files. Diagnostics for open files still
   come from JDT's reconcile: a planted error was reported 2.6 s after the edit, and that is all
   devc web shows. Lost: diagnostics for files that are not open.
+  - It is also what makes editing cheap. In the VS Code measurements (exploration doc,
+    [VS Code on deephaven-core](design/devc-web-language-services.md#vs-code-vscode-java-on-deephaven-core)),
+    a save with autobuild on cost 13–24 CPU-s and re-published diagnostics for 290–1,900
+    files, even for a one-line method-body edit.
+  - With autobuild off and this plan's init script (configuration D), a save cost 2–3 CPU-s and
+    4–8 diagnostics, and import CPU halved (381 → 176 CPU-s).
 - **Metadata goes to JDT's workspace area through a JVM system property,
   `-Djava.import.generatesMetadataFilesAtProjectRoot=false`.** That property is read by the
   `org.eclipse.jdt.ls.filesystem` bundle. Sent as an LSP setting, as the exploration first did,
@@ -75,6 +86,23 @@ measurements are in
   IntelliJ's delegated builds.
 - **One root per Gradle build**: the topmost `settings.gradle(.kts)` up to the git top-level.
   Each worktree is its own root and its own server (2–3 GB each; the idle stop applies).
+- **Buildship + init script, not the Gradle build server.** The VS Code measurements found a
+  second working setup: vscode-gradle's Build Server for Gradle with autobuild off
+  (configuration G). It gave 0 errors in the opened files with **no** init script, because Gradle
+  itself reports the source sets and classpaths. It is not used here, for three reasons:
+  - **Startup chain.** It runs inside vscode-gradle's `gradle-server` JVM, started by that
+    extension's TypeScript, and reaches JDT LS through a private handshake:
+    1. the importer bundle sends `workspace/notify` `_gradle.onWillImporterConnect` with a pipe
+       path
+    2. the extension's `BspProxy` relays that pipe to the server's own pipe
+
+    devc would have to re-implement and track all of that across vscode-gradle releases.
+  - **A second JVM** per root.
+  - **Gradle builds on save.** With autobuild on, its builder runs a Gradle build on every
+    save. That's harmless with autobuild off, but one setting away.
+
+  Revisit it if the init script's known gaps prove hard to close: Gradle's own source-set model
+  may already cover test-class dependencies and custom source sets (unverified).
 - **Not covered:** cross-project test-class dependencies
   (`project(path: …, configuration: 'tests')`) and custom source sets' classpaths
   (`engine/benchmark`'s `src/benchmark/java`). Both left errors in the exploration and are a
@@ -143,8 +171,12 @@ style.
    - Extract to `/usr/local/share/devc-features/java-lsp/jdtls`. It stays read-only, and each
      user gets a writable copy of its config at run time.
 6. **Init script.** `devc-jdtls.gradle` → `/usr/local/share/devc-features/java-lsp/devc-jdtls.gradle`.
-7. **Launcher.** `/usr/local/bin/devc-lsp-java`, `0755`, with the four options baked base64.
-8. `chmod -R a+rX` on everything installed.
+7. **Options helper.** Compile `DevcLspJavaOptions.java` with the private JDK into
+   `/usr/local/share/devc-features/java-lsp/helper/`. It is a single class with no dependencies
+   (see [Launcher](#launcher)). The image has no guaranteed JSON tool, and the shell launcher
+   must read `--options`.
+8. **Launcher.** `/usr/local/bin/devc-lsp-java`, `0755`, with the four options baked base64.
+9. `chmod -R a+rX` on everything installed.
 
 ### Init script
 
@@ -179,16 +211,30 @@ that.
 string). Its `json_str` helper escapes `\` and `"`, and refuses (exit 1) any value containing a
 control character.
 
-**`describe <file>`:**
+**Options.** `--options <b64>` is decoded by the helper:
+`<jdk25>/bin/java -cp <helper dir> DevcLspJavaOptions <b64>`.
+
+- Input: base64 of a flat JSON object whose values are strings.
+- Output: one `KEY=<base64 of value>` line per key it knows (`buildCommand`, `jdk`, `maxHeap`,
+  `gradleArguments`).
+- An unknown key gets one stderr line and is skipped.
+- A non-string value, or invalid JSON or base64, exits 1 with the reason.
+- Values are validated as at install time (`maxHeap` pattern, `jdk` absolute, no newlines).
+- Each per-project value beats the baked value, which beats the built-in default. A JSON
+  parser for this flat shape is about 60 lines; no library.
+
+**`describe <file> [--root <dir>] [--options <b64>]`:**
 
 1. Extension `java` → `languageId` `java`; anything else exits 3 with `not a Java file`.
 2. **Top**: `git rev-parse --show-toplevel`, or `/`.
 3. **Root**:
+   - `--root` when given: it must be the file's directory or an ancestor, else exit 3. The kind
+     is still taken from the markers in that directory.
    - the topmost directory from the file's directory to top holding `settings.gradle` or
      `settings.gradle.kts` → kind `Gradle`
    - else the topmost holding `pom.xml` → `Maven`
    - else top, or the file's directory when top is `/` → `no build`
-4. **Project JDK**: the first of the baked `jdk` option, `$JAVA_HOME`, or
+4. **Project JDK**: the first of the `jdk` option (per project, else baked), `$JAVA_HOME`, or
    `$(dirname "$(dirname "$(readlink -f "$(command -v java)")")")`, that has an executable
    `bin/java`.
    - Its major version comes from `JAVA_VERSION="<v>"` in `<jdk>/release` (the part before the
@@ -241,7 +287,14 @@ The server string's parts are the kind and `JDK <major>` (omitted when not found
 `generatesMetadataFilesAtProjectRoot` is in the settings only so JDT LS's view agrees with the
 `-D` flag; the flag is what works.
 
-**`serve --root <root>`:**
+**`options`** prints the four keys with their baked defaults:
+
+- `buildCommand`: command
+- `jdk`: path
+- `maxHeap`: string
+- `gradleArguments`: string
+
+**`serve --root <root> [--options <b64>]`:**
 
 - `cache="${XDG_CACHE_HOME:-$HOME/.cache}/devc-lsp/java"`.
 - **Data dir**: `$cache/data/<first 16 hex of sha256 of root>`. It is outside the repo, and
@@ -268,7 +321,8 @@ exec <jdk25>/bin/java \
 
 Resolve the launcher jar's glob to exactly one file; if it doesn't resolve to one, exit 1.
 
-**`build --root <root>`:** `cd <root>`, then exec `bash -lc "$BUILD_COMMAND"`. Output goes to
+**`build --root <root> [--options <b64>]`:** `cd <root>`, then exec
+`bash -lc "$BUILD_COMMAND"`, with `buildCommand` resolved per project as above. Output goes to
 stdout and stderr, and the exit code is the build's.
 
 ### devc web additions
@@ -283,7 +337,7 @@ Browser → server (`protocol.ts`):
 **`lsp_build`** is refused with `bad_request` unless the session's language is `java`, and with
 `busy` while a build of the same session runs. Otherwise:
 
-1. Run `devc-lsp-java build --root <root>` through `docker exec` (`spawnLines`, login shell, as
+1. Run `devc-lsp-java build --root <root> --options <the session's options>` through `docker exec` (`spawnLines`, login shell, as
    the core runs `describe`).
 2. Keep the last 2,000 output lines.
 3. While it runs, send `lsp_status` with the current state and detail
@@ -338,8 +392,13 @@ JDT has a source jar. **Show build output** uses the same read-only text tile.
 ## Known gaps
 
 - **Cross-project test classes and custom source sets** (`ArrayGenerator`, `DoubleVectorTest`,
-  `engine/benchmark`) remain unresolved. A follow-up plan extends the init script; it is not
-  verified here.
+  `engine/benchmark`) remain unresolved. A follow-up plan either extends the init script, or
+  evaluates the Gradle build server (see Concept boundaries); neither is verified here.
+- **The fixes cannot move into deephaven-core's own build yet.** A `buildSrc` convention plugin
+  with the same `whenMerged` logic produced a correct Gradle Eclipse classpath, but JDT LS still
+  reported `java.lang.Object cannot be resolved` in `QueryTable` and unresolved
+  `io.deephaven.base…` in `SessionState`. The init script did not; the cause is unknown. Keep the
+  fixes in the Feature's init script.
 - **Edits to `@Value.Immutable` types** show stale generated code until a Gradle build.
 - **No workspace-wide error list:** with autobuild off, only open files have diagnostics.
 
@@ -356,8 +415,16 @@ JDT has a source jar. **Show build output** uses the same read-only text tile.
   in the container and exits.
 - **Do not send `textDocument/didSave`** from any probe or test. JDT re-reads the file from disk
   on save, so an unsaved planted error disappears. (This misled the exploration once.)
-- **First import of deephaven-core**: about 15 s with a warm Gradle daemon, much longer cold.
-  The status line shows JDT's `language/status` progress meanwhile.
+- **First import of deephaven-core**: about 15 s to `ServiceReady` with a warm Gradle daemon,
+  much longer cold. The status line shows JDT's `language/status` progress meanwhile.
+- **`ServiceReady` is not "imported".** JDT LS 1.64 imports progressively and reports
+  `ServiceReady` before every project's classpath is resolved. Files checked in that window
+  show transient errors (`java.lang.Object cannot be resolved`). The configuration-D import
+  took 89 s to go quiet. The status line keeps showing progress (`$/progress`,
+  `language/status`) until the work it reports ends. Manual validation waits for the status
+  line to clear, not for `ready`.
+- **Heap.** VS Code's default `-Xmx2G` ran deephaven-core at its cap with 24–26 full GCs per
+  run; 4 GB halved them. Hence `maxHeap`'s `4G` default.
 
 ## Tests
 
@@ -376,6 +443,11 @@ emitted in a fixed order to allow this):
 | baked `gradleArguments` `-PuseIdeaPaths=false`                                       | `arguments` ends with it                                |
 | a file path containing a newline                                                     | exit 1                                                  |
 | `X.kt`                                                                               | exit 3                                                  |
+| `--root <repo>/sub` where `sub/settings.gradle` exists, file under `sub/`            | root = `<repo>/sub`; `Gradle`                           |
+| `--options` base64 `{"jdk": "<fake JDK 17 dir>"}` with baked `jdk` = a JDK 21        | `JavaSE-17`; per-project wins                           |
+| `--options` base64 `{"maxHeap": 4}` (not a string)                                   | exit 1                                                  |
+| `--options` base64 `{"other": "x"}`                                                  | succeeds; one stderr line naming `other`                |
+| `options` subcommand                                                                 | the four keys with the baked defaults                   |
 
 `devc/tests/`:
 
@@ -412,6 +484,12 @@ Docker scenarios (image `mcr.microsoft.com/devcontainers/base:ubuntu`):
   - [ ] F12 on `TrackingRowSet` opens its source file
   - [ ] imports of `io.deephaven.util.annotations` have **no** error (the dependency fix)
 - [ ] Manual: plant `int devcProbe = "x";` in the class body; underlined within 3 s
+- [ ] Manual (multi-project): mount a second Gradle repo in the same container, with a different
+      JDK via **Language server settings…** (`jdk`). Its files attach to their own session, whose
+      status names that JDK's major version. The deephaven-core session is unaffected.
+- [ ] Manual (per-project build): set `buildCommand` to `./gradlew :DHProcess:compileJava` for
+      deephaven-core in **Language server settings…**. **Build (Gradle)** shows that command's
+      output, and other repos' sessions keep the Feature default.
 - [ ] Manual: `DHProcess/src/main/java/io/deephaven/process/BaseboardOshi.java` shows
       `ImmutableBaseboardOshi cannot be resolved` (fresh worktree, no build yet).
       **Build (Gradle)** shows Gradle output in the status line; when it ends, the error clears
@@ -439,6 +517,7 @@ Docker scenarios (image `mcr.microsoft.com/devcontainers/base:ubuntu`):
 - `features/java-lsp/devc-jdtls.gradle` — new, from
   `.plans/design/devc-web-language-services/devc-jdtls.gradle`
 - `features/java-lsp/devc-lsp-java` — new
+- `features/java-lsp/DevcLspJavaOptions.java` — new, the options helper compiled at install
 - `features/java-lsp/README.md` — new: what it writes (nothing in the repo; caches under
   `~/.cache/devc-lsp/java`), options, the IntelliJ-style build, the deephaven-core
   `buildCommand` (default works: `compileJava` depends on `syncProtocJava`), log locations,

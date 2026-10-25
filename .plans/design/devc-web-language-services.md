@@ -31,6 +31,12 @@ in [`devc-web-language-services/`](devc-web-language-services/).
   recommended (slow, missed a planted error, non-standard `initialize`). See
   [Java](#why-vs-codes-java-support-misbehaves-on-deephaven-core) and
   [the corrected setup](#update-2026-10-23-nothing-written-into-the-repo).
+- **VS Code itself (outside devc): settings, not a custom extension.** With the Java
+  Extension Pack, `java.autobuild.enabled: false`,
+  `java.import.gradle.annotationProcessing.enabled: false` and a 4 GB JDT LS heap gave zero
+  errors in the files checked, no `bin/`, and saves that cost almost nothing. The pack's Gradle
+  build server, on by default, supplies the classpath, so no init script is needed. See
+  [VS Code on deephaven-core](#vs-code-vscode-java-on-deephaven-core).
 - **TypeScript: pick the server from the repo.** See [TypeScript](#typescript).
   - `deno.json` → `deno lsp`
   - workspace TypeScript ≥ 7 → its own `tsc --lsp --stdio`
@@ -397,6 +403,144 @@ language server in the container (stdio, Content-Length framing)
   - Python: the interpreter (deephaven-core's venv is at
     `/usr/local/share/deephaven-core/venv`)
 
+## VS Code (vscode-java) on deephaven-core
+
+Measured 2026-10-24 to answer three complaints about VS Code's Java support on deephaven-core:
+
+1. `bin/` folders appear
+2. the first load is very slow
+3. any change sets off a cascade of rebuilding
+
+The probe ran the **extension's own bundled server and JRE** headless:
+
+- `redhat.java` 1.59.2026102308 from Open VSX (`linux-arm64`): JDT LS 1.64.0 and Buildship
+  3.1.13 on its JRE 25.0.4.1
+- the scratch clone of deephaven-core, with generated sources already built and a warm Gradle
+  daemon
+- 8 cores, Linux
+
+The driver, [`vscode_sim.py`](devc-web-language-services/vscode_sim.py), behaves like VS Code:
+it opens files, edits, and saves (didChange, disk write, didSave, and
+`workspace/didChangeWatchedFiles` for the saved file). Every configuration gets the same
+sequence:
+
+- a cold import (fresh `-data` directory)
+- a one-line method-body edit in `QueryTable.java`, saved
+- a new default method on `Table.java`, which 631 files import, saved
+- both files reverted, saved
+
+Each phase is measured until CPU goes quiet. Configurations with the Gradle build server count
+**whole-machine** CPU, because that path compiles in Gradle's daemon, not in JDT LS.
+
+### What the extension does by default
+
+From `package.json` and `dist/extension.js` in the vsix:
+
+| Setting                                           | Default                           | Effect here                                                                                                                                                           |
+| ------------------------------------------------- | --------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `java.jdt.ls.vmargs`                              | `… -Xmx2G -Xms100m -Xlog:disable` | 24–26 full GCs per run, heap at its cap                                                                                                                               |
+| `java.autobuild.enabled`                          | `true`                            | compiles every project on import and after every save, into `<project>/bin` (Buildship path)                                                                          |
+| `java.import.gradle.annotationProcessing.enabled` | `true`                            | the Gradle 9 apt failure (eclipse.jdt.ls#3807, #3924)                                                                                                                 |
+| `java.import.generatesMetadataFilesAtProjectRoot` | `false`                           | passed as the `-D…=false` JVM flag, so **no** `.project` / `.classpath` / `.settings`. deephaven-core's `.gitignore` also already covers those three, but not `bin/`. |
+
+With the **Extension Pack for Java** installed, `vscjava.vscode-gradle` 3.18.0 adds
+`java.gradle.buildServer.enabled: "on"`. Its description: _"It will replace the original
+Buildship to import the Gradle."_
+
+- JDT LS loads its bundle `com.microsoft.gradle.bs.importer-0.5.4.jar`, which reaches the Build
+  Server for Gradle (inside the extension's `gradle-server`) over a named pipe, relayed by the
+  extension's `BspProxy`.
+- The importer installs `BuildServerBuilder` as each project's builder. Its `build()` (source:
+  `microsoft/vscode-gradle`,
+  `extension/jdtls.ext/com.microsoft.gradle.bs.importer/.../builder/BuildServerBuilder.java`):
+  1. ignores the change delta and the build kind
+  2. calls `buildTarget/compile`, which runs Gradle's `classes` task for every source set of the
+     project, upstream tasks included (`BuildTargetService.compile` →
+     `getBuildTaskName`), and waits for it (`join()`)
+  3. refreshes the output folders of the project and all its transitive dependencies,
+     `DEPTH_INFINITE`
+- Upstream: microsoft/vscode-gradle#1441, "Performance issue when enabling Build Server", is
+  open with 20 comments, and its report waited 30 minutes after opening a project.
+
+### Results
+
+Wall times are ±2 s: the precision of the quiet window. "Files with errors" counts files the
+server reported errors in. With autobuild off, that is only the opened files (`QueryTable`,
+`Table`).
+
+| Config                                                      | Import, time to quiet | Import CPU-s            | Files with errors | Each save: CPU-s                            | Diagnostics published per save | GC (full) | Repo writes |
+| ----------------------------------------------------------- | --------------------- | ----------------------- | ----------------- | ------------------------------------------- | ------------------------------ | --------- | ----------- |
+| A: vscode-java alone, defaults (2 GB)                       | 131 s                 | 381                     | 818               | 13–18                                       | 290–580                        | 26        | 154 `bin/`  |
+| B: as A, 4 GB                                               | 131–138 s             | 376–438 (whole machine) | 818–852           | 15–21                                       | 370–590                        | 11–12     | 154 `bin/`  |
+| C: as B + init script + apt off, autobuild on               | 137 s                 | 381                     | 232               | 14–16                                       | 380–540                        | 12        | 0           |
+| D: as C, **autobuild off**                                  | 89 s                  | 176                     | **0**             | 2–3                                         | 4–8                            | 5         | 0           |
+| E: Java pack defaults (build server on, autobuild on), 4 GB | 123 s                 | 365 (whole machine)     | 24                | 17–24, **plus a Gradle build per save**     | 1,400–1,900                    | 8         | 0           |
+| **G: build server on, autobuild off, apt off, 4 GB**        | 126 s                 | 324 (whole machine)     | **0**             | 5–7 (whole machine, mostly idle background) | 2–4                            | 5         | 0           |
+
+- **#1 `bin/`:** from Buildship + autobuild (A, B). Gone with the init script's redirect (C),
+  autobuild off (D), or the build server (E, G), which uses Gradle's own `build/classes`.
+- **#2 slow load:**
+  - Autobuild doubles import CPU (full compile).
+  - On the plain-extension path, the missing `compileOnly` dependencies and broken apt leave
+    818 files with errors.
+  - The 2 GB default heap ran at its cap with 24–26 full GCs, but it didn't set the pace here:
+    131 s at 2 GB vs 138 s at 4 GB.
+- **#3 cascade:**
+  - With autobuild on, every save rebuilds and re-reports 290–1,900 files' diagnostics, about
+    15–24 CPU-s each time, even for a one-line body edit.
+  - On the build-server path, each save also runs a Gradle build. One save-time build in E
+    ran 94 s (daemon log 00:15:20–00:16:54); later ones were quick.
+  - With autobuild off, a save re-checks only the open files.
+- **Terminal Gradle builds are not the trigger.** After a one-line edit plus
+  `./gradlew compileJava`, 405 watched files changed. JDT LS (B) then spent 16.6 CPU-s and
+  published 748 diagnostics, about one save's worth. D spent 2.5 CPU-s.
+- **Not reproduced: "unusable".** On this machine the defaults cost a few seconds per save. The
+  waste is real, but it never became unusable. The user's setup adds things this probe doesn't:
+  a macOS host, the VS Code UI and the pack's other extensions, cold caches, and possibly older
+  versions. Next evidence to collect there: the JDT LS log, the Java build status, and VS Code's
+  startup-performance and CPU-profile reports, before and after applying configuration G.
+
+### Recommended VS Code settings for deephaven-core
+
+```jsonc
+// with the Extension Pack for Java (vscode-gradle's build server stays on, its default)
+"java.autobuild.enabled": false,
+"java.import.gradle.annotationProcessing.enabled": false,
+"java.jdt.ls.vmargs": "-XX:+UseParallelGC -XX:GCTimeRatio=4 -XX:AdaptiveSizePolicyWeight=90 -Dsun.zip.disableMemoryMapping=true -Xmx4G -Xms100m -Xlog:disable"
+```
+
+- **vscode-java alone** (no Gradle extension) needs the init script too:
+  `"java.import.gradle.arguments": "--init-script /abs/path/devc-jdtls.gradle"` (configuration
+  D).
+- **Cost of autobuild off:** no workspace-wide Problems list; open files are still checked as
+  you type. Generated code (Immutables, protoc) updates after a Gradle build, as with IntelliJ's
+  delegated builds.
+- **Where the settings live.** `contributes.configurationDefaults` (VS Code docs: "override
+  their defaults") would apply them to every Java project. deephaven-core gitignores `.vscode/`,
+  so the choices are per-developer workspace settings, or un-ignoring and committing
+  `.vscode/settings.json`, which is a team decision.
+
+### A custom VS Code extension
+
+Not justified for intellisense. vscode-java runs the same JDT LS every option here uses, and all
+three problems were configuration. A custom client would have to make the same choices. A tiny
+companion extension (settings defaults, the init script, Build/Reload commands) would only buy
+zero-setup onboarding.
+
+### Moving the fixes into deephaven-core's build (tried, not working yet)
+
+A `buildSrc` convention plugin (`io.deephaven.java-ide-conventions`, applied from
+`io.deephaven.java-common-conventions`) carried the init script's dependency and
+generated-source fixes.
+
+- Gradle's merged Eclipse classpath was correct (`eclipseClasspath` for `:engine-table` and
+  `:server`: JDK container, `/Base`, `/util-annotations`).
+- But JDT LS with settings only (F) still reported errors in one to three opened files:
+  `java.lang.Object cannot be resolved` in `QueryTable`, and `io.deephaven.base…` unresolved in
+  `SessionState`.
+- The init-script version (D) had none. The difference is unexplained; with configuration G it
+  isn't needed.
+
 ## Decisions and plans
 
 Settled with the user on 2026-10-23, and carried into four plans:
@@ -444,6 +588,19 @@ Two gotchas from the runs:
 - Completion requested in the middle of an identifier (`pd.|__version__`) returns nothing from
   ty. [`complete_check.py`](devc-web-language-services/complete_check.py) appends a fresh
   `x = <EXPR>` line instead.
+
+[`vscode_sim.py`](devc-web-language-services/vscode_sim.py) is the VS Code simulation:
+`vscode_sim.py <label> <root> <settings.json> -- <server argv>`.
+
+- `SIM_GRADLE=1` adds the terminal-build phase.
+- `SIM_BSP=<vscode-gradle extension dir>` with `SIM_BSP_JAVA_HOME` emulates the Gradle build
+  server (it starts `lib/gradle-server` and relays the importer's pipe).
+- `SIM_SYSCPU=1` with `SIM_QUIET_CORES` measures whole-machine CPU.
+- `GC_LOG` summarizes `-Xlog:gc`.
+
+[`open_check.py`](devc-web-language-services/open_check.py) imports, waits `SETTLE` seconds and
+prints errors in given files. Gotcha: JDT LS 1.64 reports `ServiceReady` before its
+progressive import has resolved every classpath, so wait for CPU to go quiet, not for ready.
 
 [`lsp_probe.py`](devc-web-language-services/lsp_probe.py) is the Java probe, a throwaway stdio
 LSP client:

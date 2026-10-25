@@ -17,7 +17,10 @@
 - [ ] `devc/web/lsp_manager.ts` (new): sessions by key, `describe` and `serve` through
       `docker exec`, idle stop, container loss, shutdown; tested end to end with an injected
       spawner and `devc/tests/fixtures/fake_lsp_server.ts` (new)
-- [ ] `protocol.ts`: `lsp_attach`, `lsp_send`, `lsp_detach`, `lsp_restart`, with parser tests
+- [ ] `devc/web/lsp_config.ts` (new): the per-repo `language-servers.json` (read, validate, match,
+      write, watch), with tests
+- [ ] `protocol.ts`: `lsp_attach`, `lsp_send`, `lsp_detach`, `lsp_restart`, `lsp_settings_get`,
+      `lsp_settings_set`, with parser tests
 - [ ] `server.ts`: the four handlers; `lsp` and `lsp_status` messages out; detach on socket close;
       sessions stopped on shutdown
 - [ ] `viewer.js`: `createLanguageClient` and `Viewer.attachLanguage` / `detachLanguage`, and the
@@ -25,7 +28,7 @@
 - [ ] `static/lsp.js` (new): the page's sessions, transports, status, `displayFile`, URI-scheme
       hooks
 - [ ] `tiles.js` / `menus.js` / `style.css`: attach on editable text tiles, the status line,
-      **Restart language server**
+      **Restart language server**, **Language server settings…** and its dialog
 - [ ] `devc/tests/fixtures/devc-lsp-typescript-deno` (new): a stub launcher wrapping `deno lsp`,
       for manual validation before any language Feature exists
 - [ ] `devc/README.md`: devc web **Language servers** bullet and the launcher contract;
@@ -45,8 +48,17 @@ Read `.claude/skills/devc-web/SKILL.md` first if it exists.
 
 ## Decisions (settled with the user, 2026-10-23)
 
-- **Per-repo settings live in Feature options**, in the project's `devcontainer.json`, baked into
-  the launcher at image build. devc web has no language-server config.
+- **A container holds several projects** (devc mounts sibling repos and worktrees, and one repo
+  can hold several Java, TypeScript or Python projects). So nothing project-specific is baked
+  into the image. (Revised 2026-10-24; the first version baked settings into Feature options.)
+  - **The root is detected per file** by the launcher's `describe`, and can be **overridden per
+    project from devc web**.
+  - **Per-project settings** (Python interpreter, Java build command, extra server settings) are
+    set from devc web's **Language server settings…** dialog. They are stored on the host in
+    the repo's devc config directory, `~/.config/devc/repos/<name>-<hash>/language-servers.json`
+    (the same per-repo directory as the repo overlay, shared by every worktree), and passed to
+    the launcher at attach time.
+  - **Feature options** are only container-wide defaults for those settings.
 - **Servers start automatically.** Opening a supported file in an editable text tile starts or
   reuses its server. A server stops 30 minutes after its last attached tile goes away.
 - **One type-aware server per file.** Lint servers (ESLint, `ruff server`) are a later plan.
@@ -85,10 +97,18 @@ dockerExecArgv(info, {
 });
 ```
 
-### `devc-lsp-<language> describe <file>`
+### `devc-lsp-<language> describe <file> [--root <dir>] [--options <b64>]`
 
-`<file>` is an absolute container path. On success it exits 0 and prints exactly one JSON object
-on stdout (nothing else):
+`<file>` is an absolute container path.
+
+- **`--root`**, when given, is the root to use instead of detecting one: an absolute container
+  path that is the file's directory or an ancestor of it. If not, exit 3 with
+  `root does not contain the file`.
+- **`--options`** is the project's options, as base64 of a JSON object
+  ([Per-project settings](#per-project-settings-lsp_configts)). Keys override the Feature's
+  baked defaults. A key the launcher doesn't know is ignored, with one stderr line.
+
+On success it exits 0 and prints exactly one JSON object on stdout (nothing else):
 
 ```json
 {
@@ -126,10 +146,48 @@ Exit codes:
 `describe` must be fast (it runs on every attach): no network, no build. It is run with a
 15-second timeout, using `runDocker` from `container_files.ts`.
 
-### `devc-lsp-<language> serve --root <root>`
+### `devc-lsp-<language> serve --root <root> [--options <b64>]`
 
-Replaces itself (`exec`) with the language server speaking LSP over stdio. It must write nothing
-else to stdout. stderr is free.
+Replaces itself (`exec`) with the language server speaking LSP over stdio. `--options` is the
+same value `describe` got. It must write nothing else to stdout. stderr is free.
+
+### `devc-lsp-<language> options`
+
+Prints the launcher's per-project options as one JSON object, for devc web's settings dialog.
+`default` is the Feature's baked value:
+
+```json
+{
+  "protocol": 1,
+  "options": [
+    {
+      "key": "python",
+      "type": "path",
+      "default": "",
+      "description": "Interpreter to analyze against…"
+    },
+    {
+      "key": "typeCheckingMode",
+      "type": "enum",
+      "enum": ["off", "basic", "standard", "strict", "recommended", "all"],
+      "default": "standard",
+      "description": "…"
+    },
+    {
+      "key": "settings",
+      "type": "json",
+      "default": {},
+      "description": "Deep-merged into the server's settings…"
+    }
+  ]
+}
+```
+
+`type` is one of:
+
+- `string`, `path` (an absolute container path) or `command` (a shell command line): a text field
+- `enum`: a select
+- `json`: a JSON object, in a textarea that must parse as an object
 
 ### Optional subcommands
 
@@ -177,6 +235,91 @@ lower-cased extension of the last path segment:
 - **`lsp_restart`**: stop the server (see [Stopping](#stopping)) and start it again with the same
   key. Every attached connection gets `lsp_status` `starting`. Each page reconnects its client,
   which re-sends `initialize` and re-opens its documents. Reply `{ok: true}`.
+
+### Per-project settings (`lsp_config.ts`)
+
+**File.** `<configDir>/repos/<repoKey>/language-servers.json`, where `<configDir>/repos/<repoKey>`
+is `repoOverlayDir(commonDir, configDir)` from `devc-core/repo.ts`, and `commonDir` comes from
+`resolveRepo(<the file's repo folder on the host>)`. Every worktree of the repo shares it.
+devc web creates the directory on first save. Nothing is written into a repo or a container.
+
+```json
+{
+  "version": 1,
+  "projects": [
+    {
+      "language": "python",
+      "root": "py/server",
+      "options": {
+        "python": "/usr/local/share/deephaven-core/venv/bin/python"
+      }
+    },
+    { "language": "python", "root": "py/client", "options": {} },
+    {
+      "language": "java",
+      "root": "",
+      "options": {
+        "buildCommand": "./gradlew compileJava compileTestJava --continue"
+      }
+    }
+  ]
+}
+```
+
+- **`root`** is relative to the checkout root, with `/` separators. `""` is the whole checkout,
+  with no `..` and no leading `/`. Several entries may share a language.
+- **`options`** is an object, passed to the launcher as given; validated by the launcher, not
+  here.
+- **Matching a file.**
+  - Among entries for the file's language, the one whose `root` contains the file
+    (path-segment prefix) wins, the longest `root` first.
+  - A match means `describe --root <checkout root in the container>/<root> --options <b64>`.
+  - No match means `describe <file>` alone: detected root, Feature defaults.
+- **Files outside a repo** (container files opened from **Files**) have no entry and always use
+  detection plus defaults.
+- **Validation** (`parseLanguageServers`), each failure printed once to stderr with the file path,
+  in `jiraFromConfig`'s style:
+  - not an object, or a `version` other than 1 → the whole file is ignored
+  - a bad entry is skipped (unknown `language`, a `root` with `..` or a leading `/`, `options` not
+    an object)
+  - a second entry with the same `language` and `root` is skipped
+- **Watching.** The file is re-read on change with the existing `watchConfigFile` pattern. Every
+  session whose `(language, root, options)` no longer matches what a fresh match would give is
+  stopped with `lsp_status exited` detail `settings changed`. Its pages re-attach on their own
+  (`lsp.js`: on that detail, `lsp_attach` again), and get a session built from the new settings.
+
+**Session key** becomes `(container id, language, root, options)`, where `options` is the
+canonical JSON of the options object (sorted keys). Two projects with different interpreters in
+one container are two sessions.
+
+**Messages** (browser → server, replies in the usual `result` shape):
+
+```ts
+| { type: 'lsp_settings_get'; id: string; container: string; root?: string; path: string }
+| { type: 'lsp_settings_set'; id: string; container: string; root: string; path: string;
+    entry: { root: string; options: Record<string, unknown> } | null }
+```
+
+- **`lsp_settings_get`** addresses the file as `lsp_attach` does. Reply:
+  `{language, checkoutRoot, detected: {root, server} | null, entry: {root, options} | null,
+  schema: <the launcher's options output>, editable}`.
+  - `detected` is `describe <file>` without an override; `null` when `describe` exits 3.
+  - `editable` is false for files outside a repo (no `root` in the message). The dialog then
+    shows the detected values read-only.
+- **`lsp_settings_set`** requires `root` (repo files only). It replaces the matching entry for
+  that language and `entry.root`, or adds it. `entry: null` removes the entry that currently
+  matches the file. It writes the file atomically (temp file, then rename) and returns
+  `{ok: true}`. The watcher then restarts affected sessions.
+  - `entry.root` must contain the file; otherwise `bad_request`.
+
+**Dialog (`tiles.js`).** **Language server settings…** in a supported file tile's menu opens it:
+
+- Shows `language`, the detected root and server.
+- **Root:** `Detected (<path>)`, or a folder chosen with the existing repo folder picker,
+  limited to the file's ancestors.
+- One field per schema option, pre-filled with the entry's value or else the default (shown as
+  placeholder).
+- **Save** sends `lsp_settings_set`. **Reset to detected** sends `entry: null`.
 
 ### Server → browser messages
 
@@ -309,8 +452,12 @@ edit files outside devc web all the time, so the host watches:
 
 ### Process (`lsp_manager.ts`, `proc.ts`)
 
-- **Key and session id.** `describe` runs first and gives the key. The session id is
-  `crypto.randomUUID()`.
+- **Key and session id.** On attach:
+  1. match the file against the repo's `language-servers.json`
+  2. run `describe`, with `--root` and `--options` when an entry matched
+  3. the key is `(container id, language, describe's root, canonical options)`
+
+  The session id is `crypto.randomUUID()`. `serve` gets the same `--root` and `--options`.
 - **Spawn.** `serve` is spawned with `spawnBytes('docker', dockerExecArgv(...))`.
   `spawnBytes(cmd, args)` mirrors `spawnLines` (detached process group, `live` set, `kill`,
   `closeStdin`, `status`, capped `stderr`), but `stdout` is an `AsyncIterable<Uint8Array>` and
@@ -451,6 +598,25 @@ edit files outside devc web all the time, so the host watches:
       `TypeScript language server stopped: …`, and **Restart language server** brings it back.
 - [ ] Manual: restart `devc web` with `DEVC_WEB_LSP_IDLE_MS=10000`, open and then close the
       tile. After 10 s, `docker exec … pgrep -f "deno lsp"` finds nothing.
+- [ ] `web_lsp_config_test.ts`:
+  - [ ] longest-root match
+  - [ ] the `""` root
+  - [ ] no match → no flags
+  - [ ] each validation failure skips only its entry (or the whole file for a bad `version`)
+  - [ ] canonical options JSON is key-order independent
+  - [ ] `lsp_settings_set` add, replace, remove and an atomic write
+- [ ] Manual (multi-project): in one container, open files from two repos (devc-tools and a
+      sibling repo). Two sessions start, with their own roots in the status text while starting.
+- [ ] Manual (settings): **Language server settings…** on `devc/web/server.ts`:
+  - [ ] it shows the detected root
+  - [ ] set **Root** to `devc/` and Save: the session restarts and `describe` gets
+        `--root …/devc`
+  - [ ] `~/.config/devc/repos/devc-tools-<hash>/language-servers.json` holds
+        `{"language": "typescript", "root": "devc", …}`
+  - [ ] a second worktree of the repo picks up the same entry
+  - [ ] **Reset to detected** removes it and restarts again
+- [ ] Manual: editing `language-servers.json` by hand (an invalid entry) prints one stderr line,
+      and the other entries still apply.
 - [ ] Manual: remove `/usr/local/bin/devc-lsp-typescript`, then open a `.ts` file: a plain editor,
       no status line, no error anywhere. A `.java` file is highlighted as Java.
 - [ ] Manual: stop the container while a tile is attached. The status line shows
@@ -476,6 +642,9 @@ edit files outside devc web all the time, so the host watches:
 - `devc/web/lsp_session.ts` — new
 - `devc/web/lsp_watch.ts` — new
 - `devc/web/lsp_manager.ts` — new
+- `devc/web/lsp_config.ts` — new
+- `devc/tests/web_lsp_config_test.ts` — new
+- `devc-core/repo.ts` — used as is (`resolveRepo`, `repoOverlayDir`)
 - `devc/web/proc.ts` — `spawnBytes`
 - `devc/web/protocol.ts` — four messages, `MAX_LSP_MESSAGE`
 - `devc/web/server.ts` — handlers, routing, close and shutdown
@@ -488,12 +657,15 @@ edit files outside devc web all the time, so the host watches:
 - `devc/tests/web_viewer_test.ts` — `languageFor` Java rows
 - `devc/tests/fixtures/fake_lsp_server.ts` — new
 - `devc/tests/fixtures/devc-lsp-typescript-deno` — new, the stub launcher:
-  - `describe` prints `{"protocol":1,"root":<git top-level of the file>,"languageId":…,"server":"deno lsp (stub)","initializationOptions":{"enable":true},"settings":{"deno":{"enable":true}}}`
+  - `describe` prints `{"protocol":1,"root":<--root, else the git top-level of the file>,"languageId":…,"server":"deno lsp (stub)","initializationOptions":{"enable":true},"settings":{"deno":{"enable":true}}}`
   - `serve` runs `exec deno lsp`
+  - `options` prints one `json` option, `settings`; `--options` is accepted and its `settings`
+    is merged into the printed `settings`
 - `devc/deno.json` — `check` task gains the new modules
 - `devc/README.md` — devc web **Language servers** bullet: what attaches, status line, keys
-  (F12, Shift-F12, Shift-Alt-F), Restart, idle stop, `DEVC_WEB_LSP_IDLE_MS`; the launcher
-  contract under Development
+  (F12, Shift-F12, Shift-Alt-F), Restart, **Language server settings…** and
+  `~/.config/devc/repos/<key>/language-servers.json`, idle stop, `DEVC_WEB_LSP_IDLE_MS`; the
+  launcher contract (`describe`/`serve` flags, `options`) under Development
 - `.plans/design/devc-design.md` — one paragraph: language servers run in the container behind
   launchers; devc web multiplexes and watches
 - `.plans/design/devc-web-language-services.md` — link to the four plans
