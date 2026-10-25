@@ -1,6 +1,6 @@
 # bridge-task-add — agents add tasks to devc web's task list
 
-An agent in a container adds a to-do to devc web's task list (`~/.config/devc/tasks.json`)
+An agent in a container adds a to-do to devc web's task list (`~/.config/devc/tasks/tasks.json`)
 through a new host-granted devc-bridge built-in, `task-add`. The task is routed to the repo the
 agent works in and marked as coming from an agent. It is only **added**: queueing and sending stay
 with the person at the page, so an agent can never start another agent.

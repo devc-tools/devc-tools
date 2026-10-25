@@ -3109,7 +3109,7 @@ async function submitNewNote() {
 // ---------------------------------------------------------------------------------------------
 
 /**
- * The Tasks section: to-dos kept by the server (`~/.config/devc/tasks.json`), each routed to a
+ * The Tasks section: to-dos kept by the server (`~/.config/devc/tasks/tasks.json`), each routed to a
  * project's repo or not yet, grouped under a node per route (the unrouted ones last). Sending one
  * starts an agent on it there and moves it under Sent, which reopens that agent's session.
  * Agents never write to the list.

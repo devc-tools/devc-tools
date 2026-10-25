@@ -546,7 +546,7 @@ is published from any container: the host server finds devcontainers with
   A sent task's menu also has **Open session**, **Back to tasks** and
   **Remove**. Sending is
   one-way: nothing in a container writes to the list. Tasks are kept in
-  `~/.config/devc/tasks.json` (the 50 newest sent ones), shared by every
+  `~/.config/devc/tasks/tasks.json` (the 50 newest sent ones), shared by every
   devc web window.
 - **Sessions:** each running container's **Sessions** row (between Terminals
   and its repos, closed until opened) lists the 20 most recent Claude, Copilot

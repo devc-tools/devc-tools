@@ -599,7 +599,7 @@ export async function startWeb(
     broadcast(dashboardMessage(dashboard));
   };
 
-  // The task list (`tasks.json`), kept in its own file for the same reason as pinned files.
+  // The task list (`tasks/tasks.json`), kept in its own file for the same reason as pinned files.
   let taskState: TaskState = await readTasks();
   /** `"jira"` from the global config, for the page's Open in Jira items; null when unset or bad. */
   let jira: JiraConfig | null = null;
@@ -1804,7 +1804,7 @@ export async function startWeb(
   };
 
   /**
-   * The task list: add, edit, delete and restore change `tasks.json` only. `send_task` writes the
+   * The task list: add, edit, delete and restore change `tasks/tasks.json` only. `send_task` writes the
    * task's text into its project's container, starts the agent on it in a new tab with a session
    * id chosen here, and moves the task to `sent`. `open_sent` answers with that agent's pane while
    * it is still in the session, else resumes the session in a new tab. `queue_tasks` and

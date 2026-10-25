@@ -1,5 +1,5 @@
 // `devc web`'s task list: to-dos written down on the page and later sent to an agent in their
-// project (`send_task`), in `~/.config/devc/tasks.json`. Server-side, as pinned files are, so
+// project (`send_task`), in `~/.config/devc/tasks/tasks.json`. Server-side, as pinned files are, so
 // every devc web window shows the same tasks.
 //
 // Sending is one-way: the host writes the task into the container and starts the agent, and
@@ -19,7 +19,12 @@ import {
   type TaskAction,
 } from './agents.ts';
 
-export const TASKS_PATH = `${CONFIG_DIR}/tasks.json`;
+/**
+ * In a folder of its own, so the task list can be bind-mounted read-only into a container (a
+ * planning repo's agent reads it) without exposing the rest of `~/.config/devc`. A folder, not the
+ * file: writes replace the file by rename, which a single-file bind mount wouldn't follow.
+ */
+export const TASKS_PATH = `${CONFIG_DIR}/tasks/tasks.json`;
 
 /** How many sent tasks are kept: the newest. */
 export const MAX_SENT = 50;
