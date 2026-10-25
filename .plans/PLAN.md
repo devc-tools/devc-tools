@@ -11,6 +11,11 @@
 
 ### Pending
 
+- [devc-web-dashboard](devc-web-dashboard.md) — one pinned file marked as the **dashboard**
+  (`dashboard: true` in `pinned-files.json`, so each machine has its own): a header button opens it
+  in a file tile (a media view for HTML), and devc web opens it by itself when no tiles are open.
+  Also adds **Preview** / **Open in browser** to a pin's menu. New `set_dashboard` message.
+
 - [devc-web-aseprite-viewer](devc-web-aseprite-viewer.md) — after devc-web-media-tiles: a
   clean-room `.aseprite` decoder and compositor (`static/lib/aseprite.js`, from the public spec
   only) and a media view with frame playback, tags and layer toggles. Normal blend only at first;

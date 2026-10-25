@@ -1149,6 +1149,22 @@ body.resizing-zones {
   color: var(--accent);
 }
 
+/* The dashboard pin: a small four-panel glyph before its name. */
+.dashboard-mark {
+  display: inline-flex;
+  flex: none;
+  margin-right: 4px;
+  color: var(--accent);
+}
+
+.dashboard-mark svg {
+  width: 12px;
+  height: 12px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.3;
+}
+
 .file-pin-dot {
   display: inline-block;
   width: 6px;

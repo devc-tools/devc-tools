@@ -8,7 +8,10 @@ import { newEntryNameError, opensAsDir } from './files.js';
  * A pinned file as the page knows it: `path` is relative to `root`, one of the repo folders of
  * the project at `localFolder` (as `read_file` and `open_file` take them).
  *
- * @typedef {{id: string, localFolder: string, root: string, path: string, label?: string}} FilePin
+ * `dashboard` marks the user's dashboard: at most one pin carries it.
+ *
+ * @typedef {{id: string, localFolder: string, root: string, path: string, label?: string,
+ *   dashboard?: true}} FilePin
  */
 
 /**
@@ -24,7 +27,7 @@ export function parsePinnedFiles(msg) {
   const out = [];
   for (const p of pins) {
     if (typeof p !== 'object' || p === null) continue;
-    const { id, localFolder, root, path, label } = p;
+    const { id, localFolder, root, path, label, dashboard } = p;
     if (
       typeof id !== 'string' || id === '' ||
       typeof localFolder !== 'string' || localFolder === '' ||
@@ -37,9 +40,37 @@ export function parsePinnedFiles(msg) {
       root,
       path,
       ...(typeof label === 'string' && label !== '' ? { label } : {}),
+      ...(dashboard === true ? { dashboard: /** @type {const} */ (true) } : {}),
     });
   }
   return out;
+}
+
+/**
+ * The pin marked as the dashboard, or null.
+ *
+ * @param {FilePin[]} pins
+ * @returns {FilePin | null}
+ */
+export function dashboardPin(pins) {
+  return pins.find((p) => p.dashboard === true) ?? null;
+}
+
+/**
+ * Whether a change to the tiling area should open the dashboard: it went from some tiles to none,
+ * and none of the tiles it lost showed the dashboard's file (closing the dashboard last leaves the
+ * area empty).
+ *
+ * @param {FilePin | null} pin
+ * @param {{file?: {localFolder: string, root: string, path: string, container?: boolean} | null}[]} before
+ * @param {number} after  how many tiles there are now
+ */
+export function reopensDashboard(pin, before, after) {
+  if (!pin || before.length === 0 || after !== 0) return false;
+  return !before.some((t) =>
+    t.file && !t.file.container && t.file.localFolder === pin.localFolder &&
+    t.file.root === pin.root && t.file.path === pin.path
+  );
 }
 
 /** What a pin's row says: its label, else the file's name. @param {FilePin} pin */

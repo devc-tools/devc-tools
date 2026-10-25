@@ -476,6 +476,14 @@ is published from any container: the host server finds devcontainers with
   **Preview**, and saving the source reloads its renderings. A rendering is
   read-only; its **Reload** reads the file again. A container file's rendering
   needs the container running.
+- **Dashboard:** mark one pinned file as your dashboard (right-click its row
+  under **Pinned** → **Use as dashboard**), such as a generated `dashboard.html`
+  or a `focus.md`. The four-panel button in the sidebar header opens it in a
+  file tile (rendered, for HTML), or brings it forward and reads it again when
+  it is open. devc web also opens it by itself into an empty tiling area: when
+  the page loads, and when you close the last tile (except the dashboard
+  itself). Which file it is lives with the pins, so each machine has its own.
+  A pinned HTML file's menu also has **Preview** and **Open in browser**.
 - **Pinned files and notes:** the **Pinned** section at the top of the sidebar
   keeps repo files one click away. It appears once something is pinned:
   right-click a repo file (or a file tile) for **Pin file** / **Unpin file**.

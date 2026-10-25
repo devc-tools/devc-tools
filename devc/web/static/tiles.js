@@ -41,6 +41,7 @@ import { fileView, mediaKind } from './lib/media.js';
 import { childPath } from './lib/files.js';
 import { sessionAge } from './lib/sessions.js';
 import { statusLetter } from './lib/pr_tree.js';
+import { dashboardPin, reopensDashboard } from './lib/pinned_files.js';
 import {
   changedRanges,
   diffTexts,
@@ -81,6 +82,7 @@ import {
   onConnectionChange,
   onServerMessage,
   paneKey,
+  pinnedFiles,
   projects,
   projectStarts,
   refLabel,
@@ -91,6 +93,7 @@ import {
   tileRepo,
 } from './client.js';
 import {
+  dashboardFileRef,
   discardPendingReview,
   fileRefOf,
   fileRootOf,
@@ -2536,6 +2539,18 @@ function viewState() {
 
 let viewChangeQueued = false;
 
+/** The tiles at the last view change: what a close that empties the area took away. */
+let lastTiles = /** @type {TileState[]} */ ([]);
+
+/** The dashboard pin's id at the last `pinned_files`; undefined until the first arrives. */
+let dashboardId = /** @type {string | null | undefined} */ (undefined);
+
+/** Opens the dashboard (a pinned file marked as it) when the tiling area holds no tiles. */
+function openDashboardIfEmpty() {
+  const pin = dashboardPin(pinnedFiles);
+  if (pin && tiling?.isEmpty()) openFile(dashboardFileRef(pin), 'stack');
+}
+
 /**
  * Tells the sidebar what the tiling area shows may have changed (`onViewChange`), once for all
  * the changes made before the next microtask; the window title and `active_pane` follow.
@@ -2546,7 +2561,15 @@ function viewChanged() {
   queueMicrotask(() => {
     viewChangeQueued = false;
     updateWindow();
-    onViewChange(viewState());
+    const state = viewState();
+    const before = lastTiles;
+    lastTiles = state.tiles;
+    if (
+      reopensDashboard(dashboardPin(pinnedFiles), before, state.tiles.length)
+    ) {
+      openDashboardIfEmpty();
+    }
+    onViewChange(state);
   });
 }
 
@@ -3218,6 +3241,15 @@ function setZen(on, { save = true } = {}) {
  */
 function onTilesMessage(msg) {
   switch (msg.type) {
+    // The first list after loading, or a newly marked dashboard, opens it into an empty area.
+    case 'pinned_files': {
+      const id = dashboardPin(pinnedFiles)?.id ?? null;
+      if (id !== dashboardId) {
+        dashboardId = id;
+        openDashboardIfEmpty();
+      }
+      break;
+    }
     case 'hello':
       // File reads asked for while disconnected never got an answer.
       for (const view of fileViews.values()) {

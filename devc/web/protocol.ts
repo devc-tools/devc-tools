@@ -209,6 +209,8 @@ export type ClientMessage =
   | { type: 'unpin_file'; id: string; pin: string }
   | { type: 'open_pinned'; id: string; pin: string }
   | { type: 'rename_pin'; id: string; pin: string; label: string }
+  /** Marks a pinned file as the dashboard; `pin: null` clears it. */
+  | { type: 'set_dashboard'; id: string; pin: string | null }
   | {
     type:
       | 'list_container_dir'
@@ -850,6 +852,12 @@ function parseFields(m: Obj): ClientMessage {
         id: str(m, 'id'),
         pin: str(m, 'pin'),
         label: text(m, 'label'),
+      };
+    case 'set_dashboard':
+      return {
+        type: 'set_dashboard',
+        id: str(m, 'id'),
+        pin: m.pin === null ? null : str(m, 'pin'),
       };
     case 'list_container_dir':
     case 'read_container_file':

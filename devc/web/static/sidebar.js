@@ -5,7 +5,11 @@
 // the `TileArea` `mountSidebar` is given (`lib/view.js`), so it can later run on a page of its
 // own.
 
-import { sameFile, tilesShowingPane } from './lib/layout_state.js';
+import {
+  sameFile,
+  sameFileView,
+  tilesShowingPane,
+} from './lib/layout_state.js';
 import {
   focusedTile,
   layoutSignature,
@@ -57,6 +61,7 @@ import {
   parentDir,
 } from './lib/files.js';
 import {
+  dashboardPin,
   defaultNotePath,
   filePinName,
   isFilePinShortcut,
@@ -141,6 +146,7 @@ import {
   containerRoot,
   copyPathItems,
   createPane,
+  dashboardFileRef,
   discardPendingReview,
   filePinItem,
   fileRefOf,
@@ -215,6 +221,8 @@ let $sidebar = /** @type {HTMLElement} */ (null);
 let $tree = /** @type {HTMLElement} */ (null);
 let $conn = /** @type {HTMLElement | null} */ (null);
 let $scopePicker = /** @type {HTMLElement | null} */ (null);
+/** The header's dashboard button (`#dashboard`), when the page has one. */
+let $dashboardButton = /** @type {HTMLElement | null} */ (null);
 /** The filter box above the zones, and what it holds ({@link applyFilter}). */
 let $filter = /** @type {HTMLInputElement | null} */ (null);
 let filterQuery = '';
@@ -2717,6 +2725,17 @@ function filePinRow(pin) {
       'span',
       { class: 'label' },
       rowIcon({ kind: 'file' }),
+      pin.dashboard
+        ? h(
+          'span',
+          {
+            class: 'dashboard-mark',
+            title: LABELS.dashboard,
+            'aria-label': LABELS.dashboard,
+          },
+          svgIcon('dashboard'),
+        )
+        : '',
       filePinName(pin),
       h(
         'span',
@@ -2833,15 +2852,68 @@ function filePinMenuItems(pin) {
   return [
     ['Open to the right', () => void openFilePin(pin, 'right')],
     ['Open read-only', () => openFileTile(fr, pin.path, 'stack')],
+    ...(previewable(pin.path)
+      ? [[LABELS.preview, () => openFileTile(fr, pin.path, 'stack', 'media')]]
+      : []),
+    ...(mediaKind(pin.path) === 'html'
+      ? [['Open in browser', () => openInBrowser(fr, pin.path)]]
+      : []),
     null,
     ...hostOpenItems(fr, pin.path),
     null,
     ...copyPathItems(fr, pin.path),
     null,
     ['Rename…', () => renameFilePin(pin)],
+    pin.dashboard
+      ? [LABELS.stopDashboard, () => setDashboard(null)]
+      : [LABELS.useAsDashboard, () => setDashboard(pin.id)],
     null,
     [LABELS.unpinFile, () => unpinFile(pin)],
   ];
+}
+
+/** Marks a pin as the dashboard (`set_dashboard`); null stops using any. */
+function setDashboard(pinId) {
+  call({ type: 'set_dashboard', pin: pinId }).catch((e) =>
+    errorToast(
+      `${pinId ? LABELS.useAsDashboard : LABELS.stopDashboard} failed: ${
+        e?.message ?? e
+      }`,
+    )
+  );
+}
+
+/**
+ * The header's dashboard button: brings the dashboard's tile forward and reads its file again
+ * (it may have been regenerated), else opens it. With none marked, says how to mark one.
+ */
+function openDashboard() {
+  const pin = dashboardPin(pinnedFiles);
+  if (!pin) {
+    toast(LABELS.noDashboard);
+    return;
+  }
+  const file = dashboardFileRef(pin);
+  const shown = tileArea.state().tiles.find((t) =>
+    t.file && sameFileView(t.file, file)
+  );
+  if (shown) {
+    tileArea.reveal(shown.id);
+    tileArea.reload(shown.id);
+    return;
+  }
+  tileArea.openFile(file, 'stack');
+}
+
+/** The dashboard button's tooltip: the dashboard's name, or how to mark one. */
+function updateDashboardButton() {
+  if (!$dashboardButton) return;
+  const pin = dashboardPin(pinnedFiles);
+  const label = pin
+    ? LABELS.openDashboard(filePinName(pin))
+    : LABELS.noDashboard;
+  $dashboardButton.title = label;
+  $dashboardButton.setAttribute('aria-label', label);
 }
 
 /** Relabels a pin; an empty name, or the file's own, goes back to the file's name. */
@@ -5201,6 +5273,7 @@ function onSidebarMessage(msg) {
     case 'projects':
     case 'pinned_files':
     case 'tasks':
+      if (msg.type === 'pinned_files') updateDashboardButton();
       // A task sent, deleted or edited away elsewhere is no longer selected.
       for (const id of selectedTasks) {
         if (!tasks.some((t) => t.id === id)) selectedTasks.delete(id);
@@ -5261,6 +5334,9 @@ export function mountSidebar(root, opts) {
   $scopePicker?.addEventListener('keydown', scopePickerKeydown);
   // The page's URL, token included: devc-desktop's window has no address bar, and a container or
   // another browser may need it. The toast names it without showing it, since it is the token.
+  $dashboardButton = root.querySelector('#dashboard');
+  $dashboardButton?.addEventListener('click', openDashboard);
+  updateDashboardButton();
   root.querySelector('#copy-url')?.addEventListener('click', () => {
     navigator.clipboard?.writeText(location.href).then(
       () => toast('Copied page URL'),

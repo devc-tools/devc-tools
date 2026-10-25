@@ -890,6 +890,30 @@ Deno.test('parseClientMessage: unpin_file, rename_pin and open_pinned name a pin
   }
 });
 
+Deno.test('parseClientMessage: set_dashboard names a pin, or null to clear it', () => {
+  for (
+    const msg of [
+      { type: 'set_dashboard', id: 'f1', pin: 'p1' },
+      { type: 'set_dashboard', id: 'f1', pin: null },
+    ]
+  ) {
+    assertEquals(
+      parseClientMessage(JSON.stringify(msg)),
+      { ok: true, msg } as never,
+    );
+  }
+  for (
+    const bad of [
+      { type: 'set_dashboard', id: 'f1' },
+      { type: 'set_dashboard', id: 'f1', pin: '' },
+      { type: 'set_dashboard', id: 'f1', pin: true },
+    ]
+  ) {
+    const r = rejected(bad);
+    assertEquals([r.id, r.code], ['f1', 'bad_request'], JSON.stringify(bad));
+  }
+});
+
 Deno.test('authorize: /desktop/ needs Bearer <token> and no Origin', () => {
   const host = `127.0.0.1:${PORT}`;
   const path = '/desktop/active-folder';

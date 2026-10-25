@@ -354,6 +354,20 @@ export function fileRefOf(fr, path, view) {
   return withView({ localFolder: fr.localFolder, root: fr.root, path }, view);
 }
 
+/**
+ * The dashboard pin's file as a file tile names it: rendered when it can be (HTML, SVG, images),
+ * else as text. Always the host-side viewer, never the pin's editor pane.
+ *
+ * @param {import('./lib/pinned_files.js').FilePin} pin @returns {FileRef}
+ */
+export function dashboardFileRef(pin) {
+  return fileRefOf(
+    { localFolder: pin.localFolder, root: pin.root },
+    pin.path,
+    previewable(pin.path) ? 'media' : undefined,
+  );
+}
+
 /** The file root a file tile's file is under. @returns {FileRoot} */
 export function fileRootOf(file) {
   return file.container

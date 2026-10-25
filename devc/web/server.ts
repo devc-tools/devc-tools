@@ -132,6 +132,7 @@ import {
   pinnedFilesMessage,
   readPinnedFiles,
   reusablePinnedPane,
+  setDashboardPin,
   updateFilePin,
   withLabel,
   writePinnedFiles,
@@ -1563,7 +1564,14 @@ export async function startWeb(
     c: Client,
     msg: Extract<
       ClientMessage,
-      { type: 'pin_file' | 'unpin_file' | 'rename_pin' | 'open_pinned' }
+      {
+        type:
+          | 'pin_file'
+          | 'unpin_file'
+          | 'rename_pin'
+          | 'open_pinned'
+          | 'set_dashboard';
+      }
     >,
   ) => {
     if (msg.type === 'pin_file') {
@@ -1607,6 +1615,23 @@ export async function startWeb(
         return;
       }
       reply(c, { id: msg.id, ok: true, result: { pin: id } });
+      return;
+    }
+    if (msg.type === 'set_dashboard') {
+      let changed: FilePin[] | null;
+      try {
+        changed = await changePinnedFiles((pins) =>
+          setDashboardPin(pins, msg.pin)
+        );
+      } catch (e) {
+        fail(c, msg.id, 'pinned_files_error', e);
+        return;
+      }
+      if (changed === null) {
+        fail(c, msg.id, 'not_found', 'no such pinned file');
+        return;
+      }
+      reply(c, { id: msg.id, ok: true, result: {} });
       return;
     }
     if (msg.type === 'unpin_file' || msg.type === 'rename_pin') {
@@ -2430,7 +2455,8 @@ export async function startWeb(
     }
     if (
       msg.type === 'pin_file' || msg.type === 'unpin_file' ||
-      msg.type === 'rename_pin' || msg.type === 'open_pinned'
+      msg.type === 'rename_pin' || msg.type === 'open_pinned' ||
+      msg.type === 'set_dashboard'
     ) {
       await handleFilePin(c, msg);
       return;
