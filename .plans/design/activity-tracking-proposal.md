@@ -4,7 +4,7 @@
 > already observe, a candidate design, and the open questions to settle before writing a plan.
 > Not listed in `.plans/plan.md`.
 >
-> **v1 is now a plan:** [devc-web-activity-tracking](../devc-web-activity-tracking.md) settles the
+> **v1 is now a plan:** [devc-web-activity-tracking](../archived/devc-web-activity-tracking.md) settles the
 > open questions below.
 
 ## Goal

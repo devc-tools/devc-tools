@@ -11,12 +11,6 @@
 
 ### Pending
 
-- [devc-web-activity-tracking](devc-web-activity-tracking.md) — the activity-tracking proposal's
-  v1: while devc web runs, the server logs agent status, pane title/repo/branch, page input and
-  page visibility to `~/.config/devc/activity/` (JSONL), rolls each day up by
-  container/repo/branch/agent into `rollup/YYYY-MM-DD.json`, and `devc time` reports it. No
-  session-id hook. Also: the cockpit dashboard reads the rollups.
-
 - [devc-web-aseprite-viewer](devc-web-aseprite-viewer.md) — after devc-web-media-tiles: a
   clean-room `.aseprite` decoder and compositor (`static/lib/aseprite.js`, from the public spec
   only) and a media view with frame playback, tags and layer toggles. Normal blend only at first;
@@ -177,6 +171,13 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
   generated-source folders appear, and read-only `jdt:` class tiles.
 
 ### Completed
+
+- ✅ Done — [devc-web-activity-tracking](archived/devc-web-activity-tracking.md) — the
+  activity-tracking proposal's v1: while devc web runs, the server logs agent status, pane
+  title/repo/branch, page input and page visibility (new `page_state` message) to
+  `~/.config/devc/activity/` (JSONL), rolls each day up by container/repo/branch/agent into
+  `rollup/YYYY-MM-DD.json`, and `devc time` reports it. No session-id hook. The cockpit dashboard
+  reads the rollups when they are mounted.
 
 - ✅ Done — [devc-web-dashboard](archived/devc-web-dashboard.md) — one pinned file marked as the
   **dashboard** (`dashboard: true` in `pinned-files.json`, so each machine has its own; new

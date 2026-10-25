@@ -14,12 +14,12 @@
 - [x] Docs: `devc/README.md` (a **Time tracking** section and `devc time`), the protocol table in
       `.plans/archived/devc-web.md`, and a pointer from `.plans/design/activity-tracking-proposal.md`
       to this plan
-- [ ] Cockpit (`/workspaces/cockpit`, a separate repo): `scripts/dashboard.ts` reads the rollups
+- [x] Cockpit (`/workspaces/cockpit`, a separate repo): `scripts/dashboard.ts` reads the rollups
       when they are mounted (see "Cockpit"), and falls back to commits when they aren't
 
 Records how time is spent, by the user and by agents, per Herdr pane. Each span is attributed to
 container, repo, branch, agent and pane title. The source design and its reasoning are in
-[design/activity-tracking-proposal.md](design/activity-tracking-proposal.md); this plan settles its
+[design/activity-tracking-proposal.md](../design/activity-tracking-proposal.md); this plan settles its
 open questions (below). The first consumer is the user's cockpit dashboard, which today uses commit
 counts as its measure of attention.
 
@@ -180,6 +180,14 @@ Where the code settled a detail the contracts left open, or departs from them:
   it rolls up with a `stop` at that moment, which is not written to the log. `devc time` reads
   today from the raw log as it is, so an agent still working counts up to the last event.
 - **`devc time` reads a past day's rollup only when it is complete,** else that day's raw log.
+- **Cockpit: repos match on their last two path segments.** A rollup's `repo` is a host path
+  (`~/code/tools/devc-tools`) while `cockpit.json`'s `repos` are container paths
+  (`/workspaces/tools/devc-tools`), so a row matches a project repo when it equals it or ends with
+  its last two segments (`/tools/devc-tools`). A worktree (`<repo>.worktrees/<branch>`) counts as
+  its repo; a row with no repo is unplanned.
+- **Cockpit: "has files for the last 14 days"** means at least one rollup file dated in the
+  window, so the panel switches over on the first day there is one. `--rollups=DIR` overrides the
+  folder (for fixtures). The commit-based HTML is byte-for-byte what it was.
 
 - `deno task check`, `deno task test` (in `devc/`), and `deno fmt --check` at the repo root.
 - `rollupDay` tests: idle cutoff, page hidden mid-span, two clients overlapping, a missing `stop`,
