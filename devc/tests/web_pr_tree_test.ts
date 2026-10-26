@@ -120,6 +120,15 @@ Deno.test('buildPrFlat lists every file, most changed lines first, then by path'
   );
   assertEquals([flat.viewed, flat.total], [2, 5]);
   assertEquals([flat.viewedLines, flat.totalLines], [50, 56]);
+  // Fewest first: the reverse by size, still by path among equals.
+  assertEquals(
+    buildPrFlat([
+      file('b', 'UNVIEWED', 5, 0),
+      file('c', 'UNVIEWED', 1, 0),
+      file('a', 'UNVIEWED', 1, 0),
+    ], 'fewest').files.map((n) => n.name),
+    ['a', 'c', 'b'],
+  );
   // Hide viewed works on a flat list as on a tree.
   assertEquals(withoutViewed(flat).files.map((n) => n.name), [
     'also.ts',

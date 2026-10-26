@@ -132,13 +132,15 @@ function changedLines(file) {
 
 /**
  * The files as one flat list (the PR row's Flat, by size): a root with no folders, its files
- * sorted by changed lines (additions plus deletions), most first, then by path. Each node's
- * `name` is the file's name and `dir` its folder.
+ * sorted by changed lines (additions plus deletions), most first or, with `order` 'fewest',
+ * fewest first; then by path either way. Each node's `name` is the file's name and `dir` its
+ * folder.
  *
- * @param {PrFile[]} files
+ * @param {PrFile[]} files @param {'most' | 'fewest'} [order]
  * @returns {PrDir}
  */
-export function buildPrFlat(files) {
+export function buildPrFlat(files, order = 'most') {
+  const sign = order === 'fewest' ? -1 : 1;
   /** @type {PrDir & {byName?: Map<string, any>}} */
   const root = newDir('', '');
   delete root.byName;
@@ -151,7 +153,7 @@ export function buildPrFlat(files) {
     };
   });
   root.files.sort((a, b) =>
-    changedLines(b.file) - changedLines(a.file) ||
+    sign * (changedLines(b.file) - changedLines(a.file)) ||
     byName(a.file.path, b.file.path)
   );
   count(root);

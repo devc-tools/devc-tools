@@ -327,8 +327,15 @@ function loadSidebarState() {
     prFolders: savedPrFolders(saved?.prFolders),
     /** Whether PR trees leave out Viewed files and fully viewed folders; off at first. */
     prHideViewed: saved?.prHideViewed === true,
-    /** Whether PR files are one flat list, most changed lines first, not a tree; off at first. */
-    prFlat: saved?.prFlat === true,
+    /**
+     * PR files as one flat list by changed lines, `'most'` or `'fewest'` first, or (`null`, at
+     * first) as a tree. A saved `true` is from before `'fewest'`.
+     */
+    prFlat: saved?.prFlat === true || saved?.prFlat === 'most'
+      ? 'most'
+      : saved?.prFlat === 'fewest'
+      ? 'fewest'
+      : null,
     /** Open card sections' last settled heights in px, by `data-section-key` (`holdSections`). */
     sectionHeights: savedSectionHeights(saved?.sectionHeights),
     inactiveOpen: saved?.inactiveOpen === true,
@@ -2145,14 +2152,14 @@ function prRows(localFolder, root, depth) {
 
 /**
  * A listed PR's header row, then its files as a tree (`buildPrTree`) or, with Flat, by size on,
- * as one list, most changed lines first (`buildPrFlat`).
+ * as one list, most or fewest changed lines first (`buildPrFlat`).
  */
 function prListingRows(fr, result, depth) {
   const pr = result.pr;
   const review = prLists.get(prKey(fr.localFolder, fr.root))?.review ?? null;
   const files = list(result.files);
   const flat = sidebarState.prFlat;
-  const tree = flat ? buildPrFlat(files) : buildPrTree(files);
+  const tree = flat ? buildPrFlat(files, flat) : buildPrTree(files);
   const percent = viewedPercent(tree);
   const id = treeId(fr);
   const header = treeRow(
@@ -2181,12 +2188,17 @@ function prListingRows(fr, result, depth) {
       togglePrHideViewed,
     );
     toggle.setAttribute('aria-pressed', String(hiding));
+    // Its title says what a click does next: tree, then most first, then fewest first.
     const flatToggle = iconButton(
-      'flatBySize',
-      LABELS.flatBySize,
+      flat === 'fewest' ? 'flatBySizeFewest' : 'flatBySize',
+      flat === 'most'
+        ? LABELS.flatBySizeFewest
+        : flat === 'fewest'
+        ? LABELS.flatOff
+        : LABELS.flatBySize,
       togglePrFlat,
     );
-    flatToggle.setAttribute('aria-pressed', String(flat));
+    flatToggle.setAttribute('aria-pressed', String(flat !== null));
     return [
       flatToggle,
       toggle,
@@ -2312,9 +2324,17 @@ function pendingReviewBar(fr, pr, review) {
   );
 }
 
-/** Lists every PR's files flat, most changed lines first, or as a tree again; kept per browser. */
+/**
+ * Lists every PR's files flat, most changed lines first, then fewest first, then as a tree again;
+ * kept per browser.
+ */
 function togglePrFlat() {
-  sidebarState.prFlat = !sidebarState.prFlat;
+  const flat = sidebarState.prFlat;
+  sidebarState.prFlat = flat === null
+    ? 'most'
+    : flat === 'most'
+    ? 'fewest'
+    : null;
   saveSidebarState();
   renderTree();
 }

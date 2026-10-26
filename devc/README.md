@@ -637,9 +637,10 @@ is published from any container: the host server finds devcontainers with
   every file viewed then shows `All n files viewed`. The header counts the files
   marked Viewed and how much of the change that is, by changed lines
   (`3/12 · 41%`: additions plus deletions, rounded down; by files when no file
-  has changed lines). Its bars (**List files flat, most changed lines first**)
-  list every file in one list, its folder after its name, biggest change first,
-  remembered per browser. A diff tile's header has the file's own
+  has changed lines). Its bars list every file in one list, its folder after
+  its name: one click **most changed lines first**, a second **fewest changed
+  lines first** (the bars flip; for clearing small files first), a third back
+  to the tree, remembered per browser. A diff tile's header has the file's own
   **Viewed** checkbox, kept in step with the tree's, and its menu (its tab, or
   a right-click off the code) has **Open file** and **Open file to the right**
   for the file itself (not for a deleted file). In a container with a

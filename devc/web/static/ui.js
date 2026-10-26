@@ -153,6 +153,8 @@ export const LABELS = {
   showViewed: (n) => `Show viewed files (${n} hidden)`,
   allViewedHidden: (n) => `All ${n} file${n === 1 ? '' : 's'} viewed`,
   flatBySize: 'List files flat, most changed lines first',
+  flatBySizeFewest: 'List files flat, fewest changed lines first',
+  flatOff: 'List files as a tree',
   viewedPercent: (percent, viewed, total) =>
     `${percent}% of the change viewed (${viewed} of ${total} changed line${
       total === 1 ? '' : 's'
@@ -268,6 +270,8 @@ const ICON_PATHS = {
     'M6 8a2 2 0 1 0 4 0a2 2 0 1 0-4 0',
   // Bars, longest first: a PR's files flat, by size.
   flatBySize: 'M2.5 4h11M2.5 8h7.5M2.5 12h4',
+  // The same bars, shortest first: fewest changed lines first.
+  flatBySizeFewest: 'M2.5 4h4M2.5 8h7.5M2.5 12h11',
   // A speech bubble holding a question mark: ask an agent about a file.
   ask:
     'M2.5 2.5h11v8H8l-3 3v-3H2.5zM6.5 5.25a1.5 1.5 0 1 1 2.1 1.4c-.4.2-.6.5-.6.85M8 8.6v.01',
