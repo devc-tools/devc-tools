@@ -640,7 +640,12 @@ is published from any container: the host server finds devcontainers with
   has changed lines). Its bars list every file in one list, its folder after
   its name: one click **most changed lines first**, a second **fewest changed
   lines first** (the bars flip; for clearing small files first), a third back
-  to the tree, remembered per browser. A diff tile's header has the file's own
+  to the tree, remembered per browser. Its flask (**List test files apart**)
+  moves the test files under a **Tests** row after the rest, listed the same
+  way (tree or flat), with their own count and percent, remembered per browser:
+  a file in a `test/`, `tests/`, `__tests__/` or `testdata/` folder, or named
+  `*.test.*`, `*.spec.*`, `*_test.*`, `*_spec.*`, `test_*.py`, `conftest.py`,
+  or `*Test`, `*Tests` or `*Spec` in Java, Kotlin, Scala, C#, Swift or Groovy. A diff tile's header has the file's own
   **Viewed** checkbox, kept in step with the tree's, and its menu (its tab, or
   a right-click off the code) has **Open file** and **Open file to the right**
   for the file itself (not for a deleted file). In a container with a

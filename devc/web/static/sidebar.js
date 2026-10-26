@@ -81,6 +81,7 @@ import {
   buildPrFlat,
   buildPrTree,
   folderOpenByDefault,
+  isTestPath,
   prFileUrl,
   statusLetter,
   viewedPercent,
@@ -336,6 +337,8 @@ function loadSidebarState() {
       : saved?.prFlat === 'fewest'
       ? 'fewest'
       : null,
+    /** Whether PR test files (`isTestPath`) are listed apart, under a Tests row; off at first. */
+    prTestsApart: saved?.prTestsApart === true,
     /** Open card sections' last settled heights in px, by `data-section-key` (`holdSections`). */
     sectionHeights: savedSectionHeights(saved?.sectionHeights),
     inactiveOpen: saved?.inactiveOpen === true,
@@ -442,6 +445,7 @@ function saveSidebarState() {
         prFolders: sidebarState.prFolders,
         prHideViewed: sidebarState.prHideViewed,
         prFlat: sidebarState.prFlat,
+        prTestsApart: sidebarState.prTestsApart,
         sectionHeights: sidebarState.sectionHeights,
         inactiveOpen: sidebarState.inactiveOpen,
         projectsOpen: [...sidebarState.projectsOpen],
@@ -2152,7 +2156,8 @@ function prRows(localFolder, root, depth) {
 
 /**
  * A listed PR's header row, then its files as a tree (`buildPrTree`) or, with Flat, by size on,
- * as one list, most or fewest changed lines first (`buildPrFlat`).
+ * as one list, most or fewest changed lines first (`buildPrFlat`). With Tests apart on, the
+ * test files (`isTestPath`) are left out of that and listed the same way under a Tests row.
  */
 function prListingRows(fr, result, depth) {
   const pr = result.pr;
@@ -2181,7 +2186,14 @@ function prListingRows(fr, result, depth) {
     ),
   );
   const hiding = sidebarState.prHideViewed;
+  const apart = sidebarState.prTestsApart;
   const buttons = () => {
+    const testsToggle = iconButton(
+      'tests',
+      apart ? LABELS.testsTogether : LABELS.testsApart,
+      togglePrTestsApart,
+    );
+    testsToggle.setAttribute('aria-pressed', String(apart));
     const toggle = iconButton(
       'viewed',
       hiding ? LABELS.showViewed(tree.viewed) : LABELS.hideViewed,
@@ -2200,6 +2212,7 @@ function prListingRows(fr, result, depth) {
     );
     flatToggle.setAttribute('aria-pressed', String(flat !== null));
     return [
+      testsToggle,
       flatToggle,
       toggle,
       iconButton(
@@ -2229,7 +2242,7 @@ function prListingRows(fr, result, depth) {
     h(
       'span',
       { class: 'row-toggles' },
-      ...(hiding || flat
+      ...(hiding || flat || apart
         ? buttons().map((b) => {
           if (b.getAttribute('aria-pressed') !== 'true') {
             b.classList.add('slot');
@@ -2255,14 +2268,17 @@ function prListingRows(fr, result, depth) {
     );
   }
   const foldersKey = prFoldersKey(fr.localFolder, fr.root, pr.number);
-  const walk = (dir, d) => {
+  // The Tests row's tree keeps its folders' state, and its rows' ids, apart from the rest's: a
+  // folder can be in both.
+  const testsKey = `${foldersKey}\ntests`;
+  const walk = (dir, d, key = foldersKey, idPrefix = '') => {
     for (const sub of dir.dirs) {
-      const open = prFolderOpen(foldersKey, sub);
-      const row = treeRow(`${id}\npr\n${sub.path}/`, d, open, {
+      const open = prFolderOpen(key, sub);
+      const row = treeRow(`${id}\npr\n${idPrefix}${sub.path}/`, d, open, {
         class: 'pr-dir',
         'data-dim': sub.viewed === sub.total || undefined,
         title: sub.path,
-        onclick: () => togglePrFolder(foldersKey, sub),
+        onclick: () => togglePrFolder(key, sub),
         oncontextmenu: (e) => openMenu(e, prDirMenuItems(fr, result, sub)),
       }, ...markedText(sub.name));
       row.append(
@@ -2271,13 +2287,26 @@ function prListingRows(fr, result, depth) {
         ),
       );
       rows.push(row);
-      if (open) walk(sub, d + 1);
+      if (open) walk(sub, d + 1, key, idPrefix);
     }
     for (const node of dir.files) {
       rows.push(prFileRow(fr, result, node, d));
     }
   };
-  walk(hiding ? withoutViewed(tree) : tree, depth);
+  const shown = (t) => hiding ? withoutViewed(t) : t;
+  const build = (fs) => flat ? buildPrFlat(fs, flat) : buildPrTree(fs);
+  const testFiles = apart ? files.filter((f) => isTestPath(f.path)) : [];
+  if (testFiles.length === 0) walk(shown(tree), depth);
+  else {
+    walk(shown(build(files.filter((f) => !isTestPath(f.path)))), depth);
+    const tests = build(testFiles);
+    if (!hiding || tests.viewed < tests.total) {
+      rows.push(prTestsRow(fr, result, id, testsKey, tests, depth));
+      if (prFolderOpen(testsKey, tests)) {
+        walk(shown(tests), depth + 1, testsKey, 'tests\n');
+      }
+    }
+  }
   if (hiding && tree.total > 0 && tree.viewed === tree.total) {
     rows.push(
       h(
@@ -2292,6 +2321,43 @@ function prListingRows(fr, result, depth) {
     );
   }
   return rows;
+}
+
+/**
+ * The Tests row (Tests apart): its files' Viewed count and share of their changed lines; it opens
+ * and closes as a folder does (`tests` the root of its tree, under `testsKey`), and its menu marks
+ * them all Viewed or not.
+ *
+ * @param {FileRoot} fr @param {any} result @param {string} id @param {string} testsKey
+ * @param {import('./lib/pr_tree.js').PrDir} tests
+ */
+function prTestsRow(fr, result, id, testsKey, tests, depth) {
+  const allViewed = tests.viewed === tests.total;
+  const percent = viewedPercent(tests);
+  const row = treeRow(
+    `${id}\npr\ntests\n`,
+    depth,
+    prFolderOpen(testsKey, tests),
+    {
+      class: 'pr-dir pr-tests',
+      'data-dim': allViewed || undefined,
+      title: LABELS.testFiles,
+      onclick: () => togglePrFolder(testsKey, tests),
+      oncontextmenu: result.canViewed
+        ? (e) =>
+          openMenu(e, [[
+            allViewed ? 'Mark all as not viewed' : 'Mark all as viewed',
+            () => void setFolderViewed(fr, tests, !allViewed),
+          ]])
+        : undefined,
+    },
+    LABELS.tests,
+  );
+  row.append(rowTrail(h('span', {
+    class: 'pr-count',
+    title: LABELS.viewedPercent(percent, tests.viewedLines, tests.totalLines),
+  }, `${tests.viewed}/${tests.total} · ${percent}%`)));
+  return row;
 }
 
 /**
@@ -2322,6 +2388,13 @@ function pendingReviewBar(fr, pr, review) {
     button(LABELS.submitReview, () => submitPendingReview(repo, pr.url)),
     button(LABELS.discardReview, () => discardPendingReview(repo)),
   );
+}
+
+/** Lists every PR's test files apart, under a Tests row, or among the rest again; kept per browser. */
+function togglePrTestsApart() {
+  sidebarState.prTestsApart = !sidebarState.prTestsApart;
+  saveSidebarState();
+  renderTree();
 }
 
 /**

@@ -155,6 +155,13 @@ export const LABELS = {
   flatBySize: 'List files flat, most changed lines first',
   flatBySizeFewest: 'List files flat, fewest changed lines first',
   flatOff: 'List files as a tree',
+  testsApart: 'List test files apart',
+  testsTogether: 'List test files with the rest',
+  tests: 'Tests',
+  testFiles:
+    'Test files: in a test/, tests/, __tests__/ or testdata/ folder, or named *.test.*, ' +
+    '*.spec.*, *_test.*, *_spec.*, test_*.py, conftest.py, or *Test / *Tests / *Spec ' +
+    '(Java, Kotlin, Scala, C#, Swift, Groovy)',
   viewedPercent: (percent, viewed, total) =>
     `${percent}% of the change viewed (${viewed} of ${total} changed line${
       total === 1 ? '' : 's'
@@ -270,6 +277,8 @@ const ICON_PATHS = {
     'M6 8a2 2 0 1 0 4 0a2 2 0 1 0-4 0',
   // Bars, longest first: a PR's files flat, by size.
   flatBySize: 'M2.5 4h11M2.5 8h7.5M2.5 12h4',
+  // A flask: a PR's test files apart.
+  tests: 'M6 2.5h4M6.5 2.5v4L3 13.5h10L9.5 6.5v-4M4.5 10.5h7',
   // The same bars, shortest first: fewest changed lines first.
   flatBySizeFewest: 'M2.5 4h4M2.5 8h7.5M2.5 12h11',
   // A speech bubble holding a question mark: ask an agent about a file.

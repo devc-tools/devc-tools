@@ -3,6 +3,7 @@ import {
   buildPrFlat,
   buildPrTree,
   folderOpenByDefault,
+  isTestPath,
   prFileUrl,
   splitMarkers,
   statusLetter,
@@ -163,6 +164,43 @@ Deno.test('viewedPercent weighs by changed lines, rounding down', () => {
   // No changed lines at all: by files.
   assertEquals(pct(file('a', 'VIEWED', 0, 0), file('b', 'UNVIEWED', 0, 0)), 50);
   assertEquals(pct(), 0);
+});
+
+Deno.test('isTestPath: test folders and test file names across languages', () => {
+  for (
+    const path of [
+      'src/a.test.ts',
+      'src/a.spec.js',
+      'a.test.tsx',
+      'devc/tests/web_pr_tree_test.ts',
+      'pkg/server_test.go',
+      'lib/thing_spec.rb',
+      'test/helpers.js',
+      'src/__tests__/a.js',
+      'pkg/testdata/in.json',
+      'tests/fixtures/x.txt',
+      'app/test_models.py',
+      'conftest.py',
+      'src/main/java/FooTest.java',
+      'Foo.Tests/BarTests.cs',
+      'src/FooSpec.scala',
+      'FooTest.kt',
+    ]
+  ) assertEquals(isTestPath(path), true, path);
+  for (
+    const path of [
+      'src/a.ts',
+      'src/latest.ts',
+      'src/testing.ts',
+      'contest/a.ts',
+      'src/Contest.java',
+      'docs/spec/design.md',
+      'tests.md',
+      'src/test.ts',
+      'my_test_helpers/a.py',
+      'attest/test_x.js',
+    ]
+  ) assertEquals(isTestPath(path), false, path);
 });
 
 Deno.test('statusLetter: A, D, R, C, else M', () => {

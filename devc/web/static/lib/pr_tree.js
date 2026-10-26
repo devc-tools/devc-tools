@@ -224,6 +224,33 @@ export function splitMarkers(text) {
   return out;
 }
 
+/** A folder of tests anywhere in the path: `test/`, `tests/`, `__tests__/`, `testdata/`. */
+const TEST_DIR = /(^|\/)(tests?|__tests__|testdata)\//;
+/**
+ * A test file's name: `x.test.ts` / `x.spec.js` (any extension), `x_test.go` / `x_test.ts` /
+ * `x_spec.rb`, `test_x.py`, `conftest.py`, `XTest.java` / `XTests.cs` / `XSpec.scala` (and
+ * Kotlin, Swift, Groovy). Case matters for the last: `Contest.java` is not a test.
+ */
+const TEST_NAME = new RegExp(
+  [
+    '\\.(test|spec)\\.[^/]+$',
+    '_(test|spec)\\.[^/.]+$',
+    '(^|/)test_[^/]+\\.py$',
+    '(^|/)conftest\\.py$',
+    '(Tests?|Spec)\\.(java|kt|kts|scala|cs|swift|groovy)$',
+  ].join('|'),
+);
+
+/**
+ * Whether `path` is a test file (the PR row's Tests apart): in a test folder (`TEST_DIR`) or named
+ * as one (`TEST_NAME`).
+ *
+ * @param {string} path
+ */
+export function isTestPath(path) {
+  return TEST_DIR.test(path) || TEST_NAME.test(path);
+}
+
 /**
  * Whether a folder row starts open: a fully viewed one starts closed.
  *
