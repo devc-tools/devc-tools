@@ -2,36 +2,36 @@
 
 ## Checklist
 
-- [ ] Vendored CodeMirror gains `@codemirror/lsp-client` 6.3.0 and `@codemirror/lang-java` 6.0.2
+- [x] Vendored CodeMirror gains `@codemirror/lsp-client` 6.3.0 and `@codemirror/lang-java` 6.0.2
       (`scripts/codemirror-entry.js`, `VERSIONS`, rebuilt `codemirror.mjs` via
       `scripts/vendor-codemirror.sh`)
-- [ ] `static/lib/languages.js` and `viewer.js`: Java highlighting for `.java`
-- [ ] `devc/web/lsp_languages.ts` (new, pure): file name → LSP language, with tests
-- [ ] `devc/web/lsp_framing.ts` (new, pure): `Content-Length` framing, with tests
-- [ ] `devc/web/lsp_session.ts` (new, pure): the per-server multiplexer, with tests against a fake
+- [x] `static/lib/languages.js` and `viewer.js`: Java highlighting for `.java`
+- [x] `devc/web/lsp_languages.ts` (new, pure): file name → LSP language, with tests
+- [x] `devc/web/lsp_framing.ts` (new, pure): `Content-Length` framing, with tests
+- [x] `devc/web/lsp_session.ts` (new, pure): the per-server multiplexer, with tests against a fake
       server port and an injected clock
-- [ ] `devc/web/lsp_watch.ts` (new): watcher-glob matching (pure, tested) and host-side
+- [x] `devc/web/lsp_watch.ts` (new): watcher-glob matching (pure, tested) and host-side
       `Deno.watchFs` batching into `workspace/didChangeWatchedFiles`
-- [ ] `devc/web/proc.ts`: `spawnBytes`, a byte-stream child tracked for shutdown like
+- [x] `devc/web/proc.ts`: `spawnBytes`, a byte-stream child tracked for shutdown like
       `spawnLines`
-- [ ] `devc/web/lsp_manager.ts` (new): sessions by key, `describe` and `serve` through
+- [x] `devc/web/lsp_manager.ts` (new): sessions by key, `describe` and `serve` through
       `docker exec`, idle stop, container loss, shutdown; tested end to end with an injected
       spawner and `devc/tests/fixtures/fake_lsp_server.ts` (new)
-- [ ] `devc/web/lsp_config.ts` (new): the per-repo `language-servers.json` (read, validate, match,
+- [x] `devc/web/lsp_config.ts` (new): the per-repo `language-servers.json` (read, validate, match,
       write, watch), with tests
-- [ ] `protocol.ts`: `lsp_attach`, `lsp_send`, `lsp_detach`, `lsp_restart`, `lsp_settings_get`,
+- [x] `protocol.ts`: `lsp_attach`, `lsp_send`, `lsp_detach`, `lsp_restart`, `lsp_settings_get`,
       `lsp_settings_set`, with parser tests
-- [ ] `server.ts`: the six handlers; `lsp` and `lsp_status` messages out; detach on socket close;
+- [x] `server.ts`: the six handlers; `lsp` and `lsp_status` messages out; detach on socket close;
       sessions stopped on shutdown
-- [ ] `viewer.js`: `createLanguageClient` and `Viewer.attachLanguage` / `detachLanguage`, and the
+- [x] `viewer.js`: `createLanguageClient` and `Viewer.attachLanguage` / `detachLanguage`, and the
       one-view-per-URI workspace
-- [ ] `static/lsp.js` (new): the page's sessions, transports, status, `displayFile`, URI-scheme
+- [x] `static/lsp.js` (new): the page's sessions, transports, status, `displayFile`, URI-scheme
       hooks
-- [ ] `tiles.js` / `menus.js` / `style.css`: attach on editable text tiles, the status line,
+- [x] `tiles.js` / `menus.js` / `style.css`: attach on editable text tiles, the status line,
       **Restart language server**, **Language server settings…** and its dialog
-- [ ] `devc/tests/fixtures/devc-lsp-typescript-deno` (new): a stub launcher wrapping `deno lsp`,
+- [x] `devc/tests/fixtures/devc-lsp-typescript-deno` (new): a stub launcher wrapping `deno lsp`,
       for manual validation before any language Feature exists
-- [ ] `devc/README.md`: devc web **Language servers** bullet and the launcher contract;
+- [x] `devc/README.md`: devc web **Language servers** bullet and the launcher contract;
       `.plans/design/devc-design.md`: one paragraph; the exploration doc's **Settings** decision
       updated to per-project `language-servers.json`
 
@@ -595,13 +595,13 @@ edit files outside devc web all the time, so the host watches:
 
 ## Validation
 
-- [ ] `cd devc && deno task check && deno task test` passes, including:
-  - [ ] `web_lsp_framing_test.ts`: multi-byte UTF-8 body (length in bytes), a message split
+- [x] `cd devc && deno task check && deno task test` passes, including:
+  - [x] `web_lsp_framing_test.ts`: multi-byte UTF-8 body (length in bytes), a message split
         across chunks at every byte, two messages in one chunk, `Content-Type` header, junk
         lines before the first header (kept in the discard buffer)
-  - [ ] `web_lsp_languages_test.ts`: every row of the language table, upper-case extensions,
+  - [x] `web_lsp_languages_test.ts`: every row of the language table, upper-case extensions,
         dotfiles, no extension
-  - [ ] `web_lsp_session_test.ts`:
+  - [x] `web_lsp_session_test.ts`:
     - initialize cached and `textDocumentSync` rewritten to `change: 1`
     - a second page's `initialize` not forwarded
     - id remapping across two connections with colliding ids
@@ -613,26 +613,26 @@ edit files outside devc web all the time, so the host watches:
     - pull conversion including `unchanged`
     - idle stop after `DEVC_WEB_LSP_IDLE_MS` with the injected clock
     - detach cancels nothing while another connection is attached
-  - [ ] `web_lsp_watch_test.ts`:
+  - [x] `web_lsp_watch_test.ts`:
     - globs `**/*.ts`, `{src,lib}/**`, a `RelativePattern`, and the `kind` mask
     - batching, de-duplication and the 1,000 cap
     - `rename` as remove plus create
-  - [ ] `web_lsp_manager_test.ts` with the fake server:
+  - [x] `web_lsp_manager_test.ts` with the fake server:
     - attach → `ready`
     - completion round trip
     - diagnostics routed
     - server exit gives `exited` with the stderr tail
     - restart re-initializes
     - shutdown sends `shutdown` then `exit`
-  - [ ] `web_lsp_session_test.ts` also: `$/progress` while ready gives `lsp_status ready` with
+  - [x] `web_lsp_session_test.ts` also: `$/progress` while ready gives `lsp_status ready` with
         the detail, and `end` of the last token clears it; two overlapping tokens
-  - [ ] `web_lsp_manager_test.ts` also: a `describe` that throws (the timeout) gives
+  - [x] `web_lsp_manager_test.ts` also: a `describe` that throws (the timeout) gives
         `describe_failed` detail `describe timed out after 15 s`; a failing `describe` with
         empty stderr gives detail `exit code <n>`; `options` exiting 1, printing non-JSON, or
         `protocol` 2 each give `describe_failed` from `lsp_settings_get`
-  - [ ] parser tests for the six messages, beside the existing `parseClientMessage` tests:
+  - [x] parser tests for the six messages, beside the existing `parseClientMessage` tests:
         a missing `session`, a non-object `message`, an oversized frame, a `path` with `..`
-- [ ] `deno fmt --check` passes for every file this plan touches
+- [x] `deno fmt --check` passes for every file this plan touches
 - [ ] **(human)** Manual setup: in devc-tools' own container (it has `deno`), install the stub:
       `devc exec -- sudo install -m 755 devc/tests/fixtures/devc-lsp-typescript-deno /usr/local/bin/devc-lsp-typescript`.
       Then run `devc web --live-yolo` from this checkout.
@@ -655,13 +655,13 @@ edit files outside devc web all the time, so the host watches:
       `TypeScript language server stopped: …`, and **Restart language server** brings it back.
 - [ ] **(human)** Manual: restart `devc web` with `DEVC_WEB_LSP_IDLE_MS=10000`, open and then close the
       tile. After 10 s, `docker exec … pgrep -f "deno lsp"` finds nothing.
-- [ ] `web_lsp_config_test.ts`:
-  - [ ] longest-root match
-  - [ ] the `""` root
-  - [ ] no match → no flags
-  - [ ] each validation failure skips only its entry (or the whole file for a bad `version`)
-  - [ ] canonical options JSON is key-order independent
-  - [ ] `lsp_settings_set` add, replace, remove and an atomic write
+- [x] `web_lsp_config_test.ts`:
+  - [x] longest-root match
+  - [x] the `""` root
+  - [x] no match → no flags
+  - [x] each validation failure skips only its entry (or the whole file for a bad `version`)
+  - [x] canonical options JSON is key-order independent
+  - [x] `lsp_settings_set` add, replace, remove and an atomic write
 - [ ] **(human)** Manual (multi-project): in one container, open files from two repos (devc-tools and a
       sibling repo). Two sessions start, with their own roots in the status text while starting.
 - [ ] **(human)** Manual (settings): **Language server settings…** on `devc/web/server.ts`:

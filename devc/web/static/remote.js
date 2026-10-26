@@ -100,6 +100,8 @@ export function remoteTileArea() {
     save: (id) => intent('save', [id]),
     reload: (id) => intent('reload', [id]),
     prViewed: (diff, viewed) => intent('prViewed', [diff, viewed]),
+    restartLanguage: (id) => intent('restartLanguage', [id]),
+    languageSettings: (id) => intent('languageSettings', [id]),
     dragSource: nativeDragSource,
   };
   return {

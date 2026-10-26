@@ -449,6 +449,35 @@ is published from any container: the host server finds devcontainers with
   their items with dividers. Hovering shows the host path (a container file
   also shows its container path). See
   [Editing in a terminal](#editing-in-a-terminal) for the editor.
+- **Language servers:** while a file tile can edit its file (the container is
+  connected), a `.ts`, `.tsx`, `.mts`, `.cts`, `.js`, `.jsx`, `.mjs`, `.cjs`,
+  `.py`, `.pyi` or `.java` file gets completion, hover, signature help,
+  diagnostics (underlined as you type), **F12** (go to definition, opening the
+  file in a tile), **Shift+F12** (references, listed for the files open in the
+  page) and **Shift+Alt+F** (format), from a language server running **inside
+  the file's container**. Rename is not offered. A container serves a language
+  only when it has that language's launcher, `devc-lsp-<language>`, on the
+  remote user's `PATH` (a language Feature installs it); without one the tile is
+  a plain editor and nothing is shown. The server starts on the first such tile
+  and is shared by every tile, page and browser on the same project root (two
+  worktrees are two roots); a second tile of the same file in one page stays a
+  plain editor. A small status line at the tile's bottom right shows
+  `<Language>: starting…`, progress (`Java: Importing projects… 70%`), or
+  `<Language> language server stopped: <reason>`, and is hidden while the server
+  is ready and idle; hovering it shows the server and its root. Files changed
+  outside the editor (by an agent, say) are watched from the host and sent to
+  the server. The tile menu has **Restart language server** and **Language
+  server settings…**, which shows the detected root and server, and for a repo
+  file sets its project's **Root** (detected, or a folder from the checkout
+  down to the file's) and the launcher's options. They are saved on the host in
+  `~/.config/devc/repos/<name>-<hash>/language-servers.json`, shared by every
+  worktree of the repo (nothing is written into the repo or the container), and
+  a change restarts the servers it affects; **Reset to detected** removes the
+  project's entry. A server stops 30 minutes after its last tile closes
+  (`DEVC_WEB_LSP_IDLE_MS`, read when devc web starts, overrides that in
+  milliseconds), and when its container stops. See
+  [Language server launchers](#language-server-launchers) for the contract a
+  launcher implements.
 - **Asking an agent about a file:** a file tile or a pull request's diff tile
   in one of a project's repos (a container file inside a repo too) has an
   **Ask agent** button on its tab, also **Ask agent…** in its menu. It asks
@@ -2145,6 +2174,53 @@ bash ../tests/install_test.sh ../install.sh
 nothing else would notice if the pin, the argv shim or the embedding broke. It
 needs no Docker, and on a cold cache it fetches the pinned npm package like any
 other dependency.
+
+### Language server launchers
+
+devc web's language servers (see **Language servers** under
+[`devc web`](#devc-web-browser-ui-for-in-container-herdr)) come from one
+executable per language in the container, `devc-lsp-<language>` (`java`,
+`typescript` or `python`) on the remote user's login `PATH`. devc web runs it
+with `docker exec` as the remote user, through a login shell
+(`/bin/bash -lc 'exec "devc-lsp-$0" "$@"' <language> …`), from `/`:
+
+- **`describe <file> [--root <dir>] [--options <b64>]`**: `<file>` is an
+  absolute container path. `--root` replaces root detection (it must be the
+  file's folder or an ancestor, else exit 3 with `root does not contain the
+  file`); `--options` is the project's options from
+  `language-servers.json`, base64 of a JSON object, each key replacing the
+  Feature's baked default (a `settings` object is then deep-merged over the
+  launcher's computed settings). On success it prints exactly one JSON object,
+  `{"protocol": 1, "root", "languageId", "server", "initializationOptions",
+  "settings"}`, and exits 0: `root` is the server's workspace folder and part of
+  the session key, `server` is shown in the tile, `settings` answers
+  `workspace/configuration`. Exit 3 means the file is not served (a plain
+  editor), 127 that the launcher is missing, anything else an error whose first
+  stderr line the tile shows. Bad options exit 1 with a one-line reason. It runs
+  on every attach, so it must be fast (no network, no build); devc web gives up
+  after 15 s.
+- **`serve --root <root> [--options <b64>]`**: `exec`s the language server on
+  stdio (LSP's `Content-Length` framing). Nothing else may go to stdout; stderr
+  is free (its last line is the `stopped` reason when the server exits).
+- **`options`**: prints `{"protocol": 1, "options": [...]}` for the settings
+  dialog, each `{key, type, default, description}` with `type` one of `string`,
+  `path`, `command` (text fields), `enum` (with `enum`, a select) or `json` (an
+  object). `default` is the Feature's baked value.
+
+devc web is the only LSP client a server sees: it initializes the server once
+per session (`processId: null`, the session's root as the workspace folder),
+answers the server's requests to the client itself (`workspace/configuration`
+from `settings`, file-watcher registrations, progress), keeps one open document
+per file with its own version numbers, turns pulled diagnostics into pushed ones,
+and stops a server with `shutdown`, `exit`, then a closed stdin.
+`tests/fixtures/devc-lsp-typescript-deno` is a stub launcher that serves every
+TypeScript or JavaScript file with `deno lsp`, for trying this without a
+language Feature:
+
+```sh
+devc exec -- sudo install -m 755 devc/tests/fixtures/devc-lsp-typescript-deno \
+  /usr/local/bin/devc-lsp-typescript
+```
 
 ### `devc config`
 

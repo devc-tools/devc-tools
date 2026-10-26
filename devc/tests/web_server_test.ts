@@ -11,7 +11,7 @@ import {
   tokenMatches,
 } from '../web/server.ts';
 import { GLOBAL_CONFIG_PATHS } from '@devc-tools/core/config.ts';
-import { parseClientMessage } from '../web/protocol.ts';
+import { MAX_LSP_MESSAGE, parseClientMessage } from '../web/protocol.ts';
 import { DEVC_HERDR_SESSION, parseWebArgs } from '../args.ts';
 
 const PORT = 48228;
@@ -788,6 +788,161 @@ Deno.test('parseClientMessage: write_file takes an existing file, its text and a
   }
 });
 
+Deno.test('parseClientMessage: lsp_attach and lsp_settings_get address a file as write_file does', () => {
+  for (const type of ['lsp_attach', 'lsp_settings_get']) {
+    for (
+      const msg of [
+        { type, root: '/src/app', path: 'devc/web/server.ts' },
+        { type, path: '/home/me/tool.py' },
+      ]
+    ) {
+      const full = { id: 'l1', container: 'c1', ...msg };
+      assertEquals(
+        parseClientMessage(JSON.stringify(full)),
+        { ok: true, msg: full } as never,
+      );
+    }
+    for (
+      const bad of [
+        { type, root: '/src/app', path: '../elsewhere/a.ts' },
+        { type, root: '/src/app', path: 'a/../../b.ts' },
+        { type, path: '/workspaces/app/../etc/a.py' },
+        { type, path: 'relative/a.ts' },
+        { type, root: '/src/app', path: '/abs/a.ts' },
+        { type, root: 'src/app', path: 'a.ts' },
+        { type, root: '/src/app' },
+        { type, path: '/a.ts', container: '' },
+      ]
+    ) {
+      const r = rejected({ id: 'l2', container: 'c1', ...bad });
+      assertEquals([r.id, r.code], ['l2', 'bad_request'], JSON.stringify(bad));
+    }
+    assertEquals(
+      rejected({ type, container: 'c1', path: '/a.ts' }).code,
+      'bad_request',
+      'no id',
+    );
+  }
+});
+
+Deno.test('parseClientMessage: lsp_send needs a session and a plain-object message, within the cap', () => {
+  const ok = {
+    type: 'lsp_send',
+    session: 's1',
+    message: { jsonrpc: '2.0', id: 1, method: 'initialize', params: {} },
+  };
+  assertEquals(
+    parseClientMessage(JSON.stringify(ok)),
+    { ok: true, msg: ok } as never,
+  );
+  for (
+    const bad of [
+      { type: 'lsp_send', message: { jsonrpc: '2.0' } },
+      { type: 'lsp_send', session: '', message: { jsonrpc: '2.0' } },
+      { type: 'lsp_send', session: 's1' },
+      { type: 'lsp_send', session: 's1', message: [] },
+      { type: 'lsp_send', session: 's1', message: null },
+      { type: 'lsp_send', session: 's1', message: '{"jsonrpc":"2.0"}' },
+    ]
+  ) {
+    assertEquals(rejected(bad).code, 'bad_request', JSON.stringify(bad));
+  }
+  // The cap is on the raw frame, in UTF-16 code units.
+  const filler = (n: number) =>
+    JSON.stringify({ type: 'lsp_send', session: 's1', message: { t: '' } })
+      .replace('"t":""', `"t":"${'x'.repeat(n)}"`);
+  const base = filler(0).length;
+  assert(parseClientMessage(filler(MAX_LSP_MESSAGE - base)).ok);
+  const big = rejected(filler(MAX_LSP_MESSAGE - base + 1));
+  assertEquals([big.code, big.message], ['bad_request', 'message too large']);
+});
+
+Deno.test('parseClientMessage: lsp_detach, lsp_restart and lsp_settings_set', () => {
+  for (
+    const msg of [
+      { type: 'lsp_detach', session: 's1' },
+      { type: 'lsp_restart', id: 'r1', session: 's1' },
+      {
+        type: 'lsp_settings_set',
+        id: 'r1',
+        container: 'c1',
+        root: '/src/app',
+        path: 'devc/web/server.ts',
+        entry: { root: 'devc', options: { settings: { a: 1 } } },
+      },
+      {
+        type: 'lsp_settings_set',
+        id: 'r1',
+        container: 'c1',
+        root: '/src/app',
+        path: 'devc/web/server.ts',
+        entry: null,
+      },
+    ]
+  ) {
+    assertEquals(
+      parseClientMessage(JSON.stringify(msg)),
+      { ok: true, msg } as never,
+    );
+  }
+  for (
+    const bad of [
+      { type: 'lsp_detach' },
+      { type: 'lsp_restart', id: 'r1' },
+      { type: 'lsp_restart', session: 's1' },
+      // Repo files only: `root` is required.
+      {
+        type: 'lsp_settings_set',
+        id: 'r1',
+        container: 'c1',
+        path: '/a.ts',
+        entry: null,
+      },
+      {
+        type: 'lsp_settings_set',
+        id: 'r1',
+        container: 'c1',
+        root: '/src/app',
+        path: '../a.ts',
+        entry: null,
+      },
+      {
+        type: 'lsp_settings_set',
+        id: 'r1',
+        container: 'c1',
+        root: '/src/app',
+        path: 'a.ts',
+      },
+      {
+        type: 'lsp_settings_set',
+        id: 'r1',
+        container: 'c1',
+        root: '/src/app',
+        path: 'a.ts',
+        entry: { root: 'x' },
+      },
+      {
+        type: 'lsp_settings_set',
+        id: 'r1',
+        container: 'c1',
+        root: '/src/app',
+        path: 'a.ts',
+        entry: { root: 1, options: {} },
+      },
+      {
+        type: 'lsp_settings_set',
+        id: 'r1',
+        container: 'c1',
+        root: '/src/app',
+        path: 'a.ts',
+        entry: { root: '', options: [] },
+      },
+    ]
+  ) {
+    assertEquals(rejected(bad).code, 'bad_request', JSON.stringify(bad));
+  }
+});
+
 Deno.test('parseClientMessage: open_tab needs root, a path (may be empty) and reuse', () => {
   const base = {
     type: 'open_tab' as const,
@@ -1370,6 +1525,9 @@ Deno.test('parseClientMessage: view_intent and sidebar_intent take a known name 
       'save',
       'reload',
       'prViewed',
+      'askAgent',
+      'restartLanguage',
+      'languageSettings',
     ]
   ) {
     assert(

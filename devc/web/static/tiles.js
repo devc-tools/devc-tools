@@ -9,6 +9,17 @@
 import { createRenderer } from './renderer.js';
 import { createTiling } from './layout.js';
 import { createViewer, highlightLines } from './viewer.js';
+import {
+  attachTile,
+  detachTile,
+  restartTile,
+  setLspHooks,
+  tileAttached,
+  tileExited,
+  tileRestartable,
+  tileStatus,
+} from './lsp.js';
+import { LSP_LANGUAGE_NAMES, lspLanguageFor } from './lib/languages.js';
 import { openAskDialog } from './ask.js';
 import { parseSavedLayout, sameFile } from './lib/layout_state.js';
 import {
@@ -181,6 +192,8 @@ const tileArea = {
   },
   prViewed: (ref, viewed) => showViewed(ref, viewed),
   askAgent: (id) => askAgentFrom(id),
+  restartLanguage: (id) => void restartLanguage(id),
+  languageSettings: (id) => void languageSettings(id),
   dragSource: (el, ref, title) =>
     tiling ? tiling.dragSource(el, ref, title) : () => {},
 };
@@ -234,6 +247,8 @@ const views = new Map();
  * @property {string | null} hash
  * @property {boolean} dirty         edited since the last read or save
  * @property {boolean} saving
+ * @property {HTMLElement} lspStatus  the language server's status line (`lsp.js`)
+ * @property {boolean} [lspWanted]    whether it wanted a language server at the last sync
  */
 
 /**
@@ -377,7 +392,8 @@ function openFileAt(file, line, column) {
 function mountFileTile(tile) {
   const host = h('div', { class: 'file-view' });
   const overlay = h('div', { class: 'overlay' });
-  const body = h('div', { class: 'tile-body' }, host, overlay);
+  const lspStatus = h('div', { class: 'lsp-status', hidden: '' });
+  const body = h('div', { class: 'tile-body' }, host, lspStatus, overlay);
   tile.element.append(body);
   tile.element.addEventListener('mousedown', () => {
     focusedTileId = tile.id;
@@ -415,6 +431,7 @@ function mountFileTile(tile) {
     hash: null,
     dirty: false,
     saving: false,
+    lspStatus,
   };
   fileViews.set(tile.id, view);
   const kind = tile.file && fileView(tile.file) === 'media'
@@ -454,6 +471,7 @@ async function loadFile(view) {
   if (view.noContainer) {
     view.state = 'error';
     view.error = LABELS.notRunning;
+    detachTile(view.tile.id);
     view.viewer?.destroy();
     view.viewer = null;
     view.media?.clear();
@@ -484,6 +502,7 @@ async function loadFile(view) {
     if (seq !== view.seq || !fileViews.has(view.tile.id)) return;
     view.state = 'error';
     view.error = String(e?.message ?? e);
+    detachTile(view.tile.id);
     view.viewer?.destroy();
     view.viewer = null;
     updateFileOverlay(view);
@@ -626,9 +645,332 @@ function fileEditable(view) {
   );
 }
 
-/** Makes a file tile's viewer editable or read-only to match {@link fileEditable}. */
+/**
+ * Makes a file tile's viewer editable or read-only to match {@link fileEditable}, and attaches it
+ * to its file's language server while it is editable ({@link syncLanguage}).
+ */
 function syncFileEditable(view) {
   view.viewer?.setEditable(fileEditable(view));
+  syncLanguage(view);
+}
+
+// ---------------------------------------------------------------------------------------------
+// Language servers: an editable text tile attaches to its file's (`lsp.js`)
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * Attaches a file tile to its file's language server while it shows the file as text and can
+ * edit it (its container is connected), and detaches it otherwise. Read-only, media and diff
+ * tiles never attach; neither does a file no server takes. A tile whose session exited keeps
+ * saying so (`… stopped: container stopped`) after it stops being editable, and attaches anew
+ * once it is editable again.
+ *
+ * @param {FileView} view
+ */
+function syncLanguage(view) {
+  const file = view.tile.file;
+  const c = file ? containerByFolder(file.localFolder) : null;
+  const wanted = Boolean(
+    file && view.viewer && !view.media && c && fileEditable(view) &&
+      lspLanguageFor(file.path),
+  );
+  const was = view.lspWanted;
+  view.lspWanted = wanted;
+  if (wanted && file && view.viewer && c) {
+    attachTile(view.tile.id, file, c, view.viewer, !was);
+  } else if (tileAttached(view.tile.id) && !tileExited(view.tile.id)) {
+    detachTile(view.tile.id);
+  }
+  renderLspStatus(view);
+}
+
+/** A file tile's language server status line (`lsp.js`'s `tileStatus`): hidden when empty. */
+function renderLspStatus(view) {
+  const { text, title } = tileStatus(view.tile.id);
+  view.lspStatus.hidden = text === '';
+  view.lspStatus.textContent = text;
+  view.lspStatus.title = title;
+}
+
+/** **Restart language server**: the tile's session stops and starts again. */
+async function restartLanguage(id) {
+  try {
+    await restartTile(id);
+  } catch (e) {
+    errorToast(`Restarting the language server failed: ${e?.message ?? e}`);
+  }
+}
+
+/**
+ * The file a file tile's language messages address: `write_file`'s fields.
+ *
+ * @param {FileRef} file
+ */
+function lspFileFields(file) {
+  return file.container
+    ? { path: childPath('/', file.path) }
+    : { root: file.root, path: file.path };
+}
+
+/**
+ * **Language server settings…**: the detected root and server, and for a repo file a form for
+ * its project's entry in `language-servers.json` (a root from the checkout down to the file's
+ * folder, and the launcher's options). **Save** sends `lsp_settings_set`; **Reset to detected**
+ * removes the entry. A container file's settings are shown read-only.
+ */
+async function languageSettings(id) {
+  const tile = tileOf(id);
+  const file = tile?.file;
+  const c = file ? containerByFolder(file.localFolder) : null;
+  if (!file || !c) return;
+  let info;
+  try {
+    info = await call({
+      type: 'lsp_settings_get',
+      container: c.id,
+      ...lspFileFields(file),
+    });
+  } catch (e) {
+    errorToast(`Language server settings: ${e?.message ?? e}`);
+    return;
+  }
+  const entry = await settingsDialog(info, basename(file.path));
+  if (entry === undefined) return;
+  try {
+    await call({
+      type: 'lsp_settings_set',
+      container: c.id,
+      root: file.root,
+      path: file.path,
+      entry,
+    });
+    toast(
+      entry
+        ? 'Language server settings saved'
+        : 'Language server settings reset',
+    );
+  } catch (e) {
+    errorToast(`Saving language server settings failed: ${e?.message ?? e}`);
+  }
+}
+
+/** `path` relative to container folder `root`: `.` for the folder itself, else as given. */
+function relativeRoot(root, path) {
+  if (path === root) return '.';
+  const base = root.endsWith('/') ? root : `${root}/`;
+  return path.startsWith(base) ? path.slice(base.length) : path;
+}
+
+/**
+ * The settings dialog for {@link languageSettings}. Resolves the entry to save (`null`: reset to
+ * detected), or undefined when it is closed without either.
+ *
+ * @param {any} info  `lsp_settings_get`'s answer
+ * @param {string} name  the file's name
+ * @returns {Promise<{root: string, options: Record<string, unknown>} | null | undefined>}
+ */
+function settingsDialog(info, name) {
+  return new Promise((resolve) => {
+    /** @type {{root: string, options: Record<string, unknown>} | null | undefined} */
+    let answer;
+    const language = LSP_LANGUAGE_NAMES[info.language] ?? info.language;
+    const editable = info.editable === true;
+    const checkout = typeof info.checkoutRoot === 'string'
+      ? info.checkoutRoot
+      : '';
+    const detected = info.detected && typeof info.detected.root === 'string'
+      ? info.detected
+      : null;
+    const detectedRel = detected
+      ? (checkout ? relativeRoot(checkout, detected.root) : detected.root)
+      : '';
+    const facts = h(
+      'dl',
+      { class: 'lsp-settings-facts' },
+      h('dt', {}, 'Language'),
+      h('dd', {}, language),
+      h('dt', {}, 'Detected root'),
+      h('dd', {}, detected ? detected.root : 'none (this file is not served)'),
+      h('dt', {}, 'Server'),
+      h('dd', {}, detected?.server || '—'),
+    );
+    const fields = [];
+    /** @type {HTMLSelectElement | null} */
+    let $root = null;
+    /** @type {{key: string, type: string, el: HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement}[]} */
+    const inputs = [];
+    const $error = h('p', { class: 'lsp-settings-error', hidden: '' });
+    if (editable) {
+      // The checkout's folders down to the file's own, checkout-relative.
+      const parts = String(info.path ?? '').split('/').slice(0, -1);
+      const dirs = [
+        '.',
+        ...parts.map((_, i) => parts.slice(0, i + 1).join('/')),
+      ];
+      $root = /** @type {HTMLSelectElement} */ (h(
+        'select',
+        { 'aria-label': 'Root' },
+        h('option', { value: '' }, `Detected (${detectedRel || '?'})`),
+        ...dirs.map((d) => h('option', { value: d }, d)),
+      ));
+      const current = info.entry
+        ? (info.entry.root === '' ? '.' : info.entry.root)
+        : '';
+      $root.value = dirs.includes(current) ? current : '';
+      fields.push(
+        h(
+          'label',
+          { class: 'lsp-settings-field' },
+          h('span', {}, 'Root'),
+          $root,
+        ),
+      );
+      const options = Array.isArray(info.schema?.options)
+        ? info.schema.options
+        : [];
+      for (const opt of options) {
+        if (typeof opt?.key !== 'string') continue;
+        const set =
+          info.entry?.options && Object.hasOwn(info.entry.options, opt.key)
+            ? info.entry.options[opt.key]
+            : undefined;
+        let el;
+        if (opt.type === 'enum' && Array.isArray(opt.enum)) {
+          el = /** @type {HTMLSelectElement} */ (h(
+            'select',
+            { 'aria-label': opt.key },
+            h(
+              'option',
+              { value: '' },
+              `Default (${String(opt.default ?? '')})`,
+            ),
+            ...opt.enum.map((v) =>
+              h('option', { value: String(v) }, String(v))
+            ),
+          ));
+          el.value = set === undefined ? '' : String(set);
+        } else if (opt.type === 'json') {
+          el = /** @type {HTMLTextAreaElement} */ (h('textarea', {
+            class: 'lsp-settings-json',
+            rows: '4',
+            spellcheck: 'false',
+            'aria-label': opt.key,
+            placeholder: JSON.stringify(opt.default ?? {}),
+          }));
+          el.value = set === undefined ? '' : JSON.stringify(set, null, 2);
+        } else {
+          el = /** @type {HTMLInputElement} */ (h('input', {
+            type: 'text',
+            class: 'ask-input',
+            spellcheck: 'false',
+            autocomplete: 'off',
+            'aria-label': opt.key,
+            placeholder: String(opt.default ?? ''),
+          }));
+          el.value = set === undefined ? '' : String(set);
+        }
+        inputs.push({ key: opt.key, type: String(opt.type), el });
+        fields.push(h(
+          'label',
+          { class: 'lsp-settings-field', title: String(opt.description ?? '') },
+          h('span', {}, opt.key),
+          el,
+          opt.description
+            ? h(
+              'small',
+              { class: 'lsp-settings-help' },
+              String(opt.description),
+            )
+            : null,
+        ));
+      }
+    } else {
+      fields.push(h(
+        'p',
+        { class: 'lsp-settings-help' },
+        'Only a file in one of the project’s repos has per-project settings.',
+      ));
+    }
+    const save = () => {
+      /** @type {Record<string, unknown>} */
+      const options = {};
+      for (const { key, type, el } of inputs) {
+        const v = el.value.trim();
+        if (v === '') continue;
+        if (type === 'json') {
+          let parsed;
+          try {
+            parsed = JSON.parse(v);
+          } catch {
+            parsed = null;
+          }
+          if (
+            typeof parsed !== 'object' || parsed === null ||
+            Array.isArray(parsed)
+          ) {
+            $error.textContent = `${key} must be a JSON object`;
+            $error.hidden = false;
+            el.focus();
+            return;
+          }
+          options[key] = parsed;
+        } else options[key] = v;
+      }
+      const chosen = $root?.value ?? '';
+      const root = chosen === '' ? detectedRel : chosen;
+      if (chosen === '' && (!detected || root.startsWith('/'))) {
+        $error.textContent =
+          'The detected root is not in this checkout: pick a root';
+        $error.hidden = false;
+        return;
+      }
+      answer = { root: root === '.' ? '' : root, options };
+      el.close();
+    };
+    const buttons = editable
+      ? [
+        h('button', {
+          type: 'button',
+          onclick: () => {
+            answer = null;
+            el.close();
+          },
+        }, 'Reset to detected'),
+        h('span', { class: 'lsp-settings-gap' }),
+        h('button', { type: 'button', onclick: () => el.close() }, 'Cancel'),
+        h(
+          'button',
+          { type: 'button', class: 'primary', onclick: save },
+          'Save',
+        ),
+      ]
+      : [
+        h('span', { class: 'lsp-settings-gap' }),
+        h('button', { type: 'button', onclick: () => el.close() }, 'Close'),
+      ];
+    const el = /** @type {HTMLDialogElement} */ (h(
+      'dialog',
+      {
+        class: 'dialog ask lsp-settings',
+        'aria-label': 'Language server settings',
+        onclose: () => {
+          el.remove();
+          resolve(answer);
+        },
+      },
+      h(
+        'div',
+        { class: 'ask-body' },
+        h('p', { class: 'ask-message' }, `Language server settings: ${name}`),
+        facts,
+        ...fields,
+        $error,
+      ),
+      h('footer', { class: 'dialog-footer ask-footer' }, ...buttons),
+    ));
+    document.body.append(el);
+    el.showModal();
+  });
 }
 
 /** Marks a file tile edited or not, in its tab and Layout row. A first edit keeps a preview. */
@@ -756,6 +1098,7 @@ function unmountFileTile(tile) {
   const view = fileViews.get(tile.id);
   if (!view) return;
   view.seq++;
+  detachTile(tile.id);
   view.viewer?.destroy();
   view.media?.dispose();
   fileViews.delete(tile.id);
@@ -2525,6 +2868,10 @@ function tileState(tile) {
     dirty: file?.dirty ?? false,
     saveable: Boolean(file?.dirty && fileEditable(file)),
     url: diffViews.get(tile.id)?.data?.fileUrl ?? null,
+    lsp: file && tile.file && !file.media && lspLanguageFor(tile.file.path) &&
+        containerByFolder(tile.file.localFolder)?.state === 'connected'
+      ? { restart: tileRestartable(tile.id), settings: true }
+      : null,
   };
 }
 
@@ -3573,6 +3920,14 @@ export function mountTiles(root, opts) {
   });
   window.addEventListener('blur', reportPageState);
   document.addEventListener('visibilitychange', reportPageState);
+  setLspHooks({
+    openFile: (file) => openFile(file, 'preview'),
+    changed: (key) => {
+      const view = fileViews.get(key);
+      if (view) renderLspStatus(view);
+      viewChanged();
+    },
+  });
   onServerMessage(onTilesMessage);
   onConnectionChange(onTilesConnection);
   acceptNativeDrops(root);

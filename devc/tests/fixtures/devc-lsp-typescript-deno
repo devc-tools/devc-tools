@@ -1,0 +1,163 @@
+#!/usr/bin/env -S deno run -A
+// A stub `devc-lsp-typescript` launcher that serves every TypeScript or JavaScript file with
+// `deno lsp`, for trying devc web's language servers before any language Feature exists (see
+// `.plans/devc-web-lsp-core.md` § Launcher contract). Install it in a container that has `deno`:
+//
+//   devc exec -- sudo install -m 755 devc/tests/fixtures/devc-lsp-typescript-deno \
+//     /usr/local/bin/devc-lsp-typescript
+//
+//   devc-lsp-typescript describe <file> [--root <dir>] [--options <b64>]
+//   devc-lsp-typescript serve --root <root> [--options <b64>]
+//   devc-lsp-typescript options
+
+const LANGUAGE_IDS: Record<string, string> = {
+  ts: 'typescript',
+  mts: 'typescript',
+  cts: 'typescript',
+  tsx: 'typescriptreact',
+  js: 'javascript',
+  mjs: 'javascript',
+  cjs: 'javascript',
+  jsx: 'javascriptreact',
+};
+
+const [command, ...rest] = Deno.args;
+
+function flag(name: string): string | undefined {
+  const i = rest.indexOf(name);
+  return i === -1 ? undefined : rest[i + 1];
+}
+
+function fail(code: number, message: string): never {
+  console.error(message);
+  Deno.exit(code);
+}
+
+type Obj = Record<string, unknown>;
+
+function isObject(v: unknown): v is Obj {
+  return typeof v === 'object' && v !== null && !Array.isArray(v);
+}
+
+/** `--options`, decoded and checked: base64 of a JSON object. Exit 1 when it isn't one. */
+function options(): Obj {
+  const raw = flag('--options');
+  if (raw === undefined) return {};
+  let parsed: unknown;
+  try {
+    const bin = atob(raw);
+    parsed = JSON.parse(
+      new TextDecoder().decode(Uint8Array.from(bin, (c) => c.charCodeAt(0))),
+    );
+  } catch {
+    fail(1, 'bad --options: not base64 of JSON');
+  }
+  if (!isObject(parsed)) fail(1, 'bad --options: not a JSON object');
+  for (const key of Object.keys(parsed)) {
+    if (key !== 'settings') console.error(`ignoring unknown option ${key}`);
+  }
+  if (parsed.settings !== undefined && !isObject(parsed.settings)) {
+    fail(1, 'bad --options: settings must be a JSON object');
+  }
+  return parsed;
+}
+
+/** Objects merge recursively; anything else is replaced. */
+function deepMerge(base: unknown, add: unknown): unknown {
+  if (!isObject(base) || !isObject(add)) return add;
+  const out: Obj = { ...base };
+  for (const [k, v] of Object.entries(add)) out[k] = deepMerge(base[k], v);
+  return out;
+}
+
+function dirname(path: string): string {
+  const i = path.lastIndexOf('/');
+  return i <= 0 ? '/' : path.slice(0, i);
+}
+
+async function gitTop(dir: string): Promise<string> {
+  try {
+    const out = await new Deno.Command('git', {
+      args: ['-C', dir, 'rev-parse', '--show-toplevel'],
+      stdout: 'piped',
+      stderr: 'null',
+    }).output();
+    const top = new TextDecoder().decode(out.stdout).trim();
+    return out.code === 0 && top ? top : '/';
+  } catch {
+    return '/';
+  }
+}
+
+switch (command) {
+  case 'describe': {
+    const file = rest[0];
+    if (!file || !file.startsWith('/')) {
+      fail(1, 'describe needs an absolute file');
+    }
+    const ext = file.slice(file.lastIndexOf('.') + 1).toLowerCase();
+    const languageId = LANGUAGE_IDS[ext];
+    if (!languageId) fail(3, 'not a TypeScript or JavaScript file');
+    const opts = options();
+    const dir = dirname(file);
+    let root = flag('--root');
+    if (root !== undefined) {
+      root = root.length > 1 ? root.replace(/\/+$/, '') : root;
+      if (
+        !root.startsWith('/') ||
+        !(dir === root || dir.startsWith(root === '/' ? '/' : `${root}/`))
+      ) {
+        fail(3, 'root does not contain the file');
+      }
+    } else root = await gitTop(dir);
+    const settings = deepMerge({ deno: { enable: true } }, opts.settings ?? {});
+    console.log(JSON.stringify({
+      protocol: 1,
+      root,
+      languageId,
+      server: 'deno lsp (stub)',
+      initializationOptions: { enable: true },
+      settings,
+    }));
+    break;
+  }
+  case 'serve': {
+    options();
+    const root = flag('--root');
+    const child = new Deno.Command('deno', {
+      args: ['lsp'],
+      ...(root ? { cwd: root } : {}),
+      stdin: 'inherit',
+      stdout: 'inherit',
+      stderr: 'inherit',
+    }).spawn();
+    for (const sig of ['SIGTERM', 'SIGINT'] as const) {
+      Deno.addSignalListener(sig, () => {
+        try {
+          child.kill(sig);
+        } catch { /* already gone */ }
+      });
+    }
+    const { code } = await child.status;
+    Deno.exit(code);
+    break;
+  }
+  case 'options':
+    console.log(JSON.stringify({
+      protocol: 1,
+      options: [{
+        key: 'settings',
+        type: 'json',
+        default: {},
+        description: 'Deep-merged into the server settings (`deno.*`).',
+      }],
+    }));
+    break;
+  default:
+    fail(
+      1,
+      `usage: devc-lsp-typescript describe|serve|options (got ${
+        command ?? 'nothing'
+      })`,
+    );
+}

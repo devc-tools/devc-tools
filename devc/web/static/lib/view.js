@@ -37,6 +37,10 @@ import {
  * @property {boolean} dirty          a file tile with unsaved edits
  * @property {boolean} saveable       a file tile whose edits Save would write now
  * @property {string | null} url      a diff tile's file on github.com, once known
+ * @property {{restart: boolean, settings: boolean} | null} [lsp]
+ *   a file tile's language server items: **Restart language server** while it is attached or its
+ *   session exited, **Language server settings…** while its file has one and its container is
+ *   connected; null for neither
  */
 
 /**
@@ -81,6 +85,8 @@ import {
  *   a PR file was marked Viewed or not in the sidebar: its diff tiles show it
  * @property {(id: string) => void} askAgent  a file or diff tile's **Ask agent…**: the dialog
  *   asking an agent about its file, with what is selected in it
+ * @property {(id: string) => void} restartLanguage  a file tile's **Restart language server**
+ * @property {(id: string) => void} languageSettings a file tile's **Language server settings…**
  */
 
 /**
@@ -298,6 +304,8 @@ export const VIEW_INTENT_NAMES = Object.freeze([
   'reload',
   'prViewed',
   'askAgent',
+  'restartLanguage',
+  'languageSettings',
 ]);
 
 /** The {@link SidebarIntents} a `sidebar_intent` may name. */

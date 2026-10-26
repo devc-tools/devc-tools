@@ -14,6 +14,8 @@ Deno.test('languageFor picks a language by extension, case-insensitively', () =>
     ['style.css', 'css'],
     ['index.html', 'html'],
     ['tool.py', 'python'],
+    ['Main.java', 'java'],
+    ['Legacy.JAVA', 'java'],
     ['main.go', 'go'],
     ['lib.rs', 'rust'],
     ['compose.yml', 'yaml'],

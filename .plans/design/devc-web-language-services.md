@@ -545,7 +545,13 @@ generated-source fixes.
 
 Settled with the user on 2026-10-23, and carried into four plans:
 
-- **Settings:** Feature options in the project's `devcontainer.json`.
+- **Settings:** per project, set from devc web's **Language server settings…** and stored on
+  the host in the repo's devc config directory
+  (`~/.config/devc/repos/<name>-<hash>/language-servers.json`, shared by every worktree; the
+  root is detected per file by the launcher and can be overridden there). Feature options are
+  only container-wide defaults. (Revised 2026-10-24: a container holds several projects, so
+  nothing project-specific is baked into the image. The first version put the settings in
+  Feature options in the project's `devcontainer.json`.)
 - **Start:** automatic on opening a file; stop after 30 idle minutes.
 - **Java pre-build:** IntelliJ-style **Build (Gradle)** action, plus an automatic reload when a
   generated-source folder appears.

@@ -718,7 +718,20 @@ function fileTileMenuItems(tile) {
     const fr = fileRootOf(file);
     const asMedia = fileView(file) === 'media';
     if (tile.saveable) items.push(['Save', () => tileArea.save(tile.id)]);
-    items.push(['Reload', () => tileArea.reload(tile.id)], null);
+    items.push(['Reload', () => tileArea.reload(tile.id)]);
+    if (tile.lsp?.restart) {
+      items.push([
+        'Restart language server',
+        () => tileArea.restartLanguage(tile.id),
+      ]);
+    }
+    if (tile.lsp?.settings) {
+      items.push([
+        'Language server settings…',
+        () => tileArea.languageSettings(tile.id),
+      ]);
+    }
+    items.push(null);
     items.push([LABELS.askAgent, () => tileArea.askAgent(tile.id)], null);
     if (previewable(file.path)) {
       items.push(

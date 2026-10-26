@@ -169,6 +169,34 @@ export type ClientMessage =
     base?: string;
   }
   | { type: 'locate_file'; id: string; container: string; path: string }
+  /**
+   * Starts or reuses the language server for a file in an editable tile and attaches this
+   * connection to its session: addressed as `write_file` addresses its file.
+   */
+  | {
+    type: 'lsp_attach' | 'lsp_settings_get';
+    id: string;
+    container: string;
+    /** A repo folder `path` is relative to; without one, `path` is a container path. */
+    root?: string;
+    path: string;
+  }
+  /** One LSP message for an attached session's server: a plain object, never answered here. */
+  | { type: 'lsp_send'; session: string; message: Record<string, unknown> }
+  | { type: 'lsp_detach'; session: string }
+  | { type: 'lsp_restart'; id: string; session: string }
+  /**
+   * Sets (or with `entry: null`, removes) the per-project language server settings that apply to
+   * a repo file: `entry.root` is checkout-relative and must contain the file.
+   */
+  | {
+    type: 'lsp_settings_set';
+    id: string;
+    container: string;
+    root: string;
+    path: string;
+    entry: { root: string; options: Record<string, unknown> } | null;
+  }
   | {
     type: 'open_in_code';
     id: string;
@@ -335,6 +363,8 @@ export const VIEW_INTENT_NAMES = [
   'reload',
   'prViewed',
   'askAgent',
+  'restartLanguage',
+  'languageSettings',
 ] as const;
 export type ViewIntentName = typeof VIEW_INTENT_NAMES[number];
 /** The `SidebarIntents` methods (`static/lib/view.js`) a `sidebar_intent` may name. */
@@ -349,6 +379,8 @@ export const MAX_INTENT_ARGS = 4;
 export const MAX_VIEW_TILES = 500;
 /** The longest `view_*` / `sidebar_intent` frame, in UTF-16 code units of its text. */
 export const MAX_VIEW_MESSAGE = 256 * 1024;
+/** The longest `lsp_send` frame, in UTF-16 code units of its text. */
+export const MAX_LSP_MESSAGE = 8 * 1024 * 1024;
 
 /** A viewport cell, zero-based: the same space as `mouse`. */
 export type Cell = { column: number; row: number };
@@ -454,6 +486,15 @@ function viewState(o: Obj): Record<string, unknown> {
     throw new Invalid(`'state.tree' must be an object or null`);
   }
   return s;
+}
+
+/** A plain JSON object (not an array, not null). */
+function plainObject(o: Obj, k: string): Record<string, unknown> {
+  const v = o[k];
+  if (typeof v !== 'object' || v === null || Array.isArray(v)) {
+    throw new Invalid(`'${k}' must be an object`);
+  }
+  return v as Record<string, unknown>;
 }
 
 /** A host folder: an absolute path. */
@@ -614,6 +655,12 @@ export function parseClientMessage(raw: string): ParseResult {
       m.type === 'view_intent' || m.type === 'sidebar_intent') &&
     raw.length > MAX_VIEW_MESSAGE
   ) {
+    return {
+      ok: false,
+      rejection: { code: 'bad_request', message: 'message too large' },
+    };
+  }
+  if (m.type === 'lsp_send' && raw.length > MAX_LSP_MESSAGE) {
     return {
       ok: false,
       rejection: { code: 'bad_request', message: 'message too large' },
@@ -844,6 +891,46 @@ function parseFields(m: Obj): ClientMessage {
         id: str(m, 'id'),
         container: str(m, 'container'),
         path,
+      };
+    }
+    case 'lsp_attach':
+    case 'lsp_settings_get':
+      return {
+        type: m.type,
+        id: str(m, 'id'),
+        container: str(m, 'container'),
+        ...(m.root === undefined
+          ? { path: newEntryPath(m, false) }
+          : { root: absolute(m, 'root'), path: newEntryPath(m, true) }),
+      };
+    case 'lsp_send':
+      return {
+        type: 'lsp_send',
+        session: str(m, 'session'),
+        message: plainObject(m, 'message'),
+      };
+    case 'lsp_detach':
+      return { type: 'lsp_detach', session: str(m, 'session') };
+    case 'lsp_restart':
+      return {
+        type: 'lsp_restart',
+        id: str(m, 'id'),
+        session: str(m, 'session'),
+      };
+    case 'lsp_settings_set': {
+      let entry: { root: string; options: Record<string, unknown> } | null =
+        null;
+      if (m.entry !== null) {
+        const e = plainObject(m, 'entry');
+        entry = { root: text(e, 'root'), options: plainObject(e, 'options') };
+      }
+      return {
+        type: 'lsp_settings_set',
+        id: str(m, 'id'),
+        container: str(m, 'container'),
+        root: absolute(m, 'root'),
+        path: newEntryPath(m, true),
+        entry,
       };
     }
     case 'open_in_code':

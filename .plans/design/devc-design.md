@@ -1003,6 +1003,17 @@ On a successful listen, stdout gets exactly one line,
 `devc: docker not found on PATH` and exits 1. SIGINT/SIGTERM release every pane controller,
 close every bridge and exit 0.
 
+Language intelligence in the file editor comes from language servers that run **inside the
+file's container**, behind one launcher per language that a language Feature installs
+(`devc-lsp-<language> describe|serve|options`, specified in `devc/README.md` § Language server
+launchers); devc web starts nothing of its own there and needs no Feature to run. The devc web
+server is the only LSP client a server sees: it multiplexes every attached page onto one session
+per container, language, project root and per-project options (one `initialize`, host-numbered
+documents, remapped request ids, pulled diagnostics pushed), watches the root's host side of the
+bind mount and forwards `workspace/didChangeWatchedFiles`, and stops a session 30 idle minutes
+after its last tile closes. Per-project settings (root, launcher options) live on the host in
+the repo's devc config directory, `~/.config/devc/repos/<name>-<hash>/language-servers.json`.
+
 ## `time`
 
 Show time spent by you and by agents, from the activity log `devc web` keeps while it runs

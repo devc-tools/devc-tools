@@ -1927,6 +1927,88 @@ button * {
   height: 100%;
 }
 
+/* A file tile's language server status line (lsp.js): small, at its bottom right, over the
+   editor; hidden while the server is ready and idle. */
+.lsp-status {
+  position: absolute;
+  right: 14px;
+  bottom: 4px;
+  z-index: 3;
+  max-width: calc(100% - 28px);
+  overflow: hidden;
+  padding: 1px 6px;
+  font-size: calc(var(--font-size) - 2px);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--muted);
+  background: color-mix(in srgb, var(--panel) 85%, transparent);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  pointer-events: none;
+}
+
+.lsp-status[hidden] {
+  display: none;
+}
+
+/* Language server settings… */
+.dialog.lsp-settings {
+  width: min(560px, calc(100vw - 32px));
+  max-height: calc(100vh - 32px);
+  overflow: auto;
+}
+
+.lsp-settings-facts {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 2px 12px;
+  margin: 0;
+}
+
+.lsp-settings-facts dt {
+  color: var(--muted);
+}
+
+.lsp-settings-facts dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.lsp-settings-field {
+  display: grid;
+  gap: 3px;
+}
+
+.lsp-settings-field select,
+.lsp-settings-json {
+  padding: 4px 6px;
+  font: inherit;
+  color: var(--text);
+  background: var(--term-bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+
+.lsp-settings-json {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  resize: vertical;
+}
+
+.lsp-settings-help {
+  margin: 0;
+  color: var(--muted);
+  font-size: calc(var(--font-size) - 1px);
+}
+
+.lsp-settings-error {
+  margin: 0;
+  color: var(--danger);
+}
+
+.lsp-settings-gap {
+  flex: 1;
+}
+
 /* A file tile's media view: an image, or an HTML page in a sandboxed frame. */
 .media-view {
   position: absolute;

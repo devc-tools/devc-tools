@@ -174,6 +174,9 @@ import {
 import { type Delivery, ViewRegistry } from './views.ts';
 import { PR_MESSAGE_TYPES, type PrMessage, PrReview } from './pr_review.ts';
 import { closeGracefully, liveProcs } from './proc.ts';
+import { LspError, LspManager, type LspTarget } from './lsp_manager.ts';
+import { LspConfigStore } from './lsp_config.ts';
+import { lspIdleMs } from './lsp_session.ts';
 import { paneScroll, toTextPoint } from './selection.ts';
 import {
   EMBEDDED_GENERATION,
@@ -527,6 +530,17 @@ export async function startWeb(
   const containerHomes = new Map<string, string | null>();
   const clients = new Set<Client>();
   const controllers = new ControllerManager();
+  // Language servers for the file editor (`lsp_*`): one session per container, language, root and
+  // per-project options, shared by every page; the repos' `language-servers.json` re-read on
+  // change, which restarts the sessions it affects.
+  const lspConfig = new LspConfigStore({
+    watch: (path, onChange) => watchConfigFile(path, onChange),
+    onChange: (path) => void lsp.settingsChanged(path),
+  });
+  const lsp: LspManager = new LspManager({
+    idleMs: lspIdleMs(Deno.env),
+    config: lspConfig,
+  });
   /** The `/sidebar` and `/main` pages' views, and what they relay to each other. */
   const views = new ViewRegistry<Client>();
   const deliver = (out: Delivery<Client>[]) => {
@@ -934,6 +948,7 @@ export async function startWeb(
     taskRunsSeen(id, null);
     activity.containerGone(session.record.localFolder);
     void controllers.closeContainer(id, 'container stopped');
+    lsp.containerGone(id);
     void session.dispose();
     broadcast(containersMessage());
     broadcastProjects();
@@ -1310,6 +1325,69 @@ export async function startWeb(
       reply(c, { id: msg.id, ok: true, result });
     } catch (e) {
       fail(c, msg.id, e instanceof FilesError ? e.code : 'write_failed', e);
+    }
+  };
+
+  /**
+   * The file an `lsp_attach`, `lsp_settings_get` or `lsp_settings_set` names, as the language
+   * servers take it: with `root`, a file in that repo folder (confined and mounted, as
+   * `write_file`'s); without, a container path. Null once refused.
+   */
+  const lspTarget = async (
+    c: Client,
+    session: ContainerSession,
+    msg: { id: string; root?: string; path: string },
+  ): Promise<LspTarget | null> => {
+    const path = msg.root === undefined
+      ? msg.path
+      : await repoContainerPath(c, session, {
+        id: msg.id,
+        root: msg.root,
+        path: msg.path,
+      });
+    if (path === null) return null;
+    const hostPath = msg.root === undefined
+      ? null
+      : await confine(msg.root, msg.path).catch(() => null);
+    return {
+      info: await connectionOf(session),
+      mounts: await mountsOf(session.record.id),
+      path,
+      ...(msg.root !== undefined && hostPath
+        ? { repo: { folder: msg.root, hostPath } }
+        : {}),
+    };
+  };
+
+  /**
+   * The language server messages that name a file: `lsp_attach` (start or reuse its session and
+   * attach this connection), `lsp_settings_get` and `lsp_settings_set`. Only a connected
+   * container's files: an editable tile's.
+   */
+  const handleLsp = async (
+    c: Client,
+    session: ContainerSession,
+    msg: Extract<
+      ClientMessage,
+      { type: 'lsp_attach' | 'lsp_settings_get' | 'lsp_settings_set' }
+    >,
+  ) => {
+    if (session.state !== 'connected') {
+      fail(c, msg.id, 'not_connected', 'the container is not connected');
+      return;
+    }
+    try {
+      const target = await lspTarget(c, session, msg);
+      if (target === null) return;
+      let result: unknown = {};
+      if (msg.type === 'lsp_settings_set') {
+        await lsp.settingsSet(target, msg.entry);
+      } else if (msg.type === 'lsp_attach') {
+        result = await lsp.attach(c, target);
+      } else result = await lsp.settingsGet(target);
+      reply(c, { id: msg.id, ok: true, result });
+    } catch (e) {
+      fail(c, msg.id, e instanceof LspError ? e.code : 'describe_failed', e);
     }
   };
 
@@ -2611,6 +2689,24 @@ export async function startWeb(
       );
       return;
     }
+    // Language server messages that name a session, not a container.
+    if (msg.type === 'lsp_send') {
+      lsp.send(c, msg.session, msg.message);
+      return;
+    }
+    if (msg.type === 'lsp_detach') {
+      lsp.detach(c, msg.session);
+      return;
+    }
+    if (msg.type === 'lsp_restart') {
+      try {
+        await lsp.restart(msg.session);
+        reply(c, { id: msg.id, ok: true, result: {} });
+      } catch (e) {
+        fail(c, msg.id, e instanceof LspError ? e.code : 'start_failed', e);
+      }
+      return;
+    }
     if ('localFolder' in msg) {
       await handleProject(c, msg);
       return;
@@ -2624,6 +2720,13 @@ export async function startWeb(
         msg.type === 'ask_agent'
       ) {
         fail(c, msg.id, 'not_running', 'the container is not running');
+        return;
+      }
+      if (
+        msg.type === 'lsp_attach' || msg.type === 'lsp_settings_get' ||
+        msg.type === 'lsp_settings_set'
+      ) {
+        fail(c, msg.id, 'not_connected', 'the container is not running');
         return;
       }
       reject(c, { id, code: 'bad_request', message: 'unknown container' });
@@ -2669,6 +2772,11 @@ export async function startWeb(
         return;
       case 'write_file':
         await writeFile(c, session, msg);
+        return;
+      case 'lsp_attach':
+      case 'lsp_settings_get':
+      case 'lsp_settings_set':
+        await handleLsp(c, session, msg);
         return;
       case 'rename_file':
       case 'delete_file':
@@ -2882,6 +2990,7 @@ export async function startWeb(
       clients.delete(client);
       views.leave(client);
       controllers.closeAll(client);
+      lsp.detachAll(client);
       activity.clientGone(client.activityId);
     };
     socket.onerror = () => {};
@@ -3089,7 +3198,8 @@ export async function startWeb(
       await activity.flush();
       await writeDayRollup(localDate(new Date()), { complete: false })
         .catch(logActivityError);
-      await controllers.releaseAll();
+      lspConfig.stop();
+      await Promise.all([controllers.releaseAll(), lsp.shutdown()]);
       await Promise.all([...sessions.values()].map((s) => s.dispose()));
       await Promise.all(liveProcs().map((p) => closeGracefully(p, 1000)));
       await server.shutdown().catch(() => {});

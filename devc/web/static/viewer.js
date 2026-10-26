@@ -3,8 +3,11 @@
 // app.js says the file can be saved (undo, Tab indents; app.js saves on Ctrl/Cmd-S). The only
 // module that imports CodeMirror (as `renderer.js` is for xterm.js and `layout.js` for Golden
 // Layout), so app.js talks to it through `createViewer` alone, and diff tiles colour their rows
-// through `highlightLines`, with the same parsers and colours. See
-// `.plans/devc-web-file-viewer.md` and `.plans/devc-web-editable-viewer.md`.
+// through `highlightLines`, with the same parsers and colours. An editable view can also take a
+// language server's completion, hover, signature help, definitions, references, formatting and
+// diagnostics (`createLanguageClient`, `Viewer.attachLanguage`), relayed by `lsp.js`. See
+// `.plans/devc-web-file-viewer.md`, `.plans/devc-web-editable-viewer.md` and
+// `.plans/devc-web-lsp-core.md`.
 
 import {
   bracketMatching,
@@ -15,8 +18,10 @@ import {
   drawSelection,
   EditorState,
   EditorView,
+  findReferencesKeymap,
   foldGutter,
   foldKeymap,
+  formatKeymap,
   go,
   highlightActiveLine,
   highlightActiveLineGutter,
@@ -26,25 +31,35 @@ import {
   highlightTree,
   history,
   historyKeymap,
+  hoverTooltips,
   html,
   indentOnInput,
   indentWithTab,
+  java,
   javascript,
   json,
+  jumpToDefinitionKeymap,
   keymap,
   lineNumbers,
+  LSPClient,
+  LSPPlugin,
   markdown,
   python,
   rust,
   search,
   searchKeymap,
+  serverCompletion,
+  serverDiagnostics,
+  setDiagnostics,
   shell,
+  signatureHelp,
   sql,
   StreamLanguage,
   StyleModule,
   syntaxHighlighting,
   tags,
   toml,
+  Workspace,
   yaml,
 } from './vendor/codemirror/codemirror.mjs';
 import { languageFor as pickLanguage } from './lib/languages.js';
@@ -65,6 +80,12 @@ import { languageFor as pickLanguage } from './lib/languages.js';
  *   the main selection's text and the 1-based lines it spans; null while nothing is selected
  * @property {() => void} focus
  * @property {() => void} destroy
+ * @property {(lsp: {client: any, uri: string, languageId: string}) => boolean} attachLanguage
+ *   gives the view a language server's features for the file at `uri`; false (and nothing
+ *   changes) when another view on the client already has that URI
+ * @property {() => void} detachLanguage  takes them away again (and their diagnostics)
+ * @property {string | null} languageUri  the URI attached, or null
+ * @property {EditorView} view            the CodeMirror view, for the language client's jumps
  */
 
 /**
@@ -88,6 +109,7 @@ const LANGUAGES = {
   css: () => css(),
   html: () => html(),
   python: () => python(),
+  java: () => java(),
   go: () => go(),
   rust: () => rust(),
   yaml: () => yaml(),
@@ -178,6 +200,24 @@ const theme = EditorView.theme({
     backgroundColor: 'var(--panel)',
     color: 'var(--text)',
     border: '1px solid var(--border)',
+  },
+  // A language server's hover and completion docs, and its references panel.
+  '.cm-tooltip.cm-tooltip-hover, .cm-tooltip.cm-completionInfo': {
+    maxWidth: 'min(60em, 90vw)',
+    maxHeight: '20em',
+    overflow: 'auto',
+  },
+  '.cm-lsp-documentation pre, .cm-lsp-documentation code': {
+    fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
+    whiteSpace: 'pre-wrap',
+  },
+  '.cm-lsp-documentation a': { color: 'var(--accent)' },
+  '.cm-tooltip-autocomplete ul li[aria-selected]': {
+    backgroundColor: 'color-mix(in srgb, var(--accent) 30%, transparent)',
+    color: 'var(--text)',
+  },
+  '.cm-lsp-reference-panel .cm-lsp-reference[aria-selected]': {
+    backgroundColor: 'color-mix(in srgb, var(--accent) 30%, transparent)',
   },
 }, { dark: true });
 
@@ -325,6 +365,10 @@ export function createViewer(
 ) {
   const lang = languageFor(name);
   const access = new Compartment();
+  /** A language server's extensions, while one is attached (see `attachLanguage`). */
+  const language = new Compartment();
+  /** @type {string | null} */
+  let languageUri = null;
   /** @param {boolean} on */
   const accessFor = (on) => [
     EditorState.readOnly.of(!on),
@@ -348,6 +392,9 @@ export function createViewer(
         bracketMatching(),
         highlightSelectionMatches(),
         search({ top: true }),
+        // Ahead of the keymap below, so its keys (F12, Shift-F12, Shift-Alt-F, Escape on the
+        // references panel) win.
+        language.of([]),
         keymap.of([
           ...searchKeymap,
           ...foldKeymap,
@@ -446,5 +493,209 @@ export function createViewer(
     destroy() {
       view.destroy();
     },
+    attachLanguage({ client, uri, languageId }) {
+      if (languageUri === uri) return true;
+      if (client.workspace.getFile(uri)) return false;
+      if (languageUri !== null) this.detachLanguage();
+      view.dispatch({
+        effects: language.reconfigure([
+          client.plugin(uri, languageId),
+          serverCompletion(),
+          hoverTooltips(),
+          signatureHelp(),
+          // No renameKeymap: a rename would reach open files only.
+          keymap.of([
+            ...jumpToDefinitionKeymap,
+            ...findReferencesKeymap,
+            ...formatKeymap,
+          ]),
+        ]),
+      });
+      languageUri = uri;
+      return true;
+    },
+    detachLanguage() {
+      if (languageUri === null) return;
+      languageUri = null;
+      view.dispatch({ effects: language.reconfigure([]) });
+      view.dispatch(setDiagnostics(view.state, []));
+    },
+    get languageUri() {
+      return languageUri;
+    },
+    view,
+  };
+}
+
+// ---------------------------------------------------------------------------------------------
+// Language servers: the client half (`@codemirror/lsp-client`), one client per session per page
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * A language server's Markdown, as HTML safe to put in the page: only plain formatting tags
+ * survive, with no attributes but a link's http(s) `href` and a code block's `class`. A doc
+ * comment in a repo reaches the hover tooltip through the server, and this page holds shells in
+ * every container.
+ *
+ * @param {string} html
+ */
+export function sanitizeLspHtml(html) {
+  const ALLOWED = new Set([
+    'A',
+    'B',
+    'BLOCKQUOTE',
+    'BR',
+    'CODE',
+    'DEL',
+    'DIV',
+    'EM',
+    'H1',
+    'H2',
+    'H3',
+    'H4',
+    'H5',
+    'H6',
+    'HR',
+    'I',
+    'LI',
+    'OL',
+    'P',
+    'PRE',
+    'S',
+    'SPAN',
+    'STRONG',
+    'SUB',
+    'SUP',
+    'TABLE',
+    'TBODY',
+    'TD',
+    'TH',
+    'THEAD',
+    'TR',
+    'UL',
+  ]);
+  const doc = new DOMParser().parseFromString(
+    `<body>${html}</body>`,
+    'text/html',
+  );
+  /** @param {Element} el */
+  const clean = (el) => {
+    for (const child of [...el.children]) {
+      if (!ALLOWED.has(child.tagName)) {
+        // Unknown elements keep their text; scripts, styles and frames go whole.
+        if (
+          /^(SCRIPT|STYLE|IFRAME|OBJECT|EMBED|TEMPLATE|NOSCRIPT)$/.test(
+            child.tagName,
+          )
+        ) {
+          child.remove();
+        } else {
+          clean(child);
+          child.replaceWith(...child.childNodes);
+        }
+        continue;
+      }
+      for (const attr of [...child.attributes]) {
+        const keep = (child.tagName === 'A' && attr.name === 'href' &&
+          /^https?:/i.test(attr.value)) ||
+          (attr.name === 'class' && /^(CODE|SPAN|PRE)$/.test(child.tagName));
+        if (!keep) child.removeAttribute(attr.name);
+      }
+      if (child.tagName === 'A') {
+        child.setAttribute('target', '_blank');
+        child.setAttribute('rel', 'noopener noreferrer');
+      }
+      clean(child);
+    }
+  };
+  clean(doc.body);
+  return doc.body.innerHTML;
+}
+
+/**
+ * The client's workspace: one file per URI, each with the one view attached to it. Jumps to
+ * another file go to `hooks.displayFile`. References list the open files' only: lsp-client 6.3.0's
+ * panel maps every position through the workspace, and throws for a file not in it.
+ */
+class DevcWorkspace extends Workspace {
+  /**
+   * @param {any} client
+   * @param {{displayFile: (uri: string) => Promise<EditorView | null>}} hooks
+   */
+  constructor(client, hooks) {
+    super(client);
+    this.hooks = hooks;
+    /** @type {{uri: string, languageId: string, version: number, doc: any, view: EditorView, getView: () => EditorView}[]} */
+    this.files = [];
+  }
+
+  syncFiles() {
+    const result = [];
+    for (const file of this.files) {
+      const plugin = LSPPlugin.get(file.view);
+      if (!plugin) continue;
+      const changes = plugin.unsyncedChanges;
+      if (changes.empty) continue;
+      result.push({ changes, file, prevDoc: file.doc });
+      file.doc = file.view.state.doc;
+      file.version++;
+      plugin.clear();
+    }
+    return result;
+  }
+
+  /** @param {string} uri @param {string} languageId @param {EditorView} view */
+  openFile(uri, languageId, view) {
+    if (this.getFile(uri)) return;
+    const file = {
+      uri,
+      languageId,
+      version: 0,
+      doc: view.state.doc,
+      view,
+      getView: () => view,
+    };
+    this.files.push(file);
+    this.client.didOpen(file);
+  }
+
+  /** @param {string} uri @param {EditorView} view */
+  closeFile(uri, view) {
+    const file = this.getFile(uri);
+    if (!file || /** @type {any} */ (file).view !== view) return;
+    this.files = this.files.filter((f) => f !== file);
+    this.client.didClose(uri);
+  }
+
+  /** @param {string} uri */
+  displayFile(uri) {
+    return this.hooks.displayFile(uri);
+  }
+}
+
+/**
+ * A language client for one session: connected to `transport` (lsp.js's, over the page's
+ * socket), with a workspace whose jumps open tiles through `hooks`. Its `attach` gives a viewer
+ * the session's features for a file (see {@link Viewer.attachLanguage}).
+ *
+ * @param {{send: (message: string) => void, subscribe: (fn: (message: string) => void) => void,
+ *   unsubscribe: (fn: (message: string) => void) => void}} transport
+ * @param {{displayFile: (uri: string) => Promise<EditorView | null>}} hooks
+ */
+export function createLanguageClient(transport, hooks) {
+  const client = new LSPClient({
+    // The default 3 s is too short for a cold server's first completion.
+    timeout: 20000,
+    workspace: (/** @type {any} */ c) => new DevcWorkspace(c, hooks),
+    // Push diagnostics: the host turns a pull server's into these.
+    extensions: [serverDiagnostics()],
+    sanitizeHTML: sanitizeLspHtml,
+  });
+  client.connect(transport);
+  return {
+    client,
+    /** @param {Viewer} viewer @param {string} uri @param {string} languageId */
+    attach: (viewer, uri, languageId) =>
+      viewer.attachLanguage({ client, uri, languageId }),
   };
 }
