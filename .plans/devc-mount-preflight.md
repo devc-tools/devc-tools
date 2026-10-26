@@ -39,12 +39,12 @@ for what it **can** decide: malformed specs.
 
 ## Checklist
 
-- [ ] Step 1: mount validator — static spec checks and source-existence check (§ Step 1)
-- [ ] Step 2: pre-`up` validation in `startContainer` (§ Step 2)
-- [ ] Step 3: post-init check appended to the merged config's `initializeCommand` (§ Step 3)
-- [ ] Step 4: post-failure diagnosis in `startContainer` (§ Step 4)
-- [ ] Step 5: docs (§ Step 5)
-- [ ] Tests (§ Tests)
+- [x] Step 1: mount validator — static spec checks and source-existence check (§ Step 1)
+- [x] Step 2: pre-`up` validation in `startContainer` (§ Step 2)
+- [x] Step 3: post-init check appended to the merged config's `initializeCommand` (§ Step 3)
+- [x] Step 4: post-failure diagnosis in `startContainer` (§ Step 4)
+- [x] Step 5: docs (§ Step 5)
+- [x] Tests (§ Tests)
 
 ## Which mounts are checked
 
@@ -219,9 +219,9 @@ New `devc-core/tests/start_container_mount_check_test.ts`, end to end in a child
 
 ## Validation
 
-- [ ] `cd devc-core && deno task test` passes
-- [ ] `cd devc && deno task test` passes
-- [ ] `deno fmt --check` and `deno lint` pass at the repo root; `cd devc-core && deno check *.ts`
+- [x] `cd devc-core && deno task test` passes
+- [x] `cd devc && deno task test` passes
+- [x] `deno fmt --check` and `deno lint` pass at the repo root; `cd devc-core && deno check *.ts`
       passes
 - [ ] On a Docker host with an existing devc container for a project: add
       `"mounts": ["type=bind,source=/nonexistent/devc-check,target=/x"]` to the project's

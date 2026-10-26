@@ -10,6 +10,7 @@ import {
   projectKey,
 } from '../merged_config.ts';
 import { containerNameForLocalFolder } from '../container.ts';
+import { withMountSourceCheck } from '../mount_check.ts';
 import { bridgeMount, DEVC_CONFIG_FEATURE } from '../overlay.ts';
 import { repoOverlayDir } from '../repo.ts';
 import { withTemp } from './helpers.ts';
@@ -262,6 +263,50 @@ Deno.test('an overlay can delete a base config key outright', async () => {
     );
     const merged = await merge(dirs);
     assertEquals('initializeCommand' in merged.config, false);
+  });
+});
+
+// The project's own command runs first, then devc's source check. Only the merged file carries it.
+Deno.test('an overlay bind mount appends a source check to initializeCommand', async () => {
+  await withProject(async (dirs) => {
+    const own = JSON.stringify({ image: 'x', initializeCommand: 'setup.sh' });
+    await write(`${dirs.project}/.devcontainer/devcontainer.json`, own);
+    await write(
+      `${dirs.project}/.devc/devc.json`,
+      JSON.stringify({ mounts: ['type=bind,source=/host/x,target=/x'] }),
+    );
+    const merged = await merge(dirs);
+    const want = withMountSourceCheck('setup.sh', [{
+      source: '/host/x',
+      target: '/x',
+    }]);
+    assert(typeof want === 'string' && want.startsWith('(\nsetup.sh\n)'));
+    assertEquals(merged.config.initializeCommand, want);
+    assertEquals(
+      JSON.parse(await Deno.readTextFile(merged.path)).initializeCommand,
+      want,
+    );
+    assertEquals(
+      await Deno.readTextFile(
+        `${dirs.project}/.devcontainer/devcontainer.json`,
+      ),
+      own,
+    );
+  });
+});
+
+Deno.test('no bind mount, initializeCommand exactly as merged', async () => {
+  await withProject(async (dirs) => {
+    await write(
+      `${dirs.project}/.devcontainer/devcontainer.json`,
+      JSON.stringify({
+        image: 'x',
+        initializeCommand: 'setup.sh',
+        mounts: ['type=volume,source=v,target=/v'],
+      }),
+    );
+    const merged = await merge(dirs);
+    assertEquals(merged.config.initializeCommand, 'setup.sh');
   });
 });
 

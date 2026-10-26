@@ -44,6 +44,7 @@ import {
   type UnprotectedRow,
 } from './overlay.ts';
 import { basenamePosix, dirnamePosix, resolvePosix } from './posix.ts';
+import { checkableBindMounts, withMountSourceCheck } from './mount_check.ts';
 import { normalizePath } from './paths.ts';
 import { CONFIG_DIR } from './default_config.ts';
 
@@ -342,7 +343,13 @@ export interface MergedConfigOptions {
  * first pass, so `"features": null` clears the *base's* Features while devc's baseline still
  * applies — `baselineFeatures: false` is what turns devc's own contributions off.
  *
- * Writes on every call, unconditionally. The content is a pure function of its inputs, so
+ * `initializeCommand` gains a check that every bind mount source exists, appended after the
+ * project's own command (see {@link withMountSourceCheck}), so a missing source stops `up` right
+ * after init — before the image build, and before `devc build` removes the old container. Only
+ * this file carries it; the project's own config is untouched.
+ *
+ * Writes on every call, unconditionally. The content is a pure function of its inputs — the
+ * environment counted among them (`${localEnv:…}` in the checked sources, the platform) — so
  * concurrent callers write identical bytes; a call after an overlay edit is exactly the point.
  */
 export async function ensureMergedConfig(
@@ -393,6 +400,13 @@ export async function ensureMergedConfig(
   const config = mode === 'zero-config'
     ? absolutizePaths(merged, dirnamePosix(baseConfigPath))
     : merged;
+  const initializeCommand = withMountSourceCheck(
+    config.initializeCommand,
+    checkableBindMounts(config, localFolder),
+  );
+  if (initializeCommand !== config.initializeCommand) {
+    config.initializeCommand = initializeCommand;
+  }
 
   const path = await mergedConfigPath(localFolder, cacheRoot);
   await writeAtomic(path, `${JSON.stringify(config, null, 2)}\n`);

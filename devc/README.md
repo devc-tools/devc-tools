@@ -73,7 +73,10 @@ Notes:
   attaching, and prints the same line as `up`. Mounts are bound when the
   container is _created_, so this — not an image-only build — is what makes a
   `devcontainer.json` change take effect. `--no-cache` also rebuilds the image
-  without the Docker layer cache.
+  without the Docker layer cache. Mounts are checked before the image build —
+  malformed specs before anything runs, missing bind sources right after
+  `initializeCommand` — so a bad mount fails in seconds and `build` leaves the
+  existing container in place.
 - `attach --build` forces the same rebuild before attaching; `--no-clear` keeps
   the shell-init output on screen instead of clearing on the first prompt.
   `attach`/`claude`/`copilot`/`pi`/`herdr` exit with the attached shell/command's own
@@ -1363,6 +1366,13 @@ The `initializeCommand` is what creates the mount sources on a machine without
 auto-created directory). It has to be top-level — it is the only host-side
 lifecycle hook — so a project that needs its own `initializeCommand` should keep
 the `mkdir -p` in it.
+
+`devc` appends its own check to the command — in the merged config under
+`~/.cache/devc/`, never in the project's file — that every bind mount source
+exists once your command has run; a missing one stops `devcontainer up` there,
+naming the path, before the image build. An object-form `initializeCommand`
+(whose entries run in parallel) gets no check, nor does any command on Windows;
+a failed `up` still names a missing source in its error.
 
 ## Shell setup: `shell/` folders
 

@@ -17,6 +17,7 @@ import {
 import { displayPath } from './config.ts';
 import { unfoldHome } from './mounts.ts';
 import { unprotectedRowWarning } from './overlay.ts';
+import { missingMountSources, mountSpecProblems } from './mount_check.ts';
 import {
   type DevcontainerRunner,
   nodeDevcontainerRunner,
@@ -894,6 +895,22 @@ async function deriveRemoteEnv(
   );
 }
 
+/**
+ * The lines a failed `up`'s error gains when a bind mount source is missing on the host, or `''`.
+ * Names the cause where the check in `initializeCommand` was skipped (an object-form command,
+ * win32), and replaces the CLI's bare `The initializeCommand in the devcontainer.json failed.`
+ * with the reason where it was not.
+ */
+function missingSourcesNote(merged: MergedConfig, localFolder: string): string {
+  const missing = missingMountSources(merged.config, localFolder);
+  if (missing.length === 0) return '';
+  return [
+    '',
+    'bind mount source(s) missing on the host:',
+    ...missing.map((m) => `  ${m.source} (target ${m.target})`),
+  ].join('\n');
+}
+
 export async function startContainer(
   localFolder: string,
   rebuild = false,
@@ -949,6 +966,19 @@ export async function startContainer(
   }
   await opts.beforeUp?.(merged);
 
+  // A malformed mount spec fails container create, after the image build. Refused here, before
+  // anything runs. Missing sources are not checked here: `initializeCommand` may yet create them,
+  // so that check is appended to it in the merged config (see `mount_check.ts`).
+  const problems = mountSpecProblems(merged.config, localFolder);
+  if (problems.length > 0) {
+    throw new Error(
+      [
+        `invalid mount(s) in the merged config ${displayPath(merged.path)}:`,
+        ...problems.map((p) => `  ${p.entry}: ${p.reason}`),
+      ].join('\n'),
+    );
+  }
+
   const args = buildUpArgs({
     localFolder,
     worktree,
@@ -968,7 +998,9 @@ export async function startContainer(
   if (lines.length === 0) {
     dumpBuildOutput(text);
     throw new Error(
-      `devcontainer up failed with exit code ${code} (no output)`,
+      `devcontainer up failed with exit code ${code} (no output)${
+        missingSourcesNote(merged, localFolder)
+      }`,
     );
   }
 
@@ -981,14 +1013,18 @@ export async function startContainer(
     // the real error (build/postCreate failure, etc.) isn't lost.
     dumpBuildOutput(text);
     throw new Error(
-      `devcontainer up failed with exit code ${code} (unparseable output)`,
+      `devcontainer up failed with exit code ${code} (unparseable output)${
+        missingSourcesNote(merged, localFolder)
+      }`,
     );
   }
 
   if (result.outcome !== 'success') {
     dumpBuildOutput(text);
     throw new Error(
-      `devcontainer up failed: ${result.message ?? JSON.stringify(result)}`,
+      `devcontainer up failed: ${result.message ?? JSON.stringify(result)}${
+        missingSourcesNote(merged, localFolder)
+      }`,
     );
   }
 

@@ -887,6 +887,20 @@ build. `--no-cache` additionally passes `--build-no-cache` for the case where
 the image itself must be rebuilt from scratch (a changed base image, a stale
 layer).
 
+Mounts are checked before the slow part. Inside one `devcontainer up` (0.88.0)
+the order is: (1) config read and variable substitution; (2)
+`initializeCommand` on the host, whose non-zero exit stops `up`; (3) container
+lookup — removed here under `--remove-existing-container`; (4) image build,
+Features included; (5) container create, which is where a bad bind mount
+fails. `initializeCommand` is what creates mount sources and nothing between
+(2) and (5) creates host paths, so `mount_check.ts` checks at two points: spec
+problems (no target, relative paths, an unknown type, a duplicate target) in
+`startContainer` before `up` runs at all, and missing bind sources by a shell
+check `ensureMergedConfig` appends to the merged config's `initializeCommand`
+— the end of (2), before the build and before `build` removes the working
+container. An object-form `initializeCommand` or win32 gets no appended check;
+a failed `up` then names any missing source in its error instead.
+
 ```text
 Usage: devc build [PATH] [OPTIONS]
 
