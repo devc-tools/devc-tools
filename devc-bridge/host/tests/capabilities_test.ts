@@ -4,7 +4,10 @@
 
 import { assert, assertEquals, assertStringIncludes } from '@std/assert';
 import { join } from '@std/path';
-import { builtinCommandNames } from '@devc-tools/core/bridge.ts';
+import {
+  BRIDGE_NATIVE_COMMANDS,
+  builtinCommandNames,
+} from '@devc-tools/core/bridge.ts';
 import { listBuiltins, materializeBuiltins, seedCommands } from '../config.ts';
 import { type RunningServer, startServer } from '../core.ts';
 import { resetToken } from '../token.ts';
@@ -547,6 +550,25 @@ Deno.test('a commands/ file named like a built-in is never run, and is reported 
   });
 });
 
+Deno.test('task-add is gated by its grant like every built-in', async () => {
+  await withServer(policyLine('gh-push'), async ({ port, shared, token }) => {
+    assertEquals(
+      await call(port, token, 'task-add'),
+      refused(
+        1,
+        'task-add needs capability task-add, which this container was not granted (it has: gh-push) — on the host: devc up --bridge-allow gh-push,task-add',
+      ),
+    );
+    assertEquals(
+      await call(port, shared, 'task-add'),
+      refused(
+        1,
+        'task-add needs a per-container token — the shared token has no capabilities',
+      ),
+    );
+  });
+});
+
 Deno.test('a pre-rename command name is an unknown command, with no hint', async () => {
   await withServer(
     policyLine('gh-push,gh-pr-read,gh-pr-reply'),
@@ -605,8 +627,13 @@ Deno.test('materializeBuiltins writes every built-in and replaces a stale set wh
       'gh-pr-viewed',
       'gh-push',
     ]);
-    // The bridge dispatches by file name: the built-ins are exactly the capability map's commands.
-    assertEquals(builtinCommandNames().sort(), names);
+    // The bridge dispatches by file name: the built-ins are exactly the capability map's commands,
+    // less the native ones, which have no script.
+    assertEquals(
+      builtinCommandNames().filter((n) => !BRIDGE_NATIVE_COMMANDS.includes(n))
+        .sort(),
+      names,
+    );
     const present = [...Deno.readDirSync(target)].map((e) => e.name).sort();
     assertEquals(present, names);
     for (const name of names) {

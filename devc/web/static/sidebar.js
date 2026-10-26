@@ -3569,6 +3569,9 @@ function taskRow(task, places) {
       'span',
       { class: 'label' },
       checkbox,
+      task.source?.kind === 'agent'
+        ? h('span', { class: 'task-agent', title: 'Added by an agent' }, '🤖 ')
+        : '',
       taskTitle(task.text),
     ),
     rowTrail(

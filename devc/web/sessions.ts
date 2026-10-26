@@ -16,7 +16,7 @@ import type { ContainerInfo } from '@devc-tools/core/container.ts';
 import { dockerExecArgv } from '@devc-tools/core/container.ts';
 import { type DockerRun, runDocker } from './container_files.ts';
 import { isSessionId, type SessionAgentId } from './agents.ts';
-import { taskTitle } from './tasks.ts';
+import { taskTitle } from '@devc-tools/core/tasks.ts';
 
 /** How many sessions are listed per repo. */
 export const MAX_SESSIONS = 20;

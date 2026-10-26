@@ -107,8 +107,9 @@ import {
   unqueueTask,
   updateTask,
   withSentPane,
+  withTasksLock,
   writeTasks,
-} from './tasks.ts';
+} from '@devc-tools/core/tasks.ts';
 import {
   type AgentSession,
   listAgentSessions,
@@ -681,13 +682,19 @@ export async function startWeb(
     broadcast(tasksMessage(taskState));
     schedulePump();
   };
-  /** As {@link changePinnedFiles}: read → `change` → write, null when nothing changed. */
+  /**
+   * As {@link changePinnedFiles}: read → `change` → write, null when nothing changed. Under the
+   * tasks lock, which the devc-bridge host also takes to add an agent's task.
+   */
   const changeTasks = async (
     change: (state: TaskState) => TaskState | null,
   ): Promise<TaskState | null> => {
-    const next = change(await readTasks());
+    const next = await withTasksLock(async () => {
+      const next = change(await readTasks());
+      if (next !== null) await writeTasks(next);
+      return next;
+    });
     if (next === null) return null;
-    await writeTasks(next);
     taskState = await readTasks();
     broadcast(tasksMessage(taskState));
     schedulePump();

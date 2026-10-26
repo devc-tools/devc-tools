@@ -118,9 +118,9 @@ Notes:
   exit 0 either way — neither is an error.
 - `--bridge-allow LIST` on `up`/`build` grants the container devc-bridge
   capabilities — a comma-separated subset of `gh-push`, `gh-pr-read`,
-  `gh-pr-reply`, `gh-pr-viewed`, `gh-pr-resolve`, `gh-pr-resolve-copilot` and
-  `gh-pr-request-review` (every `gh-pr-` write requires `gh-pr-read`), or `gh` /
-  `'gh-*'` for all of them — on its current branch, whose `origin` must be a github.com
+  `gh-pr-reply`, `gh-pr-viewed`, `gh-pr-resolve`, `gh-pr-resolve-copilot`,
+  `gh-pr-request-review` (every `gh-pr-` write requires `gh-pr-read`) and
+  `task-add`, or `gh` / `'gh-*'` for all the `gh-` ones — on its current branch, whose `origin` must be a github.com
   remote. `--bridge-allow none` revokes any earlier grant. **Flags given: exactly
   what you typed. No flags: the defaults.** `up`/`build` **without** the flag
   grant the defaults from the [global config](#the-global-config) — each repo's
@@ -604,7 +604,11 @@ is published from any container: the host server finds devcontainers with
   as done: close its terminal to move its queue on.
   A sent task's menu also has **Open session**, **Back to tasks** and
   **Remove**. Sending is
-  one-way: nothing in a container writes to the list. Tasks are kept in
+  one-way. The one thing a container can do is _add_ a task: an agent granted
+  `task-add` runs `devc-bridge task-add <text>` (see
+  [devc-bridge § Adding a task](../devc-bridge/README.md#adding-a-task-task-add)),
+  and the task shows with 🤖, routed to its repo and unqueued; it never queues or
+  sends one. Tasks are kept in
   `~/.config/devc/tasks/tasks.json` (the 50 newest sent ones), shared by every
   devc web window.
 - **Sessions:** each running container's **Sessions** row (between Terminals
@@ -1819,6 +1823,7 @@ one.
 | `gh-pr-resolve`         | `gh-pr-resolve` on any thread (needs `gh-pr-read`)             |
 | `gh-pr-resolve-copilot` | `gh-pr-resolve` on Copilot's threads only (needs `gh-pr-read`) |
 | `gh-pr-request-review`  | `gh-pr-request-review` (needs `gh-pr-read`)                    |
+| `task-add`              | `task-add`: add a task to devc web's task list                 |
 
 `gh-pr-review` no longer exists: it was split into `gh-pr-read,gh-pr-reply`,
 and an old `gh-pr-resolve` (Copilot-only then) is `gh-pr-resolve-copilot` now.
@@ -1829,7 +1834,7 @@ the next refresh removes it, and `--bridge-allow gh-pr-review` is refused with
 
 **`gh` and `gh-*` mean all of them.** In a `--bridge-allow` list, the exact
 entries `gh` and `gh-*` each expand to every capability whose name starts with
-`gh-` — today, all seven — and mix freely with explicit names. No other pattern
+`gh-` — `task-add` is not one of them — and mix freely with explicit names. No other pattern
 is accepted (`*`, `gh-pr-*` and `GH` are unknown capabilities). devc expands
 them when it parses the flag, so the policy always stores the explicit list: a
 capability a later release adds is **not** granted to an existing container

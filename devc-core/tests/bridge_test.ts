@@ -12,12 +12,14 @@ import {
 import {
   BRIDGE_CAPABILITIES,
   BRIDGE_CAPABILITY_COMMANDS,
+  BRIDGE_NATIVE_COMMANDS,
   type BridgeCapability,
   bridgePaths,
   builtinCommandNames,
   capabilitiesForCommand,
   enablesWorktreeConfig,
   gitHubRepoOf,
+  grantsProblem,
   isGitHubRemote,
   parseGitdirPointer,
   parseHead,
@@ -466,6 +468,7 @@ Deno.test('capabilities: the canonical order', () => {
       'gh-pr-resolve',
       'gh-pr-resolve-copilot',
       'gh-pr-request-review',
+      'task-add',
     ],
   );
 });
@@ -488,6 +491,7 @@ Deno.test('capabilities: every capability enabling each built-in, in canonical o
   assertEquals(capabilitiesForCommand('gh-pr-request-review'), [
     'gh-pr-request-review',
   ]);
+  assertEquals(capabilitiesForCommand('task-add'), ['task-add']);
   assertEquals(capabilitiesForCommand('echo'), []);
   assertEquals(capabilitiesForCommand('caffeinate'), []);
   for (
@@ -517,6 +521,7 @@ Deno.test('capabilities: every capability enabling each built-in, in canonical o
     'gh-pr-viewed',
     'gh-pr-resolve',
     'gh-pr-request-review',
+    'task-add',
   ]);
 });
 
@@ -795,4 +800,10 @@ Deno.test('resolvePin: two worktrees of one repo give two different pins', async
     assert(a.ok && b.ok);
     assertNotEquals(a.record.branch, b.record.branch);
   });
+});
+
+Deno.test('capabilities: task-add is native, needs nothing, and is granted alone', () => {
+  assertEquals([...BRIDGE_NATIVE_COMMANDS], ['task-add']);
+  assertEquals(grantsProblem(['task-add']), null);
+  assertEquals(grantsProblem(['gh-push', 'task-add']), null);
 });

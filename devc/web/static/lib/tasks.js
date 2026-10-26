@@ -4,11 +4,13 @@
 
 /**
  * A task as the page knows it. A route is both `localFolder` and `root`, or neither; only a
- * routed task can be `queued`.
+ * routed task can be `queued`. `source` is set when an agent added it (devc-bridge `task-add`).
  *
  * @typedef {{id: string, text: string, createdAt: string, localFolder?: string,
- *   root?: string, queued?: TaskQueued}} Task
+ *   root?: string, queued?: TaskQueued, source?: TaskSource}} Task
  */
+
+/** @typedef {{kind: 'agent', key: string}} TaskSource */
 
 /**
  * How a queued task will be sent, its place in its repo's queue (`queuedAt`), and why sending it
@@ -54,12 +56,14 @@ export function parseTasks(msg) {
     if (!nonEmpty(id) || !nonEmpty(text) || !nonEmpty(createdAt)) continue;
     const routed = nonEmpty(localFolder) && nonEmpty(root);
     const queued = routed ? parseQueued(t.queued) : null;
+    const source = parseSource(t.source);
     tasks.push({
       id,
       text,
       createdAt,
       ...(routed ? { localFolder, root } : {}),
       ...(queued ? { queued } : {}),
+      ...(source ? { source } : {}),
     });
   }
   /** @type {SentTask[]} */
@@ -99,6 +103,18 @@ export function parseTasks(msg) {
     });
   }
   return { tasks, sent };
+}
+
+/**
+ * A task's source, or null when it is absent or malformed (dropped; the task is kept).
+ *
+ * @param {unknown} v
+ * @returns {TaskSource | null}
+ */
+function parseSource(v) {
+  if (typeof v !== 'object' || v === null) return null;
+  const { kind, key } = /** @type {any} */ (v);
+  return kind === 'agent' && nonEmpty(key) ? { kind, key } : null;
 }
 
 /**

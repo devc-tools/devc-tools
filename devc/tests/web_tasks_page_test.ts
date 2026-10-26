@@ -10,7 +10,7 @@ import {
   TASK_AGENT_IDS,
   taskTitle,
 } from '../web/static/lib/tasks.js';
-import { taskTitle as serverTaskTitle } from '../web/tasks.ts';
+import { taskTitle as serverTaskTitle } from '@devc-tools/core/tasks.ts';
 import { isSessionAgentId } from '../web/agents.ts';
 
 const task = {
@@ -62,6 +62,22 @@ Deno.test('parseTasks keeps well-formed entries in order', () => {
   );
   assertEquals(parseTasks(null), { tasks: [], sent: [] });
   assertEquals(parseTasks({ tasks: 3, sent: {} }), { tasks: [], sent: [] });
+});
+
+Deno.test('parseTasks keeps an agent source and drops a malformed one', () => {
+  const source = { kind: 'agent' as const, key: 'app-1a2b3c4d' };
+  assertEquals(
+    parseTasks({
+      type: 'tasks',
+      tasks: [
+        { ...task, source },
+        { ...task, id: 't2', source: { kind: 'human', key: 'x' } },
+        { ...task, id: 't3', source: { kind: 'agent', key: '' } },
+      ],
+      sent: [],
+    }).tasks,
+    [{ ...task, source }, { ...task, id: 't2' }, { ...task, id: 't3' }],
+  );
 });
 
 Deno.test('taskTitle matches the server, which names the pane with it', () => {

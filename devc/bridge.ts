@@ -10,8 +10,8 @@
 // capabilities act on — each one's host path, remote, branch and container path, one line each —
 // and which capabilities each line has (`gh-push`, `gh-pr-read`, `gh-pr-reply`,
 // `gh-pr-pending-review`, `gh-pr-viewed`, `gh-pr-resolve`, `gh-pr-resolve-copilot`,
-// `gh-pr-request-review`), always as the explicit list —
-// `--bridge-allow gh` is expanded before it gets here. Only `devc up` / `devc build` create it, and
+// `gh-pr-request-review`, `task-add`), always as the explicit list —
+// `--bridge-allow gh` is expanded (to the `gh-` ones only) before it gets here. Only `devc up` / `devc build` create it, and
 // only on GitHub remotes, in one of two ways:
 //
 // - **Flags.** `--bridge-allow <list>` tries the workspace repo, then each extra repo the user

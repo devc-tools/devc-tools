@@ -19,6 +19,7 @@ import { dirname, join, resolve } from '@std/path';
 import {
   BRIDGE_CAPABILITIES,
   BRIDGE_CAPABILITY_REQUIRES,
+  BRIDGE_NATIVE_COMMANDS,
   type BridgeCapability,
   builtinCommandNames,
   capabilitiesForCommand,
@@ -29,6 +30,7 @@ import {
 } from '@devc-tools/core/bridge.ts';
 import { Keepawake, type KeepawakeStatus } from './keepawake.ts';
 import { type Caller, TokenRegistry } from './token.ts';
+import { taskAdd, type TaskAddOptions } from './task_add.ts';
 
 export interface ServerOptions {
   /** Address to bind. Default host is 127.0.0.1 (reachable via host.docker.internal). */
@@ -67,6 +69,8 @@ export interface ServerOptions {
    * ping activity. Absent → `ping` falls through to normal script dispatch.
    */
   keepawake?: { command: string; idleMs: number };
+  /** Where the native `task-add` writes and finds containers. Omitted → the real ones. */
+  taskAdd?: TaskAddOptions;
 }
 
 export interface Request {
@@ -127,6 +131,7 @@ interface Dispatch {
   stateDir: string;
   policyDir?: string;
   caller: Caller;
+  taskAdd?: TaskAddOptions;
 }
 
 /** Resolve a request to an allowlisted script and run it with args as argv. */
@@ -160,6 +165,12 @@ async function dispatch(req: Request, d: Dispatch): Promise<Response> {
         stdout: '',
         stderr: `devc-bridge: ${refusal.message}\n`,
       };
+    }
+    // A native built-in is handled here and never resolves a script. grantRefusal passing means
+    // there is a key and a policy.
+    if (BRIDGE_NATIVE_COMMANDS.includes(name)) {
+      const args = Array.isArray(req.args) ? req.args.map(String) : [];
+      return await taskAdd(args, d.caller.key!, d.policyDir!, d.taskAdd);
     }
   }
   const commandsRoot = resolve(
@@ -334,7 +345,7 @@ async function grantRefusal(
   };
 }
 
-/** Log each file in `commandsDir` a built-in shadows: it is never run. */
+/** Log each file in `commandsDir` a built-in (native ones too) shadows: it is never run. */
 async function warnShadowed(
   commandsDir: string,
   log: (msg: string) => void,
@@ -376,6 +387,7 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
     stateDir,
     policyDir,
     caller,
+    taskAdd: opts.taskAdd,
   });
 
   await Deno.mkdir(stateDir, { recursive: true });

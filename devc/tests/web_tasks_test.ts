@@ -30,7 +30,7 @@ import {
   updateTask,
   withSentPane,
   writeTasks,
-} from '../web/tasks.ts';
+} from '@devc-tools/core/tasks.ts';
 
 const ID = '0f0e0d0c-0b0a-4908-8706-050403020100';
 

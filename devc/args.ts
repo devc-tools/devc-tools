@@ -319,7 +319,7 @@ function canonicalGrants(wanted: ReadonlySet<string>): BridgeCapability[] {
 export function parseBridgeAllow(value: string): BridgeCapability[] | 'none' {
   const valid = `${BRIDGE_CAPABILITIES.join(', ')} (or ${
     BRIDGE_ALLOW_ALL_GH.join(' / ')
-  } for all of them)`;
+  } for all the gh- ones)`;
   const names = value.split(',').map((n) => n.trim()).filter((n) => n !== '');
   if (names.length === 0) {
     throw new Error(`${BRIDGE_ALLOW_FLAG} needs at least one of: ${valid}`);

@@ -12,7 +12,7 @@ import {
   type SessionAgentId,
   type TaskAction,
 } from './agents.ts';
-import { MAX_TASK_TEXT, taskText } from './tasks.ts';
+import { MAX_TASK_TEXT, taskText } from '@devc-tools/core/tasks.ts';
 import type { PrMessage } from './pr_review.ts';
 
 /** The only Herdr methods a browser `request` may call. */

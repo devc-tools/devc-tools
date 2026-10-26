@@ -17,7 +17,7 @@ import {
   MAX_ASK_TEXT,
 } from '../web/static/lib/ask.js';
 import { VIEW_INTENT_NAMES } from '../web/static/lib/view.js';
-import { MAX_TASK_TEXT } from '../web/tasks.ts';
+import { MAX_TASK_TEXT } from '@devc-tools/core/tasks.ts';
 
 const S1 = '11111111-1111-4111-8111-111111111111';
 const S2 = '22222222-2222-4222-8222-222222222222';

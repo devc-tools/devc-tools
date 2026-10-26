@@ -70,6 +70,7 @@ of the box:
 | `gh-pr-pending-review <subcommand> …`    | **Built in — needs capability `gh-pr-pending-review`.** Your pending review on that PR: `show`, `comment`, `reply`, `edit`, `delete`, `submit` (only ever as a Comment), `discard`. Takes `--repo <path>` and `--as agent\|human` like `gh-pr-reply`                                          |
 | `gh-pr-resolve <thread>`                 | **Built in — needs capability `gh-pr-resolve` or `gh-pr-resolve-copilot`.** Resolve a review thread on that PR — any thread under `gh-pr-resolve`, only one Copilot started under `gh-pr-resolve-copilot` alone. Takes a leading `--repo <path>` like the others                              |
 | `gh-pr-request-review`                   | **Built in — needs capability `gh-pr-request-review`.** Ask Copilot to review that PR's current head — nothing is requested while a review is pending or already of the head. Takes only `--repo <path>`                                                                                      |
+| `task-add [--repo <path>] <text>`        | **Built in — needs capability `task-add`.** Add a task to devc web's task list, routed to the selected repo and shown with 🤖. It is only added: queueing and sending stay with the person. See [Adding a task](#adding-a-task-task-add)                                                      |
 | `help [guide]`                           | **Answered by the client itself**, never sent to the host (also `--help` / `-h`; no arguments prints it to stderr, exit 2) — every command and its capability, or with `guide` the embedded [agent guide](../docs/bridge-github.md)                                                           |
 | `version`                                | **Answered by the client itself**, never sent to the host (also `--version` / `-V`) — which client is actually mounted in here, answerable with the bridge down                                                                                                                               |
 
@@ -635,16 +636,17 @@ aborts an unquoted one with `zsh: no matches found: gh-*` before devc runs.
 Every capability acts through the host's `gh` login, so the pinned `origin` must
 be a github.com remote; devc refuses to grant on any other.
 
-| Kind  | Capability              | Commands                                         | Notes                                                               |
-| ----- | ----------------------- | ------------------------------------------------ | ------------------------------------------------------------------- |
-| write | `gh-push`               | `gh-push`, `gh-doctor`                           | [Publishing a branch](#publishing-a-branch-gh-push)                 |
-| read  | `gh-pr-read`            | `gh-pr-comments`, `gh-pr-files`, `gh-pr-file-at` | Read only. [Iterating on PR review](#iterating-on-pr-review-gh-pr-) |
-| write | `gh-pr-reply`           | `gh-pr-reply`                                    | Requires `gh-pr-read` — devc refuses it alone                       |
-| write | `gh-pr-pending-review`  | `gh-pr-pending-review`                           | Requires `gh-pr-read`. Submits as Comment only, never approves      |
-| write | `gh-pr-viewed`          | `gh-pr-viewed`                                   | Requires `gh-pr-read`                                               |
-| write | `gh-pr-resolve`         | `gh-pr-resolve`, any thread                      | Requires `gh-pr-read`                                               |
-| write | `gh-pr-resolve-copilot` | `gh-pr-resolve`, Copilot's threads only          | Requires `gh-pr-read`. For an agent's review loop                   |
-| write | `gh-pr-request-review`  | `gh-pr-request-review`                           | Requires `gh-pr-read`. Each request spends a Copilot review         |
+| Kind  | Capability              | Commands                                         | Notes                                                                |
+| ----- | ----------------------- | ------------------------------------------------ | -------------------------------------------------------------------- |
+| write | `gh-push`               | `gh-push`, `gh-doctor`                           | [Publishing a branch](#publishing-a-branch-gh-push)                  |
+| read  | `gh-pr-read`            | `gh-pr-comments`, `gh-pr-files`, `gh-pr-file-at` | Read only. [Iterating on PR review](#iterating-on-pr-review-gh-pr-)  |
+| write | `gh-pr-reply`           | `gh-pr-reply`                                    | Requires `gh-pr-read` — devc refuses it alone                        |
+| write | `gh-pr-pending-review`  | `gh-pr-pending-review`                           | Requires `gh-pr-read`. Submits as Comment only, never approves       |
+| write | `gh-pr-viewed`          | `gh-pr-viewed`                                   | Requires `gh-pr-read`                                                |
+| write | `gh-pr-resolve`         | `gh-pr-resolve`, any thread                      | Requires `gh-pr-read`                                                |
+| write | `gh-pr-resolve-copilot` | `gh-pr-resolve`, Copilot's threads only          | Requires `gh-pr-read`. For an agent's review loop                    |
+| write | `gh-pr-request-review`  | `gh-pr-request-review`                           | Requires `gh-pr-read`. Each request spends a Copilot review          |
+| write | `task-add`              | `task-add`                                       | Not a `gh-` capability: `gh` / `gh-*` leave it out; grant it by name |
 
 Every PR write requires `gh-pr-read`: it acts on what a read shows (thread ids,
 file paths, the review a request follows).
@@ -1048,6 +1050,40 @@ timeout as `gh-push`. Copilot's review state is one paginated
 - **Thread comments are capped at 100 per thread**; beyond that a thread is
   truncated, not refused. Top-level PR comments and other reviewers' summary
   bodies are not included — threads, plus Copilot's latest review body.
+
+## Adding a task (`task-add`)
+
+An agent writes down a to-do for later on devc web's task list:
+
+```sh
+devc-bridge task-add "Fix the flaky retry test"
+devc-bridge task-add --repo /workspaces/lib "$(cat note.md)"   # Markdown; its first line is the title
+```
+
+Grant it by name — `gh` and `gh-*` leave it out:
+
+```sh
+devc up --bridge-allow gh,task-add
+```
+
+The task is routed to the repo the policy line selects (`--repo <path>`, required
+once more than one repo is pinned, as for `gh-push`) and shows with 🤖 on the
+page, unqueued. It is **only added**: queueing and sending stay with the person
+at the page, so an agent can never start another agent. On success it prints
+the task's id.
+
+It is the first **native** built-in: the bridge host appends to
+`~/.config/devc/tasks/tasks.json` itself, through devc-core's task store and the
+same lock devc web takes, instead of running a script. It never runs devc.
+The running devc web picks the change up on its own.
+
+| Exit | Meaning                                                                                                                         |
+| ---- | ------------------------------------------------------------------------------------------------------------------------------- |
+| `0`  | added; stdout is the id                                                                                                         |
+| `1`  | not granted                                                                                                                     |
+| `2`  | wrong arguments, no `--repo` with several pinned repos, no pinned repo there, or that line lacks `task-add`                     |
+| `3`  | blank or over-long text, a control character (other than line breaks and tabs), or 20 tasks already waiting from this container |
+| `4`  | a host failure: no devc container for the workspace, `docker ps` failing, an unreadable tasks file, a lock timeout              |
 
 ## Writing a command
 

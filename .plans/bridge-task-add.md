@@ -11,32 +11,32 @@ running a script from `devc-bridge/builtin/`.
 
 ## Checklist
 
-- [ ] Move `devc/web/tasks.ts` to `devc-core/tasks.ts`, with `SessionAgentId`, `TaskAction`,
+- [x] Move `devc/web/tasks.ts` to `devc-core/tasks.ts`, with `SessionAgentId`, `TaskAction`,
       `isSessionAgentId` and `isTaskAction` (now in `devc/web/agents.ts`). `devc/web/agents.ts`
       re-exports those four from core; every other importer of `devc/web/tasks.ts` (`server.ts`,
       `sessions.ts`, `protocol.ts`, `devc/tests/web_tasks_test.ts`,
       `devc/tests/web_tasks_page_test.ts`) imports `@devc-tools/core/tasks.ts`, and
       `devc/web/tasks.ts` is deleted
-- [ ] `devc-core/tasks.ts`: optional `source` on `Task` (see Contracts); `isTask`/`cleanTask`
+- [x] `devc-core/tasks.ts`: optional `source` on `Task` (see Contracts); `isTask`/`cleanTask`
       validate and keep it; `updateTask`, `queueTasks`, `unqueueTask` and `queueFailed` keep it
-- [ ] `devc-core/tasks.ts`: `withTasksLock` and `appendAgentTask` (see Contracts)
-- [ ] `devc/web/server.ts`: `changeTasks` runs inside `withTasksLock`
-- [ ] `devc-core/bridge.ts`: capability `task-add`, appended last to `BRIDGE_CAPABILITIES`, with
+- [x] `devc-core/tasks.ts`: `withTasksLock` and `appendAgentTask` (see Contracts)
+- [x] `devc/web/server.ts`: `changeTasks` runs inside `withTasksLock`
+- [x] `devc-core/bridge.ts`: capability `task-add`, appended last to `BRIDGE_CAPABILITIES`, with
       command `task-add`; no entry in `BRIDGE_CAPABILITY_REQUIRES`; new export
       `BRIDGE_NATIVE_COMMANDS = ['task-add']`, the built-in commands with no script. Update the
       `BRIDGE_CAPABILITY_COMMANDS` doc comment ("every name here is also the name of a script")
       to say native commands are the exception
-- [ ] `devc/args.ts`: `gh` / `gh-*` still expand to the `gh-` capabilities only;
+- [x] `devc/args.ts`: `gh` / `gh-*` still expand to the `gh-` capabilities only;
       `--bridge-allow task-add` and `--bridge-allow gh,task-add` are accepted
-- [ ] `devc-bridge/host/core.ts`: in `dispatch`, after `grantRefusal` passes, a command in
+- [x] `devc-bridge/host/core.ts`: in `dispatch`, after `grantRefusal` passes, a command in
       `BRIDGE_NATIVE_COMMANDS` runs its handler and never resolves a script; `warnShadowed` also
       warns for `commands/task-add`
-- [ ] `devc-bridge/host/task_add.ts` (new): the `task-add` handler
-- [ ] `devc/web/static/lib/tasks.js`: the page's task parser keeps `source`
-- [ ] Task row shows the agent marker (see Contracts)
-- [ ] Help and docs: `devc-bridge/client/devc-bridge.ts` usage, `devc/help.ts` capability list,
+- [x] `devc-bridge/host/task_add.ts` (new): the `task-add` handler
+- [x] `devc/web/static/lib/tasks.js`: the page's task parser keeps `source`
+- [x] Task row shows the agent marker (see Contracts)
+- [x] Help and docs: `devc-bridge/client/devc-bridge.ts` usage, `devc/help.ts` capability list,
       `devc/bridge.ts` header comment, `devc-bridge/README.md`, `devc/README.md`
-- [ ] Tests listed under Relevant Files
+- [x] Tests listed under Relevant Files
 
 ## Contracts
 
@@ -190,7 +190,8 @@ reads `Added by an agent`. The rest of the row is unchanged.
 - `devc/tests/web_tasks_test.ts`, `devc/tests/web_tasks_page_test.ts`: import path; page parser
   keeps `source`
 - `devc/web/static/lib/tasks.js`: keep `source`
-- `devc/web/static/tiles.js`: where the task row's title is rendered (the 🤖 marker)
+- `devc/web/static/sidebar.js`: where the task row's title is rendered (the 🤖 marker; the plan
+  first named `tiles.js`, but the task list is drawn in the sidebar)
 - `devc-core/bridge.ts`: capability, command map, `BRIDGE_NATIVE_COMMANDS`
 - `devc-core/tests/bridge_test.ts`: capability list, `capabilitiesForCommand`, `grantsProblem`
 - `devc/args.ts`: `--bridge-allow` help text for valid names (expansion unchanged)
@@ -211,10 +212,10 @@ reads `Added by an agent`. The rest of the row is unchanged.
 
 ## Validation
 
-- [ ] `cd devc-core && deno test -A tests/bridge_test.ts`: `task-add` is a capability;
+- [x] `cd devc-core && deno test -A tests/bridge_test.ts`: `task-add` is a capability;
       `capabilitiesForCommand('task-add')` is `['task-add']`; `grantsProblem(['task-add'])` is
       null; `BRIDGE_NATIVE_COMMANDS` is `['task-add']`
-- [ ] `cd devc-core && deno test -A tests/tasks_test.ts`:
+- [x] `cd devc-core && deno test -A tests/tasks_test.ts`:
   - A task with a valid `source` round-trips through `writeTasks` / `readTasks`
   - `source: {kind: 'human'}` is dropped and the task kept
   - `updateTask` keeps `source`
@@ -225,10 +226,10 @@ reads `Added by an agent`. The rest of the row is unchanged.
   - The 21st task from one key throws the cap error while another key still succeeds
   - Two concurrent `appendAgentTask` calls both land
   - A lock file with an mtime 11 s old is taken over
-- [ ] `cd devc && deno test -A tests/`: all pass with the moved module;
+- [x] `cd devc && deno test -A tests/`: all pass with the moved module;
       `parseBridgeAllow('gh')` excludes `task-add`; `parseBridgeAllow('gh,task-add')` ends with
       `task-add`; the page parser keeps `source`
-- [ ] `cd devc-bridge/host && deno test -A tests/task_add_test.ts` (temp policy dir and tasks path,
+- [x] `cd devc-bridge/host && deno test -A tests/task_add_test.ts` (temp policy dir and tasks path,
       injected container list):
   - Exit 0 prints a UUID, and the task has `localFolder` (the injected folder whose `projectKey`
     is the caller's key), `root` (the line's `repo`) and `source {kind:'agent', key}`
@@ -238,12 +239,15 @@ reads `Added by an agent`. The rest of the row is unchanged.
   - Blank text → 3; text with `\x07` → 3
   - No matching container → 4
   - Shared token → 1
-- [ ] `cd devc-bridge/host && deno test -A tests/capabilities_test.ts`: materialized scripts equal
+- [x] `cd devc-bridge/host && deno test -A tests/capabilities_test.ts`: materialized scripts equal
       the built-in names minus `task-add`; `task-add` without the grant → exit 1
-- [ ] `bash devc-bridge/tests/gh_pr_review_test.sh` and `bash devc-bridge/tests/gh_push_test.sh`
+- [x] `bash devc-bridge/tests/gh_pr_review_test.sh` and `bash devc-bridge/tests/gh_push_test.sh`
       still pass
-- [ ] `deno fmt --check`, `deno lint` and `deno task check` (or `deno check`) pass in `devc`,
-      `devc-core`, `devc-bridge/host` and `devc-bridge/client`
+- [x] `deno fmt --check`, `deno lint` and `deno task check` (or `deno check`) pass in `devc`,
+      `devc-core`, `devc-bridge/host` and `devc-bridge/client` (2026-10-26: fmt and check pass
+      everywhere; lint is clean in `devc-bridge/host`, `devc-bridge/client` and every new source
+      file — the only findings in changed files are `no-import-prefix` / `no-unversioned-import`
+      on the `jsr:@std/*` imports every test file in `devc` and `devc-core` uses)
 - [ ] Manual: restart the bridge, run `devc up --bridge-allow gh,task-add` on a GitHub repo, then
       in the container run `devc-bridge task-add $'Fix the flaky test\n\nDetails…'`. It prints an
       id; the open devc web page shows `🤖 Fix the flaky test` in that repo's tasks within a

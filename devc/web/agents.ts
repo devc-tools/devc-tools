@@ -25,19 +25,15 @@ export function isAgentId(v: unknown): v is AgentId {
 // is Claude's session name, its title cut down by `sessionName` to text no shell reads anything
 // in when it is single-quoted.
 
-export type SessionAgentId = 'claude' | 'copilot' | 'pi';
-
-export type TaskAction = 'plan' | 'implement';
-
-const SESSION_AGENTS: readonly SessionAgentId[] = ['claude', 'copilot', 'pi'];
-
-export function isSessionAgentId(v: unknown): v is SessionAgentId {
-  return SESSION_AGENTS.includes(v as SessionAgentId);
-}
-
-export function isTaskAction(v: unknown): v is TaskAction {
-  return v === 'plan' || v === 'implement';
-}
+// The agent and action types live with the task store in core, which the devc-bridge host also
+// writes through.
+import type { SessionAgentId, TaskAction } from '@devc-tools/core/tasks.ts';
+export {
+  isSessionAgentId,
+  isTaskAction,
+  type SessionAgentId,
+  type TaskAction,
+} from '@devc-tools/core/tasks.ts';
 
 /** The folder in the container a sent task's text is written to. */
 export const TASK_FILE_DIR = '/tmp/devc-tasks';

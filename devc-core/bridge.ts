@@ -60,6 +60,7 @@ export const BRIDGE_CAPABILITIES = [
   'gh-pr-resolve',
   'gh-pr-resolve-copilot',
   'gh-pr-request-review',
+  'task-add',
 ] as const;
 
 /** One of {@link BRIDGE_CAPABILITIES}. */
@@ -67,7 +68,8 @@ export type BridgeCapability = typeof BRIDGE_CAPABILITIES[number];
 
 /**
  * The built-in bridge commands each capability enables. The bridge dispatches by file name, so
- * every name here is also the name of a script in `devc-bridge/builtin/`. A command may appear
+ * every name here is also the name of a script in `devc-bridge/builtin/` — except the
+ * {@link BRIDGE_NATIVE_COMMANDS}, which the bridge handles in its own code. A command may appear
  * under more than one capability and runs when **any** of them is granted: `gh-pr-resolve` is
  * both `gh-pr-resolve`'s (any thread) and `gh-pr-resolve-copilot`'s (Copilot's threads only), and
  * the script reads the policy's grants to pick the scope. Reads are `gh-pr-read`'s alone.
@@ -83,7 +85,14 @@ export const BRIDGE_CAPABILITY_COMMANDS: Readonly<
   'gh-pr-resolve': ['gh-pr-resolve'],
   'gh-pr-resolve-copilot': ['gh-pr-resolve'],
   'gh-pr-request-review': ['gh-pr-request-review'],
+  'task-add': ['task-add'],
 };
+
+/**
+ * The built-in commands with no script: the bridge host handles them itself. `task-add` appends
+ * to devc web's task list (`devc-core/tasks.ts`).
+ */
+export const BRIDGE_NATIVE_COMMANDS: readonly string[] = ['task-add'];
 
 /**
  * Capabilities that are only granted alongside another. Every PR write acts on what a read shows

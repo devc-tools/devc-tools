@@ -57,6 +57,7 @@ Built-in commands (capability in brackets, granted on the host with
                                    or only Copilot's                        [gh-pr-resolve-copilot]
   gh-pr-request-review [--repo <path>]
                                    ask Copilot to review the current head   [gh-pr-request-review]
+  task-add [--repo <path>] <text>   add a task to devc web's task list   [task-add]
   ping [label]                     keep the host awake
 
 --repo <path> names a pinned repo by its path in this container; it is
