@@ -2376,7 +2376,13 @@ function diffHeader(view) {
     data
       ? h(
         'span',
-        { class: 'diff-via' },
+        {
+          class: 'diff-via',
+          'aria-busy': String(view.threadsLoading),
+          title: view.threadsLoading ? 'Loading threads…' : undefined,
+        },
+        // Always there, hidden when idle: loading threads moves nothing.
+        h('span', { class: 'spinner', 'aria-hidden': 'true' }),
         `threads via ${data.container}'s bridge`,
       )
       : '',
@@ -2435,8 +2441,6 @@ function diffContent(view) {
         ),
       ),
     );
-  } else if (view.threads === null && view.threadsLoading) {
-    fileBlock.append(h('div', { class: 'diff-note' }, 'Loading threads…'));
   }
   if (placed.file.length || orphans.length) {
     fileBlock.append(h('div', { class: 'file-threads-title' }, 'File threads'));

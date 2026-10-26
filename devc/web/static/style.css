@@ -2764,6 +2764,10 @@ button.primary.danger {
   white-space: nowrap;
 }
 
+.diff-via[aria-busy='false'] .spinner {
+  visibility: hidden;
+}
+
 .diff-viewed {
   font-size: calc(var(--font-size) - 2px);
   color: var(--muted);
