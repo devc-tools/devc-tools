@@ -219,22 +219,24 @@ New `devc-core/tests/start_container_mount_check_test.ts`, end to end in a child
 
 ## Validation
 
+> Accepted 2026-10-26 by the user with the unchecked items below not run (marked `[x]` on acceptance): they will be tested in use and any issues re-planned.
+
 - [x] `cd devc-core && deno task test` passes
 - [x] `cd devc && deno task test` passes
 - [x] `deno fmt --check` and `deno lint` pass at the repo root; `cd devc-core && deno check *.ts`
       passes
-- [ ] On a Docker host with an existing devc container for a project: add
+- [x] On a Docker host with an existing devc container for a project: add
       `"mounts": ["type=bind,source=/nonexistent/devc-check,target=/x"]` to the project's
       `devc.json` overlay, run `devc build`. It fails within seconds of starting, before any image
       build output, printing `devc: bind mount source does not exist: /nonexistent/devc-check
       (target /x)` and an error ending with `bind mount source(s) missing on the host:`;
       `docker ps -a` still lists the old container.
-- [ ] Same project, `mkdir -p /tmp/devc-check-src` and point the source there: `devc build`
+- [x] Same project, `mkdir -p /tmp/devc-check-src` and point the source there: `devc build`
       succeeds and `/x` exists in the container.
-- [ ] Same project, mount changed to `type=bind,target=/x`: `devc build` fails immediately with
+- [x] Same project, mount changed to `type=bind,target=/x`: `devc build` fails immediately with
       `invalid mount(s) in the merged config` / `bind mount has no source`, and no
       `devcontainer up` output appears.
-- [ ] A fresh `HOME` (no `~/.config/devc/*` dirs) with the bundled default: `devc up` succeeds —
+- [x] A fresh `HOME` (no `~/.config/devc/*` dirs) with the bundled default: `devc up` succeeds —
       the bundled `initialize-command.sh` creates the sources before the check runs.
 
 ## Relevant Files

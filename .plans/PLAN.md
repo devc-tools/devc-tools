@@ -72,11 +72,6 @@
   case-insensitive regex) and the browse URL (`{key}`); the server validates it, sends it as a
   `jira` message and re-sends on change. Absent: menus unchanged.
 
-- [devc-mount-preflight](devc-mount-preflight.md) — a bad bind mount fails before the image
-  build instead of after it: malformed specs are refused before `devcontainer up`, and devc appends
-  a source-existence check to the merged config's `initializeCommand`, so a missing host path stops
-  `up` right after init — before the build and before `devc build` removes the old container.
-
 - [devc-port-forwarding](devc-port-forwarding.md) — `devc up --port [HOST:]PORT` (repeatable,
   also on `build`) reaches a container port from `127.0.0.1` on the host without recreating the
   container, and the merged config's `forwardPorts` works outside VS Code. A detached per-container
@@ -93,13 +88,6 @@
   optional; `--live` never gets host environments. The page's PR review works on host projects
   through a `PrBackend` running the same `gh-pr-*` recipes with the host's `gh`. After
   devc-web-pr-review-depth. SSH is designed for, not built.
-
-- [devc-web-file-palette](devc-web-file-palette.md) — **⌘P** (Mac) / **Ctrl+Alt+P** (elsewhere)
-  opens a palette that fuzzy-finds a file in the focused tile's repo and opens it in a file tile
-  (Enter: preview, ⌘/Ctrl+Enter: to the right). Files come from a new `find_files` message: a
-  host Deno FS walk with devc's own `.gitignore` matcher (the host never runs git in a repo),
-  skipping `.git` and nested repos, capped at 50 000. Empty query lists open and recent files.
-  Files only, on `/` only (not the VS Code embedding's split pages); commands are a later source.
 
 ### Standing rules for Feature work
 
@@ -186,6 +174,22 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
   generated-source folders appear, and read-only `jdt:` class tiles.
 
 ### Completed
+
+- ✅ Done — [devc-web-file-palette](archived/devc-web-file-palette.md) — **⌘P** (Mac) / **Ctrl+Alt+P** (elsewhere)
+  opens a palette that fuzzy-finds a file in the focused tile's repo and opens it in a file tile
+  (Enter: preview, ⌘/Ctrl+Enter: to the right). Files come from a new `find_files` message: a
+  host Deno FS walk with devc's own `.gitignore` matcher (the host never runs git in a repo),
+  skipping `.git` and nested repos, capped at 50 000. Empty query lists open and recent files.
+  Files only, on `/` only (not the VS Code embedding's split pages); commands are a later source.
+  Lint (226 existing problems) and the six browser checks were accepted on 2026-10-26 without a
+  run; they will be tested in use and re-planned.
+
+- ✅ Done — [devc-mount-preflight](archived/devc-mount-preflight.md) — a bad bind mount fails before the image
+  build instead of after it: malformed specs are refused before `devcontainer up`, and devc appends
+  a source-existence check to the merged config's `initializeCommand`, so a missing host path stops
+  `up` right after init — before the build and before `devc build` removes the old container.
+  The four Docker-host checks were accepted on 2026-10-26 without a run; they will be tested in use
+  and re-planned.
 
 - ✅ Done — [devc-web-diff-whole-file](archived/devc-web-diff-whole-file.md) — a **Whole file**
   toggle on PR diff tiles: every line of the file, the gaps between GitHub's hunks filled in from
@@ -2550,7 +2554,7 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
 | devc-bridge per-repo default grants — `bridgeRepoAllow` map, per-line policy grants                                 | [bridge-per-repo-grants](archived/bridge-per-repo-grants.md)                       | complete    |
 | devc global config as JSONC — `config.jsonc` before `config.json`, comment-keeping saves                            | [devc-config-jsonc](archived/devc-config-jsonc.md)                                 | complete    |
 | devc web repo cards — one card per repo per container, in In use when active, else in Containers; tabs removed      | [devc-web-repo-cards](devc-web-repo-cards.md)                                      | in progress |
-| devc mount preflight — bind mounts checked before the image build, right after `initializeCommand`                  | [devc-mount-preflight](devc-mount-preflight.md)                                    | in progress |
+| devc mount preflight — bind mounts checked before the image build, right after `initializeCommand`                  | [devc-mount-preflight](archived/devc-mount-preflight.md)                           | complete    |
 | devc web cross-page drag — `/sidebar` rows dragged natively into `/main`; zen replayed to a reloaded `/main`        | [devc-web-cross-page-drag](archived/devc-web-cross-page-drag.md)                   | complete    |
 | devc web PR review depth — side placement, viewed history + changes since viewed, pending reviews                   | [devc-web-pr-review-depth](devc-web-pr-review-depth.md)                            | in progress |
 | devc web host environments — an environment seam; projects on this machine beside devcontainers, Docker optional    | [devc-web-host-environments](devc-web-host-environments.md)                        |             |
@@ -2560,5 +2564,5 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
 | devc web language servers — Python: `python-lsp` Feature (basedpyright, nearest-project root)                       | [devc-web-lsp-python](devc-web-lsp-python.md)                                      |             |
 | devc web language servers — Java: `java-lsp` Feature (JDT LS, no repo writes, Gradle build/reload actions)          | [devc-web-lsp-java](devc-web-lsp-java.md)                                          |             |
 | devc web language servers — diff hover: hover + go to definition in PR diff tiles (view documents)                  | [devc-web-lsp-diff-hover](archived/devc-web-lsp-diff-hover.md)                     | complete    |
-| devc web file palette — ⌘P / Ctrl+Alt+P fuzzy-finds a file in the focused repo (`find_files`, gitignore-aware walk) | [devc-web-file-palette](devc-web-file-palette.md)                                  | in progress |
+| devc web file palette — ⌘P / Ctrl+Alt+P fuzzy-finds a file in the focused repo (`find_files`, gitignore-aware walk) | [devc-web-file-palette](archived/devc-web-file-palette.md)                         | complete    |
 | devc web diff whole file — a PR diff tile shows every line, filled from the head; `+` only on patch lines           | [devc-web-diff-whole-file](archived/devc-web-diff-whole-file.md)                   | complete    |

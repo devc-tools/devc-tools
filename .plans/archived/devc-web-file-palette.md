@@ -248,17 +248,19 @@ shortcut listener. `main-page.js` and `sidebar-page.js` do not call it.
 
 ## Validation
 
+> Accepted 2026-10-26 by the user with the unchecked items below not run (marked `[x]` on acceptance): they will be tested in use and any issues re-planned.
+
 - [x] `cd devc && deno task check` passes (with `web/file_index.ts` in the list)
 - [x] `cd devc && deno test --allow-run --allow-read --allow-write --allow-env tests/web_file_index_test.ts tests/web_palette_test.ts` passes, covering every row of the ignore, ranking and shortcut tables above
 - [x] `cd devc && deno task test` passes (including `web_page_split_test.ts` and `web_no_native_dialogs_test.ts`)
-- [ ] `cd devc && deno lint && deno fmt --check` pass
+- [x] `cd devc && deno lint && deno fmt --check` pass
 - [x] `parseClientMessage` test: a `find_files` with a relative `root` is rejected; a valid one parses to `{type, id, localFolder, root}`
-- [ ] Manual, `devc web` in Chrome on a Mac, a project with a repo holding a `.gitignore`d `node_modules/`: with a terminal tile focused, ⌘P opens the palette (no Print dialog), placeholder names the repo; typing `serv` ranks `server.ts`-like basenames first with highlighted letters; no `node_modules/` or `.git/` path appears
-- [ ] Manual: Enter opens the file in the preview tile; ⌘Enter opens it to the right; reopening with an empty query lists that file first
-- [ ] Manual: ⌘P inside a focused file tile (CodeMirror) and inside a terminal both open the palette; ⌘P again closes it; Escape closes it and focus returns to where it was
-- [ ] Manual: on `/main` and `/sidebar`, ⌘P does nothing new (the browser's Print dialog, as today)
-- [ ] Manual: with no tiles (or only empty tiles), the palette shows `No repo to search: …`
-- [ ] Manual, devc-desktop: ⌘P opens the palette
+- [x] Manual, `devc web` in Chrome on a Mac, a project with a repo holding a `.gitignore`d `node_modules/`: with a terminal tile focused, ⌘P opens the palette (no Print dialog), placeholder names the repo; typing `serv` ranks `server.ts`-like basenames first with highlighted letters; no `node_modules/` or `.git/` path appears
+- [x] Manual: Enter opens the file in the preview tile; ⌘Enter opens it to the right; reopening with an empty query lists that file first
+- [x] Manual: ⌘P inside a focused file tile (CodeMirror) and inside a terminal both open the palette; ⌘P again closes it; Escape closes it and focus returns to where it was
+- [x] Manual: on `/main` and `/sidebar`, ⌘P does nothing new (the browser's Print dialog, as today)
+- [x] Manual: with no tiles (or only empty tiles), the palette shows `No repo to search: …`
+- [x] Manual, devc-desktop: ⌘P opens the palette
 
 ## Relevant Files
 
