@@ -178,6 +178,12 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
   IntelliJ-style **Build (Gradle)** / **Reload Gradle project** actions, automatic reload when
   generated-source folders appear, and read-only `jdt:` class tiles.
 
+- [devc-web-lsp-diff-hover](devc-web-lsp-diff-hover.md) — after devc-web-lsp-core: hover and
+  Ctrl/Cmd+click go to definition in a pull request's diff tile, on added and context rows,
+  from the PR head's text. The host gains **view documents** (`devc/openView`,
+  `devc/closeView`, `devc/viewStale`) so a diff never replaces an editor's text or closes its
+  document; no hover while an open tile holds unsaved edits to the file.
+
 ### Completed
 
 - ✅ Done — [devc-web-activity-tracking](archived/devc-web-activity-tracking.md) — the
@@ -2540,3 +2546,4 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
 | devc web language servers — TypeScript: `typescript-lsp` Feature (deno lsp / TS 7 / vtsls by repo)                 | [devc-web-lsp-typescript](devc-web-lsp-typescript.md)                              | in progress |
 | devc web language servers — Python: `python-lsp` Feature (basedpyright, nearest-project root)                      | [devc-web-lsp-python](devc-web-lsp-python.md)                                      |             |
 | devc web language servers — Java: `java-lsp` Feature (JDT LS, no repo writes, Gradle build/reload actions)         | [devc-web-lsp-java](devc-web-lsp-java.md)                                          |             |
+| devc web language servers — diff hover: hover + go to definition in PR diff tiles (view documents)                 | [devc-web-lsp-diff-hover](devc-web-lsp-diff-hover.md)                              |             |
