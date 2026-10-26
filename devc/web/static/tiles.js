@@ -3231,6 +3231,7 @@ function viewChanged() {
   viewChangeQueued = true;
   queueMicrotask(() => {
     viewChangeQueued = false;
+    removed: diffViews.get(tile.id)?.data?.file?.status === 'removed',
     updateWindow();
     const state = viewState();
     const before = lastTiles;

@@ -626,7 +626,9 @@ is published from any container: the host server finds devcontainers with
   files**) leaves out the files marked Viewed and the folders left holding none
   (a file changed since it was viewed stays), remembered per browser; a PR with
   every file viewed then shows `All n files viewed`. A diff tile's header has the file's own
-  **Viewed** checkbox, kept in step with the tree's. In a container with a
+  **Viewed** checkbox, kept in step with the tree's, and its menu (its tab, or
+  a right-click off the code) has **Open file** and **Open file to the right**
+  for the file itself (not for a deleted file). In a container with a
   language server for the file, its added and unchanged lines have hover and
   **Ctrl/Cmd+click** go to definition (see **Language servers** above).
   - **Changes since viewed.** GitHub records only whether a file is Viewed

@@ -37,6 +37,7 @@ import {
  * @property {boolean} dirty          a file tile with unsaved edits
  * @property {boolean} saveable       a file tile whose edits Save would write now
  * @property {string | null} url      a diff tile's file on github.com, once known
+ * @property {boolean} [removed]      a diff tile's file is deleted by its PR (once its diff is read)
  * @property {{restart: boolean, settings: boolean} | null} [lsp]
  *   a file tile's language server items: **Restart language server** while it is attached or its
  *   session exited, **Language server settings…** while its file has one and its container is

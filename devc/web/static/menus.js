@@ -776,6 +776,16 @@ function diffTileMenuItems(tile) {
     ['Refresh', () => tileArea.reload(tile.id)],
     [LABELS.askAgent, () => tileArea.askAgent(tile.id)],
   ];
+  // The file itself, as the PR tree's menu opens it: not for a file the PR deletes.
+  const diff = tile.diff;
+  if (diff && !tile.removed) {
+    const fr = { localFolder: diff.localFolder, root: diff.root };
+    items.push(
+      null,
+      ['Open file', () => openFileTile(fr, diff.path, 'stack')],
+      ['Open file to the right', () => openFileTile(fr, diff.path, 'right')],
+    );
+  }
   const url = tile.url;
   if (url) {
     items.push([
