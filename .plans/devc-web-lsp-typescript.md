@@ -7,18 +7,28 @@
 - [ ] `features/typescript-lsp/devc-lsp-typescript`, the launcher, per [Launcher](#launcher)
 - [ ] `features/typescript-lsp/README.md`, per [README](#readme)
 - [ ] Offline harness `features/typescript-lsp/test/launcher_test.sh`, per [Tests](#tests)
+- [ ] Offline install test `features/typescript-lsp/test/install_options_test.sh`, per
+      [Tests](#tests)
+- [ ] `features/typescript-lsp/vtsls/package.json` and `package-lock.json`, per
+      [install.sh](#installsh)
 - [ ] Docker scenarios: `test/test.sh`, `test/scenarios.json` plus one script per scenario,
       `test/run-features-test.sh` (copied unchanged from `features/xvfb/test/`)
 - [ ] `features/README.md`: a row for `typescript-lsp`
 - [ ] `features/CONTRIBUTING.md`: per-Feature test inventory entry and a `### typescript-lsp` note
-- [ ] Run all of [Validation](#validation), Docker scenarios included
-- [ ] Add `typescript-lsp` to `features/PUBLISH_ALLOWLIST.txt`, **only after** the Docker
-      scenarios pass
+- [ ] `devc/README.md`: the **Language servers** bullet names `typescript-lsp`
+- [ ] Run every [Validation](#validation) item an agent can run; hand the **(human)** and
+      **(Docker host)** items to the user
+- [ ] Add `typescript-lsp` to `features/PUBLISH_ALLOWLIST.txt`, **only after** the user reports
+      the Docker scenarios pass
 - [ ] `deno fmt` every touched `.md` and `.json` file
 
 **Depends on [devc-web-lsp-core](devc-web-lsp-core.md)** being complete: this plan ships a
 launcher that satisfies its [launcher contract](devc-web-lsp-core.md#launcher-contract). devc
-web itself does not change here.
+web itself does not change here. It does not depend on the Python or Java plans.
+
+**Who runs what.** Items marked **(Docker host)** need a machine with Docker (the devcontainer
+has none; see `docs/maintainers/manual-verification.md`). Items marked **(human)** also need
+devc web on the host and a browser. Everything else runs in the devcontainer.
 
 A new Feature, `typescript-lsp`, gives devc web TypeScript and JavaScript intelligence for
 plain TypeScript, Node, **Deno** and **Bun** projects. A container may hold several of them.
@@ -83,7 +93,7 @@ Measurements behind each choice are in
     "settings": {
       "type": "string",
       "default": "{}",
-      "description": "A JSON object deep-merged into the settings devc web gives the language server (workspace/configuration), e.g. {\"typescript\":{\"tsserver\":{\"maxTsServerMemory\":8192}}}. Applies to vtsls and TypeScript 7; deno lsp gets it under its own keys."
+      "description": "A JSON object deep-merged into the settings devc web gives the language server (workspace/configuration), e.g. {\"typescript\":{\"tsserver\":{\"maxTsServerMemory\":8192}}}. A per-project value from devc web replaces this one."
     }
   }
 }
@@ -103,20 +113,45 @@ Runs as root at build time. `set -e`, `LC_ALL=C`, and a `die()` with the prefix
 3. **Private Node v24.22.1.**
    - Map `uname -m`: `x86_64` → `x64`, `aarch64` or `arm64` → `arm64`; anything else is
      `die "unsupported architecture: …"`.
-   - Download `https://nodejs.org/dist/v24.22.1/node-v24.22.1-linux-<arch>.tar.gz` and its
-     `SHASUMS256.txt`, verify with `sha256sum -c` on the matching line only, and extract to
-     `/usr/local/share/devc-features/typescript-lsp/node` (`--strip-components=1`).
-   - Pin it in `install.sh` as `NODE_VERSION='24.22.1'`.
-4. **vtsls 0.3.0.**
-   `PATH=<node>/bin:$PATH npm install --prefix /usr/local/share/devc-features/typescript-lsp/vtsls
-   --no-audit --no-fund --omit=dev @vtsls/language-server@0.3.0`. Its entry point is
-   `<prefix>/node_modules/@vtsls/language-server/bin/vtsls.js`, and its bundled TypeScript is
-   `<prefix>/node_modules/typescript` (5.9.3, a dependency of `@vtsls/language-service`).
+   - Download `https://nodejs.org/dist/v24.22.1/node-v24.22.1-linux-<arch>.tar.gz` and verify
+     it against a sha256 baked into `install.sh` (not fetched), then extract to
+     `/usr/local/share/devc-features/typescript-lsp/node` (`--strip-components=1`). Mismatch
+     is `die "node checksum mismatch"`.
+   - Pins, from `https://nodejs.org/dist/v24.22.1/SHASUMS256.txt`:
+
+     ```sh
+     NODE_VERSION='24.22.1'
+     NODE_SHA256_X64='eb6728e77c576a35162c122c45ccadf224d89ff00abc8dae46cc2897c6002d7c'
+     NODE_SHA256_ARM64='33c37be234ba8bee041961047b19160f4d7d0f164e8e246f78bdd10feff148b3'
+     ```
+4. **vtsls 0.3.0, fully locked.** The Feature ships `vtsls/package.json`
+   (`{"private": true, "dependencies": {"@vtsls/language-server": "0.3.0"}}`) and
+   `vtsls/package-lock.json`, generated once by the implementer with the pinned Node's npm
+   (`npm install --package-lock-only` in that folder) and committed. `install.sh` copies both to
+   `/usr/local/share/devc-features/typescript-lsp/vtsls` and runs
+   `PATH=<node>/bin:$PATH npm ci --prefix <that dir> --omit=dev --no-audit --no-fund`. So
+   transitive versions (vtsls's `vscode-languageserver ^9.0.1`, for one) can't drift between
+   builds. To bump vtsls, change `package.json` and regenerate the lock.
+   - Its entry point is `<prefix>/node_modules/@vtsls/language-server/bin/vtsls.js`, and its
+     bundled TypeScript is `<prefix>/node_modules/typescript` (5.9.3, a dependency of
+     `@vtsls/language-service`).
 5. **Launcher.** Install `devc-lsp-typescript` to `/usr/local/bin/devc-lsp-typescript`, mode
-   `0755`, with `SERVER` and `SETTINGS` baked in. Use the `bake()` pattern copied from
-   `features/xvfb`: each value is base64-encoded into a `const BAKED_<NAME> = '<base64>'` line
-   (`BAKED_SERVER`, `BAKED_SETTINGS`), so no quoting
-   reaches the script.
+   `0755`, with `SERVER` and `SETTINGS` baked in.
+   - The launcher source holds exactly these two lines, which run unbaked as "use the
+     built-in default":
+
+     ```js
+     const BAKED_SERVER = '';
+     const BAKED_SETTINGS = '';
+     ```
+
+   - `install.sh` has a `bake_js <file> <name> <value>`, adapted from `features/xvfb`'s
+     `bake()` (awk with the line passed as `-v`, then `grep -qxF` to confirm, else
+     `die "could not bake <name>"`). It replaces the line starting `const <name> =` with
+     `const <name> = '<b64>';`, where `<b64>` is `printf %s "$value" | base64 -w0`. Base64 keeps
+     quotes and backslashes out of the JS. **Gotcha:** without `-w0`, GNU `base64` wraps at 76
+     characters and a long `settings` value breaks the one-line bake.
+   - The launcher decodes with `Buffer.from(v, 'base64').toString('utf8')`; `''` means unset.
 6. Everything is world-readable (`chmod -R a+rX`), because the launcher runs as the remote user.
 
 ### Launcher
@@ -178,14 +213,26 @@ Node ≥ 18 on `PATH`. It uses only Node built-ins.
      - server `TypeScript <version> (workspace)`
      - `initializationOptions` `{}`
      - `settings` = the `settings` option
+     - **Native binary check.** TS 7's `bin/tsc` runs a native binary from the optional
+       package `@typescript/typescript-linux-<arch>` (`<arch>` = Node's `process.arch`, `x64`
+       or `arm64`). A `node_modules` installed on a macOS host, or for another architecture,
+       lacks it. Check with
+       `createRequire('<tsdir>/package.json').resolve('@typescript/typescript-linux-<arch>/package.json')`,
+       which resolves the way `bin/tsc` does (hoisted, nested or pnpm). If it fails:
+       - under `auto`: fall back to vtsls on the bundled TypeScript, server
+         `vtsls 0.3.0 (bundled TypeScript 5.9.3; no linux-<arch> TypeScript 7 binary)`, and
+         print one stderr line naming the missing package
+       - forced `workspace-typescript`: exit 3 with
+         `@typescript/typescript-linux-<arch> is not installed; run npm install in the container`
    - **vtsls with a workspace TypeScript < 7:**
      - server `vtsls 0.3.0 (TypeScript <version>)`
      - `settings`
        `{"typescript": {"tsdk": "<that typescript dir>/lib"}, "vtsls": {"autoUseWorkspaceTsdk": true}}`,
        deep-merged with the `settings` option
-   - **vtsls with none:**
+   - **vtsls with none, or with a workspace TypeScript ≥ 7** (only when forced, or the
+     fallback below): TypeScript 7 ships no `lib/tsserver.js`, so vtsls can't run on it.
      - server `vtsls 0.3.0 (bundled TypeScript 5.9.3)`
-     - `settings` = the `settings` option
+     - `settings` = the `settings` option (no `tsdk`)
    - **Bun:** when `bun.lock`, `bun.lockb` or `bunfig.toml` exists in the root, the server
      string gains `, Bun` (`TypeScript 7.0.2 (workspace, Bun)`). Nothing else changes.
 7. Print `{"protocol": 1, root, languageId, server, initializationOptions, settings}` as one line.
@@ -206,8 +253,12 @@ exits with the child's code. It never writes to stdout itself.
   option (`auto`)
 - `settings`: json; default the Feature's `settings` option
 
-**Option precedence:** a per-project value (`--options`) beats the Feature's baked value, which
-beats the built-in default.
+**Option precedence and invalid options** follow the
+[core contract](devc-web-lsp-core.md#launcher-contract): each key, `settings` included, is
+replaced (not merged) by the per-project value, then the Feature's baked value, then the
+built-in default; the chosen `settings` is deep-merged over the computed settings. Invalid
+`--options` (bad base64 or JSON, not an object, `server` not one of the four, `settings` not an
+object) exit 1 with a one-line reason.
 
 **Deep merge** means objects merge recursively, and anything else is replaced by the later
 value.
@@ -235,28 +286,32 @@ value.
 
 ## Tests
 
-`test/launcher_test.sh` (offline, needs `node` and `git` on `PATH`). It builds fixtures in a
+`test/launcher_test.sh` (offline, needs `node` ≥ 18 and `git` on `PATH`). It builds fixtures in a
 `mktemp -d` and runs `node features/typescript-lsp/devc-lsp-typescript describe …`, comparing
 fields with `node -e`. Fixtures:
 
-| Fixture                                                                                                                                                  | Expect                                                                                                                                     |
-| -------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| git repo with root `package.json`, `packages/a/tsconfig.json`, `node_modules/typescript/package.json` `{"version":"5.6.3"}`; file `packages/a/src/x.tsx` | root = repo; `typescriptreact`; server `vtsls 0.3.0 (TypeScript 5.6.3)`; `settings.typescript.tsdk` = `<repo>/node_modules/typescript/lib` |
-| same, with typescript `7.0.2`                                                                                                                            | server `TypeScript 7.0.2 (workspace)`; no `tsdk`                                                                                           |
-| git repo, `package.json`, no `node_modules`; file `a.js`                                                                                                 | `javascript`; `vtsls 0.3.0 (bundled TypeScript 5.9.3)`                                                                                     |
-| git repo, `deno.json` at top and in `pkg/`; file `pkg/x.ts`; a fake `deno` on `PATH` printing `deno 2.9.8 (…)`                                           | root = repo (topmost); server `deno 2.9.8`; `initializationOptions.enable` true                                                            |
-| same, without `deno` on `PATH`                                                                                                                           | exit 3                                                                                                                                     |
-| a `.py` file                                                                                                                                             | exit 3                                                                                                                                     |
-| `BAKED_SETTINGS` replaced with `{"typescript":{"tsserver":{"maxTsServerMemory":1}}}` in a copy                                                           | merged next to `tsdk`                                                                                                                      |
-| git repo with `deno.json` at top, `tools/bun-app/package.json` + `bun.lock` + `node_modules/typescript` `7.0.2`; file `tools/bun-app/index.ts`           | root = `tools/bun-app` (nearest kind Node, stops before the Deno top); server `TypeScript 7.0.2 (workspace, Bun)`                          |
-| git repo with root `package.json`, `deno-pkg/deno.json`; file `deno-pkg/mod.ts`; fake `deno`                                                             | root = `deno-pkg`; server `deno 2.9.8`                                                                                                     |
-| directory with both `deno.json` and `package.json`; fake `deno`                                                                                          | Deno                                                                                                                                       |
-| `--root <repo>/packages/a` on the first fixture's file                                                                                                   | root = `<repo>/packages/a`; still `vtsls 0.3.0 (TypeScript 5.6.3)` (TypeScript found walking up)                                           |
-| `--root /elsewhere`                                                                                                                                      | exit 3, `root does not contain the file`                                                                                                   |
-| `--options` = base64 `{"server":"vtsls"}` on the TS 7 fixture                                                                                            | server `vtsls 0.3.0 (TypeScript 7.0.2)`                                                                                                    |
-| `--options` = base64 `{"server":"deno"}` without `deno` on `PATH`                                                                                        | exit 3                                                                                                                                     |
-| `options` subcommand                                                                                                                                     | `protocol` 1; keys `server` (enum, default `auto`) and `settings` (json)                                                                   |
-| a directory that is not a git repo with `tsconfig.json`                                                                                                  | root = that directory                                                                                                                      |
+| Fixture                                                                                                                                                                    | Expect                                                                                                                                     |
+| -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| git repo with root `package.json`, `packages/a/tsconfig.json`, `node_modules/typescript/package.json` `{"version":"5.6.3"}`; file `packages/a/src/x.tsx`                   | root = repo; `typescriptreact`; server `vtsls 0.3.0 (TypeScript 5.6.3)`; `settings.typescript.tsdk` = `<repo>/node_modules/typescript/lib` |
+| same, with typescript `7.0.2` and `node_modules/@typescript/typescript-linux-<arch>/package.json`                                                                          | server `TypeScript 7.0.2 (workspace)`; no `tsdk`                                                                                           |
+| git repo, `package.json`, no `node_modules`; file `a.js`                                                                                                                   | `javascript`; `vtsls 0.3.0 (bundled TypeScript 5.9.3)`                                                                                     |
+| git repo, `deno.json` at top and in `pkg/`; file `pkg/x.ts`; a fake `deno` on `PATH` printing `deno 2.9.8 (…)`                                                             | root = repo (topmost); server `deno 2.9.8`; `initializationOptions.enable` true                                                            |
+| same, without `deno` on `PATH`                                                                                                                                             | exit 3                                                                                                                                     |
+| a `.py` file                                                                                                                                                               | exit 3                                                                                                                                     |
+| `BAKED_SETTINGS` replaced with `{"typescript":{"tsserver":{"maxTsServerMemory":1}}}` in a copy                                                                             | merged next to `tsdk`                                                                                                                      |
+| git repo with `deno.json` at top, `tools/bun-app/package.json` + `bun.lock` + `node_modules/typescript` `7.0.2` (with the platform package); file `tools/bun-app/index.ts` | root = `tools/bun-app` (nearest kind Node, stops before the Deno top); server `TypeScript 7.0.2 (workspace, Bun)`                          |
+| git repo with root `package.json`, `deno-pkg/deno.json`; file `deno-pkg/mod.ts`; fake `deno`                                                                               | root = `deno-pkg`; server `deno 2.9.8`                                                                                                     |
+| directory with both `deno.json` and `package.json`; fake `deno`                                                                                                            | Deno                                                                                                                                       |
+| `--root <repo>/packages/a` on the first fixture's file                                                                                                                     | root = `<repo>/packages/a`; still `vtsls 0.3.0 (TypeScript 5.6.3)` (TypeScript found walking up)                                           |
+| `--root /elsewhere`                                                                                                                                                        | exit 3, `root does not contain the file`                                                                                                   |
+| `--options` = base64 `{"server":"vtsls"}` on the TS 7 fixture                                                                                                              | server `vtsls 0.3.0 (bundled TypeScript 5.9.3)`; no `tsdk`                                                                                 |
+| `--options` = base64 `{"server":"deno"}` without `deno` on `PATH`                                                                                                          | exit 3                                                                                                                                     |
+| TS 7 fixture without the platform package                                                                                                                                  | server `vtsls 0.3.0 (bundled TypeScript 5.9.3; no linux-<arch> TypeScript 7 binary)`; one stderr line                                      |
+| same, `--options` base64 `{"server":"workspace-typescript"}`                                                                                                               | exit 3, message names `@typescript/typescript-linux-<arch>`                                                                                |
+| baked `SETTINGS` `{"a":{"b":1}}`, `--options` base64 `{"settings":{"a":{"c":2}}}`                                                                                          | settings has `a.c` = 2 and no `a.b` (per-project replaces baked)                                                                           |
+| `--options` = `!!!`, base64 `[1]`, base64 `{"server":"x"}`, base64 `{"settings":3}`                                                                                        | each exits 1 with a one-line reason                                                                                                        |
+| `options` subcommand                                                                                                                                                       | `protocol` 1; keys `server` (enum, default `auto`) and `settings` (json)                                                                   |
+| a directory that is not a git repo with `tsconfig.json`                                                                                                                    | root = that directory                                                                                                                      |
 
 Docker scenarios (`test/scenarios.json`, image `mcr.microsoft.com/devcontainers/base:ubuntu`):
 
@@ -267,42 +322,78 @@ Docker scenarios (`test/scenarios.json`, image `mcr.microsoft.com/devcontainers/
     Node.
 - **`with_settings`**: the option `{"settings": "{\"typescript\":{\"tsserver\":{\"maxTsServerMemory\":8192}}}"}`
   shows up in `describe`.
-- **`bad_settings`**: option `"[1]"`, and the build must fail with the message
-  `settings must be a JSON object`. A failing scenario is checked by `run-features-test.sh`
-  exiting non-zero; record how in CONTRIBUTING.
+  `devcontainer features test` has no expected-failure mode, so build-time refusals are tested
+  offline instead, in `test/install_options_test.sh`, following
+  `features/xvfb/test/install_options_test.sh` and `features/agents/test/install_options_test.sh`:
+  run the real `install.sh` with `SHARE_DIR`-style path overrides into a `mktemp -d`, and `curl`,
+  `apt-get`, `tar`, `sha256sum` and `npm` stubbed on `PATH` (the `curl` stub copies a fixture
+  file, the `npm` stub records its arguments). `install.sh` therefore reads its install paths
+  from overridable variables: `SHARE_DIR` (default `/usr/local/share/devc-features/typescript-lsp`)
+  and `BIN_DIR` (default `/usr/local/bin`). The `tar` stub creates `<dest>/bin/node` and
+  `<dest>/bin/npm` as wrappers that exec the stubs' `node` (the real one on `PATH`) and the `npm`
+  stub. Rows:
+
+- `SETTINGS='[1]'` → non-zero exit, output contains `settings must be a JSON object`, nothing
+  under `BIN_DIR`
+- `SETTINGS='{"a":"it'"'"'s \"q\""}'` and `SERVER=vtsls` → the installed launcher has both
+  `BAKED_` lines rewritten, and its `describe` on a fixture reflects them (proves the bake
+  survives quotes)
+- a 2,000-character `SETTINGS` → the baked line is still one line
+- `uname -m` stubbed to `riscv64` → `unsupported architecture: riscv64`
+- the Node tarball stub with different bytes → `node checksum mismatch`
+- the `npm` stub is called with `ci` and `--omit=dev`, never `install`
 
 ## Validation
 
 - [ ] `bash features/typescript-lsp/test/launcher_test.sh` passes every fixture row
+- [ ] `bash features/typescript-lsp/test/install_options_test.sh` passes every row
 - [ ] `bash tests/features_test.sh --feature typescript-lsp` passes
-- [ ] `bash features/typescript-lsp/test/run-features-test.sh` passes every scenario (Docker)
-- [ ] Manual (core complete), web-client-ui with the Feature added to its devcontainer (copy
-      the Feature folder into `.devcontainer/` and reference it as `"./typescript-lsp": {}`),
-      `devc build`, `devc web`. Open `packages/iris-grid/src/IrisGrid.tsx`:
+- [ ] **(Docker host)** `bash features/typescript-lsp/test/run-features-test.sh` passes every
+      scenario
+- [ ] **(human)** Setup for the manual items: add the unpublished Feature to a project as a
+      local Feature, and undo it afterwards.
+  - Project with no `.devcontainer/` (web-client-ui, devc-tools): `devc init` in the checkout,
+    then `cp -r <devc-tools>/features/typescript-lsp .devcontainer/` and add
+    `"./typescript-lsp": {}` to `.devcontainer/devcontainer.json`'s `features`. Afterwards
+    `rm -rf .devcontainer` and `devc build`.
+  - Project with a committed `.devcontainer/` (deephaven-core): the same copy and `features`
+    entry; afterwards `git checkout .devcontainer && rm -rf .devcontainer/typescript-lsp` and
+    `devc build`.
+  - `devc build`, then `devc web`. If core's stub launcher was installed by hand, the rebuild
+    replaces it; that's expected.
+- [ ] **(human)** Manual (core complete), web-client-ui with the Feature added as above.
+      Open `packages/iris-grid/src/IrisGrid.tsx`:
   - [ ] `TypeScript: starting…` clears within 15 s
   - [ ] hover on `GridRange` shows `class GridRange`
   - [ ] F12 opens `packages/grid/src/GridRange.ts`
   - [ ] `GridRange.` offers `boundedRanges`
   - [ ] planting `const devcProbe: number = "x";` underlines within 2 s
-- [ ] Manual: from a terminal, change the return type of `GridRange.boundedRanges` in
+- [ ] **(human)** Manual: from a terminal, change the return type of `GridRange.boundedRanges` in
       `packages/grid/src/GridRange.ts`. `IrisGrid.tsx` shows the new errors within 5 s.
       Revert.
-- [ ] Manual (Bun): in the container, `bun init` a project in a scratch git repo. A `.ts` file
+- [ ] **(human)** Manual (Bun): in the container, `bun init` a project in a scratch git repo. A `.ts` file
       there gets server `TypeScript 7.x (workspace, Bun)`, hover on `Bun.file`, and `Bun.`
       completions. Before `bun install`, `Bun` is unresolved, and the README says why.
-- [ ] Manual (multi-project): devc-tools (Deno) and web-client-ui (Node) mounted in one
-      container. Both repos' files attach, to two sessions with different servers.
-- [ ] Manual (override): **Language server settings…** on an `IrisGrid.tsx` tile:
+- [ ] **(human)** Manual (multi-project): in devc-tools' repo overlay
+      (`~/.config/devc/repos/devc-tools-<hash>/devc.jsonc`; `devc status` prints the path) add
+      `"mounts": ["type=bind,source=<host path of web-client-ui>,target=/workspaces/web-client-ui"]`,
+      with the Feature added to devc-tools as above, then `devc build`. Open
+      `devc/web/server.ts` and `/workspaces/web-client-ui/packages/grid/src/GridRange.ts` (from
+      **Files**). Two sessions attach, one `deno …`, one `vtsls …` or `TypeScript 7…`. Remove
+      the mount afterwards.
+- [ ] **(human)** Manual (override): **Language server settings…** on an `IrisGrid.tsx` tile:
   - [ ] Server `vtsls` and Root `packages/iris-grid`, then Save: the session restarts with that
         root, and the status names vtsls
   - [ ] **Reset to detected** restores the repo-root session
-- [ ] Manual: devc-tools itself with the Feature added. `devc/web/server.ts` gets
+- [ ] **(human)** Manual: devc-tools itself with the Feature added. `devc/web/server.ts` gets
       `deno 2.9.x` (status text while starting), hover on `confine`, and `Deno.` completions.
-- [ ] Manual: a scratch repo in the container with `npm i typescript@7.0.2` and a two-file
+- [ ] **(human)** Manual: a scratch repo in the container with `npm i typescript@7.0.2` and a two-file
       project. Hover, completion, and the planted error (pull diagnostics) all work, and the
       status names `TypeScript 7.0.2 (workspace)`.
-- [ ] Manual: a `.js` file in deephaven-core (no `package.json` above it) attaches, with server
-      `vtsls 0.3.0 (bundled TypeScript 5.9.3)`, and hover works.
+- [ ] **(human)** Manual: deephaven-core's
+      `web/client-api/src/main/java/io/deephaven/web/public/batch.js` (no `package.json`
+      above it) attaches, with server `vtsls 0.3.0 (bundled TypeScript 5.9.3)`, and hover
+      works.
 - [ ] `git status` in every repo used above shows nothing the language server wrote
 - [ ] `deno fmt --check` passes for every touched `.md` / `.json`
 
@@ -312,11 +403,13 @@ Docker scenarios (`test/scenarios.json`, image `mcr.microsoft.com/devcontainers/
 - `features/typescript-lsp/install.sh` — new
 - `features/typescript-lsp/devc-lsp-typescript` — new
 - `features/typescript-lsp/README.md` — new
+- `features/typescript-lsp/vtsls/package.json` — new
+- `features/typescript-lsp/vtsls/package-lock.json` — new, generated
 - `features/typescript-lsp/test/launcher_test.sh` — new
+- `features/typescript-lsp/test/install_options_test.sh` — new
 - `features/typescript-lsp/test/test.sh` — new
 - `features/typescript-lsp/test/scenarios.json` — new
 - `features/typescript-lsp/test/with_settings.sh` — new
-- `features/typescript-lsp/test/bad_settings.sh` — new
 - `features/typescript-lsp/test/run-features-test.sh` — copied from `features/xvfb/test/`
 - `features/README.md` — row
 - `features/CONTRIBUTING.md` — test inventory and `### typescript-lsp` note (private Node; no

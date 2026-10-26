@@ -21,7 +21,7 @@
       write, watch), with tests
 - [ ] `protocol.ts`: `lsp_attach`, `lsp_send`, `lsp_detach`, `lsp_restart`, `lsp_settings_get`,
       `lsp_settings_set`, with parser tests
-- [ ] `server.ts`: the four handlers; `lsp` and `lsp_status` messages out; detach on socket close;
+- [ ] `server.ts`: the six handlers; `lsp` and `lsp_status` messages out; detach on socket close;
       sessions stopped on shutdown
 - [ ] `viewer.js`: `createLanguageClient` and `Viewer.attachLanguage` / `detachLanguage`, and the
       one-view-per-URI workspace
@@ -32,7 +32,8 @@
 - [ ] `devc/tests/fixtures/devc-lsp-typescript-deno` (new): a stub launcher wrapping `deno lsp`,
       for manual validation before any language Feature exists
 - [ ] `devc/README.md`: devc web **Language servers** bullet and the launcher contract;
-      `.plans/design/devc-design.md`: one paragraph; the exploration doc links this plan
+      `.plans/design/devc-design.md`: one paragraph; the exploration doc's **Settings** decision
+      updated to per-project `language-servers.json`
 
 devc web's file editor gains completion, hover, signature help, go-to-definition, find
 references, formatting and diagnostics from a language server running **inside the file's
@@ -44,7 +45,10 @@ defines. A container without a launcher behaves exactly as today.
 
 Background and measurements: [design/devc-web-language-services.md](design/devc-web-language-services.md).
 
-Read `.claude/skills/devc-web/SKILL.md` first if it exists.
+**Who runs what.** An agent in a devcontainer can do every item up to and including the unit
+tests and `deno fmt`. Items marked **(human)** need devc web running on the host and a browser;
+the agent implements everything, runs what it can, and hands the **(human)** list to the user
+rather than marking it done.
 
 ## Decisions (settled with the user, 2026-10-23)
 
@@ -107,6 +111,15 @@ dockerExecArgv(info, {
 - **`--options`** is the project's options, as base64 of a JSON object
   ([Per-project settings](#per-project-settings-lsp_configts)). Keys override the Feature's
   baked defaults. A key the launcher doesn't know is ignored, with one stderr line.
+  - **Precedence, every key including `settings`:** the per-project value **replaces** the
+    Feature's baked value, which replaces the built-in default. `settings` is not merged with
+    the baked `settings`; the chosen `settings` object is then deep-merged over the launcher's
+    computed settings (objects merge recursively, anything else is replaced).
+  - **Invalid options** exit 1 with a one-line reason on stderr (devc web shows it as
+    `describe_failed`): base64 that doesn't decode to JSON, JSON that isn't an object, an
+    `enum` value not in its list, a `json` option that isn't an object, a `path` option that
+    isn't absolute. **Gotcha (Node):** `Buffer.from(s, 'base64')` never throws; it silently
+    skips bad characters. Decode, then `JSON.parse` in a `try`, then check the type.
 
 On success it exits 0 and prints exactly one JSON object on stdout (nothing else):
 
@@ -143,8 +156,13 @@ Exit codes:
 | 127   | launcher not installed (the login shell's "command not found") | `no_language_server`; plain editor, nothing shown           |
 | other | error (stderr)                                                 | `describe_failed`, status line shows the first stderr line  |
 
-`describe` must be fast (it runs on every attach): no network, no build. It is run with a
-15-second timeout, using `runDocker` from `container_files.ts`.
+`describe` must be fast (it runs on every attach): no network, no build. It is run with
+`runDocker` from `container_files.ts`, which kills it after 15 s. **Gotcha:** `runDocker` uses
+`AbortSignal.timeout`, so a timeout may surface as a **thrown** error rather than an exit code.
+Catch it: a throw, or a non-zero exit after the timeout, is `describe_failed` with detail
+`describe timed out after 15 s`. The `fail` message (and the tile's status line, see
+[Browser side](#browser-side)) is `<Language> language server: <detail>`, where `<detail>` is
+the first non-empty stderr line, or `exit code <n>` when stderr is empty.
 
 ### `devc-lsp-<language> serve --root <root> [--options <b64>]`
 
@@ -188,6 +206,11 @@ Prints the launcher's per-project options as one JSON object, for devc web's set
 - `string`, `path` (an absolute container path) or `command` (a shell command line): a text field
 - `enum`: a select
 - `json`: a JSON object, in a textarea that must parse as an object
+
+Exit 0 with the JSON on success. Any other exit, output that isn't one JSON object, or a
+`protocol` other than 1 makes `lsp_settings_get` fail with `describe_failed` and the same
+detail rule as `describe`. Exit 127 is `no_language_server`. It runs with the same 15 s
+`runDocker` timeout.
 
 ### Optional subcommands
 
@@ -306,17 +329,25 @@ one container are two sessions.
   - `detected` is `describe <file>` without an override; `null` when `describe` exits 3.
   - `editable` is false for files outside a repo (no `root` in the message). The dialog then
     shows the detected values read-only.
+  - Errors, in the `fail` shape: `not_connected`; `unsupported` (no language for the file
+    name); `no_language_server` (`options` or `describe` exits 127); `describe_failed`
+    (`options` fails as above, or `describe` exits other than 0, 3 or 127).
 - **`lsp_settings_set`** requires `root` (repo files only). It replaces the matching entry for
   that language and `entry.root`, or adds it. `entry: null` removes the entry that currently
   matches the file. It writes the file atomically (temp file, then rename) and returns
   `{ok: true}`. The watcher then restarts affected sessions.
   - `entry.root` must contain the file; otherwise `bad_request`.
 
-**Dialog (`tiles.js`).** **Language server settings…** in a supported file tile's menu opens it:
+**Dialog (`tiles.js`).** **Language server settings…** opens it. It is in the file tile menu
+directly after **Restart language server** (or after **Reload** when Restart is hidden), shown
+when `lspLanguageFor(path)` is not `null` and the tile's container is connected.
 
 - Shows `language`, the detected root and server.
-- **Root:** `Detected (<path>)`, or a folder chosen with the existing repo folder picker,
-  limited to the file's ancestors.
+- **Root:** a `<select>`. Its first option is `Detected (<path>)`, the detected root relative
+  to the checkout (`.` for the whole checkout). Then one option per directory from the
+  checkout root down to the file's directory, as checkout-relative paths (`.`, `devc`,
+  `devc/web`). There is no free-text root and no folder picker. Saving with **Detected** chosen
+  stores the detected root as `entry.root`.
 - One field per schema option, pre-filled with the entry's value or else the default (shown as
   placeholder).
 - **Save** sends `lsp_settings_set`. **Reset to detected** sends `entry: null`.
@@ -331,6 +362,9 @@ one container are two sessions.
 `detail` is optional text:
 
 - `starting`: the latest progress text, e.g. `Importing projects… 70%`
+- `ready`: work the server reports after it is ready (`$/progress`, e.g. a Java build), or a
+  persistent notice (`file changes outside the editor are not seen`). No `detail`, or `""`,
+  means idle.
 - `exited`: the reason, e.g. `exit code 1: <last stderr line>`, `container stopped`, or
   `stopped after 30 min idle`
 
@@ -409,13 +443,13 @@ dropped.
 
 **Server notifications:**
 
-| Method                                         | Host does                                                                                                      |
-| ---------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
-| `textDocument/publishDiagnostics`              | stores the last per URI; sends to connections with that URI open                                               |
-| `$/progress`                                   | `begin`/`report`: `lsp_status starting` detail `title message percentage%` while not ready; ignored once ready |
-| `language/status` (JDT LS)                     | detail from `message` while not ready                                                                          |
-| `window/showMessage`                           | type 1 (error) → `lsp_status` with the current state and `detail`; others dropped                              |
-| `window/logMessage`, `telemetry/event`, others | dropped                                                                                                        |
+| Method                                         | Host does                                                                                                                                                                                                                                                                                                                                          |
+| ---------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `textDocument/publishDiagnostics`              | stores the last per URI; sends to connections with that URI open                                                                                                                                                                                                                                                                                   |
+| `$/progress`                                   | `begin`/`report`: `lsp_status` with the current state (`starting` or `ready`) and detail `title message percentage%` (parts that are absent left out). `end`: while ready, `lsp_status ready` with the persistent notice or no detail. Several tokens in flight: the most recent `begin`/`report` wins; the detail clears when the last token ends |
+| `language/status` (JDT LS)                     | detail from `message` while not ready                                                                                                                                                                                                                                                                                                              |
+| `window/showMessage`                           | type 1 (error) → `lsp_status` with the current state and `detail`; others dropped                                                                                                                                                                                                                                                                  |
+| `window/logMessage`, `telemetry/event`, others | dropped                                                                                                                                                                                                                                                                                                                                            |
 
 **Pull diagnostics.** When the cached result has `capabilities.diagnosticProvider`:
 
@@ -522,12 +556,21 @@ edit files outside devc web all the time, so the host watches:
     - Other schemes go to a hook registered with `registerUriScheme(scheme, fn)`;
       none → `null`.
 - **Tiles.**
-  - A small status line at the bottom-right of an attached tile shows
-    `<Language>: starting…`, `<Language>: <detail>`, or
-    `<Language> language server stopped: <detail>`. It shows nothing when `ready`.
-    `<Language>` is `Java`, `TypeScript` or `Python`.
+  - A small status line at the bottom-right of an attached tile shows:
+
+    | State / outcome                                    | Text                                           |
+    | -------------------------------------------------- | ---------------------------------------------- |
+    | `starting`, no detail                              | `<Language>: starting…`                        |
+    | `starting` or `ready`, detail                      | `<Language>: <detail>`                         |
+    | `ready`, no detail                                 | nothing (hidden)                               |
+    | `exited`                                           | `<Language> language server stopped: <detail>` |
+    | attach failed, `describe_failed` or `start_failed` | `<Language> language server: <detail>`         |
+
+    `<Language>` is `Java`, `TypeScript` or `Python`. `unsupported` and `no_language_server`
+    show nothing.
   - The file tile menu gains **Restart language server** (after **Reload**) while the tile is
-    attached or its session `exited`.
+    attached or its session `exited`, and **Language server settings…** (see
+    [Dialog](#per-project-settings-lsp_configts)).
 
 ## Gotchas
 
@@ -541,6 +584,14 @@ edit files outside devc web all the time, so the host watches:
   step.
 - **A `tsserver`-based server answers early hovers with `(loading...)`.** That's fine in an
   editor; tests must not treat the first answer as final.
+- **lsp-client depends on `vscode-languageserver-protocol`.** Check after vendoring that it
+  contributes only types (no runtime code in `codemirror.mjs`), and that every `@codemirror/*`
+  package still appears exactly once in the bundle, as `VERSIONS` promises (`grep -c` the
+  `// npm:@codemirror/<pkg>@` comments the script leaves in `codemirror.mjs`). If lsp-client
+  pulls a second version of `@codemirror/state` or `@codemirror/view`, bump the `npm:`
+  specifiers in `scripts/codemirror-entry.js` to versions satisfying lsp-client's ranges so
+  deno resolves one copy; two copies break every extension with "Unrecognized extension
+  value". Record any bump in `VERSIONS`.
 
 ## Validation
 
@@ -573,30 +624,36 @@ edit files outside devc web all the time, so the host watches:
     - server exit gives `exited` with the stderr tail
     - restart re-initializes
     - shutdown sends `shutdown` then `exit`
-  - [ ] parser tests for the four messages, beside the existing `parseClientMessage` tests:
+  - [ ] `web_lsp_session_test.ts` also: `$/progress` while ready gives `lsp_status ready` with
+        the detail, and `end` of the last token clears it; two overlapping tokens
+  - [ ] `web_lsp_manager_test.ts` also: a `describe` that throws (the timeout) gives
+        `describe_failed` detail `describe timed out after 15 s`; a failing `describe` with
+        empty stderr gives detail `exit code <n>`; `options` exiting 1, printing non-JSON, or
+        `protocol` 2 each give `describe_failed` from `lsp_settings_get`
+  - [ ] parser tests for the six messages, beside the existing `parseClientMessage` tests:
         a missing `session`, a non-object `message`, an oversized frame, a `path` with `..`
 - [ ] `deno fmt --check` passes for every file this plan touches
-- [ ] Manual setup: in devc-tools' own container (it has `deno`), install the stub:
+- [ ] **(human)** Manual setup: in devc-tools' own container (it has `deno`), install the stub:
       `devc exec -- sudo install -m 755 devc/tests/fixtures/devc-lsp-typescript-deno /usr/local/bin/devc-lsp-typescript`.
       Then run `devc web --live-yolo` from this checkout.
-- [ ] Manual: open `devc/web/server.ts`:
+- [ ] **(human)** Manual: open `devc/web/server.ts`:
   - [ ] the status line shows `TypeScript: starting…`, then nothing
   - [ ] hovering `confine` shows its signature
   - [ ] `Deno.` offers completions
   - [ ] F12 on `confine` opens `devc/web/files.ts` in a tile at the definition
   - [ ] Shift-F12 lists references
-- [ ] Manual: type `const devcProbe: number = "x";` and the error underline appears within 2 s.
+- [ ] **(human)** Manual: type `const devcProbe: number = "x";` and the error underline appears within 2 s.
       Undo, and it clears.
-- [ ] Manual: with `server.ts` open, from a terminal in the container change `confine`'s return
+- [ ] **(human)** Manual: with `server.ts` open, from a terminal in the container change `confine`'s return
       type in `files.ts` to `number`. `server.ts` shows the resulting errors within 5 s, without
       touching its tile. Revert the edit.
-- [ ] Manual: open the same file in a second tile: it works as a plain editor (no hover), and
+- [ ] **(human)** Manual: open the same file in a second tile: it works as a plain editor (no hover), and
       the first tile is unaffected. Open `server.ts` in a second browser window: both get
       diagnostics.
-- [ ] Manual: **Restart language server** shows `starting…` then works again. `docker exec` into
+- [ ] **(human)** Manual: **Restart language server** shows `starting…` then works again. `docker exec` into
       the container and `pkill -f "deno lsp"`: the tile shows
       `TypeScript language server stopped: …`, and **Restart language server** brings it back.
-- [ ] Manual: restart `devc web` with `DEVC_WEB_LSP_IDLE_MS=10000`, open and then close the
+- [ ] **(human)** Manual: restart `devc web` with `DEVC_WEB_LSP_IDLE_MS=10000`, open and then close the
       tile. After 10 s, `docker exec … pgrep -f "deno lsp"` finds nothing.
 - [ ] `web_lsp_config_test.ts`:
   - [ ] longest-root match
@@ -605,9 +662,9 @@ edit files outside devc web all the time, so the host watches:
   - [ ] each validation failure skips only its entry (or the whole file for a bad `version`)
   - [ ] canonical options JSON is key-order independent
   - [ ] `lsp_settings_set` add, replace, remove and an atomic write
-- [ ] Manual (multi-project): in one container, open files from two repos (devc-tools and a
+- [ ] **(human)** Manual (multi-project): in one container, open files from two repos (devc-tools and a
       sibling repo). Two sessions start, with their own roots in the status text while starting.
-- [ ] Manual (settings): **Language server settings…** on `devc/web/server.ts`:
+- [ ] **(human)** Manual (settings): **Language server settings…** on `devc/web/server.ts`:
   - [ ] it shows the detected root
   - [ ] set **Root** to `devc/` and Save: the session restarts and `describe` gets
         `--root …/devc`
@@ -615,11 +672,11 @@ edit files outside devc web all the time, so the host watches:
         `{"language": "typescript", "root": "devc", …}`
   - [ ] a second worktree of the repo picks up the same entry
   - [ ] **Reset to detected** removes it and restarts again
-- [ ] Manual: editing `language-servers.json` by hand (an invalid entry) prints one stderr line,
+- [ ] **(human)** Manual: editing `language-servers.json` by hand (an invalid entry) prints one stderr line,
       and the other entries still apply.
-- [ ] Manual: remove `/usr/local/bin/devc-lsp-typescript`, then open a `.ts` file: a plain editor,
+- [ ] **(human)** Manual: remove `/usr/local/bin/devc-lsp-typescript`, then open a `.ts` file: a plain editor,
       no status line, no error anywhere. A `.java` file is highlighted as Java.
-- [ ] Manual: stop the container while a tile is attached. The status line shows
+- [ ] **(human)** Manual: stop the container while a tile is attached. The status line shows
       `… stopped: container stopped`, and devc web's stderr shows no exception.
 
 ## Relevant Files
@@ -633,8 +690,8 @@ edit files outside devc web all the time, so the host watches:
   `detachLanguage`, `DevcWorkspace`
 - `devc/web/static/lsp.js` — new
 - `devc/web/static/tiles.js` — attach and detach with editability, status line, `displayFile`
-  opening, re-attach on `hello`
-- `devc/web/static/menus.js` — **Restart language server**
+  opening, re-attach on `hello`, the settings dialog
+- `devc/web/static/menus.js` — **Restart language server** and **Language server settings…**
 - `devc/web/static/client.js` — route `lsp` and `lsp_status` to `lsp.js`
 - `devc/web/static/style.css` — status line
 - `devc/web/lsp_languages.ts` — new
@@ -646,7 +703,7 @@ edit files outside devc web all the time, so the host watches:
 - `devc/tests/web_lsp_config_test.ts` — new
 - `devc-core/repo.ts` — used as is (`resolveRepo`, `repoOverlayDir`)
 - `devc/web/proc.ts` — `spawnBytes`
-- `devc/web/protocol.ts` — four messages, `MAX_LSP_MESSAGE`
+- `devc/web/protocol.ts` — six messages, `MAX_LSP_MESSAGE`
 - `devc/web/server.ts` — handlers, routing, close and shutdown
 - `devc/tests/web_lsp_framing_test.ts` — new
 - `devc/tests/web_lsp_languages_test.ts` — new
@@ -656,11 +713,14 @@ edit files outside devc web all the time, so the host watches:
 - `devc/tests/web_server_test.ts` — parser tests for the new messages
 - `devc/tests/web_viewer_test.ts` — `languageFor` Java rows
 - `devc/tests/fixtures/fake_lsp_server.ts` — new
-- `devc/tests/fixtures/devc-lsp-typescript-deno` — new, the stub launcher:
-  - `describe` prints `{"protocol":1,"root":<--root, else the git top-level of the file>,"languageId":…,"server":"deno lsp (stub)","initializationOptions":{"enable":true},"settings":{"deno":{"enable":true}}}`
-  - `serve` runs `exec deno lsp`
-  - `options` prints one `json` option, `settings`; `--options` is accepted and its `settings`
-    is merged into the printed `settings`
+- `devc/tests/fixtures/devc-lsp-typescript-deno` — new, the stub launcher, a Deno script with
+  shebang `#!/usr/bin/env -S deno run -A` (`deno` is on `PATH` in devc-tools' container):
+  - `describe` prints `{"protocol":1,"root":<--root, else the git top-level of the file>,"languageId":…,"server":"deno lsp (stub)","initializationOptions":{"enable":true},"settings":{"deno":{"enable":true}}}`;
+    `languageId` from the extension as in the TypeScript plan's table, exit 3 for other
+    extensions
+  - `serve` runs `deno lsp` with inherited stdio and exits with its code
+  - `options` prints one `json` option, `settings` (default `{}`); `--options` is accepted and
+    its `settings` deep-merged into the printed `settings`
 - `devc/deno.json` — `check` task gains the new modules
 - `devc/README.md` — devc web **Language servers** bullet: what attaches, status line, keys
   (F12, Shift-F12, Shift-Alt-F), Restart, **Language server settings…** and
@@ -668,5 +728,7 @@ edit files outside devc web all the time, so the host watches:
   launcher contract (`describe`/`serve` flags, `options`) under Development
 - `.plans/design/devc-design.md` — one paragraph: language servers run in the container behind
   launchers; devc web multiplexes and watches
-- `.plans/design/devc-web-language-services.md` — link to the four plans
+- `.plans/design/devc-web-language-services.md` — the **Settings** decision bullet ("Feature options in the
+  project's `devcontainer.json`") replaced by per-project `language-servers.json`, Feature
+  options as container-wide defaults
 - `.plans/PLAN.md` — status
