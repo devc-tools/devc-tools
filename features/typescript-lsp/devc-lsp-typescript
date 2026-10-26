@@ -1,0 +1,426 @@
+#!/usr/local/share/devc-features/typescript-lsp/node/bin/node
+// devc-lsp-typescript — the launcher devc web runs for TypeScript and JavaScript files, per the
+// contract in devc/README.md § Language server launchers:
+//
+//   devc-lsp-typescript describe <file> [--root <dir>] [--options <b64>]
+//   devc-lsp-typescript serve --root <root> [--options <b64>]
+//   devc-lsp-typescript options
+//
+// The nearest project marker above a file picks its kind (Deno or Node), the topmost directory
+// of that kind is its root, and the root alone picks the server: `deno lsp` for a Deno root, the
+// workspace's own TypeScript 7+ (`tsc --lsp --stdio`) when the project depends on it, else vtsls
+// on the workspace's TypeScript, or on vtsls's bundled one when there is none.
+//
+// Run by the Feature's private Node (the shebang). Node built-ins only, and it never writes
+// into the workspace: node_modules is read, never installed.
+
+import { spawn, spawnSync } from 'node:child_process';
+import { existsSync, readFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
+import { constants } from 'node:os';
+import { dirname, join, resolve } from 'node:path';
+
+// install.sh rewrites these two lines with the Feature's `server` and `settings` options, as
+// base64 (which keeps quotes and backslashes out of the JS). '' is unset: the built-in default.
+const BAKED_SERVER = '';
+const BAKED_SETTINGS = '';
+
+// Where install.sh puts vtsls. The environment override is for running an install made under a
+// scratch SHARE_DIR (the offline tests); devc web never sets it.
+const SHARE_DIR = process.env.TYPESCRIPT_LSP_SHARE_DIR ||
+  '/usr/local/share/devc-features/typescript-lsp';
+const VTSLS_ENTRY = join(
+  SHARE_DIR,
+  'vtsls/node_modules/@vtsls/language-server/bin/vtsls.js',
+);
+const VTSLS_VERSION = '0.3.0';
+const BUNDLED_TS_VERSION = '5.9.3';
+
+const SERVERS = ['auto', 'deno', 'workspace-typescript', 'vtsls'];
+
+const LANGUAGE_IDS = {
+  ts: 'typescript',
+  mts: 'typescript',
+  cts: 'typescript',
+  tsx: 'typescriptreact',
+  js: 'javascript',
+  mjs: 'javascript',
+  cjs: 'javascript',
+  jsx: 'javascriptreact',
+};
+
+function fail(code, message) {
+  process.stderr.write(`${message}\n`);
+  process.exit(code);
+}
+
+function isObject(v) {
+  return typeof v === 'object' && v !== null && !Array.isArray(v);
+}
+
+/** Objects merge recursively; anything else is replaced by the later value. */
+function deepMerge(base, add) {
+  if (!isObject(base) || !isObject(add)) return add;
+  const out = { ...base };
+  for (const [k, v] of Object.entries(add)) out[k] = deepMerge(base[k], v);
+  return out;
+}
+
+function unbake(v) {
+  return v === '' ? undefined : Buffer.from(v, 'base64').toString('utf8');
+}
+
+// The Feature's options, as install.sh baked them. install.sh refuses a `settings` that is not a
+// JSON object, so a bad one here means a hand-edited file: refuse it the same way.
+const FEATURE_SERVER = unbake(BAKED_SERVER) ?? 'auto';
+const FEATURE_SETTINGS = (() => {
+  const raw = unbake(BAKED_SETTINGS);
+  if (raw === undefined) return {};
+  try {
+    const parsed = JSON.parse(raw);
+    if (isObject(parsed)) return parsed;
+  } catch { /* refused below */ }
+  fail(1, 'the baked settings option is not a JSON object');
+})();
+
+const [command, ...rest] = process.argv.slice(2);
+
+function flag(name) {
+  const i = rest.indexOf(name);
+  if (i === -1) return undefined;
+  if (i + 1 >= rest.length) fail(1, `${name} needs a value`);
+  return rest[i + 1];
+}
+
+/**
+ * The effective options: each key from `--options` (the project's, from devc web) replaces the
+ * Feature's baked value, which replaces the built-in default. Invalid `--options` exit 1.
+ * Buffer.from(s, 'base64') never throws (it skips characters it can't read), so a bad value
+ * surfaces as JSON that doesn't parse.
+ */
+function effectiveOptions() {
+  const raw = flag('--options');
+  let project = {};
+  if (raw !== undefined) {
+    try {
+      project = JSON.parse(Buffer.from(raw, 'base64').toString('utf8'));
+    } catch {
+      fail(1, 'bad --options: not base64 of JSON');
+    }
+    if (!isObject(project)) fail(1, 'bad --options: not a JSON object');
+  }
+  for (const key of Object.keys(project)) {
+    if (key !== 'server' && key !== 'settings') {
+      process.stderr.write(`ignoring unknown option ${key}\n`);
+    }
+  }
+  if (project.server !== undefined && !SERVERS.includes(project.server)) {
+    fail(1, `bad --options: server must be one of ${SERVERS.join(', ')}`);
+  }
+  if (project.settings !== undefined && !isObject(project.settings)) {
+    fail(1, 'bad --options: settings must be a JSON object');
+  }
+  return {
+    server: project.server ?? FEATURE_SERVER,
+    settings: project.settings ?? FEATURE_SETTINGS,
+  };
+}
+
+/** Strips trailing slashes, keeping `/` itself. */
+function trimSlash(p) {
+  return p.length > 1 ? p.replace(/\/+$/, '') || '/' : p;
+}
+
+function contains(ancestor, dir) {
+  return dir === ancestor ||
+    dir.startsWith(ancestor === '/' ? '/' : `${ancestor}/`);
+}
+
+/**
+ * The repo's top, where every upward walk stops: `git rev-parse --show-toplevel`, or `/` when
+ * that fails (not a repo, or unsafe ownership). A top that doesn't contain `dir` (a symlink in
+ * the path) is treated as no repo, so a walk can't run past it.
+ */
+function gitTop(dir) {
+  const r = spawnSync('git', ['-C', dir, 'rev-parse', '--show-toplevel'], {
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'ignore'],
+  });
+  const top = r.status === 0 ? r.stdout.trim() : '';
+  return top && contains(top, dir) ? top : '/';
+}
+
+/** `dir`, then each parent up to and including `top` (or `/`, if `top` is not above it). */
+function* upward(dir, top) {
+  for (let d = dir;; d = dirname(d)) {
+    yield d;
+    if (d === top || d === '/') return;
+  }
+}
+
+function has(dir, ...names) {
+  return names.some((n) => existsSync(join(dir, n)));
+}
+
+/** 'deno', 'node', or undefined for a directory with no project marker. */
+function kind(dir) {
+  if (has(dir, 'deno.json', 'deno.jsonc')) return 'deno';
+  if (has(dir, 'package.json', 'tsconfig.json', 'jsconfig.json')) return 'node';
+  return undefined;
+}
+
+/**
+ * The root without `--root`: the nearest marker directory decides the kind, and the root is the
+ * topmost directory of that kind reached by continuing up, skipping directories with no marker
+ * and stopping before the first one of the other kind. No marker at all: top, or the file's
+ * directory when there is no repo.
+ */
+function detectRoot(dir, top) {
+  let found;
+  let root;
+  for (const d of upward(dir, top)) {
+    const k = kind(d);
+    if (k === undefined) continue;
+    if (found === undefined) found = k;
+    else if (k !== found) break;
+    root = d;
+  }
+  return root ?? (top === '/' ? dir : top);
+}
+
+/** The first node_modules/typescript from the root up to top: { dir, version } or undefined. */
+function workspaceTypeScript(root, top) {
+  for (const d of upward(root, top)) {
+    const tsdir = join(d, 'node_modules/typescript');
+    let pkg;
+    try {
+      pkg = JSON.parse(readFileSync(join(tsdir, 'package.json'), 'utf8'));
+    } catch {
+      continue;
+    }
+    if (typeof pkg.version === 'string') {
+      return { dir: tsdir, version: pkg.version };
+    }
+  }
+  return undefined;
+}
+
+function major(version) {
+  return parseInt(version, 10);
+}
+
+/**
+ * TS 7's bin/tsc starts a native binary from @typescript/typescript-linux-<arch>. Resolved from
+ * the typescript package the way bin/tsc resolves it (hoisted, nested or pnpm). A node_modules
+ * installed on a macOS host, or for another architecture, lacks it.
+ */
+function nativePackage(tsdir) {
+  const name = `@typescript/typescript-linux-${process.arch}`;
+  try {
+    createRequire(join(tsdir, 'package.json')).resolve(`${name}/package.json`);
+    return { name, ok: true };
+  } catch {
+    return { name, ok: false };
+  }
+}
+
+/** `deno --version`'s first line, second word; undefined when deno is not on PATH. */
+function denoVersion() {
+  const r = spawnSync('deno', ['--version'], {
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'ignore'],
+  });
+  if (r.error || r.status !== 0) return undefined;
+  return r.stdout.split('\n')[0].split(/\s+/)[1];
+}
+
+/**
+ * Everything decided from the root and the options: the server's display name, how to run it,
+ * and what to hand it. `describe` and `serve --root` both come here, so they always agree.
+ */
+function decide(root, top, opts) {
+  const ts = workspaceTypeScript(root, top);
+  let server = opts.server;
+  if (server === 'auto') {
+    if (kind(root) === 'deno') server = 'deno';
+    else if (ts && major(ts.version) >= 7) server = 'workspace-typescript';
+    else server = 'vtsls';
+  }
+
+  let d;
+  if (server === 'deno') {
+    const version = denoVersion();
+    if (version === undefined) {
+      fail(
+        3,
+        opts.server === 'auto'
+          ? 'deno.json found but deno is not on PATH'
+          : 'server deno: deno is not on PATH',
+      );
+    }
+    d = {
+      server: `deno ${version}`,
+      command: 'deno',
+      args: ['lsp'],
+      initializationOptions: { enable: true, lint: true },
+      settings: { deno: { enable: true, lint: true } },
+    };
+  } else if (server === 'workspace-typescript') {
+    if (!ts || major(ts.version) < 7) {
+      fail(
+        3,
+        `server workspace-typescript: no TypeScript 7 or later in node_modules above ${root}`,
+      );
+    }
+    const native = nativePackage(ts.dir);
+    if (native.ok) {
+      d = {
+        server: `TypeScript ${ts.version} (workspace)`,
+        command: process.execPath,
+        args: [join(ts.dir, 'bin/tsc'), '--lsp', '--stdio'],
+        initializationOptions: {},
+        settings: {},
+      };
+    } else if (opts.server === 'auto') {
+      process.stderr.write(
+        `${native.name} is not installed beside ${ts.dir}; using vtsls with its bundled TypeScript ${BUNDLED_TS_VERSION} (run npm install in the container)\n`,
+      );
+      d = vtsls(undefined, `; no linux-${process.arch} TypeScript 7 binary`);
+    } else {
+      fail(
+        3,
+        `${native.name} is not installed; run npm install in the container`,
+      );
+    }
+  } else {
+    // vtsls runs on tsserver, which TypeScript 7 doesn't ship (no lib/tsserver.js), so a
+    // workspace TypeScript 7 gets the bundled one.
+    d = vtsls(ts && major(ts.version) < 7 ? ts : undefined, '');
+  }
+
+  if (has(root, 'bun.lock', 'bun.lockb', 'bunfig.toml')) {
+    d.server = d.server.endsWith(')')
+      ? `${d.server.slice(0, -1)}, Bun)`
+      : `${d.server} (Bun)`;
+  }
+  d.settings = deepMerge(d.settings, opts.settings);
+  return d;
+}
+
+function vtsls(ts, note) {
+  return {
+    server: ts
+      ? `vtsls ${VTSLS_VERSION} (TypeScript ${ts.version})`
+      : `vtsls ${VTSLS_VERSION} (bundled TypeScript ${BUNDLED_TS_VERSION}${note})`,
+    command: process.execPath,
+    args: [VTSLS_ENTRY, '--stdio'],
+    initializationOptions: {},
+    settings: ts
+      ? {
+        typescript: { tsdk: join(ts.dir, 'lib') },
+        vtsls: { autoUseWorkspaceTsdk: true },
+      }
+      : {},
+  };
+}
+
+/** `--root`, checked: absolute, and `dir` itself or an ancestor of it when `dir` is given. */
+function rootFlag(dir) {
+  const raw = flag('--root');
+  if (raw === undefined) return undefined;
+  const root = trimSlash(raw);
+  if (!root.startsWith('/')) {
+    fail(dir === undefined ? 1 : 3, '--root must be absolute');
+  }
+  if (dir !== undefined && !contains(resolve(root), dir)) {
+    fail(3, 'root does not contain the file');
+  }
+  return resolve(root);
+}
+
+switch (command) {
+  case 'describe': {
+    const file = rest[0];
+    if (!file || !file.startsWith('/')) {
+      fail(1, 'describe needs an absolute file');
+    }
+    const ext = file.slice(file.lastIndexOf('.') + 1).toLowerCase();
+    const languageId = file.includes('.') ? LANGUAGE_IDS[ext] : undefined;
+    if (!languageId) fail(3, 'not a TypeScript or JavaScript file');
+    const opts = effectiveOptions();
+    const dir = dirname(resolve(file));
+    const given = rootFlag(dir);
+    const top = gitTop(given ?? dir);
+    const root = given ?? detectRoot(dir, top);
+    const d = decide(root, top, opts);
+    process.stdout.write(
+      `${
+        JSON.stringify({
+          protocol: 1,
+          root,
+          languageId,
+          server: d.server,
+          initializationOptions: d.initializationOptions,
+          settings: d.settings,
+        })
+      }\n`,
+    );
+    break;
+  }
+  case 'serve': {
+    const opts = effectiveOptions();
+    const root = rootFlag(undefined);
+    if (root === undefined) fail(1, 'serve needs --root');
+    const d = decide(root, gitTop(root), opts);
+    // stdout is the LSP stream from here on: the server's, never this script's.
+    const child = spawn(d.command, d.args, { cwd: root, stdio: 'inherit' });
+    child.on(
+      'error',
+      (e) => fail(1, `could not start ${d.server}: ${e.message}`),
+    );
+    for (const sig of ['SIGTERM', 'SIGINT']) {
+      process.on(sig, () => {
+        try {
+          child.kill(sig);
+        } catch { /* already gone */ }
+      });
+    }
+    child.on('exit', (code, signal) => {
+      process.exit(code ?? 128 + (constants.signals[signal] ?? 0));
+    });
+    break;
+  }
+  case 'options':
+    process.stdout.write(
+      `${
+        JSON.stringify({
+          protocol: 1,
+          options: [
+            {
+              key: 'server',
+              type: 'enum',
+              enum: SERVERS,
+              default: FEATURE_SERVER,
+              description:
+                "Which server to run. auto: deno lsp for a Deno root (deno.json), the workspace's TypeScript 7+ language server when the project depends on it, else vtsls on the workspace's TypeScript (bundled TypeScript 5.9.3 when there is none).",
+            },
+            {
+              key: 'settings',
+              type: 'json',
+              default: FEATURE_SETTINGS,
+              description:
+                'A JSON object deep-merged into the settings the server gets (workspace/configuration), e.g. {"typescript":{"tsserver":{"maxTsServerMemory":8192}}}.',
+            },
+          ],
+        })
+      }\n`,
+    );
+    break;
+  default:
+    fail(
+      1,
+      `usage: devc-lsp-typescript describe|serve|options (got ${
+        command ?? 'nothing'
+      })`,
+    );
+}

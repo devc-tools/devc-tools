@@ -2,25 +2,25 @@
 
 ## Checklist
 
-- [ ] `features/typescript-lsp/devcontainer-feature.json`, per [Manifest](#manifest)
-- [ ] `features/typescript-lsp/install.sh`, per [install.sh](#installsh)
-- [ ] `features/typescript-lsp/devc-lsp-typescript`, the launcher, per [Launcher](#launcher)
-- [ ] `features/typescript-lsp/README.md`, per [README](#readme)
-- [ ] Offline harness `features/typescript-lsp/test/launcher_test.sh`, per [Tests](#tests)
-- [ ] Offline install test `features/typescript-lsp/test/install_options_test.sh`, per
+- [x] `features/typescript-lsp/devcontainer-feature.json`, per [Manifest](#manifest)
+- [x] `features/typescript-lsp/install.sh`, per [install.sh](#installsh)
+- [x] `features/typescript-lsp/devc-lsp-typescript`, the launcher, per [Launcher](#launcher)
+- [x] `features/typescript-lsp/README.md`, per [README](#readme)
+- [x] Offline harness `features/typescript-lsp/test/launcher_test.sh`, per [Tests](#tests)
+- [x] Offline install test `features/typescript-lsp/test/install_options_test.sh`, per
       [Tests](#tests)
-- [ ] `features/typescript-lsp/vtsls/package.json` and `package-lock.json`, per
+- [x] `features/typescript-lsp/vtsls/package.json` and `package-lock.json`, per
       [install.sh](#installsh)
-- [ ] Docker scenarios: `test/test.sh`, `test/scenarios.json` plus one script per scenario,
+- [x] Docker scenarios: `test/test.sh`, `test/scenarios.json` plus one script per scenario,
       `test/run-features-test.sh` (copied unchanged from `features/xvfb/test/`)
-- [ ] `features/README.md`: a row for `typescript-lsp`
-- [ ] `features/CONTRIBUTING.md`: per-Feature test inventory entry and a `### typescript-lsp` note
-- [ ] `devc/README.md`: the **Language servers** bullet names `typescript-lsp`
-- [ ] Run every [Validation](#validation) item an agent can run; hand the **(human)** and
+- [x] `features/README.md`: a row for `typescript-lsp`
+- [x] `features/CONTRIBUTING.md`: per-Feature test inventory entry and a `### typescript-lsp` note
+- [x] `devc/README.md`: the **Language servers** bullet names `typescript-lsp`
+- [x] Run every [Validation](#validation) item an agent can run; hand the **(human)** and
       **(Docker host)** items to the user
 - [ ] Add `typescript-lsp` to `features/PUBLISH_ALLOWLIST.txt`, **only after** the user reports
       the Docker scenarios pass
-- [ ] `deno fmt` every touched `.md` and `.json` file
+- [x] `deno fmt` every touched `.md` and `.json` file
 
 **Depends on [devc-web-lsp-core](devc-web-lsp-core.md)** being complete: this plan ships a
 launcher that satisfies its [launcher contract](devc-web-lsp-core.md#launcher-contract). devc
@@ -345,9 +345,9 @@ Docker scenarios (`test/scenarios.json`, image `mcr.microsoft.com/devcontainers/
 
 ## Validation
 
-- [ ] `bash features/typescript-lsp/test/launcher_test.sh` passes every fixture row
-- [ ] `bash features/typescript-lsp/test/install_options_test.sh` passes every row
-- [ ] `bash tests/features_test.sh --feature typescript-lsp` passes
+- [x] `bash features/typescript-lsp/test/launcher_test.sh` passes every fixture row
+- [x] `bash features/typescript-lsp/test/install_options_test.sh` passes every row
+- [x] `bash tests/features_test.sh --feature typescript-lsp` passes
 - [ ] **(Docker host)** `bash features/typescript-lsp/test/run-features-test.sh` passes every
       scenario
 - [ ] **(human)** Setup for the manual items: add the unpublished Feature to a project as a
@@ -394,8 +394,8 @@ Docker scenarios (`test/scenarios.json`, image `mcr.microsoft.com/devcontainers/
       `web/client-api/src/main/java/io/deephaven/web/public/batch.js` (no `package.json`
       above it) attaches, with server `vtsls 0.3.0 (bundled TypeScript 5.9.3)`, and hover
       works.
-- [ ] `git status` in every repo used above shows nothing the language server wrote
-- [ ] `deno fmt --check` passes for every touched `.md` / `.json`
+- [x] `git status` in every repo used above shows nothing the language server wrote
+- [x] `deno fmt --check` passes for every touched `.md` / `.json`
 
 ## Relevant Files
 

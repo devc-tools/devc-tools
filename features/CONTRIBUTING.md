@@ -299,6 +299,26 @@ The default scenario is the strongest claim this Feature makes: `docker run` has
 with **zero** `runArgs`. `scenarios.json` adds `with_tun`, `with_socket`, `with_volume`
 and `no_shim`.
 
+**typescript-lsp** — offline: `launcher_test.sh` (the real `devc-lsp-typescript describe`
+against fixture projects built in a temp directory, each `node_modules/typescript` a bare
+`package.json`, with a `PATH` of only `node`, `git` and, where a row wants one, a fake `deno`:
+root detection — the topmost marker of the nearest kind, stopping before the other kind, `--root`
+and its refusal, no repo, no marker — the server each root gets, the Bun suffix, the TypeScript 7
+native-binary fallback and its forced-server refusal, baked and per-project options and their
+precedence, the invalid-`--options` exits, the `options` subcommand, and `serve` running the
+server in the root with nothing of its own on stdout), `install_options_test.sh` (the real
+`install.sh` with `curl`, `apt-get`, `tar`, `sha256sum`, `npm` and `uname` stubbed and
+`SHARE_DIR`/`BIN_DIR` in a temp directory: `settings` and `server` refused before anything lands
+in `BIN_DIR`, the architecture mapping, a checksum mismatch, `npm ci --omit=dev` with the private
+Node's npm, and both bakes surviving quotes and a 2,000-character value).
+
+With Docker: the default scenario is the bare `{}` case on a base with no Node — the private
+Node and vtsls installed, `describe` on a generated project, and `serve --root` answering an
+`initialize` frame as vtsls within 30 s. `scenarios.json` adds `with_settings` (the baked
+`settings` reaching `describe` and `options`). Running a real server against a real project
+(web-client-ui, a Deno repo, TypeScript 7) is in the plan's manual items, since it needs
+installed `node_modules`.
+
 **xvfb** — offline: `install_options_test.sh` (the real `install.sh` with `apt-get` and
 `apt-cache` stubbed, the latter answering from a fixture list of the names one base knows:
 each group's effect on the one resolved `apt-get install`, all groups off still installing the
@@ -467,6 +487,27 @@ Podman config key names are confirmed against both major versions this Feature w
 measured on: 4.9.3 (Ubuntu 24.04, default rootless backend `slirp4netns`) and 5.7.0
 (Ubuntu 26.04, default `pasta`). `[containers] netns` and
 `[network] default_rootless_network_cmd` exist unchanged on both.
+
+### typescript-lsp
+
+**A private Node, never the image's.** vtsls, the launcher and TypeScript 7's `bin/tsc` shim
+are Node scripts, and they run on the Node 24.22.1 this Feature unpacks under
+`/usr/local/share/devc-features/typescript-lsp/node/` (sha256 pinned in `install.sh`, not
+fetched). Nothing is added to `PATH` and the image's Node, if any, is neither used nor changed.
+`deno` is the one exception: a Deno project uses the `deno` on the user's login `PATH`, because
+`deno lsp` has to match the project's Deno. vtsls comes from `vtsls/package-lock.json` by
+`npm ci`, so its transitive dependencies can't drift between builds; regenerate the lock with
+Node 24.22.1's npm when bumping it.
+
+**No workspace writes.** The launcher reads `node_modules` and never installs into it. A project
+without one gets vtsls on its bundled TypeScript; a TypeScript 7 `node_modules` installed on a
+macOS host (no `@typescript/typescript-linux-<arch>`) falls back the same way under `auto`.
+
+**The topmost-marker rule.** The nearest marker decides the kind (Deno or Node), but the root is
+the **topmost** directory of that kind up to the repo top, stopping before the other kind.
+web-client-ui has a `tsconfig.json` in each of its 37 packages; rooting at the nearest would
+start 37 tsserver sessions where one at the root `package.json` is what tsserver expects. The
+server is decided from the root alone, so `serve --root` repeats `describe`'s choice exactly.
 
 ### xvfb
 

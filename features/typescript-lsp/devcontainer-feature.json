@@ -1,0 +1,21 @@
+{
+  "id": "typescript-lsp",
+  "version": "0.1.0",
+  "name": "TypeScript language server for devc web",
+  "description": "Installs devc-lsp-typescript, the launcher devc web uses for TypeScript and JavaScript intelligence: deno lsp under a deno.json, the workspace's own TypeScript 7+ language server, or vtsls on the workspace's TypeScript (bundled TypeScript 5.9.3 when there is none). Brings its own Node; changes nothing in the image's Node or the workspace.",
+  "documentationURL": "https://github.com/devc-tools/devc-tools/tree/main/features/typescript-lsp",
+  "licenseURL": "https://github.com/devc-tools/devc-tools/blob/main/LICENSE",
+  "options": {
+    "server": {
+      "type": "string",
+      "enum": ["auto", "deno", "workspace-typescript", "vtsls"],
+      "default": "auto",
+      "description": "Container-wide default for which server to run; devc web's Language server settings can override it per project. auto: deno lsp for a Deno root, the workspace's TypeScript 7+ language server when the project depends on it, else vtsls."
+    },
+    "settings": {
+      "type": "string",
+      "default": "{}",
+      "description": "A JSON object deep-merged into the settings devc web gives the language server (workspace/configuration), e.g. {\"typescript\":{\"tsserver\":{\"maxTsServerMemory\":8192}}}. A per-project value from devc web replaces this one."
+    }
+  }
+}

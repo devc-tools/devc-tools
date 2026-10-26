@@ -457,8 +457,10 @@ is published from any container: the host server finds devcontainers with
   page) and **Shift+Alt+F** (format), from a language server running **inside
   the file's container**. Rename is not offered. A container serves a language
   only when it has that language's launcher, `devc-lsp-<language>`, on the
-  remote user's `PATH` (a language Feature installs it); without one the tile is
-  a plain editor and nothing is shown. The server starts on the first such tile
+  remote user's `PATH` (a language Feature installs it: the
+  [`typescript-lsp`](../features/typescript-lsp/README.md) Feature for
+  TypeScript and JavaScript); without one the tile is a plain editor and
+  nothing is shown. The server starts on the first such tile
   and is shared by every tile, page and browser on the same project root (two
   worktrees are two roots); a second tile of the same file in one page stays a
   plain editor. A small status line at the tile's bottom right shows
