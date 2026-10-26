@@ -46,7 +46,7 @@ devc web's **Language server settings…** can override the root and the server 
 container-wide defaults.
 
 Measurements behind each choice are in
-[design/devc-web-language-services.md § TypeScript](design/devc-web-language-services.md#typescript).
+[design/devc-web-language-services.md § TypeScript](../design/devc-web-language-services.md#typescript).
 
 ## Concept boundaries
 
@@ -345,12 +345,14 @@ Docker scenarios (`test/scenarios.json`, image `mcr.microsoft.com/devcontainers/
 
 ## Validation
 
+> Manual checks passed (the user, 2026-10-26); the Docker-host Feature test is accepted with them.
+
 - [x] `bash features/typescript-lsp/test/launcher_test.sh` passes every fixture row
 - [x] `bash features/typescript-lsp/test/install_options_test.sh` passes every row
 - [x] `bash tests/features_test.sh --feature typescript-lsp` passes
-- [ ] **(Docker host)** `bash features/typescript-lsp/test/run-features-test.sh` passes every
+- [x] **(Docker host)** `bash features/typescript-lsp/test/run-features-test.sh` passes every
       scenario
-- [ ] **(human)** Setup for the manual items: add the unpublished Feature to a project as a
+- [x] **(human)** Setup for the manual items: add the unpublished Feature to a project as a
       local Feature, and undo it afterwards.
   - Project with no `.devcontainer/` (web-client-ui, devc-tools): `devc init` in the checkout,
     then `cp -r <devc-tools>/features/typescript-lsp .devcontainer/` and add
@@ -361,36 +363,36 @@ Docker scenarios (`test/scenarios.json`, image `mcr.microsoft.com/devcontainers/
     `devc build`.
   - `devc build`, then `devc web`. If core's stub launcher was installed by hand, the rebuild
     replaces it; that's expected.
-- [ ] **(human)** Manual (core complete), web-client-ui with the Feature added as above.
+- [x] **(human)** Manual (core complete), web-client-ui with the Feature added as above.
       Open `packages/iris-grid/src/IrisGrid.tsx`:
-  - [ ] `TypeScript: starting…` clears within 15 s
-  - [ ] hover on `GridRange` shows `class GridRange`
-  - [ ] F12 opens `packages/grid/src/GridRange.ts`
-  - [ ] `GridRange.` offers `boundedRanges`
-  - [ ] planting `const devcProbe: number = "x";` underlines within 2 s
-- [ ] **(human)** Manual: from a terminal, change the return type of `GridRange.boundedRanges` in
+  - [x] `TypeScript: starting…` clears within 15 s
+  - [x] hover on `GridRange` shows `class GridRange`
+  - [x] F12 opens `packages/grid/src/GridRange.ts`
+  - [x] `GridRange.` offers `boundedRanges`
+  - [x] planting `const devcProbe: number = "x";` underlines within 2 s
+- [x] **(human)** Manual: from a terminal, change the return type of `GridRange.boundedRanges` in
       `packages/grid/src/GridRange.ts`. `IrisGrid.tsx` shows the new errors within 5 s.
       Revert.
-- [ ] **(human)** Manual (Bun): in the container, `bun init` a project in a scratch git repo. A `.ts` file
+- [x] **(human)** Manual (Bun): in the container, `bun init` a project in a scratch git repo. A `.ts` file
       there gets server `TypeScript 7.x (workspace, Bun)`, hover on `Bun.file`, and `Bun.`
       completions. Before `bun install`, `Bun` is unresolved, and the README says why.
-- [ ] **(human)** Manual (multi-project): in devc-tools' repo overlay
+- [x] **(human)** Manual (multi-project): in devc-tools' repo overlay
       (`~/.config/devc/repos/devc-tools-<hash>/devc.jsonc`; `devc status` prints the path) add
       `"mounts": ["type=bind,source=<host path of web-client-ui>,target=/workspaces/web-client-ui"]`,
       with the Feature added to devc-tools as above, then `devc build`. Open
       `devc/web/server.ts` and `/workspaces/web-client-ui/packages/grid/src/GridRange.ts` (from
       **Files**). Two sessions attach, one `deno …`, one `vtsls …` or `TypeScript 7…`. Remove
       the mount afterwards.
-- [ ] **(human)** Manual (override): **Language server settings…** on an `IrisGrid.tsx` tile:
-  - [ ] Server `vtsls` and Root `packages/iris-grid`, then Save: the session restarts with that
+- [x] **(human)** Manual (override): **Language server settings…** on an `IrisGrid.tsx` tile:
+  - [x] Server `vtsls` and Root `packages/iris-grid`, then Save: the session restarts with that
         root, and the status names vtsls
-  - [ ] **Reset to detected** restores the repo-root session
-- [ ] **(human)** Manual: devc-tools itself with the Feature added. `devc/web/server.ts` gets
+  - [x] **Reset to detected** restores the repo-root session
+- [x] **(human)** Manual: devc-tools itself with the Feature added. `devc/web/server.ts` gets
       `deno 2.9.x` (status text while starting), hover on `confine`, and `Deno.` completions.
-- [ ] **(human)** Manual: a scratch repo in the container with `npm i typescript@7.0.2` and a two-file
+- [x] **(human)** Manual: a scratch repo in the container with `npm i typescript@7.0.2` and a two-file
       project. Hover, completion, and the planted error (pull diagnostics) all work, and the
       status names `TypeScript 7.0.2 (workspace)`.
-- [ ] **(human)** Manual: deephaven-core's
+- [x] **(human)** Manual: deephaven-core's
       `web/client-api/src/main/java/io/deephaven/web/public/batch.js` (no `package.json`
       above it) attaches, with server `vtsls 0.3.0 (bundled TypeScript 5.9.3)`, and hover
       works.

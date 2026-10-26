@@ -184,16 +184,18 @@ export function jiraUrl(jira, key) {}
 
 ## Validation
 
-- [ ] `cd devc-core && deno task check && deno task test` passes, including new `jiraFromConfig` tests covering every row of its table, and that `"jira"` survives a `saveGlobalConfig` round trip
+> Manual checks passed (the user, 2026-10-26). `deno fmt --check` at the root fails only on two plan docs unrelated to this work.
+
+- [x] `cd devc-core && deno task check && deno task test` passes, including new `jiraFromConfig` tests covering every row of its table, and that `"jira"` survives a `saveGlobalConfig` round trip
   - 2026-10-21: check passes and the new test passes; the suite has one failure,
     `cliWorktreeMounts matches what the pinned devcontainer CLI computes`
     (`tests/git_dirs_test.ts`), which fails the same way on a clean checkout of the base commit.
 - [x] `cd devc && deno task check && deno task test` passes, with `web_jira_test.ts` covering every row of the `jiraKeys` table and `jiraUrl` encoding (`{key}` twice in the URL; a key with a character `encodeURIComponent` changes)
-- [ ] `deno fmt --check` passes at the repo root
+- [x] `deno fmt --check` passes at the repo root
   - 2026-10-21: every file this plan touches passes; the repo-wide check still fails on 15
     files under `.plans/` it does not touch (archived plans, `design/devc-web-ux/`).
-- [ ] Manual (`devc web --live`, a running container): with no `"jira"`, the menus of a terminal tile, a pane row, a file tile and a repo row are unchanged, and right-clicking an In use folder row behaves as before
-- [ ] Manual: add `{"jira": {"pattern": "AB-\\d+", "url": "https://example.atlassian.net/browse/{key}"}}` to `~/.config/devc/config.json` without restarting; with a repo on `ab-123-test`, **Open AB-123 in Jira** appears on: right-click inside a terminal in that repo, its tab, its Layout row, its pane row under Containers; a file tile of a file in that repo (tab and Layout row); the repo's row under Containers; its In use folder row. Each opens `https://example.atlassian.net/browse/AB-123` in a new browser tab (and in the default browser from devc-desktop)
-- [ ] Manual: a worktree of that repo on `ab-456-other` shows **Open AB-456 in Jira** on its own nested repo row, not AB-123
-- [ ] Manual: `cd` the terminal to a folder outside any repo (or a repo on `main`) — the item is gone from its menus on the next right-click; a repo on `main` has none on its rows
-- [ ] Manual: set `"pattern": "("` — devc web prints `devc web: …"jira.pattern" is not a valid regular expression…` once to stderr and the items disappear everywhere; fixing the file brings them back without a restart
+- [x] Manual (`devc web --live`, a running container): with no `"jira"`, the menus of a terminal tile, a pane row, a file tile and a repo row are unchanged, and right-clicking an In use folder row behaves as before
+- [x] Manual: add `{"jira": {"pattern": "AB-\\d+", "url": "https://example.atlassian.net/browse/{key}"}}` to `~/.config/devc/config.json` without restarting; with a repo on `ab-123-test`, **Open AB-123 in Jira** appears on: right-click inside a terminal in that repo, its tab, its Layout row, its pane row under Containers; a file tile of a file in that repo (tab and Layout row); the repo's row under Containers; its In use folder row. Each opens `https://example.atlassian.net/browse/AB-123` in a new browser tab (and in the default browser from devc-desktop)
+- [x] Manual: a worktree of that repo on `ab-456-other` shows **Open AB-456 in Jira** on its own nested repo row, not AB-123
+- [x] Manual: `cd` the terminal to a folder outside any repo (or a repo on `main`) — the item is gone from its menus on the next right-click; a repo on `main` has none on its rows
+- [x] Manual: set `"pattern": "("` — devc web prints `devc web: …"jira.pattern" is not a valid regular expression…` once to stderr and the items disappear everywhere; fixing the file brings them back without a restart

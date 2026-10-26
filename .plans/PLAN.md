@@ -16,11 +16,6 @@
   only) and a media view with frame playback, tags and layer toggles. Normal blend only at first;
   tilemap layers are refused.
 
-- [devc-web-editable-viewer](devc-web-editable-viewer.md) — the file viewer becomes the editor:
-  the same CodeMirror view, editable while the file's container runs, saved with Ctrl/⌘+S through a
-  new `write_file` message that writes inside the container as the remote user and refuses with
-  `conflict` when the file's bytes changed since they were read (SHA-256 `hash` on reads).
-
 - [git-protect-live-check](git-protect-live-check.md) — a read-only `.git/config` mount can
   vanish from a running container when the host rewrites the file (seen on Docker Desktop:
   VS Code's config writes), leaving the repo's config writable from inside while `devc status`
@@ -54,13 +49,6 @@
   and runs it against the extension under development on an `xvfb` display with a CDP port,
   generalized from vscode-deephaven's `vscode-dev.sh`. chrome-devtools-mcp registration stays
   with the consuming project. Replaces the `feature-electron-deps` placeholder.
-
-- [devc-web-open-in-jira](devc-web-open-in-jira.md) — when the branch devc web shows for a
-  terminal, a file tile or a repo row holds a Jira key (`feature/AB-12345-fix`), its right-click
-  menu offers **Open AB-12345 in Jira** (tiles, pane rows, repo rows, In use folder rows).
-  `"jira": {"pattern", "url"}` in `~/.config/devc/config.json` sets which keys match (a
-  case-insensitive regex) and the browse URL (`{key}`); the server validates it, sends it as a
-  `jira` message and re-sends on change. Absent: menus unchanged.
 
 - [devc-port-forwarding](devc-port-forwarding.md) — `devc up --port [HOST:]PORT` (repeatable,
   also on `build`) reaches a container port from `127.0.0.1` on the host without recreating the
@@ -120,12 +108,6 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
   window; `feature-git-container-config-fixed-identity` above is sequenced to
   take it too.
 
-- [devc-web-repo-cards](devc-web-repo-cards.md) — one repo card (a repo or worktree in one
-  container) used by both sidebar sections: active cards (a tile, an untiled agent, or a session in
-  the last 24 h) sit under their container in In use, the rest under it in Containers. A card's
-  terminals always show; toggles add its past sessions, PR and file tree. The container tabs go:
-  a container card keeps its header and gains a Files row.
-
 - [bridge-task-add](bridge-task-add.md) — agents add tasks to devc web's list through a new
   host-granted devc-bridge built-in, `devc-bridge task-add [--repo <path>] <text>` (capability
   `task-add`, not part of `gh`). The task store moves to `devc-core/tasks.ts` and the bridge
@@ -133,22 +115,6 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
   policy line's repo, marked `source: {kind: 'agent', key}` (🤖 on the page), and capped at 20
   unsent per container. Add only: queueing and sending stay with the person. A lock file
   serializes `tasks.json` writes between devc web and the bridge.
-
-- [devc-web-lsp-core](devc-web-lsp-core.md) — language intelligence for devc web's file editor,
-  language-agnostic part: `@codemirror/lsp-client` in the viewer, `lsp_*` messages, and a host-side
-  multiplexer that is the one LSP client of each server in the container (cached `initialize`,
-  full-text sync, id remapping, pull→push diagnostics). Host-side `Deno.watchFs` feeds
-  `workspace/didChangeWatchedFiles`. It defines the `devc-lsp-<language> describe|serve`
-  launcher contract the language Features implement (`--root`/`--options`, `options`). Servers
-  start on file open and stop after 30 idle minutes. Per-project root overrides and settings
-  live in `~/.config/devc/repos/<key>/language-servers.json`, edited from **Language server
-  settings…**; Feature options are only container-wide defaults.
-
-- [devc-web-lsp-typescript](devc-web-lsp-typescript.md) — after devc-web-lsp-core: a
-  `typescript-lsp` Feature (private Node, vtsls 0.3.0) for TypeScript, Node, Deno and Bun:
-  the nearest marker picks the runtime, and the launcher runs `deno lsp` for a Deno root, the
-  workspace's own TypeScript ≥ 7 (`tsc --lsp`, which `bun init` projects get), or vtsls on the
-  workspace's TypeScript (bundled 5.9.3 without one), overridable per project.
 
 - [devc-web-lsp-python](devc-web-lsp-python.md) — after devc-web-lsp-core: a `python-lsp`
   Feature (private Node, basedpyright 1.40.2) rooted at the **nearest** `pyproject.toml` /
@@ -164,6 +130,40 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
   generated-source folders appear, and read-only `jdt:` class tiles.
 
 ### Completed
+
+- ✅ Done — [devc-web-lsp-typescript](archived/devc-web-lsp-typescript.md) — after devc-web-lsp-core: a
+  `typescript-lsp` Feature (private Node, vtsls 0.3.0) for TypeScript, Node, Deno and Bun:
+  the nearest marker picks the runtime, and the launcher runs `deno lsp` for a Deno root, the
+  workspace's own TypeScript ≥ 7 (`tsc --lsp`, which `bun init` projects get), or vtsls on the
+  workspace's TypeScript (bundled 5.9.3 without one), overridable per project.
+
+- ✅ Done — [devc-web-lsp-core](archived/devc-web-lsp-core.md) — language intelligence for devc web's file editor,
+  language-agnostic part: `@codemirror/lsp-client` in the viewer, `lsp_*` messages, and a host-side
+  multiplexer that is the one LSP client of each server in the container (cached `initialize`,
+  full-text sync, id remapping, pull→push diagnostics). Host-side `Deno.watchFs` feeds
+  `workspace/didChangeWatchedFiles`. It defines the `devc-lsp-<language> describe|serve`
+  launcher contract the language Features implement (`--root`/`--options`, `options`). Servers
+  start on file open and stop after 30 idle minutes. Per-project root overrides and settings
+  live in `~/.config/devc/repos/<key>/language-servers.json`, edited from **Language server
+  settings…**; Feature options are only container-wide defaults.
+
+- ✅ Done — [devc-web-repo-cards](archived/devc-web-repo-cards.md) — one repo card (a repo or worktree in one
+  container) used by both sidebar sections: active cards (a tile, an untiled agent, or a session in
+  the last 24 h) sit under their container in In use, the rest under it in Containers. A card's
+  terminals always show; toggles add its past sessions, PR and file tree. The container tabs go:
+  a container card keeps its header and gains a Files row.
+
+- ✅ Done — [devc-web-open-in-jira](archived/devc-web-open-in-jira.md) — when the branch devc web shows for a
+  terminal, a file tile or a repo row holds a Jira key (`feature/AB-12345-fix`), its right-click
+  menu offers **Open AB-12345 in Jira** (tiles, pane rows, repo rows, In use folder rows).
+  `"jira": {"pattern", "url"}` in `~/.config/devc/config.json` sets which keys match (a
+  case-insensitive regex) and the browse URL (`{key}`); the server validates it, sends it as a
+  `jira` message and re-sends on change. Absent: menus unchanged.
+
+- ✅ Done — [devc-web-editable-viewer](archived/devc-web-editable-viewer.md) — the file viewer becomes the editor:
+  the same CodeMirror view, editable while the file's container runs, saved with Ctrl/⌘+S through a
+  new `write_file` message that writes inside the container as the remote user and refuses with
+  `conflict` when the file's bytes changed since they were read (SHA-256 `hash` on reads).
 
 - ✅ Done — [devc-web-pr-review-depth](archived/devc-web-pr-review-depth.md) — three additions to devc web's PR
   review: threads placed by diff side, with `File comment` and `Was line n` (plus the hunk) for
@@ -2544,7 +2544,7 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
 | devc container connection — one `docker exec` path with `remoteEnv` for the CLI and devc web                        | [devc-container-connection](archived/devc-container-connection.md)                 | complete    |
 | devc-desktop on Electron — one window with devc web and a host terminal                                             | [devc-desktop-electron](archived/devc-desktop-electron.md)                         | complete    |
 | git-protect live check — `devc status` and the bridge read the container's mountinfo                                | [git-protect-live-check](git-protect-live-check.md)                                |             |
-| `devc web` editable viewer — file tiles edit and save through `write_file`                                          | [devc-web-editable-viewer](devc-web-editable-viewer.md)                            | in progress |
+| `devc web` editable viewer — file tiles edit and save through `write_file`                                          | [devc-web-editable-viewer](archived/devc-web-editable-viewer.md)                   | complete    |
 | devc-desktop host cd — the host terminal's right-click `cd`s to devc web's active pane folder                       | [devc-desktop-host-cd](archived/devc-desktop-host-cd.md)                           | complete    |
 | bridge skip unpinnable repos — pin the candidates that pass, error only when none do                                | [bridge-skip-unpinnable-repos](archived/bridge-skip-unpinnable-repos.md)           | complete    |
 | `devc web` agent sessions — a Sessions node per container lists and resumes recent agent sessions                   | [devc-web-agent-sessions](archived/devc-web-agent-sessions.md)                     | complete    |
@@ -2552,17 +2552,17 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
 | devc-bridge PR grant split — read vs write, `gh-pr-reply`, any-thread resolve + `gh-pr-resolve-copilot`             | [bridge-pr-grant-split](archived/bridge-pr-grant-split.md)                         | complete    |
 | devc web PR review — sidebar PR tree + Viewed, diff tiles with threads, all through the container's bridge          | [devc-web-pr-review](archived/devc-web-pr-review.md)                               | complete    |
 | devc web sidebar scale fixes — Tasks section, In use merged by folder, running sessions not resumed twice           | [devc-web-sidebar-scale-fixes](archived/devc-web-sidebar-scale-fixes.md)           | complete    |
-| `devc web` open in Jira — a branch's Jira key opens from terminal, file and repo menus, `"jira"` in config.json     | [devc-web-open-in-jira](devc-web-open-in-jira.md)                                  | in progress |
+| `devc web` open in Jira — a branch's Jira key opens from terminal, file and repo menus, `"jira"` in config.json     | [devc-web-open-in-jira](archived/devc-web-open-in-jira.md)                         | complete    |
 | devc-bridge per-repo default grants — `bridgeRepoAllow` map, per-line policy grants                                 | [bridge-per-repo-grants](archived/bridge-per-repo-grants.md)                       | complete    |
 | devc global config as JSONC — `config.jsonc` before `config.json`, comment-keeping saves                            | [devc-config-jsonc](archived/devc-config-jsonc.md)                                 | complete    |
-| devc web repo cards — one card per repo per container, in In use when active, else in Containers; tabs removed      | [devc-web-repo-cards](devc-web-repo-cards.md)                                      | in progress |
+| devc web repo cards — one card per repo per container, in In use when active, else in Containers; tabs removed      | [devc-web-repo-cards](archived/devc-web-repo-cards.md)                             | complete    |
 | devc mount preflight — bind mounts checked before the image build, right after `initializeCommand`                  | [devc-mount-preflight](archived/devc-mount-preflight.md)                           | complete    |
 | devc web cross-page drag — `/sidebar` rows dragged natively into `/main`; zen replayed to a reloaded `/main`        | [devc-web-cross-page-drag](archived/devc-web-cross-page-drag.md)                   | complete    |
 | devc web PR review depth — side placement, viewed history + changes since viewed, pending reviews                   | [devc-web-pr-review-depth](archived/devc-web-pr-review-depth.md)                   | complete    |
 | devc web host environments — an environment seam; projects on this machine beside devcontainers, Docker optional    | [devc-web-host-environments](devc-web-host-environments.md)                        |             |
 | Bridge task-add — agents add (never queue or send) devc web tasks via a granted `task-add` built-in                 | [bridge-task-add](bridge-task-add.md)                                              | in progress |
-| devc web language servers — core: lsp-client, host multiplexer, file watching, launcher contract                    | [devc-web-lsp-core](devc-web-lsp-core.md)                                          | in progress |
-| devc web language servers — TypeScript: `typescript-lsp` Feature (deno lsp / TS 7 / vtsls by repo)                  | [devc-web-lsp-typescript](devc-web-lsp-typescript.md)                              | in progress |
+| devc web language servers — core: lsp-client, host multiplexer, file watching, launcher contract                    | [devc-web-lsp-core](archived/devc-web-lsp-core.md)                                 | complete    |
+| devc web language servers — TypeScript: `typescript-lsp` Feature (deno lsp / TS 7 / vtsls by repo)                  | [devc-web-lsp-typescript](archived/devc-web-lsp-typescript.md)                     | complete    |
 | devc web language servers — Python: `python-lsp` Feature (basedpyright, nearest-project root)                       | [devc-web-lsp-python](devc-web-lsp-python.md)                                      |             |
 | devc web language servers — Java: `java-lsp` Feature (JDT LS, no repo writes, Gradle build/reload actions)          | [devc-web-lsp-java](devc-web-lsp-java.md)                                          |             |
 | devc web language servers — diff hover: hover + go to definition in PR diff tiles (view documents)                  | [devc-web-lsp-diff-hover](archived/devc-web-lsp-diff-hover.md)                     | complete    |

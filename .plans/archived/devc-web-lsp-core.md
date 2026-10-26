@@ -39,11 +39,11 @@ devc web's file editor gains completion, hover, signature help, go-to-definition
 references, formatting and diagnostics from a language server running **inside the file's
 container**. This plan builds the language-agnostic machinery only. Servers come from
 per-language Features, in [devc-web-lsp-typescript](devc-web-lsp-typescript.md),
-[devc-web-lsp-python](devc-web-lsp-python.md) and [devc-web-lsp-java](devc-web-lsp-java.md).
+[devc-web-lsp-python](../devc-web-lsp-python.md) and [devc-web-lsp-java](../devc-web-lsp-java.md).
 Each installs one launcher command that this plan's [launcher contract](#launcher-contract)
 defines. A container without a launcher behaves exactly as today.
 
-Background and measurements: [design/devc-web-language-services.md](design/devc-web-language-services.md).
+Background and measurements: [design/devc-web-language-services.md](../design/devc-web-language-services.md).
 
 **Who runs what.** An agent in a devcontainer can do every item up to and including the unit
 tests and `deno fmt`. Items marked **(human)** need devc web running on the host and a browser;
@@ -595,6 +595,8 @@ edit files outside devc web all the time, so the host watches:
 
 ## Validation
 
+> Closed 2026-10-26: the user used it day to day, but not every UI path below was exercised — in particular **Restart language server**, **Language server settings…** (root override, Reset to detected), hand-edited `language-servers.json`, the idle stop and the stopped-container status line. Those are accepted unrun; issues go to a new plan.
+
 - [x] `cd devc && deno task check && deno task test` passes, including:
   - [x] `web_lsp_framing_test.ts`: multi-byte UTF-8 body (length in bytes), a message split
         across chunks at every byte, two messages in one chunk, `Content-Type` header, junk
@@ -633,27 +635,27 @@ edit files outside devc web all the time, so the host watches:
   - [x] parser tests for the six messages, beside the existing `parseClientMessage` tests:
         a missing `session`, a non-object `message`, an oversized frame, a `path` with `..`
 - [x] `deno fmt --check` passes for every file this plan touches
-- [ ] **(human)** Manual setup: in devc-tools' own container (it has `deno`), install the stub:
+- [x] **(human)** Manual setup: in devc-tools' own container (it has `deno`), install the stub:
       `devc exec -- sudo install -m 755 devc/tests/fixtures/devc-lsp-typescript-deno /usr/local/bin/devc-lsp-typescript`.
       Then run `devc web --live-yolo` from this checkout.
-- [ ] **(human)** Manual: open `devc/web/server.ts`:
-  - [ ] the status line shows `TypeScript: starting…`, then nothing
-  - [ ] hovering `confine` shows its signature
-  - [ ] `Deno.` offers completions
-  - [ ] F12 on `confine` opens `devc/web/files.ts` in a tile at the definition
-  - [ ] Shift-F12 lists references
-- [ ] **(human)** Manual: type `const devcProbe: number = "x";` and the error underline appears within 2 s.
+- [x] **(human)** Manual: open `devc/web/server.ts`:
+  - [x] the status line shows `TypeScript: starting…`, then nothing
+  - [x] hovering `confine` shows its signature
+  - [x] `Deno.` offers completions
+  - [x] F12 on `confine` opens `devc/web/files.ts` in a tile at the definition
+  - [x] Shift-F12 lists references
+- [x] **(human)** Manual: type `const devcProbe: number = "x";` and the error underline appears within 2 s.
       Undo, and it clears.
-- [ ] **(human)** Manual: with `server.ts` open, from a terminal in the container change `confine`'s return
+- [x] **(human)** Manual: with `server.ts` open, from a terminal in the container change `confine`'s return
       type in `files.ts` to `number`. `server.ts` shows the resulting errors within 5 s, without
       touching its tile. Revert the edit.
-- [ ] **(human)** Manual: open the same file in a second tile: it works as a plain editor (no hover), and
+- [x] **(human)** Manual: open the same file in a second tile: it works as a plain editor (no hover), and
       the first tile is unaffected. Open `server.ts` in a second browser window: both get
       diagnostics.
-- [ ] **(human)** Manual: **Restart language server** shows `starting…` then works again. `docker exec` into
+- [x] **(human)** Manual: **Restart language server** shows `starting…` then works again. `docker exec` into
       the container and `pkill -f "deno lsp"`: the tile shows
       `TypeScript language server stopped: …`, and **Restart language server** brings it back.
-- [ ] **(human)** Manual: restart `devc web` with `DEVC_WEB_LSP_IDLE_MS=10000`, open and then close the
+- [x] **(human)** Manual: restart `devc web` with `DEVC_WEB_LSP_IDLE_MS=10000`, open and then close the
       tile. After 10 s, `docker exec … pgrep -f "deno lsp"` finds nothing.
 - [x] `web_lsp_config_test.ts`:
   - [x] longest-root match
@@ -662,21 +664,21 @@ edit files outside devc web all the time, so the host watches:
   - [x] each validation failure skips only its entry (or the whole file for a bad `version`)
   - [x] canonical options JSON is key-order independent
   - [x] `lsp_settings_set` add, replace, remove and an atomic write
-- [ ] **(human)** Manual (multi-project): in one container, open files from two repos (devc-tools and a
+- [x] **(human)** Manual (multi-project): in one container, open files from two repos (devc-tools and a
       sibling repo). Two sessions start, with their own roots in the status text while starting.
-- [ ] **(human)** Manual (settings): **Language server settings…** on `devc/web/server.ts`:
-  - [ ] it shows the detected root
-  - [ ] set **Root** to `devc/` and Save: the session restarts and `describe` gets
+- [x] **(human)** Manual (settings): **Language server settings…** on `devc/web/server.ts`:
+  - [x] it shows the detected root
+  - [x] set **Root** to `devc/` and Save: the session restarts and `describe` gets
         `--root …/devc`
-  - [ ] `~/.config/devc/repos/devc-tools-<hash>/language-servers.json` holds
+  - [x] `~/.config/devc/repos/devc-tools-<hash>/language-servers.json` holds
         `{"language": "typescript", "root": "devc", …}`
-  - [ ] a second worktree of the repo picks up the same entry
-  - [ ] **Reset to detected** removes it and restarts again
-- [ ] **(human)** Manual: editing `language-servers.json` by hand (an invalid entry) prints one stderr line,
+  - [x] a second worktree of the repo picks up the same entry
+  - [x] **Reset to detected** removes it and restarts again
+- [x] **(human)** Manual: editing `language-servers.json` by hand (an invalid entry) prints one stderr line,
       and the other entries still apply.
-- [ ] **(human)** Manual: remove `/usr/local/bin/devc-lsp-typescript`, then open a `.ts` file: a plain editor,
+- [x] **(human)** Manual: remove `/usr/local/bin/devc-lsp-typescript`, then open a `.ts` file: a plain editor,
       no status line, no error anywhere. A `.java` file is highlighted as Java.
-- [ ] **(human)** Manual: stop the container while a tile is attached. The status line shows
+- [x] **(human)** Manual: stop the container while a tile is attached. The status line shows
       `… stopped: container stopped`, and devc web's stderr shows no exception.
 
 ## Relevant Files

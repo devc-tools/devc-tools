@@ -1,7 +1,7 @@
 # devc web: one repo card, in In use or in Containers
 
 Decided with the user on 2026-10-21. This doc is the spec. Features continue
-[14-implementation-tracking](design/devc-web-ux/14-implementation-tracking.md)'s numbering (F17 on);
+[14-implementation-tracking](../design/devc-web-ux/14-implementation-tracking.md)'s numbering (F17 on);
 each gets a row there when done.
 
 ## Goal
@@ -159,6 +159,8 @@ All of it is page code (`devc/web/static/`). No server or protocol change.
 
 ## Validation
 
+> Manual checks passed (the user, 2026-10-26).
+
 - [x] `cd devc && deno task check` passes
 - [x] `cd devc && deno task test` passes, including new cases: `repoCardKey('/p', '/p/a')` is
       `'card\n/p\n/p/a'` and `repoCardKey('/p', null)` is `'card\n/p\n'`; `repoCardActive` is true for
@@ -169,19 +171,19 @@ All of it is page code (`devc/web/static/`). No server or protocol change.
       passes (`style.css` has one pre-existing unformatted line; add no new ones)
 - [x] `grep -n "containerTab\|CONTAINER_TABS\|inUseGroupKey\|in-use-container\|inUseSessionsOpen" devc/web/static/app.js devc/web/static/lib/sidebar.js devc/web/static/style.css`
       prints nothing
-- [ ] Live, in a browser against the user's devc web (`devc web --live`), checked in the console:
+- [x] Live, in a browser against the user's devc web (`devc web --live`), checked in the console:
   - every `[data-card-key]` value occurs once in the document
     (`new Set(keys).size === keys.length`)
   - every `.in-use-run .repo-card` card has a tile, an agent pane row, or a session row from the
     last 24 h (open its history to see)
   - no `.container-card .repo-card` card has a tile row or an agent pane row
   - `document.querySelector('.row.container-tabs')` is null
-- [ ] Live, by hand: closing the last tile of a repo whose agents are gone and with no session in
+- [x] Live, by hand: closing the last tile of a repo whose agents are gone and with no session in
       24 h moves its card from In use into its container's card in Containers; opening a terminal from
       that card's `plus` moves it back once the terminal is in a tile
-- [ ] Live, by hand: turning on a card's files toggle in Containers, then making the card active,
+- [x] Live, by hand: turning on a card's files toggle in Containers, then making the card active,
       shows it in In use with its files still open; after a reload the toggle is still on
-- [ ] Live, by hand: a container's Files row opens the container's filesystem as the Files tab did,
+- [x] Live, by hand: a container's Files row opens the container's filesystem as the Files tab did,
       and stays open after a reload
 
 ## Relevant Files

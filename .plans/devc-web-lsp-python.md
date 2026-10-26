@@ -22,7 +22,7 @@
       Docker scenarios pass
 - [ ] `deno fmt` every touched `.md` and `.json` file
 
-**Depends on [devc-web-lsp-core](devc-web-lsp-core.md)** being complete: this plan ships a
+**Depends on [devc-web-lsp-core](archived/devc-web-lsp-core.md)** being complete: this plan ships a
 launcher that satisfies its [launcher contract](devc-web-lsp-core.md#launcher-contract). devc
 web itself does not change here. It is self-contained: nothing here depends on the TypeScript
 or Java plans having been implemented. When `typescript-lsp` already exists, copy its shared

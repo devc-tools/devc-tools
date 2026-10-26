@@ -27,8 +27,8 @@
       pass
 - [ ] `deno fmt` every touched file
 
-**Depends on [devc-web-lsp-core](devc-web-lsp-core.md)** being complete. Do it after
-[devc-web-lsp-typescript](devc-web-lsp-typescript.md) and
+**Depends on [devc-web-lsp-core](archived/devc-web-lsp-core.md)** being complete. Do it after
+[devc-web-lsp-typescript](archived/devc-web-lsp-typescript.md) and
 [devc-web-lsp-python](devc-web-lsp-python.md): those exercise the core with no
 project-specific workarounds, which keeps core problems apart from Java ones.
 

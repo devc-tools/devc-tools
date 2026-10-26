@@ -11,7 +11,7 @@
 - [x] `app.js`: file tiles edit and save (Ctrl/⌘+S, **Save** menu item), dirty marker, conflict prompt, discard prompts, preview promoted on first edit, `beforeunload`
 - [x] `devc/README.md` (devc web, "Files and editing") updated
 
-The file viewer ([devc-web-file-viewer](archived/devc-web-file-viewer.md)) becomes the editor:
+The file viewer ([devc-web-file-viewer](devc-web-file-viewer.md)) becomes the editor:
 the same CodeMirror view with `readOnly` off while the file's container runs, and a `write_file`
 message that saves it. "Open in editor" (`$EDITOR` in a terminal) stays as a menu item.
 
@@ -82,11 +82,13 @@ dirty: boolean (getter)    // !doc.eq(cleanDoc)
 
 ## Validation
 
+> Manual checks passed (the user, 2026-10-26).
+
 - [x] `deno task test` (or `deno test -A devc/tests/`) passes, including new cases for: `write_file` parsing (missing `text`, bad `base`); `writeContainerText` (`conflict` on a changed or deleted file, in-place save keeping inode and mode, `too_large`, `not_running`); `hash` on both reads
 - [x] `deno task check` clean; `deno lint` adds nothing beyond the repo's existing patterns
 - [x] `bash scripts/vendor-codemirror.sh` run twice gives byte-identical output
 - [x] `grep -c "historyKeymap" devc/web/static/vendor/codemirror/codemirror.mjs` > 0
-- [ ] Ask the user to try it in their open tab: edit, Ctrl/⌘+S, change the file in a terminal, save again → conflict prompt
+- [x] Ask the user to try it in their open tab: edit, Ctrl/⌘+S, change the file in a terminal, save again → conflict prompt
 
 ## Relevant Files
 
