@@ -161,6 +161,37 @@ button:hover {
   opacity: 0.6;
 }
 
+/* The strip's far end: live mode's pause button, then the connection dot. */
+.host-status-end {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.host-status-live {
+  padding: 0 6px;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  cursor: pointer;
+}
+
+.host-status-live:hover {
+  border-color: var(--border);
+  color: var(--text);
+}
+
+.host-status-live[data-state='on'] {
+  color: var(--done);
+}
+
+.host-status-live[data-state='held'] {
+  color: var(--blocked);
+}
+
 /* Drag to resize the sidebar, double-click to reset; colored like `.lm_splitter`. */
 .sidebar-resizer {
   grid-row: 1;
@@ -210,16 +241,14 @@ body.resizing-sidebar {
 
 .conn {
   margin-left: auto;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
   font-size: calc(var(--font-size) - 1px);
   color: var(--muted);
+  cursor: default;
 }
 
+/* Only the dot: what it means is in the tooltip (`CONN_TEXT`). */
 .conn::before {
-  content: '● ';
+  content: '●';
 }
 
 /* An SVG rather than a « / » glyph: a glyph sits wherever its font puts it, not centered. */
@@ -301,6 +330,11 @@ body.resizing-sidebar {
  * The sidebar's scope picker (sidebar.js): one pill of three options, all, the focused tile's
  * container and its repo, the ends rounded and the middle square, the checked one lit.
  */
+/* On `/` the header has no connection dot (it is in the host status strip). */
+.brand + .scope-picker {
+  margin-left: auto;
+}
+
 .scope-picker {
   flex: none;
   display: flex;

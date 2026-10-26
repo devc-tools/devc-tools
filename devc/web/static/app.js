@@ -8,14 +8,21 @@ import {
   isSidebarToggleShortcut,
   SIDEBAR_DEFAULT_WIDTH,
 } from './lib/sidebar.js';
-import { bridgeStatusItems, usageItems } from './lib/host_status.js';
+import { bridgeStatusItems, CONN_TEXT, usageItems } from './lib/host_status.js';
+import { liveReloadItem } from './lib/live_reload.js';
 import { h, IS_MAC } from './ui.js';
 import {
   connect,
   hostBridgeStatus,
   hostUsage,
+  liveMode,
+  liveReloadHeld,
+  liveReloadPaused,
+  onConnectionChange,
+  onLiveReloadChange,
   onServerMessage,
   SAFE_MODE,
+  setLiveReloadPaused,
   showSafeBanner,
 } from './client.js';
 import { mountTiles } from './tiles.js';
@@ -135,27 +142,35 @@ document.addEventListener('keydown', (e) => {
 /**
  * The host status strip across the foot of the page, under the sidebar and the tiles alike:
  * host-level indicators, the account-wide
- * agent usage limits (`usage`) then devc-bridge's (`bridge_status`). Hidden while it has nothing
- * to show.
+ * agent usage limits (`usage`) then devc-bridge's (`bridge_status`); at its far end, in live mode
+ * a button that pauses live reload, then the connection dot.
  */
 const $hostStatus = h('footer', {
   class: 'host-status',
   id: 'host-status',
   'aria-label': 'Host status',
-  hidden: true,
 });
+/** @type {import('./client.js').ConnectionState} */
+let connState = 'connecting';
 $app.append($hostStatus);
 // Usage windows reset and observations age with no server traffic: re-evaluate every minute.
 setInterval(() => {
   if (hostUsage?.length) renderHostStatus();
 }, 60_000);
 onServerMessage((msg) => {
-  if (msg.type === 'bridge_status' || msg.type === 'usage') renderHostStatus();
+  if (
+    msg.type === 'bridge_status' || msg.type === 'usage' || msg.type === 'hello'
+  ) renderHostStatus();
+});
+onLiveReloadChange(renderHostStatus);
+onConnectionChange((state) => {
+  connState = state;
+  renderHostStatus();
 });
 
 /**
- * Fills the host status strip from the last usage and devc-bridge status; hides it when neither
- * has anything to show. Marker names and usage labels come from the host's filesystem, so every
+ * Fills the host status strip from the last usage and devc-bridge status, live reload's state
+ * and the connection's. Marker names and usage labels come from the host's filesystem, so every
  * item is text.
  */
 function renderHostStatus() {
@@ -163,11 +178,9 @@ function renderHostStatus() {
     ...(hostUsage ? usageItems(hostUsage, Date.now() / 1000) : []),
     ...(hostBridgeStatus ? bridgeStatusItems(hostBridgeStatus) : []),
   ];
-  if (items.length === 0) {
-    $hostStatus.hidden = true;
-    $hostStatus.replaceChildren();
-    return;
-  }
+  const live = liveMode
+    ? liveReloadItem({ paused: liveReloadPaused, held: liveReloadHeld })
+    : null;
   $hostStatus.replaceChildren(
     ...items.map((item) =>
       h('span', {
@@ -177,7 +190,30 @@ function renderHostStatus() {
       }, item.text)
     ),
   );
-  $hostStatus.hidden = false;
+  const $end = h('span', { class: 'host-status-end' });
+  if (live) {
+    $end.append(
+      h('button', {
+        type: 'button',
+        class: 'host-status-item host-status-live',
+        'data-state': live.state,
+        'aria-pressed': String(liveReloadPaused),
+        title: live.title,
+        onclick: () => setLiveReloadPaused(!liveReloadPaused),
+      }, live.text),
+    );
+  }
+  $end.append(
+    h('span', {
+      class: 'conn',
+      // `no-token` is drawn like `closed`.
+      'data-state': connState === 'no-token' ? 'closed' : connState,
+      role: 'img',
+      'aria-label': CONN_TEXT[connState],
+      title: CONN_TEXT[connState],
+    }),
+  );
+  $hostStatus.append($end);
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -186,6 +222,7 @@ function renderHostStatus() {
 
 if (SAFE_MODE) showSafeBanner();
 applySidebarLayout();
+renderHostStatus();
 /** The sidebar, once mounted: the tiling area's way to it until then goes nowhere. */
 let sidebar = /** @type {ReturnType<typeof mountSidebar> | null} */ (null);
 const tileArea = mountTiles(

@@ -106,6 +106,7 @@ import {
   toast,
   writeClipboard,
 } from './ui.js';
+import { CONN_TEXT } from './lib/host_status.js';
 import {
   basename,
   byNumber,
@@ -5215,19 +5216,12 @@ function startSession(containerId) {
 /** The tiling area, as the sidebar reaches it (see `lib/view.js`): set by {@link mountSidebar}. */
 let tileArea = /** @type {TileArea} */ (null);
 
-/** What the connection indicator says in each state. */
-const CONN_TEXT = {
-  'no-token': 'no token',
-  connecting: 'connecting',
-  open: 'live',
-  closed: 'disconnected',
-};
-
 /** The connection indicator, and what the sidebar shows without a token or a connection. */
 function onSidebarConnection(state) {
   if ($conn) {
     $conn.dataset.state = state === 'no-token' ? 'closed' : state;
-    $conn.textContent = CONN_TEXT[state];
+    $conn.title = CONN_TEXT[state];
+    $conn.setAttribute('aria-label', CONN_TEXT[state]);
   }
   if (state === 'no-token') {
     $tree.replaceChildren(

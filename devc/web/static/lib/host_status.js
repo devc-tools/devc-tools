@@ -6,6 +6,17 @@
 // Marker names come from the host's filesystem and usage labels from whatever wrote the usage
 // file: the page inserts every `text` and `title` as text, never HTML.
 
+/**
+ * What the connection dot says in each connection state (`onConnectionChange`), as its tooltip:
+ * the host status strip's on `/`, the sidebar header's on `/sidebar`.
+ */
+export const CONN_TEXT = {
+  'no-token': 'No token: open the URL devc web printed, with its #token=… part',
+  connecting: 'Connecting to devc web',
+  open: 'Connected to devc web',
+  closed: 'Disconnected from devc web: reconnecting',
+};
+
 /** The active marker keepawake's default command leaves while it holds the host awake. */
 export const AWAKE_MARKER = 'caffeinate';
 

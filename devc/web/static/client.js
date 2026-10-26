@@ -24,6 +24,8 @@ const RELOAD_IDLE_MS = 2000;
 const RELOAD_RETRY_MS = 1000;
 /** Served from the last-good snapshot (`/safe/`): no reloads, no `client_ready`. */
 export const SAFE_MODE = location.pathname.startsWith('/safe/');
+/** Where this tab keeps live reload paused across its own reloads: `sessionStorage`. */
+const LIVE_PAUSE_KEY = 'devc-web-live-paused-v1';
 
 // ---------------------------------------------------------------------------------------------
 // State
@@ -248,6 +250,7 @@ function onHello(msg) {
   // `devc web --live` starts no containers for the page (its code comes from a checkout agents can
   // write to): hide what would only be refused. A server that doesn't say allows them.
   projectStarts = msg.projectStarts !== false;
+  liveMode = msg.live === true && !SAFE_MODE;
   hostOs = typeof msg.hostOs === 'string' ? msg.hostOs : '';
   if (bootGeneration === null) {
     bootGeneration = msg.generation;
@@ -256,6 +259,55 @@ function onHello(msg) {
   // A reconnect to a server whose files changed while the socket was down (a restart, or the
   // fallback to the built-in copy and back).
   if (!SAFE_MODE && msg.generation !== bootGeneration) requestReload();
+}
+
+/**
+ * Whether the server serves a checkout live (`hello`'s `live`: `devc web --live` or
+ * `--live-yolo`), so page edits reload this tab. Never in safe mode.
+ */
+export let liveMode = false;
+/** Live reload paused from the host status strip: page edits wait for it to be resumed. */
+export let liveReloadPaused = loadLiveReloadPaused();
+/** A page edit arrived while paused: resuming reloads. */
+export let liveReloadHeld = false;
+const liveReloadListeners = /** @type {(() => void)[]} */ ([]);
+
+/** Calls `fn` when {@link liveReloadPaused} or {@link liveReloadHeld} changes. */
+export function onLiveReloadChange(fn) {
+  liveReloadListeners.push(fn);
+}
+
+function liveReloadChanged() {
+  for (const fn of [...liveReloadListeners]) fn();
+}
+
+function loadLiveReloadPaused() {
+  try {
+    return sessionStorage.getItem(LIVE_PAUSE_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
+/** Pauses or resumes live reload; resuming with an edit held reloads (when not busy). */
+export function setLiveReloadPaused(on) {
+  if (on === liveReloadPaused) return;
+  liveReloadPaused = on;
+  try {
+    if (on) sessionStorage.setItem(LIVE_PAUSE_KEY, '1');
+    else sessionStorage.removeItem(LIVE_PAUSE_KEY);
+  } catch { /* unavailable: the pause just won't survive a reload */ }
+  const held = liveReloadHeld;
+  liveReloadHeld = false;
+  liveReloadChanged();
+  if (!on && held) requestReload();
+}
+
+/** Paused: the reload (or stylesheet swap) waits for {@link setLiveReloadPaused}. */
+function holdForPause() {
+  if (liveReloadHeld) return;
+  liveReloadHeld = true;
+  liveReloadChanged();
 }
 
 function onStaticChanged(msg) {
@@ -272,6 +324,11 @@ function onStaticChanged(msg) {
   const plan = planStaticChange(paths, loaded);
   if (plan.reload) {
     requestReload();
+    return;
+  }
+  // Resuming reloads the whole page, stylesheets and all.
+  if (liveReloadPaused && plan.css.length > 0) {
+    holdForPause();
     return;
   }
   // CSS only: swap each changed stylesheet in place, so the terminals keep their state.
@@ -304,8 +361,13 @@ export function holdReloadWhile(busy) {
 /**
  * Reloads for a live edit once the page isn't busy: no open dialog, no text in a focused field,
  * no hold, and nothing typed or clicked for {@link RELOAD_IDLE_MS}. A toast says so when it waits.
+ * While live reload is paused it waits for the resume instead.
  */
 function requestReload() {
+  if (liveReloadPaused) {
+    holdForPause();
+    return;
+  }
   if (reloadPending) return;
   reloadPending = true;
   if (!reloadBusy()) {
@@ -317,7 +379,10 @@ function requestReload() {
     run: () => location.reload(),
   });
   const retry = () => {
-    if (reloadBusy()) setTimeout(retry, RELOAD_RETRY_MS);
+    if (liveReloadPaused) {
+      reloadPending = false;
+      holdForPause();
+    } else if (reloadBusy()) setTimeout(retry, RELOAD_RETRY_MS);
     else location.reload();
   };
   setTimeout(retry, RELOAD_RETRY_MS);

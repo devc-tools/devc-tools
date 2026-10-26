@@ -398,6 +398,10 @@ is published from any container: the host server finds devcontainers with
   (as in a VS Code webview), and kept across reloads, separately for `/main`;
   `?zen=on` or `?zen=off` in the page URL starts the page that way without
   saving it.
+- **Connection:** the dot at the right end of the status strip across the foot
+  of the page (the sidebar header on `/sidebar`) is green while the page is
+  connected to the server, red while it is disconnected (it reconnects by
+  itself) and grey while connecting; its tooltip says which.
 - **Sidebar scope:** the pill in the sidebar header picks what the sidebar
   shows: **all** (lines), everything; **container** (cube), **Tasks** and the
   focused tile's container box with its in-use repo cards; or **repo** (card),
@@ -811,12 +815,18 @@ only ever on when asked for, run by run.
 Edits reach the open tab without a new URL:
 
 - **Page** (`web/static/**`, both modes): a tab that loaded the changed file
-  reloads (tile layout is in `localStorage`, terminal contents in Herdr, and
-  the tile that had the keyboard gets it back), or for a CSS-only change swaps
+  reloads (tile layout is in `localStorage`, terminal contents in Herdr, the
+  tile that had the keyboard gets it back, and file and diff tiles keep their
+  scroll positions), or for a CSS-only change swaps
   the stylesheet in place; a tab that didn't load it
   (`/sidebar` for a `tiles.js` edit) is left alone. A reload waits, with a
   toast and **Reload now**, while a dialog is open, a focused field has text,
   a file tile has unsaved edits, or a key or click came in the last 2 s.
+- **Pausing** (both modes): **live**, beside the connection dot at the right
+  end of the status strip across the foot of the page, pauses live reload for
+  that tab (**live ⏸ paused**; it stays paused across the tab's own reloads).
+  Page edits then wait: the button reads **live ⏸ UI changed**, and clicking it
+  resumes and reloads.
 - **Server** (`.ts` under `devc/` or `devc-core/`, not `tests/`;
   `--live-yolo` only): the supervisor runs `deno check main.ts` while the old
   server keeps serving. If it fails, it prints

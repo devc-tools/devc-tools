@@ -148,6 +148,11 @@ const OLD_LAYOUT_KEY = 'devc-web-layout-v1';
  */
 const FOCUS_KEY = 'devc-web-focused-tile-v1';
 /**
+ * Where file and diff tiles' scroll positions are kept across a reload of this tab (a live
+ * reload above all): `sessionStorage`, read once.
+ */
+const SCROLL_KEY = 'devc-web-tile-scroll-v1';
+/**
  * Zen mode, `true` or `false`, per browser and per page: the page with the sidebar
  * (`ZEN_KEY`, off by default) and `/main` alone (`MAIN_ZEN_KEY`, on by default, as in a VS Code
  * webview). The page URL's `?zen=…` (`zenFromSearch`) only sets where the page starts, and is
@@ -526,6 +531,10 @@ async function loadFile(view) {
       text,
       onChange: (dirty) => setFileDirty(view, dirty),
     });
+    const spot = takeSavedScroll(fileKey(file));
+    if (Number.isInteger(spot?.line) && Number.isFinite(spot?.offset)) {
+      view.viewer.scrollToSpot(spot);
+    }
   }
   revealPendingLine(view);
   view.state = 'ok';
@@ -1222,6 +1231,8 @@ function saveFlag(key, on) {
  *   the PR head's text for its language server view (`pr_file_at`), fetched once per head
  * @property {{head: string, text: string, map: (line: number) => number | null} | null} local
  *   while an open tile holds the file with other text: the PR head's lines mapped onto it
+ * @property {number} scrollTop  where the body was last scrolled to while shown: a hidden tab
+ *   reads as scrolled to the top, and a redraw starts a new body
  */
 
 /**
@@ -1340,9 +1351,19 @@ function mountDiffTile(tile) {
     editing: new Map(),
     head: null,
     local: null,
+    scrollTop: 0,
   };
   diffViews.set(tile.id, view);
   diffHoverEvents(view);
+  const saved = tile.diff ? takeSavedScroll(diffScrollKey(tile.diff)) : null;
+  if (Number.isFinite(saved) && saved > 0) view.scrollTop = saved;
+  // Capture phase: `scroll` doesn't bubble, and the body is drawn anew on each render.
+  body.addEventListener('scroll', (e) => {
+    const el = /** @type {HTMLElement} */ (e.target);
+    if (el.classList?.contains('diff-body') && el.clientHeight > 0) {
+      view.scrollTop = el.scrollTop;
+    }
+  }, true);
   // After the factory returns: a title change mid-build would save a half-built layout.
   queueMicrotask(() => {
     if (diffViews.get(tile.id) !== view) return;
@@ -2072,7 +2093,6 @@ function renderDiff(view) {
   const caret = active instanceof HTMLTextAreaElement
     ? [active.selectionStart, active.selectionEnd]
     : null;
-  const scroll = view.body.querySelector('.diff-body')?.scrollTop ?? 0;
   const body = h('div', { class: 'diff-body' });
   view.body.replaceChildren(diffHeader(view), body);
   if (view.state === 'loading') {
@@ -2092,7 +2112,8 @@ function renderDiff(view) {
       ),
     );
   } else body.append(...diffContent(view));
-  body.scrollTop = scroll;
+  // Hidden, it stays at the top: shown again, the tab scrolls back (`tileVisibility`).
+  body.scrollTop = view.scrollTop;
   if (active && active.isConnected && active !== document.activeElement) {
     active.focus({ preventScroll: true });
     if (caret && active instanceof HTMLTextAreaElement) {
@@ -3124,6 +3145,70 @@ function saveFocus() {
   } catch { /* unavailable: a reload just won't refocus */ }
 }
 
+/** A diff tile's key in {@link SCROLL_KEY}: its PR file, beside {@link fileKey}'s. */
+function diffScrollKey(/** @type {DiffRef} */ diff) {
+  return `diff\n${diff.localFolder}\n${diff.root}\n${diff.path}`;
+}
+
+/**
+ * The scroll positions {@link saveScroll} kept before a reload, by {@link fileKey} or
+ * {@link diffScrollKey}: each taken by the first tile to show its file. Read once, on first use.
+ *
+ * @type {Map<string, any> | null}
+ */
+let savedScrolls = null;
+
+/** On leaving the page: each file and diff tile's scroll position, for the reload. */
+function saveScroll() {
+  const pending = loadSavedScrolls();
+  /** @type {[string, any][]} */
+  const out = [];
+  for (const view of fileViews.values()) {
+    const file = view.tile.file;
+    if (!file) continue;
+    // Not read yet: what it was given to restore, still.
+    const spot = view.viewer
+      ? view.viewer.scrollSpot()
+      : pending.get(fileKey(file));
+    if (spot) out.push([fileKey(file), spot]);
+  }
+  for (const view of diffViews.values()) {
+    if (view.tile.diff && view.scrollTop > 0) {
+      out.push([diffScrollKey(view.tile.diff), view.scrollTop]);
+    }
+  }
+  try {
+    if (out.length === 0) sessionStorage.removeItem(SCROLL_KEY);
+    else sessionStorage.setItem(SCROLL_KEY, JSON.stringify(out));
+  } catch { /* unavailable: a reload just starts at the top */ }
+}
+
+/** The scroll position kept for `key` before the reload, once; `undefined` when none was. */
+function takeSavedScroll(/** @type {string} */ key) {
+  const saved = loadSavedScrolls();
+  const value = saved.get(key);
+  saved.delete(key);
+  return value;
+}
+
+function loadSavedScrolls() {
+  if (savedScrolls === null) {
+    savedScrolls = new Map();
+    try {
+      const saved = JSON.parse(sessionStorage.getItem(SCROLL_KEY) ?? 'null');
+      sessionStorage.removeItem(SCROLL_KEY);
+      if (Array.isArray(saved)) {
+        for (const entry of saved) {
+          if (Array.isArray(entry) && typeof entry[0] === 'string') {
+            savedScrolls.set(entry[0], entry[1]);
+          }
+        }
+      }
+    } catch { /* unavailable or malformed: nothing to restore */ }
+  }
+  return savedScrolls;
+}
+
 /** Focuses the tile {@link saveFocus} kept, so typing goes on where it was after a reload. */
 function restoreFocus() {
   let saved = null;
@@ -3666,6 +3751,13 @@ function unmountTile(tile) {
 
 /** A tile in a background stack tab sends no resize; brought forward, it refits at once. */
 function tileVisibility(tile, visible) {
+  const diff = diffViews.get(tile.id);
+  if (diff && visible) {
+    requestAnimationFrame(() => {
+      const body = diff.body.querySelector('.diff-body');
+      if (body) body.scrollTop = diff.scrollTop;
+    });
+  }
   const view = views.get(tile.id);
   if (!view) return;
   view.hidden = !visible;
@@ -4296,6 +4388,7 @@ export function mountTiles(root, opts) {
   onConnectionChange(onTilesConnection);
   acceptNativeDrops(root);
   window.addEventListener('pagehide', saveFocus);
+  window.addEventListener('pagehide', saveScroll);
   restoreLayout();
   reconcileTiles();
   restoreFocus();

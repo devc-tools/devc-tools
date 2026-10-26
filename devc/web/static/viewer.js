@@ -77,6 +77,10 @@ import { languageFor as pickLanguage } from './lib/languages.js';
  * @property {boolean} dirty         the content differs from what is on disk
  * @property {(line: number, column?: number) => void} revealLine
  *   puts the cursor at a 1-based line and column (clamped to the file) and scrolls it to the middle
+ * @property {() => ScrollSpot | null} scrollSpot
+ *   where the view is scrolled to, as the last time it was shown (null if never scrolled)
+ * @property {(spot: ScrollSpot) => void} scrollToSpot
+ *   scrolls back to a {@link scrollSpot} (once the view is shown, when it is hidden now)
  * @property {() => {text: string, startLine: number, endLine: number} | null} selection
  *   the main selection's text and the 1-based lines it spans; null while nothing is selected
  * @property {() => void} focus
@@ -87,6 +91,13 @@ import { languageFor as pickLanguage } from './lib/languages.js';
  * @property {() => void} detachLanguage  takes them away again (and their diagnostics)
  * @property {string | null} languageUri  the URI attached, or null
  * @property {EditorView} view            the CodeMirror view, for the language client's jumps
+ */
+
+/**
+ * A scroll position that survives a reload: the 1-based line at the top of the view and how
+ * many pixels of it are scrolled past.
+ *
+ * @typedef {{line: number, offset: number}} ScrollSpot
  */
 
 /**
@@ -418,6 +429,22 @@ export function createViewer(
   });
   /** The doc as it is on disk. */
   let clean = view.state.doc;
+  /**
+   * Where the view was last scrolled to while shown: a hidden view (a tab behind another) reads
+   * as scrolled to the top.
+   *
+   * @type {ScrollSpot | null}
+   */
+  let spot = null;
+  view.scrollDOM.addEventListener('scroll', () => {
+    if (view.scrollDOM.clientHeight === 0) return;
+    const top = view.scrollDOM.scrollTop - view.documentPadding.top;
+    const block = view.lineBlockAtHeight(Math.max(top, 0));
+    spot = {
+      line: view.state.doc.lineAt(block.from).number,
+      offset: Math.max(top - block.top, 0),
+    };
+  }, { passive: true });
 
   return {
     setText(next) {
@@ -474,6 +501,21 @@ export function createViewer(
       view.dispatch({
         selection: { anchor: pos },
         effects: EditorView.scrollIntoView(pos, { y: 'center' }),
+      });
+    },
+    scrollSpot() {
+      return spot;
+    },
+    scrollToSpot(to) {
+      const doc = view.state.doc;
+      spot = to;
+      // CodeMirror holds the scroll until the view has a height, so a hidden tab gets it when
+      // it is shown.
+      view.dispatch({
+        effects: EditorView.scrollIntoView(
+          doc.line(Math.min(Math.max(to.line, 1), doc.lines)).from,
+          { y: 'start', yMargin: -to.offset },
+        ),
       });
     },
     selection() {

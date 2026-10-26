@@ -1,5 +1,6 @@
 import { assertEquals } from 'jsr:@std/assert';
 import {
+  liveReloadItem,
   loadedPaths,
   pageFile,
   planStaticChange,
@@ -79,4 +80,18 @@ Deno.test('planStaticChange reloads when it does not know what changed', () => {
     reload: true,
     css: [],
   });
+});
+
+Deno.test('liveReloadItem: on, paused, and paused with an edit held', () => {
+  const on = liveReloadItem({ paused: false, held: false });
+  assertEquals([on.key, on.state, on.text], ['live', 'on', 'live']);
+  // `held` only counts while paused.
+  assertEquals(liveReloadItem({ paused: false, held: true }), on);
+  const paused = liveReloadItem({ paused: true, held: false });
+  assertEquals([paused.state, paused.text], ['paused', 'live ⏸ paused']);
+  const held = liveReloadItem({ paused: true, held: true });
+  assertEquals([held.state, held.text], ['held', 'live ⏸ UI changed']);
+  for (const item of [on, paused, held]) {
+    assertEquals(item.title.includes('Click to'), true);
+  }
 });

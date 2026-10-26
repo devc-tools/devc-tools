@@ -49,3 +49,35 @@ export function planStaticChange(paths, loaded) {
   if (used.some((p) => !p.endsWith('.css'))) return { reload: true, css: [] };
   return { reload: false, css: used };
 }
+
+/**
+ * The host status strip's live reload item (live mode only): a button that pauses live reload,
+ * or resumes it. `held`: a page edit arrived while paused, and resuming reloads.
+ *
+ * @param {{paused: boolean, held: boolean}} state
+ * @returns {{key: string, state: string, text: string, title: string}}
+ */
+export function liveReloadItem({ paused, held }) {
+  if (!paused) {
+    return {
+      key: 'live',
+      state: 'on',
+      text: 'live',
+      title: 'Live reload: page edits reload this tab. Click to pause.',
+    };
+  }
+  return held
+    ? {
+      key: 'live',
+      state: 'held',
+      text: 'live ⏸ UI changed',
+      title:
+        'Live reload is paused and the UI changed. Click to resume and reload.',
+    }
+    : {
+      key: 'live',
+      state: 'paused',
+      text: 'live ⏸ paused',
+      title: 'Live reload is paused. Click to resume.',
+    };
+}
