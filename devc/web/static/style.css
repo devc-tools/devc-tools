@@ -2800,9 +2800,10 @@ button.primary.danger {
   color: var(--section);
 }
 
+/* The file viewer's code text (viewer.js's theme), so a diff tile reads the same as a file tile. */
 .diff-table {
-  font-family: ui-monospace, monospace;
-  font-size: calc(var(--font-size) - 1px);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: var(--code-font-size);
   line-height: 1.45;
 }
 
