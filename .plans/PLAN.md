@@ -101,11 +101,6 @@
   skipping `.git` and nested repos, capped at 50 000. Empty query lists open and recent files.
   Files only, on `/` only (not the VS Code embedding's split pages); commands are a later source.
 
-- [devc-web-diff-whole-file](devc-web-diff-whole-file.md) — a **Whole file** toggle on PR
-  diff tiles: every line of the file, the gaps between GitHub's hunks filled in from the file at
-  the PR's head (no base commit needed), no `@@` bars, highlighting across the file, `+` only on
-  the patch's lines. Since viewed diffs whole texts. Falls back to the condensed diff with a note.
-
 ### Standing rules for Feature work
 
 Not a plan group — these are the conventions every Feature plan in this file
@@ -191,6 +186,12 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
   generated-source folders appear, and read-only `jdt:` class tiles.
 
 ### Completed
+
+- ✅ Done — [devc-web-diff-whole-file](archived/devc-web-diff-whole-file.md) — a **Whole file**
+  toggle on PR diff tiles: every line of the file, the gaps between GitHub's hunks filled in from
+  the file at the PR's head (no base commit needed), no `@@` bars, highlighting across the file,
+  `+` only on the patch's lines. Since viewed diffs whole texts. Falls back to the condensed diff
+  with a note.
 
 - ✅ Done — [devc-web-lsp-diff-hover](archived/devc-web-lsp-diff-hover.md) — after devc-web-lsp-core: hover and
   Ctrl/Cmd+click go to definition in a pull request's diff tile, on added and context rows,
@@ -2560,4 +2561,4 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
 | devc web language servers — Java: `java-lsp` Feature (JDT LS, no repo writes, Gradle build/reload actions)          | [devc-web-lsp-java](devc-web-lsp-java.md)                                          |             |
 | devc web language servers — diff hover: hover + go to definition in PR diff tiles (view documents)                  | [devc-web-lsp-diff-hover](archived/devc-web-lsp-diff-hover.md)                     | complete    |
 | devc web file palette — ⌘P / Ctrl+Alt+P fuzzy-finds a file in the focused repo (`find_files`, gitignore-aware walk) | [devc-web-file-palette](devc-web-file-palette.md)                                  |             |
-| devc web diff whole file — a PR diff tile shows every line, filled from the head; `+` only on patch lines           | [devc-web-diff-whole-file](devc-web-diff-whole-file.md)                            | in progress |
+| devc web diff whole file — a PR diff tile shows every line, filled from the head; `+` only on patch lines           | [devc-web-diff-whole-file](archived/devc-web-diff-whole-file.md)                   | complete    |

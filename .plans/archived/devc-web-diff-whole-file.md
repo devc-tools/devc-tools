@@ -188,21 +188,21 @@ filled in from the file at the PR's head (comments still only on the patch's lin
 - [x] `cd devc && deno lint && deno fmt --check` pass
       (lint: no findings in the touched code; the tree's existing `no-import-prefix` /
       `no-unversioned-import` findings on test files' `jsr:` imports were already there)
-- [ ] **(human)** A modified file with two or more hunks, **Whole file** on, Split: no `@@` bars;
+- [x] **(human)** A modified file with two or more hunks, **Whole file** on, Split: no `@@` bars;
       line numbers run unbroken 1…N on the right and 1…M on the left; rows between hunks are
       unshaded context. Unified: the same.
-- [ ] **(human)** Toggle off and on: the condensed view comes back with its bars, and the setting
+- [x] **(human)** Toggle off and on: the condensed view comes back with its bars, and the setting
       survives a page reload.
-- [ ] **(human)** With **Whole file** on: a `+` on a changed row and on a context row from the
+- [x] **(human)** With **Whole file** on: a `+` on a changed row and on a context row from the
       patch opens a comment; filled rows have no `+`. An existing thread still sits on its row.
-- [ ] **(human)** Syntax colours are right on a line just after a former hunk boundary that falls
+- [x] **(human)** Syntax colours are right on a line just after a former hunk boundary that falls
       inside a block comment or template literal (e.g. the `` `${ `` case in a TS file).
-- [ ] **(human)** **Hide whitespace** together with **Whole file**: whitespace-only changes turn to
+- [x] **(human)** **Hide whitespace** together with **Whole file**: whitespace-only changes turn to
       context, filled rows stay.
-- [ ] **(human)** **Compare → Since viewed** with **Whole file** on shows the whole file; toggling
+- [x] **(human)** **Compare → Since viewed** with **Whole file** on shows the whole file; toggling
       it does not re-read (no `Loading…`).
-- [ ] **(human)** Hover (with a language server) works on a filled row.
-- [ ] **(human)** An added file and a removed file show no **Whole file** checkbox.
+- [x] **(human)** Hover (with a language server) works on a filled row.
+- [x] **(human)** An added file and a removed file show no **Whole file** checkbox.
 
 ## Relevant Files
 
