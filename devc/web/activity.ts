@@ -209,7 +209,10 @@ type Field = 'userActiveMs' | 'agentWorkingMs' | 'agentBlockedMs';
  *
  * - User time: from an `input` to the client's next one or `idleMs` after it, only while that
  *   client's latest `focus` is visible and focused (losing either ends it), attributed to the
- *   pane's repo and branch then. Clients on the same pane at once count once.
+ *   pane's repo and branch then. A switch to another pane (a visible, focused `focus` on a pane
+ *   other than the one the client was last focused on) is a move to another task: it ends the
+ *   old pane's span and starts one on the new pane, as an `input` there would. Clients on the
+ *   same pane at once count once.
  * - Agent time: from an `agent` event to the pane's next one; `working` and `blocked` count.
  * - A `server` event ends everything. A missing `stop` is one at the last event before the next
  *   `start` (or the last event of all): nothing counts in between.
@@ -236,12 +239,14 @@ export function rollupDay(
       visible: boolean;
       focused: boolean;
       input: { pane: string; container: string; until: number } | null;
+      /** The pane the client was last visible and focused on (`paneKey`). */
+      on: string | null;
     }
   >();
   const clientOf = (id: string) => {
     let c = clients.get(id);
     if (!c) {
-      c = { visible: false, focused: false, input: null };
+      c = { visible: false, focused: false, input: null, on: null };
       clients.set(id, c);
     }
     return c;
@@ -361,7 +366,22 @@ export function rollupDay(
         c.visible = e.visible;
         c.focused = e.focused;
         // A hidden or unfocused page is idle at once.
-        if (!e.visible || !e.focused) c.input = null;
+        if (!e.visible || !e.focused) {
+          c.input = null;
+          break;
+        }
+        if (e.container === undefined || e.pane === undefined) break;
+        const k = paneKey(e.container, e.pane);
+        // A switch from another pane: work moved here. Not on the client's first pane or on
+        // coming back to the same one.
+        if (c.on !== null && c.on !== k) {
+          c.input = {
+            container: e.container,
+            pane: e.pane,
+            until: ms + idleMs,
+          };
+        }
+        c.on = k;
         break;
       }
     }

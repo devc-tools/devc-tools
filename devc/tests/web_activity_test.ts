@@ -162,6 +162,78 @@ Deno.test('rollupDay: two clients active on one pane at once count once', () => 
   assertEquals(userMs(two), 10 * MIN);
 });
 
+Deno.test('rollupDay: a pane switch ends the old pane at once and starts the new one', () => {
+  const on = (t: string, p: string, visible = true): ActivityEvent => ({
+    t,
+    e: 'focus',
+    client: 'c1',
+    visible,
+    focused: visible,
+    container: C,
+    pane: p,
+  });
+  const paneMs = (rows: ActivityRow[]) =>
+    Object.fromEntries(rows.map((r) => [r.repo, r.userActiveMs / MIN]));
+  const panes = [
+    pane(at(9), 'w1:p1', { repo: '/src/a' }),
+    pane(at(9), 'w1:p3', { repo: '/src/b' }),
+  ];
+  // Switched at 9:01 and only reading: a gets 9:00–9:01, b 9:01–9:06.
+  assertEquals(
+    paneMs(rollupDay(DAY, [
+      start(at(9)),
+      ...panes,
+      on(at(9), 'w1:p1'),
+      input(at(9)),
+      on(at(9, 1), 'w1:p3'),
+      stop(at(10)),
+    ])),
+    { '/src/a': 1, '/src/b': 5 },
+  );
+  // Then typing on b at 9:02: b runs 9:01–9:07.
+  assertEquals(
+    paneMs(rollupDay(DAY, [
+      start(at(9)),
+      ...panes,
+      on(at(9), 'w1:p1'),
+      input(at(9)),
+      on(at(9, 1), 'w1:p3'),
+      input(at(9, 2), 'c1', 'w1:p3'),
+      stop(at(10)),
+    ])),
+    { '/src/a': 1, '/src/b': 6 },
+  );
+  // The same pane again (the window refocused): not a switch, so the span still ends 5 min
+  // after its input, and a page coming back stays idle.
+  assertEquals(
+    paneMs(rollupDay(DAY, [
+      start(at(9)),
+      ...panes,
+      on(at(9), 'w1:p1'),
+      input(at(9)),
+      on(at(9, 3), 'w1:p1'),
+      on(at(9, 20), 'w1:p1', false),
+      on(at(9, 30), 'w1:p1'),
+      stop(at(10)),
+    ])),
+    { '/src/a': 5 },
+  );
+  // Picked another pane while the window was unfocused, then came back to it: a switch.
+  assertEquals(
+    paneMs(rollupDay(DAY, [
+      start(at(9)),
+      ...panes,
+      on(at(9), 'w1:p1'),
+      input(at(9)),
+      on(at(9, 1), 'w1:p1', false),
+      on(at(9, 1), 'w1:p3', false),
+      on(at(9, 2), 'w1:p3'),
+      stop(at(10)),
+    ])),
+    { '/src/a': 1, '/src/b': 5 },
+  );
+});
+
 Deno.test('rollupDay: agent working and blocked time, attributed to the pane and its agent', () => {
   const rows = rollupDay(DAY, [
     start(at(9)),
