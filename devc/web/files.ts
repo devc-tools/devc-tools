@@ -85,7 +85,7 @@ export async function confine(
 }
 
 /** `e` as a `FilesError` when it is a filesystem error worth naming, else `e` itself. */
-function filesError(e: unknown, path: string): unknown {
+export function filesError(e: unknown, path: string): unknown {
   if (e instanceof Deno.errors.NotFound) {
     return new FilesError('not_found', `${path} does not exist`);
   }

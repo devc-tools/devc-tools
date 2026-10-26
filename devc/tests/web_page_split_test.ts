@@ -67,3 +67,10 @@ Deno.test('menus.js, shared by both halves, imports neither', async () => {
   );
   assertEquals(found, []);
 });
+
+Deno.test('palette.js imports neither tiles.js nor sidebar.js', async () => {
+  const found = imports(await read('palette.js')).filter((p) =>
+    p === './tiles.js' || p === './sidebar.js'
+  );
+  assertEquals(found, []);
+});

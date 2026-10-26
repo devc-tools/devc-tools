@@ -447,6 +447,24 @@ Deno.test('parseClientMessage: file messages take a root and a path, empty meani
       );
     }
   }
+  ok({
+    type: 'find_files',
+    id: 'ff1',
+    localFolder: '/src/app',
+    root: '/src/lib',
+  });
+  for (
+    const bad of [
+      { localFolder: '/a', root: 'rel' },
+      { localFolder: '/a' },
+      { localFolder: 'rel', root: '/a' },
+    ]
+  ) {
+    assertEquals(
+      rejected({ type: 'find_files', id: 'ff2', ...bad }).code,
+      'bad_request',
+    );
+  }
   ok({ type: 'list_host_dir', id: 'f3', path: '' });
   ok({ type: 'list_host_dir', id: 'f4', path: '/Users/me' });
   ok({ type: 'refresh_containers', id: 'f9' });

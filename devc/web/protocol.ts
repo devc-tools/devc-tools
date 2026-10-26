@@ -101,6 +101,8 @@ export type ClientMessage =
     root: string;
     path: string;
   }
+  /** Every file of a repo, for the page's file palette (`file_index.ts`). */
+  | { type: 'find_files'; id: string; localFolder: string; root: string }
   | { type: 'list_host_dir'; id: string; path: string }
   /** Lists the devcontainers (`docker ps`) and reads devc's projects list again. */
   | { type: 'refresh_containers'; id: string }
@@ -820,6 +822,13 @@ function parseFields(m: Obj): ClientMessage {
         localFolder: folder(m),
         root: absolute(m, 'root'),
         path: text(m, 'path'),
+      };
+    case 'find_files':
+      return {
+        type: 'find_files',
+        id: str(m, 'id'),
+        localFolder: folder(m),
+        root: absolute(m, 'root'),
       };
     case 'list_host_dir':
       return { type: 'list_host_dir', id: str(m, 'id'), path: text(m, 'path') };

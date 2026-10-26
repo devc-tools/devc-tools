@@ -453,6 +453,17 @@ is published from any container: the host server finds devcontainers with
   their items with dividers. Hovering shows the host path (a container file
   also shows its container path). See
   [Editing in a terminal](#editing-in-a-terminal) for the editor.
+- **Find a file:** **⌘P** on a Mac (**Ctrl+Alt+P** elsewhere; Ctrl+P stays the
+  terminals' previous-history) opens a palette over the page that finds a file
+  in the focused tile's repo by fuzzy name: basenames that match best come
+  first, with the matched letters highlighted. **↑/↓** move, **Enter** opens the
+  file in the preview tile and **⌘Enter** (**Ctrl+Enter** elsewhere) to the
+  right; **Escape** (or the shortcut again) closes it. With nothing typed it
+  lists the repo's open files, then the ones you last opened from it. Files come
+  from the repo folder on the host, without `.git` and what the repo's
+  `.gitignore` files and `.git/info/exclude` ignore, and without nested repos
+  and worktrees; a stopped project's repo works too. Only the page at `/` (and
+  devc-desktop) has it, not the VS Code embedding.
 - **Language servers:** while a file tile can edit its file (the container is
   connected), a `.ts`, `.tsx`, `.mts`, `.cts`, `.js`, `.jsx`, `.mjs`, `.cjs`,
   `.py`, `.pyi` or `.java` file gets completion, hover, signature help,

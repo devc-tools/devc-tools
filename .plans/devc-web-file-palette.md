@@ -2,16 +2,16 @@
 
 ## Checklist
 
-- [ ] `devc/web/file_index.ts` (new): the repo file walk (`.gitignore`-aware, capped) and its ignore matcher, with tests in `devc/tests/web_file_index_test.ts` (new)
-- [ ] `devc/web/protocol.ts`: `find_files` client message (type + `parseClientMessage` case), with a parse test in `devc/tests/web_server_test.ts`
-- [ ] `devc/web/server.ts`: `find_files` handled beside `list_dir` (same project / repo checks), replying `{files, truncated}`
-- [ ] `devc/deno.json`: `web/file_index.ts` added to the `check` task's file list
-- [ ] `devc/web/static/lib/palette.js` (new, pure): shortcut predicate, matcher + ranking, empty-query list, recents parse/update, with tests in `devc/tests/web_palette_test.ts` (new)
-- [ ] `devc/web/static/palette.js` (new): the palette dialog, mounted with a `TileArea`
-- [ ] `devc/web/static/app.js`: mount the palette (`/` only)
-- [ ] `devc/web/static/style.css`: palette styles (tokens only, both themes)
-- [ ] `devc/tests/web_page_split_test.ts`: `palette.js` imports neither `tiles.js` nor `sidebar.js`
-- [ ] `devc/README.md`: a **Find a file** bullet in the `devc web` section
+- [x] `devc/web/file_index.ts` (new): the repo file walk (`.gitignore`-aware, capped) and its ignore matcher, with tests in `devc/tests/web_file_index_test.ts` (new)
+- [x] `devc/web/protocol.ts`: `find_files` client message (type + `parseClientMessage` case), with a parse test in `devc/tests/web_server_test.ts`
+- [x] `devc/web/server.ts`: `find_files` handled beside `list_dir` (same project / repo checks), replying `{files, truncated}`
+- [x] `devc/deno.json`: `web/file_index.ts` added to the `check` task's file list
+- [x] `devc/web/static/lib/palette.js` (new, pure): shortcut predicate, matcher + ranking, empty-query list, recents parse/update, with tests in `devc/tests/web_palette_test.ts` (new)
+- [x] `devc/web/static/palette.js` (new): the palette dialog, mounted with a `TileArea`
+- [x] `devc/web/static/app.js`: mount the palette (`/` only)
+- [x] `devc/web/static/style.css`: palette styles (tokens only, both themes)
+- [x] `devc/tests/web_page_split_test.ts`: `palette.js` imports neither `tiles.js` nor `sidebar.js`
+- [x] `devc/README.md`: a **Find a file** bullet in the `devc web` section
 
 **⌘P** (on a Mac) or **Ctrl+Alt+P** (elsewhere) opens a palette over devc web that finds a file
 in the focused tile's repo by fuzzy name and opens it in a file tile. It works on the combined
@@ -248,11 +248,11 @@ shortcut listener. `main-page.js` and `sidebar-page.js` do not call it.
 
 ## Validation
 
-- [ ] `cd devc && deno task check` passes (with `web/file_index.ts` in the list)
-- [ ] `cd devc && deno test --allow-run --allow-read --allow-write --allow-env tests/web_file_index_test.ts tests/web_palette_test.ts` passes, covering every row of the ignore, ranking and shortcut tables above
-- [ ] `cd devc && deno task test` passes (including `web_page_split_test.ts` and `web_no_native_dialogs_test.ts`)
+- [x] `cd devc && deno task check` passes (with `web/file_index.ts` in the list)
+- [x] `cd devc && deno test --allow-run --allow-read --allow-write --allow-env tests/web_file_index_test.ts tests/web_palette_test.ts` passes, covering every row of the ignore, ranking and shortcut tables above
+- [x] `cd devc && deno task test` passes (including `web_page_split_test.ts` and `web_no_native_dialogs_test.ts`)
 - [ ] `cd devc && deno lint && deno fmt --check` pass
-- [ ] `parseClientMessage` test: a `find_files` with a relative `root` is rejected; a valid one parses to `{type, id, localFolder, root}`
+- [x] `parseClientMessage` test: a `find_files` with a relative `root` is rejected; a valid one parses to `{type, id, localFolder, root}`
 - [ ] Manual, `devc web` in Chrome on a Mac, a project with a repo holding a `.gitignore`d `node_modules/`: with a terminal tile focused, ⌘P opens the palette (no Print dialog), placeholder names the repo; typing `serv` ranks `server.ts`-like basenames first with highlighted letters; no `node_modules/` or `.git/` path appears
 - [ ] Manual: Enter opens the file in the preview tile; ⌘Enter opens it to the right; reopening with an empty query lists that file first
 - [ ] Manual: ⌘P inside a focused file tile (CodeMirror) and inside a terminal both open the palette; ⌘P again closes it; Escape closes it and focus returns to where it was

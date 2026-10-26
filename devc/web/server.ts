@@ -60,6 +60,7 @@ import {
   readProjectBytes,
   readProjectFile,
 } from './files.ts';
+import { listRepoFiles } from './file_index.ts';
 import {
   MAX_PREVIEW_BYTES,
   previewPath,
@@ -1018,12 +1019,19 @@ export async function startWeb(
     c: Client,
     msg: Extract<
       ClientMessage,
-      { type: 'list_dir' | 'list_host_dir' | 'read_file' | 'preview_file' }
+      {
+        type:
+          | 'list_dir'
+          | 'find_files'
+          | 'list_host_dir'
+          | 'read_file'
+          | 'preview_file';
+      }
     >,
   ) => {
     if (
-      msg.type === 'list_dir' || msg.type === 'read_file' ||
-      msg.type === 'preview_file'
+      msg.type === 'list_dir' || msg.type === 'find_files' ||
+      msg.type === 'read_file' || msg.type === 'preview_file'
     ) {
       if (!isListedProject(msg.localFolder)) {
         reject(c, {
@@ -1037,6 +1045,15 @@ export async function startWeb(
         !isProjectRepo(projectsMessage().projects, msg.localFolder, msg.root)
       ) {
         reject(c, { id: msg.id, code: 'bad_request', message: 'unknown repo' });
+        return;
+      }
+      if (msg.type === 'find_files') {
+        try {
+          const result = await listRepoFiles(msg.root);
+          reply(c, { id: msg.id, ok: true, result });
+        } catch (e) {
+          failFiles(c, msg.id, e);
+        }
         return;
       }
       if (msg.type === 'read_file') {
@@ -2476,7 +2493,7 @@ export async function startWeb(
     c: Client,
     msg: Exclude<
       Extract<ClientMessage, { localFolder: string }>,
-      { type: 'list_dir' | 'read_file' | 'preview_file' }
+      { type: 'list_dir' | 'find_files' | 'read_file' | 'preview_file' }
     >,
   ) => {
     const folder = msg.localFolder;
@@ -2645,8 +2662,9 @@ export async function startWeb(
       return;
     }
     if (
-      msg.type === 'list_dir' || msg.type === 'list_host_dir' ||
-      msg.type === 'read_file' || msg.type === 'preview_file'
+      msg.type === 'list_dir' || msg.type === 'find_files' ||
+      msg.type === 'list_host_dir' || msg.type === 'read_file' ||
+      msg.type === 'preview_file'
     ) {
       await handleListing(c, msg);
       return;

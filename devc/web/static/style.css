@@ -3264,3 +3264,109 @@ button.primary.danger {
 .diff-view.lsp-jump .diff-text[data-new] {
   cursor: pointer;
 }
+
+/* The file palette (palette.js): top-centred, its results scrolling. */
+dialog.dialog.palette {
+  display: flex;
+  flex-direction: column;
+  width: min(640px, calc(100vw - 32px));
+  height: fit-content;
+  max-height: calc(100vh - 32px);
+  margin-top: 12vh;
+}
+
+.dialog.palette:not([open]) {
+  display: none;
+}
+
+.palette-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+.palette-input {
+  flex: 1;
+  min-width: 0;
+  padding: 6px 8px;
+  font: inherit;
+  color: var(--text);
+  background: var(--term-bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+
+.palette-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.palette-branch {
+  flex: none;
+  max-width: 30%;
+  overflow: hidden;
+  color: var(--muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.palette-message,
+.palette-status {
+  margin: 0;
+  padding: 10px 12px;
+  color: var(--muted);
+}
+
+.palette-results {
+  min-height: 0;
+  max-height: 60vh;
+  margin: 0;
+  padding: 4px 0;
+  overflow: auto;
+  list-style: none;
+}
+
+.palette-results:empty {
+  display: none;
+}
+
+.palette-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 3px 12px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.palette-row[aria-selected='true'] {
+  background: color-mix(in srgb, var(--accent) 18%, var(--panel));
+}
+
+.palette-name {
+  flex: none;
+  color: var(--text);
+}
+
+.palette-dir {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: calc(var(--font-size) - 1px);
+  text-overflow: ellipsis;
+}
+
+.palette-row mark {
+  color: var(--accent);
+  font-weight: 600;
+  background: none;
+}
+
+.palette-foot {
+  padding: 6px 12px;
+  color: var(--muted);
+  font-size: calc(var(--font-size) - 1px);
+  border-top: 1px solid var(--border);
+}

@@ -1,7 +1,8 @@
 // The `devc web` page at `/`: the sidebar (`sidebar.js`) and the tiling area (`tiles.js`) side
 // by side over one server connection (`client.js`), each reaching the other only through the
 // contracts of `lib/view.js`. What only the combined page has is here: the sidebar's resizer,
-// its hide button and Cmd+B, and the host status strip across the foot of the page.
+// its hide button and Cmd+B, the host status strip across the foot of the page, and the file
+// palette (`palette.js`).
 
 import {
   clampSidebarWidth,
@@ -27,6 +28,7 @@ import {
 } from './client.js';
 import { mountTiles } from './tiles.js';
 import { mountSidebar, SIDEBAR_KEY } from './sidebar.js';
+import { mountPalette } from './palette.js';
 
 // ---------------------------------------------------------------------------------------------
 // The sidebar's width and visibility
@@ -239,4 +241,5 @@ sidebar = mountSidebar(
   /** @type {HTMLElement} */ (document.querySelector('aside.sidebar')),
   { tileArea },
 );
+mountPalette({ tileArea });
 connect();
