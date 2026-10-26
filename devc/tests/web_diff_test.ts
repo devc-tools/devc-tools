@@ -5,6 +5,7 @@ import {
   ignoreWhitespace,
   markRanges,
   MAX_DIFF_LINES,
+  newColumn,
   parsePatch,
   placeThreads,
   splitRows,
@@ -359,4 +360,14 @@ Deno.test('diffTexts: past MAX_DIFF_LINES on either side, null', () => {
   assertEquals(diffTexts(big, 'x\n'), null);
   assertEquals(diffTexts('x\n', big), null);
   assertEquals(diffTexts(max, max)!.hunks, []);
+});
+
+Deno.test('newColumn: a displayed offset back to the row text, past invisible-character markers', () => {
+  assertEquals(newColumn('abc', 2), 2);
+  // A surrogate pair is two UTF-16 units, displayed as they are.
+  assertEquals(newColumn('😀x', 2), 2);
+  // U+200B is displayed as `⟨U+200B⟩`, 8 units: after `a` and the marker is text offset 2.
+  assertEquals(newColumn('a\u200Bb', 9), 2);
+  assertEquals(newColumn('a\u200Bb', 3), 1, 'inside a marker: its character');
+  assertEquals(newColumn('ab', 99), 2);
 });

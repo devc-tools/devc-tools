@@ -8,16 +8,22 @@
 
 import { createRenderer } from './renderer.js';
 import { createTiling } from './layout.js';
-import { createViewer, highlightLines } from './viewer.js';
+import { createViewer, highlightLines, lspHoverHtml } from './viewer.js';
 import {
   attachTile,
+  attachView,
   detachTile,
+  detachView,
+  openView,
   restartTile,
   setLspHooks,
+  showViewLocation,
   tileAttached,
   tileExited,
   tileRestartable,
   tileStatus,
+  viewRequest,
+  viewStatus,
 } from './lsp.js';
 import { LSP_LANGUAGE_NAMES, lspLanguageFor } from './lib/languages.js';
 import { openAskDialog } from './ask.js';
@@ -58,6 +64,7 @@ import {
   diffTexts,
   ignoreWhitespace,
   markRanges,
+  newColumn,
   parsePatch,
   placeThreads,
   splitRows,
@@ -1210,6 +1217,8 @@ function saveFlag(key, on) {
  * @property {{side: 'LEFT' | 'RIGHT', line: number, hunk: number} | null} anchor  the last `+`
  *   clicked: a Shift-click on another in its hunk and side makes a block
  * @property {Map<string, CommentEdit>} editing  pending comments being edited, by comment id
+ * @property {{sha: string, got: Promise<{text: string | null, message: string}>} | null} head
+ *   the PR head's text for its language server view (`pr_file_at`), fetched once per head
  */
 
 /**
@@ -1326,8 +1335,10 @@ function mountDiffTile(tile) {
     newComment: null,
     anchor: null,
     editing: new Map(),
+    head: null,
   };
   diffViews.set(tile.id, view);
+  diffHoverEvents(view);
   // After the factory returns: a title change mid-build would save a half-built layout.
   queueMicrotask(() => {
     if (diffViews.get(tile.id) !== view) return;
@@ -1348,11 +1359,319 @@ function unmountDiffTile(tile) {
   if (!view) return;
   view.seq++;
   view.threadSeq++;
+  if (diffHover.view === view) hideDiffHover();
+  detachView(tile.id);
   diffViews.delete(tile.id);
   focusSeq.delete(tile.id);
   if (focusedTileId === tile.id) focusedTileId = null;
   queueMicrotask(updatePlaceholder);
 }
+
+// ---------------------------------------------------------------------------------------------
+// Diff tiles' language server: hover and Ctrl/Cmd+click go to definition on the new side
+// (added and context rows), from the PR head's text (`lsp.js`'s views). See
+// `.plans/devc-web-lsp-diff-hover.md`.
+// ---------------------------------------------------------------------------------------------
+
+/** How long the mouse rests on a row's text before its hover is asked for: CodeMirror's. */
+const DIFF_HOVER_MS = 300;
+
+/** New-side text cells (added and context rows), to their rows. @type {WeakMap<Element, import('./lib/diff.js').DiffRow>} */
+const newSideRows = new WeakMap();
+
+/**
+ * The hover shown or on its way: its tile, its element, and where the mouse was. `seq` numbers
+ * the attempts, so only the latest one's answer lands.
+ *
+ * @type {{view: DiffView | null, el: HTMLElement | null, x: number, y: number, timer: number,
+ *   seq: number}}
+ */
+const diffHover = { view: null, el: null, x: 0, y: 0, timer: 0, seq: 0 };
+
+/**
+ * Marks a row's text cell as new-side when the row is in the PR head (added or context), for
+ * hover and go to definition.
+ *
+ * @param {HTMLElement} el @param {import('./lib/diff.js').DiffRow} row
+ */
+function markNewSide(el, row) {
+  if ((row.kind === 'add' || row.kind === 'context') && row.new !== null) {
+    el.dataset.new = String(row.new);
+    newSideRows.set(el, row);
+  }
+  return el;
+}
+
+/** A unified (or added file's) row's text cell. @param {import('./lib/diff.js').DiffRow} row */
+function newSideText(row, /** @type {(string | Node)[]} */ ...children) {
+  return markNewSide(h('span', { class: 'diff-text' }, ...children), row);
+}
+
+/**
+ * The LSP position under the mouse at (`x`, `y`) in a new-side cell, or null: its row's new line
+ * and the character's UTF-16 offset in the row's text (`newColumn` undoes `markedText`'s
+ * markers). Past the end of a line's text is nothing.
+ *
+ * @param {number} x @param {number} y
+ * @returns {{line: number, character: number} | null}
+ */
+function diffPositionAt(x, y) {
+  const d = /** @type {any} */ (document);
+  let node;
+  let offset;
+  if (d.caretPositionFromPoint) {
+    const p = d.caretPositionFromPoint(x, y);
+    if (!p) return null;
+    node = p.offsetNode;
+    offset = p.offset;
+  } else if (d.caretRangeFromPoint) {
+    const r = d.caretRangeFromPoint(x, y);
+    if (!r) return null;
+    node = r.startContainer;
+    offset = r.startOffset;
+  } else return null;
+  const at = node.nodeType === Node.TEXT_NODE ? node.parentElement : node;
+  const el = at?.closest?.('.diff-text[data-new]');
+  const row = el ? newSideRows.get(el) : undefined;
+  if (!el || !row || row.new === null) return null;
+  const all = document.createRange();
+  all.selectNodeContents(el);
+  const over = [...all.getClientRects()].some((r) =>
+    x >= r.left && x <= r.right && y >= r.top && y <= r.bottom
+  );
+  if (!over) return null;
+  const before = document.createRange();
+  before.setStart(el, 0);
+  before.setEnd(node, offset);
+  return {
+    line: row.new - 1,
+    character: newColumn(row.text, before.toString().length),
+  };
+}
+
+/**
+ * Gets a diff tile's file ready for a request on its session: attached, the server ready, and
+ * the PR head's text open as its view. `message` says why not, or is '' when nothing should be
+ * shown (no server for the file, its container not connected).
+ *
+ * @param {DiffView} view
+ * @returns {Promise<{ok: true} | {ok: false, message: string}>}
+ */
+async function diffLspReady(view) {
+  const ref = view.tile.diff;
+  const c = ref ? containerByFolder(ref.localFolder) : null;
+  if (!ref || !c || c.state !== 'connected' || !lspLanguageFor(ref.path)) {
+    return { ok: false, message: '' };
+  }
+  const key = view.tile.id;
+  const at = await attachView(key, {
+    localFolder: ref.localFolder,
+    root: ref.root,
+    path: ref.path,
+  }, c);
+  if (!at.ok) return { ok: false, message: at.error };
+  const st = viewStatus(key);
+  if (!st) return { ok: false, message: '' };
+  if (st.state === 'exited') {
+    return {
+      ok: false,
+      message: `${st.name} language server stopped${
+        st.detail ? `: ${st.detail}` : ''
+      }`,
+    };
+  }
+  if (st.state === 'starting') {
+    return {
+      ok: false,
+      message: st.detail ? `${st.name}: ${st.detail}` : `${st.name}: starting…`,
+    };
+  }
+  const sha = view.data?.pr?.headSha;
+  if (typeof sha !== 'string') return { ok: false, message: '' };
+  if (view.head?.sha !== sha) {
+    const path = view.data?.file?.path ?? ref.path;
+    view.head = {
+      sha,
+      got: call({
+        type: 'pr_file_at',
+        localFolder: ref.localFolder,
+        root: ref.root,
+        path,
+        sha,
+      }).then(
+        (r) =>
+          r?.available === true && typeof r.text === 'string'
+            ? { text: r.text, message: '' }
+            : { text: null, message: String(r?.message ?? 'unavailable') },
+        (e) => ({ text: null, message: String(e?.message ?? e) }),
+      ),
+    };
+  }
+  const head = await view.head.got;
+  if (head.text === null) {
+    return { ok: false, message: `No hover: ${head.message}` };
+  }
+  const opened = await openView(key, head.text);
+  if (opened.ok) return { ok: true };
+  if (opened.reason === 'edited') {
+    return {
+      ok: false,
+      message: `No hover: ${
+        basename(ref.path)
+      } has unsaved edits in an open tile.`,
+    };
+  }
+  return { ok: false, message: '' };
+}
+
+/** Hides the diff hover (and forgets one on its way). */
+function hideDiffHover() {
+  clearTimeout(diffHover.timer);
+  diffHover.seq++;
+  diffHover.el?.remove();
+  diffHover.el = null;
+  diffHover.view = null;
+}
+
+/**
+ * Shows a diff hover at (`x`, `y`): sanitized HTML, or a plain message. Below the line, or above
+ * it when there is no room below.
+ *
+ * @param {DiffView} view @param {number} x @param {number} y
+ * @param {{html?: string, message?: string}} what
+ */
+function showDiffHover(view, x, y, what) {
+  diffHover.el?.remove();
+  const el = h('div', { class: 'diff-hover' });
+  if (what.html) {
+    el.classList.add('cm-lsp-documentation');
+    el.innerHTML = what.html;
+  } else {
+    el.classList.add('diff-hover-note');
+    el.textContent = what.message ?? '';
+  }
+  el.addEventListener('mouseleave', (e) => {
+    const to = /** @type {Node | null} */ (e.relatedTarget);
+    if (!to || !view.body.contains(to)) hideDiffHover();
+  });
+  document.body.append(el);
+  const lineHeight = 20;
+  const below = window.innerHeight - (y + lineHeight);
+  el.style.left = `${
+    Math.max(4, Math.min(x - 8, window.innerWidth - el.offsetWidth - 4))
+  }px`;
+  if (below >= Math.min(el.offsetHeight, 160) || below >= y) {
+    el.style.top = `${y + lineHeight / 2 + 4}px`;
+  } else {
+    el.style.bottom = `${window.innerHeight - y + lineHeight / 2 + 4}px`;
+  }
+  diffHover.el = el;
+  diffHover.view = view;
+}
+
+/**
+ * The hover for the position under (`x`, `y`) in a diff tile, after the rest.
+ *
+ * @param {DiffView} view @param {number} x @param {number} y
+ */
+async function diffHoverAt(view, x, y) {
+  const pos = diffPositionAt(x, y);
+  if (!pos) return;
+  const seq = ++diffHover.seq;
+  const ready = await diffLspReady(view);
+  if (seq !== diffHover.seq || !diffViews.has(view.tile.id)) return;
+  if (!ready.ok) {
+    if (ready.message) showDiffHover(view, x, y, { message: ready.message });
+    return;
+  }
+  let result;
+  try {
+    result = await viewRequest(view.tile.id, 'textDocument/hover', pos);
+  } catch {
+    return; // a timeout or a restart: nothing to show
+  }
+  if (seq !== diffHover.seq || !diffViews.has(view.tile.id)) return;
+  const html = lspHoverHtml(/** @type {any} */ (result)?.contents);
+  if (html) showDiffHover(view, x, y, { html });
+}
+
+/**
+ * Ctrl/Cmd+click: the definition of what is under the mouse, opened in a file tile.
+ *
+ * @param {DiffView} view @param {number} x @param {number} y
+ */
+async function diffDefinitionAt(view, x, y) {
+  const pos = diffPositionAt(x, y);
+  if (!pos) return;
+  hideDiffHover();
+  // Not tied to the hover's `seq`: moving the mouse on after the click must not drop the jump.
+  const ready = await diffLspReady(view);
+  if (!diffViews.has(view.tile.id)) return;
+  if (!ready.ok) {
+    if (ready.message) showDiffHover(view, x, y, { message: ready.message });
+    return;
+  }
+  let result;
+  try {
+    result = await viewRequest(view.tile.id, 'textDocument/definition', pos);
+  } catch {
+    return;
+  }
+  if (!diffViews.has(view.tile.id)) return;
+  const loc = Array.isArray(result) ? result[0] : result;
+  if (loc && typeof loc.uri === 'string') {
+    await showViewLocation(view.tile.id, loc);
+  }
+}
+
+/** A diff tile's hover and go to definition events, on its (lasting) element. */
+function diffHoverEvents(/** @type {DiffView} */ view) {
+  const el = view.body;
+  el.addEventListener('mousemove', (e) => {
+    el.classList.toggle('lsp-jump', e.ctrlKey || e.metaKey);
+    if (
+      diffHover.el && diffHover.view === view &&
+      Math.hypot(e.clientX - diffHover.x, e.clientY - diffHover.y) <= 10
+    ) return;
+    hideDiffHover();
+    const target = /** @type {HTMLElement} */ (e.target);
+    if (!target.closest?.('.diff-text[data-new]')) return;
+    diffHover.x = e.clientX;
+    diffHover.y = e.clientY;
+    diffHover.view = view;
+    diffHover.timer = setTimeout(
+      () => void diffHoverAt(view, diffHover.x, diffHover.y),
+      DIFF_HOVER_MS,
+    );
+  });
+  el.addEventListener('mouseleave', (e) => {
+    el.classList.remove('lsp-jump');
+    const to = /** @type {Node | null} */ (e.relatedTarget);
+    if (!to || !diffHover.el?.contains(to)) hideDiffHover();
+  });
+  el.addEventListener('scroll', () => {
+    if (diffHover.view === view) hideDiffHover();
+  }, true);
+  el.addEventListener('click', (e) => {
+    if (!(e.ctrlKey || e.metaKey) || e.button !== 0) return;
+    const target = /** @type {HTMLElement} */ (e.target);
+    if (!target.closest?.('.diff-text[data-new]')) return;
+    e.preventDefault();
+    void diffDefinitionAt(view, e.clientX, e.clientY);
+  });
+}
+
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && diffHover.el) hideDiffHover();
+  if (e.key === 'Control' || e.key === 'Meta') {
+    diffHover.view?.body.classList.add('lsp-jump');
+  }
+});
+document.addEventListener('keyup', (e) => {
+  if (e.key === 'Control' || e.key === 'Meta') {
+    for (const v of diffViews.values()) v.body.classList.remove('lsp-jump');
+  }
+});
 
 /**
  * Reads (or re-reads) a diff tile's file (`pr_diff`), then its threads. What it shows stays up
@@ -2091,7 +2410,9 @@ function diffContent(view) {
               ...rowAttrs([`${hi}:${ri}`]),
             },
             numCell(row[single], single === 'old' ? 'LEFT' : 'RIGHT', hi),
-            h('span', { class: 'diff-text' }, ...rowText(shown, row)),
+            single === 'new'
+              ? newSideText(row, ...rowText(shown, row))
+              : h('span', { class: 'diff-text' }, ...rowText(shown, row)),
           ),
         );
         threadsAt(`${hi}:${ri}`);
@@ -2100,13 +2421,15 @@ function diffContent(view) {
     }
     if (diffSplit) {
       for (const sr of splitRows(hunk)) {
-        /** @param {import('./lib/diff.js').DiffRow | null} row */
-        const side = (row) =>
-          h(
+        /** @param {import('./lib/diff.js').DiffRow | null} row @param {boolean} [right] */
+        const side = (row, right = false) => {
+          const el = h(
             'span',
             { class: 'diff-text', 'data-kind': row?.kind ?? 'empty' },
             ...(row ? rowText(shown, row) : []),
           );
+          return right && row ? markNewSide(el, row) : el;
+        };
         table.append(
           h(
             'div',
@@ -2120,7 +2443,7 @@ function diffContent(view) {
             numCell(sr.left?.old, 'LEFT', hi, sr.left?.kind ?? 'empty'),
             side(sr.left),
             numCell(sr.right?.new, 'RIGHT', hi, sr.right?.kind ?? 'empty'),
-            side(sr.right),
+            side(sr.right, true),
           ),
         );
         if (sr.rightIndex !== null) threadsAt(`${hi}:${sr.rightIndex}`);
@@ -2141,7 +2464,7 @@ function diffContent(view) {
           },
           numCell(row.old, 'LEFT', hi),
           numCell(row.new, 'RIGHT', hi),
-          h('span', { class: 'diff-text' }, ...rowText(shown, row)),
+          newSideText(row, ...rowText(shown, row)),
         ),
       );
       threadsAt(`${hi}:${ri}`);

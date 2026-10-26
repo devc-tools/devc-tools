@@ -65,3 +65,6 @@ export {
   signatureHelp,
   Workspace,
 } from 'npm:@codemirror/lsp-client@6.3.0';
+// lsp-client's own Markdown renderer (the version it resolves, so the bundle holds one copy), for
+// the diff tile's hover, which has no editor to render through.
+export { marked } from 'npm:marked@15.0.12';

@@ -1065,3 +1065,217 @@ Deno.test('diagnostics: a report for a version since changed is dropped, pushed 
     ['new'],
   );
 });
+
+// ---------------------------------------------------------------------------------------------
+// View documents (diff tiles): devc/openView, devc/closeView, devc/viewStale
+// ---------------------------------------------------------------------------------------------
+
+function openView(
+  t: ReturnType<typeof setup>,
+  peer: FakePeer,
+  id: number,
+  text: string,
+  uri = URI,
+) {
+  t.session.fromPeer(peer, {
+    jsonrpc: '2.0',
+    id,
+    method: 'devc/openView',
+    params: { textDocument: { uri, languageId: 'typescript', text } },
+  });
+}
+
+function closeView(t: ReturnType<typeof setup>, peer: FakePeer, uri = URI) {
+  t.session.fromPeer(peer, {
+    jsonrpc: '2.0',
+    method: 'devc/closeView',
+    params: { textDocument: { uri } },
+  });
+}
+
+function change(t: ReturnType<typeof setup>, peer: FakePeer, text: string) {
+  t.session.fromPeer(peer, {
+    jsonrpc: '2.0',
+    method: 'textDocument/didChange',
+    params: { textDocument: { uri: URI }, contentChanges: [{ text }] },
+  });
+}
+
+const stale = (m: Msg) => m.method === 'devc/viewStale';
+
+Deno.test('view: openView on a closed URI opens it with the view text, answered by the host', () => {
+  const t = setup();
+  const peer = new FakePeer();
+  init(t, peer);
+  t.port.take();
+  peer.take();
+  openView(t, peer, 5, 'head');
+  const sent = t.port.take();
+  assertEquals(sent.length, 1);
+  assertEquals(sent[0].method, 'textDocument/didOpen');
+  assertEquals((sent[0].params as Msg).textDocument, {
+    uri: URI,
+    languageId: 'typescript',
+    version: 1,
+    text: 'head',
+  });
+  assert(!sent.some((m) => m.method === 'devc/openView'));
+  assertEquals(peer.take(), [{ jsonrpc: '2.0', id: 5, result: { ok: true } }]);
+});
+
+Deno.test('view: editor open with equal text → ok, nothing to the server', () => {
+  const t = setup();
+  const peer = new FakePeer();
+  init(t, peer);
+  open(t, peer, 'same');
+  t.port.take();
+  peer.take();
+  openView(t, peer, 2, 'same');
+  assertEquals(t.port.take(), []);
+  assertEquals(peer.take(), [{ jsonrpc: '2.0', id: 2, result: { ok: true } }]);
+});
+
+Deno.test('view: editor open with different text → edited, nothing to the server', () => {
+  const t = setup();
+  const editor = new FakePeer();
+  const viewer = new FakePeer();
+  init(t, editor);
+  init(t, viewer, 9);
+  open(t, editor, 'local edits');
+  t.port.take();
+  viewer.take();
+  openView(t, viewer, 3, 'head');
+  assertEquals(t.port.take(), []);
+  assertEquals(viewer.take(), [{
+    jsonrpc: '2.0',
+    id: 3,
+    result: { ok: false, reason: 'edited' },
+  }]);
+});
+
+Deno.test('view: an editor didOpen with different text wins, and the view is told it is stale', () => {
+  const t = setup();
+  const viewer = new FakePeer();
+  const editor = new FakePeer();
+  init(t, viewer);
+  init(t, editor, 4);
+  openView(t, viewer, 2, 'head');
+  t.port.take();
+  viewer.take();
+  open(t, editor, 'disk');
+  const [ch] = t.port.take().filter((m) =>
+    m.method === 'textDocument/didChange'
+  );
+  assertEquals((ch.params as Msg).contentChanges, [{ text: 'disk' }]);
+  assertEquals(viewer.take().filter(stale), [{
+    jsonrpc: '2.0',
+    method: 'devc/viewStale',
+    params: { textDocument: { uri: URI } },
+  }]);
+});
+
+Deno.test('view: an editor didChange makes the view stale', () => {
+  const t = setup();
+  const peer = new FakePeer();
+  init(t, peer);
+  open(t, peer, 'same');
+  openView(t, peer, 2, 'same');
+  peer.take();
+  change(t, peer, 'typed');
+  assertEquals(peer.take().filter(stale).length, 1);
+  // Stale views are let go: a second change tells nobody again.
+  change(t, peer, 'typed more');
+  assertEquals(peer.take().filter(stale), []);
+});
+
+Deno.test('view: one peer as editor and view; closeView keeps it open, the editor close closes it', () => {
+  const t = setup();
+  const peer = new FakePeer();
+  init(t, peer);
+  open(t, peer, 'same');
+  openView(t, peer, 2, 'same');
+  t.port.take();
+  closeView(t, peer);
+  assertEquals(t.port.take(), []);
+  t.session.fromPeer(peer, {
+    jsonrpc: '2.0',
+    method: 'textDocument/didClose',
+    params: { textDocument: { uri: URI } },
+  });
+  assertEquals(t.port.take().map((m) => m.method), ['textDocument/didClose']);
+});
+
+Deno.test('view: one peer, editor closes first, then closeView closes it', () => {
+  const t = setup();
+  const peer = new FakePeer();
+  init(t, peer);
+  open(t, peer, 'same');
+  openView(t, peer, 2, 'same');
+  t.port.take();
+  t.session.fromPeer(peer, {
+    jsonrpc: '2.0',
+    method: 'textDocument/didClose',
+    params: { textDocument: { uri: URI } },
+  });
+  assertEquals(t.port.take(), []);
+  closeView(t, peer);
+  assertEquals(t.port.take().map((m) => m.method), ['textDocument/didClose']);
+});
+
+Deno.test('view: a second view with new text and no editors replaces it; the first is stale', () => {
+  const t = setup();
+  const a = new FakePeer();
+  const b = new FakePeer();
+  init(t, a);
+  init(t, b, 3);
+  openView(t, a, 2, 'old head');
+  t.port.take();
+  a.take();
+  b.take();
+  openView(t, b, 4, 'new head');
+  const sent = t.port.take();
+  assertEquals(sent.map((m) => m.method), ['textDocument/didChange']);
+  assertEquals((sent[0].params as Msg).contentChanges, [{ text: 'new head' }]);
+  assertEquals(a.take().filter(stale).length, 1);
+  assertEquals(b.take(), [{ jsonrpc: '2.0', id: 4, result: { ok: true } }]);
+});
+
+Deno.test('view: a view-only document gets no diagnostics and no pulls', () => {
+  const t = setup();
+  const peer = new FakePeer();
+  init(t, peer, 1, {
+    textDocumentSync: 1,
+    diagnosticProvider: { interFileDependencies: true },
+  });
+  openView(t, peer, 2, 'head');
+  t.port.take();
+  peer.take();
+  t.clock.advance(PULL_DEBOUNCE_MS * 4);
+  assertEquals(
+    t.port.take().filter((m) => m.method === 'textDocument/diagnostic'),
+    [],
+  );
+  t.port.emit({
+    method: 'textDocument/publishDiagnostics',
+    params: { uri: URI, diagnostics: [{ message: 'x' }] },
+  });
+  assertEquals(peer.take(), []);
+  // workspace/diagnostic/refresh does not pull it either.
+  t.port.emit({ id: 99, method: 'workspace/diagnostic/refresh' });
+  assertEquals(
+    t.port.take().filter((m) => m.method === 'textDocument/diagnostic'),
+    [],
+  );
+});
+
+Deno.test('view: detaching the last holder of a view closes it', () => {
+  const t = setup();
+  const peer = new FakePeer();
+  const other = new FakePeer();
+  init(t, peer);
+  init(t, other, 2);
+  openView(t, peer, 3, 'head');
+  t.port.take();
+  t.session.detach(peer);
+  assertEquals(t.port.take().map((m) => m.method), ['textDocument/didClose']);
+});

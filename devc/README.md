@@ -477,7 +477,12 @@ is published from any container: the host server finds devcontainers with
   a change restarts the servers it affects; **Reset to detected** removes the
   project's entry. A server stops 30 minutes after its last tile closes
   (`DEVC_WEB_LSP_IDLE_MS`, read when devc web starts, overrides that in
-  milliseconds), and when its container stops. See
+  milliseconds), and when its container stops. A pull request's diff tile
+  also gets hover and **Ctrl/Cmd+click** go to definition on its added and
+  unchanged lines, from the same server, given the file as it is at the PR's
+  head (so the diff's lines match whatever the checkout holds); deleted lines
+  get nothing, and there is no hover while an open tile holds unsaved edits to
+  the file. See
   [Language server launchers](#language-server-launchers) for the contract a
   launcher implements.
 - **Asking an agent about a file:** a file tile or a pull request's diff tile
@@ -621,7 +626,9 @@ is published from any container: the host server finds devcontainers with
   files**) leaves out the files marked Viewed and the folders left holding none
   (a file changed since it was viewed stays), remembered per browser; a PR with
   every file viewed then shows `All n files viewed`. A diff tile's header has the file's own
-  **Viewed** checkbox, kept in step with the tree's.
+  **Viewed** checkbox, kept in step with the tree's. In a container with a
+  language server for the file, its added and unchanged lines have hover and
+  **Ctrl/Cmd+click** go to definition (see **Language servers** above).
   - **Changes since viewed.** GitHub records only whether a file is Viewed
     (or changed since), never the commit it was viewed at, so devc web keeps
     its own record: every mark it makes is added, with the PR's head at that

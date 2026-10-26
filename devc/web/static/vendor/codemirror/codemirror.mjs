@@ -39609,6 +39609,7 @@ export {
   keymap,
   lineNumbers,
   markdown,
+  marked,
   python,
   rust,
   search,

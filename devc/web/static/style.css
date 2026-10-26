@@ -3174,3 +3174,42 @@ button.primary.danger {
 .composer-gone[hidden] {
   display: none;
 }
+
+/* A diff tile's language server hover (`tiles.js`): like the file tile's CodeMirror hover. */
+.diff-hover {
+  position: fixed;
+  z-index: 1000;
+  max-width: min(60ch, 90vw);
+  max-height: 40vh;
+  overflow: auto;
+  padding: 4px 8px;
+  background: var(--panel);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  box-shadow: 0 4px 12px #0006;
+  font-size: calc(var(--font-size) - 1px);
+}
+
+.diff-hover pre,
+.diff-hover code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  white-space: pre-wrap;
+}
+
+.diff-hover pre {
+  margin: 4px 0;
+}
+
+.diff-hover a {
+  color: var(--accent);
+}
+
+.diff-hover-note {
+  color: var(--muted);
+}
+
+/* Ctrl/Cmd held over a diff tile: new-side text is a go to definition link. */
+.diff-view.lsp-jump .diff-text[data-new] {
+  cursor: pointer;
+}

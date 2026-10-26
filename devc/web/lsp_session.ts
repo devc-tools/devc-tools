@@ -3,7 +3,9 @@
 // pages' lifecycle messages itself (one `initialize` for the server, its result cached for every
 // page), merges their documents (one open per URI, host-numbered versions), remaps request ids
 // so two pages' ids never collide, answers the server's requests to the client, turns pulled
-// diagnostics into pushed ones, and reports progress as `lsp_status`. Pure: the server process is
+// diagnostics into pushed ones, and reports progress as `lsp_status`. Diff tiles open **view
+// documents** (`devc/openView`, `devc/closeView`), which never replace an editor's text or close
+// its document (see `.plans/devc-web-lsp-diff-hover.md`). Pure: the server process is
 // a {@link ServerPort} and time is an injected {@link Clock}. See `.plans/devc-web-lsp-core.md`
 // § Host session behavior.
 
@@ -93,13 +95,21 @@ type Msg = Record<string, unknown>;
 type Id = number | string;
 
 interface PeerState {
+  /** The documents it has open as an editor. */
   uris: Set<string>;
+  /** The documents it has open as a view (`devc/openView`). */
+  views: Set<string>;
 }
 
 interface Doc {
+  /** Editors: `didOpen`/`didClose`. Only they get diagnostics and pulls. */
   openers: Set<Peer>;
+  /** Views: `devc/openView`/`devc/closeView`, each holding {@link text} as it opened it. */
+  viewers: Set<Peer>;
   /** The host's own version counter: the pages' numbers are ignored. */
   version: number;
+  /** The document's whole text, as the server has it (every change is a full text). */
+  text: string;
 }
 
 /**
@@ -287,7 +297,10 @@ export class LspSession {
     this.#resultIds.clear();
     this.#docs.clear();
     this.#diagnostics.clear();
-    for (const s of this.#peers.values()) s.uris.clear();
+    for (const s of this.#peers.values()) {
+      s.uris.clear();
+      s.views.clear();
+    }
     // Page requests the old server will never answer.
     for (const [, { peer, pageId }] of this.#forwarded) {
       this.#toPeer(peer, {
@@ -369,7 +382,9 @@ export class LspSession {
   /** Attaches a connection (again: a no-op). Cancels a pending idle stop. */
   attach(peer: Peer): void {
     this.#cancelIdle();
-    if (!this.#peers.has(peer)) this.#peers.set(peer, { uris: new Set() });
+    if (!this.#peers.has(peer)) {
+      this.#peers.set(peer, { uris: new Set(), views: new Set() });
+    }
   }
 
   /**
@@ -380,6 +395,7 @@ export class LspSession {
     const s = this.#peers.get(peer);
     if (!s) return;
     for (const uri of [...s.uris]) this.#close(peer, uri);
+    for (const uri of [...s.views]) this.#closeView(peer, uri);
     this.#peers.delete(peer);
     this.#sentStatus.delete(peer);
     this.#byPage.delete(peer);
@@ -505,9 +521,24 @@ export class LspSession {
       this.#open(peer, uri, td);
       return;
     }
+    if (method === 'devc/openView' && hasId && uri) {
+      this.#openView(peer, msg.id as Id, uri, td);
+      return;
+    }
+    if (method === 'devc/closeView' && uri) {
+      this.#closeView(peer, uri);
+      return;
+    }
     if (method === 'textDocument/didChange' && uri) {
       const doc = this.#docs.get(uri);
       if (!doc) return;
+      const changes = Array.isArray(params.contentChanges)
+        ? params.contentChanges
+        : [];
+      const last = changes[changes.length - 1];
+      if (isObject(last) && typeof last.text === 'string') {
+        this.#setText(doc, uri, last.text);
+      }
       doc.version++;
       this.#toServer({
         jsonrpc: '2.0',
@@ -547,13 +578,20 @@ export class LspSession {
     const text = typeof td.text === 'string' ? td.text : '';
     const doc = this.#docs.get(uri);
     if (!doc) {
-      this.#docs.set(uri, { openers: new Set([peer]), version: 1 });
+      this.#docs.set(uri, {
+        openers: new Set([peer]),
+        viewers: new Set(),
+        version: 1,
+        text,
+      });
       this.#toServer({
         jsonrpc: '2.0',
         method: 'textDocument/didOpen',
         params: { textDocument: { ...td, uri, version: 1 } },
       });
     } else {
+      // An editor always wins: its text replaces whatever views hold.
+      this.#setText(doc, uri, text);
       doc.openers.add(peer);
       doc.version++;
       this.#toServer({
@@ -573,7 +611,91 @@ export class LspSession {
   #close(peer: Peer, uri: string) {
     this.#peers.get(peer)?.uris.delete(uri);
     const doc = this.#docs.get(uri);
-    if (!doc || !doc.openers.delete(peer) || doc.openers.size > 0) return;
+    if (!doc || !doc.openers.delete(peer)) return;
+    this.#closeIfUnheld(doc, uri);
+  }
+
+  /**
+   * `devc/openView`: opens `uri` with a diff tile's text, answered here with `{ok}`. A document
+   * with editors is never changed: unequal text is refused (`edited`). One held only by views
+   * takes the new text, and the other views are told `devc/viewStale`.
+   */
+  #openView(peer: Peer, pageId: Id, uri: string, td: Msg) {
+    const text = typeof td.text === 'string' ? td.text : '';
+    const answer = (result: Msg) =>
+      this.#toPeer(peer, { jsonrpc: '2.0', id: pageId, result });
+    const doc = this.#docs.get(uri);
+    if (!doc) {
+      this.#docs.set(uri, {
+        openers: new Set(),
+        viewers: new Set([peer]),
+        version: 1,
+        text,
+      });
+      this.#toServer({
+        jsonrpc: '2.0',
+        method: 'textDocument/didOpen',
+        params: {
+          textDocument: {
+            uri,
+            languageId: typeof td.languageId === 'string' ? td.languageId : '',
+            version: 1,
+            text,
+          },
+        },
+      });
+    } else if (doc.text !== text) {
+      if (doc.openers.size > 0) {
+        answer({ ok: false, reason: 'edited' });
+        return;
+      }
+      doc.viewers.delete(peer);
+      this.#setText(doc, uri, text);
+      doc.version++;
+      this.#toServer({
+        jsonrpc: '2.0',
+        method: 'textDocument/didChange',
+        params: {
+          textDocument: { uri, version: doc.version },
+          contentChanges: [{ text }],
+        },
+      });
+      doc.viewers.add(peer);
+    } else {
+      doc.viewers.add(peer);
+    }
+    this.#peers.get(peer)?.views.add(uri);
+    answer({ ok: true });
+  }
+
+  /** `devc/closeView`: the server's `didClose` only once no editor or view holds `uri`. */
+  #closeView(peer: Peer, uri: string) {
+    this.#peers.get(peer)?.views.delete(uri);
+    const doc = this.#docs.get(uri);
+    if (!doc || !doc.viewers.delete(peer)) return;
+    this.#closeIfUnheld(doc, uri);
+  }
+
+  /**
+   * A document's text becomes `text`: if that changes it, every view holding the old text is
+   * told `devc/viewStale` and let go.
+   */
+  #setText(doc: Doc, uri: string, text: string) {
+    if (doc.text === text) return;
+    doc.text = text;
+    for (const viewer of doc.viewers) {
+      this.#peers.get(viewer)?.views.delete(uri);
+      this.#toPeer(viewer, {
+        jsonrpc: '2.0',
+        method: 'devc/viewStale',
+        params: { textDocument: { uri } },
+      });
+    }
+    doc.viewers.clear();
+  }
+
+  #closeIfUnheld(doc: Doc, uri: string) {
+    if (doc.openers.size > 0 || doc.viewers.size > 0) return;
     this.#docs.delete(uri);
     this.#diagnostics.delete(uri);
     this.#resultIds.delete(uri);
@@ -778,7 +900,7 @@ export class LspSession {
   }
 
   #schedulePull(uri: string) {
-    if (!this.#pulls()) return;
+    if (!this.#pulls() || !this.#docs.get(uri)?.openers.size) return;
     const t = this.#pullTimers.get(uri);
     if (t !== undefined) this.#clock.clearTimeout(t);
     this.#pullTimers.set(
@@ -792,7 +914,8 @@ export class LspSession {
 
   #pull(uri: string) {
     const doc = this.#docs.get(uri);
-    if (!this.#pulls() || !doc) return;
+    // A document only views hold is never pulled: its diagnostics go nowhere.
+    if (!this.#pulls() || !doc || doc.openers.size === 0) return;
     const version = doc.version;
     const previousResultId = this.#resultIds.get(uri);
     this.#hostRequest('textDocument/diagnostic', {

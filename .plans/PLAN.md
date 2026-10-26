@@ -2546,4 +2546,4 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
 | devc web language servers — TypeScript: `typescript-lsp` Feature (deno lsp / TS 7 / vtsls by repo)                 | [devc-web-lsp-typescript](devc-web-lsp-typescript.md)                              | in progress |
 | devc web language servers — Python: `python-lsp` Feature (basedpyright, nearest-project root)                      | [devc-web-lsp-python](devc-web-lsp-python.md)                                      |             |
 | devc web language servers — Java: `java-lsp` Feature (JDT LS, no repo writes, Gradle build/reload actions)         | [devc-web-lsp-java](devc-web-lsp-java.md)                                          |             |
-| devc web language servers — diff hover: hover + go to definition in PR diff tiles (view documents)                 | [devc-web-lsp-diff-hover](devc-web-lsp-diff-hover.md)                              |             |
+| devc web language servers — diff hover: hover + go to definition in PR diff tiles (view documents)                 | [devc-web-lsp-diff-hover](devc-web-lsp-diff-hover.md)                              | in progress |

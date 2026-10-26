@@ -3,7 +3,9 @@
 // (`viewer.js`'s `createLanguageClient`) over a transport on the page's socket (`lsp_send` out,
 // `lsp` in), each session's `lsp_status`, and the client's jumps to other files (`displayFile`),
 // which open file tiles. `tiles.js` decides when a tile wants a server and shows the status line;
-// this module keeps the rest. See `.plans/devc-web-lsp-core.md` § Browser side.
+// this module keeps the rest. See `.plans/devc-web-lsp-core.md` § Browser side. Diff tiles use the
+// same sessions for hover and go to definition through **views** (`devc/openView`: the file opened
+// with the PR head's text), never an editor; see `.plans/devc-web-lsp-diff-hover.md`.
 
 import { createLanguageClient } from './viewer.js';
 import { LSP_LANGUAGE_NAMES, lspLanguageFor } from './lib/languages.js';
@@ -51,6 +53,23 @@ import { call, onServerMessage, send } from './client.js';
 
 /** @type {Map<string, LspTile>} by tile id */
 const tiles = new Map();
+/**
+ * A diff tile on a session: its file, what its attach gave, and the text the host holds for its
+ * view (`opened`, null until `devc/openView` succeeded, and again after a restart or a
+ * `devc/viewStale`). Its key is in its record's `keys`, like a tile's.
+ *
+ * @typedef {object} LspView
+ * @property {string} key
+ * @property {FileRef} file
+ * @property {string} container
+ * @property {string | null} session
+ * @property {string} uri
+ * @property {string} languageId
+ * @property {string | null} opened
+ * @property {Promise<{ok: boolean, error: string}> | null} attaching
+ */
+/** @type {Map<string, LspView>} by diff tile id */
+const views = new Map();
 /** @type {Map<string, LspRecord>} by session id */
 const records = new Map();
 /** `displayFile`'s waits for a tile on a URI to attach. @type {Map<string, Set<(v: any) => void>>} */
@@ -315,6 +334,187 @@ function dropRecord(/** @type {LspRecord} */ r) {
 }
 
 // ---------------------------------------------------------------------------------------------
+// Diff tiles' views
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * Puts diff tile `key` on its file's session (`lsp_attach`, as a file tile of the file would),
+ * once: a repeat while attached, or while attaching, resolves as that one did. `error` is '' for
+ * a file no server takes, a container with no launcher or not connected (nothing is shown), else
+ * the failed attach's message.
+ *
+ * @param {string} key @param {FileRef} file @param {{id: string, localFolder: string}} container
+ * @returns {Promise<{ok: boolean, error: string}>}
+ */
+export function attachView(key, file, container) {
+  let v = views.get(key);
+  if (v && v.session && records.has(v.session)) {
+    return Promise.resolve({ ok: true, error: '' });
+  }
+  if (v?.attaching) return v.attaching;
+  if (!v) {
+    v = {
+      key,
+      file,
+      container: container.id,
+      session: null,
+      uri: '',
+      languageId: '',
+      opened: null,
+      attaching: null,
+    };
+    views.set(key, v);
+  }
+  const view = v;
+  view.attaching = (async () => {
+    let result;
+    try {
+      result = await call({
+        type: 'lsp_attach',
+        container: view.container,
+        root: file.root,
+        path: file.path,
+      });
+    } catch (e) {
+      const quiet = ['unsupported', 'no_language_server', 'not_connected'];
+      return {
+        ok: false,
+        error: quiet.includes(e?.code) ? '' : String(e?.message ?? e),
+      };
+    } finally {
+      view.attaching = null;
+    }
+    if (views.get(key) !== view) return { ok: false, error: '' };
+    const session = String(result?.session ?? '');
+    let r = records.get(session);
+    if (!r) {
+      r = newRecord(
+        session,
+        view.container,
+        container.localFolder,
+        file.path,
+        result,
+      );
+      records.set(session, r);
+    } else {
+      r.state = result.state;
+      r.detail = typeof result.detail === 'string' ? result.detail : '';
+    }
+    r.keys.add(key);
+    view.session = session;
+    view.uri = String(result.uri ?? '');
+    view.languageId = String(result.languageId ?? '');
+    return { ok: true, error: '' };
+  })();
+  return view.attaching;
+}
+
+/**
+ * Diff tile `key`'s session as its hover shows it: the language's name, and the session's state
+ * and detail. Null when it isn't on one.
+ *
+ * @param {string} key
+ * @returns {{name: string, state: 'starting' | 'ready' | 'exited', detail: string} | null}
+ */
+export function viewStatus(key) {
+  const v = views.get(key);
+  const r = v?.session ? records.get(v.session) : undefined;
+  if (!v || !r) return null;
+  return { name: languageName(v.file.path), state: r.state, detail: r.detail };
+}
+
+/**
+ * Makes sure the host holds `text` (the PR head's) for diff tile `key`'s view: `devc/openView`,
+ * unless it already does. `{ok: false, reason: 'edited'}` while an editor holds other text.
+ *
+ * @param {string} key @param {string} text
+ * @returns {Promise<{ok: boolean, reason?: string}>}
+ */
+export async function openView(key, text) {
+  const v = views.get(key);
+  const r = v?.session ? records.get(v.session) : undefined;
+  if (!v || !r) return { ok: false, reason: 'detached' };
+  if (v.opened === text) return { ok: true };
+  const session = v.session;
+  /** @type {any} */
+  const answer = await r.lc.client.request('devc/openView', {
+    textDocument: { uri: v.uri, languageId: v.languageId, text },
+  });
+  if (views.get(key) !== v || v.session !== session) {
+    return { ok: false, reason: 'detached' };
+  }
+  if (answer?.ok === true) {
+    v.opened = text;
+    return { ok: true };
+  }
+  return { ok: false, reason: String(answer?.reason ?? 'refused') };
+}
+
+/**
+ * A request about diff tile `key`'s view at `position` (`textDocument/hover`,
+ * `textDocument/definition`): its result.
+ *
+ * @param {string} key @param {string} method @param {{line: number, character: number}} position
+ */
+export function viewRequest(key, method, position) {
+  const v = views.get(key);
+  const r = v?.session ? records.get(v.session) : undefined;
+  if (!v || !r) return Promise.resolve(null);
+  return r.lc.client.request(method, {
+    textDocument: { uri: v.uri },
+    position,
+  });
+}
+
+/**
+ * Opens a definition found from diff tile `key` the way a file tile's F12 does: its file in a
+ * tile, the cursor at `location.range.start`.
+ *
+ * @param {string} key @param {{uri: string, range: {start: {line: number, character: number}}}} location
+ */
+export async function showViewLocation(key, location) {
+  const v = views.get(key);
+  const r = v?.session ? records.get(v.session) : undefined;
+  if (!v || !r) return;
+  const ev = /** @type {any} */ (await displayFile(r, location.uri));
+  if (!ev) return;
+  const doc = ev.state.doc;
+  const start = location.range?.start ?? { line: 0, character: 0 };
+  const line = doc.line(Math.min(Math.max(start.line + 1, 1), doc.lines));
+  const anchor = Math.min(line.from + Math.max(start.character, 0), line.to);
+  ev.dispatch({ selection: { anchor }, scrollIntoView: true });
+  ev.focus();
+}
+
+/** Diff tile `key` lets its session go: `devc/closeView` if its view is open. */
+export function detachView(/** @type {string} */ key) {
+  const v = views.get(key);
+  if (!v) return;
+  views.delete(key);
+  releaseView(v);
+}
+
+/**
+ * A view stops using its session. The last user's `lsp_detach` closes its view on the host, so
+ * `devc/closeView` is only sent while the record stays (the client's queued send would otherwise
+ * find it disconnected).
+ */
+function releaseView(/** @type {LspView} */ v) {
+  const r = v.session ? records.get(v.session) : undefined;
+  const opened = v.opened !== null;
+  v.session = null;
+  v.opened = null;
+  if (!r) return;
+  r.keys.delete(v.key);
+  if (r.keys.size === 0) dropRecord(r);
+  else if (opened) {
+    r.lc.client.notification('devc/closeView', {
+      textDocument: { uri: v.uri },
+    });
+  }
+}
+
+// ---------------------------------------------------------------------------------------------
 // Server messages
 // ---------------------------------------------------------------------------------------------
 
@@ -322,6 +522,13 @@ function dropRecord(/** @type {LspRecord} */ r) {
 function onLspMessage(msg) {
   const r = records.get(msg.session);
   if (!r || typeof msg.message !== 'object' || msg.message === null) return;
+  if (msg.message.method === 'devc/viewStale') {
+    const uri = msg.message.params?.textDocument?.uri;
+    for (const v of views.values()) {
+      if (v.session === msg.session && v.uri === uri) v.opened = null;
+    }
+    return;
+  }
   const text = JSON.stringify(msg.message);
   for (const fn of [...r.subscribers]) fn(text);
 }
@@ -338,6 +545,19 @@ function onLspStatus(msg) {
   r.state = msg.state;
   r.detail = typeof msg.detail === 'string' ? msg.detail : '';
   const keys = [...r.keys];
+  if (r.state === 'exited' || (r.state === 'starting' && prev !== 'starting')) {
+    // The server's documents are gone: views open again on their next use.
+    for (const key of keys) {
+      const v = views.get(key);
+      if (v) v.opened = null;
+    }
+  }
+  if (r.state === 'exited' && r.detail === 'settings changed') {
+    for (const key of keys) {
+      const v = views.get(key);
+      if (v) releaseView(v);
+    }
+  }
   if (r.state === 'exited') {
     for (const key of keys) {
       const t = tiles.get(key);
@@ -372,6 +592,11 @@ function onLspStatus(msg) {
 function onHello() {
   for (const r of records.values()) r.lc.client.disconnect();
   records.clear();
+  for (const v of views.values()) {
+    v.session = null;
+    v.opened = null;
+    v.attaching = null;
+  }
   for (const t of tiles.values()) {
     t.viewer.detachLanguage();
     t.session = null;
@@ -383,7 +608,9 @@ function onHello() {
 onServerMessage((msg) => {
   if (msg.type === 'lsp') onLspMessage(msg);
   else if (msg.type === 'lsp_status') onLspStatus(msg);
-  else if (msg.type === 'hello' && tiles.size > 0) onHello();
+  else if (msg.type === 'hello' && (tiles.size > 0 || views.size > 0)) {
+    onHello();
+  }
 });
 
 // ---------------------------------------------------------------------------------------------

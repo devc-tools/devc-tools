@@ -2,23 +2,23 @@
 
 ## Checklist
 
-- [ ] Host: view documents in `devc/web/lsp_session.ts`, per [Host: view documents](#host-view-documents)
-- [ ] Vendor: `marked` exported from `scripts/codemirror-entry.js`, bundle rebuilt, `VERSIONS`
+- [x] Host: view documents in `devc/web/lsp_session.ts`, per [Host: view documents](#host-view-documents)
+- [x] Vendor: `marked` exported from `scripts/codemirror-entry.js`, bundle rebuilt, `VERSIONS`
       updated, per [Hover rendering](#hover-rendering)
-- [ ] Pure helper `newColumn` in `devc/web/static/lib/diff.js`, per [Positions](#positions)
-- [ ] Page: diff tiles share the page's session records (`devc/web/static/lsp.js`), per
+- [x] Pure helper `newColumn` in `devc/web/static/lib/diff.js`, per [Positions](#positions)
+- [x] Page: diff tiles share the page's session records (`devc/web/static/lsp.js`), per
       [Page: sessions](#page-sessions)
-- [ ] Page: hover in diff tiles (`devc/web/static/tiles.js`, `style.css`), per
+- [x] Page: hover in diff tiles (`devc/web/static/tiles.js`, `style.css`), per
       [Page: hover](#page-hover)
-- [ ] Page: Ctrl/Cmd+click go to definition from diff tiles, per
+- [x] Page: Ctrl/Cmd+click go to definition from diff tiles, per
       [Page: go to definition](#page-go-to-definition)
-- [ ] Tests: `devc/tests/web_lsp_session_test.ts` and `devc/tests/web_diff_test.ts`, per
+- [x] Tests: `devc/tests/web_lsp_session_test.ts` and `devc/tests/web_diff_test.ts`, per
       [Tests](#tests)
-- [ ] `devc/README.md`: the **Language servers** bullet and the **Pull requests** section, per
+- [x] `devc/README.md`: the **Language servers** bullet and the **Pull requests** section, per
       [Docs](#docs)
-- [ ] Run every [Validation](#validation) item an agent can run; hand the **(human)** items to
+- [x] Run every [Validation](#validation) item an agent can run; hand the **(human)** items to
       the user
-- [ ] `deno fmt` every touched file
+- [x] `deno fmt` every touched file
 
 **Depends on [devc-web-lsp-core](devc-web-lsp-core.md)** (its code is on main; its manual items
 may still be open). It works for every language server, so it needs no language plan, but the
@@ -226,13 +226,13 @@ is held.
 
 ## Validation
 
-- [ ] `cd devc && deno task check` passes
-- [ ] `cd devc && deno task test` passes, including the 10 session cases and 4 `newColumn` cases
+- [x] `cd devc && deno task check` passes
+- [x] `cd devc && deno task test` passes, including the 10 session cases and 4 `newColumn` cases
       under [Tests](#tests)
-- [ ] After `bash scripts/vendor-codemirror.sh`, `devc/web/static/vendor/codemirror/codemirror.mjs`
+- [x] After `bash scripts/vendor-codemirror.sh`, `devc/web/static/vendor/codemirror/codemirror.mjs`
       grows by under 5 KB (a second copy of `marked` would add about 40 KB), and
       `grep -c '^function docToHTML' devc/web/static/vendor/codemirror/codemirror.mjs` prints `1`
-- [ ] `deno fmt --check` passes for every touched file
+- [x] `deno fmt --check` passes for every touched file
 - [ ] **(human)** Setup: a TypeScript repo with the `typescript-lsp` Feature, an open PR whose
       branch is checked out, its PR pinned in devc web's Pull requests panel. Pick a changed
       `.ts` file whose added lines call a function defined in another file.

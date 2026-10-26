@@ -17,6 +17,8 @@
  * @typedef {{hunks: Hunk[], rest: string | null}} ParsedPatch
  */
 
+import { splitMarkers } from './pr_tree.js';
+
 const HUNK = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@(.*)$/;
 
 /**
@@ -645,4 +647,30 @@ function middleSnake(a, aLo, aHi, b, bLo, bHi, vf, vb, off) {
     }
   }
   throw new Error('middleSnake: no overlap');
+}
+
+/**
+ * The UTF-16 offset in `text` of displayed offset `shown` in `markedText(text)` (`ui.js`), which
+ * draws each invisible character as a longer `⟨U+XXXX⟩` marker: what a diff tile's hover turns
+ * the mouse's place in a row into, as an LSP `character`. An offset inside a marker is its
+ * character's start; one past the end is `text.length`.
+ *
+ * @param {string} text @param {number} shown
+ */
+export function newColumn(text, shown) {
+  let at = 0; // in `text`
+  let left = shown; // in what is displayed
+  for (const part of splitMarkers(text)) {
+    if (typeof part === 'string') {
+      if (left <= part.length) return at + left;
+      at += part.length;
+      left -= part.length;
+      continue;
+    }
+    const width = /** @type {number} */ (text.codePointAt(at)) > 0xffff ? 2 : 1;
+    if (left < part.marker.length) return at;
+    at += width;
+    left -= part.marker.length;
+  }
+  return text.length;
 }

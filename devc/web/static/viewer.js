@@ -44,6 +44,7 @@ import {
   LSPClient,
   LSPPlugin,
   markdown,
+  marked,
   python,
   rust,
   search,
@@ -610,6 +611,47 @@ export function sanitizeLspHtml(html) {
   };
   clean(doc.body);
   return doc.body.innerHTML;
+}
+
+/** `<`, `>`, `&` and quotes as entities. */
+function escapeHtml(/** @type {string} */ s) {
+  return s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
+}
+
+/**
+ * A `textDocument/hover` result's `contents` as HTML safe to put in the page (a diff tile's hover,
+ * which has no editor to render through): `MarkupContent` Markdown through lsp-client's own
+ * `marked`, plaintext escaped in a `<pre>`; a legacy `MarkedString` or array of them as Markdown,
+ * `{language, value}` as a fenced code block. '' when there is nothing to show.
+ *
+ * @param {unknown} contents
+ */
+export function lspHoverHtml(contents) {
+  /** @param {unknown} c @returns {string} Markdown, or '' */
+  const markedString = (c) => {
+    if (typeof c === 'string') return c;
+    const o = /** @type {any} */ (c);
+    if (o && typeof o.value === 'string' && typeof o.language === 'string') {
+      return o.value === ''
+        ? ''
+        : '```' + o.language + '\n' + o.value + '\n```';
+    }
+    return '';
+  };
+  const o = /** @type {any} */ (contents);
+  let html = '';
+  if (o && typeof o.kind === 'string' && typeof o.value === 'string') {
+    if (o.value.trim() === '') return '';
+    html = o.kind === 'plaintext'
+      ? `<pre>${escapeHtml(o.value)}</pre>`
+      : String(marked.parse(o.value, { async: false }));
+  } else {
+    const md = (Array.isArray(o) ? o : [o]).map(markedString)
+      .filter((s) => s.trim() !== '').join('\n\n');
+    if (md === '') return '';
+    html = String(marked.parse(md, { async: false }));
+  }
+  return sanitizeLspHtml(html);
 }
 
 /**
