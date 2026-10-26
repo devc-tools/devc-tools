@@ -1,20 +1,27 @@
 import { assertEquals } from 'jsr:@std/assert';
 import {
+  buildPrFlat,
   buildPrTree,
   folderOpenByDefault,
   prFileUrl,
   splitMarkers,
   statusLetter,
+  viewedPercent,
   withoutViewed,
 } from '../web/static/lib/pr_tree.js';
 import { fileUrl } from '../web/pr_review.ts';
 
-const file = (path: string, viewed = 'UNVIEWED') => ({
+const file = (
+  path: string,
+  viewed = 'UNVIEWED',
+  additions = 1,
+  deletions = 0,
+) => ({
   path,
   previousPath: null,
   status: 'modified',
-  additions: 1,
-  deletions: 0,
+  additions,
+  deletions,
   viewed: viewed as 'VIEWED' | 'UNVIEWED' | 'DISMISSED',
 });
 
@@ -90,6 +97,63 @@ Deno.test('withoutViewed drops Viewed files and fully viewed folders, keeping co
   assertEquals(shape(withoutViewed(buildPrTree([file('a/x', 'VIEWED')]))), []);
   // The tree it was given is unchanged.
   assertEquals(shape(tree).length, 4);
+});
+
+Deno.test('buildPrFlat lists every file, most changed lines first, then by path', () => {
+  const flat = buildPrFlat([
+    file('z/small.ts', 'UNVIEWED', 1, 1),
+    file('a/b/big.ts', 'VIEWED', 30, 20),
+    file('top.md', 'UNVIEWED', 2, 0),
+    file('a/also.ts', 'UNVIEWED', 2, 0),
+    file('bin.png', 'VIEWED', 0, 0),
+  ]);
+  assertEquals(flat.dirs, []);
+  assertEquals(
+    flat.files.map((n) => [n.name, n.dir]),
+    [
+      ['big.ts', 'a/b'],
+      ['also.ts', 'a'],
+      ['top.md', ''],
+      ['small.ts', 'z'],
+      ['bin.png', ''],
+    ],
+  );
+  assertEquals([flat.viewed, flat.total], [2, 5]);
+  assertEquals([flat.viewedLines, flat.totalLines], [50, 56]);
+  // Hide viewed works on a flat list as on a tree.
+  assertEquals(withoutViewed(flat).files.map((n) => n.name), [
+    'also.ts',
+    'top.md',
+    'small.ts',
+  ]);
+});
+
+Deno.test('buildPrTree counts changed lines, Viewed ones apart, per folder', () => {
+  const tree = buildPrTree([
+    file('a/x', 'VIEWED', 3, 2),
+    file('a/y', 'DISMISSED', 4, 0),
+    file('b', 'UNVIEWED', 1, 0),
+  ]);
+  assertEquals([tree.viewedLines, tree.totalLines], [5, 10]);
+  assertEquals([tree.dirs[0].viewedLines, tree.dirs[0].totalLines], [5, 9]);
+});
+
+Deno.test('viewedPercent weighs by changed lines, rounding down', () => {
+  const pct = (...files: ReturnType<typeof file>[]) =>
+    viewedPercent(buildPrTree(files));
+  assertEquals(
+    pct(file('a', 'VIEWED', 90, 0), file('b', 'UNVIEWED', 10, 0)),
+    90,
+  );
+  // 199 of 200 lines is not done.
+  assertEquals(
+    pct(file('a', 'VIEWED', 199, 0), file('b', 'UNVIEWED', 1, 0)),
+    99,
+  );
+  assertEquals(pct(file('a', 'VIEWED', 2, 2)), 100);
+  // No changed lines at all: by files.
+  assertEquals(pct(file('a', 'VIEWED', 0, 0), file('b', 'UNVIEWED', 0, 0)), 50);
+  assertEquals(pct(), 0);
 });
 
 Deno.test('statusLetter: A, D, R, C, else M', () => {

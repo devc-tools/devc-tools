@@ -634,7 +634,12 @@ is published from any container: the host server finds devcontainers with
   file manager and copies its paths. The PR header's eye (**Hide viewed
   files**) leaves out the files marked Viewed and the folders left holding none
   (a file changed since it was viewed stays), remembered per browser; a PR with
-  every file viewed then shows `All n files viewed`. A diff tile's header has the file's own
+  every file viewed then shows `All n files viewed`. The header counts the files
+  marked Viewed and how much of the change that is, by changed lines
+  (`3/12 · 41%`: additions plus deletions, rounded down; by files when no file
+  has changed lines). Its bars (**List files flat, most changed lines first**)
+  list every file in one list, its folder after its name, biggest change first,
+  remembered per browser. A diff tile's header has the file's own
   **Viewed** checkbox, kept in step with the tree's, and its menu (its tab, or
   a right-click off the code) has **Open file** and **Open file to the right**
   for the file itself (not for a deleted file). In a container with a

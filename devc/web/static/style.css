@@ -2623,6 +2623,13 @@ button.primary.danger {
   opacity: 0.75;
 }
 
+/* A flat PR list's file row: the file's folder after its name. */
+.pr-file-dir {
+  margin-left: 6px;
+  font-size: calc(var(--font-size) - 2px);
+  color: var(--muted);
+}
+
 .pr-viewed {
   flex: none;
   width: 12px;

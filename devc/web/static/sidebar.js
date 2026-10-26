@@ -78,10 +78,12 @@ import {
 } from './lib/tasks.js';
 import { parseSessions, sessionAge, sessionTooltip } from './lib/sessions.js';
 import {
+  buildPrFlat,
   buildPrTree,
   folderOpenByDefault,
   prFileUrl,
   statusLetter,
+  viewedPercent,
   withoutViewed,
 } from './lib/pr_tree.js';
 import {
@@ -325,6 +327,8 @@ function loadSidebarState() {
     prFolders: savedPrFolders(saved?.prFolders),
     /** Whether PR trees leave out Viewed files and fully viewed folders; off at first. */
     prHideViewed: saved?.prHideViewed === true,
+    /** Whether PR files are one flat list, most changed lines first, not a tree; off at first. */
+    prFlat: saved?.prFlat === true,
     /** Open card sections' last settled heights in px, by `data-section-key` (`holdSections`). */
     sectionHeights: savedSectionHeights(saved?.sectionHeights),
     inactiveOpen: saved?.inactiveOpen === true,
@@ -430,6 +434,7 @@ function saveSidebarState() {
         prOpen: [...sidebarState.prOpen],
         prFolders: sidebarState.prFolders,
         prHideViewed: sidebarState.prHideViewed,
+        prFlat: sidebarState.prFlat,
         sectionHeights: sidebarState.sectionHeights,
         inactiveOpen: sidebarState.inactiveOpen,
         projectsOpen: [...sidebarState.projectsOpen],
@@ -2138,12 +2143,17 @@ function prRows(localFolder, root, depth) {
   return rows;
 }
 
-/** A listed PR's header row, then its files as a tree (`buildPrTree`). */
+/**
+ * A listed PR's header row, then its files as a tree (`buildPrTree`) or, with Flat, by size on,
+ * as one list, most changed lines first (`buildPrFlat`).
+ */
 function prListingRows(fr, result, depth) {
   const pr = result.pr;
   const review = prLists.get(prKey(fr.localFolder, fr.root))?.review ?? null;
   const files = list(result.files);
-  const tree = buildPrTree(files);
+  const flat = sidebarState.prFlat;
+  const tree = flat ? buildPrFlat(files) : buildPrTree(files);
+  const percent = viewedPercent(tree);
   const id = treeId(fr);
   const header = treeRow(
     `${id}\npr\n#`,
@@ -2171,7 +2181,14 @@ function prListingRows(fr, result, depth) {
       togglePrHideViewed,
     );
     toggle.setAttribute('aria-pressed', String(hiding));
+    const flatToggle = iconButton(
+      'flatBySize',
+      LABELS.flatBySize,
+      togglePrFlat,
+    );
+    flatToggle.setAttribute('aria-pressed', String(flat));
     return [
+      flatToggle,
       toggle,
       iconButton(
         'refresh',
@@ -2191,15 +2208,20 @@ function prListingRows(fr, result, depth) {
       : '',
     pr.isDraft ? h('span', { class: 'pr-state' }, 'draft') : '',
     review ? pendingReviewBar(fr, pr, review) : '',
-    h('span', { class: 'pr-count' }, `${tree.viewed}/${tree.total}`),
-    // Hide viewed, while on, stays in sight as a repo card's toggles do, the buttons after it
-    // kept as blank slots so it sits where hovering shows it.
+    h('span', {
+      class: 'pr-count',
+      title: LABELS.viewedPercent(percent, tree.viewedLines, tree.totalLines),
+    }, `${tree.viewed}/${tree.total} · ${percent}%`),
+    // Flat, by size and Hide viewed, while on, stay in sight as a repo card's toggles do, the
+    // other buttons kept as blank slots so each sits where hovering shows it.
     h(
       'span',
       { class: 'row-toggles' },
-      ...(hiding
-        ? buttons().map((b, i) => {
-          if (i > 0) b.classList.add('slot');
+      ...(hiding || flat
+        ? buttons().map((b) => {
+          if (b.getAttribute('aria-pressed') !== 'true') {
+            b.classList.add('slot');
+          }
           return b;
         })
         : []),
@@ -2290,6 +2312,13 @@ function pendingReviewBar(fr, pr, review) {
   );
 }
 
+/** Lists every PR's files flat, most changed lines first, or as a tree again; kept per browser. */
+function togglePrFlat() {
+  sidebarState.prFlat = !sidebarState.prFlat;
+  saveSidebarState();
+  renderTree();
+}
+
 /** Shows or hides every PR tree's Viewed files (the PR header's eye), kept per browser. */
 function togglePrHideViewed() {
   sidebarState.prHideViewed = !sidebarState.prHideViewed;
@@ -2353,6 +2382,9 @@ function prFileRow(fr, result, node, depth) {
       'data-status': letter,
     }, letter),
     ...markedText(node.name),
+    node.dir
+      ? h('span', { class: 'pr-file-dir' }, ...markedText(node.dir))
+      : '',
   );
   row.append(rowTrail(h('span', { class: 'pr-stat' }, diffStat(file))));
   return row;

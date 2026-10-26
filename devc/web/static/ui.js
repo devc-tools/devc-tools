@@ -152,6 +152,11 @@ export const LABELS = {
   hideViewed: 'Hide viewed files',
   showViewed: (n) => `Show viewed files (${n} hidden)`,
   allViewedHidden: (n) => `All ${n} file${n === 1 ? '' : 's'} viewed`,
+  flatBySize: 'List files flat, most changed lines first',
+  viewedPercent: (percent, viewed, total) =>
+    `${percent}% of the change viewed (${viewed} of ${total} changed line${
+      total === 1 ? '' : 's'
+    })`,
   /** A diff tile's review threads: where a thread is, and what it is. */
   fileComment: 'File comment',
   line: (n) => `Line ${n}`,
@@ -261,6 +266,8 @@ const ICON_PATHS = {
   // An eye: a PR's Hide viewed files.
   viewed: 'M1.5 8s2.5-4.5 6.5-4.5S14.5 8 14.5 8 12 12.5 8 12.5 1.5 8 1.5 8z' +
     'M6 8a2 2 0 1 0 4 0a2 2 0 1 0-4 0',
+  // Bars, longest first: a PR's files flat, by size.
+  flatBySize: 'M2.5 4h11M2.5 8h7.5M2.5 12h4',
   // A speech bubble holding a question mark: ask an agent about a file.
   ask:
     'M2.5 2.5h11v8H8l-3 3v-3H2.5zM6.5 5.25a1.5 1.5 0 1 1 2.1 1.4c-.4.2-.6.5-.6.85M8 8.6v.01',

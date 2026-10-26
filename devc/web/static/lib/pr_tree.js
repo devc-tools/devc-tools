@@ -10,11 +10,13 @@
  */
 /**
  * A folder of the tree: `name` is what its row shows (a compacted chain reads `b/c`), `path`
- * its full path ('' for the root). `viewed` and `total` count the files under it.
+ * its full path ('' for the root). `viewed` and `total` count the files under it, `viewedLines`
+ * and `totalLines` their changed lines (additions plus deletions).
  *
  * @typedef {{name: string, path: string, dirs: PrDir[], files: PrFileNode[], viewed: number,
- *   total: number}} PrDir
- * @typedef {{name: string, file: PrFile}} PrFileNode
+ *   total: number, viewedLines: number, totalLines: number}} PrDir
+ * @typedef {{name: string, file: PrFile, dir?: string}} PrFileNode  `dir`, in a flat list, is
+ *   the folder the file is in ('' at the top)
  */
 
 /**
@@ -76,6 +78,8 @@ function newDir(name, path) {
     files: [],
     viewed: 0,
     total: 0,
+    viewedLines: 0,
+    totalLines: 0,
     byName: new Map(),
   };
 }
@@ -95,13 +99,78 @@ function finish(dir) {
   });
   dir.dirs.sort((a, b) => byName(a.name, b.name));
   dir.files.sort((a, b) => byName(a.name, b.name));
-  dir.viewed = dir.files.filter((f) => f.file.viewed === 'VIEWED').length;
+  count(dir);
+  return dir;
+}
+
+/** Fills in `dir`'s counts from its files and its (already counted) folders. */
+function count(dir) {
+  dir.viewed = 0;
   dir.total = dir.files.length;
+  dir.viewedLines = 0;
+  dir.totalLines = 0;
+  for (const { file } of dir.files) {
+    const n = changedLines(file);
+    dir.totalLines += n;
+    if (file.viewed === 'VIEWED') {
+      dir.viewed++;
+      dir.viewedLines += n;
+    }
+  }
   for (const d of dir.dirs) {
     dir.viewed += d.viewed;
     dir.total += d.total;
+    dir.viewedLines += d.viewedLines;
+    dir.totalLines += d.totalLines;
   }
-  return dir;
+}
+
+/** @param {PrFile} file */
+function changedLines(file) {
+  return (Number(file.additions) || 0) + (Number(file.deletions) || 0);
+}
+
+/**
+ * The files as one flat list (the PR row's Flat, by size): a root with no folders, its files
+ * sorted by changed lines (additions plus deletions), most first, then by path. Each node's
+ * `name` is the file's name and `dir` its folder.
+ *
+ * @param {PrFile[]} files
+ * @returns {PrDir}
+ */
+export function buildPrFlat(files) {
+  /** @type {PrDir & {byName?: Map<string, any>}} */
+  const root = newDir('', '');
+  delete root.byName;
+  root.files = files.map((file) => {
+    const cut = file.path.lastIndexOf('/');
+    return {
+      name: file.path.slice(cut + 1),
+      dir: cut < 0 ? '' : file.path.slice(0, cut),
+      file,
+    };
+  });
+  root.files.sort((a, b) =>
+    changedLines(b.file) - changedLines(a.file) ||
+    byName(a.file.path, b.file.path)
+  );
+  count(root);
+  return root;
+}
+
+/**
+ * How much of `dir`'s change is marked Viewed, as a whole percent: its Viewed files' changed
+ * lines over all its changed lines, rounded down (100 only once every changed line is viewed).
+ * With no changed lines at all (renames, binary files), Viewed files over files instead; with
+ * no files, 0.
+ *
+ * @param {PrDir} dir
+ */
+export function viewedPercent(dir) {
+  if (dir.totalLines > 0) {
+    return Math.floor((dir.viewedLines * 100) / dir.totalLines);
+  }
+  return dir.total > 0 ? Math.floor((dir.viewed * 100) / dir.total) : 0;
 }
 
 /**
