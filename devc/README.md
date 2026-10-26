@@ -641,8 +641,9 @@ is published from any container: the host server finds devcontainers with
   its name: one click **most changed lines first**, a second **fewest changed
   lines first** (the bars flip; for clearing small files first), a third back
   to the tree, remembered per browser. Its flask (**List test files apart**)
-  moves the test files under a **Tests** row after the rest, listed the same
-  way (tree or flat), with their own count and percent, remembered per browser:
+  splits the files into a **Files** row and a **Tests** row after it, each
+  listed the same way (tree or flat) with its own count and percent and opened
+  or closed as a folder is, remembered per browser:
   a file in a `test/`, `tests/`, `__tests__/` or `testdata/` folder, or named
   `*.test.*`, `*.spec.*`, `*_test.*`, `*_spec.*`, `test_*.py`, `conftest.py`,
   or `*Test`, `*Tests` or `*Spec` in Java, Kotlin, Scala, C#, Swift or Groovy. A diff tile's header has the file's own

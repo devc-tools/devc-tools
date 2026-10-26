@@ -158,6 +158,8 @@ export const LABELS = {
   testsApart: 'List test files apart',
   testsTogether: 'List test files with the rest',
   tests: 'Tests',
+  otherFiles: 'Files',
+  otherFilesTitle: 'The files that are not tests',
   testFiles:
     'Test files: in a test/, tests/, __tests__/ or testdata/ folder, or named *.test.*, ' +
     '*.spec.*, *_test.*, *_spec.*, test_*.py, conftest.py, or *Test / *Tests / *Spec ' +

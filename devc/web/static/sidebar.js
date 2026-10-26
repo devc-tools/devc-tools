@@ -2268,8 +2268,8 @@ function prListingRows(fr, result, depth) {
     );
   }
   const foldersKey = prFoldersKey(fr.localFolder, fr.root, pr.number);
-  // The Tests row's tree keeps its folders' state, and its rows' ids, apart from the rest's: a
-  // folder can be in both.
+  // The Tests row's tree keeps its folders' state, and its rows' ids, apart from the Files row's:
+  // a folder can be in both. The Files row's own state is its tree's root ('') under `foldersKey`.
   const testsKey = `${foldersKey}\ntests`;
   const walk = (dir, d, key = foldersKey, idPrefix = '') => {
     for (const sub of dir.dirs) {
@@ -2298,12 +2298,29 @@ function prListingRows(fr, result, depth) {
   const testFiles = apart ? files.filter((f) => isTestPath(f.path)) : [];
   if (testFiles.length === 0) walk(shown(tree), depth);
   else {
-    walk(shown(build(files.filter((f) => !isTestPath(f.path)))), depth);
-    const tests = build(testFiles);
-    if (!hiding || tests.viewed < tests.total) {
-      rows.push(prTestsRow(fr, result, id, testsKey, tests, depth));
-      if (prFolderOpen(testsKey, tests)) {
-        walk(shown(tests), depth + 1, testsKey, 'tests\n');
+    /** @type {[string, string, string, string, any][]} */
+    const groups = [
+      [
+        'files',
+        foldersKey,
+        LABELS.otherFiles,
+        LABELS.otherFilesTitle,
+        build(files.filter((f) => !isTestPath(f.path))),
+      ],
+      ['tests', testsKey, LABELS.tests, LABELS.testFiles, build(testFiles)],
+    ];
+    for (const [name, key, label, title, group] of groups) {
+      if (group.total === 0 || (hiding && group.viewed === group.total)) {
+        continue;
+      }
+      rows.push(
+        prGroupRow(fr, result, `${id}\npr\n${name}\n`, key, group, depth, {
+          label,
+          title,
+        }),
+      );
+      if (prFolderOpen(key, group)) {
+        walk(shown(group), depth + 1, key, name === 'tests' ? 'tests\n' : '');
       }
     }
   }
@@ -2324,39 +2341,40 @@ function prListingRows(fr, result, depth) {
 }
 
 /**
- * The Tests row (Tests apart): its files' Viewed count and share of their changed lines; it opens
- * and closes as a folder does (`tests` the root of its tree, under `testsKey`), and its menu marks
- * them all Viewed or not.
+ * A Files or Tests row (Tests apart): its files' Viewed count and share of their changed lines;
+ * it opens and closes as a folder does (`group` the root of its tree, under `key`), and its menu
+ * marks them all Viewed or not.
  *
- * @param {FileRoot} fr @param {any} result @param {string} id @param {string} testsKey
- * @param {import('./lib/pr_tree.js').PrDir} tests
+ * @param {FileRoot} fr @param {any} result @param {string} rowId @param {string} key
+ * @param {import('./lib/pr_tree.js').PrDir} group
+ * @param {number} depth @param {{label: string, title: string}} text
  */
-function prTestsRow(fr, result, id, testsKey, tests, depth) {
-  const allViewed = tests.viewed === tests.total;
-  const percent = viewedPercent(tests);
+function prGroupRow(fr, result, rowId, key, group, depth, { label, title }) {
+  const allViewed = group.viewed === group.total;
+  const percent = viewedPercent(group);
   const row = treeRow(
-    `${id}\npr\ntests\n`,
+    rowId,
     depth,
-    prFolderOpen(testsKey, tests),
+    prFolderOpen(key, group),
     {
-      class: 'pr-dir pr-tests',
+      class: 'pr-dir pr-group',
       'data-dim': allViewed || undefined,
-      title: LABELS.testFiles,
-      onclick: () => togglePrFolder(testsKey, tests),
+      title,
+      onclick: () => togglePrFolder(key, group),
       oncontextmenu: result.canViewed
         ? (e) =>
           openMenu(e, [[
             allViewed ? 'Mark all as not viewed' : 'Mark all as viewed',
-            () => void setFolderViewed(fr, tests, !allViewed),
+            () => void setFolderViewed(fr, group, !allViewed),
           ]])
         : undefined,
     },
-    LABELS.tests,
+    label,
   );
   row.append(rowTrail(h('span', {
     class: 'pr-count',
-    title: LABELS.viewedPercent(percent, tests.viewedLines, tests.totalLines),
-  }, `${tests.viewed}/${tests.total} · ${percent}%`)));
+    title: LABELS.viewedPercent(percent, group.viewedLines, group.totalLines),
+  }, `${group.viewed}/${group.total} · ${percent}%`)));
   return row;
 }
 
