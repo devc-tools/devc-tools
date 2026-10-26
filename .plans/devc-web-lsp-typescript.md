@@ -18,7 +18,7 @@
 - [x] `devc/README.md`: the **Language servers** bullet names `typescript-lsp`
 - [x] Run every [Validation](#validation) item an agent can run; hand the **(human)** and
       **(Docker host)** items to the user
-- [ ] Add `typescript-lsp` to `features/PUBLISH_ALLOWLIST.txt`, **only after** the user reports
+- [x] Add `typescript-lsp` to `features/PUBLISH_ALLOWLIST.txt`, **only after** the user reports
       the Docker scenarios pass
 - [x] `deno fmt` every touched `.md` and `.json` file
 

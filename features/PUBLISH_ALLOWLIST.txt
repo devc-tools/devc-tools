@@ -19,4 +19,5 @@ micro
 node-nvmrc
 podman-as-docker
 rootless-remap
+typescript-lsp
 xvfb
