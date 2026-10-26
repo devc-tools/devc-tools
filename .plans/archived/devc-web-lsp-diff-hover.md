@@ -249,31 +249,31 @@ null (deleted), 2 → 2, 3 → null (changed), 4 → 4; identical texts map ever
       grows by under 5 KB (a second copy of `marked` would add about 40 KB), and
       `grep -c '^function docToHTML' devc/web/static/vendor/codemirror/codemirror.mjs` prints `1`
 - [x] `deno fmt --check` passes for every touched file
-- [ ] **(human)** Setup: a TypeScript repo with the `typescript-lsp` Feature, an open PR whose
+- [x] **(human)** Setup: a TypeScript repo with the `typescript-lsp` Feature, an open PR whose
       branch is checked out, its PR pinned in devc web's Pull requests panel. Pick a changed
       `.ts` file whose added lines call a function defined in another file.
-  - [ ] Hovering a called function on an **added** row shows its signature within 2 s of the
+  - [x] Hovering a called function on an **added** row shows its signature within 2 s of the
         server being ready (first hover may show `TypeScript: starting…`)
-  - [ ] Hovering on a **context** row works; hovering a **deleted** row shows nothing
-  - [ ] Split layout: the right side hovers, the left side doesn't
-  - [ ] **Hide whitespace** on, then hover again: same result
-  - [ ] Ctrl/Cmd+click the called function opens a file tile at its definition, cursor there
-  - [ ] Escape and scrolling hide the tooltip
-- [ ] **(human)** Shared document: open the same file in a file tile (no edits). Hover in the
+  - [x] Hovering on a **context** row works; hovering a **deleted** row shows nothing
+  - [x] Split layout: the right side hovers, the left side doesn't
+  - [x] **Hide whitespace** on, then hover again: same result
+  - [x] Ctrl/Cmd+click the called function opens a file tile at its definition, cursor there
+  - [x] Escape and scrolling hide the tooltip
+- [x] **(human)** Shared document: open the same file in a file tile (no edits). Hover in the
       diff still works. Add a line near the top of the file tile (saved or not): diff hovers
       below it still work, on the right names. Change a line the diff shows: hovering it shows
       `No hover: this line differs in the file open in a tile.` Undo: it hovers again. The file
       tile's diagnostics and hover keep working throughout.
-- [ ] **(human)** Local changes: with the file tile closed, change a line of the file from a
+- [x] **(human)** Local changes: with the file tile closed, change a line of the file from a
       terminal (not committed). Diff hovers still match the PR head (a function renamed only in
       the working tree still hovers under its PR name). Revert.
-- [ ] **(human)** Closing the diff tile while a file tile of the same file is open: the file
+- [x] **(human)** Closing the diff tile while a file tile of the same file is open: the file
       tile keeps its hover and diagnostics.
-- [ ] **(human)** A diff tile for a `.md` file (no server): no tooltip, no message, nothing in
+- [x] **(human)** A diff tile for a `.md` file (no server): no tooltip, no message, nothing in
       the browser console.
-- [ ] **(human)** **Restart language server** from a file tile of that repo, then hover in the
+- [x] **(human)** **Restart language server** from a file tile of that repo, then hover in the
       diff: works again after the restart.
-- [ ] `git status` in the repo used shows nothing devc web wrote
+- [x] `git status` in the repo used shows nothing devc web wrote
 
 ## Relevant Files
 
