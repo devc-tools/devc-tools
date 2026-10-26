@@ -10,7 +10,8 @@
  * neither.
  *
  * @typedef {{kind: 'context' | 'add' | 'del' | 'note', old: number | null, new: number | null,
- *   text: string}} DiffRow
+ *   text: string, filled?: boolean}} DiffRow
+ *   `filled`: an unchanged line {@link fillPatch} added from the file, not in the patch
  * @typedef {{header: string, oldStart: number, oldCount: number, newStart: number,
  *   newCount: number, section: string, rows: DiffRow[], whitespaceOnly?: boolean}} Hunk
  *   `whitespaceOnly`: {@link ignoreWhitespace} left it no added or deleted row
@@ -456,6 +457,58 @@ function textLines(text) {
   );
   if (lines[lines.length - 1] === '') lines.pop();
   return lines;
+}
+
+/**
+ * `parsed` with every unchanged line between, before and after its hunks filled in from
+ * `headText` (the file at the PR's head), each filled row marked `filled: true`. `null` when
+ * the patch does not match the text. Hunks stay one for one: a gap's rows go at the start of the
+ * hunk after it, the lines after the last hunk at that hunk's end.
+ *
+ * @param {ParsedPatch} parsed @param {string} headText
+ * @returns {ParsedPatch | null}
+ */
+export function fillPatch(parsed, headText) {
+  if (parsed.rest !== null || parsed.hunks.length === 0) return null;
+  const head = textLines(headText);
+  const noCr = (/** @type {string} */ t) =>
+    t.endsWith('\r') ? t.slice(0, -1) : t;
+  /** @param {number} oldFrom @param {number} newFrom @param {number} n */
+  const fill = (oldFrom, newFrom, n) =>
+    Array.from({ length: n }, (_, k) => ({
+      kind: /** @type {const} */ ('context'),
+      old: oldFrom + k,
+      new: newFrom + k,
+      text: head[newFrom + k - 1],
+      filled: true,
+    }));
+  let oldNext = 1;
+  let newNext = 1;
+  /** @type {Hunk[]} */
+  const hunks = [];
+  for (const hunk of parsed.hunks) {
+    // A side with no lines starts after its start number, as diff writes it.
+    const oldFirst = hunk.oldCount > 0 ? hunk.oldStart : hunk.oldStart + 1;
+    const newFirst = hunk.newCount > 0 ? hunk.newStart : hunk.newStart + 1;
+    const gap = newFirst - newNext;
+    if (gap < 0 || oldFirst - oldNext !== gap) return null;
+    if (newFirst + hunk.newCount - 1 > head.length) return null;
+    for (const row of hunk.rows) {
+      if (
+        (row.kind === 'context' || row.kind === 'add') &&
+        (row.new === null || noCr(row.text) !== head[row.new - 1])
+      ) return null;
+    }
+    hunks.push({
+      ...hunk,
+      rows: [...fill(oldNext, newNext, gap), ...hunk.rows],
+    });
+    oldNext = oldFirst + hunk.oldCount;
+    newNext = newFirst + hunk.newCount;
+  }
+  const last = hunks[hunks.length - 1];
+  last.rows.push(...fill(oldNext, newNext, head.length - newNext + 1));
+  return { hunks, rest: null };
 }
 
 /**

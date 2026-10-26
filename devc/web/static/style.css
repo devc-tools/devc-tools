@@ -2787,6 +2787,11 @@ button.primary.danger {
   color: var(--muted);
 }
 
+/* A one-line note above the diff (Whole file not shown): not a whole body's message. */
+.diff-message.diff-note {
+  padding: 6px 16px;
+}
+
 .diff-note {
   padding: 4px 10px;
   font-style: italic;

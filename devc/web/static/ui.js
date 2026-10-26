@@ -185,6 +185,11 @@ export const LABELS = {
   showChanges: 'Show changes',
   noViewedRecord: 'No record of when you viewed it in devc web',
   tooLargeToCompare: 'Too large to compare',
+  wholeFile: 'Whole file',
+  wholeFileLoading: 'Loading the whole file…',
+  wholeFileUnavailable: (why) => `Whole file unavailable: ${why}`,
+  wholeFileMismatch: "the file at the head doesn't match the diff",
+  wholeFileTooLarge: (max) => `Too large to show whole (over ${max} lines)`,
   openChangesSinceViewed: 'Open changes since viewed',
   /** A pending review: comments and replies held until it is submitted. */
   commentOnLine: (n) => `Comment on line ${n}`,

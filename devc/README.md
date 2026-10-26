@@ -625,9 +625,12 @@ is published from any container: the host server finds devcontainers with
   the line it replaces. **Unified | Split** picks one column or old and new
   side by side (an added or removed file shows its one side either way);
   **Hide whitespace** shows lines that changed only whitespace as
-  unchanged (`git diff -w`, worked out from the patch in the page); an added or
-  removed file's **Tint rows** (on by default) turns off its rows' green or red.
-  All four toggles are remembered per browser. A file's right-click menu opens its diff
+  unchanged (`git diff -w`, worked out from the patch in the page); **Whole
+  file** shows every line of the file rather than only the changed ones and
+  the lines around them, filled in from the file at the PR's head (comments
+  still go only on the patch's lines; an added or removed file is whole
+  already); an added or removed file's **Tint rows** (on by default) turns off
+  its rows' green or red. All five toggles are remembered per browser. A file's right-click menu opens its diff
   (here or to the right), the file itself (as Files does; not for a deleted
   file), GitHub's page for it, copies its paths and pins it; a folder's marks
   every file under it Viewed (or, when all are, not), opens it in Code or the

@@ -62,9 +62,11 @@ import { reopensDashboard } from './lib/dashboard.js';
 import {
   changedRanges,
   diffTexts,
+  fillPatch,
   ignoreWhitespace,
   lineMap,
   markRanges,
+  MAX_DIFF_LINES,
   newColumn,
   parsePatch,
   placeThreads,
@@ -1213,13 +1215,14 @@ function unmountFileTile(tile) {
 // ---------------------------------------------------------------------------------------------
 
 /**
- * Where **Show resolved**, **Split**, **Hide whitespace** and **Tint rows** are remembered, per
- * browser.
+ * Where **Show resolved**, **Split**, **Hide whitespace**, **Tint rows** and **Whole file** are
+ * remembered, per browser.
  */
 const SHOW_RESOLVED_KEY = 'devc-web-pr-show-resolved-v1';
 const DIFF_SPLIT_KEY = 'devc-web-pr-diff-split-v1';
 const HIDE_WHITESPACE_KEY = 'devc-web-pr-hide-whitespace-v1';
 const PLAIN_ONE_SIDED_KEY = 'devc-web-pr-plain-one-sided-v1';
+const WHOLE_FILE_KEY = 'devc-web-pr-whole-file-v1';
 let showResolved = loadFlag(SHOW_RESOLVED_KEY);
 /** Side by side (old left, new right) rather than unified. */
 let diffSplit = loadFlag(DIFF_SPLIT_KEY);
@@ -1227,6 +1230,8 @@ let diffSplit = loadFlag(DIFF_SPLIT_KEY);
 let hideWhitespace = loadFlag(HIDE_WHITESPACE_KEY);
 /** An added or removed file's rows drawn without their green or red (**Tint rows** off). */
 let plainOneSided = loadFlag(PLAIN_ONE_SIDED_KEY);
+/** Every line of the file, not only the patch's hunks (see `fillPatch`). */
+let wholeFile = loadFlag(WHOLE_FILE_KEY);
 
 /** @param {string} key */
 function loadFlag(key) {
@@ -1272,10 +1277,13 @@ function saveFlag(key, on) {
 /**
  * A **Since viewed** comparison: the file at `sha` (the head it was last marked Viewed at)
  * against the file at the PR's head, both read with `pr_file_at` and diffed here (`diffTexts`).
- * `parsed` is set once both arrive; `message` says why there is none.
+ * `parsed` is set once both arrive; `message` says why there is none. `texts` keeps both, so
+ * **Whole file** diffs them again (`whole`, made on first use) without reading them again.
  *
  * @typedef {{sha: string, state: 'loading' | 'ok' | 'error',
- *   parsed: import('./lib/diff.js').ParsedPatch | null, message: string}} SinceView
+ *   parsed: import('./lib/diff.js').ParsedPatch | null, message: string,
+ *   texts: [string, string] | null,
+ *   whole: import('./lib/diff.js').ParsedPatch | null}} SinceView
  */
 
 /**
@@ -1311,8 +1319,14 @@ function saveFlag(key, on) {
  * @property {{side: 'LEFT' | 'RIGHT', line: number, hunk: number} | null} anchor  the last `+`
  *   clicked: a Shift-click on another in its hunk and side makes a block
  * @property {Map<string, CommentEdit>} editing  pending comments being edited, by comment id
- * @property {{sha: string, got: Promise<{text: string | null, message: string}>} | null} head
- *   the PR head's text for its language server view (`pr_file_at`), fetched once per head
+ * @property {{sha: string, got: Promise<{text: string | null, message: string}>,
+ *   done: {text: string | null, message: string} | null} | null} head
+ *   the PR head's text for its language server view and **Whole file** (`pr_file_at`, see
+ *   `readHead`), `done` once it arrives, fetched once per head
+ * @property {DiffView['head']} headWait  the head read a draw waits on, to draw again once
+ * @property {{parsed: import('./lib/diff.js').ParsedPatch, text: string,
+ *   out: import('./lib/diff.js').ParsedPatch | 'large' | null} | null} filled  the last
+ *   `fillPatch` of `parsed` with the head's `text` (`'large'`: past `MAX_DIFF_LINES` lines)
  * @property {{head: string, text: string, map: (line: number) => number | null} | null} local
  *   while an open tile holds the file with other text: the PR head's lines mapped onto it
  * @property {number} scrollTop  where the body was last scrolled to while shown: a hidden tab
@@ -1327,6 +1341,7 @@ function saveFlag(key, on) {
  * @typedef {object} ShownPatch
  * @property {import('./lib/diff.js').ParsedPatch} source  the `parsed` it was made from
  * @property {boolean} whitespace  whether it hides whitespace
+ * @property {boolean} whole  whether `source` is the whole file (**Whole file**)
  * @property {import('./lib/diff.js').ParsedPatch} parsed
  * @property {Map<import('./lib/diff.js').DiffRow, import('./lib/diff.js').Span[]>} spans
  */
@@ -1447,6 +1462,8 @@ function mountDiffTile(tile) {
     anchor: null,
     editing: new Map(),
     head: null,
+    headWait: null,
+    filled: null,
     local: null,
     scrollTop: 0,
   };
@@ -1572,6 +1589,41 @@ function diffPositionAt(x, y) {
 }
 
 /**
+ * The PR head's text (`pr_file_at`), read once per head sha and shared by hover and **Whole
+ * file**: `view.head.done` is set when it arrives. `null` before `pr_diff` has answered.
+ *
+ * @param {DiffView} view
+ * @returns {Promise<{text: string | null, message: string}> | null}
+ */
+function readHead(view) {
+  const ref = view.tile.diff;
+  const sha = view.data?.pr?.headSha;
+  if (!ref || typeof sha !== 'string') return null;
+  if (view.head?.sha !== sha) {
+    const path = view.data?.file?.path ?? ref.path;
+    const head = {
+      sha,
+      done: /** @type {{text: string | null, message: string} | null} */ (null),
+      got: call({
+        type: 'pr_file_at',
+        localFolder: ref.localFolder,
+        root: ref.root,
+        path,
+        sha,
+      }).then(
+        (r) =>
+          r?.available === true && typeof r.text === 'string'
+            ? { text: r.text, message: '' }
+            : { text: null, message: String(r?.message ?? 'unavailable') },
+        (e) => ({ text: null, message: String(e?.message ?? e) }),
+      ).then((r) => (head.done = r)),
+    };
+    view.head = head;
+  }
+  return view.head.got;
+}
+
+/**
  * Gets a diff tile's file ready for a request on its session: attached, the server ready, and
  * the PR head's text open as its view. While an open tile holds the file with other text, the
  * server keeps that text and `map` turns a PR head line into its line there (null: the line
@@ -1611,28 +1663,9 @@ async function diffLspReady(view) {
       message: st.detail ? `${st.name}: ${st.detail}` : `${st.name}: starting…`,
     };
   }
-  const sha = view.data?.pr?.headSha;
-  if (typeof sha !== 'string') return { ok: false, message: '' };
-  if (view.head?.sha !== sha) {
-    const path = view.data?.file?.path ?? ref.path;
-    view.head = {
-      sha,
-      got: call({
-        type: 'pr_file_at',
-        localFolder: ref.localFolder,
-        root: ref.root,
-        path,
-        sha,
-      }).then(
-        (r) =>
-          r?.available === true && typeof r.text === 'string'
-            ? { text: r.text, message: '' }
-            : { text: null, message: String(r?.message ?? 'unavailable') },
-        (e) => ({ text: null, message: String(e?.message ?? e) }),
-      ),
-    };
-  }
-  const head = await view.head.got;
+  const got = readHead(view);
+  if (!got) return { ok: false, message: '' };
+  const head = await got;
   if (head.text === null) {
     return { ok: false, message: `No hover: ${head.message}` };
   }
@@ -1963,7 +1996,14 @@ async function loadSince(view, sha) {
     renderDiff(view);
     return;
   }
-  const since = { sha, state: 'loading', parsed: null, message: '' };
+  const since = {
+    sha,
+    state: 'loading',
+    parsed: null,
+    message: '',
+    texts: null,
+    whole: null,
+  };
   view.since = /** @type {SinceView} */ (since);
   renderDiff(view);
   const repo = { localFolder: ref.localFolder, root: ref.root };
@@ -1982,7 +2022,12 @@ async function loadSince(view, sha) {
     since.state = 'error';
     since.message = String(failed?.message ?? 'failed');
   } else {
-    const parsed = diffTexts(String(before.text), String(now.text));
+    const texts = /** @type {[string, string]} */ ([
+      String(before.text),
+      String(now.text),
+    ]);
+    const parsed = diffTexts(...texts);
+    since.texts = texts;
     since.state = parsed ? 'ok' : 'error';
     since.parsed = parsed;
     since.message = parsed ? '' : LABELS.tooLargeToCompare;
@@ -2102,6 +2147,16 @@ function togglePlainOneSided() {
   for (const view of diffViews.values()) renderDiff(view);
 }
 
+function toggleWholeFile() {
+  wholeFile = !wholeFile;
+  saveFlag(WHOLE_FILE_KEY, wholeFile);
+  for (const view of diffViews.values()) {
+    // Row keys change with the rows: folds opened under the old ones would land elsewhere.
+    view.openFolds.clear();
+    renderDiff(view);
+  }
+}
+
 function toggleHideWhitespace() {
   hideWhitespace = !hideWhitespace;
   saveFlag(HIDE_WHITESPACE_KEY, hideWhitespace);
@@ -2121,7 +2176,7 @@ function toggleHideWhitespace() {
  * @returns {ShownPatch | null}
  */
 function shownPatch(view) {
-  const source = view.since ? view.since.parsed : view.parsed;
+  const { parsed: source, whole } = wholeSource(view);
   if (!source) return null;
   if (
     view.shown?.source === source && view.shown.whitespace === hideWhitespace
@@ -2134,13 +2189,13 @@ function shownPatch(view) {
   const oldName = file?.previousPath ?? newName;
   /** @type {ShownPatch['spans']} */
   const spans = new Map();
-  for (const hunk of parsed.hunks) {
-    const olds = hunk.rows.filter((r) =>
-      r.kind === 'context' || r.kind === 'del'
-    );
-    const news = hunk.rows.filter((r) =>
-      r.kind === 'context' || r.kind === 'add'
-    );
+  // The whole file is highlighted as one text a side; a patch's hunks one by one.
+  const groups = whole
+    ? [parsed.hunks.flatMap((hunk) => hunk.rows)]
+    : parsed.hunks.map((hunk) => hunk.rows);
+  for (const rows of groups) {
+    const olds = rows.filter((r) => r.kind === 'context' || r.kind === 'del');
+    const news = rows.filter((r) => r.kind === 'context' || r.kind === 'add');
     // A context row's text is the new side's (after Hide whitespace the sides can differ).
     highlightLines(oldName, olds.map((r) => r.text)).forEach((line, i) => {
       if (olds[i].kind === 'del') spans.set(olds[i], line);
@@ -2148,14 +2203,97 @@ function shownPatch(view) {
     highlightLines(newName, news.map((r) => r.text)).forEach((line, i) => {
       spans.set(news[i], line);
     });
+  }
+  for (const hunk of parsed.hunks) {
     for (const [i, ranges] of changedRanges(hunk)) {
       const row = hunk.rows[i];
       const line = spans.get(row);
       if (line) spans.set(row, markRanges(line, ranges));
     }
   }
-  view.shown = { source, whitespace: hideWhitespace, parsed, spans };
+  view.shown = { source, whitespace: hideWhitespace, whole, parsed, spans };
   return view.shown;
+}
+
+/**
+ * Whether the tile offers **Whole file**: not an added or removed file (it shows the whole file
+ * already), and a patch or a Since viewed comparison to fill.
+ *
+ * @param {DiffView} view
+ */
+function offersWholeFile(view) {
+  return !oneSided(view) &&
+    (view.since !== null || typeof view.data?.file?.patch === 'string');
+}
+
+/**
+ * The patch to draw, before **Hide whitespace**: with **Whole file** on, filled out to every line
+ * (`whole`), else as read. `note` says why the whole file isn't shown when it was asked for. A
+ * PR changes tile starts reading the head here, and draws again when it arrives.
+ *
+ * @param {DiffView} view
+ * @returns {{parsed: import('./lib/diff.js').ParsedPatch | null, whole: boolean, note: string}}
+ */
+function wholeSource(view) {
+  const since = view.since;
+  const parsed = since ? since.parsed : view.parsed;
+  if (!wholeFile || !parsed || !offersWholeFile(view)) {
+    return { parsed, whole: false, note: '' };
+  }
+  if (since) {
+    if (!since.texts) return { parsed, whole: false, note: '' };
+    since.whole ??= diffTexts(...since.texts, MAX_DIFF_LINES);
+    return since.whole ? { parsed: since.whole, whole: true, note: '' } : {
+      parsed,
+      whole: false,
+      note: LABELS.wholeFileTooLarge(MAX_DIFF_LINES),
+    };
+  }
+  const got = readHead(view);
+  const head = view.head;
+  if (!got || !head) return { parsed, whole: false, note: '' };
+  if (!head.done) {
+    if (view.headWait !== head) {
+      view.headWait = head;
+      void got.then(() => {
+        if (diffViews.get(view.tile.id) === view && view.head === head) {
+          renderDiff(view);
+        }
+      });
+    }
+    return { parsed, whole: false, note: LABELS.wholeFileLoading };
+  }
+  const text = head.done.text;
+  if (text === null) {
+    return {
+      parsed,
+      whole: false,
+      note: LABELS.wholeFileUnavailable(head.done.message),
+    };
+  }
+  if (view.filled?.parsed !== parsed || view.filled.text !== text) {
+    view.filled = {
+      parsed,
+      text,
+      out: text.split('\n').length - (text.endsWith('\n') ? 1 : 0) >
+          MAX_DIFF_LINES
+        ? 'large'
+        : fillPatch(parsed, text),
+    };
+  }
+  const out = view.filled.out;
+  if (out === 'large') {
+    return {
+      parsed,
+      whole: false,
+      note: LABELS.wholeFileTooLarge(MAX_DIFF_LINES),
+    };
+  }
+  return out ? { parsed: out, whole: true, note: '' } : {
+    parsed,
+    whole: false,
+    note: LABELS.wholeFileUnavailable(LABELS.wholeFileMismatch),
+  };
 }
 
 /** A row's text as nodes: its highlighted runs, or plain text for a note. */
@@ -2346,6 +2484,9 @@ function diffHeader(view) {
       layoutButton('Unified', false),
       layoutButton('Split', true),
     ),
+    offersWholeFile(view)
+      ? checkbox(LABELS.wholeFile, wholeFile, toggleWholeFile)
+      : '',
     checkbox('Hide whitespace', hideWhitespace, toggleHideWhitespace),
     oneSided(view)
       ? checkbox('Tint rows', !plainOneSided, togglePlainOneSided)
@@ -2492,6 +2633,12 @@ function diffContent(view) {
     );
     return out;
   }
+  const { note } = wholeSource(view);
+  if (note) {
+    out.push(
+      h('div', { class: 'diff-message diff-note' }, ...markedText(note)),
+    );
+  }
   const single = oneSided(view);
   // `+` on a line number: a new comment, on the PR's own diff only (GitHub takes comments on
   // lines in it, not on a Since viewed comparison).
@@ -2512,15 +2659,16 @@ function diffContent(view) {
    * A line number cell, with its `+` when commenting: `side` and `n` are what it comments on.
    *
    * @param {number | null | undefined} n @param {'LEFT' | 'RIGHT'} side @param {number} hi
-   * @param {string} [kind]
+   * @param {string} [kind] @param {boolean} [filled]  a **Whole file** row not in the patch,
+   *   where GitHub takes no comment
    */
-  const numCell = (n, side, hi, kind) => {
+  const numCell = (n, side, hi, kind, filled = false) => {
     const cell = h(
       'span',
       { class: 'diff-num', ...(kind ? { 'data-kind': kind } : {}) },
       n == null ? '' : String(n),
     );
-    if (commenting && n != null) {
+    if (commenting && n != null && !filled) {
       cell.append(h('button', {
         type: 'button',
         class: 'diff-add-comment',
@@ -2551,16 +2699,19 @@ function diffContent(view) {
   };
   let ncShown = false;
   shown.parsed.hunks.forEach((hunk, hi) => {
-    table.append(
-      h(
-        'div',
-        { class: 'diff-hunk' },
-        ...markedText(hunk.header),
-        hunk.whitespaceOnly
-          ? h('span', { class: 'diff-hunk-note' }, ' · whitespace only')
-          : '',
-      ),
-    );
+    // The whole file runs on with no bars: there are no gaps to mark.
+    if (!shown.whole) {
+      table.append(
+        h(
+          'div',
+          { class: 'diff-hunk' },
+          ...markedText(hunk.header),
+          hunk.whitespaceOnly
+            ? h('span', { class: 'diff-hunk-note' }, ' · whitespace only')
+            : '',
+        ),
+      );
+    }
     if (single) {
       hunk.rows.forEach((row, ri) => {
         table.append(
@@ -2602,9 +2753,21 @@ function diffContent(view) {
                 sr.rightIndex === null ? null : `${hi}:${sr.rightIndex}`,
               ]),
             },
-            numCell(sr.left?.old, 'LEFT', hi, sr.left?.kind ?? 'empty'),
+            numCell(
+              sr.left?.old,
+              'LEFT',
+              hi,
+              sr.left?.kind ?? 'empty',
+              sr.left?.filled,
+            ),
             side(sr.left),
-            numCell(sr.right?.new, 'RIGHT', hi, sr.right?.kind ?? 'empty'),
+            numCell(
+              sr.right?.new,
+              'RIGHT',
+              hi,
+              sr.right?.kind ?? 'empty',
+              sr.right?.filled,
+            ),
             side(sr.right, true),
           ),
         );
@@ -2624,8 +2787,8 @@ function diffContent(view) {
             'data-kind': row.kind,
             ...rowAttrs([`${hi}:${ri}`]),
           },
-          numCell(row.old, 'LEFT', hi),
-          numCell(row.new, 'RIGHT', hi),
+          numCell(row.old, 'LEFT', hi, undefined, row.filled),
+          numCell(row.new, 'RIGHT', hi, undefined, row.filled),
           newSideText(row, ...rowText(shown, row)),
         ),
       );

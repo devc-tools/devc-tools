@@ -2,6 +2,7 @@ import { assertEquals } from 'jsr:@std/assert';
 import {
   changedRanges,
   diffTexts,
+  fillPatch,
   ignoreWhitespace,
   lineMap,
   markRanges,
@@ -387,4 +388,158 @@ Deno.test('lineMap: unchanged lines map across inserted, deleted and changed one
     3,
     'identical texts: every line is itself',
   );
+});
+
+/** Each row as `[mark, old, new, text]`, a filled row's mark `=`. */
+const filledRows = (p: ReturnType<typeof fillPatch>) =>
+  p!.hunks.map((h) =>
+    h.rows.map((r) => [
+      r.filled
+        ? '='
+        : ({ context: ' ', add: '+', del: '-', note: '\\' })[r.kind],
+      r.old,
+      r.new,
+      r.text,
+    ])
+  );
+
+// The patch adds `x` after l2 and changes `y` (old line 7) to `Y`; the head then ends in l10.
+const HEAD = lines('l1', 'l2', 'x', 'l3', 'l4', 'l5', 'l6', 'Y', 'l9');
+const TWO_HUNKS = parsePatch([
+  '@@ -2,2 +2,3 @@',
+  ' l2',
+  '+x',
+  ' l3',
+  '@@ -6,3 +7,3 @@ f',
+  ' l6',
+  '-y',
+  '+Y',
+  ' l9',
+].join('\n'));
+
+Deno.test('fillPatch fills before, between and after the hunks, one for one', () => {
+  const p = fillPatch(TWO_HUNKS, HEAD + 'l10\n')!;
+  assertEquals(filledRows(p), [
+    [
+      ['=', 1, 1, 'l1'],
+      [' ', 2, 2, 'l2'],
+      ['+', null, 3, 'x'],
+      [' ', 3, 4, 'l3'],
+    ],
+    [
+      ['=', 4, 5, 'l4'],
+      ['=', 5, 6, 'l5'],
+      [' ', 6, 7, 'l6'],
+      ['-', 7, null, 'y'],
+      ['+', null, 8, 'Y'],
+      [' ', 8, 9, 'l9'],
+      ['=', 9, 10, 'l10'],
+    ],
+  ]);
+  // Headers, starts and sections stay; filled rows are context.
+  assertEquals(p.hunks.map((h) => [h.header, h.section]), [
+    ['@@ -2,2 +2,3 @@', ''],
+    ['@@ -6,3 +7,3 @@ f', 'f'],
+  ]);
+  assertEquals(
+    p.hunks.flatMap((h) => h.rows).filter((r) => r.filled).every((r) =>
+      r.kind === 'context'
+    ),
+    true,
+  );
+  // Every line of the head, once and in order.
+  assertEquals(
+    p.hunks.flatMap((h) => h.rows).filter((r) => r.new !== null).map((r) =>
+      r.new
+    ),
+    [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+  );
+  assertEquals(p.rest, null);
+});
+
+Deno.test('fillPatch: a hunk at line 1 and one on the last line fill nothing there', () => {
+  const p = fillPatch(
+    parsePatch(['@@ -1,2 +1,2 @@', '-a', '+A', ' b'].join('\n')),
+    lines('A', 'b'),
+  )!;
+  assertEquals(filledRows(p), [[
+    ['-', 1, null, 'a'],
+    ['+', null, 1, 'A'],
+    [' ', 2, 2, 'b'],
+  ]]);
+});
+
+Deno.test('fillPatch: a side with no lines starts after its start number', () => {
+  // Insertion after old line 5.
+  const ins = fillPatch(
+    parsePatch(['@@ -5,0 +6,2 @@', '+n1', '+n2'].join('\n')),
+    lines('a', 'b', 'c', 'd', 'e', 'n1', 'n2', 'f'),
+  )!;
+  assertEquals(filledRows(ins)[0].slice(4), [
+    ['=', 5, 5, 'e'],
+    ['+', null, 6, 'n1'],
+    ['+', null, 7, 'n2'],
+    ['=', 6, 8, 'f'],
+  ]);
+  // Deletion of old lines 6-7, after new line 5.
+  const del = fillPatch(
+    parsePatch(['@@ -6,2 +5,0 @@', '-o1', '-o2'].join('\n')),
+    lines('a', 'b', 'c', 'd', 'e', 'f'),
+  )!;
+  assertEquals(filledRows(del)[0].slice(4), [
+    ['=', 5, 5, 'e'],
+    ['-', 6, null, 'o1'],
+    ['-', 7, null, 'o2'],
+    ['=', 8, 6, 'f'],
+  ]);
+});
+
+Deno.test('fillPatch keeps note rows and matches CRLF text', () => {
+  const p = fillPatch(
+    parsePatch(
+      ['@@ -2 +2 @@', '-b\r', '+B\r', '\\ No newline at end of file'].join(
+        '\n',
+      ),
+    ),
+    'a\r\nB\r\n',
+  )!;
+  assertEquals(filledRows(p), [[
+    ['=', 1, 1, 'a'],
+    ['-', 2, null, 'b\r'],
+    ['+', null, 2, 'B\r'],
+    ['\\', null, null, '\\ No newline at end of file'],
+  ]]);
+});
+
+Deno.test('fillPatch: null when the patch does not match the text', () => {
+  // A context row whose text differs.
+  assertEquals(fillPatch(TWO_HUNKS, HEAD.replace('l6', 'L6') + 'l10\n'), null);
+  // A hunk past the end of the head.
+  assertEquals(fillPatch(TWO_HUNKS, lines('l1', 'l2', 'x', 'l3')), null);
+  // A patch the parser stopped in.
+  assertEquals(
+    fillPatch(parsePatch('@@ -1 +1 @@\n a\ngarbage'), lines('a')),
+    null,
+  );
+  assertEquals(fillPatch(parsePatch(''), lines('a')), null);
+});
+
+Deno.test("ignoreWhitespace keeps a filled patch's filled rows", () => {
+  const p = ignoreWhitespace(fillPatch(TWO_HUNKS, HEAD + 'l10\n')!);
+  assertEquals(
+    p.hunks.flatMap((h) => h.rows).filter((r) => r.filled).map((r) => r.new),
+    [1, 5, 6, 10],
+  );
+});
+
+Deno.test('diffTexts with MAX_DIFF_LINES context: one hunk of every line', () => {
+  const a = Array.from({ length: 40 }, (_, i) => `l${i}`);
+  const b = [...a];
+  b[2] = 'X';
+  b[35] = 'Y';
+  const p = diffTexts(lines(...a), lines(...b), MAX_DIFF_LINES)!;
+  assertEquals(p.hunks.length, 1);
+  const rows = p.hunks[0].rows;
+  assertEquals(rows.filter((r) => r.old !== null).length, 40);
+  assertEquals(rows.filter((r) => r.new !== null).length, 40);
 });
