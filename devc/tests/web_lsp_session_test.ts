@@ -1135,7 +1135,7 @@ Deno.test('view: editor open with equal text → ok, nothing to the server', () 
   assertEquals(peer.take(), [{ jsonrpc: '2.0', id: 2, result: { ok: true } }]);
 });
 
-Deno.test('view: editor open with different text → edited, nothing to the server', () => {
+Deno.test('view: editor open with different text → edited with the editor text, nothing to the server', () => {
   const t = setup();
   const editor = new FakePeer();
   const viewer = new FakePeer();
@@ -1149,7 +1149,7 @@ Deno.test('view: editor open with different text → edited, nothing to the serv
   assertEquals(viewer.take(), [{
     jsonrpc: '2.0',
     id: 3,
-    result: { ok: false, reason: 'edited' },
+    result: { ok: false, reason: 'edited', text: 'local edits' },
   }]);
 });
 

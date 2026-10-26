@@ -425,10 +425,11 @@ export function viewStatus(key) {
 
 /**
  * Makes sure the host holds `text` (the PR head's) for diff tile `key`'s view: `devc/openView`,
- * unless it already does. `{ok: false, reason: 'edited'}` while an editor holds other text.
+ * unless it already does. `{ok: false, reason: 'edited', text}` while an editor holds other text:
+ * `text` is the editor's, which requests then work against.
  *
  * @param {string} key @param {string} text
- * @returns {Promise<{ok: boolean, reason?: string}>}
+ * @returns {Promise<{ok: boolean, reason?: string, text?: string}>}
  */
 export async function openView(key, text) {
   const v = views.get(key);
@@ -447,7 +448,11 @@ export async function openView(key, text) {
     v.opened = text;
     return { ok: true };
   }
-  return { ok: false, reason: String(answer?.reason ?? 'refused') };
+  return {
+    ok: false,
+    reason: String(answer?.reason ?? 'refused'),
+    ...(typeof answer?.text === 'string' ? { text: answer.text } : {}),
+  };
 }
 
 /**

@@ -617,8 +617,9 @@ export class LspSession {
 
   /**
    * `devc/openView`: opens `uri` with a diff tile's text, answered here with `{ok}`. A document
-   * with editors is never changed: unequal text is refused (`edited`). One held only by views
-   * takes the new text, and the other views are told `devc/viewStale`.
+   * with editors is never changed: unequal text is refused (`edited`) with the text the server
+   * has, so the diff tile can map its lines onto it. One held only by views takes the new text,
+   * and the other views are told `devc/viewStale`.
    */
   #openView(peer: Peer, pageId: Id, uri: string, td: Msg) {
     const text = typeof td.text === 'string' ? td.text : '';
@@ -646,7 +647,7 @@ export class LspSession {
       });
     } else if (doc.text !== text) {
       if (doc.openers.size > 0) {
-        answer({ ok: false, reason: 'edited' });
+        answer({ ok: false, reason: 'edited', text: doc.text });
         return;
       }
       doc.viewers.delete(peer);

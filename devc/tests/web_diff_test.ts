@@ -3,6 +3,7 @@ import {
   changedRanges,
   diffTexts,
   ignoreWhitespace,
+  lineMap,
   markRanges,
   MAX_DIFF_LINES,
   newColumn,
@@ -370,4 +371,20 @@ Deno.test('newColumn: a displayed offset back to the row text, past invisible-ch
   assertEquals(newColumn('a\u200Bb', 9), 2);
   assertEquals(newColumn('a\u200Bb', 3), 1, 'inside a marker: its character');
   assertEquals(newColumn('ab', 99), 2);
+});
+
+Deno.test('lineMap: unchanged lines map across inserted, deleted and changed ones', () => {
+  const head = 'a\nb\nc\nd\ne\n';
+  const local = 'new\na\nc\nD\ne\n';
+  const map = lineMap(head, local);
+  assertEquals(map(0), 1, 'a moved down by the inserted line');
+  assertEquals(map(1), null, 'b was deleted');
+  assertEquals(map(2), 2);
+  assertEquals(map(3), null, 'd was changed');
+  assertEquals(map(4), 4);
+  assertEquals(
+    lineMap(head, head)(3),
+    3,
+    'identical texts: every line is itself',
+  );
 });

@@ -63,13 +63,13 @@ same file. The server's `didClose` is sent only when both sets are empty.
 **`devc/openView`** — a request: `params: {textDocument: {uri, languageId, text}}`. The host
 answers it itself, with the page's own id:
 
-| Document state                  | Host does                                                                                  | Result                          |
-| ------------------------------- | ------------------------------------------------------------------------------------------ | ------------------------------- |
-| not open                        | `didOpen` (version 1) to the server, peer added to viewers                                 | `{ok: true}`                    |
-| open, no editors, text equal    | peer added to viewers                                                                      | `{ok: true}`                    |
-| open, no editors, text differs  | `didChange` to the new text; every **other** viewer peer gets `devc/viewStale`; peer added | `{ok: true}`                    |
-| open with editors, text equal   | peer added to viewers                                                                      | `{ok: true}`                    |
-| open with editors, text differs | nothing                                                                                    | `{ok: false, reason: "edited"}` |
+| Document state                  | Host does                                                                                  | Result                                                       |
+| ------------------------------- | ------------------------------------------------------------------------------------------ | ------------------------------------------------------------ |
+| not open                        | `didOpen` (version 1) to the server, peer added to viewers                                 | `{ok: true}`                                                 |
+| open, no editors, text equal    | peer added to viewers                                                                      | `{ok: true}`                                                 |
+| open, no editors, text differs  | `didChange` to the new text; every **other** viewer peer gets `devc/viewStale`; peer added | `{ok: true}`                                                 |
+| open with editors, text equal   | peer added to viewers                                                                      | `{ok: true}`                                                 |
+| open with editors, text differs | nothing                                                                                    | `{ok: false, reason: "edited", text: <the document's text>}` |
 
 **`devc/closeView`** — a notification: `params: {textDocument: {uri}}`. Removes the peer from
 viewers; `didClose` to the server if both sets are now empty. No answer.
@@ -144,19 +144,30 @@ tiles on it. A diff tile joins the same records:
   room below), max 60 ch wide and 40 vh tall, scrolling inside, styled like CodeMirror's hover
   tooltip in the file tile (class `diff-hover`). It shows:
 
-  | Situation                                                                                                              | Tooltip shows                                               |
-  | ---------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------- |
-  | hover result with contents                                                                                             | the rendered contents ([Hover rendering](#hover-rendering)) |
-  | `null` result or empty contents                                                                                        | nothing (no tooltip)                                        |
-  | session `starting`                                                                                                     | `<Language>: starting…` (or the session's progress detail)  |
-  | `devc/openView` answered `{ok: false, reason: "edited"}`                                                               | `No hover: <file name> has unsaved edits in an open tile.`  |
-  | `pr_file_at` answered `available: false`                                                                               | `No hover: <its message>`                                   |
-  | session `exited`                                                                                                       | `<Language> language server stopped: <detail>`              |
-  | file type no server takes, container not connected, no launcher (`unsupported`, `not_connected`, `no_language_server`) | nothing                                                     |
+  | Situation                                                                                                              | Tooltip shows                                                                          |
+  | ---------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
+  | hover result with contents                                                                                             | the rendered contents ([Hover rendering](#hover-rendering))                            |
+  | `null` result or empty contents                                                                                        | nothing (no tooltip)                                                                   |
+  | session `starting`                                                                                                     | `<Language>: starting…` (or the session's progress detail)                             |
+  | `devc/openView` answered `edited`, and the hovered line differs in its `text` ([Open tile text](#open-tile-text))      | `No hover: this line differs in the file open in a tile.` (a jump: `No definition: …`) |
+  | `pr_file_at` answered `available: false`                                                                               | `No hover: <its message>`                                                              |
+  | session `exited`                                                                                                       | `<Language> language server stopped: <detail>`                                         |
+  | file type no server takes, container not connected, no launcher (`unsupported`, `not_connected`, `no_language_server`) | nothing                                                                                |
 
   `<Language>` is `LSP_LANGUAGE_NAMES[...]` as the file tile's status line uses it.
 - After `edited` or `devc/viewStale`, the next hover sends `devc/openView` again (the file may
   have been saved or closed meanwhile), so the state heals itself.
+
+### Open tile text
+
+`edited` means a file tile (on any page) holds the file with text other than the PR head's:
+unsaved edits, saved ones, or a checkout not at the PR head. The server keeps that text, so the
+diff tile works against it instead: `lineMap(headText, text)` (`lib/diff.js`) maps each PR head
+line to the line it is unchanged as in `text` (from `diffTexts` with context as long as the
+texts, so every unchanged line is a context row with both numbers). Hover and go to definition
+on a mapped line use the mapped line and the same character (the line is identical). An
+unmapped line (changed or deleted locally) gets the `this line differs` message. The map is made
+again when either text changes.
 
 ## Hover rendering
 
@@ -192,7 +203,8 @@ is held.
 1. `devc/openView` on a closed URI → one `didOpen` (version 1) with the view's text; answer
    `{ok: true}` with the page's id; nothing forwarded under the method name `devc/openView`.
 2. Editor open, then `devc/openView` with equal text → `{ok: true}`, no message to the server.
-3. Editor open, then `devc/openView` with different text → `{ok: false, reason: "edited"}`, no
+3. Editor open, then `devc/openView` with different text → `{ok: false, reason: "edited",
+   text: <the editor's text>}`, no
    message to the server.
 4. View open, then an editor `didOpen` with different text → server gets `didChange` with the
    editor's text; the viewer peer gets `devc/viewStale` for that URI.
@@ -214,20 +226,24 @@ is held.
    (after `a` and the marker) `=== 2`; an offset inside the marker (`3`) `=== 1`.
 4. Past the end: `newColumn('ab', 99) === 2`.
 
+`devc/tests/web_diff_test.ts`, `lineMap('a\nb\nc\nd\ne\n', 'new\na\nc\nD\ne\n')`: line 0 → 1, 1 →
+null (deleted), 2 → 2, 3 → null (changed), 4 → 4; identical texts map every line to itself.
+
 ## Docs
 
 `devc/README.md`:
 
 - **Language servers** bullet: add one sentence: a pull request's diff tile also gets hover and
-  Ctrl/Cmd+click go to definition on added and unchanged lines, from the PR head's text, and no
-  hover while an open tile holds unsaved edits to the file.
+  Ctrl/Cmd+click go to definition on added and unchanged lines, from the PR head's text, or,
+  while a tile holds the file with other text, on the lines that tile has unchanged.
 - **Pull requests** section, where diff tiles are described: the same sentence, linking to the
   Language servers bullet.
 
 ## Validation
 
 - [x] `cd devc && deno task check` passes
-- [x] `cd devc && deno task test` passes, including the 10 session cases and 4 `newColumn` cases
+- [x] `cd devc && deno task test` passes, including the 10 session cases, the 4 `newColumn` cases and the
+      `lineMap` case
       under [Tests](#tests)
 - [x] After `bash scripts/vendor-codemirror.sh`, `devc/web/static/vendor/codemirror/codemirror.mjs`
       grows by under 5 KB (a second copy of `marked` would add about 40 KB), and
@@ -244,9 +260,10 @@ is held.
   - [ ] Ctrl/Cmd+click the called function opens a file tile at its definition, cursor there
   - [ ] Escape and scrolling hide the tooltip
 - [ ] **(human)** Shared document: open the same file in a file tile (no edits). Hover in the
-      diff still works. Type a character in the file tile without saving: the next diff hover
-      shows `No hover: <file> has unsaved edits in an open tile.` Undo the edit: the next diff
-      hover works again. The file tile's diagnostics and hover keep working throughout.
+      diff still works. Add a line near the top of the file tile (saved or not): diff hovers
+      below it still work, on the right names. Change a line the diff shows: hovering it shows
+      `No hover: this line differs in the file open in a tile.` Undo: it hovers again. The file
+      tile's diagnostics and hover keep working throughout.
 - [ ] **(human)** Local changes: with the file tile closed, change a line of the file from a
       terminal (not committed). Diff hovers still match the PR head (a function renamed only in
       the working tree still hovers under its PR name). Revert.

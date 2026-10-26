@@ -481,8 +481,9 @@ is published from any container: the host server finds devcontainers with
   also gets hover and **Ctrl/Cmd+click** go to definition on its added and
   unchanged lines, from the same server, given the file as it is at the PR's
   head (so the diff's lines match whatever the checkout holds); deleted lines
-  get nothing, and there is no hover while an open tile holds unsaved edits to
-  the file. See
+  get nothing. While a tile holds the file with other text (edits, saved or
+  not, or a checkout not at the PR head), the diff works against that text on
+  the lines it has unchanged; a line changed there says so instead. See
   [Language server launchers](#language-server-launchers) for the contract a
   launcher implements.
 - **Asking an agent about a file:** a file tile or a pull request's diff tile

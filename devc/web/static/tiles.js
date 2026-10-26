@@ -63,6 +63,7 @@ import {
   changedRanges,
   diffTexts,
   ignoreWhitespace,
+  lineMap,
   markRanges,
   newColumn,
   parsePatch,
@@ -1219,6 +1220,8 @@ function saveFlag(key, on) {
  * @property {Map<string, CommentEdit>} editing  pending comments being edited, by comment id
  * @property {{sha: string, got: Promise<{text: string | null, message: string}>} | null} head
  *   the PR head's text for its language server view (`pr_file_at`), fetched once per head
+ * @property {{head: string, text: string, map: (line: number) => number | null} | null} local
+ *   while an open tile holds the file with other text: the PR head's lines mapped onto it
  */
 
 /**
@@ -1336,6 +1339,7 @@ function mountDiffTile(tile) {
     anchor: null,
     editing: new Map(),
     head: null,
+    local: null,
   };
   diffViews.set(tile.id, view);
   diffHoverEvents(view);
@@ -1451,11 +1455,14 @@ function diffPositionAt(x, y) {
 
 /**
  * Gets a diff tile's file ready for a request on its session: attached, the server ready, and
- * the PR head's text open as its view. `message` says why not, or is '' when nothing should be
- * shown (no server for the file, its container not connected).
+ * the PR head's text open as its view. While an open tile holds the file with other text, the
+ * server keeps that text and `map` turns a PR head line into its line there (null: the line
+ * differs). `message` says why not, or is '' when nothing should be shown (no server for the
+ * file, its container not connected).
  *
  * @param {DiffView} view
- * @returns {Promise<{ok: true} | {ok: false, message: string}>}
+ * @returns {Promise<{ok: true, map?: (line: number) => number | null} |
+ *   {ok: false, message: string}>}
  */
 async function diffLspReady(view) {
   const ref = view.tile.diff;
@@ -1512,17 +1519,38 @@ async function diffLspReady(view) {
     return { ok: false, message: `No hover: ${head.message}` };
   }
   const opened = await openView(key, head.text);
-  if (opened.ok) return { ok: true };
-  if (opened.reason === 'edited') {
-    return {
-      ok: false,
-      message: `No hover: ${
-        basename(ref.path)
-      } has unsaved edits in an open tile.`,
-    };
+  if (opened.ok) {
+    view.local = null;
+    return { ok: true };
+  }
+  if (opened.reason === 'edited' && typeof opened.text === 'string') {
+    if (view.local?.head !== head.text || view.local.text !== opened.text) {
+      view.local = {
+        head: head.text,
+        text: opened.text,
+        map: lineMap(head.text, opened.text),
+      };
+    }
+    return { ok: true, map: view.local.map };
   }
   return { ok: false, message: '' };
 }
+
+/**
+ * `pos` (a PR head position) as the server has the file: through `map` when an open tile holds
+ * other text. Null when its line differs there.
+ *
+ * @param {{line: number, character: number}} pos
+ * @param {((line: number) => number | null) | undefined} map
+ */
+function serverPosition(pos, map) {
+  if (!map) return pos;
+  const line = map(pos.line);
+  return line === null ? null : { line, character: pos.character };
+}
+
+/** What a hover (or a jump, `No definition`) says on a line the open tile has changed. */
+const LINE_DIFFERS = 'this line differs in the file open in a tile.';
 
 /** Hides the diff hover (and forgets one on its way). */
 function hideDiffHover() {
@@ -1584,9 +1612,14 @@ async function diffHoverAt(view, x, y) {
     if (ready.message) showDiffHover(view, x, y, { message: ready.message });
     return;
   }
+  const at = serverPosition(pos, ready.map);
+  if (!at) {
+    showDiffHover(view, x, y, { message: `No hover: ${LINE_DIFFERS}` });
+    return;
+  }
   let result;
   try {
-    result = await viewRequest(view.tile.id, 'textDocument/hover', pos);
+    result = await viewRequest(view.tile.id, 'textDocument/hover', at);
   } catch {
     return; // a timeout or a restart: nothing to show
   }
@@ -1611,9 +1644,16 @@ async function diffDefinitionAt(view, x, y) {
     if (ready.message) showDiffHover(view, x, y, { message: ready.message });
     return;
   }
+  const at = serverPosition(pos, ready.map);
+  if (!at) {
+    showDiffHover(view, x, y, {
+      message: `No definition: ${LINE_DIFFERS}`,
+    });
+    return;
+  }
   let result;
   try {
-    result = await viewRequest(view.tile.id, 'textDocument/definition', pos);
+    result = await viewRequest(view.tile.id, 'textDocument/definition', at);
   } catch {
     return;
   }
@@ -3191,6 +3231,7 @@ function tileState(tile) {
     dirty: file?.dirty ?? false,
     saveable: Boolean(file?.dirty && fileEditable(file)),
     url: diffViews.get(tile.id)?.data?.fileUrl ?? null,
+    removed: diffViews.get(tile.id)?.data?.file?.status === 'removed',
     lsp: file && tile.file && !file.media && lspLanguageFor(tile.file.path) &&
         containerByFolder(tile.file.localFolder)?.state === 'connected'
       ? { restart: tileRestartable(tile.id), settings: true }
@@ -3231,7 +3272,6 @@ function viewChanged() {
   viewChangeQueued = true;
   queueMicrotask(() => {
     viewChangeQueued = false;
-    removed: diffViews.get(tile.id)?.data?.file?.status === 'removed',
     updateWindow();
     const state = viewState();
     const before = lastTiles;

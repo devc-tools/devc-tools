@@ -674,3 +674,29 @@ export function newColumn(text, shown) {
   }
   return text.length;
 }
+
+/**
+ * Maps `fromText`'s lines onto `toText`'s: `map(line)` is the 0-based line of `toText` that line
+ * `line` of `fromText` is unchanged as, or null when it was changed or deleted (or either text is
+ * past {@link MAX_DIFF_LINES}). What a diff tile's hover uses when an open tile holds the file
+ * with other text than the PR head's.
+ *
+ * @param {string} fromText @param {string} toText
+ * @returns {(line: number) => number | null}
+ */
+export function lineMap(fromText, toText) {
+  if (fromText === toText) return (line) => line;
+  // Context as long as the texts: every unchanged line is a context row, with both numbers.
+  const parsed = diffTexts(fromText, toText, MAX_DIFF_LINES);
+  if (!parsed) return () => null;
+  /** @type {Map<number, number>} */
+  const map = new Map();
+  for (const hunk of parsed.hunks) {
+    for (const row of hunk.rows) {
+      if (row.kind === 'context' && row.old !== null && row.new !== null) {
+        map.set(row.old - 1, row.new - 1);
+      }
+    }
+  }
+  return (line) => map.get(line) ?? null;
+}
