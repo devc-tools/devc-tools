@@ -492,14 +492,18 @@ is published from any container: the host server finds devcontainers with
   launcher implements.
 - **Asking an agent about a file:** a file tile or a pull request's diff tile
   in one of a project's repos (a container file inside a repo too) has an
-  **Ask agent** button on its tab, also **Ask agent…** in its menu. It asks
+  **Ask agent** button on its tab, also **Ask agent…** in its menu and in the
+  menu a right-click on its text opens (which also has Copy, with Cut and
+  Paste while a file tile is editable and Select all in a file tile;
+  **Shift**+right-click gets the browser's own menu). It asks
   for a question and where it goes: an agent already running in a terminal
   at the repo, one of the repo's past sessions (resumed on the question, or
   prompted where it is still running), or a new Claude, Copilot or Pi session
   started at the repo. The picker starts on the one last asked from that repo.
   What is selected in the tile goes with the question, after it: a file
   tile's selection with its line numbers, a diff tile's selected text
-  (**Include selection** leaves it out); the file's path always does. A
+  (**Include selection** leaves it out); with nothing selected the question
+  is about the whole file. The file's path always goes with it. A
   running agent is sent the text as a prompt, as if typed and submitted
   (refused while it waits at an approval or question); a new or resumed
   session gets it in a file under `/tmp/devc-tasks/`, as a sent task does.

@@ -301,10 +301,13 @@ function askButton(tile) {
 
 /**
  * Opens the Ask agent dialog for the file a file or diff tile shows, in the repo it is in, with
- * what is selected in it: a file tile's selection with its lines, a diff tile's selected text.
- * The agent's terminal opens to the right of the tile.
+ * what is selected in it: a file tile's selection with its lines, a diff tile's selected text
+ * (`diffText`, when it was read before a click that may have cleared it). The agent's terminal
+ * opens to the right of the tile.
+ *
+ * @param {string} id @param {string} [diffText]
  */
-function askAgentFrom(id) {
+function askAgentFrom(id, diffText) {
   const tile = tileOf(id);
   const ref = tile?.file ?? tile?.diff;
   if (!tile || !ref) return;
@@ -318,11 +321,7 @@ function askAgentFrom(id) {
   /** @type {{text: string, startLine?: number, endLine?: number} | null | undefined} */
   let selection = fileViews.get(id)?.viewer?.selection();
   if (tile.diff) {
-    const sel = window.getSelection();
-    const text = sel && !sel.isCollapsed && sel.anchorNode &&
-        tile.element.contains(sel.anchorNode)
-      ? sel.toString()
-      : '';
+    const text = diffText ?? pageSelection(tile);
     selection = text ? { text } : null;
   }
   openAskDialog({
@@ -335,6 +334,86 @@ function askAgentFrom(id) {
       ...(tile.diff ? { diff: true } : {}),
     },
   });
+}
+
+/** The page's selected text while it is in `tile` ('' for none): a diff tile's selection. */
+function pageSelection(tile) {
+  const sel = window.getSelection();
+  return sel && !sel.isCollapsed && sel.anchorNode &&
+      tile.element.contains(sel.anchorNode)
+    ? sel.toString()
+    : '';
+}
+
+/** Whether a tile's file is in one of its project's repos: one an agent can be asked about. */
+function askable(tile) {
+  const { localFolder, repo } = tileRepo(tile);
+  return Boolean(localFolder && repo);
+}
+
+/**
+ * The menu a right-click on a file tile's text opens, in place of the browser's (Shift+right-click
+ * still gets that): **Ask agent…**, about the selection or, with none, the file, and the
+ * clipboard's items.
+ */
+function fileTextMenuItems(tile, viewer) {
+  const cm = viewer.view;
+  const { from, to } = cm.state.selection.main;
+  const editable = !cm.state.readOnly;
+  const copy = () =>
+    writeClipboard(Promise.resolve(cm.state.sliceDoc(from, to))).catch((e) =>
+      errorToast(`Copy failed: ${e?.message ?? e}`)
+    );
+  /** @type {import('./ui.js').MenuItem[]} */
+  const items = [];
+  if (askable(tile)) {
+    items.push([LABELS.askAgent, () => askAgentFrom(tile.id)], null);
+  }
+  if (editable && from !== to) {
+    items.push(['Cut', () => {
+      void copy();
+      cm.dispatch(cm.state.replaceSelection(''), { userEvent: 'delete.cut' });
+      cm.focus();
+    }]);
+  }
+  if (from !== to) items.push(['Copy', () => void copy()]);
+  if (editable && navigator.clipboard?.readText) {
+    items.push(['Paste', () => {
+      navigator.clipboard.readText().then((text) => {
+        cm.dispatch(cm.state.replaceSelection(text), {
+          userEvent: 'input.paste',
+          scrollIntoView: true,
+        });
+        cm.focus();
+      }).catch((e) => errorToast(`Paste failed: ${e?.message ?? e}`));
+    }]);
+  }
+  items.push(['Select all', () => {
+    cm.dispatch({ selection: { anchor: 0, head: cm.state.doc.length } });
+    cm.focus();
+  }]);
+  return items;
+}
+
+/**
+ * The menu a right-click on a diff tile's text opens, in place of the browser's (Shift+right-click
+ * still gets that): **Ask agent…**, about the selected text or, with none, the file, and Copy.
+ */
+function diffTextMenuItems(tile) {
+  const text = pageSelection(tile);
+  /** @type {import('./ui.js').MenuItem[]} */
+  const items = [];
+  if (askable(tile)) {
+    items.push([LABELS.askAgent, () => askAgentFrom(tile.id, text)], null);
+  }
+  if (text) {
+    items.push(['Copy', () => {
+      writeClipboard(Promise.resolve(text)).catch((e) =>
+        errorToast(`Copy failed: ${e?.message ?? e}`)
+      );
+    }]);
+  }
+  return items;
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -414,9 +493,14 @@ function mountFileTile(tile) {
     tile.focus();
   }, true);
   body.addEventListener('contextmenu', (e) => {
-    // The viewer's own text keeps the browser's menu (copy); the margins get the tile's. A
-    // right-click inside an HTML media view's frame never gets here: it is the page's.
-    if (/** @type {HTMLElement} */ (e.target).closest('.cm-content')) return;
+    // The viewer's own text gets its text menu (Ask agent, the clipboard), Shift+right-click the
+    // browser's; the margins get the tile's. A right-click inside an HTML media view's frame
+    // never gets here: it is the page's.
+    if (/** @type {HTMLElement} */ (e.target).closest('.cm-content')) {
+      const viewer = fileViews.get(tile.id)?.viewer;
+      if (!e.shiftKey && viewer) openMenu(e, fileTextMenuItems(tile, viewer));
+      return;
+    }
     openMenu(e, tileOwnMenuItems(tileState(tile)));
   });
   // After the factory returns: a title change mid-build would save a half-built layout.
@@ -1318,10 +1402,23 @@ function mountDiffTile(tile) {
     focusSeq.set(tile.id, ++nextFocusSeq);
     tile.focus();
   }, true);
+  // A right-click on the diff's text leaves the selection as it is (a Mac would select the word
+  // under it): the text menu asks about what was selected, or the file.
+  body.addEventListener('mousedown', (e) => {
+    if (e.button !== 2 || e.shiftKey) return;
+    if (/** @type {HTMLElement} */ (e.target).closest('.diff-text')) {
+      e.preventDefault();
+    }
+  });
   body.addEventListener('contextmenu', (e) => {
-    // Text keeps the browser's menu (copy); the rest gets the tile's.
+    // The diff's text gets its text menu (Ask agent, Copy), Shift+right-click the browser's; a
+    // thread's text keeps the browser's menu; the rest gets the tile's.
     const target = /** @type {HTMLElement} */ (e.target);
-    if (target.closest('.diff-text, .thread-body, textarea')) return;
+    if (target.closest('.diff-text')) {
+      if (!e.shiftKey) openMenu(e, diffTextMenuItems(tile));
+      return;
+    }
+    if (target.closest('.thread-body, textarea')) return;
     openMenu(e, tileOwnMenuItems(tileState(tile)));
   });
   /** @type {DiffView} */
