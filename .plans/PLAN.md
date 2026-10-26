@@ -77,6 +77,14 @@
   a source-existence check to the merged config's `initializeCommand`, so a missing host path stops
   `up` right after init — before the build and before `devc build` removes the old container.
 
+- [devc-port-forwarding](devc-port-forwarding.md) — `devc up --port [HOST:]PORT` (repeatable,
+  also on `build`) reaches a container port from `127.0.0.1` on the host without recreating the
+  container, and the merged config's `forwardPorts` works outside VS Code. A detached per-container
+  forwarder (`devc __ports-serve`) listens on the host and pipes each connection through its own
+  `docker exec` (via `dockerExecArgv`) into socat, nc or bash `/dev/tcp`. State in
+  `~/.cache/devc/ports/<containerId>.json`; `devc ports [stop]` lists and removes forwards.
+  `appPort` stays the permanent (recreate) route.
+
 - [devc-web-host-environments](devc-web-host-environments.md) — devc web without containers:
   an `Environment` / `EnvironmentSource` seam that every `docker` call goes through, the
   devcontainer code as its first implementation and **this machine** as its second (one Herdr
