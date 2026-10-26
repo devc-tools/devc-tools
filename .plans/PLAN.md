@@ -94,6 +94,13 @@
   through a `PrBackend` running the same `gh-pr-*` recipes with the host's `gh`. After
   devc-web-pr-review-depth. SSH is designed for, not built.
 
+- [devc-web-file-palette](devc-web-file-palette.md) — **⌘P** (Mac) / **Ctrl+Alt+P** (elsewhere)
+  opens a palette that fuzzy-finds a file in the focused tile's repo and opens it in a file tile
+  (Enter: preview, ⌘/Ctrl+Enter: to the right). Files come from a new `find_files` message: a
+  host Deno FS walk with devc's own `.gitignore` matcher (the host never runs git in a repo),
+  skipping `.git` and nested repos, capped at 50 000. Empty query lists open and recent files.
+  Files only, on `/` only (not the VS Code embedding's split pages); commands are a later source.
+
 ### Standing rules for Feature work
 
 Not a plan group — these are the conventions every Feature plan in this file
@@ -2547,3 +2554,4 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
 | devc web language servers — Python: `python-lsp` Feature (basedpyright, nearest-project root)                      | [devc-web-lsp-python](devc-web-lsp-python.md)                                      |             |
 | devc web language servers — Java: `java-lsp` Feature (JDT LS, no repo writes, Gradle build/reload actions)         | [devc-web-lsp-java](devc-web-lsp-java.md)                                          |             |
 | devc web language servers — diff hover: hover + go to definition in PR diff tiles (view documents)                 | [devc-web-lsp-diff-hover](devc-web-lsp-diff-hover.md)                              | in progress |
+| devc web file palette — ⌘P / Ctrl+Alt+P fuzzy-finds a file in the focused repo (`find_files`, gitignore-aware walk) | [devc-web-file-palette](devc-web-file-palette.md)                                  |             |
