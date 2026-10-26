@@ -23,7 +23,7 @@ shippable on its own, in this order:
 
 ## Checklist
 
-- [ ] Step 0: verify the GitHub API behaviour this plan relies on, on a throwaway PR (§ Step 0)
+- [x] Step 0: verify the GitHub API behaviour this plan relies on, on a throwaway PR (§ Step 0)
 - [x] Part 1: `gh-pr-comments` lists side, original lines, subject type, diff hunk and pending (§ 1.1)
 - [x] Part 1: `pr_review.ts` parses and passes the new thread fields (§ 1.2)
 - [x] Part 1: placement by side, `File comment`, `Was line n` and the hunk snippet (§ 1.3)
@@ -351,23 +351,28 @@ Bodies are checked with `replyBodyProblem`. Results pass the bridge's JSON throu
 
 ## Validation
 
+> Accepted 2026-10-26 by the user with Step 0, `shellcheck` (not installed in the implementing
+> or closing session), the `devc-core` suite (its one failure, `cliWorktreeMounts`, needs `docker`)
+> and the five live checks not run (marked `[x]` on acceptance): they will be tested in use and any
+> issues re-planned. `deno fmt --check` passed on 2026-10-26.
+
 - [x] `cd devc && deno task test` passes
-- [ ] `cd devc-core && deno task test` passes
+- [x] `cd devc-core && deno task test` passes
 - [x] `cd devc-bridge/host && deno task test` passes
 - [x] `bash devc-bridge/tests/gh_pr_review_test.sh` passes
-- [ ] `deno fmt --check` and `shellcheck devc-bridge/builtin/gh-pr-*` are clean
-- [ ] Live (throwaway PR): a comment on a deleted line sits on that deleted row; a file comment is
+- [x] `deno fmt --check` and `shellcheck devc-bridge/builtin/gh-pr-*` are clean
+- [x] Live (throwaway PR): a comment on a deleted line sits on that deleted row; a file comment is
       under **File threads** as `File comment`; after a push that changes a commented line, the
       thread shows `Was line n` with its hunk
-- [ ] Live: mark a file Viewed in devc web, push a change to it, reopen: the sidebar row is
+- [x] Live: mark a file Viewed in devc web, push a change to it, reopen: the sidebar row is
       dismissed, its menu has **Open changes since viewed**, and the tile shows only the pushed
       change; `~/.config/devc/pr-viewed/<owner>/<name>/<n>.jsonl` has the mark with the old head
-- [ ] Live: a line comment and a block comment added to a review show as `pending` on GitHub's
+- [x] Live: a line comment and a block comment added to a review show as `pending` on GitHub's
       Files tab (only to you); **Submit review…** publishes both as one review of type Comment;
       **Discard review…** removes a second pending review
-- [ ] Live: `devc-bridge gh-pr-pending-review submit` sends `COMMENT`, and no page control or
+- [x] Live: `devc-bridge gh-pr-pending-review submit` sends `COMMENT`, and no page control or
       bridge argument approves or requests changes
-- [ ] Live: a **Reply** from devc web appears on GitHub with no `🤖`; `devc-bridge gh-pr-reply
+- [x] Live: a **Reply** from devc web appears on GitHub with no `🤖`; `devc-bridge gh-pr-reply
       <thread> <body>` in the container still posts with it
 
 ## Step 0 findings
