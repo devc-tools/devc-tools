@@ -313,7 +313,8 @@ is published from any container: the host server finds devcontainers with
   filesystem from `/`). There, an active card keeps its place as a dashed,
   muted stand-in with an **In use** link: a click scrolls to its card in
   **In use** and flashes it. A repo's worktrees stay indented under its
-  stand-in, always shown (it has no chevron). A repo mounted in two containers has a card in each,
+  stand-in, whose click hides or shows them as its card's header does (its
+  **In use** link still scrolls). A repo mounted in two containers has a card in each,
   each listing its past sessions. Click a tile or pane row to bring it
   forward. Click a container to collapse it; a collapsed one shows its most
   urgent agent status. A repo is named by its path under `/workspaces` in the

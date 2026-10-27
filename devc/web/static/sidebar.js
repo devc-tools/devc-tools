@@ -1669,10 +1669,8 @@ function containerRows(c, cards) {
   shown.forEach((card, i) => {
     const main = mainOf(card);
     if (main) {
-      // An In use link has no chevron to show them again: under one, they always show.
       if (
-        !cards.get(main).active && sidebarState.worktreesClosed.has(main) &&
-        !cardMatchesFilter(card)
+        sidebarState.worktreesClosed.has(main) && !cardMatchesFilter(card)
       ) return;
       const el = card.active ? inUseLinkCard(card) : repoCard(card);
       el.classList.add('worktree');
@@ -1683,10 +1681,9 @@ function containerRows(c, cards) {
       rows.push(el);
       return;
     }
+    const worktrees = shown.filter((w) => mainOf(w) === card.key).length;
     rows.push(
-      card.active
-        ? inUseLinkCard(card)
-        : repoCard(card, shown.filter((w) => mainOf(w) === card.key).length),
+      card.active ? inUseLinkCard(card, worktrees) : repoCard(card, worktrees),
     );
   });
   rows.push(...containerFilesRows(c));
@@ -1695,19 +1692,34 @@ function containerRows(c, cards) {
 
 /**
  * Where an In use card is in its container's card under Containers: its name and branch, muted,
- * and an **In use** link; a click scrolls to the card in In use and flashes it (`revealInUse`).
+ * and an **In use** link, whose click scrolls to the card in In use and flashes it
+ * (`revealInUse`). The row's click does the same, but on a repo's with worktrees' cards under it,
+ * where it hides or shows them, as the card's header does.
  */
-function inUseLinkCard(card) {
+function inUseLinkCard(card, worktrees = 0) {
   const { key, localFolder, repo } = card;
   const branch = repo?.git?.branch;
+  const worktreesHidden = worktrees > 0 &&
+    sidebarState.worktreesClosed.has(key);
   const head = treeRow(
     `${key}\n\nin-use-link`,
     0,
-    undefined,
+    worktrees > 0 ? !worktreesHidden : undefined,
     {
       class: 'repo-card-head in-use-link-head',
-      title: LABELS.showInUse,
-      onclick: () => revealInUse(key),
+      title: [
+        worktrees > 0 ? '' : LABELS.showInUse,
+        worktreesHidden ? LABELS.worktreesHidden(worktrees) : '',
+      ].filter((t) => t).join('\n'),
+      onclick: worktrees > 0
+        ? () => {
+          if (!sidebarState.worktreesClosed.delete(key)) {
+            sidebarState.worktreesClosed.add(key);
+          }
+          saveSidebarState();
+          renderTree();
+        }
+        : () => revealInUse(key),
     },
     ...(repo
       ? [
@@ -1716,7 +1728,14 @@ function inUseLinkCard(card) {
       ]
       : [h('span', { class: 'repo-base' }, containerNameOf(localFolder))]),
   );
-  head.append(h('span', { class: 'in-use-link' }, LABELS.inUse));
+  head.append(h('span', {
+    class: 'in-use-link',
+    title: LABELS.showInUse,
+    onclick: (e) => {
+      e.stopPropagation();
+      revealInUse(key);
+    },
+  }, LABELS.inUse));
   return h('div', { class: 'repo-card in-use-link-card' }, head);
 }
 

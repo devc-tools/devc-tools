@@ -674,12 +674,15 @@ body.resizing-zones {
   color: var(--muted);
 }
 
+/* Its click scrolls; the row's, on a repo's with worktrees under it, hides or shows them. */
 .in-use-link {
   font-size: 11px;
   color: var(--accent);
+  cursor: pointer;
 }
 
-.repo-card.in-use-link-card:hover .in-use-link {
+.in-use-link:hover,
+.repo-card.in-use-link-card:not(:has(> .row[aria-expanded])):hover .in-use-link {
   text-decoration: underline;
 }
 
