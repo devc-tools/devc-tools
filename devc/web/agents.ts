@@ -55,13 +55,53 @@ export function taskFilePath(sessionId: string): string {
   return `${TASK_FILE_DIR}/${checkedUuid(sessionId)}.md`;
 }
 
-/** The agent's first prompt: points at the task file. Never contains `'`. */
-export function taskPrompt(action: TaskAction, file: string): string {
-  return action === 'implement'
+/** Where a queued task's agent writes its outcome (see {@link taskOutcome}). */
+export function taskResultPath(sessionId: string): string {
+  return `${TASK_FILE_DIR}/${checkedUuid(sessionId)}.result`;
+}
+
+/**
+ * The agent's first prompt: points at the task file. A queued task's (`result`, the file its
+ * outcome goes to) also has it finish the task on its own, as the plan-orchestrating method
+ * does: verify it, commit only its own changes when it succeeded, and report how it went, so
+ * the repo's queue moves on only after a success. Never contains `'` or `\`.
+ */
+export function taskPrompt(
+  action: TaskAction,
+  file: string,
+  result?: string,
+): string {
+  const ask = action === 'implement'
     ? `Implement the task described in ${file}.`
     : `Write an implementation plan for the task described in ${file}, following the ` +
       `conventions this project uses for plans (a .plans/ doc if the project has a .plans/ ` +
       `folder). Do not implement it yet.`;
+  if (result === undefined) return ask;
+  const work = action === 'implement'
+    ? `Verify it with the checks this project uses. If it succeeded, follow the project ` +
+      `conventions for finished work (for a .plans/ plan: check off its items, archive it ` +
+      `and update .plans/PLAN.md), then commit the changes you made for it`
+    : `Once the plan is written and registered as the project conventions say, commit the ` +
+      `plan files you added or changed`;
+  return `${ask} It is one of a queue of tasks run one after another in this repo, so ` +
+    `finish it on its own without waiting for a reply. ${work}: stage them by path, leave ` +
+    `changes you did not make alone, and follow the commit conventions of the project. ` +
+    `Do not commit a task that failed. Last, write its outcome to ${result}: the line ok if ` +
+    `it succeeded and is committed, else the line failed: followed by why. The next task in ` +
+    `the queue starts only after ok.`;
+}
+
+/**
+ * A queued task's outcome from its result file's text (see {@link taskResultPath}): its first
+ * non-blank line, `ok` (any case) for success, else `failed: <why>` or anything else as why.
+ */
+export function taskOutcome(
+  text: string,
+): { ok: true } | { ok: false; reason: string } {
+  const line = text.split('\n').map((l) => l.trim()).find((l) => l) ?? '';
+  if (/^ok\.?$/i.test(line)) return { ok: true };
+  const reason = line.replace(/^failed:?\s*/i, '').slice(0, 300).trim();
+  return { ok: false, reason: reason || 'no reason given' };
 }
 
 const MAX_SESSION_NAME = 80;
@@ -86,16 +126,23 @@ export function sessionName(title: string): string {
 /**
  * The command typed into a new tab's shell to start `agent` on a task, as session `sessionId`.
  * Claude is also given `title` as its session name (see {@link sessionName}): it names a session
- * after its first prompt otherwise, and that is only the task file's path.
+ * after its first prompt otherwise, and that is only the task file's path. `queued`: sent by its
+ * repo's queue, so the prompt is {@link taskPrompt}'s queued one.
  */
 export function startTaskCommand(
   agent: SessionAgentId,
   sessionId: string,
   action: TaskAction,
   title = '',
+  queued = false,
 ): string {
   const id = checkedUuid(sessionId);
-  return startCommand(agent, id, taskPrompt(action, taskFilePath(id)), title);
+  const prompt = taskPrompt(
+    action,
+    taskFilePath(id),
+    queued ? taskResultPath(id) : undefined,
+  );
+  return startCommand(agent, id, prompt, title);
 }
 
 /** `agent` started as session `id` on `prompt` (fixed text with no `'`), named `title`. */

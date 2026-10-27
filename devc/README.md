@@ -598,9 +598,15 @@ is published from any container: the host server finds devcontainers with
   before it (or on a task sent by hand there) has worked and stopped, or its
   terminal was closed. Different repos' queues run side by side, and a queue
   waits while its container is stopped. A queued task shows its place
-  (`queued #n`); its hover **×** takes it out of the queue. One that fails to
-  send shows `failed` and its queue waits on it until it is queued again (its
-  hover ↻) or taken out. An agent whose status Herdr can't follow never counts
+  (`queued #n`); its hover **×** takes it out of the queue. A queued task's
+  agent is told to finish it on its own: verify it with the project's checks,
+  commit only the changes it made (for a plan, the plan files) when it
+  succeeded, and write its outcome (`ok`, or `failed: <why>`) to
+  `/tmp/devc-tasks/<session id>.result`. Once it stops, anything but `ok`
+  (or no outcome) stops its queue: the next task shows `failed`, saying why.
+  One that fails to send shows `failed` too. Either way its queue waits on it
+  until it is queued again (its hover ↻) or taken out. Only a task this run of
+  `devc web` sent is checked: after a restart, the queue moves on without it. An agent whose status Herdr can't follow never counts
   as done: close its terminal to move its queue on.
   A sent task's menu also has **Open session**, **Back to tasks** and
   **Remove**. Sending is

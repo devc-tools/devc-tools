@@ -88,6 +88,8 @@ import {
   startTaskCommand,
   TASK_FILE_DIR,
   taskFilePath,
+  taskOutcome,
+  taskResultPath,
 } from './agents.ts';
 import {
   addTask,
@@ -1911,7 +1913,8 @@ export async function startWeb(
    * id chosen here, and moves the task to `sent`. `open_sent` answers with that agent's pane while
    * it is still in the session, else resumes the session in a new tab. `queue_tasks` and
    * `unqueue_task` put tasks in their repo's queue and take them out; the queue runner
-   * (`pumpQueues`) sends them. Nothing a container says is written to the list.
+   * (`pumpQueues`) sends them, with `queued` set. Nothing a container says is written to the
+   * list.
    */
   const handleTask = async (
     c: Client,
@@ -1929,6 +1932,7 @@ export async function startWeb(
           | 'open_sent';
       }
     >,
+    queued = false,
   ) => {
     const badRoute = (localFolder?: string, root?: string) => {
       if (localFolder === undefined || root === undefined) return null;
@@ -2079,6 +2083,7 @@ export async function startWeb(
         sessionId,
         msg.action,
         taskTitle(task.text),
+        queued,
       );
     } else {
       command = resumeTaskCommand(agent, sessionId);
@@ -2170,8 +2175,17 @@ export async function startWeb(
     return false;
   };
 
-  /** Routes with a queued task being sent now. */
+  /** Routes with a queued task being sent, or a queued run's outcome being read, now. */
   const dispatching = new Set<string>();
+  /**
+   * The last task each route's queue sent, by route, until its agent stops and the outcome it
+   * wrote (`taskResultPath`) is read: anything but ok halts the queue on its next task. Kept in
+   * memory only: a run this server didn't send is never checked.
+   */
+  const queuedRuns = new Map<
+    string,
+    { localFolder: string; sessionId: string; title: string }
+  >();
 
   /**
    * Sends queued task `task` as `send_task` would. A container that stopped or whose Herdr is
@@ -2196,9 +2210,20 @@ export async function startWeb(
         root,
         agent: queued.agent,
         action: queued.action,
-      });
+      }, true);
       const code = answer.error?.code;
-      if (answer.ok || code === 'not_running' || code === 'not_ready') return;
+      if (answer.ok) {
+        const sent = taskState.sent.find((t) => t.id === task.id);
+        if (sent) {
+          queuedRuns.set(key, {
+            localFolder,
+            sessionId: sent.sessionId,
+            title: taskTitle(task.text),
+          });
+        }
+        return;
+      }
+      if (code === 'not_running' || code === 'not_ready') return;
       const message = answer.error?.message ?? 'send failed';
       console.error(`devc web: queued task ${task.id}: ${message}`);
       await changeTasks((state) => queueFailed(state, task.id, message));
@@ -2210,21 +2235,72 @@ export async function startWeb(
   };
 
   /**
-   * Each repo's queue sends its next task once nothing runs there and its container runs; the
-   * queues of different repos run side by side.
+   * Reads the outcome queued run `run` wrote once its agent stopped. Not ok (or none written)
+   * halts route `key`'s queue on its next task, saying why; the run's own task is already sent.
+   */
+  const checkQueuedRun = async (
+    key: string,
+    run: { localFolder: string; sessionId: string; title: string },
+    session: ContainerSession,
+  ) => {
+    dispatching.add(key);
+    try {
+      let outcome: ReturnType<typeof taskOutcome>;
+      try {
+        const bytes = await readContainerBytes(
+          await connectionOf(session),
+          taskResultPath(run.sessionId),
+          4096,
+        );
+        outcome = taskOutcome(new TextDecoder().decode(bytes));
+      } catch {
+        outcome = { ok: false, reason: 'it wrote no outcome' };
+      }
+      if (outcome.ok) return;
+      const next = queueHeads(taskState).find((t) =>
+        t.localFolder !== undefined && t.root !== undefined &&
+        routeKey({ localFolder: t.localFolder, root: t.root }) === key
+      );
+      if (!next) return;
+      const message = `queue stopped: “${run.title}” did not succeed: ` +
+        outcome.reason;
+      console.error(`devc web: queued task ${next.id}: ${message}`);
+      await changeTasks((state) => queueFailed(state, next.id, message));
+    } catch (e) {
+      console.error(`devc web: ${e instanceof Error ? e.message : e}`);
+    } finally {
+      dispatching.delete(key);
+      schedulePump();
+    }
+  };
+
+  /**
+   * Each repo's queue sends its next task once nothing runs there, its container runs and the
+   * task it sent before reported success; the queues of different repos run side by side.
    */
   const pumpQueues = () => {
+    const runningSession = (localFolder: string) => {
+      const session = [...sessions.values()].find((s) =>
+        s.record.localFolder === localFolder
+      );
+      return session?.state === 'connected' || session?.state === 'no-session'
+        ? session
+        : null;
+    };
+    for (const [key, run] of queuedRuns) {
+      if (dispatching.has(key) || taskRuns.get(key)?.size) continue;
+      const session = runningSession(run.localFolder);
+      if (session === null) continue;
+      queuedRuns.delete(key);
+      void checkQueuedRun(key, run, session);
+    }
     for (const head of queueHeads(taskState)) {
       const { localFolder, root } = head;
       if (localFolder === undefined || root === undefined) continue;
       const key = routeKey({ localFolder, root });
-      if (dispatching.has(key) || routeBusy(key, localFolder, root)) continue;
-      const session = [...sessions.values()].find((s) =>
-        s.record.localFolder === localFolder
-      );
-      if (session?.state !== 'connected' && session?.state !== 'no-session') {
-        continue;
-      }
+      if (dispatching.has(key) || queuedRuns.has(key)) continue;
+      if (routeBusy(key, localFolder, root)) continue;
+      if (runningSession(localFolder) === null) continue;
       void dispatchQueued(head, key);
     }
   };

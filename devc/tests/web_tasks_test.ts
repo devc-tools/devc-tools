@@ -6,6 +6,8 @@ import {
   sessionName,
   startTaskCommand,
   taskFilePath,
+  taskOutcome,
+  taskResultPath,
 } from '../web/agents.ts';
 import { reusablePinnedPane } from '../web/pinned_files.ts';
 import { parseClientMessage } from '../web/protocol.ts';
@@ -237,6 +239,59 @@ Deno.test('start and resume commands, exactly', () => {
   assertEquals(resumeTaskCommand('claude', ID), `claude --resume ${ID}`);
   assertEquals(resumeTaskCommand('copilot', ID), `copilot --resume ${ID}`);
   assertEquals(resumeTaskCommand('pi', ID), `pi --session-id ${ID}`);
+});
+
+Deno.test('a queued task is told to verify, commit its own changes and report', () => {
+  const file = `/tmp/devc-tasks/${ID}.md`;
+  const result = `/tmp/devc-tasks/${ID}.result`;
+  assertEquals(taskResultPath(ID), result);
+  assertThrows(() => taskResultPath('../x'));
+  for (const action of ['implement', 'plan'] as const) {
+    const command = startTaskCommand('claude', ID, action, '', true);
+    const prompt = command.slice(`claude --session-id ${ID} `.length);
+    assert(prompt.startsWith(`'`) && prompt.endsWith(`'`));
+    const inner = prompt.slice(1, -1);
+    assert(!inner.includes(`'`) && !inner.includes('\\'));
+    assert(inner.includes(file));
+    assert(inner.includes(`write its outcome to ${result}`));
+    assert(inner.includes('commit'));
+    assert(inner.includes('Do not commit a task that failed.'));
+    assertEquals(
+      command,
+      startTaskCommand('claude', ID, action, '', false).slice(0, -1) +
+        inner.slice(inner.indexOf(' It is one of a queue')) + `'`,
+    );
+  }
+  assert(
+    startTaskCommand('claude', ID, 'implement', '', true).includes(
+      'archive it and update .plans/PLAN.md',
+    ),
+  );
+  assert(
+    startTaskCommand('copilot', ID, 'plan', '', true).startsWith(
+      `copilot --session-id ${ID} -i 'Write an implementation plan`,
+    ),
+  );
+});
+
+Deno.test('a queued task outcome: ok, or failed and why', () => {
+  assertEquals(taskOutcome('ok\n'), { ok: true });
+  assertEquals(taskOutcome('\n  OK.  \nmore'), { ok: true });
+  assertEquals(taskOutcome('failed: tests fail'), {
+    ok: false,
+    reason: 'tests fail',
+  });
+  assertEquals(taskOutcome('Failed:'), {
+    ok: false,
+    reason: 'no reason given',
+  });
+  assertEquals(taskOutcome(''), { ok: false, reason: 'no reason given' });
+  assertEquals(taskOutcome('okay then'), { ok: false, reason: 'okay then' });
+  assertEquals(
+    (taskOutcome(`failed: ${'x'.repeat(500)}`) as { reason: string }).reason
+      .length,
+    300,
+  );
 });
 
 Deno.test('Claude is named after the task; the others are not', () => {
