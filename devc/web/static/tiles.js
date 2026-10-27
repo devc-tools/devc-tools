@@ -1331,6 +1331,7 @@ function saveFlag(key, on) {
  *   while an open tile holds the file with other text: the PR head's lines mapped onto it
  * @property {number} scrollTop  where the body was last scrolled to while shown: a hidden tab
  *   reads as scrolled to the top, and a redraw starts a new body
+ * @property {boolean} [lspWanted]  whether it wanted a language server at the last sync
  */
 
 /**
@@ -1923,6 +1924,45 @@ function readHead(view) {
 }
 
 /**
+ * Puts a diff tile on its file's session (`attachView`: once, a repeat resolves as the first
+ * did), or null when it has none to be on: no server for the file, its container not connected.
+ *
+ * @param {DiffView} view
+ */
+function attachDiffLanguage(view) {
+  const ref = view.tile.diff;
+  const c = ref ? containerByFolder(ref.localFolder) : null;
+  if (!ref || !c || c.state !== 'connected' || !lspLanguageFor(ref.path)) {
+    return null;
+  }
+  return attachView(view.tile.id, {
+    localFolder: ref.localFolder,
+    root: ref.root,
+    path: ref.path,
+  }, c);
+}
+
+/**
+ * Starts a diff tile's language server once its diff has loaded and its container is connected,
+ * as a file tile's starts when it opens, so the first hover finds it ready (or nearly). Again
+ * only after it stopped wanting one: each sync would otherwise ask anew for a file no server
+ * takes.
+ *
+ * @param {DiffView} view
+ */
+function syncDiffLanguage(view) {
+  const ref = view.tile.diff;
+  const c = ref ? containerByFolder(ref.localFolder) : null;
+  const wanted = Boolean(
+    ref && view.state === 'ok' && c?.state === 'connected' &&
+      lspLanguageFor(ref.path),
+  );
+  const was = view.lspWanted;
+  view.lspWanted = wanted;
+  if (wanted && !was) void attachDiffLanguage(view);
+}
+
+/**
  * Gets a diff tile's file ready for a request on its session: attached, the server ready, and
  * the PR head's text open as its view. While an open tile holds the file with other text, the
  * server keeps that text and `map` turns a PR head line into its line there (null: the line
@@ -1934,17 +1974,10 @@ function readHead(view) {
  *   {ok: false, message: string}>}
  */
 async function diffLspReady(view) {
-  const ref = view.tile.diff;
-  const c = ref ? containerByFolder(ref.localFolder) : null;
-  if (!ref || !c || c.state !== 'connected' || !lspLanguageFor(ref.path)) {
-    return { ok: false, message: '' };
-  }
+  const attaching = attachDiffLanguage(view);
+  if (!attaching) return { ok: false, message: '' };
   const key = view.tile.id;
-  const at = await attachView(key, {
-    localFolder: ref.localFolder,
-    root: ref.root,
-    path: ref.path,
-  }, c);
+  const at = await attaching;
   if (!at.ok) return { ok: false, message: at.error };
   const st = viewStatus(key);
   if (!st) return { ok: false, message: '' };
@@ -2209,6 +2242,7 @@ async function loadDiff(view) {
     applyViewedCompare(view);
   } else if (view.since) void loadSince(view, view.since.sha);
   renderDiff(view);
+  syncDiffLanguage(view);
   void loadThreads(view);
   void loadPending(view);
 }
@@ -4661,6 +4695,7 @@ function onTilesMessage(msg) {
         if (view.noContainer || gone) loadFile(view);
         else syncFileEditable(view);
       }
+      for (const view of diffViews.values()) syncDiffLanguage(view);
       reconcileTiles();
       break;
     case 'projects':

@@ -409,6 +409,14 @@ export function attachView(key, file, container) {
   return view.attaching;
 }
 
+/** A view that lost its session goes on one again (a reconnect, a settings change). */
+function reattachView(/** @type {LspView} */ v) {
+  return attachView(v.key, v.file, {
+    id: v.container,
+    localFolder: v.file.localFolder,
+  });
+}
+
 /**
  * Diff tile `key`'s session as its hover shows it: the language's name, and the session's state
  * and detail. Null when it isn't on one.
@@ -560,7 +568,9 @@ function onLspStatus(msg) {
   if (r.state === 'exited' && r.detail === 'settings changed') {
     for (const key of keys) {
       const v = views.get(key);
-      if (v) releaseView(v);
+      if (!v) continue;
+      releaseView(v);
+      void reattachView(v);
     }
   }
   if (r.state === 'exited') {
@@ -601,6 +611,7 @@ function onHello() {
     v.session = null;
     v.opened = null;
     v.attaching = null;
+    void reattachView(v);
   }
   for (const t of tiles.values()) {
     t.viewer.detachLanguage();
