@@ -50,6 +50,7 @@ import {
 import {
   isZenShortcut,
   paneLabel,
+  projectActions,
   savedZen,
   windowTitle,
 } from './lib/sidebar.js';
@@ -4132,15 +4133,19 @@ function updateOverlay(tileId) {
     if (!socket) message = 'Disconnected from devc web.';
     else if (!c) {
       const p = projects.get(ref.localFolder);
-      if (p?.starting) message = 'Starting container…';
-      else if (p && p.container !== 'running') {
-        message = p.container === 'stopped'
+      const host = p?.environment === 'host';
+      if (p?.starting) {
+        message = host ? 'Starting session…' : 'Starting container…';
+      } else if (p && p.container !== 'running') {
+        message = host
+          ? 'Session stopped'
+          : p.container === 'stopped'
           ? 'Container stopped'
           : 'Container not created';
         if (projectStarts) {
           action = h('button', {
             onclick: () => startProject(ref.localFolder),
-          }, 'Start container');
+          }, projectActions(p.environment).start);
         } else message += ' (start it from a terminal)';
       } else message = `${basename(ref.localFolder)} is not running.`;
     } else if (c.state !== 'connected') {

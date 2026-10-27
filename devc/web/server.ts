@@ -1,6 +1,8 @@
 // `devc web`: a loopback HTTP + WebSocket server that serves the page in `static/` and routes
-// its `/ws` protocol (`protocol.ts`) to each running devcontainer's Herdr server
-// (`herdr_bridge.ts`) and pane streams (`controllers.ts`). See `.plans/devc-web.md`.
+// its `/ws` protocol (`protocol.ts`) to each running environment's Herdr server
+// (`herdr_bridge.ts`) and pane streams (`controllers.ts`): every running devcontainer
+// (`containers.ts`), and every project on this machine whose own Herdr session runs
+// (`env_host.ts`). See `.plans/devc-web.md` and `.plans/devc-web-host-environments.md`.
 //
 // Any website the user visits can open a WebSocket to 127.0.0.1, and `/ws` is a shell in every
 // container, so every request passes `authorize` first: Host (DNS rebinding), then for `/ws`
@@ -14,29 +16,16 @@ import {
   fromFileUrl,
   toFileUrl,
 } from 'jsr:@std/path';
+import { ContainerSource, probeDocker } from './containers.ts';
+import { HostSource } from './env_host.ts';
 import {
-  type ContainerRecord,
-  Discovery,
-  inspectMounts,
-  probeDocker,
-  resolveConnection,
-} from './containers.ts';
-import type {
-  ContainerInfo,
-  ContainerMount,
-} from '@devc-tools/core/container.ts';
-import {
-  containerHome,
-  createContainerEntry,
-  deleteContainerEntry,
-  listContainerDir,
-  readContainerBytes,
-  readContainerFile,
-  renameContainerEntry,
-  withHostPaths,
-  writeContainerFile,
-  writeContainerText,
-} from './container_files.ts';
+  type Environment,
+  ENVIRONMENT_KINDS,
+  type EnvironmentKind,
+  type EnvironmentSource,
+} from './environment.ts';
+import type { ContainerMount } from '@devc-tools/core/container.ts';
+import { withHostPaths } from './container_files.ts';
 import {
   GLOBAL_CONFIG_PATHS,
   type JiraConfig,
@@ -74,7 +63,6 @@ import {
   ContainerSession,
   createShell,
   type HerdrTarget,
-  isHerdrLaunch,
   paneAtFolder,
   snapshotPaneIds,
   snapshotPanes,
@@ -125,10 +113,10 @@ import {
   loadProjects,
   type ProjectEntry,
   PROJECTS_PATH,
+  setEnvironment,
   setPinned,
   updateProjects,
 } from '../projects.ts';
-import { downProject, startProject, stopProject } from './project_control.ts';
 import {
   addFilePin,
   type FilePin,
@@ -149,6 +137,7 @@ import {
 } from './dashboard.ts';
 import {
   buildProjects,
+  effectiveEnvironment,
   isProjectRepo,
   projectRefusal,
   repoFileFor,
@@ -468,6 +457,17 @@ interface Client extends Subscriber {
 /** Thrown by {@link startWeb} for a startup failure worth a one-line message. */
 export class WebStartError extends Error {}
 
+/** Whether `docker` is on PATH. */
+export async function dockerAvailable(): Promise<boolean> {
+  try {
+    await probeDocker();
+    return true;
+  } catch (e) {
+    if (e instanceof Deno.errors.NotFound) return false;
+    throw e;
+  }
+}
+
 /** Throws {@link WebStartError} when `docker` is not on PATH. */
 export async function requireDocker(): Promise<void> {
   try {
@@ -495,7 +495,8 @@ export interface WebHandle {
  * Starts the server and returns once it is listening. `live` is the supervised child of a
  * checkout (`supervisor.ts`): it watches `static/`, reports its generation and keeps the
  * last-good snapshot for `/safe/`. Prints nothing on success; the caller prints the URL.
- * Throws {@link WebStartError} when docker is missing or the port cannot be bound.
+ * Throws {@link WebStartError} when the port cannot be bound, or when docker is missing and
+ * projects on this machine are off too (`projectStarts` false).
  */
 export async function startWeb(
   opts: WebOptions & {
@@ -520,7 +521,14 @@ export async function startWeb(
     ? STATIC_ROOT
     : toFileUrl(`${opts.staticDir.replace(/\/+$/, '')}/`);
   const projectStarts = opts.projectStarts ?? true;
-  await requireDocker();
+  const hasDocker = await dockerAvailable();
+  // A page agents can write (`--live`) never gets a host shell: no projects on this machine.
+  if (!hasDocker && !projectStarts) {
+    throw new WebStartError('docker not found on PATH');
+  }
+  if (!hasDocker) {
+    console.error('devc web: docker not found on PATH; devcontainers are off');
+  }
 
   const token = opts.token;
   const openLink = openRedirect(opts.openNonce, token);
@@ -529,9 +537,8 @@ export async function startWeb(
   // The focused terminal pane the last page to report one named (any client's), for
   // devc-desktop's host terminal. A client closing leaves it.
   let activePane: { container: string; pane_id: string } | null = null;
-  // Each running container's remote user's home, for its Files node's home row: read once, on
-  // the first container file request (the connection is resolved then anyway). `null` when it
-  // couldn't be read; not retried.
+  // Each running environment's user's home, for its Files node's home row: read once, on the
+  // first file request there. `null` when it couldn't be read; not retried.
   const containerHomes = new Map<string, string | null>();
   const clients = new Set<Client>();
   const controllers = new ControllerManager();
@@ -563,6 +570,7 @@ export async function startWeb(
     containers: [...sessions.values()]
       .map((s) => ({
         id: s.record.id,
+        kind: s.env.kind,
         localFolder: s.record.localFolder,
         name: basename(s.record.localFolder) || s.record.id.slice(0, 12),
         state: s.state,
@@ -572,18 +580,52 @@ export async function startWeb(
       .sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id)),
   });
 
+  // Where projects run: devcontainers when Docker is here, and projects on this machine unless
+  // the page is one agents can write (`--live`). Set up below, once the hooks exist.
+  let containerSource: ContainerSource | null = null;
+  let hostSource: HostSource | null = null;
+  const sources = (): EnvironmentSource[] =>
+    [containerSource, hostSource].filter((s) => s !== null);
+  const available: EnvironmentKind[] = ENVIRONMENT_KINDS.filter((k) =>
+    k === 'container' ? hasDocker : projectStarts
+  );
+  /** Every source's stopped environments. */
+  const allStopped = () =>
+    sources().flatMap((src) =>
+      [...src.stopped().values()].map((r) => ({ ...r, source: src }))
+    );
+  /** The folders a devcontainer, running or stopped, carries: they run in it (rule 1). */
+  const containerFolders = () =>
+    new Set([
+      ...[...sessions.values()].filter((s) => s.env.kind === 'container')
+        .map((s) => s.record.localFolder),
+      ...[...(containerSource?.stopped().values() ?? [])].map((r) =>
+        r.localFolder
+      ),
+    ]);
+  /** The listed folders that run on this machine: the host source's candidates. */
+  const hostCandidates = () => {
+    const containers = containerFolders();
+    return projectEntries.filter((e) =>
+      effectiveEnvironment(e, containers.has(e.localFolder), available) ===
+        'host'
+    ).map((e) => e.localFolder);
+  };
+
   // Projects: devc's projects list (pinned and recent folders) merged with what discovery knows.
   let projectEntries: ProjectEntry[] = await loadProjects();
   const startingProjects = new Set<string>();
   const projectsMessage = () => ({
     type: 'projects',
+    environments: available,
     projects: buildProjects(
       projectEntries,
       [...sessions.values()].map((s) => s.record.localFolder),
-      [...discovery.stopped.values()].map((r) => r.localFolder),
+      allStopped().map((r) => r.localFolder),
       startingProjects,
       reposByFolder(),
       gitWatch.statuses,
+      { containers: containerFolders(), available },
     ),
   });
   const broadcastProjects = () => broadcast(projectsMessage());
@@ -726,14 +768,15 @@ export async function startWeb(
     type: 'usage',
     sources,
   });
-  // Each container's repos by container id, from its bind mounts, read once per container: a
-  // container's mounts are fixed when it is created.
+  // Each environment's repos by id, from its mounts and repo sources (a container's bind mounts,
+  // a host project's worktrees), read once per environment: a container's mounts are fixed when
+  // it is created.
   const containerRepos = new Map<string, MountedRepo[]>();
   const reposByFolder = () => {
     const byFolder = new Map<string, MountedRepo[]>();
-    // A running container's mounts win over a stopped one's for the same folder.
+    // A running environment's repos win over a stopped one's for the same folder.
     const records = [
-      ...discovery.stopped.values(),
+      ...allStopped(),
       ...[...sessions.values()].map((s) => s.record),
     ];
     for (const r of records) {
@@ -742,7 +785,11 @@ export async function startWeb(
     }
     return byFolder;
   };
-  const loadRepos = async (record: ContainerRecord) => {
+  // An SSH environment would need `mountedRepos`' reads to go through `env.run`: they read
+  // the host's FS.
+  const loadRepos = async (
+    record: Pick<Environment, 'id' | 'localFolder' | 'mounts' | 'repoSources'>,
+  ) => {
     if (containerRepos.has(record.id)) return;
     containerRepos.set(record.id, [{
       folder: record.localFolder,
@@ -750,11 +797,10 @@ export async function startWeb(
       containerFolder: null,
       primaryFolder: null,
     }]);
-    const mounts = await inspectMounts(record.id);
-    const binds = mounts.filter((m) => m.type === 'bind');
+    const binds = (await record.mounts()).filter((m) => m.type === 'bind');
     const repos = await mountedRepos(
       record.localFolder,
-      binds.map((m) => m.source),
+      await record.repoSources(),
     );
     containerRepos.set(
       record.id,
@@ -780,41 +826,16 @@ export async function startWeb(
     projectEntries = await loadProjects();
     broadcastProjects();
     void gitWatch.refresh();
+    void hostSource?.refresh().catch(() => {});
   };
-  // Each running container's mount table, read once: fixed when the container is created. A
-  // failed read (an empty table) is not kept.
-  const containerMounts = new Map<string, ContainerMount[]>();
-  const mountsOf = async (id: string) => {
-    let mounts = containerMounts.get(id);
-    if (mounts === undefined) {
-      mounts = await inspectMounts(id);
-      if (mounts.length) containerMounts.set(id, mounts);
-    }
-    return mounts;
-  };
-  // How to reach each running container for its Files node, when its session has no Herdr
-  // target to borrow one from. A failed resolution is not kept.
-  const containerConnections = new Map<string, Promise<ContainerInfo>>();
-  const connectionOf = (session: ContainerSession) => {
-    if (session.target) return Promise.resolve(session.target.info);
-    const id = session.record.id;
-    let info = containerConnections.get(id);
-    if (info === undefined) {
-      info = resolveConnection(session.record);
-      containerConnections.set(id, info);
-      info.catch(() => {
-        if (containerConnections.get(id) === info) {
-          containerConnections.delete(id);
-        }
-      });
-    }
-    return info;
-  };
-  const loadHome = async (session: ContainerSession, info: ContainerInfo) => {
+  // Each running environment's path map (`Environment.mounts`, cached there).
+  const mountsOf = (id: string) =>
+    sessions.get(id)?.env.mounts() ?? Promise.resolve([]);
+  const loadHome = async (session: ContainerSession) => {
     const id = session.record.id;
     if (containerHomes.has(id)) return;
     containerHomes.set(id, null);
-    const home = await containerHome(info);
+    const home = await session.env.home();
     if (sessions.get(id) !== session) return;
     containerHomes.set(id, home);
     if (home !== null) broadcast(containersMessage());
@@ -829,20 +850,25 @@ export async function startWeb(
   >();
   const isListedProject = (localFolder: string) =>
     projectsMessage().projects.some((p) => p.localFolder === localFolder);
-  // Each repo's pull request, through its running container's devc-bridge: grants read from the
-  // host-only policy on every message, the last listing per repo kept here.
+  // Each repo's pull request, through its running environment's PR backend (a container's
+  // devc-bridge, with grants read from the host-only policy on every message; the host's own
+  // recipes), the last listing per repo kept here.
   const prReview = new PrReview({
     isRepo: (localFolder, root) =>
       isProjectRepo(projectsMessage().projects, localFolder, root),
-    container: async (localFolder) => {
+    environment: (localFolder) => {
       const session = [...sessions.values()].find((s) =>
         s.record.localFolder === localFolder
       );
-      if (!session) return null;
-      return {
-        info: await connectionOf(session),
-        name: basename(localFolder) || session.record.id.slice(0, 12),
-      };
+      const kind = session?.env.kind ??
+        projectsMessage().projects.find((p) => p.localFolder === localFolder)
+          ?.environment ??
+        'container';
+      return Promise.resolve({
+        kind,
+        name: basename(localFolder) || localFolder,
+        pr: session?.env.pr ?? null,
+      });
     },
     home: Deno.env.get('HOME') ?? '.',
   });
@@ -896,9 +922,10 @@ export async function startWeb(
     for (const id of sessions.keys()) recordPanes(id);
   };
 
-  const addContainer = (record: ContainerRecord) => {
-    const id = record.id;
-    const session = new ContainerSession(record, opts.session, {
+  const addContainer = (env: Environment) => {
+    const id = env.id;
+    const record = env;
+    const session = new ContainerSession(env, {
       onState: () => {
         broadcast(containersMessage());
         schedulePump();
@@ -948,16 +975,16 @@ export async function startWeb(
     broadcast(containersMessage());
     broadcastProjects();
     void gitWatch.refresh();
-    void loadRepos(record);
+    void loadRepos(env);
     void session.run();
+    // A container now carries the folder: it no longer runs on this machine.
+    if (env.kind === 'container') void hostSource?.refresh().catch(() => {});
   };
 
   const removeContainer = (id: string) => {
     const session = sessions.get(id);
     if (!session) return;
     sessions.delete(id);
-    containerMounts.delete(id);
-    containerConnections.delete(id);
     containerHomes.delete(id);
     sessionLists.delete(id);
     for (const key of resumedPanes.keys()) {
@@ -984,19 +1011,42 @@ export async function startWeb(
   await liveStatic?.init();
   const generation = () => liveStatic?.generation ?? EMBEDDED_GENERATION;
 
-  const discovery = new Discovery({
+  containerSource = hasDocker ? new ContainerSource(opts.session) : null;
+  hostSource = projectStarts
+    ? new HostSource({ session: opts.session, candidates: hostCandidates })
+    : null;
+  const sourceHooks = (source: EnvironmentSource) => ({
     onAdd: addContainer,
     onRemove: removeContainer,
     onStoppedChange: () => {
       broadcastProjects();
       void gitWatch.refresh();
-      for (const r of discovery.stopped.values()) void loadRepos(r);
+      for (const r of source.stopped().values()) {
+        void loadRepos(source.environment(r));
+      }
+      // A stopped container carries its folder too (rule 1).
+      if (source.kind === 'container') {
+        void hostSource?.refresh().catch(() => {});
+      }
     },
-    onExec: (id, command) => {
-      if (isHerdrLaunch(command)) void sessions.get(id)?.herdrLaunched();
-    },
-    onError: (m) => console.error(`devc web: ${m}`),
+    onLaunch: (id: string) => void sessions.get(id)?.herdrLaunched(),
+    onError: (m: string) => console.error(`devc web: ${m}`),
   });
+  /** The source that runs project `folder`: its effective environment's, if this server has it. */
+  const projectSource = (folder: string) => {
+    const kind =
+      projectsMessage().projects.find((p) => p.localFolder === folder)
+        ?.environment ?? effectiveEnvironment(
+          undefined,
+          containerFolders().has(folder),
+          available,
+        );
+    return { kind, source: kind === 'host' ? hostSource : containerSource };
+  };
+
+  /** Where a session's environment is, in a message: `in this container`, `on this machine`. */
+  const placeOf = (session: ContainerSession) =>
+    session.env.kind === 'host' ? 'on this machine' : 'in this container';
 
   const reply = (c: Client, msg: Record<string, unknown>) =>
     c.send(JSON.stringify({ type: 'result', ...msg }));
@@ -1271,8 +1321,7 @@ export async function startWeb(
       path = `${parent === '/' ? '' : parent}/${basenamePosix(msg.path)}`;
     }
     try {
-      const info = await connectionOf(session);
-      const result = await createContainerEntry(info, path, msg.kind);
+      const result = await session.env.files.create(path, msg.kind);
       reply(c, { id: msg.id, ok: true, result });
     } catch (e) {
       fail(c, msg.id, e instanceof FilesError ? e.code : 'create_failed', e);
@@ -1312,14 +1361,12 @@ export async function startWeb(
     const path = await entryContainerPath(c, session, msg);
     if (path === null) return;
     try {
-      const info = await connectionOf(session);
       const result = msg.type === 'rename_file'
-        ? await renameContainerEntry(
-          info,
+        ? await session.env.files.rename(
           path,
           `${dirnamePosix(path) === '/' ? '' : dirnamePosix(path)}/${msg.to}`,
         )
-        : await deleteContainerEntry(info, path);
+        : await session.env.files.delete(path);
       reply(c, { id: msg.id, ok: true, result });
     } catch (e) {
       fail(
@@ -1354,8 +1401,11 @@ export async function startWeb(
       });
     if (path === null) return;
     try {
-      const info = await connectionOf(session);
-      const result = await writeContainerText(info, path, msg.text, msg.base);
+      const result = await session.env.files.writeText(
+        path,
+        msg.text,
+        msg.base,
+      );
       reply(c, { id: msg.id, ok: true, result });
     } catch (e) {
       fail(c, msg.id, e instanceof FilesError ? e.code : 'write_failed', e);
@@ -1384,8 +1434,8 @@ export async function startWeb(
       ? null
       : await confine(msg.root, msg.path).catch(() => null);
     return {
-      info: await connectionOf(session),
-      mounts: await mountsOf(session.record.id),
+      env: session.env,
+      mounts: await session.env.mounts(),
       path,
       ...(msg.root !== undefined && hostPath
         ? { repo: { folder: msg.root, hostPath } }
@@ -1495,12 +1545,12 @@ export async function startWeb(
     >,
   ) => {
     try {
-      const info = await connectionOf(session);
-      void loadHome(session, info);
+      const files = session.env.files;
+      void loadHome(session);
       if (msg.type === 'preview_container_file') {
-        const read: PreviewRead = async (path, max) =>
-          readContainerBytes(await connectionOf(session), `/${path}`, max);
-        await readContainerBytes(info, msg.path, MAX_PREVIEW_BYTES);
+        const read: PreviewRead = (path, max) =>
+          files.readBytes(`/${path}`, max);
+        await files.readBytes(msg.path, MAX_PREVIEW_BYTES);
         const nonce = previewList.mint(`container\n${msg.container}`, read);
         reply(c, {
           id: msg.id,
@@ -1511,11 +1561,11 @@ export async function startWeb(
       }
       const result = msg.type === 'list_container_dir'
         ? withHostPaths(
-          await listContainerDir(info, msg.path),
+          await files.list(msg.path),
           msg.path,
-          await mountsOf(session.record.id),
+          await session.env.mounts(),
         )
-        : await readContainerFile(info, msg.path);
+        : await files.read(msg.path);
       reply(c, { id: msg.id, ok: true, result });
     } catch (e) {
       fail(
@@ -1735,7 +1785,7 @@ export async function startWeb(
         c,
         msg.id,
         'not_installed',
-        `${command} isn't installed in this container`,
+        `${command} isn't installed ${placeOf(session)}`,
       );
       return;
     }
@@ -2068,7 +2118,7 @@ export async function startWeb(
         c,
         msg.id,
         'not_installed',
-        `${AGENT_COMMANDS[agent]} isn't installed in this container`,
+        `${AGENT_COMMANDS[agent]} isn't installed ${placeOf(session)}`,
       );
       return;
     }
@@ -2076,8 +2126,7 @@ export async function startWeb(
     let command: string;
     if (msg.type === 'send_task') {
       try {
-        await writeContainerFile(
-          await connectionOf(session),
+        await session.env.files.write(
           TASK_FILE_DIR,
           taskFilePath(sessionId),
           `${task.text}\n`,
@@ -2255,8 +2304,7 @@ export async function startWeb(
     try {
       let outcome: ReturnType<typeof taskOutcome>;
       try {
-        const bytes = await readContainerBytes(
-          await connectionOf(session),
+        const bytes = await session.env.files.readBytes(
           taskResultPath(run.sessionId),
           4096,
         );
@@ -2345,9 +2393,9 @@ export async function startWeb(
       )?.repos ?? [];
       try {
         const listed = await listAgentSessions(
-          await connectionOf(session),
+          session.env,
           repos,
-          opts.session,
+          session.session,
         );
         if (sessions.get(containerId) === session) {
           sessionLists.set(containerId, listed);
@@ -2377,7 +2425,7 @@ export async function startWeb(
         c,
         msg.id,
         'not_installed',
-        `${AGENT_COMMANDS[listed.agent]} isn't installed in this container`,
+        `${AGENT_COMMANDS[listed.agent]} isn't installed ${placeOf(session)}`,
       );
       return;
     }
@@ -2420,11 +2468,7 @@ export async function startWeb(
     const containerId = session.record.id;
     const panes = snapshotPanes(session.snapshot);
     const live = listed.agent === 'claude'
-      ? await runningPane(
-        await connectionOf(session),
-        listed.session,
-        opts.session,
-      )
+      ? await runningPane(session.env, listed.session, session.session)
       : null;
     return reusablePinnedPane(
       resumedPanes.get(resumedKey(containerId, listed)),
@@ -2512,14 +2556,13 @@ export async function startWeb(
         c,
         msg.id,
         'not_installed',
-        `${AGENT_COMMANDS[agent]} isn't installed in this container`,
+        `${AGENT_COMMANDS[agent]} isn't installed ${placeOf(session)}`,
       );
       return;
     }
     const askId = crypto.randomUUID();
     try {
-      await writeContainerFile(
-        await connectionOf(session),
+      await session.env.files.write(
         TASK_FILE_DIR,
         taskFilePath(askId),
         `${msg.text}\n`,
@@ -2608,10 +2651,15 @@ export async function startWeb(
           fail(c, msg.id, 'already_starting', `${folder} is already starting`);
           return;
         }
+        const { source } = projectSource(folder);
+        if (source === null) {
+          fail(c, msg.id, 'bad_request', 'this server cannot start it');
+          return;
+        }
         startingProjects.add(folder);
         broadcastProjects();
         try {
-          await startProject(
+          await source.startProject(
             folder,
             (line) =>
               broadcast({ type: 'project_output', localFolder: folder, line }),
@@ -2627,7 +2675,10 @@ export async function startWeb(
       }
       case 'stop_project':
         try {
-          const stopped = await stopProject(folder);
+          const { source } = projectSource(folder);
+          const stopped = source === null
+            ? false
+            : await source.stopProject(folder);
           reply(c, { id: msg.id, ok: true, result: { stopped } });
         } catch (e) {
           fail(c, msg.id, 'stop_failed', e);
@@ -2642,8 +2693,17 @@ export async function startWeb(
           });
           return;
         }
+        if (projectSource(folder).kind === 'host') {
+          fail(
+            c,
+            msg.id,
+            'bad_request',
+            'host projects have no container to remove',
+          );
+          return;
+        }
         try {
-          const removed = await downProject(folder);
+          const removed = await containerSource?.downProject(folder) ?? false;
           reply(c, { id: msg.id, ok: true, result: { removed } });
         } catch (e) {
           fail(c, msg.id, 'down_failed', e);
@@ -2651,6 +2711,44 @@ export async function startWeb(
           await reloadProjects();
         }
         return;
+      case 'set_project_environment': {
+        if (!isListedProject(folder)) {
+          reject(c, {
+            id: msg.id,
+            code: 'bad_request',
+            message: 'unknown project',
+          });
+          return;
+        }
+        if (containerFolders().has(folder)) {
+          fail(
+            c,
+            msg.id,
+            'has_container',
+            `${folder} has a container; remove it first`,
+          );
+          return;
+        }
+        if (!available.includes(msg.environment)) {
+          reject(c, {
+            id: msg.id,
+            code: 'bad_request',
+            message: `this server cannot run projects in ${msg.environment}`,
+          });
+          return;
+        }
+        try {
+          projectEntries = await updateProjects((list) =>
+            setEnvironment(list, folder, msg.environment)
+          );
+          broadcastProjects();
+          void hostSource?.refresh().catch(() => {});
+          reply(c, { id: msg.id, ok: true, result: {} });
+        } catch (e) {
+          fail(c, msg.id, 'projects_error', e);
+        }
+        return;
+      }
       case 'add_project': {
         let isDir = false;
         try {
@@ -2664,21 +2762,36 @@ export async function startWeb(
           });
           return;
         }
+        if (
+          msg.environment !== undefined && !available.includes(msg.environment)
+        ) {
+          reject(c, {
+            id: msg.id,
+            code: 'bad_request',
+            message: `this server cannot run projects in ${msg.environment}`,
+          });
+          return;
+        }
       }
       // falls through: adding is pinning
       case 'pin_project':
       case 'forget_project':
         try {
-          projectEntries = await updateProjects((list) =>
-            msg.type === 'forget_project'
-              ? forgetProject(list, folder)
-              : setPinned(
-                list,
-                folder,
-                msg.type === 'pin_project' ? msg.pinned : true,
-              )
-          );
+          projectEntries = await updateProjects((list) => {
+            if (msg.type === 'forget_project') {
+              return forgetProject(list, folder);
+            }
+            const pinned = setPinned(
+              list,
+              folder,
+              msg.type === 'pin_project' ? msg.pinned : true,
+            );
+            return msg.type === 'add_project' && msg.environment !== undefined
+              ? setEnvironment(pinned, folder, msg.environment)
+              : pinned;
+          });
           broadcastProjects();
+          void hostSource?.refresh().catch(() => {});
           reply(c, { id: msg.id, ok: true, result: {} });
         } catch (e) {
           fail(c, msg.id, 'projects_error', e);
@@ -2745,7 +2858,7 @@ export async function startWeb(
     }
     if (msg.type === 'refresh_containers') {
       try {
-        await discovery.refresh();
+        await Promise.all(sources().map((s) => s.refresh()));
         await reloadProjects();
         reply(c, { id: msg.id, ok: true, result: {} });
       } catch (e) {
@@ -3224,7 +3337,7 @@ export async function startWeb(
     );
   }
 
-  discovery.start();
+  for (const source of sources()) source.start(sourceHooks(source));
   liveStatic?.watch();
   gitWatch.start();
   // Host-wide work, done by one server at a time (`leader.ts`): the task queues, and the activity
@@ -3303,7 +3416,7 @@ export async function startWeb(
   let stopping: Promise<void> | null = null;
   const stop = () => {
     stopping ??= (async () => {
-      discovery.stop();
+      for (const source of sources()) source.stop();
       liveStatic?.stop();
       gitWatch.stop();
       projectsWatch.stop();

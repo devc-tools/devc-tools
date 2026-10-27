@@ -1,5 +1,6 @@
-// `devc web`'s link to each container's Herdr server: `herdr remote-api-bridge` (a hidden
-// subcommand that relays stdio to the session's API socket) run through `docker exec -i`.
+// `devc web`'s link to each environment's Herdr server: `herdr remote-api-bridge` (a hidden
+// subcommand that relays stdio to the session's API socket) run in the environment
+// (`environment.ts`): through `docker exec -i` in a container, directly on this machine.
 // See `.plans/devc-web.md` § Background for the measured protocol this file follows — one
 // request per connection, an `events.subscribe` connection that streams, inconsistently spelled
 // event names, and no event replay.
@@ -7,17 +8,8 @@
 // Not to be confused with `devc/bridge.ts`, which is devc-bridge (host commands granted to a
 // container). Nothing here touches it.
 
-import {
-  type ContainerInfo,
-  dockerExecArgv,
-  loginShellArgv,
-} from '@devc-tools/core/container.ts';
-import { closeGracefully, type LineProc, runText, spawnLines } from './proc.ts';
-import {
-  type ContainerRecord,
-  resolveConnection,
-  resolveHerdrPath,
-} from './containers.ts';
+import { closeGracefully, type LineProc } from './proc.ts';
+import type { EnvExec, Environment } from './environment.ts';
 
 /** The browser-visible state of one container. */
 export type ContainerState =
@@ -29,22 +21,21 @@ export type ContainerState =
   | 'error';
 
 /**
- * What every Herdr process for one container is started with: how to reach the container (the
- * same `ContainerInfo` `devc attach` uses, from `resolveConnection`), plus which `herdr` and
- * which session.
+ * What every Herdr process for one environment is started with: the environment (prepared: a
+ * container's connection resolved), plus which `herdr` and which session.
  */
 export interface HerdrTarget {
-  info: ContainerInfo;
+  env: Environment;
   herdrPath: string;
   session: string;
 }
 
-/** `docker exec -i …` argv for `herdr --session <S> <rest…>`. Never `-t`: a pty corrupts JSON. */
-export function herdrArgv(t: HerdrTarget, rest: string[]): string[] {
-  return dockerExecArgv(t.info, {
+/** The exec for `herdr --session <S> <rest…>`, stdin piped. Never a pty: one corrupts JSON. */
+export function herdrExec(t: HerdrTarget, rest: string[]): EnvExec {
+  return {
     interactive: true,
     cmd: [t.herdrPath, '--session', t.session, ...rest],
-  });
+  };
 }
 
 /**
@@ -143,13 +134,11 @@ async function exitError(proc: LineProc): Promise<BridgeError> {
 
 /** `remote-api-bridge --check`: true only for exactly `herdr-api-bridge-v1` and exit 0. */
 export async function bridgeSupported(t: HerdrTarget): Promise<boolean> {
-  const out = await runText(
-    'docker',
-    herdrArgv(t, ['remote-api-bridge', '--check']),
-  )
-    .catch(() => null);
+  const out = await t.env.run({
+    cmd: [t.herdrPath, '--session', t.session, 'remote-api-bridge', '--check'],
+  }).catch(() => null);
   return out !== null && out.code === 0 &&
-    out.stdout.trim() === 'herdr-api-bridge-v1';
+    new TextDecoder().decode(out.stdout).trim() === 'herdr-api-bridge-v1';
 }
 
 let nextId = 0;
@@ -164,7 +153,7 @@ export async function bridgeRequest(
   method: string,
   params: unknown,
 ): Promise<unknown> {
-  const proc = spawnLines('docker', herdrArgv(t, ['remote-api-bridge']));
+  const proc = t.env.spawn(herdrExec(t, ['remote-api-bridge']));
   const id = `devc-web-${++nextId}`;
   try {
     await proc.write(JSON.stringify({ id, method, params }));
@@ -322,7 +311,7 @@ export async function subscribe(
   subscriptions: Record<string, string>[],
   onEvent: (ev: HerdrEvent) => void,
 ): Promise<Subscription> {
-  const proc = spawnLines('docker', herdrArgv(t, ['remote-api-bridge']));
+  const proc = t.env.spawn(herdrExec(t, ['remote-api-bridge']));
   const id = `devc-web-sub-${++nextId}`;
   await proc.write(
     JSON.stringify({
@@ -414,9 +403,9 @@ export interface SessionHooks {
 }
 
 const SNAPSHOT_COALESCE_MS = 50;
-const START_SESSION_WAIT_MS = 300;
+export const START_SESSION_WAIT_MS = 300;
 /** With {@link START_SESSION_WAIT_MS}, about 15 s: Herdr's first start can be slow. */
-const START_SESSION_TRIES = 50;
+export const START_SESSION_TRIES = 50;
 /** A lifecycle connection that dies sooner than this after (re)starting is not restarted. */
 const MIN_RESTART_INTERVAL_MS = 5000;
 
@@ -440,17 +429,12 @@ export function snapshotPanes(
   return list.filter((p) => typeof p === 'object' && p !== null);
 }
 
-/** What a {@link ContainerSession} runs commands with; tests replace it. */
+/** How a {@link ContainerSession} waits for a server; tests replace it. */
 export interface SessionDeps {
-  runText: typeof runText;
   startTries: number;
   startWaitMs: number;
   /** Whether the session has a server: see {@link serverAnswers}. */
   serverUp: (t: HerdrTarget) => Promise<boolean>;
-  /** How to reach the container: see {@link resolveConnection}. */
-  resolve: (record: ContainerRecord) => Promise<ContainerInfo>;
-  /** The container's `herdr`, `''` for none: see {@link resolveHerdrPath}. */
-  herdrPath: (info: ContainerInfo) => Promise<string>;
 }
 
 /**
@@ -466,41 +450,33 @@ export async function serverAnswers(t: HerdrTarget): Promise<boolean> {
   }
 }
 
-/** The last 10 lines of the session's `herdr-server.log` in the container, or '' when unreadable. */
-export async function serverLogTail(
-  t: HerdrTarget,
-  run: typeof runText = runText,
-): Promise<string> {
-  const out = await run(
-    'docker',
-    dockerExecArgv(t.info, {
-      cmd: [
-        'sh',
-        '-c',
-        'tail -n 10 "$HOME/.config/herdr/sessions/$1/herdr-server.log"',
-        '_',
-        t.session,
-      ],
-    }),
-  ).catch(() => null);
-  return out !== null && out.code === 0 ? out.stdout.trimEnd() : '';
+/** The last 10 lines of the session's `herdr-server.log` there, or '' when unreadable. */
+export async function serverLogTail(t: HerdrTarget): Promise<string> {
+  const out = await t.env.run({
+    cmd: [
+      'sh',
+      '-c',
+      'tail -n 10 "$HOME/.config/herdr/sessions/$1/herdr-server.log"',
+      '_',
+      t.session,
+    ],
+  }).catch(() => null);
+  return out !== null && out.code === 0
+    ? new TextDecoder().decode(out.stdout).trimEnd()
+    : '';
 }
 
 /**
- * Whether `command` is on the PATH of a login shell for the container's remote user: the PATH
- * `devc claude` gets, and the one a new Herdr tab's shell has.
+ * Whether `command` is on the PATH of a login shell there (a container's remote user's): the
+ * PATH `devc claude` gets, and the one a new Herdr tab's shell has.
  */
 export async function commandInstalled(
   t: HerdrTarget,
   command: string,
-  run: typeof runText = runText,
 ): Promise<boolean> {
-  const out = await run(
-    'docker',
-    dockerExecArgv(t.info, {
-      cmd: loginShellArgv('command -v "$1" >/dev/null', '_', command),
-    }),
-  ).catch(() => null);
+  const out = await t.env.run({
+    cmd: t.env.loginShell('command -v "$1" >/dev/null', '_', command),
+  }).catch(() => null);
   return out !== null && out.code === 0;
 }
 
@@ -530,21 +506,25 @@ export class ContainerSession {
   #awaiting: Promise<void> | null = null;
   readonly #deps: SessionDeps;
 
+  readonly session: string;
+
   constructor(
-    readonly record: ContainerRecord,
-    readonly session: string,
+    readonly env: Environment,
     private hooks: SessionHooks,
     deps: Partial<SessionDeps> = {},
   ) {
+    this.session = env.herdrSession;
     this.#deps = {
-      runText,
       startTries: START_SESSION_TRIES,
       startWaitMs: START_SESSION_WAIT_MS,
       serverUp: serverAnswers,
-      resolve: resolveConnection,
-      herdrPath: resolveHerdrPath,
       ...deps,
     };
+  }
+
+  /** The environment's id and project folder. */
+  get record(): { id: string; localFolder: string } {
+    return this.env;
   }
 
   #setState(state: ContainerState, error?: string): void {
@@ -576,20 +556,25 @@ export class ContainerSession {
   }
 
   /**
-   * How to reach the container and its `herdr`, into `target`. `false` when this run should stop
-   * here: superseded, no `herdr` (state `no-herdr`), or a thrown resolution (left to the caller's
-   * catch, which reports it as `error`).
+   * How to reach the environment and its `herdr`, into `target`. `false` when this run should
+   * stop here: superseded, no `herdr` (state `no-herdr`), or a thrown resolution (left to the
+   * caller's catch, which reports it as `error`).
    */
   async #resolve(gen: number): Promise<boolean> {
-    const info = await this.#deps.resolve(this.record);
-    const herdrPath = await this.#deps.herdrPath(info);
+    await this.env.prepare();
+    const herdrPath = await this.env.herdrPath();
     if (gen !== this.#gen) return false;
     if (herdrPath === '') {
       this.target = null;
-      this.#setState('no-herdr', 'herdr is not installed in this container');
+      this.#setState(
+        'no-herdr',
+        this.env.kind === 'host'
+          ? 'herdr is not installed on this machine'
+          : 'herdr is not installed in this container',
+      );
       return false;
     }
-    this.target = { info, herdrPath, session: this.session };
+    this.target = { env: this.env, herdrPath, session: this.session };
     return true;
   }
 
@@ -602,25 +587,20 @@ export class ContainerSession {
    */
   async startSession(): Promise<void> {
     if (this.target === null) {
-      throw new Error('herdr has not been located in this container');
+      throw new Error('herdr has not been located here');
     }
-    // Resolved again, so a server started now gets the config's current `remoteEnv`.
-    const info = await this.#deps.resolve(this.record);
-    const t: HerdrTarget = { ...this.target, info };
-    this.target = t;
-    const out = await this.#deps.runText(
-      'docker',
-      dockerExecArgv(t.info, {
-        detach: true,
-        cmd: loginShellArgv(
-          SERVER_SCRIPT,
-          t.herdrPath,
-          '--session',
-          t.session,
-          'server',
-        ),
-      }),
-    );
+    // Prepared again, so a server started now gets a container config's current `remoteEnv`.
+    await this.env.prepare();
+    const t = this.target;
+    const out = await this.env.runDetached({
+      cmd: this.env.loginShell(
+        SERVER_SCRIPT,
+        t.herdrPath,
+        '--session',
+        t.session,
+        'server',
+      ),
+    });
     if (out.code !== 0) {
       throw new Error(out.stderr.trim() || 'starting the Herdr server failed');
     }
@@ -628,7 +608,7 @@ export class ContainerSession {
     if (this.state === 'no-session') {
       const { startTries, startWaitMs } = this.#deps;
       const seconds = Math.round(startTries * startWaitMs / 1000);
-      const logTail = await serverLogTail(t, this.#deps.runText);
+      const logTail = await serverLogTail(t);
       throw new BridgeError(
         'no_session',
         `Herdr didn't come up in ${seconds}s.\n${logTail}`,

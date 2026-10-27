@@ -6,7 +6,7 @@
 
 import { withView } from './lib/layout_state.js';
 import { nodeById, nodeTiles } from './lib/view.js';
-import { paneLabel } from './lib/sidebar.js';
+import { paneLabel, projectActions } from './lib/sidebar.js';
 import { jiraKeys, jiraUrl } from './lib/jira.js';
 import { defaultView, fileView, mediaKind } from './lib/media.js';
 import { childPath, isWithin } from './lib/files.js';
@@ -35,6 +35,7 @@ import {
   pinnedFiles,
   projectOutput,
   projectRepos,
+  projects,
   requestPane,
   resolveRef,
   saveFilePinPanes,
@@ -455,7 +456,11 @@ export function projectRequest(type, localFolder, what, extra = {}) {
 
 export function startProject(localFolder) {
   projectOutput.set(localFolder, []);
-  projectRequest('start_project', localFolder, 'Start container');
+  projectRequest(
+    'start_project',
+    localFolder,
+    projectActions(projects.get(localFolder)?.environment).start,
+  );
 }
 
 /** "Pin file" or "Unpin file" for a repo file's menus. @param {FileRoot} fr @param {string} path */
@@ -494,6 +499,8 @@ export function unpinFile(pin) {
  * where the container mounts the repo; null if neither knows.
  */
 function containerPathOf(fr, path) {
+  // On this machine the container path is the host path: Copy path has it.
+  if (containerByFolder(fr.localFolder)?.kind === 'host') return null;
   if (fr.container) return containerFilePath(fr, path);
   const parts = path === '' ? [] : path.split('/');
   const tree = containerByFolder(fr.localFolder) ? fileTreeOf?.(fr) : null;
@@ -568,7 +575,7 @@ export function hostOpenItems(fr, path) {
 async function openInCode(fr, path) {
   const c = fr.container ? containerByFolder(fr.localFolder) : null;
   if (fr.container && !c) {
-    toast('Start the container first');
+    toast(projectActions(projects.get(fr.localFolder)?.environment).notRunning);
     return;
   }
   try {
@@ -595,7 +602,7 @@ async function openInCode(fr, path) {
 async function revealPath(fr, path) {
   const c = fr.container ? containerByFolder(fr.localFolder) : null;
   if (fr.container && !c) {
-    toast('Start the container first');
+    toast(projectActions(projects.get(fr.localFolder)?.environment).notRunning);
     return;
   }
   const label = LABELS.reveal;
@@ -624,7 +631,11 @@ export function openInEditor(fr, path, where) {
   const c = containerByFolder(fr.localFolder);
   if (!c || c.state !== 'connected') {
     toast(
-      c ? 'Start Herdr in this container first' : 'Start the container first',
+      c
+        ? `Start Herdr ${
+          c.kind === 'host' ? 'on this machine' : 'in this container'
+        } first`
+        : projectActions(projects.get(fr.localFolder)?.environment).notRunning,
     );
     return;
   }
@@ -671,7 +682,7 @@ export async function mintPreviewUrl(c, fr, path) {
 export async function openInBrowser(fr, path) {
   const c = fr.container ? containerByFolder(fr.localFolder) : null;
   if (fr.container && !c) {
-    toast('Start the container first');
+    toast(projectActions(projects.get(fr.localFolder)?.environment).notRunning);
     return;
   }
   // Opened now, inside the click, so a popup blocker lets it through; navigated once answered.

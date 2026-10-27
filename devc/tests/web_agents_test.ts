@@ -1,6 +1,7 @@
 import { assert, assertEquals } from 'jsr:@std/assert';
 import { AGENT_COMMANDS, isAgentId } from '../web/agents.ts';
 import { commandInstalled, type HerdrTarget } from '../web/herdr_bridge.ts';
+import { ContainerEnvironment, type DockerRun } from '../web/containers.ts';
 import { parseClientMessage } from '../web/protocol.ts';
 import {
   AGENT_IDS,
@@ -8,16 +9,21 @@ import {
   terminalIconKind,
 } from '../web/static/lib/agent_icons.js';
 
-const target: HerdrTarget = {
-  info: {
-    containerId: 'c1',
-    remoteUser: 'vscode',
-    remoteWorkspaceFolder: '/workspaces/app',
-    remoteEnv: {},
-  },
+/** Container `c1`'s Herdr target, its docker runs going to `run`. */
+const targetOf = (run: DockerRun): HerdrTarget => ({
+  env: new ContainerEnvironment({ id: 'c1', localFolder: '/src/app' }, 'devc', {
+    resolve: () =>
+      Promise.resolve({
+        containerId: 'c1',
+        remoteUser: 'vscode',
+        remoteWorkspaceFolder: '/workspaces/app',
+        remoteEnv: {},
+      }),
+    run,
+  }),
   herdrPath: '/usr/local/bin/herdr',
   session: 'devc',
-};
+});
 
 Deno.test('isAgentId: the four agents, nothing else', () => {
   for (const id of ['claude', 'copilot', 'pi', 'opencode']) {
@@ -67,12 +73,12 @@ Deno.test('parseClientMessage: open_tab takes a known agent, only without reuse'
 
 Deno.test('commandInstalled: command -v in a login shell, the command as an argument', async () => {
   const calls: string[][] = [];
-  const run = (code: number) => (cmd: string, args: string[]) => {
-    calls.push([cmd, ...args]);
-    return Promise.resolve({ code, stdout: '', stderr: '' });
+  const run = (code: number): DockerRun => (args) => {
+    calls.push(['docker', ...args]);
+    return Promise.resolve({ code, stdout: new Uint8Array(), stderr: '' });
   };
-  assert(await commandInstalled(target, 'claude', run(0)));
-  assert(!(await commandInstalled(target, 'pi', run(1))));
+  assert(await commandInstalled(targetOf(run(0)), 'claude'));
+  assert(!(await commandInstalled(targetOf(run(1)), 'pi')));
   assertEquals(calls[0], [
     'docker',
     'exec',
@@ -91,7 +97,7 @@ Deno.test('commandInstalled: command -v in a login shell, the command as an argu
 
 Deno.test('commandInstalled: docker failing to run counts as not installed', async () => {
   const run = () => Promise.reject(new Error('no docker'));
-  assert(!(await commandInstalled(target, 'claude', run)));
+  assert(!(await commandInstalled(targetOf(run), 'claude')));
 });
 
 Deno.test('terminalIconKind: the four marks, a generic agent, a shell', () => {

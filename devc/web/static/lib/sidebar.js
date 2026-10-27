@@ -226,6 +226,54 @@ export function containerLabel(c, all) {
 }
 
 /**
+ * The start and stop labels for a project, by where it runs (its `environment`): a container's
+ * container, a host project's own Herdr session. `remove` is null on this machine: there is no
+ * container to remove.
+ *
+ * @param {'container' | 'host' | undefined} environment
+ */
+export function projectActions(environment) {
+  return environment === 'host'
+    ? {
+      start: 'Start session',
+      stop: 'Stop session…',
+      stopOk: 'Stop session',
+      stopBody: (/** @type {string} */ name) =>
+        `Stops the Herdr session for ${name}: every terminal in it closes.`,
+      remove: null,
+      notRunning: 'Start the session first',
+    }
+    : {
+      start: 'Start container',
+      stop: 'Stop container…',
+      stopOk: 'Stop container',
+      stopBody: (/** @type {string} */ name) =>
+        `Stop the container for ${name}? Its panes end with it.`,
+      remove: 'Remove container…',
+      notRunning: 'Start the container first',
+    };
+}
+
+/**
+ * A project's **Run on this machine** or **Run in a container** item (whichever it doesn't do
+ * now), or null: only when the server runs both kinds (`environments`), and never for a project
+ * a devcontainer carries — it runs in that container.
+ *
+ * @param {{environment?: 'container' | 'host', container: string}} p
+ * @param {readonly string[]} environments
+ * @returns {{label: string, environment: 'container' | 'host'} | null}
+ */
+export function environmentItem(p, environments) {
+  if (!environments.includes('container') || !environments.includes('host')) {
+    return null;
+  }
+  if (p.environment !== 'host' && p.container !== 'missing') return null;
+  return p.environment === 'host'
+    ? { label: 'Run in a container', environment: 'container' }
+    : { label: 'Run on this machine', environment: 'host' };
+}
+
+/**
  * A pane's label wherever it is listed: `name` is the name it was renamed to, else the base name
  * of the folder it is in (`client`); `title` is an agent's or command's own title
  * (`Claude Code`, `npm run dev`), or `''` for a shell, whose title is just its folder.

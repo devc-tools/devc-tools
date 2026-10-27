@@ -21,6 +21,18 @@ export interface ProjectEntry {
   pinned: boolean;
   /** ISO time of the last start, `null` for a project pinned but never started. */
   lastUsed: string | null;
+  /**
+   * Where `devc web` runs it when no devcontainer carries it: a container, or on this machine
+   * (`web/projects_view.ts`'s `effectiveEnvironment`). Absent means unset.
+   */
+  environment?: ProjectEnvironment;
+}
+
+/** A project entry's `environment`. */
+export type ProjectEnvironment = 'host' | 'container';
+
+function isEnvironment(v: unknown): v is ProjectEnvironment {
+  return v === 'host' || v === 'container';
 }
 
 function isEntry(v: unknown): v is ProjectEntry {
@@ -48,10 +60,12 @@ export async function loadProjects(
     if (!isEntry(e) || seen.has(e.localFolder)) return false;
     seen.add(e.localFolder);
     return true;
-  }).map(({ localFolder, pinned, lastUsed }) => ({
+  }).map(({ localFolder, pinned, lastUsed, environment }) => ({
     localFolder,
     pinned,
     lastUsed,
+    // A value this devc doesn't know is dropped, not the entry.
+    ...(isEnvironment(environment) ? { environment } : {}),
   }));
 }
 
@@ -92,6 +106,23 @@ export function setPinned(
     );
   }
   return pinned ? [...list, { localFolder, pinned, lastUsed: null }] : list;
+}
+
+/**
+ * Sets where a folder runs (see {@link ProjectEntry.environment}); an unknown folder is added
+ * unpinned with `lastUsed: null`. Pure.
+ */
+export function setEnvironment(
+  list: ProjectEntry[],
+  localFolder: string,
+  environment: ProjectEnvironment,
+): ProjectEntry[] {
+  if (list.some((e) => e.localFolder === localFolder)) {
+    return list.map((e) =>
+      e.localFolder === localFolder ? { ...e, environment } : e
+    );
+  }
+  return [...list, { localFolder, pinned: false, lastUsed: null, environment }];
 }
 
 /** Drops a folder from the list. Pure. */

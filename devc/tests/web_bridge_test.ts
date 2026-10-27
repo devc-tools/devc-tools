@@ -2,7 +2,7 @@ import { assert, assertEquals, assertRejects } from 'jsr:@std/assert';
 import {
   BridgeError,
   ContainerSession,
-  herdrArgv,
+  herdrExec,
   isHerdrLaunch,
   isNoSessionError,
   isStructuralEvent,
@@ -11,7 +11,11 @@ import {
   serverLogTail,
   snapshotPaneIds,
 } from '../web/herdr_bridge.ts';
-import { spawnLines, splitLines } from '../web/proc.ts';
+import { type LineProc, spawnLines, splitLines } from '../web/proc.ts';
+import {
+  type ContainerEnvDeps,
+  ContainerEnvironment,
+} from '../web/containers.ts';
 
 const INFO = {
   containerId: 'c1',
@@ -19,6 +23,15 @@ const INFO = {
   remoteWorkspaceFolder: '/workspaces/app',
   remoteEnv: {},
 };
+
+/** Container `c1`, its docker runs stubbed. */
+function envOf(deps: Partial<ContainerEnvDeps> = {}) {
+  return new ContainerEnvironment(
+    { id: 'c1', localFolder: '/src/app' },
+    'devc',
+    { resolve: () => Promise.resolve(INFO), ...deps },
+  );
+}
 
 Deno.test('normalizeEventName turns the first underscore into a dot', () => {
   assertEquals(normalizeEventName('pane_created'), 'pane.created');
@@ -74,12 +87,22 @@ Deno.test('isNoSessionError recognizes the bridge NotFound failure', () => {
   assert(!isNoSessionError('Error: permission denied'));
 });
 
-Deno.test('herdrArgv uses docker exec -i, never -t, with remoteEnv and the absolute herdr path', () => {
-  const argv = herdrArgv({
-    info: { ...INFO, remoteEnv: { TZ: 'Europe/Paris' } },
+Deno.test('herdrExec runs as docker exec -i, never -t, with remoteEnv and the absolute herdr path', async () => {
+  let argv: string[] = [];
+  const env = envOf({
+    resolve: () =>
+      Promise.resolve({ ...INFO, remoteEnv: { TZ: 'Europe/Paris' } }),
+    spawn: (args) => {
+      argv = args;
+      return {} as LineProc;
+    },
+  });
+  await env.prepare();
+  env.spawn(herdrExec({
+    env,
     herdrPath: '/home/vscode/.local/bin/herdr',
     session: 'devc',
-  }, ['remote-api-bridge']);
+  }, ['remote-api-bridge']));
   assertEquals(argv, [
     'exec',
     '-i',
@@ -229,8 +252,8 @@ type RunText = (
 ) => Promise<{ code: number; stdout: string; stderr: string }>;
 
 /**
- * A session whose lifecycle finds a server only once `up` (else no session), with `runText`
- * stubbed, recording each state it is in.
+ * A session whose lifecycle finds a server only once `up` (else no session), with its
+ * environment's docker runs stubbed, recording each state it is in.
  */
 class NoServerSession extends ContainerSession {
   runs = 0;
@@ -250,11 +273,11 @@ const hooks = {
   onTeardown() {},
 };
 
-const target = {
-  info: INFO,
+const targetOf = (env: ContainerEnvironment) => ({
+  env,
   herdrPath: '/usr/local/bin/herdr',
   session: 'devc',
-};
+});
 
 /** `resolve` for a container whose config now carries `remoteEnv`, counting its calls. */
 function resolver(remoteEnv: Record<string, string>) {
@@ -270,29 +293,34 @@ function resolver(remoteEnv: Record<string, string>) {
 
 Deno.test("startSession throws no_session with the server log's tail", async () => {
   const calls: string[][] = [];
-  const run: RunText = (_cmd, args) => {
+  const runText: RunText = (_cmd, args) => {
     calls.push(args);
-    return Promise.resolve(
-      args.includes(
-          'tail -n 10 "$HOME/.config/herdr/sessions/$1/herdr-server.log"',
-        )
-        ? { code: 0, stdout: 'line 1\npanic: boom\n', stderr: '' }
-        : { code: 0, stdout: '', stderr: '' },
-    );
+    return Promise.resolve({ code: 0, stdout: '', stderr: '' });
   };
-  const s = new NoServerSession(
-    { id: 'c1' } as ConstructorParameters<typeof ContainerSession>[0],
-    'devc',
-    hooks,
-    {
-      runText: run,
-      startTries: 3,
-      startWaitMs: 1,
-      serverUp: () => Promise.resolve(false),
-      resolve: resolver({ TZ: 'Europe/Paris', LANG: 'en_US.utf8' }).resolve,
+  const env = envOf({
+    runText,
+    run: (args) => {
+      calls.push(args);
+      return Promise.resolve({
+        code: 0,
+        stdout: new TextEncoder().encode(
+          args.includes(
+              'tail -n 10 "$HOME/.config/herdr/sessions/$1/herdr-server.log"',
+            )
+            ? 'line 1\npanic: boom\n'
+            : '',
+        ),
+        stderr: '',
+      });
     },
-  );
-  s.target = target;
+    resolve: resolver({ TZ: 'Europe/Paris', LANG: 'en_US.utf8' }).resolve,
+  });
+  const s = new NoServerSession(env, hooks, {
+    startTries: 3,
+    startWaitMs: 1,
+    serverUp: () => Promise.resolve(false),
+  });
+  s.target = targetOf(env);
   s.state = 'no-session';
   const err = await assertRejects(() => s.startSession(), BridgeError);
   assertEquals(err.code, 'no_session');
@@ -325,20 +353,16 @@ Deno.test("startSession throws no_session with the server log's tail", async () 
 
 Deno.test('herdrLaunched runs the lifecycle once, when the server answers', async () => {
   let probes = 0;
-  const s: NoServerSession = new NoServerSession(
-    { id: 'c1' } as ConstructorParameters<typeof ContainerSession>[0],
-    'devc',
-    hooks,
-    {
-      startTries: 5,
-      startWaitMs: 1,
-      serverUp: (): Promise<boolean> => {
-        s.up = ++probes >= 3;
-        return Promise.resolve(s.up);
-      },
+  const env = envOf();
+  const s: NoServerSession = new NoServerSession(env, hooks, {
+    startTries: 5,
+    startWaitMs: 1,
+    serverUp: (): Promise<boolean> => {
+      s.up = ++probes >= 3;
+      return Promise.resolve(s.up);
     },
-  );
-  s.target = target;
+  });
+  s.target = targetOf(env);
   s.state = 'no-session';
   await s.herdrLaunched();
   assertEquals([probes, s.runs, s.state], [3, 1, 'connected']);
@@ -346,17 +370,13 @@ Deno.test('herdrLaunched runs the lifecycle once, when the server answers', asyn
 
 Deno.test('herdrLaunched never runs the lifecycle while there is no server', async () => {
   let probes = 0;
-  const s = new NoServerSession(
-    { id: 'c1' } as ConstructorParameters<typeof ContainerSession>[0],
-    'devc',
-    hooks,
-    {
-      startTries: 4,
-      startWaitMs: 1,
-      serverUp: () => Promise.resolve(++probes < 0),
-    },
-  );
-  s.target = target;
+  const env = envOf();
+  const s = new NoServerSession(env, hooks, {
+    startTries: 4,
+    startWaitMs: 1,
+    serverUp: () => Promise.resolve(++probes < 0),
+  });
+  s.target = targetOf(env);
   s.state = 'no-session';
   await s.herdrLaunched();
   assertEquals([probes, s.runs, s.state], [4, 0, 'no-session']);
@@ -372,22 +392,18 @@ Deno.test('startSession waits out the run its own exec launched', async () => {
       this.state = 'connected';
     }
   }
-  const s: SlowRunSession = new SlowRunSession(
-    { id: 'c1' } as ConstructorParameters<typeof ContainerSession>[0],
-    'devc',
-    hooks,
-    {
-      runText: () => {
-        void s.herdrLaunched();
-        return Promise.resolve({ code: 0, stdout: '', stderr: '' });
-      },
-      startTries: 5,
-      startWaitMs: 1,
-      serverUp: () => Promise.resolve(true),
-      resolve: () => Promise.resolve(INFO),
+  const env = envOf({
+    runText: () => {
+      void s.herdrLaunched();
+      return Promise.resolve({ code: 0, stdout: '', stderr: '' });
     },
-  );
-  s.target = target;
+  });
+  const s: SlowRunSession = new SlowRunSession(env, hooks, {
+    startTries: 5,
+    startWaitMs: 1,
+    serverUp: () => Promise.resolve(true),
+  });
+  s.target = targetOf(env);
   s.state = 'no-session';
   await s.startSession();
   assertEquals([s.runs, s.state], [1, 'connected']);
@@ -395,14 +411,20 @@ Deno.test('startSession waits out the run its own exec launched', async () => {
 
 Deno.test('serverLogTail is empty when the log is unreadable', async () => {
   assertEquals(
-    await serverLogTail(
-      target,
-      () => Promise.resolve({ code: 1, stdout: '', stderr: 'no such file' }),
-    ),
+    await serverLogTail(targetOf(envOf({
+      run: () =>
+        Promise.resolve({
+          code: 1,
+          stdout: new Uint8Array(),
+          stderr: 'no such file',
+        }),
+    }))),
     '',
   );
   assertEquals(
-    await serverLogTail(target, () => Promise.reject(new Error('no docker'))),
+    await serverLogTail(targetOf(envOf({
+      run: () => Promise.reject(new Error('no docker')),
+    }))),
     '',
   );
 });
@@ -411,16 +433,14 @@ Deno.test('run resolves the connection once; retry resolves it again', async () 
   const r = resolver({ TZ: 'UTC' });
   let herdrLookups = 0;
   const s = new ContainerSession(
-    { id: 'c1', localFolder: '/src/app' },
-    'devc',
-    hooks,
-    {
+    envOf({
       resolve: r.resolve,
-      herdrPath: () => {
+      runText: () => {
         herdrLookups++;
-        return Promise.resolve('');
+        return Promise.resolve({ code: 0, stdout: '', stderr: '' });
       },
-    },
+    }),
+    hooks,
   );
   await s.run();
   // No herdr: the lifecycle stops at no-herdr, and the next run looks again.
@@ -436,15 +456,13 @@ Deno.test('run resolves the connection once; retry resolves it again', async () 
 
 Deno.test('a failed resolution is the container error, with its message', async () => {
   const s = new ContainerSession(
-    { id: 'c1', localFolder: '/src/app' },
-    'devc',
-    hooks,
-    {
+    envOf({
       resolve: () =>
         Promise.reject(
           new Error('devcontainer read-configuration failed with exit code 1'),
         ),
-    },
+    }),
+    hooks,
   );
   await s.run();
   assertEquals([s.state, s.error], [

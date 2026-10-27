@@ -1,6 +1,7 @@
-// A running container's recent agent sessions, for `devc web`'s Sessions node (`list_sessions`):
+// A running environment's recent agent sessions, for `devc web`'s Sessions node (`list_sessions`):
 // the newest Claude, Copilot and pi sessions that started in one of its project's repos, read
-// from the agent homes inside the container with one `docker exec`, as the remote user.
+// from the agent homes there with one exec (`Environment.run`: in a container, a `docker exec`
+// as the remote user).
 //
 // Everything read here is the container's, so it is untrusted: the session id must be a uuid (it
 // goes on the resume command line), `cwd` an absolute path (it becomes a new shell's folder), and
@@ -8,13 +9,11 @@
 // every devc container on the host, so sessions are kept only when they started under one of
 // this container's repo folders.
 //
-// The script is POSIX `sh` with `stat -c`, `grep -E`, `sort`, `awk`, `sed` and `head`: GNU and
-// BusyBox both have them. It never prints a whole session line (one Claude line can be megabytes),
+// The script is POSIX `sh` with `stat`, `grep -E`, `sort`, `awk`, `sed` and `head`: GNU, BusyBox
+// and macOS all have them (`stat`'s flags differ: see {@link SESSIONS_SCRIPT}'s `mt`). It never prints a whole session line (one Claude line can be megabytes),
 // only `grep -o` matches of `"key":"<JSON string>"`, decoded here.
 
-import type { ContainerInfo } from '@devc-tools/core/container.ts';
-import { dockerExecArgv } from '@devc-tools/core/container.ts';
-import { type DockerRun, runDocker } from './container_files.ts';
+import type { Environment, RunningSession } from './environment.ts';
 import { isSessionId, type SessionAgentId } from './agents.ts';
 import { taskTitle } from '@devc-tools/core/tasks.ts';
 
@@ -38,14 +37,7 @@ export interface AgentSession {
   pane_id?: string;
 }
 
-/** A live Claude process's session, from {@link RUNNING_SCRIPT}. */
-export interface RunningSession {
-  session: string;
-  /** Its `HERDR_SESSION`: the Herdr server its pane belongs to. */
-  herdrSession: string;
-  /** Its `HERDR_PANE_ID`. */
-  paneId: string;
-}
+export type { RunningSession };
 
 /** A session as the script reports it, before it is matched to a repo. */
 export interface RawSession {
@@ -102,23 +94,54 @@ true
 `;
 
 /**
- * Lists candidate sessions, newest first: per agent, `$1` for each argument after it, so a busy
+ * {@link RUNNING_SCRIPT} for macOS, which has no `/proc`: per live record, `M <session id> <the
+ * process's command line and environment>` (`ps -E`), for {@link parseRunningOutput} to take
+ * the `HERDR_*` tokens from. The pid must be alive, and its start time as Claude Code writes it
+ * off Linux — `LC_ALL=C TZ=UTC ps -o lstart=`, trimmed — the record's `procStart`, so a reused
+ * pid's old record never counts. No `${…}` in it: this is a template literal.
+ */
+export const MAC_RUNNING_SCRIPT = String
+  .raw`d=$CLAUDE_CONFIG_DIR; [ -n "$d" ] || d=$HOME/.claude
+for f in "$d"/sessions/*.json; do
+  [ -f "$f" ] || continue
+  pid=$(basename "$f" .json)
+  case $pid in ''|*[!0-9]*) continue ;; esac
+  kill -0 "$pid" 2>/dev/null || continue
+  st=$(LC_ALL=C TZ=UTC ps -o lstart= -p "$pid" 2>/dev/null | sed 's/^ *//; s/ *$//')
+  [ -n "$st" ] || continue
+  grep -qF "\"procStart\":\"$st\"" "$f" || continue
+  id=$(grep -oE '"sessionId":"[0-9A-Fa-f-]+"' "$f" | head -n1 | cut -d'"' -f4)
+  cmd=$(ps -E -ww -o command= -p "$pid" 2>/dev/null | head -n1)
+  [ -n "$id" ] && [ -n "$cmd" ] && printf 'M %s %s\n' "$id" "$cmd"
+done
+true
+`;
+
+/** The running probe for any POSIX host: {@link MAC_RUNNING_SCRIPT} on macOS, else {@link RUNNING_SCRIPT}. */
+export const RUNNING_PROBE = 'if [ "$(uname -s)" = Darwin ]; then\n' +
+  MAC_RUNNING_SCRIPT + 'else\n' + RUNNING_SCRIPT + 'fi\n';
+
+/**
+ * Lists candidate sessions, newest first (`mt` prints `<mtime> <path>`: GNU and BusyBox `stat -c`,
+ * else macOS's `stat -f`, picked once — never `stat -c … || stat -f …`, since GNU `stat` fails
+ * when one glob match is missing and its `-f` is filesystem status): per agent, `$1` for each argument after it, so a busy
  * repo doesn't crowd out the others. Claude's only in the folders whose names start with the
  * arguments before `:`, `$1` each; pi's with those after it, `$1` each; Copilot's (it keeps no
  * per-folder dirs) `$1` times as many as there are folders, from all of them. Per session a line `S <agent> <mtime> <path>`, then tagged `grep -o` matches:
  * claude `C` (first cwd), `T` (last of each title key) and `L` (last `timestamp` in its last
  * 256 KiB); pi `H` (header id and cwd), `N` (last
  * session name), `U` (first user text); copilot `Y` (`workspace.yaml` lines). Then
- * {@link RUNNING_SCRIPT}'s `R` lines. No `${…}` in it: this is a template literal.
+ * {@link RUNNING_PROBE}'s `R` (or `M`) lines. No `${…}` in it: this is a template literal.
  */
 export const SESSIONS_SCRIPT = String.raw`cap=$1; shift
+if stat -c %Y / >/dev/null 2>&1; then mt() { stat -c '%Y %n' "$@"; }; else mt() { stat -f '%m %N' "$@"; }; fi
 S='"(\\.|[^"\\])*"'
 c=$CLAUDE_CONFIG_DIR; [ -n "$c" ] || c=$HOME/.claude; c=$c/projects
 o=$COPILOT_HOME; [ -n "$o" ] || o=$HOME/.copilot; o=$o/session-state
 p=$HOME/.pi/agent/sessions
 newest() { sort -rn | uniq | head -n "$cap"; }
 n=0; for a; do [ "$a" = : ] && break; n=$((n + 1)); done
-for a; do [ "$a" = : ] && break; stat -c '%Y %n' "$c/$a"*/*.jsonl 2>/dev/null | newest; done |
+for a; do [ "$a" = : ] && break; mt "$c/$a"*/*.jsonl 2>/dev/null | newest; done |
 sort -rn | uniq | while read -r m f; do
   printf 'S claude %s %s\n' "$m" "$f"
   grep -m1 -oE "\"cwd\":$S" "$f" | head -n1 | sed 's/^/C /'
@@ -126,21 +149,21 @@ sort -rn | uniq | while read -r m f; do
     awk -F'"' '{l[$2]=$0} END{for(k in l) print "T " l[k]}'
   tail -c 262144 "$f" | grep -oE '"timestamp":"[0-9]{4}-[0-9]{2}-[0-9]{2}T[^"]*"' | tail -n1 | sed 's/^/L /'
 done
-on=; for a; do [ -n "$on" ] && stat -c '%Y %n' "$p/$a"*/*.jsonl 2>/dev/null | newest; [ "$a" = : ] && on=1; done |
+on=; for a; do [ -n "$on" ] && mt "$p/$a"*/*.jsonl 2>/dev/null | newest; [ "$a" = : ] && on=1; done |
 sort -rn | uniq | while read -r m f; do
   printf 'S pi %s %s\n' "$m" "$f"
   head -n1 "$f" | grep -oE "\"(id|cwd)\":$S" | sed 's/^/H /'
   grep -F '"type":"session_info"' "$f" | grep -oE "\"name\":$S" | tail -n1 | sed 's/^/N /'
   grep -m1 -F '"role":"user"' "$f" | grep -oE "\"text\":$S" | head -n1 | sed 's/^/U /'
 done
-stat -c '%Y %n' "$o"/*/workspace.yaml "$o"/*/events.jsonl 2>/dev/null | sort -rn |
+mt "$o"/*/workspace.yaml "$o"/*/events.jsonl 2>/dev/null | sort -rn |
 awk '{d=$0; sub(/^[0-9]+ /,"",d); sub(/\/[^\/]*$/,"",d); if(!s[d]++) print $1, d}' |
 head -n "$((cap * n))" | while read -r m d; do
   [ -f "$d/workspace.yaml" ] || continue
   printf 'S copilot %s %s\n' "$m" "$d"
   grep -E '^(id|cwd|name|summary):' "$d/workspace.yaml" | sed 's/^/Y /'
 done
-` + RUNNING_SCRIPT;
+` + RUNNING_PROBE;
 
 /**
  * The `sh -c` argv after the script: the candidate cap per folder, Claude's folder prefixes, `:`,
@@ -258,7 +281,7 @@ export function parseSessionsOutput(out: string): RawSession[] {
     if (sp < 0) continue;
     const tag = line.slice(0, sp);
     const rest = line.slice(sp + 1);
-    if (tag === 'R') continue;
+    if (tag === 'R' || tag === 'M') continue;
     if (tag === 'S') {
       const m = /^(claude|copilot|pi) (\d+) (\/.*)$/.exec(rest);
       blocks.push(
@@ -281,13 +304,48 @@ export function parseSessionsOutput(out: string): RawSession[] {
     .filter((s): s is RawSession => s !== null);
 }
 
-/** {@link RUNNING_SCRIPT}'s `R` lines (in any output) as running sessions; drops malformed ones. */
+/**
+ * The value of the last `NAME=…` token of a `ps -E` line (the environment follows the command,
+ * so its own arguments can't stand in for it), or null.
+ */
+function envToken(line: string, name: string): string | null {
+  let value: string | null = null;
+  for (const token of line.split(/\s+/)) {
+    if (token.startsWith(`${name}=`)) value = token.slice(name.length + 1);
+  }
+  return value === '' ? null : value;
+}
+
+/**
+ * {@link RUNNING_SCRIPT}'s `R` lines and {@link MAC_RUNNING_SCRIPT}'s `M` lines (in any output) as
+ * running sessions; drops malformed ones.
+ */
 export function parseRunningOutput(out: string): RunningSession[] {
   const running: RunningSession[] = [];
+  const add = (
+    session: string,
+    herdrSession: string | null,
+    pane: string | null,
+  ) => {
+    if (
+      isSessionId(session) && herdrSession !== null &&
+      /^\S+$/.test(herdrSession) &&
+      pane !== null && /^[\w:.-]+$/.test(pane)
+    ) running.push({ session, herdrSession, paneId: pane });
+  };
   for (const line of out.split('\n')) {
-    const m = /^R (\S+) (\S+) (\S+)$/.exec(line);
-    if (m && isSessionId(m[1]) && /^[\w:.-]+$/.test(m[3])) {
-      running.push({ session: m[1], herdrSession: m[2], paneId: m[3] });
+    const r = /^R (\S+) (\S+) (\S+)$/.exec(line);
+    if (r) {
+      add(r[1], r[2], r[3]);
+      continue;
+    }
+    const m = /^M (\S+) (.*)$/.exec(line);
+    if (m) {
+      add(
+        m[1],
+        envToken(m[2], 'HERDR_SESSION'),
+        envToken(m[2], 'HERDR_PANE_ID'),
+      );
     }
   }
   return running;
@@ -361,26 +419,23 @@ export function pickSessions(
 }
 
 /**
- * The container's recent sessions in `repos`, each Claude one a process runs in a pane of Herdr
- * session `herdrSession` with its `pane_id`. Throws on a failed `docker exec` (the command's
- * stderr in the message).
+ * The environment's recent sessions in `repos`, each Claude one a process runs in a pane of
+ * Herdr session `herdrSession` with its `pane_id`. Throws on a failed exec (the command's stderr
+ * in the message).
  */
 export async function listAgentSessions(
-  info: ContainerInfo,
+  env: Pick<Environment, 'run'>,
   repos: readonly SessionRepo[],
   herdrSession: string,
-  run: DockerRun = runDocker,
 ): Promise<AgentSession[]> {
   const folders = repos.flatMap((r) =>
     r.containerFolder === null ? [] : [r.containerFolder]
   );
   if (folders.length === 0) return [];
-  const out = await run(
-    dockerExecArgv(info, {
-      cwd: '/',
-      cmd: ['sh', '-c', SESSIONS_SCRIPT, 'sh', ...sessionsArgs(folders)],
-    }),
-  );
+  const out = await env.run({
+    cwd: '/',
+    cmd: ['sh', '-c', SESSIONS_SCRIPT, 'sh', ...sessionsArgs(folders)],
+  });
   if (out.code !== 0) {
     throw new Error(
       out.stderr.trim() || `listing sessions failed (exit ${out.code})`,
@@ -396,17 +451,12 @@ export async function listAgentSessions(
 
 /** The Herdr pane of `herdrSession` a live Claude process runs `session` in, if any; never throws. */
 export async function runningPane(
-  info: ContainerInfo,
+  env: Pick<Environment, 'runningAgents'>,
   session: string,
   herdrSession: string,
-  run: DockerRun = runDocker,
 ): Promise<string | null> {
   try {
-    const out = await run(
-      dockerExecArgv(info, { cwd: '/', cmd: ['sh', '-c', RUNNING_SCRIPT] }),
-    );
-    if (out.code !== 0) return null;
-    return parseRunningOutput(new TextDecoder().decode(out.stdout)).find((r) =>
+    return (await env.runningAgents()).find((r) =>
       r.session === session && r.herdrSession === herdrSession
     )?.paneId ?? null;
   } catch {

@@ -88,10 +88,23 @@ export type ClientMessage =
       | 'start_project'
       | 'stop_project'
       | 'down_project'
-      | 'forget_project'
-      | 'add_project';
+      | 'forget_project';
     id: string;
     localFolder: string;
+  }
+  /** Adds (pins) a folder, with where it runs when given. */
+  | {
+    type: 'add_project';
+    id: string;
+    localFolder: string;
+    environment?: 'host' | 'container';
+  }
+  /** Where a project with no devcontainer runs: a container, or on this machine. */
+  | {
+    type: 'set_project_environment';
+    id: string;
+    localFolder: string;
+    environment: 'host' | 'container';
   }
   | { type: 'pin_project'; id: string; localFolder: string; pinned: boolean }
   | {
@@ -443,6 +456,9 @@ function int(o: Obj, k: string, min: number): number {
   }
   return v;
 }
+
+/** Where a project can run: `add_project`'s and `set_project_environment`'s `environment`. */
+const PROJECT_ENVIRONMENTS: ('host' | 'container')[] = ['host', 'container'];
 
 function oneOf<T extends string>(o: Obj, k: string, values: T[]): T {
   const v = o[k];
@@ -803,8 +819,23 @@ function parseFields(m: Obj): ClientMessage {
     case 'stop_project':
     case 'down_project':
     case 'forget_project':
-    case 'add_project':
       return { type: m.type, id: str(m, 'id'), localFolder: folder(m) };
+    case 'add_project':
+      return {
+        type: 'add_project',
+        id: str(m, 'id'),
+        localFolder: folder(m),
+        ...(m.environment !== undefined
+          ? { environment: oneOf(m, 'environment', PROJECT_ENVIRONMENTS) }
+          : {}),
+      };
+    case 'set_project_environment':
+      return {
+        type: 'set_project_environment',
+        id: str(m, 'id'),
+        localFolder: folder(m),
+        environment: oneOf(m, 'environment', PROJECT_ENVIRONMENTS),
+      };
     case 'pin_project':
       if (typeof m.pinned !== 'boolean') {
         throw new Invalid(`'pinned' must be a boolean`);

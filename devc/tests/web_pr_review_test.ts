@@ -26,6 +26,7 @@ import {
   viewedHistoryFile,
   type ViewedMark,
 } from '../web/pr_review.ts';
+import { containerPrBackend } from '../web/containers.ts';
 
 const LOCAL = '/src/app';
 const ROOT = '/src/app';
@@ -101,6 +102,15 @@ const commentsOut = JSON.stringify({
   pending: false,
 });
 
+/** The container PR backend for `info`'s container, its `docker` stubbed. */
+const backend = (home: string, docker: string) =>
+  containerPrBackend({
+    info: () => Promise.resolve(info),
+    localFolder: LOCAL,
+    home,
+    docker,
+  });
+
 /**
  * A temp home for policy files and a stub `docker` that logs each call's argv (NUL-separated,
  * one file per call) and answers from `<dir>/<command>.{out,err,code}`. `<command>.sleep` makes
@@ -139,9 +149,13 @@ exit "$(cat "$d/$cmd.code" 2>/dev/null || echo 0)"
   const review = (opts: { timeoutMs?: number; maxOutput?: number } = {}) =>
     new PrReview({
       isRepo: (l, r) => l === LOCAL && r === ROOT,
-      container: () => Promise.resolve(running ? { info, name: 'app' } : null),
+      environment: () =>
+        Promise.resolve({
+          kind: 'container' as const,
+          name: 'app',
+          pr: running ? backend(home, docker) : null,
+        }),
       home,
-      docker,
       ...opts,
     });
   const policyFile = bridgePaths(home, await projectKey(LOCAL)).policyFile;
@@ -683,9 +697,13 @@ Deno.test('pr lookup: grants are per line — each repo is offered what its own 
     );
     const review = new PrReview({
       isRepo: (l, r) => l === LOCAL && (r === ROOT || r === LIB),
-      container: () => Promise.resolve({ info, name: 'app' }),
+      environment: () =>
+        Promise.resolve({
+          kind: 'container' as const,
+          name: 'app',
+          pr: backend(join(t.dir, 'home'), join(t.dir, 'docker')),
+        }),
       home: join(t.dir, 'home'),
-      docker: join(t.dir, 'docker'),
     });
     const app = result(await review.handle(files));
     assertEquals(app.canReply, true);

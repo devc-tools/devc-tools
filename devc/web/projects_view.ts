@@ -4,6 +4,7 @@
 
 import { basename } from 'jsr:@std/path';
 import type { ProjectEntry } from '../projects.ts';
+import type { EnvironmentKind } from './environment.ts';
 import type { MountedRepo } from './git_repo.ts';
 import { type GitReading, type GitStatus, isGitProblem } from './git_status.ts';
 
@@ -18,6 +19,8 @@ export interface ProjectView {
   container: ProjectContainer;
   /** A `start_project` for it is in flight. */
   starting: boolean;
+  /** Where it runs: see {@link effectiveEnvironment}. */
+  environment: EnvironmentKind;
   /**
    * Its repos, the folder itself first: with a container, every repo that container mounts and
    * the worktrees beside them; without one, just the folder. The rest go by `name`, each
@@ -36,6 +39,31 @@ export interface RepoView extends MountedRepo {
 }
 
 /**
+ * Where a project runs: in a container when a devcontainer (running or stopped) carries its
+ * folder; else its entry's `environment` when this server has that kind; else in a container
+ * when Docker is there, otherwise on this machine.
+ */
+export function effectiveEnvironment(
+  entry: Pick<ProjectEntry, 'environment'> | undefined,
+  hasContainer: boolean,
+  available: readonly EnvironmentKind[],
+): EnvironmentKind {
+  if (hasContainer) return 'container';
+  if (entry?.environment && available.includes(entry.environment)) {
+    return entry.environment;
+  }
+  return available.includes('container') ? 'container' : 'host';
+}
+
+/** What {@link buildProjects} needs to say where each project runs. */
+export interface EnvironmentFacts {
+  /** The folders a devcontainer, running or stopped, carries. */
+  containers: ReadonlySet<string>;
+  /** The kinds this server can run. */
+  available: readonly EnvironmentKind[];
+}
+
+/**
  * Merges the projects list with what discovery knows. `running` and `stopped` are the
  * `localFolder`s of running and stopped containers; a folder with both counts as running.
  * `repos` holds each container's mounted repos by project folder (a folder missing from it has
@@ -48,9 +76,14 @@ export function buildProjects(
   starting: ReadonlySet<string>,
   repos: ReadonlyMap<string, readonly MountedRepo[]> = new Map(),
   git: ReadonlyMap<string, GitReading> = new Map(),
+  environments?: EnvironmentFacts,
 ): ProjectView[] {
   const runningSet = new Set(running);
   const stoppedSet = new Set(stopped);
+  const facts = environments ?? {
+    containers: new Set([...runningSet, ...stoppedSet]),
+    available: ['container'] as const,
+  };
   const byFolder = new Map<string, ProjectEntry>();
   for (const e of entries) byFolder.set(e.localFolder, e);
   for (const folder of [...runningSet, ...stoppedSet]) {
@@ -73,6 +106,11 @@ export function buildProjects(
       ? 'stopped' as const
       : 'missing' as const,
     starting: starting.has(e.localFolder),
+    environment: effectiveEnvironment(
+      e,
+      facts.containers.has(e.localFolder),
+      facts.available,
+    ),
     repos: byRepoName(
       (repos.get(e.localFolder) ??
         [{
@@ -159,6 +197,9 @@ export function projectRefusal(
   const off = 'is off while devc web runs with --live';
   if (msg.type === 'start_project') return `starting containers ${off}`;
   if (msg.type === 'add_project') return `adding projects ${off}`;
+  if (msg.type === 'set_project_environment') {
+    return `changing where projects run ${off}`;
+  }
   if (msg.type === 'pin_project' && msg.pinned) return `pinning ${off}`;
   if (msg.type === 'list_host_dir') return `browsing host folders ${off}`;
   return null;

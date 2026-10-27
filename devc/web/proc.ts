@@ -1,8 +1,9 @@
 import { spawn } from 'node:child_process';
 import type { Readable } from 'node:stream';
+import type { BridgeRun, RunLimits } from './environment.ts';
 
-// Child processes for `devc web`: every long-lived `docker` process the server starts goes
-// through `spawnLines` (read as JSON lines) or `spawnBytes` (a language server's raw stdio), so
+// Child processes for `devc web`: every long-lived process the server starts (a `docker exec`
+// client, or a host project's own) goes through `spawnLines` (read as JSON lines) or `spawnBytes` (a language server's raw stdio), so
 // each is tracked for shutdown the same way.
 //
 // Lines are split by hand rather than with `@std/streams`' `TextLineStream` only to avoid a new
@@ -38,6 +39,22 @@ export interface ByteProc extends TrackedProc {
 }
 
 const live = new Set<TrackedProc>();
+
+/** Where a child runs: `cwd`, and `env` added to devc web's own. */
+export interface ProcOptions {
+  cwd?: string;
+  env?: Record<string, string>;
+}
+
+/** `node:child_process` options for {@link ProcOptions}. */
+function nodeOptions(opts: ProcOptions) {
+  return {
+    ...(opts.cwd !== undefined ? { cwd: opts.cwd } : {}),
+    ...(opts.env !== undefined
+      ? { env: { ...Deno.env.toObject(), ...opts.env } }
+      : {}),
+  };
+}
 
 /** Splits a text stream into lines. Exported for tests. */
 export async function* splitLines(
@@ -79,8 +96,13 @@ const STDERR_CAP = 16 * 1024;
  * before shutdown has released their terminals. A spawn failure (`docker` missing, say) shows
  * up as an immediate exit with the error on `stderr`.
  */
-export function spawnLines(cmd: string, args: string[]): LineProc {
+export function spawnLines(
+  cmd: string,
+  args: string[],
+  opts: ProcOptions = {},
+): LineProc {
   const child = spawn(cmd, args, {
+    ...nodeOptions(opts),
     stdio: ['pipe', 'pipe', 'pipe'],
     detached: true,
   });
@@ -137,8 +159,13 @@ export function spawnLines(cmd: string, args: string[]): LineProc {
  * `docker exec -i` client. The same process group, tracking, `kill`, `closeStdin`, `status` and
  * capped `stderr`.
  */
-export function spawnBytes(cmd: string, args: string[]): ByteProc {
+export function spawnBytes(
+  cmd: string,
+  args: string[],
+  opts: ProcOptions = {},
+): ByteProc {
   const child = spawn(cmd, args, {
+    ...nodeOptions(opts),
     stdio: ['pipe', 'pipe', 'pipe'],
     detached: true,
   });
@@ -236,4 +263,91 @@ export async function runText(
     stdout: dec.decode(out.stdout),
     stderr: dec.decode(out.stderr),
   };
+}
+
+/** How much stderr {@link runCapped} keeps, for its last line. */
+const MAX_STDERR = 64 * 1024;
+
+/**
+ * `cmd args…`, with no stdin: killed after `timeoutMs`, or as soon as its stdout passes
+ * `maxOutput` bytes (the PR review's bridge commands).
+ */
+export async function runCapped(
+  cmd: string,
+  args: string[],
+  limits: RunLimits,
+  opts: ProcOptions = {},
+): Promise<BridgeRun> {
+  const child = new Deno.Command(cmd, {
+    args,
+    ...(opts.cwd !== undefined ? { cwd: opts.cwd } : {}),
+    ...(opts.env !== undefined ? { env: opts.env } : {}),
+    stdin: 'null',
+    stdout: 'piped',
+    stderr: 'piped',
+  }).spawn();
+  const out = child.stdout.getReader();
+  const err = child.stderr.getReader();
+  let ended: 'timeout' | 'too_large' | null = null;
+  // Killed, the command's own children may still hold its pipes open: stop reading them.
+  const kill = (why: 'timeout' | 'too_large') => {
+    if (ended !== null) return;
+    ended = why;
+    try {
+      child.kill('SIGKILL');
+    } catch { /* already exited */ }
+    out.cancel().catch(() => {});
+    err.cancel().catch(() => {});
+  };
+  const timer = setTimeout(() => kill('timeout'), limits.timeoutMs);
+  const readOut = async () => {
+    const chunks: Uint8Array[] = [];
+    let size = 0;
+    while (true) {
+      const { done, value } = await out.read().catch(() => ({
+        done: true,
+        value: undefined,
+      }));
+      if (done || value === undefined || ended !== null) break;
+      size += value.length;
+      if (size > limits.maxOutput) {
+        kill('too_large');
+        break;
+      }
+      chunks.push(value);
+    }
+    if (ended !== null) return '';
+    const bytes = new Uint8Array(size);
+    let at = 0;
+    for (const c of chunks) {
+      bytes.set(c, at);
+      at += c.length;
+    }
+    return new TextDecoder().decode(bytes);
+  };
+  const readErr = async () => {
+    let text = '';
+    const decoder = new TextDecoder();
+    while (true) {
+      const { done, value } = await err.read().catch(() => ({
+        done: true,
+        value: undefined,
+      }));
+      if (done || value === undefined) break;
+      text += decoder.decode(value, { stream: true });
+      if (text.length > MAX_STDERR) text = text.slice(-MAX_STDERR);
+    }
+    return text;
+  };
+  try {
+    const [stdout, stderr, status] = await Promise.all([
+      readOut(),
+      readErr(),
+      child.status,
+    ]);
+    if (ended !== null) return { kind: ended };
+    return { kind: 'exit', code: status.code, stdout, stderr };
+  } finally {
+    clearTimeout(timer);
+  }
 }

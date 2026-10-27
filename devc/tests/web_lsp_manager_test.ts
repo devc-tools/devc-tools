@@ -5,7 +5,7 @@ import type {
   ContainerMount,
 } from '@devc-tools/core/container.ts';
 import {
-  launcherArgv,
+  launcherExec,
   type LauncherOutput,
   LspError,
   LspManager,
@@ -15,6 +15,7 @@ import {
 import { LspConfigStore } from '../web/lsp_config.ts';
 import { type ByteProc, spawnBytes } from '../web/proc.ts';
 import type { Peer } from '../web/lsp_session.ts';
+import { ContainerEnvironment, containerExecArgv } from '../web/containers.ts';
 
 type Msg = Record<string, unknown>;
 
@@ -27,6 +28,12 @@ const INFO: ContainerInfo = {
   remoteWorkspaceFolder: '/workspaces/app',
   remoteEnv: {},
 };
+/** Container `c1`: the launcher's runs and spawns are the harness's own, so nothing runs in it. */
+const ENV = new ContainerEnvironment(
+  { id: 'c1', localFolder: '/src/app' },
+  'devc',
+  { resolve: () => Promise.resolve(INFO) },
+);
 
 /** A browser connection that keeps what it was sent. */
 class FakePeer implements Peer {
@@ -112,7 +119,7 @@ const target = (
   path = '/workspaces/app/src/a.ts',
   mounts: ContainerMount[] = [],
 ): LspTarget => ({
-  info: INFO,
+  env: ENV,
   mounts,
   path,
 });
@@ -147,8 +154,10 @@ async function request(
   return await until(() => peer.lsp.find((m) => m.id === id), method);
 }
 
-Deno.test('launcherArgv: devc-lsp-<language> through a login shell, as the remote user', () => {
-  assertEquals(launcherArgv(INFO, 'typescript', ['describe', '/a b.ts']), [
+Deno.test('launcherExec: devc-lsp-<language> through a login shell, as the remote user', () => {
+  const argv = (...a: Parameters<typeof launcherExec>) =>
+    containerExecArgv(INFO, launcherExec(...a));
+  assertEquals(argv(ENV, 'typescript', ['describe', '/a b.ts']), [
     'exec',
     '-u',
     'dev',
@@ -162,7 +171,7 @@ Deno.test('launcherArgv: devc-lsp-<language> through a login shell, as the remot
     'describe',
     '/a b.ts',
   ]);
-  assertEquals(launcherArgv(INFO, 'python', ['serve'], true).slice(0, 2), [
+  assertEquals(argv(ENV, 'python', ['serve'], true).slice(0, 2), [
     'exec',
     '-i',
   ]);
@@ -609,7 +618,7 @@ Deno.test('settings: an entry adds --root and --options; saving it restarts the 
     });
     manager = h.manager;
     const t: LspTarget = {
-      info: INFO,
+      env: ENV,
       mounts: [
         {
           type: 'bind',

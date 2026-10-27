@@ -1136,6 +1136,14 @@ body.resizing-zones {
 }
 
 /* A pinned project. */
+/* A host environment's `this machine`, after its name. */
+.env-kind {
+  margin-left: 6px;
+  color: var(--muted);
+  font-size: 0.85em;
+  font-weight: normal;
+}
+
 .pin-mark {
   display: inline-block;
   width: 12px;

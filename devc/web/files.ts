@@ -275,7 +275,10 @@ export function fileText(
 }
 
 /** Up to `max` bytes from `file`, from where it is now. */
-async function readUpTo(file: Deno.FsFile, max: number): Promise<Uint8Array> {
+export async function readUpTo(
+  file: Deno.FsFile,
+  max: number,
+): Promise<Uint8Array> {
   const out = new Uint8Array(max);
   let n = 0;
   while (n < max) {

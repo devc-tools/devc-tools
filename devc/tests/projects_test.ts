@@ -6,6 +6,7 @@ import {
   MAX_RECENT,
   type ProjectEntry,
   recordUse,
+  setEnvironment,
   setPinned,
   updateProjects,
 } from '../projects.ts';
@@ -128,4 +129,72 @@ Deno.test('updateProjects writes the file and creates its directory', async () =
   } finally {
     await Deno.remove(dir, { recursive: true });
   }
+});
+
+Deno.test('environment round-trips through the file; an unknown value drops only the field', async () => {
+  const dir = await Deno.makeTempDir();
+  const path = join(dir, 'projects.json');
+  try {
+    await updateProjects(
+      () => [
+        {
+          localFolder: '/h',
+          pinned: true,
+          lastUsed: null,
+          environment: 'host',
+        },
+        { localFolder: '/c', pinned: false, lastUsed: null },
+      ],
+      path,
+    );
+    const raw = JSON.parse(await Deno.readTextFile(path));
+    assertEquals(raw.projects[0].environment, 'host');
+    assertEquals('environment' in raw.projects[1], false);
+    assertEquals(await loadProjects(path), [
+      { localFolder: '/h', pinned: true, lastUsed: null, environment: 'host' },
+      { localFolder: '/c', pinned: false, lastUsed: null },
+    ]);
+    await Deno.writeTextFile(
+      path,
+      JSON.stringify({
+        projects: [{
+          localFolder: '/x',
+          pinned: false,
+          lastUsed: null,
+          environment: 'ssh',
+        }],
+      }),
+    );
+    assertEquals(await loadProjects(path), [
+      { localFolder: '/x', pinned: false, lastUsed: null },
+    ]);
+  } finally {
+    await Deno.remove(dir, { recursive: true });
+  }
+});
+
+Deno.test('recordUse and setPinned keep environment; setEnvironment sets it or adds the folder', () => {
+  const list: ProjectEntry[] = [
+    { localFolder: '/h', pinned: false, lastUsed: null, environment: 'host' },
+  ];
+  assertEquals(
+    recordUse(list, '/h', at('2026-02-01T00:00:00.000Z'))[0].environment,
+    'host',
+  );
+  assertEquals(setPinned(list, '/h', true)[0], {
+    localFolder: '/h',
+    pinned: true,
+    lastUsed: null,
+    environment: 'host',
+  });
+  assertEquals(
+    setEnvironment(list, '/h', 'container')[0].environment,
+    'container',
+  );
+  assertEquals(setEnvironment(list, '/new', 'host')[1], {
+    localFolder: '/new',
+    pinned: false,
+    lastUsed: null,
+    environment: 'host',
+  });
 });

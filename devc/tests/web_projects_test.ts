@@ -1,6 +1,7 @@
 import { assertEquals } from 'jsr:@std/assert';
 import {
   buildProjects,
+  effectiveEnvironment,
   isProjectRepo,
   projectRefusal,
   repoFileFor,
@@ -30,6 +31,7 @@ Deno.test('buildProjects merges the list with running and stopped containers', (
       lastUsed: '2026-10-16T00:00:00.000Z',
       container: 'running',
       starting: false,
+      environment: 'container',
     },
     {
       localFolder: '/src/blog',
@@ -38,6 +40,7 @@ Deno.test('buildProjects merges the list with running and stopped containers', (
       lastUsed: null,
       container: 'missing',
       starting: true,
+      environment: 'container',
     },
     {
       localFolder: '/src/old',
@@ -46,6 +49,7 @@ Deno.test('buildProjects merges the list with running and stopped containers', (
       lastUsed: null,
       container: 'stopped',
       starting: false,
+      environment: 'container',
     },
     {
       localFolder: '/src/web',
@@ -54,6 +58,7 @@ Deno.test('buildProjects merges the list with running and stopped containers', (
       lastUsed: null,
       container: 'running',
       starting: false,
+      environment: 'container',
     },
   ]);
 });
@@ -316,4 +321,79 @@ Deno.test('repoName: the path under /workspaces, else the basename', () => {
   for (const [folder, containerFolder, want] of cases) {
     assertEquals(repoName(folder, containerFolder), want, folder);
   }
+});
+
+Deno.test('effectiveEnvironment: a container wins, then the entry, then Docker or the host', () => {
+  const both = ['container', 'host'] as const;
+  // Rule 1: a devcontainer (running or stopped) carries the folder.
+  assertEquals(
+    effectiveEnvironment({ environment: 'host' }, true, both),
+    'container',
+  );
+  assertEquals(effectiveEnvironment(undefined, true, ['host']), 'container');
+  // Rule 2: the entry's, when this server has that kind.
+  assertEquals(
+    effectiveEnvironment({ environment: 'host' }, false, both),
+    'host',
+  );
+  assertEquals(
+    effectiveEnvironment({ environment: 'container' }, false, both),
+    'container',
+  );
+  assertEquals(
+    effectiveEnvironment({ environment: 'host' }, false, ['container']),
+    'container',
+  );
+  // Rule 3: a container when Docker is here, else this machine.
+  assertEquals(effectiveEnvironment({}, false, both), 'container');
+  assertEquals(effectiveEnvironment(undefined, false, ['host']), 'host');
+  assertEquals(
+    effectiveEnvironment({ environment: 'container' }, false, ['host']),
+    'host',
+  );
+});
+
+Deno.test('buildProjects says where each project runs: entry host plus a stopped container is container', () => {
+  const views = buildProjects(
+    [
+      {
+        localFolder: '/src/h',
+        pinned: true,
+        lastUsed: null,
+        environment: 'host',
+      },
+      {
+        localFolder: '/src/s',
+        pinned: true,
+        lastUsed: null,
+        environment: 'host',
+      },
+      { localFolder: '/src/n', pinned: true, lastUsed: null },
+    ],
+    ['/src/h'],
+    ['/src/s'],
+    new Set(),
+    new Map(),
+    new Map(),
+    { containers: new Set(['/src/s']), available: ['container', 'host'] },
+  );
+  assertEquals(
+    views.map((v) => [v.localFolder, v.environment, v.container]),
+    [
+      ['/src/h', 'host', 'running'],
+      ['/src/n', 'container', 'missing'],
+      ['/src/s', 'container', 'stopped'],
+    ],
+  );
+});
+
+Deno.test('projectRefusal: set_project_environment is off with --live', () => {
+  assertEquals(
+    projectRefusal({ type: 'set_project_environment' }, true),
+    null,
+  );
+  assertEquals(
+    projectRefusal({ type: 'set_project_environment' }, false),
+    'changing where projects run is off while devc web runs with --live',
+  );
 });

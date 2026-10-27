@@ -4,32 +4,34 @@
 // web records); and a pending review to add comments to and submit. See
 // `.plans/devc-web-pr-review.md` and `.plans/devc-web-pr-review-depth.md`.
 //
-// **Every GitHub call is a `devc-bridge` command run in the project's running container**
-// (`docker exec … devc-bridge gh-pr-* --repo <target> …`, argv only, never a shell). devc web
-// never runs `gh`: the page can already type into a terminal in that container, so running the
-// same bridge commands adds no reach, where host `gh` would.
+// **Every GitHub call is a built-in `devc-bridge` recipe** (`gh-pr-* --repo <target> …`, argv
+// only, never a shell), run by the project's environment's `PrBackend` (`environment.ts`). In a
+// container it is `devc-bridge` there (`containers.ts`): devc web never runs `gh` for it, since
+// the page can already type into a terminal in that container, so running the same bridge
+// commands adds no reach, where host `gh` would. A project on this machine runs the same recipes
+// with the host's own `gh` (`pr_host.ts`): its page already has a host shell.
 //
-// **Grants are read from the host-only policy on every message** (`readPolicy`, keyed by
-// `projectKey(localFolder)`), never cached and never taken from the container: they decide which
-// commands are offered and which are refused here, ahead of the bridge's own check. Each line
-// carries its own grants, so a repo is offered only what the line pinning it grants.
+// **Grants come from the backend's `pin`, read on every message**, never cached: a container's
+// from the host-only policy (`readPolicy`, keyed by `projectKey(localFolder)`), never from the
+// container. They decide which commands are offered and which are refused here, ahead of the
+// bridge's own check. Each line carries its own grants, so a repo is offered only what the line
+// pinning it grants.
 //
-// **The bridge's output passes through the container, so it is untrusted** (a container could
-// shadow `devc-bridge` on its own `PATH`). Every listing is parsed defensively, with caps, and
-// the page shows it as text only.
+// **The bridge's output may pass through a container, so it is untrusted** (a container could
+// shadow `devc-bridge` on its own `PATH`), and a host recipe prints what GitHub sent. Every
+// listing is parsed defensively, with caps, and the page shows it as text only.
 //
 // **Every posting command runs `--as human`**: the page is driven by a person, so what it posts
 // carries no `🤖` prefix. It is a label the bridge cannot check, not a grant.
 
-import type { ContainerInfo } from '@devc-tools/core/container.ts';
-import { dockerExecArgv } from '@devc-tools/core/container.ts';
 import type { BridgeCapability } from '@devc-tools/core/bridge.ts';
-import { projectKey } from '@devc-tools/core/merged_config.ts';
-import {
-  displayPath,
-  resolveGlobalConfigPath,
-} from '@devc-tools/core/config.ts';
-import { readPolicy } from '../bridge.ts';
+import { displayPath } from '@devc-tools/core/config.ts';
+import type {
+  BridgeRun,
+  EnvironmentKind,
+  PrBackend,
+  RunLimits,
+} from './environment.ts';
 
 // ── limits ──────────────────────────────────────────────────────────────────────────────────
 
@@ -59,11 +61,12 @@ export const MAX_HISTORY_LINES = 5000;
 export const MAX_HISTORY_ENTRIES = 50;
 /** The longest stderr line a `bridge` result carries. */
 const MAX_MESSAGE = 300;
-/** How much stderr is kept, for its last line. */
-const MAX_STDERR = 64 * 1024;
 
 export const NOT_RUNNING_MESSAGE =
   'Start the container to see its pull request';
+/** {@link NOT_RUNNING_MESSAGE} for a project on this machine. */
+export const HOST_NOT_RUNNING_MESSAGE =
+  'Start the session to see its pull request';
 /** The `no_grant` message, naming the global config file in use (`configPath`). */
 export function noGrantMessage(configPath: string): string {
   return `Needs a grant on this repo: devc up --bridge-allow gh-pr-read, or "bridgeDefaultAllow" in ${
@@ -532,96 +535,7 @@ export function fileHistory(
 
 // ── running a bridge command ────────────────────────────────────────────────────────────────
 
-export type BridgeRun =
-  | { kind: 'exit'; code: number; stdout: string; stderr: string }
-  | { kind: 'timeout' }
-  | { kind: 'too_large' };
-
-export interface RunLimits {
-  timeoutMs: number;
-  maxOutput: number;
-}
-
-/**
- * `docker args…` (`args` from `dockerExecArgv`), with no stdin: killed after `timeoutMs`, or as
- * soon as its stdout passes `maxOutput` bytes. `docker` is the command to run (tests stub it).
- */
-export async function runBridge(
-  args: string[],
-  limits: RunLimits,
-  docker = 'docker',
-): Promise<BridgeRun> {
-  const child = new Deno.Command(docker, {
-    args,
-    stdin: 'null',
-    stdout: 'piped',
-    stderr: 'piped',
-  }).spawn();
-  const out = child.stdout.getReader();
-  const err = child.stderr.getReader();
-  let ended: 'timeout' | 'too_large' | null = null;
-  // Killed, the command's own children may still hold its pipes open: stop reading them.
-  const kill = (why: 'timeout' | 'too_large') => {
-    if (ended !== null) return;
-    ended = why;
-    try {
-      child.kill('SIGKILL');
-    } catch { /* already exited */ }
-    out.cancel().catch(() => {});
-    err.cancel().catch(() => {});
-  };
-  const timer = setTimeout(() => kill('timeout'), limits.timeoutMs);
-  const readOut = async () => {
-    const chunks: Uint8Array[] = [];
-    let size = 0;
-    while (true) {
-      const { done, value } = await out.read().catch(() => ({
-        done: true,
-        value: undefined,
-      }));
-      if (done || value === undefined || ended !== null) break;
-      size += value.length;
-      if (size > limits.maxOutput) {
-        kill('too_large');
-        break;
-      }
-      chunks.push(value);
-    }
-    if (ended !== null) return '';
-    const bytes = new Uint8Array(size);
-    let at = 0;
-    for (const c of chunks) {
-      bytes.set(c, at);
-      at += c.length;
-    }
-    return new TextDecoder().decode(bytes);
-  };
-  const readErr = async () => {
-    let text = '';
-    const decoder = new TextDecoder();
-    while (true) {
-      const { done, value } = await err.read().catch(() => ({
-        done: true,
-        value: undefined,
-      }));
-      if (done || value === undefined) break;
-      text += decoder.decode(value, { stream: true });
-      if (text.length > MAX_STDERR) text = text.slice(-MAX_STDERR);
-    }
-    return text;
-  };
-  try {
-    const [stdout, stderr, status] = await Promise.all([
-      readOut(),
-      readErr(),
-      child.status,
-    ]);
-    if (ended !== null) return { kind: ended };
-    return { kind: 'exit', code: status.code, stdout, stderr };
-  } finally {
-    clearTimeout(timer);
-  }
-}
+export type { BridgeRun, RunLimits };
 
 /** A failed command's message: its last non-empty stderr line, at most {@link MAX_MESSAGE}. */
 export function bridgeMessage(stderr: string, code: number): string {
@@ -730,15 +644,15 @@ export const PR_MESSAGE_TYPES: readonly PrMessage['type'][] = [
 export interface PrReviewDeps {
   /** Whether `root` (no trailing `/`) is one of the repos of the project at `localFolder`. */
   isRepo(localFolder: string, root: string): boolean;
-  /** The project's running container, `null` when none runs. */
-  container(
+  /**
+   * The project's environment: its kind, and its PR backend while it runs (`pr: null` when it
+   * doesn't).
+   */
+  environment(
     localFolder: string,
-  ): Promise<{ info: ContainerInfo; name: string } | null>;
-  /** Where `~/.config/devc-bridge/` is found (the policy), and `~/.config/devc/` (the viewed
-   * history, `CONFIG_DIR`). */
+  ): Promise<{ kind: EnvironmentKind; name: string; pr: PrBackend | null }>;
+  /** Where `~/.config/devc/` (the viewed history, `CONFIG_DIR`) is found. */
   home: string;
-  /** The `docker` command (tests stub it). */
-  docker?: string;
   timeoutMs?: number;
   maxOutput?: number;
 }
@@ -786,21 +700,19 @@ export class PrReview {
     if (!this.#deps.isRepo(msg.localFolder, root)) {
       return { ok: false, code: 'bad_request', message: 'unknown repo' };
     }
-    const container = await this.#deps.container(msg.localFolder);
-    if (container === null) {
-      return unavailable('not_running', NOT_RUNNING_MESSAGE);
-    }
-    const line = await this.#grantLine(msg.localFolder, root);
-    if (line === null) {
-      const configPath = await resolveGlobalConfigPath(
-        `${this.#deps.home}/.config/devc`,
+    const env = await this.#deps.environment(msg.localFolder);
+    if (env.pr === null) {
+      return unavailable(
+        'not_running',
+        env.kind === 'host' ? HOST_NOT_RUNNING_MESSAGE : NOT_RUNNING_MESSAGE,
       );
-      return unavailable('no_grant', noGrantMessage(configPath));
     }
+    const line = await env.pr.pin(root);
+    if ('problem' in line) return unavailable('no_grant', line.problem);
     const ctx: Ctx = {
       key: `${msg.localFolder}\n${root}`,
-      info: container.info,
-      name: container.name,
+      pr: env.pr,
+      name: env.name,
       target: line.target,
       grants: line.grants,
     };
@@ -824,44 +736,18 @@ export class PrReview {
     }
   }
 
-  /** The policy line pinning `root`, read now, when that line grants `gh-pr-read`. */
-  async #grantLine(
-    localFolder: string,
-    root: string,
-  ): Promise<{ target: string; grants: BridgeCapability[] } | null> {
-    let policy;
-    try {
-      policy = await readPolicy(await projectKey(localFolder), {
-        home: this.#deps.home,
-      });
-    } catch {
-      return null;
-    }
-    if (policy.kind !== 'present') return null;
-    // Grants are per line: the line pinning `root` decides, never another repo's.
-    const pinned = policy.record.repos.find((r) => dropSlash(r.repo) === root);
-    if (pinned === undefined || !pinned.grants.includes('gh-pr-read')) {
-      return null;
-    }
-    return { target: pinned.target, grants: pinned.grants };
-  }
-
-  /** Runs `devc-bridge <command> --repo <target> …args` in the container. */
+  /** Runs `<command> --repo <target> …args` through the environment's PR backend. */
   async #run(
     ctx: Ctx,
     command: string,
     ...args: string[]
   ): Promise<{ ok: true; stdout: string } | { ok: false; answer: PrAnswer }> {
-    const argv = dockerExecArgv(ctx.info, {
-      cwd: '/',
-      cmd: ['devc-bridge', command, '--repo', ctx.target, ...args],
-    });
     let run: BridgeRun;
     try {
-      run = await runBridge(argv, {
+      run = await ctx.pr.run(command, ctx.target, args, {
         timeoutMs: this.#deps.timeoutMs ?? BRIDGE_TIMEOUT_MS,
         maxOutput: this.#deps.maxOutput ?? MAX_BRIDGE_OUTPUT,
-      }, this.#deps.docker);
+      });
     } catch (e) {
       return {
         ok: false,
@@ -1251,7 +1137,7 @@ function pendingAnswer(stdout: string): PrAnswer {
 
 interface Ctx {
   key: string;
-  info: ContainerInfo;
+  pr: PrBackend;
   name: string;
   target: string;
   grants: BridgeCapability[];

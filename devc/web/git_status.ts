@@ -298,6 +298,7 @@ export const GIT_POLL_MS = 15_000;
  * Calls `onChange` after each folder whose reading changed, so a slow one (a cold mirror) holds
  * back none read before it, and once after dropping folders no longer listed.
  */
+// An SSH environment would need these reads to go through `env.run`: they read the host's FS.
 export class GitStatusWatch {
   #statuses = new Map<string, GitReading>();
   #timer: ReturnType<typeof setInterval> | undefined;

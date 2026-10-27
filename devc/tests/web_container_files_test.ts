@@ -11,7 +11,6 @@ import {
   createError,
   deleteArgv,
   deleteContainerEntry,
-  type DockerRun,
   listContainerDir,
   parseListing,
   readContainerFile,
@@ -23,6 +22,11 @@ import {
   writeContainerText,
 } from '../web/container_files.ts';
 import { contentHash, FilesError, MAX_READ_BYTES } from '../web/files.ts';
+import {
+  ContainerEnvironment,
+  type DockerRun,
+  type DockerRunInput,
+} from '../web/containers.ts';
 
 const info: ContainerInfo = {
   containerId: 'c0ffee',
@@ -30,6 +34,19 @@ const info: ContainerInfo = {
   remoteWorkspaceFolder: '/workspaces/app',
   remoteEnv: { LANG: 'C.UTF-8' },
 };
+
+/** The container `info` reaches, its docker runs stubbed. */
+function envOf(run?: DockerRun, runInput?: DockerRunInput) {
+  return new ContainerEnvironment(
+    { id: info.containerId, localFolder: '/src/app' },
+    'devc',
+    {
+      resolve: () => Promise.resolve(info),
+      ...(run ? { run } : {}),
+      ...(runInput ? { runInput } : {}),
+    },
+  );
+}
 
 /**
  * Runs what would follow `docker exec … <container>` here instead, so the real `find` and `sh`
@@ -70,7 +87,7 @@ Deno.test('listContainerDir lists one directory as the remote user, dirs first',
   const dir = await fixture();
   try {
     const calls: string[][] = [];
-    const result = await listContainerDir(info, dir, localRun(calls));
+    const result = await listContainerDir(envOf(localRun(calls)), dir);
     assertEquals(result, {
       truncated: false,
       entries: [
@@ -99,14 +116,13 @@ Deno.test('listContainerDir follows a linked directory it is asked for', async (
   const dir = await fixture();
   try {
     const { entries } = await listContainerDir(
-      info,
+      envOf(localRun()),
       join(dir, 'to-dir'),
-      localRun(),
     );
     assertEquals(entries, []);
     await Deno.writeTextFile(join(dir, 'src', 'b.ts'), 'x');
     assertEquals(
-      (await listContainerDir(info, join(dir, 'to-dir'), localRun())).entries,
+      (await listContainerDir(envOf(localRun()), join(dir, 'to-dir'))).entries,
       [{ name: 'b.ts', kind: 'file', size: 1 }],
     );
   } finally {
@@ -118,7 +134,7 @@ Deno.test('listContainerDir names a missing directory', async () => {
   const dir = await fixture();
   try {
     const e = await assertRejects(
-      () => listContainerDir(info, join(dir, 'nope'), localRun()),
+      () => listContainerDir(envOf(localRun()), join(dir, 'nope')),
       FilesError,
     );
     assertEquals(e.code, 'not_found');
@@ -135,7 +151,7 @@ Deno.test('listContainerDir passes on an unrecognised failure with its stderr', 
       stderr: 'find: unrecognized: -printf\n',
     });
   await assertRejects(
-    () => listContainerDir(info, '/', run),
+    () => listContainerDir(envOf(run), '/'),
     Error,
     'find: unrecognized: -printf',
   );
@@ -157,11 +173,11 @@ Deno.test('readContainerFile reads a file, through a link too', async () => {
   const dir = await fixture();
   try {
     assertEquals(
-      await readContainerFile(info, join(dir, 'a.txt'), localRun()),
+      await readContainerFile(envOf(localRun()), join(dir, 'a.txt')),
       { text: 'hello', size: 5, hash: HELLO_HASH },
     );
     assertEquals(
-      await readContainerFile(info, join(dir, 'to-file'), localRun()),
+      await readContainerFile(envOf(localRun()), join(dir, 'to-file')),
       { text: 'hello', size: 5, hash: HELLO_HASH },
     );
   } finally {
@@ -186,7 +202,7 @@ Deno.test('readContainerFile refuses missing, non-file, large and binary files',
     ];
     for (const [name, code] of cases) {
       const e = await assertRejects(
-        () => readContainerFile(info, join(dir, name), localRun()),
+        () => readContainerFile(envOf(localRun()), join(dir, name)),
         FilesError,
       );
       assertEquals(e.code, code, name);
@@ -202,7 +218,7 @@ Deno.test('readContainerFile passes a path to the script as an argument, never a
     const name = `$(touch pwned)'"; x`;
     await Deno.writeTextFile(join(dir, name), 'ok');
     assertEquals(
-      await readContainerFile(info, join(dir, name), localRun([], dir)),
+      await readContainerFile(envOf(localRun([], dir)), join(dir, name)),
       {
         text: 'ok',
         size: 2,
@@ -236,7 +252,7 @@ Deno.test('createContainerEntry creates a file and a folder as the remote user',
     const calls: string[][] = [];
     const file = join(dir, 'src', 'new.ts');
     assertEquals(
-      await createContainerEntry(info, file, 'file', localRun(calls)),
+      await createContainerEntry(envOf(localRun(calls)), file, 'file'),
       { path: file },
     );
     assertEquals(await Deno.readTextFile(file), '');
@@ -247,7 +263,7 @@ Deno.test('createContainerEntry creates a file and a folder as the remote user',
     ]);
     const sub = join(dir, 'src', 'sub');
     assertEquals(
-      await createContainerEntry(info, sub, 'dir', localRun()),
+      await createContainerEntry(envOf(localRun()), sub, 'dir'),
       { path: sub },
     );
     assertEquals((await Deno.stat(sub)).isDirectory, true);
@@ -270,7 +286,7 @@ Deno.test('createContainerEntry never replaces what is there', async () => {
       ] as const
     ) {
       const e = await assertRejects(
-        () => createContainerEntry(info, join(dir, name), kind, localRun()),
+        () => createContainerEntry(envOf(localRun()), join(dir, name), kind),
         FilesError,
       );
       assertEquals(e.code, 'exists', `${kind} ${name}`);
@@ -291,7 +307,7 @@ Deno.test('createContainerEntry names a missing or unwritable folder', async () 
     for (const kind of ['file', 'dir'] as const) {
       for (const path of [join(dir, 'nope', 'x'), join(dir, 'a.txt', 'x')]) {
         const e = await assertRejects(
-          () => createContainerEntry(info, path, kind, localRun()),
+          () => createContainerEntry(envOf(localRun()), path, kind),
           FilesError,
         );
         assertEquals(e.code, 'not_found', `${kind} ${path}`);
@@ -304,7 +320,7 @@ Deno.test('createContainerEntry names a missing or unwritable folder', async () 
     for (const kind of writable ? [] : ['file', 'dir'] as const) {
       const e = await assertRejects(
         () =>
-          createContainerEntry(info, join(dir, 'src', 'x'), kind, localRun()),
+          createContainerEntry(envOf(localRun()), join(dir, 'src', 'x'), kind),
         FilesError,
       );
       assertEquals(e.code, 'forbidden', kind);
@@ -377,26 +393,23 @@ Deno.test('renameContainerEntry renames a file, a folder and a link itself', asy
   try {
     assertEquals(
       await renameContainerEntry(
-        info,
+        envOf(localRun()),
         join(dir, 'a.txt'),
         join(dir, 'b.txt'),
-        localRun(),
       ),
       { path: join(dir, 'b.txt') },
     );
     assertEquals(await Deno.readTextFile(join(dir, 'b.txt')), 'hello');
     await renameContainerEntry(
-      info,
+      envOf(localRun()),
       join(dir, 'src'),
       join(dir, 'lib'),
-      localRun(),
     );
     assertEquals((await Deno.stat(join(dir, 'lib'))).isDirectory, true);
     await renameContainerEntry(
-      info,
+      envOf(localRun()),
       join(dir, 'broken'),
       join(dir, 'still-broken'),
-      localRun(),
     );
     assertEquals(
       (await Deno.lstat(join(dir, 'still-broken'))).isSymlink,
@@ -414,10 +427,9 @@ Deno.test('renameContainerEntry never replaces what is there', async () => {
       const e = await assertRejects(
         () =>
           renameContainerEntry(
-            info,
+            envOf(localRun()),
             join(dir, 'a.txt'),
             join(dir, to),
-            localRun(),
           ),
         FilesError,
       );
@@ -427,10 +439,9 @@ Deno.test('renameContainerEntry never replaces what is there', async () => {
     const gone = await assertRejects(
       () =>
         renameContainerEntry(
-          info,
+          envOf(localRun()),
           join(dir, 'nope'),
           join(dir, 'x'),
-          localRun(),
         ),
       FilesError,
     );
@@ -445,12 +456,12 @@ Deno.test('deleteContainerEntry deletes a file, a link (not its target) and a fo
   try {
     await Deno.writeTextFile(join(dir, 'src', 'inner.ts'), '');
     assertEquals(
-      await deleteContainerEntry(info, join(dir, 'to-dir'), localRun()),
+      await deleteContainerEntry(envOf(localRun()), join(dir, 'to-dir')),
       {},
     );
     assertEquals((await Deno.stat(join(dir, 'src', 'inner.ts'))).isFile, true);
-    await deleteContainerEntry(info, join(dir, 'a.txt'), localRun());
-    await deleteContainerEntry(info, join(dir, 'src'), localRun());
+    await deleteContainerEntry(envOf(localRun()), join(dir, 'a.txt'));
+    await deleteContainerEntry(envOf(localRun()), join(dir, 'src'));
     for (const name of ['to-dir', 'a.txt', 'src']) {
       assertEquals(
         await Deno.lstat(join(dir, name)).then(() => true, () => false),
@@ -459,7 +470,7 @@ Deno.test('deleteContainerEntry deletes a file, a link (not its target) and a fo
       );
     }
     const e = await assertRejects(
-      () => deleteContainerEntry(info, join(dir, 'nope'), localRun()),
+      () => deleteContainerEntry(envOf(localRun()), join(dir, 'nope')),
       FilesError,
     );
     assertEquals(e.code, 'not_found');
@@ -475,11 +486,7 @@ Deno.test('writeContainerFile pipes the text to sh as the remote user, making th
     const sub = join(dir, 'devc-tasks');
     const file = join(sub, "it's.md");
     await writeContainerFile(
-      info,
-      sub,
-      file,
-      'Fix $(rm -rf /) `now`\n',
-      async (args, input) => {
+      envOf(undefined, async (args, input) => {
         calls.push(args);
         const cmd = args.slice(args.indexOf(info.containerId) + 1);
         const child = new Deno.Command(cmd[0], {
@@ -497,7 +504,10 @@ Deno.test('writeContainerFile pipes the text to sh as the remote user, making th
           stdout: out.stdout,
           stderr: new TextDecoder().decode(out.stderr),
         };
-      },
+      }),
+      sub,
+      file,
+      'Fix $(rm -rf /) `now`\n',
     );
     assertEquals(await Deno.readTextFile(file), 'Fix $(rm -rf /) `now`\n');
     const args = calls[0];
@@ -514,17 +524,16 @@ Deno.test('writeContainerFile: a stopped container is not_running', async () => 
   const err = await assertRejects(
     () =>
       writeContainerFile(
-        info,
-        '/tmp/x',
-        '/tmp/x/a.md',
-        'a',
-        () =>
+        envOf(undefined, () =>
           Promise.resolve({
             code: 1,
             stdout: new Uint8Array(),
             stderr:
               'Error response from daemon: container c0ffee is not running',
-          }),
+          })),
+        '/tmp/x',
+        '/tmp/x/a.md',
+        'a',
       ),
     FilesError,
   );
@@ -540,7 +549,7 @@ Deno.test('containerHome reads $HOME as the remote user, an absolute path or nul
     };
   const calls: string[][] = [];
   assertEquals(
-    await containerHome(info, fake(0, '/home/vscode', calls)),
+    await containerHome(envOf(fake(0, '/home/vscode', calls))),
     '/home/vscode',
   );
   assertEquals(calls[0].slice(-8), [
@@ -553,13 +562,13 @@ Deno.test('containerHome reads $HOME as the remote user, an absolute path or nul
     '-c',
     'printf %s "$HOME"',
   ]);
-  assertEquals(await containerHome(info, fake(0, '/root')), '/root');
-  assertEquals(await containerHome(info, fake(1, '/home/vscode')), null);
-  assertEquals(await containerHome(info, fake(0, '')), null);
-  assertEquals(await containerHome(info, fake(0, 'home/vscode')), null);
-  assertEquals(await containerHome(info, fake(0, '/a\n/b')), null);
+  assertEquals(await containerHome(envOf(fake(0, '/root'))), '/root');
+  assertEquals(await containerHome(envOf(fake(1, '/home/vscode'))), null);
+  assertEquals(await containerHome(envOf(fake(0, ''))), null);
+  assertEquals(await containerHome(envOf(fake(0, 'home/vscode'))), null);
+  assertEquals(await containerHome(envOf(fake(0, '/a\n/b'))), null);
   assertEquals(
-    await containerHome(info, () => Promise.reject(new Error('no docker'))),
+    await containerHome(envOf(() => Promise.reject(new Error('no docker')))),
     null,
   );
 });
@@ -627,7 +636,7 @@ Deno.test('readContainerFile: hash is the SHA-256 of the bytes read', async () =
   try {
     const file = join(dir, 'a.txt');
     await Deno.writeTextFile(file, 'héllo\r\n');
-    const read = await readContainerFile(info, file, localRun());
+    const read = await readContainerFile(envOf(localRun()), file);
     assertEquals(read.text, 'héllo\r\n');
     assertEquals(
       read.hash,
@@ -646,14 +655,12 @@ Deno.test('writeContainerText saves in place when the file still has the read ha
     await Deno.writeTextFile(file, 'old\n');
     await Deno.chmod(file, 0o640);
     const ino = (await Deno.stat(file)).ino;
-    const { hash } = await readContainerFile(info, file, localRun());
+    const { hash } = await readContainerFile(envOf(localRun()), file);
     const result = await writeContainerText(
-      info,
+      envOf(localRun(), localRunInput),
       file,
       'new $(x) `y`\n',
       hash,
-      localRun(),
-      localRunInput,
     );
     assertEquals(await Deno.readTextFile(file), 'new $(x) `y`\n');
     assertEquals(result, {
@@ -673,17 +680,15 @@ Deno.test('writeContainerText: a file changed since it was read is a conflict, a
   try {
     const file = join(dir, 'a.txt');
     await Deno.writeTextFile(file, 'one\n');
-    const { hash } = await readContainerFile(info, file, localRun());
+    const { hash } = await readContainerFile(envOf(localRun()), file);
     await Deno.writeTextFile(file, 'two\n');
     const e = await assertRejects(
       () =>
         writeContainerText(
-          info,
+          envOf(localRun(), localRunInput),
           file,
           'mine\n',
           hash,
-          localRun(),
-          localRunInput,
         ),
       FilesError,
     );
@@ -691,12 +696,10 @@ Deno.test('writeContainerText: a file changed since it was read is a conflict, a
     assertEquals(await Deno.readTextFile(file), 'two\n');
     // No base: overwritten as asked.
     await writeContainerText(
-      info,
+      envOf(localRun(), localRunInput),
       file,
       'mine\n',
       undefined,
-      localRun(),
-      localRunInput,
     );
     assertEquals(await Deno.readTextFile(file), 'mine\n');
   } finally {
@@ -711,12 +714,10 @@ Deno.test('writeContainerText: a deleted file is a conflict', async () => {
     const e = await assertRejects(
       () =>
         writeContainerText(
-          info,
+          envOf(localRun(), localRunInput),
           file,
           'x',
           '0'.repeat(64),
-          localRun(),
-          localRunInput,
         ),
       FilesError,
     );
@@ -730,7 +731,7 @@ Deno.test('writeContainerText: too large, and a stopped container', async () => 
   const big = await assertRejects(
     () =>
       writeContainerText(
-        info,
+        envOf(),
         '/tmp/a',
         'x'.repeat(MAX_READ_BYTES + 1),
         undefined,
@@ -741,18 +742,16 @@ Deno.test('writeContainerText: too large, and a stopped container', async () => 
   const stopped = await assertRejects(
     () =>
       writeContainerText(
-        info,
-        '/tmp/a',
-        'a',
-        undefined,
-        localRun(),
-        () =>
+        envOf(localRun(), () =>
           Promise.resolve({
             code: 1,
             stdout: new Uint8Array(),
             stderr:
               'Error response from daemon: container c0ffee is not running',
-          }),
+          })),
+        '/tmp/a',
+        'a',
+        undefined,
       ),
     FilesError,
   );

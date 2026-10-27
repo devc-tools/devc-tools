@@ -44,7 +44,7 @@ devc stop    [PATH]                                   Stop the container
 devc down    [PATH]                                   Stop and remove the container (and its devc-bridge files)
 devc prune   [--dry-run]                              Remove devc-bridge key dirs/policies no container uses
 devc status  [PATH]                                   Print `running` / `stopped` / `missing`, then protection and bridge lines
-devc web     [--port N] [--session NAME] [--no-open] [--live] [--live-yolo] [--source DIR] Serve a browser UI for the Herdr sessions in every running devcontainer
+devc web     [--port N] [--session NAME] [--no-open] [--live] [--live-yolo] [--source DIR] Serve a browser UI for the Herdr sessions in every running devcontainer and on this machine
 devc time    [--days N] [--by repo|branch|agent] [--json] Show time spent by you and by agents, as devc web recorded it
 ```
 
@@ -734,7 +734,14 @@ is published from any container: the host server finds devcontainers with
   `"bridgeDefaultAllow"`). Everything goes through that container's
   devc-bridge (`gh-pr-files`, `gh-pr-comments`, `gh-pr-file-at`,
   `gh-pr-viewed`, `gh-pr-reply`, `gh-pr-pending-review`, `gh-pr-resolve`), so
-  the PR is always that pinned branch's, and nothing is
+  the PR is always that pinned branch's. A
+  [project on this machine](#projects-on-this-machine) runs the same recipes
+  with the host's own `gh` instead, with every PR capability (`gh-pr-read`, `gh-pr-reply`,
+  `gh-pr-pending-review`, `gh-pr-viewed`, `gh-pr-resolve`,
+  `gh-pr-request-review`) and no grant to add: grants exist to limit what an
+  agent inside a container can make the host do, and that project's page
+  already has a host shell with your `gh`. Its PR is the one of the branch its
+  folder has checked out, read on every message; nothing is
   polled: the row lists on opening and on its ⟳, a diff tile on opening, on its
   ⟳ and after each write. Needs a server with the `pr_*` messages
   (`--live-yolo`, or a `devc` built from this version).
@@ -755,12 +762,53 @@ for devc-desktop's main process: they need `Authorization: Bearer <token>`
 (never `?token=`) and refuse any request that has an `Origin`. The only one is
 `GET /desktop/active-folder`, the host folder behind the terminal pane a page
 last reported as focused, and that pane's container's own folder, for
-devc-desktop's right-click `cd`. devc web runs no `gh`: its pull request reads
-and writes are devc-bridge commands run in the container (`docker exec`, argv
-only), so the page can do only what that container's bridge grant already
-allows from its own terminals. Their output passes through the container, so
+devc-desktop's right-click `cd`. For a container, devc web runs no `gh`: its
+pull request reads and writes are devc-bridge commands run in the container
+(`docker exec`, argv only), so the page can do only what that container's
+bridge grant already allows from its own terminals. (A project on this machine
+runs them with the host's `gh`: its page is a host shell already.) Their output passes through the container, so
 it is parsed with caps and shown as text only, with bidi and zero-width
 characters as visible markers.
+
+#### Projects on this machine
+
+devc web also runs projects with no container at all, Docker or not. A project
+**on this machine** is its folder with its own Herdr session on the host,
+named `<session>-<slug>-<hex8>`: `--session`'s name (`devc`), the folder's
+name lowercased with every run of other characters made `-` (at most 24), and
+8 hex characters of the folder path's SHA-256 (`/home/me/src/My App!` →
+`devc-my-app-1a2b3c4d`). Everything a container's card does works there too:
+terminals, agent status, the Files row (this machine's files), Past sessions,
+task queues, git status and the pull request.
+
+- **Where a project runs.** A folder a devcontainer carries (running or
+  stopped) runs in it. Otherwise its entry in `projects.json` says
+  (`"environment": "host"` or `"container"`, set by **Run on this machine** /
+  **Run in a container** on its right-click, offered when this server can do
+  both); unset, a container when Docker is on `PATH`, else this machine. A
+  Herdr session left running on the host for a folder that now has a
+  container is not shown: the container wins.
+- **Docker is optional.** Without it, `devc web` prints `devc web: docker not
+  found on PATH; devcontainers are off` and serves projects on this machine
+  only. `devc web --live` never runs them (its page comes from a checkout
+  agents can write to, and must not get a host shell), so without Docker it
+  still exits with `docker not found on PATH`.
+- **Start session** runs `herdr --session <name> server` in the folder, left
+  running after devc web stops, as a container's is; **Stop session…** runs
+  `herdr session stop <name>`, closing every terminal in it. There is no
+  **Remove**. devc web lists the host's sessions (`herdr session list --json`)
+  every 5 s, so one you start yourself (`herdr --session <name>`) shows up
+  within that. Its card says `this machine` after its name, and has no **Copy
+  container path** (the path is the host path).
+- **The PATH** every command gets is your login shell's (`$SHELL -lc`, or
+  `/bin/sh` when `$SHELL` is not `sh`, `bash`, `zsh`, `dash` or `ksh`), read at
+  start and again on each start or Retry: devc-desktop opened from Finder has a
+  bare environment, and `herdr`, `gh` and the agents are where your terminal
+  finds them.
+- **The pull request** needs `bash` and an authenticated `gh` (`gh auth
+  login`); without them the row shows the recipe's own message. devc web writes
+  the recipes' pinned line to `~/.cache/devc/web-pr-policy/` before each call,
+  and the compiled `devc` unpacks the recipes into `~/.cache/devc/web-builtin/`.
 
 **From a container:** on Docker Desktop, a container reaches the server at
 `host.docker.internal:<port>`. Give an agent the printed URL with the host

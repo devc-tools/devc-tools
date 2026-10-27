@@ -26,6 +26,7 @@ import {
   collapseTasksState,
   containerLabel,
   dragZones,
+  environmentItem,
   filterMatches,
   filterOutline,
   gitRollup,
@@ -35,6 +36,7 @@ import {
   labelText,
   paneLabel,
   paneTitle,
+  projectActions,
   repoAt,
   repoCardActive,
   repoCardKey,
@@ -118,6 +120,7 @@ import {
   containers,
   dashboard,
   displayName,
+  environments,
   fileHostPath,
   filePinPanes,
   list,
@@ -1646,6 +1649,7 @@ function containerRows(c, cards) {
       { class: 'label' },
       chevron(),
       displayName(c),
+      envKindMark(c),
       pinMark(c),
       // Expanded, each repo card's own marks are right below.
       collapsed ? gitMark(gitRollup(projectRepos(c.localFolder))) : '',
@@ -1964,15 +1968,30 @@ async function resumeSession(c, s) {
 function stopButton(c) {
   const p = projects.get(c.localFolder);
   return p?.container === 'running'
-    ? iconButton('stop', 'Stop container…', () => stopProject(p))
+    ? iconButton(
+      'stop',
+      projectActions(p.environment).stop,
+      () => stopProject(p),
+    )
     : '';
 }
 
-/** A container row's Remove button (`devc down`), beside Stop: only while Stop is shown. */
+/**
+ * A container row's Remove button (`devc down`), beside Stop: only while Stop is shown, and never
+ * on this machine, where there is no container to remove.
+ */
 function downButton(c) {
   const p = projects.get(c.localFolder);
-  return p?.container === 'running'
-    ? iconButton('trash', 'Remove container…', () => downProject(p))
+  const remove = projectActions(p?.environment).remove;
+  return p?.container === 'running' && remove !== null
+    ? iconButton('trash', remove, () => downProject(p))
+    : '';
+}
+
+/** A host environment's muted `this machine`, after its name. */
+function envKindMark(c) {
+  return c.kind === 'host'
+    ? h('span', { class: 'env-kind' }, 'this machine')
     : '';
 }
 
@@ -2824,7 +2843,7 @@ function projectRow(p) {
       p.starting || !projectStarts ? '' : hoverActions(
         iconButton(
           'play',
-          'Start container',
+          projectActions(p.environment).start,
           () => startProject(p.localFolder),
         ),
       ),
@@ -2837,13 +2856,24 @@ function projectMenuItems(localFolder) {
   const p = projects.get(localFolder);
   if (!p) return [];
   const items = [];
+  const actions = projectActions(p.environment);
   if (p.container === 'running') {
-    items.push(['Stop container…', () => stopProject(p)]);
+    items.push([actions.stop, () => stopProject(p)]);
   } else if (!p.starting && projectStarts) {
-    items.push(['Start container', () => startProject(localFolder)]);
+    items.push([actions.start, () => startProject(localFolder)]);
   }
-  if (p.container !== 'missing' && !p.starting) {
-    items.push(['Remove container…', () => downProject(p), true]);
+  if (p.container !== 'missing' && !p.starting && actions.remove !== null) {
+    items.push([actions.remove, () => downProject(p), true]);
+  }
+  const move = projectStarts ? environmentItem(p, environments) : null;
+  if (move !== null && !p.starting) {
+    items.push([
+      move.label,
+      () =>
+        projectRequest('set_project_environment', localFolder, move.label, {
+          environment: move.environment,
+        }),
+    ]);
   }
   if (p.pinned || projectStarts) {
     items.push([
@@ -2871,13 +2901,14 @@ function projectMenuItems(localFolder) {
 // ---------------------------------------------------------------------------------------------
 
 async function stopProject(p) {
+  const actions = projectActions(p.environment);
   if (
     await confirmDialog(
-      `Stop the container for ${p.name}? Its panes end with it.`,
-      { okLabel: 'Stop container', danger: true },
+      actions.stopBody(p.name),
+      { okLabel: actions.stopOk, danger: true },
     )
   ) {
-    projectRequest('stop_project', p.localFolder, 'Stop container');
+    projectRequest('stop_project', p.localFolder, actions.stopOk);
   }
 }
 
@@ -4684,7 +4715,7 @@ function pathTitle(fr, path) {
 function openHerdrTab(fr, path, reuse, agent) {
   const c = containerByFolder(fr.localFolder);
   if (!c) {
-    toast('Start the container first');
+    toast(projectActions(projects.get(fr.localFolder)?.environment).notRunning);
     return;
   }
   if (c.state === 'no-session') toast('Starting Herdr…');
@@ -4759,7 +4790,11 @@ function newShellIn(fr, path) {
   const c = containerByFolder(fr.localFolder);
   if (!c || c.state !== 'connected') {
     toast(
-      c ? 'Start Herdr in this container first' : 'Start the container first',
+      c
+        ? `Start Herdr ${
+          c.kind === 'host' ? 'on this machine' : 'in this container'
+        } first`
+        : projectActions(projects.get(fr.localFolder)?.environment).notRunning,
     );
     return;
   }
@@ -4817,7 +4852,7 @@ function treeParent(path) {
  */
 function startNewEntry(fr, path, kind, rename = null) {
   if (!containerByFolder(fr.localFolder)) {
-    toast('Start the container first');
+    toast(projectActions(projects.get(fr.localFolder)?.environment).notRunning);
     return;
   }
   const input = /** @type {HTMLInputElement} */ (h('input', {
@@ -4909,7 +4944,7 @@ async function submitNewEntry(entry) {
   const { fr, dir, kind } = entry;
   const c = containerByFolder(fr.localFolder);
   if (!c) {
-    toast('Start the container first');
+    toast(projectActions(projects.get(fr.localFolder)?.environment).notRunning);
     return;
   }
   const path = childPath(dir, name);
@@ -4956,7 +4991,7 @@ async function submitNewEntry(entry) {
 async function deleteEntry(fr, path, kind) {
   const c = containerByFolder(fr.localFolder);
   if (!c) {
-    toast('Start the container first');
+    toast(projectActions(projects.get(fr.localFolder)?.environment).notRunning);
     return;
   }
   const name = path.slice(path.lastIndexOf('/') + 1);

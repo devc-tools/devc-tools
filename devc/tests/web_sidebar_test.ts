@@ -6,6 +6,7 @@ import {
   collapseTasksState,
   containerLabel,
   dragZones,
+  environmentItem,
   filterMatches,
   filterOutline,
   gitRollup,
@@ -16,6 +17,7 @@ import {
   labelText,
   paneLabel,
   paneTitle,
+  projectActions,
   repoAt,
   repoCardActive,
   repoCardKey,
@@ -709,4 +711,51 @@ Deno.test('filterMatches needs every word, in any order and case', () => {
   assertEquals(filterMatches('devc-tools main ↑1', 'MAIN devc'), true);
   assertEquals(filterMatches('devc-tools main', 'devc feature'), false);
   assertEquals(filterMatches('anything', '  '), true);
+});
+
+Deno.test('projectActions: a host project starts and stops its session, and has nothing to remove', () => {
+  const host = projectActions('host');
+  assertEquals([host.start, host.stop, host.stopOk, host.remove], [
+    'Start session',
+    'Stop session…',
+    'Stop session',
+    null,
+  ]);
+  assertEquals(
+    host.stopBody('app'),
+    'Stops the Herdr session for app: every terminal in it closes.',
+  );
+  const container = projectActions('container');
+  assertEquals([container.start, container.stop, container.remove], [
+    'Start container',
+    'Stop container…',
+    'Remove container…',
+  ]);
+  assertEquals(projectActions(undefined).start, 'Start container');
+});
+
+Deno.test('environmentItem: offered only with both kinds, never for a project a container carries', () => {
+  const both = ['container', 'host'];
+  assertEquals(
+    environmentItem({ environment: 'container', container: 'missing' }, both),
+    { label: 'Run on this machine', environment: 'host' },
+  );
+  assertEquals(
+    environmentItem({ environment: 'host', container: 'stopped' }, both),
+    { label: 'Run in a container', environment: 'container' },
+  );
+  assertEquals(
+    environmentItem({ environment: 'container', container: 'stopped' }, both),
+    null,
+  );
+  assertEquals(
+    environmentItem({ environment: 'container', container: 'missing' }, [
+      'container',
+    ]),
+    null,
+  );
+  assertEquals(
+    environmentItem({ environment: 'host', container: 'missing' }, ['host']),
+    null,
+  );
 });

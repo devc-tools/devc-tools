@@ -4,8 +4,8 @@
 // `--takeover` — that is how the new viewer gets a `full:true` frame — and the replaced
 // process's own "taken over" close is expected and ignored.
 
-import { herdrArgv, type HerdrTarget } from './herdr_bridge.ts';
-import { closeGracefully, type LineProc, spawnLines } from './proc.ts';
+import { herdrExec, type HerdrTarget } from './herdr_bridge.ts';
+import { closeGracefully, type LineProc } from './proc.ts';
 
 /** A browser connection, as far as the controllers are concerned. */
 export interface Subscriber {
@@ -54,15 +54,14 @@ export class ControllerManager {
     cols: number,
     rows: number,
   ): Promise<void> {
-    const k = key(target.info.containerId, paneId);
+    const k = key(target.env.id, paneId);
     const existing = this.#controllers.get(k);
     const subscribers = new Set(existing?.subscribers ?? []);
     subscribers.add(sub);
     if (existing) existing.ending = true;
 
-    const proc = spawnLines(
-      'docker',
-      herdrArgv(target, [
+    const proc = target.env.spawn(
+      herdrExec(target, [
         'terminal',
         'session',
         'control',
@@ -75,7 +74,7 @@ export class ControllerManager {
       ]),
     );
     const ctl: Controller = {
-      container: target.info.containerId,
+      container: target.env.id,
       paneId,
       proc,
       subscribers,

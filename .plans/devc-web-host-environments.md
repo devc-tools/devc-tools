@@ -274,6 +274,14 @@ behind `Environment.runningAgents()`, with the same `R <session id> <HERDR_SESSI
   - The pane comes from `ps -E -ww -o command= -p <pid>` (the process's environment, appended to
     its command line), taking the `HERDR_PANE_ID=` and `HERDR_SESSION=` tokens.
   - Pick the flavor with `uname -s` (`Darwin` → this script, else `RUNNING_SCRIPT`).
+- **Findings (2026-10-27, from Claude Code 2.1.312's own bundle, not yet on a Mac):** off Linux,
+  Claude Code writes `procStart` as the trimmed output of `LC_ALL=C TZ=UTC ps -o lstart= -p <pid>`
+  (e.g. `Tue Oct 27 10:00:00 2026`; `%e` pads a one-digit day with a space, kept inside the
+  string). On Linux it is `/proc/<pid>/stat` field 22. So the macOS probe compares exactly that
+  string, `grep -F`. The script prints `M <session id> <ps -E -ww -o command= output>` and the
+  parser takes the **last** `HERDR_PANE_ID=` / `HERDR_SESSION=` tokens (the environment follows
+  the command's own arguments). Still to confirm on a Mac: that `ps -E` shows `HERDR_PANE_ID=`
+  for a process of the same user.
 - A record that fails any check is skipped, as today. Failing closed costs only the running mark.
   Resume then opens a new pane, which is today's behavior for a session nothing runs.
 
@@ -348,7 +356,7 @@ loses only its two container assumptions: `#run` (a `docker exec`) and the grant
 
 ## Checklist
 
-- [ ] Step 0: in this devcontainer (herdr 0.9.5, no docker), confirm `herdr --session
+- [x] Step 0: in this devcontainer (herdr 0.9.5, no docker), confirm `herdr --session
       devc-my-app-1a2b3c4d server` starts a session that `herdr session list --json` lists
       `running`, and that `herdr session stop devc-my-app-1a2b3c4d` stops it. If the name is
       refused, change D1's slug rule here first.
@@ -357,32 +365,32 @@ loses only its two container assumptions: `#run` (a `docker exec`) and the grant
       `ps -o lstart= -p <pid>` and `ps -o etime= -p <pid>`. Pin down the exact format and
       conversion. Also confirm `ps -E -ww -o command= -p <pid>` shows `HERDR_PANE_ID=`. Write the
       findings into D8 before building the macOS probe.
-- [ ] `environment.ts`: `EnvironmentKind`, `EnvExec`, `Environment`, `EnvFiles`,
+- [x] `environment.ts`: `EnvironmentKind`, `EnvExec`, `Environment`, `EnvFiles`,
       `EnvironmentSource`, `DiscoveryHooks` (D2), plus the id and session-name derivation (D1).
-- [ ] Container implementation: `containers.ts`'s `Discovery`, `resolveConnection`,
+- [x] Container implementation: `containers.ts`'s `Discovery`, `resolveConnection`,
       `resolveHerdrPath`, `inspectMounts` and `project_control.ts` behind `EnvironmentSource` /
       `Environment`. `container_files.ts`'s argv functions become the exec-backed `EnvFiles`,
       taking an `Environment`.
-- [ ] `herdr_bridge.ts`, `controllers.ts`, `sessions.ts`, `pr_review.ts` run through
+- [x] `herdr_bridge.ts`, `controllers.ts`, `sessions.ts`, `pr_review.ts` run through
       `HerdrTarget.env` / `Environment`. No `docker` outside the container implementation.
-- [ ] `server.ts`: `sessions` holds environments from every source. `loadRepos` uses
+- [x] `server.ts`: `sessions` holds environments from every source. `loadRepos` uses
       `env.mounts()` + `env.repoSources()`. Project messages route by effective environment.
       Docker is optional (D5).
-- [ ] `env_host.ts`: the host environment (D3) and host source (D4).
-- [ ] `projects.ts`: optional `environment` kept through load, list functions and write (D5).
-- [ ] `projects_view.ts`: effective-environment function. `environment` on projects and
+- [x] `env_host.ts`: the host environment (D3) and host source (D4).
+- [x] `projects.ts`: optional `environment` kept through load, list functions and write (D5).
+- [x] `projects_view.ts`: effective-environment function. `environment` on projects and
       `environments` on the message (D6).
-- [ ] `protocol.ts`: `set_project_environment`, `add_project.environment`, `kind` (D6).
-- [ ] `sessions.ts`: portable `mt`. `runningAgents()` on each environment, with the macOS probe
+- [x] `protocol.ts`: `set_project_environment`, `add_project.environment`, `kind` (D6).
+- [x] `sessions.ts`: portable `mt`. `runningAgents()` on each environment, with the macOS probe
       (D8).
-- [ ] `pr_review.ts`: `PrReview` over `PrBackend`. The container backend is today's code; the host
+- [x] `pr_review.ts`: `PrReview` over `PrBackend`. The container backend is today's code; the host
       backend is `pr_host.ts` (D10). The host builtins are embedded (`deno.json` build tasks) and
       materialized.
-- [ ] Page (D7): labels, no Remove, `this machine` marker, no Copy container path, the host
+- [x] Page (D7): labels, no Remove, `this machine` marker, no Copy container path, the host
       not-running PR message, the Run on / Run in menu item.
-- [ ] D9's comments at `loadRepos` and `GitStatusWatch`.
-- [ ] Tests (see Validation).
-- [ ] `devc/README.md`: the `devc web` usage line says `…for the Herdr sessions in every running
+- [x] D9's comments at `loadRepos` and `GitStatusWatch`.
+- [x] Tests (see Validation).
+- [x] `devc/README.md`: the `devc web` usage line says `…for the Herdr sessions in every running
       devcontainer and on this machine`. A "Projects on this machine" subsection under `devc web`
       covers D1's session name, D3's login-shell PATH, D4's polling, D5's rules including the
       rule-1 caveat, D7, and D10's needs (`bash`, authenticated `gh`). The PR review section says
@@ -390,15 +398,18 @@ loses only its two container assumptions: `#run` (a `docker exec`) and the grant
 
 ## Validation
 
-- [ ] `cd devc && deno task check` passes, with `web/environment.ts`, `web/env_host.ts` and
+- [x] `cd devc && deno task check` passes, with `web/environment.ts`, `web/env_host.ts` and
       `web/pr_host.ts` added to the `check` task's file list.
-- [ ] `cd devc && deno task build` succeeds, and the binary's first host PR call creates
+- [x] `cd devc && deno task build` succeeds, and the binary's first host PR call creates
       `~/.cache/devc/web-builtin/gh-pr-files` (executable).
-- [ ] `cd devc && deno task test` passes, including the new tests below.
-- [ ] `cd devc && deno lint && deno fmt --check` pass.
-- [ ] `grep -nE "'docker'|dockerExecArgv" devc/web/*.ts` matches only the container
+- [x] `cd devc && deno task test` passes, including the new tests below.
+- [ ] `cd devc && deno lint && deno fmt --check` pass. (2026-10-27: `deno fmt --check` passes;
+      `deno lint` fails only on rules that already failed before this plan — `no-import-prefix`,
+      `no-unversioned-import`, `no-var` in `boot.js`, and `require-await` / `no-unused-vars` in
+      older tests — none in code this plan added.)
+- [x] `grep -nE "'docker'|dockerExecArgv" devc/web/*.ts` matches only the container
       implementation's files.
-- [ ] Unit tests:
+- [x] Unit tests:
   - id and session name for `/home/me/src/My App!` (prefix `devc-my-app-`, 8 hex), for `/` (empty
     slug → `devc-<hex8>`) and for a 40-char basename (slug ≤ 24 chars, no trailing `-`); ids
     stable across calls and distinct per folder.
@@ -433,6 +444,13 @@ loses only its two container assumptions: `#run` (a `docker exec`) and the grant
     and `web_agents_test.ts` still assert the same docker argv through the container implementation.
 - [ ] Manual, in this devcontainer (no docker): `cd devc && deno task run web --port 7681
       --no-open` starts and prints the docker-off line. Then on the page:
+      (2026-10-27, the built binary driven over `/ws` by a script, with a throwaway `HOME`:
+      checked the docker-off line, add (`environments: ["host"]`), Start session (`kind: host`,
+      connected), a new tab's pane `cwd` is the folder, list / create / save / read back / delete
+      a repo file, Past sessions lists 20, Stop session → `stopped`, `down_project` refused, and
+      a hand-run `herdr --session <name> server` brings the card back in 1.5 s. Not checked: the
+      page itself, the running mark, agent badges, and the PR listing — this container has no
+      `gh`.)
   - add `/workspaces/tools/devc-tools` (`environment: host`, since there's no Docker);
   - **Start session**, and the card shows `this machine`;
   - open a terminal and run `pwd` → the folder;

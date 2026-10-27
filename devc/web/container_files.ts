@@ -1,18 +1,19 @@
 // A running container's own filesystem for `devc web`'s Files node (`list_container_dir`,
-// `read_container_file`): any absolute path inside the container, read with `docker exec` as the
-// remote user, so what is listed is what that user can see. Unlike the repo trees (`files.ts`),
+// `read_container_file`): any absolute path inside the container, read with an exec in its
+// environment (`Environment.run`: `docker exec` as the remote user), so what is listed is what
+// that user can see. Unlike the repo trees (`files.ts`),
 // nothing is confined: the container is the boundary. `create_file`, `rename_file` and
 // `delete_file` write here too, for both trees, so an entry has the owner the editor's saves will
 // have.
 //
 // The commands are GNU findutils and POSIX `sh`/`head`, as in devc-vscode's container file
-// system. BusyBox `find` (Alpine) has no `-printf`, so listing fails there with find's own error.
+// system. BusyBox `find` (Alpine) has no `-printf`, so listing fails there with find's own error;
+// macOS's `find` and `mv` lack `-printf` and `-T` too, which is why a host project's files are
+// Deno FS calls instead (`env_host.ts`). This implementation is written against `Environment.run`
+// alone, so any exec-backed environment (an SSH one, later) can reuse it.
 
-import {
-  type ContainerInfo,
-  type ContainerMount,
-  dockerExecArgv,
-} from '@devc-tools/core/container.ts';
+import type { ContainerMount } from '@devc-tools/core/container.ts';
+import type { EnvFiles, Environment, ExecOutput } from './environment.ts';
 import { containerToHostPath } from '@devc-tools/core/mount_paths.ts';
 import {
   contentHash,
@@ -24,34 +25,10 @@ import {
   sortEntries,
 } from './files.ts';
 
-/** One finished `docker` run, stdout as bytes. */
-export interface ExecOutput {
-  code: number;
-  stdout: Uint8Array;
-  stderr: string;
-}
+export type { ExecOutput };
 
-/** Runs `docker args…`. */
-export type DockerRun = (args: string[]) => Promise<ExecOutput>;
-
-/** How long one listing or read may take before it is given up on. */
-const EXEC_TIMEOUT_MS = 15_000;
-
-/** `docker args…` to completion, killed after {@link EXEC_TIMEOUT_MS}. */
-export const runDocker: DockerRun = async (args) => {
-  const out = await new Deno.Command('docker', {
-    args,
-    stdin: 'null',
-    stdout: 'piped',
-    stderr: 'piped',
-    signal: AbortSignal.timeout(EXEC_TIMEOUT_MS),
-  }).output();
-  return {
-    code: out.code,
-    stdout: out.stdout,
-    stderr: new TextDecoder().decode(out.stderr),
-  };
-};
+/** What these run commands with: an environment's one-shot exec. */
+export type EnvRun = Pick<Environment, 'run'>;
 
 /**
  * The entries of directory `path`, NUL-separated: own type (`%y`), type after following a link
@@ -144,16 +121,13 @@ export function execError(
  * `remoteEnv` `HOME` wins, as it does in that user's shells.
  */
 export async function containerHome(
-  info: ContainerInfo,
-  run: DockerRun = runDocker,
+  env: EnvRun,
 ): Promise<string | null> {
   try {
-    const out = await run(
-      dockerExecArgv(info, {
-        cwd: '/',
-        cmd: ['sh', '-c', 'printf %s "$HOME"'],
-      }),
-    );
+    const out = await env.run({
+      cwd: '/',
+      cmd: ['sh', '-c', 'printf %s "$HOME"'],
+    });
     if (out.code !== 0) return null;
     const home = new TextDecoder().decode(out.stdout);
     return home.startsWith('/') && !/[\n\0]/.test(home) ? home : null;
@@ -167,13 +141,10 @@ export async function containerHome(
  * {@link FilesError}, or an `Error` carrying the command's stderr.
  */
 export async function listContainerDir(
-  info: ContainerInfo,
+  env: EnvRun,
   path: string,
-  run: DockerRun = runDocker,
 ): Promise<{ entries: DirEntry[]; truncated: boolean }> {
-  const out = await run(
-    dockerExecArgv(info, { cwd: '/', cmd: listArgv(path) }),
-  );
+  const out = await env.run({ cwd: '/', cmd: listArgv(path) });
   if (out.code !== 0) throw execError(path, out, 'listing failed');
   const sorted = sortEntries(parseListing(out.stdout));
   return {
@@ -211,11 +182,10 @@ export function withHostPaths<T extends { entries: DirEntry[] }>(
  * {@link FilesError}, or an `Error` carrying the command's stderr.
  */
 export async function readContainerFile(
-  info: ContainerInfo,
+  env: EnvRun,
   path: string,
-  run: DockerRun = runDocker,
 ): Promise<{ text: string; size: number; hash: string }> {
-  const bytes = await readContainerBytes(info, path, MAX_READ_BYTES, run);
+  const bytes = await readContainerBytes(env, path, MAX_READ_BYTES);
   return { ...fileText(bytes, path), hash: await contentHash(bytes) };
 }
 
@@ -224,14 +194,11 @@ export async function readContainerFile(
  * Throws {@link FilesError}, or an `Error` carrying the command's stderr.
  */
 export async function readContainerBytes(
-  info: ContainerInfo,
+  env: EnvRun,
   path: string,
   max: number,
-  run: DockerRun = runDocker,
 ): Promise<Uint8Array> {
-  const out = await run(
-    dockerExecArgv(info, { cwd: '/', cmd: readArgv(path, max) }),
-  );
+  const out = await env.run({ cwd: '/', cmd: readArgv(path, max) });
   switch (out.code) {
     case 0:
       return out.stdout;
@@ -286,14 +253,11 @@ export function createError(path: string, out: ExecOutput): Error {
  * `forbidden`, `not_running`), or an `Error` carrying the command's stderr.
  */
 export async function createContainerEntry(
-  info: ContainerInfo,
+  env: EnvRun,
   path: string,
   kind: 'file' | 'dir',
-  run: DockerRun = runDocker,
 ): Promise<{ path: string }> {
-  const out = await run(
-    dockerExecArgv(info, { cwd: '/', cmd: createArgv(path, kind) }),
-  );
+  const out = await env.run({ cwd: '/', cmd: createArgv(path, kind) });
   if (out.code !== 0) throw createError(path, out);
   return { path };
 }
@@ -357,14 +321,11 @@ export function changeError(
  * `forbidden`, `not_running`), or an `Error` carrying the command's stderr.
  */
 export async function renameContainerEntry(
-  info: ContainerInfo,
+  env: EnvRun,
   from: string,
   to: string,
-  run: DockerRun = runDocker,
 ): Promise<{ path: string }> {
-  const out = await run(
-    dockerExecArgv(info, { cwd: '/', cmd: renameArgv(from, to) }),
-  );
+  const out = await env.run({ cwd: '/', cmd: renameArgv(from, to) });
   if (out.code !== 0) throw changeError(from, out, 'renamed');
   return { path: to };
 }
@@ -374,44 +335,13 @@ export async function renameContainerEntry(
  * it. Throws as {@link renameContainerEntry} does, `exists` aside.
  */
 export async function deleteContainerEntry(
-  info: ContainerInfo,
+  env: EnvRun,
   path: string,
-  run: DockerRun = runDocker,
 ): Promise<Record<string, never>> {
-  const out = await run(
-    dockerExecArgv(info, { cwd: '/', cmd: deleteArgv(path) }),
-  );
+  const out = await env.run({ cwd: '/', cmd: deleteArgv(path) });
   if (out.code !== 0) throw changeError(path, out, 'deleted');
   return {};
 }
-
-/** Runs `docker args…` with `input` as its stdin. */
-export type DockerRunInput = (
-  args: string[],
-  input: Uint8Array,
-) => Promise<ExecOutput>;
-
-/** `docker args…` to completion with `input` piped to stdin, killed after the same timeout. */
-export const runDockerInput: DockerRunInput = async (args, input) => {
-  const child = new Deno.Command('docker', {
-    args,
-    stdin: 'piped',
-    stdout: 'piped',
-    stderr: 'piped',
-    signal: AbortSignal.timeout(EXEC_TIMEOUT_MS),
-  }).spawn();
-  const writer = child.stdin.getWriter();
-  try {
-    await writer.write(input);
-    await writer.close();
-  } catch { /* the child exited first: its status says why */ }
-  const out = await child.output();
-  return {
-    code: out.code,
-    stdout: out.stdout,
-    stderr: new TextDecoder().decode(out.stderr),
-  };
-};
 
 /**
  * The command that writes stdin to `file`, making folder `dir` first. Both ride in as
@@ -426,18 +356,13 @@ export function writeArgv(dir: string, file: string): string[] {
  * Throws {@link FilesError} `not_running`, or an `Error` carrying the command's stderr.
  */
 export async function writeContainerFile(
-  info: ContainerInfo,
+  env: EnvRun,
   dir: string,
   file: string,
   text: string,
-  run: DockerRunInput = runDockerInput,
 ): Promise<void> {
-  const out = await run(
-    dockerExecArgv(info, {
-      interactive: true,
-      cwd: '/',
-      cmd: writeArgv(dir, file),
-    }),
+  const out = await env.run(
+    { interactive: true, cwd: '/', cmd: writeArgv(dir, file) },
     new TextEncoder().encode(text),
   );
   if (out.code === 0) return;
@@ -456,12 +381,10 @@ export async function writeContainerFile(
  * `conflict`, `not_running`, and a read's codes), or an `Error` carrying the command's stderr.
  */
 export async function writeContainerText(
-  info: ContainerInfo,
+  env: EnvRun,
   path: string,
   text: string,
   base: string | undefined,
-  run: DockerRun = runDocker,
-  runInput: DockerRunInput = runDockerInput,
 ): Promise<{ hash: string; size: number }> {
   const bytes = new TextEncoder().encode(text);
   if (bytes.length > MAX_READ_BYTES) {
@@ -474,7 +397,7 @@ export async function writeContainerText(
     let current: string | null;
     try {
       current = await contentHash(
-        await readContainerBytes(info, path, MAX_READ_BYTES, run),
+        await readContainerBytes(env, path, MAX_READ_BYTES),
       );
     } catch (e) {
       if (!(e instanceof FilesError && e.code === 'not_found')) throw e;
@@ -484,12 +407,12 @@ export async function writeContainerText(
       throw new FilesError('conflict', `${path} changed since it was opened`);
     }
   }
-  const out = await runInput(
-    dockerExecArgv(info, {
+  const out = await env.run(
+    {
       interactive: true,
       cwd: '/',
       cmd: ['sh', '-c', 'cat > "$1"', 'sh', path],
-    }),
+    },
     bytes,
   );
   if (out.code !== 0) {
@@ -507,4 +430,18 @@ export async function writeContainerText(
     throw new Error(msg || `saving ${path} failed`);
   }
   return { hash: await contentHash(bytes), size: bytes.length };
+}
+
+/** The exec-backed {@link EnvFiles}: these functions, run through `env`. */
+export function execFiles(env: EnvRun): EnvFiles {
+  return {
+    list: (path) => listContainerDir(env, path),
+    read: (path) => readContainerFile(env, path),
+    readBytes: (path, max) => readContainerBytes(env, path, max),
+    create: (path, kind) => createContainerEntry(env, path, kind),
+    rename: (from, to) => renameContainerEntry(env, from, to),
+    delete: (path) => deleteContainerEntry(env, path),
+    write: (dir, file, text) => writeContainerFile(env, dir, file, text),
+    writeText: (path, text, base) => writeContainerText(env, path, text, base),
+  };
 }

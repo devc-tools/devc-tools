@@ -32,8 +32,8 @@ const LIVE_PAUSE_KEY = 'devc-web-live-paused-v1';
 // ---------------------------------------------------------------------------------------------
 
 /**
- * @typedef {{id: string, localFolder: string, name: string, state: string, error?: string,
- *   home?: string}} ContainerInfo
+ * @typedef {{id: string, kind?: 'container' | 'host', localFolder: string, name: string,
+ *   state: string, error?: string, home?: string}} ContainerInfo
  */
 
 /** @type {Map<string, ContainerInfo>} by container id */
@@ -42,7 +42,8 @@ export const containers = new Map();
 export const snapshots = new Map();
 /**
  * @typedef {{localFolder: string, name: string, pinned: boolean, lastUsed: string | null,
- *   container: 'running' | 'stopped' | 'missing', starting: boolean}} ProjectInfo
+ *   container: 'running' | 'stopped' | 'missing', starting: boolean,
+ *   environment?: 'container' | 'host'}} ProjectInfo
  */
 /** @type {Map<string, ProjectInfo>} devc's projects (the `projects` message), by local folder */
 export const projects = new Map();
@@ -51,6 +52,13 @@ export const projectOutput = new Map();
 const OUTPUT_LINES = 500;
 /** Whether the server starts containers and adds projects for this page (see `onHello`). */
 export let projectStarts = true;
+/**
+ * Where this server can run projects (the `projects` message's `environments`): in containers,
+ * on this machine, or both.
+ *
+ * @type {('container' | 'host')[]}
+ */
+export let environments = ['container'];
 /** The host's OS (`hello`'s `hostOs`), which names the reveal item. */
 export let hostOs = '';
 /**
@@ -463,6 +471,7 @@ function applyMessage(msg) {
     case 'projects':
       projects.clear();
       for (const p of msg.projects) projects.set(p.localFolder, p);
+      if (Array.isArray(msg.environments)) environments = msg.environments;
       break;
     case 'project_output':
       onProjectOutput(msg.localFolder, msg.line);

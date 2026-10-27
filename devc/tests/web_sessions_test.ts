@@ -1,7 +1,7 @@
 import { assertEquals } from 'jsr:@std/assert';
 import { join } from 'jsr:@std/path';
 import type { ContainerInfo } from '@devc-tools/core/container.ts';
-import type { DockerRun } from '../web/container_files.ts';
+import { ContainerEnvironment, type DockerRun } from '../web/containers.ts';
 import {
   claudeDirPrefix,
   listAgentSessions,
@@ -26,6 +26,15 @@ const info: ContainerInfo = {
   remoteWorkspaceFolder: '/workspaces/app',
   remoteEnv: {},
 };
+
+/** The container `info` reaches, its docker runs stubbed. */
+function envOf(run: DockerRun) {
+  return new ContainerEnvironment(
+    { id: info.containerId, localFolder: '/src/app' },
+    'devc',
+    { resolve: () => Promise.resolve(info), run },
+  );
+}
 
 const U1 = '11111111-1111-4111-8111-111111111111';
 const U2 = '22222222-2222-4222-8222-222222222222';
@@ -349,15 +358,10 @@ Deno.test({
           stderr: new TextDecoder().decode(out.stderr),
         };
       };
-      const sessions = await listAgentSessions(
-        info,
-        [
-          { folder: '/host/app', containerFolder: '/workspaces/app' },
-          { folder: '/host/nowhere', containerFolder: null },
-        ],
-        'devc',
-        run,
-      );
+      const sessions = await listAgentSessions(envOf(run), [
+        { folder: '/host/app', containerFolder: '/workspaces/app' },
+        { folder: '/host/nowhere', containerFolder: null },
+      ], 'devc');
       assertEquals(
         sessions.map((s) => [s.agent, s.session, s.title, s.cwd, s.root]),
         [
@@ -438,23 +442,19 @@ Deno.test('listAgentSessions runs nothing when no repo is mounted, throws on a f
     });
   };
   assertEquals(
-    await listAgentSessions(
-      info,
-      [{ folder: '/h', containerFolder: null }],
-      'devc',
-      failing,
-    ),
+    await listAgentSessions(envOf(failing), [{
+      folder: '/h',
+      containerFolder: null,
+    }], 'devc'),
     [],
   );
   assertEquals(ran, 0);
   let message = '';
   try {
-    await listAgentSessions(
-      info,
-      [{ folder: '/h', containerFolder: '/w' }],
-      'devc',
-      failing,
-    );
+    await listAgentSessions(envOf(failing), [{
+      folder: '/h',
+      containerFolder: '/w',
+    }], 'devc');
   } catch (e) {
     message = (e as Error).message;
   }
@@ -550,11 +550,11 @@ Deno.test({
           stderr: new TextDecoder().decode(out.stderr),
         };
       };
-      assertEquals(await runningPane(info, U1, 'devc', run), 'w1:p9');
-      assertEquals(await runningPane(info, U1, 'other', run), null);
-      assertEquals(await runningPane(info, U2, 'devc', run), null);
+      assertEquals(await runningPane(envOf(run), U1, 'devc'), 'w1:p9');
+      assertEquals(await runningPane(envOf(run), U1, 'other'), null);
+      assertEquals(await runningPane(envOf(run), U2, 'devc'), null);
       await record(child.pid, U3, `${procStart}0`);
-      assertEquals(await runningPane(info, U3, 'devc', run), null);
+      assertEquals(await runningPane(envOf(run), U3, 'devc'), null);
       assertEquals(RUNNING_SCRIPT.includes('${'), false);
     } finally {
       child.kill();

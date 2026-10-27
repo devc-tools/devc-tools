@@ -1,7 +1,9 @@
-// Devcontainer discovery for `devc web`: an initial `docker ps`, then a `docker events` stream
-// for the server's lifetime (push, never polled), plus the per-container facts every Herdr
-// process needs — how to reach the container (the CLI's own `connectionFor`, so web execs exactly
-// as `devc attach` does) and the absolute path of `herdr`.
+// Devcontainers for `devc web`, the `container` kind of environment (`environment.ts`): discovery
+// (an initial `docker ps`, then a `docker events` stream for the server's lifetime — push, never
+// polled) behind {@link ContainerSource}, and each container as a {@link ContainerEnvironment}
+// that runs every command through `docker exec` — reached the way the CLI's own `connectionFor`
+// says, so web execs exactly as `devc attach` does. This module and `project_control.ts` are the
+// only ones that run `docker`.
 //
 // A devcontainer is any container labelled `devcontainer.local_folder`, which the devcontainer
 // CLI sets on every container it creates — the same label `@devc-tools/core/container.ts` finds
@@ -14,9 +16,40 @@ import {
   loginShellArgv,
   parseMounts,
 } from '@devc-tools/core/container.ts';
+import { projectKey } from '@devc-tools/core/merged_config.ts';
+import { resolveGlobalConfigPath } from '@devc-tools/core/config.ts';
+import { readPolicy } from '../bridge.ts';
 import { connectionFor } from '../container.ts';
-import { streamingRunner } from './project_control.ts';
-import { type LineProc, runText, spawnLines } from './proc.ts';
+import {
+  downProject,
+  startProject,
+  stopProject,
+  streamingRunner,
+} from './project_control.ts';
+import {
+  type ByteProc,
+  type LineProc,
+  runCapped,
+  runText,
+  spawnBytes,
+  spawnLines,
+} from './proc.ts';
+import type {
+  BridgeRun,
+  DiscoveryHooks,
+  EnvExec,
+  EnvFiles,
+  Environment,
+  EnvironmentSource,
+  ExecOutput,
+  PrBackend,
+  RunLimits,
+  RunningSession,
+} from './environment.ts';
+import { containerHome, execFiles } from './container_files.ts';
+import { parseRunningOutput, RUNNING_SCRIPT } from './sessions.ts';
+import { isHerdrLaunch } from './herdr_bridge.ts';
+import { noGrantMessage } from './pr_review.ts';
 
 export const LOCAL_FOLDER_LABEL = 'devcontainer.local_folder';
 
@@ -90,8 +123,11 @@ export function parseEventLine(line: string): ContainerEvent | null {
 }
 
 /** A container's mount table, via one `docker inspect`; `[]` on failure. */
-export async function inspectMounts(id: string): Promise<ContainerMount[]> {
-  const { code, stdout } = await runText('docker', [
+export async function inspectMounts(
+  id: string,
+  run: typeof runText = runText,
+): Promise<ContainerMount[]> {
+  const { code, stdout } = await run('docker', [
     'inspect',
     '--format',
     '{{json .Mounts}}',
@@ -137,8 +173,11 @@ export async function resolveConnection(
  * the one on their `PATH`. This is the only Herdr-related exec that goes through a shell: every
  * later one runs the returned path directly.
  */
-export async function resolveHerdrPath(info: ContainerInfo): Promise<string> {
-  const { stdout } = await runText(
+export async function resolveHerdrPath(
+  info: ContainerInfo,
+  run: typeof runText = runText,
+): Promise<string> {
+  const { stdout } = await run(
     'docker',
     dockerExecArgv(info, { cmd: loginShellArgv('command -v herdr') }),
   );
@@ -165,7 +204,7 @@ export async function listDevcontainers(
   ) as ListedContainer[];
 }
 
-export interface DiscoveryHooks {
+export interface ContainerHooks {
   /** A container is running. */
   onAdd(record: ContainerRecord): void;
   /** A running container stopped or went away. */
@@ -192,7 +231,7 @@ export class Discovery {
   #stopped = false;
   #restartTimer: ReturnType<typeof setTimeout> | undefined;
 
-  constructor(private hooks: DiscoveryHooks) {}
+  constructor(private hooks: ContainerHooks) {}
 
   start(): void {
     this.#runEvents();
@@ -319,4 +358,379 @@ export class Discovery {
 /** Throws `Deno.errors.NotFound` when `docker` is not on PATH. */
 export async function probeDocker(): Promise<void> {
   await runText('docker', ['--version']);
+}
+
+// ---------------------------------------------------------------------------------------------
+// A container as an Environment
+// ---------------------------------------------------------------------------------------------
+
+/** Runs `docker args…`, stdout as bytes. */
+export type DockerRun = (args: string[]) => Promise<ExecOutput>;
+
+/** Runs `docker args…` with `input` as its stdin. */
+export type DockerRunInput = (
+  args: string[],
+  input: Uint8Array,
+) => Promise<ExecOutput>;
+
+/** How long one one-shot exec (a listing, a read, a write) may take before it is given up on. */
+const EXEC_TIMEOUT_MS = 15_000;
+
+/** `docker args…` to completion, killed after {@link EXEC_TIMEOUT_MS}. */
+export const runDocker: DockerRun = async (args) => {
+  const out = await new Deno.Command('docker', {
+    args,
+    stdin: 'null',
+    stdout: 'piped',
+    stderr: 'piped',
+    signal: AbortSignal.timeout(EXEC_TIMEOUT_MS),
+  }).output();
+  return {
+    code: out.code,
+    stdout: out.stdout,
+    stderr: new TextDecoder().decode(out.stderr),
+  };
+};
+
+/** `docker args…` to completion with `input` piped to stdin, killed after the same timeout. */
+export const runDockerInput: DockerRunInput = async (args, input) => {
+  const child = new Deno.Command('docker', {
+    args,
+    stdin: 'piped',
+    stdout: 'piped',
+    stderr: 'piped',
+    signal: AbortSignal.timeout(EXEC_TIMEOUT_MS),
+  }).spawn();
+  const writer = child.stdin.getWriter();
+  try {
+    await writer.write(input);
+    await writer.close();
+  } catch { /* the child exited first: its status says why */ }
+  const out = await child.output();
+  return {
+    code: out.code,
+    stdout: out.stdout,
+    stderr: new TextDecoder().decode(out.stderr),
+  };
+};
+
+/** `docker exec …` argv for `x` in the container `info` reaches. */
+export function containerExecArgv(
+  info: ContainerInfo,
+  x: EnvExec,
+  detach = false,
+): string[] {
+  return dockerExecArgv(info, {
+    cmd: x.cmd,
+    ...(x.cwd !== undefined ? { cwd: x.cwd } : {}),
+    ...(x.env !== undefined ? { env: x.env } : {}),
+    ...(x.interactive ? { interactive: true } : {}),
+    ...(detach ? { detach: true } : {}),
+  });
+}
+
+/** Whether container `id` is still running. */
+async function dockerRunning(id: string): Promise<boolean> {
+  try {
+    const out = await new Deno.Command('docker', {
+      args: ['inspect', '-f', '{{.State.Running}}', id],
+      stdin: 'null',
+      stdout: 'piped',
+      stderr: 'null',
+    }).output();
+    return out.code === 0 &&
+      new TextDecoder().decode(out.stdout).trim() === 'true';
+  } catch {
+    return false;
+  }
+}
+
+/** What a {@link ContainerEnvironment} runs commands with; tests replace them. */
+export interface ContainerEnvDeps {
+  /** How to reach the container: see {@link resolveConnection}. */
+  resolve: (record: ContainerRecord) => Promise<ContainerInfo>;
+  /** `docker args…` as text: `herdr` lookups, a detached server start, `docker inspect`. */
+  runText: typeof runText;
+  run: DockerRun;
+  runInput: DockerRunInput;
+  spawn: (args: string[]) => LineProc;
+  spawnBytes: (args: string[]) => ByteProc;
+  /** The `docker` command the PR review's bridge commands run (tests stub it). */
+  docker: string;
+  /** Where `~/.config/devc-bridge/` (the policy) and `~/.config/devc/` are found. */
+  home: string;
+  running: (id: string) => Promise<boolean>;
+}
+
+/**
+ * A running devcontainer: every command a `docker exec` as its remote user, with its
+ * `remoteEnv`. How to reach it is resolved on first use and again on {@link prepare}; a failed
+ * resolution is not kept.
+ */
+export class ContainerEnvironment implements Environment {
+  readonly kind = 'container' as const;
+  readonly id: string;
+  readonly localFolder: string;
+  readonly caps = { stop: true, down: true, containerPaths: true };
+  readonly files: EnvFiles;
+  readonly pr: PrBackend;
+  readonly #deps: ContainerEnvDeps;
+  #info: Promise<ContainerInfo> | null = null;
+  /** The last resolution, for the long-lived spawns (which only follow a resolved one). */
+  #resolved: ContainerInfo | null = null;
+  #mounts: ContainerMount[] | null = null;
+  #home: Promise<string | null> | null = null;
+
+  constructor(
+    record: ContainerRecord,
+    readonly herdrSession: string,
+    deps: Partial<ContainerEnvDeps> = {},
+  ) {
+    this.id = record.id;
+    this.localFolder = record.localFolder;
+    this.#deps = {
+      resolve: resolveConnection,
+      runText,
+      run: runDocker,
+      runInput: runDockerInput,
+      spawn: (args) => spawnLines('docker', args),
+      spawnBytes: (args) => spawnBytes('docker', args),
+      docker: 'docker',
+      home: Deno.env.get('HOME') ?? '.',
+      running: dockerRunning,
+      ...deps,
+    };
+    this.files = execFiles(this);
+    this.pr = containerPrBackend({
+      info: () => this.info(),
+      localFolder: this.localFolder,
+      home: this.#deps.home,
+      docker: this.#deps.docker,
+    });
+  }
+
+  /** How to reach the container: the cached resolution, else a new one. */
+  info(): Promise<ContainerInfo> {
+    if (this.#info === null) this.#resolve();
+    return this.#info!;
+  }
+
+  #resolve(): Promise<ContainerInfo> {
+    const info = this.#deps.resolve({
+      id: this.id,
+      localFolder: this.localFolder,
+    });
+    this.#info = info;
+    info.then((i) => {
+      if (this.#info === info) this.#resolved = i;
+    }, () => {
+      if (this.#info === info) this.#info = null;
+    });
+    return info;
+  }
+
+  async prepare(): Promise<void> {
+    this.#resolved = await this.#resolve();
+  }
+
+  #now(): ContainerInfo {
+    if (this.#resolved === null) {
+      throw new Error('the container connection has not been resolved');
+    }
+    return this.#resolved;
+  }
+
+  spawn(x: EnvExec): LineProc {
+    return this.#deps.spawn(containerExecArgv(this.#now(), x));
+  }
+
+  spawnBytes(x: EnvExec): ByteProc {
+    return this.#deps.spawnBytes(containerExecArgv(this.#now(), x));
+  }
+
+  async run(x: EnvExec, input?: Uint8Array): Promise<ExecOutput> {
+    const info = await this.info();
+    return input === undefined
+      ? await this.#deps.run(containerExecArgv(info, x))
+      : await this.#deps.runInput(
+        containerExecArgv(info, { ...x, interactive: true }),
+        input,
+      );
+  }
+
+  async runDetached(x: EnvExec): Promise<ExecOutput> {
+    const out = await this.#deps.runText(
+      'docker',
+      containerExecArgv(await this.info(), x, true),
+    );
+    return {
+      code: out.code,
+      stdout: new TextEncoder().encode(out.stdout),
+      stderr: out.stderr,
+    };
+  }
+
+  async runLimited(x: EnvExec, limits: RunLimits): Promise<BridgeRun> {
+    return runCapped(
+      this.#deps.docker,
+      containerExecArgv(await this.info(), x),
+      limits,
+    );
+  }
+
+  loginShell(script: string, ...args: string[]): string[] {
+    return loginShellArgv(script, ...args);
+  }
+
+  async herdrPath(): Promise<string> {
+    return resolveHerdrPath(await this.info(), this.#deps.runText);
+  }
+
+  /** Read once; not retried. */
+  home(): Promise<string | null> {
+    this.#home ??= containerHome(this);
+    return this.#home;
+  }
+
+  /** Read once: fixed when the container is created. A failed read (an empty table) is not kept. */
+  async mounts(): Promise<ContainerMount[]> {
+    if (this.#mounts !== null) return this.#mounts;
+    const mounts = await inspectMounts(this.id, this.#deps.runText);
+    if (mounts.length) this.#mounts = mounts;
+    return mounts;
+  }
+
+  async repoSources(): Promise<string[]> {
+    return (await this.mounts()).filter((m) => m.type === 'bind')
+      .map((m) => m.source);
+  }
+
+  async runningAgents(): Promise<RunningSession[]> {
+    try {
+      const out = await this.run({
+        cwd: '/',
+        cmd: ['sh', '-c', RUNNING_SCRIPT],
+      });
+      if (out.code !== 0) return [];
+      return parseRunningOutput(new TextDecoder().decode(out.stdout));
+    } catch {
+      return [];
+    }
+  }
+
+  running(): Promise<boolean> {
+    return this.#deps.running(this.id);
+  }
+}
+
+/**
+ * A container's PR backend: grants from the host-only policy (`readPolicy`, keyed by
+ * `projectKey(localFolder)`), read on every call, and `devc-bridge <command>` run in the
+ * container.
+ */
+export function containerPrBackend(opts: {
+  info: () => Promise<ContainerInfo>;
+  localFolder: string;
+  home: string;
+  docker?: string;
+}): PrBackend {
+  const dropSlash = (p: string) => p.length > 1 ? p.replace(/\/+$/, '') : p;
+  return {
+    async pin(root) {
+      const problem = async () => ({
+        problem: noGrantMessage(
+          await resolveGlobalConfigPath(`${opts.home}/.config/devc`),
+        ),
+      });
+      let policy;
+      try {
+        policy = await readPolicy(await projectKey(opts.localFolder), {
+          home: opts.home,
+        });
+      } catch {
+        return await problem();
+      }
+      if (policy.kind !== 'present') return await problem();
+      // Grants are per line: the line pinning `root` decides, never another repo's.
+      const pinned = policy.record.repos.find((r) =>
+        dropSlash(r.repo) === root
+      );
+      if (pinned === undefined || !pinned.grants.includes('gh-pr-read')) {
+        return await problem();
+      }
+      return { target: pinned.target, grants: pinned.grants };
+    },
+    async run(command, target, args, limits) {
+      return runCapped(
+        opts.docker ?? 'docker',
+        containerExecArgv(await opts.info(), {
+          cwd: '/',
+          cmd: ['devc-bridge', command, '--repo', target, ...args],
+        }),
+        limits,
+      );
+    },
+  };
+}
+
+/**
+ * The devcontainers as an {@link EnvironmentSource}: {@link Discovery}'s running containers as
+ * {@link ContainerEnvironment}s on Herdr session `session`, its stopped ones, and the CLI's own
+ * start, stop and down.
+ */
+export class ContainerSource implements EnvironmentSource {
+  readonly kind = 'container' as const;
+  #discovery: Discovery | null = null;
+
+  constructor(
+    readonly session: string,
+    private deps: Partial<ContainerEnvDeps> = {},
+  ) {}
+
+  start(hooks: DiscoveryHooks): void {
+    this.#discovery = new Discovery({
+      onAdd: (record) =>
+        hooks.onAdd(
+          new ContainerEnvironment(record, this.session, this.deps),
+        ),
+      onRemove: hooks.onRemove,
+      onStoppedChange: hooks.onStoppedChange,
+      onExec: (id, command) => {
+        if (isHerdrLaunch(command)) hooks.onLaunch(id);
+      },
+      onError: hooks.onError,
+    });
+    this.#discovery.start();
+  }
+
+  stop(): void {
+    this.#discovery?.stop();
+  }
+
+  async refresh(): Promise<void> {
+    await this.#discovery?.refresh();
+  }
+
+  stopped(): ReadonlyMap<string, ContainerRecord> {
+    return this.#discovery?.stopped ?? new Map();
+  }
+
+  environment(record: ContainerRecord): ContainerEnvironment {
+    return new ContainerEnvironment(record, this.session, this.deps);
+  }
+
+  startProject(
+    localFolder: string,
+    onLine: (line: string) => void,
+  ): Promise<void> {
+    return startProject(localFolder, onLine);
+  }
+
+  stopProject(localFolder: string): Promise<boolean> {
+    return stopProject(localFolder);
+  }
+
+  downProject(localFolder: string): Promise<boolean> {
+    return downProject(localFolder);
+  }
 }

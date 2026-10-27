@@ -1,5 +1,6 @@
-// `devc web`'s language server sessions: one per (container, language, root, options), each a
-// `devc-lsp-<language> serve` process run in the file's container through `docker exec`, behind
+// `devc web`'s language server sessions: one per (environment, language, root, options), each a
+// `devc-lsp-<language> serve` process run in the file's environment (`Environment.spawnBytes`:
+// in a container, through `docker exec`), behind
 // an `LspSession` (lsp_session.ts) every attached browser connection shares. The manager runs the
 // launcher's `describe` on each attach (with the repo's `language-servers.json` entry, when one
 // matches), starts or reuses the session, watches its root (lsp_watch.ts), and stops it when it
@@ -9,17 +10,12 @@
 // `describe`/`options` and `serve` are injected (`LauncherRun`, `ServeSpawn`), so the tests run
 // a local fake server (`tests/fixtures/fake_lsp_server.ts`) with no Docker.
 
-import {
-  type ContainerInfo,
-  type ContainerMount,
-  dockerExecArgv,
-  loginShellArgv,
-} from '@devc-tools/core/container.ts';
+import type { ContainerMount } from '@devc-tools/core/container.ts';
+import type { EnvExec, Environment } from './environment.ts';
 import {
   containerToHostPath,
   hostToContainerPath,
 } from '@devc-tools/core/mount_paths.ts';
-import { runDocker } from './container_files.ts';
 import { encodeMessage, FrameReader } from './lsp_framing.ts';
 import {
   LSP_LANGUAGE_NAMES,
@@ -47,13 +43,13 @@ import {
   type ServerPort,
 } from './lsp_session.ts';
 import { RootWatcher, UNWATCHED_NOTICE } from './lsp_watch.ts';
-import { type ByteProc, closeGracefully, spawnBytes } from './proc.ts';
+import { type ByteProc, closeGracefully } from './proc.ts';
 
-/** How long `describe` and `options` may take: `runDocker`'s timeout. */
+/** How long `describe` and `options` may take: an environment's one-shot timeout. */
 export const DESCRIBE_TIMEOUT_MS = 15_000;
 /** How long `shutdown` may take to be answered before `exit` is sent anyway. */
 const SHUTDOWN_WAIT_MS = 5000;
-/** How long the server may take to exit after `exit` before its `docker exec` client is killed. */
+/** How long the server may take to exit after `exit` before its process (a `docker exec` client) is killed. */
 const EXIT_GRACE_MS = 2000;
 
 /** A finished launcher run: `describe` or `options`. */
@@ -64,39 +60,39 @@ export interface LauncherOutput {
 }
 
 /**
- * Runs `devc-lsp-<language> args…` in the container, to completion. May throw (the 15 s timeout
- * surfaces as a thrown abort).
+ * Runs `devc-lsp-<language> args…` in the environment, to completion. May throw (the 15 s
+ * timeout surfaces as a thrown abort).
  */
 export type LauncherRun = (
-  info: ContainerInfo,
+  env: Environment,
   language: LspLanguage,
   args: string[],
 ) => Promise<LauncherOutput>;
 
-/** Starts `devc-lsp-<language> serve …` in the container, its stdio piped. May throw. */
+/** Starts `devc-lsp-<language> serve …` in the environment, its stdio piped. May throw. */
 export type ServeSpawn = (
-  info: ContainerInfo,
+  env: Environment,
   language: LspLanguage,
   args: string[],
 ) => ByteProc;
 
-/** The launcher's command line: `devc-lsp-<language> args…` through the remote user's login shell. */
-export function launcherArgv(
-  info: ContainerInfo,
+/** The launcher's command: `devc-lsp-<language> args…` through a login shell (the remote user's). */
+export function launcherExec(
+  env: Pick<Environment, 'loginShell'>,
   language: LspLanguage,
   args: string[],
   interactive = false,
-): string[] {
-  return dockerExecArgv(info, {
+): EnvExec {
+  return {
     ...(interactive ? { interactive: true } : {}),
     cwd: '/',
-    cmd: loginShellArgv('exec "devc-lsp-$0" "$@"', language, ...args),
-  });
+    cmd: env.loginShell('exec "devc-lsp-$0" "$@"', language, ...args),
+  };
 }
 
-/** `describe` and `options` with `runDocker` (killed after 15 s). */
-export const runLauncher: LauncherRun = async (info, language, args) => {
-  const out = await runDocker(launcherArgv(info, language, args));
+/** `describe` and `options` with the environment's one-shot run (killed after 15 s). */
+export const runLauncher: LauncherRun = async (env, language, args) => {
+  const out = await env.run(launcherExec(env, language, args));
   return {
     code: out.code,
     stdout: new TextDecoder().decode(out.stdout),
@@ -104,25 +100,9 @@ export const runLauncher: LauncherRun = async (info, language, args) => {
   };
 };
 
-/** `serve` with `spawnBytes('docker', …)`. */
-export const spawnServe: ServeSpawn = (info, language, args) =>
-  spawnBytes('docker', launcherArgv(info, language, args, true));
-
-/** Whether container `id` is still running, to tell a server's crash from its container stopping. */
-async function dockerRunning(id: string): Promise<boolean> {
-  try {
-    const out = await new Deno.Command('docker', {
-      args: ['inspect', '-f', '{{.State.Running}}', id],
-      stdin: 'null',
-      stdout: 'piped',
-      stderr: 'null',
-    }).output();
-    return out.code === 0 &&
-      new TextDecoder().decode(out.stdout).trim() === 'true';
-  } catch {
-    return false;
-  }
-}
+/** `serve` with the environment's `spawnBytes`. */
+export const spawnServe: ServeSpawn = (env, language, args) =>
+  env.spawnBytes(launcherExec(env, language, args, true));
 
 export type LspErrorCode =
   | 'not_connected'
@@ -141,7 +121,7 @@ export class LspError extends Error {
 
 /** The file an attach or settings request is about. */
 export interface LspTarget {
-  info: ContainerInfo;
+  env: Environment;
   mounts: ContainerMount[];
   /** The file's absolute container path. */
   path: string;
@@ -190,7 +170,7 @@ interface Record_ {
   session: LspSession;
   containerId: string;
   language: LspLanguage;
-  info: ContainerInfo;
+  env: Environment;
   mounts: ContainerMount[];
   described: Described;
   /** `serve`'s arguments: `--root` and, with an entry, `--options`. */
@@ -234,7 +214,7 @@ export class LspManager {
   #idleMs: number;
   #clock: Clock;
   #config: LspConfigStore | null;
-  #running: (id: string) => Promise<boolean>;
+  #running: (env: Environment) => Promise<boolean>;
   #watchFs: typeof Deno.watchFs | undefined;
   #warn: (line: string) => void;
   /** Live sessions by key. */
@@ -248,7 +228,7 @@ export class LspManager {
     idleMs?: number;
     clock?: Clock;
     config?: LspConfigStore | null;
-    containerRunning?: (id: string) => Promise<boolean>;
+    containerRunning?: (env: Environment) => Promise<boolean>;
     watchFs?: typeof Deno.watchFs;
     warn?: (line: string) => void;
   } = {}) {
@@ -257,7 +237,7 @@ export class LspManager {
     this.#idleMs = opts.idleMs ?? LSP_IDLE_MS;
     this.#clock = opts.clock ?? realClock;
     this.#config = opts.config ?? null;
-    this.#running = opts.containerRunning ?? dockerRunning;
+    this.#running = opts.containerRunning ?? ((env) => env.running());
     this.#watchFs = opts.watchFs;
     this.#warn = opts.warn ?? console.error;
   }
@@ -294,13 +274,13 @@ export class LspManager {
       ? launcherFlags(match.project, match.checkoutContainer)
       : [];
     const described = await this.#describe(
-      target.info,
+      target.env,
       language,
       target.path,
       flags,
     );
     const options = match?.project ? canonicalJson(match.project.options) : '';
-    const key = [target.info.containerId, language, described.root, options]
+    const key = [target.env.id, language, described.root, options]
       .join('\n');
     let record = this.#byKey.get(key);
     if (!record) {
@@ -359,9 +339,9 @@ export class LspManager {
     const project = match?.checkoutContainer ? match.project : null;
     const record: Record_ = {
       key,
-      containerId: target.info.containerId,
+      containerId: target.env.id,
       language,
-      info: target.info,
+      env: target.env,
       mounts: target.mounts,
       described,
       serveArgs: [
@@ -401,7 +381,7 @@ export class LspManager {
   #start(record: Record_) {
     let proc: ByteProc;
     try {
-      proc = this.#spawn(record.info, record.language, record.serveArgs);
+      proc = this.#spawn(record.env, record.language, record.serveArgs);
     } catch (e) {
       this.#byKey.delete(record.key);
       this.#byId.delete(record.session.id);
@@ -461,7 +441,7 @@ export class LspManager {
       const { code } = await proc.status;
       const stderr = await proc.stderr;
       let reason: string;
-      if (!(await this.#running(record.containerId))) {
+      if (!(await this.#running(record.env))) {
         reason = 'container stopped';
       } else {
         const tail = lastLine(stderr) || firstLine(reader.discarded);
@@ -485,12 +465,12 @@ export class LspManager {
    * `no_language_server` (127), `describe_failed` (anything else, or a timeout).
    */
   async #describe(
-    info: ContainerInfo,
+    env: Environment,
     language: LspLanguage,
     path: string,
     flags: string[],
   ): Promise<Described> {
-    const out = await this.#launch(info, language, [
+    const out = await this.#launch(env, language, [
       'describe',
       path,
       ...flags,
@@ -536,7 +516,7 @@ export class LspManager {
    * `describe_failed` with `describe timed out after 15 s`.
    */
   async #launch(
-    info: ContainerInfo,
+    env: Environment,
     language: LspLanguage,
     args: string[],
   ): Promise<LauncherOutput> {
@@ -552,7 +532,7 @@ export class LspManager {
     };
     let out: LauncherOutput;
     try {
-      out = await this.#run(info, language, args);
+      out = await this.#run(env, language, args);
     } catch {
       return timedOut();
     }
@@ -644,7 +624,7 @@ export class LspManager {
         `no language server for ${target.path}`,
       );
     }
-    const out = await this.#launch(target.info, language, ['options']);
+    const out = await this.#launch(target.env, language, ['options']);
     if (out.code !== 0) this.#launchFailed(language, out);
     const schema = parseObject(out.stdout);
     if (!schema || schema.protocol !== 1 || !Array.isArray(schema.options)) {
@@ -662,7 +642,7 @@ export class LspManager {
     }
     let detected: { root: string; server: string } | null;
     try {
-      const d = await this.#describe(target.info, language, target.path, []);
+      const d = await this.#describe(target.env, language, target.path, []);
       detected = { root: d.root, server: d.server };
     } catch (e) {
       if (!(e instanceof LspError && e.code === 'unsupported')) throw e;
