@@ -615,6 +615,11 @@ is published from any container: the host server finds devcontainers with
   until it is queued again (its hover ↻) or taken out. Only a task this run of
   `devc web` sent is checked: after a restart, the queue moves on without it. An agent whose status Herdr can't follow never counts
   as done: close its terminal to move its queue on.
+  With several `devc web` servers on the host (the CLI or devc-desktop, and
+  each VS Code window's on its own port), one runs the queues for all of them:
+  the one holding a lock on `~/.config/devc/web-leader.lock`. When it stops,
+  another takes over within a few seconds, as after a restart. Any of them can
+  queue, send or edit a task.
   A sent task's menu also has **Open session**, **Back to tasks** and
   **Remove**. Sending is
   one-way. The one thing a container can do is _add_ a task: an agent granted
@@ -818,7 +823,10 @@ title. A pane started by **Send task** also carries its task's session id.
 - **Local only.** Titles can hold task text, so nothing is sent anywhere.
 
 The raw log is `~/.config/devc/activity/YYYY-MM-DD.jsonl`: state changes, one
-JSON object per line. The server rolls each day up into
+JSON object per line. With several `devc web` servers on the host, each logs
+its own pages' input and focus, and only the one running the task queues (see
+**Tasks**) logs the containers' panes and agents and writes the rollups. That
+server rolls each day up into
 `~/.config/devc/activity/rollup/YYYY-MM-DD.json`
 (`{version: 1, date, complete, rows}`, a row per container, repo, branch and
 agent with `userActiveMs`, `agentWorkingMs` and `agentBlockedMs`), today's

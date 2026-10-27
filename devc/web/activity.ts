@@ -214,8 +214,11 @@ type Field = 'userActiveMs' | 'agentWorkingMs' | 'agentBlockedMs';
  *   old pane's span and starts one on the new pane, as an `input` there would. Clients on the
  *   same pane at once count once.
  * - Agent time: from an `agent` event to the pane's next one; `working` and `blocked` count.
- * - A `server` event ends everything. A missing `stop` is one at the last event before the next
- *   `start` (or the last event of all): nothing counts in between.
+ * - A `server` event (the leader starting or stopping, see `leader.ts`) ends every agent's span.
+ *   Pages' spans go on: other servers' pages are still there, and a server's own end with the
+ *   `focus` it writes as each page disconnects (or, when it dies, `idleMs` after their last
+ *   input). A missing `stop` is one at the last event before the next `start` (or the last event
+ *   of all): nothing counts in between.
  * - Spans are cut at the day's local midnights.
  */
 export function rollupDay(
@@ -334,7 +337,6 @@ export function rollupDay(
     switch (e.e) {
       case 'server':
         agents.clear();
-        clients.clear();
         break;
       case 'agent':
         agents.set(paneKey(e.container, e.pane), {
@@ -578,11 +580,17 @@ interface ClientFocus {
 /**
  * Turns what the server observes into log events: only changes, with `input` throttled. Writes go
  * through `append` in order; `now` is the clock.
+ *
+ * Every server on the host sees the same containers, so only the leader (`leader.ts`) writes what
+ * it sees of them (`server`, `pane`, `agent`); each server writes its own pages' `input` and
+ * `focus`. A recorder made with `leading: false` keeps track of the containers without writing
+ * them until {@link lead}.
  */
 export class ActivityRecorder {
   #append: (line: string, date: string) => Promise<void>;
   #now: () => Date;
   #onError: (e: unknown) => void;
+  #leading: boolean;
   #queue: Promise<void> = Promise.resolve();
   #panes = new Map<string, PaneFacts>();
   #agents = new Map<
@@ -598,6 +606,8 @@ export class ActivityRecorder {
     now?: () => Date;
     onError?: (e: unknown) => void;
     dir?: string;
+    /** Whether it writes container events from the start. Default true. */
+    leading?: boolean;
   } = {}) {
     const dir = opts.dir ?? ACTIVITY_DIR;
     this.#append = opts.append ?? (async (line, date) => {
@@ -606,6 +616,36 @@ export class ActivityRecorder {
     });
     this.#now = opts.now ?? (() => new Date());
     this.#onError = opts.onError ?? (() => {});
+    this.#leading = opts.leading ?? true;
+  }
+
+  /**
+   * This server became the leader: a `server` start, then every pane and agent it knows of as
+   * they are now. Nothing when it already leads.
+   */
+  lead(): void {
+    if (this.#leading) return;
+    this.#leading = true;
+    this.server('start');
+    for (const facts of this.#panes.values()) {
+      this.#write({ e: 'pane', ...facts });
+    }
+    for (const [k, a] of this.#agents) {
+      const [container, pane] = k.split('\n');
+      this.#write({
+        e: 'agent',
+        container,
+        pane,
+        terminal: a.terminal,
+        agent: a.agent,
+        status: a.status,
+      });
+    }
+  }
+
+  /** A container event: written only by the leader. */
+  #observed(ev: ActivityRecord): void {
+    if (this.#leading) this.#write(ev);
   }
 
   #write(ev: ActivityRecord): void {
@@ -623,7 +663,7 @@ export class ActivityRecorder {
   }
 
   server(state: 'start' | 'stop'): void {
-    this.#write({ e: 'server', state });
+    this.#observed({ e: 'server', state });
   }
 
   /** A pane seen in a snapshot or a `pane_updated`: a `pane` event on first sight or a change. */
@@ -632,7 +672,7 @@ export class ActivityRecorder {
     const prev = this.#panes.get(k);
     if (!prev || !sameFacts(prev, facts)) {
       this.#panes.set(k, facts);
-      this.#write({ e: 'pane', ...facts });
+      this.#observed({ e: 'pane', ...facts });
     }
     // An agent's status from a snapshot: once per agent pane (startup, a new agent), and when
     // its agent goes. Herdr's status events cover the rest.
@@ -687,7 +727,7 @@ export class ActivityRecorder {
     pane: string,
   ): void {
     this.#agents.delete(k);
-    this.#write({
+    this.#observed({
       e: 'agent',
       container,
       pane,
@@ -711,7 +751,14 @@ export class ActivityRecorder {
       this.#panes.get(k)?.terminal ?? null;
     if (known && known.agent === agent && known.status === status) return;
     this.#agents.set(k, { agent, status, terminal: term });
-    this.#write({ e: 'agent', container, pane, terminal: term, agent, status });
+    this.#observed({
+      e: 'agent',
+      container,
+      pane,
+      terminal: term,
+      agent,
+      status,
+    });
   }
 
   /** A page's `input`, `mouse` or `scroll` for a pane: at most one event per throttle window. */

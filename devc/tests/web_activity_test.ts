@@ -272,6 +272,25 @@ Deno.test('rollupDay: unknown counts as idle', () => {
   assertEquals(rows.map((r) => r.agentWorkingMs), [20 * MIN]);
 });
 
+Deno.test("rollupDay: a server event ends agents' spans, not pages'", () => {
+  // The leader stops and another server takes over; a page on a third server keeps working.
+  const rows = rollupDay(DAY, [
+    start(at(9)),
+    agent(at(9), 'working'),
+    focus(at(9)),
+    input(at(9)),
+    stop(at(9, 1)),
+    start(at(9, 2)), // nothing counts from 9:01 to 9:02
+    stop(at(9, 10)),
+  ]);
+  assertEquals(
+    rows.filter((r) => r.agent !== null).map((r) => r.agentWorkingMs),
+    [1 * MIN],
+  );
+  // 9:00–9:01, then 9:02 to the input's idle end at 9:05.
+  assertEquals(userMs(rows), 4 * MIN);
+});
+
 Deno.test('rollupDay: a missing stop is one at the last event', () => {
   const rows = rollupDay(DAY, [
     start(at(9)),
@@ -375,7 +394,7 @@ Deno.test('paneFacts: the deepest repo holding the pane folder, its branch, and 
 });
 
 /** A recorder writing to memory, on a clock the test moves. */
-function recorder() {
+function recorder(leading = true) {
   const lines: Record<string, unknown>[] = [];
   let now = new Date(2026, 9, 20, 9, 0, 0);
   const r = new ActivityRecorder({
@@ -384,6 +403,7 @@ function recorder() {
       return Promise.resolve();
     },
     now: () => now,
+    leading,
   });
   return {
     r,
@@ -481,6 +501,32 @@ Deno.test('ActivityRecorder: focus events on change, and a disconnect is hidden'
       pane: 'w1:p1',
     },
     { e: 'focus', client: 'a', visible: false, focused: false },
+  ]);
+});
+
+Deno.test('ActivityRecorder: not leading, only its pages; lead() writes a start, then what it knows now', async () => {
+  const { r, kinds } = recorder(false);
+  r.server('start');
+  r.pane(facts());
+  r.snapshot(C, [
+    { facts: facts() },
+    { facts: facts({ pane: 'w1:p2', agent: 'claude' }), status: 'working' },
+  ]);
+  r.agentStatus(C, 'w1:p2', null, 'claude', 'blocked');
+  r.focus('a', { visible: true, focused: true });
+  r.input('a', C, 'w1:p1');
+  assertEquals((await kinds()).map((l) => l.e), ['focus', 'input']);
+
+  r.lead();
+  r.lead(); // already leading
+  r.agentStatus(C, 'w1:p2', null, 'claude', 'working');
+  const after = (await kinds()).slice(2);
+  assertEquals(after.map((l) => [l.e, l.pane ?? l.state, l.status]), [
+    ['server', 'start', undefined],
+    ['pane', 'w1:p1', undefined],
+    ['pane', 'w1:p2', undefined],
+    ['agent', 'w1:p2', 'blocked'],
+    ['agent', 'w1:p2', 'working'],
   ]);
 });
 

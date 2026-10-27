@@ -162,6 +162,7 @@ import {
   ROLLUP_EVERY_MS,
   writeDayRollup,
 } from './activity.ts';
+import { lead } from './leader.ts';
 import {
   bridgeStatePaths,
   type BridgeStatus,
@@ -634,6 +635,11 @@ export async function startWeb(
   /** Sends what the repos' task queues have ready; set once the queue runner is (below). */
   let schedulePump = () => {};
   /**
+   * Whether this server runs the task queues: only the leader (`leader.ts`) does, or every
+   * server would send each queued task. Set once it leads, cleared as it stops.
+   */
+  let runsQueues = false;
+  /**
    * The agents this server started on tasks and that are still at work, by route
    * (`routeKey`), each by `${containerId}\n${paneId}`. A repo's queue sends its next task only
    * once its route has none. `worked`: the agent was seen working (or blocked) since it started,
@@ -844,6 +850,8 @@ export async function startWeb(
   // The activity log (`activity.ts`): what this server observes, as state changes, attributed to
   // each container by its `localFolder`.
   const activity = new ActivityRecorder({
+    // Container events once this server leads (below).
+    leading: false,
     onError: (e) =>
       console.error(
         `devc web: activity log: ${e instanceof Error ? e.message : e}`,
@@ -2279,6 +2287,7 @@ export async function startWeb(
    * task it sent before reported success; the queues of different repos run side by side.
    */
   const pumpQueues = () => {
+    if (!runsQueues) return;
     const runningSession = (localFolder: string) => {
       const session = [...sessions.values()].find((s) =>
         s.record.localFolder === localFolder
@@ -3218,27 +3227,43 @@ export async function startWeb(
   discovery.start();
   liveStatic?.watch();
   gitWatch.start();
-  // The activity log: this start, every past day's rollup it lacks, then today's every few
-  // minutes. A day that ends while the server runs is rolled up complete on the next tick.
-  activity.server('start');
+  // Host-wide work, done by one server at a time (`leader.ts`): the task queues, and the activity
+  // log's container events and rollups — a start, every past day's rollup it lacks, then today's
+  // every few minutes. A day that ends while it leads is rolled up complete on the next tick.
   const logActivityError = (e: unknown) =>
     console.error(
       `devc web: activity rollup: ${e instanceof Error ? e.message : e}`,
     );
   let rollupDayNow = localDate(new Date());
-  void activity.flush()
-    .then(() => catchUpRollups(rollupDayNow))
-    .catch(logActivityError);
-  const rollupTimer = setInterval(() => {
-    const now = new Date();
-    const today = localDate(now);
-    const ended = today !== rollupDayNow ? rollupDayNow : null;
-    rollupDayNow = today;
-    void activity.flush().then(async () => {
-      if (ended) await writeDayRollup(ended, { complete: true });
-      await writeDayRollup(today, { complete: false, until: now });
-    }).catch(logActivityError);
-  }, ROLLUP_EVERY_MS);
+  let rollupTimer: ReturnType<typeof setInterval> | undefined;
+  const leader = lead(() => {
+    // Won while stopping: the lock is released at the end of the stop, with nothing started.
+    if (stopping) return;
+    activity.lead();
+    rollupDayNow = localDate(new Date());
+    void activity.flush()
+      .then(() => catchUpRollups(rollupDayNow))
+      .catch(logActivityError);
+    rollupTimer = setInterval(() => {
+      const now = new Date();
+      const today = localDate(now);
+      const ended = today !== rollupDayNow ? rollupDayNow : null;
+      rollupDayNow = today;
+      void activity.flush().then(async () => {
+        if (ended) await writeDayRollup(ended, { complete: true });
+        await writeDayRollup(today, { complete: false, until: now });
+      }).catch(logActivityError);
+    }, ROLLUP_EVERY_MS);
+    runsQueues = true;
+    schedulePump();
+  }, {
+    onError: (e) =>
+      console.error(
+        `devc web: leader lock: ${
+          e instanceof Error ? e.message : e
+        }; running the task queues and activity log anyway`,
+      ),
+  });
   const projectsWatch = watchConfigFile(
     PROJECTS_PATH,
     () => void reloadProjects(),
@@ -3288,6 +3313,7 @@ export async function startWeb(
       globalConfigWatch.stop();
       bridgeWatch.stop();
       usageWatch.stop();
+      runsQueues = false;
       clearInterval(rollupTimer);
       for (const c of clients) {
         try {
@@ -3297,8 +3323,12 @@ export async function startWeb(
       }
       activity.server('stop');
       await activity.flush();
-      await writeDayRollup(localDate(new Date()), { complete: false })
-        .catch(logActivityError);
+      if (leader.leading()) {
+        await writeDayRollup(localDate(new Date()), { complete: false })
+          .catch(logActivityError);
+      }
+      // Only now: a server taking over writes its start after this one's stop.
+      leader.stop();
       lspConfig.stop();
       await Promise.all([controllers.releaseAll(), lsp.shutdown()]);
       await Promise.all([...sessions.values()].map((s) => s.dispose()));
