@@ -105,12 +105,18 @@ button:hover {
 
 /* Sidebar */
 
+/* Its column as wide as the sidebar however narrow it is dragged (an `auto` one grows to its
+   cards' widths), and clipped to it: past it, its sticky headings and the zone rules' grab areas
+   (z-indexed) would paint over the resizer and the tiles. The zones scroll what does not fit. */
 .sidebar {
   grid-row: 1;
   grid-column: 1;
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   grid-template-rows: auto auto 1fr;
+  min-width: 0;
   min-height: 0;
+  overflow: hidden;
   background: var(--panel);
 }
 
