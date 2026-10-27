@@ -146,6 +146,8 @@ export const LABELS = {
   askAgent: 'Ask agent…',
   showPastSessions: (n) => `Show past sessions (${n})`,
   hidePastSessions: 'Hide past sessions',
+  inUse: 'In use',
+  showInUse: 'Show in In use',
   worktreesHidden: (n) => `${n} worktree${n === 1 ? '' : 's'} hidden`,
   copySessionId: 'Copy session id',
   pullRequest: 'Pull request',

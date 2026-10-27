@@ -652,6 +652,42 @@ body.resizing-zones {
   color: var(--muted);
 }
 
+/* Containers' stand-in for a card in In use: dashed, its name muted, an In use link on the right;
+   its click scrolls to the card there. */
+.repo-card.in-use-link-card {
+  --card-bg: transparent;
+  border-style: dashed;
+}
+
+.repo-card.in-use-link-card:hover {
+  --card-bg: var(--row-hover);
+}
+
+.repo-card .row.in-use-link-head {
+  min-height: 26px;
+  font-weight: 400;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.row.in-use-link-head .repo-branch {
+  color: var(--muted);
+}
+
+.in-use-link {
+  font-size: 11px;
+  color: var(--accent);
+}
+
+.repo-card.in-use-link-card:hover .in-use-link {
+  text-decoration: underline;
+}
+
+/* A card scrolled to from its Containers link, flashed so the eye finds it. */
+.repo-card.flash {
+  animation: flash 1s ease-out;
+}
+
 /* A header's toggles that are on, kept in sight; hovered, its strip covers them with all of them. */
 .row-toggles {
   display: flex;

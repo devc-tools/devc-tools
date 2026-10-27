@@ -310,7 +310,9 @@ is published from any container: the host server finds devcontainers with
   card under its name, most urgent agent first (blocked, done, working, then idle; cards with no
   agent last, ties in layout order) and re-sorted as statuses change; the rest are under **Containers**, in their container's
   card, after its header and before its **Files** row (the container's own
-  filesystem from `/`). A repo mounted in two containers has a card in each,
+  filesystem from `/`). There, an active card keeps its place as a dashed,
+  muted stand-in with an **In use** link: a click scrolls to its card in
+  **In use** and flashes it. A repo mounted in two containers has a card in each,
   each listing its past sessions. Click a tile or pane row to bring it
   forward. Click a container to collapse it; a collapsed one shows its most
   urgent agent status. A repo is named by its path under `/workspaces` in the

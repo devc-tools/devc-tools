@@ -1598,15 +1598,15 @@ function workspacePanes(ws, tabs, panes) {
 }
 
 /**
- * A container's card in Containers: its row, then while it is expanded its repo cards that are not
- * in In use (see `repoCardActive`) nor a worktree's whose repo's card hides them, in card order,
- * and its Files row.
+ * A container's card in Containers: its row, then while it is expanded its repo cards but those
+ * of a worktree whose repo's card hides them, in card order, and its Files row. A card in In use
+ * (see `repoCardActive`) is only a link to it there (see `inUseLinkCard`).
  */
 function containerRows(c, cards) {
   const snap = c.state === 'connected' ? snapshots.get(c.id) : undefined;
   const panes = list(snap?.panes);
   const shown = [...cards.values()].filter((card) =>
-    card.localFolder === c.localFolder && !card.active
+    card.localFolder === c.localFolder
   );
   // Folded, it opens while the filter matches one of its repo cards.
   const collapsed = sidebarState.collapsed.has(c.localFolder) &&
@@ -1671,7 +1671,7 @@ function containerRows(c, cards) {
       if (
         sidebarState.worktreesClosed.has(main) && !cardMatchesFilter(card)
       ) return;
-      const el = repoCard(card);
+      const el = card.active ? inUseLinkCard(card) : repoCard(card);
       el.classList.add('worktree');
       // The rail on its left runs on to the next worktree's card under the same repo's.
       if (shown[i + 1] && mainOf(shown[i + 1]) === main) {
@@ -1681,11 +1681,54 @@ function containerRows(c, cards) {
       return;
     }
     rows.push(
-      repoCard(card, shown.filter((w) => mainOf(w) === card.key).length),
+      card.active
+        ? inUseLinkCard(card)
+        : repoCard(card, shown.filter((w) => mainOf(w) === card.key).length),
     );
   });
   rows.push(...containerFilesRows(c));
   return [containerCard(rows, true)];
+}
+
+/**
+ * Where an In use card is in its container's card under Containers: its name and branch, muted,
+ * and an **In use** link; a click scrolls to the card in In use and flashes it (`revealInUse`).
+ */
+function inUseLinkCard(card) {
+  const { key, localFolder, repo } = card;
+  const branch = repo?.git?.branch;
+  const head = treeRow(
+    `${key}\n\nin-use-link`,
+    0,
+    undefined,
+    {
+      class: 'repo-card-head in-use-link-head',
+      title: LABELS.showInUse,
+      onclick: () => revealInUse(key),
+    },
+    ...(repo
+      ? [
+        ...repoNameParts(repoGroupName(localFolder, repo)),
+        branch ? h('span', { class: 'repo-branch' }, branch) : '',
+      ]
+      : [h('span', { class: 'repo-base' }, containerNameOf(localFolder))]),
+  );
+  head.append(h('span', { class: 'in-use-link' }, LABELS.inUse));
+  return h('div', { class: 'repo-card in-use-link-card' }, head);
+}
+
+/** Scrolls In use to the card with key `key`, focuses its header and briefly flashes the card. */
+function revealInUse(key) {
+  const el = [...$zoneInUse.querySelectorAll('.repo-card')].find((e) =>
+    /** @type {HTMLElement} */ (e).dataset.cardKey === key
+  );
+  if (!el) return;
+  el.scrollIntoView({ block: 'nearest' });
+  /** @type {HTMLElement | null} */ (el.querySelector('.repo-card-head'))
+    ?.focus({ preventScroll: true });
+  el.classList.remove('flash');
+  void (/** @type {HTMLElement} */ (el)).offsetWidth;
+  el.classList.add('flash');
 }
 
 /** A container's card as In use's: its own row on top, then the rest. */
