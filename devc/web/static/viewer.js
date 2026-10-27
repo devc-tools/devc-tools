@@ -307,7 +307,17 @@ let highlightMounted = false;
  * @returns {import('./lib/diff.js').Span[][]}
  */
 export function highlightLines(name, lines) {
-  const lang = languageFor(name);
+  return highlightLanguage(languageFor(name), lines);
+}
+
+/**
+ * {@link highlightLines} for a language key of `LANGUAGES` (null for plain text).
+ *
+ * @param {string | null} lang
+ * @param {string[]} lines
+ * @returns {import('./lib/diff.js').Span[][]}
+ */
+function highlightLanguage(lang, lines) {
   const text = lines.join('\n');
   if (!lang || text.length > HIGHLIGHT_LIMIT) {
     return lines.map((line) => [{ text: line, cls: '' }]);
@@ -664,11 +674,15 @@ function escapeHtml(/** @type {string} */ s) {
  * A `textDocument/hover` result's `contents` as HTML safe to put in the page (a diff tile's hover,
  * which has no editor to render through): `MarkupContent` Markdown through lsp-client's own
  * `marked`, plaintext escaped in a `<pre>`; a legacy `MarkedString` or array of them as Markdown,
- * `{language, value}` as a fenced code block. '' when there is nothing to show.
+ * `{language, value}` as a fenced code block. '' when there is nothing to show. Code blocks are
+ * highlighted as a file tile's hover highlights them: by their fence's language, or by the
+ * language of the file named `name` (the diff tile's) for a legacy `{language: '', value}`.
  *
  * @param {unknown} contents
+ * @param {string} [name]
  */
-export function lspHoverHtml(contents) {
+export function lspHoverHtml(contents, name = '') {
+  const fileLang = languageFor(name) ?? '';
   /** @param {unknown} c @returns {string} Markdown, or '' */
   const markedString = (c) => {
     if (typeof c === 'string') return c;
@@ -676,7 +690,7 @@ export function lspHoverHtml(contents) {
     if (o && typeof o.value === 'string' && typeof o.language === 'string') {
       return o.value === ''
         ? ''
-        : '```' + o.language + '\n' + o.value + '\n```';
+        : '```' + (o.language || fileLang) + '\n' + o.value + '\n```';
     }
     return '';
   };
@@ -693,7 +707,45 @@ export function lspHoverHtml(contents) {
     if (md === '') return '';
     html = String(marked.parse(md, { async: false }));
   }
-  return sanitizeLspHtml(html);
+  return highlightCodeBlocks(sanitizeLspHtml(html));
+}
+
+/**
+ * Sanitized hover HTML with each `<pre><code class="language-…">` whose language is one of
+ * `LANGUAGES` coloured by `highlight`, the classes the diff rows use. The code's text is set as
+ * text, never parsed as HTML.
+ *
+ * @param {string} html
+ */
+function highlightCodeBlocks(html) {
+  if (!html.includes('language-')) return html;
+  const doc = new DOMParser().parseFromString(
+    `<body>${html}</body>`,
+    'text/html',
+  );
+  for (const code of doc.body.querySelectorAll('pre > code')) {
+    const lang = /(?:^|\s)language-(\S+)/.exec(code.className)?.[1]
+      .toLowerCase();
+    if (!lang || !Object.hasOwn(LANGUAGES, lang)) continue;
+    const lines = (code.textContent ?? '').split('\n');
+    /** @type {Node[]} */
+    const nodes = [];
+    highlightLanguage(lang, lines).forEach((spans, i) => {
+      if (i > 0) nodes.push(doc.createTextNode('\n'));
+      for (const span of spans) {
+        if (!span.cls) {
+          nodes.push(doc.createTextNode(span.text));
+          continue;
+        }
+        const el = doc.createElement('span');
+        el.className = span.cls;
+        el.textContent = span.text;
+        nodes.push(el);
+      }
+    });
+    code.replaceChildren(...nodes);
+  }
+  return doc.body.innerHTML;
 }
 
 /**

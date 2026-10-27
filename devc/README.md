@@ -496,8 +496,8 @@ is published from any container: the host server finds devcontainers with
   project's entry. A server stops 30 minutes after its last tile closes
   (`DEVC_WEB_LSP_IDLE_MS`, read when devc web starts, overrides that in
   milliseconds), and when its container stops. A pull request's diff tile
-  also gets hover and **Ctrl/Cmd+click** go to definition on its added and
-  unchanged lines, from the same server, given the file as it is at the PR's
+  also gets hover (its code highlighted as a file tile's is) and
+  **Ctrl/Cmd+click** go to definition on its added and unchanged lines, from the same server, given the file as it is at the PR's
   head (so the diff's lines match whatever the checkout holds); deleted lines
   get nothing. While a tile holds the file with other text (edits, saved or
   not, or a checkout not at the PR head), the diff works against that text on

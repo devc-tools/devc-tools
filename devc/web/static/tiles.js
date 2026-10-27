@@ -1775,7 +1775,10 @@ async function diffHoverAt(view, x, y) {
     return; // a timeout or a restart: nothing to show
   }
   if (seq !== diffHover.seq || !diffViews.has(view.tile.id)) return;
-  const html = lspHoverHtml(/** @type {any} */ (result)?.contents);
+  const html = lspHoverHtml(
+    /** @type {any} */ (result)?.contents,
+    view.tile.diff?.path,
+  );
   if (html) showDiffHover(view, x, y, { html });
 }
 
