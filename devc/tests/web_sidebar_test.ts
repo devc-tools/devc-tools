@@ -561,10 +561,12 @@ Deno.test('repoCardKey: one card per repo per container', () => {
   );
 });
 
-Deno.test('repoCardActive: a tile or an untiled agent', () => {
+Deno.test('repoCardActive: a tile, an untiled agent or a pin', () => {
   const card = { tiles: 0, agents: 0 };
   assertEquals(repoCardActive({ ...card, tiles: 1 }), true);
   assertEquals(repoCardActive({ ...card, agents: 1 }), true);
+  assertEquals(repoCardActive({ ...card, pinned: true }), true);
+  assertEquals(repoCardActive({ ...card, pinned: false }), false);
   assertEquals(repoCardActive(card), false);
 });
 

@@ -306,6 +306,12 @@ function loadSidebarState() {
         ? saved.cardHistoryOpen.filter((f) => typeof f === 'string')
         : [],
     ),
+    /** Repo cards (by `repoCardKey`) kept in In use with nothing open in them (`togglePinnedCard`). */
+    cardsPinned: new Set(
+      Array.isArray(saved?.cardsPinned)
+        ? saved.cardsPinned.filter((f) => typeof f === 'string')
+        : [],
+    ),
     /** Repo cards (by `repoCardKey`) whose worktrees' cards are hidden; new ones show them. */
     worktreesClosed: new Set(
       Array.isArray(saved?.worktreesClosed)
@@ -439,6 +445,7 @@ function saveSidebarState() {
       JSON.stringify({
         collapsed: [...sidebarState.collapsed],
         cardHistoryOpen: [...sidebarState.cardHistoryOpen],
+        cardsPinned: [...sidebarState.cardsPinned],
         worktreesClosed: [...sidebarState.worktreesClosed],
         containerFilesOpen: [...sidebarState.containerFilesOpen],
         prOpen: [...sidebarState.prOpen],
@@ -1055,6 +1062,7 @@ function repoCards() {
     card.active = repoCardActive({
       tiles: card.tiles.length,
       agents: card.panes.filter(({ pane }) => pane.agent).length,
+      pinned: sidebarState.cardsPinned.has(card.key),
     });
   }
   return cards;
@@ -1295,9 +1303,13 @@ function repoCard(card, worktrees = 0) {
       oncontextmenu: (e) =>
         openMenu(
           e,
-          repo
-            ? [...dirMenuItems(fr, ''), ...jiraItems(branch)]
-            : projectMenuItems(localFolder),
+          [
+            ...(repo
+              ? [...dirMenuItems(fr, ''), ...jiraItems(branch)]
+              : projectMenuItems(localFolder)),
+            null,
+            pinnedCardItem(key),
+          ],
         ),
     },
     ...(repo
@@ -1307,6 +1319,7 @@ function repoCard(card, worktrees = 0) {
         gitMark(gitSync(repo.git, repo.gitProblem)),
       ]
       : [h('span', { class: 'repo-base' }, containerNameOf(localFolder))]),
+    cardPinMark(key),
   );
   /** @type {[string, string, boolean, () => void][]} */
   const toggles = [];
@@ -1720,6 +1733,7 @@ function inUseLinkCard(card, worktrees = 0) {
           renderTree();
         }
         : () => revealInUse(key),
+      oncontextmenu: (e) => openMenu(e, [pinnedCardItem(key)]),
     },
     ...(repo
       ? [
@@ -1737,6 +1751,40 @@ function inUseLinkCard(card, worktrees = 0) {
     },
   }, LABELS.inUse));
   return h('div', { class: 'repo-card in-use-link-card' }, head);
+}
+
+/** "Pin to In use" or "Unpin from In use" for a repo card's menus (see `togglePinnedCard`). */
+function pinnedCardItem(key) {
+  return [
+    sidebarState.cardsPinned.has(key) ? LABELS.unpinCard : LABELS.pinCard,
+    () => togglePinnedCard(key),
+  ];
+}
+
+/**
+ * Pins a repo card to In use, where it stays with no terminal or agent in it (`repoCardActive`),
+ * or unpins it. Saved with the sidebar's state, by card key, so it lasts across reloads; a pin
+ * whose container isn't listed shows nothing until it is again.
+ */
+function togglePinnedCard(key) {
+  if (!sidebarState.cardsPinned.delete(key)) sidebarState.cardsPinned.add(key);
+  saveSidebarState();
+  renderTree();
+}
+
+/** A pin glyph after a pinned repo card's name; its click unpins the card. */
+function cardPinMark(key) {
+  if (!sidebarState.cardsPinned.has(key)) return '';
+  const mark = h('span', {
+    class: 'pin-mark card-pin-mark',
+    title: LABELS.unpinCard,
+    onclick: (e) => {
+      e.stopPropagation();
+      togglePinnedCard(key);
+    },
+  });
+  mark.append(svgIcon('pin'));
+  return mark;
 }
 
 /** Scrolls In use to the card with key `key`, focuses its header and briefly flashes the card. */

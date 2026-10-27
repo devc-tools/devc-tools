@@ -1156,6 +1156,10 @@ body.resizing-zones {
   stroke-linejoin: round;
 }
 
+.card-pin-mark {
+  cursor: pointer;
+}
+
 /* A project's container starting. */
 .spinner {
   display: inline-block;

@@ -202,12 +202,12 @@ export function repoCardKey(localFolder, repoFolder) {
 
 /**
  * Whether a repo card is active (shown in In use, else in Containers): it has a tile or an agent no
- * tile shows. A plain shell no tile shows doesn't count, nor do past sessions.
+ * tile shows, or it is pinned there. A plain shell no tile shows doesn't count, nor do past sessions.
  *
- * @param {{tiles: number, agents: number}} card
+ * @param {{tiles: number, agents: number, pinned?: boolean}} card
  */
-export function repoCardActive({ tiles, agents }) {
-  return tiles > 0 || agents > 0;
+export function repoCardActive({ tiles, agents, pinned = false }) {
+  return tiles > 0 || agents > 0 || pinned;
 }
 
 /**

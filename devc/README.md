@@ -314,7 +314,11 @@ is published from any container: the host server finds devcontainers with
   muted stand-in with an **In use** link: a click scrolls to its card in
   **In use** and flashes it. A repo's worktrees stay indented under its
   stand-in, whose click hides or shows them as its card's header does (its
-  **In use** link still scrolls). A repo mounted in two containers has a card in each,
+  **In use** link still scrolls). **Pin to In use** on a card's (or its
+  stand-in's) right-click keeps it active with nothing open in it, marked with
+  a pin after its name; **Unpin from In use**, or a click on the pin, lets it
+  go. Pins are saved with the sidebar's state in this browser, and a pinned
+  card shows while its container is listed. A repo mounted in two containers has a card in each,
   each listing its past sessions. Click a tile or pane row to bring it
   forward. Click a container to collapse it; a collapsed one shows its most
   urgent agent status. A repo is named by its path under `/workspaces` in the

@@ -148,6 +148,8 @@ export const LABELS = {
   hidePastSessions: 'Hide past sessions',
   inUse: 'In use',
   showInUse: 'Show in In use',
+  pinCard: 'Pin to In use',
+  unpinCard: 'Unpin from In use',
   worktreesHidden: (n) => `${n} worktree${n === 1 ? '' : 's'} hidden`,
   copySessionId: 'Copy session id',
   pullRequest: 'Pull request',
