@@ -500,6 +500,14 @@ function toggleTasksSection() {
   renderTree();
 }
 
+/** Folds the Tasks section, as a task goes to an agent: the agent's pane takes the attention. */
+function foldTasksSection() {
+  if (!sidebarState.tasksOpen) return;
+  sidebarState.tasksOpen = false;
+  saveSidebarState();
+  renderTree();
+}
+
 /** Opens or closes a task group (by its `groupTasks` key). */
 function toggleTaskGroup(key) {
   if (!sidebarState.taskGroupsClosed.delete(key)) {
@@ -3648,8 +3656,8 @@ function taskSendAgent() {
 const sendingTasks = new Set();
 
 /**
- * Sends a routed task from its row (`send_task`) to the agent the dialog last sent to, and shows
- * the agent's pane in the focused stack.
+ * Sends a routed task from its row (`send_task`) to the agent the dialog last sent to, folds the
+ * Tasks section, and shows the agent's pane in the focused stack.
  *
  * @param {import('./lib/tasks.js').Task} task @param {'plan' | 'implement'} action
  */
@@ -3682,6 +3690,7 @@ async function sendTaskFromRow(task, action) {
   } finally {
     sendingTasks.delete(task.id);
   }
+  foldTasksSection();
   if (typeof result?.pane_id === 'string') placePane(localFolder, result);
 }
 
@@ -4129,8 +4138,9 @@ function showTaskError(message) {
 
 /**
  * Saves the dialog's task (`add_task` or `update_task`), then with `action` sends it
- * (`send_task`) and shows the agent's pane in the focused stack. A failure keeps the dialog open
- * with the error; a task saved before a failed send stays saved, and stays on the list.
+ * (`send_task`), folds the Tasks section, and shows the agent's pane in the focused stack. A
+ * failure keeps the dialog open with the error; a task saved before a failed send stays saved,
+ * and stays on the list.
  *
  * @param {'plan' | 'implement' | null} action
  */
@@ -4198,6 +4208,7 @@ async function submitTask(action) {
     return;
   }
   td.el.close();
+  foldTasksSection();
   if (typeof result?.pane_id === 'string') placePane(localFolder, result);
 }
 

@@ -577,7 +577,9 @@ is published from any container: the host server finds devcontainers with
   given a session id), and the container must be running. Sending writes the
   text to `/tmp/devc-tasks/<id>.md` in the container, opens a new terminal in
   the repo named after the task, and starts the agent there with `<id>` as
-  its session id. The task then moves under **Sent**: clicking it shows it
+  its session id. The **Tasks** section folds, leaving the room to the agent's
+  pane (click its heading to open it again). The task then moves under
+  **Sent**: clicking it shows it
   read-only (its text, route, agent and when it was sent), and the dialog's
   **Open session** shows that terminal while it is still open, or resumes the
   session in a new one (`claude --resume <id>`, `copilot --resume <id>`,
