@@ -1961,6 +1961,34 @@ button * {
   height: 100%;
 }
 
+/* A language server's diagnostics. @codemirror/lint draws its squiggle as a data: SVG background,
+   which the page's CSP (no img-src, so default-src 'self') blocks; a wavy text-decoration needs
+   no image. Three classes, to outrank the lint base theme's two. */
+.cm-editor .cm-content .cm-lintRange {
+  background-image: none;
+  text-decoration-line: underline;
+  text-decoration-style: wavy;
+  text-decoration-thickness: 1px;
+  text-decoration-skip-ink: none;
+  text-underline-offset: 3px;
+}
+
+.cm-editor .cm-content .cm-lintRange-error {
+  text-decoration-color: var(--danger);
+}
+
+.cm-editor .cm-content .cm-lintRange-warning {
+  text-decoration-color: var(--blocked);
+}
+
+.cm-editor .cm-content .cm-lintRange-info {
+  text-decoration-color: var(--accent);
+}
+
+.cm-editor .cm-content .cm-lintRange-hint {
+  text-decoration-color: var(--muted);
+}
+
 /* A file tile's language server status line (lsp.js): small, at its bottom right, over the
    editor; hidden while the server is ready and idle. */
 .lsp-status {
