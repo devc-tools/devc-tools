@@ -3465,7 +3465,7 @@ function selectTaskGroup(group) {
 
 /**
  * Queues the selected routed tasks (`queue_tasks`), in the order they were ticked, to be sent as `action` to the
- * agent a row's send uses, and clears the selection.
+ * agent a row's send uses, clears the selection and folds the Tasks section.
  *
  * @param {'plan' | 'implement'} action
  */
@@ -3484,6 +3484,7 @@ async function queueSelected(action) {
     return;
   }
   clearTaskSelection();
+  foldTasksSection();
 }
 
 /** Takes a task out of its repo's queue (`unqueue_task`). */

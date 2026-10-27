@@ -599,7 +599,8 @@ is published from any container: the host server finds devcontainers with
   dialog), and the trash can deletes it.
   Each task's checkbox selects it (a node's menu selects all of its tasks);
   with any selected, a row under the heading queues the routed ones, in list
-  order, for a plan or to implement, to that same agent. Each repo has its own
+  order, for a plan or to implement, to that same agent, and folds the
+  **Tasks** section, as a send does. Each repo has its own
   queue and sends one task at a time: the next once the agent on the one
   before it (or on a task sent by hand there) has worked and stopped, or its
   terminal was closed. Different repos' queues run side by side, and a queue
