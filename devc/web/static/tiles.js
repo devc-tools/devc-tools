@@ -1503,8 +1503,307 @@ function unmountDiffTile(tile) {
   diffViews.delete(tile.id);
   focusSeq.delete(tile.id);
   if (focusedTileId === tile.id) focusedTileId = null;
+  updateSelectionMatches();
+  paintDiffHighlights();
   queueMicrotask(updatePlaceholder);
 }
+
+// ---------------------------------------------------------------------------------------------
+// Diff tiles' find bar (Ctrl/Cmd+F) and selection matches, painted with the CSS Custom Highlight
+// API (`::highlight()` in style.css), which paints over the rows without changing them
+// ---------------------------------------------------------------------------------------------
+
+/** Past this many matches a search stops counting, so a one-letter query stays quick. */
+const MAX_FIND_MATCHES = 5000;
+
+/**
+ * A diff tile's find bar, made on its first Ctrl/Cmd+F and kept (hidden when closed) so its query
+ * survives a close and a redraw. `matches` are the last search's, `current` the one shown.
+ *
+ * @typedef {{el: HTMLElement, input: HTMLInputElement, count: HTMLElement, open: boolean,
+ *   matches: Range[], current: number}} DiffFind
+ */
+
+/** @type {WeakMap<DiffView, DiffFind>} */
+const diffFinds = new WeakMap();
+/** The selected text's other occurrences, in the one diff tile it is in. @type {Range[]} */
+let selectionMatches = [];
+
+/** Every `.diff-text` cell in a diff tile's body, its text and where each text node starts. */
+function diffTextCells(/** @type {DiffView} */ view) {
+  const cells = [];
+  for (const el of view.body.querySelectorAll('.diff-body .diff-text')) {
+    const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+    /** @type {{node: Text, start: number}[]} */
+    const nodes = [];
+    let text = '';
+    for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+      nodes.push({ node: /** @type {Text} */ (n), start: text.length });
+      text += n.nodeValue;
+    }
+    if (text) cells.push({ text, nodes });
+  }
+  return cells;
+}
+
+/** A Range over `[from, to)` of a cell's text. */
+function cellRange(cell, from, to) {
+  const at = (/** @type {number} */ i, /** @type {boolean} */ end) => {
+    let k = cell.nodes.length - 1;
+    while (
+      k > 0 && (end ? cell.nodes[k].start >= i : cell.nodes[k].start > i)
+    ) k--;
+    return [cell.nodes[k].node, i - cell.nodes[k].start];
+  };
+  const range = document.createRange();
+  range.setStart(...at(from, false));
+  range.setEnd(...at(to, true));
+  return range;
+}
+
+/**
+ * The occurrences of `query` in a diff tile's text, within one row's cell each. `fold`: ignore
+ * case; `word`: only where neither end touches another word character.
+ *
+ * @param {DiffView} view @param {string} query @param {{fold?: boolean, word?: boolean}} opts
+ */
+function diffMatches(view, query, { fold = false, word = false }) {
+  /** @type {Range[]} */
+  const out = [];
+  if (!query) return out;
+  const needle = fold ? query.toLowerCase() : query;
+  const isWord = (/** @type {string | undefined} */ c) =>
+    !!c && /[\p{L}\p{N}_]/u.test(c);
+  for (const cell of diffTextCells(view)) {
+    const hay = fold ? cell.text.toLowerCase() : cell.text;
+    for (let i = hay.indexOf(needle); i >= 0; i = hay.indexOf(needle, i + 1)) {
+      const end = i + needle.length;
+      if (word && (isWord(hay[i - 1]) || isWord(hay[end]))) continue;
+      out.push(cellRange(cell, i, end));
+      if (out.length >= MAX_FIND_MATCHES) return out;
+    }
+  }
+  return out;
+}
+
+/** Paints every diff tile's find matches and the selection's (a no-op without the API). */
+function paintDiffHighlights() {
+  if (typeof CSS === 'undefined' || !CSS.highlights) return;
+  const all = [];
+  const current = [];
+  for (const view of diffViews.values()) {
+    const find = diffFinds.get(view);
+    if (!find?.open) continue;
+    all.push(...find.matches);
+    const at = find.matches[find.current];
+    if (at) current.push(at);
+  }
+  CSS.highlights.set('diff-find', new Highlight(...all));
+  CSS.highlights.set('diff-find-current', new Highlight(...current));
+  CSS.highlights.set(
+    'diff-selection-match',
+    new Highlight(...selectionMatches),
+  );
+}
+
+/** The find bar's `n of m` (or `No results`, or nothing before a query). */
+function showFindCount(/** @type {DiffFind} */ find) {
+  const n = find.matches.length;
+  find.count.textContent = !find.input.value
+    ? ''
+    : n === 0
+    ? 'No results'
+    : `${find.current + 1} of ${n}${n >= MAX_FIND_MATCHES ? '+' : ''}`;
+}
+
+/**
+ * Searches a diff tile again (a new query, or a redraw's new rows), keeping the current match's
+ * place as near as it can. Case is ignored unless the query has a capital letter.
+ */
+function runDiffFind(/** @type {DiffView} */ view) {
+  const find = diffFinds.get(view);
+  if (!find) return;
+  const query = find.open ? find.input.value : '';
+  find.matches = diffMatches(view, query, {
+    fold: query === query.toLowerCase(),
+  });
+  find.current = Math.min(
+    Math.max(find.current, 0),
+    Math.max(find.matches.length - 1, 0),
+  );
+  showFindCount(find);
+  paintDiffHighlights();
+}
+
+/** Moves to the next (`step` 1) or previous (-1) match, scrolling it into the body's view. */
+function stepDiffFind(
+  /** @type {DiffView} */ view,
+  /** @type {number} */ step,
+) {
+  const find = diffFinds.get(view);
+  if (!find?.matches.length) return;
+  const n = find.matches.length;
+  find.current = (find.current + step + n) % n;
+  showFindCount(find);
+  paintDiffHighlights();
+  const body = view.body.querySelector('.diff-body');
+  const rect = find.matches[find.current].getBoundingClientRect();
+  if (!body) return;
+  const box = body.getBoundingClientRect();
+  if (rect.top < box.top || rect.bottom > box.bottom) {
+    body.scrollTop += rect.top - box.top - box.height / 2;
+  }
+  if (rect.left < box.left || rect.right > box.right) {
+    body.scrollLeft += rect.left - box.left - box.width / 3;
+  }
+}
+
+/** Opens a diff tile's find bar (making it the first time), with its query selected. */
+function openDiffFind(/** @type {DiffView} */ view) {
+  let find = diffFinds.get(view);
+  if (!find) {
+    const input = h('input', {
+      type: 'search',
+      class: 'diff-find-input',
+      placeholder: 'Find',
+      'aria-label': 'Find in diff',
+      spellcheck: 'false',
+    });
+    const count = h('span', {
+      class: 'diff-find-count',
+      'aria-live': 'polite',
+    });
+    const button = (/** @type {string} */ label, title, run) =>
+      h('button', {
+        type: 'button',
+        title,
+        'aria-label': title,
+        onclick: run,
+      }, label);
+    const created = /** @type {DiffFind} */ ({
+      el: h(
+        'div',
+        { class: 'diff-find', role: 'search' },
+        input,
+        count,
+        button(
+          '↑',
+          'Previous match (Shift+Enter)',
+          () => stepDiffFind(view, -1),
+        ),
+        button('↓', 'Next match (Enter)', () => stepDiffFind(view, 1)),
+        button('×', 'Close (Escape)', () => closeDiffFind(view)),
+      ),
+      input: /** @type {HTMLInputElement} */ (input),
+      count,
+      open: false,
+      matches: [],
+      current: 0,
+    });
+    find = created;
+    input.addEventListener('input', () => {
+      created.current = 0;
+      runDiffFind(view);
+      if (created.matches.length) stepDiffFind(view, 0);
+    });
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        stepDiffFind(view, e.shiftKey ? -1 : 1);
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        closeDiffFind(view);
+      }
+    });
+    diffFinds.set(view, find);
+  }
+  // A selection on one line seeds the query, as the file viewer's search does.
+  const picked = pageSelection(view.tile);
+  if (picked && !picked.includes('\n')) find.input.value = picked;
+  find.open = true;
+  find.el.hidden = false;
+  if (!find.el.isConnected) {
+    view.body.querySelector('.diff-header')?.after(find.el);
+  }
+  runDiffFind(view);
+  find.input.focus();
+  find.input.select();
+}
+
+/** Closes a diff tile's find bar, its matches unpainted, and gives the tile the keyboard back. */
+function closeDiffFind(/** @type {DiffView} */ view) {
+  const find = diffFinds.get(view);
+  if (!find?.open) return;
+  find.open = false;
+  find.el.hidden = true;
+  find.matches = [];
+  paintDiffHighlights();
+  view.tile.focus();
+}
+
+/**
+ * The selected text's other occurrences in its diff tile: one line of it, matched with its case,
+ * and as a whole word when it is one (as the file viewer's `highlightSelectionMatches`).
+ */
+function updateSelectionMatches() {
+  const sel = document.getSelection();
+  let found = /** @type {Range[]} */ ([]);
+  if (sel && sel.rangeCount && !sel.isCollapsed) {
+    const range = sel.getRangeAt(0);
+    const start = range.startContainer.parentElement?.closest('.diff-text');
+    const end = range.endContainer.parentElement?.closest('.diff-text');
+    const text = sel.toString();
+    const view = start && start === end
+      ? [...diffViews.values()].find((v) => v.body.contains(start))
+      : undefined;
+    if (view && text.trim() && !text.includes('\n') && text.length <= 200) {
+      // A whole word (a double-click's) matches only whole words; part of one, anywhere.
+      const outside = (/** @type {Node} */ node, /** @type {number} */ i) =>
+        node.nodeType === Node.TEXT_NODE ? node.nodeValue?.[i] : undefined;
+      const word = /^[\p{L}\p{N}_]+$/u.test(text) &&
+        ![
+          outside(range.startContainer, range.startOffset - 1),
+          outside(range.endContainer, range.endOffset),
+        ].some((c) => c && /[\p{L}\p{N}_]/u.test(c));
+      found = diffMatches(view, text, { word });
+    }
+  }
+  if (found.length < 2) found = [];
+  if (!found.length && !selectionMatches.length) return;
+  selectionMatches = found;
+  paintDiffHighlights();
+}
+
+let selectionFrame = 0;
+document.addEventListener('selectionchange', () => {
+  cancelAnimationFrame(selectionFrame);
+  selectionFrame = requestAnimationFrame(updateSelectionMatches);
+});
+
+// Ctrl/Cmd+F in a diff tile opens its find bar in place of the browser's find; in the capture
+// phase, as the file tiles' Ctrl/Cmd+S. Ctrl/Cmd+G (Shift for back) and F3 step through matches.
+document.addEventListener('keydown', (e) => {
+  const view = diffViews.get(focusedTileId ?? '');
+  if (!view || e.altKey) return;
+  const target = /** @type {HTMLElement} */ (e.target);
+  // Keys aimed at another tile, or at the sidebar's fields, are not the diff tile's.
+  if (
+    target instanceof HTMLElement && target !== document.body &&
+    !view.tile.element.contains(target) && !target.contains(view.tile.element)
+  ) return;
+  const mod = IS_MAC ? e.metaKey : e.ctrlKey;
+  const key = e.key.toLowerCase();
+  if (mod && key === 'f' && !e.shiftKey) {
+    e.preventDefault();
+    e.stopPropagation();
+    openDiffFind(view);
+  } else if ((mod && key === 'g') || e.key === 'F3') {
+    if (!diffFinds.get(view)?.open) return;
+    e.preventDefault();
+    e.stopPropagation();
+    stepDiffFind(view, e.shiftKey ? -1 : 1);
+  }
+}, true);
 
 // ---------------------------------------------------------------------------------------------
 // Diff tiles' language server: hover and Ctrl/Cmd+click go to definition on the new side
@@ -2328,11 +2627,13 @@ function oneSided(view) {
 /** Draws a diff tile from its view: the header, then File threads and the hunks. */
 function renderDiff(view) {
   const active = /** @type {HTMLElement | null} */ (document.activeElement);
-  const caret = active instanceof HTMLTextAreaElement
-    ? [active.selectionStart, active.selectionEnd]
-    : null;
+  const caret =
+    active instanceof HTMLTextAreaElement || active instanceof HTMLInputElement
+      ? [active.selectionStart, active.selectionEnd]
+      : null;
   const body = h('div', { class: 'diff-body' });
-  view.body.replaceChildren(diffHeader(view), body);
+  const find = diffFinds.get(view);
+  view.body.replaceChildren(diffHeader(view), ...(find ? [find.el] : []), body);
   if (view.state === 'loading') {
     body.append(h('div', { class: 'diff-message' }, 'Loading…'));
   } else if (view.state === 'error') {
@@ -2354,10 +2655,17 @@ function renderDiff(view) {
   body.scrollTop = view.scrollTop;
   if (active && active.isConnected && active !== document.activeElement) {
     active.focus({ preventScroll: true });
-    if (caret && active instanceof HTMLTextAreaElement) {
+    if (
+      caret && caret[0] !== null &&
+      (active instanceof HTMLTextAreaElement ||
+        active instanceof HTMLInputElement)
+    ) {
       active.setSelectionRange(caret[0], caret[1]);
     }
   }
+  // The new rows' matches: the find bar's, and the selection's (gone with the old rows).
+  if (find?.open) runDiffFind(view);
+  updateSelectionMatches();
 }
 
 /** The path (`old → new` for a rename), status, `+a −d`, `#n`, ⟳ and ↗, and whose bridge. */

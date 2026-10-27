@@ -679,6 +679,12 @@ is published from any container: the host server finds devcontainers with
   for the file itself (not for a deleted file). In a container with a
   language server for the file, its added and unchanged lines have hover and
   **Ctrl/Cmd+click** go to definition (see **Language servers** above).
+  **Ctrl/Cmd+F** in a diff tile opens its find bar over the diff's code (not
+  its threads), seeded with a one-line selection: case is ignored unless the
+  query has a capital, **Enter**/**Shift+Enter** (or **Ctrl/Cmd+G**, **F3**)
+  step through the matches, **Escape** closes it. Selecting text on one line
+  highlights its other occurrences, as a file tile does: only whole words for
+  a whole word, anywhere for part of one.
   - **Changes since viewed.** GitHub records only whether a file is Viewed
     (or changed since), never the commit it was viewed at, so devc web keeps
     its own record: every mark it makes is added, with the PR's head at that

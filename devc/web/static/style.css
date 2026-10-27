@@ -3398,3 +3398,69 @@ dialog.dialog.palette {
   font-size: calc(var(--font-size) - 1px);
   border-top: 1px solid var(--border);
 }
+
+/* A diff tile's find bar (Ctrl/Cmd+F), under its header: the file viewer's search panel's look. */
+.diff-find {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel);
+  font-size: calc(var(--font-size) - 1px);
+}
+
+.diff-find[hidden] {
+  display: none;
+}
+
+.diff-find input,
+.diff-find button {
+  font: inherit;
+  color: var(--text);
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+
+.diff-find input {
+  width: 16em;
+  min-width: 0;
+  padding: 1px 6px;
+}
+
+.diff-find input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.diff-find button {
+  padding: 0 6px;
+  cursor: pointer;
+}
+
+.diff-find button:hover {
+  background: var(--row-hover);
+}
+
+.diff-find-count {
+  min-width: 6em;
+  padding: 0 4px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+/* Find matches and the selection's other occurrences: the file viewer's `.cm-searchMatch` and
+   `.cm-selectionMatch` colours. */
+::highlight(diff-find) {
+  background-color: color-mix(in srgb, var(--blocked) 30%, transparent);
+}
+
+::highlight(diff-find-current) {
+  background-color: color-mix(in srgb, var(--blocked) 60%, transparent);
+}
+
+::highlight(diff-selection-match) {
+  background-color: color-mix(in srgb, var(--accent) 25%, transparent);
+}
