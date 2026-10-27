@@ -1659,17 +1659,20 @@ function containerRows(c, cards) {
   );
   const rows = [head];
   if (collapsed) return [containerCard(rows, false)];
-  // A worktree's card goes under its repo's when that one is here too, else as a repo's.
+  // A worktree's card goes under its repo's when that one is here too (as a card or its In use
+  // link), else as a repo's.
   const mainOf = (card) => {
     const main = card.repo?.worktreeOf;
     const key = main ? repoCardKey(c.localFolder, main) : null;
-    return key && cards.get(key) && !cards.get(key).active ? key : null;
+    return key && cards.get(key) ? key : null;
   };
   shown.forEach((card, i) => {
     const main = mainOf(card);
     if (main) {
+      // An In use link has no chevron to show them again: under one, they always show.
       if (
-        sidebarState.worktreesClosed.has(main) && !cardMatchesFilter(card)
+        !cards.get(main).active && sidebarState.worktreesClosed.has(main) &&
+        !cardMatchesFilter(card)
       ) return;
       const el = card.active ? inUseLinkCard(card) : repoCard(card);
       el.classList.add('worktree');
