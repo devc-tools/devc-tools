@@ -495,7 +495,11 @@ export async function showViewLocation(key, location) {
   const start = location.range?.start ?? { line: 0, character: 0 };
   const line = doc.line(Math.min(Math.max(start.line + 1, 1), doc.lines));
   const anchor = Math.min(line.from + Math.max(start.character, 0), line.to);
-  ev.dispatch({ selection: { anchor }, scrollIntoView: true });
+  ev.dispatch({
+    selection: { anchor },
+    scrollIntoView: true,
+    userEvent: 'select.definition',
+  });
   ev.focus();
 }
 

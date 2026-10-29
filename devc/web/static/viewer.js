@@ -556,6 +556,7 @@ export function createViewer(
           serverCompletion(),
           hoverTooltips(),
           signatureHelp(),
+          centerDefinitionJumps,
           // No renameKeymap: a rename would reach open files only.
           keymap.of([
             ...jumpToDefinitionKeymap,
@@ -747,6 +748,22 @@ function highlightCodeBlocks(html) {
   }
   return doc.body.innerHTML;
 }
+
+/**
+ * Puts a go to definition's line in the middle of the tile rather than at its edge, as
+ * {@link Viewer.revealLine} does: lsp-client's `select.definition` jumps (and lsp.js's from diff
+ * tiles) scroll only as far as needed. Its effect wins over the transaction's `scrollIntoView`;
+ * CodeMirror stops at the document's ends.
+ */
+const centerDefinitionJumps = EditorState.transactionExtender.of((tr) =>
+  tr.isUserEvent('select.definition')
+    ? {
+      effects: EditorView.scrollIntoView(tr.newSelection.main.head, {
+        y: 'center',
+      }),
+    }
+    : null
+);
 
 /**
  * The client's workspace: one file per URI, each with the one view attached to it. Jumps to
