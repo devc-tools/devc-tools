@@ -426,6 +426,15 @@ is published from any container: the host server finds devcontainers with
   of the page (the sidebar header on `/sidebar`) is green while the page is
   connected to the server, red while it is disconnected (it reconnects by
   itself) and grey while connecting; its tooltip says which.
+- **Split pages:** besides `/` (the whole page), `/sidebar` is the sidebar
+  alone, `/main` the tiles alone and `/containers` the sidebar's
+  **Containers** section alone (each also under `/safe/`). Pages with the same
+  `view=` in the URL hash (`#token=…&view=<id>`) work as one: what a sidebar or
+  Containers page opens shows in `/main`, **Reveal in Containers** reaches
+  `/sidebar` and `/containers`, and a `/containers` page shows the cards
+  `/sidebar`'s **In use** has as links to them there, pinning and unpinning
+  through it. A right-click menu closes when another page or view takes the
+  focus, and scrolls when it is taller than the window.
 - **Sidebar scope:** the pill in the sidebar header picks what the sidebar
   shows: **all** (lines), everything; **container** (cube), **Tasks** and the
   focused tile's container box with its in-use repo cards; or **repo** (card),

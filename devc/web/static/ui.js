@@ -607,10 +607,17 @@ export function openMenuAt(x, y, items) {
     }),
   );
   $menu.hidden = false;
+  $menu.scrollTop = 0;
   const { innerWidth, innerHeight } = window;
+  // Taller than the window, it scrolls (style.css caps it at the window less 8px), and its head
+  // stays in sight: never above or left of 4px, as in a split view's short page.
   const rect = $menu.getBoundingClientRect();
-  $menu.style.left = `${Math.min(x, innerWidth - rect.width - 4)}px`;
-  $menu.style.top = `${Math.min(y, innerHeight - rect.height - 4)}px`;
+  $menu.style.left = `${
+    Math.max(4, Math.min(x, innerWidth - rect.width - 4))
+  }px`;
+  $menu.style.top = `${
+    Math.max(4, Math.min(y, innerHeight - rect.height - 4))
+  }px`;
 }
 
 function closeMenu() {
@@ -626,6 +633,9 @@ document.addEventListener('mousedown', (e) => {
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') closeMenu();
 }, true);
+// A click in another view of a split layout (another page, or the app around it) takes the focus
+// from this one, and closes the menu as a click here would.
+window.addEventListener('blur', closeMenu);
 
 /**
  * Writes text that is still on its way to the clipboard. The write starts now, inside the

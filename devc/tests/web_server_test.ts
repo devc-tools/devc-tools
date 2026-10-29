@@ -1482,6 +1482,110 @@ Deno.test('parseClientMessage: view_join takes a view id and a role', () => {
   ) assertEquals(rejected(bad).code, 'bad_request', JSON.stringify(bad));
 });
 
+Deno.test('parseClientMessage: view_join takes the containers role', () => {
+  assertEquals(
+    parseClientMessage(
+      JSON.stringify({ type: 'view_join', view: 'v1', role: 'containers' }),
+    ),
+    { ok: true, msg: { type: 'view_join', view: 'v1', role: 'containers' } },
+  );
+});
+
+Deno.test("parseClientMessage: view_state takes a sidebar's In use cards", () => {
+  const state = { inUse: ['card\n/w\n/w'], pinned: ['card\n/w\n/w'] };
+  assertEquals(
+    parseClientMessage(
+      JSON.stringify({ type: 'view_state', view: 'v', state }),
+    ),
+    { ok: true, msg: { type: 'view_state', view: 'v', state } },
+  );
+  // `pinned` may be left out; a tiling area's state may carry them too.
+  for (
+    const ok of [
+      { inUse: [] },
+      { tiles: [], tree: null, inUse: ['a'], pinned: [] },
+    ]
+  ) {
+    assert(
+      parseClientMessage(
+        JSON.stringify({ type: 'view_state', view: 'v', state: ok }),
+      ).ok,
+      JSON.stringify(ok),
+    );
+  }
+  for (
+    const state of [
+      { inUse: 'a' },
+      { inUse: [1] },
+      { inUse: ['a'], pinned: 'b' },
+      { inUse: ['a'], pinned: [null] },
+      { inUse: new Array(501).fill('a') },
+      { inUse: ['x'.repeat(4097)] },
+      { pinned: ['a'] },
+    ]
+  ) {
+    const bad = { type: 'view_state', view: 'v', state };
+    assertEquals(rejected(bad).code, 'bad_request', JSON.stringify(state));
+  }
+});
+
+Deno.test('parseClientMessage: containers_intent and inuse_intent take a known name and ≤ 4 args', () => {
+  assertEquals(
+    parseClientMessage(JSON.stringify({
+      type: 'containers_intent',
+      view: 'v',
+      name: 'reveal',
+      args: [{ localFolder: '/w', pane_id: 'p1' }],
+    })),
+    {
+      ok: true,
+      msg: {
+        type: 'containers_intent',
+        view: 'v',
+        name: 'reveal',
+        args: [{ localFolder: '/w', pane_id: 'p1' }],
+      },
+    },
+  );
+  for (
+    const [type, name] of [
+      ['containers_intent', 'reveal'],
+      ['containers_intent', 'setFold'],
+      ['inuse_intent', 'revealInUse'],
+      ['inuse_intent', 'pin'],
+    ]
+  ) {
+    assert(
+      parseClientMessage(JSON.stringify({ type, view: 'v', name, args: [] }))
+        .ok,
+      `${type} ${name}`,
+    );
+  }
+  for (
+    const bad of [
+      // Each other's names, and the other contracts'.
+      { type: 'containers_intent', view: 'v', name: 'pin', args: [] },
+      { type: 'containers_intent', view: 'v', name: 'openPane', args: [] },
+      { type: 'inuse_intent', view: 'v', name: 'reveal', args: [] },
+      { type: 'inuse_intent', view: 'v', name: 'inUseKeys', args: [] },
+      { type: 'inuse_intent', view: 'v', name: 'onInUseChange', args: [] },
+      { type: 'containers_intent', view: 'v', name: 'reveal' },
+      { type: 'inuse_intent', view: 'v', name: 'pin', args: {} },
+      { type: 'inuse_intent', view: 'v', name: 'pin', args: [1, 2, 3, 4, 5] },
+      { type: 'containers_intent', view: 'a b', name: 'reveal', args: [] },
+      { type: 'inuse_intent', view: '', name: 'pin', args: [] },
+      { type: 'inuse_intent', name: 'pin', args: [] },
+    ]
+  ) assertEquals(rejected(bad).code, 'bad_request', JSON.stringify(bad));
+  const huge = JSON.stringify({
+    type: 'inuse_intent',
+    view: 'v',
+    name: 'pin',
+    args: ['x'.repeat(300 * 1024), true],
+  });
+  assertEquals(parseClientMessage(huge).ok, false);
+});
+
 Deno.test('parseClientMessage: view_state checks the state shape, relays it as is', () => {
   const state = {
     tiles: [{ id: 't1', kind: 'pane', extra: { kept: true } }],

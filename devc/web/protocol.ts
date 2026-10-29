@@ -352,9 +352,15 @@ export type ClientMessage =
   | PrMessage & { id: string }
   | { type: 'retry'; container: string }
   | { type: 'client_ready'; generation: string }
-  /** Joins a view as its sidebar or its tiling area (`/sidebar`, `/main`): see `views.ts`. */
+  /**
+   * Joins a view as its sidebar, its tiling area or its Containers section (`/sidebar`, `/main`,
+   * `/containers`): see `views.ts`.
+   */
   | { type: 'view_join'; view: string; role: ViewRole }
-  /** The tiling area's `ViewState`, relayed verbatim to the view's sidebars. */
+  /**
+   * The tiling area's `ViewState`, relayed to the view's sidebars and Containers sections; or a
+   * sidebar's In use cards (`inUse`, `pinned`), relayed with it to the Containers sections.
+   */
   | { type: 'view_state'; view: string; state: Record<string, unknown> }
   /** A `ViewIntents` call, relayed verbatim to the view's tiling areas. */
   | { type: 'view_intent'; view: string; name: ViewIntentName; args: unknown[] }
@@ -364,12 +370,27 @@ export type ClientMessage =
     view: string;
     name: SidebarIntentName;
     args: unknown[];
+  }
+  /** A `ContainersIntents` call (In use → Containers), relayed to the view's Containers sections. */
+  | {
+    type: 'containers_intent';
+    view: string;
+    name: ContainersIntentName;
+    args: unknown[];
+  }
+  /** An `InUseLink` call (Containers → In use), relayed verbatim to the view's sidebars. */
+  | {
+    type: 'inuse_intent';
+    view: string;
+    name: InUseIntentName;
+    args: unknown[];
   };
 
 /** A view id: the URL hash's `view`, pairing a `/sidebar` page with a `/main` page. */
 export const VIEW_ID = /^[A-Za-z0-9_-]{1,64}$/;
-/** What a page joins a view as: `/sidebar` is `sidebar`, `/main` is `tiles`. */
-export type ViewRole = 'sidebar' | 'tiles';
+/** What a page joins a view as: `/sidebar` is `sidebar`, `/main` is `tiles`, `/containers` is `containers`. */
+export const VIEW_ROLES = ['sidebar', 'tiles', 'containers'] as const;
+export type ViewRole = typeof VIEW_ROLES[number];
 /** The `ViewIntents` methods (`static/lib/view.js`) a `view_intent` may name. */
 export const VIEW_INTENT_NAMES = [
   'openPane',
@@ -392,11 +413,21 @@ export const SIDEBAR_INTENT_NAMES = [
   'prViewed',
 ] as const;
 export type SidebarIntentName = typeof SIDEBAR_INTENT_NAMES[number];
+/** The `ContainersIntents` methods (`static/lib/view.js`) a `containers_intent` may name. */
+export const CONTAINERS_INTENT_NAMES = ['reveal', 'setFold'] as const;
+export type ContainersIntentName = typeof CONTAINERS_INTENT_NAMES[number];
+/** The `InUseLink` calls (`static/lib/view.js`) an `inuse_intent` may name. */
+export const INUSE_INTENT_NAMES = ['revealInUse', 'pin'] as const;
+export type InUseIntentName = typeof INUSE_INTENT_NAMES[number];
 /** The most arguments a relayed intent carries. */
 export const MAX_INTENT_ARGS = 4;
 /** The most tiles a relayed `view_state` carries. */
 export const MAX_VIEW_TILES = 500;
-/** The longest `view_*` / `sidebar_intent` frame, in UTF-16 code units of its text. */
+/** The most repo cards a sidebar's `view_state` names (`inUse`, `pinned`). */
+export const MAX_VIEW_CARDS = 500;
+/** The longest repo card key a sidebar's `view_state` carries. */
+export const MAX_CARD_KEY = 4096;
+/** The longest `view_*` / `*_intent` frame, in UTF-16 code units of its text. */
 export const MAX_VIEW_MESSAGE = 256 * 1024;
 /** The longest `lsp_send` frame, in UTF-16 code units of its text. */
 export const MAX_LSP_MESSAGE = 8 * 1024 * 1024;
@@ -490,13 +521,35 @@ function intentArgs(o: Obj): unknown[] {
   return v;
 }
 
-/** A `ViewState`'s shape, as far as the server looks: `tiles` an array, `tree` an object or null. */
+/** Each of a sidebar's `view_state` card lists, when there: an array of key strings. */
+function cardKeys(s: Obj, k: 'inUse' | 'pinned'): void {
+  const v = s[k];
+  if (v === undefined && k === 'pinned') return;
+  if (
+    !Array.isArray(v) || v.length > MAX_VIEW_CARDS ||
+    !v.every((x) => typeof x === 'string' && x.length <= MAX_CARD_KEY)
+  ) {
+    throw new Invalid(
+      `'state.${k}' must be an array of at most ${MAX_VIEW_CARDS} card keys`,
+    );
+  }
+}
+
+/**
+ * A `ViewState`'s shape, as far as the server looks: `tiles` an array, `tree` an object or null;
+ * or a sidebar's In use cards, `inUse` (and `pinned`) arrays of card keys, with no `tiles`.
+ */
 function viewState(o: Obj): Record<string, unknown> {
   const v = o.state;
   if (typeof v !== 'object' || v === null || Array.isArray(v)) {
     throw new Invalid(`'state' must be an object`);
   }
   const s = v as Obj;
+  if (s.tiles === undefined && s.inUse !== undefined) {
+    cardKeys(s, 'inUse');
+    cardKeys(s, 'pinned');
+    return s;
+  }
   if (!Array.isArray(s.tiles) || s.tiles.length > MAX_VIEW_TILES) {
     throw new Invalid(
       `'state.tiles' must be an array of at most ${MAX_VIEW_TILES}`,
@@ -674,7 +727,8 @@ export function parseClientMessage(raw: string): ParseResult {
   const id = typeof m.id === 'string' && m.id !== '' ? m.id : undefined;
   if (
     (m.type === 'view_join' || m.type === 'view_state' ||
-      m.type === 'view_intent' || m.type === 'sidebar_intent') &&
+      m.type === 'view_intent' || m.type === 'sidebar_intent' ||
+      m.type === 'containers_intent' || m.type === 'inuse_intent') &&
     raw.length > MAX_VIEW_MESSAGE
   ) {
     return {
@@ -1277,7 +1331,7 @@ function parseFields(m: Obj): ClientMessage {
       return {
         type: 'view_join',
         view: viewId(m),
-        role: oneOf(m, 'role', ['sidebar', 'tiles']),
+        role: oneOf(m, 'role', [...VIEW_ROLES]),
       };
     case 'view_state':
       return { type: 'view_state', view: viewId(m), state: viewState(m) };
@@ -1293,6 +1347,20 @@ function parseFields(m: Obj): ClientMessage {
         type: 'sidebar_intent',
         view: viewId(m),
         name: oneOf(m, 'name', [...SIDEBAR_INTENT_NAMES]),
+        args: intentArgs(m),
+      };
+    case 'containers_intent':
+      return {
+        type: 'containers_intent',
+        view: viewId(m),
+        name: oneOf(m, 'name', [...CONTAINERS_INTENT_NAMES]),
+        args: intentArgs(m),
+      };
+    case 'inuse_intent':
+      return {
+        type: 'inuse_intent',
+        view: viewId(m),
+        name: oneOf(m, 'name', [...INUSE_INTENT_NAMES]),
         args: intentArgs(m),
       };
     default:

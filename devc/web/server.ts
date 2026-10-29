@@ -370,7 +370,7 @@ export function staticPathAllowed(pathname: string): boolean {
 const WEBVIEW_ANCESTORS = 'vscode-webview: vscode-file:';
 
 /** The split pages' routes, the only responses a VS Code webview may frame. Not their `.html` names. */
-const FRAMABLE_ROUTES = new Set(['/sidebar', '/main']);
+const FRAMABLE_ROUTES = new Set(['/sidebar', '/main', '/containers']);
 
 function securityHeaders(
   port: number,
@@ -396,11 +396,15 @@ function securityHeaders(
  */
 export const STATIC_ROOT = new URL('./static/', import.meta.url);
 
-/** The page routes: `/` is the whole page; `/sidebar` and `/main` its halves, as pages of their own. */
+/**
+ * The page routes: `/` is the whole page; `/sidebar` and `/main` its halves, as pages of their
+ * own, and `/containers` the sidebar's Containers section alone.
+ */
 const PAGE_ROUTES: Record<string, string> = {
   '/': '/index.html',
   '/sidebar': '/sidebar.html',
   '/main': '/main.html',
+  '/containers': '/containers.html',
 };
 
 /** Serves `pathname` (a page route, see {@link PAGE_ROUTES}, or a file) from the directory `root`. */
@@ -2934,6 +2938,12 @@ export async function startWeb(
         return;
       case 'sidebar_intent':
         deliver(views.sidebarIntent(c, msg.view, msg.name, msg.args));
+        return;
+      case 'containers_intent':
+        deliver(views.containersIntent(c, msg.view, msg.name, msg.args));
+        return;
+      case 'inuse_intent':
+        deliver(views.inUseIntent(c, msg.view, msg.name, msg.args));
         return;
     }
     if (msg.type === 'active_pane') {

@@ -50,6 +50,9 @@ import {
  * @property {LayoutNode | null} tree  the layout tree, unfolded
  * @property {string | null} focused   the tile a sidebar click opens into: the focused one, else
  *   the first
+ * @property {string[]} [inUse]  relayed only: the repo cards In use shows (`repoCardKey`), from
+ *   the view's sidebar, so a Containers page (`/containers`) draws their stand-ins
+ * @property {string[]} [pinned] relayed only: the cards among them pinned to In use
  */
 
 /**
@@ -108,6 +111,34 @@ import {
  * @property {(ref: PaneRef) => void} revealInContainers  a tile menu's **Reveal in Containers**
  * @property {(diff: DiffRef, viewed: 'VIEWED' | 'UNVIEWED') => void} prViewed
  *   a PR file was marked Viewed or not in a diff tile: the sidebar's PR tree shows it
+ */
+
+/**
+ * How the Containers section (`containers.js`) reaches In use (`sidebar.js`): the whole coupling
+ * that way. In one page it is In use itself; across pages (`/containers` beside `/sidebar`) the
+ * calls go as `inuse_intent`s and the keys come in `view_state`'s `inUse` and `pinned`.
+ *
+ * @typedef {object} InUseLink
+ * @property {(key: string) => void} revealInUse  scrolls In use to a card and flashes it (a
+ *   stand-in's **In use** link)
+ * @property {() => Set<string>} inUseKeys  the cards In use shows, which Containers draws as
+ *   stand-ins
+ * @property {(key: string) => boolean} pinned  whether a card is pinned to In use (its menu says
+ *   Pin or Unpin)
+ * @property {(key: string, pinned: boolean) => void} pin  **Pin to In use** / **Unpin**
+ * @property {(cb: () => void) => void} onInUseChange  `cb` runs when In use's cards or pins
+ *   change (only across pages: in one page a render draws both)
+ */
+
+/**
+ * What In use (`sidebar.js`) asks of the Containers section: what `mountContainers` returns,
+ * or across pages, `containers_intent`s.
+ *
+ * @typedef {object} ContainersIntents
+ * @property {(ref: PaneRef) => void} reveal  a tile's **Reveal in Containers**
+ * @property {(part: 'history' | 'pr', key: string, open: boolean) => void} setFold  a card In use
+ *   shows opened or closed its past sessions (by card key) or its pull request (by `prKey`): it
+ *   shows the same in Containers once it is no longer in use
  */
 
 /** @param {ViewState} state @param {string | null | undefined} id */
@@ -315,6 +346,12 @@ export const SIDEBAR_INTENT_NAMES = Object.freeze([
   'prViewed',
 ]);
 
+/** The {@link ContainersIntents} a `containers_intent` may name (In use → Containers). */
+export const CONTAINERS_INTENT_NAMES = Object.freeze(['reveal', 'setFold']);
+
+/** The {@link InUseLink} calls an `inuse_intent` may name (Containers → In use). */
+export const INUSE_INTENT_NAMES = Object.freeze(['revealInUse', 'pin']);
+
 /** The view id pattern: what pairs a `/sidebar` page with a `/main` page. */
 const VIEW_ID = /^[A-Za-z0-9_-]{1,64}$/;
 
@@ -370,7 +407,7 @@ export function emptyViewState() {
  * `msg` as a relayed intent for `view` naming one of `names`: its name and arguments, else null.
  *
  * @param {any} msg  a server message
- * @param {'view_intent' | 'sidebar_intent'} type
+ * @param {'view_intent' | 'sidebar_intent' | 'containers_intent' | 'inuse_intent'} type
  * @param {string} view
  * @param {readonly string[]} names
  * @returns {{name: string, args: unknown[]} | null}
@@ -382,7 +419,8 @@ export function relayedIntent(msg, type, view, names) {
 }
 
 /**
- * `msg` as a relayed `view_state` for `view`: the state, else null.
+ * `msg` as a relayed `view_state` for `view`: the state, else null. In use's cards (`inUse`) and
+ * pins (`pinned`) come with it when the view's sidebar has sent them.
  *
  * @param {any} msg @param {string} view
  * @returns {ViewState | null}
@@ -391,11 +429,28 @@ export function relayedState(msg, view) {
   if (msg?.type !== 'view_state' || msg.view !== view) return null;
   const s = msg.state;
   if (!s || typeof s !== 'object' || !Array.isArray(s.tiles)) return null;
-  return {
+  /** @type {ViewState} */
+  const state = {
     tiles: s.tiles,
     tree: s.tree && typeof s.tree === 'object' ? s.tree : null,
     focused: typeof s.focused === 'string' ? s.focused : null,
   };
+  if (Array.isArray(s.inUse)) state.inUse = strings(s.inUse);
+  if (Array.isArray(s.pinned)) state.pinned = strings(s.pinned);
+  return state;
+}
+
+/** In use's part of a view's state, as its sidebar sends it in a `view_state`. */
+export function inUseState(
+  /** @type {Iterable<string>} */ inUse,
+  /** @type {Iterable<string>} */ pinned,
+) {
+  return { inUse: [...inUse].sort(), pinned: [...pinned].sort() };
+}
+
+/** @param {unknown[]} v */
+function strings(v) {
+  return v.filter((x) => typeof x === 'string');
 }
 
 /** The `DataTransfer` type of a sidebar row dragged into a tiling area. */

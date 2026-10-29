@@ -89,10 +89,17 @@ button:hover {
   display: none;
 }
 
-/* The split pages: `/sidebar` is the sidebar alone, `/main` the tiles alone, each the whole window. */
+/* The split pages: `/sidebar` is the sidebar alone, `/main` the tiles alone, `/containers` the
+   sidebar's Containers section alone, each the whole window. */
 .app[data-page='sidebar'],
-.app[data-page='main'] {
+.app[data-page='main'],
+.app[data-page='containers'] {
   grid-template-columns: minmax(0, 1fr);
+}
+
+/* `/containers` has no header or filter: its one zone fills the window. */
+.app[data-page='containers'] > .sidebar {
+  grid-template-rows: minmax(0, 1fr);
 }
 
 .app[data-page='main'] > .tiles {
@@ -2241,6 +2248,9 @@ body:is(.lm_dragging, .resizing-sidebar) .media-view iframe {
   position: fixed;
   z-index: 10;
   min-width: 150px;
+  /* A menu taller than the window (a short split view's) scrolls. */
+  max-height: calc(100vh - 8px);
+  overflow-y: auto;
   padding: 4px 0;
   background: var(--panel-2);
   border: 1px solid var(--border);

@@ -1,12 +1,13 @@
 // The `devc web` menus and actions built from the server's data and the contracts of
 // `lib/view.js`: a tile's menu (on its tab, in it, and on its sidebar row), a stack's, new panes
-// and where they go, pinning files, Open in Code and the other host actions. The sidebar and the
-// tiling area both use them; they reach either only through what `setMenuContext` was given,
-// never by importing `tiles.js` or `sidebar.js`.
+// and where they go, pinning files, Open in Code and the other host actions, and a project's
+// Start / Stop / Remove. The sidebar, the Containers section and the tiling area all use them;
+// they reach those only through what `setMenuContext` was given, never by importing `tiles.js`,
+// `sidebar.js`, `containers.js` or `cards.js`.
 
 import { withView } from './lib/layout_state.js';
 import { nodeById, nodeTiles } from './lib/view.js';
-import { paneLabel, projectActions } from './lib/sidebar.js';
+import { environmentItem, paneLabel, projectActions } from './lib/sidebar.js';
 import { jiraKeys, jiraUrl } from './lib/jira.js';
 import { defaultView, fileView, mediaKind } from './lib/media.js';
 import { childPath, isWithin } from './lib/files.js';
@@ -15,6 +16,7 @@ import {
   confirmDialog,
   copyText,
   errorToast,
+  h,
   LABELS,
   openMenu,
   reviewDialog,
@@ -22,9 +24,11 @@ import {
 } from './ui.js';
 import {
   activeRepo,
+  basename,
   call,
   containerByFolder,
   dashboard,
+  environments,
   filePinOfTile,
   filePinPanes,
   jiraConfig,
@@ -36,6 +40,7 @@ import {
   projectOutput,
   projectRepos,
   projects,
+  projectStarts,
   requestPane,
   resolveRef,
   saveFilePinPanes,
@@ -858,4 +863,141 @@ async function pendingReviewCall(msg, what, done) {
   } catch (e) {
     errorToast(`${what} failed: ${e?.message ?? e}`);
   }
+}
+
+// ---------------------------------------------------------------------------------------------
+// Starting, stopping and removing projects: a project's menu items (on its Containers row, and
+// on the menu of a repo card of what is outside every repo), and its start output
+// ---------------------------------------------------------------------------------------------
+
+/** Container actions for a project (by folder), whichever row its menu is on. */
+export function projectMenuItems(localFolder) {
+  const p = projects.get(localFolder);
+  if (!p) return [];
+  const items = [];
+  const actions = projectActions(p.environment);
+  if (p.container === 'running') {
+    items.push([actions.stop, () => stopProject(p)]);
+  } else if (!p.starting && projectStarts) {
+    items.push([actions.start, () => startProject(localFolder)]);
+  }
+  if (p.container !== 'missing' && !p.starting && actions.remove !== null) {
+    items.push([actions.remove, () => downProject(p), true]);
+  }
+  const move = projectStarts ? environmentItem(p, environments) : null;
+  if (move !== null && !p.starting) {
+    items.push(
+      p.container === 'running'
+        ? [
+          move.label,
+          () =>
+            projectRequest('set_project_environment', localFolder, move.label, {
+              environment: move.environment,
+            }),
+        ]
+        : [
+          move.start,
+          () => void startIn(localFolder, move.environment, move.start),
+        ],
+    );
+  }
+  // Only with nothing left to list it: no container (remove that first), no running session.
+  const removable = p.environment === 'host'
+    ? p.container !== 'running'
+    : p.container === 'missing';
+  if (removable && !p.starting) {
+    items.push([
+      'Remove project',
+      () => projectRequest('remove_project', localFolder, 'Remove project'),
+    ]);
+  }
+  if (projectOutput.get(localFolder)?.length) {
+    items.push(['Show output', () => showOutput(localFolder)]);
+  }
+  return items;
+}
+
+/** Moves a project to `environment`, then starts it there once the move is saved. */
+async function startIn(localFolder, environment, what) {
+  try {
+    await call({ type: 'set_project_environment', localFolder, environment });
+  } catch (e) {
+    errorToast(`${what} failed: ${e?.message ?? e}`);
+    return;
+  }
+  startProject(localFolder);
+}
+
+export async function stopProject(p) {
+  const actions = projectActions(p.environment);
+  if (
+    await confirmDialog(
+      actions.stopBody(p.name),
+      { okLabel: actions.stopOk, danger: true },
+    )
+  ) {
+    projectRequest('stop_project', p.localFolder, actions.stopOk);
+  }
+}
+
+/** `devc down`: the container is stopped and deleted; the project stays listed. */
+export async function downProject(p) {
+  if (
+    await confirmDialog(
+      `Remove the container for ${p.name}? Like devc down, it is stopped and deleted: its panes end, and anything outside its mounted folders and volumes is lost.`,
+      { okLabel: 'Remove container', danger: true },
+    )
+  ) {
+    projectRequest('down_project', p.localFolder, 'Remove container');
+  }
+}
+
+/** @type {{localFolder: string, pre: HTMLElement, el: HTMLElement} | null} */
+let outputDialog = null;
+
+/** A new line of a project's start output (kept by `client.js`): an open output dialog follows it. */
+export function followOutput(localFolder) {
+  if (outputDialog?.localFolder !== localFolder) return;
+  const pre = outputDialog.pre;
+  const atEnd = pre.scrollTop + pre.clientHeight >= pre.scrollHeight - 4;
+  pre.textContent = (projectOutput.get(localFolder) ?? []).join('\n');
+  if (atEnd) pre.scrollTop = pre.scrollHeight;
+}
+
+/** A dialog with a project's start output, following it while it runs. */
+function showOutput(localFolder) {
+  closeOutput();
+  const pre = h(
+    'pre',
+    { class: 'dialog-output' },
+    (projectOutput.get(localFolder) ?? []).join('\n'),
+  );
+  const el = h(
+    'div',
+    {
+      class: 'dialog-backdrop',
+      onmousedown: (e) => {
+        if (e.target === el) closeOutput();
+      },
+    },
+    h(
+      'div',
+      { class: 'dialog', role: 'dialog', 'aria-label': 'Start output' },
+      h(
+        'header',
+        { class: 'dialog-header' },
+        h('span', {}, `Start output · ${basename(localFolder)}`),
+        h('button', { type: 'button', onclick: closeOutput }, 'Close'),
+      ),
+      pre,
+    ),
+  );
+  document.body.append(el);
+  pre.scrollTop = pre.scrollHeight;
+  outputDialog = { localFolder, pre, el };
+}
+
+export function closeOutput() {
+  outputDialog?.el.remove();
+  outputDialog = null;
 }

@@ -179,7 +179,7 @@ Deno.test('routeStatic serves /safe/ from the snapshot, or 404s without one', as
   });
 });
 
-Deno.test('routeStatic serves /sidebar and /main, live and under /safe/', async () => {
+Deno.test('routeStatic serves /sidebar, /main and /containers, live and under /safe/', async () => {
   await withTemp(async (dir) => {
     const main = join(dir, 'static');
     const safe = join(dir, 'last-good');
@@ -187,12 +187,14 @@ Deno.test('routeStatic serves /sidebar and /main, live and under /safe/', async 
       'index.html': 'live index',
       'sidebar.html': 'live sidebar',
       'main.html': 'live main',
+      'containers.html': 'live containers',
       'x.js': 'live x',
     });
     await writeTree(safe, {
       'index.html': 'good index',
       'sidebar.html': 'good sidebar',
       'main.html': 'good main',
+      'containers.html': 'good containers',
     });
     const get = (path: string) =>
       routeStatic(path, PORT, dirUrl(main), dirUrl(safe));
@@ -201,9 +203,11 @@ Deno.test('routeStatic serves /sidebar and /main, live and under /safe/', async 
         ['/', 'live index'],
         ['/sidebar', 'live sidebar'],
         ['/main', 'live main'],
+        ['/containers', 'live containers'],
         ['/safe/', 'good index'],
         ['/safe/sidebar', 'good sidebar'],
         ['/safe/main', 'good main'],
+        ['/safe/containers', 'good containers'],
       ]
     ) {
       const r = await get(path);
@@ -211,7 +215,8 @@ Deno.test('routeStatic serves /sidebar and /main, live and under /safe/', async 
       assertEquals(await r.text(), body, path);
       assertEquals(r.headers.get('Content-Type'), 'text/html; charset=utf-8');
       // Only the split pages' routes may be framed, and only by VS Code webviews.
-      const framable = path.endsWith('/sidebar') || path.endsWith('/main');
+      const framable = path.endsWith('/sidebar') || path.endsWith('/main') ||
+        path.endsWith('/containers');
       const csp = r.headers.get('Content-Security-Policy') ?? '';
       assert(
         csp.endsWith(
@@ -223,7 +228,9 @@ Deno.test('routeStatic serves /sidebar and /main, live and under /safe/', async 
       );
       assert(csp.startsWith("default-src 'self'; "), path);
     }
-    for (const path of ['/sidebar.html', '/main.html', '/x.js']) {
+    for (
+      const path of ['/sidebar.html', '/main.html', '/containers.html', '/x.js']
+    ) {
       const r = await get(path);
       assert(
         r.headers.get('Content-Security-Policy')?.endsWith(

@@ -82,10 +82,6 @@ for them.
   its mirror, makes a bundle of the upstream ref, and the repo's own git fetches it in its
   environment from stdin. It publishes nothing, so `--live` allows it.
 
-- [devc-web-containers-module](devc-web-containers-module.md) — the Containers section moves to
-  `static/containers.js` with an explicit In use link, relayed across pages like `sidebar_intent`,
-  and a `/containers` page. Menus close on blur and scroll when taller than their view.
-
 - [devc-git-user-push](devc-git-user-push.md) — `devc git push-plan <folder>` (JSON) and
   `devc git push <folder> --sha`: `gh-push`'s mirror with a user mode (`DEVC_PUSH_MODE`, which
   the bridge strips) that allows the default branch and workflow changes. Never forces. D1/D2
@@ -166,6 +162,12 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
 
 ### Completed
 
+- ✅ Done — [devc-web-containers-module](archived/devc-web-containers-module.md) — the
+  Containers section is `static/containers.js` (`mountContainers`), the repo cards both halves
+  draw `static/cards.js`, the task dialog `static/task-dialog.js`; In use and Containers meet
+  only through `InUseLink` / `ContainersIntents`, direct on `/` and `/sidebar`, relayed by the
+  server to a `/containers` page (`containers_intent`, `inuse_intent`, `view_state`'s `inUse`
+  and `pinned`). `/` unchanged; menus close on window blur and scroll when taller than the view.
 - ✅ Done — [devc-web-lsp-typescript](archived/devc-web-lsp-typescript.md) — after devc-web-lsp-core: a
   `typescript-lsp` Feature (private Node, vtsls 0.3.0) for TypeScript, Node, Deno and Bun:
   the nearest marker picks the runtime, and the launcher runs `deno lsp` for a Deno root, the

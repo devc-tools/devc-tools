@@ -1,16 +1,26 @@
 // The `devc web` page at `/sidebar`: the sidebar (`sidebar.js`) alone, its tiling area another
 // page's (`/main` with the same view id, `#…&view=<id>`), reached through the server
-// (`remote.js`).
+// (`remote.js`). A `/containers` page with the same view id is told In use's cards, and what In
+// use asks of Containers, as its own Containers section is.
 
 import { connect, SAFE_MODE, showSafeBanner } from './client.js';
 import { mountSidebar } from './sidebar.js';
-import { remoteTileArea, serveSidebar } from './remote.js';
+import {
+  remoteContainers,
+  remoteTileArea,
+  sendInUse,
+  serveSidebar,
+} from './remote.js';
 
 if (SAFE_MODE) showSafeBanner();
 const remote = remoteTileArea();
 const sidebar = mountSidebar(
   /** @type {HTMLElement} */ (document.querySelector('aside.sidebar')),
-  { tileArea: remote.tileArea },
+  {
+    tileArea: remote.tileArea,
+    containers: remoteContainers(),
+    onInUse: sendInUse,
+  },
 );
 serveSidebar(remote, sidebar);
 connect();

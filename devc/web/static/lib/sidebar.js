@@ -211,6 +211,17 @@ export function repoCardActive({ tiles, agents, pinned = false }) {
 }
 
 /**
+ * Projects by name, then folder: how the sidebar lists the projects not running, and the task
+ * dialog its projects.
+ *
+ * @param {{name: string, localFolder: string}} a @param {{name: string, localFolder: string}} b
+ */
+export function byName(a, b) {
+  return a.name.localeCompare(b.name) ||
+    a.localFolder.localeCompare(b.localFolder);
+}
+
+/**
  * A container's name in the sidebar and tile headers, `all` being every container listed.
  * Containers sharing a name (two `feature1` worktrees, say) get their parent folder appended,
  * and the full folder when even that is shared.

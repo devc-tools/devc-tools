@@ -1,10 +1,13 @@
 import { assertEquals, assertNotEquals } from 'jsr:@std/assert';
 import {
+  CONTAINERS_INTENT_NAMES,
   DRAG_MIME,
   emptyViewState,
   encodeDrag,
   fileKey,
   focusedTile,
+  INUSE_INTENT_NAMES,
+  inUseState,
   layoutSignature,
   layoutTiles,
   nodeById,
@@ -211,6 +214,59 @@ Deno.test('relayedIntent and relayedState: only their view, known names', () => 
     null,
   );
   assertEquals(relayedState({ type: 'view_state', view: 'v' }, 'v'), null);
+});
+
+Deno.test('the Containers contracts: their intent names, and view_state.inUse', () => {
+  assertEquals([...CONTAINERS_INTENT_NAMES], ['reveal', 'setFold']);
+  assertEquals([...INUSE_INTENT_NAMES], ['revealInUse', 'pin']);
+  assertEquals(
+    relayedIntent(
+      { type: 'containers_intent', view: 'v', name: 'setFold', args: ['pr'] },
+      'containers_intent',
+      'v',
+      CONTAINERS_INTENT_NAMES,
+    ),
+    { name: 'setFold', args: ['pr'] },
+  );
+  assertEquals(
+    relayedIntent(
+      { type: 'inuse_intent', view: 'v', name: 'reveal', args: [] },
+      'inuse_intent',
+      'v',
+      INUSE_INTENT_NAMES,
+    ),
+    null,
+  );
+  assertEquals(
+    relayedIntent(
+      { type: 'inuse_intent', view: 'v', name: 'pin', args: ['k', true] },
+      'containers_intent',
+      'v',
+      CONTAINERS_INTENT_NAMES,
+    ),
+    null,
+  );
+  // In use's cards and pins come with the state, strings only; without them, none.
+  assertEquals(
+    relayedState({
+      type: 'view_state',
+      view: 'v',
+      state: { tiles: [], tree: null, inUse: ['a', 1, 'b'], pinned: ['b'] },
+    }, 'v'),
+    { ...emptyViewState(), inUse: ['a', 'b'], pinned: ['b'] },
+  );
+  assertEquals(
+    relayedState({
+      type: 'view_state',
+      view: 'v',
+      state: { tiles: [], tree: null, inUse: 'a' },
+    }, 'v'),
+    emptyViewState(),
+  );
+  assertEquals(inUseState(new Set(['b', 'a']), ['a']), {
+    inUse: ['a', 'b'],
+    pinned: ['a'],
+  });
 });
 
 Deno.test('encodeDrag and parseDrag: a pane or a file round-trips; junk is null', () => {

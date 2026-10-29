@@ -1,67 +1,31 @@
 // The `devc web` sidebar, in three zones: Tasks, the to-dos sent to agents; In use, the repo cards
-// of what is open and the pinned files; and Containers, every running container's repo cards
-// (Herdr panes, past agent sessions, pull requests, files) and the projects not running. With the
-// dialogs it opens and the "Add project…" folder picker. It reaches the tiling area only through
-// the `TileArea` `mountSidebar` is given (`lib/view.js`), so it can later run on a page of its
-// own.
+// of what is open and the pinned files; and Containers, every running container's repo cards and
+// the projects not running, which `containers.js` draws (mounted in the bottom zone, reached
+// through what `mountContainers` returns, and reaching In use through the `InUseLink` it is
+// given). The repo cards both draw are `cards.js`'s; the task dialog is `task-dialog.js`'s. It
+// reaches the tiling area only through the `TileArea` `mountSidebar` is given (`lib/view.js`), so
+// it can run on a page of its own (`/sidebar`), as the Containers section can (`/containers`).
 
 import {
   sameFile,
   sameFileView,
   tilesShowingPane,
 } from './lib/layout_state.js';
+import { focusedTile, inUseState } from './lib/view.js';
 import {
-  focusedTile,
-  layoutSignature,
-  layoutTiles,
-  scopeFromSearch,
-  tileMarks,
-  tileShowingDiff,
-  tileShowingFile,
-  tileShowingPane,
-} from './lib/view.js';
-import {
-  agentStatus,
-  collapseContainersState,
+  byName,
   collapseTasksState,
   containerLabel,
   dragZones,
-  environmentItem,
-  filterMatches,
-  filterOutline,
-  gitRollup,
-  gitSync,
-  inUseLabel,
   isSidebarScope,
-  labelText,
-  paneLabel,
-  paneTitle,
-  projectActions,
-  repoAt,
-  repoCardActive,
   repoCardKey,
-  savedScope,
   settleZones,
   SIDEBAR_SCOPES,
-  splitRepoName,
-  statusCounts,
   statusRank,
   ZONE_MIN_HEIGHT,
 } from './lib/sidebar.js';
-import { AGENT_IDS } from './lib/agent_icons.js';
 import { mediaKind } from './lib/media.js';
-import {
-  byDepth,
-  childPath,
-  createDirTree,
-  formatSize,
-  isHiddenName,
-  isWithin,
-  newEntryNameError,
-  opensAsDir,
-  opensAsFile,
-  parentDir,
-} from './lib/files.js';
+import { childPath } from './lib/files.js';
 import {
   defaultNotePath,
   filePinName,
@@ -70,160 +34,105 @@ import {
 } from './lib/pinned_files.js';
 import {
   groupTasks,
-  parseTaskDefault,
   queueableTasks,
   queuePlaces,
-  savedTaskAgent,
   sentTaskTooltip,
-  TASK_AGENT_IDS,
   taskTitle,
 } from './lib/tasks.js';
-import { parseSessions, sessionAge, sessionTooltip } from './lib/sessions.js';
 import {
-  buildPrFlat,
-  buildPrTree,
-  folderOpenByDefault,
-  isTestPath,
-  prFileUrl,
-  statusLetter,
-  viewedPercent,
-  withoutViewed,
-} from './lib/pr_tree.js';
-import {
-  badge,
   chevron,
   confirmDialog,
-  copyText,
-  diffStat,
   errorToast,
   h,
   hoverActions,
   iconButton,
   IS_MAC,
   LABELS,
-  markedText,
   openMenu,
-  openMenuAt,
   promptDialog,
   rowIcon,
   rowTrail,
-  svgIcon,
   toast,
   writeClipboard,
 } from './ui.js';
 import { CONN_TEXT } from './lib/host_status.js';
 import {
   basename,
-  byNumber,
   call,
   containerByFolder,
   containers,
   dashboard,
-  displayName,
-  environments,
-  fileHostPath,
   filePinPanes,
   list,
-  nextId,
   onConnectionChange,
   onServerMessage,
-  paneKey,
-  paneRepo,
-  pendingRequests,
   pinnedFiles,
-  projectOutput,
   projectRepos,
   projects,
   projectStarts,
-  refLabel,
-  refTooltip,
-  request,
   resolveRef,
   saveFilePinPanes,
-  send,
   sentTasks,
-  sessionPane,
-  snapshots,
-  socket,
   tasks,
   tileRepo,
 } from './client.js';
 import {
-  containerFilePath,
-  containerRoot,
   copyPathItems,
-  createPane,
   dashboardFileRef,
   dashboardItem,
-  discardPendingReview,
-  filePinItem,
-  fileRefOf,
   hostOpenItems,
-  hostPathOf,
-  jiraItems,
-  keepOpen,
-  killPane,
-  killPaneItem,
-  newShell,
   openFileTile,
   openInBrowser,
-  openInEditor,
-  paneCodeItems,
   placePane,
   previewable,
-  projectRequest,
   setDashboard,
   setMenuContext,
   startProject,
-  submitPendingReview,
-  tileMenuItems,
   unpinFile,
 } from './menus.js';
+import {
+  applyFilter,
+  cardsMessage,
+  containerNameOf,
+  fileTree,
+  holdSections,
+  keepSectionHeights,
+  listsSessions,
+  loadSessions,
+  mountCards,
+  onCardsViewState,
+  onFetchDone,
+  prViewed,
+  queueRender,
+  renderPass,
+  repoCard,
+  saveSidebarState,
+  sectionRow,
+  setFilterQuery,
+  setStoredScope,
+  sidebarState,
+} from './cards.js';
+import { mountContainers } from './containers.js';
+import {
+  closeTaskDialog,
+  newTaskIn,
+  notRunningToast,
+  openTaskDialog,
+  setTaskContext,
+  taskSendAgent,
+} from './task-dialog.js';
 
 /** @typedef {import('./lib/view.js').SidebarIntents} SidebarIntents */
+/** @typedef {import('./lib/view.js').ContainersIntents} ContainersIntents */
+/** @typedef {import('./lib/view.js').InUseLink} InUseLink */
 /** @typedef {import('./lib/view.js').TileArea} TileArea */
 /** @typedef {import('./lib/view.js').ViewState} ViewState */
-/** @typedef {import('./lib/layout_state.js').PaneRef} PaneRef */
-/** @typedef {import('./menus.js').FileRoot} FileRoot */
 
-/** The tile rows' last render: the view's `layoutSignature` and `tileMarks` then. */
-let shownLayout = '';
-let shownMarks = '';
+/** Where the sidebar's state is saved (`cards.js`), with the page's own fields (`app.js`). */
+export { SIDEBAR_KEY } from './cards.js';
+
 /** The focused tile's repo card at a scoped sidebar's last render (`scopeCardKey`). */
 let shownScopeCard = /** @type {string | null} */ (null);
-/**
- * Sidebar file rows (each a Golden Layout drag source) by tree key, kept across renders for the
- * same reason as {@link paneRows}.
- *
- * @type {Map<string, {row: HTMLElement, seen: number, remove: () => void}>}
- */
-const fileRows = new Map();
-/**
- * Sidebar pane rows by `container\npane`, kept across renders and updated in place. Each is a
- * Golden Layout drag source, and unregistering one tears down the document listeners of a drag
- * in progress — so a row (and its drag source) lives as long as its pane, not one render.
- *
- * @type {Map<string, {row: HTMLElement, c: any, pane: any, seen: number, remove: (() => void) | null}>}
- */
-const paneRows = new Map();
-let renderGeneration = 0;
-/**
- * The inline name row of a **New file…** / **New folder…** in progress: under folder `dir` of
- * file root `fr`, kept across renders (so typing survives them) until Enter creates the entry or
- * Escape cancels. A render that no longer shows its folder drops it. For a **Rename…**, `rename`
- * is the entry's path, and the row stands in place of that entry's own.
- *
- * @type {{fr: FileRoot, dir: string, kind: 'file' | 'dir', rename: string | null,
- *   row: HTMLElement, input: HTMLInputElement, error: HTMLElement, busy: boolean,
- *   seen: number} | null}
- */
-let newEntry = null;
-/** The tree key of a row just created, focused by the first render that shows it. */
-let selectTreeKey = null;
-/** The agent the task dialog last sent to. */
-const TASK_AGENT_KEY = 'devc-web-task-agent-v1';
-/** The default route and agent for new tasks, pinned in the task dialog. */
-const TASK_DEFAULT_KEY = 'devc-web-task-default-v1';
 
 /** The sidebar, its tree, connection indicator and scope picker: set by {@link mountSidebar}. */
 let $sidebar = /** @type {HTMLElement} */ (null);
@@ -232,9 +141,26 @@ let $conn = /** @type {HTMLElement | null} */ (null);
 let $scopePicker = /** @type {HTMLElement | null} */ (null);
 /** The header's dashboard button (`#dashboard`), when the page has one. */
 let $dashboardButton = /** @type {HTMLElement | null} */ (null);
-/** The filter box above the zones, and what it holds ({@link applyFilter}). */
+/** The filter box above the zones (its query is `cards.js`' `applyFilter`'s). */
 let $filter = /** @type {HTMLInputElement | null} */ (null);
-let filterQuery = '';
+/** The tiling area, as the sidebar reaches it (see `lib/view.js`): set by {@link mountSidebar}. */
+let tileArea = /** @type {TileArea} */ (null);
+/**
+ * The Containers section in the Containers zone (`containers.js`), and the one on another page
+ * of the view (`/containers`), when this is the `/sidebar` page: In use's way to them both.
+ */
+let containersSection =
+  /** @type {ReturnType<typeof mountContainers>} */ (null);
+let otherContainers = /** @type {ContainersIntents | null} */ (null);
+/** The cards In use showed at the last render (`card.active`): Containers' stand-ins. */
+let shownInUse = new Set();
+/** In use's cards and pins as last told (`onInUse`), so it is told again only on a change. */
+let toldInUse = '';
+/** Tells another page's Containers section In use's cards and pins (`/sidebar`); null on `/`. */
+let onInUse =
+  /** @type {((state: {inUse: string[], pinned: string[]}) => void) | null} */ (
+    null
+  );
 /**
  * The sidebar's three zones, each scrolling on its own: Tasks, what is in use now (In use,
  * pinned files, the Layout tree), and the containers to browse and manage; a draggable divider
@@ -254,235 +180,8 @@ const $dividerTasks = zoneDivider();
 const $dividerBrowse = zoneDivider();
 
 // ---------------------------------------------------------------------------------------------
-// Sidebar
+// Sidebar: folding, the scope, and the zones
 // ---------------------------------------------------------------------------------------------
-
-export const SIDEBAR_KEY = 'devc-web-sidebar-v1';
-/**
- * Containers without a usable Herdr: their rows offer Start Herdr / Retry and list no panes.
- * They are still running, so they stay in the main list.
- */
-const INACTIVE_STATES = new Set([
-  'no-session',
-  'no-herdr',
-  'unsupported',
-  'error',
-]);
-
-const STATE_TEXT = {
-  connecting: 'connecting…',
-  'no-session': 'no session',
-  'no-herdr': 'no herdr',
-  unsupported: 'herdr too old',
-  error: 'error',
-};
-
-/**
- * Collapsed containers (by local folder), repo cards' and containers' open parts, whether "Not
- * running" is open, which of its projects are expanded, and each repo's open folders, per
- * browser. Saved under {@link SIDEBAR_KEY} with the sidebar's own width and hidden state, which
- * are the page's (`app.js`): each saves its own fields and keeps the other's.
- */
-/**
- * The sidebar's scope as saved in this browser, which a save writes: the page URL's `?scope=…`
- * (`scopeFromSearch`) only sets where the page starts, and is never saved; a scope change is.
- *
- * @type {import('./lib/sidebar.js').SidebarScope}
- */
-let storedScope = savedScope(null);
-const sidebarState = loadSidebarState();
-
-function loadSidebarState() {
-  let saved = null;
-  try {
-    saved = JSON.parse(localStorage.getItem(SIDEBAR_KEY) ?? 'null');
-  } catch { /* unavailable or corrupt: everything starts expanded */ }
-  return {
-    collapsed: new Set(
-      Array.isArray(saved?.collapsed)
-        ? saved.collapsed.filter((f) => typeof f === 'string')
-        : [],
-    ),
-    /** Repo cards (by `repoCardKey`) whose past sessions are shown; new ones start hidden. */
-    cardHistoryOpen: new Set(
-      Array.isArray(saved?.cardHistoryOpen)
-        ? saved.cardHistoryOpen.filter((f) => typeof f === 'string')
-        : [],
-    ),
-    /** Repo cards (by `repoCardKey`) kept in In use with nothing open in them (`togglePinnedCard`). */
-    cardsPinned: new Set(
-      Array.isArray(saved?.cardsPinned)
-        ? saved.cardsPinned.filter((f) => typeof f === 'string')
-        : [],
-    ),
-    /** Repo cards (by `repoCardKey`) whose worktrees' cards are hidden; new ones show them. */
-    worktreesClosed: new Set(
-      Array.isArray(saved?.worktreesClosed)
-        ? saved.worktreesClosed.filter((f) => typeof f === 'string')
-        : [],
-    ),
-    /** Containers (by local folder) whose Files row is open; new ones start closed. */
-    containerFilesOpen: new Set(
-      Array.isArray(saved?.containerFilesOpen)
-        ? saved.containerFilesOpen.filter((f) => typeof f === 'string')
-        : [],
-    ),
-    /** Repos (by `localFolder\nroot`) whose Pull request row is open; new ones start closed. */
-    prOpen: new Set(
-      Array.isArray(saved?.prOpen)
-        ? saved.prOpen.filter((f) => typeof f === 'string')
-        : [],
-    ),
-    /** PR folders opened or closed, by `prFoldersKey` then folder path. */
-    prFolders: savedPrFolders(saved?.prFolders),
-    /** Whether PR trees leave out Viewed files and fully viewed folders; off at first. */
-    prHideViewed: saved?.prHideViewed === true,
-    /**
-     * PR files as one flat list by changed lines, `'most'` or `'fewest'` first, or (`null`, at
-     * first) as a tree. A saved `true` is from before `'fewest'`.
-     */
-    prFlat: saved?.prFlat === true || saved?.prFlat === 'most'
-      ? 'most'
-      : saved?.prFlat === 'fewest'
-      ? 'fewest'
-      : null,
-    /** Whether PR test files (`isTestPath`) are listed apart, under a Tests row; off at first. */
-    prTestsApart: saved?.prTestsApart === true,
-    /** Open card sections' last settled heights in px, by `data-section-key` (`holdSections`). */
-    sectionHeights: savedSectionHeights(saved?.sectionHeights),
-    inactiveOpen: saved?.inactiveOpen === true,
-    projectsOpen: new Set(
-      Array.isArray(saved?.projectsOpen)
-        ? saved.projectsOpen.filter((f) => typeof f === 'string')
-        : [],
-    ),
-    /** @type {Record<string, string[]>} repo folder (file root) → open paths ('' is the root) */
-    filesOpen: savedFilesOpen(saved?.rootsOpen),
-    pinnedOpen: saved?.pinnedOpen !== false,
-    tasksOpen: saved?.tasksOpen !== false,
-    containersOpen: saved?.containersOpen !== false,
-    /** In use's and Tasks' dragged heights, as fractions of the zones'; null: default sizing. */
-    inUseSize: savedFraction(saved?.inUseSize),
-    tasksSize: savedFraction(saved?.tasksSize),
-    /** Task groups (by `groupTasks` key) that are collapsed; new ones start open. */
-    taskGroupsClosed: new Set(
-      Array.isArray(saved?.taskGroupsClosed)
-        ? saved.taskGroupsClosed.filter((f) => typeof f === 'string')
-        : [],
-    ),
-    sentOpen: saved?.sentOpen === true,
-    /**
-     * What the sidebar shows: everything (`all`), or Tasks and the focused tile's container
-     * (`container`) or repo card (`repo`). The page URL's `?scope=…` overrides what was saved.
-     */
-    scope: startingScope(saved),
-  };
-}
-
-/** The scope at load: the page URL's `?scope=…` over what was saved, which {@link storedScope} keeps. */
-function startingScope(saved) {
-  storedScope = savedScope(saved);
-  return scopeFromSearch(location.search) ?? storedScope;
-}
-
-function savedPrFolders(v) {
-  /** @type {Record<string, Record<string, boolean>>} */
-  const out = {};
-  if (!v || typeof v !== 'object' || Array.isArray(v)) return out;
-  for (const [key, folders] of Object.entries(v)) {
-    if (!folders || typeof folders !== 'object' || Array.isArray(folders)) {
-      continue;
-    }
-    const kept = Object.fromEntries(
-      Object.entries(folders).filter(([, open]) => typeof open === 'boolean'),
-    );
-    if (Object.keys(kept).length) out[key] = kept;
-  }
-  return out;
-}
-
-function savedSectionHeights(v) {
-  /** @type {Record<string, number>} */
-  const out = {};
-  if (!v || typeof v !== 'object' || Array.isArray(v)) return out;
-  for (const [key, px] of Object.entries(v)) {
-    if (typeof px === 'number' && px > 0) out[key] = px;
-  }
-  return out;
-}
-
-function savedFraction(v) {
-  return typeof v === 'number' && v > 0 && v < 1 ? v : null;
-}
-
-function savedFilesOpen(v) {
-  /** @type {Record<string, string[]>} */
-  const out = {};
-  if (!v || typeof v !== 'object' || Array.isArray(v)) return out;
-  for (const [folder, paths] of Object.entries(v)) {
-    if (!Array.isArray(paths)) continue;
-    const kept = paths.filter((p) => typeof p === 'string');
-    if (kept.length) out[folder] = kept;
-  }
-  return out;
-}
-
-/**
- * What is saved under {@link SIDEBAR_KEY} now, as stored (null when nothing is, or it can't be
- * read): the sidebar's and the page's fields both.
- */
-function storedSidebarState() {
-  try {
-    const saved = JSON.parse(localStorage.getItem(SIDEBAR_KEY) ?? 'null');
-    return saved && typeof saved === 'object' ? saved : null;
-  } catch {
-    return null;
-  }
-}
-
-function saveSidebarState() {
-  const saved = storedSidebarState();
-  try {
-    localStorage.setItem(
-      SIDEBAR_KEY,
-      JSON.stringify({
-        collapsed: [...sidebarState.collapsed],
-        cardHistoryOpen: [...sidebarState.cardHistoryOpen],
-        cardsPinned: [...sidebarState.cardsPinned],
-        worktreesClosed: [...sidebarState.worktreesClosed],
-        containerFilesOpen: [...sidebarState.containerFilesOpen],
-        prOpen: [...sidebarState.prOpen],
-        prFolders: sidebarState.prFolders,
-        prHideViewed: sidebarState.prHideViewed,
-        prFlat: sidebarState.prFlat,
-        prTestsApart: sidebarState.prTestsApart,
-        sectionHeights: sidebarState.sectionHeights,
-        inactiveOpen: sidebarState.inactiveOpen,
-        projectsOpen: [...sidebarState.projectsOpen],
-        // Not `filesOpen`: entries saved under that name were keyed by project, not by repo.
-        rootsOpen: sidebarState.filesOpen,
-        pinnedOpen: sidebarState.pinnedOpen,
-        tasksOpen: sidebarState.tasksOpen,
-        containersOpen: sidebarState.containersOpen,
-        inUseSize: sidebarState.inUseSize,
-        tasksSize: sidebarState.tasksSize,
-        taskGroupsClosed: [...sidebarState.taskGroupsClosed],
-        sentOpen: sidebarState.sentOpen,
-        width: saved?.width,
-        hidden: saved?.hidden,
-        scope: storedScope,
-      }),
-    );
-  } catch { /* storage unavailable: collapsing just won't survive a reload */ }
-}
-
-function toggleContainer(c) {
-  if (!sidebarState.collapsed.delete(c.localFolder)) {
-    sidebarState.collapsed.add(c.localFolder);
-  }
-  saveSidebarState();
-  renderTree();
-}
 
 /** Opens the Pinned section, as pinning a file does. */
 function openPinnedSection() {
@@ -494,12 +193,6 @@ function openPinnedSection() {
 
 function togglePinnedSection() {
   sidebarState.pinnedOpen = !sidebarState.pinnedOpen;
-  saveSidebarState();
-  renderTree();
-}
-
-function toggleContainersSection() {
-  sidebarState.containersOpen = !sidebarState.containersOpen;
   saveSidebarState();
   renderTree();
 }
@@ -544,33 +237,6 @@ function collapseTasks() {
 }
 
 /**
- * The Containers heading's Collapse all: closes every row under it, at every level, including the
- * saved folders of file trees not drawn yet. Containers and projects known now stay collapsed
- * when they come back.
- */
-function collapseContainers() {
-  // Each clear() saves its tree's (now empty) open folders: before the state below, not after.
-  for (const { tree } of fileTrees.values()) tree.clear();
-  restoringFiles.clear();
-  sidebarState.prOpen.clear();
-  Object.assign(
-    sidebarState,
-    collapseContainersState(sidebarState, [
-      ...[...containers.values()].map((c) => c.localFolder),
-      ...projects.keys(),
-    ]),
-  );
-  saveSidebarState();
-  renderTree();
-}
-
-function toggleInactive() {
-  sidebarState.inactiveOpen = !sidebarState.inactiveOpen;
-  saveSidebarState();
-  renderTree();
-}
-
-/**
  * Applies the sidebar's scope: the picker's checked option, and the sidebar's `data-scope`, which
  * the stylesheet reads.
  */
@@ -594,7 +260,7 @@ function applyScope() {
 function setScope(scope) {
   if (!isSidebarScope(scope) || scope === sidebarState.scope) return;
   sidebarState.scope = scope;
-  storedScope = scope;
+  setStoredScope(scope);
   saveSidebarState();
   applyScope();
   renderTree();
@@ -662,48 +328,6 @@ function zoneLimits() {
     botMin: containersOpen ? ZONE_MIN_HEIGHT : browseAll,
     botMax: browseAll,
   };
-}
-
-/** The most sections whose heights are kept: the oldest is dropped. */
-const MAX_SECTION_HEIGHTS = 50;
-
-/**
- * A card section still loading (a `Loading…` note in it: a pull request not yet listed, a folder
- * not yet read, sessions not yet listed) keeps the height it last had once loaded, saved across
- * reloads, so it doesn't collapse to one row and grow back. Call before layout.
- */
-function holdSections() {
-  for (const el of $tree.querySelectorAll('.card-section')) {
-    const box = /** @type {HTMLElement} */ (el);
-    const px = sidebarState.sectionHeights[box.dataset.sectionKey ?? ''];
-    if (px && sectionLoading(box)) box.style.minHeight = `${px}px`;
-  }
-}
-
-/** Saves the heights of the card sections that are loaded, after layout (`holdSections`). */
-function keepSectionHeights() {
-  const heights = sidebarState.sectionHeights;
-  let changed = false;
-  for (const el of $tree.querySelectorAll('.card-section')) {
-    const box = /** @type {HTMLElement} */ (el);
-    const key = box.dataset.sectionKey;
-    if (!key || sectionLoading(box)) continue;
-    const px = box.offsetHeight;
-    if (px === 0 || heights[key] === px) continue;
-    delete heights[key];
-    heights[key] = px;
-    changed = true;
-  }
-  if (!changed) return;
-  for (const old of Object.keys(heights).slice(0, -MAX_SECTION_HEIGHTS)) {
-    delete heights[old];
-  }
-  saveSidebarState();
-}
-
-/** @param {HTMLElement} box */
-function sectionLoading(box) {
-  return box.querySelector(':scope > .tree-note[data-note="loading"]') !== null;
 }
 
 /** The least an open card section in In use shrinks to: six rows, or all of it. */
@@ -834,267 +458,56 @@ function dragZoneDivider(divider, line) {
 }
 
 /**
- * The sidebar, in three zones, each scrolling on its own. Top: the Tasks section. Middle: In use,
- * the Pinned section (pinned files, only while something is pinned) and the Layout section (the
- * Golden Layout tree, single-child levels folded). Bottom: Containers, collapsible as a whole (Container → Terminals →
- * terminal, Container → Sessions → recent agent session, Container → Repos → repo → files, and
- * Container → Files → the container's own files from `/`).
- * Herdr tabs group nothing here: a pane the Herdr TUI split into a shared tab is just another pane.
- * Every running container is listed, Herdr or not; projects without one are listed last, under a
- * collapsed "Not running" group.
+ * The sidebar, in three zones, each scrolling on its own. Top: the Tasks section. Middle: In use
+ * (the repo cards of what is open) and the Pinned section (pinned files, only while something is
+ * pinned). Bottom: Containers, collapsible as a whole (`containers.js` draws it). A scoped
+ * sidebar shows Tasks and the focused tile's cards only.
  */
 function renderTree() {
-  const generation = ++renderGeneration;
-  const scroll = [
-    $zoneInUse.scrollTop,
-    $zoneTasks.scrollTop,
-    $zoneBrowse.scrollTop,
-  ];
-  const sectionScroll = new Map();
-  for (const el of $tree.querySelectorAll('.card-section')) {
-    const box = /** @type {HTMLElement} */ (el);
-    if (box.scrollTop > 0) {
-      sectionScroll.set(box.dataset.sectionKey, box.scrollTop);
-    }
-  }
-  const focusKey = focusedTreeKey($tree);
-  // A just-created row takes the focus only from the sidebar, never from a terminal.
-  const active = document.activeElement;
-  const mayFocus = !active || active === document.body ||
-    $tree.contains(active);
-  const typing = newEntry !== null && active === newEntry.input;
-  const caret = typing
-    ? [newEntry.input.selectionStart, newEntry.input.selectionEnd]
-    : null;
-  // In use lists the tiles: it is re-rendered when they change (onViewState).
-  const view = tileArea.state();
-  shownLayout = layoutSignature(view);
-  shownMarks = tileMarks(view);
-  const cards = repoCards();
-  const scoped = sidebarState.scope !== 'all';
-  shownScopeCard = scoped ? scopeCardKey() : null;
-  const upper = scoped
-    ? inUseRows(cards, scopeShows(cards, shownScopeCard))
-    : [...inUseRows(cards), ...pinnedFileRows()];
-  const rows = [
-    sectionRow(
-      'Containers',
-      sidebarState.containersOpen,
-      toggleContainersSection,
-      rowTrail(
-        hoverActions(
-          projectStarts ? iconButton('plus', 'Add project…', addProject) : '',
-          iconButton('refresh', LABELS.refreshContainers, refreshContainers),
-          iconButton('collapseAll', LABELS.collapseAll, collapseContainers),
-        ),
-      ),
-      projectStarts
-        ? (e) => openMenu(e, [['Add project…', addProject]])
-        : undefined,
-    ),
-  ];
-  // Projects with no running container: stopped, never created, or just added.
-  const idle = [...projects.values()].filter((p) =>
-    p.container !== 'running' && !containerByFolder(p.localFolder)
-  ).sort(byName);
-  if (
-    sidebarState.containersOpen && containers.size === 0 && idle.length === 0
-  ) {
-    rows.push(
-      h(
-        'div',
-        { class: 'empty' },
-        socket ? 'No running dev containers.' : 'Waiting for devc web…',
-      ),
+  renderPass((cards) => {
+    const scroll = [
+      $zoneInUse.scrollTop,
+      $zoneTasks.scrollTop,
+      $zoneBrowse.scrollTop,
+    ];
+    const scoped = sidebarState.scope !== 'all';
+    shownScopeCard = scoped ? scopeCardKey() : null;
+    shownInUse = new Set(
+      [...cards.values()].filter((card) => card.active).map((card) => card.key),
     );
-  }
-  if (sidebarState.containersOpen && !scoped) {
-    for (const c of containers.values()) rows.push(...containerRows(c, cards));
-    if (idle.length > 0) rows.push(...inactiveRows(idle));
-  }
-  $zoneInUse.replaceChildren(...upper);
-  $zoneTasks.replaceChildren(...taskRows());
-  $zoneBrowse.replaceChildren(...(scoped ? [] : rows));
-  $zoneBrowse.hidden = scoped;
-  $dividerBrowse.hidden = scoped;
-  if ($zoneInUse.parentNode !== $tree) {
-    $tree.replaceChildren(
-      $zoneTasks,
-      $dividerTasks,
-      $zoneInUse,
-      $dividerBrowse,
-      $zoneBrowse,
-    );
-  }
-  $tree.classList.toggle('containers-closed', !containersShown());
-  applyFilter();
-  holdSections();
-  floorInUseSections();
-  applyZoneSizes();
-  keepSectionHeights();
-  [$zoneInUse.scrollTop, $zoneTasks.scrollTop, $zoneBrowse.scrollTop] = scroll;
-  for (const el of $tree.querySelectorAll('.card-section')) {
-    const box = /** @type {HTMLElement} */ (el);
-    const top = sectionScroll.get(box.dataset.sectionKey);
-    if (top) box.scrollTop = top;
-  }
-  const created = selectTreeKey === null
-    ? null
-    : treeRowByKey($tree, selectTreeKey);
-  if (created) {
-    selectTreeKey = null;
-    if (mayFocus) {
-      created.focus({ preventScroll: true });
-      created.scrollIntoView({ block: 'nearest' });
+    const upper = scoped
+      ? inUseRows(cards, scopeShows(cards, shownScopeCard))
+      : [...inUseRows(cards), ...pinnedFileRows()];
+    $zoneInUse.replaceChildren(...upper);
+    $zoneTasks.replaceChildren(...taskRows());
+    if (scoped) $zoneBrowse.replaceChildren();
+    else containersSection.draw(cards);
+    $zoneBrowse.hidden = scoped;
+    $dividerBrowse.hidden = scoped;
+    if ($zoneInUse.parentNode !== $tree) {
+      $tree.replaceChildren(
+        $zoneTasks,
+        $dividerTasks,
+        $zoneInUse,
+        $dividerBrowse,
+        $zoneBrowse,
+      );
     }
-  } else refocusTreeKey($tree, focusKey);
-  if (newEntry !== null && newEntry.seen !== generation) newEntry = null;
-  if (typing && newEntry !== null) {
-    newEntry.input.focus({ preventScroll: true });
-    newEntry.input.setSelectionRange(caret[0], caret[1]);
-  }
-  for (const [key, rec] of paneRows) {
-    if (rec.seen === generation) continue;
-    rec.remove?.();
-    paneRows.delete(key);
-  }
-  for (const [key, rec] of fileRows) {
-    if (rec.seen === generation) continue;
-    rec.remove();
-    fileRows.delete(key);
-  }
-  updateCurrent();
-}
-
-/** A section heading; collapsible when `open` is given. */
-function sectionRow(title, open, onToggle, trail = '', oncontextmenu) {
-  return h(
-    'div',
-    {
-      class: 'row section',
-      style: '--depth: 0',
-      'aria-expanded': open === undefined ? undefined : String(open),
-      onclick: onToggle,
-      oncontextmenu,
-    },
-    h('span', { class: 'label' }, open === undefined ? '' : chevron(), title),
-    trail,
-  );
+    $tree.classList.toggle('containers-closed', !containersShown());
+    applyFilter([$zoneTasks, $zoneInUse, $zoneBrowse]);
+    holdSections();
+    floorInUseSections();
+    applyZoneSizes();
+    keepSectionHeights();
+    [$zoneInUse.scrollTop, $zoneTasks.scrollTop, $zoneBrowse.scrollTop] =
+      scroll;
+  });
+  tellInUse();
 }
 
 // ---------------------------------------------------------------------------------------------
 // Sidebar: In use section
 // ---------------------------------------------------------------------------------------------
-
-/**
- * Every repo card (see `repoCardKey`): one per repo or worktree a listed container shows, in
- * {@link cardRepoOrder}, then one wherever a tile, pane or session is outside those (a repo no
- * longer listed, or outside every repo: `repo` null). A card holds its tiles in layout order, its
- * container's panes no tile shows, and its past sessions, newest first. Agent homes are shared, so
- * every container mounting a folder lists its sessions: each is on that folder's card in each of
- * them, to resume there, unless it runs in a pane of any of them (the pane's row stands for it,
- * on its own card only). A running container's sessions are listed the first time.
- */
-function repoCards() {
-  /** @type {Map<string, any>} */
-  const cards = new Map();
-  const cardFor = (localFolder, repo) => {
-    const key = repoCardKey(localFolder, repo?.folder ?? null);
-    let card = cards.get(key);
-    if (!card) {
-      card = {
-        key,
-        localFolder,
-        repo,
-        order: cards.size,
-        firstTile: Infinity,
-        tiles: [],
-        panes: [],
-        sessions: [],
-        active: false,
-      };
-      cards.set(key, card);
-    }
-    return card;
-  };
-  for (const c of containers.values()) {
-    for (const r of cardRepoOrder(c.localFolder)) cardFor(c.localFolder, r);
-  }
-  layoutTiles(tileArea.state()).forEach((t, i) => {
-    const { localFolder, repo } = tileRepo(t.tile);
-    if (!localFolder) return;
-    const card = cardFor(localFolder, repo);
-    card.tiles.push(t);
-    card.firstTile = Math.min(card.firstTile, i);
-  });
-  /** @type {{c: any, s: any}[]} */
-  const listedSessions = [];
-  const running = new Set();
-  for (const c of containers.values()) {
-    if (!listsSessions(c)) continue;
-    const snap = c.state === 'connected' ? snapshots.get(c.id) : undefined;
-    const repos = projectRepos(c.localFolder);
-    const spaces = paneSpaces(snap);
-    for (const pane of list(snap?.panes)) {
-      if (tileShowing(c, pane)) continue;
-      cardFor(
-        c.localFolder,
-        repoAt(repos, pane.foreground_cwd || pane.cwd || ''),
-      )
-        .panes.push({ c, pane, space: spaces.get(pane.pane_id) ?? '' });
-    }
-    const listed = sessionLists.get(c.id);
-    if (!listed) {
-      void loadSessions(c);
-      continue;
-    }
-    for (const s of listed.error ? [] : listed.sessions) {
-      if (sessionPane(c, s)) running.add(`${s.agent}\n${s.session}`);
-      listedSessions.push({ c, s });
-    }
-  }
-  for (const { c, s } of listedSessions) {
-    if (running.has(`${s.agent}\n${s.session}`)) continue;
-    const repo = projectRepos(c.localFolder).find((r) => r.folder === s.root);
-    cardFor(c.localFolder, repo ?? null).sessions.push({ c, s });
-  }
-  for (const card of cards.values()) {
-    card.sessions.sort((a, b) =>
-      Date.parse(b.s.updatedAt) - Date.parse(a.s.updatedAt)
-    );
-    card.active = repoCardActive({
-      tiles: card.tiles.length,
-      agents: card.panes.filter(({ pane }) => pane.agent).length,
-      pinned: sidebarState.cardsPinned.has(card.key),
-    });
-  }
-  return cards;
-}
-
-/** A project's repos in card order: each repo, then its worktrees. */
-function cardRepoOrder(localFolder) {
-  const repos = shownRepos(localFolder);
-  return topRepos(repos).flatMap((r) => [
-    r,
-    ...repos.filter((w) => w !== r && w.worktreeOf === r.folder),
-  ]);
-}
-
-/** Each pane's Herdr space, by pane id, when a container has more than one; else none. */
-function paneSpaces(snap) {
-  const workspaces = list(snap?.workspaces).sort(byNumber);
-  const out = new Map();
-  if (workspaces.length < 2) return out;
-  for (const ws of workspaces) {
-    const space = ws.label || `space ${ws.number ?? ''}`;
-    for (
-      const pane of workspacePanes(ws, list(snap?.tabs), list(snap?.panes))
-    ) {
-      out.set(pane.pane_id, space);
-    }
-  }
-  return out;
-}
 
 /**
  * The In use section: the active repo cards (see `repoCardActive`), each container's in a card of
@@ -1153,7 +566,7 @@ function inUseRows(cards, only) {
       runs.set(card.localFolder, run);
       rows.push(run);
     }
-    run.append(repoCard(card));
+    run.append(repoCard(card, inUseSide));
   }
   return rows;
 }
@@ -1187,13 +600,6 @@ function cardPanes(card) {
   ];
 }
 
-/** Lists the devcontainers and projects again, for what the server's `docker events` missed. */
-function refreshContainers() {
-  const id = nextId('r');
-  pendingRequests.set(id, 'Refresh');
-  send({ type: 'refresh_containers', id });
-}
-
 /** Lists every running container's sessions again. */
 function refreshSessions() {
   for (const c of containers.values()) {
@@ -1201,637 +607,79 @@ function refreshSessions() {
   }
 }
 
-/**
- * The name an In use group goes by: its repo's sidebar name, a worktree's main repo's (its
- * branch says which worktree), split into a muted parent path and the name itself.
- */
-function repoGroupName(localFolder, repo) {
-  const main = repo.primaryFolder ?? repo.worktreeOf;
-  const named = main
-    ? projectRepos(localFolder).find((r) => r.folder === main)
-    : repo;
-  return splitRepoName(named?.name ?? basename(main ?? repo.folder));
-}
-
-/** A repo's name as rows show it: the parent path muted, then the name itself. */
-function repoNameParts({ prefix, base }) {
-  return [
-    prefix ? h('span', { class: 'repo-prefix' }, prefix) : '',
-    h('span', { class: 'repo-base' }, base),
-  ];
-}
-
-/** A container's name as rows show it, running or not. */
-function containerNameOf(localFolder) {
-  const c = containerByFolder(localFolder);
-  if (c) return displayName(c);
-  const project = projects.get(localFolder);
-  return project
-    ? containerLabel(project, projects.values())
-    : basename(localFolder);
-}
-
-/**
- * A repo card, in In use or in its container's card: its header (repo name, branch and sync mark;
- * the container's name for the card of what is outside every repo), its terminals (tiles, then
- * panes no tile shows, shells too), then while their toggles are on its past sessions, its pull
- * request and its files. The toggles' state is the card's wherever it is shown. The header's click
- * hides what its toggles opened; with none open, a repo's card in Containers shows or hides its
- * worktrees' cards there (see `containerRows`), and any other does nothing and doesn't look
- * clickable. `worktrees` is how many worktrees' cards follow it in Containers, hidden or not.
- */
-function repoCard(card, worktrees = 0) {
-  const { key, localFolder, repo } = card;
-  const c = containerByFolder(localFolder);
-  const fr = { localFolder, root: repo ? repo.folder : localFolder };
-  const branch = repo?.git?.branch;
-  // Opened before this page listed the container's sessions: a Loading… section holds its place.
-  const listed = c ? sessionLists.get(c.id) : undefined;
-  // Once listed, the toggle shows even with none, so an empty list reads as empty, not missing.
-  const hasHistory = card.sessions.length > 0 ||
-    (!!listed && !listed.loading && !!c && listsSessions(c));
-  const historyOn = hasHistory && sidebarState.cardHistoryOpen.has(key);
-  const historyLoading = !hasHistory && !!c &&
-    sidebarState.cardHistoryOpen.has(key) &&
-    (!listed || (listed.loading && !listed.error));
-  const canPr = !!repo && !!c;
-  // Fetch moves the repo's own remote-tracking ref, so it needs an upstream and its environment.
-  const canFetch = !!repo && !!c && !!repo.git?.upstream;
-  const prOn = canPr && sidebarState.prOpen.has(prKey(localFolder, fr.root));
-  const tree = repo ? fileTree(fr) : null;
-  const filesOn = !!tree && tree.isOpen('');
-  const toggleHistory = () => {
-    if (!sidebarState.cardHistoryOpen.delete(key)) {
-      sidebarState.cardHistoryOpen.add(key);
-    }
-    saveSidebarState();
-    renderTree();
-  };
-  const worktreesHidden = worktrees > 0 &&
-    sidebarState.worktreesClosed.has(key);
-  const anyOpen = historyOn || prOn || filesOn;
-  const headClick = () => {
-    if (anyOpen) {
-      sidebarState.cardHistoryOpen.delete(key);
-      sidebarState.prOpen.delete(prKey(localFolder, fr.root));
-      saveSidebarState();
-      // Saves and renders again itself.
-      if (filesOn) tree.collapse('');
-      else renderTree();
-    } else if (worktrees > 0) {
-      if (!sidebarState.worktreesClosed.delete(key)) {
-        sidebarState.worktreesClosed.add(key);
-      }
-      saveSidebarState();
-      renderTree();
-    }
-  };
-  const idle = card.tiles.length === 0 && card.panes.length === 0;
-  const head = treeRow(
-    key,
-    0,
-    // A chevron on a repo's card with worktrees' cards under it, open while they show.
-    worktrees > 0 ? !worktreesHidden : undefined,
-    {
-      // Nothing runs in it: its name is muted, so what is at work stands out.
-      class: [
-        'repo-card-head',
-        idle ? 'idle' : '',
-        anyOpen || worktrees > 0 ? '' : 'inert',
-      ].filter((k) => k).join(' '),
-      // Its path in the container, then where that is mounted from on the host.
-      title: [
-        repo?.containerFolder ?? repo?.folder ?? localFolder,
-        repo?.containerFolder ? `Host: ${repo.folder}` : '',
-        branch ? `Branch: ${branch}` : '',
-        worktreesHidden ? LABELS.worktreesHidden(worktrees) : '',
-      ].filter((t) => t).join('\n'),
-      onclick: anyOpen || worktrees > 0 ? headClick : undefined,
-      oncontextmenu: (e) =>
-        openMenu(
-          e,
-          [
-            ...(repo
-              ? [
-                ...(canFetch
-                  ? [
-                    [LABELS.fetch, () => fetchRepo(localFolder, repo.folder)],
-                    null,
-                  ]
-                  : []),
-                ...dirMenuItems(fr, ''),
-                ...jiraItems(branch),
-              ]
-              : projectMenuItems(localFolder)),
-            null,
-            pinnedCardItem(key),
-          ],
-        ),
-    },
-    ...(repo
-      ? [
-        ...repoNameParts(repoGroupName(localFolder, repo)),
-        branch ? h('span', { class: 'repo-branch' }, branch) : '',
-        gitMark(
-          gitSync(
-            repo.git,
-            repo.gitProblem,
-            repo.changes,
-            repo.changesProblem,
-          ),
-          canFetch
-            ? {
-              fetching: fetchingRepos.has(repo.folder),
-              fetch: () => fetchRepo(localFolder, repo.folder),
-            }
-            : undefined,
-        ),
-      ]
-      : [h('span', { class: 'repo-base' }, containerNameOf(localFolder))]),
-    cardPinMark(key),
-  );
-  /** @type {[string, string, boolean, () => void][]} */
-  const toggles = [];
-  if (hasHistory) {
-    toggles.push([
-      'history',
-      historyOn
-        ? LABELS.hidePastSessions
-        : LABELS.showPastSessions(card.sessions.length),
-      historyOn,
-      toggleHistory,
-    ]);
-  }
-  if (canPr) {
-    toggles.push([
-      'pullRequest',
-      LABELS.pullRequest,
-      prOn,
-      () => togglePr(localFolder, fr.root),
-    ]);
-  }
-  if (tree) {
-    toggles.push(['folder', LABELS.files, filesOn, () => tree.toggle('')]);
-  }
-  const toggleButton = ([icon, title, on, action]) => {
-    const b = iconButton(icon, title, action);
-    b.setAttribute('aria-pressed', String(on));
-    return b;
-  };
-  // The toggles that are on stay in sight, where the hover strip that covers them has them: from
-  // the first one on, with the toggles and new-terminal buttons after it kept as blank slots.
-  const firstOn = toggles.findIndex((t) => t[2]);
-  const newButtons = () => c ? newTerminalButtons(head, fr, '') : [];
-  const slot = (b) => {
-    b.classList.add('slot');
-    return b;
-  };
-  head.append(
-    rowTrail(
-      h(
-        'span',
-        { class: 'row-toggles' },
-        ...(firstOn < 0 ? [] : [
-          ...toggles.slice(firstOn).map((t) =>
-            t[2] ? toggleButton(t) : slot(toggleButton(t))
-          ),
-          ...newButtons().map(slot),
-        ]),
-      ),
-      hoverActions(...toggles.map(toggleButton), ...newButtons()),
-    ),
-  );
-  const now = Date.now();
-  const rows = [head];
-  for (const { tile, active } of card.tiles) {
-    rows.push(layoutTileRow(tile, active, 1));
-  }
-  for (const { c: pc, pane, space } of card.panes) {
-    rows.push(paneRow(pc, pane, 1, space));
-  }
-  // Each open section scrolls in a box of capped height, so a long one doesn't stretch the zone.
-  const section = (name, sectionRows) =>
-    h('div', {
-      class: 'card-section',
-      'data-section-key': `${key}\n${name}`,
-    }, ...sectionRows);
-  if (historyOn) {
-    rows.push(section(
-      'history',
-      card.sessions.length
-        ? card.sessions.map(({ c: sc, s }) => sessionRow(sc, s, now, 1))
-        : [
-          h(
-            'div',
-            {
-              class: 'row tree-note',
-              style: '--depth: 1',
-              'data-note': 'empty',
-            },
-            h(
-              'span',
-              { class: 'label' },
-              listed?.error
-                ? `Couldn't list sessions: ${listed.error}`
-                : 'No past sessions',
-            ),
-          ),
-        ],
-    ));
-  } else if (historyLoading) {
-    rows.push(section('history', [
-      h(
-        'div',
-        {
-          class: 'row tree-note',
-          style: '--depth: 1',
-          'data-note': 'loading',
-        },
-        h('span', { class: 'label' }, 'Loading…'),
-      ),
-    ]));
-  }
-  // The open Pull request row's contents, without the row: the toggle stands for it.
-  if (prOn) {
-    rows.push(section('pr', prRows(localFolder, fr.root, 0).slice(1)));
-  }
-  if (filesOn) rows.push(section('files', rootEntryRows(fr, 1)));
-  return h('div', { class: 'repo-card', 'data-card-key': key }, ...rows);
-}
-
 // ---------------------------------------------------------------------------------------------
-// Sidebar: the layout's tiles, as In use lists them
+// Sidebar: following the tiling area, and In use's link with Containers
 // ---------------------------------------------------------------------------------------------
 
 /**
- * The tiling area's state changed (see {@link viewChanged}): renders again what shows it. A
- * change of layout or of what a tile shows rebuilds the tile rows; a title or unsaved mark
- * renders them again; focus moves the current-row marks, and in a scoped sidebar, the card shown.
+ * The tiling area's state changed (see {@link viewChanged}): renders again what shows it (see
+ * `onCardsViewState`), and in a scoped sidebar, the card shown.
  *
  * @param {ViewState} view
  */
 function onViewState(view) {
-  if (layoutSignature(view) !== shownLayout) {
-    renderTree();
-    return;
-  }
-  if (tileMarks(view) !== shownMarks) queueRender();
-  updateCurrent();
+  onCardsViewState(view);
   // A scoped sidebar's container or card is the focused tile's.
   if (sidebarState.scope !== 'all' && scopeCardKey() !== shownScopeCard) {
     queueRender();
   }
 }
 
-/** A Layout tile row's classes: `background` behind its stack's front tab, `preview` (italic). */
-function tileRowClass(tile, active) {
-  return [
-    'row layout-node tile',
-    active ? '' : 'background',
-    tile.preview ? 'preview' : '',
-  ].filter((s) => s).join(' ');
-}
-
-/**
- * A tile's row in its In use card: what it is doing, and its pane's Open in Code on a right-click;
- * the card names its folder and container.
- */
-function layoutTileRow(tile, active, depth) {
-  if (tile.kind === 'file') return layoutFileTileRow(tile, active, depth);
-  if (tile.kind === 'diff') return layoutDiffTileRow(tile, active, depth);
-  const { c, pane } = resolveRef(tile.ref);
-  return h(
-    'div',
-    {
-      class: tileRowClass(tile, active),
-      style: `--depth: ${depth}`,
-      'data-tile': tile.id,
-      'data-pane-key': c && tile.ref
-        ? paneKey(c.id, tile.ref.pane_id)
-        : undefined,
-      title: [...refTooltip(tile.ref), active ? '' : 'Background tab']
-        .filter((s) => s).join('\n') || undefined,
-      onclick: () => tileArea.reveal(tile.id),
-      oncontextmenu: (e) =>
-        openMenu(e, [
-          ...(c && pane ? paneCodeItems(c, pane) : []),
-          ...tileMenuItems(tile),
-        ]),
-    },
-    h(
-      'span',
-      { class: 'label' },
-      rowIcon({ agent: pane?.agent, empty: !tile.ref }),
-      inUseLabel(refLabel(tile.ref)),
-    ),
-    rowTrail(
-      badge(pane),
-      hoverActions(
-        c && pane
-          ? iconButton('trash', LABELS.close, () => killPane(c, pane))
-          : '',
-        iconButton('close', 'Close tile', () => tileArea.close(tile.id)),
-      ),
-    ),
-  );
-}
-
-/** A file tile's Layout row: the file's name, its host path as the tooltip. */
-function layoutFileTileRow(tile, active, depth) {
-  return h(
-    'div',
-    {
-      class: tileRowClass(tile, active),
-      style: `--depth: ${depth}`,
-      'data-tile': tile.id,
-      title: [
-        tile.file ? fileHostPath(tile.file) : '',
-        active ? '' : 'Background tab',
-      ].filter((s) => s).join('\n') || undefined,
-      onclick: () => tileArea.reveal(tile.id),
-      oncontextmenu: (e) => openMenu(e, tileMenuItems(tile)),
-    },
-    h(
-      'span',
-      { class: 'label' },
-      rowIcon({ kind: 'file' }),
-      tile.title,
-    ),
-    rowTrail(
-      hoverActions(
-        iconButton('close', 'Close tile', () => tileArea.close(tile.id)),
-      ),
-    ),
-  );
-}
-
-/** A diff tile's Layout row: its title, the PR file's path as the tooltip. */
-function layoutDiffTileRow(tile, active, depth) {
-  return h(
-    'div',
-    {
-      class: tileRowClass(tile, active),
-      style: `--depth: ${depth}`,
-      'data-tile': tile.id,
-      title: [tile.diff?.path ?? '', active ? '' : 'Background tab']
-        .filter((s) => s).join('\n') || undefined,
-      onclick: () => tileArea.reveal(tile.id),
-      oncontextmenu: (e) => openMenu(e, tileMenuItems(tile)),
-    },
-    h(
-      'span',
-      { class: 'label' },
-      rowIcon({ kind: 'file' }),
-      tile.title,
-    ),
-    rowTrail(
-      hoverActions(
-        iconButton('close', 'Close tile', () => tileArea.close(tile.id)),
-      ),
-    ),
-  );
-}
-
-/** Marks the focused tile's Layout row and its pane's Containers row(s). */
-function updateCurrent() {
-  const tile = focusedTile(tileArea.state());
-  const { c } = resolveRef(tile?.ref ?? null);
-  const key = c && tile?.ref ? paneKey(c.id, tile.ref.pane_id) : null;
-  for (const row of $tree.querySelectorAll('[data-current]')) {
-    row.removeAttribute('data-current');
-  }
-  if (!tile) return;
-  for (const row of $tree.querySelectorAll('.row')) {
-    const el = /** @type {HTMLElement} */ (row);
-    if (
-      el.dataset.tile === tile.id ||
-      (key && el.classList.contains('pane') && el.dataset.paneKey === key)
-    ) {
-      el.setAttribute('data-current', '');
-    }
-  }
-}
-
-/**
- * Expands the pane's container and scrolls its Containers row into view, briefly flashed (see
- * `SidebarIntents.revealInContainers`).
- *
- * @param {PaneRef} ref
- */
-function revealInContainers(ref) {
-  const c = containerByFolder(ref.localFolder);
-  if (!c) return;
-  if (sidebarState.collapsed.delete(c.localFolder)) {
-    saveSidebarState();
-    renderTree();
-  }
-  const row = paneRows.get(paneKey(c.id, ref.pane_id))?.row;
-  if (!row) return;
-  row.scrollIntoView({ block: 'nearest' });
-  row.classList.remove('flash');
-  void row.offsetWidth;
-  row.classList.add('flash');
-}
-
-// ---------------------------------------------------------------------------------------------
-// Sidebar: Containers section
-// ---------------------------------------------------------------------------------------------
-
-/** Whether some tile shows the pane. */
-function isVisible(c, pane) {
-  return tileShowing(c, pane) !== null;
-}
-
-/** The most recently focused tile showing the pane, if any. */
-function tileShowing(c, pane) {
-  return tileShowingPane(tileArea.state(), {
-    localFolder: c.localFolder,
-    pane_id: pane.pane_id,
-  });
-}
-
-/** A workspace's panes in Herdr's order: by tab number, then as listed within the tab. */
-function workspacePanes(ws, tabs, panes) {
-  const wsTabs = tabs.filter((t) => t.workspace_id === ws.workspace_id)
-    .sort(byNumber);
-  return wsTabs.flatMap((tab) => panes.filter((p) => p.tab_id === tab.tab_id));
-}
-
-/**
- * A container's card in Containers: its row, then while it is expanded its repo cards but those
- * of a worktree whose repo's card hides them, in card order, and its Files row. A card in In use
- * (see `repoCardActive`) is only a link to it there (see `inUseLinkCard`).
- */
-function containerRows(c, cards) {
-  const snap = c.state === 'connected' ? snapshots.get(c.id) : undefined;
-  const panes = list(snap?.panes);
-  const shown = [...cards.values()].filter((card) =>
-    card.localFolder === c.localFolder
-  );
-  // Folded, it opens while the filter matches one of its repo cards.
-  const collapsed = sidebarState.collapsed.has(c.localFolder) &&
-    !shown.some(cardMatchesFilter);
-  const stateText = h(
-    'span',
-    { class: 'state', 'data-state': c.state },
-    STATE_TEXT[c.state] ?? c.state,
-  );
-  const fr = { localFolder: c.localFolder, root: c.localFolder };
-  /** @type {HTMLElement} */
-  const head = h(
-    'div',
-    {
-      class: 'row container',
-      style: '--depth: 0',
-      title: c.error ? `${c.localFolder}\n${c.error}` : c.localFolder,
-      'aria-expanded': String(!collapsed),
-      onclick: () => toggleContainer(c),
-      oncontextmenu: (e) => openMenu(e, projectMenuItems(c.localFolder)),
-    },
-    h(
-      'span',
-      { class: 'label' },
-      chevron(),
-      displayName(c),
-      envKindMark(c.kind),
-      // Expanded, each repo card's own marks are right below.
-      collapsed ? gitMark(gitRollup(projectRepos(c.localFolder))) : '',
-    ),
-    INACTIVE_STATES.has(c.state)
-      ? h('span', { class: 'row-actions' }, stateText, herdrActions(c))
-      : rowTrail(
-        c.state !== 'connected' ? stateText : statusRollup(panes),
-        hoverActions(
-          // A new terminal at the project folder, starting Herdr first if it has no session.
-          iconButton('plus', LABELS.newTerminal, () => {
-            // Under the + at the row's right end, as newTerminalButton's.
-            const r = head.getBoundingClientRect();
-            openMenuAt(
-              r.right - 20,
-              r.bottom + 2,
-              newTerminalMenuItems(fr, ''),
-            );
-          }),
-          downButton(c),
-          stopButton(c),
-        ),
-      ),
-  );
-  const rows = [head];
-  if (collapsed) return [containerCard(rows, false)];
-  // A worktree's card goes under its repo's when that one is here too (as a card or its In use
-  // link), else as a repo's.
-  const mainOf = (card) => {
-    const main = card.repo?.worktreeOf;
-    const key = main ? repoCardKey(c.localFolder, main) : null;
-    return key && cards.get(key) ? key : null;
-  };
-  shown.forEach((card, i) => {
-    const main = mainOf(card);
-    if (main) {
-      if (
-        sidebarState.worktreesClosed.has(main) && !cardMatchesFilter(card)
-      ) return;
-      const el = card.active ? inUseLinkCard(card) : repoCard(card);
-      el.classList.add('worktree');
-      // The rail on its left runs on to the next worktree's card under the same repo's.
-      if (shown[i + 1] && mainOf(shown[i + 1]) === main) {
-        el.classList.add('worktree-continues');
-      }
-      rows.push(el);
-      return;
-    }
-    const worktrees = shown.filter((w) => mainOf(w) === card.key).length;
-    rows.push(
-      card.active ? inUseLinkCard(card, worktrees) : repoCard(card, worktrees),
-    );
-  });
-  rows.push(...containerFilesRows(c));
-  return [containerCard(rows, true)];
-}
-
-/**
- * Where an In use card is in its container's card under Containers: its name and branch, muted,
- * and an **In use** link, whose click scrolls to the card in In use and flashes it
- * (`revealInUse`). The row's click does the same, but on a repo's with worktrees' cards under it,
- * where it hides or shows them, as the card's header does.
- */
-function inUseLinkCard(card, worktrees = 0) {
-  const { key, localFolder, repo } = card;
-  const branch = repo?.git?.branch;
-  const worktreesHidden = worktrees > 0 &&
-    sidebarState.worktreesClosed.has(key);
-  const head = treeRow(
-    `${key}\n\nin-use-link`,
-    0,
-    worktrees > 0 ? !worktreesHidden : undefined,
-    {
-      class: 'repo-card-head in-use-link-head',
-      title: [
-        worktrees > 0 ? '' : LABELS.showInUse,
-        worktreesHidden ? LABELS.worktreesHidden(worktrees) : '',
-      ].filter((t) => t).join('\n'),
-      onclick: worktrees > 0
-        ? () => {
-          if (!sidebarState.worktreesClosed.delete(key)) {
-            sidebarState.worktreesClosed.add(key);
-          }
-          saveSidebarState();
-          renderTree();
-        }
-        : () => revealInUse(key),
-      oncontextmenu: (e) => openMenu(e, [pinnedCardItem(key)]),
-    },
-    ...(repo
-      ? [
-        ...repoNameParts(repoGroupName(localFolder, repo)),
-        branch ? h('span', { class: 'repo-branch' }, branch) : '',
-      ]
-      : [h('span', { class: 'repo-base' }, containerNameOf(localFolder))]),
-  );
-  head.append(h('span', {
-    class: 'in-use-link',
-    title: LABELS.showInUse,
-    onclick: (e) => {
-      e.stopPropagation();
-      revealInUse(key);
-    },
-  }, LABELS.inUse));
-  return h('div', { class: 'repo-card in-use-link-card' }, head);
-}
-
-/** "Pin to In use" or "Unpin from In use" for a repo card's menus (see `togglePinnedCard`). */
-function pinnedCardItem(key) {
-  return [
-    sidebarState.cardsPinned.has(key) ? LABELS.unpinCard : LABELS.pinCard,
-    () => togglePinnedCard(key),
-  ];
-}
-
 /**
  * Pins a repo card to In use, where it stays with no terminal or agent in it (`repoCardActive`),
  * or unpins it. Saved with the sidebar's state, by card key, so it lasts across reloads; a pin
  * whose container isn't listed shows nothing until it is again.
+ *
+ * @param {string} key @param {boolean} pinned
  */
-function togglePinnedCard(key) {
-  if (!sidebarState.cardsPinned.delete(key)) sidebarState.cardsPinned.add(key);
+function setCardPinned(key, pinned) {
+  if (sidebarState.cardsPinned.has(key) === !!pinned) return;
+  if (pinned) sidebarState.cardsPinned.add(key);
+  else sidebarState.cardsPinned.delete(key);
   saveSidebarState();
   renderTree();
 }
 
-/** A pin glyph after a pinned repo card's name; its click unpins the card. */
-function cardPinMark(key) {
-  if (!sidebarState.cardsPinned.has(key)) return '';
-  const mark = h('span', {
-    class: 'pin-mark card-pin-mark',
-    title: LABELS.unpinCard,
-    onclick: (e) => {
-      e.stopPropagation();
-      togglePinnedCard(key);
-    },
-  });
-  mark.append(svgIcon('pin'));
-  return mark;
+/**
+ * In use's side of its repo cards: they pin themselves, and what they open or close is passed
+ * on to a Containers section on another page, where a card goes once it is no longer in use.
+ *
+ * @type {import('./cards.js').CardSide}
+ */
+const inUseSide = {
+  pinned: (key) => sidebarState.cardsPinned.has(key),
+  pin: setCardPinned,
+  folded: (part, key, open) => otherContainers?.setFold(part, key, open),
+};
+
+/**
+ * In use as the Containers section reaches it (see `InUseLink`): in this page, directly. One
+ * render draws both, so there is no change to follow.
+ *
+ * @type {InUseLink}
+ */
+const inUseLink = {
+  revealInUse,
+  inUseKeys: () => shownInUse,
+  pinned: (key) => sidebarState.cardsPinned.has(key),
+  pin: setCardPinned,
+  onInUseChange: () => {},
+};
+
+/** A tile's **Reveal in Containers**: in this page's Containers section, and another page's. */
+function revealInContainers(ref) {
+  containersSection.reveal(ref);
+  otherContainers?.reveal(ref);
+}
+
+/** Tells another page's Containers section In use's cards and pins, when they changed. */
+function tellInUse() {
+  if (!onInUse) return;
+  const state = inUseState(shownInUse, sidebarState.cardsPinned);
+  const told = JSON.stringify(state);
+  if (told === toldInUse) return;
+  toldInUse = told;
+  onInUse(state);
 }
 
 /** Scrolls In use to the card with key `key`, focuses its header and briefly flashes the card. */
@@ -1846,1273 +694,6 @@ function revealInUse(key) {
   el.classList.remove('flash');
   void (/** @type {HTMLElement} */ (el)).offsetWidth;
   el.classList.add('flash');
-}
-
-/** A container's card as In use's: its own row on top, then the rest. */
-function containerCard(rows, open) {
-  return h(
-    'div',
-    { class: open ? 'container-card open' : 'container-card' },
-    ...rows,
-  );
-}
-
-/** A container's Files row, closed until opened; open, its filesystem under it. */
-function containerFilesRows(c) {
-  const open = sidebarState.containerFilesOpen.has(c.localFolder);
-  const row = treeRow(
-    `${c.localFolder}\n\nfiles`,
-    0,
-    open,
-    {
-      class: 'container-files',
-      title: `The container's own filesystem, from /`,
-      onclick: () => {
-        if (!sidebarState.containerFilesOpen.delete(c.localFolder)) {
-          sidebarState.containerFilesOpen.add(c.localFolder);
-        }
-        saveSidebarState();
-        renderTree();
-      },
-      oncontextmenu: (e) =>
-        openMenu(e, dirMenuItems(containerRoot(c.localFolder), '')),
-    },
-    LABELS.files,
-  );
-  return open ? [row, ...containerFileRows(c)] : [row];
-}
-
-/**
- * A container row's agents, a colored dot and count per status (most in need of attention
- * first), shown whichever view is open. Every agent is in the tooltip.
- */
-function statusRollup(panes) {
-  const counts = statusCounts(panes);
-  if (counts.length === 0) return '';
-  return h(
-    'span',
-    {
-      class: 'status-rollup',
-      title: panes.filter((p) => p.agent).map((p) =>
-        `${paneTitle(p)}: ${p.agent} ${agentStatus(p)}`
-      ).join('\n'),
-    },
-    ...counts.map(({ status, count }) =>
-      h('span', { class: 'badge', 'data-status': status }, String(count))
-    ),
-  );
-}
-
-/**
- * Each running container's last `list_sessions` answer, by container id. `sessions` stays from
- * the previous answer while a new one loads.
- *
- * @type {Map<string, {loading: boolean, sessions: import('./lib/sessions.js').AgentSession[],
- *   error: string | null}>}
- */
-const sessionLists = new Map();
-
-/**
- * Whether a container's past sessions are listed: once Herdr is up, and before its session is
- * (the server reads them with `docker exec`, and resuming one starts the session).
- */
-function listsSessions(c) {
-  return c.state === 'connected' || c.state === 'no-session';
-}
-
-/** Pending re-lists after an agent's turn, by container id: a burst of statuses lists once. */
-const turnRelists = new Map();
-
-/** Lists container `id`'s sessions again shortly after one of its agents finishes a turn. */
-function sessionsAfterTurn(id) {
-  clearTimeout(turnRelists.get(id));
-  turnRelists.set(
-    id,
-    setTimeout(() => {
-      turnRelists.delete(id);
-      const c = containers.get(id);
-      if (c && listsSessions(c)) void loadSessions(c);
-    }, 1500),
-  );
-}
-
-/** Lists a container's recent agent sessions again (`list_sessions`). */
-async function loadSessions(c) {
-  const prev = sessionLists.get(c.id);
-  if (prev?.loading) return;
-  const entry = { loading: true, sessions: prev?.sessions ?? [], error: null };
-  sessionLists.set(c.id, entry);
-  queueRender();
-  try {
-    entry.sessions = parseSessions(
-      await call({ type: 'list_sessions', container: c.id }),
-    );
-  } catch (e) {
-    entry.error = String(e?.message ?? e);
-  }
-  entry.loading = false;
-  if (sessionLists.get(c.id) === entry) queueRender();
-}
-
-/**
- * One past session in its repo card: its agent's icon, title and age, after the status of the pane
- * running it, if one is. A click resumes it (the server reuses the pane it runs in).
- *
- * @param {import('./lib/sessions.js').AgentSession} s
- */
-function sessionRow(c, s, now, depth) {
-  return h(
-    'div',
-    {
-      class: 'row agent-session',
-      style: `--depth: ${depth}`,
-      'data-session': s.session,
-      title: sessionTooltip(s, LABELS.agents[s.agent]),
-      onclick: () => void resumeSession(c, s),
-      oncontextmenu: (e) =>
-        openMenu(e, [
-          [LABELS.resumeSession, () => void resumeSession(c, s)],
-          [LABELS.copySessionId, () => copyText(s.session)],
-        ]),
-    },
-    // In the slot a chevron would take, as a terminal's and a Sent task's. The age (and a
-    // running pane's status) always shows.
-    h('span', { class: 'label' }, rowIcon({ agent: s.agent }), s.title),
-    rowTrail(
-      badge(sessionPane(c, s)),
-      h('span', { class: 'pane-title' }, sessionAge(s.updatedAt, now)),
-    ),
-  );
-}
-
-/** Sessions with a `resume_session` in flight: a second click waits for the first. */
-const resumingSessions = new Set();
-
-/**
- * A listed session in the focused stack: the pane this server resumed it in while that is still
- * open, else resumed in a new tab at the folder it started in (`resume_session`).
- *
- * @param {import('./lib/sessions.js').AgentSession} s
- */
-async function resumeSession(c, s) {
-  const key = `${c.id}\n${s.agent}\n${s.session}`;
-  if (resumingSessions.has(key)) return;
-  if (c.state === 'no-session') toast('Starting Herdr…');
-  resumingSessions.add(key);
-  let result;
-  try {
-    result = await call({
-      type: 'resume_session',
-      container: c.id,
-      agent: s.agent,
-      session: s.session,
-    });
-  } catch (e) {
-    if (e?.code === 'not_found') {
-      // The server no longer lists it (a restart, or another window listed since): list again.
-      void loadSessions(c);
-      errorToast('That session is no longer listed: the list was refreshed');
-    } else errorToast(`Resume failed: ${e?.message ?? e}`);
-    return;
-  } finally {
-    resumingSessions.delete(key);
-  }
-  if (typeof result?.pane_id !== 'string') return;
-  placePane(c.localFolder, result);
-  // List again once the agent has had time to start, so the list knows the pane it runs in.
-  if (!result.reused) setTimeout(() => void loadSessions(c), 5000);
-}
-
-/** A container row's Stop button, when its project is known to be running. */
-function stopButton(c) {
-  const p = projects.get(c.localFolder);
-  return p?.container === 'running'
-    ? iconButton(
-      'stop',
-      projectActions(p.environment).stop,
-      () => stopProject(p),
-    )
-    : '';
-}
-
-/**
- * A container row's Remove button (`devc down`), beside Stop: only while Stop is shown, and never
- * on this machine, where there is no container to remove.
- */
-function downButton(c) {
-  const p = projects.get(c.localFolder);
-  const remove = projectActions(p?.environment).remove;
-  return p?.container === 'running' && remove !== null
-    ? iconButton('trash', remove, () => downProject(p))
-    : '';
-}
-
-/** Where a project or environment runs, after its name: a laptop on this machine, else a cube. */
-function envKindMark(kind) {
-  const host = kind === 'host';
-  const mark = h('span', {
-    class: 'env-mark',
-    'data-kind': host ? 'host' : 'container',
-    title: host ? 'Runs on this machine' : 'Runs in a container',
-  });
-  mark.append(svgIcon(host ? 'machine' : 'project'));
-  return mark;
-}
-
-/** A Herdr-less container's hover buttons: Remove, Stop, Start Herdr (no session only) and Retry. */
-function herdrActions(c) {
-  return hoverActions(
-    downButton(c),
-    stopButton(c),
-    c.state === 'no-session'
-      ? iconButton(
-        'play',
-        'Start Herdr: a Herdr server for this session',
-        () => startSession(c.id),
-      )
-      : '',
-    h('button', {
-      onclick: (e) => {
-        e.stopPropagation();
-        send({ type: 'retry', container: c.id });
-      },
-    }, 'Retry'),
-  );
-}
-
-/** The "Not running" group: projects without a running container (`idle`). */
-function inactiveRows(idle) {
-  // Folded, it opens while the filter matches one of its projects.
-  const open = sidebarState.inactiveOpen ||
-    idle.some((p) => filterHas(containerLabel(p, projects.values())));
-  const rows = [
-    h(
-      'div',
-      {
-        class: 'row group',
-        style: '--depth: 0',
-        'aria-expanded': String(open),
-        onclick: toggleInactive,
-      },
-      h(
-        'span',
-        { class: 'label' },
-        chevron(),
-        `Not running (${idle.length})`,
-      ),
-    ),
-  ];
-  if (!open) return [containerCard(rows, false)];
-  for (const p of idle) {
-    rows.push(projectRow(p));
-    if (sidebarState.projectsOpen.has(p.localFolder)) {
-      // Just its own folder: its files go straight under the project row.
-      const fr = { localFolder: p.localFolder, root: p.localFolder };
-      const tree = fileTree(fr);
-      if (!tree.isOpen('')) tree.expand('');
-      rows.push(...rootEntryRows(fr, 2));
-    }
-  }
-  return [containerCard(rows, true)];
-}
-
-// ---------------------------------------------------------------------------------------------
-// Sidebar: projects without a running container
-// ---------------------------------------------------------------------------------------------
-
-/** By name, then folder. */
-function byName(a, b) {
-  return a.name.localeCompare(b.name) ||
-    a.localFolder.localeCompare(b.localFolder);
-}
-
-/**
- * ● changes to commit, ↑ push / ↓ pull counts, or a quiet ✓ / ?, from `gitSync` or `gitRollup`;
- * nothing for no repo. With `opts.fetch` (a repo card's), a click on ↓ fetches; with
- * `opts.fetching`, a spinner follows the counts.
- *
- * @param {{fetch: () => void, fetching: boolean}} [opts]
- */
-function gitMark(sync, opts) {
-  if (!sync) return '';
-  return h(
-    'span',
-    {
-      class: 'git-sync',
-      title: sync.title,
-      'data-diverged': sync.diverged,
-    },
-    ...sync.marks.map((m) =>
-      opts && m.dir === 'behind'
-        ? h('span', {
-          'data-dir': m.dir,
-          class: 'git-fetch',
-          role: 'button',
-          title: LABELS.fetchBehind,
-          onclick: (/** @type {MouseEvent} */ e) => {
-            // Not the card head's own click.
-            e.stopPropagation();
-            opts.fetch();
-          },
-        }, m.text)
-        : h('span', { 'data-dir': m.dir }, m.text)
-    ),
-    opts?.fetching
-      ? h('span', { class: 'spinner git-fetching', 'aria-hidden': 'true' })
-      : '',
-  );
-}
-
-/** Repo folders with a `fetch_repo` in flight → its request id. */
-const fetchingRepos = new Map();
-
-/**
- * Fetches a repo of a running project (`fetch_repo`): its own remote-tracking branch moves, its
- * ↓ count updates once the server reads it again. A second click while one runs does nothing; a
- * problem is a toast.
- */
-function fetchRepo(localFolder, folder) {
-  if (fetchingRepos.has(folder)) return;
-  const id = nextId('f');
-  // A refused message comes back as a `result`: `client.js` toasts it.
-  pendingRequests.set(id, LABELS.fetch);
-  fetchingRepos.set(folder, id);
-  send({ type: 'fetch_repo', id, localFolder, folder });
-  renderTree();
-}
-
-/**
- * A `fetch_result`, or a `result` refusing a `fetch_repo`: the spinner stops. Returns whether it
- * was one of this page's fetches.
- */
-function onFetchDone(msg) {
-  let ours = false;
-  for (const [folder, id] of fetchingRepos) {
-    if (id === msg.id) {
-      fetchingRepos.delete(folder);
-      ours = true;
-    }
-  }
-  if (msg.type !== 'fetch_result') return ours;
-  pendingRequests.delete(msg.id);
-  if (!msg.ok) {
-    errorToast(`${LABELS.fetch} failed: ${msg.problem ?? 'unknown problem'}`);
-  }
-  return ours;
-}
-
-/** The repos listed at the top of a Repos view: all but the worktrees listed under their repo. */
-function topRepos(repos) {
-  const folders = new Set(repos.map((r) => r.folder));
-  // A worktree whose repo has no row of its own is listed as a repo.
-  return repos.filter((r) => !r.worktreeOf || !folders.has(r.worktreeOf));
-}
-
-/**
- * A project's repos as its Repos view lists them: the project folder always; a later folder
- * that turned out to be no repo (`git: null` with no `gitProblem`) not. One whose status can't
- * be read stays, marked `?`.
- */
-function shownRepos(localFolder) {
-  return projectRepos(localFolder).filter((r, i) =>
-    i === 0 || r.git !== null || !!r.gitProblem
-  );
-}
-
-/**
- * A running container's Files row: its own filesystem from `/`, read with `docker exec` whatever
- * Herdr's state (`list_container_dir`). Collapsed until opened. Open, `/workspaces` and the
- * remote user's home (once the server knows it) come first, each a folder row of its own.
- */
-function containerFileRows(c) {
-  const fr = containerRoot(c.localFolder);
-  const tree = fileTree(fr);
-  // The view is the root's listing: opening the view opens it.
-  if (!tree.isOpen('')) tree.expand('');
-  const rows = [];
-  for (const root of containerShortcuts(c)) {
-    const sfr = containerRoot(c.localFolder, root);
-    const stree = fileTree(sfr);
-    rows.push(
-      treeRow(
-        `${treeId(sfr)}\n`,
-        1,
-        stree.isOpen(''),
-        {
-          class: 'files-shortcut',
-          title: pathTitle(sfr, ''),
-          onclick: () => stree.toggle(''),
-          oncontextmenu: (e) => openMenu(e, dirMenuItems(sfr, '')),
-        },
-        root,
-      ),
-    );
-    if (stree.isOpen('')) rows.push(...rootEntryRows(sfr, 2));
-  }
-  rows.push(...rootEntryRows(fr, 1));
-  return rows;
-}
-
-/** The folders a container's Files row lists first: `/workspaces`, then the home when apart. */
-function containerShortcuts(c) {
-  const home = c.home;
-  const apart = typeof home === 'string' && home.startsWith('/') &&
-    home !== '/' &&
-    !isWithin('/workspaces', home);
-  return apart ? ['/workspaces', home] : ['/workspaces'];
-}
-
-// ---------------------------------------------------------------------------------------------
-// Sidebar: pull requests
-// ---------------------------------------------------------------------------------------------
-
-/**
- * Each repo's last `pr_files` answer, by `localFolder\nroot`: what its Pull request row shows.
- * `result` is the server's `{available, …}`; `error` a failed call's message; `review` the
- * viewer's pending review (`pr_pending_show`, read when the grants offer reviews).
- *
- * @type {Map<string, {loading: boolean, result: any, error: string | null,
- *   review: {id: string, comments: number} | null}>}
- */
-const prLists = new Map();
-
-function prKey(localFolder, root) {
-  return `${localFolder}\n${root}`;
-}
-
-/** Lists a repo's PR files again (`pr_files`), keeping what is shown until the answer. */
-async function loadPr(localFolder, root) {
-  const key = prKey(localFolder, root);
-  const prev = prLists.get(key);
-  if (prev?.loading) return;
-  const entry = {
-    loading: true,
-    result: prev?.result ?? null,
-    error: null,
-    review: prev?.review ?? null,
-  };
-  prLists.set(key, entry);
-  queueRender();
-  try {
-    const result = await call({ type: 'pr_files', localFolder, root });
-    entry.result = result && typeof result === 'object' ? result : null;
-  } catch (e) {
-    entry.result = null;
-    entry.error = String(e?.message ?? e);
-  }
-  entry.review = entry.result?.canReview === true
-    ? await pendingReview(localFolder, root, entry.review)
-    : null;
-  entry.loading = false;
-  if (prLists.get(key) === entry) queueRender();
-}
-
-/** The viewer's pending review on a repo's PR (`pr_pending_show`); `kept` when it can't be read. */
-async function pendingReview(localFolder, root, kept) {
-  try {
-    const r = await call({ type: 'pr_pending_show', localFolder, root });
-    return r?.available === true ? r.review ?? null : kept;
-  } catch {
-    return kept;
-  }
-}
-
-/** Opens or closes a repo's Pull request row; opening it lists the PR's files. */
-function togglePr(localFolder, root) {
-  const key = prKey(localFolder, root);
-  if (!sidebarState.prOpen.delete(key)) {
-    sidebarState.prOpen.add(key);
-    void loadPr(localFolder, root);
-  }
-  saveSidebarState();
-  renderTree();
-}
-
-/** Where a PR's folder rows keep their open state: per repo and PR number. */
-function prFoldersKey(localFolder, root, number) {
-  return `${localFolder}\n${root}\n${number}`;
-}
-
-/**
- * Each PR folder's open-by-default state as it was when this page first drew it, by
- * `prFoldersKey\npath`: a folder whose last file is marked Viewed stays open until closed.
- */
-const prFolderDefaults = new Map();
-
-/** @param {string} key @param {import('./lib/pr_tree.js').PrDir} dir */
-function prFolderOpen(key, dir) {
-  const saved = sidebarState.prFolders[key]?.[dir.path];
-  if (saved !== undefined) return saved;
-  const id = `${key}\n${dir.path}`;
-  if (!prFolderDefaults.has(id)) {
-    prFolderDefaults.set(id, folderOpenByDefault(dir));
-  }
-  return prFolderDefaults.get(id);
-}
-
-/** The most PRs whose folders' open state is kept: the oldest is dropped. */
-const MAX_PR_FOLDER_KEYS = 50;
-
-/** @param {string} key @param {import('./lib/pr_tree.js').PrDir} dir */
-function togglePrFolder(key, dir) {
-  const open = prFolderOpen(key, dir);
-  const folders = sidebarState.prFolders[key] ?? {};
-  delete sidebarState.prFolders[key];
-  sidebarState.prFolders[key] = { ...folders, [dir.path]: !open };
-  const keys = Object.keys(sidebarState.prFolders);
-  for (const old of keys.slice(0, -MAX_PR_FOLDER_KEYS)) {
-    delete sidebarState.prFolders[old];
-  }
-  saveSidebarState();
-  renderTree();
-}
-
-/**
- * A running container's repo's Pull request row: closed until opened. Open, the PR of the repo's
- * pinned branch (`pr_files`): a header row and its changed files as a tree, or one dimmed line
- * saying why there is none.
- */
-function prRows(localFolder, root, depth) {
-  const key = prKey(localFolder, root);
-  const open = sidebarState.prOpen.has(key);
-  const fr = { localFolder, root };
-  const rows = [
-    treeRow(`${treeId(fr)}\npr`, depth, open, {
-      class: 'pr-row',
-      title:
-        "The pull request of this repo's pinned branch, through its container's devc-bridge",
-      onclick: () => togglePr(localFolder, root),
-    }, LABELS.pullRequest),
-  ];
-  if (!open) return rows;
-  // Opened before this page listed it (a saved open row): list now.
-  if (!prLists.has(key)) void loadPr(localFolder, root);
-  const listed = prLists.get(key);
-  const note = (text, kind) =>
-    h(
-      'div',
-      {
-        class: 'row tree-note',
-        style: `--depth: ${depth + 1}`,
-        'data-note': kind,
-        title: text,
-      },
-      h('span', { class: 'label' }, ...markedText(text)),
-    );
-  const result = listed?.result;
-  if (listed?.error) rows.push(note(listed.error, 'error'));
-  else if (!result) rows.push(note('Loading…', 'loading'));
-  else if (result.available !== true) {
-    const hint = result.reason === 'no_grant' ||
-      result.reason === 'not_running';
-    rows.push(note(String(result.message ?? ''), hint ? 'hint' : 'error'));
-  } else rows.push(...prListingRows(fr, result, depth + 1));
-  return rows;
-}
-
-/**
- * A listed PR's header row, then its files as a tree (`buildPrTree`) or, with Flat, by size on,
- * as one list, most or fewest changed lines first (`buildPrFlat`). With Tests apart on, the
- * test files (`isTestPath`) are left out of that and listed the same way under a Tests row.
- */
-function prListingRows(fr, result, depth) {
-  const pr = result.pr;
-  const review = prLists.get(prKey(fr.localFolder, fr.root))?.review ?? null;
-  const files = list(result.files);
-  const flat = sidebarState.prFlat;
-  const tree = flat ? buildPrFlat(files, flat) : buildPrTree(files);
-  const percent = viewedPercent(tree);
-  const id = treeId(fr);
-  const header = treeRow(
-    `${id}\npr\n#`,
-    depth,
-    undefined,
-    {
-      class: 'pr-header',
-      title: [
-        `${pr.repo}#${pr.number}`,
-        pr.title,
-        `${pr.headRef} → ${pr.baseRef}${pr.author ? ` · ${pr.author}` : ''}`,
-        `via ${result.container}'s bridge`,
-      ].join('\n'),
-    },
-    h('span', { class: 'pr-number' }, `#${pr.number}`),
-    ...markedText(
-      pr.title,
-    ),
-  );
-  const hiding = sidebarState.prHideViewed;
-  const apart = sidebarState.prTestsApart;
-  const buttons = () => {
-    const testsToggle = iconButton(
-      'tests',
-      apart ? LABELS.testsTogether : LABELS.testsApart,
-      togglePrTestsApart,
-    );
-    testsToggle.setAttribute('aria-pressed', String(apart));
-    const toggle = iconButton(
-      'viewed',
-      hiding ? LABELS.showViewed(tree.viewed) : LABELS.hideViewed,
-      togglePrHideViewed,
-    );
-    toggle.setAttribute('aria-pressed', String(hiding));
-    // Its title says what a click does next: tree, then most first, then fewest first.
-    const flatToggle = iconButton(
-      flat === 'fewest' ? 'flatBySizeFewest' : 'flatBySize',
-      flat === 'most'
-        ? LABELS.flatBySizeFewest
-        : flat === 'fewest'
-        ? LABELS.flatOff
-        : LABELS.flatBySize,
-      togglePrFlat,
-    );
-    flatToggle.setAttribute('aria-pressed', String(flat !== null));
-    return [
-      testsToggle,
-      flatToggle,
-      toggle,
-      iconButton(
-        'refresh',
-        'Refresh',
-        () => void loadPr(fr.localFolder, fr.root),
-      ),
-      iconButton(
-        'external',
-        'Open on GitHub',
-        () => window.open(pr.url, '_blank', 'noopener'),
-      ),
-    ];
-  };
-  header.append(rowTrail(
-    pr.state !== 'OPEN'
-      ? h('span', { class: 'pr-state' }, String(pr.state).toLowerCase())
-      : '',
-    pr.isDraft ? h('span', { class: 'pr-state' }, 'draft') : '',
-    review ? pendingReviewBar(fr, pr, review) : '',
-    h('span', {
-      class: 'pr-count',
-      title: LABELS.viewedPercent(percent, tree.viewedLines, tree.totalLines),
-    }, `${tree.viewed}/${tree.total} · ${percent}%`),
-    // Flat, by size and Hide viewed, while on, stay in sight as a repo card's toggles do, the
-    // other buttons kept as blank slots so each sits where hovering shows it.
-    h(
-      'span',
-      { class: 'row-toggles' },
-      ...(hiding || flat || apart
-        ? buttons().map((b) => {
-          if (b.getAttribute('aria-pressed') !== 'true') {
-            b.classList.add('slot');
-          }
-          return b;
-        })
-        : []),
-    ),
-    hoverActions(...buttons()),
-  ));
-  const rows = [header];
-  if (result.truncated) {
-    rows.push(
-      h(
-        'div',
-        {
-          class: 'row tree-note',
-          style: `--depth: ${depth}`,
-          'data-note': 'truncated',
-        },
-        h('span', { class: 'label' }, 'GitHub lists at most 3000 files'),
-      ),
-    );
-  }
-  const foldersKey = prFoldersKey(fr.localFolder, fr.root, pr.number);
-  // The Tests row's tree keeps its folders' state, and its rows' ids, apart from the Files row's:
-  // a folder can be in both. The Files row's own state is its tree's root ('') under `foldersKey`.
-  const testsKey = `${foldersKey}\ntests`;
-  const walk = (dir, d, key = foldersKey, idPrefix = '') => {
-    for (const sub of dir.dirs) {
-      const open = prFolderOpen(key, sub);
-      const row = treeRow(`${id}\npr\n${idPrefix}${sub.path}/`, d, open, {
-        class: 'pr-dir',
-        'data-dim': sub.viewed === sub.total || undefined,
-        title: sub.path,
-        onclick: () => togglePrFolder(key, sub),
-        oncontextmenu: (e) => openMenu(e, prDirMenuItems(fr, result, sub)),
-      }, ...markedText(sub.name));
-      row.append(
-        rowTrail(
-          h('span', { class: 'pr-count' }, `${sub.viewed}/${sub.total}`),
-        ),
-      );
-      rows.push(row);
-      if (open) walk(sub, d + 1, key, idPrefix);
-    }
-    for (const node of dir.files) {
-      rows.push(prFileRow(fr, result, node, d));
-    }
-  };
-  const shown = (t) => hiding ? withoutViewed(t) : t;
-  const build = (fs) => flat ? buildPrFlat(fs, flat) : buildPrTree(fs);
-  const testFiles = apart ? files.filter((f) => isTestPath(f.path)) : [];
-  if (testFiles.length === 0) walk(shown(tree), depth);
-  else {
-    /** @type {[string, string, string, string, any][]} */
-    const groups = [
-      [
-        'files',
-        foldersKey,
-        LABELS.otherFiles,
-        LABELS.otherFilesTitle,
-        build(files.filter((f) => !isTestPath(f.path))),
-      ],
-      ['tests', testsKey, LABELS.tests, LABELS.testFiles, build(testFiles)],
-    ];
-    for (const [name, key, label, title, group] of groups) {
-      if (group.total === 0 || (hiding && group.viewed === group.total)) {
-        continue;
-      }
-      rows.push(
-        prGroupRow(fr, result, `${id}\npr\n${name}\n`, key, group, depth, {
-          label,
-          title,
-        }),
-      );
-      if (prFolderOpen(key, group)) {
-        walk(shown(group), depth + 1, key, name === 'tests' ? 'tests\n' : '');
-      }
-    }
-  }
-  if (hiding && tree.total > 0 && tree.viewed === tree.total) {
-    rows.push(
-      h(
-        'div',
-        {
-          class: 'row tree-note',
-          style: `--depth: ${depth}`,
-          'data-note': 'all-viewed',
-        },
-        h('span', { class: 'label' }, LABELS.allViewedHidden(tree.total)),
-      ),
-    );
-  }
-  return rows;
-}
-
-/**
- * A Files or Tests row (Tests apart): its files' Viewed count and share of their changed lines;
- * it opens and closes as a folder does (`group` the root of its tree, under `key`), and its menu
- * marks them all Viewed or not.
- *
- * @param {FileRoot} fr @param {any} result @param {string} rowId @param {string} key
- * @param {import('./lib/pr_tree.js').PrDir} group
- * @param {number} depth @param {{label: string, title: string}} text
- */
-function prGroupRow(fr, result, rowId, key, group, depth, { label, title }) {
-  const allViewed = group.viewed === group.total;
-  const percent = viewedPercent(group);
-  const row = treeRow(
-    rowId,
-    depth,
-    prFolderOpen(key, group),
-    {
-      class: 'pr-dir pr-group',
-      'data-dim': allViewed || undefined,
-      title,
-      onclick: () => togglePrFolder(key, group),
-      oncontextmenu: result.canViewed
-        ? (e) =>
-          openMenu(e, [[
-            allViewed ? 'Mark all as not viewed' : 'Mark all as viewed',
-            () => void setFolderViewed(fr, group, !allViewed),
-          ]])
-        : undefined,
-    },
-    label,
-  );
-  row.append(rowTrail(h('span', {
-    class: 'pr-count',
-    title: LABELS.viewedPercent(percent, group.viewedLines, group.totalLines),
-  }, `${group.viewed}/${group.total} · ${percent}%`)));
-  return row;
-}
-
-/**
- * The PR header's `Review · n pending`, with **Submit review…** and **Discard review…**; either
- * lists the PR again after.
- *
- * @param {FileRoot} fr @param {any} pr @param {{comments: number}} review
- */
-function pendingReviewBar(fr, pr, review) {
-  const repo = { localFolder: fr.localFolder, root: fr.root };
-  const stop = (e) => e.stopPropagation();
-  /** @param {string} label @param {() => Promise<boolean>} act */
-  const button = (label, act) =>
-    h('button', {
-      type: 'button',
-      class: 'pr-review-action',
-      onmousedown: stop,
-      ondblclick: stop,
-      onclick: async (e) => {
-        e.stopPropagation();
-        if (await act()) void loadPr(fr.localFolder, fr.root);
-      },
-    }, label);
-  return h(
-    'span',
-    { class: 'pr-pending' },
-    LABELS.reviewPending(review.comments),
-    button(LABELS.submitReview, () => submitPendingReview(repo, pr.url)),
-    button(LABELS.discardReview, () => discardPendingReview(repo)),
-  );
-}
-
-/** Lists every PR's test files apart, under a Tests row, or among the rest again; kept per browser. */
-function togglePrTestsApart() {
-  sidebarState.prTestsApart = !sidebarState.prTestsApart;
-  saveSidebarState();
-  renderTree();
-}
-
-/**
- * Lists every PR's files flat, most changed lines first, then fewest first, then as a tree again;
- * kept per browser.
- */
-function togglePrFlat() {
-  const flat = sidebarState.prFlat;
-  sidebarState.prFlat = flat === null
-    ? 'most'
-    : flat === 'most'
-    ? 'fewest'
-    : null;
-  saveSidebarState();
-  renderTree();
-}
-
-/** Shows or hides every PR tree's Viewed files (the PR header's eye), kept per browser. */
-function togglePrHideViewed() {
-  sidebarState.prHideViewed = !sidebarState.prHideViewed;
-  saveSidebarState();
-  renderTree();
-}
-
-/**
- * A PR file's row: its Viewed checkbox (GitHub's own state; disabled without `canViewed`), its
- * status letter, name and `+a −d`. A click opens its diff tile as a Files click opens a file.
- *
- * @param {FileRoot} fr @param {any} result
- * @param {import('./lib/pr_tree.js').PrFileNode} node
- */
-function prFileRow(fr, result, node, depth) {
-  const file = node.file;
-  const letter = statusLetter(file.status);
-  const dismissed = file.viewed === 'DISMISSED';
-  const stop = (e) => e.stopPropagation();
-  const checkbox = h('input', {
-    type: 'checkbox',
-    class: 'pr-viewed',
-    'aria-label': `Viewed: ${file.path}`,
-    title: !result.canViewed
-      ? 'Marking Viewed needs --bridge-allow gh-pr-viewed'
-      : dismissed
-      ? 'Viewed, changed since viewed'
-      : 'Viewed',
-    disabled: !result.canViewed,
-    onclick: stop,
-    onmousedown: stop,
-    ondblclick: stop,
-    onchange: (e) =>
-      void setViewed(
-        fr,
-        file,
-        /** @type {HTMLInputElement} */ (e.target).checked,
-      ),
-  });
-  /** @type {HTMLInputElement} */ (checkbox).checked = file.viewed === 'VIEWED';
-  const ref = { localFolder: fr.localFolder, root: fr.root, path: file.path };
-  const row = treeRow(
-    `${treeId(fr)}\npr\n${file.path}`,
-    depth,
-    undefined,
-    {
-      class: 'pr-file',
-      'data-viewed': file.viewed,
-      title: [
-        file.previousPath ? `${file.previousPath} → ${file.path}` : file.path,
-        dismissed ? 'changed since viewed' : '',
-      ].filter((s) => s).join('\n'),
-      onclick: (e) =>
-        tileArea.openDiff(ref, e.ctrlKey || e.metaKey ? 'stack' : 'preview'),
-      ondblclick: () => keepOpen(tileShowingDiff(tileArea.state(), ref)),
-      oncontextmenu: (e) => openMenu(e, prFileMenuItems(fr, result, file)),
-    },
-    checkbox,
-    h('span', {
-      class: 'pr-status',
-      'data-status': letter,
-    }, letter),
-    ...markedText(node.name),
-    node.dir
-      ? h('span', { class: 'pr-file-dir' }, ...markedText(node.dir))
-      : '',
-  );
-  row.append(rowTrail(h('span', { class: 'pr-stat' }, diffStat(file))));
-  return row;
-}
-
-/**
- * A PR file's menu: its diff, the file itself as the Files tree opens it (not for a deleted
- * file, which is no longer in the checkout), GitHub, and the file's paths and pin. Viewed is
- * the row's checkbox.
- *
- * @param {FileRoot} fr @param {any} result @param {any} file
- */
-function prFileMenuItems(fr, result, file) {
-  const ref = { localFolder: fr.localFolder, root: fr.root, path: file.path };
-  const path = file.path;
-  const exists = file.status !== 'removed';
-  return [
-    ['Open diff', () => tileArea.openDiff(ref, 'stack')],
-    ['Open diff to the right', () => tileArea.openDiff(ref, 'right')],
-    ...(file.viewed === 'DISMISSED'
-      ? [[
-        LABELS.openChangesSinceViewed,
-        () => tileArea.openDiff(ref, 'stack', { compare: 'viewed' }),
-      ]]
-      : []),
-    null,
-    ...(exists
-      ? [
-        ['Open file', () => openFileTile(fr, path, 'stack')],
-        ['Open file to the right', () => openFileTile(fr, path, 'right')],
-        ['Open in editor', () => openInEditor(fr, path, 'stack')],
-        ...hostOpenItems(fr, path),
-        null,
-      ]
-      : []),
-    [
-      'Open on GitHub',
-      () =>
-        void prFileUrl(result.pr.url, path).then((url) =>
-          window.open(url, '_blank', 'noopener')
-        ),
-    ],
-    null,
-    ...copyPathItems(fr, path),
-    ...(exists && !fr.container
-      ? [null, filePinItem(fr, path), dashboardItem(fr, path)]
-      : []),
-  ];
-}
-
-/**
- * A PR folder's menu: every file under it marked Viewed (or, when all are, not), the folder in
- * Code or the file manager, and its paths.
- *
- * @param {FileRoot} fr @param {any} result
- * @param {import('./lib/pr_tree.js').PrDir} dir
- */
-function prDirMenuItems(fr, result, dir) {
-  const allViewed = dir.viewed === dir.total;
-  return [
-    ...(result.canViewed
-      ? [[
-        allViewed ? 'Mark all as not viewed' : 'Mark all as viewed',
-        () => void setFolderViewed(fr, dir, !allViewed),
-      ]]
-      : []),
-    null,
-    ...hostOpenItems(fr, dir.path),
-    null,
-    ...copyPathItems(fr, dir.path),
-  ];
-}
-
-/**
- * Marks every file under `dir` Viewed or not, one `pr_viewed` at a time (GitHub has one file per
- * call), skipping those already so. The first failure stops the rest, with its toast.
- *
- * @param {FileRoot} fr @param {import('./lib/pr_tree.js').PrDir} dir @param {boolean} viewed
- */
-async function setFolderViewed(fr, dir, viewed) {
-  /** @param {import('./lib/pr_tree.js').PrDir} d @returns {any[]} */
-  const filesOf = (d) => [
-    ...d.files.map((n) => n.file),
-    ...d.dirs.flatMap(filesOf),
-  ];
-  for (const file of filesOf(dir)) {
-    if ((file.viewed === 'VIEWED') === viewed) continue;
-    if (!await setViewed(fr, file, viewed)) return;
-  }
-}
-
-/**
- * A diff tile marked a PR file Viewed or not (`SidebarIntents.prViewed`): the PR tree's listing
- * of that repo, if it has one, shows it.
- *
- * @param {{localFolder: string, root: string, path: string}} ref
- * @param {'VIEWED' | 'UNVIEWED'} viewed
- */
-function prViewed(ref, viewed) {
-  if (viewed !== 'VIEWED' && viewed !== 'UNVIEWED') return;
-  const result = prLists.get(prKey(ref?.localFolder, ref?.root))?.result;
-  const file = list(result?.files).find((f) => f.path === ref?.path);
-  if (!file || file.viewed === viewed) return;
-  file.viewed = viewed;
-  queueRender();
-}
-
-/**
- * Marks a PR file Viewed or not (`pr_viewed`): the counts change at once, and a failure puts
- * the checkbox back with a toast. Its diff tiles hear of a success (`ViewIntents.prViewed`).
- * Resolves whether it worked.
- *
- * @param {FileRoot} fr @param {any} file @param {boolean} viewed
- * @returns {Promise<boolean>}
- */
-async function setViewed(fr, file, viewed) {
-  const before = file.viewed;
-  file.viewed = viewed ? 'VIEWED' : 'UNVIEWED';
-  queueRender();
-  let message = null;
-  try {
-    const r = await call({
-      type: 'pr_viewed',
-      localFolder: fr.localFolder,
-      root: fr.root,
-      path: file.path,
-      viewed,
-    });
-    if (r?.available === false) message = String(r.message ?? 'failed');
-    else if (r?.viewed === 'VIEWED' || r?.viewed === 'UNVIEWED') {
-      file.viewed = r.viewed;
-    }
-  } catch (e) {
-    message = String(e?.message ?? e);
-  }
-  if (message !== null) {
-    file.viewed = before;
-    errorToast(`Marking Viewed failed: ${message}`);
-  }
-  queueRender();
-  if (message !== null) return false;
-  tileArea.prViewed(
-    { localFolder: fr.localFolder, root: fr.root, path: file.path },
-    file.viewed,
-  );
-  return true;
-}
-
-const PROJECT_STATE_TEXT = {
-  starting: 'starting…',
-  stopped: 'stopped',
-  missing: 'not created',
-};
-
-/** Expands or collapses a project under "Not running", which shows its folder's files. */
-function toggleProject(localFolder) {
-  if (!sidebarState.projectsOpen.delete(localFolder)) {
-    sidebarState.projectsOpen.add(localFolder);
-  }
-  saveSidebarState();
-  renderTree();
-}
-
-function projectRow(p) {
-  const output = projectOutput.get(p.localFolder) ?? [];
-  const state = p.starting ? 'starting' : p.container;
-  return h(
-    'div',
-    {
-      class: 'row inactive project',
-      style: '--depth: 1',
-      'data-project': p.localFolder,
-      'aria-expanded': String(sidebarState.projectsOpen.has(p.localFolder)),
-      title: [p.localFolder, output.at(-1) ?? ''].filter((s) => s).join('\n'),
-      onclick: () => toggleProject(p.localFolder),
-      oncontextmenu: (e) =>
-        openMenu(e, [
-          ...projectMenuItems(p.localFolder),
-          null,
-          ...dirMenuItems(
-            { localFolder: p.localFolder, root: p.localFolder },
-            '',
-          ),
-        ]),
-    },
-    h(
-      'span',
-      { class: 'label' },
-      chevron(),
-      containerLabel(p, projects.values()),
-      envKindMark(p.environment),
-      gitMark(gitRollup(list(p.repos))),
-    ),
-    h(
-      'span',
-      { class: 'row-actions' },
-      h(
-        'span',
-        { class: 'state', 'data-state': state },
-        p.starting
-          ? h('span', { class: 'spinner', 'aria-hidden': 'true' })
-          : '',
-        PROJECT_STATE_TEXT[state] ?? state,
-      ),
-      p.starting || !projectStarts ? '' : hoverActions(
-        iconButton(
-          'play',
-          projectActions(p.environment).start,
-          () => startProject(p.localFolder),
-        ),
-      ),
-    ),
-  );
-}
-
-/** Container actions for a project (by folder), whichever row its menu is on. */
-function projectMenuItems(localFolder) {
-  const p = projects.get(localFolder);
-  if (!p) return [];
-  const items = [];
-  const actions = projectActions(p.environment);
-  if (p.container === 'running') {
-    items.push([actions.stop, () => stopProject(p)]);
-  } else if (!p.starting && projectStarts) {
-    items.push([actions.start, () => startProject(localFolder)]);
-  }
-  if (p.container !== 'missing' && !p.starting && actions.remove !== null) {
-    items.push([actions.remove, () => downProject(p), true]);
-  }
-  const move = projectStarts ? environmentItem(p, environments) : null;
-  if (move !== null && !p.starting) {
-    items.push(
-      p.container === 'running'
-        ? [
-          move.label,
-          () =>
-            projectRequest('set_project_environment', localFolder, move.label, {
-              environment: move.environment,
-            }),
-        ]
-        : [
-          move.start,
-          () => void startIn(localFolder, move.environment, move.start),
-        ],
-    );
-  }
-  // Only with nothing left to list it: no container (remove that first), no running session.
-  const removable = p.environment === 'host'
-    ? p.container !== 'running'
-    : p.container === 'missing';
-  if (removable && !p.starting) {
-    items.push([
-      'Remove project',
-      () => projectRequest('remove_project', localFolder, 'Remove project'),
-    ]);
-  }
-  if (projectOutput.get(localFolder)?.length) {
-    items.push(['Show output', () => showOutput(localFolder)]);
-  }
-  return items;
-}
-
-// ---------------------------------------------------------------------------------------------
-// Sidebar: starting, stopping and removing containers
-// ---------------------------------------------------------------------------------------------
-
-/** Moves a project to `environment`, then starts it there once the move is saved. */
-async function startIn(localFolder, environment, what) {
-  try {
-    await call({ type: 'set_project_environment', localFolder, environment });
-  } catch (e) {
-    errorToast(`${what} failed: ${e?.message ?? e}`);
-    return;
-  }
-  startProject(localFolder);
-}
-
-async function stopProject(p) {
-  const actions = projectActions(p.environment);
-  if (
-    await confirmDialog(
-      actions.stopBody(p.name),
-      { okLabel: actions.stopOk, danger: true },
-    )
-  ) {
-    projectRequest('stop_project', p.localFolder, actions.stopOk);
-  }
-}
-
-/** `devc down`: the container is stopped and deleted; the project stays listed. */
-async function downProject(p) {
-  if (
-    await confirmDialog(
-      `Remove the container for ${p.name}? Like devc down, it is stopped and deleted: its panes end, and anything outside its mounted folders and volumes is lost.`,
-      { okLabel: 'Remove container', danger: true },
-    )
-  ) {
-    projectRequest('down_project', p.localFolder, 'Remove container');
-  }
-}
-
-function addProject() {
-  openPicker();
-}
-
-/** One line of a container start's output (kept by `client.js`): on its row, and in an open dialog. */
-function showProjectOutput(localFolder, line) {
-  const lines = projectOutput.get(localFolder) ?? [];
-  for (const row of $tree.querySelectorAll('[data-project]')) {
-    const el = /** @type {HTMLElement} */ (row);
-    if (el.dataset.project === localFolder) {
-      el.title = `${localFolder}\n${line}`;
-    }
-  }
-  if (outputDialog?.localFolder === localFolder) {
-    const pre = outputDialog.pre;
-    const atEnd = pre.scrollTop + pre.clientHeight >= pre.scrollHeight - 4;
-    pre.textContent = lines.join('\n');
-    if (atEnd) pre.scrollTop = pre.scrollHeight;
-  }
-}
-
-/** @type {{localFolder: string, pre: HTMLElement, el: HTMLElement} | null} */
-let outputDialog = null;
-
-/** A dialog with a project's start output, following it while it runs. */
-function showOutput(localFolder) {
-  closeOutput();
-  const pre = h(
-    'pre',
-    { class: 'dialog-output' },
-    (projectOutput.get(localFolder) ?? []).join('\n'),
-  );
-  const el = h(
-    'div',
-    {
-      class: 'dialog-backdrop',
-      onmousedown: (e) => {
-        if (e.target === el) closeOutput();
-      },
-    },
-    h(
-      'div',
-      { class: 'dialog', role: 'dialog', 'aria-label': 'Start output' },
-      h(
-        'header',
-        { class: 'dialog-header' },
-        h('span', {}, `Start output · ${basename(localFolder)}`),
-        h('button', { type: 'button', onclick: closeOutput }, 'Close'),
-      ),
-      pre,
-    ),
-  );
-  document.body.append(el);
-  pre.scrollTop = pre.scrollHeight;
-  outputDialog = { localFolder, pre, el };
-}
-
-function closeOutput() {
-  outputDialog?.el.remove();
-  outputDialog = null;
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -3891,41 +1472,6 @@ function taskRow(task, places) {
   );
 }
 
-/** The agent the task dialog last sent to, as stored; `null` when there is none. */
-function storedTaskAgent() {
-  try {
-    return localStorage.getItem(TASK_AGENT_KEY);
-  } catch {
-    return null;
-  }
-}
-
-/** The default for new tasks pinned in the task dialog; `null` when there is none. */
-function storedTaskDefault() {
-  try {
-    return parseTaskDefault(localStorage.getItem(TASK_DEFAULT_KEY));
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Pins `value` as the default for new tasks, or clears it with `null`.
- *
- * @param {import('./lib/tasks.js').TaskDefault | null} value
- */
-function storeTaskDefault(value) {
-  try {
-    if (value === null) localStorage.removeItem(TASK_DEFAULT_KEY);
-    else localStorage.setItem(TASK_DEFAULT_KEY, JSON.stringify(value));
-  } catch { /* storage unavailable */ }
-}
-
-/** The agent a task starts on: the pinned default's, else the last one sent to, else Claude. */
-function taskSendAgent() {
-  return storedTaskDefault()?.agent ?? savedTaskAgent(storedTaskAgent());
-}
-
 /** Tasks with a `send_task` from their row in flight: a second click waits for the first. */
 const sendingTasks = new Set();
 
@@ -3968,11 +1514,6 @@ async function sendTaskFromRow(task, action) {
   if (typeof result?.pane_id === 'string') placePane(localFolder, result);
 }
 
-/** A new task routed to folder root `fr`'s project and repo. */
-function newTaskIn(fr) {
-  openTaskDialog(undefined, { localFolder: fr.localFolder, root: fr.root });
-}
-
 /** @param {import('./lib/tasks.js').SentTask} s */
 function sentTaskRow(s) {
   return h(
@@ -4013,7 +1554,7 @@ function sentTaskRow(s) {
  * @param {import('./lib/tasks.js').SentTask} s
  */
 function viewSentTask(s) {
-  taskDialog?.el.close();
+  closeTaskDialog();
   const $text = /** @type {HTMLTextAreaElement} */ (h('textarea', {
     class: 'task-text',
     readonly: true,
@@ -4122,17 +1663,6 @@ async function openSentTask(s) {
   placePane(s.localFolder, result);
 }
 
-/** "`what`: the container is not running", offering to start it. */
-function notRunningToast(localFolder, what) {
-  const p = projects.get(localFolder);
-  toast(
-    `${what}: the container is not running.`,
-    projectStarts && p && !p.starting
-      ? { label: 'Start', run: () => startProject(localFolder) }
-      : undefined,
-  );
-}
-
 /** @param {import('./lib/tasks.js').SentTask} s */
 async function copyTaskText(s) {
   try {
@@ -4157,571 +1687,11 @@ function removeSentTask(s) {
   );
 }
 
-/**
- * The open task dialog. `taskId` is the task being edited, or set once a new one is saved.
- *
- * @type {{el: HTMLDialogElement, $text: HTMLTextAreaElement, $project: HTMLSelectElement,
- *   $repo: HTMLSelectElement, $repoLabel: HTMLElement, $agent: HTMLSelectElement,
- *   $error: HTMLElement, $buttons: HTMLButtonElement[], $send: HTMLButtonElement[],
- *   taskId: string | null, busy: boolean} | null}
- */
-let taskDialog = null;
-
-/**
- * The task dialog, for a new task or `task`: its text, its route (a project and one of its repos,
- * or none) and an agent. **Save** keeps it on the list; the header's **Send: plan** /
- * **Send: implement** icons save it, then send it (`send_task`) and show the agent's pane.
- *
- * A new task opens routed to `route` when it is given, else to the pinned default's route, else
- * (with no default pinned) to the focused tile's project. The header row's pin makes the
- * dialog's project, repo and agent the default for new tasks, or clears it.
- *
- * @param {import('./lib/tasks.js').Task} [task]
- * @param {{localFolder: string, root: string}} [route]
- */
-function openTaskDialog(task, route) {
-  taskDialog?.el.close();
-  const candidates = [...projects.values()].sort(byName);
-  const pinned = storedTaskDefault();
-  const pinnedRoute = pinned?.localFolder !== undefined &&
-      projects.has(pinned.localFolder)
-    ? { localFolder: pinned.localFolder, root: pinned.root ?? null }
-    : null;
-  const focused = focusedTile(tileArea.state());
-  // A default pinned without a route means "not routed": the focused tile does not count.
-  const pinnedUnrouted = pinned !== null && pinned.localFolder === undefined;
-  const near = route?.localFolder ?? pinnedRoute?.localFolder ??
-    (pinnedUnrouted
-      ? undefined
-      : focused?.ref?.localFolder ?? focused?.file?.localFolder);
-  const initial = task
-    ? task.localFolder ?? ''
-    : near && projects.has(near)
-    ? near
-    : '';
-  const initialRoot = task ? task.root ?? null : route?.root ??
-    (initial === pinnedRoute?.localFolder ? pinnedRoute.root : null);
-  const $text = /** @type {HTMLTextAreaElement} */ (h('textarea', {
-    class: 'task-text',
-    spellcheck: 'true',
-    rows: 8,
-    'aria-label': 'Task',
-    placeholder: 'What should be done? The first line is its title.',
-    oninput: () => showTaskError(null),
-    onkeydown: (e) => {
-      if (e.key !== 'Enter' || !(e.metaKey || e.ctrlKey)) return;
-      e.preventDefault();
-      void submitTask(null);
-    },
-  }));
-  $text.value = task?.text ?? '';
-  const $project = /** @type {HTMLSelectElement} */ (h(
-    'select',
-    {
-      class: 'new-note-project',
-      'aria-label': 'Project',
-      onchange: () => {
-        fillTaskRepos(null);
-        showPinned();
-      },
-    },
-    h('option', { value: '', selected: initial === '' }, '(not routed)'),
-    ...candidates.map((p) =>
-      h(
-        'option',
-        { value: p.localFolder, selected: p.localFolder === initial },
-        containerLabel(p, projects.values()),
-      )
-    ),
-  ));
-  const $repo = /** @type {HTMLSelectElement} */ (h('select', {
-    class: 'new-note-project',
-    'aria-label': 'Repo',
-    onchange: () => showPinned(),
-  }));
-  const $repoLabel = h('label', {}, 'Repo', $repo);
-  const $agent = /** @type {HTMLSelectElement} */ (h(
-    'select',
-    {
-      class: 'new-note-project',
-      'aria-label': 'Agent',
-      onchange: () => {
-        titleSends();
-        showPinned();
-      },
-    },
-    ...TASK_AGENT_IDS.map((id) =>
-      h('option', { value: id }, LABELS.agents[id])
-    ),
-  ));
-  $agent.value = taskSendAgent();
-  const $error = h('div', { class: 'new-note-error', hidden: true });
-  const $save = /** @type {HTMLButtonElement} */ (h('button', {
-    type: 'button',
-    class: 'primary',
-    onclick: () => void submitTask(null),
-  }, 'Save'));
-  /** @type {['plan', 'implement']} */
-  const actions = ['plan', 'implement'];
-  const $send = actions.map((
-    action,
-  ) => /** @type {HTMLButtonElement} */ (iconButton(
-    action,
-    '',
-    () => void submitTask(action),
-  )));
-  // The icons name the agent they send to, so they follow the Agent dropdown.
-  const titleSends = () => {
-    const agentLabel = LABELS.agents[$agent.value];
-    $send.forEach(($b, i) => {
-      const title = `Send to ${agentLabel}: ${actions[i]}`;
-      $b.title = title;
-      $b.setAttribute('aria-label', title);
-    });
-  };
-  titleSends();
-  // The dialog's project, repo and agent, as a default for new tasks would store them.
-  const current = () =>
-    $project.value === '' ? { agent: /** @type {any} */ ($agent.value) } : {
-      localFolder: $project.value,
-      root: $repo.value,
-      agent: /** @type {any} */ ($agent.value),
-    };
-  const isPinned = () => {
-    const saved = storedTaskDefault();
-    const now = current();
-    return saved !== null && saved.agent === now.agent &&
-      saved.localFolder === now.localFolder && saved.root === now.root;
-  };
-  const $pin = /** @type {HTMLButtonElement} */ (iconButton('pin', '', () => {
-    storeTaskDefault(isPinned() ? null : current());
-    showPinned();
-    renderTree();
-  }));
-  // The pin is pressed while the dialog shows the pinned default.
-  const showPinned = () => {
-    const on = isPinned();
-    const title = on ? LABELS.unpinTaskDefault : LABELS.pinTaskDefault;
-    $pin.setAttribute('aria-pressed', String(on));
-    $pin.title = title;
-    $pin.setAttribute('aria-label', title);
-  };
-  const el = /** @type {HTMLDialogElement} */ (h(
-    'dialog',
-    {
-      class: 'dialog new-note task-dialog',
-      'aria-label': task ? 'Task' : 'New task',
-      onclose: () => {
-        if (taskDialog?.el === el) taskDialog = null;
-        el.remove();
-      },
-    },
-    h(
-      'header',
-      { class: 'dialog-header' },
-      h('span', {}, task ? 'Task' : 'New task'),
-      h('span', { class: 'task-send' }, ...$send),
-    ),
-    h(
-      'div',
-      { class: 'new-note-body' },
-      $text,
-      h(
-        'div',
-        { class: 'task-route' },
-        h('label', {}, 'Project', $project),
-        $repoLabel,
-        h('label', {}, 'Agent', $agent),
-        $pin,
-      ),
-      $error,
-    ),
-    h(
-      'footer',
-      { class: 'dialog-footer' },
-      h(
-        'span',
-        { class: 'picker-hint' },
-        'Sending starts the agent in the repo',
-      ),
-      h(
-        'span',
-        { class: 'task-buttons' },
-        h('button', { type: 'button', onclick: () => el.close() }, 'Cancel'),
-        $save,
-      ),
-    ),
-  ));
-  taskDialog = {
-    el,
-    $text,
-    $project,
-    $repo,
-    $repoLabel,
-    $agent,
-    $error,
-    $buttons: [$save, ...$send, $pin],
-    $send,
-    taskId: task?.id ?? null,
-    busy: false,
-  };
-  document.body.append(el);
-  el.showModal();
-  fillTaskRepos(initialRoot);
-  showPinned();
-  $text.focus();
-}
-
-/**
- * Lists the selected project's repos (selecting `root` when it is one of them), hides the Repo
- * field when there is no choice, and enables Send only for a routed task.
- */
-function fillTaskRepos(root) {
-  const td = taskDialog;
-  if (!td) return;
-  const localFolder = td.$project.value;
-  const repos = localFolder === ''
-    ? []
-    : projectRepos(localFolder).filter((r, i) => i === 0 || r.git !== null);
-  if (localFolder !== '' && repos.length === 0) {
-    repos.push({ folder: localFolder });
-  }
-  td.$repo.replaceChildren(
-    ...repos.map((r) =>
-      h(
-        'option',
-        { value: r.folder, title: r.folder, selected: r.folder === root },
-        r.name ?? basename(r.folder),
-      )
-    ),
-  );
-  if (root !== null && repos.some((r) => r.folder === root)) {
-    td.$repo.value = root;
-  }
-  td.$repoLabel.hidden = repos.length < 2;
-  for (const b of td.$send) b.disabled = td.busy || localFolder === '';
-  showTaskError(null);
-}
-
-/** Shows `message` under the task dialog's fields, or hides it with `null`. */
-function showTaskError(message) {
-  if (!taskDialog) return;
-  taskDialog.$error.textContent = message ?? '';
-  taskDialog.$error.hidden = message === null;
-}
-
-/**
- * Saves the dialog's task (`add_task` or `update_task`), then with `action` sends it
- * (`send_task`), folds the Tasks section, and shows the agent's pane in the focused stack. A
- * failure keeps the dialog open with the error; a task saved before a failed send stays saved,
- * and stays on the list.
- *
- * @param {'plan' | 'implement' | null} action
- */
-async function submitTask(action) {
-  const td = taskDialog;
-  if (!td || td.busy) return;
-  const text = td.$text.value.trim();
-  if (text === '') {
-    showTaskError('Write the task first');
-    return;
-  }
-  const localFolder = td.$project.value;
-  const root = td.$repo.value;
-  const route = localFolder !== '' && root !== '' ? { localFolder, root } : {};
-  if (action !== null && !('localFolder' in route)) {
-    showTaskError('Choose a project to send it to');
-    return;
-  }
-  if (action !== null && !containerByFolder(localFolder)) {
-    showTaskError('The container is not running: start it first');
-    notRunningToast(localFolder, taskTitle(text));
-    return;
-  }
-  const busy = (on) => {
-    td.busy = on;
-    for (const b of td.$buttons) b.disabled = on;
-    if (!on) fillTaskRepos(td.$repo.value);
-  };
-  busy(true);
-  try {
-    if (td.taskId === null) {
-      td.taskId = (await call({ type: 'add_task', text, ...route }))?.task ??
-        null;
-    } else {
-      await call({ type: 'update_task', task: td.taskId, text, ...route });
-    }
-  } catch (e) {
-    busy(false);
-    showTaskError(String(e?.message ?? e));
-    return;
-  }
-  if (action === null || td.taskId === null) {
-    td.el.close();
-    return;
-  }
-  const agent = td.$agent.value;
-  try {
-    localStorage.setItem(TASK_AGENT_KEY, agent);
-  } catch { /* storage unavailable */ }
-  const c = containerByFolder(localFolder);
-  if (c?.state === 'no-session') toast('Starting Herdr…');
-  let result;
-  try {
-    result = await call({
-      type: 'send_task',
-      task: td.taskId,
-      localFolder,
-      root,
-      agent,
-      action,
-    });
-  } catch (e) {
-    busy(false);
-    showTaskError(String(e?.message ?? e));
-    return;
-  }
-  td.el.close();
-  foldTasksSection();
-  if (typeof result?.pane_id === 'string') placePane(localFolder, result);
-}
-
-// ---------------------------------------------------------------------------------------------
-// Directory trees: shared by the repo file trees and the folder picker
-// ---------------------------------------------------------------------------------------------
-
-let renderQueued = false;
-
-/** Renders the sidebar once, after everything else that changes in this turn. */
-function queueRender() {
-  if (renderQueued) return;
-  renderQueued = true;
-  queueMicrotask(() => {
-    renderQueued = false;
-    renderTree();
-  });
-}
-
-/**
- * A tree's rows under `root`: `entryRow` for each entry, and a muted note while a folder loads,
- * when it failed, or when the server cut it short.
- *
- * @param {ReturnType<typeof createDirTree>} tree
- * @param {(item: any) => HTMLElement} entryRow
- */
-function treeRows(tree, root, depth, entryRow) {
-  return tree.walk(root, depth).map((item) => {
-    if (item.type === 'entry') return entryRow(item);
-    const text = item.type === 'loading'
-      ? 'Loading…'
-      : item.type === 'truncated'
-      ? '… more not shown'
-      : item.message;
-    return h(
-      'div',
-      {
-        class: 'row tree-note',
-        'data-note': item.type,
-        style: `--depth: ${item.depth}`,
-      },
-      h('span', { class: 'label' }, text),
-    );
-  });
-}
-
-/**
- * A row in a directory tree, focusable for {@link treeKeydown}: a chevron when `expanded` is
- * given, else a gap where it would be.
- *
- * @param {string} key unique within its tree's container
- * @param {number} depth
- * @param {boolean | undefined} expanded
- * @param {Record<string, any>} attrs
- * @param {...(Node|string)} label
- */
-function treeRow(key, depth, expanded, attrs, ...label) {
-  return h(
-    'div',
-    {
-      ...attrs,
-      class: `row tree-row ${attrs.class ?? ''}`,
-      style: `--depth: ${depth}`,
-      tabindex: '-1',
-      'data-tree-key': key,
-      'data-depth': depth,
-      'aria-expanded': expanded === undefined ? undefined : String(expanded),
-    },
-    h(
-      'span',
-      { class: 'label' },
-      expanded === undefined
-        ? h('span', { class: 'chevron', 'aria-hidden': 'true' })
-        : chevron(),
-      ...label,
-    ),
-  );
-}
-
-/**
- * Arrow keys and Enter on the tree rows inside `e.currentTarget`: up and down move, right
- * expands (or steps into), left collapses (or steps out), Enter activates.
- *
- * @param {KeyboardEvent} e
- * @param {{activate: (row: HTMLElement) => void, toggle: (row: HTMLElement) => void}} actions
- */
-function treeKeydown(e, actions) {
-  const row = /** @type {HTMLElement | null} */ (
-    /** @type {HTMLElement} */ (e.target).closest?.('[data-tree-key]')
-  );
-  if (!row) return;
-  const rows = /** @type {HTMLElement[]} */ ([
-    ...(/** @type {HTMLElement} */ (e.currentTarget)).querySelectorAll(
-      '[data-tree-key]',
-    ),
-  ]).filter((r) => !r.closest('.filter-hidden'));
-  const i = rows.indexOf(row);
-  const expanded = row.getAttribute('aria-expanded');
-  switch (e.key) {
-    case 'ArrowDown':
-      rows[i + 1]?.focus();
-      break;
-    case 'ArrowUp':
-      rows[i - 1]?.focus();
-      break;
-    case 'ArrowRight':
-      if (expanded === 'false') actions.toggle(row);
-      else if (expanded === 'true') rows[i + 1]?.focus();
-      break;
-    case 'ArrowLeft': {
-      if (expanded === 'true') {
-        actions.toggle(row);
-        break;
-      }
-      const depth = Number(row.dataset.depth);
-      rows.slice(0, i).reverse().find((r) => Number(r.dataset.depth) < depth)
-        ?.focus();
-      break;
-    }
-    case 'Enter':
-      actions.activate(row);
-      break;
-    default:
-      return;
-  }
-  e.preventDefault();
-  e.stopPropagation();
-}
-
-/** The tree key of the focused row inside `container`, to focus again after a re-render. */
-function focusedTreeKey(container) {
-  const el = /** @type {HTMLElement | null} */ (document.activeElement);
-  return el && container.contains(el) ? el.dataset.treeKey ?? null : null;
-}
-
-/** The row with tree key `key` inside `container`, if there is one. */
-function treeRowByKey(container, key) {
-  for (const el of container.querySelectorAll('[data-tree-key]')) {
-    const row = /** @type {HTMLElement} */ (el);
-    if (row.dataset.treeKey === key) return row;
-  }
-  return null;
-}
-
-function refocusTreeKey(container, key) {
-  if (key === null) return;
-  treeRowByKey(container, key)?.focus({ preventScroll: true });
-}
-
-// ---------------------------------------------------------------------------------------------
-// Sidebar: the filter
-// ---------------------------------------------------------------------------------------------
-
-/** Boxes whose first child heads the rest: a repo's card, a container's, an In use run. */
-const HEADED_BOXES = ['repo-card', 'container-card', 'in-use-run'];
-
-/** @typedef {import('./lib/sidebar.js').OutlineNode & {el: Element, children?: any[]}} FilterNode */
-
-/**
- * Filters the rows rendered: with a query in the filter box, each zone shows the rows whose text
- * matches it with everything under them, and the rows above them; section headings always show.
- * A folded row's contents are not rendered, so they are not searched.
- */
-function applyFilter() {
-  const query = filterQuery.trim();
-  for (const el of $tree.querySelectorAll('.filter-hidden, .filter-match')) {
-    el.classList.remove('filter-hidden', 'filter-match');
-  }
-  if (!query) return;
-  /** @type {(el: Element) => number} */
-  const depthOf = (el) =>
-    Number(
-      /** @type {HTMLElement} */ (el).style.getPropertyValue('--depth'),
-    ) || 0;
-  /** @type {(el: Element) => FilterNode} */
-  const nodeOf = (el) => {
-    if (
-      el.classList.contains('row') || el.classList.contains('in-use-run-name')
-    ) {
-      const text = el.querySelector('.label')?.textContent ?? el.textContent;
-      return {
-        el,
-        depth: depthOf(el),
-        // A name being typed shows, with the rows above it.
-        matches: el.classList.contains('new-entry') ||
-          filterMatches(text ?? '', query),
-        keep: el.classList.contains('section'),
-      };
-    }
-    const first = el.querySelector('.row');
-    const depth = first ? depthOf(first) : 0;
-    if (!first) return { el, depth, matches: false };
-    const [head, ...rest] = [...el.children].map(nodeOf);
-    if (head && HEADED_BOXES.some((k) => el.classList.contains(k))) {
-      head.children = rest;
-      return { el, depth, matches: false, children: [head] };
-    }
-    return {
-      el,
-      depth,
-      matches: false,
-      children: head ? [head, ...rest] : [],
-    };
-  };
-  /** @type {(nodes: FilterNode[]) => void} */
-  const mark = (nodes) => {
-    for (const node of nodes) {
-      node.el.classList.toggle('filter-hidden', !node.shown);
-      node.el.classList.toggle('filter-match', node.matches && !node.keep);
-      mark(node.children ?? []);
-    }
-  };
-  for (const zone of [$zoneTasks, $zoneInUse, $zoneBrowse]) {
-    const nodes = [...zone.children].map(nodeOf);
-    filterOutline(nodes);
-    mark(nodes);
-  }
-}
-
-/** Whether the filter has a query, and `text` matches it. */
-function filterHas(text) {
-  return filterQuery.trim() !== '' && filterMatches(text, filterQuery);
-}
-
-/**
- * Whether the filter matches a repo card's header (its repo's name and branch, or for the card of
- * what is outside every repo, its container's name), so a folded row it is under opens.
- */
-function cardMatchesFilter(card) {
-  if (!card.repo) return filterHas(containerNameOf(card.localFolder));
-  const { prefix, base } = repoGroupName(card.localFolder, card.repo);
-  return filterHas(`${prefix}${base} ${card.repo.git?.branch ?? ''}`);
-}
-
 /** Typing in the filter box filters the rows; Escape empties it, Down steps into the rows. */
 function filterKeydown(e) {
   if (e.key === 'Escape' && $filter.value) {
     $filter.value = '';
-    filterQuery = '';
+    setFilterQuery('');
     renderTree();
   } else if (e.key === 'Escape') {
     $filter.blur();
@@ -4734,960 +1704,6 @@ function filterKeydown(e) {
   e.preventDefault();
   e.stopPropagation();
 }
-
-// ---------------------------------------------------------------------------------------------
-// Sidebar: project files
-// ---------------------------------------------------------------------------------------------
-
-/**
- * A file root's key: a repo mounted by two projects has a tree in each (container paths differ).
- * A container root's never matches a repo's: those are absolute.
- */
-function treeId(fr) {
-  if (!fr.container) return `${fr.localFolder}\n${fr.root}`;
-  return `${fr.localFolder}\ncontainer${fr.root === '/' ? '' : `:${fr.root}`}`;
-}
-
-/** Where a file root's open folders are saved in `sidebarState.filesOpen`. */
-function openKey(fr) {
-  if (!fr.container) return fr.root;
-  return `container:${fr.localFolder}${fr.root === '/' ? '' : `\n${fr.root}`}`;
-}
-
-/** Each file root's tree, by {@link treeId}: made when its row is first drawn. */
-const fileTrees = new Map();
-/** Saved open folders of each tree still listing after a reload: one that fails is dropped. */
-const restoringFiles = new Map();
-/** The container each tree was last listed for, so a container start lists it again. */
-const filesListedFor = new Map();
-
-/**
- * @param {FileRoot} fr
- * @returns {ReturnType<typeof createDirTree>}
- */
-function fileTree(fr) {
-  const id = treeId(fr);
-  const entry = fileTrees.get(id);
-  if (entry) return entry.tree;
-  const { localFolder, root } = fr;
-  const tree = createDirTree({
-    list: (path) => {
-      if (!fr.container) {
-        return call({ type: 'list_dir', localFolder, root, path });
-      }
-      const c = containerByFolder(localFolder);
-      return c
-        ? call({
-          type: 'list_container_dir',
-          container: c.id,
-          path: containerFilePath(fr, path),
-        })
-        : Promise.reject(new Error(LABELS.notRunning));
-    },
-    onChange: () => onFilesChange(fr),
-  });
-  fileTrees.set(id, { fr: { ...fr }, tree });
-  filesListedFor.set(id, containerByFolder(localFolder)?.id ?? null);
-  const saved = byDepth(sidebarState.filesOpen[openKey(fr)] ?? []);
-  restoringFiles.set(id, new Set(saved));
-  for (const p of saved) tree.expand(p);
-  return tree;
-}
-
-function onFilesChange(fr) {
-  const id = treeId(fr);
-  const tree = fileTrees.get(id)?.tree;
-  if (!tree) return;
-  const restoring = restoringFiles.get(id);
-  for (const p of [...(restoring ?? [])]) {
-    const state = tree.listing(p)?.state;
-    if (state === 'loading') continue;
-    restoring.delete(p);
-    if (state !== 'ok' && tree.isOpen(p)) tree.collapse(p);
-  }
-  const open = tree.openPaths();
-  if (open.length) sidebarState.filesOpen[openKey(fr)] = open;
-  else delete sidebarState.filesOpen[openKey(fr)];
-  saveSidebarState();
-  queueRender();
-}
-
-/**
- * Lists a tree again when its project's container came or went: the listing says where each
- * folder is in the container, which only a running one knows.
- */
-function relistForContainers() {
-  for (const [id, { fr, tree }] of fileTrees) {
-    const cid = containerByFolder(fr.localFolder)?.id ?? null;
-    if (filesListedFor.get(id) === cid) continue;
-    filesListedFor.set(id, cid);
-    tree.refresh('');
-  }
-}
-
-/**
- * A file or folder's tooltip lines for its path: the host path, then for a container's own file
- * its container path (alone when no bind mount covers it).
- */
-function pathTitle(fr, path) {
-  const host = hostPathOf(fr, path);
-  if (!fr.container) return host;
-  const inContainer = containerFilePath(fr, path);
-  return host === null ? inContainer : `${host}\n${inContainer}`;
-}
-
-/**
- * A Herdr tab at a repo folder (`open_tab`), shown in the focused stack: with `reuse`, a shell
- * already there (its tile focused if it has one), else a new tab. Starts Herdr in a running
- * container that has no session; never starts the container.
- */
-function openHerdrTab(fr, path, reuse, agent) {
-  const c = containerByFolder(fr.localFolder);
-  if (!c) {
-    toast(projectActions(projects.get(fr.localFolder)?.environment).notRunning);
-    return;
-  }
-  if (c.state === 'no-session') toast('Starting Herdr…');
-  createPane(
-    c,
-    {
-      type: 'open_tab',
-      root: fr.root,
-      path,
-      reuse,
-      ...(agent ? { agent } : {}),
-    },
-    {},
-    agent ? LABELS.agents[agent] : reuse ? LABELS.openHere : LABELS.newTerminal,
-  );
-}
-
-/**
- * A row's + (the Terminals row, or a folder's in a running container): opens
- * {@link newTerminalMenuItems} for folder `path` under the row's right end. Before it, a button
- * for a new task routed to the folder's project and repo.
- *
- * @param {HTMLElement} row @param {FileRoot} fr @param {string} path
- */
-function newTerminalButton(row, fr, path) {
-  return hoverActions(...newTerminalButtons(row, fr, path));
-}
-
-/** {@link newTerminalButton}'s two buttons, for a row with more hover buttons of its own. */
-function newTerminalButtons(row, fr, path) {
-  return [
-    iconButton('task', LABELS.newTaskHere, () => newTaskIn(fr)),
-    iconButton('plus', LABELS.newTerminal, () => {
-      // Under the + at the row's right end. The row, not the button: hover buttons can be
-      // hidden (zero-sized) by the time the click lands.
-      const r = row.getBoundingClientRect();
-      openMenuAt(r.right - 20, r.bottom + 2, newTerminalMenuItems(fr, path));
-    }),
-  ];
-}
-
-/** Gives a folder's row a {@link newTerminalButton} while its container is running. */
-function folderTerminalButton(row, fr, path) {
-  if (!fr.container && containerByFolder(fr.localFolder)) {
-    row.append(rowTrail(newTerminalButton(row, fr, path)));
-  }
-}
-
-/**
- * The + menu: a shell or one of the agents, each in a new terminal at folder `path` (`open_tab`,
- * which starts Herdr first when the container has no session).
- */
-function newTerminalMenuItems(fr, path) {
-  return [
-    [
-      LABELS.plainTerminal,
-      () => openHerdrTab(fr, path, false),
-      false,
-      rowIcon({}),
-    ],
-    ...AGENT_IDS.map((id) => [
-      LABELS.agents[id],
-      () => openHerdrTab(fr, path, false, id),
-      false,
-      rowIcon({ agent: id }),
-    ]),
-  ];
-}
-
-/** A new terminal at a container folder (`new_shell`), shown in the focused stack. */
-function newShellIn(fr, path) {
-  const c = containerByFolder(fr.localFolder);
-  if (!c || c.state !== 'connected') {
-    toast(
-      c
-        ? `Start Herdr ${
-          c.kind === 'host' ? 'on this machine' : 'in this container'
-        } first`
-        : projectActions(projects.get(fr.localFolder)?.environment).notRunning,
-    );
-    return;
-  }
-  newShell(c, { cwd: containerFilePath(fr, path) });
-}
-
-/** A folder's menu: the root itself (`path` '', its repo or Files row) or a directory under it. */
-function dirMenuItems(fr, path) {
-  return [
-    fr.container
-      ? [LABELS.newTerminalHere, () => newShellIn(fr, path)]
-      : [LABELS.openHere, () => openHerdrTab(fr, path, true)],
-    ...(fr.container ? [] : [[LABELS.newTaskHere, () => newTaskIn(fr)]]),
-    null,
-    [LABELS.newFile, () => startNewEntry(fr, path, 'file')],
-    [LABELS.newFolder, () => startNewEntry(fr, path, 'dir')],
-    null,
-    ...hostOpenItems(fr, path),
-    null,
-    ...copyPathItems(fr, path),
-    null,
-    ['Refresh', () => fileTree(fr).refresh(path)],
-    null,
-    // Not a root: it is the project's repo, or the container's `/`.
-    ...(path === '' ? [] : changeEntryItems(fr, path, 'dir')),
-  ];
-}
-
-/** **Rename…** and **Delete…** for an entry (not a root) of `fr`. */
-function changeEntryItems(fr, path, kind) {
-  return [
-    [LABELS.renameEntry, () => startNewEntry(fr, treeParent(path), kind, path)],
-    [LABELS.deleteEntry, () => void deleteEntry(fr, path, kind)],
-  ];
-}
-
-/** The folder a tree path is in: `''` for the root's own entries. */
-function treeParent(path) {
-  const i = path.lastIndexOf('/');
-  return i < 0 ? '' : path.slice(0, i);
-}
-
-// ---------------------------------------------------------------------------------------------
-// Sidebar: new files and folders
-// ---------------------------------------------------------------------------------------------
-
-/**
- * Opens the inline name row under folder `path` of `fr`, expanding the folder. Creating needs a
- * running container: the entry is made inside it, as the remote user (`create_file`). With
- * `rename` (an entry of `path`), the row takes that entry's place with its name to edit
- * (`rename_file`).
- *
- * @param {FileRoot} fr @param {string} path @param {'file' | 'dir'} kind
- * @param {string | null} [rename]
- */
-function startNewEntry(fr, path, kind, rename = null) {
-  if (!containerByFolder(fr.localFolder)) {
-    toast(projectActions(projects.get(fr.localFolder)?.environment).notRunning);
-    return;
-  }
-  const input = /** @type {HTMLInputElement} */ (h('input', {
-    type: 'text',
-    class: 'new-entry-input',
-    spellcheck: 'false',
-    autocomplete: 'off',
-    'aria-label': rename !== null
-      ? 'New name'
-      : kind === 'file'
-      ? 'New file name'
-      : 'New folder name',
-    placeholder: kind === 'file' ? 'File name' : 'Folder name',
-  }));
-  const oldName = rename === null
-    ? ''
-    : rename.slice(rename.lastIndexOf('/') + 1);
-  input.value = oldName;
-  const error = h('div', { class: 'new-entry-error', hidden: '' });
-  const row = h(
-    'div',
-    { class: 'row new-entry', 'data-kind': kind },
-    h(
-      'span',
-      { class: 'label' },
-      h('span', { class: 'chevron', 'aria-hidden': 'true' }),
-      input,
-    ),
-    error,
-  );
-  const entry = {
-    fr,
-    dir: path,
-    kind,
-    rename,
-    row,
-    input,
-    error,
-    busy: false,
-    seen: 0,
-  };
-  input.addEventListener('keydown', (e) => {
-    // The tree's own keys (arrows, Enter) must not act on the rows behind it.
-    e.stopPropagation();
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      void submitNewEntry(entry);
-    } else if (e.key === 'Escape') {
-      e.preventDefault();
-      cancelNewEntry(entry);
-    }
-  });
-  input.addEventListener('input', () => showNewEntryError(entry, null));
-  newEntry = entry;
-  const tree = fileTree(fr);
-  if (!tree.isOpen(path)) tree.expand(path);
-  renderTree();
-  input.focus();
-  // A file's name without its extension, ready to retype, as a desktop rename selects it.
-  const dot = oldName.lastIndexOf('.');
-  input.setSelectionRange(0, kind === 'file' && dot > 0 ? dot : oldName.length);
-}
-
-function cancelNewEntry(entry) {
-  if (newEntry !== entry) return;
-  newEntry = null;
-  renderTree();
-}
-
-/** Shows `message` under the inline row, or hides it with `null`. */
-function showNewEntryError(entry, message) {
-  entry.error.textContent = message ?? '';
-  entry.error.hidden = message === null;
-}
-
-/**
- * Creates the entry named in the inline row. On success the folder is listed again with the new
- * row selected, and a file opens in the editor (as **Open in editor** places it). On failure
- * (`exists` among them) the row stays open with the reason under it.
- */
-async function submitNewEntry(entry) {
-  if (newEntry !== entry || entry.busy) return;
-  const name = entry.input.value;
-  const invalid = newEntryNameError(name);
-  if (invalid !== null) {
-    showNewEntryError(entry, invalid);
-    return;
-  }
-  const { fr, dir, kind } = entry;
-  const c = containerByFolder(fr.localFolder);
-  if (!c) {
-    toast(projectActions(projects.get(fr.localFolder)?.environment).notRunning);
-    return;
-  }
-  const path = childPath(dir, name);
-  const where = (p) =>
-    fr.container
-      ? { path: containerFilePath(fr, p) }
-      : { root: fr.root, path: p };
-  if (entry.rename === path) {
-    cancelNewEntry(entry);
-    return;
-  }
-  entry.busy = true;
-  try {
-    await call(
-      entry.rename !== null
-        ? {
-          type: 'rename_file',
-          container: c.id,
-          ...where(entry.rename),
-          to: name,
-        }
-        : { type: 'create_file', container: c.id, ...where(path), kind },
-    );
-  } catch (e) {
-    entry.busy = false;
-    showNewEntryError(
-      entry,
-      e?.code === 'exists' ? `${name} already exists` : String(e?.message ?? e),
-    );
-    return;
-  }
-  if (newEntry === entry) newEntry = null;
-  selectTreeKey = `${treeId(fr)}\n${path}`;
-  fileTree(fr).refresh(dir);
-  if (kind === 'file' && entry.rename === null) openInEditor(fr, path, 'stack');
-}
-
-/**
- * Deletes an entry of `fr` in the container (`delete_file`), once confirmed: a folder with
- * everything in it. Its folder is listed again; a failure is a toast.
- *
- * @param {FileRoot} fr @param {string} path @param {'file' | 'dir'} kind
- */
-async function deleteEntry(fr, path, kind) {
-  const c = containerByFolder(fr.localFolder);
-  if (!c) {
-    toast(projectActions(projects.get(fr.localFolder)?.environment).notRunning);
-    return;
-  }
-  const name = path.slice(path.lastIndexOf('/') + 1);
-  const question = kind === 'dir'
-    ? `Delete the folder "${name}" and everything in it? This can't be undone.`
-    : `Delete "${name}"? This can't be undone.`;
-  if (!await confirmDialog(question, { okLabel: 'Delete', danger: true })) {
-    return;
-  }
-  try {
-    await call({
-      type: 'delete_file',
-      container: c.id,
-      ...(fr.container
-        ? { path: containerFilePath(fr, path) }
-        : { root: fr.root, path }),
-    });
-  } catch (e) {
-    errorToast(`Delete failed: ${e?.message ?? e}`);
-    return;
-  }
-  fileTree(fr).refresh(treeParent(path));
-}
-
-/**
- * `rows` (a root's entry rows, at `depth`) with the inline name row in place when it belongs to
- * this root: first under its folder's row, or first of all for the root itself.
- *
- * @param {FileRoot} fr @param {number} depth @param {HTMLElement[]} rows
- */
-function withNewEntryRow(fr, depth, rows) {
-  const entry = newEntry;
-  if (entry === null || treeId(entry.fr) !== treeId(fr)) return rows;
-  if (!fileTree(fr).isOpen(entry.dir)) return rows;
-  if (entry.rename !== null) {
-    const key = `${treeId(fr)}\n${entry.rename}`;
-    const at = rows.findIndex((r) => r.dataset.treeKey === key);
-    if (at === -1) return rows;
-    entry.row.style.setProperty(
-      '--depth',
-      rows[at].dataset.depth ?? String(depth),
-    );
-    entry.seen = renderGeneration;
-    return [...rows.slice(0, at), entry.row, ...rows.slice(at + 1)];
-  }
-  let at = 0;
-  let rowDepth = depth;
-  if (entry.dir !== '') {
-    const key = `${treeId(fr)}\n${entry.dir}`;
-    at = rows.findIndex((r) => r.dataset.treeKey === key) + 1;
-    if (at === 0) return rows;
-    rowDepth = Number(rows[at - 1].dataset.depth) + 1;
-  }
-  entry.row.style.setProperty('--depth', String(rowDepth));
-  entry.seen = renderGeneration;
-  return [...rows.slice(0, at), entry.row, ...rows.slice(at)];
-}
-
-function fileMenuItems(fr, path) {
-  return [
-    ['Open', () => openFileTile(fr, path, 'stack')],
-    ['Open to the right', () => openFileTile(fr, path, 'right')],
-    ...(previewable(path)
-      ? [
-        [LABELS.preview, () => openFileTile(fr, path, 'stack', 'media')],
-        [LABELS.previewRight, () => openFileTile(fr, path, 'right', 'media')],
-      ]
-      : []),
-    null,
-    ['Open in editor', () => openInEditor(fr, path, 'stack')],
-    [
-      'Open in editor to the right',
-      () => openInEditor(fr, path, 'right'),
-    ],
-    null,
-    ...(mediaKind(path) === 'html'
-      ? [['Open in browser', () => openInBrowser(fr, path)]]
-      : []),
-    ...hostOpenItems(fr, path),
-    null,
-    ...copyPathItems(fr, path),
-    null,
-    // A repo file only: the container's own files are outside the bind mount.
-    ...(fr.container ? [] : [filePinItem(fr, path), dashboardItem(fr, path)]),
-    null,
-    ...changeEntryItems(fr, path, 'file'),
-  ];
-}
-
-/** The folders and files of an open root, at `depth`, and an inline name row if it has one. */
-function rootEntryRows(fr, depth) {
-  const tree = fileTree(fr);
-  return withNewEntryRow(
-    fr,
-    depth,
-    treeRows(tree, '', depth, (item) => fileEntryRow(fr, tree, item)),
-  );
-}
-
-function fileEntryRow(fr, tree, item) {
-  const { entry, path } = item;
-  const dir = opensAsDir(entry);
-  const file = opensAsFile(entry);
-  const key = `${treeId(fr)}\n${path}`;
-  const row = treeRow(
-    key,
-    item.depth,
-    dir ? item.open : undefined,
-    {
-      class: file ? 'file-entry file-drag' : 'file-entry',
-      'data-kind': entry.kind,
-      'data-dim': isHiddenName(entry.name) || (!dir && !file) || undefined,
-      title: [
-        pathTitle(fr, path),
-        entry.size !== undefined ? formatSize(entry.size) : '',
-        entry.kind === 'symlink'
-          ? entry.to ? 'Symbolic link' : 'Broken symbolic link'
-          : '',
-      ].filter((s) => s).join('\n'),
-      onclick: dir
-        ? () => tree.toggle(path)
-        : file
-        ? () => openFileTile(fr, path, 'preview')
-        : undefined,
-      ondblclick: file
-        ? () => keepOpen(tileShowingFile(tileArea.state(), fileRefOf(fr, path)))
-        : undefined,
-      oncontextmenu: (e) =>
-        openMenu(
-          e,
-          dir ? dirMenuItems(fr, path) : file ? fileMenuItems(fr, path) : [
-            ...hostOpenItems(fr, path),
-            null,
-            ...copyPathItems(fr, path),
-            null,
-            ...changeEntryItems(fr, path, 'file'),
-          ],
-        ),
-    },
-    entry.name,
-    entry.kind === 'symlink' ? h('span', { class: 'link-mark' }, '→') : '',
-  );
-  if (dir) folderTerminalButton(row, fr, path);
-  return file ? keptFileRow(key, row, fr, path) : row;
-}
-
-/**
- * A file row that is a drag source into the layout (a drop opens a file tile there). The first
- * row made for `key` is kept and brought up to date from `fresh` on each render, so its drag
- * source lives as long as the row is shown (see {@link paneRows}). Its listeners stay the first
- * row's: they act on the same root and path, which is what `key` names.
- *
- * @param {string} key @param {HTMLElement} fresh @param {FileRoot} fr @param {string} path
- */
-function keptFileRow(key, fresh, fr, path) {
-  const rec = fileRows.get(key);
-  if (!rec) {
-    const ref = fileRefOf(fr, path);
-    fileRows.set(key, {
-      row: fresh,
-      seen: renderGeneration,
-      remove: tileArea.dragSource(
-        fresh,
-        () => ({ file: ref }),
-        () => basename(path),
-      ),
-    });
-    return fresh;
-  }
-  rec.seen = renderGeneration;
-  const { row } = rec;
-  for (const { name } of [...row.attributes]) {
-    if (!fresh.hasAttribute(name)) row.removeAttribute(name);
-  }
-  for (const { name, value } of [...fresh.attributes]) {
-    if (row.getAttribute(name) !== value) row.setAttribute(name, value);
-  }
-  row.replaceChildren(...fresh.childNodes);
-  return row;
-}
-
-// ---------------------------------------------------------------------------------------------
-// "Add project…": the host folder picker
-// ---------------------------------------------------------------------------------------------
-
-/**
- * The open picker: its tree of host folders (absolute paths), the folders shown at its top
- * (`null` until the server names the opening roots) and the selected folder.
- *
- * @type {{el: HTMLDialogElement, tree: ReturnType<typeof createDirTree>, $list: HTMLElement,
- *   $path: HTMLInputElement, $pin: HTMLButtonElement, tops: string[] | null,
- *   selected: string | null} | null}
- */
-let picker = null;
-
-function openPicker() {
-  picker?.el.close();
-  const tree = createDirTree({
-    list: (path) => call({ type: 'list_host_dir', path }),
-    onChange: () => renderPicker(),
-  });
-  const $list = h('div', {
-    class: 'picker-tree',
-    role: 'tree',
-    'aria-label': 'Host folders',
-  });
-  $list.addEventListener('keydown', (e) =>
-    treeKeydown(e, {
-      activate: (row) => pinFolder(row.dataset.path ?? null),
-      toggle: (row) => row.dataset.path && tree.toggle(row.dataset.path),
-    }));
-  const $path = /** @type {HTMLInputElement} */ (h('input', {
-    class: 'picker-path',
-    type: 'text',
-    spellcheck: 'false',
-    autocomplete: 'off',
-    autofocus: true,
-    placeholder: 'Pick a folder below, or paste an absolute path',
-    'aria-label': 'Folder',
-    onkeydown: (e) => {
-      if (e.key !== 'Enter') return;
-      e.preventDefault();
-      const path = $path.value.trim().replace(/(.)\/+$/, '$1');
-      if (path.startsWith('/')) rerootPicker(path);
-      else toast('Enter an absolute path');
-    },
-  }));
-  const $pin = /** @type {HTMLButtonElement} */ (h('button', {
-    type: 'button',
-    class: 'primary',
-    disabled: true,
-    onclick: () => pinFolder(picker?.selected ?? null),
-  }, 'Add this folder'));
-  // Only when this server runs both kinds. It follows the selected folder (a container when it
-  // has a dev container config) until the user picks one.
-  const $env = environments.includes('container') &&
-      environments.includes('host')
-    ? /** @type {HTMLSelectElement} */ (h(
-      'select',
-      {
-        class: 'new-note-project',
-        'aria-label': 'Where it runs',
-        onchange: () => {
-          if (picker) picker.envChosen = true;
-        },
-      },
-      h('option', { value: 'container' }, 'In a container'),
-      h('option', { value: 'host' }, 'On this machine'),
-    ))
-    : null;
-  const el = /** @type {HTMLDialogElement} */ (h(
-    'dialog',
-    {
-      class: 'dialog picker',
-      'aria-label': 'Add project',
-      onclose: () => {
-        if (picker?.el === el) picker = null;
-        el.remove();
-      },
-    },
-    h(
-      'header',
-      { class: 'dialog-header' },
-      h('span', {}, 'Add project'),
-      h('button', { type: 'button', onclick: () => el.close() }, 'Cancel'),
-    ),
-    h('div', { class: 'picker-body' }, $path, $list),
-    h(
-      'footer',
-      { class: 'dialog-footer' },
-      h(
-        'span',
-        { class: 'picker-hint' },
-        h('span', { class: 'project-mark' }, svgIcon('project')),
-        'has a dev container config, or is a project',
-      ),
-      h('span', { class: 'picker-actions' }, $env ?? '', $pin),
-    ),
-  ));
-  picker = {
-    el,
-    tree,
-    $list,
-    $path,
-    $pin,
-    $env,
-    envChosen: false,
-    tops: null,
-    selected: null,
-  };
-  document.body.append(el);
-  el.showModal();
-  renderPicker();
-  call({ type: 'list_host_dir', path: '' }).then(
-    (result) => {
-      if (picker?.tree !== tree) return;
-      const roots = list(result?.roots).filter((r) => typeof r === 'string');
-      picker.tops = roots;
-      if (roots.length === 1) tree.expand(roots[0]);
-      renderPicker();
-    },
-    (e) => {
-      errorToast(`Add project failed: ${e?.message ?? e}`);
-      if (picker?.tree === tree) el.close();
-    },
-  );
-}
-
-/** Shows only `path` at the top of the picker, open and selected. */
-function rerootPicker(path) {
-  if (!picker) return;
-  picker.tops = [path];
-  picker.tree.expand(path);
-  selectFolder(path);
-}
-
-function selectFolder(path) {
-  if (!picker) return;
-  picker.selected = path;
-  if (picker.$path.value !== (path ?? '')) {
-    picker.$path.value = path ?? '';
-    // The end of a long path is the folder's own name.
-    picker.$path.scrollLeft = picker.$path.scrollWidth;
-  }
-  picker.$pin.disabled = path === null;
-  for (const el of picker.$list.querySelectorAll('[data-path]')) {
-    const row = /** @type {HTMLElement} */ (el);
-    row.toggleAttribute('data-selected', row.dataset.path === path);
-    row.setAttribute('aria-selected', String(row.dataset.path === path));
-    if (row.dataset.path === path && picker.$env && !picker.envChosen) {
-      picker.$env.value = row.hasAttribute('data-project')
-        ? 'container'
-        : 'host';
-    }
-  }
-}
-
-/** Adds `path` as a project (`add_project`) and closes the picker. */
-function pinFolder(path) {
-  if (!picker || !path) return;
-  projectRequest(
-    'add_project',
-    path,
-    'Add project',
-    picker.$env ? { environment: picker.$env.value } : {},
-  );
-  // It joins the list as "not created", under "Not running".
-  sidebarState.inactiveOpen = true;
-  saveSidebarState();
-  picker.el.close();
-}
-
-/** The top folder the selection is in (else the first): what "Parent folder" goes above. */
-function pickerTop() {
-  const tops = picker?.tops ?? [];
-  const sel = picker?.selected;
-  return tops.find((t) =>
-    sel && (sel === t || sel.startsWith(t === '/' ? '/' : `${t}/`))
-  ) ?? tops[0] ?? null;
-}
-
-function renderPicker() {
-  if (!picker) return;
-  const { tree, $list } = picker;
-  const focusKey = focusedTreeKey($list);
-  const scroll = $list.scrollTop;
-  const rows = [];
-  if (picker.tops === null) {
-    rows.push(
-      h('div', { class: 'row tree-note', style: '--depth: 0' }, 'Loading…'),
-    );
-  } else {
-    const parent = parentDir(pickerTop() ?? '/');
-    if (parent !== null) {
-      rows.push(
-        h(
-          'div',
-          {
-            class: 'row tree-row picker-up',
-            style: '--depth: 0',
-            title: parent,
-            onclick: () => rerootPicker(parent),
-          },
-          h('span', { class: 'label' }, '↑ Parent folder'),
-        ),
-      );
-    }
-    for (const top of picker.tops) {
-      rows.push(pickerRow(top, top, 0, tree.isOpen(top), false));
-      if (tree.isOpen(top)) {
-        rows.push(
-          ...treeRows(
-            tree,
-            top,
-            1,
-            (item) =>
-              pickerRow(
-                item.path,
-                item.entry.name,
-                item.depth,
-                item.open,
-                item.entry.project === true,
-                isHiddenName(item.entry.name),
-              ),
-          ),
-        );
-      }
-    }
-  }
-  $list.replaceChildren(...rows);
-  $list.scrollTop = scroll;
-  selectFolder(picker.selected);
-  refocusTreeKey($list, focusKey);
-}
-
-function pickerRow(path, name, depth, open, project, hidden = false) {
-  return treeRow(
-    path,
-    depth,
-    open,
-    {
-      class: 'picker-row',
-      role: 'treeitem',
-      'data-path': path,
-      'data-dim': hidden || undefined,
-      'data-project': project || undefined,
-      title: path,
-      onfocus: () => selectFolder(path),
-      onclick: () => {
-        selectFolder(path);
-        picker?.tree.toggle(path);
-      },
-      ondblclick: () => pinFolder(path),
-    },
-    name,
-    project
-      ? h('span', {
-        class: 'project-mark',
-        title: 'Has a dev container config, or is already a project',
-      }, svgIcon('project'))
-      : '',
-  );
-}
-
-function paneMenu(rec) {
-  const { c, pane } = rec;
-  const items = [
-    [
-      'Open in new tile',
-      () =>
-        tileArea.openPane({
-          localFolder: c.localFolder,
-          pane_id: pane.pane_id,
-        }),
-    ],
-  ];
-  const tile = tileShowing(c, pane);
-  if (tile) items.push(['Show in layout', () => tileArea.reveal(tile.id)]);
-  const jira = jiraItems(paneRepo(c.localFolder, pane)?.git?.branch);
-  if (jira.length > 0) items.push(...jira, null);
-  items.push(
-    ['Rename…', async () => {
-      const label = await promptDialog(LABELS.renamePrompt, paneTitle(pane));
-      if (label) {
-        request(
-          c.id,
-          'pane.rename',
-          { pane_id: pane.pane_id, label },
-          LABELS.rename,
-        );
-      }
-    }],
-    killPaneItem(c, pane),
-  );
-  return items;
-}
-
-/**
- * Click: show the pane where it already is, else open it in the focused stack's preview tile.
- * Ctrl/Cmd-click: a new tile that stays.
- */
-function onPaneClick(rec, e) {
-  const ref = { localFolder: rec.c.localFolder, pane_id: rec.pane.pane_id };
-  if (e.ctrlKey || e.metaKey) {
-    tileArea.openPane(ref);
-    return;
-  }
-  const tile = tileShowing(rec.c, rec.pane);
-  if (tile) tileArea.reveal(tile.id);
-  else tileArea.openPane(ref, { where: 'preview' });
-}
-
-/**
- * A pane no tile shows, in its repo card: the kept row for this pane (see {@link paneRows}),
- * brought up to date. It says what it is doing, as In use rows do; its card names its folder and
- * container. `space` names its Herdr space in the tooltip; '' when the container has just one.
- */
-function paneRow(c, pane, depth, space = '') {
-  const key = paneKey(c.id, pane.pane_id);
-  let rec = paneRows.get(key);
-  if (!rec) {
-    const row = h('div', {
-      class: 'row pane',
-      onclick: (e) => onPaneClick(rec, e),
-      // The two clicks opened it (as a preview); a double-click also keeps it.
-      ondblclick: () => keepOpen(tileShowing(rec.c, rec.pane)),
-      oncontextmenu: (e) =>
-        openMenu(e, [...paneCodeItems(rec.c, rec.pane), ...paneMenu(rec)]),
-    });
-    rec = { row, c, pane, seen: 0, remove: null };
-    paneRows.set(key, rec);
-  }
-  Object.assign(rec, { c, pane, seen: renderGeneration });
-  // Dragging the row into the tiling area opens the pane in a new tile where it lands. Golden
-  // Layout only starts a drag on the row itself, so its children ignore the pointer (CSS).
-  if (!rec.remove) {
-    const r = rec;
-    rec.remove = tileArea.dragSource(
-      r.row,
-      () => ({ localFolder: r.c.localFolder, pane_id: r.pane.pane_id }),
-      () => labelText(paneLabel(r.pane)),
-    );
-  }
-  const { row } = rec;
-  const visible = isVisible(c, pane);
-  row.style.setProperty('--depth', String(depth));
-  row.dataset.paneKey = key;
-  row.classList.toggle('visible', visible);
-  // The children ignore the pointer, so the badge's tooltip lives here.
-  row.title = [
-    paneTitle(pane),
-    pane.foreground_cwd || pane.cwd || '',
-    space ? `Space: ${space}` : '',
-    pane.agent ? `${pane.agent}: ${agentStatus(pane)}` : '',
-    visible ? 'Shown in a tile' : '',
-  ].filter((s) => s).join('\n');
-  row.replaceChildren(
-    h(
-      'span',
-      { class: 'label' },
-      // In the slot a chevron would take, so terminals line up with the tree rows at their depth.
-      // Shown in a tile, it turns the accent color (the row's `visible` class).
-      rowIcon({ agent: pane.agent }),
-      inUseLabel(paneLabel(pane)),
-    ),
-    rowTrail(
-      badge(pane),
-      hoverActions(
-        iconButton('trash', LABELS.close, () => killPane(rec.c, rec.pane)),
-      ),
-    ),
-  );
-  return row;
-}
-
-function startSession(containerId) {
-  const id = nextId('r');
-  pendingRequests.set(id, 'Start session');
-  send({ type: 'start_session', id, container: containerId });
-}
-
-// ---------------------------------------------------------------------------------------------
-// Sidebar: mounting
-// ---------------------------------------------------------------------------------------------
-
-/** The tiling area, as the sidebar reaches it (see `lib/view.js`): set by {@link mountSidebar}. */
-let tileArea = /** @type {TileArea} */ (null);
 
 /** The connection indicator, and what the sidebar shows without a token or a connection. */
 function onSidebarConnection(state) {
@@ -5709,20 +1725,9 @@ function onSidebarConnection(state) {
 
 /** A server message, as the sidebar takes it once `client.js` has applied it. */
 function onSidebarMessage(msg) {
+  cardsMessage(msg);
   switch (msg.type) {
-    case 'hello':
-      // A fetch asked for before a reconnect never gets its answer.
-      fetchingRepos.clear();
-      // Listings asked for while disconnected never got an answer.
-      for (const { tree } of fileTrees.values()) tree.refresh('');
-      // The server's own copy of each list may be gone (a restart): open Sessions rows list again.
-      sessionLists.clear();
-      prLists.clear();
-      queueRender();
-      for (const top of picker?.tops ?? []) picker?.tree.refresh(top);
-      break;
     case 'containers':
-      relistForContainers();
       renderTree();
       break;
     case 'dashboard':
@@ -5742,13 +1747,7 @@ function onSidebarMessage(msg) {
       renderTree();
       break;
     case 'agent_status':
-      if (msg.agent_status === 'done' || msg.agent_status === 'idle') {
-        sessionsAfterTurn(msg.container);
-      }
       renderTree();
-      break;
-    case 'project_output':
-      showProjectOutput(msg.localFolder, msg.line);
       break;
     case 'fetch_result':
     case 'result':
@@ -5758,16 +1757,23 @@ function onSidebarMessage(msg) {
 }
 
 /**
- * Mounts the sidebar into `root` (today's `aside.sidebar`: its header, and `#tree`) and returns
- * the tiling area's way in. `tileArea` is how the sidebar reaches the tiling area (see
- * `lib/view.js`).
+ * Mounts the sidebar into `root` (today's `aside.sidebar`: its header, and `#tree`), with the
+ * Containers section in its bottom zone, and returns the tiling area's way in and In use's way in
+ * for a Containers section on another page. `tileArea` is how the sidebar reaches the tiling area
+ * (see `lib/view.js`). On `/sidebar`, `containers` is another page's Containers section, and
+ * `onInUse` tells it In use's cards and pins as they change.
  *
  * @param {HTMLElement} root
- * @param {{tileArea: TileArea}} opts
- * @returns {{intents: SidebarIntents, onViewState: (state: ViewState) => void}}
+ * @param {{tileArea: TileArea, containers?: ContainersIntents,
+ *   onInUse?: (state: {inUse: string[], pinned: string[]}) => void}} opts
+ * @returns {{intents: SidebarIntents, onViewState: (state: ViewState) => void,
+ *   inUse: {revealInUse: (key: string) => void, pin: (key: string, pinned: boolean) => void,
+ *   state: () => {inUse: string[], pinned: string[]}}}}
  */
 export function mountSidebar(root, opts) {
   tileArea = opts.tileArea;
+  otherContainers = opts.containers ?? null;
+  onInUse = opts.onInUse ?? null;
   $sidebar = root;
   $tree = /** @type {HTMLElement} */ (root.querySelector('#tree'));
   $conn = root.querySelector('#conn');
@@ -5780,17 +1786,24 @@ export function mountSidebar(root, opts) {
     spellcheck: 'false',
     autocomplete: 'off',
     oninput: () => {
-      filterQuery = $filter.value;
+      setFilterQuery($filter.value);
       renderTree();
     },
     onkeydown: filterKeydown,
   }));
   $tree.before(h('div', { class: 'sidebar-filter' }, $filter));
+  mountCards({ tileArea, root: $tree, render: renderTree });
+  containersSection = mountContainers($zoneBrowse, {
+    tileArea,
+    inUse: inUseLink,
+    standalone: false,
+  });
   setMenuContext({
     tileArea,
     fileTreeOf: fileTree,
     filePinned: openPinnedSection,
   });
+  setTaskContext({ tileArea, changed: renderTree, sent: foldTasksSection });
   $scopePicker?.addEventListener('click', (e) => {
     const option = /** @type {HTMLElement} */ (e.target).closest?.(
       '[data-scope]',
@@ -5816,34 +1829,6 @@ export function mountSidebar(root, opts) {
   window.addEventListener('resize', applyZoneSizes);
   dragZoneDivider($dividerTasks, 'top');
   dragZoneDivider($dividerBrowse, 'bottom');
-  // Hovering a pane's row in either section highlights its rows in the other.
-  $tree.addEventListener('mouseover', (e) => {
-    const row = /** @type {HTMLElement} */ (e.target).closest?.(
-      '[data-pane-key]',
-    );
-    const key = row ? /** @type {HTMLElement} */ (row).dataset.paneKey : null;
-    for (const el of $tree.querySelectorAll('[data-pane-key]')) {
-      el.classList.toggle(
-        'linked',
-        key !== null && /** @type {HTMLElement} */
-          (el).dataset.paneKey === key &&
-          el !== row,
-      );
-    }
-  });
-  $tree.addEventListener('mouseleave', () => {
-    for (const el of $tree.querySelectorAll('.linked')) {
-      el.classList.remove('linked');
-    }
-  });
-  $tree.addEventListener('keydown', (e) =>
-    treeKeydown(e, {
-      activate: (row) => row.click(),
-      toggle: (row) => row.click(),
-    }));
-  document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') closeOutput();
-  }, true);
 
   // Capture phase, so it works while a terminal has focus: xterm.js never sees the keys (on a Mac,
   // Option would type a character). Ctrl+Alt+N (Cmd+Alt+N on a Mac) toggles the first pinned file.
@@ -5860,5 +1845,13 @@ export function mountSidebar(root, opts) {
   onConnectionChange(onSidebarConnection);
   applyScope();
   renderTree();
-  return { intents: { revealInContainers, prViewed }, onViewState };
+  return {
+    intents: { revealInContainers, prViewed },
+    onViewState,
+    inUse: {
+      revealInUse,
+      pin: setCardPinned,
+      state: () => inUseState(shownInUse, sidebarState.cardsPinned),
+    },
+  };
 }

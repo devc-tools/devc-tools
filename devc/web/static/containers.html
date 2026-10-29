@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>devcd containers</title>
+    <link rel="stylesheet" href="./vendor/xterm/xterm.css">
+    <link rel="stylesheet" href="./style.css">
+  </head>
+  <body>
+    <div class="app" data-page="containers">
+      <aside class="sidebar">
+        <nav class="tree" id="tree" aria-label="Containers">
+          <div class="zone zone-browse" id="containers"></div>
+        </nav>
+      </aside>
+    </div>
+    <div class="menu" id="menu" role="menu" hidden></div>
+    <div class="toasts" id="toasts" aria-live="polite"></div>
+    <script src="./boot.js"></script>
+    <script type="module" src="./containers-page.js"></script>
+  </body>
+</html>
