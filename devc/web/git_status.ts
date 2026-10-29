@@ -32,6 +32,11 @@ export interface GitStatus {
   behind: number;
   /** The upstream is configured but neither the repo nor a fetch has its branch. */
   gone: boolean;
+  /**
+   * The mirror has upstream commits the repo's own remote-tracking ref lacks: a Fetch
+   * (`git_fetch.ts`) would move it.
+   */
+  toFetch: boolean;
 }
 
 /**
@@ -197,7 +202,14 @@ export async function readGitState(
   if (at === null || isGitProblem(at)) return at;
   const { branch, upstream, mirror, prefix } = at;
   if (upstream === null) {
-    return { branch, upstream: null, ahead: 0, behind: 0, gone: false };
+    return {
+      branch,
+      upstream: null,
+      ahead: 0,
+      behind: 0,
+      gone: false,
+      toFetch: false,
+    };
   }
   if (mirror === null) return { problem: 'could not create the git mirror' };
   const inMirror = (...args: string[]) => git([`--git-dir=${mirror}`, ...args]);
@@ -232,13 +244,23 @@ export async function readGitState(
   const tracked = refs.has(`${prefix}/tracking`) ? `${prefix}/tracking` : null;
   const name = `${upstream.remote}/${upstream.branch}`;
   let against = fetched ?? tracked;
+  // A branch that tracks a URL has no remote-tracking ref to fetch into.
+  let toFetch = fetched !== null && upstream.trackingRef !== null;
   if (fetched !== null && tracked !== null) {
     const fetchedIsOlder =
       await inMirror('merge-base', '--is-ancestor', fetched, tracked) !== null;
     against = fetchedIsOlder ? tracked : fetched;
+    toFetch &&= !fetchedIsOlder;
   }
   if (against === null) {
-    return { branch, upstream: name, ahead: 0, behind: 0, gone: true };
+    return {
+      branch,
+      upstream: name,
+      ahead: 0,
+      behind: 0,
+      gone: true,
+      toFetch: false,
+    };
   }
   const counts = await run([
     `--git-dir=${mirror}`,
@@ -252,7 +274,7 @@ export async function readGitState(
   if (!Number.isInteger(ahead) || !Number.isInteger(behind)) {
     return { problem: 'git rev-list: unexpected output' };
   }
-  return { branch, upstream: name, ahead, behind, gone: false };
+  return { branch, upstream: name, ahead, behind, gone: false, toFetch };
 }
 
 /** {@link readGitState} without the reason: `null` for no status at all. Never throws. */

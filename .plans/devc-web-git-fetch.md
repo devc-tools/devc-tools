@@ -10,9 +10,12 @@ Decided with the user on 2026-10-28. Second of six plans (see "Git and the trust
 - [x] Protocol: `fetch_repo` in, `fetch_result` out.
 - [x] Page: **Fetch** on the repo card's right-click, and a click on its `↓n` mark.
 - [x] Tests, README.
-- [ ] Manual (the user, on the Mac): Fetch on a container project and a host project; `↓n` updates.
-      (2026-10-29: Fetch runs and shows its spinner on the Mac. Still to check: `↓n` after a real
-      upstream change.)
+- [ ] Manual (the user, on the Mac): Fetch on a container project and a host project; the repo's
+      `origin/<branch>` moves and Fetch (menu item and `↓n` click) goes away. `↓n` itself does not
+      change: it already counts the mirror's commits, and only a pull lowers it.
+      (2026-10-29: Fetch runs and shows its spinner on the Mac. Clicking it left `↓n` as it was,
+      which is why Fetch is now offered only while `GitStatus.toFetch`: the mirror's upstream is
+      not already in the repo's remote-tracking ref.)
 
 **2026-10-29:** implemented; everything but the manual check is done. The page was checked headless
 against a fake socket (the ↓ click sends `fetch_repo`, the spinner shows, a problem toasts, the
@@ -123,7 +126,10 @@ mark shows a spinner. A problem shows as the existing toast.
   clone moves `refs/remotes/origin/<branch>`; the clone's `.git/hooks` and `core.fsmonitor` set to
   a marker-writing script are never run by the host (the marker is absent after the host steps).
 - Unit: the remote/branch validation refuses `-x`, `a b`, `..`.
-- Manual: Fetch on a container project and a host project; `↓n` updates.
+- Unit: `readGitStatus`'s `toFetch` is true after `fetchUpstream` brings a remote commit, and
+  false once the repo's own ref has it.
+- Manual: Fetch on a container project and a host project; the repo's `origin/<branch>` moves and
+  Fetch is no longer offered.
 
 ## Relevant files
 

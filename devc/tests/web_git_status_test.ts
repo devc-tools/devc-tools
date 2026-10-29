@@ -20,7 +20,7 @@ async function git(cwd: string, ...args: string[]) {
 }
 
 const counts = (s: GitStatus | null) =>
-  s && [s.branch, s.upstream, s.ahead, s.behind, s.gone];
+  s && [s.branch, s.upstream, s.ahead, s.behind, s.gone, s.toFetch];
 
 Deno.test('readGitStatus counts in a mirror, and fetchUpstream brings in the remote', async () => {
   const dir = await Deno.makeTempDir();
@@ -41,6 +41,7 @@ Deno.test('readGitStatus counts in a mirror, and fetchUpstream brings in the rem
       0,
       0,
       false,
+      false,
     ]);
 
     await git(other, 'commit', '-q', '--allow-empty', '-m', 'theirs');
@@ -49,13 +50,23 @@ Deno.test('readGitStatus counts in a mirror, and fetchUpstream brings in the rem
     // Only the repo's own remote-tracking ref so far: nothing to pull yet.
     assertEquals((await readGitStatus(work, opts))?.ahead, 1);
     assertEquals((await readGitStatus(work, opts))?.behind, 0);
-    // The mirror's fetch sees the remote's commit; the repo's own refs are untouched.
+    // The mirror's fetch sees the remote's commit; the repo's own refs are untouched, so a
+    // Fetch would move its remote-tracking ref.
     assertEquals(await fetchUpstream(work, opts), true);
     assertEquals(counts(await readGitStatus(work, opts)), [
       'main',
       'origin/main',
       1,
       1,
+      false,
+      true,
+    ]);
+    // The repo's own fetch brings it in: nothing left to Fetch, still one to pull.
+    await git(work, 'fetch', '-q');
+    assertEquals(counts(await readGitStatus(work, opts))?.slice(2), [
+      1,
+      1,
+      false,
       false,
     ]);
 
@@ -66,6 +77,7 @@ Deno.test('readGitStatus counts in a mirror, and fetchUpstream brings in the rem
       0,
       0,
       false,
+      false,
     ]);
 
     // A worktree reads its own branch through its primary's refs.
@@ -75,6 +87,7 @@ Deno.test('readGitStatus counts in a mirror, and fetchUpstream brings in the rem
       null,
       0,
       0,
+      false,
       false,
     ]);
   } finally {
@@ -99,6 +112,7 @@ Deno.test('readGitStatus: no repo, a gone upstream, and a refused remote', async
       0,
       0,
       true,
+      false,
     ]);
     assertEquals(await fetchUpstream(work, opts), false);
   } finally {
@@ -188,6 +202,7 @@ Deno.test('GitStatusWatch reports only changes, and drops folders no longer list
       ahead: 1,
       behind: 0,
       gone: false,
+      toFetch: false,
     },
     '/b': null,
   };

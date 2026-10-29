@@ -793,7 +793,10 @@ export function repoCard(card, side, worktrees = 0) {
     (!listed || (listed.loading && !listed.error));
   const canPr = !!repo && !!c;
   // Fetch moves the repo's own remote-tracking ref, so it needs an upstream and its environment.
-  const canFetch = !!repo && !!c && !!repo.git?.upstream;
+  // Only while the repo's own remote-tracking ref lacks commits the host fetched (`toFetch`), or
+  // a fetch of it runs.
+  const canFetch = !!repo && !!c && !!repo.git?.upstream &&
+    (!!repo.git.toFetch || fetchingRepos.has(repo.folder));
   const prOn = canPr && sidebarState.prOpen.has(prKey(localFolder, fr.root));
   const tree = repo ? fileTree(fr) : null;
   const filesOn = !!tree && tree.isOpen('');

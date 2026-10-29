@@ -299,9 +299,12 @@ is published from any container: the host server finds devcontainers with
   **✓** when level; the tooltip has each count). The ● count comes from `git
   status` run inside the running container (never on the host, which would run
   the repo's own config), or directly for a project on this machine, every
-  15 s and as soon as an agent there finishes a turn. **Fetch** (the card's
-  right-click menu, or a click on its **↓N**) moves the repo's own
-  `origin/<branch>` to what the remote has now, with a spinner in the mark while
+  15 s and as soon as an agent there finishes a turn. **↓N** counts what the
+  remote has, from the host's own fetch every 5 minutes, before the repo has
+  fetched it. **Fetch** (the card's right-click menu, or a click on its **↓N**),
+  offered only while the repo's own `origin/<branch>` lacks those commits, moves
+  that ref to what the remote has now; **↓N** stays until you pull. A spinner
+  shows in the mark while
   it runs and a toast if it can't: the host fetches the remote into its own
   mirror with its credentials, and the repo's git fetches that from a bundle
   inside its environment, so the host never runs git in the repo. It is not a

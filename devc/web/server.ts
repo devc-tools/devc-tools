@@ -1419,9 +1419,10 @@ export async function startWeb(
     }
     const outcome = await fetchRepo(session.env, msg.folder, path);
     answer(outcome);
-    // Its ↓ count: the repo's own remote-tracking ref is newer now. Its changes to commit are
-    // not: a fetch touches no working tree.
-    if (outcome.ok && outcome.updated) void gitWatch.refresh();
+    // Its Fetch goes once the repo's own remote-tracking ref has the mirror's commits (read
+    // again even when this fetch found it already had them). Its changes to commit stay: a
+    // fetch touches no working tree.
+    if (outcome.ok) void gitWatch.refresh();
   };
 
   /**
