@@ -162,8 +162,11 @@ export interface LayoutInput {
   height: number;
   /** The left column's width as dragged, `null` before any drag. */
   sidebarWidth: number | null;
-  /** Whether the Containers pane shows, and its height as dragged (`null`: the default). */
-  containers: { height: number | null } | null;
+  /**
+   * Whether the Containers pane shows, and its height as dragged (`null`: the default); with
+   * `folded`, its section is folded and the pane is that high (down to its heading) instead.
+   */
+  containers: { height: number | null; folded?: number } | null;
   /** The drawer's height while open, else `null`. */
   drawer: number | null;
   /** A closed drawer's strip shows (host actions wait). */
@@ -223,7 +226,9 @@ export function layout(i: LayoutInput): Layout {
     ? { x: mx, y: top + area - hostH, width: mw, height: hostH }
     : null;
   let ch = 0;
-  if (i.containers !== null) {
+  if (i.containers?.folded !== undefined) {
+    ch = Math.round(Math.max(0, Math.min(area, i.containers.folded)));
+  } else if (i.containers !== null) {
     const wanted = i.containers.height ?? area * CONTAINERS_DEFAULT_SHARE;
     ch = Math.round(
       Math.max(0, Math.min(area - PANE_MIN, Math.max(PANE_MIN, wanted))),

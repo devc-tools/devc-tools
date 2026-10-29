@@ -146,6 +146,13 @@ let drawerHeight: number | null = null;
 let sidebarWidth: number | null = null;
 let containersOpen = true;
 let containersHeight: number | null = null;
+/**
+ * The Containers pane's height while its section is folded (down to its heading, as the pane
+ * measured it), `null` while open. The pane says which, each time it loads.
+ */
+let containersFolded: number | null = null;
+/** The most a folded pane may ask for: its heading, and the cards above it. */
+const FOLDED_MAX = 600;
 
 if (process.env.DEVC_DESKTOP_DISABLE_GPU === '1') {
   app.disableHardwareAcceleration();
@@ -348,7 +355,11 @@ async function main(): Promise<void> {
       width,
       height,
       sidebarWidth,
-      containers: paneShown() ? { height: containersHeight } : null,
+      containers: !paneShown()
+        ? null
+        : containersFolded === null
+        ? { height: containersHeight }
+        : { height: containersHeight, folded: containersFolded },
       drawer: drawerOpen ? drawerWanted(area) : null,
       peek: !drawerOpen && drawerActions() > 0,
       footer: showingDevc,
@@ -1192,6 +1203,7 @@ async function main(): Promise<void> {
   ipcMain.on('containers:drag', (e, dy: unknown) => {
     if (
       !fromContainers(e) || !paneShown() || laid.containers === null ||
+      containersFolded !== null ||
       typeof dy !== 'number' || !Number.isFinite(dy)
     ) return;
     hideMenu();
@@ -1202,6 +1214,25 @@ async function main(): Promise<void> {
     );
     relayout();
     saveState();
+  });
+
+  ipcMain.on('containers:reset', (e) => {
+    if (!fromContainers(e) || !paneShown() || containersFolded !== null) return;
+    containersHeight = null;
+    relayout();
+    saveState();
+  });
+  // The section folded (the pane shrinks to `height`, its heading) or opened (its own height).
+  ipcMain.on('containers:fold', (e, open: unknown, height: unknown) => {
+    if (!fromContainers(e) || typeof open !== 'boolean') return;
+    if (open) containersFolded = null;
+    else if (
+      typeof height === 'number' && Number.isFinite(height) && height > 0 &&
+      height <= FOLDED_MAX
+    ) containersFolded = height;
+    else return;
+    hideMenu();
+    relayout();
   });
 
   let paneSeq = 0;

@@ -232,6 +232,19 @@ test('layout: the host status strip across the whole window, under the column an
   disjoint(layout({ ...open, footer: true, height: 20 }), 1400, 20);
 });
 
+test('layout: a folded Containers section: the pane down to its heading, /sidebar takes the rest', () => {
+  const l = layout({ ...open, containers: { height: 400, folded: 30 } });
+  assertEquals(l.containers, { x: 0, y: 902, width: 340, height: 30 });
+  assertEquals(l.sidebar, { x: 0, y: 32, width: 340, height: 870 });
+  disjoint(l, 1400, 932);
+  // Never past the column.
+  assertEquals(
+    layout({ ...open, containers: { height: null, folded: 5000 } }).containers!
+      .height,
+    900,
+  );
+});
+
 test('layout: the Containers pane hidden, /sidebar takes the column', () => {
   const l = layout({ ...open, containers: null });
   assertEquals(l.containers, null);

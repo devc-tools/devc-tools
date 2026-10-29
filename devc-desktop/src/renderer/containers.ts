@@ -1,6 +1,7 @@
 // The Containers pane: devc web's Containers section (`devc/web/static/containers.js`, the
 // `/containers` page's code), bundled into the app at build time, so `devc web --live` never
-// changes it. It sits below devc web's `/sidebar` view, under its own HOST strip, and reaches
+// changes it. It sits below devc web's `/sidebar` view, under the divider the two zones have in
+// devc web's own sidebar, so the column reads as one sidebar, and reaches
 // devc web's `/ws` with the desktop token (`window.containersPane.token()`, the containers
 // preload), which gives it the server's desktop role. What it can't leave to the server goes to
 // the app: a push or a container start, stop or removal shows here as a card the user confirms
@@ -17,12 +18,13 @@ import {
 } from 'devc-web/remote.js';
 import { type MenuItem, useMenuHost } from 'devc-web/ui.js';
 import { PROTOCOL } from 'devc-web/lib/protocol_version.js';
-import { badgeText } from '../main/policy.ts';
 import { actionColumn } from './actions.ts';
 
 interface ContainersPane {
   token(): Promise<{ origin: string; token: string } | null>;
   dragStrip(dy: number): void;
+  resetStrip(): void;
+  fold(open: boolean, height: number): void;
   menu(
     seq: number,
     items: ({ label: string; danger: boolean } | null)[],
@@ -47,10 +49,12 @@ declare global {
 const pane = window.containersPane;
 const $ = (id: string) => document.getElementById(id)!;
 
-// ---- the HOST strip: dragging it resizes the pane ------------------------------------------------
+// ---- the divider: dragging it resizes the pane, double-clicking resets it -------------------------
 
 const strip = $('strip');
 strip.addEventListener('pointerdown', (e) => {
+  if (strip.dataset.inert === 'true') return;
+  strip.classList.add('dragging');
   strip.setPointerCapture(e.pointerId);
   let last = e.screenY;
   const move = (m: PointerEvent) => {
@@ -59,12 +63,32 @@ strip.addEventListener('pointerdown', (e) => {
     if (dy !== 0) pane.dragStrip(dy);
   };
   const up = () => {
+    strip.classList.remove('dragging');
     strip.removeEventListener('pointermove', move);
     strip.removeEventListener('pointerup', up);
   };
   strip.addEventListener('pointermove', move);
   strip.addEventListener('pointerup', up);
 });
+strip.addEventListener('dblclick', () => {
+  if (strip.dataset.inert !== 'true') pane.resetStrip();
+});
+
+// ---- folding: a folded section shrinks the pane to its heading ----------------------------------
+
+let sectionOpen = true;
+
+/** Tells the app whether the section is open, and folded, the height down to its heading. */
+function reportFold(): void {
+  strip.dataset.inert = String(!sectionOpen);
+  requestAnimationFrame(() => {
+    const heading = document.querySelector('#containers .row.section');
+    const height = sectionOpen || heading === null
+      ? 0
+      : Math.ceil(heading.getBoundingClientRect().bottom) + 4;
+    pane.fold(sectionOpen, height);
+  });
+}
 
 // ---- the Actions column ------------------------------------------------------------------------
 
@@ -73,9 +97,9 @@ const column = actionColumn($('actions'), {
   dismiss: (id) => pane.dismissAction(id),
 });
 pane.onActions((raw) => {
-  const { waiting } = column.show(raw);
-  $('badge').textContent = badgeText(waiting);
-  $('badge').hidden = waiting === 0;
+  column.show(raw);
+  // Folded, the pane's height follows its cards'.
+  if (!sectionOpen) reportFold();
 });
 pane.onActionProgress(column.progress);
 
@@ -139,6 +163,10 @@ void pane.token().then((conn) => {
     tileArea: remote.tileArea,
     inUse: inUse.link,
     standalone: true,
+    onFold: (open) => {
+      sectionOpen = open;
+      reportFold();
+    },
   });
   serveContainers(remote, inUse, section);
   connect();

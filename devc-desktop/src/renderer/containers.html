@@ -12,10 +12,13 @@
     <link rel="stylesheet" href="pane.css">
   </head>
   <body>
-    <header id="strip" title="Drag to resize">
-      <span id="who">HOST · Containers</span>
-      <span id="badge" hidden></span>
-    </header>
+    <div
+      id="strip"
+      class="zone-divider"
+      role="separator"
+      aria-orientation="horizontal"
+      title="Drag to resize, double-click to reset"
+    ></div>
     <aside id="actions" aria-label="Actions" hidden></aside>
     <div id="notice" hidden></div>
     <div class="app" data-page="containers" id="section">

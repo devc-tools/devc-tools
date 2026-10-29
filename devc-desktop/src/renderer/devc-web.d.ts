@@ -14,7 +14,12 @@ declare module 'devc-web/client.js' {
 declare module 'devc-web/containers.js' {
   export function mountContainers(
     root: HTMLElement,
-    opts: { tileArea: unknown; inUse: unknown; standalone: boolean },
+    opts: {
+      tileArea: unknown;
+      inUse: unknown;
+      standalone: boolean;
+      onFold?: (open: boolean) => void;
+    },
   ): unknown;
 }
 

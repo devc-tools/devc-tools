@@ -1,40 +1,16 @@
-/* The Containers pane around devc web's own section (style.css): the app's HOST strip on top,
-   the Actions column under it, then the section. */
-:root {
-  --host: #f0b54a;
-}
+/* The Containers pane around devc web's own section (style.css): the divider In use and
+   Containers have in devc web's own sidebar on top (`.zone-divider`, dragged to resize the pane),
+   the Actions column under it, then the section, so the column reads as one sidebar. */
 body {
   display: flex;
   flex-direction: column;
 }
 #strip {
-  flex: none;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 3px 10px;
-  font-size: 12px;
-  background: var(--panel);
-  border-top: 2px solid var(--host);
-  border-bottom: 1px solid var(--border);
-  cursor: row-resize;
   user-select: none;
 }
-#who {
-  color: var(--host);
-  font-weight: 600;
-  letter-spacing: 0.04em;
-}
-#badge {
-  background: var(--host);
-  color: #1a1408;
-  border-radius: 8px;
-  padding: 0 6px;
-  font-weight: 600;
-}
-#badge[hidden] {
-  display: none;
+/* Its grab area reaches past its edge: at the top of the view there is nothing above it. */
+#strip::before {
+  inset: 0 0 -3px;
 }
 #actions {
   flex: none;

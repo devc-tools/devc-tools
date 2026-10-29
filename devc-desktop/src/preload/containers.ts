@@ -9,6 +9,10 @@ contextBridge.exposeInMainWorld('containersPane', {
   /** devc web's origin and the desktop token, or `null` while devc web isn't running. */
   token: () => ipcRenderer.invoke('containers:token'),
   dragStrip: (dy: number) => ipcRenderer.send('containers:drag', Number(dy)),
+  resetStrip: () => ipcRenderer.send('containers:reset'),
+  /** The section opened, or folded to `height` (the pane down to its heading). */
+  fold: (open: boolean, height: number) =>
+    ipcRenderer.send('containers:fold', open === true, Number(height)),
   /** Opens the app's overlay menu: `items` are `{label, danger}` or `null` (a divider). */
   menu: (seq: number, items: unknown, x: number, y: number) =>
     ipcRenderer.send('containers:menu', Number(seq), { items, x, y }),
