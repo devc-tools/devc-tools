@@ -1333,7 +1333,17 @@ async function main(): Promise<void> {
       hostView,
       titleBarView,
     ]
-  ) v.webContents.on('focus', hideMenu);
+  ) {
+    v.webContents.on('focus', hideMenu);
+    // On a Mac only a left press moves the focus to a view: a right-click opening a page's own
+    // menu leaves it where it was, so a later click elsewhere blurs nothing and the menu stays.
+    // Any press focuses the view it lands in, so the page's blur closes its menu.
+    v.webContents.on('input-event', (_e, input) => {
+      if (input.type === 'mouseDown' && !v.webContents.isFocused()) {
+        v.webContents.focus();
+      }
+    });
+  }
 
   // ---- the status view ---------------------------------------------------------------------------
 
