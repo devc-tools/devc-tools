@@ -67,6 +67,18 @@
   through a `PrBackend` running the same `gh-pr-*` recipes with the host's `gh`. After
   devc-web-pr-review-depth. SSH is designed for, not built.
 
+- [devc-show](devc-show.md) — agents show the person a file, or its PR diff, at a line range in
+  devc web: `devc-bridge show [--diff] <path>[:<line>[-<end>]]` in a container (an ungated native
+  built-in; a per-container token is enough), `devc show` on the host. Requests go through
+  `~/.config/devc/show/`; the servers claim, and the one whose page shows the agent's pane
+  (else the page focused last) opens a reused preview tile beside that pane, highlighted, without
+  taking keyboard focus. Exit 5 when no page is open. Terminal links gain ranges
+  (`a.ts:40-58`) and `pr:<path>:<line>` links that open the PR diff tile at the line.
+
+- [devc-show-local-diff](devc-show-local-diff.md) — after devc-show: `show --changes [<ref>]`
+  shows a file's local diff (uncommitted, or since `merge-base <ref> HEAD`) in a new local diff
+  tile that reuses the PR diff tile's rendering without its PR parts.
+
 - [devc-web-pending-review-visibility](devc-web-pending-review-visibility.md) — comments devc web
   adds to a pending review were missing from github.com's pending list before submit, though
   submitting published them. The recipe's mutations are GitHub's documented ones; reproduce on a
@@ -2616,4 +2628,6 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
 | devc web language servers — diff hover: hover + go to definition in PR diff tiles (view documents)                  | [devc-web-lsp-diff-hover](archived/devc-web-lsp-diff-hover.md)                     | complete    |
 | devc web file palette — ⌘P / Ctrl+Alt+P fuzzy-finds a file in the focused repo (`find_files`, gitignore-aware walk) | [devc-web-file-palette](archived/devc-web-file-palette.md)                         | complete    |
 | devc web diff whole file — a PR diff tile shows every line, filled from the head; `+` only on patch lines           | [devc-web-diff-whole-file](archived/devc-web-diff-whole-file.md)                   | complete    |
+| devc show — agents show a file or its PR diff at a line range beside their terminal in devc web                     | [devc-show](devc-show.md)                                                          |             |
+| devc show local diff — `show --changes [<ref>]`: a local diff tile for uncommitted or branch changes                | [devc-show-local-diff](devc-show-local-diff.md)                                    |             |
 | devc web pending review visibility — why github.com's pending list misses devc web's comments (host repro)          | [devc-web-pending-review-visibility](devc-web-pending-review-visibility.md)        |             |
