@@ -125,6 +125,14 @@ let link = /** @type {InUseLink} */ (null);
 /** Whether the section is a page of its own (`/containers`), drawing itself. */
 let standalone = false;
 /**
+ * Told each time the section folds or opens, and once at mount, when it is a page of its own
+ * that folds (devc-desktop's Containers pane, which shrinks to the heading): see
+ * {@link mountContainers}. `null`: the heading folds only in a page with In use.
+ *
+ * @type {((open: boolean) => void) | null}
+ */
+let onFold = null;
+/**
  * The section's side of its repo cards: their pins go to In use through the link. A card here
  * is not in use, so its open parts are its own.
  *
@@ -140,10 +148,12 @@ const side = {
  * Mounts the Containers section in `root`, its zone (`.zone-browse`). In a page with In use
  * (`standalone` false: `/`, `/sidebar`), the sidebar's render draws it with the rest
  * (`draw`), and the sidebar takes its server messages and view states; on `/containers`
- * (`standalone` true) it is the page: it draws itself, under a heading that doesn't fold.
+ * (`standalone` true) it is the page: it draws itself, under a heading that doesn't fold unless
+ * `onFold` is given, which is then told whether it is open, at mount and on each fold.
  *
  * @param {HTMLElement} root
- * @param {{tileArea: TileArea, inUse: InUseLink, standalone: boolean}} opts
+ * @param {{tileArea: TileArea, inUse: InUseLink, standalone: boolean,
+ *   onFold?: (open: boolean) => void}} opts
  * @returns {ContainersIntents & {onViewState: (state: ViewState) => void,
  *   draw: (cards: Map<string, any>) => void}}
  */
@@ -151,6 +161,7 @@ export function mountContainers(root, opts) {
   $root = root;
   link = opts.inUse;
   standalone = opts.standalone;
+  onFold = standalone ? opts.onFold ?? null : null;
   if (standalone) {
     mountCards({ tileArea: opts.tileArea, root, render: renderStandalone });
     setMenuContext({ tileArea: opts.tileArea, fileTreeOf: fileTree });
@@ -163,6 +174,7 @@ export function mountContainers(root, opts) {
     if (e.key === 'Escape') closeOutput();
   }, true);
   if (standalone) renderTree();
+  onFold?.(sidebarState.containersOpen);
   return {
     reveal,
     setFold,
@@ -197,12 +209,13 @@ function renderStandalone() {
  * pane. Every running container is listed, Herdr or not.
  */
 function sectionRows(cards) {
-  const open = standalone || sidebarState.containersOpen;
+  const folds = !standalone || onFold !== null;
+  const open = !folds || sidebarState.containersOpen;
   const rows = [
     sectionRow(
       'Containers',
-      standalone ? undefined : sidebarState.containersOpen,
-      standalone ? undefined : toggleContainersSection,
+      folds ? sidebarState.containersOpen : undefined,
+      folds ? toggleContainersSection : undefined,
       rowTrail(
         hoverActions(
           projectStarts ? iconButton('plus', 'Add project…', addProject) : '',
@@ -332,6 +345,7 @@ function toggleContainersSection() {
   sidebarState.containersOpen = !sidebarState.containersOpen;
   saveSidebarState();
   renderTree();
+  onFold?.(sidebarState.containersOpen);
 }
 
 /**
