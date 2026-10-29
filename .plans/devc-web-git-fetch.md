@@ -11,6 +11,8 @@ Decided with the user on 2026-10-28. Second of six plans (see "Git and the trust
 - [x] Page: **Fetch** on the repo card's right-click, and a click on its `↓n` mark.
 - [x] Tests, README.
 - [ ] Manual (the user, on the Mac): Fetch on a container project and a host project; `↓n` updates.
+      (2026-10-29: Fetch runs and shows its spinner on the Mac. Still to check: `↓n` after a real
+      upstream change.)
 
 **2026-10-29:** implemented; everything but the manual check is done. The page was checked headless
 against a fake socket (the ↓ click sends `fetch_repo`, the spinner shows, a problem toasts, the
