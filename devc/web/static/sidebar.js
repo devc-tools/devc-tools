@@ -273,7 +273,7 @@ const STATE_TEXT = {
   connecting: 'connecting…',
   'no-session': 'no session',
   'no-herdr': 'no herdr',
-  unsupported: 'unsupported',
+  unsupported: 'herdr too old',
   error: 'error',
 };
 
@@ -893,10 +893,10 @@ function renderTree() {
         : undefined,
     ),
   ];
-  // Projects with no running container: stopped, never created, or just pinned.
+  // Projects with no running container: stopped, never created, or just added.
   const idle = [...projects.values()].filter((p) =>
     p.container !== 'running' && !containerByFolder(p.localFolder)
-  ).sort(byPinThenRecent);
+  ).sort(byName);
   if (
     sidebarState.containersOpen && containers.size === 0 && idle.length === 0
   ) {
@@ -1245,10 +1245,12 @@ function repoCard(card, worktrees = 0) {
   const c = containerByFolder(localFolder);
   const fr = { localFolder, root: repo ? repo.folder : localFolder };
   const branch = repo?.git?.branch;
-  const hasHistory = card.sessions.length > 0;
-  const historyOn = hasHistory && sidebarState.cardHistoryOpen.has(key);
   // Opened before this page listed the container's sessions: a Loading… section holds its place.
   const listed = c ? sessionLists.get(c.id) : undefined;
+  // Once listed, the toggle shows even with none, so an empty list reads as empty, not missing.
+  const hasHistory = card.sessions.length > 0 ||
+    (!!listed && !listed.loading && !!c && listsSessions(c));
+  const historyOn = hasHistory && sidebarState.cardHistoryOpen.has(key);
   const historyLoading = !hasHistory && !!c &&
     sidebarState.cardHistoryOpen.has(key) &&
     (!listed || (listed.loading && !listed.error));
@@ -1392,7 +1394,25 @@ function repoCard(card, worktrees = 0) {
   if (historyOn) {
     rows.push(section(
       'history',
-      card.sessions.map(({ c: sc, s }) => sessionRow(sc, s, now, 1)),
+      card.sessions.length
+        ? card.sessions.map(({ c: sc, s }) => sessionRow(sc, s, now, 1))
+        : [
+          h(
+            'div',
+            {
+              class: 'row tree-note',
+              style: '--depth: 1',
+              'data-note': 'empty',
+            },
+            h(
+              'span',
+              { class: 'label' },
+              listed?.error
+                ? `Couldn't list sessions: ${listed.error}`
+                : 'No past sessions',
+            ),
+          ),
+        ],
     ));
   } else if (historyLoading) {
     rows.push(section('history', [
@@ -1649,8 +1669,7 @@ function containerRows(c, cards) {
       { class: 'label' },
       chevron(),
       displayName(c),
-      envKindMark(c),
-      pinMark(c),
+      envKindMark(c.kind),
       // Expanded, each repo card's own marks are right below.
       collapsed ? gitMark(gitRollup(projectRepos(c.localFolder))) : '',
     ),
@@ -1877,6 +1896,22 @@ function listsSessions(c) {
   return c.state === 'connected' || c.state === 'no-session';
 }
 
+/** Pending re-lists after an agent's turn, by container id: a burst of statuses lists once. */
+const turnRelists = new Map();
+
+/** Lists container `id`'s sessions again shortly after one of its agents finishes a turn. */
+function sessionsAfterTurn(id) {
+  clearTimeout(turnRelists.get(id));
+  turnRelists.set(
+    id,
+    setTimeout(() => {
+      turnRelists.delete(id);
+      const c = containers.get(id);
+      if (c && listsSessions(c)) void loadSessions(c);
+    }, 1500),
+  );
+}
+
 /** Lists a container's recent agent sessions again (`list_sessions`). */
 async function loadSessions(c) {
   const prev = sessionLists.get(c.id);
@@ -1988,11 +2023,16 @@ function downButton(c) {
     : '';
 }
 
-/** A host environment's muted `this machine`, after its name. */
-function envKindMark(c) {
-  return c.kind === 'host'
-    ? h('span', { class: 'env-kind' }, 'this machine')
-    : '';
+/** Where a project or environment runs, after its name: a laptop on this machine, else a cube. */
+function envKindMark(kind) {
+  const host = kind === 'host';
+  const mark = h('span', {
+    class: 'env-mark',
+    'data-kind': host ? 'host' : 'container',
+    title: host ? 'Runs on this machine' : 'Runs in a container',
+  });
+  mark.append(svgIcon(host ? 'machine' : 'project'));
+  return mark;
 }
 
 /** A Herdr-less container's hover buttons: Remove, Stop, Start Herdr (no session only) and Retry. */
@@ -2056,19 +2096,10 @@ function inactiveRows(idle) {
 // Sidebar: projects without a running container
 // ---------------------------------------------------------------------------------------------
 
-/** Pinned first, then most recently used, then by name. */
-function byPinThenRecent(a, b) {
-  return Number(b.pinned) - Number(a.pinned) ||
-    (b.lastUsed ?? '').localeCompare(a.lastUsed ?? '') ||
-    a.name.localeCompare(b.name);
-}
-
-/** A pin glyph after a pinned project's name. */
-function pinMark(project) {
-  if (!projects.get(project.localFolder)?.pinned) return '';
-  const mark = h('span', { class: 'pin-mark', title: 'Pinned' });
-  mark.append(svgIcon('pin'));
-  return mark;
+/** By name, then folder. */
+function byName(a, b) {
+  return a.name.localeCompare(b.name) ||
+    a.localFolder.localeCompare(b.localFolder);
 }
 
 /** ↑ push / ↓ pull counts, or a quiet ✓ / •, from `gitSync` or `gitRollup`; nothing for no repo. */
@@ -2826,7 +2857,7 @@ function projectRow(p) {
       { class: 'label' },
       chevron(),
       containerLabel(p, projects.values()),
-      pinMark(p),
+      envKindMark(p.environment),
       gitMark(gitRollup(list(p.repos))),
     ),
     h(
@@ -2867,27 +2898,29 @@ function projectMenuItems(localFolder) {
   }
   const move = projectStarts ? environmentItem(p, environments) : null;
   if (move !== null && !p.starting) {
-    items.push([
-      move.label,
-      () =>
-        projectRequest('set_project_environment', localFolder, move.label, {
-          environment: move.environment,
-        }),
-    ]);
+    items.push(
+      p.container === 'running'
+        ? [
+          move.label,
+          () =>
+            projectRequest('set_project_environment', localFolder, move.label, {
+              environment: move.environment,
+            }),
+        ]
+        : [
+          move.start,
+          () => void startIn(localFolder, move.environment, move.start),
+        ],
+    );
   }
-  if (p.pinned || projectStarts) {
+  // Only with nothing left to list it: no container (remove that first), no running session.
+  const removable = p.environment === 'host'
+    ? p.container !== 'running'
+    : p.container === 'missing';
+  if (removable && !p.starting) {
     items.push([
-      p.pinned ? 'Unpin' : 'Pin',
-      () =>
-        projectRequest('pin_project', localFolder, 'Pin', {
-          pinned: !p.pinned,
-        }),
-    ]);
-  }
-  if (!p.pinned && p.container === 'missing' && !p.starting) {
-    items.push([
-      'Forget',
-      () => projectRequest('forget_project', localFolder, 'Forget'),
+      'Remove project',
+      () => projectRequest('remove_project', localFolder, 'Remove project'),
     ]);
   }
   if (projectOutput.get(localFolder)?.length) {
@@ -2899,6 +2932,17 @@ function projectMenuItems(localFolder) {
 // ---------------------------------------------------------------------------------------------
 // Sidebar: starting, stopping and removing containers
 // ---------------------------------------------------------------------------------------------
+
+/** Moves a project to `environment`, then starts it there once the move is saved. */
+async function startIn(localFolder, environment, what) {
+  try {
+    await call({ type: 'set_project_environment', localFolder, environment });
+  } catch (e) {
+    errorToast(`${what} failed: ${e?.message ?? e}`);
+    return;
+  }
+  startProject(localFolder);
+}
 
 async function stopProject(p) {
   const actions = projectActions(p.environment);
@@ -3228,7 +3272,7 @@ function noteRoot(localFolder) {
  */
 function openNewNote() {
   newNote?.el.close();
-  const candidates = [...projects.values()].sort(byPinThenRecent);
+  const candidates = [...projects.values()].sort(byName);
   if (candidates.length === 0) {
     toast('No projects yet: add one under Containers first');
     return;
@@ -4052,7 +4096,7 @@ let taskDialog = null;
  */
 function openTaskDialog(task, route) {
   taskDialog?.el.close();
-  const candidates = [...projects.values()].sort(byPinThenRecent);
+  const candidates = [...projects.values()].sort(byName);
   const pinned = storedTaskDefault();
   const pinnedRoute = pinned?.localFolder !== undefined &&
       projects.has(pinned.localFolder)
@@ -5224,7 +5268,24 @@ function openPicker() {
     class: 'primary',
     disabled: true,
     onclick: () => pinFolder(picker?.selected ?? null),
-  }, 'Pin this folder'));
+  }, 'Add this folder'));
+  // Only when this server runs both kinds. It follows the selected folder (a container when it
+  // has a dev container config) until the user picks one.
+  const $env = environments.includes('container') &&
+      environments.includes('host')
+    ? /** @type {HTMLSelectElement} */ (h(
+      'select',
+      {
+        class: 'new-note-project',
+        'aria-label': 'Where it runs',
+        onchange: () => {
+          if (picker) picker.envChosen = true;
+        },
+      },
+      h('option', { value: 'container' }, 'In a container'),
+      h('option', { value: 'host' }, 'On this machine'),
+    ))
+    : null;
   const el = /** @type {HTMLDialogElement} */ (h(
     'dialog',
     {
@@ -5249,12 +5310,22 @@ function openPicker() {
         'span',
         { class: 'picker-hint' },
         h('span', { class: 'project-mark' }, svgIcon('project')),
-        'has a dev container config',
+        'has a dev container config, or is a project',
       ),
-      $pin,
+      h('span', { class: 'picker-actions' }, $env ?? '', $pin),
     ),
   ));
-  picker = { el, tree, $list, $path, $pin, tops: null, selected: null };
+  picker = {
+    el,
+    tree,
+    $list,
+    $path,
+    $pin,
+    $env,
+    envChosen: false,
+    tops: null,
+    selected: null,
+  };
   document.body.append(el);
   el.showModal();
   renderPicker();
@@ -5294,13 +5365,23 @@ function selectFolder(path) {
     const row = /** @type {HTMLElement} */ (el);
     row.toggleAttribute('data-selected', row.dataset.path === path);
     row.setAttribute('aria-selected', String(row.dataset.path === path));
+    if (row.dataset.path === path && picker.$env && !picker.envChosen) {
+      picker.$env.value = row.hasAttribute('data-project')
+        ? 'container'
+        : 'host';
+    }
   }
 }
 
-/** Pins `path` as a project (`add_project`) and closes the picker. */
+/** Adds `path` as a project (`add_project`) and closes the picker. */
 function pinFolder(path) {
   if (!picker || !path) return;
-  projectRequest('add_project', path, 'Add project');
+  projectRequest(
+    'add_project',
+    path,
+    'Add project',
+    picker.$env ? { environment: picker.$env.value } : {},
+  );
   // It joins the list as "not created", under "Not running".
   sidebarState.inactiveOpen = true;
   saveSidebarState();
@@ -5380,6 +5461,7 @@ function pickerRow(path, name, depth, open, project, hidden = false) {
       role: 'treeitem',
       'data-path': path,
       'data-dim': hidden || undefined,
+      'data-project': project || undefined,
       title: path,
       onfocus: () => selectFolder(path),
       onclick: () => {
@@ -5392,7 +5474,7 @@ function pickerRow(path, name, depth, open, project, hidden = false) {
     project
       ? h('span', {
         class: 'project-mark',
-        title: 'Has a dev container config',
+        title: 'Has a dev container config, or is already a project',
       }, svgIcon('project'))
       : '',
   );
@@ -5570,7 +5652,12 @@ function onSidebarMessage(msg) {
       break;
     case 'snapshot':
     case 'pane_updated':
+      renderTree();
+      break;
     case 'agent_status':
+      if (msg.agent_status === 'done' || msg.agent_status === 'idle') {
+        sessionsAfterTurn(msg.container);
+      }
       renderTree();
       break;
     case 'project_output':

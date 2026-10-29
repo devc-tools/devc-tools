@@ -1137,14 +1137,9 @@ body.resizing-zones {
 
 /* A pinned project. */
 /* A host environment's `this machine`, after its name. */
-.env-kind {
-  margin-left: 6px;
-  color: var(--muted);
-  font-size: 0.85em;
-  font-weight: normal;
-}
 
-.pin-mark {
+.pin-mark,
+.env-mark {
   display: inline-block;
   width: 12px;
   height: 12px;
@@ -1153,7 +1148,8 @@ body.resizing-zones {
   vertical-align: middle;
 }
 
-.pin-mark svg {
+.pin-mark svg,
+.env-mark svg {
   display: block;
   width: 100%;
   height: 100%;
@@ -1381,10 +1377,9 @@ body.resizing-zones {
   color: var(--muted);
 }
 
-/* Nothing to push or pull: ✓ level with the upstream, • no upstream, ? status unreadable (the
-   tooltip says why). Quieter than the arrows. */
+/* Nothing to push or pull: ✓ level with the upstream, ? status unreadable (the tooltip says
+   why). Quieter than the arrows. */
 .git-sync [data-dir='synced'],
-.git-sync [data-dir='local'],
 .git-sync [data-dir='unknown'] {
   color: var(--muted);
 }
@@ -2471,6 +2466,13 @@ dialog.dialog::backdrop {
   gap: 6px;
   color: var(--muted);
   font-size: calc(var(--font-size) - 1px);
+}
+
+/* Add project's footer: where it runs, beside the pin button. */
+.picker-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .dialog-footer {

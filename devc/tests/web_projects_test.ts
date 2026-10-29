@@ -12,11 +12,9 @@ import type { GitReading } from '../web/git_status.ts';
 Deno.test('buildProjects merges the list with running and stopped containers', () => {
   const views = buildProjects(
     [
-      { localFolder: '/src/blog', pinned: true, lastUsed: null },
+      { localFolder: '/src/blog' },
       {
         localFolder: '/src/api',
-        pinned: false,
-        lastUsed: '2026-10-16T00:00:00.000Z',
       },
     ],
     ['/src/api', '/src/web'],
@@ -27,8 +25,6 @@ Deno.test('buildProjects merges the list with running and stopped containers', (
     {
       localFolder: '/src/api',
       name: 'api',
-      pinned: false,
-      lastUsed: '2026-10-16T00:00:00.000Z',
       container: 'running',
       starting: false,
       environment: 'container',
@@ -36,8 +32,6 @@ Deno.test('buildProjects merges the list with running and stopped containers', (
     {
       localFolder: '/src/blog',
       name: 'blog',
-      pinned: true,
-      lastUsed: null,
       container: 'missing',
       starting: true,
       environment: 'container',
@@ -45,8 +39,6 @@ Deno.test('buildProjects merges the list with running and stopped containers', (
     {
       localFolder: '/src/old',
       name: 'old',
-      pinned: false,
-      lastUsed: null,
       container: 'stopped',
       starting: false,
       environment: 'container',
@@ -54,8 +46,6 @@ Deno.test('buildProjects merges the list with running and stopped containers', (
     {
       localFolder: '/src/web',
       name: 'web',
-      pinned: false,
-      lastUsed: null,
       container: 'running',
       starting: false,
       environment: 'container',
@@ -73,8 +63,8 @@ Deno.test("buildProjects lists each project's repos with their git state", () =>
   };
   const [api, blog] = buildProjects(
     [
-      { localFolder: '/src/api', pinned: false, lastUsed: null },
-      { localFolder: '/src/blog', pinned: false, lastUsed: null },
+      { localFolder: '/src/api' },
+      { localFolder: '/src/blog' },
     ],
     ['/src/api'],
     [],
@@ -164,7 +154,7 @@ Deno.test('buildProjects orders repos by name, the project folder first', () => 
     worktreeOf: string | null = null,
   ) => ({ folder, worktreeOf, containerFolder, primaryFolder: null });
   const [p] = buildProjects(
-    [{ localFolder: '/src/zed', pinned: false, lastUsed: null }],
+    [{ localFolder: '/src/zed' }],
     ['/src/zed'],
     [],
     new Set(),
@@ -200,18 +190,13 @@ Deno.test('buildProjects sorts same-named folders by path', () => {
   assertEquals(views.map((v) => v.localFolder), ['/a/app', '/b/app']);
 });
 
-Deno.test('projectRefusal: with starts off, nothing starts, adds or pins', () => {
+Deno.test('projectRefusal: with starts off, nothing starts or adds', () => {
   for (const type of ['start_project', 'add_project', 'list_host_dir']) {
     assertEquals(projectRefusal({ type }, true), null);
     assertEquals(typeof projectRefusal({ type }, false), 'string');
   }
-  const pin = { type: 'pin_project', pinned: true };
-  const unpin = { type: 'pin_project', pinned: false };
-  assertEquals(projectRefusal(pin, true), null);
-  assertEquals(typeof projectRefusal(pin, false), 'string');
-  assertEquals(projectRefusal(unpin, false), null);
   for (
-    const type of ['stop_project', 'down_project', 'forget_project', 'list_dir']
+    const type of ['stop_project', 'down_project', 'remove_project', 'list_dir']
   ) {
     assertEquals(projectRefusal({ type }, false), null);
   }
@@ -358,17 +343,13 @@ Deno.test('buildProjects says where each project runs: entry host plus a stopped
     [
       {
         localFolder: '/src/h',
-        pinned: true,
-        lastUsed: null,
         environment: 'host',
       },
       {
         localFolder: '/src/s',
-        pinned: true,
-        lastUsed: null,
         environment: 'host',
       },
-      { localFolder: '/src/n', pinned: true, lastUsed: null },
+      { localFolder: '/src/n' },
     ],
     ['/src/h'],
     ['/src/s'],

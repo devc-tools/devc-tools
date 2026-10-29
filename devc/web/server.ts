@@ -109,12 +109,12 @@ import { openRedirect } from './browser.ts';
 import { openInVSCode } from './vscode.ts';
 import { revealOnHost } from './reveal.ts';
 import {
-  forget as forgetProject,
+  addProject,
   loadProjects,
   type ProjectEntry,
   PROJECTS_PATH,
+  removeProject,
   setEnvironment,
-  setPinned,
   updateProjects,
 } from '../projects.ts';
 import {
@@ -2772,24 +2772,39 @@ export async function startWeb(
           });
           return;
         }
-      }
-      // falls through: adding is pinning
-      case 'pin_project':
-      case 'forget_project':
         try {
-          projectEntries = await updateProjects((list) => {
-            if (msg.type === 'forget_project') {
-              return forgetProject(list, folder);
-            }
-            const pinned = setPinned(
-              list,
-              folder,
-              msg.type === 'pin_project' ? msg.pinned : true,
-            );
-            return msg.type === 'add_project' && msg.environment !== undefined
-              ? setEnvironment(pinned, folder, msg.environment)
-              : pinned;
-          });
+          projectEntries = await updateProjects((list) =>
+            addProject(list, folder, msg.environment)
+          );
+          broadcastProjects();
+          void hostSource?.refresh().catch(() => {});
+          reply(c, { id: msg.id, ok: true, result: {} });
+        } catch (e) {
+          fail(c, msg.id, 'projects_error', e);
+        }
+        return;
+      }
+      case 'remove_project':
+        // A container would keep listing it, and a running session would lose its row.
+        if (containerFolders().has(folder)) {
+          fail(
+            c,
+            msg.id,
+            'has_container',
+            `${folder} has a container; remove it first`,
+          );
+          return;
+        }
+        if (
+          [...sessions.values()].some((s) => s.record.localFolder === folder)
+        ) {
+          fail(c, msg.id, 'running', `${folder} is running; stop it first`);
+          return;
+        }
+        try {
+          projectEntries = await updateProjects((list) =>
+            removeProject(list, folder)
+          );
           broadcastProjects();
           void hostSource?.refresh().catch(() => {});
           reply(c, { id: msg.id, ok: true, result: {} });

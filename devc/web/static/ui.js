@@ -297,6 +297,8 @@ const ICON_PATHS = {
     'M2.5 2.5h11v8H8l-3 3v-3H2.5zM6.5 5.25a1.5 1.5 0 1 1 2.1 1.4c-.4.2-.6.5-.6.85M8 8.6v.01',
   // A folder with a tab: a repo card's files.
   folder: 'M1.5 3.5h5L8 5h6.5v8h-13z',
+  // A laptop: a project on this machine (the `project` cube marks one in a container).
+  machine: 'M3 3.5h10v7H3zM1.5 12.5h13',
 };
 
 /**

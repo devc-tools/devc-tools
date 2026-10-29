@@ -36,7 +36,7 @@ import {
   type GuardDeps,
   terminalConfirm,
 } from './git_root_guard.ts';
-import { recordUse, updateProjects } from './projects.ts';
+import { addProject, updateProjects } from './projects.ts';
 
 export {
   assertLocalFolderExists,
@@ -140,12 +140,12 @@ export function connectionFor(
 }
 
 /**
- * Bumps `localFolder` in devc's projects list. Best-effort: a failure is one warning, never a
- * failed start.
+ * Adds `localFolder` to devc's projects list when it isn't there. Best-effort: a failure is one
+ * warning, never a failed start.
  */
 async function recordProject(localFolder: string): Promise<void> {
   try {
-    await updateProjects((list) => recordUse(list, localFolder, new Date()));
+    await updateProjects((list) => addProject(list, localFolder));
   } catch (e) {
     console.error(
       `devc: could not record ${localFolder} in the projects list: ${

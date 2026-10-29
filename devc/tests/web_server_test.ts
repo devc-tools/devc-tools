@@ -365,7 +365,7 @@ Deno.test('parseClientMessage: project messages name an absolute folder', () => 
       'start_project',
       'stop_project',
       'down_project',
-      'forget_project',
+      'remove_project',
       'add_project',
     ]
   ) {
@@ -383,23 +383,17 @@ Deno.test('parseClientMessage: project messages name an absolute folder', () => 
   }
   assertEquals(
     parseClientMessage(JSON.stringify({
-      type: 'pin_project',
+      type: 'remove_project',
       id: 'p4',
       localFolder: '/src/app',
-      pinned: false,
     })),
     {
       ok: true,
-      msg: {
-        type: 'pin_project',
-        id: 'p4',
-        localFolder: '/src/app',
-        pinned: false,
-      },
+      msg: { type: 'remove_project', id: 'p4', localFolder: '/src/app' },
     },
   );
   assertEquals(
-    rejected({ type: 'pin_project', id: 'p5', localFolder: '/a', pinned: 1 })
+    rejected({ type: 'pin_project', id: 'p5', localFolder: '/a', pinned: true })
       .code,
     'bad_request',
   );

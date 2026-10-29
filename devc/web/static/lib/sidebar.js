@@ -257,11 +257,12 @@ export function projectActions(environment) {
 /**
  * A project's **Run on this machine** or **Run in a container** item (whichever it doesn't do
  * now), or null: only when the server runs both kinds (`environments`), and never for a project
- * a devcontainer carries — it runs in that container.
+ * a devcontainer carries — it runs in that container. `start` is the same move as one step with
+ * the start, for a project that isn't running.
  *
  * @param {{environment?: 'container' | 'host', container: string}} p
  * @param {readonly string[]} environments
- * @returns {{label: string, environment: 'container' | 'host'} | null}
+ * @returns {{label: string, start: string, environment: 'container' | 'host'} | null}
  */
 export function environmentItem(p, environments) {
   if (!environments.includes('container') || !environments.includes('host')) {
@@ -269,8 +270,16 @@ export function environmentItem(p, environments) {
   }
   if (p.environment !== 'host' && p.container !== 'missing') return null;
   return p.environment === 'host'
-    ? { label: 'Run in a container', environment: 'container' }
-    : { label: 'Run on this machine', environment: 'host' };
+    ? {
+      label: 'Run in a container',
+      start: 'Start in a container',
+      environment: 'container',
+    }
+    : {
+      label: 'Run on this machine',
+      start: 'Start on this machine',
+      environment: 'host',
+    };
 }
 
 /**
@@ -310,10 +319,10 @@ export function labelText({ name, title }) {
 /**
  * A folder's push/pull marks from its `git` field (see the `projects` message): `ahead` (↑N,
  * to push), `behind` (↓N, to pull) or `gone` (the upstream was deleted), with a tooltip naming
- * the branch. A branch level with its upstream gets a quiet `synced` mark (✓), and one with no
- * upstream a `local` mark (•). With no `git` but a `problem` (its `gitProblem`: a detached HEAD,
- * a timed-out or failed git call), a quiet `unknown` mark (?) whose tooltip gives the reason.
- * `null` only when there is no repo, or no status read yet.
+ * the branch. A branch level with its upstream gets a quiet `synced` mark (✓). With no `git` but
+ * a `problem` (its `gitProblem`: a detached HEAD, a timed-out or failed git call), a quiet
+ * `unknown` mark (?) whose tooltip gives the reason. `null` when there is no repo, no status
+ * read yet, or a branch with no upstream (nothing to compare with, so nothing to say).
  */
 export function gitSync(git, problem) {
   if (!git) {
@@ -324,13 +333,7 @@ export function gitSync(git, problem) {
       title: `git status unavailable: ${problem}`,
     };
   }
-  if (!git.upstream) {
-    return {
-      marks: [{ dir: 'local', text: '•' }],
-      diverged: false,
-      title: `${git.branch}: no upstream`,
-    };
-  }
+  if (!git.upstream) return null;
   const marks = [];
   if (git.ahead > 0) marks.push({ dir: 'ahead', text: `↑${git.ahead}` });
   if (git.behind > 0) marks.push({ dir: 'behind', text: `↓${git.behind}` });
@@ -357,13 +360,14 @@ export function gitSync(git, problem) {
 }
 
 /** Mark `dir`s that mean "nothing to push or pull" (or nothing known). */
-const QUIET_DIRS = ['synced', 'local', 'unknown'];
+const QUIET_DIRS = ['synced', 'unknown'];
 
 /**
  * One mark for several repos (a collapsed container's, say). When any repo has something to
  * push or pull (or a deleted upstream): their ↑ and ↓ counts summed, with every such repo listed
- * in the tooltip. Otherwise a quiet ✓ listing every repo's own tooltip, or • when no repo has
- * an upstream, or ? when no repo's status could be read. `null` when none of `repos` is a repo.
+ * in the tooltip. Otherwise a quiet ✓ listing every repo's own tooltip, or ? when no repo's
+ * status could be read. `null` when none of `repos` has a mark (no repo, or none with an
+ * upstream).
  */
 export function gitRollup(repos) {
   const all = [...repos].map((r) => ({
@@ -382,8 +386,6 @@ export function gitRollup(repos) {
       marks: [
         any('synced')
           ? { dir: 'synced', text: '✓' }
-          : any('local')
-          ? { dir: 'local', text: '•' }
           : { dir: 'unknown', text: '?' },
       ],
       diverged: false,

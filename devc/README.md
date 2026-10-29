@@ -335,12 +335,12 @@ is published from any container: the host server finds devcontainers with
   **Not running** at the bottom; hover one for its play button,
   **Start Herdr** (`herdr --session devc server`, detached), and **Retry**. The same group
   lists **projects** whose container is stopped or was never created: every
-  folder a devc command has started (kept, with your pins, in
-  `~/.config/devc/projects.json`; the 20 most recent unpinned ones) and every
-  folder you pinned. Hover one for its play button, **Start container** (the same start as `devc attach`,
+  folder you added with **+** or a devc command started, kept in
+  `~/.config/devc/projects.json` until you remove it. Hover one for its play button, **Start container** (the same start as `devc attach`,
   with its output under **Show output**); right-click any project for **Stop
-  container**, **Remove container** (as `devc down`: stopped, then deleted),
-  **Pin**/**Unpin** and **Forget**; hovering a running container's row shows a
+  container**, **Remove container** (as `devc down`: stopped, then deleted)
+  and **Remove project** (it leaves the list; offered once it has no container
+  and isn't running, and nothing is kept about it); hovering a running container's row shows a
   trash button for **Remove container** left of its stop button, the **+** on the Containers
   heading adds a folder, and its refresh button lists the containers and
   projects again (for a change devc web missed). A tile whose project is down offers **Start
@@ -571,8 +571,8 @@ is published from any container: the host server finds devcontainers with
   right**, **Open read-only**, **Open in Code**, **Reveal in Finder**, **Copy
   path**, **Copy container path**, **Rename…** and **Unpin file**.
   Pins are kept in `~/.config/devc/pinned-files.json`, so a browser tab and the
-  devc-desktop window show the same ones. They are not pinned projects (a
-  project kept in the Containers list) and not a preview tile's **Keep open**.
+  devc-desktop window show the same ones. They are not a repo card pinned to
+  **In use**, and not a preview tile's **Keep open**.
 - **Tasks:** the **Tasks** section, at the top of the sidebar,
   is a to-do list for agents. Its **+** opens a dialog: write the task (the
   first line is its title), optionally choose a project and repo, then **Save**
@@ -783,9 +783,14 @@ task queues, git status and the pull request.
 
 - **Where a project runs.** A folder a devcontainer carries (running or
   stopped) runs in it. Otherwise its entry in `projects.json` says
-  (`"environment": "host"` or `"container"`, set by **Run on this machine** /
-  **Run in a container** on its right-click, offered when this server can do
-  both); unset, a container when Docker is on `PATH`, else this machine. A
+  (`"environment": "host"` or `"container"`). When this server can do both,
+  **Add project** asks (a container for a folder with a dev container config,
+  else this machine, until you pick), and a project's right-click offers **Start
+  on this machine** / **Start in a container** (or, while it runs, **Run on this
+  machine** / **Run in a container** for its next start); an icon after a
+  project's name, running or not, says where it runs (a laptop for this
+  machine, a cube for a container). Unset, a container
+  when Docker is on `PATH`, else this machine. A
   Herdr session left running on the host for a folder that now has a
   container is not shown: the container wins.
 - **Docker is optional.** Without it, `devc web` prints `devc web: docker not
@@ -798,7 +803,7 @@ task queues, git status and the pull request.
   `herdr session stop <name>`, closing every terminal in it. There is no
   **Remove**. devc web lists the host's sessions (`herdr session list --json`)
   every 5 s, so one you start yourself (`herdr --session <name>`) shows up
-  within that. Its card says `this machine` after its name, and has no **Copy
+  within that. Its card shows the laptop icon after its name, and has no **Copy
   container path** (the path is the host path).
 - **The PATH** every command gets is your login shell's (`$SHELL -lc`, or
   `/bin/sh` when `$SHELL` is not `sh`, `bash`, `zsh`, `dash` or `ksh`), read at

@@ -14,8 +14,6 @@ export type ProjectContainer = 'running' | 'stopped' | 'missing';
 export interface ProjectView {
   localFolder: string;
   name: string;
-  pinned: boolean;
-  lastUsed: string | null;
   container: ProjectContainer;
   /** A `start_project` for it is in flight. */
   starting: boolean;
@@ -88,18 +86,12 @@ export function buildProjects(
   for (const e of entries) byFolder.set(e.localFolder, e);
   for (const folder of [...runningSet, ...stoppedSet]) {
     if (!byFolder.has(folder)) {
-      byFolder.set(folder, {
-        localFolder: folder,
-        pinned: false,
-        lastUsed: null,
-      });
+      byFolder.set(folder, { localFolder: folder });
     }
   }
   return [...byFolder.values()].map((e) => ({
     localFolder: e.localFolder,
     name: basename(e.localFolder) || e.localFolder,
-    pinned: e.pinned,
-    lastUsed: e.lastUsed,
     container: runningSet.has(e.localFolder)
       ? 'running' as const
       : stoppedSet.has(e.localFolder)
@@ -186,11 +178,12 @@ function gitFields(
 /**
  * Why a project message is refused while container starts are off (`devc web --live`: the page
  * comes from a checkout agents can write to), or `null` when it may go ahead. Off, nothing may
- * start a container or bring in a folder: `start_project`, `add_project` and pinning are
- * refused, and so is `list_host_dir`, which only serves "Add project…". Stop, unpin and forget never widen what can be reached, so they stay allowed.
+ * start a container or bring in a folder: `start_project` and `add_project` are refused, and so
+ * is `list_host_dir`, which only serves "Add project…". Stop and remove never widen what can be
+ * reached, so they stay allowed.
  */
 export function projectRefusal(
-  msg: { type: string; pinned?: boolean },
+  msg: { type: string },
   startsAllowed: boolean,
 ): string | null {
   if (startsAllowed) return null;
@@ -200,7 +193,6 @@ export function projectRefusal(
   if (msg.type === 'set_project_environment') {
     return `changing where projects run ${off}`;
   }
-  if (msg.type === 'pin_project' && msg.pinned) return `pinning ${off}`;
   if (msg.type === 'list_host_dir') return `browsing host folders ${off}`;
   return null;
 }

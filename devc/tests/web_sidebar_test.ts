@@ -227,11 +227,7 @@ Deno.test('gitSync shows commits to push and pull, a quiet mark when in sync', (
     diverged: false,
     title: 'feature → origin/feature: in sync (as of the last fetch)',
   });
-  assertEquals(gitSync({ ...git, upstream: null, ahead: 3 }), {
-    marks: [{ dir: 'local', text: '•' }],
-    diverged: false,
-    title: 'feature: no upstream',
-  });
+  assertEquals(gitSync({ ...git, upstream: null, ahead: 3 }), null);
   assertEquals(gitSync(null), null);
   assertEquals(gitSync(undefined), null);
   assertEquals(gitSync(undefined, ''), null);
@@ -285,7 +281,7 @@ Deno.test('gitRollup sums every repo and lists the ones with something to do', (
   ]);
 });
 
-Deno.test('gitRollup shows a quiet ✓ (or • when no repo has an upstream) when none has anything to sync', () => {
+Deno.test('gitRollup shows a quiet ✓ when none has anything to sync, nothing when none has an upstream', () => {
   const git = (upstream: string | null) => ({
     branch: 'main',
     upstream,
@@ -308,8 +304,7 @@ Deno.test('gitRollup shows a quiet ✓ (or • when no repo has an upstream) whe
     { name: 'a', git: git(null) },
     { name: 'b', git: git(null) },
   ]);
-  assertEquals(local?.marks, [{ dir: 'local', text: '•' }]);
-  assertEquals(local?.title, 'a: main: no upstream\nb: main: no upstream');
+  assertEquals(local, null);
   const localAndSynced = gitRollup([
     { name: 'a', git: git(null) },
     { name: 'b', git: git('origin/main') },
@@ -335,7 +330,7 @@ Deno.test('gitRollup counts a repo whose status is unreadable as quiet, ? when a
   const unknown = { name: 'u', git: null, gitProblem: 'git fetch: timed out' };
   assertEquals(
     gitRollup([unknown, { name: 'l', git: git(null) }])?.marks,
-    [{ dir: 'local', text: '•' }],
+    [{ dir: 'unknown', text: '?' }],
   );
   const only = gitRollup([unknown]);
   assertEquals(only?.marks, [{ dir: 'unknown', text: '?' }]);
@@ -738,11 +733,19 @@ Deno.test('environmentItem: offered only with both kinds, never for a project a 
   const both = ['container', 'host'];
   assertEquals(
     environmentItem({ environment: 'container', container: 'missing' }, both),
-    { label: 'Run on this machine', environment: 'host' },
+    {
+      label: 'Run on this machine',
+      start: 'Start on this machine',
+      environment: 'host',
+    },
   );
   assertEquals(
     environmentItem({ environment: 'host', container: 'stopped' }, both),
-    { label: 'Run in a container', environment: 'container' },
+    {
+      label: 'Run in a container',
+      start: 'Start in a container',
+      environment: 'container',
+    },
   );
   assertEquals(
     environmentItem({ environment: 'container', container: 'stopped' }, both),

@@ -88,7 +88,7 @@ export type ClientMessage =
       | 'start_project'
       | 'stop_project'
       | 'down_project'
-      | 'forget_project';
+      | 'remove_project';
     id: string;
     localFolder: string;
   }
@@ -106,7 +106,6 @@ export type ClientMessage =
     localFolder: string;
     environment: 'host' | 'container';
   }
-  | { type: 'pin_project'; id: string; localFolder: string; pinned: boolean }
   | {
     type: 'list_dir';
     id: string;
@@ -818,7 +817,7 @@ function parseFields(m: Obj): ClientMessage {
     case 'start_project':
     case 'stop_project':
     case 'down_project':
-    case 'forget_project':
+    case 'remove_project':
       return { type: m.type, id: str(m, 'id'), localFolder: folder(m) };
     case 'add_project':
       return {
@@ -835,16 +834,6 @@ function parseFields(m: Obj): ClientMessage {
         id: str(m, 'id'),
         localFolder: folder(m),
         environment: oneOf(m, 'environment', PROJECT_ENVIRONMENTS),
-      };
-    case 'pin_project':
-      if (typeof m.pinned !== 'boolean') {
-        throw new Invalid(`'pinned' must be a boolean`);
-      }
-      return {
-        type: 'pin_project',
-        id: str(m, 'id'),
-        localFolder: folder(m),
-        pinned: m.pinned,
       };
     case 'list_dir':
       return {

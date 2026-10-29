@@ -1,74 +1,35 @@
 import { assertEquals } from 'jsr:@std/assert';
 import { join } from 'jsr:@std/path';
 import {
-  forget,
+  addProject,
   loadProjects,
-  MAX_RECENT,
   type ProjectEntry,
-  recordUse,
+  removeProject,
   setEnvironment,
-  setPinned,
   updateProjects,
 } from '../projects.ts';
 
-const at = (iso: string) => new Date(iso);
+Deno.test('addProject adds a new folder at the end and leaves a listed one alone', () => {
+  const list: ProjectEntry[] = [{ localFolder: '/a', environment: 'host' }];
+  assertEquals(addProject(list, '/b'), [...list, { localFolder: '/b' }]);
+  assertEquals(addProject(list, '/a'), list);
+});
 
-Deno.test('recordUse adds a new folder unpinned, newest first', () => {
-  const list: ProjectEntry[] = [
-    { localFolder: '/a', pinned: false, lastUsed: '2026-01-01T00:00:00.000Z' },
-  ];
-  assertEquals(recordUse(list, '/b', at('2026-02-01T00:00:00.000Z')), [
-    { localFolder: '/b', pinned: false, lastUsed: '2026-02-01T00:00:00.000Z' },
-    { localFolder: '/a', pinned: false, lastUsed: '2026-01-01T00:00:00.000Z' },
+Deno.test('addProject with an environment sets it, on a new or a listed folder', () => {
+  const list: ProjectEntry[] = [{ localFolder: '/a' }];
+  assertEquals(addProject(list, '/b', 'host'), [
+    { localFolder: '/a' },
+    { localFolder: '/b', environment: 'host' },
+  ]);
+  assertEquals(addProject(list, '/a', 'container'), [
+    { localFolder: '/a', environment: 'container' },
   ]);
 });
 
-Deno.test('recordUse bumps an existing folder and keeps its pin', () => {
-  const list: ProjectEntry[] = [
-    { localFolder: '/b', pinned: false, lastUsed: '2026-02-01T00:00:00.000Z' },
-    { localFolder: '/a', pinned: true, lastUsed: '2026-01-01T00:00:00.000Z' },
-  ];
-  assertEquals(recordUse(list, '/a', at('2026-03-01T00:00:00.000Z')), [
-    { localFolder: '/a', pinned: true, lastUsed: '2026-03-01T00:00:00.000Z' },
-    { localFolder: '/b', pinned: false, lastUsed: '2026-02-01T00:00:00.000Z' },
-  ]);
-});
-
-Deno.test('recordUse caps unpinned entries and never drops a pinned one', () => {
-  const list: ProjectEntry[] = [
-    { localFolder: '/pinned', pinned: true, lastUsed: null },
-  ];
-  let next = list;
-  for (let i = 0; i < MAX_RECENT + 5; i++) {
-    const day = String(i + 1).padStart(2, '0');
-    next = recordUse(next, `/p${i}`, at(`2026-01-${day}T00:00:00.000Z`));
-  }
-  const unpinned = next.filter((e) => !e.pinned);
-  assertEquals(unpinned.length, MAX_RECENT);
-  assertEquals(unpinned[0].localFolder, `/p${MAX_RECENT + 4}`);
-  assertEquals(unpinned.some((e) => e.localFolder === '/p0'), false);
-  assertEquals(next.some((e) => e.localFolder === '/pinned'), true);
-});
-
-Deno.test('setPinned pins, unpins, and adds an unknown folder only when pinning', () => {
-  const list: ProjectEntry[] = [
-    { localFolder: '/a', pinned: false, lastUsed: '2026-01-01T00:00:00.000Z' },
-  ];
-  assertEquals(setPinned(list, '/a', true)[0].pinned, true);
-  assertEquals(setPinned(list, '/new', true), [
-    ...list,
-    { localFolder: '/new', pinned: true, lastUsed: null },
-  ]);
-  assertEquals(setPinned(list, '/new', false), list);
-});
-
-Deno.test('forget drops the folder', () => {
-  const list: ProjectEntry[] = [
-    { localFolder: '/a', pinned: true, lastUsed: null },
-    { localFolder: '/b', pinned: false, lastUsed: null },
-  ];
-  assertEquals(forget(list, '/a'), [list[1]]);
-  assertEquals(forget(list, '/x'), list);
+Deno.test('removeProject drops the folder', () => {
+  const list: ProjectEntry[] = [{ localFolder: '/a' }, { localFolder: '/b' }];
+  assertEquals(removeProject(list, '/a'), [list[1]]);
+  assertEquals(removeProject(list, '/x'), list);
 });
 
 Deno.test('loadProjects: missing, malformed and partly valid files', async () => {
@@ -85,41 +46,42 @@ Deno.test('loadProjects: missing, malformed and partly valid files', async () =>
       JSON.stringify({
         version: 1,
         projects: [
+          // An older devc's entries: pinned or not, every one is kept.
           { localFolder: '/a', pinned: true, lastUsed: null, extra: 1 },
           { localFolder: 'relative', pinned: false, lastUsed: null },
-          { localFolder: '/b', pinned: 'yes', lastUsed: null },
+          { localFolder: 3 },
           { localFolder: '/a', pinned: false, lastUsed: null },
           { localFolder: '/c', pinned: false, lastUsed: '2026-01-01' },
+          { localFolder: '/d' },
         ],
       }),
     );
     assertEquals(await loadProjects(path), [
-      { localFolder: '/a', pinned: true, lastUsed: null },
-      { localFolder: '/c', pinned: false, lastUsed: '2026-01-01' },
+      { localFolder: '/a' },
+      { localFolder: '/c' },
+      { localFolder: '/d' },
     ]);
   } finally {
     await Deno.remove(dir, { recursive: true });
   }
 });
 
-Deno.test('updateProjects writes the file and creates its directory', async () => {
+Deno.test('updateProjects writes the file, with the fields an older devc needs', async () => {
   const dir = await Deno.makeTempDir();
   try {
     const path = join(dir, 'nested', 'projects.json');
-    await updateProjects((l) => setPinned(l, '/a', true), path);
-    await updateProjects(
-      (l) => recordUse(l, '/b', at('2026-01-01T00:00:00.000Z')),
-      path,
-    );
+    await updateProjects((l) => addProject(l, '/a'), path);
+    await updateProjects((l) => addProject(l, '/b', 'host'), path);
     assertEquals(JSON.parse(await Deno.readTextFile(path)), {
       version: 1,
       projects: [
+        { localFolder: '/a', pinned: true, lastUsed: null },
         {
           localFolder: '/b',
-          pinned: false,
-          lastUsed: '2026-01-01T00:00:00.000Z',
+          pinned: true,
+          lastUsed: null,
+          environment: 'host',
         },
-        { localFolder: '/a', pinned: true, lastUsed: null },
       ],
     });
     const leftovers = [...Deno.readDirSync(join(dir, 'nested'))].map((e) =>
@@ -136,23 +98,15 @@ Deno.test('environment round-trips through the file; an unknown value drops only
   const path = join(dir, 'projects.json');
   try {
     await updateProjects(
-      () => [
-        {
-          localFolder: '/h',
-          pinned: true,
-          lastUsed: null,
-          environment: 'host',
-        },
-        { localFolder: '/c', pinned: false, lastUsed: null },
-      ],
+      () => [{ localFolder: '/h', environment: 'host' }, { localFolder: '/c' }],
       path,
     );
     const raw = JSON.parse(await Deno.readTextFile(path));
     assertEquals(raw.projects[0].environment, 'host');
     assertEquals('environment' in raw.projects[1], false);
     assertEquals(await loadProjects(path), [
-      { localFolder: '/h', pinned: true, lastUsed: null, environment: 'host' },
-      { localFolder: '/c', pinned: false, lastUsed: null },
+      { localFolder: '/h', environment: 'host' },
+      { localFolder: '/c' },
     ]);
     await Deno.writeTextFile(
       path,
@@ -165,36 +119,21 @@ Deno.test('environment round-trips through the file; an unknown value drops only
         }],
       }),
     );
-    assertEquals(await loadProjects(path), [
-      { localFolder: '/x', pinned: false, lastUsed: null },
-    ]);
+    assertEquals(await loadProjects(path), [{ localFolder: '/x' }]);
   } finally {
     await Deno.remove(dir, { recursive: true });
   }
 });
 
-Deno.test('recordUse and setPinned keep environment; setEnvironment sets it or adds the folder', () => {
-  const list: ProjectEntry[] = [
-    { localFolder: '/h', pinned: false, lastUsed: null, environment: 'host' },
-  ];
-  assertEquals(
-    recordUse(list, '/h', at('2026-02-01T00:00:00.000Z'))[0].environment,
-    'host',
-  );
-  assertEquals(setPinned(list, '/h', true)[0], {
-    localFolder: '/h',
-    pinned: true,
-    lastUsed: null,
-    environment: 'host',
-  });
+Deno.test('addProject keeps environment; setEnvironment sets it or adds the folder', () => {
+  const list: ProjectEntry[] = [{ localFolder: '/h', environment: 'host' }];
+  assertEquals(addProject(list, '/h'), list);
   assertEquals(
     setEnvironment(list, '/h', 'container')[0].environment,
     'container',
   );
   assertEquals(setEnvironment(list, '/new', 'host')[1], {
     localFolder: '/new',
-    pinned: false,
-    lastUsed: null,
     environment: 'host',
   });
 });

@@ -41,7 +41,7 @@ export const containers = new Map();
 /** @type {Map<string, any>} Herdr snapshots, by container id */
 export const snapshots = new Map();
 /**
- * @typedef {{localFolder: string, name: string, pinned: boolean, lastUsed: string | null,
+ * @typedef {{localFolder: string, name: string,
  *   container: 'running' | 'stopped' | 'missing', starting: boolean,
  *   environment?: 'container' | 'host'}} ProjectInfo
  */

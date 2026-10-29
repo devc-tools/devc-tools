@@ -1,7 +1,7 @@
-// devc's list of projects: the folders the user pinned and the ones devc started recently, kept in
-// `~/.config/devc/projects.json`. Every CLI start path records the folder it started
-// (`container.ts`), and `devc web` lists them — so a project shows up there even while its
-// container is stopped or gone.
+// devc's list of projects: the folders the user added, kept in `~/.config/devc/projects.json`.
+// **Add project** in `devc web` adds one, and so does every CLI start path (`container.ts`); only
+// **Remove project** takes one out. `devc web` lists them, so a project shows up there even while
+// its container is stopped or gone.
 //
 // Not the global config (`~/.config/devc/config.jsonc` or `config.json`, which the config wizard
 // edits) and not devc-core's `~/.cache/devc/projects/<key>/` merged-config cache: this file is
@@ -12,15 +12,9 @@ import { CONFIG_DIR } from '@devc-tools/core/default_config.ts';
 
 export const PROJECTS_PATH = `${CONFIG_DIR}/projects.json`;
 
-/** How many unpinned projects are remembered; pinned ones are always kept. */
-export const MAX_RECENT = 20;
-
 export interface ProjectEntry {
   /** Absolute host path, exactly as the start path got it (the `devcontainer.local_folder` label). */
   localFolder: string;
-  pinned: boolean;
-  /** ISO time of the last start, `null` for a project pinned but never started. */
-  lastUsed: string | null;
   /**
    * Where `devc web` runs it when no devcontainer carries it: a container, or on this machine
    * (`web/projects_view.ts`'s `effectiveEnvironment`). Absent means unset.
@@ -38,12 +32,13 @@ function isEnvironment(v: unknown): v is ProjectEnvironment {
 function isEntry(v: unknown): v is ProjectEntry {
   if (typeof v !== 'object' || v === null) return false;
   const e = v as Record<string, unknown>;
-  return typeof e.localFolder === 'string' && e.localFolder.startsWith('/') &&
-    typeof e.pinned === 'boolean' &&
-    (e.lastUsed === null || typeof e.lastUsed === 'string');
+  return typeof e.localFolder === 'string' && e.localFolder.startsWith('/');
 }
 
-/** Missing or unreadable file → []. Drops malformed entries; never throws. */
+/**
+ * Missing or unreadable file → []. Drops malformed entries; never throws. Fields an older devc
+ * wrote (`pinned`, `lastUsed`) are ignored, so every entry it kept is kept.
+ */
 export async function loadProjects(
   path = PROJECTS_PATH,
 ): Promise<ProjectEntry[]> {
@@ -60,58 +55,30 @@ export async function loadProjects(
     if (!isEntry(e) || seen.has(e.localFolder)) return false;
     seen.add(e.localFolder);
     return true;
-  }).map(({ localFolder, pinned, lastUsed, environment }) => ({
+  }).map(({ localFolder, environment }) => ({
     localFolder,
-    pinned,
-    lastUsed,
     // A value this devc doesn't know is dropped, not the entry.
     ...(isEnvironment(environment) ? { environment } : {}),
   }));
 }
 
-/** Newest first; never-used last. */
-function byRecency(a: ProjectEntry, b: ProjectEntry): number {
-  return (b.lastUsed ?? '').localeCompare(a.lastUsed ?? '');
-}
-
 /**
- * Bumps `localFolder` to `now` (adding it unpinned if new), then keeps every pinned entry plus
- * the {@link MAX_RECENT} most recent unpinned ones. Pure.
+ * Adds `localFolder` when it isn't listed; with `environment`, sets where it runs too. Pure.
  */
-export function recordUse(
+export function addProject(
   list: ProjectEntry[],
   localFolder: string,
-  now: Date,
+  environment?: ProjectEnvironment,
 ): ProjectEntry[] {
-  const lastUsed = now.toISOString();
-  const found = list.some((e) => e.localFolder === localFolder);
-  const next = found
-    ? list.map((e) => e.localFolder === localFolder ? { ...e, lastUsed } : e)
-    : [...list, { localFolder, pinned: false, lastUsed }];
-  const keep = new Set(
-    next.filter((e) => !e.pinned).sort(byRecency).slice(0, MAX_RECENT),
-  );
-  return next.filter((e) => e.pinned || keep.has(e)).sort(byRecency);
+  const next = list.some((e) => e.localFolder === localFolder)
+    ? list
+    : [...list, { localFolder }];
+  return environment === undefined
+    ? next
+    : setEnvironment(next, localFolder, environment);
 }
 
-/** Pins or unpins a folder; pinning an unknown one adds it with `lastUsed: null`. Pure. */
-export function setPinned(
-  list: ProjectEntry[],
-  localFolder: string,
-  pinned: boolean,
-): ProjectEntry[] {
-  if (list.some((e) => e.localFolder === localFolder)) {
-    return list.map((e) =>
-      e.localFolder === localFolder ? { ...e, pinned } : e
-    );
-  }
-  return pinned ? [...list, { localFolder, pinned, lastUsed: null }] : list;
-}
-
-/**
- * Sets where a folder runs (see {@link ProjectEntry.environment}); an unknown folder is added
- * unpinned with `lastUsed: null`. Pure.
- */
+/** Sets where a folder runs (see {@link ProjectEntry.environment}), adding it if new. Pure. */
 export function setEnvironment(
   list: ProjectEntry[],
   localFolder: string,
@@ -122,15 +89,29 @@ export function setEnvironment(
       e.localFolder === localFolder ? { ...e, environment } : e
     );
   }
-  return [...list, { localFolder, pinned: false, lastUsed: null, environment }];
+  return [...list, { localFolder, environment }];
 }
 
 /** Drops a folder from the list. Pure. */
-export function forget(
+export function removeProject(
   list: ProjectEntry[],
   localFolder: string,
 ): ProjectEntry[] {
   return list.filter((e) => e.localFolder !== localFolder);
+}
+
+/**
+ * An entry as written: with `pinned: true` and `lastUsed: null`, the fields an older devc requires,
+ * so one still reading this file keeps every entry instead of dropping them all, and never ages
+ * one out of its recent list.
+ */
+function written(e: ProjectEntry) {
+  return {
+    localFolder: e.localFolder,
+    pinned: true,
+    lastUsed: null,
+    ...(e.environment ? { environment: e.environment } : {}),
+  };
 }
 
 /**
@@ -148,7 +129,8 @@ export async function updateProjects(
   try {
     await Deno.writeTextFile(
       tmp,
-      JSON.stringify({ version: 1, projects: next }, null, 2) + '\n',
+      JSON.stringify({ version: 1, projects: next.map(written) }, null, 2) +
+        '\n',
     );
     await Deno.rename(tmp, path);
   } catch (e) {
