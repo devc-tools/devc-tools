@@ -107,6 +107,25 @@ let bootGeneration = /** @type {string | null} */ (null);
 
 const token = new URLSearchParams(location.hash.slice(1)).get('token') ?? '';
 /**
+ * Where `/ws` is and how it is opened: this page's own server with the URL's `#token=`, unless a
+ * bundled copy set its own ({@link useBundledEndpoint}).
+ */
+let endpoint = {
+  origin: location.origin,
+  ws: `ws://${location.host}/ws`,
+  query: token ? `token=${encodeURIComponent(token)}` : '',
+};
+/**
+ * devc-desktop's Containers pane: this code bundled into the app and loaded from a `file:` URL,
+ * its server and desktop token handed over by the app. No live reload, no `client_ready`, and
+ * nothing from a server that speaks another protocol. `null` in a page devc web serves.
+ *
+ * @type {{protocol: number, onProtocol: (ok: boolean, server: unknown) => void} | null}
+ */
+let bundled = null;
+/** The last `hello` named a protocol other than the bundle's: messages are dropped both ways. */
+let protocolMismatch = false;
+/**
  * The URL hash's view id (`#token=…&view=<id>`, `default` without one): what pairs a `/sidebar`
  * page with a `/main` page. Not a file view or a `TileView`. `/` never uses it.
  */
@@ -133,6 +152,7 @@ export function basename(path) {
 // ---------------------------------------------------------------------------------------------
 
 export function send(msg) {
+  if (protocolMismatch) return;
   if (socket && socket.readyState === WebSocket.OPEN) {
     socket.send(JSON.stringify(msg));
   }
@@ -218,16 +238,38 @@ function connectionChanged(state) {
   for (const fn of [...connectionListeners]) fn(state);
 }
 
-/** Opens `/ws` (token from the URL hash) and starts dispatching. */
+/**
+ * Serves this code from somewhere other than devc web (devc-desktop's bundled Containers pane):
+ * `/ws` at `origin` (`http://127.0.0.1:<port>`) with `desktopToken`, which gives the connection
+ * the server's desktop role. Each `hello` is checked against `protocol`, the version the bundle
+ * was built for, and `onProtocol` told the outcome; on a mismatch nothing more is applied or
+ * sent until a `hello` that matches. Call before {@link connect}.
+ *
+ * @param {{origin: string, desktopToken: string, protocol: number,
+ *   onProtocol: (ok: boolean, server: unknown) => void}} o
+ */
+export function useBundledEndpoint(o) {
+  endpoint = {
+    origin: o.origin,
+    ws: `${o.origin.replace(/^http:/, 'ws:')}/ws`,
+    query: `desktop_token=${encodeURIComponent(o.desktopToken)}`,
+  };
+  bundled = { protocol: o.protocol, onProtocol: o.onProtocol };
+}
+
+/** The server's origin (`http://127.0.0.1:<port>`): the page's own, or a bundle's. */
+export function serverOrigin() {
+  return endpoint.origin;
+}
+
+/** Opens `/ws` (token from the URL hash, or a bundle's endpoint) and starts dispatching. */
 export function connect() {
-  if (!token) {
+  if (!endpoint.query) {
     connectionChanged('no-token');
     markBooted();
     return;
   }
-  const ws = new WebSocket(
-    `ws://${location.host}/ws?token=${encodeURIComponent(token)}`,
-  );
+  const ws = new WebSocket(`${endpoint.ws}?${endpoint.query}`);
   socket = ws;
   connectionChanged('connecting');
   ws.onopen = () => connectionChanged('open');
@@ -265,9 +307,9 @@ function onHello(msg) {
   // write to): hide what would only be refused. A server that doesn't say allows them.
   projectStarts = msg.projectStarts !== false;
   desktopChannel = msg.desktopChannel === true;
-  liveMode = msg.live === true && !SAFE_MODE;
+  liveMode = msg.live === true && !SAFE_MODE && bundled === null;
   hostOs = typeof msg.hostOs === 'string' ? msg.hostOs : '';
-  if (bootGeneration === null) {
+  if (bootGeneration === null || bundled !== null) {
     bootGeneration = msg.generation;
     return;
   }
@@ -326,7 +368,7 @@ function holdForPause() {
 }
 
 function onStaticChanged(msg) {
-  if (SAFE_MODE) return;
+  if (SAFE_MODE || bundled !== null) return;
   const paths = Array.isArray(msg.paths) ? msg.paths : [];
   const base = new URL('./', location.href).pathname;
   const loaded = loadedPaths(
@@ -448,10 +490,15 @@ export function showSafeBanner() {
  * subscribers have rendered it.
  */
 function onMessage(msg) {
+  if (bundled !== null && msg.type === 'hello') {
+    protocolMismatch = msg.protocol !== bundled.protocol;
+    bundled.onProtocol(!protocolMismatch, msg.protocol);
+  }
+  if (protocolMismatch) return;
   applyMessage(msg);
   for (const fn of [...serverListeners]) fn(msg);
   if (msg.type === 'containers' && !booted) {
-    if (!SAFE_MODE && bootGeneration !== null) {
+    if (!SAFE_MODE && bundled === null && bootGeneration !== null) {
       send({ type: 'client_ready', generation: bootGeneration });
     }
     markBooted();

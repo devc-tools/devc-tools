@@ -1,6 +1,7 @@
 import { assertEquals, assertNotEquals } from 'jsr:@std/assert';
 import {
   CONTAINERS_INTENT_NAMES,
+  containersExternalFromHash,
   DRAG_MIME,
   emptyViewState,
   encodeDrag,
@@ -334,4 +335,15 @@ Deno.test('scopeFromSearch: ?scope=, else an old ?zen= scope, else null', () => 
   ) {
     assertEquals(scopeFromSearch(s), null, s);
   }
+});
+
+Deno.test('containersExternalFromHash: only containers=external', () => {
+  assertEquals(
+    containersExternalFromHash('#token=abc&view=devcd&containers=external'),
+    true,
+  );
+  assertEquals(containersExternalFromHash('containers=external'), true);
+  assertEquals(containersExternalFromHash('#token=abc&view=devcd'), false);
+  assertEquals(containersExternalFromHash('#containers=inline'), false);
+  assertEquals(containersExternalFromHash(''), false);
 });

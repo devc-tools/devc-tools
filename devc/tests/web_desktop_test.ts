@@ -5,8 +5,12 @@ import {
   authorize,
   desktopProjectRefusal,
   desktopTokenPath,
+  helloMessage,
   parseDesktopProject,
+  wsRole,
 } from '../web/server.ts';
+import { projectRefusal } from '../web/projects_view.ts';
+import { PROTOCOL } from '../web/static/lib/protocol_version.js';
 import {
   DesktopRequests,
   MAX_PENDING,
@@ -75,6 +79,88 @@ Deno.test('authorize: the page token keeps its routes, and the desktop token ope
     check('/ws', { ...ws, authorization: `Bearer ${DESKTOP}` }),
     401,
   );
+});
+
+Deno.test('authorize: /ws?desktop_token= is the desktop role: its token, and no web Origin', () => {
+  const ws = { host, upgrade: 'websocket' };
+  const path = `/ws?desktop_token=${DESKTOP}`;
+  assertEquals(check(path, ws), null);
+  // A `file:` page (devc-desktop's bundled pane): Chromium sends `file://`, others `null`.
+  assertEquals(check(path, { ...ws, origin: 'file://' }), null);
+  assertEquals(check(path, { ...ws, origin: 'null' }), null);
+  assertEquals(check(path, { ...ws, origin: 'file:///etc' }), 403);
+  assertEquals(check(path, { ...ws, origin: `http://${host}` }), 403);
+  assertEquals(check(path, { ...ws, origin: 'http://evil.test' }), 403);
+  assertEquals(check(`/ws?desktop_token=${PAGE}`, ws), 401);
+  assertEquals(check('/ws?desktop_token=', ws), 401);
+  // Without --desktop-channel there is no desktop role.
+  assertEquals(check(path, ws, null), 401);
+  // Both tokens at once: neither role.
+  assertEquals(check(`${path}&token=${PAGE}`, ws), 401);
+  // The page token's Origin rule is unchanged by it.
+  assertEquals(check(`/ws?token=${PAGE}`, { ...ws, origin: 'null' }), 403);
+  assertEquals(check(`/ws?token=${PAGE}`, { ...ws, origin: 'file://' }), 403);
+});
+
+Deno.test('wsRole: desktop only with desktop_token', () => {
+  const url = (q: string) => new URL(`http://${host}/ws${q}`);
+  assertEquals(wsRole(url(`?desktop_token=${DESKTOP}`)), 'desktop');
+  assertEquals(wsRole(url(`?token=${PAGE}`)), 'page');
+  assertEquals(wsRole(url('')), 'page');
+});
+
+Deno.test('projectRefusal: the desktop role starts under --live, nothing under --live-yolo', () => {
+  const live = { startsAllowed: false, desktopProjects: true };
+  const yolo = { startsAllowed: true, desktopProjects: false };
+  const plain = { startsAllowed: true, desktopProjects: true };
+  const granted = [
+    'start_project',
+    'add_project',
+    'set_project_environment',
+    'list_host_dir',
+    'stop_project',
+    'down_project',
+  ];
+  for (const type of granted) {
+    assertEquals(projectRefusal({ type }, 'desktop', live), null, type);
+    assertEquals(projectRefusal({ type }, 'desktop', plain), null, type);
+    assertEquals(
+      typeof projectRefusal({ type }, 'desktop', yolo),
+      'string',
+      type,
+    );
+  }
+  // What the page may do stays as it was.
+  assertEquals(
+    typeof projectRefusal({ type: 'start_project' }, 'page', live),
+    'string',
+  );
+  assertEquals(projectRefusal({ type: 'start_project' }, 'page', yolo), null);
+  assertEquals(projectRefusal({ type: 'stop_project' }, 'page', live), null);
+  // Anything else is the page's to do, for either role.
+  assertEquals(
+    projectRefusal({ type: 'remove_project' }, 'desktop', yolo),
+    null,
+  );
+  assertEquals(projectRefusal({ type: 'list_dir' }, 'desktop', yolo), null);
+});
+
+Deno.test('helloMessage: the protocol, and projectStarts for the role', () => {
+  const base = {
+    generation: 'g',
+    live: true,
+    desktopChannel: true,
+    hostOs: 'darwin',
+  };
+  const live = { ...base, projectStarts: false, desktopProjects: true };
+  const yolo = { ...base, projectStarts: true, desktopProjects: false };
+  assertEquals(helloMessage({ ...live, role: 'page' }).protocol, PROTOCOL);
+  assertEquals(typeof PROTOCOL, 'number');
+  assertEquals(helloMessage({ ...live, role: 'page' }).projectStarts, false);
+  assertEquals(helloMessage({ ...live, role: 'desktop' }).projectStarts, true);
+  assertEquals(helloMessage({ ...yolo, role: 'page' }).projectStarts, true);
+  assertEquals(helloMessage({ ...yolo, role: 'desktop' }).projectStarts, false);
+  assertEquals(helloMessage({ ...live, role: 'desktop' }).type, 'hello');
 });
 
 Deno.test('desktopTokenPath names exactly the desktop routes', () => {

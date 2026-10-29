@@ -147,6 +147,7 @@ import {
   isProjectRepo,
   projectRefusal,
   repoFileFor,
+  type WsRole,
 } from './projects_view.ts';
 import { GitStatusWatch, isGitProblem } from './git_status.ts';
 import { type ChangesReading, GitChangesWatch } from './git_changes.ts';
@@ -174,6 +175,7 @@ import {
   rejectionReply,
 } from './protocol.ts';
 import { type Delivery, ViewRegistry } from './views.ts';
+import { PROTOCOL } from './static/lib/protocol_version.js';
 import { PR_MESSAGE_TYPES, type PrMessage, PrReview } from './pr_review.ts';
 import { closeGracefully, liveProcs } from './proc.ts';
 import { LspError, LspManager, type LspTarget } from './lsp_manager.ts';
@@ -254,9 +256,57 @@ export function authorize(
     return expected !== null && tokenMatches(given, expected) ? null : 401;
   }
   if (url.pathname !== '/ws') return null;
+  if (wsRole(url) === 'desktop') {
+    // devc-desktop's Containers pane: a `file:` page, whose Origin Chromium sends as `file://`
+    // (`null` in other browsers), or none. Never a web page's: no site can send these.
+    const origin = headers.get('origin');
+    if (origin !== null && origin !== 'null' && origin !== 'file://') {
+      return 403;
+    }
+    const given = url.searchParams.get('desktop_token');
+    return desktopToken !== null && url.searchParams.get('token') === null &&
+        tokenMatches(given, desktopToken)
+      ? null
+      : 401;
+  }
   if (!originAllowed(headers.get('origin'), port)) return 403;
   if (!tokenMatches(url.searchParams.get('token'), token)) return 401;
   return null;
+}
+
+/**
+ * Which role a `/ws` connection that passed {@link authorize} has: `desktop` when it came with
+ * the desktop token (`?desktop_token=`, devc-desktop's bundled Containers pane), else `page`.
+ * Handlers check the role, never the token again (see {@link projectRefusal}).
+ */
+export function wsRole(url: URL): WsRole {
+  return url.searchParams.has('desktop_token') ? 'desktop' : 'page';
+}
+
+/**
+ * The server's first `/ws` message. `protocol` is {@link PROTOCOL}: devc-desktop's bundled
+ * Containers pane draws nothing when it was built for another. `projectStarts` is what this
+ * connection's role may start (see {@link projectRefusal}): a page's under `--live` is off, the
+ * desktop role's is on except under `--live-yolo`.
+ */
+export function helloMessage(o: {
+  role: WsRole;
+  generation: string;
+  live: boolean;
+  projectStarts: boolean;
+  desktopProjects: boolean;
+  desktopChannel: boolean;
+  hostOs: string;
+}): Record<string, unknown> {
+  return {
+    type: 'hello',
+    protocol: PROTOCOL,
+    generation: o.generation,
+    live: o.live,
+    projectStarts: o.role === 'desktop' ? o.desktopProjects : o.projectStarts,
+    desktopChannel: o.desktopChannel,
+    hostOs: o.hostOs,
+  };
 }
 
 /** The paths only devc-desktop's main process asks for. */
@@ -528,6 +578,8 @@ export function routeStatic(
 
 interface Client extends Subscriber {
   socket: WebSocket;
+  /** What this connection may do: see {@link wsRole}. */
+  role: WsRole;
   /** This connection's id in the activity log: random, not the token. */
   activityId: string;
 }
@@ -1289,7 +1341,10 @@ export async function startWeb(
       }
       return;
     }
-    const refusal = projectRefusal(msg, projectStarts);
+    const refusal = projectRefusal(msg, c.role, {
+      startsAllowed: projectStarts,
+      desktopProjects,
+    });
     if (refusal !== null) {
       fail(c, msg.id, 'not_allowed', refusal);
       return;
@@ -2931,7 +2986,10 @@ export async function startWeb(
     >,
   ) => {
     const folder = msg.localFolder;
-    const refusal = projectRefusal(msg, projectStarts);
+    const refusal = projectRefusal(msg, c.role, {
+      startsAllowed: projectStarts,
+      desktopProjects,
+    });
     if (refusal !== null) {
       fail(c, msg.id, 'not_allowed', refusal);
       return;
@@ -3435,9 +3493,10 @@ export async function startWeb(
     }
   };
 
-  const onSocket = (socket: WebSocket) => {
+  const onSocket = (socket: WebSocket, role: WsRole) => {
     const client: Client = {
       socket,
+      role,
       activityId: crypto.randomUUID(),
       send(text) {
         if (socket.readyState === WebSocket.OPEN) socket.send(text);
@@ -3445,14 +3504,15 @@ export async function startWeb(
     };
     socket.onopen = () => {
       clients.add(client);
-      client.send(JSON.stringify({
-        type: 'hello',
+      client.send(JSON.stringify(helloMessage({
+        role,
         generation: generation(),
         live: opts.live,
         projectStarts,
+        desktopProjects,
         desktopChannel: desktopToken !== null,
         hostOs: Deno.build.os,
-      }));
+      })));
       client.send(JSON.stringify(containersMessage()));
       client.send(JSON.stringify(projectsMessage()));
       client.send(JSON.stringify(pinnedFilesMessage(filePins)));
@@ -3674,7 +3734,7 @@ export async function startWeb(
           return new Response('expected a WebSocket upgrade', { status: 400 });
         }
         const { socket, response } = Deno.upgradeWebSocket(req);
-        onSocket(socket);
+        onSocket(socket, wsRole(url));
         return response;
       }
       if (url.pathname.startsWith(DESKTOP_PREFIX)) {

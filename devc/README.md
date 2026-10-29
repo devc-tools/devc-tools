@@ -435,8 +435,10 @@ is published from any container: the host server finds devcontainers with
   Containers page opens shows in `/main`, **Reveal in Containers** reaches
   `/sidebar` and `/containers`, and a `/containers` page shows the cards
   `/sidebar`'s **In use** has as links to them there, pinning and unpinning
-  through it. A right-click menu closes when another page or view takes the
-  focus, and scrolls when it is taller than the window.
+  through it. `/sidebar#…&containers=external` leaves its own Containers
+  section out (devc-desktop shows its own below it). A right-click menu closes
+  when another page or view takes the focus, and scrolls when it is taller than
+  the window.
 - **Sidebar scope:** the pill in the sidebar header picks what the sidebar
   shows: **all** (lines), everything; **container** (cube), **Tasks** and the
   focused tile's container box with its in-use repo cards; or **repo** (card),
@@ -789,12 +791,22 @@ is published from any container: the host server finds devcontainers with
   HOST drawer. The page is told `asked devc-desktop: confirm in the HOST
   drawer`, or why not: `needs devc-desktop` (no flag), `unknown folder`, or a
   limit (one pending request per kind and folder, 20 in all, 10 asks per 10 s,
-  each dropped after 10 minutes).
+  each dropped after 10 minutes). The same token opens `/ws` in the **desktop
+  role** (`/ws?desktop_token=<hex>`), which devc-desktop's own Containers pane
+  uses: everything a page may do, plus, under `--live` too, starting, stopping
+  and removing containers, adding projects and browsing host folders for it,
+  and moving a project's environment (none of it under `--live-yolo`).
 
 Security: Herdr panes are shells, so `/ws` only accepts requests whose `Host`
 is `127.0.0.1:<port>`, `localhost:<port>` or `host.docker.internal:<port>`,
 whose `Origin` is that page or absent (a non-browser client), and that carry
-the token. There is no remote access by design. Routes under `/desktop/` are
+the token. With `?desktop_token=` instead (the desktop role, above), the
+`Origin` must be absent, `null` or `file://` (devc-desktop's bundled pane) and
+the token the desktop token; a connection never has both. The server's first
+message, `hello`, carries `protocol`, the version of the messages the
+Containers section uses (`web/static/lib/protocol_version.js`): devc-desktop's
+bundled copy draws nothing but a "Rebuild devc-desktop" note when it differs.
+There is no remote access by design. Routes under `/desktop/` are
 for devc-desktop's main process: they need `Authorization: Bearer <token>`
 (never `?token=`) and refuse any request that has an `Origin`.
 `GET /desktop/active-folder`, the host folder behind the terminal pane a page

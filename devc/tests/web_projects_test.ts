@@ -191,15 +191,17 @@ Deno.test('buildProjects sorts same-named folders by path', () => {
   assertEquals(views.map((v) => v.localFolder), ['/a/app', '/b/app']);
 });
 
-Deno.test('projectRefusal: with starts off, nothing starts or adds', () => {
+Deno.test('projectRefusal: with starts off, nothing starts or adds for a page', () => {
+  const on = { startsAllowed: true, desktopProjects: true };
+  const off = { startsAllowed: false, desktopProjects: true };
   for (const type of ['start_project', 'add_project', 'list_host_dir']) {
-    assertEquals(projectRefusal({ type }, true), null);
-    assertEquals(typeof projectRefusal({ type }, false), 'string');
+    assertEquals(projectRefusal({ type }, 'page', on), null);
+    assertEquals(typeof projectRefusal({ type }, 'page', off), 'string');
   }
   for (
     const type of ['stop_project', 'down_project', 'remove_project', 'list_dir']
   ) {
-    assertEquals(projectRefusal({ type }, false), null);
+    assertEquals(projectRefusal({ type }, 'page', off), null);
   }
 });
 
@@ -371,11 +373,17 @@ Deno.test('buildProjects says where each project runs: entry host plus a stopped
 
 Deno.test('projectRefusal: set_project_environment is off with --live', () => {
   assertEquals(
-    projectRefusal({ type: 'set_project_environment' }, true),
+    projectRefusal({ type: 'set_project_environment' }, 'page', {
+      startsAllowed: true,
+      desktopProjects: true,
+    }),
     null,
   );
   assertEquals(
-    projectRefusal({ type: 'set_project_environment' }, false),
+    projectRefusal({ type: 'set_project_environment' }, 'page', {
+      startsAllowed: false,
+      desktopProjects: true,
+    }),
     'changing where projects run is off while devc web runs with --live',
   );
 });

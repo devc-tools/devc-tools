@@ -366,6 +366,18 @@ export function viewIdFromHash(hash) {
 }
 
 /**
+ * Whether a `/sidebar` page's URL hash says its Containers section is drawn elsewhere
+ * (`#…&containers=external`: devc-desktop's own Containers pane): the page then draws none, and
+ * Reveal in Containers goes out to the view's Containers sections only.
+ *
+ * @param {string} hash  `location.hash`, `#` included or not
+ */
+export function containersExternalFromHash(hash) {
+  return new URLSearchParams(hash.replace(/^#/, '')).get('containers') ===
+    'external';
+}
+
+/**
  * Zen mode as a page URL's query asks for it, the tiling area's starting point (`?zen=…`): `on`
  * is on, `off` is off; `container` or `repo` (from when zen mode had a sidebar scope) is on. Null
  * when the query names none (or an unknown value): the page starts as it was saved.

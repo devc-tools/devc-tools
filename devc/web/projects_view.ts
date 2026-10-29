@@ -195,18 +195,54 @@ function changesFields(
 }
 
 /**
- * Why a project message is refused while container starts are off (`devc web --live`: the page
- * comes from a checkout agents can write to), or `null` when it may go ahead. Off, nothing may
- * start a container or bring in a folder: `start_project` and `add_project` are refused, and so
- * is `list_host_dir`, which only serves "Add project…". Stop and remove never widen what can be
- * reached, so they stay allowed. A start can still be asked of devc-desktop (`request_project`),
- * which the user confirms in its HOST drawer; the refusal says so.
+ * What a `/ws` connection may do. `page`: anything holding the page token, which counts as the
+ * page. `desktop`: devc-desktop's bundled Containers pane, which came with the desktop token
+ * (`--desktop-channel`) and whose clicks the user made in the app's own view.
+ */
+export type WsRole = 'page' | 'desktop';
+
+/** The modes {@link projectRefusal} weighs: `startWeb`'s `projectStarts` and `desktopProjects`. */
+export interface ProjectModes {
+  /** Off under `devc web --live`: the page comes from a checkout agents can write to. */
+  startsAllowed: boolean;
+  /** Off under `--live-yolo`: the server code itself comes from such a checkout. */
+  desktopProjects: boolean;
+}
+
+/** The project messages only the `desktop` role may send when starts are off for a page. */
+const DESKTOP_GRANTS = [
+  'start_project',
+  'add_project',
+  'set_project_environment',
+  'list_host_dir',
+  'stop_project',
+  'down_project',
+];
+
+/**
+ * Why a project message from a connection of `role` is refused, or `null` when it may go ahead.
+ *
+ * A page, while container starts are off (`devc web --live`): nothing may start a container or
+ * bring in a folder, so `start_project` and `add_project` are refused, and so is `list_host_dir`,
+ * which only serves "Add project…". Stop and remove never widen what can be reached, so they stay
+ * allowed. A start can still be asked of devc-desktop (`request_project`); the refusal says so.
+ *
+ * The desktop role may do all of that under `--live` too (and stop and remove), since the user
+ * confirmed it in the app. Under `--live-yolo` it may do none of it: the server is then code a
+ * container may have written, which the app's confirm must not appear to vouch for.
  */
 export function projectRefusal(
   msg: { type: string },
-  startsAllowed: boolean,
+  role: WsRole,
+  modes: ProjectModes,
 ): string | null {
-  if (startsAllowed) return null;
+  if (role === 'desktop') {
+    if (modes.desktopProjects || !DESKTOP_GRANTS.includes(msg.type)) {
+      return null;
+    }
+    return "devc-desktop's Containers pane starts, stops and adds nothing while devc web runs with --live-yolo: hide the pane (Layout → Containers Pane) to use devc web's own Containers section";
+  }
+  if (modes.startsAllowed) return null;
   const off = 'is off while devc web runs with --live';
   if (msg.type === 'start_project') {
     return `starting containers ${off}: in devc-desktop, Start asks it instead`;

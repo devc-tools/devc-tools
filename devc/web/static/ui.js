@@ -587,6 +587,10 @@ export function openMenu(e, items) {
  * @param {MenuItem[]} items
  */
 export function openMenuAt(x, y, items) {
+  if (menuHost) {
+    menuHost(x, y, trimDividers(items));
+    return;
+  }
   $menu.replaceChildren(
     ...trimDividers(items).map((item) => {
       if (item === null) {
@@ -619,6 +623,20 @@ export function openMenuAt(x, y, items) {
   $menu.style.top = `${
     Math.max(4, Math.min(y, innerHeight - rect.height - 4))
   }px`;
+}
+
+/**
+ * Where this page's menus go instead of `#menu`: devc-desktop's Containers pane hands them to the
+ * app's overlay menu, a view of its own that may spread past the pane. `null` in a page devc web
+ * serves: its menus never leave it.
+ *
+ * @type {((x: number, y: number, items: MenuItem[]) => void) | null}
+ */
+let menuHost = null;
+
+/** Sends this page's menus to `host`: see {@link menuHost}. */
+export function useMenuHost(/** @type {typeof menuHost} */ host) {
+  menuHost = host;
 }
 
 function closeMenu() {

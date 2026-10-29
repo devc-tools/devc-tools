@@ -152,6 +152,8 @@ let tileArea = /** @type {TileArea} */ (null);
 let containersSection =
   /** @type {ReturnType<typeof mountContainers>} */ (null);
 let otherContainers = /** @type {ContainersIntents | null} */ (null);
+/** `/sidebar`'s `#…&containers=external`: no Containers section here (see `mountSidebar`). */
+let containersExternal = false;
 /** The cards In use showed at the last render (`card.active`): Containers' stand-ins. */
 let shownInUse = new Set();
 /** In use's cards and pins as last told (`onInUse`), so it is told again only on a change. */
@@ -282,9 +284,13 @@ function scopePickerKeydown(e) {
   ))?.focus();
 }
 
-/** Whether the Containers section is open: a scoped sidebar hides it, as if folded. */
+/**
+ * Whether the Containers section is open: a scoped sidebar hides it, as if folded, and one drawn
+ * elsewhere (`containers=external`) is never shown here.
+ */
 function containersShown() {
-  return sidebarState.containersOpen && sidebarState.scope === 'all';
+  return !containersExternal && sidebarState.containersOpen &&
+    sidebarState.scope === 'all';
 }
 
 /** The space the zones share: the sidebar's tree less its dividers. */
@@ -482,8 +488,8 @@ function renderTree() {
     $zoneTasks.replaceChildren(...taskRows());
     if (scoped) $zoneBrowse.replaceChildren();
     else containersSection.draw(cards);
-    $zoneBrowse.hidden = scoped;
-    $dividerBrowse.hidden = scoped;
+    $zoneBrowse.hidden = scoped || containersExternal;
+    $dividerBrowse.hidden = scoped || containersExternal;
     if ($zoneInUse.parentNode !== $tree) {
       $tree.replaceChildren(
         $zoneTasks,
@@ -1761,10 +1767,12 @@ function onSidebarMessage(msg) {
  * Containers section in its bottom zone, and returns the tiling area's way in and In use's way in
  * for a Containers section on another page. `tileArea` is how the sidebar reaches the tiling area
  * (see `lib/view.js`). On `/sidebar`, `containers` is another page's Containers section, and
- * `onInUse` tells it In use's cards and pins as they change.
+ * `onInUse` tells it In use's cards and pins as they change. With `containersExternal` (and
+ * `containers`) the page draws no Containers section of its own: devc-desktop shows its own.
  *
  * @param {HTMLElement} root
  * @param {{tileArea: TileArea, containers?: ContainersIntents,
+ *   containersExternal?: boolean,
  *   onInUse?: (state: {inUse: string[], pinned: string[]}) => void}} opts
  * @returns {{intents: SidebarIntents, onViewState: (state: ViewState) => void,
  *   inUse: {revealInUse: (key: string) => void, pin: (key: string, pinned: boolean) => void,
@@ -1773,6 +1781,8 @@ function onSidebarMessage(msg) {
 export function mountSidebar(root, opts) {
   tileArea = opts.tileArea;
   otherContainers = opts.containers ?? null;
+  containersExternal = otherContainers !== null &&
+    opts.containersExternal === true;
   onInUse = opts.onInUse ?? null;
   $sidebar = root;
   $tree = /** @type {HTMLElement} */ (root.querySelector('#tree'));
@@ -1793,11 +1803,13 @@ export function mountSidebar(root, opts) {
   }));
   $tree.before(h('div', { class: 'sidebar-filter' }, $filter));
   mountCards({ tileArea, root: $tree, render: renderTree });
-  containersSection = mountContainers($zoneBrowse, {
-    tileArea,
-    inUse: inUseLink,
-    standalone: false,
-  });
+  containersSection = containersExternal
+    ? { reveal: () => {}, setFold: () => {}, draw: () => {}, onViewState() {} }
+    : mountContainers($zoneBrowse, {
+      tileArea,
+      inUse: inUseLink,
+      standalone: false,
+    });
   setMenuContext({
     tileArea,
     fileTreeOf: fileTree,

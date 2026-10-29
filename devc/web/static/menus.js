@@ -46,6 +46,7 @@ import {
   resolveRef,
   saveFilePinPanes,
   send,
+  serverOrigin,
   snapshots,
 } from './client.js';
 
@@ -469,6 +470,21 @@ export function canStartProjects() {
 }
 
 /**
+ * devc-desktop's Containers pane (this code bundled into the app): a push, start, stop or removal
+ * goes to the app, which shows it in the pane with its own checks and an armed confirm, instead
+ * of to the server or a dialog here. `null` in a page devc web serves.
+ *
+ * @type {{push: (localFolder: string, folder: string) => void,
+ *   project: (action: 'start' | 'stop' | 'down', localFolder: string) => void} | null}
+ */
+let appActions = null;
+
+/** Sends this page's pushes and container actions to devc-desktop: see {@link appActions}. */
+export function useAppActions(/** @type {typeof appActions} */ actions) {
+  appActions = actions;
+}
+
+/**
  * Asks devc-desktop (`request_push`, `request_project`): the request shows in the app's HOST
  * drawer, where the user confirms it. The page never can; the toast says where to look.
  *
@@ -484,6 +500,10 @@ function askDesktop(msg, what) {
 
 /** Asks devc-desktop to push a repo of a project: it shows its own push plan to confirm. */
 export function requestPush(localFolder, folder) {
+  if (appActions) {
+    appActions.push(localFolder, folder);
+    return;
+  }
   askDesktop(
     { type: 'request_push', localFolder, folder },
     LABELS.requestPush,
@@ -491,6 +511,10 @@ export function requestPush(localFolder, folder) {
 }
 
 export function startProject(localFolder) {
+  if (appActions) {
+    appActions.project('start', localFolder);
+    return;
+  }
   const what = projectActions(projects.get(localFolder)?.environment).start;
   // Under --live the server starts nothing for this page: devc-desktop is asked instead.
   if (!projectStarts && desktopChannel) {
@@ -712,7 +736,7 @@ export async function mintPreviewUrl(c, fr, path) {
         path,
       },
   );
-  return new URL(String(result?.path ?? ''), location.origin).href;
+  return new URL(String(result?.path ?? ''), serverOrigin()).href;
 }
 
 /**
@@ -965,6 +989,10 @@ async function startIn(localFolder, environment, what) {
 }
 
 export async function stopProject(p) {
+  if (appActions) {
+    appActions.project('stop', p.localFolder);
+    return;
+  }
   const actions = projectActions(p.environment);
   if (
     await confirmDialog(
@@ -978,6 +1006,10 @@ export async function stopProject(p) {
 
 /** `devc down`: the container is stopped and deleted; the project stays listed. */
 export async function downProject(p) {
+  if (appActions) {
+    appActions.project('down', p.localFolder);
+    return;
+  }
   if (
     await confirmDialog(
       `Remove the container for ${p.name}? Like devc down, it is stopped and deleted: its panes end, and anything outside its mounted folders and volumes is lost.`,
