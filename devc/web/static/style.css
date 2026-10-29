@@ -1354,7 +1354,8 @@ body.resizing-zones {
   color: var(--muted);
 }
 
-/* Push/pull: ↑ commits to push, ↓ commits to pull, against the branch's upstream. */
+/* The git mark: ● changes to commit, then ↑ commits to push, ↓ commits to pull, against the
+   branch's upstream. */
 .git-sync {
   display: inline-flex;
   gap: 4px;
@@ -1375,6 +1376,15 @@ body.resizing-zones {
 
 .git-sync [data-dir='gone'] {
   color: var(--muted);
+}
+
+/* ● changes to commit in the working tree (staged, unstaged or untracked); in conflict, red. */
+.git-sync [data-dir='changes'] {
+  color: var(--blocked);
+}
+
+.git-sync [data-dir='conflicted'] {
+  color: var(--danger);
 }
 
 /* Nothing to push or pull: ✓ level with the upstream, ? status unreadable (the tooltip says

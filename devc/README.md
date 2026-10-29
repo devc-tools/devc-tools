@@ -291,7 +291,14 @@ is published from any container: the host server finds devcontainers with
 `terminal session control`. Updates are pushed end to end; nothing is polled.
 
 - **Sidebar:** each repo or worktree of a container is a **repo card**: its
-  name, branch and sync mark on top, then its terminals (its tiles, then every
+  name, branch and git mark on top (**● N** changes to commit in its working
+  tree, staged, unstaged and untracked together, red while any are in conflict;
+  **↑N** commits to push and **↓N** to pull against its upstream, or a quiet
+  **✓** when level; the tooltip has each count). The ● count comes from `git
+  status` run inside the running container (never on the host, which would run
+  the repo's own config), or directly for a project on this machine, every
+  15 s and as soon as an agent there finishes a turn. Below the header are its
+  terminals (its tiles, then every
   pane in it no tile shows, shells too); terminals outside every repo get a
   card named after the container. A card's header buttons show its past agent
   sessions (a repo in several containers lists the same ones on each container's

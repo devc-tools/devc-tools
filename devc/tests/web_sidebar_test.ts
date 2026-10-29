@@ -762,3 +762,90 @@ Deno.test('environmentItem: offered only with both kinds, never for a project a 
     null,
   );
 });
+
+Deno.test('gitSync puts changes to commit before push and pull, conflicts apart', () => {
+  const git = {
+    branch: 'main',
+    upstream: 'origin/main',
+    ahead: 0,
+    behind: 0,
+    gone: false,
+  };
+  const clean = { staged: 0, unstaged: 0, untracked: 0, conflicted: 0 };
+  const some = { staged: 1, unstaged: 2, untracked: 3, conflicted: 0 };
+  // Nothing to commit: just the push/pull mark.
+  assertEquals(gitSync(git, undefined, clean), gitSync(git));
+  assertEquals(gitSync(null, undefined, clean), null);
+  // The ✓ gives way; the counts lead the tooltip.
+  assertEquals(gitSync(git, undefined, some), {
+    marks: [{ dir: 'changes', text: '● 6' }],
+    diverged: false,
+    title: 'to commit: 1 staged, 2 unstaged, 3 untracked, 0 in conflict\n' +
+      'main → origin/main: in sync (as of the last fetch)',
+  });
+  assertEquals(
+    gitSync({ ...git, ahead: 1, behind: 2 }, undefined, some)?.marks.map((m) =>
+      m.text
+    ),
+    ['● 6', '↑1', '↓2'],
+  );
+  // A branch with no upstream still shows its changes.
+  assertEquals(gitSync({ ...git, upstream: null }, undefined, some)?.marks, [
+    { dir: 'changes', text: '● 6' },
+  ]);
+  assertEquals(
+    gitSync(git, undefined, { ...clean, conflicted: 1 })?.marks,
+    [{ dir: 'conflicted', text: '● 1' }],
+  );
+  // Why the changes can't be read goes in the tooltip, and alone is a quiet ?.
+  assertEquals(gitSync(git, undefined, undefined, 'git status: timed out'), {
+    marks: [{ dir: 'synced', text: '✓' }],
+    diverged: false,
+    title: 'main → origin/main: in sync (as of the last fetch)\n' +
+      'changes unavailable: git status: timed out',
+  });
+  assertEquals(
+    gitSync(null, undefined, undefined, 'too many changes to count'),
+    {
+      marks: [{ dir: 'unknown', text: '?' }],
+      diverged: false,
+      title: 'changes unavailable: too many changes to count',
+    },
+  );
+});
+
+Deno.test('gitRollup sums changes to commit, in conflict colors when any repo has one', () => {
+  const git = {
+    branch: 'main',
+    upstream: 'origin/main',
+    ahead: 1,
+    behind: 0,
+    gone: false,
+  };
+  const changes = (n: number, conflicted = 0) => ({
+    staged: n,
+    unstaged: 0,
+    untracked: 0,
+    conflicted,
+  });
+  const r = gitRollup([
+    { name: 'a', git, changes: changes(2) },
+    { name: 'b', git: null, changes: changes(1) },
+    { name: 'c', git: { ...git, ahead: 0 }, changes: changes(0) },
+  ]);
+  assertEquals(r?.marks, [
+    { dir: 'changes', text: '● 3' },
+    { dir: 'ahead', text: '↑1' },
+  ]);
+  assertEquals(
+    r?.title.split('\n').filter((l) => /^\w:/.test(l)).map((l) => l[0]),
+    ['a', 'b'],
+  );
+  assertEquals(
+    gitRollup([
+      { name: 'a', git: null, changes: changes(1) },
+      { name: 'b', git: null, changes: changes(0, 2) },
+    ])?.marks,
+    [{ dir: 'conflicted', text: '● 3' }],
+  );
+});

@@ -7,12 +7,27 @@ Decided with the user on 2026-10-28. First of six plans (see "Git and the truste
 
 - [x] Prerequisite: the user has run `devc-web-host-environments`' manual validation on the Mac
       (done 2026-10-28; only Docker quit and Remove container are left, and neither blocks this).
-- [ ] `git_changes.ts`: the reading, its parser and a watch (contracts below).
-- [ ] `server.ts`: run the watch over running environments, and put its readings in the
+- [x] `git_changes.ts`: the reading, its parser and a watch (contracts below).
+- [x] `server.ts`: run the watch over running environments, and put its readings in the
       `projects` message.
-- [ ] `projects_view.ts`: `changes` / `changesProblem` on `RepoView`.
-- [ ] Page: the repo card's git mark shows the count.
-- [ ] Tests, README.
+- [x] `projects_view.ts`: `changes` / `changesProblem` on `RepoView`.
+- [x] Page: the repo card's git mark shows the count.
+- [x] Tests, README.
+- [ ] Manual (the user, on the Mac): a host project and a container project each show `● n`
+      after an edit, and it clears after a commit, within one poll or right after an agent goes
+      idle.
+
+2026-10-29: implemented; everything but the manual check above is done (unit tests, `deno task
+check`, `deno task test`). Left: that check, with devc web restarted on this checkout. Notes from
+the implementation:
+
+- `readChanges` runs through `Environment.runLimited`, not `run`: it already gives the 10 s
+  timeout and the 1 MiB cap (`too_large`) for both kinds. It takes `Pick<Environment,
+  'runLimited'>`, so its fakes in `tests/web_git_changes_test.ts` answer `runLimited`.
+- The watch is `GitChangesWatch` (readings by environment id, then host folder). `server.ts` maps
+  them to project folders for `buildProjects`' new last parameter.
+- Page: `gitSync(git, problem, changes, changesProblem)`. With changes, the quiet ✓ gives way to
+  `● n`; a `changesProblem` with no other mark shows a quiet `?`. `gitRollup` sums `●` too.
 
 Decided 2026-10-29: untracked files count toward the mark (they are changes to commit, and
 `.gitignore` already hides the ones that aren't).

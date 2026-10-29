@@ -1321,7 +1321,14 @@ function repoCard(card, worktrees = 0) {
       ? [
         ...repoNameParts(repoGroupName(localFolder, repo)),
         branch ? h('span', { class: 'repo-branch' }, branch) : '',
-        gitMark(gitSync(repo.git, repo.gitProblem)),
+        gitMark(
+          gitSync(
+            repo.git,
+            repo.gitProblem,
+            repo.changes,
+            repo.changesProblem,
+          ),
+        ),
       ]
       : [h('span', { class: 'repo-base' }, containerNameOf(localFolder))]),
     cardPinMark(key),
@@ -2102,7 +2109,10 @@ function byName(a, b) {
     a.localFolder.localeCompare(b.localFolder);
 }
 
-/** ↑ push / ↓ pull counts, or a quiet ✓ / •, from `gitSync` or `gitRollup`; nothing for no repo. */
+/**
+ * ● changes to commit, ↑ push / ↓ pull counts, or a quiet ✓ / ?, from `gitSync` or `gitRollup`;
+ * nothing for no repo.
+ */
 function gitMark(sync) {
   if (!sync) return '';
   return h(

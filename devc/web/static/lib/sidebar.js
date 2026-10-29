@@ -324,7 +324,7 @@ export function labelText({ name, title }) {
  * `unknown` mark (?) whose tooltip gives the reason. `null` when there is no repo, no status
  * read yet, or a branch with no upstream (nothing to compare with, so nothing to say).
  */
-export function gitSync(git, problem) {
+function pushPull(git, problem) {
   if (!git) {
     if (!problem) return null;
     return {
@@ -359,12 +359,60 @@ export function gitSync(git, problem) {
   };
 }
 
+/** @typedef {{staged: number, unstaged: number, untracked: number, conflicted: number}} GitChanges */
+
+/** All of a repo's {@link GitChanges}' entries; 0 with none. */
+function changesCount(changes) {
+  if (!changes) return 0;
+  return changes.staged + changes.unstaged + changes.untracked +
+    changes.conflicted;
+}
+
+/**
+ * A repo's git mark: its changes to commit (`changes`, see the `projects` message) as `● N`
+ * (`conflicted` while any are in conflict, else `changes`) before its push/pull marks (see
+ * {@link pushPull}), a ✓ dropped beside it. The tooltip lists the four counts, then the push/pull
+ * text, then `changesProblem` (why its changes can't be read), which alone gives a quiet `?`.
+ * `null` when there is nothing to say.
+ *
+ * @param {{branch: string, upstream: string | null, ahead: number, behind: number, gone: boolean} | null} [git]
+ * @param {string} [problem]
+ * @param {GitChanges} [changes]
+ * @param {string} [changesProblem]
+ */
+export function gitSync(git, problem, changes, changesProblem) {
+  const sync = pushPull(git, problem);
+  const n = changesCount(changes);
+  if (n === 0 && !changesProblem) return sync;
+  const marks = sync?.marks.filter((m) => n === 0 || m.dir !== 'synced') ?? [];
+  if (n > 0) {
+    marks.unshift({
+      dir: changes.conflicted > 0 ? 'conflicted' : 'changes',
+      text: `● ${n}`,
+    });
+  }
+  if (marks.length === 0) marks.push({ dir: 'unknown', text: '?' });
+  return {
+    marks,
+    diverged: sync?.diverged ?? false,
+    title: [
+      n > 0
+        ? `to commit: ${changes.staged} staged, ${changes.unstaged} unstaged, ` +
+          `${changes.untracked} untracked, ${changes.conflicted} in conflict`
+        : '',
+      sync?.title ?? '',
+      changesProblem ? `changes unavailable: ${changesProblem}` : '',
+    ].filter((s) => s).join('\n'),
+  };
+}
+
 /** Mark `dir`s that mean "nothing to push or pull" (or nothing known). */
 const QUIET_DIRS = ['synced', 'unknown'];
 
 /**
- * One mark for several repos (a collapsed container's, say). When any repo has something to
- * push or pull (or a deleted upstream): their ↑ and ↓ counts summed, with every such repo listed
+ * One mark for several repos (a collapsed container's, say). When any repo has changes to commit,
+ * something to push or pull (or a deleted upstream): their ●, ↑ and ↓ counts summed (● in
+ * conflict colors when any repo's is), with every such repo listed
  * in the tooltip. Otherwise a quiet ✓ listing every repo's own tooltip, or ? when no repo's
  * status could be read. `null` when none of `repos` has a mark (no repo, or none with an
  * upstream).
@@ -372,7 +420,7 @@ const QUIET_DIRS = ['synced', 'unknown'];
 export function gitRollup(repos) {
   const all = [...repos].map((r) => ({
     name: r.name,
-    sync: gitSync(r.git, r.gitProblem),
+    sync: gitSync(r.git, r.gitProblem, r.changes, r.changesProblem),
   }))
     .filter((r) => r.sync);
   if (all.length === 0) return null;
@@ -395,11 +443,21 @@ export function gitRollup(repos) {
   const sum = (dir) =>
     busy.reduce((n, r) => {
       const m = r.sync.marks.find((x) => x.dir === dir);
-      return n + (m ? Number(m.text.slice(1)) : 0);
+      return n + (m ? Number(m.text.replace(/\D/g, '')) : 0);
     }, 0);
   const ahead = sum('ahead');
   const behind = sum('behind');
+  const changed = sum('changes') + sum('conflicted');
   const marks = [];
+  if (changed > 0) {
+    const conflicted = busy.some((r) =>
+      r.sync.marks.some((m) => m.dir === 'conflicted')
+    );
+    marks.push({
+      dir: conflicted ? 'conflicted' : 'changes',
+      text: `● ${changed}`,
+    });
+  }
   if (ahead > 0) marks.push({ dir: 'ahead', text: `↑${ahead}` });
   if (behind > 0) marks.push({ dir: 'behind', text: `↓${behind}` });
   if (marks.length === 0) marks.push({ dir: 'gone', text: 'gone' });

@@ -8,6 +8,7 @@ import {
   repoName,
 } from '../web/projects_view.ts';
 import type { GitReading } from '../web/git_status.ts';
+import type { ChangesReading } from '../web/git_changes.ts';
 
 Deno.test('buildProjects merges the list with running and stopped containers', () => {
   const views = buildProjects(
@@ -377,4 +378,37 @@ Deno.test('projectRefusal: set_project_environment is off with --live', () => {
     projectRefusal({ type: 'set_project_environment' }, false),
     'changing where projects run is off while devc web runs with --live',
   );
+});
+
+Deno.test('buildProjects adds each running project repo’s changes to commit, or why there are none', () => {
+  const repo = (folder: string) => ({
+    folder,
+    worktreeOf: null,
+    containerFolder: null,
+    primaryFolder: null,
+  });
+  const changes = { staged: 1, unstaged: 0, untracked: 2, conflicted: 0 };
+  const [p] = buildProjects(
+    [{ localFolder: '/src/app' }],
+    ['/src/app'],
+    [],
+    new Set(),
+    new Map([['/src/app', [repo('/src/app'), repo('/src/lib'), repo('/x')]]]),
+    new Map(),
+    undefined,
+    new Map([[
+      '/src/app',
+      new Map<string, ChangesReading>([
+        ['/src/app', changes],
+        ['/src/lib', { problem: 'git status: timed out' }],
+      ]),
+    ]]),
+  );
+  assertEquals(p.repos.map((r) => [r.changes, r.changesProblem]), [
+    [changes, undefined],
+    [undefined, 'git status: timed out'],
+    // Not read yet: neither field.
+    [undefined, undefined],
+  ]);
+  assertEquals('changes' in p.repos[2], false);
 });

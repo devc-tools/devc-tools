@@ -6,6 +6,7 @@ import { basename } from 'jsr:@std/path';
 import type { ProjectEntry } from '../projects.ts';
 import type { EnvironmentKind } from './environment.ts';
 import type { MountedRepo } from './git_repo.ts';
+import type { ChangesReading, GitChanges } from './git_changes.ts';
 import { type GitReading, type GitStatus, isGitProblem } from './git_status.ts';
 
 /** A project's container: running, only stopped ones, or none at all. */
@@ -34,6 +35,10 @@ export interface RepoView extends MountedRepo {
   git?: GitStatus | null;
   /** Why `git` is `null` for a folder that is a repo: `detached HEAD`, a timed-out or failed git call. */
   gitProblem?: string;
+  /** Its working tree's changes; absent until read, or while its environment isn't running. */
+  changes?: GitChanges;
+  /** Why there is no `changes` for a repo that should have one. */
+  changesProblem?: string;
 }
 
 /**
@@ -65,7 +70,9 @@ export interface EnvironmentFacts {
  * Merges the projects list with what discovery knows. `running` and `stopped` are the
  * `localFolder`s of running and stopped containers; a folder with both counts as running.
  * `repos` holds each container's mounted repos by project folder (a folder missing from it has
- * just itself), and `git` each repo's push/pull state (or why it has none), when read. Sorted by name, then folder.
+ * just itself), and `git` each repo's push/pull state (or why it has none), when read. `changes`
+ * holds each running project's repos' changes to commit (or why there are none), by project
+ * folder, then repo folder. Sorted by name, then folder.
  */
 export function buildProjects(
   entries: readonly ProjectEntry[],
@@ -75,6 +82,7 @@ export function buildProjects(
   repos: ReadonlyMap<string, readonly MountedRepo[]> = new Map(),
   git: ReadonlyMap<string, GitReading> = new Map(),
   environments?: EnvironmentFacts,
+  changes: ReadonlyMap<string, ReadonlyMap<string, ChangesReading>> = new Map(),
 ): ProjectView[] {
   const runningSet = new Set(running);
   const stoppedSet = new Set(stopped);
@@ -115,6 +123,7 @@ export function buildProjects(
           ...r,
           name: repoName(r.folder, r.containerFolder),
           ...gitFields(git, r.folder),
+          ...changesFields(changes.get(e.localFolder)?.get(r.folder)),
         })),
     ),
   })).sort((a, b) =>
@@ -173,6 +182,16 @@ function gitFields(
   return isGitProblem(reading)
     ? { git: null, gitProblem: reading.problem }
     : { git: reading };
+}
+
+/** A repo's `changes` (or `changesProblem`) field from its reading; none until it is read. */
+function changesFields(
+  reading: ChangesReading | undefined,
+): Pick<RepoView, 'changes' | 'changesProblem'> {
+  if (reading === undefined) return {};
+  return 'problem' in reading
+    ? { changesProblem: reading.problem }
+    : { changes: reading };
 }
 
 /**

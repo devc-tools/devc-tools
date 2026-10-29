@@ -143,6 +143,7 @@ import {
   repoFileFor,
 } from './projects_view.ts';
 import { GitStatusWatch, isGitProblem } from './git_status.ts';
+import { type ChangesReading, GitChangesWatch } from './git_changes.ts';
 import {
   ActivityRecorder,
   catchUpRollups,
@@ -626,6 +627,7 @@ export async function startWeb(
       reposByFolder(),
       gitWatch.statuses,
       { containers: containerFolders(), available },
+      changesByFolder(),
     ),
   });
   const broadcastProjects = () => broadcast(projectsMessage());
@@ -811,7 +813,27 @@ export async function startWeb(
     );
     broadcastProjects();
     void gitWatch.refresh();
+    void changesWatch.refreshEnvironment(record.id);
     recordPanes(record.id);
+  };
+  // Every running environment's repos' changes to commit, read there (`git_changes.ts`) on a
+  // timer and when one of its agents turns idle or done.
+  const changesWatch: GitChangesWatch = new GitChangesWatch({
+    targets: () =>
+      [...sessions.values()].map((s) => ({
+        env: s.env,
+        folders: (containerRepos.get(s.record.id) ?? []).map((r) => r.folder),
+      })),
+    onChange: () => broadcastProjects(),
+  });
+  /** {@link changesWatch}'s readings by running project folder, for {@link buildProjects}. */
+  const changesByFolder = () => {
+    const byFolder = new Map<string, ReadonlyMap<string, ChangesReading>>();
+    for (const [id, s] of sessions) {
+      const readings = changesWatch.readings.get(id);
+      if (readings) byFolder.set(s.record.localFolder, readings);
+    }
+    return byFolder;
   };
   // Every listed repo's push/pull state, read again on a timer and whenever the list changes.
   const gitWatch: GitStatusWatch = new GitStatusWatch({
@@ -949,6 +971,10 @@ export async function startWeb(
           agent_status,
         });
         taskRunStatus(id, pane_id, agent_status);
+        // An agent that finished a turn has likely changed files.
+        if (agent_status === 'idle' || agent_status === 'done') {
+          void changesWatch.refreshEnvironment(id);
+        }
         // The bridge has patched the pane's agent into the cached snapshot, with no
         // `pane_updated`: its `pane` event (a new or departed agent) comes from there.
         const pane = snapshotPanes(sessions.get(id)?.snapshot ?? null).find((
@@ -975,6 +1001,7 @@ export async function startWeb(
     broadcast(containersMessage());
     broadcastProjects();
     void gitWatch.refresh();
+    void changesWatch.refreshEnvironment(id);
     void loadRepos(env);
     void session.run();
     // A container now carries the folder: it no longer runs on this machine.
@@ -3355,6 +3382,7 @@ export async function startWeb(
   for (const source of sources()) source.start(sourceHooks(source));
   liveStatic?.watch();
   gitWatch.start();
+  changesWatch.start();
   // Host-wide work, done by one server at a time (`leader.ts`): the task queues, and the activity
   // log's container events and rollups — a start, every past day's rollup it lacks, then today's
   // every few minutes. A day that ends while it leads is rolled up complete on the next tick.
@@ -3434,6 +3462,7 @@ export async function startWeb(
       for (const source of sources()) source.stop();
       liveStatic?.stop();
       gitWatch.stop();
+      changesWatch.stop();
       projectsWatch.stop();
       pinnedFilesWatch.stop();
       dashboardWatch.stop();
