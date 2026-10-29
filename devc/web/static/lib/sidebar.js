@@ -514,20 +514,19 @@ export function collapseTasksState(state, taskGroups) {
 
 /**
  * The Containers section's open/closed fields with every row in it closed, at every level (its
- * Collapse all): each container in `folders` (every container and project there is now) and its
- * Terminals row, every Sessions row, every Repos row, file tree and folder, Not running and the projects under it.
- * Folders already listed stay listed. `state` is not changed.
+ * Collapse all): each container and project in `folders` (every one there is now), its Files row,
+ * its repo cards' Past sessions, every file tree and folder, Not running and the projects under it.
+ * Folders already collapsed stay collapsed. `state` is not changed. Every field returned is one
+ * the sidebar's saved state has (`cards.js`'s `loadSidebarState`); a test holds that.
  *
- * @param {{collapsed: Set<string>, terminalsClosed: Set<string>}} state
+ * @param {{collapsed: Set<string>}} state
  * @param {Iterable<string>} folders
  */
 export function collapseContainersState(state, folders) {
-  const known = [...folders];
   return {
-    collapsed: new Set([...state.collapsed, ...known]),
-    terminalsClosed: new Set([...state.terminalsClosed, ...known]),
-    sessionsOpen: new Set(),
-    reposOpen: new Set(),
+    collapsed: new Set([...state.collapsed, ...folders]),
+    cardHistoryOpen: new Set(),
+    containerFilesOpen: new Set(),
     projectsOpen: new Set(),
     /** @type {Record<string, string[]>} */
     filesOpen: {},

@@ -359,42 +359,37 @@ Deno.test('collapseTasksState closes Sent and adds the known task groups', () =>
 });
 
 Deno.test('collapseContainersState closes every row and adds the known folders', () => {
-  const state = {
-    collapsed: new Set(['/a']),
-    terminalsClosed: new Set<string>(),
-  };
+  const state = { collapsed: new Set(['/a']) };
   const out = collapseContainersState(state, ['/b', '/c']);
   assertEquals(out, {
     collapsed: new Set(['/a', '/b', '/c']),
-    terminalsClosed: new Set(['/b', '/c']),
-    sessionsOpen: new Set(),
-    reposOpen: new Set(),
+    cardHistoryOpen: new Set(),
+    containerFilesOpen: new Set(),
     projectsOpen: new Set(),
     filesOpen: {},
     inactiveOpen: false,
   });
   assertEquals(state.collapsed, new Set(['/a']));
-  assertEquals(state.terminalsClosed, new Set());
   assertEquals(out.collapsed === state.collapsed, false);
-  assertEquals(out.terminalsClosed === state.terminalsClosed, false);
+  assertEquals(
+    collapseContainersState({ collapsed: new Set() }, []).collapsed,
+    new Set(),
+  );
 });
 
-Deno.test('collapseContainersState with nothing known still closes everything', () => {
-  assertEquals(
-    collapseContainersState(
-      { collapsed: new Set(), terminalsClosed: new Set() },
-      [],
-    ),
-    {
-      collapsed: new Set<string>(),
-      terminalsClosed: new Set<string>(),
-      sessionsOpen: new Set(),
-      reposOpen: new Set(),
-      projectsOpen: new Set(),
-      filesOpen: {},
-      inactiveOpen: false,
-    },
+// It once kept writing (and reading) fields the sidebar's state had dropped, and threw.
+Deno.test('collapseContainersState sets only fields the saved sidebar state has', async () => {
+  const cards = await Deno.readTextFile(
+    new URL('../web/static/cards.js', import.meta.url),
   );
+  const load = cards.slice(cards.indexOf('function loadSidebarState('));
+  for (
+    const key of Object.keys(
+      collapseContainersState({ collapsed: new Set() }, []),
+    )
+  ) {
+    assertEquals(new RegExp(`\\n    ${key}:`).test(load), true, key);
+  }
 });
 
 Deno.test('windowTitle: repo:branch — pane title — devcd, leaving out what is missing', () => {
