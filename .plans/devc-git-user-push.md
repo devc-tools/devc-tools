@@ -6,7 +6,7 @@ terminal.
 
 ## Checklist
 
-- [ ] **Confirm D1 and D2 with the user before starting** (defaults chosen while writing).
+- [x] **Confirm D1 and D2 with the user before starting** (accepted as written, 2026-10-29).
 - [ ] `gh-push`: a plan mode and a user mode, reachable only from devc's CLI (D3).
 - [ ] `devc-bridge/host/core.ts`: never pass `DEVC_PUSH_MODE` to a recipe.
 - [ ] `devc git push-plan` and `devc git push` (contracts below).
@@ -21,11 +21,11 @@ here either.
 
 ## Decisions
 
-- **D1 (default, confirm):** user mode skips two refusals, the default branch and changes under
+- **D1 (accepted 2026-10-29):** user mode skips two refusals, the default branch and changes under
   `.github/workflows` / `.github/actions`. The plan reports both so the confirming UI can warn.
   It still refuses a non-fast-forward push (never forces) and an LFS pointer (it can't be
   published from the mirror).
-- **D2 (default, confirm):** GitHub only, with `gh`'s credential, as `gh-push`. No SSH remotes.
+- **D2 (accepted 2026-10-29):** GitHub only, with `gh`'s credential, as `gh-push`. No SSH remotes.
 - **D3:** the modes are selected by the environment variable `DEVC_PUSH_MODE` (`plan` | `user`),
   which only `devc git` sets. `devc-bridge`'s server deletes it from every builtin's environment,
   so an agent's `devc-bridge gh-push` can never select it. Its arguments stay as they are.

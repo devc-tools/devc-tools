@@ -88,8 +88,8 @@ for them.
 
 - [devc-git-user-push](devc-git-user-push.md) — `devc git push-plan <folder>` (JSON) and
   `devc git push <folder> --sha`: `gh-push`'s mirror with a user mode (`DEVC_PUSH_MODE`, which
-  the bridge strips) that allows the default branch and workflow changes. Never forces. **D1/D2
-  are defaults to confirm.**
+  the bridge strips) that allows the default branch and workflow changes. Never forces. D1/D2
+  accepted 2026-10-29.
 
 - [devc-desktop-host-actions](devc-desktop-host-actions.md) — the page can only _ask_
   (`request_push`, `request_project`). The HOST drawer gets an Actions column that shows the
