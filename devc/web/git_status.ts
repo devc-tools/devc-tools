@@ -9,7 +9,8 @@
 // repo**. `git_repo.ts` reads its HEAD and upstream as data. Its branch and remote-tracking ref
 // are *fetched from it* into a host-owned bare mirror, one per remote URL (git trusts nothing
 // in the config of a repo it fetches from). The remote is fetched into the same mirror, and
-// every count runs there.
+// every count runs there. A Fetch from the page (`git_fetch.ts`) hands the repo a bundle of the
+// mirror's upstream branch, which the repo's own git fetches inside its environment.
 
 import { join } from 'jsr:@std/path';
 import {
@@ -274,16 +275,179 @@ export async function fetchUpstream(
   folder: string,
   opts: MirrorOpts = defaultMirrorOpts(),
 ): Promise<boolean> {
+  return await fetchUpstreamProblem(folder, opts) === null;
+}
+
+/** {@link fetchUpstream} with the reason: `null` once fetched, else why not. Never throws. */
+export async function fetchUpstreamProblem(
+  folder: string,
+  opts: MirrorOpts = defaultMirrorOpts(),
+): Promise<GitProblem | null> {
   const at = await locate(folder, opts);
-  if (at === null || isGitProblem(at)) return false;
-  if (at.upstream === null || at.mirror === null) return false;
-  if (!(opts.fetchable ?? isFetchableRemote)(at.upstream.url)) return false;
-  return await git([
+  if (at === null) return { problem: 'not a git repo' };
+  if (isGitProblem(at)) return at;
+  if (at.upstream === null) return { problem: `${at.branch} has no upstream` };
+  if (at.mirror === null) return { problem: 'could not create the git mirror' };
+  if (!(opts.fetchable ?? isFetchableRemote)(at.upstream.url)) {
+    return { problem: 'devc web fetches only https and ssh remotes' };
+  }
+  const r = await run([
     `--git-dir=${at.mirror}`,
     ...FETCH_FLAGS,
     at.upstream.url,
     `+refs/heads/${at.upstream.branch}:${at.prefix}/upstream`,
-  ], FETCH_TIMEOUT_MS) !== null;
+  ], FETCH_TIMEOUT_MS);
+  return 'failed' in r ? { problem: r.failed } : null;
+}
+
+/** The largest bundle {@link upstreamBundle} makes by default. */
+export const MAX_BUNDLE_BYTES = 256 * 1024 * 1024;
+
+/** How long writing a bundle may take. */
+const BUNDLE_TIMEOUT_MS = 2 * 60_000;
+
+/** What {@link upstreamBundle} gives when there is something to fetch. */
+export interface UpstreamBundle {
+  bundle: Uint8Array;
+  /** The bundle's one ref, `<prefix>/upstream`. */
+  ref: string;
+  /** The repo's remote and its upstream branch: `refs/remotes/<remote>/<branch>` is the ref to move. */
+  remote: string;
+  branch: string;
+}
+
+/** The repo's own `<remote>/<branch>` already has (or is ahead of) what the mirror fetched. */
+export interface UpToDate {
+  upToDate: true;
+  remote: string;
+  branch: string;
+}
+
+/**
+ * A git bundle (bytes) holding `folder`'s upstream branch as fetched into its mirror (by
+ * {@link fetchUpstream}), for the repo's own git to fetch from in its environment. Reads the
+ * folder first ({@link readGitState}), so the mirror's copy of its remote-tracking ref is current:
+ * the bundle leaves out what that ref already has (its commits are the bundle's prerequisites),
+ * and when it already contains the fetched commit there is nothing to bundle ({@link UpToDate}),
+ * so a fetch never moves the ref back. Over `maxBytes`, a {@link GitProblem}. Never throws.
+ */
+export async function upstreamBundle(
+  folder: string,
+  opts: MirrorOpts = defaultMirrorOpts(),
+  maxBytes = MAX_BUNDLE_BYTES,
+): Promise<UpstreamBundle | UpToDate | GitProblem> {
+  const state = await readGitState(folder, opts);
+  if (state === null) return { problem: 'not a git repo' };
+  if (isGitProblem(state)) return state;
+  const at = await locate(folder, opts);
+  if (at === null) return { problem: 'not a git repo' };
+  if (isGitProblem(at)) return at;
+  const { upstream, mirror, prefix } = at;
+  if (upstream === null) return { problem: `${at.branch} has no upstream` };
+  if (upstream.trackingRef === null) {
+    return { problem: `${at.branch} tracks a URL, not a remote` };
+  }
+  if (mirror === null) return { problem: 'could not create the git mirror' };
+  const ref = `${prefix}/upstream`;
+  const tracking = `${prefix}/tracking`;
+  const has = async (r: string) =>
+    await git([`--git-dir=${mirror}`, 'rev-parse', '-q', '--verify', r]) !==
+      null;
+  if (!await has(ref)) return { problem: 'nothing fetched from the remote' };
+  const { remote, branch } = upstream;
+  const tracked = await has(tracking);
+  if (
+    tracked &&
+    await git([
+        `--git-dir=${mirror}`,
+        'merge-base',
+        '--is-ancestor',
+        ref,
+        tracking,
+      ]) !== null
+  ) {
+    return { upToDate: true, remote, branch };
+  }
+  const bundle = await runCapped(
+    [
+      `--git-dir=${mirror}`,
+      'bundle',
+      'create',
+      '--quiet',
+      '-',
+      ref,
+      ...(tracked ? [`^${tracking}`] : []),
+    ],
+    maxBytes,
+    BUNDLE_TIMEOUT_MS,
+  );
+  if (bundle === 'too_large') {
+    return {
+      problem: 'fetch too large for devc web: run git fetch in the project',
+    };
+  }
+  if ('failed' in bundle) return { problem: bundle.failed };
+  return { bundle: bundle.out, ref, remote, branch };
+}
+
+/**
+ * Runs git with no repo of its own (`cwd: /`), keeping stdout as bytes up to `max`: past it,
+ * git is killed and the answer is `too_large`. Never throws.
+ */
+async function runCapped(
+  args: string[],
+  max: number,
+  timeoutMs: number,
+): Promise<{ out: Uint8Array } | { failed: string } | 'too_large'> {
+  const sub = args.find((a) => !a.startsWith('--git-dir=')) ?? '';
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), timeoutMs);
+  let tooLarge = false;
+  try {
+    const child = new Deno.Command('git', {
+      args,
+      cwd: '/',
+      env: GIT_ENV,
+      stdin: 'null',
+      stdout: 'piped',
+      stderr: 'piped',
+      signal: ctl.signal,
+    }).spawn();
+    const stderr = new Response(child.stderr).text();
+    const chunks: Uint8Array[] = [];
+    let size = 0;
+    for await (const chunk of child.stdout) {
+      size += chunk.length;
+      if (size > max) {
+        tooLarge = true;
+        ctl.abort();
+        break;
+      }
+      chunks.push(chunk);
+    }
+    const status = await child.status;
+    const err = await stderr.catch(() => '');
+    if (tooLarge) return 'too_large';
+    if (ctl.signal.aborted) return { failed: `git ${sub}: timed out` };
+    if (!status.success) {
+      const line = err.split('\n').map((l) => l.trim()).find((l) => l);
+      return { failed: line ? `git ${sub}: ${line}` : `git ${sub} failed` };
+    }
+    const out = new Uint8Array(size);
+    let at = 0;
+    for (const c of chunks) {
+      out.set(c, at);
+      at += c.length;
+    }
+    return { out };
+  } catch {
+    if (tooLarge) return 'too_large';
+    return ctl.signal.aborted
+      ? { failed: `git ${sub}: timed out` }
+      : { failed: `git ${sub} failed` };
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 /** How often every folder's upstream is fetched. */

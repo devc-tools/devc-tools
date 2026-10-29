@@ -5,11 +5,30 @@ Decided with the user on 2026-10-28. Second of six plans (see "Git and the trust
 
 ## Checklist
 
-- [ ] `git_status.ts`: a bundle of a folder's upstream ref from its mirror.
-- [ ] `git_fetch.ts`: fetch one repo (mirror fetch, bundle, `git fetch` in the environment).
-- [ ] Protocol: `fetch_repo` in, `fetch_result` out.
-- [ ] Page: **Fetch** on the repo card's right-click, and a click on its `↓n` mark.
-- [ ] Tests, README.
+- [x] `git_status.ts`: a bundle of a folder's upstream ref from its mirror.
+- [x] `git_fetch.ts`: fetch one repo (mirror fetch, bundle, `git fetch` in the environment).
+- [x] Protocol: `fetch_repo` in, `fetch_result` out.
+- [x] Page: **Fetch** on the repo card's right-click, and a click on its `↓n` mark.
+- [x] Tests, README.
+- [ ] Manual (the user, on the Mac): Fetch on a container project and a host project; `↓n` updates.
+
+**2026-10-29:** implemented; everything but the manual check is done. The page was checked headless
+against a fake socket (the ↓ click sends `fetch_repo`, the spinner shows, a problem toasts, the
+menu leads with **Fetch**). Left: the manual check above, which needs `devc web` restarted from
+this checkout. Choices beyond the contracts:
+
+- `upstreamBundle` can also answer `{ upToDate: true, remote, branch }`: it reads the folder first,
+  and when the repo's own remote-tracking ref already contains the mirror's commit there is
+  nothing to bundle (an empty bundle is refused), and a forced fetch would move the ref back. The
+  bundle leaves out what that ref has (`^<prefix>/tracking`), so it holds only the new commits.
+- `fetchUpstreamProblem` (beside `fetchUpstream`, which now wraps it) says why the mirror fetch
+  failed, for the toast.
+- `fetchRepo` takes an optional `MirrorOpts` (tests); the script takes the bundle's ref as `$3`
+  and prints the ref before and after, which is how `updated` is known.
+- It runs through `Environment.run(x, bundle)`, not `runLimited`: only `run` pipes stdin, and it is
+  already bounded (15 s, killed). The output is two hashes, so no cap is needed.
+- Only `gitWatch` is refreshed after a fetch that moved the ref: a fetch changes no working tree,
+  so the changes watch has nothing new to read.
 
 ## Goal
 

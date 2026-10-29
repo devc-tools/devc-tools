@@ -115,6 +115,11 @@ export type ClientMessage =
   }
   /** Every file of a repo, for the page's file palette (`file_index.ts`). */
   | { type: 'find_files'; id: string; localFolder: string; root: string }
+  /**
+   * Fetches a repo of a running project (`git_fetch.ts`): its own `<remote>/<branch>` moves.
+   * Answered with `fetch_result`.
+   */
+  | { type: 'fetch_repo'; id: string; localFolder: string; folder: string }
   | { type: 'list_host_dir'; id: string; path: string }
   /** Lists the devcontainers (`docker ps`) and reads devc's projects list again. */
   | { type: 'refresh_containers'; id: string }
@@ -849,6 +854,13 @@ function parseFields(m: Obj): ClientMessage {
         id: str(m, 'id'),
         localFolder: folder(m),
         root: absolute(m, 'root'),
+      };
+    case 'fetch_repo':
+      return {
+        type: 'fetch_repo',
+        id: str(m, 'id'),
+        localFolder: folder(m),
+        folder: absolute(m, 'folder'),
       };
     case 'list_host_dir':
       return { type: 'list_host_dir', id: str(m, 'id'), path: text(m, 'path') };

@@ -1255,6 +1255,8 @@ function repoCard(card, worktrees = 0) {
     sidebarState.cardHistoryOpen.has(key) &&
     (!listed || (listed.loading && !listed.error));
   const canPr = !!repo && !!c;
+  // Fetch moves the repo's own remote-tracking ref, so it needs an upstream and its environment.
+  const canFetch = !!repo && !!c && !!repo.git?.upstream;
   const prOn = canPr && sidebarState.prOpen.has(prKey(localFolder, fr.root));
   const tree = repo ? fileTree(fr) : null;
   const filesOn = !!tree && tree.isOpen('');
@@ -1310,7 +1312,16 @@ function repoCard(card, worktrees = 0) {
           e,
           [
             ...(repo
-              ? [...dirMenuItems(fr, ''), ...jiraItems(branch)]
+              ? [
+                ...(canFetch
+                  ? [
+                    [LABELS.fetch, () => fetchRepo(localFolder, repo.folder)],
+                    null,
+                  ]
+                  : []),
+                ...dirMenuItems(fr, ''),
+                ...jiraItems(branch),
+              ]
               : projectMenuItems(localFolder)),
             null,
             pinnedCardItem(key),
@@ -1328,6 +1339,12 @@ function repoCard(card, worktrees = 0) {
             repo.changes,
             repo.changesProblem,
           ),
+          canFetch
+            ? {
+              fetching: fetchingRepos.has(repo.folder),
+              fetch: () => fetchRepo(localFolder, repo.folder),
+            }
+            : undefined,
         ),
       ]
       : [h('span', { class: 'repo-base' }, containerNameOf(localFolder))]),
@@ -2111,9 +2128,12 @@ function byName(a, b) {
 
 /**
  * ● changes to commit, ↑ push / ↓ pull counts, or a quiet ✓ / ?, from `gitSync` or `gitRollup`;
- * nothing for no repo.
+ * nothing for no repo. With `opts.fetch` (a repo card's), a click on ↓ fetches; with
+ * `opts.fetching`, a spinner follows the counts.
+ *
+ * @param {{fetch: () => void, fetching: boolean}} [opts]
  */
-function gitMark(sync) {
+function gitMark(sync, opts) {
   if (!sync) return '';
   return h(
     'span',
@@ -2122,8 +2142,63 @@ function gitMark(sync) {
       title: sync.title,
       'data-diverged': sync.diverged,
     },
-    ...sync.marks.map((m) => h('span', { 'data-dir': m.dir }, m.text)),
+    ...sync.marks.map((m) =>
+      opts && m.dir === 'behind'
+        ? h('span', {
+          'data-dir': m.dir,
+          class: 'git-fetch',
+          role: 'button',
+          title: LABELS.fetchBehind,
+          onclick: (/** @type {MouseEvent} */ e) => {
+            // Not the card head's own click.
+            e.stopPropagation();
+            opts.fetch();
+          },
+        }, m.text)
+        : h('span', { 'data-dir': m.dir }, m.text)
+    ),
+    opts?.fetching
+      ? h('span', { class: 'spinner git-fetching', 'aria-hidden': 'true' })
+      : '',
   );
+}
+
+/** Repo folders with a `fetch_repo` in flight → its request id. */
+const fetchingRepos = new Map();
+
+/**
+ * Fetches a repo of a running project (`fetch_repo`): its own remote-tracking branch moves, its
+ * ↓ count updates once the server reads it again. A second click while one runs does nothing; a
+ * problem is a toast.
+ */
+function fetchRepo(localFolder, folder) {
+  if (fetchingRepos.has(folder)) return;
+  const id = nextId('f');
+  // A refused message comes back as a `result`: `client.js` toasts it.
+  pendingRequests.set(id, LABELS.fetch);
+  fetchingRepos.set(folder, id);
+  send({ type: 'fetch_repo', id, localFolder, folder });
+  renderTree();
+}
+
+/**
+ * A `fetch_result`, or a `result` refusing a `fetch_repo`: the spinner stops. Returns whether it
+ * was one of this page's fetches.
+ */
+function onFetchDone(msg) {
+  let ours = false;
+  for (const [folder, id] of fetchingRepos) {
+    if (id === msg.id) {
+      fetchingRepos.delete(folder);
+      ours = true;
+    }
+  }
+  if (msg.type !== 'fetch_result') return ours;
+  pendingRequests.delete(msg.id);
+  if (!msg.ok) {
+    errorToast(`${LABELS.fetch} failed: ${msg.problem ?? 'unknown problem'}`);
+  }
+  return ours;
 }
 
 /** The repos listed at the top of a Repos view: all but the worktrees listed under their repo. */
@@ -5636,6 +5711,8 @@ function onSidebarConnection(state) {
 function onSidebarMessage(msg) {
   switch (msg.type) {
     case 'hello':
+      // A fetch asked for before a reconnect never gets its answer.
+      fetchingRepos.clear();
       // Listings asked for while disconnected never got an answer.
       for (const { tree } of fileTrees.values()) tree.refresh('');
       // The server's own copy of each list may be gone (a restart): open Sessions rows list again.
@@ -5672,6 +5749,10 @@ function onSidebarMessage(msg) {
       break;
     case 'project_output':
       showProjectOutput(msg.localFolder, msg.line);
+      break;
+    case 'fetch_result':
+    case 'result':
+      if (onFetchDone(msg)) renderTree();
       break;
   }
 }

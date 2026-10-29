@@ -1374,6 +1374,21 @@ body.resizing-zones {
   color: var(--blocked);
 }
 
+/* A repo card's ↓: a click fetches. */
+.git-sync .git-fetch {
+  cursor: pointer;
+}
+
+.git-sync .git-fetch:hover {
+  text-decoration: underline;
+}
+
+/* A fetch running: after the counts, no gap of its own. */
+.git-sync .git-fetching {
+  margin-right: 0;
+  align-self: center;
+}
+
 .git-sync [data-dir='gone'] {
   color: var(--muted);
 }

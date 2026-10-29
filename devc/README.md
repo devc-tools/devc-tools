@@ -297,7 +297,13 @@ is published from any container: the host server finds devcontainers with
   **✓** when level; the tooltip has each count). The ● count comes from `git
   status` run inside the running container (never on the host, which would run
   the repo's own config), or directly for a project on this machine, every
-  15 s and as soon as an agent there finishes a turn. Below the header are its
+  15 s and as soon as an agent there finishes a turn. **Fetch** (the card's
+  right-click menu, or a click on its **↓N**) moves the repo's own
+  `origin/<branch>` to what the remote has now, with a spinner in the mark while
+  it runs and a toast if it can't: the host fetches the remote into its own
+  mirror with its credentials, and the repo's git fetches that from a bundle
+  inside its environment, so the host never runs git in the repo. It is not a
+  pull: nothing is merged and the working tree is untouched. Below the header are its
   terminals (its tiles, then every
   pane in it no tile shows, shells too); terminals outside every repo get a
   card named after the container. A card's header buttons show its past agent

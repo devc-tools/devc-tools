@@ -144,6 +144,7 @@ import {
 } from './projects_view.ts';
 import { GitStatusWatch, isGitProblem } from './git_status.ts';
 import { type ChangesReading, GitChangesWatch } from './git_changes.ts';
+import { fetchRepo, fetchRunning } from './git_fetch.ts';
 import {
   ActivityRecorder,
   catchUpRollups,
@@ -249,6 +250,9 @@ export function authorize(
 
 /** The paths only devc-desktop's main process asks for. */
 const DESKTOP_PREFIX = '/desktop/';
+
+/** How often one repo may be fetched (`fetch_repo`). */
+const FETCH_INTERVAL_MS = 10_000;
 
 /** How long `GET /desktop/active-folder` waits for Herdr's live `pane.get`. */
 const LIVE_PANE_MS = 2000;
@@ -1212,6 +1216,66 @@ export async function startWeb(
     } catch (e) {
       failFiles(c, msg.id, e);
     }
+  };
+
+  /** Each repo folder's last `fetch_repo` start, for its rate limit. */
+  const fetchStarts = new Map<string, number>();
+
+  /**
+   * Fetches a repo of a running project (`git_fetch.ts`) and answers the requester with
+   * `fetch_result`. Allowed under `--live`: it publishes nothing, and runs nothing on the host but
+   * git in a mirror. One start per folder per {@link FETCH_INTERVAL_MS}; a request while one runs
+   * shares its outcome.
+   */
+  const fetchRepoFor = async (
+    c: Client,
+    msg: Extract<ClientMessage, { type: 'fetch_repo' }>,
+  ) => {
+    const answer = (
+      o: { ok: true; updated: boolean } | { ok: false; problem: string },
+    ) =>
+      c.send(
+        JSON.stringify({
+          type: 'fetch_result',
+          id: msg.id,
+          folder: msg.folder,
+          ...o,
+        }),
+      );
+    if (
+      !isProjectRepo(projectsMessage().projects, msg.localFolder, msg.folder)
+    ) {
+      answer({ ok: false, problem: 'unknown repo' });
+      return;
+    }
+    const session = [...sessions.values()].find((s) =>
+      s.record.localFolder === msg.localFolder
+    );
+    if (!session) {
+      answer({ ok: false, problem: 'not running' });
+      return;
+    }
+    const path = hostToContainerPath(
+      msg.folder,
+      await mountsOf(session.record.id),
+    );
+    if (path === null) {
+      answer({ ok: false, problem: `the repo is not ${placeOf(session)}` });
+      return;
+    }
+    if (!fetchRunning(msg.folder)) {
+      const last = fetchStarts.get(msg.folder);
+      if (last !== undefined && Date.now() - last < FETCH_INTERVAL_MS) {
+        answer({ ok: false, problem: 'fetched moments ago: try again soon' });
+        return;
+      }
+      fetchStarts.set(msg.folder, Date.now());
+    }
+    const outcome = await fetchRepo(session.env, msg.folder, path);
+    answer(outcome);
+    // Its ↓ count: the repo's own remote-tracking ref is newer now. Its changes to commit are
+    // not: a fetch touches no working tree.
+    if (outcome.ok && outcome.updated) void gitWatch.refresh();
   };
 
   /**
@@ -2914,6 +2978,10 @@ export async function startWeb(
       msg.type === 'preview_file'
     ) {
       await handleListing(c, msg);
+      return;
+    }
+    if (msg.type === 'fetch_repo') {
+      await fetchRepoFor(c, msg);
       return;
     }
     if (
