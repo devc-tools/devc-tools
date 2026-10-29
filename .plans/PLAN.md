@@ -67,6 +67,41 @@
   through a `PrBackend` running the same `gh-pr-*` recipes with the host's `gh`. After
   devc-web-pr-review-depth. SSH is designed for, not built.
 
+### Git and the trusted host area
+
+Decided with the user on 2026-10-28, in this order. Before the first: finish
+`devc-web-host-environments`' manual validation on the Mac. The trusted area guards actions on
+**containers**; host projects' pages already have a host shell, so nothing here depends on it
+for them.
+
+- [devc-web-git-changes](devc-web-git-changes.md) — a repo card shows `● n` changes to commit
+  beside ↑/↓. `git status` runs in the project's environment (`Environment.run`: `docker exec` or
+  a direct run), never on the host in a container's repo. A separate watch from `GitStatusWatch`.
+
+- [devc-web-git-fetch](devc-web-git-fetch.md) — **Fetch** from the page. The host fetches into
+  its mirror, makes a bundle of the upstream ref, and the repo's own git fetches it in its
+  environment from stdin. It publishes nothing, so `--live` allows it.
+
+- [devc-web-containers-module](devc-web-containers-module.md) — the Containers section moves to
+  `static/containers.js` with an explicit In use link, relayed across pages like `sidebar_intent`,
+  and a `/containers` page. Menus close on blur and scroll when taller than their view.
+
+- [devc-git-user-push](devc-git-user-push.md) — `devc git push-plan <folder>` (JSON) and
+  `devc git push <folder> --sha`: `gh-push`'s mirror with a user mode (`DEVC_PUSH_MODE`, which
+  the bridge strips) that allows the default branch and workflow changes. Never forces. **D1/D2
+  are defaults to confirm.**
+
+- [devc-desktop-host-actions](devc-desktop-host-actions.md) — the page can only _ask_
+  (`request_push`, `request_project`). The HOST drawer gets an Actions column that shows the
+  app's own push plan, or the start, with a 1 s armed confirm. A second **desktop token** (stdout
+  only, `--desktop-channel`) unlocks `/desktop/project`, so container starts work under
+  `--live`. Never under `--live-yolo`.
+
+- [devc-desktop-containers-column](devc-desktop-containers-column.md) — the Containers pane,
+  bundled into the app, sits below devc web's `/sidebar` view in the left column, with an
+  app-owned rail and HOST strip and a trusted overlay menu view. A protocol version check guards
+  against drift. `devc-desktop/proto/` is its reference, then deleted.
+
 ### Standing rules for Feature work
 
 Not a plan group — these are the conventions every Feature plan in this file

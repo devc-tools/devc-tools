@@ -280,8 +280,14 @@ behind `Environment.runningAgents()`, with the same `R <session id> <HERDR_SESSI
   string). On Linux it is `/proc/<pid>/stat` field 22. So the macOS probe compares exactly that
   string, `grep -F`. The script prints `M <session id> <ps -E -ww -o command= output>` and the
   parser takes the **last** `HERDR_PANE_ID=` / `HERDR_SESSION=` tokens (the environment follows
-  the command's own arguments). Still to confirm on a Mac: that `ps -E` shows `HERDR_PANE_ID=`
-  for a process of the same user.
+  the command's own arguments).
+- **Confirmed on a Mac (2026-10-28, Claude Code 2.1.296, Herdr upgraded to have
+  `remote-api-bridge`):** `procStart` was `Thu Oct 29 01:26:11 2026`, and
+  `LC_ALL=C TZ=UTC ps -o lstart= -p <pid>` printed exactly that string. `ps -E -ww -o command=`
+  of the same user's `claude` showed `HERDR_SESSION=devc-<slug>-<hex8>` and `HERDR_PANE_ID=w1:p1`
+  (plus `HERDR_ENV`, `HERDR_TAB_ID`, `HERDR_WORKSPACE_ID`, `HERDR_SOCKET_PATH`, `HERDR_BIN_PATH`).
+  The record also carries `"pidDomain":"darwin"`. Not seen: a one-digit day (the space padding),
+  which the exact-string comparison handles anyway.
 - A record that fails any check is skipped, as today. Failing closed costs only the running mark.
   Resume then opens a new pane, which is today's behavior for a session nothing runs.
 
@@ -360,7 +366,7 @@ loses only its two container assumptions: `#run` (a `docker exec`) and the grant
       devc-my-app-1a2b3c4d server` starts a session that `herdr session list --json` lists
       `running`, and that `herdr session stop devc-my-app-1a2b3c4d` stops it. If the name is
       refused, change D1's slug rule here first.
-- [ ] Step 0b, on a Mac (ask the user to run it): with a `claude` running in a host `herdr`
+- [x] Step 0b, on a Mac (ask the user to run it; done 2026-10-28, see D8): with a `claude` running in a host `herdr`
       pane, show `~/.claude/sessions/<pid>.json`'s `procStart`, and compare it with
       `ps -o lstart= -p <pid>` and `ps -o etime= -p <pid>`. Pin down the exact format and
       conversion. Also confirm `ps -E -ww -o command= -p <pid>` shows `HERDR_PANE_ID=`. Write the
@@ -421,7 +427,7 @@ loses only its two container assumptions: `#run` (a `docker exec`) and the grant
     kept.
   - effective-environment function: all three rules, including entry `host` plus a stopped
     container → `container`.
-  - `projects.ts` round-trips `environment`, and `recordUse` / `setPinned` keep it (`projects_test.ts`).
+  - `projects.ts` round-trips `environment`, and `recordUse` / `setPinned` keep it (`projects_test.ts`; since 2026-10-29 the list is add/remove only, so `addProject`).
   - `parseClientMessage`: `set_project_environment` valid, bad `environment`, missing
     `localFolder`.
   - `SESSIONS_SCRIPT` runs under `sh` on this Linux host against a fake `$HOME` with one Claude
@@ -463,11 +469,19 @@ loses only its two container assumptions: `#run` (a `docker exec`) and the grant
     posts;
   - **Stop session…** brings the row back to stopped;
   - running `herdr --session <name>` in a shell makes the card come back within 5 s.
-- [ ] Manual, on a Mac (ask the user): a host project shows agent status, Past sessions with the
+- [x] Manual, on a Mac (ask the user): a host project shows agent status, Past sessions with the
       running mark, and the PR tree with Viewed marks.
+      (2026-10-28, `devc2` with Docker running, in a browser tab and in devcd.app opened from
+      the Dock: Start session connects once Herdr has `remote-api-bridge` (an older Herdr showed
+      `unsupported`); agent badges; Files edit and save; `which herdr gh claude` in a host pane,
+      also from the Dock-launched app; Past sessions lists the session, but only after the list
+      is reloaded (it loads once on connect); the running mark; the PR tree, Viewed marks and a
+      reply. Not yet checked: Docker quit (devc web with no Docker lists host projects only).)
 - [ ] Manual, on a host with Docker: an existing devcontainer project behaves exactly as before
       (terminals, files, PR toggle, Remove), and **Run on this machine** appears only on a project
       with no container.
+      (2026-10-28, on the Mac: the devcontainer project in use works, and **Run on this machine**
+      is absent from container projects. Not yet checked: **Remove**.)
 
 ## Relevant Files
 
