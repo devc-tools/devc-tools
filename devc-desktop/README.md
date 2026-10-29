@@ -15,18 +15,19 @@ own browser instance (not frames of one page):
 │━ HOST · Containers┫   (devc web)  │
 │ Containers pane   ┃━ HOST ━━━━━━━━│
 │ (the app's)       ┃ host drawer   │
-└───────────────────┸───────────────┘
+├─ /host-status (devc web) ─────────┤
+└───────────────────────────────────┘
 ```
 
-| View                | Shows                                                                       | Can reach                                                                               |
-| ------------------- | --------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
-| **devc web**        | `/sidebar` (Tasks, In use, pinned files) and `/main` (the tiles): two views | devc web's own server, and nothing else                                                 |
-| **Containers pane** | devc web's Containers section, built into the app, under its HOST strip     | devc web's `/ws` with the desktop token (the desktop role), and the app's confirm cards |
-| **rail**            | the divider between the left column and `/main`                             | its own drag, nothing else                                                              |
-| **overlay menu**    | the Containers pane's right-click menu, over every other view               | the pick, nothing else                                                                  |
-| **status**          | the status page while devc web starts, or why it stopped                    | Restart, nothing else                                                                   |
-| **host terminal**   | your login shell on this machine, under `/main`                             | the shell, through the app                                                              |
-| **title bar**       | the window's title, in place of the OS's own bar                            | nothing                                                                                 |
+| View                | Shows                                                                                                                                     | Can reach                                                                               |
+| ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
+| **devc web**        | `/sidebar` (Tasks, In use, pinned files), `/main` (the tiles) and `/host-status` (the status strip across the window's foot): three views | devc web's own server, and nothing else                                                 |
+| **Containers pane** | devc web's Containers section, built into the app, under its HOST strip                                                                   | devc web's `/ws` with the desktop token (the desktop role), and the app's confirm cards |
+| **rail**            | the divider between the left column and `/main`                                                                                           | its own drag, nothing else                                                              |
+| **overlay menu**    | the Containers pane's right-click menu, over every other view                                                                             | the pick, nothing else                                                                  |
+| **status**          | the status page while devc web starts, or why it stopped                                                                                  | Restart, nothing else                                                                   |
+| **host terminal**   | your login shell on this machine, under `/main`                                                                                           | the shell, through the app                                                              |
+| **title bar**       | the window's title, in place of the OS's own bar                                                                                          | nothing                                                                                 |
 
 Drag the rail, the Containers pane's **HOST · Containers** strip and the drawer's **HOST** strip
 to resize. The sizes are remembered. **Layout → Containers Pane** (Cmd+Shift+E, Ctrl+Shift+E on

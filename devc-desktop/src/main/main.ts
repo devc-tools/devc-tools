@@ -1,8 +1,9 @@
 // devc-desktop: `devc web` in its own window, with a host terminal devc web cannot reach.
 //
 // One BaseWindow holds these WebContentsViews, never frames of each other:
-//   - devc web's two views, `/sidebar` (top of the left column) and `/main` (the right), paired
-//     by a view id (`devc web --no-open …` runs as a child). Locked down because an agent can
+//   - devc web's three views, `/sidebar` (top of the left column), `/main` (the right) and
+//     `/host-status` (its status strip across the foot of the window), paired by a view id
+//     (`devc web --no-open …` runs as a child). Locked down because an agent can
 //     control those pages: sandboxed, their own partition, no preload, no dialogs, no windows, no
 //     navigation off devc web's origin, no permission but copying;
 //   - the Containers pane (bundled page + preload), below `/sidebar` under its HOST strip:
@@ -67,6 +68,7 @@ import {
   dragContainers,
   DRAWER_DEFAULT_SHARE,
   externalUrl,
+  FOOTER_HEIGHT,
   fromView,
   hostFolder,
   layout,
@@ -196,7 +198,10 @@ async function main(): Promise<void> {
       preload: join(__dirname, 'preload-status.js'),
     },
   });
-  /** devc web's views: `/main` (`devcView`) and `/sidebar`, one session between them. */
+  /**
+   * devc web's views: `/main` (`devcView`), `/sidebar` and `/host-status` (`footerView`, across
+   * the foot of the window), one session between them.
+   */
   const devcPrefs = {
     sandbox: true,
     contextIsolation: true,
@@ -208,6 +213,7 @@ async function main(): Promise<void> {
   };
   const devcView = new WebContentsView({ webPreferences: devcPrefs });
   const sidebarView = new WebContentsView({ webPreferences: devcPrefs });
+  const footerView = new WebContentsView({ webPreferences: devcPrefs });
   const containersView = new WebContentsView({
     webPreferences: {
       sandbox: true,
@@ -245,7 +251,14 @@ async function main(): Promise<void> {
     },
   });
   for (
-    const v of [statusView, sidebarView, devcView, containersView, hostView]
+    const v of [
+      statusView,
+      sidebarView,
+      devcView,
+      footerView,
+      containersView,
+      hostView,
+    ]
   ) {
     v.setBackgroundColor('#0d0f14');
     win.contentView.addChildView(v);
@@ -295,6 +308,10 @@ async function main(): Promise<void> {
   const drawerActions = () =>
     [...actions.values()].filter((a) => a.where === 'drawer').length;
 
+  /** The height between the title bar and devc web's host status strip, for a `height` window. */
+  const areaOf = (height: number) =>
+    height - TITLEBAR_HEIGHT - (showingDevc ? FOOTER_HEIGHT : 0);
+
   /** The drawer's height while open, before {@link layout} clamps it to the window. */
   function drawerWanted(area: number): number {
     return clampDrawer(drawerHeight ?? area * DRAWER_DEFAULT_SHARE, area);
@@ -321,11 +338,12 @@ async function main(): Promise<void> {
     containers: null,
     drawer: null,
     peek: false,
+    footer: false,
   });
 
   function relayout(): void {
     const { width, height } = win.getContentBounds();
-    const area = height - TITLEBAR_HEIGHT;
+    const area = areaOf(height);
     const l = layout({
       width,
       height,
@@ -333,11 +351,14 @@ async function main(): Promise<void> {
       containers: paneShown() ? { height: containersHeight } : null,
       drawer: drawerOpen ? drawerWanted(area) : null,
       peek: !drawerOpen && drawerActions() > 0,
+      footer: showingDevc,
     });
     laid = l;
     titleBarView.setBounds(l.bar);
     devcView.setVisible(showingDevc);
     sidebarView.setVisible(showingDevc);
+    footerView.setVisible(l.footer !== null);
+    if (l.footer !== null) footerView.setBounds(l.footer);
     railView.setVisible(showingDevc);
     statusView.setVisible(!showingDevc);
     if (showingDevc) {
@@ -419,7 +440,7 @@ async function main(): Promise<void> {
    * the overlay menu.
    */
   function lockDownDevc(): void {
-    for (const view of [devcView, sidebarView]) {
+    for (const view of [devcView, sidebarView, footerView]) {
       const wc = view.webContents;
       wc.setWindowOpenHandler(({ url }) => {
         const ext = externalUrl(url);
@@ -507,7 +528,7 @@ async function main(): Promise<void> {
     updateTitle();
   }
 
-  /** devc web's page at `path` (`/main`, `/sidebar`), with its token and the app's view id. */
+  /** devc web's page at `path` (`/main`, `/sidebar`, `/host-status`), with its token and the app's view id. */
   function devcPage(path: string, extra = ''): string | null {
     if (origin === null || devcWebToken === null) return null;
     return `${origin}${path}#token=${devcWebToken}&view=${VIEW}${extra}`;
@@ -604,7 +625,10 @@ async function main(): Promise<void> {
       devcTitle = 'devcd';
       relayout();
       updateTitle();
-      void devcView.webContents.loadURL(devcPage('/main')!);
+      void devcView.webContents.loadURL(
+        devcPage('/main', '&status=external')!,
+      );
+      void footerView.webContents.loadURL(devcPage('/host-status')!);
       loadSidebar();
       const at = origin;
       void child.desktop.then((token) => {
@@ -642,6 +666,7 @@ async function main(): Promise<void> {
       showStatus();
       void devcView.webContents.loadURL('about:blank');
       void sidebarView.webContents.loadURL('about:blank');
+      void footerView.webContents.loadURL('about:blank');
       retiring = child.stop();
       await retiring;
       retiring = null;
@@ -712,7 +737,7 @@ async function main(): Promise<void> {
       !fromHost(e) || !drawerOpen || typeof dy !== 'number' ||
       !Number.isFinite(dy)
     ) return;
-    const area = win.getContentBounds().height - TITLEBAR_HEIGHT;
+    const area = areaOf(win.getContentBounds().height);
     drawerHeight = clampDrawer(
       (drawerHeight ?? area * DRAWER_DEFAULT_SHARE) - dy,
       area,
@@ -1328,6 +1353,7 @@ async function main(): Promise<void> {
     const v of [
       devcView,
       sidebarView,
+      footerView,
       containersView,
       railView,
       hostView,
@@ -1464,6 +1490,10 @@ async function main(): Promise<void> {
           {
             label: 'Developer Tools (devc web sidebar)',
             click: () => sidebarView.webContents.toggleDevTools(),
+          },
+          {
+            label: 'Developer Tools (devc web status strip)',
+            click: () => footerView.webContents.toggleDevTools(),
           },
         ],
       },

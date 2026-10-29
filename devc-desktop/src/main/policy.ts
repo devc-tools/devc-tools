@@ -137,6 +137,12 @@ export const TITLEBAR_HEIGHT = 32;
  */
 export const HOST_PEEK = 24;
 
+/**
+ * devc web's host status strip (`/host-status`) across the foot of the window, in pixels: usage,
+ * devc-bridge, live reload's pause and the connection dot.
+ */
+export const FOOTER_HEIGHT = 24;
+
 /** The rail between the left column and `/main`, in pixels: an app-owned view, dragged sideways. */
 export const RAIL = 6;
 /** The left column's smallest width (devc web's `/sidebar` and the Containers pane). */
@@ -162,6 +168,8 @@ export interface LayoutInput {
   drawer: number | null;
   /** A closed drawer's strip shows (host actions wait). */
   peek: boolean;
+  /** devc web's host status strip shows across the foot of the window. */
+  footer: boolean;
 }
 
 /** Where each view goes: see {@link layout}. */
@@ -177,12 +185,15 @@ export interface Layout {
   main: Rect;
   /** The host drawer, under `/main` only; `null` while closed with nothing waiting. */
   host: Rect | null;
+  /** devc web's `/host-status`, across the window under everything else; `null` while hidden. */
+  footer: Rect | null;
 }
 
 /**
  * Where the views go in a `width` × `height` content area: the title bar across the top; below
  * it the left column (devc web's `/sidebar`, the Containers pane under it), the rail, and on the
- * right `/main` with the host drawer under it. A closed drawer has no rectangle, unless `peek`:
+ * right `/main` with the host drawer under it; with `footer`, devc web's host status strip across
+ * the whole width at the bottom ({@link FOOTER_HEIGHT}). A closed drawer has no rectangle, unless `peek`:
  * then only its strip ({@link HOST_PEEK}) shows. None overlap, so devc web never draws over an
  * app view. A window too small for every minimum gives `/main` its width first, then the column
  * (the rail last); the column gives `/sidebar` its height before Containers.
@@ -192,7 +203,8 @@ export function layout(i: LayoutInput): Layout {
   const height = Math.max(0, i.height);
   const top = Math.min(TITLEBAR_HEIGHT, height);
   const bar = { x: 0, y: 0, width, height: top };
-  const area = Math.max(0, height - top);
+  const footH = i.footer ? Math.min(FOOTER_HEIGHT, height - top) : 0;
+  const area = Math.max(0, height - top - footH);
   const mainMin = Math.min(MAIN_MIN, width);
   const railW = Math.min(RAIL, width - mainMin);
   const colMax = width - mainMin - railW;
@@ -226,6 +238,7 @@ export function layout(i: LayoutInput): Layout {
     rail: { x: col, y: top, width: railW, height: area },
     main,
     host,
+    footer: i.footer ? { x: 0, y: top + area, width, height: footH } : null,
   };
 }
 

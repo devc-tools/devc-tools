@@ -19,6 +19,7 @@ import {
   dragContainers,
   DRAWER_MIN,
   externalUrl,
+  FOOTER_HEIGHT,
   fromView,
   HOST_PEEK,
   hostFolder,
@@ -199,6 +200,7 @@ const open = {
   containers: { height: 400 },
   drawer: 300,
   peek: false,
+  footer: false,
 };
 
 test('layout: every pane open: the column, the rail, /main and the drawer under it', () => {
@@ -211,6 +213,23 @@ test('layout: every pane open: the column, the rail, /main and the drawer under 
   // The drawer spans /main's width only.
   assertEquals(l.host, { x: 346, y: 632, width: 1054, height: 300 });
   disjoint(l, 1400, 932);
+});
+
+test('layout: the host status strip across the whole window, under the column and the drawer', () => {
+  const l = layout({ ...open, footer: true });
+  assertEquals(l.footer, {
+    x: 0,
+    y: 932 - FOOTER_HEIGHT,
+    width: 1400,
+    height: FOOTER_HEIGHT,
+  });
+  assertEquals(l.containers!.y + l.containers!.height, l.footer!.y);
+  assertEquals(l.host!.y + l.host!.height, l.footer!.y);
+  assertEquals(l.rail.height, 900 - FOOTER_HEIGHT);
+  disjoint(l, 1400, 932);
+  assertEquals(layout(open).footer, null);
+  // A window shorter than the title bar has no room for it.
+  disjoint(layout({ ...open, footer: true, height: 20 }), 1400, 20);
 });
 
 test('layout: the Containers pane hidden, /sidebar takes the column', () => {
