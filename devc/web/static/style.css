@@ -1936,6 +1936,61 @@ body.resizing-zones {
 }
 
 /*
+ * The tabs that don't fit: Golden Layout lists them under its ▾ button with no background of
+ * its own, so they're drawn as a menu is, one tab a row, below the header's right end.
+ */
+.lm_header .lm_controls .lm_tabdropdown::before {
+  border-top: 5px solid;
+  color: currentColor;
+}
+
+.lm_header:has(.lm_tabdropdown_list:not([style*='none'])) {
+  z-index: 10;
+}
+
+.lm_header .lm_tabdropdown_list {
+  top: calc(100% + 2px);
+  right: 4px;
+  min-width: 180px;
+  /* Content-box (Golden Layout forces it on lm_ elements): the border comes on top. */
+  max-width: min(360px, calc(100% - 10px));
+  max-height: 60vh;
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding: 4px 0;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 6px 20px rgb(0 0 0 / 0.4);
+}
+
+.lm_header .lm_tabdropdown_list .lm_tab {
+  float: none;
+  height: auto;
+  padding: 4px 12px;
+  color: var(--text);
+  background: none;
+}
+
+.lm_header .lm_tabdropdown_list .lm_tab:hover {
+  background: var(--panel);
+}
+
+.lm_header .lm_tabdropdown_list .lm_tab .lm_title {
+  flex: 0 1 auto;
+  width: auto;
+  max-width: none;
+}
+
+.lm_header .lm_tabdropdown_list .lm_tab .tile-badge {
+  margin-left: auto;
+}
+
+.lm_header .lm_tabdropdown_list .lm_tab .tile-actions {
+  display: none;
+}
+
+/*
  * A stack's only tab fills its header, so the status sits at the right, by the controls, and
  * the tab's own × stands in for the stack's (which skips the unsaved-file check), last in the
  * row: placed against the header rather than the tab, past the maximise button.
