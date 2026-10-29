@@ -1263,9 +1263,11 @@ function saveFlag(key, on) {
  * A new comment being written on a line or block (`pr_pending_comment`): `startLine` is a block's
  * first line on `side` (null for one line), `hunk` the hunk both ends are in.
  *
+ * `outside`: an end is on a **Whole file** row not in the patch.
+ *
  * @typedef {{side: 'LEFT' | 'RIGHT', startLine: number | null, line: number, hunk: number,
- *   el: HTMLElement, label: HTMLElement, textarea: HTMLTextAreaElement, error: HTMLElement,
- *   buttons: HTMLButtonElement[], sending: boolean}} NewComment
+ *   outside: boolean, el: HTMLElement, label: HTMLElement, textarea: HTMLTextAreaElement,
+ *   error: HTMLElement, buttons: HTMLButtonElement[], sending: boolean}} NewComment
  */
 
 /**
@@ -1317,8 +1319,8 @@ function saveFlag(key, on) {
  * @property {boolean} noRecord  asked for changes since viewed with none recorded
  * @property {{id: string, comments: number} | null} review  the viewer's pending review
  * @property {NewComment | null} newComment
- * @property {{side: 'LEFT' | 'RIGHT', line: number, hunk: number} | null} anchor  the last `+`
- *   clicked: a Shift-click on another in its hunk and side makes a block
+ * @property {{side: 'LEFT' | 'RIGHT', line: number, hunk: number, filled: boolean} | null} anchor
+ *   the last `+` clicked: a Shift-click on another in its hunk and side makes a block
  * @property {Map<string, CommentEdit>} editing  pending comments being edited, by comment id
  * @property {{sha: string, got: Promise<{text: string | null, message: string}>,
  *   done: {text: string | null, message: string} | null} | null} head
@@ -2989,7 +2991,8 @@ function diffContent(view) {
   }
   const single = oneSided(view);
   // `+` on a line number: a new comment, on the PR's own diff only (GitHub takes comments on
-  // lines in it, not on a Since viewed comparison).
+  // lines in it, not on a Since viewed comparison). **Whole file**'s filled rows take one too, as
+  // GitHub's expanded unchanged lines do.
   const commenting = !since && view.data?.canReview === true;
   const nc = view.newComment;
   /** The rows the open new comment is on: marked hot while it is open. */
@@ -3007,8 +3010,7 @@ function diffContent(view) {
    * A line number cell, with its `+` when commenting: `side` and `n` are what it comments on.
    *
    * @param {number | null | undefined} n @param {'LEFT' | 'RIGHT'} side @param {number} hi
-   * @param {string} [kind] @param {boolean} [filled]  a **Whole file** row not in the patch,
-   *   where GitHub takes no comment
+   * @param {string} [kind] @param {boolean} [filled]  a **Whole file** row not in the patch
    */
   const numCell = (n, side, hi, kind, filled = false) => {
     const cell = h(
@@ -3016,13 +3018,13 @@ function diffContent(view) {
       { class: 'diff-num', ...(kind ? { 'data-kind': kind } : {}) },
       n == null ? '' : String(n),
     );
-    if (commenting && n != null && !filled) {
+    if (commenting && n != null) {
       cell.append(h('button', {
         type: 'button',
         class: 'diff-add-comment',
         title: LABELS.commentOnLine(n),
         'aria-label': LABELS.commentOnLine(n),
-        onclick: (e) => openNewComment(view, side, n, hi, e.shiftKey),
+        onclick: (e) => openNewComment(view, side, n, hi, e.shiftKey, filled),
       }, '+'));
     }
     return cell;
@@ -3530,17 +3532,20 @@ async function sending(c, msg, busy, reload) {
  * and side, on the block between the two. The composer keeps what was typed.
  *
  * @param {DiffView} view @param {'LEFT' | 'RIGHT'} side @param {number} line
- * @param {number} hunk @param {boolean} shift
+ * @param {number} hunk @param {boolean} shift @param {boolean} [filled]  a **Whole file** row not
+ *   in the patch
  */
-function openNewComment(view, side, line, hunk, shift) {
+function openNewComment(view, side, line, hunk, shift, filled = false) {
   const a = view.anchor;
   let startLine = null;
   let last = line;
+  let outside = filled;
   if (shift && a && a.side === side && a.hunk === hunk && a.line !== line) {
     startLine = Math.min(a.line, line);
     last = Math.max(a.line, line);
+    outside ||= a.filled;
   }
-  view.anchor = { side, line, hunk };
+  view.anchor = { side, line, hunk, filled };
   let nc = view.newComment;
   if (!nc) {
     const textarea = /** @type {HTMLTextAreaElement} */ (h('textarea', {
@@ -3573,6 +3578,7 @@ function openNewComment(view, side, line, hunk, shift) {
       startLine,
       line: last,
       hunk,
+      outside,
       el: h(
         'div',
         { class: 'thread-card composer new-comment' },
@@ -3593,6 +3599,7 @@ function openNewComment(view, side, line, hunk, shift) {
   nc.startLine = startLine;
   nc.line = last;
   nc.hunk = hunk;
+  nc.outside = outside;
   renderDiff(view);
   nc.textarea.focus();
 }
@@ -3634,7 +3641,11 @@ async function sendNewComment(view) {
     LABELS.addingToReview,
     () => reviewChanged(ref),
   );
-  if (diffViews.get(view.tile.id) !== view || message !== null) return;
+  if (diffViews.get(view.tile.id) !== view) return;
+  if (message !== null) {
+    if (nc.outside) nc.error.textContent += ` ${LABELS.outsideDiffRefused}`;
+    return;
+  }
   if (view.newComment === nc) {
     view.newComment = null;
     view.anchor = null;

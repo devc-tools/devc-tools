@@ -203,6 +203,8 @@ export const LABELS = {
   commentOnLine: (n) => `Comment on line ${n}`,
   addToReview: 'Add to review',
   addingToReview: 'Adding to review…',
+  outsideDiffRefused:
+    '(GitHub takes comments on lines outside the diff only where it has turned them on for the repository.)',
   reply: 'Reply',
   posting: 'Posting…',
   edit: 'Edit',

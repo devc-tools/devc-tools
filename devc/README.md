@@ -693,9 +693,10 @@ is published from any container: the host server finds devcontainers with
   **Hide whitespace** shows lines that changed only whitespace as
   unchanged (`git diff -w`, worked out from the patch in the page); **Whole
   file** shows every line of the file rather than only the changed ones and
-  the lines around them, filled in from the file at the PR's head (comments
-  still go only on the patch's lines; an added or removed file is whole
-  already); an added or removed file's **Tint rows** (on by default) turns off
+  the lines around them, filled in from the file at the PR's head (its extra
+  lines take a `+` comment too, as GitHub's expanded unchanged lines do,
+  where GitHub has turned that on for the repository; an added or removed
+  file is whole already); an added or removed file's **Tint rows** (on by default) turns off
   its rows' green or red. All five toggles are remembered per browser. A file's right-click menu opens its diff
   (here or to the right), the file itself (as Files does; not for a deleted
   file), GitHub's page for it, copies its paths and pins it; a folder's marks
@@ -742,7 +743,8 @@ is published from any container: the host server finds devcontainers with
     since viewed**. The choice is the tile's own, not kept across a reload.
   - **Pending reviews.** With `gh-pr-pending-review`, hovering a line number
     in `PR changes` shows a `+`: a comment on that line, or with Shift after
-    another `+` in the same hunk and side, on the lines between. A reply's
+    another `+` in the same hunk and side, on the lines between — with
+    **Whole file**, lines outside the diff too, as on GitHub. A reply's
     **Add to review** holds it the same way. A comment or reply on its way
     stays in its box, disabled with a spinner, until it shows in the tile.
     Held comments show as `pending`
