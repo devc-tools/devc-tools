@@ -32,14 +32,20 @@ import {
   devcArgs,
   type DevcWeb,
   findDevc,
+  type Found,
   globalConfigPath,
   loginEnv,
   looked,
   onPath,
+  runDevcCommand,
   startDevcWeb,
 } from './launch.ts';
 import {
+  ACTION_LINES,
+  actionCard,
+  type ActionState,
   appArgs,
+  armed,
   baseName,
   type CdTarget,
   cdTarget,
@@ -52,10 +58,15 @@ import {
   DRAWER_DEFAULT_SHARE,
   externalUrl,
   fromView,
+  hostFolder,
   layout,
   menuLabel,
+  pushOutcome,
+  pushPlanFrom,
+  requestsAnswer,
   shellIdle,
   shellQuote,
+  showText,
   TITLEBAR_HEIGHT,
 } from './policy.ts';
 import { accountShell, HostPty, hostShell, ptyEnv } from './pty.ts';
@@ -92,6 +103,17 @@ let stopping = false;
 let origin: string | null = null;
 /** That devc web's token, for `/desktop/` requests. Never logged. */
 let devcWebToken: string | null = null;
+/**
+ * That devc web's desktop token (`--desktop-channel`, read from its stdout), for
+ * `/desktop/requests` and `/desktop/project`. Held here only: never logged, never in a URL or
+ * an environment, never sent to a view.
+ */
+let desktopToken: string | null = null;
+/**
+ * The `devc` the app last ran, for the host actions' `devc git`, and its command when it is the
+ * checkout's (`devc2`): the push cards say so.
+ */
+let runner: { found: Found; checkout: string | null } | null = null;
 
 /** The drawer's height in px, or `null` while closed; `drawerHeight` survives closing. */
 let drawerOpen = false;
@@ -189,13 +211,21 @@ async function main(): Promise<void> {
   /** Shows devc web (`true`) or the status view in the top area, and the drawer when open. */
   let showingDevc = false;
 
+  /** Each request the app shows, by id (see host actions below), with when its content last changed. */
+  const actions = new Map<string, ActionState & { changedAt: number }>();
+
   function relayout(): void {
     const { width, height } = win.getContentBounds();
     const area = height - TITLEBAR_HEIGHT;
     const h = drawerOpen
       ? clampDrawer(drawerHeight ?? area * DRAWER_DEFAULT_SHARE, area)
       : null;
-    const { bar, main, host } = layout(width, height, h);
+    const { bar, main, host } = layout(
+      width,
+      height,
+      h,
+      !drawerOpen && actions.size > 0,
+    );
     titleBarView.setBounds(bar);
     devcView.setVisible(showingDevc);
     statusView.setVisible(!showingDevc);
@@ -301,6 +331,12 @@ async function main(): Promise<void> {
     showingDevc = false;
     origin = null;
     devcWebToken = null;
+    desktopToken = null;
+    // Requests belonged to that devc web; a push or start already running carries on.
+    for (const [id, a] of actions) {
+      if (a.phase !== 'running' && a.phase !== 'done') actions.delete(id);
+    }
+    actionsChanged();
     devcTitle = 'devcd';
     relayout();
     updateTitle();
@@ -342,6 +378,12 @@ async function main(): Promise<void> {
         `devc not found. Looked in ${looked(config.devc).join(', ')}.`,
       );
     }
+    runner = {
+      found,
+      checkout: config.devc.kind === 'devc2' && !process.env.DEVC_DESKTOP_DEVC
+        ? found.cmd.join(' ')
+        : null,
+    };
     const args = devcArgs(
       appArgs(process.argv, app.isPackaged),
       config.webArgs,
@@ -370,6 +412,12 @@ async function main(): Promise<void> {
       relayout();
       updateTitle();
       void devcView.webContents.loadURL(url);
+      const at = origin;
+      void child.desktop.then((token) => {
+        if (current !== child || stopping) return;
+        desktopToken = token;
+        void pollRequests(child, at, token);
+      });
     });
     void child.exited.then((code) => {
       if (current !== child) return;
@@ -425,6 +473,7 @@ async function main(): Promise<void> {
       void hostView.webContents.loadURL(HOST_URL);
     }
     relayout();
+    hostView.webContents.send('host-term:shown', drawerOpen);
     if (drawerOpen) hostView.webContents.focus();
     else (showingDevc ? devcView : statusView).webContents.focus();
   }
@@ -472,6 +521,7 @@ async function main(): Promise<void> {
       host: hostname().replace(/\.local$/, ''),
       refused: debugging,
       toggle: TOGGLE,
+      open: drawerOpen,
     };
   });
 
@@ -573,6 +623,278 @@ async function main(): Promise<void> {
     hostPty.write(`\x05\x15cd ${shellQuote(target.path)}\r`);
     hostView.webContents.focus();
   }
+
+  // ---- host actions ------------------------------------------------------------------------------
+  // devc web's page asks (`request_push`, `request_project`); the app reads the requests from its
+  // server with the desktop token, works out what would happen itself, and the user confirms it
+  // in the drawer's Actions column. A request never opens the drawer or takes focus: a closed
+  // drawer shows only its HOST strip, badged. Why: `.plans/devc-desktop-host-actions.md`.
+
+  function sendActions(): void {
+    if (!hostLoaded) return;
+    hostView.webContents.send(
+      'host-actions:list',
+      [...actions.values()].map((a) => actionCard(a, runner?.checkout ?? null)),
+    );
+  }
+
+  /** Redraws the column and the strip, loading the host page if a closed drawer must peek. */
+  function actionsChanged(): void {
+    if (actions.size > 0 && !hostLoaded) {
+      hostLoaded = true;
+      void hostView.webContents.loadURL(HOST_URL);
+    }
+    relayout();
+    sendActions();
+  }
+
+  /** Applies `change` to `a`, if it is still shown. A content change re-arms its confirm. */
+  function update(
+    a: ActionState & { changedAt: number },
+    change: () => void,
+  ): void {
+    if (actions.get(a.req.id) !== a) return;
+    change();
+    a.changedAt = Date.now();
+    actionsChanged();
+  }
+
+  const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+  const desktopAuth = (token: string) => ({ Authorization: `Bearer ${token}` });
+
+  /**
+   * Long-polls `child`'s `GET /desktop/requests` while it is the running devc web. Node's fetch,
+   * not Electron's `net`, as for the `cd` item: no Origin.
+   */
+  async function pollRequests(
+    child: DevcWeb,
+    at: string,
+    token: string,
+  ): Promise<void> {
+    let seq = -1;
+    while (current === child && !stopping) {
+      try {
+        const res = await fetch(`${at}/desktop/requests?after=${seq}`, {
+          headers: desktopAuth(token),
+          signal: AbortSignal.timeout(35_000),
+        });
+        if (res.status !== 200) throw new Error(String(res.status));
+        const answer = requestsAnswer(await res.json());
+        if (answer === null) throw new Error('malformed');
+        if (current !== child) return;
+        seq = answer.seq;
+        reconcile(answer.requests);
+      } catch {
+        await sleep(2000);
+      }
+    }
+  }
+
+  /** New requests get a card and their checks; ones the server dropped go, unless confirmed. */
+  function reconcile(requests: ActionState['req'][]): void {
+    const ids = new Set(requests.map((r) => r.id));
+    for (const [id, a] of actions) {
+      if (!ids.has(id) && a.phase !== 'running' && a.phase !== 'done') {
+        actions.delete(id);
+      }
+    }
+    for (const req of requests) {
+      if (actions.has(req.id)) continue;
+      const a = {
+        req,
+        phase: 'checking' as const,
+        target: null,
+        plan: null,
+        lines: [],
+        outcome: null,
+        changedAt: Date.now(),
+      };
+      actions.set(req.id, a);
+      void check(a);
+    }
+    actionsChanged();
+  }
+
+  /** The env `devc git` runs with: the app's, with the login shell's `PATH` when it gave one. */
+  const devcEnv = (found: Found) => childEnv(process.env, found.path);
+
+  /** Checks the request's folder, and for a push runs `devc git push-plan` there. */
+  async function check(a: ActionState & { changedAt: number }): Promise<void> {
+    const { req } = a;
+    const target = await hostFolder(
+      req.kind === 'push' ? req.folder : req.localFolder,
+      { realpath, stat },
+    );
+    if (!target.ok || req.kind !== 'push') {
+      update(a, () => {
+        a.target = target;
+        a.phase = target.ok ? 'ready' : 'refused';
+      });
+      return;
+    }
+    update(a, () => {
+      a.target = target;
+      a.phase = 'planning';
+    });
+    const r = runner;
+    const out = r === null
+      ? { code: 'no devc', stdout: '' }
+      : await runDevcCommand(
+        r.found.cmd,
+        ['git', 'push-plan', target.path],
+        devcEnv(r.found),
+        { timeoutMs: 120_000 },
+      );
+    const plan = out.code === '0' ? pushPlanFrom(out.stdout) : {
+      ok: false as const,
+      problem: `devc git push-plan failed (${out.code})`,
+    };
+    update(a, () => {
+      a.plan = plan;
+      a.phase = plan.ok ? 'ready' : 'refused';
+    });
+  }
+
+  function progress(a: ActionState, line: string): void {
+    a.lines.push(line);
+    if (a.lines.length > ACTION_LINES) a.lines.shift();
+    if (hostLoaded) {
+      hostView.webContents.send(
+        'host-actions:progress',
+        a.req.id,
+        showText(line, 300),
+      );
+    }
+  }
+
+  /** Runs a confirmed request: the push of the plan's exact SHA, or the project action. */
+  async function confirm(id: string): Promise<void> {
+    const a = actions.get(id);
+    if (
+      a === undefined || !drawerOpen || !armed(a.changedAt, Date.now()) ||
+      actionCard(a, null).confirm === null
+    ) {
+      shell.beep();
+      return;
+    }
+    update(a, () => {
+      a.phase = 'running';
+      a.lines = [];
+    });
+    let outcome: { ok: boolean; text: string };
+    if (a.req.kind === 'push') {
+      outcome = await push(a);
+    } else outcome = await projectAction(a);
+    update(a, () => {
+      a.phase = 'done';
+      a.outcome = outcome;
+    });
+    void dismissOnServer(id);
+  }
+
+  async function push(a: ActionState): Promise<{ ok: boolean; text: string }> {
+    const r = runner;
+    if (r === null || !a.target?.ok || !a.plan?.ok) {
+      return { ok: false, text: "devc isn't known" };
+    }
+    const out = await runDevcCommand(
+      r.found.cmd,
+      ['git', 'push', a.target.path, '--sha', a.plan.sha],
+      devcEnv(r.found),
+      { timeoutMs: 600_000, onLine: (line) => progress(a, line) },
+    );
+    return pushOutcome(out.code, a.lines.at(-1));
+  }
+
+  /** `POST /desktop/project`, its NDJSON progress streamed into the card. */
+  async function projectAction(
+    a: ActionState,
+  ): Promise<{ ok: boolean; text: string }> {
+    const at = origin;
+    const token = desktopToken;
+    if (at === null || token === null) {
+      return { ok: false, text: "devc web isn't running" };
+    }
+    try {
+      const res = await fetch(`${at}/desktop/project`, {
+        method: 'POST',
+        headers: { ...desktopAuth(token), 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: a.req.kind,
+          localFolder: a.req.localFolder,
+        }),
+      });
+      if (res.status === 409) {
+        return {
+          ok: false,
+          text: 'devc web runs with --live-yolo: start it from its page',
+        };
+      }
+      if (res.status !== 200 || res.body === null) {
+        return { ok: false, text: `devc web refused it (${res.status})` };
+      }
+      const decoder = new TextDecoder();
+      let buf = '';
+      for await (const chunk of res.body) {
+        buf += decoder.decode(chunk as Uint8Array, { stream: true });
+        let nl;
+        while ((nl = buf.indexOf('\n')) >= 0) {
+          const text = buf.slice(0, nl);
+          buf = buf.slice(nl + 1);
+          let o: unknown;
+          try {
+            o = JSON.parse(text);
+          } catch {
+            continue;
+          }
+          const m = o as {
+            line?: unknown;
+            done?: unknown;
+            ok?: unknown;
+            problem?: unknown;
+          };
+          if (typeof m.line === 'string') progress(a, m.line);
+          else if (m.done === true) {
+            return m.ok === true ? { ok: true, text: 'Done' } : {
+              ok: false,
+              text: typeof m.problem === 'string' ? m.problem : 'it failed',
+            };
+          }
+        }
+      }
+      return { ok: false, text: 'devc web stopped answering' };
+    } catch (e) {
+      return { ok: false, text: e instanceof Error ? e.message : String(e) };
+    }
+  }
+
+  async function dismissOnServer(id: string): Promise<void> {
+    if (origin === null || desktopToken === null) return;
+    try {
+      await fetch(`${origin}/desktop/requests/${id}/dismiss`, {
+        method: 'POST',
+        headers: desktopAuth(desktopToken),
+        signal: AbortSignal.timeout(3000),
+      });
+    } catch { /* it expires on its own */ }
+  }
+
+  ipcMain.on('host-actions:confirm', (e, id: unknown) => {
+    if (!fromHost(e) || typeof id !== 'string') return;
+    void confirm(id);
+  });
+  ipcMain.on('host-actions:dismiss', (e, id: unknown) => {
+    if (!fromHost(e) || typeof id !== 'string') return;
+    const a = actions.get(id);
+    if (a === undefined || a.phase === 'running') return;
+    actions.delete(id);
+    actionsChanged();
+    if (a.phase !== 'done') void dismissOnServer(id);
+  });
+  hostView.webContents.on('did-finish-load', () => {
+    sendActions();
+    hostView.webContents.send('host-term:shown', drawerOpen);
+  });
 
   // ---- the status view ---------------------------------------------------------------------------
 

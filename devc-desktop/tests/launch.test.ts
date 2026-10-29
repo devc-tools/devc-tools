@@ -14,6 +14,7 @@ import {
   childEnv,
   type DesktopConfig,
   desktopConfig,
+  desktopTokenLine,
   devcArgs,
   type FindDeps,
   findDevc,
@@ -24,6 +25,7 @@ import {
   onPath,
   parseJsonc,
   readyUrl,
+  runDevcCommand,
   startDevcWeb,
 } from '../src/main/launch.ts';
 
@@ -120,13 +122,31 @@ test('globalConfigPath: config.jsonc before config.json, never both', async () =
   }
 });
 
-test("devcArgs: --no-open first; the app's own args win over the config's", () => {
-  assertEquals(devcArgs([], []), ['web', '--no-open']);
-  assertEquals(devcArgs([], ['--live']), ['web', '--no-open', '--live']);
+test("devcArgs: --no-open and --desktop-channel first; the app's own args win over the config's", () => {
+  const always = ['web', '--no-open', '--desktop-channel'];
+  assertEquals(devcArgs([], []), always);
+  assertEquals(devcArgs([], ['--live']), [...always, '--live']);
   assertEquals(
     devcArgs(['--live-yolo'], ['--live']),
-    ['web', '--no-open', '--live-yolo'],
+    [...always, '--live-yolo'],
   );
+});
+
+test("desktopTokenLine: devc web's desktop line, a 64-hex token only", () => {
+  const token = 'cd'.repeat(32);
+  assertEquals(desktopTokenLine(`devc web: desktop ${token}`), token);
+  assertEquals(desktopTokenLine(`devc web: desktop ${token}\r`), token);
+  assertEquals(
+    desktopTokenLine(`devc web: desktop ${token.toUpperCase()}`),
+    null,
+  );
+  assertEquals(desktopTokenLine(`devc web: desktop ${token}0`), null);
+  assertEquals(desktopTokenLine(`devc web: desktop ${token.slice(2)}`), null);
+  assertEquals(desktopTokenLine(`note: devc web: desktop ${token}`), null);
+  // The ready line is not the desktop line, nor the other way round.
+  const url = `http://127.0.0.1:48228/#token=${token}`;
+  assertEquals(desktopTokenLine(`devc web: ${url}`), null);
+  assertEquals(readyUrl(`devc web: desktop ${token}`), null);
 });
 
 test('childEnv: never DENO_SERVE_ADDRESS or ELECTRON_*; PATH replaced only when given', () => {
@@ -291,6 +311,7 @@ test('startDevcWeb: ready on the printed line; args and env reach the child', as
   const s = await stub(
     `echo "args: $*" >&2; echo "addr: \${DENO_SERVE_ADDRESS-unset}" >&2
 echo 'listening'; echo "devc web: http://127.0.0.1:48228/#token=${TOKEN}"
+echo "devc web: desktop ${'ef'.repeat(32)}"
 exec sleep 30`,
   );
   try {
@@ -306,6 +327,7 @@ exec sleep 30`,
       await web.ready,
       `http://127.0.0.1:48228/#token=${TOKEN}`,
     );
+    assertEquals(await web.desktop, 'ef'.repeat(32));
     await web.stop();
     assertEquals(await web.exited, 'SIGTERM');
     assertEquals(web.stderr(), ['args: web --no-open', 'addr: unset']);
@@ -364,5 +386,28 @@ test('loginEnv: PATH and $DEVC_BIN from the login shell; null for a missing shel
     assertEquals(await loginEnv('/nonexistent'), null);
   } finally {
     await rm(dir, { recursive: true });
+  }
+});
+
+test('runDevcCommand: its exit code, its stdout kept, every line streamed', async () => {
+  const s = await stub(`echo '{"ok":true}'; echo "warn: $*" >&2; exit 4`);
+  try {
+    const lines: string[] = [];
+    const out = await runDevcCommand([s.path], ['git', 'push', '/x'], {
+      PATH: process.env.PATH!,
+    }, { timeoutMs: 5000, onLine: (l) => lines.push(l) });
+    assertEquals(out, { code: '4', stdout: '{"ok":true}\n' });
+    assertEquals(lines.sort(), ['warn: git push /x', '{"ok":true}'].sort());
+    const slow = await stub('exec sleep 30');
+    try {
+      const timed = await runDevcCommand([slow.path], [], {
+        PATH: process.env.PATH!,
+      }, { timeoutMs: 100 });
+      assertEquals(timed.code, 'SIGTERM');
+    } finally {
+      await rm(slow.dir, { recursive: true });
+    }
+  } finally {
+    await rm(s.dir, { recursive: true });
   }
 });

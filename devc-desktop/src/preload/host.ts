@@ -19,4 +19,21 @@ contextBridge.exposeInMainWorld('hostTerm', {
   info: () => ipcRenderer.invoke('host-term:info'),
   dragDrawer: (dy: number) => ipcRenderer.send('host-term:drag', dy),
   contextMenu: () => ipcRenderer.send('host-term:context-menu'),
+  onShown: (cb: (open: boolean) => void) => {
+    ipcRenderer.on('host-term:shown', (_e, open: unknown) => cb(open === true));
+  },
+  // The Actions column: requests devc web's page made, as the app checked them.
+  onActions: (cb: (cards: unknown) => void) => {
+    ipcRenderer.on('host-actions:list', (_e, cards: unknown) => cb(cards));
+  },
+  onActionProgress: (cb: (id: string, line: string) => void) => {
+    ipcRenderer.on(
+      'host-actions:progress',
+      (_e, id: unknown, line: unknown) => cb(String(id), String(line)),
+    );
+  },
+  confirmAction: (id: string) =>
+    ipcRenderer.send('host-actions:confirm', String(id)),
+  dismissAction: (id: string) =>
+    ipcRenderer.send('host-actions:dismiss', String(id)),
 });

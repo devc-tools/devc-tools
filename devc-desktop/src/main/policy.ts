@@ -116,19 +116,34 @@ export function clampDrawer(height: number, total: number): number {
 export const TITLEBAR_HEIGHT = 32;
 
 /**
+ * The closed drawer's height while host actions wait (`peek`): just its HOST strip, with the
+ * badge. It never opens the drawer or takes focus.
+ */
+export const HOST_PEEK = 24;
+
+/**
  * Where the views go in a `width` × `height` content area: the title bar across the top, devc web
  * (or the status view) below it, and the host drawer at the bottom when open. A closed drawer has
- * no rectangle. None overlap, so devc web never draws over the host terminal. `drawer` is clamped
+ * no rectangle, unless `peek`: then only its strip ({@link HOST_PEEK}) shows. None overlap, so devc web never draws over the host terminal. `drawer` is clamped
  * against the height below the title bar.
  */
 export function layout(
   width: number,
   height: number,
   drawer: number | null,
+  peek = false,
 ): { bar: Rect; main: Rect; host: Rect | null } {
   const bar = { x: 0, y: 0, width, height: TITLEBAR_HEIGHT };
   const top = TITLEBAR_HEIGHT;
   const area = Math.max(0, height - top);
+  if (drawer === null && peek) {
+    const h = Math.min(HOST_PEEK, area);
+    return {
+      bar,
+      main: { x: 0, y: top, width, height: area - h },
+      host: { x: 0, y: top + area - h, width, height: h },
+    };
+  }
   if (drawer === null) {
     return { bar, main: { x: 0, y: top, width, height: area }, host: null };
   }
@@ -233,17 +248,26 @@ export async function cdTarget(answer: unknown, fs: CdFs): Promise<CdTarget> {
   const inside = real === realMount ||
     real.startsWith(realMount.endsWith('/') ? realMount : `${realMount}/`);
   if (!inside) return { ok: false, label: 'The folder is outside its mount' };
+  const refused = await shownFolderRefusal(real, fs);
+  return refused === null
+    ? { ok: true, path: real, mount: realMount }
+    : { ok: false, label: refused };
+}
+
+/** Why the realpath `real` can't be offered: not a folder, or a name that can't be shown. */
+async function shownFolderRefusal(
+  real: string,
+  fs: CdFs,
+): Promise<string | null> {
   try {
-    if (!(await fs.stat(real)).isDirectory()) {
-      return { ok: false, label: 'Not a folder' };
-    }
+    if (!(await fs.stat(real)).isDirectory()) return 'Not a folder';
   } catch {
-    return { ok: false, label: 'Not a folder' };
+    return 'Not a folder';
   }
   if (real.length > MAX_SHOWN || UNSHOWABLE.test(real)) {
-    return { ok: false, label: "The folder's name can't be shown safely" };
+    return "The folder's name can't be shown safely";
   }
-  return { ok: true, path: real, mount: realMount };
+  return null;
 }
 
 /** `p` in single quotes for bash, zsh and fish: each `'` becomes `'\''`. */
@@ -294,4 +318,355 @@ export function baseName(p: string): string {
  */
 export function shellIdle(foreground: string, shell: string): boolean {
   return baseName(foreground).replace(/^-/, '') === baseName(shell);
+}
+
+// ---- host actions -----------------------------------------------------------------------------
+// devc web's page can ask for a push or a project start (`request_push`, `request_project`); the
+// app reads the requests from devc web's server (`GET /desktop/requests`, the desktop token),
+// works out what would happen itself, and shows it in the drawer's Actions column for the user
+// to confirm. The page, the server's queue and the repo's own text all feed what is shown, so
+// everything is checked here first. Why: `.plans/devc-desktop-host-actions.md`.
+
+/** What a request asks for. */
+export type ActionKind = 'push' | 'start' | 'stop' | 'down';
+
+/** One request, as devc web's server holds it. */
+export interface ActionRequest {
+  id: string;
+  kind: ActionKind;
+  localFolder: string;
+  /** The repo folder, for a push; `null` otherwise. */
+  folder: string | null;
+  at: number;
+}
+
+/** The most requests the server keeps, and so the most an answer may carry. */
+export const MAX_REQUESTS = 20;
+
+const ACTION_KINDS: readonly string[] = ['push', 'start', 'stop', 'down'];
+
+/** A folder a request may name: a path, at most {@link MAX_SHOWN} long, and showable. */
+const requestFolder = (v: unknown): v is string =>
+  pathLike(v) && v.length <= MAX_SHOWN && !UNSHOWABLE.test(v);
+
+/**
+ * `GET /desktop/requests`'s answer, or `null` when it isn't one: a `seq`, and at most
+ * {@link MAX_REQUESTS} well-formed requests, each with a short hex id, a known kind, and
+ * showable folders (a push's repo folder, `null` for the others).
+ */
+export function requestsAnswer(
+  v: unknown,
+): { seq: number; requests: ActionRequest[] } | null {
+  if (typeof v !== 'object' || v === null) return null;
+  const { seq, requests } = v as Record<string, unknown>;
+  if (!Number.isSafeInteger(seq) || (seq as number) < 0) return null;
+  if (!Array.isArray(requests) || requests.length > MAX_REQUESTS) return null;
+  const out: ActionRequest[] = [];
+  const ids = new Set<string>();
+  for (const r of requests) {
+    if (typeof r !== 'object' || r === null) return null;
+    const { id, kind, localFolder, folder, at } = r as Record<string, unknown>;
+    if (typeof id !== 'string' || !/^[0-9a-f]{1,64}$/.test(id)) return null;
+    if (ids.has(id)) return null;
+    ids.add(id);
+    if (typeof kind !== 'string' || !ACTION_KINDS.includes(kind)) return null;
+    if (!requestFolder(localFolder)) return null;
+    if (kind === 'push' ? !requestFolder(folder) : folder !== null) {
+      return null;
+    }
+    if (typeof at !== 'number' || !Number.isFinite(at)) return null;
+    out.push({
+      id,
+      kind: kind as ActionKind,
+      localFolder,
+      folder: folder as string | null,
+      at,
+    });
+  }
+  return { seq: seq as number, requests: out };
+}
+
+export type HostFolder = { ok: true; path: string } | {
+  ok: false;
+  label: string;
+};
+
+/**
+ * The folder on this machine a request names, checked as the `cd` item's is, without the mount:
+ * absolute, its realpath (symlinks resolved here), a directory, and a showable name of at most
+ * 256 characters. The realpath is what the app runs `devc git` on; the label says why not.
+ */
+export async function hostFolder(v: unknown, fs: CdFs): Promise<HostFolder> {
+  if (!pathLike(v)) return { ok: false, label: 'devc web gave no folder' };
+  let real: string;
+  try {
+    real = await fs.realpath(v);
+  } catch {
+    return { ok: false, label: "The folder doesn't exist on this machine" };
+  }
+  const refused = await shownFolderRefusal(real, fs);
+  return refused === null
+    ? { ok: true, path: real }
+    : { ok: false, label: refused };
+}
+
+/** `devc git push-plan`'s answer (`devc/git_push.ts`'s `PushPlan`), checked. */
+export type PushPlan =
+  | {
+    ok: true;
+    folder: string;
+    remote: string;
+    branch: string;
+    sha: string;
+    remoteSha: string | null;
+    commits: { sha: string; subject: string; author: string }[];
+    totalCommits: number;
+    defaultBranch: boolean;
+    guarded: string[];
+    lfs: boolean;
+    fastForward: boolean;
+    upToDate: boolean;
+  }
+  | { ok: false; problem: string };
+
+const SHA = /^[0-9a-f]{40}([0-9a-f]{24})?$/;
+const isStr = (v: unknown, max = 4096): v is string =>
+  typeof v === 'string' && v.length <= max;
+
+/**
+ * `devc git push-plan`'s stdout as a {@link PushPlan}, or a refusal saying it printed something
+ * else. `subject`, `author` and `guarded` are the repo's text, which whoever wrote the commits
+ * chose: they pass as strings here and are shown as text only ({@link showText}).
+ */
+export function pushPlanFrom(stdout: string): PushPlan {
+  const unexpected = {
+    ok: false as const,
+    problem: 'devc git push-plan printed something unexpected',
+  };
+  let v: unknown;
+  try {
+    v = JSON.parse(stdout);
+  } catch {
+    return unexpected;
+  }
+  if (typeof v !== 'object' || v === null) return unexpected;
+  const p = v as Record<string, unknown>;
+  if (p.ok === false) {
+    return isStr(p.problem) ? { ok: false, problem: p.problem } : unexpected;
+  }
+  if (p.ok !== true) return unexpected;
+  const commits = p.commits;
+  const good = isStr(p.folder) && isStr(p.remote) && isStr(p.branch, 256) &&
+    isStr(p.sha) && SHA.test(p.sha) &&
+    (p.remoteSha === null || (isStr(p.remoteSha) && SHA.test(p.remoteSha))) &&
+    Array.isArray(commits) && commits.length <= 50 &&
+    commits.every((c) =>
+      typeof c === 'object' && c !== null && isStr(c.sha) && SHA.test(c.sha) &&
+      isStr(c.subject) && isStr(c.author)
+    ) &&
+    Number.isSafeInteger(p.totalCommits) &&
+    (p.totalCommits as number) >= commits.length &&
+    typeof p.defaultBranch === 'boolean' && Array.isArray(p.guarded) &&
+    p.guarded.length <= 1000 && p.guarded.every((g) => isStr(g)) &&
+    typeof p.lfs === 'boolean' && typeof p.fastForward === 'boolean' &&
+    typeof p.upToDate === 'boolean';
+  if (!good) return unexpected;
+  return {
+    ok: true,
+    folder: p.folder as string,
+    remote: p.remote as string,
+    branch: p.branch as string,
+    sha: p.sha as string,
+    remoteSha: p.remoteSha as string | null,
+    commits: (commits as { sha: string; subject: string; author: string }[])
+      .map(({ sha, subject, author }) => ({ sha, subject, author })),
+    totalCommits: p.totalCommits as number,
+    defaultBranch: p.defaultBranch as boolean,
+    guarded: p.guarded as string[],
+    lfs: p.lfs as boolean,
+    fastForward: p.fastForward as boolean,
+    upToDate: p.upToDate as boolean,
+  };
+}
+
+/** Whether a plan can be pushed: `devc git push` would refuse an LFS pointer or a non-fast-forward. */
+export function canPush(plan: PushPlan): boolean {
+  return plan.ok && !plan.lfs && plan.fastForward && !plan.upToDate;
+}
+
+/** What the user should know before pushing `plan`, one line each. */
+export function planWarnings(plan: PushPlan): string[] {
+  if (!plan.ok) return [];
+  const out: string[] = [];
+  if (plan.upToDate) out.push('Up to date: nothing to push');
+  if (plan.defaultBranch) {
+    out.push(`Pushes the default branch (${showText(plan.branch, 80)})`);
+  }
+  if (plan.guarded.length > 0) {
+    const shown = plan.guarded.slice(0, 5).map((g) => showText(g, 80));
+    const more = plan.guarded.length > 5
+      ? ` and ${plan.guarded.length - 5} more`
+      : '';
+    out.push(`Changes workflows: ${shown.join(', ')}${more}`);
+  }
+  if (!plan.fastForward) {
+    out.push('Not a fast-forward of the remote branch: it would be refused');
+  }
+  if (plan.lfs) out.push('Adds an LFS pointer: it would be refused');
+  return out;
+}
+
+const UNSHOWABLE_ALL = new RegExp(UNSHOWABLE.source, 'g');
+
+/**
+ * `s` as the Actions column shows it: controls, bidi overrides and zero-width characters (which
+ * could make it read as something else) as U+FFFD, and at most `max` characters, `…` after.
+ */
+export function showText(s: string, max = 200): string {
+  const clean = s.replace(UNSHOWABLE_ALL, '\ufffd');
+  return clean.length > max ? `${clean.slice(0, max - 1)}…` : clean;
+}
+
+/** How long a request's confirm button stays disabled after its content last changed. */
+export const ARM_MS = 1000;
+
+/** Whether a request whose content last changed at `changedAt` may be confirmed at `now`. */
+export function armed(changedAt: number, now: number): boolean {
+  return now - changedAt >= ARM_MS;
+}
+
+/** The HOST strip's badge: `1 request`, `3 requests`, or nothing. */
+export function badgeText(n: number): string {
+  return n === 0 ? '' : n === 1 ? '1 request' : `${n} requests`;
+}
+
+/** Where a request is: checked, its plan worked out, confirmed and running, or finished. */
+export type ActionPhase =
+  | 'checking'
+  | 'planning'
+  | 'ready'
+  | 'refused'
+  | 'running'
+  | 'done';
+
+/** What the main process knows about one request. */
+export interface ActionState {
+  req: ActionRequest;
+  phase: ActionPhase;
+  /** The checked folder (the push's repo, or the project), once checked. */
+  target: HostFolder | null;
+  plan: PushPlan | null;
+  lines: string[];
+  outcome: { ok: boolean; text: string } | null;
+}
+
+/** One card in the Actions column, as the host page draws it: text only. */
+export interface ActionCard {
+  id: string;
+  kind: ActionKind;
+  title: string;
+  folder: string;
+  phase: ActionPhase;
+  refusal: string | null;
+  plan: {
+    branch: string;
+    remote: string;
+    sha: string;
+    commits: { sha: string; subject: string; author: string }[];
+    more: number;
+  } | null;
+  warnings: string[];
+  notes: string[];
+  /** The confirm button's label, `null` when there is nothing to confirm. */
+  confirm: string | null;
+  lines: string[];
+  outcome: { ok: boolean; text: string } | null;
+}
+
+const ACTION_TITLES: Record<ActionKind, string> = {
+  push: 'Push',
+  start: 'Start container',
+  stop: 'Stop',
+  down: 'Remove container',
+};
+
+/** The most output lines a card keeps. */
+export const ACTION_LINES = 200;
+
+/**
+ * The card for `a`. `checkout` names the `devc` the app runs when it comes from the checkout
+ * (`devc2`), which every push card says, since a container may have written that code.
+ */
+export function actionCard(
+  a: ActionState,
+  checkout: string | null,
+): ActionCard {
+  const { req } = a;
+  const refusal = a.target !== null && !a.target.ok
+    ? a.target.label
+    : a.plan !== null && !a.plan.ok
+    ? showText(a.plan.problem, 300)
+    : null;
+  const plan = a.plan?.ok
+    ? {
+      branch: showText(a.plan.branch, 80),
+      remote: showText(a.plan.remote, 120),
+      sha: a.plan.sha.slice(0, 12),
+      commits: a.plan.commits.map((c) => ({
+        sha: c.sha.slice(0, 7),
+        subject: showText(c.subject, 120),
+        author: showText(c.author, 60),
+      })),
+      more: a.plan.totalCommits - a.plan.commits.length,
+    }
+    : null;
+  const notes: string[] = [];
+  if (req.kind === 'start') {
+    notes.push(
+      "Runs its devcontainer.json's initializeCommand on this machine",
+    );
+  }
+  if (req.kind === 'push' && checkout !== null) {
+    notes.push(
+      `Runs devc from the checkout (${
+        showText(checkout, 120)
+      }), which a container may have written`,
+    );
+  }
+  const confirmable = a.phase === 'ready' && refusal === null &&
+    (req.kind !== 'push' || (a.plan !== null && canPush(a.plan)));
+  return {
+    id: req.id,
+    kind: req.kind,
+    title: ACTION_TITLES[req.kind],
+    folder: a.target?.ok
+      ? a.target.path
+      : showText(req.kind === 'push' ? req.folder ?? '' : req.localFolder, 256),
+    phase: a.phase,
+    refusal,
+    plan,
+    warnings: a.plan ? planWarnings(a.plan) : [],
+    notes,
+    confirm: confirmable ? ACTION_TITLES[req.kind] : null,
+    lines: a.lines.map((l) => showText(l, 300)),
+    outcome: a.outcome &&
+      { ok: a.outcome.ok, text: showText(a.outcome.text, 300) },
+  };
+}
+
+/** What `devc git push`'s exit code means, for the card's outcome. */
+export function pushOutcome(
+  code: string,
+  lastLine: string | undefined,
+): { ok: boolean; text: string } {
+  if (code === '0') return { ok: true, text: lastLine ?? 'pushed' };
+  const why: Record<string, string> = {
+    '2': 'the branch moved, or another problem',
+    '3': 'an LFS pointer cannot be published',
+    '4': 'not a fast-forward, or the push failed',
+  };
+  return {
+    ok: false,
+    text: lastLine ?? `devc git push failed (${why[code] ?? code})`,
+  };
 }

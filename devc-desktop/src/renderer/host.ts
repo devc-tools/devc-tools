@@ -1,8 +1,10 @@
 // The host terminal page: xterm.js on the host shell, through `window.hostTerm` (the host
-// preload). Loaded from the app bundle in its own view; devc web cannot reach it.
+// preload), and the Actions column beside it. Loaded from the app bundle in its own view; devc
+// web cannot reach it.
 
 import { FitAddon } from '@xterm/addon-fit';
 import { Terminal } from '@xterm/xterm';
+import { type ActionCard, ARM_MS, badgeText } from '../main/policy.ts';
 
 interface HostTerm {
   start(cols: number, rows: number): void;
@@ -11,11 +13,25 @@ interface HostTerm {
   onOutput(cb: (data: string) => void): void;
   onExit(cb: (code: number) => void): void;
   info(): Promise<
-    { user: string; host: string; refused: string | null; toggle: string }
+    {
+      user: string;
+      host: string;
+      refused: string | null;
+      toggle: string;
+      open: boolean;
+    }
   >;
   dragDrawer(dy: number): void;
   /** Asks the app for its right-click menu: `cd` to devc web's active terminal folder. */
   contextMenu(): void;
+  /** The drawer opened (`true`) or closed to its strip, or out of sight. */
+  onShown(cb: (open: boolean) => void): void;
+  /** The Actions column's cards, whenever one changes. */
+  onActions(cb: (cards: unknown) => void): void;
+  /** A line of a confirmed action's output. */
+  onActionProgress(cb: (id: string, line: string) => void): void;
+  confirmAction(id: string): void;
+  dismissAction(id: string): void;
 }
 
 declare global {
@@ -39,9 +55,14 @@ term.loadAddon(fit);
 term.open($('term'));
 
 let running = false;
+let started = false;
 let refused: string | null = null;
+/** Whether the drawer is open; closed, at most its strip shows (requests waiting). */
+let open = false;
+let toggle = '';
 
 function start(): void {
+  started = true;
   if (refused !== null) {
     term.write(`\x1b[33mThe host terminal is off: ${refused}.\x1b[0m\r\n`);
     return;
@@ -66,7 +87,10 @@ term.onData((data) => {
 term.onResize(({ cols, rows }) => {
   if (running) host.resize(cols, rows);
 });
-new ResizeObserver(() => fit.fit()).observe($('term'));
+// Closed to its strip, the terminal has no room: keep the shell's size until it opens again.
+new ResizeObserver(() => {
+  if ($('term').clientHeight >= 40) fit.fit();
+}).observe($('term'));
 
 // The right-click menu is the app's own (a native menu), built by the main process.
 $('term').addEventListener('contextmenu', (e) => {
@@ -122,11 +146,173 @@ strip.addEventListener('pointerdown', (e) => {
 });
 
 window.addEventListener('focus', () => term.focus());
+
+function showHint(): void {
+  $('hint').textContent = toggle === ''
+    ? ''
+    : `${toggle} to ${open ? 'hide' : 'open'}`;
+}
+
+host.onShown((isOpen) => {
+  open = isOpen;
+  showHint();
+  if (open && !started) start();
+});
+
 // The page is a classic script (a module would not load from file:), so no top-level await.
 void host.info().then((info) => {
   $('who').textContent = `HOST — ${info.user}@${info.host}`;
-  $('hint').textContent = `${info.toggle} to hide`;
+  toggle = info.toggle;
   refused = info.refused;
-  start();
-  term.focus();
+  open = info.open;
+  showHint();
+  // Loaded only to show the strip's badge: the shell starts when the drawer opens.
+  if (open && !started) start();
+  // Never takes focus by itself: the app focuses this view when the user opens the drawer.
+  if (document.hasFocus()) term.focus();
+});
+
+// ---- the Actions column ------------------------------------------------------------------------
+// Requests devc web's page made, as the app checked them: text only. A card's confirm button is
+// disabled until ARM_MS after its content last changed, and a click counts only when the press
+// began after that, so a click already in motion when the card appeared or changed never lands.
+
+interface Shown {
+  sig: string;
+  el: HTMLElement;
+  lines: HTMLElement;
+  armedAt: number;
+  pressedAt: number;
+}
+const shown = new Map<string, Shown>();
+
+function el(
+  tag: string,
+  cls: string,
+  text = '',
+  children: Node[] = [],
+): HTMLElement {
+  const e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (text) e.textContent = text;
+  e.append(...children);
+  return e;
+}
+
+const PHASE_TEXT: Partial<Record<ActionCard['phase'], string>> = {
+  checking: 'Checking…',
+  planning: 'Working out what would be pushed…',
+  running: 'Running…',
+};
+
+function cardEl(card: ActionCard, s: Shown): HTMLElement {
+  const parts: Node[] = [
+    el('div', 'title', card.title),
+    el('div', 'folder', card.folder),
+  ];
+  const p = card.plan;
+  if (p !== null) {
+    parts.push(
+      el('div', 'mono', `${p.branch} → ${p.remote}`),
+      el('div', 'mono muted', `tip ${p.sha}`),
+    );
+    const list = el(
+      'ul',
+      '',
+      '',
+      p.commits.map((c) =>
+        el('li', '', '', [
+          el('span', 'mono', `${c.sha} `),
+          document.createTextNode(c.subject),
+          el('span', 'muted', ` — ${c.author}`),
+        ])
+      ),
+    );
+    if (p.more > 0) list.append(el('li', 'muted', `and ${p.more} more`));
+    if (p.commits.length > 0) parts.push(list);
+  }
+  for (const w of card.warnings) parts.push(el('div', 'warn', `⚠ ${w}`));
+  for (const n of card.notes) parts.push(el('div', 'muted', n));
+  if (card.refusal !== null) parts.push(el('div', 'refusal', card.refusal));
+  const phase = PHASE_TEXT[card.phase];
+  if (phase) parts.push(el('div', 'muted', phase));
+  s.lines = el('pre', '', card.lines.join('\n'));
+  parts.push(s.lines);
+  if (card.outcome !== null) {
+    parts.push(
+      el('div', card.outcome.ok ? 'ok' : 'fail', card.outcome.text),
+    );
+  }
+  const buttons = el('div', 'buttons');
+  if (card.phase !== 'running') {
+    const dismiss = el(
+      'button',
+      '',
+      card.phase === 'done' ? 'Close' : 'Dismiss',
+    ) as HTMLButtonElement;
+    dismiss.type = 'button';
+    dismiss.addEventListener('click', () => host.dismissAction(card.id));
+    buttons.append(dismiss);
+  }
+  if (card.confirm !== null) {
+    const ok = el('button', '', card.confirm) as HTMLButtonElement;
+    ok.type = 'button';
+    ok.disabled = true;
+    const press = () => s.pressedAt = performance.now();
+    ok.addEventListener('pointerdown', press);
+    ok.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') press();
+    });
+    ok.addEventListener('click', () => {
+      if (ok.disabled || s.pressedAt < s.armedAt) return;
+      ok.disabled = true;
+      host.confirmAction(card.id);
+    });
+    setTimeout(() => {
+      if (shown.get(card.id) === s && s.el.contains(ok)) ok.disabled = false;
+    }, ARM_MS);
+    buttons.append(ok);
+  }
+  parts.push(buttons);
+  const e = el('div', 'card', '', parts);
+  e.dataset.phase = card.phase;
+  return e;
+}
+
+function showActions(raw: unknown): void {
+  const cards = Array.isArray(raw) ? raw as ActionCard[] : [];
+  const ids = new Set(cards.map((c) => c.id));
+  for (const id of shown.keys()) if (!ids.has(id)) shown.delete(id);
+  for (const card of cards) {
+    const { lines: _lines, ...rest } = card;
+    const sig = JSON.stringify(rest);
+    const was = shown.get(card.id);
+    if (was?.sig === sig) continue;
+    const s: Shown = {
+      sig,
+      el: document.createElement('div'),
+      lines: document.createElement('pre'),
+      armedAt: performance.now() + ARM_MS,
+      pressedAt: -Infinity,
+    };
+    shown.set(card.id, s);
+    s.el = cardEl(card, s);
+  }
+  const column = $('actions');
+  column.replaceChildren(...cards.map((c) => shown.get(c.id)!.el));
+  column.hidden = cards.length === 0;
+  $('body').classList.toggle('with-actions', cards.length > 0);
+  const waiting = cards.filter((c) => c.phase !== 'done').length;
+  $('badge').textContent = badgeText(waiting);
+  $('badge').hidden = waiting === 0;
+}
+
+host.onActions(showActions);
+host.onActionProgress((id, line) => {
+  const s = shown.get(id);
+  if (s === undefined) return;
+  s.lines.textContent = s.lines.textContent
+    ? `${s.lines.textContent}\n${line}`
+    : line;
+  s.lines.scrollTop = s.lines.scrollHeight;
 });

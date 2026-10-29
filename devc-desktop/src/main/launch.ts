@@ -22,6 +22,17 @@ export function readyUrl(line: string): string | null {
 }
 
 /**
+ * The line `devc web --desktop-channel` prints after its ready line: the app's own token, for
+ * `/desktop/requests` and `/desktop/project`. Only stdout carries it: never a URL or a page.
+ */
+const DESKTOP_LINE = /^devc web: desktop ([0-9a-f]{64})$/;
+
+/** The desktop token in `line`, if it is `devc web`'s desktop line, else `null`. */
+export function desktopTokenLine(line: string): string | null {
+  return DESKTOP_LINE.exec(line.trimEnd())?.[1] ?? null;
+}
+
+/**
  * Which `devc` the app runs, from `"desktopDevc"`: the installed one (absent, or
  * `"installed"`), the checkout's from source (`"devc2"`: `$DEVC_BIN`), or the binary at an
  * absolute path.
@@ -176,11 +187,17 @@ function devcChoiceFrom(raw: unknown): DevcChoice {
 }
 
 /**
- * The arguments `devc` is run with: `web --no-open`, then the app's own arguments if it was
- * given any, else the config's. Never `--port`: devc picks it, and the ready line says which.
+ * The arguments `devc` is run with: `web --no-open --desktop-channel`, then the app's own
+ * arguments if it was given any, else the config's. Never `--port`: devc picks it, and the ready
+ * line says which.
  */
 export function devcArgs(appArgs: string[], configArgs: string[]): string[] {
-  return ['web', '--no-open', ...(appArgs.length > 0 ? appArgs : configArgs)];
+  return [
+    'web',
+    '--no-open',
+    '--desktop-channel',
+    ...(appArgs.length > 0 ? appArgs : configArgs),
+  ];
 }
 
 /**
@@ -363,6 +380,8 @@ const STOP_GRACE_MS = 5000;
 export interface DevcWeb {
   /** The page URL from the ready line; never resolves if the child exits first. */
   ready: Promise<string>;
+  /** The desktop token from its line, after the ready line; never resolves without one. */
+  desktop: Promise<string>;
   /** The exit code (or signal name) once the child has exited. */
   exited: Promise<string>;
   /** The child's last {@link STDERR_LINES} lines of stderr, oldest first. */
@@ -374,7 +393,7 @@ export interface DevcWeb {
 /**
  * Starts `cmd` (a {@link Found}'s) with `args` after it, and `env`. stdout and stderr are read
  * for the child's whole life, so a full pipe never blocks it; stdout is only scanned for the
- * ready line, never kept or printed, since it carries the token. Throws if it cannot be spawned.
+ * ready and desktop lines, never kept or printed, since they carry the tokens. Throws if it cannot be spawned.
  */
 export function startDevcWeb(
   cmd: string[],
@@ -387,6 +406,8 @@ export function startDevcWeb(
   });
   let resolveReady!: (url: string) => void;
   const ready = new Promise<string>((r) => resolveReady = r);
+  let resolveDesktop!: (token: string) => void;
+  const desktop = new Promise<string>((r) => resolveDesktop = r);
   const tail: string[] = [];
   const keep = (line: string) => {
     tail.push(line);
@@ -395,6 +416,8 @@ export function startDevcWeb(
   eachLine(child.stdout, (line) => {
     const url = readyUrl(line);
     if (url !== null) resolveReady(url);
+    const token = desktopTokenLine(line);
+    if (token !== null) resolveDesktop(token);
   });
   eachLine(child.stderr, keep);
   const exited = new Promise<string>((resolve) => {
@@ -406,6 +429,7 @@ export function startDevcWeb(
   });
   return {
     ready,
+    desktop,
     exited,
     stderr: () => [...tail],
     async stop() {
@@ -420,6 +444,54 @@ export function startDevcWeb(
       clearTimeout(timer);
     },
   };
+}
+
+/** The most stdout {@link runDevcCommand} keeps: `push-plan`'s JSON is far smaller. */
+const MAX_STDOUT = 1 << 20;
+
+/**
+ * Runs `cmd` (a {@link Found}'s) with `args` after it, to its end or `timeoutMs` (then SIGTERM),
+ * for the host actions' `devc git push-plan` and `devc git push`. Each line of its stdout and
+ * stderr goes to `onLine` as it comes; its stdout is also kept, up to 1 MiB. Resolves with the
+ * exit code (or signal name, or `spawn failed`).
+ */
+export function runDevcCommand(
+  cmd: string[],
+  args: string[],
+  env: Record<string, string>,
+  opts: { timeoutMs: number; onLine?: (line: string) => void },
+): Promise<{ code: string; stdout: string }> {
+  return new Promise((resolve) => {
+    let child;
+    try {
+      child = spawn(cmd[0], [...cmd.slice(1), ...args], {
+        env,
+        stdio: ['ignore', 'pipe', 'pipe'],
+      });
+    } catch (e) {
+      opts.onLine?.(String(e instanceof Error ? e.message : e));
+      return resolve({ code: 'spawn failed', stdout: '' });
+    }
+    let stdout = '';
+    child.stdout.setEncoding('utf8');
+    child.stdout.on('data', (d: string) => {
+      if (stdout.length < MAX_STDOUT) stdout += d;
+    });
+    if (opts.onLine) {
+      eachLine(child.stdout, opts.onLine);
+      eachLine(child.stderr, opts.onLine);
+    } else child.stderr.resume();
+    const timer = setTimeout(() => child.kill('SIGTERM'), opts.timeoutMs);
+    child.on('error', (e) => {
+      clearTimeout(timer);
+      opts.onLine?.(String(e.message));
+      resolve({ code: 'spawn failed', stdout });
+    });
+    child.on('close', (code, signal) => {
+      clearTimeout(timer);
+      resolve({ code: signal ?? String(code), stdout });
+    });
+  });
 }
 
 /** Calls `fn` with each line of `stream` (without its newline) until the stream ends. */

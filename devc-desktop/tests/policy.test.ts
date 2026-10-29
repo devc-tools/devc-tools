@@ -1,7 +1,12 @@
 import { test } from 'node:test';
 import { deepStrictEqual as assertEquals } from 'node:assert/strict';
 import {
+  actionCard,
+  type ActionState,
   appArgs,
+  armed,
+  badgeText,
+  canPush,
   cdTarget,
   clampDrawer,
   debugReason,
@@ -12,11 +17,19 @@ import {
   DRAWER_MIN,
   externalUrl,
   fromView,
+  HOST_PEEK,
+  hostFolder,
   layout,
   MAX_LABEL,
+  MAX_REQUESTS,
   menuLabel,
+  planWarnings,
+  pushOutcome,
+  pushPlanFrom,
+  requestsAnswer,
   shellIdle,
   shellQuote,
+  showText,
   TITLEBAR_HEIGHT,
 } from '../src/main/policy.ts';
 
@@ -159,6 +172,16 @@ test('layout: the title bar on top, the drawer below devc web, none overlapping'
   assertEquals(bar.y + bar.height, main.y);
   assertEquals(main.y + main.height, host!.y);
   assertEquals(layout(1200, 832, 5000).host!.height, 680);
+  // Closed with requests waiting: only the HOST strip shows; an open drawer ignores `peek`.
+  const peek = layout(1200, 832, null, true);
+  assertEquals(peek.host, {
+    x: 0,
+    y: 832 - HOST_PEEK,
+    width: 1200,
+    height: HOST_PEEK,
+  });
+  assertEquals(peek.main.y + peek.main.height, peek.host!.y);
+  assertEquals(layout(1200, 832, 300, true).host, host);
 });
 
 test("fromView: only the view's own main frame, at its bundled page", () => {
@@ -343,4 +366,216 @@ test('shellQuote, menuLabel, shellIdle', () => {
   assertEquals(shellIdle('/bin/bash', '/bin/bash'), true);
   assertEquals(shellIdle('vim', '/bin/zsh'), false);
   assertEquals(shellIdle('sleep', '/usr/bin/bash'), false);
+});
+
+// ---- host actions ----
+
+const req = (o: Record<string, unknown> = {}) => ({
+  id: '0123456789abcdef',
+  kind: 'push',
+  localFolder: '/Users/me/src/app',
+  folder: '/Users/me/src/app',
+  at: 1,
+  ...o,
+});
+
+test('requestsAnswer: well-formed requests only', () => {
+  const good = {
+    seq: 3,
+    requests: [req(), req({ id: 'ab', kind: 'start', folder: null })],
+  };
+  assertEquals(requestsAnswer(good), good);
+  assertEquals(requestsAnswer({ seq: 0, requests: [] }), {
+    seq: 0,
+    requests: [],
+  });
+  for (
+    const bad of [
+      null,
+      'x',
+      [],
+      { seq: -1, requests: [] },
+      { seq: 1.5, requests: [] },
+      { seq: 1 },
+      { seq: 1, requests: {} },
+      // Oversized: more than the server ever keeps.
+      {
+        seq: 1,
+        requests: Array.from(
+          { length: MAX_REQUESTS + 1 },
+          (_, i) => req({ id: i.toString(16) }),
+        ),
+      },
+      { seq: 1, requests: [req({ id: 'XYZ' })] },
+      { seq: 1, requests: [req({ id: '' })] },
+      { seq: 1, requests: [req(), req()] },
+      { seq: 1, requests: [req({ kind: 'rm' })] },
+      { seq: 1, requests: [req({ folder: null })] },
+      { seq: 1, requests: [req({ kind: 'stop' })] },
+      { seq: 1, requests: [req({ localFolder: 'rel' })] },
+      { seq: 1, requests: [req({ folder: `/${'x'.repeat(300)}` })] },
+      // A control character, a bidi override, a zero-width space in a folder.
+      { seq: 1, requests: [req({ folder: '/src/a\nb' })] },
+      { seq: 1, requests: [req({ localFolder: '/src/a\u202eb' })] },
+      { seq: 1, requests: [req({ folder: '/src/a\u200bb' })] },
+      { seq: 1, requests: [req({ at: 'now' })] },
+    ]
+  ) {
+    assertEquals(requestsAnswer(bad), null, JSON.stringify(bad)?.slice(0, 80));
+  }
+});
+
+test('hostFolder: the realpath of a showable directory, or why not', async () => {
+  const fs = fakeFs(
+    {
+      '/src/app': '/src/app',
+      '/src/link': '/etc',
+      '/src/file': '/src/file',
+      '/src/x\u202ey': '/src/x\u202ey',
+    },
+    ['/src/app', '/etc', '/src/x\u202ey'],
+  );
+  assertEquals(await hostFolder('/src/app', fs), {
+    ok: true,
+    path: '/src/app',
+  });
+  // No mount to stay inside here: a symlink resolves, and the card shows where it goes.
+  assertEquals(await hostFolder('/src/link', fs), { ok: true, path: '/etc' });
+  assertEquals(await hostFolder('/src/file', fs), {
+    ok: false,
+    label: 'Not a folder',
+  });
+  assertEquals(await hostFolder('/nope', fs), {
+    ok: false,
+    label: "The folder doesn't exist on this machine",
+  });
+  assertEquals((await hostFolder('/src/x\u202ey', fs)).ok, false);
+  assertEquals((await hostFolder('rel', fs)).ok, false);
+  assertEquals((await hostFolder(null, fs)).ok, false);
+});
+
+const SHA = 'a'.repeat(40);
+const plan = (o: Record<string, unknown> = {}) => ({
+  ok: true,
+  folder: '/src/app',
+  remote: 'https://github.com/me/app.git',
+  branch: 'feature',
+  sha: SHA,
+  remoteSha: null,
+  commits: [{ sha: SHA, subject: 'Add a thing', author: 'Me' }],
+  totalCommits: 1,
+  defaultBranch: false,
+  guarded: [],
+  lfs: false,
+  fastForward: true,
+  upToDate: false,
+  ...o,
+});
+
+test("pushPlanFrom: devc git push-plan's JSON, checked", () => {
+  const p = pushPlanFrom(JSON.stringify(plan()));
+  assertEquals(p, plan());
+  assertEquals(canPush(p), true);
+  assertEquals(planWarnings(p), []);
+  assertEquals(pushPlanFrom('{"ok":false,"problem":"no upstream"}'), {
+    ok: false,
+    problem: 'no upstream',
+  });
+  for (
+    const bad of [
+      'not json',
+      '[]',
+      '{"ok":"yes"}',
+      JSON.stringify(plan({ sha: 'main' })),
+      JSON.stringify(plan({ commits: 'x' })),
+      JSON.stringify(
+        plan({ commits: [{ sha: SHA, subject: 1, author: 'a' }] }),
+      ),
+      JSON.stringify(plan({ totalCommits: 0 })),
+      JSON.stringify(plan({ guarded: [1] })),
+      JSON.stringify(plan({ lfs: 'no' })),
+    ]
+  ) {
+    assertEquals(pushPlanFrom(bad).ok, false, bad.slice(0, 60));
+  }
+  const risky = pushPlanFrom(
+    JSON.stringify(plan({
+      defaultBranch: true,
+      branch: 'main',
+      guarded: ['.github/workflows/ci.yml'],
+    })),
+  );
+  assertEquals(canPush(risky), true);
+  assertEquals(planWarnings(risky), [
+    'Pushes the default branch (main)',
+    'Changes workflows: .github/workflows/ci.yml',
+  ]);
+  for (const o of [{ lfs: true }, { fastForward: false }, { upToDate: true }]) {
+    assertEquals(canPush(pushPlanFrom(JSON.stringify(plan(o)))), false);
+  }
+});
+
+test('showText, armed, badgeText, pushOutcome', () => {
+  assertEquals(showText('fix: a\u202egnp.exe'), 'fix: a\ufffdgnp.exe');
+  assertEquals(showText('a\nb\u0007'), 'a\ufffdb\ufffd');
+  assertEquals(showText('abcdef', 4), 'abc…');
+  assertEquals(armed(1000, 1999), false);
+  assertEquals(armed(1000, 2000), true);
+  assertEquals([badgeText(0), badgeText(1), badgeText(2)], [
+    '',
+    '1 request',
+    '2 requests',
+  ]);
+  assertEquals(pushOutcome('0', 'pushed: x'), { ok: true, text: 'pushed: x' });
+  assertEquals(pushOutcome('2', 'the branch moved: …').ok, false);
+  assertEquals(pushOutcome('4', undefined).ok, false);
+});
+
+test('actionCard: what the column shows, and when it can be confirmed', () => {
+  const state = (o: Partial<ActionState>): ActionState => ({
+    req: req() as ActionState['req'],
+    phase: 'ready',
+    target: { ok: true, path: '/src/app' },
+    plan: pushPlanFrom(JSON.stringify(plan({
+      commits: [{ sha: SHA, subject: 'evil\u202etxt', author: 'A' }],
+      totalCommits: 3,
+    }))),
+    lines: [],
+    outcome: null,
+    ...o,
+  });
+  const card = actionCard(state({}), 'deno run devc/main.ts');
+  assertEquals(card.confirm, 'Push');
+  assertEquals(card.plan?.sha, SHA.slice(0, 12));
+  assertEquals(card.plan?.commits[0].subject, 'evil\ufffdtxt');
+  assertEquals(card.plan?.more, 2);
+  // devc2: every push says devc comes from the checkout.
+  assertEquals(card.notes.some((n) => n.includes('from the checkout')), true);
+  assertEquals(actionCard(state({}), null).notes, []);
+  assertEquals(actionCard(state({ phase: 'planning' }), null).confirm, null);
+  assertEquals(actionCard(state({ phase: 'running' }), null).confirm, null);
+  const refused = actionCard(
+    state({
+      phase: 'refused',
+      target: { ok: false, label: 'Not a folder' },
+      plan: null,
+    }),
+    null,
+  );
+  assertEquals([refused.refusal, refused.confirm], ['Not a folder', null]);
+  const lfs = state({
+    plan: pushPlanFrom(JSON.stringify(plan({ lfs: true }))),
+  });
+  assertEquals(actionCard(lfs, null).confirm, null);
+  const start = actionCard(
+    state({
+      req: req({ kind: 'start', folder: null }) as ActionState['req'],
+      plan: null,
+    }),
+    'devc2',
+  );
+  assertEquals(start.confirm, 'Start container');
+  assertEquals(start.notes, [
+    "Runs its devcontainer.json's initializeCommand on this machine",
+  ]);
 });

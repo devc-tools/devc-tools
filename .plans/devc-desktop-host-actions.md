@@ -5,13 +5,13 @@ Decided with the user on 2026-10-28. Fifth of six plans (see "Git and the truste
 
 ## Checklist
 
-- [ ] devc web: `--desktop-channel`, the desktop token, and its ready line.
-- [ ] devc web: page requests (`request_push`, `request_project`) and the `/desktop/requests` and
+- [x] devc web: `--desktop-channel`, the desktop token, and its ready line.
+- [x] devc web: page requests (`request_push`, `request_project`) and the `/desktop/requests` and
       `/desktop/project` routes.
-- [ ] devc-desktop: `launch.ts` reads the desktop token; `policy.ts` checks requests.
-- [ ] devc-desktop: an Actions column in the host drawer (`host.html`), with its IPC.
-- [ ] Page: Push… and, under `--live`, Start ask devc-desktop.
-- [ ] Tests, both READMEs (devc-desktop's "Why devc web cannot reach it" gains this).
+- [x] devc-desktop: `launch.ts` reads the desktop token; `policy.ts` checks requests.
+- [x] devc-desktop: an Actions column in the host drawer (`host.html`), with its IPC.
+- [x] Page: Push… and, under `--live`, Start ask devc-desktop.
+- [x] Tests, both READMEs (devc-desktop's "Why devc web cannot reach it" gains this).
 
 ## Goal
 
@@ -123,3 +123,56 @@ devc-desktop:
 `devc-desktop/src/preload/host.ts`, `devc-desktop/src/renderer/host.{html,ts,css}`,
 `devc-desktop/README.md`, `devc/README.md`, `devc-desktop/proto/` (the layout prototype, for
 look and feel).
+
+## Implementation notes (2026-10-29)
+
+Built as specified, with these choices where the plan left room or didn't fit:
+
+- **The badge needs a visible strip.** A closed drawer had no rectangle, so its HOST strip couldn't
+  show a badge. Now, while requests wait, a closed drawer shows **only its strip** (24 px,
+  `HOST_PEEK` in `policy.ts`), badged, with `Cmd+J or Ctrl+\` to open`. It doesn't take focus. The
+  host page loads for it, but the shell starts only when the drawer first opens (`host-term:shown`,
+  main → host, and`info().open`), and the terminal keeps its size while it's that small.
+- **`--live-yolo`.** The supervisor mints the desktop token, prints the line, and hands it to each
+  child on **stdin** (`readTokenLine`), never in the environment. The child and the built-in
+  fallback both refuse `POST /desktop/project` with 409 (`desktopProjects: false`). Requests still
+  queue there, because push needs no trust in the server.
+- **The queue.** `GET /desktop/requests` returns every pending request (the app reconciles against
+  it). Asking again for a pending (kind, folder) answers with that request. The rate limit is 10
+  asks per 10 s, repeats included. A folder with a control, bidi or zero-width character is
+  refused.
+- **Arming, twice.** The host page disables the confirm for 1 s after a card's content changes,
+  and a click counts only if its press began after that. Main also refuses (and beeps) a confirm
+  within 1 s of the last change, or while the drawer is closed.
+- **After a confirm.** The card stays, with its output and outcome, until **Close**. The app
+  dismisses the request on the server once it has run, so the page can ask again.
+- **The page.** **Push…** is on every repo card's menu while `hello.desktopChannel` is set (on
+  container and host projects alike, per D6). Under `--live`, Start (the row's ▶, the menu, and
+  Ask agent's Start) sends `request_project`. The page sends no `stop` or `down` requests: it
+  still does those itself, which `--live` allows. The server accepts them for later use.
+
+Verified here: `deno check main.ts`, `deno task check`, `deno task test` (914 passed); the
+desktop check script (`npm run check`, `npm test`: 41 passed) and `node build.mjs` in its Linux copy;
+`deno fmt --check`. A stub-docker `devc web --desktop-channel` printed both lines. The page token
+got 401 on `/desktop/requests` and the desktop token 401 on `/desktop/active-folder`.
+`request_project` queued, a repeat answered with the same request, the 11th ask in 10 s was
+refused, and `/desktop/project` streamed NDJSON. Under `--live-yolo` it gave 409, and the token was
+in no process's environment. The host page was served standalone with a stub `window.hostTerm`
+(agent-browser): the cards render, the confirm arms after 1 s, a press that began before a content
+change is refused, and the strip-only view shows `1 request`.
+
+**Still to check on the Mac** (Electron can't run in this container). Rebuild devcd.app first
+(`npm run build:mac` from the container, or `npm run build` on the Mac), then run it with
+`desktopWebArgs: ["--live"]`:
+
+- [ ] **Start** on a stopped container: the toast says `asked devc-desktop…`. The drawer stays shut
+      and focus stays in devc web, while the bottom of the window shows the HOST strip badged
+      `1 request`. Open the drawer (Cmd+J): the card shows the folder and the initializeCommand
+      line, Start enables after 1 s, and confirming streams progress and starts it.
+- [ ] **Push…** on a container repo's card menu: the card shows branch → remote, the SHA and the
+      commits. Make a commit in the container, then confirm: it fails with `the branch moved`.
+      Dismiss it and ask again for a fresh plan, then Push works.
+- [ ] With `desktopDevc: "devc2"`, the push card says devc runs from the checkout.
+- [ ] A hostile page: in devc web's developer tools, send `request_push` every 100 ms. Within 10 s
+      it is refused with `too many requests`. The drawer never opens by itself, and a click
+      already held down when a card appears or changes doesn't confirm it.

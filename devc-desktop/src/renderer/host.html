@@ -10,7 +10,8 @@
   </head>
   <body>
     <header id="strip" title="Drag to resize">
-      <span id="who">HOST</span>
+      <span
+        id="left"><span id="who">HOST</span> <span id="badge" hidden></span></span>
       <span id="hint"></span>
     </header>
     <div id="paste" hidden>
@@ -19,7 +20,10 @@
       <button id="paste-ok" type="button">Paste</button>
       <button id="paste-cancel" type="button">Cancel</button>
     </div>
-    <div id="term"></div>
+    <main id="body">
+      <aside id="actions" aria-label="Actions" hidden></aside>
+      <div id="term"></div>
+    </main>
     <script src="host.js"></script>
   </body>
 </html>

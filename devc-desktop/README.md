@@ -82,7 +82,8 @@ both, as devc reads it; comments and trailing commas allowed in either):
 
 The app only reads the file, on every start; a message about it names the file read.
 
-`--no-open` is always added. The app never passes `--port`. It uses whichever port `devc web`
+`--no-open` and `--desktop-channel` are always added (see [Host actions](#host-actions)). The
+app never passes `--port`. It uses whichever port `devc web`
 picks, read from the URL `devc web` prints.
 
 ### Which `devc`
@@ -153,6 +154,32 @@ disabled, with the reason, when there is no such folder, and both are disabled w
 runs in the shell (`(busy: vim)`). If devc web is open in a browser too, the window you used last
 decides which pane counts.
 
+### Host actions
+
+devc web's page can **ask** for a push or a container start: **Push…** on a repo card's menu,
+and, under `--live`, **Start** on a stopped project. It can never confirm one. The request shows
+in the drawer's **Actions** column, 280 px to the left of the terminal and hidden when nothing is
+pending. A request never opens the drawer or takes focus. With the drawer closed, only its
+**HOST** strip shows at the bottom of the window, badged `1 request`, until you open it with
+Ctrl+` (or Cmd+J). Each card shows what the app worked out itself:
+
+- **Push:** the app checks the repo's folder (below) and runs `devc git push-plan` there with the
+  same `devc` it runs `devc web` with. The card shows the branch → remote, the tip's short SHA,
+  the commits (subject and author, as text), and warnings for the default branch, workflow
+  changes, a non-fast-forward and an LFS pointer. **Push** runs `devc git push <folder> --sha
+  <that SHA>`, its output streaming into the card. A commit made after the plan makes it fail with
+  `the branch moved`; ask again for a new plan. With `desktopDevc: "devc2"` every push card says
+  that devc runs from the checkout.
+- **Start / Stop / Remove container:** the project's folder, and for a start `Runs its
+  devcontainer.json's initializeCommand on this machine`. Confirming asks devc web's server
+  (`POST /desktop/project`), its progress streaming into the card. Under `--live` this starts
+  containers, never projects on this machine. Under `--live-yolo` devc web refuses it: start from
+  the page there.
+
+The confirm button is disabled until 1 s after the card's content last changed, and a click
+counts only if its press began after that. **Dismiss** drops a request; **Close** clears a
+finished one. A request that fails the checks is greyed with its reason and can't be confirmed.
+
 ### Why devc web cannot reach it
 
 An agent in a container can control devc web's page, for example through `--live` code from a
@@ -189,6 +216,20 @@ folder comes from the container's `devcontainer.local_folder` label, which is se
 when the container is created, and gets the same checks. Anything holding the token (devc web's page,
 an agent with it) can choose **which** pane counts.
 
+**Host actions** extend this with a second token. `devc web --desktop-channel` prints a
+**desktop token** on stdout only (`devc web: desktop <64 hex>`). The app reads it there and keeps
+it in memory. It is never in a URL, a page or an environment variable (projects on this machine
+inherit devc web's environment). devc web's server takes it, and only it, on
+`/desktop/requests` and `/desktop/project`. It never takes the page token there, nor the desktop
+token anywhere else. The page can only queue a request (`request_push`, `request_project`), which
+names a kind and a folder and nothing else. The app reads the queue, and everything in it is
+checked before it is shown. The answer must be well-formed, at most 20 requests, with printable
+folders. Each folder's real path must be a folder with a showable name of at most 256 characters,
+as for the `cd` item, without the mount part. The push plan comes from the app's own `devc git
+push-plan`, never from devc web, and the push sends exactly the SHA shown. A commit's subject and
+author are shown as text, with control, bidi and zero-width characters replaced. Confirming is a
+click in the host view, which devc web cannot reach or focus.
+
 **What was tested:** Electron 44.5.0 under Xvfb on Linux, with real keystrokes. A hostile copy
 of devc web tried to take keyboard focus every 300 ms, with `window.focus()`, focusing an input,
 `autofocus`, `showModal`, dialogs, fullscreen and `window.open`, both before and after the user
@@ -224,6 +265,16 @@ The measurements are in
 - **A folder swapped after the check.** A container can replace a folder with a symlink between
   the app's check and the `cd`. Look at the prompt afterwards.
 - **vi-mode shells.** Ctrl+E and Ctrl+U may not clear the prompt before the `cd`.
+- **What a host action asks for.** The page chooses which repo or project a request names, and
+  can keep asking (rate-limited). It can't choose what the plan says, but a container can write
+  the commits in it. Read the card before you confirm.
+- **devc web's server for project actions.** Without `--live-yolo` it is the installed `devc`,
+  and `POST /desktop/project` trusts it to start the project it names. A start runs the project's
+  `initializeCommand` on this machine, whoever wrote it.
+- **`devc2` pushes.** With `desktopDevc: "devc2"` the push runs devc from the checkout, which a
+  container may have written. The card says so on every push.
+- **A folder swapped between the plan and the push.** `devc git push` pushes the SHA shown, and
+  refuses it when the branch has moved, but reads the folder again.
 
 ## Development
 
@@ -236,8 +287,9 @@ npm start       # bundle and run from source
 **Layout:**
 
 - `src/main/`: the main process. `main.ts` holds the window, views, menus and IPC.
-  `launch.ts` finds `devc` and runs `devc web`. `policy.ts` holds the pure rules (navigation,
-  windows, permissions, IPC senders, drawer geometry). `pty.ts` is the host shell.
+  `launch.ts` finds `devc`, runs `devc web` and reads its ready and desktop lines, and runs
+  `devc git` for the host actions. `policy.ts` holds the pure rules (navigation, windows,
+  permissions, IPC senders, drawer geometry, and the host actions' checks and cards). `pty.ts` is the host shell.
 - `src/preload/`: the status and host bridges.
 - `src/renderer/`: the two bundled pages.
 
