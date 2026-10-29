@@ -535,7 +535,14 @@ is published from any container: the host server finds devcontainers with
   head (so the diff's lines match whatever the checkout holds); deleted lines
   get nothing. While a tile holds the file with other text (edits, saved or
   not, or a checkout not at the PR head), the diff works against that text on
-  the lines it has unchanged; a line changed there says so instead. See
+  the lines it has unchanged; a line changed there says so instead. After a go
+  to definition (either kind), **Go back** returns to where it was asked from
+  (the file at its cursor, or the diff at its scroll, reopened in the preview
+  tile if it has since been closed or replaced) and **Go forward** returns to
+  where Go back left: **Ctrl+-** and **Ctrl+Shift+-** on a Mac, **Alt+←** and
+  **Alt+→** elsewhere (as in VS Code), or a mouse's back and forward buttons,
+  while a file or diff tile has focus. The page keeps the last 50 places, until
+  it reloads. See
   [Language server launchers](#language-server-launchers) for the contract a
   launcher implements.
 - **Asking an agent about a file:** a file tile or a pull request's diff tile

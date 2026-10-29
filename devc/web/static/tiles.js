@@ -8,7 +8,12 @@
 
 import { createRenderer } from './renderer.js';
 import { createTiling } from './layout.js';
-import { createViewer, highlightLines, lspHoverHtml } from './viewer.js';
+import {
+  createViewer,
+  highlightLines,
+  lspHoverHtml,
+  onDefinitionJumps,
+} from './viewer.js';
 import {
   attachTile,
   attachView,
@@ -60,6 +65,7 @@ import { childPath } from './lib/files.js';
 import { sessionAge } from './lib/sessions.js';
 import { statusLetter } from './lib/pr_tree.js';
 import { reopensDashboard } from './lib/dashboard.js';
+import { createNavHistory, navButton, navKey } from './lib/nav_history.js';
 import {
   changedRanges,
   diffTexts,
@@ -2149,6 +2155,7 @@ async function diffDefinitionAt(view, x, y) {
   if (!diffViews.has(view.tile.id)) return;
   const loc = Array.isArray(result) ? result[0] : result;
   if (loc && typeof loc.uri === 'string') {
+    expectJump(diffPlace(view));
     await showViewLocation(view.tile.id, loc);
   }
 }
@@ -2201,6 +2208,157 @@ document.addEventListener('keyup', (e) => {
     for (const v of diffViews.values()) v.body.classList.remove('lsp-jump');
   }
 });
+
+// ---------------------------------------------------------------------------------------------
+// Navigation history: back and forward after a go to definition (`lib/nav_history.js`)
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * A place a go to definition left: a file at a 1-based line and column, or a diff tile's file
+ * scrolled to `scrollTop`. Not tied to a tile: going back reopens what was closed or replaced (a
+ * preview tile's jump replaces it).
+ *
+ * @typedef {{file: FileRef, line: number, column: number} |
+ *   {diff: DiffRef, scrollTop: number}} NavPlace
+ */
+
+/** @type {ReturnType<typeof createNavHistory<NavPlace>>} */
+const navHistory = createNavHistory();
+
+/**
+ * How long a jump's place waits for it to land: the language client's 20 s timeout, then
+ * `displayFile`'s wait for the tile. A jump that finds nothing never lands.
+ */
+const JUMP_WAIT_MS = 30000;
+
+/** The place the jump on its way left, and when it was asked. @type {{place: NavPlace, at: number} | null} */
+let pendingJump = null;
+
+/** A jump from `place` is on its way: it joins the history once it lands. */
+function expectJump(/** @type {NavPlace | null} */ place) {
+  pendingJump = place ? { place, at: Date.now() } : null;
+}
+
+onDefinitionJumps({
+  starting: (ev) => {
+    const view = [...fileViews.values()].find((v) => v.viewer?.view === ev);
+    expectJump(view ? filePlace(view) : null);
+  },
+  landed: () => {
+    if (pendingJump && Date.now() - pendingJump.at <= JUMP_WAIT_MS) {
+      navHistory.push(pendingJump.place);
+    }
+    pendingJump = null;
+  },
+});
+
+/** Where a file tile's cursor is. @param {FileView} view @returns {NavPlace | null} */
+function filePlace(view) {
+  const ev = view.viewer?.view;
+  if (!ev || !view.tile.file) return null;
+  const head = ev.state.selection.main.head;
+  const line = ev.state.doc.lineAt(head);
+  return {
+    file: view.tile.file,
+    line: line.number,
+    column: head - line.from + 1,
+  };
+}
+
+/** Where a diff tile is scrolled to. @param {DiffView} view @returns {NavPlace | null} */
+function diffPlace(view) {
+  return view.tile.diff
+    ? { diff: view.tile.diff, scrollTop: view.scrollTop }
+    : null;
+}
+
+/** The focused file or diff tile's place: what going back or forward leaves. */
+function currentPlace() {
+  const file = fileViews.get(focusedTileId ?? '');
+  if (file) return filePlace(file);
+  const diff = diffViews.get(focusedTileId ?? '');
+  return diff ? diffPlace(diff) : null;
+}
+
+/** Goes back or forward to a place, if there is one to go to. @param {'back' | 'forward'} dir */
+function navigate(dir) {
+  const current = currentPlace();
+  const place = dir === 'back'
+    ? navHistory.back(current)
+    : navHistory.forward(current);
+  if (place) showPlace(place);
+}
+
+/**
+ * Shows a place the way a jump does: in the tile already showing its file, else in the preview
+ * tile, the file's cursor at its line (in the middle), a diff at its scroll.
+ *
+ * @param {NavPlace} place
+ */
+function showPlace(place) {
+  if (!tiling) return;
+  if ('file' in place) {
+    pendingLines.set(fileKey(place.file), {
+      line: place.line,
+      column: place.column,
+    });
+    openFile(place.file, 'preview');
+    const tile = tileShowingFile(viewState(), place.file);
+    const view = tile && fileViews.get(tile.id);
+    if (view) revealPendingLine(view);
+    return;
+  }
+  const shown = tileShowingDiff(viewState(), place.diff);
+  const view = shown && diffViews.get(shown.id);
+  if (!view) {
+    // The new tile takes it as it does a scroll kept over a reload.
+    loadSavedScrolls().set(diffScrollKey(place.diff), place.scrollTop);
+    openDiff(place.diff, 'preview');
+    return;
+  }
+  revealTile(view.tile.id);
+  focusSeq.set(view.tile.id, ++nextFocusSeq);
+  view.scrollTop = place.scrollTop;
+  const body = /** @type {HTMLElement | null} */ (
+    view.body.querySelector('.diff-body')
+  );
+  if (body) body.scrollTop = place.scrollTop;
+  view.tile.focus();
+}
+
+/** Whether `e` is aimed at the focused tile, and that is a file or diff tile. */
+function navTarget(/** @type {Event} */ e) {
+  const view = fileViews.get(focusedTileId ?? '') ??
+    diffViews.get(focusedTileId ?? '');
+  if (!view) return false;
+  const target = /** @type {HTMLElement} */ (e.target);
+  // As the diff tiles' find: keys aimed at another tile, or at the sidebar's fields, are not its.
+  return !(target instanceof HTMLElement && target !== document.body &&
+    !view.tile.element.contains(target) && !target.contains(view.tile.element));
+}
+
+// In the capture phase, so CodeMirror's Alt+arrows (by syntax) don't see them, as VS Code's.
+document.addEventListener('keydown', (e) => {
+  const dir = navKey(e, IS_MAC);
+  if (!dir || !navTarget(e)) return;
+  e.preventDefault();
+  e.stopPropagation();
+  navigate(dir);
+}, true);
+
+// A mouse's side buttons, over a file or diff tile; their default is the browser's back, which
+// would leave the page.
+for (const type of ['mousedown', 'mouseup', 'auxclick']) {
+  document.addEventListener(type, (e) => {
+    const dir = navButton(/** @type {MouseEvent} */ (e));
+    const tile = /** @type {HTMLElement} */ (e.target).closest?.(
+      '.file-view, .diff-view',
+    );
+    if (!dir || !tile) return;
+    e.preventDefault();
+    if (type === 'mouseup') navigate(dir);
+  }, true);
+}
 
 /**
  * Reads (or re-reads) a diff tile's file (`pr_diff`), then its threads. What it shows stays up

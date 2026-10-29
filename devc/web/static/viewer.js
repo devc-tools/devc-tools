@@ -557,9 +557,16 @@ export function createViewer(
           hoverTooltips(),
           signatureHelp(),
           centerDefinitionJumps,
+          definitionJumpLanded,
           // No renameKeymap: a rename would reach open files only.
           keymap.of([
-            ...jumpToDefinitionKeymap,
+            ...jumpToDefinitionKeymap.map((b) => ({
+              ...b,
+              run: (/** @type {EditorView} */ v) => {
+                definitionJumps.starting(v);
+                return b.run(v);
+              },
+            })),
             ...findReferencesKeymap,
             ...formatKeymap,
           ]),
@@ -764,6 +771,28 @@ const centerDefinitionJumps = EditorState.transactionExtender.of((tr) =>
     }
     : null
 );
+
+/**
+ * What a page hears of go to definition: `starting(view)` when F12 asks from `view` (before its
+ * answer, which may find nothing), `landed(view)` when a jump's `select.definition` moves the
+ * cursor in `view` (any jump: lsp.js's from diff tiles too).
+ *
+ * @type {{starting: (view: EditorView) => void, landed: (view: EditorView) => void}}
+ */
+let definitionJumps = { starting: () => {}, landed: () => {} };
+
+/** Sets what hears go to definition (`tiles.js`'s navigation history). */
+export function onDefinitionJumps(
+  /** @type {typeof definitionJumps} */ hooks,
+) {
+  definitionJumps = hooks;
+}
+
+const definitionJumpLanded = EditorView.updateListener.of((update) => {
+  if (update.transactions.some((tr) => tr.isUserEvent('select.definition'))) {
+    definitionJumps.landed(update.view);
+  }
+});
 
 /**
  * The client's workspace: one file per URI, each with the one view attached to it. Jumps to
