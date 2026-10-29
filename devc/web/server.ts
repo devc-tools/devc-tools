@@ -19,6 +19,12 @@ import {
 import { ContainerSource, probeDocker } from './containers.ts';
 import { HostSource } from './env_host.ts';
 import {
+  ASKED,
+  type DesktopRequestKind,
+  DesktopRequests,
+  LONG_POLL_MS,
+} from './desktop_requests.ts';
+import {
   type Environment,
   ENVIRONMENT_KINDS,
   type EnvironmentKind,
@@ -227,20 +233,25 @@ export function tokenMatches(given: string | null, expected: string): boolean {
  * The HTTP status a request is refused with, or `null` when it may proceed. Host is checked on
  * every request (403); `/ws` additionally needs this page's Origin or none (403) and the token
  * (401). `/desktop/` routes are for devc-desktop's main process, never a page: any Origin is
- * refused (403), and the token comes only as `Authorization: Bearer` (401).
+ * refused (403), and a token comes only as `Authorization: Bearer` (401). Which token: the
+ * **desktop** token (`--desktop-channel`) on {@link desktopTokenPath}s, and only there, else the
+ * page token. Anything holding the page token counts as the page, so neither is ever accepted
+ * where the other is required; with no desktop token, those routes refuse everything.
  */
 export function authorize(
   headers: Headers,
   url: URL,
   port: number,
   token: string,
+  desktopToken: string | null = null,
 ): 401 | 403 | null {
   if (!hostAllowed(headers.get('host'), port)) return 403;
   if (url.pathname.startsWith(DESKTOP_PREFIX)) {
     if (headers.get('origin') !== null) return 403;
     const auth = headers.get('authorization');
     const given = auth?.startsWith('Bearer ') ? auth.slice(7) : null;
-    return tokenMatches(given, token) ? null : 401;
+    const expected = desktopTokenPath(url.pathname) ? desktopToken : token;
+    return expected !== null && tokenMatches(given, expected) ? null : 401;
   }
   if (url.pathname !== '/ws') return null;
   if (!originAllowed(headers.get('origin'), port)) return 403;
@@ -250,6 +261,17 @@ export function authorize(
 
 /** The paths only devc-desktop's main process asks for. */
 const DESKTOP_PREFIX = '/desktop/';
+
+/**
+ * The `/desktop/` paths that take the desktop token, never the page token: the requests the page
+ * made (`GET /desktop/requests`, `POST /desktop/requests/<id>/dismiss`) and the project actions
+ * the app confirmed (`POST /desktop/project`).
+ */
+export function desktopTokenPath(pathname: string): boolean {
+  return pathname === `${DESKTOP_PREFIX}requests` ||
+    pathname.startsWith(`${DESKTOP_PREFIX}requests/`) ||
+    pathname === `${DESKTOP_PREFIX}project`;
+}
 
 /** How often one repo may be fetched (`fetch_repo`). */
 const FETCH_INTERVAL_MS = 10_000;
@@ -336,6 +358,53 @@ function paneFolder(
     container: active.container,
     containerFolder: cwd,
   };
+}
+
+/** A `POST /desktop/project` body, or `null` when it isn't one. */
+export function parseDesktopProject(
+  text: string,
+): { action: 'start' | 'stop' | 'down'; localFolder: string } | null {
+  if (text.length > 8192) return null;
+  let o: unknown;
+  try {
+    o = JSON.parse(text);
+  } catch {
+    return null;
+  }
+  if (typeof o !== 'object' || o === null) return null;
+  const { action, localFolder } = o as Record<string, unknown>;
+  if (action !== 'start' && action !== 'stop' && action !== 'down') return null;
+  if (typeof localFolder !== 'string' || !localFolder.startsWith('/')) {
+    return null;
+  }
+  return { action, localFolder };
+}
+
+/**
+ * Why a `POST /desktop/project` is refused, or `null`: never under `--live-yolo`
+ * (`desktopProjects` false: 409, whatever the body), a body that isn't one (400), a project devc
+ * web doesn't list (404). `--live` is no refusal: the page can't reach this route.
+ */
+export function desktopProjectRefusal(
+  desktopProjects: boolean,
+  body: ReturnType<typeof parseDesktopProject>,
+  listed: boolean,
+): { status: 400 | 404 | 409; problem: string } | null {
+  if (!desktopProjects) return { status: 409, problem: 'live-yolo' };
+  if (body === null) return { status: 400, problem: 'bad request' };
+  if (!listed) return { status: 404, problem: 'unknown project' };
+  return null;
+}
+
+/** Why {@link startWeb}'s project action could not run: the `result` error's code, and text. */
+export class ProjectActionError extends Error {
+  constructor(readonly code: string, message: string) {
+    super(message);
+  }
+}
+
+function errorText(e: unknown): string {
+  return e instanceof Error ? e.message : String(e);
 }
 
 /** A fresh 32-byte token, hex. */
@@ -524,6 +593,18 @@ export async function startWeb(
     projectStarts?: boolean;
     /** The nonce of the one-time link that opens the page (see `browser.ts`), if any. */
     openNonce?: string;
+    /**
+     * `--desktop-channel`'s token, which only devc-desktop's main process holds: it unlocks
+     * `/desktop/requests` and `/desktop/project` (see {@link authorize}), and lets the page ask
+     * the app (`request_push`, `request_project`). Without it those routes refuse everything.
+     */
+    desktopToken?: string;
+    /**
+     * Whether `POST /desktop/project` may start, stop or remove containers (default `true`).
+     * Off under `--live-yolo` (its child, and the built-in fallback it swaps in), where the
+     * server code itself comes from a checkout agents can write to.
+     */
+    desktopProjects?: boolean;
   },
 ): Promise<WebHandle> {
   const staticRoot = opts.staticDir === undefined
@@ -540,6 +621,10 @@ export async function startWeb(
   }
 
   const token = opts.token;
+  const desktopToken = opts.desktopToken ?? null;
+  const desktopProjects = opts.desktopProjects ?? true;
+  // What the page asked devc-desktop to do, until the app dismisses it.
+  const desktopRequests = new DesktopRequests();
   const openLink = openRedirect(opts.openNonce, token);
   const previewList = previews();
   const sessions = new Map<string, ContainerSession>();
@@ -2718,6 +2803,125 @@ export async function startWeb(
     else fail(c, id, answer.code, answer.message);
   };
 
+  /**
+   * Starts, stops or removes a project's container (or starts or stops a project on this
+   * machine), its start's output lines broadcast as `project_output`: the page's
+   * `start_project` / `stop_project` / `down_project`, and devc-desktop's confirmed
+   * `POST /desktop/project`. Throws a {@link ProjectActionError} when it can't.
+   */
+  const projectAction = async (
+    action: 'start' | 'stop' | 'down',
+    folder: string,
+    onLine?: (line: string) => void,
+  ): Promise<Record<string, unknown>> => {
+    if (action !== 'stop' && !isListedProject(folder)) {
+      throw new ProjectActionError('bad_request', 'unknown project');
+    }
+    const { kind, source } = projectSource(folder);
+    if (action === 'stop') {
+      try {
+        return {
+          stopped: source === null ? false : await source.stopProject(folder),
+        };
+      } catch (e) {
+        throw new ProjectActionError('stop_failed', errorText(e));
+      }
+    }
+    if (action === 'down') {
+      if (kind === 'host') {
+        throw new ProjectActionError(
+          'bad_request',
+          'host projects have no container to remove',
+        );
+      }
+      try {
+        return {
+          removed: await containerSource?.downProject(folder) ?? false,
+        };
+      } catch (e) {
+        throw new ProjectActionError('down_failed', errorText(e));
+      } finally {
+        await reloadProjects();
+      }
+    }
+    if (startingProjects.has(folder)) {
+      throw new ProjectActionError(
+        'already_starting',
+        `${folder} is already starting`,
+      );
+    }
+    if (source === null) {
+      throw new ProjectActionError(
+        'bad_request',
+        'this server cannot start it',
+      );
+    }
+    startingProjects.add(folder);
+    broadcastProjects();
+    try {
+      await source.startProject(
+        folder,
+        (line) => {
+          broadcast({ type: 'project_output', localFolder: folder, line });
+          onLine?.(line);
+        },
+      );
+      return {};
+    } catch (e) {
+      throw new ProjectActionError('start_failed', errorText(e));
+    } finally {
+      startingProjects.delete(folder);
+      await reloadProjects();
+    }
+  };
+
+  /**
+   * The page asking devc-desktop to push a repo or start, stop or remove a project's container
+   * (`request_push`, `request_project`). Nothing runs here: the request waits for the app's
+   * `GET /desktop/requests`, the app works it out itself and the user confirms it in its HOST
+   * drawer. Answered at once, `asked devc-desktop…` or why not (no `--desktop-channel`, a folder
+   * that isn't the project's, the queue's limits).
+   */
+  const askDesktop = (
+    c: Client,
+    msg: Extract<
+      ClientMessage,
+      { type: 'request_push' } | { type: 'request_project' }
+    >,
+  ) => {
+    if (desktopToken === null) {
+      fail(c, msg.id, 'needs_desktop', 'needs devc-desktop');
+      return;
+    }
+    const known = msg.type === 'request_push'
+      ? isProjectRepo(projectsMessage().projects, msg.localFolder, msg.folder)
+      : isListedProject(msg.localFolder);
+    if (!known) {
+      fail(c, msg.id, 'bad_request', 'unknown folder');
+      return;
+    }
+    if (msg.type === 'request_project' && !desktopProjects) {
+      fail(
+        c,
+        msg.id,
+        'not_allowed',
+        'devc-desktop starts no containers under --live-yolo',
+      );
+      return;
+    }
+    const kind: DesktopRequestKind = msg.type === 'request_push'
+      ? 'push'
+      : msg.action;
+    const added = desktopRequests.add(
+      kind,
+      msg.localFolder,
+      msg.type === 'request_push' ? msg.folder : null,
+    );
+    if (added.ok) {
+      reply(c, { id: msg.id, ok: true, result: { message: ASKED } });
+    } else fail(c, msg.id, 'not_allowed', added.problem);
+  };
+
   /** The messages about projects, which name a folder rather than a running container. */
   const handleProject = async (
     c: Client,
@@ -2733,79 +2937,27 @@ export async function startWeb(
       return;
     }
     switch (msg.type) {
-      case 'start_project': {
-        if (!isListedProject(folder)) {
-          reject(c, {
-            id: msg.id,
-            code: 'bad_request',
-            message: 'unknown project',
-          });
-          return;
-        }
-        if (startingProjects.has(folder)) {
-          fail(c, msg.id, 'already_starting', `${folder} is already starting`);
-          return;
-        }
-        const { source } = projectSource(folder);
-        if (source === null) {
-          fail(c, msg.id, 'bad_request', 'this server cannot start it');
-          return;
-        }
-        startingProjects.add(folder);
-        broadcastProjects();
-        try {
-          await source.startProject(
-            folder,
-            (line) =>
-              broadcast({ type: 'project_output', localFolder: folder, line }),
-          );
-          reply(c, { id: msg.id, ok: true, result: {} });
-        } catch (e) {
-          fail(c, msg.id, 'start_failed', e);
-        } finally {
-          startingProjects.delete(folder);
-          await reloadProjects();
-        }
-        return;
-      }
+      case 'start_project':
       case 'stop_project':
+      case 'down_project': {
+        const action = msg.type === 'start_project'
+          ? 'start'
+          : msg.type === 'stop_project'
+          ? 'stop'
+          : 'down';
         try {
-          const { source } = projectSource(folder);
-          const stopped = source === null
-            ? false
-            : await source.stopProject(folder);
-          reply(c, { id: msg.id, ok: true, result: { stopped } });
+          const result = await projectAction(action, folder);
+          reply(c, { id: msg.id, ok: true, result });
         } catch (e) {
-          fail(c, msg.id, 'stop_failed', e);
-        }
-        return;
-      case 'down_project':
-        if (!isListedProject(folder)) {
-          reject(c, {
-            id: msg.id,
-            code: 'bad_request',
-            message: 'unknown project',
-          });
-          return;
-        }
-        if (projectSource(folder).kind === 'host') {
           fail(
             c,
             msg.id,
-            'bad_request',
-            'host projects have no container to remove',
+            e instanceof ProjectActionError ? e.code : `${action}_failed`,
+            e,
           );
-          return;
-        }
-        try {
-          const removed = await containerSource?.downProject(folder) ?? false;
-          reply(c, { id: msg.id, ok: true, result: { removed } });
-        } catch (e) {
-          fail(c, msg.id, 'down_failed', e);
-        } finally {
-          await reloadProjects();
         }
         return;
+      }
       case 'set_project_environment': {
         if (!isListedProject(folder)) {
           reject(c, {
@@ -2988,6 +3140,10 @@ export async function startWeb(
       msg.type === 'preview_file'
     ) {
       await handleListing(c, msg);
+      return;
+    }
+    if (msg.type === 'request_push' || msg.type === 'request_project') {
+      askDesktop(c, msg);
       return;
     }
     if (msg.type === 'fetch_repo') {
@@ -3294,6 +3450,7 @@ export async function startWeb(
         generation: generation(),
         live: opts.live,
         projectStarts,
+        desktopChannel: desktopToken !== null,
         hostOs: Deno.build.os,
       }));
       client.send(JSON.stringify(containersMessage()));
@@ -3393,6 +3550,104 @@ export async function startWeb(
     });
   };
 
+  const desktopJson = (body: unknown, status = 200) =>
+    new Response(JSON.stringify(body), {
+      status,
+      headers: {
+        'Content-Type': 'application/json; charset=utf-8',
+        'Cache-Control': 'no-store',
+      },
+    });
+
+  /**
+   * devc-desktop's routes, past {@link authorize}: `GET /desktop/active-folder` (the page
+   * token), and with the desktop token `GET /desktop/requests?after=<seq>` (a long poll),
+   * `POST /desktop/requests/<id>/dismiss` and `POST /desktop/project`.
+   */
+  const serveDesktop = async (req: Request, url: URL): Promise<Response> => {
+    const path = url.pathname.slice(DESKTOP_PREFIX.length);
+    const method = (m: string) =>
+      req.method === m
+        ? null
+        : new Response('method not allowed', { status: 405 });
+    if (path === 'active-folder') return method('GET') ?? serveActiveFolder();
+    if (path === 'requests') {
+      const after = Number(url.searchParams.get('after') ?? '-1');
+      return method('GET') ?? desktopJson(
+        await desktopRequests.wait(
+          Number.isSafeInteger(after) ? after : -1,
+          LONG_POLL_MS,
+          req.signal,
+        ),
+      );
+    }
+    const dismiss = /^requests\/([0-9a-f]{1,64})\/dismiss$/.exec(path);
+    if (dismiss) {
+      const refused = method('POST');
+      if (refused) return refused;
+      desktopRequests.dismiss(dismiss[1]);
+      return new Response(null, { status: 204 });
+    }
+    if (path === 'project') return method('POST') ?? desktopProject(req);
+    return new Response('not found', { status: 404 });
+  };
+
+  /**
+   * `POST /desktop/project {action, localFolder}`: a start, stop or removal devc-desktop's user
+   * confirmed. Unlike the page's `start_project` it ignores `--live` (the page can't reach this
+   * route), but never runs under `--live-yolo` (409), whose server code a container may have
+   * written. Projects on this machine stay off under `--live`: no host source exists there.
+   * Answers NDJSON: `{line}` for each line of a start's output, then `{done, ok, problem?}`.
+   */
+  const desktopProject = async (req: Request): Promise<Response> => {
+    const body = parseDesktopProject(
+      desktopProjects ? await req.text().catch(() => '') : '',
+    );
+    const refused = desktopProjectRefusal(
+      desktopProjects,
+      body,
+      body !== null && isListedProject(body.localFolder),
+    );
+    if (refused !== null || body === null) {
+      return desktopJson(
+        { problem: refused?.problem ?? 'bad request' },
+        refused?.status ?? 400,
+      );
+    }
+    const encoder = new TextEncoder();
+    let open = true;
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        const write = (o: unknown) => {
+          if (open) {
+            controller.enqueue(encoder.encode(`${JSON.stringify(o)}\n`));
+          }
+        };
+        void projectAction(
+          body.action,
+          body.localFolder,
+          (line) => write({ line }),
+        ).then(
+          () => write({ done: true, ok: true }),
+          (e) => write({ done: true, ok: false, problem: errorText(e) }),
+        ).finally(() => {
+          if (open) controller.close();
+          open = false;
+        });
+      },
+      // The app went away: the action carries on, as a page's start does.
+      cancel() {
+        open = false;
+      },
+    });
+    return new Response(stream, {
+      headers: {
+        'Content-Type': 'application/x-ndjson; charset=utf-8',
+        'Cache-Control': 'no-store',
+      },
+    });
+  };
+
   let server: Deno.HttpServer;
   try {
     server = Deno.serve({
@@ -3401,7 +3656,13 @@ export async function startWeb(
       onListen: () => {},
     }, (req) => {
       const url = new URL(req.url);
-      const refused = authorize(req.headers, url, opts.port, token);
+      const refused = authorize(
+        req.headers,
+        url,
+        opts.port,
+        token,
+        desktopToken,
+      );
       if (refused !== null) {
         return new Response(refused === 401 ? 'unauthorized' : 'forbidden', {
           status: refused,
@@ -3417,13 +3678,7 @@ export async function startWeb(
         return response;
       }
       if (url.pathname.startsWith(DESKTOP_PREFIX)) {
-        if (req.method !== 'GET') {
-          return new Response('method not allowed', { status: 405 });
-        }
-        if (url.pathname !== `${DESKTOP_PREFIX}active-folder`) {
-          return new Response('not found', { status: 404 });
-        }
-        return serveActiveFolder();
+        return serveDesktop(req, url);
       }
       if (req.method !== 'GET' && req.method !== 'HEAD') {
         return new Response('method not allowed', { status: 405 });
@@ -3538,6 +3793,7 @@ export async function startWeb(
   const stop = () => {
     stopping ??= (async () => {
       for (const source of sources()) source.stop();
+      desktopRequests.close();
       liveStatic?.stop();
       gitWatch.stop();
       changesWatch.stop();

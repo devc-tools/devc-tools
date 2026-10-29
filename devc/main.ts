@@ -83,7 +83,12 @@ import {
 } from './web/server.ts';
 import { resolve as resolvePath } from 'jsr:@std/path';
 import { superviseWeb } from './web/supervisor.ts';
-import { LEGACY_TOKEN_PATH, tokenWellFormed } from './web/token.ts';
+import {
+  desktopLine,
+  LEGACY_TOKEN_PATH,
+  readTokenLine,
+  tokenWellFormed,
+} from './web/token.ts';
 import { openBrowser, openPath } from './web/browser.ts';
 import { parseTimeArgs, runTime } from './time.ts';
 import { gitPush, parseGitArgs, pushPlan } from './git_push.ts';
@@ -490,12 +495,23 @@ if (subcommand === 'web') {
       }
       // The supervisor's one-time link, when this child is the first server it announces.
       const openNonce = Deno.env.get('DEVC_WEB_OPEN_NONCE');
+      // The desktop token comes on stdin, never in the environment: host projects inherit it.
+      const desktopToken = webArgs.desktopChannel
+        ? await readTokenLine(Deno.stdin.readable)
+        : undefined;
+      if (webArgs.desktopChannel && !tokenWellFormed(desktopToken)) {
+        throw new WebStartError(
+          'the desktop token on stdin is missing or malformed',
+        );
+      }
       await runUntilSignal(
         await startWeb({
           ...webArgs,
           token,
           live: true,
           ...(tokenWellFormed(openNonce) ? { openNonce } : {}),
+          ...(desktopToken !== undefined ? { desktopToken } : {}),
+          desktopProjects: false,
         }),
       );
     }
@@ -514,6 +530,9 @@ if (subcommand === 'web') {
     // A fresh token every run, held in memory only: a URL from an earlier run never works
     // again. In live mode the supervisor keeps it across its server swaps.
     const token = mintToken();
+    // `--desktop-channel`: devc-desktop's own token, printed on stdout only, after the URL line.
+    // Never in a URL, a page or the environment.
+    const desktopToken = webArgs.desktopChannel ? mintToken() : undefined;
     // Earlier versions kept the token in a file; it is never read now.
     await Deno.remove(LEGACY_TOKEN_PATH).catch(() => {});
     const dir = source === undefined
@@ -521,7 +540,14 @@ if (subcommand === 'web') {
       : resolvePath(Deno.cwd(), source);
     // --live-yolo: the checkout's server code too, under a supervisor. Full trust.
     if (dir !== undefined && webArgs.liveServer) {
-      Deno.exit(await superviseWeb({ ...webArgs, token, source: dir }));
+      Deno.exit(
+        await superviseWeb({
+          ...webArgs,
+          token,
+          source: dir,
+          ...(desktopToken !== undefined ? { desktopToken } : {}),
+        }),
+      );
     }
     // --live: devc's own server, serving and watching the checkout's page. The page is the only
     // checkout code that runs, and the server starts no containers on its behalf.
@@ -542,8 +568,12 @@ if (subcommand === 'web') {
       live: staticDir !== undefined,
       ...(staticDir !== undefined ? { staticDir, projectStarts: false } : {}),
       ...(openNonce !== undefined ? { openNonce } : {}),
+      ...(desktopToken !== undefined ? { desktopToken } : {}),
     });
     console.log(`devc web: http://127.0.0.1:${webArgs.port}/#token=${token}`);
+    if (desktopToken !== undefined) {
+      console.log(desktopLine(desktopToken));
+    }
     if (openNonce !== undefined) {
       openBrowser(`http://127.0.0.1:${webArgs.port}${openPath(openNonce)}`);
     }

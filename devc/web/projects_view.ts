@@ -199,7 +199,8 @@ function changesFields(
  * comes from a checkout agents can write to), or `null` when it may go ahead. Off, nothing may
  * start a container or bring in a folder: `start_project` and `add_project` are refused, and so
  * is `list_host_dir`, which only serves "Add project…". Stop and remove never widen what can be
- * reached, so they stay allowed.
+ * reached, so they stay allowed. A start can still be asked of devc-desktop (`request_project`),
+ * which the user confirms in its HOST drawer; the refusal says so.
  */
 export function projectRefusal(
   msg: { type: string },
@@ -207,7 +208,9 @@ export function projectRefusal(
 ): string | null {
   if (startsAllowed) return null;
   const off = 'is off while devc web runs with --live';
-  if (msg.type === 'start_project') return `starting containers ${off}`;
+  if (msg.type === 'start_project') {
+    return `starting containers ${off}: in devc-desktop, Start asks it instead`;
+  }
   if (msg.type === 'add_project') return `adding projects ${off}`;
   if (msg.type === 'set_project_environment') {
     return `changing where projects run ${off}`;

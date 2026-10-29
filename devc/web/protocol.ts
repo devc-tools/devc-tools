@@ -120,6 +120,19 @@ export type ClientMessage =
    * Answered with `fetch_result`.
    */
   | { type: 'fetch_repo'; id: string; localFolder: string; folder: string }
+  /**
+   * Asks devc-desktop to push a repo of a project (`folder`, one of its `repos[].folder`): the
+   * app works out the push plan and the user confirms it in its HOST drawer. Needs
+   * `--desktop-channel`. See `desktop_requests.ts`.
+   */
+  | { type: 'request_push'; id: string; localFolder: string; folder: string }
+  /** Asks devc-desktop to start, stop or remove a project's container, confirmed there too. */
+  | {
+    type: 'request_project';
+    id: string;
+    action: 'start' | 'stop' | 'down';
+    localFolder: string;
+  }
   | { type: 'list_host_dir'; id: string; path: string }
   /** Lists the devcontainers (`docker ps`) and reads devc's projects list again. */
   | { type: 'refresh_containers'; id: string }
@@ -494,6 +507,12 @@ function int(o: Obj, k: string, min: number): number {
 
 /** Where a project can run: `add_project`'s and `set_project_environment`'s `environment`. */
 const PROJECT_ENVIRONMENTS: ('host' | 'container')[] = ['host', 'container'];
+/** What `request_project` asks devc-desktop to do. */
+const PROJECT_ACTIONS: ('start' | 'stop' | 'down')[] = [
+  'start',
+  'stop',
+  'down',
+];
 
 function oneOf<T extends string>(o: Obj, k: string, values: T[]): T {
   const v = o[k];
@@ -915,6 +934,20 @@ function parseFields(m: Obj): ClientMessage {
         id: str(m, 'id'),
         localFolder: folder(m),
         folder: absolute(m, 'folder'),
+      };
+    case 'request_push':
+      return {
+        type: 'request_push',
+        id: str(m, 'id'),
+        localFolder: folder(m),
+        folder: absolute(m, 'folder'),
+      };
+    case 'request_project':
+      return {
+        type: 'request_project',
+        id: str(m, 'id'),
+        action: oneOf(m, 'action', PROJECT_ACTIONS),
+        localFolder: folder(m),
       };
     case 'list_host_dir':
       return { type: 'list_host_dir', id: str(m, 'id'), path: text(m, 'path') };

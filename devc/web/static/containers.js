@@ -58,6 +58,7 @@ import {
   socket,
 } from './client.js';
 import {
+  canStartProjects,
   closeOutput,
   containerRoot,
   downProject,
@@ -787,7 +788,7 @@ function projectRow(p) {
           : '',
         PROJECT_STATE_TEXT[state] ?? state,
       ),
-      p.starting || !projectStarts ? '' : hoverActions(
+      p.starting || !canStartProjects() ? '' : hoverActions(
         iconButton(
           'play',
           projectActions(p.environment).start,

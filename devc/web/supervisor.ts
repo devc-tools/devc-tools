@@ -23,6 +23,7 @@ import {
   WebStartError,
 } from './server.ts';
 
+import { desktopLine } from './token.ts';
 /** The permissions the child runs with: the same as `deno.json`'s `run` task. */
 const CHILD_PERMISSIONS = [
   '--allow-run',
@@ -110,7 +111,13 @@ interface Child {
  * startup failure.
  */
 export async function superviseWeb(
-  opts: WebOptions & { token: string; source: string; open: boolean },
+  opts: WebOptions & {
+    token: string;
+    source: string;
+    open: boolean;
+    /** `--desktop-channel`'s token: printed after the URL, handed to each child on stdin. */
+    desktopToken?: string;
+  },
 ): Promise<number> {
   const dir = resolve(opts.source);
   await checkSource(dir);
@@ -134,6 +141,9 @@ export async function superviseWeb(
     console.log(
       `devc web: http://127.0.0.1:${opts.port}/#token=${opts.token}`,
     );
+    if (opts.desktopToken !== undefined) {
+      console.log(desktopLine(opts.desktopToken));
+    }
     if (openNonce !== undefined) {
       openBrowser(`http://127.0.0.1:${opts.port}${openPath(openNonce)}`);
     }
@@ -151,6 +161,7 @@ export async function superviseWeb(
         String(opts.port),
         '--session',
         opts.session,
+        ...(opts.desktopToken !== undefined ? ['--desktop-channel'] : []),
       ],
       {
         cwd: dir,
@@ -163,12 +174,21 @@ export async function superviseWeb(
             ? { DEVC_WEB_OPEN_NONCE: nonceFor() }
             : {}),
         },
-        stdio: ['ignore', 'inherit', 'inherit'],
+        // The desktop token goes on stdin: the environment is inherited by host projects.
+        stdio: [
+          opts.desktopToken !== undefined ? 'pipe' : 'ignore',
+          'inherit',
+          'inherit',
+        ],
         // Its own process group, so a terminal Ctrl-C reaches only the supervisor, which then
         // stops the child the orderly way (see proc.ts for the same reason).
         detached: true,
       },
     );
+    if (opts.desktopToken !== undefined) {
+      proc.stdin?.on('error', () => {});
+      proc.stdin?.end(`${opts.desktopToken}\n`);
+    }
     const exited = new Promise<string>((resolve) => {
       proc.on('error', (err) => resolve(String(err)));
       proc.on('exit', (code, signal) => resolve(String(code ?? signal)));
@@ -224,6 +244,8 @@ export async function superviseWeb(
       fallback = await startWeb({
         ...opts,
         live: false,
+        // The built-in copy, but still a --live-yolo run: no confirmed project actions.
+        desktopProjects: false,
         ...(openNonce !== undefined ? { openNonce } : {}),
       });
       announce();

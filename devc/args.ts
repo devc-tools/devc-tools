@@ -144,6 +144,12 @@ export interface WebArgs {
   /** Open the page in the default browser once it is served; `--no-open` turns it off. */
   open: boolean;
   /**
+   * `--desktop-channel`: devc-desktop's own channel. A second token, printed only on stdout
+   * (`devc web: desktop <token>`), unlocks the `/desktop/requests` and `/desktop/project`
+   * routes. devc-desktop always passes it; a browser never needs it.
+   */
+  desktopChannel: boolean;
+  /**
    * `--source DIR`, as typed: the checkout's `devc/` directory, for this run. Absent when not
    * given; `main.ts` then takes `"webSource"` from the global config and resolves it.
    */
@@ -155,8 +161,8 @@ export const DEVC_WEB_DEFAULT_PORT = 48228;
 
 /**
  * Parses `devc web` arguments: `--port N`, `--session NAME` and `--source DIR` (each also as
- * `--flag=value`), and the bare flags `--live` and `--live-yolo`. `--source` and
- * `--live-yolo` imply `--live`. Strict: an unknown argument, a missing value, a value on a bare
+ * `--flag=value`), and the bare flags `--live`, `--live-yolo`, `--no-open` and
+ * `--desktop-channel`. `--source` and `--live-yolo` imply `--live`. Strict: an unknown argument, a missing value, a value on a bare
  * flag or a port outside 1–65535 throws.
  */
 export function parseWebArgs(args: string[]): WebArgs {
@@ -166,6 +172,7 @@ export function parseWebArgs(args: string[]): WebArgs {
   let live = false;
   let liveServer = false;
   let open = true;
+  let desktopChannel = false;
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
     const eq = arg.indexOf('=');
@@ -173,6 +180,11 @@ export function parseWebArgs(args: string[]): WebArgs {
     if (flag === '--no-open') {
       if (flag !== arg) throw new Error(`${flag} takes no value`);
       open = false;
+      continue;
+    }
+    if (flag === '--desktop-channel') {
+      if (flag !== arg) throw new Error(`${flag} takes no value`);
+      desktopChannel = true;
       continue;
     }
     if (flag === '--live' || flag === '--live-yolo') {
@@ -207,6 +219,7 @@ export function parseWebArgs(args: string[]): WebArgs {
     live,
     liveServer,
     open,
+    desktopChannel,
     ...(source !== undefined ? { source } : {}),
   };
 }

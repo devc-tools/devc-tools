@@ -82,6 +82,7 @@ import {
   call,
   containerByFolder,
   containers,
+  desktopChannel,
   displayName,
   fileHostPath,
   list,
@@ -122,6 +123,7 @@ import {
   placePane,
   previewable,
   projectMenuItems,
+  requestPush,
   submitPendingReview,
   tileMenuItems,
 } from './menus.js';
@@ -852,11 +854,16 @@ export function repoCard(card, side, worktrees = 0) {
             ...(repo
               ? [
                 ...(canFetch
-                  ? [
-                    [LABELS.fetch, () => fetchRepo(localFolder, repo.folder)],
-                    null,
-                  ]
+                  ? [[LABELS.fetch, () => fetchRepo(localFolder, repo.folder)]]
                   : []),
+                // devc-desktop shows its own push plan, and the user confirms it there.
+                ...(desktopChannel
+                  ? [[
+                    LABELS.requestPush,
+                    () => requestPush(localFolder, repo.folder),
+                  ]]
+                  : []),
+                ...(canFetch || desktopChannel ? [null] : []),
                 ...dirMenuItems(fr, ''),
                 ...jiraItems(branch),
               ]

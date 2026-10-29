@@ -91,6 +91,7 @@ export function badge(pane) {
 export const LABELS = {
   files: 'Files',
   fetch: 'Fetch',
+  requestPush: 'Push…',
   fetchBehind:
     'Fetch: bring the commits to pull into the repo’s remote-tracking branch',
   newTerminalHere: 'New terminal here',

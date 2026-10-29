@@ -44,7 +44,7 @@ devc stop    [PATH]                                   Stop the container
 devc down    [PATH]                                   Stop and remove the container (and its devc-bridge files)
 devc prune   [--dry-run]                              Remove devc-bridge key dirs/policies no container uses
 devc status  [PATH]                                   Print `running` / `stopped` / `missing`, then protection and bridge lines
-devc web     [--port N] [--session NAME] [--no-open] [--live] [--live-yolo] [--source DIR] Serve a browser UI for the Herdr sessions in every running devcontainer and on this machine
+devc web     [--port N] [--session NAME] [--no-open] [--live] [--live-yolo] [--source DIR] [--desktop-channel] Serve a browser UI for the Herdr sessions in every running devcontainer and on this machine
 devc time    [--days N] [--by repo|branch|agent] [--json] Show time spent by you and by agents, as devc web recorded it
 devc git     push-plan FOLDER | push FOLDER --sha SHA Push a repo's branch from the host, after seeing what goes out
 ```
@@ -777,16 +777,38 @@ is published from any container: the host server finds devcontainers with
   must be absolute); `--live-yolo` runs its server code as well; `--source DIR`
   names a checkout for this run. Both imply `--live`. Neither: the built-in
   copy. See below.
+- `--desktop-channel` is devc-desktop's (it always passes it). devc web mints a
+  second token, prints it on stdout only, after the URL line, as
+  `devc web: desktop <64 hex>`, and keeps it out of every URL, page and
+  environment (projects on this machine inherit devc web's environment; under
+  `--live-yolo` the supervisor hands it to its child on stdin). The page can
+  then **ask** the app: **Push…** on a repo card's menu (`request_push`), and,
+  under `--live`, **Start** on a stopped project (`request_project`). The
+  request waits on devc web's server until the app reads it; the app works out
+  the push (`devc git push-plan`) or the start itself and you confirm it in its
+  HOST drawer. The page is told `asked devc-desktop: confirm in the HOST
+  drawer`, or why not: `needs devc-desktop` (no flag), `unknown folder`, or a
+  limit (one pending request per kind and folder, 20 in all, 10 asks per 10 s,
+  each dropped after 10 minutes).
 
 Security: Herdr panes are shells, so `/ws` only accepts requests whose `Host`
 is `127.0.0.1:<port>`, `localhost:<port>` or `host.docker.internal:<port>`,
 whose `Origin` is that page or absent (a non-browser client), and that carry
 the token. There is no remote access by design. Routes under `/desktop/` are
 for devc-desktop's main process: they need `Authorization: Bearer <token>`
-(never `?token=`) and refuse any request that has an `Origin`. The only one is
+(never `?token=`) and refuse any request that has an `Origin`.
 `GET /desktop/active-folder`, the host folder behind the terminal pane a page
 last reported as focused, and that pane's container's own folder, for
-devc-desktop's right-click `cd`. For a container, devc web runs no `gh`: its
+devc-desktop's right-click `cd`, takes the page token. The others take only the
+**desktop** token (`--desktop-channel`), never the page token, since anything
+holding the page token counts as the page: `GET /desktop/requests?after=<seq>`
+(a long poll, at most 25 s, of what the page asked), `POST
+/desktop/requests/<id>/dismiss`, and `POST /desktop/project {action,
+localFolder}`, a start, stop or removal the app's user confirmed, answered as
+NDJSON progress lines. It works under `--live`, where the page's own
+`start_project` is refused (projects on this machine stay off there), and is
+refused with 409 under `--live-yolo`, whose server code a container may have
+written. For a container, devc web runs no `gh`: its
 pull request reads and writes are devc-bridge commands run in the container
 (`docker exec`, argv only), so the page can do only what that container's
 bridge grant already allows from its own terminals. (A project on this machine

@@ -53,6 +53,12 @@ const OUTPUT_LINES = 500;
 /** Whether the server starts containers and adds projects for this page (see `onHello`). */
 export let projectStarts = true;
 /**
+ * Whether devc web runs with `--desktop-channel` (inside devc-desktop), so the page can ask the
+ * app for a push or a container start (`request_push`, `request_project`), which the user
+ * confirms in its HOST drawer.
+ */
+export let desktopChannel = false;
+/**
  * Where this server can run projects (the `projects` message's `environments`): in containers,
  * on this machine, or both.
  *
@@ -258,6 +264,7 @@ function onHello(msg) {
   // `devc web --live` starts no containers for the page (its code comes from a checkout agents can
   // write to): hide what would only be refused. A server that doesn't say allows them.
   projectStarts = msg.projectStarts !== false;
+  desktopChannel = msg.desktopChannel === true;
   liveMode = msg.live === true && !SAFE_MODE;
   hostOs = typeof msg.hostOs === 'string' ? msg.hostOs : '';
   if (bootGeneration === null) {

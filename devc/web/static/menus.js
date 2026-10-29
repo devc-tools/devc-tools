@@ -28,6 +28,7 @@ import {
   call,
   containerByFolder,
   dashboard,
+  desktopChannel,
   environments,
   filePinOfTile,
   filePinPanes,
@@ -459,13 +460,48 @@ export function projectRequest(type, localFolder, what, extra = {}) {
   send({ type, id, localFolder, ...extra });
 }
 
-export function startProject(localFolder) {
-  projectOutput.set(localFolder, []);
-  projectRequest(
-    'start_project',
-    localFolder,
-    projectActions(projects.get(localFolder)?.environment).start,
+/**
+ * Whether this page can start a project: the server does it (not `--live`), or devc-desktop is
+ * asked to (`--desktop-channel`).
+ */
+export function canStartProjects() {
+  return projectStarts || desktopChannel;
+}
+
+/**
+ * Asks devc-desktop (`request_push`, `request_project`): the request shows in the app's HOST
+ * drawer, where the user confirms it. The page never can; the toast says where to look.
+ *
+ * @param {Record<string, unknown> & {type: string}} msg
+ * @param {string} what
+ */
+function askDesktop(msg, what) {
+  call(msg).then(
+    (r) => toast(`${what}: ${r?.message ?? 'asked devc-desktop'}`),
+    (e) => errorToast(`${what} failed: ${e?.message ?? e}`),
   );
+}
+
+/** Asks devc-desktop to push a repo of a project: it shows its own push plan to confirm. */
+export function requestPush(localFolder, folder) {
+  askDesktop(
+    { type: 'request_push', localFolder, folder },
+    LABELS.requestPush,
+  );
+}
+
+export function startProject(localFolder) {
+  const what = projectActions(projects.get(localFolder)?.environment).start;
+  // Under --live the server starts nothing for this page: devc-desktop is asked instead.
+  if (!projectStarts && desktopChannel) {
+    askDesktop(
+      { type: 'request_project', action: 'start', localFolder },
+      what,
+    );
+    return;
+  }
+  projectOutput.set(localFolder, []);
+  projectRequest('start_project', localFolder, what);
 }
 
 /** "Pin file" or "Unpin file" for a repo file's menus. @param {FileRoot} fr @param {string} path */
@@ -878,7 +914,7 @@ export function projectMenuItems(localFolder) {
   const actions = projectActions(p.environment);
   if (p.container === 'running') {
     items.push([actions.stop, () => stopProject(p)]);
-  } else if (!p.starting && projectStarts) {
+  } else if (!p.starting && canStartProjects()) {
     items.push([actions.start, () => startProject(localFolder)]);
   }
   if (p.container !== 'missing' && !p.starting && actions.remove !== null) {

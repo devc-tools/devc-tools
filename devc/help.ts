@@ -322,6 +322,7 @@ export const COMMAND_HELP: Record<string, string> = {
 
   web: [
     'Usage: devc web [--port N] [--session NAME] [--no-open] [--live] [--live-yolo] [--source DIR]',
+    '                [--desktop-channel]',
     '',
     'Options:',
     '  --port N        Port to listen on, on 127.0.0.1 (default: 48228)',
@@ -337,6 +338,10 @@ export const COMMAND_HELP: Record<string, string> = {
     '                  only while working on the server',
     '  --source DIR    Use this checkout\'s devc/ directory instead of "webSource"',
     '                  (implies --live)',
+    "  --desktop-channel  devc-desktop's channel: print a second token on stdout",
+    '                  ("devc web: desktop <token>") for the app\'s own routes. The page',
+    '                  can then ask the app for a push or a container start, which you',
+    '                  confirm in its HOST drawer. devc-desktop passes it itself',
     '  -h, --help      Print help',
   ].join('\n'),
 

@@ -21,10 +21,9 @@ import {
   list,
   paneRepo,
   projects,
-  projectStarts,
   snapshots,
 } from './client.js';
-import { placePane, startProject } from './menus.js';
+import { canStartProjects, placePane, startProject } from './menus.js';
 
 /** @typedef {import('./lib/ask.js').AskContext} AskContext */
 /** @typedef {import('./lib/ask.js').AskTarget} AskTarget */
@@ -80,7 +79,7 @@ export function openAskDialog({ at, localFolder, root, context }) {
     const p = projects.get(localFolder);
     toast(
       'Ask agent: the container is not running.',
-      projectStarts && p && !p.starting
+      canStartProjects() && p && !p.starting
         ? { label: 'Start', run: () => startProject(localFolder) }
         : undefined,
     );

@@ -282,6 +282,7 @@ Deno.test('parseWebArgs defaults, flags and errors', () => {
     live: false,
     liveServer: false,
     open: true,
+    desktopChannel: false,
   });
   assertEquals(parseWebArgs(['--port', '9000', '--session', 'work']), {
     port: 9000,
@@ -289,6 +290,7 @@ Deno.test('parseWebArgs defaults, flags and errors', () => {
     live: false,
     liveServer: false,
     open: true,
+    desktopChannel: false,
   });
   assertEquals(parseWebArgs(['--port=9001']).port, 9001);
   assertThrows(() => parseWebArgs(['--port']));
@@ -318,6 +320,7 @@ Deno.test('parseWebArgs: --live, and --source in both forms implying it', () => 
       live: true,
       liveServer: false,
       open: true,
+      desktopChannel: false,
       source: 'd',
     },
   );
