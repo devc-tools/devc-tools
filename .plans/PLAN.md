@@ -94,6 +94,12 @@ for them.
   its mirror, makes a bundle of the upstream ref, and the repo's own git fetches it in its
   environment from stdin. It publishes nothing, so `--live` allows it.
 
+- [devc-web-git-pull](devc-web-git-pull.md) — after devc-web-git-fetch: `↓n` splits into commits
+  already in the repo's `origin/<branch>` (normal, a click pulls) and ones only the host's mirror
+  has (faded, a click fetches), from a new `GitStatus.unfetched`. **Pull** is Fetch then
+  `git merge --ff-only` in the project's environment. The server refuses it while an agent there
+  is working or the branch has diverged. Allowed under `--live`.
+
 - [devc-desktop-host-actions](devc-desktop-host-actions.md) — the page can only _ask_
   (`request_push`, `request_project`). The HOST drawer gets an Actions column that shows the
   app's own push plan, or the start, with a 1 s armed confirm. A second **desktop token** (stdout
@@ -2624,3 +2630,4 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
 | devc web diff whole file — a PR diff tile shows every line, filled from the head; `+` only on patch lines           | [devc-web-diff-whole-file](archived/devc-web-diff-whole-file.md)                   | complete    |
 | devc show — agents show a file or its PR diff at a line range beside their terminal in devc web                     | [devc-show](devc-show.md)                                                          |             |
 | devc show local diff — `show --changes [<ref>]`: a local diff tile for uncommitted or branch changes                | [devc-show-local-diff](devc-show-local-diff.md)                                    |             |
+| devc web git pull — fast-forward Pull, and a faded ↓ for commits only the host has fetched                          | [devc-web-git-pull](devc-web-git-pull.md)                                          |             |
