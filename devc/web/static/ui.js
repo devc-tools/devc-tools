@@ -202,9 +202,12 @@ export const LABELS = {
   /** A pending review: comments and replies held until it is submitted. */
   commentOnLine: (n) => `Comment on line ${n}`,
   addToReview: 'Add to review',
+  addingToReview: 'Adding to review…',
   reply: 'Reply',
+  posting: 'Posting…',
   edit: 'Edit',
   save: 'Save',
+  saving: 'Saving…',
   cancel: 'Cancel',
   deleteComment: 'Delete…',
   deleteCommentConfirm: 'Delete this pending comment?',

@@ -3340,6 +3340,13 @@ button.primary.danger {
   gap: 6px;
 }
 
+/* A composer's reply or comment on its way, until it shows. */
+.composer-busy {
+  align-self: center;
+  font-size: calc(var(--font-size) - 1px);
+  color: var(--muted);
+}
+
 .composer-note {
   font-size: calc(var(--font-size) - 2px);
   color: var(--muted);

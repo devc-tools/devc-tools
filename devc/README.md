@@ -743,7 +743,9 @@ is published from any container: the host server finds devcontainers with
   - **Pending reviews.** With `gh-pr-pending-review`, hovering a line number
     in `PR changes` shows a `+`: a comment on that line, or with Shift after
     another `+` in the same hunk and side, on the lines between. A reply's
-    **Add to review** holds it the same way. Held comments show as `pending`
+    **Add to review** holds it the same way. A comment or reply on its way
+    stays in its box, disabled with a spinner, until it shows in the tile.
+    Held comments show as `pending`
     (only to you, on GitHub too), with **Edit** and **Delete…**, and the tile's
     tool row and the PR header show `Review · n pending` with **Submit
     review…** (an optional summary; submitted as a Comment) and **Discard

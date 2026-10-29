@@ -2271,19 +2271,21 @@ async function loadPending(view) {
 
 /**
  * After a pending review changed: this repo's diff tiles list their threads and the review
- * again.
+ * again. Resolves when they are all shown.
  *
  * @param {DiffRef} ref
+ * @returns {Promise<unknown>}
  */
 function reviewChanged(ref) {
+  const loads = [];
   for (const v of diffViews.values()) {
     const d = v.tile.diff;
     if (!d || d.localFolder !== ref.localFolder || d.root !== ref.root) {
       continue;
     }
-    void loadThreads(v);
-    void loadPending(v);
+    loads.push(loadThreads(v), loadPending(v));
   }
+  return Promise.all(loads);
 }
 
 /**
@@ -3450,8 +3452,9 @@ function closeComposer(view, c) {
 
 /**
  * Sends a composer's reply: at once (`pr_reply`), or added to the pending review
- * (`pr_pending_reply`). The composer is disabled while it goes; on success it closes and the
- * threads (and the review) are listed again; on failure its text stays, the error under it.
+ * (`pr_pending_reply`). The composer is disabled and busy while it goes and the threads (and
+ * the review) are listed again; then it closes as the reply shows. On failure its text stays,
+ * the error under it.
  *
  * @param {DiffView} view @param {Composer} c @param {boolean} toReview
  */
@@ -3469,28 +3472,39 @@ async function sendReply(view, c, toReview) {
         body: c.textarea.value,
       }
       : { type: 'pr_reply', ...ref, thread: c.thread, body: c.textarea.value },
+    toReview ? LABELS.addingToReview : LABELS.posting,
+    () => toReview ? reviewChanged(ref) : loadThreads(view),
   );
   if (diffViews.get(view.tile.id) !== view || message !== null) return;
   view.composers.delete(c.thread);
   renderDiff(view);
-  if (toReview) reviewChanged(ref);
-  else void loadThreads(view);
 }
 
 /**
- * Sends `msg` for a composer (`c`: a reply, a new comment or an edit), disabled while it goes.
- * Resolves `null` on success, else the message, shown under it with its text kept.
+ * Sends `msg` for a composer (`c`: a reply, a new comment or an edit), disabled while it goes
+ * with a spinner and `busy` beside its buttons. On success it stays so while `reload` lists
+ * what it changed again, so the caller can close it as the result shows. Resolves `null` on
+ * success, else the message, shown under it with its text kept.
  *
  * @param {{textarea: HTMLTextAreaElement, buttons: HTMLButtonElement[], error: HTMLElement,
  *   sending: boolean}} c
  * @param {Record<string, unknown>} msg
+ * @param {string} busy
+ * @param {() => Promise<unknown>} reload
  * @returns {Promise<string | null>}
  */
-async function sending(c, msg) {
+async function sending(c, msg, busy, reload) {
   c.sending = true;
   c.textarea.disabled = true;
   for (const b of c.buttons) b.disabled = true;
   c.error.hidden = true;
+  const status = h(
+    'span',
+    { class: 'composer-busy', role: 'status' },
+    h('span', { class: 'spinner', 'aria-hidden': 'true' }),
+    busy,
+  );
+  c.buttons[0].parentElement?.append(status);
   let message = null;
   try {
     const r = await call(msg);
@@ -3498,6 +3512,8 @@ async function sending(c, msg) {
   } catch (e) {
     message = String(e?.message ?? e);
   }
+  if (message === null) await reload().catch(() => {});
+  status.remove();
   c.sending = false;
   c.textarea.disabled = false;
   for (const b of c.buttons) b.disabled = false;
@@ -3603,23 +3619,27 @@ async function sendNewComment(view) {
   const nc = view.newComment;
   const path = view.data?.file?.path;
   if (!ref || !nc || nc.sending || typeof path !== 'string') return;
-  const message = await sending(nc, {
-    type: 'pr_pending_comment',
-    localFolder: ref.localFolder,
-    root: ref.root,
-    path,
-    line: nc.line,
-    side: nc.side,
-    startLine: nc.startLine,
-    body: nc.textarea.value,
-  });
+  const message = await sending(
+    nc,
+    {
+      type: 'pr_pending_comment',
+      localFolder: ref.localFolder,
+      root: ref.root,
+      path,
+      line: nc.line,
+      side: nc.side,
+      startLine: nc.startLine,
+      body: nc.textarea.value,
+    },
+    LABELS.addingToReview,
+    () => reviewChanged(ref),
+  );
   if (diffViews.get(view.tile.id) !== view || message !== null) return;
   if (view.newComment === nc) {
     view.newComment = null;
     view.anchor = null;
   }
   renderDiff(view);
-  reviewChanged(ref);
 }
 
 /** Edits a pending comment in place: its body in a composer, **Save** / **Cancel**. */
@@ -3639,17 +3659,21 @@ function openEdit(view, comment) {
   const save = async () => {
     const ref = view.tile.diff;
     if (!ref || edit.sending) return;
-    const message = await sending(edit, {
-      type: 'pr_pending_edit',
-      localFolder: ref.localFolder,
-      root: ref.root,
-      comment: comment.id,
-      body: textarea.value,
-    });
+    const message = await sending(
+      edit,
+      {
+        type: 'pr_pending_edit',
+        localFolder: ref.localFolder,
+        root: ref.root,
+        comment: comment.id,
+        body: textarea.value,
+      },
+      LABELS.saving,
+      () => reviewChanged(ref),
+    );
     if (diffViews.get(view.tile.id) !== view || message !== null) return;
     view.editing.delete(comment.id);
     renderDiff(view);
-    reviewChanged(ref);
   };
   textarea.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
