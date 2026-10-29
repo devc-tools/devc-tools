@@ -82,11 +82,6 @@ for them.
   its mirror, makes a bundle of the upstream ref, and the repo's own git fetches it in its
   environment from stdin. It publishes nothing, so `--live` allows it.
 
-- [devc-git-user-push](devc-git-user-push.md) — `devc git push-plan <folder>` (JSON) and
-  `devc git push <folder> --sha`: `gh-push`'s mirror with a user mode (`DEVC_PUSH_MODE`, which
-  the bridge strips) that allows the default branch and workflow changes. Never forces. D1/D2
-  accepted 2026-10-29.
-
 - [devc-desktop-host-actions](devc-desktop-host-actions.md) — the page can only _ask_
   (`request_push`, `request_project`). The HOST drawer gets an Actions column that shows the
   app's own push plan, or the start, with a 1 s armed confirm. A second **desktop token** (stdout
@@ -161,6 +156,15 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
   generated-source folders appear, and read-only `jdt:` class tiles.
 
 ### Completed
+
+- ✅ Done — [devc-git-user-push](archived/devc-git-user-push.md) — `devc git push-plan <folder>`
+  prints a `PushPlan` (tip, new commits, default branch, guarded workflow paths, LFS,
+  fast-forward) and `devc git push <folder> --sha <sha>` pushes exactly that SHA, refusing a moved
+  branch, an LFS pointer and a non-fast-forward, never forcing; `gh-push`'s own recipe in a user
+  mode chosen only by `DEVC_PUSH_MODE`, which the bridge strips from every script (`clearEnv`), so
+  git never runs in the repo and no agent reaches the mode. Policy under
+  `~/.cache/devc/push-policy/`. Offline harness and devc tests; a real GitHub push is left to
+  devc-desktop-host-actions' manual validation.
 
 - ✅ Done — [devc-web-containers-module](archived/devc-web-containers-module.md) — the
   Containers section is `static/containers.js` (`mountContainers`), the repo cards both halves
