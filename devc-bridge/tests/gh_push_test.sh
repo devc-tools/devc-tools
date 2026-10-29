@@ -802,6 +802,213 @@ check "  … gives up within the timeout (${took}s)" test "$took" -lt 10
 check "  … and leaves the other run's lock alone" test -d "$MIRROR.lock"
 check "  … and pushed nothing" test "$(remote_ref refs/heads/feat)" = none
 
+# ── the user's modes (devc git push-plan / devc git push) ───────────────────────────────────
+
+# plan [args…] — DEVC_PUSH_MODE=plan; sets $rc, $out (stdout only) and $err.
+plan() {
+  out=$(PATH=$W/ghbin:$PATH DEVC_PUSH_MODE=plan DEVC_BRIDGE_KEY=$KEY \
+    DEVC_BRIDGE_POLICY_DIR=$POLICY_DIR "$PUSH" "$@" 2>"$W/plan.err")
+  rc=$?
+  err=$(cat "$W/plan.err")
+}
+# upush <sha> [--repo <path>] — DEVC_PUSH_MODE=user, pushing <sha>; sets $rc and $out.
+upush() {
+  out=$(PATH=$W/ghbin:$PATH DEVC_PUSH_MODE=user DEVC_BRIDGE_KEY=$KEY \
+    DEVC_BRIDGE_POLICY_DIR=$POLICY_DIR "$PUSH" "${@:2}" --sha "$1" 2>&1)
+  rc=$?
+}
+jq_is() { # jq_is <filter> <want> — the plan's <filter>, as jq -c prints it, is <want>
+  local got
+  got=$(printf '%s' "$out" | jq -c "$1" 2>&1)
+  [ "$got" = "$2" ] || {
+    echo "         | $1: want $2, got $got"
+    return 1
+  }
+}
+# The PushPlan type's ok:true shape: these keys, these types, and nothing else.
+PLAN_SHAPE='keys == ["branch","commits","defaultBranch","fastForward","folder","guarded","lfs","ok",
+  "remote","remoteSha","sha","totalCommits","upToDate"]
+  and .ok == true and (.folder, .remote, .branch | type == "string")
+  and (.sha | test("^[0-9a-f]{40}$")) and (.remoteSha == null or (.remoteSha | test("^[0-9a-f]{40}$")))
+  and (.commits | type == "array" and length <= 50 and all(keys == ["author","sha","subject"]
+    and (.sha | test("^[0-9a-f]{40}$")) and (.subject, .author | type == "string")))
+  and (.totalCommits | type == "number") and (.guarded | type == "array" and all(type == "string"))
+  and (.defaultBranch, .lfs, .fastForward, .upToDate | type == "boolean")'
+shaped() { printf '%s' "$out" | jq -e "$PLAN_SHAPE" >/dev/null 2>&1; }
+
+echo "user modes: the plan"
+fresh
+plan
+expect_rc 0 "plan for a new branch"
+check "  … is a PushPlan" shaped
+check "  … names the repo, remote and branch" \
+  jq_is '[.folder,.remote,.branch]' "[\"$REPO\",\"$GH_PIN\",\"feat\"]"
+check "  … with the repo's tip, and no remote branch yet" \
+  jq_is '[.sha,.remoteSha]' "[\"$(repo_ref feat)\",null]"
+check "  … lists the one new commit" \
+  jq_is '[.totalCommits,(.commits|map([.sha,.subject,.author]))]' \
+  "[1,[[\"$(repo_ref feat)\",\"work\",\"tester\"]]]"
+check "  … and nothing to warn about" \
+  jq_is '[.defaultBranch,.guarded,.lfs,.fastForward,.upToDate]' '[false,[],false,true,false]'
+check "  … and pushed nothing" test "$(remote_ref refs/heads/feat)" = none
+before=$(repo_ref feat)
+push
+commit_file one.txt one
+commit_file two.txt two
+plan
+expect_rc 0 "plan for an existing branch two commits ahead"
+check "  … is a PushPlan" shaped
+check "  … with the remote's tip" jq_is '.remoteSha' "\"$before\""
+check "  … and the two commits, newest first" \
+  jq_is '[.totalCommits,(.commits|map(.subject))]' '[2,["add two.txt","add one.txt"]]'
+check "  … a fast-forward, not up to date" jq_is '[.fastForward,.upToDate]' '[true,false]'
+upush "$(repo_ref feat)"
+expect_rc 0 "the user's push of that plan"
+check "  … says so" has "pushed: feat at $(repo_ref feat | cut -c1-12) to $GH_PIN ($REPO)"
+check "  … and the remote has it" test "$(remote_ref refs/heads/feat)" = "$(repo_ref feat)"
+plan
+check "plan after the push: up to date, no commits" \
+  jq_is '[.upToDate,.totalCommits,.commits]' '[true,0,[]]'
+upush "$(repo_ref feat)"
+expect_rc 0 "the user's push again"
+check "  … is up to date" has "up to date: feat is already"
+
+fresh
+git -C "$REPO" checkout -q main
+commit_file main.txt main
+pin "$REPO" "$GH_PIN" main
+push
+expect_rc 3 "the agent's push of the default branch is still refused"
+plan
+expect_rc 0 "plan for the default branch"
+check "  … is a PushPlan" shaped
+check "  … says defaultBranch" jq_is '[.defaultBranch,.remoteSha]' \
+  "[true,\"$(remote_ref refs/heads/main)\"]"
+check "  … with only the new commit" jq_is '[.totalCommits,(.commits|map(.subject))]' \
+  '[1,["add main.txt"]]'
+upush "$(repo_ref main)"
+expect_rc 0 "the user's push of the default branch"
+check "  … reaches the remote" test "$(remote_ref refs/heads/main)" = "$(repo_ref main)"
+
+fresh
+commit_file .github/workflows/ci.yml 'on: pull_request'
+commit_file .github/actions/setup/action.yml 'runs: {}'
+nl_path=$'.github/workflows/odd\n"name\\.yml'
+commit_file "$nl_path" 'on: push'
+push
+expect_rc 3 "the agent's push of a workflow change is still refused"
+plan
+expect_rc 0 "plan for a workflow change"
+check "  … is a PushPlan" shaped
+check "  … lists every guarded path, a newline and a quote in a name included" \
+  jq_is '.guarded | sort' "$(jq -cn --arg p "$nl_path" \
+    '[".github/actions/setup/action.yml", ".github/workflows/ci.yml", $p] | sort')"
+upush "$(repo_ref feat)"
+expect_rc 0 "the user's push of a workflow change"
+check "  … reaches the remote" test "$(remote_ref refs/heads/feat)" = "$(repo_ref feat)"
+plan
+check "  … and then nothing is guarded: the remote branch vouches for it" jq_is '.guarded' '[]'
+
+echo "user modes: the plan's text is the repo's"
+fresh
+subject=$'say "hi" \\ back\ttab \x01 ctl é'
+git -C "$REPO" -c user.name='Q "Quote" \ Name' commit -q --allow-empty -m "$subject"
+plan
+expect_rc 0 "plan for a commit with quotes, backslashes and control characters"
+check "  … is valid JSON and a PushPlan" shaped
+check "  … the subject round-trips" \
+  test "$(printf '%s' "$out" | jq -r '.commits[0].subject')" = \
+  "$(git -C "$REPO" log -1 --format=%s)"
+check "  … and the author" \
+  test "$(printf '%s' "$out" | jq -r '.commits[0].author')" = 'Q "Quote" \ Name'
+for n in $(seq 1 55); do git -C "$REPO" commit -q --allow-empty -m "c$n"; done
+plan
+check "fifty-seven new commits: the plan lists fifty and counts them all" \
+  jq_is '[(.commits|length),.totalCommits,.commits[0].subject,.commits[49].subject]' \
+  '[50,57,"c55","c6"]'
+
+echo "user modes: what is still refused"
+fresh
+push
+git -C "$REPO" reset -q --hard main
+commit_file other.txt other
+plan
+expect_rc 0 "plan for a diverged branch"
+check "  … is a PushPlan" shaped
+check "  … says it is not a fast-forward" jq_is '[.fastForward,.upToDate]' '[false,false]'
+remote_before=$(remote_ref refs/heads/feat)
+upush "$(repo_ref feat)"
+expect_rc 4 "the user's push of a diverged branch"
+check "  … says why" has "is not a fast-forward of the remote feat"
+check "  … and never forced" test "$(remote_ref refs/heads/feat)" = "$remote_before"
+
+fresh
+plan
+planned=$(printf '%s' "$out" | jq -r .sha)
+commit_file late.txt late
+upush "$planned"
+expect_rc 2 "the user's push after the branch moved"
+check "  … says the branch moved" has "the branch moved: feat is now $(repo_ref feat | cut -c1-12), not ${planned:0:12}"
+check "  … and pushed nothing" test "$(remote_ref refs/heads/feat)" = none
+
+fresh
+printf 'version https://git-lfs.github.com/spec/v1\noid sha256:%064d\nsize 12\n' 0 >"$REPO/big.bin"
+git -C "$REPO" add big.bin
+git -C "$REPO" commit -q -m lfs
+plan
+expect_rc 0 "plan for an LFS pointer"
+check "  … says lfs" jq_is '.lfs' true
+upush "$(repo_ref feat)"
+expect_rc 3 "the user's push of an LFS pointer"
+check "  … says why" has "adds a Git LFS pointer"
+check "  … and pushed nothing" test "$(remote_ref refs/heads/feat)" = none
+
+echo "user modes: arguments"
+fresh
+upush_nosha() {
+  out=$(PATH=$W/ghbin:$PATH DEVC_PUSH_MODE=user DEVC_BRIDGE_KEY=$KEY \
+    DEVC_BRIDGE_POLICY_DIR=$POLICY_DIR "$PUSH" "$@" 2>&1)
+  rc=$?
+}
+upush_nosha
+expect_rc 2 "user mode without --sha"
+check "  … prints its usage" has "usage: DEVC_PUSH_MODE=user gh-push [--repo <path>] --sha <sha>"
+upush "$(repo_ref feat | cut -c1-12)"
+expect_rc 2 "user mode with an abbreviated --sha"
+upush feat
+expect_rc 2 "user mode with a branch name for --sha"
+upush "$(repo_ref feat)" --repo /workspaces/repo
+expect_rc 0 "user mode with --repo, then --sha"
+fresh
+plan --sha "$(repo_ref feat)"
+expect_rc 2 "plan mode refuses --sha"
+push --sha "$(repo_ref feat)"
+expect_rc 2 "the agent's mode refuses --sha"
+check "  … and pushed nothing" test "$(remote_ref refs/heads/feat)" = none
+out=$(PATH=$W/ghbin:$PATH DEVC_PUSH_MODE=force DEVC_BRIDGE_KEY=$KEY \
+  DEVC_BRIDGE_POLICY_DIR=$POLICY_DIR "$PUSH" 2>&1)
+rc=$?
+expect_rc 2 "an unknown DEVC_PUSH_MODE"
+check "  … pushed nothing" test "$(remote_ref refs/heads/feat)" = none
+
+echo "user modes: the safety property"
+fresh
+cat >"$REPO/.git/hooks/pre-push" <<HOOK
+#!/bin/sh
+touch "$MARK/pre-push"
+HOOK
+chmod +x "$REPO/.git/hooks/pre-push"
+printf '#!/bin/sh\ntouch "%s/fsmonitor"\n' "$MARK" >"$W/fsmonitor"
+chmod +x "$W/fsmonitor"
+git -C "$REPO" config core.fsmonitor "$W/fsmonitor"
+plan
+expect_rc 0 "plan with a planted pre-push hook and core.fsmonitor"
+check "  … runs neither" test -z "$(ls "$MARK")"
+upush "$(repo_ref feat)"
+expect_rc 0 "the user's push of it"
+check "  … runs neither" test -z "$(ls "$MARK")"
+check "  … and the remote has the branch" test "$(remote_ref refs/heads/feat)" = "$(repo_ref feat)"
+
 echo
 echo "$pass passed, $fail failed"
 [ "$fail" -eq 0 ]

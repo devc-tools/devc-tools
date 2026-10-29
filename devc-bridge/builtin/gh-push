@@ -29,10 +29,23 @@
 # the whole setup; the policy and the mirror keep the remote verbatim. devc refuses any other remote
 # at grant time; the check below is the second layer, since a policy file can be edited by hand.
 #
+# Two more modes, for the user rather than an agent, selected by DEVC_PUSH_MODE alone — which only
+# devc's CLI sets (`devc git push-plan` / `devc git push`) and the bridge strips from every script's
+# environment, so `devc-bridge gh-push` always runs the agent's mode:
+#   DEVC_PUSH_MODE=plan gh-push [--repo <path>]             # JSON on stdout: what a push would do
+#   DEVC_PUSH_MODE=user gh-push [--repo <path>] --sha <sha>  # push <sha>, the tip the plan showed
+# The user's push waives two refusals: the default branch, and a change under .github/workflows or
+# .github/actions (the plan lists both, so the confirming UI can warn). Everything else holds: the
+# mirror, the inspected SHA, and the refusals of an LFS pointer (exit 3) and of a push that is not a
+# fast-forward (exit 4 — nothing here ever forces). `--sha` must be the branch's tip as freshly
+# fetched from the repo, or the push is refused (exit 2, `the branch moved`). The plan's `subject`,
+# `author` and `guarded` are the repo's text, written by whoever wrote the commits.
+#
 # Exit codes: 0 pushed (or already up to date), 2 wrong arguments, no/malformed policy, no single
 # pinned repo selected, a pin that no longer resolves, a remote that is not GitHub, or a remote
 # mismatch, 3 content-policy refusal or a pinned branch that is the remote's default branch,
-# 4 transport failure or timeout, or another gh-push holding this remote's mirror past the timeout.
+# 4 transport failure or timeout, another gh-push holding this remote's mirror past the timeout, or
+# (user mode) a push that is not a fast-forward.
 
 set -uo pipefail
 export LC_ALL=C
@@ -47,13 +60,31 @@ die() {
   exit "$code"
 }
 
+# The mode is read once and dropped, so nothing this script runs inherits it.
+mode=${DEVC_PUSH_MODE-}
+unset DEVC_PUSH_MODE
+case $mode in
+  '' | plan | user) ;;
+  *) die 2 "unknown DEVC_PUSH_MODE $mode — plan or user" ;;
+esac
+
 USAGE="usage: gh-push [--repo <path>]"
+[ "$mode" != user ] || USAGE="usage: DEVC_PUSH_MODE=user gh-push [--repo <path>] --sha <sha>"
 # Recognized only as the first argument, and only in the space form.
 want_repo=''
 if [ "${1-}" = --repo ]; then
   [ -n "${2-}" ] || die 2 "$USAGE"
   want_repo=$2
   shift 2
+fi
+# User mode only, and required there: the full SHA the user confirmed.
+want_sha=''
+if [ "$mode" = user ]; then
+  [ "${1-}" = --sha ] && [ -n "${2-}" ] || die 2 "$USAGE"
+  want_sha=$2
+  shift 2
+  [[ $want_sha =~ ^[0-9a-f]{40}([0-9a-f]{24})?$ ]] ||
+    die 2 "--sha wants a full lowercase commit SHA, not $want_sha"
 fi
 [ $# -eq 0 ] || die 2 "$USAGE"
 
@@ -500,18 +531,24 @@ base=$(awk '$1 == "ref:" && $3 == "HEAD" { sub("^refs/heads/", "", $2); print $2
 # `HEAD` is agent-writable, and nothing else stands between a pin that ended up on the default
 # branch and a push to it. Exact comparison: ref names are case-sensitive, and `base` is the
 # remote's own answer, so a pin named `main` on a remote whose default is `master` still pushes.
-[ "$branch" != "$base" ] ||
+# The user's modes waive it (D1 of devc-git-user-push): the user pins the branch at the moment of
+# asking, and sees it named as the default branch before confirming.
+[ -n "$mode" ] || [ "$branch" != "$base" ] ||
   die 3 "refused: $branch is the default branch of $remote — gh-push publishes only a non-default branch; on the host, check out another branch and run devc up --bridge-allow $grants"
-remote_sha=$(awk -v ref="refs/heads/$branch" '$2 == ref { print $1 }' "$tmp/ls-remote")
+# Not the symref line, whose second field also names the default branch.
+remote_sha=$(awk -v ref="refs/heads/$branch" '$1 != "ref:" && $2 == ref { print $1; exit }' \
+  "$tmp/ls-remote")
 
 # Fresh every time — a stale base would let the content policy compare against the wrong tree.
 # The pinned branch's remote tip comes along when there is one: what is already on the remote is
 # trusted as much as the default branch. When there is none, a tip cached by an earlier run is
 # dropped — a branch deleted on the remote no longer vouches for anything.
-# (`branch` is never `base` here — refused above.)
+# (`branch` is `base` only in the user's modes: then the base's ref is the tip.)
 refspecs=("+refs/heads/$base:refs/remotes/origin/$base")
 tip=''
-if [ -n "$remote_sha" ]; then
+if [ "$branch" = "$base" ]; then
+  tip=refs/remotes/origin/$base
+elif [ -n "$remote_sha" ]; then
   tip=refs/remotes/origin/$branch
   refspecs+=("+refs/heads/$branch:$tip")
 else
@@ -529,6 +566,9 @@ run_t "${SOURCE_GIT[@]}" fetch -q --no-tags --no-write-fetch-head -- "$repo" \
 sha=$("${MIRROR_GIT[@]}" rev-parse --verify -q "refs/staging/$branch^{commit}") ||
   die 2 "refs/staging/$branch is not a commit"
 short=${sha:0:12}
+# What the user confirmed is what goes out, or nothing does.
+[ -z "$want_sha" ] || [ "$sha" = "$want_sha" ] ||
+  die 2 "the branch moved: $branch is now $short, not ${want_sha:0:12} — check the push again"
 
 # ── content policy, against the inspected SHA ─────────────────────────────────────────────
 
@@ -537,15 +577,25 @@ short=${sha:0:12}
 # default branch's or the remote branch tip's — so the branch may carry a workflow change the user
 # pushed, and pick up the default branch's, but nothing new comes in through this push.
 # Plumbing, not `git diff`: no external diff, no textconv, no rename pairing that could hide one side.
+# The user's modes collect what the agent's would refuse into `guarded` instead.
+guarded=()
 "${MIRROR_GIT[@]}" diff-tree -r --no-renames --name-only -z "refs/remotes/origin/$base" "$sha" \
   -- .github/workflows .github/actions >"$tmp/guarded" ||
   die 3 "refused: could not diff $branch against $base"
 while IFS= read -r -d '' path; do
-  [ -n "$tip" ] || die 3 "refused: $branch changes $path relative to $base"
+  if [ -z "$tip" ]; then
+    [ -n "$mode" ] || die 3 "refused: $branch changes $path relative to $base"
+    guarded+=("$path")
+    continue
+  fi
   "${MIRROR_GIT[@]}" --literal-pathspecs diff-tree --quiet -r --no-renames "$tip" "$sha" -- "$path"
   case $? in
     0) ;;
-    1) die 3 "refused: $branch changes $path relative to both $base and the remote $branch" ;;
+    1)
+      [ -n "$mode" ] ||
+        die 3 "refused: $branch changes $path relative to both $base and the remote $branch"
+      guarded+=("$path")
+      ;;
     *) die 3 "refused: could not diff $branch against the remote $branch" ;;
   esac
 done <"$tmp/guarded"
@@ -555,8 +605,89 @@ done <"$tmp/guarded"
 "${MIRROR_GIT[@]}" diff-tree -p -r --no-renames --no-ext-diff --no-textconv \
   "refs/remotes/origin/$base" "$sha" >"$tmp/diff" ||
   die 3 "refused: could not diff $branch against $base"
+lfs=false
 if grep -q '^+version https://git-lfs' "$tmp/diff"; then
-  die 3 "refused: $branch adds a Git LFS pointer, and LFS content cannot be published this way"
+  [ "$mode" = plan ] ||
+    die 3 "refused: $branch adds a Git LFS pointer, and LFS content cannot be published this way"
+  lfs=true
+fi
+
+# Whether the remote branch's tip is an ancestor of the SHA. The agent's push leaves this to the
+# remote, which rejects it; the user's refuses it here, before the push, and the plan reports it.
+fast_forward=true
+if [ -n "$remote_sha" ] && [ "$remote_sha" != "$sha" ]; then
+  "${MIRROR_GIT[@]}" merge-base --is-ancestor "$tip" "$sha"
+  case $? in
+    0) ;;
+    1) fast_forward=false ;;
+    *) die 4 "could not compare $branch with the remote $branch" ;;
+  esac
+fi
+[ "$mode" != user ] || [ "$fast_forward" = true ] ||
+  die 4 "refused: $branch at $short is not a fast-forward of the remote $branch (${remote_sha:0:12}) — devc git never force-pushes; pull or rebase first"
+
+# ── the plan ──────────────────────────────────────────────────────────────────────────────
+
+# json_str S — S as a JSON string. LC_ALL=C: bytes pass through, so a consumer decoding UTF-8
+# sees non-UTF-8 text as U+FFFD; every control character is escaped. The replacements are quoted
+# so bash 5.2's patsub_replacement never reads a `&` or `\` in them.
+json_str() {
+  local s=$1 i=1 c u
+  s=${s//\\/"\\\\"}
+  s=${s//\"/"\\\""}
+  case $s in *[[:cntrl:]]*)
+    while [ "$i" -lt 32 ]; do
+      printf -v c "\\$(printf '%03o' "$i")"
+      printf -v u '\\u%04x' "$i"
+      s=${s//"$c"/"$u"}
+      i=$((i + 1))
+    done
+    ;;
+  esac
+  printf '"%s"' "$s"
+}
+
+if [ "$mode" = plan ]; then
+  # What the push would add to the remote: not on its default branch or the branch's own tip.
+  not=(--not "refs/remotes/origin/$base")
+  [ -z "$tip" ] || not+=("$tip")
+  total=$("${MIRROR_GIT[@]}" rev-list --count "$sha" "${not[@]}") ||
+    die 4 "could not count the commits on $branch"
+  # Three NUL-terminated fields a commit, each commit then a newline (`tformat`).
+  "${MIRROR_GIT[@]}" -c log.showSignature=false log --no-color --max-count=50 \
+    --format='tformat:%H%x00%s%x00%an%x00' "$sha" "${not[@]}" >"$tmp/log" ||
+    die 4 "could not list the commits on $branch"
+  {
+    printf '{"ok":true,"folder":%s,"remote":%s,"branch":%s,"sha":"%s",' \
+      "$(json_str "$repo")" "$(json_str "$remote")" "$(json_str "$branch")" "$sha"
+    if [ -n "$remote_sha" ]; then printf '"remoteSha":"%s",' "$remote_sha"; else
+      printf '"remoteSha":null,'
+    fi
+    printf '"commits":['
+    sep=''
+    while IFS= read -r -d '' c_sha && IFS= read -r -d '' c_subject &&
+      IFS= read -r -d '' c_author; do
+      c_sha=${c_sha#$'\n'}
+      printf '%s{"sha":"%s","subject":%s,"author":%s}' "$sep" "$c_sha" \
+        "$(json_str "$c_subject")" "$(json_str "$c_author")"
+      sep=,
+    done <"$tmp/log"
+    printf '],"totalCommits":%s,' "$total"
+    if [ "$branch" = "$base" ]; then printf '"defaultBranch":true,'; else
+      printf '"defaultBranch":false,'
+    fi
+    printf '"guarded":['
+    sep=''
+    for path in ${guarded[@]+"${guarded[@]}"}; do
+      printf '%s%s' "$sep" "$(json_str "$path")"
+      sep=,
+    done
+    up_to_date=false
+    [ "$remote_sha" != "$sha" ] || up_to_date=true
+    printf '],"lfs":%s,"fastForward":%s,"upToDate":%s}\n' "$lfs" "$fast_forward" "$up_to_date"
+  } >"$tmp/plan" || die 4 "could not write the plan"
+  cat -- "$tmp/plan"
+  exit 0
 fi
 
 # ── publish ───────────────────────────────────────────────────────────────────────────────

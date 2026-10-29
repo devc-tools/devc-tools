@@ -5,7 +5,7 @@
 /** CLI version. Single source of truth — the compiled binary cannot read `deno.json` at runtime. */
 export const VERSION = '0.12.0';
 
-/** The seventeen subcommands, in the order they appear in the top-level `Commands:` list. */
+/** The eighteen subcommands, in the order they appear in the top-level `Commands:` list. */
 export const COMMANDS: { name: string; summary: string }[] = [
   {
     name: 'init',
@@ -65,6 +65,10 @@ export const COMMANDS: { name: string; summary: string }[] = [
   {
     name: 'time',
     summary: 'Show time spent by you and by agents, from devc web',
+  },
+  {
+    name: 'git',
+    summary: "Push a repo's branch from the host, after seeing what goes out",
   },
 ];
 
@@ -349,6 +353,28 @@ export const COMMAND_HELP: Record<string, string> = {
     '(while the page is visible and focused, idle after 5 minutes) and each',
     "agent's working and blocked time, per Herdr pane. It stays on this machine,",
     'in ~/.config/devc/activity/.',
+  ].join('\n'),
+
+  git: [
+    'Usage: devc git push-plan <FOLDER>',
+    '       devc git push <FOLDER> --sha <SHA>',
+    '',
+    'Commands:',
+    "  push-plan  Print, as JSON, what pushing FOLDER's branch would send: its",
+    '             tip, the new commits, and whether it is the default branch, changes',
+    '             workflows, adds an LFS pointer or is not a fast-forward',
+    '  push       Push that tip, SHA (the plan\'s "sha"), to the branch on GitHub',
+    '',
+    'Arguments:',
+    '  <FOLDER>  The repo folder on this machine (a worktree is fine)',
+    '',
+    'Options:',
+    '      --sha <SHA>  The full SHA push-plan printed; refused if the branch moved',
+    '  -h, --help       Print help',
+    '',
+    'No git runs in FOLDER, where its hooks and config would: the branch is fetched',
+    "from it into a mirror on this machine and pushed from there with gh's login.",
+    'The default branch and workflow changes are allowed; nothing is force-pushed.',
   ].join('\n'),
 };
 

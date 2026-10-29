@@ -108,13 +108,21 @@ through the bridge, runs when any line grants `gh-push`; a one-line policy keeps
 `this container was not granted gh-push` byte for byte), that every network
 call goes to the HTTPS URL with `gh` as the only credential helper, and a hung
 transport killed at a 2s `DEVC_BRIDGE_GIT_TIMEOUT` with exit 4 and no process
-left behind. CI runs it in `release.yml`.
+left behind. It also covers the user modes `devc git` runs (`DEVC_PUSH_MODE`):
+plan JSON matching the `PushPlan` type for a new branch, a branch two commits
+ahead, the default branch, workflow changes and a diverged branch, text with
+quotes, backslashes and control characters, and the 50-commit cap; the user's
+push of the default branch and of a workflow change; and its refusals — a moved
+branch (exit 2), an LFS pointer (exit 3), a non-fast-forward (exit 4), `--sha`
+outside user mode — with a planted `pre-push` hook and `core.fsmonitor` firing
+under neither the plan nor the push. CI runs it in `release.yml`.
 
 That the **bridge** sets `DEVC_BRIDGE_KEY` from the caller's token, and replaces
 any value inherited by the daemon, is `host/tests/keys_test.ts`;
 The server-side grant check (every refusal message, revocation without a
 restart, shadowing, and the per-line first layer: a built-in runs when any line
-grants it, and `(it has: …)` is every line's grants once each), materialization,
+grants it, and `(it has: …)` is every line's grants once each), that
+`DEVC_PUSH_MODE` in the daemon's environment reaches no script, materialization,
 "built-ins are never seeded" and the removed `install-command` are
 `host/tests/capabilities_test.ts`. devc's side of per-line grants — the defaults
 from `bridgeDefaultAllow` and `bridgeRepoAllow`, which repo gets which entry

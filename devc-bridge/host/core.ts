@@ -210,9 +210,15 @@ async function dispatch(req: Request, d: Dispatch): Promise<Response> {
     };
     delete env.DEVC_BRIDGE_POLICY_DIR;
     if (d.policyDir !== undefined) env.DEVC_BRIDGE_POLICY_DIR = d.policyDir;
+    // gh-push's user modes (`devc git push`) are selected by this alone: no caller of the bridge
+    // may reach them, whatever the daemon's own environment holds.
+    delete env.DEVC_PUSH_MODE;
     const cmd = new Deno.Command(scriptPath, {
       args,
       env,
+      // `env` is the whole environment: without this, Deno would add it to the daemon's, and a
+      // variable deleted above would still be inherited.
+      clearEnv: true,
       stdout: 'piped',
       stderr: 'piped',
     });

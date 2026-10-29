@@ -865,6 +865,25 @@ something would otherwise hang the call forever.
 | `3`  | policy refusal: the pinned branch is the default branch, workflows changed, an LFS pointer added, or no default branch to check against                        |
 | `4`  | transport failure or timeout — including a rejected (non-fast-forward) push, `gh` missing or not logged in, and another push still holding the mirror          |
 
+### The user's push (`devc git`): not reachable through the bridge
+
+`gh-push` has two more modes, for **you** rather than an agent: `devc git push-plan <folder>`
+(what a push would send, as JSON) and `devc git push <folder> --sha <sha>` (push exactly that) —
+see [devc § Pushing a branch yourself](../devc/README.md#pushing-a-branch-yourself-devc-git).
+They run this same recipe on the host, with its mirror and every step above, and differ in two
+refusals only: the default branch (step 5) and workflow changes (step 7) are allowed, and the plan
+reports both so you are warned before confirming. An LFS pointer is still refused, and so is a push
+that is not a fast-forward (exit 4, checked before pushing: nothing forces). The push is of the SHA
+the plan showed, and is refused (exit 2, `the branch moved`) when the branch tip, freshly fetched
+from the repo, is no longer that SHA.
+
+**The modes are selected by the `DEVC_PUSH_MODE` environment variable alone, which only `devc git`
+sets.** The arguments stay as they are — `--sha` is refused outside the user mode — and the bridge
+deletes `DEVC_PUSH_MODE` from the environment of every script it runs, whatever the daemon's own
+environment holds, so an agent's `devc-bridge gh-push` always runs the agent's mode. `devc git`
+writes its own one-line policy (`~/.cache/devc/push-policy/push-<hash>.conf`) and uses its own
+mirrors (`git/push-<hash>/…`), so neither touches a container's.
+
 ### Limits, stated plainly
 
 - **The mirror holds no unique state.** Deleting it costs a re-fetch on the next
@@ -882,7 +901,7 @@ something would otherwise hang the call forever.
   commit whose content was never uploaded.
 - **A workflow change is refused even when harmless** — including a branch that
   is merely behind a default branch whose workflows moved. Rebase, or push that
-  one yourself.
+  one yourself (`devc git push`, above).
 - **GitHub pushes go out as `gh`'s account.** A `github.com-*` ssh alias for a
   second account does not carry over: the push authenticates as gh's active
   github.com account. Because user git config is skipped, an `http.proxy` in
@@ -890,7 +909,7 @@ something would otherwise hang the call forever.
   environment does.
 - **Never the default branch.** Read from the remote on every push, so a fork
   workflow that commits on the fork's own default branch cannot publish; use a
-  feature branch.
+  feature branch, or `devc git push` on the host.
 - **Nothing but GitHub.** A GitHub Enterprise host, GitLab, or a local bare repo
   cannot be pushed through the bridge.
 

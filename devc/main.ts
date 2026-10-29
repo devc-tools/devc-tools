@@ -86,6 +86,7 @@ import { superviseWeb } from './web/supervisor.ts';
 import { LEGACY_TOKEN_PATH, tokenWellFormed } from './web/token.ts';
 import { openBrowser, openPath } from './web/browser.ts';
 import { parseTimeArgs, runTime } from './time.ts';
+import { gitPush, parseGitArgs, pushPlan } from './git_push.ts';
 
 const subcommand = Deno.args[0];
 const KNOWN_COMMANDS = new Set(COMMANDS.map((c) => c.name));
@@ -428,6 +429,19 @@ if (subcommand === 'time') {
   const timeArgs = parseOrExit2(parseTimeArgs, Deno.args.slice(1));
   await runTime(timeArgs).catch(fail);
   Deno.exit(0);
+}
+
+// `devc git push-plan <folder>` / `devc git push <folder> --sha <sha>`: the user's push from the
+// host, through devc-bridge's gh-push mirror in its user mode (see `git_push.ts`). Reads the repo
+// as files only and needs no container: dispatched before the first-run global-config hook, like
+// `time`. `push-plan` exits 0 even when its JSON says `ok: false`; `push` exits as gh-push does.
+if (subcommand === 'git') {
+  const gitArgs = parseOrExit2(parseGitArgs, Deno.args.slice(1));
+  if (gitArgs.command === 'push-plan') {
+    console.log(JSON.stringify(await pushPlan(gitArgs.folder)));
+    Deno.exit(0);
+  }
+  Deno.exit(await gitPush(gitArgs.folder, gitArgs.sha).catch(fail));
 }
 
 // `devc web`: the browser UI for the Herdr sessions in every running devcontainer. Runs until

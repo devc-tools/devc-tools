@@ -46,6 +46,7 @@ devc prune   [--dry-run]                              Remove devc-bridge key dir
 devc status  [PATH]                                   Print `running` / `stopped` / `missing`, then protection and bridge lines
 devc web     [--port N] [--session NAME] [--no-open] [--live] [--live-yolo] [--source DIR] Serve a browser UI for the Herdr sessions in every running devcontainer and on this machine
 devc time    [--days N] [--by repo|branch|agent] [--json] Show time spent by you and by agents, as devc web recorded it
+devc git     push-plan FOLDER | push FOLDER --sha SHA Push a repo's branch from the host, after seeing what goes out
 ```
 
 Run `devc --help` for the full command list, `devc <COMMAND> --help` for a
@@ -144,6 +145,7 @@ Notes:
   exit 1 — rather than reporting the container as absent.
 - `web` — see [`devc web`](#devc-web-browser-ui-for-in-container-herdr).
 - `time` — see [Time tracking](#time-tracking).
+- `git` — see [Pushing a branch yourself: `devc git`](#pushing-a-branch-yourself-devc-git).
 
 ## How it works
 
@@ -1762,6 +1764,69 @@ Then `devc build`. Both halves are needed: the new mount's source directory is
 created by the new script, and Docker fails a bind whose source is missing.
 The old `~/.config/devc/gitconfig-identity` file is left alone, since projects
 not yet migrated still mount it.
+
+## Pushing a branch yourself: `devc git`
+
+An agent publishes through `devc-bridge gh-push`, under its policy: never the default branch,
+never a change to `.github/workflows` or `.github/actions`. `devc git` is the push for **you**,
+from a host terminal (or an app built on it), of what that policy refuses or never granted, after
+seeing exactly what goes out:
+
+```sh
+devc git push-plan ~/code/widget                    # JSON: what a push would send
+devc git push ~/code/widget --sha <the plan's sha>  # push exactly that
+```
+
+`FOLDER` is the repo's folder on this machine — a container's bind-mounted repo or a host
+project, a linked worktree included. Its branch is the one checked out, and the remote is that
+branch's upstream, or `origin` when it tracks nothing yet; both are read from `.git` as files. A
+branch that tracks one of another name is refused (the push publishes a branch under its own
+name), and so is a remote that is not GitHub: the push goes over HTTPS with `gh`'s login, as
+`gh-push`'s does, so `gh auth login` is the whole setup.
+
+`push-plan` prints one JSON object and exits 0, even when it is a refusal:
+
+```ts
+type PushPlan =
+  | {
+    ok: true;
+    folder: string; // as given, realpath'd
+    remote: string; // the URL
+    branch: string;
+    sha: string; // the branch tip, full: what push --sha takes
+    remoteSha: string | null; // the remote branch's tip, null when it doesn't exist yet
+    commits: { sha: string; subject: string; author: string }[]; // newest first, at most 50
+    totalCommits: number; // commits on neither the default branch nor the remote branch
+    defaultBranch: boolean; // allowed, warn
+    guarded: string[]; // changed paths under .github/workflows|actions: allowed, warn
+    lfs: boolean; // refused at push time
+    fastForward: boolean; // false: refused at push time
+    upToDate: boolean;
+  }
+  | { ok: false; problem: string };
+```
+
+`subject`, `author` and `guarded` are the repo's text, written by whoever wrote the commits —
+an agent, often. Show them as text only.
+
+`push` pushes `--sha` — the full SHA the plan printed, never a branch name — to
+`refs/heads/<branch>`, and prints `gh-push`'s `pushed: …` or `up to date: …` line. Its exit codes
+are `gh-push`'s: `0` pushed or up to date; `2` the branch moved since the plan
+(`the branch moved: <branch> is now <sha>, not <sha>` — run `push-plan` again) or another
+argument or pin problem; `3` an LFS pointer, which cannot be published from the mirror; `4` not a
+fast-forward of the remote branch (**nothing is ever force-pushed**: pull or rebase first), or a
+transport failure.
+
+**git never runs in the repo.** Its hooks, `core.fsmonitor`, `core.sshCommand` and `insteadOf`
+rewrites would run as you if it did. `devc git` runs devc-bridge's own `gh-push` recipe on this
+machine, in its user mode, which only fetches _from_ the repo into a host-owned bare mirror
+(`~/.local/state/devc-bridge/git/push-<hash>/<owner>/<name>.git`) and does everything else there
+— see [devc-bridge § Publishing a branch](../devc-bridge/README.md#publishing-a-branch-gh-push).
+The recipe reads its pinned line from a one-line policy that `devc git` writes before each run,
+`~/.cache/devc/push-policy/push-<hash>.conf` (`0600`, granting `gh-push`), apart from the
+bridge's policies and devc web's `web-pr-policy/`. The user mode is selected by the
+`DEVC_PUSH_MODE` environment variable alone, which only `devc git` sets and the bridge strips
+from every script it runs, so no agent's `devc-bridge gh-push` can reach it.
 
 ## devc-bridge: the opt-in Feature
 

@@ -590,6 +590,31 @@ Deno.test('ordinary commands are unaffected by grants', async () => {
   });
 });
 
+Deno.test("DEVC_PUSH_MODE in the daemon's environment never reaches a script", async () => {
+  // gh-push's user modes are `devc git`'s alone: set here as if the bridge had been started from
+  // a shell that exported it, the variable must not reach any script, built-in or not.
+  const saved = Deno.env.get('DEVC_PUSH_MODE');
+  Deno.env.set('DEVC_PUSH_MODE', 'user');
+  Deno.env.set('DEVC_BRIDGE_TEST_INHERITED', 'kept');
+  try {
+    await withServer(policyLine('gh-push'), async ({ dir, port, token }) => {
+      const dump =
+        'env | grep -E "^(DEVC_PUSH_MODE|DEVC_BRIDGE_TEST_INHERITED)=" | sort';
+      await script(join(dir, 'builtin', 'gh-push'), dump);
+      await script(join(dir, 'commands', 'envdump'), dump);
+      for (const command of ['gh-push', 'envdump']) {
+        const resp = await call(port, token, command);
+        assertEquals(resp.exitCode, 0, command);
+        assertEquals(resp.stdout, 'DEVC_BRIDGE_TEST_INHERITED=kept\n', command);
+      }
+    });
+  } finally {
+    if (saved === undefined) Deno.env.delete('DEVC_PUSH_MODE');
+    else Deno.env.set('DEVC_PUSH_MODE', saved);
+    Deno.env.delete('DEVC_BRIDGE_TEST_INHERITED');
+  }
+});
+
 Deno.test('a reply larger than one socket write arrives whole', async () => {
   await withServer(null, async ({ dir, port, token }) => {
     // gh-pr-files on a big PR: megabytes of patches, more than a socket takes in one write.

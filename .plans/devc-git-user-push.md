@@ -7,10 +7,10 @@ terminal.
 ## Checklist
 
 - [x] **Confirm D1 and D2 with the user before starting** (accepted as written, 2026-10-29).
-- [ ] `gh-push`: a plan mode and a user mode, reachable only from devc's CLI (D3).
-- [ ] `devc-bridge/host/core.ts`: never pass `DEVC_PUSH_MODE` to a recipe.
-- [ ] `devc git push-plan` and `devc git push` (contracts below).
-- [ ] Tests, `devc/README.md`, `devc-bridge/README.md` (the mode is not reachable through the bridge).
+- [x] `gh-push`: a plan mode and a user mode, reachable only from devc's CLI (D3).
+- [x] `devc-bridge/host/core.ts`: never pass `DEVC_PUSH_MODE` to a recipe.
+- [x] `devc git push-plan` and `devc git push` (contracts below).
+- [x] Tests, `devc/README.md`, `devc-bridge/README.md` (the mode is not reachable through the bridge).
 
 ## Goal
 
@@ -97,3 +97,25 @@ only.
 `devc-bridge/tests/`, `devc/main.ts` and `devc/args.ts` (the `git` command), `devc/help.ts`,
 `devc/web/pr_host.ts` (policy-writing pattern), `devc/web/git_repo.ts`, `devc/README.md`,
 `devc-bridge/README.md` (§ Publishing a branch).
+
+## Implementation notes (2026-10-29)
+
+- `guarded` lists exactly the paths the agent's mode would refuse: changed relative to the default
+  branch and, when the remote branch exists, to its tip too. A workflow change already on the
+  remote branch is not listed again.
+- `commits` and `totalCommits` count what is on neither the remote's default branch nor the
+  remote branch's tip. `author` is the author name (`%an`), not mailmapped.
+- The remote is the branch's upstream URL, else `origin`'s (a branch with no upstream yet). A
+  branch whose upstream has another name is refused: gh-push publishes a branch under its own name.
+- `devc git`'s key is `push-<16 hex of sha256(folder)>`, so its mirrors sit at
+  `~/.local/state/devc-bridge/git/push-<hash>/…`, apart from every container's.
+- The non-fast-forward check runs before the push in user mode only (and is reported in plan
+  mode); the agent's push still leaves it to the remote, as before.
+- The bridge strips `DEVC_PUSH_MODE` from every script, not only built-ins. That needed
+  `clearEnv: true` on the script's `Deno.Command`: without it Deno merges the given env into the
+  daemon's, so a deleted key was still inherited. This also closes the same gap for
+  `DEVC_BRIDGE_POLICY_DIR` on a server started without a policy dir.
+- Fixed along the way: gh-push's `remote_sha` read the `ls-remote --symref` line (`ref: …`) when
+  the branch was the default branch, which only the user's modes reach.
+- Verified offline only (local bare remote, stub `gh`); a real push to GitHub is the first caller's
+  (`devc-desktop-host-actions`) manual validation.

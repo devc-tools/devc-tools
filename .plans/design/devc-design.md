@@ -667,6 +667,8 @@ Commands:
   prune    Remove devc-bridge key dirs and policies no container uses
   status   Show dev container status for the current project
   web      Serve a browser UI for the Herdr sessions in running dev containers
+  time     Show time spent by you and by agents, from devc web
+  git      Push a repo's branch from the host, after seeing what goes out
 
 Run "devc <COMMAND> --help" for more information on a command.
 ```
@@ -1042,6 +1044,33 @@ Options:
       --by WHAT  Group by repo (default), branch or agent
       --json     Print the rows as JSON
   -h, --help     Print help
+```
+
+## `git`
+
+The user's push of a repo's branch, from the host, through devc-bridge's `gh-push` mirror in its
+user mode (`DEVC_PUSH_MODE`, which the bridge strips from every script): `push-plan` prints what a
+push would send as JSON, `push` pushes the SHA that plan showed, refusing when the branch has moved
+since. The default branch and workflow changes are allowed and reported; an LFS pointer and a
+non-fast-forward are refused. git never runs in the repo. Needs no container; dispatched before
+the first-run global-config wizard. See `devc/README.md` § Pushing a branch yourself.
+
+```text
+Usage: devc git push-plan <FOLDER>
+       devc git push <FOLDER> --sha <SHA>
+
+Commands:
+  push-plan  Print, as JSON, what pushing FOLDER's branch would send: its
+             tip, the new commits, and whether it is the default branch, changes
+             workflows, adds an LFS pointer or is not a fast-forward
+  push       Push that tip, SHA (the plan's "sha"), to the branch on GitHub
+
+Arguments:
+  <FOLDER>  The repo folder on this machine (a worktree is fine)
+
+Options:
+      --sha <SHA>  The full SHA push-plan printed; refused if the branch moved
+  -h, --help       Print help
 ```
 
 ## Implementation notes
