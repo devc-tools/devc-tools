@@ -517,13 +517,15 @@ export const STATIC_ROOT = new URL('./static/', import.meta.url);
 
 /**
  * The page routes: `/` is the whole page; `/sidebar` and `/main` its halves, as pages of their
- * own, and `/containers` the sidebar's Containers section alone.
+ * own, `/containers` the sidebar's Containers section alone, and `/host-status` the host status
+ * strip alone (devc-desktop draws it across the foot of its window).
  */
 const PAGE_ROUTES: Record<string, string> = {
   '/': '/index.html',
   '/sidebar': '/sidebar.html',
   '/main': '/main.html',
   '/containers': '/containers.html',
+  '/host-status': '/host-status.html',
 };
 
 /** Serves `pathname` (a page route, see {@link PAGE_ROUTES}, or a file) from the directory `root`. */

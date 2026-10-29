@@ -1003,7 +1003,8 @@ Edits reach the open tab without a new URL:
   a file tile has unsaved edits, or a key or click came in the last 2 s.
 - **Pausing** (both modes): **live**, beside the connection dot at the right
   end of the status strip across the foot of the page, pauses live reload for
-  that tab (**live ⏸ paused**; it stays paused across the tab's own reloads).
+  every devc web tab of that browser (**live ⏸ paused**; it stays paused across
+  their reloads).
   Page edits then wait: the button reads **live ⏸ UI changed**, and clicking it
   resumes and reloads.
 - **Server** (`.ts` under `devc/` or `devc-core/`, not `tests/`;

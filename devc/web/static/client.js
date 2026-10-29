@@ -24,7 +24,11 @@ const RELOAD_IDLE_MS = 2000;
 const RELOAD_RETRY_MS = 1000;
 /** Served from the last-good snapshot (`/safe/`): no reloads, no `client_ready`. */
 export const SAFE_MODE = location.pathname.startsWith('/safe/');
-/** Where this tab keeps live reload paused across its own reloads: `sessionStorage`. */
+/**
+ * Where live reload is kept paused: `localStorage`, so one pause holds every page of this origin
+ * (devc-desktop's views: the strip in `/host-status` pauses `/main` and `/sidebar` too), across
+ * their reloads.
+ */
 const LIVE_PAUSE_KEY = 'devc-web-live-paused-v1';
 
 // ---------------------------------------------------------------------------------------------
@@ -340,7 +344,7 @@ function liveReloadChanged() {
 
 function loadLiveReloadPaused() {
   try {
-    return sessionStorage.getItem(LIVE_PAUSE_KEY) === '1';
+    return localStorage.getItem(LIVE_PAUSE_KEY) === '1';
   } catch {
     return false;
   }
@@ -351,14 +355,23 @@ export function setLiveReloadPaused(on) {
   if (on === liveReloadPaused) return;
   liveReloadPaused = on;
   try {
-    if (on) sessionStorage.setItem(LIVE_PAUSE_KEY, '1');
-    else sessionStorage.removeItem(LIVE_PAUSE_KEY);
-  } catch { /* unavailable: the pause just won't survive a reload */ }
+    if (on) localStorage.setItem(LIVE_PAUSE_KEY, '1');
+    else localStorage.removeItem(LIVE_PAUSE_KEY);
+  } catch {
+    /* unavailable: the pause holds only this page, until it reloads */
+  }
   const held = liveReloadHeld;
   liveReloadHeld = false;
   liveReloadChanged();
   if (!on && held) requestReload();
 }
+
+// Another page of this origin paused or resumed: this one follows.
+addEventListener('storage', (e) => {
+  if (e.key === LIVE_PAUSE_KEY || e.key === null) {
+    setLiveReloadPaused(loadLiveReloadPaused());
+  }
+});
 
 /** Paused: the reload (or stylesheet swap) waits for {@link setLiveReloadPaused}. */
 function holdForPause() {

@@ -19,6 +19,7 @@ import {
   relayedState,
   scopeFromSearch,
   SIDEBAR_INTENT_NAMES,
+  statusExternalFromHash,
   tileMarks,
   tileShowingDiff,
   tileShowingFile,
@@ -335,6 +336,16 @@ Deno.test('scopeFromSearch: ?scope=, else an old ?zen= scope, else null', () => 
   ) {
     assertEquals(scopeFromSearch(s), null, s);
   }
+});
+
+Deno.test('statusExternalFromHash: only status=external', () => {
+  assertEquals(
+    statusExternalFromHash('#token=abc&view=devcd&status=external'),
+    true,
+  );
+  assertEquals(statusExternalFromHash('#token=abc&view=devcd'), false);
+  assertEquals(statusExternalFromHash('#status=inline'), false);
+  assertEquals(statusExternalFromHash(''), false);
 });
 
 Deno.test('containersExternalFromHash: only containers=external', () => {

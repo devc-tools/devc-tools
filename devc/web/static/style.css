@@ -97,6 +97,15 @@ button:hover {
   grid-template-columns: minmax(0, 1fr);
 }
 
+/* `/host-status` is the strip alone, the whole window. */
+.app[data-page='host-status'] {
+  grid-template-rows: minmax(0, 1fr);
+}
+
+.app[data-page='host-status'] > .host-status {
+  grid-row: 1;
+}
+
 /* `/containers` has no header or filter: its one zone fills the window. */
 .app[data-page='containers'] > .sidebar {
   grid-template-rows: minmax(0, 1fr);

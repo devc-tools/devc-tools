@@ -378,6 +378,18 @@ export function containersExternalFromHash(hash) {
 }
 
 /**
+ * Whether a `/main` page's URL hash says its host status strip is drawn elsewhere
+ * (`#…&status=external`: devc-desktop's `/host-status` view across the foot of its window): the
+ * page then draws none.
+ *
+ * @param {string} hash  `location.hash`, `#` included or not
+ */
+export function statusExternalFromHash(hash) {
+  return new URLSearchParams(hash.replace(/^#/, '')).get('status') ===
+    'external';
+}
+
+/**
  * Zen mode as a page URL's query asks for it, the tiling area's starting point (`?zen=…`): `on`
  * is on, `off` is off; `container` or `repo` (from when zen mode had a sidebar scope) is on. Null
  * when the query names none (or an unknown value): the page starts as it was saved.

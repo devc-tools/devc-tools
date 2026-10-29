@@ -179,7 +179,7 @@ Deno.test('routeStatic serves /safe/ from the snapshot, or 404s without one', as
   });
 });
 
-Deno.test('routeStatic serves /sidebar, /main and /containers, live and under /safe/', async () => {
+Deno.test('routeStatic serves /sidebar, /main, /containers and /host-status, live and under /safe/', async () => {
   await withTemp(async (dir) => {
     const main = join(dir, 'static');
     const safe = join(dir, 'last-good');
@@ -188,6 +188,7 @@ Deno.test('routeStatic serves /sidebar, /main and /containers, live and under /s
       'sidebar.html': 'live sidebar',
       'main.html': 'live main',
       'containers.html': 'live containers',
+      'host-status.html': 'live host status',
       'x.js': 'live x',
     });
     await writeTree(safe, {
@@ -195,6 +196,7 @@ Deno.test('routeStatic serves /sidebar, /main and /containers, live and under /s
       'sidebar.html': 'good sidebar',
       'main.html': 'good main',
       'containers.html': 'good containers',
+      'host-status.html': 'good host status',
     });
     const get = (path: string) =>
       routeStatic(path, PORT, dirUrl(main), dirUrl(safe));
@@ -204,10 +206,12 @@ Deno.test('routeStatic serves /sidebar, /main and /containers, live and under /s
         ['/sidebar', 'live sidebar'],
         ['/main', 'live main'],
         ['/containers', 'live containers'],
+        ['/host-status', 'live host status'],
         ['/safe/', 'good index'],
         ['/safe/sidebar', 'good sidebar'],
         ['/safe/main', 'good main'],
         ['/safe/containers', 'good containers'],
+        ['/safe/host-status', 'good host status'],
       ]
     ) {
       const r = await get(path);

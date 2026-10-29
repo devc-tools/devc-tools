@@ -12,7 +12,7 @@
 .lm_dragging * {
   cursor: move !important;
   -webkit-user-select: none;
-          user-select: none;
+  user-select: none;
 }
 .lm_maximised {
   position: absolute;
@@ -34,7 +34,7 @@
   cursor: ns-resize;
   touch-action: none;
   -webkit-user-select: none;
-          user-select: none;
+  user-select: none;
 }
 .lm_splitter.lm_horizontal {
   float: left;
@@ -46,14 +46,14 @@
   cursor: ew-resize;
   touch-action: none;
   -webkit-user-select: none;
-          user-select: none;
+  user-select: none;
 }
 .lm_header {
   overflow: visible;
   position: relative;
   z-index: 1;
   -webkit-user-select: none;
-          user-select: none;
+  user-select: none;
 }
 .lm_header [class^=lm_] {
   box-sizing: content-box !important;
