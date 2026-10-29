@@ -9,27 +9,41 @@ import {
   canPush,
   cdTarget,
   clampDrawer,
+  CONTAINERS_DEFAULT_SHARE,
   debugReason,
   devcMayNavigate,
   devcOrigin,
   devcPermission,
   devcToken,
+  dragColumn,
+  dragContainers,
   DRAWER_MIN,
   externalUrl,
   fromView,
   HOST_PEEK,
   hostFolder,
+  type Layout,
   layout,
+  MAIN_MIN,
   MAX_LABEL,
   MAX_REQUESTS,
+  MENU_ITEMS_MAX,
+  MENU_MARGIN,
   menuLabel,
+  menuRequest,
+  PANE_MIN,
+  placeMenu,
   planWarnings,
   pushOutcome,
   pushPlanFrom,
+  RAIL,
+  type Rect,
   requestsAnswer,
   shellIdle,
   shellQuote,
   showText,
+  SIDEBAR_DEFAULT,
+  SIDEBAR_MIN,
   TITLEBAR_HEIGHT,
 } from '../src/main/policy.ts';
 
@@ -159,29 +173,193 @@ test('clampDrawer: at least 120 px, at most 85% of the height', () => {
   assertEquals(clampDrawer(500, 100), DRAWER_MIN);
 });
 
-test('layout: the title bar on top, the drawer below devc web, none overlapping', () => {
-  const bar = { x: 0, y: 0, width: 1200, height: TITLEBAR_HEIGHT };
-  assertEquals(layout(1200, 832, null), {
-    bar,
-    main: { x: 0, y: 32, width: 1200, height: 800 },
-    host: null,
-  });
-  const { main, host } = layout(1200, 832, 300);
-  assertEquals(main, { x: 0, y: 32, width: 1200, height: 500 });
-  assertEquals(host, { x: 0, y: 532, width: 1200, height: 300 });
-  assertEquals(bar.y + bar.height, main.y);
-  assertEquals(main.y + main.height, host!.y);
-  assertEquals(layout(1200, 832, 5000).host!.height, 680);
-  // Closed with requests waiting: only the HOST strip shows; an open drawer ignores `peek`.
-  const peek = layout(1200, 832, null, true);
+/** No two rectangles of `l` overlap, and each is inside the window. */
+function disjoint(l: Layout, width: number, height: number): void {
+  const rs = Object.values(l).filter((r): r is Rect => r !== null);
+  for (const r of rs) {
+    assertEquals(r.width >= 0 && r.height >= 0, true, JSON.stringify(r));
+    assertEquals(r.x >= 0 && r.y >= 0, true, JSON.stringify(r));
+    assertEquals(r.x + r.width <= width, true, JSON.stringify(r));
+    assertEquals(r.y + r.height <= height, true, JSON.stringify(r));
+  }
+  for (const [i, a] of rs.entries()) {
+    for (const b of rs.slice(i + 1)) {
+      const overlap = a.x < b.x + b.width && b.x < a.x + a.width &&
+        a.y < b.y + b.height && b.y < a.y + a.height &&
+        a.width > 0 && a.height > 0 && b.width > 0 && b.height > 0;
+      assertEquals(overlap, false, `${JSON.stringify(a)} ${JSON.stringify(b)}`);
+    }
+  }
+}
+
+const open = {
+  width: 1400,
+  height: 932,
+  sidebarWidth: 340,
+  containers: { height: 400 },
+  drawer: 300,
+  peek: false,
+};
+
+test('layout: every pane open: the column, the rail, /main and the drawer under it', () => {
+  const l = layout(open);
+  assertEquals(l.bar, { x: 0, y: 0, width: 1400, height: TITLEBAR_HEIGHT });
+  assertEquals(l.sidebar, { x: 0, y: 32, width: 340, height: 500 });
+  assertEquals(l.containers, { x: 0, y: 532, width: 340, height: 400 });
+  assertEquals(l.rail, { x: 340, y: 32, width: RAIL, height: 900 });
+  assertEquals(l.main, { x: 346, y: 32, width: 1054, height: 600 });
+  // The drawer spans /main's width only.
+  assertEquals(l.host, { x: 346, y: 632, width: 1054, height: 300 });
+  disjoint(l, 1400, 932);
+});
+
+test('layout: the Containers pane hidden, /sidebar takes the column', () => {
+  const l = layout({ ...open, containers: null });
+  assertEquals(l.containers, null);
+  assertEquals(l.sidebar, { x: 0, y: 32, width: 340, height: 900 });
+  disjoint(l, 1400, 932);
+  // Its default height: a share of the column.
+  assertEquals(
+    layout({ ...open, containers: { height: null } }).containers!.height,
+    Math.round(900 * CONTAINERS_DEFAULT_SHARE),
+  );
+});
+
+test('layout: the drawer closed, or only its strip while requests wait', () => {
+  const closed = layout({ ...open, drawer: null });
+  assertEquals(closed.host, null);
+  assertEquals(closed.main, { x: 346, y: 32, width: 1054, height: 900 });
+  disjoint(closed, 1400, 932);
+  const peek = layout({ ...open, drawer: null, peek: true });
   assertEquals(peek.host, {
-    x: 0,
-    y: 832 - HOST_PEEK,
-    width: 1200,
+    x: 346,
+    y: 932 - HOST_PEEK,
+    width: 1054,
     height: HOST_PEEK,
   });
   assertEquals(peek.main.y + peek.main.height, peek.host!.y);
-  assertEquals(layout(1200, 832, 300, true).host, host);
+  // An open drawer ignores `peek`, and is clamped as before.
+  assertEquals(layout({ ...open, peek: true }).host, layout(open).host);
+  assertEquals(layout({ ...open, drawer: 5000 }).host!.height, 765);
+});
+
+test('layout: minimums, and a window too small for them all', () => {
+  // The column and the panes keep their minimums while there is room.
+  const narrow = layout({
+    ...open,
+    sidebarWidth: 10,
+    containers: { height: 10 },
+  });
+  assertEquals(narrow.sidebar.width, SIDEBAR_MIN);
+  assertEquals(narrow.containers!.height, PANE_MIN);
+  const tall = layout({ ...open, containers: { height: 5000 } });
+  assertEquals(tall.sidebar.height, PANE_MIN);
+  // A wide column gives way to /main's minimum.
+  const wide = layout({ ...open, sidebarWidth: 5000 });
+  assertEquals(wide.main.width, MAIN_MIN);
+  disjoint(wide, 1400, 932);
+  // Too small for everything: /main keeps its width first, then the rail, then the column.
+  for (const [w, h] of [[500, 200], [MAIN_MIN + 3, 150], [300, 40], [0, 0]]) {
+    const l = layout({ ...open, width: w, height: h });
+    disjoint(l, w, h);
+    assertEquals(l.main.width, Math.max(0, w - l.sidebar.width - l.rail.width));
+    assertEquals(l.main.width >= Math.min(MAIN_MIN, w), true, `${w}`);
+  }
+  assertEquals(layout({ ...open, width: 500, height: 200 }).sidebar.width, 134);
+  assertEquals(layout({ ...open, width: MAIN_MIN + 3 }).rail.width, 3);
+});
+
+test('dragColumn and dragContainers keep what layout keeps', () => {
+  assertEquals(dragColumn(null, 10, 1400), SIDEBAR_DEFAULT + 10);
+  assertEquals(dragColumn(300, -500, 1400), SIDEBAR_MIN);
+  assertEquals(dragColumn(300, 5000, 1400), 1400 - MAIN_MIN - RAIL);
+  // Dragging the strip down shrinks the pane.
+  assertEquals(dragContainers(400, 50, 900), 350);
+  assertEquals(dragContainers(400, 500, 900), PANE_MIN);
+  assertEquals(dragContainers(400, -900, 900), 900 - PANE_MIN);
+  assertEquals(dragContainers(null, 0, 900), Math.round(900 * 0.45));
+});
+
+test('menuRequest: labels as text, dividers, and a point inside the pane', () => {
+  const pane = { width: 300, height: 400 };
+  assertEquals(
+    menuRequest({
+      items: [{ label: 'Stop', danger: false }, null, {
+        label: 'Remove\u202e',
+        danger: true,
+      }],
+      x: 10,
+      y: 20,
+    }, pane),
+    {
+      items: [{ label: 'Stop', danger: false }, null, {
+        label: 'Remove\ufffd',
+        danger: true,
+      }],
+      x: 10,
+      y: 20,
+    },
+  );
+  const item = { label: 'a', danger: false };
+  assertEquals(menuRequest({ items: [item], x: 301, y: 0 }, pane), null);
+  assertEquals(menuRequest({ items: [item], x: -1, y: 0 }, pane), null);
+  assertEquals(menuRequest({ items: [], x: 0, y: 0 }, pane), null);
+  assertEquals(menuRequest({ items: [{ label: '' }], x: 0, y: 0 }, pane), null);
+  assertEquals(menuRequest({ items: ['a'], x: 0, y: 0 }, pane), null);
+  assertEquals(
+    menuRequest(
+      { items: Array(MENU_ITEMS_MAX + 1).fill(item), x: 0, y: 0 },
+      pane,
+    ),
+    null,
+  );
+  assertEquals(
+    menuRequest({ items: [{ label: 'x'.repeat(500) }], x: 0, y: 0 }, pane)!
+      .items[0]!.label.length,
+    120,
+  );
+});
+
+test('placeMenu: flips and shifts against the window edges only', () => {
+  const win = { width: 1000, height: 800 };
+  const size = { width: 184, height: 284 };
+  const w = 200;
+  const h = 300;
+  // Top left: at the point (less the margin its shadow takes).
+  assertEquals(placeMenu({ x: 20, y: 30 }, size, win), {
+    x: 20 - MENU_MARGIN,
+    y: 30 - MENU_MARGIN,
+    width: w,
+    height: h,
+  });
+  // Top right: opens leftwards.
+  assertEquals(
+    placeMenu({ x: 990, y: 30 }, size, win).x,
+    990 - w + MENU_MARGIN,
+  );
+  // Bottom left: opens upwards.
+  assertEquals(
+    placeMenu({ x: 20, y: 790 }, size, win).y,
+    790 - h + MENU_MARGIN,
+  );
+  // Bottom right: both.
+  const br = placeMenu({ x: 990, y: 790 }, size, win);
+  assertEquals([br.x, br.y], [990 - w + MENU_MARGIN, 790 - h + MENU_MARGIN]);
+  // At a corner it can't open away from: kept inside the window.
+  assertEquals(placeMenu({ x: 0, y: 0 }, size, win).x, 0);
+  assertEquals(
+    placeMenu({ x: 150, y: 100 }, { ...size, width: 990 }, win).x,
+    0,
+  );
+  // Taller than the window: the whole height, from the top; its page scrolls.
+  const tall = placeMenu({ x: 20, y: 400 }, { width: 184, height: 2000 }, win);
+  assertEquals([tall.y, tall.height], [0, 800]);
+  for (const r of [br, tall]) {
+    assertEquals(
+      r.x + r.width <= win.width && r.y + r.height <= win.height,
+      true,
+    );
+  }
 });
 
 test("fromView: only the view's own main frame, at its bundled page", () => {

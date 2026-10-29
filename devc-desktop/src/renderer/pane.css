@@ -1,0 +1,63 @@
+/* The Containers pane around devc web's own section (style.css): the app's HOST strip on top,
+   the Actions column under it, then the section. */
+:root {
+  --host: #f0b54a;
+}
+body {
+  display: flex;
+  flex-direction: column;
+}
+#strip {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 3px 10px;
+  font-size: 12px;
+  background: var(--panel);
+  border-top: 2px solid var(--host);
+  border-bottom: 1px solid var(--border);
+  cursor: row-resize;
+  user-select: none;
+}
+#who {
+  color: var(--host);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+#badge {
+  background: var(--host);
+  color: #1a1408;
+  border-radius: 8px;
+  padding: 0 6px;
+  font-weight: 600;
+}
+#badge[hidden] {
+  display: none;
+}
+#actions {
+  flex: none;
+  max-height: 60%;
+  overflow: auto;
+  padding: 6px;
+  font-size: 12px;
+  line-height: 1.4;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel);
+}
+#actions[hidden],
+#notice[hidden],
+.app[hidden] {
+  display: none;
+}
+#notice {
+  padding: 12px 10px;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+#section {
+  flex: 1 1 0;
+  height: auto;
+  min-height: 0;
+}

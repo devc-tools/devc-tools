@@ -1,0 +1,56 @@
+/* An Actions column's cards (actions.ts), in the HOST drawer and the Containers pane. The page
+   that links this sheet defines the colours: --bg, --border, --text, --muted and --host. */
+.action-card {
+  display: grid;
+  gap: 4px;
+  margin-bottom: 6px;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--host);
+  border-radius: 4px;
+  background: var(--bg);
+  overflow-wrap: anywhere;
+}
+.action-card[data-phase='refused'] {
+  opacity: 0.6;
+  border-left-color: var(--muted);
+}
+.action-card .title {
+  font-weight: 600;
+}
+.action-card .folder,
+.action-card .mono {
+  font: 11px/1.35 ui-monospace, Menlo, monospace;
+}
+.action-card .muted {
+  color: var(--muted);
+}
+.action-card ul {
+  margin: 0;
+  padding-left: 14px;
+}
+.action-card .warn {
+  color: var(--host);
+}
+.action-card .refusal,
+.action-card .fail {
+  color: #f07a6a;
+}
+.action-card .ok {
+  color: #7fd18b;
+}
+.action-card pre {
+  margin: 0;
+  max-height: 10em;
+  overflow: auto;
+  font: 11px/1.3 ui-monospace, monospace;
+  white-space: pre-wrap;
+}
+.action-card pre:empty {
+  display: none;
+}
+.action-card .buttons {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}

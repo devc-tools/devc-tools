@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <!-- Its own scripts only; `/ws` is the one place it connects to (the app hands it the
+         address). devc web's style.css sets inline styles, hence 'unsafe-inline' for styles. -->
+    <meta http-equiv="Content-Security-Policy"
+      content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src ws://127.0.0.1:* http://127.0.0.1:*">
+    <title>Containers</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="actions.css">
+    <link rel="stylesheet" href="pane.css">
+  </head>
+  <body>
+    <header id="strip" title="Drag to resize">
+      <span id="who">HOST · Containers</span>
+      <span id="badge" hidden></span>
+    </header>
+    <aside id="actions" aria-label="Actions" hidden></aside>
+    <div id="notice" hidden></div>
+    <div class="app" data-page="containers" id="section">
+      <aside class="sidebar">
+        <nav class="tree" id="tree" aria-label="Containers">
+          <div class="zone zone-browse" id="containers"></div>
+        </nav>
+      </aside>
+    </div>
+    <div class="menu" id="menu" role="menu" hidden></div>
+    <div class="toasts" id="toasts" aria-live="polite"></div>
+    <script src="containers.js"></script>
+  </body>
+</html>

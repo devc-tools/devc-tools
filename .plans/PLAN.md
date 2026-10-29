@@ -91,7 +91,8 @@ for them.
 - [devc-desktop-containers-column](devc-desktop-containers-column.md) — the Containers pane,
   bundled into the app, sits below devc web's `/sidebar` view in the left column, with an
   app-owned rail and HOST strip and a trusted overlay menu view. A protocol version check guards
-  against drift. `devc-desktop/proto/` is its reference, then deleted.
+  against drift. `devc-desktop/proto/` is its reference, then deleted. Built 2026-10-29; the
+  Mac check in its notes is still to do.
 
 ### Standing rules for Feature work
 

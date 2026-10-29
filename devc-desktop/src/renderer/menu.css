@@ -1,0 +1,66 @@
+/* The overlay menu: a transparent page, only its box shows, inset by MENU_MARGIN (policy.ts) so
+   its shadow fits inside the view. The look is devc web's in-page menu (style.css `.menu`). */
+:root {
+  --panel: #181e27;
+  --panel-2: #222c3a;
+  --border: #303a49;
+  --text: #cbd5e3;
+  --danger: #ff7b7b;
+  font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+  font-size: 13px;
+  color-scheme: dark;
+}
+html,
+body {
+  margin: 0;
+  height: 100%;
+  background: transparent;
+  overflow: hidden;
+}
+.menu {
+  position: absolute;
+  left: 8px;
+  top: 8px;
+  box-sizing: border-box;
+  width: max-content;
+  min-width: 150px;
+  max-width: calc(100vw - 16px);
+  /* Taller than the window, it is cut to it and scrolls. */
+  max-height: calc(100vh - 16px);
+  overflow-y: auto;
+  padding: 4px 0;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 4px 8px rgb(0 0 0 / 0.4);
+  color: var(--text);
+}
+.menu[hidden] {
+  display: none;
+}
+.menu button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  border: none;
+  border-radius: 0;
+  background: none;
+  padding: 4px 12px;
+  cursor: pointer;
+}
+.menu button.active {
+  background: var(--panel);
+}
+.menu button.danger {
+  color: var(--danger);
+}
+.menu .menu-sep {
+  height: 1px;
+  margin: 4px 0;
+  background: var(--border);
+}

@@ -5,15 +5,33 @@ devc web cannot reach. The app runs the installed `devc web --no-open` as a chil
 shows a status page while that starts, then shows the page `devc web` serves. Live mode
 (`--live`, `--live-yolo`) works as in a browser tab.
 
-It is an [Electron](https://www.electronjs.org/) app. One window holds four separate views, each
-its own browser instance (not frames of one page):
+It is an [Electron](https://www.electronjs.org/) app. One window holds separate views, each its
+own browser instance (not frames of one page):
 
-| View              | Shows                                                    | Can reach                               |
-| ----------------- | -------------------------------------------------------- | --------------------------------------- |
-| **devc web**      | devc web's page                                          | devc web's own server, and nothing else |
-| **status**        | the status page while devc web starts, or why it stopped | Restart, nothing else                   |
-| **host terminal** | your login shell on this machine                         | the shell, through the app              |
-| **title bar**     | the window's title, in place of the OS's own bar         | nothing                                 |
+```
+┌──────────── title bar ────────────┐
+│ /sidebar          ┃               │
+│ (devc web)        ┃   /main       │
+│━ HOST · Containers┫   (devc web)  │
+│ Containers pane   ┃━ HOST ━━━━━━━━│
+│ (the app's)       ┃ host drawer   │
+└───────────────────┸───────────────┘
+```
+
+| View                | Shows                                                                       | Can reach                                                                               |
+| ------------------- | --------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
+| **devc web**        | `/sidebar` (Tasks, In use, pinned files) and `/main` (the tiles): two views | devc web's own server, and nothing else                                                 |
+| **Containers pane** | devc web's Containers section, built into the app, under its HOST strip     | devc web's `/ws` with the desktop token (the desktop role), and the app's confirm cards |
+| **rail**            | the divider between the left column and `/main`                             | its own drag, nothing else                                                              |
+| **overlay menu**    | the Containers pane's right-click menu, over every other view               | the pick, nothing else                                                                  |
+| **status**          | the status page while devc web starts, or why it stopped                    | Restart, nothing else                                                                   |
+| **host terminal**   | your login shell on this machine, under `/main`                             | the shell, through the app                                                              |
+| **title bar**       | the window's title, in place of the OS's own bar                            | nothing                                                                                 |
+
+Drag the rail, the Containers pane's **HOST · Containers** strip and the drawer's **HOST** strip
+to resize. The sizes are remembered. **Layout → Containers Pane** (Cmd+Shift+E, Ctrl+Shift+E on
+Linux) hides the pane: `/sidebar` then takes the whole column and draws devc web's own
+Containers section again.
 
 ## Build
 
@@ -120,6 +138,7 @@ stderr and a **Restart devc web** button.
 | macOS           | Linux                       | Does                                                               |
 | --------------- | --------------------------- | ------------------------------------------------------------------ |
 | Cmd+J or Ctrl+` | Ctrl+`                      | Opens or closes the host terminal                                  |
+| Cmd+Shift+E     | Ctrl+Shift+E                | Shows or hides the Containers pane                                 |
 | Cmd+R           | Ctrl+Shift+R                | Restarts `devc web` (a new token; a copied page URL stops working) |
 | Cmd+Q           | Ctrl+Shift+Q                | Quits                                                              |
 | Cmd+C / Cmd+V   | Ctrl+Shift+C / Ctrl+Shift+V | Copy / paste                                                       |
@@ -135,9 +154,35 @@ name (**devc**).
 Closing the window or quitting stops `devc web` (SIGTERM, then SIGKILL after 5 s) and the host
 shell (SIGHUP to its process group, then SIGKILL), and then exits.
 
+## The Containers pane
+
+The bottom of the left column is devc web's Containers section (running containers, their repo
+cards, Not running, Add project), but its code is built into the app from this checkout's
+`devc/web/static/containers.js` when the app is built. `devc web --live` changes `/sidebar` and
+`/main` as you edit them; it never changes the pane. An edit to the Containers section reaches
+the pane at the next build.
+
+The pane connects to devc web's `/ws` with the desktop token, which gives it the server's
+**desktop role**: it can start, stop and remove containers, add projects and move them, under
+`--live` too, where the page can't. Under `--live-yolo` it does none of that (the server's code
+then comes from the checkout): hide the pane and use devc web's own section. If the app was
+built for another version of devc web's messages than the running one speaks, the pane shows
+`This devc-desktop was built for protocol <n>; devc web speaks <m>. Rebuild devc-desktop.` and
+nothing else.
+
+**Push…**, **Start**, **Stop** and **Remove container** in the pane don't run at once. Each
+shows a card under the pane's HOST strip, worked out by the app as in the drawer's Actions column
+(below): a push shows the app's own push plan, a start the folder and its `initializeCommand`
+note. The confirm arms 1 s after the card last changed. The card's progress streams into it.
+
+The pane's right-click menus are drawn by the **overlay menu**, a view of the app's own that sits
+over every other view while a menu is open, so a menu can spread over `/sidebar` and `/main`. It
+flips and shifts only at the window's edges. Use the arrow keys, Enter and Escape; a click
+anywhere else, or resizing the window, closes it. devc web's own menus stay inside their views.
+
 ## The host terminal
 
-Ctrl+`(or Cmd+J on macOS) opens a drawer at the bottom of the window running your login
+Ctrl+`(or Cmd+J on macOS) opens a drawer under`/main`running your login
 shell (`$SHELL -l`) in your home folder. Drag its **HOST** strip to resize it. The height is
 remembered. Closing the drawer keeps the shell, so reopening it finds the same session.
 Restarting`devc web` does not touch it. If the shell exits, a key press starts a new one.
@@ -216,6 +261,21 @@ folder comes from the container's `devcontainer.local_folder` label, which is se
 when the container is created, and gets the same checks. Anything holding the token (devc web's page,
 an agent with it) can choose **which** pane counts.
 
+**The Containers pane** is the one view that gets the desktop token, through its preload,
+never in its URL. It is sandboxed in its own partition, is loaded only from the app's bundle and
+can't navigate off it, and is granted copying and the local network access Chromium asks for
+before a `file:` page reaches devc web on `127.0.0.1` (its CSP allows nothing else). Its code is
+the checkout's at build time, never what `--live` serves. Container names, branches, folders and
+the like are inserted as text only. It still trusts devc web's server for what it lists, as the
+page does. `/sidebar` (an agent can control it) relays to it, as it does to devc web's own
+`/containers` page: which card to reveal or fold, and which cards In use shows. The pane takes
+those as data only.
+
+**The overlay menu** is trusted, and drawn over devc web's views; never the reverse, since no
+other views overlap. Only the Containers pane can open it, with labels it inserts as text (control,
+bidi and zero-width characters replaced). devc web's views never reach it: a page's menu in
+trusted-looking UI would let the page put words there.
+
 **Host actions** extend this with a second token. `devc web --desktop-channel` prints a
 **desktop token** on stdout only (`devc web: desktop <64 hex>`). The app reads it there and keeps
 it in memory. It is never in a URL, a page or an environment variable (projects on this machine
@@ -250,9 +310,9 @@ The measurements are in
   at the next start. That holds with or without the host terminal.
 - **The app's own source.** The host terminal is only as trustworthy as the checkout it was
   built from.
-- **Spoofing inside devc web's area.** devc web can draw something that looks like a terminal
-  in its own part of the window. The real one is always below it, under the **HOST** strip,
-  where devc web cannot draw.
+- **Spoofing inside devc web's area.** devc web can draw something that looks like a terminal,
+  a Containers pane or a menu in its own part of the window. The real ones are always under a
+  **HOST** strip (or, for a menu, open from the pane), where devc web cannot draw.
 - **The toggle shortcut is visible.** Pressing Ctrl+` or Cmd+J while devc web has focus shows devc web
   that keypress, but nothing typed in the host terminal. devc web could also swallow it while
   it has focus. The menu item works regardless.
@@ -290,10 +350,14 @@ npm start       # bundle and run from source
   `launch.ts` finds `devc`, runs `devc web` and reads its ready and desktop lines, and runs
   `devc git` for the host actions. `policy.ts` holds the pure rules (navigation, windows,
   permissions, IPC senders, drawer geometry, and the host actions' checks and cards). `pty.ts` is the host shell.
-- `src/preload/`: the status and host bridges.
-- `src/renderer/`: the two bundled pages.
+- `src/preload/`: the status, host, title bar, Containers pane, rail and overlay menu bridges.
+- `src/renderer/`: the bundled pages. `containers.ts` is the Containers pane's entry: it imports
+  devc web's own `containers.js` and what it imports (`devc-web/…`, mapped to
+  `../devc/web/static/` by `build.mjs`). `actions.ts` draws the action cards the drawer and the
+  pane share.
 
-`build.mjs` bundles them with esbuild into `build/`, which electron-builder packs.
+`build.mjs` bundles them with esbuild into `build/` (the pane, with devc web's `style.css`, into
+`build/containers/`), which electron-builder packs.
 `after-pack.cjs` makes `node-pty`'s `spawn-helper` executable in the packed app.
 
 **Versions:** exact, each at least two weeks old when added: Electron 44.5.0, `node-pty` 1.1.0,
