@@ -236,15 +236,15 @@ body.resizing-sidebar {
 }
 
 /*
- * Level with the tile headers' bottom edge (the tiles' 5px margin plus a 29px header), with room
- * on the left for the corner toggle.
+ * Level with the tile headers' bottom edge (the tiles' gap plus a 29px header), its contents on
+ * the tile tabs' line, with room on the left for the corner toggle.
  */
 .sidebar-header {
   display: flex;
   align-items: center;
   gap: 9px;
-  height: 34px;
-  padding: 0 12px 0 30px;
+  height: calc(var(--tile-gap) + 29px);
+  padding: var(--tile-gap) 12px 0 calc(var(--tile-gap) + 26px);
   border-bottom: 1px solid var(--border);
   background: var(--sidebar-head);
 }
@@ -299,28 +299,24 @@ body.resizing-sidebar {
 }
 
 /*
- * Pinned to the window's top-left corner whether the sidebar is shown or hidden: over the sidebar
- * header's left end, or over the top-left stack's header (which makes room for it).
+ * Pinned to the window's top-left corner, in the same place whether the sidebar is shown or
+ * hidden: over the sidebar header's left end, or over the top-left stack's header (which makes
+ * room for it), inside the tile's 1px frame. The sidebar header's contents share that line.
  */
 .sidebar-corner {
   position: absolute;
-  top: 0;
-  left: 0;
+  top: calc(var(--tile-gap) + 1px);
+  left: calc(var(--tile-gap) + 1px);
   z-index: 5;
-  width: 26px;
-  height: 34px;
+  width: 22px;
+  height: 27px;
   padding: 0;
   border: 0;
   border-radius: 0;
   background: transparent;
 }
 
-/* Hidden, it sits in the top-left tile's header, inside the tile's 1px frame. */
 .app[data-sidebar='hidden'] > .sidebar-corner {
-  top: calc(var(--tile-gap) + 1px);
-  left: calc(var(--tile-gap) + 1px);
-  width: 22px;
-  height: 27px;
   border-radius: 4px 0 0 0;
 }
 
