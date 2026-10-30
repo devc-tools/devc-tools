@@ -427,6 +427,8 @@ function onStaticChanged(msg) {
  * it is a debug message no one sees.
  */
 let dialogShown = false;
+// Said first, so it may hide this page's dialogs until it has spread the view for one.
+if (bundled === null) console.debug('devc-desktop:dialog ready');
 new MutationObserver(() => {
   if (bundled !== null) return;
   const open =
