@@ -189,7 +189,7 @@ the title bar, transparent, so the dialog and its backdrop cover the window as d
 it goes back to its place when the dialog closes. devc web's own views do the same within devc web's part of the
 window: while `/sidebar` or `/main` has a dialog open (a task, Ask agent, the file palette), the
 app spreads that view over the column above the pane and `/main` above the drawer, never over an
-app view.
+app view, and dims the rest of the window below it with a view of its own.
 
 ## The host terminal
 

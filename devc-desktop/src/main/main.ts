@@ -282,6 +282,19 @@ async function main(): Promise<void> {
   win.contentView.addChildView(railView);
   titleBarView.setBackgroundColor(TITLEBAR_COLOR);
   win.contentView.addChildView(titleBarView);
+  // The dimming under a devc web dialog where its view may not spread (see devc web's dialogs):
+  // no page, only its background, the dialog backdrop's black at 45%.
+  const dimView = new WebContentsView({
+    webPreferences: {
+      sandbox: true,
+      contextIsolation: true,
+      nodeIntegration: false,
+      partition: 'dim',
+    },
+  });
+  dimView.setBackgroundColor('#73000000');
+  dimView.setVisible(false);
+  win.contentView.addChildView(dimView);
   // Last, so it draws over every other view; transparent, so only its menu's box shows.
   menuView.setBackgroundColor('#00000000');
   menuView.setVisible(false);
@@ -404,6 +417,31 @@ async function main(): Promise<void> {
     };
   }
 
+  /**
+   * The app's dimming over the rest of the window below devc web's part of it (the Containers
+   * pane, the drawer, the status strip) while a devc web dialog shows, so the dialog reads as
+   * covering the window as the page's own does.
+   */
+  function placeDim(): void {
+    const shown = [...devcDialogs.values()].some((d) => d.reveal !== null);
+    dimView.setVisible(shown);
+    if (!shown) return;
+    const region = devcRegion(laid);
+    const { width, height } = win.getContentBounds();
+    const top = region.y + region.height;
+    dimView.setBounds({
+      x: 0,
+      y: top,
+      width,
+      height: Math.max(0, height - top),
+    });
+  }
+  // A click on the dimming leaves the keys with the dialog.
+  dimView.webContents.on('focus', () => {
+    const [view] = devcDialogs.keys();
+    view?.webContents.focus();
+  });
+
   /** Puts a devc web view at `own`, or with a dialog open across devc web's part of the window. */
   function placeDevc(view: WebContentsView, own: Rect): void {
     const open = devcDialogs.get(view);
@@ -437,8 +475,12 @@ async function main(): Promise<void> {
         if (devcDialogs.get(view) !== open || open.reveal !== null) return;
         void wc.insertCSS(`${DIALOGS}{visibility:visible!important}`).then(
           (r) => {
-            if (devcDialogs.get(view) === open) open.reveal = r;
-            else void wc.removeInsertedCSS(r);
+            if (devcDialogs.get(view) !== open) {
+              void wc.removeInsertedCSS(r);
+              return;
+            }
+            open.reveal = r;
+            placeDim();
           },
         ).catch(() => {});
       }, 50);
@@ -451,8 +493,10 @@ async function main(): Promise<void> {
     if (open) {
       devcDialogs.set(view, { spread: null, reveal: null });
       hideMenu();
-      // Raised over the other devc web view and the rail, under the overlay menu.
+      // Raised over the other devc web view and the rail, then the dimming over what is below
+      // them, all under the overlay menu.
       win.contentView.addChildView(view);
+      win.contentView.addChildView(dimView);
       win.contentView.addChildView(menuView);
     } else {
       const keys = devcDialogs.get(view)!;
@@ -527,6 +571,7 @@ async function main(): Promise<void> {
     if (l.containers !== null) placeContainers(l.containers);
     hostView.setVisible(l.host !== null);
     if (l.host !== null) hostView.setBounds(l.host);
+    placeDim();
   }
   win.on('resize', () => {
     hideMenu();
