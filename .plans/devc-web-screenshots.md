@@ -17,7 +17,7 @@ Agent-initiated screenshots (an agent asking for a PNG of the page or a tile) ar
 
 ## Checklist
 
-- [ ] Step 0 (manual, before writing code): in a devc web pane running Claude Code, paste
+- [x] Step 0 (manual, before writing code): in a devc web pane running Claude Code, paste
       `ESC[200~` + an absolute PNG path + `ESC[201~` (a single-line paste from the page is sent
       without markers today, so do this with a temporary console call to `send({type: 'input',
       …})`). Confirm it shows `[Image #1]`. If it does not, stop and report to the user: the
@@ -204,19 +204,20 @@ attached one at a time, in order (one `call({type: 'attach_image', …})` each).
 - [x] `web_input_test.ts`: `pastePaths(['/a/b.png'])` is `'\x1b[200~/a/b.png\x1b[201~'`;
       `pastePaths(['/a/b.png', "/x y/it's.png"])` is
       `'\x1b[200~/a/b.png \'/x y/it\'\\\'\'s.png\'\x1b[201~'`
-- [ ] Manual, Chrome, a container project with Claude Code in a pane:
-  - [ ] Copy a screenshot (macOS Cmd+Ctrl+Shift+4, or Windows Win+Shift+S) and Cmd/Ctrl+V in
+- [ ] Manual, Chrome, a container project with Claude Code in a pane (the checked items ran in
+      devc-desktop, whose views are Chromium):
+  - [x] Copy a screenshot (macOS Cmd+Ctrl+Shift+4, or Windows Win+Shift+S) and Cmd/Ctrl+V in
         the pane: `[Image #1]` appears, and the file exists under `~/.cache/devc/images/` in the
         container with mode `600`
   - [ ] Copy cells from a spreadsheet and paste: the text is pasted, no image is attached
-  - [ ] Drop two PNGs and a `.txt` on the pane: two images are attached in one paste, and one
+  - [x] Drop two PNGs and a `.txt` on the pane: two images are attached in one paste, and one
         "Skipped 1 file" toast shows
-  - [ ] Drag a tile's tab across the pane onto another stack: the layout drag still works, and
+  - [x] Drag a tile's tab across the pane onto another stack: the layout drag still works, and
         the pane shows no drop highlight
-  - [ ] Ask Claude Code what the attached image shows: it describes it
+  - [x] Ask Claude Code what the attached image shows: it describes it
 - [ ] Manual, a host project (this machine): paste an image; the file is under the host's
       `~/.cache/devc/images/`
-- [ ] Manual, devc-desktop: a screenshot pasted from the OS tool and a dropped PNG are both
+- [x] Manual, devc-desktop: a screenshot pasted from the OS tool and a dropped PNG are both
       attached
 - [ ] Manual, Firefox: paste and drop work
 
