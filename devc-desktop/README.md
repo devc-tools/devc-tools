@@ -23,7 +23,7 @@ own browser instance (not frames of one page):
 | ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
 | **devc web**        | `/sidebar` (Tasks, In use, pinned files), `/main` (the tiles) and `/host-status` (the status strip across the window's foot): three views | devc web's own server, and nothing else                                                 |
 | **Containers pane** | devc web's Containers section, built into the app, under a zone divider                                                                   | devc web's `/ws` with the desktop token (the desktop role), and the app's confirm cards |
-| **rail**            | the divider between the left column and `/main`                                                                                           | its own drag and click, nothing else                                                    |
+| **rail**            | the divider between the left column and `/main`                                                                                           | its own drag, nothing else                                                              |
 | **overlay menu**    | the Containers pane's right-click menu, over every other view                                                                             | the pick, nothing else                                                                  |
 | **status**          | the status page while devc web starts, or why it stopped                                                                                  | Restart, nothing else                                                                   |
 | **host terminal**   | your login shell on this machine, under `/main`                                                                                           | the shell, through the app                                                              |
@@ -36,8 +36,8 @@ Containers section again. **Layout → Sidebar** (Cmd+B, Ctrl+Shift+B on Linux) 
 left column, `/sidebar` and the Containers pane, leaving the window to `/main`, as devc web's own
 page hides its sidebar. The «/» toggle in the top-left corner does the same, where devc web's
 page has it: at the left end of `/sidebar`'s header, and while the column is hidden, in `/main`'s
-top-left tile. The rail also stays at the window's edge, and a click or a drag on it shows the
-column again. Whether it shows is remembered too.
+top-left tile. The rail goes with the column, so `/main` starts at the window's edge. Whether the
+column shows is remembered too.
 
 ## Build
 

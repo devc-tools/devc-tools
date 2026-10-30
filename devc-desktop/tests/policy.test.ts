@@ -258,13 +258,13 @@ test('layout: the Containers pane hidden, /sidebar takes the column', () => {
   );
 });
 
-test("layout: the column hidden: the rail at the window's edge, /main beside it", () => {
+test("layout: the column hidden: no rail, /main from the window's edge", () => {
   const l = layout({ ...open, column: false });
   assertEquals(l.sidebar, null);
   assertEquals(l.containers, null);
-  assertEquals(l.rail, { x: 0, y: 32, width: RAIL, height: 900 });
-  assertEquals(l.main, { x: RAIL, y: 32, width: 1400 - RAIL, height: 600 });
-  assertEquals(l.host, { x: RAIL, y: 632, width: 1400 - RAIL, height: 300 });
+  assertEquals(l.rail.width, 0);
+  assertEquals(l.main, { x: 0, y: 32, width: 1400, height: 600 });
+  assertEquals(l.host, { x: 0, y: 632, width: 1400, height: 300 });
   disjoint(l, 1400, 932);
   // A folded Containers section has no pane either.
   assertEquals(

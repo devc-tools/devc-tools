@@ -202,7 +202,7 @@ export interface Layout {
  * then only its strip ({@link HOST_PEEK}) shows. None overlap, so devc web never draws over an
  * app view. A window too small for every minimum gives `/main` its width first, then the column
  * (the rail last); the column gives `/sidebar` its height before Containers. A hidden column
- * (`column` false) has no rectangles: the rail is at the window's left edge, `/main` beside it.
+ * (`column` false) has no rectangles, nor a rail: `/main` starts at the window's left edge.
  */
 export function layout(i: LayoutInput): Layout {
   const width = Math.max(0, i.width);
@@ -212,7 +212,7 @@ export function layout(i: LayoutInput): Layout {
   const footH = i.footer ? Math.min(FOOTER_HEIGHT, height - top) : 0;
   const area = Math.max(0, height - top - footH);
   const mainMin = Math.min(MAIN_MIN, width);
-  const railW = Math.min(RAIL, width - mainMin);
+  const railW = i.column ? Math.min(RAIL, width - mainMin) : 0;
   const colMax = width - mainMin - railW;
   const col = i.column
     ? Math.round(

@@ -570,7 +570,7 @@ async function main(): Promise<void> {
     sidebarView.setVisible(showingDevc && l.sidebar !== null);
     footerView.setVisible(l.footer !== null);
     if (l.footer !== null) footerView.setBounds(l.footer);
-    railView.setVisible(showingDevc);
+    railView.setVisible(showingDevc && l.rail.width > 0);
     statusView.setVisible(!showingDevc);
     if (showingDevc) {
       placeDevc(devcView, l.main);
@@ -943,7 +943,7 @@ async function main(): Promise<void> {
 
   /**
    * Shows or hides the left column, `/sidebar` and the Containers pane, leaving `/main` the
-   * window. Hidden, the rail stays at the window's edge, and a click or drag on it shows it again.
+   * window, as devc web's own page hides its sidebar: the rail goes too.
    */
   function setColumn(open: boolean): void {
     if (open === columnOpen) return;
@@ -1598,8 +1598,6 @@ async function main(): Promise<void> {
       !fromRail(e) || !showingDevc || typeof dx !== 'number' ||
       !Number.isFinite(dx)
     ) return;
-    // A hidden column comes back at its width, which the drag then changes.
-    setColumn(true);
     hideMenu();
     sidebarWidth = dragColumn(
       sidebarWidth ?? laid.sidebar?.width ?? null,
@@ -1608,10 +1606,6 @@ async function main(): Promise<void> {
     );
     relayout();
     saveState();
-  });
-  // A click on the rail shows a hidden column; it never hides one.
-  ipcMain.on('rail:click', (e) => {
-    if (fromRail(e) && showingDevc) setColumn(true);
   });
 
   // ---- the overlay menu ------------------------------------------------------------------------------
