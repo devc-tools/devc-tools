@@ -197,6 +197,7 @@ const open = {
   width: 1400,
   height: 932,
   sidebarWidth: 340,
+  column: true,
   containers: { height: 400 },
   drawer: 300,
   peek: false,
@@ -257,6 +258,22 @@ test('layout: the Containers pane hidden, /sidebar takes the column', () => {
   );
 });
 
+test("layout: the column hidden: the rail at the window's edge, /main beside it", () => {
+  const l = layout({ ...open, column: false });
+  assertEquals(l.sidebar, null);
+  assertEquals(l.containers, null);
+  assertEquals(l.rail, { x: 0, y: 32, width: RAIL, height: 900 });
+  assertEquals(l.main, { x: RAIL, y: 32, width: 1400 - RAIL, height: 600 });
+  assertEquals(l.host, { x: RAIL, y: 632, width: 1400 - RAIL, height: 300 });
+  disjoint(l, 1400, 932);
+  // A folded Containers section has no pane either.
+  assertEquals(
+    layout({ ...open, column: false, containers: { height: 400, folded: 30 } })
+      .containers,
+    null,
+  );
+});
+
 test('layout: the drawer closed, or only its strip while requests wait', () => {
   const closed = layout({ ...open, drawer: null });
   assertEquals(closed.host, null);
@@ -282,10 +299,10 @@ test('layout: minimums, and a window too small for them all', () => {
     sidebarWidth: 10,
     containers: { height: 10 },
   });
-  assertEquals(narrow.sidebar.width, SIDEBAR_MIN);
+  assertEquals(narrow.sidebar!.width, SIDEBAR_MIN);
   assertEquals(narrow.containers!.height, PANE_MIN);
   const tall = layout({ ...open, containers: { height: 5000 } });
-  assertEquals(tall.sidebar.height, PANE_MIN);
+  assertEquals(tall.sidebar!.height, PANE_MIN);
   // A wide column gives way to /main's minimum.
   const wide = layout({ ...open, sidebarWidth: 5000 });
   assertEquals(wide.main.width, MAIN_MIN);
@@ -294,10 +311,16 @@ test('layout: minimums, and a window too small for them all', () => {
   for (const [w, h] of [[500, 200], [MAIN_MIN + 3, 150], [300, 40], [0, 0]]) {
     const l = layout({ ...open, width: w, height: h });
     disjoint(l, w, h);
-    assertEquals(l.main.width, Math.max(0, w - l.sidebar.width - l.rail.width));
+    assertEquals(
+      l.main.width,
+      Math.max(0, w - l.sidebar!.width - l.rail.width),
+    );
     assertEquals(l.main.width >= Math.min(MAIN_MIN, w), true, `${w}`);
   }
-  assertEquals(layout({ ...open, width: 500, height: 200 }).sidebar.width, 134);
+  assertEquals(
+    layout({ ...open, width: 500, height: 200 }).sidebar!.width,
+    134,
+  );
   assertEquals(layout({ ...open, width: MAIN_MIN + 3 }).rail.width, 3);
 });
 

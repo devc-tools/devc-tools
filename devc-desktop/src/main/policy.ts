@@ -162,6 +162,8 @@ export interface LayoutInput {
   height: number;
   /** The left column's width as dragged, `null` before any drag. */
   sidebarWidth: number | null;
+  /** Whether the left column shows; hidden, only the rail is left of `/main`. */
+  column: boolean;
   /**
    * Whether the Containers pane shows, and its height as dragged (`null`: the default); with
    * `folded`, its section is folded and the pane is that high (down to its heading) instead.
@@ -178,9 +180,9 @@ export interface LayoutInput {
 /** Where each view goes: see {@link layout}. */
 export interface Layout {
   bar: Rect;
-  /** devc web's `/sidebar`: the top of the left column. */
-  sidebar: Rect;
-  /** The app's Containers pane, below it; `null` while hidden. */
+  /** devc web's `/sidebar`: the top of the left column; `null` while the column is hidden. */
+  sidebar: Rect | null;
+  /** The app's Containers pane, below it; `null` while it or the column is hidden. */
   containers: Rect | null;
   /** The app's rail between the column and `/main`. */
   rail: Rect;
@@ -199,7 +201,8 @@ export interface Layout {
  * the whole width at the bottom ({@link FOOTER_HEIGHT}). A closed drawer has no rectangle, unless `peek`:
  * then only its strip ({@link HOST_PEEK}) shows. None overlap, so devc web never draws over an
  * app view. A window too small for every minimum gives `/main` its width first, then the column
- * (the rail last); the column gives `/sidebar` its height before Containers.
+ * (the rail last); the column gives `/sidebar` its height before Containers. A hidden column
+ * (`column` false) has no rectangles: the rail is at the window's left edge, `/main` beside it.
  */
 export function layout(i: LayoutInput): Layout {
   const width = Math.max(0, i.width);
@@ -211,9 +214,14 @@ export function layout(i: LayoutInput): Layout {
   const mainMin = Math.min(MAIN_MIN, width);
   const railW = Math.min(RAIL, width - mainMin);
   const colMax = width - mainMin - railW;
-  const col = Math.round(
-    Math.min(colMax, Math.max(SIDEBAR_MIN, i.sidebarWidth ?? SIDEBAR_DEFAULT)),
-  );
+  const col = i.column
+    ? Math.round(
+      Math.min(
+        colMax,
+        Math.max(SIDEBAR_MIN, i.sidebarWidth ?? SIDEBAR_DEFAULT),
+      ),
+    )
+    : 0;
   const mx = col + railW;
   const mw = width - mx;
   const hostH = i.drawer !== null
@@ -226,9 +234,9 @@ export function layout(i: LayoutInput): Layout {
     ? { x: mx, y: top + area - hostH, width: mw, height: hostH }
     : null;
   let ch = 0;
-  if (i.containers?.folded !== undefined) {
+  if (i.column && i.containers?.folded !== undefined) {
     ch = Math.round(Math.max(0, Math.min(area, i.containers.folded)));
-  } else if (i.containers !== null) {
+  } else if (i.containers !== null && i.column) {
     const wanted = i.containers.height ?? area * CONTAINERS_DEFAULT_SHARE;
     ch = Math.round(
       Math.max(0, Math.min(area - PANE_MIN, Math.max(PANE_MIN, wanted))),
@@ -236,8 +244,8 @@ export function layout(i: LayoutInput): Layout {
   }
   return {
     bar,
-    sidebar: { x: 0, y: top, width: col, height: area - ch },
-    containers: i.containers === null
+    sidebar: i.column ? { x: 0, y: top, width: col, height: area - ch } : null,
+    containers: i.containers === null || !i.column
       ? null
       : { x: 0, y: top + area - ch, width: col, height: ch },
     rail: { x: col, y: top, width: railW, height: area },

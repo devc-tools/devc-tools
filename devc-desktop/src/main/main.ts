@@ -146,6 +146,8 @@ let drawerOpen = false;
 let drawerHeight: number | null = null;
 /** The left column's width as dragged (`null`: the default), and the Containers pane's. */
 let sidebarWidth: number | null = null;
+/** Whether the left column (`/sidebar`, the Containers pane) shows: Layout → Sidebar. */
+let columnOpen = true;
 let containersOpen = true;
 let containersHeight: number | null = null;
 /**
@@ -352,8 +354,11 @@ async function main(): Promise<void> {
     return clampDrawer(drawerHeight ?? area * DRAWER_DEFAULT_SHARE, area);
   }
 
-  /** Whether the Containers pane is on screen: devc web shows, and the user hasn't hidden it. */
-  const paneShown = () => showingDevc && containersOpen;
+  /**
+   * Whether the Containers pane is on screen: devc web shows, and the user hasn't hidden it or
+   * the column.
+   */
+  const paneShown = () => showingDevc && columnOpen && containersOpen;
 
   /**
    * The overlay menu while it is open: the Containers pane's menu `seq`, its items, and the point
@@ -378,6 +383,7 @@ async function main(): Promise<void> {
     width: 0,
     height: 0,
     sidebarWidth,
+    column: columnOpen,
     containers: null,
     drawer: null,
     peek: false,
@@ -413,7 +419,7 @@ async function main(): Promise<void> {
   /** devc web's part of the window: above both the Containers pane and the drawer. */
   function devcRegion(l: Layout): Rect {
     const bottom = Math.min(
-      l.sidebar.y + l.sidebar.height,
+      l.sidebar === null ? Infinity : l.sidebar.y + l.sidebar.height,
       l.main.y + l.main.height,
     );
     return {
@@ -544,6 +550,7 @@ async function main(): Promise<void> {
       width,
       height,
       sidebarWidth,
+      column: columnOpen,
       containers: !paneShown()
         ? null
         : containersFolded === null
@@ -556,14 +563,14 @@ async function main(): Promise<void> {
     laid = l;
     titleBarView.setBounds(l.bar);
     devcView.setVisible(showingDevc);
-    sidebarView.setVisible(showingDevc);
+    sidebarView.setVisible(showingDevc && l.sidebar !== null);
     footerView.setVisible(l.footer !== null);
     if (l.footer !== null) footerView.setBounds(l.footer);
     railView.setVisible(showingDevc);
     statusView.setVisible(!showingDevc);
     if (showingDevc) {
       placeDevc(devcView, l.main);
-      placeDevc(sidebarView, l.sidebar);
+      if (l.sidebar !== null) placeDevc(sidebarView, l.sidebar);
       railView.setBounds(l.rail);
     } else {
       // The status page across the window, above the drawer.
@@ -607,6 +614,7 @@ async function main(): Promise<void> {
         typeof v === 'number' && Number.isFinite(v) ? v : null;
       drawerHeight = num(s?.drawerHeight);
       sidebarWidth = num(s?.sidebarWidth);
+      if (typeof s?.columnOpen === 'boolean') columnOpen = s.columnOpen;
       containersHeight = num(s?.containersHeight);
       if (typeof s?.containersOpen === 'boolean') {
         containersOpen = s.containersOpen;
@@ -624,6 +632,7 @@ async function main(): Promise<void> {
           JSON.stringify({
             drawerHeight,
             sidebarWidth,
+            columnOpen,
             containersHeight,
             containersOpen,
           }),
@@ -900,10 +909,31 @@ async function main(): Promise<void> {
     else (showingDevc ? devcView : statusView).webContents.focus();
   }
 
+  /**
+   * Shows or hides the left column, `/sidebar` and the Containers pane, leaving `/main` the
+   * window. Hidden, the rail stays at the window's edge, and a click or drag on it shows it again.
+   */
+  function setColumn(open: boolean): void {
+    if (open === columnOpen) return;
+    columnOpen = open;
+    const item = Menu.getApplicationMenu()?.getMenuItemById('sidebar');
+    if (item) item.checked = open;
+    hideMenu();
+    // The keys go to /main rather than to a view that is no longer on screen.
+    const focused = [sidebarView, containersView].some((v) =>
+      v.webContents.isFocused()
+    );
+    relayout();
+    saveState();
+    if (!open && focused && showingDevc) devcView.webContents.focus();
+  }
+
   /** Shows or hides the Containers pane. Hidden, `/sidebar` draws its own Containers section. */
   function toggleContainers(): void {
     containersOpen = !containersOpen;
     hideMenu();
+    // Shown into a hidden column, the column shows too.
+    if (containersOpen) setColumn(true);
     relayout();
     saveState();
     loadSidebar();
@@ -1400,7 +1430,7 @@ async function main(): Promise<void> {
     containersHeight = dragContainers(
       containersHeight ?? laid.containers.height,
       dy,
-      laid.sidebar.height + laid.containers.height,
+      (laid.sidebar?.height ?? 0) + laid.containers.height,
     );
     relayout();
     saveState();
@@ -1535,14 +1565,20 @@ async function main(): Promise<void> {
       !fromRail(e) || !showingDevc || typeof dx !== 'number' ||
       !Number.isFinite(dx)
     ) return;
+    // A hidden column comes back at its width, which the drag then changes.
+    setColumn(true);
     hideMenu();
     sidebarWidth = dragColumn(
-      sidebarWidth ?? laid.sidebar.width,
+      sidebarWidth ?? laid.sidebar?.width ?? null,
       dx,
       win.getContentBounds().width,
     );
     relayout();
     saveState();
+  });
+  // A click on the rail shows a hidden column; it never hides one.
+  ipcMain.on('rail:click', (e) => {
+    if (fromRail(e) && showingDevc) setColumn(true);
   });
 
   // ---- the overlay menu ------------------------------------------------------------------------------
@@ -1727,6 +1763,14 @@ async function main(): Promise<void> {
       {
         label: 'Layout',
         submenu: [
+          {
+            id: 'sidebar',
+            label: 'Sidebar',
+            type: 'checkbox',
+            checked: columnOpen,
+            accelerator: key('Cmd+B', 'Ctrl+Shift+B'),
+            click: (item) => setColumn(item.checked),
+          },
           {
             label: 'Containers Pane',
             type: 'checkbox',
