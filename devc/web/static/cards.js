@@ -402,10 +402,13 @@ function loadSidebarState() {
         ? saved.cardsPinned.filter((f) => typeof f === 'string')
         : [],
     ),
-    /** Repo cards (by `repoCardKey`) whose worktrees' cards are hidden; new ones show them. */
-    worktreesClosed: new Set(
-      Array.isArray(saved?.worktreesClosed)
-        ? saved.worktreesClosed.filter((f) => typeof f === 'string')
+    /**
+     * Repo cards (by `repoCardKey`) whose worktrees' cards are shown; new ones hide them. Not the
+     * `worktreesClosed` saved before, which listed the hidden ones instead.
+     */
+    worktreesOpen: new Set(
+      Array.isArray(saved?.worktreesOpen)
+        ? saved.worktreesOpen.filter((f) => typeof f === 'string')
         : [],
     ),
     /** Containers (by local folder) whose Files row is open; new ones start closed. */
@@ -536,7 +539,7 @@ export function saveSidebarState() {
         collapsed: [...sidebarState.collapsed],
         cardHistoryOpen: [...sidebarState.cardHistoryOpen],
         cardsPinned: [...sidebarState.cardsPinned],
-        worktreesClosed: [...sidebarState.worktreesClosed],
+        worktreesOpen: [...sidebarState.worktreesOpen],
         containerFilesOpen: [...sidebarState.containerFilesOpen],
         prOpen: [...sidebarState.prOpen],
         prFolders: sidebarState.prFolders,
@@ -813,7 +816,7 @@ export function repoCard(card, side, worktrees = 0) {
     renderTree();
   };
   const worktreesHidden = worktrees > 0 &&
-    sidebarState.worktreesClosed.has(key);
+    !sidebarState.worktreesOpen.has(key);
   const anyOpen = historyOn || prOn || filesOn;
   const headClick = () => {
     if (anyOpen) {
@@ -826,8 +829,8 @@ export function repoCard(card, side, worktrees = 0) {
       if (filesOn) tree.collapse('');
       else renderTree();
     } else if (worktrees > 0) {
-      if (!sidebarState.worktreesClosed.delete(key)) {
-        sidebarState.worktreesClosed.add(key);
+      if (!sidebarState.worktreesOpen.delete(key)) {
+        sidebarState.worktreesOpen.add(key);
       }
       saveSidebarState();
       renderTree();

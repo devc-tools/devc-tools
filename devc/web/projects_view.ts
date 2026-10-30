@@ -240,7 +240,7 @@ export function projectRefusal(
     if (modes.desktopProjects || !DESKTOP_GRANTS.includes(msg.type)) {
       return null;
     }
-    return "devc-desktop's Containers pane starts, stops and adds nothing while devc web runs with --live-yolo: hide the pane (Layout → Containers Pane) to use devc web's own Containers section";
+    return "devc-desktop's Containers pane starts, stops and adds nothing while devc web runs with --live-yolo: hide the pane (Layout → Containers Pane) to use devc web's own Projects section";
   }
   if (modes.startsAllowed) return null;
   const off = 'is off while devc web runs with --live';

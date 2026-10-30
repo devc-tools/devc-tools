@@ -1281,7 +1281,7 @@ async function main(): Promise<void> {
         return {
           ok: false,
           text: a.where === 'pane'
-            ? "devc web runs with --live-yolo: hide this pane (Layout → Containers Pane) and use devc web's own Containers section"
+            ? "devc web runs with --live-yolo: hide this pane (Layout → Containers Pane) and use devc web's own Projects section"
             : 'devc web runs with --live-yolo: start it from its page',
         };
       }

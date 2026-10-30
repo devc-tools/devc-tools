@@ -326,13 +326,14 @@ is published from any container: the host server finds devcontainers with
   box of capped height, so a long one doesn't stretch the sidebar. While **In
   use** holds one container, its open sections are uncapped instead: they grow
   until **In use** is full, then shrink alike, each scrolling on its own. Under
-  **Containers**, a worktree's card is indented under its repo's, joined by a
-  rail; with nothing open, a click on that repo's header hides or shows them
-  (its chevron, on the left, points down while they show). Anywhere else, with nothing open, the
+  **Projects**, a worktree's card is indented under its repo's, joined by a
+  rail, and hidden until shown; with nothing open, a click on that repo's header
+  hides or shows them (its chevron, on the left, points down while they show).
+  The heading's **Collapse all** hides them again. Anywhere else, with nothing open, the
   header's click does nothing. A card is **active** while it has a tile or an agent no tile
   shows (past sessions don't count): active cards are under **In use**, each container's in a
   card under its name, most urgent agent first (blocked, done, working, then idle; cards with no
-  agent last, ties in layout order) and re-sorted as statuses change; the rest are under **Containers**, in their container's
+  agent last, ties in layout order) and re-sorted as statuses change; the rest are under **Projects**, in their container's
   card, after its header and before its **Files** row (the container's own
   filesystem from `/`). There, an active card keeps its place as a dashed,
   muted stand-in with an **In use** link: a click scrolls to its card in
@@ -439,12 +440,12 @@ is published from any container: the host server finds devcontainers with
   itself) and grey while connecting; its tooltip says which.
 - **Split pages:** besides `/` (the whole page), `/sidebar` is the sidebar
   alone, `/main` the tiles alone and `/containers` the sidebar's
-  **Containers** section alone (each also under `/safe/`). Pages with the same
+  **Projects** section alone (each also under `/safe/`). Pages with the same
   `view=` in the URL hash (`#token=…&view=<id>`) work as one: what a sidebar or
-  Containers page opens shows in `/main`, **Reveal in Containers** reaches
+  Containers page opens shows in `/main`, **Reveal in Projects** reaches
   `/sidebar` and `/containers`, and a `/containers` page shows the cards
   `/sidebar`'s **In use** has as links to them there, pinning and unpinning
-  through it. `/sidebar#…&containers=external` leaves its own Containers
+  through it. `/sidebar#…&containers=external` leaves its own Projects
   section out (devc-desktop shows its own below it). A right-click menu closes
   when another page or view takes the focus, and scrolls when it is taller than
   the window.
@@ -452,7 +453,7 @@ is published from any container: the host server finds devcontainers with
   shows: **all** (lines), everything; **container** (cube), **Tasks** and the
   focused tile's container box with its in-use repo cards; or **repo** (card),
   **Tasks** and the focused tile's repo card alone. Click one, or use the arrow
-  keys while it has focus. Scoped, the Containers section, the **In use**
+  keys while it has focus. Scoped, the Projects section, the **In use**
   heading and pinned files are hidden; the box follows the focused tile, and is
   as tall as what it holds, up to the bottom of the sidebar; past that, its
   cards' open sections (files, pull request, past sessions) shrink alike, each

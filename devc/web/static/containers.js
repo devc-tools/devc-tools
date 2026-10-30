@@ -213,7 +213,7 @@ function sectionRows(cards) {
   const open = !folds || sidebarState.containersOpen;
   const rows = [
     sectionRow(
-      'Containers',
+      'Projects',
       folds ? sidebarState.containersOpen : undefined,
       folds ? toggleContainersSection : undefined,
       rowTrail(
@@ -482,7 +482,7 @@ function containerRows(c, cards, inUse) {
     const main = mainOf(card);
     if (main) {
       if (
-        sidebarState.worktreesClosed.has(main) && !cardMatchesFilter(card)
+        !sidebarState.worktreesOpen.has(main) && !cardMatchesFilter(card)
       ) return;
       const el = inUse.has(card.key)
         ? inUseLinkCard(card)
@@ -516,7 +516,7 @@ function inUseLinkCard(card, worktrees = 0) {
   const { key, localFolder, repo } = card;
   const branch = repo?.git?.branch;
   const worktreesHidden = worktrees > 0 &&
-    sidebarState.worktreesClosed.has(key);
+    !sidebarState.worktreesOpen.has(key);
   const head = treeRow(
     `${key}\n\nin-use-link`,
     0,
@@ -529,8 +529,8 @@ function inUseLinkCard(card, worktrees = 0) {
       ].filter((t) => t).join('\n'),
       onclick: worktrees > 0
         ? () => {
-          if (!sidebarState.worktreesClosed.delete(key)) {
-            sidebarState.worktreesClosed.add(key);
+          if (!sidebarState.worktreesOpen.delete(key)) {
+            sidebarState.worktreesOpen.add(key);
           }
           saveSidebarState();
           renderTree();

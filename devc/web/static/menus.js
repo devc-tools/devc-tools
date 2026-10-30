@@ -261,7 +261,7 @@ export function tileMenuItems(tile) {
     if (sidebar) {
       const ref = { localFolder: c.localFolder, pane_id: pane.pane_id };
       items.push(null, [
-        'Reveal in Containers',
+        'Reveal in Projects',
         () => sidebar.revealInContainers(ref),
       ]);
     }

@@ -946,7 +946,7 @@ function openNewNote() {
   newNote?.el.close();
   const candidates = [...projects.values()].sort(byName);
   if (candidates.length === 0) {
-    toast('No projects yet: add one under Containers first');
+    toast('No projects yet: add one under Projects first');
     return;
   }
   const focused = focusedTile(tileArea.state());

@@ -413,6 +413,7 @@ Deno.test('collapseContainersState closes every row and adds the known folders',
   assertEquals(out, {
     collapsed: new Set(['/a', '/b', '/c']),
     cardHistoryOpen: new Set(),
+    worktreesOpen: new Set(),
     containerFilesOpen: new Set(),
     projectsOpen: new Set(),
     filesOpen: {},
