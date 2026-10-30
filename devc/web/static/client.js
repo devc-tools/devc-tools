@@ -416,6 +416,31 @@ function onStaticChanged(msg) {
   bootGeneration = msg.generation;
 }
 
+// ---------------------------------------------------------------------------------------------
+// Dialogs, for devc-desktop
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * devc-desktop shows `/sidebar` and `/main` in views of their own, each only as big as its part
+ * of the window, and spreads one over devc web's part of the window while its dialog is open.
+ * This console line is how it hears of one: it reads nothing else from these pages. In a browser
+ * it is a debug message no one sees.
+ */
+let dialogShown = false;
+new MutationObserver(() => {
+  if (bundled !== null) return;
+  const open =
+    document.querySelector('dialog[open], .dialog-backdrop') !== null;
+  if (open === dialogShown) return;
+  dialogShown = open;
+  console.debug(`devc-desktop:dialog ${open ? 'open' : 'closed'}`);
+}).observe(document.documentElement, {
+  subtree: true,
+  childList: true,
+  attributes: true,
+  attributeFilter: ['open'],
+});
+
 /** Whether something on the page holds a live reload back: see {@link holdReloadWhile}. */
 const reloadHolds = /** @type {(() => boolean)[]} */ ([]);
 let reloadPending = false;
