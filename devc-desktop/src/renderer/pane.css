@@ -37,3 +37,22 @@ body {
   height: auto;
   min-height: 0;
 }
+
+/* A dialog is open and the app has spread the view over the window (containers.ts): only the
+   pane's own place is drawn, the rest is see-through under the dialog's backdrop. */
+html.pane-spread {
+  background: transparent;
+}
+html.pane-spread body {
+  position: absolute;
+  left: var(--pane-x);
+  top: var(--pane-y);
+  width: var(--pane-width);
+  height: var(--pane-height);
+}
+/* Opened, not yet spread: hidden, so it never shows squeezed into the pane. */
+html.pane-dialog-wait dialog,
+html.pane-dialog-wait dialog::backdrop,
+html.pane-dialog-wait .dialog-backdrop {
+  visibility: hidden;
+}

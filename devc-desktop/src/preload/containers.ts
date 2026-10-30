@@ -10,6 +10,26 @@ contextBridge.exposeInMainWorld('containersPane', {
   token: () => ipcRenderer.invoke('containers:token'),
   dragStrip: (dy: number) => ipcRenderer.send('containers:drag', Number(dy)),
   resetStrip: () => ipcRenderer.send('containers:reset'),
+  /** One of the pane's dialogs opened or closed: open, the app spreads the pane over the window. */
+  dialog: (open: boolean) =>
+    ipcRenderer.send('containers:dialog', open === true),
+  /** Where the pane is inside its spread view (`null`: back to its own place). */
+  onExpanded: (
+    cb: (
+      at: { x: number; y: number; width: number; height: number } | null,
+    ) => void,
+  ) => {
+    ipcRenderer.on('containers:expanded', (_e, at: unknown) => {
+      if (at === null || typeof at !== 'object') return cb(null);
+      const r = at as Record<string, unknown>;
+      cb({
+        x: Number(r.x),
+        y: Number(r.y),
+        width: Number(r.width),
+        height: Number(r.height),
+      });
+    });
+  },
   /** The section opened, or folded to `height` (the pane down to its heading). */
   fold: (open: boolean, height: number) =>
     ipcRenderer.send('containers:fold', open === true, Number(height)),

@@ -12,7 +12,7 @@ own browser instance (not frames of one page):
 ┌──────────── title bar ────────────┐
 │ /sidebar          ┃               │
 │ (devc web)        ┃   /main       │
-│━ HOST · Containers┫   (devc web)  │
+│━━━━━━━━━━━━━━━━━━━┫   (devc web)  │
 │ Containers pane   ┃━ HOST ━━━━━━━━│
 │ (the app's)       ┃ host drawer   │
 ├─ /host-status (devc web) ─────────┤
@@ -22,14 +22,14 @@ own browser instance (not frames of one page):
 | View                | Shows                                                                                                                                     | Can reach                                                                               |
 | ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
 | **devc web**        | `/sidebar` (Tasks, In use, pinned files), `/main` (the tiles) and `/host-status` (the status strip across the window's foot): three views | devc web's own server, and nothing else                                                 |
-| **Containers pane** | devc web's Containers section, built into the app, under its HOST strip                                                                   | devc web's `/ws` with the desktop token (the desktop role), and the app's confirm cards |
+| **Containers pane** | devc web's Containers section, built into the app, under a zone divider                                                                   | devc web's `/ws` with the desktop token (the desktop role), and the app's confirm cards |
 | **rail**            | the divider between the left column and `/main`                                                                                           | its own drag, nothing else                                                              |
 | **overlay menu**    | the Containers pane's right-click menu, over every other view                                                                             | the pick, nothing else                                                                  |
 | **status**          | the status page while devc web starts, or why it stopped                                                                                  | Restart, nothing else                                                                   |
 | **host terminal**   | your login shell on this machine, under `/main`                                                                                           | the shell, through the app                                                              |
 | **title bar**       | the window's title, in place of the OS's own bar                                                                                          | nothing                                                                                 |
 
-Drag the rail, the Containers pane's **HOST · Containers** strip and the drawer's **HOST** strip
+Drag the rail, the divider over the Containers pane and the drawer's **HOST** strip
 to resize. The sizes are remembered. **Layout → Containers Pane** (Cmd+Shift+E, Ctrl+Shift+E on
 Linux) hides the pane: `/sidebar` then takes the whole column and draws devc web's own
 Containers section again.
@@ -172,7 +172,7 @@ built for another version of devc web's messages than the running one speaks, th
 nothing else.
 
 **Push…**, **Start**, **Stop** and **Remove container** in the pane don't run at once. Each
-shows a card under the pane's HOST strip, worked out by the app as in the drawer's Actions column
+shows a card at the top of the pane, worked out by the app as in the drawer's Actions column
 (below): a push shows the app's own push plan, a start the folder and its `initializeCommand`
 note. The confirm arms 1 s after the card last changed. The card's progress streams into it.
 
@@ -180,6 +180,13 @@ The pane's right-click menus are drawn by the **overlay menu**, a view of the ap
 over every other view while a menu is open, so a menu can spread over `/sidebar` and `/main`. It
 flips and shifts only at the window's edges. Use the arrow keys, Enter and Escape; a click
 anywhere else, or resizing the window, closes it. devc web's own menus stay inside their views.
+
+The pane reads as the bottom of one sidebar: the divider over it is the one In use and Containers
+have in devc web's own sidebar (double-click resets the pane's height), and clicking
+**CONTAINERS** folds the section, shrinking the pane to its heading. While one of its dialogs is
+open (**Add project**, a task, a confirm), the app spreads the pane's view over the window below
+the title bar, transparent, so the dialog and its backdrop cover the window as devc web's own do;
+it goes back to its place when the dialog closes.
 
 ## The host terminal
 

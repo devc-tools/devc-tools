@@ -24,6 +24,12 @@ interface ContainersPane {
   token(): Promise<{ origin: string; token: string } | null>;
   dragStrip(dy: number): void;
   resetStrip(): void;
+  dialog(open: boolean): void;
+  onExpanded(
+    cb: (
+      at: { x: number; y: number; width: number; height: number } | null,
+    ) => void,
+  ): void;
   fold(open: boolean, height: number): void;
   menu(
     seq: number,
@@ -89,6 +95,51 @@ function reportFold(): void {
     pane.fold(sectionOpen, height);
   });
 }
+
+// ---- dialogs: over the whole window, as devc web's page draws them -----------------------------
+// The view is only as big as the pane, so while a dialog is open the app spreads it over the
+// window, transparent, and says where the pane is in it: the pane's content stays there, and the
+// dialog and its backdrop cover the window. Until then the dialog is hidden, so it never shows
+// squeezed into the pane first.
+
+let dialogOpen = false;
+let waitTimer: ReturnType<typeof setTimeout> | undefined;
+
+function dialogShowing(): boolean {
+  return document.querySelector('dialog[open], .dialog-backdrop') !== null;
+}
+
+new MutationObserver(() => {
+  const open = dialogShowing();
+  if (open === dialogOpen) return;
+  dialogOpen = open;
+  if (open) {
+    document.documentElement.classList.add('pane-dialog-wait');
+    // Should the app not spread the pane (it is hidden), show the dialog where it is.
+    clearTimeout(waitTimer);
+    waitTimer = setTimeout(
+      () => document.documentElement.classList.remove('pane-dialog-wait'),
+      400,
+    );
+  }
+  pane.dialog(open);
+}).observe(document.body, {
+  subtree: true,
+  childList: true,
+  attributes: true,
+  attributeFilter: ['open'],
+});
+
+pane.onExpanded((at) => {
+  const root = document.documentElement;
+  clearTimeout(waitTimer);
+  root.classList.remove('pane-dialog-wait');
+  root.classList.toggle('pane-spread', at !== null);
+  for (const k of ['x', 'y', 'width', 'height'] as const) {
+    if (at === null) root.style.removeProperty(`--pane-${k}`);
+    else root.style.setProperty(`--pane-${k}`, `${at[k]}px`);
+  }
+});
 
 // ---- the Actions column ------------------------------------------------------------------------
 

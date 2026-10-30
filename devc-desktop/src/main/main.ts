@@ -79,6 +79,7 @@ import {
   placeMenu,
   pushOutcome,
   pushPlanFrom,
+  type Rect,
   requestsAnswer,
   shellIdle,
   shellQuote,
@@ -337,6 +338,14 @@ async function main(): Promise<void> {
     at: { x: number; y: number };
   } | null = null;
 
+  /**
+   * Whether one of the pane's dialogs is open (Add project, the task dialog, a confirm): the
+   * view then covers the window below the title bar, transparent, over every view but the
+   * overlay menu. The pane draws its own content where the pane is, and the dialog with its
+   * backdrop over the whole window, as devc web's page draws its own.
+   */
+  let paneDialog = false;
+
   /** The rectangles last applied: the overlay menu and the drags measure against them. */
   let laid = layout({
     width: 0,
@@ -386,7 +395,7 @@ async function main(): Promise<void> {
       });
     }
     containersView.setVisible(l.containers !== null);
-    if (l.containers !== null) containersView.setBounds(l.containers);
+    if (l.containers !== null) placeContainers(l.containers);
     hostView.setVisible(l.host !== null);
     if (l.host !== null) hostView.setBounds(l.host);
   }
@@ -1216,6 +1225,54 @@ async function main(): Promise<void> {
     saveState();
   });
 
+  /** The pane's view while a dialog is open: the window below the title bar. */
+  function spreadBounds(): Rect {
+    const { width, height } = win.getContentBounds();
+    const top = Math.min(TITLEBAR_HEIGHT, height);
+    return { x: 0, y: top, width, height: height - top };
+  }
+
+  /** Puts the pane at `pane`, or with a dialog open across the window, telling it where it is. */
+  function placeContainers(pane: Rect): void {
+    if (!paneDialog) {
+      containersView.setBounds(pane);
+      return;
+    }
+    const spread = spreadBounds();
+    containersView.setBounds(spread);
+    containersView.webContents.send('containers:expanded', {
+      x: pane.x,
+      y: pane.y - spread.y,
+      width: pane.width,
+      height: pane.height,
+    });
+  }
+
+  ipcMain.on('containers:dialog', (e, open: unknown) => {
+    if (!fromContainers(e) || typeof open !== 'boolean') return;
+    if (open && (!paneShown() || laid.containers === null)) return;
+    if (open === paneDialog) return;
+    paneDialog = open;
+    hideMenu();
+    if (open) {
+      containersView.setBackgroundColor('#00000000');
+      // Re-adding a view raises it: over the drawer and the rest, under the overlay menu.
+      win.contentView.addChildView(containersView);
+      win.contentView.addChildView(menuView);
+    } else {
+      containersView.setBackgroundColor('#0d0f14');
+    }
+    relayout();
+    if (!open) containersView.webContents.send('containers:expanded', null);
+  });
+  // A pane that navigates away (devc web stopped, the pane reloaded) has no dialog open.
+  containersView.webContents.on('did-start-navigation', (d) => {
+    if (!d.isMainFrame || !paneDialog) return;
+    paneDialog = false;
+    containersView.setBackgroundColor('#0d0f14');
+    relayout();
+  });
+
   ipcMain.on('containers:reset', (e) => {
     if (!fromContainers(e) || !paneShown() || containersFolded !== null) return;
     containersHeight = null;
@@ -1334,7 +1391,10 @@ async function main(): Promise<void> {
     );
 
   ipcMain.on('containers:menu', (e, seq: unknown, req: unknown) => {
-    const pane = laid.containers;
+    // A menu in one of its dialogs comes from the view spread over the window.
+    const pane = paneDialog && laid.containers !== null
+      ? spreadBounds()
+      : laid.containers;
     if (
       !fromContainers(e) || !paneShown() || pane === null ||
       !Number.isSafeInteger(seq)
