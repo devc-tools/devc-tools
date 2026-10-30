@@ -339,6 +339,11 @@ body.resizing-sidebar {
   border-color: var(--accent);
 }
 
+/* `/main` has the corner toggle only while devc-desktop's column is hidden: `/sidebar` has it else. */
+.app[data-page='main']:not([data-sidebar='hidden']) > .sidebar-corner {
+  display: none;
+}
+
 /* In zen mode with the sidebar hidden, the corner toggle sits over the terminal: shown on hover. */
 .app[data-zen='on'][data-sidebar='hidden'] > .sidebar-corner {
   opacity: 0;

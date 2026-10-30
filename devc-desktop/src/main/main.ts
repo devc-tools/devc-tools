@@ -527,6 +527,9 @@ async function main(): Promise<void> {
       if (e.frame !== wc.mainFrame) return;
       if (e.message === 'devc-desktop:dialog open') devcDialog(view, true);
       if (e.message === 'devc-desktop:dialog closed') devcDialog(view, false);
+      // The pages' corner toggle: `/sidebar`'s hides the column, `/main`'s shows it.
+      if (e.message === 'devc-desktop:sidebar hide') setColumn(false);
+      if (e.message === 'devc-desktop:sidebar show') setColumn(true);
       if (
         e.message === 'devc-desktop:dialog ready' && !devcDialogHidden.has(view)
       ) {
@@ -535,9 +538,10 @@ async function main(): Promise<void> {
         ).catch(() => {});
       }
     });
-    // A page that navigates (a reload, devc web restarted) has no dialog open, nor the CSS.
+    // A page that navigates (a reload, devc web restarted) has no dialog open, nor the CSS. A
+    // change of the hash alone (`loadMainHash`) keeps both.
     wc.on('did-start-navigation', (d) => {
-      if (!d.isMainFrame) return;
+      if (!d.isMainFrame || d.isSameDocument) return;
       devcDialogHidden.delete(view);
       if (devcDialogs.delete(view)) relayout();
     });
@@ -745,13 +749,43 @@ async function main(): Promise<void> {
   }
 
   /**
+   * `/main`'s address: the app draws the host status strip (`status=external`), and the page the
+   * corner toggle that shows a hidden column (`sidebar=hidden`).
+   */
+  function mainPage(): string | null {
+    return devcPage(
+      '/main',
+      `&status=external&sidebar=${columnOpen ? 'shown' : 'hidden'}`,
+    );
+  }
+
+  /**
+   * Tells `/main` whether the column shows, by its hash alone, which reloads nothing: the page
+   * follows it (`hashchange`).
+   */
+  function loadMainHash(): void {
+    if (origin === null || !showingDevc) return;
+    // The page's own address with only `sidebar` changed: it may be `/safe/main`, say.
+    const now = devcView.webContents.getURL();
+    if (!now.startsWith(`${origin}/`)) return;
+    const url = new URL(now);
+    const hash = new URLSearchParams(url.hash.slice(1));
+    const want = columnOpen ? 'shown' : 'hidden';
+    if (hash.get('sidebar') === want) return;
+    hash.set('sidebar', want);
+    url.hash = hash.toString();
+    void devcView.webContents.loadURL(url.toString()).catch(() => {});
+  }
+
+  /**
    * Loads `/sidebar`: with the Containers pane showing, without its own Containers section
-   * (`containers=external`), and with it hidden, with it, so the column always has one.
+   * (`containers=external`), and with it hidden, with it, so the column always has one. Its
+   * header has the corner toggle that hides the column (`sidebar=shown`).
    */
   function loadSidebar(): void {
     const url = devcPage(
       '/sidebar',
-      containersOpen ? '&containers=external' : '',
+      `${containersOpen ? '&containers=external' : ''}&sidebar=shown`,
     );
     if (url === null) return;
     // Through a blank page: a load that only changes the hash would not reload it.
@@ -835,9 +869,7 @@ async function main(): Promise<void> {
       devcTitle = 'devcd';
       relayout();
       updateTitle();
-      void devcView.webContents.loadURL(
-        devcPage('/main', '&status=external')!,
-      );
+      void devcView.webContents.loadURL(mainPage()!);
       void footerView.webContents.loadURL(devcPage('/host-status')!);
       loadSidebar();
       const at = origin;
@@ -925,6 +957,7 @@ async function main(): Promise<void> {
     );
     relayout();
     saveState();
+    loadMainHash();
     if (!open && focused && showingDevc) devcView.webContents.focus();
   }
 

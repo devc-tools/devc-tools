@@ -2,6 +2,7 @@ import { assertEquals, assertNotEquals } from 'jsr:@std/assert';
 import {
   CONTAINERS_INTENT_NAMES,
   containersExternalFromHash,
+  desktopSidebarFromHash,
   DRAG_MIME,
   emptyViewState,
   encodeDrag,
@@ -346,6 +347,17 @@ Deno.test('statusExternalFromHash: only status=external', () => {
   assertEquals(statusExternalFromHash('#token=abc&view=devcd'), false);
   assertEquals(statusExternalFromHash('#status=inline'), false);
   assertEquals(statusExternalFromHash(''), false);
+});
+
+Deno.test('desktopSidebarFromHash: shown or hidden, else null', () => {
+  assertEquals(
+    desktopSidebarFromHash('#token=abc&view=devcd&sidebar=shown'),
+    'shown',
+  );
+  assertEquals(desktopSidebarFromHash('sidebar=hidden&view=devcd'), 'hidden');
+  assertEquals(desktopSidebarFromHash('#token=abc&view=devcd'), null);
+  assertEquals(desktopSidebarFromHash('#sidebar=open'), null);
+  assertEquals(desktopSidebarFromHash(''), null);
 });
 
 Deno.test('containersExternalFromHash: only containers=external', () => {

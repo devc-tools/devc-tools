@@ -378,6 +378,19 @@ export function containersExternalFromHash(hash) {
 }
 
 /**
+ * Whether devc-desktop's left column shows, as a `/sidebar` or `/main` page's URL hash says
+ * (`#…&sidebar=shown` or `hidden`): the app then shows and hides it, and the page draws the corner
+ * toggle that asks it to. `null` without one (a browser): the page draws no toggle.
+ *
+ * @param {string} hash  `location.hash`, `#` included or not
+ * @returns {'shown' | 'hidden' | null}
+ */
+export function desktopSidebarFromHash(hash) {
+  const s = new URLSearchParams(hash.replace(/^#/, '')).get('sidebar');
+  return s === 'shown' || s === 'hidden' ? s : null;
+}
+
+/**
  * Whether a `/main` page's URL hash says its host status strip is drawn elsewhere
  * (`#…&status=external`: devc-desktop's `/host-status` view across the foot of its window): the
  * page then draws none.

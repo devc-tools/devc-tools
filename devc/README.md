@@ -450,7 +450,10 @@ is published from any container: the host server finds devcontainers with
   `/sidebar` and `/containers`, and a `/containers` page shows the cards
   `/sidebar`'s **In use** has as links to them there, pinning and unpinning
   through it. `/sidebar#…&containers=external` leaves its own Projects
-  section out (devc-desktop shows its own below it). A right-click menu closes
+  section out (devc-desktop shows its own below it). `#…&sidebar=shown` (on
+  `/sidebar`) or `hidden` (on `/main`) draws the corner toggle that hides or
+  shows devc-desktop's left column, in the top-left corner as on `/`; the app
+  does the hiding. A right-click menu closes
   when another page or view takes the focus, and scrolls when it is taller than
   the window.
 - **Sidebar scope:** the pill in the sidebar header picks what the sidebar

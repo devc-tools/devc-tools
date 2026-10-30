@@ -2,13 +2,15 @@
 // (`/sidebar` with the same view id, `#…&view=<id>`), reached through the server (`remote.js`).
 // With no sidebar open it works on its own; Reveal in Containers goes nowhere. The host status
 // strip (`host-status.js`) runs under the tiles, unless `#…&status=external` says it is drawn
-// elsewhere (devc-desktop's `/host-status` view, across its whole window).
+// elsewhere (devc-desktop's `/host-status` view, across its whole window). `#…&sidebar=hidden`
+// draws the corner toggle that shows devc-desktop's left column again.
 
 import { connect, SAFE_MODE, showSafeBanner } from './client.js';
 import { mountTiles } from './tiles.js';
 import { mountHostStatus } from './host-status.js';
 import { remoteSidebar, sendViewState, serveTileArea } from './remote.js';
 import { statusExternalFromHash } from './lib/view.js';
+import { mountSidebarCorner } from './sidebar-corner.js';
 
 if (SAFE_MODE) showSafeBanner();
 const tileArea = mountTiles(
@@ -19,4 +21,5 @@ serveTileArea(tileArea);
 if (!statusExternalFromHash(location.hash)) {
   mountHostStatus(/** @type {HTMLElement} */ (document.querySelector('.app')));
 }
+mountSidebarCorner(/** @type {HTMLElement} */ (document.querySelector('.app')));
 connect();

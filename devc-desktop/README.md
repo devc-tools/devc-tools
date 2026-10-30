@@ -34,7 +34,9 @@ to resize. The sizes are remembered. **Layout → Containers Pane** (Cmd+Shift+E
 Linux) hides the pane: `/sidebar` then takes the whole column and draws devc web's own
 Containers section again. **Layout → Sidebar** (Cmd+B, Ctrl+Shift+B on Linux) hides the whole
 left column, `/sidebar` and the Containers pane, leaving the window to `/main`, as devc web's own
-page hides its sidebar; the rail stays at the window's edge, and a click or a drag on it shows the
+page hides its sidebar. The «/» toggle in the top-left corner does the same, where devc web's
+page has it: at the left end of `/sidebar`'s header, and while the column is hidden, in `/main`'s
+top-left tile. The rail also stays at the window's edge, and a click or a drag on it shows the
 column again. Whether it shows is remembered too.
 
 ## Build

@@ -283,6 +283,9 @@ const ICON_PATHS = {
   implement: 'M5.5 5L2.5 8l3 3M10.5 5l3 3-3 3M9 3.5l-2 9',
   // A checklist: a new task.
   task: 'M3 4l1.2 1.2L6.5 3M8.5 4.5H13M3 9l1.2 1.2L6.5 8M8.5 9.5H13',
+  // « and »: hide or show the sidebar (the corner toggle, as `index.html`'s).
+  sidebarHide: 'M12 4l-4 4 4 4M7.5 4l-4 4 4 4',
+  sidebarShow: 'M4 4l4 4-4 4M8.5 4l4 4-4 4',
   // Two stacked squares, a minus on the front one: a section's Collapse all (VS Code's).
   collapseAll: 'M5.5 2.5h8v8M2.5 5.5h8v8h-8zM4.5 9.5h4',
   // A circular arrow: list again.
