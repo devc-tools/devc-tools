@@ -283,18 +283,25 @@ async function main(): Promise<void> {
   titleBarView.setBackgroundColor(TITLEBAR_COLOR);
   win.contentView.addChildView(titleBarView);
   // The dimming under a devc web dialog where its view may not spread (see devc web's dialogs):
-  // no page, only its background, the dialog backdrop's black at 45%.
+  // the dialog backdrop's black at 45%. Painted by a page of its own, script-free: a view with no
+  // page draws no background.
   const dimView = new WebContentsView({
     webPreferences: {
       sandbox: true,
       contextIsolation: true,
       nodeIntegration: false,
+      javascript: false,
       partition: 'dim',
     },
   });
-  dimView.setBackgroundColor('#73000000');
+  dimView.setBackgroundColor('#00000000');
   dimView.setVisible(false);
   win.contentView.addChildView(dimView);
+  void dimView.webContents.loadURL(
+    'data:text/html,<html style="background:rgb(0 0 0 / 0.45);height:100%25"></html>',
+  );
+  dimView.webContents.on('will-navigate', (e) => e.preventDefault());
+  dimView.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   // Last, so it draws over every other view; transparent, so only its menu's box shows.
   menuView.setBackgroundColor('#00000000');
   menuView.setVisible(false);
