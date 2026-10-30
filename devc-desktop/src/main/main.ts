@@ -373,8 +373,22 @@ async function main(): Promise<void> {
   // opened or closed in a console line (`client.js`), the one thing the app reads from it, and
   // all it can do with it is spread over devc web's own part of the window.
 
-  /** A devc web view with a dialog open, and the key of the stylesheet placing its page. */
-  const devcDialogs = new Map<WebContentsView, string | null>();
+  /**
+   * A devc web view with a dialog open, and the keys of the stylesheets the app inserted for it:
+   * `spread` places its page in its own part of the spread view, `reveal` shows the dialog once
+   * the view has spread.
+   */
+  const devcDialogs = new Map<
+    WebContentsView,
+    { spread: string | null; reveal: string | null }
+  >();
+  /**
+   * The stylesheet hiding a devc web page's dialogs until its view has spread, so one never shows
+   * squeezed into the view first, by view. Inserted only once the page has said it reports its
+   * dialogs (`devc-desktop:dialog ready`), so a page that doesn't still shows them.
+   */
+  const devcDialogHidden = new Map<WebContentsView, string>();
+  const DIALOGS = 'dialog[open],dialog[open]::backdrop,.dialog-backdrop';
 
   /** devc web's part of the window: above both the Containers pane and the drawer. */
   function devcRegion(l: Layout): Rect {
@@ -392,42 +406,60 @@ async function main(): Promise<void> {
 
   /** Puts a devc web view at `own`, or with a dialog open across devc web's part of the window. */
   function placeDevc(view: WebContentsView, own: Rect): void {
-    if (!devcDialogs.has(view)) {
+    const open = devcDialogs.get(view);
+    if (open === undefined) {
       view.setBounds(own);
       return;
     }
     const region = devcRegion(laid);
-    const css = `html{background:transparent!important}` +
+    // A see-through root whose background is not quite none, so the body's background is not
+    // painted across the whole view instead, as CSS does for a root without one.
+    const css =
+      `html{background:linear-gradient(transparent,transparent)!important}` +
       `body{position:absolute!important;margin:0!important;` +
       `left:${own.x - region.x}px!important;top:${
         own.y - region.y
       }px!important;` +
       `width:${own.width}px!important;height:${own.height}px!important}`;
     const wc = view.webContents;
+    const old = open.spread;
+    // The page moves into place as the view spreads: neither waits for the other.
     void wc.insertCSS(css).then((key) => {
-      const old = devcDialogs.get(view);
-      if (!devcDialogs.has(view)) {
+      if (devcDialogs.get(view) !== open) {
         void wc.removeInsertedCSS(key);
         return;
       }
-      devcDialogs.set(view, key);
+      open.spread = key;
       if (old) void wc.removeInsertedCSS(old);
-      view.setBounds(region);
+      if (open.reveal !== null) return;
+      // Shown once the page has drawn at its new size.
+      setTimeout(() => {
+        if (devcDialogs.get(view) !== open || open.reveal !== null) return;
+        void wc.insertCSS(`${DIALOGS}{visibility:visible!important}`).then(
+          (r) => {
+            if (devcDialogs.get(view) === open) open.reveal = r;
+            else void wc.removeInsertedCSS(r);
+          },
+        ).catch(() => {});
+      }, 50);
     }).catch(() => {});
+    view.setBounds(region);
   }
 
   function devcDialog(view: WebContentsView, open: boolean): void {
     if (open === devcDialogs.has(view)) return;
     if (open) {
-      devcDialogs.set(view, null);
+      devcDialogs.set(view, { spread: null, reveal: null });
       hideMenu();
       // Raised over the other devc web view and the rail, under the overlay menu.
       win.contentView.addChildView(view);
       win.contentView.addChildView(menuView);
     } else {
-      const key = devcDialogs.get(view);
+      const keys = devcDialogs.get(view)!;
       devcDialogs.delete(view);
-      if (key) void view.webContents.removeInsertedCSS(key);
+      for (const key of [keys.spread, keys.reveal]) {
+        if (key) void view.webContents.removeInsertedCSS(key);
+      }
     }
     relayout();
   }
@@ -438,10 +470,19 @@ async function main(): Promise<void> {
       if (e.frame !== wc.mainFrame) return;
       if (e.message === 'devc-desktop:dialog open') devcDialog(view, true);
       if (e.message === 'devc-desktop:dialog closed') devcDialog(view, false);
+      if (
+        e.message === 'devc-desktop:dialog ready' && !devcDialogHidden.has(view)
+      ) {
+        void wc.insertCSS(`${DIALOGS}{visibility:hidden!important}`).then(
+          (key) => devcDialogHidden.set(view, key),
+        ).catch(() => {});
+      }
     });
     // A page that navigates (a reload, devc web restarted) has no dialog open, nor the CSS.
     wc.on('did-start-navigation', (d) => {
-      if (d.isMainFrame && devcDialogs.delete(view)) relayout();
+      if (!d.isMainFrame) return;
+      devcDialogHidden.delete(view);
+      if (devcDialogs.delete(view)) relayout();
     });
   }
 

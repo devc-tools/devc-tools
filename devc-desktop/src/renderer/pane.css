@@ -40,8 +40,9 @@ body {
 
 /* A dialog is open and the app has spread the view over the window (containers.ts): only the
    pane's own place is drawn, the rest is see-through under the dialog's backdrop. */
+/* Not quite no background: a root with none has the body's painted across the whole view. */
 html.pane-spread {
-  background: transparent;
+  background: linear-gradient(transparent, transparent);
 }
 html.pane-spread body {
   position: absolute;
