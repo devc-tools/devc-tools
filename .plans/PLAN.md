@@ -79,6 +79,12 @@
   shows a file's local diff (uncommitted, or since `merge-base <ref> HEAD`) in a new local diff
   tile that reuses the PR diff tile's rendering without its PR parts.
 
+- [devc-web-screenshots](devc-web-screenshots.md) — give an agent in a devc web terminal an
+  image: paste it (an OS screenshot tool's clipboard copy) or drop it on the pane. A new
+  `attach_image` message writes it to `~/.cache/devc/images/` in the pane's environment (`0600`,
+  pruned after 7 days), and the page pastes its path, bracketed, so Claude Code attaches it. Text
+  on the clipboard wins over an image. No in-page capture: it would not work in devc-desktop.
+
 ### Git and the trusted host area
 
 Decided with the user on 2026-10-28, in this order. Before the first: finish
@@ -2631,3 +2637,4 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
 | devc show — agents show a file or its PR diff at a line range beside their terminal in devc web                     | [devc-show](devc-show.md)                                                          |             |
 | devc show local diff — `show --changes [<ref>]`: a local diff tile for uncommitted or branch changes                | [devc-show-local-diff](devc-show-local-diff.md)                                    |             |
 | devc web git pull — fast-forward Pull, and a faded ↓ for commits only the host has fetched                          | [devc-web-git-pull](devc-web-git-pull.md)                                          |             |
+| devc web screenshots — paste or drop an image into a terminal; its path is pasted for the agent                     | [devc-web-screenshots](devc-web-screenshots.md)                                    |             |
