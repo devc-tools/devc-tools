@@ -71,6 +71,7 @@ import {
   FOOTER_HEIGHT,
   fromView,
   hostFolder,
+  type Layout,
   layout,
   MAX_REQUESTS,
   menuLabel,
@@ -271,6 +272,12 @@ async function main(): Promise<void> {
     v.setBackgroundColor('#0d0f14');
     win.contentView.addChildView(v);
   }
+  // Their pages paint their own background (the window's shows until they load): see-through,
+  // they can spread over the window while a dialog is open and leave the rest of it showing. A
+  // view's background set again after its page has loaded doesn't reach the page.
+  for (const v of [sidebarView, devcView, containersView]) {
+    v.setBackgroundColor('#00000000');
+  }
   railView.setBackgroundColor('#303a49');
   win.contentView.addChildView(railView);
   titleBarView.setBackgroundColor(TITLEBAR_COLOR);
@@ -357,6 +364,87 @@ async function main(): Promise<void> {
     footer: false,
   });
 
+  // ---- devc web's dialogs ------------------------------------------------------------------------
+  // `/sidebar` and `/main` are each only as big as their part of the window, so a dialog would be
+  // squeezed into it. While one is open the app spreads that view over devc web's part of the
+  // window (the column above the Containers pane and `/main` above the drawer, the rail between),
+  // see-through, and its page is drawn in its own place by a stylesheet the app inserts. It never
+  // covers an app view: the Containers pane, the drawer, the title bar. The page says a dialog
+  // opened or closed in a console line (`client.js`), the one thing the app reads from it, and
+  // all it can do with it is spread over devc web's own part of the window.
+
+  /** A devc web view with a dialog open, and the key of the stylesheet placing its page. */
+  const devcDialogs = new Map<WebContentsView, string | null>();
+
+  /** devc web's part of the window: above both the Containers pane and the drawer. */
+  function devcRegion(l: Layout): Rect {
+    const bottom = Math.min(
+      l.sidebar.y + l.sidebar.height,
+      l.main.y + l.main.height,
+    );
+    return {
+      x: 0,
+      y: l.main.y,
+      width: l.main.x + l.main.width,
+      height: Math.max(0, bottom - l.main.y),
+    };
+  }
+
+  /** Puts a devc web view at `own`, or with a dialog open across devc web's part of the window. */
+  function placeDevc(view: WebContentsView, own: Rect): void {
+    if (!devcDialogs.has(view)) {
+      view.setBounds(own);
+      return;
+    }
+    const region = devcRegion(laid);
+    const css = `html{background:transparent!important}` +
+      `body{position:absolute!important;margin:0!important;` +
+      `left:${own.x - region.x}px!important;top:${
+        own.y - region.y
+      }px!important;` +
+      `width:${own.width}px!important;height:${own.height}px!important}`;
+    const wc = view.webContents;
+    void wc.insertCSS(css).then((key) => {
+      const old = devcDialogs.get(view);
+      if (!devcDialogs.has(view)) {
+        void wc.removeInsertedCSS(key);
+        return;
+      }
+      devcDialogs.set(view, key);
+      if (old) void wc.removeInsertedCSS(old);
+      view.setBounds(region);
+    }).catch(() => {});
+  }
+
+  function devcDialog(view: WebContentsView, open: boolean): void {
+    if (open === devcDialogs.has(view)) return;
+    if (open) {
+      devcDialogs.set(view, null);
+      hideMenu();
+      // Raised over the other devc web view and the rail, under the overlay menu.
+      win.contentView.addChildView(view);
+      win.contentView.addChildView(menuView);
+    } else {
+      const key = devcDialogs.get(view);
+      devcDialogs.delete(view);
+      if (key) void view.webContents.removeInsertedCSS(key);
+    }
+    relayout();
+  }
+
+  for (const view of [devcView, sidebarView]) {
+    const wc = view.webContents;
+    wc.on('console-message', (e) => {
+      if (e.frame !== wc.mainFrame) return;
+      if (e.message === 'devc-desktop:dialog open') devcDialog(view, true);
+      if (e.message === 'devc-desktop:dialog closed') devcDialog(view, false);
+    });
+    // A page that navigates (a reload, devc web restarted) has no dialog open, nor the CSS.
+    wc.on('did-start-navigation', (d) => {
+      if (d.isMainFrame && devcDialogs.delete(view)) relayout();
+    });
+  }
+
   function relayout(): void {
     const { width, height } = win.getContentBounds();
     const area = areaOf(height);
@@ -382,8 +470,8 @@ async function main(): Promise<void> {
     railView.setVisible(showingDevc);
     statusView.setVisible(!showingDevc);
     if (showingDevc) {
-      devcView.setBounds(l.main);
-      sidebarView.setBounds(l.sidebar);
+      placeDevc(devcView, l.main);
+      placeDevc(sidebarView, l.sidebar);
       railView.setBounds(l.rail);
     } else {
       // The status page across the window, above the drawer.
@@ -1255,12 +1343,9 @@ async function main(): Promise<void> {
     paneDialog = open;
     hideMenu();
     if (open) {
-      containersView.setBackgroundColor('#00000000');
       // Re-adding a view raises it: over the drawer and the rest, under the overlay menu.
       win.contentView.addChildView(containersView);
       win.contentView.addChildView(menuView);
-    } else {
-      containersView.setBackgroundColor('#0d0f14');
     }
     relayout();
     if (!open) containersView.webContents.send('containers:expanded', null);
@@ -1269,7 +1354,6 @@ async function main(): Promise<void> {
   containersView.webContents.on('did-start-navigation', (d) => {
     if (!d.isMainFrame || !paneDialog) return;
     paneDialog = false;
-    containersView.setBackgroundColor('#0d0f14');
     relayout();
   });
 

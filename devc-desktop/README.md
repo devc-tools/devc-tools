@@ -186,7 +186,10 @@ have in devc web's own sidebar (double-click resets the pane's height), and clic
 **CONTAINERS** folds the section, shrinking the pane to its heading. While one of its dialogs is
 open (**Add project**, a task, a confirm), the app spreads the pane's view over the window below
 the title bar, transparent, so the dialog and its backdrop cover the window as devc web's own do;
-it goes back to its place when the dialog closes.
+it goes back to its place when the dialog closes. devc web's own views do the same within devc web's part of the
+window: while `/sidebar` or `/main` has a dialog open (a task, Ask agent, the file palette), the
+app spreads that view over the column above the pane and `/main` above the drawer, never over an
+app view.
 
 ## The host terminal
 
