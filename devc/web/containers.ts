@@ -49,6 +49,8 @@ import type {
 import { containerHome, execFiles } from './container_files.ts';
 import { parseRunningOutput, RUNNING_SCRIPT } from './sessions.ts';
 import { isHerdrLaunch } from './herdr_bridge.ts';
+import type { HostShell } from './env_host.ts';
+import { resumeStart, runningStarts, startInDevcd } from './host_starts.ts';
 import { noGrantMessage } from './pr_review.ts';
 
 export const LOCAL_FOLDER_LABEL = 'devcontainer.local_folder';
@@ -685,6 +687,8 @@ export class ContainerSource implements EnvironmentSource {
   constructor(
     readonly session: string,
     private deps: Partial<ContainerEnvDeps> = {},
+    /** This machine's login shell: with it, a start runs in Herdr session `devcd`. */
+    private hostShell: HostShell | null = null,
   ) {}
 
   start(hooks: DiscoveryHooks): void {
@@ -719,11 +723,36 @@ export class ContainerSource implements EnvironmentSource {
     return new ContainerEnvironment(record, this.session, this.deps);
   }
 
-  startProject(
+  /** The folders whose start runs in Herdr session `devcd` now: a devc web launched mid-start. */
+  runningStarts(): Promise<string[]> {
+    const home = Deno.env.get('HOME');
+    return this.hostShell === null || home === undefined
+      ? Promise.resolve([])
+      : runningStarts(home);
+  }
+
+  /** Follows `localFolder`'s running start in `devcd` to its end; false when none runs. */
+  resumeStart(
+    localFolder: string,
+    onLine: (line: string) => void,
+  ): Promise<boolean> {
+    const home = Deno.env.get('HOME');
+    return home === undefined
+      ? Promise.resolve(false)
+      : resumeStart(home, localFolder, onLine);
+  }
+
+  /** In Herdr session `devcd` when it can be (see `host_starts.ts`), else in devc web. */
+  async startProject(
     localFolder: string,
     onLine: (line: string) => void,
   ): Promise<void> {
-    return startProject(localFolder, onLine);
+    const home = Deno.env.get('HOME');
+    if (
+      this.hostShell !== null && home !== undefined &&
+      await startInDevcd({ shell: this.hostShell, home, localFolder, onLine })
+    ) return;
+    await startProject(localFolder, onLine);
   }
 
   stopProject(localFolder: string): Promise<boolean> {

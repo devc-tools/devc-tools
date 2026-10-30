@@ -277,7 +277,8 @@ function onContainersMessage(msg) {
     for (const top of picker?.tops ?? []) picker?.tree.refresh(top);
   }
   if (msg.type === 'project_output') {
-    showProjectOutput(msg.localFolder, msg.line);
+    const line = msg.line ?? msg.lines?.at(-1);
+    if (typeof line === 'string') showProjectOutput(msg.localFolder, line);
   }
   if (!standalone) return;
   // On its own page, the section is the cards' page too.

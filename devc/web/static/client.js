@@ -568,7 +568,7 @@ function applyMessage(msg) {
       if (Array.isArray(msg.environments)) environments = msg.environments;
       break;
     case 'project_output':
-      onProjectOutput(msg.localFolder, msg.line);
+      onProjectOutput(msg);
       break;
     case 'pinned_files':
       onPinnedFiles(msg);
@@ -623,10 +623,16 @@ function patchPane(containerId, pane, merge) {
   snap.panes[i] = merge ? { ...snap.panes[i], ...pane } : pane;
 }
 
-/** One line of a container start's output, kept: its last {@link OUTPUT_LINES}. */
-function onProjectOutput(localFolder, line) {
-  const lines = projectOutput.get(localFolder) ?? [];
-  lines.push(line);
+/**
+ * A container start's output, kept: its last {@link OUTPUT_LINES}. One `line` is added; `lines`
+ * with `replace` are all there is (a start beginning, or the server's output so far for one
+ * running when this page connected).
+ */
+function onProjectOutput(msg) {
+  const { localFolder } = msg;
+  const lines = msg.replace ? [] : projectOutput.get(localFolder) ?? [];
+  if (Array.isArray(msg.lines)) lines.push(...msg.lines);
+  if (typeof msg.line === 'string') lines.push(msg.line);
   if (lines.length > OUTPUT_LINES) lines.splice(0, lines.length - OUTPUT_LINES);
   projectOutput.set(localFolder, lines);
 }

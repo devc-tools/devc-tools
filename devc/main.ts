@@ -92,6 +92,7 @@ import {
 import { openBrowser, openPath } from './web/browser.ts';
 import { parseTimeArgs, runTime } from './time.ts';
 import { gitPush, parseGitArgs, pushPlan } from './git_push.ts';
+import { runWebStartBody, WEB_START_SUBCOMMAND } from './web/host_starts.ts';
 
 const subcommand = Deno.args[0];
 const KNOWN_COMMANDS = new Set(COMMANDS.map((c) => c.name));
@@ -108,6 +109,12 @@ if (subcommand === DEVCONTAINER_SUBCOMMAND) {
 // here on the process belongs to the sidecar body, not devc. Never returns.
 if (subcommand === HERDR_SIDECAR_SUBCOMMAND) {
   await runHerdrSidecarBody();
+}
+
+// `devc web` self-execs with this hidden subcommand in a pane of Herdr session `devcd`, for a
+// container start that outlives it (see `web/host_starts.ts`). Never returns.
+if (subcommand === WEB_START_SUBCOMMAND) {
+  await runWebStartBody(Deno.args.slice(1));
 }
 
 /**

@@ -17,7 +17,7 @@ import {
   toFileUrl,
 } from 'jsr:@std/path';
 import { ContainerSource, probeDocker } from './containers.ts';
-import { HostSource } from './env_host.ts';
+import { HostShell, HostSource } from './env_host.ts';
 import {
   ASKED,
   type DesktopRequestKind,
@@ -764,6 +764,26 @@ export async function startWeb(
   // Projects: devc's projects list (pinned and recent folders) merged with what discovery knows.
   let projectEntries: ProjectEntry[] = await loadProjects();
   const startingProjects = new Set<string>();
+  /** Each starting project's output so far, its last 500 lines: for a page that connects mid-start. */
+  const startOutput = new Map<string, string[]>();
+  /** A start begins: every page's output for it is emptied (`replace`). */
+  const beginOutput = (folder: string) => {
+    startOutput.set(folder, []);
+    broadcast({
+      type: 'project_output',
+      localFolder: folder,
+      lines: [],
+      replace: true,
+    });
+  };
+  const outputLine = (folder: string, line: string) => {
+    const lines = startOutput.get(folder);
+    if (lines !== undefined) {
+      lines.push(line);
+      if (lines.length > 500) lines.splice(0, lines.length - 500);
+    }
+    broadcast({ type: 'project_output', localFolder: folder, line });
+  };
   const projectsMessage = () => ({
     type: 'projects',
     environments: available,
@@ -1186,9 +1206,16 @@ export async function startWeb(
   await liveStatic?.init();
   const generation = () => liveStatic?.generation ?? EMBEDDED_GENERATION;
 
-  containerSource = hasDocker ? new ContainerSource(opts.session) : null;
+  const hostShell = new HostShell();
+  containerSource = hasDocker
+    ? new ContainerSource(opts.session, {}, hostShell)
+    : null;
   hostSource = projectStarts
-    ? new HostSource({ session: opts.session, candidates: hostCandidates })
+    ? new HostSource({
+      session: opts.session,
+      candidates: hostCandidates,
+      shell: hostShell,
+    })
     : null;
   const sourceHooks = (source: EnvironmentSource) => ({
     onAdd: addContainer,
@@ -3004,12 +3031,13 @@ export async function startWeb(
       );
     }
     startingProjects.add(folder);
+    beginOutput(folder);
     broadcastProjects();
     try {
       await source.startProject(
         folder,
         (line) => {
-          broadcast({ type: 'project_output', localFolder: folder, line });
+          outputLine(folder, line);
           onLine?.(line);
         },
       );
@@ -3018,7 +3046,32 @@ export async function startWeb(
       throw new ProjectActionError('start_failed', errorText(e));
     } finally {
       startingProjects.delete(folder);
+      startOutput.delete(folder);
       await reloadProjects();
+    }
+  };
+
+  /**
+   * The container starts still running in Herdr session `devcd` from before this server
+   * (`host_starts.ts`): each shown as starting, its output broadcast as `project_output` from the
+   * top, until it ends; a failed one's error is its last line.
+   */
+  const resumeStarts = async () => {
+    const source = containerSource;
+    if (source === null) return;
+    for (const folder of await source.runningStarts()) {
+      if (startingProjects.has(folder)) continue;
+      startingProjects.add(folder);
+      beginOutput(folder);
+      broadcastProjects();
+      const onLine = (line: string) => outputLine(folder, line);
+      void source.resumeStart(folder, onLine)
+        .catch((e) => onLine(errorText(e)))
+        .finally(async () => {
+          startingProjects.delete(folder);
+          startOutput.delete(folder);
+          await reloadProjects();
+        });
     }
   };
 
@@ -3622,6 +3675,14 @@ export async function startWeb(
       })));
       client.send(JSON.stringify(containersMessage()));
       client.send(JSON.stringify(projectsMessage()));
+      for (const [localFolder, lines] of startOutput) {
+        client.send(JSON.stringify({
+          type: 'project_output',
+          localFolder,
+          lines,
+          replace: true,
+        }));
+      }
       client.send(JSON.stringify(pinnedFilesMessage(filePins)));
       client.send(JSON.stringify(dashboardMessage(dashboard)));
       client.send(JSON.stringify(tasksMessage(taskState)));
@@ -3880,6 +3941,9 @@ export async function startWeb(
   }
 
   for (const source of sources()) source.start(sourceHooks(source));
+  void resumeStarts().catch((e) =>
+    console.error(`devc web: following running starts: ${errorText(e)}`)
+  );
   liveStatic?.watch();
   gitWatch.start();
   changesWatch.start();

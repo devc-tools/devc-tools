@@ -362,7 +362,11 @@ is published from any container: the host server finds devcontainers with
   lists **projects** whose container is stopped or was never created: every
   folder you added with **+** or a devc command started, kept in
   `~/.config/devc/projects.json` until you remove it. Hover one for its play button, **Start container** (the same start as `devc attach`,
-  with its output under **Show output**); right-click any project for **Stop
+  with its output under **Show output**; when this machine has `herdr`, the start runs in a
+  pane of its Herdr session `devcd`, started if need be, so it carries on if devc web restarts,
+  and a devc web started again while it runs shows it as starting, its output from the top, and
+  follows it rather than starting another; a page opened mid-start gets the output so far; without
+  `herdr` it runs inside devc web); right-click any project for **Stop
   container**, **Remove container** (as `devc down`: stopped, then deleted)
   and **Remove project** (it leaves the list; offered once it has no container
   and isn't running, and nothing is kept about it); hovering a running container's row shows a
