@@ -31,6 +31,7 @@ import {
   type RunLimits,
   type RunningSession,
 } from './environment.ts';
+import { IMAGE_NAME, IMAGE_TTL_DAYS } from './images.ts';
 import {
   contentHash,
   type DirEntry,
@@ -215,6 +216,21 @@ function fsError(
   return e;
 }
 
+/** Removes the attached images in `dir` ({@link IMAGE_NAME}) older than {@link IMAGE_TTL_DAYS}. */
+async function pruneImages(dir: string): Promise<void> {
+  const before = Date.now() - IMAGE_TTL_DAYS * 24 * 60 * 60 * 1000;
+  for await (const e of Deno.readDir(dir)) {
+    if (!e.isFile || !IMAGE_NAME.test(e.name)) continue;
+    const path = join(dir, e.name);
+    try {
+      const { mtime } = await Deno.stat(path);
+      if (mtime && mtime.getTime() < before) await Deno.remove(path);
+    } catch {
+      // Gone already, or not ours to remove: the next attach tries again.
+    }
+  }
+}
+
 /** A host project's {@link EnvFiles}: Deno FS calls, the same contract as the exec-backed ones. */
 export function hostFiles(): EnvFiles {
   const readBytes = async (path: string, max: number) => {
@@ -337,6 +353,16 @@ export function hostFiles(): EnvFiles {
       } catch (e) {
         throw fsError(e, file, 'written');
       }
+    },
+    async writeImage(dir, file, bytes) {
+      try {
+        await Deno.mkdir(dir, { recursive: true, mode: 0o700 });
+        if (Deno.build.os !== 'windows') await Deno.chmod(dir, 0o700);
+        await Deno.writeFile(file, bytes, { mode: 0o600, createNew: true });
+      } catch (e) {
+        throw fsError(e, file, 'written');
+      }
+      await pruneImages(dir).catch(() => {});
     },
     async writeText(path, text, base) {
       const bytes = new TextEncoder().encode(text);

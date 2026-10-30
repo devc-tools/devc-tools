@@ -4,6 +4,7 @@ import {
   decodeBase64,
   encodeInput,
   mouseButton,
+  pastePaths,
   pixelToCell,
   selectionSpan,
   wrapPaste,
@@ -97,5 +98,13 @@ Deno.test('selectionSpan wraps across rows and ignores order', () => {
   assertEquals(
     selectionSpan({ column: 9, row: 2 }, { column: 3, row: 2 }, 80),
     { column: 3, row: 2, length: 7 },
+  );
+});
+
+Deno.test('pastePaths brackets the paths, single-quoting any that need it', () => {
+  assertEquals(pastePaths(['/a/b.png']), '\x1b[200~/a/b.png\x1b[201~');
+  assertEquals(
+    pastePaths(['/a/b.png', "/x y/it's.png"]),
+    "\x1b[200~/a/b.png '/x y/it'\\''s.png'\x1b[201~",
   );
 });

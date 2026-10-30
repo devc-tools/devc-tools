@@ -14,6 +14,12 @@ import {
 } from './agents.ts';
 import { MAX_TASK_TEXT, taskText } from '@devc-tools/core/tasks.ts';
 import type { PrMessage } from './pr_review.ts';
+import {
+  IMAGE_MIMES,
+  IMAGE_SOURCES,
+  type ImageMime,
+  type ImageSource,
+} from './images.ts';
 
 /** The only Herdr methods a browser `request` may call. */
 export const REQUEST_METHODS: ReadonlySet<string> = new Set([
@@ -204,6 +210,19 @@ export type ClientMessage =
     text: string;
     /** The `hash` its last read returned: refused with `conflict` if the file changed since. */
     base?: string;
+  }
+  /**
+   * An image pasted or dropped on a pane tile, written into the pane's environment
+   * (`images.ts`); answered with its path there, which the page pastes into the pane.
+   */
+  | {
+    type: 'attach_image';
+    id: string;
+    container: string;
+    source: ImageSource;
+    mime: ImageMime;
+    /** The image's bytes, base64. */
+    data: string;
   }
   | { type: 'locate_file'; id: string; container: string; path: string }
   /**
@@ -449,6 +468,8 @@ export const MAX_CARD_KEY = 4096;
 export const MAX_VIEW_MESSAGE = 256 * 1024;
 /** The longest `lsp_send` frame, in UTF-16 code units of its text. */
 export const MAX_LSP_MESSAGE = 8 * 1024 * 1024;
+/** The longest `attach_image` frame: an image of `MAX_IMAGE_BYTES`, base64, and the rest. */
+export const MAX_IMAGE_MESSAGE = 28 * 1024 * 1024;
 
 /** A viewport cell, zero-based: the same space as `mouse`. */
 export type Cell = { column: number; row: number };
@@ -760,7 +781,10 @@ export function parseClientMessage(raw: string): ParseResult {
       rejection: { code: 'bad_request', message: 'message too large' },
     };
   }
-  if (m.type === 'lsp_send' && raw.length > MAX_LSP_MESSAGE) {
+  if (
+    (m.type === 'lsp_send' && raw.length > MAX_LSP_MESSAGE) ||
+    (m.type === 'attach_image' && raw.length > MAX_IMAGE_MESSAGE)
+  ) {
     return {
       ok: false,
       rejection: { code: 'bad_request', message: 'message too large' },
@@ -1020,6 +1044,15 @@ function parseFields(m: Obj): ClientMessage {
           : { root: absolute(m, 'root'), path: newEntryPath(m, true) }),
         text: text(m, 'text'),
         ...(m.base !== undefined ? { base: m.base as string } : {}),
+      };
+    case 'attach_image':
+      return {
+        type: 'attach_image',
+        id: str(m, 'id'),
+        container: str(m, 'container'),
+        source: oneOf(m, 'source', [...IMAGE_SOURCES]),
+        mime: oneOf(m, 'mime', [...IMAGE_MIMES]),
+        data: str(m, 'data'),
       };
     case 'locate_file': {
       const path = absolute(m, 'path');

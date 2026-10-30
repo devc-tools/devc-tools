@@ -2637,4 +2637,4 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
 | devc show — agents show a file or its PR diff at a line range beside their terminal in devc web                     | [devc-show](devc-show.md)                                                          |             |
 | devc show local diff — `show --changes [<ref>]`: a local diff tile for uncommitted or branch changes                | [devc-show-local-diff](devc-show-local-diff.md)                                    |             |
 | devc web git pull — fast-forward Pull, and a faded ↓ for commits only the host has fetched                          | [devc-web-git-pull](devc-web-git-pull.md)                                          | in progress |
-| devc web screenshots — paste or drop an image into a terminal; its path is pasted for the agent                     | [devc-web-screenshots](devc-web-screenshots.md)                                    |             |
+| devc web screenshots — paste or drop an image into a terminal; its path is pasted for the agent                     | [devc-web-screenshots](devc-web-screenshots.md)                                    | in progress |

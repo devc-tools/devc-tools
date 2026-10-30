@@ -75,6 +75,11 @@ export interface EnvFiles {
   delete(path: string): Promise<Record<string, never>>;
   /** Writes `text` to `file`, making folder `dir` first. */
   write(dir: string, file: string, text: string): Promise<void>;
+  /**
+   * Writes an attached image's `bytes` to new file `file` in `dir` (`0600`; `dir` made `0700`),
+   * then removes the images in `dir` older than `IMAGE_TTL_DAYS` (`images.ts`).
+   */
+  writeImage(dir: string, file: string, bytes: Uint8Array): Promise<void>;
   /** Saves in place; with `base`, the current bytes must still hash to it. */
   writeText(
     path: string,

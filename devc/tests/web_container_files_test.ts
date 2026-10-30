@@ -1,4 +1,4 @@
-import { assertEquals, assertRejects } from 'jsr:@std/assert';
+import { assert, assertEquals, assertRejects } from 'jsr:@std/assert';
 import { join } from 'jsr:@std/path';
 import type {
   ContainerInfo,
@@ -19,7 +19,9 @@ import {
   withHostPaths,
   writeArgv,
   writeContainerFile,
+  writeContainerImage,
   writeContainerText,
+  writeImageArgv,
 } from '../web/container_files.ts';
 import { contentHash, FilesError, MAX_READ_BYTES } from '../web/files.ts';
 import {
@@ -756,4 +758,87 @@ Deno.test('writeContainerText: too large, and a stopped container', async () => 
     FilesError,
   );
   assertEquals(stopped.code, 'not_running');
+});
+
+Deno.test('writeContainerImage writes a private file in a private folder and prunes old images', async () => {
+  const dir = await Deno.realPath(await Deno.makeTempDir());
+  try {
+    const images = join(dir, '.cache', 'devc', 'images');
+    await Deno.mkdir(images, { recursive: true });
+    const old = new Date(Date.now() - 9 * 24 * 60 * 60 * 1000);
+    const recent = new Date(Date.now() - 6 * 24 * 60 * 60 * 1000);
+    const stale = join(images, 'paste-20261020-101010-aaaaaa.png');
+    const fresh = join(images, 'drop-20261023-101010-bbbbbb.png');
+    const notOurs = join(images, 'notes.png');
+    for (
+      const [path, at] of [[stale, old], [fresh, recent], [
+        notOurs,
+        old,
+      ]] as const
+    ) {
+      await Deno.writeFile(path, new Uint8Array([1]));
+      await Deno.utime(path, at, at);
+    }
+    const calls: string[][] = [];
+    const file = join(images, 'paste-20261029-150405-a1b2c3.png');
+    const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0, 255]);
+    await writeContainerImage(
+      envOf(undefined, (args, input) => {
+        calls.push(args);
+        return localRunInput(args, input);
+      }),
+      images,
+      file,
+      png,
+    );
+    assertEquals(await Deno.readFile(file), png);
+    assertEquals((await Deno.stat(file)).mode! & 0o777, 0o600);
+    assertEquals((await Deno.stat(images)).mode! & 0o777, 0o700);
+    assertEquals(
+      [stale, fresh, notOurs].map((p) => {
+        try {
+          Deno.statSync(p);
+          return true;
+        } catch {
+          return false;
+        }
+      }),
+      [false, true, true],
+    );
+    // The paths ride in as arguments, never inside the script.
+    const args = calls[0];
+    assertEquals(args.slice(args.indexOf(info.containerId) + 1), [
+      ...writeImageArgv(images, file),
+    ]);
+    const argv = writeImageArgv('/d/$(x)', "/d/it's.png");
+    assertEquals(argv.slice(-2), ['/d/$(x)', "/d/it's.png"]);
+    assert(!argv[2].includes('/d/'));
+  } finally {
+    await Deno.remove(dir, { recursive: true });
+  }
+});
+
+Deno.test('writeContainerImage: permission denied is forbidden, a stopped container not_running', async () => {
+  for (
+    const [stderr, code] of [
+      ["sh: can't create /x/a.png: Permission denied", 'forbidden'],
+      [
+        'Error response from daemon: container c0ffee is not running',
+        'not_running',
+      ],
+    ]
+  ) {
+    const err = await assertRejects(
+      () =>
+        writeContainerImage(
+          envOf(undefined, () =>
+            Promise.resolve({ code: 1, stdout: new Uint8Array(), stderr })),
+          '/x',
+          '/x/a.png',
+          new Uint8Array([1]),
+        ),
+      FilesError,
+    );
+    assertEquals(err.code, code);
+  }
 });

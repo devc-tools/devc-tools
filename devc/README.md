@@ -465,6 +465,14 @@ is published from any container: the host server finds devcontainers with
   mode), except a right-click, which opens the tile's menu (the same one as
   its tab); **Shift+drag** selects locally and copies. The wheel scrolls the app
   when it tracks the mouse, and Herdr's scrollback otherwise.
+- **Images for agents:** paste an image into a terminal (a screenshot copied
+  with ⌘⌃⇧4 on a Mac or Win+Shift+S on Windows), or drop image files on it, and
+  devc web writes each one to `~/.cache/devc/images/` where the terminal runs
+  (the container, or this machine), readable only by you, then pastes the
+  paths into the terminal. Claude Code attaches a pasted image path as an
+  image. PNG, JPEG, GIF and WebP up to 20 MB; images older than 7 days are
+  removed at the next one. When the clipboard has text too (a spreadsheet's
+  copy does), the text is pasted.
 - **Files and editing:** click a file to open it in a file tile, with syntax
   highlighting, search (Ctrl/⌘+F) and folding. While the project's container
   runs, the tile is an editor too: type, and **Ctrl+S** (**⌘S** or **Ctrl+S** on

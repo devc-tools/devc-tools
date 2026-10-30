@@ -49,6 +49,7 @@ import {
   decodeBase64,
   encodeInput,
   mouseButton,
+  pastePaths,
   pixelToCell,
   wrapPaste,
 } from './lib/input.js';
@@ -4512,22 +4513,140 @@ function mountTile(tile) {
   });
 
   // Paste is intercepted before xterm.js sees it: a multi-line paste goes as one bracketed
-  // input, because the page cannot know whether the app enabled bracketed paste.
+  // input, because the page cannot know whether the app enabled bracketed paste. With no text on
+  // the clipboard, its images are attached: text wins, since a spreadsheet's copy has both.
   body.addEventListener('paste', (ev) => {
     ev.preventDefault();
     ev.stopPropagation();
     const t = target();
     const text = ev.clipboardData?.getData('text/plain') ?? '';
-    if (t && text) {
-      keepTileOpen(tile);
-      send({ type: 'input', ...t, bytes: encodeInput(wrapPaste(text)) });
+    if (text) {
+      if (t) {
+        keepTileOpen(tile);
+        send({ type: 'input', ...t, bytes: encodeInput(wrapPaste(text)) });
+      }
+      return;
+    }
+    const items = [...(ev.clipboardData?.items ?? [])].filter((i) =>
+      i.kind === 'file'
+    );
+    const images = items.filter((i) => IMAGE_MIMES.includes(i.type))
+      .map((i) => i.getAsFile())
+      .filter((f) => f !== null);
+    if (images.length > 0) {
+      attachImages(view, target, images, 'paste');
+    } else if (items.some((i) => i.type.startsWith('image/'))) {
+      errorToast(
+        'Only PNG, JPEG, GIF and WebP images can be pasted into a terminal',
+      );
     }
   }, true);
+
+  // Image files dropped from outside the page. A tile or row dragged inside it (`DRAG_MIME`) is
+  // never touched here: the tiling area takes those.
+  /** @param {DragEvent} e */
+  const filesDrag = (e) => {
+    const types = e.dataTransfer?.types;
+    return !!types && types.includes('Files') && !types.includes(DRAG_MIME);
+  };
+  for (const type of ['dragenter', 'dragover']) {
+    body.addEventListener(type, (/** @type {DragEvent} */ e) => {
+      if (!filesDrag(e)) return;
+      e.preventDefault();
+      /** @type {DataTransfer} */ (e.dataTransfer).dropEffect = 'copy';
+      body.classList.add('drop-target');
+    });
+  }
+  body.addEventListener('dragleave', (e) => {
+    const to = /** @type {Node | null} */ (e.relatedTarget);
+    if (!to || !body.contains(to)) body.classList.remove('drop-target');
+  });
+  body.addEventListener('drop', (e) => {
+    body.classList.remove('drop-target');
+    if (!filesDrag(e)) return;
+    e.preventDefault();
+    const files = [.../** @type {DataTransfer} */ (e.dataTransfer).files];
+    const images = files.filter((f) => IMAGE_MIMES.includes(f.type));
+    const skipped = files.length - images.length;
+    if (skipped > 0) {
+      errorToast(
+        `Skipped ${skipped} file${
+          skipped === 1 ? '' : 's'
+        }: only PNG, JPEG, GIF and WebP ` +
+          'images can be dropped on a terminal',
+      );
+    }
+    if (images.length > 0) attachImages(view, target, images, 'drop');
+  });
 
   attachMouse(view, termEl, target);
 
   // Golden Layout mounts tiles while it builds or restores the layout; open them once it is done.
   queueMicrotask(reconcileTiles);
+}
+
+/** The image types a pane tile attaches: `images.ts`'s `IMAGE_MIMES`. */
+const IMAGE_MIMES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'];
+
+/** The largest image attached: `images.ts`'s `MAX_IMAGE_BYTES`. */
+const MAX_IMAGE_BYTES = 20 * 1024 * 1024;
+
+/** `blob`'s bytes as base64. */
+function blobBase64(/** @type {Blob} */ blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const url = /** @type {string} */ (reader.result);
+      resolve(url.slice(url.indexOf(',') + 1));
+    };
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(blob);
+  });
+}
+
+/**
+ * Attaches `images` to a pane tile's pane (`attach_image`), one at a time, and pastes the paths
+ * of those that were written into the pane in one bracketed paste ({@link pastePaths}). Each one
+ * that fails is its own toast. Focus goes back to the terminal.
+ *
+ * @param {TileView} view
+ * @param {() => {container: string, pane_id: string} | null} target
+ * @param {File[]} images
+ * @param {'paste' | 'drop'} source
+ */
+async function attachImages(view, target, images, source) {
+  const t = target();
+  if (!t) {
+    errorToast("The terminal isn't connected");
+    return;
+  }
+  keepTileOpen(view.tile);
+  /** @type {string[]} */
+  const paths = [];
+  for (const image of images) {
+    if (image.size > MAX_IMAGE_BYTES) {
+      errorToast(
+        `Attach image failed: ${image.name || 'the image'} is over 20 MB`,
+      );
+      continue;
+    }
+    try {
+      const r = await call({
+        type: 'attach_image',
+        container: t.container,
+        source,
+        mime: image.type,
+        data: await blobBase64(image),
+      });
+      paths.push(r.path);
+    } catch (e) {
+      errorToast(`Attach image failed: ${e?.message ?? e}`);
+    }
+  }
+  if (paths.length > 0) {
+    send({ type: 'input', ...t, bytes: encodeInput(pastePaths(paths)) });
+  }
+  view.renderer.focus();
 }
 
 /** Tears a tile's view down; the pane closes on the server with the last tile showing it. */

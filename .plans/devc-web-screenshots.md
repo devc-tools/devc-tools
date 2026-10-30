@@ -22,19 +22,19 @@ Agent-initiated screenshots (an agent asking for a PNG of the page or a tile) ar
       without markers today, so do this with a temporary console call to `send({type: 'input',
       …})`). Confirm it shows `[Image #1]`. If it does not, stop and report to the user: the
       insertion contract below needs revisiting.
-- [ ] `devc/web/images.ts` (new): type sniffing, file naming, the folder, pruning (see Contracts)
-- [ ] `devc/web/environment.ts`: `EnvFiles.writeImage(dir, file, bytes)`
-- [ ] `devc/web/container_files.ts`: the exec-backed `writeImage` (private folder and file, prune)
-- [ ] `devc/web/env_host.ts`: `hostFiles().writeImage` (same contract through Deno FS)
-- [ ] `devc/web/protocol.ts`: `attach_image` message, its parser and `MAX_IMAGE_MESSAGE`
-- [ ] `devc/web/server.ts`: the `attach_image` handler
-- [ ] `devc/web/static/lib/input.js`: `pastePaths(paths)`
-- [ ] `devc/web/static/tiles.js`: image paste and drop on pane tiles; the upload and the
+- [x] `devc/web/images.ts` (new): type sniffing, file naming, the folder, pruning (see Contracts)
+- [x] `devc/web/environment.ts`: `EnvFiles.writeImage(dir, file, bytes)`
+- [x] `devc/web/container_files.ts`: the exec-backed `writeImage` (private folder and file, prune)
+- [x] `devc/web/env_host.ts`: `hostFiles().writeImage` (same contract through Deno FS)
+- [x] `devc/web/protocol.ts`: `attach_image` message, its parser and `MAX_IMAGE_MESSAGE`
+- [x] `devc/web/server.ts`: the `attach_image` handler
+- [x] `devc/web/static/lib/input.js`: `pastePaths(paths)`
+- [x] `devc/web/static/tiles.js`: image paste and drop on pane tiles; the upload and the
       path insertion
-- [ ] `devc/web/static/style.css`: the drop-target highlight on a pane tile
-- [ ] `devc/deno.json`: `web/images.ts` in the `check` task
-- [ ] `devc/README.md`: the devc web **Input** bullet
-- [ ] Tests listed under Relevant Files
+- [x] `devc/web/static/style.css`: the drop-target highlight on a pane tile
+- [x] `devc/deno.json`: `web/images.ts` in the `check` task
+- [x] `devc/README.md`: the devc web **Input** bullet
+- [x] Tests listed under Relevant Files
 
 ## Contracts
 
@@ -178,29 +178,30 @@ attached one at a time, in order (one `call({type: 'attach_image', …})` each).
 
 ## Validation
 
-- [ ] `cd devc && deno task test` passes, including the new and changed tests below
-- [ ] `cd devc && deno task check` passes (with `web/images.ts` added to the task's list)
-- [ ] `deno fmt --check devc` and `deno lint devc` pass
-- [ ] `web_images_test.ts`: `imageType` recognizes each of the four signatures and returns `null`
+- [x] `cd devc && deno task test` passes, including the new and changed tests below
+- [x] `cd devc && deno task check` passes (with `web/images.ts` added to the task's list)
+- [x] `deno fmt --check devc` passes; `deno lint` reports nothing new in the touched files
+      (`devc` had 256 problems before this plan, mostly `jsr:` import prefixes)
+- [x] `web_images_test.ts`: `imageType` recognizes each of the four signatures and returns `null`
       for a 4-byte buffer, a BMP header (`42 4D`) and a `RIFF….WAVE` header;
       `imageFileName('paste', new Date(2026, 9, 29, 15, 4, 5), 'png')` matches
       `/^paste-20261029-150405-[0-9a-f]{6}\.png$/`; the name pattern accepts that name and
       rejects `paste-20261029-150405-a1b2c3.png.bak`, `capture-20261029-150405-a1b2c3.png` and
       `notes.png`
-- [ ] `web_container_files_test.ts`: the `writeImage` argv carries `dir` and `file` as `$1`/`$2`
+- [x] `web_container_files_test.ts`: the `writeImage` argv carries `dir` and `file` as `$1`/`$2`
       (never inside the script); with a fake `run`, `permission denied` stderr → `forbidden`,
       `is not running` → `not_running`
-- [ ] `web_host_env_test.ts`: `hostFiles().writeImage` in a temp dir creates the folder `0700` and
+- [x] `web_host_env_test.ts`: `hostFiles().writeImage` in a temp dir creates the folder `0700` and
       the file `0600` with the exact bytes; a pattern-matching file with its mtime set
       (`Deno.utime`) 8 days back is removed, a 6-day-old one and an 8-day-old `notes.png` are kept
-- [ ] `web_server_test.ts` (protocol parsing): `attach_image` with each `source`/`mime` parses;
+- [x] `web_server_test.ts` (protocol parsing): `attach_image` with each `source`/`mime` parses;
       `source: 'capture'` and `mime: 'image/bmp'` → `bad_request`; a message longer than
       `MAX_IMAGE_MESSAGE` → `message too large`
-- [ ] `web_server_test.ts` (handler, with a fake environment as the existing `write_file` tests
-      use): a PNG is written to `<home>/.cache/devc/images/paste-…png` and the reply has that
+- [x] `web_images_test.ts` (handler logic, `attachImage` with a fake environment; the server's
+      closure has no handler tests to extend, so the handler calls this and only maps errors): a PNG is written to `<home>/.cache/devc/images/paste-…png` and the reply has that
       `path` and `size`; JPEG bytes sent as `mime: 'image/png'` → `bad_request`; `data: '%%%'` →
       `bad_request`; an unknown container → `not_running`; `home()` → `null` → `write_failed`
-- [ ] `web_input_test.ts`: `pastePaths(['/a/b.png'])` is `'\x1b[200~/a/b.png\x1b[201~'`;
+- [x] `web_input_test.ts`: `pastePaths(['/a/b.png'])` is `'\x1b[200~/a/b.png\x1b[201~'`;
       `pastePaths(['/a/b.png', "/x y/it's.png"])` is
       `'\x1b[200~/a/b.png \'/x y/it\'\\\'\'s.png\'\x1b[201~'`
 - [ ] Manual, Chrome, a container project with Claude Code in a pane:

@@ -2057,6 +2057,11 @@ body.resizing-zones {
 }
 
 /* A `/sidebar` row dragged over a `/main` page's tiling area: where it would land (`tiles.js`). */
+.tile-body.drop-target {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
 .tile-drop-indicator {
   position: fixed;
   z-index: 50;

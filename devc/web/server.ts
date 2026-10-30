@@ -32,6 +32,7 @@ import {
 } from './environment.ts';
 import type { ContainerMount } from '@devc-tools/core/container.ts';
 import { withHostPaths } from './container_files.ts';
+import { attachImage } from './images.ts';
 import {
   GLOBAL_CONFIG_PATHS,
   type JiraConfig,
@@ -3369,7 +3370,7 @@ export async function startWeb(
       if (
         msg.type === 'create_file' || msg.type === 'rename_file' ||
         msg.type === 'delete_file' || msg.type === 'write_file' ||
-        msg.type === 'ask_agent'
+        msg.type === 'ask_agent' || msg.type === 'attach_image'
       ) {
         fail(c, msg.id, 'not_running', 'the container is not running');
         return;
@@ -3424,6 +3425,17 @@ export async function startWeb(
         return;
       case 'write_file':
         await writeFile(c, session, msg);
+        return;
+      case 'attach_image':
+        try {
+          reply(c, {
+            id: msg.id,
+            ok: true,
+            result: await attachImage(session.env, msg),
+          });
+        } catch (e) {
+          fail(c, msg.id, e instanceof FilesError ? e.code : 'write_failed', e);
+        }
         return;
       case 'lsp_attach':
       case 'lsp_settings_get':

@@ -24,6 +24,7 @@ import {
   MAX_READ_BYTES,
   sortEntries,
 } from './files.ts';
+import { IMAGE_TTL_DAYS } from './images.ts';
 
 export type { ExecOutput };
 
@@ -374,6 +375,52 @@ export async function writeContainerFile(
 }
 
 /**
+ * The command that writes stdin to new file `file` in `dir`, both private to the user, then
+ * prunes `dir`'s attached images (by globs looser than `IMAGE_NAME`) older than
+ * {@link IMAGE_TTL_DAYS}. Both paths ride in as arguments, never spliced into the script.
+ */
+export function writeImageArgv(dir: string, file: string): string[] {
+  return [
+    'sh',
+    '-c',
+    'umask 077 && mkdir -p "$1" && chmod 700 "$1" && cat > "$2" && ' +
+    `{ find "$1" -maxdepth 1 -type f -mtime +${IMAGE_TTL_DAYS} ` +
+    "\\( -name 'paste-*' -o -name 'drop-*' \\) -delete 2>/dev/null; true; }",
+    'sh',
+    dir,
+    file,
+  ];
+}
+
+/**
+ * Writes an attached image to new file `file` in `dir` in the container, as the remote user
+ * ({@link writeImageArgv}). Throws {@link FilesError} `forbidden` or `not_running`, or an `Error`
+ * carrying the command's stderr.
+ */
+export async function writeContainerImage(
+  env: EnvRun,
+  dir: string,
+  file: string,
+  bytes: Uint8Array,
+): Promise<void> {
+  const out = await env.run(
+    { interactive: true, cwd: '/', cmd: writeImageArgv(dir, file) },
+    bytes,
+  );
+  if (out.code === 0) return;
+  const msg = out.stderr.trim();
+  if (
+    /permission denied|read-only file system|operation not permitted/i.test(msg)
+  ) {
+    throw new FilesError('forbidden', `${file} can't be written here`);
+  }
+  if (/is not running|no such container/i.test(msg)) {
+    throw new FilesError('not_running', 'the container is not running');
+  }
+  throw new Error(msg || `writing ${file} failed`);
+}
+
+/**
  * Saves the file viewer's `text` to `path` (absolute) in the container, as the remote user, in
  * place (`cat >`: owner, mode and inode are kept). With `base`, the file's current bytes must
  * still hash to it ({@link contentHash}), else `conflict`: it changed since the page read it.
@@ -443,5 +490,7 @@ export function execFiles(env: EnvRun): EnvFiles {
     delete: (path) => deleteContainerEntry(env, path),
     write: (dir, file, text) => writeContainerFile(env, dir, file, text),
     writeText: (path, text, base) => writeContainerText(env, path, text, base),
+    writeImage: (dir, file, bytes) =>
+      writeContainerImage(env, dir, file, bytes),
   };
 }

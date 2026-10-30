@@ -205,6 +205,52 @@ Deno.test('host files: create, rename onto a taken name, delete a folder', async
   }
 });
 
+Deno.test('host files: writeImage writes a private file in a private folder and prunes old images', async () => {
+  const dir = await Deno.makeTempDir();
+  try {
+    const images = join(dir, 'images');
+    await Deno.mkdir(images, { mode: 0o755 });
+    await Deno.chmod(images, 0o755);
+    const old = new Date(Date.now() - 8 * 24 * 60 * 60 * 1000);
+    const recent = new Date(Date.now() - 6 * 24 * 60 * 60 * 1000);
+    const stale = join(images, 'paste-20261020-101010-aaaaaa.png');
+    const fresh = join(images, 'drop-20261023-101010-bbbbbb.png');
+    const notOurs = join(images, 'notes.png');
+    for (
+      const [path, at] of [[stale, old], [fresh, recent], [
+        notOurs,
+        old,
+      ]] as const
+    ) {
+      await Deno.writeFile(path, new Uint8Array([1]));
+      await Deno.utime(path, at, at);
+    }
+    const file = join(images, 'paste-20261029-150405-a1b2c3.png');
+    const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0, 255]);
+    await hostFiles().writeImage(images, file, png);
+    assertEquals(await Deno.readFile(file), png);
+    assertEquals((await Deno.stat(file)).mode! & 0o777, 0o600);
+    assertEquals((await Deno.stat(images)).mode! & 0o777, 0o700);
+    const exists = async (p: string) =>
+      await Deno.stat(p).then(() => true, () => false);
+    assertEquals(
+      [await exists(stale), await exists(fresh), await exists(notOurs)],
+      [false, true, true],
+    );
+    // A new folder is made too, and an existing file is never overwritten.
+    const nested = join(dir, 'a', 'b');
+    await hostFiles().writeImage(nested, join(nested, 'x.png'), png);
+    assertEquals((await Deno.stat(nested)).mode! & 0o777, 0o700);
+    const err = await assertRejects(
+      () => hostFiles().writeImage(nested, join(nested, 'x.png'), png),
+      FilesError,
+    );
+    assertEquals(err.code, 'exists');
+  } finally {
+    await Deno.remove(dir, { recursive: true });
+  }
+});
+
 Deno.test('host files: writeText checks the base hash and saves in place', async () => {
   const dir = await fixture();
   try {

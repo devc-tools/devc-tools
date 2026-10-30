@@ -22,6 +22,20 @@ export function wrapPaste(text) {
 }
 
 /**
+ * Paths as one bracketed paste, separated by spaces: how an attached image's path reaches the
+ * pane (`attach_image`). Always bracketed, even for one path, since agent TUIs attach an image
+ * path only when it is pasted. A path with anything but `[\w@%+=:,./-]` is single-quoted.
+ *
+ * @param {string[]} paths
+ * @returns {string}
+ */
+export function pastePaths(paths) {
+  const quote = (/** @type {string} */ p) =>
+    /^[\w@%+=:,./-]+$/.test(p) ? p : `'${p.replaceAll("'", "'\\''")}'`;
+  return PASTE_START + paths.map(quote).join(' ') + PASTE_END;
+}
+
+/**
  * A pixel offset inside the terminal screen as a zero-based cell, clamped to the grid.
  *
  * @param {number} x pixels from the screen's left edge

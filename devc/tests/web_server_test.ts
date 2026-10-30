@@ -11,7 +11,11 @@ import {
   tokenMatches,
 } from '../web/server.ts';
 import { GLOBAL_CONFIG_PATHS } from '@devc-tools/core/config.ts';
-import { MAX_LSP_MESSAGE, parseClientMessage } from '../web/protocol.ts';
+import {
+  MAX_IMAGE_MESSAGE,
+  MAX_LSP_MESSAGE,
+  parseClientMessage,
+} from '../web/protocol.ts';
 import { DEVC_HERDR_SESSION, parseWebArgs } from '../args.ts';
 
 const PORT = 48228;
@@ -915,6 +919,51 @@ Deno.test('parseClientMessage: lsp_send needs a session and a plain-object messa
   const base = filler(0).length;
   assert(parseClientMessage(filler(MAX_LSP_MESSAGE - base)).ok);
   const big = rejected(filler(MAX_LSP_MESSAGE - base + 1));
+  assertEquals([big.code, big.message], ['bad_request', 'message too large']);
+});
+
+Deno.test('parseClientMessage: attach_image takes a source, an image type and base64, within the cap', () => {
+  for (const source of ['paste', 'drop']) {
+    for (
+      const mime of ['image/png', 'image/jpeg', 'image/gif', 'image/webp']
+    ) {
+      const msg = {
+        type: 'attach_image',
+        id: 'c1',
+        container: 'c0ffee',
+        source,
+        mime,
+        data: 'iVBORw0KGgo=',
+      };
+      assertEquals(
+        parseClientMessage(JSON.stringify(msg)),
+        { ok: true, msg } as never,
+      );
+    }
+  }
+  const ok = {
+    type: 'attach_image',
+    id: 'c1',
+    container: 'c0ffee',
+    source: 'paste',
+    mime: 'image/png',
+    data: 'iVBORw0KGgo=',
+  };
+  for (
+    const bad of [
+      { ...ok, source: 'capture' },
+      { ...ok, source: 'clipboard' },
+      { ...ok, mime: 'image/bmp' },
+      { ...ok, data: '' },
+      { ...ok, container: '' },
+    ]
+  ) {
+    assertEquals(rejected(bad).code, 'bad_request', JSON.stringify(bad));
+  }
+  const filler = (n: number) => JSON.stringify({ ...ok, data: 'A'.repeat(n) });
+  const base = filler(0).length;
+  assert(parseClientMessage(filler(MAX_IMAGE_MESSAGE - base)).ok);
+  const big = rejected(filler(MAX_IMAGE_MESSAGE - base + 1));
   assertEquals([big.code, big.message], ['bad_request', 'message too large']);
 });
 
