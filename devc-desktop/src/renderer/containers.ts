@@ -172,8 +172,31 @@ pane.onMenuPick((seq, index) => {
   if (seq !== menuSeq) return;
   const run = menuActions[index];
   menuActions = [];
-  run?.();
+  if (run) whenFocused(run);
 });
+
+/**
+ * Runs `fn` once this page has the focus. A pick comes from the overlay menu's view, which held
+ * it: the app hands it back, but the pick may arrive first, and the clipboard refuses a write
+ * from an unfocused document (Copy path's "Document is not focused"). Should the focus never
+ * come, `fn` runs anyway after a moment.
+ */
+function whenFocused(fn: () => void): void {
+  if (document.hasFocus()) {
+    fn();
+    return;
+  }
+  let done = false;
+  const once = () => {
+    if (done) return;
+    done = true;
+    removeEventListener('focus', once);
+    clearTimeout(timer);
+    fn();
+  };
+  addEventListener('focus', once);
+  const timer = setTimeout(once, 500);
+}
 
 // Pushes and container actions go to the app, which shows them above as cards to confirm.
 useAppActions({

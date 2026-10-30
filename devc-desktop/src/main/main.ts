@@ -1610,8 +1610,9 @@ async function main(): Promise<void> {
       items[index] == null
     ) return;
     hideMenu();
-    containersView.webContents.send('containers:menu-pick', seq, index);
+    // Focused first: an item that copies needs its document focused (the pane waits for it).
     containersView.webContents.focus();
+    containersView.webContents.send('containers:menu-pick', seq, index);
   });
   ipcMain.on('menu:dismiss', (e) => {
     if (fromMenu(e)) hideMenu();
