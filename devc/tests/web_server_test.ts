@@ -485,6 +485,29 @@ Deno.test('parseClientMessage: file messages take a root and a path, empty meani
     rejected({ type: 'fetch_repo', localFolder: '/a', folder: '/a' }).code,
     'bad_request',
   );
+  ok({
+    type: 'pull_repo',
+    id: 'g3',
+    localFolder: '/src/app',
+    folder: '/src/lib',
+  });
+  for (
+    const bad of [
+      { localFolder: '/a' },
+      { localFolder: '/a', folder: 'rel' },
+      { localFolder: 'rel', folder: '/a' },
+      { folder: '/a' },
+    ]
+  ) {
+    assertEquals(
+      rejected({ type: 'pull_repo', id: 'g4', ...bad }).code,
+      'bad_request',
+    );
+  }
+  assertEquals(
+    rejected({ type: 'pull_repo', localFolder: '/a', folder: '/a' }).code,
+    'bad_request',
+  );
   ok({ type: 'list_host_dir', id: 'f3', path: '' });
   ok({ type: 'list_host_dir', id: 'f4', path: '/Users/me' });
   ok({ type: 'refresh_containers', id: 'f9' });

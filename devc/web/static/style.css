@@ -1390,7 +1390,12 @@ body.resizing-zones {
   color: var(--blocked);
 }
 
-/* A repo card's ↓: a click fetches. */
+/* Commits only the host's mirror has: a faded ↓N, or +N after the ↓ to pull. */
+.git-sync [data-dir='unfetched'] {
+  color: var(--muted);
+}
+
+/* A repo card's faded ↓ / +N fetches, its ↓ pulls. */
 .git-sync .git-fetch {
   cursor: pointer;
 }

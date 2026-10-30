@@ -281,6 +281,55 @@ Deno.test('gitRollup sums every repo and lists the ones with something to do', (
   ]);
 });
 
+Deno.test('gitSync splits ↓ into fetched (to pull) and unfetched (faded, to fetch)', () => {
+  const git = {
+    branch: 'main',
+    upstream: 'origin/main',
+    ahead: 0,
+    behind: 3,
+    gone: false,
+    unfetched: 0,
+  };
+  assertEquals(gitSync(git), {
+    marks: [{ dir: 'behind', text: '↓3' }],
+    diverged: false,
+    title:
+      'main → origin/main: 3 behind origin/main: pull to fast-forward (as of the last fetch)',
+  });
+  assertEquals(gitSync({ ...git, unfetched: 3 }), {
+    marks: [{ dir: 'unfetched', text: '↓3' }],
+    diverged: false,
+    title:
+      'main → origin/main: 3 new on origin/main: fetch to bring them in (as of the last fetch)',
+  });
+  assertEquals(gitSync({ ...git, behind: 5, unfetched: 2 }), {
+    marks: [
+      { dir: 'behind', text: '↓3' },
+      { dir: 'unfetched', text: '+2' },
+    ],
+    diverged: false,
+    title:
+      'main → origin/main: 3 behind origin/main; 2 more on origin/main to fetch (as of the last fetch)',
+  });
+  assertEquals(gitSync({ ...git, ahead: 1 }), {
+    marks: [
+      { dir: 'ahead', text: '↑1' },
+      { dir: 'behind', text: '↓3' },
+    ],
+    diverged: true,
+    title:
+      'main → origin/main: 1 to push, 3 behind origin/main: merge or rebase in the project (as of the last fetch)',
+  });
+  // Collapsed: one plain ↓ for fetched and unfetched alike.
+  assertEquals(
+    gitRollup([
+      { name: 'a', git: { ...git, unfetched: 1 } },
+      { name: 'b', git: { ...git, behind: 1 } },
+    ])?.marks,
+    [{ dir: 'behind', text: '↓4' }],
+  );
+});
+
 Deno.test('gitRollup shows a quiet ✓ when none has anything to sync, nothing when none has an upstream', () => {
   const git = (upstream: string | null) => ({
     branch: 'main',

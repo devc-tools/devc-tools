@@ -85,7 +85,7 @@ import {
   mountCards,
   newTerminalMenuItems,
   onCardsViewState,
-  onFetchDone,
+  onRepoGitDone,
   paneRows,
   pathTitle,
   pinnedCardItem,
@@ -291,8 +291,9 @@ function onContainersMessage(msg) {
       renderTree();
       break;
     case 'fetch_result':
+    case 'pull_result':
     case 'result':
-      if (onFetchDone(msg)) renderTree();
+      if (onRepoGitDone(msg)) renderTree();
       break;
   }
 }

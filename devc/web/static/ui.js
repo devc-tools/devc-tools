@@ -92,8 +92,12 @@ export const LABELS = {
   files: 'Files',
   fetch: 'Fetch',
   requestPush: 'Push…',
-  fetchBehind:
-    'Fetch: bring the commits to pull into the repo’s remote-tracking branch',
+  pull: 'Pull',
+  /** A faded ↓N / +N's tooltip: `upstream` is `<remote>/<branch>`. */
+  fetchUnfetched: (n, upstream) =>
+    `Fetch: bring ${n} new commit${n === 1 ? '' : 's'} into ${upstream}`,
+  /** A ↓N's tooltip when it pulls. */
+  pullBehind: (upstream) => `Pull: fast-forward to ${upstream}`,
   newTerminalHere: 'New terminal here',
   newFile: 'New file…',
   newFolder: 'New folder…',

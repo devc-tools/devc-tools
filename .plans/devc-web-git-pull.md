@@ -12,15 +12,25 @@ successful fetch. This plan replaces `toFetch` with a count, and adds Pull.
 
 ## Checklist
 
-- [ ] `git_status.ts`: replace `GitStatus.toFetch: boolean` with `unfetched: number` (below).
-- [ ] `git_fetch.ts`: `pullRepo` (Fetch, then `git merge --ff-only` in the environment).
-- [ ] Protocol: `pull_repo` in, `pull_result` out; parsed in `protocol.ts`.
-- [ ] Server: `pull_repo` handler with the checks below; refresh both watches after a pull.
-- [ ] Page: split `↓` into a normal (pull) mark and a faded (fetch) mark; Pull in the repo card's
+- [x] `git_status.ts`: replace `GitStatus.toFetch: boolean` with `unfetched: number` (below).
+- [x] `git_fetch.ts`: `pullRepo` (Fetch, then `git merge --ff-only` in the environment).
+- [x] Protocol: `pull_repo` in, `pull_result` out; parsed in `protocol.ts`.
+- [x] Server: `pull_repo` handler with the checks below; refresh both watches after a pull.
+- [x] Page: split `↓` into a normal (pull) mark and a faded (fetch) mark; Pull in the repo card's
       menu and on a click of the normal `↓`; tooltips as below; collapsed rollup unchanged.
-- [ ] Tests (unit, sidebar, protocol), README.
+- [x] Tests (unit, sidebar, protocol), README.
 - [ ] Manual (the user): the states and clicks under Validation, on a container project and a
       host project.
+
+**2026-10-29:** implemented; everything but the manual check is done (`deno task check`, the
+full `deno task test`, `deno fmt --check`). Choices beyond the contracts:
+
+- The server's fetch and pull handlers share `repoTarget` (project repo, running session, path)
+  and `startAllowed` (the 10 s limit, a map each).
+- The page keeps one map of git requests in flight (`repoGitOps`, folder → kind and id), so a
+  card shows one spinner, and a click on either mark does nothing while a fetch or pull runs.
+  `onFetchDone` became `onRepoGitDone`.
+- The faded mark's tooltip says `commit` for one, `commits` for more.
 
 ## Contracts
 
@@ -200,14 +210,14 @@ with the same look as today. `sum` parses the digits of `+<n>` too.
 
 ## Validation
 
-- [ ] `deno task check` and `deno task test` pass in `devc/`. `deno fmt --check` is clean on the
+- [x] `deno task check` and `deno task test` pass in `devc/`. `deno fmt --check` is clean on the
       touched files.
-- [ ] Unit (`tests/web_git_status_test.ts`): with a remote, a clone `work` and a second clone
+- [x] Unit (`tests/web_git_status_test.ts`): with a remote, a clone `work` and a second clone
       `other`, after `other` pushes 2 commits and `fetchUpstream(work)`: `behind 2, unfetched 2`.
       After `git fetch` in `work`: `behind 2, unfetched 0`. After `other` pushes 1 more and
       `fetchUpstream`: `behind 3, unfetched 1`. A branch with no upstream, and a gone upstream:
       `unfetched 0`.
-- [ ] Unit (`tests/web_git_fetch_test.ts`, `hereEnv` as the Fetch tests use): `pullRepo` after a
+- [x] Unit (`tests/web_git_fetch_test.ts`, `hereEnv` as the Fetch tests use): `pullRepo` after a
       remote commit moves `work`'s HEAD and working tree (`{ ok: true, updated: true }`). A second
       call gives `updated: false`. A local commit in `work` plus a remote commit →
       `ok: false`, `problem` starting `git merge:`, and HEAD unchanged. A modified tracked file
@@ -216,10 +226,10 @@ with the same look as today. `sum` parses the digits of `+<n>` too.
       checked-out one → `'the branch changed: try again'`. The clone's hooks and `core.fsmonitor`
       set to a marker-writing script do not fire during the host steps (the marker is absent
       after `fetchUpstream`, the same check the Fetch test makes).
-- [ ] Unit (`tests/web_sidebar_test.ts`): `gitSync` gives the marks and titles in the Page
+- [x] Unit (`tests/web_sidebar_test.ts`): `gitSync` gives the marks and titles in the Page
       table for each of the four states. `gitRollup` of one repo with `↓2` + `+1` and one with
       `↓1` gives a single `↓4`.
-- [ ] Unit (`tests/web_server_test.ts`): `pull_repo` parses like `fetch_repo`, and rejects the
+- [x] Unit (`tests/web_server_test.ts`): `pull_repo` parses like `fetch_repo`, and rejects the
       same bad shapes with `bad_request`.
 - [ ] Manual, on a container project and a host project, with a second clone pushing to the same
       branch:

@@ -61,7 +61,7 @@ Deno.test("buildProjects lists each project's repos with their git state", () =>
     ahead: 2,
     behind: 0,
     gone: false,
-    toFetch: false,
+    unfetched: 0,
   };
   const [api, blog] = buildProjects(
     [

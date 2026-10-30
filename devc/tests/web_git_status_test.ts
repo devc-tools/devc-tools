@@ -20,7 +20,7 @@ async function git(cwd: string, ...args: string[]) {
 }
 
 const counts = (s: GitStatus | null) =>
-  s && [s.branch, s.upstream, s.ahead, s.behind, s.gone, s.toFetch];
+  s && [s.branch, s.upstream, s.ahead, s.behind, s.gone, s.unfetched];
 
 Deno.test('readGitStatus counts in a mirror, and fetchUpstream brings in the remote', async () => {
   const dir = await Deno.makeTempDir();
@@ -41,7 +41,7 @@ Deno.test('readGitStatus counts in a mirror, and fetchUpstream brings in the rem
       0,
       0,
       false,
-      false,
+      0,
     ]);
 
     await git(other, 'commit', '-q', '--allow-empty', '-m', 'theirs');
@@ -59,7 +59,7 @@ Deno.test('readGitStatus counts in a mirror, and fetchUpstream brings in the rem
       1,
       1,
       false,
-      true,
+      1,
     ]);
     // The repo's own fetch brings it in: nothing left to Fetch, still one to pull.
     await git(work, 'fetch', '-q');
@@ -67,7 +67,7 @@ Deno.test('readGitStatus counts in a mirror, and fetchUpstream brings in the rem
       1,
       1,
       false,
-      false,
+      0,
     ]);
 
     // A pull in the repo makes its own ref newer than the mirror's: that one counts.
@@ -77,7 +77,7 @@ Deno.test('readGitStatus counts in a mirror, and fetchUpstream brings in the rem
       0,
       0,
       false,
-      false,
+      0,
     ]);
 
     // A worktree reads its own branch through its primary's refs.
@@ -88,8 +88,44 @@ Deno.test('readGitStatus counts in a mirror, and fetchUpstream brings in the rem
       0,
       0,
       false,
-      false,
+      0,
     ]);
+  } finally {
+    await Deno.remove(dir, { recursive: true });
+  }
+});
+
+Deno.test('readGitStatus: unfetched counts what only the mirror has', async () => {
+  const dir = await Deno.makeTempDir();
+  try {
+    const remote = `${dir}/remote.git`;
+    const work = `${dir}/work`;
+    const other = `${dir}/other`;
+    const opts: MirrorOpts = { root: `${dir}/mirrors`, fetchable: () => true };
+    await git(dir, 'init', '-q', '--bare', '-b', 'main', remote);
+    await git(dir, 'clone', '-q', remote, work);
+    await git(work, 'commit', '-q', '--allow-empty', '-m', 'one');
+    await git(work, 'push', '-q', '-u', 'origin', 'main');
+    await git(dir, 'clone', '-q', remote, other);
+    const pull = async () => {
+      const s = await readGitStatus(work, opts);
+      return s && [s.behind, s.unfetched];
+    };
+    const push = async (n: number) => {
+      for (let i = 0; i < n; i++) {
+        await git(other, 'commit', '-q', '--allow-empty', '-m', `theirs ${i}`);
+      }
+      await git(other, 'push', '-q');
+    };
+
+    await push(2);
+    await fetchUpstream(work, opts);
+    assertEquals(await pull(), [2, 2]);
+    await git(work, 'fetch', '-q');
+    assertEquals(await pull(), [2, 0]);
+    await push(1);
+    await fetchUpstream(work, opts);
+    assertEquals(await pull(), [3, 1]);
   } finally {
     await Deno.remove(dir, { recursive: true });
   }
@@ -112,7 +148,7 @@ Deno.test('readGitStatus: no repo, a gone upstream, and a refused remote', async
       0,
       0,
       true,
-      false,
+      0,
     ]);
     assertEquals(await fetchUpstream(work, opts), false);
   } finally {
@@ -202,7 +238,7 @@ Deno.test('GitStatusWatch reports only changes, and drops folders no longer list
       ahead: 1,
       behind: 0,
       gone: false,
-      toFetch: false,
+      unfetched: 0,
     },
     '/b': null,
   };

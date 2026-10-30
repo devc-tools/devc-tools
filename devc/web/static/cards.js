@@ -299,8 +299,8 @@ export function onCardsViewState(view) {
 export function cardsMessage(msg) {
   switch (msg.type) {
     case 'hello':
-      // A fetch asked for before a reconnect never gets its answer.
-      fetchingRepos.clear();
+      // A fetch or pull asked for before a reconnect never gets its answer.
+      repoGitOps.clear();
       // Listings asked for while disconnected never got an answer.
       for (const { tree } of fileTrees.values()) tree.refresh('');
       // The server's own copy of each list may be gone (a restart): open Sessions rows list again.
@@ -792,11 +792,15 @@ export function repoCard(card, side, worktrees = 0) {
     sidebarState.cardHistoryOpen.has(key) &&
     (!listed || (listed.loading && !listed.error));
   const canPr = !!repo && !!c;
-  // Fetch moves the repo's own remote-tracking ref, so it needs an upstream and its environment.
-  // Only while the repo's own remote-tracking ref lacks commits the host fetched (`toFetch`), or
-  // a fetch of it runs.
-  const canFetch = !!repo && !!c && !!repo.git?.upstream &&
-    (!!repo.git.toFetch || fetchingRepos.has(repo.folder));
+  // Fetch moves the repo's own remote-tracking ref, so it needs an upstream and its environment:
+  // only while that ref lacks commits the host fetched (`unfetched`), or a fetch of it runs.
+  // Pull fast-forwards: only while behind and not ahead, or a pull of it runs.
+  const gitOn = !!repo && !!c && !!repo.git?.upstream;
+  const gitOp = repo ? repoGitOp(repo.folder) : undefined;
+  const canFetch = gitOn &&
+    ((repo.git.unfetched ?? 0) > 0 || gitOp === 'fetch');
+  const canPull = gitOn &&
+    ((repo.git.ahead === 0 && repo.git.behind > 0) || gitOp === 'pull');
   const prOn = canPr && sidebarState.prOpen.has(prKey(localFolder, fr.root));
   const tree = repo ? fileTree(fr) : null;
   const filesOn = !!tree && tree.isOpen('');
@@ -856,8 +860,17 @@ export function repoCard(card, side, worktrees = 0) {
           [
             ...(repo
               ? [
+                ...(canPull
+                  ? [[
+                    LABELS.pull,
+                    () => repoGitRequest('pull', localFolder, repo.folder),
+                  ]]
+                  : []),
                 ...(canFetch
-                  ? [[LABELS.fetch, () => fetchRepo(localFolder, repo.folder)]]
+                  ? [[
+                    LABELS.fetch,
+                    () => repoGitRequest('fetch', localFolder, repo.folder),
+                  ]]
                   : []),
                 // devc-desktop shows its own push plan, and the user confirms it there.
                 ...(desktopChannel
@@ -866,7 +879,7 @@ export function repoCard(card, side, worktrees = 0) {
                     () => requestPush(localFolder, repo.folder),
                   ]]
                   : []),
-                ...(canFetch || desktopChannel ? [null] : []),
+                ...(canPull || canFetch || desktopChannel ? [null] : []),
                 ...dirMenuItems(fr, ''),
                 ...jiraItems(branch),
               ]
@@ -887,10 +900,14 @@ export function repoCard(card, side, worktrees = 0) {
             repo.changes,
             repo.changesProblem,
           ),
-          canFetch
+          gitOn
             ? {
-              fetching: fetchingRepos.has(repo.folder),
-              fetch: () => fetchRepo(localFolder, repo.folder),
+              busy: gitOp !== undefined,
+              upstream: repo.git.upstream,
+              fetch: () => repoGitRequest('fetch', localFolder, repo.folder),
+              pull: canPull
+                ? () => repoGitRequest('pull', localFolder, repo.folder)
+                : undefined,
             }
             : undefined,
         ),
@@ -1318,18 +1335,32 @@ async function resumeSession(c, s) {
 }
 
 // ---------------------------------------------------------------------------------------------
-// Repo cards: the git mark, and Fetch
+// Repo cards: the git mark, Fetch and Pull
 // ---------------------------------------------------------------------------------------------
 
 /**
  * ● changes to commit, ↑ push / ↓ pull counts, or a quiet ✓ / ?, from `gitSync` or `gitRollup`;
- * nothing for no repo. With `opts.fetch` (a repo card's), a click on ↓ fetches; with
- * `opts.fetching`, a spinner follows the counts.
+ * nothing for no repo. On a repo card (`opts`): a click on a faded ↓ / +N (`unfetched`) fetches,
+ * a click on ↓ (`behind`) pulls when `opts.pull` is given; with `opts.busy`, a spinner follows
+ * the counts.
  *
- * @param {{fetch: () => void, fetching: boolean}} [opts]
+ * @param {{fetch: () => void, pull?: () => void, busy: boolean, upstream: string}} [opts]
  */
 export function gitMark(sync, opts) {
   if (!sync) return '';
+  /** A mark a click acts on. */
+  const button = (m, title, act) =>
+    h('span', {
+      'data-dir': m.dir,
+      class: 'git-fetch',
+      role: 'button',
+      title,
+      onclick: (/** @type {MouseEvent} */ e) => {
+        // Not the card head's own click.
+        e.stopPropagation();
+        act();
+      },
+    }, m.text);
   return h(
     'span',
     {
@@ -1338,60 +1369,67 @@ export function gitMark(sync, opts) {
       'data-diverged': sync.diverged,
     },
     ...sync.marks.map((m) =>
-      opts && m.dir === 'behind'
-        ? h('span', {
-          'data-dir': m.dir,
-          class: 'git-fetch',
-          role: 'button',
-          title: LABELS.fetchBehind,
-          onclick: (/** @type {MouseEvent} */ e) => {
-            // Not the card head's own click.
-            e.stopPropagation();
-            opts.fetch();
-          },
-        }, m.text)
+      opts && m.dir === 'unfetched'
+        ? button(
+          m,
+          LABELS.fetchUnfetched(
+            Number(m.text.replace(/\D/g, '')),
+            opts.upstream,
+          ),
+          opts.fetch,
+        )
+        : opts?.pull && m.dir === 'behind'
+        ? button(m, LABELS.pullBehind(opts.upstream), opts.pull)
         : h('span', { 'data-dir': m.dir }, m.text)
     ),
-    opts?.fetching
+    opts?.busy
       ? h('span', { class: 'spinner git-fetching', 'aria-hidden': 'true' })
       : '',
   );
 }
 
-/** Repo folders with a `fetch_repo` in flight → its request id. */
-const fetchingRepos = new Map();
+/** Repo folders with a `fetch_repo` or `pull_repo` in flight → its kind and request id. */
+const repoGitOps = new Map();
+
+/** The kind (`'fetch'` or `'pull'`) of the git request in flight for `folder`, if any. */
+function repoGitOp(folder) {
+  return repoGitOps.get(folder)?.kind;
+}
 
 /**
- * Fetches a repo of a running project (`fetch_repo`): its own remote-tracking branch moves, its
- * ↓ count updates once the server reads it again. A second click while one runs does nothing; a
- * problem is a toast.
+ * Fetches (`fetch_repo`: its own remote-tracking branch moves) or pulls (`pull_repo`: a fetch,
+ * then a fast-forward) a repo of a running project; its marks update once the server reads it
+ * again. A second click while either runs does nothing; a problem is a toast.
+ *
+ * @param {'fetch' | 'pull'} kind
  */
-function fetchRepo(localFolder, folder) {
-  if (fetchingRepos.has(folder)) return;
-  const id = nextId('f');
+function repoGitRequest(kind, localFolder, folder) {
+  if (repoGitOps.has(folder)) return;
+  const id = nextId(kind === 'fetch' ? 'f' : 'p');
   // A refused message comes back as a `result`: `client.js` toasts it.
-  pendingRequests.set(id, LABELS.fetch);
-  fetchingRepos.set(folder, id);
-  send({ type: 'fetch_repo', id, localFolder, folder });
+  pendingRequests.set(id, LABELS[kind]);
+  repoGitOps.set(folder, { kind, id });
+  send({ type: `${kind}_repo`, id, localFolder, folder });
   renderTree();
 }
 
 /**
- * A `fetch_result`, or a `result` refusing a `fetch_repo`: the spinner stops. Returns whether it
- * was one of this page's fetches.
+ * A `fetch_result` or `pull_result`, or a `result` refusing either request: the spinner stops.
+ * Returns whether it was one of this page's.
  */
-export function onFetchDone(msg) {
+export function onRepoGitDone(msg) {
   let ours = false;
-  for (const [folder, id] of fetchingRepos) {
-    if (id === msg.id) {
-      fetchingRepos.delete(folder);
+  for (const [folder, op] of repoGitOps) {
+    if (op.id === msg.id) {
+      repoGitOps.delete(folder);
       ours = true;
     }
   }
-  if (msg.type !== 'fetch_result') return ours;
+  if (msg.type !== 'fetch_result' && msg.type !== 'pull_result') return ours;
   pendingRequests.delete(msg.id);
   if (!msg.ok) {
-    errorToast(`${LABELS.fetch} failed: ${msg.problem ?? 'unknown problem'}`);
+    const label = msg.type === 'fetch_result' ? LABELS.fetch : LABELS.pull;
+    errorToast(`${label} failed: ${msg.problem ?? 'unknown problem'}`);
   }
   return ours;
 }

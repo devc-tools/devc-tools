@@ -149,9 +149,9 @@ import {
   repoFileFor,
   type WsRole,
 } from './projects_view.ts';
-import { GitStatusWatch, isGitProblem } from './git_status.ts';
+import { type GitProblem, GitStatusWatch, isGitProblem } from './git_status.ts';
 import { type ChangesReading, GitChangesWatch } from './git_changes.ts';
-import { fetchRepo, fetchRunning } from './git_fetch.ts';
+import { fetchRepo, fetchRunning, pullRepo, pullRunning } from './git_fetch.ts';
 import {
   ActivityRecorder,
   catchUpRollups,
@@ -1366,6 +1366,44 @@ export async function startWeb(
 
   /** Each repo folder's last `fetch_repo` start, for its rate limit. */
   const fetchStarts = new Map<string, number>();
+  /** Each repo folder's last `pull_repo` start, for its rate limit. */
+  const pullStarts = new Map<string, number>();
+
+  /**
+   * The running session and in-environment path of a project's repo (`fetch_repo`,
+   * `pull_repo`), or why there is none.
+   */
+  const repoTarget = async (
+    msg: { localFolder: string; folder: string },
+  ): Promise<{ session: ContainerSession; path: string } | GitProblem> => {
+    if (
+      !isProjectRepo(projectsMessage().projects, msg.localFolder, msg.folder)
+    ) {
+      return { problem: 'unknown repo' };
+    }
+    const session = [...sessions.values()].find((s) =>
+      s.record.localFolder === msg.localFolder
+    );
+    if (!session) return { problem: 'not running' };
+    const path = hostToContainerPath(
+      msg.folder,
+      await mountsOf(session.record.id),
+    );
+    if (path === null) {
+      return { problem: `the repo is not ${placeOf(session)}` };
+    }
+    return { session, path };
+  };
+
+  /** Whether `starts` allows a new start for `folder` now; records it when it does. */
+  const startAllowed = (starts: Map<string, number>, folder: string) => {
+    const last = starts.get(folder);
+    if (last !== undefined && Date.now() - last < FETCH_INTERVAL_MS) {
+      return false;
+    }
+    starts.set(folder, Date.now());
+    return true;
+  };
 
   /**
    * Fetches a repo of a running project (`git_fetch.ts`) and answers the requester with
@@ -1388,41 +1426,91 @@ export async function startWeb(
           ...o,
         }),
       );
-    if (
-      !isProjectRepo(projectsMessage().projects, msg.localFolder, msg.folder)
-    ) {
-      answer({ ok: false, problem: 'unknown repo' });
+    const at = await repoTarget(msg);
+    if (isGitProblem(at)) {
+      answer({ ok: false, problem: at.problem });
       return;
     }
-    const session = [...sessions.values()].find((s) =>
-      s.record.localFolder === msg.localFolder
-    );
-    if (!session) {
-      answer({ ok: false, problem: 'not running' });
+    if (!fetchRunning(msg.folder) && !startAllowed(fetchStarts, msg.folder)) {
+      answer({ ok: false, problem: 'fetched moments ago: try again soon' });
       return;
     }
-    const path = hostToContainerPath(
-      msg.folder,
-      await mountsOf(session.record.id),
-    );
-    if (path === null) {
-      answer({ ok: false, problem: `the repo is not ${placeOf(session)}` });
-      return;
-    }
-    if (!fetchRunning(msg.folder)) {
-      const last = fetchStarts.get(msg.folder);
-      if (last !== undefined && Date.now() - last < FETCH_INTERVAL_MS) {
-        answer({ ok: false, problem: 'fetched moments ago: try again soon' });
-        return;
-      }
-      fetchStarts.set(msg.folder, Date.now());
-    }
-    const outcome = await fetchRepo(session.env, msg.folder, path);
+    const outcome = await fetchRepo(at.session.env, msg.folder, at.path);
     answer(outcome);
     // Its Fetch goes once the repo's own remote-tracking ref has the mirror's commits (read
     // again even when this fetch found it already had them). Its changes to commit stay: a
     // fetch touches no working tree.
     if (outcome.ok) void gitWatch.refresh();
+  };
+
+  /**
+   * Pulls a repo of a running project (`git_fetch.ts`'s `pullRepo`: a Fetch, then a fast-forward)
+   * and answers the requester with `pull_result`. Refused while an agent there is working or
+   * blocked, and unless the last status is behind and not ahead: checked here, not only in the
+   * page, whose code comes from a checkout agents can edit under `--live`. Allowed under `--live`:
+   * it only fast-forwards a listed repo to its own upstream. Rate-limited as fetches are.
+   */
+  const pullRepoFor = async (
+    c: Client,
+    msg: Extract<ClientMessage, { type: 'pull_repo' }>,
+  ) => {
+    const answer = (
+      o: { ok: true; updated: boolean } | { ok: false; problem: string },
+    ) =>
+      c.send(
+        JSON.stringify({
+          type: 'pull_result',
+          id: msg.id,
+          folder: msg.folder,
+          ...o,
+        }),
+      );
+    const at = await repoTarget(msg);
+    if (isGitProblem(at)) {
+      answer({ ok: false, problem: at.problem });
+      return;
+    }
+    const panes = snapshotPanes(at.session.snapshot) as {
+      agent_status?: unknown;
+    }[];
+    if (
+      panes.some((p) =>
+        p.agent_status === 'working' || p.agent_status === 'blocked'
+      )
+    ) {
+      answer({
+        ok: false,
+        problem: 'an agent is working in this project: pull when it is idle',
+      });
+      return;
+    }
+    const status = gitWatch.statuses.get(msg.folder);
+    if (!status || isGitProblem(status)) {
+      answer({ ok: false, problem: 'git status unknown: try again soon' });
+      return;
+    }
+    if (status.ahead > 0) {
+      answer({
+        ok: false,
+        problem: 'diverged: merge or rebase in the project',
+      });
+      return;
+    }
+    if (status.behind === 0) {
+      answer({ ok: false, problem: 'nothing to pull' });
+      return;
+    }
+    if (!pullRunning(msg.folder) && !startAllowed(pullStarts, msg.folder)) {
+      answer({ ok: false, problem: 'pulled moments ago: try again soon' });
+      return;
+    }
+    const outcome = await pullRepo(at.session.env, msg.folder, at.path);
+    answer(outcome);
+    // Its marks, and its changes to commit: a pull moves the working tree.
+    if (outcome.ok) {
+      void gitWatch.refresh();
+      void changesWatch.refreshEnvironment(at.session.record.id);
+    }
   };
 
   /**
@@ -3209,6 +3297,10 @@ export async function startWeb(
     }
     if (msg.type === 'fetch_repo') {
       await fetchRepoFor(c, msg);
+      return;
+    }
+    if (msg.type === 'pull_repo') {
+      await pullRepoFor(c, msg);
       return;
     }
     if (

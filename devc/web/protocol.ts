@@ -121,6 +121,11 @@ export type ClientMessage =
    */
   | { type: 'fetch_repo'; id: string; localFolder: string; folder: string }
   /**
+   * Pulls a repo of a running project (`git_fetch.ts`'s `pullRepo`): a Fetch, then a fast-forward
+   * of its checked-out branch. Answered with `pull_result`.
+   */
+  | { type: 'pull_repo'; id: string; localFolder: string; folder: string }
+  /**
    * Asks devc-desktop to push a repo of a project (`folder`, one of its `repos[].folder`): the
    * app works out the push plan and the user confirms it in its HOST drawer. Needs
    * `--desktop-channel`. See `desktop_requests.ts`.
@@ -931,6 +936,13 @@ function parseFields(m: Obj): ClientMessage {
     case 'fetch_repo':
       return {
         type: 'fetch_repo',
+        id: str(m, 'id'),
+        localFolder: folder(m),
+        folder: absolute(m, 'folder'),
+      };
+    case 'pull_repo':
+      return {
+        type: 'pull_repo',
         id: str(m, 'id'),
         localFolder: folder(m),
         folder: absolute(m, 'folder'),

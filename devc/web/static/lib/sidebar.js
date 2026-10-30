@@ -329,8 +329,9 @@ export function labelText({ name, title }) {
 
 /**
  * A folder's push/pull marks from its `git` field (see the `projects` message): `ahead` (↑N,
- * to push), `behind` (↓N, to pull) or `gone` (the upstream was deleted), with a tooltip naming
- * the branch. A branch level with its upstream gets a quiet `synced` mark (✓). With no `git` but
+ * to push), `behind` (↓N, in the repo's own remote-tracking branch, to pull), `unfetched` (only
+ * the host's mirror has them, to fetch: a faded ↓N, or +N after a `behind` mark) or `gone` (the
+ * upstream was deleted), with a tooltip naming the branch. A branch level with its upstream gets a quiet `synced` mark (✓). With no `git` but
  * a `problem` (its `gitProblem`: a detached HEAD, a timed-out or failed git call), a quiet
  * `unknown` mark (?) whose tooltip gives the reason. `null` when there is no repo, no status
  * read yet, or a branch with no upstream (nothing to compare with, so nothing to say).
@@ -345,9 +346,17 @@ function pushPull(git, problem) {
     };
   }
   if (!git.upstream) return null;
+  const unfetched = git.unfetched ?? 0;
+  const ready = git.behind - unfetched;
   const marks = [];
   if (git.ahead > 0) marks.push({ dir: 'ahead', text: `↑${git.ahead}` });
-  if (git.behind > 0) marks.push({ dir: 'behind', text: `↓${git.behind}` });
+  if (ready > 0) marks.push({ dir: 'behind', text: `↓${ready}` });
+  if (unfetched > 0) {
+    marks.push({
+      dir: 'unfetched',
+      text: ready > 0 ? `+${unfetched}` : `↓${unfetched}`,
+    });
+  }
   if (git.gone) marks.push({ dir: 'gone', text: 'gone' });
   if (marks.length === 0) {
     return {
@@ -356,9 +365,18 @@ function pushPull(git, problem) {
       title: `${git.branch} → ${git.upstream}: in sync (as of the last fetch)`,
     };
   }
+  const integrate = git.ahead > 0
+    ? 'merge or rebase in the project'
+    : 'pull to fast-forward';
   const counts = [
     git.ahead > 0 ? `${git.ahead} to push` : '',
-    git.behind > 0 ? `${git.behind} to pull` : '',
+    ready > 0 && unfetched > 0
+      ? `${ready} behind ${git.upstream}; ${unfetched} more on ${git.upstream} to fetch`
+      : ready > 0
+      ? `${ready} behind ${git.upstream}: ${integrate}`
+      : unfetched > 0
+      ? `${unfetched} new on ${git.upstream}: fetch to bring them in`
+      : '',
     git.gone ? 'upstream deleted' : '',
   ].filter((s) => s);
   return {
@@ -386,7 +404,7 @@ function changesCount(changes) {
  * text, then `changesProblem` (why its changes can't be read), which alone gives a quiet `?`.
  * `null` when there is nothing to say.
  *
- * @param {{branch: string, upstream: string | null, ahead: number, behind: number, gone: boolean} | null} [git]
+ * @param {{branch: string, upstream: string | null, ahead: number, behind: number, gone: boolean, unfetched?: number} | null} [git]
  * @param {string} [problem]
  * @param {GitChanges} [changes]
  * @param {string} [changesProblem]
@@ -457,7 +475,8 @@ export function gitRollup(repos) {
       return n + (m ? Number(m.text.replace(/\D/g, '')) : 0);
     }, 0);
   const ahead = sum('ahead');
-  const behind = sum('behind');
+  // One plain ↓ for the lot: fetched or not.
+  const behind = sum('behind') + sum('unfetched');
   const changed = sum('changes') + sum('conflicted');
   const marks = [];
   if (changed > 0) {

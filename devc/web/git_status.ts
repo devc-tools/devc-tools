@@ -28,15 +28,15 @@ export interface GitStatus {
   upstream: string | null;
   /** Commits to push. */
   ahead: number;
-  /** Commits to pull. */
+  /** Commits to pull: on the newer upstream copy (the repo's or the mirror's), not in the branch. */
   behind: number;
   /** The upstream is configured but neither the repo nor a fetch has its branch. */
   gone: boolean;
   /**
-   * The mirror has upstream commits the repo's own remote-tracking ref lacks: a Fetch
-   * (`git_fetch.ts`) would move it.
+   * Of `behind`, those the repo's own remote-tracking ref lacks: a Fetch (`git_fetch.ts`) brings
+   * them in. `behind - unfetched` are in the repo, ready to pull.
    */
-  toFetch: boolean;
+  unfetched: number;
 }
 
 /**
@@ -208,7 +208,7 @@ export async function readGitState(
       ahead: 0,
       behind: 0,
       gone: false,
-      toFetch: false,
+      unfetched: 0,
     };
   }
   if (mirror === null) return { problem: 'could not create the git mirror' };
@@ -244,13 +244,10 @@ export async function readGitState(
   const tracked = refs.has(`${prefix}/tracking`) ? `${prefix}/tracking` : null;
   const name = `${upstream.remote}/${upstream.branch}`;
   let against = fetched ?? tracked;
-  // A branch that tracks a URL has no remote-tracking ref to fetch into.
-  let toFetch = fetched !== null && upstream.trackingRef !== null;
   if (fetched !== null && tracked !== null) {
     const fetchedIsOlder =
       await inMirror('merge-base', '--is-ancestor', fetched, tracked) !== null;
     against = fetchedIsOlder ? tracked : fetched;
-    toFetch &&= !fetchedIsOlder;
   }
   if (against === null) {
     return {
@@ -259,7 +256,7 @@ export async function readGitState(
       ahead: 0,
       behind: 0,
       gone: true,
-      toFetch: false,
+      unfetched: 0,
     };
   }
   const counts = await run([
@@ -274,7 +271,25 @@ export async function readGitState(
   if (!Number.isInteger(ahead) || !Number.isInteger(behind)) {
     return { problem: 'git rev-list: unexpected output' };
   }
-  return { branch, upstream: name, ahead, behind, gone: false, toFetch };
+  // Counted only when the mirror's copy is the newer one; a branch that tracks a URL has no
+  // remote-tracking ref to fetch into.
+  let unfetched = 0;
+  if (against === fetched && upstream.trackingRef !== null && behind > 0) {
+    const n = await run([
+      `--git-dir=${mirror}`,
+      'rev-list',
+      '--count',
+      against,
+      `^${prefix}/local`,
+      ...(tracked === null ? [] : [`^${tracked}`]),
+    ]);
+    if ('failed' in n) return { problem: n.failed };
+    unfetched = Number(n.out.trim());
+    if (!Number.isInteger(unfetched)) {
+      return { problem: 'git rev-list: unexpected output' };
+    }
+  }
+  return { branch, upstream: name, ahead, behind, gone: false, unfetched };
 }
 
 /** {@link readGitState} without the reason: `null` for no status at all. Never throws. */

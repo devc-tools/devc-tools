@@ -1,9 +1,18 @@
 import { assert, assertEquals } from 'jsr:@std/assert';
 import { hostRun } from '../web/env_host.ts';
-import type { EnvExec, ExecOutput } from '../web/environment.ts';
+import { runCapped } from '../web/proc.ts';
+import type {
+  BridgeRun,
+  EnvExec,
+  ExecOutput,
+  RunLimits,
+} from '../web/environment.ts';
 import {
   fetchRepo,
   fetchRunning,
+  pullArgv,
+  pullRepo,
+  pullRunning,
   validBranch,
   validRemote,
 } from '../web/git_fetch.ts';
@@ -28,6 +37,8 @@ async function git(cwd: string, ...args: string[]): Promise<string> {
 /** An environment that runs commands here, as a host project's does. */
 const hereEnv = {
   run: (x: EnvExec, input?: Uint8Array) => hostRun(x, '/', undefined, input),
+  runLimited: (x: EnvExec, limits: RunLimits) =>
+    runCapped(x.cmd[0], x.cmd.slice(1), limits, { cwd: x.cwd, env: x.env }),
 };
 
 /** A remote, `work` cloned from it, and `other` that pushes to it. */
@@ -239,5 +250,139 @@ Deno.test('remote and branch names are validated before they reach argv', async 
   }
   for (const good of ['main', 'feature/x', 'v1.2']) {
     assertEquals(await validBranch(good), true, good);
+  }
+});
+
+/** `other` commits `file` with `text` and pushes it. */
+async function pushFile(other: string, file: string, text: string) {
+  await Deno.writeTextFile(`${other}/${file}`, text);
+  await git(other, 'add', file);
+  await git(other, 'commit', '-q', '-m', `${file}: ${text}`);
+  await git(other, 'push', '-q');
+}
+
+Deno.test('pullRepo fast-forwards the branch and its working tree', async () => {
+  const dir = await Deno.makeTempDir();
+  try {
+    const { work, other, opts } = await setUp(dir);
+    await pushFile(other, 'f.txt', 'theirs');
+    const first = pullRepo(hereEnv, work, work, opts);
+    assertEquals(pullRunning(work), true);
+    assert(pullRepo(hereEnv, work, work, opts) === first);
+    assertEquals(await first, { ok: true, updated: true });
+    assertEquals(pullRunning(work), false);
+    assertEquals(
+      await git(work, 'rev-parse', 'HEAD'),
+      await git(other, 'rev-parse', 'HEAD'),
+    );
+    assertEquals(await Deno.readTextFile(`${work}/f.txt`), 'theirs');
+    assertEquals(await pullRepo(hereEnv, work, work, opts), {
+      ok: true,
+      updated: false,
+    });
+  } finally {
+    await Deno.remove(dir, { recursive: true });
+  }
+});
+
+Deno.test('pullRepo refuses what is not a fast-forward, and a changed file it would overwrite', async () => {
+  const dir = await Deno.makeTempDir();
+  try {
+    const { work, other, opts } = await setUp(dir);
+    await pushFile(other, 'f.txt', 'theirs');
+
+    // A modified file the incoming commit also changes: untouched.
+    await Deno.writeTextFile(`${work}/f.txt`, 'mine');
+    const head = await git(work, 'rev-parse', 'HEAD');
+    let out = await pullRepo(hereEnv, work, work, opts);
+    assert(
+      !out.ok && out.problem.startsWith('git merge: '),
+      out.ok ? '' : out.problem,
+    );
+    assertEquals(await Deno.readTextFile(`${work}/f.txt`), 'mine');
+    assertEquals(await git(work, 'rev-parse', 'HEAD'), head);
+    await Deno.remove(`${work}/f.txt`);
+
+    // A local commit: diverged.
+    await git(work, 'commit', '-q', '--allow-empty', '-m', 'mine');
+    const local = await git(work, 'rev-parse', 'HEAD');
+    out = await pullRepo(hereEnv, work, work, opts);
+    assert(
+      !out.ok && out.problem.startsWith('git merge: '),
+      out.ok ? '' : out.problem,
+    );
+    assertEquals(await git(work, 'rev-parse', 'HEAD'), local);
+  } finally {
+    await Deno.remove(dir, { recursive: true });
+  }
+});
+
+Deno.test('pullRepo: a branch switched since it was read is refused', async () => {
+  const dir = await Deno.makeTempDir();
+  try {
+    const { work, opts } = await setUp(dir);
+    const run = await hereEnv.runLimited(
+      { cmd: pullArgv('origin', 'main', 'side'), cwd: work },
+      { timeoutMs: 10_000, maxOutput: 4096 },
+    );
+    assertEquals(run.kind === 'exit' && run.code, 3);
+    const switched = {
+      run: hereEnv.run,
+      runLimited: (): Promise<BridgeRun> =>
+        Promise.resolve({ kind: 'exit', code: 3, stdout: '', stderr: '' }),
+    };
+    assertEquals(await pullRepo(switched, work, work, opts), {
+      ok: false,
+      problem: 'the branch changed: try again',
+    });
+  } finally {
+    await Deno.remove(dir, { recursive: true });
+  }
+});
+
+Deno.test("pullRepo's host steps never run the repo's hooks or fsmonitor", async () => {
+  const dir = await Deno.makeTempDir();
+  try {
+    const { work, other, opts } = await setUp(dir);
+    const planted = `${dir}/planted`;
+    const script = `${dir}/payload.sh`;
+    await Deno.writeTextFile(script, `#!/bin/sh\ntouch ${planted}\n`);
+    await Deno.chmod(script, 0o755);
+    await git(work, 'config', 'core.fsmonitor', script);
+    await git(work, 'config', 'core.hooksPath', dir);
+    for (const hook of ['reference-transaction', 'post-merge']) {
+      await Deno.copyFile(script, `${dir}/${hook}`);
+    }
+    await pushFile(other, 'f.txt', 'theirs');
+
+    // The environment only records: everything that ran, ran on the host.
+    const limited: EnvExec[] = [];
+    const recording = {
+      run: (): Promise<ExecOutput> =>
+        Promise.resolve({
+          code: 0,
+          stdout: new TextEncoder().encode('a b\n'),
+          stderr: '',
+        }),
+      runLimited: (x: EnvExec): Promise<BridgeRun> => {
+        limited.push(x);
+        return Promise.resolve({
+          kind: 'exit',
+          code: 0,
+          stdout: 'a b\n',
+          stderr: '',
+        });
+      },
+    };
+    assertEquals(await pullRepo(recording, work, work, opts), {
+      ok: true,
+      updated: true,
+    });
+    assertEquals(await exists(planted), false);
+    assertEquals(limited.length, 1);
+    assertEquals(limited[0].cwd, work);
+    assertEquals(limited[0].cmd.slice(3), ['pull', 'origin', 'main', 'main']);
+  } finally {
+    await Deno.remove(dir, { recursive: true });
   }
 });

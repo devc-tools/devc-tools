@@ -299,16 +299,22 @@ is published from any container: the host server finds devcontainers with
   **✓** when level; the tooltip has each count). The ● count comes from `git
   status` run inside the running container (never on the host, which would run
   the repo's own config), or directly for a project on this machine, every
-  15 s and as soon as an agent there finishes a turn. **↓N** counts what the
-  remote has, from the host's own fetch every 5 minutes, before the repo has
-  fetched it. **Fetch** (the card's right-click menu, or a click on its **↓N**),
-  offered only while the repo's own `origin/<branch>` lacks those commits, moves
-  that ref to what the remote has now; **↓N** stays until you pull. A spinner
-  shows in the mark while
-  it runs and a toast if it can't: the host fetches the remote into its own
-  mirror with its credentials, and the repo's git fetches that from a bundle
-  inside its environment, so the host never runs git in the repo. It is not a
-  pull: nothing is merged and the working tree is untouched. Below the header are its
+  15 s and as soon as an agent there finishes a turn. **↓N** is what the repo's
+  own `origin/<branch>` has and the branch doesn't, ready to pull. A **faded
+  ↓N** (or **+N** after it) is what only the host has seen on the remote so far,
+  from its own fetch every 5 minutes. **Fetch** (the card's right-click menu, or
+  a click on the faded mark), offered only while there is such a mark, moves the
+  repo's `origin/<branch>` to what the remote has now: the host fetches the
+  remote into its own mirror with its credentials, and the repo's git fetches
+  that from a bundle inside its environment, so the host never runs git in the
+  repo. It merges nothing and leaves the working tree alone. **Pull** (the menu,
+  or a click on **↓N**), offered only while the branch is behind and has nothing
+  to push, is a Fetch and then `git merge --ff-only` in the project's
+  environment: never a merge commit, rebase or stash, and git refuses one that
+  would overwrite an uncommitted change. It is refused while an agent in the
+  project is working, and when the branch has diverged (**↑N ↓N**: merge or
+  rebase in the project). A spinner shows in the mark while either runs, and a
+  toast if it can't. Below the header are its
   terminals (its tiles, then every
   pane in it no tile shows, shells too); terminals outside every repo get a
   card named after the container. A card's header buttons show its past agent

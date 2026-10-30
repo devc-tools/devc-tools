@@ -101,7 +101,7 @@ import {
   loadSessions,
   mountCards,
   onCardsViewState,
-  onFetchDone,
+  onRepoGitDone,
   prViewed,
   queueRender,
   renderPass,
@@ -1756,8 +1756,9 @@ function onSidebarMessage(msg) {
       renderTree();
       break;
     case 'fetch_result':
+    case 'pull_result':
     case 'result':
-      if (onFetchDone(msg)) renderTree();
+      if (onRepoGitDone(msg)) renderTree();
       break;
   }
 }
