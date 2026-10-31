@@ -99,13 +99,14 @@ as_posted() {
 
 # parse_policy FILE — read a policy into the arrays pol_repo/pol_remote/pol_branch/pol_grants/
 # pol_target (one entry per line, file order), or set pol_why and fail. The rules are devc-core's
-# policyProblem: 1–16 lines, each `\n`-terminated, each exactly five non-empty, control-free,
-# tab-separated fields `<repo> <remote> <branch> <grants> <target>`; the target absolute and
-# normalized; each line's own grants; repo and target each distinct. A four-field v1 file
+# policyProblem: one or more lines, each `\n`-terminated, each exactly five non-empty,
+# control-free, tab-separated fields `<repo> <remote> <branch> <grants> <target>`; the target
+# absolute and normalized; each line's own grants; repo and target each distinct; at most 16
+# distinct remotes (a repo's worktrees share its remote, so they count once). A four-field v1 file
 # is malformed. The whole file is read with the `x` sentinel (so trailing newlines survive) and split
 # by hand: `read` cannot split it, because tab is IFS whitespace and empty fields would collapse.
 parse_policy() {
-  local text line rest tabs field n=0 i r_repo r_remote r_branch r_grants r_target
+  local text line rest tabs field n=0 i fresh remotes=0 r_repo r_remote r_branch r_grants r_target
   pol_repo=() pol_remote=() pol_branch=() pol_grants=() pol_target=() grants='' pol_why=''
   text=$(cat -- "$1" && printf x) || {
     pol_why="unreadable"
@@ -120,10 +121,6 @@ parse_policy() {
   text=${text%$'\n'}
   while :; do
     n=$((n + 1))
-    [ "$n" -le 16 ] || {
-      pol_why="more than 16 lines"
-      return 1
-    }
     line=${text%%$'\n'*}
     [ -n "$line" ] || {
       pol_why="line $n is empty"
@@ -177,7 +174,7 @@ parse_policy() {
         return 1
         ;;
     esac
-    i=0
+    i=0 fresh=1
     while [ "$i" -lt "${#pol_repo[@]}" ]; do
       [ "${pol_repo[$i]}" != "$r_repo" ] || {
         pol_why="line $n: repo repeats line $((i + 1))'s"
@@ -187,8 +184,14 @@ parse_policy() {
         pol_why="line $n: target repeats line $((i + 1))'s"
         return 1
       }
+      [ "${pol_remote[$i]}" != "$r_remote" ] || fresh=0
       i=$((i + 1))
     done
+    remotes=$((remotes + fresh))
+    [ "$remotes" -le 16 ] || {
+      pol_why="more than 16 repos"
+      return 1
+    }
     pol_repo+=("$r_repo")
     pol_remote+=("$r_remote")
     pol_branch+=("$r_branch")

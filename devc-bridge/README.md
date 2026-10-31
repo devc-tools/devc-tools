@@ -591,8 +591,10 @@ Two independent tools share this directory: devc writes `keys/<key>/` and
 `policy/<key>.conf` and never invokes the bridge; the bridge writes tokens and
 never deletes what devc created. What they share beyond the paths is the policy
 format, parsed by the same `devc-core` code on both sides (and by each built-in
-script's bash copy of the same rules): 1–16 lines, each `\n`-terminated, one per
-pinned repo, the workspace repo first when it is pinned —
+script's bash copy of the same rules): one or more lines, each `\n`-terminated,
+one per pinned repo or worktree, the workspace repo first when it is pinned, for
+at most 16 repos — 16 distinct `<remote>`s, so a repo's worktrees, which share
+its remote, count once —
 
 ```text
 <repo>\t<remote>\t<branch>\t<grants>\t<target>

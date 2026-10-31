@@ -250,7 +250,10 @@ export interface PinnedRepo extends Pin {
   target: string;
 }
 
-/** The most repos one policy pins: the workspace repo plus fifteen others. */
+/**
+ * The most repos one policy pins: the workspace repo plus fifteen others. A repo is a distinct
+ * `remote` — its linked worktrees read the same config, so pinning them adds lines, not repos.
+ */
 export const MAX_PINNED_REPOS = 16;
 
 /** One policy line: a pinned repo and the capabilities granted there (canonical order, non-empty). */
@@ -261,8 +264,8 @@ export interface PolicyLine extends PinnedRepo {
 /**
  * A policy file: the pinned repos, each with its own grants — the workspace repo first when it
  * could be pinned, then each `--bridge-repo` that could, in the order it was given, then (for a
- * default grant) each other mounted repo `bridgeRepoAllow` names. 1–{@link MAX_PINNED_REPOS} of
- * them, with distinct `repo`s and distinct `target`s. An explicit `--bridge-allow` writes the same
+ * default grant) each other mounted repo `bridgeRepoAllow` names. At least one, with distinct
+ * `repo`s and distinct `target`s, and at most {@link MAX_PINNED_REPOS} distinct `remote`s. An explicit `--bridge-allow` writes the same
  * grants on every line; a default grant may not.
  */
 export interface PolicyRecord {
@@ -340,19 +343,17 @@ export function serializePolicy(record: PolicyRecord): string {
 
 /**
  * Why `text` is not a policy file, or null when it is: the **first** problem in the order
- * {@link parsePolicy} checks — the final newline, the line count, then per line (`line <n>: …`)
- * an empty line, the field count, each field, the target and the line's own grant list, and last
- * the cross-line rules (`repo` and `target` each distinct). Lines may grant different
- * capabilities.
+ * {@link parsePolicy} checks — the final newline, then per line (`line <n>: …`) an empty line, the
+ * field count, each field, the target and the line's own grant list, and last the cross-line rules
+ * (`repo` and `target` each distinct, at most {@link MAX_PINNED_REPOS} distinct `remote`s). Lines
+ * may grant different capabilities.
  * {@link parsePolicy} is built on this, so the two never disagree. The bridge scripts' bash
  * parsers apply the same rules.
  */
 export function policyProblem(text: string): string | null {
   if (!text.endsWith('\n')) return 'the file does not end with a newline';
   const lines = text.slice(0, -1).split('\n');
-  if (lines.length > MAX_PINNED_REPOS) {
-    return `more than ${MAX_PINNED_REPOS} lines`;
-  }
+  const seenRemote = new Set<string>();
   const seenRepo = new Map<string, number>();
   const seenTarget = new Map<string, number>();
   for (let i = 0; i < lines.length; i++) {
@@ -385,13 +386,17 @@ export function policyProblem(text: string): string | null {
     }
     seenRepo.set(repo, n);
     seenTarget.set(target, n);
+    seenRemote.add(remote);
+    if (seenRemote.size > MAX_PINNED_REPOS) {
+      return `more than ${MAX_PINNED_REPOS} repos`;
+    }
   }
   return null;
 }
 
 /**
- * Parse a policy file: 1–{@link MAX_PINNED_REPOS} newline-terminated lines of exactly five
- * non-empty fields, or `null` — a malformed policy grants nothing, and the reader must not guess.
+ * Parse a policy file: newline-terminated lines of exactly five non-empty fields, for at most
+ * {@link MAX_PINNED_REPOS} repos, or `null` — a malformed policy grants nothing, and the reader must not guess.
  * A four-field file from before targets existed, a three-field one from before grants existed,
  * and a capability this build does not know are all malformed: they fail closed.
  * {@link policyProblem} says why.

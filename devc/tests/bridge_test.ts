@@ -2383,7 +2383,7 @@ Deno.test('defaults: an explicit --bridge-allow ignores the map — every pin ge
   });
 });
 
-Deno.test('defaults: past 16 pins, a candidate is skipped with the cap notice', async () => {
+Deno.test('defaults: past 16 repos, a candidate is skipped with the cap notice', async () => {
   await withFixture(async (f) => {
     const mounts: string[] = [];
     const live: ContainerMount[] = [...f.frozen];
@@ -2412,6 +2412,52 @@ Deno.test('defaults: past 16 pins, a candidate is skipped with the cap notice', 
     assertEquals(
       f.logs[1],
       'devc: devc-bridge capabilities granted (defaults):',
+    );
+  });
+});
+
+Deno.test('defaults: the cap counts repos, so a worktree of a pinned repo is pinned past 16 lines', async () => {
+  await withFixture(async (f) => {
+    const mounts: string[] = [];
+    const live: ContainerMount[] = [...f.frozen];
+    const entries: Record<string, BridgeCapability[]> = {};
+    for (let i = 0; i < 16; i++) {
+      const repo = `${f.home}/r${i}`;
+      await makeRepo(f, repo, `git@github.com:acme/r${i}.git`);
+      mounts.push(`source=${repo},target=/workspaces/r${i},type=bind`);
+      live.push(...repoMounts(repo, `/workspaces/r${i}`));
+      entries[repo] = ['gh-pr-read'];
+    }
+    const wt = `${f.home}/r0.worktrees/wt`;
+    await linkWorktree(
+      `${f.home}/r0`,
+      wt,
+      'wt',
+      '../../r0/.git/worktrees/wt',
+      'feat/r0-wt',
+    );
+    mounts.push(
+      `source=${f.home}/r0.worktrees,target=/workspaces/r0.worktrees,type=bind`,
+    );
+    live.push({
+      type: 'bind',
+      source: `${f.home}/r0.worktrees`,
+      destination: '/workspaces/r0.worktrees',
+      rw: true,
+    });
+    const merged = await f.merged({ mounts });
+    await applyPolicy(
+      { defaultGrant: ['gh-push'], repoAllow: await repoAllow(f, entries) },
+      merged,
+      f.project,
+      f.deps(live),
+    );
+    const lines = await policyLines(f, merged);
+    assertEquals(lines?.length, 17);
+    assertEquals(lines?.[16], [wt, 'gh-pr-read']);
+    assertEquals(
+      f.logs[0],
+      'devc: defaults: not pinning ~/r15: a policy pins at most 16 repos',
     );
   });
 });

@@ -2292,8 +2292,10 @@ or less — than the rest, map it to its own list:
   that sits inside a bind mount of the workspace — a `<repo>.worktrees`
   mirror, say — gets the same entry, also unnamed; a worktree that fails a
   check is skipped with `devc: defaults: not pinning <path>: <reason>`. A
-  worktree created after `up` is pinned at the next `up`. Past 16 pins, the rest are skipped with `devc: defaults:
-  not pinning <repo>: a policy pins at most 16 repos`. Two pins that conflict on
+  worktree created after `up` is pinned at the next `up`. Past 16 repos, the
+  rest are skipped with `devc: defaults: not pinning <repo>: a policy pins at
+  most 16 repos`; a worktree counts as its repo, so the worktrees of a pinned
+  repo are never skipped for the cap. Two pins that conflict on
   one GitHub repo fail the command when a `--bridge-repo` was given, and are
   logged as `devc: defaults: not granted: <reason>` otherwise.
 - **With `--bridge-allow`, only the flags count.** Every pin gets the LIST and

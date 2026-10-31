@@ -293,12 +293,17 @@ Deno.test('policy: a malformed file parses to null', () => {
 });
 
 Deno.test('policy: policyProblem names the first problem, and parsePolicy agrees', () => {
-  const seventeen = Array.from(
+  // Seventeen repos, one remote each; then a repo and sixteen of its worktrees, one remote.
+  const repos = (n: number) =>
+    Array.from(
+      { length: n },
+      (_, i) =>
+        line(`/r${i}`, `/w${i}`, 'gh-push', `git@github.com:acme/r${i}.git`),
+    ).join('');
+  const worktrees = Array.from(
     { length: 17 },
     (_, i) => line(`/r${i}`, `/w${i}`),
   )
-    .join('');
-  const sixteen = Array.from({ length: 16 }, (_, i) => line(`/r${i}`, `/w${i}`))
     .join('');
   const cases: [string, string | null][] = [
     ['', 'the file does not end with a newline'],
@@ -364,8 +369,13 @@ Deno.test('policy: policyProblem names the first problem, and parsePolicy agrees
     ],
     [line('/a', '/w') + '\n' + line('/b', '/x'), 'line 2 is empty'],
     [line('/a', '/w') + '\n', 'line 2 is empty'],
-    [seventeen, 'more than 16 lines'],
-    [sixteen, null],
+    [repos(17), 'more than 16 repos'],
+    [repos(16), null],
+    [worktrees, null],
+    [
+      repos(16) + line('/wt', '/wt', 'gh-push', 'git@github.com:acme/r3.git'),
+      null,
+    ],
     [line('/a', '/w', 'gh-push,gh-pr-read'), null],
     [
       line(

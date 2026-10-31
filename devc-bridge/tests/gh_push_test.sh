@@ -235,11 +235,12 @@ done
 printf '%s' "$REPO"$'\t'"$GH_PIN"$'\t'feat"$G$T" >"$POLICY_DIR/$KEY.conf"
 push
 expect_rc 2 "malformed policy: no final newline"
-for n in $(seq 1 17); do printf '%s\n' "$W/r$n"$'\t'"$GH_PIN"$'\t'feat"$G"$'\t'/w"$n"; done \
-  >"$POLICY_DIR/$KEY.conf"
+for n in $(seq 1 17); do
+  printf '%s\n' "$W/r$n"$'\t'"${GH_PIN%.git}$n.git"$'\t'feat"$G"$'\t'/w"$n"
+done >"$POLICY_DIR/$KEY.conf"
 push
-expect_rc 2 "malformed policy: 17 lines"
-check "  … says so" has "more than 16 lines"
+expect_rc 2 "malformed policy: 17 repos"
+check "  … says so" has "more than 16 repos"
 printf '%s\n' "$REPO"$'\t'"$GH_PIN"$'\t'feat"$G" >"$POLICY_DIR/$KEY.conf"
 push
 expect_rc 2 "a v1 (four-field) policy"

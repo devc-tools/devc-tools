@@ -1237,15 +1237,10 @@ async function deriveDefaultLines(
   };
   const lines: PolicyLine[] = [];
   const labels: string[] = [];
+  const remotes = new Set<string>();
   for (const c of candidates) {
     if (grantsFor(c.hostDir).length === 0) {
       noGrants(c);
-      continue;
-    }
-    if (lines.length >= MAX_PINNED_REPOS) {
-      notices.push(
-        `devc: ${DEFAULTS}: not pinning ${c.label}: a policy pins at most ${MAX_PINNED_REPOS} repos`,
-      );
       continue;
     }
     const pin = await c.derive();
@@ -1266,6 +1261,16 @@ async function deriveDefaultLines(
       noGrants(c);
       continue;
     }
+    // The cap counts repos, not lines: a worktree of a repo already pinned shares its remote.
+    if (
+      !remotes.has(pin.record.remote) && remotes.size >= MAX_PINNED_REPOS
+    ) {
+      notices.push(
+        `devc: ${DEFAULTS}: not pinning ${c.label}: a policy pins at most ${MAX_PINNED_REPOS} repos`,
+      );
+      continue;
+    }
+    remotes.add(pin.record.remote);
     lines.push({ ...pin.record, grants });
     labels.push(c.kind === 'workspace' ? pin.record.repo : c.label);
   }

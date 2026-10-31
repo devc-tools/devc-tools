@@ -868,7 +868,8 @@ worktrees that sits inside a bind mount of the workspace. See
 [devc/README.md](../../devc/README.md) for the grant rules.
 
 The policy devc writes (`~/.config/devc-bridge/policy/<key>.conf`, host-only) is
-1–16 lines, one per pinned repo, the workspace repo first:
+one line per pinned repo or worktree, the workspace repo first, for at most 16
+repos (distinct `<remote>`s — a repo's worktrees count once):
 `<repo>\t<remote>\t<branch>\t<grants>\t<target>\n`. `<grants>` is that line's
 own comma-separated list in canonical order — each line valid on its own, and
 lines may differ (an explicit `--bridge-allow` writes the same list on every
