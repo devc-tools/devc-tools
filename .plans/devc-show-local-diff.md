@@ -1,9 +1,14 @@
 # devc-show-local-diff — `show --changes`: diffs of local work
 
-After [devc-show](devc-show.md). An agent shows a file's **local** diff: its uncommitted changes,
-or everything the branch changed against another ref, with or without a pull request. This adds a
-new kind of tile, a local diff tile, beside the PR diff tile, and a `--changes` option to
-`devc-bridge show` / `devc show`. `--diff` keeps meaning the PR diff.
+After [devc-show](devc-show.md) and [devc-web-commit-diffs](devc-web-commit-diffs.md). An agent shows
+a file's **local** diff: its uncommitted changes, or everything the branch changed against another
+ref, with or without a pull request. This adds a third content source to the diff tile, beside a PR
+and a commit, and a `--changes` option to `devc-bridge show` / `devc show`. `--diff` keeps meaning
+the PR diff.
+
+Changed 2026-11-01: this plan used to add a `LocalDiffRef` and a `local-diff` tile kind. It now uses
+the `diff` tile and `DiffRef`, and the non-PR path `devc-web-commit-diffs` builds, so tile handling
+isn't written twice. "Local diff tile" below means a diff tile whose source is `'changes'`.
 
 ## Checklist
 
@@ -13,12 +18,10 @@ new kind of tile, a local diff tile, beside the PR diff tile, and a `--changes` 
 - [ ] `devc/web/protocol.ts`, `devc/web/server.ts`: a `local_diff` request that answers a file's
       unified diff and both sides' text (see Contracts)
 - [ ] `devc/web/show.ts`: resolve `"changes"` targets
-- [ ] `devc/web/static/lib/layout_state.js`: a `LocalDiffRef` tile state that round-trips through
-      the saved layout
-- [ ] `devc/web/static/tiles.js`: the local diff tile (rendering, Whole file, reload, reveal and
-      highlight), reusing the PR diff tile's rendering without its PR parts
-- [ ] `devc/web/static/lib/view.js`: `tileShowingLocalDiff`, and `TileState.kind` gains
-      `'local-diff'`
+- [ ] `devc/web/static/lib/layout_state.js`, `lib/view.js`, `tiles.js`: `DiffRef.changes` and
+      `diffSource`'s `'changes'`, through every comparison, key and saved layout
+- [ ] `devc/web/static/tiles.js`: the `'changes'` source (loading, Whole file, reload, reveal and
+      highlight), on the diff tile's non-PR path
 - [ ] `skills/devc-show/SKILL.md`, `devc/README.md`, `devc-bridge/README.md`: `--changes`
 - [ ] Tests listed under Relevant Files
 
@@ -48,7 +51,14 @@ show [--diff [--side LEFT|RIGHT] | --changes [<ref>] [--side LEFT|RIGHT]] <path>
 ### Request target
 
 ```json
-{ "kind": "changes", "path": "/workspaces/app/src/a.ts", "ref": "main", "line": 40, "end": 58, "side": "RIGHT" }
+{
+  "kind": "changes",
+  "path": "/workspaces/app/src/a.ts",
+  "ref": "main",
+  "line": 40,
+  "end": 58,
+  "side": "RIGHT"
+}
 ```
 
 `ref` is omitted for the bare form. `request.version` stays 1: an older devc web that doesn't know
@@ -71,18 +81,26 @@ if it does not.
 
 ### The tile
 
-- **Ref** (saved with the layout): `{localFolder, root, path, ref: string | null}`. The base is
-  re-resolved every time the tile loads, so a saved tile shows today's diff.
-- **Title**: `<basename> · changes` for the bare form, `<basename> · since <ref>` otherwise.
+- **Ref** (saved with the layout): a `DiffRef` with `changes`, the ref to compare with:
+
+  ```js
+  /** @typedef {{localFolder: string, root: string, path: string, sha?: string, changes?: string}} DiffRef */
+  ```
+
+  The bare form is `changes: 'HEAD'`, since `--changes HEAD` equals it. A ref has `sha` or `changes`,
+  never both: `diffRefFromState` drops a state with both, or with an empty `changes`. `diffSource`
+  gives `'changes'`. `sameDiff`, the tile keys and `tileContent` carry `changes` as they do `sha`.
+  The base is re-resolved every time the tile loads, so a saved tile shows today's diff.
+- **Title**: `<basename> · changes` for `HEAD`, `<basename> · since <ref>` otherwise.
 - **Same as the PR diff tile**: the hunk/Whole file toggle, the side-by-side/unified choice,
   syntax colours, word-level change spans, Find.
 - **Not in it**: threads, comments, **Viewed**, **Since viewed**, the github.com link, Ask agent's
   PR context. The tile's menu has **Reload** and **Open file**.
 - **Reload**: the menu's **Reload**, and automatically when the tile comes forward after its file
   changed on disk (the same change signal file tiles use for reloads).
-- `show` placement, focus, reveal, highlight and `pendingLines` behaviour are phase 1's, with the
-  local diff ref in place of the `DiffRef`. Two local diff tiles are the same target when
-  `localFolder`, `root`, `path` and `ref` all match.
+- `show` placement, focus, reveal, highlight and `pendingLines` behaviour are phase 1's, on the same
+  `DiffRef` path. Two local diff tiles are the same target when `sameDiff` says so:
+  `localFolder`, `root`, `path` and `changes` all match.
 
 ## Implementation notes / gotchas
 
@@ -90,12 +108,12 @@ if it does not.
   so names with spaces or non-ASCII characters work.
 - `git merge-base` can print nothing and exit 1 (unrelated histories): exit 3 with
   `<ref> shares no history with HEAD`.
-- The PR diff tile's renderer takes a parsed patch plus the head text for **Whole file**
-  (`devc-web-diff-whole-file`). Feed it the local patch and the working-tree text; keep the PR-only
-  parts (threads, viewed state, `pr` header) behind the tile kind so the renderer isn't forked.
-- A layout saved by a newer devc web with a local diff tile, opened by an older one, must not
-  break the layout: check how `diffRefFromState` treats an unknown shape (it returns `null` for a
-  non-PR state) and that the tile then shows as an empty tile, not an error.
+- The diff tile's renderer takes a parsed patch plus the head text for **Whole file**
+  (`devc-web-diff-whole-file`). Feed it the local patch and the working-tree text. The PR-only parts
+  (threads, viewed state, `pr` header) already ask `diffSource` for `'pr'`, so this source gets none
+  of them, and the renderer isn't forked.
+- A commit diff never changes, so `devc-web-commit-diffs` has no reload-on-change. That belongs to
+  this source only.
 
 ## Relevant Files
 
@@ -125,7 +143,8 @@ if it does not.
   - Unknown ref → exit 3 `unknown ref`; no changes → exit 3 `has no changes`; unrelated history →
     exit 3 `shares no history`
   - A path with a space and one with `é` work
-- [ ] `cd devc && deno test -A tests/`: a layout with a local diff tile round-trips; an older
+- [ ] `cd devc && deno test -A tests/`: a layout with a local diff tile round-trips; `sameDiff` tells
+      `changes` values apart; a state with both `sha` and `changes` is dropped; an older
       `"changes"` target is refused with the restart message (phase 1 resolver test)
 - [ ] `deno fmt --check`, `deno lint` and `deno task check` pass in `devc`, `devc-core`,
       `devc-bridge/client`

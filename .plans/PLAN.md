@@ -76,8 +76,9 @@
   (`a.ts:40-58`) and `pr:<path>:<line>` links that open the PR diff tile at the line.
 
 - [devc-show-local-diff](devc-show-local-diff.md) — after devc-show: `show --changes [<ref>]`
-  shows a file's local diff (uncommitted, or since `merge-base <ref> HEAD`) in a new local diff
-  tile that reuses the PR diff tile's rendering without its PR parts.
+  shows a file's local diff (uncommitted, or since `merge-base <ref> HEAD`) in the diff tile, as a
+  third content source (`DiffRef.changes`). After devc-web-commit-diffs, which builds the tile's
+  non-PR path.
 
 - [devc-web-screenshots](devc-web-screenshots.md) — give an agent in a devc web terminal an
   image: paste it (an OS screenshot tool's clipboard copy) or drop it on the pane. A new
@@ -105,6 +106,13 @@ for them.
   has (faded, a click fetches), from a new `GitStatus.unfetched`. **Pull** is Fetch then
   `git merge --ff-only` in the project's environment. The server refuses it while an agent there
   is working or the branch has diverged. Allowed under `--live`.
+
+- [devc-web-commit-diffs](devc-web-commit-diffs.md) — after the repo card's Commits section
+  (`59a1507`): a commit row expands to its changed files, and a click opens that file's diff in
+  the diff tile, read-only. All of it reads the host's mirror, so it needs no bridge grant and
+  works for a stopped container. `DiffRef` gains an optional `sha`, and `diffSource` says where a
+  diff's content comes from, which devc-show-local-diff extends. Allowed under `--live`. Ready to
+  implement.
 
 - [devc-desktop-host-actions](devc-desktop-host-actions.md) — the page can only _ask_
   (`request_push`, `request_project`). The HOST drawer gets an Actions column that shows the
@@ -2638,3 +2646,4 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
 | devc show local diff — `show --changes [<ref>]`: a local diff tile for uncommitted or branch changes                | [devc-show-local-diff](devc-show-local-diff.md)                                    |             |
 | devc web git pull — fast-forward Pull, and a faded ↓ for commits only the host has fetched                          | [devc-web-git-pull](devc-web-git-pull.md)                                          | in progress |
 | devc web screenshots — paste or drop an image into a terminal; its path is pasted for the agent                     | [devc-web-screenshots](devc-web-screenshots.md)                                    | in progress |
+| devc web commit diffs — a Commits row expands to its files, each opening a read-only diff tile from the mirror      | [devc-web-commit-diffs](devc-web-commit-diffs.md)                                  |             |
