@@ -132,6 +132,11 @@ export type ClientMessage =
    */
   | { type: 'pull_repo'; id: string; localFolder: string; folder: string }
   /**
+   * A repo's commits for its card's Commits section (`git_history.ts`), read in the host's mirror,
+   * so a stopped project has them too. Answered with `result`.
+   */
+  | { type: 'git_history'; id: string; localFolder: string; folder: string }
+  /**
    * Asks devc-desktop to push a repo of a project (`folder`, one of its `repos[].folder`): the
    * app works out the push plan and the user confirms it in its HOST drawer. Needs
    * `--desktop-channel`. See `desktop_requests.ts`.
@@ -967,6 +972,13 @@ function parseFields(m: Obj): ClientMessage {
     case 'pull_repo':
       return {
         type: 'pull_repo',
+        id: str(m, 'id'),
+        localFolder: folder(m),
+        folder: absolute(m, 'folder'),
+      };
+    case 'git_history':
+      return {
+        type: 'git_history',
         id: str(m, 'id'),
         localFolder: folder(m),
         folder: absolute(m, 'folder'),

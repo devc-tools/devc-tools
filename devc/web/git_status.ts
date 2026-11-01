@@ -76,10 +76,13 @@ const GIT_ENV = {
 };
 
 /** A git call's output, or why it failed, as a {@link GitProblem}'s text. */
-type GitRun = { out: string } | { failed: string };
+export type GitRun = { out: string } | { failed: string };
 
 /** Runs git with no repo of its own (`cwd: /`). Never throws. */
-async function run(args: string[], timeoutMs = 10_000): Promise<GitRun> {
+export async function run(
+  args: string[],
+  timeoutMs = 10_000,
+): Promise<GitRun> {
   const sub = args.find((a) => !a.startsWith('--git-dir=')) ?? '';
   const signal = AbortSignal.timeout(timeoutMs);
   const timedOut = { failed: `git ${sub}: timed out` };
@@ -110,7 +113,7 @@ async function git(args: string[], timeoutMs = 10_000): Promise<string | null> {
   return 'out' in r ? r.out : null;
 }
 
-async function hash(text: string): Promise<string> {
+export async function hash(text: string): Promise<string> {
   const digest = await crypto.subtle.digest(
     'SHA-256',
     new TextEncoder().encode(text),
@@ -120,7 +123,7 @@ async function hash(text: string): Promise<string> {
 }
 
 /** The bare mirror for `url`, created (with no hooks) if missing. */
-async function mirrorFor(
+export async function mirrorFor(
   opts: MirrorOpts,
   url: string,
 ): Promise<string | null> {
@@ -147,15 +150,17 @@ async function mirrorFor(
 }
 
 /** What one folder's branch needs in its mirror. */
-interface Located {
+export interface Located {
   branch: string;
+  /** The repo's git common dir: its config and refs. */
+  commonDir: string;
   upstream: Upstream | null;
   mirror: string | null;
   /** This folder and branch's refs in the mirror. */
   prefix: string;
 }
 
-async function locate(
+export async function locate(
   folder: string,
   opts: MirrorOpts,
 ): Promise<Located | GitProblem | null> {
@@ -166,13 +171,14 @@ async function locate(
   const upstream = await readUpstream(dirs.commonDir, branch);
   return {
     branch,
+    commonDir: dirs.commonDir,
     upstream,
     mirror: upstream === null ? null : await mirrorFor(opts, upstream.url),
     prefix: `refs/devc/${await hash(`${folder}\0${branch}`)}`,
   };
 }
 
-const FETCH_FLAGS = [
+export const FETCH_FLAGS = [
   'fetch',
   '--quiet',
   '--no-tags',
@@ -186,6 +192,27 @@ const FETCH_FLAGS = [
  * fetch has no network or prompt to wait on: this only guards against a hang.
  */
 export const LOCAL_FETCH_TIMEOUT_MS = 10 * 60_000;
+
+/**
+ * The mirror's copies of a branch's upstream: `fetched` from the remote, `tracked` from the repo's
+ * own remote-tracking ref, and `against`, the newer of the two, which the counts compare with.
+ */
+export async function upstreamCopies(mirror: string, prefix: string) {
+  const inMirror = (...args: string[]) => git([`--git-dir=${mirror}`, ...args]);
+  const refs = new Set(
+    (await inMirror('for-each-ref', '--format=%(refname)', `${prefix}/`) ?? '')
+      .split('\n').filter((r) => r),
+  );
+  const fetched = refs.has(`${prefix}/upstream`) ? `${prefix}/upstream` : null;
+  const tracked = refs.has(`${prefix}/tracking`) ? `${prefix}/tracking` : null;
+  let against = fetched ?? tracked;
+  if (fetched !== null && tracked !== null) {
+    const fetchedIsOlder =
+      await inMirror('merge-base', '--is-ancestor', fetched, tracked) !== null;
+    against = fetchedIsOlder ? tracked : fetched;
+  }
+  return { against, fetched, tracked };
+}
 
 /**
  * `folder`'s status, or `null` when it is no repo. A detached HEAD, or a branch that can't be
@@ -236,19 +263,8 @@ export async function readGitState(
     if ('failed' in alone) return { problem: alone.failed };
     await inMirror('update-ref', '-d', `${prefix}/tracking`);
   }
-  const refs = new Set(
-    (await inMirror('for-each-ref', '--format=%(refname)', `${prefix}/`) ?? '')
-      .split('\n').filter((r) => r),
-  );
-  const fetched = refs.has(`${prefix}/upstream`) ? `${prefix}/upstream` : null;
-  const tracked = refs.has(`${prefix}/tracking`) ? `${prefix}/tracking` : null;
   const name = `${upstream.remote}/${upstream.branch}`;
-  let against = fetched ?? tracked;
-  if (fetched !== null && tracked !== null) {
-    const fetchedIsOlder =
-      await inMirror('merge-base', '--is-ancestor', fetched, tracked) !== null;
-    against = fetchedIsOlder ? tracked : fetched;
-  }
+  const { against, fetched, tracked } = await upstreamCopies(mirror, prefix);
   if (against === null) {
     return {
       branch,
@@ -431,7 +447,7 @@ export async function upstreamBundle(
  * Runs git with no repo of its own (`cwd: /`), keeping stdout as bytes up to `max`: past it,
  * git is killed and the answer is `too_large`. Never throws.
  */
-async function runCapped(
+export async function runCapped(
   args: string[],
   max: number,
   timeoutMs: number,

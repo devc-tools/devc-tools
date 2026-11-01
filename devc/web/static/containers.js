@@ -253,16 +253,19 @@ function sectionRows(cards) {
 
 /**
  * In use's `ContainersIntents.setFold`: a card In use shows opened or closed its past sessions
- * (`'history'`, by card key) or its pull request (`'pr'`, by `prKey`), so it shows the same here
- * once it is no longer in use. In the same page the two share the state: nothing to do.
+ * (`'history'`, by card key), its pull request (`'pr'`, by `prKey`) or its commits (`'commits'`, by
+ * card key), so it shows the same here once it is no longer in use. In the same page the two share
+ * the state: nothing to do.
  *
- * @param {'history' | 'pr'} part @param {string} key @param {boolean} open
+ * @param {'history' | 'pr' | 'commits'} part @param {string} key @param {boolean} open
  */
 function setFold(part, key, open) {
   const set = part === 'history'
     ? sidebarState.cardHistoryOpen
     : part === 'pr'
     ? sidebarState.prOpen
+    : part === 'commits'
+    ? sidebarState.commitsOpen
     : null;
   if (!set || typeof key !== 'string' || set.has(key) === !!open) return;
   if (open) set.add(key);

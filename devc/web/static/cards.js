@@ -45,6 +45,7 @@ import {
   opensAsDir,
   opensAsFile,
 } from './lib/files.js';
+import { commitRows } from './lib/commits.js';
 import { parseSessions, sessionAge, sessionTooltip } from './lib/sessions.js';
 import {
   buildPrFlat,
@@ -417,6 +418,12 @@ function loadSidebarState() {
         ? saved.containerFilesOpen.filter((f) => typeof f === 'string')
         : [],
     ),
+    /** Repo cards (by `repoCardKey`) whose Commits section shows; new ones start closed. */
+    commitsOpen: new Set(
+      Array.isArray(saved?.commitsOpen)
+        ? saved.commitsOpen.filter((f) => typeof f === 'string')
+        : [],
+    ),
     /** Repos (by `localFolder\nroot`) whose Pull request row is open; new ones start closed. */
     prOpen: new Set(
       Array.isArray(saved?.prOpen)
@@ -542,6 +549,7 @@ export function saveSidebarState() {
         worktreesOpen: [...sidebarState.worktreesOpen],
         containerFilesOpen: [...sidebarState.containerFilesOpen],
         prOpen: [...sidebarState.prOpen],
+        commitsOpen: [...sidebarState.commitsOpen],
         prFolders: sidebarState.prFolders,
         prHideViewed: sidebarState.prHideViewed,
         prFlat: sidebarState.prFlat,
@@ -817,14 +825,25 @@ export function repoCard(card, side, worktrees = 0) {
   };
   const worktreesHidden = worktrees > 0 &&
     !sidebarState.worktreesOpen.has(key);
-  const anyOpen = historyOn || prOn || filesOn;
+  const commitsOn = !!repo && sidebarState.commitsOpen.has(key);
+  const toggleCommits = () => {
+    if (!sidebarState.commitsOpen.delete(key)) {
+      sidebarState.commitsOpen.add(key);
+    }
+    saveSidebarState();
+    side.folded('commits', key, sidebarState.commitsOpen.has(key));
+    renderTree();
+  };
+  const anyOpen = historyOn || prOn || filesOn || commitsOn;
   const headClick = () => {
     if (anyOpen) {
       sidebarState.cardHistoryOpen.delete(key);
       sidebarState.prOpen.delete(prKey(localFolder, fr.root));
+      sidebarState.commitsOpen.delete(key);
       saveSidebarState();
       side.folded('history', key, false);
       side.folded('pr', prKey(localFolder, fr.root), false);
+      side.folded('commits', key, false);
       // Saves and renders again itself.
       if (filesOn) tree.collapse('');
       else renderTree();
@@ -911,6 +930,7 @@ export function repoCard(card, side, worktrees = 0) {
               pull: canPull
                 ? () => repoGitRequest('pull', localFolder, repo.folder)
                 : undefined,
+              commits: toggleCommits,
             }
             : undefined,
         ),
@@ -944,6 +964,9 @@ export function repoCard(card, side, worktrees = 0) {
         );
       },
     ]);
+  }
+  if (repo) {
+    toggles.push(['commits', LABELS.commits, commitsOn, toggleCommits]);
   }
   if (tree) {
     toggles.push(['folder', LABELS.files, filesOn, () => tree.toggle('')]);
@@ -1029,6 +1052,11 @@ export function repoCard(card, side, worktrees = 0) {
   // The open Pull request row's contents, without the row: the toggle stands for it.
   if (prOn) {
     rows.push(section('pr', prRows(localFolder, fr.root, 0).slice(1)));
+  }
+  if (commitsOn) {
+    rows.push(
+      section('commits', commitSectionRows(key, localFolder, repo.folder)),
+    );
   }
   if (filesOn) rows.push(section('files', rootEntryRows(fr, 1)));
   return h('div', { class: 'repo-card', 'data-card-key': key }, ...rows);
@@ -1344,10 +1372,11 @@ async function resumeSession(c, s) {
 /**
  * ● changes to commit, ↑ push / ↓ pull counts, or a quiet ✓ / ?, from `gitSync` or `gitRollup`;
  * nothing for no repo. On a repo card (`opts`): a click on a faded ↓ / +N (`unfetched`) fetches,
- * a click on ↓ (`behind`) pulls when `opts.pull` is given; with `opts.busy`, a spinner follows
- * the counts.
+ * a click on ↓ (`behind`) pulls when `opts.pull` is given, a click on ↑ (`ahead`) shows or hides
+ * the card's commits; with `opts.busy`, a spinner follows the counts.
  *
- * @param {{fetch: () => void, pull?: () => void, busy: boolean, upstream: string}} [opts]
+ * @param {{fetch: () => void, pull?: () => void, commits: () => void, busy: boolean,
+ *   upstream: string}} [opts]
  */
 export function gitMark(sync, opts) {
   if (!sync) return '';
@@ -1383,6 +1412,8 @@ export function gitMark(sync, opts) {
         )
         : opts?.pull && m.dir === 'behind'
         ? button(m, LABELS.pullBehind(opts.upstream), opts.pull)
+        : opts && m.dir === 'ahead'
+        ? button(m, LABELS.commits, opts.commits)
         : h('span', { 'data-dir': m.dir }, m.text)
     ),
     opts?.busy
@@ -1435,6 +1466,117 @@ export function onRepoGitDone(msg) {
     errorToast(`${label} failed: ${msg.problem ?? 'unknown problem'}`);
   }
   return ours;
+}
+
+// ---------------------------------------------------------------------------------------------
+// Repo cards: commits
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * Each repo card's last `git_history` answer, by card key: what its Commits section shows. A failed
+ * read keeps what was shown, so a blip doesn't blank the list.
+ *
+ * @type {Map<string, {loading: boolean, history: any, error: string | null}>}
+ */
+const commitLists = new Map();
+
+/** How often open Commits sections read again: the git mark's own pace (`GIT_POLL_MS`). */
+const COMMITS_POLL_MS = 15_000;
+
+/** The open sections' requests, by card key, for the timer. */
+const commitTargets = new Map();
+let commitsTimer = 0;
+
+/** Reads a repo's commits (`git_history`), keeping what is shown until the answer. */
+async function loadCommits(key, localFolder, folder) {
+  const prev = commitLists.get(key);
+  if (prev?.loading) return;
+  const entry = {
+    loading: true,
+    history: prev?.history ?? null,
+    error: null,
+  };
+  commitLists.set(key, entry);
+  try {
+    entry.history = await call({ type: 'git_history', localFolder, folder });
+  } catch (e) {
+    entry.error = String(e?.message ?? e);
+  }
+  entry.loading = false;
+  if (commitLists.get(key) !== entry) return;
+  // Unchanged answers draw nothing new, and a redraw every poll would disturb the sidebar's scroll.
+  const same = JSON.stringify(prev?.history ?? null) ===
+      JSON.stringify(entry.history) && (prev?.error ?? null) === entry.error;
+  if (!same) queueRender();
+}
+
+/** Reads every open section again, and stops once none is open. */
+function pollCommits() {
+  for (const key of commitTargets.keys()) {
+    if (!sidebarState.commitsOpen.has(key)) commitTargets.delete(key);
+  }
+  if (commitTargets.size === 0) {
+    clearInterval(commitsTimer);
+    commitsTimer = 0;
+    return;
+  }
+  for (const [key, target] of commitTargets) {
+    void loadCommits(key, target.localFolder, target.folder);
+  }
+}
+
+/** One dimmed line in the Commits section. */
+function commitNote(note, text) {
+  return h(
+    'div',
+    {
+      class: 'row tree-note',
+      style: '--depth: 1',
+      'data-note': note,
+      title: text,
+    },
+    h('span', { class: 'label' }, text),
+  );
+}
+
+/** A repo card's open Commits section: starts its reads, and draws the last answer. */
+function commitSectionRows(key, localFolder, folder) {
+  // Just opened: read now, as what an earlier opening kept may be old.
+  if (!commitTargets.has(key)) void loadCommits(key, localFolder, folder);
+  commitTargets.set(key, { localFolder, folder });
+  if (!commitsTimer) commitsTimer = setInterval(pollCommits, COMMITS_POLL_MS);
+  const entry = commitLists.get(key);
+  if (!entry?.history) {
+    return [
+      entry?.error
+        ? commitNote('error', `Couldn't read commits: ${entry.error}`)
+        : commitNote('loading', 'Loading…'),
+    ];
+  }
+  const rows = commitRows(entry.history);
+  if (rows.length === 0) return [commitNote('empty', 'No commits yet')];
+  return rows.map((r) =>
+    r.kind === 'commit'
+      ? h(
+        'div',
+        {
+          class: 'row commit-row',
+          title: r.title,
+          'data-state': r.state,
+          'data-merge': r.commit.merge,
+        },
+        h('span', { class: 'commit-dot', 'aria-hidden': 'true' }),
+        h('span', { class: 'commit-subject' }, r.commit.subject),
+        h('span', { class: 'commit-hash' }, r.short),
+      )
+      : r.kind === 'divider'
+      ? h('div', {
+        class: 'row commit-divider',
+        title: r.text,
+        'data-state': r.state,
+      }, r.text)
+      : commitNote('more', r.text)
+  );
 }
 
 /** The repos listed at the top of a Repos view: all but the worktrees listed under their repo. */

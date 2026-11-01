@@ -161,6 +161,7 @@ export const LABELS = {
   worktreesHidden: (n) => `${n} worktree${n === 1 ? '' : 's'} hidden`,
   copySessionId: 'Copy session id',
   pullRequest: 'Pull request',
+  commits: 'Commits',
   hideViewed: 'Hide viewed files',
   showViewed: (n) => `Show viewed files (${n} hidden)`,
   allViewedHidden: (n) => `All ${n} file${n === 1 ? '' : 's'} viewed`,
@@ -290,6 +291,9 @@ const ICON_PATHS = {
   collapseAll: 'M5.5 2.5h8v8M2.5 5.5h8v8h-8zM4.5 9.5h4',
   // A circular arrow: list again.
   refresh: 'M13 8a5 5 0 1 1-1.5-3.55M13 2.5v3h-3',
+  // A commit on its line: a repo card's commits.
+  commits:
+    'M8 1.5v3.75M8 10.75v3.75M5.25 8a2.75 2.75 0 1 0 5.5 0a2.75 2.75 0 1 0-5.5 0',
   // A clock, its rim an arrow turning back: past sessions.
   history: 'M2.5 8a5.5 5.5 0 1 0 1.6-3.9M2.5 2.5v2.5H5M8 5v3l2 1.5',
   // An arrow out of a box: open on github.com.

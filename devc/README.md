@@ -314,7 +314,14 @@ is published from any container: the host server finds devcontainers with
   would overwrite an uncommitted change. It is refused while an agent in the
   project is working, and when the branch has diverged (**↑N ↓N**: merge or
   rebase in the project). A spinner shows in the mark while either runs, and a
-  toast if it can't. Below the header are its
+  toast if it can't. A card's **Commits** button, or a click on its **↑N**,
+  shows the branch's history on a colored rail: hollow dots to pull, solid dots
+  local only, and small muted dots under a **Pushed** line. It needs no bridge
+  grant, and works for a stopped container: it reads the host's mirror, with the
+  ↑↓ counts' upstream when the branch has one. With none, pushed means on a
+  remote branch the repo tracks, or on `origin/<branch>` as the host finds it
+  (checked every 5 minutes while open), so a `gh-push` shows, though it moves no
+  ref in the repo. Below the header are its
   terminals (its tiles, then every
   pane in it no tile shows, shells too); terminals outside every repo get a
   card named after the container. A card's header buttons show its past agent

@@ -150,9 +150,16 @@ import {
   repoFileFor,
   type WsRole,
 } from './projects_view.ts';
-import { type GitProblem, GitStatusWatch, isGitProblem } from './git_status.ts';
+import {
+  defaultMirrorOpts,
+  GIT_FETCH_MS,
+  type GitProblem,
+  GitStatusWatch,
+  isGitProblem,
+} from './git_status.ts';
 import { type ChangesReading, GitChangesWatch } from './git_changes.ts';
 import { fetchRepo, fetchRunning, pullRepo, pullRunning } from './git_fetch.ts';
+import { readCommitHistory } from './git_history.ts';
 import {
   ActivityRecorder,
   catchUpRollups,
@@ -1431,6 +1438,39 @@ export async function startWeb(
     }
     starts.set(folder, Date.now());
     return true;
+  };
+
+  /** Each repo folder's last look at its remote for the Commits section. */
+  const historyChecks = new Map<string, number>();
+
+  /**
+   * A repo's commits (`git_history.ts`), for a running or stopped project: nothing runs in the
+   * repo. An open section asks every few seconds, but the remote is looked at once per
+   * {@link GIT_FETCH_MS}. Allowed under `--live`, as a fetch is.
+   */
+  const gitHistoryFor = async (
+    c: Client,
+    msg: Extract<ClientMessage, { type: 'git_history' }>,
+  ) => {
+    if (
+      !isProjectRepo(projectsMessage().projects, msg.localFolder, msg.folder)
+    ) {
+      reject(c, { id: msg.id, code: 'bad_request', message: 'unknown repo' });
+      return;
+    }
+    const last = historyChecks.get(msg.folder);
+    const checkRemote = last === undefined ||
+      Date.now() - last >= GIT_FETCH_MS;
+    if (checkRemote) historyChecks.set(msg.folder, Date.now());
+    const history = await readCommitHistory(msg.folder, {
+      ...defaultMirrorOpts(),
+      checkRemote,
+    });
+    if (isGitProblem(history)) {
+      fail(c, msg.id, 'git_history_failed', new Error(history.problem));
+      return;
+    }
+    reply(c, { id: msg.id, ok: true, result: history });
   };
 
   /**
@@ -3347,6 +3387,10 @@ export async function startWeb(
     }
     if (msg.type === 'request_push' || msg.type === 'request_project') {
       askDesktop(c, msg);
+      return;
+    }
+    if (msg.type === 'git_history') {
+      await gitHistoryFor(c, msg);
       return;
     }
     if (msg.type === 'fetch_repo') {

@@ -622,10 +622,123 @@ body.resizing-zones {
   padding-left: calc(6px + max(0, var(--depth, 0) - 1) * 12px);
 }
 
-/* An open section (past sessions, pull request, files) scrolls within the card past a cap. */
+/* An open section (past sessions, pull request, commits, files) scrolls within the card past a cap. */
 .repo-card > .card-section {
   max-height: min(320px, 40vh);
   overflow-y: auto;
+}
+
+/*
+ * The Commits section: a rail of dots, colored as the git mark's counts are. To pull is a hollow
+ * ↓-colored dot, local a solid ↑-colored one, pushed a small muted one under its line.
+ */
+.row.commit-divider {
+  min-height: 20px;
+  margin-top: 2px;
+  padding-left: 8px;
+  font-size: 11px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  border-top-color: color-mix(in srgb, currentColor 40%, transparent);
+  border-radius: 0;
+  display: block;
+  line-height: 18px;
+}
+
+.row.commit-divider[data-state='incoming'] {
+  color: var(--blocked);
+}
+
+.row.commit-divider[data-state='local'] {
+  color: var(--done);
+}
+
+.row.commit-divider[data-state='pushed'] {
+  color: var(--muted);
+}
+
+.row.commit-row {
+  grid-template-columns: 12px minmax(0, 1fr) auto;
+  min-height: 22px;
+  padding-left: 8px;
+}
+
+.commit-dot {
+  position: relative;
+  align-self: stretch;
+}
+
+/* The rail, through the row, so a group's dots read as one line. */
+.commit-dot::before {
+  content: '';
+  position: absolute;
+  top: -1px;
+  bottom: -1px;
+  left: 5px;
+  width: 2px;
+  background: currentColor;
+  opacity: 0.35;
+}
+
+.commit-dot::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 6px;
+  width: 8px;
+  height: 8px;
+  box-sizing: border-box;
+  border-radius: 50%;
+  background: currentColor;
+  transform: translate(-50%, -50%);
+}
+
+.commit-row[data-state='incoming'] .commit-dot {
+  color: var(--blocked);
+}
+
+.commit-row[data-state='incoming'] .commit-dot::after {
+  border: 2px solid currentColor;
+  background: var(--row-bg);
+}
+
+.commit-row[data-state='local'] .commit-dot {
+  color: var(--done);
+}
+
+.commit-row[data-state='pushed'] .commit-dot {
+  color: var(--muted);
+}
+
+.commit-row[data-state='pushed'] .commit-dot::after {
+  width: 6px;
+  height: 6px;
+}
+
+/* A merge is a square dot. */
+.commit-row[data-merge] .commit-dot::after {
+  border-radius: 1px;
+}
+
+.commit-subject {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.commit-row[data-state='pushed'] .commit-subject {
+  color: var(--muted);
+}
+
+.commit-row[data-state='local'] .commit-subject {
+  color: var(--text);
+}
+
+.commit-hash {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  font-size: 11px;
+  opacity: 0.75;
 }
 
 /* The pull request's `#n title` row stays at the top of its section while the files scroll. */
@@ -1396,7 +1509,7 @@ body.resizing-zones {
   color: var(--muted);
 }
 
-/* A repo card's faded ↓ / +N fetches, its ↓ pulls. */
+/* A repo card's faded ↓ / +N fetches, its ↓ pulls, its ↑ shows its commits. */
 .git-sync .git-fetch {
   cursor: pointer;
 }

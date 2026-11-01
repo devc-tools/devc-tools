@@ -490,6 +490,18 @@ Deno.test('parseClientMessage: file messages take a root and a path, empty meani
     'bad_request',
   );
   ok({
+    type: 'git_history',
+    id: 'h1',
+    localFolder: '/src/app',
+    folder: '/src/lib',
+  });
+  for (const bad of [{ localFolder: '/a' }, { folder: '/a' }]) {
+    assertEquals(
+      rejected({ type: 'git_history', id: 'h2', ...bad }).code,
+      'bad_request',
+    );
+  }
+  ok({
     type: 'pull_repo',
     id: 'g3',
     localFolder: '/src/app',

@@ -546,6 +546,7 @@ export function collapseContainersState(state, folders) {
   return {
     collapsed: new Set([...state.collapsed, ...folders]),
     cardHistoryOpen: new Set(),
+    commitsOpen: new Set(),
     worktreesOpen: new Set(),
     containerFilesOpen: new Set(),
     projectsOpen: new Set(),

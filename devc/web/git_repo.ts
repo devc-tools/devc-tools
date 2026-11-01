@@ -135,6 +135,30 @@ export async function readUpstream(
   commonDir: string,
   branch: string,
 ): Promise<Upstream | null> {
+  const list = await readConfigList(commonDir);
+  return list === null ? null : parseUpstream(list, branch);
+}
+
+/** Picks a remote's first `url` out of `git config -z --list` output; `null` when it has none. */
+export function parseRemoteUrl(list: string, remote: string): string | null {
+  const prefix = `remote.${remote}.url\n`;
+  for (const entry of list.split('\0')) {
+    if (entry.startsWith(prefix)) return entry.slice(prefix.length) || null;
+  }
+  return null;
+}
+
+/** A remote's first `url`, read from `commonDir`'s config as a file (no includes). Never throws. */
+export async function readRemoteUrl(
+  commonDir: string,
+  remote: string,
+): Promise<string | null> {
+  const list = await readConfigList(commonDir);
+  return list === null ? null : parseRemoteUrl(list, remote);
+}
+
+/** `commonDir`'s config as `git config -z --list` gives it; `null` when unreadable. Never throws. */
+async function readConfigList(commonDir: string): Promise<string | null> {
   try {
     const out = await new Deno.Command('git', {
       args: [
@@ -152,7 +176,7 @@ export async function readUpstream(
       signal: AbortSignal.timeout(5000),
     }).output();
     if (!out.success) return null;
-    return parseUpstream(new TextDecoder().decode(out.stdout), branch);
+    return new TextDecoder().decode(out.stdout);
   } catch {
     return null;
   }
