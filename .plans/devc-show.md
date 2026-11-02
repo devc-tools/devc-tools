@@ -70,7 +70,7 @@ devc show        [--diff [--side LEFT|RIGHT]] <path>[:<line>[-<end>]]   # on thi
 
 ### Output and exit codes
 
-- Success: stdout is one line, `shown <repo-relative path>[:<line>[-<end>]]`, plus ` (PR #<n>)`
+- Success: stdout is one line, `shown <repo-relative path>[:<line>[-<end>]]`, plus `(PR #<n>)`
   for `--diff`, plus `\n`. Exit 0.
 - Errors go to stderr, prefixed `show:` and a space.
   - `1` (bridge only): the shared token (`show needs a per-container token — the shared token has
@@ -102,7 +102,13 @@ devc show        [--diff [--side LEFT|RIGHT]] <path>[:<line>[-<end>]]   # on thi
 Every request gains two optional fields. Older hosts ignore them; other commands ignore them.
 
 ```json
-{ "token": "…", "command": "show", "args": ["src/a.ts:40-58"], "cwd": "/workspaces/app", "pane": "w1:p3" }
+{
+  "token": "…",
+  "command": "show",
+  "args": ["src/a.ts:40-58"],
+  "cwd": "/workspaces/app",
+  "pane": "w1:p3"
+}
 ```
 
 - `cwd`: `Deno.cwd()`, always sent.
@@ -123,7 +129,12 @@ All files are written atomically (temp file in the same folder, then rename).
   "createdAt": "2026-10-29T15:04:05.123Z",
   "from": { "kind": "container", "localFolder": "/Users/me/app" },
   "pane": "w1:p3",
-  "target": { "kind": "file", "path": "/workspaces/app/src/a.ts", "line": 40, "end": 58 }
+  "target": {
+    "kind": "file",
+    "path": "/workspaces/app/src/a.ts",
+    "line": 40,
+    "end": 58
+  }
 }
 ```
 
@@ -153,7 +164,7 @@ All files are written atomically (temp file in the same folder, then rename).
 { "version": 1, "ok": false, "exitCode": 3, "message": "src/b.ts is not changed in PR #12" }
 ```
 
-`pr` only for diffs. `message` is printed after the `show: ` prefix.
+`pr` only for diffs. `message` is printed after the `show:` prefix.
 
 ### Picking the page
 
@@ -200,7 +211,7 @@ handles.
      preview tile in a stack that does **not** contain the pane tile is replaced with the target.
      With none, a new preview tile opens split to the right of the pane tile.
   3. Else (the fallback view): the focused stack's preview tile, as a Files click does.
-  A tile the person pins (keeps open) stops being a preview, so the next show opens a new one.
+     A tile the person pins (keeps open) stops being a preview, so the next show opens a new one.
 - **Focus**: the tile is revealed but keyboard focus stays where it was. The browser window is not
   raised.
 - **Line**: the tile scrolls so the first line of the range is in view near the top, and the range

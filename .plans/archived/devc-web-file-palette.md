@@ -50,10 +50,10 @@ no command registry.
 `isPaletteShortcut(e, isMac)` in `static/lib/palette.js`, in the style of `isZenShortcut`
 (matched on `code`, since a Mac's Option changes `key`):
 
-| platform | keys                         | matches                                                                  |
-| -------- | ---------------------------- | ------------------------------------------------------------------------ |
-| Mac      | ⌘P                           | `code === 'KeyP' && metaKey && !ctrlKey && !altKey && !shiftKey`         |
-| other    | Ctrl+Alt+P                   | `code === 'KeyP' && ctrlKey && altKey && !metaKey && !shiftKey`          |
+| platform | keys       | matches                                                          |
+| -------- | ---------- | ---------------------------------------------------------------- |
+| Mac      | ⌘P         | `code === 'KeyP' && metaKey && !ctrlKey && !altKey && !shiftKey` |
+| other    | Ctrl+Alt+P | `code === 'KeyP' && ctrlKey && altKey && !metaKey && !shiftKey`  |
 
 - Off a Mac it is **not** Ctrl+P: Ctrl+P belongs to the terminals (readline's previous-history),
   the same reason Cmd+B has no off-Mac twin. Ctrl+Alt+P follows Ctrl+Alt+N / Ctrl+Alt+Z.
@@ -68,7 +68,12 @@ no command registry.
 ### Client → server: `find_files`
 
 ```json
-{ "type": "find_files", "id": "ff-3", "localFolder": "/Users/me/src/proj", "root": "/Users/me/src/proj" }
+{
+  "type": "find_files",
+  "id": "ff-3",
+  "localFolder": "/Users/me/src/proj",
+  "root": "/Users/me/src/proj"
+}
 ```
 
 Parsed like `list_dir` (`str(m,'id')`, `folder(m)`, `absolute(m,'root')`; no `path`). Server
@@ -116,7 +121,7 @@ Line syntax (a subset of gitignore(5), everything else in it is out of scope):
 
 - Lines split on `\n`, a trailing `\r` dropped. Blank lines and lines starting with `#` are
   skipped. `\#` and `\!` at the start are a literal `#` / `!`.
-- Trailing spaces are dropped unless escaped (`\ `).
+- Trailing spaces are dropped unless escaped (`\`).
 - Leading `!` negates (re-includes).
 - Trailing `/`: matches directories only; the `/` is then removed before the rules below.
 - A pattern with a `/` at the start or in the middle is **anchored**: matched against the path
@@ -128,31 +133,31 @@ Line syntax (a subset of gitignore(5), everything else in it is out of scope):
   `/**/` matches zero or more directories. `**` elsewhere acts as `*`.
 - An unparseable pattern (an unclosed `[`) is skipped.
 
-| `.gitignore` in | lines                    | path tested       | dir | ignored |
-| --------------- | ------------------------ | ----------------- | --- | ------- |
-| root            | `node_modules/`          | `node_modules`    | yes | yes     |
-| root            | `node_modules/`          | `a/node_modules`  | yes | yes     |
-| root            | `node_modules/`          | `node_modules`    | no  | no      |
-| root            | `/build`                 | `build`           | yes | yes     |
-| root            | `/build`                 | `a/build`         | yes | no      |
-| root            | `*.log`                  | `a/b/x.log`       | no  | yes     |
-| root            | `*.log` / `!keep.log`    | `keep.log`        | no  | no      |
-| root            | `docs/*.md`              | `docs/a.md`       | no  | yes     |
-| root            | `docs/*.md`              | `docs/x/a.md`     | no  | no      |
-| root            | `**/tmp`                 | `a/b/tmp`         | yes | yes     |
-| root            | `a/**/z`                 | `a/z`             | no  | yes     |
-| root            | `a/**/z`                 | `a/b/c/z`         | no  | yes     |
-| root            | `logs/**`                | `logs/x/y.txt`    | no  | yes     |
-| root            | `[ab].txt`               | `a.txt`           | no  | yes     |
-| root            | `[ab].txt`               | `c.txt`           | no  | no      |
-| root            | `\#notes`                | `#notes`          | no  | yes     |
-| root            | `# notes`                | `# notes`         | no  | no      |
-| root            | `foo   ` (trailing ws)   | `foo`             | no  | yes     |
-| `sub/`          | `*.gen.ts`               | `sub/x.gen.ts`    | no  | yes     |
-| `sub/`          | `*.gen.ts`               | `x.gen.ts`        | no  | no      |
-| `sub/`          | `/out`                   | `sub/out`         | yes | yes     |
-| `sub/`          | `/out`                   | `sub/a/out`       | yes | no      |
-| root + `sub/`   | root `*.md`, sub `!a.md` | `sub/a.md`        | no  | no      |
+| `.gitignore` in | lines                    | path tested      | dir | ignored |
+| --------------- | ------------------------ | ---------------- | --- | ------- |
+| root            | `node_modules/`          | `node_modules`   | yes | yes     |
+| root            | `node_modules/`          | `a/node_modules` | yes | yes     |
+| root            | `node_modules/`          | `node_modules`   | no  | no      |
+| root            | `/build`                 | `build`          | yes | yes     |
+| root            | `/build`                 | `a/build`        | yes | no      |
+| root            | `*.log`                  | `a/b/x.log`      | no  | yes     |
+| root            | `*.log` / `!keep.log`    | `keep.log`       | no  | no      |
+| root            | `docs/*.md`              | `docs/a.md`      | no  | yes     |
+| root            | `docs/*.md`              | `docs/x/a.md`    | no  | no      |
+| root            | `**/tmp`                 | `a/b/tmp`        | yes | yes     |
+| root            | `a/**/z`                 | `a/z`            | no  | yes     |
+| root            | `a/**/z`                 | `a/b/c/z`        | no  | yes     |
+| root            | `logs/**`                | `logs/x/y.txt`   | no  | yes     |
+| root            | `[ab].txt`               | `a.txt`          | no  | yes     |
+| root            | `[ab].txt`               | `c.txt`          | no  | no      |
+| root            | `\#notes`                | `#notes`         | no  | yes     |
+| root            | `# notes`                | `# notes`        | no  | no      |
+| root            | `foo` (trailing ws)      | `foo`            | no  | yes     |
+| `sub/`          | `*.gen.ts`               | `sub/x.gen.ts`   | no  | yes     |
+| `sub/`          | `*.gen.ts`               | `x.gen.ts`       | no  | no      |
+| `sub/`          | `/out`                   | `sub/out`        | yes | yes     |
+| `sub/`          | `/out`                   | `sub/a/out`      | yes | no      |
+| root + `sub/`   | root `*.md`, sub `!a.md` | `sub/a.md`       | no  | no      |
 
 Walk tests (temp directories): `.git` dir and file both absent from the output; a nested folder
 with a `.git` file is not entered; a symlink to a file listed, to a directory not; an ignored
@@ -179,13 +184,13 @@ exactly that many files.
 - `positions`: tiers 1–3 and 5, the first occurrence; tiers 4 and 6, the greedy leftmost match.
   For tiers 1–4 the indices are offset by `base`'s start in `path`.
 
-| query     | files                                                                                   | result order                                                                                     |
-| --------- | --------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
-| `server`  | `web/static/server_util.js`, `web/server.ts`, `server`, `docs/observer.md`, `servers/x.ts` | `server`, `web/server.ts`, `web/static/server_util.js`, `docs/observer.md`, `servers/x.ts`       |
-| `wst`     | `web/static/tiles.js`, `west.md`, `a/wast.ts`                                           | `west.md`, `a/wast.ts`, `web/static/tiles.js`                                                    |
-| `Web/Ser` | `web/sidebar.js`, `devc/web/server.ts`                                                  | `devc/web/server.ts`, `web/sidebar.js`                                                           |
-| `s r v`   | `web/server.ts`                                                                         | `web/server.ts`, positions `[4, 6, 7]`                                                           |
-| `zzz`     | `web/server.ts`                                                                         | (none)                                                                                           |
+| query     | files                                                                                      | result order                                                                               |
+| --------- | ------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------ |
+| `server`  | `web/static/server_util.js`, `web/server.ts`, `server`, `docs/observer.md`, `servers/x.ts` | `server`, `web/server.ts`, `web/static/server_util.js`, `docs/observer.md`, `servers/x.ts` |
+| `wst`     | `web/static/tiles.js`, `west.md`, `a/wast.ts`                                              | `west.md`, `a/wast.ts`, `web/static/tiles.js`                                              |
+| `Web/Ser` | `web/sidebar.js`, `devc/web/server.ts`                                                     | `devc/web/server.ts`, `web/sidebar.js`                                                     |
+| `s r v`   | `web/server.ts`                                                                            | `web/server.ts`, positions `[4, 6, 7]`                                                     |
+| `zzz`     | `web/server.ts`                                                                            | (none)                                                                                     |
 
 Performance: ranking runs on every `input` event with no debounce; it must stay a single pass
 over `files` with no per-file allocation for non-matches (check the subsequence first, then

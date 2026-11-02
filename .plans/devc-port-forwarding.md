@@ -17,7 +17,7 @@ container**, and make the merged config's `forwardPorts` work outside VS Code.
   user who writes `forwardPorts` gets nothing unless VS Code is attached.
 - The forwarding mechanism is VS Code's: the host listens, and each accepted connection is piped
   through its own `docker exec -i <id> <connector>` whose stdio is a TCP connection to the port
-  *inside* the container. This works on Docker Desktop (no route to container IPs needed) and
+  _inside_ the container. This works on Docker Desktop (no route to container IPs needed) and
   reaches servers bound only to loopback in the container, which most dev servers are.
   Rejected alternatives: a socat sidecar on the container's network (cannot reach in-container
   loopback; `--network container:<id>` rejects `-p`), and dialing the container IP (Linux only).
@@ -40,17 +40,17 @@ container**, and make the merged config's `forwardPorts` work outside VS Code.
 
 ## Existing touchpoints
 
-| File                                       | Role in this plan                                                                                                              |
-| ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------ |
-| `devc-core/container.ts`                   | `dockerExecArgv` — the **only** place a `docker exec` argv may be built (enforced by `devc/tests/docker_exec_single_path_test.ts`). The connector exec goes through it. `ContainerInfo`, `findContainer`, `getContainerStatus`. |
-| `devc-core/mod.ts`                         | Export the new core module's public API.                                                                                       |
-| `devc-core/merged_config.ts`               | `ensureMergedConfig` (source of `forwardPorts`), `projectKey`.                                                                 |
-| `devc/args.ts`                             | `parseUpArgs` / `parseBuildArgs` gain `ports`; new `parsePortsArgs`.                                                           |
-| `devc/main.ts`                             | `up`, `build`, `stop`, `down` subcommands; new `ports` and hidden `__ports-serve` subcommands.                                 |
-| `devc/container.ts`                        | `startContainer` / `connectionFor` (CLI-bound wrappers the forwarder uses to get a `ContainerInfo`).                           |
-| `devc/help.ts`                             | Help text for the new flag and subcommand.                                                                                     |
-| `devc/README.md`                           | Docs (§ Step 5).                                                                                                               |
-| `devc-bridge/host/main.ts`                 | Reference only: the detached self-exec, pid-file, stop/status pattern to copy.                                                 |
+| File                         | Role in this plan                                                                                                                                                                                                               |
+| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `devc-core/container.ts`     | `dockerExecArgv` — the **only** place a `docker exec` argv may be built (enforced by `devc/tests/docker_exec_single_path_test.ts`). The connector exec goes through it. `ContainerInfo`, `findContainer`, `getContainerStatus`. |
+| `devc-core/mod.ts`           | Export the new core module's public API.                                                                                                                                                                                        |
+| `devc-core/merged_config.ts` | `ensureMergedConfig` (source of `forwardPorts`), `projectKey`.                                                                                                                                                                  |
+| `devc/args.ts`               | `parseUpArgs` / `parseBuildArgs` gain `ports`; new `parsePortsArgs`.                                                                                                                                                            |
+| `devc/main.ts`               | `up`, `build`, `stop`, `down` subcommands; new `ports` and hidden `__ports-serve` subcommands.                                                                                                                                  |
+| `devc/container.ts`          | `startContainer` / `connectionFor` (CLI-bound wrappers the forwarder uses to get a `ContainerInfo`).                                                                                                                            |
+| `devc/help.ts`               | Help text for the new flag and subcommand.                                                                                                                                                                                      |
+| `devc/README.md`             | Docs (§ Step 5).                                                                                                                                                                                                                |
+| `devc-bridge/host/main.ts`   | Reference only: the detached self-exec, pid-file, stop/status pattern to copy.                                                                                                                                                  |
 
 New files: `devc-core/ports.ts` (pure, no Deno-only APIs beyond what the rest of devc-core uses —
 devc-core is also an npm package), `devc/ports.ts` (forwarder process + CLI glue), tests below.
@@ -102,7 +102,10 @@ export type Connector = 'socat' | 'nc' | 'bash';
 export function connectorProbeCmd(): string[];
 
 /** The `cmd` that turns the exec's stdio into a TCP connection to `containerPort` in the container. */
-export function connectorCmd(connector: Connector, containerPort: number): string[];
+export function connectorCmd(
+  connector: Connector,
+  containerPort: number,
+): string[];
 
 /** `~/.cache/devc/ports/<containerId>.json`. */
 export function portsStatePath(containerId: string, cacheRoot?: string): string;
@@ -132,7 +135,7 @@ lifetime: a recreate gets a new id and therefore a clean slate.
   "version": 1,
   "containerId": "<full id>",
   "localFolder": "/abs/project/path",
-  "pid": 12345,              // the forwarder's pid; written by the forwarder, null before it starts
+  "pid": 12345, // the forwarder's pid; written by the forwarder, null before it starts
   "forwards": [
     { "hostPort": 3000, "containerPort": 3000, "source": "cli" }
   ],
@@ -200,13 +203,22 @@ from `portsStatePath`'s use of the home dir (copy how `merged_config.ts` default
 
 ```ts
 /** Merge `forwards` into the container's state file (by hostPort; a later source wins) and make sure a forwarder is running. */
-export async function ensureForwards(localFolder: string, containerId: string, forwards: PortForward[]): Promise<void>;
+export async function ensureForwards(
+  localFolder: string,
+  containerId: string,
+  forwards: PortForward[],
+): Promise<void>;
 
 /** Remove forwards (all when `hostPorts` is omitted). Returns the host ports that were not forwarded. */
-export async function removeForwards(containerId: string, hostPorts?: number[]): Promise<number[]>;
+export async function removeForwards(
+  containerId: string,
+  hostPorts?: number[],
+): Promise<number[]>;
 
 /** The state file joined with listening status, or null when there is none. */
-export async function readForwards(containerId: string): Promise<ForwardStatus[] | null>;
+export async function readForwards(
+  containerId: string,
+): Promise<ForwardStatus[] | null>;
 ```
 
 `ensureForwards` spawns the forwarder only when the state file's `pid` is absent or dead, then
@@ -256,8 +268,8 @@ than at the forwarder's next poll.
 
 ## Concept boundaries
 
-- **devc-bridge** (`devc-bridge/`, TCP `127.0.0.1:48227`) carries container → host *commands*.
-  This plan is host → container *TCP*. They share nothing; do not route forwards through the
+- **devc-bridge** (`devc-bridge/`, TCP `127.0.0.1:48227`) carries container → host _commands_.
+  This plan is host → container _TCP_. They share nothing; do not route forwards through the
   bridge, and do not reuse its config dir (`~/.config/devc-bridge/`).
 - **`appPort`** and `runArgs -p` are Docker publishes. This plan neither reads nor writes them;
   the docs point at them as the permanent route.
