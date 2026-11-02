@@ -210,12 +210,12 @@ tab to another tile's edge to split, into its header to stack it, or use the sho
 right-click menu. The arrangement is remembered, with new shells, at the next start. Closing a tile
 stops its shell without asking, and closing the last one closes the drawer.
 
-| macOS       | Linux            | Does                                |
-| ----------- | ---------------- | ----------------------------------- |
-| Cmd+D       | Ctrl+Shift+D     | Splits to the right                 |
-| Cmd+Shift+D | Ctrl+Shift+Alt+D | Splits downwards                    |
-| Cmd+T       | Ctrl+Shift+T     | A new tab in the same tile          |
-| Cmd+W       | Ctrl+Shift+W     | Closes the tile and stops its shell |
+| macOS       | Linux            | Does                              |
+| ----------- | ---------------- | --------------------------------- |
+| Cmd+D       | Ctrl+Shift+D     | **Split vertically**              |
+| Cmd+Shift+D | Ctrl+Shift+Alt+D | **Split horizontally**            |
+| Cmd+T       | Ctrl+Shift+T     | **New terminal in this stack**    |
+| Cmd+W       | Ctrl+Shift+W     | **Close**: stops the tile's shell |
 
 A paste with a line break in it is shown in a bar first, and goes in only when you press
 **Paste**.

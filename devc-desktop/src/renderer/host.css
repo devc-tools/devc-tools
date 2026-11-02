@@ -9,11 +9,11 @@ body {
   grid-template-rows: auto auto minmax(0, 1fr);
   font-size: var(--font-size);
 }
-/* Open, the strip is the gap between `/main`'s tiles and these, as a splitter is: nothing shows
-   until it is hovered, and it drags to resize the drawer. */
+/* Open, the strip is the drawer's divider, drawn as the app's rail between the left column and
+   `/main` is (`rail.css`, `RAIL` thick): always shown, accent while hovered or dragged. */
 #strip {
-  height: var(--tile-gap);
-  background: var(--bg);
+  height: 6px;
+  background: var(--border);
   cursor: row-resize;
   user-select: none;
   touch-action: none;
@@ -64,7 +64,7 @@ body[data-closed] #hint {
   grid-template-columns: 1fr auto auto;
   align-items: center;
   gap: 6px 8px;
-  margin: 0 var(--tile-gap) var(--tile-gap);
+  margin: var(--tile-gap) var(--tile-gap) 0;
   padding: 6px 10px;
   background: var(--panel);
   border: 1px solid var(--border);
@@ -102,8 +102,9 @@ body[data-closed] #body {
   /* No zen button in this tiling area, so headers keep no room for one. */
   --zen-room: 0px;
 }
+/* A tile gap from the divider, as `/main`'s tiles keep one above it. */
 #root {
-  inset: 0 var(--tile-gap) var(--tile-gap);
+  inset: var(--tile-gap);
 }
 /* A tile's terminal: a little room from the frame, as the page's terminals have. */
 .host-term {
@@ -115,7 +116,7 @@ body[data-closed] #body {
   overflow: auto;
   min-height: 0;
   padding: 6px;
-  margin: 0 0 var(--tile-gap) var(--tile-gap);
+  margin: var(--tile-gap) 0 var(--tile-gap) var(--tile-gap);
   border: 1px solid var(--border);
   border-radius: 5px;
   background: var(--panel);

@@ -1147,7 +1147,10 @@ async function main(): Promise<void> {
       if (primary?.ok && !(pane.ok && pane.path === primary.path)) {
         items.push(item('primary', primary, ' (primary)'));
       }
-      /** A menu item for one of the page's commands, showing the shortcut it handles itself. */
+      /**
+       * A menu item for one of the page's commands, showing the shortcut it handles itself. The
+       * labels are devc web's own for its terminal tiles (`LABELS` in its `ui.js`).
+       */
       const command = (
         label: string,
         name: HostCommand,
@@ -1161,9 +1164,9 @@ async function main(): Promise<void> {
         },
       });
       Menu.buildFromTemplate([
-        command('Split Right', 'split-right'),
-        command('Split Down', 'split-below'),
-        command('New Tab', 'new-tab'),
+        command('Split vertically', 'split-right'),
+        command('Split horizontally', 'split-below'),
+        command('New terminal in this stack', 'new-tab'),
         { type: 'separator' },
         ...items,
         { type: 'separator' },
