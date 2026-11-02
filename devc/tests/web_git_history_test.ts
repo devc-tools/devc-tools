@@ -119,17 +119,22 @@ Deno.test('a branch with an upstream sorts commits as its counts do', async () =
 });
 
 Deno.test("a push the repo's own refs never heard of counts as pushed", async () => {
-  await withRepo(async ({ work, remote, opts }) => {
+  await withRepo(async ({ dir, work, remote, opts }) => {
     await git(work, 'switch', '-q', '-c', 'feat');
     await commit(work, 'feature');
     await commit(work, 'unpushed');
     // As `gh-push` does: to the remote from elsewhere, moving none of the repo's refs.
+    // The push runs from a separate bare repo, not from `work`: some git versions
+    // record refs/remotes/origin/feat when `work` pushes to a URL that is origin's.
     const tip = await new Deno.Command('git', {
       args: ['rev-parse', 'HEAD~1'],
       cwd: work,
     }).output();
     const sha = new TextDecoder().decode(tip.stdout).trim();
-    await git(work, 'push', '-q', remote, `${sha}:refs/heads/feat`);
+    const elsewhere = `${dir}/elsewhere.git`;
+    await git(dir, 'init', '-q', '--bare', elsewhere);
+    await git(elsewhere, 'fetch', '-q', work, 'feat');
+    await git(elsewhere, 'push', '-q', remote, `${sha}:refs/heads/feat`);
     assertEquals(
       (await new Deno.Command('git', {
         args: ['for-each-ref', 'refs/remotes/origin/feat'],
@@ -152,7 +157,7 @@ Deno.test("a push the repo's own refs never heard of counts as pushed", async ()
     assertEquals(subjects(quiet).local, ['unpushed']);
 
     // Deleted from the remote: its commits are local again, compared with what the repo tracks.
-    await git(work, 'push', '-q', remote, ':refs/heads/feat');
+    await git(elsewhere, 'push', '-q', remote, ':refs/heads/feat');
     const gone = await read(work, opts);
     assertEquals(gone.compare, 'remote branches');
     assertEquals(subjects(gone), {
