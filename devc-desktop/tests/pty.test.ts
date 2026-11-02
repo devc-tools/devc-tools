@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import { deepStrictEqual as assertEquals } from 'node:assert/strict';
-import { HostPty, hostShell, ptyEnv } from '../src/main/pty.ts';
+import { HostPty, HostPtys, hostShell, ptyEnv } from '../src/main/pty.ts';
+import { MAX_SHELLS } from '../src/main/policy.ts';
 
 test('hostShell: $SHELL, else the account shell, else the platform default', () => {
   assertEquals(
@@ -128,4 +129,60 @@ test('HostPty: shell and foreground', () => {
   assertEquals(pty.foreground, 'zsh');
   made[0].exit({ exitCode: 0 });
   assertEquals(pty.foreground, null);
+});
+
+test('HostPtys: a shell per id, each output and exit naming its own', async () => {
+  const { spawn, made } = fakeSpawn();
+  const out: [string, string][] = [];
+  const exits: [string, number][] = [];
+  const ptys = new HostPtys({
+    shell: '/bin/sh',
+    cwd: '/',
+    env: {},
+    onOutput: (id, d) => out.push([id, d]),
+    onExit: (id, c) => exits.push([id, c]),
+  }, spawn);
+  ptys.start('a', 80, 24);
+  ptys.start('b', 80, 24);
+  ptys.start('a', 100, 30);
+  assertEquals(made.length, 2);
+  assertEquals(made[0].sizes, [[100, 30]]);
+  ptys.get('b')?.write('x');
+  assertEquals([made[0].written, made[1].written], [[], ['x']]);
+  made[1].data('hi');
+  await new Promise((r) => setTimeout(r, 40));
+  assertEquals(out, [['b', 'hi']]);
+  made[0].exit({ exitCode: 1 });
+  assertEquals(exits, [['a', 1]]);
+  assertEquals(ptys.get('a')?.running, false);
+});
+
+test('HostPtys: a closed shell is forgotten and says nothing more', () => {
+  const { spawn, made } = fakeSpawn();
+  const exits: string[] = [];
+  const ptys = new HostPtys({
+    shell: '/bin/sh',
+    cwd: '/',
+    env: {},
+    onOutput: () => {},
+    onExit: (id) => exits.push(id),
+  }, spawn);
+  ptys.start('a', 80, 24);
+  void ptys.close('a');
+  assertEquals(ptys.get('a'), undefined);
+  made[0].exit({ exitCode: 0 });
+  assertEquals(exits, []);
+});
+
+test('HostPtys: no more than the cap', () => {
+  const { spawn, made } = fakeSpawn();
+  const ptys = new HostPtys({
+    shell: '/bin/sh',
+    cwd: '/',
+    env: {},
+    onOutput: () => {},
+    onExit: () => {},
+  }, spawn);
+  for (let i = 0; i <= MAX_SHELLS; i++) ptys.start(`s${i}`, 80, 24);
+  assertEquals(made.length, MAX_SHELLS);
 });

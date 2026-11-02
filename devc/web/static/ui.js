@@ -100,6 +100,7 @@ export const LABELS = {
   pullBehind: (upstream) => `Pull: fast-forward to ${upstream}`,
   newTerminalHere: 'New terminal here',
   newFile: 'New file…',
+  newDraft: 'New untitled file',
   newFolder: 'New folder…',
   renameEntry: 'Rename…',
   deleteEntry: 'Delete…',
@@ -560,7 +561,8 @@ function askDialog(message, value, okLabel, danger) {
         'div',
         { class: 'ask-body' },
         h('p', { class: 'ask-message' }, message),
-        $input,
+        // `append` would write out a null as text.
+        ...($input ? [$input] : []),
       ),
       h(
         'footer',

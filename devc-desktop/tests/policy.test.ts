@@ -23,6 +23,8 @@ import {
   fromView,
   HOST_PEEK,
   hostFolder,
+  hostShortcut,
+  isShellId,
   type Layout,
   layout,
   MAIN_MIN,
@@ -811,4 +813,44 @@ test('actionCard: what the column shows, and when it can be confirmed', () => {
   assertEquals(start.notes, [
     "Runs its devcontainer.json's initializeCommand on this machine",
   ]);
+});
+
+test('isShellId: the ids the host page makes, nothing longer or odder', () => {
+  assertEquals(isShellId('5f0c8f6e-6d1f-4a5e-9f6d-1c2b3a4d5e6f'), true);
+  for (const id of ['', 'a'.repeat(65), 'a/b', 'a b', 1, null, undefined]) {
+    assertEquals(isShellId(id), false);
+  }
+});
+
+test('hostShortcut: on a Mac, Cmd; elsewhere Ctrl+Shift, leaving Ctrl to the shell', () => {
+  const key = (code: string, over: object = {}) => ({
+    code,
+    metaKey: false,
+    ctrlKey: false,
+    altKey: false,
+    shiftKey: false,
+    ...over,
+  });
+  const cmd = { metaKey: true };
+  assertEquals(hostShortcut(key('KeyD', cmd), true), 'split-right');
+  assertEquals(
+    hostShortcut(key('KeyD', { ...cmd, shiftKey: true }), true),
+    'split-below',
+  );
+  assertEquals(hostShortcut(key('KeyT', cmd), true), 'new-tab');
+  assertEquals(hostShortcut(key('KeyW', cmd), true), 'close');
+  assertEquals(hostShortcut(key('KeyD', { ctrlKey: true }), true), null);
+  assertEquals(hostShortcut(key('KeyT', { ...cmd, altKey: true }), true), null);
+
+  const both = { ctrlKey: true, shiftKey: true };
+  assertEquals(hostShortcut(key('KeyD', both), false), 'split-right');
+  assertEquals(
+    hostShortcut(key('KeyD', { ...both, altKey: true }), false),
+    'split-below',
+  );
+  assertEquals(hostShortcut(key('KeyT', both), false), 'new-tab');
+  assertEquals(hostShortcut(key('KeyW', both), false), 'close');
+  // Ctrl+D is the shell's end of input, Ctrl+W its word rub-out.
+  assertEquals(hostShortcut(key('KeyD', { ctrlKey: true }), false), null);
+  assertEquals(hostShortcut(key('KeyW', { ctrlKey: true }), false), null);
 });

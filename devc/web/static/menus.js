@@ -283,7 +283,12 @@ export function tileMenuItems(tile) {
  * @param {TileState} tile
  */
 export function tileOwnMenuItems(tile) {
-  return [...tileMenuItems(tile), null, ...zenItems()];
+  return [...tileMenuItems(tile), null, newDraftItem(), null, ...zenItems()];
+}
+
+/** **New untitled file**: a draft in the focused stack (Cmd+N). */
+function newDraftItem() {
+  return [LABELS.newDraft, () => tileArea.newDraft()];
 }
 
 /**
@@ -322,8 +327,10 @@ export function stackMenu(stackId, e) {
   // The unfolded tree: the folded one has no node for a stack holding one tile.
   const stack = nodeById(view, stackId);
   if (!stack) return;
-  const items = nodeMenuItems(stack, nodeTiles(view, stack));
-  if (items.length > 0) openMenu(e, items);
+  openMenu(e, [
+    ...nodeMenuItems(stack, nodeTiles(view, stack)),
+    newDraftItem(),
+  ]);
 }
 
 /**
@@ -790,6 +797,7 @@ export function openFileTile(fr, path, where, view) {
 function fileTileMenuItems(tile) {
   const items = [];
   const file = tile.file;
+  if (tile.draft) items.push(['Save…', () => tileArea.save(tile.id)]);
   if (file) {
     const fr = fileRootOf(file);
     const asMedia = fileView(file) === 'media';

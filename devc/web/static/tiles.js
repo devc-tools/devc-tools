@@ -33,6 +33,8 @@ import {
 import { LSP_LANGUAGE_NAMES, lspLanguageFor } from './lib/languages.js';
 import { openAskDialog } from './ask.js';
 import { parseSavedLayout, sameFile } from './lib/layout_state.js';
+import { draftKey, isNewFileShortcut, nextDraftName } from './lib/drafts.js';
+import { openDraftSaveDialog } from './draft-dialog.js';
 import {
   DRAG_MIME,
   fileKey,
@@ -200,6 +202,7 @@ const tileArea = {
   openPane,
   openFile,
   openDiff,
+  newDraft,
   reveal: revealTile,
   close: closeTile,
   keepOpen: (id) => keepTileOpen(tileOf(id)),
@@ -270,6 +273,9 @@ const views = new Map();
  * @property {string | null} hash
  * @property {boolean} dirty         edited since the last read or save
  * @property {boolean} saving
+ * @property {boolean} [focusOnLoad]  takes the focus once its file has loaded
+ * @property {ReturnType<typeof setTimeout> | null} [draftTimer]  a draft's text waiting to be kept
+ * @property {boolean} [draftUnkept]  a draft's text could not be kept: a reload would lose it
  * @property {HTMLElement} lspStatus  the language server's status line (`lsp.js`)
  * @property {boolean} [lspWanted]    whether it wanted a language server at the last sync
  */
@@ -436,6 +442,12 @@ function fileTileTitle(file, dirty = false) {
   return dirty ? `● ${name}` : name;
 }
 
+/** {@link fileTileTitle} of a tile: a draft goes by its own name. */
+function fileViewTitle(tile, dirty = false) {
+  if (!tile.draft) return fileTileTitle(tile.file, dirty);
+  return dirty ? `● ${tile.draft.name}` : tile.draft.name;
+}
+
 /**
  * Opens a file in a file tile: in the focused stack's preview tile (`'preview'`), in a new tile in
  * the focused stack (`'stack'`), or split to the right of the focused tile. A tile already showing
@@ -521,7 +533,7 @@ function mountFileTile(tile) {
     const muted = file && fileView(file) === 'media' && previewable(file.path)
       ? LABELS.preview
       : '';
-    tile.setTitle(fileTileTitle(file, fileViews.get(tile.id)?.dirty), muted);
+    tile.setTitle(fileViewTitle(tile, fileViews.get(tile.id)?.dirty), muted);
     if (file) tile.setTooltip(fileHostPath(file));
     if (file && !muted) tile.setActions(askButton(tile));
   });
@@ -546,6 +558,7 @@ function mountFileTile(tile) {
     : null;
   if (kind) view.media = createMediaView(view, kind);
   if (tile.file) loadFile(view);
+  else if (tile.draft) mountDraft(view);
   else {
     view.state = 'error';
     view.error = 'This tile names no file.';
@@ -635,6 +648,10 @@ async function loadFile(view) {
   view.error = '';
   syncFileEditable(view);
   updateFileOverlay(view);
+  if (view.focusOnLoad) {
+    view.focusOnLoad = false;
+    view.viewer.focus();
+  }
 }
 
 /**
@@ -749,6 +766,7 @@ function createMediaView(view, kind) {
  * saves are written in the container as its remote user, never from the host side.
  */
 function fileEditable(view) {
+  if (view.tile.draft) return Boolean(view.viewer);
   const file = view.tile.file;
   return Boolean(
     file && view.viewer && view.state === 'ok' &&
@@ -1088,7 +1106,7 @@ function settingsDialog(info, name) {
 function setFileDirty(view, dirty) {
   if (view.dirty === dirty) return;
   view.dirty = dirty;
-  view.tile.setTitle(fileTileTitle(view.tile.file, dirty));
+  view.tile.setTitle(fileViewTitle(view.tile, dirty));
   if (dirty && view.tile.preview) keepTileOpen(view.tile);
   viewChanged();
 }
@@ -1112,6 +1130,10 @@ async function reloadFile(view) {
  * @param {FileView} view @param {boolean} [overwrite]
  */
 async function saveFile(view, overwrite = false) {
+  if (view.tile.draft) {
+    saveDraft(view);
+    return;
+  }
   const file = view.tile.file;
   if (!file || !view.viewer || view.saving) return;
   const name = fileTileTitle(file);
@@ -1169,13 +1191,168 @@ async function saveFile(view, overwrite = false) {
   }
 }
 
+// ---------------------------------------------------------------------------------------------
+// Drafts: a file tile with no file yet (Cmd+N). Its text waits in `localStorage`, so a reload keeps
+// it; saving writes the file and swaps the tile for an ordinary file tile.
+// ---------------------------------------------------------------------------------------------
+
+/** How long a draft's text waits after a keystroke before it is kept, in ms. */
+const DRAFT_KEEP_MS = 300;
+
+/** Opens a new draft in the focused stack, ready to type in. */
+function newDraft() {
+  if (!tiling) return;
+  const names = tiling.tiles().flatMap((t) => t.draft ? [t.draft.name] : []);
+  const draft = { id: crypto.randomUUID(), name: nextDraftName(names) };
+  draftOrigin = targetTile();
+  const tile = tiling.addBeside(targetTile()?.id ?? null, { draft }, 'stack');
+  focusedTileId = tile.id;
+  focusSeq.set(tile.id, ++nextFocusSeq);
+  fileViews.get(tile.id)?.viewer?.focus();
+}
+
+/**
+ * The tile focused when the last draft opened, whose project and folder its Save dialog offers.
+ * @type {Tile | null}
+ */
+let draftOrigin = null;
+
+/** Shows a draft tile's editor, with the text it had before a reload. */
+function mountDraft(view) {
+  const draft = view.tile.draft;
+  let text = '';
+  try {
+    text = localStorage.getItem(draftKey(draft.id)) ?? '';
+  } catch { /* unavailable: it starts empty */ }
+  view.viewer = createViewer(view.host, {
+    name: draft.name,
+    text,
+    editable: true,
+    onChange: () => {
+      // Unsaved means it holds something: a restored draft's text is no less unsaved, and an
+      // emptied one has nothing to lose.
+      setFileDirty(view, view.viewer.getText() !== '');
+      if (view.draftTimer) clearTimeout(view.draftTimer);
+      view.draftTimer = setTimeout(() => keepDraft(view), DRAFT_KEEP_MS);
+    },
+  });
+  view.state = 'ok';
+  view.dirty = text !== '';
+}
+
+/** Puts a draft's text where a reload finds it. */
+function keepDraft(view) {
+  if (view.draftTimer) clearTimeout(view.draftTimer);
+  view.draftTimer = null;
+  if (!view.viewer) return;
+  try {
+    const text = view.viewer.getText();
+    const key = draftKey(view.tile.draft.id);
+    if (text === '') localStorage.removeItem(key);
+    else localStorage.setItem(key, text);
+    view.draftUnkept = false;
+  } catch {
+    view.draftUnkept = true;
+  }
+}
+
+/** Whether leaving the page now would lose this tile's edits. */
+function losesEdits(view) {
+  return view.dirty && (!view.tile.draft || Boolean(view.draftUnkept));
+}
+
+/**
+ * The file a draft's Save dialog starts near: the focused tile's project, repo and file when it
+ * opened (that tile, if it is still there), else whatever is focused now.
+ *
+ * @param {FileView} view
+ */
+function draftNear(view) {
+  const origin = draftOrigin && tileOf(draftOrigin.id) ? draftOrigin : null;
+  const tile = origin && origin !== view.tile ? origin : targetTile();
+  if (!tile || tile === view.tile) return {};
+  const { localFolder, repo } = tileRepo(tile);
+  const file = tile.file && !tile.file.container ? tile.file : null;
+  return {
+    localFolder,
+    root: repo?.folder ?? null,
+    path: file?.root === repo?.folder ? file?.path : null,
+  };
+}
+
+/** Asks where a draft goes and saves it there. */
+function saveDraft(view) {
+  if (!view.viewer) return;
+  if (!socket || socket.readyState !== WebSocket.OPEN) {
+    errorToast(`Can't save ${view.tile.draft.name}: not connected to devc web`);
+    return;
+  }
+  const opened = openDraftSaveDialog({
+    name: view.tile.draft.name,
+    near: draftNear(view),
+    submit: (dest) => writeDraft(view, dest),
+  });
+  if (!opened) {
+    errorToast(
+      `Can't save ${view.tile.draft.name}: no project has a running container`,
+    );
+  }
+}
+
+/**
+ * Writes a draft to `dest` in its container: `create_file` first, so an existing file is never
+ * overwritten unless the user says so, then `write_file`. Saved, the tile becomes that file's.
+ *
+ * @param {FileView} view
+ * @param {{localFolder: string, root: string, path: string}} dest
+ * @returns {Promise<string | null>} what {@link openDraftSaveDialog}'s `submit` returns
+ */
+async function writeDraft(view, dest) {
+  const c = containerByFolder(dest.localFolder);
+  if (!c || !fileViews.has(view.tile.id) || !view.viewer) {
+    return 'Its container is not running';
+  }
+  const where = { container: c.id, root: dest.root, path: dest.path };
+  try {
+    await call({ type: 'create_file', ...where, kind: 'file' });
+  } catch (e) {
+    if (e?.code !== 'exists') return String(e?.message ?? e);
+    const overwrite = await confirmDialog(
+      `${dest.path} already exists. Overwrite it?`,
+      { okLabel: 'Overwrite', danger: true },
+    );
+    if (!overwrite) return '';
+  }
+  const text = view.viewer.getText();
+  await call({ type: 'write_file', ...where, text });
+  const file = fileRefOf(
+    { localFolder: dest.localFolder, root: dest.root },
+    dest.path,
+  );
+  // Tiles already showing the file (an overwrite) show what was just saved.
+  for (const other of fileViews.values()) {
+    if (other.tile.file && sameFile(other.tile.file, file) && !other.dirty) {
+      loadFile(other);
+    }
+  }
+  toast(`Saved ${basename(dest.path)}`);
+  const tile = tiling?.replace(view.tile.id, { file });
+  if (tile) {
+    focusedTileId = tile.id;
+    focusSeq.set(tile.id, ++nextFocusSeq);
+    const saved = fileViews.get(tile.id);
+    if (saved) saved.focusOnLoad = true;
+  }
+  return null;
+}
+
 /** Closes a tile, after asking when it is a file tile with unsaved edits. */
 async function closeTile(tileId) {
   const view = fileViews.get(tileId);
   if (
     view?.dirty &&
     !await confirmDialog(
-      `Close ${fileTileTitle(view.tile.file)} without saving?`,
+      `Close ${fileViewTitle(view.tile)} without saving?`,
       { okLabel: 'Close', danger: true },
     )
   ) return;
@@ -1210,6 +1387,12 @@ function unmountFileTile(tile) {
   if (!view) return;
   view.seq++;
   detachTile(tile.id);
+  if (tile.draft) {
+    if (view.draftTimer) clearTimeout(view.draftTimer);
+    try {
+      localStorage.removeItem(draftKey(tile.draft.id));
+    } catch { /* unavailable: nothing was kept */ }
+  }
   view.viewer?.destroy();
   view.media?.dispose();
   fileViews.delete(tile.id);
@@ -3943,7 +4126,12 @@ function saveFocus() {
     else {
       sessionStorage.setItem(
         FOCUS_KEY,
-        JSON.stringify({ ref: tile.ref, file: tile.file, diff: tile.diff }),
+        JSON.stringify({
+          ref: tile.ref,
+          file: tile.file,
+          diff: tile.diff,
+          draft: tile.draft?.id,
+        }),
       );
     }
   } catch { /* unavailable: a reload just won't refocus */ }
@@ -4028,6 +4216,8 @@ function restoreFocus() {
     ? tileShowingFile(state, saved.file)
     : saved.diff
     ? tileShowingDiff(state, saved.diff)
+    : saved.draft
+    ? state.tiles.find((t) => t.draft?.id === saved.draft)
     : null;
   if (tile) revealTile(tile.id);
 }
@@ -4110,10 +4300,11 @@ function tileState(tile) {
     ref: tile.ref,
     file: tile.file,
     diff: tile.diff,
+    draft: tile.draft,
     preview: tile.preview,
     focusSeq: focusSeq.get(tile.id) ?? 0,
     title: tile.kind === 'file'
-      ? fileTileTitle(tile.file, file?.dirty)
+      ? fileViewTitle(tile, file?.dirty)
       : tile.kind === 'diff'
       ? diffTileTitle(tile)
       : '',
@@ -5276,17 +5467,37 @@ export function mountTiles(root, opts) {
     }
   }, true);
 
-  // Leaving the page with unsaved edits: the browser asks.
+  // Leaving the page with unsaved edits: the browser asks. A draft's text survives it.
   window.addEventListener('beforeunload', (e) => {
     for (const view of fileViews.values()) {
-      if (view.dirty) {
+      if (view.draftTimer) keepDraft(view);
+      if (losesEdits(view)) {
         e.preventDefault();
         return;
       }
     }
   });
+  window.addEventListener('pagehide', () => {
+    for (const view of fileViews.values()) {
+      if (view.draftTimer) keepDraft(view);
+    }
+  });
   // A live edit's reload waits for them to be saved or dropped.
-  holdReloadWhile(() => [...fileViews.values()].some((view) => view.dirty));
+  holdReloadWhile(() =>
+    [...fileViews.values()].some((view) => {
+      if (view.draftTimer) keepDraft(view);
+      return losesEdits(view);
+    })
+  );
+
+  // Cmd+N (Alt+Shift+N where the browser keeps it) opens a new file, in the capture phase so it
+  // works while a terminal has focus.
+  document.addEventListener('keydown', (e) => {
+    if (!isNewFileShortcut(e, IS_MAC)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    if (!e.repeat) newDraft();
+  }, true);
 
   // Ctrl+Alt+Z (Cmd+Alt+Z on a Mac) turns zen mode on or off, in the capture phase so it works
   // while a terminal has focus: xterm.js never sees the keys (on a Mac, Option would type one).

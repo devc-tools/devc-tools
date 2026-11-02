@@ -5,20 +5,35 @@
 import { contextBridge, ipcRenderer } from 'electron';
 
 contextBridge.exposeInMainWorld('hostTerm', {
-  start: (cols: number, rows: number) =>
-    ipcRenderer.send('host-term:start', cols, rows),
-  input: (data: string) => ipcRenderer.send('host-term:input', String(data)),
-  resize: (cols: number, rows: number) =>
-    ipcRenderer.send('host-term:resize', cols, rows),
-  onOutput: (cb: (data: string) => void) => {
-    ipcRenderer.on('host-term:output', (_e, data: string) => cb(data));
+  start: (id: string, cols: number, rows: number) =>
+    ipcRenderer.send('host-term:start', id, cols, rows),
+  input: (id: string, data: string) =>
+    ipcRenderer.send('host-term:input', id, String(data)),
+  resize: (id: string, cols: number, rows: number) =>
+    ipcRenderer.send('host-term:resize', id, cols, rows),
+  close: (id: string) => ipcRenderer.send('host-term:close', id),
+  hide: () => ipcRenderer.send('host-term:hide'),
+  onOutput: (cb: (id: string, data: string) => void) => {
+    ipcRenderer.on(
+      'host-term:output',
+      (_e, id: string, data: string) => cb(id, data),
+    );
   },
-  onExit: (cb: (code: number) => void) => {
-    ipcRenderer.on('host-term:exit', (_e, code: number) => cb(code));
+  onExit: (cb: (id: string, code: number) => void) => {
+    ipcRenderer.on(
+      'host-term:exit',
+      (_e, id: string, code: number) => cb(id, code),
+    );
+  },
+  onCommand: (cb: (name: string, id: string) => void) => {
+    ipcRenderer.on(
+      'host-term:command',
+      (_e, name: string, id: string) => cb(name, id),
+    );
   },
   info: () => ipcRenderer.invoke('host-term:info'),
   dragDrawer: (dy: number) => ipcRenderer.send('host-term:drag', dy),
-  contextMenu: () => ipcRenderer.send('host-term:context-menu'),
+  contextMenu: (id: string) => ipcRenderer.send('host-term:context-menu', id),
   onShown: (cb: (open: boolean) => void) => {
     ipcRenderer.on('host-term:shown', (_e, open: unknown) => cb(open === true));
   },

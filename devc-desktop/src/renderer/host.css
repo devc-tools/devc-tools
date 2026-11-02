@@ -1,56 +1,60 @@
+/* The host terminal, in devc web's own tiles: `style.css` (linked before this sheet) draws them, so
+   only what is this page's own is here. */
 :root {
-  --bg: #0d0f14;
-  --panel: #161922;
-  --border: #2a2f3c;
-  --text: #d7dae0;
-  --muted: #8a90a0;
-  --host: #f0b54a;
-}
-html,
-body {
-  margin: 0;
-  height: 100%;
-  background: var(--bg);
-  color: var(--text);
-  font: 12px/1.4 system-ui, sans-serif;
-  overflow: hidden;
+  /* What `actions.css` colours a card with. */
+  --host: var(--accent);
 }
 body {
   display: grid;
-  grid-template-rows: auto auto 1fr;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  font-size: var(--font-size);
 }
-/* The host terminal's own strip: devc web is a separate view and cannot draw here. */
+/* Open, the strip is the gap between `/main`'s tiles and these, as a splitter is: nothing shows
+   until it is hovered, and it drags to resize the drawer. */
 #strip {
-  display: flex;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 3px 10px;
-  background: var(--panel);
-  border-top: 2px solid var(--host);
-  border-bottom: 1px solid var(--border);
+  height: var(--tile-gap);
+  background: var(--bg);
   cursor: row-resize;
   user-select: none;
+  touch-action: none;
+  overflow: hidden;
 }
-#who {
-  color: var(--host);
-  font-weight: 600;
-  letter-spacing: 0.04em;
+#strip:hover,
+#strip.dragging {
+  background: var(--accent);
 }
+#left,
 #hint {
-  color: var(--muted);
+  display: none;
 }
-#left {
+/* Closed with requests waiting, it is all that shows: a footer, naming the host and the count. */
+body[data-closed] #strip {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  height: auto;
+  min-height: 100vh;
+  padding: 0 10px;
+  background: var(--sidebar-head);
+  box-shadow: inset 0 1px 0 var(--border);
+  color: var(--muted);
+  cursor: default;
+}
+body[data-closed] #left {
   display: flex;
   gap: 8px;
   align-items: center;
 }
-/* Requests waiting in the Actions column: shown even while the drawer is closed to its strip. */
+body[data-closed] #hint {
+  display: inline;
+}
+/* Requests waiting in the Actions column. */
 #badge {
-  background: var(--host);
-  color: #1a1408;
+  background: var(--panel-2);
+  color: var(--text);
   border-radius: 8px;
   padding: 0 6px;
-  font-weight: 600;
 }
 #badge[hidden] {
   display: none;
@@ -60,9 +64,11 @@ body {
   grid-template-columns: 1fr auto auto;
   align-items: center;
   gap: 6px 8px;
+  margin: 0 var(--tile-gap) var(--tile-gap);
   padding: 6px 10px;
-  background: #2a2312;
-  border-bottom: 1px solid var(--host);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 5px;
 }
 #paste[hidden] {
   display: none;
@@ -77,25 +83,44 @@ body {
   white-space: pre-wrap;
 }
 #body {
+  /* Its own row, whether or not the paste bar is there to fill the one before it. */
+  grid-row: 3;
   display: grid;
-  grid-template-columns: 1fr;
+  grid-template-columns: minmax(0, 1fr);
   min-height: 0;
 }
 #body.with-actions {
-  grid-template-columns: 280px 1fr;
+  grid-template-columns: 280px minmax(0, 1fr);
 }
-#term {
-  min-height: 0;
-  min-width: 0;
-  padding: 4px 0 0 6px;
+body[data-closed] #body {
+  display: none;
+}
+/* style.css places `.tiles` in the page's own grid; here it fills `#body`. */
+#tiles {
+  grid-row: auto;
+  grid-column: auto;
+  /* No zen button in this tiling area, so headers keep no room for one. */
+  --zen-room: 0px;
+}
+#root {
+  inset: 0 var(--tile-gap) var(--tile-gap);
+}
+/* A tile's terminal: a little room from the frame, as the page's terminals have. */
+.host-term {
+  position: absolute;
+  inset: 4px 0 0 6px;
 }
 /* The Actions column: what devc web's page asked for, as this app worked it out. */
 #actions {
   overflow: auto;
   min-height: 0;
   padding: 6px;
-  border-right: 1px solid var(--border);
+  margin: 0 0 var(--tile-gap) var(--tile-gap);
+  border: 1px solid var(--border);
+  border-radius: 5px;
   background: var(--panel);
+  font-size: 12px;
+  line-height: 1.4;
 }
 #actions[hidden] {
   display: none;

@@ -122,6 +122,56 @@ export const DRAWER_MAX_SHARE = 0.85;
 /** The drawer's height before the user has dragged it, as a share of the content height. */
 export const DRAWER_DEFAULT_SHARE = 0.4;
 
+/** The most shells the drawer runs at once: one per terminal tile. */
+export const MAX_SHELLS = 32;
+
+/** Whether `id` can name a shell: what the host page's ids look like, nothing longer. */
+export function isShellId(id: unknown): id is string {
+  return typeof id === 'string' && /^[0-9a-zA-Z-]{1,64}$/.test(id);
+}
+
+/** What the host terminal's tiles can be told to do: its shortcuts and right-click menu. */
+export type HostCommand = 'split-right' | 'split-below' | 'new-tab' | 'close';
+
+/** A key press as far as {@link hostShortcut} cares. */
+export interface HostKey {
+  code: string;
+  metaKey: boolean;
+  ctrlKey: boolean;
+  altKey: boolean;
+  shiftKey: boolean;
+}
+
+/**
+ * The command a key press in the host terminal means, or `null`. On a Mac Cmd+D, Cmd+Shift+D,
+ * Cmd+T and Cmd+W; elsewhere Ctrl+Shift+D, Ctrl+Shift+Alt+D, Ctrl+Shift+T and Ctrl+Shift+W, since
+ * Ctrl alone belongs to the shell. Keep {@link HOST_SHORTCUTS} in step.
+ */
+export function hostShortcut(e: HostKey, isMac: boolean): HostCommand | null {
+  const mod = isMac
+    ? e.metaKey && !e.ctrlKey
+    : e.ctrlKey && e.shiftKey && !e.metaKey;
+  if (!mod) return null;
+  // Elsewhere Shift is part of the modifier, so Alt stands for it: "the other way".
+  const other = isMac ? e.shiftKey : e.altKey;
+  if (e.code === 'KeyD') return other ? 'split-below' : 'split-right';
+  if (other || (isMac && e.altKey)) return null;
+  if (e.code === 'KeyT') return 'new-tab';
+  if (e.code === 'KeyW') return 'close';
+  return null;
+}
+
+/** {@link hostShortcut}'s keys, as the right-click menu shows them. */
+export const HOST_SHORTCUTS: Record<
+  HostCommand,
+  { mac: string; other: string }
+> = {
+  'split-right': { mac: 'Cmd+D', other: 'Ctrl+Shift+D' },
+  'split-below': { mac: 'Cmd+Shift+D', other: 'Ctrl+Shift+Alt+D' },
+  'new-tab': { mac: 'Cmd+T', other: 'Ctrl+Shift+T' },
+  close: { mac: 'Cmd+W', other: 'Ctrl+Shift+W' },
+};
+
 /** `height` kept between {@link DRAWER_MIN} and {@link DRAWER_MAX_SHARE} of `total`. */
 export function clampDrawer(height: number, total: number): number {
   const max = Math.max(DRAWER_MIN, Math.floor(total * DRAWER_MAX_SHARE));

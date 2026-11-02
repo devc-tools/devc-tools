@@ -19,6 +19,7 @@ import {
   previewFromState,
   tileContent,
 } from './lib/layout_state.js';
+import { draftRefFromState } from './lib/drafts.js';
 
 /**
  * The component types: `pane`, whose state is a PaneRef (or `{}` for an empty tile), `file`,
@@ -31,7 +32,8 @@ const COMPONENT_TYPES = /** @type {const} */ (['pane', 'file', 'diff']);
 /** @typedef {import('./lib/layout_state.js').FileRef} FileRef */
 /** @typedef {import('./lib/layout_state.js').DiffRef} DiffRef */
 /** What a new tile shows: a pane, a file, a PR file's diff, or nothing (an empty pane tile). */
-/** @typedef {PaneRef | {file: FileRef} | {diff: DiffRef} | null} TileRef */
+/** @typedef {import('./lib/drafts.js').DraftRef} DraftRef */
+/** @typedef {PaneRef | {file: FileRef} | {diff: DiffRef} | {draft: DraftRef} | null} TileRef */
 /** @typedef {import('./lib/layout_state.js').LayoutNode} LayoutNode */
 
 /**
@@ -42,6 +44,8 @@ const COMPONENT_TYPES = /** @type {const} */ (['pane', 'file', 'diff']);
  * @property {PaneRef | null} ref        the pane this tile shows; always null on other tiles
  * @property {FileRef | null} file       the file a file tile shows; null on other tiles
  * @property {DiffRef | null} diff       the PR file a diff tile shows; null on other tiles
+ * @property {DraftRef | null} draft     a file tile's unsaved new file (its `file` is null); null
+ *   on other tiles
  * @property {HTMLElement} element       where app.js mounts the renderer and overlay
  * @property {(ref: PaneRef | null) => void} setRef   persists into the component state (pane tiles)
  * @property {boolean} preview           a preview tile: the next sidebar click replaces what it
@@ -253,6 +257,7 @@ export function createTiling(root, hooks) {
         ref: type === 'pane' ? paneRefFromState(state) : null,
         file,
         diff,
+        draft: type === 'file' ? draftRefFromState(state) : null,
         preview: previewFromState(state),
         element: container.element,
         setRef(ref) {
@@ -269,6 +274,8 @@ export function createTiling(root, hooks) {
                 ? { file: tile.file }
                 : tile.diff
                 ? { diff: tile.diff }
+                : tile.draft
+                ? { draft: tile.draft }
                 : tile.ref,
               on,
             ).state,

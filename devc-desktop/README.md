@@ -13,7 +13,7 @@ own browser instance (not frames of one page):
 │ /sidebar          ┃               │
 │ (devc web)        ┃   /main       │
 │━━━━━━━━━━━━━━━━━━━┫   (devc web)  │
-│ Containers pane   ┃━ HOST ━━━━━━━━│
+│ Containers pane   ┃───────────────│
 │ (the app's)       ┃ host drawer   │
 ├─ /host-status (devc web) ─────────┤
 └───────────────────────────────────┘
@@ -26,10 +26,10 @@ own browser instance (not frames of one page):
 | **rail**            | the divider between the left column and `/main`                                                                                           | its own drag, nothing else                                                              |
 | **overlay menu**    | the Containers pane's right-click menu, over every other view                                                                             | the pick, nothing else                                                                  |
 | **status**          | the status page while devc web starts, or why it stopped                                                                                  | Restart, nothing else                                                                   |
-| **host terminal**   | your login shell on this machine, under `/main`                                                                                           | the shell, through the app                                                              |
+| **host terminal**   | your login shells on this machine, under `/main`, in tiles of their own                                                                   | the shells, through the app                                                             |
 | **title bar**       | the window's title, in place of the OS's own bar                                                                                          | nothing                                                                                 |
 
-Drag the rail, the divider over the Containers pane and the drawer's **HOST** strip
+Drag the rail, the divider over the Containers pane and the gap above the drawer's tiles
 to resize. The sizes are remembered. **Layout → Containers Pane** (Cmd+Shift+E, Ctrl+Shift+E on
 Linux) hides the pane: `/sidebar` then takes the whole column and draws devc web's own
 Containers section again. **Layout → Sidebar** (Cmd+B, Ctrl+Shift+B on Linux) hides the whole
@@ -144,6 +144,7 @@ stderr and a **Restart devc web** button.
 | macOS           | Linux                       | Does                                                               |
 | --------------- | --------------------------- | ------------------------------------------------------------------ |
 | Cmd+J or Ctrl+` | Ctrl+`                      | Opens or closes the host terminal                                  |
+| Cmd+N           | Alt+Shift+N                 | A new unsaved file in `/main`, whichever view has the focus        |
 | Cmd+B           | Ctrl+Shift+B                | Shows or hides the sidebar (the whole left column)                 |
 | Cmd+Shift+E     | Ctrl+Shift+E                | Shows or hides the Containers pane                                 |
 | Cmd+R           | Ctrl+Shift+R                | Restarts `devc web` (a new token; a copied page URL stops working) |
@@ -199,16 +200,28 @@ app view, and dims the rest of the window below it with a view of its own.
 
 ## The host terminal
 
-Ctrl+`(or Cmd+J on macOS) opens a drawer under`/main`running your login
-shell (`$SHELL -l`) in your home folder. Drag its **HOST** strip to resize it. The height is
-remembered. Closing the drawer keeps the shell, so reopening it finds the same session.
-Restarting`devc web` does not touch it. If the shell exits, a key press starts a new one.
+Ctrl+\` (or Cmd+J on macOS) opens a drawer under `/main` running your login shell (`$SHELL -l`)
+in your home folder. Drag the gap above its tiles to resize it. The height is remembered. Closing
+the drawer keeps its shells, so reopening it finds the same sessions. Restarting `devc web` does
+not touch them. If a shell exits, a key press in its tile starts a new one.
+
+Its tiles work as devc web's do, and are drawn the same way: each runs a shell of its own. Drag a
+tab to another tile's edge to split, into its header to stack it, or use the shortcuts here or the
+right-click menu. The arrangement is remembered, with new shells, at the next start. Closing a tile
+stops its shell without asking, and closing the last one closes the drawer.
+
+| macOS       | Linux            | Does                                |
+| ----------- | ---------------- | ----------------------------------- |
+| Cmd+D       | Ctrl+Shift+D     | Splits to the right                 |
+| Cmd+Shift+D | Ctrl+Shift+Alt+D | Splits downwards                    |
+| Cmd+T       | Ctrl+Shift+T     | A new tab in the same tile          |
+| Cmd+W       | Ctrl+Shift+W     | Closes the tile and stops its shell |
 
 A paste with a line break in it is shown in a bar first, and goes in only when you press
 **Paste**.
 
-Right-click in the host terminal for **`cd <folder>`**: the folder on this machine behind devc
-web's focused terminal pane (the pane's own directory, through its container's bind mounts).
+Right-click in a host terminal for **`cd <folder>`**, typed into that tile's shell: the folder on
+this machine behind devc web's focused terminal pane (the pane's own directory, through its container's bind mounts).
 Clicking it clears whatever is typed at the prompt (Ctrl+E, Ctrl+U) and runs `cd '<folder>'`.
 A second item, **`cd <folder> (primary)`**, goes to that pane's container's own folder on
 this machine, the one it was created from. It is left out when it is the same folder. The item is
@@ -222,7 +235,7 @@ devc web's page can **ask** for a push or a container start: **Push…** on a re
 and, under `--live`, **Start** on a stopped project. It can never confirm one. The request shows
 in the drawer's **Actions** column, 280 px to the left of the terminal and hidden when nothing is
 pending. A request never opens the drawer or takes focus. With the drawer closed, only its
-**HOST** strip shows at the bottom of the window, badged `1 request`, until you open it with
+strip naming this machine shows at the bottom of the window, badged `1 request`, until you open it with
 Ctrl+` (or Cmd+J). Each card shows what the app worked out itself:
 
 - **Push:** the app checks the repo's folder (below) and runs `devc git push-plan` there with the
@@ -328,8 +341,10 @@ The measurements are in
 - **The app's own source.** The host terminal is only as trustworthy as the checkout it was
   built from.
 - **Spoofing inside devc web's area.** devc web can draw something that looks like a terminal,
-  a Containers pane or a menu in its own part of the window. The real ones are always under a
-  **HOST** strip (or, for a menu, open from the pane), where devc web cannot draw.
+  a Containers pane or a menu in its own part of the window, and the drawer now looks like its
+  tiles. Nothing on screen tells them apart: opening the drawer from the app menu or its shortcut
+  is what puts the keys in the real one, in the part of the window devc web cannot draw on (for a
+  menu, open it from the pane).
 - **The toggle shortcut is visible.** Pressing Ctrl+` or Cmd+J while devc web has focus shows devc web
   that keypress, but nothing typed in the host terminal. devc web could also swallow it while
   it has focus. The menu item works regardless.

@@ -156,16 +156,24 @@ export function tilesShowingPane(tiles, ref) {
 }
 
 /**
- * What a tile shows, as its Golden Layout component type and state: `{file}` a file tile,
+ * What a tile shows, as its Golden Layout component type and state: `{file}` a file tile, `{draft}`
+ * a file tile with no file yet,
  * `{diff}` a diff tile, a `PaneRef` a pane tile, `null` an empty pane tile. A preview tile (see
  * {@link previewFromState}) carries `preview: true` beside the reference.
  *
- * @param {PaneRef | {file: FileRef} | {diff: DiffRef} | null} ref
+ * @param {PaneRef | {file: FileRef} | {diff: DiffRef} |
+ *   {draft: import('./drafts.js').DraftRef} | null} ref
  * @param {boolean} [preview]
  * @returns {{type: 'pane' | 'file' | 'diff', state: Record<string, string | boolean>}}
  */
 export function tileContent(ref, preview = false) {
   const flag = preview ? { preview: true } : {};
+  if (ref && 'draft' in ref) {
+    return {
+      type: 'file',
+      state: { draft: ref.draft.id, name: ref.draft.name, ...flag },
+    };
+  }
   if (ref && 'diff' in ref) {
     const { localFolder, root, path } = ref.diff;
     return { type: 'diff', state: { localFolder, root, path, ...flag } };

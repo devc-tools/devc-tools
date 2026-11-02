@@ -3,7 +3,8 @@
 // and CSS and xterm.js's stylesheet. The Containers pane is devc web's own Containers section,
 // bundled from this checkout's devc/web/static/ (containers.js and what it imports, and
 // style.css) into build/containers/, so `devc web --live` never changes it: a change there
-// reaches the app at its next build. Output in build/, which electron-builder packs.
+// reaches the app at its next build, as do the host terminal's tiles (devc web's layout.js and
+// style.css). Output in build/, which electron-builder packs.
 import { build } from 'esbuild';
 import { cp, mkdir, rm } from 'node:fs/promises';
 
@@ -70,6 +71,7 @@ await Promise.all([
       menu: 'src/renderer/menu.ts',
       rail: 'src/renderer/rail.ts',
     },
+    alias: { 'devc-web': DEVC_WEB },
     outdir: `${out}/renderer`,
     logLevel: 'warning',
   }),
@@ -105,6 +107,16 @@ for (const f of ['containers.html', 'pane.css', 'actions.css']) {
   await cp(`src/renderer/${f}`, `${out}/containers/${f}`);
 }
 await cp(`${DEVC_WEB}/style.css`, `${out}/containers/style.css`);
+// The host terminal's tiles are devc web's: its Golden Layout wrapper and how it draws them.
+await cp(`${DEVC_WEB}/style.css`, `${out}/renderer/style.css`);
+await cp(
+  `${DEVC_WEB}/vendor/golden-layout/css/goldenlayout-base.css`,
+  `${out}/renderer/goldenlayout-base.css`,
+);
+await cp(
+  `${DEVC_WEB}/vendor/golden-layout/css/themes/goldenlayout-dark-theme.css`,
+  `${out}/renderer/goldenlayout-dark-theme.css`,
+);
 await cp(
   'node_modules/@xterm/xterm/css/xterm.css',
   `${out}/renderer/xterm.css`,

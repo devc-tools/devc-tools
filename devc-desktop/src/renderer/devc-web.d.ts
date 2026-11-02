@@ -1,6 +1,49 @@
 // devc web's page modules (`devc/web/static/`, plain JSDoc-typed JavaScript), as the Containers
 // pane imports them: `build.mjs` maps `devc-web/` to that folder. Only what the pane uses.
 
+declare module 'devc-web/layout.js' {
+  export interface Tile {
+    id: string;
+    ref: { localFolder: string; pane_id: string } | null;
+    element: HTMLElement;
+    setTitle(title: string, muted?: string): void;
+    focus(): void;
+  }
+  export interface Tiling {
+    addBeside(
+      id: string | null,
+      ref: { localFolder: string; pane_id: string },
+      where: 'right' | 'below' | 'stack',
+    ): Tile;
+    reveal(id: string): void;
+    close(id: string): void;
+    save(): unknown;
+    load(saved: unknown): boolean;
+    tiles(): Tile[];
+    focusedTile(): Tile | null;
+    isEmpty(): boolean;
+  }
+  export function createTiling(
+    root: HTMLElement,
+    hooks: {
+      mount(tile: Tile): void;
+      unmount(tile: Tile): void;
+      visibility(tile: Tile, visible: boolean): void;
+      focused(tile: Tile | null): void;
+      changed(): void;
+      tileMenu(tile: Tile, e: MouseEvent): void;
+      stackMenu(stackId: string, e: MouseEvent): void;
+      tabDoubleClick(tile: Tile): void;
+    },
+  ): Tiling;
+}
+
+declare module 'devc-web/lib/layout_state.js' {
+  export function parseSavedLayout(
+    text: string | null,
+  ): Record<string, unknown> | null;
+}
+
 declare module 'devc-web/client.js' {
   export function connect(): void;
   export function useBundledEndpoint(o: {

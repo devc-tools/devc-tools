@@ -522,6 +522,14 @@ is published from any container: the host server finds devcontainers with
   their items with dividers. Hovering shows the host path (a container file
   also shows its container path). See
   [Editing in a terminal](#editing-in-a-terminal) for the editor.
+- **New file:** **⌘N** on a Mac opens an untitled draft in the focused stack.
+  A browser tab keeps ⌘N and Ctrl+N for itself, so **Alt+Shift+N** does the same
+  anywhere; so does **New untitled file** on a tile's or stack's right-click
+  menu. A draft's text survives a reload (it waits in this browser's
+  `localStorage`), and closing one that holds text asks first. **⌘S** (**Ctrl+S**)
+  asks for a running project, a repo and a path, then writes the file and turns
+  the tile into an ordinary file tile, with its language's highlighting. The
+  folder must exist; an existing file is overwritten only if you confirm.
 - **Find a file:** **⌘P** on a Mac (**Ctrl+Alt+P** elsewhere; Ctrl+P stays the
   terminals' previous-history) opens a palette over the page that finds a file
   in the focused tile's repo by fuzzy name: basenames that match best come

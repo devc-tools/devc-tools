@@ -70,7 +70,10 @@ import {
   externalUrl,
   FOOTER_HEIGHT,
   fromView,
+  HOST_SHORTCUTS,
+  type HostCommand,
   hostFolder,
+  isShellId,
   type Layout,
   layout,
   MAX_REQUESTS,
@@ -87,7 +90,7 @@ import {
   showText,
   TITLEBAR_HEIGHT,
 } from './policy.ts';
-import { accountShell, HostPty, hostShell, ptyEnv } from './pty.ts';
+import { accountShell, HostPtys, hostShell, ptyEnv } from './pty.ts';
 
 /**
  * devc's global config folder. Its `config.jsonc`, else its `config.json`, is where
@@ -918,12 +921,13 @@ async function main(): Promise<void> {
 
   // ---- the host terminal -----------------------------------------------------------------------
 
-  const hostPty = new HostPty({
+  const hostPtys = new HostPtys({
     shell: hostShell(process.env, process.platform, accountShell()),
     cwd: app.getPath('home'),
     env: ptyEnv(childEnv(process.env, undefined)),
-    onOutput: (data) => hostView.webContents.send('host-term:output', data),
-    onExit: (code) => hostView.webContents.send('host-term:exit', code),
+    onOutput: (id, data) =>
+      hostView.webContents.send('host-term:output', id, data),
+    onExit: (id, code) => hostView.webContents.send('host-term:exit', id, code),
   }, nodePty.spawn);
 
   let hostLoaded = false;
@@ -939,6 +943,28 @@ async function main(): Promise<void> {
     hostView.webContents.send('host-term:shown', drawerOpen);
     if (drawerOpen) hostView.webContents.focus();
     else (showingDevc ? devcView : statusView).webContents.focus();
+  }
+
+  /**
+   * **New File**: the key press `/main` takes for a new draft (Cmd+N, Alt+Shift+N), sent to it
+   * whichever view has the focus. `/main` has no way to hear from the app but its keys.
+   */
+  function newFile(): void {
+    if (!showingDevc) return;
+    devcView.webContents.focus();
+    const modifiers: ('meta' | 'alt' | 'shift')[] = IS_MAC
+      ? ['meta']
+      : ['alt', 'shift'];
+    devcView.webContents.sendInputEvent({
+      type: 'keyDown',
+      keyCode: 'n',
+      modifiers,
+    });
+    devcView.webContents.sendInputEvent({
+      type: 'keyUp',
+      keyCode: 'n',
+      modifiers,
+    });
   }
 
   /**
@@ -984,17 +1010,30 @@ async function main(): Promise<void> {
       HOST_URL,
     );
 
-  ipcMain.on('host-term:start', (e, cols: unknown, rows: unknown) => {
-    if (!fromHost(e) || debugging !== null || !drawerOpen) return;
-    hostPty.start(Number(cols), Number(rows));
+  ipcMain.on(
+    'host-term:start',
+    (e, id: unknown, cols: unknown, rows: unknown) => {
+      if (!fromHost(e) || debugging !== null || !drawerOpen) return;
+      if (isShellId(id)) hostPtys.start(id, Number(cols), Number(rows));
+    },
+  );
+  ipcMain.on('host-term:input', (e, id: unknown, data: unknown) => {
+    if (!fromHost(e) || !isShellId(id) || typeof data !== 'string') return;
+    hostPtys.get(id)?.write(data);
   });
-  ipcMain.on('host-term:input', (e, data: unknown) => {
-    if (!fromHost(e) || typeof data !== 'string') return;
-    hostPty.write(data);
+  ipcMain.on(
+    'host-term:resize',
+    (e, id: unknown, cols: unknown, rows: unknown) => {
+      if (!fromHost(e) || !isShellId(id)) return;
+      hostPtys.get(id)?.resize(Number(cols), Number(rows));
+    },
+  );
+  ipcMain.on('host-term:close', (e, id: unknown) => {
+    if (fromHost(e) && isShellId(id)) void hostPtys.close(id);
   });
-  ipcMain.on('host-term:resize', (e, cols: unknown, rows: unknown) => {
-    if (!fromHost(e)) return;
-    hostPty.resize(Number(cols), Number(rows));
+  // The page's last tile closed: the drawer goes with it, and opening it again starts a new one.
+  ipcMain.on('host-term:hide', (e) => {
+    if (fromHost(e) && drawerOpen) toggleHost();
   });
   ipcMain.on('host-term:drag', (e, dy: unknown) => {
     if (
@@ -1028,7 +1067,7 @@ async function main(): Promise<void> {
    * The checked folders: the pane's (or the reason there is none, as the item's label says it),
    * and its container's primary repo, `null` when devc web names none or it fails the checks.
    */
-  async function activeCd(): Promise<
+  async function activeCd(id: string): Promise<
     { pane: CdTarget; primary: CdTarget | null }
   > {
     const none = (label: string) => ({
@@ -1038,7 +1077,9 @@ async function main(): Promise<void> {
     if (origin === null || devcWebToken === null) {
       return none("devc web isn't running");
     }
-    if (!hostPty.running) return none("The host shell isn't running");
+    if (!hostPtys.get(id)?.running) {
+      return none("The host shell isn't running");
+    }
     let answer: unknown;
     try {
       // Node's fetch, not Electron's `net`: Chromium's stack may add an Origin, which the
@@ -1065,18 +1106,21 @@ async function main(): Promise<void> {
   }
 
   /** Whether the shell is at its prompt; otherwise the busy program's name. */
-  function busyWith(): string | null {
-    const fg = hostPty.foreground;
-    if (fg === null || shellIdle(fg, hostPty.shell)) return null;
+  function busyWith(id: string): string | null {
+    const pty = hostPtys.get(id);
+    const fg = pty?.foreground ?? null;
+    if (pty === undefined || fg === null || shellIdle(fg, pty.shell)) {
+      return null;
+    }
     return baseName(fg);
   }
 
   let menuPending = false;
-  ipcMain.on('host-term:context-menu', (e) => {
-    if (!fromHost(e) || !drawerOpen || menuPending) return;
+  ipcMain.on('host-term:context-menu', (e, id: unknown) => {
+    if (!fromHost(e) || !isShellId(id) || !drawerOpen || menuPending) return;
     menuPending = true;
-    void activeCd().then(({ pane, primary }) => {
-      const busy = busyWith();
+    void activeCd(id).then(({ pane, primary }) => {
+      const busy = busyWith(id);
       const busySuffix = busy !== null ? ` (busy: ${busy})` : '';
       const item = (
         which: 'pane' | 'primary',
@@ -1095,7 +1139,7 @@ async function main(): Promise<void> {
           : {
             label,
             enabled: busy === null,
-            click: () => void cdTo(which, target.path),
+            click: () => void cdTo(id, which, target.path),
           };
       };
       const items = [item('pane', pane, '')];
@@ -1103,19 +1147,44 @@ async function main(): Promise<void> {
       if (primary?.ok && !(pane.ok && pane.path === primary.path)) {
         items.push(item('primary', primary, ' (primary)'));
       }
-      Menu.buildFromTemplate(items).popup({ window: win });
+      /** A menu item for one of the page's commands, showing the shortcut it handles itself. */
+      const command = (
+        label: string,
+        name: HostCommand,
+      ): MenuItemConstructorOptions => ({
+        label,
+        accelerator: HOST_SHORTCUTS[name][IS_MAC ? 'mac' : 'other'],
+        registerAccelerator: false,
+        click: () => {
+          hostView.webContents.focus();
+          hostView.webContents.send('host-term:command', name, id);
+        },
+      });
+      Menu.buildFromTemplate([
+        command('Split Right', 'split-right'),
+        command('Split Down', 'split-below'),
+        command('New Tab', 'new-tab'),
+        { type: 'separator' },
+        ...items,
+        { type: 'separator' },
+        command('Close', 'close'),
+      ]).popup({ window: win });
     }).finally(() => menuPending = false);
   });
 
   /** Checks again, and types the `cd` only if it still names the folder the item showed. */
-  async function cdTo(which: 'pane' | 'primary', shown: string): Promise<void> {
-    const target = (await activeCd())[which];
-    if (!target?.ok || target.path !== shown || busyWith() !== null) {
+  async function cdTo(
+    id: string,
+    which: 'pane' | 'primary',
+    shown: string,
+  ): Promise<void> {
+    const target = (await activeCd(id))[which];
+    if (!target?.ok || target.path !== shown || busyWith(id) !== null) {
       shell.beep();
       return;
     }
     // Ctrl+E, Ctrl+U: whatever was typed on the prompt goes first.
-    hostPty.write(`\x05\x15cd ${shellQuote(target.path)}\r`);
+    hostPtys.get(id)?.write(`\x05\x15cd ${shellQuote(target.path)}\r`);
     hostView.webContents.focus();
   }
 
@@ -1730,7 +1799,7 @@ async function main(): Promise<void> {
    */
   async function shutdown(): Promise<never> {
     stopping = true;
-    await Promise.all([current?.stop(), retiring, hostPty.stop()]);
+    await Promise.all([current?.stop(), retiring, hostPtys.stop()]);
     app.exit(0);
     throw new Error('unreachable');
   }
@@ -1779,6 +1848,11 @@ async function main(): Promise<void> {
               click: toggleHost,
             }]
             : []),
+          {
+            label: 'New File',
+            accelerator: key('Cmd+N', 'Alt+Shift+N'),
+            click: newFile,
+          },
           { type: 'separator' },
           {
             label: 'Quit devc web',

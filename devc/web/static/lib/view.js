@@ -37,6 +37,8 @@ import {
  * @property {boolean} dirty          a file tile with unsaved edits
  * @property {boolean} saveable       a file tile whose edits Save would write now
  * @property {string | null} url      a diff tile's file on github.com, once known
+ * @property {import('./drafts.js').DraftRef | null} [draft]  a file tile's unsaved new file (its
+ *   `file` is null)
  * @property {boolean} [removed]      a diff tile's file is deleted by its PR (once its diff is read)
  * @property {{restart: boolean, settings: boolean} | null} [lsp]
  *   a file tile's language server items: **Restart language server** while it is attached or its
@@ -79,6 +81,8 @@ import {
  *   opts?: {compare?: 'viewed'}) => void} openDiff
  *   A tile already showing the PR file comes forward instead (and stays, for `'stack'`).
  *   `compare: 'viewed'` selects its newest **Since viewed** comparison once the file is read.
+ * @property {() => void} newDraft  a new unsaved file in the focused stack; never relayed: only
+ *   the tiling area's own page offers it
  * @property {(id: string) => void} reveal    brings a tile forward and focuses it
  * @property {(id: string) => void} close     a tile (asking first when it has unsaved edits), or a
  *   stack, row or column
@@ -241,6 +245,8 @@ export function layoutSignature(state) {
         ? fileKey(t.file)
         : t.diff
         ? `diff\n${t.diff.localFolder}\n${t.diff.root}\n${t.diff.path}`
+        : t.draft
+        ? `draft\n${t.draft.id}`
         : t.ref
         ? `${t.ref.localFolder}\n${t.ref.pane_id}`
         : ''

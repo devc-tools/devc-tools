@@ -3,6 +3,7 @@
 
 import { userInfo } from 'node:os';
 import type { IPty } from 'node-pty';
+import { MAX_SHELLS } from './policy.ts';
 
 /** How long output is gathered before it goes to the page, in ms: one IPC message per frame. */
 const FLUSH_MS = 16;
@@ -47,7 +48,7 @@ export interface HostPtyOptions {
 }
 
 /**
- * The one shell behind the drawer. {@link start} spawns it if none is running, so reopening the
+ * One shell behind the drawer. {@link start} spawns it if none is running, so reopening the
  * drawer finds the same shell, and opening it after the shell exited starts a fresh one.
  */
 export class HostPty {
@@ -143,6 +144,67 @@ export class HostPty {
     const out = this.#buf;
     this.#buf = '';
     this.#opts.onOutput(out);
+  }
+}
+
+/** {@link HostPtyOptions}, for every shell of {@link HostPtys}: output and exits name their shell. */
+export interface HostPtysOptions {
+  shell: string;
+  cwd: string;
+  env: Record<string, string>;
+  onOutput(id: string, data: string): void;
+  onExit(id: string, code: number): void;
+}
+
+/**
+ * The drawer's shells, one per terminal tile, by the id its page gave it. A tile's shell lives
+ * until the tile closes ({@link close}) or the app quits ({@link stop}); at most
+ * {@link MAX_SHELLS} at once, and a {@link start} past that is ignored.
+ */
+export class HostPtys {
+  readonly #ptys = new Map<string, HostPty>();
+  readonly #opts: HostPtysOptions;
+  readonly #spawn: typeof import('node-pty').spawn;
+
+  constructor(opts: HostPtysOptions, spawn: typeof import('node-pty').spawn) {
+    this.#opts = opts;
+    this.#spawn = spawn;
+  }
+
+  /** The shell with this id, or `undefined`. */
+  get(id: string): HostPty | undefined {
+    return this.#ptys.get(id);
+  }
+
+  start(id: string, cols: number, rows: number): void {
+    let pty = this.#ptys.get(id);
+    if (pty === undefined) {
+      if (this.#ptys.size >= MAX_SHELLS) return;
+      pty = new HostPty({
+        shell: this.#opts.shell,
+        cwd: this.#opts.cwd,
+        env: this.#opts.env,
+        onOutput: (data) => this.#opts.onOutput(id, data),
+        onExit: (code) => {
+          // A closed tile's shell has no one left to tell.
+          if (this.#ptys.has(id)) this.#opts.onExit(id, code);
+        },
+      }, this.#spawn);
+      this.#ptys.set(id, pty);
+    }
+    pty.start(cols, rows);
+  }
+
+  /** Forgets a closed tile's shell and stops it. */
+  async close(id: string): Promise<void> {
+    const pty = this.#ptys.get(id);
+    this.#ptys.delete(id);
+    await pty?.stop();
+  }
+
+  /** Stops every shell: see {@link HostPty.stop}. */
+  async stop(): Promise<void> {
+    await Promise.all([...this.#ptys.values()].map((p) => p.stop()));
   }
 }
 
