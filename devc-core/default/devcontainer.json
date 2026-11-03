@@ -37,9 +37,11 @@
     },
     "ghcr.io/devc-tools/features/bash-config:0": {},
     "ghcr.io/devc-tools/features/git-container-config:0": {},
+    // TODO: I think this is no longer tru, but need to check.
     // A non-modal terminal editor: what devc web's Open in editor runs when EDITOR is unset.
-    "ghcr.io/devc-tools/features/micro:0": {},
+    // "ghcr.io/devc-tools/features/micro:0": {},
     "ghcr.io/devc-tools/features/node-nvmrc:0": {},
+    "ghcr.io/devc-tools/features/typescript-lsp:0": {},
     "ghcr.io/devc-tools/features/xvfb:0": {}
   },
   "remoteEnv": {
