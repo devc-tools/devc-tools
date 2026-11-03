@@ -30,6 +30,8 @@
         <div id="root" class="layout-root"></div>
       </div>
     </main>
-    <script src="host.js"></script>
+    <!-- Deferred: Golden Layout, made while the document is still loading, puts off its own
+         init to DOMContentLoaded, and the tiles' first load would throw. -->
+    <script defer src="host.js"></script>
   </body>
 </html>
