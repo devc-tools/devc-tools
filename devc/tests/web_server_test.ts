@@ -501,6 +501,64 @@ Deno.test('parseClientMessage: file messages take a root and a path, empty meani
       'bad_request',
     );
   }
+  const sha = 'ab'.repeat(20);
+  ok({
+    type: 'commit_files',
+    id: 'c1',
+    localFolder: '/src/app',
+    root: '/src/lib',
+    sha,
+  });
+  ok({
+    type: 'commit_files',
+    id: 'c1b',
+    localFolder: '/src/app',
+    root: '/src/lib',
+    sha: 'cd'.repeat(32),
+  });
+  for (const type of ['commit_diff', 'commit_file_at']) {
+    ok({
+      type,
+      id: 'c2',
+      localFolder: '/src/app',
+      root: '/src/lib',
+      sha,
+      path: 'a/b.ts',
+    });
+    assertEquals(
+      rejected({ type, id: 'c3', localFolder: '/a', root: '/a', sha }).code,
+      'bad_request',
+    );
+  }
+  for (
+    const bad of [
+      'abc1234',
+      'AB'.repeat(20),
+      `--output=/tmp/x${'a'.repeat(30)}`,
+      `${'a'.repeat(38)}~1`,
+      'HEAD',
+      'a'.repeat(41),
+      undefined,
+    ]
+  ) {
+    for (const type of ['commit_files', 'commit_diff', 'commit_file_at']) {
+      assertEquals(
+        rejected({
+          type,
+          id: 'c4',
+          localFolder: '/a',
+          root: '/a',
+          path: 'x',
+          sha: bad,
+        }).code,
+        'bad_request',
+      );
+    }
+  }
+  assertEquals(
+    rejected({ type: 'commit_files', id: 'c5', localFolder: '/a', sha }).code,
+    'bad_request',
+  );
   ok({
     type: 'pull_repo',
     id: 'g3',

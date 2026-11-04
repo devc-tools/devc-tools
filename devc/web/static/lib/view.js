@@ -8,6 +8,7 @@
 
 import { fileView } from './media.js';
 import {
+  diffKey,
   fileRefFromState,
   foldTree,
   paneRefFromState,
@@ -30,7 +31,7 @@ import {
  * @property {'pane' | 'file' | 'diff'} kind
  * @property {PaneRef | null} ref     the pane a pane tile shows (null: an empty tile)
  * @property {FileRef | null} file    the file a file tile shows
- * @property {DiffRef | null} diff    the PR file a diff tile shows
+ * @property {DiffRef | null} diff    the PR or commit file a diff tile shows
  * @property {boolean} preview        the next sidebar click replaces what it shows
  * @property {number} focusSeq        when it was last focused: higher is later, 0 never
  * @property {string} title           a file or diff tile's tab title; '' for a pane tile
@@ -244,7 +245,7 @@ export function layoutSignature(state) {
       t.file
         ? fileKey(t.file)
         : t.diff
-        ? `diff\n${t.diff.localFolder}\n${t.diff.root}\n${t.diff.path}`
+        ? `diff\n${diffKey(t.diff)}`
         : t.draft
         ? `draft\n${t.draft.id}`
         : t.ref

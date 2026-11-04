@@ -16,12 +16,39 @@ import { defaultView, fileView } from './media.js';
  */
 
 /**
- * A pull request file shown in a diff tile: `path` is the file's path in the PR of the repo at
- * `root`, one of the repo folders of the project at `localFolder` (the `pr_diff` message's
- * fields).
+ * A file shown in a diff tile: `path` in the repo at `root`, one of the repo folders of the project
+ * at `localFolder`. Without `sha` it is the file in the repo's pull request (the `pr_diff`
+ * message's fields); with one, the file as that commit changed it (`commit_diff`'s). See
+ * {@link diffSource}.
  *
- * @typedef {{localFolder: string, root: string, path: string}} DiffRef
+ * @typedef {{localFolder: string, root: string, path: string, sha?: string}} DiffRef
  */
+
+/** A full commit id, as `commit_diff` takes one. */
+const COMMIT_SHA = /^([0-9a-f]{40}|[0-9a-f]{64})$/;
+
+/**
+ * Where a diff tile's content comes from: the pull request, or one commit. Every check of what a
+ * diff tile offers goes through this, never through `sha` being set, so a further source gets
+ * none of a source's parts without saying so.
+ *
+ * @param {DiffRef} ref
+ * @returns {'pr' | 'commit'}
+ */
+export function diffSource(ref) {
+  return ref.sha === undefined ? 'pr' : 'commit';
+}
+
+/**
+ * A diff reference as one string: two refs name the same diff exactly when their keys match.
+ *
+ * @param {DiffRef} ref
+ */
+export function diffKey(ref) {
+  return `${ref.localFolder}\n${ref.root}\n${ref.path}${
+    ref.sha === undefined ? '' : `\n${ref.sha}`
+  }`;
+}
 
 /**
  * A tile's component state as a pane reference: only an object with string `localFolder` and
@@ -70,7 +97,8 @@ export function fileRefFromState(state) {
 
 /**
  * A diff tile's component state as a diff reference: only an object whose `localFolder`, `root`
- * and `path` are all non-empty strings is one. Anything else is `null`.
+ * and `path` are all non-empty strings, and whose `sha`, if any, is a full commit id, is one.
+ * Anything else is `null`.
  *
  * @param {unknown} state
  * @returns {DiffRef | null}
@@ -79,23 +107,28 @@ export function diffRefFromState(state) {
   if (typeof state !== 'object' || state === null || Array.isArray(state)) {
     return null;
   }
-  const { localFolder, root, path } =
+  const { localFolder, root, path, sha } =
     /** @type {Record<string, unknown>} */ (state);
   for (const v of [localFolder, root, path]) {
     if (typeof v !== 'string' || v === '') return null;
   }
-  return /** @type {DiffRef} */ ({ localFolder, root, path });
+  if (sha === undefined) {
+    return /** @type {DiffRef} */ ({ localFolder, root, path });
+  }
+  if (typeof sha !== 'string' || !COMMIT_SHA.test(sha)) return null;
+  return /** @type {DiffRef} */ ({ localFolder, root, path, sha });
 }
 
 /**
- * Whether two diff references name the same file of the same repo's PR.
+ * Whether two diff references name the same diff: the same file of the same repo, from the same
+ * PR or commit.
  *
  * @param {DiffRef} a
  * @param {DiffRef} b
  */
 export function sameDiff(a, b) {
   return a.localFolder === b.localFolder && a.root === b.root &&
-    a.path === b.path;
+    a.path === b.path && a.sha === b.sha;
 }
 
 /**
@@ -175,8 +208,9 @@ export function tileContent(ref, preview = false) {
     };
   }
   if (ref && 'diff' in ref) {
-    const { localFolder, root, path } = ref.diff;
-    return { type: 'diff', state: { localFolder, root, path, ...flag } };
+    const { localFolder, root, path, sha } = ref.diff;
+    const at = sha === undefined ? {} : { sha };
+    return { type: 'diff', state: { localFolder, root, path, ...at, ...flag } };
   }
   if (ref && 'file' in ref) {
     const { localFolder, root, path, container, view } = withView(

@@ -5,7 +5,7 @@
 // they reach those only through what `setMenuContext` was given, never by importing `tiles.js`,
 // `sidebar.js`, `containers.js` or `cards.js`.
 
-import { withView } from './lib/layout_state.js';
+import { diffSource, withView } from './lib/layout_state.js';
 import { nodeById, nodeTiles } from './lib/view.js';
 import { environmentItem, paneLabel, projectActions } from './lib/sidebar.js';
 import { jiraKeys, jiraUrl } from './lib/jira.js';
@@ -856,11 +856,14 @@ function fileTileMenuItems(tile) {
  * @param {TileState} tile
  */
 function diffTileMenuItems(tile) {
-  const items = [
-    ['Refresh', () => tileArea.reload(tile.id)],
-    [LABELS.askAgent, () => tileArea.askAgent(tile.id)],
-  ];
-  // The file itself, as the PR tree's menu opens it: not for a file the PR deletes.
+  /** @type {import('./ui.js').MenuItem[]} */
+  const items = [['Refresh', () => tileArea.reload(tile.id)]];
+  // The agent's diff context is the PR's: a commit diff isn't offered it.
+  if (tile.diff && diffSource(tile.diff) === 'pr') {
+    items.push([LABELS.askAgent, () => tileArea.askAgent(tile.id)]);
+  }
+  // The file itself, as the PR tree's menu opens it: not for a file the PR deletes. A commit
+  // diff's opens today's copy, not the commit's.
   const diff = tile.diff;
   if (diff && !tile.removed) {
     const fr = { localFolder: diff.localFolder, root: diff.root };

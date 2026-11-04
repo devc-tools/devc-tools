@@ -18,6 +18,7 @@ import {
   isGitProblem,
   LOCAL_FETCH_TIMEOUT_MS,
   locate,
+  type Located,
   mirrorFor,
   type MirrorOpts,
   readGitState,
@@ -96,6 +97,23 @@ export function parseLog(out: string): HistoryCommit[] {
 }
 
 /**
+ * The mirror a folder's Commits section reads, created if missing. A no-upstream repo's included:
+ * one with no remote still has commits to list, so its mirror is named for the folder.
+ */
+export async function historyMirror(
+  at: Located,
+  folder: string,
+  opts: MirrorOpts,
+  originUrl?: string | null,
+): Promise<string | null> {
+  if (at.mirror !== null) return at.mirror;
+  const url = originUrl !== undefined
+    ? originUrl
+    : at.upstream?.url ?? await readRemoteUrl(at.commonDir, 'origin');
+  return await mirrorFor(opts, url ?? `local:${folder}`);
+}
+
+/**
  * `folder`'s commits on its checked-out branch. `checkRemote` allows a look at the remote for a
  * branch with no upstream to compare with: a network call, so callers limit how often. Never
  * throws.
@@ -109,9 +127,7 @@ export async function readCommitHistory(
   if (isGitProblem(at)) return at;
   const { branch, upstream, prefix, commonDir } = at;
   const originUrl = upstream?.url ?? await readRemoteUrl(commonDir, 'origin');
-  // A repo with no remote still has commits to list: its mirror is named for the folder.
-  const mirror = at.mirror ??
-    await mirrorFor(opts, originUrl ?? `local:${folder}`);
+  const mirror = await historyMirror(at, folder, opts, originUrl);
   if (mirror === null) return { problem: 'could not create the git mirror' };
 
   if (upstream !== null) {

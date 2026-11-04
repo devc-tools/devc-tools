@@ -204,6 +204,13 @@ export const LABELS = {
   wholeFileUnavailable: (why) => `Whole file unavailable: ${why}`,
   wholeFileMismatch: "the file at the head doesn't match the diff",
   wholeFileTooLarge: (max) => `Too large to show whole (over ${max} lines)`,
+  /** A commit diff past the server's patch limit (`git_commit.ts`'s MAX_COMMIT_PATCH). */
+  diffTooLarge: 'This diff is too large to show',
+  /** A split diff's separator. */
+  resizeSplit: 'Drag to resize the sides; double-click to even them',
+  /** A commit diff tile's short sha: its tooltip. */
+  commitTitle: (author, date, subject) => `${author}, ${date}\n${subject}`,
+  comparedWith: (parent) => `Compared with ${parent}`,
   openChangesSinceViewed: 'Open changes since viewed',
   /** A pending review: comments and replies held until it is submitted. */
   commentOnLine: (n) => `Comment on line ${n}`,

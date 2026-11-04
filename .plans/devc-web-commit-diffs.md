@@ -8,14 +8,16 @@ opens its diff in the diff tile, as the Pull request list does.
 
 ## Checklist
 
-- [ ] `devc/web/git_history.ts`: export the mirror lookup `readCommitHistory` uses (Contracts).
-- [ ] `devc/web/git_commit.ts`: the three reads and their parsers; add it to `deno.json`'s `check`.
-- [ ] `devc/web/protocol.ts`, `devc/web/server.ts`: `commit_files`, `commit_diff`, `commit_file_at`.
-- [ ] `devc/web/static/lib/layout_state.js`, `lib/view.js`, `tiles.js`: `DiffRef.sha` and
+- [x] `devc/web/git_history.ts`: export the mirror lookup `readCommitHistory` uses (Contracts).
+- [x] `devc/web/git_commit.ts`: the three reads and their parsers; add it to `deno.json`'s `check`.
+- [x] `devc/web/protocol.ts`, `devc/web/server.ts`: `commit_files`, `commit_diff`, `commit_file_at`.
+- [x] `devc/web/static/lib/layout_state.js`, `lib/view.js`, `tiles.js`: `DiffRef.sha` and
       `diffSource`, through every comparison, key and saved layout.
-- [ ] `devc/web/static/tiles.js`, `menus.js`: the commit form of the diff tile, with no PR parts.
-- [ ] `devc/web/static/cards.js`, `lib/commits.js`, `style.css`: expandable commit rows, file rows.
-- [ ] Tests (Validation), `devc/README.md`, the message table in `.plans/archived/devc-web.md`.
+- [x] `devc/web/static/tiles.js`, `menus.js`: the commit form of the diff tile, with no PR parts.
+- [x] `devc/web/static/cards.js`, `lib/commits.js`, `style.css`: expandable commit rows, file rows.
+- [x] Tests (Validation), `devc/README.md`, the message table in `.plans/archived/devc-web.md`.
+- [x] Added on 2026-11-04 at the user's request: the split view's separator drags to resize the two
+      sides (see "Resizable split" below).
 - [ ] Manual (the user, with `--live-yolo` or an updated `devc`): the checks under Validation.
 
 ## Decisions
@@ -261,10 +263,29 @@ Check that nothing else reaches for `view.data.pr` unguarded: `sinceOptions`, `o
 
 Nothing to add.
 
+## Resizable split
+
+Asked for alongside this plan, for every diff tile (PR and commit alike). The split view's separator
+(the new side's number column's left edge) drags left and right; a double-click evens the sides.
+The left side's share of the text width is per browser (`devc-web-pr-diff-split-share-v1` in
+`localStorage`), applies to every split diff tile at once, and stays between 0.15 and 0.85
+(`splitShare`, `dragSplitShare` in `lib/diff.js`).
+
+## Implementation notes
+
+- A rename's patch compares the commit's two blobs (`git diff <old blob> <new blob>`), not
+  `diff-tree` with both paths: one path holding both a rename's source and a new file would
+  otherwise give two file sections. Other files use `diff-tree -p` with one `:(literal)` pathspec,
+  and no rename detection.
+- `readCommitFileAt` answers `{available: false, message: 'file not in this commit'}` for a path the
+  commit's tree lacks (a removed file).
+- A commit diff tile's header shows its short sha where a PR's `#n` goes; its tooltip gives the
+  author, date, subject and the compared-with parent.
+
 ## Validation
 
-- `cd devc && deno task check && deno task test`, and `deno fmt --check` for the touched files.
-- `tests/web_git_commit_test.ts`, against real temporary repos:
+- [x] `cd devc && deno task check && deno task test`, and `deno fmt --check` for the touched files.
+- [x] `tests/web_git_commit_test.ts`, against real temporary repos:
   - modified, added, removed, renamed, type-changed and binary files, and a path holding a newline;
   - a root commit, a merge compared with its first parent, and an empty commit;
   - a patch that starts at `@@`, and a rename whose patch shows only the changed lines;
@@ -273,18 +294,21 @@ Nothing to add.
   - a commit on the upstream the repo hasn't fetched, read from the mirror;
   - the repo's hooks, `core.fsmonitor` and a `textconv` it configures don't run, with the control
     `git_status`'s test uses.
-- `tests/web_server_test.ts`: all three messages parse, and a short, uppercase or option-like `sha`, or
-  a missing field, gives `bad_request`.
-- `tests/web_layout_test.ts` (or its neighbour): `sha` round-trips through a saved layout, `sameDiff`
-  tells two commits apart, a ref without `sha` behaves as before, a malformed `sha` is dropped, and
-  `diffSource` gives `'pr'` and `'commit'`.
-- `tests/web_commits_test.ts`: the new pure helpers.
-- A PR diff tile is unchanged: the existing diff tests pass with no edits to their expectations.
-- A browser check with a fake socket (the `devc-web` skill's "Testing without the user's tab"): expand
-  a commit, open a file, tell two commits' tiles for one file apart, reload and find the tile again,
-  and see no review controls and no thrown errors.
-- Manual, by the user:
+- [x] `tests/web_server_test.ts`: all three messages parse, and a short, uppercase or option-like `sha`, or
+      a missing field, gives `bad_request`.
+- [x] `tests/web_layout_test.ts` (or its neighbour): `sha` round-trips through a saved layout, `sameDiff`
+      tells two commits apart, a ref without `sha` behaves as before, a malformed `sha` is dropped, and
+      `diffSource` gives `'pr'` and `'commit'`.
+- [x] `tests/web_commits_test.ts`: the new pure helpers.
+- [x] A PR diff tile is unchanged: the existing diff tests pass with no edits to their expectations.
+- [x] A browser check with a fake socket (the `devc-web` skill's "Testing without the user's tab"): expand
+      a commit, open a file, tell two commits' tiles for one file apart, reload and find the tile again,
+      and see no review controls and no thrown errors.
+- [x] `tests/web_diff_test.ts`: `splitShare` and `dragSplitShare`; in the browser check, a drag moves
+      the separator and is kept across a re-render, and a double-click evens the sides.
+- [ ] Manual, by the user:
   - expand a commit on a container project, running and stopped, and on a host project;
   - open a diff, then Whole file, Hide whitespace, split view and Find;
   - the PR list's diffs still work, including comments and Viewed;
-  - in devc-desktop, the same from `/sidebar` and from the Containers pane.
+  - in devc-desktop, the same from `/sidebar` and from the Containers pane;
+  - drag a split diff's separator, in a PR diff and a commit diff, and reload.

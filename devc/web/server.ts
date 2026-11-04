@@ -161,6 +161,11 @@ import { type ChangesReading, GitChangesWatch } from './git_changes.ts';
 import { fetchRepo, fetchRunning, pullRepo, pullRunning } from './git_fetch.ts';
 import { readCommitHistory } from './git_history.ts';
 import {
+  readCommitDiff,
+  readCommitFileAt,
+  readCommitFiles,
+} from './git_commit.ts';
+import {
   ActivityRecorder,
   catchUpRollups,
   localDate,
@@ -1471,6 +1476,34 @@ export async function startWeb(
       return;
     }
     reply(c, { id: msg.id, ok: true, result: history });
+  };
+
+  /**
+   * A commit's files, a file's diff, or its text at the commit (`git_commit.ts`), read in the
+   * host's mirror as `git_history` is: so for a running or stopped project, and allowed under
+   * `--live`. `root` must be one of the project's repos.
+   */
+  const gitCommitFor = async (
+    c: Client,
+    msg: Extract<
+      ClientMessage,
+      { type: 'commit_files' | 'commit_diff' | 'commit_file_at' }
+    >,
+  ) => {
+    if (!isProjectRepo(projectsMessage().projects, msg.localFolder, msg.root)) {
+      reject(c, { id: msg.id, code: 'bad_request', message: 'unknown repo' });
+      return;
+    }
+    const answer = msg.type === 'commit_files'
+      ? await readCommitFiles(msg.root, msg.sha)
+      : msg.type === 'commit_diff'
+      ? await readCommitDiff(msg.root, msg.sha, msg.path)
+      : await readCommitFileAt(msg.root, msg.sha, msg.path);
+    if (isGitProblem(answer)) {
+      fail(c, msg.id, 'git_commit_failed', new Error(answer.problem));
+      return;
+    }
+    reply(c, { id: msg.id, ok: true, result: answer });
   };
 
   /**
@@ -3391,6 +3424,13 @@ export async function startWeb(
     }
     if (msg.type === 'git_history') {
       await gitHistoryFor(c, msg);
+      return;
+    }
+    if (
+      msg.type === 'commit_files' || msg.type === 'commit_diff' ||
+      msg.type === 'commit_file_at'
+    ) {
+      await gitCommitFor(c, msg);
       return;
     }
     if (msg.type === 'fetch_repo') {

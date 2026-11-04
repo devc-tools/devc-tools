@@ -137,6 +137,25 @@ export type ClientMessage =
    */
   | { type: 'git_history'; id: string; localFolder: string; folder: string }
   /**
+   * One commit's changed files, a file's diff in it, and its text there (`git_commit.ts`), read in
+   * the host's mirror like `git_history`. `sha` is a full commit id. Answered with `result`.
+   */
+  | {
+    type: 'commit_files';
+    id: string;
+    localFolder: string;
+    root: string;
+    sha: string;
+  }
+  | {
+    type: 'commit_diff' | 'commit_file_at';
+    id: string;
+    localFolder: string;
+    root: string;
+    sha: string;
+    path: string;
+  }
+  /**
    * Asks devc-desktop to push a repo of a project (`folder`, one of its `repos[].folder`): the
    * app works out the push plan and the user confirms it in its HOST drawer. Needs
    * `--desktop-channel`. See `desktop_requests.ts`.
@@ -511,6 +530,18 @@ function str(o: Obj, k: string): string {
   const v = o[k];
   if (typeof v !== 'string' || v === '') {
     throw new Invalid(`'${k}' must be a non-empty string`);
+  }
+  return v;
+}
+
+/**
+ * A full commit id (SHA-1 or SHA-256), lowercase. Keeps revision syntax (`HEAD~1`, `a..b`) and
+ * options out of git's argv. The same form as `git_commit.ts`'s `COMMIT_SHA`.
+ */
+function commitSha(o: Obj): string {
+  const v = o.sha;
+  if (typeof v !== 'string' || !/^([0-9a-f]{40}|[0-9a-f]{64})$/.test(v)) {
+    throw new Invalid(`'sha' must be a full commit id (lowercase hex)`);
   }
   return v;
 }
@@ -982,6 +1013,24 @@ function parseFields(m: Obj): ClientMessage {
         id: str(m, 'id'),
         localFolder: folder(m),
         folder: absolute(m, 'folder'),
+      };
+    case 'commit_files':
+      return {
+        type: 'commit_files',
+        id: str(m, 'id'),
+        localFolder: folder(m),
+        root: absolute(m, 'root'),
+        sha: commitSha(m),
+      };
+    case 'commit_diff':
+    case 'commit_file_at':
+      return {
+        type: m.type,
+        id: str(m, 'id'),
+        localFolder: folder(m),
+        root: absolute(m, 'root'),
+        sha: commitSha(m),
+        path: str(m, 'path'),
       };
     case 'request_push':
       return {

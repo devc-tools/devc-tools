@@ -1,5 +1,14 @@
 import { assertEquals, assertStringIncludes } from 'jsr:@std/assert';
-import { commitRows, commitTitle } from '../web/static/lib/commits.js';
+import {
+  commitFileRows,
+  commitFilesKey,
+  commitFileTitle,
+  commitRows,
+  commitTitle,
+  keepList,
+  MAX_COMMIT_FILES,
+} from '../web/static/lib/commits.js';
+import { MAX_COMMIT_FILES as SERVER_MAX } from '../web/git_commit.ts';
 
 const commit = (name: string, merge = false) => ({
   hash: name.repeat(40),
@@ -85,4 +94,68 @@ Deno.test('commitTitle has the hash, author, merge note and subject', () => {
   const t = commitTitle(commit('a', true));
   assertStringIncludes(t, 'aaaaaaaaaaaa\nAnn · ');
   assertStringIncludes(t, '\nMerge commit\nsubject a');
+});
+
+const file = (path: string, over: Record<string, unknown> = {}) => ({
+  path,
+  previousPath: null,
+  status: 'modified' as const,
+  additions: 1,
+  deletions: 2,
+  binary: false,
+  ...over,
+});
+
+Deno.test('commitFileRows: loading, error, empty, files and a cut-short list', () => {
+  assertEquals(commitFileRows(undefined), [
+    { kind: 'note', note: 'loading', text: 'Loading…' },
+  ]);
+  const base = { loading: false, files: null, truncated: false, error: null };
+  assertEquals(commitFileRows({ ...base, loading: true }), [
+    { kind: 'note', note: 'loading', text: 'Loading…' },
+  ]);
+  assertEquals(commitFileRows({ ...base, error: 'gone' }), [
+    { kind: 'note', note: 'error', text: "Couldn't list files: gone" },
+  ]);
+  assertEquals(commitFileRows({ ...base, files: [] }), [
+    { kind: 'note', note: 'empty', text: 'No files changed' },
+  ]);
+  const renamed = file('src/new.ts', {
+    status: 'renamed',
+    previousPath: 'src/old.ts',
+  });
+  const rows = commitFileRows({
+    ...base,
+    files: [file('README.md'), renamed],
+    truncated: true,
+  });
+  assertEquals(rows, [
+    {
+      kind: 'file',
+      file: file('README.md'),
+      name: 'README.md',
+      dir: '',
+      title: 'README.md',
+    },
+    {
+      kind: 'file',
+      file: renamed,
+      name: 'new.ts',
+      dir: 'src',
+      title: 'src/old.ts → src/new.ts',
+    },
+    { kind: 'note', note: 'more', text: `first ${SERVER_MAX} files shown` },
+  ]);
+  assertEquals(MAX_COMMIT_FILES, SERVER_MAX);
+  assertEquals(commitFileTitle(file('a/b')), 'a/b');
+});
+
+Deno.test('keepList keeps the newest lists, a re-read one moved to the end', () => {
+  const lists = new Map<string, number>();
+  for (let i = 0; i < 4; i++) keepList(lists, `k${i}`, i, 3);
+  assertEquals([...lists.keys()], ['k1', 'k2', 'k3']);
+  keepList(lists, 'k1', 10, 3);
+  keepList(lists, 'k4', 4, 3);
+  assertEquals([...lists.entries()], [['k3', 3], ['k1', 10], ['k4', 4]]);
+  assertEquals(commitFilesKey('/r', 'ab'), '/r\nab');
 });

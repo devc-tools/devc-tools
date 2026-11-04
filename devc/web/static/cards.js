@@ -45,7 +45,12 @@ import {
   opensAsDir,
   opensAsFile,
 } from './lib/files.js';
-import { commitRows } from './lib/commits.js';
+import {
+  commitFileRows,
+  commitFilesKey,
+  commitRows,
+  keepList,
+} from './lib/commits.js';
 import { parseSessions, sessionAge, sessionTooltip } from './lib/sessions.js';
 import {
   buildPrFlat,
@@ -1526,17 +1531,126 @@ function pollCommits() {
 }
 
 /** One dimmed line in the Commits section. */
-function commitNote(note, text) {
+function commitNote(note, text, depth = 1) {
   return h(
     'div',
     {
       class: 'row tree-note',
-      style: '--depth: 1',
+      style: `--depth: ${depth}`,
       'data-note': note,
       title: text,
     },
     h('span', { class: 'label' }, text),
   );
+}
+
+/**
+ * The commits whose files show, by `<card key>\n<hash>`. Not saved: a rebase makes hashes stale,
+ * so they last until the page reloads.
+ *
+ * @type {Set<string>}
+ */
+const commitFilesOpen = new Set();
+
+/**
+ * Each commit's file list (`commit_files`), by {@link commitFilesKey}. A commit's files never
+ * change, so a list is read once; the {@link keepList} cap drops the least recently read.
+ *
+ * @type {Map<string, import('./lib/commits.js').CommitFileList>}
+ */
+const commitFileLists = new Map();
+
+/** Reads a commit's files once, or again after a failed read. */
+async function loadCommitFiles(localFolder, root, hash) {
+  const key = commitFilesKey(root, hash);
+  const had = commitFileLists.get(key);
+  if (had && (had.loading || had.files)) return;
+  /** @type {import('./lib/commits.js').CommitFileList} */
+  const entry = { loading: true, files: null, truncated: false, error: null };
+  keepList(commitFileLists, key, entry);
+  try {
+    const r = await call({
+      type: 'commit_files',
+      localFolder,
+      root,
+      sha: hash,
+    });
+    entry.files = list(r?.files);
+    entry.truncated = r?.truncated === true;
+  } catch (e) {
+    entry.error = String(e?.message ?? e);
+  }
+  entry.loading = false;
+  queueRender();
+}
+
+/** Opens or closes a commit's files. */
+function toggleCommitFiles(cardKey, localFolder, root, hash) {
+  const open = `${cardKey}\n${hash}`;
+  if (!commitFilesOpen.delete(open)) {
+    commitFilesOpen.add(open);
+    void loadCommitFiles(localFolder, root, hash);
+  }
+  renderTree();
+}
+
+/**
+ * A commit's changed file: status letter, name, dim folder and `+a −d`. A click opens its diff as
+ * a PR file's row does, Ctrl/⌘-click in a new tile, a double-click keeps it open.
+ *
+ * @param {string} cardKey @param {FileRoot} fr @param {string} hash @param {string} state
+ * @param {import('./lib/commits.js').CommitFileRow & {kind: 'file'}} r
+ */
+function commitFileRow(cardKey, fr, hash, state, r) {
+  const file = r.file;
+  const letter = statusLetter(file.status);
+  const ref = {
+    localFolder: fr.localFolder,
+    root: fr.root,
+    path: file.path,
+    sha: hash,
+  };
+  return h(
+    'div',
+    {
+      class: 'row commit-file',
+      tabindex: '-1',
+      'data-tree-key': `${cardKey}\ncommit\n${hash}\n${file.path}`,
+      'data-depth': 2,
+      'data-state': state,
+      title: r.title,
+      onclick: (e) =>
+        tileArea.openDiff(ref, e.ctrlKey || e.metaKey ? 'stack' : 'preview'),
+      ondblclick: () => keepOpen(tileShowingDiff(tileArea.state(), ref)),
+      oncontextmenu: (e) => openMenu(e, commitFileMenuItems(fr, ref, file)),
+    },
+    h('span', { class: 'commit-dot commit-rail', 'aria-hidden': 'true' }),
+    h(
+      'span',
+      { class: 'label' },
+      h('span', { class: 'pr-status', 'data-status': letter }, letter),
+      ...markedText(r.name),
+      r.dir ? h('span', { class: 'pr-file-dir' }, ...markedText(r.dir)) : '',
+    ),
+    h('span', { class: 'pr-stat' }, diffStat(file)),
+  );
+}
+
+/** A commit file's menu: its diff, and the file as it is now unless the commit removed it. */
+function commitFileMenuItems(fr, ref, file) {
+  /** @type {import('./ui.js').MenuItem[]} */
+  const items = [
+    ['Open diff', () => tileArea.openDiff(ref, 'stack')],
+    ['Open diff to the right', () => tileArea.openDiff(ref, 'right')],
+  ];
+  if (file.status !== 'removed') {
+    items.push(
+      null,
+      ['Open file', () => openFileTile(fr, file.path, 'stack')],
+      ['Open file to the right', () => openFileTile(fr, file.path, 'right')],
+    );
+  }
+  return items;
 }
 
 /** A repo card's open Commits section: starts its reads, and draws the last answer. */
@@ -1555,28 +1669,51 @@ function commitSectionRows(key, localFolder, folder) {
   }
   const rows = commitRows(entry.history);
   if (rows.length === 0) return [commitNote('empty', 'No commits yet')];
-  return rows.map((r) =>
-    r.kind === 'commit'
-      ? h(
-        'div',
-        {
-          class: 'row commit-row',
-          title: r.title,
-          'data-state': r.state,
-          'data-merge': r.commit.merge,
-        },
-        h('span', { class: 'commit-dot', 'aria-hidden': 'true' }),
-        h('span', { class: 'commit-subject' }, r.commit.subject),
-        h('span', { class: 'commit-hash' }, r.short),
-      )
-      : r.kind === 'divider'
-      ? h('div', {
-        class: 'row commit-divider',
-        title: r.text,
+  const fr = { localFolder, root: folder };
+  return rows.flatMap((r) => {
+    if (r.kind !== 'commit') return [commitLine(r)];
+    const hash = r.commit.hash;
+    const open = commitFilesOpen.has(`${key}\n${hash}`);
+    const row = h(
+      'div',
+      {
+        class: 'row commit-row',
+        tabindex: '-1',
+        'data-tree-key': `${key}\ncommit\n${hash}`,
+        'data-depth': 1,
+        'aria-expanded': String(open),
+        title: r.title,
         'data-state': r.state,
-      }, r.text)
-      : commitNote('more', r.text)
-  );
+        'data-merge': r.commit.merge,
+        onclick: () => toggleCommitFiles(key, localFolder, folder, hash),
+      },
+      h('span', { class: 'commit-dot', 'aria-hidden': 'true' }),
+      chevron(),
+      h('span', { class: 'commit-subject' }, ...markedText(r.commit.subject)),
+      h('span', { class: 'commit-hash' }, r.short),
+    );
+    if (!open) return [row];
+    const list = commitFileLists.get(commitFilesKey(folder, hash));
+    return [
+      row,
+      ...commitFileRows(list).map((f) =>
+        f.kind === 'file'
+          ? commitFileRow(key, fr, hash, r.state, f)
+          : commitNote(f.note, f.text, 2)
+      ),
+    ];
+  });
+}
+
+/** A Commits section line that is not a commit: a group's divider, or how many more there are. */
+function commitLine(r) {
+  return r.kind === 'divider'
+    ? h('div', {
+      class: 'row commit-divider',
+      title: r.text,
+      'data-state': r.state,
+    }, r.text)
+    : commitNote('more', r.text);
 }
 
 /** The repos listed at the top of a Repos view: all but the worktrees listed under their repo. */

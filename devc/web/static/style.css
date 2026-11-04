@@ -659,9 +659,53 @@ body.resizing-zones {
 }
 
 .row.commit-row {
-  grid-template-columns: 12px minmax(0, 1fr) auto;
+  grid-template-columns: 12px 14px minmax(0, 1fr) auto;
+  gap: 4px;
   min-height: 22px;
   padding-left: 8px;
+  cursor: pointer;
+}
+
+/* A commit's chevron opens its changed files under it. */
+.commit-row > .chevron {
+  margin-left: 2px;
+}
+
+.commit-row[aria-expanded='true'] > .chevron::before {
+  transform: translateY(-75%) rotate(45deg);
+}
+
+/* A file an open commit changed: on the commit's rail, indented past its chevron. */
+.row.commit-file {
+  grid-template-columns: 12px minmax(0, 1fr) auto;
+  gap: 4px;
+  min-height: 22px;
+  padding-left: 8px;
+  cursor: pointer;
+}
+
+.row.commit-file > .label {
+  padding-left: 18px;
+}
+
+.commit-rail::after {
+  display: none;
+}
+
+.row.commit-row:hover,
+.row.commit-file:hover {
+  --row-bg: var(--row-hover);
+  background: var(--row-bg);
+}
+
+.row.commit-row:focus,
+.row.commit-file:focus {
+  outline: none;
+}
+
+.row.commit-row:focus-visible,
+.row.commit-file:focus-visible {
+  box-shadow: inset 0 0 0 1px var(--accent);
 }
 
 .commit-dot {
@@ -694,7 +738,8 @@ body.resizing-zones {
   transform: translate(-50%, -50%);
 }
 
-.commit-row[data-state='incoming'] .commit-dot {
+.commit-row[data-state='incoming'] .commit-dot,
+.commit-file[data-state='incoming'] .commit-dot {
   color: var(--blocked);
 }
 
@@ -703,11 +748,13 @@ body.resizing-zones {
   background: var(--row-bg);
 }
 
-.commit-row[data-state='local'] .commit-dot {
+.commit-row[data-state='local'] .commit-dot,
+.commit-file[data-state='local'] .commit-dot {
   color: var(--done);
 }
 
-.commit-row[data-state='pushed'] .commit-dot {
+.commit-row[data-state='pushed'] .commit-dot,
+.commit-file[data-state='pushed'] .commit-dot {
   color: var(--muted);
 }
 
@@ -3159,17 +3206,68 @@ button.primary.danger {
 }
 
 /* Side by side: old number and text, new number and text. Long lines wrap, so both sides show. */
+.diff-table[data-layout='split'] {
+  position: relative;
+}
+
 .diff-table[data-layout='split'] .diff-row {
-  grid-template-columns: 4.5em minmax(0, 1fr) 4.5em minmax(0, 1fr);
+  /* The sides' shares, dragged at the separator (`.diff-split-handle`). */
+  grid-template-columns:
+    4.5em minmax(0, var(--split-left, 1fr))
+    4.5em minmax(0, var(--split-right, 1fr));
+}
+
+/* A split diff's table fills the viewer below its rows, so its separator runs the full height. */
+.diff-body:has(> .diff-table[data-layout='split']) {
+  display: flex;
+  flex-direction: column;
+}
+
+.diff-body > .diff-table[data-layout='split'] {
+  flex: 1 0 auto;
+}
+
+/*
+ * Over the split's separator (the new side's number column's left edge), the full height: its
+ * line runs on below the rows, and it is lit while hovered or dragged, as a tile splitter is.
+ */
+.diff-split-handle {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: calc(4.5em + (100% - 9em) * var(--split-share, 0.5));
+  z-index: 1;
+  width: 7px;
+  transform: translateX(-50%);
+  cursor: col-resize;
+  touch-action: none;
+}
+
+.diff-split-handle::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 1px;
+  background: var(--border);
+  transform: translateX(-50%);
+}
+
+.diff-split-handle:hover,
+.diff-split-handle.dragging {
+  background: color-mix(in srgb, var(--accent) 45%, transparent);
+}
+
+/* A hunk's header spans both sides: drawn over the separator, not cut by it. */
+.diff-table[data-layout='split'] .diff-hunk {
+  position: relative;
+  z-index: 2;
 }
 
 .diff-table[data-layout='split'] .diff-text {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
-}
-
-.diff-table[data-layout='split'] .diff-num:nth-child(3) {
-  border-left: 1px solid var(--border);
 }
 
 .diff-row[data-kind='add'],

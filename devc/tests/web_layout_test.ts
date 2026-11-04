@@ -1,10 +1,14 @@
 import { assertEquals } from 'jsr:@std/assert';
 import {
+  diffKey,
+  diffRefFromState,
+  diffSource,
   fileRefFromState,
   foldTree,
   paneRefFromState,
   parseSavedLayout,
   previewFromState,
+  sameDiff,
   sameFile,
   sameFileView,
   tileContent,
@@ -303,4 +307,46 @@ Deno.test('sameFileView tells a file as text from the same file as media', () =>
   const png = { localFolder: '/a', root: '/a', path: 'i.png' };
   assertEquals(sameFileView(png, { ...png, view: 'media' }), true);
   assertEquals(sameFileView(png, { ...png, view: 'text' }), false);
+});
+
+Deno.test('a diff ref keeps a commit sha through a saved layout, and tells commits apart', () => {
+  const pr = { localFolder: '/a', root: '/a/r', path: 'x.ts' };
+  const sha = 'ab'.repeat(20);
+  const commit = { ...pr, sha };
+  assertEquals(diffSource(pr), 'pr');
+  assertEquals(diffSource(commit), 'commit');
+
+  // Saved and restored: the PR ref as before, the commit's with its sha.
+  const prState = tileContent({ diff: pr }, true);
+  assertEquals(prState, {
+    type: 'diff',
+    state: { ...pr, preview: true },
+  });
+  assertEquals(diffRefFromState(prState.state), pr);
+  const commitState = tileContent({ diff: commit });
+  assertEquals(commitState, { type: 'diff', state: commit });
+  assertEquals(diffRefFromState(commitState.state), commit);
+  assertEquals(
+    diffRefFromState(JSON.parse(JSON.stringify(commitState.state))),
+    commit,
+  );
+
+  // A malformed sha drops the tile, as a missing path does.
+  for (const bad of ['abc1234', 'AB'.repeat(20), 42, '', `${sha}~1`]) {
+    assertEquals(diffRefFromState({ ...pr, sha: bad }), null);
+  }
+  assertEquals(
+    diffRefFromState({ ...pr, sha: 'cd'.repeat(32) })?.sha,
+    'cd'.repeat(32),
+  );
+
+  assertEquals(sameDiff(pr, { ...pr }), true);
+  assertEquals(sameDiff(commit, { ...commit }), true);
+  assertEquals(sameDiff(pr, commit), false);
+  assertEquals(sameDiff(commit, { ...commit, sha: 'cd'.repeat(20) }), false);
+  assertEquals(diffKey(pr) === diffKey(commit), false);
+  assertEquals(
+    diffKey(commit) === diffKey({ ...commit, sha: 'cd'.repeat(20) }),
+    false,
+  );
 });

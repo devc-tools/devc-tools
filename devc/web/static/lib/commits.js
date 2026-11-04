@@ -1,6 +1,7 @@
 // The repo card's Commits section as rows, from a `git_history` answer (`web/git_history.ts`):
-// commits to pull, then local ones, then a line where pushed history starts, newest first. Pure (no
-// DOM), shared with the Deno tests (`devc/tests/web_commits_test.ts`); `cards.js` draws it.
+// commits to pull, then local ones, then a line where pushed history starts, newest first, and an
+// open commit's changed files (`commit_files`, `web/git_commit.ts`) under it. Pure (no DOM), shared
+// with the Deno tests (`devc/tests/web_commits_test.ts`); `cards.js` draws it.
 
 /**
  * @typedef {{hash: string, subject: string, author: string, time: number, merge: boolean}} Commit
@@ -95,6 +96,92 @@ export function commitRows(history) {
         text: `latest ${pushed.length} shown`,
       });
     }
+  }
+  return rows;
+}
+
+/**
+ * A changed file as a commit's file list gives it (`commit_files`, `web/git_commit.ts`).
+ *
+ * @typedef {{path: string, previousPath: string | null,
+ *   status: 'added' | 'removed' | 'modified' | 'renamed', additions: number, deletions: number,
+ *   binary: boolean}} CommitFile
+ * @typedef {{loading: boolean, files: CommitFile[] | null, truncated: boolean,
+ *   error: string | null}} CommitFileList
+ * @typedef {{kind: 'file', file: CommitFile, name: string, dir: string, title: string}
+ *   | {kind: 'note', note: 'loading' | 'error' | 'empty' | 'more', text: string}} CommitFileRow
+ */
+
+/** The most commits' file lists kept: past it, the least recently read is dropped. */
+export const MAX_COMMIT_FILE_LISTS = 50;
+
+/** The files `commit_files` lists at most (`git_commit.ts`'s MAX_COMMIT_FILES). */
+export const MAX_COMMIT_FILES = 1000;
+
+/** A commit's file list's key: its repo and hash. A list never changes, so this is all it needs. */
+export function commitFilesKey(
+  /** @type {string} */ root,
+  /** @type {string} */ hash,
+) {
+  return `${root}\n${hash}`;
+}
+
+/**
+ * Puts `value` in `lists` as its newest entry, dropping the oldest past `max`.
+ *
+ * @template T
+ * @param {Map<string, T>} lists @param {string} key @param {T} value
+ */
+export function keepList(lists, key, value, max = MAX_COMMIT_FILE_LISTS) {
+  lists.delete(key);
+  lists.set(key, value);
+  while (lists.size > max) lists.delete(lists.keys().next().value);
+}
+
+/** A file row's tooltip: its path, both paths for a rename. @param {CommitFile} f */
+export function commitFileTitle(f) {
+  return f.previousPath ? `${f.previousPath} → ${f.path}` : f.path;
+}
+
+/**
+ * The rows under an open commit: what its file list's read says, or a row per file (its name, its
+ * folder dim beside it), then a note when the list was cut short.
+ *
+ * @param {CommitFileList | undefined} list
+ * @returns {CommitFileRow[]}
+ */
+export function commitFileRows(list) {
+  if (!list?.files) {
+    return [
+      list?.error
+        ? {
+          kind: 'note',
+          note: 'error',
+          text: `Couldn't list files: ${list.error}`,
+        }
+        : { kind: 'note', note: 'loading', text: 'Loading…' },
+    ];
+  }
+  if (list.files.length === 0) {
+    return [{ kind: 'note', note: 'empty', text: 'No files changed' }];
+  }
+  /** @type {CommitFileRow[]} */
+  const rows = list.files.map((file) => {
+    const cut = file.path.lastIndexOf('/');
+    return {
+      kind: 'file',
+      file,
+      name: file.path.slice(cut + 1),
+      dir: cut < 0 ? '' : file.path.slice(0, cut),
+      title: commitFileTitle(file),
+    };
+  });
+  if (list.truncated) {
+    rows.push({
+      kind: 'note',
+      note: 'more',
+      text: `first ${MAX_COMMIT_FILES} files shown`,
+    });
   }
   return rows;
 }

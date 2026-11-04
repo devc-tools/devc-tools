@@ -32,7 +32,12 @@ import {
 } from './lsp.js';
 import { LSP_LANGUAGE_NAMES, lspLanguageFor } from './lib/languages.js';
 import { openAskDialog } from './ask.js';
-import { parseSavedLayout, sameFile } from './lib/layout_state.js';
+import {
+  diffKey,
+  diffSource,
+  parseSavedLayout,
+  sameFile,
+} from './lib/layout_state.js';
 import { draftKey, isNewFileShortcut, nextDraftName } from './lib/drafts.js';
 import { openDraftSaveDialog } from './draft-dialog.js';
 import {
@@ -72,6 +77,7 @@ import { createNavHistory, navButton, navKey } from './lib/nav_history.js';
 import {
   changedRanges,
   diffTexts,
+  dragSplitShare,
   fillPatch,
   ignoreWhitespace,
   lineMap,
@@ -81,6 +87,7 @@ import {
   parsePatch,
   placeThreads,
   splitRows,
+  splitShare,
   threadRows,
 } from './lib/diff.js';
 import {
@@ -419,7 +426,7 @@ function diffTextMenuItems(tile) {
   const text = pageSelection(tile);
   /** @type {import('./ui.js').MenuItem[]} */
   const items = [];
-  if (askable(tile)) {
+  if (tile.diff && diffSource(tile.diff) === 'pr' && askable(tile)) {
     items.push([LABELS.askAgent, () => askAgentFrom(tile.id, text)], null);
   }
   if (text) {
@@ -1414,6 +1421,8 @@ const DIFF_SPLIT_KEY = 'devc-web-pr-diff-split-v1';
 const HIDE_WHITESPACE_KEY = 'devc-web-pr-hide-whitespace-v1';
 const PLAIN_ONE_SIDED_KEY = 'devc-web-pr-plain-one-sided-v1';
 const WHOLE_FILE_KEY = 'devc-web-pr-whole-file-v1';
+/** A split diff's left share of its text width (`splitShare`), per browser. */
+const SPLIT_SHARE_KEY = 'devc-web-pr-diff-split-share-v1';
 let showResolved = loadFlag(SHOW_RESOLVED_KEY);
 /** Side by side (old left, new right) rather than unified. */
 let diffSplit = loadFlag(DIFF_SPLIT_KEY);
@@ -1423,6 +1432,80 @@ let hideWhitespace = loadFlag(HIDE_WHITESPACE_KEY);
 let plainOneSided = loadFlag(PLAIN_ONE_SIDED_KEY);
 /** Every line of the file, not only the patch's hunks (see `fillPatch`). */
 let wholeFile = loadFlag(WHOLE_FILE_KEY);
+/** How a split diff divides its width: the left side's share, dragged at the separator. */
+let diffSplitShare = splitShare(readStored(SPLIT_SHARE_KEY));
+
+/** @param {string} key */
+function readStored(key) {
+  try {
+    return localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+/** Puts {@link diffSplitShare} on a split table's columns. @param {HTMLElement} table */
+function applySplitShare(table) {
+  table.style.setProperty('--split-left', `${diffSplitShare}fr`);
+  table.style.setProperty('--split-right', `${1 - diffSplitShare}fr`);
+  table.style.setProperty('--split-share', String(diffSplitShare));
+}
+
+/**
+ * The separator of a split diff, over the new side's number column's left edge: a drag moves
+ * it in every split diff tile, kept per browser; a double-click puts it back in the middle.
+ *
+ * @param {HTMLElement} table
+ */
+function splitHandle(table) {
+  const handle = h('div', {
+    class: 'diff-split-handle',
+    role: 'separator',
+    'aria-orientation': 'vertical',
+    'aria-label': LABELS.resizeSplit,
+    title: LABELS.resizeSplit,
+  });
+  const setShare = (share) => {
+    diffSplitShare = share;
+    for (
+      const el of document.querySelectorAll('.diff-table[data-layout="split"]')
+    ) {
+      applySplitShare(/** @type {HTMLElement} */ (el));
+    }
+  };
+  const save = () => {
+    try {
+      localStorage.setItem(SPLIT_SHARE_KEY, String(diffSplitShare));
+    } catch { /* storage unavailable: it just won't survive a reload */ }
+  };
+  handle.addEventListener('pointerdown', (e) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    handle.setPointerCapture(e.pointerId);
+    handle.classList.add('dragging');
+    const num = table.querySelector('.diff-row > .diff-num');
+    const numWidth = num ? num.getBoundingClientRect().width : 0;
+    const move = (/** @type {PointerEvent} */ ev) => {
+      const box = table.getBoundingClientRect();
+      setShare(dragSplitShare(ev.clientX - box.left, box.width, numWidth));
+    };
+    const end = () => {
+      handle.classList.remove('dragging');
+      handle.removeEventListener('pointermove', move);
+      handle.removeEventListener('pointerup', end);
+      handle.removeEventListener('pointercancel', end);
+      save();
+    };
+    handle.addEventListener('pointermove', move);
+    handle.addEventListener('pointerup', end);
+    handle.addEventListener('pointercancel', end);
+  });
+  handle.addEventListener('dblclick', () => {
+    setShare(0.5);
+    save();
+  });
+  return handle;
+}
 
 /** @param {string} key */
 function loadFlag(key) {
@@ -1580,25 +1663,40 @@ function openDiff(ref, where, opts) {
 /** @param {DiffRef | undefined} a @param {DiffRef | undefined} b */
 function sameDiff(a, b) {
   return !!a && !!b && a.localFolder === b.localFolder && a.root === b.root &&
-    a.path === b.path;
+    a.path === b.path && a.sha === b.sha;
 }
 
-/** A diff tile's title: `<basename> · #<n>` once its PR is known. */
+/**
+ * A diff tile's title: `<basename> · #<n>` once its PR is known, `<basename> · <short sha>` for a
+ * commit's.
+ */
 function diffTileTitle(tile) {
   const ref = tile.diff;
   const name = ref ? basename(ref.path) : 'unknown file';
+  if (ref && diffSource(ref) === 'commit') {
+    return `${name} · ${shortSha(ref.sha)}`;
+  }
   const pr = diffViews.get(tile.id)?.data?.pr;
   return pr ? `${name} · #${pr.number}` : name;
 }
 
+/** A commit id as the Commits section shows it. @param {string | undefined} sha */
+function shortSha(sha) {
+  return String(sha ?? '').slice(0, 7);
+}
+
 function setDiffTitle(view) {
   const ref = view.tile.diff;
-  const pr = view.data?.pr;
   view.tile.setTitle(diffTileTitle(view.tile));
-  view.tile.setTooltip(
-    [pr ? `${pr.repo}#${pr.number}` : '', ref?.path ?? ''].filter((s) => s)
-      .join('\n'),
-  );
+  let first = '';
+  if (ref && diffSource(ref) === 'commit') {
+    const subject = view.data?.commit?.subject;
+    first = [shortSha(ref.sha), subject].filter((s) => s).join(' ');
+  } else {
+    const pr = view.data?.pr;
+    first = pr ? `${pr.repo}#${pr.number}` : '';
+  }
+  view.tile.setTooltip([first, ref?.path ?? ''].filter((s) => s).join('\n'));
   viewChanged();
 }
 
@@ -1676,7 +1774,10 @@ function mountDiffTile(tile) {
   queueMicrotask(() => {
     if (diffViews.get(tile.id) !== view) return;
     setDiffTitle(view);
-    if (tile.diff) tile.setActions(askButton(tile));
+    // A commit diff gets no Ask agent: the agent's diff context means the PR's.
+    if (tile.diff && diffSource(tile.diff) === 'pr') {
+      tile.setActions(askButton(tile));
+    }
   });
   if (tile.diff) void loadDiff(view);
   else {
@@ -2082,15 +2183,18 @@ function diffPositionAt(x, y) {
 }
 
 /**
- * The PR head's text (`pr_file_at`), read once per head sha and shared by hover and **Whole
- * file**: `view.head.done` is set when it arrives. `null` before `pr_diff` has answered.
+ * The file's text on the diff's new side, read once per sha and shared by hover and **Whole
+ * file**: `view.head.done` is set when it arrives. For a PR diff it is the PR head's
+ * (`pr_file_at`), for a commit diff the commit's (`commit_file_at`). `null` before the diff has
+ * answered.
  *
  * @param {DiffView} view
  * @returns {Promise<{text: string | null, message: string}> | null}
  */
 function readHead(view) {
   const ref = view.tile.diff;
-  const sha = view.data?.pr?.headSha;
+  const commit = ref ? diffSource(ref) === 'commit' : false;
+  const sha = commit ? view.data?.commit?.hash : view.data?.pr?.headSha;
   if (!ref || typeof sha !== 'string') return null;
   if (view.head?.sha !== sha) {
     const path = view.data?.file?.path ?? ref.path;
@@ -2098,7 +2202,7 @@ function readHead(view) {
       sha,
       done: /** @type {{text: string | null, message: string} | null} */ (null),
       got: call({
-        type: 'pr_file_at',
+        type: commit ? 'commit_file_at' : 'pr_file_at',
         localFolder: ref.localFolder,
         root: ref.root,
         path,
@@ -2125,7 +2229,10 @@ function readHead(view) {
 function attachDiffLanguage(view) {
   const ref = view.tile.diff;
   const c = ref ? containerByFolder(ref.localFolder) : null;
-  if (!ref || !c || c.state !== 'connected' || !lspLanguageFor(ref.path)) {
+  if (
+    !ref || diffSource(ref) !== 'pr' || !c || c.state !== 'connected' ||
+    !lspLanguageFor(ref.path)
+  ) {
     return null;
   }
   return attachView(view.tile.id, {
@@ -2146,9 +2253,10 @@ function attachDiffLanguage(view) {
 function syncDiffLanguage(view) {
   const ref = view.tile.diff;
   const c = ref ? containerByFolder(ref.localFolder) : null;
+  // A commit's text isn't the file the server has open: no hover or go to definition there.
   const wanted = Boolean(
-    ref && view.state === 'ok' && c?.state === 'connected' &&
-      lspLanguageFor(ref.path),
+    ref && diffSource(ref) === 'pr' && view.state === 'ok' &&
+      c?.state === 'connected' && lspLanguageFor(ref.path),
   );
   const was = view.lspWanted;
   view.lspWanted = wanted;
@@ -2561,14 +2669,23 @@ async function loadDiff(view) {
   }
   let result = null;
   let error = null;
+  const source = diffSource(ref);
   try {
-    result = await call({ type: 'pr_diff', ...ref });
+    result = await call({
+      type: source === 'commit' ? 'commit_diff' : 'pr_diff',
+      ...ref,
+    });
   } catch (e) {
     error = String(e?.message ?? e);
   }
   if (seq !== view.seq || diffViews.get(view.tile.id) !== view) return;
   if (error === null && result?.available !== true) {
-    error = String(result?.message ?? 'The pull request is not available');
+    error = String(
+      result?.message ??
+        (source === 'commit'
+          ? 'The commit is not available'
+          : 'The pull request is not available'),
+    );
   }
   if (error !== null) {
     view.state = 'error';
@@ -2588,6 +2705,7 @@ async function loadDiff(view) {
   } else if (view.since) void loadSince(view, view.since.sha);
   renderDiff(view);
   syncDiffLanguage(view);
+  if (source !== 'pr') return;
   void loadThreads(view);
   void loadPending(view);
 }
@@ -2595,7 +2713,7 @@ async function loadDiff(view) {
 /** The viewer's pending review (`pr_pending_show`), when the grants offer reviews. */
 async function loadPending(view) {
   const ref = view.tile.diff;
-  if (!ref || !view.data?.canReview) {
+  if (!ref || diffSource(ref) !== 'pr' || !view.data?.canReview) {
     view.review = null;
     return;
   }
@@ -2721,7 +2839,7 @@ async function loadSince(view, sha) {
 /** Lists the file's review threads again (`pr_threads`). @param {DiffView} view */
 async function loadThreads(view) {
   const ref = view.tile.diff;
-  if (!ref || view.state !== 'ok') return;
+  if (!ref || diffSource(ref) !== 'pr' || view.state !== 'ok') return;
   const seq = ++view.threadSeq;
   view.threadsLoading = true;
   renderDiff(view);
@@ -3067,9 +3185,27 @@ function diffHeader(view) {
       h('span', { class: 'pr-stat' }, diffStat(file)),
     );
   }
+  const commit = ref && diffSource(ref) === 'commit' ? data?.commit : null;
   if (pr) {
     line.append(
       h('span', { class: 'pr-number', title: pr.url }, `#${pr.number}`),
+    );
+  } else if (commit) {
+    const when = commit.time
+      ? new Date(commit.time * 1000).toLocaleString()
+      : '';
+    const title = [
+      LABELS.commitTitle(commit.author, when, commit.subject),
+      commit.parent
+        ? LABELS.comparedWith(String(commit.parent ?? '').slice(0, 7))
+        : '',
+    ].filter((s) => s).join('\n');
+    line.append(
+      h(
+        'span',
+        { class: 'pr-number diff-commit', title },
+        shortSha(commit.hash),
+      ),
     );
   }
   line.append(h('span', { class: 'diff-head-fill' }));
@@ -3183,7 +3319,10 @@ function diffHeader(view) {
     oneSided(view)
       ? checkbox('Tint rows', !plainOneSided, togglePlainOneSided)
       : '',
-    checkbox('Show resolved', showResolved, toggleShowResolved),
+    // Threads are a PR's: a commit diff has none to show or hide.
+    ref && diffSource(ref) === 'pr'
+      ? checkbox('Show resolved', showResolved, toggleShowResolved)
+      : '',
     h('span', { class: 'diff-head-fill' }),
     review && pr && ref
       ? h(
@@ -3206,7 +3345,7 @@ function diffHeader(view) {
         }, LABELS.discardReview),
       )
       : '',
-    data
+    data && ref && diffSource(ref) === 'pr'
       ? h(
         'span',
         {
@@ -3314,7 +3453,13 @@ function diffContent(view) {
       h(
         'div',
         { class: 'diff-message' },
-        h('div', {}, 'No diff available for this file'),
+        h(
+          'div',
+          {},
+          data.file?.tooLarge === true
+            ? LABELS.diffTooLarge
+            : 'No diff available for this file',
+        ),
         data.fileUrl
           ? h('button', {
             type: 'button',
@@ -3376,6 +3521,10 @@ function diffContent(view) {
     'data-layout': single ? 'single' : diffSplit ? 'split' : 'unified',
     'data-plain': (single && plainOneSided) || undefined,
   });
+  if (!single && diffSplit) {
+    applySplitShare(table);
+    table.append(splitHandle(table));
+  }
   /** @param {string} key */
   const threadsAt = (key) => {
     const here = placed.rows.get(key);
@@ -4137,9 +4286,9 @@ function saveFocus() {
   } catch { /* unavailable: a reload just won't refocus */ }
 }
 
-/** A diff tile's key in {@link SCROLL_KEY}: its PR file, beside {@link fileKey}'s. */
+/** A diff tile's key in {@link SCROLL_KEY}: its PR or commit file, beside {@link fileKey}'s. */
 function diffScrollKey(/** @type {DiffRef} */ diff) {
-  return `diff\n${diff.localFolder}\n${diff.root}\n${diff.path}`;
+  return `diff\n${diffKey(diff)}`;
 }
 
 /**

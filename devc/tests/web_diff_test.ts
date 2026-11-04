@@ -2,15 +2,18 @@ import { assertEquals } from 'jsr:@std/assert';
 import {
   changedRanges,
   diffTexts,
+  dragSplitShare,
   fillPatch,
   ignoreWhitespace,
   lineMap,
   markRanges,
   MAX_DIFF_LINES,
+  MIN_SPLIT_SHARE,
   newColumn,
   parsePatch,
   placeThreads,
   splitRows,
+  splitShare,
   threadRows,
 } from '../web/static/lib/diff.js';
 
@@ -542,4 +545,24 @@ Deno.test('diffTexts with MAX_DIFF_LINES context: one hunk of every line', () =>
   const rows = p.hunks[0].rows;
   assertEquals(rows.filter((r) => r.old !== null).length, 40);
   assertEquals(rows.filter((r) => r.new !== null).length, 40);
+});
+
+Deno.test('splitShare keeps a stored split in range, else splits evenly', () => {
+  assertEquals(splitShare('0.3'), 0.3);
+  assertEquals(splitShare(0.7), 0.7);
+  assertEquals(splitShare(null), 0.5);
+  assertEquals(splitShare(''), 0.5);
+  assertEquals(splitShare('wide'), 0.5);
+  assertEquals(splitShare(Infinity), 0.5);
+  assertEquals(splitShare(0), MIN_SPLIT_SHARE);
+  assertEquals(splitShare('2'), 1 - MIN_SPLIT_SHARE);
+});
+
+Deno.test('dragSplitShare measures from the left text column, past its number column', () => {
+  // 50 px number columns either side, 400 px of text.
+  assertEquals(dragSplitShare(250, 500, 50), 0.5);
+  assertEquals(dragSplitShare(130, 500, 50), 0.2);
+  assertEquals(dragSplitShare(0, 500, 50), MIN_SPLIT_SHARE);
+  assertEquals(dragSplitShare(500, 500, 50), 1 - MIN_SPLIT_SHARE);
+  assertEquals(dragSplitShare(10, 80, 50), 0.5);
 });

@@ -321,7 +321,11 @@ is published from any container: the host server finds devcontainers with
   ↑↓ counts' upstream when the branch has one. With none, pushed means on a
   remote branch the repo tracks, or on `origin/<branch>` as the host finds it
   (checked every 5 minutes while open), so a `gh-push` shows, though it moves no
-  ref in the repo. Below the header are its
+  ref in the repo. A click on a commit lists the files it changed (a merge's
+  against its first parent), and a click on a file opens its diff in a
+  read-only diff tile (`<file> · <short sha>`), also read from the mirror:
+  Whole file, Hide whitespace, split view and Find work there, and there are no
+  review threads, comments, Viewed or Ask agent. Below the header are its
   terminals (its tiles, then every
   pane in it no tile shows, shells too); terminals outside every repo get a
   card named after the container. A card's header buttons show its past agent

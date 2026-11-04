@@ -753,3 +753,31 @@ export function lineMap(fromText, toText) {
   }
   return (line) => map.get(line) ?? null;
 }
+
+/** The narrowest either side of a split diff may be dragged to, as a share of the text width. */
+export const MIN_SPLIT_SHARE = 0.15;
+
+/**
+ * A split diff's left share of the text width (the right gets the rest), kept in range: a
+ * stored value that isn't a number between the limits gives the even split.
+ *
+ * @param {unknown} v
+ */
+export function splitShare(v) {
+  const n = typeof v === 'string' && v.trim() !== '' ? Number(v) : v;
+  if (typeof n !== 'number' || !Number.isFinite(n)) return 0.5;
+  return Math.min(1 - MIN_SPLIT_SHARE, Math.max(MIN_SPLIT_SHARE, n));
+}
+
+/**
+ * The left share a drag gives: the pointer's `x` over a table `width` wide whose two number
+ * columns are `numWidth` each (the left one before the left text, the right one before the
+ * right text). The separator is the right number column's left edge.
+ *
+ * @param {number} x @param {number} width @param {number} numWidth
+ */
+export function dragSplitShare(x, width, numWidth) {
+  const text = width - 2 * numWidth;
+  if (!(text > 0)) return 0.5;
+  return splitShare((x - numWidth) / text);
+}
