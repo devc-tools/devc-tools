@@ -11,6 +11,13 @@
 
 ### Pending
 
+- [devc-mirror-code-roots](devc-mirror-code-roots.md) — opt-in `"mirrorCodeRoots": true` in
+  the global config mounts a project under a code root at `/workspaces/<path under the root>`
+  (`~/code/tools/ggg` → `/workspaces/tools/ggg`) even as the primary workspace, so it matches
+  its path as an extra `devc:source` row. A runtime merged-config layer (`workspaceMount` +
+  `workspaceFolder`, plus the primary `.git` mount for worktrees, which the CLI stops adding
+  once both keys are set); `devc init` is unchanged. Step 0 confirms three CLI behaviors first.
+
 - [devc-web-aseprite-viewer](devc-web-aseprite-viewer.md) — after devc-web-media-tiles: a
   clean-room `.aseprite` decoder and compositor (`static/lib/aseprite.js`, from the public spec
   only) and a media view with frame playback, tags and layer toggles. Normal blend only at first;
