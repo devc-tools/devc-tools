@@ -1,6 +1,6 @@
 # devc-show-local-diff — `show --changes`: diffs of local work
 
-After [devc-show](devc-show.md) and [devc-web-commit-diffs](devc-web-commit-diffs.md). An agent shows
+After [devc-show](devc-show.md) and [devc-web-commit-diffs](archived/devc-web-commit-diffs.md). An agent shows
 a file's **local** diff: its uncommitted changes, or everything the branch changed against another
 ref, with or without a pull request. This adds a third content source to the diff tile, beside a PR
 and a commit, and a `--changes` option to `devc-bridge show` / `devc show`. `--diff` keeps meaning

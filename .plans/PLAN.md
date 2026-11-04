@@ -107,13 +107,6 @@ for them.
   `git merge --ff-only` in the project's environment. The server refuses it while an agent there
   is working or the branch has diverged. Allowed under `--live`.
 
-- [devc-web-commit-diffs](devc-web-commit-diffs.md) — after the repo card's Commits section
-  (`59a1507`): a commit row expands to its changed files, and a click opens that file's diff in
-  the diff tile, read-only. All of it reads the host's mirror, so it needs no bridge grant and
-  works for a stopped container. `DiffRef` gains an optional `sha`, and `diffSource` says where a
-  diff's content comes from, which devc-show-local-diff extends. Allowed under `--live`. Ready to
-  implement.
-
 - [devc-desktop-host-actions](devc-desktop-host-actions.md) — the page can only _ask_
   (`request_push`, `request_project`). The HOST drawer gets an Actions column that shows the
   app's own push plan, or the start, with a 1 s armed confirm. A second **desktop token** (stdout
@@ -189,6 +182,15 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
   generated-source folders appear, and read-only `jdt:` class tiles.
 
 ### Completed
+
+- ✅ Done — [devc-web-commit-diffs](archived/devc-web-commit-diffs.md) — a repo card's Commits
+  row expands to its changed files (a merge's against its first parent), and a click opens one in
+  a read-only diff tile (`<file> · <short sha>`), read from the host's mirror: no bridge grant, a
+  stopped container works. `commit_files`, `commit_diff`, `commit_file_at` (`git_commit.ts`);
+  `DiffRef.sha` and `diffSource`, which devc-show-local-diff extends. Also the split view's
+  separator: full height, dragged to resize, kept per browser. Marked complete by the user on
+  2026-11-04 **without the manual Validation run**: automated tests and a fake-socket browser check
+  only.
 
 - ✅ Done — [devc-git-user-push](archived/devc-git-user-push.md) — `devc git push-plan <folder>`
   prints a `PushPlan` (tip, new commits, default branch, guarded workflow paths, LFS,
@@ -2646,4 +2648,4 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
 | devc show local diff — `show --changes [<ref>]`: a local diff tile for uncommitted or branch changes                | [devc-show-local-diff](devc-show-local-diff.md)                                    |             |
 | devc web git pull — fast-forward Pull, and a faded ↓ for commits only the host has fetched                          | [devc-web-git-pull](devc-web-git-pull.md)                                          | in progress |
 | devc web screenshots — paste or drop an image into a terminal; its path is pasted for the agent                     | [devc-web-screenshots](devc-web-screenshots.md)                                    | in progress |
-| devc web commit diffs — a Commits row expands to its files, each opening a read-only diff tile from the mirror      | [devc-web-commit-diffs](devc-web-commit-diffs.md)                                  | in progress |
+| devc web commit diffs — a Commits row expands to its files, each opening a read-only diff tile from the mirror      | [devc-web-commit-diffs](archived/devc-web-commit-diffs.md)                         | complete    |

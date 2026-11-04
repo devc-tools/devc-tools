@@ -306,7 +306,7 @@ The left side's share of the text width is per browser (`devc-web-pr-diff-split-
       and see no review controls and no thrown errors.
 - [x] `tests/web_diff_test.ts`: `splitShare` and `dragSplitShare`; in the browser check, a drag moves
       the separator and is kept across a re-render, and a double-click evens the sides.
-- [ ] Manual, by the user:
+- [ ] Manual, by the user (not run: the user marked the plan complete untested on 2026-11-04):
   - expand a commit on a container project, running and stopped, and on a host project;
   - open a diff, then Whole file, Hide whitespace, split view and Find;
   - the PR list's diffs still work, including comments and Viewed;
