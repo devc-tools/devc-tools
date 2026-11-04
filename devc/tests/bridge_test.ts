@@ -873,7 +873,11 @@ Deno.test('status: no client line when the bridge is not enabled', async () => {
  * A linked worktree of the fixture's `proj`, made of files alone, plus its merged config and the
  * mount table of a container where the CLI's common-dir mount (`/workspaces/proj/.git`) is frozen.
  */
-async function worktreeOf(f: Fixture) {
+async function worktreeOf(
+  f: Fixture,
+  mirrorCodeRoots = false,
+  codeRoots = [f.dir],
+) {
   const wt = `${f.dir}/proj.worktrees/wt`;
   const wtGitDir = `${f.project}/.git/worktrees/wt`;
   await Deno.mkdir(`${f.project}/.git/hooks`, { recursive: true });
@@ -892,6 +896,8 @@ async function worktreeOf(f: Fixture) {
     templatesDir: `${f.dir}/no-templates`,
     configDir: `${f.dir}/config`,
     home: f.home,
+    codeRoots,
+    mirrorCodeRoots,
   });
   const keyDir = bridgePaths(f.home, merged.bridgeKey!).keyDir;
   const gitDir = '/workspaces/proj/.git';
@@ -950,6 +956,48 @@ Deno.test('a worktree container is granted once the primary git dir is frozen', 
         }],
       },
     });
+  });
+});
+
+// Under `mirrorCodeRoots` both workspace keys are set, so the CLI adds no common-dir mount and
+// `worktreeCommonDirRow` finds none: the pin must use the one devc mounted instead. With the
+// fixture's root at `f.dir`, the mirrored targets equal the CLI's, so the same table applies.
+Deno.test('a mirrored worktree container is granted on the common dir devc mounts', async () => {
+  await withFixture(async (f) => {
+    const { wt, merged, frozen } = await worktreeOf(f, true);
+    assertEquals(
+      merged.workspaceMirror?.commonDir?.target,
+      '/workspaces/proj/.git',
+    );
+    assertEquals(
+      merged.config.workspaceFolder,
+      '/workspaces/proj.worktrees/wt',
+    );
+    await applyPolicy(GRANT, merged, wt, f.deps(frozen));
+    const policy = await readPolicy(merged.bridgeKey!, f.deps(null));
+    assertEquals(
+      policy.kind === 'present' ? policy.record.repos[0].target : policy,
+      '/workspaces/proj.worktrees/wt',
+    );
+  });
+});
+
+// A container created before the mirror applied keeps the CLI's mounts (`/workspaces/proj…`),
+// while the merged config now names the mirrored targets one level deeper. Its frozen mounts are
+// not at those targets, so the grant must be refused — never granted on the strength of a mount
+// table that does not match.
+Deno.test('a container from before the mirror is refused, not granted', async () => {
+  await withFixture(async (f) => {
+    const parent = f.dir.slice(0, f.dir.lastIndexOf('/'));
+    const { wt, merged, frozen } = await worktreeOf(f, true, [parent]);
+    assert(
+      merged.workspaceMirror?.commonDir?.target !== '/workspaces/proj/.git',
+    );
+    await assertRejects(
+      () => applyPolicy(GRANT, merged, wt, f.deps(frozen)),
+      Error,
+      'git protection is not in force',
+    );
   });
 });
 

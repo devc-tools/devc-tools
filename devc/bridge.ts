@@ -236,7 +236,7 @@ function containerProblem(
  *    GitHub-only (`gh-push` re-checks for itself, since a policy file can be edited by hand);
  * 3. the container's live mount table has that repo's git dir `config` and `hooks` read-only —
  *    the repo's own `.git`, or for a linked worktree the primary's git dir as the devcontainer
- *    CLI mounts it. `'skip'` skips it, as for {@link containerProblem}.
+ *    CLI mounts it (or as devc mounts it, under `mirrorCodeRoots`). `'skip'` skips it, as for {@link containerProblem}.
  */
 async function derivePin(
   merged: MergedConfig,
@@ -277,10 +277,12 @@ async function derivePin(
   }
 
   // The git dir whose config the pin trusts: the repo's own `.git`, or — for a linked worktree —
-  // the primary's, at the target the devcontainer CLI mounts it on.
+  // the primary's, at the target it is mounted on: devc's own mount when the code-root mirror
+  // applies (the CLI adds none once both workspace keys are set), else the CLI's.
   let protectedRow: ProtectedRow;
   if (pin.worktree) {
-    const common = await worktreeCommonDirRow(merged.config, localFolder);
+    const common = merged.workspaceMirror?.commonDir ??
+      await worktreeCommonDirRow(merged.config, localFolder);
     if (common === null) {
       return {
         ok: false,

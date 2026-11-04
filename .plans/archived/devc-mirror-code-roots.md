@@ -303,3 +303,7 @@ Read from the embedded CLI's `dist/spec-node/devContainersSpecCLI.js` (0.88.0), 
 - `ancestorRepoRoot` gains a fourth parameter `mirrored = false`; `guardAncestorRepoMount` passes
   `merged.workspaceMirror !== null`.
 - The status line is a pure core helper, `workspaceMirrorStatusLine(mirror, skipped, mounts)`.
+- Follow-up fix: `devc/bridge.ts`'s `derivePin` used `worktreeCommonDirRow` for a worktree's
+  primary git dir, which (mirroring the CLI) is null once both workspace keys are set — so every
+  mirrored worktree container was refused bridge grants. It now prefers
+  `merged.workspaceMirror.commonDir`; covered by a mirrored case in `devc/tests/bridge_test.ts`.
