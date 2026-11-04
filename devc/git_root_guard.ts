@@ -17,13 +17,19 @@ import { runConfirm } from './tui/prompts.ts';
  * The ancestor repo the CLI will mount instead of `localFolder`, or null when it mounts
  * `localFolder` itself, mounts nothing git-derived, or the config decides the mount on its own
  * (`workspaceMount`, Docker Compose). Pure apart from `findRoot`.
+ *
+ * A `workspaceMount` from devc's own code-root mirror (`mirrored`, i.e.
+ * `MergedConfig.workspaceMirror !== null`) is not the config deciding: the mirror mounts the same
+ * git root the CLI would, only at another target, so the walk-up surprise is still there to ask
+ * about.
  */
 export async function ancestorRepoRoot(
   config: MergedConfig['config'],
   localFolder: string,
   findRoot: (folder: string) => Promise<string | null> = findRepoRoot,
+  mirrored = false,
 ): Promise<string | null> {
-  if (config.workspaceMount !== undefined) return null;
+  if (config.workspaceMount !== undefined && !mirrored) return null;
   if (config.dockerComposeFile !== undefined) return null;
   const root = await findRoot(localFolder);
   return root === null || root === localFolder ? null : root;
@@ -59,6 +65,7 @@ export async function guardAncestorRepoMount(
     merged.config,
     localFolder,
     deps.findRoot,
+    (merged.workspaceMirror ?? null) !== null,
   );
   if (root === null) return;
   if (!rebuild && await deps.containerExists()) return;

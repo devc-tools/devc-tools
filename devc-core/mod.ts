@@ -44,6 +44,9 @@ export {
   resolveRepo,
 } from './repo.ts';
 
+// Code-root mirroring of the workspace mount (`mirrorCodeRoots` in the global config).
+export * from './workspace_mirror.ts';
+
 // Worktree resolution for the mount picker (used by `devc config`, exposed for other UIs).
 export * from './worktree.ts';
 

@@ -162,6 +162,12 @@ layers, lowest to highest, and written to
 1. **devc's own layer** — the baseline Features, and the devc-bridge token mount
    when something opts into that Feature. Lowest, so everything else can
    override it.
+   With `"mirrorCodeRoots": true` in the global config it also carries the
+   **workspace mirror** (`devc-core/workspace_mirror.ts`): `workspaceMount` and
+   `workspaceFolder` at `/workspaces/<git root under its code root>`, plus the
+   primary `.git` mount for a linked worktree (the CLI skips its own once both
+   keys are set). It applies only when no other layer sets either key, so an
+   explicit config always wins, and git protection is derived with it in place.
 2. **The base config**, first hit wins — `PATH/.devcontainer/devcontainer.json`,
    `PATH/.devcontainer.json`, else the materialized default (the bundled
    `devcontainer.json` + `Dockerfile`, with any same-named file from
@@ -400,6 +406,11 @@ brackets (a missing one is inserted as the first key), and every other byte
 stays. Messages about a loaded key name the file in use. devc-desktop reads the
 same file by the same rule, and watches of the global config react to both
 names. Both files sit in the same host-only folder, which no container mounts.
+
+**`mirrorCodeRoots`** (boolean, default off; only a literal `true` enables it)
+mounts a project under a code root at `/workspaces/<path under the root>` even
+as the primary workspace, matching the target its `devc:source` row gets. See
+devc's own layer under "Configuration precedence".
 
 Example global config:
 

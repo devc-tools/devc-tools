@@ -47,6 +47,17 @@ import { basenamePosix, dirnamePosix, resolvePosix } from './posix.ts';
 import { checkableBindMounts, withMountSourceCheck } from './mount_check.ts';
 import { normalizePath } from './paths.ts';
 import { CONFIG_DIR } from './default_config.ts';
+import {
+  loadGlobalConfig,
+  mirrorCodeRootsFromConfig,
+  resolveGlobalConfigPath,
+} from './config.ts';
+import {
+  dropRedundantWorkspaceRows,
+  type WorkspaceMirror,
+  workspaceMirrorDecision,
+  workspaceMirrorLayer,
+} from './workspace_mirror.ts';
 
 /**
  * Which config the merge started from, and therefore how the merged file is delivered:
@@ -106,6 +117,17 @@ export interface MergedConfig {
    * why there is none. Carried so `devc status` can report it without re-deriving.
    */
   repoOverlay: RepoOverlay;
+  /**
+   * The code-root mirror applied to this workspace's mount (`mirrorCodeRoots`), or null when it
+   * did not apply. When set, the config's `workspaceMount` is devc's own, not the user's — which
+   * the ancestor-repo guard has to know.
+   */
+  workspaceMirror: WorkspaceMirror | null;
+  /**
+   * Why `mirrorCodeRoots` is on but {@link workspaceMirror} is null, as `devc status` prints it;
+   * null when the setting is off or the mirror applied.
+   */
+  workspaceMirrorSkipped: string | null;
 }
 
 /** {@link MergedConfig.bridgeClient}'s value when the client mount is contributed. */
@@ -328,14 +350,45 @@ export interface MergedConfigOptions {
   configDir?: string;
   /** The home directory the host devc-bridge client is looked for under. */
   home?: string;
+  /**
+   * Expanded code roots for the workspace mirror. Default: the global config's
+   * `codeRootsExpanded()` (an unset variable in a root ⇒ no roots), read from `configDir`.
+   */
+  codeRoots?: string[];
+  /** Whether to mirror the workspace mount. Default: the global config's `mirrorCodeRoots`. */
+  mirrorCodeRoots?: boolean;
+}
+
+/** The two global-config inputs of the workspace mirror, from `opts` or the global config. */
+async function mirrorInputs(
+  opts: MergedConfigOptions,
+): Promise<{ codeRoots: string[]; enabled: boolean }> {
+  if (opts.codeRoots !== undefined && opts.mirrorCodeRoots !== undefined) {
+    return { codeRoots: opts.codeRoots, enabled: opts.mirrorCodeRoots };
+  }
+  const cfg = await loadGlobalConfig(
+    await resolveGlobalConfigPath(opts.configDir ?? CONFIG_DIR),
+  );
+  const enabled = opts.mirrorCodeRoots ?? mirrorCodeRootsFromConfig(cfg);
+  let codeRoots = opts.codeRoots;
+  if (codeRoots === undefined) {
+    try {
+      codeRoots = enabled ? cfg.codeRootsExpanded() : [];
+    } catch {
+      codeRoots = [];
+    }
+  }
+  return { codeRoots, enabled };
 }
 
 /**
  * Materialize the effective config for `localFolder` and return it.
  *
- * The layers, lowest to highest, are `devc → git-protect → base → user devc.json →
- * repo devc.json → project devc.json`. devc's own two layers are computed from the merge of the
- * other four (they
+ * The layers, lowest to highest, are `devc → git-protect → workspace mirror → base → user
+ * devc.json → repo devc.json → project devc.json`. The workspace mirror (`mirrorCodeRoots`, see
+ * `workspace_mirror.ts`) applies only when no other layer sets `workspaceMount` or
+ * `workspaceFolder`, and the other two devc layers are derived with it in place. devc's own
+ * layers are computed from the merge of the other four (they
  * must not add a Feature something else already declares, and the repos to protect are only
  * knowable once every layer's `mounts` are in one array), so the merge runs twice: once to know
  * what is there, once to put devc's contributions underneath it. Underneath is what makes both
@@ -376,26 +429,44 @@ export async function ensureMergedConfig(
     provisional[GIT_PROTECT_KEY],
     'the merged config',
   );
-  const { protectedRows, unprotectedRows } = await classifyGitRows(
+  // The workspace mirror goes in before git protection is derived: the mount it moves, and the
+  // worktree common-dir mount it adds in the CLI's place, are both rows to freeze.
+  const mirrorIn = await mirrorInputs(opts);
+  const decision = await workspaceMirrorDecision(
     provisional,
+    localFolder,
+    mirrorIn.codeRoots,
+    mirrorIn.enabled,
+  );
+  const mirror = decision.mirror;
+  const mirrorLayers = mirror === null ? [] : [workspaceMirrorLayer(mirror)];
+  const withMirror = mirror === null
+    ? provisional
+    : mergeConfigs([...mirrorLayers, provisional]);
+  const { protectedRows, unprotectedRows } = await classifyGitRows(
+    withMirror,
     localFolder,
   );
   const key = await projectKey(localFolder);
-  const bridgeKey = declaresBridge(provisional) ? key : null;
+  const bridgeKey = declaresBridge(withMirror) ? key : null;
   const bridgeClient = await bridgeClientDecision(
-    provisional,
+    withMirror,
     opts.home ?? homeDir(),
   );
-  const merged = stripDevcOnlyKeys(mergeConfigs([
+  const stripped = stripDevcOnlyKeys(mergeConfigs([
     devcContributions(
-      provisional,
+      withMirror,
       overlays.baselineFeatures,
       key,
       bridgeClient === BRIDGE_CLIENT_MOUNTED,
     ),
     gitProtectLayer(protectedRows),
+    ...mirrorLayers,
     provisional,
   ]));
+  const merged = mirror === null
+    ? stripped
+    : dropRedundantWorkspaceRows(stripped, mirror);
 
   const config = mode === 'zero-config'
     ? absolutizePaths(merged, dirnamePosix(baseConfigPath))
@@ -427,5 +498,7 @@ export async function ensureMergedConfig(
     bridgeKey,
     bridgeClient,
     repoOverlay: overlays.repo,
+    workspaceMirror: mirror,
+    workspaceMirrorSkipped: decision.reason,
   };
 }

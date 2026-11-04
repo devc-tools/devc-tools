@@ -2603,7 +2603,9 @@ any time.
 
 #### The global config
 
-devc's own settings — the roots above, and `bridgeDefaultAllow`,
+devc's own settings — the roots above, and `mirrorCodeRoots`
+([mirroring code roots](#mirroring-code-roots-in-the-workspace-path)),
+`bridgeDefaultAllow`,
 `bridgeRepoAllow`, `webSource`, `jira` (devc web's
 [Open in Jira](#devc-web-browser-ui-for-in-container-herdr)), devc-desktop's
 `desktopWebArgs` and `desktopDevc` — live in one host-only file that no container mounts:
@@ -2622,6 +2624,49 @@ devc's own settings — the roots above, and `bridgeDefaultAllow`,
 - **A file that does not parse** loads as empty, with
   `devc: <file>: not valid JSONC (<reason>), ignored`, so a typo never drops
   every key silently. Messages about a key name the file in use.
+
+#### Mirroring code roots in the workspace path
+
+The devcontainer CLI mounts a project at `/workspaces/<its folder name>`, while
+a `devc:source` row for the same folder lands at `/workspaces/<path under its
+code root>`. So `~/code/tools/ggg` is `/workspaces/ggg` in its own container and
+`/workspaces/tools/ggg` wherever it is an extra mount. To give it the same path
+everywhere, add to the [global config](#the-global-config):
+
+```jsonc
+"mirrorCodeRoots": true
+```
+
+devc then adds `workspaceMount` and `workspaceFolder` to the merged config (in
+`~/.cache/devc/`, never your `.devcontainer/`), so the project mounts at
+`/workspaces/tools/ggg`. A project in a repo subfolder mounts its whole repo
+there and opens in the subfolder, as the CLI does. A linked worktree such as
+`~/code/tools/ggg.worktrees/feat` mounts at
+`/workspaces/tools/ggg.worktrees/feat`, and devc mounts the primary repo's
+`.git` at `/workspaces/tools/ggg/.git` itself, because the CLI stops adding that
+mount once both keys are set. Git protection covers both.
+
+It is skipped, and the CLI default used, when:
+
+- the config already sets `workspaceMount` or `workspaceFolder` (this is how one
+  project opts out);
+- it is a Docker Compose project;
+- the project is not under a code root, or is one;
+- it is a worktree with an absolute `gitdir:`, or whose primary repo is not
+  under the same code root;
+- a path contains a comma;
+- another mount already uses the target from a different source. A
+  `devc:source` row for the project itself is not a conflict: it is dropped from
+  the merged config, since it is the same mount.
+
+`devc status` prints `workspace: <target> (mirrored from code root <root>)`, or
+`workspace: CLI default (<reason>)` when it is skipped. Mounts are set when a
+container is created, so an existing container keeps its old path until
+`devc build`; `devc status` says `container predates this` when that is the
+case. Only a literal `true` turns it on; any other value is ignored with a
+notice. `devc init` does not write these keys: a committed
+`devcontainer.json` is shared by every worktree, and no devcontainer variable
+can express a per-worktree target.
 
 #### Which file it writes
 

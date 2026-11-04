@@ -60,6 +60,26 @@ Deno.test('ancestorRepoRoot: config-decided mounts are left alone', async () => 
   );
 });
 
+// devc's own code-root mirror sets `workspaceMount` too, but it mounts the same git root the CLI
+// would — so the walk-up surprise is still there to ask about.
+Deno.test('ancestorRepoRoot: a mirrored workspaceMount still checks the walk-up', async () => {
+  const config = { workspaceMount: 'type=bind,source=/x,target=/y' };
+  assertEquals(
+    await ancestorRepoRoot(config, PROJECT, rootAt(ANCESTOR), true),
+    ANCESTOR,
+  );
+});
+
+Deno.test('guard: asks when the workspace mount is the mirror', async () => {
+  const { d, asked } = deps({ root: ANCESTOR, answer: true });
+  const m = {
+    config: { workspaceMount: 'type=bind,source=/x,target=/y' },
+    workspaceMirror: { source: ANCESTOR },
+  } as unknown as MergedConfig;
+  await guardAncestorRepoMount(m, PROJECT, false, d);
+  assertEquals(asked, [`Mount ${ANCESTOR} anyway?`]);
+});
+
 Deno.test('guard: asks before creating, proceeds on yes', async () => {
   const { d, warned, asked } = deps({ root: ANCESTOR, answer: true });
   await guardAncestorRepoMount(merged(), PROJECT, false, d);

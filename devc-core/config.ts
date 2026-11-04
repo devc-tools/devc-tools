@@ -453,6 +453,26 @@ export function bridgeRepoAllowFromConfig(cfg: GlobalConfig): unknown {
   return cfg.extra.bridgeRepoAllow;
 }
 
+/**
+ * `mirrorCodeRoots`: mount a project under a code root at `/workspaces/<path under the root>`
+ * even as the primary workspace, rather than at the devcontainer CLI's `/workspaces/<basename>`
+ * (see `workspace_mirror.ts`). Kept in `extra`, so every save preserves it. Only a literal `true`
+ * turns it on; absent or `false` is off, and any other value is off with one notice per process —
+ * a stray `"true"` must not silently change where every project mounts, nor break a command.
+ */
+export function mirrorCodeRootsFromConfig(cfg: GlobalConfig): boolean {
+  const raw = cfg.extra.mirrorCodeRoots;
+  if (raw === undefined || raw === false) return false;
+  if (raw === true) return true;
+  noticeOnce(
+    `mirrorCodeRoots:${cfg.path}`,
+    `devc: ${
+      displayPath(cfg.path)
+    }: mirrorCodeRoots must be true or false, ignored`,
+  );
+  return false;
+}
+
 /** Construct a config value from explicit lists (used by tests and the wizard save path). */
 export function makeGlobalConfig(
   codeRoots: string[],

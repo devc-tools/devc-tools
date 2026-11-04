@@ -66,6 +66,7 @@ import {
   webSourceFromConfig,
 } from '@devc-tools/core/config.ts';
 import { initProject } from '@devc-tools/core/init.ts';
+import { workspaceMirrorStatusLine } from '@devc-tools/core/workspace_mirror.ts';
 import {
   globalConfigExists,
   type RepoScope,
@@ -717,6 +718,14 @@ if (subcommand === 'status') {
   await printGitProtection(target, merged);
   if (!(merged instanceof Error)) {
     console.log(repoOverlayStatusLine(merged.repoOverlay));
+    const mirrorLine = workspaceMirrorStatusLine(
+      merged.workspaceMirror,
+      merged.workspaceMirrorSkipped,
+      merged.workspaceMirror === null
+        ? null
+        : await getContainerMounts(target).catch(() => null),
+    );
+    if (mirrorLine !== null) console.log(mirrorLine);
   }
   for (
     const line of await bridgeStatusLines(

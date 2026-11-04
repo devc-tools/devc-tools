@@ -13,6 +13,7 @@ import {
   jiraFromConfig,
   loadGlobalConfig,
   makeGlobalConfig,
+  mirrorCodeRootsFromConfig,
   resolveGlobalConfigPath,
   saveGlobalConfig,
   webSourceFromConfig,
@@ -571,5 +572,56 @@ Deno.test('globalConfigExists: true for either file', async () => {
     await Deno.remove(`${dir}/config.jsonc`);
     await Deno.writeTextFile(`${dir}/config.json`, '{}');
     assertEquals(await globalConfigExists(undefined, dir), true);
+  });
+});
+
+Deno.test('mirrorCodeRootsFromConfig: only literal true is on, preserved on save', async () => {
+  await withTemp(async (dir) => {
+    const path = `${dir}/config.json`;
+    assertEquals(
+      mirrorCodeRootsFromConfig(await loadGlobalConfig(path)),
+      false,
+    );
+    for (const [value, want] of [[true, true], [false, false]] as const) {
+      await Deno.writeTextFile(
+        path,
+        JSON.stringify({ mirrorCodeRoots: value }),
+      );
+      assertEquals(
+        mirrorCodeRootsFromConfig(await loadGlobalConfig(path)),
+        want,
+      );
+    }
+
+    const notices: string[] = [];
+    setLogger((_level, message) => notices.push(message));
+    try {
+      await Deno.writeTextFile(path, '{"mirrorCodeRoots": "true"}');
+      assertEquals(
+        mirrorCodeRootsFromConfig(await loadGlobalConfig(path)),
+        false,
+      );
+    } finally {
+      setLogger(null);
+    }
+    assert(
+      notices.some((n) => n.includes('mirrorCodeRoots must be true or false')),
+    );
+
+    await Deno.writeTextFile(
+      path,
+      '{"codeRoots":["~/code"],"mirrorCodeRoots":true}',
+    );
+    const cfg = await loadGlobalConfig(path);
+    await saveGlobalConfig(
+      makeGlobalConfig(
+        ['~/code', '~/w'],
+        [],
+        path,
+        cfg.extra,
+        cfg.recentSkills,
+      ),
+    );
+    assertEquals(mirrorCodeRootsFromConfig(await loadGlobalConfig(path)), true);
   });
 });

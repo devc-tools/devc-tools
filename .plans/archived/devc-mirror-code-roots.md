@@ -12,7 +12,7 @@ init`"). It is off by default.
 
 ## Checklist
 
-- [ ] Step 0 — confirm three CLI behaviors against the embedded `@devcontainers/cli` (0.88.0) and
+- [x] Step 0 — confirm three CLI behaviors against the embedded `@devcontainers/cli` (0.88.0) and
       record the results in this plan under "Step 0 results". If any one differs, stop and report:
       1. With both `workspaceMount` and `workspaceFolder` set, the CLI adds **no**
          `--mount-git-worktree-common-dir` mount for a linked-worktree project (as
@@ -21,19 +21,24 @@ init`"). It is off by default.
          follow the mount's target. This is why the layer always sets both.
       3. A `workspaceMount` string of the form `type=bind,source=<abs>,target=<abs>` is accepted
          (no `consistency=`).
-- [ ] `devc-core/config.ts`: `mirrorCodeRootsFromConfig` (see Contracts)
-- [ ] `devc-core/workspace_mirror.ts` (new): `WorkspaceMirror`, `workspaceMirror`,
+- [x] `devc-core/config.ts`: `mirrorCodeRootsFromConfig` (see Contracts)
+- [x] `devc-core/workspace_mirror.ts` (new): `WorkspaceMirror`, `workspaceMirror`,
       `workspaceMirrorLayer`, `dropRedundantWorkspaceRows` (see Contracts)
-- [ ] `devc-core/merged_config.ts`: `MergedConfigOptions` gains `codeRoots` and `mirrorCodeRoots`;
+- [x] `devc-core/merged_config.ts`: `MergedConfigOptions` gains `codeRoots` and `mirrorCodeRoots`;
       `ensureMergedConfig` applies the layer; `MergedConfig` gains `workspaceMirror`
-- [ ] `devc-core/mod.ts`: export the new module's public names
-- [ ] `devc/git_root_guard.ts`: the guard still runs when the workspace mount is devc's own
-- [ ] `devc/main.ts`: `devc status` prints a workspace-mirror line, including the "container
+- [x] `devc-core/mod.ts`: export the new module's public names
+- [x] `devc/git_root_guard.ts`: the guard still runs when the workspace mount is devc's own
+- [x] `devc/main.ts`: `devc status` prints a workspace-mirror line, including the "container
       predates it" case
-- [ ] Docs: `.plans/design/devc-design.md` (global config section and the merged-config layer
+- [x] Docs: `.plans/design/devc-design.md` (global config section and the merged-config layer
       list), `devc/README.md` (global config keys)
-- [ ] Tests listed under Relevant Files
-- [ ] `deno task test` (or the repo's usual check/test commands) pass for `devc-core` and `devc`
+- [x] Tests listed under Relevant Files
+- [x] `deno task test` (or the repo's usual check/test commands) pass for `devc-core` and `devc`
+      — `devc` 980/980; `devc-core` all but two that already fail on the unchanged tree
+      (`default_config_test.ts` "materialized (zero-config) devcontainer.json…" and
+      `git_dirs_test.ts` "cliWorktreeMounts matches what the pinned devcontainer CLI computes").
+      devc-desktop's `tsc` could not run in this container (`@typescript/typescript-linux-x64`
+      missing); desktop does not reference `MergedConfig`, and the new fields are additive.
 
 ## Contracts
 
@@ -271,4 +276,30 @@ Tests:
 
 ## Step 0 results
 
-_(filled in by the implementing agent)_
+Read from the embedded CLI's `dist/spec-node/devContainersSpecCLI.js` (0.88.0), function `Uv`
+(workspace defaulting). All three confirmed:
+
+1. The defaulting block — including the common-dir `additionalMountString` — runs only
+   `if (mountWorkspaceGitRoot && (!workspaceFolder || !("workspaceMount" in config)))`. With both
+   keys set it is skipped entirely: no common-dir mount.
+2. With `workspaceMount` set and `workspaceFolder` unset, the block still runs and sets
+   `workspaceFolder = posix.join(E, relative(gitRoot, folder))`, where `E` is the CLI's own
+   `/workspaces/…` target — it does not follow the mount.
+3. On Linux the CLI itself emits `type=bind,source=<abs>,target=<abs>` (the `consistency=` suffix
+   is added only off Linux), so that form is accepted.
+
+## As built — differences from the contracts above
+
+- `WorkspaceMirror` also carries `codeRoot` (for the status line).
+- `workspaceMirrorDecision(...)` returns `{ mirror, reason }`; `workspaceMirror(...)` is its mirror
+  alone. Both take optional `fs` and `home` for tests. Reasons are `MIRROR_REASON.*` and
+  `mirrorTargetTakenReason(source)`; one more than planned, `MIRROR_REASON.primaryOutsideRoot`.
+- `MergedConfig` gains `workspaceMirrorSkipped: string | null` beside `workspaceMirror`.
+- Worktree base: rather than `resolveWorktree`'s common-ancestor fallback, the mirror uses the
+  **longest code root holding both** the worktree and its primary, and skips with
+  `primaryOutsideRoot` when there is none. Targets therefore always match the wizard's rows.
+- A same-target row that is `readonly` counts as a conflict (never dropped), so a deliberately
+  frozen mount is not silently replaced by a writable one.
+- `ancestorRepoRoot` gains a fourth parameter `mirrored = false`; `guardAncestorRepoMount` passes
+  `merged.workspaceMirror !== null`.
+- The status line is a pure core helper, `workspaceMirrorStatusLine(mirror, skipped, mounts)`.
