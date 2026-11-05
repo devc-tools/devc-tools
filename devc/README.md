@@ -295,7 +295,9 @@ is published from any container: the host server finds devcontainers with
 - **Sidebar:** each repo or worktree of a container is a **repo card**: its
   name, branch and git mark on top (**● N** changes to commit in its working
   tree, staged, unstaged and untracked together, red while any are in conflict;
-  **↑N** commits to push and **↓N** to pull against its upstream, or a quiet
+  **↑N** commits to push and **↓N** to pull against its upstream (with no
+  upstream, **↑N** counts the commits on no remote branch: what a push would
+  publish, so a `gh-push` branch shows it too), or a quiet
   **✓** when level; the tooltip has each count). The ● count comes from `git
   status` run inside the running container (never on the host, which would run
   the repo's own config), or directly for a project on this machine, every
@@ -313,19 +315,25 @@ is published from any container: the host server finds devcontainers with
   environment: never a merge commit, rebase or stash, and git refuses one that
   would overwrite an uncommitted change. It is refused while an agent in the
   project is working, and when the branch has diverged (**↑N ↓N**: merge or
-  rebase in the project). **Push** (the menu) shows only for a running
-  container whose host-only bridge policy grants `gh-push` on that repo
-  (`devc up --bridge-allow gh-push`) while its pinned branch is checked out. It
-  runs `devc-bridge gh-push --repo <path>` inside the container with no
-  confirmation, because it is exactly what the container's agent can already
-  run: the same grant, and every refusal (the default branch, a change under
-  `.github/workflows` or `.github/actions`, an LFS pointer, a push that is not a
-  fast-forward). The server re-reads the policy for every push and never takes
-  the page's word, so it works under `--live` and `--live-yolo` too. A toast
-  shows `gh-push`'s `pushed: …` or `up to date: …` line, or why it refused. For
-  anything else (another branch, no grant, a project on this machine, or a
-  push Push refuses), **Push…** asks devc-desktop, below. A spinner shows in the
-  mark while any of these runs, and a toast if it can't. A card's **Commits** button, or a click on its **↑N**,
+  rebase in the project). **Push** (the menu) and a click on **↑N** are one
+  action, offered together or not at all. With the container's own `gh-push`
+  grant (the container running, `devc up --bridge-allow gh-push` on that repo,
+  its pinned branch checked out) it runs `devc-bridge gh-push --repo <path>`
+  inside the container with no confirmation, because it is exactly what the
+  container's agent can already run: the same grant, and every refusal (the
+  default branch, a change under `.github/workflows` or `.github/actions`, an
+  LFS pointer, a push that is not a fast-forward). The server re-reads the
+  policy for every push and never takes the page's word, so it works under
+  `--live` and `--live-yolo` too. A toast shows `gh-push`'s `pushed: …` or
+  `up to date: …` line, and **↑N** clears once devc web has looked at the
+  remote again. When `gh-push` refuses something only you may waive (exit 3)
+  and devc-desktop is connected, the server asks devc-desktop for you: the toast
+  reads `needs your confirmation in devc-desktop: <reason>`, and you confirm
+  the push in its HOST drawer. Without a grant, Push asks devc-desktop
+  directly. With neither, or when the branch tracks something other than
+  `origin/<branch>` (Push publishes `origin/<branch>`), **↑N** is read-only and
+  its tooltip says why. A spinner shows in the mark while a fetch, pull or push
+  runs, and a toast if it can't. A card's **Commits** button (never **↑N**)
   shows the branch's history on a colored rail: hollow dots to pull, solid dots
   local only, and small muted dots under a **Pushed** line. It needs no bridge
   grant, and works for a stopped container: it reads the host's mirror, with the
@@ -861,8 +869,9 @@ is published from any container: the host server finds devcontainers with
   `devc web: desktop <64 hex>`, and keeps it out of every URL, page and
   environment (projects on this machine inherit devc web's environment; under
   `--live-yolo` the supervisor hands it to its child on stdin). The page can
-  then **ask** the app: **Push…** on a repo card's menu (`request_push`; a
-  granted container's **Push** never goes through the app), and,
+  then **ask** the app: **Push** on a repo card (the menu or **↑N**:
+  `request_push`) when no `gh-push` grant applies, or when `gh-push` refused
+  what only you may waive (the server queues it then), and,
   under `--live`, **Start** on a stopped project (`request_project`). The
   request waits on devc web's server until the app reads it; the app works out
   the push (`devc git push-plan`) or the start itself and you confirm it in its

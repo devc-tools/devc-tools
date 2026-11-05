@@ -179,7 +179,7 @@ built for another version of devc web's messages than the running one speaks, th
 `This devc-desktop was built for protocol <n>; devc web speaks <m>. Rebuild devc-desktop.` and
 nothing else.
 
-**Push…**, **Start**, **Stop** and **Remove container** in the pane don't run at once. Each
+**Push** (when it asks the app), **Start**, **Stop** and **Remove container** in the pane don't run at once. Each
 shows a card at the top of the pane, worked out by the app as in the drawer's Actions column
 (below): a push shows the app's own push plan, a start the folder and its `initializeCommand`
 note. The confirm arms 1 s after the card last changed. The card's progress streams into it.
@@ -262,11 +262,12 @@ laid over the tile's content. It has the same paste bar as the drawer.
 
 ### Host actions
 
-devc web's page can **ask** for a push or a container start: **Push…** on a repo card's menu,
-and, under `--live`, **Start** on a stopped project. It can never confirm one. (A container
-granted `gh-push` also gets **Push**, which devc web runs without the app: it is
-`devc-bridge gh-push` inside that container, which the container's agent can already run, with
-all of its refusals.) The request shows
+devc web's page can **ask** for a push or a container start: **Push** on a repo card (its menu,
+or a click on **↑N**) when no `gh-push` grant applies, and, under `--live`, **Start** on a
+stopped project. It can never confirm one. A container granted `gh-push` pushes without the
+app (`devc-bridge gh-push` inside that container, which its agent can already run, with all of
+its refusals). When that refuses what only you may waive (a workflow change, say), devc web's
+server queues the push request here itself. The request shows
 in the drawer's **Actions** column, 280 px to the left of the terminal and hidden when nothing is
 pending. A request never opens the drawer or takes focus. With the drawer closed, only its
 strip naming this machine shows at the bottom of the window, badged `1 request`, until you open it with

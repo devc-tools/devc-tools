@@ -92,8 +92,14 @@ export const LABELS = {
   files: 'Files',
   fetch: 'Fetch',
   requestPush: 'Push…',
-  /** Runs under the container's own `gh-push` grant, with no confirmation. */
+  /** The menu item and the ↑N click: the container's own `gh-push`, or devc-desktop's confirmation. */
   push: 'Push',
+  /** A clickable ↑N's tooltip. */
+  pushAhead: (branch) => `Push: publish ${branch} to origin`,
+  /** A read-only ↑N's tooltip line. */
+  pushUnavailable: (reason) => `Push unavailable: ${reason}`,
+  /** A push the server sent to devc-desktop for the user's confirmation. */
+  pushAsked: (problem) => `needs your confirmation in devc-desktop: ${problem}`,
   pull: 'Pull',
   /** A faded ↓N / +N's tooltip: `upstream` is `<remote>/<branch>`. */
   fetchUnfetched: (n, upstream) =>

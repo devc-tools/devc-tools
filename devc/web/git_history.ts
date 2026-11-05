@@ -10,7 +10,7 @@
 // agrees with them. A branch with none (the usual `gh-push` branch) is compared with every
 // remote-tracking ref the repo has, and with `origin/<branch>` as the host finds it on the remote.
 
-import { isFetchableRemote, readRemoteUrl, type Upstream } from './git_repo.ts';
+import { readRemoteUrl } from './git_repo.ts';
 import {
   defaultMirrorOpts,
   FETCH_FLAGS,
@@ -21,6 +21,7 @@ import {
   type Located,
   mirrorFor,
   type MirrorOpts,
+  pushedRefs,
   readGitState,
   run,
   runCapped,
@@ -57,9 +58,6 @@ export type HistoryReading = CommitHistory | GitProblem;
 /** The most commits listed to pull, and local: past it, the section gives the total. */
 export const UNPUSHED_SHOWN = 100;
 export const PUSHED_SHOWN = 50;
-
-/** How long one look at the remote may hold back the answer. */
-const REMOTE_CHECK_TIMEOUT_MS = 15_000;
 
 /** The most output one `git log` may give: commit subjects are the repo's, and any length. */
 const LOG_MAX_OUTPUT = 4 * 1024 * 1024;
@@ -237,60 +235,4 @@ export async function readCommitHistory(
     pushed,
     morePushed,
   };
-}
-
-/**
- * For a branch with nothing upstream to compare with: copies the repo's remote-tracking refs into
- * the mirror, and looks for the branch on the remote, which is how a `gh-push` shows, as the repo's
- * own refs never hear of it. Returns the refs to exclude and the label for them.
- */
-async function pushedRefs(
-  folder: string,
-  mirror: string,
-  prefix: string,
-  upstream: Upstream | null,
-  originUrl: string | null,
-  branch: string,
-  opts: MirrorOpts & { checkRemote?: boolean },
-): Promise<{ excludes: string[]; compare: string | null }> {
-  const inMirror = (...args: string[]) => [`--git-dir=${mirror}`, ...args];
-  const copies = `${prefix}/remotes`;
-  const pushedRef = `${prefix}/pushed`;
-  // Prunes only under its own refspec, so a remote branch deleted from the repo goes here too.
-  await run(
-    inMirror(...FETCH_FLAGS, '--prune', folder, `+refs/remotes/*:${copies}/*`),
-    opts.localFetchTimeoutMs ?? LOCAL_FETCH_TIMEOUT_MS,
-  );
-  const remoteBranch = upstream?.branch ?? branch;
-  if (
-    opts.checkRemote && originUrl !== null &&
-    (opts.fetchable ?? isFetchableRemote)(originUrl)
-  ) {
-    const r = await run(
-      inMirror(
-        ...FETCH_FLAGS,
-        originUrl,
-        `+refs/heads/${remoteBranch}:${pushedRef}`,
-      ),
-      REMOTE_CHECK_TIMEOUT_MS,
-    );
-    // Off the remote now, so no longer pushed there. Any other failure (no network) says nothing,
-    // so what was seen last stands.
-    if ('failed' in r && /couldn't find remote ref/.test(r.failed)) {
-      await run(inMirror('update-ref', '-d', pushedRef));
-    }
-  }
-  const listed = await run(
-    inMirror('for-each-ref', '--format=%(refname)', `${prefix}/`),
-  );
-  const refs = 'out' in listed ? listed.out.split('\n').filter((r) => r) : [];
-  const excludes = refs.filter((r) =>
-    r === pushedRef || r.startsWith(`${copies}/`)
-  );
-  const compare = refs.includes(pushedRef)
-    ? `${upstream?.remote ?? 'origin'}/${remoteBranch}`
-    : excludes.length
-    ? 'remote branches'
-    : null;
-  return { excludes, compare };
 }

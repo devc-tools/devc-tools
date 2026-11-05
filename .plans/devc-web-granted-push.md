@@ -31,6 +31,10 @@ Nothing changes in the policy format, in `gh-push`, in the bridge, or in devc-de
 - [x] Docs: `devc/README.md`, `devc-bridge/README.md`, `devc-desktop/README.md` (below).
 - [ ] Manual (the user): the Validation states, against a real container and GitHub repo.
 
+**2026-11-05:** `devc-web-push-arrow` replaced this plan's page side. `RepoView.pushGrant` became
+`push` / `pushUnavailable`, the separate **Push…** item is gone, and `↑N` is the same action as
+Push. Run the manual checks in that plan instead of the menu checks below.
+
 **2026-11-05:** implemented; everything but the manual check is done (`deno task check`,
 `deno fmt --check` on every touched file, and the new and affected tests). The full
 `deno task test` has one failure that has nothing to do with this plan:

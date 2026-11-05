@@ -18,7 +18,7 @@ import type { PolicyLine } from '@devc-tools/core/bridge.ts';
 import { projectKey } from '@devc-tools/core/merged_config.ts';
 import { readPolicy } from '../bridge.ts';
 import type { EnvironmentKind, PrBackend } from './environment.ts';
-import { type GitReading, isGitProblem } from './git_status.ts';
+import { type GitReading, type GitStatus, isGitProblem } from './git_status.ts';
 import { bridgeMessage } from './pr_review.ts';
 
 /** How long one `gh-push` may run: several network steps, each up to 300 s by default. */
@@ -37,10 +37,10 @@ export const PUSHED_MOMENTS_AGO = 'pushed moments ago: try again soon';
 export const PUSH_TIMED_OUT = 'devc-bridge gh-push timed out';
 export const PUSH_TOO_LARGE = 'bridge output too large';
 
-/** How a push ended. */
+/** How a push ended: a failed `gh-push` run carries its exit `code` (3: a content refusal). */
 export type PushOutcome =
   | { ok: true; message: string }
-  | { ok: false; problem: string };
+  | { ok: false; problem: string; code?: number };
 
 const dropSlash = (p: string) => p.length > 1 ? p.replace(/\/+$/, '') : p;
 
@@ -109,7 +109,11 @@ async function pushOnce(
     if (run.kind === 'timeout') return { ok: false, problem: PUSH_TIMED_OUT };
     if (run.kind === 'too_large') return { ok: false, problem: PUSH_TOO_LARGE };
     if (run.code !== 0) {
-      return { ok: false, problem: bridgeMessage(run.stderr, run.code) };
+      return {
+        ok: false,
+        problem: bridgeMessage(run.stderr, run.code),
+        code: run.code,
+      };
     }
     const lines = run.stdout.split('\n').map((l) => l.trim()).filter((l) => l);
     return {
@@ -122,25 +126,80 @@ async function pushOnce(
 }
 
 /**
- * Which listed repo folders get **Push**: a running container project's repo whose policy line
- * grants `gh-push` and pins the branch checked out (`branchOf`, from the git watch). Absent
- * folders get no Push.
+ * What a repo card's Push does (`RepoView.push`): `now` runs the container's own `gh-push`
+ * (escalating a refusal to devc-desktop), `confirm` asks devc-desktop. Or why there is no Push
+ * although there is something to push (`pushUnavailable`). Neither when there is nothing to push.
  */
-export async function pushGrants(
+export type PushRoute =
+  | { push: 'now' | 'confirm' }
+  | { pushUnavailable: string }
+  | Record<never, never>;
+
+export const NEEDS_GRANT =
+  'needs a gh-push grant (on the host: devc up --bridge-allow gh-push) or devc-desktop';
+export const START_TO_PUSH = 'start the container to push';
+
+/**
+ * The rules for one repo, in order (see `.plans/devc-web-push-arrow.md`). `line` is the policy
+ * line pinning the repo that grants `gh-push` ({@link pushLine}), whatever its branch; `running`
+ * whether its container runs; `desktop` whether devc-desktop is connected.
+ */
+export function pushRoute(
+  git: GitStatus | null | undefined,
+  line: PolicyLine | null,
+  running: boolean,
+  desktop: boolean,
+): PushRoute {
+  if (!git || git.ahead === 0) return {};
+  if (git.upstream !== null && git.upstream !== `origin/${git.branch}`) {
+    return {
+      pushUnavailable:
+        `tracks ${git.upstream}; Push publishes origin/${git.branch}`,
+    };
+  }
+  if (line !== null && running && line.branch === git.branch) {
+    return { push: 'now' };
+  }
+  if (desktop) return { push: 'confirm' };
+  if (line !== null && !running) return { pushUnavailable: START_TO_PUSH };
+  if (line !== null) {
+    return {
+      pushUnavailable: `${git.branch} is not the pinned branch ${line.branch}`,
+    };
+  }
+  return { pushUnavailable: NEEDS_GRANT };
+}
+
+/**
+ * Every listed repo's {@link PushRoute}, by folder: a container project's policy read from the
+ * host (never the container), a host project's never (it has no grant). Repos with nothing to
+ * push are left out.
+ */
+export async function pushRoutes(
   projects: readonly {
     localFolder: string;
+    /** Its policy applies: a container project. */
+    container: boolean;
+    /** Its container runs. */
+    running: boolean;
     folders: readonly string[];
   }[],
-  branchOf: (folder: string) => string | null,
+  gitOf: (folder: string) => GitReading | undefined,
   read: PolicyReader,
-): Promise<Set<string>> {
-  const out = new Set<string>();
+  desktop: boolean,
+): Promise<Map<string, PushRoute>> {
+  const out = new Map<string, PushRoute>();
   for (const p of projects) {
-    const lines = await read(p.localFolder);
-    if (lines.length === 0) continue;
+    const lines = p.container ? await read(p.localFolder) : [];
     for (const folder of p.folders) {
-      const line = pushLine(lines, folder);
-      if (line !== null && branchOf(folder) === line.branch) out.add(folder);
+      const g = gitOf(folder);
+      const route = pushRoute(
+        g && !isGitProblem(g) ? g : null,
+        pushLine(lines, folder),
+        p.running,
+        desktop,
+      );
+      if (Object.keys(route).length > 0) out.set(folder, route);
     }
   }
   return out;
@@ -188,4 +247,32 @@ export async function pushRepo(
     return { ok: false, problem: PUSHED_MOMENTS_AGO };
   }
   return await grantedPush(at.env.pr, msg.folder, line.target);
+}
+
+/** What `push_result` carries for a finished push. */
+export type PushAnswer =
+  | { ok: true; message: string }
+  | { ok: false; problem: string; asked?: true };
+
+/**
+ * A push's answer, escalating a `gh-push` exit 3 (a refusal only the user may waive) to a
+ * devc-desktop push request through `ask` (`DesktopRequests.add`), when devc-desktop is connected
+ * (`ask` non-null). Every other outcome is answered as it is.
+ */
+export function escalate(
+  outcome: PushOutcome,
+  ask:
+    | (() => { ok: true } | { ok: false; problem: string })
+    | null,
+): PushAnswer {
+  if (outcome.ok) return outcome;
+  if (outcome.code !== 3 || ask === null) {
+    return { ok: false, problem: outcome.problem };
+  }
+  const added = ask();
+  return added.ok ? { ok: false, problem: outcome.problem, asked: true } : {
+    ok: false,
+    problem:
+      `${outcome.problem}; and devc-desktop could not be asked: ${added.problem}`,
+  };
 }

@@ -92,7 +92,6 @@ import {
   call,
   containerByFolder,
   containers,
-  desktopChannel,
   displayName,
   fileHostPath,
   list,
@@ -821,8 +820,14 @@ export function repoCard(card, side, worktrees = 0) {
     ((repo.git.unfetched ?? 0) > 0 || gitOp === 'fetch');
   const canPull = gitOn &&
     ((repo.git.ahead === 0 && repo.git.behind > 0) || gitOp === 'pull');
-  // Push needs no upstream: a pinned branch never pushed has none.
-  const canPush = !!repo && !!c && !!repo.pushGrant;
+  // Push (the menu item and the ↑N click, one action): the server's route for this repo. It
+  // needs no upstream, and `confirm` needs no running environment.
+  const canPush = !!repo?.push;
+  const push = !repo?.push
+    ? undefined
+    : repo.push === 'now'
+    ? () => repoGitRequest('push', localFolder, repo.folder)
+    : () => requestPush(localFolder, repo.folder);
   const prOn = canPr && sidebarState.prOpen.has(prKey(localFolder, fr.root));
   const tree = repo ? fileTree(fr) : null;
   const filesOn = !!tree && tree.isOpen('');
@@ -893,22 +898,19 @@ export function repoCard(card, side, worktrees = 0) {
           [
             ...(repo
               ? [
-                // Push: the container's own `gh-push` grant, no confirmation (the server checks
-                // it). Push…: devc-desktop shows its own push plan, and the user confirms it there.
+                // Push: the container's own `gh-push` grant at once, or devc-desktop's
+                // confirmation, as the server routes it; the same as a click on ↑N.
                 ...repoGitItems({
                   push: canPush,
                   pull: canPull,
                   fetch: canFetch,
-                  requestPush: desktopChannel,
                 }).map((k) => [
                   LABELS[k],
-                  k === 'requestPush'
-                    ? () => requestPush(localFolder, repo.folder)
+                  k === 'push'
+                    ? /** @type {() => void} */ (push)
                     : () => repoGitRequest(k, localFolder, repo.folder),
                 ]),
-                ...(canPush || canPull || canFetch || desktopChannel
-                  ? [null]
-                  : []),
+                ...(canPush || canPull || canFetch ? [null] : []),
                 ...dirMenuItems(fr, ''),
                 ...jiraItems(branch),
               ]
@@ -929,18 +931,19 @@ export function repoCard(card, side, worktrees = 0) {
             repo.changes,
             repo.changesProblem,
           ),
-          // A push of a branch with no upstream still shows its spinner.
-          gitOn || gitOp === 'push'
-            ? {
-              busy: gitOp !== undefined,
-              upstream: repo.git?.upstream ?? '',
-              fetch: () => repoGitRequest('fetch', localFolder, repo.folder),
-              pull: canPull
-                ? () => repoGitRequest('pull', localFolder, repo.folder)
-                : undefined,
-              commits: toggleCommits,
-            }
-            : undefined,
+          {
+            busy: gitOp !== undefined,
+            upstream: repo.git?.upstream ?? '',
+            fetch: gitOn
+              ? () => repoGitRequest('fetch', localFolder, repo.folder)
+              : undefined,
+            pull: canPull
+              ? () => repoGitRequest('pull', localFolder, repo.folder)
+              : undefined,
+            push,
+            pushTitle: branch ? LABELS.pushAhead(branch) : LABELS.push,
+            pushUnavailable: repo.pushUnavailable,
+          },
         ),
       ]
       : [h('span', { class: 'repo-base' }, containerNameOf(localFolder))]),
@@ -1405,12 +1408,13 @@ async function resumeSession(c, s) {
 
 /**
  * ● changes to commit, ↑ push / ↓ pull counts, or a quiet ✓ / ?, from `gitSync` or `gitRollup`;
- * nothing for no repo. On a repo card (`opts`): a click on a faded ↓ / +N (`unfetched`) fetches,
- * a click on ↓ (`behind`) pulls when `opts.pull` is given, a click on ↑ (`ahead`) shows or hides
- * the card's commits; with `opts.busy`, a spinner follows the counts.
+ * nothing for no repo. On a repo card (`opts`): a click on a faded ↓ / +N (`unfetched`) fetches
+ * when `opts.fetch` is given, a click on ↓ (`behind`) pulls when `opts.pull` is, and a click on ↑
+ * (`ahead`) pushes when `opts.push` is: exactly the menu's Push. Without it ↑ is read-only, its
+ * tooltip saying why (`opts.pushUnavailable`). With `opts.busy`, a spinner follows the counts.
  *
- * @param {{fetch: () => void, pull?: () => void, commits: () => void, busy: boolean,
- *   upstream: string}} [opts]
+ * @param {{fetch?: () => void, pull?: () => void, push?: () => void, pushTitle?: string,
+ *   pushUnavailable?: string, busy: boolean, upstream: string}} [opts]
  */
 export function gitMark(sync, opts) {
   if (!sync) return '';
@@ -1435,7 +1439,7 @@ export function gitMark(sync, opts) {
       'data-diverged': sync.diverged,
     },
     ...sync.marks.map((m) =>
-      opts && m.dir === 'unfetched'
+      opts?.fetch && m.dir === 'unfetched'
         ? button(
           m,
           LABELS.fetchUnfetched(
@@ -1446,8 +1450,15 @@ export function gitMark(sync, opts) {
         )
         : opts?.pull && m.dir === 'behind'
         ? button(m, LABELS.pullBehind(opts.upstream), opts.pull)
-        : opts && m.dir === 'ahead'
-        ? button(m, LABELS.commits, opts.commits)
+        : opts?.push && m.dir === 'ahead'
+        ? button(m, opts.pushTitle ?? LABELS.push, opts.push)
+        : opts?.pushUnavailable && m.dir === 'ahead'
+        ? h('span', {
+          'data-dir': m.dir,
+          title: `${sync.title}\n${
+            LABELS.pushUnavailable(opts.pushUnavailable)
+          }`,
+        }, m.text)
         : h('span', { 'data-dir': m.dir }, m.text)
     ),
     opts?.busy
@@ -1499,7 +1510,10 @@ export function onRepoGitDone(msg) {
     msg.type !== 'push_result'
   ) return ours;
   pendingRequests.delete(msg.id);
-  if (!msg.ok) {
+  if (msg.type === 'push_result' && !msg.ok && msg.asked) {
+    // A refusal only the user may waive: the server asked devc-desktop.
+    toast(LABELS.pushAsked(String(msg.problem ?? '')));
+  } else if (!msg.ok) {
     const label = msg.type === 'fetch_result'
       ? LABELS.fetch
       : msg.type === 'pull_result'

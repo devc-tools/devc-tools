@@ -228,7 +228,8 @@ Deno.test('gitSync shows commits to push and pull, a quiet mark when in sync', (
     diverged: false,
     title: 'feature → origin/feature: in sync (as of the last fetch)',
   });
-  assertEquals(gitSync({ ...git, upstream: null, ahead: 3 }), null);
+  // No upstream: nothing to push shows nothing (↑N with commits: see the no-upstream test).
+  assertEquals(gitSync({ ...git, upstream: null }), null);
   assertEquals(gitSync(null), null);
   assertEquals(gitSync(undefined), null);
   assertEquals(gitSync(undefined, ''), null);
@@ -897,13 +898,30 @@ Deno.test('gitRollup sums changes to commit, in conflict colors when any repo ha
   );
 });
 
-Deno.test('repoGitItems: Push first, Push… last, both when both apply', () => {
-  const none = { push: false, pull: false, fetch: false, requestPush: false };
+Deno.test('repoGitItems: Push, Pull, Fetch', () => {
+  const none = { push: false, pull: false, fetch: false };
   assertEquals(repoGitItems(none), []);
   assertEquals(repoGitItems({ ...none, push: true }), ['push']);
-  assertEquals(repoGitItems({ ...none, requestPush: true }), ['requestPush']);
-  assertEquals(
-    repoGitItems({ push: true, pull: true, fetch: true, requestPush: true }),
-    ['push', 'pull', 'fetch', 'requestPush'],
-  );
+  assertEquals(repoGitItems({ push: true, pull: true, fetch: true }), [
+    'push',
+    'pull',
+    'fetch',
+  ]);
+});
+
+Deno.test('gitSync: a branch with no upstream shows ↑N only with something to push', () => {
+  const git = {
+    branch: 'feat',
+    upstream: null,
+    ahead: 3,
+    behind: 0,
+    gone: false,
+    unfetched: 0,
+  };
+  assertEquals(gitSync(git), {
+    marks: [{ dir: 'ahead', text: '↑3' }],
+    diverged: false,
+    title: '3 to push: on no remote branch',
+  });
+  assertEquals(gitSync({ ...git, ahead: 0 }), null);
 });

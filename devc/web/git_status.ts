@@ -16,6 +16,7 @@ import { join } from 'jsr:@std/path';
 import {
   isFetchableRemote,
   readBranch,
+  readRemoteUrl,
   readUpstream,
   resolveRepo,
   type Upstream,
@@ -229,10 +230,13 @@ export async function readGitState(
   if (at === null || isGitProblem(at)) return at;
   const { branch, upstream, mirror, prefix } = at;
   if (upstream === null) {
+    // `ahead`: what a push would publish, so the ↑ mark shows on a `gh-push` branch too.
+    const ahead = await unpushedCount(folder, at, opts);
+    if (typeof ahead !== 'number') return ahead;
     return {
       branch,
       upstream: null,
-      ahead: 0,
+      ahead,
       behind: 0,
       gone: false,
       unfetched: 0,
@@ -318,6 +322,135 @@ export async function readGitStatus(
 }
 
 const FETCH_TIMEOUT_MS = 60_000;
+
+/** How long one look at the remote may hold back the answer. */
+const REMOTE_CHECK_TIMEOUT_MS = 15_000;
+
+/**
+ * For a branch with nothing upstream to compare with: copies the repo's remote-tracking refs into
+ * the mirror, and looks for the branch on the remote, which is how a `gh-push` shows, as the repo's
+ * own refs never hear of it. Returns the refs to exclude and the label for them.
+ */
+export async function pushedRefs(
+  folder: string,
+  mirror: string,
+  prefix: string,
+  upstream: Upstream | null,
+  originUrl: string | null,
+  branch: string,
+  opts: MirrorOpts & { checkRemote?: boolean },
+): Promise<{ excludes: string[]; compare: string | null }> {
+  const inMirror = (...args: string[]) => [`--git-dir=${mirror}`, ...args];
+  const copies = `${prefix}/remotes`;
+  const pushedRef = `${prefix}/pushed`;
+  // Prunes only under its own refspec, so a remote branch deleted from the repo goes here too.
+  await run(
+    inMirror(...FETCH_FLAGS, '--prune', folder, `+refs/remotes/*:${copies}/*`),
+    opts.localFetchTimeoutMs ?? LOCAL_FETCH_TIMEOUT_MS,
+  );
+  const remoteBranch = upstream?.branch ?? branch;
+  if (
+    opts.checkRemote && originUrl !== null &&
+    (opts.fetchable ?? isFetchableRemote)(originUrl)
+  ) {
+    const r = await run(
+      inMirror(
+        ...FETCH_FLAGS,
+        originUrl,
+        `+refs/heads/${remoteBranch}:${pushedRef}`,
+      ),
+      REMOTE_CHECK_TIMEOUT_MS,
+    );
+    // Off the remote now, so no longer pushed there. Any other failure (no network) says nothing,
+    // so what was seen last stands.
+    if ('failed' in r && /couldn't find remote ref/.test(r.failed)) {
+      await run(inMirror('update-ref', '-d', pushedRef));
+    }
+  }
+  const listed = await run(
+    inMirror('for-each-ref', '--format=%(refname)', `${prefix}/`),
+  );
+  const refs = 'out' in listed ? listed.out.split('\n').filter((r) => r) : [];
+  const excludes = refs.filter((r) =>
+    r === pushedRef || r.startsWith(`${copies}/`)
+  );
+  const compare = refs.includes(pushedRef)
+    ? `${upstream?.remote ?? 'origin'}/${remoteBranch}`
+    : excludes.length
+    ? 'remote branches'
+    : null;
+  return { excludes, compare };
+}
+
+/**
+ * A branch with no upstream: its commits on no remote branch the host knows of (the repo's own
+ * remote-tracking refs, and `origin/<branch>` as last found on the remote), counted in the mirror
+ * named for `origin`. The Commits section's `localTotal` for the same branch. `0` with no `origin`:
+ * there is nowhere to push. `checkRemote` allows the look at the remote (a network call).
+ */
+async function unpushedCount(
+  folder: string,
+  at: Located,
+  opts: MirrorOpts & { checkRemote?: boolean },
+): Promise<number | GitProblem> {
+  const originUrl = await readRemoteUrl(at.commonDir, 'origin');
+  if (originUrl === null) return 0;
+  const mirror = await mirrorFor(opts, originUrl);
+  if (mirror === null) return { problem: 'could not create the git mirror' };
+  const local = `${at.prefix}/local`;
+  const fetched = await run(
+    [
+      `--git-dir=${mirror}`,
+      ...FETCH_FLAGS,
+      folder,
+      `+refs/heads/${at.branch}:${local}`,
+    ],
+    opts.localFetchTimeoutMs ?? LOCAL_FETCH_TIMEOUT_MS,
+  );
+  if ('failed' in fetched) return { problem: fetched.failed };
+  const { excludes } = await pushedRefs(
+    folder,
+    mirror,
+    at.prefix,
+    null,
+    originUrl,
+    at.branch,
+    opts,
+  );
+  const r = await run([
+    `--git-dir=${mirror}`,
+    'rev-list',
+    '--count',
+    local,
+    ...(excludes.length ? ['--not', ...excludes] : []),
+  ]);
+  if ('failed' in r) return { problem: r.failed };
+  const n = Number(r.out.trim());
+  return Number.isInteger(n)
+    ? n
+    : { problem: 'git rev-list: unexpected output' };
+}
+
+/**
+ * Refreshes what the mirror knows of `folder`'s branch on the remote: its upstream
+ * ({@link fetchUpstream}), or for a branch with none, `origin/<branch>` as the remote has it now
+ * (the look {@link pushedRefs} takes). The git watch's periodic fetch, and the server's after a
+ * Push. Returns whether it looked. Never throws.
+ */
+export async function refreshRemote(
+  folder: string,
+  opts: MirrorOpts = defaultMirrorOpts(),
+): Promise<boolean> {
+  const at = await locate(folder, opts);
+  if (at === null || isGitProblem(at)) return false;
+  if (at.upstream !== null) return await fetchUpstream(folder, opts);
+  const originUrl = await readRemoteUrl(at.commonDir, 'origin');
+  if (originUrl === null || !(opts.fetchable ?? isFetchableRemote)(originUrl)) {
+    return false;
+  }
+  const n = await unpushedCount(folder, at, { ...opts, checkRemote: true });
+  return typeof n === 'number';
+}
 
 /**
  * Fetches `folder`'s upstream branch from its remote into the mirror, when the remote is one
@@ -566,7 +699,7 @@ export class GitStatusWatch {
     if (this.#fetching) return;
     this.#fetching = true;
     try {
-      const fetch = this.opts.fetch ?? ((f: string) => fetchUpstream(f));
+      const fetch = this.opts.fetch ?? ((f: string) => refreshRemote(f));
       for (const folder of new Set(this.opts.folders())) await fetch(folder);
       await this.refresh();
     } finally {

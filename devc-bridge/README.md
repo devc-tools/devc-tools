@@ -792,7 +792,9 @@ Then, inside that container, `devc-bridge gh-push`. It prints
 `pushed: <branch> at <sha> to <remote> (<repo>)`, or `up to date: …` when the
 remote already has that commit. devc web's **Push**, on the repo's card, runs
 this same command inside the container under the same grant, with no
-confirmation: it adds nothing the agent can't already do.
+confirmation: it adds nothing the agent can't already do. A refusal only you may
+waive (exit 3) becomes a push request in devc-desktop, when it is connected,
+for you to confirm there.
 
 **More than one pinned repo: `--repo <path>`.** With several repos pinned,
 name the one to publish by its path in the container —

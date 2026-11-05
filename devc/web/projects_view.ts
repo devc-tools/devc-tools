@@ -40,11 +40,13 @@ export interface RepoView extends MountedRepo {
   /** Why there is no `changes` for a repo that should have one. */
   changesProblem?: string;
   /**
-   * **Push** runs `devc-bridge gh-push` in its container with no confirmation: the container runs,
-   * its host-only policy grants `gh-push` on this repo, and the pinned branch is checked out
-   * (`granted_push.ts`). Absent otherwise, never `false`.
+   * What its **Push** (the menu item and the ↑N click) does: `now` runs the container's own
+   * `gh-push` grant, escalating a refusal to devc-desktop; `confirm` asks devc-desktop. Absent:
+   * no Push. See `granted_push.ts`'s `pushRoute`.
    */
-  pushGrant?: true;
+  push?: 'now' | 'confirm';
+  /** Why there is no Push although `git.ahead > 0`: the read-only ↑N's tooltip. */
+  pushUnavailable?: string;
 }
 
 /**
@@ -78,8 +80,8 @@ export interface EnvironmentFacts {
  * `repos` holds each container's mounted repos by project folder (a folder missing from it has
  * just itself), and `git` each repo's push/pull state (or why it has none), when read. `changes`
  * holds each running project's repos' changes to commit (or why there are none), by project
- * folder, then repo folder. `pushGrants` holds the repo folders whose **Push** needs no
- * confirmation ({@link RepoView.pushGrant}). Sorted by name, then folder.
+ * folder, then repo folder. `pushRoutes` holds each repo folder's Push route
+ * ({@link RepoView.push}, {@link RepoView.pushUnavailable}). Sorted by name, then folder.
  */
 export function buildProjects(
   entries: readonly ProjectEntry[],
@@ -90,7 +92,10 @@ export function buildProjects(
   git: ReadonlyMap<string, GitReading> = new Map(),
   environments?: EnvironmentFacts,
   changes: ReadonlyMap<string, ReadonlyMap<string, ChangesReading>> = new Map(),
-  pushGrants: ReadonlySet<string> = new Set(),
+  pushRoutes: ReadonlyMap<
+    string,
+    Pick<RepoView, 'push' | 'pushUnavailable'>
+  > = new Map(),
 ): ProjectView[] {
   const runningSet = new Set(running);
   const stoppedSet = new Set(stopped);
@@ -132,9 +137,7 @@ export function buildProjects(
           name: repoName(r.folder, r.containerFolder),
           ...gitFields(git, r.folder),
           ...changesFields(changes.get(e.localFolder)?.get(r.folder)),
-          ...(runningSet.has(e.localFolder) && pushGrants.has(r.folder)
-            ? { pushGrant: true as const }
-            : {}),
+          ...pushRoutes.get(r.folder),
         })),
     ),
   })).sort((a, b) =>

@@ -7,7 +7,9 @@ import {
   type MirrorOpts,
   readGitState,
   readGitStatus,
+  refreshRemote,
 } from '../web/git_status.ts';
+import { readCommitHistory } from '../web/git_history.ts';
 
 async function git(cwd: string, ...args: string[]) {
   const out = await new Deno.Command('git', {
@@ -291,4 +293,53 @@ Deno.test('GitStatusWatch.fetchAll fetches every folder, then reads them again',
   });
   await watch.fetchAll();
   assertEquals([fetched, reads], [['/a', '/b'], 2]);
+});
+
+Deno.test('readGitStatus: no upstream counts commits on no remote branch, as Commits does', async () => {
+  const dir = await Deno.makeTempDir();
+  try {
+    const remote = `${dir}/remote.git`;
+    const work = `${dir}/work`;
+    const opts: MirrorOpts = { root: `${dir}/mirrors`, fetchable: () => true };
+    await git(dir, 'init', '-q', '--bare', '-b', 'main', remote);
+    await git(dir, 'clone', '-q', remote, work);
+    await git(work, 'commit', '-q', '--allow-empty', '-m', 'one');
+    await git(work, 'push', '-q', '-u', 'origin', 'main');
+    // A branch never pushed, with no upstream: the usual gh-push branch.
+    await git(work, 'switch', '-q', '-c', 'feat');
+    await git(work, 'commit', '-q', '--allow-empty', '-m', 'two');
+    await git(work, 'commit', '-q', '--allow-empty', '-m', 'three');
+    assertEquals(counts(await readGitStatus(work, opts)), [
+      'feat',
+      null,
+      2,
+      0,
+      false,
+      0,
+    ]);
+    const history = await readCommitHistory(work, opts);
+    assertEquals(
+      'localTotal' in history ? history.localTotal : history,
+      2,
+    );
+
+    // Published from elsewhere (as gh-push does: the repo's refs never hear of it): the remote
+    // check finds it, and nothing is left to push.
+    await git(work, 'push', '-q', remote, 'feat:refs/heads/feat');
+    await git(work, 'update-ref', '-d', 'refs/remotes/origin/feat');
+    assertEquals((await readGitStatus(work, opts))?.ahead, 2);
+    assertEquals(await refreshRemote(work, opts), true);
+    assertEquals((await readGitStatus(work, opts))?.ahead, 0);
+    const after = await readCommitHistory(work, opts);
+    assertEquals('localTotal' in after ? after.localTotal : after, 0);
+
+    // No origin: nowhere to push, so nothing counts.
+    const lone = `${dir}/lone`;
+    await git(dir, 'init', '-q', '-b', 'main', lone);
+    await git(lone, 'commit', '-q', '--allow-empty', '-m', 'one');
+    assertEquals((await readGitStatus(lone, opts))?.ahead, 0);
+    assertEquals(await refreshRemote(lone, opts), false);
+  } finally {
+    await Deno.remove(dir, { recursive: true });
+  }
 });

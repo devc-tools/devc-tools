@@ -38,14 +38,36 @@ Decisions:
 
 ## Checklist
 
-- [ ] `GitStatus.ahead` for a branch with no upstream: commits not on any remote branch (below).
-- [ ] `fetchAll` and a successful push refresh what the mirror knows of `origin/<branch>`.
-- [ ] `RepoView.push` and `RepoView.pushUnavailable` replace `RepoView.pushGrant`.
-- [ ] `push_result` gains `asked`; the server escalates exit 3 to a devc-desktop push request.
-- [ ] Page: `↑N` clickable or read-only; one **Push** menu item; the toasts below.
-- [ ] Tests (below).
-- [ ] Docs: `devc/README.md`, `devc-desktop/README.md`, `devc-bridge/README.md`.
+- [x] `GitStatus.ahead` for a branch with no upstream: commits not on any remote branch (below).
+- [x] `fetchAll` and a successful push refresh what the mirror knows of `origin/<branch>`.
+- [x] `RepoView.push` and `RepoView.pushUnavailable` replace `RepoView.pushGrant`.
+- [x] `push_result` gains `asked`; the server escalates exit 3 to a devc-desktop push request.
+- [x] Page: `↑N` clickable or read-only; one **Push** menu item; the toasts below.
+- [x] Tests (below).
+- [x] Docs: `devc/README.md`, `devc-desktop/README.md`, `devc-bridge/README.md`.
 - [ ] Manual (the user): the Validation states.
+
+**2026-11-05:** implemented. Everything but the manual check is done: `deno task check`; the full
+`deno task test` (1026 passed, plus the one unrelated `devc-core/dist` failure); `deno fmt --check`
+on every touched file. Choices beyond the contracts:
+
+- `pushedRefs` moved from `git_history.ts` into `git_status.ts`, which `git_history.ts` already
+  imports, so there's no cycle. `readGitState`'s no-upstream count (`unpushedCount`) and the
+  Commits section both call it.
+- `refreshRemote(folder)` (`git_status.ts`) is the one "look at the remote" step: `fetchUpstream`
+  with an upstream, the `origin/<branch>` check without. `GitStatusWatch.fetchAll` uses it by
+  default, and so does the server after a push. It awaits the look before refreshing.
+- The rules live in `granted_push.ts`: `pushRoute` (one repo, pure), `pushRoutes` (every listed
+  repo; it reads a container project's policy, never a host project's), and `escalate` (exit 3 →
+  `DesktopRequests.add`). All three are unit-tested there.
+- The server keeps the last route map and broadcasts `projects` only when it changes (compared
+  as sorted JSON).
+- `confirm` needs no running environment and no container: the menu item and `↑N` work for a
+  stopped container or a host project, as **Push…** did.
+- A read-only `↑N` carries its own `title` (the sync title plus `Push unavailable: …`). The
+  mark's outer title is unchanged.
+- An old sidebar assertion (no upstream with `ahead: 3` gives no mark) now expects the `↑3` mark,
+  and is covered by the new no-upstream test.
 
 ## Contracts
 
@@ -156,23 +178,23 @@ there as before (`not granted: …`). The page sends `request_push` for that rou
 
 ## Validation
 
-- [ ] `cd devc && deno task check` passes.
-- [ ] `cd devc && deno task test`: no new failures. (`docker_exec_single_path_test` fails on an
+- [x] `cd devc && deno task check` passes.
+- [x] `cd devc && deno task test`: no new failures. (`docker_exec_single_path_test` fails on an
       ignored `devc-core/dist/` build output, which is unrelated.) New or changed tests:
-  - [ ] `readGitState`, no upstream, with a local `origin`: a branch with 2 commits on no remote
+  - [x] `readGitState`, no upstream, with a local `origin`: a branch with 2 commits on no remote
         branch → `ahead: 2`. After copying the branch to `origin` and running the remote check →
         `ahead: 0`. With no `origin` remote → `ahead: 0`. A branch with an upstream: counts
         unchanged.
-  - [ ] The Commits section's `localTotal` equals `ahead` for the same no-upstream repo.
-  - [ ] `RepoView.push` / `pushUnavailable` for each case in order: an upstream mismatch, `'now'`,
+  - [x] The Commits section's `localTotal` equals `ahead` for the same no-upstream repo.
+  - [x] `RepoView.push` / `pushUnavailable` for each case in order: an upstream mismatch, `'now'`,
         `'confirm'`, each of the three unavailable reasons (exact strings), and neither when
         `ahead === 0`.
-  - [ ] Escalation: exit 3 with a desktop token → `asked: true`, and one pending `push` request
+  - [x] Escalation: exit 3 with a desktop token → `asked: true`, and one pending `push` request
         for the folder. Exit 3 without one → no `asked`, nothing queued. Exit 4 with one → no
         `asked`, nothing queued. A full queue → the combined problem string.
-  - [ ] Sidebar: `pushPull` with `upstream: null, ahead: 3` → one `↑3` mark; with `ahead: 0` →
+  - [x] Sidebar: `pushPull` with `upstream: null, ahead: 3` → one `↑3` mark; with `ahead: 0` →
         null. `repoGitItems` order `push`, `pull`, `fetch`.
-- [ ] `deno fmt --check` on every touched file.
+- [x] `deno fmt --check` on every touched file.
 - [ ] Manual (the user):
   - [ ] Granted container, pinned branch with no upstream: `↑N` shows after a commit. A click
         pushes with no confirmation, and `↑N` clears within ~15 s of the toast.

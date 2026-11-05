@@ -345,7 +345,15 @@ function pushPull(git, problem) {
       title: `git status unavailable: ${problem}`,
     };
   }
-  if (!git.upstream) return null;
+  if (!git.upstream) {
+    // No upstream: ↑N is what a push would publish (commits on no remote branch), else nothing.
+    if (git.ahead <= 0) return null;
+    return {
+      marks: [{ dir: 'ahead', text: `↑${git.ahead}` }],
+      diverged: false,
+      title: `${git.ahead} to push: on no remote branch`,
+    };
+  }
   const unfetched = git.unfetched ?? 0;
   const ready = git.behind - unfetched;
   const marks = [];
@@ -398,15 +406,14 @@ function changesCount(changes) {
 }
 
 /**
- * A repo card menu's git items, in order: **Push** (the container's own `gh-push` grant, no
- * confirmation), Pull, Fetch, then **Push…** (asks devc-desktop). Both pushes show when both
- * apply.
+ * A repo card menu's git items, in order: **Push** (the same action as a click on ↑N), Pull,
+ * Fetch.
  *
- * @param {{push: boolean, pull: boolean, fetch: boolean, requestPush: boolean}} can
- * @returns {('push' | 'pull' | 'fetch' | 'requestPush')[]}
+ * @param {{push: boolean, pull: boolean, fetch: boolean}} can
+ * @returns {('push' | 'pull' | 'fetch')[]}
  */
 export function repoGitItems(can) {
-  return /** @type {const} */ (['push', 'pull', 'fetch', 'requestPush'])
+  return /** @type {const} */ (['push', 'pull', 'fetch'])
     .filter((k) => can[k]);
 }
 

@@ -148,6 +148,7 @@ import {
   isProjectRepo,
   projectRefusal,
   repoFileFor,
+  type RepoView,
   type WsRole,
 } from './projects_view.ts';
 import {
@@ -156,6 +157,7 @@ import {
   type GitProblem,
   GitStatusWatch,
   isGitProblem,
+  refreshRemote,
 } from './git_status.ts';
 import { type ChangesReading, GitChangesWatch } from './git_changes.ts';
 import {
@@ -164,7 +166,12 @@ import {
   readUncommittedFiles,
 } from './git_uncommitted.ts';
 import { fetchRepo, fetchRunning, pullRepo, pullRunning } from './git_fetch.ts';
-import { policyReader, pushGrants, pushRepo } from './granted_push.ts';
+import {
+  escalate,
+  policyReader,
+  pushRepo,
+  pushRoutes,
+} from './granted_push.ts';
 import { readCommitHistory } from './git_history.ts';
 import {
   readCommitDiff,
@@ -814,7 +821,7 @@ export async function startWeb(
       gitWatch.statuses,
       { containers: containerFolders(), available },
       changesByFolder(),
-      grantedFolders,
+      pushRouteMap,
     ),
   });
   const broadcastProjects = () => broadcast(projectsMessage());
@@ -1022,32 +1029,39 @@ export async function startWeb(
     }
     return byFolder;
   };
-  // The repo folders whose Push runs under their container's own `gh-push` grant
-  // (`granted_push.ts`), read from the host-only policies after every git-watch pass and whenever
-  // a container comes or goes. Only the server's push handler decides, from the policy read again.
-  let grantedFolders: ReadonlySet<string> = new Set();
+  // Each repo's Push route (`granted_push.ts`'s `pushRoute`): the container's own `gh-push`
+  // grant, devc-desktop's confirmation, or why neither. Read from the host-only policies after
+  // every git-watch pass and whenever a container comes or goes. The push handler decides again
+  // from the policy read then; this only shapes the page.
+  let pushRouteMap: ReadonlyMap<
+    string,
+    Pick<RepoView, 'push' | 'pushUnavailable'>
+  > = new Map();
   const readPushPolicy = policyReader(Deno.env.get('HOME') ?? '.');
-  let grantsSeq = 0;
-  const refreshPushGrants = async () => {
-    const seq = ++grantsSeq;
-    const next = await pushGrants(
+  let routesSeq = 0;
+  const refreshPushRoutes = async () => {
+    const seq = ++routesSeq;
+    const running = new Set(
       [...sessions.values()]
         .filter((s) => s.env.kind === 'container')
-        .map((s) => ({
-          localFolder: s.record.localFolder,
-          folders: (containerRepos.get(s.record.id) ?? []).map((r) => r.folder),
-        })),
-      (folder) => {
-        const status = gitWatch.statuses.get(folder);
-        return status && !isGitProblem(status) ? status.branch : null;
-      },
-      readPushPolicy,
+        .map((s) => s.record.localFolder),
     );
-    if (seq !== grantsSeq) return;
-    const same = next.size === grantedFolders.size &&
-      [...next].every((f) => grantedFolders.has(f));
-    if (same) return;
-    grantedFolders = next;
+    const next = await pushRoutes(
+      projectsMessage().projects.map((p) => ({
+        localFolder: p.localFolder,
+        container: p.environment === 'container',
+        running: running.has(p.localFolder),
+        folders: p.repos.map((r) => r.folder),
+      })),
+      (folder) => gitWatch.statuses.get(folder) ?? undefined,
+      readPushPolicy,
+      desktopToken !== null,
+    );
+    if (seq !== routesSeq) return;
+    const key = (m: ReadonlyMap<string, unknown>) =>
+      JSON.stringify([...m].sort(([a], [b]) => a.localeCompare(b)));
+    if (key(next) === key(pushRouteMap)) return;
+    pushRouteMap = next;
     broadcastProjects();
   };
   // Every listed repo's push/pull state, read again on a timer and whenever the list changes.
@@ -1058,7 +1072,7 @@ export async function startWeb(
       broadcastProjects();
       recordAllPanes();
     },
-    onPass: () => void refreshPushGrants(),
+    onPass: () => void refreshPushRoutes(),
   });
   const reloadProjects = async () => {
     projectEntries = await loadProjects();
@@ -1234,7 +1248,7 @@ export async function startWeb(
       if (key.startsWith(`${id}\n`)) resumedPanes.delete(key);
     }
     taskRunsSeen(id, null);
-    void refreshPushGrants();
+    void refreshPushRoutes();
     activity.containerGone(session.record.localFolder);
     void controllers.closeContainer(id, 'container stopped');
     lsp.containerGone(id);
@@ -1705,7 +1719,9 @@ export async function startWeb(
     msg: Extract<ClientMessage, { type: 'push_repo' }>,
   ) => {
     const answer = (
-      o: { ok: true; message: string } | { ok: false; problem: string },
+      o:
+        | { ok: true; message: string }
+        | { ok: false; problem: string; asked?: true },
     ) =>
       c.send(
         JSON.stringify({
@@ -1724,9 +1740,19 @@ export async function startWeb(
       status: (folder) => gitWatch.statuses.get(folder),
       startAllowed: (folder) => startAllowed(pushStarts, folder),
     });
-    answer(outcome);
-    // Its ↑ mark, and the Commits section's Pushed line.
-    if (outcome.ok) void gitWatch.refresh();
+    // A refusal only the user may waive: devc-desktop asks them, as `request_push` does.
+    answer(escalate(
+      outcome,
+      desktopToken === null
+        ? null
+        : () => desktopRequests.add('push', msg.localFolder, msg.folder),
+    ));
+    // Its ↑ mark, and the Commits section's Pushed line: devc web's mirror learns of the push
+    // (`gh-push` published from the bridge's own), then every repo is read again.
+    if (outcome.ok) {
+      await refreshRemote(msg.folder);
+      void gitWatch.refresh();
+    }
   };
 
   /**

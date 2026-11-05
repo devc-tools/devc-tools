@@ -422,32 +422,38 @@ Deno.test('buildProjects adds each running project repo’s changes to commit, o
   assertEquals('changes' in p.repos[2], false);
 });
 
-Deno.test("buildProjects marks pushGrant only on a running project's granted repo", () => {
+Deno.test("buildProjects spreads each repo's push route", () => {
   const repos = (folder: string) => [{
     folder,
     worktreeOf: null,
     containerFolder: null,
     primaryFolder: null,
   }];
-  const [run, stop] = buildProjects(
-    [{ localFolder: '/src/a' }, { localFolder: '/src/b' }],
+  const [a, b, c] = buildProjects(
+    [
+      { localFolder: '/src/a' },
+      { localFolder: '/src/b' },
+      { localFolder: '/src/c' },
+    ],
     ['/src/a'],
     ['/src/b'],
     new Set(),
-    new Map([['/src/a', repos('/src/a')], ['/src/b', repos('/src/b')]]),
+    new Map([
+      ['/src/a', repos('/src/a')],
+      ['/src/b', repos('/src/b')],
+      ['/src/c', repos('/src/c')],
+    ]),
     new Map(),
     undefined,
     new Map(),
-    new Set(['/src/a', '/src/b']),
+    new Map([
+      ['/src/a', { push: 'now' as const }],
+      ['/src/b', { pushUnavailable: 'start the container to push' }],
+    ]),
   );
-  assertEquals(run.repos[0].pushGrant, true);
-  // Stopped: no Push, and the field is absent rather than false.
-  assertEquals('pushGrant' in stop.repos[0], false);
-  const [none] = buildProjects(
-    [{ localFolder: '/src/a' }],
-    ['/src/a'],
-    [],
-    new Set(),
-  );
-  assertEquals('pushGrant' in none.repos[0], false);
+  assertEquals(a.repos[0].push, 'now');
+  assertEquals('pushUnavailable' in a.repos[0], false);
+  assertEquals(b.repos[0].pushUnavailable, 'start the container to push');
+  assertEquals('push' in b.repos[0], false);
+  assertEquals('push' in c.repos[0] || 'pushUnavailable' in c.repos[0], false);
 });
