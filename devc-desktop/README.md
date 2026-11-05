@@ -244,6 +244,9 @@ laid over the tile's content. It has the same paste bar as the drawer.
 - **Splitting.** Right-click in a host tile for the drawer's **Split vertically**, **Split
   horizontally** and **New terminal in this stack** (same shortcuts): each opens a new host
   shell beside it in the layout. The `cd` items are there too.
+- **Moving a shell.** **Move to Main Area** in the drawer's right-click menu, and **Move to
+  Bottom Panel** in a host tile's, move a shell between them. It keeps running, with what its
+  terminal showed (up to 5000 lines of scrollback).
 - **Its tab is devc web's.** Closing it (×, its stack, a layout reset) only takes the tile away:
   the shell keeps running. **devc web → Restore Host Tiles** puts every such shell back in the
   layout, with its scrollback. To end a shell, type `exit`, or right-click in the terminal for

@@ -18,6 +18,7 @@ import {
   withView,
 } from '../web/static/lib/layout_state.js';
 import {
+  hostGoneFromHash,
   hostPlacementFromHash,
   hostSlotFromHash,
   withoutHostSlot,
@@ -496,4 +497,11 @@ Deno.test('hostPlacementFromHash: beside a well-formed slot, right, below or sta
     ),
     '#view=v1',
   );
+});
+
+Deno.test('hostGoneFromHash reads host-gone; withoutHostSlot takes it out too', () => {
+  assertEquals(hostGoneFromHash(`#view=v1&host-gone=${SLOT}`), SLOT);
+  assertEquals(hostGoneFromHash('#host-gone=xyz'), null);
+  assertEquals(hostGoneFromHash('#view=v1'), null);
+  assertEquals(withoutHostSlot(`#view=v1&host-gone=${SLOT}`), '#view=v1');
 });

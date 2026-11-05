@@ -429,8 +429,20 @@ export function hostPlacementFromHash(hash) {
 }
 
 /**
- * The hash without `host-slot` (nor `host-at`, `host-where`), the other parameters kept in
- * order, `#` included (or `''` when none is left).
+ * The host tile devc-desktop has taken back (its **Move to Bottom Panel**: the shell went to the
+ * drawer), `#…&host-gone=<id>`: the page closes that tile. `null` when none or malformed.
+ *
+ * @param {string} hash
+ * @returns {string | null}
+ */
+export function hostGoneFromHash(hash) {
+  const id = new URLSearchParams(hash.replace(/^#/, '')).get('host-gone');
+  return id !== null && HOST_SLOT.test(id) ? id : null;
+}
+
+/**
+ * The hash without `host-slot` (nor `host-at`, `host-where`, `host-gone`), the other parameters
+ * kept in order, `#` included (or `''` when none is left).
  *
  * @param {string} hash
  */
@@ -439,6 +451,7 @@ export function withoutHostSlot(hash) {
   params.delete('host-slot');
   params.delete('host-at');
   params.delete('host-where');
+  params.delete('host-gone');
   const rest = params.toString();
   return rest ? `#${rest}` : '';
 }

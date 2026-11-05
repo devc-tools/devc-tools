@@ -34,6 +34,19 @@ contextBridge.exposeInMainWorld('hostTerm', {
   info: () => ipcRenderer.invoke('host-term:info'),
   dragDrawer: (dy: number) => ipcRenderer.send('host-term:drag', dy),
   contextMenu: (id: string) => ipcRenderer.send('host-term:context-menu', id),
+  // Moving a shell between the drawer and `/main`'s layout: the app asks the page that has it
+  // for its terminal's contents (`detach`), and hands them to the page that takes it (`adopt`).
+  onDetach: (cb: (id: string) => void) => {
+    ipcRenderer.on('host-term:detach', (_e, id: unknown) => cb(String(id)));
+  },
+  detached: (id: string, data: string) =>
+    ipcRenderer.send('host-term:detached', String(id), String(data)),
+  onAdopt: (cb: (id: string, replay: string) => void) => {
+    ipcRenderer.on(
+      'host-term:adopt',
+      (_e, id: unknown, replay: unknown) => cb(String(id), String(replay)),
+    );
+  },
   // A host tile's split or new tab: a new host tile beside it.
   command: (name: string) =>
     ipcRenderer.send('host-term:slot-command', String(name)),

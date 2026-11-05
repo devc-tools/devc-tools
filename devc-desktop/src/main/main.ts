@@ -419,6 +419,8 @@ async function main(): Promise<void> {
     ended: boolean;
     /** Focus it when it is next shown: it is new, or was hidden while it had the focus. */
     focusOnShow: boolean;
+    /** What its terminal showed in the drawer, for its page, when the shell moved here. */
+    replay: string | null;
   }
   /** By slot id. */
   const slots = new Map<string, Slot>();
@@ -429,6 +431,15 @@ async function main(): Promise<void> {
   let coverChanges: CoverChange[] = [];
   /** The view whose keys are dropped after an ambiguous press, until a press that is not. */
   let muted: Electron.WebContents | null = null;
+  /**
+   * Shells being moved between the drawer and `/main`'s layout, by shell id: where to, and their
+   * output since the move began, held until the page taking them has their terminal's contents.
+   */
+  const moving = new Map<string, { to: 'main' | 'drawer'; buf: string }>();
+  /** Shells moved to the drawer before its page could hear of them: its `info` takes them. */
+  const pendingAdopt: { id: string; replay: string }[] = [];
+  /** The drawer's page has asked for its `info`: it hears `host-term:adopt` from now on. */
+  let hostPageReady = false;
   /** A pending {@link applySlots}, and when it last ran. */
   let slotTimer: ReturnType<typeof setTimeout> | null = null;
   let slotsAppliedAt = 0;
@@ -991,12 +1002,18 @@ async function main(): Promise<void> {
     cwd: app.getPath('home'),
     env: ptyEnv(childEnv(process.env, undefined)),
     // A host tile's shell talks to its own view; every other is the drawer's.
-    onOutput: (id, data) =>
+    onOutput: (id, data) => {
+      const move = moving.get(id);
+      if (move !== undefined) {
+        move.buf += data;
+        return;
+      }
       (slotOfShell(id)?.view ?? hostView).webContents.send(
         'host-term:output',
         id,
         data,
-      ),
+      );
+    },
     onExit: (id, code) => {
       const slot = slotOfShell(id);
       if (slot === undefined) {
@@ -1149,9 +1166,21 @@ async function main(): Promise<void> {
       color: hostColor.background,
     };
     const slot = slotOf(e);
-    if (slot !== undefined) return { ...who, shell: slot.shell };
+    if (slot !== undefined) {
+      // A shell moved here from the drawer: its contents, then what it wrote meanwhile.
+      const replay = slot.replay === null
+        ? null
+        : slot.replay + takeMoved(slot.shell);
+      slot.replay = null;
+      return { ...who, shell: slot.shell, replay };
+    }
     if (!fromHost(e)) throw new Error('refused');
-    return { ...who, toggle: TOGGLE, open: drawerOpen };
+    hostPageReady = true;
+    const adopt = pendingAdopt.splice(0).map((a) => ({
+      id: a.id,
+      replay: a.replay + takeMoved(a.id),
+    }));
+    return { ...who, toggle: TOGGLE, open: drawerOpen, adopt };
   });
 
   // The right-click item: `cd` to the host folder behind devc web's active terminal pane. The
@@ -1279,6 +1308,12 @@ async function main(): Promise<void> {
         { type: 'separator' },
         ...items,
         { type: 'separator' },
+        {
+          label: 'Move to Main Area',
+          enabled: showingDevc && debugging === null &&
+            hostPtys.get(id)?.running === true && !moving.has(id),
+          click: () => moveToMain(id),
+        },
         command('Close', 'close'),
       ]).popup({ window: win });
     }).finally(() => menuPending = false);
@@ -1445,18 +1480,28 @@ async function main(): Promise<void> {
     id: string,
     place?: { at: string; where: 'right' | 'below' | 'stack' },
   ): void {
+    setMainHash({
+      'host-slot': id,
+      ...(place ? { 'host-at': place.at, 'host-where': place.where } : {}),
+    });
+  }
+
+  /** Asks `/main` to close the host tile of slot `id` (its shell went to the drawer). */
+  function askToClose(id: string): void {
+    setMainHash({ 'host-gone': id });
+  }
+
+  /** `/main`'s hash with these host-tile parameters (and no others), nothing else changed. */
+  function setMainHash(params: Record<string, string>): void {
     if (origin === null || !showingDevc) return;
     const now = devcView.webContents.getURL();
     if (!now.startsWith(`${origin}/`)) return;
     const url = new URL(now);
     const hash = new URLSearchParams(url.hash.slice(1));
-    hash.set('host-slot', id);
-    hash.delete('host-at');
-    hash.delete('host-where');
-    if (place) {
-      hash.set('host-at', place.at);
-      hash.set('host-where', place.where);
+    for (const k of ['host-slot', 'host-at', 'host-where', 'host-gone']) {
+      hash.delete(k);
     }
+    for (const [k, v] of Object.entries(params)) hash.set(k, v);
     url.hash = hash.toString();
     void devcView.webContents.loadURL(url.toString()).catch(() => {});
   }
@@ -1476,8 +1521,13 @@ async function main(): Promise<void> {
    */
   function newHostTile(
     place?: { at: string; where: 'right' | 'below' | 'stack' },
+    moved?: { shell: string; replay: string },
   ): void {
-    if (!showingDevc || debugging !== null || shellCount() >= MAX_SHELLS) {
+    // A shell moved from the drawer is no new shell.
+    if (
+      !showingDevc || debugging !== null ||
+      (moved === undefined && shellCount() >= MAX_SHELLS)
+    ) {
       shell.beep();
       return;
     }
@@ -1496,13 +1546,14 @@ async function main(): Promise<void> {
     watchPresses(view.webContents);
     const slot: Slot = {
       id: randomBytes(16).toString('hex'),
-      shell: slotShellId(randomBytes(8).toString('hex')),
+      shell: moved?.shell ?? slotShellId(randomBytes(8).toString('hex')),
       view,
       line: undefined,
       shown: null,
       seenAt: 0,
       ended: false,
       focusOnShow: true,
+      replay: moved?.replay ?? null,
     };
     slots.set(slot.id, slot);
     restackSlots();
@@ -1554,6 +1605,7 @@ async function main(): Promise<void> {
     if (slot.line === null || slot.line === undefined) dropSlot(slot);
   }
 
+  /** Takes a host tile's view away; its shell, if any, is left alone. */
   function dropSlot(slot: Slot): void {
     setShown(slot, null);
     slots.delete(slot.id);
@@ -1582,6 +1634,11 @@ async function main(): Promise<void> {
       split('New terminal in this stack', 'new-tab'),
       ...(cd.length > 0 ? [{ type: 'separator' as const }, ...cd] : []),
       { type: 'separator' },
+      {
+        label: 'Move to Bottom Panel',
+        enabled: !slot.ended && debugging === null && !moving.has(slot.shell),
+        click: () => moveToDrawer(slot),
+      },
       {
         label: 'End Shell',
         enabled: !slot.ended,
@@ -1620,6 +1677,80 @@ async function main(): Promise<void> {
       (name === 'split-right' || name === 'split-below' || name === 'new-tab')
     ) slotCommand(slot, name);
   });
+
+  // ---- moving a shell between the drawer and `/main`'s layout ------------------------------------
+  // The shell never stops: its output is held (`moving`) from the moment the move begins, the page
+  // that has it hands over its terminal's contents (`detach` → `detached`), and the page taking
+  // it shows them, then the held output. Only the app moves a shell, from its own menus.
+
+  /** A moved shell's held output, and it is no longer held: it goes to its new view now. */
+  function takeMoved(id: string): string {
+    const buf = moving.get(id)?.buf ?? '';
+    moving.delete(id);
+    return buf;
+  }
+
+  /** **Move to Main Area** (the drawer's right-click menu): the shell to a new host tile. */
+  function moveToMain(id: string): void {
+    if (
+      !showingDevc || debugging !== null || moving.has(id) ||
+      !hostPtys.get(id)?.running || slotOfShell(id) !== undefined
+    ) {
+      shell.beep();
+      return;
+    }
+    moving.set(id, { to: 'main', buf: '' });
+    hostView.webContents.send('host-term:detach', id);
+  }
+
+  /** **Move to Bottom Panel** (a host tile's right-click menu): the shell to the drawer. */
+  function moveToDrawer(slot: Slot): void {
+    if (slot.ended || debugging !== null || moving.has(slot.shell)) {
+      shell.beep();
+      return;
+    }
+    moving.set(slot.shell, { to: 'drawer', buf: '' });
+    slot.view.webContents.send('host-term:detach', slot.shell);
+  }
+
+  /** The most a page may hand over: 5000 lines of scrollback, escapes and all. */
+  const MAX_DETACHED = 16 * 1024 * 1024;
+
+  ipcMain.on('host-term:detached', (e, id: unknown, data: unknown) => {
+    if (
+      typeof id !== 'string' || typeof data !== 'string' ||
+      data.length > MAX_DETACHED
+    ) return;
+    const move = moving.get(id);
+    if (move === undefined) return;
+    const slot = slotOf(e);
+    if (move.to === 'main' && slot === undefined && fromHost(e)) {
+      if (!showingDevc) {
+        // devc web went away meanwhile: back to the drawer.
+        moving.delete(id);
+        deliverToDrawer(id, data);
+        return;
+      }
+      newHostTile(undefined, { shell: id, replay: data });
+      return;
+    }
+    if (move.to === 'drawer' && slot !== undefined && slot.shell === id) {
+      askToClose(slot.id);
+      dropSlot(slot);
+      deliverToDrawer(id, data);
+    }
+  });
+
+  /** A moved shell's tile in the drawer, which opens if it is closed. */
+  function deliverToDrawer(id: string, replay: string): void {
+    if (!hostPageReady) {
+      pendingAdopt.push({ id, replay });
+    } else {
+      hostView.webContents.send('host-term:adopt', id, replay + takeMoved(id));
+    }
+    if (!drawerOpen) toggleHost();
+    else hostView.webContents.focus();
+  }
 
   /**
    * Presses and keys, for every view: a press where a host tile just appeared or vanished mutes

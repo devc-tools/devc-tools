@@ -37,9 +37,8 @@ separate `WebContentsView`s pass). Both still hold and are not restated here.
   content area, drawn by the app: the host color and the `HOST · user@host` strip.
 - **One `WebContentsView` per host tile ("slot view").** Tiles can be anywhere in the layout and
   a view is one rectangle. The drawer stays as it is (one view, its own Golden Layout, the Actions
-  column) and remains the fallback. A shell lives in the view it was opened in for its whole life:
-  there is no moving a shell between the drawer and a tile (scrollback would have to cross
-  renderer processes).
+  column) and remains the fallback. A shell can move between the drawer and a host tile (§ Moving
+  a shell), only from the app's own menus; its process never moves.
 - **devc web controls geometry only.** It says where a slot is, or that it is hidden. It cannot
   create a host shell, end one, read it, type into it, or learn the host color. Every slot line
   naming an id the app did not issue, or whose shell has ended, is ignored.
@@ -248,6 +247,24 @@ symmetric and moves no focus.
   `hidden`; then the view is destroyed and the id retired.
 - Quitting the app kills every slot shell with the drawer's (`shutdown()`).
 
+### Moving a shell (added after the first commit)
+
+- **Move to Main Area** (the drawer's right-click menu; disabled while devc web is not showing,
+  the host terminal is refused, or the shell is not running) and **Move to Bottom Panel** (a host
+  tile's right-click menu). Nothing else starts a move: devc web cannot.
+- The app holds the shell's output from the moment the move begins (`moving`, by shell id).
+  It asks the page that has the shell for its terminal's contents (`host-term:detach` →
+  `host-term:detached`, `@xterm/addon-serialize`, 5000 lines of scrollback, at most 16 MiB),
+  accepted only from that page, for a move in that direction.
+- **To the main area:** the drawer page closes the tile without ending the shell; the app makes
+  a host tile for the same shell id (New Host Tile, counting no new shell), whose page shows the
+  contents and then the held output (its `info` carries `replay`).
+- **To the drawer:** the app closes devc web's tile (`#…&host-gone=<slot id>`, devc web's
+  `hostGoneFromHash`; `withoutHostSlot` takes it out with the rest), takes the view away without
+  ending the shell, opens the drawer if closed, and hands the drawer page the contents and held
+  output (`host-term:adopt`, or in `info`'s `adopt` list when the drawer's page has not loaded
+  yet). The drawer tile's pane id is the shell id.
+
 ## Concept boundaries
 
 - **Slot view vs drawer.** Both run host shells from the same `HostPtys`, with the same preload
@@ -296,6 +313,8 @@ symmetric and moves no focus.
   - [ ] the host color is not readable from the devc view (devtools on `/main`: no hex in the DOM,
         storage or network). **Not run** in devtools; the color goes only over IPC to host views,
         and the `devc/web/` test passes.
+- [x] Moving a shell (Linux, real app): a host tile's shell to the drawer and back, with its
+      scrollback each way, the same process throughout (`echo $$`), and typing after each move.
 - [ ] macOS checks by the user: S1, S2 and the Linux real-app list above; IME input in a slot view.
 
 ## Relevant Files
@@ -310,6 +329,7 @@ symmetric and moves no focus.
 | `devc-desktop/src/renderer/host.css`                               | Host color on tile content and the strip                                                                                                                                                                                                                        |
 | `devc-desktop/src/renderer/slot.html`, `slot.ts`, `slot.css` (new) | The slot view's page: strip, one xterm.js, paste confirm, guard shield                                                                                                                                                                                          |
 | `devc-desktop/build.mjs`                                           | Bundle the slot page                                                                                                                                                                                                                                            |
+| `devc-desktop/package.json`, `devc-desktop/package-lock.json`      | `@xterm/addon-serialize` (moving a shell)                                                                                                                                                                                                                       |
 | `devc-desktop/tests/policy.test.ts`                                | Tests above                                                                                                                                                                                                                                                     |
 | `devc-desktop/README.md`                                           | Host tiles, color, the untrusted tab, what devc web can still do (hide, move, fake a tile with a guessed color), shortcuts table                                                                                                                                |
 | `devc/web/static/layout.js`                                        | `host` component type, its placeholder                                                                                                                                                                                                                          |

@@ -4,6 +4,7 @@
 // only code from devc web's checkout at build time, as the Containers pane does.
 
 import { FitAddon } from '@xterm/addon-fit';
+import { SerializeAddon } from '@xterm/addon-serialize';
 import { Terminal } from '@xterm/xterm';
 import { createTiling, type Tile, type Tiling } from 'devc-web/layout.js';
 import { parseSavedLayout } from 'devc-web/lib/layout_state.js';
@@ -35,6 +36,8 @@ interface HostTerm {
       toggle: string;
       open: boolean;
       color: string;
+      /** Shells moved here before this page could hear of them. */
+      adopt: { id: string; replay: string }[];
     }
   >;
   dragDrawer(dy: number): void;
@@ -44,6 +47,11 @@ interface HostTerm {
   onShown(cb: (open: boolean) => void): void;
   /** The host color (View → Host Terminal Color), as its background hex. */
   onColor(cb: (background: string) => void): void;
+  /** The app moves a shell to `/main`'s layout: hand over its terminal's contents. */
+  onDetach(cb: (id: string) => void): void;
+  detached(id: string, data: string): void;
+  /** A shell moved here from `/main`'s layout, with its terminal's contents. */
+  onAdopt(cb: (id: string, replay: string) => void): void;
   /** The Actions column's cards, whenever one changes. */
   onActions(cb: (cards: unknown) => void): void;
   /** A line of a confirmed action's output. */
@@ -72,6 +80,9 @@ interface HostTerminal {
   tile: Tile;
   term: Terminal;
   fit: FitAddon;
+  serialize: SerializeAddon;
+  /** Moved to `/main`'s layout: closing its tile leaves the shell running. */
+  detached: boolean;
   el: HTMLElement;
   observer: ResizeObserver;
   /** `term.open` has run: the tile is in the page. */
@@ -144,11 +155,21 @@ function mountTerminal(tile: Tile): void {
   });
   const fit = new FitAddon();
   term.loadAddon(fit);
+  const serialize = new SerializeAddon();
+  term.loadAddon(serialize);
+  // A shell moved here: what its terminal showed, scrollback and all.
+  const replay = adopted.get(id);
+  if (replay !== undefined) {
+    adopted.delete(id);
+    term.write(replay);
+  }
   const t: HostTerminal = {
     id,
     tile,
     term,
     fit,
+    serialize,
+    detached: false,
     el,
     // Too small (a hidden tab, a closed drawer): keep the shell's size until it has room again.
     observer: new ResizeObserver(() => {
@@ -193,7 +214,7 @@ function unmountTerminal(tile: Tile): void {
   recent = recent.filter((id) => id !== t.id);
   t.observer.disconnect();
   t.term.dispose();
-  host.close(t.id);
+  if (!t.detached) host.close(t.id);
   // After the layout has finished closing it.
   queueMicrotask(afterClose);
 }
@@ -243,6 +264,36 @@ function runCommand(name: HostCommand | string, at = current()): void {
 }
 
 host.onCommand((name, id) => runCommand(name, terminals.get(id)));
+
+// ---- moving a shell between the drawer and `/main`'s layout --------------------------------------
+
+/** Contents for shells being moved here, until their tile is made. */
+const adopted = new Map<string, string>();
+
+host.onDetach((id) => {
+  const t = terminals.get(id);
+  if (!t) {
+    host.detached(id, '');
+    return;
+  }
+  const data = t.serialize.serialize({ scrollback: 5000 });
+  t.detached = true;
+  host.detached(id, data);
+  tiling?.close(t.tile.id);
+});
+
+/** A tile for a shell that already runs, showing what it showed where it was. */
+function adopt(id: string, replay: string): void {
+  if (terminals.has(id)) return;
+  adopted.set(id, replay);
+  const made = ensureTiling();
+  made.addBeside(
+    current()?.tile.id ?? null,
+    { localFolder: HOST_FOLDER, pane_id: id },
+    'stack',
+  );
+}
+host.onAdopt(adopt);
 
 // In the capture phase, so xterm.js never types them into the shell.
 document.addEventListener('keydown', (e) => {
@@ -378,6 +429,7 @@ void host.info().then((info) => {
   $('who').textContent = label;
   toggle = info.toggle;
   refused = info.refused;
+  for (const a of info.adopt) adopt(a.id, a.replay);
   // Loaded only to show the strip's badge: the shell starts when the drawer opens.
   showOpen(info.open);
 });

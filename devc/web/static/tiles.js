@@ -260,6 +260,17 @@ export function openHostTile(id, place = null) {
   }
   tiling.addBeside(targetTile()?.id ?? null, { host: id }, 'stack');
 }
+
+/**
+ * Closes the host tile of devc-desktop's slot `id` (its shell moved to the drawer). No-op when
+ * there is none.
+ *
+ * @param {string} id
+ */
+export function closeHostTile(id) {
+  const tile = hostTileWithSlot(id);
+  if (tile) tiling?.close(tile.id);
+}
 /** @type {string | null} */
 let focusedTileId = null;
 /** Tile ids by when they were last focused (higher is later), to pick the one to reveal. */

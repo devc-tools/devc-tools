@@ -4,6 +4,7 @@
 // closing devc web's tab does not end it (the app's right-click menu does).
 
 import { FitAddon } from '@xterm/addon-fit';
+import { SerializeAddon } from '@xterm/addon-serialize';
 import { Terminal } from '@xterm/xterm';
 import { hostShortcut } from '../main/policy.ts';
 
@@ -15,6 +16,8 @@ interface SlotInfo {
   shell: string;
   /** The host color's background. */
   color: string;
+  /** What the shell's terminal showed where it was, when it moved here from the drawer. */
+  replay: string | null;
 }
 
 /** The host preload's `window.hostTerm`, as far as this page uses it. */
@@ -30,6 +33,9 @@ interface SlotHostTerm {
   contextMenu(id: string): void;
   /** A split or a new tab: a new host tile beside this one. */
   command(name: string): void;
+  /** The app moves this shell to the drawer: hand over the terminal's contents. */
+  onDetach(cb: (id: string) => void): void;
+  detached(id: string, data: string): void;
 }
 
 // `host.ts` declares `window.hostTerm` globally with the drawer's view of it.
@@ -46,6 +52,8 @@ const term = new Terminal({
 });
 const fit = new FitAddon();
 term.loadAddon(fit);
+const serialize = new SerializeAddon();
+term.loadAddon(serialize);
 term.open(el);
 
 let shell: string | null = null;
@@ -85,6 +93,11 @@ host.onExit((id, code) => {
   term.write(`\r\n\x1b[2m${what} Close this tab in devc web.\x1b[0m\r\n`);
 });
 host.onColor(applyColor);
+host.onDetach((id) => {
+  if (id === shell) {
+    host.detached(id, serialize.serialize({ scrollback: 5000 }));
+  }
+});
 host.onGuard((on) => {
   $('guard').hidden = !on;
   if (!on && document.hasFocus()) term.focus();
@@ -147,6 +160,7 @@ void host.info().then((info) => {
   applyColor(info.color);
   refused = info.refused;
   shell = info.shell;
+  if (info.replay !== null) term.write(info.replay);
   start();
   if (document.hasFocus()) term.focus();
 });
