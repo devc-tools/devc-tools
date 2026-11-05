@@ -28,7 +28,16 @@ body {
   overflow: hidden;
   user-select: none;
 }
+/* Each in its own row: the paste bar is hidden most of the time, and a hidden item takes no row,
+   so the terminal would land in the bar's `auto` row, no taller than its own default 24 rows. */
+#strip {
+  grid-row: 1;
+}
+#paste {
+  grid-row: 2;
+}
 #term {
+  grid-row: 3;
   position: relative;
   min-height: 0;
   padding: 4px;
