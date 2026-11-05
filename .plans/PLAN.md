@@ -195,6 +195,22 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
   refusal. `push_repo` / `push_result`, `RepoView.pushGrant`. No policy, bridge, `gh-push` or
   devc-desktop changes; **Push…** (ask devc-desktop) stays for everything else.
 
+- [devc-web-push-arrow](devc-web-push-arrow.md) — after devc-web-granted-push: one **Push**.
+  The repo card's `↑N` counts what a push would publish, including on a branch with no upstream
+  (commits on no remote branch, as the Commits section counts them). It is clickable exactly when
+  the menu has Push, and both do the same: the container's `gh-push` grant at once, escalating an
+  exit-3 refusal to a devc-desktop push request, or that request directly when there is no grant.
+  Otherwise `↑N` is read-only with the reason. Push… and `↑N`-opens-Commits are removed; Push
+  refreshes the mirror so `↑N` clears.
+
+- [devc-desktop-host-tiles](devc-desktop-host-tiles.md) — host terminals as tiles in devc web's
+  Golden Layout: **New Host Tile** (app menu only) adds a `host` tile to `/main`, whose content
+  area is covered by an app-owned `WebContentsView` per tile, placed from rectangles the page
+  reports. devc web draws the tab and controls geometry only; it cannot create, end, read or type
+  into a host shell. A move guard drops input for 500 ms after a slot moves under the pointer.
+  Host terminals get a user-picked background color devc web never sees. Step 0 probes focus
+  theft with moving views and the pointer-move attack first.
+
 ### Completed
 
 - ✅ Done — [devc-mirror-code-roots](archived/devc-mirror-code-roots.md) — opt-in `"mirrorCodeRoots": true` in
@@ -2672,3 +2688,5 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
 | devc web commit diffs — a Commits row expands to its files, each opening a read-only diff tile from the mirror      | [devc-web-commit-diffs](archived/devc-web-commit-diffs.md)                         | complete    |
 | devc web uncommitted files — an Uncommitted row in Commits lists working-tree changes; each opens a diff vs HEAD    | [devc-web-uncommitted-files](devc-web-uncommitted-files.md)                        | in progress |
 | devc web granted push — Push runs the container's own `gh-push` grant with no confirmation                          | [devc-web-granted-push](devc-web-granted-push.md)                                  | in progress |
+| devc web push arrow — ↑N and Push are one action; ↑N counts what a push publishes, read-only when none can          | [devc-web-push-arrow](devc-web-push-arrow.md)                                      |             |
+| devc desktop host tiles — host terminals as Golden Layout tiles over devc web's slots; a host color                 | [devc-desktop-host-tiles](devc-desktop-host-tiles.md)                              |             |
