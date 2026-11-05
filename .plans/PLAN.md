@@ -188,6 +188,13 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
   IntelliJ-style **Build (Gradle)** / **Reload Gradle project** actions, automatic reload when
   generated-source folders appear, and read-only `jdt:` class tiles.
 
+- [devc-web-granted-push](devc-web-granted-push.md) — devc web's repo card gets a **Push** that
+  runs `devc-bridge gh-push --repo <target>` in the container with no confirmation, offered only
+  while the container's host-only policy grants `gh-push` on that repo and its pinned branch is
+  checked out. It does exactly what the container's agent already can, with every agent-mode
+  refusal. `push_repo` / `push_result`, `RepoView.pushGrant`. No policy, bridge, `gh-push` or
+  devc-desktop changes; **Push…** (ask devc-desktop) stays for everything else.
+
 ### Completed
 
 - ✅ Done — [devc-mirror-code-roots](archived/devc-mirror-code-roots.md) — opt-in `"mirrorCodeRoots": true` in
@@ -2664,3 +2671,4 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
 | devc web screenshots — paste or drop an image into a terminal; its path is pasted for the agent                     | [devc-web-screenshots](devc-web-screenshots.md)                                    | in progress |
 | devc web commit diffs — a Commits row expands to its files, each opening a read-only diff tile from the mirror      | [devc-web-commit-diffs](archived/devc-web-commit-diffs.md)                         | complete    |
 | devc web uncommitted files — an Uncommitted row in Commits lists working-tree changes; each opens a diff vs HEAD    | [devc-web-uncommitted-files](devc-web-uncommitted-files.md)                        | in progress |
+| devc web granted push — Push runs the container's own `gh-push` grant with no confirmation                          | [devc-web-granted-push](devc-web-granted-push.md)                                  |             |
