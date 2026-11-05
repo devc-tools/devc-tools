@@ -1408,8 +1408,9 @@ async function resumeSession(c, s) {
 
 /**
  * ● changes to commit, ↑ push / ↓ pull counts, or a quiet ✓ / ?, from `gitSync` or `gitRollup`;
- * nothing for no repo. On a repo card (`opts`): a click on a faded ↓ / +N (`unfetched`) fetches
- * when `opts.fetch` is given, a click on ↓ (`behind`) pulls when `opts.pull` is, and a click on ↑
+ * nothing for no repo. On a repo card (`opts`): a click on ↓ (`behind`) or on a faded ↓ / +N
+ * (`unfetched`) pulls when `opts.pull` is given (a pull fetches first); otherwise a click on a
+ * faded mark fetches when `opts.fetch` is. A click on ↑
  * (`ahead`) pushes when `opts.push` is: exactly the menu's Push. Without it ↑ is read-only, its
  * tooltip saying why (`opts.pushUnavailable`). With `opts.busy`, a spinner follows the counts.
  *
@@ -1439,7 +1440,10 @@ export function gitMark(sync, opts) {
       'data-diverged': sync.diverged,
     },
     ...sync.marks.map((m) =>
-      opts?.fetch && m.dir === 'unfetched'
+      // A pull fetches first, so while one is allowed a faded mark pulls too: one click.
+      opts?.pull && (m.dir === 'behind' || m.dir === 'unfetched')
+        ? button(m, LABELS.pullBehind(opts.upstream), opts.pull)
+        : opts?.fetch && m.dir === 'unfetched'
         ? button(
           m,
           LABELS.fetchUnfetched(
@@ -1448,8 +1452,6 @@ export function gitMark(sync, opts) {
           ),
           opts.fetch,
         )
-        : opts?.pull && m.dir === 'behind'
-        ? button(m, LABELS.pullBehind(opts.upstream), opts.pull)
         : opts?.push && m.dir === 'ahead'
         ? button(m, opts.pushTitle ?? LABELS.push, opts.push)
         : opts?.pushUnavailable && m.dir === 'ahead'

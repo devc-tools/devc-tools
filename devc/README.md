@@ -305,12 +305,13 @@ is published from any container: the host server finds devcontainers with
   own `origin/<branch>` has and the branch doesn't, ready to pull. A **faded
   ↓N** (or **+N** after it) is what only the host has seen on the remote so far,
   from its own fetch every 5 minutes. **Fetch** (the card's right-click menu, or
-  a click on the faded mark), offered only while there is such a mark, moves the
+  a click on the faded mark while Pull isn't offered), offered only while there is such a mark, moves the
   repo's `origin/<branch>` to what the remote has now: the host fetches the
   remote into its own mirror with its credentials, and the repo's git fetches
   that from a bundle inside its environment, so the host never runs git in the
   repo. It merges nothing and leaves the working tree alone. **Pull** (the menu,
-  or a click on **↓N**), offered only while the branch is behind and has nothing
+  or a click on **↓N** or, while Pull is offered, on the faded mark too: one
+  click brings the commits in), offered only while the branch is behind and has nothing
   to push, is a Fetch and then `git merge --ff-only` in the project's
   environment: never a merge commit, rebase or stash, and git refuses one that
   would overwrite an uncommitted change. It is refused while an agent in the
