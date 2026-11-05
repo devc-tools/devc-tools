@@ -1063,3 +1063,46 @@ export function ambiguousPress(
 export function slotShellId(hex16: string): string {
   return `slot-${hex16}`;
 }
+
+// ---- menu swatches -----------------------------------------------------------------------------
+
+/** `#rrggbb` as `[r, g, b]`; anything else is black. */
+function rgb(hex: string): [number, number, number] {
+  const m = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(hex);
+  return m === null
+    ? [0, 0, 0]
+    : [parseInt(m[1], 16), parseInt(m[2], 16), parseInt(m[3], 16)];
+}
+
+/**
+ * A `size`×`size` color swatch for a menu item's icon, as `nativeImage.createFromBitmap` takes it
+ * (BGRA, opaque, rows top down): `fill`, with a 1 px `edge` around it when given and a centred
+ * `inner` square (half the size) when given.
+ */
+export function swatchBitmap(
+  size: number,
+  fill: string,
+  opts: { edge?: string; inner?: string } = {},
+): Buffer {
+  const px = Buffer.alloc(size * size * 4);
+  const lo = Math.floor(size / 4);
+  const hi = size - lo;
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const onEdge = x === 0 || y === 0 || x === size - 1 || y === size - 1;
+      const inInner = x >= lo && x < hi && y >= lo && y < hi;
+      const color = opts.edge !== undefined && onEdge
+        ? opts.edge
+        : opts.inner !== undefined && inInner
+        ? opts.inner
+        : fill;
+      const [r, g, b] = rgb(color);
+      const i = (y * size + x) * 4;
+      px[i] = b;
+      px[i + 1] = g;
+      px[i + 2] = r;
+      px[i + 3] = 255;
+    }
+  }
+  return px;
+}

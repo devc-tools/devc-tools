@@ -39,6 +39,13 @@ import { findLinks, linkAt } from './lib/links.js';
  * @param {number} fallback
  * @returns {number}
  */
+/** The theme's terminal background (`--term-bg`), `style.css`'s own when unset. */
+function termBg() {
+  return getComputedStyle(document.documentElement).getPropertyValue(
+    '--term-bg',
+  ).trim() || '#11131a';
+}
+
 function cssPx(name, fallback) {
   const value = getComputedStyle(document.documentElement).getPropertyValue(
     name,
@@ -68,8 +75,13 @@ export function createRenderer(
     fontFamily:
       'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace',
     fontSize: cssPx('--code-font-size', 13),
-    theme: { background: '#11131a' },
+    theme: { background: termBg() },
   });
+  // The page's theme changed (`client.js`): the terminal's own background follows.
+  const onTheme = () => {
+    term.options.theme = { ...term.options.theme, background: termBg() };
+  };
+  window.addEventListener('devc-theme', onTheme);
   const fit = new FitAddon();
   term.loadAddon(fit);
   term.open(element);
@@ -185,6 +197,7 @@ export function createRenderer(
       term.focus();
     },
     dispose() {
+      window.removeEventListener('devc-theme', onTheme);
       window.removeEventListener('keydown', onModifier, true);
       window.removeEventListener('keyup', onModifier, true);
       window.removeEventListener('blur', onBlur);

@@ -217,6 +217,11 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
   Host terminals get a user-picked background color devc web never sees. Step 0 probes focus
   theft with moving views and the pointer-move attack first.
 
+- [devc-ui-themes](devc-ui-themes.md) — five dark themes for devc web and devc-desktop's own UI
+  (not host terminals): one palette list in devc web (`lib/themes.js`); devc web applies
+  `#…&theme=<name>`; devc-desktop picks it under **View → Theme** with color swatches in the menu
+  (Host Terminal Color gets swatches too) and passes it to devc web's views and its own.
+
 ### Completed
 
 - ✅ Done — [devc-mirror-code-roots](archived/devc-mirror-code-roots.md) — opt-in `"mirrorCodeRoots": true` in
@@ -2697,3 +2702,4 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
 | devc web push arrow — ↑N and Push are one action; ↑N counts what a push publishes, read-only when none can          | [devc-web-push-arrow](devc-web-push-arrow.md)                                      | in progress |
 | devc desktop host tiles — host terminals as Golden Layout tiles over devc web's slots; a host color                 | [devc-desktop-host-tiles](devc-desktop-host-tiles.md)                              | in progress |
 | devc web Herdr workspaces — one Herdr workspace per repo; new panes land in their repo's workspace                  | [devc-web-herdr-workspaces](devc-web-herdr-workspaces.md)                          | in progress |
+| devc UI themes — five dark themes for devc web and the app's own UI, picked under View → Theme                      | [devc-ui-themes](devc-ui-themes.md)                                                | in progress |

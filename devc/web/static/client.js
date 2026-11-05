@@ -14,8 +14,32 @@ import { parseTasks } from './lib/tasks.js';
 import { booted, errorToast, h, markBooted, toast } from './ui.js';
 import { loadedPaths, planStaticChange } from './lib/live_reload.js';
 import { viewIdFromHash } from './lib/view.js';
+import { themeFromHash, themeVars } from './lib/themes.js';
 
 /** @typedef {import('./lib/view.js').TileState} TileState */
+
+// ---------------------------------------------------------------------------------------------
+// Theme
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * The page's colors from its URL hash (`#…&theme=<name>`, devc-desktop's View → Theme): each
+ * token on `<html>`, then a `devc-theme` event for what draws with them itself (terminals). No
+ * `theme` in the hash leaves `style.css`'s own. The hash is the only input: nothing is stored.
+ */
+function applyTheme() {
+  const theme = themeFromHash(location.hash);
+  if (theme === null) return;
+  const root = document.documentElement;
+  if (root.dataset.theme === theme.name) return;
+  for (const [name, value] of Object.entries(themeVars(theme))) {
+    root.style.setProperty(name, value);
+  }
+  root.dataset.theme = theme.name;
+  window.dispatchEvent(new Event('devc-theme'));
+}
+applyTheme();
+window.addEventListener('hashchange', applyTheme);
 
 const RECONNECT_MS = 2000;
 /** A held live reload waits this long after the last key or click. */

@@ -1,12 +1,13 @@
 /*
  * The window's title bar, drawn in place of the OS's own. The whole bar drags the window. The
  * window's buttons sit over it: macOS's on the left, the overlay's on the right elsewhere, so the
- * title keeps clear of them. Its colour is TITLEBAR_COLOR in main.ts.
+ * title keeps clear of them. Its colour is the theme's `--sidebar-head`, as the overlay's in main.ts.
  */
 :root {
-  --bg: #161922;
-  --border: #2a2f3c;
-  --muted: #8a90a0;
+  /* The theme's (View → Theme), inserted by the app; these are the defaults until it is. */
+  --titlebar-bg: var(--sidebar-head, #161922);
+  --titlebar-border: var(--border, #2a2f3c);
+  --titlebar-text: var(--muted, #8a90a0);
 }
 html,
 body {
@@ -15,9 +16,9 @@ body {
 body {
   margin: 0;
   box-sizing: border-box;
-  background: var(--bg);
-  border-bottom: 1px solid var(--border);
-  color: var(--muted);
+  background: var(--titlebar-bg);
+  border-bottom: 1px solid var(--titlebar-border);
+  color: var(--titlebar-text);
   font: 12px/1 system-ui, sans-serif;
   display: flex;
   align-items: center;

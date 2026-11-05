@@ -3,10 +3,10 @@ html,
 body {
   height: 100%;
   margin: 0;
-  background: #303a49;
+  background: var(--border, #303a49);
   cursor: col-resize;
 }
 body:hover,
 body.dragging {
-  background: #83aff0;
+  background: var(--accent, #83aff0);
 }

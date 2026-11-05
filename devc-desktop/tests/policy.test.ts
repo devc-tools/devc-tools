@@ -55,6 +55,7 @@ import {
   showText,
   SIDEBAR_DEFAULT,
   SIDEBAR_MIN,
+  swatchBitmap,
   TITLEBAR_HEIGHT,
 } from '../src/main/policy.ts';
 
@@ -991,4 +992,22 @@ test('hostColorOf: the saved choice, green for anything else', () => {
     'Red',
     'None',
   ]);
+});
+
+test('swatchBitmap: BGRA, opaque, an edge, and an inner square half the size', () => {
+  const px = swatchBitmap(16, '#102030', { edge: '#405060', inner: '#708090' });
+  assertEquals(px.length, 16 * 16 * 4);
+  const at = (
+    x: number,
+    y: number,
+  ) => [...px.subarray((y * 16 + x) * 4, (y * 16 + x) * 4 + 4)];
+  assertEquals(at(0, 0), [0x60, 0x50, 0x40, 255]); // the edge
+  assertEquals(at(15, 7), [0x60, 0x50, 0x40, 255]);
+  assertEquals(at(2, 2), [0x30, 0x20, 0x10, 255]); // the fill
+  assertEquals(at(4, 4), [0x90, 0x80, 0x70, 255]); // the inner square, 4..11
+  assertEquals(at(11, 11), [0x90, 0x80, 0x70, 255]);
+  assertEquals(at(12, 12), [0x30, 0x20, 0x10, 255]);
+  // No edge, no inner: all fill.
+  const plain = swatchBitmap(4, '#ffffff');
+  assertEquals([...plain], new Array(16).fill([255, 255, 255, 255]).flat());
 });

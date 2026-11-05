@@ -21,6 +21,8 @@ const node = {
   format: 'cjs',
   target: 'node22',
   external: ['electron', 'node-pty'],
+  // The main process uses devc web's theme palettes (`lib/themes.js`).
+  alias: { 'devc-web': DEVC_WEB },
   logLevel: 'warning',
 };
 await Promise.all([

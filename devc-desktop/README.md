@@ -230,6 +230,14 @@ disabled, with the reason, when there is no such folder, and both are disabled w
 runs in the shell (`(busy: vim)`). If devc web is open in a browser too, the window you used last
 decides which pane counts.
 
+### Theme
+
+**View → Theme** colors devc web and the app's own parts (title bar, rail, status, Containers
+pane, the drawer's frame): Slate (the default), Graphite, Dusk, Mocha or Midnight, each shown with
+a swatch. It changes at once, with nothing reloaded, and is remembered. Host terminals keep their
+**Host Terminal Color**, whose menu shows swatches too. The palettes are devc web's
+(`devc/web/static/lib/themes.js`); the app passes the choice to its pages as `#…&theme=<name>`.
+
 ### Host tiles
 
 **devc web → New Host Tile** (Cmd+Shift+J, Ctrl+Shift+\`) puts a host shell in `/main`'s own

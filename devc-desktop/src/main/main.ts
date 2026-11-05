@@ -33,12 +33,19 @@ import {
   ipcMain,
   Menu,
   type MenuItemConstructorOptions,
+  nativeImage,
   screen,
   session,
   shell,
   WebContentsView,
 } from 'electron';
 import * as nodePty from 'node-pty';
+import {
+  type Theme,
+  themeNamed,
+  THEMES,
+  themeVars,
+} from 'devc-web/lib/themes.js';
 import {
   childEnv,
   desktopConfig,
@@ -103,6 +110,7 @@ import {
   shellQuote,
   showText,
   slotShellId,
+  swatchBitmap,
   TITLEBAR_HEIGHT,
 } from './policy.ts';
 import { accountShell, HostPtys, hostShell, ptyEnv } from './pty.ts';
@@ -159,6 +167,8 @@ let desktopToken: string | null = null;
  */
 let runner: { found: Found; checkout: string | null } | null = null;
 
+/** View → Theme: devc web's colors and the app's own (not the host terminals'). */
+let uiTheme: Theme = themeNamed(undefined);
 /** View → Host Terminal Color: every host terminal's background. */
 let hostColor: HostColor = hostColorOf(undefined);
 /** The drawer's height in px, or `null` while closed; `drawerHeight` survives closing. */
@@ -701,6 +711,7 @@ async function main(): Promise<void> {
         containersOpen = s.containersOpen;
       }
       hostColor = hostColorOf(s?.hostColor);
+      uiTheme = themeNamed(s?.uiTheme);
     } catch { /* first launch */ }
   }
 
@@ -718,6 +729,7 @@ async function main(): Promise<void> {
             containersHeight,
             containersOpen,
             hostColor: hostColor.value,
+            uiTheme: uiTheme.name,
           }),
         )
       ).catch(() => {});
@@ -824,7 +836,7 @@ async function main(): Promise<void> {
   /** devc web's page at `path` (`/main`, `/sidebar`, `/host-status`), with its token and the app's view id. */
   function devcPage(path: string, extra = ''): string | null {
     if (origin === null || devcWebToken === null) return null;
-    return `${origin}${path}#token=${devcWebToken}&view=${VIEW}${extra}`;
+    return `${origin}${path}#token=${devcWebToken}&view=${VIEW}&theme=${uiTheme.name}${extra}`;
   }
 
   /**
@@ -1544,6 +1556,7 @@ async function main(): Promise<void> {
     view.setVisible(false);
     lockDownBundled(view, SLOT_URL);
     watchPresses(view.webContents);
+    themed(view);
     const slot: Slot = {
       id: randomBytes(16).toString('hex'),
       shell: moved?.shell ?? slotShellId(randomBytes(8).toString('hex')),
@@ -2404,6 +2417,85 @@ async function main(): Promise<void> {
     if (fromStatus(e)) void restart();
   });
 
+  // ---- the theme -----------------------------------------------------------------------------------
+  // View → Theme recolors devc web (its views' hash, `theme=`; the page applies it) and the app's
+  // own views (their stylesheets read the same variables, inserted here) and window. Host
+  // terminals keep the host color. See `.plans/devc-ui-themes.md`.
+
+  /** The theme's variables, over each page's own `:root`. */
+  const themeCss = () =>
+    `html:root{${
+      Object.entries(themeVars(uiTheme)).map(([k, v]) => `${k}:${v}`).join(';')
+    }}`;
+  /** The stylesheet inserted into each of the app's views, by its webContents. */
+  const themeKeys = new Map<Electron.WebContents, string>();
+
+  function themeView(wc: Electron.WebContents): void {
+    const css = themeCss();
+    const old = themeKeys.get(wc);
+    void wc.insertCSS(css).then((key) => {
+      themeKeys.set(wc, key);
+      if (old !== undefined) void wc.removeInsertedCSS(old).catch(() => {});
+    }).catch(() => {});
+  }
+
+  /** One of the app's own views: themed now, and again on each page it loads. */
+  function themed(view: WebContentsView): void {
+    const wc = view.webContents;
+    wc.on('dom-ready', () => {
+      themeKeys.delete(wc);
+      themeView(wc);
+    });
+    if (!wc.isLoading() && wc.getURL() !== '') themeView(wc);
+  }
+
+  /** `theme=` in a devc web view's hash: a hash-only load, nothing reloads. */
+  function setDevcTheme(view: WebContentsView): void {
+    if (origin === null) return;
+    const now = view.webContents.getURL();
+    if (!now.startsWith(`${origin}/`)) return;
+    const url = new URL(now);
+    const hash = new URLSearchParams(url.hash.slice(1));
+    if (hash.get('theme') === uiTheme.name) return;
+    hash.set('theme', uiTheme.name);
+    url.hash = hash.toString();
+    void view.webContents.loadURL(url.toString()).catch(() => {});
+  }
+
+  /** The window's and views' own colors: what shows before a page paints, and the title bar's. */
+  function nativeColors(): void {
+    const c = uiTheme.colors;
+    win.setBackgroundColor(c.bg);
+    for (const v of [statusView, footerView, hostView]) {
+      v.setBackgroundColor(c.bg);
+    }
+    railView.setBackgroundColor(c.border);
+    titleBarView.setBackgroundColor(c.sidebarHead);
+    if (!IS_MAC) {
+      win.setTitleBarOverlay({
+        color: c.sidebarHead,
+        symbolColor: c.text,
+        height: TITLEBAR_HEIGHT,
+      });
+    }
+  }
+
+  function setUiTheme(theme: Theme): void {
+    uiTheme = theme;
+    saveState();
+    nativeColors();
+    for (const wc of themeKeys.keys()) themeView(wc);
+    for (const v of [devcView, sidebarView, footerView]) setDevcTheme(v);
+  }
+
+  /** A menu item's color swatch. */
+  function swatch(fill: string, opts: { edge?: string; inner?: string }) {
+    return nativeImage.createFromBitmap(swatchBitmap(16, fill, opts), {
+      width: 16,
+      height: 16,
+    });
+  }
+
   // ---- menus, closing ----------------------------------------------------------------------------
 
   /**
@@ -2535,11 +2627,25 @@ async function main(): Promise<void> {
           },
           { type: 'separator' },
           {
+            label: 'Theme',
+            submenu: THEMES.map((t) => ({
+              label: t.label,
+              type: 'radio' as const,
+              checked: t.name === uiTheme.name,
+              icon: swatch(t.colors.panel, {
+                edge: t.colors.border,
+                inner: t.colors.accent,
+              }),
+              click: () => setUiTheme(t),
+            })),
+          },
+          {
             label: 'Host Terminal Color',
             submenu: HOST_COLORS.map((c) => ({
               label: c.label,
               type: 'radio' as const,
               checked: c.value === hostColor.value,
+              icon: swatch(c.background, { edge: '#5a6270' }),
               click: () => setHostColor(c),
             })),
           },
@@ -2553,6 +2659,17 @@ async function main(): Promise<void> {
   }
   await loadState();
   Menu.setApplicationMenu(Menu.buildFromTemplate(menu()));
+  nativeColors();
+  for (
+    const v of [
+      titleBarView,
+      statusView,
+      railView,
+      menuView,
+      containersView,
+      hostView,
+    ]
+  ) themed(v);
   void statusView.webContents.loadURL(STATUS_URL);
   void titleBarView.webContents.loadURL(TITLEBAR_URL);
   void railView.webContents.loadURL(RAIL_URL);

@@ -97,3 +97,23 @@ declare module 'devc-web/ui.js' {
 declare module 'devc-web/lib/protocol_version.js' {
   export const PROTOCOL: number;
 }
+
+declare module 'devc-web/lib/themes.js' {
+  export interface Theme {
+    name: string;
+    label: string;
+    colors: Record<string, string> & {
+      bg: string;
+      panel: string;
+      border: string;
+      text: string;
+      accent: string;
+      sidebarHead: string;
+    };
+  }
+  export const THEMES: readonly Theme[];
+  export const DEFAULT_THEME: string;
+  export function themeNamed(name: unknown): Theme;
+  export function themeVars(theme: Theme): Record<string, string>;
+  export function themeFromHash(hash: string): Theme | null;
+}
