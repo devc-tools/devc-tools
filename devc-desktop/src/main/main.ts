@@ -2632,10 +2632,8 @@ async function main(): Promise<void> {
               label: t.label,
               type: 'radio' as const,
               checked: t.name === uiTheme.name,
-              icon: swatch(t.colors.panel, {
-                edge: t.colors.border,
-                inner: t.colors.accent,
-              }),
+              // Its background, as solid as it looks, as the host colors' swatches are.
+              icon: swatch(t.colors.panel, { edge: '#5a6270' }),
               click: () => setUiTheme(t),
             })),
           },

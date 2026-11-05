@@ -233,10 +233,13 @@ decides which pane counts.
 ### Theme
 
 **View → Theme** colors devc web and the app's own parts (title bar, rail, status, Containers
-pane, the drawer's frame): Slate (the default), Graphite, Dusk, Mocha or Midnight, each shown with
-a swatch. It changes at once, with nothing reloaded, and is remembered. Host terminals keep their
-**Host Terminal Color**, whose menu shows swatches too. The palettes are devc web's
-(`devc/web/static/lib/themes.js`); the app passes the choice to its pages as `#…&theme=<name>`.
+pane, the drawer's frame): Slate (the default), Graphite (neutral gray), or a solid tint in one of
+the host colors' hues: Green, Teal, Blue, Purple, Amber or Red. Each item shows a swatch of the
+theme's background. It changes at once, with nothing reloaded, and is remembered. Host terminals
+keep their **Host Terminal Color**, whose menu shows swatches too. Any theme goes with any host
+color; when they share a hue, a host tile is told apart by its `HOST · user@host` strip. The
+palettes are devc web's (`devc/web/static/lib/themes.js`); the app passes the choice to its pages
+as `#…&theme=<name>`.
 
 ### Host tiles
 

@@ -500,7 +500,7 @@ is published from any container: the host server finds devcontainers with
   content, and the page only says where the tile is. In a browser, or once the
   app's shell is gone, the tile shows _Host terminal — not running here_; close
   its tab. `#…&theme=<name>` (devc-desktop's **View → Theme**: `slate`, `graphite`,
-  `dusk`, `mocha` or `midnight`, from `lib/themes.js`) colors any page; without
+  `green`, `teal`, `blue`, `purple`, `amber` or `red`, from `lib/themes.js`) colors any page; without
   it, the page keeps its own colors. A right-click menu closes
   when another page or view takes the focus, and scrolls when it is taller than
   the window.

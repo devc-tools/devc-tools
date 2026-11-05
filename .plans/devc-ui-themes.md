@@ -19,19 +19,24 @@ each menu item, and passes it on.
 
 ## Themes
 
-Five dark palettes. `slate` is today's colors exactly and the default. The tinted ones carry their
-hue through every token, backgrounds included (revised after the first build: tinting only the
-accents was too subtle). Every background role stays at least 9 (RGB distance) from every host
-color, as Slate does (10.8), so host tiles stay distinct; the host colors cover most hues at this
-darkness, which decided Dusk's plum, Midnight's indigo and Mocha's red-brown.
+Eight dark palettes. `slate` is today's colors exactly and the default; `graphite` is neutral
+gray. The other six are solid tints in the host colors' own hues and saturations (revised twice
+after the first build, at the user's word: accent-only tints were too subtle, then hue-shifted
+tints kept apart from the host colors were not what was wanted; "solid tints, no restriction").
+Each background role sits at a fixed lightness (bg 7.5%, term 8.5%, sidebar head 11%, panel 13%,
+tile head 14%, panel-2 16.5%), so none matches a host color exactly; any theme may go with any host
+color, and when they share a hue a host tile is told apart by its `HOST · user@host` strip.
 
-| name       | label    | look                               |
-| ---------- | -------- | ---------------------------------- |
-| `slate`    | Slate    | today's blue-gray, blue accent     |
-| `graphite` | Graphite | neutral grays, amber accent        |
-| `dusk`     | Dusk     | purple-gray, lavender accent       |
-| `mocha`    | Mocha    | warm brown-gray, terracotta accent |
-| `midnight` | Midnight | near-black navy, sky-blue accent   |
+| name       | label    | look                             |
+| ---------- | -------- | -------------------------------- |
+| `slate`    | Slate    | today's blue-gray, blue accent   |
+| `graphite` | Graphite | neutral grays, light-gray accent |
+| `green`    | Green    | the green host color's hue       |
+| `teal`     | Teal     | the teal host color's hue        |
+| `blue`     | Blue     | the blue host color's hue        |
+| `purple`   | Purple   | the purple host color's hue      |
+| `amber`    | Amber    | the amber host color's hue       |
+| `red`      | Red      | the red host color's hue         |
 
 Each theme sets these devc web tokens (the `:root` variables in `style.css` of the same names):
 `--bg --panel --panel-2 --border --text --muted --accent --term-bg --row-hover --row-current
@@ -57,7 +62,8 @@ hardcoded colors in `style.css` stay as they are on every theme.
 ## devc-desktop
 
 - **View → Theme**: radio items in table order, each with a 16×16 swatch icon (the theme's
-  `--panel` with an inner square of its `--accent`), made with `nativeImage.createFromBitmap`.
+  `--panel`, solid, with a 1 px gray edge, as the host colors' swatches), made with
+  `nativeImage.createFromBitmap`.
   Saved as `"uiTheme": "<name>"` in `desktop-state.json`; unknown or missing → `slate`.
 - **View → Host Terminal Color** items get swatches too (the color's background, with a 1 px
   `--border` edge of the current theme).
@@ -79,9 +85,9 @@ hardcoded colors in `style.css` stay as they are on every theme.
 - [x] `cd devc && deno test -A tests/web_layout_test.ts tests/web_themes_test.ts` pass, with a new
       `web_themes_test.ts`: every theme sets every token, as `#rrggbb` (`--tile-focus-glow`
       `#rrggbbaa`); `slate` equals `style.css`'s `:root` values for each token; names are unique;
-      `themeNamed` falls back to `slate`; `themeFromHash` reads `theme=` only; no theme's background
-      roles (`--bg --panel --panel-2 --term-bg --sidebar-head --tile-head`) is within 9 of a
-      host color.
+      `themeNamed` falls back to `slate`; `themeFromHash` reads `theme=` only; the theme list is
+      Slate, Graphite and the six host hues, in that order (no host color appears verbatim in
+      devc web: `web_desktop_test.ts`).
 - [x] `cd devc-desktop && npm run check && npm test` pass, with tests for the swatch bitmap (size,
       BGRA order, border and inner square). (`uiTheme` is read with `themeNamed`, tested in
       `web_themes_test.ts`: `policy.ts` cannot import devc web's files under `node --test`.)
