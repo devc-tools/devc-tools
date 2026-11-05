@@ -71,11 +71,34 @@ const HOST_COLOR_HEXES = [
   '#2b1517',
 ];
 
-Deno.test('no theme background is a host color', () => {
+/** Straight-line distance between two `#rrggbb` colors in RGB. */
+function distance(a: string, b: string): number {
+  const ch = (h: string, i: number) =>
+    parseInt(h.slice(1 + 2 * i, 3 + 2 * i), 16);
+  return Math.hypot(...[0, 1, 2].map((i) => ch(a, i) - ch(b, i)));
+}
+
+Deno.test('no theme background is within 9 of a host color', () => {
+  // Slate, style.css's own colors, is 10.8 from the nearest; the tinted themes stay at least as
+  // far as 9, so a host tile's color still stands out on each.
+  const backgrounds = [
+    '--bg',
+    '--panel',
+    '--panel-2',
+    '--term-bg',
+    '--sidebar-head',
+    '--tile-head',
+  ];
   for (const theme of THEMES) {
     const vars = themeVars(theme);
-    for (const name of ['--bg', '--panel', '--term-bg']) {
-      assert(!HOST_COLOR_HEXES.includes(vars[name]), `${theme.name} ${name}`);
+    for (const name of backgrounds) {
+      for (const host of HOST_COLOR_HEXES) {
+        const d = distance(vars[name], host);
+        assert(
+          d >= 9,
+          `${theme.name} ${name} ${vars[name]} is ${d.toFixed(1)} from ${host}`,
+        );
+      }
     }
   }
 });

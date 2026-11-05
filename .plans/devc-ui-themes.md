@@ -19,8 +19,11 @@ each menu item, and passes it on.
 
 ## Themes
 
-Five dark palettes. `slate` is today's colors exactly and the default. None has a strongly tinted
-background, so host tiles (green, teal, blue, purple, amber, red) stay distinct on every theme.
+Five dark palettes. `slate` is today's colors exactly and the default. The tinted ones carry their
+hue through every token, backgrounds included (revised after the first build: tinting only the
+accents was too subtle). Every background role stays at least 9 (RGB distance) from every host
+color, as Slate does (10.8), so host tiles stay distinct; the host colors cover most hues at this
+darkness, which decided Dusk's plum, Midnight's indigo and Mocha's red-brown.
 
 | name       | label    | look                               |
 | ---------- | -------- | ---------------------------------- |
@@ -76,8 +79,9 @@ hardcoded colors in `style.css` stay as they are on every theme.
 - [x] `cd devc && deno test -A tests/web_layout_test.ts tests/web_themes_test.ts` pass, with a new
       `web_themes_test.ts`: every theme sets every token, as `#rrggbb` (`--tile-focus-glow`
       `#rrggbbaa`); `slate` equals `style.css`'s `:root` values for each token; names are unique;
-      `themeNamed` falls back to `slate`; `themeFromHash` reads `theme=` only; no theme's `--bg`,
-      `--panel` or `--term-bg` equals a host color.
+      `themeNamed` falls back to `slate`; `themeFromHash` reads `theme=` only; no theme's background
+      roles (`--bg --panel --panel-2 --term-bg --sidebar-head --tile-head`) is within 9 of a
+      host color.
 - [x] `cd devc-desktop && npm run check && npm test` pass, with tests for the swatch bitmap (size,
       BGRA order, border and inner square). (`uiTheme` is read with `themeNamed`, tested in
       `web_themes_test.ts`: `policy.ts` cannot import devc web's files under `node --test`.)

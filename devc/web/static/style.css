@@ -220,7 +220,8 @@ button:hover {
   grid-column: 2;
   /* The sidebar's 1px edge; the rest is the gap before the tiles' margin. */
   background: var(--bg);
-  box-shadow: inset 1px 0 0 #344151;
+  box-shadow: inset 1px 0 0 color-mix(in srgb, var(--panel-2) 80%,
+    var(--tile-branch-mark));
   cursor: col-resize;
   touch-action: none;
 }
@@ -508,7 +509,8 @@ body.resizing-sidebar {
   overflow: auto;
   padding: 2px 10px 10px;
   scrollbar-width: thin;
-  scrollbar-color: #46566e transparent;
+  scrollbar-color: color-mix(in srgb, var(--row-current) 85%, var(--tile-label))
+    transparent;
 }
 
 .zone-in-use {
@@ -537,7 +539,7 @@ body.resizing-sidebar {
   position: relative;
   flex: none;
   height: 3px;
-  background: #3a4b63;
+  background: color-mix(in srgb, var(--text) 10%, var(--row-current));
   cursor: row-resize;
   touch-action: none;
 }
@@ -556,7 +558,7 @@ body.resizing-sidebar {
 
 .zone-divider[data-inert='true'] {
   cursor: default;
-  background: #3a4b63;
+  background: color-mix(in srgb, var(--text) 10%, var(--row-current));
 }
 
 .zone-divider[data-inert='true']::before {
@@ -604,9 +606,9 @@ body.resizing-zones {
 /* A repo card, in In use or in its container's card: its rows flush with its own (no chevrons),
    a section's nested folders indented from there. */
 .repo-card {
-  --card-bg: #151d28;
+  --card-bg: color-mix(in srgb, var(--bg) 75%, var(--row-current));
   padding: 2px;
-  border: 1px solid #2c394b;
+  border: 1px solid color-mix(in srgb, var(--panel-2) 45%, var(--tile-border));
   border-radius: 5px;
   background: var(--card-bg);
 }
@@ -812,7 +814,8 @@ body.resizing-zones {
 }
 
 .repo-card > .card-section + .card-section {
-  border-top: 1px solid #2c394b;
+  border-top: 1px solid color-mix(in srgb, var(--panel-2) 45%,
+    var(--tile-border));
 }
 
 /* No chevron's gap, but on a repo's card with worktrees' cards under it. */
@@ -836,7 +839,7 @@ body.resizing-zones {
   min-height: 30px;
   font-size: calc(var(--font-size) + 0.5px);
   font-weight: 600;
-  color: #dde7f5;
+  color: color-mix(in srgb, var(--text) 10%, var(--tile-label));
 }
 
 .row.repo-card-head.idle,
@@ -901,28 +904,29 @@ body.resizing-zones {
 
 .repo-prefix {
   font-weight: 400;
-  color: #7d8fa8;
+  color: color-mix(in srgb, var(--row-current) 40%, var(--tile-repo));
 }
 
 .repo-branch {
   margin-left: 7px;
   font: 400 10px ui-monospace, SFMono-Regular, Menlo, monospace;
-  color: #a6bad6;
+  color: color-mix(in srgb, var(--tile-repo) 60%, var(--tile-branch));
 }
 
 .repo-branch::before {
   content: '⎇ ';
-  color: #7d93b3;
+  color: var(--tile-branch-mark);
 }
 
 /* In use: a card per container holding its folders' cards, its name centered on top. Containers
    draws each container, and Not running, as the same card. */
 .in-use-run,
 .container-card {
-  --box-bg: #1f2836;
+  --box-bg: color-mix(in srgb, var(--panel) 45%, var(--row-hover));
   margin: 6px 4px 10px;
   padding: 0 5px 5px;
-  border: 1px solid #36465d;
+  border: 1px solid color-mix(in srgb, var(--tile-border) 95%,
+    var(--tile-container));
   border-radius: 7px;
   background: var(--box-bg);
 }
@@ -1038,14 +1042,16 @@ body.resizing-zones {
   position: absolute;
   left: -10px;
   width: 8px;
-  border-left: 1px solid #46597a;
+  border-left: 1px solid color-mix(in srgb, var(--tile-head-focus) 75%,
+    var(--tile-branch));
   pointer-events: none;
 }
 
 .container-card > .repo-card.worktree::before {
   top: -7px;
   height: calc(50% + 7px);
-  border-bottom: 1px solid #46597a;
+  border-bottom: 1px solid color-mix(in srgb, var(--tile-head-focus) 75%,
+    var(--tile-branch));
   border-bottom-left-radius: 4px;
 }
 
@@ -1063,7 +1069,7 @@ body.resizing-zones {
   justify-content: center;
   padding: 5px 6px 4px;
   font-size: calc(var(--font-size) - 1.5px);
-  color: #7d8fa8;
+  color: color-mix(in srgb, var(--row-current) 40%, var(--tile-repo));
   white-space: nowrap;
 }
 
@@ -1073,7 +1079,7 @@ body.resizing-zones {
 }
 
 .section-count {
-  color: #8194af;
+  color: color-mix(in srgb, var(--muted) 95%, var(--tile-head-line));
 }
 
 /* A container row's agents: a dot and count per status. */
@@ -1088,7 +1094,7 @@ body.resizing-zones {
 
 .row.agent-session {
   font-size: calc(var(--font-size) - 0.5px);
-  color: #9fb0c7;
+  color: color-mix(in srgb, var(--tile-label) 35%, var(--tile-container-focus));
   cursor: pointer;
 }
 
@@ -1123,9 +1129,9 @@ body.resizing-zones {
 }
 
 .row.container[aria-expanded='true'] {
-  --row-bg: #212c3b;
+  --row-bg: color-mix(in srgb, var(--row-hover) 50%, var(--tile-head));
   background: var(--row-bg);
-  color: #dfebfb;
+  color: var(--tile-label);
 }
 
 .row.group {
@@ -1448,7 +1454,7 @@ body.resizing-zones {
   --row-bg: var(--row-current);
   border-color: var(--row-current-line);
   background: var(--row-bg);
-  color: #e5eefb;
+  color: var(--tile-label);
 }
 
 .row.linked {
@@ -1503,7 +1509,7 @@ body.resizing-zones {
   width: 14px;
   height: 1em;
   vertical-align: -0.15em;
-  color: #7e92af;
+  color: color-mix(in srgb, var(--muted) 35%, var(--tile-container-focus));
 }
 
 .chevron::before {
@@ -1797,7 +1803,7 @@ body.resizing-zones {
   display: grid;
   place-items: center;
   background-image: none;
-  color: #a0b3ce;
+  color: color-mix(in srgb, var(--muted) 40%, var(--tile-repo));
   font-size: 13px;
   line-height: 1;
 }
@@ -2010,7 +2016,7 @@ body.resizing-zones {
 .lm_header .lm_tab .tile-actions .icon-btn {
   width: 16px;
   height: 16px;
-  color: #a0b3ce;
+  color: color-mix(in srgb, var(--muted) 40%, var(--tile-repo));
   opacity: 0.75;
 }
 
