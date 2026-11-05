@@ -164,6 +164,7 @@ import {
   readUncommittedFiles,
 } from './git_uncommitted.ts';
 import { fetchRepo, fetchRunning, pullRepo, pullRunning } from './git_fetch.ts';
+import { policyReader, pushGrants, pushRepo } from './granted_push.ts';
 import { readCommitHistory } from './git_history.ts';
 import {
   readCommitDiff,
@@ -813,6 +814,7 @@ export async function startWeb(
       gitWatch.statuses,
       { containers: containerFolders(), available },
       changesByFolder(),
+      grantedFolders,
     ),
   });
   const broadcastProjects = () => broadcast(projectsMessage());
@@ -1020,6 +1022,34 @@ export async function startWeb(
     }
     return byFolder;
   };
+  // The repo folders whose Push runs under their container's own `gh-push` grant
+  // (`granted_push.ts`), read from the host-only policies after every git-watch pass and whenever
+  // a container comes or goes. Only the server's push handler decides, from the policy read again.
+  let grantedFolders: ReadonlySet<string> = new Set();
+  const readPushPolicy = policyReader(Deno.env.get('HOME') ?? '.');
+  let grantsSeq = 0;
+  const refreshPushGrants = async () => {
+    const seq = ++grantsSeq;
+    const next = await pushGrants(
+      [...sessions.values()]
+        .filter((s) => s.env.kind === 'container')
+        .map((s) => ({
+          localFolder: s.record.localFolder,
+          folders: (containerRepos.get(s.record.id) ?? []).map((r) => r.folder),
+        })),
+      (folder) => {
+        const status = gitWatch.statuses.get(folder);
+        return status && !isGitProblem(status) ? status.branch : null;
+      },
+      readPushPolicy,
+    );
+    if (seq !== grantsSeq) return;
+    const same = next.size === grantedFolders.size &&
+      [...next].every((f) => grantedFolders.has(f));
+    if (same) return;
+    grantedFolders = next;
+    broadcastProjects();
+  };
   // Every listed repo's push/pull state, read again on a timer and whenever the list changes.
   const gitWatch: GitStatusWatch = new GitStatusWatch({
     folders: () =>
@@ -1028,6 +1058,7 @@ export async function startWeb(
       broadcastProjects();
       recordAllPanes();
     },
+    onPass: () => void refreshPushGrants(),
   });
   const reloadProjects = async () => {
     projectEntries = await loadProjects();
@@ -1203,6 +1234,7 @@ export async function startWeb(
       if (key.startsWith(`${id}\n`)) resumedPanes.delete(key);
     }
     taskRunsSeen(id, null);
+    void refreshPushGrants();
     activity.containerGone(session.record.localFolder);
     void controllers.closeContainer(id, 'container stopped');
     lsp.containerGone(id);
@@ -1413,6 +1445,8 @@ export async function startWeb(
   const fetchStarts = new Map<string, number>();
   /** Each repo folder's last `pull_repo` start, for its rate limit. */
   const pullStarts = new Map<string, number>();
+  /** Each repo folder's last `push_repo` start, for its rate limit. */
+  const pushStarts = new Map<string, number>();
 
   /**
    * The running session and in-environment path of a project's repo (`fetch_repo`,
@@ -1656,6 +1690,43 @@ export async function startWeb(
       void gitWatch.refresh();
       void changesWatch.refreshEnvironment(at.session.record.id);
     }
+  };
+
+  /**
+   * Pushes a repo's pinned branch under its container's own `gh-push` grant (`granted_push.ts`):
+   * `devc-bridge gh-push --repo <target>` in the container, with no confirmation, and answers the
+   * requester with `push_result`. Every check is made here from the host-only policy, read again
+   * now, never from the page, whose code comes from a checkout agents can edit under `--live`.
+   * Allowed under `--live` and `--live-yolo`: it runs only what the container can run itself.
+   * Rate-limited as fetches are.
+   */
+  const pushRepoFor = async (
+    c: Client,
+    msg: Extract<ClientMessage, { type: 'push_repo' }>,
+  ) => {
+    const answer = (
+      o: { ok: true; message: string } | { ok: false; problem: string },
+    ) =>
+      c.send(
+        JSON.stringify({
+          type: 'push_result',
+          id: msg.id,
+          folder: msg.folder,
+          ...o,
+        }),
+      );
+    const outcome = await pushRepo(msg, {
+      target: async () => {
+        const at = await repoTarget(msg);
+        return isGitProblem(at) ? at : { env: at.session.env };
+      },
+      read: readPushPolicy,
+      status: (folder) => gitWatch.statuses.get(folder),
+      startAllowed: (folder) => startAllowed(pushStarts, folder),
+    });
+    answer(outcome);
+    // Its ↑ mark, and the Commits section's Pushed line.
+    if (outcome.ok) void gitWatch.refresh();
   };
 
   /**
@@ -3490,6 +3561,10 @@ export async function startWeb(
     }
     if (msg.type === 'pull_repo') {
       await pullRepoFor(c, msg);
+      return;
+    }
+    if (msg.type === 'push_repo') {
+      await pushRepoFor(c, msg);
       return;
     }
     if (

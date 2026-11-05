@@ -92,6 +92,8 @@ export const LABELS = {
   files: 'Files',
   fetch: 'Fetch',
   requestPush: 'Push…',
+  /** Runs under the container's own `gh-push` grant, with no confirmation. */
+  push: 'Push',
   pull: 'Pull',
   /** A faded ↓N / +N's tooltip: `upstream` is `<remote>/<branch>`. */
   fetchUnfetched: (n, upstream) =>

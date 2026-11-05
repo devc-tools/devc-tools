@@ -421,3 +421,33 @@ Deno.test('buildProjects adds each running project repo’s changes to commit, o
   ]);
   assertEquals('changes' in p.repos[2], false);
 });
+
+Deno.test("buildProjects marks pushGrant only on a running project's granted repo", () => {
+  const repos = (folder: string) => [{
+    folder,
+    worktreeOf: null,
+    containerFolder: null,
+    primaryFolder: null,
+  }];
+  const [run, stop] = buildProjects(
+    [{ localFolder: '/src/a' }, { localFolder: '/src/b' }],
+    ['/src/a'],
+    ['/src/b'],
+    new Set(),
+    new Map([['/src/a', repos('/src/a')], ['/src/b', repos('/src/b')]]),
+    new Map(),
+    undefined,
+    new Map(),
+    new Set(['/src/a', '/src/b']),
+  );
+  assertEquals(run.repos[0].pushGrant, true);
+  // Stopped: no Push, and the field is absent rather than false.
+  assertEquals('pushGrant' in stop.repos[0], false);
+  const [none] = buildProjects(
+    [{ localFolder: '/src/a' }],
+    ['/src/a'],
+    [],
+    new Set(),
+  );
+  assertEquals('pushGrant' in none.repos[0], false);
+});

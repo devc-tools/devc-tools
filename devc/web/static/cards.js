@@ -30,6 +30,7 @@ import {
   repoAt,
   repoCardActive,
   repoCardKey,
+  repoGitItems,
   savedScope,
   splitRepoName,
 } from './lib/sidebar.js';
@@ -820,6 +821,8 @@ export function repoCard(card, side, worktrees = 0) {
     ((repo.git.unfetched ?? 0) > 0 || gitOp === 'fetch');
   const canPull = gitOn &&
     ((repo.git.ahead === 0 && repo.git.behind > 0) || gitOp === 'pull');
+  // Push needs no upstream: a pinned branch never pushed has none.
+  const canPush = !!repo && !!c && !!repo.pushGrant;
   const prOn = canPr && sidebarState.prOpen.has(prKey(localFolder, fr.root));
   const tree = repo ? fileTree(fr) : null;
   const filesOn = !!tree && tree.isOpen('');
@@ -890,26 +893,22 @@ export function repoCard(card, side, worktrees = 0) {
           [
             ...(repo
               ? [
-                ...(canPull
-                  ? [[
-                    LABELS.pull,
-                    () => repoGitRequest('pull', localFolder, repo.folder),
-                  ]]
+                // Push: the container's own `gh-push` grant, no confirmation (the server checks
+                // it). Push…: devc-desktop shows its own push plan, and the user confirms it there.
+                ...repoGitItems({
+                  push: canPush,
+                  pull: canPull,
+                  fetch: canFetch,
+                  requestPush: desktopChannel,
+                }).map((k) => [
+                  LABELS[k],
+                  k === 'requestPush'
+                    ? () => requestPush(localFolder, repo.folder)
+                    : () => repoGitRequest(k, localFolder, repo.folder),
+                ]),
+                ...(canPush || canPull || canFetch || desktopChannel
+                  ? [null]
                   : []),
-                ...(canFetch
-                  ? [[
-                    LABELS.fetch,
-                    () => repoGitRequest('fetch', localFolder, repo.folder),
-                  ]]
-                  : []),
-                // devc-desktop shows its own push plan, and the user confirms it there.
-                ...(desktopChannel
-                  ? [[
-                    LABELS.requestPush,
-                    () => requestPush(localFolder, repo.folder),
-                  ]]
-                  : []),
-                ...(canPull || canFetch || desktopChannel ? [null] : []),
                 ...dirMenuItems(fr, ''),
                 ...jiraItems(branch),
               ]
@@ -930,10 +929,11 @@ export function repoCard(card, side, worktrees = 0) {
             repo.changes,
             repo.changesProblem,
           ),
-          gitOn
+          // A push of a branch with no upstream still shows its spinner.
+          gitOn || gitOp === 'push'
             ? {
               busy: gitOp !== undefined,
-              upstream: repo.git.upstream,
+              upstream: repo.git?.upstream ?? '',
               fetch: () => repoGitRequest('fetch', localFolder, repo.folder),
               pull: canPull
                 ? () => repoGitRequest('pull', localFolder, repo.folder)
@@ -1433,24 +1433,25 @@ export function gitMark(sync, opts) {
   );
 }
 
-/** Repo folders with a `fetch_repo` or `pull_repo` in flight → its kind and request id. */
+/** Repo folders with a `fetch_repo`, `pull_repo` or `push_repo` in flight → its kind and request id. */
 const repoGitOps = new Map();
 
-/** The kind (`'fetch'` or `'pull'`) of the git request in flight for `folder`, if any. */
+/** The kind (`'fetch'`, `'pull'` or `'push'`) of the git request in flight for `folder`, if any. */
 function repoGitOp(folder) {
   return repoGitOps.get(folder)?.kind;
 }
 
 /**
- * Fetches (`fetch_repo`: its own remote-tracking branch moves) or pulls (`pull_repo`: a fetch,
- * then a fast-forward) a repo of a running project; its marks update once the server reads it
- * again. A second click while either runs does nothing; a problem is a toast.
+ * Fetches (`fetch_repo`: its own remote-tracking branch moves), pulls (`pull_repo`: a fetch,
+ * then a fast-forward) or pushes (`push_repo`: `devc-bridge gh-push` in the container, under its
+ * own grant) a repo of a running project; its marks update once the server reads it again. A
+ * second click while any runs does nothing; a problem is a toast, and so is a push's outcome.
  *
- * @param {'fetch' | 'pull'} kind
+ * @param {'fetch' | 'pull' | 'push'} kind
  */
 function repoGitRequest(kind, localFolder, folder) {
   if (repoGitOps.has(folder)) return;
-  const id = nextId(kind === 'fetch' ? 'f' : 'p');
+  const id = nextId(kind === 'fetch' ? 'f' : kind === 'pull' ? 'p' : 'u');
   // A refused message comes back as a `result`: `client.js` toasts it.
   pendingRequests.set(id, LABELS[kind]);
   repoGitOps.set(folder, { kind, id });
@@ -1459,8 +1460,8 @@ function repoGitRequest(kind, localFolder, folder) {
 }
 
 /**
- * A `fetch_result` or `pull_result`, or a `result` refusing either request: the spinner stops.
- * Returns whether it was one of this page's.
+ * A `fetch_result`, `pull_result` or `push_result`, or a `result` refusing one of those requests:
+ * the spinner stops. Returns whether it was one of this page's.
  */
 export function onRepoGitDone(msg) {
   let ours = false;
@@ -1470,11 +1471,21 @@ export function onRepoGitDone(msg) {
       ours = true;
     }
   }
-  if (msg.type !== 'fetch_result' && msg.type !== 'pull_result') return ours;
+  if (
+    msg.type !== 'fetch_result' && msg.type !== 'pull_result' &&
+    msg.type !== 'push_result'
+  ) return ours;
   pendingRequests.delete(msg.id);
   if (!msg.ok) {
-    const label = msg.type === 'fetch_result' ? LABELS.fetch : LABELS.pull;
+    const label = msg.type === 'fetch_result'
+      ? LABELS.fetch
+      : msg.type === 'pull_result'
+      ? LABELS.pull
+      : LABELS.push;
     errorToast(`${label} failed: ${msg.problem ?? 'unknown problem'}`);
+  } else if (msg.type === 'push_result' && ours) {
+    // The bridge's own line (`pushed: …` / `up to date: …`), through the container: text only.
+    toast(String(msg.message ?? 'pushed'));
   }
   return ours;
 }

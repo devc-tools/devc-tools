@@ -21,6 +21,7 @@ import {
   repoAt,
   repoCardActive,
   repoCardKey,
+  repoGitItems,
   savedScope,
   savedZen,
   settleZones,
@@ -893,5 +894,16 @@ Deno.test('gitRollup sums changes to commit, in conflict colors when any repo ha
       { name: 'b', git: null, changes: changes(0, 2) },
     ])?.marks,
     [{ dir: 'conflicted', text: '● 3' }],
+  );
+});
+
+Deno.test('repoGitItems: Push first, Push… last, both when both apply', () => {
+  const none = { push: false, pull: false, fetch: false, requestPush: false };
+  assertEquals(repoGitItems(none), []);
+  assertEquals(repoGitItems({ ...none, push: true }), ['push']);
+  assertEquals(repoGitItems({ ...none, requestPush: true }), ['requestPush']);
+  assertEquals(
+    repoGitItems({ push: true, pull: true, fetch: true, requestPush: true }),
+    ['push', 'pull', 'fetch', 'requestPush'],
   );
 });

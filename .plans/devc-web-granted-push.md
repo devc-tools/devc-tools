@@ -21,15 +21,33 @@ Nothing changes in the policy format, in `gh-push`, in the bridge, or in devc-de
 
 ## Checklist
 
-- [ ] `RepoView.pushGrant` (below), computed on the server and sent in every `projects` message.
-- [ ] Protocol: `push_repo` in, `push_result` out; parsed in `protocol.ts`.
-- [ ] Server: `push_repo` handler with the checks below; `gitWatch.refresh()` after a success.
-- [ ] Page: a **Push** item in the repo card's menu while `pushGrant`; the card's spinner while a
+- [x] `RepoView.pushGrant` (below), computed on the server and sent in every `projects` message.
+- [x] Protocol: `push_repo` in, `push_result` out; parsed in `protocol.ts`.
+- [x] Server: `push_repo` handler with the checks below; `gitWatch.refresh()` after a success.
+- [x] Page: a **Push** item in the repo card's menu while `pushGrant`; the card's spinner while a
       push runs; a toast with the outcome. **Push…** (ask devc-desktop) stays as it is.
-- [ ] Tests: protocol parsing, the server handler's checks and outcomes, `pushGrant`, the menu
+- [x] Tests: protocol parsing, the server handler's checks and outcomes, `pushGrant`, the menu
       items (sidebar test).
-- [ ] Docs: `devc/README.md`, `devc-bridge/README.md`, `devc-desktop/README.md` (below).
+- [x] Docs: `devc/README.md`, `devc-bridge/README.md`, `devc-desktop/README.md` (below).
 - [ ] Manual (the user): the Validation states, against a real container and GitHub repo.
+
+**2026-11-05:** implemented; everything but the manual check is done (`deno task check`,
+`deno fmt --check` on every touched file, and the new and affected tests). The full
+`deno task test` has one failure that has nothing to do with this plan:
+`docker_exec_single_path_test` trips on `devc-core/dist/container.d.ts`, an ignored build output
+from 2026-11-02. Choices beyond the contracts:
+
+- The checks and the run live in `devc/web/granted_push.ts` (`pushRepo`, with injected deps).
+  The server's `pushRepoFor` only wires them up and answers `push_result`, so the handler tests
+  are in `devc/tests/web_granted_push_test.ts` instead of `web_server_test.ts`.
+- `GitStatusWatch` gains `onPass` (after every pass, changed or not). The grant map is recomputed
+  there and when a container is removed. A sequence number drops stale results.
+- `RepoView.pushGrant` is typed `true` (present or absent). `buildProjects` also requires the
+  project to be running.
+- The menu's git items come from `repoGitItems` (`static/lib/sidebar.js`), so the sidebar test
+  covers the order: Push, Pull, Fetch, Push….
+- A push of a branch with no upstream still shows the card's spinner.
+- `web/granted_push.ts` is added to `devc/deno.json`'s `check` list.
 
 ## Contracts
 
@@ -159,25 +177,25 @@ as untrusted text: capped, and shown with `toast`'s text only.
 
 ## Validation
 
-- [ ] `cd devc && deno task check` passes.
+- [x] `cd devc && deno task check` passes.
 - [ ] `cd devc && deno task test` passes, including new tests:
-  - [ ] `parseClientMessage` accepts `push_repo` with the three strings, and refuses a missing or
+  - [x] `parseClientMessage` accepts `push_repo` with the three strings, and refuses a missing or
         empty `id`, `localFolder` or `folder`.
-  - [ ] `pushGrant`: `true` for a running container whose policy line for the repo grants
+  - [x] `pushGrant`: `true` for a running container whose policy line for the repo grants
         `gh-push` with `branch` equal to the checked-out branch. Absent for each of: no policy, a
         malformed policy, a line without `gh-push` (e.g. only `gh-pr-read`), a different checked-out
         branch, a stopped container, and a host project.
-  - [ ] The handler answers each problem string in checks 1–6, exactly as written, with a fake
+  - [x] The handler answers each problem string in checks 1–6, exactly as written, with a fake
         `PrBackend` that records calls. In every refused case, `run` is never called.
-  - [ ] With a policy granting `gh-push` but not `gh-pr-read`, the handler still runs
+  - [x] With a policy granting `gh-push` but not `gh-pr-read`, the handler still runs
         `run('gh-push', <target>, [], …)` (proves `pin()` is not used).
-  - [ ] Exit 0 with stdout `pushed: b at abc to r (x)\n` → `ok: true`,
+  - [x] Exit 0 with stdout `pushed: b at abc to r (x)\n` → `ok: true`,
         `message: 'pushed: b at abc to r (x)'`, and a git-watch refresh. Exit 3 with stderr ending
         `gh-push: refused: b changes .github/workflows/x.yml relative to main` → `ok: false` with
         that last line as `problem`. A timeout → `devc-bridge gh-push timed out`.
-  - [ ] Sidebar test: the menu has **Push** only when `pushGrant`, and **Push…** only with
+  - [x] Sidebar test: the menu has **Push** only when `pushGrant`, and **Push…** only with
         `desktopChannel`; with both, both show, Push first.
-- [ ] `deno fmt --check` on every touched file.
+- [x] `deno fmt --check` on every touched file.
 - [ ] Manual (the user), a container with `devc up --bridge-allow gh-push` on a non-default pinned
       branch:
   - [ ] Commit in the container. **Push** shows with no devc-desktop. Clicking it shows the spinner,
@@ -191,6 +209,11 @@ as untrusted text: capped, and shown with `toast`'s text only.
 
 ## Relevant Files
 
+- `devc/web/granted_push.ts` (new) — the grant lookup, `pushRepo`'s checks, the run.
+- `devc/web/git_status.ts` — `GitStatusWatch`'s `onPass`.
+- `devc/web/static/lib/sidebar.js` — `repoGitItems`.
+- `devc/tests/web_granted_push_test.ts` (new) — the handler's checks and outcomes.
+- `devc/deno.json` — `check` list.
 - `devc/web/projects_view.ts` — `RepoView.pushGrant`; `buildProjects` takes the grant map.
 - `devc/web/server.ts` — the grant map and its refreshes, `pushRepoFor`, `push_repo` dispatch.
 - `devc/web/protocol.ts` — `push_repo` in `ClientMessage`, and its parsing.

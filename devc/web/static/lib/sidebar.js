@@ -398,6 +398,19 @@ function changesCount(changes) {
 }
 
 /**
+ * A repo card menu's git items, in order: **Push** (the container's own `gh-push` grant, no
+ * confirmation), Pull, Fetch, then **Push…** (asks devc-desktop). Both pushes show when both
+ * apply.
+ *
+ * @param {{push: boolean, pull: boolean, fetch: boolean, requestPush: boolean}} can
+ * @returns {('push' | 'pull' | 'fetch' | 'requestPush')[]}
+ */
+export function repoGitItems(can) {
+  return /** @type {const} */ (['push', 'pull', 'fetch', 'requestPush'])
+    .filter((k) => can[k]);
+}
+
+/**
  * A repo's git mark: its changes to commit (`changes`, see the `projects` message) as `● N`
  * (`conflicted` while any are in conflict, else `changes`) before its push/pull marks (see
  * {@link pushPull}), a ✓ dropped beside it. The tooltip lists the four counts, then the push/pull

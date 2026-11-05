@@ -528,6 +528,8 @@ export class GitStatusWatch {
     private readonly opts: {
       folders: () => Iterable<string>;
       onChange: () => void;
+      /** After every pass, changed or not. */
+      onPass?: () => void;
       read?: (folder: string) => Promise<GitReading>;
       fetch?: (folder: string) => Promise<boolean>;
       pollMs?: number;
@@ -583,6 +585,7 @@ export class GitStatusWatch {
       do {
         this.#again = false;
         await this.#pass();
+        this.opts.onPass?.();
       } while (this.#again);
     } finally {
       this.#running = false;

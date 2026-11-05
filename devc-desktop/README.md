@@ -232,7 +232,10 @@ decides which pane counts.
 ### Host actions
 
 devc web's page can **ask** for a push or a container start: **Push…** on a repo card's menu,
-and, under `--live`, **Start** on a stopped project. It can never confirm one. The request shows
+and, under `--live`, **Start** on a stopped project. It can never confirm one. (A container
+granted `gh-push` also gets **Push**, which devc web runs without the app: it is
+`devc-bridge gh-push` inside that container, which the container's agent can already run, with
+all of its refusals.) The request shows
 in the drawer's **Actions** column, 280 px to the left of the terminal and hidden when nothing is
 pending. A request never opens the drawer or takes focus. With the drawer closed, only its
 strip naming this machine shows at the bottom of the window, badged `1 request`, until you open it with

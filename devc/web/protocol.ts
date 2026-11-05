@@ -132,6 +132,12 @@ export type ClientMessage =
    */
   | { type: 'pull_repo'; id: string; localFolder: string; folder: string }
   /**
+   * Pushes a repo's pinned branch under its container's own `gh-push` grant: runs
+   * `devc-bridge gh-push --repo <target>` in the container, with no confirmation. Answered with
+   * `push_result`.
+   */
+  | { type: 'push_repo'; id: string; localFolder: string; folder: string }
+  /**
    * A repo's commits for its card's Commits section (`git_history.ts`), read in the host's mirror,
    * so a stopped project has them too. Answered with `result`.
    */
@@ -1015,6 +1021,13 @@ function parseFields(m: Obj): ClientMessage {
     case 'pull_repo':
       return {
         type: 'pull_repo',
+        id: str(m, 'id'),
+        localFolder: folder(m),
+        folder: absolute(m, 'folder'),
+      };
+    case 'push_repo':
+      return {
+        type: 'push_repo',
         id: str(m, 'id'),
         localFolder: folder(m),
         folder: absolute(m, 'folder'),
