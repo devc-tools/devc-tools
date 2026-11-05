@@ -101,11 +101,13 @@ export function commitRows(history) {
 }
 
 /**
- * A changed file as a commit's file list gives it (`commit_files`, `web/git_commit.ts`).
+ * A changed file as a commit's file list gives it (`commit_files`, `web/git_commit.ts`), or the
+ * working tree's (`uncommitted_files`, `web/git_uncommitted.ts`), which alone has `conflicted`
+ * and `untracked`.
  *
  * @typedef {{path: string, previousPath: string | null,
- *   status: 'added' | 'removed' | 'modified' | 'renamed', additions: number, deletions: number,
- *   binary: boolean}} CommitFile
+ *   status: 'added' | 'removed' | 'modified' | 'renamed' | 'conflicted', additions: number,
+ *   deletions: number, binary: boolean, untracked?: true}} CommitFile
  * @typedef {{loading: boolean, files: CommitFile[] | null, truncated: boolean,
  *   error: string | null}} CommitFileList
  * @typedef {{kind: 'file', file: CommitFile, name: string, dir: string, title: string}
@@ -184,4 +186,42 @@ export function commitFileRows(list) {
     });
   }
   return rows;
+}
+
+/**
+ * Whether a repo's working tree has changes to commit, from its `RepoView.changes`: what shows the
+ * Commits section's Uncommitted row. Absent (not read, or its environment isn't running) is no.
+ *
+ * @param {{staged: number, unstaged: number, untracked: number, conflicted: number} | undefined}
+ *   changes
+ */
+export function hasUncommitted(changes) {
+  if (!changes) return false;
+  return changes.staged + changes.unstaged + changes.untracked +
+      changes.conflicted > 0;
+}
+
+/**
+ * The Uncommitted row's count, once its list is read: `1 file`, `n files`, `1000+ files` when cut
+ * short; '' before.
+ *
+ * @param {CommitFileList | undefined} list
+ */
+export function uncommittedCount(list) {
+  if (!list?.files) return '';
+  const n = list.files.length;
+  if (list.truncated) return `${n}+ files`;
+  return `${n} file${n === 1 ? '' : 's'}`;
+}
+
+/**
+ * An uncommitted file's stat: `new` for an untracked file (git counts no lines for it), `binary`
+ * for a binary one, else `+a −d`.
+ *
+ * @param {CommitFile} file
+ */
+export function fileStat(file) {
+  if (file.untracked) return 'new';
+  if (file.binary) return 'binary';
+  return `+${file.additions} −${file.deletions}`;
 }

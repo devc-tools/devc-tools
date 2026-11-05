@@ -763,6 +763,21 @@ body.resizing-zones {
   height: 6px;
 }
 
+/* The working tree's changes: the git mark's ● color, a dashed hollow dot above the rail. */
+.commit-row[data-state='uncommitted'] .commit-dot,
+.commit-file[data-state='uncommitted'] .commit-dot {
+  color: var(--blocked);
+}
+
+.commit-row[data-state='uncommitted'] .commit-dot::after {
+  border: 2px dashed currentColor;
+  background: var(--row-bg);
+}
+
+.commit-row[data-state='uncommitted'] .commit-subject {
+  color: var(--text);
+}
+
 /* A merge is a square dot. */
 .commit-row[data-merge] .commit-dot::after {
   border-radius: 1px;
@@ -3018,6 +3033,10 @@ button.primary.danger {
 .pr-status[data-status='R'],
 .pr-status[data-status='C'] {
   color: var(--working);
+}
+
+.pr-status[data-status='U'] {
+  color: var(--danger);
 }
 
 /* A bidi control or zero-width character in untrusted text, shown instead of applied. */

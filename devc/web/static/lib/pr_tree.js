@@ -176,7 +176,8 @@ export function viewedPercent(dir) {
 }
 
 /**
- * A file's status letter: `A`dded, `D`eleted, `R`enamed, `C`opied, else `M`odified.
+ * A file's status letter: `A`dded, `D`eleted, `R`enamed, `C`opied, `U`nmerged (a conflict), else
+ * `M`odified.
  *
  * @param {string} status
  */
@@ -190,6 +191,8 @@ export function statusLetter(status) {
       return 'R';
     case 'copied':
       return 'C';
+    case 'conflicted':
+      return 'U';
     default:
       return 'M';
   }

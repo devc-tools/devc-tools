@@ -560,6 +560,46 @@ Deno.test('parseClientMessage: file messages take a root and a path, empty meani
     'bad_request',
   );
   ok({
+    type: 'uncommitted_files',
+    id: 'u1',
+    localFolder: '/src/app',
+    root: '/src/lib',
+  });
+  for (const type of ['uncommitted_diff', 'uncommitted_file_at']) {
+    ok({
+      type,
+      id: 'u2',
+      localFolder: '/src/app',
+      root: '/src/lib',
+      path: 'a/b é.ts',
+    });
+    // No path.
+    assertEquals(
+      rejected({ type, id: 'u3', localFolder: '/a', root: '/a' }).code,
+      'bad_request',
+    );
+  }
+  for (
+    const type of [
+      'uncommitted_files',
+      'uncommitted_diff',
+      'uncommitted_file_at',
+    ]
+  ) {
+    for (
+      const bad of [
+        { localFolder: '/a', root: 'rel' },
+        { localFolder: 'rel', root: '/a' },
+        { localFolder: '/a' },
+      ]
+    ) {
+      assertEquals(
+        rejected({ type, id: 'u4', path: 'x', ...bad }).code,
+        'bad_request',
+      );
+    }
+  }
+  ok({
     type: 'pull_repo',
     id: 'g3',
     localFolder: '/src/app',

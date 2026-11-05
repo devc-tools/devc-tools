@@ -107,6 +107,13 @@ for them.
   `git merge --ff-only` in the project's environment. The server refuses it while an agent there
   is working or the branch has diverged. Allowed under `--live`.
 
+- [devc-web-uncommitted-files](devc-web-uncommitted-files.md) — after devc-web-git-changes and
+  devc-web-commit-diffs: an **Uncommitted** row at the top of a repo card's Commits section, shown
+  while `● n` is, expands to the working tree's changed files (status, `+a −d`, `new`, `U` for a
+  conflict), read on demand in the project's environment, never the host's mirror. A click opens
+  the file's diff against `HEAD` in the diff tile, as its new `'changes'` source
+  (`DiffRef.changes`), which devc-show-local-diff then extends to other refs.
+
 - [devc-desktop-host-actions](devc-desktop-host-actions.md) — the page can only _ask_
   (`request_push`, `request_project`). The HOST drawer gets an Actions column that shows the
   app's own push plan, or the start, with a 1 s armed confirm. A second **desktop token** (stdout
@@ -2656,3 +2663,4 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
 | devc web git pull — fast-forward Pull, and a faded ↓ for commits only the host has fetched                          | [devc-web-git-pull](devc-web-git-pull.md)                                          | in progress |
 | devc web screenshots — paste or drop an image into a terminal; its path is pasted for the agent                     | [devc-web-screenshots](devc-web-screenshots.md)                                    | in progress |
 | devc web commit diffs — a Commits row expands to its files, each opening a read-only diff tile from the mirror      | [devc-web-commit-diffs](archived/devc-web-commit-diffs.md)                         | complete    |
+| devc web uncommitted files — an Uncommitted row in Commits lists working-tree changes; each opens a diff vs HEAD    | [devc-web-uncommitted-files](devc-web-uncommitted-files.md)                        | in progress |

@@ -22,11 +22,16 @@ export interface CommitFile {
   path: string;
   /** The old path of a rename; otherwise null. */
   previousPath: string | null;
-  /** The strings `statusLetter` already reads. A type change counts as `modified`. */
-  status: 'added' | 'removed' | 'modified' | 'renamed';
+  /**
+   * The strings `statusLetter` already reads. A type change counts as `modified`. `conflicted`
+   * only in a working tree's list (`git_uncommitted.ts`), for a path with a merge conflict.
+   */
+  status: 'added' | 'removed' | 'modified' | 'renamed' | 'conflicted';
   additions: number;
   deletions: number;
   binary: boolean;
+  /** Only in a working tree's list: a file git doesn't track yet, with no line counts. */
+  untracked?: true;
 }
 
 export interface CommitFiles {
@@ -69,7 +74,7 @@ export const COMMIT_SHA = /^([0-9a-f]{40}|[0-9a-f]{64})$/;
 
 const MISSING = 'this commit is no longer available';
 /** The most a commit's raw listing may give before it is refused: well past 1000 files' worth. */
-const LIST_MAX_OUTPUT = 32 * 1024 * 1024;
+export const LIST_MAX_OUTPUT = 32 * 1024 * 1024;
 const TIMEOUT_MS = 15_000;
 const SUBJECT_MAX = 500;
 const AUTHOR_MAX = 200;
@@ -77,7 +82,7 @@ const AUTHOR_MAX = 200;
 const HEADER_ROOM = 64 * 1024;
 
 /** On every command that makes a diff: the host's config and the mirror's attributes stay out. */
-const DIFF_FLAGS = [
+export const DIFF_FLAGS = [
   '--no-ext-diff',
   '--no-textconv',
   '--no-color',
@@ -96,7 +101,7 @@ interface Header {
 }
 
 /** A listed file with the blob ids its diff needs. */
-interface Listed extends CommitFile {
+export interface Listed extends CommitFile {
   oldBlob: string;
   newBlob: string;
 }
@@ -230,7 +235,7 @@ async function listFiles(
   return parseDiffTree(new TextDecoder().decode(r.out));
 }
 
-function publicFile(f: Listed): CommitFile {
+export function publicFile(f: Listed): CommitFile {
   const { oldBlob: _o, newBlob: _n, ...file } = f;
   return file;
 }

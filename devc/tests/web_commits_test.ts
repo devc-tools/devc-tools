@@ -5,9 +5,13 @@ import {
   commitFileTitle,
   commitRows,
   commitTitle,
+  fileStat,
+  hasUncommitted,
   keepList,
   MAX_COMMIT_FILES,
+  uncommittedCount,
 } from '../web/static/lib/commits.js';
+import { statusLetter } from '../web/static/lib/pr_tree.js';
 import { MAX_COMMIT_FILES as SERVER_MAX } from '../web/git_commit.ts';
 
 const commit = (name: string, merge = false) => ({
@@ -158,4 +162,50 @@ Deno.test('keepList keeps the newest lists, a re-read one moved to the end', () 
   keepList(lists, 'k4', 4, 3);
   assertEquals([...lists.entries()], [['k3', 3], ['k1', 10], ['k4', 4]]);
   assertEquals(commitFilesKey('/r', 'ab'), '/r\nab');
+});
+
+Deno.test('the Uncommitted row: when it shows, its count, and its files', () => {
+  const none = { staged: 0, unstaged: 0, untracked: 0, conflicted: 0 };
+  assertEquals(hasUncommitted(undefined), false);
+  assertEquals(hasUncommitted(none), false);
+  assertEquals(hasUncommitted({ ...none, untracked: 1 }), true);
+  assertEquals(hasUncommitted({ ...none, conflicted: 2 }), true);
+
+  const file = (path: string, more = {}) => ({
+    path,
+    previousPath: null,
+    status: 'modified' as const,
+    additions: 3,
+    deletions: 1,
+    binary: false,
+    ...more,
+  });
+  const list = { loading: false, truncated: false, error: null };
+  assertEquals(uncommittedCount(undefined), '');
+  assertEquals(uncommittedCount({ ...list, files: null, loading: true }), '');
+  assertEquals(uncommittedCount({ ...list, files: [file('a')] }), '1 file');
+  assertEquals(
+    uncommittedCount({ ...list, files: [file('a'), file('b')] }),
+    '2 files',
+  );
+  assertEquals(
+    uncommittedCount({ ...list, files: [file('a')], truncated: true }),
+    '1+ files',
+  );
+
+  assertEquals(fileStat(file('a')), '+3 −1');
+  assertEquals(
+    fileStat(
+      file('n', {
+        status: 'added',
+        untracked: true,
+        additions: 0,
+        deletions: 0,
+      }),
+    ),
+    'new',
+  );
+  assertEquals(fileStat(file('b', { binary: true })), 'binary');
+  assertEquals(statusLetter('conflicted'), 'U');
+  assertEquals(statusLetter('added'), 'A');
 });

@@ -309,6 +309,32 @@ Deno.test('sameFileView tells a file as text from the same file as media', () =>
   assertEquals(sameFileView(png, { ...png, view: 'text' }), false);
 });
 
+Deno.test('a diff ref keeps uncommitted changes through a saved layout', () => {
+  const pr = { localFolder: '/a', root: '/a/r', path: 'x.ts' };
+  const changes = { ...pr, changes: 'HEAD' };
+  const commit = { ...pr, sha: 'ab'.repeat(20) };
+  assertEquals(diffSource(changes), 'changes');
+
+  const state = tileContent({ diff: changes }, true);
+  assertEquals(state, { type: 'diff', state: { ...changes, preview: true } });
+  assertEquals(
+    diffRefFromState(JSON.parse(JSON.stringify(state.state))),
+    changes,
+  );
+
+  // Both sources at once, or an empty or non-string ref, drops the tile.
+  assertEquals(diffRefFromState({ ...commit, changes: 'HEAD' }), null);
+  for (const bad of ['', 42, null]) {
+    assertEquals(diffRefFromState({ ...pr, changes: bad }), null);
+  }
+
+  assertEquals(sameDiff(changes, { ...changes }), true);
+  assertEquals(sameDiff(changes, pr), false);
+  assertEquals(sameDiff(changes, commit), false);
+  assertEquals(diffKey(changes) === diffKey(pr), false);
+  assertEquals(diffKey(changes) === diffKey(commit), false);
+});
+
 Deno.test('a diff ref keeps a commit sha through a saved layout, and tells commits apart', () => {
   const pr = { localFolder: '/a', root: '/a/r', path: 'x.ts' };
   const sha = 'ab'.repeat(20);

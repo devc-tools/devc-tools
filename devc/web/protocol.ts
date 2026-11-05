@@ -156,6 +156,18 @@ export type ClientMessage =
     path: string;
   }
   /**
+   * A repo's uncommitted files, a file's diff against `HEAD`, and its working-tree text
+   * (`git_uncommitted.ts`), read in the project's running environment. Answered with `result`.
+   */
+  | { type: 'uncommitted_files'; id: string; localFolder: string; root: string }
+  | {
+    type: 'uncommitted_diff' | 'uncommitted_file_at';
+    id: string;
+    localFolder: string;
+    root: string;
+    path: string;
+  }
+  /**
    * Asks devc-desktop to push a repo of a project (`folder`, one of its `repos[].folder`): the
    * app works out the push plan and the user confirms it in its HOST drawer. Needs
    * `--desktop-channel`. See `desktop_requests.ts`.
@@ -1030,6 +1042,22 @@ function parseFields(m: Obj): ClientMessage {
         localFolder: folder(m),
         root: absolute(m, 'root'),
         sha: commitSha(m),
+        path: str(m, 'path'),
+      };
+    case 'uncommitted_files':
+      return {
+        type: 'uncommitted_files',
+        id: str(m, 'id'),
+        localFolder: folder(m),
+        root: absolute(m, 'root'),
+      };
+    case 'uncommitted_diff':
+    case 'uncommitted_file_at':
+      return {
+        type: m.type,
+        id: str(m, 'id'),
+        localFolder: folder(m),
+        root: absolute(m, 'root'),
         path: str(m, 'path'),
       };
     case 'request_push':

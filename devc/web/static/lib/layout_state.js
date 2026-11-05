@@ -17,25 +17,29 @@ import { defaultView, fileView } from './media.js';
 
 /**
  * A file shown in a diff tile: `path` in the repo at `root`, one of the repo folders of the project
- * at `localFolder`. Without `sha` it is the file in the repo's pull request (the `pr_diff`
- * message's fields); with one, the file as that commit changed it (`commit_diff`'s). See
- * {@link diffSource}.
+ * at `localFolder`. Without `sha` or `changes` it is the file in the repo's pull request (the
+ * `pr_diff` message's fields); with `sha`, the file as that commit changed it (`commit_diff`'s);
+ * with `changes`, its uncommitted changes since that ref (`uncommitted_diff`'s; only `'HEAD'` so
+ * far). Never both. See {@link diffSource}.
  *
- * @typedef {{localFolder: string, root: string, path: string, sha?: string}} DiffRef
+ * @typedef {{localFolder: string, root: string, path: string, sha?: string, changes?: string}}
+ *   DiffRef
  */
 
 /** A full commit id, as `commit_diff` takes one. */
 const COMMIT_SHA = /^([0-9a-f]{40}|[0-9a-f]{64})$/;
 
 /**
- * Where a diff tile's content comes from: the pull request, or one commit. Every check of what a
- * diff tile offers goes through this, never through `sha` being set, so a further source gets
- * none of a source's parts without saying so.
+ * Where a diff tile's content comes from: the pull request, one commit, or the working tree's
+ * uncommitted changes. Every check of what a diff tile offers goes through this, never through
+ * `sha` or `changes` being set, so a further source gets none of a source's parts without saying
+ * so.
  *
  * @param {DiffRef} ref
- * @returns {'pr' | 'commit'}
+ * @returns {'pr' | 'commit' | 'changes'}
  */
 export function diffSource(ref) {
+  if (ref.changes !== undefined) return 'changes';
   return ref.sha === undefined ? 'pr' : 'commit';
 }
 
@@ -47,7 +51,7 @@ export function diffSource(ref) {
 export function diffKey(ref) {
   return `${ref.localFolder}\n${ref.root}\n${ref.path}${
     ref.sha === undefined ? '' : `\n${ref.sha}`
-  }`;
+  }${ref.changes === undefined ? '' : `\nchanges:${ref.changes}`}`;
 }
 
 /**
@@ -97,8 +101,8 @@ export function fileRefFromState(state) {
 
 /**
  * A diff tile's component state as a diff reference: only an object whose `localFolder`, `root`
- * and `path` are all non-empty strings, and whose `sha`, if any, is a full commit id, is one.
- * Anything else is `null`.
+ * and `path` are all non-empty strings, whose `sha`, if any, is a full commit id, and whose
+ * `changes`, if any, is a non-empty string, never beside a `sha`, is one. Anything else is `null`.
  *
  * @param {unknown} state
  * @returns {DiffRef | null}
@@ -107,10 +111,15 @@ export function diffRefFromState(state) {
   if (typeof state !== 'object' || state === null || Array.isArray(state)) {
     return null;
   }
-  const { localFolder, root, path, sha } =
+  const { localFolder, root, path, sha, changes } =
     /** @type {Record<string, unknown>} */ (state);
   for (const v of [localFolder, root, path]) {
     if (typeof v !== 'string' || v === '') return null;
+  }
+  if (changes !== undefined) {
+    if (sha !== undefined) return null;
+    if (typeof changes !== 'string' || changes === '') return null;
+    return /** @type {DiffRef} */ ({ localFolder, root, path, changes });
   }
   if (sha === undefined) {
     return /** @type {DiffRef} */ ({ localFolder, root, path });
@@ -121,14 +130,14 @@ export function diffRefFromState(state) {
 
 /**
  * Whether two diff references name the same diff: the same file of the same repo, from the same
- * PR or commit.
+ * PR, commit or uncommitted changes.
  *
  * @param {DiffRef} a
  * @param {DiffRef} b
  */
 export function sameDiff(a, b) {
   return a.localFolder === b.localFolder && a.root === b.root &&
-    a.path === b.path && a.sha === b.sha;
+    a.path === b.path && a.sha === b.sha && a.changes === b.changes;
 }
 
 /**
@@ -208,8 +217,12 @@ export function tileContent(ref, preview = false) {
     };
   }
   if (ref && 'diff' in ref) {
-    const { localFolder, root, path, sha } = ref.diff;
-    const at = sha === undefined ? {} : { sha };
+    const { localFolder, root, path, sha, changes } = ref.diff;
+    const at = changes !== undefined
+      ? { changes }
+      : sha === undefined
+      ? {}
+      : { sha };
     return { type: 'diff', state: { localFolder, root, path, ...at, ...flag } };
   }
   if (ref && 'file' in ref) {

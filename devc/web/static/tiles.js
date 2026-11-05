@@ -72,6 +72,7 @@ import { fileView, mediaKind } from './lib/media.js';
 import { childPath } from './lib/files.js';
 import { sessionAge } from './lib/sessions.js';
 import { statusLetter } from './lib/pr_tree.js';
+import { fileStat } from './lib/commits.js';
 import { reopensDashboard } from './lib/dashboard.js';
 import { createNavHistory, navButton, navKey } from './lib/nav_history.js';
 import {
@@ -94,7 +95,6 @@ import {
   badge,
   chevron,
   confirmDialog,
-  diffStat,
   errorToast,
   h,
   iconButton,
@@ -1608,6 +1608,9 @@ function saveFlag(key, on) {
  * @property {number} scrollTop  where the body was last scrolled to while shown: a hidden tab
  *   reads as scrolled to the top, and a redraw starts a new body
  * @property {boolean} [lspWanted]  whether it wanted a language server at the last sync
+ * @property {number} changesRead  an uncommitted diff's answers that differed from the one before:
+ *   `readHead`'s key, as the working tree changes under the same base
+ * @property {number} [changesTimer]  an uncommitted diff's reread timer
  */
 
 /**
@@ -1663,21 +1666,31 @@ function openDiff(ref, where, opts) {
 /** @param {DiffRef | undefined} a @param {DiffRef | undefined} b */
 function sameDiff(a, b) {
   return !!a && !!b && a.localFolder === b.localFolder && a.root === b.root &&
-    a.path === b.path && a.sha === b.sha;
+    a.path === b.path && a.sha === b.sha && a.changes === b.changes;
 }
 
 /**
  * A diff tile's title: `<basename> · #<n>` once its PR is known, `<basename> · <short sha>` for a
- * commit's.
+ * commit's, `<basename> · changes` for its uncommitted changes.
  */
 function diffTileTitle(tile) {
   const ref = tile.diff;
   const name = ref ? basename(ref.path) : 'unknown file';
+  if (ref && diffSource(ref) === 'changes') return `${name} · changes`;
   if (ref && diffSource(ref) === 'commit') {
     return `${name} · ${shortSha(ref.sha)}`;
   }
   const pr = diffViews.get(tile.id)?.data?.pr;
   return pr ? `${name} · #${pr.number}` : name;
+}
+
+/**
+ * An uncommitted diff's header text: what the working tree is compared with.
+ *
+ * @param {string | null | undefined} base `HEAD`'s id, or null for a repo with no commits
+ */
+function uncommittedLabel(base) {
+  return base ? `Uncommitted · vs ${shortSha(base)}` : 'Uncommitted · new repo';
 }
 
 /** A commit id as the Commits section shows it. @param {string | undefined} sha */
@@ -1689,7 +1702,11 @@ function setDiffTitle(view) {
   const ref = view.tile.diff;
   view.tile.setTitle(diffTileTitle(view.tile));
   let first = '';
-  if (ref && diffSource(ref) === 'commit') {
+  if (ref && diffSource(ref) === 'changes') {
+    first = view.data
+      ? uncommittedLabel(view.data.changes?.base)
+      : 'Uncommitted';
+  } else if (ref && diffSource(ref) === 'commit') {
     const subject = view.data?.commit?.subject;
     first = [shortSha(ref.sha), subject].filter((s) => s).join(' ');
   } else {
@@ -1748,6 +1765,7 @@ function mountDiffTile(tile) {
     viewedSending: false,
     since: null,
     wantViewed: false,
+    changesRead: 0,
     noRecord: false,
     review: null,
     newComment: null,
@@ -1784,13 +1802,26 @@ function mountDiffTile(tile) {
     view.state = 'error';
     view.error = 'This tile names no file.';
   }
+  // Uncommitted changes move as the files are edited: read again while the page shows.
+  if (tile.diff && diffSource(tile.diff) === 'changes') {
+    view.changesTimer = setInterval(() => {
+      if (diffViews.get(tile.id) !== view) return;
+      if (document.visibilityState === 'visible' && view.state !== 'loading') {
+        void loadDiff(view);
+      }
+    }, CHANGES_RELOAD_MS);
+  }
   renderDiff(view);
   queueMicrotask(updatePlaceholder);
 }
 
+/** How often an uncommitted diff tile reads again: the Commits section's pace. */
+const CHANGES_RELOAD_MS = 15_000;
+
 function unmountDiffTile(tile) {
   const view = diffViews.get(tile.id);
   if (!view) return;
+  clearInterval(view.changesTimer);
   view.seq++;
   view.threadSeq++;
   if (diffHover.view === view) hideDiffHover();
@@ -2193,21 +2224,26 @@ function diffPositionAt(x, y) {
  */
 function readHead(view) {
   const ref = view.tile.diff;
-  const commit = ref ? diffSource(ref) === 'commit' : false;
-  const sha = commit ? view.data?.commit?.hash : view.data?.pr?.headSha;
+  const source = ref ? diffSource(ref) : null;
+  const commit = source === 'commit';
+  // The working tree changes under the same base: each new answer is read again.
+  const sha = source === 'changes'
+    ? view.data ? `changes:${view.changesRead}` : undefined
+    : commit
+    ? view.data?.commit?.hash
+    : view.data?.pr?.headSha;
   if (!ref || typeof sha !== 'string') return null;
   if (view.head?.sha !== sha) {
     const path = view.data?.file?.path ?? ref.path;
+    const repo = { localFolder: ref.localFolder, root: ref.root, path };
     const head = {
       sha,
       done: /** @type {{text: string | null, message: string} | null} */ (null),
-      got: call({
-        type: commit ? 'commit_file_at' : 'pr_file_at',
-        localFolder: ref.localFolder,
-        root: ref.root,
-        path,
-        sha,
-      }).then(
+      got: call(
+        source === 'changes'
+          ? { type: 'uncommitted_file_at', ...repo }
+          : { type: commit ? 'commit_file_at' : 'pr_file_at', ...repo, sha },
+      ).then(
         (r) =>
           r?.available === true && typeof r.text === 'string'
             ? { text: r.text, message: '' }
@@ -2671,10 +2707,16 @@ async function loadDiff(view) {
   let error = null;
   const source = diffSource(ref);
   try {
-    result = await call({
-      type: source === 'commit' ? 'commit_diff' : 'pr_diff',
-      ...ref,
-    });
+    result = await call(
+      source === 'changes'
+        ? {
+          type: 'uncommitted_diff',
+          localFolder: ref.localFolder,
+          root: ref.root,
+          path: ref.path,
+        }
+        : { type: source === 'commit' ? 'commit_diff' : 'pr_diff', ...ref },
+    );
   } catch (e) {
     error = String(e?.message ?? e);
   }
@@ -2684,9 +2726,17 @@ async function loadDiff(view) {
       result?.message ??
         (source === 'commit'
           ? 'The commit is not available'
+          : source === 'changes'
+          ? 'The changes are not available'
           : 'The pull request is not available'),
     );
   }
+  // A reread of the working tree that found nothing new draws nothing: scroll and selection stay.
+  if (
+    source === 'changes' && error === null && view.state === 'ok' &&
+    JSON.stringify(view.data) === JSON.stringify(result)
+  ) return;
+  if (source === 'changes' && error === null) view.changesRead++;
   if (error !== null) {
     view.state = 'error';
     view.error = error;
@@ -3182,11 +3232,19 @@ function diffHeader(view) {
     const letter = statusLetter(file.status);
     line.append(
       h('span', { class: 'pr-status', 'data-status': letter }, letter),
-      h('span', { class: 'pr-stat' }, diffStat(file)),
+      h('span', { class: 'pr-stat' }, fileStat(file)),
     );
   }
   const commit = ref && diffSource(ref) === 'commit' ? data?.commit : null;
-  if (pr) {
+  if (data && ref && diffSource(ref) === 'changes') {
+    line.append(
+      h(
+        'span',
+        { class: 'pr-number diff-commit' },
+        uncommittedLabel(data.changes?.base),
+      ),
+    );
+  } else if (pr) {
     line.append(
       h('span', { class: 'pr-number', title: pr.url }, `#${pr.number}`),
     );

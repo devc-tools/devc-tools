@@ -158,6 +158,11 @@ import {
   isGitProblem,
 } from './git_status.ts';
 import { type ChangesReading, GitChangesWatch } from './git_changes.ts';
+import {
+  readUncommittedDiff,
+  readUncommittedFileAt,
+  readUncommittedFiles,
+} from './git_uncommitted.ts';
 import { fetchRepo, fetchRunning, pullRepo, pullRunning } from './git_fetch.ts';
 import { readCommitHistory } from './git_history.ts';
 import {
@@ -1501,6 +1506,45 @@ export async function startWeb(
       : await readCommitFileAt(msg.root, msg.sha, msg.path);
     if (isGitProblem(answer)) {
       fail(c, msg.id, 'git_commit_failed', new Error(answer.problem));
+      return;
+    }
+    reply(c, { id: msg.id, ok: true, result: answer });
+  };
+
+  /**
+   * A repo's uncommitted files, a file's diff against `HEAD`, and its working-tree text
+   * (`git_uncommitted.ts`), read by git in the project's running environment, never on the host.
+   */
+  const gitUncommittedFor = async (
+    c: Client,
+    msg: Extract<
+      ClientMessage,
+      {
+        type: 'uncommitted_files' | 'uncommitted_diff' | 'uncommitted_file_at';
+      }
+    >,
+  ) => {
+    if (!isProjectRepo(projectsMessage().projects, msg.localFolder, msg.root)) {
+      reject(c, { id: msg.id, code: 'bad_request', message: 'unknown repo' });
+      return;
+    }
+    const target = await repoTarget({
+      localFolder: msg.localFolder,
+      folder: msg.root,
+    });
+    const answer = isGitProblem(target)
+      ? {
+        problem: target.problem === 'not running'
+          ? 'the project is not running'
+          : target.problem,
+      }
+      : msg.type === 'uncommitted_files'
+      ? await readUncommittedFiles(target.session.env, target.path)
+      : msg.type === 'uncommitted_diff'
+      ? await readUncommittedDiff(target.session.env, target.path, msg.path)
+      : await readUncommittedFileAt(target.session.env, target.path, msg.path);
+    if (isGitProblem(answer)) {
+      fail(c, msg.id, 'git_uncommitted_failed', new Error(answer.problem));
       return;
     }
     reply(c, { id: msg.id, ok: true, result: answer });
@@ -3431,6 +3475,13 @@ export async function startWeb(
       msg.type === 'commit_file_at'
     ) {
       await gitCommitFor(c, msg);
+      return;
+    }
+    if (
+      msg.type === 'uncommitted_files' || msg.type === 'uncommitted_diff' ||
+      msg.type === 'uncommitted_file_at'
+    ) {
+      await gitUncommittedFor(c, msg);
       return;
     }
     if (msg.type === 'fetch_repo') {

@@ -49,7 +49,10 @@ import {
   commitFileRows,
   commitFilesKey,
   commitRows,
+  fileStat,
+  hasUncommitted,
   keepList,
+  uncommittedCount,
 } from './lib/commits.js';
 import { parseSessions, sessionAge, sessionTooltip } from './lib/sessions.js';
 import {
@@ -1060,7 +1063,10 @@ export function repoCard(card, side, worktrees = 0) {
   }
   if (commitsOn) {
     rows.push(
-      section('commits', commitSectionRows(key, localFolder, repo.folder)),
+      section(
+        'commits',
+        commitSectionRows(key, localFolder, repo.folder, repo.changes),
+      ),
     );
   }
   if (filesOn) rows.push(section('files', rootEntryRows(fr, 1)));
@@ -1527,6 +1533,9 @@ function pollCommits() {
   }
   for (const [key, target] of commitTargets) {
     void loadCommits(key, target.localFolder, target.folder);
+    if (uncommittedOpen.has(key)) {
+      void loadUncommitted(target.localFolder, target.folder);
+    }
   }
 }
 
@@ -1602,20 +1611,33 @@ function toggleCommitFiles(cardKey, localFolder, root, hash) {
  * @param {import('./lib/commits.js').CommitFileRow & {kind: 'file'}} r
  */
 function commitFileRow(cardKey, fr, hash, state, r) {
+  return changedFileRow(
+    fr,
+    { ...fr, path: r.file.path, sha: hash },
+    `${cardKey}\ncommit\n${hash}\n${r.file.path}`,
+    state,
+    r,
+    diffStat(r.file),
+  );
+}
+
+/**
+ * A changed file's row in the Commits section, a commit's or the working tree's: `ref` is the
+ * diff it opens, `stat` what shows on the right.
+ *
+ * @param {FileRoot} fr @param {import('./lib/layout_state.js').DiffRef} ref
+ * @param {string} treeKey @param {string} state
+ * @param {import('./lib/commits.js').CommitFileRow & {kind: 'file'}} r @param {string} stat
+ */
+function changedFileRow(fr, ref, treeKey, state, r, stat) {
   const file = r.file;
   const letter = statusLetter(file.status);
-  const ref = {
-    localFolder: fr.localFolder,
-    root: fr.root,
-    path: file.path,
-    sha: hash,
-  };
   return h(
     'div',
     {
       class: 'row commit-file',
       tabindex: '-1',
-      'data-tree-key': `${cardKey}\ncommit\n${hash}\n${file.path}`,
+      'data-tree-key': treeKey,
       'data-depth': 2,
       'data-state': state,
       title: r.title,
@@ -1632,7 +1654,7 @@ function commitFileRow(cardKey, fr, hash, state, r) {
       ...markedText(r.name),
       r.dir ? h('span', { class: 'pr-file-dir' }, ...markedText(r.dir)) : '',
     ),
-    h('span', { class: 'pr-stat' }, diffStat(file)),
+    h('span', { class: 'pr-stat' }, stat),
   );
 }
 
@@ -1653,56 +1675,165 @@ function commitFileMenuItems(fr, ref, file) {
   return items;
 }
 
+/**
+ * The repo cards whose Uncommitted row is open, by card key. Not saved, as {@link commitFilesOpen}.
+ *
+ * @type {Set<string>}
+ */
+const uncommittedOpen = new Set();
+
+/**
+ * Each repo's working-tree file list (`uncommitted_files`), by `<localFolder>\n<root>`, with the
+ * `RepoView.changes` it was read under (`seen`, JSON): a change there reads it again.
+ *
+ * @type {Map<string, import('./lib/commits.js').CommitFileList & {seen: string}>}
+ */
+const uncommittedLists = new Map();
+
+/** Reads a repo's uncommitted files, keeping what is shown until the answer. */
+async function loadUncommitted(localFolder, root, seen) {
+  const key = `${localFolder}\n${root}`;
+  const prev = uncommittedLists.get(key);
+  if (prev?.loading) return;
+  const entry = {
+    loading: true,
+    files: prev?.files ?? null,
+    truncated: prev?.truncated ?? false,
+    error: null,
+    seen: seen ?? prev?.seen ?? '',
+  };
+  uncommittedLists.set(key, entry);
+  try {
+    const r = await call({ type: 'uncommitted_files', localFolder, root });
+    entry.files = list(r?.files);
+    entry.truncated = r?.truncated === true;
+  } catch (e) {
+    entry.error = String(e?.message ?? e);
+  }
+  entry.loading = false;
+  if (uncommittedLists.get(key) !== entry) return;
+  const same = JSON.stringify(prev?.files ?? null) ===
+      JSON.stringify(entry.files) &&
+    (prev?.error ?? null) === entry.error &&
+    prev?.truncated === entry.truncated;
+  if (!same) queueRender();
+}
+
+/** Opens or closes a repo card's Uncommitted row. */
+function toggleUncommitted(cardKey, localFolder, root, seen) {
+  if (!uncommittedOpen.delete(cardKey)) {
+    uncommittedOpen.add(cardKey);
+    void loadUncommitted(localFolder, root, seen);
+  }
+  renderTree();
+}
+
+/**
+ * The Commits section's Uncommitted row and, when open, the working tree's changed files: shown
+ * only while the repo's git mark counts changes (`changes`), so not for a stopped environment.
+ */
+function uncommittedRows(key, localFolder, folder, changes) {
+  if (!hasUncommitted(changes)) return [];
+  const seen = JSON.stringify(changes);
+  const open = uncommittedOpen.has(key);
+  const entry = uncommittedLists.get(`${localFolder}\n${folder}`);
+  // The git mark's counts moved: the list is stale.
+  if (open && entry && !entry.loading && entry.seen !== seen) {
+    void loadUncommitted(localFolder, folder, seen);
+  }
+  const row = h(
+    'div',
+    {
+      class: 'row commit-row',
+      tabindex: '-1',
+      'data-tree-key': `${key}\nuncommitted`,
+      'data-depth': 1,
+      'aria-expanded': String(open),
+      'data-state': 'uncommitted',
+      title: 'Changes not committed yet, against HEAD',
+      onclick: () => toggleUncommitted(key, localFolder, folder, seen),
+    },
+    h('span', { class: 'commit-dot', 'aria-hidden': 'true' }),
+    chevron(),
+    h('span', { class: 'commit-subject' }, 'Uncommitted'),
+    h('span', { class: 'commit-hash' }, uncommittedCount(entry)),
+  );
+  if (!open) return [row];
+  const fr = { localFolder, root: folder };
+  return [
+    row,
+    ...commitFileRows(entry).map((f) =>
+      f.kind === 'file'
+        ? changedFileRow(
+          fr,
+          { ...fr, path: f.file.path, changes: 'HEAD' },
+          `${key}\nuncommitted\n${f.file.path}`,
+          'uncommitted',
+          f,
+          fileStat(f.file),
+        )
+        : commitNote(f.note, f.text, 2)
+    ),
+  ];
+}
+
 /** A repo card's open Commits section: starts its reads, and draws the last answer. */
-function commitSectionRows(key, localFolder, folder) {
+function commitSectionRows(key, localFolder, folder, changes) {
   // Just opened: read now, as what an earlier opening kept may be old.
   if (!commitTargets.has(key)) void loadCommits(key, localFolder, folder);
   commitTargets.set(key, { localFolder, folder });
   if (!commitsTimer) commitsTimer = setInterval(pollCommits, COMMITS_POLL_MS);
+  const uncommitted = uncommittedRows(key, localFolder, folder, changes);
   const entry = commitLists.get(key);
   if (!entry?.history) {
     return [
+      ...uncommitted,
       entry?.error
         ? commitNote('error', `Couldn't read commits: ${entry.error}`)
         : commitNote('loading', 'Loading…'),
     ];
   }
   const rows = commitRows(entry.history);
-  if (rows.length === 0) return [commitNote('empty', 'No commits yet')];
+  if (rows.length === 0) {
+    return [...uncommitted, commitNote('empty', 'No commits yet')];
+  }
   const fr = { localFolder, root: folder };
-  return rows.flatMap((r) => {
-    if (r.kind !== 'commit') return [commitLine(r)];
-    const hash = r.commit.hash;
-    const open = commitFilesOpen.has(`${key}\n${hash}`);
-    const row = h(
-      'div',
-      {
-        class: 'row commit-row',
-        tabindex: '-1',
-        'data-tree-key': `${key}\ncommit\n${hash}`,
-        'data-depth': 1,
-        'aria-expanded': String(open),
-        title: r.title,
-        'data-state': r.state,
-        'data-merge': r.commit.merge,
-        onclick: () => toggleCommitFiles(key, localFolder, folder, hash),
-      },
-      h('span', { class: 'commit-dot', 'aria-hidden': 'true' }),
-      chevron(),
-      h('span', { class: 'commit-subject' }, ...markedText(r.commit.subject)),
-      h('span', { class: 'commit-hash' }, r.short),
-    );
-    if (!open) return [row];
-    const list = commitFileLists.get(commitFilesKey(folder, hash));
-    return [
-      row,
-      ...commitFileRows(list).map((f) =>
-        f.kind === 'file'
-          ? commitFileRow(key, fr, hash, r.state, f)
-          : commitNote(f.note, f.text, 2)
-      ),
-    ];
-  });
+  return [
+    ...uncommitted,
+    ...rows.flatMap((r) => {
+      if (r.kind !== 'commit') return [commitLine(r)];
+      const hash = r.commit.hash;
+      const open = commitFilesOpen.has(`${key}\n${hash}`);
+      const row = h(
+        'div',
+        {
+          class: 'row commit-row',
+          tabindex: '-1',
+          'data-tree-key': `${key}\ncommit\n${hash}`,
+          'data-depth': 1,
+          'aria-expanded': String(open),
+          title: r.title,
+          'data-state': r.state,
+          'data-merge': r.commit.merge,
+          onclick: () => toggleCommitFiles(key, localFolder, folder, hash),
+        },
+        h('span', { class: 'commit-dot', 'aria-hidden': 'true' }),
+        chevron(),
+        h('span', { class: 'commit-subject' }, ...markedText(r.commit.subject)),
+        h('span', { class: 'commit-hash' }, r.short),
+      );
+      if (!open) return [row];
+      const list = commitFileLists.get(commitFilesKey(folder, hash));
+      return [
+        row,
+        ...commitFileRows(list).map((f) =>
+          f.kind === 'file'
+            ? commitFileRow(key, fr, hash, r.state, f)
+            : commitNote(f.note, f.text, 2)
+        ),
+      ];
+    }),
+  ];
 }
 
 /** A Commits section line that is not a commit: a group's divider, or how many more there are. */

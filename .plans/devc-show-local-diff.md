@@ -10,18 +10,27 @@ Changed 2026-11-01: this plan used to add a `LocalDiffRef` and a `local-diff` ti
 the `diff` tile and `DiffRef`, and the non-PR path `devc-web-commit-diffs` builds, so tile handling
 isn't written twice. "Local diff tile" below means a diff tile whose source is `'changes'`.
 
+Changed 2026-11-04: [devc-web-uncommitted-files](devc-web-uncommitted-files.md) builds the
+`'changes'` source first, for `changes: 'HEAD'` only: `DiffRef.changes`, `diffSource`'s
+`'changes'`, the tile's loading, title, Whole file and a 15 s self-reload (which
+replaces the reload-on-change below: there is no file-change signal to reuse), and the
+`uncommitted_diff` / `uncommitted_file_at` messages run in the repo's environment. This plan adds
+refs other than `HEAD` to those (an optional `ref` on both messages, the base from `merge-base`)
+instead of a separate `local_diff` request, and the `show --changes` command line. Where the
+contracts below and that plan's differ for `HEAD`, that plan's win.
+
 ## Checklist
 
 - [ ] `devc-core/show_request.ts`: `--changes [<ref>]` parsing and `target.kind: "changes"` (see
       Contracts)
 - [ ] `devc-bridge/client/devc-bridge.ts`, `devc/help.ts`: usage lines gain `--changes`
-- [ ] `devc/web/protocol.ts`, `devc/web/server.ts`: a `local_diff` request that answers a file's
-      unified diff and both sides' text (see Contracts)
+- [ ] `devc/web/protocol.ts`, `devc/web/server.ts`, `devc/web/git_uncommitted.ts`: an optional
+      `ref` on `uncommitted_diff` / `uncommitted_file_at` (from devc-web-uncommitted-files), with
+      the base from `merge-base` (see Contracts)
 - [ ] `devc/web/show.ts`: resolve `"changes"` targets
-- [ ] `devc/web/static/lib/layout_state.js`, `lib/view.js`, `tiles.js`: `DiffRef.changes` and
-      `diffSource`'s `'changes'`, through every comparison, key and saved layout
-- [ ] `devc/web/static/tiles.js`: the `'changes'` source (loading, Whole file, reload, reveal and
-      highlight), on the diff tile's non-PR path
+- [ ] `devc/web/static/lib/layout_state.js`, `tiles.js`: `DiffRef.changes` values other than
+      `'HEAD'` (title `· since <ref>`, passed as `ref`), and `show`'s reveal and highlight on the
+      `'changes'` source devc-web-uncommitted-files built
 - [ ] `skills/devc-show/SKILL.md`, `devc/README.md`, `devc-bridge/README.md`: `--changes`
 - [ ] Tests listed under Relevant Files
 
