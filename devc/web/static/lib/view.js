@@ -11,6 +11,7 @@ import {
   diffKey,
   fileRefFromState,
   foldTree,
+  HOST_SLOT,
   paneRefFromState,
   sameDiff,
   sameFileView,
@@ -28,13 +29,14 @@ import {
  *
  * @typedef {object} TileState
  * @property {string} id
- * @property {'pane' | 'file' | 'diff'} kind
+ * @property {'pane' | 'file' | 'diff' | 'host'} kind
  * @property {PaneRef | null} ref     the pane a pane tile shows (null: an empty tile)
  * @property {FileRef | null} file    the file a file tile shows
  * @property {DiffRef | null} diff    the PR or commit file a diff tile shows
  * @property {boolean} preview        the next sidebar click replaces what it shows
  * @property {number} focusSeq        when it was last focused: higher is later, 0 never
- * @property {string} title           a file or diff tile's tab title; '' for a pane tile
+ * @property {string} title           a file or diff tile's tab title, `host` for a host tile;
+ *   '' for a pane tile
  * @property {boolean} dirty          a file tile with unsaved edits
  * @property {boolean} saveable       a file tile whose edits Save would write now
  * @property {string | null} url      a diff tile's file on github.com, once known
@@ -395,6 +397,31 @@ export function containersExternalFromHash(hash) {
 export function desktopSidebarFromHash(hash) {
   const s = new URLSearchParams(hash.replace(/^#/, '')).get('sidebar');
   return s === 'shown' || s === 'hidden' ? s : null;
+}
+
+/**
+ * The host tile devc-desktop asks a `/main` page to add (`#…&host-slot=<id>`, set by its **New
+ * Host Tile**), or `null` when the hash names none or a malformed id.
+ *
+ * @param {string} hash  `location.hash`, `#` included or not
+ * @returns {string | null}
+ */
+export function hostSlotFromHash(hash) {
+  const id = new URLSearchParams(hash.replace(/^#/, '')).get('host-slot');
+  return id !== null && HOST_SLOT.test(id) ? id : null;
+}
+
+/**
+ * The hash without `host-slot`, the other parameters kept in order, `#` included (or `''` when
+ * none is left).
+ *
+ * @param {string} hash
+ */
+export function withoutHostSlot(hash) {
+  const params = new URLSearchParams(hash.replace(/^#/, ''));
+  params.delete('host-slot');
+  const rest = params.toString();
+  return rest ? `#${rest}` : '';
 }
 
 /**

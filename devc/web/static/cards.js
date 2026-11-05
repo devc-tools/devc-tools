@@ -1089,6 +1089,7 @@ function tileRowClass(tile, active) {
 export function layoutTileRow(tile, active, depth) {
   if (tile.kind === 'file') return layoutFileTileRow(tile, active, depth);
   if (tile.kind === 'diff') return layoutDiffTileRow(tile, active, depth);
+  if (tile.kind === 'host') return layoutHostTileRow(tile, active, depth);
   const { c, pane } = resolveRef(tile.ref);
   return h(
     'div',
@@ -1174,6 +1175,28 @@ function layoutDiffTileRow(tile, active, depth) {
       rowIcon({ kind: 'file' }),
       tile.title,
     ),
+    rowTrail(
+      hoverActions(
+        iconButton('close', 'Close tile', () => tileArea.close(tile.id)),
+      ),
+    ),
+  );
+}
+
+/** A host tile's Layout row: devc-desktop's host terminal, of which this page knows nothing. */
+function layoutHostTileRow(tile, active, depth) {
+  return h(
+    'div',
+    {
+      class: tileRowClass(tile, active),
+      style: `--depth: ${depth}`,
+      'data-tile': tile.id,
+      title: ['Host terminal', active ? '' : 'Background tab']
+        .filter((s) => s).join('\n'),
+      onclick: () => tileArea.reveal(tile.id),
+      oncontextmenu: (e) => openMenu(e, tileMenuItems(tile)),
+    },
+    h('span', { class: 'label' }, rowIcon({ kind: 'terminal' }), tile.title),
     rowTrail(
       hoverActions(
         iconButton('close', 'Close tile', () => tileArea.close(tile.id)),

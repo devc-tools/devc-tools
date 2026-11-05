@@ -72,6 +72,28 @@ export function paneRefFromState(state) {
   return { localFolder, pane_id };
 }
 
+/** A host tile's slot id: 32 lowercase hex characters, issued by devc-desktop. */
+export const HOST_SLOT = /^[0-9a-f]{32}$/;
+
+/**
+ * A host tile's component state as its slot id: devc-desktop covers the tile's content with a
+ * host terminal of its own while the id is one it issued (`.plans/devc-desktop-host-tiles.md`).
+ * Only `{hostSlot}` with a well-formed id is one; anything else is `null`, and the tile is
+ * dropped on restore.
+ *
+ * @param {unknown} state
+ * @returns {string | null}
+ */
+export function hostSlotFromState(state) {
+  if (typeof state !== 'object' || state === null || Array.isArray(state)) {
+    return null;
+  }
+  const { hostSlot } = /** @type {Record<string, unknown>} */ (state);
+  return typeof hostSlot === 'string' && HOST_SLOT.test(hostSlot)
+    ? hostSlot
+    : null;
+}
+
 /**
  * A file tile's component state as a file reference: only an object whose `localFolder`, `root`
  * and `path` are all non-empty strings is one. Anything else is `null`.
@@ -200,15 +222,20 @@ export function tilesShowingPane(tiles, ref) {
 /**
  * What a tile shows, as its Golden Layout component type and state: `{file}` a file tile, `{draft}`
  * a file tile with no file yet,
- * `{diff}` a diff tile, a `PaneRef` a pane tile, `null` an empty pane tile. A preview tile (see
- * {@link previewFromState}) carries `preview: true` beside the reference.
+ * `{diff}` a diff tile, `{host}` a host tile (never a preview), a `PaneRef` a pane tile, `null` an
+ * empty pane tile. A preview tile (see {@link previewFromState}) carries `preview: true` beside
+ * the reference.
  *
  * @param {PaneRef | {file: FileRef} | {diff: DiffRef} |
- *   {draft: import('./drafts.js').DraftRef} | null} ref
+ *   {draft: import('./drafts.js').DraftRef} | {host: string} | null} ref
  * @param {boolean} [preview]
- * @returns {{type: 'pane' | 'file' | 'diff', state: Record<string, string | boolean>}}
+ * @returns {{type: 'pane' | 'file' | 'diff' | 'host',
+ *   state: Record<string, string | boolean>}}
  */
 export function tileContent(ref, preview = false) {
+  if (ref && 'host' in ref) {
+    return { type: 'host', state: { hostSlot: ref.host } };
+  }
   const flag = preview ? { preview: true } : {};
   if (ref && 'draft' in ref) {
     return {
@@ -296,7 +323,37 @@ export function parseSavedLayout(text) {
   if (typeof root !== 'object' || root === null || Array.isArray(root)) {
     return null;
   }
-  return value;
+  const pruned = pruneHostTiles(root);
+  if (pruned === null) return null;
+  return { ...value, root: pruned };
+}
+
+/**
+ * A saved layout item without its `host` components whose state is no slot id (see
+ * {@link hostSlotFromState}); a stack, row or column left empty goes too, and a stack's
+ * `activeItemIndex` stays in range. `null` when nothing is left.
+ *
+ * @param {Record<string, unknown>} item
+ * @returns {Record<string, unknown> | null}
+ */
+function pruneHostTiles(item) {
+  if (
+    item.type === 'component' && item.componentType === 'host' &&
+    hostSlotFromState(item.componentState) === null
+  ) return null;
+  if (!Array.isArray(item.content)) return item;
+  const content = item.content.flatMap((child) => {
+    if (typeof child !== 'object' || child === null) return [child];
+    const kept = pruneHostTiles(/** @type {Record<string, unknown>} */ (child));
+    return kept === null ? [] : [kept];
+  });
+  if (content.length === item.content.length) return item;
+  if (content.length === 0) return null;
+  const out = { ...item, content };
+  if (typeof out.activeItemIndex === 'number') {
+    out.activeItemIndex = Math.min(out.activeItemIndex, content.length - 1);
+  }
+  return out;
 }
 
 /**

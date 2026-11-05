@@ -157,7 +157,8 @@ export interface HostPtysOptions {
 }
 
 /**
- * The drawer's shells, one per terminal tile, by the id its page gave it. A tile's shell lives
+ * The host shells: the drawer's, one per terminal tile, by the id its page gave it, and the host
+ * tiles', by the id the app gave each. A tile's shell lives
  * until the tile closes ({@link close}) or the app quits ({@link stop}); at most
  * {@link MAX_SHELLS} at once, and a {@link start} past that is ignored.
  */
@@ -169,6 +170,11 @@ export class HostPtys {
   constructor(opts: HostPtysOptions, spawn: typeof import('node-pty').spawn) {
     this.#opts = opts;
     this.#spawn = spawn;
+  }
+
+  /** How many shells there are, running or not. */
+  get size(): number {
+    return this.#ptys.size;
   }
 
   /** The shell with this id, or `undefined`. */

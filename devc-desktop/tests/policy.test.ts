@@ -3,6 +3,7 @@ import { deepStrictEqual as assertEquals } from 'node:assert/strict';
 import {
   actionCard,
   type ActionState,
+  ambiguousPress,
   appArgs,
   armed,
   badgeText,
@@ -10,6 +11,8 @@ import {
   cdTarget,
   clampDrawer,
   CONTAINERS_DEFAULT_SHARE,
+  COVER_MS,
+  type CoverChange,
   debugReason,
   devcMayNavigate,
   devcOrigin,
@@ -21,7 +24,9 @@ import {
   externalUrl,
   FOOTER_HEIGHT,
   fromView,
+  HOST_COLORS,
   HOST_PEEK,
+  hostColorOf,
   hostFolder,
   hostShortcut,
   isShellId,
@@ -35,11 +40,14 @@ import {
   menuLabel,
   menuRequest,
   PANE_MIN,
+  parseSlotLine,
   placeMenu,
+  placeSlot,
   planWarnings,
   pushOutcome,
   pushPlanFrom,
   RAIL,
+  recentChanges,
   type Rect,
   requestsAnswer,
   shellIdle,
@@ -853,4 +861,134 @@ test('hostShortcut: on a Mac, Cmd; elsewhere Ctrl+Shift, leaving Ctrl to the she
   // Ctrl+D is the shell's end of input, Ctrl+W its word rub-out.
   assertEquals(hostShortcut(key('KeyD', { ctrlKey: true }), false), null);
   assertEquals(hostShortcut(key('KeyW', { ctrlKey: true }), false), null);
+});
+
+// ---- host tiles ------------------------------------------------------------------------------
+
+const SLOT = '0123456789abcdef0123456789abcdef';
+
+test('parseSlotLine: a rectangle or hidden, for a well-formed id only', () => {
+  assertEquals(parseSlotLine(`devc-desktop:slot ${SLOT} 10 -20 300 200`), {
+    id: SLOT,
+    rect: { x: 10, y: -20, width: 300, height: 200 },
+  });
+  assertEquals(parseSlotLine(`devc-desktop:slot ${SLOT} hidden`), {
+    id: SLOT,
+    rect: null,
+  });
+  for (
+    const bad of [
+      `devc-desktop:slot ${SLOT.toUpperCase()} hidden`,
+      `devc-desktop:slot ${SLOT.slice(1)} hidden`,
+      `devc-desktop:slot ${SLOT}  10 20 300 200`,
+      `devc-desktop:slot ${SLOT} 10 20 300 200 `,
+      `devc-desktop:slot ${SLOT} 10 20 -300 200`,
+      `devc-desktop:slot ${SLOT} 123456 20 300 200`,
+      `devc-desktop:slot ${SLOT} 10 20 300`,
+      `devc-desktop:slot ${SLOT} 1.5 20 300 200`,
+      ` devc-desktop:slot ${SLOT} hidden`,
+      `devc-desktop:slots ${SLOT} hidden`,
+    ]
+  ) assertEquals(parseSlotLine(bad), null, bad);
+});
+
+test('placeSlot: zoom, offset by the view, cut to it, and the 80×40 minimum', () => {
+  const own = { x: 346, y: 32, width: 1000, height: 700 };
+  assertEquals(placeSlot({ x: 10, y: 20, width: 300, height: 200 }, 1, own), {
+    x: 356,
+    y: 52,
+    width: 300,
+    height: 200,
+  });
+  assertEquals(placeSlot({ x: 10, y: 20, width: 300, height: 200 }, 1.5, own), {
+    x: 361,
+    y: 62,
+    width: 450,
+    height: 300,
+  });
+  // Past the view's edges: cut.
+  assertEquals(placeSlot({ x: -50, y: 600, width: 300, height: 400 }, 1, own), {
+    x: 346,
+    y: 632,
+    width: 250,
+    height: 100,
+  });
+  // What is left is too small.
+  assertEquals(
+    placeSlot({ x: 950, y: 0, width: 300, height: 200 }, 1, own),
+    null,
+  );
+  assertEquals(placeSlot({ x: 0, y: 0, width: 300, height: 39 }, 1, own), null);
+  assertEquals(placeSlot({ x: 0, y: 0, width: 79, height: 300 }, 1, own), null);
+  // A nonsense zoom counts as 1.
+  assertEquals(
+    placeSlot({ x: 0, y: 0, width: 100, height: 100 }, 0, own),
+    { x: 346, y: 32, width: 100, height: 100 },
+  );
+});
+
+test('ambiguousPress: a point newly covered or uncovered within 500 ms, either way', () => {
+  const a = { x: 100, y: 100, width: 200, height: 200 };
+  const b = { x: 400, y: 100, width: 200, height: 200 };
+  const moved: CoverChange[] = [{ old: a, now: b, at: 1000 }];
+  // Uncovered by the move, and newly covered.
+  assertEquals(ambiguousPress(moved, { x: 150, y: 150 }, 1100), true);
+  assertEquals(ambiguousPress(moved, { x: 450, y: 150 }, 1100), true);
+  // Neither before nor after.
+  assertEquals(ambiguousPress(moved, { x: 350, y: 150 }, 1100), false);
+  // Too late.
+  assertEquals(
+    ambiguousPress(moved, { x: 450, y: 150 }, 1000 + COVER_MS + 1),
+    false,
+  );
+  assertEquals(
+    ambiguousPress(moved, { x: 450, y: 150 }, 1000 + COVER_MS),
+    true,
+  );
+  // Covered before and after (a resize that keeps the point inside).
+  const grown: CoverChange[] = [{
+    old: a,
+    now: { ...a, width: 300 },
+    at: 1000,
+  }];
+  assertEquals(ambiguousPress(grown, { x: 150, y: 150 }, 1100), false);
+  assertEquals(ambiguousPress(grown, { x: 350, y: 150 }, 1100), true);
+  // Hidden and shown.
+  const hidden: CoverChange[] = [{ old: a, now: null, at: 1000 }];
+  assertEquals(ambiguousPress(hidden, { x: 150, y: 150 }, 1200), true);
+  const shown: CoverChange[] = [{ old: null, now: a, at: 1000 }];
+  assertEquals(ambiguousPress(shown, { x: 150, y: 150 }, 1200), true);
+  assertEquals(ambiguousPress(shown, { x: 350, y: 150 }, 1200), false);
+  // A later change extends it.
+  const twice: CoverChange[] = [
+    { old: null, now: a, at: 1000 },
+    { old: a, now: null, at: 1400 },
+  ];
+  assertEquals(ambiguousPress(twice, { x: 150, y: 150 }, 1800), true);
+});
+
+test('recentChanges drops changes older than 500 ms', () => {
+  const r = { x: 0, y: 0, width: 100, height: 100 };
+  const changes: CoverChange[] = [
+    { old: null, now: r, at: 100 },
+    { old: r, now: null, at: 700 },
+  ];
+  assertEquals(recentChanges(changes, 1000), [changes[1]]);
+  assertEquals(recentChanges(changes, 1300), []);
+});
+
+test('hostColorOf: the saved choice, green for anything else', () => {
+  assertEquals(hostColorOf('blue').background, '#121d33');
+  assertEquals(hostColorOf('none').background, '#181e27');
+  assertEquals(hostColorOf('pink'), HOST_COLORS[0]);
+  assertEquals(hostColorOf(undefined).value, 'green');
+  assertEquals(HOST_COLORS.map((c) => c.label), [
+    'Green',
+    'Teal',
+    'Blue',
+    'Purple',
+    'Amber',
+    'Red',
+    'None',
+  ]);
 });

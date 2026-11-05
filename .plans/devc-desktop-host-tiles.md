@@ -12,18 +12,18 @@ separate `WebContentsView`s pass). Both still hold and are not restated here.
 
 ## Checklist
 
-- [ ] Step 0: probe (§ Step 0) and record the results in this file. **Stop and report to the
+- [x] Step 0: probe (§ Step 0) and record the results in this file. **Stop and report to the
       user if S1 or S2 fails.**
-- [ ] Step 1: host color: the **Host Terminal Color** menu, `hostColor` in the state file, applied
+- [x] Step 1: host color: the **Host Terminal Color** menu, `hostColor` in the state file, applied
       to the drawer's host tiles (§ Host color)
-- [ ] Step 2: devc web: the `host` tile kind, its placeholder, the `host-slot` hash, and the
+- [x] Step 2: devc web: the `host` tile kind, its placeholder, the `host-slot` hash, and the
       `slot` / `drag` / `overlay` console lines (§ devc web)
-- [ ] Step 3: devc-desktop: slot views, the slot line parser and clamp, z-order, hiding rules
+- [x] Step 3: devc-desktop: slot views, the slot line parser and clamp, z-order, hiding rules
       (§ Slot views)
-- [ ] Step 4: the move guard (§ Move guard)
-- [ ] Step 5: shell lifetime: orphaned slot shells, **Restore Host Tiles**, **End Shell**
+- [x] Step 4: the move guard (§ Move guard)
+- [x] Step 5: shell lifetime: orphaned slot shells, **Restore Host Tiles**, **End Shell**
       (§ Shell lifetime)
-- [ ] Step 6: `devc-desktop/README.md` (host tiles, color, threat model additions) and
+- [x] Step 6: `devc-desktop/README.md` (host tiles, color, threat model additions) and
       `devc/README.md` (the `host` tile kind as seen in a browser)
 - [ ] Validation (below), including the adversarial checks; then ask the user to run the macOS
       checks
@@ -74,14 +74,42 @@ section here.
   the host view, 0 in the hostile page.
 - **S2. Pointer-move attack.** The hostile page moves the host view under the pointer 100 ms
   before a scripted click, then the script types 20 keys. With the move guard (§ Move guard) on:
-  pass means 0 keys reach the host shell and the host view does not take focus. Also record the
-  result with the guard off, to show it is needed.
+  pass means 0 keys reach the host shell and 0 the page. Also record the result with the guard
+  off, to show it is needed.
 - **S3. Drag and dialogs.** A Golden Layout drag over a slot, and a dialog over one, with the
   slot hidden for each: record whether the hide/show is visibly jarring (subjective; report it).
 - **S4. Lag.** Drag a Golden Layout splitter next to a slot: record whether the view trails the
   layout by more than one frame.
 
 S1 or S2 failing is a stop: report to the user. S3 and S4 inform the README, not the go/no-go.
+
+## Step 0 results (Linux, 2026-11-05)
+
+Throwaway probe (not committed) on **Electron 44.5.0** under Xvfb, real keystrokes from
+`xdotool`: one `BaseWindow`, a hostile page in a view like devc web's (sandboxed, own partition,
+no preload, `disableDialogs`, windows denied), and a host view (own partition, a preload) placed
+wherever the hostile page's `slot x y w h` console lines said, hidden on `hide`. **Chromium's
+sandbox was off (`--no-sandbox`):** the tool environment sets `no_new_privs`, so the setuid
+helper cannot run, and running outside it was refused. Which view receives keys does not depend
+on the OS sandbox; the macOS checks run with it on.
+
+| Check                                                                         | Guard off                     | Guard on (the revised rule)                                          |
+| ----------------------------------------------------------------------------- | ----------------------------- | -------------------------------------------------------------------- |
+| **S1** focus attacks every 300 ms, view moving under the cursor (19 moves)    | 20/20 keys in host, 0 in page | 20/20 in host, 0 in page                                             |
+| **S2** page moves the view under the pointer, user clicks, types 25 keys      | **25 keys in the host shell** | 0 in host, 0 in page (dropped)                                       |
+| **S3** page hides/shows the view every 150 ms around the user's click into it | **20 keys in the page**       | 0 in either                                                          |
+| **S4** page moves the view away and back every 150 ms around the click        | **20 keys in the page**       | 0 in either                                                          |
+| **S5** clean click into the view, then the page hides/shows it while typing   | —                             | 3 in host (before the first hide), 0 in page; the rest reach no view |
+
+- **S1 passes**: as in devc-desktop-electron, nothing a page calls moves focus to it, and moving
+  a view does not either.
+- **S2–S4**: the first guard (cursor-entry, focus handback) passed S2 but leaked all 20 keys in S3
+  and S4, through the handback. The symmetric rule (§ Move guard) passes all three. The probe
+  also showed that dropping keys merely _while_ a guard runs lets a page cut characters out of a
+  command typed into an already-focused view; the rule drops only after a press.
+- **S5** led to re-focusing a view shown again (§ Move guard).
+- **S3/S4 of the plan's original list** (jarring hide/show, splitter lag) need eyes on a real
+  display: not measured headless; part of the user's macOS checks.
 
 ## Contracts
 
@@ -166,22 +194,38 @@ S1 or S2 failing is a stop: report to the user. S3 and S4 inform the README, not
   every view added before. After a dialog closes, re-add every slot view above `devcView` (and
   then `dimView`, `menuView` as today) so slots are never under devc web.
 - **Focus:** a slot view gets focus only from a click in it (the existing `mouseDown` →
-  `focus()` handler, subject to the move guard), or **New Host Tile** focusing the new view once
-  it is first shown. Nothing devc web sends focuses or blurs a slot view.
+  `focus()` handler; an ambiguous press mutes it, § Move guard), **New Host Tile** focusing the
+  new view once it is first shown, or being shown again after a hide that took its focus
+  (§ Move guard). Nothing devc web sends focuses a slot view.
 
 ### Move guard (Step 4)
 
-- A **guard** starts on a slot view when a bounds change or a hidden → visible change leaves the
-  cursor (`screen.getCursorScreenPoint()`, converted to content coordinates) inside the view's
-  new rectangle and it was not inside the previous one (or the view was hidden). It lasts
-  **500 ms** from the latest such change.
-- While guarded:
-  - keyboard input to that view is dropped (`before-input-event` → `preventDefault()`);
-  - the view's page shows a transparent shield over the terminal that swallows pointer events,
-    told over IPC (`host-term:guard`, `true`/`false`);
-  - the main process's `mouseDown` → `focus()` handler skips the view.
-- The decision (old rect, new rect, cursor, now, last guard time → guarded until) is a pure
-  function in `policy.ts`, tested.
+Revised by Step 0: the first design (a guard when the view moves under the cursor, handing focus
+back to the previous view) leaked. A page that hides the view, or moves it away, around a click
+makes the click land on devc web, and the handback itself picks devc web. The rule below is
+symmetric and moves no focus.
+
+- **Coverage changes.** The app records every change of a slot view's shown rectangle: placed,
+  moved, resized, shown or hidden, whatever the cause (a hidden view has no rectangle). It keeps
+  the last 500 ms of them: `{ old: Rect | null, now: Rect | null, at: ms }`.
+- **An ambiguous press** is a `mouseDown` (the `input-event` of any devc web view or slot view)
+  at a point that some change in the last **500 ms** moved from covered to uncovered or back
+  (`inside(old, p) !== inside(now, p)`, `p` the cursor in window content coordinates from
+  `screen.getCursorScreenPoint()` at the press).
+- **After an ambiguous press, the view pressed is muted:** its keyboard input (`keyDown`,
+  `char`) is dropped (`before-input-event` → `preventDefault()`) until the next press anywhere
+  that is not ambiguous. Focus is left wherever Chromium put it: the app never moves focus
+  because of a guard.
+- **A muted slot view shows** a banner over its terminal: `Input paused: this terminal just
+  moved. Click it to type.` (told over IPC, `host-term:guard`, `true` / `false`). A muted devc web
+  view shows nothing (the app cannot draw in it); its keys are simply dropped.
+- **Keys are never dropped from a view that already had focus** before the change: only a press
+  mutes. So a page cannot cut characters out of a command being typed by moving the view.
+- **Hidden while focused:** a slot view hidden while it has focus loses it, and keys typed then
+  reach no view (Step 0, S5). When that view is shown again and no other view took focus in
+  between, the app focuses it again.
+- The decision (changes, press point, now → ambiguous) and the trimming are pure functions in
+  `policy.ts`, tested.
 
 ### Shell lifetime (Step 5)
 
@@ -211,30 +255,41 @@ S1 or S2 failing is a stop: report to the user. S3 and S4 inform the README, not
 
 ## Validation
 
-- [ ] `cd devc-desktop && npm run check && npm test` pass, with new tests in
+- [x] `cd devc-desktop && npm run check && npm test` pass, with new tests in
       `tests/policy.test.ts`: slot-line parsing (valid, `hidden`, malformed ids, extra spaces,
       over-long numbers, negative width), placement (zoom, offset, intersection, the 80×40 minimum),
-      the move guard (enters only when the cursor crosses in; 500 ms; extended by a later move;
-      not on a move that keeps the cursor outside), and `hostColor` reading (unknown → `green`).
-- [ ] `cd devc && deno test -A tests/web_layout_test.ts tests/web_desktop_test.ts` pass, with new
+      the ambiguous-press rule (a point newly covered or uncovered within 500 ms is ambiguous, in
+      either direction and for hides; a point covered before and after is not; older changes are
+      trimmed), and `hostColor` reading (unknown → `green`).
+- [x] `cd devc && deno test -A tests/web_layout_test.ts tests/web_desktop_test.ts` pass, with new
       tests: a `host` tile round-trips through save/restore; a malformed `hostSlot` is dropped;
       `host-slot=` in the hash adds one tile and is removed from the hash; the same id twice adds
       one tile; no hex value from the color table except `#181e27` appears under `devc/web/`.
-- [ ] `deno fmt --check` on every touched file.
+      (Hash reading/removal is unit-tested; "adds one tile" and "the same id twice" live in
+      `openHostTile`, which needs the DOM, and were checked in the real app instead.)
+- [x] `deno fmt --check` on every touched file.
 - [ ] Linux, real app under Xvfb: **New Host Tile** opens a host tile in `/main`'s layout with the
       host color and `HOST · user@host` strip; it moves with splitters, tab switches, and
       maximize; it hides during a tab drag, a dialog, and a context menu, and comes back after.
+      **Done except maximize and a dialog:** a devc web dialog needs a running container, and
+      there is no Docker in this environment. Checked: color (green, and blue from the state
+      file, drawer too), strip, typing, zen on/off, tab switch, splitter drag, drag-to-split
+      (hidden while dragging), the tab menu (hidden while open), the drawer opening (tile resized),
+      Restart devc web (tile back with its shell and scrollback).
 - [ ] Adversarial (Linux), with a devc web page patched in a throwaway checkout under `--live`:
-  - [ ] a `slot` line with an invented id shows nothing;
-  - [ ] focus-stealing calls every 300 ms while typing in a slot view: 0 keys leak (S1 again on the
+  - [x] a `slot` line with an invented id shows nothing;
+  - [x] focus-stealing calls every 300 ms while typing in a slot view: 0 keys leak (S1 again on the
         real app);
-  - [ ] moving a slot under the pointer before a click: the click and the next 500 ms of keys do
-        not reach the shell;
+  - [x] moving a slot under the pointer before a click, or hiding it / moving it away around a
+        click into it: no key reaches the shell or the page until the next clean click;
   - [ ] removing the tile, reloading the page, and resetting the layout leave the shell running
         (`ps` on the host); **Restore Host Tiles** brings it back with its scrollback;
-  - [ ] a `slot` line from `/sidebar` is ignored;
+        **Done except a layout reset** (removing the tab and a devc web restart were checked).
+  - [ ] a `slot` line from `/sidebar` is ignored; **not run** (by inspection: `slotLine` is called
+        for `devcView` only).
   - [ ] the host color is not readable from the devc view (devtools on `/main`: no hex in the DOM,
-        storage or network).
+        storage or network). **Not run** in devtools; the color goes only over IPC to host views,
+        and the `devc/web/` test passes.
 - [ ] macOS checks by the user: S1, S2 and the Linux real-app list above; IME input in a slot view.
 
 ## Relevant Files
@@ -262,3 +317,19 @@ S1 or S2 failing is a stop: report to the user. S3 and S4 inform the README, not
 | `devc/tests/web_layout_test.ts`, `devc/tests/web_desktop_test.ts`  | Tests above                                                                                                                                                                                                                                                     |
 | `devc/README.md`                                                   | The `host` tile placeholder as seen in a browser                                                                                                                                                                                                                |
 | `.plans/PLAN.md`                                                   | Status entry and phase row                                                                                                                                                                                                                                      |
+
+## Implementation notes (2026-11-05)
+
+- **Validation environment.** Linux under Xvfb, Electron 44.5.0 with `--no-sandbox` (see Step 0
+  results), `devc web` run from this checkout with no Docker. Adversarial checks used a scratch
+  copy of the repo whose `/main` had an attack script: F7 focus theft every 300 ms, F8 move the
+  slot under the pointer, F9 hide/show every 150 ms, F10 a forged slot id. All four: no key
+  reached the page or the shell; a clean click then typed normally.
+- **Floating controls.** devc web's zen-mode toggle (and the corner toggle that shows the app's
+  column) float over a tile's top corners. A host view would cover them, so `host-slots.js`
+  starts the reported rectangle below any of them that overlaps (`clearOfControls`), and judges
+  "covered" (zen mode, a maximized stack) by the tile's centre alone.
+- **Shell ids.** A host tile's shell is `slot-<16 hex>`, never a drawer id (a UUID); each IPC
+  sender may use only its own shells (`mayUse`).
+- **End Shell** sends the view `host-term:exit` with code `-1` (a closed shell reports no exit
+  of its own); the page shows `[exited]`.

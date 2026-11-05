@@ -2689,4 +2689,4 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
 | devc web uncommitted files — an Uncommitted row in Commits lists working-tree changes; each opens a diff vs HEAD    | [devc-web-uncommitted-files](devc-web-uncommitted-files.md)                        | in progress |
 | devc web granted push — Push runs the container's own `gh-push` grant with no confirmation                          | [devc-web-granted-push](devc-web-granted-push.md)                                  | in progress |
 | devc web push arrow — ↑N and Push are one action; ↑N counts what a push publishes, read-only when none can          | [devc-web-push-arrow](devc-web-push-arrow.md)                                      |             |
-| devc desktop host tiles — host terminals as Golden Layout tiles over devc web's slots; a host color                 | [devc-desktop-host-tiles](devc-desktop-host-tiles.md)                              |             |
+| devc desktop host tiles — host terminals as Golden Layout tiles over devc web's slots; a host color                 | [devc-desktop-host-tiles](devc-desktop-host-tiles.md)                              | in progress |

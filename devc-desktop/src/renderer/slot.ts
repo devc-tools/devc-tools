@@ -1,0 +1,138 @@
+// A host tile's page: one host shell, in a view the app lays over a `host` tile of devc web's
+// layout (`.plans/devc-desktop-host-tiles.md`). Loaded from the app bundle; devc web cannot reach
+// it, and only says where its tile is. The shell is the app's: its id comes from the app, and
+// closing devc web's tab does not end it (the app's right-click menu does).
+
+import { FitAddon } from '@xterm/addon-fit';
+import { Terminal } from '@xterm/xterm';
+
+interface SlotInfo {
+  user: string;
+  host: string;
+  refused: string | null;
+  /** This view's shell. */
+  shell: string;
+  /** The host color's background. */
+  color: string;
+}
+
+/** The host preload's `window.hostTerm`, as far as this page uses it. */
+interface SlotHostTerm {
+  start(id: string, cols: number, rows: number): void;
+  input(id: string, data: string): void;
+  resize(id: string, cols: number, rows: number): void;
+  onOutput(cb: (id: string, data: string) => void): void;
+  onExit(cb: (id: string, code: number) => void): void;
+  onColor(cb: (background: string) => void): void;
+  onGuard(cb: (on: boolean) => void): void;
+  info(): Promise<SlotInfo>;
+  contextMenu(id: string): void;
+}
+
+// `host.ts` declares `window.hostTerm` globally with the drawer's view of it.
+const host = (window as unknown as { hostTerm: SlotHostTerm }).hostTerm;
+const $ = (id: string) => document.getElementById(id)!;
+
+const el = $('term');
+const term = new Terminal({
+  cursorBlink: true,
+  fontFamily:
+    'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace',
+  fontSize: 13,
+  scrollback: 5000,
+});
+const fit = new FitAddon();
+term.loadAddon(fit);
+term.open(el);
+
+let shell: string | null = null;
+let running = false;
+let refused: string | null = null;
+
+function applyColor(background: string): void {
+  if (!/^#[0-9a-f]{6}$/.test(background)) return;
+  document.documentElement.style.setProperty('--host-bg', background);
+  term.options.theme = { background };
+}
+
+function refit(): void {
+  if (el.clientHeight >= 40 && el.clientWidth >= 40) fit.fit();
+}
+new ResizeObserver(refit).observe(el);
+
+function start(): void {
+  if (shell === null) return;
+  if (refused !== null) {
+    term.write(`\x1b[33mThe host terminal is off: ${refused}.\x1b[0m\r\n`);
+    return;
+  }
+  refit();
+  running = true;
+  host.start(shell, term.cols, term.rows);
+}
+
+host.onOutput((id, data) => {
+  if (id === shell) term.write(data);
+});
+host.onExit((id, code) => {
+  if (id !== shell) return;
+  running = false;
+  // Ended from the app's menu: no code of its own.
+  const what = code < 0 ? '[exited]' : `[exited ${code}]`;
+  term.write(`\r\n\x1b[2m${what} Close this tab in devc web.\x1b[0m\r\n`);
+});
+host.onColor(applyColor);
+host.onGuard((on) => {
+  $('guard').hidden = !on;
+  if (!on && document.hasFocus()) term.focus();
+});
+
+term.onData((data) => {
+  if (running && shell !== null) host.input(shell, data);
+});
+term.onResize(({ cols, rows }) => {
+  if (running && shell !== null) host.resize(shell, cols, rows);
+});
+el.addEventListener('contextmenu', (e) => {
+  e.preventDefault();
+  if (shell !== null) host.contextMenu(shell);
+});
+window.addEventListener('focus', () => term.focus());
+
+// A paste with a line break in it would run commands at once: show it and ask first, as the
+// drawer does. A single line goes straight in.
+const pasteBar = $('paste');
+let pending: string | null = null;
+el.addEventListener('paste', (e) => {
+  const text = e.clipboardData?.getData('text/plain') ?? '';
+  if (!/[\r\n]/.test(text.replace(/[\r\n]+$/, ''))) return;
+  e.preventDefault();
+  e.stopImmediatePropagation();
+  pending = text;
+  const lines = text.replace(/[\r\n]+$/, '').split(/\r\n|\r|\n/).length;
+  $('paste-lines').textContent = `${lines} lines`;
+  $('paste-text').textContent = text;
+  pasteBar.hidden = false;
+  ($('paste-ok') as HTMLButtonElement).focus();
+}, true);
+const closePaste = (ok: boolean) => {
+  if (ok && pending !== null) term.paste(pending);
+  pending = null;
+  pasteBar.hidden = true;
+  term.focus();
+};
+$('paste-ok').addEventListener('click', () => closePaste(true));
+$('paste-cancel').addEventListener('click', () => closePaste(false));
+pasteBar.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') closePaste(false);
+});
+
+// The page is a classic script (a module would not load from file:), so no top-level await.
+void host.info().then((info) => {
+  $('who').textContent = `${info.user}@${info.host}`;
+  applyColor(info.color);
+  refused = info.refused;
+  shell = info.shell;
+  start();
+  if (document.hasFocus()) term.focus();
+});

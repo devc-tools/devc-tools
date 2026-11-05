@@ -1,6 +1,6 @@
-// The host view's bridge to the main process: `window.hostTerm`, the only door to the host
-// shell. Only the host view loads this; the devc view has no preload at all. Every channel is
-// checked on the main side against the sender (`fromView` in `policy.ts`).
+// The host views' bridge to the main process: `window.hostTerm`, the only door to the host
+// shells. Only the drawer and the host tiles' views load this; the devc views have no preload.
+// Every channel is checked on the main side against the sender (`fromView` in `policy.ts`).
 
 import { contextBridge, ipcRenderer } from 'electron';
 
@@ -34,6 +34,14 @@ contextBridge.exposeInMainWorld('hostTerm', {
   info: () => ipcRenderer.invoke('host-term:info'),
   dragDrawer: (dy: number) => ipcRenderer.send('host-term:drag', dy),
   contextMenu: (id: string) => ipcRenderer.send('host-term:context-menu', id),
+  // The host color (View → Host Terminal Color), as its background hex.
+  onColor: (cb: (background: string) => void) => {
+    ipcRenderer.on('host-term:color', (_e, bg: unknown) => cb(String(bg)));
+  },
+  // A host tile's view: input paused after an ambiguous press (the app drops its keys).
+  onGuard: (cb: (on: boolean) => void) => {
+    ipcRenderer.on('host-term:guard', (_e, on: unknown) => cb(on === true));
+  },
   onShown: (cb: (open: boolean) => void) => {
     ipcRenderer.on('host-term:shown', (_e, open: unknown) => cb(open === true));
   },

@@ -9,6 +9,12 @@
 import { createRenderer } from './renderer.js';
 import { createTiling } from './layout.js';
 import {
+  hostTileVisibility,
+  hostTileWithSlot,
+  mountHostTile,
+  unmountHostTile,
+} from './host-slots.js';
+import {
   createViewer,
   highlightLines,
   lspHoverHtml,
@@ -230,6 +236,23 @@ const tileArea = {
   dragSource: (el, ref, title) =>
     tiling ? tiling.dragSource(el, ref, title) : () => {},
 };
+
+/**
+ * Adds a host tile for devc-desktop's slot `id` (its **New Host Tile**, through `/main`'s hash):
+ * in the focused tile's stack, else wherever a new tile goes, and focused. A slot already shown
+ * is only revealed.
+ *
+ * @param {string} id
+ */
+export function openHostTile(id) {
+  if (!tiling) return;
+  const shown = hostTileWithSlot(id);
+  if (shown) {
+    tiling.reveal(shown.id);
+    return;
+  }
+  tiling.addBeside(targetTile()?.id ?? null, { host: id }, 'stack');
+}
 /** @type {string | null} */
 let focusedTileId = null;
 /** Tile ids by when they were last focused (higher is later), to pick the one to reveal. */
@@ -4514,6 +4537,8 @@ function tileState(tile) {
       ? fileViewTitle(tile, file?.dirty)
       : tile.kind === 'diff'
       ? diffTileTitle(tile)
+      : tile.kind === 'host'
+      ? 'host'
       : '',
     dirty: file?.dirty ?? false,
     saveable: Boolean(file?.dirty && fileEditable(file)),
@@ -4840,6 +4865,12 @@ function refit(view) {
 
 /** Builds the live view (renderer, overlay, input handlers) inside a new tile. */
 function mountTile(tile) {
+  if (tile.kind === 'host') {
+    mountHostTile(tile);
+    // A restored host tile with no usable slot id (`parseSavedLayout` drops those first).
+    if (!tile.host) queueMicrotask(() => tiling?.close(tile.id));
+    return;
+  }
   if (tile.kind === 'file') {
     mountFileTile(tile);
     return;
@@ -5049,6 +5080,10 @@ async function attachImages(view, target, images, source) {
 
 /** Tears a tile's view down; the pane closes on the server with the last tile showing it. */
 function unmountTile(tile) {
+  if (tile.kind === 'host') {
+    unmountHostTile(tile);
+    return;
+  }
   if (tile.kind === 'file') {
     unmountFileTile(tile);
     return;
@@ -5075,6 +5110,10 @@ function unmountTile(tile) {
 
 /** A tile in a background stack tab sends no resize; brought forward, it refits at once. */
 function tileVisibility(tile, visible) {
+  if (tile.kind === 'host') {
+    hostTileVisibility(tile, visible);
+    return;
+  }
   const diff = diffViews.get(tile.id);
   if (diff && visible) {
     requestAnimationFrame(() => {

@@ -482,7 +482,11 @@ is published from any container: the host server finds devcontainers with
   section out (devc-desktop shows its own below it). `#…&sidebar=shown` (on
   `/sidebar`) or `hidden` (on `/main`) draws the corner toggle that hides or
   shows devc-desktop's left column, in the top-left corner as on `/`; the app
-  does the hiding. A right-click menu closes
+  does the hiding. `/main#…&host-slot=<id>` (devc-desktop's **New Host Tile**)
+  adds a `host` tile: the app lays its own host terminal over the tile's
+  content, and the page only says where the tile is. In a browser, or once the
+  app's shell is gone, the tile shows _Host terminal — not running here_; close
+  its tab. A right-click menu closes
   when another page or view takes the focus, and scrolls when it is taller than
   the window.
 - **Sidebar scope:** the pill in the sidebar header picks what the sidebar

@@ -5,6 +5,7 @@ import {
   diffSource,
   fileRefFromState,
   foldTree,
+  hostSlotFromState,
   paneRefFromState,
   parseSavedLayout,
   previewFromState,
@@ -16,6 +17,7 @@ import {
   treeSignature,
   withView,
 } from '../web/static/lib/layout_state.js';
+import { hostSlotFromHash, withoutHostSlot } from '../web/static/lib/view.js';
 
 Deno.test('fileRefFromState accepts a full file reference', () => {
   assertEquals(
@@ -375,4 +377,102 @@ Deno.test('a diff ref keeps a commit sha through a saved layout, and tells commi
     diffKey(commit) === diffKey({ ...commit, sha: 'cd'.repeat(20) }),
     false,
   );
+});
+
+const SLOT = '0123456789abcdef0123456789abcdef';
+
+Deno.test('hostSlotFromState accepts only 32 lowercase hex characters', () => {
+  assertEquals(hostSlotFromState({ hostSlot: SLOT }), SLOT);
+  assertEquals(hostSlotFromState({ hostSlot: SLOT.toUpperCase() }), null);
+  assertEquals(hostSlotFromState({ hostSlot: SLOT.slice(1) }), null);
+  assertEquals(hostSlotFromState({ hostSlot: `${SLOT}0` }), null);
+  assertEquals(hostSlotFromState({ hostSlot: 7 }), null);
+  assertEquals(hostSlotFromState({}), null);
+  assertEquals(hostSlotFromState(null), null);
+  assertEquals(hostSlotFromState([SLOT]), null);
+});
+
+Deno.test('tileContent: a host tile is type host with its slot, never a preview', () => {
+  assertEquals(tileContent({ host: SLOT }), {
+    type: 'host',
+    state: { hostSlot: SLOT },
+  });
+  assertEquals(tileContent({ host: SLOT }, true), {
+    type: 'host',
+    state: { hostSlot: SLOT },
+  });
+});
+
+Deno.test('a host tile round-trips through a saved layout', () => {
+  const { type, state } = tileContent({ host: SLOT });
+  const saved = {
+    root: {
+      type: 'stack',
+      content: [{
+        type: 'component',
+        componentType: type,
+        componentState: state,
+      }],
+    },
+  };
+  const back = parseSavedLayout(JSON.stringify(saved));
+  assertEquals(back, saved);
+  const item = (back?.root as { content: { componentState: unknown }[] })
+    .content[0];
+  assertEquals(hostSlotFromState(item.componentState), SLOT);
+});
+
+Deno.test('parseSavedLayout drops host tiles with a malformed slot, and what they leave empty', () => {
+  const pane = {
+    type: 'component',
+    componentType: 'pane',
+    componentState: { localFolder: '/a', pane_id: 'p1' },
+  };
+  const bad = {
+    type: 'component',
+    componentType: 'host',
+    componentState: { hostSlot: 'x' },
+  };
+  const good = {
+    type: 'component',
+    componentType: 'host',
+    componentState: { hostSlot: SLOT },
+  };
+  const saved = {
+    root: {
+      type: 'row',
+      content: [
+        { type: 'stack', activeItemIndex: 2, content: [pane, good, bad] },
+        { type: 'stack', content: [bad] },
+      ],
+    },
+  };
+  assertEquals(parseSavedLayout(JSON.stringify(saved)), {
+    root: {
+      type: 'row',
+      content: [{ type: 'stack', activeItemIndex: 1, content: [pane, good] }],
+    },
+  });
+  // Nothing left: no layout.
+  assertEquals(
+    parseSavedLayout(
+      JSON.stringify({ root: { type: 'stack', content: [bad] } }),
+    ),
+    null,
+  );
+});
+
+Deno.test('hostSlotFromHash reads host-slot; withoutHostSlot takes it out and keeps the rest', () => {
+  assertEquals(
+    hostSlotFromHash(`#view=v1&host-slot=${SLOT}&sidebar=shown`),
+    SLOT,
+  );
+  assertEquals(hostSlotFromHash(`host-slot=${SLOT}`), SLOT);
+  assertEquals(hostSlotFromHash('#host-slot=nothex'), null);
+  assertEquals(hostSlotFromHash('#view=v1'), null);
+  assertEquals(
+    withoutHostSlot(`#view=v1&host-slot=${SLOT}&sidebar=shown`),
+    '#view=v1&sidebar=shown',
+  );
+  assertEquals(withoutHostSlot(`#host-slot=${SLOT}`), '');
 });

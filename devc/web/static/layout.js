@@ -15,6 +15,7 @@ import {
 import {
   diffRefFromState,
   fileRefFromState,
+  hostSlotFromState,
   paneRefFromState,
   previewFromState,
   tileContent,
@@ -23,29 +24,31 @@ import { draftRefFromState } from './lib/drafts.js';
 
 /**
  * The component types: `pane`, whose state is a PaneRef (or `{}` for an empty tile), `file`,
- * whose state is a FileRef, and `diff`, whose state is a DiffRef (a pull request file); any of
- * them with `preview: true` on a preview tile.
+ * whose state is a FileRef, `diff`, whose state is a DiffRef (a pull request file), and `host`,
+ * whose state is `{hostSlot}` (devc-desktop's host terminal covers it); any but `host` with
+ * `preview: true` on a preview tile.
  */
-const COMPONENT_TYPES = /** @type {const} */ (['pane', 'file', 'diff']);
+const COMPONENT_TYPES = /** @type {const} */ (['pane', 'file', 'diff', 'host']);
 
 /** @typedef {import('./lib/layout_state.js').PaneRef} PaneRef */
 /** @typedef {import('./lib/layout_state.js').FileRef} FileRef */
 /** @typedef {import('./lib/layout_state.js').DiffRef} DiffRef */
 /** What a new tile shows: a pane, a file, a PR file's diff, or nothing (an empty pane tile). */
 /** @typedef {import('./lib/drafts.js').DraftRef} DraftRef */
-/** @typedef {PaneRef | {file: FileRef} | {diff: DiffRef} | {draft: DraftRef} | null} TileRef */
+/** @typedef {PaneRef | {file: FileRef} | {diff: DiffRef} | {draft: DraftRef} | {host: string} | null} TileRef */
 /** @typedef {import('./lib/layout_state.js').LayoutNode} LayoutNode */
 
 /**
  * @typedef {object} Tile
  * @property {string} id                 stable for the tile's lifetime
- * @property {'pane' | 'file' | 'diff'} kind  a pane tile (a terminal), a file tile (a viewer)
- *   or a diff tile (a pull request file)
+ * @property {'pane' | 'file' | 'diff' | 'host'} kind  a pane tile (a terminal), a file tile (a
+ *   viewer), a diff tile (a pull request file) or a host tile (devc-desktop's host terminal)
  * @property {PaneRef | null} ref        the pane this tile shows; always null on other tiles
  * @property {FileRef | null} file       the file a file tile shows; null on other tiles
  * @property {DiffRef | null} diff       the PR file a diff tile shows; null on other tiles
  * @property {DraftRef | null} draft     a file tile's unsaved new file (its `file` is null); null
  *   on other tiles
+ * @property {string | null} host        a host tile's slot id; null on other tiles
  * @property {HTMLElement} element       where app.js mounts the renderer and overlay
  * @property {(ref: PaneRef | null) => void} setRef   persists into the component state (pane tiles)
  * @property {boolean} preview           a preview tile: the next sidebar click replaces what it
@@ -258,7 +261,8 @@ export function createTiling(root, hooks) {
         file,
         diff,
         draft: type === 'file' ? draftRefFromState(state) : null,
-        preview: previewFromState(state),
+        host: type === 'host' ? hostSlotFromState(state) : null,
+        preview: type !== 'host' && previewFromState(state),
         element: container.element,
         setRef(ref) {
           if (tile.kind !== 'pane') return;
@@ -266,7 +270,7 @@ export function createTiling(root, hooks) {
           container.setState(tileContent(ref, tile.preview).state);
         },
         setPreview(on) {
-          if (tile.preview === on) return;
+          if (tile.preview === on || tile.kind === 'host') return;
           tile.preview = on;
           container.setState(
             tileContent(

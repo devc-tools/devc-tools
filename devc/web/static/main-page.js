@@ -6,10 +6,14 @@
 // draws the corner toggle that shows devc-desktop's left column again.
 
 import { connect, SAFE_MODE, showSafeBanner } from './client.js';
-import { mountTiles } from './tiles.js';
+import { mountTiles, openHostTile } from './tiles.js';
 import { mountHostStatus } from './host-status.js';
 import { remoteSidebar, sendViewState, serveTileArea } from './remote.js';
-import { statusExternalFromHash } from './lib/view.js';
+import {
+  hostSlotFromHash,
+  statusExternalFromHash,
+  withoutHostSlot,
+} from './lib/view.js';
 import { mountSidebarCorner } from './sidebar-corner.js';
 
 if (SAFE_MODE) showSafeBanner();
@@ -23,3 +27,21 @@ if (!statusExternalFromHash(location.hash)) {
 }
 mountSidebarCorner(/** @type {HTMLElement} */ (document.querySelector('.app')));
 connect();
+
+/**
+ * devc-desktop's **New Host Tile** sets `#…&host-slot=<id>` (a hash change: nothing reloads): a
+ * host tile for that slot, which the app then covers with its terminal. The parameter is taken
+ * out again, so a reload does not add it twice.
+ */
+function takeHostSlot() {
+  const id = hostSlotFromHash(location.hash);
+  if (id === null) return;
+  history.replaceState(
+    history.state,
+    '',
+    `${location.pathname}${location.search}${withoutHostSlot(location.hash)}`,
+  );
+  openHostTile(id);
+}
+takeHostSlot();
+window.addEventListener('hashchange', takeHostSlot);

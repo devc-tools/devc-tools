@@ -328,3 +328,36 @@ Deno.test('--desktop-channel, its stdout line and the stdin hand-off', async () 
   assertEquals(await readTokenLine(stream(DESKTOP)), undefined);
   assertEquals(await readTokenLine(stream(`${'x'.repeat(200)}\n`)), undefined);
 });
+
+// devc-desktop's host color (View → Host Terminal Color, `HOST_COLORS` in its `policy.ts`) is the
+// host tiles' trust signal: devc web must never carry it. `#181e27` ("None") is devc web's own
+// `--panel`, so it is left out.
+const HOST_COLOR_HEXES = [
+  '#10251b',
+  '#0f2427',
+  '#121d33',
+  '#1f1830',
+  '#2a2210',
+  '#2b1517',
+];
+
+Deno.test('devc web carries none of the host colors', async () => {
+  const root = new URL('../web/', import.meta.url);
+  const found: string[] = [];
+  async function walk(dir: URL): Promise<void> {
+    for await (const entry of Deno.readDir(dir)) {
+      const url = new URL(entry.name + (entry.isDirectory ? '/' : ''), dir);
+      if (entry.isDirectory) {
+        await walk(url);
+        continue;
+      }
+      if (!entry.isFile) continue;
+      const text = (await Deno.readTextFile(url)).toLowerCase();
+      for (const hex of HOST_COLOR_HEXES) {
+        if (text.includes(hex)) found.push(`${url.pathname}: ${hex}`);
+      }
+    }
+  }
+  await walk(root);
+  assertEquals(found, []);
+});

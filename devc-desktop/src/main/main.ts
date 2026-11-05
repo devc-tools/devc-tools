@@ -12,6 +12,9 @@
 //   - the status view (bundled page + preload) while devc web starts, or after it stopped;
 //   - the host view (bundled page + preload): a drawer under `/main` running the user's shell
 //     through node-pty, opened only from the app menu;
+//   - a host tile's view (bundled page + the host preload) per New Host Tile: one shell over a
+//     `host` tile in `/main`'s own layout, placed where `/main` says the tile is, and hidden
+//     whenever devc web may draw over it;
 //   - the title bar view (bundled page + preload): the OS's own bar is hidden, so this one draws
 //     the title and drags the window; the window's buttons sit over it. The window's title is
 //     still set as before, for the taskbar and anything else that reads it;
@@ -20,6 +23,7 @@
 //     over devc web's, never the reverse: none of the others overlap.
 // Why this shape, and what it was measured against: `.plans/devc-desktop-electron.md`.
 
+import { randomBytes } from 'node:crypto';
 import { readFile, realpath, stat } from 'node:fs/promises';
 import { hostname, userInfo } from 'node:os';
 import { join } from 'node:path';
@@ -29,6 +33,7 @@ import {
   ipcMain,
   Menu,
   type MenuItemConstructorOptions,
+  screen,
   session,
   shell,
   WebContentsView,
@@ -52,6 +57,7 @@ import {
   ACTION_LINES,
   actionCard,
   type ActionState,
+  ambiguousPress,
   appArgs,
   armed,
   baseName,
@@ -59,6 +65,7 @@ import {
   cdTarget,
   clampDrawer,
   containersPermission,
+  type CoverChange,
   debugReason,
   devcMayNavigate,
   devcOrigin,
@@ -70,24 +77,32 @@ import {
   externalUrl,
   FOOTER_HEIGHT,
   fromView,
+  HOST_COLORS,
   HOST_SHORTCUTS,
+  type HostColor,
+  hostColorOf,
   type HostCommand,
   hostFolder,
   isShellId,
   type Layout,
   layout,
   MAX_REQUESTS,
+  MAX_SHELLS,
   menuLabel,
   menuRequest,
   paneRequest,
+  parseSlotLine,
   placeMenu,
+  placeSlot,
   pushOutcome,
   pushPlanFrom,
+  recentChanges,
   type Rect,
   requestsAnswer,
   shellIdle,
   shellQuote,
   showText,
+  slotShellId,
   TITLEBAR_HEIGHT,
 } from './policy.ts';
 import { accountShell, HostPtys, hostShell, ptyEnv } from './pty.ts';
@@ -144,6 +159,8 @@ let desktopToken: string | null = null;
  */
 let runner: { found: Found; checkout: string | null } | null = null;
 
+/** View → Host Terminal Color: every host terminal's background. */
+let hostColor: HostColor = hostColorOf(undefined);
 /** The drawer's height in px, or `null` while closed; `drawerHeight` survives closing. */
 let drawerOpen = false;
 let drawerHeight: number | null = null;
@@ -381,6 +398,41 @@ async function main(): Promise<void> {
    */
   let paneDialog = false;
 
+  // ---- host tiles: state (the code is under "host tiles" below) ---------------------------------
+
+  /**
+   * A host tile's view: one host shell over a `host` tile in `/main`'s layout, where `/main`'s
+   * slot lines say. See `.plans/devc-desktop-host-tiles.md`.
+   */
+  interface Slot {
+    /** The slot id devc web's tile names; a new one on Restore Host Tiles. */
+    id: string;
+    shell: string;
+    view: WebContentsView;
+    /** The tile's last line: its CSS rectangle, `null` for hidden, `undefined` until one came. */
+    line: Rect | null | undefined;
+    /** Where the view covers now, `null` while hidden. */
+    shown: Rect | null;
+    /** When it was last shown, in ms; 0 never. */
+    seenAt: number;
+    /** Its shell exited or was ended: the view goes once its tile does. */
+    ended: boolean;
+    /** Focus it when it is next shown: it is new, or was hidden while it had the focus. */
+    focusOnShow: boolean;
+  }
+  /** By slot id. */
+  const slots = new Map<string, Slot>();
+  /** `/main` says a tile or row is being dragged, or a menu is open: every slot hides. */
+  let slotDrag = false;
+  let slotOverlay = false;
+  /** The slots' recent coverage changes, for {@link ambiguousPress}. */
+  let coverChanges: CoverChange[] = [];
+  /** The view whose keys are dropped after an ambiguous press, until a press that is not. */
+  let muted: Electron.WebContents | null = null;
+  /** A pending {@link applySlots}, and when it last ran. */
+  let slotTimer: ReturnType<typeof setTimeout> | null = null;
+  let slotsAppliedAt = 0;
+
   /** The rectangles last applied: the overlay menu and the drags measure against them. */
   let laid = layout({
     width: 0,
@@ -517,6 +569,8 @@ async function main(): Promise<void> {
     } else {
       const keys = devcDialogs.get(view)!;
       devcDialogs.delete(view);
+      // Raised for the dialog, devc web's view is over the host tiles' views: they go back on top.
+      restackSlots();
       for (const key of [keys.spread, keys.reveal]) {
         if (key) void view.webContents.removeInsertedCSS(key);
       }
@@ -537,6 +591,8 @@ async function main(): Promise<void> {
       const toggle = wc.isFocused();
       if (e.message === 'devc-desktop:sidebar hide' && toggle) setColumn(false);
       if (e.message === 'devc-desktop:sidebar show' && toggle) setColumn(true);
+      // Host tiles live in `/main` only.
+      if (view === devcView) slotLine(e.message);
       if (
         e.message === 'devc-desktop:dialog ready' && !devcDialogHidden.has(view)
       ) {
@@ -551,6 +607,8 @@ async function main(): Promise<void> {
       if (!d.isMainFrame || d.isSameDocument) return;
       devcDialogHidden.delete(view);
       if (devcDialogs.delete(view)) relayout();
+      // A new page: no host tile is placed until it says so again.
+      if (view === devcView) resetSlotLines();
     });
   }
 
@@ -597,6 +655,7 @@ async function main(): Promise<void> {
     hostView.setVisible(l.host !== null);
     if (l.host !== null) hostView.setBounds(l.host);
     placeDim();
+    applySlots();
   }
   win.on('resize', () => {
     hideMenu();
@@ -630,6 +689,7 @@ async function main(): Promise<void> {
       if (typeof s?.containersOpen === 'boolean') {
         containersOpen = s.containersOpen;
       }
+      hostColor = hostColorOf(s?.hostColor);
     } catch { /* first launch */ }
   }
 
@@ -646,6 +706,7 @@ async function main(): Promise<void> {
             columnOpen,
             containersHeight,
             containersOpen,
+            hostColor: hostColor.value,
           }),
         )
       ).catch(() => {});
@@ -929,9 +990,22 @@ async function main(): Promise<void> {
     shell: hostShell(process.env, process.platform, accountShell()),
     cwd: app.getPath('home'),
     env: ptyEnv(childEnv(process.env, undefined)),
+    // A host tile's shell talks to its own view; every other is the drawer's.
     onOutput: (id, data) =>
-      hostView.webContents.send('host-term:output', id, data),
-    onExit: (id, code) => hostView.webContents.send('host-term:exit', id, code),
+      (slotOfShell(id)?.view ?? hostView).webContents.send(
+        'host-term:output',
+        id,
+        data,
+      ),
+    onExit: (id, code) => {
+      const slot = slotOfShell(id);
+      if (slot === undefined) {
+        hostView.webContents.send('host-term:exit', id, code);
+        return;
+      }
+      slot.view.webContents.send('host-term:exit', id, code);
+      slotEnded(slot);
+    },
   }, nodePty.spawn);
 
   let hostLoaded = false;
@@ -1014,26 +1088,41 @@ async function main(): Promise<void> {
       HOST_URL,
     );
 
+  /**
+   * Whether the sender may use shell `id`: the drawer's page any but a host tile's, a host tile's
+   * view its own alone.
+   */
+  function mayUse(
+    e: Electron.IpcMainEvent | Electron.IpcMainInvokeEvent,
+    id: unknown,
+  ): id is string {
+    if (!isShellId(id)) return false;
+    const slot = slotOf(e);
+    if (slot !== undefined) return id === slot.shell && !slot.ended;
+    return fromHost(e) && slotOfShell(id) === undefined;
+  }
+
   ipcMain.on(
     'host-term:start',
     (e, id: unknown, cols: unknown, rows: unknown) => {
-      if (!fromHost(e) || debugging !== null || !drawerOpen) return;
-      if (isShellId(id)) hostPtys.start(id, Number(cols), Number(rows));
+      if (debugging !== null || !mayUse(e, id)) return;
+      if (slotOf(e) === undefined && !drawerOpen) return;
+      hostPtys.start(id, Number(cols), Number(rows));
     },
   );
   ipcMain.on('host-term:input', (e, id: unknown, data: unknown) => {
-    if (!fromHost(e) || !isShellId(id) || typeof data !== 'string') return;
+    if (!mayUse(e, id) || typeof data !== 'string') return;
     hostPtys.get(id)?.write(data);
   });
   ipcMain.on(
     'host-term:resize',
     (e, id: unknown, cols: unknown, rows: unknown) => {
-      if (!fromHost(e) || !isShellId(id)) return;
+      if (!mayUse(e, id)) return;
       hostPtys.get(id)?.resize(Number(cols), Number(rows));
     },
   );
   ipcMain.on('host-term:close', (e, id: unknown) => {
-    if (fromHost(e) && isShellId(id)) void hostPtys.close(id);
+    if (fromHost(e) && mayUse(e, id)) void hostPtys.close(id);
   });
   // The page's last tile closed: the drawer goes with it, and opening it again starts a new one.
   ipcMain.on('host-term:hide', (e) => {
@@ -1053,14 +1142,16 @@ async function main(): Promise<void> {
     saveState();
   });
   ipcMain.handle('host-term:info', (e) => {
-    if (!fromHost(e)) throw new Error('refused');
-    return {
+    const who = {
       user: userInfo().username,
       host: hostname().replace(/\.local$/, ''),
       refused: debugging,
-      toggle: TOGGLE,
-      open: drawerOpen,
+      color: hostColor.background,
     };
+    const slot = slotOf(e);
+    if (slot !== undefined) return { ...who, shell: slot.shell };
+    if (!fromHost(e)) throw new Error('refused');
+    return { ...who, toggle: TOGGLE, open: drawerOpen };
   });
 
   // The right-click item: `cd` to the host folder behind devc web's active terminal pane. The
@@ -1121,6 +1212,11 @@ async function main(): Promise<void> {
 
   let menuPending = false;
   ipcMain.on('host-term:context-menu', (e, id: unknown) => {
+    const slot = slotOf(e);
+    if (slot !== undefined) {
+      if (id === slot.shell) slotMenu(slot);
+      return;
+    }
     if (!fromHost(e) || !isShellId(id) || !drawerOpen || menuPending) return;
     menuPending = true;
     void activeCd(id).then(({ pane, primary }) => {
@@ -1193,6 +1289,322 @@ async function main(): Promise<void> {
     // Ctrl+E, Ctrl+U: whatever was typed on the prompt goes first.
     hostPtys.get(id)?.write(`\x05\x15cd ${shellQuote(target.path)}\r`);
     hostView.webContents.focus();
+  }
+
+  // ---- host tiles --------------------------------------------------------------------------------
+  // Host shells in `/main`'s own layout: the app menu's New Host Tile issues a slot id, asks
+  // `/main` (its hash) for a `host` tile, and lays a view of its own over the tile's content
+  // wherever `/main`'s slot lines say. devc web draws the tab and decides where the tile is, and
+  // nothing else: it cannot make a slot, end its shell, read it or type into it. A slot hides
+  // whenever devc web might draw over it (a dialog, a drag, a menu). A press on a point a slot
+  // just started or stopped covering is ambiguous: the view pressed gets no keys until a press
+  // that is not. See `.plans/devc-desktop-host-tiles.md`.
+
+  const SLOT_URL = pageUrl('slot.html');
+
+  function slotOfShell(shellId: string): Slot | undefined {
+    for (const slot of slots.values()) if (slot.shell === shellId) return slot;
+    return undefined;
+  }
+
+  /** The host tile whose view's own page sent `e`, if any. */
+  function slotOf(
+    e: Electron.IpcMainEvent | Electron.IpcMainInvokeEvent,
+  ): Slot | undefined {
+    for (const slot of slots.values()) {
+      const wc = slot.view.webContents;
+      if (fromView(e, { webContents: wc, mainFrame: wc.mainFrame }, SLOT_URL)) {
+        return slot;
+      }
+    }
+    return undefined;
+  }
+
+  const sameRect = (a: Rect | null, b: Rect | null) =>
+    a === b ||
+    (a !== null && b !== null && a.x === b.x && a.y === b.y &&
+      a.width === b.width && a.height === b.height);
+
+  /** Shows a slot's view at `want`, or hides it, recording the change for ambiguous presses. */
+  function setShown(slot: Slot, want: Rect | null): void {
+    if (sameRect(slot.shown, want)) return;
+    const now = Date.now();
+    coverChanges = [
+      ...recentChanges(coverChanges, now),
+      { old: slot.shown, now: want, at: now },
+    ];
+    const wasHidden = slot.shown === null;
+    if (want === null && slot.view.webContents.isFocused()) {
+      slot.focusOnShow = true;
+    }
+    slot.shown = want;
+    if (want === null) {
+      slot.view.setVisible(false);
+    } else {
+      slot.view.setBounds(want);
+      slot.view.setVisible(true);
+      slot.seenAt = now;
+      if (wasHidden && slot.focusOnShow) {
+        slot.focusOnShow = false;
+        slot.view.webContents.focus();
+      }
+    }
+    updateRestoreItem();
+  }
+
+  /** Puts every slot where its line says, or hides it while devc web may draw over it. */
+  function applySlots(): void {
+    if (slotTimer !== null) {
+      clearTimeout(slotTimer);
+      slotTimer = null;
+    }
+    slotsAppliedAt = Date.now();
+    const blocked = !showingDevc || devcDialogs.size > 0 || paneDialog ||
+      slotDrag || slotOverlay;
+    const zoom = devcView.webContents.getZoomFactor();
+    for (const slot of slots.values()) {
+      const line = slot.line;
+      setShown(
+        slot,
+        blocked || line === undefined || line === null
+          ? null
+          : placeSlot(line, zoom, laid.main),
+      );
+    }
+  }
+
+  // Lines can come every frame: views move at most once per 16 ms, the latest place winning.
+  function scheduleSlots(): void {
+    if (slotTimer !== null) return;
+    slotTimer = setTimeout(
+      applySlots,
+      Math.max(0, 16 - (Date.now() - slotsAppliedAt)),
+    );
+  }
+
+  /** A `/main` console line: a host tile's place, or a drag or menu starting or ending. */
+  function slotLine(message: string): void {
+    if (!message.startsWith('devc-desktop:')) return;
+    const what = message.slice('devc-desktop:'.length);
+    if (what === 'drag start' || what === 'drag end') {
+      slotDrag = what === 'drag start';
+      applySlots();
+      return;
+    }
+    if (what === 'overlay open' || what === 'overlay closed') {
+      slotOverlay = what === 'overlay open';
+      applySlots();
+      return;
+    }
+    const parsed = parseSlotLine(message);
+    if (parsed === null) return;
+    const slot = slots.get(parsed.id);
+    // An id the app did not issue, or retired: nothing.
+    if (slot === undefined) return;
+    slot.line = parsed.rect;
+    if (parsed.rect === null) {
+      if (slot.ended) {
+        dropSlot(slot);
+        return;
+      }
+      applySlots();
+      return;
+    }
+    scheduleSlots();
+  }
+
+  /** `/main` is loading a new page: nothing is placed, dragged or open until it says so. */
+  function resetSlotLines(): void {
+    slotDrag = false;
+    slotOverlay = false;
+    for (const slot of slots.values()) slot.line = undefined;
+    applySlots();
+  }
+
+  /** The host tiles' views over devc web's, under the dimming and the overlay menu. */
+  function restackSlots(): void {
+    for (const slot of slots.values()) win.contentView.addChildView(slot.view);
+    win.contentView.addChildView(dimView);
+    win.contentView.addChildView(menuView);
+  }
+
+  /** Asks `/main` for a `host` tile for slot `id`, by its hash alone (nothing reloads). */
+  function askForTile(id: string): void {
+    if (origin === null || !showingDevc) return;
+    const now = devcView.webContents.getURL();
+    if (!now.startsWith(`${origin}/`)) return;
+    const url = new URL(now);
+    const hash = new URLSearchParams(url.hash.slice(1));
+    hash.set('host-slot', id);
+    url.hash = hash.toString();
+    void devcView.webContents.loadURL(url.toString()).catch(() => {});
+  }
+
+  /** Every shell there is or is about to be: a slot's starts once its page has loaded. */
+  function shellCount(): number {
+    let pending = 0;
+    for (const slot of slots.values()) {
+      if (hostPtys.get(slot.shell) === undefined && !slot.ended) pending++;
+    }
+    return hostPtys.size + pending;
+  }
+
+  /** **New Host Tile** (the app menu only): a host shell in `/main`'s layout. */
+  function newHostTile(): void {
+    if (!showingDevc || debugging !== null || shellCount() >= MAX_SHELLS) {
+      shell.beep();
+      return;
+    }
+    const view = new WebContentsView({
+      webPreferences: {
+        sandbox: true,
+        contextIsolation: true,
+        nodeIntegration: false,
+        partition: 'persist:host',
+        preload: join(__dirname, 'preload-host.js'),
+      },
+    });
+    view.setBackgroundColor(hostColor.background);
+    view.setVisible(false);
+    lockDownBundled(view, SLOT_URL);
+    watchPresses(view.webContents);
+    const slot: Slot = {
+      id: randomBytes(16).toString('hex'),
+      shell: slotShellId(randomBytes(8).toString('hex')),
+      view,
+      line: undefined,
+      shown: null,
+      seenAt: 0,
+      ended: false,
+      focusOnShow: true,
+    };
+    slots.set(slot.id, slot);
+    restackSlots();
+    void view.webContents.loadURL(SLOT_URL);
+    askForTile(slot.id);
+    updateRestoreItem();
+  }
+
+  /** Live host tiles devc web shows nowhere: closed, or lost with a reload or a reset. */
+  function lostSlots(now: number): Slot[] {
+    return [...slots.values()].filter((s) =>
+      !s.ended && s.shown === null && now - s.seenAt >= 2000
+    );
+  }
+
+  /**
+   * **Restore Host Tiles**: each lost host tile's shell back in `/main`'s layout, under a new slot
+   * id (the old one is retired), one hash change per tile.
+   */
+  function restoreHostTiles(): void {
+    const lost = lostSlots(Date.now());
+    if (lost.length === 0) {
+      shell.beep();
+      return;
+    }
+    lost.forEach((slot, i) => {
+      slots.delete(slot.id);
+      slot.id = randomBytes(16).toString('hex');
+      slot.line = undefined;
+      slots.set(slot.id, slot);
+      setTimeout(() => askForTile(slot.id), i * 100);
+    });
+  }
+
+  function updateRestoreItem(): void {
+    const item = Menu.getApplicationMenu()?.getMenuItemById(
+      'restore-host-tiles',
+    );
+    if (item) {
+      item.enabled = [...slots.values()].some((s) =>
+        !s.ended && s.shown === null
+      );
+    }
+  }
+
+  /** A host tile's shell is over: its view stays, saying so, until its tile goes. */
+  function slotEnded(slot: Slot): void {
+    slot.ended = true;
+    if (slot.line === null || slot.line === undefined) dropSlot(slot);
+  }
+
+  function dropSlot(slot: Slot): void {
+    setShown(slot, null);
+    slots.delete(slot.id);
+    if (muted === slot.view.webContents) muted = null;
+    win.contentView.removeChildView(slot.view);
+    slot.view.webContents.close();
+    updateRestoreItem();
+  }
+
+  /** A host tile's right-click menu: the app's, as devc web's tab menu cannot reach the shell. */
+  function slotMenu(slot: Slot): void {
+    Menu.buildFromTemplate([
+      {
+        label: 'End Shell',
+        enabled: !slot.ended,
+        click: () => {
+          if (slot.ended) return;
+          void hostPtys.close(slot.shell);
+          // A closed shell tells no one it exited: the view says so itself.
+          slot.view.webContents.send('host-term:exit', slot.shell, -1);
+          slotEnded(slot);
+        },
+      },
+    ]).popup({ window: win });
+  }
+
+  /**
+   * Presses and keys, for every view: a press where a host tile just appeared or vanished mutes
+   * the view it landed in (its keys are dropped) until a press anywhere that is not ambiguous.
+   * Focus is left where the press put it.
+   */
+  function watchPresses(wc: Electron.WebContents): void {
+    wc.on('input-event', (_e, input) => {
+      if (input.type !== 'mouseDown') return;
+      const c = screen.getCursorScreenPoint();
+      const b = win.getContentBounds();
+      const p = { x: c.x - b.x, y: c.y - b.y };
+      setMuted(ambiguousPress(coverChanges, p, Date.now()) ? wc : null);
+    });
+    wc.on('before-input-event', (e, input) => {
+      if (muted === wc && (input.type === 'keyDown' || input.type === 'char')) {
+        e.preventDefault();
+      }
+    });
+    wc.on('focus', () => {
+      hideMenu();
+      // Another view took the focus: a hidden host tile no longer gets it back when shown.
+      for (const slot of slots.values()) {
+        if (slot.view.webContents !== wc) slot.focusOnShow = false;
+      }
+    });
+    // As for the other views (see their loop below): any press focuses the view it lands in.
+    wc.on('input-event', (_e, input) => {
+      if (input.type === 'mouseDown' && !wc.isFocused()) wc.focus();
+    });
+  }
+
+  function setMuted(wc: Electron.WebContents | null): void {
+    if (muted === wc) return;
+    const was = muted;
+    muted = wc;
+    for (const slot of slots.values()) {
+      const v = slot.view.webContents;
+      if (v === was) v.send('host-term:guard', false);
+      if (v === wc) v.send('host-term:guard', true);
+    }
+  }
+
+  /** View → Host Terminal Color: every host terminal's background, never devc web's business. */
+  function setHostColor(c: HostColor): void {
+    hostColor = c;
+    saveState();
+    hostView.webContents.send('host-term:color', c.background);
+    for (const slot of slots.values()) {
+      slot.view.setBackgroundColor(c.background);
+      slot.view.webContents.send('host-term:color', c.background);
+    }
   }
 
   // ---- host actions ------------------------------------------------------------------------------
@@ -1768,15 +2180,11 @@ async function main(): Promise<void> {
       titleBarView,
     ]
   ) {
-    v.webContents.on('focus', hideMenu);
     // On a Mac only a left press moves the focus to a view: a right-click opening a page's own
     // menu leaves it where it was, so a later click elsewhere blurs nothing and the menu stays.
-    // Any press focuses the view it lands in, so the page's blur closes its menu.
-    v.webContents.on('input-event', (_e, input) => {
-      if (input.type === 'mouseDown' && !v.webContents.isFocused()) {
-        v.webContents.focus();
-      }
-    });
+    // Any press focuses the view it lands in, so the page's blur closes its menu. Each view's
+    // focus closes the menu too, and presses mute or unmute views around host tiles.
+    watchPresses(v.webContents);
   }
 
   // ---- the status view ---------------------------------------------------------------------------
@@ -1856,6 +2264,17 @@ async function main(): Promise<void> {
             }]
             : []),
           {
+            label: 'New Host Tile',
+            accelerator: key('Cmd+Shift+J', 'Ctrl+Shift+`'),
+            click: newHostTile,
+          },
+          {
+            id: 'restore-host-tiles',
+            label: 'Restore Host Tiles',
+            enabled: false,
+            click: restoreHostTiles,
+          },
+          {
             label: 'New File',
             accelerator: key('Cmd+N', 'Alt+Shift+N'),
             click: newFile,
@@ -1915,6 +2334,16 @@ async function main(): Promise<void> {
           {
             label: 'Developer Tools (devc web status strip)',
             click: () => footerView.webContents.toggleDevTools(),
+          },
+          { type: 'separator' },
+          {
+            label: 'Host Terminal Color',
+            submenu: HOST_COLORS.map((c) => ({
+              label: c.label,
+              type: 'radio' as const,
+              checked: c.value === hostColor.value,
+              click: () => setHostColor(c),
+            })),
           },
         ],
       },

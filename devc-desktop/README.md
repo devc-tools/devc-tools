@@ -144,6 +144,7 @@ stderr and a **Restart devc web** button.
 | macOS           | Linux                       | Does                                                               |
 | --------------- | --------------------------- | ------------------------------------------------------------------ |
 | Cmd+J or Ctrl+` | Ctrl+`                      | Opens or closes the host terminal                                  |
+| Cmd+Shift+J     | Ctrl+Shift+`                | A new host tile in `/main`'s layout (see Host tiles)               |
 | Cmd+N           | Alt+Shift+N                 | A new unsaved file in `/main`, whichever view has the focus        |
 | Cmd+B           | Ctrl+Shift+B                | Shows or hides the sidebar (the whole left column)                 |
 | Cmd+Shift+E     | Ctrl+Shift+E                | Shows or hides the Containers pane                                 |
@@ -229,6 +230,30 @@ disabled, with the reason, when there is no such folder, and both are disabled w
 runs in the shell (`(busy: vim)`). If devc web is open in a browser too, the window you used last
 decides which pane counts.
 
+### Host tiles
+
+**devc web → New Host Tile** (Cmd+Shift+J, Ctrl+Shift+\`) puts a host shell in `/main`'s own
+layout, as a `host` tile beside container panes, files and diffs. It splits, stacks, moves and
+maximizes like any tile. devc web draws the tab; the terminal under it is the app's own view,
+laid over the tile's content. It has the same paste bar as the drawer.
+
+- **The host color.** Every host terminal, in the drawer or in a tile, has the background
+  picked under **View → Host Terminal Color** (Green by default; Teal, Blue, Purple, Amber, Red,
+  or None for devc web's own panel color), and a host tile has a `HOST · user@host` strip at its
+  top. Both are drawn by the app. devc web never learns the color.
+- **Its tab is devc web's.** Closing it (×, its stack, a layout reset) only takes the tile away:
+  the shell keeps running. **devc web → Restore Host Tiles** puts every such shell back in the
+  layout, with its scrollback. To end a shell, type `exit`, or right-click in the terminal for
+  **End Shell**; its tile then says `[exited]` until you close the tab.
+- **While devc web draws over it** (a dialog, a menu, a tab being dragged), the terminal hides,
+  and comes back when it is done.
+- **Input paused.** A click on a spot a host terminal had just appeared on, or just left (within
+  half a second), types nothing: the terminal shows _Input paused: this terminal just moved.
+  Click it to type._ (In devc web's own view such a click's keys are dropped silently.) Click
+  again to type.
+- Host tiles count toward the same 32-shell limit as the drawer's, and do not survive quitting:
+  a tile restored from the last run says _Host terminal — not running here_.
+
 ### Host actions
 
 devc web's page can **ask** for a push or a container start: **Push…** on a repo card's menu,
@@ -279,6 +304,26 @@ shell only over IPC, and the app checks every message's sender. The app runs **n
 listener of its own. The drawer only opens from the app menu. Started with a debugging switch
 (`--remote-debugging-port`, `--inspect`), the app keeps the host terminal off, because those
 would let any local process drive it.
+
+**Host tiles** let devc web decide where a host terminal is, and nothing else. `/main` reports
+each `host` tile's rectangle in a console line (`devc-desktop:slot <id> …`); the app places its
+own view there, cut to `/main`'s part of the window. It honors only slot ids it issued itself,
+from the app menu, and only from `/main`. devc web cannot open a host tile, end its shell, read
+it, type into it, or learn the host color. What it **can** do:
+
+- **Hide or move it** inside its own area, or report it as hidden for good. That is a nuisance,
+  not a leak: focus never follows, and the drawer still works.
+- **Draw a fake one** in its own area, tab and all. The tab of a real host tile is devc web's
+  too, so it is no proof. The proof is inside: the host color and the `HOST · user@host` strip,
+  which only the app draws. With a handful of colors, a fake can guess yours, so the color is a
+  strong cue, not a secret. Typing into a fake sends your keys to devc web's page: look before
+  typing a password.
+- **Move a terminal under your pointer** just before you click, or hide it just as you click.
+  The app treats any press on a point a host tile started or stopped covering in the last 500 ms
+  as ambiguous: the view pressed gets no keys until a press that is not. It never moves focus
+  for this, and never drops keys from a view that already had focus, so devc web cannot cut
+  characters out of what you are typing. Measured with a hostile page: "Step 0 results" in
+  `.plans/archived/devc-desktop-host-tiles.md`.
 
 **The right-click `cd`** gets its folder from devc web's server, never from devc web's page
 directly. The page tells the server which pane is focused, and the app asks the server

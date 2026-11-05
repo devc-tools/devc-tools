@@ -238,6 +238,9 @@ export function killPaneItem(c, pane) {
 export function tileMenuItems(tile) {
   if (tile.kind === 'file') return fileTileMenuItems(tile);
   if (tile.kind === 'diff') return diffTileMenuItems(tile);
+  // devc-desktop's host terminal: nothing here acts on it. Closing the tab leaves its shell
+  // running; the app's own menu (a right-click in the terminal) ends it.
+  if (tile.kind === 'host') return [['Close', () => tileArea.close(tile.id)]];
   const { c, pane } = resolveRef(tile.ref);
   const items = [];
   if (c && c.state === 'connected') {

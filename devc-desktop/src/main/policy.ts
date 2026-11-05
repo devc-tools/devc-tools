@@ -937,3 +937,129 @@ export function pushOutcome(
     text: lastLine ?? `devc git push failed (${why[code] ?? code})`,
   };
 }
+
+// ---- host tiles ------------------------------------------------------------------------------
+// Host terminals in devc web's own layout: devc web's `/main` says where a `host` tile's content
+// is, and the app puts a view of its own there. See `.plans/devc-desktop-host-tiles.md`.
+
+/** A host terminal background the user picks (View → Host Terminal Color): never sent to devc web. */
+export interface HostColor {
+  value: string;
+  label: string;
+  background: string;
+}
+
+/** The choices, in menu order. */
+export const HOST_COLORS: readonly HostColor[] = [
+  { value: 'green', label: 'Green', background: '#10251b' },
+  { value: 'teal', label: 'Teal', background: '#0f2427' },
+  { value: 'blue', label: 'Blue', background: '#121d33' },
+  { value: 'purple', label: 'Purple', background: '#1f1830' },
+  { value: 'amber', label: 'Amber', background: '#2a2210' },
+  { value: 'red', label: 'Red', background: '#2b1517' },
+  // devc web's own `--panel`.
+  { value: 'none', label: 'None', background: '#181e27' },
+];
+
+/** The saved `hostColor`, `green` for anything unknown or missing. */
+export function hostColorOf(saved: unknown): HostColor {
+  return HOST_COLORS.find((c) => c.value === saved) ?? HOST_COLORS[0];
+}
+
+/** A slot id: as devc web's `HOST_SLOT`, which only ever holds what the app issued. */
+export const SLOT_ID = /^[0-9a-f]{32}$/;
+
+const SLOT_LINE =
+  /^devc-desktop:slot ([0-9a-f]{32}) (?:hidden|(-?\d{1,5}) (-?\d{1,5}) (\d{1,5}) (\d{1,5}))$/;
+
+/**
+ * A `/main` console line about a host tile: its slot id, and its content's viewport rectangle in
+ * CSS pixels, or `null` for `hidden`. Anything else is `null`.
+ */
+export function parseSlotLine(
+  message: string,
+): { id: string; rect: Rect | null } | null {
+  const m = SLOT_LINE.exec(message);
+  if (m === null) return null;
+  if (m[2] === undefined) return { id: m[1], rect: null };
+  return {
+    id: m[1],
+    rect: {
+      x: Number(m[2]),
+      y: Number(m[3]),
+      width: Number(m[4]),
+      height: Number(m[5]),
+    },
+  };
+}
+
+/** The smallest a host tile's view is shown at, in DIP: smaller, it is hidden. */
+export const SLOT_MIN_WIDTH = 80;
+export const SLOT_MIN_HEIGHT = 40;
+
+/**
+ * Where a host tile's view goes: the page's CSS-pixel rectangle at its zoom, offset by devc web's
+ * view (`own`, its own place in the window, never the spread one), and cut to that view. `null`
+ * when what is left is under {@link SLOT_MIN_WIDTH} × {@link SLOT_MIN_HEIGHT}.
+ */
+export function placeSlot(css: Rect, zoom: number, own: Rect): Rect | null {
+  const z = Number.isFinite(zoom) && zoom > 0 ? zoom : 1;
+  const left = Math.max(own.x, Math.round(own.x + css.x * z));
+  const top = Math.max(own.y, Math.round(own.y + css.y * z));
+  const right = Math.min(
+    own.x + own.width,
+    Math.round(own.x + (css.x + css.width) * z),
+  );
+  const bottom = Math.min(
+    own.y + own.height,
+    Math.round(own.y + (css.y + css.height) * z),
+  );
+  const width = right - left;
+  const height = bottom - top;
+  if (width < SLOT_MIN_WIDTH || height < SLOT_MIN_HEIGHT) return null;
+  return { x: left, y: top, width, height };
+}
+
+/** A host tile's view changed where it covers the window: shown, hidden, moved or resized. */
+export interface CoverChange {
+  /** Where it covered before, `null` while hidden. */
+  old: Rect | null;
+  now: Rect | null;
+  at: number;
+}
+
+/** How long a press on a point a host view just started or stopped covering is ambiguous. */
+export const COVER_MS = 500;
+
+/** The changes still able to make a press ambiguous at `now`. */
+export function recentChanges(
+  changes: readonly CoverChange[],
+  now: number,
+): CoverChange[] {
+  return changes.filter((c) => now - c.at <= COVER_MS);
+}
+
+function within(r: Rect | null, p: { x: number; y: number }): boolean {
+  return r !== null && p.x >= r.x && p.y >= r.y && p.x < r.x + r.width &&
+    p.y < r.y + r.height;
+}
+
+/**
+ * Whether a press at `p` (window content coordinates) is ambiguous: some change in the last
+ * {@link COVER_MS} put a host view on that point or took one off it, so the user may have aimed
+ * at what was there before. The view pressed then gets no keys until a press that is not.
+ */
+export function ambiguousPress(
+  changes: readonly CoverChange[],
+  p: { x: number; y: number },
+  now: number,
+): boolean {
+  return recentChanges(changes, now).some((c) =>
+    within(c.old, p) !== within(c.now, p)
+  );
+}
+
+/** A host tile's shell id: never one the drawer's page makes (a UUID). */
+export function slotShellId(hex16: string): string {
+  return `slot-${hex16}`;
+}

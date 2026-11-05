@@ -34,6 +34,7 @@ interface HostTerm {
       refused: string | null;
       toggle: string;
       open: boolean;
+      color: string;
     }
   >;
   dragDrawer(dy: number): void;
@@ -41,6 +42,8 @@ interface HostTerm {
   contextMenu(id: string): void;
   /** The drawer opened (`true`) or closed to its strip, or out of sight. */
   onShown(cb: (open: boolean) => void): void;
+  /** The host color (View → Host Terminal Color), as its background hex. */
+  onColor(cb: (background: string) => void): void;
   /** The Actions column's cards, whenever one changes. */
   onActions(cb: (cards: unknown) => void): void;
   /** A line of a confirmed action's output. */
@@ -88,6 +91,16 @@ let open = false;
 let toggle = '';
 /** `user@host`, every tile's label. */
 let label = 'host';
+/** The host color's background: every terminal's, and its tile's behind it. */
+let background = '#10251b';
+
+function applyColor(bg: string): void {
+  if (!/^#[0-9a-f]{6}$/.test(bg)) return;
+  background = bg;
+  document.documentElement.style.setProperty('--host-bg', bg);
+  for (const t of terminals.values()) t.term.options.theme = { background };
+}
+host.onColor(applyColor);
 
 function start(t: HostTerminal): void {
   t.started = true;
@@ -126,7 +139,7 @@ function mountTerminal(tile: Tile): void {
     fontFamily:
       'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace',
     fontSize: 13,
-    theme: { background: '#11131a' },
+    theme: { background },
     scrollback: 5000,
   });
   const fit = new FitAddon();
@@ -361,6 +374,7 @@ host.onShown(showOpen);
 // The page is a classic script (a module would not load from file:), so no top-level await.
 void host.info().then((info) => {
   label = `${info.user}@${info.host}`;
+  applyColor(info.color);
   $('who').textContent = label;
   toggle = info.toggle;
   refused = info.refused;

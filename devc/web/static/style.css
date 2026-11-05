@@ -2285,6 +2285,26 @@ button * {
   inset: 4px;
 }
 
+/* A host tile's placeholder (host-slots.js): devc-desktop covers it with its host terminal; it
+   shows only in a browser, or once the app's shell is gone. */
+.host-slot {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  background: var(--term-bg);
+  color: var(--muted);
+}
+
+.host-slot-hint {
+  font-size: 0.9em;
+  opacity: 0.8;
+}
+
 /* A file tile's viewer (viewer.js): CodeMirror fills it and scrolls inside. */
 .file-view {
   position: absolute;

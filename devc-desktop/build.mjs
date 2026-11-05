@@ -66,6 +66,7 @@ await Promise.all([
     target: 'chrome140',
     entryPoints: {
       host: 'src/renderer/host.ts',
+      slot: 'src/renderer/slot.ts',
       status: 'src/renderer/status.ts',
       titlebar: 'src/renderer/titlebar.ts',
       menu: 'src/renderer/menu.ts',
@@ -90,6 +91,8 @@ for (
   const f of [
     'host.html',
     'host.css',
+    'slot.html',
+    'slot.css',
     'status.html',
     'status.css',
     'titlebar.html',
