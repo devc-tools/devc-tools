@@ -111,6 +111,7 @@ import {
   showText,
   slotShellId,
   swatchBitmap,
+  swatchTone,
   TITLEBAR_HEIGHT,
 } from './policy.ts';
 import { accountShell, HostPtys, hostShell, ptyEnv } from './pty.ts';
@@ -2632,8 +2633,11 @@ async function main(): Promise<void> {
               label: t.label,
               type: 'radio' as const,
               checked: t.name === uiTheme.name,
-              // Its background, as solid as it looks, as the host colors' swatches are.
-              icon: swatch(t.colors.panel, { edge: '#5a6270' }),
+              // Its background's hue, bright enough to tell apart in a light menu, edged in the
+              // background itself.
+              icon: swatch(swatchTone(t.colors.panel), {
+                edge: t.colors.panel,
+              }),
               click: () => setUiTheme(t),
             })),
           },
@@ -2643,7 +2647,7 @@ async function main(): Promise<void> {
               label: c.label,
               type: 'radio' as const,
               checked: c.value === hostColor.value,
-              icon: swatch(c.background, { edge: '#5a6270' }),
+              icon: swatch(swatchTone(c.background), { edge: c.background }),
               click: () => setHostColor(c),
             })),
           },

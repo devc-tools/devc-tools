@@ -56,6 +56,7 @@ import {
   SIDEBAR_DEFAULT,
   SIDEBAR_MIN,
   swatchBitmap,
+  swatchTone,
   TITLEBAR_HEIGHT,
 } from '../src/main/policy.ts';
 
@@ -1010,4 +1011,16 @@ test('swatchBitmap: BGRA, opaque, an edge, and an inner square half the size', (
   // No edge, no inner: all fill.
   const plain = swatchBitmap(4, '#ffffff');
   assertEquals([...plain], new Array(16).fill([255, 255, 255, 255]).flat());
+});
+
+test('swatchTone: same hue, brighter and more saturated; gray stays gray', () => {
+  // The green host color (151°, 40%, 10%) → 151°, 60%, 45%.
+  assertEquals(swatchTone('#10251b'), '#2fb776');
+  assertEquals(swatchTone('#202020'), '#737373');
+  assertEquals(swatchTone('#202020', 0.5), '#808080');
+  // Hue kept: red stays red-dominant, blue blue-dominant.
+  const [r, g, b] = [1, 3, 5].map((i) =>
+    parseInt(swatchTone('#2b1517').slice(i, i + 2), 16)
+  );
+  assertEquals(r > g && r > b, true);
 });
