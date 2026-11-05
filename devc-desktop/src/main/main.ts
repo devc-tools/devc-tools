@@ -1210,43 +1210,52 @@ async function main(): Promise<void> {
     return baseName(fg);
   }
 
+  /** A shell's `cd` items: the active pane's folder, and its container's primary one. */
+  async function cdItems(id: string): Promise<MenuItemConstructorOptions[]> {
+    const { pane, primary } = await activeCd(id);
+    const busy = busyWith(id);
+    const busySuffix = busy !== null ? ` (busy: ${busy})` : '';
+    const item = (
+      which: 'pane' | 'primary',
+      target: CdTarget,
+      suffix: string,
+    ): MenuItemConstructorOptions => {
+      if (!target.ok) return { label: target.label, enabled: false };
+      const label = menuLabel(
+        target,
+        app.getPath('home'),
+        process.platform,
+        suffix + busySuffix,
+      );
+      return label === null
+        ? { label: "The folder's name is too long to show", enabled: false }
+        : {
+          label,
+          enabled: busy === null,
+          click: () => void cdTo(id, which, target.path),
+        };
+    };
+    const items = [item('pane', pane, '')];
+    // The primary repo, unless the pane's item already goes there.
+    if (primary?.ok && !(pane.ok && pane.path === primary.path)) {
+      items.push(item('primary', primary, ' (primary)'));
+    }
+    return items;
+  }
+
   let menuPending = false;
   ipcMain.on('host-term:context-menu', (e, id: unknown) => {
     const slot = slotOf(e);
     if (slot !== undefined) {
-      if (id === slot.shell) slotMenu(slot);
+      if (id === slot.shell && !menuPending) {
+        menuPending = true;
+        void slotMenu(slot).finally(() => menuPending = false);
+      }
       return;
     }
     if (!fromHost(e) || !isShellId(id) || !drawerOpen || menuPending) return;
     menuPending = true;
-    void activeCd(id).then(({ pane, primary }) => {
-      const busy = busyWith(id);
-      const busySuffix = busy !== null ? ` (busy: ${busy})` : '';
-      const item = (
-        which: 'pane' | 'primary',
-        target: CdTarget,
-        suffix: string,
-      ): MenuItemConstructorOptions => {
-        if (!target.ok) return { label: target.label, enabled: false };
-        const label = menuLabel(
-          target,
-          app.getPath('home'),
-          process.platform,
-          suffix + busySuffix,
-        );
-        return label === null
-          ? { label: "The folder's name is too long to show", enabled: false }
-          : {
-            label,
-            enabled: busy === null,
-            click: () => void cdTo(id, which, target.path),
-          };
-      };
-      const items = [item('pane', pane, '')];
-      // The primary repo, unless the pane's item already goes there.
-      if (primary?.ok && !(pane.ok && pane.path === primary.path)) {
-        items.push(item('primary', primary, ' (primary)'));
-      }
+    void cdItems(id).then((items) => {
       /**
        * A menu item for one of the page's commands, showing the shortcut it handles itself. The
        * labels are devc web's own for its terminal tiles (`LABELS` in its `ui.js`).
@@ -1288,7 +1297,7 @@ async function main(): Promise<void> {
     }
     // Ctrl+E, Ctrl+U: whatever was typed on the prompt goes first.
     hostPtys.get(id)?.write(`\x05\x15cd ${shellQuote(target.path)}\r`);
-    hostView.webContents.focus();
+    (slotOfShell(id)?.view ?? hostView).webContents.focus();
   }
 
   // ---- host tiles --------------------------------------------------------------------------------
@@ -1428,14 +1437,26 @@ async function main(): Promise<void> {
     win.contentView.addChildView(menuView);
   }
 
-  /** Asks `/main` for a `host` tile for slot `id`, by its hash alone (nothing reloads). */
-  function askForTile(id: string): void {
+  /**
+   * Asks `/main` for a `host` tile for slot `id`, by its hash alone (nothing reloads): beside the
+   * host tile of slot `place.at`, when given and still in the layout.
+   */
+  function askForTile(
+    id: string,
+    place?: { at: string; where: 'right' | 'below' | 'stack' },
+  ): void {
     if (origin === null || !showingDevc) return;
     const now = devcView.webContents.getURL();
     if (!now.startsWith(`${origin}/`)) return;
     const url = new URL(now);
     const hash = new URLSearchParams(url.hash.slice(1));
     hash.set('host-slot', id);
+    hash.delete('host-at');
+    hash.delete('host-where');
+    if (place) {
+      hash.set('host-at', place.at);
+      hash.set('host-where', place.where);
+    }
     url.hash = hash.toString();
     void devcView.webContents.loadURL(url.toString()).catch(() => {});
   }
@@ -1449,8 +1470,13 @@ async function main(): Promise<void> {
     return hostPtys.size + pending;
   }
 
-  /** **New Host Tile** (the app menu only): a host shell in `/main`'s layout. */
-  function newHostTile(): void {
+  /**
+   * **New Host Tile** (the app menu, or a host tile's own split): a host shell in `/main`'s
+   * layout, beside the host tile `place.at` names when given.
+   */
+  function newHostTile(
+    place?: { at: string; where: 'right' | 'below' | 'stack' },
+  ): void {
     if (!showingDevc || debugging !== null || shellCount() >= MAX_SHELLS) {
       shell.beep();
       return;
@@ -1481,7 +1507,7 @@ async function main(): Promise<void> {
     slots.set(slot.id, slot);
     restackSlots();
     void view.webContents.loadURL(SLOT_URL);
-    askForTile(slot.id);
+    askForTile(slot.id, place);
     updateRestoreItem();
   }
 
@@ -1538,21 +1564,62 @@ async function main(): Promise<void> {
   }
 
   /** A host tile's right-click menu: the app's, as devc web's tab menu cannot reach the shell. */
-  function slotMenu(slot: Slot): void {
+  async function slotMenu(slot: Slot): Promise<void> {
+    const cd = slot.ended ? [] : await cdItems(slot.shell);
+    /** A new host tile beside this one, with its shortcut (the page handles the keys). */
+    const split = (
+      label: string,
+      name: Exclude<HostCommand, 'close'>,
+    ): MenuItemConstructorOptions => ({
+      label,
+      accelerator: HOST_SHORTCUTS[name][IS_MAC ? 'mac' : 'other'],
+      registerAccelerator: false,
+      click: () => slotCommand(slot, name),
+    });
     Menu.buildFromTemplate([
+      split('Split vertically', 'split-right'),
+      split('Split horizontally', 'split-below'),
+      split('New terminal in this stack', 'new-tab'),
+      ...(cd.length > 0 ? [{ type: 'separator' as const }, ...cd] : []),
+      { type: 'separator' },
       {
         label: 'End Shell',
         enabled: !slot.ended,
-        click: () => {
-          if (slot.ended) return;
-          void hostPtys.close(slot.shell);
-          // A closed shell tells no one it exited: the view says so itself.
-          slot.view.webContents.send('host-term:exit', slot.shell, -1);
-          slotEnded(slot);
-        },
+        click: () => endSlotShell(slot),
       },
     ]).popup({ window: win });
   }
+
+  function endSlotShell(slot: Slot): void {
+    if (slot.ended) return;
+    void hostPtys.close(slot.shell);
+    // A closed shell tells no one it exited: the view says so itself.
+    slot.view.webContents.send('host-term:exit', slot.shell, -1);
+    slotEnded(slot);
+  }
+
+  /**
+   * A split or a new tab from a host tile (its menu, or its page's shortcut): a new host tile,
+   * which `/main` places beside this one (`host-at`, `host-where`).
+   */
+  function slotCommand(slot: Slot, name: HostCommand): void {
+    const where = name === 'split-right'
+      ? 'right'
+      : name === 'split-below'
+      ? 'below'
+      : name === 'new-tab'
+      ? 'stack'
+      : null;
+    if (where === null) return;
+    newHostTile({ at: slot.id, where });
+  }
+  ipcMain.on('host-term:slot-command', (e, name: unknown) => {
+    const slot = slotOf(e);
+    if (
+      slot !== undefined &&
+      (name === 'split-right' || name === 'split-below' || name === 'new-tab')
+    ) slotCommand(slot, name);
+  });
 
   /**
    * Presses and keys, for every view: a press where a host tile just appeared or vanished mutes
@@ -2266,7 +2333,7 @@ async function main(): Promise<void> {
           {
             label: 'New Host Tile',
             accelerator: key('Cmd+Shift+J', 'Ctrl+Shift+`'),
-            click: newHostTile,
+            click: () => newHostTile(),
           },
           {
             id: 'restore-host-tiles',

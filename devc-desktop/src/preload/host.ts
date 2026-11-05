@@ -34,6 +34,9 @@ contextBridge.exposeInMainWorld('hostTerm', {
   info: () => ipcRenderer.invoke('host-term:info'),
   dragDrawer: (dy: number) => ipcRenderer.send('host-term:drag', dy),
   contextMenu: (id: string) => ipcRenderer.send('host-term:context-menu', id),
+  // A host tile's split or new tab: a new host tile beside it.
+  command: (name: string) =>
+    ipcRenderer.send('host-term:slot-command', String(name)),
   // The host color (View → Host Terminal Color), as its background hex.
   onColor: (cb: (background: string) => void) => {
     ipcRenderer.on('host-term:color', (_e, bg: unknown) => cb(String(bg)));

@@ -412,14 +412,33 @@ export function hostSlotFromHash(hash) {
 }
 
 /**
- * The hash without `host-slot`, the other parameters kept in order, `#` included (or `''` when
- * none is left).
+ * Where devc-desktop wants that host tile: beside the host tile of slot `at` (a host tile's own
+ * split or new tab: `#…&host-at=<id>&host-where=right|below|stack`), or `null` for wherever a new
+ * tile goes.
+ *
+ * @param {string} hash
+ * @returns {{at: string, where: 'right' | 'below' | 'stack'} | null}
+ */
+export function hostPlacementFromHash(hash) {
+  const params = new URLSearchParams(hash.replace(/^#/, ''));
+  const at = params.get('host-at');
+  const where = params.get('host-where');
+  if (at === null || !HOST_SLOT.test(at)) return null;
+  if (where !== 'right' && where !== 'below' && where !== 'stack') return null;
+  return { at, where };
+}
+
+/**
+ * The hash without `host-slot` (nor `host-at`, `host-where`), the other parameters kept in
+ * order, `#` included (or `''` when none is left).
  *
  * @param {string} hash
  */
 export function withoutHostSlot(hash) {
   const params = new URLSearchParams(hash.replace(/^#/, ''));
   params.delete('host-slot');
+  params.delete('host-at');
+  params.delete('host-where');
   const rest = params.toString();
   return rest ? `#${rest}` : '';
 }

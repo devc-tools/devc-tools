@@ -10,6 +10,7 @@ import { mountTiles, openHostTile } from './tiles.js';
 import { mountHostStatus } from './host-status.js';
 import { remoteSidebar, sendViewState, serveTileArea } from './remote.js';
 import {
+  hostPlacementFromHash,
   hostSlotFromHash,
   statusExternalFromHash,
   withoutHostSlot,
@@ -36,12 +37,13 @@ connect();
 function takeHostSlot() {
   const id = hostSlotFromHash(location.hash);
   if (id === null) return;
+  const place = hostPlacementFromHash(location.hash);
   history.replaceState(
     history.state,
     '',
     `${location.pathname}${location.search}${withoutHostSlot(location.hash)}`,
   );
-  openHostTile(id);
+  openHostTile(id, place);
 }
 takeHostSlot();
 window.addEventListener('hashchange', takeHostSlot);

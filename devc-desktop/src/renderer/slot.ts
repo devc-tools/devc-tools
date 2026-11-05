@@ -5,6 +5,7 @@
 
 import { FitAddon } from '@xterm/addon-fit';
 import { Terminal } from '@xterm/xterm';
+import { hostShortcut } from '../main/policy.ts';
 
 interface SlotInfo {
   user: string;
@@ -27,6 +28,8 @@ interface SlotHostTerm {
   onGuard(cb: (on: boolean) => void): void;
   info(): Promise<SlotInfo>;
   contextMenu(id: string): void;
+  /** A split or a new tab: a new host tile beside this one. */
+  command(name: string): void;
 }
 
 // `host.ts` declares `window.hostTerm` globally with the drawer's view of it.
@@ -98,6 +101,17 @@ el.addEventListener('contextmenu', (e) => {
   if (shell !== null) host.contextMenu(shell);
 });
 window.addEventListener('focus', () => term.focus());
+
+// The drawer's split shortcuts, in the capture phase so xterm.js never types them. Each asks the
+// app for a new host tile beside this one. (Its Close is End Shell, in the right-click menu.)
+const IS_MAC = navigator.platform.startsWith('Mac');
+document.addEventListener('keydown', (e) => {
+  const name = hostShortcut(e, IS_MAC);
+  if (name === null || name === 'close') return;
+  e.preventDefault();
+  e.stopPropagation();
+  if (!e.repeat) host.command(name);
+}, true);
 
 // A paste with a line break in it would run commands at once: show it and ask first, as the
 // drawer does. A single line goes straight in.

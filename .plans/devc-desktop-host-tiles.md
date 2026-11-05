@@ -235,8 +235,14 @@ symmetric and moves no focus.
   visible line for 2 s, issues a **new** id for its existing view (the old id is retired) and adds
   it to `/main` the same way as New Host Tile, one hash change per shell, 100 ms apart. Disabled
   when there are none.
-- The host-tile right-click menu (built by the main process, as the drawer's is) adds **End
-  Shell**, which kills the shell. The slot view then shows `[exited]` and is destroyed on the next
+- The host-tile right-click menu (built by the main process, as the drawer's is) has the
+  drawer's **Split vertically**, **Split horizontally** and **New terminal in this stack** (with
+  their shortcuts, which the slot page also handles, `hostShortcut`), the drawer's `cd` items,
+  and **End Shell**, which kills the shell. A split or new tab is a New Host Tile that `/main`
+  places beside this tile: the hash also carries `host-at=<this slot id>` and
+  `host-where=right|below|stack` (devc web's `hostPlacementFromHash`; an unknown or missing
+  `host-at` falls back to the focused stack), and `withoutHostSlot` takes all three out. The
+  page asks with `host-term:slot-command` (`split-right`, `split-below`, `new-tab` only). The slot view then shows `[exited]` and is destroyed on the next
   `hidden` line for its id.
 - A shell that exits on its own: the view shows `[exited <code>]` and stays until its id goes
   `hidden`; then the view is destroyed and the id retired.

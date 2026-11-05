@@ -17,7 +17,11 @@ import {
   treeSignature,
   withView,
 } from '../web/static/lib/layout_state.js';
-import { hostSlotFromHash, withoutHostSlot } from '../web/static/lib/view.js';
+import {
+  hostPlacementFromHash,
+  hostSlotFromHash,
+  withoutHostSlot,
+} from '../web/static/lib/view.js';
 
 Deno.test('fileRefFromState accepts a full file reference', () => {
   assertEquals(
@@ -475,4 +479,21 @@ Deno.test('hostSlotFromHash reads host-slot; withoutHostSlot takes it out and ke
     '#view=v1&sidebar=shown',
   );
   assertEquals(withoutHostSlot(`#host-slot=${SLOT}`), '');
+});
+
+Deno.test('hostPlacementFromHash: beside a well-formed slot, right, below or stack only', () => {
+  const at = 'fedcba9876543210fedcba9876543210';
+  assertEquals(
+    hostPlacementFromHash(`#host-slot=${SLOT}&host-at=${at}&host-where=below`),
+    { at, where: 'below' },
+  );
+  assertEquals(hostPlacementFromHash(`#host-slot=${SLOT}`), null);
+  assertEquals(hostPlacementFromHash(`#host-at=${at}&host-where=left`), null);
+  assertEquals(hostPlacementFromHash(`#host-at=nothex&host-where=right`), null);
+  assertEquals(
+    withoutHostSlot(
+      `#view=v1&host-slot=${SLOT}&host-at=${at}&host-where=stack`,
+    ),
+    '#view=v1',
+  );
 });

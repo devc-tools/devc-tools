@@ -241,6 +241,9 @@ laid over the tile's content. It has the same paste bar as the drawer.
   picked under **View → Host Terminal Color** (Green by default; Teal, Blue, Purple, Amber, Red,
   or None for devc web's own panel color), and a host tile has a `HOST · user@host` strip at its
   top. Both are drawn by the app. devc web never learns the color.
+- **Splitting.** Right-click in a host tile for the drawer's **Split vertically**, **Split
+  horizontally** and **New terminal in this stack** (same shortcuts): each opens a new host
+  shell beside it in the layout. The `cd` items are there too.
 - **Its tab is devc web's.** Closing it (×, its stack, a layout reset) only takes the tile away:
   the shell keeps running. **devc web → Restore Host Tiles** puts every such shell back in the
   layout, with its scrollback. To end a shell, type `exit`, or right-click in the terminal for
