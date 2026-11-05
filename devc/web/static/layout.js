@@ -8,6 +8,7 @@
 
 import {
   GoldenLayout,
+  Header,
   ItemConfig,
   LayoutConfig,
   ResolvedItemConfig,
@@ -76,10 +77,57 @@ const COMPONENT_TYPES = /** @type {const} */ (['pane', 'file', 'diff', 'host']);
  * @property {(tile: Tile) => void} tabDoubleClick  double-click on a tile's header tab
  */
 
+/**
+ * Golden Layout puts a stack's tabs that don't fit in its tab list, and puts them back in the
+ * header with `appendChild` once there is room, after the tabs that stayed (the active one, say):
+ * the header then shows them out of order, though the stack's own order is unchanged. After each
+ * of its tab layouts, each tab goes back to its place among those beside it (in the header, or in
+ * the list), when one is out of place. Not while a tab is dragged over the header: its drop
+ * placeholder is in there, where Golden Layout put it.
+ */
+const layOutTabs = Header.prototype.updateTabSizes;
+Header.prototype.updateTabSizes = function () {
+  layOutTabs.call(this);
+  keepTabOrder(this);
+};
+
+/** @param {any} header a Golden Layout `Header` */
+function keepTabOrder(header) {
+  const bar = header.tabsContainerElement;
+  if (bar.querySelector(':scope > .lm_drop_tab_placeholder')) return;
+  /** @type {Map<Element, HTMLElement[]>} each parent's tabs, in the stack's order */
+  const byParent = new Map();
+  for (const tab of header.tabs) {
+    const el = tab.element;
+    const parent = el.parentElement;
+    if (!parent) continue;
+    const els = byParent.get(parent) ?? [];
+    els.push(el);
+    byParent.set(parent, els);
+  }
+  for (const [parent, els] of byParent) {
+    const shown = [...parent.children].filter((c) => els.includes(c));
+    if (shown.every((el, i) => el === els[i])) continue;
+    // Each in turn after the one before it: the others in that parent keep their places.
+    let after = null;
+    for (const el of els) {
+      const next = after === null
+        ? parent.firstElementChild
+        : after.nextElementSibling;
+      if (next !== el) parent.insertBefore(el, next);
+      after = el;
+    }
+  }
+}
+
 /** Settings and header controls: no popouts (each window would need its own WebSocket). */
 const SETTINGS = {
   constrainDragToContainer: true,
   reorderEnabled: true,
+  // Golden Layout otherwise moves a tab made active while it has no room in the header (a new
+  // tile in a full stack, a pick from its tab list) to the front of the header: tabs keep their
+  // order here, and the active one shows in its place (see keepTabOrder).
+  reorderOnTabMenuClick: false,
   showPopoutIcon: false,
   showMaximiseIcon: true,
   showCloseIcon: true,
