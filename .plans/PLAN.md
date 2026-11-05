@@ -86,6 +86,12 @@
   pruned after 7 days), and the page pastes its path, bracketed, so Claude Code attaches it. Text
   on the clipboard wins over an image. No in-page capture: it would not work in devc-desktop.
 
+- [devc-web-herdr-workspaces](devc-web-herdr-workspaces.md) — a container's Herdr session gets
+  one workspace per repo instead of one for everything: each new pane (still one Herdr tab per
+  pane) goes into the workspace labeled with the repo its `cwd` is in (the card's name), found
+  live with `workspace.list` and made with `workspace.create` when missing; a `cwd` in no repo
+  uses the primary repo's. Creates are serialized per environment; existing panes stay put.
+
 ### Git and the trusted host area
 
 Decided with the user on 2026-10-28, in this order. Before the first: finish
@@ -2690,3 +2696,4 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
 | devc web granted push — Push runs the container's own `gh-push` grant with no confirmation                          | [devc-web-granted-push](devc-web-granted-push.md)                                  | in progress |
 | devc web push arrow — ↑N and Push are one action; ↑N counts what a push publishes, read-only when none can          | [devc-web-push-arrow](devc-web-push-arrow.md)                                      |             |
 | devc desktop host tiles — host terminals as Golden Layout tiles over devc web's slots; a host color                 | [devc-desktop-host-tiles](devc-desktop-host-tiles.md)                              | in progress |
+| devc web Herdr workspaces — one Herdr workspace per repo; new panes land in their repo's workspace                  | [devc-web-herdr-workspaces](devc-web-herdr-workspaces.md)                          |             |
