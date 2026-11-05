@@ -695,11 +695,17 @@ export function repoCards() {
     const spaces = paneSpaces(snap);
     for (const pane of list(snap?.panes)) {
       if (tileShowing(c, pane)) continue;
-      cardFor(
+      const card = cardFor(
         c.localFolder,
         repoAt(repos, pane.foreground_cwd || pane.cwd || ''),
-      )
-        .panes.push({ c, pane, space: spaces.get(pane.pane_id) ?? '' });
+      );
+      const space = spaces.get(pane.pane_id) ?? '';
+      // The repo's own workspace (the server labels it with the card's name) goes unsaid.
+      card.panes.push({
+        c,
+        pane,
+        space: space === card.repo?.name ? '' : space,
+      });
     }
     const listed = sessionLists.get(c.id);
     if (!listed) {

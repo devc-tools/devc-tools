@@ -2696,4 +2696,4 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
 | devc web granted push — Push runs the container's own `gh-push` grant with no confirmation                          | [devc-web-granted-push](devc-web-granted-push.md)                                  | in progress |
 | devc web push arrow — ↑N and Push are one action; ↑N counts what a push publishes, read-only when none can          | [devc-web-push-arrow](devc-web-push-arrow.md)                                      | in progress |
 | devc desktop host tiles — host terminals as Golden Layout tiles over devc web's slots; a host color                 | [devc-desktop-host-tiles](devc-desktop-host-tiles.md)                              | in progress |
-| devc web Herdr workspaces — one Herdr workspace per repo; new panes land in their repo's workspace                  | [devc-web-herdr-workspaces](devc-web-herdr-workspaces.md)                          |             |
+| devc web Herdr workspaces — one Herdr workspace per repo; new panes land in their repo's workspace                  | [devc-web-herdr-workspaces](devc-web-herdr-workspaces.md)                          | in progress |

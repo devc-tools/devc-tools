@@ -182,9 +182,7 @@ export async function bridgeRequest(
 
 /**
  * A new pane in its own Herdr tab — how the browser makes every pane, since it owns all layout
- * and never splits one. Herdr 0.9.5's `tab.create` result carries the tab's `root_pane`, though
- * its bundled schema doesn't list it; without one, the pane is found with `pane.list` in the
- * tab's workspace. Never focuses the tab: a Herdr TUI attached to the same session keeps its
+ * and never splits one (see {@link createdPane}). Never focuses the tab: a Herdr TUI attached to the same session keeps its
  * focus. A session with no workspace (a server just started, with no TUI) has nowhere to put a
  * tab — `tab.create` answers `workspace_not_found` — so the pane comes from `workspace.create`.
  */
@@ -207,7 +205,20 @@ export async function createShell(
       throw e;
     }
     return bridgeRequest(t, 'workspace.create', { ...cwd, focus: false });
-  }) as
+  });
+  return createdPane(t, created);
+}
+
+/**
+ * The pane a `tab.create` or `workspace.create` result made: the root pane of its tab. Herdr
+ * 0.9.5's results carry `root_pane`, though its bundled schema doesn't list it; without one, the
+ * pane is found with `pane.list` in the tab's workspace.
+ */
+export async function createdPane(
+  t: HerdrTarget,
+  result: unknown,
+): Promise<{ pane_id: string; tab_id: string }> {
+  const created = result as
     | {
       tab?: { tab_id?: unknown; workspace_id?: unknown };
       root_pane?: { pane_id?: unknown };

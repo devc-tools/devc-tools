@@ -33,7 +33,6 @@ import {
   filePinOfTile,
   filePinPanes,
   jiraConfig,
-  list,
   nextId,
   paneRepo,
   pendingRequests,
@@ -47,7 +46,6 @@ import {
   saveFilePinPanes,
   send,
   serverOrigin,
-  snapshots,
 } from './client.js';
 
 /** @typedef {import('./lib/view.js').SidebarIntents} SidebarIntents */
@@ -169,22 +167,13 @@ export function placePane(localFolder, result, placement = {}) {
   });
 }
 
-/** The workspace a pane belongs to, through its Herdr tab. */
-function paneWorkspace(c, pane) {
-  const tab = list(snapshots.get(c.id)?.tabs).find((t) =>
-    t.tab_id === pane?.tab_id
-  );
-  return tab?.workspace_id;
-}
-
-/** `new_shell` options for a shell next to `pane`: its workspace, in its current folder. */
-function shellOptsNear(c, pane) {
-  const opts = {};
-  const ws = pane ? paneWorkspace(c, pane) : undefined;
-  if (ws) opts.workspace_id = ws;
+/**
+ * `new_shell` options for a shell next to `pane`: its current folder. No workspace: the server
+ * puts the shell in the Herdr workspace of the repo that folder is in.
+ */
+function shellOptsNear(pane) {
   const cwd = pane?.foreground_cwd || pane?.cwd;
-  if (cwd) opts.cwd = cwd;
-  return opts;
+  return cwd ? { cwd } : {};
 }
 
 /** The first tile in `tiles` whose pane is in a connected container, for a new shell's origin. */
@@ -244,7 +233,7 @@ export function tileMenuItems(tile) {
   const { c, pane } = resolveRef(tile.ref);
   const items = [];
   if (c && c.state === 'connected') {
-    const opts = shellOptsNear(c, pane);
+    const opts = shellOptsNear(pane);
     items.push(
       [
         LABELS.splitRight,
@@ -312,7 +301,7 @@ function nodeMenuItems(node, tiles) {
   const origin = shellOrigin(tiles);
   const items = [];
   if (origin) {
-    const opts = shellOptsNear(origin.c, origin.pane);
+    const opts = shellOptsNear(origin.pane);
     items.push([
       node.kind === 'stack' ? LABELS.newInStack : LABELS.newAtEnd,
       () => newShell(origin.c, opts, { at: node.id, where: 'stack' }),

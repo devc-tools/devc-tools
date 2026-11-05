@@ -32,14 +32,14 @@ project start). It keeps calling `createShell` with no repos and so keeps today'
 
 ## Checklist
 
-- [ ] Server: a repo workspace lookup-or-create in front of `createShell` (contract below), used by
+- [x] Server: a repo workspace lookup-or-create in front of `createShell` (contract below), used by
       every container pane creation in `devc/web/server.ts`.
-- [ ] Server: creations for the same environment are serialized (below).
-- [ ] Page: `shellOptsNear` (`devc/web/static/menus.js`) stops sending `workspace_id`.
-- [ ] Page: a pane row in a repo card doesn't show its space when the space is that card's repo
+- [x] Server: creations for the same environment are serialized (below).
+- [x] Page: `shellOptsNear` (`devc/web/static/menus.js`) stops sending `workspace_id`.
+- [x] Page: a pane row in a repo card doesn't show its space when the space is that card's repo
       workspace (below).
-- [ ] Tests (below).
-- [ ] Docs: `devc/README.md` (the **Menus** bullet's "always its own Herdr tab" sentence).
+- [x] Tests (below).
+- [x] Docs: `devc/README.md` (the **Menus** bullet's "always its own Herdr tab" sentence).
 - [ ] Manual (the user): the Validation states.
 
 ## Contracts
@@ -118,17 +118,17 @@ Every `createShell` call in `server.ts` goes through the new function, passing i
 
 ## Validation
 
-- [ ] `cd devc && deno task check` passes (add `web/herdr_workspaces.ts` to the `check` task's
+- [x] `cd devc && deno task check` passes (add `web/herdr_workspaces.ts` to the `check` task's
       list).
-- [ ] `cd devc && deno task test`: no new failures. New `devc/tests/web_herdr_workspaces_test.ts`
+- [x] `cd devc && deno task test`: no new failures. New `devc/tests/web_herdr_workspaces_test.ts`
       covers the pure parts:
-  - [ ] `cwd` `/workspaces/a/b/src` with repos at `/workspaces/a` and `/workspaces/a/b` → `/workspaces/a/b`.
-  - [ ] `cwd` `/workspaces/ab` with a repo at `/workspaces/a` → no match → the primary repo.
-  - [ ] `cwd` `/` → the primary repo; primary with `containerFolder: null` → no repo.
-  - [ ] A repo with a trailing-slash `containerFolder` matches its own folder exactly.
-  - [ ] Label pick: two workspaces labeled `tools/devc-tools` → the lower `number`; a label that
+  - [x] `cwd` `/workspaces/a/b/src` with repos at `/workspaces/a` and `/workspaces/a/b` → `/workspaces/a/b`.
+  - [x] `cwd` `/workspaces/ab` with a repo at `/workspaces/a` → no match → the primary repo.
+  - [x] `cwd` `/` → the primary repo; primary with `containerFolder: null` → no repo.
+  - [x] A repo with a trailing-slash `containerFolder` matches its own folder exactly.
+  - [x] Label pick: two workspaces labeled `tools/devc-tools` → the lower `number`; a label that
         differs only in case → not found.
-- [ ] `cd devc && deno lint` and `deno fmt --check` on touched files pass.
+- [x] `cd devc && deno lint` and `deno fmt --check` on touched files pass.
 - [ ] Manual (the user), in a container whose project mounts two repos, with a Herdr TUI attached
       (`herdr` inside the container):
   - [ ] Starting from a fresh session, a new shell on repo A's card makes a workspace labeled with
@@ -153,3 +153,16 @@ Every `createShell` call in `server.ts` goes through the new function, passing i
 - `devc/tests/web_herdr_workspaces_test.ts` (new).
 - `devc/deno.json`: the `check` task's file list.
 - `devc/README.md`: the **Menus** bullet.
+
+## Implementation notes (2026-11-05)
+
+- **Probed against a real Herdr 0.9.5 server** (a throwaway session, a `HostEnvironment` at a
+  scratch folder with three repos, `a`, `a/b` and `c`): two shells in `a` made one workspace `a`
+  with two tabs; three creates at once (`c`, `c`, `a/b`) made `c` (two tabs) and `b` once each;
+  a shell at `/` went into `a`. `workspace.create`'s result carries `tab` and `root_pane` as
+  `tab.create`'s does. **Closing a workspace's last tab closes the workspace**; the next shell
+  there made it again.
+- `createShell`'s result handling is `createdPane` in `herdr_bridge.ts`, shared with the
+  `workspace.create` path in `herdr_workspaces.ts`.
+- Host projects get the same grouping: their identity mount makes each repo's `containerFolder`
+  its host folder, so its label is the folder's basename.

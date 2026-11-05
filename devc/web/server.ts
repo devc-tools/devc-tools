@@ -68,12 +68,12 @@ import {
   bridgeRequest,
   commandInstalled,
   ContainerSession,
-  createShell,
   type HerdrTarget,
   paneAtFolder,
   snapshotPaneIds,
   snapshotPanes,
 } from './herdr_bridge.ts';
+import { createRepoShell } from './herdr_workspaces.ts';
 import { ControllerManager, type Subscriber } from './controllers.ts';
 import {
   AGENT_COMMANDS,
@@ -1770,6 +1770,22 @@ export async function startWeb(
   };
 
   /**
+   * A new pane in its own Herdr tab, in the Herdr workspace of the repo `cwd` is in (see
+   * `herdr_workspaces.ts`); an explicit `workspace_id` is used as is.
+   */
+  const repoShell = (
+    session: ContainerSession,
+    target: HerdrTarget,
+    opts: { cwd?: string; workspace_id?: string },
+  ) =>
+    createRepoShell(target, {
+      ...opts,
+      key: session.record.id,
+      repos: containerRepos.get(session.record.id) ?? [],
+      localFolder: session.record.localFolder,
+    });
+
+  /**
    * A new pane running the container's editor on a file, named after the file; null once a
    * failure is answered. With `root`, `path` is relative to it, one of the repo folders of the
    * container's project, and confined to it; the editor gets the file's container path. Without,
@@ -1786,7 +1802,7 @@ export async function startWeb(
       : await repoContainerPath(c, session, { ...msg, root: msg.root });
     if (containerPath === null) return null;
     try {
-      const result = await createShell(target, {
+      const result = await repoShell(session, target, {
         cwd: dirnamePosix(containerPath),
       });
       await bridgeRequest(target, 'pane.send_text', {
@@ -2365,7 +2381,7 @@ export async function startWeb(
       }
     }
     try {
-      const created = await createShell(target, { cwd });
+      const created = await repoShell(session, target, { cwd });
       // Not `exec`: quitting the agent leaves the shell.
       if (command !== null) {
         await bridgeRequest(target, 'pane.send_text', {
@@ -2715,7 +2731,7 @@ export async function startWeb(
     }
     let created: { pane_id: string; tab_id: string };
     try {
-      created = await createShell(target, { cwd });
+      created = await repoShell(session, target, { cwd });
       // Not `exec`: quitting the agent leaves the shell.
       await bridgeRequest(target, 'pane.send_text', {
         pane_id: created.pane_id,
@@ -2999,7 +3015,7 @@ export async function startWeb(
     }
     let created: { pane_id: string; tab_id: string };
     try {
-      created = await createShell(target, { cwd: listed.cwd });
+      created = await repoShell(session, target, { cwd: listed.cwd });
       // Not `exec`: quitting the agent leaves the shell.
       await bridgeRequest(target, 'pane.send_text', {
         pane_id: created.pane_id,
@@ -3146,7 +3162,7 @@ export async function startWeb(
       : startAskCommand(agent, sessionId, askId, title);
     let created: { pane_id: string; tab_id: string };
     try {
-      created = await createShell(target, { cwd });
+      created = await repoShell(session, target, { cwd });
       // Not `exec`: quitting the agent leaves the shell.
       await bridgeRequest(target, 'pane.send_text', {
         pane_id: created.pane_id,
@@ -3852,7 +3868,7 @@ export async function startWeb(
         return;
       case 'new_shell':
         try {
-          const result = await createShell(target, {
+          const result = await repoShell(session, target, {
             ...(msg.workspace_id !== undefined
               ? { workspace_id: msg.workspace_id }
               : {}),

@@ -421,7 +421,11 @@ is published from any container: the host server finds devcontainers with
   in a repo card also offers **Open in Code** first, on the repo its current
   directory is in (none outside every repo). A new shell is
   always its own Herdr tab, created without moving the focus of a Herdr TUI
-  attached to the same session. The focused tile's pane, though, is focused in
+  attached to the same session. The tab goes in the Herdr workspace of the repo
+  the new pane's folder is in (the deepest one; a folder in no repo uses the
+  project's own repo), labeled with that repo's card name and created on first
+  use, so a Herdr TUI groups panes by repo; a pane row doesn't repeat that
+  workspace's name. The focused tile's pane, though, is focused in
   its container's Herdr whenever the focused tile changes and when the window
   gains focus (so a Herdr TUI attached to that session follows it): that marks
   its agent's finished turn seen, so its status goes from **done** to **idle**.
