@@ -530,9 +530,13 @@ async function main(): Promise<void> {
       if (e.frame !== wc.mainFrame) return;
       if (e.message === 'devc-desktop:dialog open') devcDialog(view, true);
       if (e.message === 'devc-desktop:dialog closed') devcDialog(view, false);
-      // The pages' corner toggle: `/sidebar`'s hides the column, `/main`'s shows it.
-      if (e.message === 'devc-desktop:sidebar hide') setColumn(false);
-      if (e.message === 'devc-desktop:sidebar show') setColumn(true);
+      // The pages' corner toggle: `/sidebar`'s hides the column, `/main`'s shows it. Heard only
+      // from a focused view: a click on the toggle focuses its view first (the `mouseDown`
+      // handler below), so a page asking while the keys are elsewhere (the Containers pane, the
+      // drawer) is not the user, and must not move the column or the focus out from under them.
+      const toggle = wc.isFocused();
+      if (e.message === 'devc-desktop:sidebar hide' && toggle) setColumn(false);
+      if (e.message === 'devc-desktop:sidebar show' && toggle) setColumn(true);
       if (
         e.message === 'devc-desktop:dialog ready' && !devcDialogHidden.has(view)
       ) {
