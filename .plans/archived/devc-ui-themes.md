@@ -117,3 +117,7 @@ hardcoded colors in `style.css` stay as they are on every theme.
 | `devc-desktop/src/renderer/rail.css`, `titlebar.css` | Read the theme's variables                                |
 | `devc-desktop/README.md`                             | View → Theme                                              |
 | `.plans/PLAN.md`                                     | Status entry and phase row                                |
+
+## Archived (2026-11-05)
+
+Archived as complete by the user. Unchecked items above were not run; they are not known to pass.

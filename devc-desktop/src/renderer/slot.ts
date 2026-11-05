@@ -1,5 +1,5 @@
 // A host tile's page: one host shell, in a view the app lays over a `host` tile of devc web's
-// layout (`.plans/devc-desktop-host-tiles.md`). Loaded from the app bundle; devc web cannot reach
+// layout (`.plans/archived/devc-desktop-host-tiles.md`). Loaded from the app bundle; devc web cannot reach
 // it, and only says where its tile is. The shell is the app's: its id comes from the app, and
 // closing devc web's tab does not end it (the app's right-click menu does).
 

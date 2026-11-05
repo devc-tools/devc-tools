@@ -1,5 +1,5 @@
 // Host tiles: places in `/main`'s layout that devc-desktop covers with a host terminal of its own
-// (`.plans/devc-desktop-host-tiles.md`). This page draws only the tab and a placeholder, and says
+// (`.plans/archived/devc-desktop-host-tiles.md`). This page draws only the tab and a placeholder, and says
 // where the placeholder is: devc-desktop puts its view there. It never sees the terminal, its
 // shell or its color; in a browser, or once the app's shell is gone, the placeholder is all there
 // is.

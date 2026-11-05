@@ -77,7 +77,7 @@ export const HOST_SLOT = /^[0-9a-f]{32}$/;
 
 /**
  * A host tile's component state as its slot id: devc-desktop covers the tile's content with a
- * host terminal of its own while the id is one it issued (`.plans/devc-desktop-host-tiles.md`).
+ * host terminal of its own while the id is one it issued (`.plans/archived/devc-desktop-host-tiles.md`).
  * Only `{hostSlot}` with a well-formed id is one; anything else is `null`, and the tile is
  * dropped on restore.
  *

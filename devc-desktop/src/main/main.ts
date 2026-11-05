@@ -413,7 +413,7 @@ async function main(): Promise<void> {
 
   /**
    * A host tile's view: one host shell over a `host` tile in `/main`'s layout, where `/main`'s
-   * slot lines say. See `.plans/devc-desktop-host-tiles.md`.
+   * slot lines say. See `.plans/archived/devc-desktop-host-tiles.md`.
    */
   interface Slot {
     /** The slot id devc web's tile names; a new one on Restore Host Tiles. */
@@ -1355,7 +1355,7 @@ async function main(): Promise<void> {
   // nothing else: it cannot make a slot, end its shell, read it or type into it. A slot hides
   // whenever devc web might draw over it (a dialog, a drag, a menu). A press on a point a slot
   // just started or stopped covering is ambiguous: the view pressed gets no keys until a press
-  // that is not. See `.plans/devc-desktop-host-tiles.md`.
+  // that is not. See `.plans/archived/devc-desktop-host-tiles.md`.
 
   const SLOT_URL = pageUrl('slot.html');
 
@@ -2421,7 +2421,7 @@ async function main(): Promise<void> {
   // ---- the theme -----------------------------------------------------------------------------------
   // View → Theme recolors devc web (its views' hash, `theme=`; the page applies it) and the app's
   // own views (their stylesheets read the same variables, inserted here) and window. Host
-  // terminals keep the host color. See `.plans/devc-ui-themes.md`.
+  // terminals keep the host color. See `.plans/archived/devc-ui-themes.md`.
 
   /** The theme's variables, over each page's own `:root`. */
   const themeCss = () =>

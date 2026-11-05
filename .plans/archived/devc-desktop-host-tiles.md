@@ -5,9 +5,9 @@ panes, files and diffs, without giving devc web any more reach into them than it
 drawer today. Host panes are told apart from container panes by a **background color the user
 picks**, which devc web never learns.
 
-**Read first:** [devc-desktop-host-terminal](archived/devc-desktop-host-terminal.md) (threat
+**Read first:** [devc-desktop-host-terminal](devc-desktop-host-terminal.md) (threat
 model; "Step 0 results" for why iframes are out: a sandboxed cross-origin iframe takes keyboard
-focus from its embedder) and [devc-desktop-electron](archived/devc-desktop-electron.md) (why
+focus from its embedder) and [devc-desktop-electron](devc-desktop-electron.md) (why
 separate `WebContentsView`s pass). Both still hold and are not restated here.
 
 ## Checklist
@@ -359,3 +359,7 @@ symmetric and moves no focus.
   sender may use only its own shells (`mayUse`).
 - **End Shell** sends the view `host-term:exit` with code `-1` (a closed shell reports no exit
   of its own); the page shows `[exited]`.
+
+## Archived (2026-11-05)
+
+Archived as complete by the user. Unchecked items above were not run; they are not known to pass.

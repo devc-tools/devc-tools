@@ -1,7 +1,7 @@
 // devc web's color themes: dark palettes over `style.css`'s color tokens, chosen by the page's URL
 // hash (`#…&theme=<name>`), as devc-desktop's View → Theme sets it. devc-desktop imports this file
 // too, for its own views, its window's colors and its menu's swatches. Pure: no DOM here. See
-// `.plans/devc-ui-themes.md`.
+// `.plans/archived/devc-ui-themes.md`.
 
 /**
  * @typedef {object} ThemeColors

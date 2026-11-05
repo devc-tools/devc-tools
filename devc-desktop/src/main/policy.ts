@@ -940,7 +940,7 @@ export function pushOutcome(
 
 // ---- host tiles ------------------------------------------------------------------------------
 // Host terminals in devc web's own layout: devc web's `/main` says where a `host` tile's content
-// is, and the app puts a view of its own there. See `.plans/devc-desktop-host-tiles.md`.
+// is, and the app puts a view of its own there. See `.plans/archived/devc-desktop-host-tiles.md`.
 
 /** A host terminal background the user picks (View → Host Terminal Color): never sent to devc web. */
 export interface HostColor {

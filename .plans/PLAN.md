@@ -209,20 +209,20 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
   Otherwise `↑N` is read-only with the reason. Push… and `↑N`-opens-Commits are removed; Push
   refreshes the mirror so `↑N` clears.
 
-- [devc-desktop-host-tiles](devc-desktop-host-tiles.md) — host terminals as tiles in devc web's
-  Golden Layout: **New Host Tile** (app menu only) adds a `host` tile to `/main`, whose content
-  area is covered by an app-owned `WebContentsView` per tile, placed from rectangles the page
-  reports. devc web draws the tab and controls geometry only; it cannot create, end, read or type
-  into a host shell. A move guard drops input for 500 ms after a slot moves under the pointer.
-  Host terminals get a user-picked background color devc web never sees. Step 0 probes focus
-  theft with moving views and the pointer-move attack first.
-
-- [devc-ui-themes](devc-ui-themes.md) — five dark themes for devc web and devc-desktop's own UI
-  (not host terminals): one palette list in devc web (`lib/themes.js`); devc web applies
-  `#…&theme=<name>`; devc-desktop picks it under **View → Theme** with color swatches in the menu
-  (Host Terminal Color gets swatches too) and passes it to devc web's views and its own.
-
 ### Completed
+
+- ✅ Done — [devc-ui-themes](archived/devc-ui-themes.md) — **View → Theme**: Slate (default),
+  Graphite, and solid tints in the six host colors' hues, for devc web (`#…&theme=`, palettes in
+  `lib/themes.js`) and the app's own views and window; swatches on Theme and Host Terminal Color.
+  Archived by the user with a container terminal's background on a theme not checked.
+
+- ✅ Done — [devc-desktop-host-tiles](archived/devc-desktop-host-tiles.md) — host terminals as
+  tiles in devc web's Golden Layout: **New Host Tile** adds a `host` tile to `/main`, covered by an
+  app-owned `WebContentsView` placed from the rectangles the page reports; devc web draws the tab
+  and controls geometry only. An ambiguous press (a slot just appeared or vanished there) mutes the
+  view pressed. A user-picked host color; splits and End Shell in the tile's menu; shells move
+  between the drawer and the main area. Archived by the user with the macOS adversarial checks,
+  a devc web dialog over a tile, maximize and a layout reset not run.
 
 - ✅ Done — [devc-mirror-code-roots](archived/devc-mirror-code-roots.md) — opt-in `"mirrorCodeRoots": true` in
   the global config mounts a project under a code root at `/workspaces/<path under the root>`
@@ -2700,6 +2700,6 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
 | devc web uncommitted files — an Uncommitted row in Commits lists working-tree changes; each opens a diff vs HEAD    | [devc-web-uncommitted-files](devc-web-uncommitted-files.md)                        | in progress |
 | devc web granted push — Push runs the container's own `gh-push` grant with no confirmation                          | [devc-web-granted-push](devc-web-granted-push.md)                                  | in progress |
 | devc web push arrow — ↑N and Push are one action; ↑N counts what a push publishes, read-only when none can          | [devc-web-push-arrow](devc-web-push-arrow.md)                                      | in progress |
-| devc desktop host tiles — host terminals as Golden Layout tiles over devc web's slots; a host color                 | [devc-desktop-host-tiles](devc-desktop-host-tiles.md)                              | in progress |
+| devc desktop host tiles — host terminals as Golden Layout tiles over devc web's slots; a host color                 | [devc-desktop-host-tiles](archived/devc-desktop-host-tiles.md)                     | complete    |
 | devc web Herdr workspaces — one Herdr workspace per repo; new panes land in their repo's workspace                  | [devc-web-herdr-workspaces](devc-web-herdr-workspaces.md)                          | in progress |
-| devc UI themes — five dark themes for devc web and the app's own UI, picked under View → Theme                      | [devc-ui-themes](devc-ui-themes.md)                                                | in progress |
+| devc UI themes — Slate, Graphite and the host colors' hues for devc web and the app, picked under View → Theme      | [devc-ui-themes](archived/devc-ui-themes.md)                                       | complete    |
