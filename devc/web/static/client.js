@@ -22,24 +22,36 @@ import { themeFromHash, themeVars } from './lib/themes.js';
 // Theme
 // ---------------------------------------------------------------------------------------------
 
+/** The OS's (or devc-desktop's View → Appearance's) light mode. */
+const LIGHT_QUERY = matchMedia('(prefers-color-scheme: light)');
+
 /**
- * The page's colors from its URL hash (`#…&theme=<name>`, devc-desktop's View → Theme): each
- * token on `<html>`, then a `devc-theme` event for what draws with them itself (terminals). No
- * `theme` in the hash leaves `style.css`'s own. The hash is the only input: nothing is stored.
+ * The page's colors: the theme from its URL hash (`#…&theme=<name>`, devc-desktop's View →
+ * Theme) in the mode `prefers-color-scheme` says. The mode goes on `<html data-mode>`; a theme's
+ * tokens on `<html>`'s style, after which a `devc-theme` event goes out for what draws with them
+ * itself (terminals, the viewer). No `theme` in the hash leaves `style.css`'s own (Slate, light
+ * by its media query). Hash and media query are the only inputs: nothing is stored.
  */
 function applyTheme() {
   const theme = themeFromHash(location.hash);
-  if (theme === null) return;
+  const mode = LIGHT_QUERY.matches ? 'light' : 'dark';
   const root = document.documentElement;
-  if (root.dataset.theme === theme.name) return;
-  for (const [name, value] of Object.entries(themeVars(theme))) {
-    root.style.setProperty(name, value);
+  const name = theme?.name ?? '';
+  if (root.dataset.mode === mode && (root.dataset.theme ?? '') === name) {
+    return;
   }
-  root.dataset.theme = theme.name;
+  root.dataset.mode = mode;
+  if (theme !== null) {
+    for (const [k, value] of Object.entries(themeVars(theme, mode))) {
+      root.style.setProperty(k, value);
+    }
+    root.dataset.theme = theme.name;
+  }
   window.dispatchEvent(new Event('devc-theme'));
 }
 applyTheme();
 window.addEventListener('hashchange', applyTheme);
+LIGHT_QUERY.addEventListener('change', applyTheme);
 
 const RECONNECT_MS = 2000;
 /** A held live reload waits this long after the last key or click. */

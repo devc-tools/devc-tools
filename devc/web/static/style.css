@@ -14,6 +14,15 @@
   --done: #8bd6ae;
   --unknown: #b59cf0;
   --danger: #ff7b7b;
+  /* Diffs, shadows, and text on a filled accent, danger or blocked. */
+  --diff-add: #17331f;
+  --diff-del: #3a1a1d;
+  --diff-add-word: #2a6a3c;
+  --diff-del-word: #7a2c33;
+  --shadow: #00000066;
+  --on-accent: #0d0f14;
+  --on-danger: #0d0f14;
+  --on-blocked: #0d0f14;
   /* Sidebar rows: the focused tile's (and a hovered one's), and section headings. */
   --row-hover: #253042;
   --row-current: #2a3c55;
@@ -43,6 +52,53 @@
   font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
   font-size: var(--font-size);
   color-scheme: dark;
+}
+
+/* Light mode: Slate's light palette (`lib/themes.js`), for a page with no `theme=` in its hash;
+   one with a theme gets that theme's values from `client.js`. */
+@media (prefers-color-scheme: light) {
+  :root {
+    --bg: #eff2f6;
+    --panel: #f9fafb;
+    --panel-2: #dfe4ec;
+    --border: #c1cad7;
+    --text: #1d2735;
+    --muted: #526685;
+    --accent: #1657b6;
+    --term-bg: #fcfcfd;
+    --row-hover: #d8dee9;
+    --row-current: #c8d4e4;
+    --row-current-line: #6287b6;
+    --section: #4b5c76;
+    --sidebar-head: #e6e9f0;
+    --tile-border: #b2bfd1;
+    --tile-focus: #1657b6;
+    --tile-head: #e8ecf2;
+    --tile-head-focus: #cbd6e7;
+    --tile-head-line: #c6cfdc;
+    --tile-label: #0d1c31;
+    --tile-repo: #233957;
+    --tile-branch: #374d6c;
+    --tile-branch-mark: #4b6181;
+    --tile-container: #697c96;
+    --tile-container-focus: #536784;
+    --tile-focus-glow: #1657b628;
+    --idle: #5d6b7e;
+    --working: #087399;
+    --blocked: #9a5b00;
+    --done: #1f7a45;
+    --unknown: #7048c4;
+    --danger: #c42b2b;
+    --diff-add: #dff3e4;
+    --diff-del: #fbe3e4;
+    --diff-add-word: #b4e3c0;
+    --diff-del-word: #f4bcc1;
+    --shadow: #00000022;
+    --on-accent: #ffffff;
+    --on-danger: #ffffff;
+    --on-blocked: #ffffff;
+    color-scheme: light;
+  }
 }
 
 * {
@@ -260,6 +316,10 @@ body.resizing-sidebar {
 
 .brand::first-letter {
   color: #a5c6b9;
+}
+
+:root[data-mode='light'] .brand::first-letter {
+  color: var(--done);
 }
 
 .conn {
@@ -2797,7 +2857,7 @@ dialog.dialog::backdrop {
 
 button.primary {
   padding: 4px 12px;
-  color: #0d0f14;
+  color: var(--on-accent);
   background: var(--accent);
   border-color: var(--accent);
 }
@@ -2888,7 +2948,7 @@ button.primary:disabled {
 }
 
 button.primary.danger {
-  color: #0d0f14;
+  color: var(--on-danger);
   background: var(--danger);
   border-color: var(--danger);
 }
@@ -3075,7 +3135,7 @@ button.primary.danger {
   font-size: calc(var(--font-size) - 3px);
   font-style: normal;
   white-space: nowrap;
-  color: #1a1206;
+  color: var(--on-blocked);
   background: var(--blocked);
 }
 
@@ -3317,12 +3377,12 @@ button.primary.danger {
 
 .diff-row[data-kind='add'],
 .diff-row [data-kind='add'] {
-  background: #17331f;
+  background: var(--diff-add);
 }
 
 .diff-row[data-kind='del'],
 .diff-row [data-kind='del'] {
-  background: #3a1a1d;
+  background: var(--diff-del);
 }
 
 /* An added or removed file with **Tint rows** off: its rows on the plain background. */
@@ -3348,13 +3408,13 @@ button.primary.danger {
 /* The part of a changed line that differs from the line it faces. */
 .diff-row[data-kind='add'] .diff-word,
 .diff-row [data-kind='add'] .diff-word {
-  background: #2a6a3c;
+  background: var(--diff-add-word);
   border-radius: 2px;
 }
 
 .diff-row[data-kind='del'] .diff-word,
 .diff-row [data-kind='del'] .diff-word {
-  background: #7a2c33;
+  background: var(--diff-del-word);
   border-radius: 2px;
 }
 
@@ -3698,7 +3758,7 @@ button.primary.danger {
   color: var(--text);
   border: 1px solid var(--border);
   border-radius: 4px;
-  box-shadow: 0 4px 12px #0006;
+  box-shadow: 0 4px 12px var(--shadow);
   font-size: calc(var(--font-size) - 1px);
 }
 

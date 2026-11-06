@@ -34,10 +34,10 @@
 }
 .action-card .refusal,
 .action-card .fail {
-  color: #f07a6a;
+  color: var(--danger, #f07a6a);
 }
 .action-card .ok {
-  color: #7fd18b;
+  color: var(--done, #7fd18b);
 }
 .action-card pre {
   margin: 0;

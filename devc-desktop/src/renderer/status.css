@@ -48,7 +48,7 @@ pre:empty {
 }
 button {
   background: var(--accent);
-  color: #0d0f14;
+  color: var(--on-accent, #0d0f14);
   border: 0;
   border-radius: 6px;
   padding: 6px 14px;

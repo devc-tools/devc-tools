@@ -9,6 +9,12 @@ import { Terminal } from './vendor/xterm/xterm.mjs';
 import { FitAddon } from './vendor/xterm/addon-fit.mjs';
 import { selectionSpan } from './lib/input.js';
 import { findLinks, linkAt } from './lib/links.js';
+import {
+  DEFAULT_THEME,
+  terminalTheme,
+  themeFromHash,
+  themeNamed,
+} from './lib/themes.js';
 
 /**
  * @typedef {object} Renderer
@@ -39,11 +45,20 @@ import { findLinks, linkAt } from './lib/links.js';
  * @param {number} fallback
  * @returns {number}
  */
-/** The theme's terminal background (`--term-bg`), `style.css`'s own when unset. */
-function termBg() {
-  return getComputedStyle(document.documentElement).getPropertyValue(
-    '--term-bg',
-  ).trim() || '#11131a';
+/**
+ * The terminal's colors and minimum contrast for the page's theme and mode (`client.js` sets
+ * both): light mode raises text too faint for its background, for programs that assume a dark
+ * terminal.
+ */
+function termOptions() {
+  const theme = themeFromHash(location.hash) ?? themeNamed(DEFAULT_THEME);
+  const mode = document.documentElement.dataset.mode === 'light'
+    ? 'light'
+    : 'dark';
+  return {
+    theme: terminalTheme(theme, mode),
+    minimumContrastRatio: mode === 'light' ? 4.5 : 1,
+  };
 }
 
 function cssPx(name, fallback) {
@@ -75,11 +90,14 @@ export function createRenderer(
     fontFamily:
       'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace',
     fontSize: cssPx('--code-font-size', 13),
-    theme: { background: termBg() },
+    ...termOptions(),
   });
-  // The page's theme changed (`client.js`): the terminal's own background follows.
+  // The page's theme or mode changed (`client.js`): the terminal's colors follow, replaced
+  // outright so that no light color survives a switch to dark.
   const onTheme = () => {
-    term.options.theme = { ...term.options.theme, background: termBg() };
+    const { theme, minimumContrastRatio } = termOptions();
+    term.options.theme = theme;
+    term.options.minimumContrastRatio = minimumContrastRatio;
   };
   window.addEventListener('devc-theme', onTheme);
   const fit = new FitAddon();

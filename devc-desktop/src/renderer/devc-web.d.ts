@@ -99,21 +99,27 @@ declare module 'devc-web/lib/protocol_version.js' {
 }
 
 declare module 'devc-web/lib/themes.js' {
+  export type ThemeColors = Record<string, string> & {
+    bg: string;
+    panel: string;
+    border: string;
+    text: string;
+    accent: string;
+    sidebarHead: string;
+  };
+  export type Mode = 'dark' | 'light';
   export interface Theme {
     name: string;
     label: string;
-    colors: Record<string, string> & {
-      bg: string;
-      panel: string;
-      border: string;
-      text: string;
-      accent: string;
-      sidebarHead: string;
-    };
+    /** The dark palette. */
+    colors: ThemeColors;
+    light: ThemeColors;
   }
   export const THEMES: readonly Theme[];
   export const DEFAULT_THEME: string;
   export function themeNamed(name: unknown): Theme;
-  export function themeVars(theme: Theme): Record<string, string>;
+  export function themeColors(theme: Theme, mode: Mode): ThemeColors;
+  export function themeVars(theme: Theme, mode?: Mode): Record<string, string>;
   export function themeFromHash(hash: string): Theme | null;
+  export function appearanceNamed(v: unknown): 'system' | 'light' | 'dark';
 }

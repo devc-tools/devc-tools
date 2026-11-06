@@ -92,6 +92,13 @@
   live with `workspace.list` and made with `workspace.create` when missing; a `cwd` in no repo
   uses the primary repo's. Creates are serialized per environment; existing panes stay put.
 
+- [devc-web-light-mode](devc-web-light-mode.md) — light mode for devc web and devc-desktop's own
+  UI, separate from the theme: every theme gets a light palette in its hue (fixed lightness per
+  role, contrast-checked), the status, diff and on-accent colors become per-mode tokens, and
+  container terminals and the viewer go light with a full ANSI palette. The page follows
+  `prefers-color-scheme`; devc-desktop's **View → Appearance** (System / Light / Dark) sets
+  `nativeTheme.themeSource`. Host terminals keep the host color.
+
 ### Git and the trusted host area
 
 Decided with the user on 2026-10-28, in this order. Before the first: finish
@@ -2703,3 +2710,4 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
 | devc desktop host tiles — host terminals as Golden Layout tiles over devc web's slots; a host color                 | [devc-desktop-host-tiles](archived/devc-desktop-host-tiles.md)                     | complete    |
 | devc web Herdr workspaces — one Herdr workspace per repo; new panes land in their repo's workspace                  | [devc-web-herdr-workspaces](devc-web-herdr-workspaces.md)                          | in progress |
 | devc UI themes — Slate, Graphite and the host colors' hues for devc web and the app, picked under View → Theme      | [devc-ui-themes](archived/devc-ui-themes.md)                                       | complete    |
+| devc web light mode — light palettes for every theme; follows the OS, View → Appearance in the app                  | [devc-web-light-mode](devc-web-light-mode.md)                                      | in progress |

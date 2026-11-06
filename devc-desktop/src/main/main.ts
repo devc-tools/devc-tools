@@ -34,6 +34,7 @@ import {
   Menu,
   type MenuItemConstructorOptions,
   nativeImage,
+  nativeTheme,
   screen,
   session,
   shell,
@@ -41,7 +42,9 @@ import {
 } from 'electron';
 import * as nodePty from 'node-pty';
 import {
+  appearanceNamed,
   type Theme,
+  themeColors,
   themeNamed,
   THEMES,
   themeVars,
@@ -170,6 +173,11 @@ let runner: { found: Found; checkout: string | null } | null = null;
 
 /** View → Theme: devc web's colors and the app's own (not the host terminals'). */
 let uiTheme: Theme = themeNamed(undefined);
+/**
+ * View → Appearance: Electron's `nativeTheme.themeSource`, which every page sees as
+ * `prefers-color-scheme` (devc web picks its mode from that) and the app's own views follow.
+ */
+let appearance: 'system' | 'light' | 'dark' = appearanceNamed(undefined);
 /** View → Host Terminal Color: every host terminal's background. */
 let hostColor: HostColor = hostColorOf(undefined);
 /** The drawer's height in px, or `null` while closed; `drawerHeight` survives closing. */
@@ -713,6 +721,7 @@ async function main(): Promise<void> {
       }
       hostColor = hostColorOf(s?.hostColor);
       uiTheme = themeNamed(s?.uiTheme);
+      appearance = appearanceNamed(s?.appearance);
     } catch { /* first launch */ }
   }
 
@@ -731,6 +740,7 @@ async function main(): Promise<void> {
             containersOpen,
             hostColor: hostColor.value,
             uiTheme: uiTheme.name,
+            appearance,
           }),
         )
       ).catch(() => {});
@@ -2423,10 +2433,14 @@ async function main(): Promise<void> {
   // own views (their stylesheets read the same variables, inserted here) and window. Host
   // terminals keep the host color. See `.plans/archived/devc-ui-themes.md`.
 
-  /** The theme's variables, over each page's own `:root`. */
+  /** The mode the app shows: View → Appearance, through the OS's for System. */
+  const uiMode = () => nativeTheme.shouldUseDarkColors ? 'dark' : 'light';
+
+  /** The theme's variables in the current mode, over each page's own `:root`. */
   const themeCss = () =>
     `html:root{${
-      Object.entries(themeVars(uiTheme)).map(([k, v]) => `${k}:${v}`).join(';')
+      Object.entries(themeVars(uiTheme, uiMode())).map(([k, v]) => `${k}:${v}`)
+        .join(';')
     }}`;
   /** The stylesheet inserted into each of the app's views, by its webContents. */
   const themeKeys = new Map<Electron.WebContents, string>();
@@ -2465,7 +2479,7 @@ async function main(): Promise<void> {
 
   /** The window's and views' own colors: what shows before a page paints, and the title bar's. */
   function nativeColors(): void {
-    const c = uiTheme.colors;
+    const c = themeColors(uiTheme, uiMode());
     win.setBackgroundColor(c.bg);
     for (const v of [statusView, footerView, hostView]) {
       v.setBackgroundColor(c.bg);
@@ -2479,6 +2493,19 @@ async function main(): Promise<void> {
         height: TITLEBAR_HEIGHT,
       });
     }
+  }
+
+  /** The mode changed (View → Appearance, or the OS under System): the app's views follow. */
+  function retheme(): void {
+    nativeColors();
+    for (const wc of themeKeys.keys()) themeView(wc);
+  }
+
+  /** View → Appearance: devc web's views follow `prefers-color-scheme` by themselves. */
+  function setAppearance(value: typeof appearance): void {
+    appearance = value;
+    saveState();
+    nativeTheme.themeSource = value;
   }
 
   function setUiTheme(theme: Theme): void {
@@ -2628,6 +2655,15 @@ async function main(): Promise<void> {
           },
           { type: 'separator' },
           {
+            label: 'Appearance',
+            submenu: (['system', 'light', 'dark'] as const).map((v) => ({
+              label: { system: 'System', light: 'Light', dark: 'Dark' }[v],
+              type: 'radio' as const,
+              checked: v === appearance,
+              click: () => setAppearance(v),
+            })),
+          },
+          {
             label: 'Theme',
             submenu: THEMES.map((t) => ({
               label: t.label,
@@ -2660,6 +2696,8 @@ async function main(): Promise<void> {
     ];
   }
   await loadState();
+  nativeTheme.themeSource = appearance;
+  nativeTheme.on('updated', retheme);
   Menu.setApplicationMenu(Menu.buildFromTemplate(menu()));
   nativeColors();
   for (

@@ -241,6 +241,11 @@ color; when they share a hue, a host tile is told apart by its `HOST · user@hos
 palettes are devc web's (`devc/web/static/lib/themes.js`); the app passes the choice to its pages
 as `#…&theme=<name>`.
 
+**View → Appearance** picks dark or light: **System** (the default; follows the OS, live),
+**Light** or **Dark**. Every theme has both. Container terminals and the file viewer go light too;
+host terminals keep their host color. It is remembered, and set as Electron's
+`nativeTheme.themeSource`, which devc web's pages see as `prefers-color-scheme`: nothing reloads.
+
 ### Host tiles
 
 **devc web → New Host Tile** (Cmd+Shift+J, Ctrl+Shift+\`) puts a host shell in `/main`'s own

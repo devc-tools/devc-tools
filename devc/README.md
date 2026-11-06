@@ -501,7 +501,10 @@ is published from any container: the host server finds devcontainers with
   app's shell is gone, the tile shows _Host terminal — not running here_; close
   its tab. `#…&theme=<name>` (devc-desktop's **View → Theme**: `slate`, `graphite`,
   `green`, `teal`, `blue`, `purple`, `amber` or `red`, from `lib/themes.js`) colors any page; without
-  it, the page keeps its own colors. A right-click menu closes
+  it, the page keeps its own colors (Slate). Every theme has a dark and a light
+  palette, chosen by `prefers-color-scheme` and switched live: the OS's setting
+  in a browser, **View → Appearance** in devc-desktop. Container terminals and
+  the file viewer follow it. A right-click menu closes
   when another page or view takes the focus, and scrolls when it is taller than
   the window.
 - **Sidebar scope:** the pill in the sidebar header picks what the sidebar

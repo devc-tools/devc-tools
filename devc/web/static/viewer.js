@@ -135,7 +135,7 @@ const LANGUAGES = {
  * Colours from the page's own custom properties (style.css), so the viewer matches the rest of
  * the page. No tokens of its own.
  */
-const theme = EditorView.theme({
+const themeRules = {
   '&': {
     height: '100%',
     color: 'var(--text)',
@@ -231,7 +231,20 @@ const theme = EditorView.theme({
   '.cm-lsp-reference-panel .cm-lsp-reference[aria-selected]': {
     backgroundColor: 'color-mix(in srgb, var(--accent) 30%, transparent)',
   },
-}, { dark: true });
+};
+
+/** The rules above as a dark theme and as a light one: CodeMirror's own defaults follow. */
+const themes = {
+  dark: EditorView.theme(themeRules, { dark: true }),
+  light: EditorView.theme(themeRules, { dark: false }),
+};
+
+/** The theme for the page's mode (`<html data-mode>`, set by `client.js`). */
+function modeTheme() {
+  return document.documentElement.dataset.mode === 'light'
+    ? themes.light
+    : themes.dark;
+}
 
 /** Syntax colours, from the page's palette (style.css) only. */
 const highlight = HighlightStyle.define([
@@ -389,6 +402,8 @@ export function createViewer(
   const access = new Compartment();
   /** A language server's extensions, while one is attached (see `attachLanguage`). */
   const language = new Compartment();
+  /** The dark or light theme, swapped when the page's mode changes. */
+  const look = new Compartment();
   /** @type {string | null} */
   let languageUri = null;
   /** @param {boolean} on */
@@ -431,12 +446,16 @@ export function createViewer(
         EditorView.updateListener.of((u) => {
           if (u.docChanged) onChange?.(!u.state.doc.eq(clean));
         }),
-        theme,
+        look.of(modeTheme()),
         syntaxHighlighting(highlight),
         lang ? LANGUAGES[lang]() : [],
       ],
     }),
   });
+  const onTheme = () => {
+    view.dispatch({ effects: look.reconfigure(modeTheme()) });
+  };
+  window.addEventListener('devc-theme', onTheme);
   /** The doc as it is on disk. */
   let clean = view.state.doc;
   /**
@@ -544,6 +563,7 @@ export function createViewer(
       view.focus();
     },
     destroy() {
+      window.removeEventListener('devc-theme', onTheme);
       view.destroy();
     },
     attachLanguage({ client, uri, languageId }) {
