@@ -96,8 +96,9 @@ export const LABELS = {
   openHostTerminal: 'Open Host Terminal…',
   /** The menu item and the ↑N click: the container's own `gh-push`, or devc-desktop's confirmation. */
   push: 'Push',
-  /** A clickable ↑N's tooltip. */
-  pushAhead: (branch) => `Push: publish ${branch} to origin`,
+  /** A clickable ↑N's tooltip: `target` is `<remote>/<branch>`; `creates` when it isn't there yet. */
+  pushAhead: (target, creates) =>
+    `Push to ${target}${creates ? ' (creates the branch)' : ''}`,
   /** A read-only ↑N's tooltip line. */
   pushUnavailable: (reason) => `Push unavailable: ${reason}`,
   /** A push the server sent to devc-desktop for the user's confirmation. */

@@ -317,6 +317,8 @@ Deno.test('readGitStatus: no upstream counts commits on no remote branch, as Com
       false,
       0,
     ]);
+    // Never on origin: a push would create origin/feat.
+    assertEquals((await readGitStatus(work, opts))?.pushCreates, true);
     const history = await readCommitHistory(work, opts);
     assertEquals(
       'localTotal' in history ? history.localTotal : history,
@@ -331,6 +333,10 @@ Deno.test('readGitStatus: no upstream counts commits on no remote branch, as Com
     assertEquals(await refreshRemote(work, opts), true);
     assertEquals((await readGitStatus(work, opts))?.ahead, 0);
     const after = await readCommitHistory(work, opts);
+    // On origin, one more commit: a push updates origin/feat rather than creating it.
+    await git(work, 'commit', '-q', '--allow-empty', '-m', 'four');
+    const more = await readGitStatus(work, opts);
+    assertEquals([more?.ahead, more?.pushCreates], [1, false]);
     assertEquals('localTotal' in after ? after.localTotal : after, 0);
 
     // No origin: nowhere to push, so nothing counts.

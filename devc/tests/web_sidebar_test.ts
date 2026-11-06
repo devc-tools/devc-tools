@@ -919,9 +919,14 @@ Deno.test('gitSync: a branch with no upstream shows ↑N only with something to 
     unfetched: 0,
   };
   assertEquals(gitSync(git), {
-    marks: [{ dir: 'ahead', text: '↑3' }],
+    marks: [{ dir: 'ahead', text: '↑3', creates: false }],
     diverged: false,
-    title: '3 to push: on no remote branch',
+    title: 'feat → origin/feat (not tracked): 3 to push',
+  });
+  assertEquals(gitSync({ ...git, pushCreates: true }), {
+    marks: [{ dir: 'ahead', text: '↑3', creates: true }],
+    diverged: false,
+    title: 'feat → origin/feat (new branch): 3 to push',
   });
   assertEquals(gitSync({ ...git, ahead: 0 }), null);
 });

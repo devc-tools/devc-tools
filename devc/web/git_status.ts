@@ -38,6 +38,11 @@ export interface GitStatus {
    * them in. `behind - unfetched` are in the repo, ready to pull.
    */
   unfetched: number;
+  /**
+   * A push would create its remote branch: the branch tracks nothing and `origin/<branch>` is
+   * neither in the repo's remote-tracking refs nor on the remote as last looked. Absent: `false`.
+   */
+  pushCreates?: boolean;
 }
 
 /**
@@ -230,16 +235,17 @@ export async function readGitState(
   if (at === null || isGitProblem(at)) return at;
   const { branch, upstream, mirror, prefix } = at;
   if (upstream === null) {
-    // `ahead`: what a push would publish, so the ↑ mark shows on a `gh-push` branch too.
-    const ahead = await unpushedCount(folder, at, opts);
-    if (typeof ahead !== 'number') return ahead;
+    // `ahead`: what a push would send, so the ↑ mark shows on a `gh-push` branch too.
+    const unpushed = await unpushedCount(folder, at, opts);
+    if ('problem' in unpushed) return unpushed;
     return {
       branch,
       upstream: null,
-      ahead,
+      ahead: unpushed.ahead,
       behind: 0,
       gone: false,
       unfetched: 0,
+      pushCreates: unpushed.ahead > 0 && !unpushed.onRemote,
     };
   }
   if (mirror === null) return { problem: 'could not create the git mirror' };
@@ -339,7 +345,7 @@ export async function pushedRefs(
   originUrl: string | null,
   branch: string,
   opts: MirrorOpts & { checkRemote?: boolean },
-): Promise<{ excludes: string[]; compare: string | null }> {
+): Promise<{ excludes: string[]; compare: string | null; onRemote: boolean }> {
   const inMirror = (...args: string[]) => [`--git-dir=${mirror}`, ...args];
   const copies = `${prefix}/remotes`;
   const pushedRef = `${prefix}/pushed`;
@@ -379,7 +385,10 @@ export async function pushedRefs(
     : excludes.length
     ? 'remote branches'
     : null;
-  return { excludes, compare };
+  const remote = upstream?.remote ?? 'origin';
+  const onRemote = refs.includes(pushedRef) ||
+    refs.includes(`${copies}/${remote}/${remoteBranch}`);
+  return { excludes, compare, onRemote };
 }
 
 /**
@@ -387,14 +396,15 @@ export async function pushedRefs(
  * remote-tracking refs, and `origin/<branch>` as last found on the remote), counted in the mirror
  * named for `origin`. The Commits section's `localTotal` for the same branch. `0` with no `origin`:
  * there is nowhere to push. `checkRemote` allows the look at the remote (a network call).
+ * `onRemote`: `origin/<branch>` exists, so a push updates it rather than creating it.
  */
 async function unpushedCount(
   folder: string,
   at: Located,
   opts: MirrorOpts & { checkRemote?: boolean },
-): Promise<number | GitProblem> {
+): Promise<{ ahead: number; onRemote: boolean } | GitProblem> {
   const originUrl = await readRemoteUrl(at.commonDir, 'origin');
-  if (originUrl === null) return 0;
+  if (originUrl === null) return { ahead: 0, onRemote: false };
   const mirror = await mirrorFor(opts, originUrl);
   if (mirror === null) return { problem: 'could not create the git mirror' };
   const local = `${at.prefix}/local`;
@@ -408,7 +418,7 @@ async function unpushedCount(
     opts.localFetchTimeoutMs ?? LOCAL_FETCH_TIMEOUT_MS,
   );
   if ('failed' in fetched) return { problem: fetched.failed };
-  const { excludes } = await pushedRefs(
+  const { excludes, onRemote } = await pushedRefs(
     folder,
     mirror,
     at.prefix,
@@ -427,7 +437,7 @@ async function unpushedCount(
   if ('failed' in r) return { problem: r.failed };
   const n = Number(r.out.trim());
   return Number.isInteger(n)
-    ? n
+    ? { ahead: n, onRemote }
     : { problem: 'git rev-list: unexpected output' };
 }
 
@@ -449,7 +459,7 @@ export async function refreshRemote(
     return false;
   }
   const n = await unpushedCount(folder, at, { ...opts, checkRemote: true });
-  return typeof n === 'number';
+  return !('problem' in n);
 }
 
 /**

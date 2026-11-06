@@ -1663,6 +1663,13 @@ body.resizing-zones {
   color: var(--done);
 }
 
+/* A push would create the remote branch: the ↑N in a dashed box. */
+.git-sync [data-dir='ahead'][data-creates] {
+  padding: 0 3px;
+  border: 1px dashed var(--done);
+  border-radius: 3px;
+}
+
 .git-sync [data-dir='behind'] {
   color: var(--blocked);
 }

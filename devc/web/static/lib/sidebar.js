@@ -334,7 +334,11 @@ export function labelText({ name, title }) {
  * upstream was deleted), with a tooltip naming the branch. A branch level with its upstream gets a quiet `synced` mark (✓). With no `git` but
  * a `problem` (its `gitProblem`: a detached HEAD, a timed-out or failed git call), a quiet
  * `unknown` mark (?) whose tooltip gives the reason. `null` when there is no repo, no status
- * read yet, or a branch with no upstream (nothing to compare with, so nothing to say).
+ * read yet, or a branch with no upstream (nothing to compare with, so nothing to say). An
+ * `ahead` mark `creates` when a push would create the remote branch (`pushCreates`).
+ *
+ * @returns {{marks: {dir: string, text: string, creates?: boolean}[], diverged: boolean,
+ *   title: string} | null}
  */
 function pushPull(git, problem) {
   if (!git) {
@@ -346,12 +350,20 @@ function pushPull(git, problem) {
     };
   }
   if (!git.upstream) {
-    // No upstream: ↑N is what a push would publish (commits on no remote branch), else nothing.
+    // No upstream: ↑N is what a push would send (commits on no remote branch), else nothing. A
+    // push goes to origin/<branch>; `pushCreates` when that branch isn't there yet.
     if (git.ahead <= 0) return null;
+    const target = `origin/${git.branch}`;
     return {
-      marks: [{ dir: 'ahead', text: `↑${git.ahead}` }],
+      marks: [{
+        dir: 'ahead',
+        text: `↑${git.ahead}`,
+        creates: !!git.pushCreates,
+      }],
       diverged: false,
-      title: `${git.ahead} to push: on no remote branch`,
+      title: git.pushCreates
+        ? `${git.branch} → ${target} (new branch): ${git.ahead} to push`
+        : `${git.branch} → ${target} (not tracked): ${git.ahead} to push`,
     };
   }
   const unfetched = git.unfetched ?? 0;
@@ -424,7 +436,7 @@ export function repoGitItems(can) {
  * text, then `changesProblem` (why its changes can't be read), which alone gives a quiet `?`.
  * `null` when there is nothing to say.
  *
- * @param {{branch: string, upstream: string | null, ahead: number, behind: number, gone: boolean, unfetched?: number} | null} [git]
+ * @param {{branch: string, upstream: string | null, ahead: number, behind: number, gone: boolean, unfetched?: number, pushCreates?: boolean} | null} [git]
  * @param {string} [problem]
  * @param {GitChanges} [changes]
  * @param {string} [changesProblem]

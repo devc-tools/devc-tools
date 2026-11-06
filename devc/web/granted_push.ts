@@ -154,7 +154,7 @@ export function pushRoute(
   if (git.upstream !== null && git.upstream !== `origin/${git.branch}`) {
     return {
       pushUnavailable:
-        `tracks ${git.upstream}; Push publishes origin/${git.branch}`,
+        `tracks ${git.upstream}; Push goes to origin/${git.branch}`,
     };
   }
   if (line !== null && running && line.branch === git.branch) {

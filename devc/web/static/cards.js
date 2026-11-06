@@ -899,7 +899,12 @@ export function repoCard(card, side, worktrees = 0) {
           ? () => repoGitRequest('pull', localFolder, repo.folder)
           : undefined,
         push,
-        pushTitle: branch ? LABELS.pushAhead(branch) : LABELS.push,
+        pushTitle: branch
+          ? LABELS.pushAhead(
+            repo.git?.upstream ?? `origin/${branch}`,
+            !!repo.git?.pushCreates,
+          )
+          : LABELS.push,
         pushUnavailable: repo.pushUnavailable,
       },
     )
@@ -1452,6 +1457,7 @@ export function gitMark(sync, opts) {
   const button = (m, title, act) =>
     h('span', {
       'data-dir': m.dir,
+      'data-creates': m.creates,
       class: 'git-fetch',
       role: 'button',
       title,
@@ -1486,11 +1492,12 @@ export function gitMark(sync, opts) {
         : opts?.pushUnavailable && m.dir === 'ahead'
         ? h('span', {
           'data-dir': m.dir,
+          'data-creates': m.creates,
           title: `${sync.title}\n${
             LABELS.pushUnavailable(opts.pushUnavailable)
           }`,
         }, m.text)
-        : h('span', { 'data-dir': m.dir }, m.text)
+        : h('span', { 'data-dir': m.dir, 'data-creates': m.creates }, m.text)
     ),
     opts?.busy
       ? h('span', { class: 'spinner git-fetching', 'aria-hidden': 'true' })

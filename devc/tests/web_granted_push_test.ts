@@ -113,7 +113,7 @@ Deno.test('pushRoute: each rule, in order', () => {
   assertEquals(pushRoute(null, line(), true, true), {});
   // 1. The upstream is not origin/<branch>.
   assertEquals(pushRoute(g({ upstream: 'origin/main' }), line(), true, true), {
-    pushUnavailable: 'tracks origin/main; Push publishes origin/feat',
+    pushUnavailable: 'tracks origin/main; Push goes to origin/feat',
   });
   assertEquals(
     pushRoute(g({ upstream: 'origin/feat' }), line(), true, false),
