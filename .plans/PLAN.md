@@ -99,12 +99,6 @@
   `prefers-color-scheme`; devc-desktop's **View → Appearance** (System / Light / Dark) sets
   `nativeTheme.themeSource`. Host terminals keep the host color.
 
-- [devc-web-host-terminal-request](devc-web-host-terminal-request.md) — **Open Host
-  Terminal…** on a repo card. The page only asks (`request_terminal`, the `request_push`
-  queue). devc-desktop checks the folder's real path itself, warns that the shell's prompt and
-  tools run what the folder holds, and on **Open** (checked again) opens a host tile there. A
-  `kinds=` filter on `GET /desktop/requests` keeps older apps working.
-
 ### Git and the trusted host area
 
 Decided with the user on 2026-10-28, in this order. Before the first: finish
@@ -223,6 +217,15 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
   refreshes the mirror so `↑N` clears.
 
 ### Completed
+
+- ✅ Done — [devc-web-host-terminal-request](archived/devc-web-host-terminal-request.md) —
+  **Open Host Terminal…** on a repo card. The page only asks (`request_terminal`, through the
+  `request_push` queue). devc-desktop checks the folder's real path itself, warns that the
+  shell's prompt and tools run what the folder holds, checks the path again on **Open**, and opens
+  a host tile there. A `kinds=` filter on `GET /desktop/requests` keeps older apps working.
+  Validated by both packages' checks and the new unit tests. **Not run:** every manual and
+  adversarial check in the real app (marked done on the user's say-so); `devc`'s suite has one
+  unrelated failure (gitignored `devc-core/dist` output).
 
 - ✅ Done — [host-terminal-herdr](archived/host-terminal-herdr.md) — host terminals are panes of
   the app's own `devc-desktop-<12 hex>` Herdr session (Herdr required), drawn with devc web's
@@ -2741,4 +2744,4 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
 | Terminal shared surface — superseded by host-terminal-herdr                                                         | [terminal-shared-surface](archived/terminal-shared-surface.md)                     | superseded  |
 | Host terminal themes — Host Terminal Color picks a theme; light and dark like devc web                              | [host-terminal-themes](archived/host-terminal-themes.md)                           | complete    |
 | Host terminals on Herdr — a devc-desktop session, one terminal for both apps, host file links                       | [host-terminal-herdr](archived/host-terminal-herdr.md)                             | complete    |
-| Host terminal request — Open Host Terminal… on a repo card, confirmed in devc-desktop                               | [devc-web-host-terminal-request](devc-web-host-terminal-request.md)                | in progress |
+| Host terminal request — Open Host Terminal… on a repo card, confirmed in devc-desktop                               | [devc-web-host-terminal-request](archived/devc-web-host-terminal-request.md)       | complete    |

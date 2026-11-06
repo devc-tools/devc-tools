@@ -6,8 +6,8 @@ resolves the folder itself and shows a card in the HOST drawer (or the Container
 when the user confirms it, the app opens a new host tile in `/main`'s layout whose shell starts in
 that folder.
 
-**Read first:** [devc-desktop-host-actions](devc-desktop-host-actions.md) (the request queue, the
-desktop token, D1–D5) and [devc-desktop-host-tiles](archived/devc-desktop-host-tiles.md)
+**Read first:** [devc-desktop-host-actions](../devc-desktop-host-actions.md) (the request queue, the
+desktop token, D1–D5) and [devc-desktop-host-tiles](devc-desktop-host-tiles.md)
 (“devc web cannot create a host shell”; only the user's own action makes a host tile). Both
 still hold. This plan keeps them: the page only asks, and the user confirms in a view the
 page cannot draw or focus.
@@ -196,6 +196,9 @@ page cannot draw or focus.
       `The folder moved since it was checked` and no tile appears
 
 ## Implementation notes (2026-11-06)
+
+- **Archived as done on 2026-11-06 at the user's request, before any manual check.** The
+  unchecked Validation items, all the manual and adversarial ones in the real app, were never run.
 
 - **Route checks are tested without a socket.** `web_desktop_test.ts` opens none, so the
   server's check moved into a pure exported `desktopAsk(msg, projects, {channel,

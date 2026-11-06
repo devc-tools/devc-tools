@@ -3,7 +3,7 @@
 // The page can only ask: the app works out the push plan, the start or the terminal's folder
 // itself, and the user confirms it in its HOST drawer, where devc web cannot draw. So a request
 // carries no more than what to look at. See `.plans/devc-desktop-host-actions.md` and
-// `.plans/devc-web-host-terminal-request.md`.
+// `.plans/archived/devc-web-host-terminal-request.md`.
 
 /**
  * What a request asks for: a push of one repo, a project's start, stop or removal, or a host
