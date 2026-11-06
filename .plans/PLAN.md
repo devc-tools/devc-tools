@@ -11,12 +11,22 @@
 
 ### Pending
 
-- [terminal-shared-surface](terminal-shared-surface.md) — terminal features written once:
-  `lib/term_surface.js` (devc web, bundled into the app like `layout.js`) holds links and copy on
-  select for any xterm.js; `host_terminal.ts` builds both host terminals (drawer and tile), with
-  their paste bar and shortcuts; one right-click menu builder for both. Host terminals gain
-  Cmd/Ctrl+click on http(s) URLs (and OSC 8 links) to the system browser; host file paths stay
-  unlinked.
+- [host-terminal-themes](host-terminal-themes.md) — before host-terminal-herdr: host terminals
+  were left dark-only (fixed dark `HOST_COLORS`, `color-scheme: dark`), which was not the design.
+  View → Host Terminal Color becomes a theme choice (Same as Theme, or any of `THEMES`; saved
+  `hostColor` values carry over), and the drawer and host tiles are themed with it in the current
+  mode exactly as devc web is, terminal palette and contrast included, following View →
+  Appearance live.
+
+- [host-terminal-herdr](host-terminal-herdr.md) — after host-terminal-themes: host terminals become panes of a
+  `devc-desktop-<12 hex>` Herdr session (hashed from the app's `userData`, so it cannot clash with
+  a project's session; Herdr required), drawn by devc web's `renderer.js` with `tiles.js`'s mouse
+  handling moved to a shared `term_mouse.js`. One `host_terminal.ts` for the drawer and host
+  tiles, one menu (`hostMenuEntries`). Close releases a pane, Close terminal… ends it after a
+  confirmation, as in devc web; shells outlive the app and moves reattach; node-pty goes.
+  Cmd/Ctrl+click opens URLs in the system browser and file paths in devc web's viewer (`/main`'s
+  `open-host-file`, a new `locate_host_file`, confined to project repos). Step 0 measures on macOS
+  first. Supersedes terminal-shared-surface.
 
 - [devc-web-aseprite-viewer](devc-web-aseprite-viewer.md) — after devc-web-media-tiles: a
   clean-room `.aseprite` decoder and compositor (`static/lib/aseprite.js`, from the public spec
@@ -224,6 +234,10 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
   refreshes the mirror so `↑N` clears.
 
 ### Completed
+
+- ⏭️ Superseded — [terminal-shared-surface](archived/terminal-shared-surface.md) — never built;
+  replaced by host-terminal-herdr, which shares terminal code at the Herdr level once host
+  terminals run on Herdr.
 
 - ✅ Done — [devc-ui-themes](archived/devc-ui-themes.md) — **View → Theme**: Slate (default),
   Graphite, and solid tints in the six host colors' hues, for devc web (`#…&theme=`, palettes in
@@ -2718,4 +2732,6 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
 | devc web Herdr workspaces — one Herdr workspace per repo; new panes land in their repo's workspace                  | [devc-web-herdr-workspaces](devc-web-herdr-workspaces.md)                          | in progress |
 | devc UI themes — Slate, Graphite and the host colors' hues for devc web and the app, picked under View → Theme      | [devc-ui-themes](archived/devc-ui-themes.md)                                       | complete    |
 | devc web light mode — light palettes for every theme; follows the OS, View → Appearance in the app                  | [devc-web-light-mode](devc-web-light-mode.md)                                      | in progress |
-| Terminal shared surface — one host terminal module, links and copy on select shared with devc web                   | [terminal-shared-surface](terminal-shared-surface.md)                              |             |
+| Terminal shared surface — superseded by host-terminal-herdr                                                         | [terminal-shared-surface](archived/terminal-shared-surface.md)                     | superseded  |
+| Host terminal themes — Host Terminal Color picks a theme; light and dark like devc web                              | [host-terminal-themes](host-terminal-themes.md)                                    |             |
+| Host terminals on Herdr — a devc-desktop session, one terminal for both apps, host file links                       | [host-terminal-herdr](host-terminal-herdr.md)                                      |             |

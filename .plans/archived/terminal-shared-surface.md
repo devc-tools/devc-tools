@@ -1,5 +1,10 @@
 # Terminals: one host terminal module, one shared terminal surface
 
+> **Superseded before implementation (2026-11-06)** by [host-terminal-herdr](../host-terminal-herdr.md):
+> host terminals move to Herdr and draw with devc web's `renderer.js`, so sharing happens at the
+> Herdr-terminal level (`term_mouse.js`, `host_terminal.ts`, `hostMenuEntries`) instead of the
+> xterm.js level this plan describes. Nothing here was built.
+
 Decided with the user on 2026-11-06. Prerequisite: the copy-on-select change (host terminals,
 `devc-desktop/src/renderer/copy_select.ts`, `hostPermission`; the viewer's in `viewer.js`) is
 committed before this starts.
