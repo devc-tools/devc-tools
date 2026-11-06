@@ -13,30 +13,30 @@ Prerequisite: the copy-on-select change (the viewer's in `viewer.js`; host termi
 ## Checklist
 
 - [x] Step 0: measurements (below), recorded in this plan before any code.
-- [ ] Main process: a Node Herdr client for the app's `devc-desktop-<12 hex>` session
+- [x] Main process: a Node Herdr client for the app's `devc-desktop-<12 hex>` session
       (`src/main/herdr.ts`): find `herdr`, check the bridge, start the session, create, list,
       close and control panes.
-- [ ] No Herdr, or an unsupported one: the host terminal is refused with a reason, as under a
+- [x] No Herdr, or an unsupported one: the host terminal is refused with a reason, as under a
       debugging switch.
 - [x] `devc/web/static/term_mouse.js`: `tiles.js`'s `attachMouse` moved out, with hooks;
       `tiles.js` uses it, container terminals unchanged.
 - [x] `renderer.js`: a `colors` option and `setColors`, for the host theme.
-- [ ] `devc-desktop/src/renderer/host_terminal.ts`: one host terminal (renderer, mouse, wheel,
+- [x] `devc-desktop/src/renderer/host_terminal.ts`: one host terminal (renderer, mouse, wheel,
       paste bar, shortcuts) used by both `host.ts` and `slot.ts`. node-pty, `@xterm/xterm`,
       `@xterm/addon-fit`, `@xterm/addon-serialize`, `copy_select.ts` and the move replay IPC are
       gone.
-- [ ] Close releases a pane; Close terminal… (after a confirmation) closes it in Herdr. Panes
+- [x] Close releases a pane; Close terminal… (after a confirmation) closes it in Herdr. Panes
       outlive the app; saved layouts reattach them; Restore Host Tiles reopens panes no view
       shows.
-- [ ] One menu: `hostMenuEntries` in `policy.ts`, one builder in `main.ts` for the drawer and host
+- [x] One menu: `hostMenuEntries` in `policy.ts`, one builder in `main.ts` for the drawer and host
       tiles.
-- [ ] Copy (drag through Herdr, Shift+drag local) and the paste bar work over Herdr.
-- [ ] `cd` items read the pane's folder and busy state from Herdr.
-- [ ] Links: Cmd+click (Ctrl+click off a Mac) on a URL opens the system browser (host views'
+- [x] Copy (drag through Herdr, Shift+drag local) and the paste bar work over Herdr.
+- [x] `cd` items read the pane's folder and busy state from Herdr.
+- [x] Links: Cmd+click (Ctrl+click off a Mac) on a URL opens the system browser (host views'
       `lockDownBundled` get `external: true`); on a file path, devc web's viewer through
       `/main`'s `open-host-file` and a new `locate_host_file`.
-- [ ] `desktopSessionName`, with a test that it can never equal a `hostSessionName`.
-- [ ] Tests, `devc-desktop/README.md` (host terminal, host tiles, requirements, security sections),
+- [x] `desktopSessionName`, with a test that it can never equal a `hostSessionName`.
+- [x] Tests, `devc-desktop/README.md` (host terminal, host tiles, requirements, security sections),
       `devc/README.md` (`open-host-file`).
 
 ## Goal
@@ -315,31 +315,31 @@ absolute). The page then calls `openFileAt(file, line, column)`.
 ## Validation
 
 - [ ] Step 0's results are written in this plan.
-- [ ] `cd devc-desktop && npm run check && npm test`, including new `tests/herdr.test.ts`:
+- [x] `cd devc-desktop && npm run check && npm test`, including new `tests/herdr.test.ts`:
       request framing (one id per connection, error codes to `BridgeError`-like errors, a reply
       for another id ignored), the bridge check (`herdr-api-bridge-v1` exact), and the IPC pane-id
       guard (a pane not in the list, or another view's, refused).
-- [ ] `policy.test.ts`: `hostMenuEntries('drawer')` and `hostMenuEntries('slot')` equal the list
+- [x] `policy.test.ts`: `hostMenuEntries('drawer')` and `hostMenuEntries('slot')` equal the list
       above; `desktopSessionName('/Users/a/Library/Application Support/devcd')` matches
       `^devc-desktop-[0-9a-f]{12}$`, is the same on every call, differs for another `userData`,
       and its 9th character from the end is not `-`.
-- [ ] `cd devc && deno task test`, including: every `hostSessionName` (bases `devc` and
+- [x] `cd devc && deno task test`, including: every `hostSessionName` (bases `devc` and
       `devc-desktop`, generated folders and `/x/desktop`) has `-` as its 9th character from the
       end, the property D1 relies on; `locate_host_file` opens a file in a host project's repo and
       one in a container project's bind-mounted repo, refuses `/etc/hosts` and a symlink out of a
       repo (`forbidden`), a missing file (`not_found`) and a relative path (`bad_request`);
       `hostOpenFromHash` parses and drops the three parameters.
-- [ ] `deno check` / `deno lint` / `deno fmt --check` on touched devc web files.
-- [ ] `grep -rn "node-pty\|@xterm/" devc-desktop/src devc-desktop/package.json devc-desktop/build.mjs`
+- [x] `deno check` / `deno lint` / `deno fmt --check` on touched devc web files.
+- [x] `grep -rn "node-pty\|@xterm/" devc-desktop/src devc-desktop/package.json devc-desktop/build.mjs`
       finds nothing.
-- [ ] `grep -rn "new Terminal(" devc/web/static devc-desktop/src --include=*.js --include=*.ts | grep -v vendor`
+- [x] `grep -rn "new Terminal(" devc/web/static devc-desktop/src --include=*.js --include=*.ts | grep -v vendor`
       matches only `renderer.js`.
-- [ ] `grep -n "attachTerminalMouse(" devc/web/static/tiles.js devc-desktop/src/renderer/host_terminal.ts`
+- [x] `grep -n "attachTerminalMouse(" devc/web/static/tiles.js devc-desktop/src/renderer/host_terminal.ts`
       matches once in each; `grep -n "function attachMouse" devc/web/static/tiles.js` finds nothing.
-- [ ] `grep -n "Split vertically" devc-desktop/src/main/main.ts` matches once; `grep -rn "End Shell"
+- [x] `grep -n "Split vertically" devc-desktop/src/main/main.ts` matches once; `grep -rn "End Shell"
       devc-desktop/src devc-desktop/README.md` finds nothing.
-- [ ] `test ! -e devc-desktop/src/renderer/copy_select.ts`.
-- [ ] `cd devc-desktop && npm run build:mac` succeeds.
+- [x] `test ! -e devc-desktop/src/renderer/copy_select.ts`.
+- [x] `cd devc-desktop && npm run build:mac` succeeds.
 - [ ] Real app, macOS:
   - [ ] Herdr renamed away from PATH: the drawer shows `The host terminal needs Herdr: herdr was
         not found on your login shell's PATH`; New Host Tile is refused the same way.
@@ -377,6 +377,36 @@ absolute). The page then calls `openFileAt(file, line, column)`.
 - [ ] Real devc web, a container terminal (regression): click, drag (copied, flashed), Shift+drag
       (copied), right-click menu, wheel scroll, Cmd/Ctrl+click on a URL and on a repo file path;
       themes and light mode as before.
+
+## Notes from implementation (2026-11-06)
+
+Built and unit-tested here; the app could not be started (Electron's `chrome-sandbox` cannot be
+made setuid in this container), so every real-app check above is open. The Herdr client was also
+run against a real Herdr 0.9.5 (server start, `createShell`, frames, busy, selection, close).
+
+Where the code differs from the contracts above:
+
+- **Channel names.** Page → main pane commands are `host-term:pane-command` (preload
+  `paneCommand`): `host-term:command` already carries the app's menu picks to the drawer. Also
+  added: `host-term:create` (a new pane, the drawer only), `host-term:unshown`, `host-term:panes`
+  (main → page, every 2 s while any pane is attached: each pane's `foreground_cwd` and title, for
+  links and tab titles), and `host-term:remove` (main → drawer: a tile goes, its pane moved or
+  ended). `host-term:end` takes only the pane id: the main process names the pane itself
+  (`user@host` and Herdr's title) in the dialog.
+- **`desktopSessionName` is in `herdr.ts`,** not `policy.ts`: `policy.ts` is bundled into the
+  pages too, which cannot import `node:crypto`. Its test is in `tests/herdr.test.ts`.
+- **`locate_host_file`'s lookup is `hostFileIn`** (`projects_view.ts`, tested with a host
+  project's and a container project's repos); confinement is `confine`, whose symlink and
+  missing-file cases its own tests cover. The server handler itself has no unit test (handlers
+  are closures in `server.ts`).
+- **The `cd` items' folders** still come from devc web's active pane, as before; only the busy
+  check (`pane.process_info`) and the typing (`terminal.input`) moved to Herdr.
+- **Host tiles across restarts:** the app saves each host tile's slot id → pane id
+  (`hostSlots` in `desktop-state.json`); a slot line from `/main` for a saved id reattaches that
+  pane. Saved ids whose panes Herdr no longer has are dropped at start.
+- **Validation for the IPC:** `terminalCommand`, `cellOf`, `termSize` and `openFileRequest`
+  (`policy.ts`) rebuild every page message from the fields Herdr takes, with tests.
+- `after-pack.cjs` (made node-pty's `spawn-helper` executable) is gone with node-pty.
 
 ## Relevant Files
 

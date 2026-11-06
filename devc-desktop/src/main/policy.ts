@@ -138,12 +138,155 @@ export const DRAWER_MAX_SHARE = 0.85;
 /** The drawer's height before the user has dragged it, as a share of the content height. */
 export const DRAWER_DEFAULT_SHARE = 0.4;
 
-/** The most shells the drawer runs at once: one per terminal tile. */
+/** The most panes the app's Herdr session holds: no new one past this. */
 export const MAX_SHELLS = 32;
 
-/** Whether `id` can name a shell: what the host page's ids look like, nothing longer. */
+/**
+ * Whether `id` can name a pane of the app's Herdr session: what Herdr's ids look like (`w1:p1`),
+ * nothing longer. The main process also checks it is in the session's pane list.
+ */
 export function isShellId(id: unknown): id is string {
-  return typeof id === 'string' && /^[0-9a-zA-Z-]{1,64}$/.test(id);
+  return typeof id === 'string' && /^[0-9a-zA-Z:_-]{1,64}$/.test(id);
+}
+
+/** A terminal dimension from a page: a whole number from 1 to 1000, else `fallback`. */
+export function termSize(n: unknown, fallback: number): number {
+  return typeof n === 'number' && Number.isInteger(n) && n >= 1 && n <= 1000
+    ? n
+    : fallback;
+}
+
+/** A viewport cell from a page: whole numbers from 0 to 999, or null. */
+export function cellOf(v: unknown): { column: number; row: number } | null {
+  const o = v as { column?: unknown; row?: unknown } | null;
+  const ok = (n: unknown) =>
+    typeof n === 'number' && Number.isInteger(n) && n >= 0 && n < 1000;
+  return typeof o === 'object' && o !== null && ok(o.column) && ok(o.row)
+    ? { column: o.column as number, row: o.row as number }
+    : null;
+}
+
+/** The most a page may type or paste into a pane at once, as base64. */
+export const MAX_INPUT_B64 = 4 * 1024 * 1024;
+
+/**
+ * A pane command from a host page, rebuilt from only the fields Herdr takes, or null: input as
+ * base64 (Herdr takes nothing else, Step 0), a resize, a scroll, a mouse event in cells.
+ */
+export function terminalCommand(
+  v: unknown,
+):
+  | { type: 'terminal.input'; bytes: string }
+  | { type: 'terminal.resize'; cols: number; rows: number }
+  | { type: 'terminal.scroll'; direction: 'up' | 'down'; lines: number }
+  | {
+    type: 'terminal.mouse';
+    action: 'down' | 'up' | 'drag' | 'move';
+    button?: 'left' | 'right' | 'middle';
+    column: number;
+    row: number;
+  }
+  | null {
+  const o = v as Record<string, unknown> | null;
+  if (typeof o !== 'object' || o === null) return null;
+  switch (o.type) {
+    case 'terminal.input':
+      return typeof o.bytes === 'string' && o.bytes.length <= MAX_INPUT_B64 &&
+          /^[A-Za-z0-9+/]*={0,2}$/.test(o.bytes)
+        ? { type: 'terminal.input', bytes: o.bytes }
+        : null;
+    case 'terminal.resize': {
+      const cols = termSize(o.cols, 0);
+      const rows = termSize(o.rows, 0);
+      return cols && rows ? { type: 'terminal.resize', cols, rows } : null;
+    }
+    case 'terminal.scroll': {
+      const lines = termSize(o.lines, 0);
+      return (o.direction === 'up' || o.direction === 'down') && lines
+        ? { type: 'terminal.scroll', direction: o.direction, lines }
+        : null;
+    }
+    case 'terminal.mouse': {
+      const cell = cellOf(o);
+      const action = o.action;
+      if (
+        cell === null ||
+        !(action === 'down' || action === 'up' || action === 'drag' ||
+          action === 'move')
+      ) return null;
+      const button = o.button;
+      if (
+        button !== undefined && button !== 'left' && button !== 'right' &&
+        button !== 'middle'
+      ) return null;
+      return {
+        type: 'terminal.mouse',
+        action,
+        ...(button !== undefined ? { button } : {}),
+        ...cell,
+      };
+    }
+    default:
+      return null;
+  }
+}
+
+/**
+ * A file a host page asks to open (a Cmd/Ctrl+clicked path), or null: an absolute path of at
+ * most 4096 characters with no `..` and no control characters, a line and a column of 1 or more.
+ */
+export function openFileRequest(
+  v: unknown,
+): { path: string; line?: number; column?: number } | null {
+  const o = v as { path?: unknown; line?: unknown; column?: unknown } | null;
+  if (typeof o !== 'object' || o === null) return null;
+  const path = o.path;
+  if (
+    typeof path !== 'string' || !path.startsWith('/') || path.length > 4096 ||
+    path.split('/').includes('..') || /[\x00-\x1f\x7f]/.test(path)
+  ) return null;
+  const num = (n: unknown) =>
+    typeof n === 'number' && Number.isInteger(n) && n >= 1 && n < 1e9
+      ? n
+      : undefined;
+  const line = num(o.line);
+  const column = line === undefined ? undefined : num(o.column);
+  return {
+    path,
+    ...(line !== undefined ? { line } : {}),
+    ...(column !== undefined ? { column } : {}),
+  };
+}
+
+/** An item of a host terminal's right-click menu (`main.ts` gives each its label and action). */
+export type HostMenuEntry =
+  | 'split-right'
+  | 'split-below'
+  | 'new-tab'
+  | 'separator'
+  | 'cd'
+  | 'move'
+  | 'close'
+  | 'close-terminal';
+
+/**
+ * A host terminal's right-click menu, the drawer's and a host tile's alike: they differ only in
+ * where `move` goes. **Close** lets go of the pane; **Close terminal…** ends it, as devc web's
+ * terminal tiles' menus.
+ */
+export function hostMenuEntries(_where: 'drawer' | 'slot'): HostMenuEntry[] {
+  return [
+    'split-right',
+    'split-below',
+    'new-tab',
+    'separator',
+    'cd',
+    'separator',
+    'move',
+    'separator',
+    'close',
+    'close-terminal',
+  ];
 }
 
 /** What the host terminal's tiles can be told to do: its shortcuts and right-click menu. */
@@ -565,17 +708,9 @@ export function menuLabel(
   return platform === 'darwin' ? shown : shown.replaceAll('&', '&&');
 }
 
-/** The last segment of a path: node-pty names the foreground process by name or by path. */
+/** The last segment of a path. */
 export function baseName(p: string): string {
   return p.replace(/\/+$/, '').split('/').pop() ?? p;
-}
-
-/**
- * Whether the host shell is at its prompt: its foreground process (node-pty's `IPty.process`)
- * is the shell itself, compared by basename, a login shell's leading `-` dropped.
- */
-export function shellIdle(foreground: string, shell: string): boolean {
-  return baseName(foreground).replace(/^-/, '') === baseName(shell);
 }
 
 // ---- host actions -----------------------------------------------------------------------------
@@ -1091,11 +1226,6 @@ export function ambiguousPress(
   return recentChanges(changes, now).some((c) =>
     within(c.old, p) !== within(c.now, p)
   );
-}
-
-/** A host tile's shell id: never one the drawer's page makes (a UUID). */
-export function slotShellId(hex16: string): string {
-  return `slot-${hex16}`;
 }
 
 // ---- menu swatches -----------------------------------------------------------------------------

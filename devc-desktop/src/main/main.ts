@@ -10,9 +10,9 @@
 //     devc web's Containers section built into the app, on `/ws` with the desktop token;
 //   - the rail (bundled page + preload) between the column and `/main`, dragged to resize;
 //   - the status view (bundled page + preload) while devc web starts, or after it stopped;
-//   - the host view (bundled page + preload): a drawer under `/main` running the user's shell
-//     through node-pty, opened only from the app menu. No permission but copying (copy-on-select),
-//     as its host tiles;
+//   - the host view (bundled page + preload): a drawer under `/main` showing panes of the app's
+//     own Herdr session (`herdr.ts`), opened only from the app menu. No permission but copying
+//     (copy-on-select), as its host tiles;
 //   - a host tile's view (bundled page + the host preload) per New Host Tile: one shell over a
 //     `host` tile in `/main`'s own layout, placed where `/main` says the tile is, and hidden
 //     whenever devc web may draw over it;
@@ -31,6 +31,7 @@ import { join } from 'node:path';
 import {
   app,
   BaseWindow,
+  dialog,
   ipcMain,
   Menu,
   type MenuItemConstructorOptions,
@@ -41,7 +42,6 @@ import {
   shell,
   WebContentsView,
 } from 'electron';
-import * as nodePty from 'node-pty';
 import {
   appearanceNamed,
   type Theme,
@@ -74,6 +74,7 @@ import {
   baseName,
   type CdTarget,
   cdTarget,
+  cellOf,
   clampDrawer,
   containersPermission,
   type CoverChange,
@@ -92,6 +93,7 @@ import {
   HOST_THEMES,
   type HostCommand,
   hostFolder,
+  hostMenuEntries,
   hostPermission,
   hostTerminalOptions,
   hostTheme,
@@ -104,6 +106,7 @@ import {
   MAX_SHELLS,
   menuLabel,
   menuRequest,
+  openFileRequest,
   paneRequest,
   parseSlotLine,
   placeMenu,
@@ -113,15 +116,32 @@ import {
   recentChanges,
   type Rect,
   requestsAnswer,
-  shellIdle,
   shellQuote,
   showText,
-  slotShellId,
+  SLOT_ID,
   swatchBitmap,
   swatchTone,
+  terminalCommand,
+  termSize,
   TITLEBAR_HEIGHT,
 } from './policy.ts';
-import { accountShell, HostPtys, hostShell, ptyEnv } from './pty.ts';
+import { accountShell, hostShell } from './pty.ts';
+import {
+  bridgeSupported,
+  busyWith as herdrBusyWith,
+  closePane,
+  controlPane,
+  createShell,
+  desktopSessionName,
+  ensureServer,
+  findHerdr,
+  type HerdrTarget,
+  herdrVersion,
+  listPanes,
+  type PaneControl,
+  type PaneInfo,
+  readSelection,
+} from './herdr.ts';
 
 /**
  * devc's global config folder. Its `config.jsonc`, else its `config.json`, is where
@@ -363,7 +383,10 @@ async function main(): Promise<void> {
 
   lockDownDevc();
   lockDownBundled(statusView, STATUS_URL);
-  lockDownBundled(hostView, HOST_URL, { permission: hostPermission });
+  lockDownBundled(hostView, HOST_URL, {
+    permission: hostPermission,
+    external: true,
+  });
   lockDownBundled(titleBarView, TITLEBAR_URL);
   lockDownBundled(railView, RAIL_URL);
   lockDownBundled(menuView, MENU_URL);
@@ -430,7 +453,8 @@ async function main(): Promise<void> {
   interface Slot {
     /** The slot id devc web's tile names; a new one on Restore Host Tiles. */
     id: string;
-    shell: string;
+    /** Its pane of the app's Herdr session. */
+    pane: string;
     view: WebContentsView;
     /** The tile's last line: its CSS rectangle, `null` for hidden, `undefined` until one came. */
     line: Rect | null | undefined;
@@ -438,12 +462,10 @@ async function main(): Promise<void> {
     shown: Rect | null;
     /** When it was last shown, in ms; 0 never. */
     seenAt: number;
-    /** Its shell exited or was ended: the view goes once its tile does. */
+    /** Its pane exited or was ended: the view goes once its tile does. */
     ended: boolean;
     /** Focus it when it is next shown: it is new, or was hidden while it had the focus. */
     focusOnShow: boolean;
-    /** What its terminal showed in the drawer, for its page, when the shell moved here. */
-    replay: string | null;
   }
   /** By slot id. */
   const slots = new Map<string, Slot>();
@@ -454,13 +476,13 @@ async function main(): Promise<void> {
   let coverChanges: CoverChange[] = [];
   /** The view whose keys are dropped after an ambiguous press, until a press that is not. */
   let muted: Electron.WebContents | null = null;
+  /** Panes moved to the drawer before its page could hear of them: its `info` takes them. */
+  const pendingAdopt: string[] = [];
   /**
-   * Shells being moved between the drawer and `/main`'s layout, by shell id: where to, and their
-   * output since the move began, held until the page taking them has their terminal's contents.
+   * Host tiles' panes by slot id, saved across restarts: a slot line from `/main` for a saved id
+   * (its restored layout) reattaches that pane. Only ids the app issued are ever here.
    */
-  const moving = new Map<string, { to: 'main' | 'drawer'; buf: string }>();
-  /** Shells moved to the drawer before its page could hear of them: its `info` takes them. */
-  const pendingAdopt: { id: string; replay: string }[] = [];
+  const savedSlots = new Map<string, string>();
   /** The drawer's page has asked for its `info`: it hears `host-term:adopt` from now on. */
   let hostPageReady = false;
   /** A pending {@link applySlots}, and when it last ran. */
@@ -726,6 +748,12 @@ async function main(): Promise<void> {
       hostColor = hostThemeOf(s?.hostColor);
       uiTheme = themeNamed(s?.uiTheme);
       appearance = appearanceNamed(s?.appearance);
+      const saved = s?.hostSlots;
+      if (typeof saved === 'object' && saved !== null) {
+        for (const [id, pane] of Object.entries(saved)) {
+          if (SLOT_ID.test(id) && isShellId(pane)) savedSlots.set(id, pane);
+        }
+      }
     } catch { /* first launch */ }
   }
 
@@ -745,6 +773,7 @@ async function main(): Promise<void> {
             hostColor: hostColor.value,
             uiTheme: uiTheme.name,
             appearance,
+            hostSlots: Object.fromEntries(savedSlots),
           }),
         )
       ).catch(() => {});
@@ -1024,35 +1053,144 @@ async function main(): Promise<void> {
 
   // ---- the host terminal -----------------------------------------------------------------------
 
-  const hostPtys = new HostPtys({
-    shell: hostShell(process.env, process.platform, accountShell()),
-    cwd: app.getPath('home'),
-    env: ptyEnv(childEnv(process.env, undefined)),
-    // A host tile's shell talks to its own view; every other is the drawer's.
-    onOutput: (id, data) => {
-      const move = moving.get(id);
-      if (move !== undefined) {
-        move.buf += data;
+  // Panes of the app's own Herdr session (`herdr.ts`): nothing here runs a shell itself, and
+  // devc web never connects to this session (`desktopSessionName`). One view at a time controls
+  // a pane (`attachments`). See `.plans/host-terminal-herdr.md`.
+
+  const hostShellPath = hostShell(
+    process.env,
+    process.platform,
+    accountShell(),
+  );
+  const herdrEnv = childEnv(process.env, undefined);
+  let herdr: HerdrTarget | null = null;
+  /** Why the host terminal is off, as its pages show it, or null. */
+  let refusal: string | null = debugging === null
+    ? null
+    : `The host terminal is off: ${debugging}.`;
+  /** Settles once Herdr is found and its server runs, or `refusal` says why not (D2). */
+  const herdrReady: Promise<void> = refusal !== null
+    ? Promise.resolve()
+    : (async () => {
+      const path = await findHerdr(hostShellPath, herdrEnv);
+      if (path === null) {
+        refusal =
+          "The host terminal needs Herdr: herdr was not found on your login shell's PATH";
         return;
       }
-      (slotOfShell(id)?.view ?? hostView).webContents.send(
-        'host-term:output',
-        id,
-        data,
-      );
-    },
-    onExit: (id, code) => {
-      const slot = slotOfShell(id);
-      if (slot === undefined) {
-        hostView.webContents.send('host-term:exit', id, code);
+      const t: HerdrTarget = {
+        herdrPath: path,
+        session: desktopSessionName(app.getPath('userData')),
+        env: herdrEnv,
+      };
+      if (!(await bridgeSupported(t))) {
+        refusal = `The host terminal needs Herdr: ${await herdrVersion(
+          t,
+        )} has no remote-api-bridge`;
         return;
       }
-      slot.view.webContents.send('host-term:exit', id, code);
-      slotEnded(slot);
-    },
-  }, nodePty.spawn);
+      try {
+        await ensureServer(t, hostShellPath, app.getPath('home'));
+      } catch (e) {
+        refusal = `The host terminal needs Herdr: ${
+          e instanceof Error ? e.message : String(e)
+        }`;
+        return;
+      }
+      herdr = t;
+      // Saved host tiles whose panes Herdr no longer has: nothing to reattach.
+      const panes = await refreshPanes();
+      for (const [id, pane] of [...savedSlots]) {
+        if (!panes.has(pane)) forgetSlot(id);
+      }
+      updateRestoreItem();
+    })();
+
+  /** Which view controls each pane now, by pane id. */
+  const attachments = new Map<
+    string,
+    { wc: Electron.WebContents; ctl: PaneControl }
+  >();
+  /** The session's panes as last listed, by id. */
+  let paneList = new Map<string, PaneInfo>();
+
+  async function refreshPanes(): Promise<Map<string, PaneInfo>> {
+    if (herdr === null) return paneList;
+    try {
+      paneList = new Map((await listPanes(herdr)).map((p) => [p.pane_id, p]));
+    } catch { /* keep the last list */ }
+    return paneList;
+  }
+
+  /** Lets go of a pane: it keeps running in Herdr. */
+  function releasePane(id: string): void {
+    const a = attachments.get(id);
+    if (a === undefined) return;
+    attachments.delete(id);
+    a.ctl.release();
+  }
+
+  /** A new pane in the home folder: its id. */
+  async function newPane(): Promise<string> {
+    await herdrReady;
+    if (refusal !== null || herdr === null) throw new Error(refusal ?? 'off');
+    if ((await refreshPanes()).size >= MAX_SHELLS) {
+      throw new Error('too many host shells');
+    }
+    const home = app.getPath('home');
+    const id = await createShell(herdr, home);
+    paneList.set(id, {
+      pane_id: id,
+      cwd: home,
+      foreground_cwd: home,
+      title: '',
+    });
+    return id;
+  }
+
+  /** The session's panes no drawer tile and no host tile shows, newest first. */
+  async function unshownPanes(): Promise<string[]> {
+    await herdrReady;
+    if (herdr === null) return [];
+    const list = await refreshPanes();
+    const shown = new Set([
+      ...attachments.keys(),
+      ...[...slots.values()].map((s) => s.pane),
+    ]);
+    return [...list.keys()].filter((id) => !shown.has(id)).reverse();
+  }
+
+  /** `user@host`, and the shell's title when Herdr has one: what Close terminal… names. */
+  function paneLabel(id: string): string {
+    const who = `${userInfo().username}@${hostname().replace(/\.local$/, '')}`;
+    const title = paneList.get(id)?.title ?? '';
+    return title ? `${who} ${title}` : who;
+  }
+
+  // The panes' folders and titles, for links and tab titles, while any is shown.
+  setInterval(() => {
+    if (attachments.size === 0 || herdr === null) return;
+    void refreshPanes().then((list) => {
+      const byView = new Map<
+        Electron.WebContents,
+        { paneId: string; cwd: string; title: string }[]
+      >();
+      for (const [id, a] of attachments) {
+        const p = list.get(id);
+        if (p === undefined) continue;
+        const panes = byView.get(a.wc) ?? [];
+        panes.push({ paneId: id, cwd: p.foreground_cwd, title: p.title });
+        byView.set(a.wc, panes);
+      }
+      for (const [wc, panes] of byView) {
+        if (!wc.isDestroyed()) wc.send('host-term:panes', panes);
+      }
+    });
+  }, 2000);
 
   let hostLoaded = false;
+  /** The drawer was last opened by the user (not a request): an empty one makes a pane. */
+  let drawerByUser = false;
 
   /** Opens or closes the drawer. Only the app menu calls this: no page can. */
   function toggleHost(): void {
@@ -1065,12 +1203,13 @@ async function main(): Promise<void> {
    */
   function setDrawer(open: boolean, focus: boolean): void {
     drawerOpen = open;
+    drawerByUser = open && focus;
     if (drawerOpen && !hostLoaded) {
       hostLoaded = true;
       void hostView.webContents.loadURL(HOST_URL);
     }
     relayout();
-    hostView.webContents.send('host-term:shown', drawerOpen);
+    hostView.webContents.send('host-term:shown', drawerOpen, drawerByUser);
     if (drawerOpen) {
       if (focus) hostView.webContents.focus();
     } else (showingDevc ? devcView : statusView).webContents.focus();
@@ -1151,32 +1290,118 @@ async function main(): Promise<void> {
   ): id is string {
     if (!isShellId(id)) return false;
     const slot = slotOf(e);
-    if (slot !== undefined) return id === slot.shell && !slot.ended;
-    return fromHost(e) && slotOfShell(id) === undefined;
+    if (slot !== undefined) return id === slot.pane && !slot.ended;
+    return fromHost(e) && slotOfPane(id) === undefined;
   }
 
-  ipcMain.on(
-    'host-term:start',
-    (e, id: unknown, cols: unknown, rows: unknown) => {
-      if (debugging !== null || !mayUse(e, id)) return;
-      if (slotOf(e) === undefined && !drawerOpen) return;
-      hostPtys.start(id, Number(cols), Number(rows));
+  ipcMain.handle('host-term:create', async (e) => {
+    if (!fromHost(e)) throw new Error('refused');
+    return await newPane();
+  });
+  ipcMain.handle('host-term:unshown', async (e) => {
+    if (!fromHost(e)) throw new Error('refused');
+    return await unshownPanes();
+  });
+  ipcMain.handle(
+    'host-term:attach',
+    async (e, id: unknown, cols: unknown, rows: unknown) => {
+      if (!mayUse(e, id)) throw new Error('refused');
+      await herdrReady;
+      const t = herdr;
+      if (t === null) throw new Error(refusal ?? 'off');
+      const info = paneList.get(id) ?? (await refreshPanes()).get(id);
+      if (info === undefined) throw new Error('pane gone');
+      const wc = e.sender;
+      // One view controls a pane: a takeover replaces the last one.
+      releasePane(id);
+      const ctl: PaneControl = controlPane(
+        t,
+        id,
+        termSize(cols, 80),
+        termSize(rows, 24),
+        {
+          frame: (f) => {
+            if (!wc.isDestroyed()) wc.send('host-term:frame', id, f);
+          },
+          closed: (reason) => {
+            if (attachments.get(id)?.ctl !== ctl) return;
+            attachments.delete(id);
+            if (!wc.isDestroyed()) wc.send('host-term:closed', id, reason);
+            const slot = slotOfPane(id);
+            if (slot !== undefined && slot.view.webContents === wc) {
+              slotEnded(slot);
+            }
+          },
+        },
+      );
+      attachments.set(id, { wc, ctl });
+      return { paneId: id, cwd: info.foreground_cwd };
     },
   );
-  ipcMain.on('host-term:input', (e, id: unknown, data: unknown) => {
-    if (!mayUse(e, id) || typeof data !== 'string') return;
-    hostPtys.get(id)?.write(data);
+  ipcMain.on('host-term:pane-command', (e, id: unknown, cmd: unknown) => {
+    if (!mayUse(e, id)) return;
+    const a = attachments.get(id);
+    if (a === undefined || a.wc !== e.sender) return;
+    const c = terminalCommand(cmd);
+    if (c !== null) a.ctl.send(c);
   });
-  ipcMain.on(
-    'host-term:resize',
-    (e, id: unknown, cols: unknown, rows: unknown) => {
-      if (!mayUse(e, id)) return;
-      hostPtys.get(id)?.resize(Number(cols), Number(rows));
+  ipcMain.handle(
+    'host-term:read-selection',
+    async (e, id: unknown, anchor: unknown, cursor: unknown) => {
+      const a = cellOf(anchor);
+      const c = cellOf(cursor);
+      if (!mayUse(e, id) || herdr === null || a === null || c === null) {
+        throw new Error('refused');
+      }
+      return await readSelection(herdr, id, a, c);
     },
   );
-  ipcMain.on('host-term:close', (e, id: unknown) => {
-    if (fromHost(e) && mayUse(e, id)) void hostPtys.close(id);
+  ipcMain.on('host-term:release', (e, id: unknown) => {
+    if (!isShellId(id) || attachments.get(id)?.wc !== e.sender) return;
+    releasePane(id);
   });
+  // The drawer tab's trash button: the app asks first (the pages are granted no dialogs).
+  ipcMain.on('host-term:end', (e, id: unknown) => {
+    if (mayUse(e, id)) void closeTerminal(id);
+  });
+  ipcMain.on('host-term:open-file', (e, file: unknown) => {
+    if (!fromHost(e) && slotOf(e) === undefined) return;
+    const f = openFileRequest(file);
+    if (f === null) return;
+    setMainHash({
+      'open-host-file': f.path,
+      ...(f.line !== undefined ? { 'open-line': String(f.line) } : {}),
+      ...(f.column !== undefined ? { 'open-column': String(f.column) } : {}),
+    });
+  });
+
+  /**
+   * **Close terminal…**: asks, in devc web's words, then ends the pane in Herdr; its tile goes
+   * (a host tile's in devc web too). See `.plans/host-terminal-herdr.md` (D6).
+   */
+  async function closeTerminal(id: string): Promise<void> {
+    const t = herdr;
+    if (t === null) return;
+    const { response } = await dialog.showMessageBox(win, {
+      type: 'warning',
+      message: `Close terminal "${paneLabel(id)}"? Its process ends.`,
+      buttons: ['Close terminal', 'Cancel'],
+      defaultId: 1,
+      cancelId: 1,
+    });
+    if (response !== 0) return;
+    releasePane(id);
+    try {
+      await closePane(t, id);
+    } catch { /* gone already */ }
+    paneList.delete(id);
+    const slot = slotOfPane(id);
+    if (slot !== undefined) {
+      askToClose(slot.id);
+      dropSlot(slot);
+    } else hostView.webContents.send('host-term:remove', id);
+  }
+
   // The page's last tile closed: the drawer goes with it, and opening it again starts a new one.
   ipcMain.on('host-term:hide', (e) => {
     if (fromHost(e) && drawerOpen) toggleHost();
@@ -1194,29 +1419,25 @@ async function main(): Promise<void> {
     relayout();
     saveState();
   });
-  ipcMain.handle('host-term:info', (e) => {
+  ipcMain.handle('host-term:info', async (e) => {
+    await herdrReady;
     const who = {
       user: userInfo().username,
       host: hostname().replace(/\.local$/, ''),
-      refused: debugging,
+      refused: refusal,
       color: hostTerminalOptions(hostThemeNow(), uiMode()),
     };
     const slot = slotOf(e);
-    if (slot !== undefined) {
-      // A shell moved here from the drawer: its contents, then what it wrote meanwhile.
-      const replay = slot.replay === null
-        ? null
-        : slot.replay + takeMoved(slot.shell);
-      slot.replay = null;
-      return { ...who, shell: slot.shell, replay };
-    }
+    if (slot !== undefined) return { ...who, pane: slot.pane };
     if (!fromHost(e)) throw new Error('refused');
     hostPageReady = true;
-    const adopt = pendingAdopt.splice(0).map((a) => ({
-      id: a.id,
-      replay: a.replay + takeMoved(a.id),
-    }));
-    return { ...who, toggle: TOGGLE, open: drawerOpen, adopt };
+    return {
+      ...who,
+      toggle: TOGGLE,
+      open: drawerOpen,
+      byUser: drawerByUser,
+      adopt: pendingAdopt.splice(0),
+    };
   });
 
   // The right-click item: `cd` to the host folder behind devc web's active terminal pane. The
@@ -1237,7 +1458,7 @@ async function main(): Promise<void> {
     if (origin === null || devcWebToken === null) {
       return none("devc web isn't running");
     }
-    if (!hostPtys.get(id)?.running) {
+    if (!attachments.has(id)) {
       return none("The host shell isn't running");
     }
     let answer: unknown;
@@ -1265,20 +1486,15 @@ async function main(): Promise<void> {
     };
   }
 
-  /** Whether the shell is at its prompt; otherwise the busy program's name. */
-  function busyWith(id: string): string | null {
-    const pty = hostPtys.get(id);
-    const fg = pty?.foreground ?? null;
-    if (pty === undefined || fg === null || shellIdle(fg, pty.shell)) {
-      return null;
-    }
-    return baseName(fg);
+  /** Whether the pane's shell is at its prompt (null); otherwise the busy program's name. */
+  async function busyWith(id: string): Promise<string | null> {
+    return herdr === null ? null : await herdrBusyWith(herdr, id);
   }
 
   /** A shell's `cd` items: the active pane's folder, and its container's primary one. */
   async function cdItems(id: string): Promise<MenuItemConstructorOptions[]> {
     const { pane, primary } = await activeCd(id);
-    const busy = busyWith(id);
+    const busy = await busyWith(id);
     const busySuffix = busy !== null ? ` (busy: ${busy})` : '';
     const item = (
       which: 'pane' | 'primary',
@@ -1310,50 +1526,111 @@ async function main(): Promise<void> {
 
   let menuPending = false;
   ipcMain.on('host-term:context-menu', (e, id: unknown) => {
+    if (menuPending || !isShellId(id)) return;
     const slot = slotOf(e);
     if (slot !== undefined) {
-      if (id === slot.shell && !menuPending) {
-        menuPending = true;
-        void slotMenu(slot).finally(() => menuPending = false);
-      }
+      if (id !== slot.pane) return;
+    } else if (!fromHost(e) || !drawerOpen || slotOfPane(id) !== undefined) {
       return;
     }
-    if (!fromHost(e) || !isShellId(id) || !drawerOpen || menuPending) return;
     menuPending = true;
-    void cdItems(id).then((items) => {
-      /**
-       * A menu item for one of the page's commands, showing the shortcut it handles itself. The
-       * labels are devc web's own for its terminal tiles (`LABELS` in its `ui.js`).
-       */
-      const command = (
-        label: string,
-        name: HostCommand,
-      ): MenuItemConstructorOptions => ({
-        label,
-        accelerator: HOST_SHORTCUTS[name][IS_MAC ? 'mac' : 'other'],
-        registerAccelerator: false,
-        click: () => {
-          hostView.webContents.focus();
-          hostView.webContents.send('host-term:command', name, id);
-        },
-      });
-      Menu.buildFromTemplate([
-        command('Split vertically', 'split-right'),
-        command('Split horizontally', 'split-below'),
-        command('New terminal in this stack', 'new-tab'),
-        { type: 'separator' },
-        ...items,
-        { type: 'separator' },
-        {
-          label: 'Move to Main Area',
-          enabled: showingDevc && debugging === null &&
-            hostPtys.get(id)?.running === true && !moving.has(id),
-          click: () => moveToMain(id),
-        },
-        command('Close', 'close'),
-      ]).popup({ window: win });
-    }).finally(() => menuPending = false);
+    void hostMenu(slot ?? null, id).finally(() => menuPending = false);
   });
+
+  /**
+   * A host terminal's right-click menu, the drawer's or a host tile's (`hostMenuEntries`): splits,
+   * the `cd` items, the move, **Close** (lets go of the pane) and **Close terminal…** (ends it).
+   */
+  async function hostMenu(slot: Slot | null, id: string): Promise<void> {
+    const cd = slot?.ended ? [] : await cdItems(id);
+    const keys = (name: HostCommand): MenuItemConstructorOptions => ({
+      accelerator: HOST_SHORTCUTS[name][IS_MAC ? 'mac' : 'other'],
+      registerAccelerator: false,
+    });
+    /** A split or a new tab: the drawer's page makes it, or a new host tile beside this one. */
+    const run = (name: Exclude<HostCommand, 'close'>) => {
+      if (slot !== null) {
+        slotCommand(slot, name);
+        return;
+      }
+      hostView.webContents.focus();
+      hostView.webContents.send('host-term:command', name, id);
+    };
+    const items: MenuItemConstructorOptions[] = [];
+    for (const entry of hostMenuEntries(slot === null ? 'drawer' : 'slot')) {
+      switch (entry) {
+        case 'split-right':
+          items.push({
+            label: 'Split vertically',
+            ...keys('split-right'),
+            click: () => run('split-right'),
+          });
+          break;
+        case 'split-below':
+          items.push({
+            label: 'Split horizontally',
+            ...keys('split-below'),
+            click: () => run('split-below'),
+          });
+          break;
+        case 'new-tab':
+          items.push({
+            label: 'New terminal in this stack',
+            ...keys('new-tab'),
+            click: () => run('new-tab'),
+          });
+          break;
+        case 'separator':
+          items.push({ type: 'separator' });
+          break;
+        case 'cd':
+          items.push(...cd);
+          break;
+        case 'move':
+          items.push(
+            slot === null
+              ? {
+                label: 'Move to Main Area',
+                enabled: showingDevc && refusal === null && attachments.has(id),
+                click: () => void moveToMain(id),
+              }
+              : {
+                label: 'Move to Bottom Panel',
+                enabled: !slot.ended && refusal === null,
+                click: () => moveToDrawer(slot),
+              },
+          );
+          break;
+        case 'close':
+          items.push(
+            slot === null
+              ? {
+                label: 'Close',
+                ...keys('close'),
+                click: () => {
+                  hostView.webContents.focus();
+                  hostView.webContents.send('host-term:command', 'close', id);
+                },
+              }
+              : { label: 'Close', click: () => closeSlot(slot) },
+          );
+          break;
+        case 'close-terminal':
+          items.push({
+            label: 'Close terminal…',
+            enabled: !slot?.ended,
+            click: () => void closeTerminal(id),
+          });
+          break;
+      }
+    }
+    // No separator first, last or twice in a row (no `cd` items, say).
+    const trimmed = items.filter((it, i) =>
+      it.type !== 'separator' ||
+      (i > 0 && i < items.length - 1 && items[i - 1].type !== 'separator')
+    );
+    Menu.buildFromTemplate(trimmed).popup({ window: win });
+  }
 
   /** Checks again, and types the `cd` only if it still names the folder the item showed. */
   async function cdTo(
@@ -1362,13 +1639,18 @@ async function main(): Promise<void> {
     shown: string,
   ): Promise<void> {
     const target = (await activeCd(id))[which];
-    if (!target?.ok || target.path !== shown || busyWith(id) !== null) {
+    if (!target?.ok || target.path !== shown || (await busyWith(id)) !== null) {
       shell.beep();
       return;
     }
     // Ctrl+E, Ctrl+U: whatever was typed on the prompt goes first.
-    hostPtys.get(id)?.write(`\x05\x15cd ${shellQuote(target.path)}\r`);
-    (slotOfShell(id)?.view ?? hostView).webContents.focus();
+    attachments.get(id)?.ctl.send({
+      type: 'terminal.input',
+      bytes: Buffer.from(`\x05\x15cd ${shellQuote(target.path)}\r`).toString(
+        'base64',
+      ),
+    });
+    (slotOfPane(id)?.view ?? hostView).webContents.focus();
   }
 
   // ---- host tiles --------------------------------------------------------------------------------
@@ -1382,8 +1664,8 @@ async function main(): Promise<void> {
 
   const SLOT_URL = pageUrl('slot.html');
 
-  function slotOfShell(shellId: string): Slot | undefined {
-    for (const slot of slots.values()) if (slot.shell === shellId) return slot;
+  function slotOfPane(paneId: string): Slot | undefined {
+    for (const slot of slots.values()) if (slot.pane === paneId) return slot;
     return undefined;
   }
 
@@ -1478,7 +1760,15 @@ async function main(): Promise<void> {
     }
     const parsed = parseSlotLine(message);
     if (parsed === null) return;
-    const slot = slots.get(parsed.id);
+    let slot = slots.get(parsed.id);
+    // A host tile `/main` restored from its saved layout: its pane, if the app saved this id.
+    const pane = savedSlots.get(parsed.id);
+    if (
+      slot === undefined && pane !== undefined && refusal === null &&
+      slotOfPane(pane) === undefined && parsed.rect !== null
+    ) {
+      slot = makeSlot(parsed.id, pane);
+    }
     // An id the app did not issue, or retired: nothing.
     if (slot === undefined) return;
     slot.line = parsed.rect;
@@ -1534,7 +1824,17 @@ async function main(): Promise<void> {
     if (!now.startsWith(`${origin}/`)) return;
     const url = new URL(now);
     const hash = new URLSearchParams(url.hash.slice(1));
-    for (const k of ['host-slot', 'host-at', 'host-where', 'host-gone']) {
+    for (
+      const k of [
+        'host-slot',
+        'host-at',
+        'host-where',
+        'host-gone',
+        'open-host-file',
+        'open-line',
+        'open-column',
+      ]
+    ) {
       hash.delete(k);
     }
     for (const [k, v] of Object.entries(params)) hash.set(k, v);
@@ -1542,31 +1842,33 @@ async function main(): Promise<void> {
     void devcView.webContents.loadURL(url.toString()).catch(() => {});
   }
 
-  /** Every shell there is or is about to be: a slot's starts once its page has loaded. */
-  function shellCount(): number {
-    let pending = 0;
-    for (const slot of slots.values()) {
-      if (hostPtys.get(slot.shell) === undefined && !slot.ended) pending++;
-    }
-    return hostPtys.size + pending;
-  }
-
   /**
-   * **New Host Tile** (the app menu, or a host tile's own split): a host shell in `/main`'s
-   * layout, beside the host tile `place.at` names when given.
+   * **New Host Tile** (the app menu, or a host tile's own split): a new pane (or `pane`, moved from
+   * the drawer) in `/main`'s layout, beside the host tile `place.at` names when given.
    */
-  function newHostTile(
+  async function newHostTile(
     place?: { at: string; where: 'right' | 'below' | 'stack' },
-    moved?: { shell: string; replay: string },
-  ): void {
-    // A shell moved from the drawer is no new shell.
-    if (
-      !showingDevc || debugging !== null ||
-      (moved === undefined && shellCount() >= MAX_SHELLS)
-    ) {
+    pane?: string,
+  ): Promise<void> {
+    if (!showingDevc || refusal !== null) {
       shell.beep();
       return;
     }
+    let id = pane;
+    if (id === undefined) {
+      try {
+        id = await newPane();
+      } catch {
+        shell.beep();
+        return;
+      }
+    }
+    const slot = makeSlot(randomBytes(16).toString('hex'), id);
+    askForTile(slot.id, place);
+  }
+
+  /** A host tile's view for slot `id` on pane `pane`: placed once `/main`'s slot lines say. */
+  function makeSlot(id: string, pane: string): Slot {
     const view = new WebContentsView({
       webPreferences: {
         sandbox: true,
@@ -1578,25 +1880,34 @@ async function main(): Promise<void> {
     });
     view.setBackgroundColor(hostTermBg());
     view.setVisible(false);
-    lockDownBundled(view, SLOT_URL, { permission: hostPermission });
+    lockDownBundled(view, SLOT_URL, {
+      permission: hostPermission,
+      external: true,
+    });
     watchPresses(view.webContents);
     themed(view);
     const slot: Slot = {
-      id: randomBytes(16).toString('hex'),
-      shell: moved?.shell ?? slotShellId(randomBytes(8).toString('hex')),
+      id,
+      pane,
       view,
       line: undefined,
       shown: null,
       seenAt: 0,
       ended: false,
       focusOnShow: true,
-      replay: moved?.replay ?? null,
     };
     slots.set(slot.id, slot);
+    savedSlots.set(slot.id, slot.pane);
+    saveState();
     restackSlots();
     void view.webContents.loadURL(SLOT_URL);
-    askForTile(slot.id, place);
     updateRestoreItem();
+    return slot;
+  }
+
+  /** Slot `id` is retired (its tile went, or its pane did): no restart brings it back. */
+  function forgetSlot(id: string): void {
+    if (savedSlots.delete(id)) saveState();
   }
 
   /** Live host tiles devc web shows nowhere: closed, or lost with a reload or a reset. */
@@ -1607,22 +1918,25 @@ async function main(): Promise<void> {
   }
 
   /**
-   * **Restore Host Tiles**: each lost host tile's shell back in `/main`'s layout, under a new slot
-   * id (the old one is retired), one hash change per tile.
+   * **Restore Host Tiles**: each lost host tile back in `/main`'s layout, under a new slot id (the
+   * old one is retired), one hash change per tile; and every pane of the session no view shows,
+   * as drawer tiles.
    */
-  function restoreHostTiles(): void {
+  async function restoreHostTiles(): Promise<void> {
     const lost = lostSlots(Date.now());
-    if (lost.length === 0) {
-      shell.beep();
-      return;
-    }
     lost.forEach((slot, i) => {
       slots.delete(slot.id);
+      forgetSlot(slot.id);
       slot.id = randomBytes(16).toString('hex');
+      savedSlots.set(slot.id, slot.pane);
       slot.line = undefined;
       slots.set(slot.id, slot);
       setTimeout(() => askForTile(slot.id), i * 100);
     });
+    if (lost.length > 0) saveState();
+    const unshown = await unshownPanes();
+    for (const id of unshown) deliverToDrawer(id);
+    if (lost.length === 0 && unshown.length === 0) shell.beep();
   }
 
   function updateRestoreItem(): void {
@@ -1630,66 +1944,37 @@ async function main(): Promise<void> {
       'restore-host-tiles',
     );
     if (item) {
-      item.enabled = [...slots.values()].some((s) =>
-        !s.ended && s.shown === null
-      );
+      // Unshown panes are only known by asking Herdr: with it running, the item is on.
+      item.enabled = herdr !== null ||
+        [...slots.values()].some((s) => !s.ended && s.shown === null);
     }
   }
 
-  /** A host tile's shell is over: its view stays, saying so, until its tile goes. */
+  /** A host tile's pane is over: its view stays, saying so, until its tile goes. */
   function slotEnded(slot: Slot): void {
     slot.ended = true;
+    forgetSlot(slot.id);
     if (slot.line === null || slot.line === undefined) dropSlot(slot);
   }
 
-  /** Takes a host tile's view away; its shell, if any, is left alone. */
+  /** Takes a host tile's view away; its pane, if any, keeps running (it is let go). */
   function dropSlot(slot: Slot): void {
+    if (attachments.get(slot.pane)?.wc === slot.view.webContents) {
+      releasePane(slot.pane);
+    }
     setShown(slot, null);
     slots.delete(slot.id);
+    forgetSlot(slot.id);
     if (muted === slot.view.webContents) muted = null;
     win.contentView.removeChildView(slot.view);
     slot.view.webContents.close();
     updateRestoreItem();
   }
 
-  /** A host tile's right-click menu: the app's, as devc web's tab menu cannot reach the shell. */
-  async function slotMenu(slot: Slot): Promise<void> {
-    const cd = slot.ended ? [] : await cdItems(slot.shell);
-    /** A new host tile beside this one, with its shortcut (the page handles the keys). */
-    const split = (
-      label: string,
-      name: Exclude<HostCommand, 'close'>,
-    ): MenuItemConstructorOptions => ({
-      label,
-      accelerator: HOST_SHORTCUTS[name][IS_MAC ? 'mac' : 'other'],
-      registerAccelerator: false,
-      click: () => slotCommand(slot, name),
-    });
-    Menu.buildFromTemplate([
-      split('Split vertically', 'split-right'),
-      split('Split horizontally', 'split-below'),
-      split('New terminal in this stack', 'new-tab'),
-      ...(cd.length > 0 ? [{ type: 'separator' as const }, ...cd] : []),
-      { type: 'separator' },
-      {
-        label: 'Move to Bottom Panel',
-        enabled: !slot.ended && debugging === null && !moving.has(slot.shell),
-        click: () => moveToDrawer(slot),
-      },
-      {
-        label: 'End Shell',
-        enabled: !slot.ended,
-        click: () => endSlotShell(slot),
-      },
-    ]).popup({ window: win });
-  }
-
-  function endSlotShell(slot: Slot): void {
-    if (slot.ended) return;
-    void hostPtys.close(slot.shell);
-    // A closed shell tells no one it exited: the view says so itself.
-    slot.view.webContents.send('host-term:exit', slot.shell, -1);
-    slotEnded(slot);
+  /** A host tile's **Close**: its tab closes in devc web, and its pane is let go. */
+  function closeSlot(slot: Slot): void {
+    askToClose(slot.id);
+    dropSlot(slot);
   }
 
   /**
@@ -1705,7 +1990,7 @@ async function main(): Promise<void> {
       ? 'stack'
       : null;
     if (where === null) return;
-    newHostTile({ at: slot.id, where });
+    void newHostTile({ at: slot.id, where });
   }
   ipcMain.on('host-term:slot-command', (e, name: unknown) => {
     const slot = slotOf(e);
@@ -1715,76 +2000,40 @@ async function main(): Promise<void> {
     ) slotCommand(slot, name);
   });
 
-  // ---- moving a shell between the drawer and `/main`'s layout ------------------------------------
-  // The shell never stops: its output is held (`moving`) from the moment the move begins, the page
-  // that has it hands over its terminal's contents (`detach` → `detached`), and the page taking
-  // it shows them, then the held output. Only the app moves a shell, from its own menus.
+  // ---- moving a pane between the drawer and `/main`'s layout --------------------------------------
+  // The pane never stops: the view that has it lets go, and the view taking it attaches it, with
+  // its screen as Herdr has it. Only the app moves a pane, from its own menus.
 
-  /** A moved shell's held output, and it is no longer held: it goes to its new view now. */
-  function takeMoved(id: string): string {
-    const buf = moving.get(id)?.buf ?? '';
-    moving.delete(id);
-    return buf;
-  }
-
-  /** **Move to Main Area** (the drawer's right-click menu): the shell to a new host tile. */
-  function moveToMain(id: string): void {
+  /** **Move to Main Area** (the drawer's right-click menu): the pane to a new host tile. */
+  async function moveToMain(id: string): Promise<void> {
     if (
-      !showingDevc || debugging !== null || moving.has(id) ||
-      !hostPtys.get(id)?.running || slotOfShell(id) !== undefined
+      !showingDevc || refusal !== null || !attachments.has(id) ||
+      slotOfPane(id) !== undefined
     ) {
       shell.beep();
       return;
     }
-    moving.set(id, { to: 'main', buf: '' });
-    hostView.webContents.send('host-term:detach', id);
+    releasePane(id);
+    hostView.webContents.send('host-term:remove', id);
+    await newHostTile(undefined, id);
   }
 
-  /** **Move to Bottom Panel** (a host tile's right-click menu): the shell to the drawer. */
+  /** **Move to Bottom Panel** (a host tile's right-click menu): the pane to the drawer. */
   function moveToDrawer(slot: Slot): void {
-    if (slot.ended || debugging !== null || moving.has(slot.shell)) {
+    if (slot.ended || refusal !== null) {
       shell.beep();
       return;
     }
-    moving.set(slot.shell, { to: 'drawer', buf: '' });
-    slot.view.webContents.send('host-term:detach', slot.shell);
+    const id = slot.pane;
+    askToClose(slot.id);
+    dropSlot(slot);
+    deliverToDrawer(id);
   }
 
-  /** The most a page may hand over: 5000 lines of scrollback, escapes and all. */
-  const MAX_DETACHED = 16 * 1024 * 1024;
-
-  ipcMain.on('host-term:detached', (e, id: unknown, data: unknown) => {
-    if (
-      typeof id !== 'string' || typeof data !== 'string' ||
-      data.length > MAX_DETACHED
-    ) return;
-    const move = moving.get(id);
-    if (move === undefined) return;
-    const slot = slotOf(e);
-    if (move.to === 'main' && slot === undefined && fromHost(e)) {
-      if (!showingDevc) {
-        // devc web went away meanwhile: back to the drawer.
-        moving.delete(id);
-        deliverToDrawer(id, data);
-        return;
-      }
-      newHostTile(undefined, { shell: id, replay: data });
-      return;
-    }
-    if (move.to === 'drawer' && slot !== undefined && slot.shell === id) {
-      askToClose(slot.id);
-      dropSlot(slot);
-      deliverToDrawer(id, data);
-    }
-  });
-
-  /** A moved shell's tile in the drawer, which opens if it is closed. */
-  function deliverToDrawer(id: string, replay: string): void {
-    if (!hostPageReady) {
-      pendingAdopt.push({ id, replay });
-    } else {
-      hostView.webContents.send('host-term:adopt', id, replay + takeMoved(id));
-    }
+  /** A pane's tile in the drawer, which opens if it is closed. */
+  function deliverToDrawer(id: string): void {
+    if (!hostPageReady) pendingAdopt.push(id);
+    else hostView.webContents.send('host-term:adopt', id);
     if (!drawerOpen) toggleHost();
     else hostView.webContents.focus();
   }
@@ -2140,7 +2389,7 @@ async function main(): Promise<void> {
   });
   hostView.webContents.on('did-finish-load', () => {
     sendActions();
-    hostView.webContents.send('host-term:shown', drawerOpen);
+    hostView.webContents.send('host-term:shown', drawerOpen, drawerByUser);
   });
 
   // ---- the Containers pane -------------------------------------------------------------------------
@@ -2584,7 +2833,9 @@ async function main(): Promise<void> {
    */
   async function shutdown(): Promise<never> {
     stopping = true;
-    await Promise.all([current?.stop(), retiring, hostPtys.stop()]);
+    // The panes keep running in Herdr: the next start reattaches them.
+    for (const id of [...attachments.keys()]) releasePane(id);
+    await Promise.all([current?.stop(), retiring]);
     app.exit(0);
     throw new Error('unreachable');
   }
@@ -2645,7 +2896,7 @@ async function main(): Promise<void> {
           {
             label: 'New Host Tile',
             accelerator: key('Cmd+Shift+J', 'Ctrl+Shift+`'),
-            click: () => newHostTile(),
+            click: () => void newHostTile(),
           },
           {
             id: 'restore-host-tiles',

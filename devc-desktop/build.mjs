@@ -20,7 +20,7 @@ const node = {
   platform: 'node',
   format: 'cjs',
   target: 'node22',
-  external: ['electron', 'node-pty'],
+  external: ['electron'],
   // The main process uses devc web's theme palettes (`lib/themes.js`).
   alias: { 'devc-web': DEVC_WEB },
   logLevel: 'warning',
@@ -122,7 +122,5 @@ await cp(
   `${DEVC_WEB}/vendor/golden-layout/css/themes/goldenlayout-dark-theme.css`,
   `${out}/renderer/goldenlayout-dark-theme.css`,
 );
-await cp(
-  'node_modules/@xterm/xterm/css/xterm.css',
-  `${out}/renderer/xterm.css`,
-);
+// The host terminals draw with devc web's renderer.js, on its vendored xterm.js.
+await cp(`${DEVC_WEB}/vendor/xterm/xterm.css`, `${out}/renderer/xterm.css`);

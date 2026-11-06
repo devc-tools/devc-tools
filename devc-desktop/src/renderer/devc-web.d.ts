@@ -7,6 +7,7 @@ declare module 'devc-web/layout.js' {
     ref: { localFolder: string; pane_id: string } | null;
     element: HTMLElement;
     setTitle(title: string, muted?: string): void;
+    setActions(el: Node | null): void;
     focus(): void;
   }
   export interface Tiling {
@@ -126,4 +127,90 @@ declare module 'devc-web/lib/themes.js' {
   ): Record<string, string>;
   export function themeFromHash(hash: string): Theme | null;
   export function appearanceNamed(v: unknown): 'system' | 'light' | 'dark';
+}
+
+declare module 'devc-web/lib/links.js' {
+  export type Link =
+    & { start: number; end: number }
+    & (
+      | { kind: 'url'; url: string }
+      | { kind: 'file'; path: string; line?: number; column?: number }
+    );
+  export function resolvePath(cwd: string, path: string): string | null;
+}
+
+declare module 'devc-web/renderer.js' {
+  import type { Link } from 'devc-web/lib/links.js';
+  type Cell = { column: number; row: number };
+  export interface TermColors {
+    theme: Record<string, string>;
+    minimumContrastRatio: number;
+  }
+  export interface Renderer {
+    write(bytes: Uint8Array, cols?: number, rows?: number): void;
+    resize(): { cols: number; rows: number } | null;
+    onData(cb: (data: string) => void): void;
+    onWheel(cb: (ev: WheelEvent) => void): void;
+    focus(): void;
+    dispose(): void;
+    metrics(): {
+      left: number;
+      top: number;
+      cellWidth: number;
+      cellHeight: number;
+      cols: number;
+      rows: number;
+    } | null;
+    selection(): string;
+    highlight(anchor: Cell, cursor: Cell): void;
+    clearHighlight(): void;
+    linkAt(cell: Cell): Link | null;
+    setColors(colors: TermColors): void;
+  }
+  export function createRenderer(
+    element: HTMLElement,
+    opts?: {
+      linkHint?: string;
+      linkModifier?: (ev: MouseEvent | KeyboardEvent) => boolean;
+      colors?: TermColors;
+      openUrl?: (url: string) => void;
+    },
+  ): Renderer;
+}
+
+declare module 'devc-web/term_mouse.js' {
+  import type { Renderer } from 'devc-web/renderer.js';
+  import type { Link } from 'devc-web/lib/links.js';
+  type Cell = { column: number; row: number };
+  export function attachTerminalMouse(
+    termEl: HTMLElement,
+    renderer: Renderer,
+    hooks: {
+      mouse(
+        cmd: {
+          action: 'down' | 'up' | 'drag';
+          button: 'left' | 'right' | 'middle';
+          column: number;
+          row: number;
+        },
+      ): void;
+      copyRange(anchor: Cell, cursor: Cell): void;
+      openLink(link: Link): void;
+      contextMenu(ev: MouseEvent): void;
+      frames(): number;
+      linkModifier(ev: MouseEvent | KeyboardEvent): boolean;
+      active(): boolean;
+    },
+  ): () => void;
+}
+
+declare module 'devc-web/lib/input.js' {
+  export function createWheelAccumulator(): (
+    deltaY: number,
+    cellHeight: number,
+    deltaMode?: number,
+  ) => { direction: 'up' | 'down'; lines: number } | null;
+  export function decodeBase64(b64: string): Uint8Array;
+  export function encodeInput(text: string): string;
+  export function wrapPaste(text: string): string;
 }

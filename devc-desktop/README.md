@@ -46,7 +46,7 @@ Run these in this directory. You need Node 24 and npm 11. `.nvmrc` names the Nod
 
 ```sh
 npm ci              # dependencies; npm 11 runs only the install scripts listed under
-                    # "allowScripts" in package.json (esbuild, node-pty)
+                    # "allowScripts" in package.json (esbuild)
 npm run build       # for this OS and CPU: dist/linux-unpacked/ on Linux, dist/mac/ or
                     # dist/mac-arm64/ on macOS
 npm run build:mac   # both macOS apps from Linux: dist/mac/devcd.app (Intel) and
@@ -54,8 +54,7 @@ npm run build:mac   # both macOS apps from Linux: dist/mac/devcd.app (Intel) and
 ```
 
 **Building the macOS apps from a Linux container.** `npm run build:mac` cross-builds an Intel
-and an Apple silicon app. It uses `node-pty`'s own macOS prebuilds, so nothing is compiled, and
-each app carries both, loading the one for its CPU. The checkout is bind-mounted, so the apps
+and an Apple silicon app. Nothing native is compiled. The checkout is bind-mounted, so the apps
 land on the Mac's disk. They are **unsigned**. If macOS refuses to open one, sign it ad hoc once
 on that Mac:
 
@@ -76,8 +75,7 @@ unsigned quarantined app. Clear the quarantine there, then sign it ad hoc:
 xattr -dr com.apple.quarantine devcd.app && codesign --force --deep --sign - devcd.app
 ```
 
-Building on the Mac itself (`npm ci && npm run build`) also works. Its `node-pty` comes from
-the same prebuild.
+Building on the Mac itself (`npm ci && npm run build`) also works.
 
 Each app is about 330 MB on macOS and 290 MB on Linux, unpacked.
 
@@ -201,22 +199,42 @@ app view, and dims the rest of the window below it with a view of its own.
 
 ## The host terminal
 
-Ctrl+\` (or Cmd+J on macOS) opens a drawer under `/main` running your login shell (`$SHELL -l`)
-in your home folder. Drag the gap above its tiles to resize it. The height is remembered. Closing
-the drawer keeps its shells, so reopening it finds the same sessions. Restarting `devc web` does
-not touch them. If a shell exits, a key press in its tile starts a new one.
+Ctrl+\` (or Cmd+J on macOS) opens a drawer under `/main` with a terminal in your home folder.
+Drag the gap above its tiles to resize it. The height is remembered.
 
-Its tiles work as devc web's do, and are drawn the same way: each runs a shell of its own. Drag a
-tab to another tile's edge to split, into its header to stack it, or use the shortcuts here or the
-right-click menu. The arrangement is remembered, with new shells, at the next start. Closing a tile
-stops its shell without asking, and closing the last one closes the drawer.
+**It needs [Herdr](https://herdr.dev)** on your login shell's `PATH`. Every host terminal, in the
+drawer or in a host tile, is a pane of the app's own Herdr session, `devc-desktop-<12 hex>` (a
+hash of the app's data folder, so it never matches a session devc web makes for a project). The
+app starts its server when it first needs it, in your login shell, and every pane runs your
+`$SHELL`. Without Herdr the drawer still opens, for its Actions column, and says _The host
+terminal needs Herdr: …_ instead of a terminal.
 
-| macOS       | Linux            | Does                              |
-| ----------- | ---------------- | --------------------------------- |
-| Cmd+D       | Ctrl+Shift+D     | **Split vertically**              |
-| Cmd+Shift+D | Ctrl+Shift+Alt+D | **Split horizontally**            |
-| Cmd+T       | Ctrl+Shift+T     | **New terminal in this stack**    |
-| Cmd+W       | Ctrl+Shift+W     | **Close**: stops the tile's shell |
+Host terminals behave as devc web's container terminals do, drawn and driven by the same code:
+
+- **Closing a tile** (its ×, **Close**, Cmd+W / Ctrl+Shift+W) only lets go of its pane: it keeps
+  running in Herdr. **Close terminal…** (the right-click menu, or the tab's trash button) asks
+  _Close terminal "…"? Its process ends._ and ends it.
+- **Panes outlive the app.** Quitting lets go of them all; the next start puts the drawer's tiles
+  and devc web's host tiles back on the same panes, as they were.
+- **Opening a drawer with no tiles** first shows the session's panes that no tile shows. With none,
+  it starts a new terminal, unless a host action opened it: then it shows a **New terminal**
+  button. **View → Restore Host Tiles** also brings every such pane back, into the drawer.
+- **Copy:** a drag copies the text Herdr has under it, Shift+drag xterm.js's own selection.
+- **Links:** Cmd+click (Ctrl+click off a Mac) on a URL opens it in your browser, on a file path
+  opens it in devc web's viewer when it is in one of devc web's projects' repos. Relative paths are
+  from the shell's current folder.
+- If a shell exits, its tile says so; a key press there starts a new terminal in its place.
+
+Its tiles work as devc web's do, and are drawn the same way. Drag a tab to another tile's edge to
+split, into its header to stack it, or use the shortcuts here or the right-click menu. The
+arrangement is remembered. Closing the last tile closes the drawer.
+
+| macOS       | Linux            | Does                           |
+| ----------- | ---------------- | ------------------------------ |
+| Cmd+D       | Ctrl+Shift+D     | **Split vertically**           |
+| Cmd+Shift+D | Ctrl+Shift+Alt+D | **Split horizontally**         |
+| Cmd+T       | Ctrl+Shift+T     | **New terminal in this stack** |
+| Cmd+W       | Ctrl+Shift+W     | **Close**: lets go of the pane |
 
 A paste with a line break in it is shown in a bar first, and goes in only when you press
 **Paste**.
@@ -262,21 +280,20 @@ laid over the tile's content. It has the same paste bar as the drawer.
 - **Splitting.** Right-click in a host tile for the drawer's **Split vertically**, **Split
   horizontally** and **New terminal in this stack** (same shortcuts): each opens a new host
   shell beside it in the layout. The `cd` items are there too.
-- **Moving a shell.** **Move to Main Area** in the drawer's right-click menu, and **Move to
-  Bottom Panel** in a host tile's, move a shell between them. It keeps running, with what its
-  terminal showed (up to 5000 lines of scrollback).
-- **Its tab is devc web's.** Closing it (×, its stack, a layout reset) only takes the tile away:
-  the shell keeps running. **devc web → Restore Host Tiles** puts every such shell back in the
-  layout, with its scrollback. To end a shell, type `exit`, or right-click in the terminal for
-  **End Shell**; its tile then says `[exited]` until you close the tab.
+- **Moving a terminal.** **Move to Main Area** in the drawer's right-click menu, and **Move to
+  Bottom Panel** in a host tile's, move a pane between them. It keeps running, screen and all.
+- **Its tab is devc web's.** Closing it (×, its stack, a layout reset), or **Close** in its
+  right-click menu, only takes the tile away: the pane keeps running. **View → Restore Host
+  Tiles** puts it back. To end it, type `exit`, or right-click for **Close terminal…**; its tile
+  then says so until you close the tab.
 - **While devc web draws over it** (a dialog, a menu, a tab being dragged), the terminal hides,
   and comes back when it is done.
 - **Input paused.** A click on a spot a host terminal had just appeared on, or just left (within
   half a second), types nothing: the terminal shows _Input paused: this terminal just moved.
   Click it to type._ (In devc web's own view such a click's keys are dropped silently.) Click
   again to type.
-- Host tiles count toward the same 32-shell limit as the drawer's, and do not survive quitting:
-  a tile restored from the last run says _Host terminal — not running here_.
+- The app's Herdr session holds at most 32 panes. Host tiles survive quitting: devc web's
+  restored layout puts each back on its pane, when Herdr still has it.
 
 ### Host actions
 
@@ -324,8 +341,11 @@ checkout it can write, or a token it learns. So devc web's view is locked down:
   host terminal), no fullscreen, no media, no notifications.
 - **Its own storage partition**, separate from the host terminal's.
 
-The host terminal's page is loaded from the app itself, never from a server. It talks to the
-shell only over IPC, and the app checks every message's sender. The app runs **no** network
+The host terminal's page is loaded from the app itself, never from a server. It talks to its
+panes only over IPC, and the app checks every message's sender and every pane id. The panes are
+the app's own Herdr session: devc web's server only ever connects to the sessions it names for
+its projects, which this one cannot match, and its page cannot name a session at all. Like any
+Herdr session, it is reachable by programs running as you on this machine, as your shell is. The app runs **no** network
 listener of its own. The drawer only opens from the app menu. Started with a debugging switch
 (`--remote-debugging-port`, `--inspect`), the app keeps the host terminal off, because those
 would let any local process drive it.
@@ -333,7 +353,7 @@ would let any local process drive it.
 **Host tiles** let devc web decide where a host terminal is, and nothing else. `/main` reports
 each `host` tile's rectangle in a console line (`devc-desktop:slot <id> …`); the app places its
 own view there, cut to `/main`'s part of the window. It honors only slot ids it issued itself,
-from the app menu, and only from `/main`. devc web cannot open a host tile, end its shell, read
+from the app menu, and only from `/main`. devc web cannot open a host tile, end its pane, read
 it, type into it, or learn the host color. What it **can** do:
 
 - **Hide or move it** inside its own area, or report it as hidden for good. That is a nuisance,
@@ -463,10 +483,10 @@ npm start       # bundle and run from source
 
 `build.mjs` bundles them with esbuild into `build/` (the pane, with devc web's `style.css`, into
 `build/containers/`), which electron-builder packs.
-`after-pack.cjs` makes `node-pty`'s `spawn-helper` executable in the packed app.
+The host terminals draw with devc web's `renderer.js` and its vendored xterm.js.
 
-**Versions:** exact, each at least two weeks old when added: Electron 44.5.0, `node-pty` 1.1.0,
-`@xterm/xterm` 6.0.0, `@xterm/addon-fit` 0.11.0, esbuild 0.28.2, TypeScript 7.0.2,
+**Versions:** exact, each at least two weeks old when added: Electron 44.5.0, esbuild 0.28.2,
+TypeScript 7.0.2,
 electron-builder 26.17.0. `deno fmt` (run from the repo root) formats the sources. The
 `deno.json` here only carries its settings.
 

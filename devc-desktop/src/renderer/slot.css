@@ -42,8 +42,20 @@ body {
   min-height: 0;
   padding: 4px;
 }
+/* The renderer fills its own box: `renderer.js` fits the grid to it. */
+#term-screen {
+  position: absolute;
+  inset: 4px;
+}
 #term .xterm {
   height: 100%;
+}
+#note {
+  margin: 8px;
+  color: var(--muted);
+}
+#note[hidden] {
+  display: none;
 }
 #paste {
   display: grid;

@@ -13,19 +13,11 @@
     "check": "tsc --noEmit -p .",
     "test": "node --import ./tests/devc_web_alias.mjs --test \"tests/*.test.ts\"",
     "start": "node build.mjs && electron .",
-    "rebuild": "electron-rebuild -f -w node-pty",
     "build": "node build.mjs && electron-builder --publish never",
     "build:mac": "node build.mjs && electron-builder --mac dir --x64 --arm64 --publish never -c.npmRebuild=false"
   },
-  "dependencies": {
-    "node-pty": "1.1.0"
-  },
   "devDependencies": {
-    "@electron/rebuild": "4.2.0",
     "@types/node": "24.19.1",
-    "@xterm/addon-fit": "0.11.0",
-    "@xterm/addon-serialize": "0.14.0",
-    "@xterm/xterm": "6.0.0",
     "electron": "44.5.0",
     "electron-builder": "26.17.0",
     "esbuild": "0.28.2",
@@ -38,30 +30,20 @@
       "build/**",
       "package.json"
     ],
-    "asarUnpack": [
-      "node_modules/node-pty/**"
-    ],
     "mac": {
       "target": "dir",
       "icon": "icon.png",
       "category": "public.app-category.developer-tools",
-      "identity": null,
-      "files": [
-        "!node_modules/node-pty/build/**",
-        "!node_modules/node-pty/bin/**",
-        "!node_modules/node-pty/prebuilds/win32-*/**"
-      ]
+      "identity": null
     },
     "linux": {
       "target": "dir",
       "icon": "icon.png",
       "executableName": "devc-desktop"
-    },
-    "afterPack": "./after-pack.cjs"
+    }
   },
   "allowScripts": {
     "esbuild@0.28.2": true,
-    "node-pty@1.1.0": true,
     "electron-winstaller": false
   }
 }

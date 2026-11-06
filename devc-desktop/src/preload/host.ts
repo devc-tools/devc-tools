@@ -5,26 +5,35 @@
 import { contextBridge, ipcRenderer } from 'electron';
 
 contextBridge.exposeInMainWorld('hostTerm', {
-  start: (id: string, cols: number, rows: number) =>
-    ipcRenderer.send('host-term:start', id, cols, rows),
-  input: (id: string, data: string) =>
-    ipcRenderer.send('host-term:input', id, String(data)),
-  resize: (id: string, cols: number, rows: number) =>
-    ipcRenderer.send('host-term:resize', id, cols, rows),
-  close: (id: string) => ipcRenderer.send('host-term:close', id),
+  // Panes of the app's Herdr session (`main/herdr.ts`): the main process checks every id.
+  create: () => ipcRenderer.invoke('host-term:create'),
+  unshown: () => ipcRenderer.invoke('host-term:unshown'),
+  attach: (id: string, cols: number, rows: number) =>
+    ipcRenderer.invoke('host-term:attach', String(id), cols, rows),
+  paneCommand: (id: string, cmd: unknown) =>
+    ipcRenderer.send('host-term:pane-command', String(id), cmd),
+  readSelection: (id: string, anchor: unknown, cursor: unknown) =>
+    ipcRenderer.invoke('host-term:read-selection', String(id), anchor, cursor),
+  release: (id: string) => ipcRenderer.send('host-term:release', String(id)),
+  end: (id: string, label: string) =>
+    ipcRenderer.send('host-term:end', String(id), String(label)),
+  openFile: (file: unknown) => ipcRenderer.send('host-term:open-file', file),
+  onFrame: (cb: (id: string, frame: unknown) => void) => {
+    ipcRenderer.on(
+      'host-term:frame',
+      (_e, id: unknown, frame: unknown) => cb(String(id), frame),
+    );
+  },
+  onClosed: (cb: (id: string, reason: string) => void) => {
+    ipcRenderer.on(
+      'host-term:closed',
+      (_e, id: unknown, reason: unknown) => cb(String(id), String(reason)),
+    );
+  },
+  onPanes: (cb: (panes: unknown) => void) => {
+    ipcRenderer.on('host-term:panes', (_e, panes: unknown) => cb(panes));
+  },
   hide: () => ipcRenderer.send('host-term:hide'),
-  onOutput: (cb: (id: string, data: string) => void) => {
-    ipcRenderer.on(
-      'host-term:output',
-      (_e, id: string, data: string) => cb(id, data),
-    );
-  },
-  onExit: (cb: (id: string, code: number) => void) => {
-    ipcRenderer.on(
-      'host-term:exit',
-      (_e, id: string, code: number) => cb(id, code),
-    );
-  },
   onCommand: (cb: (name: string, id: string) => void) => {
     ipcRenderer.on(
       'host-term:command',
@@ -34,18 +43,13 @@ contextBridge.exposeInMainWorld('hostTerm', {
   info: () => ipcRenderer.invoke('host-term:info'),
   dragDrawer: (dy: number) => ipcRenderer.send('host-term:drag', dy),
   contextMenu: (id: string) => ipcRenderer.send('host-term:context-menu', id),
-  // Moving a shell between the drawer and `/main`'s layout: the app asks the page that has it
-  // for its terminal's contents (`detach`), and hands them to the page that takes it (`adopt`).
-  onDetach: (cb: (id: string) => void) => {
-    ipcRenderer.on('host-term:detach', (_e, id: unknown) => cb(String(id)));
+  // Moving a pane between the drawer and `/main`'s layout: the app takes a tile away (`remove`,
+  // its pane keeps running) and gives the drawer one (`adopt`).
+  onRemove: (cb: (id: string) => void) => {
+    ipcRenderer.on('host-term:remove', (_e, id: unknown) => cb(String(id)));
   },
-  detached: (id: string, data: string) =>
-    ipcRenderer.send('host-term:detached', String(id), String(data)),
-  onAdopt: (cb: (id: string, replay: string) => void) => {
-    ipcRenderer.on(
-      'host-term:adopt',
-      (_e, id: unknown, replay: unknown) => cb(String(id), String(replay)),
-    );
+  onAdopt: (cb: (id: string) => void) => {
+    ipcRenderer.on('host-term:adopt', (_e, id: unknown) => cb(String(id)));
   },
   // A host tile's split or new tab: a new host tile beside it.
   command: (name: string) =>
@@ -59,8 +63,13 @@ contextBridge.exposeInMainWorld('hostTerm', {
   onGuard: (cb: (on: boolean) => void) => {
     ipcRenderer.on('host-term:guard', (_e, on: unknown) => cb(on === true));
   },
-  onShown: (cb: (open: boolean) => void) => {
-    ipcRenderer.on('host-term:shown', (_e, open: unknown) => cb(open === true));
+  // The drawer opened or closed; `byUser`: the user opened it (not a request).
+  onShown: (cb: (open: boolean, byUser: boolean) => void) => {
+    ipcRenderer.on(
+      'host-term:shown',
+      (_e, open: unknown, byUser: unknown) =>
+        cb(open === true, byUser === true),
+    );
   },
   // The Actions column: requests devc web's page made, as the app checked them.
   onActions: (cb: (cards: unknown) => void) => {

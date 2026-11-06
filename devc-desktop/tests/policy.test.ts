@@ -9,6 +9,7 @@ import {
   badgeText,
   canPush,
   cdTarget,
+  cellOf,
   clampDrawer,
   CONTAINERS_DEFAULT_SHARE,
   COVER_MS,
@@ -27,6 +28,7 @@ import {
   HOST_PEEK,
   HOST_THEMES,
   hostFolder,
+  hostMenuEntries,
   hostPermission,
   hostShortcut,
   hostTerminalOptions,
@@ -42,6 +44,7 @@ import {
   MENU_MARGIN,
   menuLabel,
   menuRequest,
+  openFileRequest,
   PANE_MIN,
   parseSlotLine,
   placeMenu,
@@ -53,13 +56,14 @@ import {
   recentChanges,
   type Rect,
   requestsAnswer,
-  shellIdle,
   shellQuote,
   showText,
   SIDEBAR_DEFAULT,
   SIDEBAR_MIN,
   swatchBitmap,
   swatchTone,
+  terminalCommand,
+  termSize,
   TITLEBAR_HEIGHT,
 } from '../src/main/policy.ts';
 import { terminalTheme, themeNamed } from 'devc-web/lib/themes.js';
@@ -580,7 +584,7 @@ test('cdTarget: the verified realpath, or the reason as a label', async () => {
   });
 });
 
-test('shellQuote, menuLabel, shellIdle', () => {
+test('shellQuote, menuLabel', () => {
   assertEquals(shellQuote("/a/it's"), "'/a/it'\\''s'");
   assertEquals(shellQuote('/a b/$(x)'), "'/a b/$(x)'");
   const t = (path: string, mount = '/m') => ({ path, mount });
@@ -619,11 +623,6 @@ test('shellQuote, menuLabel, shellIdle', () => {
     menuLabel(t(`/m/${'x'.repeat(74)}`), '/', 'linux')?.length,
     MAX_LABEL,
   );
-  assertEquals(shellIdle('-zsh', '/bin/zsh'), true);
-  assertEquals(shellIdle('zsh', '/bin/zsh'), true);
-  assertEquals(shellIdle('/bin/bash', '/bin/bash'), true);
-  assertEquals(shellIdle('vim', '/bin/zsh'), false);
-  assertEquals(shellIdle('sleep', '/usr/bin/bash'), false);
 });
 
 // ---- host actions ----
@@ -838,11 +837,103 @@ test('actionCard: what the column shows, and when it can be confirmed', () => {
   ]);
 });
 
-test('isShellId: the ids the host page makes, nothing longer or odder', () => {
-  assertEquals(isShellId('5f0c8f6e-6d1f-4a5e-9f6d-1c2b3a4d5e6f'), true);
+test('isShellId: Herdr pane ids, nothing longer or odder', () => {
+  assertEquals(isShellId('w1:p1'), true);
+  assertEquals(isShellId('w12:p3'), true);
   for (const id of ['', 'a'.repeat(65), 'a/b', 'a b', 1, null, undefined]) {
     assertEquals(isShellId(id), false);
   }
+});
+
+test('terminalCommand: only what Herdr takes, rebuilt', () => {
+  assertEquals(terminalCommand({ type: 'terminal.input', bytes: 'aGk=' }), {
+    type: 'terminal.input',
+    bytes: 'aGk=',
+  });
+  assertEquals(
+    terminalCommand({ type: 'terminal.input', bytes: 'hi there' }),
+    null,
+  );
+  assertEquals(
+    terminalCommand({ type: 'terminal.resize', cols: 80, rows: 24, x: 1 }),
+    { type: 'terminal.resize', cols: 80, rows: 24 },
+  );
+  assertEquals(
+    terminalCommand({ type: 'terminal.resize', cols: 0, rows: 24 }),
+    null,
+  );
+  assertEquals(
+    terminalCommand({ type: 'terminal.scroll', direction: 'up', lines: 3 }),
+    { type: 'terminal.scroll', direction: 'up', lines: 3 },
+  );
+  assertEquals(
+    terminalCommand({ type: 'terminal.scroll', direction: 'left', lines: 3 }),
+    null,
+  );
+  assertEquals(
+    terminalCommand({
+      type: 'terminal.mouse',
+      action: 'drag',
+      button: 'left',
+      column: 4,
+      row: 2,
+    }),
+    {
+      type: 'terminal.mouse',
+      action: 'drag',
+      button: 'left',
+      column: 4,
+      row: 2,
+    },
+  );
+  assertEquals(
+    terminalCommand({
+      type: 'terminal.mouse',
+      action: 'down',
+      column: -1,
+      row: 2,
+    }),
+    null,
+  );
+  assertEquals(terminalCommand({ type: 'terminal.release' }), null);
+  assertEquals(terminalCommand(null), null);
+  assertEquals(cellOf({ column: 3, row: 4 }), { column: 3, row: 4 });
+  assertEquals(cellOf({ column: 3.5, row: 4 }), null);
+  assertEquals(termSize(120, 80), 120);
+  assertEquals(termSize('120', 80), 80);
+});
+
+test('openFileRequest: an absolute path, no .., a line and a column', () => {
+  assertEquals(openFileRequest({ path: '/src/a.ts', line: 3, column: 7 }), {
+    path: '/src/a.ts',
+    line: 3,
+    column: 7,
+  });
+  assertEquals(openFileRequest({ path: '/src/a.ts', column: 7 }), {
+    path: '/src/a.ts',
+  });
+  for (
+    const path of ['a.ts', '/src/../etc/passwd', '/a\nb', '', 3, undefined]
+  ) {
+    assertEquals(openFileRequest({ path }), null);
+  }
+});
+
+test('hostMenuEntries: the drawer and a host tile, the same list', () => {
+  const want = [
+    'split-right',
+    'split-below',
+    'new-tab',
+    'separator',
+    'cd',
+    'separator',
+    'move',
+    'separator',
+    'close',
+    'close-terminal',
+  ];
+  assertEquals(hostMenuEntries('drawer'), want);
+  assertEquals(hostMenuEntries('slot'), want);
 });
 
 test('hostShortcut: on a Mac, Cmd; elsewhere Ctrl+Shift, leaving Ctrl to the shell', () => {

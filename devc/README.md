@@ -499,7 +499,11 @@ is published from any container: the host server finds devcontainers with
   adds a `host` tile: the app lays its own host terminal over the tile's
   content, and the page only says where the tile is. In a browser, or once the
   app's shell is gone, the tile shows _Host terminal — not running here_; close
-  its tab. `#…&theme=<name>` (devc-desktop's **View → Theme**: `slate`, `graphite`,
+  its tab. `/main#…&open-host-file=<path>[&open-line=<n>[&open-column=<n>]]`
+  (devc-desktop's Cmd/Ctrl+click on a file path in a host terminal) opens that
+  host file in the viewer when it is in one of the projects' repos
+  (`locate_host_file`), and says _Can't open <path>: … outside every project's
+  repos_ otherwise. `#…&theme=<name>` (devc-desktop's **View → Theme**: `slate`, `graphite`,
   `green`, `teal`, `blue`, `purple`, `amber` or `red`, from `lib/themes.js`) colors any page; without
   it, the page keeps its own colors (Slate). Every theme has a dark and a light
   palette, chosen by `prefers-color-scheme` and switched live: the OS's setting

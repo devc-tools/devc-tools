@@ -3,10 +3,8 @@
 // current mode (`hostTerminalOptions` in `main/policy.ts`). Replaced outright on each change, so
 // no light color survives a switch to dark. See `.plans/archived/host-terminal-themes.md`.
 
-import type { ITheme, Terminal } from '@xterm/xterm';
-
 export interface TermColors {
-  theme: ITheme;
+  theme: Record<string, string>;
   minimumContrastRatio: number;
 }
 
@@ -26,10 +24,4 @@ export function termColors(v: unknown): TermColors | null {
     theme[k] = c;
   }
   return { theme, minimumContrastRatio: ratio };
-}
-
-/** Puts `colors` on `term`, both options replaced. */
-export function applyTermColors(term: Terminal, colors: TermColors): void {
-  term.options.theme = colors.theme;
-  term.options.minimumContrastRatio = colors.minimumContrastRatio;
 }

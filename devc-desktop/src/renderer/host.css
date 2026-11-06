@@ -113,6 +113,21 @@ body[data-closed] #body {
 #root {
   inset: var(--tile-gap);
 }
+/* The tile area with no tiles (a request opened the drawer): a way to start a terminal. */
+#empty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: var(--muted);
+}
+#empty[hidden],
+#refused[hidden] {
+  display: none;
+}
 /* A tile's terminal: a little room from the frame, as the page's terminals have. */
 .host-term {
   position: absolute;
