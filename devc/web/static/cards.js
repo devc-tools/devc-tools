@@ -877,6 +877,31 @@ export function repoCard(card, side, worktrees = 0) {
       renderTree();
     }
   };
+  // The sync mark sits at the row's right end, past the hover strip, so its push and pull never
+  // move under the pointer.
+  const syncMark = repo
+    ? gitMark(
+      gitSync(
+        repo.git,
+        repo.gitProblem,
+        repo.changes,
+        repo.changesProblem,
+      ),
+      {
+        busy: gitOp !== undefined,
+        upstream: repo.git?.upstream ?? '',
+        fetch: gitOn
+          ? () => repoGitRequest('fetch', localFolder, repo.folder)
+          : undefined,
+        pull: canPull
+          ? () => repoGitRequest('pull', localFolder, repo.folder)
+          : undefined,
+        push,
+        pushTitle: branch ? LABELS.pushAhead(branch) : LABELS.push,
+        pushUnavailable: repo.pushUnavailable,
+      },
+    )
+    : '';
   const idle = card.tiles.length === 0 && card.panes.length === 0;
   const head = treeRow(
     key,
@@ -928,34 +953,13 @@ export function repoCard(card, side, worktrees = 0) {
     },
     ...(repo
       ? [
-        // The name and branch cut short first, so the sync mark after them stays in sight when
-        // the hover strip takes the row's right end.
+        // The name and branch cut short first, so the pin after them stays in sight when the
+        // hover strip takes the row's right end.
         h(
           'span',
           { class: 'repo-head-name' },
           ...repoNameParts(repoGroupName(localFolder, repo)),
           branch ? h('span', { class: 'repo-branch' }, branch) : '',
-        ),
-        gitMark(
-          gitSync(
-            repo.git,
-            repo.gitProblem,
-            repo.changes,
-            repo.changesProblem,
-          ),
-          {
-            busy: gitOp !== undefined,
-            upstream: repo.git?.upstream ?? '',
-            fetch: gitOn
-              ? () => repoGitRequest('fetch', localFolder, repo.folder)
-              : undefined,
-            pull: canPull
-              ? () => repoGitRequest('pull', localFolder, repo.folder)
-              : undefined,
-            push,
-            pushTitle: branch ? LABELS.pushAhead(branch) : LABELS.push,
-            pushUnavailable: repo.pushUnavailable,
-          },
         ),
       ]
       : [h('span', { class: 'repo-base' }, containerNameOf(localFolder))]),
@@ -1020,6 +1024,7 @@ export function repoCard(card, side, worktrees = 0) {
         ]),
       ),
       hoverActions(...toggles.map(toggleButton), ...newButtons()),
+      syncMark,
     ),
   );
   const now = Date.now();

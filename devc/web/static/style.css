@@ -894,7 +894,7 @@ body.resizing-zones {
   cursor: default;
 }
 
-/* Its name and branch shrink first, so the sync mark and pin after them stay in sight. */
+/* Its name and branch shrink first, so the pin after them stays in sight. */
 .row.repo-card-head > .label {
   display: flex;
   align-items: center;
@@ -912,8 +912,9 @@ body.resizing-zones {
   text-overflow: ellipsis;
 }
 
-/* Hovered, its strip takes the row's right end in place of the toggles rather than covering it,
-   so the name gives way and the sync mark's push and pull stay clickable left of the strip. */
+/* Its sync mark ends the row, hovered or not, so its push and pull never move under the pointer.
+   Hovered, its strip takes the toggles' place left of the mark rather than covering the row, and
+   the name gives way. */
 .row.repo-card-head:is(:hover, :focus-within) .row-toggles {
   display: none;
 }
@@ -922,6 +923,10 @@ body.resizing-zones {
   position: static;
   padding-left: 0;
   background: none;
+}
+
+.row.repo-card-head > .row-trail > .git-sync {
+  margin-left: 2px;
 }
 
 /* A repo card's header (parent path muted, the name, the branch, the sync mark). */
