@@ -8,6 +8,7 @@ import { SerializeAddon } from '@xterm/addon-serialize';
 import { Terminal } from '@xterm/xterm';
 import { hostShortcut } from '../main/policy.ts';
 import { copyOnSelect } from './copy_select.ts';
+import { applyTermColors, termColors } from './term_colors.ts';
 
 interface SlotInfo {
   user: string;
@@ -15,8 +16,8 @@ interface SlotInfo {
   refused: string | null;
   /** This view's shell. */
   shell: string;
-  /** The host color's background. */
-  color: string;
+  /** The terminal's colors: see `term_colors.ts`. */
+  color: unknown;
   /** What the shell's terminal showed where it was, when it moved here from the drawer. */
   replay: string | null;
 }
@@ -28,7 +29,7 @@ interface SlotHostTerm {
   resize(id: string, cols: number, rows: number): void;
   onOutput(cb: (id: string, data: string) => void): void;
   onExit(cb: (id: string, code: number) => void): void;
-  onColor(cb: (background: string) => void): void;
+  onColor(cb: (colors: unknown) => void): void;
   onGuard(cb: (on: boolean) => void): void;
   info(): Promise<SlotInfo>;
   contextMenu(id: string): void;
@@ -62,10 +63,10 @@ let shell: string | null = null;
 let running = false;
 let refused: string | null = null;
 
-function applyColor(background: string): void {
-  if (!/^#[0-9a-f]{6}$/.test(background)) return;
-  document.documentElement.style.setProperty('--host-bg', background);
-  term.options.theme = { background };
+/** View → Host Terminal Color's theme in the current mode; the page's variables come from the app. */
+function applyColor(v: unknown): void {
+  const colors = termColors(v);
+  if (colors !== null) applyTermColors(term, colors);
 }
 
 function refit(): void {

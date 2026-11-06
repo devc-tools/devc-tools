@@ -1,16 +1,16 @@
 /* A host tile's view (slot.html): one host shell over a `host` tile in devc web's layout. Its
-   background is the host color, which devc web never learns: the trust signal, with the strip. */
+   colors are View → Host Terminal Color's theme in the current mode (the variables, inserted by
+   the app), which devc web never learns: the trust signal, with the strip. */
 :root {
-  --host-bg: #10251b;
-  color-scheme: dark;
+  color-scheme: light dark;
 }
 html,
 body {
   height: 100%;
   margin: 0;
   overflow: hidden;
-  background: var(--host-bg);
-  color: #d7dae0;
+  background: var(--term-bg);
+  color: var(--text);
   font: 12px system-ui, sans-serif;
 }
 body {
@@ -22,8 +22,8 @@ body {
   align-items: center;
   gap: 4px;
   padding: 0 8px;
-  background: var(--host-bg);
-  box-shadow: inset 0 -1px 0 rgb(255 255 255 / 0.08);
+  background: var(--term-bg);
+  box-shadow: inset 0 -1px 0 var(--border);
   white-space: nowrap;
   overflow: hidden;
   user-select: none;
@@ -51,7 +51,7 @@ body {
   gap: 6px;
   align-items: center;
   padding: 6px 8px;
-  background: #222c3a;
+  background: var(--panel);
 }
 #paste[hidden] {
   display: none;
@@ -71,7 +71,8 @@ body {
   justify-content: center;
   padding: 16px;
   text-align: center;
-  background: rgb(0 0 0 / 0.55);
+  background: color-mix(in srgb, var(--bg) 80%, transparent);
+  color: var(--text);
   font-size: 13px;
 }
 #guard[hidden] {

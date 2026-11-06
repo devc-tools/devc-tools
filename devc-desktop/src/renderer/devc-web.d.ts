@@ -120,6 +120,10 @@ declare module 'devc-web/lib/themes.js' {
   export function themeNamed(name: unknown): Theme;
   export function themeColors(theme: Theme, mode: Mode): ThemeColors;
   export function themeVars(theme: Theme, mode?: Mode): Record<string, string>;
+  export function terminalTheme(
+    theme: Theme,
+    mode: Mode,
+  ): Record<string, string>;
   export function themeFromHash(hash: string): Theme | null;
   export function appearanceNamed(v: unknown): 'system' | 'light' | 'dark';
 }

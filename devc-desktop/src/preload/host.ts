@@ -50,9 +50,10 @@ contextBridge.exposeInMainWorld('hostTerm', {
   // A host tile's split or new tab: a new host tile beside it.
   command: (name: string) =>
     ipcRenderer.send('host-term:slot-command', String(name)),
-  // The host color (View → Host Terminal Color), as its background hex.
-  onColor: (cb: (background: string) => void) => {
-    ipcRenderer.on('host-term:color', (_e, bg: unknown) => cb(String(bg)));
+  // The terminals' colors in View → Host Terminal Color's theme and the current mode: xterm.js's
+  // `theme` and `minimumContrastRatio`, to replace outright.
+  onColor: (cb: (colors: unknown) => void) => {
+    ipcRenderer.on('host-term:color', (_e, colors: unknown) => cb(colors));
   },
   // A host tile's view: input paused after an ambiguous press (the app drops its keys).
   onGuard: (cb: (on: boolean) => void) => {

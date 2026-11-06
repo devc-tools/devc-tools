@@ -16,6 +16,7 @@ import {
 } from '../main/policy.ts';
 import { actionColumn } from './actions.ts';
 import { copyOnSelect } from './copy_select.ts';
+import { applyTermColors, type TermColors, termColors } from './term_colors.ts';
 
 interface HostTerm {
   start(id: string, cols: number, rows: number): void;
@@ -36,7 +37,8 @@ interface HostTerm {
       refused: string | null;
       toggle: string;
       open: boolean;
-      color: string;
+      /** The terminals' colors: see `term_colors.ts`. */
+      color: unknown;
       /** Shells moved here before this page could hear of them. */
       adopt: { id: string; replay: string }[];
     }
@@ -46,8 +48,8 @@ interface HostTerm {
   contextMenu(id: string): void;
   /** The drawer opened (`true`) or closed to its strip, or out of sight. */
   onShown(cb: (open: boolean) => void): void;
-  /** The host color (View → Host Terminal Color), as its background hex. */
-  onColor(cb: (background: string) => void): void;
+  /** The terminals' colors changed: see `term_colors.ts`. */
+  onColor(cb: (colors: unknown) => void): void;
   /** The app moves a shell to `/main`'s layout: hand over its terminal's contents. */
   onDetach(cb: (id: string) => void): void;
   detached(id: string, data: string): void;
@@ -103,14 +105,17 @@ let open = false;
 let toggle = '';
 /** `user@host`, every tile's label. */
 let label = 'host';
-/** The host color's background: every terminal's, and its tile's behind it. */
-let background = '#10251b';
+/**
+ * Every terminal's colors, in View → Host Terminal Color's theme and the current mode; the page
+ * itself takes that theme's variables from the app (`--term-bg` behind each terminal).
+ */
+let colors: TermColors | null = null;
 
-function applyColor(bg: string): void {
-  if (!/^#[0-9a-f]{6}$/.test(bg)) return;
-  background = bg;
-  document.documentElement.style.setProperty('--host-bg', bg);
-  for (const t of terminals.values()) t.term.options.theme = { background };
+function applyColor(v: unknown): void {
+  const next = termColors(v);
+  if (next === null) return;
+  colors = next;
+  for (const t of terminals.values()) applyTermColors(t.term, next);
 }
 host.onColor(applyColor);
 
@@ -151,7 +156,7 @@ function mountTerminal(tile: Tile): void {
     fontFamily:
       'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace',
     fontSize: 13,
-    theme: { background },
+    ...(colors ?? {}),
     scrollback: 5000,
   });
   const fit = new FitAddon();

@@ -88,13 +88,15 @@ import {
   externalUrl,
   FOOTER_HEIGHT,
   fromView,
-  HOST_COLORS,
   HOST_SHORTCUTS,
-  type HostColor,
-  hostColorOf,
+  HOST_THEMES,
   type HostCommand,
   hostFolder,
   hostPermission,
+  hostTerminalOptions,
+  hostTheme,
+  type HostThemeChoice,
+  hostThemeOf,
   isShellId,
   type Layout,
   layout,
@@ -180,8 +182,8 @@ let uiTheme: Theme = themeNamed(undefined);
  * `prefers-color-scheme` (devc web picks its mode from that) and the app's own views follow.
  */
 let appearance: 'system' | 'light' | 'dark' = appearanceNamed(undefined);
-/** View → Host Terminal Color: every host terminal's background. */
-let hostColor: HostColor = hostColorOf(undefined);
+/** View → Host Terminal Color: the theme host terminals are themed with (saved as `hostColor`). */
+let hostColor: HostThemeChoice = hostThemeOf(undefined);
 /** The drawer's height in px, or `null` while closed; `drawerHeight` survives closing. */
 let drawerOpen = false;
 let drawerHeight: number | null = null;
@@ -721,7 +723,7 @@ async function main(): Promise<void> {
       if (typeof s?.containersOpen === 'boolean') {
         containersOpen = s.containersOpen;
       }
-      hostColor = hostColorOf(s?.hostColor);
+      hostColor = hostThemeOf(s?.hostColor);
       uiTheme = themeNamed(s?.uiTheme);
       appearance = appearanceNamed(s?.appearance);
     } catch { /* first launch */ }
@@ -1197,7 +1199,7 @@ async function main(): Promise<void> {
       user: userInfo().username,
       host: hostname().replace(/\.local$/, ''),
       refused: debugging,
-      color: hostColor.background,
+      color: hostTerminalOptions(hostThemeNow(), uiMode()),
     };
     const slot = slotOf(e);
     if (slot !== undefined) {
@@ -1574,7 +1576,7 @@ async function main(): Promise<void> {
         preload: join(__dirname, 'preload-host.js'),
       },
     });
-    view.setBackgroundColor(hostColor.background);
+    view.setBackgroundColor(hostTermBg());
     view.setVisible(false);
     lockDownBundled(view, SLOT_URL, { permission: hostPermission });
     watchPresses(view.webContents);
@@ -1829,15 +1831,11 @@ async function main(): Promise<void> {
     }
   }
 
-  /** View → Host Terminal Color: every host terminal's background, never devc web's business. */
-  function setHostColor(c: HostColor): void {
+  /** View → Host Terminal Color: the host terminals' theme, never devc web's business. */
+  function setHostColor(c: HostThemeChoice): void {
     hostColor = c;
     saveState();
-    hostView.webContents.send('host-term:color', c.background);
-    for (const slot of slots.values()) {
-      slot.view.setBackgroundColor(c.background);
-      slot.view.webContents.send('host-term:color', c.background);
-    }
+    rethemeHost();
   }
 
   // ---- host actions ------------------------------------------------------------------------------
@@ -2447,23 +2445,43 @@ async function main(): Promise<void> {
 
   // ---- the theme -----------------------------------------------------------------------------------
   // View → Theme recolors devc web (its views' hash, `theme=`; the page applies it) and the app's
-  // own views (their stylesheets read the same variables, inserted here) and window. Host
-  // terminals keep the host color. See `.plans/archived/devc-ui-themes.md`.
+  // own views (their stylesheets read the same variables, inserted here) and window. The host
+  // terminals' pages take View → Host Terminal Color's theme instead, in the same mode. See
+  // `.plans/archived/devc-ui-themes.md` and `.plans/archived/host-terminal-themes.md`.
 
   /** The mode the app shows: View → Appearance, through the OS's for System. */
   const uiMode = () => nativeTheme.shouldUseDarkColors ? 'dark' : 'light';
 
-  /** The theme's variables in the current mode, over each page's own `:root`. */
-  const themeCss = () =>
+  /** The host terminals' theme: View → Host Terminal Color's, or `uiTheme` for Same as Theme. */
+  function hostThemeNow(): Theme {
+    return hostTheme(hostColor, uiTheme);
+  }
+
+  /** A host terminal's background in the current mode: its views' own color, before a paint. */
+  function hostTermBg(): string {
+    return themeColors(hostThemeNow(), uiMode()).termBg;
+  }
+
+  /** Whether `wc` is a host terminal's page (the drawer or a host tile), themed with the host theme. */
+  function isHostPage(wc: Electron.WebContents): boolean {
+    if (wc === hostView.webContents) return true;
+    for (const slot of slots.values()) {
+      if (slot.view.webContents === wc) return true;
+    }
+    return false;
+  }
+
+  /** A theme's variables in the current mode, over each page's own `:root`. */
+  const themeCss = (theme: Theme) =>
     `html:root{${
-      Object.entries(themeVars(uiTheme, uiMode())).map(([k, v]) => `${k}:${v}`)
+      Object.entries(themeVars(theme, uiMode())).map(([k, v]) => `${k}:${v}`)
         .join(';')
     }}`;
   /** The stylesheet inserted into each of the app's views, by its webContents. */
   const themeKeys = new Map<Electron.WebContents, string>();
 
   function themeView(wc: Electron.WebContents): void {
-    const css = themeCss();
+    const css = themeCss(isHostPage(wc) ? hostThemeNow() : uiTheme);
     const old = themeKeys.get(wc);
     void wc.insertCSS(css).then((key) => {
       themeKeys.set(wc, key);
@@ -2498,9 +2516,7 @@ async function main(): Promise<void> {
   function nativeColors(): void {
     const c = themeColors(uiTheme, uiMode());
     win.setBackgroundColor(c.bg);
-    for (const v of [statusView, footerView, hostView]) {
-      v.setBackgroundColor(c.bg);
-    }
+    for (const v of [statusView, footerView]) v.setBackgroundColor(c.bg);
     railView.setBackgroundColor(c.border);
     titleBarView.setBackgroundColor(c.sidebarHead);
     if (!IS_MAC) {
@@ -2512,10 +2528,26 @@ async function main(): Promise<void> {
     }
   }
 
+  /**
+   * The host terminals' theme or mode changed: their pages' variables, their terminals' colors
+   * (`host-term:color`, replaced outright) and their views' own background.
+   */
+  function rethemeHost(): void {
+    const options = hostTerminalOptions(hostThemeNow(), uiMode());
+    const bg = hostTermBg();
+    const views = [hostView, ...[...slots.values()].map((s) => s.view)];
+    for (const v of views) {
+      v.setBackgroundColor(bg);
+      if (themeKeys.has(v.webContents)) themeView(v.webContents);
+      v.webContents.send('host-term:color', options);
+    }
+  }
+
   /** The mode changed (View → Appearance, or the OS under System): the app's views follow. */
   function retheme(): void {
     nativeColors();
-    for (const wc of themeKeys.keys()) themeView(wc);
+    for (const wc of themeKeys.keys()) if (!isHostPage(wc)) themeView(wc);
+    rethemeHost();
   }
 
   /** View → Appearance: devc web's views follow `prefers-color-scheme` by themselves. */
@@ -2529,7 +2561,10 @@ async function main(): Promise<void> {
     uiTheme = theme;
     saveState();
     nativeColors();
-    for (const wc of themeKeys.keys()) themeView(wc);
+    for (const wc of themeKeys.keys()) if (!isHostPage(wc)) themeView(wc);
+    rethemeHost();
+    // Same as Theme's swatch is this theme's.
+    setMenu();
     for (const v of [devcView, sidebarView, footerView]) setDevcTheme(v);
   }
 
@@ -2571,6 +2606,15 @@ async function main(): Promise<void> {
    * the like belong to the terminals, so the app's own shortcuts take Ctrl+Shift, and the Edit
    * items do too. Ctrl+` (the host terminal) is taken on both: nothing in a terminal uses it.
    */
+  /**
+   * The app menu, built from the current state; built again when a swatch changes (View → Theme
+   * changes Same as Theme's). Restore Host Tiles' enabled state is set after building.
+   */
+  function setMenu(): void {
+    Menu.setApplicationMenu(Menu.buildFromTemplate(menu()));
+    updateRestoreItem();
+  }
+
   function menu(): MenuItemConstructorOptions[] {
     const key = (mac: string, other: string) => (IS_MAC ? mac : other);
     return [
@@ -2696,13 +2740,17 @@ async function main(): Promise<void> {
           },
           {
             label: 'Host Terminal Color',
-            submenu: HOST_COLORS.map((c) => ({
-              label: c.label,
-              type: 'radio' as const,
-              checked: c.value === hostColor.value,
-              icon: swatch(swatchTone(c.background), { edge: c.background }),
-              click: () => setHostColor(c),
-            })),
+            // View → Theme's swatch for each choice's theme (Same as Theme: the current one's).
+            submenu: HOST_THEMES.map((c) => {
+              const panel = hostTheme(c, uiTheme).colors.panel;
+              return {
+                label: c.label,
+                type: 'radio' as const,
+                checked: c.value === hostColor.value,
+                icon: swatch(swatchTone(panel), { edge: panel }),
+                click: () => setHostColor(c),
+              };
+            }),
           },
         ],
       },
@@ -2715,7 +2763,7 @@ async function main(): Promise<void> {
   await loadState();
   nativeTheme.themeSource = appearance;
   nativeTheme.on('updated', retheme);
-  Menu.setApplicationMenu(Menu.buildFromTemplate(menu()));
+  setMenu();
   nativeColors();
   for (
     const v of [

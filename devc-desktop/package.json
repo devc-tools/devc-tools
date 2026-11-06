@@ -11,7 +11,7 @@
   "scripts": {
     "bundle": "node build.mjs",
     "check": "tsc --noEmit -p .",
-    "test": "node --test \"tests/*.test.ts\"",
+    "test": "node --import ./tests/devc_web_alias.mjs --test \"tests/*.test.ts\"",
     "start": "node build.mjs && electron .",
     "rebuild": "electron-rebuild -f -w node-pty",
     "build": "node build.mjs && electron-builder --publish never",

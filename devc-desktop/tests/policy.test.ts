@@ -24,12 +24,14 @@ import {
   externalUrl,
   FOOTER_HEIGHT,
   fromView,
-  HOST_COLORS,
   HOST_PEEK,
-  hostColorOf,
+  HOST_THEMES,
   hostFolder,
   hostPermission,
   hostShortcut,
+  hostTerminalOptions,
+  hostTheme,
+  hostThemeOf,
   isShellId,
   type Layout,
   layout,
@@ -60,6 +62,7 @@ import {
   swatchTone,
   TITLEBAR_HEIGHT,
 } from '../src/main/policy.ts';
+import { terminalTheme, themeNamed } from 'devc-web/lib/themes.js';
 
 const TOKEN = 'ab'.repeat(32);
 const PAGE = `http://127.0.0.1:48228/#token=${TOKEN}`;
@@ -989,20 +992,43 @@ test('recentChanges drops changes older than 500 ms', () => {
   assertEquals(recentChanges(changes, 1300), []);
 });
 
-test('hostColorOf: the saved choice, green for anything else', () => {
-  assertEquals(hostColorOf('blue').background, '#121d33');
-  assertEquals(hostColorOf('none').background, '#181e27');
-  assertEquals(hostColorOf('pink'), HOST_COLORS[0]);
-  assertEquals(hostColorOf(undefined).value, 'green');
-  assertEquals(HOST_COLORS.map((c) => c.label), [
+test('hostThemeOf: Same as Theme or a theme, green for anything else', () => {
+  assertEquals(HOST_THEMES.map((c) => c.label), [
+    'Same as Theme',
+    'Slate',
+    'Graphite',
     'Green',
     'Teal',
     'Blue',
     'Purple',
     'Amber',
     'Red',
-    'None',
   ]);
+  assertEquals(hostThemeOf('blue').value, 'blue');
+  assertEquals(hostThemeOf('none').value, 'none');
+  assertEquals(hostThemeOf('pink').value, 'green');
+  assertEquals(hostThemeOf(undefined).value, 'green');
+  // The old host colors' saved values are the themes' names.
+  for (const old of ['green', 'teal', 'blue', 'purple', 'amber', 'red']) {
+    assertEquals(hostThemeOf(old).value, old);
+  }
+});
+
+test("hostTheme: the choice, or devc web's theme for Same as Theme", () => {
+  assertEquals(hostTheme(hostThemeOf('none'), themeNamed('teal')).name, 'teal');
+  assertEquals(hostTheme(hostThemeOf('red'), themeNamed('teal')).name, 'red');
+});
+
+test("hostTerminalOptions: a container terminal's colors, and contrast in light mode", () => {
+  const green = themeNamed('green');
+  assertEquals(hostTerminalOptions(green, 'light'), {
+    theme: terminalTheme(green, 'light'),
+    minimumContrastRatio: 4.5,
+  });
+  assertEquals(hostTerminalOptions(green, 'dark'), {
+    theme: { background: green.colors.termBg },
+    minimumContrastRatio: 1,
+  });
 });
 
 test('swatchBitmap: BGRA, opaque, an edge, and an inner square half the size', () => {

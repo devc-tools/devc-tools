@@ -11,16 +11,16 @@ from devc web's.
 
 ## Checklist
 
-- [ ] `policy.ts`: Host Terminal Color is a theme choice (`HOST_THEMES`, `hostThemeOf`); fixed
+- [x] `policy.ts`: Host Terminal Color is a theme choice (`HOST_THEMES`, `hostThemeOf`); fixed
       backgrounds are gone.
-- [ ] `main.ts`: the drawer's and host tiles' views are themed with the host theme in the current
+- [x] `main.ts`: the drawer's and host tiles' views are themed with the host theme in the current
       mode (`themeVars`), and re-themed on a host theme change and on `nativeTheme` `updated`.
-- [ ] Host terminals' xterm.js options come from `terminalTheme(hostTheme, mode)` and
+- [x] Host terminals' xterm.js options come from `terminalTheme(hostTheme, mode)` and
       `minimumContrastRatio` (4.5 light, 1 dark), as container terminals'; replaced outright on a
       change.
-- [ ] `host.css`, `slot.css`: no hardcoded colors; `color-scheme` follows the mode.
-- [ ] Menu swatches from the theme, as View → Theme's.
-- [ ] Tests; `devc-desktop/README.md`'s Host Terminal Color text.
+- [x] `host.css`, `slot.css`: no hardcoded colors; `color-scheme` follows the mode.
+- [x] Menu swatches from the theme, as View → Theme's.
+- [x] Tests; `devc-desktop/README.md`'s Host Terminal Color text.
 
 ## Decisions
 
@@ -76,22 +76,25 @@ export function hostTerminalOptions(
 
 ## Validation
 
-- [ ] `cd devc-desktop && npm run check && npm test`; `policy.test.ts`:
-  - [ ] `HOST_THEMES.map((c) => c.label)` is `['Same as Theme', 'Slate', 'Graphite', 'Green',
+- [x] `cd devc-desktop && npm run check && npm test`; `policy.test.ts`:
+  - [x] `HOST_THEMES.map((c) => c.label)` is `['Same as Theme', 'Slate', 'Graphite', 'Green',
         'Teal', 'Blue', 'Purple', 'Amber', 'Red']`.
-  - [ ] `hostThemeOf('blue').value === 'blue'`, `hostThemeOf('none').value === 'none'`,
+  - [x] `hostThemeOf('blue').value === 'blue'`, `hostThemeOf('none').value === 'none'`,
         `hostThemeOf('pink').value === 'green'`, `hostThemeOf(undefined).value === 'green'`.
-  - [ ] `hostTheme(hostThemeOf('none'), themeNamed('teal')).name === 'teal'`;
+  - [x] `hostTheme(hostThemeOf('none'), themeNamed('teal')).name === 'teal'`;
         `hostTheme(hostThemeOf('red'), themeNamed('teal')).name === 'red'`.
-  - [ ] `hostTerminalOptions(themeNamed('green'), 'light')` equals
+  - [x] `hostTerminalOptions(themeNamed('green'), 'light')` equals
         `{theme: terminalTheme(themeNamed('green'), 'light'), minimumContrastRatio: 4.5}`, and
         `'dark'` gives ratio `1` and `{background: themeNamed('green').colors.termBg}`.
-- [ ] `grep -n "#[0-9a-fA-F]\{6\}\|rgb(" devc-desktop/src/renderer/slot.css devc-desktop/src/renderer/host.css`
+- [x] `grep -n "#[0-9a-fA-F]\{6\}\|rgb(" devc-desktop/src/renderer/slot.css devc-desktop/src/renderer/host.css`
       finds nothing; `grep -rn "host-bg\|HOST_COLORS\|hostColorOf" devc-desktop/src devc-desktop/tests`
       finds nothing.
-- [ ] `deno fmt --check` on touched files.
-- [ ] `cd devc-desktop && npm run build:mac` succeeds.
-- [ ] Real app (`npm start` on Linux, and the Mac build), drawer and a host tile each:
+- [x] `deno fmt --check` on touched files.
+- [x] `cd devc-desktop && npm run build:mac` succeeds.
+- [ ] Real app (`npm start` on Linux, and the Mac build), drawer and a host tile each.
+      **Not run on Linux:** Electron's `chrome-sandbox` must be setuid root and setting that was
+      refused here, so the app would not start; these are for the user's look on macOS (the Mac
+      apps are built).
   - [ ] View → Appearance → Light: the host terminal goes light in its host theme's hue (green by
         default), with dark text; `ls --color` stays readable. → Dark: back to dark, no light
         color left over.
@@ -100,6 +103,16 @@ export function hostTerminalOptions(
   - [ ] The choice survives a restart; a saved `hostColor` from before (`blue`) shows as Blue.
   - [ ] Resizing or moving a host tile shows no flash of another color.
   - [ ] The menu's swatches match View → Theme's for the same theme.
+
+## Notes from implementation
+
+- `policy.ts` imports `devc-web/lib/themes.js` as `main.ts` does. For `npm test`, a resolve hook
+  (`tests/devc_web_alias.mjs`, loaded with `node --import`) maps `devc-web/` to devc web's
+  `static/` folder, as `build.mjs`'s alias does for the bundle.
+- The pages validate the colors they are sent (`src/renderer/term_colors.ts`) before applying
+  them.
+- The app menu is rebuilt on View → Theme (`setMenu`), so Same as Theme's swatch follows; Restore
+  Host Tiles' enabled state is set again after each build.
 
 ## Relevant Files
 
@@ -110,5 +123,8 @@ export function hostTerminalOptions(
 - `devc-desktop/src/renderer/host.ts`, `devc-desktop/src/renderer/slot.ts` (apply the options)
 - `devc-desktop/src/renderer/host.css`, `devc-desktop/src/renderer/slot.css`
 - `devc-desktop/tests/policy.test.ts`
+- `devc-desktop/tests/devc_web_alias.mjs` (new), `devc-desktop/package.json` (`test` script)
+- `devc-desktop/src/renderer/term_colors.ts` (new), `devc-desktop/src/renderer/devc-web.d.ts`
+  (`terminalTheme`)
 - `devc-desktop/README.md` (Host Terminal Color, light mode)
 - `.plans/PLAN.md`

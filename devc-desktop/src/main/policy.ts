@@ -3,6 +3,14 @@
 // views. Why these rules: `.plans/devc-desktop-electron.md` ("The devc view", "The host view")
 // and the measurements in `.plans/archived/devc-desktop-host-terminal.md`.
 
+import {
+  type Mode,
+  terminalTheme,
+  type Theme,
+  themeNamed,
+  THEMES,
+} from 'devc-web/lib/themes.js';
+
 /** devc web's origin (`http://127.0.0.1:<port>`) from its ready-line URL. */
 export function devcOrigin(pageUrl: string): string {
   return new URL(pageUrl).origin;
@@ -950,28 +958,46 @@ export function pushOutcome(
 // Host terminals in devc web's own layout: devc web's `/main` says where a `host` tile's content
 // is, and the app puts a view of its own there. See `.plans/archived/devc-desktop-host-tiles.md`.
 
-/** A host terminal background the user picks (View → Host Terminal Color): never sent to devc web. */
-export interface HostColor {
+/**
+ * A host terminal theme the user picks (View → Host Terminal Color): `none` (Same as Theme) or a
+ * theme's name. Host terminals are themed exactly as devc web is, in this theme rather than
+ * devc web's, so they can be told apart. Never sent to devc web. See
+ * `.plans/archived/host-terminal-themes.md`.
+ */
+export interface HostThemeChoice {
   value: string;
   label: string;
-  background: string;
 }
 
-/** The choices, in menu order. */
-export const HOST_COLORS: readonly HostColor[] = [
-  { value: 'green', label: 'Green', background: '#10251b' },
-  { value: 'teal', label: 'Teal', background: '#0f2427' },
-  { value: 'blue', label: 'Blue', background: '#121d33' },
-  { value: 'purple', label: 'Purple', background: '#1f1830' },
-  { value: 'amber', label: 'Amber', background: '#2a2210' },
-  { value: 'red', label: 'Red', background: '#2b1517' },
-  // devc web's own `--panel`.
-  { value: 'none', label: 'None', background: '#181e27' },
+/** The choices, in menu order: Same as Theme, then every theme. */
+export const HOST_THEMES: readonly HostThemeChoice[] = [
+  { value: 'none', label: 'Same as Theme' },
+  ...THEMES.map((t) => ({ value: t.name, label: t.label })),
 ];
 
-/** The saved `hostColor`, `green` for anything unknown or missing. */
-export function hostColorOf(saved: unknown): HostColor {
-  return HOST_COLORS.find((c) => c.value === saved) ?? HOST_COLORS[0];
+/**
+ * The saved `hostColor`'s choice: a theme's name or `none`, and `green` (the default) for
+ * anything else. The old host colors' values were the themes' names, so they carry over.
+ */
+export function hostThemeOf(saved: unknown): HostThemeChoice {
+  return HOST_THEMES.find((c) => c.value === saved) ??
+    HOST_THEMES.find((c) => c.value === 'green')!;
+}
+
+/** The theme a choice stands for: devc web's (`uiTheme`) for Same as Theme. */
+export function hostTheme(choice: HostThemeChoice, uiTheme: Theme): Theme {
+  return choice.value === 'none' ? uiTheme : themeNamed(choice.value);
+}
+
+/** What a host terminal's xterm.js takes, as a container terminal's (`renderer.js`). */
+export function hostTerminalOptions(
+  theme: Theme,
+  mode: Mode,
+): { theme: Record<string, string>; minimumContrastRatio: number } {
+  return {
+    theme: terminalTheme(theme, mode),
+    minimumContrastRatio: mode === 'light' ? 4.5 : 1,
+  };
 }
 
 /** A slot id: as devc web's `HOST_SLOT`, which only ever holds what the app issued. */

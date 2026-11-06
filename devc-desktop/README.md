@@ -236,14 +236,15 @@ decides which pane counts.
 pane, the drawer's frame): Slate (the default), Graphite (neutral gray), or a solid tint in one of
 the host colors' hues: Green, Teal, Blue, Purple, Amber or Red. Each item shows a swatch of the
 theme's background. It changes at once, with nothing reloaded, and is remembered. Host terminals
-keep their **Host Terminal Color**, whose menu shows swatches too. Any theme goes with any host
-color; when they share a hue, a host tile is told apart by its `HOST · user@host` strip. The
+take the theme picked under **View → Host Terminal Color** instead, whose menu shows the same
+swatches. Any theme goes with any host terminal theme; when they are the same, a host tile is told
+apart by its `HOST · user@host` strip. The
 palettes are devc web's (`devc/web/static/lib/themes.js`); the app passes the choice to its pages
 as `#…&theme=<name>`.
 
 **View → Appearance** picks dark or light: **System** (the default; follows the OS, live),
-**Light** or **Dark**. Every theme has both. Container terminals and the file viewer go light too;
-host terminals keep their host color. It is remembered, and set as Electron's
+**Light** or **Dark**. Every theme has both. Container terminals, host terminals and the file
+viewer go light too. It is remembered, and set as Electron's
 `nativeTheme.themeSource`, which devc web's pages see as `prefers-color-scheme`: nothing reloads.
 
 ### Host tiles
@@ -253,10 +254,11 @@ layout, as a `host` tile beside container panes, files and diffs. It splits, sta
 maximizes like any tile. devc web draws the tab; the terminal under it is the app's own view,
 laid over the tile's content. It has the same paste bar as the drawer.
 
-- **The host color.** Every host terminal, in the drawer or in a tile, has the background
-  picked under **View → Host Terminal Color** (Green by default; Teal, Blue, Purple, Amber, Red,
-  or None for devc web's own panel color), and a host tile has a `HOST · user@host` strip at its
-  top. Both are drawn by the app. devc web never learns the color.
+- **The host color.** Every host terminal, in the drawer or in a tile, is themed exactly as
+  devc web is, in the theme picked under **View → Host Terminal Color**: **Same as Theme**, or
+  any theme (Green by default), in the current dark or light mode, terminal colors included.
+  A host tile has a `HOST · user@host` strip at its top. Both are drawn by the app. devc web
+  never learns the choice.
 - **Splitting.** Right-click in a host tile for the drawer's **Split vertically**, **Split
   horizontally** and **New terminal in this stack** (same shortcuts): each opens a new host
   shell beside it in the layout. The `cd` items are there too.

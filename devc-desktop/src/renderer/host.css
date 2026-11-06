@@ -3,12 +3,13 @@
 :root {
   /* What `actions.css` colours a card with. */
   --host: var(--accent);
-  /* The host color (View → Host Terminal Color), set by host.ts: each terminal's background. */
-  --host-bg: #10251b;
+  /* The variables are View → Host Terminal Color's theme in the current mode, inserted by the
+     app; `--term-bg` is each terminal's background. */
+  color-scheme: light dark;
 }
 #tiles .lm_content,
 .host-term {
-  background: var(--host-bg);
+  background: var(--term-bg);
 }
 body {
   display: grid;
