@@ -11,14 +11,7 @@
 
 ### Pending
 
-- [host-terminal-themes](host-terminal-themes.md) — before host-terminal-herdr: host terminals
-  were left dark-only (fixed dark `HOST_COLORS`, `color-scheme: dark`), which was not the design.
-  View → Host Terminal Color becomes a theme choice (Same as Theme, or any of `THEMES`; saved
-  `hostColor` values carry over), and the drawer and host tiles are themed with it in the current
-  mode exactly as devc web is, terminal palette and contrast included, following View →
-  Appearance live.
-
-- [host-terminal-herdr](host-terminal-herdr.md) — after host-terminal-themes: host terminals become panes of a
+- [host-terminal-herdr](host-terminal-herdr.md) — host terminals become panes of a
   `devc-desktop-<12 hex>` Herdr session (hashed from the app's `userData`, so it cannot clash with
   a project's session; Herdr required), drawn by devc web's `renderer.js` with `tiles.js`'s mouse
   handling moved to a shared `term_mouse.js`. One `host_terminal.ts` for the drawer and host
@@ -234,6 +227,14 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
   refreshes the mirror so `↑N` clears.
 
 ### Completed
+
+- ✅ Done — [host-terminal-themes](archived/host-terminal-themes.md) — View → Host Terminal Color
+  is a theme choice (Same as Theme, or any theme; saved values carried over), and the drawer and
+  host tiles are themed with it in the current mode exactly as devc web is, terminal palette and
+  contrast included, following View → Appearance live. Validated by `npm run check`, `npm test`
+  (new `hostThemeOf`/`hostTheme`/`hostTerminalOptions` tests), the plan's greps and the user's
+  look at the Mac build. **Not run:** a Linux real-app run (`chrome-sandbox` could not be made
+  setuid here).
 
 - ⏭️ Superseded — [terminal-shared-surface](archived/terminal-shared-surface.md) — never built;
   replaced by host-terminal-herdr, which shares terminal code at the Herdr level once host
@@ -2733,5 +2734,5 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
 | devc UI themes — Slate, Graphite and the host colors' hues for devc web and the app, picked under View → Theme      | [devc-ui-themes](archived/devc-ui-themes.md)                                       | complete    |
 | devc web light mode — light palettes for every theme; follows the OS, View → Appearance in the app                  | [devc-web-light-mode](devc-web-light-mode.md)                                      | in progress |
 | Terminal shared surface — superseded by host-terminal-herdr                                                         | [terminal-shared-surface](archived/terminal-shared-surface.md)                     | superseded  |
-| Host terminal themes — Host Terminal Color picks a theme; light and dark like devc web                              | [host-terminal-themes](host-terminal-themes.md)                                    | in progress |
+| Host terminal themes — Host Terminal Color picks a theme; light and dark like devc web                              | [host-terminal-themes](archived/host-terminal-themes.md)                           | complete    |
 | Host terminals on Herdr — a devc-desktop session, one terminal for both apps, host file links                       | [host-terminal-herdr](host-terminal-herdr.md)                                      |             |

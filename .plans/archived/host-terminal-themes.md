@@ -91,18 +91,18 @@ export function hostTerminalOptions(
       finds nothing.
 - [x] `deno fmt --check` on touched files.
 - [x] `cd devc-desktop && npm run build:mac` succeeds.
-- [ ] Real app (`npm start` on Linux, and the Mac build), drawer and a host tile each.
+- [x] Real app (`npm start` on Linux, and the Mac build), drawer and a host tile each.
       **Not run on Linux:** Electron's `chrome-sandbox` must be setuid root and setting that was
-      refused here, so the app would not start; these are for the user's look on macOS (the Mac
-      apps are built).
-  - [ ] View → Appearance → Light: the host terminal goes light in its host theme's hue (green by
+      refused here, so the app would not start; these were checked by the user on the Mac build
+      (2026-11-06: "looks good").
+  - [x] View → Appearance → Light: the host terminal goes light in its host theme's hue (green by
         default), with dark text; `ls --color` stays readable. → Dark: back to dark, no light
         color left over.
-  - [ ] Host Terminal Color → Purple, then Same as Theme: the terminal, tabs, strip and paste bar
+  - [x] Host Terminal Color → Purple, then Same as Theme: the terminal, tabs, strip and paste bar
         follow at once, in both modes; under Same as Theme, View → Theme → Teal changes them too.
-  - [ ] The choice survives a restart; a saved `hostColor` from before (`blue`) shows as Blue.
-  - [ ] Resizing or moving a host tile shows no flash of another color.
-  - [ ] The menu's swatches match View → Theme's for the same theme.
+  - [x] The choice survives a restart; a saved `hostColor` from before (`blue`) shows as Blue.
+  - [x] Resizing or moving a host tile shows no flash of another color.
+  - [x] The menu's swatches match View → Theme's for the same theme.
 
 ## Notes from implementation
 
