@@ -7,6 +7,7 @@ import { FitAddon } from '@xterm/addon-fit';
 import { SerializeAddon } from '@xterm/addon-serialize';
 import { Terminal } from '@xterm/xterm';
 import { hostShortcut } from '../main/policy.ts';
+import { copyOnSelect } from './copy_select.ts';
 
 interface SlotInfo {
   user: string;
@@ -55,6 +56,7 @@ term.loadAddon(fit);
 const serialize = new SerializeAddon();
 term.loadAddon(serialize);
 term.open(el);
+copyOnSelect(term, el);
 
 let shell: string | null = null;
 let running = false;

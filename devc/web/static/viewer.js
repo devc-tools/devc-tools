@@ -456,6 +456,20 @@ export function createViewer(
     view.dispatch({ effects: look.reconfigure(modeTheme()) });
   };
   window.addEventListener('devc-theme', onTheme);
+  // Copy on select: a mouse selection (drag, double- or triple-click) is copied when the button
+  // comes up, wherever the pointer is by then, as a terminal's is. Keyboard selections are not.
+  view.contentDOM.addEventListener('mousedown', (ev) => {
+    if (ev.button !== 0) return;
+    const onUp = () => {
+      window.removeEventListener('mouseup', onUp);
+      const text = view.state.selection.ranges
+        .filter((r) => !r.empty)
+        .map((r) => view.state.sliceDoc(r.from, r.to))
+        .join(view.state.lineBreak);
+      if (text) navigator.clipboard?.writeText(text).catch(() => {});
+    };
+    window.addEventListener('mouseup', onUp);
+  });
   /** The doc as it is on disk. */
   let clean = view.state.doc;
   /**

@@ -28,6 +28,7 @@ import {
   HOST_PEEK,
   hostColorOf,
   hostFolder,
+  hostPermission,
   hostShortcut,
   isShellId,
   type Layout,
@@ -135,6 +136,15 @@ test('devcPermission: copying, and nothing else', () => {
     ]
   ) {
     assertEquals(devcPermission(p), false, p);
+  }
+});
+
+test('hostPermission: copying, never reading the clipboard', () => {
+  assertEquals(hostPermission('clipboard-sanitized-write'), true);
+  for (
+    const p of ['clipboard-read', 'fullscreen', 'media', 'notifications']
+  ) {
+    assertEquals(hostPermission(p), false, p);
   }
 });
 

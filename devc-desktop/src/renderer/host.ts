@@ -15,6 +15,7 @@ import {
   MAX_SHELLS,
 } from '../main/policy.ts';
 import { actionColumn } from './actions.ts';
+import { copyOnSelect } from './copy_select.ts';
 
 interface HostTerm {
   start(id: string, cols: number, rows: number): void;
@@ -194,6 +195,7 @@ function mountTerminal(tile: Tile): void {
     host.contextMenu(id);
   });
   tile.element.addEventListener('mousedown', () => tile.focus(), true);
+  copyOnSelect(term, el);
   t.observer.observe(el);
   // After the factory returns: the tile is in the page only then, and a title change mid-build
   // would save a half-built layout.

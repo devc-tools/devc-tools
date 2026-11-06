@@ -62,6 +62,14 @@ export function containersPermission(permission: string): boolean {
 }
 
 /**
+ * The permission the host terminal's views (the drawer and each host tile) are granted: copying,
+ * for copy-on-select. Reading the clipboard is refused, as everything else is.
+ */
+export function hostPermission(permission: string): boolean {
+  return permission === 'clipboard-sanitized-write';
+}
+
+/**
  * Chromium and Electron switches that open a debugging door into every view (the host terminal's
  * included), whether on the command line or through Node's own flags.
  */

@@ -11,7 +11,8 @@
 //   - the rail (bundled page + preload) between the column and `/main`, dragged to resize;
 //   - the status view (bundled page + preload) while devc web starts, or after it stopped;
 //   - the host view (bundled page + preload): a drawer under `/main` running the user's shell
-//     through node-pty, opened only from the app menu;
+//     through node-pty, opened only from the app menu. No permission but copying (copy-on-select),
+//     as its host tiles;
 //   - a host tile's view (bundled page + the host preload) per New Host Tile: one shell over a
 //     `host` tile in `/main`'s own layout, placed where `/main` says the tile is, and hidden
 //     whenever devc web may draw over it;
@@ -93,6 +94,7 @@ import {
   hostColorOf,
   type HostCommand,
   hostFolder,
+  hostPermission,
   isShellId,
   type Layout,
   layout,
@@ -359,7 +361,7 @@ async function main(): Promise<void> {
 
   lockDownDevc();
   lockDownBundled(statusView, STATUS_URL);
-  lockDownBundled(hostView, HOST_URL);
+  lockDownBundled(hostView, HOST_URL, { permission: hostPermission });
   lockDownBundled(titleBarView, TITLEBAR_URL);
   lockDownBundled(railView, RAIL_URL);
   lockDownBundled(menuView, MENU_URL);
@@ -1574,7 +1576,7 @@ async function main(): Promise<void> {
     });
     view.setBackgroundColor(hostColor.background);
     view.setVisible(false);
-    lockDownBundled(view, SLOT_URL);
+    lockDownBundled(view, SLOT_URL, { permission: hostPermission });
     watchPresses(view.webContents);
     themed(view);
     const slot: Slot = {
