@@ -119,6 +119,11 @@ folder, so file paths in a host terminal open in devc web's viewer.
 - **D7: moving a shell** between the drawer and `/main` releases the pane in one view and attaches
   it in the other. `@xterm/addon-serialize`, `host-term:detach`, `host-term:detached`,
   `host-term:adopt` and a host tile's `replay` are removed.
+- **D7a: the drawer's Actions column is unchanged** (`devc-desktop-host-actions.md`; since
+  `ba5f3ae7` a push request opens a closed drawer without focus). Opening the drawer by any route,
+  a request included, with no tiles makes one tile on a new pane, as it makes one shell today;
+  attaching it never takes focus, so keys still go to devc web. With Herdr refused (D2), the
+  drawer still opens and its Actions column works; only its tiles show the refusal.
 - **D8: one menu.** The drawer's and a host tile's menus differ only in the move item; both come
   from `hostMenuEntries(where)` (below).
 - **D9: copy and paste**, as container terminals: a plain left-drag goes to Herdr as cells and its
@@ -322,6 +327,9 @@ absolute). The page then calls `openFileAt(file, line, column)`.
         plain click does nothing.
   - [ ] The `cd` items: correct folder; disabled while `vim` runs.
   - [ ] Split shortcuts work in the drawer and a host tile.
+  - [ ] A push request from devc web with the drawer closed opens it, with one new pane, while
+        typing continues in devc web; the confirm works. With Herdr renamed away from PATH, the
+        same request opens the drawer and its confirm works.
   - [ ] devc web's Projects list does not show the app's session.
 - [ ] Real devc web, a container terminal (regression): click, drag (copied, flashed), Shift+drag
       (copied), right-click menu, wheel scroll, Cmd/Ctrl+click on a URL and on a repo file path;
