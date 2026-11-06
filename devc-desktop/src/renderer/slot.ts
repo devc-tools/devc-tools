@@ -2,7 +2,7 @@
 // lays over a `host` tile of devc web's layout (`.plans/archived/devc-desktop-host-tiles.md`).
 // Loaded from the app bundle; devc web cannot reach it, and only says where its tile is. The pane
 // is the app's: its id comes from the app, and closing devc web's tab only lets go of it (Close
-// terminal…, in the right-click menu, ends it). See `.plans/host-terminal-herdr.md`.
+// terminal…, in the right-click menu, ends it). See `.plans/archived/host-terminal-herdr.md`.
 
 import { hostShortcut } from '../main/policy.ts';
 import {

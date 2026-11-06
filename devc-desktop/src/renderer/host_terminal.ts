@@ -2,7 +2,7 @@
 // driven by its `term_mouse.js`, as a container terminal in devc web is (both bundled at build
 // time; devc web cannot reach this page). The drawer (`host.ts`) and a host tile (`slot.ts`) only
 // place it. Everything goes through the host preload (`window.hostTerm`), and the main process
-// checks every pane id. See `.plans/host-terminal-herdr.md` (D4, D5, D9, D11).
+// checks every pane id. See `.plans/archived/host-terminal-herdr.md` (D4, D5, D9, D11).
 
 import { createRenderer, type Renderer } from 'devc-web/renderer.js';
 import { attachTerminalMouse } from 'devc-web/term_mouse.js';

@@ -1,7 +1,7 @@
 // The mouse over a Herdr terminal, for every terminal that draws Herdr's frames with
 // `renderer.js`: devc web's pane tiles (`tiles.js`) and devc-desktop's host terminals, which
 // bundle this module at build time. What a press, a drag or a link click *does* is the caller's
-// (its hooks); how the mouse is read is here, once. See `.plans/host-terminal-herdr.md` (D4).
+// (its hooks); how the mouse is read is here, once. See `.plans/archived/host-terminal-herdr.md` (D4).
 
 import { mouseButton, pixelToCell } from './lib/input.js';
 

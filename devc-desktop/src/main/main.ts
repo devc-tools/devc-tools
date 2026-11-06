@@ -1055,7 +1055,7 @@ async function main(): Promise<void> {
 
   // Panes of the app's own Herdr session (`herdr.ts`): nothing here runs a shell itself, and
   // devc web never connects to this session (`desktopSessionName`). One view at a time controls
-  // a pane (`attachments`). See `.plans/host-terminal-herdr.md`.
+  // a pane (`attachments`). See `.plans/archived/host-terminal-herdr.md`.
 
   const hostShellPath = hostShell(
     process.env,
@@ -1377,7 +1377,7 @@ async function main(): Promise<void> {
 
   /**
    * **Close terminal…**: asks, in devc web's words, then ends the pane in Herdr; its tile goes
-   * (a host tile's in devc web too). See `.plans/host-terminal-herdr.md` (D6).
+   * (a host tile's in devc web too). See `.plans/archived/host-terminal-herdr.md` (D6).
    */
   async function closeTerminal(id: string): Promise<void> {
     const t = herdr;

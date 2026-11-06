@@ -3,7 +3,7 @@
 // (`devc/web/herdr_bridge.ts`, `controllers.ts`) is Deno code on its `Environment`; this is the
 // same protocol in Node, for what the app needs. Every Herdr process is an argv spawn, never a
 // shell string (but the server's login-shell wrapper), never a pty. See
-// `.plans/host-terminal-herdr.md` (D1–D3, and Step 0's measurements).
+// `.plans/archived/host-terminal-herdr.md` (D1–D3, and Step 0's measurements).
 
 import {
   type ChildProcessWithoutNullStreams,
@@ -22,7 +22,7 @@ import {
  * The app's Herdr session: `devc-desktop-` and the first 12 hex of the SHA-256 of its
  * `userData` folder, so an installed app and a dev build each have their own. devc web's
  * `hostSessionName` always has `-` as the 9th character from the end; here it is a hex digit,
- * so the two can never be the same name. See `.plans/host-terminal-herdr.md` (D1).
+ * so the two can never be the same name. See `.plans/archived/host-terminal-herdr.md` (D1).
  */
 export function desktopSessionName(userData: string): string {
   return `devc-desktop-${

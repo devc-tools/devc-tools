@@ -11,16 +11,6 @@
 
 ### Pending
 
-- [host-terminal-herdr](host-terminal-herdr.md) — host terminals become panes of a
-  `devc-desktop-<12 hex>` Herdr session (hashed from the app's `userData`, so it cannot clash with
-  a project's session; Herdr required), drawn by devc web's `renderer.js` with `tiles.js`'s mouse
-  handling moved to a shared `term_mouse.js`. One `host_terminal.ts` for the drawer and host
-  tiles, one menu (`hostMenuEntries`). Close releases a pane, Close terminal… ends it after a
-  confirmation, as in devc web; shells outlive the app and moves reattach; node-pty goes.
-  Cmd/Ctrl+click opens URLs in the system browser and file paths in devc web's viewer (`/main`'s
-  `open-host-file`, a new `locate_host_file`, confined to project repos). Step 0 measures on macOS
-  first. Supersedes terminal-shared-surface.
-
 - [devc-web-aseprite-viewer](devc-web-aseprite-viewer.md) — after devc-web-media-tiles: a
   clean-room `.aseprite` decoder and compositor (`static/lib/aseprite.js`, from the public spec
   only) and a media view with frame playback, tags and layer toggles. Normal blend only at first;
@@ -227,6 +217,15 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
   refreshes the mirror so `↑N` clears.
 
 ### Completed
+
+- ✅ Done — [host-terminal-herdr](archived/host-terminal-herdr.md) — host terminals are panes of
+  the app's own `devc-desktop-<12 hex>` Herdr session (Herdr required), drawn with devc web's
+  `renderer.js` and shared `term_mouse.js`; one `host_terminal.ts` and one menu for the drawer and
+  host tiles; Close lets go of a pane, Close terminal… ends it; panes outlive the app and
+  reattach; Cmd/Ctrl+click opens URLs and project files (`open-host-file`, `locate_host_file`);
+  node-pty is gone. Validated by both packages' checks and tests, the client run against real
+  Herdr, and the user's look at the Mac build. **Not run:** a Linux real-app run
+  (`chrome-sandbox` could not be made setuid here); Step 0 was measured on Linux, not macOS.
 
 - ✅ Done — [host-terminal-themes](archived/host-terminal-themes.md) — View → Host Terminal Color
   is a theme choice (Same as Theme, or any theme; saved values carried over), and the drawer and
@@ -2735,4 +2734,4 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
 | devc web light mode — light palettes for every theme; follows the OS, View → Appearance in the app                  | [devc-web-light-mode](devc-web-light-mode.md)                                      | in progress |
 | Terminal shared surface — superseded by host-terminal-herdr                                                         | [terminal-shared-surface](archived/terminal-shared-surface.md)                     | superseded  |
 | Host terminal themes — Host Terminal Color picks a theme; light and dark like devc web                              | [host-terminal-themes](archived/host-terminal-themes.md)                           | complete    |
-| Host terminals on Herdr — a devc-desktop session, one terminal for both apps, host file links                       | [host-terminal-herdr](host-terminal-herdr.md)                                      | in progress |
+| Host terminals on Herdr — a devc-desktop session, one terminal for both apps, host file links                       | [host-terminal-herdr](archived/host-terminal-herdr.md)                             | complete    |

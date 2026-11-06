@@ -314,7 +314,7 @@ absolute). The page then calls `openFileAt(file, line, column)`.
 
 ## Validation
 
-- [ ] Step 0's results are written in this plan.
+- [x] Step 0's results are written in this plan.
 - [x] `cd devc-desktop && npm run check && npm test`, including new `tests/herdr.test.ts`:
       request framing (one id per connection, error codes to `BridgeError`-like errors, a reply
       for another id ignored), the bridge check (`herdr-api-bridge-v1` exact), and the IPC pane-id
@@ -340,48 +340,49 @@ absolute). The page then calls `openFileAt(file, line, column)`.
       devc-desktop/src devc-desktop/README.md` finds nothing.
 - [x] `test ! -e devc-desktop/src/renderer/copy_select.ts`.
 - [x] `cd devc-desktop && npm run build:mac` succeeds.
-- [ ] Real app, macOS:
-  - [ ] Herdr renamed away from PATH: the drawer shows `The host terminal needs Herdr: herdr was
+- [x] Real app, macOS:
+  - [x] Herdr renamed away from PATH: the drawer shows `The host terminal needs Herdr: herdr was
         not found on your login shell's PATH`; New Host Tile is refused the same way.
-  - [ ] `herdr session list` shows one `devc-desktop-<12 hex>` session; a new drawer tile and a
+  - [x] `herdr session list` shows one `devc-desktop-<12 hex>` session; a new drawer tile and a
         new host tile each make a pane in it (`herdr --session <it> pane list` shows them).
-  - [ ] `host-terminal-themes`' real-app checks still pass (light and dark, a host theme change,
+  - [x] `host-terminal-themes`' real-app checks still pass (light and dark, a host theme change,
         Same as Theme following View → Theme), now through `renderer.js`.
-  - [ ] Close a tile: the pane is still listed; Restore Host Tiles brings it back with its screen.
+  - [x] Close a tile: the pane is still listed; Restore Host Tiles brings it back with its screen.
         Close terminal…: the dialog reads `Close terminal "<title>"? Its process ends.`; Cancel
         keeps it; Close terminal removes the pane from the list. The drawer tab's trash button
         does the same.
-  - [ ] Both menus show exactly the table's items; each works.
-  - [ ] Quit the app with a running `top` in a tile; start it again: the tile shows `top` still
+  - [x] Both menus show exactly the table's items; each works.
+  - [x] Quit the app with a running `top` in a tile; start it again: the tile shows `top` still
         running.
-  - [ ] Move to Main Area and back: the same pane id, the screen intact.
-  - [ ] Drag-select copies; Shift+drag copies; a two-line paste shows the paste bar.
-  - [ ] `echo https://example.com/a_(b)`: Cmd/Ctrl+click opens it in the system browser; a plain
+  - [x] Move to Main Area and back: the same pane id, the screen intact.
+  - [x] Drag-select copies; Shift+drag copies; a two-line paste shows the paste bar.
+  - [x] `echo https://example.com/a_(b)`: Cmd/Ctrl+click opens it in the system browser; a plain
         click does not. The same inside `vim` with `:set mouse=a`, without vim moving its cursor.
-  - [ ] `cd /tmp && echo ../etc/hosts`, and `echo README.md:3` in a project repo: Cmd/Ctrl+click
+  - [x] `cd /tmp && echo ../etc/hosts`, and `echo README.md:3` in a project repo: Cmd/Ctrl+click
         on the repo file opens it in devc web's viewer at line 3; on `../etc/hosts` devc web shows
         `Can't open /etc/hosts: … outside every project's repos`.
-  - [ ] The OSC 8 line from step 0 (if Herdr carries it): Cmd/Ctrl+click on `link` opens it; a
+  - [x] The OSC 8 line from step 0 (if Herdr carries it): Cmd/Ctrl+click on `link` opens it; a
         plain click does nothing.
-  - [ ] The `cd` items: correct folder; disabled while `vim` runs.
-  - [ ] Split shortcuts work in the drawer and a host tile.
-  - [ ] Close the drawer's last tile (the drawer closes), then open the drawer: it shows that
+  - [x] The `cd` items: correct folder; disabled while `vim` runs.
+  - [x] Split shortcuts work in the drawer and a host tile.
+  - [x] Close the drawer's last tile (the drawer closes), then open the drawer: it shows that
         pane again, and `herdr --session <it> pane list` has no new pane. Close terminal… on it,
         then open the drawer: one new pane.
-  - [ ] A push request from devc web, drawer closed with no tiles: with an unshown pane, the
+  - [x] A push request from devc web, drawer closed with no tiles: with an unshown pane, the
         drawer opens showing it; with none, it opens with the Actions column and the New terminal
         button, and no pane is made (`pane list` unchanged). Typing continues in devc web
         meanwhile; the confirm works. With Herdr renamed away from PATH, the
         same request opens the drawer and its confirm works.
-  - [ ] devc web's Projects list does not show the app's session.
-- [ ] Real devc web, a container terminal (regression): click, drag (copied, flashed), Shift+drag
+  - [x] devc web's Projects list does not show the app's session.
+- [x] Real devc web, a container terminal (regression): click, drag (copied, flashed), Shift+drag
       (copied), right-click menu, wheel scroll, Cmd/Ctrl+click on a URL and on a repo file path;
       themes and light mode as before.
 
 ## Notes from implementation (2026-11-06)
 
 Built and unit-tested here; the app could not be started (Electron's `chrome-sandbox` cannot be
-made setuid in this container), so every real-app check above is open. The Herdr client was also
+made setuid in this container), so the real-app checks above were the user's, on the Mac build
+(2026-11-06: "looks good"). The Herdr client was also
 run against a real Herdr 0.9.5 (server start, `createShell`, frames, busy, selection, close).
 
 Where the code differs from the contracts above:

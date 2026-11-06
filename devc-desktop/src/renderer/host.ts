@@ -3,7 +3,7 @@
 // the Actions column beside them. Loaded from the app bundle in its own view; devc web cannot
 // reach it. It takes only code from devc web's checkout at build time, as the Containers pane does.
 // Closing a tile lets go of its pane, which keeps running; Close terminal… ends it. See
-// `.plans/host-terminal-herdr.md`.
+// `.plans/archived/host-terminal-herdr.md`.
 
 import { createTiling, type Tile, type Tiling } from 'devc-web/layout.js';
 import { parseSavedLayout } from 'devc-web/lib/layout_state.js';
@@ -351,7 +351,7 @@ function showEmpty(): void {
 /**
  * The drawer opened or closed. Opened with no tiles, it shows the session's unshown panes; with
  * none, a new pane when the user opened it, or just the New terminal button when a request did.
- * See `.plans/host-terminal-herdr.md` (D6, D7a).
+ * See `.plans/archived/host-terminal-herdr.md` (D6, D7a).
  */
 async function showOpen(isOpen: boolean, byUser: boolean): Promise<void> {
   open = isOpen;
