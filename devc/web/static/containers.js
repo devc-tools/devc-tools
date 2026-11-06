@@ -545,8 +545,13 @@ function inUseLinkCard(card, worktrees = 0) {
     },
     ...(repo
       ? [
-        ...repoNameParts(repoGroupName(localFolder, repo)),
-        branch ? h('span', { class: 'repo-branch' }, branch) : '',
+        // Cut short as a repo card's header is (`style.css`).
+        h(
+          'span',
+          { class: 'repo-head-name' },
+          ...repoNameParts(repoGroupName(localFolder, repo)),
+          branch ? h('span', { class: 'repo-branch' }, branch) : '',
+        ),
       ]
       : [h('span', { class: 'repo-base' }, containerNameOf(localFolder))]),
   );

@@ -928,8 +928,14 @@ export function repoCard(card, side, worktrees = 0) {
     },
     ...(repo
       ? [
-        ...repoNameParts(repoGroupName(localFolder, repo)),
-        branch ? h('span', { class: 'repo-branch' }, branch) : '',
+        // The name and branch cut short first, so the sync mark after them stays in sight when
+        // the hover strip takes the row's right end.
+        h(
+          'span',
+          { class: 'repo-head-name' },
+          ...repoNameParts(repoGroupName(localFolder, repo)),
+          branch ? h('span', { class: 'repo-branch' }, branch) : '',
+        ),
         gitMark(
           gitSync(
             repo.git,
