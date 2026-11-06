@@ -714,21 +714,22 @@ export function baseName(p: string): string {
 }
 
 // ---- host actions -----------------------------------------------------------------------------
-// devc web's page can ask for a push or a project start (`request_push`, `request_project`); the
+// devc web's page can ask for a push, a project start or a host terminal (`request_push`,
+// `request_project`, `request_terminal`); the
 // app reads the requests from devc web's server (`GET /desktop/requests`, the desktop token),
 // works out what would happen itself, and shows it in the drawer's Actions column for the user
 // to confirm. The page, the server's queue and the repo's own text all feed what is shown, so
 // everything is checked here first. Why: `.plans/devc-desktop-host-actions.md`.
 
 /** What a request asks for. */
-export type ActionKind = 'push' | 'start' | 'stop' | 'down';
+export type ActionKind = 'push' | 'start' | 'stop' | 'down' | 'terminal';
 
 /** One request, as devc web's server holds it. */
 export interface ActionRequest {
   id: string;
   kind: ActionKind;
   localFolder: string;
-  /** The repo folder, for a push; `null` otherwise. */
+  /** The repo folder, for a push or a terminal; `null` otherwise. */
   folder: string | null;
   at: number;
 }
@@ -736,7 +737,22 @@ export interface ActionRequest {
 /** The most requests the server keeps, and so the most an answer may carry. */
 export const MAX_REQUESTS = 20;
 
-const ACTION_KINDS: readonly string[] = ['push', 'start', 'stop', 'down'];
+const ACTION_KINDS: readonly string[] = [
+  'push',
+  'start',
+  'stop',
+  'down',
+  'terminal',
+];
+
+/**
+ * `GET /desktop/requests`' `kinds`: every kind this app understands. devc web leaves the others
+ * out, so an older devc web's or a newer one's requests never make an answer malformed here.
+ */
+export const REQUEST_KINDS_PARAM = ACTION_KINDS.join(',');
+
+/** Whether a request of `kind` names a repo folder (`folder`), not just the project. */
+const byRepo = (kind: string) => kind === 'push' || kind === 'terminal';
 
 /** A folder a request may name: a path, at most {@link MAX_SHOWN} long, and showable. */
 const requestFolder = (v: unknown): v is string =>
@@ -764,7 +780,7 @@ export function requestsAnswer(
     ids.add(id);
     if (typeof kind !== 'string' || !ACTION_KINDS.includes(kind)) return null;
     if (!requestFolder(localFolder)) return null;
-    if (kind === 'push' ? !requestFolder(folder) : folder !== null) {
+    if (byRepo(kind) ? !requestFolder(folder) : folder !== null) {
       return null;
     }
     if (typeof at !== 'number' || !Number.isFinite(at)) return null;
@@ -794,12 +810,12 @@ export function paneRequest(
 ): ActionRequest | null {
   if (typeof kind !== 'string' || !ACTION_KINDS.includes(kind)) return null;
   if (!requestFolder(localFolder)) return null;
-  if (kind === 'push' && !requestFolder(folder)) return null;
+  if (byRepo(kind) && !requestFolder(folder)) return null;
   return {
     id,
     kind: kind as ActionKind,
     localFolder,
-    folder: kind === 'push' ? folder as string : null,
+    folder: byRepo(kind) ? folder as string : null,
     at,
   };
 }
@@ -1006,7 +1022,21 @@ const ACTION_TITLES: Record<ActionKind, string> = {
   start: 'Start container',
   stop: 'Stop',
   down: 'Remove container',
+  terminal: 'Open host terminal',
 };
+
+/** The confirm button's label: the title, but for a terminal. */
+const CONFIRM_LABELS: Record<ActionKind, string> = {
+  ...ACTION_TITLES,
+  terminal: 'Open',
+};
+
+/**
+ * A terminal card's note: a shell that starts in a folder a container can write runs what that
+ * folder holds (a git-aware prompt, direnv, mise, …) without anyone typing.
+ */
+export const TERMINAL_NOTE =
+  'Your shell starts here: its prompt and tools like direnv may run what this folder holds';
 
 /** The most output lines a card keeps. */
 export const ACTION_LINES = 200;
@@ -1044,6 +1074,7 @@ export function actionCard(
       "Runs its devcontainer.json's initializeCommand on this machine",
     );
   }
+  if (req.kind === 'terminal') notes.push(TERMINAL_NOTE);
   if (req.kind === 'push' && checkout !== null) {
     notes.push(
       `Runs devc from the checkout (${
@@ -1057,15 +1088,16 @@ export function actionCard(
     id: req.id,
     kind: req.kind,
     title: ACTION_TITLES[req.kind],
-    folder: a.target?.ok
-      ? a.target.path
-      : showText(req.kind === 'push' ? req.folder ?? '' : req.localFolder, 256),
+    folder: a.target?.ok ? a.target.path : showText(
+      byRepo(req.kind) ? req.folder ?? '' : req.localFolder,
+      256,
+    ),
     phase: a.phase,
     refusal,
     plan,
     warnings: a.plan ? planWarnings(a.plan) : [],
     notes,
-    confirm: confirmable ? ACTION_TITLES[req.kind] : null,
+    confirm: confirmable ? CONFIRM_LABELS[req.kind] : null,
     lines: a.lines.map((l) => showText(l, 300)),
     outcome: a.outcome &&
       { ok: a.outcome.ok, text: showText(a.outcome.text, 300) },

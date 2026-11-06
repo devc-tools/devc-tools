@@ -2741,4 +2741,4 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
 | Terminal shared surface — superseded by host-terminal-herdr                                                         | [terminal-shared-surface](archived/terminal-shared-surface.md)                     | superseded  |
 | Host terminal themes — Host Terminal Color picks a theme; light and dark like devc web                              | [host-terminal-themes](archived/host-terminal-themes.md)                           | complete    |
 | Host terminals on Herdr — a devc-desktop session, one terminal for both apps, host file links                       | [host-terminal-herdr](archived/host-terminal-herdr.md)                             | complete    |
-| Host terminal request — Open Host Terminal… on a repo card, confirmed in devc-desktop                               | [devc-web-host-terminal-request](devc-web-host-terminal-request.md)                |             |
+| Host terminal request — Open Host Terminal… on a repo card, confirmed in devc-desktop                               | [devc-web-host-terminal-request](devc-web-host-terminal-request.md)                | in progress |

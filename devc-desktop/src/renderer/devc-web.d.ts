@@ -82,6 +82,7 @@ declare module 'devc-web/menus.js' {
     actions: {
       push(localFolder: string, folder: string): void;
       project(action: 'start' | 'stop' | 'down', localFolder: string): void;
+      terminal(localFolder: string, folder: string): void;
     } | null,
   ): void;
 }

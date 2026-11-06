@@ -92,6 +92,7 @@ import {
   HOST_SHORTCUTS,
   HOST_THEMES,
   type HostCommand,
+  type HostFolder,
   hostFolder,
   hostMenuEntries,
   hostPermission,
@@ -115,6 +116,7 @@ import {
   pushPlanFrom,
   recentChanges,
   type Rect,
+  REQUEST_KINDS_PARAM,
   requestsAnswer,
   shellQuote,
   showText,
@@ -1130,19 +1132,19 @@ async function main(): Promise<void> {
     a.ctl.release();
   }
 
-  /** A new pane in the home folder: its id. */
-  async function newPane(): Promise<string> {
+  /** A new pane in `folder` (the home folder by default): its id. */
+  async function newPane(folder?: string): Promise<string> {
     await herdrReady;
     if (refusal !== null || herdr === null) throw new Error(refusal ?? 'off');
     if ((await refreshPanes()).size >= MAX_SHELLS) {
       throw new Error('too many host shells');
     }
-    const home = app.getPath('home');
-    const id = await createShell(herdr, home);
+    const cwd = folder ?? app.getPath('home');
+    const id = await createShell(herdr, cwd);
     paneList.set(id, {
       pane_id: id,
-      cwd: home,
-      foreground_cwd: home,
+      cwd,
+      foreground_cwd: cwd,
       title: '',
     });
     return id;
@@ -2088,9 +2090,9 @@ async function main(): Promise<void> {
   }
 
   // ---- host actions ------------------------------------------------------------------------------
-  // devc web's page asks (`request_push`, `request_project`); the app reads the requests from its
-  // server with the desktop token, works out what would happen itself, and the user confirms it
-  // in the drawer's Actions column. A new request opens a closed drawer but never takes focus; a
+  // devc web's page asks (`request_push`, `request_project`, `request_terminal`); the app reads
+  // the requests from its server with the desktop token, works out what would happen itself, and
+  // the user confirms it in the drawer's Actions column. A new request opens a closed drawer but never takes focus; a
   // drawer the user closes again shows only its HOST strip, badged, while requests wait. Why:
   // `.plans/devc-desktop-host-actions.md`. The
   // Containers pane's own Push…, Start, Stop and Remove take the same path (`where: 'pane'`),
@@ -2142,10 +2144,13 @@ async function main(): Promise<void> {
     let seq = -1;
     while (current === child && !stopping) {
       try {
-        const res = await fetch(`${at}/desktop/requests?after=${seq}`, {
-          headers: desktopAuth(token),
-          signal: AbortSignal.timeout(35_000),
-        });
+        const res = await fetch(
+          `${at}/desktop/requests?after=${seq}&kinds=${REQUEST_KINDS_PARAM}`,
+          {
+            headers: desktopAuth(token),
+            signal: AbortSignal.timeout(35_000),
+          },
+        );
         if (res.status !== 200) throw new Error(String(res.status));
         const answer = requestsAnswer(await res.json());
         if (answer === null) throw new Error('malformed');
@@ -2200,13 +2205,21 @@ async function main(): Promise<void> {
   /** The env `devc git` runs with: the app's, with the login shell's `PATH` when it gave one. */
   const devcEnv = (found: Found) => childEnv(process.env, found.path);
 
-  /** Checks the request's folder, and for a push runs `devc git push-plan` there. */
+  /**
+   * Checks the request's folder, and for a push runs `devc git push-plan` there. A terminal is
+   * refused first when the host terminal is off (no Herdr).
+   */
   async function check(a: Shown): Promise<void> {
     const { req } = a;
-    const target = await hostFolder(
-      req.kind === 'push' ? req.folder : req.localFolder,
-      { realpath, stat },
-    );
+    if (req.kind === 'terminal') await herdrReady;
+    const target: HostFolder = req.kind === 'terminal' && refusal !== null
+      ? { ok: false, label: refusal }
+      : await hostFolder(
+        req.kind === 'push' || req.kind === 'terminal'
+          ? req.folder
+          : req.localFolder,
+        { realpath, stat },
+      );
     if (!target.ok || req.kind !== 'push') {
       update(a, () => {
         a.target = target;
@@ -2274,12 +2287,37 @@ async function main(): Promise<void> {
     let outcome: { ok: boolean; text: string };
     if (a.req.kind === 'push') {
       outcome = await push(a);
+    } else if (a.req.kind === 'terminal') {
+      outcome = await openTerminal(a);
     } else outcome = await projectAction(a);
     update(a, () => {
       a.phase = 'done';
       a.outcome = outcome;
     });
     if (a.where === 'drawer') void dismissOnServer(id);
+  }
+
+  /**
+   * A confirmed terminal: a new pane in the folder checked again (a symlink swapped in since the
+   * check would move it), in a new host tile in `/main`'s layout.
+   */
+  async function openTerminal(
+    a: Shown,
+  ): Promise<{ ok: boolean; text: string }> {
+    const now = await hostFolder(a.req.folder, { realpath, stat });
+    if (!a.target?.ok || !now.ok || now.path !== a.target.path) {
+      return { ok: false, text: 'The folder moved since it was checked' };
+    }
+    if (!showingDevc) return { ok: false, text: "devc web isn't showing" };
+    let pane: string;
+    try {
+      pane = await newPane(now.path);
+    } catch (e) {
+      return { ok: false, text: e instanceof Error ? e.message : String(e) };
+    }
+    const slot = makeSlot(randomBytes(16).toString('hex'), pane);
+    askForTile(slot.id);
+    return { ok: true, text: 'Opened' };
   }
 
   async function push(a: Shown): Promise<{ ok: boolean; text: string }> {
@@ -2539,6 +2577,14 @@ async function main(): Promise<void> {
   ipcMain.on('containers:push', (e, localFolder: unknown, folder: unknown) => {
     if (fromContainers(e) && paneShown()) paneAsks('push', localFolder, folder);
   });
+  ipcMain.on(
+    'containers:terminal',
+    (e, localFolder: unknown, folder: unknown) => {
+      if (fromContainers(e) && paneShown()) {
+        paneAsks('terminal', localFolder, folder);
+      }
+    },
+  );
   ipcMain.on(
     'containers:project',
     (e, action: unknown, localFolder: unknown) => {

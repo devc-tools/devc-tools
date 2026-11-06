@@ -179,6 +179,16 @@ export type ClientMessage =
    * `--desktop-channel`. See `desktop_requests.ts`.
    */
   | { type: 'request_push'; id: string; localFolder: string; folder: string }
+  /**
+   * Asks devc-desktop to open a host terminal in a repo of a project (`folder`, one of its
+   * `repos[].folder`): the app checks the folder itself and the user confirms it there.
+   */
+  | {
+    type: 'request_terminal';
+    id: string;
+    localFolder: string;
+    folder: string;
+  }
   /** Asks devc-desktop to start, stop or remove a project's container, confirmed there too. */
   | {
     type: 'request_project';
@@ -1081,6 +1091,13 @@ function parseFields(m: Obj): ClientMessage {
     case 'request_push':
       return {
         type: 'request_push',
+        id: str(m, 'id'),
+        localFolder: folder(m),
+        folder: absolute(m, 'folder'),
+      };
+    case 'request_terminal':
+      return {
+        type: 'request_terminal',
         id: str(m, 'id'),
         localFolder: folder(m),
         folder: absolute(m, 'folder'),

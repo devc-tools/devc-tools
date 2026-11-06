@@ -886,10 +886,14 @@ is published from any container: the host server finds devcontainers with
   then **ask** the app: **Push** on a repo card (the menu or **↑N**:
   `request_push`) when no `gh-push` grant applies, or when `gh-push` refused
   what only you may waive (the server queues it then), and,
-  under `--live`, **Start** on a stopped project (`request_project`). The
-  request waits on devc web's server until the app reads it; the app works out
-  the push (`devc git push-plan`) or the start itself and you confirm it in its
-  HOST drawer. The page is told `asked devc-desktop: confirm in the HOST
+  under `--live`, **Start** on a stopped project (`request_project`), and
+  **Open Host Terminal…** on a repo card (`request_terminal`; under `--live`
+  and `--live-yolo` too: the app checks the folder itself). The item shows
+  only in the app, never in a plain browser. The request waits on devc web's
+  server until the app reads it (`GET /desktop/requests`, whose `kinds=` names
+  the kinds the app understands; without it, push, start, stop and down); the
+  app works out the push (`devc git push-plan`), the start or the folder
+  itself and you confirm it in its HOST drawer. The page is told `asked devc-desktop: confirm in the HOST
   drawer`, or why not: `needs devc-desktop` (no flag), `unknown folder`, or a
   limit (one pending request per kind and folder, 20 in all, 10 asks per 10 s,
   each dropped after 10 minutes). The same token opens `/ws` in the **desktop

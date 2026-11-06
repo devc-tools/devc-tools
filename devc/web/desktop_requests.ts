@@ -1,18 +1,64 @@
-// What devc web's page asks devc-desktop to do (`request_push`, `request_project`), held until
-// the app reads it (`GET /desktop/requests`) and dismisses it. The page can only ask: the app
-// works out the push plan or the start itself, and the user confirms it in its HOST drawer,
-// where devc web cannot draw. So a request carries no more than what to look at. See
-// `.plans/devc-desktop-host-actions.md`.
+// What devc web's page asks devc-desktop to do (`request_push`, `request_project`,
+// `request_terminal`), held until the app reads it (`GET /desktop/requests`) and dismisses it.
+// The page can only ask: the app works out the push plan, the start or the terminal's folder
+// itself, and the user confirms it in its HOST drawer, where devc web cannot draw. So a request
+// carries no more than what to look at. See `.plans/devc-desktop-host-actions.md` and
+// `.plans/devc-web-host-terminal-request.md`.
 
-/** What a request asks for: a push of one repo, or a project's start, stop or removal. */
-export type DesktopRequestKind = 'push' | 'start' | 'stop' | 'down';
+/**
+ * What a request asks for: a push of one repo, a project's start, stop or removal, or a host
+ * terminal in one repo.
+ */
+export type DesktopRequestKind =
+  | 'push'
+  | 'start'
+  | 'stop'
+  | 'down'
+  | 'terminal';
+
+/** Every kind, for `GET /desktop/requests`' `kinds`. */
+export const REQUEST_KINDS: readonly DesktopRequestKind[] = [
+  'push',
+  'start',
+  'stop',
+  'down',
+  'terminal',
+];
+
+/**
+ * The kinds an app that names none understands: devc-desktop before `terminal` rejects a whole
+ * answer holding a kind it doesn't know.
+ */
+export const DEFAULT_KINDS: ReadonlySet<DesktopRequestKind> = new Set([
+  'push',
+  'start',
+  'stop',
+  'down',
+]);
+
+/** The kinds `GET /desktop/requests?kinds=a,b` names; {@link DEFAULT_KINDS} without known ones. */
+export function requestKinds(
+  param: string | null,
+): ReadonlySet<DesktopRequestKind> {
+  const named = (param ?? '').split(',').filter((k): k is DesktopRequestKind =>
+    (REQUEST_KINDS as readonly string[]).includes(k)
+  );
+  return named.length > 0 ? new Set(named) : DEFAULT_KINDS;
+}
+
+/** A request whose `folder` is the repo it names, not `null`. */
+const byRepo = (kind: DesktopRequestKind) =>
+  kind === 'push' || kind === 'terminal';
 
 export interface DesktopRequest {
   id: string;
   kind: DesktopRequestKind;
   /** The project's folder on this machine, as devc web lists it. */
   localFolder: string;
-  /** The repo folder to push (one of the project's repos); `null` for the project kinds. */
+  /**
+   * The repo folder to push or open a terminal in (one of the project's repos); `null` for the
+   * project kinds.
+   */
   folder: string | null;
   /** When it was asked, in ms since the epoch. */
   at: number;
@@ -86,9 +132,9 @@ export class DesktopRequests {
     if (UNSHOWABLE.test(localFolder) || UNSHOWABLE.test(folder ?? '')) {
       return { ok: false, problem: "the folder's name can't be shown safely" };
     }
-    const key = kind === 'push' ? folder : localFolder;
+    const key = byRepo(kind) ? folder : localFolder;
     const same = this.#pending.find((r) =>
-      r.kind === kind && (r.kind === 'push' ? r.folder : r.localFolder) === key
+      r.kind === kind && (byRepo(r.kind) ? r.folder : r.localFolder) === key
     );
     if (same) return { ok: true, id: same.id };
     if (this.#pending.length >= MAX_PENDING) {
@@ -112,10 +158,17 @@ export class DesktopRequests {
     return true;
   }
 
-  /** The pending requests now, oldest first. */
-  list(): DesktopRequestsAnswer {
+  /** The pending requests of `kinds` now, oldest first. */
+  list(
+    kinds: ReadonlySet<DesktopRequestKind> = DEFAULT_KINDS,
+  ): DesktopRequestsAnswer {
     this.#expire(this.#now());
-    return { seq: this.#seq, requests: this.#pending.map((r) => ({ ...r })) };
+    return {
+      seq: this.#seq,
+      requests: this.#pending.filter((r) => kinds.has(r.kind)).map((r) => ({
+        ...r,
+      })),
+    };
   }
 
   /**
@@ -126,8 +179,11 @@ export class DesktopRequests {
     after: number,
     ms = LONG_POLL_MS,
     signal?: AbortSignal,
+    kinds: ReadonlySet<DesktopRequestKind> = DEFAULT_KINDS,
   ): Promise<DesktopRequestsAnswer> {
-    if (this.list().seq !== after || this.#closed) return this.list();
+    if (this.list(kinds).seq !== after || this.#closed) {
+      return this.list(kinds);
+    }
     await new Promise<void>((resolve) => {
       const done = () => {
         clearTimeout(timer);
@@ -140,7 +196,7 @@ export class DesktopRequests {
       this.#waiters.add(done);
       signal?.addEventListener('abort', done);
     });
-    return this.list();
+    return this.list(kinds);
   }
 
   /** Wakes every waiter and answers later waits at once: the server is stopping. */

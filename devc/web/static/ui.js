@@ -92,6 +92,8 @@ export const LABELS = {
   files: 'Files',
   fetch: 'Fetch',
   requestPush: 'Push…',
+  /** A repo card's menu: devc-desktop opens a host terminal there, once the user confirms it. */
+  openHostTerminal: 'Open Host Terminal…',
   /** The menu item and the ↑N click: the container's own `gh-push`, or devc-desktop's confirmation. */
   push: 'Push',
   /** A clickable ↑N's tooltip. */

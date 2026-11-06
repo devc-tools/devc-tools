@@ -46,6 +46,12 @@ contextBridge.exposeInMainWorld('containersPane', {
     ipcRenderer.send('containers:push', String(localFolder), String(folder)),
   project: (action: string, localFolder: string) =>
     ipcRenderer.send('containers:project', String(action), String(localFolder)),
+  terminal: (localFolder: string, folder: string) =>
+    ipcRenderer.send(
+      'containers:terminal',
+      String(localFolder),
+      String(folder),
+    ),
   // The pane's Actions column: the pushes and container actions its clicks asked for.
   onActions: (cb: (cards: unknown) => void) => {
     ipcRenderer.on('containers:actions', (_e, cards: unknown) => cb(cards));

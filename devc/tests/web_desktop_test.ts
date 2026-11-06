@@ -3,20 +3,24 @@
 import { assert, assertEquals } from 'jsr:@std/assert';
 import {
   authorize,
+  desktopAsk,
   desktopProjectRefusal,
   desktopTokenPath,
   helloMessage,
   parseDesktopProject,
   wsRole,
 } from '../web/server.ts';
-import { projectRefusal } from '../web/projects_view.ts';
+import { projectRefusal, type ProjectView } from '../web/projects_view.ts';
 import { PROTOCOL } from '../web/static/lib/protocol_version.js';
 import {
+  DEFAULT_KINDS,
   DesktopRequests,
   MAX_PENDING,
   RATE_LIMIT,
   RATE_WINDOW_MS,
+  REQUEST_KINDS,
   REQUEST_TTL_MS,
+  requestKinds,
 } from '../web/desktop_requests.ts';
 import { parseClientMessage } from '../web/protocol.ts';
 import { desktopLine, readTokenLine } from '../web/token.ts';
@@ -201,6 +205,96 @@ Deno.test('parseClientMessage: request_push and request_project', () => {
   bad({ type: 'request_project', id: 'q', action: 'start', localFolder: 'a' });
 });
 
+Deno.test('parseClientMessage: request_terminal names a project and one of its repos', () => {
+  const m: Record<string, unknown> = {
+    type: 'request_terminal',
+    id: 't1',
+    localFolder: '/src/a',
+    folder: '/src/a',
+  };
+  const r = parseClientMessage(JSON.stringify(m));
+  assert(r.ok);
+  assertEquals(r.msg, m);
+  for (
+    const bad of [
+      { type: 'request_terminal', id: 't2', localFolder: '/src/a' },
+      {
+        type: 'request_terminal',
+        id: 't3',
+        localFolder: '/src/a',
+        folder: 'rel',
+      },
+      { type: 'request_terminal', localFolder: '/src/a', folder: '/src/a' },
+    ]
+  ) {
+    assert(!parseClientMessage(JSON.stringify(bad)).ok, JSON.stringify(bad));
+  }
+});
+
+const PROJECTS = [
+  { localFolder: '/p', repos: [{ folder: '/p' }, { folder: '/p/lib' }] },
+] as unknown as ProjectView[];
+
+Deno.test("desktopAsk: a terminal needs the channel and one of the project's repos, even under --live-yolo", () => {
+  const terminal = (localFolder: string, folder: string) =>
+    ({ type: 'request_terminal', id: 'x', localFolder, folder }) as const;
+  const on = { channel: true, desktopProjects: true };
+  assertEquals(desktopAsk(terminal('/p', '/p/lib'), PROJECTS, on), {
+    ok: true,
+    kind: 'terminal',
+    folder: '/p/lib',
+  });
+  // --live-yolo refuses container actions, not a terminal.
+  assertEquals(
+    desktopAsk(terminal('/p', '/p'), PROJECTS, {
+      ...on,
+      desktopProjects: false,
+    })
+      .ok,
+    true,
+  );
+  assertEquals(
+    desktopAsk(
+      { type: 'request_project', id: 'x', action: 'start', localFolder: '/p' },
+      PROJECTS,
+      { ...on, desktopProjects: false },
+    ).ok,
+    false,
+  );
+  const refused = (r: ReturnType<typeof desktopAsk>) => r.ok ? null : r.problem;
+  assertEquals(
+    refused(desktopAsk(terminal('/p', '/etc'), PROJECTS, on)),
+    'unknown folder',
+  );
+  assertEquals(
+    refused(desktopAsk(terminal('/q', '/p'), PROJECTS, on)),
+    'unknown folder',
+  );
+  assertEquals(
+    refused(
+      desktopAsk(terminal('/p', '/p'), PROJECTS, { ...on, channel: false }),
+    ),
+    'needs devc-desktop',
+  );
+  assertEquals(
+    desktopAsk(
+      { type: 'request_push', id: 'x', localFolder: '/p', folder: '/p' },
+      PROJECTS,
+      on,
+    ),
+    { ok: true, kind: 'push', folder: '/p' },
+  );
+});
+
+Deno.test('requestKinds: the kinds named, or the ones older apps understand', () => {
+  assertEquals([...requestKinds(null)], [...DEFAULT_KINDS]);
+  assertEquals([...requestKinds('')], [...DEFAULT_KINDS]);
+  assertEquals([...requestKinds('bogus,,x')], [...DEFAULT_KINDS]);
+  assertEquals([...requestKinds('terminal,bogus,push')], ['terminal', 'push']);
+  assertEquals([...requestKinds(REQUEST_KINDS.join(','))], [...REQUEST_KINDS]);
+  assert(!DEFAULT_KINDS.has('terminal'));
+});
+
 function queue(start = 1_000_000) {
   let now = start;
   let n = 0;
@@ -229,6 +323,26 @@ Deno.test('DesktopRequests: one per kind and folder, asking again answers with i
     ['id3', 'start', null],
     ['id4', 'stop', null],
   ]);
+});
+
+Deno.test('DesktopRequests: one terminal per repo, apart from its push; only apps that name it see it', async () => {
+  const { q } = queue();
+  assertEquals(q.add('terminal', '/p', '/p/repo'), { ok: true, id: 'id1' });
+  assertEquals(q.add('terminal', '/p', '/p/repo'), { ok: true, id: 'id1' });
+  assertEquals(q.add('push', '/p', '/p/repo'), { ok: true, id: 'id2' });
+  assertEquals(q.add('terminal', '/p', '/p/lib'), { ok: true, id: 'id3' });
+  assertEquals(q.list().requests.map((r) => r.id), ['id2']);
+  const all = new Set(REQUEST_KINDS);
+  assertEquals(
+    q.list(all).requests.map((r) => [r.id, r.kind, r.folder]),
+    [
+      ['id1', 'terminal', '/p/repo'],
+      ['id2', 'push', '/p/repo'],
+      ['id3', 'terminal', '/p/lib'],
+    ],
+  );
+  assertEquals((await q.wait(-1, 10, undefined, all)).requests.length, 3);
+  assertEquals((await q.wait(-1, 10)).requests.length, 1);
 });
 
 Deno.test('DesktopRequests: the rate limit counts every ask, and lifts after its window', () => {

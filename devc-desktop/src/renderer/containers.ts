@@ -39,6 +39,7 @@ interface ContainersPane {
   ): void;
   onMenuPick(cb: (seq: number, index: number) => void): void;
   push(localFolder: string, folder: string): void;
+  terminal(localFolder: string, folder: string): void;
   project(action: string, localFolder: string): void;
   onActions(cb: (cards: unknown) => void): void;
   onActionProgress(cb: (id: string, line: string) => void): void;
@@ -198,10 +199,12 @@ function whenFocused(fn: () => void): void {
   const timer = setTimeout(once, 500);
 }
 
-// Pushes and container actions go to the app, which shows them above as cards to confirm.
+// Pushes, container actions and host terminals go to the app, which shows them above as cards
+// to confirm.
 useAppActions({
   push: (localFolder, folder) => pane.push(localFolder, folder),
   project: (action, localFolder) => pane.project(action, localFolder),
+  terminal: (localFolder, folder) => pane.terminal(localFolder, folder),
 });
 
 // ---- the section, once the app has handed over devc web's address and the desktop token --------

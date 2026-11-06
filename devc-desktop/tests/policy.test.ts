@@ -46,6 +46,7 @@ import {
   menuRequest,
   openFileRequest,
   PANE_MIN,
+  paneRequest,
   parseSlotLine,
   placeMenu,
   placeSlot,
@@ -55,6 +56,7 @@ import {
   RAIL,
   recentChanges,
   type Rect,
+  REQUEST_KINDS_PARAM,
   requestsAnswer,
   shellQuote,
   showText,
@@ -62,6 +64,7 @@ import {
   SIDEBAR_MIN,
   swatchBitmap,
   swatchTone,
+  TERMINAL_NOTE,
   terminalCommand,
   termSize,
   TITLEBAR_HEIGHT,
@@ -682,6 +685,35 @@ test('requestsAnswer: well-formed requests only', () => {
   }
 });
 
+test('requestsAnswer and paneRequest: a terminal names its repo folder', () => {
+  const terminal = req({ kind: 'terminal' });
+  assertEquals(requestsAnswer({ seq: 1, requests: [terminal] }), {
+    seq: 1,
+    requests: [terminal],
+  });
+  assertEquals(
+    requestsAnswer({
+      seq: 1,
+      requests: [req({ kind: 'terminal', folder: null })],
+    }),
+    null,
+  );
+  assertEquals(paneRequest('x', 'terminal', '/src/app', '/src/app/lib', 5), {
+    id: 'x',
+    kind: 'terminal',
+    localFolder: '/src/app',
+    folder: '/src/app/lib',
+    at: 5,
+  });
+  assertEquals(paneRequest('x', 'terminal', '/src/app', null, 5), null);
+  assertEquals(
+    paneRequest('x', 'terminal', '/src/app', '/src/a\u202eb', 5),
+    null,
+  );
+  // What the app asks devc web for: every kind it understands.
+  assertEquals(REQUEST_KINDS_PARAM, 'push,start,stop,down,terminal');
+});
+
 test('hostFolder: the realpath of a showable directory, or why not', async () => {
   const fs = fakeFs(
     {
@@ -835,6 +867,35 @@ test('actionCard: what the column shows, and when it can be confirmed', () => {
   assertEquals(start.notes, [
     "Runs its devcontainer.json's initializeCommand on this machine",
   ]);
+  const terminal = actionCard(
+    state({
+      req: req({ kind: 'terminal', folder: '/src/app' }) as ActionState['req'],
+      plan: null,
+    }),
+    'devc2',
+  );
+  assertEquals(
+    [terminal.title, terminal.confirm, terminal.plan, terminal.folder],
+    ['Open host terminal', 'Open', null, '/src/app'],
+  );
+  assertEquals(terminal.notes, [TERMINAL_NOTE]);
+  assertEquals(
+    TERMINAL_NOTE,
+    'Your shell starts here: its prompt and tools like direnv may run what this folder holds',
+  );
+  const off = actionCard(
+    state({
+      req: req({ kind: 'terminal' }) as ActionState['req'],
+      phase: 'refused',
+      target: { ok: false, label: 'The host terminal needs Herdr: x' },
+      plan: null,
+    }),
+    null,
+  );
+  assertEquals(
+    [off.refusal, off.confirm],
+    ['The host terminal needs Herdr: x', null],
+  );
 });
 
 test('isShellId: Herdr pane ids, nothing longer or odder', () => {

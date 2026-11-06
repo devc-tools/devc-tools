@@ -469,12 +469,13 @@ export function canStartProjects() {
 }
 
 /**
- * devc-desktop's Containers pane (this code bundled into the app): a push, start, stop or removal
- * goes to the app, which shows it in the pane with its own checks and an armed confirm, instead
- * of to the server or a dialog here. `null` in a page devc web serves.
+ * devc-desktop's Containers pane (this code bundled into the app): a push, start, stop, removal
+ * or host terminal goes to the app, which shows it in the pane with its own checks and an armed
+ * confirm, instead of to the server or a dialog here. `null` in a page devc web serves.
  *
  * @type {{push: (localFolder: string, folder: string) => void,
- *   project: (action: 'start' | 'stop' | 'down', localFolder: string) => void} | null}
+ *   project: (action: 'start' | 'stop' | 'down', localFolder: string) => void,
+ *   terminal: (localFolder: string, folder: string) => void} | null}
  */
 let appActions = null;
 
@@ -484,8 +485,9 @@ export function useAppActions(/** @type {typeof appActions} */ actions) {
 }
 
 /**
- * Asks devc-desktop (`request_push`, `request_project`): the request shows in the app's HOST
- * drawer, where the user confirms it. The page never can; the toast says where to look.
+ * Asks devc-desktop (`request_push`, `request_project`, `request_terminal`): the request shows
+ * in the app's HOST drawer, where the user confirms it. The page never can; the toast says
+ * where to look.
  *
  * @param {Record<string, unknown> & {type: string}} msg
  * @param {string} what
@@ -506,6 +508,29 @@ export function requestPush(localFolder, folder) {
   askDesktop(
     { type: 'request_push', localFolder, folder },
     LABELS.requestPush,
+  );
+}
+
+/**
+ * Whether this page can ask devc-desktop for anything: it is the app's Containers pane, or devc
+ * web runs with `--desktop-channel`. In a plain browser it can't.
+ */
+export function canAskDesktop() {
+  return appActions !== null || desktopChannel;
+}
+
+/**
+ * Asks devc-desktop to open a host terminal in `folder`, a repo of the project at `localFolder`:
+ * the app checks the folder itself and opens a host tile there once the user confirms it.
+ */
+export function requestTerminal(localFolder, folder) {
+  if (appActions) {
+    appActions.terminal(localFolder, folder);
+    return;
+  }
+  askDesktop(
+    { type: 'request_terminal', localFolder, folder },
+    LABELS.openHostTerminal,
   );
 }
 

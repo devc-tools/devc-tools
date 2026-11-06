@@ -14,17 +14,17 @@ page cannot draw or focus.
 
 ## Checklist
 
-- [ ] devc web: the `request_terminal` client message, the `terminal` request kind, and the
+- [x] devc web: the `request_terminal` client message, the `terminal` request kind, and the
       `kinds` filter on `GET /desktop/requests` (§ devc web server)
-- [ ] devc web page: **Open Host Terminal…** on a repo card's menu (§ devc web page)
-- [ ] devc-desktop `policy.ts`: the `terminal` kind in `requestsAnswer`, `paneRequest` and
+- [x] devc web page: **Open Host Terminal…** on a repo card's menu (§ devc web page)
+- [x] devc-desktop `policy.ts`: the `terminal` kind in `requestsAnswer`, `paneRequest` and
       `actionCard` (§ devc-desktop)
-- [ ] devc-desktop `main.ts`: the poll sends `kinds`, `check` and `confirm` handle `terminal`,
+- [x] devc-desktop `main.ts`: the poll sends `kinds`, `check` and `confirm` handle `terminal`,
       `newPane` takes a folder, and the Containers pane's `containers:terminal` IPC
       (§ devc-desktop)
-- [ ] Tests (§ Validation)
-- [ ] `devc/README.md` and `devc-desktop/README.md` (§ Docs)
-- [ ] `deno fmt` on every touched file; build the Mac apps (`npm run build:mac` in
+- [x] Tests (§ Validation)
+- [x] `devc/README.md` and `devc-desktop/README.md` (§ Docs)
+- [x] `deno fmt` on every touched file; build the Mac apps (`npm run build:mac` in
       `devc-desktop/`) for the user's look
 
 ## Decisions
@@ -162,20 +162,20 @@ page cannot draw or focus.
 ## Validation
 
 - [ ] `(cd devc && deno task check && deno task test)` passes
-- [ ] `(cd devc-desktop && npm ci && npm run check && npm test)` passes
-- [ ] `devc/tests/web_desktop_test.ts`: `parseClientMessage` accepts
+- [x] `(cd devc-desktop && npm ci && npm run check && npm test)` passes
+- [x] `devc/tests/web_desktop_test.ts`: `parseClientMessage` accepts
       `{type:'request_terminal', id, localFolder:'/src/a', folder:'/src/a'}` and refuses it
       without `folder`, with a relative `folder`, or without `id`
-- [ ] `devc/tests/web_desktop_test.ts`: `DesktopRequests` keeps one `terminal` per folder
+- [x] `devc/tests/web_desktop_test.ts`: `DesktopRequests` keeps one `terminal` per folder
       (asking again answers with the same id), keeps a `push` and a `terminal` for the same
       folder apart, and `list()` without kinds leaves `terminal` out while
       `list(new Set([...,'terminal']))` includes it
-- [ ] `devc/tests/web_desktop_test.ts`: a page's `request_terminal` for a folder that isn't one
+- [x] `devc/tests/web_desktop_test.ts`: a page's `request_terminal` for a folder that isn't one
       of the project's repos is refused `unknown folder`. Without `--desktop-channel` it is
       refused `needs devc-desktop`. With the channel, `GET /desktop/requests?after=-1` (desktop
       token) leaves it out, and `…&kinds=push,start,stop,down,terminal` lists it with
       `kind: 'terminal'` and the repo `folder`
-- [ ] `devc-desktop/tests/policy.test.ts`: `requestsAnswer` accepts a `terminal` request with a
+- [x] `devc-desktop/tests/policy.test.ts`: `requestsAnswer` accepts a `terminal` request with a
       folder and returns `null` for one with `folder: null`. `paneRequest('x','terminal',…)`
       likewise. `actionCard` for a ready `terminal` has title `Open host terminal`, confirm
       `Open`, D3's note, and `plan: null`. For a refused target it has `confirm: null` and the
@@ -194,6 +194,21 @@ page cannot draw or focus.
 - [ ] Manual, adversarial: after the card is ready, replace the repo folder's path with a symlink
       to another folder (a host project's worktree on the host is enough). **Open** gives
       `The folder moved since it was checked` and no tile appears
+
+## Implementation notes (2026-11-06)
+
+- **Route checks are tested without a socket.** `web_desktop_test.ts` opens none, so the
+  server's check moved into a pure exported `desktopAsk(msg, projects, {channel,
+  desktopProjects})`, which `askDesktop` calls. The `unknown folder` and `needs devc-desktop`
+  item is tested there. The `kinds` part is tested through `requestKinds` (the route's parser)
+  plus `DesktopRequests.list` / `wait` with and without kinds, not through `GET`.
+- **`devc` tests: 1051 pass, 1 fails, and the failure isn't this change.**
+  `docker_exec_single_path_test` finds `devc-core/dist/container.d.ts:114`. That file is gitignored
+  build output from 2026-11-02 that this change didn't touch. `tests/web_desktop_test.ts`
+  passes in full (20).
+- `npm ci && npm run check && npm test` pass (73), and `npm run build:mac` built both Mac apps.
+  As in earlier plans, nothing ran in the real app here. Every manual check is for the user on
+  macOS.
 
 ## Relevant Files
 

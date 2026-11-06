@@ -111,6 +111,7 @@ import {
   tileRepo,
 } from './client.js';
 import {
+  canAskDesktop,
   containerFilePath,
   copyPathItems,
   createPane,
@@ -133,6 +134,7 @@ import {
   previewable,
   projectMenuItems,
   requestPush,
+  requestTerminal,
   submitPendingReview,
   tileMenuItems,
 } from './menus.js';
@@ -942,6 +944,16 @@ export function repoCard(card, side, worktrees = 0) {
                     : () => repoGitRequest(k, localFolder, repo.folder),
                 ]),
                 ...(canPush || canPull || canFetch ? [null] : []),
+                // devc-desktop opens it, once the user confirms it there; never in a browser.
+                ...(canAskDesktop()
+                  ? [
+                    [
+                      LABELS.openHostTerminal,
+                      () => requestTerminal(localFolder, repo.folder),
+                    ],
+                    null,
+                  ]
+                  : []),
                 ...dirMenuItems(fr, ''),
                 ...jiraItems(branch),
               ]

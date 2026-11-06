@@ -297,9 +297,9 @@ laid over the tile's content. It has the same paste bar as the drawer.
 
 ### Host actions
 
-devc web's page can **ask** for a push or a container start: **Push** on a repo card (its menu,
-or a click on **↑N**) when no `gh-push` grant applies, and, under `--live`, **Start** on a
-stopped project. It can never confirm one. A container granted `gh-push` pushes without the
+devc web's page can **ask** for a push, a container start or a host terminal: **Push** on a repo
+card (its menu, or a click on **↑N**) when no `gh-push` grant applies, under `--live`, **Start**
+on a stopped project, and **Open Host Terminal…** on a repo card. It can never confirm one. A container granted `gh-push` pushes without the
 app (`devc-bridge gh-push` inside that container, which its agent can already run, with all of
 its refusals). When that refuses what only you may waive (a workflow change, say), devc web's
 server queues the push request here itself. The request shows
@@ -320,6 +320,13 @@ badged `1 request`, until you open it with Ctrl+` (or Cmd+J). Each card shows wh
   (`POST /desktop/project`), its progress streaming into the card. Under `--live` this starts
   containers, never projects on this machine. Under `--live-yolo` devc web refuses it: start from
   the page there.
+- **Open host terminal:** the repo's folder (below), and `Your shell starts here: its prompt and
+  tools like direnv may run what this folder holds`. A container can write that folder, and a
+  git-aware prompt (`core.fsmonitor` in `.git/config`), direnv, mise, nvm or asdf run what is
+  in it as soon as a shell starts there. **Open** checks the folder again (a symlink swapped in
+  since gives `The folder moved since it was checked`) and opens a new host tile in `/main`'s
+  layout, its shell in that folder. Without Herdr the card says why, as the drawer does. The
+  Containers pane's repo cards ask the same way, shown in the pane.
 
 The confirm button is disabled until 1 s after the card's content last changed, and a click
 counts only if its press began after that. **Dismiss** drops a request; **Close** clears a
@@ -354,7 +361,8 @@ would let any local process drive it.
 each `host` tile's rectangle in a console line (`devc-desktop:slot <id> …`); the app places its
 own view there, cut to `/main`'s part of the window. It honors only slot ids it issued itself,
 from the app menu, and only from `/main`. devc web cannot open a host tile, end its pane, read
-it, type into it, or learn the host color. What it **can** do:
+it, type into it, or learn the host color. It can only **ask** for one (**Open Host
+Terminal…**, see Host actions), which opens when you confirm the app's own card. What it **can** do:
 
 - **Hide or move it** inside its own area, or report it as hidden for good. That is a nuisance,
   not a leak: focus never follows, and the drawer still works.
@@ -404,7 +412,8 @@ trusted-looking UI would let the page put words there.
 it in memory. It is never in a URL, a page or an environment variable (projects on this machine
 inherit devc web's environment). devc web's server takes it, and only it, on
 `/desktop/requests` and `/desktop/project`. It never takes the page token there, nor the desktop
-token anywhere else. The page can only queue a request (`request_push`, `request_project`), which
+token anywhere else. The page can only queue a request (`request_push`, `request_project`,
+`request_terminal`), which
 names a kind and a folder and nothing else. The app reads the queue, and everything in it is
 checked before it is shown. The answer must be well-formed, at most 20 requests, with printable
 folders. Each folder's real path must be a folder with a showable name of at most 256 characters,

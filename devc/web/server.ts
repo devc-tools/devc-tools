@@ -23,6 +23,7 @@ import {
   type DesktopRequestKind,
   DesktopRequests,
   LONG_POLL_MS,
+  requestKinds,
 } from './desktop_requests.ts';
 import {
   type Environment,
@@ -148,6 +149,7 @@ import {
   hostFileIn,
   isProjectRepo,
   projectRefusal,
+  type ProjectView,
   repoFileFor,
   type RepoView,
   type WsRole,
@@ -617,6 +619,52 @@ interface Client extends Subscriber {
 export class WebStartError extends Error {}
 
 /** Whether `docker` is on PATH. */
+/** The page's asks of devc-desktop. */
+export type DesktopAsk = Extract<
+  ClientMessage,
+  | { type: 'request_push' }
+  | { type: 'request_project' }
+  | { type: 'request_terminal' }
+>;
+
+/**
+ * What a page's ask of devc-desktop queues (its kind and repo folder), or why it is refused:
+ * `needs devc-desktop` without `--desktop-channel`, `unknown folder` for a project not in
+ * `projects` or a folder that isn't one of its repos, and a container action under
+ * `--live-yolo` (`desktopProjects` off). A terminal is asked for under `--live-yolo` too.
+ */
+export function desktopAsk(
+  msg: DesktopAsk,
+  projects: readonly ProjectView[],
+  opts: { channel: boolean; desktopProjects: boolean },
+):
+  | { ok: true; kind: DesktopRequestKind; folder: string | null }
+  | { ok: false; code: string; problem: string } {
+  if (!opts.channel) {
+    return { ok: false, code: 'needs_desktop', problem: 'needs devc-desktop' };
+  }
+  const known = msg.type === 'request_project'
+    ? projects.some((p) => p.localFolder === msg.localFolder)
+    : isProjectRepo(projects, msg.localFolder, msg.folder);
+  if (!known) {
+    return { ok: false, code: 'bad_request', problem: 'unknown folder' };
+  }
+  if (msg.type === 'request_project') {
+    return opts.desktopProjects
+      ? { ok: true, kind: msg.action, folder: null }
+      : {
+        ok: false,
+        code: 'not_allowed',
+        problem: 'devc-desktop starts no containers under --live-yolo',
+      };
+  }
+  return {
+    ok: true,
+    kind: msg.type === 'request_push' ? 'push' : 'terminal',
+    folder: msg.folder,
+  };
+}
+
 export async function dockerAvailable(): Promise<boolean> {
   try {
     await probeDocker();
@@ -677,7 +725,8 @@ export async function startWeb(
     /**
      * `--desktop-channel`'s token, which only devc-desktop's main process holds: it unlocks
      * `/desktop/requests` and `/desktop/project` (see {@link authorize}), and lets the page ask
-     * the app (`request_push`, `request_project`). Without it those routes refuse everything.
+     * the app (`request_push`, `request_project`, `request_terminal`). Without it those routes
+     * refuse everything.
      */
     desktopToken?: string;
     /**
@@ -3341,46 +3390,26 @@ export async function startWeb(
   };
 
   /**
-   * The page asking devc-desktop to push a repo or start, stop or remove a project's container
-   * (`request_push`, `request_project`). Nothing runs here: the request waits for the app's
-   * `GET /desktop/requests`, the app works it out itself and the user confirms it in its HOST
-   * drawer. Answered at once, `asked devc-desktop…` or why not (no `--desktop-channel`, a folder
+   * The page asking devc-desktop to push a repo, start, stop or remove a project's container, or
+   * open a host terminal in a repo (`request_push`, `request_project`, `request_terminal`).
+   * Nothing runs here: the request waits for the app's `GET /desktop/requests`, the app works it
+   * out itself and the user confirms it in its HOST drawer. A terminal is asked for under
+   * `--live-yolo` too: it starts nothing in a container, and the app checks the folder itself. Answered at once, `asked devc-desktop…` or why not (no `--desktop-channel`, a folder
    * that isn't the project's, the queue's limits).
    */
-  const askDesktop = (
-    c: Client,
-    msg: Extract<
-      ClientMessage,
-      { type: 'request_push' } | { type: 'request_project' }
-    >,
-  ) => {
-    if (desktopToken === null) {
-      fail(c, msg.id, 'needs_desktop', 'needs devc-desktop');
+  const askDesktop = (c: Client, msg: DesktopAsk) => {
+    const asked = desktopAsk(msg, projectsMessage().projects, {
+      channel: desktopToken !== null,
+      desktopProjects,
+    });
+    if (!asked.ok) {
+      fail(c, msg.id, asked.code, asked.problem);
       return;
     }
-    const known = msg.type === 'request_push'
-      ? isProjectRepo(projectsMessage().projects, msg.localFolder, msg.folder)
-      : isListedProject(msg.localFolder);
-    if (!known) {
-      fail(c, msg.id, 'bad_request', 'unknown folder');
-      return;
-    }
-    if (msg.type === 'request_project' && !desktopProjects) {
-      fail(
-        c,
-        msg.id,
-        'not_allowed',
-        'devc-desktop starts no containers under --live-yolo',
-      );
-      return;
-    }
-    const kind: DesktopRequestKind = msg.type === 'request_push'
-      ? 'push'
-      : msg.action;
     const added = desktopRequests.add(
-      kind,
+      asked.kind,
       msg.localFolder,
-      msg.type === 'request_push' ? msg.folder : null,
+      asked.folder,
     );
     if (added.ok) {
       reply(c, { id: msg.id, ok: true, result: { message: ASKED } });
@@ -3610,7 +3639,10 @@ export async function startWeb(
       await handleListing(c, msg);
       return;
     }
-    if (msg.type === 'request_push' || msg.type === 'request_project') {
+    if (
+      msg.type === 'request_push' || msg.type === 'request_project' ||
+      msg.type === 'request_terminal'
+    ) {
       askDesktop(c, msg);
       return;
     }
@@ -4080,7 +4112,8 @@ export async function startWeb(
 
   /**
    * devc-desktop's routes, past {@link authorize}: `GET /desktop/active-folder` (the page
-   * token), and with the desktop token `GET /desktop/requests?after=<seq>` (a long poll),
+   * token), and with the desktop token `GET /desktop/requests?after=<seq>&kinds=<a,b>` (a long
+   * poll; `kinds` the request kinds the app understands, push, start, stop and down without it),
    * `POST /desktop/requests/<id>/dismiss` and `POST /desktop/project`.
    */
   const serveDesktop = async (req: Request, url: URL): Promise<Response> => {
@@ -4097,6 +4130,7 @@ export async function startWeb(
           Number.isSafeInteger(after) ? after : -1,
           LONG_POLL_MS,
           req.signal,
+          requestKinds(url.searchParams.get('kinds')),
         ),
       );
     }
