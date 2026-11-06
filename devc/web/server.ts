@@ -145,6 +145,7 @@ import {
 import {
   buildProjects,
   effectiveEnvironment,
+  hostFileIn,
   isProjectRepo,
   projectRefusal,
   repoFileFor,
@@ -2112,6 +2113,40 @@ export async function startWeb(
   };
 
   /**
+   * Where a host path a host terminal printed is, for the page's file viewer (devc-desktop's
+   * `open-host-file`): `{localFolder, root, path}` as `locate_file` answers, from the first project
+   * whose repos hold it, confined like `read_file` (symlinks included). Never outside every
+   * project's repos.
+   */
+  const locateHostFile = async (
+    c: Client,
+    msg: Extract<ClientMessage, { type: 'locate_host_file' }>,
+  ) => {
+    const outside = `${msg.path} is outside every project's repos`;
+    const found = hostFileIn(projectsMessage().projects, msg.path);
+    if (found === null) {
+      fail(c, msg.id, 'forbidden', outside);
+      return;
+    }
+    let confined: string | null;
+    try {
+      confined = await confine(found.root, found.path);
+    } catch {
+      fail(c, msg.id, 'not_found', `${msg.path} does not exist`);
+      return;
+    }
+    if (confined === null) {
+      fail(c, msg.id, 'forbidden', outside);
+      return;
+    }
+    if (!(await Deno.stat(confined).catch(() => null))?.isFile) {
+      fail(c, msg.id, 'not_found', `${msg.path} is not a file`);
+      return;
+    }
+    reply(c, { id: msg.id, ok: true, result: found });
+  };
+
+  /**
    * The container's own filesystem, for the Files node: a directory listing or a file's text at
    * an absolute container path, whatever Herdr's state. See `container_files.ts`.
    */
@@ -3618,6 +3653,10 @@ export async function startWeb(
     }
     if (msg.type === 'set_dashboard') {
       await setDashboard(c, msg);
+      return;
+    }
+    if (msg.type === 'locate_host_file') {
+      await locateHostFile(c, msg);
       return;
     }
     // Before the `localFolder` check: it names a project or a container.

@@ -723,6 +723,20 @@ Deno.test('parseClientMessage: file messages take a root and a path, empty meani
   );
 });
 
+Deno.test('parseClientMessage: locate_host_file takes an absolute host path without ..', () => {
+  const msg = { type: 'locate_host_file', id: 'h1', path: '/src/api/a.ts' };
+  assertEquals(
+    parseClientMessage(JSON.stringify(msg)),
+    { ok: true, msg } as never,
+  );
+  for (const path of [undefined, '', 'a.ts', '/src/api/../../etc/passwd']) {
+    assertEquals(
+      rejected({ type: 'locate_host_file', id: 'h2', path }).code,
+      'bad_request',
+    );
+  }
+});
+
 Deno.test('parseClientMessage: locate_file takes an absolute container path without ..', () => {
   const msg = {
     type: 'locate_file',

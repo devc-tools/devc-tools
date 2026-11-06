@@ -20,6 +20,26 @@ import { parseClientMessage } from '../web/protocol.ts';
 
 const U1 = '11111111-1111-4111-8111-111111111111';
 
+Deno.test("hostSessionName: the 9th character from the end is always '-', so a devc-desktop-<12 hex> session never clashes", () => {
+  const folders = [
+    '/x/desktop',
+    '/home/me/src/My App!',
+    '/',
+    '/a',
+    '/srv/' + 'long-name-'.repeat(10),
+    '/x/ab12cd34ef56',
+  ];
+  for (let i = 0; i < 200; i++) {
+    folders.push(`/f/${i.toString(36)}-${i * 7919}`);
+  }
+  for (const base of ['devc', 'devc-desktop', 'x']) {
+    for (const folder of folders) {
+      const name = hostSessionName(base, folder);
+      assertEquals(name.at(-9), '-', name);
+    }
+  }
+});
+
 Deno.test('host environment id and session name: stable, per folder, slugged', () => {
   const id = hostEnvironmentId('/home/me/src/My App!');
   assert(/^host-[0-9a-f]{16}$/.test(id));

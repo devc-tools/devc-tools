@@ -441,7 +441,36 @@ export function hostGoneFromHash(hash) {
 }
 
 /**
- * The hash without `host-slot` (nor `host-at`, `host-where`, `host-gone`), the other parameters
+ * A file a host terminal's Cmd/Ctrl+click asks to open (devc-desktop sets
+ * `#…&open-host-file=<absolute host path>[&open-line=<n>[&open-column=<n>]]`): the page asks the
+ * server for it (`locate_host_file`), which opens it only inside a project's repos. `null` when
+ * there is none, or the path is not absolute; a line or column that is not a positive whole number
+ * is left out.
+ *
+ * @param {string} hash
+ * @returns {{path: string, line?: number, column?: number} | null}
+ */
+export function hostOpenFromHash(hash) {
+  const params = new URLSearchParams(hash.replace(/^#/, ''));
+  const path = params.get('open-host-file');
+  if (path === null || !path.startsWith('/')) return null;
+  /** @param {string} key */
+  const num = (key) => {
+    const v = params.get(key);
+    return v !== null && /^[1-9]\d{0,8}$/.test(v) ? Number(v) : undefined;
+  };
+  const line = num('open-line');
+  const column = line === undefined ? undefined : num('open-column');
+  return {
+    path,
+    ...(line !== undefined ? { line } : {}),
+    ...(column !== undefined ? { column } : {}),
+  };
+}
+
+/**
+ * The hash without `host-slot` (nor `host-at`, `host-where`, `host-gone`, `open-host-file`,
+ * `open-line`, `open-column`), the other parameters
  * kept in order, `#` included (or `''` when none is left).
  *
  * @param {string} hash
@@ -452,6 +481,9 @@ export function withoutHostSlot(hash) {
   params.delete('host-at');
   params.delete('host-where');
   params.delete('host-gone');
+  params.delete('open-host-file');
+  params.delete('open-line');
+  params.delete('open-column');
   const rest = params.toString();
   return rest ? `#${rest}` : '';
 }

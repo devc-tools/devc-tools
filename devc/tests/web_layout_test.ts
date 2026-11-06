@@ -19,6 +19,7 @@ import {
 } from '../web/static/lib/layout_state.js';
 import {
   hostGoneFromHash,
+  hostOpenFromHash,
   hostPlacementFromHash,
   hostSlotFromHash,
   withoutHostSlot,
@@ -497,6 +498,29 @@ Deno.test('hostPlacementFromHash: beside a well-formed slot, right, below or sta
     ),
     '#view=v1',
   );
+});
+
+Deno.test('hostOpenFromHash: an absolute path, a line and column; withoutHostSlot drops all three', () => {
+  const hash =
+    '#view=v1&open-host-file=%2Fsrc%2Fapi%2FREADME.md&open-line=3&open-column=7';
+  assertEquals(hostOpenFromHash(hash), {
+    path: '/src/api/README.md',
+    line: 3,
+    column: 7,
+  });
+  assertEquals(withoutHostSlot(hash), '#view=v1');
+  assertEquals(hostOpenFromHash('#open-host-file=%2Fa%20b.txt'), {
+    path: '/a b.txt',
+  });
+  // A column needs a line; a bad number is left out.
+  assertEquals(hostOpenFromHash('#open-host-file=%2Fa&open-column=4'), {
+    path: '/a',
+  });
+  assertEquals(hostOpenFromHash('#open-host-file=%2Fa&open-line=0'), {
+    path: '/a',
+  });
+  assertEquals(hostOpenFromHash('#open-host-file=README.md'), null);
+  assertEquals(hostOpenFromHash('#view=v1'), null);
 });
 
 Deno.test('hostGoneFromHash reads host-gone; withoutHostSlot takes it out too', () => {

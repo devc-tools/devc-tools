@@ -7,6 +7,7 @@
 // focused tile.
 
 import { createRenderer } from './renderer.js';
+import { attachTerminalMouse } from './term_mouse.js';
 import { createTiling } from './layout.js';
 import {
   hostTileVisibility,
@@ -61,9 +62,7 @@ import {
   createWheelAccumulator,
   decodeBase64,
   encodeInput,
-  mouseButton,
   pastePaths,
-  pixelToCell,
   wrapPaste,
 } from './lib/input.js';
 import {
@@ -186,15 +185,8 @@ const SCROLL_KEY = 'devc-web-tile-scroll-v1';
 const ZEN_KEY = 'devc-web-zen-v1';
 const MAIN_ZEN_KEY = 'devc-web-main-zen-v1';
 const RESIZE_DEBOUNCE_MS = 100;
-const DRAG_INTERVAL_MS = 50;
 /** How long a `read_selection` may go unanswered before its copy is dropped. */
 const SELECTION_TIMEOUT_MS = 5000;
-/**
- * How long a copied drag's highlight stays, in a pane whose app draws no selection of its own
- * (see `attachMouse`). It marks grid cells, not text, so it would go stale on the app's next
- * redraw: a brief flash confirms what was copied.
- */
-const COPY_FLASH_MS = 500;
 /**
  * How long a tile opened on a pane this page just created waits for a snapshot listing it before
  * it says `LABELS.closed`: `new_shell` answers before Herdr's next snapshot arrives.
@@ -262,6 +254,23 @@ export function openHostTile(id, place = null) {
 }
 
 /**
+ * Opens a file a host terminal's Cmd/Ctrl+click named (devc-desktop's `open-host-file`, through
+ * `/main`'s hash): the server finds it in a project's repos (`locate_host_file`), and it opens in
+ * the preview tile at the line and column given. A path outside every project's repos is refused
+ * with a toast.
+ *
+ * @param {{path: string, line?: number, column?: number}} want
+ */
+export async function openHostFile(want) {
+  try {
+    const file = await call({ type: 'locate_host_file', path: want.path });
+    openFileAt(file, want.line, want.column);
+  } catch (e) {
+    errorToast(`Can't open ${want.path}: ${e?.message ?? e}`);
+  }
+}
+
+/**
  * Closes the host tile of devc-desktop's slot `id` (its shell moved to the drawer). No-op when
  * there is none.
  *
@@ -292,7 +301,7 @@ const newPanes = new Map();
  * @property {string | null} closedReason
  * @property {boolean} hidden  in a background stack tab: no resize is sent
  * @property {ReturnType<typeof setTimeout> | undefined} resizeTimer
- * @property {ReturnType<typeof setTimeout> | undefined} flashTimer  clears the copy highlight
+ * @property {() => void} disposeMouse  clears the mouse's pending copy flash (`term_mouse.js`)
  * @property {number} frames  frames painted so far: whether the app redrew during a drag
  * @property {ResizeObserver} observer
  * @property {HTMLElement} killButton  the tab's trash button, shown while the pane is known
@@ -4910,6 +4919,7 @@ function mountTile(tile) {
   const renderer = createRenderer(termEl, {
     linkHint: LINK_HINT,
     linkModifier: isLinkModifier,
+    openUrl: (url) => window.open(url, '_blank', 'noopener,noreferrer'),
   });
   /** @type {TileView} */
   const view = {
@@ -4922,7 +4932,7 @@ function mountTile(tile) {
     closedReason: null,
     hidden: false,
     resizeTimer: undefined,
-    flashTimer: undefined,
+    disposeMouse: () => {},
     frames: 0,
     observer: new ResizeObserver(() => {
       clearTimeout(view.resizeTimer);
@@ -5026,7 +5036,27 @@ function mountTile(tile) {
     if (images.length > 0) attachImages(view, target, images, 'drop');
   });
 
-  attachMouse(view, termEl, target);
+  view.disposeMouse = attachTerminalMouse(termEl, renderer, {
+    mouse: (cmd) => {
+      const t = target();
+      if (t) send({ type: 'mouse', ...t, ...cmd });
+    },
+    copyRange: (anchor, cursor) => {
+      const t = target();
+      if (t) copySelection(t, anchor, cursor);
+    },
+    openLink: (link) => {
+      const t = target();
+      if (!t) return;
+      // The file opens in the preview tile, which must not be this terminal.
+      keepTileOpen(view.tile);
+      openLink(t, link);
+    },
+    contextMenu: (ev) => openMenu(ev, tileOwnMenuItems(tileState(view.tile))),
+    frames: () => view.frames,
+    linkModifier: isLinkModifier,
+    active: () => target() !== null,
+  });
 
   // Golden Layout mounts tiles while it builds or restores the layout; open them once it is done.
   queueMicrotask(reconcileTiles);
@@ -5117,7 +5147,7 @@ function unmountTile(tile) {
     if (tileId === tile.id) pendingOpens.delete(id);
   }
   clearTimeout(view.resizeTimer);
-  clearTimeout(view.flashTimer);
+  view.disposeMouse();
   view.observer.disconnect();
   view.renderer.dispose();
   views.delete(tile.id);
@@ -5174,21 +5204,6 @@ function isLinkModifier(ev) {
 /** The tooltip over a terminal link. */
 const LINK_HINT = `${IS_MAC ? 'Cmd' : 'Ctrl'}+click to open`;
 
-/** The terminal cell under a mouse event, or null before the terminal is laid out. */
-function cellAt(view, e) {
-  const m = view.renderer.metrics();
-  return m
-    ? pixelToCell(
-      e.clientX - m.left,
-      e.clientY - m.top,
-      m.cellWidth,
-      m.cellHeight,
-      m.cols,
-      m.rows,
-    )
-    : null;
-}
-
 /**
  * Opens a link in pane `t`: a URL in a new browser tab, a file in the viewer when it is in one of
  * the container's project repos. Relative paths are from the pane's current folder.
@@ -5217,103 +5232,6 @@ async function openLink(t, link) {
   } catch (e) {
     errorToast(`Can't open ${link.path}: ${e?.message ?? e}`);
   }
-}
-
-/**
- * Plain mouse down/drag/up over the terminal go to Herdr as cells (the browser does not
- * select); a plain left-drag's text is copied from Herdr, and flashed here unless the app redrew
- * during the drag (it draws its own selection). Shift+drag
- * is left to xterm.js for a local selection, copied on mouseup. A right-click opens the tile's
- * menu (the same as its tab's) and is not sent to the app. Cmd+click (Ctrl+click off a Mac) on
- * a link opens it ({@link openLink}); anywhere else it is an ordinary click.
- */
-function attachMouse(view, termEl, target) {
-  termEl.addEventListener('contextmenu', (ev) => {
-    ev.preventDefault();
-    openMenu(ev, tileOwnMenuItems(tileState(view.tile)));
-  });
-  termEl.addEventListener('mousedown', (ev) => {
-    if (ev.button === 2) {
-      ev.preventDefault();
-      ev.stopPropagation();
-      view.renderer.focus();
-      return;
-    }
-    if (ev.button === 0 && isLinkModifier(ev)) {
-      const at = cellAt(view, ev);
-      const link = at && view.renderer.linkAt(at);
-      const t = target();
-      if (link && t) {
-        ev.preventDefault();
-        ev.stopPropagation();
-        // The file opens in the preview tile, which must not be this terminal.
-        keepTileOpen(view.tile);
-        openLink(t, link);
-        return;
-      }
-    }
-    if (ev.shiftKey) {
-      const onUp = () => {
-        window.removeEventListener('mouseup', onUp, true);
-        const text = view.renderer.selection();
-        if (text) navigator.clipboard?.writeText(text).catch(() => {});
-      };
-      window.addEventListener('mouseup', onUp, true);
-      return;
-    }
-    const button = mouseButton(ev.button);
-    const t = target();
-    ev.preventDefault();
-    ev.stopPropagation();
-    view.renderer.focus();
-    view.renderer.clearHighlight();
-    if (!button || !t) return;
-    const cell = (e) => cellAt(view, e);
-    const start = cell(ev);
-    if (!start) return;
-    send({ type: 'mouse', ...t, action: 'down', button, ...start });
-    const framesAtDown = view.frames;
-    let last = start;
-    let lastSent = 0;
-    let trailing;
-    const onMove = (e) => {
-      const c = cell(e);
-      if (!c || (c.column === last.column && c.row === last.row)) return;
-      last = c;
-      const sendDrag = () => {
-        lastSent = Date.now();
-        send({ type: 'mouse', ...t, action: 'drag', button, ...last });
-      };
-      clearTimeout(trailing);
-      const wait = DRAG_INTERVAL_MS - (Date.now() - lastSent);
-      if (wait <= 0) sendDrag();
-      else trailing = setTimeout(sendDrag, wait);
-    };
-    const onUp = (e) => {
-      window.removeEventListener('mousemove', onMove, true);
-      window.removeEventListener('mouseup', onUp, true);
-      clearTimeout(trailing);
-      const c = cell(e) ?? last;
-      send({ type: 'mouse', ...t, action: 'up', button, ...c });
-      if (
-        button === 'left' && (c.column !== start.column || c.row !== start.row)
-      ) {
-        // An app that redrew during the drag is drawing its own selection (Claude Code, vim
-        // with the mouse on): a second, grid-bound highlight would only contradict it.
-        if (view.frames === framesAtDown) {
-          view.renderer.highlight(start, c);
-          clearTimeout(view.flashTimer);
-          view.flashTimer = setTimeout(
-            () => view.renderer.clearHighlight(),
-            COPY_FLASH_MS,
-          );
-        }
-        copySelection(t, start, c);
-      }
-    };
-    window.addEventListener('mousemove', onMove, true);
-    window.addEventListener('mouseup', onUp, true);
-  }, true);
 }
 
 // ---------------------------------------------------------------------------------------------

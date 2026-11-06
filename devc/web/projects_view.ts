@@ -285,6 +285,23 @@ export function isProjectRepo(
 }
 
 /**
+ * The first project (in `projects` order) whose repos hold `hostPath`, with the file as
+ * {@link repoFileFor} gives it, or null when no project's repos hold it. For a host path a host
+ * terminal printed (devc-desktop's `open-host-file`): a container project's repos are host
+ * folders too, so a path in one is found the same way. The caller still confines it.
+ */
+export function hostFileIn(
+  projects: readonly ProjectView[],
+  hostPath: string,
+): { localFolder: string; root: string; path: string } | null {
+  for (const p of projects) {
+    const file = repoFileFor(projects, p.localFolder, hostPath);
+    if (file !== null) return { localFolder: p.localFolder, ...file };
+  }
+  return null;
+}
+
+/**
  * The repo of the project at `localFolder` that holds `hostPath`, as `{root, path}` for
  * `read_file` (`path` relative to `root`, `''` for the root itself), or null when it is in none.
  * Nested repos (a worktree inside its repo's folder) go to the innermost.

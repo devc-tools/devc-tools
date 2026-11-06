@@ -268,6 +268,11 @@ export type ClientMessage =
   }
   | { type: 'locate_file'; id: string; container: string; path: string }
   /**
+   * A host path a host terminal's Cmd/Ctrl+click named (devc-desktop's `open-host-file`): found
+   * in a project's repos, as `locate_file` answers. Names no container.
+   */
+  | { type: 'locate_host_file'; id: string; path: string }
+  /**
    * Starts or reuses the language server for a file in an editable tile and attaches this
    * connection to its session: addressed as `write_file` addresses its file.
    */
@@ -1167,6 +1172,13 @@ function parseFields(m: Obj): ClientMessage {
         container: str(m, 'container'),
         path,
       };
+    }
+    case 'locate_host_file': {
+      const path = absolute(m, 'path');
+      if (path.split('/').includes('..')) {
+        throw new Invalid(`'path' must not contain '..'`);
+      }
+      return { type: 'locate_host_file', id: str(m, 'id'), path };
     }
     case 'lsp_attach':
     case 'lsp_settings_get':

@@ -35,6 +35,15 @@ import {
  * @property {() => void} clearHighlight
  * @property {(cell: {column: number, row: number}) => import('./lib/links.js').Link | null} linkAt
  *   The URL or file path drawn over a viewport cell, if any.
+ * @property {(colors: TermColors) => void} setColors
+ *   Replaces the colors given as `colors` (both, outright); a no-op for a renderer without them.
+ */
+
+/**
+ * A terminal's colors chosen by the caller rather than the page's theme (devc-desktop's host
+ * terminals: View → Host Terminal Color's theme in the current mode).
+ *
+ * @typedef {{theme: Record<string, string>, minimumContrastRatio: number}} TermColors
  */
 
 /**
@@ -74,14 +83,19 @@ function cssPx(name, fallback) {
  * with `linkHint` as their tooltip, and get a pointer cursor while `linkModifier` says the key
  * that opens them is held; opening one is the caller's (clicks never reach xterm.js).
  *
+ * `colors` replaces the page's theme and mode (`termOptions`): then `devc-theme` events are
+ * ignored and `setColors` changes them. `openUrl` opens an OSC 8 hyperlink's http(s) URL, only
+ * when `linkModifier` says the key is down; without it, OSC 8 links do nothing.
+ *
  * @param {HTMLElement} element
  * @param {{linkHint?: string,
- *   linkModifier?: (ev: MouseEvent | KeyboardEvent) => boolean}} [opts]
+ *   linkModifier?: (ev: MouseEvent | KeyboardEvent) => boolean,
+ *   colors?: TermColors, openUrl?: (url: string) => void}} [opts]
  * @returns {Renderer}
  */
 export function createRenderer(
   element,
-  { linkHint = '', linkModifier = () => false } = {},
+  { linkHint = '', linkModifier = () => false, colors, openUrl } = {},
 ) {
   const term = new Terminal({
     scrollback: 0,
@@ -90,14 +104,30 @@ export function createRenderer(
     fontFamily:
       'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace',
     fontSize: cssPx('--code-font-size', 13),
-    ...termOptions(),
+    ...(colors ?? termOptions()),
+    // OSC 8 hyperlinks: http(s) only, only with the link key down, never through a `confirm()`.
+    linkHandler: {
+      allowNonHttpProtocols: false,
+      activate(ev, uri) {
+        if (!openUrl || !linkModifier(ev)) return;
+        try {
+          const u = new URL(uri);
+          if (u.protocol === 'http:' || u.protocol === 'https:') {
+            openUrl(u.href);
+          }
+        } catch { /* not a URL */ }
+      },
+    },
   });
+  /** @param {TermColors} c */
+  const applyColors = (c) => {
+    term.options.theme = c.theme;
+    term.options.minimumContrastRatio = c.minimumContrastRatio;
+  };
   // The page's theme or mode changed (`client.js`): the terminal's colors follow, replaced
-  // outright so that no light color survives a switch to dark.
+  // outright so that no light color survives a switch to dark. Not for given colors.
   const onTheme = () => {
-    const { theme, minimumContrastRatio } = termOptions();
-    term.options.theme = theme;
-    term.options.minimumContrastRatio = minimumContrastRatio;
+    if (!colors) applyColors(termOptions());
   };
   window.addEventListener('devc-theme', onTheme);
   const fit = new FitAddon();
@@ -244,6 +274,11 @@ export function createRenderer(
     },
     clearHighlight() {
       term.clearSelection();
+    },
+    setColors(c) {
+      if (!colors) return;
+      colors = c;
+      applyColors(c);
     },
     linkAt({ column, row }) {
       const { cells, links } = lineLinks(row);

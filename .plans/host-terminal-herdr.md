@@ -12,15 +12,15 @@ Prerequisite: the copy-on-select change (the viewer's in `viewer.js`; host termi
 
 ## Checklist
 
-- [ ] Step 0: measurements (below), recorded in this plan before any code.
+- [x] Step 0: measurements (below), recorded in this plan before any code.
 - [ ] Main process: a Node Herdr client for the app's `devc-desktop-<12 hex>` session
       (`src/main/herdr.ts`): find `herdr`, check the bridge, start the session, create, list,
       close and control panes.
 - [ ] No Herdr, or an unsupported one: the host terminal is refused with a reason, as under a
       debugging switch.
-- [ ] `devc/web/static/term_mouse.js`: `tiles.js`'s `attachMouse` moved out, with hooks;
+- [x] `devc/web/static/term_mouse.js`: `tiles.js`'s `attachMouse` moved out, with hooks;
       `tiles.js` uses it, container terminals unchanged.
-- [ ] `renderer.js`: a `colors` option and `setColors`, for the host theme.
+- [x] `renderer.js`: a `colors` option and `setColors`, for the host theme.
 - [ ] `devc-desktop/src/renderer/host_terminal.ts`: one host terminal (renderer, mouse, wheel,
       paste bar, shortcuts) used by both `host.ts` and `slot.ts`. node-pty, `@xterm/xterm`,
       `@xterm/addon-fit`, `@xterm/addon-serialize`, `copy_select.ts` and the move replay IPC are
@@ -174,6 +174,37 @@ On macOS with Herdr 0.9.5 (or newer), from a Node script spawning `herdr` as `he
    OSC 8 sequence (D11)?
 
 Record results here; if 1 cannot be made to hold, stop and ask the user.
+
+### Step 0 results (2026-11-06, Linux devcontainer, Herdr 0.9.5; not macOS)
+
+Measured from Node scripts spawning `herdr` as `herdr.ts` will; macOS itself was not available
+here, so these are for the user to confirm there.
+
+1. **Holds.** `spawn('/bin/bash', ['-lc', 'export SHELL; exec "$0" "$@"', herdr, '--session',
+   name, 'server'], {detached: true, stdio: 'ignore'})` then `unref()`: the parent exits and
+   `herdr session list --json` still shows the session `running: true`.
+2. **Herdr's part only:** keystroke (`terminal.input` on the control process's stdin) to the next
+   `terminal.frame` on its stdout, 40 samples: median 2.9 ms, p90 5.5 ms. The IPC hop to the page
+   and the paint could not be measured (the app cannot start here: `chrome-sandbox` cannot be
+   made setuid), nor compared with the node-pty drawer.
+3. **No field in `pane.get`** for the foreground process, and no pid or tty, so the `ps` fallback
+   is impossible too. **`pane.process_info`** (`{pane_id}`) has it:
+   `{process_info: {pane_id, shell_pid, foreground_process_group_id, foreground_processes:
+   [{pid, name, argv, cmdline, cwd}]}}`. Busy (D10) is `foreground_process_group_id !==
+   shell_pid`; the busy label is `foreground_processes[0].name` (as today's `baseName` of
+   node-pty's `process`). Idle bash: group = shell pid, name `bash`; `vi /tmp/y.txt` running:
+   another group, name `vi`.
+4. **Holds.** `\x05\x15cd /tmp\r` sent as `terminal.input`: `pane.get`'s `cwd` and
+   `foreground_cwd` become `/tmp` (bash). zsh is not installed here. **Gotcha:** `terminal.input`'s
+   `bytes` is **base64** (devc web's `encodeInput`), as `terminal.frame`'s `bytes` is (with
+   `encoding`); plain text is silently ignored.
+5. **Carried.** The `printf` OSC 8 line's frame, base64-decoded, contains `\e]8;` and `link`: OSC 8
+   links reach xterm.js, so D11's `openUrl` / `linkHandler` is built.
+
+Also seen: `terminal.release` ends the control process with `{"type":"terminal.closed",
+"reason":"detached"}`; a frame is `{type: 'terminal.frame', seq, full, width, height, encoding,
+bytes}`; `workspace.create` answers with `root_pane.pane_id` (`w1:p1`) on a session with no
+workspace, as `createShell` expects.
 
 ## Contracts
 

@@ -2,6 +2,7 @@ import { assertEquals } from 'jsr:@std/assert';
 import {
   buildProjects,
   effectiveEnvironment,
+  hostFileIn,
   isProjectRepo,
   projectRefusal,
   repoFileFor,
@@ -294,6 +295,52 @@ Deno.test('repoFileFor: the innermost repo of that project holding the path', ()
   assertEquals(repoFileFor(views, '/src/api', '/src/api2/a.ts'), null);
   assertEquals(repoFileFor(views, '/src/api', '/src/web/a.ts'), null);
   assertEquals(repoFileFor(views, '/src/api', '/etc/passwd'), null);
+});
+
+Deno.test('hostFileIn: the first project whose repos hold a host path', () => {
+  const views = buildProjects(
+    [{ localFolder: '/src/notes' }],
+    ['/src/api'],
+    [],
+    new Set(),
+    new Map([
+      ['/src/api', [{
+        folder: '/src/api',
+        worktreeOf: null,
+        containerFolder: null,
+        primaryFolder: null,
+      }, {
+        folder: '/src/shared-lib',
+        worktreeOf: null,
+        containerFolder: null,
+        primaryFolder: null,
+      }]],
+      ['/src/notes', [{
+        folder: '/src/notes',
+        worktreeOf: null,
+        containerFolder: null,
+        primaryFolder: null,
+      }]],
+    ]),
+  );
+  // A container project's repo is a host folder too (its bind mount's source).
+  assertEquals(hostFileIn(views, '/src/api/src/a.ts'), {
+    localFolder: '/src/api',
+    root: '/src/api',
+    path: 'src/a.ts',
+  });
+  assertEquals(hostFileIn(views, '/src/shared-lib/x.go'), {
+    localFolder: '/src/api',
+    root: '/src/shared-lib',
+    path: 'x.go',
+  });
+  assertEquals(hostFileIn(views, '/src/notes/README.md'), {
+    localFolder: '/src/notes',
+    root: '/src/notes',
+    path: 'README.md',
+  });
+  assertEquals(hostFileIn(views, '/etc/hosts'), null);
+  assertEquals(hostFileIn(views, '/src/api2/a.ts'), null);
 });
 
 Deno.test('repoName: the path under /workspaces, else the basename', () => {
