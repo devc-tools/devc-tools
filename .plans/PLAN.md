@@ -11,6 +11,13 @@
 
 ### Pending
 
+- [terminal-shared-surface](terminal-shared-surface.md) — terminal features written once:
+  `lib/term_surface.js` (devc web, bundled into the app like `layout.js`) holds links and copy on
+  select for any xterm.js; `host_terminal.ts` builds both host terminals (drawer and tile), with
+  their paste bar and shortcuts; one right-click menu builder for both. Host terminals gain
+  Cmd/Ctrl+click on http(s) URLs (and OSC 8 links) to the system browser; host file paths stay
+  unlinked.
+
 - [devc-web-aseprite-viewer](devc-web-aseprite-viewer.md) — after devc-web-media-tiles: a
   clean-room `.aseprite` decoder and compositor (`static/lib/aseprite.js`, from the public spec
   only) and a media view with frame playback, tags and layer toggles. Normal blend only at first;
@@ -2711,3 +2718,4 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
 | devc web Herdr workspaces — one Herdr workspace per repo; new panes land in their repo's workspace                  | [devc-web-herdr-workspaces](devc-web-herdr-workspaces.md)                          | in progress |
 | devc UI themes — Slate, Graphite and the host colors' hues for devc web and the app, picked under View → Theme      | [devc-ui-themes](archived/devc-ui-themes.md)                                       | complete    |
 | devc web light mode — light palettes for every theme; follows the OS, View → Appearance in the app                  | [devc-web-light-mode](devc-web-light-mode.md)                                      | in progress |
+| Terminal shared surface — one host terminal module, links and copy on select shared with devc web                   | [terminal-shared-surface](terminal-shared-surface.md)                              |             |
