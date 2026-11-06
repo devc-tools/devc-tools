@@ -115,14 +115,21 @@ folder, so file paths in a host terminal open in devc web's viewer.
     devc web's saved host tiles reattach their panes by pane id; a pane Herdr no longer has gives
     an empty tile with `[pane gone]`.
   - **Restore Host Tiles** (View menu, today's item) reopens, as drawer tiles, every pane of the
-    app's session that no drawer tile and no host tile shows.
+    app's session that no drawer tile and no host tile shows ("unshown panes").
+  - **Opening a drawer with no tiles** (closing its last tile closes it, as today) first reopens
+    the unshown panes, as Restore Host Tiles does, newest first in one stack. Only with none does
+    it make a new pane, and only when the user opened it (D7a). A drawer that has tiles shows
+    them, as today.
 - **D7: moving a shell** between the drawer and `/main` releases the pane in one view and attaches
   it in the other. `@xterm/addon-serialize`, `host-term:detach`, `host-term:detached`,
   `host-term:adopt` and a host tile's `replay` are removed.
 - **D7a: the drawer's Actions column is unchanged** (`devc-desktop-host-actions.md`; since
-  `ba5f3ae7` a push request opens a closed drawer without focus). Opening the drawer by any route,
-  a request included, with no tiles makes one tile on a new pane, as it makes one shell today;
-  attaching it never takes focus, so keys still go to devc web. With Herdr refused (D2), the
+  `ba5f3ae7` a push request opens a closed drawer without focus). A request that opens a drawer
+  with no tiles reopens the unshown panes (D6) and makes no new pane: with none, the drawer shows
+  its Actions column beside an empty tile area holding one **New terminal** button (a new pane,
+  as the menu's split items make). Opened by the user (the menu or its shortcut), an empty
+  drawer with no unshown panes makes one new pane, as it starts one shell today. Attaching never
+  takes focus, so keys still go to devc web. With Herdr refused (D2), the
   drawer still opens and its Actions column works; only its tiles show the refusal.
 - **D8: one menu.** The drawer's and a host tile's menus differ only in the move item; both come
   from `hostMenuEntries(where)` (below).
@@ -327,8 +334,13 @@ absolute). The page then calls `openFileAt(file, line, column)`.
         plain click does nothing.
   - [ ] The `cd` items: correct folder; disabled while `vim` runs.
   - [ ] Split shortcuts work in the drawer and a host tile.
-  - [ ] A push request from devc web with the drawer closed opens it, with one new pane, while
-        typing continues in devc web; the confirm works. With Herdr renamed away from PATH, the
+  - [ ] Close the drawer's last tile (the drawer closes), then open the drawer: it shows that
+        pane again, and `herdr --session <it> pane list` has no new pane. Close terminal… on it,
+        then open the drawer: one new pane.
+  - [ ] A push request from devc web, drawer closed with no tiles: with an unshown pane, the
+        drawer opens showing it; with none, it opens with the Actions column and the New terminal
+        button, and no pane is made (`pane list` unchanged). Typing continues in devc web
+        meanwhile; the confirm works. With Herdr renamed away from PATH, the
         same request opens the drawer and its confirm works.
   - [ ] devc web's Projects list does not show the app's session.
 - [ ] Real devc web, a container terminal (regression): click, drag (copied, flashed), Shift+drag
