@@ -285,9 +285,9 @@ app (`devc-bridge gh-push` inside that container, which its agent can already ru
 its refusals). When that refuses what only you may waive (a workflow change, say), devc web's
 server queues the push request here itself. The request shows
 in the drawer's **Actions** column, 280 px to the left of the terminal and hidden when nothing is
-pending. A request never opens the drawer or takes focus. With the drawer closed, only its
-strip naming this machine shows at the bottom of the window, badged `1 request`, until you open it with
-Ctrl+` (or Cmd+J). Each card shows what the app worked out itself:
+pending. A new request opens a closed drawer, but never takes focus: keys still go to devc web.
+Close the drawer again and only its strip naming this machine shows at the bottom of the window,
+badged `1 request`, until you open it with Ctrl+` (or Cmd+J). Each card shows what the app worked out itself:
 
 - **Push:** the app checks the repo's folder (below) and runs `devc git push-plan` there with the
   same `devc` it runs `devc web` with. The card shows the branch → remote, the tip's short SHA,

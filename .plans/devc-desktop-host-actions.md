@@ -36,8 +36,9 @@ starts back under `--live`.
 - **D4: push doesn't go through the server.** The app runs `devc git push-plan` and
   `devc git push --sha` itself, with the `devc` that `launch.ts` found. When that is `devc2`
   (from the checkout), the pane says so on every push.
-- **D5: no focus stealing.** A request never opens the drawer and never takes focus. It sets a
-  badge on the HOST strip (`1 request`). The confirm button is disabled until 1 s after the
+- **D5: no focus stealing.** A request never takes focus. A new request opens a closed drawer
+  (so its card isn't missed), without focus; closed again, the HOST strip shows a badge
+  (`1 request`). The confirm button is disabled until 1 s after the
   request's content last changed.
 - **D6: host projects.** Their push requests use the same flow, for one path. A direct Push button
   for host projects (their page already has a host shell) is a possible follow-up, out of scope here.
@@ -174,5 +175,5 @@ change is refused, and the strip-only view shows `1 request`.
       Dismiss it and ask again for a fresh plan, then Push works.
 - [ ] With `desktopDevc: "devc2"`, the push card says devc runs from the checkout.
 - [ ] A hostile page: in devc web's developer tools, send `request_push` every 100 ms. Within 10 s
-      it is refused with `too many requests`. The drawer never opens by itself, and a click
+      it is refused with `too many requests`. Focus never leaves devc web, and a click
       already held down when a card appears or changes doesn't confirm it.

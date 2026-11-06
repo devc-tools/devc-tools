@@ -183,7 +183,7 @@ export const TITLEBAR_HEIGHT = 32;
 
 /**
  * The closed drawer's height while host actions wait (`peek`): just its HOST strip, with the
- * badge. It never opens the drawer or takes focus.
+ * badge. It never takes focus.
  */
 export const HOST_PEEK = 24;
 

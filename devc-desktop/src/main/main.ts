@@ -1052,15 +1052,24 @@ async function main(): Promise<void> {
 
   /** Opens or closes the drawer. Only the app menu calls this: no page can. */
   function toggleHost(): void {
-    drawerOpen = !drawerOpen;
+    setDrawer(!drawerOpen, true);
+  }
+
+  /**
+   * Opens or closes the drawer. `focus`: an open drawer takes the focus (the user opened it); a
+   * closing one always hands it back. A new host action opens it without (`false`).
+   */
+  function setDrawer(open: boolean, focus: boolean): void {
+    drawerOpen = open;
     if (drawerOpen && !hostLoaded) {
       hostLoaded = true;
       void hostView.webContents.loadURL(HOST_URL);
     }
     relayout();
     hostView.webContents.send('host-term:shown', drawerOpen);
-    if (drawerOpen) hostView.webContents.focus();
-    else (showingDevc ? devcView : statusView).webContents.focus();
+    if (drawerOpen) {
+      if (focus) hostView.webContents.focus();
+    } else (showingDevc ? devcView : statusView).webContents.focus();
   }
 
   /**
@@ -1832,8 +1841,9 @@ async function main(): Promise<void> {
   // ---- host actions ------------------------------------------------------------------------------
   // devc web's page asks (`request_push`, `request_project`); the app reads the requests from its
   // server with the desktop token, works out what would happen itself, and the user confirms it
-  // in the drawer's Actions column. A request never opens the drawer or takes focus: a closed
-  // drawer shows only its HOST strip, badged. Why: `.plans/devc-desktop-host-actions.md`. The
+  // in the drawer's Actions column. A new request opens a closed drawer but never takes focus; a
+  // drawer the user closes again shows only its HOST strip, badged, while requests wait. Why:
+  // `.plans/devc-desktop-host-actions.md`. The
   // Containers pane's own Push…, Start, Stop and Remove take the same path (`where: 'pane'`),
   // shown and confirmed in the pane instead.
 
@@ -1910,10 +1920,15 @@ async function main(): Promise<void> {
         actions.delete(id);
       }
     }
+    let added = false;
     for (const req of requests) {
       if (actions.has(req.id)) continue;
       add(req, 'drawer');
+      added = true;
     }
+    // A new request opens a closed drawer so its card shows, but never takes focus: a key meant
+    // for devc web can't reach the card, whose confirm also waits 1 s after any change.
+    if (added && !drawerOpen) setDrawer(true, false);
     actionsChanged();
   }
 
