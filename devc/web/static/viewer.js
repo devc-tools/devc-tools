@@ -571,7 +571,25 @@ export function createViewer(
       const endLine = to === last.from && last.number > startLine
         ? last.number - 1
         : last.number;
-      return { text: view.state.sliceDoc(from, to), startLine, endLine };
+      // Columns in characters, 1-based, of the first and last characters selected; none for
+      // whole lines.
+      const chars = (/** @type {number} */ a, /** @type {number} */ b) =>
+        [...view.state.sliceDoc(a, b)].length;
+      const first = doc.line(startLine);
+      const end = doc.line(endLine);
+      const startColumn = chars(first.from, from) + 1;
+      const endColumn = chars(end.from, Math.min(to, end.to));
+      const text = view.state.sliceDoc(from, to);
+      if (startColumn === 1 && endColumn === chars(end.from, end.to)) {
+        return { text, startLine, endLine };
+      }
+      return {
+        text,
+        startLine,
+        endLine,
+        startColumn,
+        endColumn: Math.max(1, endColumn),
+      };
     },
     focus() {
       view.focus();

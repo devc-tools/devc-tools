@@ -39,6 +39,7 @@ import {
 } from './lsp.js';
 import { LSP_LANGUAGE_NAMES, lspLanguageFor } from './lib/languages.js';
 import { openAskDialog } from './ask.js';
+import { diffSelectionWhere } from './diff_select.js';
 import {
   diffKey,
   diffSource,
@@ -157,6 +158,7 @@ import {
 /** @typedef {import('./lib/view.js').ViewState} ViewState */
 /** @typedef {import('./lib/view.js').TileState} TileState */
 /** @typedef {import('./layout.js').Tile} Tile */
+/** @typedef {import('./lib/ask.js').AskSelection} AskSelection */
 /** @typedef {import('./lib/layout_state.js').DiffRef} DiffRef */
 /** @typedef {import('./lib/layout_state.js').FileRef} FileRef */
 /** @typedef {import('./lib/layout_state.js').PaneRef} PaneRef */
@@ -374,13 +376,13 @@ function askButton(tile) {
 
 /**
  * Opens the Ask agent dialog for the file a file or diff tile shows, in the repo it is in, with
- * what is selected in it: a file tile's selection with its lines, a diff tile's selected text
- * (`diffText`, when it was read before a click that may have cleared it). The agent's terminal
- * opens to the right of the tile.
+ * what is selected in it and where: a file tile's selection, a diff tile's (`diffSel`, when it was
+ * read before a click that may have cleared it). The agent's terminal opens to the right of the
+ * tile.
  *
- * @param {string} id @param {string} [diffText]
+ * @param {string} id @param {AskSelection | null} [diffSel]
  */
-function askAgentFrom(id, diffText) {
+function askAgentFrom(id, diffSel) {
   const tile = tileOf(id);
   const ref = tile?.file ?? tile?.diff;
   if (!tile || !ref) return;
@@ -391,11 +393,10 @@ function askAgentFrom(id, diffText) {
   }
   // As the agent finds it from the repo: relative, or a container file's absolute path.
   const path = tile.file?.container ? childPath('/', ref.path) : ref.path;
-  /** @type {{text: string, startLine?: number, endLine?: number} | null | undefined} */
+  /** @type {AskSelection | null | undefined} */
   let selection = fileViews.get(id)?.viewer?.selection();
   if (tile.diff) {
-    const text = diffText ?? pageSelection(tile);
-    selection = text ? { text } : null;
+    selection = diffSel === undefined ? diffSelection(tile) : diffSel;
   }
   openAskDialog({
     at: id,
@@ -416,6 +417,21 @@ function pageSelection(tile) {
       tile.element.contains(sel.anchorNode)
     ? sel.toString()
     : '';
+}
+
+/**
+ * A diff tile's selection and where it is (`null` for none): see {@link diffSelectionWhere}.
+ *
+ * @param {Tile} tile @returns {AskSelection | null}
+ */
+function diffSelection(tile) {
+  const text = pageSelection(tile);
+  if (!text) return null;
+  const range = /** @type {Selection} */ (window.getSelection()).getRangeAt(0);
+  const cells = [...tile.element.querySelectorAll('.diff-text')].filter((el) =>
+    diffCellRows.has(el) && range.intersectsNode(el)
+  );
+  return diffSelectionWhere(text, range, cells, (el) => diffCellRows.get(el));
 }
 
 /** Whether a tile's file is in one of its project's repos: one an agent can be asked about. */
@@ -474,10 +490,11 @@ function fileTextMenuItems(tile, viewer) {
  */
 function diffTextMenuItems(tile) {
   const text = pageSelection(tile);
+  const selected = diffSelection(tile);
   /** @type {import('./ui.js').MenuItem[]} */
   const items = [];
   if (tile.diff && diffSource(tile.diff) === 'pr' && askable(tile)) {
-    items.push([LABELS.askAgent, () => askAgentFrom(tile.id, text)], null);
+    items.push([LABELS.askAgent, () => askAgentFrom(tile.id, selected)], null);
   }
   if (text) {
     items.push(['Copy', () => {
@@ -2205,6 +2222,27 @@ const DIFF_HOVER_MS = 300;
 /** New-side text cells (added and context rows), to their rows. @type {WeakMap<Element, import('./lib/diff.js').DiffRow>} */
 const newSideRows = new WeakMap();
 
+/** @typedef {import('./diff_select.js').DiffTextCell} DiffTextCell */
+
+/**
+ * A diff's text cells, to their row and the side its line number is on, for where a selection
+ * is (Ask agent).
+ *
+ * @type {WeakMap<Element, DiffTextCell>}
+ */
+const diffCellRows = new WeakMap();
+
+/**
+ * Marks `el` as the text of `row` on `side`, for {@link diffSelection}.
+ *
+ * @template {HTMLElement} T @param {T} el @param {import('./lib/diff.js').DiffRow} row
+ * @param {'old' | 'new'} side @returns {T}
+ */
+function textCell(el, row, side) {
+  if (row[side] !== null) diffCellRows.set(el, { row, side });
+  return el;
+}
+
 /**
  * The hover shown or on its way: its tile, its element, and where the mouse was. `seq` numbers
  * the attempts, so only the latest one's answer lands.
@@ -2230,7 +2268,14 @@ function markNewSide(el, row) {
 
 /** A unified (or added file's) row's text cell. @param {import('./lib/diff.js').DiffRow} row */
 function newSideText(row, /** @type {(string | Node)[]} */ ...children) {
-  return markNewSide(h('span', { class: 'diff-text' }, ...children), row);
+  return markNewSide(
+    textCell(
+      h('span', { class: 'diff-text' }, ...children),
+      row,
+      row.kind === 'del' ? 'old' : 'new',
+    ),
+    row,
+  );
 }
 
 /**
@@ -3691,7 +3736,11 @@ function diffContent(view) {
             numCell(row[single], single === 'old' ? 'LEFT' : 'RIGHT', hi),
             single === 'new'
               ? newSideText(row, ...rowText(shown, row))
-              : h('span', { class: 'diff-text' }, ...rowText(shown, row)),
+              : textCell(
+                h('span', { class: 'diff-text' }, ...rowText(shown, row)),
+                row,
+                'old',
+              ),
           ),
         );
         threadsAt(`${hi}:${ri}`);
@@ -3707,7 +3756,9 @@ function diffContent(view) {
             { class: 'diff-text', 'data-kind': row?.kind ?? 'empty' },
             ...(row ? rowText(shown, row) : []),
           );
-          return right && row ? markNewSide(el, row) : el;
+          if (!row) return el;
+          textCell(el, row, right ? 'new' : 'old');
+          return right ? markNewSide(el, row) : el;
         };
         table.append(
           h(

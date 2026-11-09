@@ -14,25 +14,54 @@ export const ASK_AGENT_IDS = /** @type {const} */ (['claude', 'copilot', 'pi']);
 
 /**
  * What a question is about: `path` as the agent finds it from the repo it runs at (relative to
- * the repo, or an absolute container path), the selected `text` and the 1-based lines it spans,
- * when there is one, and whether it was selected in the pull request's diff.
+ * the repo, or an absolute container path), the selected `text` and where it is, when there is
+ * one, and whether it was selected in the pull request's diff.
  *
- * @typedef {{path: string, selection?: {text: string, startLine?: number, endLine?: number},
- *   diff?: boolean}} AskContext
+ * Where the selection is: the 1-based lines it starts and ends on, and, when it does not span
+ * whole lines, the 1-based columns (in characters) of its first and last characters. In a diff,
+ * `startSide` and `endSide` say whether each line number is the old file's or the new one's.
+ *
+ * @typedef {{text: string, startLine?: number, endLine?: number, startColumn?: number,
+ *   endColumn?: number, startSide?: 'old' | 'new', endSide?: 'old' | 'new'}} AskSelection
+ * @typedef {{path: string, selection?: AskSelection, diff?: boolean}} AskContext
  */
 
 /**
- * Where a question is about, for the dialog and the text: the path in backticks, then its lines.
+ * Where a question is about, for the dialog and the text: the path in backticks, then its lines
+ * and, for part of a line or lines, the columns. A line of a diff's old side says so, and so does
+ * the other end of a selection that has one.
  *
  * @param {AskContext} ctx
  */
 export function askWhere(ctx) {
-  const { startLine, endLine } = ctx.selection ?? {};
+  const sel = ctx.selection ?? { text: '' };
+  const { startLine, startColumn, endColumn } = sel;
   let where = `\`${ctx.path}\``;
   if (typeof startLine === 'number') {
-    where += typeof endLine === 'number' && endLine > startLine
-      ? `, lines ${startLine}–${endLine}`
-      : `, line ${startLine}`;
+    const endLine = typeof sel.endLine === 'number' ? sel.endLine : startLine;
+    const startSide = sel.startSide ?? 'new';
+    const endSide = sel.endSide ?? startSide;
+    const sided = startSide === 'old' || endSide === 'old';
+    const line = (/** @type {'old' | 'new'} */ side, /** @type {number} */ n) =>
+      sided ? `${side} line ${n}` : `line ${n}`;
+    const oneLine = endLine === startLine && endSide === startSide;
+    const columns = typeof startColumn === 'number' &&
+      typeof endColumn === 'number';
+    if (oneLine) {
+      where += `, ${line(startSide, startLine)}`;
+      if (columns) {
+        where += endColumn > startColumn
+          ? `, columns ${startColumn}–${endColumn}`
+          : `, column ${startColumn}`;
+      }
+    } else if (columns) {
+      where += `, from ${line(startSide, startLine)}, column ${startColumn}` +
+        ` to ${line(endSide, endLine)}, column ${endColumn}`;
+    } else if (sided) {
+      where += `, ${line(startSide, startLine)} to ${line(endSide, endLine)}`;
+    } else {
+      where += `, lines ${startLine}–${endLine}`;
+    }
   }
   return ctx.diff ? `${where}, in the pull request's diff` : where;
 }

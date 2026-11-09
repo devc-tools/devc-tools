@@ -650,10 +650,15 @@ is published from any container: the host server finds devcontainers with
   at the repo, one of the repo's past sessions (resumed on the question, or
   prompted where it is still running), or a new Claude, Copilot or Pi session
   started at the repo. The picker starts on the one last asked from that repo.
-  What is selected in the tile goes with the question, after it: a file
-  tile's selection with its line numbers, a diff tile's selected text
-  (**Include selection** leaves it out); with nothing selected the question
-  is about the whole file. The file's path always goes with it. A
+  What is selected in the tile goes with the question, after it, with where
+  it is: its line numbers and, unless it spans whole lines, the columns of
+  its first and last characters (`line 14, columns 2–4`; `from line 3,
+  column 5 to line 5, column 2`). In a diff tile a line is the new file's;
+  a deleted line is named as the old file's (`old line 11`), and so is the
+  other end of a selection with one (`from old line 11, column 5 to new line
+  13, column 13`). **Include selection** leaves the selection and where it is
+  out; with nothing selected the question is about the whole file. The
+  file's path always goes with it. A
   running agent is sent the text as a prompt, as if typed and submitted
   (refused while it waits at an approval or question); a new or resumed
   session gets it in a file under `/tmp/devc-tasks/`, as a sent task does.

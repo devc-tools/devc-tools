@@ -51,6 +51,61 @@ Deno.test('askWhere: the path, then its line or lines, and the diff', () => {
   );
 });
 
+Deno.test('askWhere: columns for part of a line or lines', () => {
+  const at = (selection: Record<string, unknown>, diff = false) =>
+    askWhere({
+      path: 'a.ts',
+      selection: { text: 'x', ...selection },
+      ...(diff ? { diff } : {}),
+    });
+  assertEquals(
+    at({ startLine: 4, endLine: 4, startColumn: 5, endColumn: 17 }),
+    '`a.ts`, line 4, columns 5–17',
+  );
+  assertEquals(
+    at({ startLine: 4, endLine: 4, startColumn: 5, endColumn: 5 }),
+    '`a.ts`, line 4, column 5',
+  );
+  assertEquals(
+    at({ startLine: 4, endLine: 9, startColumn: 5, endColumn: 2 }),
+    '`a.ts`, from line 4, column 5 to line 9, column 2',
+  );
+});
+
+Deno.test('askWhere: a diff names the old side, and the new one beside it', () => {
+  const at = (selection: Record<string, unknown>) =>
+    askWhere({
+      path: 'a.ts',
+      selection: { text: 'x', ...selection },
+      diff: true,
+    });
+  const IN = ", in the pull request's diff";
+  assertEquals(
+    at({ startLine: 4, endLine: 9, startSide: 'new', endSide: 'new' }),
+    '`a.ts`, lines 4–9' + IN,
+  );
+  assertEquals(
+    at({ startLine: 4, endLine: 4, startSide: 'old', endSide: 'old' }),
+    '`a.ts`, old line 4' + IN,
+  );
+  // Old line 4 and new line 4 are different lines.
+  assertEquals(
+    at({ startLine: 4, endLine: 4, startSide: 'old', endSide: 'new' }),
+    '`a.ts`, old line 4 to new line 4' + IN,
+  );
+  assertEquals(
+    at({
+      startLine: 3,
+      endLine: 6,
+      startSide: 'old',
+      endSide: 'new',
+      startColumn: 2,
+      endColumn: 8,
+    }),
+    '`a.ts`, from old line 3, column 2 to new line 6, column 8' + IN,
+  );
+});
+
 Deno.test('askText: the question first, then the file, without a selection', () => {
   assertEquals(
     askText('  What does this do?  \n', { path: 'src/a.ts' }),
