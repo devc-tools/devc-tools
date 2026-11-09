@@ -170,8 +170,9 @@ An open **Uncommitted** row (count, open state and when it shows: unchanged) hol
    - The draft is kept per `<localFolder>\n<root>` for the page's life (not saved), and the same
      textarea element is reused across renders so typing, the caret and focus survive them (as
      `newEntry`'s input does in `renderPass`).
-   - Its `keydown` stops propagation (the tree's keys must not act). Ctrl+Enter / ⌘+Enter commits;
-     Escape blurs it.
+   - Its `keydown` stops propagation (the tree's keys must not act). Escape blurs it. No key
+     commits: only the button does (2026-11-09: the user does not want shortcuts added without
+     asking unless they are standard; a Ctrl/⌘+Enter that was built first is gone).
    - **Commit** is disabled, with its `title` saying why, when: the list is not read yet
      (`Loading…`), `staged` is empty (`Nothing staged: stage files first`), the message is blank
      (`Type a commit message`), or a commit or stage runs (`Committing…` / `Staging…`).
@@ -262,12 +263,13 @@ Enter on a file row opens its diff as now.
       files first`); new.txt's **+** moved it to `Staged`; a.ts staged then edited showed in both
       groups after a poll (`+2 −1` staged, `+1 −0` unstaged), opening `a.ts · staged` and
       `a.ts · changes` (`Unstaged · vs index`); a message typed across a 15 s poll kept its text and
-      focus; Ctrl+Enter committed (toast `Committed <sha>: …`, the commit in the Commits list, the
+      focus; Ctrl+Enter (since removed) committed (toast `Committed <sha>: …`, the commit in the Commits list, the
       unstaged edit left); with a failing `pre-commit`, **Stage all** then Commit showed the hook's
       output under the box and kept the message, HEAD unchanged; **Unstage all** moved it back; no
       page errors.
 - [x] `deno fmt --check` on touched files, and `deno lint`, pass in `devc`.
 - [ ] Manual (the user, on the Mac), for a host project and a container project:
+  - 2026-11-09: the user reports staging and unstaging work; the rest below is not yet confirmed.
   - edit two files and add one; Uncommitted shows them under **Changes**; **+** one → it moves to
     **Staged**; edit it again → it is in both;
   - click it under Staged and under Changes → `· staged` / `· changes` tiles with the right diffs;

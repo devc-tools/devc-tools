@@ -355,7 +355,7 @@ is published from any container: the host server finds devcontainers with
   itself again every 15 s while the page shows. A file's **+** / **−** (or its
   right-click **Stage** / **Unstage**) moves it between the groups, and each
   group's header stages or unstages them all; staging a conflict marks it
-  resolved. **Commit (n)** (or Ctrl/⌘+Enter in the box) commits what is
+  resolved. **Commit (n)** commits what is
   staged, never the rest, with the repo's own hooks: when one refuses, its
   output shows under the box and the message stays. Unlike the history, these
   are read and run by git in the project's container or host session, never in

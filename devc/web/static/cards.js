@@ -1968,10 +1968,7 @@ function commitBox(cardKey, localFolder, root) {
     input.addEventListener('keydown', (e) => {
       // The tree's own keys (arrows, Enter) must not act on the rows around it.
       e.stopPropagation();
-      if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
-        e.preventDefault();
-        void commitRepo(r.cardKey, localFolder, root);
-      } else if (e.key === 'Escape') {
+      if (e.key === 'Escape') {
         e.preventDefault();
         input.blur();
       }
