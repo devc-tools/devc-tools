@@ -347,12 +347,19 @@ is published from any container: the host server finds devcontainers with
   Whole file, Hide whitespace, split view and Find work there, and there are no
   review threads, comments, Viewed or Ask agent. While the git mark shows
   **● N**, an **Uncommitted** row heads the history (a dashed dot): a click
-  lists the working tree's changed files, staged or not, against `HEAD` (`new`
-  for an untracked file, **U** for a conflict), and a click on a file opens its
-  diff in the same tile (`<file> · changes`), which reads itself again every
-  15 s while the page shows. Unlike the history, these are read by git in the
-  project's container or host session, never in the host's mirror, so they
-  need the project running. Below the header are its
+  opens a commit message box and the working tree's changed files in two
+  groups, **Staged** (the index against `HEAD`) and **Changes** (the working
+  tree against the index; `new` for an untracked file, **U** for a conflict). A
+  file staged and then edited again is in both. A click on a file opens its
+  diff in the same tile (`<file> · staged` or `<file> · changes`), which reads
+  itself again every 15 s while the page shows. A file's **+** / **−** (or its
+  right-click **Stage** / **Unstage**) moves it between the groups, and each
+  group's header stages or unstages them all; staging a conflict marks it
+  resolved. **Commit (n)** (or Ctrl/⌘+Enter in the box) commits what is
+  staged, never the rest, with the repo's own hooks: when one refuses, its
+  output shows under the box and the message stays. Unlike the history, these
+  are read and run by git in the project's container or host session, never in
+  the host's mirror, so they need the project running. Below the header are its
   terminals (its tiles, then every
   pane in it no tile shows, shells too); terminals outside every repo get a
   card named after the container. A card's header buttons show its past agent

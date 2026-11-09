@@ -20,10 +20,12 @@ import { defaultView, fileView } from './media.js';
  * at `localFolder`. Without `sha` or `changes` it is the file in the repo's pull request (the
  * `pr_diff` message's fields); with `sha`, the file as that commit changed it (`commit_diff`'s);
  * with `changes`, its uncommitted changes since that ref (`uncommitted_diff`'s; only `'HEAD'` so
- * far). Never both. See {@link diffSource}.
+ * far). Never both. Beside `changes`, `stage` picks a side of the index: `'staged'` (the index
+ * against the ref) or `'unstaged'` (the working tree against the index); absent, the working tree
+ * against the ref. See {@link diffSource}.
  *
- * @typedef {{localFolder: string, root: string, path: string, sha?: string, changes?: string}}
- *   DiffRef
+ * @typedef {{localFolder: string, root: string, path: string, sha?: string, changes?: string,
+ *   stage?: 'staged' | 'unstaged'}} DiffRef
  */
 
 /** A full commit id, as `commit_diff` takes one. */
@@ -51,7 +53,9 @@ export function diffSource(ref) {
 export function diffKey(ref) {
   return `${ref.localFolder}\n${ref.root}\n${ref.path}${
     ref.sha === undefined ? '' : `\n${ref.sha}`
-  }${ref.changes === undefined ? '' : `\nchanges:${ref.changes}`}`;
+  }${ref.changes === undefined ? '' : `\nchanges:${ref.changes}`}${
+    ref.stage === undefined ? '' : `\nstage:${ref.stage}`
+  }`;
 }
 
 /**
@@ -124,7 +128,8 @@ export function fileRefFromState(state) {
 /**
  * A diff tile's component state as a diff reference: only an object whose `localFolder`, `root`
  * and `path` are all non-empty strings, whose `sha`, if any, is a full commit id, and whose
- * `changes`, if any, is a non-empty string, never beside a `sha`, is one. Anything else is `null`.
+ * `changes`, if any, is a non-empty string, never beside a `sha`, and whose `stage`, if any, is
+ * `'staged'` or `'unstaged'` beside a `changes`, is one. Anything else is `null`.
  *
  * @param {unknown} state
  * @returns {DiffRef | null}
@@ -133,15 +138,25 @@ export function diffRefFromState(state) {
   if (typeof state !== 'object' || state === null || Array.isArray(state)) {
     return null;
   }
-  const { localFolder, root, path, sha, changes } =
+  const { localFolder, root, path, sha, changes, stage } =
     /** @type {Record<string, unknown>} */ (state);
   for (const v of [localFolder, root, path]) {
     if (typeof v !== 'string' || v === '') return null;
   }
+  if (stage !== undefined) {
+    if (changes === undefined) return null;
+    if (stage !== 'staged' && stage !== 'unstaged') return null;
+  }
   if (changes !== undefined) {
     if (sha !== undefined) return null;
     if (typeof changes !== 'string' || changes === '') return null;
-    return /** @type {DiffRef} */ ({ localFolder, root, path, changes });
+    return /** @type {DiffRef} */ ({
+      localFolder,
+      root,
+      path,
+      changes,
+      ...(stage === undefined ? {} : { stage }),
+    });
   }
   if (sha === undefined) {
     return /** @type {DiffRef} */ ({ localFolder, root, path });
@@ -159,7 +174,8 @@ export function diffRefFromState(state) {
  */
 export function sameDiff(a, b) {
   return a.localFolder === b.localFolder && a.root === b.root &&
-    a.path === b.path && a.sha === b.sha && a.changes === b.changes;
+    a.path === b.path && a.sha === b.sha && a.changes === b.changes &&
+    a.stage === b.stage;
 }
 
 /**
@@ -244,9 +260,9 @@ export function tileContent(ref, preview = false) {
     };
   }
   if (ref && 'diff' in ref) {
-    const { localFolder, root, path, sha, changes } = ref.diff;
+    const { localFolder, root, path, sha, changes, stage } = ref.diff;
     const at = changes !== undefined
-      ? { changes }
+      ? stage === undefined ? { changes } : { changes, stage }
       : sha === undefined
       ? {}
       : { sha };

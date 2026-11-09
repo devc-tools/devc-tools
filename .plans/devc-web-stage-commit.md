@@ -11,21 +11,21 @@ card's ↑N already does it).
 
 ## Checklist
 
-- [ ] `devc/web/git_uncommitted.ts`: the split listing, stage-aware diffs and Whole file
-- [ ] `devc/web/git_stage.ts` (new): `stageFiles`, `unstageFiles`, `commitStaged` (see Contracts)
-- [ ] `devc/web/protocol.ts`: `stage_files`, `unstage_files`, `commit_staged`, and `stage` on
+- [x] `devc/web/git_uncommitted.ts`: the split listing, stage-aware diffs and Whole file
+- [x] `devc/web/git_stage.ts` (new): `stageFiles`, `unstageFiles`, `commitStaged` (see Contracts)
+- [x] `devc/web/protocol.ts`: `stage_files`, `unstage_files`, `commit_staged`, and `stage` on
       `uncommitted_diff` / `uncommitted_file_at`
-- [ ] `devc/web/server.ts`: answer them through the project's running environment, one at a time
+- [x] `devc/web/server.ts`: answer them through the project's running environment, one at a time
       per repo, then refresh the repo's marks
-- [ ] `devc/web/static/lib/layout_state.js`: `DiffRef.stage`
-- [ ] `devc/web/static/tiles.js`: titles and headers for a staged / unstaged diff; send `stage`
-- [ ] `devc/web/static/lib/commits.js`: pure helpers for the groups and the commit box's state
-- [ ] `devc/web/static/cards.js`: the commit box, the Staged and Changes groups, hover buttons and
+- [x] `devc/web/static/lib/layout_state.js`: `DiffRef.stage`
+- [x] `devc/web/static/tiles.js`: titles and headers for a staged / unstaged diff; send `stage`
+- [x] `devc/web/static/lib/commits.js`: pure helpers for the groups and the commit box's state
+- [x] `devc/web/static/cards.js`: the commit box, the Staged and Changes groups, hover buttons and
       menu items
-- [ ] `devc/web/static/style.css`: the commit box and the group rows
-- [ ] `devc/deno.json`: `web/git_stage.ts` in `check`'s list
-- [ ] `devc/README.md`: the Commits paragraph
-- [ ] Tests listed under Validation
+- [x] `devc/web/static/style.css`: the commit box and the group rows
+- [x] `devc/deno.json`: `web/git_stage.ts` in `check`'s list
+- [x] `devc/README.md`: the Commits paragraph
+- [x] Tests listed under Validation
 
 ## Contracts
 
@@ -223,9 +223,9 @@ Enter on a file row opens its diff as now.
 
 ## Validation
 
-- [ ] `cd devc && deno task check && deno task test` pass, with `web/git_stage.ts` in `check`'s
+- [x] `cd devc && deno task check && deno task test` pass, with `web/git_stage.ts` in `check`'s
       list.
-- [ ] `devc/tests/web_git_uncommitted_test.ts`, against temp repos (fake environment as now):
+- [x] `devc/tests/web_git_uncommitted_test.ts`, against temp repos (fake environment as now):
   - a file staged then edited again is in both lists, with the staged and unstaged stats;
   - a staged new file, a staged removal and a staged rename are in `staged` only; an untracked
     file and an unstaged edit in `unstaged` only;
@@ -237,7 +237,7 @@ Enter on a file row opens its diff as now.
     working tree's; a staged removal → `available: false`;
   - a path not in the requested list → `<path> has no staged changes` /
     `<path> has no unstaged changes`.
-- [ ] `devc/tests/web_git_stage_test.ts` (new), same fake environment:
+- [x] `devc/tests/web_git_stage_test.ts` (new), same fake environment:
   - staging a modified file, an untracked file, a removed file and a conflicted file each moves it
     to `staged` (the conflict is resolved); `null` stages everything;
   - unstaging a staged new file makes it untracked; a staged rename unstages to a removal plus an
@@ -247,21 +247,26 @@ Enter on a file row opens its diff as now.
     the subject; nothing staged → `nothing staged to commit`; a `pre-commit` hook that prints
     `lint failed` and exits 1 → a problem containing `lint failed`, and HEAD unchanged;
   - a blank or over-long message is refused at parsing.
-- [ ] `devc/tests/web_server_test.ts`: the three new messages parse (paths array or null, at most
+- [x] `devc/tests/web_server_test.ts`: the three new messages parse (paths array or null, at most
       1000), a relative `root` is refused, `stage` on `uncommitted_diff` must be one of the two
       values; and the per-repo busy check refuses a second operation while one runs (unit-test the
       helper that tracks it).
-- [ ] `devc/tests/web_layout_test.ts`: a `stage` ref round-trips; `stage` without `changes`, or
+- [x] `devc/tests/web_layout_test.ts`: a `stage` ref round-trips; `stage` without `changes`, or
       another value, is dropped; `sameDiff` tells `staged` from `unstaged` from none.
-- [ ] `devc/tests/web_commits_test.ts`: the group rows (labels, counts, which group a
+- [x] `devc/tests/web_commits_test.ts`: the group rows (labels, counts, which group a
       staged-then-edited file lands in), and the Commit button's state and `title` for each case
       above.
-- [ ] Browser check (headless Chromium against `devc web` from this checkout, as
-      devc-web-uncommitted-files' check did, with its socket proxy when no environment can start
-      here): stage a file with its **+** → it moves to Staged; type a message, ⌘/Ctrl+Enter →
-      toast, the row empties, the commit is in the Commits list; a poll while typing keeps the
-      caret; a hook failure shows its output under the box; no page errors.
-- [ ] `deno fmt --check` on touched files, and `deno lint`, pass in `devc`.
+- [x] Browser check (2026-11-09, headless Chromium against `devc web` from this checkout, a temp
+      `HOME` with one host project whose Herdr session really ran here, no proxy): the row opened
+      to `Changes 2` (`M a.ts +2 −1`, `A new.txt new`) with **Commit** off (`Nothing staged: stage
+      files first`); new.txt's **+** moved it to `Staged`; a.ts staged then edited showed in both
+      groups after a poll (`+2 −1` staged, `+1 −0` unstaged), opening `a.ts · staged` and
+      `a.ts · changes` (`Unstaged · vs index`); a message typed across a 15 s poll kept its text and
+      focus; Ctrl+Enter committed (toast `Committed <sha>: …`, the commit in the Commits list, the
+      unstaged edit left); with a failing `pre-commit`, **Stage all** then Commit showed the hook's
+      output under the box and kept the message, HEAD unchanged; **Unstage all** moved it back; no
+      page errors.
+- [x] `deno fmt --check` on touched files, and `deno lint`, pass in `devc`.
 - [ ] Manual (the user, on the Mac), for a host project and a container project:
   - edit two files and add one; Uncommitted shows them under **Changes**; **+** one → it moves to
     **Staged**; edit it again → it is in both;

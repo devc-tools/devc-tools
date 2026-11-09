@@ -168,6 +168,13 @@ import {
   readUncommittedFileAt,
   readUncommittedFiles,
 } from './git_uncommitted.ts';
+import {
+  BUSY,
+  claimRepo,
+  commitStaged,
+  stageFiles,
+  unstageFiles,
+} from './git_stage.ts';
 import { fetchRepo, fetchRunning, pullRepo, pullRunning } from './git_fetch.ts';
 import {
   escalate,
@@ -1639,10 +1646,85 @@ export async function startWeb(
       : msg.type === 'uncommitted_files'
       ? await readUncommittedFiles(target.session.env, target.path)
       : msg.type === 'uncommitted_diff'
-      ? await readUncommittedDiff(target.session.env, target.path, msg.path)
-      : await readUncommittedFileAt(target.session.env, target.path, msg.path);
+      ? await readUncommittedDiff(
+        target.session.env,
+        target.path,
+        msg.path,
+        msg.stage,
+      )
+      : await readUncommittedFileAt(
+        target.session.env,
+        target.path,
+        msg.path,
+        msg.stage,
+      );
     if (isGitProblem(answer)) {
       fail(c, msg.id, 'git_uncommitted_failed', new Error(answer.problem));
+      return;
+    }
+    reply(c, { id: msg.id, ok: true, result: answer });
+  };
+
+  /** The repo folders with a stage, unstage or commit running: one at a time each. */
+  const stagingRepos = new Set<string>();
+
+  /**
+   * Stages, unstages or commits a repo's changes (`git_stage.ts`) by git in the project's running
+   * environment, never on the host. Allowed under `--live` and `--live-yolo`: it does only what
+   * the container's own agents can do there, and `--live` has no host projects. One at a time per
+   * repo; then the repo's changes to commit (and, after a commit, ↑N) are read again.
+   */
+  const gitStageFor = async (
+    c: Client,
+    msg: Extract<
+      ClientMessage,
+      { type: 'stage_files' | 'unstage_files' | 'commit_staged' }
+    >,
+  ) => {
+    if (!isProjectRepo(projectsMessage().projects, msg.localFolder, msg.root)) {
+      reject(c, { id: msg.id, code: 'bad_request', message: 'unknown repo' });
+      return;
+    }
+    const code = msg.type === 'commit_staged'
+      ? 'git_commit_failed'
+      : 'git_stage_failed';
+    const target = await repoTarget({
+      localFolder: msg.localFolder,
+      folder: msg.root,
+    });
+    if (isGitProblem(target)) {
+      fail(
+        c,
+        msg.id,
+        code,
+        new Error(
+          target.problem === 'not running'
+            ? 'the project is not running'
+            : target.problem,
+        ),
+      );
+      return;
+    }
+    const release = claimRepo(stagingRepos, msg.root);
+    if (!release) {
+      fail(c, msg.id, code, new Error(BUSY));
+      return;
+    }
+    const env = target.session.env;
+    let answer;
+    try {
+      answer = msg.type === 'commit_staged'
+        ? await commitStaged(env, target.path, msg.message)
+        : msg.type === 'stage_files'
+        ? await stageFiles(env, target.path, msg.paths)
+        : await unstageFiles(env, target.path, msg.paths);
+    } finally {
+      release();
+    }
+    void changesWatch.refreshEnvironment(target.session.record.id);
+    if (msg.type === 'commit_staged') void gitWatch.refresh();
+    if (isGitProblem(answer)) {
+      fail(c, msg.id, code, new Error(answer.problem));
       return;
     }
     reply(c, { id: msg.id, ok: true, result: answer });
@@ -3662,6 +3744,13 @@ export async function startWeb(
       msg.type === 'uncommitted_file_at'
     ) {
       await gitUncommittedFor(c, msg);
+      return;
+    }
+    if (
+      msg.type === 'stage_files' || msg.type === 'unstage_files' ||
+      msg.type === 'commit_staged'
+    ) {
+      await gitStageFor(c, msg);
       return;
     }
     if (msg.type === 'fetch_repo') {

@@ -1716,17 +1716,20 @@ function openDiff(ref, where, opts) {
 /** @param {DiffRef | undefined} a @param {DiffRef | undefined} b */
 function sameDiff(a, b) {
   return !!a && !!b && a.localFolder === b.localFolder && a.root === b.root &&
-    a.path === b.path && a.sha === b.sha && a.changes === b.changes;
+    a.path === b.path && a.sha === b.sha && a.changes === b.changes &&
+    a.stage === b.stage;
 }
 
 /**
  * A diff tile's title: `<basename> · #<n>` once its PR is known, `<basename> · <short sha>` for a
- * commit's, `<basename> · changes` for its uncommitted changes.
+ * commit's, `<basename> · changes` for its uncommitted changes (`· staged` for what is staged).
  */
 function diffTileTitle(tile) {
   const ref = tile.diff;
   const name = ref ? basename(ref.path) : 'unknown file';
-  if (ref && diffSource(ref) === 'changes') return `${name} · changes`;
+  if (ref && diffSource(ref) === 'changes') {
+    return `${name} · ${ref.stage === 'staged' ? 'staged' : 'changes'}`;
+  }
   if (ref && diffSource(ref) === 'commit') {
     return `${name} · ${shortSha(ref.sha)}`;
   }
@@ -1735,12 +1738,17 @@ function diffTileTitle(tile) {
 }
 
 /**
- * An uncommitted diff's header text: what the working tree is compared with.
+ * An uncommitted diff's header text: what it compares. Staged changes are the index against `HEAD`,
+ * unstaged ones the working tree against the index, and with no stage the working tree against
+ * `HEAD`.
  *
  * @param {string | null | undefined} base `HEAD`'s id, or null for a repo with no commits
+ * @param {'staged' | 'unstaged' | undefined} stage
  */
-function uncommittedLabel(base) {
-  return base ? `Uncommitted · vs ${shortSha(base)}` : 'Uncommitted · new repo';
+function uncommittedLabel(base, stage) {
+  if (stage === 'unstaged') return 'Unstaged · vs index';
+  const what = stage === 'staged' ? 'Staged' : 'Uncommitted';
+  return base ? `${what} · vs ${shortSha(base)}` : `${what} · new repo`;
 }
 
 /** A commit id as the Commits section shows it. @param {string | undefined} sha */
@@ -1754,7 +1762,11 @@ function setDiffTitle(view) {
   let first = '';
   if (ref && diffSource(ref) === 'changes') {
     first = view.data
-      ? uncommittedLabel(view.data.changes?.base)
+      ? uncommittedLabel(view.data.changes?.base, ref.stage)
+      : ref.stage === 'staged'
+      ? 'Staged'
+      : ref.stage === 'unstaged'
+      ? 'Unstaged'
       : 'Uncommitted';
   } else if (ref && diffSource(ref) === 'commit') {
     const subject = view.data?.commit?.subject;
@@ -2291,7 +2303,11 @@ function readHead(view) {
       done: /** @type {{text: string | null, message: string} | null} */ (null),
       got: call(
         source === 'changes'
-          ? { type: 'uncommitted_file_at', ...repo }
+          ? {
+            type: 'uncommitted_file_at',
+            ...repo,
+            ...(ref.stage === undefined ? {} : { stage: ref.stage }),
+          }
           : { type: commit ? 'commit_file_at' : 'pr_file_at', ...repo, sha },
       ).then(
         (r) =>
@@ -2764,6 +2780,7 @@ async function loadDiff(view) {
           localFolder: ref.localFolder,
           root: ref.root,
           path: ref.path,
+          ...(ref.stage === undefined ? {} : { stage: ref.stage }),
         }
         : { type: source === 'commit' ? 'commit_diff' : 'pr_diff', ...ref },
     );
@@ -3291,7 +3308,7 @@ function diffHeader(view) {
       h(
         'span',
         { class: 'pr-number diff-commit' },
-        uncommittedLabel(data.changes?.base),
+        uncommittedLabel(data.changes?.base, ref.stage),
       ),
     );
   } else if (pr) {

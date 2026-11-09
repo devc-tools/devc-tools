@@ -47,6 +47,7 @@ import {
   opensAsFile,
 } from './lib/files.js';
 import {
+  commitButton,
   commitFileRows,
   commitFilesKey,
   commitRows,
@@ -54,6 +55,7 @@ import {
   hasUncommitted,
   keepList,
   uncommittedCount,
+  uncommittedRows as uncommittedListRows,
 } from './lib/commits.js';
 import { parseSessions, sessionAge, sessionTooltip } from './lib/sessions.js';
 import {
@@ -249,6 +251,15 @@ export function renderPass(fill) {
   const caret = typing
     ? [newEntry.input.selectionStart, newEntry.input.selectionEnd]
     : null;
+  // A commit message being typed: its textarea is kept across renders, but moving it blurs it.
+  const message = active instanceof HTMLTextAreaElement &&
+      active.classList.contains('commit-message') && $root.contains(active)
+    ? {
+      el: active,
+      caret: [active.selectionStart, active.selectionEnd],
+      scroll: active.scrollTop,
+    }
+    : null;
   // The cards list the tiles: they are rendered again when those change (`onCardsViewState`).
   const view = tileArea.state();
   shownLayout = layoutSignature(view);
@@ -273,6 +284,13 @@ export function renderPass(fill) {
   if (typing && newEntry !== null) {
     newEntry.input.focus({ preventScroll: true });
     newEntry.input.setSelectionRange(caret[0], caret[1]);
+  }
+  if (
+    message && message.el.isConnected && document.activeElement !== message.el
+  ) {
+    message.el.focus({ preventScroll: true });
+    message.el.setSelectionRange(message.caret[0], message.caret[1]);
+    message.el.scrollTop = message.scroll;
   }
   for (const [key, rec] of paneRows) {
     if (rec.seen === generation) continue;
@@ -1715,7 +1733,7 @@ function commitFileRow(cardKey, fr, hash, state, r) {
  * @param {string} treeKey @param {string} state
  * @param {import('./lib/commits.js').CommitFileRow & {kind: 'file'}} r @param {string} stat
  */
-function changedFileRow(fr, ref, treeKey, state, r, stat) {
+function changedFileRow(fr, ref, treeKey, state, r, stat, extra = {}) {
   const file = r.file;
   const letter = statusLetter(file.status);
   return h(
@@ -1724,13 +1742,17 @@ function changedFileRow(fr, ref, treeKey, state, r, stat) {
       class: 'row commit-file',
       tabindex: '-1',
       'data-tree-key': treeKey,
-      'data-depth': 2,
+      'data-depth': extra.depth ?? 2,
       'data-state': state,
       title: r.title,
       onclick: (e) =>
         tileArea.openDiff(ref, e.ctrlKey || e.metaKey ? 'stack' : 'preview'),
       ondblclick: () => keepOpen(tileShowingDiff(tileArea.state(), ref)),
-      oncontextmenu: (e) => openMenu(e, commitFileMenuItems(fr, ref, file)),
+      oncontextmenu: (e) =>
+        openMenu(e, [
+          ...(extra.menu ?? []),
+          ...commitFileMenuItems(fr, ref, file),
+        ]),
     },
     h('span', { class: 'commit-dot commit-rail', 'aria-hidden': 'true' }),
     h(
@@ -1741,6 +1763,7 @@ function changedFileRow(fr, ref, treeKey, state, r, stat) {
       r.dir ? h('span', { class: 'pr-file-dir' }, ...markedText(r.dir)) : '',
     ),
     h('span', { class: 'pr-stat' }, stat),
+    ...(extra.hover ? [hoverActions(...extra.hover)] : []),
   );
 }
 
@@ -1769,21 +1792,27 @@ function commitFileMenuItems(fr, ref, file) {
 const uncommittedOpen = new Set();
 
 /**
- * Each repo's working-tree file list (`uncommitted_files`), by `<localFolder>\n<root>`, with the
- * `RepoView.changes` it was read under (`seen`, JSON): a change there reads it again.
+ * Each repo's working-tree changes (`uncommitted_files`), staged and not, by
+ * `<localFolder>\n<root>`, with the `RepoView.changes` it was read under (`seen`, JSON): a change
+ * there reads it again.
  *
- * @type {Map<string, import('./lib/commits.js').CommitFileList & {seen: string}>}
+ * @type {Map<string, import('./lib/commits.js').UncommittedList & {seen: string}>}
  */
 const uncommittedLists = new Map();
 
-/** Reads a repo's uncommitted files, keeping what is shown until the answer. */
-async function loadUncommitted(localFolder, root, seen) {
+/**
+ * Reads a repo's uncommitted files, keeping what is shown until the answer. `force` reads again
+ * even while a read runs (after a stage or commit, whose effect that read may have missed): the
+ * older answer is then dropped.
+ */
+async function loadUncommitted(localFolder, root, seen, force = false) {
   const key = `${localFolder}\n${root}`;
   const prev = uncommittedLists.get(key);
-  if (prev?.loading) return;
+  if (prev?.loading && !force) return;
   const entry = {
     loading: true,
-    files: prev?.files ?? null,
+    staged: prev?.staged ?? null,
+    unstaged: prev?.unstaged ?? null,
     truncated: prev?.truncated ?? false,
     error: null,
     seen: seen ?? prev?.seen ?? '',
@@ -1791,15 +1820,17 @@ async function loadUncommitted(localFolder, root, seen) {
   uncommittedLists.set(key, entry);
   try {
     const r = await call({ type: 'uncommitted_files', localFolder, root });
-    entry.files = list(r?.files);
+    entry.staged = list(r?.staged);
+    entry.unstaged = list(r?.unstaged);
     entry.truncated = r?.truncated === true;
   } catch (e) {
     entry.error = String(e?.message ?? e);
   }
   entry.loading = false;
   if (uncommittedLists.get(key) !== entry) return;
-  const same = JSON.stringify(prev?.files ?? null) ===
-      JSON.stringify(entry.files) &&
+  const same =
+    JSON.stringify([prev?.staged ?? null, prev?.unstaged ?? null]) ===
+      JSON.stringify([entry.staged, entry.unstaged]) &&
     (prev?.error ?? null) === entry.error &&
     prev?.truncated === entry.truncated;
   if (!same) queueRender();
@@ -1815,14 +1846,169 @@ function toggleUncommitted(cardKey, localFolder, root, seen) {
 }
 
 /**
- * The Commits section's Uncommitted row and, when open, the working tree's changed files: shown
- * only while the repo's git mark counts changes (`changes`), so not for a stopped environment.
+ * What runs in each repo now, by `<localFolder>\n<root>`: a stage or unstage, or a commit. The
+ * server allows one at a time per repo; the page disables the buttons meanwhile.
+ *
+ * @type {Map<string, 'stage' | 'commit'>}
+ */
+const repoStaging = new Map();
+
+/**
+ * Each repo's commit box, by `<localFolder>\n<root>`: the same elements across renders, so a
+ * message being typed keeps its text, caret and focus (`renderPass` focuses it again). Kept for
+ * the page's life, not saved.
+ *
+ * @type {Map<string, {box: HTMLElement, input: HTMLTextAreaElement, button: HTMLButtonElement,
+ *   error: HTMLElement, update: () => void}>}
+ */
+const commitBoxes = new Map();
+
+/** Stages or unstages `paths` (null: everything) in a repo, then reads its list again. */
+async function stagePaths(localFolder, root, unstage, paths) {
+  const key = `${localFolder}\n${root}`;
+  if (repoStaging.has(key)) return;
+  repoStaging.set(key, 'stage');
+  queueRender();
+  try {
+    await call({
+      type: unstage ? 'unstage_files' : 'stage_files',
+      localFolder,
+      root,
+      paths,
+    });
+  } catch (e) {
+    toast(
+      `Couldn't ${unstage ? 'unstage' : 'stage'}: ${String(e?.message ?? e)}`,
+    );
+  }
+  repoStaging.delete(key);
+  await loadUncommitted(localFolder, root, undefined, true);
+  queueRender();
+}
+
+/** Commits what is staged in a repo with its commit box's message. */
+async function commitRepo(cardKey, localFolder, root) {
+  const key = `${localFolder}\n${root}`;
+  const box = commitBoxes.get(key);
+  if (!box || repoStaging.has(key)) return;
+  const state = commitButton(uncommittedLists.get(key), box.input.value, null);
+  if (state.disabled) return;
+  repoStaging.set(key, 'commit');
+  box.error.hidden = true;
+  box.error.textContent = '';
+  box.update();
+  try {
+    const r = await call({
+      type: 'commit_staged',
+      localFolder,
+      root,
+      message: box.input.value,
+    });
+    box.input.value = '';
+    sizeMessage(box.input);
+    toast(`Committed ${String(r?.sha ?? '').slice(0, 7)}: ${r?.subject ?? ''}`);
+  } catch (e) {
+    box.error.textContent = String(e?.message ?? e);
+    box.error.hidden = false;
+  }
+  repoStaging.delete(key);
+  box.update();
+  void loadCommits(cardKey, localFolder, root);
+  await loadUncommitted(localFolder, root, undefined, true);
+  queueRender();
+}
+
+/** A commit message box's height: its lines, from 2 to 8. */
+function sizeMessage(/** @type {HTMLTextAreaElement} */ input) {
+  const lines = input.value.split('\n').length;
+  input.rows = Math.min(8, Math.max(2, lines));
+}
+
+/** A repo's commit box, made once and kept (see {@link commitBoxes}). */
+function commitBox(cardKey, localFolder, root) {
+  const key = `${localFolder}\n${root}`;
+  let rec = commitBoxes.get(key);
+  if (!rec) {
+    const input = /** @type {HTMLTextAreaElement} */ (h('textarea', {
+      class: 'commit-message',
+      rows: '2',
+      spellcheck: 'true',
+      placeholder: 'Commit message',
+      'aria-label': 'Commit message',
+    }));
+    const button = /** @type {HTMLButtonElement} */ (h('button', {
+      type: 'button',
+      class: 'commit-button',
+    }, 'Commit'));
+    const error = h('pre', { class: 'commit-error', hidden: '' });
+    const box = h(
+      'div',
+      { class: 'commit-box' },
+      input,
+      h('div', { class: 'commit-actions' }, button),
+      error,
+    );
+    const r = {
+      box,
+      input,
+      button,
+      error,
+      cardKey,
+      update: () => {
+        const state = commitButton(
+          uncommittedLists.get(key),
+          input.value,
+          repoStaging.get(key) ?? null,
+        );
+        button.disabled = state.disabled;
+        button.textContent = state.label;
+        button.title = state.title;
+      },
+    };
+    input.addEventListener('keydown', (e) => {
+      // The tree's own keys (arrows, Enter) must not act on the rows around it.
+      e.stopPropagation();
+      if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+        e.preventDefault();
+        void commitRepo(r.cardKey, localFolder, root);
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        input.blur();
+      }
+    });
+    input.addEventListener('input', () => {
+      sizeMessage(input);
+      if (!error.hidden) {
+        error.hidden = true;
+        error.textContent = '';
+      }
+      r.update();
+    });
+    // A click in the box is not the row's.
+    box.addEventListener('click', (e) => e.stopPropagation());
+    button.addEventListener(
+      'click',
+      () => void commitRepo(r.cardKey, localFolder, root),
+    );
+    commitBoxes.set(key, r);
+    rec = r;
+  }
+  rec.cardKey = cardKey;
+  rec.update();
+  return rec;
+}
+
+/**
+ * The Commits section's Uncommitted row and, when open, its commit box and the working tree's
+ * changed files in a **Staged** and a **Changes** group: shown only while the repo's git mark
+ * counts changes (`changes`), so not for a stopped environment.
  */
 function uncommittedRows(key, localFolder, folder, changes) {
   if (!hasUncommitted(changes)) return [];
   const seen = JSON.stringify(changes);
   const open = uncommittedOpen.has(key);
-  const entry = uncommittedLists.get(`${localFolder}\n${folder}`);
+  const repoKey = `${localFolder}\n${folder}`;
+  const entry = uncommittedLists.get(repoKey);
   // The git mark's counts moved: the list is stale.
   if (open && entry && !entry.loading && entry.seen !== seen) {
     void loadUncommitted(localFolder, folder, seen);
@@ -1846,20 +2032,79 @@ function uncommittedRows(key, localFolder, folder, changes) {
   );
   if (!open) return [row];
   const fr = { localFolder, root: folder };
+  const busy = repoStaging.has(repoKey);
+  const box = commitBox(key, localFolder, folder);
+  const boxRow = h(
+    'div',
+    {
+      class: 'row commit-box-row',
+      tabindex: '-1',
+      'data-tree-key': `${key}\nuncommitted\ncommit-box`,
+      'data-depth': 2,
+      // Enter on the row (`treeKeydown`'s activate) types the message.
+      onclick: () => box.input.focus(),
+    },
+    h('span', { class: 'commit-dot commit-rail', 'aria-hidden': 'true' }),
+    box.box,
+  );
+  /** A hover button that stages or unstages, disabled while the repo is busy. */
+  const stageButton = (unstage, paths, title) => {
+    const b = iconButton(
+      unstage ? 'minus' : 'plus',
+      title,
+      () => void stagePaths(localFolder, folder, unstage, paths),
+    );
+    if (busy) b.disabled = true;
+    return b;
+  };
   return [
     row,
-    ...commitFileRows(entry).map((f) =>
-      f.kind === 'file'
-        ? changedFileRow(
-          fr,
-          { ...fr, path: f.file.path, changes: 'HEAD' },
-          `${key}\nuncommitted\n${f.file.path}`,
-          'uncommitted',
-          f,
-          fileStat(f.file),
-        )
-        : commitNote(f.note, f.text, 2)
-    ),
+    boxRow,
+    ...uncommittedListRows(entry).map((f) => {
+      if (f.kind === 'note') return commitNote(f.note, f.text, 2);
+      const unstage = f.stage === 'staged';
+      if (f.kind === 'group') {
+        return h(
+          'div',
+          {
+            class: 'row commit-group',
+            tabindex: '-1',
+            'data-tree-key': `${key}\nuncommitted\n${f.stage}`,
+            'data-depth': 2,
+            'data-state': 'uncommitted',
+            title: unstage
+              ? 'Staged: what Commit commits'
+              : 'Changes not staged yet',
+          },
+          h('span', { class: 'commit-dot commit-rail', 'aria-hidden': 'true' }),
+          h('span', { class: 'label' }, f.label),
+          h('span', { class: 'commit-hash' }, String(f.count)),
+          hoverActions(
+            stageButton(unstage, null, unstage ? 'Unstage all' : 'Stage all'),
+          ),
+        );
+      }
+      const path = f.file.path;
+      return changedFileRow(
+        fr,
+        { ...fr, path, changes: 'HEAD', stage: f.stage },
+        `${key}\nuncommitted\n${f.stage}\n${path}`,
+        'uncommitted',
+        f,
+        fileStat(f.file),
+        {
+          depth: 3,
+          hover: [stageButton(unstage, [path], unstage ? 'Unstage' : 'Stage')],
+          menu: [
+            [
+              unstage ? 'Unstage' : 'Stage',
+              () => void stagePaths(localFolder, folder, unstage, [path]),
+            ],
+            null,
+          ],
+        },
+      );
+    }),
   ];
 }
 

@@ -1,6 +1,6 @@
 // A repo's uncommitted files and their diffs, for the `devc web` repo card's Commits section: an
-// Uncommitted row expands to the working tree's changed files, and a file opens in the diff tile
-// against `HEAD`.
+// Uncommitted row expands to the working tree's changed files, split into staged (index vs `HEAD`)
+// and unstaged (working tree vs index), and a file opens in the diff tile.
 //
 // Unlike `git_commit.ts`, which reads the host's mirror, this reads the working tree, so it runs
 // **in the project's environment** (`Environment.runLimited`): a container's own git under
@@ -8,7 +8,7 @@
 // config, which the host never does in a container's repo (`git_changes.ts`'s header). Every diff
 // still names what it needs (`DIFF_FLAGS`), so the output has the shape the tile parses. A path
 // from the page is never passed to git: it is found in a fresh listing first.
-// See `.plans/devc-web-uncommitted-files.md`.
+// See `.plans/devc-web-uncommitted-files.md` and `.plans/devc-web-stage-commit.md`.
 
 import {
   type CommitFile,
@@ -23,21 +23,27 @@ import {
   publicFile,
 } from './git_commit.ts';
 import type { Environment } from './environment.ts';
-import { FilesError } from './files.ts';
+import { FilesError, MAX_READ_BYTES } from './files.ts';
 import { type GitProblem, isGitProblem } from './git_status.ts';
 
 export interface UncommittedFiles {
-  /** What the working tree is compared with: `HEAD`'s id, or null for the empty tree. */
+  /** What the index is compared with: `HEAD`'s id, or null for the empty tree. */
   base: string | null;
-  /** In path order, at most {@link MAX_COMMIT_FILES}. */
-  files: CommitFile[];
+  /** Index vs base, in path order, at most {@link MAX_COMMIT_FILES}. */
+  staged: CommitFile[];
+  /** Working tree vs index (untracked and conflicted files included), as `staged`. */
+  unstaged: CommitFile[];
+  /** Either list was cut. */
   truncated: boolean;
 }
+
+/** Which side of the index a diff shows: what is staged, or what is not yet. */
+export type Stage = 'staged' | 'unstaged';
 
 /** What a diff tile needs: `commit_diff`'s shape, with `changes` in place of `commit`. */
 export interface UncommittedDiff {
   available: true;
-  changes: { base: string | null };
+  changes: { base: string | null; stage?: Stage };
   file: CommitFile & { patch: string | null; tooLarge: boolean };
 }
 
@@ -45,22 +51,37 @@ export interface UncommittedDiff {
 export type UncommittedEnv = Pick<Environment, 'runLimited' | 'files'>;
 
 const GIT = ['git', '--no-optional-locks', '-c', 'core.quotePath=false'];
+/** For commands that write the index (`git_stage.ts`): no `--no-optional-locks`. */
+export const GIT_WRITE = ['git', '-c', 'core.quotePath=false'];
 const TIMEOUT_MS = 15_000;
 /** Room for git's own `diff --git`/`index`/`---`/`+++` lines above the patch. */
 const HEADER_ROOM = 64 * 1024;
 const TOO_MANY = 'too many files changed to list';
+/** Nothing a write runs may wait on a terminal or open an editor. */
+export const NO_PROMPT = { GIT_TERMINAL_PROMPT: '0', GIT_EDITOR: 'true' };
 
 /** Runs `git <args>` at `cwd` in `env`; an exit outside `ok` is a problem. Never throws. */
-async function git(
+export async function git(
   env: UncommittedEnv,
   cwd: string,
   args: string[],
-  opts: { maxOutput: number; ok?: number[]; tooLarge?: string },
+  opts: {
+    maxOutput: number;
+    ok?: number[];
+    tooLarge?: string;
+    timeoutMs?: number;
+    /** Writes the index: {@link GIT_WRITE}, and nothing may wait on a terminal or an editor. */
+    write?: boolean;
+  },
 ): Promise<{ out: string; code: number } | GitProblem | 'too_large'> {
   const name = `git ${args[0]}`;
   try {
-    const r = await env.runLimited({ cmd: [...GIT, ...args], cwd }, {
-      timeoutMs: TIMEOUT_MS,
+    const r = await env.runLimited({
+      cmd: [...(opts.write ? GIT_WRITE : GIT), ...args],
+      cwd,
+      ...(opts.write ? { env: NO_PROMPT } : {}),
+    }, {
+      timeoutMs: opts.timeoutMs ?? TIMEOUT_MS,
       maxOutput: opts.maxOutput,
     });
     if (r.kind === 'timeout') return { problem: `${name}: timed out` };
@@ -151,20 +172,111 @@ async function listChanges(
   const seen = new Set(files.map((f) => f.path));
   for (const path of nulFields((others as { out: string }).out)) {
     if (seen.has(path)) continue;
-    files.push({
-      path,
-      previousPath: null,
-      status: 'added',
-      untracked: true,
-      additions: 0,
-      deletions: 0,
-      binary: false,
-      oldBlob: '',
-      newBlob: '',
-    });
+    files.push(untrackedFile(path));
   }
   files.sort((a, b) => a.path < b.path ? -1 : a.path > b.path ? 1 : 0);
   return { base: base.base, tree: base.tree, files };
+}
+
+/** The listing split at the index: what is staged, and what is not yet. */
+export interface SplitListing {
+  base: string | null;
+  tree: string;
+  staged: Listed[];
+  unstaged: Listed[];
+}
+
+/**
+ * The staged changes (index vs base) and the unstaged ones (working tree vs index, untracked
+ * files one per file). A conflicted path is listed by git in both diffs (`U`, and in the working
+ * tree's also as `M`): it is dropped from both and listed once in `unstaged` as `conflicted`. In
+ * path order.
+ */
+export async function listSplit(
+  env: UncommittedEnv,
+  cwd: string,
+): Promise<SplitListing | GitProblem> {
+  const base = await readBase(env, cwd);
+  if (isGitProblem(base)) return base;
+  const listOpts = { maxOutput: LIST_MAX_OUTPUT, tooLarge: TOO_MANY };
+  const raw = ['-z', '--raw', '--numstat', ...DIFF_FLAGS];
+  const results = await Promise.all([
+    git(env, cwd, ['diff', '--cached', base.tree, '-M', ...raw], listOpts),
+    git(env, cwd, ['diff', ...raw], listOpts),
+    git(
+      env,
+      cwd,
+      ['ls-files', '--others', '--exclude-standard', '-z'],
+      listOpts,
+    ),
+    git(env, cwd, ['diff', '--name-only', '-z', '--diff-filter=U'], listOpts),
+  ]);
+  for (const r of results) {
+    if (r === 'too_large') return { problem: TOO_MANY };
+    if (isGitProblem(r)) return r;
+  }
+  const [cached, worktree, others, unmerged] = results.map((r) =>
+    (r as { out: string }).out
+  );
+  const conflicted = new Set(nulFields(unmerged));
+  const staged = parseDiffTree(cached).filter((f) => !conflicted.has(f.path));
+  const unstaged: Listed[] = [];
+  const conflicts = new Map<string, Listed>();
+  // Parsed whole first: its numstat lines pair with its raw lines by count.
+  for (const f of parseDiffTree(worktree)) {
+    if (!conflicted.has(f.path)) {
+      unstaged.push(f);
+      continue;
+    }
+    const c = conflicts.get(f.path);
+    if (c) {
+      c.additions += f.additions;
+      c.deletions += f.deletions;
+      c.binary ||= f.binary;
+    } else {
+      conflicts.set(f.path, { ...f, status: 'conflicted' });
+    }
+  }
+  for (const path of conflicted) {
+    if (!conflicts.has(path)) {
+      conflicts.set(path, {
+        path,
+        previousPath: null,
+        status: 'conflicted',
+        additions: 0,
+        deletions: 0,
+        binary: false,
+        oldBlob: '',
+        newBlob: '',
+      });
+    }
+  }
+  unstaged.push(...conflicts.values());
+  const seen = new Set(unstaged.map((f) => f.path));
+  for (const path of nulFields(others)) {
+    if (seen.has(path)) continue;
+    unstaged.push(untrackedFile(path));
+  }
+  const byPath = (a: Listed, b: Listed) =>
+    a.path < b.path ? -1 : a.path > b.path ? 1 : 0;
+  staged.sort(byPath);
+  unstaged.sort(byPath);
+  return { base: base.base, tree: base.tree, staged, unstaged };
+}
+
+/** An untracked file's entry: git counts no lines for it. */
+function untrackedFile(path: string): Listed {
+  return {
+    path,
+    previousPath: null,
+    status: 'added',
+    untracked: true,
+    additions: 0,
+    deletions: 0,
+    binary: false,
+    oldBlob: '',
+    newBlob: '',
+  };
 }
 
 /** The working tree's changed files at `cwd` (the repo's path in `env`). Never throws. */
@@ -172,53 +284,81 @@ export async function readUncommittedFiles(
   env: UncommittedEnv,
   cwd: string,
 ): Promise<UncommittedFiles | GitProblem> {
-  const listed = await listChanges(env, cwd);
+  const listed = await listSplit(env, cwd);
   if (isGitProblem(listed)) return listed;
   return {
     base: listed.base,
-    files: listed.files.slice(0, MAX_COMMIT_FILES).map(publicFile),
-    truncated: listed.files.length > MAX_COMMIT_FILES,
+    staged: listed.staged.slice(0, MAX_COMMIT_FILES).map(publicFile),
+    unstaged: listed.unstaged.slice(0, MAX_COMMIT_FILES).map(publicFile),
+    truncated: listed.staged.length > MAX_COMMIT_FILES ||
+      listed.unstaged.length > MAX_COMMIT_FILES,
   };
 }
 
-/** `path`'s uncommitted diff against `HEAD` (or the empty tree). Never throws. */
+/** `path`'s entry in `stage`'s list of a fresh listing, or why there is none. */
+async function findStaged(
+  env: UncommittedEnv,
+  cwd: string,
+  path: string,
+  stage: Stage,
+): Promise<{ listed: SplitListing; f: Listed } | GitProblem> {
+  const listed = await listSplit(env, cwd);
+  if (isGitProblem(listed)) return listed;
+  const f = listed[stage].find((l) => l.path === path);
+  if (f === undefined) return { problem: noChanges(path, stage) };
+  return { listed, f };
+}
+
+/** The answer for a path not in `stage`'s list. */
+export const noChanges = (path: string, stage: Stage) =>
+  `${path} has no ${stage} changes`;
+
+/**
+ * `path`'s uncommitted diff: with no `stage`, the working tree against `HEAD` (or the empty tree);
+ * `staged`, the index against it; `unstaged`, the working tree against the index (a conflicted
+ * file against `HEAD`: git's own diff of one is a combined `diff --cc`). Never throws.
+ */
 export async function readUncommittedDiff(
   env: UncommittedEnv,
   cwd: string,
   path: string,
+  stage?: Stage,
 ): Promise<UncommittedDiff | GitProblem> {
-  const listed = await listChanges(env, cwd);
-  if (isGitProblem(listed)) return listed;
-  // Found by listing, never from the page: a rename's old path comes from git.
-  const f = listed.files.find((l) => l.path === path);
-  if (f === undefined) return { problem: `${path} has no uncommitted changes` };
+  let f: Listed;
+  let base: string | null;
+  let args: string[];
+  if (stage === undefined) {
+    const listed = await listChanges(env, cwd);
+    if (isGitProblem(listed)) return listed;
+    // Found by listing, never from the page: a rename's old path comes from git.
+    const found = listed.files.find((l) => l.path === path);
+    if (found === undefined) {
+      return { problem: `${path} has no uncommitted changes` };
+    }
+    f = found;
+    base = listed.base;
+    args = f.untracked
+      ? untrackedDiff(f)
+      : ['diff', listed.tree, ...pathArgs(f, true)];
+  } else {
+    const found = await findStaged(env, cwd, path, stage);
+    if (isGitProblem(found)) return found;
+    f = found.f;
+    base = found.listed.base;
+    const tree = found.listed.tree;
+    args = stage === 'staged'
+      ? ['diff', '--cached', tree, ...pathArgs(f, true)]
+      : f.untracked
+      ? untrackedDiff(f)
+      : f.status === 'conflicted'
+      ? ['diff', tree, ...pathArgs(f, false)]
+      : ['diff', ...pathArgs(f, false)];
+  }
 
   let patch: string | null = null;
   let tooLarge = false;
   let binary = f.binary;
   if (!binary) {
-    const args = f.untracked
-      // `--no-index` takes plain paths, not pathspecs; exit 1 means they differ.
-      ? ['diff', '--no-index', ...DIFF_FLAGS, '-U3', '--', '/dev/null', f.path]
-      : f.status === 'renamed' && f.previousPath !== null
-      ? [
-        'diff',
-        listed.tree,
-        '-M',
-        ...DIFF_FLAGS,
-        '-U3',
-        '--',
-        `:(literal)${f.previousPath}`,
-        `:(literal)${f.path}`,
-      ]
-      : [
-        'diff',
-        listed.tree,
-        ...DIFF_FLAGS,
-        '-U3',
-        '--',
-        `:(literal)${f.path}`,
-      ];
     const r = await git(env, cwd, args, {
       maxOutput: MAX_COMMIT_PATCH + HEADER_ROOM,
       ok: f.untracked ? [0, 1] : [0],
@@ -234,21 +374,60 @@ export async function readUncommittedDiff(
   }
   return {
     available: true,
-    changes: { base: listed.base },
+    changes: stage === undefined ? { base } : { base, stage },
     file: { ...publicFile(f), binary, patch, tooLarge },
   };
 }
 
-/** `path`'s text in the working tree, for Whole file. Never throws. */
+/** An untracked file's diff: every line added. `--no-index` takes plain paths, not pathspecs. */
+const untrackedDiff = (f: Listed) => [
+  'diff',
+  '--no-index',
+  ...DIFF_FLAGS,
+  '-U3',
+  '--',
+  '/dev/null',
+  f.path,
+];
+
+/** The flags and pathspecs after a diff's revisions: a rename names both paths (with `-M`). */
+function pathArgs(f: Listed, renames: boolean): string[] {
+  const rename = renames && f.status === 'renamed' && f.previousPath !== null;
+  return [
+    ...(rename ? ['-M'] : []),
+    ...DIFF_FLAGS,
+    '-U3',
+    '--',
+    ...(rename ? [`:(literal)${f.previousPath}`] : []),
+    `:(literal)${f.path}`,
+  ];
+}
+
+/**
+ * `path`'s text for Whole file: in the index for `staged`, else in the working tree. Never
+ * throws.
+ */
 export async function readUncommittedFileAt(
   env: UncommittedEnv,
   cwd: string,
   path: string,
+  stage?: Stage,
 ): Promise<CommitFileAt | GitProblem> {
-  const listed = await listChanges(env, cwd);
-  if (isGitProblem(listed)) return listed;
-  const f = listed.files.find((l) => l.path === path);
-  if (f === undefined) return { problem: `${path} has no uncommitted changes` };
+  let f: Listed;
+  if (stage === undefined) {
+    const listed = await listChanges(env, cwd);
+    if (isGitProblem(listed)) return listed;
+    const found = listed.files.find((l) => l.path === path);
+    if (found === undefined) {
+      return { problem: `${path} has no uncommitted changes` };
+    }
+    f = found;
+  } else {
+    const found = await findStaged(env, cwd, path, stage);
+    if (isGitProblem(found)) return found;
+    f = found.f;
+  }
+  if (stage === 'staged') return await readIndexText(env, cwd, f);
   const missing = {
     available: false,
     message: 'file not in the working tree',
@@ -271,4 +450,28 @@ export async function readUncommittedFileAt(
     }
     return { problem: e instanceof Error ? e.message : String(e) };
   }
+}
+
+/** A staged file's text in the index (`git cat-file`, never `git show`, which may textconv). */
+async function readIndexText(
+  env: UncommittedEnv,
+  cwd: string,
+  f: Listed,
+): Promise<CommitFileAt | GitProblem> {
+  if (f.status === 'removed') {
+    return { available: false, message: 'file not in the index' };
+  }
+  // `:<path>` is a revision, not a pathspec: from the root, as the cwd is the repo's.
+  const r = await git(env, cwd, ['cat-file', 'blob', `:${f.path}`], {
+    maxOutput: MAX_READ_BYTES + 1,
+  });
+  if (r === 'too_large') return { available: false, message: 'file too large' };
+  if (isGitProblem(r)) return r;
+  if (r.out.length > MAX_READ_BYTES) {
+    return { available: false, message: 'file too large' };
+  }
+  if (r.out.slice(0, 8000).includes('\0')) {
+    return { available: false, message: 'binary file' };
+  }
+  return { available: true, text: r.out };
 }

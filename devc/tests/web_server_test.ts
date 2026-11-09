@@ -599,6 +599,79 @@ Deno.test('parseClientMessage: file messages take a root and a path, empty meani
       );
     }
   }
+  // A diff or Whole file may name the side of the index it shows.
+  for (const type of ['uncommitted_diff', 'uncommitted_file_at']) {
+    for (const stage of ['staged', 'unstaged']) {
+      ok({ type, id: 's1', localFolder: '/a', root: '/a', path: 'x', stage });
+    }
+    assertEquals(
+      rejected({
+        type,
+        id: 's2',
+        localFolder: '/a',
+        root: '/a',
+        path: 'x',
+        stage: 'both',
+      }).code,
+      'bad_request',
+    );
+  }
+  for (const type of ['stage_files', 'unstage_files']) {
+    ok({ type, id: 's3', localFolder: '/a', root: '/a', paths: null });
+    ok({ type, id: 's4', localFolder: '/a', root: '/a', paths: ['a b.ts'] });
+    for (
+      const paths of [
+        [],
+        [''],
+        [1],
+        'a',
+        undefined,
+        Array.from({ length: 1001 }, (_, i) => `f${i}`),
+      ]
+    ) {
+      assertEquals(
+        rejected({ type, id: 's5', localFolder: '/a', root: '/a', paths })
+          .code,
+        'bad_request',
+      );
+    }
+    assertEquals(
+      rejected({ type, id: 's6', localFolder: '/a', root: 'rel', paths: null })
+        .code,
+      'bad_request',
+    );
+  }
+  ok({
+    type: 'commit_staged',
+    id: 'c1',
+    localFolder: '/a',
+    root: '/a',
+    message: 'Fix it\n\nWhy.',
+  });
+  for (const message of ['', '  \n ', 'x'.repeat(65_537), 3, undefined]) {
+    assertEquals(
+      rejected({
+        type: 'commit_staged',
+        id: 'c2',
+        localFolder: '/a',
+        root: '/a',
+        message,
+      })
+        .code,
+      'bad_request',
+    );
+  }
+  assertEquals(
+    rejected({
+      type: 'commit_staged',
+      id: 'c3',
+      localFolder: '/a',
+      root: 'rel',
+      message: 'm',
+    })
+      .code,
+    'bad_request',
+  );
   ok({
     type: 'pull_repo',
     id: 'g3',

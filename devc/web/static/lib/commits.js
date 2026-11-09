@@ -202,16 +202,110 @@ export function hasUncommitted(changes) {
 }
 
 /**
- * The Uncommitted row's count, once its list is read: `1 file`, `n files`, `1000+ files` when cut
- * short; '' before.
+ * The working tree's changes as `uncommitted_files` answers (`web/git_uncommitted.ts`): what is
+ * staged (index vs `HEAD`) and what is not yet (working tree vs index). A file staged then edited
+ * again is in both.
  *
- * @param {CommitFileList | undefined} list
+ * @typedef {{loading: boolean, staged: CommitFile[] | null, unstaged: CommitFile[] | null,
+ *   truncated: boolean, error: string | null}} UncommittedList
+ * @typedef {'staged' | 'unstaged'} Stage
+ * @typedef {{kind: 'group', stage: Stage, label: string, count: number}
+ *   | (CommitFileRow & {kind: 'file', stage: Stage})
+ *   | {kind: 'note', note: 'loading' | 'error' | 'empty' | 'more', text: string}} UncommittedRow
+ */
+
+/**
+ * The Uncommitted row's count, once its list is read: the files with any change, staged or not
+ * (`1 file`, `n files`, `1000+ files` when cut short); '' before.
+ *
+ * @param {UncommittedList | undefined} list
  */
 export function uncommittedCount(list) {
-  if (!list?.files) return '';
-  const n = list.files.length;
+  if (!list?.staged || !list.unstaged) return '';
+  const n = new Set([...list.staged, ...list.unstaged].map((f) => f.path)).size;
   if (list.truncated) return `${n}+ files`;
   return `${n} file${n === 1 ? '' : 's'}`;
+}
+
+/**
+ * The rows under an open Uncommitted row, after its commit box: what the list's read says, or a
+ * **Staged** group and a **Changes** group, each only when it has files, each file under its
+ * group, then a note when a list was cut short.
+ *
+ * @param {UncommittedList | undefined} list
+ * @returns {UncommittedRow[]}
+ */
+export function uncommittedRows(list) {
+  if (!list?.staged || !list.unstaged) {
+    return [
+      list?.error
+        ? {
+          kind: 'note',
+          note: 'error',
+          text: `Couldn't list files: ${list.error}`,
+        }
+        : { kind: 'note', note: 'loading', text: 'Loading…' },
+    ];
+  }
+  /** @type {UncommittedRow[]} */
+  const rows = [];
+  /** @type {[Stage, string, CommitFile[]][]} */
+  const groups = [
+    ['staged', 'Staged', list.staged],
+    ['unstaged', 'Changes', list.unstaged],
+  ];
+  for (const [stage, label, files] of groups) {
+    if (files.length === 0) continue;
+    rows.push({ kind: 'group', stage, label, count: files.length });
+    for (const r of commitFileRows({ ...list, files })) {
+      if (r.kind === 'file') rows.push({ ...r, stage });
+    }
+  }
+  if (rows.length === 0) {
+    rows.push({ kind: 'note', note: 'empty', text: 'No files changed' });
+  }
+  if (list.truncated) {
+    rows.push({
+      kind: 'note',
+      note: 'more',
+      text: `first ${MAX_COMMIT_FILES} files of each shown`,
+    });
+  }
+  return rows;
+}
+
+/**
+ * The commit box's **Commit** button: disabled, with its `title` saying why, until the list is
+ * read, something is staged, a message is typed, and nothing runs in the repo.
+ *
+ * @param {UncommittedList | undefined} list
+ * @param {string} message
+ * @param {'commit' | 'stage' | null} busy what runs in the repo now
+ * @returns {{disabled: boolean, label: string, title: string}}
+ */
+export function commitButton(list, message, busy) {
+  const n = list?.staged?.length ?? 0;
+  const label = n > 0 ? `Commit (${n})` : 'Commit';
+  if (busy === 'commit') {
+    return { disabled: true, label: 'Committing…', title: 'Committing…' };
+  }
+  if (busy === 'stage') return { disabled: true, label, title: 'Staging…' };
+  if (!list?.staged) return { disabled: true, label, title: 'Loading…' };
+  if (n === 0) {
+    return {
+      disabled: true,
+      label,
+      title: 'Nothing staged: stage files first',
+    };
+  }
+  if (message.trim() === '') {
+    return { disabled: true, label, title: 'Type a commit message' };
+  }
+  return {
+    disabled: false,
+    label,
+    title: `Commit ${n} staged file${n === 1 ? '' : 's'}`,
+  };
 }
 
 /**

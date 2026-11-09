@@ -172,6 +172,27 @@ export type ClientMessage =
     localFolder: string;
     root: string;
     path: string;
+    /** Absent: the working tree against `HEAD`. See `git_uncommitted.ts`. */
+    stage?: 'staged' | 'unstaged';
+  }
+  /**
+   * Stages or unstages a repo's files (`git_stage.ts`), each in the matching list of a fresh
+   * listing; `paths: null` is everything. Answered with `result: {}`.
+   */
+  | {
+    type: 'stage_files' | 'unstage_files';
+    id: string;
+    localFolder: string;
+    root: string;
+    paths: string[] | null;
+  }
+  /** Commits what is staged with `message` (`git_stage.ts`). Answered with `{sha, subject}`. */
+  | {
+    type: 'commit_staged';
+    id: string;
+    localFolder: string;
+    root: string;
+    message: string;
   }
   /**
    * Asks devc-desktop to push a repo of a project (`folder`, one of its `repos[].folder`): the
@@ -687,6 +708,36 @@ function plainObject(o: Obj, k: string): Record<string, unknown> {
 }
 
 /** A host folder: an absolute path. */
+/** The most paths one `stage_files` / `unstage_files` names (`MAX_COMMIT_FILES`). */
+export const MAX_STAGE_PATHS = 1000;
+/** The longest commit message `commit_staged` takes. */
+export const MAX_COMMIT_MESSAGE = 65_536;
+
+/** `paths`: 1–{@link MAX_STAGE_PATHS} non-empty strings, or `null` for everything. */
+function stagePaths(o: Obj): string[] | null {
+  const v = o.paths;
+  if (v === null) return null;
+  if (
+    !Array.isArray(v) || v.length === 0 || v.length > MAX_STAGE_PATHS ||
+    !v.every((p) => typeof p === 'string' && p !== '')
+  ) {
+    throw new Invalid(
+      `'paths' must be null or 1-${MAX_STAGE_PATHS} non-empty strings`,
+    );
+  }
+  return v as string[];
+}
+
+/** `message`: not blank, at most {@link MAX_COMMIT_MESSAGE} characters. */
+function commitMessage(o: Obj): string {
+  const v = text(o, 'message');
+  if (v.trim() === '') throw new Invalid('empty commit message');
+  if (v.length > MAX_COMMIT_MESSAGE) {
+    throw new Invalid('commit message too long');
+  }
+  return v;
+}
+
 function absolute(o: Obj, k: string): string {
   const v = str(o, k);
   if (!v.startsWith('/')) throw new Invalid(`'${k}' must be absolute`);
@@ -1087,6 +1138,29 @@ function parseFields(m: Obj): ClientMessage {
         localFolder: folder(m),
         root: absolute(m, 'root'),
         path: str(m, 'path'),
+        ...(m.stage === undefined ? {} : {
+          stage: oneOf<'staged' | 'unstaged'>(m, 'stage', [
+            'staged',
+            'unstaged',
+          ]),
+        }),
+      };
+    case 'stage_files':
+    case 'unstage_files':
+      return {
+        type: m.type,
+        id: str(m, 'id'),
+        localFolder: folder(m),
+        root: absolute(m, 'root'),
+        paths: stagePaths(m),
+      };
+    case 'commit_staged':
+      return {
+        type: 'commit_staged',
+        id: str(m, 'id'),
+        localFolder: folder(m),
+        root: absolute(m, 'root'),
+        message: commitMessage(m),
       };
     case 'request_push':
       return {

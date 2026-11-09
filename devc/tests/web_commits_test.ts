@@ -1,5 +1,6 @@
-import { assertEquals, assertStringIncludes } from 'jsr:@std/assert';
+import { assert, assertEquals, assertStringIncludes } from 'jsr:@std/assert';
 import {
+  commitButton,
   commitFileRows,
   commitFilesKey,
   commitFileTitle,
@@ -10,6 +11,7 @@ import {
   keepList,
   MAX_COMMIT_FILES,
   uncommittedCount,
+  uncommittedRows,
 } from '../web/static/lib/commits.js';
 import { statusLetter } from '../web/static/lib/pr_tree.js';
 import { MAX_COMMIT_FILES as SERVER_MAX } from '../web/git_commit.ts';
@@ -181,15 +183,21 @@ Deno.test('the Uncommitted row: when it shows, its count, and its files', () => 
     ...more,
   });
   const list = { loading: false, truncated: false, error: null };
+  const lists = (staged: unknown[], unstaged: unknown[], more = {}) =>
+    ({ ...list, staged, unstaged, ...more }) as Parameters<
+      typeof uncommittedCount
+    >[0];
   assertEquals(uncommittedCount(undefined), '');
-  assertEquals(uncommittedCount({ ...list, files: null, loading: true }), '');
-  assertEquals(uncommittedCount({ ...list, files: [file('a')] }), '1 file');
   assertEquals(
-    uncommittedCount({ ...list, files: [file('a'), file('b')] }),
-    '2 files',
+    uncommittedCount({ ...list, staged: null, unstaged: null, loading: true }),
+    '',
   );
+  assertEquals(uncommittedCount(lists([], [file('a')])), '1 file');
+  // A file staged then edited again counts once.
+  assertEquals(uncommittedCount(lists([file('a')], [file('a')])), '1 file');
+  assertEquals(uncommittedCount(lists([file('a')], [file('b')])), '2 files');
   assertEquals(
-    uncommittedCount({ ...list, files: [file('a')], truncated: true }),
+    uncommittedCount(lists([], [file('a')], { truncated: true })),
     '1+ files',
   );
 
@@ -208,4 +216,130 @@ Deno.test('the Uncommitted row: when it shows, its count, and its files', () => 
   assertEquals(fileStat(file('b', { binary: true })), 'binary');
   assertEquals(statusLetter('conflicted'), 'U');
   assertEquals(statusLetter('added'), 'A');
+});
+
+Deno.test('uncommittedRows: a Staged and a Changes group, each only with files', () => {
+  const file = (path: string, more = {}) => ({
+    path,
+    previousPath: null,
+    status: 'modified' as const,
+    additions: 1,
+    deletions: 0,
+    binary: false,
+    ...more,
+  });
+  const base = { loading: false, truncated: false, error: null };
+  const shape = (rows: ReturnType<typeof uncommittedRows>) =>
+    rows.map((r) =>
+      r.kind === 'group'
+        ? `${r.label} ${r.count}`
+        : r.kind === 'file'
+        ? `  ${r.stage} ${r.file.path}`
+        : `(${r.note}) ${r.text}`
+    );
+  assertEquals(shape(uncommittedRows(undefined)), ['(loading) Loading…']);
+  assertEquals(
+    shape(
+      uncommittedRows({ ...base, staged: null, unstaged: null, error: 'x' }),
+    ),
+    ["(error) Couldn't list files: x"],
+  );
+  assertEquals(
+    shape(uncommittedRows({
+      ...base,
+      staged: [file('a/f.ts')],
+      unstaged: [
+        file('a/f.ts'),
+        file('u', { untracked: true, status: 'added' }),
+      ],
+    })),
+    [
+      'Staged 1',
+      '  staged a/f.ts',
+      'Changes 2',
+      '  unstaged a/f.ts',
+      '  unstaged u',
+    ],
+  );
+  assertEquals(
+    shape(uncommittedRows({ ...base, staged: [], unstaged: [file('b')] })),
+    ['Changes 1', '  unstaged b'],
+  );
+  assertEquals(
+    shape(uncommittedRows({ ...base, staged: [file('b')], unstaged: [] })),
+    ['Staged 1', '  staged b'],
+  );
+  assertEquals(
+    shape(uncommittedRows({ ...base, staged: [], unstaged: [] })),
+    ['(empty) No files changed'],
+  );
+  const cut = uncommittedRows({
+    ...base,
+    staged: [],
+    unstaged: [file('b')],
+    truncated: true,
+  });
+  assertEquals(cut.at(-1)?.kind, 'note');
+  const files = uncommittedRows({
+    ...base,
+    staged: [],
+    unstaged: [file('d/e/x.ts')],
+  });
+  const row = files[1];
+  assert(row.kind === 'file');
+  assertEquals([row.name, row.dir], ['x.ts', 'd/e']);
+});
+
+Deno.test('commitButton says why it is off', () => {
+  const file = {
+    path: 'a',
+    previousPath: null,
+    status: 'modified' as const,
+    additions: 1,
+    deletions: 0,
+    binary: false,
+  };
+  const base = { loading: false, truncated: false, error: null };
+  const ready = {
+    ...base,
+    staged: [file, { ...file, path: 'b' }],
+    unstaged: [],
+  };
+  assertEquals(commitButton(undefined, 'm', null), {
+    disabled: true,
+    label: 'Commit',
+    title: 'Loading…',
+  });
+  assertEquals(
+    commitButton({ ...base, staged: [], unstaged: [file] }, 'm', null),
+    {
+      disabled: true,
+      label: 'Commit',
+      title: 'Nothing staged: stage files first',
+    },
+  );
+  assertEquals(commitButton(ready, '  \n', null), {
+    disabled: true,
+    label: 'Commit (2)',
+    title: 'Type a commit message',
+  });
+  assertEquals(commitButton(ready, 'Fix', null), {
+    disabled: false,
+    label: 'Commit (2)',
+    title: 'Commit 2 staged files',
+  });
+  assertEquals(
+    commitButton({ ...ready, staged: [file] }, 'Fix', null).title,
+    'Commit 1 staged file',
+  );
+  assertEquals(commitButton(ready, 'Fix', 'stage'), {
+    disabled: true,
+    label: 'Commit (2)',
+    title: 'Staging…',
+  });
+  assertEquals(commitButton(ready, 'Fix', 'commit'), {
+    disabled: true,
+    label: 'Committing…',
+    title: 'Committing…',
+  });
 });

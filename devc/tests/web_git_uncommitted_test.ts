@@ -67,19 +67,22 @@ Deno.test('readUncommittedFiles lists each kind of change', async () => {
     assert(!isGitProblem(r), JSON.stringify(r));
     assertEquals(r.base, await git(dir, 'rev-parse', 'HEAD'));
     assertEquals(r.truncated, false);
-    assertEquals(
-      r.files.map((f) => [f.path, f.status, f.additions, f.deletions]),
-      [
-        ['fresh/u.txt', 'added', 0, 0],
-        ['gone.txt', 'removed', 0, 1],
-        ['mod.txt', 'modified', 2, 1],
-        ['new é.txt', 'renamed', 1, 1],
-        ['staged*.txt', 'added', 1, 0],
-      ],
-    );
-    assertEquals(r.files[0].untracked, true);
-    assertEquals(r.files[3].previousPath, 'old name.txt');
-    assertEquals(r.files[4].untracked, undefined);
+    const rows = (fs: typeof r.staged) =>
+      fs.map((f) => [f.path, f.status, f.additions, f.deletions]);
+    // The rename is staged as `git mv` made it; its edit after is not.
+    assertEquals(rows(r.staged), [
+      ['new é.txt', 'renamed', 0, 0],
+      ['staged*.txt', 'added', 1, 0],
+    ]);
+    assertEquals(rows(r.unstaged), [
+      ['fresh/u.txt', 'added', 0, 0],
+      ['gone.txt', 'removed', 0, 1],
+      ['mod.txt', 'modified', 2, 1],
+      ['new é.txt', 'modified', 1, 1],
+    ]);
+    assertEquals(r.unstaged[0].untracked, true);
+    assertEquals(r.staged[0].previousPath, 'old name.txt');
+    assertEquals(r.staged[1].untracked, undefined);
   });
 });
 
@@ -97,7 +100,12 @@ Deno.test('readUncommittedFiles marks a merge conflict', async () => {
     await git(dir, 'merge', 'o').catch(() => {});
     const r = await readUncommittedFiles(hereEnv, dir);
     assert(!isGitProblem(r), JSON.stringify(r));
-    assertEquals(r.files.map((f) => [f.path, f.status]), [['a', 'conflicted']]);
+    assertEquals(r.staged, []);
+    assertEquals(r.unstaged.map((f) => [f.path, f.status, f.additions]), [[
+      'a',
+      'conflicted',
+      4,
+    ]]);
     const d = await readUncommittedDiff(hereEnv, dir, 'a');
     assert(!isGitProblem(d), JSON.stringify(d));
     assertStringIncludes(d.file.patch ?? '', '+<<<<<<< HEAD');
@@ -111,10 +119,11 @@ Deno.test('an unborn branch compares with the empty tree', async () => {
     const r = await readUncommittedFiles(hereEnv, dir);
     assert(!isGitProblem(r), JSON.stringify(r));
     assertEquals(r.base, null);
-    assertEquals(r.files.map((f) => [f.path, f.status]), [[
+    assertEquals(r.staged.map((f) => [f.path, f.status]), [[
       'first.txt',
       'added',
     ]]);
+    assertEquals(r.unstaged, []);
     const d = await readUncommittedDiff(hereEnv, dir, 'first.txt');
     assert(!isGitProblem(d), JSON.stringify(d));
     assertEquals(d.changes.base, null);
@@ -205,4 +214,92 @@ Deno.test('a folder that is no repo is a problem', async () => {
   } finally {
     await Deno.remove(dir, { recursive: true });
   }
+});
+
+Deno.test('a file staged then edited is in both lists, each with its own diff', async () => {
+  await withRepo(async (dir) => {
+    await write(dir, 'f.txt', 'a\nb\n');
+    await git(dir, 'add', '.');
+    await git(dir, 'commit', '-q', '-m', '1');
+    await write(dir, 'f.txt', 'a\nB\n');
+    await git(dir, 'add', 'f.txt');
+    await write(dir, 'f.txt', 'a\nB\nc\n');
+    const r = await readUncommittedFiles(hereEnv, dir);
+    assert(!isGitProblem(r), JSON.stringify(r));
+    assertEquals(r.staged.map((f) => [f.path, f.additions, f.deletions]), [[
+      'f.txt',
+      1,
+      1,
+    ]]);
+    assertEquals(r.unstaged.map((f) => [f.path, f.additions, f.deletions]), [[
+      'f.txt',
+      1,
+      0,
+    ]]);
+    const staged = await readUncommittedDiff(hereEnv, dir, 'f.txt', 'staged');
+    assert(!isGitProblem(staged), JSON.stringify(staged));
+    assertEquals(staged.changes.stage, 'staged');
+    assertEquals(staged.file.patch, '@@ -1,2 +1,2 @@\n a\n-b\n+B\n');
+    const unstaged = await readUncommittedDiff(
+      hereEnv,
+      dir,
+      'f.txt',
+      'unstaged',
+    );
+    assert(!isGitProblem(unstaged), JSON.stringify(unstaged));
+    assertEquals(unstaged.file.patch, '@@ -1,2 +1,3 @@\n a\n B\n+c\n');
+    // No stage: the working tree against HEAD, as before.
+    const whole = await readUncommittedDiff(hereEnv, dir, 'f.txt');
+    assert(!isGitProblem(whole), JSON.stringify(whole));
+    assertEquals(whole.changes, { base: r.base });
+    assertEquals(whole.file.patch, '@@ -1,2 +1,3 @@\n a\n-b\n+B\n+c\n');
+    const index = await readUncommittedFileAt(hereEnv, dir, 'f.txt', 'staged');
+    assertEquals(index, { available: true, text: 'a\nB\n' });
+    const tree = await readUncommittedFileAt(hereEnv, dir, 'f.txt', 'unstaged');
+    assertEquals(tree, { available: true, text: 'a\nB\nc\n' });
+  });
+});
+
+Deno.test('a staged removal has no index text; a wrong stage is refused', async () => {
+  await withRepo(async (dir) => {
+    await write(dir, 'gone.txt', 'x\n');
+    await write(dir, 'u.txt', 'u\n');
+    await git(dir, 'add', 'gone.txt');
+    await git(dir, 'commit', '-q', '-m', '1');
+    await git(dir, 'rm', '-q', 'gone.txt');
+    assertEquals(
+      await readUncommittedFileAt(hereEnv, dir, 'gone.txt', 'staged'),
+      { available: false, message: 'file not in the index' },
+    );
+    assertEquals(
+      await readUncommittedDiff(hereEnv, dir, 'gone.txt', 'unstaged'),
+      { problem: 'gone.txt has no unstaged changes' },
+    );
+    assertEquals(
+      await readUncommittedDiff(hereEnv, dir, 'u.txt', 'staged'),
+      { problem: 'u.txt has no staged changes' },
+    );
+    const u = await readUncommittedDiff(hereEnv, dir, 'u.txt', 'unstaged');
+    assert(!isGitProblem(u), JSON.stringify(u));
+    assertEquals(u.file.patch, '@@ -0,0 +1 @@\n+u\n');
+  });
+});
+
+Deno.test('a conflicted file diffs against HEAD under unstaged', async () => {
+  await withRepo(async (dir) => {
+    await write(dir, 'a', '1\n');
+    await git(dir, 'add', '.');
+    await git(dir, 'commit', '-q', '-m', '1');
+    await git(dir, 'checkout', '-q', '-b', 'o');
+    await write(dir, 'a', '2\n');
+    await git(dir, 'commit', '-q', '-am', '2');
+    await git(dir, 'checkout', '-q', 'main');
+    await write(dir, 'a', '3\n');
+    await git(dir, 'commit', '-q', '-am', '3');
+    await git(dir, 'merge', 'o').catch(() => {});
+    const d = await readUncommittedDiff(hereEnv, dir, 'a', 'unstaged');
+    assert(!isGitProblem(d), JSON.stringify(d));
+    assertEquals(d.file.status, 'conflicted');
+    assertStringIncludes(d.file.patch ?? '', '+<<<<<<< HEAD');
+  });
 });

@@ -343,6 +343,37 @@ Deno.test('a diff ref keeps uncommitted changes through a saved layout', () => {
   assertEquals(diffKey(changes) === diffKey(commit), false);
 });
 
+Deno.test('a diff ref keeps its side of the index through a saved layout', () => {
+  const changes = {
+    localFolder: '/a',
+    root: '/a/r',
+    path: 'x.ts',
+    changes: 'HEAD',
+  };
+  const staged = { ...changes, stage: 'staged' as const };
+  const unstaged = { ...changes, stage: 'unstaged' as const };
+  assertEquals(diffSource(staged), 'changes');
+  for (const ref of [staged, unstaged]) {
+    const state = tileContent({ diff: ref }, false);
+    assertEquals(state, { type: 'diff', state: ref });
+    assertEquals(
+      diffRefFromState(JSON.parse(JSON.stringify(state.state))),
+      ref,
+    );
+  }
+  // A stage without changes, or any other value, drops the tile.
+  const { changes: _c, ...noChanges } = staged;
+  assertEquals(diffRefFromState(noChanges), null);
+  for (const bad of ['both', '', 1]) {
+    assertEquals(diffRefFromState({ ...changes, stage: bad }), null);
+  }
+  assertEquals(sameDiff(staged, unstaged), false);
+  assertEquals(sameDiff(staged, changes), false);
+  assertEquals(sameDiff(unstaged, changes), false);
+  assertEquals(sameDiff(staged, { ...staged }), true);
+  assertEquals(new Set([staged, unstaged, changes].map(diffKey)).size, 3);
+});
+
 Deno.test('a diff ref keeps a commit sha through a saved layout, and tells commits apart', () => {
   const pr = { localFolder: '/a', root: '/a/r', path: 'x.ts' };
   const sha = 'ab'.repeat(20);

@@ -840,6 +840,94 @@ body.resizing-zones {
   color: var(--text);
 }
 
+/* The open Uncommitted row's commit box, its Staged and Changes groups, and their files, a level
+   further in. See .plans/devc-web-stage-commit.md. */
+.row.commit-box-row,
+.row.commit-group {
+  grid-template-columns: 12px minmax(0, 1fr) auto;
+  gap: 4px;
+  padding-left: 8px;
+}
+
+.row.commit-box-row {
+  align-items: start;
+  padding-top: 3px;
+  padding-bottom: 5px;
+  white-space: normal;
+}
+
+.row.commit-box-row:focus,
+.row.commit-group:focus {
+  outline: none;
+}
+
+.row.commit-box-row:focus-visible,
+.row.commit-group:focus-visible {
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+.row.commit-box-row > .commit-dot,
+.row.commit-group > .commit-dot {
+  color: var(--blocked);
+}
+
+.commit-box {
+  grid-column: 2 / -1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  padding-left: 18px;
+}
+
+.commit-message {
+  font: inherit;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 3px 5px;
+  resize: none;
+  user-select: text;
+  outline: none;
+}
+
+.commit-message:focus {
+  border-color: var(--accent);
+}
+
+.commit-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.commit-button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.commit-error {
+  margin: 0;
+  max-height: 10em;
+  overflow: auto;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.9em;
+  color: var(--danger);
+  white-space: pre-wrap;
+  word-break: break-word;
+  user-select: text;
+}
+
+.row.commit-group > .label {
+  padding-left: 18px;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.row.commit-file[data-depth='3'] > .label {
+  padding-left: 30px;
+}
+
 /* A merge is a square dot. */
 .commit-row[data-merge] .commit-dot::after {
   border-radius: 1px;
