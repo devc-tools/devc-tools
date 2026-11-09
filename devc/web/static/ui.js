@@ -201,11 +201,13 @@ export const LABELS = {
   wasLines: (a, b) => `Was lines ${a}–${b}`,
   outdated: 'outdated',
   pending: 'pending',
-  /** A diff tile's Compare: the PR's patch, or the file since it was last marked Viewed. */
+  /** A diff tile's Compare: the PR's patch, or the file since it was marked Viewed or reviewed. */
   compare: 'Compare',
   prChanges: 'PR changes',
   sinceViewed: (age, sha) => `Since viewed ${age} · ${sha}`,
+  sinceReview: (age, sha) => `Since your review ${age} · ${sha}`,
   noChangesSinceViewed: 'No changes since you viewed this file',
+  noChangesSinceReview: 'No changes since your review',
   changedSinceViewed: 'Changed since you viewed it',
   showChanges: 'Show changes',
   noViewedRecord: 'No record of when you viewed it in devc web',

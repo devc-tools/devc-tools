@@ -223,6 +223,12 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
   Otherwise `↑N` is read-only with the reason. Push… and `↑N`-opens-Commits are removed; Push
   refreshes the mirror so `↑N` clears.
 
+- [devc-web-since-review](devc-web-since-review.md) — a PR file's **Compare** also offers
+  `Since your review <age> · <sha>`: the file at the commit of your latest Approve / Request
+  changes (`gh-pr-files` gains `pr.myReview`; `COMMENTED` is left out, since replies create those).
+  The newest of your last Viewed tick and your last review is the default starting point, so it
+  also covers files marked Viewed on github.com.
+
 ### Completed
 
 - ✅ Done — [devc-web-host-terminal-request](archived/devc-web-host-terminal-request.md) —
@@ -2753,3 +2759,4 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
 | Host terminal themes — Host Terminal Color picks a theme; light and dark like devc web                              | [host-terminal-themes](archived/host-terminal-themes.md)                           | complete    |
 | Host terminals on Herdr — a devc-desktop session, one terminal for both apps, host file links                       | [host-terminal-herdr](archived/host-terminal-herdr.md)                             | complete    |
 | Host terminal request — Open Host Terminal… on a repo card, confirmed in devc-desktop                               | [devc-web-host-terminal-request](archived/devc-web-host-terminal-request.md)       | complete    |
+| devc web since review — Compare from your latest review's commit; the newest of tick and review wins                | [devc-web-since-review](devc-web-since-review.md)                                  | in progress |

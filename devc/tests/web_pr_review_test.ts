@@ -53,6 +53,7 @@ const pr = {
   baseRef: 'main',
   headRef: 'feat',
   changedFiles: 2,
+  myReview: null,
 };
 
 const file = (path: string, extra: Record<string, unknown> = {}) => ({
@@ -403,6 +404,33 @@ Deno.test('pr parse: bad pr fields fail the listing, bad files are dropped or fi
     filesOut({ pr: { ...pr, title: 't'.repeat(2000) } }),
   )!;
   assertEquals(long.pr.title.length, 1024);
+});
+
+Deno.test('pr parse: myReview, and a bad one is null without failing the listing', () => {
+  const myReview = {
+    commit: 'c'.repeat(40),
+    state: 'APPROVED',
+    submittedAt: '2026-11-03T10:00:00Z',
+  };
+  assertEquals(
+    parsePrFiles(filesOut({ pr: { ...pr, myReview } }))!.pr.myReview,
+    myReview,
+  );
+  const { myReview: _, ...older } = pr;
+  assertEquals(parsePrFiles(filesOut({ pr: older }))!.pr.myReview, null);
+  for (
+    const bad of [
+      'x',
+      { ...myReview, commit: 'C'.repeat(40) },
+      { ...myReview, commit: 'c'.repeat(39) },
+      { ...myReview, state: 'COMMENTED' },
+      { ...myReview, submittedAt: 'yesterday' },
+      { ...myReview, submittedAt: 7 },
+    ]
+  ) {
+    const parsed = parsePrFiles(filesOut({ pr: { ...pr, myReview: bad } }));
+    assertEquals(parsed?.pr.myReview, null, JSON.stringify(bad));
+  }
 });
 
 Deno.test('pr parse: thread ids, wrong types, urls and caps', () => {

@@ -95,6 +95,14 @@ export interface PrInfo {
   baseRef: string;
   headRef: string;
   changedFiles: number;
+  /** The host user's latest Approve / Request changes (or dismissed one): its PR head and time. */
+  myReview: MyReview | null;
+}
+
+export interface MyReview {
+  commit: string;
+  state: 'APPROVED' | 'CHANGES_REQUESTED' | 'DISMISSED';
+  submittedAt: string;
 }
 
 export type FileStatus =
@@ -254,7 +262,24 @@ function parsePr(v: unknown): PrInfo | null {
     baseRef: v.baseRef as string,
     headRef: v.headRef as string,
     changedFiles: v.changedFiles,
+    myReview: parseMyReview(v.myReview),
   };
+}
+
+/** `gh-pr-files`' `myReview`; missing (an older bridge) or malformed is `null`, never a failure. */
+function parseMyReview(v: unknown): MyReview | null {
+  if (!isObj(v)) return null;
+  const { commit, state, submittedAt } = v;
+  if (typeof commit !== 'string' || !COMMIT_SHA.test(commit)) return null;
+  if (
+    state !== 'APPROVED' && state !== 'CHANGES_REQUESTED' &&
+    state !== 'DISMISSED'
+  ) return null;
+  if (
+    typeof submittedAt !== 'string' || submittedAt.length > 64 ||
+    Number.isNaN(Date.parse(submittedAt))
+  ) return null;
+  return { commit, state, submittedAt };
 }
 
 function parseFile(v: unknown): PrFile | null {

@@ -9,13 +9,15 @@
 # The PR is the one open PR whose head is the policy's remote + branch (see gh-pr-comments). Output
 # is one JSON object on stdout:
 #   {"pr":{"repo","number","url","headSha","title","state","isDraft","author","baseRef","headRef",
-#      "changedFiles"},
+#      "changedFiles","myReview"},
 #    "files":[{"path","previousPath","status","additions","deletions","patch","viewed"}],
 #    "truncated"}
 # files are in GitHub's REST order, which lists at most 3000; truncated is changedFiles > the number
 # listed. viewed is the host user's viewerViewedState (VIEWED, UNVIEWED or DISMISSED), UNVIEWED for
-# a path GraphQL did not list. patch is null where GitHub sends none (binary, too large). The title,
-# paths and patches are untrusted text.
+# a path GraphQL did not list. patch is null where GitHub sends none (binary, too large).
+# myReview is the host user's latest Approve / Request changes (or dismissed one) as
+# {"commit","state","submittedAt"} — the PR head it was submitted at — or null. The title, paths and
+# patches are untrusted text.
 #
 # Exit codes: 0 ok, 2 no/malformed policy, an argument, an unsupported remote, or no single open PR,
 # 4 GitHub/transport failure, gh not authenticated, or timeout.
@@ -553,20 +555,29 @@ resolve_pr
 OBJ_JQ='def obj: "{" + (map((.[0] | tojson) + ":" + (.[1] | tojson)) | join(",")) + "}";'
 
 # ── the header and the Viewed state, every page ──────────────────────────────────────────
+# myReview is the host user's newest review that judged the code: APPROVED, CHANGES_REQUESTED or
+# DISMISSED (GitHub dismisses only those two). COMMENTED is left out: a thread reply, and a pending
+# review submitted as Comment, each make one without anyone reviewing the code. Its keys are
+# already in alphabetical order, which gojq's sorting keeps.
 # With --paginate, --jq runs once per page, so the header line comes out on every page: only the
 # first is used. Lines: `H<TAB><changedFiles><TAB><header JSON>` and `V<TAB><path JSON><TAB><state>`
 # (tojson escapes any tab or newline in a path).
 
 q='query($owner:String!,$name:String!,$number:Int!,$endCursor:String){repository(owner:$owner,
   name:$name){pullRequest(number:$number){title state isDraft baseRefName headRefName changedFiles
-  author{login} files(first:100,after:$endCursor){pageInfo{hasNextPage endCursor}
+  author{login} reviews(last:100,states:[APPROVED,CHANGES_REQUESTED,DISMISSED]){nodes{
+  viewerDidAuthor state submittedAt commit{oid}}}
+  files(first:100,after:$endCursor){pageInfo{hasNextPage endCursor}
   nodes{path viewerViewedState}}}}}'
 gh_run "reading the files of $pr_url" api graphql --paginate -f query="$q" \
   -f owner="$pr_owner" -f name="$pr_name" -F number="$pr_number" \
   --jq "$OBJ_JQ"' .data.repository.pullRequest | ("H\t" + (.changedFiles | tostring) + "\t" +
     ([["title", .title], ["state", .state], ["isDraft", .isDraft],
       ["author", (.author.login // null)], ["baseRef", .baseRefName], ["headRef", .headRefName],
-      ["changedFiles", .changedFiles]] | obj)),
+      ["changedFiles", .changedFiles], ["myReview", ([.reviews.nodes[]?
+        | select(.viewerDidAuthor == true and .submittedAt != null and .commit.oid != null)]
+        | if length == 0 then null
+          else max_by(.submittedAt) | {commit: .commit.oid, state, submittedAt} end)]] | obj)),
     (.files.nodes[] | "V\t" + (.path | tojson) + "\t" + (.viewerViewedState | tostring))'
 mv "$tmp/out" "$tmp/graphql"
 header=$(grep -m 1 "^H"$'\t' "$tmp/graphql")

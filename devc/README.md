@@ -843,11 +843,18 @@ is published from any container: the host server finds devcontainers with
     kept). Only devc web's marks are recorded — not GitHub's own page's, nor an
     agent's `devc-bridge gh-pr-viewed`. A diff tile's **Compare** then offers,
     besides `PR changes`, `Since viewed <age> · <sha>` for each head the file
-    was marked Viewed at: the file at that commit against the file now,
-    compared in the page, with the same rows, highlighting, **Split** and
-    **Hide whitespace**. A file changed since you viewed it says so in the
-    tile's header (**Show changes**), and its sidebar menu has **Open changes
-    since viewed**. The choice is the tile's own, not kept across a reload.
+    was marked Viewed at, and `Since your review <age> · <sha>` for the head
+    your latest review was submitted at (on every file, ticked or not): the
+    file at that commit against the file now, compared in the page, with the
+    same rows, highlighting, **Split** and **Hide whitespace**. Reviews that
+    count are Approve, Request changes and a dismissed one of those; Comment
+    reviews don't, since a thread reply or a submitted pending review makes
+    one. A file changed since you viewed it says so in the tile's header
+    (**Show changes**), and its sidebar menu has **Open changes since
+    viewed**. Both start from the latest point, whichever came later of your
+    last Viewed tick here and your latest review, so a file you ticked on
+    github.com still opens on what changed since you signed off. The choice
+    is the tile's own, not kept across a reload.
   - **Pending reviews.** With `gh-pr-pending-review`, hovering a line number
     in `PR changes` shows a `+`: a comment on that line, or with Shift after
     another `+` in the same hunk and side, on the lines between — with

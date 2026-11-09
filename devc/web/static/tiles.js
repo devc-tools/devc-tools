@@ -77,6 +77,7 @@ import { resolvePath } from './lib/links.js';
 import { fileView, mediaKind } from './lib/media.js';
 import { childPath } from './lib/files.js';
 import { sessionAge } from './lib/sessions.js';
+import { sinceOptions as compareChoices } from './lib/since.js';
 import { statusLetter } from './lib/pr_tree.js';
 import { fileStat } from './lib/commits.js';
 import { reopensDashboard } from './lib/dashboard.js';
@@ -1618,12 +1619,13 @@ function saveFlag(key, on) {
  */
 
 /**
- * A **Since viewed** comparison: the file at `sha` (the head it was last marked Viewed at)
- * against the file at the PR's head, both read with `pr_file_at` and diffed here (`diffTexts`).
+ * A **Since viewed** or **Since your review** comparison (`kind`): the file at `sha` (a head it
+ * was marked Viewed at, or the head the user's latest review was submitted at) against the file
+ * at the PR's head, both read with `pr_file_at` and diffed here (`diffTexts`).
  * `parsed` is set once both arrive; `message` says why there is none. `texts` keeps both, so
  * **Whole file** diffs them again (`whole`, made on first use) without reading them again.
  *
- * @typedef {{sha: string, state: 'loading' | 'ok' | 'error',
+ * @typedef {{sha: string, kind: 'viewed' | 'review', state: 'loading' | 'ok' | 'error',
  *   parsed: import('./lib/diff.js').ParsedPatch | null, message: string,
  *   texts: [string, string] | null,
  *   whole: import('./lib/diff.js').ParsedPatch | null}} SinceView
@@ -1654,9 +1656,9 @@ function saveFlag(key, on) {
  * @property {boolean} viewedSending   a `pr_viewed` from the header's Viewed is in flight
  * @property {SinceView | null} since  the **Compare** choice when not `PR changes`; the tile's
  *   own, never saved in the layout
- * @property {boolean} wantViewed  opened with `compare: 'viewed'`: picks the newest Since viewed
- *   choice once the file is read
- * @property {boolean} noRecord  asked for changes since viewed with none recorded
+ * @property {boolean} wantViewed  opened with `compare: 'viewed'`: picks the newest Compare
+ *   choice (Viewed mark or review) once the file is read
+ * @property {boolean} noRecord  asked for changes since viewed with no Viewed mark or review
  * @property {{id: string, comments: number} | null} review  the viewer's pending review
  * @property {NewComment | null} newComment
  * @property {{side: 'LEFT' | 'RIGHT', line: number, hunk: number, filled: boolean} | null} anchor
@@ -2913,27 +2915,19 @@ function reviewChanged(ref) {
 }
 
 /**
- * The **Compare** choices besides `PR changes`: each head the file was marked Viewed at in devc
- * web that is not the PR's head now, newest first, once each.
+ * The **Compare** choices besides `PR changes`, newest first (`lib/since.js`): the heads the file
+ * was marked Viewed at in devc web and the user's latest review.
  *
  * @param {DiffView} view
- * @returns {{headSha: string, path: string, at: string}[]}
  */
 function sinceOptions(view) {
-  const head = view.data?.pr?.headSha;
-  /** @type {Map<string, {headSha: string, path: string, at: string}>} */
-  const out = new Map();
-  for (const m of list(view.data?.viewedHistory)) {
-    if (
-      m?.viewed !== 'VIEWED' || typeof m.headSha !== 'string' ||
-      m.headSha === head || out.has(m.headSha)
-    ) continue;
-    out.set(m.headSha, { headSha: m.headSha, path: m.path, at: m.at });
-  }
-  return [...out.values()];
+  return compareChoices(view.data?.viewedHistory, view.data?.pr);
 }
 
-/** Selects the newest Since viewed choice, or notes there is none. @param {DiffView} view */
+/**
+ * Selects the newest choice, a Viewed mark or the review (the latest point wins), or notes there
+ * is none. @param {DiffView} view
+ */
 function applyViewedCompare(view) {
   const newest = sinceOptions(view)[0];
   view.noRecord = !newest;
@@ -2961,6 +2955,7 @@ async function loadSince(view, sha) {
   }
   const since = {
     sha,
+    kind: option.kind,
     state: 'loading',
     parsed: null,
     message: '',
@@ -2975,9 +2970,18 @@ async function loadSince(view, sha) {
       (r) => r,
       (e) => ({ available: false, message: String(e?.message ?? e) }),
     );
+  const file = view.data.file;
+  // The review's commit is read at the file's path now, else (renamed since) its previous path.
+  const readBefore = async () => {
+    const first = await read(option.path ?? file.path, sha);
+    return option.path === null && first?.reason === 'missing' &&
+        typeof file.previousPath === 'string'
+      ? read(file.previousPath, sha)
+      : first;
+  };
   const [before, now] = await Promise.all([
-    read(option.path, sha),
-    read(view.data.file.path, view.data.pr.headSha),
+    readBefore(),
+    read(file.path, view.data.pr.headSha),
   ]);
   if (view.since !== since || diffViews.get(view.tile.id) !== view) return;
   const failed = [before, now].find((r) => r?.available !== true);
@@ -3461,7 +3465,7 @@ function diffHeader(view) {
         h(
           'option',
           { value: o.headSha },
-          LABELS.sinceViewed(
+          (o.kind === 'review' ? LABELS.sinceReview : LABELS.sinceViewed)(
             sessionAge(String(o.at), now),
             o.headSha.slice(0, 7),
           ),
@@ -3614,7 +3618,13 @@ function diffContent(view) {
     out.push(h(
       'div',
       { class: 'diff-message' },
-      h('div', {}, LABELS.noChangesSinceViewed),
+      h(
+        'div',
+        {},
+        since.kind === 'review'
+          ? LABELS.noChangesSinceReview
+          : LABELS.noChangesSinceViewed,
+      ),
     ));
     return out;
   }

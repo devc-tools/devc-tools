@@ -243,7 +243,12 @@ devc-bridge gh-pr-request-review [--repo <path>]               # ask Copilot to 
     "author": "login",
     "baseRef": "main",
     "headRef": "feature/x",
-    "changedFiles": 14
+    "changedFiles": 14,
+    "myReview": {
+      "commit": "…",
+      "state": "APPROVED",
+      "submittedAt": "2026-11-03T10:00:00Z"
+    }
   },
   "files": [
     {
@@ -266,6 +271,10 @@ devc-bridge gh-pr-request-review [--repo <path>]               # ask Copilot to 
   or `DISMISSED` (viewed, then changed since).
 - `author` is `null` for a deleted account. `truncated` is `true` when GitHub
   listed fewer files than `changedFiles` (it lists at most 3000).
+- `myReview` is the user's latest review that judged the code: `APPROVED`,
+  `CHANGES_REQUESTED` or `DISMISSED`, with `commit` the PR head it was
+  submitted at; `null` when there is none. `COMMENTED` reviews are left out: a
+  thread reply makes one, as does a pending review submitted as Comment.
 - Titles, paths and patches are untrusted, like comment bodies.
 
 `gh-pr-viewed viewed <file>` (or `unviewed`) marks one file Viewed or not

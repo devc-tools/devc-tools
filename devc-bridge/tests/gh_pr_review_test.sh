@@ -393,15 +393,16 @@ contents_fx() {
 }
 
 # gqlfiles_page <n> <changedFiles> <path>:<state>… — page n of the PR's GraphQL files, with the
-# header fields every page carries.
+# header fields every page carries; its reviews are $REVIEWS (a JSON array of nodes), else none.
 gqlfiles_page() {
   local n=$1 changed=$2
   shift 2
   local e
   for e in "$@"; do jq -c -n --arg p "${e%:*}" --arg v "${e##*:}" '{path: $p, viewerViewedState: $v}'; done |
-    jq -s --argjson c "$changed" '{data: {repository: {pullRequest: {title: "Fix \"it\" — all of it",
+    jq -s --argjson c "$changed" --argjson r "${REVIEWS:-[]}" '{data: {repository: {pullRequest: {
+      title: "Fix \"it\" — all of it",
       state: "OPEN", isDraft: false, baseRefName: "main", headRefName: "feat/pr-branch",
-      changedFiles: $c, author: {login: "alice"},
+      changedFiles: $c, author: {login: "alice"}, reviews: {nodes: $r},
       files: {pageInfo: {hasNextPage: false, endCursor: null}, nodes: .}}}}}' >"$FX/gqlfiles-$n.json"
 }
 
@@ -1079,7 +1080,7 @@ echo "gh-pr-files"
 fresh
 run gh-pr-files
 expect_rc 0 "two pages of each API"
-want_pr='{"repo":"up/r","number":7,"url":"https://github.com/up/r/pull/7","headSha":"'"$(sha 7)"'","title":"Fix \"it\" — all of it","state":"OPEN","isDraft":false,"author":"alice","baseRef":"main","headRef":"feat/pr-branch","changedFiles":5}'
+want_pr='{"repo":"up/r","number":7,"url":"https://github.com/up/r/pull/7","headSha":"'"$(sha 7)"'","title":"Fix \"it\" — all of it","state":"OPEN","isDraft":false,"author":"alice","baseRef":"main","headRef":"feat/pr-branch","changedFiles":5,"myReview":null}'
 check "  … pr: every field, in contract order" test "$(jq -c .pr <<<"$out")" = "$want_pr"
 check "  … pr is emitted verbatim in that order" test "${out:0:6}" = '{"pr":'
 check "  … top-level key order" test "$(jq -c keys_unsorted <<<"$out")" = '["pr","files","truncated"]'
@@ -1098,6 +1099,31 @@ check "  … a rename keeps previousPath" test "$(q '.files[3].previousPath')" =
 check "  … truncated false when every file is listed" test "$(q .truncated)" = false
 check "  … one line on stdout" test "$(printf '%s\n' "$out" | wc -l | tr -d ' ')" = 1
 check "  … no container value in a query string" test -z "$(grep -E 'pr-branch' "$SHIM/queries.log")"
+check "  … asks only for reviews that judged the code" \
+  grep -q 'reviews(last:100,states:\[APPROVED,CHANGES_REQUESTED,DISMISSED\])' "$SHIM/queries.log"
+fresh
+# review <viewerDidAuthor> <state> <submittedAt|null> <sha n|null> — one review node.
+review() {
+  jq -c -n --argjson me "$1" --arg s "$2" --argjson at "$([ "$3" = null ] && echo null || jq -n --arg t "$3" '$t')" \
+    --argjson c "$([ "$4" = null ] && echo null || jq -n --arg o "$(sha "$4")" '{oid: $o}')" \
+    '{viewerDidAuthor: $me, state: $s, submittedAt: $at, commit: $c}'
+}
+REVIEWS="[$(review true APPROVED 2026-11-01T10:00:00Z 3),$(review true CHANGES_REQUESTED \
+  2026-11-03T10:00:00Z 4),$(review true DISMISSED 2026-11-02T10:00:00Z 5),$(review false APPROVED \
+  2026-11-05T10:00:00Z 6),$(review true APPROVED null 8),$(review true APPROVED 2026-11-06T10:00:00Z null)]" \
+  gqlfiles_page 1 5 src/a.ts:VIEWED docs/b.md:UNVIEWED
+run gh-pr-files
+expect_rc 0 "several reviews"
+check "  … myReview is the viewer's newest, exactly" test "$(jq -c .pr.myReview <<<"$out")" = \
+  '{"commit":"'"$(sha 4)"'","state":"CHANGES_REQUESTED","submittedAt":"2026-11-03T10:00:00Z"}'
+check "  … myReview is the pr's last key" \
+  test "$(jq -c '.pr | keys_unsorted | last' <<<"$out")" = '"myReview"'
+fresh
+REVIEWS="[$(review false APPROVED 2026-11-05T10:00:00Z 6)]" gqlfiles_page 1 5 src/a.ts:VIEWED
+rm -f "$FX/gqlfiles-2.json"
+run gh-pr-files
+expect_rc 0 "only another author's review"
+check "  … myReview null" test "$(jq -c .pr.myReview <<<"$out")" = null
 fresh
 gqlfiles_page 1 5 src/a.ts:VIEWED
 rm -f "$FX/gqlfiles-2.json"
