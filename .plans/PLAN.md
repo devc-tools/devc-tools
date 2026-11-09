@@ -127,6 +127,13 @@ for them.
   the file's diff against `HEAD` in the diff tile, as its new `'changes'` source
   (`DiffRef.changes`), which devc-show-local-diff then extends to other refs.
 
+- [devc-web-stage-commit](devc-web-stage-commit.md) — after devc-web-uncommitted-files: the
+  Uncommitted row splits into **Staged** and **Changes** (a file staged then edited is in both),
+  each file opening its own diff (index vs `HEAD`, working tree vs index; `DiffRef.stage`). Hover
+  **+** / **−** and Stage all / Unstage all (`stage_files`, `unstage_files`), and a commit box with
+  a message and **Commit** (`commit_staged`: `git commit -m`, staged files only, hooks run). Git
+  runs in the project's environment, one operation per repo at a time; allowed under `--live`.
+
 - [devc-desktop-host-actions](devc-desktop-host-actions.md) — the page can only _ask_
   (`request_push`, `request_project`). The HOST drawer gets an Actions column that shows the
   app's own push plan, or the start, with a 1 s armed confirm. A second **desktop token** (stdout
@@ -2735,6 +2742,7 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
 | devc web screenshots — paste or drop an image into a terminal; its path is pasted for the agent                     | [devc-web-screenshots](devc-web-screenshots.md)                                    | in progress |
 | devc web commit diffs — a Commits row expands to its files, each opening a read-only diff tile from the mirror      | [devc-web-commit-diffs](archived/devc-web-commit-diffs.md)                         | complete    |
 | devc web uncommitted files — an Uncommitted row in Commits lists working-tree changes; each opens a diff vs HEAD    | [devc-web-uncommitted-files](devc-web-uncommitted-files.md)                        | in progress |
+| devc web stage and commit — Staged and Changes groups, stage/unstage per file or all, commit with a message         | [devc-web-stage-commit](devc-web-stage-commit.md)                                  |             |
 | devc web granted push — Push runs the container's own `gh-push` grant with no confirmation                          | [devc-web-granted-push](devc-web-granted-push.md)                                  | in progress |
 | devc web push arrow — ↑N and Push are one action; ↑N counts what a push publishes, read-only when none can          | [devc-web-push-arrow](devc-web-push-arrow.md)                                      | in progress |
 | devc desktop host tiles — host terminals as Golden Layout tiles over devc web's slots; a host color                 | [devc-desktop-host-tiles](archived/devc-desktop-host-tiles.md)                     | complete    |
