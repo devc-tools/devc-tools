@@ -467,7 +467,7 @@ is published from any container: the host server finds devcontainers with
   columns and tab stacks nest to any depth, the dividers resize, and each tab
   can be maximised or closed. A stack's tabs that don't fit scroll sideways
   (the wheel or a trackpad swipe over them), and the active one is scrolled
-  into view. The same pane may be open in several tiles. Tiles
+  into view; holding a dragged tab near either end scrolls them that way. The same pane may be open in several tiles. Tiles
   are the browser's own layout
   ([Golden Layout](https://github.com/golden-layout/golden-layout), vendored)
   and never change Herdr's. The layout is kept in the browser's

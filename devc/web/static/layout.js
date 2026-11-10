@@ -12,6 +12,7 @@ import {
   ItemConfig,
   LayoutConfig,
   ResolvedItemConfig,
+  Stack,
 } from './vendor/golden-layout/golden-layout.mjs';
 import {
   diffRefFromState,
@@ -137,6 +138,107 @@ function wheelTabs(/** @type {WheelEvent} */ ev) {
   const step = ev.deltaMode === WheelEvent.DOM_DELTA_LINE ? 16 : 1;
   bar.scrollLeft += ev.deltaY * step;
 }
+
+/** How near a header's tabs' end a held drag scrolls them, and how often it steps, in ms. */
+const DRAG_EDGE_PX = 40;
+const DRAG_STEP_MS = 280;
+
+/**
+ * While a tab (or a sidebar row) is dragged, holding it near either end of a header whose tabs
+ * scroll brings the next hidden tab that way into view, one tab a step. Golden Layout places its
+ * drop placeholder from the pointer on each `pointermove`, so each step sends one at the same
+ * point (untrusted, so this ignores it). Whole-tab steps rather than a continuous scroll: a
+ * placeholder re-placed every frame slid with the tabs, then jumped back a tab each time one
+ * passed under the pointer.
+ *
+ * @param {Document} doc
+ */
+function scrollTabsWhileDragging(doc) {
+  /** @type {{x: number, y: number, pointerId: number} | null} */
+  let at = null;
+  /** @type {ReturnType<typeof setTimeout> | undefined} */
+  let timer;
+  /** The header's tabs and the way they would scroll for the pointer at `p`, if any. */
+  const edgeAt = (/** @type {{x: number, y: number}} */ p) => {
+    for (const bar of doc.querySelectorAll('.lm_header > .lm_tabs')) {
+      const r = bar.getBoundingClientRect();
+      if (p.x < r.left || p.x >= r.right || p.y < r.top || p.y >= r.bottom) {
+        continue;
+      }
+      if (bar.scrollWidth <= bar.clientWidth) return null;
+      const edge = Math.min(DRAG_EDGE_PX, r.width / 4);
+      const way = p.x < r.left + edge ? -1 : p.x >= r.right - edge ? 1 : 0;
+      return way ? { bar: /** @type {HTMLElement} */ (bar), way } : null;
+    }
+    return null;
+  };
+  const step = () => {
+    timer = undefined;
+    if (!at || !doc.body.classList.contains('lm_dragging')) return;
+    const hit = edgeAt(at);
+    if (!hit) return;
+    const { bar, way } = hit;
+    const left = bar.getBoundingClientRect().left;
+    const right = left + bar.clientWidth;
+    const rects = [...bar.children].map((el) => el.getBoundingClientRect())
+      .filter((r) => r.width > 0);
+    const next = way < 0
+      ? rects.findLast((r) => r.left < left - 0.5)
+      : rects.find((r) => r.right > right + 0.5);
+    if (!next) return;
+    bar.scrollLeft += way < 0 ? next.left - left : next.right - right;
+    doc.dispatchEvent(
+      new PointerEvent('pointermove', {
+        clientX: at.x,
+        clientY: at.y,
+        pointerId: at.pointerId,
+        bubbles: true,
+      }),
+    );
+    timer = setTimeout(step, DRAG_STEP_MS);
+  };
+  doc.addEventListener('pointermove', (ev) => {
+    if (!ev.isTrusted) return;
+    if (!doc.body.classList.contains('lm_dragging')) {
+      at = null;
+      return;
+    }
+    at = { x: ev.clientX, y: ev.clientY, pointerId: ev.pointerId };
+    if (!edgeAt(at)) {
+      clearTimeout(timer);
+      timer = undefined;
+    } else if (timer === undefined) {
+      timer = setTimeout(step, DRAG_STEP_MS);
+    }
+  }, true);
+  doc.addEventListener('pointerup', () => {
+    at = null;
+    clearTimeout(timer);
+    timer = undefined;
+  }, true);
+}
+
+/**
+ * Golden Layout draws its drop indicator over a header's drop placeholder, which can sit in the
+ * part of a scrolled header that is out of view: the indicator is clipped to the header's tabs,
+ * so it never shows over a neighbouring tile.
+ */
+const highlightHeader = Stack.prototype.highlightHeaderDropZone;
+Stack.prototype.highlightHeaderDropZone = function (x) {
+  highlightHeader.call(this, x);
+  const el = this.layoutManager.dropTargetIndicator?._element;
+  if (!el || el.style.display === 'none') return;
+  // Golden Layout's own values (page coordinates): the drawn box is still moving to them (a
+  // CSS transition).
+  const bar = this._header.tabsContainerElement.getBoundingClientRect();
+  const barLeft = bar.left + globalThis.scrollX;
+  const barRight = barLeft + bar.width;
+  const left = parseFloat(el.style.left);
+  const right = left + parseFloat(el.style.width);
+  const l = Math.min(Math.max(left, barLeft), barRight);
+  el.style.left = `${l}px`;
+  el.style.width = `${Math.max(0, Math.min(right, barRight) - l)}px`;
+};
 
 /** @param {any} header a Golden Layout `Header` */
 function keepTabOrder(header) {
@@ -458,6 +560,7 @@ export function createTiling(root, hooks) {
     if (tile && zenOn) item.focus();
   });
   root.addEventListener('wheel', wheelTabs, { passive: false });
+  scrollTabsWhileDragging(root.ownerDocument);
   // A right-click on a stack header outside its tabs (tabs handle their own, above).
   root.addEventListener('contextmenu', (e) => {
     if (e.defaultPrevented) return;
