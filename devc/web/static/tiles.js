@@ -63,6 +63,7 @@ import {
   createWheelAccumulator,
   decodeBase64,
   encodeInput,
+  joinRows,
   pastePaths,
   wrapPaste,
 } from './lib/input.js';
@@ -306,6 +307,9 @@ const newPanes = new Map();
  * @property {ReturnType<typeof setTimeout> | undefined} resizeTimer
  * @property {() => void} disposeMouse  clears the mouse's pending copy flash (`term_mouse.js`)
  * @property {number} frames  frames painted so far: whether the app redrew during a drag
+ * @property {{text: string, startColumn: number, cols: number} | null} lastCopy  the text the
+ *   last drag copied, where its first row starts and the pane's width then: what **Copy as one
+ *   line** joins
  * @property {ResizeObserver} observer
  * @property {HTMLElement} killButton  the tab's trash button, shown while the pane is known
  */
@@ -5012,6 +5016,7 @@ function mountTile(tile) {
     resizeTimer: undefined,
     disposeMouse: () => {},
     frames: 0,
+    lastCopy: null,
     observer: new ResizeObserver(() => {
       clearTimeout(view.resizeTimer);
       view.resizeTimer = setTimeout(() => refit(view), RESIZE_DEBOUNCE_MS);
@@ -5121,7 +5126,17 @@ function mountTile(tile) {
     },
     copyRange: (anchor, cursor) => {
       const t = target();
-      if (t) copySelection(t, anchor, cursor);
+      if (!t) return;
+      const first = anchor.row < cursor.row ||
+          (anchor.row === cursor.row && anchor.column <= cursor.column)
+        ? anchor
+        : cursor;
+      const cols = renderer.metrics()?.cols ?? 0;
+      view.lastCopy = null;
+      copySelection(t, anchor, cursor).then(
+        (text) => view.lastCopy = { text, startColumn: first.column, cols },
+        () => {},
+      );
     },
     openLink: (link) => {
       const t = target();
@@ -5130,7 +5145,11 @@ function mountTile(tile) {
       keepTileOpen(view.tile);
       openLink(t, link);
     },
-    contextMenu: (ev) => openMenu(ev, tileOwnMenuItems(tileState(view.tile))),
+    contextMenu: (ev) =>
+      openMenu(ev, [
+        ...copyOneLineItems(view),
+        ...tileOwnMenuItems(tileState(view.tile)),
+      ]),
     frames: () => view.frames,
     linkModifier: isLinkModifier,
     active: () => target() !== null,
@@ -5254,9 +5273,33 @@ function tileVisibility(tile, visible) {
 }
 
 /**
+ * **Copy as one line**, while the terminal's last copy has more than one row: copies it again
+ * with its rows joined ({@link joinRows}), for a command an agent wrapped to fit the pane.
+ *
+ * @param {TileView} view @returns {import('./ui.js').MenuItem[]}
+ */
+function copyOneLineItems(view) {
+  const copy = view.lastCopy;
+  if (!copy || !/\S[^]*\n[^]*\S/.test(copy.text)) return [];
+  const text = joinRows(copy.text, copy.startColumn, copy.cols);
+  return [
+    [
+      LABELS.copyOneLine,
+      () =>
+        writeClipboard(Promise.resolve(text)).catch((e) =>
+          errorToast(`Copy failed: ${e?.message ?? e}`)
+        ),
+    ],
+    null,
+  ];
+}
+
+/**
  * Copies the text between two viewport cells of a pane, read from Herdr's buffer
  * (`read_selection`). Herdr draws no selection and sends no OSC 52 to a control client, so this
- * is the only way its text reaches the clipboard.
+ * is the only way its text reaches the clipboard. Resolves to the text copied.
+ *
+ * @returns {Promise<string>}
  */
 function copySelection(t, anchor, cursor) {
   const id = nextId('s');
@@ -5272,6 +5315,7 @@ function copySelection(t, anchor, cursor) {
   writeClipboard(text).catch((e) =>
     errorToast(`Copy failed: ${e?.message ?? e}`)
   );
+  return text;
 }
 
 /** Whether the key that opens terminal links is down during `ev`. */

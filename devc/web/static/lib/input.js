@@ -154,3 +154,30 @@ export function selectionSpan(anchor, cursor, cols) {
     length: (b.row - a.row) * cols + b.column - a.column + 1,
   };
 }
+
+/**
+ * Copied terminal text as one line, for a command an app wrapped to fit the pane. Agent TUIs
+ * (Claude Code's included) wrap text themselves, writing each row with a newline, so the copy
+ * Herdr reads has a line break at every wrap; a wrap the terminal made at its edge is already
+ * joined. Each row is trimmed (an indented continuation loses its indent) and blank rows are
+ * dropped; rows are joined with a space, since an app wraps at a space and drops it, unless a
+ * row ran to the pane's last column, where a word too long for a row was cut.
+ *
+ * @param {string} text  the copy, rows separated by `\n` or `\r\n`
+ * @param {number} startColumn  the column its first row starts at (zero-based)
+ * @param {number} cols  the pane's width
+ * @returns {string}
+ */
+export function joinRows(text, startColumn, cols) {
+  let out = '';
+  let cut = false;
+  text.split(/\r?\n/).forEach((row, i) => {
+    const kept = row.trimEnd();
+    const piece = kept.trimStart();
+    if (piece) {
+      out += out && !cut ? ` ${piece}` : piece;
+      cut = (i === 0 ? startColumn : 0) + [...kept].length >= cols;
+    }
+  });
+  return out;
+}

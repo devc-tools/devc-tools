@@ -1946,9 +1946,11 @@ body.resizing-zones {
 
 /*
  * The tabs and the controls share one row, so a long title stops at the controls instead of
- * running under them. Golden Layout moves tabs that don't fit to its dropdown but never shrinks
- * the active one, so only that tab may shrink (its title truncates). The header's height is
- * `HEADER_HEIGHT` in layout.js; its bottom line is a shadow so it takes no height.
+ * running under them. Tabs that don't fit scroll sideways (layout.js keeps every tab in the
+ * header, scrolls the active one into view and turns a wheel's vertical turn over them into a
+ * sideways scroll). Among several tabs none shrinks, so none is ever narrower than its content
+ * and nothing runs under its ×; a lone tab shrinks (its title truncates). The header's height
+ * is `HEADER_HEIGHT` in layout.js; its bottom line is a shadow so it takes no height.
  */
 .lm_header {
   display: flex;
@@ -1966,6 +1968,14 @@ body.resizing-zones {
   flex: 1 1 auto;
   min-width: 0;
   height: calc(100% - 1px);
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
+  scrollbar-width: none;
+}
+
+.lm_header .lm_tabs::-webkit-scrollbar {
+  display: none;
 }
 
 .lm_header .lm_controls {
@@ -2037,11 +2047,6 @@ body.resizing-zones {
   flex-shrink: 0;
 }
 
-.lm_header .lm_tabs .lm_tab.lm_active {
-  flex-shrink: 1;
-  min-width: 0;
-}
-
 .lm_header .lm_tab {
   display: flex;
   align-items: center;
@@ -2074,23 +2079,19 @@ body.resizing-zones {
   --tab-flare: 6px;
 }
 
-.lm_header .lm_tabs:has(.lm_tab + .lm_tab),
-.lm_header:has(.lm_tabdropdown_list .lm_tab) .lm_tabs {
+.lm_header .lm_tabs:has(.lm_tab + .lm_tab) {
   height: 100%;
 }
 
-.lm_header .lm_tabs:has(.lm_tab + .lm_tab) .lm_tab,
-.lm_header:has(.lm_tabdropdown_list .lm_tab) .lm_tabs .lm_tab {
+.lm_header .lm_tabs:has(.lm_tab + .lm_tab) .lm_tab {
   padding: 0 calc(26px + var(--tab-flare)) 0 calc(9px + var(--tab-flare));
 }
 
-.lm_header .lm_tabs:has(.lm_tab + .lm_tab) .lm_tab .lm_close_tab,
-.lm_header:has(.lm_tabdropdown_list .lm_tab) .lm_tabs .lm_tab .lm_close_tab {
+.lm_header .lm_tabs:has(.lm_tab + .lm_tab) .lm_tab .lm_close_tab {
   right: calc(8px + var(--tab-flare));
 }
 
-.lm_header .lm_tabs:has(.lm_tab + .lm_tab) .lm_tab.lm_active,
-.lm_header:has(.lm_tabdropdown_list .lm_tab) .lm_tab.lm_active {
+.lm_header .lm_tabs:has(.lm_tab + .lm_tab) .lm_tab.lm_active {
   --flare: transparent var(--tab-flare), var(--term-bg) calc(var(--tab-flare) + 0.5px);
   isolation: isolate;
   background-image:
@@ -2101,8 +2102,7 @@ body.resizing-zones {
   background-repeat: no-repeat;
 }
 
-.lm_header .lm_tabs:has(.lm_tab + .lm_tab) .lm_tab.lm_active::before,
-.lm_header:has(.lm_tabdropdown_list .lm_tab) .lm_tab.lm_active::before {
+.lm_header .lm_tabs:has(.lm_tab + .lm_tab) .lm_tab.lm_active::before {
   content: '';
   position: absolute;
   inset: 0 var(--tab-flare);
@@ -2144,8 +2144,7 @@ body.resizing-zones {
  * The label keeps its width (any share of a shrink, however small, ellipsizes it) except where
  * nothing else is left to give way: among several tabs, and in the narrowest headers.
  */
-.lm_header .lm_tabs:has(.lm_tab + .lm_tab) .lm_title,
-.lm_header:has(.lm_tabdropdown_list .lm_tab) .lm_title {
+.lm_header .lm_tabs:has(.lm_tab + .lm_tab) .lm_title {
   flex-shrink: 1;
   /* A couple of letters and an ellipsis, never a sliver. */
   min-width: 2.5em;
@@ -2155,15 +2154,14 @@ body.resizing-zones {
  * Among several tabs, each is as wide as its content: a share of a width the tab takes from
  * its content can't cap that content, and would only leave a gap before the ×.
  */
-.lm_header .lm_tabs:has(.lm_tab + .lm_tab) :is(.lm_title, .tile-context),
-.lm_header:has(.lm_tabdropdown_list .lm_tab) .lm_tabs :is(.lm_title, .tile-context) {
+.lm_header .lm_tabs:has(.lm_tab + .lm_tab) :is(.lm_title, .tile-context) {
   max-width: none;
 }
 
-/* Among several tabs, the title gives way entirely, and no tab runs into the next. */
-.lm_header .lm_tabs:has(.lm_tab + .lm_tab) .tile-title-muted,
-.lm_header:has(.lm_tabdropdown_list .lm_tab) .tile-title-muted {
+/* Among several tabs, the title is cut short, so one long title doesn't take the whole row. */
+.lm_header .lm_tabs:has(.lm_tab + .lm_tab) .tile-title-muted {
   min-width: 0;
+  max-width: 24ch;
 }
 
 .lm_header .lm_tab {
@@ -2304,66 +2302,10 @@ body.resizing-zones {
 }
 
 /*
- * Among several tabs, a tab shows its label and status only: the context would widen the front
- * tab until Golden Layout moved the others to its dropdown.
+ * Among several tabs, a tab shows its label, title and status only: the context would make
+ * every tab wide.
  */
-.lm_header .lm_tabs:has(.lm_tab + .lm_tab) .tile-context,
-.lm_header:has(.lm_tabdropdown_list .lm_tab) .tile-context {
-  display: none;
-}
-
-/*
- * The tabs that don't fit: Golden Layout lists them under its ▾ button with no background of
- * its own, so they're drawn as a menu is, one tab a row, below the header's right end.
- */
-.lm_header .lm_controls .lm_tabdropdown::before {
-  border-top: 5px solid;
-  color: currentColor;
-}
-
-.lm_header:has(.lm_tabdropdown_list:not([style*='none'])) {
-  z-index: 10;
-}
-
-.lm_header .lm_tabdropdown_list {
-  top: calc(100% + 2px);
-  right: 4px;
-  min-width: 180px;
-  /* Content-box (Golden Layout forces it on lm_ elements): the border comes on top. */
-  max-width: min(360px, calc(100% - 10px));
-  max-height: 60vh;
-  overflow-x: hidden;
-  overflow-y: auto;
-  padding: 4px 0;
-  background: var(--panel-2);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  box-shadow: 0 6px 20px rgb(0 0 0 / 0.4);
-}
-
-.lm_header .lm_tabdropdown_list .lm_tab {
-  float: none;
-  height: auto;
-  padding: 4px 12px;
-  color: var(--text);
-  background: none;
-}
-
-.lm_header .lm_tabdropdown_list .lm_tab:hover {
-  background: var(--panel);
-}
-
-.lm_header .lm_tabdropdown_list .lm_tab .lm_title {
-  flex: 0 1 auto;
-  width: auto;
-  max-width: none;
-}
-
-.lm_header .lm_tabdropdown_list .lm_tab .tile-badge {
-  margin-left: auto;
-}
-
-.lm_header .lm_tabdropdown_list .lm_tab .tile-actions {
+.lm_header .lm_tabs:has(.lm_tab + .lm_tab) .tile-context {
   display: none;
 }
 
@@ -2372,26 +2314,26 @@ body.resizing-zones {
  * the tab's own × stands in for the stack's (which skips the unsaved-file check), last in the
  * row: placed against the header rather than the tab, past the maximise button.
  */
-.lm_header:not(:has(.lm_tabdropdown_list .lm_tab)) .lm_tab:only-child {
+.lm_header .lm_tab:only-child {
   flex: 1 1 auto;
   position: static;
   padding-right: 4px;
 }
 
-.lm_header:not(:has(.lm_tabdropdown_list .lm_tab)) .lm_tab:only-child .lm_close_tab {
+.lm_header .lm_tab:only-child .lm_close_tab {
   right: calc(9px + var(--zen-room, 0px));
 }
 
-.lm_header:not(:has(.lm_tabdropdown_list .lm_tab)):has(.lm_tab:only-child) .lm_controls {
+.lm_header:has(.lm_tab:only-child) .lm_controls {
   margin-right: calc(28px + var(--zen-room, 0px));
 }
 
-.lm_header:not(:has(.lm_tabdropdown_list .lm_tab)) .lm_tab:only-child .tile-badge {
+.lm_header .lm_tab:only-child .tile-badge {
   margin-left: auto;
 }
 
 /* The trash button keeps beside the ×, past the maximise button too. */
-.lm_header:not(:has(.lm_tabdropdown_list .lm_tab)) .lm_tab:only-child .tile-actions {
+.lm_header .lm_tab:only-child .tile-actions {
   position: absolute;
   top: 50%;
   right: calc(26px + var(--zen-room, 0px));
@@ -2399,11 +2341,11 @@ body.resizing-zones {
   transform: translateY(-50%);
 }
 
-.lm_header:not(:has(.lm_tabdropdown_list .lm_tab)):has(.lm_tab:only-child .tile-actions) .lm_controls {
+.lm_header:has(.lm_tab:only-child .tile-actions) .lm_controls {
   margin-right: calc(46px + var(--zen-room, 0px));
 }
 
-.lm_header:not(:has(.lm_tabdropdown_list .lm_tab)):has(.lm_tab:only-child) .lm_controls .lm_close {
+.lm_header:has(.lm_tab:only-child) .lm_controls .lm_close {
   display: none;
 }
 

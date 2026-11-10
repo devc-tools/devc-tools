@@ -3,6 +3,7 @@ import {
   createWheelAccumulator,
   decodeBase64,
   encodeInput,
+  joinRows,
   mouseButton,
   pastePaths,
   pixelToCell,
@@ -107,4 +108,34 @@ Deno.test('pastePaths brackets the paths, single-quoting any that need it', () =
     pastePaths(['/a/b.png', "/x y/it's.png"]),
     "\x1b[200~/a/b.png '/x y/it'\\''s.png'\x1b[201~",
   );
+});
+
+Deno.test('joinRows joins wrapped rows with a space and drops their indent', () => {
+  assertEquals(
+    joinRows(
+      'cd /src/app && npm run build --\n  --watch --mode production\n  --verbose',
+      2,
+      80,
+    ),
+    'cd /src/app && npm run build -- --watch --mode production --verbose',
+  );
+});
+
+Deno.test('joinRows glues a row that ran to the last column (a long word cut there)', () => {
+  const url = 'https://example.com/' + 'a'.repeat(40);
+  // The first row starts at column 2 and fills the rest of a 30-column pane.
+  const first = url.slice(0, 28);
+  assertEquals(
+    joinRows(`${first}\n${url.slice(28)} next`, 2, 30),
+    `${url} next`,
+  );
+});
+
+Deno.test('joinRows trims trailing spaces, skips blank rows, keeps a single row', () => {
+  assertEquals(
+    joinRows('  echo hi   \r\n\n   there  ', 0, 80),
+    'echo hi there',
+  );
+  assertEquals(joinRows('one line', 5, 80), 'one line');
+  assertEquals(joinRows('', 0, 80), '');
 });

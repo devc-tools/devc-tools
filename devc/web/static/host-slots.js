@@ -8,7 +8,7 @@
 //   devc-desktop:slot <id> <x> <y> <width> <height>   the placeholder's viewport rectangle
 //   devc-desktop:slot <id> hidden                     not on screen (another tab, covered, gone)
 //   devc-desktop:drag start | end                     a tile or sidebar row is being dragged
-//   devc-desktop:overlay open | closed                a menu or a tab list is open
+//   devc-desktop:overlay open | closed                a menu is open
 // In a browser they are debug lines no one sees.
 
 import { h } from './ui.js';
@@ -89,14 +89,10 @@ function setOverlay(/** @type {boolean} */ on) {
   tell(`overlay ${on ? 'open' : 'closed'}`);
 }
 
-/** Whether a menu, or a stack's list of the tabs it has no room for, is open. */
+/** Whether a menu is open. */
 function overlayOpen() {
   const menu = document.getElementById('menu');
-  if (menu && !menu.hidden) return true;
-  for (const list of document.querySelectorAll('.lm_tabdropdown_list')) {
-    if (/** @type {HTMLElement} */ (list).offsetParent !== null) return true;
-  }
-  return false;
+  return !!menu && !menu.hidden;
 }
 
 /**

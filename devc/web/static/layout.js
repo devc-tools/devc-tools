@@ -78,18 +78,65 @@ const COMPONENT_TYPES = /** @type {const} */ (['pane', 'file', 'diff', 'host']);
  */
 
 /**
- * Golden Layout puts a stack's tabs that don't fit in its tab list, and puts them back in the
- * header with `appendChild` once there is room, after the tabs that stayed (the active one, say):
- * the header then shows them out of order, though the stack's own order is unchanged. After each
- * of its tab layouts, each tab goes back to its place among those beside it (in the header, or in
- * the list), when one is out of place. Not while a tab is dragged over the header: its drop
- * placeholder is in there, where Golden Layout put it.
+ * A stack's tabs all stay in its header, which scrolls sideways when they don't fit (as VS
+ * Code's do), in place of Golden Layout's list of the tabs it has no room for. Its layout is
+ * given unlimited width, so every tab is placed in the header; the header's height is set as
+ * Golden Layout sets it. Golden Layout puts a new tab at its index but one back from its list
+ * with `appendChild`, so the tabs are also put back in the stack's order after each layout
+ * (not while a tab is dragged over the header: its drop placeholder is in there). The active
+ * tab is then scrolled into view.
  */
-const layOutTabs = Header.prototype.updateTabSizes;
 Header.prototype.updateTabSizes = function () {
-  layOutTabs.call(this);
+  if (this._tabsContainer.tabCount > 0) {
+    const height = this._show
+      ? this._layoutManager.layoutConfig.dimensions.headerHeight
+      : 0;
+    this._element.style.width = '';
+    this._element.style.height = `${height}px`;
+    this._tabsContainer.updateTabSizes(
+      Infinity,
+      this._getActiveComponentItemEvent(),
+    );
+  }
   keepTabOrder(this);
+  revealActiveTab(this);
 };
+
+const showActiveTab = Header.prototype.processActiveComponentChanged;
+Header.prototype.processActiveComponentChanged = function (item) {
+  showActiveTab.call(this, item);
+  revealActiveTab(this);
+};
+
+/** Scrolls a header's tabs so its active one shows whole (its left end when it is wider). */
+function revealActiveTab(/** @type {any} */ header) {
+  const bar = header.tabsContainerElement;
+  const tab = bar.querySelector(':scope > .lm_tab.lm_active');
+  if (!tab || bar.scrollWidth <= bar.clientWidth) return;
+  const box = bar.getBoundingClientRect();
+  const r = tab.getBoundingClientRect();
+  if (r.left < box.left || r.width > bar.clientWidth) {
+    bar.scrollLeft += r.left - box.left;
+  } else if (r.right > box.left + bar.clientWidth) {
+    bar.scrollLeft += r.right - (box.left + bar.clientWidth);
+  }
+}
+
+/**
+ * A wheel's vertical turn over a header's tabs scrolls them sideways (a trackpad's sideways
+ * swipe already does); a header whose tabs fit lets it through.
+ */
+function wheelTabs(/** @type {WheelEvent} */ ev) {
+  const target = /** @type {HTMLElement} */ (ev.target);
+  const bar = /** @type {HTMLElement | null} */ (target.closest?.(
+    '.lm_header > .lm_tabs',
+  ));
+  if (!bar || bar.scrollWidth <= bar.clientWidth) return;
+  if (Math.abs(ev.deltaY) <= Math.abs(ev.deltaX)) return;
+  ev.preventDefault();
+  const step = ev.deltaMode === WheelEvent.DOM_DELTA_LINE ? 16 : 1;
+  bar.scrollLeft += ev.deltaY * step;
+}
 
 /** @param {any} header a Golden Layout `Header` */
 function keepTabOrder(header) {
@@ -132,7 +179,7 @@ const SETTINGS = {
   showMaximiseIcon: true,
   showCloseIcon: true,
 };
-const HEADER = { popout: false };
+const HEADER = { popout: false, tabDropdown: false };
 /** A tile header's height in px, whatever a saved layout says (style.css lays the header out for it). */
 const HEADER_HEIGHT = 29;
 
@@ -361,8 +408,7 @@ export function createTiling(root, hooks) {
           const changed = contexts.get(tile)?.textContent !== el?.textContent;
           contexts.set(tile, el);
           applyBadge(container, tile);
-          // A new context widens or narrows the tab: Golden Layout measured it without, and
-          // would otherwise leave a sibling tab in its dropdown until the next resize.
+          // A new context widens or narrows the tab: the active one is scrolled back into view.
           if (changed) container.parent?.parentItem?.header?.updateTabSizes();
         },
         focus() {
@@ -411,6 +457,7 @@ export function createTiling(root, hooks) {
     // Golden Layout's drop zones include the stacks under zen mode's: the dropped tile is shown.
     if (tile && zenOn) item.focus();
   });
+  root.addEventListener('wheel', wheelTabs, { passive: false });
   // A right-click on a stack header outside its tabs (tabs handle their own, above).
   root.addEventListener('contextmenu', (e) => {
     if (e.defaultPrevented) return;

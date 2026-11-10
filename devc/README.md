@@ -465,7 +465,9 @@ is published from any container: the host server finds devcontainers with
   new tile), or drag it from the sidebar onto any tile's edge (a new split) or
   tab strip (a new tab in that stack). Drag a tile's tab to move it; rows,
   columns and tab stacks nest to any depth, the dividers resize, and each tab
-  can be maximised or closed. The same pane may be open in several tiles. Tiles
+  can be maximised or closed. A stack's tabs that don't fit scroll sideways
+  (the wheel or a trackpad swipe over them), and the active one is scrolled
+  into view. The same pane may be open in several tiles. Tiles
   are the browser's own layout
   ([Golden Layout](https://github.com/golden-layout/golden-layout), vendored)
   and never change Herdr's. The layout is kept in the browser's
@@ -535,6 +537,13 @@ is published from any container: the host server finds devcontainers with
   mode), except a right-click, which opens the tile's menu (the same one as
   its tab); **Shift+drag** selects locally and copies. The wheel scrolls the app
   when it tracks the mouse, and Herdr's scrollback otherwise.
+- **Copying a wrapped command:** a plain drag copies the text under it, with a
+  line break wherever the app wrapped it: agent TUIs, Claude Code included,
+  wrap text themselves, so a long command they print pastes as several lines
+  (a line the terminal wrapped at its edge copies as one). After such a drag,
+  the terminal's right-click menu has **Copy as one line**, which copies it
+  again with each row trimmed and the rows joined by a space, or by nothing
+  where a row ran to the terminal's last column (a long word cut there).
 - **Images for agents:** paste an image into a terminal (a screenshot copied
   with ⌘⌃⇧4 on a Mac or Win+Shift+S on Windows), or drop image files on it, and
   devc web writes each one to `~/.cache/devc/images/` where the terminal runs
