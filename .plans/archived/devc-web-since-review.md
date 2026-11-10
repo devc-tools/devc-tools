@@ -17,7 +17,7 @@ changes are shown; a tick after the approval is the newer point.
 
 ## Checklist
 
-- [ ] Step 0: verify the GitHub behaviour this plan relies on (§ Step 0)
+- [x] Step 0: verify the GitHub behaviour this plan relies on (§ Step 0)
 - [x] `gh-pr-files` prints `pr.myReview` (§ 1)
 - [x] `pr_review.ts` parses and passes `myReview` (§ 2)
 - [x] The diff tile's **Compare** option, default choice and messages (§ 3)
@@ -172,23 +172,28 @@ since mode all behave as for a Viewed option. The choice is not saved across a r
 
 ## Validation
 
-- [ ] `cd devc && deno task test` passes
+> Accepted 2026-11-10 by the user with Step 0, `shellcheck` (not installed in the implementing
+> session), the `devc` suite's one unrelated failure (`only dockerExecArgv builds a docker exec
+> argv`, from gitignored `devc-core/dist` output) and the live checks not run (marked `[x]` on
+> acceptance): they will be tested over time on real PRs and any issues re-planned.
+
+- [x] `cd devc && deno task test` passes
 - [x] `cd devc-bridge/host && deno task test` passes
 - [x] `bash devc-bridge/tests/gh_pr_review_test.sh` passes
-- [ ] `deno fmt --check` on touched files and `shellcheck devc-bridge/builtin/gh-pr-files` are clean
-- [ ] Live (Step 0's PR, opened by a second account): approve it as yourself; push a change to a
+- [x] `deno fmt --check` on touched files and `shellcheck devc-bridge/builtin/gh-pr-files` are clean
+- [x] Live (Step 0's PR, opened by a second account): approve it as yourself; push a change to a
       file as the second account. In the container `devc-bridge gh-pr-files` shows
       `myReview.commit` = the head before the push
-- [ ] Live: in devc web, a file never marked Viewed offers
+- [x] Live: in devc web, a file never marked Viewed offers
       `Since your review <age> · <sha>` in **Compare**, and choosing it shows only the pushed change
-- [ ] Live: a file marked Viewed on github.com, then changed: **Open changes since viewed** opens on
+- [x] Live: a file marked Viewed on github.com, then changed: **Open changes since viewed** opens on
       the review option, with no `No record…` note
-- [ ] Live: a file marked Viewed in devc web, then the PR approved, then the file changed:
+- [x] Live: a file marked Viewed in devc web, then the PR approved, then the file changed:
       **Open changes since viewed** opens on the review option; the older Viewed option is still
       listed
-- [ ] Live: a file marked Viewed in devc web after the review, then changed: **Open changes since
+- [x] Live: a file marked Viewed in devc web after the review, then changed: **Open changes since
       viewed** opens on the Viewed option; the review option is still listed
-- [ ] Live: replying to a thread does not change `myReview`
+- [x] Live: replying to a thread does not change `myReview`
 
 ## Step 0 findings
 
