@@ -2861,11 +2861,22 @@ async function loadDiff(view) {
     renderDiff(view);
     return;
   }
-  view.state = 'ok';
+  const first = view.state !== 'ok';
   view.error = '';
   view.data = result;
   const patch = result.file?.patch;
   view.parsed = typeof patch === 'string' ? parsePatch(patch) : null;
+  // With **Whole file** on, a first open stays on Loading… until the head's text is in, so it
+  // draws the whole file at once rather than the patch and then the whole file.
+  if (
+    first && wholeFile && !view.wantViewed && !view.since && view.parsed &&
+    offersWholeFile(view)
+  ) {
+    const got = readHead(view);
+    if (got) await got;
+    if (seq !== view.seq || diffViews.get(view.tile.id) !== view) return;
+  }
+  view.state = 'ok';
   setDiffTitle(view);
   if (view.wantViewed) {
     view.wantViewed = false;
