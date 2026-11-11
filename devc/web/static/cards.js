@@ -182,6 +182,7 @@ export function mountCards(opts) {
   tileArea = opts.tileArea;
   $root = opts.root;
   render = opts.render;
+  watchScrolling($root);
   // Hovering a pane's row in either section highlights its rows in the other.
   $root.addEventListener('mouseover', (e) => {
     const row = /** @type {HTMLElement} */ (e.target).closest?.(
@@ -217,6 +218,66 @@ export function cardsTileArea() {
 /** Renders the page's cards again, now. */
 export function renderTree() {
   render();
+}
+
+/** How long after the last wheel or scroll in the cards a held render waits, in ms. */
+const SCROLL_SETTLE_MS = 200;
+/** When the cards last scrolled (`performance.now()`), and whether a scrollbar is held. */
+let lastScrollAt = -Infinity;
+let scrollbarHeld = false;
+let heldRender = 0;
+
+/**
+ * Notes the user scrolling anywhere in `root`: a wheel, a scroll (keys, a drag), a scrollbar
+ * pressed until released. A render then waits (`renderSettled`), since it draws every section's
+ * scroll box anew and a scroll in progress ends with the element it started on.
+ *
+ * @param {HTMLElement} root
+ */
+function watchScrolling(root) {
+  const mark = () => {
+    lastScrollAt = performance.now();
+  };
+  root.addEventListener('wheel', mark, { capture: true, passive: true });
+  // `scroll` doesn't bubble: caught on the way down.
+  root.addEventListener('scroll', mark, { capture: true, passive: true });
+  root.addEventListener('pointerdown', (e) => {
+    const el = /** @type {HTMLElement} */ (e.target);
+    // Pressed on a scroll box itself, past its content's width: its scrollbar (rows cover the rest).
+    if (
+      el instanceof HTMLElement && el.scrollHeight > el.clientHeight &&
+      e.offsetX >= el.clientWidth
+    ) {
+      scrollbarHeld = true;
+      const release = () => {
+        scrollbarHeld = false;
+        mark();
+        window.removeEventListener('pointerup', release, true);
+        window.removeEventListener('pointercancel', release, true);
+      };
+      window.addEventListener('pointerup', release, true);
+      window.addEventListener('pointercancel', release, true);
+    }
+  }, true);
+}
+
+/**
+ * Renders the cards now, or once the user has stopped scrolling them (see `watchScrolling`):
+ * for renders the user didn't ask for, a server message's or a load's. Several held renders are
+ * one.
+ */
+export function renderSettled() {
+  const wait = lastScrollAt + SCROLL_SETTLE_MS - performance.now();
+  if (scrollbarHeld || wait > 0) {
+    if (!heldRender) {
+      heldRender = setTimeout(() => {
+        heldRender = 0;
+        renderSettled();
+      }, Math.max(wait, 50));
+    }
+    return;
+  }
+  renderTree();
 }
 
 /** The filter box's query changed (`sidebar.js`). */
@@ -2843,7 +2904,7 @@ export function queueRender() {
   renderQueued = true;
   queueMicrotask(() => {
     renderQueued = false;
-    renderTree();
+    renderSettled();
   });
 }
 

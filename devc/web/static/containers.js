@@ -91,6 +91,7 @@ import {
   pinnedCardItem,
   refocusTreeKey,
   renderPass,
+  renderSettled,
   renderTree,
   repoCard,
   repoGroupName,
@@ -292,13 +293,13 @@ function onContainersMessage(msg) {
     case 'snapshot':
     case 'pane_updated':
     case 'agent_status':
-      renderTree();
+      renderSettled();
       break;
     case 'fetch_result':
     case 'pull_result':
     case 'push_result':
     case 'result':
-      if (onRepoGitDone(msg)) renderTree();
+      if (onRepoGitDone(msg)) renderSettled();
       break;
   }
 }

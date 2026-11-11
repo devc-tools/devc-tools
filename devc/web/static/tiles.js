@@ -1680,7 +1680,9 @@ function saveFlag(key, on) {
  * @property {{head: string, text: string, map: (line: number) => number | null} | null} local
  *   while an open tile holds the file with other text: the PR head's lines mapped onto it
  * @property {number} scrollTop  where the body was last scrolled to while shown: a hidden tab
- *   reads as scrolled to the top, and a redraw starts a new body
+ *   reads as scrolled to the top
+ * @property {'' | 'loading' | 'error' | 'ok'} drawn  the state the body's rows were last drawn
+ *   for: rows drawn over a Loading… or error message scroll back to `scrollTop`
  * @property {boolean} [lspWanted]  whether it wanted a language server at the last sync
  * @property {number} changesRead  an uncommitted diff's answers that differed from the one before:
  *   `readHead`'s key, as the working tree changes under the same base
@@ -1862,15 +1864,20 @@ function mountDiffTile(tile) {
     filled: null,
     local: null,
     scrollTop: 0,
+    drawn: '',
   };
   diffViews.set(tile.id, view);
   diffHoverEvents(view);
   const saved = tile.diff ? takeSavedScroll(diffScrollKey(tile.diff)) : null;
   if (Number.isFinite(saved) && saved > 0) view.scrollTop = saved;
-  // Capture phase: `scroll` doesn't bubble, and the body is drawn anew on each render.
+  // Capture phase: `scroll` doesn't bubble, and the body is made on the first render.
   body.addEventListener('scroll', (e) => {
     const el = /** @type {HTMLElement} */ (e.target);
-    if (el.classList?.contains('diff-body') && el.clientHeight > 0) {
+    // Not while a Loading… or error message clamps it to the top: that isn't a place to keep.
+    if (
+      el.classList?.contains('diff-body') && el.clientHeight > 0 &&
+      view.drawn === 'ok'
+    ) {
       view.scrollTop = el.scrollTop;
     }
   }, true);
@@ -3378,13 +3385,24 @@ function renderDiff(view) {
     active instanceof HTMLTextAreaElement || active instanceof HTMLInputElement
       ? [active.selectionStart, active.selectionEnd]
       : null;
-  const body = h('div', { class: 'diff-body' });
+  // The body stays from render to render and only its rows are swapped: a new element would end
+  // a scroll in progress (a wheel's, a trackpad's momentum, a scrollbar drag), as the browser
+  // ties a scroll to the element it started on, and the diff draws several times as it loads.
+  const old = /** @type {HTMLElement | null} */ (
+    view.body.querySelector(':scope > .diff-body')
+  );
+  const body = old ?? h('div', { class: 'diff-body' });
   const find = diffFinds.get(view);
-  view.body.replaceChildren(diffHeader(view), ...(find ? [find.el] : []), body);
+  const head = [diffHeader(view), ...(find ? [find.el] : [])];
+  for (const el of [...view.body.children]) if (el !== body) el.remove();
+  if (old) old.before(...head);
+  else view.body.append(...head, body);
+  /** @type {(Node | string)[]} */
+  let content;
   if (view.state === 'loading') {
-    body.append(h('div', { class: 'diff-message' }, 'Loading…'));
+    content = [h('div', { class: 'diff-message' }, 'Loading…')];
   } else if (view.state === 'error') {
-    body.append(
+    content = [
       h(
         'div',
         { class: 'diff-message' },
@@ -3396,10 +3414,15 @@ function renderDiff(view) {
           }, 'Retry')
           : '',
       ),
-    );
-  } else body.append(...diffContent(view));
-  // Hidden, it stays at the top: shown again, the tab scrolls back (`tileVisibility`).
-  body.scrollTop = view.scrollTop;
+    ];
+  } else content = diffContent(view);
+  // In one swap, with no layout between: an empty body would clamp the scroll to the top.
+  body.replaceChildren(...content);
+  // Scrolled back only when the rows are new to the body: setting it while the diff was already
+  // drawn would cancel a wheel's scroll in progress. Hidden, it stays at the top: shown again,
+  // the tab scrolls back (`tileVisibility`).
+  if (!old || view.drawn !== 'ok') body.scrollTop = view.scrollTop;
+  view.drawn = view.state;
   if (active && active.isConnected && active !== document.activeElement) {
     active.focus({ preventScroll: true });
     if (

@@ -105,6 +105,7 @@ import {
   prViewed,
   queueRender,
   renderPass,
+  renderSettled,
   repoCard,
   saveSidebarState,
   sectionRow,
@@ -1734,7 +1735,7 @@ function onSidebarMessage(msg) {
   cardsMessage(msg);
   switch (msg.type) {
     case 'containers':
-      renderTree();
+      renderSettled();
       break;
     case 'dashboard':
       updateDashboardButton();
@@ -1746,20 +1747,20 @@ function onSidebarMessage(msg) {
       for (const id of selectedTasks) {
         if (!tasks.some((t) => t.id === id)) selectedTasks.delete(id);
       }
-      renderTree();
+      renderSettled();
       break;
     case 'snapshot':
     case 'pane_updated':
-      renderTree();
+      renderSettled();
       break;
     case 'agent_status':
-      renderTree();
+      renderSettled();
       break;
     case 'fetch_result':
     case 'pull_result':
     case 'push_result':
     case 'result':
-      if (onRepoGitDone(msg)) renderTree();
+      if (onRepoGitDone(msg)) renderSettled();
       break;
   }
 }
