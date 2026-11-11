@@ -81,6 +81,7 @@ import { sessionAge } from './lib/sessions.js';
 import { sinceOptions as compareChoices } from './lib/since.js';
 import { statusLetter } from './lib/pr_tree.js';
 import { fileStat } from './lib/commits.js';
+import { MAX_RULER_MATCHES, rulerMarks } from './lib/ruler.js';
 import { reopensDashboard } from './lib/dashboard.js';
 import { createNavHistory, navButton, navKey } from './lib/nav_history.js';
 import {
@@ -2183,6 +2184,72 @@ function updateSelectionMatches() {
   if (!found.length && !selectionMatches.length) return;
   selectionMatches = found;
   paintDiffHighlights();
+  paintDiffRuler();
+}
+
+/** The selection matches' overview ruler, in the diff tile they are in, while shown. */
+let diffRuler = /** @type {HTMLElement | null} */ (null);
+/**
+ * Draws the ruler again when its diff's body changes size (a tile resized, rows wrapped). Each
+ * body is observed once, not on every paint: observing calls back at once, which would loop.
+ */
+const diffRulerResize = typeof ResizeObserver === 'undefined'
+  ? null
+  : new ResizeObserver(() => paintDiffRuler());
+let diffRulerBody = /** @type {HTMLElement | null} */ (null);
+
+/** Watches `body` for size changes, and no other; null watches none. */
+function watchDiffRulerBody(/** @type {HTMLElement | null} */ body) {
+  if (body === diffRulerBody) return;
+  if (diffRulerBody) diffRulerResize?.unobserve(diffRulerBody);
+  diffRulerBody = body;
+  if (body) diffRulerResize?.observe(body);
+}
+
+/**
+ * VS Code's overview ruler for the selection's matches, as the file viewer's: a mark over the
+ * diff body's scrollbar track for each matching row, at its place in the diff.
+ */
+function paintDiffRuler() {
+  diffRuler?.remove();
+  diffRuler = null;
+  const first = selectionMatches[0];
+  if (!first) {
+    watchDiffRulerBody(null);
+    return;
+  }
+  const view = [...diffViews.values()].find((v) =>
+    v.body.contains(first.startContainer)
+  );
+  const body = /** @type {HTMLElement | null | undefined} */ (
+    view?.body.querySelector(':scope > .diff-body')
+  );
+  watchDiffRulerBody(body ?? null);
+  if (!view || !body || !body.scrollHeight) return;
+  const box = body.getBoundingClientRect();
+  const tops = selectionMatches.slice(0, MAX_RULER_MATCHES).flatMap((r) => {
+    const rect = r.getBoundingClientRect();
+    // A match in rows not laid out (a hidden tile) has no place.
+    return rect.width || rect.height
+      ? [(rect.top - box.top + body.scrollTop) / body.scrollHeight]
+      : [];
+  });
+  const marks = rulerMarks(tops, body.clientHeight);
+  if (!marks.length) return;
+  diffRuler = h(
+    'div',
+    {
+      class: 'diff-overview-ruler',
+      style: `top: ${body.offsetTop}px; height: ${body.clientHeight}px`,
+    },
+    ...marks.map((m) =>
+      h('div', {
+        class: 'diff-overview-mark',
+        style: `top: ${m.top}px; height: ${m.height}px`,
+      })
+    ),
+  );
+  view.body.append(diffRuler);
 }
 
 let selectionFrame = 0;

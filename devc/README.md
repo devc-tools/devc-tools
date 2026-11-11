@@ -843,7 +843,9 @@ is published from any container: the host server finds devcontainers with
   query has a capital, **Enter**/**Shift+Enter** (or **Ctrl/Cmd+G**, **F3**)
   step through the matches, **Escape** closes it. Selecting text on one line
   highlights its other occurrences, as a file tile does: only whole words for
-  a whole word, anywhere for part of one.
+  a whole word, anywhere for part of one. In both, a mark over the
+  scrollbar's track shows where each one is in the whole file or diff, as
+  VS Code's overview ruler does, so matches off screen show too.
   - **Changes since viewed.** GitHub records only whether a file is Viewed
     (or changed since), never the commit it was viewed at, so devc web keeps
     its own record: every mark it makes is added, with the PR's head at that

@@ -64,6 +64,7 @@ import {
   yaml,
 } from './vendor/codemirror/codemirror.mjs';
 import { languageFor as pickLanguage } from './lib/languages.js';
+import { MAX_RULER_MATCHES, rulerMarks } from './lib/ruler.js';
 
 /** @typedef {import('./lib/layout_state.js').FileRef} FileRef */
 
@@ -167,6 +168,20 @@ const themeRules = {
   '.cm-selectionMatch': {
     backgroundColor: 'color-mix(in srgb, var(--accent) 15%, transparent)',
   },
+  // Over the scrollbar's track, as VS Code's overview ruler: it lets the scrollbar have the mouse.
+  '.cm-overview-ruler': {
+    position: 'absolute',
+    right: '0',
+    width: 'var(--overview-ruler-width)',
+    pointerEvents: 'none',
+    zIndex: '3',
+  },
+  '.cm-overview-mark': {
+    position: 'absolute',
+    left: '0',
+    right: '0',
+    backgroundColor: 'var(--overview-mark)',
+  },
   '.cm-searchMatch': {
     backgroundColor: 'color-mix(in srgb, var(--blocked) 30%, transparent)',
     outline: '1px solid color-mix(in srgb, var(--blocked) 60%, transparent)',
@@ -238,6 +253,97 @@ const themes = {
   dark: EditorView.theme(themeRules, { dark: true }),
   light: EditorView.theme(themeRules, { dark: false }),
 };
+
+/**
+ * Where the selection's text occurs in the whole document (`highlightSelectionMatches` marks
+ * only what is on screen), for the overview ruler: as it, one non-empty range of at most 200
+ * characters, matched anywhere; not whitespace alone. Empty unless it occurs twice or more.
+ *
+ * @param {EditorState} state
+ * @returns {number[]}
+ */
+function selectionMatchPositions(state) {
+  const sel = state.selection;
+  const range = sel.main;
+  if (sel.ranges.length > 1 || range.empty || range.to - range.from > 200) {
+    return [];
+  }
+  const query = state.doc.sliceString(range.from, range.to);
+  if (!query.trim()) return [];
+  // Positions in the document count each line break as one character, as `toString` joins.
+  const text = state.doc.toString();
+  const out = [];
+  for (
+    let i = text.indexOf(query);
+    i >= 0 && out.length < MAX_RULER_MATCHES;
+    i = text.indexOf(query, i + query.length)
+  ) out.push(i);
+  return out.length < 2 ? [] : out;
+}
+
+/** Each view's ruler: its element while shown, and the matches it marks. */
+const rulers =
+  /** @type {WeakMap<EditorView, {el: HTMLElement | null, at: number[]}>} */ (
+    new WeakMap()
+  );
+
+/**
+ * VS Code's overview ruler for the selection's matches: a mark over the scrollbar's track for
+ * each line the selected text is on, at its place in the document, so matches off screen show.
+ */
+const selectionRuler = EditorView.updateListener.of((u) => {
+  let ruler = rulers.get(u.view);
+  if (!ruler) rulers.set(u.view, ruler = { el: null, at: [] });
+  if (u.selectionSet || u.docChanged) {
+    ruler.at = selectionMatchPositions(u.state);
+  } else if (!u.geometryChanged && !u.heightChanged && !u.viewportChanged) {
+    return;
+  }
+  if (!ruler.at.length && !ruler.el) return;
+  const shown = ruler;
+  u.view.requestMeasure({
+    key: shown,
+    read: (view) => {
+      const scroller = view.scrollDOM;
+      const height = view.contentHeight;
+      /** @type {number[]} */
+      const tops = [];
+      let line = -1;
+      for (const pos of shown.at) {
+        const block = view.lineBlockAt(pos);
+        if (block.from === line) continue;
+        line = block.from;
+        tops.push(block.top / height);
+      }
+      return {
+        top: scroller.offsetTop,
+        track: scroller.clientHeight,
+        marks: rulerMarks(tops, scroller.clientHeight),
+      };
+    },
+    write: ({ top, track, marks }, view) => {
+      if (!marks.length) {
+        shown.el?.remove();
+        shown.el = null;
+        return;
+      }
+      if (!shown.el) {
+        shown.el = document.createElement('div');
+        shown.el.className = 'cm-overview-ruler';
+        view.dom.append(shown.el);
+      }
+      shown.el.style.top = `${top}px`;
+      shown.el.style.height = `${track}px`;
+      shown.el.replaceChildren(...marks.map((m) => {
+        const mark = document.createElement('div');
+        mark.className = 'cm-overview-mark';
+        mark.style.top = `${m.top}px`;
+        mark.style.height = `${m.height}px`;
+        return mark;
+      }));
+    },
+  });
+});
 
 /** The theme for the page's mode (`<html data-mode>`, set by `client.js`). */
 function modeTheme() {
@@ -428,6 +534,7 @@ export function createViewer(
         highlightActiveLine(),
         bracketMatching(),
         highlightSelectionMatches(),
+        selectionRuler,
         search({ top: true }),
         // Ahead of the keymap below, so its keys (F12, Shift-F12, Shift-Alt-F, Escape on the
         // references panel) win.
