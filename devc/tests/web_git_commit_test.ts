@@ -10,6 +10,7 @@ import {
   readCommitDiff,
   readCommitFileAt,
   readCommitFiles,
+  readMirrorFileAt,
 } from '../web/git_commit.ts';
 import { readCommitHistory } from '../web/git_history.ts';
 import { fetchUpstream, type MirrorOpts } from '../web/git_status.ts';
@@ -379,5 +380,44 @@ Deno.test("commit reads never run the repo's hooks, fsmonitor or textconv", asyn
     // The control: a diff run in the repo, as the editor's would be, runs it.
     await git(work, 'diff', 'HEAD~1', '--', 'a.txt');
     assertEquals(await Deno.stat(planted).then(() => true, () => false), true);
+  });
+});
+
+Deno.test('readMirrorFileAt answers as gh-pr-file-at does, or null when the mirror cannot say', async () => {
+  await withRepo(async ({ work, opts }) => {
+    await Deno.mkdir(`${work}/dir`);
+    await Deno.writeTextFile(`${work}/dir/in.txt`, 'nested\n');
+    await Deno.writeFile(`${work}/nul.bin`, new Uint8Array([97, 0, 98]));
+    await Deno.writeFile(`${work}/latin1.txt`, new Uint8Array([0xe9, 10]));
+    await Deno.writeTextFile(`${work}/odd\nname*.txt`, 'odd\n');
+    await Deno.writeTextFile(`${work}/big.txt`, 'x'.repeat(1024 * 1024 + 1));
+    await Deno.remove(`${work}/link`);
+    await Deno.symlink('a.txt', `${work}/link`);
+    await git(work, 'add', '-A');
+    await commit(work, 'files');
+    const sha = await head(work);
+    const at = (path: string, s = sha) => readMirrorFileAt(work, s, path, opts);
+
+    // Not synced yet: the mirror lacks the commit, so the bridge is asked.
+    assertEquals(await at('a.txt'), null);
+    await sync(work, opts);
+    assertEquals(await at('a.txt'), {
+      content: 'one\ntwo\nthree\nfour\nfive\nsix\nseven\n',
+    });
+    assertEquals(await at('dir/in.txt'), { content: 'nested\n' });
+    assertEquals(await at('odd\nname*.txt'), { content: 'odd\n' });
+    assertEquals(await at('nope.txt'), { missing: true });
+    assertEquals(await at('dir'), { missing: true });
+    assertEquals(await at('dir/'), { missing: true });
+    assertEquals(await at('nul.bin'), { binary: true });
+    assertEquals(await at('latin1.txt'), { binary: true });
+    assertEquals(await at('big.txt'), { tooLarge: true });
+    assertEquals(await at('link'), null);
+    // An older commit's file, and a commit the mirror has never seen.
+    assertEquals(await at('link', await head(work, 'HEAD~1')), {
+      content: 'was a file\n',
+    });
+    assertEquals(await at('a.txt', 'a'.repeat(40)), null);
+    assertEquals(await at('a.txt', 'HEAD'), null);
   });
 });

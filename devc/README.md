@@ -887,7 +887,11 @@ is published from any container: the host server finds devcontainers with
   `"bridgeDefaultAllow"`). Everything goes through that container's
   devc-bridge (`gh-pr-files`, `gh-pr-comments`, `gh-pr-file-at`,
   `gh-pr-viewed`, `gh-pr-reply`, `gh-pr-pending-review`, `gh-pr-resolve`), so
-  the PR is always that pinned branch's. A
+  the PR is always that pinned branch's. One exception: a file at a commit
+  (for **Whole file**, hover and the Since comparisons) is read first from
+  the host-owned mirror the Commits section uses, when that commit is in it
+  (milliseconds, where `gh-pr-file-at` is several GitHub calls); a commit
+  the mirror hasn't fetched, or a symlink, goes to the bridge. A
   [project on this machine](#projects-on-this-machine) runs the same recipes
   with the host's own `gh` instead, with every PR capability (`gh-pr-read`, `gh-pr-reply`,
   `gh-pr-pending-review`, `gh-pr-viewed`, `gh-pr-resolve`,

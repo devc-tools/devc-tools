@@ -21,6 +21,7 @@ import {
   type PrAnswer,
   type PrMessage,
   PrReview,
+  type PrReviewDeps,
   readViewedHistory,
   replyBodyProblem,
   viewedHistoryFile,
@@ -147,7 +148,7 @@ exit "$(cat "$d/$cmd.code" 2>/dev/null || echo 0)"
   await Deno.writeTextFile(join(dir, 'gh-pr-resolve.out'), 'resolved: x\n');
   const home = join(dir, 'home');
   let running = true;
-  const review = (opts: { timeoutMs?: number; maxOutput?: number } = {}) =>
+  const review = (opts: Partial<PrReviewDeps> = {}) =>
     new PrReview({
       isRepo: (l, r) => l === LOCAL && r === ROOT,
       environment: () =>
@@ -1083,6 +1084,64 @@ Deno.test('pr_file_at: argv, a listed path or previous path, and each answer', a
       result(await review.handle(fileAt('src/a.ts'))).reason,
       'no_grant',
     );
+  } finally {
+    await t.done();
+  }
+});
+
+Deno.test('pr_file_at: the host mirror answers first, the bridge when it cannot', async () => {
+  const t = await setup();
+  try {
+    await t.policy('gh-pr-read');
+    await t.write(
+      'gh-pr-files.out',
+      filesOut({ files: [file('src/a.ts'), file('b.md')] }),
+    );
+    const asked: string[][] = [];
+    const local: Record<string, Record<string, unknown> | null> = {
+      'src/a.ts': { content: 'local\n' },
+      'b.md': null,
+    };
+    const review = t.review({
+      readFileAt: (root: string, sha: string, path: string) => {
+        asked.push([root, sha, path]);
+        return Promise.resolve(local[path] ?? null);
+      },
+    });
+    const fileAt = (path: string): PrMessage => ({
+      type: 'pr_file_at',
+      localFolder: LOCAL,
+      root: ROOT,
+      path,
+      sha: SHA,
+    });
+    await t.write(
+      'gh-pr-file-at.out',
+      JSON.stringify({ path: 'b.md', sha: SHA, content: 'bridge\n' }),
+    );
+    const before = (await t.calls()).length;
+    assertEquals(result(await review.handle(fileAt('src/a.ts'))), {
+      available: true,
+      path: 'src/a.ts',
+      sha: SHA,
+      text: 'local\n',
+    });
+    const after = await t.calls();
+    assert(!after.slice(before).some((c) => c.includes('gh-pr-file-at')));
+    assertEquals(asked, [[ROOT, SHA, 'src/a.ts']]);
+    local['src/a.ts'] = { missing: true };
+    assertEquals(
+      result(await review.handle(fileAt('src/a.ts'))).reason,
+      'missing',
+    );
+    // The mirror can't say: the bridge answers.
+    assertEquals(result(await review.handle(fileAt('b.md'))).text, 'bridge\n');
+    const calls = await t.calls();
+    assertEquals(calls[calls.length - 1].slice(7, 8), ['gh-pr-file-at']);
+    // A path not in the PR never reaches the mirror.
+    asked.length = 0;
+    failed(await review.handle(fileAt('nope.ts')), 'not_found');
+    assertEquals(asked, []);
   } finally {
     await t.done();
   }

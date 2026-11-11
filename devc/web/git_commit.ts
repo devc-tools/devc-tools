@@ -332,6 +332,73 @@ export async function readCommitDiff(
   };
 }
 
+/** {@link readMirrorFileAt}'s answer: the shape `gh-pr-file-at` prints, without path and sha. */
+export type MirrorFileAt =
+  | { content: string }
+  | { missing: true }
+  | { binary: true }
+  | { tooLarge: true };
+
+/** `gh-pr-file-at`'s own limit: a larger file is `tooLarge`, as GitHub's contents API has it. */
+export const MAX_PR_FILE_BYTES = 1024 * 1024;
+
+/**
+ * `path` at `sha` from the host mirror, answered as `gh-pr-file-at` would answer it, or null when
+ * the mirror can't say: the commit isn't in it (not fetched yet, a fork's, force-pushed away), the
+ * path is a symlink or the mirror failed. A commit's id fixes every file in it, so whatever the
+ * mirror has is what GitHub has. The commit present, a path not in it (or a directory, or a
+ * submodule) is `missing`, as GitHub's 404 or non-file is. Never throws.
+ */
+export async function readMirrorFileAt(
+  folder: string,
+  sha: string,
+  path: string,
+  opts: MirrorOpts = defaultMirrorOpts(),
+): Promise<MirrorFileAt | null> {
+  if (!COMMIT_SHA.test(sha) || path === '' || path.includes('\0')) return null;
+  const mirror = await mirrorOf(folder, opts);
+  if (typeof mirror !== 'string') return null;
+  // Fails when the commit isn't in the mirror. `ls-tree` paths match literally (no globs); the
+  // entry naming `path` itself is the one wanted, so a directory gives its own entry.
+  const listed = await runCapped(
+    [
+      `--git-dir=${mirror}`,
+      'ls-tree',
+      '-l',
+      '-z',
+      `${sha}^{commit}`,
+      '--',
+      path,
+    ],
+    LIST_MAX_OUTPUT,
+    TIMEOUT_MS,
+  );
+  if (listed === 'too_large' || 'failed' in listed) return null;
+  // `<mode> <type> <object> <size>\t<path>`, size padded, `-` for a non-blob.
+  const entry = new TextDecoder().decode(listed.out).split('\0')
+    .map((e) => e.match(/^(\d+) (\w+) ([0-9a-f]+) +(\S+)\t(.*)$/s))
+    .find((m) => m !== null && m[5] === path);
+  if (!entry) return { missing: true };
+  const [, mode, type, object, size] = entry;
+  // GitHub answers a symlink by its target's content when that is a file: left to the bridge.
+  if (mode === '120000') return null;
+  if (type !== 'blob') return { missing: true };
+  if (Number(size) > MAX_PR_FILE_BYTES) return { tooLarge: true };
+  const r = await runCapped(
+    [`--git-dir=${mirror}`, 'cat-file', 'blob', object],
+    MAX_PR_FILE_BYTES,
+    TIMEOUT_MS,
+  );
+  if (r === 'too_large') return { tooLarge: true };
+  if ('failed' in r) return null;
+  if (r.out.includes(0)) return { binary: true };
+  try {
+    return { content: new TextDecoder('utf-8', { fatal: true }).decode(r.out) };
+  } catch {
+    return { binary: true };
+  }
+}
+
 /** `path`'s text as `sha` has it, for Whole file. Never throws. */
 export async function readCommitFileAt(
   folder: string,

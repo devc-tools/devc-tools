@@ -187,6 +187,7 @@ import {
   readCommitDiff,
   readCommitFileAt,
   readCommitFiles,
+  readMirrorFileAt,
 } from './git_commit.ts';
 import {
   ActivityRecorder,
@@ -1180,6 +1181,7 @@ export async function startWeb(
       });
     },
     home: Deno.env.get('HOME') ?? '.',
+    readFileAt: (root, sha, path) => readMirrorFileAt(root, sha, path),
   });
 
   // The activity log (`activity.ts`): what this server observes, as state changes, attributed to

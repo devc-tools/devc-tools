@@ -678,6 +678,13 @@ export interface PrReviewDeps {
   ): Promise<{ kind: EnvironmentKind; name: string; pr: PrBackend | null }>;
   /** Where `~/.config/devc/` (the viewed history, `CONFIG_DIR`) is found. */
   home: string;
+  /**
+   * `path` at `sha` from the repo's host mirror (`readMirrorFileAt`), tried before
+   * `gh-pr-file-at`; null when the mirror can't say, and the bridge is asked.
+   */
+  readFileAt?(root: string, sha: string, path: string): Promise<
+    Record<string, unknown> | null
+  >;
   timeoutMs?: number;
   maxOutput?: number;
 }
@@ -736,6 +743,7 @@ export class PrReview {
     if ('problem' in line) return unavailable('no_grant', line.problem);
     const ctx: Ctx = {
       key: `${msg.localFolder}\n${root}`,
+      root,
       pr: env.pr,
       name: env.name,
       target: line.target,
@@ -960,9 +968,17 @@ export class PrReview {
       f.path === path || f.previousPath === path
     );
     if (!known) return { ok: false, code: 'not_found', message: FILE_GONE };
+    // The host mirror first: milliseconds, where the bridge is several GitHub calls.
+    const local = await this.#deps.readFileAt?.(ctx.root, sha, path)
+      .catch(() => null);
+    if (local) return fileAtAnswer({ ...local, path, sha }, path, sha);
     const out = await this.#run(ctx, 'gh-pr-file-at', sha, path);
     if (!out.ok) return out.answer;
-    return fileAtAnswer(out.stdout, path, sha);
+    let v: unknown;
+    try {
+      v = JSON.parse(out.stdout);
+    } catch { /* checked in fileAtAnswer */ }
+    return fileAtAnswer(v, path, sha);
   }
 
   /** The `pr_pending_*` messages: one `gh-pr-pending-review` subcommand each. */
@@ -1102,16 +1118,12 @@ export class PrReview {
   }
 }
 
-/** A `gh-pr-file-at` answer: the text, or why there is none. */
+/** A `gh-pr-file-at` answer (or the mirror's, in its shape): the text, or why there is none. */
 function fileAtAnswer(
-  stdout: string,
+  v: unknown,
   path: string,
   sha: string,
 ): PrAnswer {
-  let v: unknown;
-  try {
-    v = JSON.parse(stdout);
-  } catch { /* checked below */ }
   if (!isObj(v) || v.path !== path || v.sha !== sha) {
     return unavailable('bridge', UNEXPECTED_OUTPUT);
   }
@@ -1162,6 +1174,8 @@ function pendingAnswer(stdout: string): PrAnswer {
 
 interface Ctx {
   key: string;
+  /** The repo's folder, no trailing `/`. */
+  root: string;
   pr: PrBackend;
   name: string;
   target: string;
