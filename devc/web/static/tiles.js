@@ -81,7 +81,7 @@ import { sessionAge } from './lib/sessions.js';
 import { sinceOptions as compareChoices } from './lib/since.js';
 import { statusLetter } from './lib/pr_tree.js';
 import { fileStat } from './lib/commits.js';
-import { MAX_RULER_MATCHES, rulerMarks } from './lib/ruler.js';
+import { MAX_RULER_MATCHES, rulerMarks, rulerSpans } from './lib/ruler.js';
 import { reopensDashboard } from './lib/dashboard.js';
 import { createNavHistory, navButton, navKey } from './lib/nav_history.js';
 import {
@@ -3378,6 +3378,87 @@ function oneSided(view) {
   return status === 'added' ? 'new' : status === 'removed' ? 'old' : null;
 }
 
+/** Repaints a diff tile's change ruler when its body changes size (a tile resized, rows wrapped, shown again). */
+const changeRulerResize = typeof ResizeObserver === 'undefined'
+  ? null
+  : new ResizeObserver((entries) => {
+    for (const { target } of entries) {
+      const view = [...diffViews.values()].find((v) => v.body.contains(target));
+      if (view) paintChangeRuler(view);
+    }
+  });
+
+/**
+ * VS Code's overview ruler for a diff's changes: over the body's scrollbar track, a mark for each
+ * run of deleted rows in its left half and of added rows in its right half (a split view's old
+ * and new sides), at their place in the diff, so a change off screen shows. Not for an added or
+ * removed file: every row would be marked.
+ *
+ * @param {DiffView} view
+ */
+function paintChangeRuler(view) {
+  view.body.querySelector(':scope > .diff-change-ruler')?.remove();
+  const body = /** @type {HTMLElement | null} */ (
+    view.body.querySelector(':scope > .diff-body')
+  );
+  if (!body || view.state !== 'ok' || oneSided(view)) return;
+  const track = body.clientHeight;
+  const height = body.scrollHeight;
+  if (!track || !height) return;
+  /** Runs of rows on each side: their first and last row. @type {Record<'del' | 'add', HTMLElement[][]>} */
+  const runs = { del: [], add: [] };
+  /** @type {Record<'del' | 'add', HTMLElement | null>} */
+  const last = { del: null, add: null };
+  for (const el of body.querySelectorAll('.diff-row')) {
+    const row = /** @type {HTMLElement} */ (el);
+    // A unified row says its kind; a split row's two sides each say theirs.
+    const kind = row.dataset.kind;
+    const has = {
+      del: kind === 'del' ||
+        (!kind && row.querySelector(':scope > .diff-text[data-kind="del"]')),
+      add: kind === 'add' ||
+        (!kind && row.querySelector(':scope > .diff-text[data-kind="add"]')),
+    };
+    for (const side of /** @type {const} */ (['del', 'add'])) {
+      if (!has[side]) {
+        last[side] = null;
+        continue;
+      }
+      const run = runs[side];
+      if (last[side] && run.length) run[run.length - 1][1] = row;
+      else run.push([row, row]);
+      last[side] = row;
+    }
+  }
+  if (!runs.del.length && !runs.add.length) return;
+  const box = body.getBoundingClientRect();
+  const at = (/** @type {number} */ y) =>
+    (y - box.top + body.scrollTop) / height;
+  const lane = (/** @type {'del' | 'add'} */ side) =>
+    rulerSpans(
+      runs[side].map(([first, end]) => ({
+        from: at(first.getBoundingClientRect().top),
+        to: at(end.getBoundingClientRect().bottom),
+      })),
+      track,
+    ).map((m) =>
+      h('div', {
+        class: 'diff-change-mark',
+        'data-kind': side,
+        style: `top: ${m.top}px; height: ${m.height}px`,
+      })
+    );
+  view.body.append(h(
+    'div',
+    {
+      class: 'diff-change-ruler',
+      style: `top: ${body.offsetTop}px; height: ${track}px`,
+    },
+    ...lane('del'),
+    ...lane('add'),
+  ));
+}
+
 /** Draws a diff tile from its view: the header, then File threads and the hunks. */
 function renderDiff(view) {
   const active = /** @type {HTMLElement | null} */ (document.activeElement);
@@ -3423,6 +3504,8 @@ function renderDiff(view) {
   // the tab scrolls back (`tileVisibility`).
   if (!old || view.drawn !== 'ok') body.scrollTop = view.scrollTop;
   view.drawn = view.state;
+  if (!old) changeRulerResize?.observe(body);
+  paintChangeRuler(view);
   if (active && active.isConnected && active !== document.activeElement) {
     active.focus({ preventScroll: true });
     if (

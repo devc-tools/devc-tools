@@ -33,3 +33,40 @@ export function rulerMarks(fractions, track) {
   }
   return out;
 }
+
+/**
+ * The marks for runs of content at `spans` (each `{from, to}`, fractions of the content as
+ * {@link rulerMarks} takes them) on a ruler `track` pixels high: each at least
+ * {@link MARK_HEIGHT} tall, in order, touching or overlapping marks merged into one. A span
+ * outside 0–1 is clamped; one with a bound that isn't a number is skipped.
+ *
+ * @param {readonly {from: number, to: number}[]} spans @param {number} track
+ * @returns {{top: number, height: number}[]}
+ */
+export function rulerSpans(spans, track) {
+  if (!(track > 0)) return [];
+  const clamp = (/** @type {number} */ f) => Math.min(1, Math.max(0, f));
+  const marks = spans
+    .filter((s) => Number.isFinite(s.from) && Number.isFinite(s.to))
+    .map((s) => {
+      const top = Math.min(
+        Math.round(clamp(s.from) * track),
+        Math.max(0, track - MARK_HEIGHT),
+      );
+      const bottom = Math.max(
+        top + MARK_HEIGHT,
+        Math.round(clamp(Math.max(s.from, s.to)) * track),
+      );
+      return { top, height: bottom - top };
+    })
+    .sort((a, b) => a.top - b.top);
+  /** @type {{top: number, height: number}[]} */
+  const out = [];
+  for (const m of marks) {
+    const last = out[out.length - 1];
+    if (last && m.top <= last.top + last.height) {
+      last.height = Math.max(last.height, m.top + m.height - last.top);
+    } else out.push({ ...m });
+  }
+  return out;
+}
