@@ -3,7 +3,8 @@
 // the Containers pane the ones its own clicks asked for. Text only: nothing in a card is markup.
 // A card's confirm button is disabled until ARM_MS after its content last changed, and a click
 // counts only when the press began after that, so a click already in motion when the card
-// appeared or changed never lands. The main process checks the arming again.
+// appeared or changed never lands. The main process checks the arming again. A card still
+// checking, planning or running shows a spinner beside its phase line.
 
 import { type ActionCard, ARM_MS } from '../main/policy.ts';
 
@@ -78,7 +79,14 @@ export function actionColumn(
     for (const n of card.notes) parts.push(el('div', 'muted', n));
     if (card.refusal !== null) parts.push(el('div', 'refusal', card.refusal));
     const phase = PHASE_TEXT[card.phase];
-    if (phase) parts.push(el('div', 'muted', phase));
+    if (phase) {
+      parts.push(
+        el('div', 'muted phase', '', [
+          el('span', 'spinner'),
+          document.createTextNode(phase),
+        ]),
+      );
+    }
     s.lines = el('pre', '', card.lines.join('\n'));
     parts.push(s.lines);
     if (card.outcome !== null) {
