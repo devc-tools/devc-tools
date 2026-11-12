@@ -58,6 +58,7 @@ import {
   findDevc,
   type Found,
   globalConfigPath,
+  livePage,
   loginEnv,
   looked,
   onPath,
@@ -169,7 +170,15 @@ const TITLEBAR_SYMBOL_COLOR = '#d7dae0';
 const VIEW = 'devcd';
 
 /** A request as the app shows it: see `actions` in {@link main}. */
-type Shown = ActionState & { changedAt: number; where: 'drawer' | 'pane' };
+/**
+ * A request the app shows. `direct`: a drawer terminal request the app opens without a confirm
+ * (its devc web is not live, see `livePage`); it shows nowhere unless its check or open fails.
+ */
+type Shown = ActionState & {
+  changedAt: number;
+  where: 'drawer' | 'pane';
+  direct?: boolean;
+};
 
 interface Status {
   phase: 'starting' | 'failed';
@@ -196,7 +205,8 @@ let desktopToken: string | null = null;
  * The `devc` the app last ran, for the host actions' `devc git`, and its command when it is the
  * checkout's (`devc2`): the push cards say so.
  */
-let runner: { found: Found; checkout: string | null } | null = null;
+let runner: { found: Found; checkout: string | null; live: boolean } | null =
+  null;
 
 /** View → Theme: devc web's colors and the app's own (not the host terminals'). */
 let uiTheme: Theme = themeNamed(undefined);
@@ -412,7 +422,8 @@ async function main(): Promise<void> {
   const actions = new Map<string, Shown>();
   /** How many requests the drawer shows: a closed drawer peeks while there are any. */
   const drawerActions = () =>
-    [...actions.values()].filter((a) => a.where === 'drawer').length;
+    [...actions.values()].filter((a) => a.where === 'drawer' && !a.direct)
+      .length;
 
   /** The height between the title bar and devc web's host status strip, for a `height` window. */
   const areaOf = (height: number) =>
@@ -974,16 +985,17 @@ async function main(): Promise<void> {
         `devc not found. Looked in ${looked(config.devc).join(', ')}.`,
       );
     }
+    const args = devcArgs(
+      appArgs(process.argv, app.isPackaged),
+      config.webArgs,
+    );
     runner = {
       found,
       checkout: config.devc.kind === 'devc2' && !process.env.DEVC_DESKTOP_DEVC
         ? found.cmd.join(' ')
         : null,
+      live: livePage(args),
     };
-    const args = devcArgs(
-      appArgs(process.argv, app.isPackaged),
-      config.webArgs,
-    );
     if (current !== null || stopping) return;
     let child: DevcWeb;
     try {
@@ -2101,9 +2113,9 @@ async function main(): Promise<void> {
 
   function sendActions(): void {
     const cards = (where: Shown['where']) =>
-      [...actions.values()].filter((a) => a.where === where).map((a) =>
-        actionCard(a, runner?.checkout ?? null)
-      );
+      [...actions.values()].filter((a) => a.where === where && !a.direct).map((
+        a,
+      ) => actionCard(a, runner?.checkout ?? null));
     if (hostLoaded) {
       hostView.webContents.send('host-actions:list', cards('drawer'));
     }
@@ -2178,8 +2190,8 @@ async function main(): Promise<void> {
     let added = false;
     for (const req of requests) {
       if (actions.has(req.id)) continue;
-      add(req, 'drawer');
-      added = true;
+      // A terminal the page asked for while devc web is not live opens unasked (`check`).
+      if (!add(req, 'drawer').direct) added = true;
     }
     // A new request opens a closed drawer so its card shows, but never takes focus: a key meant
     // for devc web can't reach the card, whose confirm also waits 1 s after any change.
@@ -2188,7 +2200,7 @@ async function main(): Promise<void> {
   }
 
   /** Shows a new request `where`, and starts its checks. */
-  function add(req: ActionState['req'], where: Shown['where']): void {
+  function add(req: ActionState['req'], where: Shown['where']): Shown {
     const a: Shown = {
       req,
       phase: 'checking',
@@ -2198,9 +2210,44 @@ async function main(): Promise<void> {
       outcome: null,
       changedAt: Date.now(),
       where,
+      direct: where === 'drawer' && req.kind === 'terminal' &&
+        runner !== null && !runner.live,
     };
     actions.set(req.id, a);
     void check(a);
+    return a;
+  }
+
+  /**
+   * A `direct` terminal request, checked: opened at once, its card gone and the request dismissed
+   * on the server. A refused check or a failed open shows its card in the drawer instead, opened
+   * (never focused), as any request's.
+   */
+  async function openDirect(a: Shown): Promise<void> {
+    if (actions.get(a.req.id) !== a) return;
+    let outcome: { ok: boolean; text: string } | null = null;
+    if (a.phase === 'ready') {
+      update(a, () => {
+        a.phase = 'running';
+      });
+      outcome = await openTerminal(a);
+      if (outcome.ok) {
+        if (actions.get(a.req.id) === a) actions.delete(a.req.id);
+        actionsChanged();
+        void dismissOnServer(a.req.id);
+        return;
+      }
+    }
+    if (actions.get(a.req.id) !== a) return;
+    update(a, () => {
+      a.direct = false;
+      if (outcome !== null) {
+        a.phase = 'done';
+        a.outcome = outcome;
+      }
+    });
+    if (outcome !== null) void dismissOnServer(a.req.id);
+    if (!drawerOpen) setDrawer(true, false);
   }
 
   /** The env `devc git` runs with: the app's, with the login shell's `PATH` when it gave one. */
@@ -2226,6 +2273,7 @@ async function main(): Promise<void> {
         a.target = target;
         a.phase = target.ok ? 'ready' : 'refused';
       });
+      if (a.direct) await openDirect(a);
       return;
     }
     update(a, () => {

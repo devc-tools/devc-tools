@@ -20,6 +20,7 @@ import { readPolicy } from '../bridge.ts';
 import type { EnvironmentKind, PrBackend } from './environment.ts';
 import { type GitReading, type GitStatus, isGitProblem } from './git_status.ts';
 import { bridgeMessage } from './pr_review.ts';
+import { isProjectRepo, type ProjectView } from './projects_view.ts';
 
 /** How long one `gh-push` may run: several network steps, each up to 300 s by default. */
 export const PUSH_TIMEOUT_MS = 900_000;
@@ -127,11 +128,13 @@ async function pushOnce(
 
 /**
  * What a repo card's Push does (`RepoView.push`): `now` runs the container's own `gh-push`
- * (escalating a refusal to devc-desktop), `confirm` asks devc-desktop. Or why there is no Push
+ * (escalating a refusal to devc-desktop, or to the page's own dialog when it is trusted), `user`
+ * shows the page's push plan dialog and the server pushes (`push_plan`, `push_user`: only a
+ * trusted page, never under `--live`), `confirm` asks devc-desktop. Or why there is no Push
  * although there is something to push (`pushUnavailable`). Neither when there is nothing to push.
  */
 export type PushRoute =
-  | { push: 'now' | 'confirm' }
+  | { push: 'now' | 'user' | 'confirm' }
   | { pushUnavailable: string }
   | Record<never, never>;
 
@@ -142,13 +145,15 @@ export const START_TO_PUSH = 'start the container to push';
 /**
  * The rules for one repo, in order (see `.plans/devc-web-push-arrow.md`). `line` is the policy
  * line pinning the repo that grants `gh-push` ({@link pushLine}), whatever its branch; `running`
- * whether its container runs; `desktop` whether devc-desktop is connected.
+ * whether its container runs; `desktop` whether devc-desktop is connected; `direct` whether the
+ * page is trusted (not `--live`), so the server pushes once the page's dialog is confirmed.
  */
 export function pushRoute(
   git: GitStatus | null | undefined,
   line: PolicyLine | null,
   running: boolean,
   desktop: boolean,
+  direct = false,
 ): PushRoute {
   if (!git || git.ahead === 0) return {};
   if (git.upstream !== null && git.upstream !== `origin/${git.branch}`) {
@@ -160,6 +165,7 @@ export function pushRoute(
   if (line !== null && running && line.branch === git.branch) {
     return { push: 'now' };
   }
+  if (direct) return { push: 'user' };
   if (desktop) return { push: 'confirm' };
   if (line !== null && !running) return { pushUnavailable: START_TO_PUSH };
   if (line !== null) {
@@ -187,6 +193,7 @@ export async function pushRoutes(
   gitOf: (folder: string) => GitReading | undefined,
   read: PolicyReader,
   desktop: boolean,
+  direct = false,
 ): Promise<Map<string, PushRoute>> {
   const out = new Map<string, PushRoute>();
   for (const p of projects) {
@@ -198,6 +205,7 @@ export async function pushRoutes(
         pushLine(lines, folder),
         p.running,
         desktop,
+        direct,
       );
       if (Object.keys(route).length > 0) out.set(folder, route);
     }
@@ -252,20 +260,26 @@ export async function pushRepo(
 /** What `push_result` carries for a finished push. */
 export type PushAnswer =
   | { ok: true; message: string }
-  | { ok: false; problem: string; asked?: true };
+  | { ok: false; problem: string; asked?: true; confirm?: true };
 
 /**
- * A push's answer, escalating a `gh-push` exit 3 (a refusal only the user may waive) to a
- * devc-desktop push request through `ask` (`DesktopRequests.add`), when devc-desktop is connected
- * (`ask` non-null). Every other outcome is answered as it is.
+ * A push's answer, escalating a `gh-push` exit 3 (a refusal only the user may waive): to the
+ * page's own push dialog when the page is trusted (`direct`: `confirm`, the page asks for the
+ * plan and the server pushes once it is confirmed), else to a devc-desktop push request through
+ * `ask` (`DesktopRequests.add`), when devc-desktop is connected (`ask` non-null). Every other
+ * outcome is answered as it is.
  */
 export function escalate(
   outcome: PushOutcome,
   ask:
     | (() => { ok: true } | { ok: false; problem: string })
     | null,
+  direct = false,
 ): PushAnswer {
   if (outcome.ok) return outcome;
+  if (outcome.code === 3 && direct) {
+    return { ok: false, problem: outcome.problem, confirm: true };
+  }
   if (outcome.code !== 3 || ask === null) {
     return { ok: false, problem: outcome.problem };
   }
@@ -275,4 +289,24 @@ export function escalate(
     problem:
       `${outcome.problem}; and devc-desktop could not be asked: ${added.problem}`,
   };
+}
+
+/** Why `push_plan` / `push_user` is refused under `--live`. */
+export const USER_PUSH_LIVE =
+  'pushing from the page is off while devc web runs with --live: in devc-desktop, Push… asks it instead';
+
+/**
+ * Why a page's own push (`push_plan`, `push_user`) is refused, or null: never while the page is
+ * untrusted (`trusted` false: `--live`), and only for one of the project's repos.
+ */
+export function userPushRefusal(
+  msg: { localFolder: string; folder: string },
+  projects: readonly ProjectView[],
+  trusted: boolean,
+): { code: 'live_refused' | 'unknown_repo'; problem: string } | null {
+  if (!trusted) return { code: 'live_refused', problem: USER_PUSH_LIVE };
+  if (!isProjectRepo(projects, msg.localFolder, msg.folder)) {
+    return { code: 'unknown_repo', problem: 'unknown repo' };
+  }
+  return null;
 }

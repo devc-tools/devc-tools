@@ -3811,6 +3811,29 @@ button.primary.danger {
   width: min(520px, calc(100vw - 32px));
 }
 
+/* A trusted page's Push (ui.js `pushDialog`) */
+.dialog.push-dialog {
+  width: min(560px, calc(100vw - 32px));
+}
+
+.push-warnings,
+.push-commits {
+  margin: 0;
+  padding-left: 18px;
+  overflow-wrap: anywhere;
+}
+
+.push-warnings {
+  color: var(--danger);
+}
+
+.push-commits {
+  max-height: 40vh;
+  overflow-y: auto;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: calc(var(--font-size) - 1px);
+}
+
 .review-body {
   min-height: 6em;
   resize: vertical;

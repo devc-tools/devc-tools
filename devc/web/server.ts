@@ -186,9 +186,12 @@ import {
 import {
   escalate,
   policyReader,
+  PUSHED_MOMENTS_AGO,
   pushRepo,
   pushRoutes,
+  userPushRefusal,
 } from './granted_push.ts';
+import { pushPlan, userPush } from '../git_push.ts';
 import { readCommitHistory } from './git_history.ts';
 import {
   readCommitDiff,
@@ -1104,7 +1107,7 @@ export async function startWeb(
     return byFolder;
   };
   // Each repo's Push route (`granted_push.ts`'s `pushRoute`): the container's own `gh-push`
-  // grant, devc-desktop's confirmation, or why neither. Read from the host-only policies after
+  // grant, the page's own push dialog (not `--live`), devc-desktop's confirmation, or why none. Read from the host-only policies after
   // every git-watch pass and whenever a container comes or goes. The push handler decides again
   // from the policy read then; this only shapes the page.
   let pushRouteMap: ReadonlyMap<
@@ -1130,6 +1133,7 @@ export async function startWeb(
       (folder) => gitWatch.statuses.get(folder) ?? undefined,
       readPushPolicy,
       desktopToken !== null,
+      projectStarts,
     );
     if (seq !== routesSeq) return;
     const key = (m: ReadonlyMap<string, unknown>) =>
@@ -2051,16 +2055,65 @@ export async function startWeb(
       status: (folder) => gitWatch.statuses.get(folder),
       startAllowed: (folder) => startAllowed(pushStarts, folder),
     });
-    // A refusal only the user may waive: devc-desktop asks them, as `request_push` does.
+    // A refusal only the user may waive: the page's own push dialog asks them when the page is
+    // trusted (not `--live`), else devc-desktop, as `request_push` does.
     answer(escalate(
       outcome,
       desktopToken === null
         ? null
         : () => desktopRequests.add('push', msg.localFolder, msg.folder),
+      projectStarts,
     ));
     // Its ↑ mark, and the Commits section's Pushed line: devc web's mirror learns of the push
     // (`gh-push` published from the bridge's own), then every repo is read again.
     if (outcome.ok) {
+      await refreshRemote(msg.folder);
+      void gitWatch.refresh();
+    }
+  };
+
+  /**
+   * The page's own push of a repo's branch (`push_plan`, then `push_user` with the plan's SHA),
+   * from the host through the push mirror, as `devc git push-plan` / `devc git push --sha` do:
+   * the user confirmed it in the page's push dialog. Only while the page is trusted
+   * (`projectStarts`: not `--live`); under `--live` Push asks devc-desktop instead. Needs no
+   * running environment, and works for host projects. Rate-limited with `push_repo`.
+   */
+  const userPushFor = async (
+    c: Client,
+    msg: Extract<ClientMessage, { type: 'push_plan' | 'push_user' }>,
+  ) => {
+    const refused = userPushRefusal(
+      msg,
+      projectsMessage().projects,
+      projectStarts,
+    );
+    if (refused !== null) {
+      fail(c, msg.id, refused.code, refused.problem);
+      return;
+    }
+    if (msg.type === 'push_plan') {
+      reply(c, { id: msg.id, ok: true, result: await pushPlan(msg.folder) });
+      return;
+    }
+    const answer = (
+      o: { ok: true; message: string } | { ok: false; problem: string },
+    ) =>
+      c.send(
+        JSON.stringify({
+          type: 'push_result',
+          id: msg.id,
+          folder: msg.folder,
+          ...o,
+        }),
+      );
+    if (!startAllowed(pushStarts, msg.folder)) {
+      answer({ ok: false, problem: PUSHED_MOMENTS_AGO });
+      return;
+    }
+    const r = await userPush(msg.folder, msg.sha);
+    answer(r.ok ? r : { ok: false, problem: r.problem });
+    if (r.ok) {
       await refreshRemote(msg.folder);
       void gitWatch.refresh();
     }
@@ -3942,6 +3995,10 @@ export async function startWeb(
     }
     if (msg.type === 'push_repo') {
       await pushRepoFor(c, msg);
+      return;
+    }
+    if (msg.type === 'push_plan' || msg.type === 'push_user') {
+      await userPushFor(c, msg);
       return;
     }
     if (msg.type === 'worktree_options') {

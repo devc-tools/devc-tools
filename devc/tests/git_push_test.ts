@@ -14,6 +14,7 @@ import {
   type PushPlan,
   pushPlan,
   pushPolicyDir,
+  userPush,
 } from '../git_push.ts';
 
 const GH_PIN = 'git@github.com:acme/widget.git';
@@ -270,6 +271,20 @@ Deno.test('push refuses a sha the branch has moved past, and pushes nothing', as
     await git(home, repo, 'commit', '-q', '--allow-empty', '-m', 'late');
     assertEquals(await gitPush(repo, plan.sha, opts), 2);
     assertEquals(await remoteRef('refs/heads/feat'), null);
+  });
+});
+
+Deno.test("userPush: the server's captured push, and a moved branch's refusal", async () => {
+  await withWorld(async ({ home, repo, opts, remoteRef }) => {
+    const plan = await pushPlan(repo, opts);
+    assert(plan.ok);
+    const pushed = await userPush(repo, plan.sha, opts);
+    assert(pushed.ok, JSON.stringify(pushed));
+    assertEquals(await remoteRef('refs/heads/feat'), plan.sha);
+    await git(home, repo, 'commit', '-q', '--allow-empty', '-m', 'late');
+    const moved = await userPush(repo, plan.sha, opts);
+    assert(!moved.ok && moved.code === 2, JSON.stringify(moved));
+    assert(!moved.problem.startsWith('gh-push:'));
   });
 });
 

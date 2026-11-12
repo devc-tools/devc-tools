@@ -205,6 +205,27 @@ Deno.test('parseClientMessage: request_push and request_project', () => {
   bad({ type: 'request_project', id: 'q', action: 'start', localFolder: 'a' });
 });
 
+Deno.test('parseClientMessage: push_plan, and push_user with a full sha', () => {
+  const ok = (m: Record<string, unknown>) => {
+    const r = parseClientMessage(JSON.stringify(m));
+    assert(r.ok, JSON.stringify(m));
+    assertEquals(r.msg, m);
+  };
+  const bad = (m: Record<string, unknown>) => {
+    const r = parseClientMessage(JSON.stringify(m));
+    assert(!r.ok, JSON.stringify(m));
+    assertEquals(r.rejection.code, 'bad_request');
+  };
+  const at = { localFolder: '/src/a', folder: '/src/a/lib' };
+  ok({ type: 'push_plan', id: 'p', ...at });
+  bad({ type: 'push_plan', id: 'p', localFolder: '/src/a', folder: 'lib' });
+  ok({ type: 'push_user', id: 'u', ...at, sha: 'a'.repeat(40) });
+  ok({ type: 'push_user', id: 'u', ...at, sha: 'b'.repeat(64) });
+  bad({ type: 'push_user', id: 'u', ...at });
+  bad({ type: 'push_user', id: 'u', ...at, sha: 'a'.repeat(12) });
+  bad({ type: 'push_user', id: 'u', ...at, sha: 'HEAD' });
+});
+
 Deno.test('parseClientMessage: request_terminal names a project and one of its repos', () => {
   const m: Record<string, unknown> = {
     type: 'request_terminal',

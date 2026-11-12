@@ -22,7 +22,10 @@ import {
   pushRoutes,
   START_TO_PUSH,
   STATUS_UNKNOWN,
+  USER_PUSH_LIVE,
+  userPushRefusal,
 } from '../web/granted_push.ts';
+import type { ProjectView } from '../web/projects_view.ts';
 
 const line = (over: Partial<PolicyLine> = {}): PolicyLine => ({
   repo: '/src/app',
@@ -139,6 +142,39 @@ Deno.test('pushRoute: each rule, in order', () => {
   });
 });
 
+Deno.test('pushRoute: a trusted page (direct) pushes itself where the grant does not apply', () => {
+  const g = (over: Partial<GitStatus> = {}): GitStatus => ({
+    ...(status('feat') as GitStatus),
+    ahead: 2,
+    ...over,
+  });
+  // The grant still goes first, and the upstream rule before it.
+  assertEquals(pushRoute(g(), line(), true, true, true), { push: 'now' });
+  assertEquals(
+    pushRoute(g({ upstream: 'origin/main' }), null, true, true, true),
+    { pushUnavailable: 'tracks origin/main; Push goes to origin/feat' },
+  );
+  // Before devc-desktop, and without it: no grant, a stopped container, another branch.
+  assertEquals(pushRoute(g(), null, true, true, true), { push: 'user' });
+  assertEquals(pushRoute(g(), null, false, false, true), { push: 'user' });
+  assertEquals(pushRoute(g(), line(), false, false, true), { push: 'user' });
+  assertEquals(pushRoute(g({ branch: 'x' }), line(), true, false, true), {
+    push: 'user',
+  });
+  assertEquals(pushRoute(g({ ahead: 0 }), null, true, true, true), {});
+});
+
+Deno.test('pushRoutes: direct gives a host project Push', async () => {
+  const got = await pushRoutes(
+    [{ localFolder: '/h', container: false, running: false, folders: ['/h'] }],
+    () => ({ ...(status('feat') as GitStatus), ahead: 1 }),
+    () => Promise.resolve([]),
+    false,
+    true,
+  );
+  assertEquals([...got], [['/h', { push: 'user' }]]);
+});
+
 Deno.test('pushRoutes: a container project reads its policy, a host project never', async () => {
   const read: string[] = [];
   const ahead = (branch: string): GitReading => ({
@@ -200,6 +236,30 @@ Deno.test('escalate: exit 3 asks devc-desktop when it is connected', () => {
     ok: true,
     message: 'pushed',
   });
+});
+
+Deno.test('escalate: exit 3 on a trusted page opens its dialog, never devc-desktop', () => {
+  const refusal = { ok: false as const, problem: 'refused: x', code: 3 };
+  let asked = 0;
+  const ask = () => {
+    asked++;
+    return { ok: true as const };
+  };
+  assertEquals(escalate(refusal, ask, true), {
+    ok: false,
+    problem: 'refused: x',
+    confirm: true,
+  });
+  assertEquals(escalate(refusal, null, true), {
+    ok: false,
+    problem: 'refused: x',
+    confirm: true,
+  });
+  assertEquals(escalate({ ...refusal, code: 4 }, ask, true), {
+    ok: false,
+    problem: 'refused: x',
+  });
+  assertEquals(asked, 0);
 });
 
 Deno.test('policyReader: present, absent and malformed policies', async () => {
@@ -333,4 +393,24 @@ Deno.test('pushRepo: a second request while one runs shares it, past the rate li
   assertEquals(await first, { ok: true, message: 'pushed: x' });
   assertEquals(await second, { ok: true, message: 'pushed: x' });
   assertEquals(calls, ['gh-push']);
+});
+
+Deno.test('userPushRefusal: refused under --live, and for a folder not among the repos', () => {
+  const projects = [
+    { localFolder: '/p', repos: [{ folder: '/p' }, { folder: '/p/lib' }] },
+  ] as unknown as ProjectView[];
+  const msg = { localFolder: '/p', folder: '/p/lib' };
+  assertEquals(userPushRefusal(msg, projects, true), null);
+  assertEquals(userPushRefusal(msg, projects, false), {
+    code: 'live_refused',
+    problem: USER_PUSH_LIVE,
+  });
+  assertEquals(
+    userPushRefusal(
+      { localFolder: '/p', folder: '/elsewhere' },
+      projects,
+      true,
+    ),
+    { code: 'unknown_repo', problem: 'unknown repo' },
+  );
 });

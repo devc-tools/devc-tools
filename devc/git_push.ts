@@ -361,3 +361,46 @@ export async function gitPush(
   );
   return (await cmd.spawn().status).code;
 }
+
+/** How {@link userPush} ended: `ok` on exit 0, with the recipe's last stdout line. */
+export type UserPushOutcome =
+  | { ok: true; message: string }
+  | { ok: false; code: number; problem: string };
+
+/**
+ * {@link gitPush} for devc web's server (a trusted page's confirmed Push): the same user-mode
+ * recipe run, its output captured. Never throws.
+ */
+export async function userPush(
+  folder: string,
+  sha: string,
+  opts: PushOptions = {},
+): Promise<UserPushOutcome> {
+  try {
+    const pin = await pushPin(folder);
+    if ('problem' in pin) return { ok: false, code: 2, problem: pin.problem };
+    const out = await (await recipeCommand(
+      pin.line,
+      'user',
+      ['--sha', sha],
+      opts,
+      'piped',
+    )).output();
+    const decoder = new TextDecoder();
+    if (out.code !== 0) {
+      return {
+        ok: false,
+        code: out.code,
+        problem: problemOf(decoder.decode(out.stderr), out.code),
+      };
+    }
+    const last = decoder.decode(out.stdout).trim().split('\n').at(-1)?.trim();
+    return { ok: true, message: last || 'pushed' };
+  } catch (e) {
+    return {
+      ok: false,
+      code: 2,
+      problem: e instanceof Error ? e.message : String(e),
+    };
+  }
+}

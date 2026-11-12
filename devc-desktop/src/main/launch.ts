@@ -201,6 +201,20 @@ export function devcArgs(appArgs: string[], configArgs: string[]): string[] {
 }
 
 /**
+ * Whether `devc web` run with `args` (as {@link devcArgs} gives them) serves a page a container
+ * could have written: `--live`, `--live-yolo` or `--source` (either spelling) among them. Without
+ * any, the page is devc's built-in copy, which already starts containers and opens host shells
+ * unasked, so the app opens its host terminal requests without a confirm. Any argument spelled
+ * like one counts, even as another flag's value: a false "live" only keeps the confirm.
+ */
+export function livePage(args: readonly string[]): boolean {
+  return args.some((a) =>
+    a === '--live' || a === '--live-yolo' || a === '--source' ||
+    a.startsWith('--source=')
+  );
+}
+
+/**
  * The environment a child of the app gets (`devc web`, and the host terminal's shell): the
  * app's, with `PATH` replaced when the login shell supplied one, and never an `ELECTRON_*`
  * variable (`ELECTRON_RUN_AS_NODE` would turn any Electron app the shell starts into Node) nor

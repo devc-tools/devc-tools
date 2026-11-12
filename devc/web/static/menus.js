@@ -511,6 +511,11 @@ export function requestPush(localFolder, folder) {
   );
 }
 
+/** Whether this page is devc-desktop's Containers pane, whose pushes the app shows and runs. */
+export function hasAppActions() {
+  return appActions !== null;
+}
+
 /**
  * Whether this page can ask devc-desktop for anything: it is the app's Containers pane, or devc
  * web runs with `--desktop-channel`. In a plain browser it can't.

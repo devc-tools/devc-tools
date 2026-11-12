@@ -333,13 +333,22 @@ is published from any container: the host server finds devcontainers with
   policy for every push and never takes the page's word, so it works under
   `--live` and `--live-yolo` too. A toast shows `gh-push`'s `pushed: …` or
   `up to date: …` line, and **↑N** clears once devc web has looked at the
-  remote again. When `gh-push` refuses something only you may waive (exit 3)
-  and devc-desktop is connected, the server asks devc-desktop for you: the toast
-  reads `needs your confirmation in devc-desktop: <reason>`, and you confirm
-  the push in its HOST drawer. Without a grant, Push asks devc-desktop
-  directly. With neither, or when the branch tracks something other than
-  `origin/<branch>` (Push publishes `origin/<branch>`), **↑N** is read-only and
-  its tooltip says why. A spinner shows in the mark while a fetch, pull or push
+  remote again. Without `--live` (the built-in page), every other Push is
+  devc web's own: Push with no grant that applies (none, the container
+  stopped, another branch checked out, or a project on this machine) shows a
+  push dialog with what `devc git push-plan` reports (branch → remote, the
+  commits, and warnings for the default branch, workflow changes, a
+  non-fast-forward and an LFS pointer, the last two leaving **Push** greyed
+  out), and its **Push** pushes that plan's SHA from the host as `devc git
+  push --sha` does (`push_plan`, `push_user`); a commit made since fails with
+  the branch moved. When `gh-push` refuses something only you may waive (exit
+  3), the same dialog opens, its first line saying what `gh-push` refused.
+  Under `--live` the page can't do that: the refusal goes to devc-desktop when
+  it is connected (the toast reads `needs your confirmation in devc-desktop:
+  <reason>`, and you confirm the push in its HOST drawer), and Push with no
+  grant asks devc-desktop directly. With neither, or when the branch tracks
+  something other than `origin/<branch>` (Push publishes `origin/<branch>`),
+  **↑N** is read-only and its tooltip says why. A spinner shows in the mark while a fetch, pull or push
   runs, and a toast if it can't. A card's **Commits** button (never **↑N**)
   shows the branch's history on a colored rail: hollow dots to pull, solid dots
   local only, and small muted dots under a **Pushed** line. It needs no bridge
@@ -968,13 +977,14 @@ is published from any container: the host server finds devcontainers with
   `devc web: desktop <64 hex>`, and keeps it out of every URL, page and
   environment (projects on this machine inherit devc web's environment; under
   `--live-yolo` the supervisor hands it to its child on stdin). The page can
-  then **ask** the app: **Push** on a repo card (the menu or **↑N**:
-  `request_push`) when no `gh-push` grant applies, or when `gh-push` refused
-  what only you may waive (the server queues it then), and,
-  under `--live`, **Start** on a stopped project (`request_project`), and
-  **Open Host Terminal…** on a repo card (`request_terminal`; under `--live`
-  and `--live-yolo` too: the app checks the folder itself). The item shows
-  only in the app, never in a plain browser. The request waits on devc web's
+  then **ask** the app: under `--live`, **Push** on a repo card (the menu or
+  **↑N**: `request_push`) when no `gh-push` grant applies, or when `gh-push`
+  refused what only you may waive (the server queues it then), and **Start**
+  on a stopped project (`request_project`); and **Open Host Terminal…** on a
+  repo card (`request_terminal`; under `--live` and `--live-yolo` too: the app
+  checks the folder itself). The item shows only in the app, never in a plain
+  browser. When the app runs devc web without `--live`, it opens the terminal
+  as soon as its folder check passes, with no confirmation. The request waits on devc web's
   server until the app reads it (`GET /desktop/requests`, whose `kinds=` names
   the kinds the app understands; without it, push, start, stop and down); the
   app works out the push (`devc git push-plan`), the start or the folder

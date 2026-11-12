@@ -41,10 +41,12 @@ export interface RepoView extends MountedRepo {
   changesProblem?: string;
   /**
    * What its **Push** (the menu item and the ↑N click) does: `now` runs the container's own
-   * `gh-push` grant, escalating a refusal to devc-desktop; `confirm` asks devc-desktop. Absent:
-   * no Push. See `granted_push.ts`'s `pushRoute`.
+   * `gh-push` grant, escalating a refusal to devc-desktop (or to the page's dialog when `user`
+   * pushes are on); `user` shows the push plan in the page and the server pushes it (`push_plan`,
+   * `push_user`; never under `--live`); `confirm` asks devc-desktop. Absent: no Push. See
+   * `granted_push.ts`'s `pushRoute`.
    */
-  push?: 'now' | 'confirm';
+  push?: 'now' | 'user' | 'confirm';
   /** Why there is no Push although `git.ahead > 0`: the read-only ↑N's tooltip. */
   pushUnavailable?: string;
 }

@@ -19,6 +19,7 @@ import {
   type FindDeps,
   findDevc,
   globalConfigPath,
+  livePage,
   type LoginEnv,
   loginEnv,
   looked,
@@ -130,6 +131,18 @@ test("devcArgs: --no-open and --desktop-channel first; the app's own args win ov
     devcArgs(['--live-yolo'], ['--live']),
     [...always, '--live-yolo'],
   );
+});
+
+test('livePage: --live, --live-yolo and --source in either spelling; nothing else', () => {
+  const always = devcArgs([], []);
+  assertEquals(livePage(always), false);
+  assertEquals(livePage(devcArgs([], ['--port', '48300'])), false);
+  for (const flag of ['--live', '--live-yolo', '--source', '--source=/x']) {
+    assertEquals(livePage(devcArgs([], [flag])), true, flag);
+    assertEquals(livePage(devcArgs([flag], [])), true, flag);
+  }
+  // The app's own args win: the config's --live is not passed then.
+  assertEquals(livePage(devcArgs(['--port', '1'], ['--live'])), false);
 });
 
 test("desktopTokenLine: devc web's desktop line, a 64-hex token only", () => {

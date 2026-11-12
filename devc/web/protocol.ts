@@ -139,6 +139,24 @@ export type ClientMessage =
    */
   | { type: 'push_repo'; id: string; localFolder: string; folder: string }
   /**
+   * What a user push of a repo's branch would send (`git_push.ts`'s `pushPlan`, as `devc git
+   * push-plan` prints it), for the page's push dialog. Refused under `--live`. Answered with
+   * `result`, the plan as `result`.
+   */
+  | { type: 'push_plan'; id: string; localFolder: string; folder: string }
+  /**
+   * The user's push of a repo's branch at `sha`, the tip the page's push dialog showed
+   * (`git_push.ts`'s `userPush`, as `devc git push --sha`). Refused under `--live`. Answered
+   * with `push_result`.
+   */
+  | {
+    type: 'push_user';
+    id: string;
+    localFolder: string;
+    folder: string;
+    sha: string;
+  }
+  /**
    * What the New worktree dialog offers for primary repo `folder` (`git_worktree.ts`). Answered
    * with `worktree_options_result`.
    */
@@ -1147,6 +1165,21 @@ function parseFields(m: Obj): ClientMessage {
         id: str(m, 'id'),
         localFolder: folder(m),
         folder: absolute(m, 'folder'),
+      };
+    case 'push_plan':
+      return {
+        type: 'push_plan',
+        id: str(m, 'id'),
+        localFolder: folder(m),
+        folder: absolute(m, 'folder'),
+      };
+    case 'push_user':
+      return {
+        type: 'push_user',
+        id: str(m, 'id'),
+        localFolder: folder(m),
+        folder: absolute(m, 'folder'),
+        sha: commitSha(m),
       };
     case 'worktree_options':
       return {

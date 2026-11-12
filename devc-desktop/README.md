@@ -297,9 +297,13 @@ laid over the tile's content. It has the same paste bar as the drawer.
 
 ### Host actions
 
-devc web's page can **ask** for a push, a container start or a host terminal: **Push** on a repo
-card (its menu, or a click on **↑N**) when no `gh-push` grant applies, under `--live`, **Start**
-on a stopped project, and **Open Host Terminal…** on a repo card. It can never confirm one. A container granted `gh-push` pushes without the
+devc web's page can **ask** for a push, a container start or a host terminal: under `--live`,
+**Push** on a repo card (its menu, or a click on **↑N**) when no `gh-push` grant applies and
+**Start** on a stopped project; and **Open Host Terminal…** on a repo card. It can never confirm
+one. Without `--live` (no `--live`, `--live-yolo` or `--source` in the `devc web` arguments the
+app runs), devc web's page is its built-in copy, which pushes itself after its own push dialog,
+and the app opens a requested host terminal as soon as its folder check passes, with no card:
+only a refused check or a failed open shows one. A container granted `gh-push` pushes without the
 app (`devc-bridge gh-push` inside that container, which its agent can already run, with all of
 its refusals). When that refuses what only you may waive (a workflow change, say), devc web's
 server queues the push request here itself. The request shows
@@ -320,7 +324,7 @@ badged `1 request`, until you open it with Ctrl+` (or Cmd+J). Each card shows wh
   (`POST /desktop/project`), its progress streaming into the card. Under `--live` this starts
   containers, never projects on this machine. Under `--live-yolo` devc web refuses it: start from
   the page there.
-- **Open host terminal:** the repo's folder (below), and `Your shell starts here: its prompt and
+- **Open host terminal** (under `--live`, and when the check or open fails): the repo's folder (below), and `Your shell starts here: its prompt and
   tools like direnv may run what this folder holds`. A container can write that folder, and a
   git-aware prompt (`core.fsmonitor` in `.git/config`), direnv, mise, nvm or asdf run what is
   in it as soon as a shell starts there. **Open** checks the folder again (a symlink swapped in

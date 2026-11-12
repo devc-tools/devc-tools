@@ -7,6 +7,11 @@ import { agentStatus, statusShort } from './lib/sidebar.js';
 import { AGENT_MARKS, terminalIconKind } from './lib/agent_icons.js';
 import { trimDividers } from './lib/menu.js';
 import { splitMarkers } from './lib/pr_tree.js';
+import {
+  canPushPlan,
+  pushPlanText,
+  pushPlanWarnings,
+} from './lib/push_plan.js';
 import { hostOs } from './client.js';
 
 /** Set once the first `containers` has rendered: `client_ready` sent, boot guard released. */
@@ -103,7 +108,7 @@ export const LABELS = {
     `${name} isn't mounted here: worktrees are made from it`,
   /** Why a worktree item is greyed out while its environment is down. */
   worktreeNotRunning: 'Start the project first: git runs in its environment',
-  /** The menu item and the ↑N click: the container's own `gh-push`, or devc-desktop's confirmation. */
+  /** The menu item and the ↑N click: the container's own `gh-push`, the page's push dialog, or devc-desktop's confirmation. */
   push: 'Push',
   /** A clickable ↑N's tooltip: `target` is `<remote>/<branch>`; `creates` when it isn't there yet. */
   pushAhead: (target, creates) =>
@@ -112,6 +117,9 @@ export const LABELS = {
   pushUnavailable: (reason) => `Push unavailable: ${reason}`,
   /** A push the server sent to devc-desktop for the user's confirmation. */
   pushAsked: (problem) => `needs your confirmation in devc-desktop: ${problem}`,
+  /** The push dialog's first warning when the container's own `gh-push` refused the push. */
+  pushWaives: (problem) =>
+    `The container's gh-push refused this (${problem}); pushing it yourself waives that`,
   pull: 'Pull',
   /** A faded ↓N / +N's tooltip: `upstream` is `<remote>/<branch>`. */
   fetchUnfetched: (n, upstream) =>
@@ -539,6 +547,80 @@ export function reviewDialog(prUrl) {
     document.body.append(el);
     el.showModal();
     $body.focus();
+  });
+}
+
+/**
+ * A trusted page's Push (`push: 'user'`): what the push would send (`push_plan`'s answer), its
+ * warnings, and `refused`, the container's own `gh-push` refusal this push would waive, when
+ * there is one. **Push** is offered only when the recipe would take it. Resolves true on Push,
+ * false on Cancel or Escape. Everything from the repo is text, never markup.
+ *
+ * @param {Extract<import('./lib/push_plan.js').PushPlan, {ok: true}>} plan
+ * @param {string | null} refused
+ * @returns {Promise<boolean>}
+ */
+export function pushDialog(plan, refused) {
+  return new Promise((resolve) => {
+    let answer = false;
+    const { heading, commits } = pushPlanText(plan);
+    const warnings = [
+      ...(refused ? [LABELS.pushWaives(refused)] : []),
+      ...pushPlanWarnings(plan),
+    ];
+    const pushable = canPushPlan(plan);
+    const $ok = /** @type {HTMLButtonElement} */ (h('button', {
+      type: 'button',
+      class: 'primary',
+      onclick: () => {
+        answer = true;
+        el.close();
+      },
+    }, LABELS.push));
+    $ok.disabled = !pushable;
+    const el = /** @type {HTMLDialogElement} */ (h(
+      'dialog',
+      {
+        class: 'dialog ask push-dialog',
+        'aria-label': heading,
+        onclose: () => {
+          el.remove();
+          resolve(answer);
+        },
+      },
+      h(
+        'div',
+        { class: 'ask-body' },
+        h('p', { class: 'ask-message' }, heading),
+        ...(warnings.length > 0
+          ? [h(
+            'ul',
+            { class: 'push-warnings' },
+            ...warnings.map((w) => h('li', {}, w)),
+          )]
+          : []),
+        ...(commits.length > 0
+          ? [h(
+            'ul',
+            { class: 'push-commits' },
+            ...commits.map((c) => h('li', {}, c)),
+          )]
+          : []),
+      ),
+      h(
+        'footer',
+        { class: 'dialog-footer ask-footer' },
+        h(
+          'button',
+          { type: 'button', onclick: () => el.close() },
+          LABELS.cancel,
+        ),
+        $ok,
+      ),
+    ));
+    document.body.append(el);
+    el.showModal();
+    if (pushable) $ok.focus();
   });
 }
 

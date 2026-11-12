@@ -225,6 +225,11 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
 
 ### Completed
 
+- ✅ Done — [devc-web-trusted-host-actions](archived/devc-web-trusted-host-actions.md) — without `--live`, Push on
+  a repo with no `gh-push` grant (and a granted push's exit-3 waiver) runs on devc web's server
+  after an in-page plan dialog instead of devc-desktop's HOST drawer, and devc-desktop opens
+  Open Host Terminal… requests at once. Under `--live` nothing changes. Not run: the manual checks on the Mac.
+
 - ✅ Done — [devc-web-git-changes-efficiency](archived/devc-web-git-changes-efficiency.md) — the `● n` reads cost
   ~100% of a container's CPU on Docker Desktop's gRPC FUSE (76 s per `git status`, piling up
   because a host-side timeout leaves git running). `core.checkStat=minimal` (76 s → 2 s), an
@@ -2781,3 +2786,4 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
 | devc web since review — Compare from your latest review's commit; the newest of tick and review wins                | [devc-web-since-review](archived/devc-web-since-review.md)                         | complete    |
 | devc web worktrees — New/Delete worktree on a repo card: from a PR, an origin branch or a new branch                | [devc-web-worktrees](archived/devc-web-worktrees.md)                               | complete    |
 | devc web git changes efficiency — cheap `● n` reads: checkStat, in-container timeout, dirty-only reads              | [devc-web-git-changes-efficiency](archived/devc-web-git-changes-efficiency.md)     | complete    |
+| devc web trusted host actions — no HOST drawer confirm for Push and host terminals when not `--live`                | [devc-web-trusted-host-actions](archived/devc-web-trusted-host-actions.md)         | complete    |

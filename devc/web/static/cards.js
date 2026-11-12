@@ -83,6 +83,7 @@ import {
   openMenu,
   openMenuAt,
   promptDialog,
+  pushDialog,
   rowIcon,
   rowTrail,
   svgIcon,
@@ -121,6 +122,7 @@ import {
   discardPendingReview,
   filePinItem,
   fileRefOf,
+  hasAppActions,
   hostOpenItems,
   hostPathOf,
   jiraItems,
@@ -1009,6 +1011,9 @@ export function repoCard(card, side, worktrees = 0) {
     ? undefined
     : repo.push === 'now'
     ? () => repoGitRequest('push', localFolder, repo.folder)
+    // The Containers pane keeps the app's own push card.
+    : repo.push === 'user' && !hasAppActions()
+    ? () => void userPush(localFolder, repo.folder)
     : () => requestPush(localFolder, repo.folder);
   const prOn = canPr && sidebarState.prOpen.has(prKey(localFolder, fr.root));
   const tree = repo ? fileTree(fr) : null;
@@ -1681,7 +1686,7 @@ export function gitMark(sync, opts) {
   );
 }
 
-/** Repo folders with a `fetch_repo`, `pull_repo` or `push_repo` in flight → its kind and request id. */
+/** Repo folders with a `fetch_repo`, `pull_repo`, `push_repo` or `push_user` in flight → its kind, request id and project. */
 const repoGitOps = new Map();
 
 /** The kind (`'fetch'`, `'pull'` or `'push'`) of the git request in flight for `folder`, if any. */
@@ -1702,8 +1707,37 @@ function repoGitRequest(kind, localFolder, folder) {
   const id = nextId(kind === 'fetch' ? 'f' : kind === 'pull' ? 'p' : 'u');
   // A refused message comes back as a `result`: `client.js` toasts it.
   pendingRequests.set(id, LABELS[kind]);
-  repoGitOps.set(folder, { kind, id });
+  repoGitOps.set(folder, { kind, id, localFolder });
   send({ type: `${kind}_repo`, id, localFolder, folder });
+  renderTree();
+}
+
+/**
+ * A trusted page's own push (`push: 'user'`, or a granted push refused for what only the user
+ * may waive, `refused`): asks the server for the plan (`push_plan`), shows it in the push dialog,
+ * and on **Push** sends `push_user` with the plan's SHA. Its spinner and outcome are a
+ * `push_repo`'s.
+ *
+ * @param {string} localFolder @param {string} folder @param {string | null} [refused]
+ */
+async function userPush(localFolder, folder, refused = null) {
+  if (repoGitOps.has(folder)) return;
+  let plan;
+  try {
+    plan = await call({ type: 'push_plan', localFolder, folder });
+  } catch (e) {
+    errorToast(`${LABELS.push} failed: ${e?.message ?? e}`);
+    return;
+  }
+  if (!plan?.ok) {
+    errorToast(`${LABELS.push} failed: ${plan?.problem ?? 'no plan'}`);
+    return;
+  }
+  if (!(await pushDialog(plan, refused)) || repoGitOps.has(folder)) return;
+  const id = nextId('u');
+  pendingRequests.set(id, LABELS.push);
+  repoGitOps.set(folder, { kind: 'push', id, localFolder });
+  send({ type: 'push_user', id, localFolder, folder, sha: plan.sha });
   renderTree();
 }
 
@@ -1713,10 +1747,12 @@ function repoGitRequest(kind, localFolder, folder) {
  */
 export function onRepoGitDone(msg) {
   let ours = false;
+  let localFolder = null;
   for (const [folder, op] of repoGitOps) {
     if (op.id === msg.id) {
       repoGitOps.delete(folder);
       ours = true;
+      localFolder = op.localFolder;
     }
   }
   if (
@@ -1724,7 +1760,13 @@ export function onRepoGitDone(msg) {
     msg.type !== 'push_result'
   ) return ours;
   pendingRequests.delete(msg.id);
-  if (msg.type === 'push_result' && !msg.ok && msg.asked) {
+  if (
+    msg.type === 'push_result' && !msg.ok && msg.confirm && ours &&
+    localFolder !== null
+  ) {
+    // A refusal only the user may waive, on a trusted page: the push dialog asks them.
+    void userPush(localFolder, msg.folder, String(msg.problem ?? ''));
+  } else if (msg.type === 'push_result' && !msg.ok && msg.asked) {
     // A refusal only the user may waive: the server asked devc-desktop.
     toast(LABELS.pushAsked(String(msg.problem ?? '')));
   } else if (!msg.ok) {
