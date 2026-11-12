@@ -50,7 +50,15 @@ export interface UncommittedDiff {
 /** What these reads use of an environment. */
 export type UncommittedEnv = Pick<Environment, 'runLimited' | 'files'>;
 
-const GIT = ['git', '--no-optional-locks', '-c', 'core.quotePath=false'];
+// `core.checkStat=minimal`: see `CHANGES_ARGV` in `git_changes.ts` (a file share's stat noise).
+const GIT = [
+  'git',
+  '--no-optional-locks',
+  '-c',
+  'core.quotePath=false',
+  '-c',
+  'core.checkStat=minimal',
+];
 /** For commands that write the index (`git_stage.ts`): no `--no-optional-locks`. */
 export const GIT_WRITE = ['git', '-c', 'core.quotePath=false'];
 const TIMEOUT_MS = 15_000;

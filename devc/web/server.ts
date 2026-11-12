@@ -1078,11 +1078,13 @@ export async function startWeb(
     containerRepos.set(record.id, listed);
     broadcastProjects();
     void gitWatch.refresh();
-    void changesWatch.refreshEnvironment(record.id);
+    // Its new repos are dirty: read once the debounce has passed.
+    changesWatch.sync();
     recordPanes(record.id);
   };
-  // Every running environment's repos' changes to commit, read there (`git_changes.ts`) on a
-  // timer and when one of its agents turns idle or done.
+  // Every running environment's repos' changes to commit, read there (`git_changes.ts`) when
+  // one may have changed (a file event, an agent idle or done, devc's own git action, a sweep),
+  // and only while a page or devc-desktop is connected.
   const changesWatch: GitChangesWatch = new GitChangesWatch({
     targets: () =>
       [...sessions.values()].map((s) => ({
@@ -1090,6 +1092,7 @@ export async function startWeb(
         folders: (containerRepos.get(s.record.id) ?? []).map((r) => r.folder),
       })),
     onChange: () => broadcastProjects(),
+    clientsConnected: () => clients.size > 0,
   });
   /** {@link changesWatch}'s readings by running project folder, for {@link buildProjects}. */
   const changesByFolder = () => {
@@ -1303,7 +1306,7 @@ export async function startWeb(
     broadcast(containersMessage());
     broadcastProjects();
     void gitWatch.refresh();
-    void changesWatch.refreshEnvironment(id);
+    changesWatch.sync();
     void loadRepos(env);
     void session.run();
     // A container now carries the folder: it no longer runs on this machine.
@@ -1324,6 +1327,8 @@ export async function startWeb(
     activity.containerGone(session.record.localFolder);
     void controllers.closeContainer(id, 'container stopped');
     lsp.containerGone(id);
+    // Its readings and file watcher go with it.
+    changesWatch.sync();
     void session.dispose();
     broadcast(containersMessage());
     broadcastProjects();
@@ -1736,7 +1741,7 @@ export async function startWeb(
     } finally {
       release();
     }
-    void changesWatch.refreshEnvironment(target.session.record.id);
+    void changesWatch.refreshFolder(target.session.record.id, msg.root);
     if (msg.type === 'commit_staged') void gitWatch.refresh();
     if (isGitProblem(answer)) {
       fail(c, msg.id, code, new Error(answer.problem));
@@ -1849,7 +1854,7 @@ export async function startWeb(
     // Its marks, and its changes to commit: a pull moves the working tree.
     if (outcome.ok) {
       void gitWatch.refresh();
-      void changesWatch.refreshEnvironment(at.session.record.id);
+      void changesWatch.refreshFolder(at.session.record.id, msg.folder);
     }
   };
 
@@ -4262,6 +4267,8 @@ export async function startWeb(
     };
     socket.onopen = () => {
       clients.add(client);
+      // The first client: the repos marked while none was connected are read now.
+      if (clients.size === 1) changesWatch.clientConnected();
       client.send(JSON.stringify(helloMessage({
         role,
         generation: generation(),

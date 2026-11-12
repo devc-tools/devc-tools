@@ -25,16 +25,16 @@ The user won't switch Docker Desktop's file sharing implementation. Fix it in de
 
 ## Checklist
 
-- [ ] `git_changes.ts`: `-c core.checkStat=minimal` in `CHANGES_ARGV` (Contract 1).
-- [ ] `git_uncommitted.ts`: the same flag in `GIT`, the read-only prefix (Contract 1).
-- [ ] `git_changes.ts`: in-container `timeout` wrapper for container environments, and timeout
+- [x] `git_changes.ts`: `-c core.checkStat=minimal` in `CHANGES_ARGV` (Contract 1).
+- [x] `git_uncommitted.ts`: the same flag in `GIT`, the read-only prefix (Contract 1).
+- [x] `git_changes.ts`: in-container `timeout` wrapper for container environments, and timeout
       exit codes mapped to the existing problem (Contract 2).
-- [ ] `git_changes.ts`: dirty-tracking scheduler replacing the fixed poll (Contract 3).
-- [ ] `git_changes.ts`: host-side file watching that marks repos dirty (Contract 4).
-- [ ] `server.ts`: pass whether any client is connected. Stage/commit/pull refresh the one repo
+- [x] `git_changes.ts`: dirty-tracking scheduler replacing the fixed poll (Contract 3).
+- [x] `git_changes.ts`: host-side file watching that marks repos dirty (Contract 4).
+- [x] `server.ts`: pass whether any client is connected. Stage/commit/pull refresh the one repo
       they touched, and agent idle/done marks its environment dirty (Contract 5).
-- [ ] Tests in `devc/tests/web_git_changes_test.ts` (see Validation).
-- [ ] `devc/README.md`: update the changes-to-commit paragraph (when reads happen: on file
+- [x] Tests in `devc/tests/web_git_changes_test.ts` (see Validation).
+- [x] `devc/README.md`: update the changes-to-commit paragraph (when reads happen: on file
       changes, agent idle/done, devc's own git actions, a 5-minute sweep, and only while a page
       is open).
 
@@ -45,8 +45,16 @@ The user won't switch Docker Desktop's file sharing implementation. Fix it in de
 `CHANGES_ARGV` becomes:
 
 ```ts
-['git', '-c', 'core.checkStat=minimal', '--no-optional-locks', 'status', '--porcelain=v2', '-z',
- '--untracked-files=normal']
+[
+  'git',
+  '-c',
+  'core.checkStat=minimal',
+  '--no-optional-locks',
+  'status',
+  '--porcelain=v2',
+  '-z',
+  '--untracked-files=normal',
+];
 ```
 
 `git_uncommitted.ts`'s `GIT` becomes
@@ -80,12 +88,12 @@ projects too: there it only loses `ctime`/`ino` precision, which a change count 
 Repos are tracked one by one (environment id + host folder), not as a whole environment. Each
 repo has `dirty`, `lastReadAt`, `lastDurationMs`.
 
-| Constant | Value | Meaning |
-|---|---|---|
-| `CHANGES_DEBOUNCE_MS` | `2_000` | A dirty repo is read this long after its **last** mark, so bursts of edits coalesce |
-| `CHANGES_MIN_INTERVAL_MS` | `15_000` | Floor on the gap between two reads of one repo |
-| `CHANGES_SLOW_FACTOR` | `5` | A repo's gap is at least `5 × lastDurationMs` (a timed-out read counts as 13 000 ms, so 65 s) |
-| `CHANGES_SWEEP_MS` | `300_000` | Every repo is marked dirty this often, for missed file events |
+| Constant                  | Value     | Meaning                                                                                       |
+| ------------------------- | --------- | --------------------------------------------------------------------------------------------- |
+| `CHANGES_DEBOUNCE_MS`     | `2_000`   | A dirty repo is read this long after its **last** mark, so bursts of edits coalesce           |
+| `CHANGES_MIN_INTERVAL_MS` | `15_000`  | Floor on the gap between two reads of one repo                                                |
+| `CHANGES_SLOW_FACTOR`     | `5`       | A repo's gap is at least `5 × lastDurationMs` (a timed-out read counts as 13 000 ms, so 65 s) |
+| `CHANGES_SWEEP_MS`        | `300_000` | Every repo is marked dirty this often, for missed file events                                 |
 
 Rules:
 
@@ -162,27 +170,30 @@ Rules:
 
 ## Validation
 
-- [ ] `cd devc && deno task check && deno task test` pass. The known `docker_exec_single_path`
+The four manual checks need the Mac host with the deephaven workspace and were not run in the
+devcontainer where this was implemented (2026-11-12); everything else passed there.
+
+- [x] `cd devc && deno task check && deno task test` pass. The known `docker_exec_single_path`
       failure is the only accepted one.
-- [ ] Unit: `readChanges` on a container env sends argv starting
+- [x] Unit: `readChanges` on a container env sends argv starting
       `['timeout', '-k', '2', '10', 'git', '-c', 'core.checkStat=minimal', '--no-optional-locks', 'status', ...]`
       with `timeoutMs: 13000`. On a host env it sends `CHANGES_ARGV` with `timeoutMs: 10000`.
-- [ ] Unit: exit 124, exit 137 and `kind: 'timeout'` each give `git status: timed out`. Exit 127
+- [x] Unit: exit 124, exit 137 and `kind: 'timeout'` each give `git status: timed out`. Exit 127
       with stderr `timeout: not found` gives `git status: no timeout command in the environment`.
-- [ ] Unit (fake clock, fake watcher): with no marks, advancing 10 minutes reads each repo only
+- [x] Unit (fake clock, fake watcher): with no marks, advancing 10 minutes reads each repo only
       at the initial read and the two sweeps, never every 15 s.
-- [ ] Unit: two marks 1 s apart on one repo cause one read, 2 s after the second.
-- [ ] Unit: a repo whose last read took 10 s is not read again within 50 s, even if marked dirty.
-- [ ] Unit: a timed-out repo is not read again within 65 s.
-- [ ] Unit: `refreshFolder` reads at once, ignoring debounce and gaps, and reads only that repo.
-- [ ] Unit: with clients-connected false, marks cause no reads. Flipping to true reads every dirty
+- [x] Unit: two marks 1 s apart on one repo cause one read, 2 s after the second.
+- [x] Unit: a repo whose last read took 10 s is not read again within 50 s, even if marked dirty.
+- [x] Unit: a timed-out repo is not read again within 65 s.
+- [x] Unit: `refreshFolder` reads at once, ignoring debounce and gaps, and reads only that repo.
+- [x] Unit: with clients-connected false, marks cause no reads. Flipping to true reads every dirty
       repo once, right away.
-- [ ] Unit: never more than one read in flight per environment, while two environments' reads
+- [x] Unit: never more than one read in flight per environment, while two environments' reads
       overlap.
-- [ ] Unit: event-path mapping covers a working-tree file → its repo, longest prefix for nested
+- [x] Unit: event-path mapping covers a working-tree file → its repo, longest prefix for nested
       repos, `.git/objects/...` ignored, `.git/index` and `.git/refs/heads/x` → that repo, and
       `.git/worktrees/w/index` → the linked worktrees.
-- [ ] Unit: a watcher that throws on start falls back to the 15 s marking.
+- [x] Unit: a watcher that throws on start falls back to the 15 s marking.
 - [ ] Manual, on the Mac with the deephaven workspace running and devc web open:
       `docker exec devc-deephaven-wksp-<id> pgrep -fc 'git --no-optional-locks status'` prints
       `0` or `1` every time over two minutes, and never more than `1`.

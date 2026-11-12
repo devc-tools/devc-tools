@@ -300,8 +300,14 @@ is published from any container: the host server finds devcontainers with
   publish, so a `gh-push` branch shows it too), or a quiet
   **✓** when level; the tooltip has each count). The ● count comes from `git
   status` run inside the running container (never on the host, which would run
-  the repo's own config), or directly for a project on this machine, every
-  15 s and as soon as an agent there finishes a turn. **↓N** is what the repo's
+  the repo's own config), or directly for a project on this machine. A repo is
+  read again only when it may have changed: a file under its folder changes
+  (watched on the host, so edits made in the container count), an agent there
+  finishes a turn, devc stages, commits or pulls in it (read at once), or every
+  5 minutes as a sweep. Reads wait 2 s after the last change and at least 15 s
+  (or 5× the last read's time) after the repo's previous read, run only while a
+  page or devc-desktop is connected, and stop git in a container after 10 s.
+  **↓N** is what the repo's
   own `origin/<branch>` has and the branch doesn't, ready to pull. A **faded
   ↓N** (or **+N** after it) is what only the host has seen on the remote so far,
   from its own fetch every 5 minutes. **Fetch** (the card's right-click menu, or
