@@ -223,6 +223,13 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
   Otherwise `↑N` is read-only with the reason. Push… and `↑N`-opens-Commits are removed; Push
   refreshes the mirror so `↑N` clears.
 
+- [devc-web-git-changes-efficiency](devc-web-git-changes-efficiency.md) — the `● n` reads cost
+  ~100% of a container's CPU on Docker Desktop's gRPC FUSE (76 s per `git status`, piling up
+  because a host-side timeout leaves git running). `core.checkStat=minimal` (76 s → 2 s), an
+  in-container `timeout -k 2 10` for containers, and reads only for repos marked dirty by host
+  file events, agent idle/done, devc's own git actions or a 5-minute sweep, and only while a
+  page is connected. The page is unchanged.
+
 ### Completed
 
 - ✅ Done — [devc-web-worktrees](archived/devc-web-worktrees.md) — a repo card's **New
@@ -2772,3 +2779,4 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
 | Host terminal request — Open Host Terminal… on a repo card, confirmed in devc-desktop                               | [devc-web-host-terminal-request](archived/devc-web-host-terminal-request.md)       | complete    |
 | devc web since review — Compare from your latest review's commit; the newest of tick and review wins                | [devc-web-since-review](archived/devc-web-since-review.md)                         | complete    |
 | devc web worktrees — New/Delete worktree on a repo card: from a PR, an origin branch or a new branch                | [devc-web-worktrees](archived/devc-web-worktrees.md)                               | complete    |
+| devc web git changes efficiency — cheap `● n` reads: checkStat, in-container timeout, dirty-only reads | [devc-web-git-changes-efficiency](devc-web-git-changes-efficiency.md) |             |
