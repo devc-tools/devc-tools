@@ -378,8 +378,11 @@ is published from any container: the host server finds devcontainers with
   card's right-click) makes `<repo>.worktrees/<folder>` beside the repo, on a
   local branch from an open **pull request** (`gh pr list` on the host; a fork's
   becomes `pr-<n>`), a **remote branch** on `origin`, or a **new branch** from
-  `origin/<default>` or the repo's current branch; the folder follows the branch
-  name, `/` as `-`. It is on every main checkout's card and on each of its
+  `origin/<default>`, the repo's current branch, or any `origin/<branch>`; the
+  folder follows the branch name, `/` as `-`. A PR's or remote branch given
+  another name in **Branch** is a new branch from it, with no upstream (so a
+  branch checked out elsewhere can still be the base: the dialog says so). It
+  is on every main checkout's card and on each of its
   worktrees' cards, where it makes a sibling (the main repo must be listed in
   the same container) and **New branch** can also start from that worktree's
   HEAD; and on their **In use** stand-ins' right-click (as **Delete worktree…**
@@ -397,7 +400,8 @@ is published from any container: the host server finds devcontainers with
   on **git older than 2.48 refuses the repo** (`unknown repository extension`),
   so the host's own git must be 2.48 or newer too (Apple's bundled git is not:
   use Homebrew's). A branch already there is checked out as is, never reset. A remote
-  branch or a same-repo PR's gets `origin/<branch>` as its upstream, written by
+  branch or a same-repo PR's, under its own name, gets `origin/<branch>` as its
+  upstream, written by
   the host into the repo's `.git/config` in place (not by rename, so git
   protection's read-only mount keeps covering it); a fork's or a new branch has
   none. The new card shows under its repo's in every running environment that

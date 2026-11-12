@@ -3157,6 +3157,11 @@ button.primary.danger {
   color: var(--text);
 }
 
+/* New branch's `origin/…` base: a branch name typed or picked from origin's. */
+.worktree-base-remote {
+  width: 14em;
+}
+
 .worktree-folder {
   display: flex;
   align-items: center;

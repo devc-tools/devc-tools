@@ -82,11 +82,13 @@ export type WorktreeSource =
   | { kind: 'pr'; number: number }
   | { kind: 'remote'; remoteBranch: string }
   /**
-   * A new branch from `origin/<default>`, the main checkout's HEAD (`current`), or the HEAD of
-   * `from`, a linked worktree of the same repo in the same environment (`worktree`).
+   * A new branch from `origin/<default>`, the main checkout's HEAD (`current`), the HEAD of
+   * `from`, a linked worktree of the same repo in the same environment (`worktree`), or
+   * `origin/<remoteBranch>` (`remote`), with no upstream.
    */
   | { kind: 'new'; base: 'default' | 'current' }
-  | { kind: 'new'; base: 'worktree'; from: string };
+  | { kind: 'new'; base: 'worktree'; from: string }
+  | { kind: 'new'; base: 'remote'; remoteBranch: string };
 
 export type Problem = { ok: false; problem: string };
 
@@ -782,7 +784,9 @@ async function createOnce(
     }
   }
   if (!await validBranch(branch)) return fail(`invalid branch name: ${branch}`);
-  if (source.kind === 'remote' && !await validBranch(source.remoteBranch)) {
+  if (
+    'remoteBranch' in source && !await validBranch(source.remoteBranch)
+  ) {
     return fail(`invalid branch name: ${source.remoteBranch}`);
   }
   const old = await gitVersionProblem(t.env, at.path);
@@ -801,9 +805,15 @@ async function createOnce(
   // Where the commit comes from: the remote (through the mirror), or the primary's HEAD.
   let fetchRef: string | null = null;
   /** The remote branch it tracks: `remote` and a same-repo PR. */
+  /**
+   * The remote branch fetched: its `refs/remotes/origin/<it>` moves to the commit. The new branch
+   * takes it as upstream only under its own name (`remote` and a same-repo PR), since Push
+   * publishes `origin/<branch>`; under another name it is a new branch with none.
+   */
   let tracks: string | null = null;
   /** Branched from a commit the repo has: no remote, no fetch. */
-  const inRepo = source.kind === 'new' && source.base !== 'default';
+  const inRepo = source.kind === 'new' &&
+    (source.base === 'current' || source.base === 'worktree');
   const url = inRepo ? null : await fetchableOrigin(at.commonDir, opts);
   if (url === null && !inRepo) {
     return fail('origin is not an https or ssh remote');
@@ -840,6 +850,9 @@ async function createOnce(
       }
       tracks = pr.headRefName;
     }
+  } else if (source.base === 'remote') {
+    fetchRef = `refs/heads/${source.remoteBranch}`;
+    tracks = source.remoteBranch;
   } else if (source.base === 'default') {
     const def = await remoteDefaultBranch(url!);
     if (def === null || !await validBranch(def)) {
@@ -944,7 +957,7 @@ async function createOnce(
   }
 
   let upstream: string | null = null;
-  if (tracks !== null) {
+  if (tracks === branch && source.kind !== 'new') {
     if (await hasMerge(at.commonDir, branch)) {
       upstream = null;
     } else {

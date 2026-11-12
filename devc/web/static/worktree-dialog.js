@@ -78,6 +78,9 @@ export function openNewWorktreeDialog(
   let prNumber = null;
   /** @type {string | null} */
   let remoteBranch = null;
+  /** The picked PR's branch on origin (null for a fork's): see `worktreeNote`'s `source`. */
+  /** @type {string | null} */
+  let prSource = null;
   let nameEdited = false;
   let busy = false;
 
@@ -118,6 +121,41 @@ export function openNewWorktreeDialog(
     $baseFrom,
     `${from?.branch ?? 'HEAD'} (this worktree)`,
   );
+  // Any branch on origin: a new branch from it, with no upstream.
+  const $baseRemote = /** @type {HTMLInputElement} */ (h('input', {
+    type: 'radio',
+    name: 'worktree-base',
+    value: 'remote',
+    onchange: () => update(),
+  }));
+  const $remoteChoices = h('datalist', {
+    id: `worktree-remote-${nextId('d')}`,
+  });
+  const $baseRemoteName = /** @type {HTMLInputElement} */ (h('input', {
+    type: 'text',
+    class: 'new-note-project worktree-base-remote',
+    list: $remoteChoices.id,
+    placeholder: 'branch',
+    spellcheck: 'false',
+    autocomplete: 'off',
+    'aria-label': 'Base branch on origin',
+    onfocus: () => {
+      $baseRemote.checked = true;
+      update();
+    },
+    oninput: () => {
+      $baseRemote.checked = true;
+      update();
+    },
+  }));
+  const $baseRemoteLabel = h(
+    'label',
+    { class: 'worktree-radio' },
+    $baseRemote,
+    'origin/',
+    $baseRemoteName,
+    $remoteChoices,
+  );
   const $baseDefaultLabel = h(
     'label',
     { class: 'worktree-radio' },
@@ -135,6 +173,7 @@ export function openNewWorktreeDialog(
     $baseDefaultLabel,
     $baseCurrentLabel,
     $baseFromLabel,
+    $baseRemoteLabel,
   );
   const $branch = /** @type {HTMLInputElement} */ (h('input', {
     type: 'text',
@@ -231,6 +270,7 @@ export function openNewWorktreeDialog(
           kind = k;
           prNumber = null;
           remoteBranch = null;
+          prSource = null;
           $filter.value = '';
           if (k === 'new') setBranch('');
           renderTabs();
@@ -274,6 +314,7 @@ export function openNewWorktreeDialog(
                 title: p.headRefName,
                 onclick: () => {
                   prNumber = p.number;
+                  prSource = p.crossRepository ? null : p.headRefName;
                   setBranch(
                     p.crossRepository ? `pr-${p.number}` : p.headRefName,
                   );
@@ -320,6 +361,13 @@ export function openNewWorktreeDialog(
     }
   }
 
+  /** The `origin/…` base names one of origin's branches (any name, when they couldn't be listed). */
+  function remoteBaseValid() {
+    const b = $baseRemoteName.value.trim();
+    return b !== '' &&
+      (opts.remoteBranches.length === 0 || opts.remoteBranches.includes(b));
+  }
+
   function update() {
     showError(null);
     if (!opts) return;
@@ -329,6 +377,11 @@ export function openNewWorktreeDialog(
       kind,
       branch,
       name,
+      source: kind === 'pr'
+        ? prSource
+        : kind === 'remote'
+        ? remoteBranch
+        : null,
       localBranches: opts.localBranches,
       checkedOut: opts.checkedOut,
       folders: opts.folders,
@@ -338,7 +391,8 @@ export function openNewWorktreeDialog(
       ? prNumber !== null
       : kind === 'remote'
       ? remoteBranch !== null
-      : $baseDefault.checked || $baseCurrent.checked || $baseFrom.checked;
+      : $baseDefault.checked || $baseCurrent.checked || $baseFrom.checked ||
+        ($baseRemote.checked && remoteBaseValid());
     $create.disabled = busy || blocked || !picked;
   }
 
@@ -352,6 +406,8 @@ export function openNewWorktreeDialog(
       ? { kind, remoteBranch }
       : $baseFrom.checked && from
       ? { kind, base: 'worktree', from: from.folder }
+      : $baseRemote.checked
+      ? { kind, base: 'remote', remoteBranch: $baseRemoteName.value.trim() }
       : { kind, base: $baseDefault.checked ? 'default' : 'current' };
     busy = true;
     $create.disabled = true;
@@ -398,6 +454,9 @@ export function openNewWorktreeDialog(
       $baseDefaultLabel.append(`origin/${opts.defaultBranch ?? ''}`);
       $baseCurrentLabel.append(
         `${opts.currentBranch ?? ''} (${from ? 'main checkout' : 'current'})`,
+      );
+      $remoteChoices.replaceChildren(
+        ...opts.remoteBranches.map((b) => h('option', { value: b })),
       );
       $baseDefaultLabel.hidden = opts.defaultBranch === null;
       $baseCurrentLabel.hidden = opts.currentBranch === null;

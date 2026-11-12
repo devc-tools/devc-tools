@@ -765,3 +765,71 @@ Deno.test("createWorktree: a new branch off a worktree's HEAD", async () => {
     }
   });
 });
+
+Deno.test('createWorktree: a new name for a remote branch starts a new branch with no upstream', async () => {
+  await withRepo(async ({ t, deps, repo, featureSha }) => {
+    // From the Remote branch tab, renamed.
+    const r = await createWorktree(
+      t,
+      {
+        name: 'mine',
+        branch: 'mine',
+        source: { kind: 'remote', remoteBranch: 'feature/a' },
+      },
+      [repo],
+      deps,
+    );
+    assertEquals(r, {
+      ok: true,
+      worktree: `${repo}.worktrees/mine`,
+      branch: 'mine',
+      upstream: null,
+    });
+    assertEquals(
+      await git(`${repo}.worktrees/mine`, 'rev-parse', 'HEAD'),
+      featureSha,
+    );
+    assertEquals(
+      await git(repo, 'config', '--get', 'branch.mine.merge').catch(() => null),
+      null,
+    );
+    // From New branch, with origin/feature/a as its base; that branch's tracking ref moves too.
+    const n = await createWorktree(
+      t,
+      {
+        name: 'also-mine',
+        branch: 'also-mine',
+        source: { kind: 'new', base: 'remote', remoteBranch: 'feature/a' },
+      },
+      [repo],
+      deps,
+    );
+    assertEquals(n, {
+      ok: true,
+      worktree: `${repo}.worktrees/also-mine`,
+      branch: 'also-mine',
+      upstream: null,
+    });
+    assertEquals(
+      await git(`${repo}.worktrees/also-mine`, 'rev-parse', 'HEAD'),
+      featureSha,
+    );
+    assertEquals(
+      await git(repo, 'rev-parse', 'refs/remotes/origin/feature/a'),
+      featureSha,
+    );
+    assertEquals(
+      await createWorktree(
+        t,
+        {
+          name: 'x',
+          branch: 'x',
+          source: { kind: 'new', base: 'remote', remoteBranch: 'bad..name' },
+        },
+        [repo],
+        deps,
+      ),
+      { ok: false, problem: 'invalid branch name: bad..name' },
+    );
+  });
+});

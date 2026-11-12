@@ -685,9 +685,11 @@ function worktreeSource(o: Obj): WorktreeSource {
   if (kind === 'remote') {
     return { kind, remoteBranch: str(src, 'remoteBranch') };
   }
-  const base = oneOf(src, 'base', ['default', 'current', 'worktree']);
+  const base = oneOf(src, 'base', ['default', 'current', 'worktree', 'remote']);
   return base === 'worktree'
     ? { kind, base, from: absolute(src, 'from') }
+    : base === 'remote'
+    ? { kind, base, remoteBranch: str(src, 'remoteBranch') }
     : { kind, base };
 }
 
