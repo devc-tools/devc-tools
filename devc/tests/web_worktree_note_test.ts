@@ -48,82 +48,77 @@ const note = (
     ...extra,
   });
 
+const ok = (note: string) => ({ errors: {}, note, blocked: false });
+const blocked = (
+  errors: { base?: string; branch?: string; folder?: string },
+) => ({ errors, note: '', blocked: true });
+
 Deno.test('worktreeNote: what Create will do from each base', () => {
   // origin/x under its own name: created tracking it.
-  assertEquals(note({ kind: 'remote', name: 'feature/b' }, 'feature/b'), {
-    note: 'creates feature/b tracking origin/feature/b',
-    blocked: false,
-  });
+  assertEquals(
+    note({ kind: 'remote', name: 'feature/b' }, 'feature/b'),
+    ok('Creates feature/b tracking origin/feature/b'),
+  );
   // Another name: a new branch, no upstream.
-  assertEquals(note({ kind: 'remote', name: 'main' }, 'mine'), {
-    note: 'creates mine from origin/main, with no upstream',
-    blocked: false,
-  });
-  assertEquals(note({ kind: 'local', name: 'feature/a' }, 'mine'), {
-    note: 'creates mine from feature/a, with no upstream',
-    blocked: false,
-  });
+  assertEquals(
+    note({ kind: 'remote', name: 'main' }, 'mine'),
+    ok('Creates mine from origin/main, no upstream'),
+  );
+  assertEquals(
+    note({ kind: 'local', name: 'feature/a' }, 'mine'),
+    ok('Creates mine from feature/a, no upstream'),
+  );
   // A branch that exists locally is checked out as is, whatever the base.
-  assertEquals(note({ kind: 'local', name: 'feature/a' }, 'feature/a'), {
-    note: 'checks out feature/a as is',
-    blocked: false,
-  });
-  assertEquals(note({ kind: 'remote', name: 'feature/a' }, 'feature/a'), {
-    note: 'checks out feature/a as is',
-    blocked: false,
-  });
+  assertEquals(
+    note({ kind: 'local', name: 'feature/a' }, 'feature/a'),
+    ok('Checks out feature/a as is'),
+  );
+  assertEquals(
+    note({ kind: 'remote', name: 'feature/a' }, 'feature/a'),
+    ok('Checks out feature/a as is'),
+  );
   // PRs: a same-repo one tracks its branch; a fork's has none.
   assertEquals(
     note({ kind: 'pr', number: 8, head: 'feature/b' }, 'feature/b', {
       tab: 'pr',
     }),
-    { note: 'creates feature/b tracking origin/feature/b', blocked: false },
+    ok('Creates feature/b tracking origin/feature/b'),
   );
   assertEquals(
     note({ kind: 'pr', number: 7, head: null }, 'pr-7', { tab: 'pr' }),
-    {
-      note: 'creates pr-7 from pull request #7, with no upstream',
-      blocked: false,
-    },
+    ok('Creates pr-7 from pull request #7, no upstream'),
   );
 });
 
-Deno.test('worktreeNote: what blocks Create', () => {
-  assertEquals(note(null, ''), {
-    note: 'Pick a branch to start from',
-    blocked: true,
-  });
-  assertEquals(note(null, '', { tab: 'pr' }), {
-    note: 'Pick a pull request',
-    blocked: true,
-  });
+Deno.test('worktreeNote: each problem under its own field, all at once', () => {
+  assertEquals(note(null, ''), blocked({ base: 'Pick a branch' }));
+  assertEquals(
+    note(null, '', { tab: 'pr' }),
+    blocked({ base: 'Pick a pull request' }),
+  );
   const main = { kind: 'remote' as const, name: 'main' };
-  assertEquals(note(main, '', { name: 'f' }), {
-    note: 'Name the branch',
-    blocked: true,
-  });
-  assertEquals(note(main, 'x', { name: '' }), {
-    note: 'Name the folder',
-    blocked: true,
-  });
-  assertEquals(note(main, 'x', { name: 'old' }), {
-    note: 'folder old already exists: give the folder another name',
-    blocked: true,
-  });
-  assertEquals(note(main, 'main'), {
-    note:
-      'main is checked out in another worktree: give the branch another name',
-    blocked: true,
-  });
-  // Every known problem at once, the branch's first.
-  assertEquals(note(main, 'main', { name: 'old' }), {
-    note:
-      'main is checked out in another worktree: give the branch another name\n' +
-      'folder old already exists: give the folder another name',
-    blocked: true,
-  });
-  assertEquals(note(main, '', { name: '' }), {
-    note: 'Name the branch\nName the folder',
-    blocked: true,
-  });
+  assertEquals(
+    note(main, '', { name: 'f' }),
+    blocked({ branch: 'Required' }),
+  );
+  assertEquals(note(main, 'x', { name: '' }), blocked({ folder: 'Required' }));
+  assertEquals(
+    note(main, 'x', { name: 'old' }),
+    blocked({ folder: 'Already exists' }),
+  );
+  assertEquals(
+    note(main, 'main'),
+    blocked({ branch: 'Checked out in another worktree' }),
+  );
+  assertEquals(
+    note(main, 'main', { name: 'old' }),
+    blocked({
+      branch: 'Checked out in another worktree',
+      folder: 'Already exists',
+    }),
+  );
+  assertEquals(
+    note(main, '', { name: '' }),
+    blocked({ branch: 'Required', folder: 'Required' }),
+  );
 });

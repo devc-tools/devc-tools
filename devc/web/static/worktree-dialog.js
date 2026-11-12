@@ -119,6 +119,12 @@ export function openNewWorktreeDialog(
     onkeydown: enterCreates,
   }));
   const $note = h('div', { class: 'picker-hint worktree-note' });
+  // Each field's problem, under it: see `worktreeNote`'s `errors`.
+  const fieldError = () =>
+    h('div', { class: 'worktree-field-error', role: 'alert', hidden: true });
+  const $baseError = fieldError();
+  const $branchError = fieldError();
+  const $folderError = fieldError();
   const $error = h('div', { class: 'new-note-error', hidden: true });
   const $create = /** @type {HTMLButtonElement} */ (h('button', {
     type: 'button',
@@ -136,12 +142,13 @@ export function openNewWorktreeDialog(
     'div',
     { class: 'worktree-form', hidden: true },
     $tabs,
-    h('div', { class: 'worktree-pick' }, $filter, $list),
+    h('div', { class: 'worktree-pick' }, $filter, $list, $baseError),
     h(
       'label',
       {},
       'Branch',
       $branch,
+      $branchError,
     ),
     h(
       'label',
@@ -153,6 +160,7 @@ export function openNewWorktreeDialog(
         h('span', { class: 'worktree-prefix' }, `${repoBase}.worktrees/`),
         $name,
       ),
+      $folderError,
     ),
     $note,
   );
@@ -290,7 +298,7 @@ export function openNewWorktreeDialog(
   function update() {
     showError(null);
     if (!opts) return;
-    const { note, blocked } = worktreeNote({
+    const { errors, note, blocked } = worktreeNote({
       tab,
       base,
       branch: $branch.value.trim(),
@@ -300,6 +308,20 @@ export function openNewWorktreeDialog(
       folders: opts.folders,
     });
     $note.textContent = note;
+    for (
+      const [$err, text, $field] of /** @type {const} */ ([
+        [$baseError, errors.base, null],
+        [$branchError, errors.branch, $branch],
+        [$folderError, errors.folder, $name],
+      ])
+    ) {
+      $err.textContent = text ?? '';
+      $err.hidden = !text;
+      if ($field) {
+        if (text) $field.setAttribute('aria-invalid', 'true');
+        else $field.removeAttribute('aria-invalid');
+      }
+    }
     $create.disabled = busy || blocked;
   }
 

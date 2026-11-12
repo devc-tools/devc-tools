@@ -3166,8 +3166,16 @@ button.primary.danger {
 
 .worktree-note {
   min-height: 1.2em;
-  /* Every reason Create can't run, one per line. */
-  white-space: pre-line;
+}
+
+/* A field's problem, right under it (`worktreeNote`'s `errors`). */
+.worktree-field-error {
+  color: var(--danger);
+  font-size: calc(var(--font-size) - 1px);
+}
+
+.worktree-dialog input[aria-invalid='true'] {
+  border-color: var(--danger);
 }
 
 .worktree-dialog .dialog-footer button.primary {
