@@ -98,18 +98,32 @@ Deno.test('worktreeNote: what blocks Create', () => {
     blocked: true,
   });
   const main = { kind: 'remote' as const, name: 'main' };
-  assertEquals(note(main, ''), { note: 'Name the branch', blocked: true });
+  assertEquals(note(main, '', { name: 'f' }), {
+    note: 'Name the branch',
+    blocked: true,
+  });
   assertEquals(note(main, 'x', { name: '' }), {
     note: 'Name the folder',
     blocked: true,
   });
   assertEquals(note(main, 'x', { name: 'old' }), {
-    note: 'folder old already exists',
+    note: 'folder old already exists: give the folder another name',
     blocked: true,
   });
   assertEquals(note(main, 'main'), {
     note:
       'main is checked out in another worktree: give the branch another name',
+    blocked: true,
+  });
+  // Every known problem at once, the branch's first.
+  assertEquals(note(main, 'main', { name: 'old' }), {
+    note:
+      'main is checked out in another worktree: give the branch another name\n' +
+      'folder old already exists: give the folder another name',
+    blocked: true,
+  });
+  assertEquals(note(main, '', { name: '' }), {
+    note: 'Name the branch\nName the folder',
     blocked: true,
   });
 });
