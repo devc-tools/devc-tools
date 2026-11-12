@@ -27,7 +27,7 @@ projects) with no confirmation, so the drawer adds nothing there.
   knows the `devc web` arguments it ran. With none of `--live`, `--live-yolo`, `--source`,
   `--source=…` among them, a `terminal` request from the drawer is opened as soon as its folder
   check passes: no card, no drawer. A refused check or a failed open shows its card (and opens
-  the drawer) as today. The Containers pane's own terminal card is unchanged. Under `--live`,
+  the drawer) as today. The Containers pane's **Open Host Terminal…** opens the same way (added after the first commit: the pane is the app's own bundled code, and a request from it still showed its card). Under `--live`,
   unchanged.
 
 ## Contracts

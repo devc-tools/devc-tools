@@ -302,8 +302,8 @@ devc web's page can **ask** for a push, a container start or a host terminal: un
 **Start** on a stopped project; and **Open Host Terminal…** on a repo card. It can never confirm
 one. Without `--live` (no `--live`, `--live-yolo` or `--source` in the `devc web` arguments the
 app runs), devc web's page is its built-in copy, which pushes itself after its own push dialog,
-and the app opens a requested host terminal as soon as its folder check passes, with no card:
-only a refused check or a failed open shows one. A container granted `gh-push` pushes without the
+and the app opens a requested host terminal (the page's, or the Containers pane's own) as soon
+as its folder check passes, with no card: only a refused check or a failed open shows one. A container granted `gh-push` pushes without the
 app (`devc-bridge gh-push` inside that container, which its agent can already run, with all of
 its refusals). When that refuses what only you may waive (a workflow change, say), devc web's
 server queues the push request here itself. The request shows

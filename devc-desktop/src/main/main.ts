@@ -171,8 +171,9 @@ const VIEW = 'devcd';
 
 /** A request as the app shows it: see `actions` in {@link main}. */
 /**
- * A request the app shows. `direct`: a drawer terminal request the app opens without a confirm
- * (its devc web is not live, see `livePage`); it shows nowhere unless its check or open fails.
+ * A request the app shows. `direct`: a terminal request (the page's or the Containers pane's) the
+ * app opens without a confirm (its devc web is not live, see `livePage`); it shows nowhere unless
+ * its check or open fails.
  */
 type Shown = ActionState & {
   changedAt: number;
@@ -2210,8 +2211,7 @@ async function main(): Promise<void> {
       outcome: null,
       changedAt: Date.now(),
       where,
-      direct: where === 'drawer' && req.kind === 'terminal' &&
-        runner !== null && !runner.live,
+      direct: req.kind === 'terminal' && runner !== null && !runner.live,
     };
     actions.set(req.id, a);
     void check(a);
@@ -2219,9 +2219,9 @@ async function main(): Promise<void> {
   }
 
   /**
-   * A `direct` terminal request, checked: opened at once, its card gone and the request dismissed
-   * on the server. A refused check or a failed open shows its card in the drawer instead, opened
-   * (never focused), as any request's.
+   * A `direct` terminal request, checked: opened at once, its card gone and a page's request
+   * dismissed on the server. A refused check or a failed open shows its card where it was asked
+   * instead: the Containers pane, or the drawer, opened (never focused), as any request's.
    */
   async function openDirect(a: Shown): Promise<void> {
     if (actions.get(a.req.id) !== a) return;
@@ -2234,7 +2234,7 @@ async function main(): Promise<void> {
       if (outcome.ok) {
         if (actions.get(a.req.id) === a) actions.delete(a.req.id);
         actionsChanged();
-        void dismissOnServer(a.req.id);
+        if (a.where === 'drawer') void dismissOnServer(a.req.id);
         return;
       }
     }
@@ -2246,6 +2246,7 @@ async function main(): Promise<void> {
         a.outcome = outcome;
       }
     });
+    if (a.where === 'pane') return;
     if (outcome !== null) void dismissOnServer(a.req.id);
     if (!drawerOpen) setDrawer(true, false);
   }
