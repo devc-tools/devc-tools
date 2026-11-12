@@ -262,7 +262,7 @@ Deno.test('createWorktree from a remote branch: relative pointers, tracking ref,
         {
           name: 'feature-a',
           branch: 'other',
-          source: { kind: 'new', base: 'current' },
+          source: { kind: 'local', base: 'main' },
         },
         [repo],
         deps,
@@ -363,7 +363,7 @@ Deno.test('createWorktree: new branches, existing branches, refusals', async () 
       {
         name: 'from-default',
         branch: 'from-default',
-        source: { kind: 'new', base: 'default' },
+        source: { kind: 'remote', remoteBranch: 'main' },
       },
       [repo],
       deps,
@@ -384,7 +384,7 @@ Deno.test('createWorktree: new branches, existing branches, refusals', async () 
       {
         name: 'from-current',
         branch: 'from-current',
-        source: { kind: 'new', base: 'current' },
+        source: { kind: 'local', base: 'main' },
       },
       [repo],
       deps,
@@ -426,18 +426,18 @@ Deno.test('createWorktree: new branches, existing branches, refusals', async () 
       source: Parameters<typeof createWorktree>[1]['source'],
     ) => createWorktree(t, { name, branch, source }, [repo], deps);
     assertEquals(
-      await refuse('x', 'from-current', { kind: 'new', base: 'current' }),
+      await refuse('x', 'from-current', { kind: 'local', base: 'main' }),
       {
         ok: false,
-        problem: 'branch from-current already exists',
+        problem: 'branch from-current is checked out in another worktree',
       },
     );
-    assertEquals(await refuse('.x', 'y', { kind: 'new', base: 'current' }), {
+    assertEquals(await refuse('.x', 'y', { kind: 'local', base: 'main' }), {
       ok: false,
       problem: 'invalid folder name: .x',
     });
     assertEquals(
-      await refuse('x', 'bad..name', { kind: 'new', base: 'current' }),
+      await refuse('x', 'bad..name', { kind: 'local', base: 'main' }),
       {
         ok: false,
         problem: 'invalid branch name: bad..name',
@@ -446,7 +446,7 @@ Deno.test('createWorktree: new branches, existing branches, refusals', async () 
     assertEquals(
       await createWorktree(
         { ...t, folder: `${repo}.worktrees/existing` },
-        { name: 'x', branch: 'y', source: { kind: 'new', base: 'current' } },
+        { name: 'x', branch: 'y', source: { kind: 'local', base: 'main' } },
         [repo],
         deps,
       ),
@@ -462,7 +462,7 @@ Deno.test('createWorktree: new branches, existing branches, refusals', async () 
         {
           name: 'x',
           branch: 'y',
-          source: { kind: 'new', base: 'default' },
+          source: { kind: 'remote', remoteBranch: 'main' },
         },
         [repo],
         { ...deps, mirror: { ...deps.mirror, fetchable: undefined } },
@@ -526,7 +526,7 @@ Deno.test('removeWorktree: clean, dirty, forced; the branch stays', async () => 
         {
           name,
           branch: name,
-          source: { kind: 'new', base: 'current' },
+          source: { kind: 'local', base: 'main' },
         },
         [repo],
         deps,
@@ -576,7 +576,7 @@ Deno.test('worktreesFolderOf: only a primary repo with a mapped .worktrees folde
       {
         name: 'wt',
         branch: 'wt',
-        source: { kind: 'new', base: 'current' },
+        source: { kind: 'local', base: 'main' },
       },
       [repo],
       deps,
@@ -605,7 +605,7 @@ Deno.test('createWorktree with the repo config locked', async () => {
         {
           name: 'first',
           branch: 'first',
-          source: { kind: 'new', base: 'current' },
+          source: { kind: 'local', base: 'main' },
         },
         [repo],
         deps,
@@ -627,7 +627,7 @@ Deno.test('createWorktree with the repo config locked', async () => {
         {
           name: 'first',
           branch: 'first',
-          source: { kind: 'new', base: 'current' },
+          source: { kind: 'local', base: 'main' },
         },
         [repo],
         deps,
@@ -708,15 +708,11 @@ Deno.test('worktreesStateOf: why a primary has no New worktree here; nothing for
   });
 });
 
-Deno.test("createWorktree: a new branch off a worktree's HEAD", async () => {
-  await withRepo(async ({ t, deps, repo, dir }) => {
+Deno.test("createWorktree: a new branch from a local branch (a worktree's)", async () => {
+  await withRepo(async ({ t, deps, repo }) => {
     const a = await createWorktree(
       t,
-      {
-        name: 'a',
-        branch: 'a',
-        source: { kind: 'new', base: 'current' },
-      },
+      { name: 'a', branch: 'a', source: { kind: 'local', base: 'main' } },
       [repo],
       deps,
     );
@@ -726,11 +722,7 @@ Deno.test("createWorktree: a new branch off a worktree's HEAD", async () => {
     const headA = await git(wtA, 'rev-parse', 'HEAD');
     const b = await createWorktree(
       t,
-      {
-        name: 'b',
-        branch: 'b',
-        source: { kind: 'new', base: 'worktree', from: wtA },
-      },
+      { name: 'b', branch: 'b', source: { kind: 'local', base: 'a' } },
       [repo, wtA],
       deps,
     );
@@ -741,28 +733,15 @@ Deno.test("createWorktree: a new branch off a worktree's HEAD", async () => {
       upstream: null,
     });
     assertEquals(await git(`${repo}.worktrees/b`, 'rev-parse', 'HEAD'), headA);
-
-    // Not a worktree of this repo: the primary itself, another repo.
-    const other = `${dir}/other`;
-    await git(dir, 'init', '-q', other);
-    for (const from of [repo, other]) {
-      assertEquals(
-        await createWorktree(
-          t,
-          {
-            name: 'c',
-            branch: 'c',
-            source: { kind: 'new', base: 'worktree', from },
-          },
-          [repo],
-          deps,
-        ),
-        {
-          ok: false,
-          problem: `${from.split('/').pop()} is not a worktree of repo`,
-        },
-      );
-    }
+    assertEquals(
+      await createWorktree(
+        t,
+        { name: 'c', branch: 'c', source: { kind: 'local', base: 'nope' } },
+        [repo],
+        deps,
+      ),
+      { ok: false, problem: 'branch nope does not exist' },
+    );
   });
 });
 
@@ -793,13 +772,13 @@ Deno.test('createWorktree: a new name for a remote branch starts a new branch wi
       await git(repo, 'config', '--get', 'branch.mine.merge').catch(() => null),
       null,
     );
-    // From New branch, with origin/feature/a as its base; that branch's tracking ref moves too.
+    // Again under another name; origin/feature/a's tracking ref moves too.
     const n = await createWorktree(
       t,
       {
         name: 'also-mine',
         branch: 'also-mine',
-        source: { kind: 'new', base: 'remote', remoteBranch: 'feature/a' },
+        source: { kind: 'remote', remoteBranch: 'feature/a' },
       },
       [repo],
       deps,
@@ -824,7 +803,7 @@ Deno.test('createWorktree: a new name for a remote branch starts a new branch wi
         {
           name: 'x',
           branch: 'x',
-          source: { kind: 'new', base: 'remote', remoteBranch: 'bad..name' },
+          source: { kind: 'remote', remoteBranch: 'bad..name' },
         },
         [repo],
         deps,

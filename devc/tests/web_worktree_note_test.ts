@@ -1,66 +1,115 @@
 import { assertEquals } from 'jsr:@std/assert';
-import { folderNameFor, worktreeNote } from '../web/static/lib/worktree.js';
-
-const base = {
-  kind: 'pr' as const,
-  branch: 'feature/a',
-  name: 'feature-a',
-  localBranches: ['main'],
-  checkedOut: ['main'],
-  folders: ['old'],
-};
+import {
+  branchChoices,
+  folderNameFor,
+  worktreeNote,
+} from '../web/static/lib/worktree.js';
 
 Deno.test('folderNameFor turns every / into -', () => {
   assertEquals(folderNameFor('feature/a/b'), 'feature-a-b');
   assertEquals(folderNameFor('plain'), 'plain');
 });
 
-Deno.test('worktreeNote: what blocks Create, and what only notes', () => {
-  assertEquals(worktreeNote(base), { note: '', blocked: false });
-  assertEquals(worktreeNote({ ...base, branch: '' }), {
-    note: '',
-    blocked: true,
-  });
-  assertEquals(worktreeNote({ ...base, name: 'old' }), {
-    note: 'folder already exists',
-    blocked: true,
-  });
-  assertEquals(worktreeNote({ ...base, branch: 'main' }), {
-    note:
-      'checked out in another worktree: give the branch a new name to start a new branch from it',
-    blocked: true,
-  });
-  const existing = { ...base, localBranches: ['main', 'feature/a'] };
-  assertEquals(worktreeNote(existing), {
-    note: 'uses the existing local branch as is',
-    blocked: false,
-  });
-  assertEquals(worktreeNote({ ...existing, kind: 'remote' }).blocked, false);
-  assertEquals(worktreeNote({ ...existing, kind: 'new' }), {
-    note: 'branch already exists',
-    blocked: true,
-  });
+Deno.test("branchChoices: the default branch's first, then by name, local before origin", () => {
+  assertEquals(
+    branchChoices({
+      localBranches: ['zed', 'main', 'feature/a'],
+      remoteBranches: ['feature/a', 'main', 'b'],
+      checkedOut: ['main'],
+      defaultBranch: 'main',
+    }).map((c) => [c.label, c.kind, c.checkedOut]),
+    [
+      ['main', 'local', true],
+      ['origin/main', 'remote', false],
+      ['origin/b', 'remote', false],
+      ['feature/a', 'local', false],
+      ['origin/feature/a', 'remote', false],
+      ['zed', 'local', false],
+    ],
+  );
 });
 
-Deno.test('worktreeNote: a renamed branch from a remote one, and the way round a checked-out one', () => {
-  const remote = { ...base, kind: 'remote' as const, source: 'feature/a' };
-  assertEquals(worktreeNote(remote), { note: '', blocked: false });
-  assertEquals(worktreeNote({ ...remote, branch: 'mine' }), {
-    note: 'a new branch from origin/feature/a, with no upstream',
+const lists = {
+  localBranches: ['main', 'feature/a'],
+  checkedOut: ['main'],
+  folders: ['old'],
+};
+const note = (
+  base: Parameters<typeof worktreeNote>[0]['base'],
+  branch: string,
+  extra: Partial<Parameters<typeof worktreeNote>[0]> = {},
+) =>
+  worktreeNote({
+    tab: 'branch',
+    base,
+    branch,
+    name: folderNameFor(branch),
+    ...lists,
+    ...extra,
+  });
+
+Deno.test('worktreeNote: what Create will do from each base', () => {
+  // origin/x under its own name: created tracking it.
+  assertEquals(note({ kind: 'remote', name: 'feature/b' }, 'feature/b'), {
+    note: 'creates feature/b tracking origin/feature/b',
     blocked: false,
   });
-  assertEquals(worktreeNote({ ...remote, checkedOut: ['feature/a'] }), {
-    note:
-      'checked out in another worktree: give the branch a new name to start a new branch from it',
+  // Another name: a new branch, no upstream.
+  assertEquals(note({ kind: 'remote', name: 'main' }, 'mine'), {
+    note: 'creates mine from origin/main, with no upstream',
+    blocked: false,
+  });
+  assertEquals(note({ kind: 'local', name: 'feature/a' }, 'mine'), {
+    note: 'creates mine from feature/a, with no upstream',
+    blocked: false,
+  });
+  // A branch that exists locally is checked out as is, whatever the base.
+  assertEquals(note({ kind: 'local', name: 'feature/a' }, 'feature/a'), {
+    note: 'checks out feature/a as is',
+    blocked: false,
+  });
+  assertEquals(note({ kind: 'remote', name: 'feature/a' }, 'feature/a'), {
+    note: 'checks out feature/a as is',
+    blocked: false,
+  });
+  // PRs: a same-repo one tracks its branch; a fork's has none.
+  assertEquals(
+    note({ kind: 'pr', number: 8, head: 'feature/b' }, 'feature/b', {
+      tab: 'pr',
+    }),
+    { note: 'creates feature/b tracking origin/feature/b', blocked: false },
+  );
+  assertEquals(
+    note({ kind: 'pr', number: 7, head: null }, 'pr-7', { tab: 'pr' }),
+    {
+      note: 'creates pr-7 from pull request #7, with no upstream',
+      blocked: false,
+    },
+  );
+});
+
+Deno.test('worktreeNote: what blocks Create', () => {
+  assertEquals(note(null, ''), {
+    note: 'Pick a branch to start from',
     blocked: true,
   });
-  // A fork's PR has no branch on origin: nothing to say.
-  assertEquals(
-    worktreeNote({ ...base, kind: 'pr', branch: 'pr-7', source: null }),
-    { note: '', blocked: false },
-  );
-  assertEquals(
-    worktreeNote({ ...base, kind: 'new', checkedOut: ['feature/a'] }).note,
-    'checked out in another worktree',
-  );
+  assertEquals(note(null, '', { tab: 'pr' }), {
+    note: 'Pick a pull request',
+    blocked: true,
+  });
+  const main = { kind: 'remote' as const, name: 'main' };
+  assertEquals(note(main, ''), { note: 'Name the branch', blocked: true });
+  assertEquals(note(main, 'x', { name: '' }), {
+    note: 'Name the folder',
+    blocked: true,
+  });
+  assertEquals(note(main, 'x', { name: 'old' }), {
+    note: 'folder old already exists',
+    blocked: true,
+  });
+  assertEquals(note(main, 'main'), {
+    note:
+      'main is checked out in another worktree: give the branch another name',
+    blocked: true,
+  });
 });

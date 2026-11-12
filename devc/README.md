@@ -375,21 +375,24 @@ is published from any container: the host server finds devcontainers with
   rail, and hidden until shown; with nothing open, a click on that repo's header
   hides or shows them (its chevron, on the left, points down while they show).
   The heading's **Collapse all** hides them again. **New worktree…** (a repo
-  card's right-click) makes `<repo>.worktrees/<folder>` beside the repo, on a
-  local branch from an open **pull request** (`gh pr list` on the host; a fork's
-  becomes `pr-<n>`), a **remote branch** on `origin`, or a **new branch** from
-  `origin/<default>`, the repo's current branch, or any `origin/<branch>`; the
-  folder follows the branch name, `/` as `-`. A PR's or remote branch given
-  another name in **Branch** is a new branch from it, with no upstream (so a
-  branch checked out elsewhere can still be the base: the dialog says so). It
-  is on every main checkout's card and on each of its
-  worktrees' cards, where it makes a sibling (the main repo must be listed in
-  the same container) and **New branch** can also start from that worktree's
-  HEAD; and on their **In use** stand-ins' right-click (as **Delete worktree…**
-  is on a worktree's). It works
-  while the repo's environment runs and has `<repo>.worktrees` beside `<repo>`
-  (the same names, side by side, in the container too: mount the `.worktrees`
-  folder as its own row); otherwise it is greyed out, and its tooltip says which
+  card's right-click) makes `<repo>.worktrees/<folder>` beside the repo. Its
+  **Branch** tab lists the repo's local branches and `origin`'s (the default
+  branch's first; _checked out_ marks those in a worktree): pick one to start
+  from, and **Branch** takes its name (`feature/x` for `origin/feature/x`), the
+  folder following it, `/` as `-`. Type another name there for a new local
+  branch from it. **Pull request** lists the open PRs (`gh pr list` on the host;
+  a fork's branch defaults to `pr-<n>`). The note under the form says what
+  **Create** will do: check a branch that exists locally out as is (never
+  reset), create a remote branch (or a same-repo PR's) under its own name
+  tracking `origin/<branch>`, or create a new branch with no upstream; or what
+  stops it, such as a branch checked out in another worktree (give it another
+  name). It is on every main checkout's card and on each of its worktrees'
+  cards, where it makes a sibling (the main repo must be listed in the same
+  container), and on their **In use** stand-ins' right-click (as **Delete
+  worktree…** is on a worktree's). It works while the repo's environment runs
+  and has `<repo>.worktrees` beside `<repo>` (the same names, side by side, in
+  the container too: mount the `.worktrees` folder as its own row); otherwise it
+  is greyed out, and its tooltip says which
   of those is missing. The host fetches
   the commits into its mirror and hands them over as a bundle, and the repo's
   git runs `git worktree add --relative-paths` in its environment (git 2.48 or
@@ -399,12 +402,9 @@ is published from any container: the host server finds devcontainers with
   in place before the first one, as git would but without its rename; from then
   on **git older than 2.48 refuses the repo** (`unknown repository extension`),
   so the host's own git must be 2.48 or newer too (Apple's bundled git is not:
-  use Homebrew's). A branch already there is checked out as is, never reset. A remote
-  branch or a same-repo PR's, under its own name, gets `origin/<branch>` as its
-  upstream, written by
-  the host into the repo's `.git/config` in place (not by rename, so git
-  protection's read-only mount keeps covering it); a fork's or a new branch has
-  none. The new card shows under its repo's in every running environment that
+  use Homebrew's). A tracking branch's upstream is written by the host into
+  the repo's `.git/config` in place (not by rename, so git protection's
+  read-only mount keeps covering it). The new card shows under its repo's in every running environment that
   mounts the folder; nothing is added to the projects list and no container
   starts. **Delete worktree…** on a worktree's card runs `git worktree remove`
   there and never deletes its branch. It is refused while the worktree is a

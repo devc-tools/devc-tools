@@ -3,7 +3,7 @@
 // again and does the work in the repo's environment, and what it reports stays in the dialog.
 
 import { forceRemoveAllowed, nextId, onServerMessage, send } from './client.js';
-import { folderNameFor, worktreeNote } from './lib/worktree.js';
+import { branchChoices, folderNameFor, worktreeNote } from './lib/worktree.js';
 import { h, toast } from './ui.js';
 
 /**
@@ -58,29 +58,27 @@ function shell(/** @type {string} */ title, body, footer) {
 }
 
 /**
- * **New worktree…** on a primary repo's card, or on one of its worktrees' (`from`: that worktree,
- * which New branch may also start from): from an open PR, a branch on `origin`, or a new branch,
- * in `<repo>.worktrees/<folder>`. `folder` is always the primary's.
+ * **New worktree…** on a primary repo's card, or one of its worktrees' (`folder` is always the
+ * primary's): in `<repo>.worktrees/<folder>`, from an open PR (**Pull request**) or a local or
+ * origin branch (**Branch**). Branch defaults to the base's name; another name makes a new local
+ * branch from it. The note says what Create will do (`worktreeNote`).
  *
- * @param {{localFolder: string, folder: string, repoName: string,
- *   from?: {folder: string, branch: string | null}, onCreated: () => void}} o
+ * @param {{localFolder: string, folder: string, repoName: string, onCreated: () => void}} o
  */
 export function openNewWorktreeDialog(
-  { localFolder, folder, repoName, from, onCreated },
+  { localFolder, folder, repoName, onCreated },
 ) {
   const done = new AbortController();
-  const base = folder.split('/').pop() ?? repoName;
+  const repoBase = folder.split('/').pop() ?? repoName;
   /** @type {any} */
   let opts = null;
-  /** @type {'pr' | 'remote' | 'new'} */
-  let kind = 'pr';
-  /** @type {number | null} */
-  let prNumber = null;
-  /** @type {string | null} */
-  let remoteBranch = null;
-  /** The picked PR's branch on origin (null for a fork's): see `worktreeNote`'s `source`. */
-  /** @type {string | null} */
-  let prSource = null;
+  /** @type {'pr' | 'branch'} */
+  let tab = 'branch';
+  /** @type {import('./lib/worktree.js').WorktreeBase | null} */
+  let base = null;
+  /** @type {import('./lib/worktree.js').BranchChoice[]} */
+  let choices = [];
+  let branchEdited = false;
   let nameEdited = false;
   let busy = false;
 
@@ -95,86 +93,6 @@ export function openNewWorktreeDialog(
     oninput: () => renderList(),
   }));
   const $list = h('div', { class: 'worktree-list', role: 'listbox' });
-  const $pick = h('div', { class: 'worktree-pick' }, $filter, $list);
-  const $baseDefault = /** @type {HTMLInputElement} */ (h('input', {
-    type: 'radio',
-    name: 'worktree-base',
-    value: 'default',
-    onchange: () => update(),
-  }));
-  const $baseCurrent = /** @type {HTMLInputElement} */ (h('input', {
-    type: 'radio',
-    name: 'worktree-base',
-    value: 'current',
-    onchange: () => update(),
-  }));
-  const $baseFrom = /** @type {HTMLInputElement} */ (h('input', {
-    type: 'radio',
-    name: 'worktree-base',
-    value: 'worktree',
-    onchange: () => update(),
-  }));
-  // Opened from a worktree's card: its HEAD, beside the main checkout's.
-  const $baseFromLabel = h(
-    'label',
-    { class: 'worktree-radio', hidden: !from },
-    $baseFrom,
-    `${from?.branch ?? 'HEAD'} (this worktree)`,
-  );
-  // Any branch on origin: a new branch from it, with no upstream.
-  const $baseRemote = /** @type {HTMLInputElement} */ (h('input', {
-    type: 'radio',
-    name: 'worktree-base',
-    value: 'remote',
-    onchange: () => update(),
-  }));
-  const $remoteChoices = h('datalist', {
-    id: `worktree-remote-${nextId('d')}`,
-  });
-  const $baseRemoteName = /** @type {HTMLInputElement} */ (h('input', {
-    type: 'text',
-    class: 'new-note-project worktree-base-remote',
-    list: $remoteChoices.id,
-    placeholder: 'branch',
-    spellcheck: 'false',
-    autocomplete: 'off',
-    'aria-label': 'Base branch on origin',
-    onfocus: () => {
-      $baseRemote.checked = true;
-      update();
-    },
-    oninput: () => {
-      $baseRemote.checked = true;
-      update();
-    },
-  }));
-  const $baseRemoteLabel = h(
-    'label',
-    { class: 'worktree-radio' },
-    $baseRemote,
-    'origin/',
-    $baseRemoteName,
-    $remoteChoices,
-  );
-  const $baseDefaultLabel = h(
-    'label',
-    { class: 'worktree-radio' },
-    $baseDefault,
-  );
-  const $baseCurrentLabel = h(
-    'label',
-    { class: 'worktree-radio' },
-    $baseCurrent,
-  );
-  const $base = h(
-    'div',
-    { class: 'worktree-base' },
-    h('span', {}, 'Base'),
-    $baseDefaultLabel,
-    $baseCurrentLabel,
-    $baseFromLabel,
-    $baseRemoteLabel,
-  );
   const $branch = /** @type {HTMLInputElement} */ (h('input', {
     type: 'text',
     class: 'new-note-project',
@@ -182,6 +100,7 @@ export function openNewWorktreeDialog(
     autocomplete: 'off',
     'aria-label': 'Branch',
     oninput: () => {
+      branchEdited = true;
       if (!nameEdited) $name.value = folderNameFor($branch.value.trim());
       update();
     },
@@ -210,18 +129,20 @@ export function openNewWorktreeDialog(
   const $status = h(
     'span',
     { class: 'picker-hint' },
-    h('span', {
-      class: 'spinner',
-    }),
+    h('span', { class: 'spinner' }),
     'Loading…',
   );
   const $form = h(
     'div',
     { class: 'worktree-form', hidden: true },
     $tabs,
-    $pick,
-    $base,
-    h('label', {}, 'Branch', $branch),
+    h('div', { class: 'worktree-pick' }, $filter, $list),
+    h(
+      'label',
+      {},
+      'Branch',
+      $branch,
+    ),
     h(
       'label',
       {},
@@ -229,7 +150,7 @@ export function openNewWorktreeDialog(
       h(
         'span',
         { class: 'worktree-folder' },
-        h('span', { class: 'worktree-prefix' }, `${base}.worktrees/`),
+        h('span', { class: 'worktree-prefix' }, `${repoBase}.worktrees/`),
         $name,
       ),
     ),
@@ -254,73 +175,71 @@ export function openNewWorktreeDialog(
     $error.hidden = message === null;
   }
 
-  /** @param {string} branch */
-  function setBranch(branch) {
-    $branch.value = branch;
-    if (!nameEdited) $name.value = folderNameFor(branch);
+  /**
+   * Picks a base: Branch takes its name (a fork's PR: `pr-<n>`) unless the user has typed one.
+   * @param {import('./lib/worktree.js').WorktreeBase} b
+   */
+  function pick(b) {
+    base = b;
+    if (!branchEdited) {
+      $branch.value = b.kind === 'pr' ? b.head ?? `pr-${b.number}` : b.name;
+      if (!nameEdited) $name.value = folderNameFor($branch.value);
+    }
+    renderList();
+    update();
   }
 
   function renderTabs() {
-    const tab = (/** @type {typeof kind} */ k, /** @type {string} */ label) =>
+    const button = (/** @type {typeof tab} */ t, /** @type {string} */ label) =>
       h('button', {
         type: 'button',
-        'aria-pressed': String(kind === k),
+        'aria-pressed': String(tab === t),
         onclick: () => {
-          if (kind === k) return;
-          kind = k;
-          prNumber = null;
-          remoteBranch = null;
-          prSource = null;
+          if (tab === t) return;
+          tab = t;
+          base = null;
           $filter.value = '';
-          if (k === 'new') setBranch('');
           renderTabs();
           renderList();
           update();
         },
       }, label);
     $tabs.replaceChildren(
-      tab('pr', 'Pull request'),
-      tab('remote', 'Remote branch'),
-      tab('new', 'New branch'),
+      button('branch', 'Branch'),
+      button('pr', 'Pull request'),
     );
-    $pick.hidden = kind === 'new';
-    $base.hidden = kind !== 'new';
   }
 
+  /** @param {string} text */
+  const empty = (text) => h('div', { class: 'worktree-empty' }, text);
+
   function renderList() {
-    if (!opts || kind === 'new') return;
+    if (!opts) return;
     const q = $filter.value.trim().toLowerCase();
-    if (kind === 'pr') {
+    if (tab === 'pr') {
       const prs = /** @type {any[]} */ (opts.prs).filter((p) =>
         q === '' || `#${p.number} ${p.title} ${p.author} ${p.headRefName}`
           .toLowerCase().includes(q)
       );
       $list.replaceChildren(
         ...(opts.prs.length === 0
-          ? [
-            h(
-              'div',
-              { class: 'worktree-empty' },
-              opts.prsProblem ?? 'No open pull requests',
-            ),
-          ]
+          ? [empty(opts.prsProblem ?? 'No open pull requests')]
           : prs.map((p) =>
             h(
               'div',
               {
                 class: 'worktree-item',
                 role: 'option',
-                'aria-selected': String(prNumber === p.number),
+                'aria-selected': String(
+                  base?.kind === 'pr' && base.number === p.number,
+                ),
                 title: p.headRefName,
-                onclick: () => {
-                  prNumber = p.number;
-                  prSource = p.crossRepository ? null : p.headRefName;
-                  setBranch(
-                    p.crossRepository ? `pr-${p.number}` : p.headRefName,
-                  );
-                  renderList();
-                  update();
-                },
+                onclick: () =>
+                  pick({
+                    kind: 'pr',
+                    number: p.number,
+                    head: p.crossRepository ? null : p.headRefName,
+                  }),
               },
               h('span', { class: 'worktree-num' }, `#${p.number}`),
               h('span', { class: 'worktree-title' }, p.title),
@@ -332,83 +251,67 @@ export function openNewWorktreeDialog(
             )
           )),
       );
-    } else {
-      const branches = /** @type {string[]} */ (opts.remoteBranches)
-        .filter((b) => q === '' || b.toLowerCase().includes(q));
-      $list.replaceChildren(
-        ...(opts.remoteBranches.length === 0
-          ? [
-            h(
-              'div',
-              { class: 'worktree-empty' },
-              opts.remoteProblem ?? 'No branches on origin',
-            ),
-          ]
-          : branches.slice(0, 500).map((b) =>
-            h('div', {
+      return;
+    }
+    const shown = choices.filter((c) =>
+      q === '' || c.label.toLowerCase().includes(q)
+    );
+    $list.replaceChildren(
+      ...(choices.length === 0
+        ? [empty(opts.remoteProblem ?? 'No branches')]
+        : shown.slice(0, 500).map((c) =>
+          h(
+            'div',
+            {
               class: 'worktree-item',
               role: 'option',
-              'aria-selected': String(remoteBranch === b),
-              onclick: () => {
-                remoteBranch = b;
-                setBranch(b);
-                renderList();
-                update();
-              },
-            }, h('span', { class: 'worktree-title' }, b))
-          )),
-      );
-    }
-  }
-
-  /** The `origin/…` base names one of origin's branches (any name, when they couldn't be listed). */
-  function remoteBaseValid() {
-    const b = $baseRemoteName.value.trim();
-    return b !== '' &&
-      (opts.remoteBranches.length === 0 || opts.remoteBranches.includes(b));
+              'aria-selected': String(
+                base?.kind === c.kind && base.name === c.name,
+              ),
+              onclick: () => pick({ kind: c.kind, name: c.name }),
+            },
+            h('span', { class: 'worktree-title' }, c.label),
+            c.checkedOut
+              ? h('span', { class: 'worktree-badge' }, 'checked out')
+              : '',
+            h(
+              'span',
+              { class: 'worktree-author' },
+              c.kind === 'local' ? 'local' : 'origin',
+            ),
+          )
+        )),
+      ...(choices.length > 0 && opts.remoteProblem
+        ? [empty(`origin: ${opts.remoteProblem}`)]
+        : []),
+    );
   }
 
   function update() {
     showError(null);
     if (!opts) return;
-    const branch = $branch.value.trim();
-    const name = $name.value.trim();
     const { note, blocked } = worktreeNote({
-      kind,
-      branch,
-      name,
-      source: kind === 'pr'
-        ? prSource
-        : kind === 'remote'
-        ? remoteBranch
-        : null,
+      tab,
+      base,
+      branch: $branch.value.trim(),
+      name: $name.value.trim(),
       localBranches: opts.localBranches,
       checkedOut: opts.checkedOut,
       folders: opts.folders,
     });
     $note.textContent = note;
-    const picked = kind === 'pr'
-      ? prNumber !== null
-      : kind === 'remote'
-      ? remoteBranch !== null
-      : $baseDefault.checked || $baseCurrent.checked || $baseFrom.checked ||
-        ($baseRemote.checked && remoteBaseValid());
-    $create.disabled = busy || blocked || !picked;
+    $create.disabled = busy || blocked;
   }
 
   async function create() {
-    if (busy || !opts) return;
+    if (busy || !opts || base === null) return;
     const branch = $branch.value.trim();
     const name = $name.value.trim();
-    const source = kind === 'pr'
-      ? { kind, number: prNumber }
-      : kind === 'remote'
-      ? { kind, remoteBranch }
-      : $baseFrom.checked && from
-      ? { kind, base: 'worktree', from: from.folder }
-      : $baseRemote.checked
-      ? { kind, base: 'remote', remoteBranch: $baseRemoteName.value.trim() }
-      : { kind, base: $baseDefault.checked ? 'default' : 'current' };
+    const source = base.kind === 'pr'
+      ? { kind: 'pr', number: base.number }
+      : base.kind === 'remote'
+      ? { kind: 'remote', remoteBranch: base.name }
+      : { kind: 'local', base: base.name };
     busy = true;
     $create.disabled = true;
     $status.replaceChildren(h('span', { class: 'spinner' }), 'Creating…');
@@ -428,7 +331,7 @@ export function openNewWorktreeDialog(
     $status.hidden = true;
     if (r.ok) {
       el.close();
-      toast(`created ${base}.worktrees/${name} on ${r.branch}`);
+      toast(`created ${repoBase}.worktrees/${name} on ${r.branch}`);
       onCreated();
       return;
     }
@@ -450,19 +353,7 @@ export function openNewWorktreeDialog(
         return;
       }
       opts = r;
-      kind = opts.prs.length > 0 ? 'pr' : 'remote';
-      $baseDefaultLabel.append(`origin/${opts.defaultBranch ?? ''}`);
-      $baseCurrentLabel.append(
-        `${opts.currentBranch ?? ''} (${from ? 'main checkout' : 'current'})`,
-      );
-      $remoteChoices.replaceChildren(
-        ...opts.remoteBranches.map((b) => h('option', { value: b })),
-      );
-      $baseDefaultLabel.hidden = opts.defaultBranch === null;
-      $baseCurrentLabel.hidden = opts.currentBranch === null;
-      if (opts.defaultBranch !== null) $baseDefault.checked = true;
-      else if (opts.currentBranch !== null) $baseCurrent.checked = true;
-      else if (from) $baseFrom.checked = true;
+      choices = branchChoices(opts);
       $status.hidden = true;
       $form.hidden = false;
       renderTabs();

@@ -77,18 +77,16 @@ export interface WorktreeOptions {
   folders: string[];
 }
 
-/** Where a new worktree's commit comes from. */
+/**
+ * What a new worktree starts from: an open PR, `origin/<remoteBranch>`, or local branch `base`.
+ * The request's `branch` is checked out as is when it exists locally; otherwise it is created at
+ * the source's commit, tracking the remote branch only under that branch's own name (`remote`, a
+ * same-repo PR), else with no upstream.
+ */
 export type WorktreeSource =
   | { kind: 'pr'; number: number }
   | { kind: 'remote'; remoteBranch: string }
-  /**
-   * A new branch from `origin/<default>`, the main checkout's HEAD (`current`), the HEAD of
-   * `from`, a linked worktree of the same repo in the same environment (`worktree`), or
-   * `origin/<remoteBranch>` (`remote`), with no upstream.
-   */
-  | { kind: 'new'; base: 'default' | 'current' }
-  | { kind: 'new'; base: 'worktree'; from: string }
-  | { kind: 'new'; base: 'remote'; remoteBranch: string };
+  | { kind: 'local'; base: string };
 
 export type Problem = { ok: false; problem: string };
 
@@ -705,38 +703,6 @@ async function prerequisites(
   return out;
 }
 
-/**
- * The commit linked worktree `from` (a host folder) has checked out, read by git in the
- * environment: refused unless it is a worktree of the same repo that the environment maps.
- */
-async function worktreeHead(
-  t: WorktreeTarget,
-  at: Layout,
-  from: string,
-): Promise<{ commit: string } | Problem> {
-  const name = basename(from);
-  const dirs = await resolveRepo(from);
-  if (
-    dirs === null || dirs.gitDir === dirs.commonDir ||
-    dirs.commonDir !== at.commonDir
-  ) {
-    return fail(`${name} is not a worktree of ${basename(t.folder)}`);
-  }
-  const path = hostToContainerPath(from, t.mounts);
-  if (path === null) return fail(`${name} is not mounted here`);
-  const out = await envGit(t.env, path, [
-    'rev-parse',
-    '--verify',
-    'HEAD^{commit}',
-  ]);
-  if ('failed' in out) return fail(out.failed);
-  const commit = out.out.trim();
-  if (!/^([0-9a-f]{40}|[0-9a-f]{64})$/.test(commit)) {
-    return fail('git rev-parse: unexpected output');
-  }
-  return { commit };
-}
-
 /** A new worktree's result. */
 export interface Created {
   ok: true;
@@ -784,36 +750,37 @@ async function createOnce(
     }
   }
   if (!await validBranch(branch)) return fail(`invalid branch name: ${branch}`);
-  if (
-    'remoteBranch' in source && !await validBranch(source.remoteBranch)
-  ) {
-    return fail(`invalid branch name: ${source.remoteBranch}`);
+  const named = source.kind === 'remote'
+    ? source.remoteBranch
+    : source.kind === 'local'
+    ? source.base
+    : null;
+  if (named !== null && !await validBranch(named)) {
+    return fail(`invalid branch name: ${named}`);
   }
   const old = await gitVersionProblem(t.env, at.path);
   if (old) return old;
   const local = await localBranches(t.env, at.path);
   if ('problem' in local) return local;
   const exists = local.local.includes(branch);
-  if (source.kind === 'new' && exists) {
-    return fail(`branch ${branch} already exists`);
-  }
   if (local.checkedOut.includes(branch)) {
     return fail(`branch ${branch} is checked out in another worktree`);
   }
   const path = `${at.worktreesPath}/${name}`;
 
-  // Where the commit comes from: the remote (through the mirror), or the primary's HEAD.
+  // Where the commit comes from: the remote (through the mirror), or a local branch.
   let fetchRef: string | null = null;
-  /** The remote branch it tracks: `remote` and a same-repo PR. */
   /**
    * The remote branch fetched: its `refs/remotes/origin/<it>` moves to the commit. The new branch
    * takes it as upstream only under its own name (`remote` and a same-repo PR), since Push
    * publishes `origin/<branch>`; under another name it is a new branch with none.
    */
   let tracks: string | null = null;
-  /** Branched from a commit the repo has: no remote, no fetch. */
-  const inRepo = source.kind === 'new' &&
-    (source.base === 'current' || source.base === 'worktree');
+  /** From a local branch: no remote, no fetch. */
+  const inRepo = source.kind === 'local';
+  if (inRepo && !local.local.includes(source.base)) {
+    return fail(`branch ${source.base} does not exist`);
+  }
   const url = inRepo ? null : await fetchableOrigin(at.commonDir, opts);
   if (url === null && !inRepo) {
     return fail('origin is not an https or ssh remote');
@@ -850,22 +817,20 @@ async function createOnce(
       }
       tracks = pr.headRefName;
     }
-  } else if (source.base === 'remote') {
-    fetchRef = `refs/heads/${source.remoteBranch}`;
-    tracks = source.remoteBranch;
-  } else if (source.base === 'default') {
-    const def = await remoteDefaultBranch(url!);
-    if (def === null || !await validBranch(def)) {
-      return fail("could not read origin's default branch");
-    }
-    fetchRef = `refs/heads/${def}`;
   }
 
   let commit = 'HEAD';
-  if (source.kind === 'new' && source.base === 'worktree') {
-    const from = await worktreeHead(t, at, source.from);
-    if ('problem' in from) return from;
-    commit = from.commit;
+  if (source.kind === 'local' && !exists) {
+    const tip = await envGit(t.env, at.path, [
+      'rev-parse',
+      '--verify',
+      `refs/heads/${source.base}^{commit}`,
+    ]);
+    if ('failed' in tip) return fail(tip.failed);
+    commit = tip.out.trim();
+    if (!/^([0-9a-f]{40}|[0-9a-f]{64})$/.test(commit)) {
+      return fail('git rev-parse: unexpected output');
+    }
   }
   let bundleRef = '';
   let bundle: Uint8Array | undefined;
@@ -957,7 +922,7 @@ async function createOnce(
   }
 
   let upstream: string | null = null;
-  if (tracks === branch && source.kind !== 'new') {
+  if (tracks === branch) {
     if (await hasMerge(at.commonDir, branch)) {
       upstream = null;
     } else {

@@ -3141,25 +3141,11 @@ button.primary.danger {
   font-size: calc(var(--font-size) - 2px);
 }
 
-.worktree-base {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 4px 12px;
-  color: var(--muted);
-  font-size: calc(var(--font-size) - 1px);
-}
-
 .new-note-body label.worktree-radio {
   display: inline-flex;
   align-items: center;
   gap: 4px;
   color: var(--text);
-}
-
-/* New branch's `origin/…` base: a branch name typed or picked from origin's. */
-.worktree-base-remote {
-  width: 14em;
 }
 
 .worktree-folder {

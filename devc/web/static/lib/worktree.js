@@ -1,5 +1,6 @@
 // The New worktree dialog's rules (`worktree-dialog.js`), kept apart from the DOM so they are
-// tested: see `.plans/devc-web-worktrees.md`. The server (`git_worktree.ts`) checks them again.
+// tested: see `.plans/archived/devc-web-worktrees.md`. The server (`git_worktree.ts`) checks them
+// again.
 
 /** The folder name a branch suggests: every `/` becomes `-` (as `git_worktree.ts`'s does). */
 export function folderNameFor(branch) {
@@ -7,38 +8,100 @@ export function folderNameFor(branch) {
 }
 
 /**
- * The note under the New worktree form, and whether Create is blocked, for its current choice.
- * `source` is the remote branch the Pull request or Remote branch tab picked (a fork's PR: null):
- * under another name, the new branch starts from it with no upstream, which the note says, and a
- * branch checked out elsewhere says that a new name gets round it.
+ * @typedef {{kind: 'local' | 'remote', name: string, label: string, checkedOut: boolean}} BranchChoice
+ * A base the Branch tab lists: a local branch (`name`), or `origin/<name>`.
+ */
+
+/**
+ * The Branch tab's bases: the repo's local branches and origin's, the default branch's first (its
+ * local one, then `origin/…`), then by name, a local branch before origin's of the same name.
  *
- * @param {{kind: 'pr' | 'remote' | 'new', branch: string, name: string, source?: string | null,
+ * @param {{localBranches: string[], remoteBranches: string[], checkedOut: string[],
+ *   defaultBranch: string | null}} o
+ * @returns {BranchChoice[]}
+ */
+export function branchChoices(o) {
+  const all = [
+    ...o.localBranches.map((name) => ({
+      kind: /** @type {const} */ ('local'),
+      name,
+      label: name,
+      checkedOut: o.checkedOut.includes(name),
+    })),
+    ...o.remoteBranches.map((name) => ({
+      kind: /** @type {const} */ ('remote'),
+      name,
+      label: `origin/${name}`,
+      checkedOut: false,
+    })),
+  ];
+  const rank = (c) => c.name === o.defaultBranch ? 0 : 1;
+  return all.sort((a, b) =>
+    rank(a) - rank(b) || a.name.localeCompare(b.name) ||
+    (a.kind === 'local' ? -1 : 1)
+  );
+}
+
+/**
+ * @typedef {{kind: 'local' | 'remote', name: string}
+ *   | {kind: 'pr', number: number, head: string | null}} WorktreeBase
+ * What a worktree starts from: a local branch, `origin/<name>`, or a PR (`head`: its branch on
+ * origin; null for a fork's).
+ */
+
+/** How a base reads in a note. @param {WorktreeBase} base */
+function baseLabel(base) {
+  return base.kind === 'pr'
+    ? `pull request #${base.number}`
+    : base.kind === 'remote'
+    ? `origin/${base.name}`
+    : base.name;
+}
+
+/**
+ * What Create will do for the dialog's current choice, and whether it is blocked. The target
+ * `branch` defaults to the base's name; another name is a new local branch from the base. As the
+ * server decides: a branch that exists locally is checked out as is; a remote branch (or a
+ * same-repo PR's) under its own name is created tracking it; anything else is a new branch with no
+ * upstream.
+ *
+ * @param {{tab: 'pr' | 'branch', base: WorktreeBase | null, branch: string, name: string,
  *   localBranches: string[], checkedOut: string[], folders: string[]}} s
  * @returns {{note: string, blocked: boolean}}
  */
 export function worktreeNote(s) {
-  if (s.branch === '' || s.name === '') return { note: '', blocked: true };
+  const block = (note) => ({ note, blocked: true });
+  if (s.base === null) {
+    return block(
+      s.tab === 'pr' ? 'Pick a pull request' : 'Pick a branch to start from',
+    );
+  }
+  if (s.branch === '') return block('Name the branch');
+  if (s.name === '') return block('Name the folder');
   if (s.folders.includes(s.name)) {
-    return { note: 'folder already exists', blocked: true };
+    return block(`folder ${s.name} already exists`);
   }
   if (s.checkedOut.includes(s.branch)) {
-    return {
-      note: s.kind === 'new'
-        ? 'checked out in another worktree'
-        : 'checked out in another worktree: give the branch a new name to start a new branch from it',
-      blocked: true,
-    };
+    return block(
+      `${s.branch} is checked out in another worktree: give the branch another name`,
+    );
   }
   if (s.localBranches.includes(s.branch)) {
-    return s.kind === 'new'
-      ? { note: 'branch already exists', blocked: true }
-      : { note: 'uses the existing local branch as is', blocked: false };
+    return { note: `checks out ${s.branch} as is`, blocked: false };
   }
-  if (s.kind !== 'new' && s.source && s.branch !== s.source) {
+  const tracked = s.base.kind === 'remote'
+    ? s.base.name
+    : s.base.kind === 'pr'
+    ? s.base.head
+    : null;
+  if (tracked !== null && s.branch === tracked) {
     return {
-      note: `a new branch from origin/${s.source}, with no upstream`,
+      note: `creates ${s.branch} tracking origin/${tracked}`,
       blocked: false,
     };
   }
-  return { note: '', blocked: false };
+  return {
+    note: `creates ${s.branch} from ${baseLabel(s.base)}, with no upstream`,
+    blocked: false,
+  };
 }

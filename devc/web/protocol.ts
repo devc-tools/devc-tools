@@ -680,17 +680,12 @@ function worktreeSource(o: Obj): WorktreeSource {
     throw new Invalid(`'source' must be an object`);
   }
   const src = v as Obj;
-  const kind = oneOf(src, 'kind', ['pr', 'remote', 'new']);
+  const kind = oneOf(src, 'kind', ['pr', 'remote', 'local']);
   if (kind === 'pr') return { kind, number: int(src, 'number', 1) };
   if (kind === 'remote') {
     return { kind, remoteBranch: str(src, 'remoteBranch') };
   }
-  const base = oneOf(src, 'base', ['default', 'current', 'worktree', 'remote']);
-  return base === 'worktree'
-    ? { kind, base, from: absolute(src, 'from') }
-    : base === 'remote'
-    ? { kind, base, remoteBranch: str(src, 'remoteBranch') }
-    : { kind, base };
+  return { kind, base: str(src, 'base') };
 }
 
 const MAX_CELLS = 10_000;

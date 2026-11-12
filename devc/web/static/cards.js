@@ -877,8 +877,8 @@ export function containerNameOf(localFolder) {
 
 /**
  * A repo card's worktree items: **New worktree…** on a primary repo; on a linked worktree, **New
- * worktree…** (its main repo's dialog, also offering to branch off this worktree) and **Delete
- * worktree…**; followed by a separator. New worktree is greyed out, its tooltip saying
+ * worktree…** (its main repo's dialog: a sibling) and **Delete worktree…**; followed by a
+ * separator. New worktree is greyed out, its tooltip saying
  * why, when the server found no usable `<repo>.worktrees` here (`worktreesProblem`); both are while
  * the environment isn't running. Also on a card's In use stand-in (`containers.js`).
  *
@@ -935,7 +935,6 @@ export function worktreeItems(card, running) {
             localFolder,
             folder: repo.primaryFolder,
             repoName: primary?.name ?? primaryName,
-            from: { folder: repo.folder, branch: repo.git?.branch ?? null },
             onCreated: () => {
               const main = repoCardKey(localFolder, repo.primaryFolder);
               sidebarState.worktreesOpen.add(main);
