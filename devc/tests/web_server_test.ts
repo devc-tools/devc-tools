@@ -2043,6 +2043,7 @@ Deno.test('parseClientMessage: worktree messages', () => {
       { kind: 'remote', remoteBranch: 'feature/a' },
       { kind: 'new', base: 'default' },
       { kind: 'new', base: 'current' },
+      { kind: 'new', base: 'worktree', from: '/src/app.worktrees/a' },
     ] as unknown[]
   ) {
     assertEquals(
@@ -2075,6 +2076,8 @@ Deno.test('parseClientMessage: worktree messages', () => {
       { kind: 'remote' },
       { kind: 'remote', remoteBranch: '' },
       { kind: 'new', base: 'HEAD' },
+      { kind: 'new', base: 'worktree' },
+      { kind: 'new', base: 'worktree', from: 'rel' },
       { kind: 'tag' },
     ]
   ) {

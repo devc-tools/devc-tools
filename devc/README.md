@@ -379,8 +379,11 @@ is published from any container: the host server finds devcontainers with
   local branch from an open **pull request** (`gh pr list` on the host; a fork's
   becomes `pr-<n>`), a **remote branch** on `origin`, or a **new branch** from
   `origin/<default>` or the repo's current branch; the folder follows the branch
-  name, `/` as `-`. It is on every main checkout's card, and on its **In use**
-  stand-in's right-click (as **Delete worktree…** is on a worktree's). It works
+  name, `/` as `-`. It is on every main checkout's card and on each of its
+  worktrees' cards, where it makes a sibling (the main repo must be listed in
+  the same container) and **New branch** can also start from that worktree's
+  HEAD; and on their **In use** stand-ins' right-click (as **Delete worktree…**
+  is on a worktree's). It works
   while the repo's environment runs and has `<repo>.worktrees` beside `<repo>`
   (the same names, side by side, in the container too: mount the `.worktrees`
   folder as its own row); otherwise it is greyed out, and its tooltip says which

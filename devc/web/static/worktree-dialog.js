@@ -58,14 +58,15 @@ function shell(/** @type {string} */ title, body, footer) {
 }
 
 /**
- * **New worktree…** on a primary repo's card: from an open PR, a branch on `origin`, or a new
- * branch, in `<repo>.worktrees/<folder>`.
+ * **New worktree…** on a primary repo's card, or on one of its worktrees' (`from`: that worktree,
+ * which New branch may also start from): from an open PR, a branch on `origin`, or a new branch,
+ * in `<repo>.worktrees/<folder>`. `folder` is always the primary's.
  *
  * @param {{localFolder: string, folder: string, repoName: string,
- *   onCreated: () => void}} o
+ *   from?: {folder: string, branch: string | null}, onCreated: () => void}} o
  */
 export function openNewWorktreeDialog(
-  { localFolder, folder, repoName, onCreated },
+  { localFolder, folder, repoName, from, onCreated },
 ) {
   const done = new AbortController();
   const base = folder.split('/').pop() ?? repoName;
@@ -104,6 +105,19 @@ export function openNewWorktreeDialog(
     value: 'current',
     onchange: () => update(),
   }));
+  const $baseFrom = /** @type {HTMLInputElement} */ (h('input', {
+    type: 'radio',
+    name: 'worktree-base',
+    value: 'worktree',
+    onchange: () => update(),
+  }));
+  // Opened from a worktree's card: its HEAD, beside the main checkout's.
+  const $baseFromLabel = h(
+    'label',
+    { class: 'worktree-radio', hidden: !from },
+    $baseFrom,
+    `${from?.branch ?? 'HEAD'} (this worktree)`,
+  );
   const $baseDefaultLabel = h(
     'label',
     { class: 'worktree-radio' },
@@ -120,6 +134,7 @@ export function openNewWorktreeDialog(
     h('span', {}, 'Base'),
     $baseDefaultLabel,
     $baseCurrentLabel,
+    $baseFromLabel,
   );
   const $branch = /** @type {HTMLInputElement} */ (h('input', {
     type: 'text',
@@ -323,7 +338,7 @@ export function openNewWorktreeDialog(
       ? prNumber !== null
       : kind === 'remote'
       ? remoteBranch !== null
-      : $baseDefault.checked || $baseCurrent.checked;
+      : $baseDefault.checked || $baseCurrent.checked || $baseFrom.checked;
     $create.disabled = busy || blocked || !picked;
   }
 
@@ -335,6 +350,8 @@ export function openNewWorktreeDialog(
       ? { kind, number: prNumber }
       : kind === 'remote'
       ? { kind, remoteBranch }
+      : $baseFrom.checked && from
+      ? { kind, base: 'worktree', from: from.folder }
       : { kind, base: $baseDefault.checked ? 'default' : 'current' };
     busy = true;
     $create.disabled = true;
@@ -379,11 +396,14 @@ export function openNewWorktreeDialog(
       opts = r;
       kind = opts.prs.length > 0 ? 'pr' : 'remote';
       $baseDefaultLabel.append(`origin/${opts.defaultBranch ?? ''}`);
-      $baseCurrentLabel.append(`${opts.currentBranch ?? ''} (current)`);
+      $baseCurrentLabel.append(
+        `${opts.currentBranch ?? ''} (${from ? 'main checkout' : 'current'})`,
+      );
       $baseDefaultLabel.hidden = opts.defaultBranch === null;
       $baseCurrentLabel.hidden = opts.currentBranch === null;
       if (opts.defaultBranch !== null) $baseDefault.checked = true;
       else if (opts.currentBranch !== null) $baseCurrent.checked = true;
+      else if (from) $baseFrom.checked = true;
       $status.hidden = true;
       $form.hidden = false;
       renderTabs();

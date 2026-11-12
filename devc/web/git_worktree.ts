@@ -81,7 +81,12 @@ export interface WorktreeOptions {
 export type WorktreeSource =
   | { kind: 'pr'; number: number }
   | { kind: 'remote'; remoteBranch: string }
-  | { kind: 'new'; base: 'default' | 'current' };
+  /**
+   * A new branch from `origin/<default>`, the main checkout's HEAD (`current`), or the HEAD of
+   * `from`, a linked worktree of the same repo in the same environment (`worktree`).
+   */
+  | { kind: 'new'; base: 'default' | 'current' }
+  | { kind: 'new'; base: 'worktree'; from: string };
 
 export type Problem = { ok: false; problem: string };
 
@@ -698,6 +703,38 @@ async function prerequisites(
   return out;
 }
 
+/**
+ * The commit linked worktree `from` (a host folder) has checked out, read by git in the
+ * environment: refused unless it is a worktree of the same repo that the environment maps.
+ */
+async function worktreeHead(
+  t: WorktreeTarget,
+  at: Layout,
+  from: string,
+): Promise<{ commit: string } | Problem> {
+  const name = basename(from);
+  const dirs = await resolveRepo(from);
+  if (
+    dirs === null || dirs.gitDir === dirs.commonDir ||
+    dirs.commonDir !== at.commonDir
+  ) {
+    return fail(`${name} is not a worktree of ${basename(t.folder)}`);
+  }
+  const path = hostToContainerPath(from, t.mounts);
+  if (path === null) return fail(`${name} is not mounted here`);
+  const out = await envGit(t.env, path, [
+    'rev-parse',
+    '--verify',
+    'HEAD^{commit}',
+  ]);
+  if ('failed' in out) return fail(out.failed);
+  const commit = out.out.trim();
+  if (!/^([0-9a-f]{40}|[0-9a-f]{64})$/.test(commit)) {
+    return fail('git rev-parse: unexpected output');
+  }
+  return { commit };
+}
+
 /** A new worktree's result. */
 export interface Created {
   ok: true;
@@ -765,10 +802,10 @@ async function createOnce(
   let fetchRef: string | null = null;
   /** The remote branch it tracks: `remote` and a same-repo PR. */
   let tracks: string | null = null;
-  const url = source.kind === 'new' && source.base === 'current'
-    ? null
-    : await fetchableOrigin(at.commonDir, opts);
-  if (url === null && !(source.kind === 'new' && source.base === 'current')) {
+  /** Branched from a commit the repo has: no remote, no fetch. */
+  const inRepo = source.kind === 'new' && source.base !== 'default';
+  const url = inRepo ? null : await fetchableOrigin(at.commonDir, opts);
+  if (url === null && !inRepo) {
     return fail('origin is not an https or ssh remote');
   }
   if (source.kind === 'remote') {
@@ -812,6 +849,11 @@ async function createOnce(
   }
 
   let commit = 'HEAD';
+  if (source.kind === 'new' && source.base === 'worktree') {
+    const from = await worktreeHead(t, at, source.from);
+    if ('problem' in from) return from;
+    commit = from.commit;
+  }
   let bundleRef = '';
   let bundle: Uint8Array | undefined;
   if (fetchRef !== null) {

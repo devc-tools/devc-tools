@@ -876,8 +876,9 @@ export function containerNameOf(localFolder) {
 }
 
 /**
- * A repo card's worktree items: **New worktree…** on a primary repo, **Delete worktree…** on a
- * linked worktree, each followed by a separator. New worktree is greyed out, its tooltip saying
+ * A repo card's worktree items: **New worktree…** on a primary repo; on a linked worktree, **New
+ * worktree…** (its main repo's dialog, also offering to branch off this worktree) and **Delete
+ * worktree…**; followed by a separator. New worktree is greyed out, its tooltip saying
  * why, when the server found no usable `<repo>.worktrees` here (`worktreesProblem`); both are while
  * the environment isn't running. Also on a card's In use stand-in (`containers.js`).
  *
@@ -914,20 +915,54 @@ export function worktreeItems(card, running) {
       ? ch.staged + ch.unstaged + ch.untracked + ch.conflicted
       : 0;
     const parts = repo.folder.split('/');
-    return [[
-      LABELS.deleteWorktree,
-      () =>
-        openDeleteWorktreeDialog({
-          localFolder,
-          folder: repo.folder,
-          label: parts.slice(-2).join('/'),
-          branch: repo.git?.branch ?? null,
-          dirty,
-        }),
-      false,
-      undefined,
-      running ? undefined : notRunning,
-    ], null];
+    // A sibling, made from its main repo's card's dialog: only while that repo is here too.
+    const primary = projectRepos(localFolder).find((r) =>
+      r.folder === repo.primaryFolder
+    );
+    const primaryName = repo.primaryFolder.split('/').pop();
+    const newOpts = !primary
+      ? { disabled: true, title: LABELS.worktreeNoPrimary(primaryName) }
+      : !running
+      ? notRunning
+      : primary.worktreesFolder
+      ? undefined
+      : { disabled: true, title: primary.worktreesProblem ?? '' };
+    return [
+      [
+        LABELS.newWorktree,
+        () =>
+          openNewWorktreeDialog({
+            localFolder,
+            folder: repo.primaryFolder,
+            repoName: primary?.name ?? primaryName,
+            from: { folder: repo.folder, branch: repo.git?.branch ?? null },
+            onCreated: () => {
+              const main = repoCardKey(localFolder, repo.primaryFolder);
+              sidebarState.worktreesOpen.add(main);
+              saveSidebarState();
+              renderTree();
+            },
+          }),
+        false,
+        undefined,
+        newOpts,
+      ],
+      [
+        LABELS.deleteWorktree,
+        () =>
+          openDeleteWorktreeDialog({
+            localFolder,
+            folder: repo.folder,
+            label: parts.slice(-2).join('/'),
+            branch: repo.git?.branch ?? null,
+            dirty,
+          }),
+        false,
+        undefined,
+        running ? undefined : notRunning,
+      ],
+      null,
+    ];
   }
   return [];
 }

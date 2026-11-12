@@ -707,3 +707,61 @@ Deno.test('worktreesStateOf: why a primary has no New worktree here; nothing for
     });
   });
 });
+
+Deno.test("createWorktree: a new branch off a worktree's HEAD", async () => {
+  await withRepo(async ({ t, deps, repo, dir }) => {
+    const a = await createWorktree(
+      t,
+      {
+        name: 'a',
+        branch: 'a',
+        source: { kind: 'new', base: 'current' },
+      },
+      [repo],
+      deps,
+    );
+    assert(a.ok);
+    const wtA = `${repo}.worktrees/a`;
+    await git(wtA, 'commit', '-q', '--allow-empty', '-m', 'on a');
+    const headA = await git(wtA, 'rev-parse', 'HEAD');
+    const b = await createWorktree(
+      t,
+      {
+        name: 'b',
+        branch: 'b',
+        source: { kind: 'new', base: 'worktree', from: wtA },
+      },
+      [repo, wtA],
+      deps,
+    );
+    assertEquals(b, {
+      ok: true,
+      worktree: `${repo}.worktrees/b`,
+      branch: 'b',
+      upstream: null,
+    });
+    assertEquals(await git(`${repo}.worktrees/b`, 'rev-parse', 'HEAD'), headA);
+
+    // Not a worktree of this repo: the primary itself, another repo.
+    const other = `${dir}/other`;
+    await git(dir, 'init', '-q', other);
+    for (const from of [repo, other]) {
+      assertEquals(
+        await createWorktree(
+          t,
+          {
+            name: 'c',
+            branch: 'c',
+            source: { kind: 'new', base: 'worktree', from },
+          },
+          [repo],
+          deps,
+        ),
+        {
+          ok: false,
+          problem: `${from.split('/').pop()} is not a worktree of repo`,
+        },
+      );
+    }
+  });
+});

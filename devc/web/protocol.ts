@@ -685,7 +685,10 @@ function worktreeSource(o: Obj): WorktreeSource {
   if (kind === 'remote') {
     return { kind, remoteBranch: str(src, 'remoteBranch') };
   }
-  return { kind, base: oneOf(src, 'base', ['default', 'current']) };
+  const base = oneOf(src, 'base', ['default', 'current', 'worktree']);
+  return base === 'worktree'
+    ? { kind, base, from: absolute(src, 'from') }
+    : { kind, base };
 }
 
 const MAX_CELLS = 10_000;

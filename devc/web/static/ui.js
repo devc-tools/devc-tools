@@ -98,6 +98,9 @@ export const LABELS = {
   newWorktree: 'New worktree…',
   /** A linked worktree card's menu: `git worktree remove`; the branch stays. */
   deleteWorktree: 'Delete worktree…',
+  /** Why a worktree card's New worktree… is greyed out: its main repo isn't listed here. */
+  worktreeNoPrimary: (name) =>
+    `${name} isn't mounted here: worktrees are made from it`,
   /** Why a worktree item is greyed out while its environment is down. */
   worktreeNotRunning: 'Start the project first: git runs in its environment',
   /** The menu item and the ↑N click: the container's own `gh-push`, or devc-desktop's confirmation. */
