@@ -10,6 +10,7 @@ import { createRenderer } from './renderer.js';
 import { attachTerminalMouse } from './term_mouse.js';
 import { createTiling } from './layout.js';
 import {
+  hostTileList,
   hostTileVisibility,
   hostTileWithSlot,
   mountHostTile,
@@ -68,7 +69,10 @@ import {
   wrapPaste,
 } from './lib/input.js';
 import {
+  hostRepoAt,
+  hostTilePane,
   isZenShortcut,
+  labelText,
   paneLabel,
   projectActions,
   savedZen,
@@ -125,11 +129,13 @@ import {
   fileHostPath,
   findPane,
   holdReloadWhile,
+  hostTileFacts,
   list,
   nextId,
   onConnectionChange,
   onServerMessage,
   paneKey,
+  projectRepos,
   projects,
   projectStarts,
   refLabel,
@@ -4836,7 +4842,7 @@ function tileState(tile) {
       : tile.kind === 'diff'
       ? diffTileTitle(tile)
       : tile.kind === 'host'
-      ? 'host'
+      ? hostTileName(tile)
       : '',
     dirty: file?.dirty ?? false,
     saveable: Boolean(file?.dirty && fileEditable(file)),
@@ -5106,6 +5112,58 @@ function renderTileTitles() {
     view.tile.setActions(pane ? view.killButton : null);
     view.tile.setContext(tileContext(view.tile, name));
   }
+  for (const tile of hostTileList()) renderHostTileTitle(tile);
+}
+
+/** A host tile's name, as its tab's title: its label, else `host`. @param {Tile} tile */
+function hostTileName(tile) {
+  const facts = tile.host ? hostTileFacts.get(tile.host) : undefined;
+  return facts ? paneLabel(hostTilePane(facts)).name : LABELS.hostTile;
+}
+
+/**
+ * A host tile's tab, from devc-desktop's facts about its shell (`hostTileFacts`), as a terminal
+ * tile's reads: its label, the agent's badge, then its repo and branch and `host`, muted. With no
+ * facts (a browser, `--live`, the shell gone) it says `host`, as it always did. Never an action:
+ * only the app's own menu ends the shell.
+ *
+ * @param {import('./layout.js').Tile} tile
+ */
+function renderHostTileTitle(tile) {
+  const facts = tile.host ? hostTileFacts.get(tile.host) : undefined;
+  if (!facts) {
+    tile.setTitle(LABELS.hostTile);
+    tile.setTooltip(LABELS.hostTileTooltip);
+    tile.setBadge(null);
+    tile.setContext(null);
+    return;
+  }
+  const pane = hostTilePane(facts);
+  const label = paneLabel(pane);
+  const path = facts.foreground_cwd || facts.cwd;
+  tile.setTitle(label.name, label.title);
+  tile.setTooltip(
+    [LABELS.hostTileTooltip, labelText(label), path].filter((s) => s).join(
+      '\n',
+    ),
+  );
+  tile.setBadge(badge(pane) || null);
+  const repo = hostRepoAt(
+    [...projects.keys()].flatMap((f) => projectRepos(f)),
+    path,
+  );
+  const repoLabel = repo
+    ? basename(repo.primaryFolder ?? repo.worktreeOf ?? repo.folder)
+    : '';
+  const parts = [];
+  if (repoLabel && repoLabel !== label.name) {
+    parts.push(h('span', { class: 'tile-repo' }, repoLabel));
+  }
+  if (repo?.git?.branch) {
+    parts.push(h('span', { class: 'tile-branch' }, repo.git.branch));
+  }
+  parts.push(h('span', { class: 'tile-container' }, LABELS.hostTileWhere));
+  tile.setContext(h('span', {}, ...parts));
 }
 
 /**
@@ -5165,6 +5223,7 @@ function refit(view) {
 function mountTile(tile) {
   if (tile.kind === 'host') {
     mountHostTile(tile);
+    renderHostTileTitle(tile);
     // A restored host tile with no usable slot id (`parseSavedLayout` drops those first).
     if (!tile.host) queueMicrotask(() => tiling?.close(tile.id));
     return;
@@ -5705,6 +5764,7 @@ function onTilesMessage(msg) {
       break;
     case 'pane_updated':
     case 'agent_status':
+    case 'host_tiles':
       renderTileTitles();
       break;
     case 'frame':

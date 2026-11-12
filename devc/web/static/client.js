@@ -116,6 +116,15 @@ export let hostOs = '';
 export let pinnedFiles = [];
 
 /**
+ * Each host tile's facts by slot id (`host_tiles`, from devc-desktop through the server): what
+ * its tab shows. Display only; empty under `--live`, where the server sends none.
+ *
+ * @type {Map<string, {cwd: string, foreground_cwd: string, title: string, agent: string,
+ *   agent_status: string}>}
+ */
+export const hostTileFacts = new Map();
+
+/**
  * The dashboard (the `dashboard` message): the repo file the header button and an empty tiling
  * area open. Not a pinned file. Null until the server says, or when none is set.
  *
@@ -333,6 +342,7 @@ export function connect() {
     containers.clear();
     snapshots.clear();
     projects.clear();
+    hostTileFacts.clear();
     connectionChanged('closed');
     setTimeout(connect, RECONNECT_MS);
   };
@@ -616,6 +626,14 @@ function applyMessage(msg) {
       break;
     case 'pinned_files':
       onPinnedFiles(msg);
+      break;
+    case 'host_tiles':
+      hostTileFacts.clear();
+      for (const [slot, facts] of Object.entries(msg.tiles ?? {})) {
+        if (typeof facts === 'object' && facts !== null) {
+          hostTileFacts.set(slot, facts);
+        }
+      }
       break;
     case 'dashboard':
       dashboard = parseDashboard(msg);

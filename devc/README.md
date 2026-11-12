@@ -559,9 +559,15 @@ is published from any container: the host server finds devcontainers with
   shows devc-desktop's left column, in the top-left corner as on `/`; the app
   does the hiding. `/main#…&host-slot=<id>` (devc-desktop's **New Host Tile**)
   adds a `host` tile: the app lays its own host terminal over the tile's
-  content, and the page only says where the tile is. In a browser, or once the
-  app's shell is gone, the tile shows _Host terminal — not running here_; close
-  its tab. `/main#…&open-host-file=<path>[&open-line=<n>[&open-column=<n>]]`
+  content, and the page only says where the tile is. Without `--live`, its tab
+  reads like a terminal tile's: its folder (or the agent's name for it), the
+  terminal's title, the agent's status, and its repo and branch with `host`
+  where a terminal tile names its container. devc-desktop posts those facts
+  (`POST /desktop/host-tiles`, the desktop token) and the server hands them to
+  the page (`host_tiles`), keyed by slot id: never the app's Herdr session or a
+  pane id, and nothing under `--live`, where the tab just says `host`. In a
+  browser, or once the app's shell is gone, the tile shows _Host terminal — not
+  running here_; close its tab. `/main#…&open-host-file=<path>[&open-line=<n>[&open-column=<n>]]`
   (devc-desktop's Cmd/Ctrl+click on a file path in a host terminal) opens that
   host file in the viewer when it is in one of the projects' repos
   (`locate_host_file`), and says _Can't open <path>: … outside every project's

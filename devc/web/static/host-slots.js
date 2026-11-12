@@ -11,7 +11,7 @@
 //   devc-desktop:overlay open | closed                a menu is open
 // In a browser they are debug lines no one sees.
 
-import { h } from './ui.js';
+import { h, LABELS } from './ui.js';
 
 /** @typedef {import('./layout.js').Tile} Tile */
 
@@ -41,7 +41,7 @@ export function mountHostTile(/** @type {Tile} */ tile) {
     h('div', { class: 'host-slot-hint' }, 'Close this tab'),
   );
   tile.element.append(el);
-  tile.setTitle('host');
+  tile.setTitle(LABELS.hostTile);
   hostTiles.set(tile.id, { tile, el, visible: true, last: '' });
   if (frame === 0) frame = requestAnimationFrame(report);
 }
@@ -67,6 +67,11 @@ export function hostTileVisibility(
 ) {
   const entry = hostTiles.get(tile.id);
   if (entry) entry.visible = visible;
+}
+
+/** Every host tile in the layout. @returns {Tile[]} */
+export function hostTileList() {
+  return [...hostTiles.values()].map((e) => e.tile);
 }
 
 /** The host tile showing slot `id`, if any. @param {string} id */

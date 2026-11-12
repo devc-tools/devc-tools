@@ -225,6 +225,12 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
 
 ### Completed
 
+- ✅ Done — [devc-web-host-tile-tabs](archived/devc-web-host-tile-tabs.md) — without `--live`, a
+  host tile's tab reads like a terminal tile's (folder, title, agent status, repo and branch, then
+  `host`): devc-desktop posts each slot's facts from its own Herdr session (`POST
+  /desktop/host-tiles`), never the session or a pane id. Under `--live` the tab says `host`. Not
+  run: the manual checks on the Mac.
+
 - ✅ Done — [devc-web-trusted-host-actions](archived/devc-web-trusted-host-actions.md) — without `--live`, Push on
   a repo with no `gh-push` grant (and a granted push's exit-3 waiver) runs on devc web's server
   after an in-page plan dialog instead of devc-desktop's HOST drawer, and devc-desktop opens
@@ -2787,3 +2793,4 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
 | devc web worktrees — New/Delete worktree on a repo card: from a PR, an origin branch or a new branch                | [devc-web-worktrees](archived/devc-web-worktrees.md)                               | complete    |
 | devc web git changes efficiency — cheap `● n` reads: checkStat, in-container timeout, dirty-only reads              | [devc-web-git-changes-efficiency](archived/devc-web-git-changes-efficiency.md)     | complete    |
 | devc web trusted host actions — no HOST drawer confirm for Push and host terminals when not `--live`                | [devc-web-trusted-host-actions](archived/devc-web-trusted-host-actions.md)         | complete    |
+| devc web host tile tabs — a host tile's tab reads like a terminal tile's when not `--live`                          | [devc-web-host-tile-tabs](archived/devc-web-host-tile-tabs.md)                     | complete    |

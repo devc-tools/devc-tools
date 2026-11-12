@@ -171,6 +171,8 @@ Deno.test('desktopTokenPath names exactly the desktop routes', () => {
   assert(desktopTokenPath('/desktop/requests'));
   assert(desktopTokenPath('/desktop/requests/x/dismiss'));
   assert(desktopTokenPath('/desktop/project'));
+  assert(desktopTokenPath('/desktop/host-tiles'));
+  assert(!desktopTokenPath('/desktop/host-tiles/x'));
   assert(!desktopTokenPath('/desktop/active-folder'));
   assert(!desktopTokenPath('/desktop/projects'));
   assert(!desktopTokenPath('/desktop/requestsx'));

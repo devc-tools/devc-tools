@@ -305,6 +305,10 @@ export interface PaneInfo {
   cwd: string;
   foreground_cwd: string;
   title: string;
+  /** The agent Herdr detected in it (`claude`, say), or `''`. */
+  agent: string;
+  /** That agent's status (`idle`, `working`, …), or `''`. */
+  agent_status: string;
 }
 
 /** The session's panes, in Herdr's order. */
@@ -323,6 +327,8 @@ export async function listPanes(t: HerdrTarget): Promise<PaneInfo[]> {
       cwd: str(o.cwd),
       foreground_cwd: str(o.foreground_cwd) || str(o.cwd),
       title: str(o.terminal_title_stripped) || str(o.terminal_title),
+      agent: str(o.agent),
+      agent_status: str(o.agent_status),
     });
   }
   return out;

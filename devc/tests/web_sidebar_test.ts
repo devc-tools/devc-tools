@@ -11,6 +11,8 @@ import {
   filterOutline,
   gitRollup,
   gitSync,
+  hostRepoAt,
+  hostTilePane,
   inUseLabel,
   isSidebarToggleShortcut,
   isZenShortcut,
@@ -929,4 +931,37 @@ Deno.test('gitSync: a branch with no upstream shows ↑N only with something to 
     title: 'feat → origin/feat (new branch): 3 to push',
   });
   assertEquals(gitSync({ ...git, ahead: 0 }), null);
+});
+
+Deno.test('hostRepoAt: the innermost repo whose host folder holds the path', () => {
+  const app = { folder: '/Users/me/code/app' };
+  const lib = { folder: '/Users/me/code/app/lib/' };
+  const other = { folder: '/Users/me/code/application' };
+  const repos = [app, lib, other];
+  assertEquals(hostRepoAt(repos, '/Users/me/code/app'), app);
+  assertEquals(hostRepoAt(repos, '/Users/me/code/app/src'), app);
+  assertEquals(hostRepoAt(repos, '/Users/me/code/app/lib/x'), lib);
+  assertEquals(hostRepoAt(repos, '/Users/me/code/application'), other);
+  assertEquals(hostRepoAt(repos, '/Users/me/code'), null);
+  assertEquals(hostRepoAt(repos, ''), null);
+});
+
+Deno.test('hostTilePane: a host tile labels and badges as a pane would', () => {
+  const pane = hostTilePane({
+    cwd: '/Users/me/code/app',
+    foreground_cwd: '/Users/me/code/app/src',
+    title: 'Fix the tests',
+    agent: 'claude',
+    agent_status: 'working',
+  });
+  assertEquals(paneLabel(pane), { name: 'src', title: 'Fix the tests' });
+  const shell = hostTilePane({
+    cwd: '/Users/me/code/app',
+    foreground_cwd: '',
+    title: 'app',
+    agent: '',
+    agent_status: '',
+  });
+  assertEquals('agent' in shell, false);
+  assertEquals(paneLabel(shell), { name: 'app', title: '' });
 });

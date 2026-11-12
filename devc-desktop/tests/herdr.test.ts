@@ -14,6 +14,7 @@ import {
   type Frame,
   HerdrError,
   type HerdrTarget,
+  listPanes,
   loginShellFor,
   readSelection,
   type Spawn,
@@ -152,6 +153,51 @@ test('createShell: tab.create, then workspace.create on a session with no worksp
   }));
   assertEquals(await createShell(t, '/home/me'), 'w1:p1');
   assertEquals(methods, ['tab.create', 'workspace.create']);
+});
+
+test("listPanes: each pane's folders, title and agent, as the host tiles' tabs show them", async () => {
+  const t = target(fakeSpawn((line, p) => {
+    const { id, method } = JSON.parse(line);
+    assertEquals(method, 'pane.list');
+    p.stdout.write(
+      JSON.stringify({
+        id,
+        result: {
+          panes: [
+            {
+              pane_id: 'w:p1',
+              cwd: '/a',
+              foreground_cwd: '/a/b',
+              terminal_title: '✳ Fix',
+              terminal_title_stripped: 'Fix',
+              agent: 'claude',
+              agent_status: 'working',
+            },
+            { pane_id: 'w:p2', cwd: '/c', terminal_title: 'zsh' },
+            { cwd: '/no-id' },
+          ],
+        },
+      }) + '\n',
+    );
+  }));
+  assertEquals(await listPanes(t), [
+    {
+      pane_id: 'w:p1',
+      cwd: '/a',
+      foreground_cwd: '/a/b',
+      title: 'Fix',
+      agent: 'claude',
+      agent_status: 'working',
+    },
+    {
+      pane_id: 'w:p2',
+      cwd: '/c',
+      foreground_cwd: '/c',
+      title: 'zsh',
+      agent: '',
+      agent_status: '',
+    },
+  ]);
 });
 
 test('busyFrom: idle when the shell leads the foreground group, else the program', () => {

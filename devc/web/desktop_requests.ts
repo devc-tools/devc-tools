@@ -84,7 +84,7 @@ export const LONG_POLL_MS = 25_000;
 export const ASKED = 'asked devc-desktop: confirm in the HOST drawer';
 
 /** Controls, bidi overrides and zero-width characters: devc-desktop would refuse to show them. */
-const UNSHOWABLE = /[\u0000-\u001f\u007f-\u009f؜​-‏‪-‮⁠-⁩﻿]/;
+export const UNSHOWABLE = /[\u0000-\u001f\u007f-\u009f؜​-‏‪-‮⁠-⁩﻿]/;
 
 export type AddResult = { ok: true; id: string } | {
   ok: false;

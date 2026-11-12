@@ -1027,6 +1027,7 @@ async function main(): Promise<void> {
       void child.desktop.then((token) => {
         if (current !== child || stopping) return;
         desktopToken = token;
+        tileFactsSent = '';
         loadContainers();
         void pollRequests(child, at, token);
       });
@@ -1138,6 +1139,64 @@ async function main(): Promise<void> {
     return paneList;
   }
 
+  // ---- host tiles' tabs ---------------------------------------------------------------------
+  // What each host tile's tab shows in devc web: its shell's folder, title and agent status, read
+  // from this app's own Herdr session and posted with the desktop token (`POST
+  // /desktop/host-tiles`), keyed by slot id. Never the session or a pane id. Only while devc web
+  // is not live (`livePage`): a page a container could have written learns nothing of a host
+  // shell. See `.plans/archived/devc-web-host-tile-tabs.md`.
+
+  /** How often the host tiles' facts are read again. */
+  const TILE_FACTS_MS = 2000;
+  /** The body last posted to this devc web, so only a change is sent; `''` before one. */
+  let tileFactsSent = '';
+  let tileFactsBusy = false;
+
+  async function postTileFacts(): Promise<void> {
+    const at = origin;
+    const token = desktopToken;
+    if (
+      tileFactsBusy || runner === null || runner.live || at === null ||
+      token === null || herdr === null
+    ) return;
+    tileFactsBusy = true;
+    try {
+      const live = [...slots.values()].filter((s) => !s.ended);
+      const tiles: Record<string, unknown> = {};
+      if (live.length > 0) {
+        const panes = await refreshPanes();
+        for (const s of live) {
+          const p = panes.get(s.pane);
+          if (p === undefined) continue;
+          tiles[s.id] = {
+            cwd: p.cwd,
+            foreground_cwd: p.foreground_cwd,
+            title: p.title,
+            agent: p.agent,
+            agent_status: p.agent_status,
+          };
+        }
+      }
+      const body = JSON.stringify({ tiles });
+      if (body === tileFactsSent) return;
+      const res = await fetch(`${at}/desktop/host-tiles`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body,
+        signal: AbortSignal.timeout(5000),
+      });
+      if (res.status === 204 && desktopToken === token) tileFactsSent = body;
+    } catch {
+      /* the next tick tries again */
+    } finally {
+      tileFactsBusy = false;
+    }
+  }
+  setInterval(() => void postTileFacts(), TILE_FACTS_MS);
+
   /** Lets go of a pane: it keeps running in Herdr. */
   function releasePane(id: string): void {
     const a = attachments.get(id);
@@ -1160,6 +1219,8 @@ async function main(): Promise<void> {
       cwd,
       foreground_cwd: cwd,
       title: '',
+      agent: '',
+      agent_status: '',
     });
     return id;
   }

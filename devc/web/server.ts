@@ -192,6 +192,11 @@ import {
   userPushRefusal,
 } from './granted_push.ts';
 import { pushPlan, userPush } from '../git_push.ts';
+import {
+  type HostTileFacts,
+  hostTilesMessage,
+  parseHostTiles,
+} from './host_tiles.ts';
 import { readCommitHistory } from './git_history.ts';
 import {
   readCommitDiff,
@@ -361,13 +366,15 @@ const DESKTOP_PREFIX = '/desktop/';
 
 /**
  * The `/desktop/` paths that take the desktop token, never the page token: the requests the page
- * made (`GET /desktop/requests`, `POST /desktop/requests/<id>/dismiss`) and the project actions
- * the app confirmed (`POST /desktop/project`).
+ * made (`GET /desktop/requests`, `POST /desktop/requests/<id>/dismiss`), the project actions
+ * the app confirmed (`POST /desktop/project`) and the host tiles' facts (`POST
+ * /desktop/host-tiles`).
  */
 export function desktopTokenPath(pathname: string): boolean {
   return pathname === `${DESKTOP_PREFIX}requests` ||
     pathname.startsWith(`${DESKTOP_PREFIX}requests/`) ||
-    pathname === `${DESKTOP_PREFIX}project`;
+    pathname === `${DESKTOP_PREFIX}project` ||
+    pathname === `${DESKTOP_PREFIX}host-tiles`;
 }
 
 /** How often one repo may be fetched (`fetch_repo`). */
@@ -805,6 +812,9 @@ export async function startWeb(
     const text = JSON.stringify(msg);
     for (const c of clients) c.send(text);
   };
+
+  /** Each host tile's facts by slot id, as devc-desktop last posted them (`host_tiles.ts`). */
+  let hostTiles: Record<string, HostTileFacts> = {};
 
   const homeField = (home: string | null | undefined) => home ? { home } : {};
   const containersMessage = () => ({
@@ -4346,6 +4356,9 @@ export async function startWeb(
         }));
       }
       client.send(JSON.stringify(pinnedFilesMessage(filePins)));
+      if (projectStarts) {
+        client.send(JSON.stringify(hostTilesMessage(hostTiles)));
+      }
       client.send(JSON.stringify(dashboardMessage(dashboard)));
       client.send(JSON.stringify(tasksMessage(taskState)));
       client.send(JSON.stringify(jiraMessage()));
@@ -4481,7 +4494,32 @@ export async function startWeb(
       return new Response(null, { status: 204 });
     }
     if (path === 'project') return method('POST') ?? desktopProject(req);
+    if (path === 'host-tiles') return method('POST') ?? desktopHostTiles(req);
     return new Response('not found', { status: 404 });
+  };
+
+  /**
+   * `POST /desktop/host-tiles {tiles}`: what each host tile's tab shows (`host_tiles.ts`), all of
+   * them at once, replacing the last. 409 while the page is not devc's built-in copy
+   * (`projectStarts` off: `--live`, and the app sends none under `--live-yolo`), 400 for a body
+   * that isn't one, else 204; the pages hear of a change at once.
+   */
+  const desktopHostTiles = async (req: Request): Promise<Response> => {
+    if (!projectStarts) {
+      return desktopJson(
+        {
+          problem: 'host tiles show no details while devc web runs with --live',
+        },
+        409,
+      );
+    }
+    const tiles = parseHostTiles(await req.text().catch(() => ''));
+    if (tiles === null) return desktopJson({ problem: 'bad request' }, 400);
+    if (JSON.stringify(tiles) !== JSON.stringify(hostTiles)) {
+      hostTiles = tiles;
+      broadcast(hostTilesMessage(hostTiles));
+    }
+    return new Response(null, { status: 204 });
   };
 
   /**

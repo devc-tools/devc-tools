@@ -366,7 +366,13 @@ each `host` tile's rectangle in a console line (`devc-desktop:slot <id> …`); t
 own view there, cut to `/main`'s part of the window. It honors only slot ids it issued itself,
 from the app menu, and only from `/main`. devc web cannot open a host tile, end its pane, read
 it, type into it, or learn the host color. It can only **ask** for one (**Open Host
-Terminal…**, see Host actions), which opens when you confirm the app's own card. What it **can** do:
+Terminal…**, see Host actions), which opens when you confirm the app's own card (or at once,
+without `--live`). Without `--live` (no `--live`, `--live-yolo` or `--source` in the `devc web`
+arguments the app runs), the app also tells devc web what each host tile's tab should say, every
+2 s while one is open: its folder, the terminal's title and the agent's status (`POST
+/desktop/host-tiles`, keyed by slot id), so the tab reads like a terminal tile's. Never the Herdr
+session or a pane id, so this gives devc web no way into the shell; under `--live` the app sends
+none and the tab says `host`. What it **can** do:
 
 - **Hide or move it** inside its own area, or report it as hidden for good. That is a nuisance,
   not a leak: focus never follows, and the drawer still works.

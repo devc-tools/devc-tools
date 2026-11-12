@@ -121,6 +121,35 @@ export function repoAt(repos, path) {
   return best?.r ?? null;
 }
 
+/**
+ * The repo (of every project's `repos`) whose host folder holds host path `path`, the innermost
+ * when they nest; null when none does. A host tile's folder is a path on this machine.
+ */
+export function hostRepoAt(repos, path) {
+  let best = null;
+  for (const r of repos) {
+    const dir = r.folder?.replace(/\/+$/, '');
+    if (!dir || !path) continue;
+    const inside = path === dir || path.startsWith(`${dir}/`);
+    if (inside && (!best || dir.length > best.dir.length)) best = { r, dir };
+  }
+  return best?.r ?? null;
+}
+
+/**
+ * A host tile's facts (`host_tiles`, from devc-desktop: `cwd`, `foreground_cwd`, `title`,
+ * `agent`, `agent_status`) as the pane-shaped object {@link paneLabel} and `badge` read.
+ */
+export function hostTilePane(facts) {
+  return {
+    cwd: facts.cwd,
+    foreground_cwd: facts.foreground_cwd,
+    terminal_title_stripped: facts.title,
+    ...(facts.agent ? { agent: facts.agent } : {}),
+    ...(facts.agent_status ? { agent_status: facts.agent_status } : {}),
+  };
+}
+
 /** The least a sidebar zone with rows keeps when dragged: its section heading. */
 export const ZONE_MIN_HEIGHT = 32;
 
