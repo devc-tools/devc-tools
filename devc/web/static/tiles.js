@@ -1823,11 +1823,14 @@ function mountDiffTile(tile) {
     }
   });
   body.addEventListener('contextmenu', (e) => {
-    // The diff's text gets its text menu (Ask agent, Copy), Shift+right-click the browser's; a
+    // The diff's text gets its text menu (Ask agent, Copy), or the tile's when that has nothing
+    // (a commit's or uncommitted diff with no selection); Shift+right-click the browser's; a
     // thread's text keeps the browser's menu; the rest gets the tile's.
     const target = /** @type {HTMLElement} */ (e.target);
     if (target.closest('.diff-text')) {
-      if (!e.shiftKey) openMenu(e, diffTextMenuItems(tile));
+      if (e.shiftKey) return;
+      const items = diffTextMenuItems(tile);
+      openMenu(e, items.length ? items : tileOwnMenuItems(tileState(tile)));
       return;
     }
     if (target.closest('.thread-body, textarea')) return;
@@ -2292,7 +2295,8 @@ document.addEventListener('keydown', (e) => {
 
 // ---------------------------------------------------------------------------------------------
 // Diff tiles' language server: hover and Ctrl/Cmd+click go to definition on the new side
-// (added and context rows), from the PR head's text (`lsp.js`'s views). See
+// (added and context rows), from the new side's text (`lsp.js`'s views): the PR head's, the
+// commit's or the working tree's. See
 // `.plans/devc-web-lsp-diff-hover.md`.
 // ---------------------------------------------------------------------------------------------
 
@@ -2457,8 +2461,7 @@ function attachDiffLanguage(view) {
   const ref = view.tile.diff;
   const c = ref ? containerByFolder(ref.localFolder) : null;
   if (
-    !ref || diffSource(ref) !== 'pr' || !c || c.state !== 'connected' ||
-    !lspLanguageFor(ref.path)
+    !ref || !c || c.state !== 'connected' || !lspLanguageFor(ref.path)
   ) {
     return null;
   }
@@ -2480,10 +2483,12 @@ function attachDiffLanguage(view) {
 function syncDiffLanguage(view) {
   const ref = view.tile.diff;
   const c = ref ? containerByFolder(ref.localFolder) : null;
-  // A commit's text isn't the file the server has open: no hover or go to definition there.
+  // Every source: a PR's head, a commit's or the working tree's text goes to the server as a
+  // view; the rest of the project is the checkout's, so an old commit's cross-file answers can
+  // be off.
   const wanted = Boolean(
-    ref && diffSource(ref) === 'pr' && view.state === 'ok' &&
-      c?.state === 'connected' && lspLanguageFor(ref.path),
+    ref && view.state === 'ok' && c?.state === 'connected' &&
+      lspLanguageFor(ref.path),
   );
   const was = view.lspWanted;
   view.lspWanted = wanted;
@@ -2492,9 +2497,9 @@ function syncDiffLanguage(view) {
 
 /**
  * Gets a diff tile's file ready for a request on its session: attached, the server ready, and
- * the PR head's text open as its view. While an open tile holds the file with other text, the
- * server keeps that text and `map` turns a PR head line into its line there (null: the line
- * differs). `message` says why not, or is '' when nothing should be shown (no server for the
+ * the new side's text (the PR head's, the commit's, the working tree's) open as its view. While
+ * an open tile holds the file with other text, the server keeps that text and `map` turns a
+ * new-side line into its line there (null: the line differs). `message` says why not, or is '' when nothing should be shown (no server for the
  * file, its container not connected).
  *
  * @param {DiffView} view

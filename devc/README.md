@@ -344,7 +344,8 @@ is published from any container: the host server finds devcontainers with
   ref in the repo. A click on a commit lists the files it changed (a merge's
   against its first parent), and a click on a file opens its diff in a
   read-only diff tile (`<file> · <short sha>`), also read from the mirror:
-  Whole file, Hide whitespace, split view and Find work there, and there are no
+  Whole file, Hide whitespace, split view, Find, and hover and go to definition
+  (see **Language servers**) work there, and there are no
   review threads, comments, Viewed or Ask agent. While the git mark shows
   **● N**, an **Uncommitted** row heads the history (a dashed dot): a click
   opens a commit message box and the working tree's changed files in two
@@ -670,13 +671,17 @@ is published from any container: the host server finds devcontainers with
   a change restarts the servers it affects; **Reset to detected** removes the
   project's entry. A server stops 30 minutes after its last tile closes
   (`DEVC_WEB_LSP_IDLE_MS`, read when devc web starts, overrides that in
-  milliseconds), and when its container stops. A pull request's diff tile
-  also gets hover (its code highlighted as a file tile's is) and
-  **Ctrl/Cmd+click** go to definition on its added and unchanged lines, from the same server, given the file as it is at the PR's
-  head (so the diff's lines match whatever the checkout holds); deleted lines
-  get nothing. While a tile holds the file with other text (edits, saved or
-  not, or a checkout not at the PR head), the diff works against that text on
-  the lines it has unchanged; a line changed there says so instead. After a go
+  milliseconds), and when its container stops. A diff tile (a pull request's,
+  a commit's from the history, or an uncommitted change's) also gets hover (its
+  code highlighted as a file tile's is) and **Ctrl/Cmd+click** go to definition
+  on its added and unchanged lines, from the same server, given the file as it
+  is on the diff's new side (the PR's head, the commit, or the index or working
+  tree), so the diff's lines match whatever the checkout holds; deleted lines
+  get nothing. The project's other files are read as the checkout has them, so
+  in an older commit's diff a type or definition from another file can be off.
+  While a tile holds the file with other text (edits, saved or not, or a
+  checkout not at the PR head), the diff works against that text on the lines
+  it has unchanged; a line changed there says so instead. After a go
   to definition (either kind), **Go back** returns to where it was asked from
   (the file at its cursor, or the diff at its scroll, reopened in the preview
   tile if it has since been closed or replaced) and **Go forward** returns to
@@ -871,7 +876,7 @@ is published from any container: the host server finds devcontainers with
   `*.test.*`, `*.spec.*`, `*_test.*`, `*_spec.*`, `test_*.py`, `conftest.py`,
   or `*Test`, `*Tests` or `*Spec` in Java, Kotlin, Scala, C#, Swift or Groovy. A diff tile's header has the file's own
   **Viewed** checkbox, kept in step with the tree's, and its menu (its tab, or
-  a right-click off the code) has **Open file** and **Open file to the right**
+  a right-click off the code, or on it when the code's own menu would be empty) has **Open file** and **Open file to the right**
   for the file itself (not for a deleted file). In a container with a
   language server for the file, its added and unchanged lines have hover and
   **Ctrl/Cmd+click** go to definition (see **Language servers** above).
