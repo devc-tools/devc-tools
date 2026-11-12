@@ -407,6 +407,42 @@ test('menuRequest: labels as text, dividers, and a point inside the pane', () =>
   );
 });
 
+test('menuRequest: a disabled item and its tooltip pass; anything else is dropped', () => {
+  const pane = { width: 300, height: 400 };
+  assertEquals(
+    menuRequest({
+      items: [
+        {
+          label: 'New worktree…',
+          danger: false,
+          disabled: true,
+          title: 'why\u202e',
+        },
+        { label: 'Copy', danger: false, disabled: 'yes', title: '' },
+      ],
+      x: 0,
+      y: 0,
+    }, pane)!.items,
+    [
+      {
+        label: 'New worktree…',
+        danger: false,
+        disabled: true,
+        title: 'why\ufffd',
+      },
+      { label: 'Copy', danger: false },
+    ],
+  );
+  assertEquals(
+    menuRequest({
+      items: [{ label: 'a', title: 'x'.repeat(500) }],
+      x: 0,
+      y: 0,
+    }, pane)!.items[0]!.title!.length,
+    200,
+  );
+});
+
 test('placeMenu: flips and shifts against the window edges only', () => {
   const win = { width: 1000, height: 800 };
   const size = { width: 184, height: 284 };

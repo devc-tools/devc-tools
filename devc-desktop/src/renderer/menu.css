@@ -5,6 +5,7 @@
   --panel-2: #222c3a;
   --border: #303a49;
   --text: #cbd5e3;
+  --muted: #8598b4;
   --danger: #ff7b7b;
   font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
   font-size: 13px;
@@ -58,6 +59,10 @@ body {
 }
 .menu button.danger {
   color: var(--danger);
+}
+.menu button.disabled {
+  color: var(--muted);
+  cursor: default;
 }
 .menu .menu-sep {
   height: 1px;

@@ -164,8 +164,16 @@ useMenuHost((x: number, y: number, items: MenuItem[]) => {
   menuActions = [];
   const entries = items.map((item, i) => {
     if (item === null) return null;
-    menuActions[i] = item[1];
-    return { label: String(item[0]), danger: item[2] === true };
+    const opts = item[4];
+    if (opts?.disabled !== true) menuActions[i] = item[1];
+    return {
+      label: String(item[0]),
+      danger: item[2] === true,
+      ...(opts?.disabled === true ? { disabled: true } : {}),
+      ...(typeof opts?.title === 'string' && opts.title !== ''
+        ? { title: opts.title }
+        : {}),
+    };
   });
   pane.menu(menuSeq, entries, Math.round(x), Math.round(y));
 });

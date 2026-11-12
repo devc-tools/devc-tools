@@ -181,7 +181,7 @@ import {
   forceRefusal,
   removeWorktree,
   worktreeOptions,
-  worktreesFolderOf,
+  worktreesStateOf,
 } from './git_worktree.ts';
 import {
   escalate,
@@ -1071,7 +1071,7 @@ export async function startWeb(
     const listed = await Promise.all(repos.map(async (r) => ({
       ...r,
       containerFolder: hostToContainerPath(r.folder, binds),
-      worktreesFolder: await worktreesFolderOf(r.folder, binds),
+      ...await worktreesStateOf(r.folder, binds),
     })));
     // Dropped while it was read (its environment went): don't bring it back.
     if (reload && !containerRepos.has(record.id)) return;

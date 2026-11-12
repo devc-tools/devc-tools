@@ -208,10 +208,12 @@ export interface MountedRepo {
   primaryFolder: string | null;
   /**
    * `<folder>.worktrees` when it is a primary repo whose `.worktrees` folder exists and maps into
-   * its environment (`git_worktree.ts`'s `worktreesFolderOf`): the card offers **New worktree…**.
-   * Absent or null otherwise. Set by the server, which has the mounts.
+   * its environment beside it (`git_worktree.ts`'s `worktreesStateOf`): the card offers **New
+   * worktree…**. Absent or null otherwise. Set by the server, which has the mounts.
    */
   worktreesFolder?: string | null;
+  /** For a primary repo without a usable `.worktrees` here: why, greyed on **New worktree…**. */
+  worktreesProblem?: string | null;
 }
 
 /**

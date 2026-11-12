@@ -876,32 +876,37 @@ export function containerNameOf(localFolder) {
 }
 
 /**
- * A repo card's worktree items: **New worktree…** on a primary whose `<repo>.worktrees` its
- * environment has (`worktreesFolder`), **Delete worktree…** on a linked worktree; none unless
- * the environment is running. Followed by a separator when there are any.
+ * A repo card's worktree items: **New worktree…** on a primary repo, **Delete worktree…** on a
+ * linked worktree, each followed by a separator. New worktree is greyed out, its tooltip saying
+ * why, when the server found no usable `<repo>.worktrees` here (`worktreesProblem`); both are while
+ * the environment isn't running. Also on a card's In use stand-in (`containers.js`).
  *
  * @param {any} card @param {boolean} running
  * @returns {any[]}
  */
-function worktreeItems(card, running) {
+export function worktreeItems(card, running) {
   const { key, localFolder, repo } = card;
-  if (!repo || !running) return [];
-  if (repo.worktreesFolder) {
-    return [[
-      LABELS.newWorktree,
-      () =>
-        openNewWorktreeDialog({
-          localFolder,
-          folder: repo.folder,
-          repoName: repo.name,
-          onCreated: () => {
-            // The new card shows under its repo's once the server lists it.
-            sidebarState.worktreesOpen.add(key);
-            saveSidebarState();
-            renderTree();
-          },
-        }),
-    ], null];
+  if (!repo) return [];
+  const notRunning = { disabled: true, title: LABELS.worktreeNotRunning };
+  if (repo.worktreesFolder || repo.worktreesProblem) {
+    const open = () =>
+      openNewWorktreeDialog({
+        localFolder,
+        folder: repo.folder,
+        repoName: repo.name,
+        onCreated: () => {
+          // The new card shows under its repo's once the server lists it.
+          sidebarState.worktreesOpen.add(key);
+          saveSidebarState();
+          renderTree();
+        },
+      });
+    const opts = !running
+      ? notRunning
+      : repo.worktreesFolder
+      ? undefined
+      : { disabled: true, title: repo.worktreesProblem };
+    return [[LABELS.newWorktree, open, false, undefined, opts], null];
   }
   if (repo.primaryFolder && repo.primaryFolder !== repo.folder) {
     const ch = repo.changes;
@@ -919,6 +924,9 @@ function worktreeItems(card, running) {
           branch: repo.git?.branch ?? null,
           dirty,
         }),
+      false,
+      undefined,
+      running ? undefined : notRunning,
     ], null];
   }
   return [];

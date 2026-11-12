@@ -85,6 +85,7 @@ Deno.test("buildProjects lists each project's repos with their git state", () =>
         containerFolder: '/src/lib',
         primaryFolder: null,
         worktreesFolder: '/tools/lib.worktrees',
+        worktreesProblem: null,
       },
       {
         folder: '/tools/lib.worktrees/x',
@@ -112,6 +113,7 @@ Deno.test("buildProjects lists each project's repos with their git state", () =>
       containerFolder: '/workspaces/src/api',
       primaryFolder: null,
       worktreesFolder: null,
+      worktreesProblem: null,
       name: 'src/api',
       git,
     },
@@ -121,6 +123,7 @@ Deno.test("buildProjects lists each project's repos with their git state", () =>
       containerFolder: '/src/lib',
       primaryFolder: null,
       worktreesFolder: '/tools/lib.worktrees',
+      worktreesProblem: null,
       name: 'lib',
       git: null,
     },
@@ -130,6 +133,7 @@ Deno.test("buildProjects lists each project's repos with their git state", () =>
       containerFolder: '/workspaces/lib.worktrees/x',
       primaryFolder: null,
       worktreesFolder: null,
+      worktreesProblem: null,
       name: 'lib.worktrees/x',
     },
     {
@@ -138,6 +142,7 @@ Deno.test("buildProjects lists each project's repos with their git state", () =>
       containerFolder: null,
       primaryFolder: null,
       worktreesFolder: null,
+      worktreesProblem: null,
       name: 'y',
       git: null,
       gitProblem: 'git fetch: timed out',
@@ -151,6 +156,7 @@ Deno.test("buildProjects lists each project's repos with their git state", () =>
       containerFolder: null,
       primaryFolder: null,
       worktreesFolder: null,
+      worktreesProblem: null,
       name: 'blog',
     },
   ]);

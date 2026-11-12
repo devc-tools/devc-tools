@@ -501,12 +501,21 @@ export const MENU_MARGIN = 8;
 /** The most items an overlay menu shows. */
 export const MENU_ITEMS_MAX = 64;
 
-/** One overlay menu item: a label, red when it is `danger`; `null` is a divider. */
-export type MenuEntry = { label: string; danger: boolean } | null;
+/**
+ * One overlay menu item: a label, red when it is `danger`, greyed out and not pickable when
+ * `disabled`, with `title` as its tooltip (why); `null` is a divider.
+ */
+export type MenuEntry = {
+  label: string;
+  danger: boolean;
+  disabled?: true;
+  title?: string;
+} | null;
 
 /**
  * A pane's `{ items, x, y }`, checked: at most {@link MENU_ITEMS_MAX} items, each a divider or a
- * label shown as text ({@link showText}, at most 120 characters), and a point inside the pane
+ * label shown as text ({@link showText}, at most 120 characters; a `title`, at most 200), and a
+ * point inside the pane
  * (`pane`: its size). `null` when it is none of that.
  */
 export function menuRequest(
@@ -526,9 +535,16 @@ export function menuRequest(
       continue;
     }
     if (typeof it !== 'object') return null;
-    const { label, danger } = it as Record<string, unknown>;
+    const { label, danger, disabled, title } = it as Record<string, unknown>;
     if (typeof label !== 'string' || label === '') return null;
-    out.push({ label: showText(label, 120), danger: danger === true });
+    out.push({
+      label: showText(label, 120),
+      danger: danger === true,
+      ...(disabled === true ? { disabled: true as const } : {}),
+      ...(typeof title === 'string' && title !== ''
+        ? { title: showText(title, 200) }
+        : {}),
+    });
   }
   return { items: out, x, y };
 }

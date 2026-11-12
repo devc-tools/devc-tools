@@ -379,9 +379,12 @@ is published from any container: the host server finds devcontainers with
   local branch from an open **pull request** (`gh pr list` on the host; a fork's
   becomes `pr-<n>`), a **remote branch** on `origin`, or a **new branch** from
   `origin/<default>` or the repo's current branch; the folder follows the branch
-  name, `/` as `-`. It is offered while the repo's environment runs and has
-  `<repo>.worktrees` beside `<repo>` (the same names, side by side, in the
-  container too: mount the `.worktrees` folder as its own row). The host fetches
+  name, `/` as `-`. It is on every main checkout's card, and on its **In use**
+  stand-in's right-click (as **Delete worktree…** is on a worktree's). It works
+  while the repo's environment runs and has `<repo>.worktrees` beside `<repo>`
+  (the same names, side by side, in the container too: mount the `.worktrees`
+  folder as its own row); otherwise it is greyed out, and its tooltip says which
+  of those is missing. The host fetches
   the commits into its mirror and hands them over as a bundle, and the repo's
   git runs `git worktree add --relative-paths` in its environment (git 2.48 or
   newer there), so the `.git` pointers resolve on the host and in the container

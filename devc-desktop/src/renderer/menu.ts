@@ -47,6 +47,14 @@ bridge.onShow((raw) => {
       b.tabIndex = -1;
       if (item.danger) b.className = 'danger';
       b.textContent = String(item.label);
+      if (typeof item.title === 'string') b.title = item.title;
+      // Greyed out, its tooltip saying why: no pick, and the arrow keys pass it by. Not the
+      // `disabled` attribute, which would hide the tooltip.
+      if (item.disabled === true) {
+        b.classList.add('disabled');
+        b.setAttribute('aria-disabled', 'true');
+        return b;
+      }
       const row = { el: b, index };
       b.addEventListener('pointerenter', () => setActive(rows.indexOf(row)));
       b.addEventListener('click', () => bridge.pick(index));

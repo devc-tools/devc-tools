@@ -130,20 +130,42 @@ async function isDir(path: string): Promise<boolean> {
   }
 }
 
+/** Whether a repo card offers **New worktree…**, and why not. */
+export interface WorktreesState {
+  /** `<folder>.worktrees` when a worktree can be made there from this environment. */
+  worktreesFolder: string | null;
+  /** Why not, for a primary repo whose `.worktrees` can't be used here; the menu shows it. */
+  worktreesProblem: string | null;
+}
+
 /**
- * `<folder>.worktrees` when `folder` is a primary repo (its `.git` a directory) and that folder is
- * a directory on the host that `mounts` map into the environment; otherwise null. The sidebar
- * offers **New worktree…** on its card only then.
+ * For a primary repo `folder` (its `.git` a directory): `worktreesFolder` when `<folder>.worktrees`
+ * is a directory on the host that `mounts` map into the environment beside `folder`, else
+ * `worktreesProblem` saying which of those fails, in a create's words. Both null for anything
+ * else (a linked worktree, no repo, a repo not mapped): its card offers no New worktree.
  */
+export async function worktreesStateOf(
+  folder: string,
+  mounts: ContainerMount[],
+): Promise<WorktreesState> {
+  const none = { worktreesFolder: null, worktreesProblem: null };
+  const dirs = await resolveRepo(folder);
+  if (dirs === null || dirs.gitDir !== dirs.commonDir) return none;
+  const at = await layoutOf(folder, dirs, mounts);
+  if ('problem' in at) {
+    return at.problem === 'unknown repo'
+      ? none
+      : { worktreesFolder: null, worktreesProblem: at.problem };
+  }
+  return { worktreesFolder: at.worktreesFolder, worktreesProblem: null };
+}
+
+/** {@link worktreesStateOf}'s folder alone. */
 export async function worktreesFolderOf(
   folder: string,
   mounts: ContainerMount[],
 ): Promise<string | null> {
-  const dirs = await resolveRepo(folder);
-  if (dirs === null || dirs.gitDir !== dirs.commonDir) return null;
-  const wt = `${folder}.worktrees`;
-  if (!await isDir(wt)) return null;
-  return hostToContainerPath(wt, mounts) === null ? null : wt;
+  return (await worktreesStateOf(folder, mounts)).worktreesFolder;
 }
 
 /** A primary repo laid out for worktrees: its git dirs and both folders' paths in the environment. */
@@ -168,13 +190,23 @@ async function primaryLayout(t: WorktreeTarget): Promise<Layout | Problem> {
   if (dirs.gitDir !== dirs.commonDir) {
     return fail(`${name} is a worktree: create worktrees from its main repo`);
   }
-  const path = hostToContainerPath(t.folder, t.mounts);
+  return await layoutOf(t.folder, dirs, t.mounts);
+}
+
+/** {@link primaryLayout} for a primary repo whose git dirs are known. */
+async function layoutOf(
+  folder: string,
+  dirs: { gitDir: string; commonDir: string },
+  mounts: ContainerMount[],
+): Promise<Layout | Problem> {
+  const name = basename(folder);
+  const path = hostToContainerPath(folder, mounts);
   if (path === null) return fail('unknown repo');
-  const worktreesFolder = `${t.folder}.worktrees`;
+  const worktreesFolder = `${folder}.worktrees`;
   if (!await isDir(worktreesFolder)) {
     return fail(`create ${name}.worktrees beside ${name} and mount it here`);
   }
-  const worktreesPath = hostToContainerPath(worktreesFolder, t.mounts);
+  const worktreesPath = hostToContainerPath(worktreesFolder, mounts);
   if (worktreesPath === null) {
     return fail(`${name}.worktrees is not mounted here`);
   }

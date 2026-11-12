@@ -105,6 +105,7 @@ import {
   layout,
   MAX_REQUESTS,
   MAX_SHELLS,
+  type MenuEntry,
   menuLabel,
   menuRequest,
   openFileRequest,
@@ -434,7 +435,7 @@ async function main(): Promise<void> {
    */
   let menuOpen: {
     seq: number;
-    items: ({ label: string; danger: boolean } | null)[];
+    items: MenuEntry[];
     at: { x: number; y: number };
   } | null = null;
 
@@ -2690,7 +2691,7 @@ async function main(): Promise<void> {
     const { seq, items } = menuOpen;
     if (
       typeof index !== 'number' || !Number.isInteger(index) ||
-      items[index] == null
+      items[index] == null || items[index]!.disabled === true
     ) return;
     hideMenu();
     // Focused first: an item that copies needs its document focused (the pane waits for it).

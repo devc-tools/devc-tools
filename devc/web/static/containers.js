@@ -105,6 +105,7 @@ import {
   treeKeydown,
   treeRow,
   treeRows,
+  worktreeItems,
 } from './cards.js';
 import { setTaskContext } from './task-dialog.js';
 
@@ -516,7 +517,8 @@ function containerRows(c, cards, inUse) {
  * Where an In use card is in its container's card under Containers: its name and branch, muted,
  * and an **In use** link, whose click scrolls to the card in In use and flashes it
  * (`revealInUse`). The row's click does the same, but on a repo's with worktrees' cards under it,
- * where it hides or shows them, as the card's header does.
+ * where it hides or shows them, as the card's header does. Its right-click offers the card's
+worktree items (`worktreeItems`) and its pin.
  */
 function inUseLinkCard(card, worktrees = 0) {
   const { key, localFolder, repo } = card;
@@ -542,7 +544,15 @@ function inUseLinkCard(card, worktrees = 0) {
           renderTree();
         }
         : () => link.revealInUse(key),
-      oncontextmenu: (e) => openMenu(e, [pinnedCardItem(key, side)]),
+      // Its card's worktree items too: the card itself is under In use.
+      oncontextmenu: (e) =>
+        openMenu(e, [
+          ...worktreeItems(
+            card,
+            containerByFolder(localFolder)?.state === 'connected',
+          ),
+          pinnedCardItem(key, side),
+        ]),
     },
     ...(repo
       ? [

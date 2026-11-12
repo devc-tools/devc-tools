@@ -89,7 +89,13 @@ declare module 'devc-web/menus.js' {
 
 declare module 'devc-web/ui.js' {
   export type MenuItem =
-    | [string, () => void, boolean?, Node?]
+    | [
+      string,
+      () => void,
+      boolean?,
+      Node?,
+      { disabled?: boolean; title?: string }?,
+    ]
     | null;
   export function useMenuHost(
     host: ((x: number, y: number, items: MenuItem[]) => void) | null,

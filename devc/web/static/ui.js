@@ -98,6 +98,8 @@ export const LABELS = {
   newWorktree: 'New worktree…',
   /** A linked worktree card's menu: `git worktree remove`; the branch stays. */
   deleteWorktree: 'Delete worktree…',
+  /** Why a worktree item is greyed out while its environment is down. */
+  worktreeNotRunning: 'Start the project first: git runs in its environment',
   /** The menu item and the ↑N click: the container's own `gh-push`, or devc-desktop's confirmation. */
   push: 'Push',
   /** A clickable ↑N's tooltip: `target` is `<remote>/<branch>`; `creates` when it isn't there yet. */
@@ -616,7 +618,13 @@ export function copyText(text) {
   );
 }
 
-/** @typedef {[string, () => void, boolean?, Node?] | null} MenuItem  null: a divider */
+/**
+ * A menu item: its label, action, whether it is `danger` (red), an icon, and `opts`:
+ * `disabled` greys it out and takes no click, `title` is its tooltip (why it is disabled). `null`:
+ * a divider.
+ *
+ * @typedef {[string, () => void, boolean?, Node?, {disabled?: boolean, title?: string}?] | null} MenuItem
+ */
 
 /** @param {MouseEvent} e @param {MenuItem[]} items */
 export function openMenu(e, items) {
@@ -626,7 +634,8 @@ export function openMenu(e, items) {
 
 /**
  * The menu at (`x`, `y`), kept inside the window. An item may carry an icon (a fourth element)
- * shown before its label; a `null` item is a divider between groups (see {@link trimDividers}).
+ * shown before its label, and be disabled with a tooltip (the fifth); a `null` item is a divider
+ * between groups (see {@link trimDividers}).
  *
  * @param {number} x @param {number} y
  * @param {MenuItem[]} items
@@ -641,12 +650,20 @@ export function openMenuAt(x, y, items) {
       if (item === null) {
         return h('div', { class: 'menu-sep', role: 'separator' });
       }
-      const [label, action, danger, icon] = item;
+      const [label, action, danger, icon, opts] = item;
+      // Not the `disabled` attribute: a disabled button shows no tooltip in some browsers.
+      const off = opts?.disabled === true;
       return h(
         'button',
         {
-          class: danger ? 'danger' : undefined,
+          class: [danger ? 'danger' : '', off ? 'disabled' : ''].filter((c) =>
+            c
+          )
+            .join(' ') || undefined,
+          'aria-disabled': off ? 'true' : undefined,
+          title: opts?.title,
           onclick: () => {
+            if (off) return;
             closeMenu();
             action();
           },

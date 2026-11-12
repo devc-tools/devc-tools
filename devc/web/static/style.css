@@ -2690,6 +2690,16 @@ body:is(.lm_dragging, .resizing-sidebar) .media-view iframe {
   color: var(--danger);
 }
 
+/* An item that can't run here: muted, no hover, its tooltip says why. */
+.menu button.disabled {
+  color: var(--muted);
+  cursor: default;
+}
+
+.menu button.disabled:hover {
+  background: none;
+}
+
 /* A divider between groups of items: no hover, no click. */
 .menu .menu-sep {
   height: 1px;

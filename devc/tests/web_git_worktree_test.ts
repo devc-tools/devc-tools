@@ -15,6 +15,7 @@ import {
   validWorktreeName,
   worktreeOptions,
   worktreesFolderOf,
+  worktreesStateOf,
   type WorktreeTarget,
   writeUpstream,
 } from '../web/git_worktree.ts';
@@ -655,5 +656,54 @@ Deno.test('createWorktree with the repo config locked', async () => {
       featureSha,
     );
     assertEquals(await Deno.readTextFile(config), on);
+  });
+});
+
+Deno.test('worktreesStateOf: why a primary has no New worktree here; nothing for others', async () => {
+  await withRepo(async ({ repo, dir }) => {
+    assertEquals(await worktreesStateOf(repo, identity), {
+      worktreesFolder: `${repo}.worktrees`,
+      worktreesProblem: null,
+    });
+    const onlyRepo: ContainerMount[] = [
+      { type: 'bind', source: repo, destination: '/workspaces/repo', rw: true },
+    ];
+    assertEquals(await worktreesStateOf(repo, onlyRepo), {
+      worktreesFolder: null,
+      worktreesProblem: 'repo.worktrees is not mounted here',
+    });
+    assertEquals(
+      await worktreesStateOf(repo, [...onlyRepo, {
+        type: 'bind',
+        source: `${repo}.worktrees`,
+        destination: '/elsewhere/repo.worktrees',
+        rw: true,
+      }]),
+      {
+        worktreesFolder: null,
+        worktreesProblem: 'repo.worktrees is not beside repo in the container',
+      },
+    );
+    // A repo this environment doesn't map, and a folder that is no repo: no item at all.
+    assertEquals(
+      await worktreesStateOf(repo, [
+        {
+          type: 'bind',
+          source: `${dir}/elsewhere`,
+          destination: '/x',
+          rw: true,
+        },
+      ]),
+      { worktreesFolder: null, worktreesProblem: null },
+    );
+    assertEquals(await worktreesStateOf(`${dir}/nope`, identity), {
+      worktreesFolder: null,
+      worktreesProblem: null,
+    });
+    await Deno.remove(`${repo}.worktrees`);
+    assertEquals(await worktreesStateOf(repo, identity), {
+      worktreesFolder: null,
+      worktreesProblem: 'create repo.worktrees beside repo and mount it here',
+    });
   });
 });
