@@ -374,7 +374,34 @@ is published from any container: the host server finds devcontainers with
   **Projects**, a worktree's card is indented under its repo's, joined by a
   rail, and hidden until shown; with nothing open, a click on that repo's header
   hides or shows them (its chevron, on the left, points down while they show).
-  The heading's **Collapse all** hides them again. Anywhere else, with nothing open, the
+  The heading's **Collapse all** hides them again. **New worktree…** (a repo
+  card's right-click) makes `<repo>.worktrees/<folder>` beside the repo, on a
+  local branch from an open **pull request** (`gh pr list` on the host; a fork's
+  becomes `pr-<n>`), a **remote branch** on `origin`, or a **new branch** from
+  `origin/<default>` or the repo's current branch; the folder follows the branch
+  name, `/` as `-`. It is offered while the repo's environment runs and has
+  `<repo>.worktrees` beside `<repo>` (the same names, side by side, in the
+  container too: mount the `.worktrees` folder as its own row). The host fetches
+  the commits into its mirror and hands them over as a bundle, and the repo's
+  git runs `git worktree add --relative-paths` in its environment (git 2.48 or
+  newer there), so the `.git` pointers resolve on the host and in the container
+  alike. Relative worktrees need `extensions.relativeWorktrees` (and
+  `core.repositoryformatversion = 1`) in the repo's config, which the host sets
+  in place before the first one, as git would but without its rename; from then
+  on **git older than 2.48 refuses the repo** (`unknown repository extension`),
+  so the host's own git must be 2.48 or newer too (Apple's bundled git is not:
+  use Homebrew's). A branch already there is checked out as is, never reset. A remote
+  branch or a same-repo PR's gets `origin/<branch>` as its upstream, written by
+  the host into the repo's `.git/config` in place (not by rename, so git
+  protection's read-only mount keeps covering it); a fork's or a new branch has
+  none. The new card shows under its repo's in every running environment that
+  mounts the folder; nothing is added to the projects list and no container
+  starts. **Delete worktree…** on a worktree's card runs `git worktree remove`
+  there and never deletes its branch. It is refused while the worktree is a
+  project of its own or an agent in it is working; with uncommitted changes it
+  asks you to tick **Discard N uncommitted changes** (`--force`), which a page
+  served with `--live` or `--live-yolo` may not do (devc-desktop may).
+  Anywhere else, with nothing open, the
   header's click does nothing. A card is **active** while it has a tile or an agent no tile
   shows (past sessions don't count): active cards are under **In use**, each container's in a
   card under its name, most urgent agent first (blocked, done, working, then idle; cards with no

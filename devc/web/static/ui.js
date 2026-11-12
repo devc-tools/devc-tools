@@ -94,6 +94,10 @@ export const LABELS = {
   requestPush: 'Push…',
   /** A repo card's menu: devc-desktop opens a host terminal there, once the user confirms it. */
   openHostTerminal: 'Open Host Terminal…',
+  /** A primary repo card's menu, when `<repo>.worktrees` is in its environment. */
+  newWorktree: 'New worktree…',
+  /** A linked worktree card's menu: `git worktree remove`; the branch stays. */
+  deleteWorktree: 'Delete worktree…',
   /** The menu item and the ↑N click: the container's own `gh-push`, or devc-desktop's confirmation. */
   push: 'Push',
   /** A clickable ↑N's tooltip: `target` is `<remote>/<branch>`; `creates` when it isn't there yet. */

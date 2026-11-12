@@ -327,7 +327,7 @@ export async function readGitStatus(
   return isGitProblem(r) ? null : r;
 }
 
-const FETCH_TIMEOUT_MS = 60_000;
+export const FETCH_TIMEOUT_MS = 60_000;
 
 /** How long one look at the remote may hold back the answer. */
 const REMOTE_CHECK_TIMEOUT_MS = 15_000;

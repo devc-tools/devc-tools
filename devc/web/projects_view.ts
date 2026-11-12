@@ -135,6 +135,7 @@ export function buildProjects(
         .map((r) => ({
           ...r,
           name: repoName(r.folder, r.containerFolder),
+          worktreesFolder: r.worktreesFolder ?? null,
           ...gitFields(git, r.folder),
           ...changesFields(changes.get(e.localFolder)?.get(r.folder)),
           ...pushRoutes.get(r.folder),

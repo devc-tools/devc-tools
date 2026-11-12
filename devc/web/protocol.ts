@@ -14,6 +14,7 @@ import {
 } from './agents.ts';
 import { MAX_TASK_TEXT, taskText } from '@devc-tools/core/tasks.ts';
 import type { PrMessage } from './pr_review.ts';
+import type { WorktreeSource } from './git_worktree.ts';
 import {
   IMAGE_MIMES,
   IMAGE_SOURCES,
@@ -137,6 +138,40 @@ export type ClientMessage =
    * `push_result`.
    */
   | { type: 'push_repo'; id: string; localFolder: string; folder: string }
+  /**
+   * What the New worktree dialog offers for primary repo `folder` (`git_worktree.ts`). Answered
+   * with `worktree_options_result`.
+   */
+  | {
+    type: 'worktree_options';
+    id: string;
+    localFolder: string;
+    folder: string;
+  }
+  /**
+   * Creates `<folder>.worktrees/<name>` on local branch `branch` from `source`. Answered with
+   * `worktree_create_result`.
+   */
+  | {
+    type: 'worktree_create';
+    id: string;
+    localFolder: string;
+    folder: string;
+    name: string;
+    branch: string;
+    source: WorktreeSource;
+  }
+  /**
+   * Removes linked worktree `folder` (`git worktree remove`, `--force` with `force`); its branch
+   * stays. Answered with `worktree_remove_result`.
+   */
+  | {
+    type: 'worktree_remove';
+    id: string;
+    localFolder: string;
+    folder: string;
+    force: boolean;
+  }
   /**
    * A repo's commits for its card's Commits section (`git_history.ts`), read in the host's mirror,
    * so a stopped project has them too. Answered with `result`.
@@ -638,6 +673,21 @@ function oneOf<T extends string>(o: Obj, k: string, values: T[]): T {
   return v as T;
 }
 
+/** `worktree_create`'s `source`: see `git_worktree.ts`'s `WorktreeSource`. */
+function worktreeSource(o: Obj): WorktreeSource {
+  const v = o.source;
+  if (typeof v !== 'object' || v === null || Array.isArray(v)) {
+    throw new Invalid(`'source' must be an object`);
+  }
+  const src = v as Obj;
+  const kind = oneOf(src, 'kind', ['pr', 'remote', 'new']);
+  if (kind === 'pr') return { kind, number: int(src, 'number', 1) };
+  if (kind === 'remote') {
+    return { kind, remoteBranch: str(src, 'remoteBranch') };
+  }
+  return { kind, base: oneOf(src, 'base', ['default', 'current']) };
+}
+
 const MAX_CELLS = 10_000;
 
 function viewId(o: Obj): string {
@@ -1097,6 +1147,31 @@ function parseFields(m: Obj): ClientMessage {
         id: str(m, 'id'),
         localFolder: folder(m),
         folder: absolute(m, 'folder'),
+      };
+    case 'worktree_options':
+      return {
+        type: 'worktree_options',
+        id: str(m, 'id'),
+        localFolder: folder(m),
+        folder: absolute(m, 'folder'),
+      };
+    case 'worktree_create':
+      return {
+        type: 'worktree_create',
+        id: str(m, 'id'),
+        localFolder: folder(m),
+        folder: absolute(m, 'folder'),
+        name: str(m, 'name'),
+        branch: str(m, 'branch'),
+        source: worktreeSource(m),
+      };
+    case 'worktree_remove':
+      return {
+        type: 'worktree_remove',
+        id: str(m, 'id'),
+        localFolder: folder(m),
+        folder: absolute(m, 'folder'),
+        force: bool(m, 'force'),
       };
     case 'git_history':
       return {

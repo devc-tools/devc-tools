@@ -177,6 +177,13 @@ import {
 } from './git_stage.ts';
 import { fetchRepo, fetchRunning, pullRepo, pullRunning } from './git_fetch.ts';
 import {
+  createWorktree,
+  forceRefusal,
+  removeWorktree,
+  worktreeOptions,
+  worktreesFolderOf,
+} from './git_worktree.ts';
+import {
   escalate,
   policyReader,
   pushRepo,
@@ -1041,28 +1048,34 @@ export async function startWeb(
   };
   // An SSH environment would need `mountedRepos`' reads to go through `env.run`: they read
   // the host's FS.
+  // `reload` reads them again over the ones listed (a worktree made or removed), which stay
+  // listed meanwhile.
   const loadRepos = async (
     record: Pick<Environment, 'id' | 'localFolder' | 'mounts' | 'repoSources'>,
+    reload = false,
   ) => {
-    if (containerRepos.has(record.id)) return;
-    containerRepos.set(record.id, [{
-      folder: record.localFolder,
-      worktreeOf: null,
-      containerFolder: null,
-      primaryFolder: null,
-    }]);
+    if (!reload) {
+      if (containerRepos.has(record.id)) return;
+      containerRepos.set(record.id, [{
+        folder: record.localFolder,
+        worktreeOf: null,
+        containerFolder: null,
+        primaryFolder: null,
+      }]);
+    }
     const binds = (await record.mounts()).filter((m) => m.type === 'bind');
     const repos = await mountedRepos(
       record.localFolder,
       await record.repoSources(),
     );
-    containerRepos.set(
-      record.id,
-      repos.map((r) => ({
-        ...r,
-        containerFolder: hostToContainerPath(r.folder, binds),
-      })),
-    );
+    const listed = await Promise.all(repos.map(async (r) => ({
+      ...r,
+      containerFolder: hostToContainerPath(r.folder, binds),
+      worktreesFolder: await worktreesFolderOf(r.folder, binds),
+    })));
+    // Dropped while it was read (its environment went): don't bring it back.
+    if (reload && !containerRepos.has(record.id)) return;
+    containerRepos.set(record.id, listed);
     broadcastProjects();
     void gitWatch.refresh();
     void changesWatch.refreshEnvironment(record.id);
@@ -1838,6 +1851,165 @@ export async function startWeb(
       void gitWatch.refresh();
       void changesWatch.refreshEnvironment(at.session.record.id);
     }
+  };
+
+  /**
+   * A repo's environment for a worktree message: its running session, that session's bind
+   * mounts and the repo's path there (`repoTarget`), or why not.
+   */
+  const worktreeTarget = async (
+    msg: { localFolder: string; folder: string },
+  ): Promise<
+    | { session: ContainerSession; mounts: ContainerMount[]; path: string }
+    | GitProblem
+  > => {
+    const at = await repoTarget(msg);
+    if (isGitProblem(at)) return at;
+    const mounts = (await mountsOf(at.session.record.id)).filter((m) =>
+      m.type === 'bind'
+    );
+    return { ...at, mounts };
+  };
+
+  /**
+   * After a worktree is made or removed: every running environment that maps one of `paths` (the
+   * new worktree's `.worktrees` folder, or the removed worktree) lists its repos again, and the
+   * marks and changes follow.
+   */
+  const reloadReposMapping = async (paths: string[]) => {
+    await Promise.all(
+      [...sessions.values()].map(async (s) => {
+        const mounts = (await mountsOf(s.record.id)).filter((m) =>
+          m.type === 'bind'
+        );
+        if (paths.some((p) => hostToContainerPath(p, mounts) !== null)) {
+          await loadRepos(s.env, true);
+        }
+      }),
+    );
+  };
+
+  /**
+   * The New worktree dialog's choices for a primary repo (`git_worktree.ts`), answered with
+   * `worktree_options_result`. Allowed under `--live`: it reads only.
+   */
+  const worktreeOptionsFor = async (
+    c: Client,
+    msg: Extract<ClientMessage, { type: 'worktree_options' }>,
+  ) => {
+    const send = (o: object) =>
+      c.send(JSON.stringify({
+        type: 'worktree_options_result',
+        id: msg.id,
+        folder: msg.folder,
+        ...o,
+      }));
+    const at = await worktreeTarget(msg);
+    if (isGitProblem(at)) {
+      send({ ok: false, problem: at.problem });
+      return;
+    }
+    send(
+      await worktreeOptions({
+        env: at.session.env,
+        mounts: at.mounts,
+        folder: msg.folder,
+      }),
+    );
+  };
+
+  /**
+   * Creates a worktree of a primary repo in its environment (`git_worktree.ts`), answered with
+   * `worktree_create_result`. Allowed under `--live`: it adds a folder, a branch and a
+   * remote-tracking ref, and publishes nothing. Never a project entry or a container start.
+   */
+  const worktreeCreateFor = async (
+    c: Client,
+    msg: Extract<ClientMessage, { type: 'worktree_create' }>,
+  ) => {
+    const send = (o: Record<string, unknown>) =>
+      c.send(JSON.stringify({
+        type: 'worktree_create_result',
+        id: msg.id,
+        folder: msg.folder,
+        ...o,
+      }));
+    const at = await worktreeTarget(msg);
+    if (isGitProblem(at)) {
+      send({ ok: false, problem: at.problem });
+      return;
+    }
+    const repoFolders = (containerRepos.get(at.session.record.id) ?? [])
+      .filter((r) => r.folder === msg.folder || r.primaryFolder === msg.folder)
+      .map((r) => r.folder);
+    const r = await createWorktree(
+      { env: at.session.env, mounts: at.mounts, folder: msg.folder },
+      { name: msg.name, branch: msg.branch, source: msg.source },
+      repoFolders,
+    );
+    send({ ...r });
+    if (r.ok) await reloadReposMapping([`${msg.folder}.worktrees`]);
+  };
+
+  /**
+   * Removes a linked worktree in its environment (`git_worktree.ts`), answered with
+   * `worktree_remove_result`; its branch stays. Refused while it is a project of its own, while an
+   * agent in it is working or blocked, and, for the page under `--live`, with `force`: checked
+   * here, never in the page.
+   */
+  const worktreeRemoveFor = async (
+    c: Client,
+    msg: Extract<ClientMessage, { type: 'worktree_remove' }>,
+  ) => {
+    const send = (o: Record<string, unknown>) =>
+      c.send(JSON.stringify({
+        type: 'worktree_remove_result',
+        id: msg.id,
+        folder: msg.folder,
+        ...o,
+      }));
+    const refuse = (problem: string) =>
+      send({ ok: false, problem, dirty: false });
+    const at = await worktreeTarget(msg);
+    if (isGitProblem(at)) {
+      refuse(at.problem);
+      return;
+    }
+    const name = basenamePosix(msg.folder);
+    if (
+      projectsMessage().projects.some((p) =>
+        p.localFolder === msg.folder ||
+        p.localFolder.startsWith(`${msg.folder}/`)
+      )
+    ) {
+      refuse(`${name} is a project: remove the project first`);
+      return;
+    }
+    const panes = snapshotPanes(at.session.snapshot) as {
+      agent_status?: unknown;
+      cwd?: unknown;
+    }[];
+    if (
+      panes.some((p) =>
+        (p.agent_status === 'working' || p.agent_status === 'blocked') &&
+        typeof p.cwd === 'string' &&
+        (p.cwd === at.path || p.cwd.startsWith(`${at.path}/`))
+      )
+    ) {
+      refuse(`an agent in ${name} is working`);
+      return;
+    }
+    const forced = forceRefusal(msg.force, c.role, opts.live);
+    if (forced !== null) {
+      refuse(forced);
+      return;
+    }
+    const r = await removeWorktree(
+      { env: at.session.env, mounts: at.mounts, folder: msg.folder },
+      msg.force,
+    );
+    send({ ...r });
+    if (r.ok) await reloadReposMapping([msg.folder]);
   };
 
   /**
@@ -3765,6 +3937,18 @@ export async function startWeb(
     }
     if (msg.type === 'push_repo') {
       await pushRepoFor(c, msg);
+      return;
+    }
+    if (msg.type === 'worktree_options') {
+      await worktreeOptionsFor(c, msg);
+      return;
+    }
+    if (msg.type === 'worktree_create') {
+      await worktreeCreateFor(c, msg);
+      return;
+    }
+    if (msg.type === 'worktree_remove') {
+      await worktreeRemoveFor(c, msg);
       return;
     }
     if (

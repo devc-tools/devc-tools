@@ -141,6 +141,10 @@ import {
   tileMenuItems,
 } from './menus.js';
 import { newTaskIn } from './task-dialog.js';
+import {
+  openDeleteWorktreeDialog,
+  openNewWorktreeDialog,
+} from './worktree-dialog.js';
 
 /** @typedef {import('./lib/view.js').TileArea} TileArea */
 /** @typedef {import('./lib/view.js').ViewState} ViewState */
@@ -872,6 +876,55 @@ export function containerNameOf(localFolder) {
 }
 
 /**
+ * A repo card's worktree items: **New worktree…** on a primary whose `<repo>.worktrees` its
+ * environment has (`worktreesFolder`), **Delete worktree…** on a linked worktree; none unless
+ * the environment is running. Followed by a separator when there are any.
+ *
+ * @param {any} card @param {boolean} running
+ * @returns {any[]}
+ */
+function worktreeItems(card, running) {
+  const { key, localFolder, repo } = card;
+  if (!repo || !running) return [];
+  if (repo.worktreesFolder) {
+    return [[
+      LABELS.newWorktree,
+      () =>
+        openNewWorktreeDialog({
+          localFolder,
+          folder: repo.folder,
+          repoName: repo.name,
+          onCreated: () => {
+            // The new card shows under its repo's once the server lists it.
+            sidebarState.worktreesOpen.add(key);
+            saveSidebarState();
+            renderTree();
+          },
+        }),
+    ], null];
+  }
+  if (repo.primaryFolder && repo.primaryFolder !== repo.folder) {
+    const ch = repo.changes;
+    const dirty = ch
+      ? ch.staged + ch.unstaged + ch.untracked + ch.conflicted
+      : 0;
+    const parts = repo.folder.split('/');
+    return [[
+      LABELS.deleteWorktree,
+      () =>
+        openDeleteWorktreeDialog({
+          localFolder,
+          folder: repo.folder,
+          label: parts.slice(-2).join('/'),
+          branch: repo.git?.branch ?? null,
+          dirty,
+        }),
+    ], null];
+  }
+  return [];
+}
+
+/**
  * A repo card, in In use or in its container's card: its header (repo name, branch and sync mark;
  * the container's name for the card of what is outside every repo), its terminals (tiles, then
  * panes no tile shows, shells too), then while their toggles are on its past sessions, its pull
@@ -1028,6 +1081,8 @@ export function repoCard(card, side, worktrees = 0) {
                     : () => repoGitRequest(k, localFolder, repo.folder),
                 ]),
                 ...(canPush || canPull || canFetch ? [null] : []),
+                // Run in the repo's environment, so only while it runs.
+                ...worktreeItems(card, c?.state === 'connected'),
                 // devc-desktop opens it, once the user confirms it there; never in a browser.
                 ...(canAskDesktop()
                   ? [

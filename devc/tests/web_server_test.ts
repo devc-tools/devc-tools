@@ -2024,3 +2024,100 @@ Deno.test('parseClientMessage: view_intent and sidebar_intent take a known name 
     ]
   ) assertEquals(rejected(bad).code, 'bad_request', JSON.stringify(bad));
 });
+
+Deno.test('parseClientMessage: worktree messages', () => {
+  const parsed = (raw: unknown) => {
+    const r = parseClientMessage(JSON.stringify(raw));
+    assert(r.ok, JSON.stringify(raw));
+    return r.msg;
+  };
+  const at = { localFolder: '/src/app', folder: '/src/app' };
+  assertEquals(parsed({ type: 'worktree_options', id: 'w1', ...at }), {
+    type: 'worktree_options',
+    id: 'w1',
+    ...at,
+  });
+  for (
+    const source of [
+      { kind: 'pr', number: 12 },
+      { kind: 'remote', remoteBranch: 'feature/a' },
+      { kind: 'new', base: 'default' },
+      { kind: 'new', base: 'current' },
+    ] as unknown[]
+  ) {
+    assertEquals(
+      parsed({
+        type: 'worktree_create',
+        id: 'w2',
+        ...at,
+        name: 'n',
+        branch: 'b',
+        source,
+      }),
+      {
+        type: 'worktree_create',
+        id: 'w2',
+        ...at,
+        name: 'n',
+        branch: 'b',
+        source,
+      } as unknown,
+    );
+  }
+  for (
+    const source of [
+      undefined,
+      null,
+      [],
+      { kind: 'pr', number: 0 },
+      { kind: 'pr', number: 1.5 },
+      { kind: 'pr', number: '3' },
+      { kind: 'remote' },
+      { kind: 'remote', remoteBranch: '' },
+      { kind: 'new', base: 'HEAD' },
+      { kind: 'tag' },
+    ]
+  ) {
+    assertEquals(
+      rejected({
+        type: 'worktree_create',
+        id: 'w3',
+        ...at,
+        name: 'n',
+        branch: 'b',
+        source,
+      }).code,
+      'bad_request',
+    );
+  }
+  assertEquals(
+    rejected({
+      type: 'worktree_create',
+      id: 'w4',
+      ...at,
+      branch: 'b',
+      source: { kind: 'new', base: 'current' },
+    }).code,
+    'bad_request',
+  );
+  assertEquals(
+    parsed({ type: 'worktree_remove', id: 'w5', ...at, force: true }),
+    { type: 'worktree_remove', id: 'w5', ...at, force: true },
+  );
+  for (const force of [undefined, 'true', 1]) {
+    assertEquals(
+      rejected({ type: 'worktree_remove', id: 'w6', ...at, force }).code,
+      'bad_request',
+    );
+  }
+  assertEquals(
+    rejected({
+      type: 'worktree_remove',
+      id: 'w7',
+      localFolder: '/a',
+      folder: 'rel',
+      force: false,
+    }).code,
+    'bad_request',
+  );
+});

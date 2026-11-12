@@ -348,6 +348,9 @@ function onHello(msg) {
   projectStarts = msg.projectStarts !== false;
   desktopChannel = msg.desktopChannel === true;
   liveMode = msg.live === true && !SAFE_MODE && bundled === null;
+  // The server refuses a page's forced worktree removal under --live (git_worktree.ts's
+  // `forceRefusal`); a bundled copy is devc-desktop's, the desktop role, which it allows.
+  forceRemoveAllowed = msg.live !== true || bundled !== null;
   hostOs = typeof msg.hostOs === 'string' ? msg.hostOs : '';
   if (bootGeneration === null || bundled !== null) {
     bootGeneration = msg.generation;
@@ -363,6 +366,11 @@ function onHello(msg) {
  * `--live-yolo`), so page edits reload this tab. Never in safe mode.
  */
 export let liveMode = false;
+/**
+ * Whether **Delete worktree…** may discard changes (`worktree_remove` with `force`): not for a
+ * page while the server runs with `--live` or `--live-yolo`.
+ */
+export let forceRemoveAllowed = true;
 /** Live reload paused from the host status strip: page edits wait for it to be resumed. */
 export let liveReloadPaused = loadLiveReloadPaused();
 /** A page edit arrived while paused: resuming reloads. */

@@ -206,6 +206,12 @@ export interface MountedRepo {
    * worktree, whether or not that one is listed), from its git common dir; null when unknown.
    */
   primaryFolder: string | null;
+  /**
+   * `<folder>.worktrees` when it is a primary repo whose `.worktrees` folder exists and maps into
+   * its environment (`git_worktree.ts`'s `worktreesFolderOf`): the card offers **New worktree…**.
+   * Absent or null otherwise. Set by the server, which has the mounts.
+   */
+  worktreesFolder?: string | null;
 }
 
 /**

@@ -3031,6 +3031,146 @@ button.primary.danger {
   border-color: var(--danger);
 }
 
+/* New worktree… / Delete worktree… (worktree-dialog.js) */
+.dialog.worktree-dialog {
+  width: min(560px, calc(100vw - 32px));
+}
+
+/* `.new-note-body label` and the rules below set `display`, which would beat `hidden`. */
+.worktree-dialog [hidden] {
+  display: none !important;
+}
+
+.worktree-form,
+.worktree-pick {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.worktree-tabs {
+  display: inline-flex;
+  justify-self: start;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.worktree-tabs button {
+  padding: 2px 10px;
+  border: 0;
+  border-radius: 0;
+  font: inherit;
+  color: var(--muted);
+  background: transparent;
+  cursor: pointer;
+}
+
+.worktree-tabs button + button {
+  border-left: 1px solid var(--border);
+}
+
+.worktree-tabs button:hover {
+  color: var(--text);
+  background: var(--row-hover);
+}
+
+.worktree-tabs button[aria-pressed='true'] {
+  color: var(--text);
+  background: var(--row-current);
+}
+
+.worktree-list {
+  max-height: min(240px, 40vh);
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--term-bg);
+}
+
+.worktree-item {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 3px 8px;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.worktree-item:hover {
+  background: var(--row-hover);
+}
+
+.worktree-item[aria-selected='true'] {
+  background: var(--row-current);
+}
+
+.worktree-num,
+.worktree-author,
+.worktree-empty {
+  color: var(--muted);
+}
+
+.worktree-empty {
+  padding: 6px 8px;
+}
+
+.worktree-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.worktree-badge {
+  padding: 0 5px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--muted);
+  font-size: calc(var(--font-size) - 2px);
+}
+
+.worktree-base {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+  color: var(--muted);
+  font-size: calc(var(--font-size) - 1px);
+}
+
+.new-note-body label.worktree-radio {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--text);
+}
+
+.worktree-folder {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+}
+
+.worktree-folder input {
+  flex: 1;
+}
+
+.worktree-prefix {
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.worktree-note {
+  min-height: 1.2em;
+}
+
+.worktree-dialog .dialog-footer button.primary {
+  margin-left: auto;
+}
+
 /* Tasks */
 .row.sent-tasks {
   color: var(--muted);

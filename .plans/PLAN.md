@@ -225,6 +225,16 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
 
 ### Completed
 
+- ✅ Done — [devc-web-worktrees](archived/devc-web-worktrees.md) — a repo card's **New
+  worktree…** (from an open PR, an `origin` branch, or a new branch) and **Delete worktree…**,
+  using the `<repo>.worktrees/<name>` convention. Git runs in the running environment that mounts
+  both folders (`--relative-paths`, git ≥ 2.48), with remote commits brought in through the host
+  mirror and a bundle. The host writes `extensions.relativeWorktrees` and the upstream into
+  `.git/config` in place (no rename, so protection holds); git older than 2.48 then refuses the
+  repo. No project entry or container start; delete keeps the branch, and force is refused for
+  the page under `--live`. Not run: the live check on the Mac in a real container, including the
+  repair + retry for a worktree made on the host with absolute paths.
+
 - ✅ Done — [devc-web-since-review](archived/devc-web-since-review.md) — a PR file's **Compare** also offers
   `Since your review <age> · <sha>`: the file at the commit of your latest Approve / Request
   changes (`gh-pr-files` gains `pr.myReview`; `COMMENTED` is left out, since replies create those).
@@ -2761,3 +2771,4 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
 | Host terminals on Herdr — a devc-desktop session, one terminal for both apps, host file links                       | [host-terminal-herdr](archived/host-terminal-herdr.md)                             | complete    |
 | Host terminal request — Open Host Terminal… on a repo card, confirmed in devc-desktop                               | [devc-web-host-terminal-request](archived/devc-web-host-terminal-request.md)       | complete    |
 | devc web since review — Compare from your latest review's commit; the newest of tick and review wins                | [devc-web-since-review](archived/devc-web-since-review.md)                         | complete    |
+| devc web worktrees — New/Delete worktree on a repo card: from a PR, an origin branch or a new branch                | [devc-web-worktrees](archived/devc-web-worktrees.md)                               | complete    |
