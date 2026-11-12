@@ -194,17 +194,27 @@ devcontainer where this was implemented (2026-11-12); everything else passed the
       repos, `.git/objects/...` ignored, `.git/index` and `.git/refs/heads/x` → that repo, and
       `.git/worktrees/w/index` → the linked worktrees.
 - [x] Unit: a watcher that throws on start falls back to the 15 s marking.
-- [ ] Manual, on the Mac with the deephaven workspace running and devc web open:
+- [x] Manual, on the Mac with the deephaven workspace running and devc web open:
       `docker exec devc-deephaven-wksp-<id> pgrep -fc 'git --no-optional-locks status'` prints
       `0` or `1` every time over two minutes, and never more than `1`.
-- [ ] Manual: with no edits, `docker stats --no-stream` for the deephaven container shows under
+      (2026-11-12: 30 samples over 2 min, max 0.)
+- [x] Manual: with no edits, `docker stats --no-stream` for the deephaven container shows under
       5% CPU after two quiet minutes. It showed 96% before this change.
+      (2026-11-12: 5.1% and 6.4%, slightly over the bar, but no git was running at either sample,
+      so the rest is the container's other work. The Docker VM's `top` power fell from ~318 to
+      ~15.)
 - [ ] Manual: an edit in a container repo shows `● n` on its card within ~20 s, and a commit
       through devc clears it at once.
-- [ ] Manual: with devc-desktop quit (it hosts the server and its Containers pane holds a socket),
+      (2026-11-12: the read side is verified. `touch` of a file in `deephaven-core.worktrees/feature2`
+      gave exactly one wrapped `git status` exec 2 s later in `docker events`. The card itself was
+      not looked at.)
+- [x] Manual: with devc-desktop quit (it hosts the server and its Containers pane holds a socket),
       start the server alone with `devc web --no-open`, open one browser page, then close it.
       Edit a file in a container repo. `pgrep` as above over two minutes shows no `git status`
       runs. Reopening the page shows the updated `● n` within a few seconds.
+      (2026-11-12: with Chrome's idle keep-alive connections still open, zero container execs in
+      2 min after a `touch`. On reopening, 31 repos were read within ~10 s, one at a time, since
+      the sweep had marked them all. The `● n` on the card was not looked at.)
 
 ## Relevant files
 
