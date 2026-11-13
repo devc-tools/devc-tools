@@ -70,6 +70,7 @@ import {
   projectRepos,
   projects,
   projectStarts,
+  reportVisibleRepos,
   resolveRef,
   saveFilePinPanes,
   sentTasks,
@@ -481,6 +482,17 @@ function renderTree() {
     shownScopeCard = scoped ? scopeCardKey() : null;
     shownInUse = new Set(
       [...cards.values()].filter((card) => card.active).map((card) => card.key),
+    );
+    // In use's repos, and every repo while this page's Containers section is open: the server
+    // reads the rest less often.
+    const shows = scoped
+      ? scopeShows(cards, shownScopeCard)
+      : (/** @type {any} */ card) => card.active;
+    reportVisibleRepos(
+      containersShown(),
+      [...cards.values()].filter(shows).flatMap((card) =>
+        card.repo ? [card.repo.folder] : []
+      ),
     );
     const upper = scoped
       ? inUseRows(cards, scopeShows(cards, shownScopeCard))

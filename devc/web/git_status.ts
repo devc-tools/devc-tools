@@ -653,23 +653,41 @@ export const GIT_FETCH_MS = 5 * 60_000;
 export const GIT_POLL_MS = 15_000;
 
 /**
- * Keeps every folder's {@link GitReading} current by reading them all every {@link GIT_POLL_MS}
- * and fetching their upstreams every {@link GIT_FETCH_MS}, and sooner on {@link refresh}.
- * Calls `onChange` after each folder whose reading changed, so a slow one (a cold mirror) holds
- * back none read before it, and once after dropping folders no longer listed.
+ * How often an idle folder (a repo of no running or starting project) is read again: a commit
+ * made on the host in a stopped project's repo shows within this long.
+ */
+export const GIT_IDLE_POLL_MS = 120_000;
+
+/**
+ * Keeps every folder's {@link GitReading} current by reading them every {@link GIT_POLL_MS}
+ * (an idle folder only once {@link GIT_IDLE_POLL_MS} has passed since its last read) and
+ * fetching their upstreams every {@link GIT_FETCH_MS}, and sooner on {@link refresh}. Folders
+ * are read one at a time; a folder asked for by `refresh(folder)` is read next, ahead of the
+ * rest of a pass. Calls `onChange` after each folder whose reading changed, so a slow one (a
+ * cold mirror) holds back none read before it, and once after dropping folders no longer listed.
  */
 // An SSH environment would need these reads to go through `env.run`: they read the host's FS.
 export class GitStatusWatch {
   #statuses = new Map<string, GitReading>();
+  /** When each folder was last read, by {@link GitStatusWatchOpts.now}'s clock. */
+  #readAt = new Map<string, number>();
   #timer: ReturnType<typeof setInterval> | undefined;
   #fetchTimer: ReturnType<typeof setInterval> | undefined;
   #fetching = false;
   #running = false;
-  #again = false;
+  /** A pass still to run: `due` skips idle folders read lately, `all` reads every one. */
+  #want: 'due' | 'all' | null = null;
+  /** Folders to read before anything else, in the order asked for. */
+  #urgent = new Set<string>();
 
   constructor(
     private readonly opts: {
       folders: () => Iterable<string>;
+      /**
+       * Of the folders, those read only every {@link GIT_IDLE_POLL_MS}: asked once per pass.
+       * Absent: none are.
+       */
+      idle?: () => ReadonlySet<string>;
       onChange: () => void;
       /** After every pass, changed or not. */
       onPass?: () => void;
@@ -677,6 +695,8 @@ export class GitStatusWatch {
       fetch?: (folder: string) => Promise<boolean>;
       pollMs?: number;
       fetchMs?: number;
+      idlePollMs?: number;
+      now?: () => number;
     },
   ) {}
 
@@ -704,50 +724,94 @@ export class GitStatusWatch {
     clearInterval(this.#fetchTimer);
   }
 
-  /** Fetches every folder's upstream, one at a time, then reads them all again. Skipped while one runs. */
+  /**
+   * Fetches every folder's upstream, one at a time, then reads them all again, idle ones too.
+   * Skipped while one runs.
+   */
   async fetchAll(): Promise<void> {
     if (this.#fetching) return;
     this.#fetching = true;
     try {
       const fetch = this.opts.fetch ?? ((f: string) => refreshRemote(f));
       for (const folder of new Set(this.opts.folders())) await fetch(folder);
-      await this.refresh();
+      this.#want = 'all';
+      await this.#drain();
     } finally {
       this.#fetching = false;
     }
   }
 
-  /** Reads every folder now; a call during a pass runs one more pass after it. */
-  async refresh(): Promise<void> {
-    if (this.#running) {
-      this.#again = true;
-      return;
-    }
+  /**
+   * With no folder, reads every folder that is due now (every one but the idle folders read
+   * within {@link GIT_IDLE_POLL_MS}); a call during a pass runs one more pass after it. With
+   * `folder` (a listed one), reads just it, next: ahead of the rest of a running pass, and
+   * idle or not. Resolves when this call started the reads and they are done; at once when a
+   * pass was already running, which takes them on.
+   */
+  async refresh(folder?: string): Promise<void> {
+    if (folder === undefined) {
+      if (this.#want === null) this.#want = 'due';
+    } else this.#urgent.add(folder);
+    await this.#drain();
+  }
+
+  async #drain(): Promise<void> {
+    if (this.#running) return;
     this.#running = true;
     try {
-      do {
-        this.#again = false;
-        await this.#pass();
+      while (this.#want !== null || this.#urgent.size > 0) {
+        const want = this.#want;
+        this.#want = null;
+        await this.#pass(want);
         this.opts.onPass?.();
-      } while (this.#again);
+      }
     } finally {
       this.#running = false;
     }
   }
 
-  async #pass() {
+  /** The next urgent folder still listed, taken off the list; `undefined` when none is. */
+  #nextUrgent(): string | undefined {
+    if (this.#urgent.size === 0) return undefined;
+    const listed = new Set(this.opts.folders());
+    for (const folder of this.#urgent) {
+      this.#urgent.delete(folder);
+      if (listed.has(folder)) return folder;
+    }
+    return undefined;
+  }
+
+  async #pass(want: 'due' | 'all' | null) {
     const read = this.opts.read ?? ((f: string) => readGitState(f));
+    const now = this.opts.now ?? Date.now;
     const folders = new Set(this.opts.folders());
     let dropped = false;
     for (const folder of this.#statuses.keys()) {
       if (!folders.has(folder)) {
         this.#statuses.delete(folder);
+        this.#readAt.delete(folder);
         dropped = true;
       }
     }
     if (dropped) this.opts.onChange();
-    for (const folder of folders) {
+    const idle = want === 'due'
+      ? this.opts.idle?.() ?? new Set<string>()
+      : new Set<string>();
+    const idleMs = this.opts.idlePollMs ?? GIT_IDLE_POLL_MS;
+    const start = now();
+    const queue = want === null ? [] : [...folders].filter((f) => {
+      if (!idle.has(f)) return true;
+      const at = this.#readAt.get(f);
+      return at === undefined || start - at >= idleMs;
+    });
+    const done = new Set<string>();
+    for (;;) {
+      const folder = this.#nextUrgent() ??
+        queue.find((f) => !done.has(f));
+      if (folder === undefined) break;
+      done.add(folder);
       const next = await read(folder);
+      this.#readAt.set(folder, now());
       const prev = this.#statuses.get(folder);
       if (!this.#statuses.has(folder) || !sameStatus(prev ?? null, next)) {
         this.#statuses.set(folder, next);

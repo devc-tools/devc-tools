@@ -90,6 +90,12 @@ export type ClientMessage =
   | { type: 'active_pane' }
   /** Whether the page is visible and its window focused (activity tracking: `activity.ts`). */
   | { type: 'page_state'; visible: boolean; focused: boolean }
+  /**
+   * Which repos' git marks the page shows, so the server reads only those often: `all` while its
+   * Projects section is open, else `folders` (In use's repo cards' host folders). Sent on each
+   * change and after each `hello`. See `server.ts`'s `visibleFolders`.
+   */
+  | { type: 'visible_repos'; all: boolean; folders: string[] }
   | {
     type:
       | 'start_project'
@@ -912,6 +918,27 @@ function pane(o: Obj): { container: string; pane_id: string } {
 /** The longest `container` / `pane_id` an `active_pane` may carry. */
 const MAX_ACTIVE_ID = 256;
 
+/** The most folders a `visible_repos` lists, and the longest one. */
+export const MAX_VISIBLE_FOLDERS = 1024;
+const MAX_VISIBLE_FOLDER = 4096;
+
+/** `visible_repos`'s `folders`: up to {@link MAX_VISIBLE_FOLDERS} absolute paths. */
+function visibleFolders(m: Obj): string[] {
+  const v = m.folders;
+  if (
+    !Array.isArray(v) || v.length > MAX_VISIBLE_FOLDERS ||
+    !v.every((f) =>
+      typeof f === 'string' && f.startsWith('/') &&
+      f.length <= MAX_VISIBLE_FOLDER
+    )
+  ) {
+    throw new Invalid(
+      `'folders' must be at most ${MAX_VISIBLE_FOLDERS} absolute paths of at most ${MAX_VISIBLE_FOLDER} characters`,
+    );
+  }
+  return v;
+}
+
 /** Herdr's `pane.selection.read` takes a `u16` column. */
 const MAX_COLUMN = 65535;
 
@@ -1097,6 +1124,12 @@ function parseFields(m: Obj): ClientMessage {
       }
       return { type: 'active_pane', ...p };
     }
+    case 'visible_repos':
+      return {
+        type: 'visible_repos',
+        all: bool(m, 'all'),
+        folders: visibleFolders(m),
+      };
     case 'page_state':
       return {
         type: 'page_state',

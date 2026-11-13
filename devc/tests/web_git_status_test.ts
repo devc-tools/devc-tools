@@ -295,6 +295,78 @@ Deno.test('GitStatusWatch.fetchAll fetches every folder, then reads them again',
   assertEquals([fetched, reads], [['/a', '/b'], 2]);
 });
 
+Deno.test('GitStatusWatch.refresh(folder) reads just that folder, ahead of a running pass', async () => {
+  const reads: string[] = [];
+  let release!: () => void;
+  const held = new Promise<void>((r) => release = r);
+  let hold = true;
+  const watch = new GitStatusWatch({
+    folders: () => ['/a', '/b', '/c'],
+    onChange: () => {},
+    read: async (f) => {
+      reads.push(f);
+      if (hold && f === '/a') {
+        hold = false;
+        await held;
+      }
+      return null;
+    },
+  });
+  const pass = watch.refresh();
+  // /a's read is under way: /c goes next, then the rest of the pass, once each.
+  const asked = watch.refresh('/c');
+  await asked;
+  release();
+  await pass;
+  assertEquals(reads, ['/a', '/c', '/b']);
+  reads.length = 0;
+  await watch.refresh('/b');
+  assertEquals(reads, ['/b']);
+  // A folder no longer listed is not read.
+  reads.length = 0;
+  await watch.refresh('/gone');
+  assertEquals(reads, []);
+});
+
+Deno.test('GitStatusWatch reads idle folders only every idlePollMs, but always when asked or after a fetch', async () => {
+  const reads: string[] = [];
+  let now = 0;
+  const watch = new GitStatusWatch({
+    folders: () => ['/run', '/stopped'],
+    idle: () => new Set(['/stopped']),
+    onChange: () => {},
+    read: (f) => {
+      reads.push(f);
+      return Promise.resolve(null);
+    },
+    fetch: () => Promise.resolve(true),
+    idlePollMs: 120_000,
+    now: () => now,
+  });
+  // Never read: read now, idle or not.
+  await watch.refresh();
+  assertEquals(reads, ['/run', '/stopped']);
+  reads.length = 0;
+  now = 60_000;
+  await watch.refresh();
+  assertEquals(reads, ['/run']);
+  reads.length = 0;
+  await watch.refresh('/stopped');
+  assertEquals(reads, ['/stopped']);
+  reads.length = 0;
+  now = 150_000;
+  await watch.refresh();
+  assertEquals(reads, ['/run']);
+  reads.length = 0;
+  now = 180_000;
+  await watch.refresh();
+  assertEquals(reads, ['/run', '/stopped']);
+  reads.length = 0;
+  now = 190_000;
+  await watch.fetchAll();
+  assertEquals(reads, ['/run', '/stopped']);
+});
+
 Deno.test('readGitStatus: no upstream counts commits on no remote branch, as Commits does', async () => {
   const dir = await Deno.makeTempDir();
   try {

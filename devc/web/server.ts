@@ -164,6 +164,12 @@ import {
 } from './git_status.ts';
 import { type ChangesReading, GitChangesWatch } from './git_changes.ts';
 import {
+  isVisible,
+  revealed,
+  visibleFolders,
+  type VisibleReport,
+} from './visible_repos.ts';
+import {
   readUncommittedDiff,
   readUncommittedFileAt,
   readUncommittedFiles,
@@ -638,6 +644,8 @@ interface Client extends Subscriber {
   role: WsRole;
   /** This connection's id in the activity log: random, not the token. */
   activityId: string;
+  /** Which repos it last said it shows (`visible_repos`); absent until it says. */
+  visibleRepos?: VisibleReport;
 }
 
 /** Thrown by {@link startWeb} for a startup failure worth a one-line message. */
@@ -790,6 +798,30 @@ export async function startWeb(
   // first file request there. `null` when it couldn't be read; not retried.
   const containerHomes = new Map<string, string | null>();
   const clients = new Set<Client>();
+  /** The repo folders some page shows (`visible_repos.ts`); `null`: every one. */
+  let visible: ReadonlySet<string> | null = null;
+  /**
+   * Takes in what the clients now say they show: a repo that comes into view is read at once,
+   * its push/pull state (unless its project isn't running) and its changes to commit.
+   */
+  const updateVisible = () => {
+    const before = visible;
+    visible = visibleFolders(
+      [...clients].map((c) => ({
+        desktop: c.role === 'desktop',
+        report: c.visibleRepos,
+      })),
+    );
+    const shown = revealed(
+      before,
+      visible,
+      projectsMessage().projects.flatMap((p) => p.repos.map((r) => r.folder)),
+    );
+    if (shown.length === 0) return;
+    const idle = gitIdle();
+    for (const f of shown) if (!idle.has(f)) void gitWatch.refresh(f);
+    changesWatch.reveal(shown);
+  };
   const controllers = new ControllerManager();
   // Language servers for the file editor (`lsp_*`): one session per container, language, root and
   // per-project options, shared by every page; the repos' `language-servers.json` re-read on
@@ -1106,6 +1138,7 @@ export async function startWeb(
       })),
     onChange: () => broadcastProjects(),
     clientsConnected: () => clients.size > 0,
+    visible: (folder) => isVisible(visible, folder),
   });
   /** {@link changesWatch}'s readings by running project folder, for {@link buildProjects}. */
   const changesByFolder = () => {
@@ -1152,10 +1185,34 @@ export async function startWeb(
     pushRouteMap = next;
     broadcastProjects();
   };
-  // Every listed repo's push/pull state, read again on a timer and whenever the list changes.
+  /**
+   * The repos {@link gitWatch} reads only every `GIT_IDLE_POLL_MS`: those of no running or
+   * starting project, and those no page shows ({@link visible}).
+   */
+  const gitIdle = (): Set<string> => {
+    const running = new Set(
+      [...sessions.values()].map((s) => s.record.localFolder),
+    );
+    const projects = projectsMessage().projects;
+    const active = new Set(
+      projects
+        .filter((p) => p.starting || running.has(p.localFolder))
+        .flatMap((p) => p.repos.map((r) => r.folder))
+        .filter((f) => isVisible(visible, f)),
+    );
+    return new Set(
+      projects.flatMap((p) => p.repos.map((r) => r.folder))
+        .filter((f) => !active.has(f)),
+    );
+  };
+  // Every listed repo's push/pull state, read again on a timer and whenever the list changes;
+  // a stopped project's repos and those no page shows less often (`GIT_IDLE_POLL_MS`), and a
+  // repo devc just committed, fetched, pulled or pushed in, or a page just came to show, at
+  // once, ahead of the rest.
   const gitWatch: GitStatusWatch = new GitStatusWatch({
     folders: () =>
       projectsMessage().projects.flatMap((p) => p.repos.map((r) => r.folder)),
+    idle: gitIdle,
     onChange: () => {
       broadcastProjects();
       recordAllPanes();
@@ -1756,7 +1813,7 @@ export async function startWeb(
       release();
     }
     void changesWatch.refreshFolder(target.session.record.id, msg.root);
-    if (msg.type === 'commit_staged') void gitWatch.refresh();
+    if (msg.type === 'commit_staged') void gitWatch.refresh(msg.root);
     if (isGitProblem(answer)) {
       fail(c, msg.id, code, new Error(answer.problem));
       return;
@@ -1799,7 +1856,7 @@ export async function startWeb(
     // Its Fetch goes once the repo's own remote-tracking ref has the mirror's commits (read
     // again even when this fetch found it already had them). Its changes to commit stay: a
     // fetch touches no working tree.
-    if (outcome.ok) void gitWatch.refresh();
+    if (outcome.ok) void gitWatch.refresh(msg.folder);
   };
 
   /**
@@ -1867,7 +1924,7 @@ export async function startWeb(
     answer(outcome);
     // Its marks, and its changes to commit: a pull moves the working tree.
     if (outcome.ok) {
-      void gitWatch.refresh();
+      void gitWatch.refresh(msg.folder);
       void changesWatch.refreshFolder(at.session.record.id, msg.folder);
     }
   };
@@ -2075,10 +2132,10 @@ export async function startWeb(
       projectStarts,
     ));
     // Its ↑ mark, and the Commits section's Pushed line: devc web's mirror learns of the push
-    // (`gh-push` published from the bridge's own), then every repo is read again.
+    // (`gh-push` published from the bridge's own), then the repo is read again, next.
     if (outcome.ok) {
       await refreshRemote(msg.folder);
-      void gitWatch.refresh();
+      void gitWatch.refresh(msg.folder);
     }
   };
 
@@ -2125,7 +2182,7 @@ export async function startWeb(
     answer(r.ok ? r : { ok: false, problem: r.problem });
     if (r.ok) {
       await refreshRemote(msg.folder);
-      void gitWatch.refresh();
+      void gitWatch.refresh(msg.folder);
     }
   };
 
@@ -3934,6 +3991,11 @@ export async function startWeb(
       });
       return;
     }
+    if (msg.type === 'visible_repos') {
+      c.visibleRepos = { all: msg.all, folders: new Set(msg.folders) };
+      updateVisible();
+      return;
+    }
     if (msg.type === 'page_state') {
       activity.focus(c.activityId, {
         visible: msg.visible,
@@ -4336,6 +4398,7 @@ export async function startWeb(
       clients.add(client);
       // The first client: the repos marked while none was connected are read now.
       if (clients.size === 1) changesWatch.clientConnected();
+      updateVisible();
       client.send(JSON.stringify(helloMessage({
         role,
         generation: generation(),
@@ -4391,6 +4454,7 @@ export async function startWeb(
     };
     socket.onclose = () => {
       clients.delete(client);
+      updateVisible();
       views.leave(client);
       controllers.closeAll(client);
       lsp.detachAll(client);

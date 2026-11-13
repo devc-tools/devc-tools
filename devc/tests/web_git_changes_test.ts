@@ -309,6 +309,7 @@ function harness(
   opts: {
     read?: (id: string, path: string) => Promise<ChangesReading>;
     connected?: () => boolean;
+    visible?: (folder: string) => boolean;
     watch?: (paths: string[]) => ChangesWatcher;
     log?: (m: string) => void;
   } = {},
@@ -324,6 +325,7 @@ function harness(
       return opts.read?.(e.id, path) ?? Promise.resolve(unchanged);
     },
     clientsConnected: opts.connected,
+    visible: opts.visible,
     watch: opts.watch ?? (() => w.watcher),
     resolveFolder: asIs,
     clock,
@@ -464,6 +466,43 @@ Deno.test('GitChangesWatch reads nothing with no client, and catches up when one
   assertEquals(h.reads, [[400_000, 'c1:/a'], [400_000, 'c1:/b']]);
   await h.clock.advanceTo(500_000);
   assertEquals(h.reads.length, 2);
+  h.watch.stop();
+});
+
+Deno.test('GitChangesWatch leaves a repo no page shows dirty until it is revealed, or devc acts in it', async () => {
+  const shown = new Set(['/a']);
+  const h = harness([target('c1', ['/a', '/b'])], {
+    visible: (f) => shown.has(f),
+  });
+  await h.clock.advanceTo(20_000);
+  h.send('/a/x', '/b/x');
+  // An agent's turn ending waits only for the shown repo.
+  const turn = h.watch.refreshEnvironment('c1');
+  await h.clock.advanceTo(30_000);
+  await turn;
+  await h.clock.advanceTo(400_000);
+  // The sweep at 300 s reads /a again, never /b.
+  assertEquals(h.reads, [
+    [2_000, 'c1:/a'],
+    [22_000, 'c1:/a'],
+    [302_000, 'c1:/a'],
+  ]);
+  // Shown: read at once, gaps skipped.
+  shown.add('/b');
+  h.watch.reveal(['/b']);
+  await h.clock.advanceTo(400_000);
+  assertEquals(h.reads.slice(3), [[400_000, 'c1:/b']]);
+  // Hidden again: devc's own commit there is still read.
+  shown.delete('/b');
+  const done = h.watch.refreshFolder('c1', '/b');
+  await h.clock.advanceTo(400_000);
+  await done;
+  assertEquals(h.reads.slice(4), [[400_000, 'c1:/b']]);
+  // Revealing a clean repo reads nothing.
+  shown.add('/b');
+  h.watch.reveal(['/b']);
+  await h.clock.advanceTo(410_000);
+  assertEquals(h.reads.length, 5);
   h.watch.stop();
 });
 

@@ -307,7 +307,14 @@ is published from any container: the host server finds devcontainers with
   5 minutes as a sweep. Reads wait 2 s after the last change and at least 15 s
   (or 5× the last read's time) after the repo's previous read, run only while a
   page or devc-desktop is connected, and stop git in a container after 10 s.
-  **↓N** is what the repo's
+  **↑N** and **↓N** are counted on the host every 15 s (a stopped project's
+  repos every 2 minutes), and at once, ahead of the others, for a repo devc
+  just committed, fetched, pulled or pushed in. Only the repos a page shows
+  are kept current: In use's cards, and every repo while a Projects section is
+  open (the page's own, or devc-desktop's Containers pane). With Projects
+  folded, a repo not in In use has its ↑/↓ counted every 2 minutes and its ●
+  not read at all (a change only marks it), and both are read at once when it
+  comes into view. **↓N** is what the repo's
   own `origin/<branch>` has and the branch doesn't, ready to pull. A **faded
   ↓N** (or **+N** after it) is what only the host has seen on the remote so far,
   from its own fetch every 5 minutes. **Fetch** (the card's right-click menu, or

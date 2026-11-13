@@ -1429,6 +1429,25 @@ Deno.test('authorize: /desktop/ needs Bearer <token> and no Origin', () => {
   assertEquals(check('/desktop', { host }), null);
 });
 
+Deno.test('parseClientMessage: visible_repos carries all and absolute folders', () => {
+  const r = parseClientMessage(
+    JSON.stringify({ type: 'visible_repos', all: false, folders: ['/a/b'] }),
+  );
+  if (!r.ok) throw new Error('expected ok');
+  assertEquals(r.msg, { type: 'visible_repos', all: false, folders: ['/a/b'] });
+  for (
+    const bad of [
+      { type: 'visible_repos', all: false },
+      { type: 'visible_repos', all: 'no', folders: [] },
+      { type: 'visible_repos', all: false, folders: ['relative'] },
+      { type: 'visible_repos', all: false, folders: [1] },
+      { type: 'visible_repos', all: false, folders: Array(1025).fill('/a') },
+    ]
+  ) {
+    assertEquals(parseClientMessage(JSON.stringify(bad)).ok, false);
+  }
+});
+
 Deno.test('parseClientMessage: page_state carries two booleans', () => {
   const r = parseClientMessage(
     JSON.stringify({ type: 'page_state', visible: true, focused: false }),

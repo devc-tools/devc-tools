@@ -53,6 +53,7 @@ import {
   projectRepos,
   projects,
   projectStarts,
+  reportVisibleRepos,
   send,
   snapshots,
   socket,
@@ -196,6 +197,9 @@ function draw(cards) {
 function renderStandalone() {
   renderPass((cards) => {
     const scroll = $root.scrollTop;
+    // Folded, it shows no repo: In use's page says which it shows. Never folded (`/containers`
+    // with no `onFold`), it shows them all.
+    reportVisibleRepos(onFold === null || sidebarState.containersOpen, []);
     draw(cards);
     applyFilter([$root]);
     holdSections();

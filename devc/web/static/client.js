@@ -207,6 +207,36 @@ export function send(msg) {
   }
 }
 
+/** What this page last said it shows of the repos (`visible_repos`); null until it says. */
+let visibleRepos = /** @type {{all: boolean, folders: string[]} | null} */ (
+  null
+);
+/** {@link visibleRepos} as last sent on this connection, JSON; '' when not yet. */
+let sentVisibleRepos = '';
+
+/**
+ * Tells the server which repos' git marks this page shows: every one (`all`, its Projects
+ * section open) or those at `folders` (In use's repo cards), so it reads the others less often.
+ * Sent only on a change, and again after each `hello`. A server that doesn't know
+ * `visible_repos` ignores it: it carries no `id`, so nothing answers.
+ *
+ * @param {boolean} all
+ * @param {Iterable<string>} folders
+ */
+export function reportVisibleRepos(all, folders) {
+  visibleRepos = { all, folders: all ? [] : [...new Set(folders)].sort() };
+  sendVisibleRepos();
+}
+
+function sendVisibleRepos() {
+  if (visibleRepos === null) return;
+  if (!socket || socket.readyState !== WebSocket.OPEN) return;
+  const json = JSON.stringify(visibleRepos);
+  if (json === sentVisibleRepos) return;
+  sentVisibleRepos = json;
+  send({ type: 'visible_repos', ...visibleRepos });
+}
+
 /** A fresh request id: `prefix` then a number no other request on this page has. */
 export function nextId(prefix) {
   return `${prefix}${++nextRequestId}`;
@@ -603,6 +633,8 @@ function applyMessage(msg) {
   switch (msg.type) {
     case 'hello':
       onHello(msg);
+      sentVisibleRepos = '';
+      sendVisibleRepos();
       break;
     case 'static_changed':
       onStaticChanged(msg);

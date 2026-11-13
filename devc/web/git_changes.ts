@@ -234,8 +234,13 @@ async function watchedFolder(folder: string): Promise<WatchedFolder | null> {
 
 interface RepoState {
   dirty: boolean;
-  /** Read at the next chance, debounce and gaps skipped: `refreshFolder`, or a client's return. */
+  /**
+   * Read at the next chance, debounce and gaps skipped, once shown: a client's return, or the
+   * repo coming into view.
+   */
   urgent: boolean;
+  /** Read at the next chance, shown or not: devc's own stage, commit or pull (`refreshFolder`). */
+  forced: boolean;
   lastMark: number;
   lastReadAt?: number;
   lastDurationMs: number;
@@ -262,7 +267,9 @@ interface EnvState {
  * or pull ({@link refreshFolder}), or a sweep every {@link CHANGES_SWEEP_MS}. A dirty repo is read
  * {@link CHANGES_DEBOUNCE_MS} after its last mark, and no sooner than
  * max({@link CHANGES_MIN_INTERVAL_MS}, {@link CHANGES_SLOW_FACTOR} × its last read's duration)
- * after its last read. Nothing is read while no client is connected. At most one exec per
+ * after its last read. A repo no page shows (`visible`) stays dirty, unread, until one does
+ * ({@link reveal}), unless devc's own action asks for it. Nothing is read while no client is
+ * connected. At most one exec per
  * environment at a time; environments run side by side. Beside `GitStatusWatch`, not in it: that
  * one reads host data, this one execs in each environment. Calls `onChange` after each reading
  * that changed, and after dropping what is no longer listed. See
@@ -287,6 +294,8 @@ export class GitChangesWatch {
       ) => Promise<ChangesReading>;
       /** Whether any page or desktop client is connected; true when absent. */
       clientsConnected?: () => boolean;
+      /** Whether some page shows the repo at host `folder`; true when absent. */
+      visible?: (folder: string) => boolean;
       /** Starts watching host folders (real paths); `Deno.watchFs` recursively by default. */
       watch?: (paths: string[]) => ChangesWatcher;
       /** Resolves a folder to watch; {@link watchedFolder} by default. */
@@ -370,6 +379,7 @@ export class GitChangesWatch {
         env.repos.set(folder, {
           dirty: true,
           urgent: false,
+          forced: false,
           lastMark: now,
           lastDurationMs: 0,
           waiting: [],
@@ -395,8 +405,8 @@ export class GitChangesWatch {
 
   /**
    * Marks environment `id`'s repos dirty (an agent there turned idle or done): they are read
-   * under the debounce and gaps. Resolves once those reads finish, or at once with no client
-   * connected.
+   * under the debounce and gaps. Resolves once the shown ones' reads finish, or at once with no
+   * client connected.
    */
   refreshEnvironment(id: string): Promise<void> {
     if (!this.#envs.has(id)) this.sync();
@@ -404,7 +414,7 @@ export class GitChangesWatch {
     if (!env) return Promise.resolve();
     const done = this.#connected()
       ? Promise.all(
-        [...env.repos.values()].map((r) =>
+        [...env.repos].filter(([f]) => this.#visible(f)).map(([, r]) =>
           new Promise<void>((res) => r.waiting.push(res))
         ),
       ).then(() => {})
@@ -414,8 +424,9 @@ export class GitChangesWatch {
   }
 
   /**
-   * Reads environment `id`'s repo at host `folder` now, debounce and gaps skipped: devc staged,
-   * committed or pulled there. During a read of that environment it runs right after it.
+   * Reads environment `id`'s repo at host `folder` now, debounce and gaps skipped, shown or not:
+   * devc staged, committed or pulled there. During a read of that environment it runs right
+   * after it.
    */
   refreshFolder(id: string, folder: string): Promise<void> {
     if (!this.#envs.get(id)?.repos.has(folder)) this.sync();
@@ -424,9 +435,20 @@ export class GitChangesWatch {
     const done = this.#connected()
       ? new Promise<void>((res) => repo.waiting.push(res))
       : Promise.resolve();
-    repo.urgent = true;
+    repo.forced = true;
     this.#mark(repo);
     return done;
+  }
+
+  /** The repos at host `folders` came into view: each dirty one is read now, once without gaps. */
+  reveal(folders: Iterable<string>) {
+    const shown = new Set(folders);
+    for (const env of this.#envs.values()) {
+      for (const [folder, repo] of env.repos) {
+        if (repo.dirty && shown.has(folder)) repo.urgent = true;
+      }
+    }
+    this.#arm();
   }
 
   /** A client connected where none was: every dirty repo is read now, once without gaps. */
@@ -441,6 +463,10 @@ export class GitChangesWatch {
 
   #connected(): boolean {
     return this.opts.clientsConnected?.() ?? true;
+  }
+
+  #visible(folder: string): boolean {
+    return this.opts.visible?.(folder) ?? true;
   }
 
   #targets(): Map<string, ChangesTarget> {
@@ -473,9 +499,11 @@ export class GitChangesWatch {
     }
   }
 
-  /** When `repo` may be read next, or Infinity while it is clean. */
-  #dueAt(repo: RepoState): number {
+  /** When the repo at `folder` may be read next, or Infinity while it is clean or not shown. */
+  #dueAt(folder: string, repo: RepoState): number {
     if (!repo.dirty) return Infinity;
+    if (repo.forced) return 0;
+    if (!this.#visible(folder)) return Infinity;
     if (repo.urgent) return 0;
     const debounced = repo.lastMark + CHANGES_DEBOUNCE_MS;
     if (repo.lastReadAt === undefined) return debounced;
@@ -494,8 +522,8 @@ export class GitChangesWatch {
     let earliest = Infinity;
     for (const env of this.#envs.values()) {
       if (env.running) continue;
-      for (const repo of env.repos.values()) {
-        earliest = Math.min(earliest, this.#dueAt(repo));
+      for (const [folder, repo] of env.repos) {
+        earliest = Math.min(earliest, this.#dueAt(folder, repo));
       }
     }
     if (earliest === Infinity) return;
@@ -509,7 +537,7 @@ export class GitChangesWatch {
     const now = this.#clock.now();
     for (const [id, env] of this.#envs) {
       if (env.running) continue;
-      if ([...env.repos.values()].some((r) => this.#dueAt(r) <= now)) {
+      if ([...env.repos].some(([f, r]) => this.#dueAt(f, r) <= now)) {
         void this.#run(id, env);
       }
     }
@@ -523,10 +551,12 @@ export class GitChangesWatch {
       while (this.#envs.get(id) === env && this.#connected()) {
         const now = this.#clock.now();
         let next: [string, RepoState] | undefined;
+        let nextDue = Infinity;
         for (const entry of env.repos) {
-          const due = this.#dueAt(entry[1]);
-          if (due <= now && (!next || due < this.#dueAt(next[1]))) {
+          const due = this.#dueAt(entry[0], entry[1]);
+          if (due <= now && due < nextDue) {
             next = entry;
+            nextDue = due;
           }
         }
         if (!next) break;
@@ -542,6 +572,7 @@ export class GitChangesWatch {
     // Cleared before the read: a mark that comes during it leaves the repo dirty again.
     repo.dirty = false;
     repo.urgent = false;
+    repo.forced = false;
     const waiting = repo.waiting;
     repo.waiting = [];
     const start = this.#clock.now();
