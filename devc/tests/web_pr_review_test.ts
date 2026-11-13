@@ -7,6 +7,7 @@ import {
   appendViewedMark,
   fileHistory,
   fileUrl,
+  LISTING_FRESH_MS,
   MAX_BODY_CHARS,
   MAX_COMMENTS,
   MAX_FILES,
@@ -706,6 +707,47 @@ Deno.test('pr_diff: fetches a listing when none is stored, and names the file on
     );
     // The stored listing answers: no second run.
     assertEquals((await t.calls()).length, 1);
+  } finally {
+    await t.done();
+  }
+});
+
+Deno.test('pr_diff: lists again once the listing is older than LISTING_FRESH_MS, sharing a run in flight', async () => {
+  const t = await setup();
+  try {
+    await t.policy('gh-pr-read');
+    let clock = 1_000_000;
+    const review = t.review({ now: () => clock });
+    result(await review.handle(files));
+    assertEquals((await t.calls()).length, 1);
+    // A push: the head and the file's patch move on GitHub.
+    const head = 'b'.repeat(40);
+    await t.write(
+      'gh-pr-files.out',
+      filesOut({
+        pr: { ...pr, headSha: head },
+        files: [
+          file('src/a.ts', { patch: '@@ -1 +1 @@\n-a\n+c' }),
+          file('b.md'),
+        ],
+      }),
+    );
+    clock += LISTING_FRESH_MS - 1;
+    const kept = result(await review.handle(at('pr_diff')));
+    assertEquals((kept.pr as { headSha: string }).headSha, SHA);
+    assertEquals((await t.calls()).length, 1);
+    clock += 1;
+    // The PR row and a diff tile re-read together: one gh-pr-files between them.
+    const [listed, diff] = await Promise.all([
+      review.handle(files),
+      review.handle(at('pr_diff')),
+    ]);
+    assertEquals((await t.calls()).length, 2);
+    assertEquals((result(listed).pr as { headSha: string }).headSha, head);
+    assertEquals(
+      (result(diff).file as { patch: string }).patch,
+      '@@ -1 +1 @@\n-a\n+c',
+    );
   } finally {
     await t.done();
   }

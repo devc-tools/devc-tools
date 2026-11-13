@@ -36,6 +36,7 @@ import {
 } from './lib/sidebar.js';
 import { AGENT_IDS } from './lib/agent_icons.js';
 import { mediaKind } from './lib/media.js';
+import { createPrRecheck, prRepoKey } from './lib/pr_recheck.js';
 import {
   byDepth,
   childPath,
@@ -406,6 +407,9 @@ export function cardsMessage(msg) {
       break;
     case 'containers':
       relistForContainers();
+      break;
+    case 'projects':
+      prRecheck.projects(msg.projects);
       break;
     case 'agent_status':
       if (msg.agent_status === 'done' || msg.agent_status === 'idle') {
@@ -2407,9 +2411,17 @@ function shownRepos(localFolder) {
  */
 const prLists = new Map();
 
-function prKey(localFolder, root) {
-  return `${localFolder}\n${root}`;
-}
+const prKey = prRepoKey;
+
+// Open Pull request rows list again on a push, a fetch, the timer and a return to the page
+// (`lib/pr_recheck.js`), keeping what they show until the answer.
+const prRecheck = createPrRecheck((keys) => {
+  for (const key of prLists.keys()) {
+    if ((keys && !keys.has(key)) || !sidebarState.prOpen.has(key)) continue;
+    const at = key.indexOf('\n');
+    void loadPr(key.slice(0, at), key.slice(at + 1));
+  }
+});
 
 /** Lists a repo's PR files again (`pr_files`), keeping what is shown until the answer. */
 async function loadPr(localFolder, root) {

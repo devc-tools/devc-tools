@@ -84,6 +84,7 @@ import { childPath } from './lib/files.js';
 import { sessionAge } from './lib/sessions.js';
 import { sinceOptions as compareChoices } from './lib/since.js';
 import { statusLetter } from './lib/pr_tree.js';
+import { createPrRecheck, prRepoKey } from './lib/pr_recheck.js';
 import { fileStat } from './lib/commits.js';
 import { MAX_RULER_MATCHES, rulerMarks, rulerSpans } from './lib/ruler.js';
 import { reopensDashboard } from './lib/dashboard.js';
@@ -1711,6 +1712,17 @@ function saveFlag(key, on) {
 /** @type {Map<string, DiffView>} diff tiles' views, by Tile.id */
 const diffViews = new Map();
 
+// Open PR diff tiles read their file again on a push, a fetch, the timer and a return to the
+// page (`lib/pr_recheck.js`); one that finds the same answer draws nothing.
+const prRecheck = createPrRecheck((keys) => {
+  for (const view of diffViews.values()) {
+    const ref = view.tile.diff;
+    if (!ref || diffSource(ref) !== 'pr' || view.state !== 'ok') continue;
+    if (keys && !keys.has(prRepoKey(ref.localFolder, ref.root))) continue;
+    void loadDiff(view, { quiet: true });
+  }
+});
+
 /**
  * Opens a PR file's diff the way a Files click opens a file: a tile already showing it is
  * brought forward; else the focused stack's preview tile shows it (`'preview'`), or a new tile in
@@ -2895,12 +2907,17 @@ for (const type of ['mousedown', 'mouseup', 'auxclick']) {
  * while the new read is on its way. Asked while disconnected, the read waits for the next
  * `hello`.
  *
+ * `quiet` is a recheck nobody asked for (`lib/pr_recheck.js`): it draws only a changed answer,
+ * never an error over what is shown, and yields to any other read made meanwhile.
+ *
  * @param {DiffView} view
+ * @param {{quiet?: boolean}} [opts]
  */
-async function loadDiff(view) {
+async function loadDiff(view, opts = {}) {
   const ref = view.tile.diff;
   if (!ref) return;
-  const seq = ++view.seq;
+  const quiet = opts.quiet === true;
+  let seq = quiet ? view.seq : ++view.seq;
   if (view.state !== 'ok') {
     view.state = 'loading';
     renderDiff(view);
@@ -2924,6 +2941,13 @@ async function loadDiff(view) {
     error = String(e?.message ?? e);
   }
   if (seq !== view.seq || diffViews.get(view.tile.id) !== view) return;
+  if (quiet) {
+    if (
+      error !== null || result?.available !== true || view.state !== 'ok' ||
+      JSON.stringify(view.data) === JSON.stringify(result)
+    ) return;
+    seq = ++view.seq;
+  }
   if (error === null && result?.available !== true) {
     error = String(
       result?.message ??
@@ -5759,6 +5783,9 @@ function onTilesMessage(msg) {
       reconcileTiles();
       break;
     case 'projects':
+      prRecheck.projects(msg.projects);
+      reconcileTiles();
+      break;
     case 'snapshot':
       reconcileTiles();
       break;

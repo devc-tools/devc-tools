@@ -973,9 +973,13 @@ is published from any container: the host server finds devcontainers with
   `gh-pr-request-review`) and no grant to add: grants exist to limit what an
   agent inside a container can make the host do, and that project's page
   already has a host shell with your `gh`. Its PR is the one of the branch its
-  folder has checked out, read on every message; nothing is
-  polled: the row lists on opening and on its ⟳, a diff tile on opening, on its
-  ⟳ and after each write. Needs a server with the `pr_*` messages
+  folder has checked out, read on every message. The row lists on opening and
+  on its ⟳, a diff tile on opening, on its ⟳ and after each write; an open row
+  and the open diff tiles also read again when the repo's push/pull state
+  changes (a push, a fetch, a branch switch), every 60 s while the page shows
+  and when it shows again, so a pushed head shows without a reload (a recheck
+  that finds the same head draws nothing). Reads within 5 s of each other share
+  one `gh-pr-files`. Needs a server with the `pr_*` messages
   (`--live-yolo`, or a `devc` built from this version).
 - `--port N` picks another port (default 48228); `--session NAME` another Herdr
   session (default `devc`, the one `devc herdr` uses). A port already in use

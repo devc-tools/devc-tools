@@ -41,6 +41,12 @@ export const BRIDGE_TIMEOUT_MS = 120_000;
 export const MAX_BRIDGE_OUTPUT = 64 * 1024 * 1024;
 /** How many repos' listings are kept, the oldest dropped first. */
 export const MAX_LISTINGS = 32;
+/**
+ * How long a listing answers `pr_files` and `pr_diff` without asking the bridge again: the
+ * page's PR row and its open diff tiles re-read together (a push, a recheck), so they share one
+ * `gh-pr-files` run. Older than this, both list again, so a pushed head shows.
+ */
+export const LISTING_FRESH_MS = 5_000;
 export const MAX_FILES = 3000;
 export const MAX_PATCH_BYTES = 4 * 1024 * 1024;
 export const MAX_THREADS = 500;
@@ -687,13 +693,18 @@ export interface PrReviewDeps {
   >;
   timeoutMs?: number;
   maxOutput?: number;
+  /** The clock {@link LISTING_FRESH_MS} is measured on. */
+  now?: () => number;
 }
 
-/** One repo's stored listing, and its last thread listing. */
+/** One repo's stored listing (`at`: when it was listed), and its last thread listing. */
 interface Stored {
   files: PrFiles;
+  at: number;
   threads: PrThreads | null;
 }
+
+type Listed = { ok: true; stored: Stored } | { ok: false; answer: PrAnswer };
 
 /** What a grant line allows, for the page. */
 function offers(grants: readonly BridgeCapability[]) {
@@ -720,6 +731,8 @@ const dropSlash = (p: string) => p.length > 1 ? p.replace(/\/+$/, '') : p;
 export class PrReview {
   readonly #deps: PrReviewDeps;
   readonly #stored = new Map<string, Stored>();
+  /** Each repo's `gh-pr-files` in flight: a read that comes meanwhile waits for it. */
+  readonly #inFlight = new Map<string, Promise<Listed>>();
   /** Each history file's last append, so two marks never interleave a rewrite. */
   readonly #appending = new Map<string, Promise<void>>();
 
@@ -808,10 +821,27 @@ export class PrReview {
     return { ok: true, stdout: run.stdout };
   }
 
+  /**
+   * The listing, listed again unless one was listed in the last {@link LISTING_FRESH_MS} or is
+   * being listed now.
+   */
+  #fresh(ctx: Ctx): Promise<Listed> {
+    const flying = this.#inFlight.get(ctx.key);
+    if (flying) return flying;
+    const stored = this.#stored.get(ctx.key);
+    const now = this.#deps.now ?? Date.now;
+    if (stored && now() - stored.at < LISTING_FRESH_MS) {
+      return Promise.resolve({ ok: true, stored });
+    }
+    const p = this.#fetch(ctx).finally(() => {
+      if (this.#inFlight.get(ctx.key) === p) this.#inFlight.delete(ctx.key);
+    });
+    this.#inFlight.set(ctx.key, p);
+    return p;
+  }
+
   /** Lists the PR's files again and stores the listing. */
-  async #fetch(
-    ctx: Ctx,
-  ): Promise<{ ok: true; stored: Stored } | { ok: false; answer: PrAnswer }> {
+  async #fetch(ctx: Ctx): Promise<Listed> {
     const out = await this.#run(ctx, 'gh-pr-files');
     if (!out.ok) return out;
     const files = parsePrFiles(out.stdout);
@@ -821,6 +851,7 @@ export class PrReview {
     const old = this.#stored.get(ctx.key);
     const stored: Stored = {
       files,
+      at: (this.#deps.now ?? Date.now)(),
       threads: old?.threads?.prUrl === files.pr.url ? old.threads : null,
     };
     this.#stored.delete(ctx.key);
@@ -831,15 +862,14 @@ export class PrReview {
     return { ok: true, stored };
   }
 
-  async #listing(
-    ctx: Ctx,
-  ): Promise<{ ok: true; stored: Stored } | { ok: false; answer: PrAnswer }> {
+  /** The stored listing, listed when there is none (threads, Viewed, a file at a commit). */
+  async #listing(ctx: Ctx): Promise<Listed> {
     const stored = this.#stored.get(ctx.key);
-    return stored ? { ok: true, stored } : await this.#fetch(ctx);
+    return stored ? { ok: true, stored } : await this.#fresh(ctx);
   }
 
   async #files(ctx: Ctx): Promise<PrAnswer> {
-    const got = await this.#fetch(ctx);
+    const got = await this.#fresh(ctx);
     if (!got.ok) return got.answer;
     const { pr, files, truncated } = got.stored.files;
     return {
@@ -856,7 +886,7 @@ export class PrReview {
   }
 
   async #diff(ctx: Ctx, path: string): Promise<PrAnswer> {
-    const got = await this.#listing(ctx);
+    const got = await this.#fresh(ctx);
     if (!got.ok) return got.answer;
     const { pr, files } = got.stored.files;
     const file = files.find((f) => f.path === path);
