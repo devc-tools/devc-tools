@@ -22,6 +22,7 @@ import {
   filterMatches,
   filterOutline,
   gitSync,
+  hostTilePane,
   inUseLabel,
   labelText,
   paneLabel,
@@ -96,8 +97,10 @@ import {
   call,
   containerByFolder,
   containers,
+  desktopChannel,
   displayName,
   fileHostPath,
+  hostTileFacts,
   list,
   nextId,
   paneKey,
@@ -144,6 +147,7 @@ import {
   tileMenuItems,
 } from './menus.js';
 import { newTaskIn } from './task-dialog.js';
+import { askToEndHostSlot } from './host-slots.js';
 import {
   openDeleteWorktreeDialog,
   openNewWorktreeDialog,
@@ -415,6 +419,10 @@ export function cardsMessage(msg) {
       if (msg.agent_status === 'done' || msg.agent_status === 'idle') {
         sessionsAfterTurn(msg.container);
       }
+      break;
+    case 'host_tiles':
+      // The host terminals' rows name their shells from these.
+      queueRender();
       break;
   }
 }
@@ -1405,26 +1413,75 @@ function layoutDiffTileRow(tile, active, depth) {
   );
 }
 
-/** A host tile's Layout row: devc-desktop's host terminal, of which this page knows nothing. */
+/**
+ * A host tile's row: devc-desktop's host terminal, named as its tab is (devc-desktop's facts about
+ * its shell, `host_tiles`), with its agent's badge. Its trash, inside the app only, asks the app to
+ * end the shell (`askToEndHostSlot`); its × closes the tile and leaves the shell running.
+ */
 function layoutHostTileRow(tile, active, depth) {
+  const slot = tile.host ?? null;
+  const facts = slot ? hostTileFacts.get(slot) : undefined;
+  const pane = facts ? hostTilePane(facts) : null;
+  const label = pane ? paneLabel(pane) : null;
+  const path = facts ? facts.foreground_cwd || facts.cwd : '';
   return h(
     'div',
     {
       class: tileRowClass(tile, active),
       style: `--depth: ${depth}`,
       'data-tile': tile.id,
-      title: ['Host terminal', active ? '' : 'Background tab']
-        .filter((s) => s).join('\n'),
+      title: [
+        LABELS.hostTileTooltip,
+        label ? labelText(label) : '',
+        path,
+        active ? '' : 'Background tab',
+      ].filter((s) => s).join('\n'),
       onclick: () => tileArea.reveal(tile.id),
       oncontextmenu: (e) => openMenu(e, tileMenuItems(tile)),
     },
-    h('span', { class: 'label' }, rowIcon({ kind: 'terminal' }), tile.title),
+    h(
+      'span',
+      { class: 'label' },
+      rowIcon({ kind: 'terminal', agent: pane?.agent }),
+      label ? inUseLabel(label) : tile.title,
+    ),
     rowTrail(
+      pane ? badge(pane) : '',
       hoverActions(
+        desktopChannel && slot
+          ? iconButton('trash', LABELS.close, () => askToEndHostSlot(slot))
+          : '',
         iconButton('close', 'Close tile', () => tileArea.close(tile.id)),
       ),
     ),
   );
+}
+
+/**
+ * In use's box of host tiles, in layout order, under the cards; none when the layout has none.
+ * They belong to no repo card: devc web never learns which repo a host shell is for.
+ *
+ * @param {ViewState} view
+ */
+export function hostTerminalRows(view) {
+  const tiles = layoutTiles(view).filter(({ tile }) => tile.kind === 'host');
+  if (tiles.length === 0) return [];
+  return [
+    h(
+      'div',
+      { class: 'in-use-run host-terminals' },
+      h(
+        'div',
+        { class: 'in-use-run-name' },
+        h('span', { class: 'label' }, LABELS.hostTerminals),
+      ),
+      h(
+        'div',
+        { class: 'repo-card' },
+        ...tiles.map(({ tile, active }) => layoutHostTileRow(tile, active, 0)),
+      ),
+    ),
+  ];
 }
 
 /** Marks the focused tile's rows in In use and its pane's rows in Containers. */

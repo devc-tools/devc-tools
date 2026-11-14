@@ -574,7 +574,10 @@ is published from any container: the host server finds devcontainers with
   the page (`host_tiles`), keyed by slot id: never the app's Herdr session or a
   pane id, and nothing under `--live`, where the tab just says `host`. In a
   browser, or once the app's shell is gone, the tile shows _Host terminal — not
-  running here_; close its tab. `/main#…&open-host-file=<path>[&open-line=<n>[&open-column=<n>]]`
+  running here_; close its tab. Inside devc-desktop the tab has a trash button,
+  and In use lists the host tiles under **Host terminals**, each with a trash
+  and a ×: the × closes the tile only (the shell keeps running), the trash asks
+  the app, which confirms before it ends the shell. `/main#…&open-host-file=<path>[&open-line=<n>[&open-column=<n>]]`
   (devc-desktop's Cmd/Ctrl+click on a file path in a host terminal) opens that
   host file in the viewer when it is in one of the projects' repos
   (`locate_host_file`), and says _Can't open <path>: … outside every project's

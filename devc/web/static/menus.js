@@ -22,6 +22,7 @@ import {
   reviewDialog,
   toast,
 } from './ui.js';
+import { askToEndHostSlot } from './host-slots.js';
 import {
   activeRepo,
   basename,
@@ -228,8 +229,21 @@ export function tileMenuItems(tile) {
   if (tile.kind === 'file') return fileTileMenuItems(tile);
   if (tile.kind === 'diff') return diffTileMenuItems(tile);
   // devc-desktop's host terminal: nothing here acts on it. Closing the tab leaves its shell
-  // running; the app's own menu (a right-click in the terminal) ends it.
-  if (tile.kind === 'host') return [['Close', () => tileArea.close(tile.id)]];
+  // running; **Close terminal…** only asks the app, whose own confirm ends it.
+  if (tile.kind === 'host') {
+    const slot = tile.host;
+    return [
+      ['Close', () => tileArea.close(tile.id)],
+      ...(desktopChannel && slot
+        ? [
+          /** @type {MenuItem} */ ([
+            LABELS.close,
+            () => askToEndHostSlot(slot),
+          ]),
+        ]
+        : []),
+    ];
+  }
   const { c, pane } = resolveRef(tile.ref);
   const items = [];
   if (c && c.state === 'connected') {

@@ -10,6 +10,7 @@ import { createRenderer } from './renderer.js';
 import { attachTerminalMouse } from './term_mouse.js';
 import { createTiling } from './layout.js';
 import {
+  askToEndHostSlot,
   hostTileList,
   hostTileVisibility,
   hostTileWithSlot,
@@ -126,6 +127,7 @@ import {
   call,
   containerByFolder,
   dashboard,
+  desktopChannel,
   displayName,
   fileHostPath,
   findPane,
@@ -4872,6 +4874,7 @@ function tileState(tile) {
     saveable: Boolean(file?.dirty && fileEditable(file)),
     url: diffViews.get(tile.id)?.data?.fileUrl ?? null,
     removed: diffViews.get(tile.id)?.data?.file?.status === 'removed',
+    host: tile.host ?? null,
     lsp: file && tile.file && !file.media && lspLanguageFor(tile.file.path) &&
         containerByFolder(tile.file.localFolder)?.state === 'connected'
       ? { restart: tileRestartable(tile.id), settings: true }
@@ -5148,12 +5151,13 @@ function hostTileName(tile) {
 /**
  * A host tile's tab, from devc-desktop's facts about its shell (`hostTileFacts`), as a terminal
  * tile's reads: its label, the agent's badge, then its repo and branch and `host`, muted. With no
- * facts (a browser, `--live`, the shell gone) it says `host`, as it always did. Never an action:
- * only the app's own menu ends the shell.
+ * facts (a browser, `--live`, the shell gone) it says `host`, as it always did. Inside devc-desktop
+ * its trash asks the app to end the shell (`askToEndHostSlot`): the app's confirm decides.
  *
  * @param {import('./layout.js').Tile} tile
  */
 function renderHostTileTitle(tile) {
+  tile.setActions(hostTrashButton(tile));
   const facts = tile.host ? hostTileFacts.get(tile.host) : undefined;
   if (!facts) {
     tile.setTitle(LABELS.hostTile);
@@ -5188,6 +5192,24 @@ function renderHostTileTitle(tile) {
   }
   parts.push(h('span', { class: 'tile-container' }, LABELS.hostTileWhere));
   tile.setContext(h('span', {}, ...parts));
+}
+
+/** Each host tile's trash button, kept so a re-render doesn't replace it. */
+const hostTrash = new WeakMap();
+
+/**
+ * A host tile's trash button, inside devc-desktop (`desktopChannel`) only: in a browser there is
+ * no app to ask. @param {import('./layout.js').Tile} tile @returns {HTMLElement | null}
+ */
+function hostTrashButton(tile) {
+  const slot = tile.host;
+  if (!desktopChannel || !slot) return null;
+  let b = hostTrash.get(tile);
+  if (!b) {
+    b = iconButton('trash', LABELS.close, () => askToEndHostSlot(slot));
+    hostTrash.set(tile, b);
+  }
+  return b;
 }
 
 /**
@@ -5770,6 +5792,8 @@ function onTilesMessage(msg) {
       }
       reportPageState();
       reportActivePane(true);
+      // `desktopChannel` is known now: host tiles' trash buttons come or go.
+      for (const tile of hostTileList()) renderHostTileTitle(tile);
       break;
     case 'containers':
       for (const view of fileViews.values()) {

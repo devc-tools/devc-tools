@@ -47,6 +47,7 @@ import {
   openFileRequest,
   PANE_MIN,
   paneRequest,
+  parseSlotEndLine,
   parseSlotLine,
   placeMenu,
   placeSlot,
@@ -1016,7 +1017,7 @@ test('openFileRequest: an absolute path, no .., a line and a column', () => {
   }
 });
 
-test('hostMenuEntries: the drawer and a host tile, the same list', () => {
+test('hostMenuEntries: the drawer and a host tile, the same list but Close all', () => {
   const want = [
     'split-right',
     'split-below',
@@ -1029,8 +1030,24 @@ test('hostMenuEntries: the drawer and a host tile, the same list', () => {
     'close',
     'close-terminal',
   ];
-  assertEquals(hostMenuEntries('drawer'), want);
+  assertEquals(hostMenuEntries('drawer'), [...want, 'close-all']);
   assertEquals(hostMenuEntries('slot'), want);
+});
+
+test('parseSlotEndLine: a slot id, nothing else', () => {
+  const id = 'a'.repeat(32);
+  assertEquals(parseSlotEndLine(`devc-desktop:slot-end ${id}`), id);
+  assertEquals(parseSlotEndLine(`devc-desktop:slot-end ${id} x`), null);
+  assertEquals(
+    parseSlotEndLine(`devc-desktop:slot-end ${'A'.repeat(32)}`),
+    null,
+  );
+  assertEquals(
+    parseSlotEndLine(`devc-desktop:slot-end ${'a'.repeat(31)}`),
+    null,
+  );
+  assertEquals(parseSlotEndLine(`devc-desktop:slot ${id} hidden`), null);
+  assertEquals(parseSlotEndLine(`x devc-desktop:slot-end ${id}`), null);
 });
 
 test('hostShortcut: on a Mac, Cmd; elsewhere Ctrl+Shift, leaving Ctrl to the shell', () => {

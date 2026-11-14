@@ -97,6 +97,7 @@ import {
   containerNameOf,
   fileTree,
   holdSections,
+  hostTerminalRows,
   keepSectionHeights,
   listsSessions,
   loadSessions,
@@ -560,7 +561,9 @@ function inUseRows(cards, only) {
     (rank.get(a) - rank.get(b)) || (a.firstTile - b.firstTile) ||
     (a.order - b.order)
   );
-  if (active.length === 0) {
+  // Host tiles belong to no card: their own box, under the cards, unless the sidebar is scoped.
+  const hostRows = only ? [] : hostTerminalRows(tileArea.state());
+  if (active.length === 0 && hostRows.length === 0) {
     rows.push(
       h(
         'div',
@@ -587,6 +590,7 @@ function inUseRows(cards, only) {
     }
     run.append(repoCard(card, inUseSide));
   }
+  rows.push(...hostRows);
   return rows;
 }
 

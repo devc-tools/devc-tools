@@ -111,6 +111,7 @@ import {
   menuRequest,
   openFileRequest,
   paneRequest,
+  parseSlotEndLine,
   parseSlotLine,
   placeMenu,
   placeSlot,
@@ -664,6 +665,9 @@ async function main(): Promise<void> {
       if (e.message === 'devc-desktop:sidebar show' && toggle) setColumn(true);
       // Host tiles live in `/main` only.
       if (view === devcView) slotLine(e.message);
+      // The trash on a host tile's tab (`/main`) or its sidebar row (`/sidebar`).
+      const endId = parseSlotEndLine(e.message);
+      if (endId !== null) slotEndAsked(endId);
       if (
         e.message === 'devc-desktop:dialog ready' && !devcDialogHidden.has(view)
       ) {
@@ -1457,16 +1461,42 @@ async function main(): Promise<void> {
    * (a host tile's in devc web too). See `.plans/archived/host-terminal-herdr.md` (D6).
    */
   async function closeTerminal(id: string): Promise<void> {
+    if (herdr === null) return;
+    const ok = await confirmClose(
+      `Close terminal "${paneLabel(id)}"? Its process ends.`,
+      'Close terminal',
+    );
+    if (ok) await endPane(id);
+  }
+
+  /** A close confirm is showing: another ask (a page's, say) is dropped until it is answered. */
+  let closeAsking = false;
+
+  /** The app's own confirm for ending terminals; Cancel is the default. */
+  async function confirmClose(
+    message: string,
+    button: string,
+  ): Promise<boolean> {
+    if (closeAsking) return false;
+    closeAsking = true;
+    try {
+      const { response } = await dialog.showMessageBox(win, {
+        type: 'warning',
+        message,
+        buttons: [button, 'Cancel'],
+        defaultId: 1,
+        cancelId: 1,
+      });
+      return response === 0;
+    } finally {
+      closeAsking = false;
+    }
+  }
+
+  /** Ends a pane in Herdr, and takes its tile away, the drawer's or its host tile. */
+  async function endPane(id: string): Promise<void> {
     const t = herdr;
     if (t === null) return;
-    const { response } = await dialog.showMessageBox(win, {
-      type: 'warning',
-      message: `Close terminal "${paneLabel(id)}"? Its process ends.`,
-      buttons: ['Close terminal', 'Cancel'],
-      defaultId: 1,
-      cancelId: 1,
-    });
-    if (response !== 0) return;
     releasePane(id);
     try {
       await closePane(t, id);
@@ -1477,6 +1507,43 @@ async function main(): Promise<void> {
       askToClose(slot.id);
       dropSlot(slot);
     } else hostView.webContents.send('host-term:remove', id);
+  }
+
+  /** **Close all terminals…** (the drawer's right-click menu): asks once, then ends each. */
+  async function closeAllTerminals(): Promise<void> {
+    if (herdr === null) return;
+    const ids = [...attachments].filter(([, a]) =>
+      a.wc === hostView.webContents
+    ).map(([id]) => id);
+    if (ids.length === 0) {
+      shell.beep();
+      return;
+    }
+    const ok = await confirmClose(
+      ids.length === 1
+        ? `Close the terminal "${
+          paneLabel(ids[0])
+        }" in the bottom panel? Its process ends.`
+        : `Close all ${ids.length} terminals in the bottom panel? Their processes end.`,
+      ids.length === 1 ? 'Close terminal' : 'Close all',
+    );
+    if (!ok) return;
+    // Only those still in the drawer: one may have moved while the confirm showed.
+    for (const id of ids) {
+      if (attachments.get(id)?.wc === hostView.webContents) await endPane(id);
+    }
+  }
+
+  /**
+   * A devc web page's trash button on a host tile (`devc-desktop:slot-end <id>`): a live shell is
+   * ended only once the user confirms here, as **Close terminal…**; one already over just closes.
+   * An id the app did not issue, or retired, is nothing.
+   */
+  function slotEndAsked(id: string): void {
+    const slot = slots.get(id);
+    if (slot === undefined) return;
+    if (slot.ended) closeSlot(slot);
+    else void closeTerminal(slot.pane);
   }
 
   // The page's last tile closed: the drawer goes with it, and opening it again starts a new one.
@@ -1697,6 +1764,12 @@ async function main(): Promise<void> {
             label: 'Close terminal…',
             enabled: !slot?.ended,
             click: () => void closeTerminal(id),
+          });
+          break;
+        case 'close-all':
+          items.push({
+            label: 'Close all terminals…',
+            click: () => void closeAllTerminals(),
           });
           break;
       }

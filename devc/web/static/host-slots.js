@@ -9,6 +9,9 @@
 //   devc-desktop:slot <id> hidden                     not on screen (another tab, covered, gone)
 //   devc-desktop:drag start | end                     a tile or sidebar row is being dragged
 //   devc-desktop:overlay open | closed                a menu is open
+//   devc-desktop:slot-end <id>                        the user's trash on a host tile (its tab, its
+//                                                     sidebar row): the app asks before it ends
+//                                                     the shell; the page ends nothing itself
 // In a browser they are debug lines no one sees.
 
 import { h, LABELS } from './ui.js';
@@ -31,6 +34,16 @@ let overlay = false;
 
 /** @param {string} line */
 const tell = (line) => console.debug(`devc-desktop:${line}`);
+
+/**
+ * Asks devc-desktop to end slot `id`'s shell: its own confirm (**Close terminal…**) decides. Also
+ * from `/sidebar`, which the app hears too. Nothing in a browser.
+ *
+ * @param {string} id
+ */
+export function askToEndHostSlot(id) {
+  tell(`slot-end ${id}`);
+}
 
 /** Builds a host tile's placeholder and starts saying where it is. */
 export function mountHostTile(/** @type {Tile} */ tile) {

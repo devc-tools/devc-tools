@@ -42,6 +42,7 @@ import {
  * @property {string | null} url      a diff tile's file on github.com, once known
  * @property {import('./drafts.js').DraftRef | null} [draft]  a file tile's unsaved new file (its
  *   `file` is null)
+ * @property {string | null} [host]   a host tile's slot id (devc-desktop's); null on other tiles
  * @property {boolean} [removed]      a diff tile's file is deleted by its PR (once its diff is read)
  * @property {{restart: boolean, settings: boolean} | null} [lsp]
  *   a file tile's language server items: **Restart language server** while it is attached or its

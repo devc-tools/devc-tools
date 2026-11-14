@@ -213,7 +213,8 @@ Host terminals behave as devc web's container terminals do, drawn and driven by 
 
 - **Closing a tile** (its ×, **Close**, Cmd+W / Ctrl+Shift+W) only lets go of its pane: it keeps
   running in Herdr. **Close terminal…** (the right-click menu, or the tab's trash button) asks
-  _Close terminal "…"? Its process ends._ and ends it.
+  _Close terminal "…"? Its process ends._ and ends it. **Close all terminals…** in the drawer's
+  right-click menu asks once and ends every terminal the drawer shows.
 - **Panes outlive the app.** Quitting lets go of them all; the next start puts the drawer's tiles
   and devc web's host tiles back on the same panes, as they were.
 - **Opening a drawer with no tiles** first shows the session's panes that no tile shows. With none,
@@ -284,8 +285,10 @@ laid over the tile's content. It has the same paste bar as the drawer.
   Bottom Panel** in a host tile's, move a pane between them. It keeps running, screen and all.
 - **Its tab is devc web's.** Closing it (×, its stack, a layout reset), or **Close** in its
   right-click menu, only takes the tile away: the pane keeps running. **View → Restore Host
-  Tiles** puts it back. To end it, type `exit`, or right-click for **Close terminal…**; its tile
-  then says so until you close the tab.
+  Tiles** puts it back. To end it, type `exit`, right-click for **Close terminal…**, or click the
+  trash on its tab or on its row in devc web's sidebar (In use → **Host terminals**); the trash
+  only asks the app, which shows the same _Close terminal "…"?_ confirm. A shell that exited says
+  so until you close the tab.
 - **While devc web draws over it** (a dialog, a menu, a tab being dragged), the terminal hides,
   and comes back when it is done.
 - **Input paused.** A click on a spot a host terminal had just appeared on, or just left (within
@@ -365,7 +368,9 @@ would let any local process drive it.
 each `host` tile's rectangle in a console line (`devc-desktop:slot <id> …`); the app places its
 own view there, cut to `/main`'s part of the window. It honors only slot ids it issued itself,
 from the app menu, and only from `/main`. devc web cannot open a host tile, end its pane, read
-it, type into it, or learn the host color. It can only **ask** for one (**Open Host
+it, type into it, or learn the host color. Its trash buttons (`devc-desktop:slot-end <id>`, from
+`/main` or `/sidebar`) only make the app ask _Close terminal "…"?_ in its own dialog, Cancel the
+default, one at a time. It can only **ask** for one (**Open Host
 Terminal…**, see Host actions), which opens when you confirm the app's own card (or at once,
 without `--live`). Without `--live` (no `--live`, `--live-yolo` or `--source` in the `devc web`
 arguments the app runs), the app also tells devc web what each host tile's tab should say, every

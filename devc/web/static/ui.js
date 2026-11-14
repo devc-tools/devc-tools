@@ -105,6 +105,8 @@ export const LABELS = {
   hostTileWhere: 'host',
   /** A host tile's tooltip, first line. */
   hostTileTooltip: 'Host terminal (devc-desktop)',
+  /** In use's box of host tiles, under the cards. */
+  hostTerminals: 'Host terminals',
   /** A primary repo card's menu, when `<repo>.worktrees` is in its environment. */
   newWorktree: 'New worktree…',
   /** A linked worktree card's menu: `git worktree remove`; the branch stays. */

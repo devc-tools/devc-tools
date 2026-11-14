@@ -267,14 +267,16 @@ export type HostMenuEntry =
   | 'cd'
   | 'move'
   | 'close'
-  | 'close-terminal';
+  | 'close-terminal'
+  | 'close-all';
 
 /**
  * A host terminal's right-click menu, the drawer's and a host tile's alike: they differ only in
- * where `move` goes. **Close** lets go of the pane; **Close terminal…** ends it, as devc web's
- * terminal tiles' menus.
+ * where `move` goes, and the drawer's ends with **Close all terminals…**. **Close** lets go of the
+ * pane; **Close terminal…** ends it, as devc web's terminal tiles' menus; **Close all
+ * terminals…** ends every pane the drawer shows.
  */
-export function hostMenuEntries(_where: 'drawer' | 'slot'): HostMenuEntry[] {
+export function hostMenuEntries(where: 'drawer' | 'slot'): HostMenuEntry[] {
   return [
     'split-right',
     'split-below',
@@ -286,6 +288,7 @@ export function hostMenuEntries(_where: 'drawer' | 'slot'): HostMenuEntry[] {
     'separator',
     'close',
     'close-terminal',
+    ...(where === 'drawer' ? ['close-all' as const] : []),
   ];
 }
 
@@ -1188,6 +1191,16 @@ export const SLOT_ID = /^[0-9a-f]{32}$/;
 
 const SLOT_LINE =
   /^devc-desktop:slot ([0-9a-f]{32}) (?:hidden|(-?\d{1,5}) (-?\d{1,5}) (\d{1,5}) (\d{1,5}))$/;
+
+const SLOT_END_LINE = /^devc-desktop:slot-end ([0-9a-f]{32})$/;
+
+/**
+ * A devc web console line asking to end a host tile's shell (its tab's or sidebar row's trash
+ * button): the slot id, else `null`. The app only asks the user; devc web ends nothing itself.
+ */
+export function parseSlotEndLine(message: string): string | null {
+  return SLOT_END_LINE.exec(message)?.[1] ?? null;
+}
 
 /**
  * A `/main` console line about a host tile: its slot id, and its content's viewport rectangle in
