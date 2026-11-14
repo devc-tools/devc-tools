@@ -8,10 +8,17 @@
 import { createTiling, type Tile, type Tiling } from 'devc-web/layout.js';
 import { parseSavedLayout } from 'devc-web/lib/layout_state.js';
 import {
+  agentStatus,
+  labelText,
+  paneLabel,
+  statusShort,
+} from 'devc-web/lib/sidebar.js';
+import {
   badgeText,
   type HostCommand,
   hostShortcut,
   MAX_SHELLS,
+  type PaneNews,
 } from '../main/policy.ts';
 import { actionColumn } from './actions.ts';
 import {
@@ -78,6 +85,8 @@ const IS_MAC = navigator.platform.startsWith('Mac');
 
 /** A tile's pane reference names its pane; `layout.js` wants a folder too, and there is one host. */
 const HOST_FOLDER = 'host';
+/** What a tab says where devc web's names a container, and all it says before the first news. */
+const TAB_HOST = 'host';
 const LAYOUT_KEY = 'devc-desktop-host-layout-v2';
 
 /** A tile's terminal. */
@@ -89,8 +98,10 @@ interface DrawerTerminal {
   removed: boolean;
   /** The pane is gone (ended, or it exited): a key makes a new one in its place. */
   gone: boolean;
-  /** The shell's title, as its tab shows it after the label. */
+  /** The shell's title, as Herdr has it: **Close terminal…** names it. */
   title: string;
+  /** The tab as last drawn, so a tick that changed nothing draws nothing. */
+  shown: string;
 }
 
 /** By pane id. */
@@ -132,15 +143,15 @@ function mountTerminal(tile: Tile): void {
     removed: false,
     gone: false,
     title: '',
+    shown: '',
     term: null as unknown as HostTerminal,
   };
   terminals.set(id, t);
   t.term = mountHostTerminal(host, el, id, {
     colors,
-    onTitle: (title) => {
-      if (title === t.title) return;
-      t.title = title;
-      tile.setTitle(label, title);
+    onPane: (news) => {
+      t.title = news.title;
+      renderTab(t, news);
     },
     onGone: (reason, wasAttached) => {
       t.gone = true;
@@ -161,7 +172,8 @@ function mountTerminal(tile: Tile): void {
     },
     confirmPaste,
   });
-  tile.setTitle(label);
+  tile.setTitle(TAB_HOST);
+  tile.setTooltip(label);
   tile.setActions(trashButton(() => closeTerminal(t)));
   tile.element.addEventListener('mousedown', () => tile.focus(), true);
   if (tiling?.focusedTile() === tile) t.term.focus();
@@ -237,6 +249,52 @@ function runCommand(name: HostCommand | string, at = current()): void {
   else if (name === 'new-tab') void newTile(at, 'stack');
   else if (name === 'close' && at) tiling?.close(at.tile.id);
   else if (name === 'close-terminal' && at) closeTerminal(at);
+}
+
+/**
+ * A drawer tab, as devc web draws a host tile's: the folder's name (or what its agent is called),
+ * the shell's title muted, the agent's badge, then the repo it is in (unless the name says it),
+ * its branch, and `host`. Until the first news, `host`.
+ */
+function renderTab(t: DrawerTerminal, news: PaneNews): void {
+  const key = JSON.stringify(news);
+  if (key === t.shown) return;
+  t.shown = key;
+  const pane = {
+    cwd: news.shellCwd,
+    foreground_cwd: news.cwd,
+    terminal_title_stripped: news.title,
+    ...(news.agent ? { agent: news.agent } : {}),
+    ...(news.agentStatus ? { agent_status: news.agentStatus } : {}),
+  };
+  const name = paneLabel(pane);
+  const path = news.cwd || news.shellCwd;
+  t.tile.setTitle(name.name, name.title);
+  t.tile.setTooltip([label, labelText(name), path].filter((s) => s).join('\n'));
+  t.tile.setBadge(
+    news.agent ? agentBadge(news.agent, agentStatus(pane)) : null,
+  );
+  const ctx = document.createElement('span');
+  const part = (cls: string, text: string) => {
+    const s = document.createElement('span');
+    s.className = cls;
+    s.textContent = text;
+    ctx.append(s);
+  };
+  if (news.repo && news.repo !== name.name) part('tile-repo', news.repo);
+  if (news.branch) part('tile-branch', news.branch);
+  part('tile-container', TAB_HOST);
+  t.tile.setContext(ctx);
+}
+
+/** devc web's agent badge (`badge` in ui.js): a dot and the status's short word. */
+function agentBadge(agent: string, status: string): HTMLElement {
+  const b = document.createElement('span');
+  b.className = 'badge';
+  b.dataset.status = status;
+  b.title = `${agent}: ${status}`;
+  b.textContent = statusShort(status);
+  return b;
 }
 
 /** **Close terminal…**: the app asks, then ends the pane; its tile goes when it is gone. */

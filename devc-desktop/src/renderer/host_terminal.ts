@@ -13,6 +13,7 @@ import {
   wrapPaste,
 } from 'devc-web/lib/input.js';
 import { type Link, resolvePath } from 'devc-web/lib/links.js';
+import type { PaneNews } from '../main/policy.ts';
 import type { TermColors } from './term_colors.ts';
 
 /** A frame from the main process (`herdr.ts`'s `Frame`): `bytes` base64. */
@@ -40,9 +41,7 @@ export interface PaneApi {
   openFile(file: { path: string; line?: number; column?: number }): void;
   onFrame(cb: (paneId: string, frame: Frame) => void): void;
   onClosed(cb: (paneId: string, reason: string) => void): void;
-  onPanes(
-    cb: (panes: { paneId: string; cwd: string; title: string }[]) => void,
-  ): void;
+  onPanes(cb: (panes: PaneNews[]) => void): void;
 }
 
 const IS_MAC = navigator.platform.startsWith('Mac');
@@ -56,7 +55,7 @@ const LINK_HINT = `${IS_MAC ? 'Cmd' : 'Ctrl'}+click to open`;
 interface Listener {
   frame(f: Frame): void;
   closed(reason: string): void;
-  panes(cwd: string, title: string): void;
+  panes(news: PaneNews): void;
 }
 const listeners = new Map<string, Listener>();
 let listening = false;
@@ -68,7 +67,7 @@ function listen(api: PaneApi): void {
   api.onFrame((id, f) => listeners.get(id)?.frame(f));
   api.onClosed((id, reason) => listeners.get(id)?.closed(reason));
   api.onPanes((panes) => {
-    for (const p of panes) listeners.get(p.paneId)?.panes(p.cwd, p.title);
+    for (const p of panes) listeners.get(p.paneId)?.panes(p);
   });
 }
 
@@ -88,7 +87,7 @@ const NO_COLORS: TermColors = { theme: {}, minimumContrastRatio: 1 };
 
 /**
  * Mounts pane `paneId`'s terminal in `el` and attaches it once laid out. `onGone`: the pane went
- * away or could not be attached (`attached` false then). `onTitle`: the shell's title from Herdr.
+ * away or could not be attached (`attached` false then). `onPane`: the app's news of the pane.
  * `confirmPaste`: a paste with a line break in it, shown before it goes in.
  */
 export function mountHostTerminal(
@@ -98,7 +97,7 @@ export function mountHostTerminal(
   opts: {
     colors: TermColors | null;
     onGone(reason: string, attached: boolean): void;
-    onTitle?(title: string): void;
+    onPane?(news: PaneNews): void;
     onKey?(): void;
     confirmPaste(text: string, send: (text: string) => void): void;
   },
@@ -129,9 +128,9 @@ export function mountHostTerminal(
       attached = false;
       opts.onGone(reason, true);
     },
-    panes: (c, title) => {
-      cwd = c;
-      if (title) opts.onTitle?.(title);
+    panes: (news) => {
+      cwd = news.cwd;
+      opts.onPane?.(news);
     },
   });
 

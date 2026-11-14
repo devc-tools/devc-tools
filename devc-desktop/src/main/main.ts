@@ -25,7 +25,7 @@
 // Why this shape, and what it was measured against: `.plans/devc-desktop-electron.md`.
 
 import { randomBytes } from 'node:crypto';
-import { readFile, realpath, stat } from 'node:fs/promises';
+import { open, readFile, realpath, stat } from 'node:fs/promises';
 import { hostname, userInfo } from 'node:os';
 import { join } from 'node:path';
 import {
@@ -90,6 +90,8 @@ import {
   externalUrl,
   FOOTER_HEIGHT,
   fromView,
+  gitAt,
+  type GitFs,
   HOST_SHORTCUTS,
   HOST_THEMES,
   type HostCommand,
@@ -110,6 +112,7 @@ import {
   menuLabel,
   menuRequest,
   openFileRequest,
+  type PaneNews,
   paneRequest,
   parseSlotEndLine,
   parseSlotLine,
@@ -1248,19 +1251,44 @@ async function main(): Promise<void> {
     return title ? `${who} ${title}` : who;
   }
 
-  // The panes' folders and titles, for links and tab titles, while any is shown.
+  /** {@link gitAt}'s files, the first 4 KiB of each: a `.git` or `HEAD` is far less. */
+  const gitFs: GitFs = {
+    async readFile(path) {
+      const f = await open(path, 'r');
+      try {
+        const buf = Buffer.alloc(4096);
+        const { bytesRead } = await f.read(buf, 0, buf.length, 0);
+        return buf.subarray(0, bytesRead).toString('utf8');
+      } finally {
+        await f.close();
+      }
+    },
+  };
+
+  // The panes' folders, titles and agents, and the repo and branch they are in, for links and
+  // tab titles, while any is shown. Only the drawer's tabs use the repo: devc web names a host
+  // tile's from its own projects.
   setInterval(() => {
     if (attachments.size === 0 || herdr === null) return;
-    void refreshPanes().then((list) => {
-      const byView = new Map<
-        Electron.WebContents,
-        { paneId: string; cwd: string; title: string }[]
-      >();
+    void refreshPanes().then(async (list) => {
+      const byView = new Map<Electron.WebContents, PaneNews[]>();
       for (const [id, a] of attachments) {
         const p = list.get(id);
         if (p === undefined) continue;
+        const git = a.wc === hostView.webContents
+          ? await gitAt(p.foreground_cwd || p.cwd, gitFs).catch(() => null)
+          : null;
         const panes = byView.get(a.wc) ?? [];
-        panes.push({ paneId: id, cwd: p.foreground_cwd, title: p.title });
+        panes.push({
+          paneId: id,
+          cwd: p.foreground_cwd,
+          shellCwd: p.cwd,
+          title: p.title,
+          agent: p.agent,
+          agentStatus: p.agent_status,
+          repo: git?.repo ?? '',
+          branch: git?.branch ?? '',
+        });
         byView.set(a.wc, panes);
       }
       for (const [wc, panes] of byView) {

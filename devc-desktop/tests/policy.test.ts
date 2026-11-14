@@ -25,6 +25,7 @@ import {
   externalUrl,
   FOOTER_HEIGHT,
   fromView,
+  gitAt,
   HOST_PEEK,
   HOST_THEMES,
   hostFolder,
@@ -1264,4 +1265,38 @@ test('swatchTone: same hue, brighter and more saturated; gray stays gray', () =>
     parseInt(swatchTone('#2b1517').slice(i, i + 2), 16)
   );
   assertEquals(r > g && r > b, true);
+});
+
+test('gitAt: the nearest repo up from a folder, by its files alone', async () => {
+  const files: Record<string, string> = {
+    '/u/src/devc/.git/HEAD': 'ref: refs/heads/main\n',
+    '/u/src/devc.worktrees/fix/.git':
+      'gitdir: /u/src/devc/.git/worktrees/fix\n',
+    '/u/src/devc/.git/worktrees/fix/HEAD': 'ref: refs/heads/fix-tabs\n',
+    '/u/src/det/.git/HEAD': '0123456789abcdef0123456789abcdef01234567\n',
+    '/u/src/rel/.git': 'gitdir: ../store/rel.git',
+    '/u/src/store/rel.git/HEAD': 'ref: refs/heads/dev',
+    '/u/src/bad/.git/HEAD': 'ref: refs/heads/a\u202eb\n',
+    '/u/src/broken/.git': 'gitdir: /nowhere',
+  };
+  const fs = {
+    readFile: (p: string) =>
+      p in files
+        ? Promise.resolve(files[p])
+        : Promise.reject(new Error('ENOENT')),
+  };
+  assertEquals(await gitAt('/u/src/devc/web/static', fs), {
+    repo: 'devc',
+    branch: 'main',
+  });
+  assertEquals(await gitAt('/u/src/devc.worktrees/fix/x', fs), {
+    repo: 'devc',
+    branch: 'fix-tabs',
+  });
+  assertEquals(await gitAt('/u/src/det', fs), { repo: 'det', branch: '' });
+  assertEquals(await gitAt('/u/src/rel', fs), { repo: 'rel', branch: 'dev' });
+  assertEquals(await gitAt('/u/src/bad', fs), null);
+  assertEquals(await gitAt('/u/src/broken', fs), null);
+  assertEquals(await gitAt('/u/home', fs), null);
+  assertEquals(await gitAt('relative/path', fs), null);
 });

@@ -215,6 +215,9 @@ Host terminals behave as devc web's container terminals do, drawn and driven by 
   running in Herdr. **Close terminal…** (the right-click menu, or the tab's trash button) asks
   _Close terminal "…"? Its process ends._ and ends it. **Close all terminals…** in the drawer's
   right-click menu asks once and ends every terminal the drawer shows.
+- **Tabs** read as devc web's host tiles' do: the folder's name (or what its agent is called), the
+  shell's title muted, the agent's badge, then the repo it is in, its branch and `host`. The app
+  finds the repo and branch by reading `.git` and `HEAD` itself, never by running git there.
 - **Panes outlive the app.** Quitting lets go of them all; the next start puts the drawer's tiles
   and devc web's host tiles back on the same panes, as they were.
 - **Opening a drawer with no tiles** first shows the session's panes that no tile shows. With none,

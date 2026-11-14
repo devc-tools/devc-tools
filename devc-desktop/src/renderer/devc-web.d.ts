@@ -7,7 +7,10 @@ declare module 'devc-web/layout.js' {
     ref: { localFolder: string; pane_id: string } | null;
     element: HTMLElement;
     setTitle(title: string, muted?: string): void;
+    setTooltip(text: string): void;
+    setBadge(el: Node | null): void;
     setActions(el: Node | null): void;
+    setContext(el: Node | null): void;
     focus(): void;
   }
   export interface Tiling {
@@ -37,6 +40,21 @@ declare module 'devc-web/layout.js' {
       tabDoubleClick(tile: Tile): void;
     },
   ): Tiling;
+}
+
+declare module 'devc-web/lib/sidebar.js' {
+  /** The pane fields these read: Herdr's names, as devc web's snapshots carry them. */
+  export interface PaneLike {
+    cwd?: string;
+    foreground_cwd?: string;
+    terminal_title_stripped?: string;
+    agent?: string;
+    agent_status?: string;
+  }
+  export function paneLabel(pane: PaneLike): { name: string; title: string };
+  export function labelText(label: { name: string; title: string }): string;
+  export function agentStatus(pane: PaneLike): string;
+  export function statusShort(status: string): string;
 }
 
 declare module 'devc-web/lib/layout_state.js' {

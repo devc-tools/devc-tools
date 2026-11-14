@@ -1186,6 +1186,90 @@ export function hostTerminalOptions(
   };
 }
 
+/**
+ * What the app tells a host terminal's page of its pane every 2 s (`host-term:panes`): its
+ * folders, title and agent (as `pane.list` has them), and for the drawer's the repo and branch
+ * it is in ({@link gitAt}; `''` outside any, and always on a host tile's page).
+ */
+export interface PaneNews {
+  paneId: string;
+  /** The foreground program's folder, else the shell's. */
+  cwd: string;
+  /** The shell's own folder. */
+  shellCwd: string;
+  title: string;
+  agent: string;
+  agentStatus: string;
+  repo: string;
+  branch: string;
+}
+
+/** What {@link gitAt} reads: a file's text (its start is enough), throwing when there is none. */
+export interface GitFs {
+  readFile(path: string): Promise<string>;
+}
+
+/** `path` with its `.` and `..` parts worked out (no file is read). */
+function normalPath(path: string): string {
+  const out: string[] = [];
+  for (const part of path.split('/')) {
+    if (part === '' || part === '.') continue;
+    if (part === '..') out.pop();
+    else out.push(part);
+  }
+  return '/' + out.join('/');
+}
+
+/** The longest repo or branch name {@link gitAt} gives; past it, nothing. */
+const MAX_GIT_NAME = 255;
+
+/**
+ * The repo holding `path` and its branch, for a drawer tab's `repo · branch · host` (as devc web
+ * draws a host tile's): the nearest folder up from `path` with a `.git`, named as devc web names
+ * a repo (a linked worktree by its main checkout's folder), and the branch its `HEAD` names (`''`
+ * detached). Read from the files alone, never by running git, which would run what a folder's
+ * config says. `null` outside every repo, or for a name that is too long or not showable.
+ */
+export async function gitAt(
+  path: string,
+  fs: GitFs,
+): Promise<{ repo: string; branch: string } | null> {
+  if (!path.startsWith('/') || path.includes('\0')) return null;
+  const parts = path.split('/').filter((x) => x);
+  for (let n = parts.length; n >= 0 && parts.length - n < 64; n--) {
+    const dir = '/' + parts.slice(0, n).join('/');
+    const dotGit = n === 0 ? '/.git' : `${dir}/.git`;
+    let repo = parts[n - 1] ?? '';
+    let head: string;
+    try {
+      head = await fs.readFile(`${dotGit}/HEAD`);
+    } catch {
+      // A linked worktree (or submodule): `.git` is a file naming the real one.
+      let link: string;
+      try {
+        link = await fs.readFile(dotGit);
+      } catch {
+        continue;
+      }
+      const m = /^gitdir: (.+?)\s*$/m.exec(link);
+      if (m === null) continue;
+      const gitDir = normalPath(m[1].startsWith('/') ? m[1] : `${dir}/${m[1]}`);
+      const main = /\/([^/]+)\/\.git\/worktrees\/[^/]+\/?$/.exec(gitDir);
+      if (main !== null) repo = main[1];
+      try {
+        head = await fs.readFile(`${gitDir}/HEAD`);
+      } catch {
+        return null;
+      }
+    }
+    const ref = /^ref: refs\/heads\/(.+?)\s*$/.exec(head);
+    const branch = ref?.[1] ?? '';
+    const ok = (v: string) => v.length <= MAX_GIT_NAME && !UNSHOWABLE.test(v);
+    return repo && ok(repo) && ok(branch) ? { repo, branch } : null;
+  }
+  return null;
+}
+
 /** A slot id: as devc web's `HOST_SLOT`, which only ever holds what the app issued. */
 export const SLOT_ID = /^[0-9a-f]{32}$/;
 
