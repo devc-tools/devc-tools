@@ -19,9 +19,11 @@ import {
 /**
  * @typedef {object} Renderer
  * @property {(bytes: Uint8Array, cols?: number, rows?: number) => void} write
- *   Paints a frame. `cols`/`rows` are the frame's size; the grid follows it when they differ.
+ *   Paints a frame. `cols`/`rows` are the frame's size; the grid follows it when they differ,
+ *   cleared first (the frame must be a full one, as Herdr's first frame at a new size is).
  * @property {() => {cols: number, rows: number} | null} resize
- *   Fits the grid to the element and returns its size, or `null` when it is not laid out.
+ *   The size that fits the element, or `null` when it is not laid out. The grid keeps its size
+ *   until a frame of the new size comes (`write`).
  * @property {(cb: (data: string) => void) => void} onData  Keyboard input, as a string.
  * @property {(cb: (ev: WheelEvent) => void) => void} onWheel
  *   Wheel events; the renderer's own scrolling is suppressed.
@@ -215,25 +217,34 @@ export function createRenderer(
     '.xterm-screen',
   ));
 
+  // The grid's size once every write queued so far is parsed: `term.cols`/`term.rows` change only
+  // when a queued resize runs.
+  let grid = { cols: term.cols, rows: term.rows };
+
   return {
+    // A frame of a new size is a full one, painted after an empty grid is resized: a full reset
+    // (RIS) first, in order with the writes. xterm.js's resize reflows what the grid holds, and
+    // with `scrollback: 0` that can leave its buffer one line off (baseY 1 with no scrollback),
+    // so every row Herdr paints lands one line low and the app, sent the cell under the
+    // pointer, selects the line below the one shown there. An empty grid has nothing to reflow.
     write(bytes, cols, rows) {
       if (
         cols && rows && cols > 0 && rows > 0 &&
-        (cols !== term.cols || rows !== term.rows)
+        (cols !== grid.cols || rows !== grid.rows)
       ) {
-        term.resize(cols, rows);
+        grid = { cols, rows };
+        term.write('\x1bc', () => term.resize(cols, rows));
       }
       term.write(bytes);
     },
+    // Only proposes: the grid follows the frames (`write`), so Herdr's full frame at the new size
+    // is what resizes it, never the content of the old one.
     resize() {
       const dims = fit.proposeDimensions();
       if (!dims || !dims.cols || !dims.rows || !isFinite(dims.cols)) {
         return null;
       }
-      const cols = Math.max(2, dims.cols);
-      const rows = Math.max(1, dims.rows);
-      if (cols !== term.cols || rows !== term.rows) term.resize(cols, rows);
-      return { cols, rows };
+      return { cols: Math.max(2, dims.cols), rows: Math.max(1, dims.rows) };
     },
     onData(cb) {
       term.onData(cb);
