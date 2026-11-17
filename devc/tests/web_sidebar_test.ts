@@ -217,7 +217,7 @@ Deno.test('clampSidebarWidth uses the default for a non-finite width', () => {
   assertEquals(clampSidebarWidth(NaN, 300), 180);
 });
 
-Deno.test('gitSync shows commits to push and pull, a quiet mark when in sync', () => {
+Deno.test('gitSync shows commits to push and pull, nothing when in sync', () => {
   const git = {
     branch: 'feature',
     upstream: 'origin/feature',
@@ -225,11 +225,7 @@ Deno.test('gitSync shows commits to push and pull, a quiet mark when in sync', (
     behind: 0,
     gone: false,
   };
-  assertEquals(gitSync(git), {
-    marks: [{ dir: 'synced', text: '✓' }],
-    diverged: false,
-    title: 'feature → origin/feature: in sync (as of the last fetch)',
-  });
+  assertEquals(gitSync(git), null);
   // No upstream: nothing to push shows nothing (↑N with commits: see the no-upstream test).
   assertEquals(gitSync({ ...git, upstream: null }), null);
   assertEquals(gitSync(null), null);
@@ -241,9 +237,7 @@ Deno.test('gitSync shows commits to push and pull, a quiet mark when in sync', (
     title: 'git status unavailable: detached HEAD',
   });
   // A status wins over a stale problem.
-  assertEquals(gitSync(git, 'detached HEAD')?.marks, [
-    { dir: 'synced', text: '✓' },
-  ]);
+  assertEquals(gitSync(git, 'detached HEAD'), null);
   assertEquals(gitSync({ ...git, ahead: 2 }), {
     marks: [{ dir: 'ahead', text: '↑2' }],
     diverged: false,
@@ -334,7 +328,7 @@ Deno.test('gitSync splits ↓ into fetched (to pull) and unfetched (faded, to fe
   );
 });
 
-Deno.test('gitRollup shows a quiet ✓ when none has anything to sync, nothing when none has an upstream', () => {
+Deno.test('gitRollup shows nothing when none has anything to sync', () => {
   const git = (upstream: string | null) => ({
     branch: 'main',
     upstream,
@@ -347,12 +341,7 @@ Deno.test('gitRollup shows a quiet ✓ when none has anything to sync, nothing w
     { name: 'b', git: null },
     { name: 'c', git: git('origin/main') },
   ]);
-  assertEquals(synced?.marks, [{ dir: 'synced', text: '✓' }]);
-  assertEquals(synced?.diverged, false);
-  assertEquals(synced?.title.split('\n'), [
-    'a: main → origin/main: in sync (as of the last fetch)',
-    'c: main → origin/main: in sync (as of the last fetch)',
-  ]);
+  assertEquals(synced, null);
   const local = gitRollup([
     { name: 'a', git: git(null) },
     { name: 'b', git: git(null) },
@@ -362,7 +351,7 @@ Deno.test('gitRollup shows a quiet ✓ when none has anything to sync, nothing w
     { name: 'a', git: git(null) },
     { name: 'b', git: git('origin/main') },
   ]);
-  assertEquals(localAndSynced?.marks, [{ dir: 'synced', text: '✓' }]);
+  assertEquals(localAndSynced, null);
   const mixed = gitRollup([
     { name: 'a', git: git('origin/main') },
     { name: 'b', git: { ...git('origin/main'), ahead: 2 } },
@@ -826,7 +815,7 @@ Deno.test('gitSync puts changes to commit before push and pull, conflicts apart'
   // Nothing to commit: just the push/pull mark.
   assertEquals(gitSync(git, undefined, clean), gitSync(git));
   assertEquals(gitSync(null, undefined, clean), null);
-  // The ✓ gives way; the counts lead the tooltip.
+  // The counts lead the tooltip, the level branch after them.
   assertEquals(gitSync(git, undefined, some), {
     marks: [{ dir: 'changes', text: '● 6' }],
     diverged: false,
@@ -849,7 +838,7 @@ Deno.test('gitSync puts changes to commit before push and pull, conflicts apart'
   );
   // Why the changes can't be read goes in the tooltip, and alone is a quiet ?.
   assertEquals(gitSync(git, undefined, undefined, 'git status: timed out'), {
-    marks: [{ dir: 'synced', text: '✓' }],
+    marks: [{ dir: 'unknown', text: '?' }],
     diverged: false,
     title: 'main → origin/main: in sync (as of the last fetch)\n' +
       'changes unavailable: git status: timed out',

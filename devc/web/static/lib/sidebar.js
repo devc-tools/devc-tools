@@ -360,7 +360,8 @@ export function labelText({ name, title }) {
  * A folder's push/pull marks from its `git` field (see the `projects` message): `ahead` (↑N,
  * to push), `behind` (↓N, in the repo's own remote-tracking branch, to pull), `unfetched` (only
  * the host's mirror has them, to fetch: a faded ↓N, or +N after a `behind` mark) or `gone` (the
- * upstream was deleted), with a tooltip naming the branch. A branch level with its upstream gets a quiet `synced` mark (✓). With no `git` but
+ * upstream was deleted), with a tooltip naming the branch. A branch level with its upstream gets
+ * no marks, only the tooltip text (for {@link gitSync}'s ●). With no `git` but
  * a `problem` (its `gitProblem`: a detached HEAD, a timed-out or failed git call), a quiet
  * `unknown` mark (?) whose tooltip gives the reason. `null` when there is no repo, no status
  * read yet, or a branch with no upstream (nothing to compare with, so nothing to say). An
@@ -409,7 +410,7 @@ function pushPull(git, problem) {
   if (git.gone) marks.push({ dir: 'gone', text: 'gone' });
   if (marks.length === 0) {
     return {
-      marks: [{ dir: 'synced', text: '✓' }],
+      marks: [],
       diverged: false,
       title: `${git.branch} → ${git.upstream}: in sync (as of the last fetch)`,
     };
@@ -461,9 +462,9 @@ export function repoGitItems(can) {
 /**
  * A repo's git mark: its changes to commit (`changes`, see the `projects` message) as `● N`
  * (`conflicted` while any are in conflict, else `changes`) before its push/pull marks (see
- * {@link pushPull}), a ✓ dropped beside it. The tooltip lists the four counts, then the push/pull
- * text, then `changesProblem` (why its changes can't be read), which alone gives a quiet `?`.
- * `null` when there is nothing to say.
+ * {@link pushPull}). The tooltip lists the four counts, then the push/pull text, then
+ * `changesProblem` (why its changes can't be read), which alone gives a quiet `?`. `null` when
+ * there is nothing to say: no repo, or nothing to commit, push or pull (no ✓ for a level branch).
  *
  * @param {{branch: string, upstream: string | null, ahead: number, behind: number, gone: boolean, unfetched?: number, pushCreates?: boolean} | null} [git]
  * @param {string} [problem]
@@ -473,8 +474,8 @@ export function repoGitItems(can) {
 export function gitSync(git, problem, changes, changesProblem) {
   const sync = pushPull(git, problem);
   const n = changesCount(changes);
-  if (n === 0 && !changesProblem) return sync;
-  const marks = sync?.marks.filter((m) => n === 0 || m.dir !== 'synced') ?? [];
+  if (n === 0 && !changesProblem) return sync?.marks.length ? sync : null;
+  const marks = [...(sync?.marks ?? [])];
   if (n > 0) {
     marks.unshift({
       dir: changes.conflicted > 0 ? 'conflicted' : 'changes',
@@ -496,16 +497,13 @@ export function gitSync(git, problem, changes, changesProblem) {
   };
 }
 
-/** Mark `dir`s that mean "nothing to push or pull" (or nothing known). */
-const QUIET_DIRS = ['synced', 'unknown'];
-
 /**
  * One mark for several repos (a collapsed container's, say). When any repo has changes to commit,
  * something to push or pull (or a deleted upstream): their ●, ↑ and ↓ counts summed (● in
  * conflict colors when any repo's is), with every such repo listed
- * in the tooltip. Otherwise a quiet ✓ listing every repo's own tooltip, or ? when no repo's
- * status could be read. `null` when none of `repos` has a mark (no repo, or none with an
- * upstream).
+ * in the tooltip. Otherwise a quiet ? listing every repo's own tooltip when some repo's status
+ * could not be read. `null` when none of `repos` has a mark (no repo, or nothing to commit, push
+ * or pull).
  */
 export function gitRollup(repos) {
   const all = [...repos].map((r) => ({
@@ -514,18 +512,10 @@ export function gitRollup(repos) {
   }))
     .filter((r) => r.sync);
   if (all.length === 0) return null;
-  const busy = all.filter((r) =>
-    r.sync.marks.some((m) => !QUIET_DIRS.includes(m.dir))
-  );
+  const busy = all.filter((r) => r.sync.marks.some((m) => m.dir !== 'unknown'));
   if (busy.length === 0) {
-    const any = (dir) =>
-      all.some((r) => r.sync.marks.some((m) => m.dir === dir));
     return {
-      marks: [
-        any('synced')
-          ? { dir: 'synced', text: '✓' }
-          : { dir: 'unknown', text: '?' },
-      ],
+      marks: [{ dir: 'unknown', text: '?' }],
       diverged: false,
       title: all.map((r) => `${r.name}: ${r.sync.title}`).join('\n'),
     };

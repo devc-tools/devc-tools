@@ -1683,9 +1683,9 @@ async function resumeSession(c, s) {
 // ---------------------------------------------------------------------------------------------
 
 /**
- * ● changes to commit, ↑ push / ↓ pull counts, or a quiet ✓ / ?, from `gitSync` or `gitRollup`;
- * nothing for no repo. On a repo card (`opts`): a click on ↓ (`behind`) or on a faded ↓ / +N
- * (`unfetched`) pulls when `opts.pull` is given (a pull fetches first); otherwise a click on a
+ * ● changes to commit, ↑ push / ↓ pull counts, or a quiet ?, from `gitSync` or `gitRollup`;
+ * nothing when there is nothing to do (but the spinner, with `opts.busy`). On a repo card
+ * (`opts`): a click on ↓ (`behind`) or on a faded ↓ / +N (`unfetched`) pulls when `opts.pull` is given (a pull fetches first); otherwise a click on a
  * faded mark fetches when `opts.fetch` is. A click on ↑
  * (`ahead`) pushes when `opts.push` is: exactly the menu's Push. Without it ↑ is read-only, its
  * tooltip saying why (`opts.pushUnavailable`). With `opts.busy`, a spinner follows the counts.
@@ -1694,7 +1694,18 @@ async function resumeSession(c, s) {
  *   pushUnavailable?: string, busy: boolean, upstream: string}} [opts]
  */
 export function gitMark(sync, opts) {
-  if (!sync) return '';
+  if (!sync) {
+    return opts?.busy
+      ? h(
+        'span',
+        { class: 'git-sync' },
+        h('span', {
+          class: 'spinner git-fetching',
+          'aria-hidden': 'true',
+        }),
+      )
+      : '';
+  }
   /** A mark a click acts on. */
   const button = (m, title, act) =>
     h('span', {

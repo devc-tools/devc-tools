@@ -297,8 +297,8 @@ is published from any container: the host server finds devcontainers with
   tree, staged, unstaged and untracked together, red while any are in conflict;
   **↑N** commits to push and **↓N** to pull against its upstream (with no
   upstream, **↑N** counts the commits on no remote branch: what a push would
-  publish, so a `gh-push` branch shows it too), or a quiet
-  **✓** when level; the tooltip has each count). The ● count comes from `git
+  publish, so a `gh-push` branch shows it too), or nothing when there is
+  nothing to commit, push or pull; the tooltip has each count). The ● count comes from `git
   status` run inside the running container (never on the host, which would run
   the repo's own config), or directly for a project on this machine. A repo is
   read again only when it may have changed: a file under its folder changes
