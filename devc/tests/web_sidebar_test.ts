@@ -536,6 +536,7 @@ Deno.test('savedScope reads the scope, else the scope zen mode was on in', () =>
   assertEquals(savedScope({ scope: 'all' }), 'all');
   assertEquals(savedScope({ scope: 'container', zen: 'repo' }), 'container');
   assertEquals(savedScope({ scope: 'repo' }), 'repo');
+  assertEquals(savedScope({ scope: 'agents' }), 'agents');
   assertEquals(savedScope(null), 'all');
   assertEquals(savedScope({ scope: 'x' }), 'all');
   // Saved while zen mode held the scope: on was its scope, off was everything.

@@ -257,8 +257,8 @@ function applyScope() {
 
 /**
  * What the sidebar shows (the scope picker): everything (`all`), or Tasks and the focused tile's
- * container (`container`) or repo card (`repo`), with the Containers section, the In use heading
- * and pinned files hidden.
+ * container (`container`) or repo card (`repo`), or every card with an agent in it (`agents`),
+ * with the Containers section, the In use heading and pinned files hidden.
  *
  * @param {import('./lib/sidebar.js').SidebarScope} scope
  */
@@ -480,7 +480,7 @@ function renderTree() {
       $zoneBrowse.scrollTop,
     ];
     const scoped = sidebarState.scope !== 'all';
-    shownScopeCard = scoped ? scopeCardKey() : null;
+    shownScopeCard = followsFocus() ? scopeCardKey() : null;
     shownInUse = new Set(
       [...cards.values()].filter((card) => card.active).map((card) => card.key),
     );
@@ -496,7 +496,11 @@ function renderTree() {
       ),
     );
     const upper = scoped
-      ? inUseRows(cards, scopeShows(cards, shownScopeCard))
+      ? inUseRows(
+        cards,
+        scopeShows(cards, shownScopeCard),
+        sidebarState.scope === 'agents' ? 'No agents' : undefined,
+      )
       : [...inUseRows(cards), ...pinnedFileRows()];
     $zoneInUse.replaceChildren(...upper);
     $zoneTasks.replaceChildren(...taskRows());
@@ -535,11 +539,12 @@ function renderTree() {
  * agent last, then in the layout order of their first tile, then those with none in their
  * container's card order; containers where their first card is. A status change renders the
  * sidebar again, so cards move as their agents' statuses change. With `only` (a scoped sidebar),
- * the cards it takes instead, active or not.
+ * the cards it takes instead, active or not, and `empty` the note when it takes none.
  *
  * @param {(card: any) => boolean} [only]
+ * @param {string} [empty]
  */
-function inUseRows(cards, only) {
+function inUseRows(cards, only, empty = 'Nothing open') {
   const rows = [
     sectionRow(
       'In use',
@@ -568,7 +573,7 @@ function inUseRows(cards, only) {
       h(
         'div',
         { class: 'row tree-note', style: '--depth: 0' },
-        h('span', { class: 'label' }, 'Nothing open'),
+        h('span', { class: 'label' }, empty),
       ),
     );
   }
@@ -595,16 +600,25 @@ function inUseRows(cards, only) {
 }
 
 /**
- * The cards a scoped sidebar shows, given the focused tile's (`scopeCardKey`; null shows none):
- * that card alone (`repo`), or with its container's other active cards (`container`).
+ * The cards a scoped sidebar shows: those with an agent in it (`agents`); else, given the focused
+ * tile's (`scopeCardKey`; null shows none), that card alone (`repo`), or with its container's
+ * other active cards (`container`).
  */
 function scopeShows(cards, key) {
+  if (sidebarState.scope === 'agents') {
+    return (card) => cardPanes(card).some((p) => p.agent);
+  }
   const focused = key === null ? undefined : cards.get(key);
   if (!focused) return () => false;
   if (sidebarState.scope === 'repo') return (card) => card === focused;
   return (card) =>
     card === focused ||
     (card.active && card.localFolder === focused.localFolder);
+}
+
+/** Whether the sidebar's scope follows the focused tile (`container`, `repo`). */
+function followsFocus() {
+  return sidebarState.scope === 'container' || sidebarState.scope === 'repo';
 }
 
 /** The focused tile's repo card's key, which a scoped sidebar shows; null for none or an empty tile. */
@@ -643,7 +657,7 @@ function refreshSessions() {
 function onViewState(view) {
   onCardsViewState(view);
   // A scoped sidebar's container or card is the focused tile's.
-  if (sidebarState.scope !== 'all' && scopeCardKey() !== shownScopeCard) {
+  if (followsFocus() && scopeCardKey() !== shownScopeCard) {
     queueRender();
   }
 }

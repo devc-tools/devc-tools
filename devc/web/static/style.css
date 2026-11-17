@@ -417,8 +417,9 @@ body.resizing-sidebar {
 }
 
 /*
- * The sidebar's scope picker (sidebar.js): one pill of three options, all, the focused tile's
- * container and its repo, the ends rounded and the middle square, the checked one lit.
+ * The sidebar's scope picker (sidebar.js): one pill of four options, all, the focused tile's
+ * container and its repo, and the repos with agents, the ends rounded and the middle square, the
+ * checked one lit.
  */
 /* On `/` the header has no connection dot (it is in the host status strip). */
 .brand + .scope-picker {
@@ -1207,15 +1208,15 @@ body.resizing-zones {
 
 /* A scoped sidebar's In use has no heading: the box is all there is, as far from the zone's top as
    from its sides. It scrolls only when its open sections' floors (sidebar.js) outgrow it. */
-.sidebar:is([data-scope='container'], [data-scope='repo']) .zone-in-use {
+.sidebar:is([data-scope='container'], [data-scope='repo'], [data-scope='agents']) .zone-in-use {
   overflow-x: hidden;
 }
 
-.sidebar:is([data-scope='container'], [data-scope='repo']) .zone-in-use > .row.section:first-child {
+.sidebar:is([data-scope='container'], [data-scope='repo'], [data-scope='agents']) .zone-in-use > .row.section:first-child {
   display: none;
 }
 
-.sidebar:is([data-scope='container'], [data-scope='repo']) .zone-in-use > .in-use-run {
+.sidebar:is([data-scope='container'], [data-scope='repo'], [data-scope='agents']) .zone-in-use > .in-use-run {
   margin: 14px 4px 4px;
 }
 

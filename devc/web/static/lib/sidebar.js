@@ -633,13 +633,19 @@ export function isZenShortcut(e, isMac) {
 
 /**
  * What the sidebar shows (its scope picker): `all`, everything; `container`, Tasks and the focused
- * tile's container's in-use repo cards; `repo`, Tasks and the focused tile's repo card alone.
+ * tile's container's in-use repo cards; `repo`, Tasks and the focused tile's repo card alone;
+ * `agents`, Tasks and every repo card with an agent in it, whatever its status.
  *
- * @typedef {'all' | 'container' | 'repo'} SidebarScope
+ * @typedef {'all' | 'container' | 'repo' | 'agents'} SidebarScope
  */
 
 /** The sidebar's scopes, in the picker's order. @type {readonly SidebarScope[]} */
-export const SIDEBAR_SCOPES = Object.freeze(['all', 'container', 'repo']);
+export const SIDEBAR_SCOPES = Object.freeze([
+  'all',
+  'container',
+  'repo',
+  'agents',
+]);
 
 /** @returns {v is SidebarScope} */
 export function isSidebarScope(v) {

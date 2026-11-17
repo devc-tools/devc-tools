@@ -322,6 +322,7 @@ Deno.test('scopeFromSearch: ?scope=, else an old ?zen= scope, else null', () => 
   assertEquals(scopeFromSearch('?scope=all'), 'all');
   assertEquals(scopeFromSearch('scope=container&x=1'), 'container');
   assertEquals(scopeFromSearch('?scope=repo&zen=container'), 'repo');
+  assertEquals(scopeFromSearch('?scope=agents'), 'agents');
   assertEquals(scopeFromSearch('?zen=container'), 'container');
   assertEquals(scopeFromSearch('?zen=repo'), 'repo');
   for (

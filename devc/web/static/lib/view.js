@@ -518,16 +518,19 @@ export function zenFromSearch(search) {
 
 /**
  * The sidebar's scope as a page URL's query asks for it, its starting point: `?scope=all`,
- * `container` or `repo`, else `?zen=container` or `repo` (from when zen mode had a sidebar
+ * `container`, `repo` or `agents`, else `?zen=container` or `repo` (from when zen mode had a sidebar
  * scope). Null when the query names none: the sidebar starts as it was saved.
  *
  * @param {string} search  `location.search`, `?` included or not
- * @returns {'all' | 'container' | 'repo' | null}
+ * @returns {'all' | 'container' | 'repo' | 'agents' | null}
  */
 export function scopeFromSearch(search) {
   const q = new URLSearchParams(search.replace(/^\?/, ''));
   const scope = q.get('scope');
-  if (scope === 'all' || scope === 'container' || scope === 'repo') {
+  if (
+    scope === 'all' || scope === 'container' || scope === 'repo' ||
+    scope === 'agents'
+  ) {
     return scope;
   }
   const zen = q.get('zen');

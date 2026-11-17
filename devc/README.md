@@ -591,15 +591,18 @@ is published from any container: the host server finds devcontainers with
   the window.
 - **Sidebar scope:** the pill in the sidebar header picks what the sidebar
   shows: **all** (lines), everything; **container** (cube), **Tasks** and the
-  focused tile's container box with its in-use repo cards; or **repo** (card),
-  **Tasks** and the focused tile's repo card alone. Click one, or use the arrow
-  keys while it has focus. Scoped, the Projects section, the **In use**
-  heading and pinned files are hidden; the box follows the focused tile, and is
-  as tall as what it holds, up to the bottom of the sidebar; past that, its
-  cards' open sections (files, pull request, past sessions) shrink alike, each
-  scrolling on its own. Clicking a pane in the card switches the tile shown.
-  The scope is kept across reloads; `?scope=all`, `container` or `repo` in the
-  page URL starts the sidebar that way without saving it.
+  focused tile's container box with its in-use repo cards; **repo** (card),
+  **Tasks** and the focused tile's repo card alone; or **agents** (sparkle),
+  **Tasks** and every repo card with an agent in it, whatever its status, across
+  containers, most urgent first (host tiles are left out). Click one, or use the
+  arrow keys while it has focus. Scoped, the Projects section, the **In use**
+  heading and pinned files are hidden; the box follows the focused tile (or, for
+  **agents**, the agents as they start and stop), and is as tall as what it
+  holds, up to the bottom of the sidebar; past that, its cards' open sections
+  (files, pull request, past sessions) shrink alike, each scrolling on its own.
+  Clicking a pane in the card switches the tile shown. The scope is kept across
+  reloads; `?scope=all`, `container`, `repo` or `agents` in the page URL starts
+  the sidebar that way without saving it.
 - **Input:** keys go through as typed. A multi-line paste is sent as one
   bracketed paste, so a shell or agent prompt does not submit each line. Mouse
   clicks and drags go to the app (Herdr encodes them in the app's own mouse
