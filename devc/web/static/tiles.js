@@ -36,9 +36,12 @@ import {
   tileExited,
   tileRestartable,
   tileStatus,
+  viewDiagnostics,
+  viewOpenText,
   viewRequest,
   viewStatus,
 } from './lsp.js';
+import { tagMarks } from './lib/diagnostic_tags.js';
 import { LSP_LANGUAGE_NAMES, lspLanguageFor } from './lib/languages.js';
 import { openAskDialog } from './ask.js';
 import { diffSelectionWhere } from './diff_select.js';
@@ -102,6 +105,7 @@ import {
   newColumn,
   parsePatch,
   placeThreads,
+  shownColumn,
   splitRows,
   splitShare,
   threadRows,
@@ -1693,6 +1697,13 @@ function saveFlag(key, on) {
  * @property {'' | 'loading' | 'error' | 'ok'} drawn  the state the body's rows were last drawn
  *   for: rows drawn over a Loading… or error message scroll back to `scrollTop`
  * @property {boolean} [lspWanted]  whether it wanted a language server at the last sync
+ * @property {{deprecated: Range[], unnecessary: Range[]}} [lspMarks]  its language server's
+ *   tagged diagnostics on its new-side rows, painted by `paintDiffHighlights`
+ * @property {string | null} [viewTried]  the head (`head.sha`) its view was last opened for
+ *   ahead of a hover (`openDiffView`): not again for it, whatever the answer, until its session
+ *   restarts
+ * @property {boolean} [viewOpening]  an `openDiffView` is on its way
+ * @property {string} [lspState]  its session's state when last seen, to notice a restart
  * @property {number} changesRead  an uncommitted diff's answers that differed from the one before:
  *   `readHead`'s key, as the working tree changes under the same base
  * @property {number} [changesTimer]  an uncommitted diff's reread timer
@@ -1975,17 +1986,23 @@ let selectionMatches = [];
 function diffTextCells(/** @type {DiffView} */ view) {
   const cells = [];
   for (const el of view.body.querySelectorAll('.diff-body .diff-text')) {
-    const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
-    /** @type {{node: Text, start: number}[]} */
-    const nodes = [];
-    let text = '';
-    for (let n = walker.nextNode(); n; n = walker.nextNode()) {
-      nodes.push({ node: /** @type {Text} */ (n), start: text.length });
-      text += n.nodeValue;
-    }
-    if (text) cells.push({ text, nodes });
+    const cell = textCellOf(el);
+    if (cell.text) cells.push(cell);
   }
   return cells;
+}
+
+/** A `.diff-text` cell's displayed text and where each of its text nodes starts in it. */
+function textCellOf(/** @type {Element} */ el) {
+  const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+  /** @type {{node: Text, start: number}[]} */
+  const nodes = [];
+  let text = '';
+  for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+    nodes.push({ node: /** @type {Text} */ (n), start: text.length });
+    text += n.nodeValue;
+  }
+  return { text, nodes };
 }
 
 /** A Range over `[from, to)` of a cell's text. */
@@ -2046,6 +2063,14 @@ function paintDiffHighlights() {
     'diff-selection-match',
     new Highlight(...selectionMatches),
   );
+  const deprecated = [];
+  const unnecessary = [];
+  for (const view of diffViews.values()) {
+    deprecated.push(...(view.lspMarks?.deprecated ?? []));
+    unnecessary.push(...(view.lspMarks?.unnecessary ?? []));
+  }
+  CSS.highlights.set('diff-lsp-deprecated', new Highlight(...deprecated));
+  CSS.highlights.set('diff-lsp-unnecessary', new Highlight(...unnecessary));
 }
 
 /** The find bar's `n of m` (or `No results`, or nothing before a query). */
@@ -2512,7 +2537,78 @@ function syncDiffLanguage(view) {
   );
   const was = view.lspWanted;
   view.lspWanted = wanted;
-  if (wanted && !was) void attachDiffLanguage(view);
+  if (wanted && !was) {
+    void attachDiffLanguage(view)?.then(() => openDiffView(view));
+  }
+}
+
+/**
+ * Opens a diff tile's view as soon as its session is ready, ahead of any hover, so the server
+ * reports its diagnostics for the tile's marks (`markDiffDiagnostics`). Once per head and
+ * session start: a view refused because an open tile holds other text, or let go
+ * (`devc/viewStale`), is opened again by the next hover, as before, never here: two tiles
+ * with different texts of one file would otherwise take it from each other without end.
+ *
+ * @param {DiffView} view
+ */
+async function openDiffView(view) {
+  const key = view.tile.id;
+  if (
+    !view.lspWanted || view.viewOpening || viewStatus(key)?.state !== 'ready'
+  ) {
+    return;
+  }
+  if (!readHead(view) || !view.head) return;
+  const sha = view.head.sha;
+  const open = viewOpenText(key);
+  if (open !== null ? open === view.head.done?.text : view.viewTried === sha) {
+    return;
+  }
+  view.viewOpening = true;
+  try {
+    await diffLspReady(view);
+  } finally {
+    view.viewOpening = false;
+  }
+  view.viewTried = sha;
+  if (diffViews.get(key) === view) {
+    markDiffDiagnostics(view);
+    paintDiffHighlights();
+  }
+}
+
+/**
+ * A diff tile's marks from its language server's tagged diagnostics (deprecated uses struck
+ * through, unused code faded), as Ranges over its new-side rows' text for
+ * `paintDiffHighlights`. Only while its view is open with the head's text the rows show: the
+ * server's positions are that text's. Not painted here.
+ *
+ * @param {DiffView} view
+ */
+function markDiffDiagnostics(view) {
+  /** @type {{deprecated: Range[], unnecessary: Range[]}} */
+  const marks = { deprecated: [], unnecessary: [] };
+  view.lspMarks = marks;
+  const head = view.head?.done?.text;
+  if (typeof head !== 'string' || viewOpenText(view.tile.id) !== head) return;
+  const byLine = tagMarks(viewDiagnostics(view.tile.id));
+  if (byLine.size === 0) return;
+  for (
+    const el of view.body.querySelectorAll('.diff-body .diff-text[data-new]')
+  ) {
+    const row = newSideRows.get(/** @type {HTMLElement} */ (el));
+    const line = row?.new == null ? undefined : byLine.get(row.new - 1);
+    if (!row || !line) continue;
+    const cell = textCellOf(el);
+    if (!cell.nodes.length) continue;
+    for (const m of line) {
+      const from = Math.min(shownColumn(row.text, m.from), cell.text.length);
+      const to = m.to === null
+        ? cell.text.length
+        : Math.min(shownColumn(row.text, m.to), cell.text.length);
+      if (to > from) marks[m.tag].push(cellRange(cell, from, to));
+    }
+  }
 }
 
 /**
@@ -3553,9 +3649,13 @@ function renderDiff(view) {
       active.setSelectionRange(caret[0], caret[1]);
     }
   }
-  // The new rows' matches: the find bar's, and the selection's (gone with the old rows).
+  // The new rows' matches: the find bar's, and the selection's (gone with the old rows); and
+  // their language server marks.
+  markDiffDiagnostics(view);
+  paintDiffHighlights();
   if (find?.open) runDiffFind(view);
   updateSelectionMatches();
+  void openDiffView(view);
 }
 
 /** The path (`old → new` for a rename), status, `+a −d`, `#n`, ⟳ and ↗, and whose bridge. */
@@ -6123,7 +6223,25 @@ export function mountTiles(root, opts) {
     changed: (key) => {
       const view = fileViews.get(key);
       if (view) renderLspStatus(view);
+      const diff = diffViews.get(key);
+      if (diff) {
+        // A restart loses the server's views: open it again for the marks.
+        const state = viewStatus(key)?.state;
+        if (state !== diff.lspState) {
+          diff.lspState = state;
+          diff.viewTried = null;
+          markDiffDiagnostics(diff);
+          paintDiffHighlights();
+          void openDiffView(diff);
+        }
+      }
       viewChanged();
+    },
+    viewDiagnostics: (key) => {
+      const diff = diffViews.get(key);
+      if (!diff) return;
+      markDiffDiagnostics(diff);
+      paintDiffHighlights();
     },
   });
   onServerMessage(onTilesMessage);

@@ -5,7 +5,8 @@
 // so two pages' ids never collide, answers the server's requests to the client, turns pulled
 // diagnostics into pushed ones, and reports progress as `lsp_status`. Diff tiles open **view
 // documents** (`devc/openView`, `devc/closeView`), which never replace an editor's text or close
-// its document (see `.plans/devc-web-lsp-diff-hover.md`). Pure: the server process is
+// its document (see `.plans/devc-web-lsp-diff-hover.md`); a view gets the document's diagnostics
+// as an editor does, for its tagged marks (struck-through deprecated uses). Pure: the server process is
 // a {@link ServerPort} and time is an injected {@link Clock}. See `.plans/devc-web-lsp-core.md`
 // § Host session behavior.
 
@@ -100,6 +101,11 @@ const HOST_CAPABILITIES = {
 type Msg = Record<string, unknown>;
 type Id = number | string;
 
+/** Whether an editor or a view holds `doc`: only then is it pulled. */
+function held(doc: Doc | undefined): boolean {
+  return Boolean(doc && (doc.openers.size > 0 || doc.viewers.size > 0));
+}
+
 interface PeerState {
   /** The documents it has open as an editor. */
   uris: Set<string>;
@@ -108,9 +114,12 @@ interface PeerState {
 }
 
 interface Doc {
-  /** Editors: `didOpen`/`didClose`. Only they get diagnostics and pulls. */
+  /** Editors: `didOpen`/`didClose`. */
   openers: Set<Peer>;
-  /** Views: `devc/openView`/`devc/closeView`, each holding {@link text} as it opened it. */
+  /**
+   * Views: `devc/openView`/`devc/closeView`, each holding {@link text} as it opened it. They get
+   * diagnostics and pulls as editors do.
+   */
   viewers: Set<Peer>;
   /** The host's own version counter: the pages' numbers are ignored. */
   version: number;
@@ -673,6 +682,10 @@ export class LspSession {
     }
     this.#peers.get(peer)?.views.add(uri);
     answer({ ok: true });
+    // After the answer: the page takes a view's diagnostics only once it knows the view is open.
+    const stored = this.#diagnostics.get(uri);
+    if (stored) this.#sendDiagnostics(uri, stored, [peer]);
+    this.#schedulePull(uri);
   }
 
   /** `devc/closeView`: the server's `didClose` only once no editor or view holds `uri`. */
@@ -907,7 +920,7 @@ export class LspSession {
   }
 
   #schedulePull(uri: string) {
-    if (!this.#pulls() || !this.#docs.get(uri)?.openers.size) return;
+    if (!this.#pulls() || !held(this.#docs.get(uri))) return;
     const t = this.#pullTimers.get(uri);
     if (t !== undefined) this.#clock.clearTimeout(t);
     this.#pullTimers.set(
@@ -921,8 +934,7 @@ export class LspSession {
 
   #pull(uri: string) {
     const doc = this.#docs.get(uri);
-    // A document only views hold is never pulled: its diagnostics go nowhere.
-    if (!this.#pulls() || !doc || doc.openers.size === 0) return;
+    if (!this.#pulls() || !doc || !held(doc)) return;
     const version = doc.version;
     const previousResultId = this.#resultIds.get(uri);
     this.#hostRequest('textDocument/diagnostic', {
@@ -951,7 +963,8 @@ export class LspSession {
   // -------------------------------------------------------------------------------------------
 
   /**
-   * `publishDiagnostics` for `uri`, to `to` or every connection with it open. No `version`: the
+   * `publishDiagnostics` for `uri`, to `to` or every connection with it open, as an editor or a
+   * view (a connection with both gets it once). No `version`: the
    * host's numbers are not the page's, and lsp-client drops a report whose version isn't its own.
    */
   #sendDiagnostics(uri: string, diagnostics: unknown[], to?: Peer[]) {
@@ -960,7 +973,9 @@ export class LspSession {
       method: 'textDocument/publishDiagnostics',
       params: { uri, diagnostics },
     };
-    for (const peer of to ?? this.#docs.get(uri)?.openers ?? []) {
+    const doc = this.#docs.get(uri);
+    const peers = to ?? (doc ? new Set([...doc.openers, ...doc.viewers]) : []);
+    for (const peer of peers) {
       this.#toPeer(peer, msg);
     }
   }

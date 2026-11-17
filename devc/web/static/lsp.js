@@ -5,7 +5,8 @@
 // which open file tiles. `tiles.js` decides when a tile wants a server and shows the status line;
 // this module keeps the rest. See `.plans/devc-web-lsp-core.md` § Browser side. Diff tiles use the
 // same sessions for hover and go to definition through **views** (`devc/openView`: the file opened
-// with the PR head's text), never an editor; see `.plans/devc-web-lsp-diff-hover.md`.
+// with the PR head's text), never an editor; see `.plans/devc-web-lsp-diff-hover.md`. A view's
+// diagnostics are kept here for its tile's marks (`viewDiagnostics`).
 
 import { createLanguageClient } from './viewer.js';
 import { LSP_LANGUAGE_NAMES, lspLanguageFor } from './lib/languages.js';
@@ -49,6 +50,8 @@ import { call, onServerMessage, send } from './client.js';
  * @property {'starting' | 'ready' | 'exited'} state
  * @property {string} detail
  * @property {Set<string>} keys the tiles on it
+ * @property {Map<string, any[]>} diagnostics  the last `publishDiagnostics` for each URI, for
+ *   the diff tiles' views (an editor's go to its client as well)
  */
 
 /** @type {Map<string, LspTile>} by tile id */
@@ -89,6 +92,14 @@ let hooks = {
   openFile: (_file) => {},
   /** @param {string} _key */
   changed: (_key) => {},
+  /**
+   * Diff tile `_key`'s view diagnostics may have changed, see {@link viewDiagnostics}: new ones
+   * for its file, or its view let go (`devc/viewStale`, or another view on this page opened
+   * the file with other text).
+   *
+   * @param {string} _key
+   */
+  viewDiagnostics: (_key) => {},
 };
 
 /** @param {typeof hooks} h */
@@ -308,6 +319,7 @@ function newRecord(session, container, localFolder, path, result) {
     state: result.state ?? 'starting',
     detail: typeof result.detail === 'string' ? result.detail : '',
     keys: new Set(),
+    diagnostics: new Map(),
     lc: /** @type {any} */ (null),
   };
   r.lc = createLanguageClient(transport, {
@@ -432,6 +444,30 @@ export function viewStatus(key) {
 }
 
 /**
+ * Diff tile `key`'s view's diagnostics: the session's last report for its file, while its view is
+ * open (the server holds the tile's text). Empty otherwise: the server's positions would be for
+ * other text.
+ *
+ * @param {string} key
+ * @returns {any[]}
+ */
+export function viewDiagnostics(key) {
+  const v = views.get(key);
+  const r = v?.session ? records.get(v.session) : undefined;
+  if (!v || !r || v.opened === null) return [];
+  return r.diagnostics.get(v.uri) ?? [];
+}
+
+/**
+ * The text diff tile `key`'s view is open with, or null while it isn't open.
+ *
+ * @param {string} key
+ */
+export function viewOpenText(key) {
+  return views.get(key)?.opened ?? null;
+}
+
+/**
  * Makes sure the host holds `text` (the PR head's) for diff tile `key`'s view: `devc/openView`,
  * unless it already does. `{ok: false, reason: 'edited', text}` while an editor holds other text:
  * `text` is the editor's, which requests then work against.
@@ -454,6 +490,17 @@ export async function openView(key, text) {
   }
   if (answer?.ok === true) {
     v.opened = text;
+    // The host tells only other connections that their view went stale: one of this page's
+    // with other text is now one too.
+    for (const other of views.values()) {
+      if (
+        other !== v && other.session === session && other.uri === v.uri &&
+        other.opened !== null && other.opened !== text
+      ) {
+        other.opened = null;
+        hooks.viewDiagnostics(other.key);
+      }
+    }
     return { ok: true };
   }
   return {
@@ -542,9 +589,24 @@ function onLspMessage(msg) {
   if (msg.message.method === 'devc/viewStale') {
     const uri = msg.message.params?.textDocument?.uri;
     for (const v of views.values()) {
-      if (v.session === msg.session && v.uri === uri) v.opened = null;
+      if (v.session === msg.session && v.uri === uri) {
+        v.opened = null;
+        hooks.viewDiagnostics(v.key);
+      }
     }
     return;
+  }
+  if (msg.message.method === 'textDocument/publishDiagnostics') {
+    const p = msg.message.params;
+    if (typeof p?.uri === 'string' && Array.isArray(p.diagnostics)) {
+      r.diagnostics.set(p.uri, p.diagnostics);
+      for (const v of views.values()) {
+        if (v.session === msg.session && v.uri === p.uri) {
+          hooks.viewDiagnostics(v.key);
+        }
+      }
+    }
+    // On to the client too, for an editor of the file (it ignores a URI it hasn't open).
   }
   const text = JSON.stringify(msg.message);
   for (const fn of [...r.subscribers]) fn(text);
@@ -564,6 +626,7 @@ function onLspStatus(msg) {
   const keys = [...r.keys];
   if (r.state === 'exited' || (r.state === 'starting' && prev !== 'starting')) {
     // The server's documents are gone: views open again on their next use.
+    r.diagnostics.clear();
     for (const key of keys) {
       const v = views.get(key);
       if (v) v.opened = null;

@@ -729,6 +729,31 @@ export function newColumn(text, shown) {
 }
 
 /**
+ * {@link newColumn} the other way: the displayed offset in `markedText(text)` of UTF-16 offset
+ * `character` in `text`. An offset inside a marked character (the low half of a pair) maps to
+ * its marker's start; one past the end, to the end of what is displayed.
+ *
+ * @param {string} text @param {number} character
+ */
+export function shownColumn(text, character) {
+  let at = 0; // in `text`
+  let shown = 0; // in what is displayed
+  for (const part of splitMarkers(text)) {
+    if (typeof part === 'string') {
+      if (character <= at + part.length) return shown + (character - at);
+      at += part.length;
+      shown += part.length;
+      continue;
+    }
+    const width = /** @type {number} */ (text.codePointAt(at)) > 0xffff ? 2 : 1;
+    if (character < at + width) return shown;
+    at += width;
+    shown += part.marker.length;
+  }
+  return shown;
+}
+
+/**
  * Maps `fromText`'s lines onto `toText`'s: `map(line)` is the 0-based line of `toText` that line
  * `line` of `fromText` is unchanged as, or null when it was changed or deleted (or either text is
  * past {@link MAX_DIFF_LINES}). What a diff tile's hover uses when an open tile holds the file

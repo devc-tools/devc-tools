@@ -706,15 +706,17 @@ is published from any container: the host server finds devcontainers with
   (`DEVC_WEB_LSP_IDLE_MS`, read when devc web starts, overrides that in
   milliseconds), and when its container stops. A diff tile (a pull request's,
   a commit's from the history, or an uncommitted change's) also gets hover (its
-  code highlighted as a file tile's is) and **Ctrl/Cmd+click** go to definition
-  on its added and unchanged lines, from the same server, given the file as it
+  code highlighted as a file tile's is), **Ctrl/Cmd+click** go to definition
+  and the struck-through deprecated uses and faded unused code (no other
+  diagnostics) on its added and unchanged lines, from the same server, given the file as it
   is on the diff's new side (the PR's head, the commit, or the index or working
   tree), so the diff's lines match whatever the checkout holds; deleted lines
   get nothing. The project's other files are read as the checkout has them, so
   in an older commit's diff a type or definition from another file can be off.
   While a tile holds the file with other text (edits, saved or not, or a
   checkout not at the PR head), the diff works against that text on the lines
-  it has unchanged; a line changed there says so instead. After a go
+  it has unchanged; a line changed there says so instead. The marks are left
+  out then (until a hover opens the diff's own text again). After a go
   to definition (either kind), **Go back** returns to where it was asked from
   (the file at its cursor, or the diff at its scroll, reopened in the preview
   tile if it has since been closed or replaced) and **Go forward** returns to

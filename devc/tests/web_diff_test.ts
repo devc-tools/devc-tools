@@ -12,6 +12,7 @@ import {
   newColumn,
   parsePatch,
   placeThreads,
+  shownColumn,
   splitRows,
   splitShare,
   threadRows,
@@ -375,6 +376,25 @@ Deno.test('newColumn: a displayed offset back to the row text, past invisible-ch
   assertEquals(newColumn('a\u200Bb', 9), 2);
   assertEquals(newColumn('a\u200Bb', 3), 1, 'inside a marker: its character');
   assertEquals(newColumn('ab', 99), 2);
+});
+
+Deno.test('shownColumn: a row text offset to the displayed one, newColumn undone', () => {
+  assertEquals(shownColumn('abc', 2), 2);
+  assertEquals(shownColumn('😀x', 2), 2);
+  // `a⟨U+200B⟩b`: text offset 2 (`b`) is displayed at 9.
+  assertEquals(shownColumn('a\u200Bb', 2), 9);
+  assertEquals(
+    shownColumn('a\u200Bb', 1),
+    1,
+    'the marked character: its marker',
+  );
+  assertEquals(shownColumn('a\u200Bb', 3), 10);
+  assertEquals(shownColumn('ab', 99), 2, 'past the end: the end');
+  for (const text of ['a\u200Bbc', '\u202Ex\u200By']) {
+    for (let i = 0; i <= text.length; i++) {
+      assertEquals(newColumn(text, shownColumn(text, i)), i, `${text} ${i}`);
+    }
+  }
 });
 
 Deno.test('lineMap: unchanged lines map across inserted, deleted and changed ones', () => {

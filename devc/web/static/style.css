@@ -4231,6 +4231,17 @@ dialog.dialog.palette {
   background-color: color-mix(in srgb, var(--accent) 25%, transparent);
 }
 
+/* A language server's tagged diagnostics on a diff's new-side rows (tiles.js
+   markDiffDiagnostics), as the file viewer draws them: a deprecated symbol's use struck through,
+   unused code faded (a highlight can't set opacity: the muted colour stands in). */
+::highlight(diff-lsp-deprecated) {
+  text-decoration: line-through;
+}
+
+::highlight(diff-lsp-unnecessary) {
+  color: var(--muted);
+}
+
 /*
  * A diff's changes over its scrollbar track: deleted rows in the left half, added rows in the
  * right (a split view's sides), under the selection's matches.

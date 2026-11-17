@@ -1243,32 +1243,90 @@ Deno.test('view: a second view with new text and no editors replaces it; the fir
   assertEquals(b.take(), [{ jsonrpc: '2.0', id: 4, result: { ok: true } }]);
 });
 
-Deno.test('view: a view-only document gets no diagnostics and no pulls', () => {
+Deno.test('view: a view-only document is pulled and its views get its diagnostics', () => {
   const t = setup();
   const peer = new FakePeer();
   init(t, peer, 1, {
     textDocumentSync: 1,
     diagnosticProvider: { interFileDependencies: true },
   });
+  peer.take();
   openView(t, peer, 2, 'head');
   t.port.take();
-  peer.take();
-  t.clock.advance(PULL_DEBOUNCE_MS * 4);
-  assertEquals(
-    t.port.take().filter((m) => m.method === 'textDocument/diagnostic'),
-    [],
+  assertEquals(peer.take(), [{ jsonrpc: '2.0', id: 2, result: { ok: true } }]);
+  t.clock.advance(PULL_DEBOUNCE_MS);
+  const [pull] = t.port.take().filter((m) =>
+    m.method === 'textDocument/diagnostic'
   );
+  assertEquals(pull.params, { textDocument: { uri: URI } });
+  const items = [{ message: 'd', tags: [2] }];
+  t.port.emit({ id: pull.id, result: { kind: 'full', items } });
+  assertEquals(peer.take(), [{
+    jsonrpc: '2.0',
+    method: 'textDocument/publishDiagnostics',
+    params: { uri: URI, diagnostics: items },
+  }]);
+  // Pushed ones too.
   t.port.emit({
     method: 'textDocument/publishDiagnostics',
     params: { uri: URI, diagnostics: [{ message: 'x' }] },
   });
-  assertEquals(peer.take(), []);
-  // workspace/diagnostic/refresh does not pull it either.
+  assertEquals(
+    peer.take().map((m) => (m.params as Msg).diagnostics),
+    [[{ message: 'x' }]],
+  );
+  // workspace/diagnostic/refresh pulls it again.
   t.port.emit({ id: 99, method: 'workspace/diagnostic/refresh' });
   assertEquals(
-    t.port.take().filter((m) => m.method === 'textDocument/diagnostic'),
-    [],
+    t.port.take().filter((m) => m.method === 'textDocument/diagnostic')
+      .length,
+    1,
   );
+});
+
+Deno.test('view: a late view gets the stored diagnostics after its answer; a peer with both gets one copy', () => {
+  const t = setup();
+  const editor = new FakePeer();
+  const viewer = new FakePeer();
+  init(t, editor);
+  init(t, viewer, 2);
+  open(t, editor, 'head');
+  const items = [{ message: 'dep', tags: [2] }];
+  t.port.emit({
+    method: 'textDocument/publishDiagnostics',
+    params: { uri: URI, diagnostics: items },
+  });
+  editor.take();
+  viewer.take();
+  openView(t, viewer, 3, 'head');
+  assertEquals(viewer.take(), [
+    { jsonrpc: '2.0', id: 3, result: { ok: true } },
+    {
+      jsonrpc: '2.0',
+      method: 'textDocument/publishDiagnostics',
+      params: { uri: URI, diagnostics: items },
+    },
+  ]);
+  // The editor also opens a view on the same text: still one copy per report.
+  openView(t, editor, 4, 'head');
+  editor.take();
+  t.port.emit({
+    method: 'textDocument/publishDiagnostics',
+    params: { uri: URI, diagnostics: [] },
+  });
+  assertEquals(editor.take().length, 1);
+  assertEquals(viewer.take().length, 1);
+  // A view refused as `edited` gets nothing.
+  const late = new FakePeer();
+  init(t, late, 3);
+  late.take();
+  openView(t, late, 5, 'other');
+  assertEquals(late.take().map((m) => (m.result as Msg).reason), ['edited']);
+  t.port.emit({
+    method: 'textDocument/publishDiagnostics',
+    params: { uri: URI, diagnostics: items },
+  });
+  assertEquals(late.take(), []);
 });
 
 Deno.test('view: detaching the last holder of a view closes it', () => {
