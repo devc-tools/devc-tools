@@ -1,5 +1,11 @@
 import { assertEquals } from 'jsr:@std/assert';
-import { findLinks, linkAt, resolvePath } from '../web/static/lib/links.js';
+import {
+  findLinks,
+  linkAt,
+  placedLinkAt,
+  placeLinks,
+  resolvePath,
+} from '../web/static/lib/links.js';
 
 /** The links' texts, as they appear in `text`. */
 const spans = (text: string) =>
@@ -77,4 +83,57 @@ Deno.test('resolvePath takes relative paths from the cwd and normalizes', () => 
   assertEquals(resolvePath('', '/etc/hosts'), '/etc/hosts');
   assertEquals(resolvePath('/a', '../../..'), '/');
   assertEquals(resolvePath('', 'a.ts'), null);
+});
+
+/** A screen of `cols` columns from its rows' texts, one cell per character. */
+const screen = (cols: number, ...texts: string[]) =>
+  texts.map((t) => {
+    const text = t.padEnd(cols);
+    return { text, cells: [...text].map((_, i) => i) };
+  });
+
+Deno.test('placeLinks carries a URL that fills its row on to the next ones', () => {
+  const url = 'https://claude.com/cai/oauth/authorize?code=true&state=abc';
+  const rows = screen(
+    20,
+    `visit: ${url.slice(0, 13)}`,
+    url.slice(13, 33),
+    url.slice(33, 53),
+    `${url.slice(53)} then`,
+    'next line',
+  );
+  const placed = placeLinks(rows, 20);
+  assertEquals(placed.map((p) => [p.link, p.from, p.to]), [[
+    { kind: 'url', url, start: 7, end: 7 + url.length },
+    { row: 0, column: 7 },
+    { row: 3, column: url.length - 54 },
+  ]]);
+  // Any cell of it, on any of its rows, is the whole URL.
+  for (
+    const cell of [{ row: 0, column: 8 }, { row: 2, column: 0 }, {
+      row: 3,
+      column: 0,
+    }]
+  ) {
+    assertEquals(placedLinkAt(placed, cell)?.link.kind, 'url');
+  }
+  assertEquals(placedLinkAt(placed, { row: 3, column: 10 }), null);
+  assertEquals(placedLinkAt(placed, { row: 4, column: 0 }), null);
+});
+
+Deno.test('placeLinks keeps rows apart that do not wrap', () => {
+  // The first row ends short of the last column: the next row is its own line.
+  const placed = placeLinks(
+    screen(30, 'see https://example.com/a', 'b/c.ts:3 more'),
+    30,
+  );
+  assertEquals(placed.map((p) => [p.link.kind, p.from, p.to]), [
+    ['url', { row: 0, column: 4 }, { row: 0, column: 24 }],
+    ['file', { row: 1, column: 0 }, { row: 1, column: 7 }],
+  ]);
+  // A row that wraps into one starting with a blank is not carried on.
+  assertEquals(
+    placeLinks(screen(10, 'http://a.b', ' /x'), 10).map((p) => p.link.kind),
+    ['url', 'file'],
+  );
 });

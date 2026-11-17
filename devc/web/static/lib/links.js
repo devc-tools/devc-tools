@@ -1,6 +1,7 @@
-// Links in a terminal line: URLs, and file paths with an optional `:line[:column]`. Pure (no
-// DOM), shared with the Deno tests (`devc/tests/web_links_test.ts`); `renderer.js` finds them
-// under the pointer and `app.js` opens them.
+// Links in a terminal line: URLs, and file paths with an optional `:line[:column]`; on a screen,
+// URLs wrapped over several rows too (`placeLinks`). Pure (no DOM), shared with the Deno tests
+// (`devc/tests/web_links_test.ts`); `renderer.js` finds them under the pointer and `app.js`
+// opens them.
 
 /**
  * @typedef {{start: number, end: number} & ({kind: 'url', url: string} |
@@ -100,4 +101,67 @@ export function resolvePath(cwd, path) {
     else parts.push(seg);
   }
   return `/${parts.join('/')}`;
+}
+
+/**
+ * A row of the screen: its text, and the cell each of its characters starts in.
+ *
+ * @typedef {{text: string, cells: number[]}} Row
+ */
+
+/**
+ * @typedef {{row: number, column: number}} Cell
+ * @typedef {{link: Link, from: Cell, to: Cell}} PlacedLink
+ *   A link and the first and last cells it covers (`to` inclusive), possibly on different rows.
+ */
+
+/**
+ * Every link on a screen of `cols` columns, a URL carried from one row on to the next when it
+ * runs to the row's last column and the next row starts in its first one: a line wrapped to the
+ * width, as a long URL is when nothing marks it as one. File paths stay within a row.
+ *
+ * @param {Row[]} rows @param {number} cols
+ * @returns {PlacedLink[]}
+ */
+export function placeLinks(rows, cols) {
+  /** @type {PlacedLink[]} */
+  const placed = [];
+  let first = 0;
+  while (first < rows.length) {
+    // The run of rows wrapped into one line, `first` to `last`.
+    let last = first;
+    while (
+      last + 1 < rows.length && wrapsOn(rows[last], rows[last + 1], cols)
+    ) last++;
+    let text = '';
+    /** @type {Cell[]} */
+    const at = [];
+    for (let r = first; r <= last; r++) {
+      text += rows[r].text;
+      for (const column of rows[r].cells) at.push({ row: r, column });
+    }
+    for (const link of findLinks(text)) {
+      const from = at[link.start];
+      const to = at[link.end - 1];
+      if (!from || !to) continue;
+      if (from.row !== to.row && link.kind !== 'url') continue;
+      placed.push({ link, from, to });
+    }
+    first = last + 1;
+  }
+  return placed;
+}
+
+/** Whether `row` ends in its last column and `next` starts in its first, neither with a blank. */
+function wrapsOn(row, next, cols) {
+  const end = row.text.length - 1;
+  return end >= 0 && row.cells[end] >= cols - 2 && !/\s/.test(row.text[end]) &&
+    next.cells[0] === 0 && !/\s/.test(next.text[0] ?? ' ');
+}
+
+/** The placed link covering `cell`, if any. @param {PlacedLink[]} placed @param {Cell} cell */
+export function placedLinkAt(placed, { row, column }) {
+  const key = (/** @type {Cell} */ c) => c.row * 1e6 + c.column;
+  const k = key({ row, column });
+  return placed.find((p) => key(p.from) <= k && k <= key(p.to)) ?? null;
 }

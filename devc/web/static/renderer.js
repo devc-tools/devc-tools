@@ -8,7 +8,7 @@
 import { Terminal } from './vendor/xterm/xterm.mjs';
 import { FitAddon } from './vendor/xterm/addon-fit.mjs';
 import { selectionSpan } from './lib/input.js';
-import { findLinks, linkAt } from './lib/links.js';
+import { placedLinkAt, placeLinks } from './lib/links.js';
 import {
   DEFAULT_THEME,
   terminalTheme,
@@ -36,7 +36,8 @@ import {
  *   Paints the inclusive range between two viewport cells (either order) as selected.
  * @property {() => void} clearHighlight
  * @property {(cell: {column: number, row: number}) => import('./lib/links.js').Link | null} linkAt
- *   The URL or file path drawn over a viewport cell, if any.
+ *   The URL or file path drawn over a viewport cell, if any: an OSC 8 hyperlink's http(s) URL
+ *   under the pointer first, then one found in the text (a URL wrapped over rows whole).
  * @property {(colors: TermColors) => void} setColors
  *   Replaces the colors given as `colors` (both, outright); a no-op for a renderer without them.
  */
@@ -86,8 +87,10 @@ function cssPx(name, fallback) {
  * that opens them is held; opening one is the caller's (clicks never reach xterm.js).
  *
  * `colors` replaces the page's theme and mode (`termOptions`): then `devc-theme` events are
- * ignored and `setColors` changes them. `openUrl` opens an OSC 8 hyperlink's http(s) URL, only
- * when `linkModifier` says the key is down; without it, OSC 8 links do nothing.
+ * ignored and `setColors` changes them. An OSC 8 hyperlink's http(s) URL (Claude Code's login
+ * link) is a link too, found by `linkAt` under the pointer: the caller's mouse handling catches
+ * the click before xterm.js would see it. `openUrl` opens one should xterm.js get the click,
+ * only when `linkModifier` says the key is down.
  *
  * @param {HTMLElement} element
  * @param {{linkHint?: string,
@@ -99,6 +102,14 @@ export function createRenderer(
   element,
   { linkHint = '', linkModifier = () => false, colors, openUrl } = {},
 ) {
+  /**
+   * The OSC 8 hyperlink under the pointer, as xterm.js reports it: its URL and the cells it covers
+   * on one row (1-based, `end` inclusive).
+   * @type {{uri: string, y: number, startX: number, endX: number} | null}
+   */
+  let hyperlink = null;
+  let overLink = false;
+  let modifierDown = false;
   const term = new Terminal({
     scrollback: 0,
     cursorBlink: false,
@@ -118,6 +129,23 @@ export function createRenderer(
             openUrl(u.href);
           }
         } catch { /* not a URL */ }
+      },
+      hover(ev, uri, range) {
+        hyperlink = {
+          uri,
+          y: range.start.y,
+          startX: range.start.x,
+          endX: range.end.x,
+        };
+        if (linkHint) element.title = linkHint;
+        overLink = true;
+        onModifier(ev);
+      },
+      leave() {
+        hyperlink = null;
+        element.removeAttribute('title');
+        overLink = false;
+        updateCursor();
       },
     },
   });
@@ -145,10 +173,11 @@ export function createRenderer(
   });
 
   /**
-   * Row `y`'s text, the cell each of its characters starts in, and its links. No scrollback, so
-   * buffer rows are viewport rows.
+   * Row `y`'s text and the cell each of its characters starts in. No scrollback, so buffer rows
+   * are viewport rows.
+   * @param {number} y @returns {import('./lib/links.js').Row}
    */
-  const lineLinks = (y) => {
+  const rowAt = (y) => {
     const line = term.buffer.active.getLine(y);
     let text = '';
     /** @type {number[]} */
@@ -161,13 +190,18 @@ export function createRenderer(
       for (let i = 0; i < chars.length; i++) cells.push(x);
       text += chars;
     }
-    return { cells, links: findLinks(text) };
+    return { text, cells };
+  };
+  /** The screen's links, a URL wrapped over rows whole. */
+  const screenLinks = () => {
+    const rows = [];
+    for (let y = 0; y < term.rows; y++) rows.push(rowAt(y));
+    return placeLinks(rows, term.cols);
   };
 
   // The pointer cursor needs both: the pointer over a link, and the modifier down. Keys are
   // watched on the window, so pressing or releasing it over a link updates the cursor.
-  let overLink = false;
-  let modifierDown = false;
+
   const updateCursor = () => {
     term.element?.classList.toggle(
       'xterm-cursor-pointer',
@@ -190,11 +224,14 @@ export function createRenderer(
 
   term.registerLinkProvider({
     provideLinks(y, callback) {
-      const { cells, links } = lineLinks(y - 1);
-      callback(links.map((link) => ({
+      const row = y - 1;
+      const links = screenLinks().filter((p) =>
+        p.from.row <= row && row <= p.to.row
+      );
+      callback(links.map(({ link, from, to }) => ({
         range: {
-          start: { x: cells[link.start] + 1, y },
-          end: { x: cells[link.end - 1] + 1, y },
+          start: { x: from.column + 1, y: from.row + 1 },
+          end: { x: to.column + 1, y: to.row + 1 },
         },
         text: link.kind === 'url' ? link.url : link.path,
         decorations: { underline: true, pointerCursor: false },
@@ -292,9 +329,13 @@ export function createRenderer(
       applyColors(c);
     },
     linkAt({ column, row }) {
-      const { cells, links } = lineLinks(row);
-      const index = cells.indexOf(column);
-      return index < 0 ? null : linkAt(links, index);
+      const h = hyperlink;
+      if (
+        h && h.y === row + 1 && h.startX <= column + 1 && column + 1 <= h.endX
+      ) {
+        return { kind: 'url', url: h.uri, start: 0, end: 0 };
+      }
+      return placedLinkAt(screenLinks(), { row, column })?.link ?? null;
     },
   };
 }
