@@ -580,6 +580,11 @@ function loadSidebarState() {
      * (`container`) or repo card (`repo`). The page URL's `?scope=…` overrides what was saved.
      */
     scope: startingScope(saved),
+    /**
+     * Whether In use groups its cards by container, a box each under its name (on at first); off,
+     * they share one box, most urgent agent first whatever their container (the header's toggle).
+     */
+    inUseGrouped: saved?.inUseGrouped !== false,
   };
 }
 
@@ -676,6 +681,7 @@ export function saveSidebarState() {
         width: saved?.width,
         hidden: saved?.hidden,
         scope: storedScope,
+        inUseGrouped: sidebarState.inUseGrouped,
       }),
     );
   } catch { /* storage unavailable: collapsing just won't survive a reload */ }
@@ -988,11 +994,13 @@ export function worktreeItems(card, running) {
  * hides what its toggles opened; with none open, a repo's card in Containers shows or hides its
  * worktrees' cards there (see `containerRows`), and any other does nothing and doesn't look
  * clickable. `worktrees` is how many worktrees' cards follow it in Containers, hidden or not.
- * `side` is the half drawing it (see {@link CardSide}).
+ * `side` is the half drawing it (see {@link CardSide}). With `container`, a repo's header also
+ * names its container, after the branch (In use with its cards not grouped by container).
  *
  * @param {any} card @param {CardSide} side @param {number} [worktrees]
+ * @param {boolean} [container]
  */
-export function repoCard(card, side, worktrees = 0) {
+export function repoCard(card, side, worktrees = 0, container = false) {
   const { key, localFolder, repo } = card;
   const c = containerByFolder(localFolder);
   const fr = { localFolder, root: repo ? repo.folder : localFolder };
@@ -1170,6 +1178,13 @@ export function repoCard(card, side, worktrees = 0) {
           { class: 'repo-head-name' },
           ...repoNameParts(repoGroupName(localFolder, repo)),
           branch ? h('span', { class: 'repo-branch' }, branch) : '',
+          container
+            ? h(
+              'span',
+              { class: 'repo-container' },
+              containerNameOf(localFolder),
+            )
+            : '',
         ),
       ]
       : [h('span', { class: 'repo-base' }, containerNameOf(localFolder))]),

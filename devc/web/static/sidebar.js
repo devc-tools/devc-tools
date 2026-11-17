@@ -142,6 +142,8 @@ let $sidebar = /** @type {HTMLElement} */ (null);
 let $tree = /** @type {HTMLElement} */ (null);
 let $conn = /** @type {HTMLElement | null} */ (null);
 let $scopePicker = /** @type {HTMLElement | null} */ (null);
+/** The header's toggle grouping In use's cards by container: set by {@link mountSidebar}. */
+let $groupButton = /** @type {HTMLElement | null} */ (null);
 /** The header's dashboard button (`#dashboard`), when the page has one. */
 let $dashboardButton = /** @type {HTMLElement | null} */ (null);
 /** The filter box above the zones (its query is `cards.js`' `applyFilter`'s). */
@@ -269,6 +271,17 @@ function setScope(scope) {
   saveSidebarState();
   applyScope();
   renderTree();
+}
+
+/** The grouping toggle's state: pressed while In use groups its cards by container. */
+function applyGrouping() {
+  if (!$groupButton) return;
+  const grouped = sidebarState.inUseGrouped;
+  $groupButton.setAttribute('aria-pressed', String(grouped));
+  const label = grouped
+    ? 'Grouped by container: click to list every repo together'
+    : 'Not grouped: click to group repos by container';
+  $groupButton.title = label;
 }
 
 /** The scope picker's keys, as a radio group's: an arrow key checks the option before or after. */
@@ -537,7 +550,9 @@ function renderTree() {
  * The In use section: the active repo cards (see `repoCardActive`), each container's in a card of
  * its own under its name. Cards come most urgent agent first (see `statusRank`), those with no
  * agent last, then in the layout order of their first tile, then those with none in their
- * container's card order; containers where their first card is. A status change renders the
+ * container's card order; containers where their first card is. Not grouped (the header's
+ * toggle, `inUseGrouped`), every card shares one box in that order, each naming its container.
+ * A status change renders the
  * sidebar again, so cards move as their agents' statuses change. With `only` (a scoped sidebar),
  * the cards it takes instead, active or not, and `empty` the note when it takes none.
  *
@@ -577,23 +592,28 @@ function inUseRows(cards, only, empty = 'Nothing open') {
       ),
     );
   }
+  const grouped = sidebarState.inUseGrouped;
   const runs = new Map();
   for (const card of active) {
-    let run = runs.get(card.localFolder);
+    // Not grouped: one box for every card, each naming its container itself.
+    const runKey = grouped ? card.localFolder : '';
+    let run = runs.get(runKey);
     if (!run) {
-      run = h(
-        'div',
-        { class: 'in-use-run' },
-        h(
+      run = grouped
+        ? h(
           'div',
-          { class: 'in-use-run-name' },
-          h('span', { class: 'label' }, containerNameOf(card.localFolder)),
-        ),
-      );
-      runs.set(card.localFolder, run);
+          { class: 'in-use-run' },
+          h(
+            'div',
+            { class: 'in-use-run-name' },
+            h('span', { class: 'label' }, containerNameOf(card.localFolder)),
+          ),
+        )
+        : h('div', { class: 'in-use-run flat' });
+      runs.set(runKey, run);
       rows.push(run);
     }
-    run.append(repoCard(card, inUseSide));
+    run.append(repoCard(card, inUseSide, 0, !grouped));
   }
   rows.push(...hostRows);
   return rows;
@@ -1856,6 +1876,14 @@ export function mountSidebar(root, opts) {
     if (option) setScope(/** @type {any} */ (option).dataset.scope);
   });
   $scopePicker?.addEventListener('keydown', scopePickerKeydown);
+  $groupButton = root.querySelector('#group-in-use');
+  $groupButton?.addEventListener('click', () => {
+    sidebarState.inUseGrouped = !sidebarState.inUseGrouped;
+    saveSidebarState();
+    applyGrouping();
+    renderTree();
+  });
+  applyGrouping();
   // The page's URL, token included: devc-desktop's window has no address bar, and a container or
   // another browser may need it. The toast names it without showing it, since it is the token.
   $dashboardButton = root.querySelector('#dashboard');

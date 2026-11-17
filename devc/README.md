@@ -603,6 +603,11 @@ is published from any container: the host server finds devcontainers with
   Clicking a pane in the card switches the tile shown. The scope is kept across
   reloads; `?scope=all`, `container`, `repo` or `agents` in the page URL starts
   the sidebar that way without saving it.
+- **Grouping:** the toggle after the scope pill (two stacked boxes, lit while
+  on) groups **In use**'s repo cards by container, a box each under its name,
+  as at first. Off, every card shares one box, most urgent agent first whatever
+  its container, each card naming its container after its branch. Kept across
+  reloads, in every scope.
 - **Input:** keys go through as typed. A multi-line paste is sent as one
   bracketed paste, so a shell or agent prompt does not submit each line. Mouse
   clicks and drags go to the app (Herdr encodes them in the app's own mouse
