@@ -677,7 +677,9 @@ is published from any container: the host server finds devcontainers with
 - **Language servers:** while a file tile can edit its file (the container is
   connected), a `.ts`, `.tsx`, `.mts`, `.cts`, `.js`, `.jsx`, `.mjs`, `.cjs`,
   `.py`, `.pyi` or `.java` file gets completion, hover, signature help,
-  diagnostics (underlined as you type), **F12** (go to definition, opening the
+  diagnostics (underlined as you type; as in VS Code, a use of a deprecated
+  symbol is struck through and unused code is faded, when the server marks
+  them), **F12** (go to definition, opening the
   file in a tile), **Shift+F12** (references, listed for the files open in the
   page) and **Shift+Alt+F** (format), from a language server running **inside
   the file's container**. Rename is not offered. A container serves a language
@@ -2706,8 +2708,9 @@ devc web is the only LSP client a server sees: it initializes the server once
 per session (`processId: null`, the session's root as the workspace folder),
 answers the server's requests to the client itself (`workspace/configuration`
 from `settings`, file-watcher registrations, progress), keeps one open document
-per file with its own version numbers, turns pulled diagnostics into pushed ones,
-and stops a server with `shutdown`, `exit`, then a closed stdin.
+per file with its own version numbers, turns pulled diagnostics into pushed ones
+(asking for the Deprecated and Unnecessary tags either way, which the page
+draws), and stops a server with `shutdown`, `exit`, then a closed stdin.
 `tests/fixtures/devc-lsp-typescript-deno` is a stub launcher that serves every
 TypeScript or JavaScript file with `deno lsp`, for trying this without a
 language Feature:

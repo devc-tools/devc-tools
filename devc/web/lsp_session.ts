@@ -88,7 +88,13 @@ const HOST_CAPABILITIES = {
     diagnostics: { refreshSupport: true },
   },
   window: { workDoneProgress: true },
-  textDocument: { diagnostic: { dynamicRegistration: false } },
+  // Tags as the page draws them (viewer.js): pulled diagnostics reach it as pushed ones.
+  textDocument: {
+    diagnostic: {
+      dynamicRegistration: false,
+      tagSupport: { valueSet: [1, 2] },
+    },
+  },
 };
 
 type Msg = Record<string, unknown>;

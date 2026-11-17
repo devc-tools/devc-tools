@@ -2487,6 +2487,28 @@ button * {
   text-decoration-color: var(--muted);
 }
 
+/* Diagnostics tagged Deprecated or Unnecessary (viewer.js taggedServerDiagnostics), drawn as
+   VS Code draws them: unused code faded at any severity, and a hint struck through (a deprecated
+   symbol's use) or left with no underline (unused code) instead of the hint's. An error, warning
+   or info keeps its squiggle. */
+.cm-editor .cm-content .cm-lintRange.cm-lsp-unnecessary {
+  opacity: 0.6;
+}
+
+.cm-editor .cm-content .cm-lintRange-hint.cm-lsp-deprecated {
+  text-decoration-line: line-through;
+  text-decoration-style: solid;
+  text-decoration-color: currentColor;
+}
+
+.cm-editor .cm-content .cm-lintRange-hint.cm-lsp-unnecessary {
+  text-decoration-line: none;
+}
+
+.cm-editor .cm-content .cm-lintRange-hint.cm-lsp-deprecated.cm-lsp-unnecessary {
+  text-decoration-line: line-through;
+}
+
 /* A file tile's language server status line (lsp.js): small, at its bottom right, over the
    editor; hidden while the server is ready and idle. */
 .lsp-status {

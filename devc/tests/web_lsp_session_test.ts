@@ -206,7 +206,10 @@ Deno.test('initialize: the host sends its own, then caches the result with textD
   assertEquals(params.capabilities, {
     textDocument: {
       hover: { contentFormat: ['markdown'] },
-      diagnostic: { dynamicRegistration: false },
+      diagnostic: {
+        dynamicRegistration: false,
+        tagSupport: { valueSet: [1, 2] },
+      },
     },
     general: { markdown: { parser: 'marked' } },
     workspace: {

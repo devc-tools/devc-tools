@@ -65,6 +65,7 @@ import {
 } from './vendor/codemirror/codemirror.mjs';
 import { languageFor as pickLanguage } from './lib/languages.js';
 import { MAX_RULER_MATCHES, rulerMarks } from './lib/ruler.js';
+import { SUPPORTED_TAGS, tagClasses } from './lib/diagnostic_tags.js';
 
 /** @typedef {import('./lib/layout_state.js').FileRef} FileRef */
 
@@ -1015,6 +1016,69 @@ class DevcWorkspace extends Workspace {
 }
 
 /**
+ * lsp-client's `serverDiagnostics()`, but asking servers for diagnostic tags and keeping them:
+ * a Deprecated or Unnecessary tag becomes the lint mark's `markClass` (lib/diagnostic_tags.js),
+ * which style.css strikes through or fades. lsp-client 6.3.0's own handler drops `tags`, and
+ * without `tagSupport` a TypeScript server never sends a deprecated symbol's use at all. The
+ * rest (version check, positions mapped over unsynced edits, the 500 ms auto-sync) is as there.
+ */
+function taggedServerDiagnostics() {
+  const base = serverDiagnostics();
+  return {
+    ...base,
+    clientCapabilities: {
+      textDocument: {
+        publishDiagnostics: {
+          versionSupport: true,
+          tagSupport: { valueSet: SUPPORTED_TAGS },
+        },
+      },
+    },
+    notificationHandlers: {
+      'textDocument/publishDiagnostics': (
+        /** @type {any} */ client,
+        /** @type {any} */ params,
+      ) => {
+        const file = client.workspace.getFile(params.uri);
+        if (
+          !file || (params.version != null && params.version != file.version)
+        ) {
+          return false;
+        }
+        const view = file.getView();
+        const plugin = view && LSPPlugin.get(view);
+        if (!view || !plugin) return false;
+        const at = (/** @type {any} */ pos) =>
+          plugin.unsyncedChanges.mapPos(
+            plugin.fromPosition(pos, plugin.syncedDoc),
+          );
+        view.dispatch(
+          setDiagnostics(
+            view.state,
+            params.diagnostics.map((/** @type {any} */ item) => {
+              const markClass = tagClasses(item.tags);
+              return {
+                from: at(item.range.start),
+                to: at(item.range.end),
+                severity: toSeverity(item.severity ?? 1),
+                message: item.message,
+                ...(markClass ? { markClass } : {}),
+              };
+            }),
+          ),
+        );
+        return true;
+      },
+    },
+  };
+}
+
+/** An LSP `DiagnosticSeverity` as @codemirror/lint's, as lsp-client maps it. */
+function toSeverity(/** @type {number} */ sev) {
+  return sev == 1 ? 'error' : sev == 2 ? 'warning' : sev == 3 ? 'info' : 'hint';
+}
+
+/**
  * A language client for one session: connected to `transport` (lsp.js's, over the page's
  * socket), with a workspace whose jumps open tiles through `hooks`. Its `attach` gives a viewer
  * the session's features for a file (see {@link Viewer.attachLanguage}).
@@ -1029,7 +1093,7 @@ export function createLanguageClient(transport, hooks) {
     timeout: 20000,
     workspace: (/** @type {any} */ c) => new DevcWorkspace(c, hooks),
     // Push diagnostics: the host turns a pull server's into these.
-    extensions: [serverDiagnostics()],
+    extensions: [taggedServerDiagnostics()],
     sanitizeHTML: sanitizeLspHtml,
   });
   client.connect(transport);
