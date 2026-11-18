@@ -1814,10 +1814,12 @@ Deno.test("parseClientMessage: view_state takes a sidebar's In use cards", () =>
     ),
     { ok: true, msg: { type: 'view_state', view: 'v', state } },
   );
-  // `pinned` may be left out; a tiling area's state may carry them too.
+  // `pinned` and `filter` may be left out; a tiling area's state may carry them too.
   for (
     const ok of [
       { inUse: [] },
+      { inUse: [], pinned: [], filter: 'api main' },
+      { inUse: [], filter: 'x'.repeat(1024) },
       { tiles: [], tree: null, inUse: ['a'], pinned: [] },
     ]
   ) {
@@ -1836,6 +1838,8 @@ Deno.test("parseClientMessage: view_state takes a sidebar's In use cards", () =>
       { inUse: ['a'], pinned: [null] },
       { inUse: new Array(501).fill('a') },
       { inUse: ['x'.repeat(4097)] },
+      { inUse: [], filter: 1 },
+      { inUse: [], filter: 'x'.repeat(1025) },
       { pinned: ['a'] },
     ]
   ) {

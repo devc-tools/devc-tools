@@ -601,6 +601,8 @@ export const MAX_VIEW_TILES = 500;
 export const MAX_VIEW_CARDS = 500;
 /** The longest repo card key a sidebar's `view_state` carries. */
 export const MAX_CARD_KEY = 4096;
+/** The longest filter text a sidebar's `view_state` carries (`filter`). */
+export const MAX_VIEW_FILTER = 1024;
 /** The longest `view_*` / `*_intent` frame, in UTF-16 code units of its text. */
 export const MAX_VIEW_MESSAGE = 256 * 1024;
 /** The longest `lsp_send` frame, in UTF-16 code units of its text. */
@@ -746,7 +748,8 @@ function cardKeys(s: Obj, k: 'inUse' | 'pinned'): void {
 
 /**
  * A `ViewState`'s shape, as far as the server looks: `tiles` an array, `tree` an object or null;
- * or a sidebar's In use cards, `inUse` (and `pinned`) arrays of card keys, with no `tiles`.
+ * or a sidebar's In use cards, `inUse` (and `pinned`) arrays of card keys, and its filter box's
+ * text (`filter`, when there), with no `tiles`.
  */
 function viewState(o: Obj): Record<string, unknown> {
   const v = o.state;
@@ -757,6 +760,14 @@ function viewState(o: Obj): Record<string, unknown> {
   if (s.tiles === undefined && s.inUse !== undefined) {
     cardKeys(s, 'inUse');
     cardKeys(s, 'pinned');
+    if (
+      s.filter !== undefined &&
+      (typeof s.filter !== 'string' || s.filter.length > MAX_VIEW_FILTER)
+    ) {
+      throw new Invalid(
+        `'state.filter' must be a string of at most ${MAX_VIEW_FILTER}`,
+      );
+    }
     return s;
   }
   if (!Array.isArray(s.tiles) || s.tiles.length > MAX_VIEW_TILES) {

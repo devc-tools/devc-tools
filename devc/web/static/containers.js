@@ -101,6 +101,7 @@ import {
   rootEntryRows,
   saveSidebarState,
   sectionRow,
+  setFilterQuery,
   sidebarState,
   treeId,
   treeKeydown,
@@ -200,6 +201,8 @@ function renderStandalone() {
     // Folded, it shows no repo: In use's page says which it shows. Never folded (`/containers`
     // with no `onFold`), it shows them all.
     reportVisibleRepos(onFold === null || sidebarState.containersOpen, []);
+    // The view's sidebar's filter box filters this page's rows too ('' with no sidebar).
+    setFilterQuery(link.filterQuery());
     draw(cards);
     applyFilter([$root]);
     holdSections();

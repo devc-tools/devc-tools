@@ -165,7 +165,7 @@ let shownInUse = new Set();
 let toldInUse = '';
 /** Tells another page's Containers section In use's cards and pins (`/sidebar`); null on `/`. */
 let onInUse =
-  /** @type {((state: {inUse: string[], pinned: string[]}) => void) | null} */ (
+  /** @type {((state: {inUse: string[], pinned: string[], filter: string}) => void) | null} */ (
     null
   );
 /**
@@ -721,6 +721,7 @@ const inUseLink = {
   pinned: (key) => sidebarState.cardsPinned.has(key),
   pin: setCardPinned,
   onInUseChange: () => {},
+  filterQuery: () => $filter?.value ?? '',
 };
 
 /** A tile's **Reveal in Containers**: in this page's Containers section, and another page's. */
@@ -729,10 +730,17 @@ function revealInContainers(ref) {
   otherContainers?.reveal(ref);
 }
 
-/** Tells another page's Containers section In use's cards and pins, when they changed. */
+/**
+ * Tells another page's Containers section In use's cards and pins, and the filter box's text, when
+ * they changed.
+ */
 function tellInUse() {
   if (!onInUse) return;
-  const state = inUseState(shownInUse, sidebarState.cardsPinned);
+  const state = inUseState(
+    shownInUse,
+    sidebarState.cardsPinned,
+    $filter?.value.trim() ?? '',
+  );
   const told = JSON.stringify(state);
   if (told === toldInUse) return;
   toldInUse = told;
@@ -1826,7 +1834,7 @@ function onSidebarMessage(msg) {
  * @param {HTMLElement} root
  * @param {{tileArea: TileArea, containers?: ContainersIntents,
  *   containersExternal?: boolean,
- *   onInUse?: (state: {inUse: string[], pinned: string[]}) => void}} opts
+ *   onInUse?: (state: {inUse: string[], pinned: string[], filter: string}) => void}} opts
  * @returns {{intents: SidebarIntents, onViewState: (state: ViewState) => void,
  *   inUse: {revealInUse: (key: string) => void, pin: (key: string, pinned: boolean) => void,
  *   state: () => {inUse: string[], pinned: string[]}}}}

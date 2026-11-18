@@ -12,6 +12,7 @@ import {
   inUseState,
   layoutSignature,
   layoutTiles,
+  MAX_VIEW_FILTER,
   nodeById,
   nodeTiles,
   parseDrag,
@@ -269,7 +270,30 @@ Deno.test('the Containers contracts: their intent names, and view_state.inUse', 
   assertEquals(inUseState(new Set(['b', 'a']), ['a']), {
     inUse: ['a', 'b'],
     pinned: ['a'],
+    filter: '',
   });
+  // The sidebar's filter text comes along, cut to what the server takes.
+  assertEquals(inUseState([], [], 'api main').filter, 'api main');
+  assertEquals(
+    inUseState([], [], 'x'.repeat(MAX_VIEW_FILTER + 5)).filter.length,
+    MAX_VIEW_FILTER,
+  );
+  assertEquals(
+    relayedState({
+      type: 'view_state',
+      view: 'v',
+      state: { tiles: [], tree: null, inUse: [], filter: 'api' },
+    }, 'v'),
+    { ...emptyViewState(), inUse: [], filter: 'api' },
+  );
+  assertEquals(
+    relayedState({
+      type: 'view_state',
+      view: 'v',
+      state: { tiles: [], tree: null, filter: 3 },
+    }, 'v'),
+    emptyViewState(),
+  );
 });
 
 Deno.test('encodeDrag and parseDrag: a pane or a file round-trips; junk is null', () => {

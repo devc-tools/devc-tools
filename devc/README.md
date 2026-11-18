@@ -537,7 +537,9 @@ is published from any container: the host server finds devcontainers with
   everything under it, and the rows above it; section headings always show.
   A folded container (or **Not running**, or a repo's hidden worktrees) opens
   while one of its repo cards (or projects) matches; past repo cards, only
-  what is open is searched.
+  what is open is searched. It filters the Projects section too, also where it
+  is drawn apart from the sidebar: devc-desktop's Containers pane, or a
+  `/containers` page with the same view id as the `/sidebar` page.
   **Escape** empties the box, **↓** steps into the rows.
 - **Zen mode:** the corners button at the tiling area's top right (over the
   top-right tile's header; in zen mode, shown on hover), a tile's menu, or

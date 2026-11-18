@@ -207,17 +207,20 @@ export function remoteContainers() {
   };
 }
 
-/** Tells the view's Containers sections In use's cards and pins: `mountSidebar`'s `onInUse`. */
+/**
+ * Tells the view's Containers sections In use's cards and pins, and the filter box's text:
+ * `mountSidebar`'s `onInUse`.
+ */
 export function sendInUse(
-  /** @type {{inUse: string[], pinned: string[]}} */ state,
+  /** @type {{inUse: string[], pinned: string[], filter: string}} */ state,
 ) {
   send({ type: 'view_state', view: VIEW_ID, state });
 }
 
 /**
- * In use as the `/containers` page's Containers section holds it (see `InUseLink`): its cards and
- * pins are the last relayed `view_state`'s (none before any), and each call goes to the view's
- * sidebars as an `inuse_intent`.
+ * In use as the `/containers` page's Containers section holds it (see `InUseLink`): its cards,
+ * pins and filter are the last relayed `view_state`'s (none before any), and each call goes to the
+ * view's sidebars as an `inuse_intent`.
  *
  * @returns {{link: InUseLink, setState: (state: ViewState) => void}}
  *   `setState` keeps a relayed state's cards, telling `onInUseChange` when they changed
@@ -225,6 +228,7 @@ export function sendInUse(
 export function remoteInUse() {
   let keys = new Set();
   let pinned = new Set();
+  let filter = '';
   let shown = '';
   /** @type {(() => void)[]} */
   const listeners = [];
@@ -238,13 +242,19 @@ export function remoteInUse() {
       pinned: (key) => pinned.has(key),
       pin: (key, on) => intent('pin', [key, on]),
       onInUseChange: (cb) => listeners.push(cb),
+      filterQuery: () => filter,
     },
     setState: (state) => {
-      const next = JSON.stringify([state.inUse ?? [], state.pinned ?? []]);
+      const next = JSON.stringify([
+        state.inUse ?? [],
+        state.pinned ?? [],
+        state.filter ?? '',
+      ]);
       if (next === shown) return;
       shown = next;
       keys = new Set(state.inUse ?? []);
       pinned = new Set(state.pinned ?? []);
+      filter = state.filter ?? '';
       for (const cb of listeners) cb();
     },
   };

@@ -59,6 +59,8 @@ import {
  * @property {string[]} [inUse]  relayed only: the repo cards In use shows (`repoCardKey`), from
  *   the view's sidebar, so a Containers page (`/containers`) draws their stand-ins
  * @property {string[]} [pinned] relayed only: the cards among them pinned to In use
+ * @property {string} [filter]  relayed only: the sidebar's filter box text, which a Containers
+ *   page filters its rows by as the sidebar's own Containers section is
  */
 
 /**
@@ -124,7 +126,7 @@ import {
 /**
  * How the Containers section (`containers.js`) reaches In use (`sidebar.js`): the whole coupling
  * that way. In one page it is In use itself; across pages (`/containers` beside `/sidebar`) the
- * calls go as `inuse_intent`s and the keys come in `view_state`'s `inUse` and `pinned`.
+ * calls go as `inuse_intent`s and the keys come in `view_state`'s `inUse` and `pinned` (and the filter in its `filter`).
  *
  * @typedef {object} InUseLink
  * @property {(key: string) => void} revealInUse  scrolls In use to a card and flashes it (a
@@ -134,8 +136,10 @@ import {
  * @property {(key: string) => boolean} pinned  whether a card is pinned to In use (its menu says
  *   Pin or Unpin)
  * @property {(key: string, pinned: boolean) => void} pin  **Pin to In use** / **Unpin**
- * @property {(cb: () => void) => void} onInUseChange  `cb` runs when In use's cards or pins
- *   change (only across pages: in one page a render draws both)
+ * @property {(cb: () => void) => void} onInUseChange  `cb` runs when In use's cards, pins or
+ *   filter change (only across pages: in one page a render draws both)
+ * @property {() => string} filterQuery  the sidebar's filter box text, which the section's rows
+ *   are filtered by
  */
 
 /**
@@ -576,15 +580,27 @@ export function relayedState(msg, view) {
   };
   if (Array.isArray(s.inUse)) state.inUse = strings(s.inUse);
   if (Array.isArray(s.pinned)) state.pinned = strings(s.pinned);
+  if (typeof s.filter === 'string') state.filter = s.filter;
   return state;
 }
 
-/** In use's part of a view's state, as its sidebar sends it in a `view_state`. */
+/** The longest filter text a sidebar's `view_state` carries (the server checks the same). */
+export const MAX_VIEW_FILTER = 1024;
+
+/**
+ * In use's part of a view's state, as its sidebar sends it in a `view_state`: its cards, its
+ * pins, and the filter box's text (cut to {@link MAX_VIEW_FILTER}).
+ */
 export function inUseState(
   /** @type {Iterable<string>} */ inUse,
   /** @type {Iterable<string>} */ pinned,
+  filter = '',
 ) {
-  return { inUse: [...inUse].sort(), pinned: [...pinned].sort() };
+  return {
+    inUse: [...inUse].sort(),
+    pinned: [...pinned].sort(),
+    filter: filter.slice(0, MAX_VIEW_FILTER),
+  };
 }
 
 /** @param {unknown[]} v */

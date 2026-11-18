@@ -29,8 +29,11 @@ interface View<M> {
   members: Map<M, ViewRole>;
   /** The tiling area's last `view_state`, verbatim. */
   state: Record<string, unknown> | null;
-  /** A sidebar's last In use cards (`inUse`, `pinned`), sent with the state to Containers. */
-  inUse: { inUse: unknown; pinned: unknown } | null;
+  /**
+   * A sidebar's last In use cards (`inUse`, `pinned`) and filter box text (`filter`), sent with
+   * the state to Containers.
+   */
+  inUse: { inUse: unknown; pinned: unknown; filter: string } | null;
   /** When the last member left (`now()`'s), or null while it has members. */
   emptySince: number | null;
 }
@@ -93,7 +96,8 @@ export class ViewRegistry<M> {
   /**
    * A `view_state`. A tiling area's is kept as the view's last state, and sent to its sidebars,
    * and with In use's cards to its Containers sections. A sidebar's carries only In use's cards
-   * (`inUse`, `pinned`): kept, and sent with the last state to the Containers sections. Anyone
+   * (`inUse`, `pinned`) and its filter (`filter`): kept, and sent with the last state to the
+   * Containers sections. Anyone
    * else's, a tiling area's without `tiles` or a sidebar's without `inUse`, is ignored.
    */
   state(
@@ -105,7 +109,7 @@ export class ViewRegistry<M> {
     if (tiles) {
       // In use's cards alone are a sidebar's to send.
       if (!Array.isArray(state.tiles)) return [];
-      const { inUse: _inUse, pinned: _pinned, ...own } = state;
+      const { inUse: _inUse, pinned: _pinned, filter: _filter, ...own } = state;
       tiles.state = own;
       return [
         ...this.#to(tiles, 'sidebar', { type: 'view_state', view, state: own }),
@@ -118,7 +122,11 @@ export class ViewRegistry<M> {
     }
     const sidebar = this.#memberOf(member, view, 'sidebar');
     if (!sidebar || !Array.isArray(state.inUse)) return [];
-    sidebar.inUse = { inUse: state.inUse, pinned: state.pinned ?? [] };
+    sidebar.inUse = {
+      inUse: state.inUse,
+      pinned: state.pinned ?? [],
+      filter: typeof state.filter === 'string' ? state.filter : '',
+    };
     return this.#to(sidebar, 'containers', {
       type: 'view_state',
       view,

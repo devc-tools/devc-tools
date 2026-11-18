@@ -120,7 +120,7 @@ Deno.test('views: a tiles joiner is sent nothing; intents are not replayed', () 
   assertEquals(reg.join('main1', 'v1', 'tiles'), []);
 });
 
-const IN_USE = { inUse: ['card\n/w\n/w'], pinned: [] };
+const IN_USE = { inUse: ['card\n/w\n/w'], pinned: [], filter: 'api' };
 
 Deno.test("views: a Containers section gets the state with In use's cards", () => {
   const { reg } = setup();
@@ -175,6 +175,17 @@ Deno.test("views: In use's cards from anyone but a sidebar, or a tiling state wi
   // A tiling area's own `inUse` is not kept: In use's cards are the sidebar's.
   const out = reg.state('main1', 'v1', { ...STATE, ...IN_USE });
   assertEquals(out.map((d) => d.msg.state), [STATE, STATE]);
+});
+
+Deno.test("views: a sidebar's filter goes on to Containers; none is ''", () => {
+  const { reg } = setup();
+  reg.join('side1', 'v1', 'sidebar');
+  reg.join('cont1', 'v1', 'containers');
+  const filtered = reg.state('side1', 'v1', IN_USE);
+  assertEquals((filtered[0].msg.state as { filter: string }).filter, 'api');
+  // An older sidebar sends none: the last one is not kept.
+  const none = reg.state('side1', 'v1', { inUse: [], pinned: [] });
+  assertEquals((none[0].msg.state as { filter: string }).filter, '');
 });
 
 Deno.test('views: containers_intent goes from sidebars to Containers, inuse_intent back', () => {
