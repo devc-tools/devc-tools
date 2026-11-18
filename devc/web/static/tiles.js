@@ -99,6 +99,7 @@ import {
   diffTexts,
   dragSplitShare,
   fillPatch,
+  headLineHunk,
   ignoreWhitespace,
   lineMap,
   markRanges,
@@ -3850,11 +3851,14 @@ function diffContent(view) {
   const data = view.data;
   const threads = view.threads ?? [];
   const shown = shownPatch(view);
-  const placed = placeThreads(shown?.parsed ?? null, threads);
+  // A Since viewed comparison's old side is not the PR's base: base-side threads go to the
+  // File threads block.
+  const headOnly = !!view.since;
+  const placed = placeThreads(shown?.parsed ?? null, threads, headOnly);
   /** The rows a thread is on (see `threadRows`): `open` when an unresolved one is. */
   const covered = new Map();
   for (const t of threads) {
-    for (const key of threadRows(shown?.parsed ?? null, t)) {
+    for (const key of threadRows(shown?.parsed ?? null, t, headOnly)) {
       if (covered.get(key) !== 'open') {
         covered.set(key, t.isResolved ? 'resolved' : 'open');
       }
@@ -3966,10 +3970,11 @@ function diffContent(view) {
     );
   }
   const single = oneSided(view);
-  // `+` on a line number: a new comment, on the PR's own diff only (GitHub takes comments on
-  // lines in it, not on a Since viewed comparison). **Whole file**'s filled rows take one too, as
-  // GitHub's expanded unchanged lines do.
-  const commenting = !since && view.data?.canReview === true;
+  // `+` on a line number: a new comment. **Whole file**'s filled rows take one too, as GitHub's
+  // expanded unchanged lines do. On a Since viewed comparison only the head side does: its lines
+  // are the head's, as in the PR's diff, where the old side's are the viewed commit's, which
+  // GitHub has no place for.
+  const commenting = view.data?.canReview === true;
   const nc = view.newComment;
   /** The rows the open new comment is on: marked hot while it is open. */
   const hotKeys = new Set(
@@ -3994,7 +3999,7 @@ function diffContent(view) {
       { class: 'diff-num', ...(kind ? { 'data-kind': kind } : {}) },
       n == null ? '' : String(n),
     );
-    if (commenting && n != null) {
+    if (commenting && n != null && (!since || side === 'RIGHT')) {
       cell.append(h('button', {
         type: 'button',
         class: 'diff-add-comment',
@@ -4239,7 +4244,7 @@ function threadHunk(view, thread) {
 /** A thread's card: each comment, then Reply, Resolve and ↗ as the grants allow. */
 function threadCard(view, thread) {
   const now = Date.now();
-  const keys = threadRows(view.shown?.parsed ?? null, thread);
+  const keys = threadRows(view.shown?.parsed ?? null, thread, !!view.since);
   /** Hovering a card marks the rows it is on. @param {boolean} on */
   const hot = (on) => {
     for (const key of keys) {
@@ -4530,6 +4535,13 @@ function openNewComment(view, side, line, hunk, shift, filled = false) {
     startLine = Math.min(a.line, line);
     last = Math.max(a.line, line);
     outside ||= a.filled;
+  }
+  // On a Since viewed comparison, outside the PR's diff is a head line no hunk of it has, or a
+  // range whose ends are in two of its hunks.
+  if (view.since) {
+    const at = headLineHunk(view.parsed, line);
+    outside = at < 0 ||
+      (startLine !== null && headLineHunk(view.parsed, a?.line ?? line) !== at);
   }
   view.anchor = { side, line, hunk, filled };
   let nc = view.newComment;

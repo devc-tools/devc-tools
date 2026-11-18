@@ -91,14 +91,17 @@ function sideField(side) {
  * Where each thread goes: after the last row whose number on its side is its `line` — a `LEFT`
  * thread's by the **old-file** number (a deleted or context row), any other's by the **new-file**
  * number (an added or context row) — keyed `<hunk index>:<row index>`; in `file` (the File
- * threads block) when it is a file comment, its `line` is `null`, or it matches no row.
+ * threads block) when it is a file comment, its `line` is `null`, or it matches no row. With
+ * `headOnly` (a Since viewed comparison, whose old side is not the PR's base), a thread on the
+ * base side (`LEFT`, either end) goes in `file` too.
  *
  * @template {ThreadPlace} T
  * @param {ParsedPatch | null} parsed
  * @param {T[]} threads
+ * @param {boolean} [headOnly]
  * @returns {{rows: Map<string, T[]>, file: T[]}}
  */
-export function placeThreads(parsed, threads) {
+export function placeThreads(parsed, threads, headOnly = false) {
   /** @type {{old: Map<number, string>, new: Map<number, string>}} */
   const by = { old: new Map(), new: new Map() };
   parsed?.hunks.forEach((h, hi) =>
@@ -112,13 +115,31 @@ export function placeThreads(parsed, threads) {
   /** @type {T[]} */
   const file = [];
   for (const t of threads) {
-    const key = t.line === null || t.subjectType === 'FILE'
+    const key = t.line === null || t.subjectType === 'FILE' ||
+        (headOnly && onBase(t))
       ? undefined
       : by[sideField(t.diffSide)].get(t.line);
     if (key === undefined) file.push(t);
     else rows.set(key, [...(rows.get(key) ?? []), t]);
   }
   return { rows, file };
+}
+
+/** Whether either end of a thread is on the base side (`LEFT`). @param {ThreadPlace} t */
+function onBase(t) {
+  return t.diffSide === 'LEFT' ||
+    (t.startLine != null && t.startDiffSide === 'LEFT');
+}
+
+/**
+ * The index of the hunk of `parsed` (the PR's own patch) that has head line `line` (an added or
+ * context row), or -1: where a comment from a Since viewed comparison lands in the PR's diff.
+ *
+ * @param {ParsedPatch | null} parsed @param {number} line
+ */
+export function headLineHunk(parsed, line) {
+  if (!parsed) return -1;
+  return parsed.hunks.findIndex((h) => h.rows.some((r) => r.new === line));
 }
 
 /** A row's text with every whitespace character dropped: what **Hide whitespace** compares. */
@@ -411,15 +432,19 @@ function markRange(spans, from, to) {
  * has none) to the last row whose number on its side is at most its `line`, notes left out. On
  * one side that is the rows numbered `startLine`–`line` there and the other side's rows between
  * them. None for a file comment, a thread with no `line`, or one whose lines the patch doesn't
- * show.
+ * show; with `headOnly`, none for one on the base side either (see {@link placeThreads}).
  *
  * @param {ParsedPatch | null} parsed
  * @param {ThreadPlace} thread
+ * @param {boolean} [headOnly]
  * @returns {string[]}
  */
-export function threadRows(parsed, thread) {
+export function threadRows(parsed, thread, headOnly = false) {
   const last = thread.line;
-  if (parsed === null || last === null || thread.subjectType === 'FILE') {
+  if (
+    parsed === null || last === null || thread.subjectType === 'FILE' ||
+    (headOnly && onBase(thread))
+  ) {
     return [];
   }
   const end = sideField(thread.diffSide);

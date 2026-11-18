@@ -970,7 +970,13 @@ is published from any container: the host server finds devcontainers with
   - **Pending reviews.** With `gh-pr-pending-review`, hovering a line number
     in `PR changes` shows a `+`: a comment on that line, or with Shift after
     another `+` in the same hunk and side, on the lines between — with
-    **Whole file**, lines outside the diff too, as on GitHub. A reply's
+    **Whole file**, lines outside the diff too, as on GitHub. A Since
+    comparison takes them on its new side only: those are the head's lines,
+    as in the PR's diff, while its old side is the commit you viewed, which
+    GitHub has no place for. A line there that the PR's diff doesn't show (or
+    a range across two of its hunks) is outside the diff, as above. Its
+    threads on the base side, which its old side isn't, are listed with the
+    file's threads instead of on a line. A reply's
     **Add to review** holds it the same way. A comment or reply on its way
     stays in its box, disabled with a spinner, until it shows in the tile.
     Held comments show as `pending`

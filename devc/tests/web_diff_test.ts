@@ -4,6 +4,7 @@ import {
   diffTexts,
   dragSplitShare,
   fillPatch,
+  headLineHunk,
   ignoreWhitespace,
   lineMap,
   markRanges,
@@ -585,4 +586,40 @@ Deno.test('dragSplitShare measures from the left text column, past its number co
   assertEquals(dragSplitShare(0, 500, 50), MIN_SPLIT_SHARE);
   assertEquals(dragSplitShare(500, 500, 50), 1 - MIN_SPLIT_SHARE);
   assertEquals(dragSplitShare(10, 80, 50), 0.5);
+});
+
+Deno.test('placeThreads, threadRows: headOnly sends base-side threads to File threads', () => {
+  const parsed = parsePatch(PATCH);
+  const threads = [
+    { id: 'right', line: 11, diffSide: 'RIGHT' },
+    { id: 'left', line: 10, diffSide: 'LEFT' },
+    {
+      id: 'from-left',
+      line: 12,
+      diffSide: 'RIGHT',
+      startLine: 10,
+      startDiffSide: 'LEFT',
+    },
+  ];
+  const { rows, file } = placeThreads(parsed, threads, true);
+  assertEquals(
+    [...rows].map(([k, v]) => [k, v.map((x) => x.id)]),
+    [['0:1', ['right']]],
+  );
+  assertEquals(file.map((x) => x.id), ['left', 'from-left']);
+  assertEquals(threadRows(parsed, threads[0], true), ['0:1']);
+  assertEquals(threadRows(parsed, threads[1], true), []);
+  assertEquals(threadRows(parsed, threads[2], true), []);
+  // Without it, the LEFT thread is placed by its old-file line.
+  assertEquals(placeThreads(parsed, threads).file, []);
+});
+
+Deno.test('headLineHunk: the PR hunk with a head line, else -1', () => {
+  const parsed = parsePatch(PATCH);
+  // New numbers: hunk 0 has 10–12, hunk 1 has 21–22.
+  assertEquals(headLineHunk(parsed, 11), 0);
+  assertEquals(headLineHunk(parsed, 12), 0);
+  assertEquals(headLineHunk(parsed, 22), 1);
+  assertEquals(headLineHunk(parsed, 15), -1);
+  assertEquals(headLineHunk(null, 11), -1);
 });
