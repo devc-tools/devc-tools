@@ -3316,7 +3316,11 @@ export function applyFilter(/** @type {HTMLElement[]} */ zones) {
     const depth = first ? depthOf(first) : 0;
     if (!first) return { el, depth, matches: false };
     const [head, ...rest] = [...el.children].map(nodeOf);
-    if (head && HEADED_BOXES.some((k) => el.classList.contains(k))) {
+    // In use's ungrouped box (`in-use-run flat`) has no heading: its first child is a card.
+    if (
+      head && HEADED_BOXES.some((k) => el.classList.contains(k)) &&
+      !el.classList.contains('flat')
+    ) {
       head.children = rest;
       return { el, depth, matches: false, children: [head] };
     }
