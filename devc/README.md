@@ -955,7 +955,18 @@ is published from any container: the host server finds devcontainers with
     viewed**. Both start from the latest point, whichever came later of your
     last Viewed tick here and your latest review, so a file you ticked on
     github.com still opens on what changed since you signed off. The choice
-    is the tile's own, not kept across a reload.
+    is the tile's own, not kept across a reload. A file the commit doesn't
+    have (added since, or removed) compares as empty on that side.
+    The PR header's clock (**Show only changes since viewed**) does the same
+    for the whole list: only files changed since that latest point are
+    listed, their `+a −d` and the header's counts are lines changed since
+    then, and a click opens the file on that comparison. Each file is
+    compared in the page (from the host mirror where it can), a note counting
+    those still being compared; a file that can't be (binary, too large)
+    stays listed with `?`, and files never marked Viewed in devc web nor
+    covered by a review are left out, with a note saying how many. Ticking
+    one Viewed drops it from the list. Off, the list is the PR's changes as
+    before; the toggle is kept per browser, like the others.
   - **Pending reviews.** With `gh-pr-pending-review`, hovering a line number
     in `PR changes` shows a `+`: a comment on that line, or with Shift after
     another `+` in the same hunk and side, on the lines between — with

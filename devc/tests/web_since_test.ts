@@ -1,5 +1,10 @@
 import { assertEquals } from 'jsr:@std/assert';
-import { sinceOptions } from '../web/static/lib/since.js';
+import {
+  latestSince,
+  sinceOptions,
+  sinceStat,
+} from '../web/static/lib/since.js';
+import { diffTexts } from '../web/static/lib/diff.js';
 
 const sha = (c: string) => c.repeat(40);
 const HEAD = sha('f');
@@ -96,4 +101,48 @@ Deno.test('sinceOptions: a review at a Viewed head is one option, named by the l
     })),
     ['viewed:a'],
   );
+});
+
+Deno.test('latestSince: the later of the newest Viewed mark and the review, none at the head', () => {
+  const pr = (myReview: unknown) => ({ headSha: HEAD, myReview });
+  assertEquals(latestSince(null, pr(null)), null);
+  const viewed = mark('a', '2026-11-02T10:00:00.000Z');
+  assertEquals(latestSince(viewed, pr(null))?.headSha, sha('a'));
+  assertEquals(
+    latestSince(viewed, pr(review('r', '2026-11-03T10:00:00Z')))?.kind,
+    'review',
+  );
+  assertEquals(
+    latestSince(viewed, pr(review('r', '2026-11-01T10:00:00Z')))?.kind,
+    'viewed',
+  );
+  // Viewed at the head since: nothing changed since, whatever came before.
+  assertEquals(
+    latestSince(
+      mark('f', '2026-11-04T10:00:00.000Z'),
+      pr(review('r', '2026-11-03T10:00:00Z')),
+    ),
+    null,
+  );
+  // Reviewed at the head after an older mark.
+  assertEquals(
+    latestSince(viewed, pr(review('f', '2026-11-03T10:00:00Z'))),
+    null,
+  );
+  assertEquals(
+    latestSince(mark('a', '2026-11-02T10:00:00.000Z', 'UNVIEWED'), pr(null)),
+    null,
+  );
+});
+
+Deno.test('sinceStat: added and deleted lines, null for the same text', () => {
+  assertEquals(sinceStat(diffTexts('a\nb\nc\n', 'a\nB\nc\nd\n')!), {
+    additions: 2,
+    deletions: 1,
+  });
+  assertEquals(sinceStat(diffTexts('a\n', 'a\n')!), null);
+  assertEquals(sinceStat(diffTexts('', 'x\ny\n')!), {
+    additions: 2,
+    deletions: 0,
+  });
 });

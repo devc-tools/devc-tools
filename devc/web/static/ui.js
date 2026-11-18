@@ -207,6 +207,16 @@ export const LABELS = {
   flatBySize: 'List files flat, most changed lines first',
   flatBySizeFewest: 'List files flat, fewest changed lines first',
   flatOff: 'List files as a tree',
+  sinceViewedOn: 'Show only changes since viewed',
+  sinceViewedOff: 'Show all PR changes',
+  comparingSince: (n) =>
+    `Comparing ${n} file${n === 1 ? '' : 's'} since viewed…`,
+  noSinceRecord: (n) =>
+    `${n} file${
+      n === 1 ? '' : 's'
+    } never viewed in devc web or reviewed: left out`,
+  noChangesSince: 'No changes since viewed',
+  linesSinceViewed: 'Lines changed since viewed',
   testsApart: 'List test files apart',
   testsTogether: 'List test files with the rest',
   tests: 'Tests',
@@ -355,6 +365,8 @@ const ICON_PATHS = {
   // An eye: a PR's Hide viewed files.
   viewed: 'M1.5 8s2.5-4.5 6.5-4.5S14.5 8 14.5 8 12 12.5 8 12.5 1.5 8 1.5 8z' +
     'M6 8a2 2 0 1 0 4 0a2 2 0 1 0-4 0',
+  // A clock face: a PR's files as changed since viewed.
+  sinceViewed: 'M2.5 8a5.5 5.5 0 1 0 11 0a5.5 5.5 0 1 0-11 0M8 4.5V8h2.5',
   // Bars, longest first: a PR's files flat, by size.
   flatBySize: 'M2.5 4h11M2.5 8h7.5M2.5 12h4',
   // A flask: a PR's test files apart.

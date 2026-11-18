@@ -1042,6 +1042,12 @@ Deno.test("pr history: every pr_viewed is recorded with its head, and pr_diff li
       (diff.viewedHistory as ViewedMark[]).map((m) => m.path),
       ['src/a.ts', 'old/a.ts'],
     );
+    // pr_files gives each file its newest Viewed mark, at its path or previous path.
+    const listed = result(await review.handle(files));
+    const lastViewed = (listed.files as Record<string, unknown>[]).map((f) =>
+      (f.lastViewed as ViewedMark | null)?.path ?? null
+    );
+    assertEquals(lastViewed, ['src/a.ts', null]);
   } finally {
     await t.done();
   }

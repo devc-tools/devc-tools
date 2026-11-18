@@ -70,6 +70,9 @@ import {
   viewedPercent,
   withoutViewed,
 } from './lib/pr_tree.js';
+import { diffTexts } from './lib/diff.js';
+import { latestSince, sinceStat } from './lib/since.js';
+import { readSinceTexts } from './pr_since.js';
 import {
   badge,
   chevron,
@@ -552,6 +555,11 @@ function loadSidebarState() {
       : null,
     /** Whether PR test files (`isTestPath`) are listed apart, under a Tests row; off at first. */
     prTestsApart: saved?.prTestsApart === true,
+    /**
+     * Whether PR trees list only the files changed since viewed, counted since then, and open
+     * them on that comparison; off at first.
+     */
+    prSinceViewed: saved?.prSinceViewed === true,
     /** Open card sections' last settled heights in px, by `data-section-key` (`holdSections`). */
     sectionHeights: savedSectionHeights(saved?.sectionHeights),
     inactiveOpen: saved?.inactiveOpen === true,
@@ -666,6 +674,7 @@ export function saveSidebarState() {
         prHideViewed: sidebarState.prHideViewed,
         prFlat: sidebarState.prFlat,
         prTestsApart: sidebarState.prTestsApart,
+        prSinceViewed: sidebarState.prSinceViewed,
         sectionHeights: sidebarState.sectionHeights,
         inactiveOpen: sidebarState.inactiveOpen,
         projectsOpen: [...sidebarState.projectsOpen],
@@ -2554,6 +2563,134 @@ function togglePr(localFolder, root) {
   renderTree();
 }
 
+/** Lists only each PR's files changed since viewed, or all its changes again; kept per browser. */
+function togglePrSinceViewed() {
+  sidebarState.prSinceViewed = !sidebarState.prSinceViewed;
+  saveSidebarState();
+  renderTree();
+}
+
+/**
+ * Each PR file's comparison since its Since point for the **Since viewed** filter, by
+ * `prKey\npath\nsince sha\nhead sha`: a new head or a later mark is a new entry. `stat` is null
+ * when the texts are the same.
+ *
+ * @type {Map<string, {state: 'loading' | 'ok' | 'error',
+ *   stat: {additions: number, deletions: number} | null, message: string}>}
+ */
+const prSinceStats = new Map();
+
+/** The most comparisons kept: the oldest are dropped. */
+const MAX_PR_SINCE_STATS = 5000;
+/** How many files are read for the filter at once, across PRs. */
+const PR_SINCE_READS = 4;
+
+/** @type {(() => Promise<void>)[]} */
+const prSinceQueue = [];
+let prSinceReading = 0;
+
+function pumpPrSince() {
+  while (prSinceReading < PR_SINCE_READS && prSinceQueue.length) {
+    const job = /** @type {() => Promise<void>} */ (prSinceQueue.shift());
+    prSinceReading++;
+    void job().finally(() => {
+      prSinceReading--;
+      queueRender();
+      pumpPrSince();
+    });
+  }
+}
+
+/**
+ * Compares a file since `option` (`readSinceTexts`, then `diffTexts`, as its diff tile does),
+ * queued behind the others.
+ *
+ * @param {string} key @param {FileRoot} fr @param {any} file
+ * @param {import('./lib/since.js').SinceOption} option @param {string} headSha
+ */
+function comparePrSince(key, fr, file, option, headSha) {
+  const entry = {
+    state: /** @type {'loading' | 'ok' | 'error'} */ ('loading'),
+    stat: /** @type {{additions: number, deletions: number} | null} */ (null),
+    message: '',
+  };
+  prSinceStats.set(key, entry);
+  while (prSinceStats.size > MAX_PR_SINCE_STATS) {
+    prSinceStats.delete(prSinceStats.keys().next().value);
+  }
+  prSinceQueue.push(async () => {
+    const got = await readSinceTexts(
+      { localFolder: fr.localFolder, root: fr.root },
+      file,
+      option,
+      headSha,
+    );
+    if (!got.ok) {
+      entry.state = 'error';
+      entry.message = got.message;
+      return;
+    }
+    const parsed = diffTexts(...got.texts);
+    if (parsed) {
+      entry.state = 'ok';
+      entry.stat = sinceStat(parsed);
+    } else {
+      entry.state = 'error';
+      entry.message = LABELS.tooLargeToCompare;
+    }
+  });
+  pumpPrSince();
+}
+
+/**
+ * The **Since viewed** filter's files: each with a Since point (`latestSince`) that changed since
+ * it, its `additions` and `deletions` counted since then (unknown, as `sinceError`, when it
+ * can't be compared), `since` set, and `listed` the listing's own file (copies, so marking
+ * Viewed reaches the listing through `listed`). Files not yet compared are counted in `pending` and
+ * started; files with no Viewed mark here and no review in `unrecorded`.
+ *
+ * @param {FileRoot} fr @param {any} result
+ * @returns {{files: any[], pending: number, unrecorded: number}}
+ */
+function prSinceFiles(fr, result) {
+  const pr = result.pr;
+  const reviewed = typeof pr?.myReview?.commit === 'string';
+  const files = [];
+  let pending = 0;
+  let unrecorded = 0;
+  for (const file of list(result.files)) {
+    const option = latestSince(file.lastViewed, pr);
+    if (!option) {
+      if (!file.lastViewed && !reviewed) unrecorded++;
+      continue;
+    }
+    const key = [
+      prKey(fr.localFolder, fr.root),
+      file.path,
+      option.headSha,
+      pr.headSha,
+    ].join('\n');
+    const entry = prSinceStats.get(key);
+    if (!entry) {
+      comparePrSince(key, fr, file, option, pr.headSha);
+      pending++;
+    } else if (entry.state === 'loading') pending++;
+    else if (entry.state === 'error') {
+      files.push({
+        ...file,
+        additions: 0,
+        deletions: 0,
+        since: option,
+        sinceError: entry.message,
+        listed: file,
+      });
+    } else if (entry.stat) {
+      files.push({ ...file, ...entry.stat, since: option, listed: file });
+    }
+  }
+  return { files, pending, unrecorded };
+}
+
 /** Where a PR's folder rows keep their open state: per repo and PR number. */
 function prFoldersKey(localFolder, root, number) {
   return `${localFolder}\n${root}\n${number}`;
@@ -2644,7 +2781,9 @@ function prRows(localFolder, root, depth) {
 function prListingRows(fr, result, depth) {
   const pr = result.pr;
   const review = prLists.get(prKey(fr.localFolder, fr.root))?.review ?? null;
-  const files = list(result.files);
+  const sinceOn = sidebarState.prSinceViewed;
+  const since = sinceOn ? prSinceFiles(fr, result) : null;
+  const files = since ? since.files : list(result.files);
   const flat = sidebarState.prFlat;
   const tree = flat ? buildPrFlat(files, flat) : buildPrTree(files);
   const percent = viewedPercent(tree);
@@ -2693,9 +2832,16 @@ function prListingRows(fr, result, depth) {
       togglePrFlat,
     );
     flatToggle.setAttribute('aria-pressed', String(flat !== null));
+    const sinceToggle = iconButton(
+      'sinceViewed',
+      sinceOn ? LABELS.sinceViewedOff : LABELS.sinceViewedOn,
+      togglePrSinceViewed,
+    );
+    sinceToggle.setAttribute('aria-pressed', String(sinceOn));
     return [
       testsToggle,
       flatToggle,
+      sinceToggle,
       toggle,
       iconButton(
         'refresh',
@@ -2724,7 +2870,7 @@ function prListingRows(fr, result, depth) {
     h(
       'span',
       { class: 'row-toggles' },
-      ...(hiding || flat || apart
+      ...(hiding || flat || apart || sinceOn
         ? buttons().map((b) => {
           if (b.getAttribute('aria-pressed') !== 'true') {
             b.classList.add('slot');
@@ -2748,6 +2894,28 @@ function prListingRows(fr, result, depth) {
         h('span', { class: 'label' }, 'GitHub lists at most 3000 files'),
       ),
     );
+  }
+  if (since) {
+    /** @param {string} text @param {string} kind */
+    const sinceNote = (text, kind) =>
+      h(
+        'div',
+        {
+          class: 'row tree-note',
+          style: `--depth: ${depth}`,
+          'data-note': kind,
+          title: text,
+        },
+        h('span', { class: 'label' }, text),
+      );
+    if (since.pending > 0) {
+      rows.push(sinceNote(LABELS.comparingSince(since.pending), 'loading'));
+    } else if (files.length === 0) {
+      rows.push(sinceNote(LABELS.noChangesSince, 'since-none'));
+    }
+    if (since.unrecorded > 0) {
+      rows.push(sinceNote(LABELS.noSinceRecord(since.unrecorded), 'hint'));
+    }
   }
   const foldersKey = prFoldersKey(fr.localFolder, fr.root, pr.number);
   // The Tests row's tree keeps its folders' state, and its rows' ids, apart from the Files row's:
@@ -2964,8 +3132,13 @@ function prFileRow(fr, result, node, depth) {
         file.previousPath ? `${file.previousPath} → ${file.path}` : file.path,
         dismissed ? 'changed since viewed' : '',
       ].filter((s) => s).join('\n'),
+      // With Since viewed on, it opens on the file's changes since then.
       onclick: (e) =>
-        tileArea.openDiff(ref, e.ctrlKey || e.metaKey ? 'stack' : 'preview'),
+        tileArea.openDiff(
+          ref,
+          e.ctrlKey || e.metaKey ? 'stack' : 'preview',
+          file.since ? { compare: 'viewed' } : undefined,
+        ),
       ondblclick: () => keepOpen(tileShowingDiff(tileArea.state(), ref)),
       oncontextmenu: (e) => openMenu(e, prFileMenuItems(fr, result, file)),
     },
@@ -2979,7 +3152,14 @@ function prFileRow(fr, result, node, depth) {
       ? h('span', { class: 'pr-file-dir' }, ...markedText(node.dir))
       : '',
   );
-  row.append(rowTrail(h('span', { class: 'pr-stat' }, diffStat(file))));
+  row.append(rowTrail(
+    file.sinceError !== undefined
+      ? h('span', { class: 'pr-stat', title: file.sinceError }, '?')
+      : h('span', {
+        class: 'pr-stat',
+        title: file.since ? LABELS.linesSinceViewed : undefined,
+      }, diffStat(file)),
+  ));
   return row;
 }
 
@@ -2997,7 +3177,7 @@ function prFileMenuItems(fr, result, file) {
   return [
     ['Open diff', () => tileArea.openDiff(ref, 'stack')],
     ['Open diff to the right', () => tileArea.openDiff(ref, 'right')],
-    ...(file.viewed === 'DISMISSED'
+    ...(file.viewed === 'DISMISSED' || file.since
       ? [[
         LABELS.openChangesSinceViewed,
         () => tileArea.openDiff(ref, 'stack', { compare: 'viewed' }),
@@ -3080,9 +3260,26 @@ export function prViewed(ref, viewed) {
   if (viewed !== 'VIEWED' && viewed !== 'UNVIEWED') return;
   const result = prLists.get(prKey(ref?.localFolder, ref?.root))?.result;
   const file = list(result?.files).find((f) => f.path === ref?.path);
-  if (!file || file.viewed === viewed) return;
+  if (!file) return;
   file.viewed = viewed;
+  if (viewed === 'VIEWED') markedViewedHere(result, file);
   queueRender();
+}
+
+/**
+ * A file just marked Viewed here, as the server recorded it at the PR's head: the **Since
+ * viewed** filter leaves it out at once, not at the next listing.
+ *
+ * @param {any} result @param {any} file
+ */
+function markedViewedHere(result, file) {
+  if (typeof result?.pr?.headSha !== 'string') return;
+  file.lastViewed = {
+    path: file.path,
+    viewed: 'VIEWED',
+    headSha: result.pr.headSha,
+    at: new Date().toISOString(),
+  };
 }
 
 /**
@@ -3093,7 +3290,8 @@ export function prViewed(ref, viewed) {
  * @param {FileRoot} fr @param {any} file @param {boolean} viewed
  * @returns {Promise<boolean>}
  */
-async function setViewed(fr, file, viewed) {
+async function setViewed(fr, shown, viewed) {
+  const file = shown.listed ?? shown;
   const before = file.viewed;
   file.viewed = viewed ? 'VIEWED' : 'UNVIEWED';
   queueRender();
@@ -3119,6 +3317,9 @@ async function setViewed(fr, file, viewed) {
   }
   queueRender();
   if (message !== null) return false;
+  if (file.viewed === 'VIEWED') {
+    markedViewedHere(prLists.get(prKey(fr.localFolder, fr.root))?.result, file);
+  }
   tileArea.prViewed(
     { localFolder: fr.localFolder, root: fr.root, path: file.path },
     file.viewed,

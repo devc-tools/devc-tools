@@ -87,6 +87,7 @@ import { fileView, mediaKind } from './lib/media.js';
 import { childPath } from './lib/files.js';
 import { sessionAge } from './lib/sessions.js';
 import { sinceOptions as compareChoices } from './lib/since.js';
+import { readSinceTexts } from './pr_since.js';
 import { statusLetter } from './lib/pr_tree.js';
 import { createPrRecheck, prRepoKey } from './lib/pr_recheck.js';
 import { fileStat } from './lib/commits.js';
@@ -3186,35 +3187,18 @@ async function loadSince(view, sha) {
   };
   view.since = /** @type {SinceView} */ (since);
   renderDiff(view);
-  const repo = { localFolder: ref.localFolder, root: ref.root };
-  const read = (path, at) =>
-    call({ type: 'pr_file_at', ...repo, path, sha: at }).then(
-      (r) => r,
-      (e) => ({ available: false, message: String(e?.message ?? e) }),
-    );
-  const file = view.data.file;
-  // The review's commit is read at the file's path now, else (renamed since) its previous path.
-  const readBefore = async () => {
-    const first = await read(option.path ?? file.path, sha);
-    return option.path === null && first?.reason === 'missing' &&
-        typeof file.previousPath === 'string'
-      ? read(file.previousPath, sha)
-      : first;
-  };
-  const [before, now] = await Promise.all([
-    readBefore(),
-    read(file.path, view.data.pr.headSha),
-  ]);
+  const got = await readSinceTexts(
+    { localFolder: ref.localFolder, root: ref.root },
+    view.data.file,
+    option,
+    view.data.pr.headSha,
+  );
   if (view.since !== since || diffViews.get(view.tile.id) !== view) return;
-  const failed = [before, now].find((r) => r?.available !== true);
-  if (failed) {
+  if (!got.ok) {
     since.state = 'error';
-    since.message = String(failed?.message ?? 'failed');
+    since.message = got.message;
   } else {
-    const texts = /** @type {[string, string]} */ ([
-      String(before.text),
-      String(now.text),
-    ]);
+    const texts = got.texts;
     const parsed = diffTexts(...texts);
     since.texts = texts;
     since.state = parsed ? 'ok' : 'error';

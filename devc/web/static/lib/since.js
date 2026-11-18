@@ -60,3 +60,49 @@ export function sinceOptions(viewedHistory, pr) {
   }
   return [...out.values()].sort((a, b) => time(b.at) - time(a.at));
 }
+
+/**
+ * The PR row's **Since viewed** filter: the point a file's changes are shown from, the latest of
+ * its newest Viewed mark here (`lastViewed`, from `pr_files`) and the user's latest review, as a
+ * diff tile's **Open changes since viewed** picks it (`sinceOptions(...)[0]`). Null when there is
+ * none, or when the latest one is the PR's head: nothing changed since.
+ *
+ * @param {unknown} lastViewed
+ * @param {{headSha?: unknown, myReview?: unknown} | null | undefined} pr
+ * @returns {SinceOption | null}
+ */
+export function latestSince(lastViewed, pr) {
+  const m = /** @type {any} */ (lastViewed);
+  const r = /** @type {any} */ (pr?.myReview);
+  /** @type {{sha: string, at: number}[]} */
+  const points = [];
+  if (m?.viewed === 'VIEWED' && typeof m.headSha === 'string') {
+    points.push({ sha: m.headSha, at: time(m.at) });
+  }
+  if (
+    r && typeof r.commit === 'string' && typeof r.submittedAt === 'string'
+  ) points.push({ sha: r.commit, at: time(r.submittedAt) });
+  if (points.length === 0) return null;
+  const latest = points.reduce((a, b) => b.at > a.at ? b : a);
+  if (latest.sha === pr?.headSha) return null;
+  return sinceOptions(m ? [m] : [], pr)[0] ?? null;
+}
+
+/**
+ * `+a −d` between a file's text at its Since point and now, by lines as the diff tile draws
+ * them; `null` when the texts are the same.
+ *
+ * @param {import('./diff.js').ParsedPatch} parsed  `diffTexts`' answer
+ * @returns {{additions: number, deletions: number} | null}
+ */
+export function sinceStat(parsed) {
+  let additions = 0;
+  let deletions = 0;
+  for (const hunk of parsed.hunks) {
+    for (const row of hunk.rows) {
+      if (row.kind === 'add') additions++;
+      else if (row.kind === 'del') deletions++;
+    }
+  }
+  return additions + deletions === 0 ? null : { additions, deletions };
+}

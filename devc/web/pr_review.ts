@@ -564,6 +564,30 @@ export function fileHistory(
     .reverse().slice(0, MAX_HISTORY_ENTRIES);
 }
 
+/** Each path's newest Viewed mark (`UNVIEWED` marks skipped), from `marks` oldest first. */
+export function newestViewedMarks(
+  marks: readonly ViewedMark[],
+): Map<string, ViewedMark> {
+  const out = new Map<string, ViewedMark>();
+  for (const m of marks) if (m.viewed === 'VIEWED') out.set(m.path, m);
+  return out;
+}
+
+/**
+ * A file's newest Viewed mark, at `path` or (renamed since) `previousPath`, from
+ * {@link newestViewedMarks}; null when it has none.
+ */
+export function lastViewedMark(
+  newest: ReadonlyMap<string, ViewedMark>,
+  path: string,
+  previousPath: string | null,
+): ViewedMark | null {
+  const a = newest.get(path) ?? null;
+  const b = previousPath === null ? null : newest.get(previousPath) ?? null;
+  if (a === null || b === null) return a ?? b;
+  return Date.parse(b.at) > Date.parse(a.at) ? b : a;
+}
+
 // ── running a bridge command ────────────────────────────────────────────────────────────────
 
 export type { BridgeRun, RunLimits };
@@ -872,13 +896,20 @@ export class PrReview {
     const got = await this.#fresh(ctx);
     if (!got.ok) return got.answer;
     const { pr, files, truncated } = got.stored.files;
+    const newest = newestViewedMarks(
+      await readViewedHistory(this.#historyFile(pr)),
+    );
     return {
       ok: true,
       result: {
         available: true,
         container: ctx.name,
         pr,
-        files: files.map(({ patch: _, ...f }) => f),
+        // Each file's newest Viewed mark here (or null): the PR row's Since viewed filter.
+        files: files.map(({ patch: _, ...f }) => ({
+          ...f,
+          lastViewed: lastViewedMark(newest, f.path, f.previousPath),
+        })),
         truncated,
         ...offers(ctx.grants),
       },
