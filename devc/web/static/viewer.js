@@ -566,8 +566,10 @@ export function createViewer(
   window.addEventListener('devc-theme', onTheme);
   // Copy on select: a mouse selection (drag, double- or triple-click) is copied when the button
   // comes up, wherever the pointer is by then, as a terminal's is. Keyboard selections are not.
+  // Read-only views only: in an editable one a selection is often made to paste over, and
+  // copying it would replace the clipboard's text with the text being replaced.
   view.contentDOM.addEventListener('mousedown', (ev) => {
-    if (ev.button !== 0) return;
+    if (ev.button !== 0 || !view.state.readOnly) return;
     const onUp = () => {
       window.removeEventListener('mouseup', onUp);
       const text = view.state.selection.ranges
