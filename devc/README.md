@@ -478,7 +478,11 @@ is published from any container: the host server finds devcontainers with
   trash button for **Remove container** left of its stop button, the **+** on the Containers
   heading adds a folder, and its refresh button lists the containers and
   projects again (for a change devc web missed). A tile whose project is down offers **Start
-  container**.
+  container**. While a Stop, Remove container or Start Herdr is on its way, the row says
+  `stopping…`, `removing…` or `starting…` with a spinner and its buttons wait; the refresh button
+  spins until the lists are read again. An action from a menu (a new terminal, **Open in
+  editor**, **Open in Code**, **Reveal**) shows the progress pointer until it answers, and the
+  same one again meanwhile does nothing.
 - **Menus:** right-click a tile (its tab, or its row in a repo card) for **Split
   vertically** (a new terminal to its right), **Split horizontally** (below),
   **New pane in this stack**, **Close** (the tile only) and **Kill pane** (ends
@@ -988,7 +992,8 @@ is published from any container: the host server finds devcontainers with
     tool row and the PR header show `Review · n pending` with **Submit
     review…** (an optional summary; submitted as a Comment) and **Discard
     review…**. devc web never approves or requests changes — the submit dialog
-    links to the PR on GitHub for that.
+    links to the PR on GitHub for that. While a submit, discard or **Delete…**
+    is on its way, its button shows a spinner and the others wait.
 
   What works follows the grants of the repo's own line in the
   host-only policy, read on every message: reading needs `gh-pr-read`, the

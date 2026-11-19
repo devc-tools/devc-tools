@@ -1492,7 +1492,8 @@ body.resizing-zones {
 }
 
 .row:hover .row-hover,
-.row:focus-within .row-hover {
+.row:focus-within .row-hover,
+.row-hover:has(> [aria-busy='true']) {
   display: flex;
 }
 
@@ -1514,6 +1515,20 @@ body.resizing-zones {
 .icon-btn:disabled:hover {
   color: var(--muted);
   background: none;
+}
+
+/* What an icon button started in flight (`setButtonBusy`): a spinner in place of its icon. */
+.icon-btn[aria-busy='true'] {
+  opacity: 1;
+}
+
+.icon-btn[aria-busy='true'] svg {
+  display: none;
+}
+
+.icon-btn > .spinner {
+  display: block;
+  margin: 2.5px auto;
 }
 
 /* The play triangle and stop square are solid; the other icons are strokes. */
@@ -1582,8 +1597,20 @@ body.resizing-zones {
   }
 }
 
-.row .state[data-state='starting'] {
+.row .state[data-state='starting'],
+.row .state[data-state='busy'] {
   color: var(--working);
+}
+
+/* A row's action in flight (a session resuming, a task sending), before its trail's badges. */
+.row-trail > .spinner {
+  flex: none;
+  margin-right: 0;
+}
+
+/* An action started from a menu that closed is still in flight (`menus.js` `whileBusy`). */
+html[data-busy] {
+  cursor: progress;
 }
 
 /* A container start's output. */
@@ -2556,6 +2583,22 @@ button * {
   display: none;
 }
 
+/* A terminal tile's images on their way to its pane (`attach_image`). */
+.tile-busy {
+  position: absolute;
+  top: 8px;
+  right: 14px;
+  z-index: 3;
+  padding: 1px 6px;
+  font-size: calc(var(--font-size) - 2px);
+  white-space: nowrap;
+  color: var(--muted);
+  background: color-mix(in srgb, var(--panel) 85%, transparent);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  pointer-events: none;
+}
+
 /* Language server settings… */
 .dialog.lsp-settings {
   width: min(560px, calc(100vw - 32px));
@@ -2866,6 +2909,12 @@ body:is(.lm_dragging, .resizing-sidebar) .media-view iframe {
   border-radius: 3px;
   padding: 1px 4px;
   outline: none;
+}
+
+/* Its create or rename in flight. */
+.row.new-entry .label > .spinner {
+  flex: none;
+  margin: 0 0 0 6px;
 }
 
 .new-entry-error {

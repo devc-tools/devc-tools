@@ -12,7 +12,7 @@ import {
   taskTitle,
 } from './lib/tasks.js';
 import { emptyViewState, focusedTile } from './lib/view.js';
-import { h, iconButton, LABELS, toast } from './ui.js';
+import { h, iconButton, LABELS, setButtonBusy, toast } from './ui.js';
 import {
   basename,
   call,
@@ -106,8 +106,8 @@ export function notRunningToast(localFolder, what) {
  *
  * @type {{el: HTMLDialogElement, $text: HTMLTextAreaElement, $project: HTMLSelectElement,
  *   $repo: HTMLSelectElement, $repoLabel: HTMLElement, $agent: HTMLSelectElement,
- *   $error: HTMLElement, $buttons: HTMLButtonElement[], $send: HTMLButtonElement[],
- *   taskId: string | null, busy: boolean} | null}
+ *   $error: HTMLElement, $buttons: HTMLButtonElement[], $save: HTMLButtonElement,
+ *   $send: HTMLButtonElement[], taskId: string | null, busy: boolean} | null}
  */
 let taskDialog = null;
 
@@ -310,6 +310,7 @@ export function openTaskDialog(task, route) {
     $agent,
     $error,
     $buttons: [$save, ...$send, $pin],
+    $save,
     $send,
     taskId: task?.id ?? null,
     busy: false,
@@ -387,9 +388,14 @@ async function submitTask(action) {
     notRunningToast(localFolder, taskTitle(text));
     return;
   }
+  // Every button waits meanwhile; the one clicked shows a spinner.
+  const $clicked = action === null
+    ? td.$save
+    : td.$send[action === 'plan' ? 0 : 1];
   const busy = (on) => {
     td.busy = on;
     for (const b of td.$buttons) b.disabled = on;
+    setButtonBusy($clicked, on);
     if (!on) fillTaskRepos(td.$repo.value);
   };
   busy(true);

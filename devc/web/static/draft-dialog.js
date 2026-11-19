@@ -6,7 +6,7 @@ import { notePathError } from './lib/pinned_files.js';
 import { containerLabel } from './lib/sidebar.js';
 import { suggestedDraftPath } from './lib/drafts.js';
 import { containerByFolder, projectRepos, projects } from './client.js';
-import { h } from './ui.js';
+import { h, setButtonBusy } from './ui.js';
 
 /**
  * Asks where a draft goes. `submit` returns why it could not be saved there (the dialog stays
@@ -124,7 +124,7 @@ export function openDraftSaveDialog({ name, near, submit }) {
       return;
     }
     busy = true;
-    $save.disabled = true;
+    setButtonBusy($save, true);
     showError(null);
     const localFolder = $project.value;
     let problem;
@@ -138,7 +138,7 @@ export function openDraftSaveDialog({ name, near, submit }) {
       problem = String(/** @type {Error} */ (e)?.message ?? e);
     }
     busy = false;
-    $save.disabled = false;
+    setButtonBusy($save, false);
     if (problem === null) el.close();
     else if (problem !== '') showError(problem);
   }

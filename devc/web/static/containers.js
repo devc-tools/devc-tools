@@ -34,6 +34,7 @@ import {
   openMenu,
   openMenuAt,
   rowTrail,
+  setButtonBusy,
   svgIcon,
   toast,
 } from './ui.js';
@@ -44,11 +45,9 @@ import {
   displayName,
   environments,
   list,
-  nextId,
   onConnectionChange,
   onServerMessage,
   paneKey,
-  pendingRequests,
   projectOutput,
   projectRepos,
   projects,
@@ -59,11 +58,13 @@ import {
   socket,
 } from './client.js';
 import {
+  busyState,
   canStartProjects,
   closeOutput,
   containerRoot,
   downProject,
   followOutput,
+  projectBusyKey,
   projectMenuItems,
   projectRequest,
   setMenuContext,
@@ -228,7 +229,10 @@ function sectionRows(cards) {
       rowTrail(
         hoverActions(
           projectStarts ? iconButton('plus', 'Add project…', addProject) : '',
-          iconButton('refresh', LABELS.refreshContainers, refreshContainers),
+          setButtonBusy(
+            iconButton('refresh', LABELS.refreshContainers, refreshContainers),
+            refreshing,
+          ),
           iconButton('collapseAll', LABELS.collapseAll, collapseContainers),
         ),
       ),
@@ -390,11 +394,22 @@ function toggleInactive() {
   renderTree();
 }
 
+/** A `refresh_containers` is in flight: Refresh shows a spinner and does nothing meanwhile. */
+let refreshing = false;
+
 /** Lists the devcontainers and projects again, for what the server's `docker events` missed. */
-function refreshContainers() {
-  const id = nextId('r');
-  pendingRequests.set(id, 'Refresh');
-  send({ type: 'refresh_containers', id });
+async function refreshContainers() {
+  if (refreshing) return;
+  refreshing = true;
+  renderTree();
+  try {
+    await call({ type: 'refresh_containers' });
+  } catch (e) {
+    errorToast(`Refresh failed: ${e?.message ?? e}`);
+  } finally {
+    refreshing = false;
+    renderTree();
+  }
 }
 
 /**
@@ -437,10 +452,18 @@ function containerRows(c, cards, inUse) {
   // Folded, it opens while the filter matches one of its repo cards.
   const collapsed = sidebarState.collapsed.has(c.localFolder) &&
     !shown.some(cardMatchesFilter);
+  // A Stop, Remove or Start Herdr in flight shows on the row, with a spinner, in its state's place.
+  const pending = busyState(projectBusyKey(c.localFolder)) ??
+    (startingSessions.has(c.id) && c.state === 'no-session'
+      ? 'starting…'
+      : null);
   const stateText = h(
     'span',
-    { class: 'state', 'data-state': c.state },
-    STATE_TEXT[c.state] ?? c.state,
+    { class: 'state', 'data-state': pending === null ? c.state : 'busy' },
+    pending === null
+      ? STATE_TEXT[c.state] ?? c.state
+      : h('span', { class: 'spinner', 'aria-hidden': 'true' }),
+    pending ?? '',
   );
   const fr = { localFolder: c.localFolder, root: c.localFolder };
   /** @type {HTMLElement} */
@@ -464,7 +487,14 @@ function containerRows(c, cards, inUse) {
       collapsed ? gitMark(gitRollup(projectRepos(c.localFolder))) : '',
     ),
     INACTIVE_STATES.has(c.state)
-      ? h('span', { class: 'row-actions' }, stateText, herdrActions(c))
+      ? h(
+        'span',
+        { class: 'row-actions' },
+        stateText,
+        pending === null ? herdrActions(c) : '',
+      )
+      : pending !== null
+      ? rowTrail(stateText)
       : rowTrail(
         c.state !== 'connected' ? stateText : statusRollup(panes),
         hoverActions(
@@ -793,6 +823,8 @@ function toggleProject(localFolder) {
 function projectRow(p) {
   const output = projectOutput.get(p.localFolder) ?? [];
   const state = p.starting ? 'starting' : p.container;
+  // A Stop or Remove still finishing once the container is gone.
+  const pending = busyState(projectBusyKey(p.localFolder));
   return h(
     'div',
     {
@@ -825,13 +857,13 @@ function projectRow(p) {
       { class: 'row-actions' },
       h(
         'span',
-        { class: 'state', 'data-state': state },
-        p.starting
+        { class: 'state', 'data-state': pending === null ? state : 'busy' },
+        p.starting || pending !== null
           ? h('span', { class: 'spinner', 'aria-hidden': 'true' })
           : '',
-        PROJECT_STATE_TEXT[state] ?? state,
+        pending ?? PROJECT_STATE_TEXT[state] ?? state,
       ),
-      p.starting || !canStartProjects() ? '' : hoverActions(
+      p.starting || pending !== null || !canStartProjects() ? '' : hoverActions(
         iconButton(
           'play',
           projectActions(p.environment).start,
@@ -1120,8 +1152,26 @@ function pickerRow(path, name, depth, open, project, hidden = false) {
   );
 }
 
-function startSession(containerId) {
-  const id = nextId('r');
-  pendingRequests.set(id, 'Start session');
-  send({ type: 'start_session', id, container: containerId });
+/** Containers with a `start_session` in flight: the row says so, and Start Herdr waits. */
+const startingSessions = new Set();
+
+// A dropped connection never answers a `call` in flight: Refresh and Start Herdr work again.
+onConnectionChange((state) => {
+  if (state !== 'closed') return;
+  refreshing = false;
+  startingSessions.clear();
+});
+
+async function startSession(containerId) {
+  if (startingSessions.has(containerId)) return;
+  startingSessions.add(containerId);
+  renderTree();
+  try {
+    await call({ type: 'start_session', container: containerId });
+  } catch (e) {
+    errorToast(`Start session failed: ${e?.message ?? e}`);
+  } finally {
+    startingSessions.delete(containerId);
+    renderTree();
+  }
 }

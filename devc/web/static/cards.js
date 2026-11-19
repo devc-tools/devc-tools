@@ -91,6 +91,7 @@ import {
   pushDialog,
   rowIcon,
   rowTrail,
+  setButtonBusy,
   svgIcon,
   toast,
 } from './ui.js';
@@ -106,6 +107,7 @@ import {
   hostTileFacts,
   list,
   nextId,
+  onConnectionChange,
   paneKey,
   paneRepo,
   pendingRequests,
@@ -121,6 +123,7 @@ import {
   tileRepo,
 } from './client.js';
 import {
+  busyState,
   canAskDesktop,
   containerFilePath,
   copyPathItems,
@@ -137,6 +140,7 @@ import {
   killPane,
   killPaneItem,
   newShell,
+  onBusyChange,
   openFileTile,
   openInBrowser,
   openInEditor,
@@ -146,6 +150,7 @@ import {
   projectMenuItems,
   requestPush,
   requestTerminal,
+  reviewBusyKey,
   submitPendingReview,
   tileMenuItems,
 } from './menus.js';
@@ -197,6 +202,16 @@ export function mountCards(opts) {
   $root = opts.root;
   render = opts.render;
   watchScrolling($root);
+  // A project's Stop or Remove, or a review's Submit or Discard, shows on its row while in flight.
+  onBusyChange((key) => {
+    if (key.startsWith('project\n') || key.startsWith('review\n')) {
+      queueRender();
+    }
+  });
+  // A dropped connection never answers a `resume_session` in flight: its row can be clicked again.
+  onConnectionChange((state) => {
+    if (state === 'closed') resumingSessions.clear();
+  });
   // Hovering a pane's row in either section highlights its rows in the other.
   $root.addEventListener('mouseover', (e) => {
     const row = /** @type {HTMLElement} */ (e.target).closest?.(
@@ -1658,13 +1673,28 @@ function sessionRow(c, s, now, depth) {
     // running pane's status) always shows.
     h('span', { class: 'label' }, rowIcon({ agent: s.agent }), s.title),
     rowTrail(
+      resumingSessions.has(sessionKey(c, s))
+        ? h('span', {
+          class: 'spinner',
+          role: 'status',
+          'aria-label': 'Resuming…',
+        })
+        : '',
       badge(sessionPane(c, s)),
       h('span', { class: 'pane-title' }, sessionAge(s.updatedAt, now)),
     ),
   );
 }
 
-/** Sessions with a `resume_session` in flight: a second click waits for the first. */
+/** {@link resumingSessions}' key for session `s` in container `c`. */
+function sessionKey(c, s) {
+  return `${c.id}\n${s.agent}\n${s.session}`;
+}
+
+/**
+ * Sessions with a `resume_session` in flight: a second click waits for the first, and the row
+ * shows a spinner meanwhile.
+ */
 const resumingSessions = new Set();
 
 /**
@@ -1674,10 +1704,11 @@ const resumingSessions = new Set();
  * @param {import('./lib/sessions.js').AgentSession} s
  */
 async function resumeSession(c, s) {
-  const key = `${c.id}\n${s.agent}\n${s.session}`;
+  const key = sessionKey(c, s);
   if (resumingSessions.has(key)) return;
   if (c.state === 'no-session') toast('Starting Herdr…');
   resumingSessions.add(key);
+  queueRender();
   let result;
   try {
     result = await call({
@@ -1695,6 +1726,7 @@ async function resumeSession(c, s) {
     return;
   } finally {
     resumingSessions.delete(key);
+    queueRender();
   }
   if (typeof result?.pane_id !== 'string') return;
   placePane(c.localFolder, result);
@@ -3061,9 +3093,11 @@ function prGroupRow(fr, result, rowId, key, group, depth, { label, title }) {
 function pendingReviewBar(fr, pr, review) {
   const repo = { localFolder: fr.localFolder, root: fr.root };
   const stop = (e) => e.stopPropagation();
-  /** @param {string} label @param {() => Promise<boolean>} act */
-  const button = (label, act) =>
-    h('button', {
+  // While either is in flight both are disabled, the one clicked with a spinner.
+  const sending = busyState(reviewBusyKey(repo));
+  /** @param {string} label @param {string} kind @param {() => Promise<boolean>} act */
+  const button = (label, kind, act) => {
+    const el = h('button', {
       type: 'button',
       class: 'pr-review-action',
       onmousedown: stop,
@@ -3073,12 +3107,26 @@ function pendingReviewBar(fr, pr, review) {
         if (await act()) void loadPr(fr.localFolder, fr.root);
       },
     }, label);
+    if (sending !== null) {
+      /** @type {HTMLButtonElement} */ (el).disabled = true;
+      if (sending === kind) setButtonBusy(el, true);
+    }
+    return el;
+  };
   return h(
     'span',
     { class: 'pr-pending' },
     LABELS.reviewPending(review.comments),
-    button(LABELS.submitReview, () => submitPendingReview(repo, pr.url)),
-    button(LABELS.discardReview, () => discardPendingReview(repo)),
+    button(
+      LABELS.submitReview,
+      'submit',
+      () => submitPendingReview(repo, pr.url),
+    ),
+    button(
+      LABELS.discardReview,
+      'discard',
+      () => discardPendingReview(repo),
+    ),
   );
 }
 
@@ -3924,6 +3972,24 @@ function cancelNewEntry(entry) {
   renderTree();
 }
 
+/**
+ * Marks the inline row's create or rename in flight, or not again: its name can't be edited
+ * meanwhile, and a spinner follows it.
+ */
+function setNewEntryBusy(entry, on) {
+  entry.busy = on;
+  entry.input.readOnly = on;
+  const label = entry.input.parentElement;
+  const spinner = label?.querySelector(':scope > .spinner');
+  if (on && !spinner) {
+    entry.input.after(h('span', {
+      class: 'spinner',
+      role: 'status',
+      'aria-label': entry.rename !== null ? 'Renaming…' : 'Creating…',
+    }));
+  } else if (!on) spinner?.remove();
+}
+
 /** Shows `message` under the inline row, or hides it with `null`. */
 function showNewEntryError(entry, message) {
   entry.error.textContent = message ?? '';
@@ -3958,7 +4024,7 @@ async function submitNewEntry(entry) {
     cancelNewEntry(entry);
     return;
   }
-  entry.busy = true;
+  setNewEntryBusy(entry, true);
   try {
     await call(
       entry.rename !== null
@@ -3971,7 +4037,7 @@ async function submitNewEntry(entry) {
         : { type: 'create_file', container: c.id, ...where(path), kind },
     );
   } catch (e) {
-    entry.busy = false;
+    setNewEntryBusy(entry, false);
     showNewEntryError(
       entry,
       e?.code === 'exists' ? `${name} already exists` : String(e?.message ?? e),

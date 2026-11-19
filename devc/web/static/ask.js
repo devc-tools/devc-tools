@@ -14,7 +14,7 @@ import {
 } from './lib/ask.js';
 import { parseSessions } from './lib/sessions.js';
 import { labelText, paneLabel } from './lib/sidebar.js';
-import { h, IS_MAC, LABELS, toast } from './ui.js';
+import { h, IS_MAC, LABELS, setButtonBusy, toast } from './ui.js';
 import {
   call,
   containerByFolder,
@@ -202,7 +202,7 @@ export function openAskDialog({ at, localFolder, root, context }) {
       return;
     }
     busy = true;
-    $ask.disabled = true;
+    setButtonBusy($ask, true);
     $error.textContent = '';
     if (c.state === 'no-session') toast('Starting Herdr…');
     let result;
@@ -216,7 +216,7 @@ export function openAskDialog({ at, localFolder, root, context }) {
       });
     } catch (e) {
       busy = false;
-      $ask.disabled = false;
+      setButtonBusy($ask, false);
       $error.textContent = `Ask failed: ${e?.message ?? e}`;
       // A session no longer listed (a restart, or another window listed since), or a terminal
       // gone: list again.

@@ -52,6 +52,7 @@ import {
   promptDialog,
   rowIcon,
   rowTrail,
+  setButtonBusy,
   toast,
   writeClipboard,
 } from './ui.js';
@@ -816,6 +817,7 @@ function filePinRow(pin) {
       ),
     ),
     rowTrail(
+      openingFilePins.has(pin.id) ? rowBusy('Opening…') : '',
       open ? h('span', { class: 'file-pin-dot', 'aria-label': 'Open' }) : '',
     ),
   );
@@ -858,7 +860,17 @@ function toggleFilePin(pin) {
   for (const t of shown) tileArea.close(t.id);
 }
 
-/** Pins with an `open_pinned` in flight: a second click waits for the first. */
+/**
+ * A row's spinner while what a click on it started is in flight (a pin opening, a task sending,
+ * a sent task's session opening), before its trail.
+ *
+ * @param {string} label
+ */
+function rowBusy(label) {
+  return h('span', { class: 'spinner', role: 'status', 'aria-label': label });
+}
+
+/** Pins with an `open_pinned` in flight: a second click waits for the first; the row spins. */
 const openingFilePins = new Set();
 
 /**
@@ -878,6 +890,7 @@ async function openFilePin(pin, where) {
   }
   if (c.state === 'no-session') toast('Starting Herdr…');
   openingFilePins.add(pin.id);
+  queueRender();
   let result;
   try {
     result = await call({ type: 'open_pinned', pin: pin.id });
@@ -887,6 +900,7 @@ async function openFilePin(pin, where) {
     return;
   } finally {
     openingFilePins.delete(pin.id);
+    queueRender();
   }
   if (typeof result?.pane_id !== 'string') return;
   filePinPanes.set(pin.id, result.pane_id);
@@ -1140,7 +1154,7 @@ async function submitNewNote() {
   const root = noteRoot(localFolder);
   const c = containerByFolder(localFolder);
   nn.busy = true;
-  nn.$create.disabled = true;
+  setButtonBusy(nn.$create, true);
   let pinId;
   try {
     if (c) {
@@ -1158,7 +1172,7 @@ async function submitNewNote() {
     pinId = (await call({ type: 'pin_file', localFolder, root, path }))?.pin;
   } catch (e) {
     nn.busy = false;
-    nn.$create.disabled = false;
+    setButtonBusy(nn.$create, false);
     showNoteError(
       !c && e?.code === 'not_found'
         ? `${path} does not exist: start the container to create it`
@@ -1503,6 +1517,7 @@ function taskRow(task, places) {
       taskTitle(task.text),
     ),
     rowTrail(
+      sendingTasks.has(task.id) ? rowBusy('Sending…') : '',
       q
         ? h(
           'span',
@@ -1537,7 +1552,10 @@ function taskRow(task, places) {
   );
 }
 
-/** Tasks with a `send_task` from their row in flight: a second click waits for the first. */
+/**
+ * Tasks with a `send_task` from their row in flight: a second click waits for the first; the row
+ * spins.
+ */
 const sendingTasks = new Set();
 
 /**
@@ -1557,6 +1575,7 @@ async function sendTaskFromRow(task, action) {
   }
   if (c.state === 'no-session') toast('Starting Herdr…');
   sendingTasks.add(task.id);
+  queueRender();
   let result;
   try {
     result = await call({
@@ -1574,6 +1593,7 @@ async function sendTaskFromRow(task, action) {
     return;
   } finally {
     sendingTasks.delete(task.id);
+    queueRender();
   }
   foldTasksSection();
   if (typeof result?.pane_id === 'string') placePane(localFolder, result);
@@ -1609,6 +1629,7 @@ function sentTaskRow(s) {
         taskProjectLabel(s.localFolder, s.root),
       ),
     ),
+    openingSentTasks.has(s.id) ? rowTrail(rowBusy('Opening…')) : '',
   );
 }
 
@@ -1695,7 +1716,7 @@ async function deleteTask(task) {
   );
 }
 
-/** Sent tasks with an `open_sent` in flight: a second click waits for the first. */
+/** Sent tasks with an `open_sent` in flight: a second click waits for the first; the row spins. */
 const openingSentTasks = new Set();
 
 /**
@@ -1713,6 +1734,7 @@ async function openSentTask(s) {
   }
   if (c.state === 'no-session') toast('Starting Herdr…');
   openingSentTasks.add(s.id);
+  queueRender();
   let result;
   try {
     result = await call({ type: 'open_sent', task: s.id });
@@ -1723,6 +1745,7 @@ async function openSentTask(s) {
     return;
   } finally {
     openingSentTasks.delete(s.id);
+    queueRender();
   }
   if (typeof result?.pane_id !== 'string') return;
   placePane(s.localFolder, result);
@@ -1772,6 +1795,12 @@ function filterKeydown(e) {
 
 /** The connection indicator, and what the sidebar shows without a token or a connection. */
 function onSidebarConnection(state) {
+  // A dropped connection never answers a `call` in flight: those rows can be clicked again.
+  if (state === 'closed') {
+    openingFilePins.clear();
+    sendingTasks.clear();
+    openingSentTasks.clear();
+  }
   if ($conn) {
     $conn.dataset.state = state === 'no-token' ? 'closed' : state;
     $conn.title = CONN_TEXT[state];

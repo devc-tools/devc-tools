@@ -123,6 +123,7 @@ import {
   LABELS,
   markedText,
   openMenu,
+  setButtonBusy,
   svgIcon,
   toast,
   writeClipboard,
@@ -155,14 +156,17 @@ import {
   tileRepo,
 } from './client.js';
 import {
+  busyState,
   dashboardFileRef,
   discardPendingReview,
   fileRefOf,
   fileRootOf,
   killPane,
   mintPreviewUrl,
+  onBusyChange,
   openInEditor,
   previewable,
+  reviewBusyKey,
   setMenuContext,
   stackMenu,
   startProject,
@@ -1218,6 +1222,16 @@ async function reloadFile(view) {
   loadFile(view);
 }
 
+/** Marks a file tile's save in flight, or not again: a spinner in its tab meanwhile. */
+function setFileSaving(/** @type {FileView} */ view, on) {
+  view.saving = on;
+  view.tile.setBadge(
+    on
+      ? h('span', { class: 'spinner', role: 'status', 'aria-label': 'Saving…' })
+      : null,
+  );
+}
+
 /**
  * Saves a file tile's text in the container (`write_file`). Refused because the file changed on
  * disk since it was read, it asks before overwriting; `overwrite` skips that check.
@@ -1246,7 +1260,7 @@ async function saveFile(view, overwrite = false) {
     return;
   }
   const text = view.viewer.getText();
-  view.saving = true;
+  setFileSaving(view, true);
   let result;
   try {
     result = await call({
@@ -1259,7 +1273,7 @@ async function saveFile(view, overwrite = false) {
       ...(view.hash && !overwrite ? { base: view.hash } : {}),
     });
   } catch (e) {
-    view.saving = false;
+    setFileSaving(view, false);
     if (e?.code !== 'conflict') {
       errorToast(`Couldn't save ${name}: ${e?.message ?? e}`);
       return;
@@ -1273,7 +1287,7 @@ async function saveFile(view, overwrite = false) {
     ) saveFile(view, true);
     return;
   }
-  view.saving = false;
+  setFileSaving(view, false);
   view.hash = typeof result?.hash === 'string' ? result.hash : null;
   // Edits typed while the save was on its way stay unsaved.
   if (view.viewer?.getText() === text) view.viewer.markClean();
@@ -1673,6 +1687,7 @@ function saveFlag(key, on) {
  * @property {Set<string>} openFolds   rows (`placeThreads` keys, `file`) whose Resolved fold is open
  * @property {Map<string, Composer>} composers  by thread id
  * @property {Set<string>} resolving   threads with a `pr_resolve` in flight
+ * @property {Set<string>} deleting    pending comments with a `pr_pending_delete` in flight
  * @property {boolean} viewedSending   a `pr_viewed` from the header's Viewed is in flight
  * @property {SinceView | null} since  the **Compare** choice when not `PR changes`; the tile's
  *   own, never saved in the layout
@@ -1886,6 +1901,7 @@ function mountDiffTile(tile) {
     openFolds: new Set(),
     composers: new Map(),
     resolving: new Set(),
+    deleting: new Set(),
     viewedSending: false,
     since: null,
     wantViewed: false,
@@ -3302,6 +3318,29 @@ function showViewed(ref, viewed) {
   }
 }
 
+/**
+ * A diff tile's **Submit review…** or **Discard review…** (`kind`), which lists the review again
+ * after. While either is in flight for the repo both are disabled, the one clicked with a spinner.
+ *
+ * @param {DiffRef} ref @param {'submit' | 'discard'} kind @param {string} label
+ * @param {(repo: {localFolder: string, root: string}) => Promise<boolean>} act
+ */
+function reviewButton(ref, kind, label, act) {
+  const repo = { localFolder: ref.localFolder, root: ref.root };
+  const sending = busyState(reviewBusyKey(repo));
+  const button = /** @type {HTMLButtonElement} */ (h('button', {
+    type: 'button',
+    onclick: async () => {
+      if (await act(repo)) reviewChanged(ref);
+    },
+  }, label));
+  if (sending !== null) {
+    button.disabled = true;
+    if (sending === kind) setButtonBusy(button, true);
+  }
+  return button;
+}
+
 function toggleShowResolved() {
   showResolved = !showResolved;
   saveFlag(SHOW_RESOLVED_KEY, showResolved);
@@ -3825,20 +3864,14 @@ function diffHeader(view) {
         'span',
         { class: 'pr-pending' },
         LABELS.reviewPending(review.comments),
-        h('button', {
-          type: 'button',
-          onclick: async () => {
-            const repo = { localFolder: ref.localFolder, root: ref.root };
-            if (await submitPendingReview(repo, pr.url)) reviewChanged(ref);
-          },
-        }, LABELS.submitReview),
-        h('button', {
-          type: 'button',
-          onclick: async () => {
-            const repo = { localFolder: ref.localFolder, root: ref.root };
-            if (await discardPendingReview(repo)) reviewChanged(ref);
-          },
-        }, LABELS.discardReview),
+        reviewButton(ref, 'submit', LABELS.submitReview, (repo) =>
+          submitPendingReview(repo, pr.url)),
+        reviewButton(
+          ref,
+          'discard',
+          LABELS.discardReview,
+          discardPendingReview,
+        ),
       )
       : '',
     data && ref && diffSource(ref) === 'pr'
@@ -4323,12 +4356,16 @@ function threadCard(view, thread) {
               { class: 'thread-comment-actions' },
               h('button', {
                 type: 'button',
+                disabled: view.deleting.has(c.id),
                 onclick: () => openEdit(view, c),
               }, LABELS.edit),
-              h('button', {
-                type: 'button',
-                onclick: () => void deletePending(view, c),
-              }, LABELS.deleteComment),
+              setButtonBusy(
+                h('button', {
+                  type: 'button',
+                  onclick: () => void deletePending(view, c),
+                }, LABELS.deleteComment),
+                view.deleting.has(c.id),
+              ),
             )
             : '',
         ),
@@ -4347,11 +4384,13 @@ function threadCard(view, thread) {
     }, LABELS.reply));
   }
   if (canResolve(view, thread)) {
-    actions.append(h('button', {
-      type: 'button',
-      disabled: view.resolving.has(thread.id),
-      onclick: () => void resolveThread(view, thread),
-    }, 'Resolve'));
+    actions.append(setButtonBusy(
+      h('button', {
+        type: 'button',
+        onclick: () => void resolveThread(view, thread),
+      }, 'Resolve'),
+      view.resolving.has(thread.id),
+    ));
   }
   const url = list(thread.comments)[0]?.url;
   if (typeof url === 'string' && url.startsWith('https://github.com/')) {
@@ -4734,15 +4773,20 @@ function openEdit(view, comment) {
   textarea.focus();
 }
 
-/** Deletes a pending comment (`pr_pending_delete`), asked first. */
+/**
+ * Deletes a pending comment (`pr_pending_delete`), asked first. Its Delete shows a spinner, and
+ * its Edit and Delete do nothing, until the server answers.
+ */
 async function deletePending(view, comment) {
   const ref = view.tile.diff;
-  if (!ref) return;
+  if (!ref || view.deleting.has(comment.id)) return;
   const ok = await confirmDialog(LABELS.deleteCommentConfirm, {
     okLabel: 'Delete',
     danger: true,
   });
-  if (!ok) return;
+  if (!ok || view.deleting.has(comment.id)) return;
+  view.deleting.add(comment.id);
+  renderDiff(view);
   try {
     const r = await call({
       type: 'pr_pending_delete',
@@ -4753,6 +4797,8 @@ async function deletePending(view, comment) {
     if (r?.available === false) errorToast(`Delete failed: ${r.message}`);
   } catch (e) {
     errorToast(`Delete failed: ${e?.message ?? e}`);
+  } finally {
+    view.deleting.delete(comment.id);
   }
   if (diffViews.get(view.tile.id) === view) reviewChanged(ref);
 }
@@ -5583,7 +5629,8 @@ function blobBase64(/** @type {Blob} */ blob) {
 /**
  * Attaches `images` to a pane tile's pane (`attach_image`), one at a time, and pastes the paths
  * of those that were written into the pane in one bracketed paste ({@link pastePaths}). Each one
- * that fails is its own toast. Focus goes back to the terminal.
+ * that fails is its own toast. Meanwhile a chip in the tile says so. Focus goes back to the
+ * terminal.
  *
  * @param {TileView} view
  * @param {() => {container: string, pane_id: string} | null} target
@@ -5597,6 +5644,13 @@ async function attachImages(view, target, images, source) {
     return;
   }
   keepTileOpen(view.tile);
+  const chip = h(
+    'div',
+    { class: 'tile-busy', role: 'status' },
+    h('span', { class: 'spinner', 'aria-hidden': 'true' }),
+    images.length === 1 ? 'Attaching image…' : 'Attaching images…',
+  );
+  view.body.append(chip);
   /** @type {string[]} */
   const paths = [];
   for (const image of images) {
@@ -5619,6 +5673,7 @@ async function attachImages(view, target, images, source) {
       errorToast(`Attach image failed: ${e?.message ?? e}`);
     }
   }
+  chip.remove();
   if (paths.length > 0) {
     send({ type: 'input', ...t, bytes: encodeInput(pastePaths(paths)) });
   }
@@ -6126,6 +6181,14 @@ export function mountTiles(root, opts) {
     tileArea,
     sidebar: opts.sidebar,
     zen: { on: () => zenOn, set: setZen },
+  });
+  // A review's Submit or Discard in flight shows in its repo's diff tiles' headers.
+  onBusyChange((key) => {
+    if (!key.startsWith('review\n')) return;
+    for (const view of diffViews.values()) {
+      const d = view.tile.diff;
+      if (d && view.review && key === reviewBusyKey(d)) renderDiff(view);
+    }
   });
   $tiles.replaceChildren($layoutRoot, $placeholder, $zenToggle);
   tiling = createTiling($layoutRoot, {

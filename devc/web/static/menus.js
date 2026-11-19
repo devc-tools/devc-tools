@@ -35,6 +35,7 @@ import {
   filePinPanes,
   jiraConfig,
   nextId,
+  onConnectionChange,
   paneRepo,
   pendingRequests,
   pinnedFiles,
@@ -106,6 +107,69 @@ export function setMenuContext(parts) {
 }
 
 /**
+ * Actions started here still in flight, by key ({@link projectBusyKey}, {@link reviewBusyKey},
+ * or a pane's or host action's own) → what the row or button that shows it says meanwhile. A
+ * second one with the same key does nothing until the first settles. While any is in flight the
+ * page's pointer shows progress (`html[data-busy]`), for those started from a menu that closed.
+ *
+ * @type {Map<string, string>}
+ */
+const busy = new Map();
+/** @type {((key: string) => void)[]} */
+const busyListeners = [];
+
+/** What `key`'s action in flight shows ({@link busy}), or null when none is. */
+export function busyState(key) {
+  return busy.get(key) ?? null;
+}
+
+/** Calls `fn(key)` each time an action in flight ({@link busy}) starts or settles. */
+export function onBusyChange(fn) {
+  busyListeners.push(fn);
+}
+
+/** A project's Stop or Remove in flight: `stopping…` / `removing…`. */
+export function projectBusyKey(localFolder) {
+  return `project\n${localFolder}`;
+}
+
+/** A repo's pending review being submitted or discarded: `submit` / `discard`. */
+export function reviewBusyKey(repo) {
+  return `review\n${repo.localFolder}\n${repo.root}`;
+}
+
+/**
+ * Runs `run` as `key`'s action in flight, showing `state`; nothing when one already is. Resolves
+ * with `run`'s result, or undefined when skipped.
+ *
+ * @template T @param {string} key @param {string} state @param {() => Promise<T>} run
+ * @returns {Promise<T | undefined>}
+ */
+async function whileBusy(key, state, run) {
+  if (busy.has(key)) return undefined;
+  setBusy(key, state);
+  try {
+    return await run();
+  } finally {
+    setBusy(key, null);
+  }
+}
+
+// A dropped connection never answers what was in flight (`call` leaves it unsettled): forget it.
+onConnectionChange((state) => {
+  if (state !== 'closed') return;
+  for (const key of [...busy.keys()]) setBusy(key, null);
+});
+
+/** @param {string} key @param {string | null} state */
+function setBusy(key, state) {
+  if (state === null) busy.delete(key);
+  else busy.set(key, state);
+  document.documentElement.toggleAttribute('data-busy', busy.size > 0);
+  for (const fn of busyListeners) fn(key);
+}
+
+/**
  * Where a pane a message answered with goes (see `ViewIntents.openPane`): by default, a new tile
  * in the focused stack.
  *
@@ -135,7 +199,8 @@ export function newShell(c, opts, placement = {}) {
  * container `c`, then places the pane as {@link newShell} does. A reused pane (`open_tab`'s
  * `reused`) already shown in a tile focuses that tile instead. Placement goes by `c`'s folder
  * only, never its state: an `open_tab` that started Herdr can answer before this page has seen
- * the container connect. A failure is a toast naming `what`.
+ * the container connect. A failure is a toast naming `what`. While it is on its way the same
+ * message again does nothing ({@link whileBusy}).
  *
  * @param {ContainerInfo} c
  * @param {Record<string, unknown> & {type: string}} msg
@@ -143,14 +208,17 @@ export function newShell(c, opts, placement = {}) {
  * @param {string} what
  */
 export async function createPane(c, msg, placement, what) {
-  let result;
-  try {
-    result = await requestPane({ ...msg, container: c.id });
-  } catch (e) {
-    errorToast(`${what} failed: ${e?.message ?? e}`);
-    return;
-  }
-  placePane(c.localFolder, result, placement);
+  // The same message again while the first is on its way (a second click) makes no second pane.
+  const result = await whileBusy(
+    `pane\n${c.id}\n${JSON.stringify(msg)}`,
+    what,
+    () =>
+      requestPane({ ...msg, container: c.id }).catch((e) => {
+        errorToast(`${what} failed: ${e?.message ?? e}`);
+        return null;
+      }),
+  );
+  if (result) placePane(c.localFolder, result, placement);
 }
 
 /**
@@ -686,6 +754,20 @@ async function openInCode(fr, path) {
     toast(projectActions(projects.get(fr.localFolder)?.environment).notRunning);
     return;
   }
+  await whileBusy(
+    hostActionKey('open_in_code', fr, path),
+    LABELS.openInCode,
+    () => openInCodeCall(c, fr, path),
+  );
+}
+
+/** A host action's {@link busy} key: the same one again waits for the first. */
+function hostActionKey(type, fr, path) {
+  return `${type}\n${fr.localFolder}\n${fr.root}\n${path}`;
+}
+
+/** {@link openInCode}'s `open_in_code`; a failure is a toast. */
+async function openInCodeCall(c, fr, path) {
   try {
     await call(
       c
@@ -713,6 +795,15 @@ async function revealPath(fr, path) {
     toast(projectActions(projects.get(fr.localFolder)?.environment).notRunning);
     return;
   }
+  await whileBusy(
+    hostActionKey('reveal_path', fr, path),
+    LABELS.reveal,
+    () => revealPathCall(c, fr, path),
+  );
+}
+
+/** {@link revealPath}'s `reveal_path`; a failure is a toast. */
+async function revealPathCall(c, fr, path) {
   const label = LABELS.reveal;
   try {
     await call(
@@ -924,19 +1015,23 @@ function diffTileMenuItems(tile) {
 /**
  * A repo's pending review, submitted as a Comment (`pr_pending_submit`) after its summary is
  * asked for (`reviewDialog`, which links to GitHub for approving). Resolves whether it was sent,
- * failed or not, so the caller lists the threads and the review again.
+ * failed or not, so the caller lists the threads and the review again. While it is in flight its
+ * repo is busy ({@link reviewBusyKey}) and another submit or discard does nothing.
  *
  * @param {{localFolder: string, root: string}} repo @param {string} prUrl
  * @returns {Promise<boolean>}
  */
 export async function submitPendingReview(repo, prUrl) {
+  const key = reviewBusyKey(repo);
+  if (busy.has(key)) return false;
   const body = await reviewDialog(prUrl);
-  if (body === null) return false;
-  await pendingReviewCall(
-    { type: 'pr_pending_submit', ...repo, body },
-    'Submitting the review',
-    'Review submitted',
-  );
+  if (body === null || busy.has(key)) return false;
+  await whileBusy(key, 'submit', () =>
+    pendingReviewCall(
+      { type: 'pr_pending_submit', ...repo, body },
+      'Submitting the review',
+      'Review submitted',
+    ));
   return true;
 }
 
@@ -948,16 +1043,19 @@ export async function submitPendingReview(repo, prUrl) {
  * @returns {Promise<boolean>}
  */
 export async function discardPendingReview(repo) {
+  const key = reviewBusyKey(repo);
+  if (busy.has(key)) return false;
   const ok = await confirmDialog(LABELS.discardReviewConfirm, {
     okLabel: LABELS.discard,
     danger: true,
   });
-  if (!ok) return false;
-  await pendingReviewCall(
-    { type: 'pr_pending_discard', ...repo },
-    'Discarding the review',
-    'Review discarded',
-  );
+  if (!ok || busy.has(key)) return false;
+  await whileBusy(key, 'discard', () =>
+    pendingReviewCall(
+      { type: 'pr_pending_discard', ...repo },
+      'Discarding the review',
+      'Review discarded',
+    ));
   return true;
 }
 
@@ -1040,6 +1138,7 @@ export async function stopProject(p) {
     appActions.project('stop', p.localFolder);
     return;
   }
+  if (busy.has(projectBusyKey(p.localFolder))) return;
   const actions = projectActions(p.environment);
   if (
     await confirmDialog(
@@ -1047,7 +1146,7 @@ export async function stopProject(p) {
       { okLabel: actions.stopOk, danger: true },
     )
   ) {
-    projectRequest('stop_project', p.localFolder, actions.stopOk);
+    await projectBusyRequest('stop_project', p.localFolder, actions.stopOk);
   }
 }
 
@@ -1057,14 +1156,32 @@ export async function downProject(p) {
     appActions.project('down', p.localFolder);
     return;
   }
+  if (busy.has(projectBusyKey(p.localFolder))) return;
   if (
     await confirmDialog(
       `Remove the container for ${p.name}? Like devc down, it is stopped and deleted: its panes end, and anything outside its mounted folders and volumes is lost.`,
       { okLabel: 'Remove container', danger: true },
     )
   ) {
-    projectRequest('down_project', p.localFolder, 'Remove container');
+    await projectBusyRequest('down_project', p.localFolder, 'Remove container');
   }
+}
+
+/**
+ * A project's Stop or Remove (`stop_project`, `down_project`), its row busy
+ * ({@link projectBusyKey}) until the server answers; a failure is a toast naming `what`.
+ *
+ * @param {'stop_project' | 'down_project'} type @param {string} localFolder @param {string} what
+ */
+function projectBusyRequest(type, localFolder, what) {
+  return whileBusy(
+    projectBusyKey(localFolder),
+    type === 'stop_project' ? 'stopping…' : 'removing…',
+    () =>
+      call({ type, localFolder }).catch((e) =>
+        errorToast(`${what} failed: ${e?.message ?? e}`)
+      ),
+  );
 }
 
 /** @type {{localFolder: string, pre: HTMLElement, el: HTMLElement} | null} */

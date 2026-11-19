@@ -453,6 +453,24 @@ export function iconButton(icon, title, action) {
   }, svg);
 }
 
+/**
+ * Shows `button` busy while what it started is in flight (`on`), or not again: disabled, with a
+ * spinner before its label, in place of an {@link iconButton}'s icon. Returns `button`.
+ *
+ * @template {HTMLElement} B @param {B} button @param {boolean} on @returns {B}
+ */
+export function setButtonBusy(button, on) {
+  /** @type {HTMLButtonElement} */ (/** @type {unknown} */ (button)).disabled =
+    on;
+  if (on) button.setAttribute('aria-busy', 'true');
+  else button.removeAttribute('aria-busy');
+  const spinner = button.querySelector(':scope > .spinner');
+  if (on && !spinner) {
+    button.prepend(h('span', { class: 'spinner', 'aria-hidden': 'true' }));
+  } else if (!on) spinner?.remove();
+  return button;
+}
+
 /** `text` with its bidi controls and zero-width characters shown as markers (`splitMarkers`). */
 export function markedText(text) {
   return splitMarkers(String(text ?? '')).map((part) =>
