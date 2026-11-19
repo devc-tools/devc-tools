@@ -54,9 +54,9 @@ export function cellAt(renderer, e) {
 
 /**
  * Plain mouse down/drag/up over the terminal go to Herdr as cells (the browser does not
- * select); a plain left-drag's text is copied from Herdr, and flashed here unless the app redrew
- * during the drag (it draws its own selection). Shift+drag is left to xterm.js for a local
- * selection, copied on mouseup. A right-click opens the caller's menu and is not sent to the app.
+ * select); a plain left-drag's text is copied from Herdr, and highlighted here as it is dragged
+ * and briefly after, unless the app redrew during the drag (it draws its own selection).
+ * Shift+drag is left to xterm.js for a local selection, copied on mouseup. A right-click opens the caller's menu and is not sent to the app.
  * Cmd+click (Ctrl+click off a Mac: `linkModifier`) on a link opens it, caught in the capture phase
  * so it works while an app has mouse reporting on; anywhere else it is an ordinary click.
  *
@@ -117,6 +117,13 @@ export function attachTerminalMouse(termEl, renderer, hooks) {
       const c = cell(e);
       if (!c || (c.column === last.column && c.row === last.row)) return;
       last = c;
+      // The range is shown as it is dragged, until the app redraws: one that does is drawing
+      // its own selection (see the flash below), and a shell, which draws none, would show
+      // nothing until the copy's flash.
+      if (button === 'left') {
+        if (hooks.frames() === framesAtDown) renderer.highlight(start, c);
+        else renderer.clearHighlight();
+      }
       const sendDrag = () => {
         lastSent = Date.now();
         hooks.mouse({ action: 'drag', button, ...last });
@@ -144,9 +151,9 @@ export function attachTerminalMouse(termEl, renderer, hooks) {
             () => renderer.clearHighlight(),
             COPY_FLASH_MS,
           );
-        }
+        } else renderer.clearHighlight();
         hooks.copyRange(start, c);
-      }
+      } else if (button === 'left') renderer.clearHighlight();
     };
     window.addEventListener('mousemove', onMove, true);
     window.addEventListener('mouseup', onUp, true);

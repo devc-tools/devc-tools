@@ -616,7 +616,9 @@ is published from any container: the host server finds devcontainers with
   mode), except a right-click, which opens the tile's menu (the same one as
   its tab); **Shift+drag** selects locally and copies. The wheel scrolls the app
   when it tracks the mouse, and Herdr's scrollback otherwise.
-- **Copying a wrapped command:** a plain drag copies the text under it, with a
+- **Copying a wrapped command:** a plain drag copies the text under it (a
+  shell's shows as selected while you drag; an app that draws its own
+  selection, Claude Code included, shows its own), with a
   line break wherever the app wrapped it: agent TUIs, Claude Code included,
   wrap text themselves, so a long command they print pastes as several lines
   (a line the terminal wrapped at its edge copies as one). After such a drag,
