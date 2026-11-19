@@ -42,7 +42,9 @@
     // "ghcr.io/devc-tools/features/micro:0": {},
     "ghcr.io/devc-tools/features/node-nvmrc:0": {},
     "ghcr.io/devc-tools/features/typescript-lsp:0": {},
-    "ghcr.io/devc-tools/features/xvfb:0": {}
+    "ghcr.io/devc-tools/features/xvfb:0": {
+      "extraPackages": "libgles2"
+    }
   },
   "remoteEnv": {
     "LANG": "en_US.utf8",
