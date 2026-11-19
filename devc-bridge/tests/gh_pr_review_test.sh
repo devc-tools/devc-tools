@@ -1492,6 +1492,9 @@ run gh-pr-pending-review comment src/a.ts 3 RIGHT "secret-body-text"
 run gh-pr-pending-review reply PRRT_c1 "secret-body-text"
 check "every call ran from /" test -z "$(calls | grep -v '^cwd=/ ')"
 check "only gh api and gh auth, never gh pr" test -z "$(calls | grep -Ev '^cwd=/ (api|auth) ')"
+check "gh's login is read locally (auth token), never checked with GitHub (auth status)" \
+  test -z "$(calls | grep -E '^cwd=/ auth status ')"
+check "  … and is read" test -n "$(calls | grep -E '^cwd=/ auth token ')"
 check "no container value inside a query string" test -z "$(grep -E 'PRRT_|secret-body|pr-branch' "$SHIM/queries.log")"
 check "container values go as -f, never -F" test -z "$(calls | grep -E -- "-F (id|body|branch)=")"
 

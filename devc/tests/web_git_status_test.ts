@@ -7,6 +7,7 @@ import {
   type MirrorOpts,
   readGitState,
   readGitStatus,
+  recordPushed,
   refreshRemote,
 } from '../web/git_status.ts';
 import { readCommitHistory } from '../web/git_history.ts';
@@ -417,6 +418,48 @@ Deno.test('readGitStatus: no upstream counts commits on no remote branch, as Com
     await git(lone, 'commit', '-q', '--allow-empty', '-m', 'one');
     assertEquals((await readGitStatus(lone, opts))?.ahead, 0);
     assertEquals(await refreshRemote(lone, opts), false);
+  } finally {
+    await Deno.remove(dir, { recursive: true });
+  }
+});
+
+Deno.test('recordPushed: the pushed SHA is the remote branch, with no network call', async () => {
+  const dir = await Deno.makeTempDir();
+  try {
+    const remote = `${dir}/remote.git`;
+    const work = `${dir}/work`;
+    const opts: MirrorOpts = { root: `${dir}/mirrors`, fetchable: () => true };
+    const head = async () =>
+      new TextDecoder().decode(
+        (await new Deno.Command('git', {
+          args: ['rev-parse', 'HEAD'],
+          cwd: work,
+          stdout: 'piped',
+        }).output()).stdout,
+      ).trim();
+    await git(dir, 'init', '-q', '--bare', '-b', 'main', remote);
+    await git(dir, 'clone', '-q', remote, work);
+    await git(work, 'commit', '-q', '--allow-empty', '-m', 'one');
+    await git(work, 'push', '-q', '-u', 'origin', 'main');
+    // With an upstream: gh-push published the commit, the repo's own ref never heard of it. The
+    // remote here never gets it, so only the record can clear the count.
+    await git(work, 'commit', '-q', '--allow-empty', '-m', 'two');
+    assertEquals((await readGitStatus(work, opts))?.ahead, 1);
+    assertEquals(await recordPushed(work, await head(), opts), true);
+    assertEquals((await readGitStatus(work, opts))?.ahead, 0);
+
+    // With none: `<prefix>/pushed` in origin's mirror. Two to push: the repo's own origin/main
+    // is still at `one`.
+    await git(work, 'switch', '-q', '-c', 'feat');
+    await git(work, 'commit', '-q', '--allow-empty', '-m', 'three');
+    const s = await readGitStatus(work, opts);
+    assertEquals([s?.ahead, s?.pushCreates], [2, true]);
+    assertEquals(await recordPushed(work, await head(), opts), true);
+    assertEquals((await readGitStatus(work, opts))?.ahead, 0);
+
+    // A commit the mirror lacks, or no SHA at all: not recorded, so the caller looks instead.
+    assertEquals(await recordPushed(work, 'f'.repeat(40), opts), false);
+    assertEquals(await recordPushed(work, 'HEAD', opts), false);
   } finally {
     await Deno.remove(dir, { recursive: true });
   }

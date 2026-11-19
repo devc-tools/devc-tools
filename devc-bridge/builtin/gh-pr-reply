@@ -355,7 +355,10 @@ gh_fail() {
 
 gh_ready() {
   command -v gh >/dev/null 2>&1 || die 4 "gh is not installed on the host (not on the bridge's PATH)"
-  gh_try "checking gh auth" auth status --hostname github.com ||
+  # `auth token` reads gh's stored login with no call to GitHub; `auth status` (a GitHub call) only
+  # when that fails, as on a gh too old for it. A token GitHub no longer takes fails the first call.
+  run_t gh auth token --hostname github.com >/dev/null 2>&1 ||
+    gh_try "checking gh auth" auth status --hostname github.com ||
     die 4 "gh is not authenticated in the bridge's environment — run gh auth login on the host, then devc-bridge restart"
 }
 

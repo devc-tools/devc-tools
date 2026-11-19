@@ -463,6 +463,35 @@ export async function refreshRemote(
 }
 
 /**
+ * After devc web's own push of `sha` (the plan's SHA, which `gh-push` pushed or found already
+ * there): the mirror's copy of `folder`'s branch on the remote is set to it, as
+ * {@link refreshRemote} would find it, with no network call. The upstream's copy for a branch with
+ * one, else `<prefix>/pushed` in `origin`'s mirror. Returns whether it did: not when the mirror
+ * lacks the commit, or the repo can't be read (then {@link refreshRemote} looks). Never throws.
+ */
+export async function recordPushed(
+  folder: string,
+  sha: string,
+  opts: MirrorOpts = defaultMirrorOpts(),
+): Promise<boolean> {
+  if (!/^[0-9a-f]{40}$/.test(sha)) return false;
+  const at = await locate(folder, opts);
+  if (at === null || isGitProblem(at)) return false;
+  let mirror = at.mirror;
+  let ref = `${at.prefix}/upstream`;
+  if (at.upstream === null) {
+    const originUrl = await readRemoteUrl(at.commonDir, 'origin');
+    if (originUrl === null) return false;
+    mirror = await mirrorFor(opts, originUrl);
+    ref = `${at.prefix}/pushed`;
+  }
+  if (mirror === null) return false;
+  // `update-ref` refuses a commit the mirror does not have.
+  const r = await run([`--git-dir=${mirror}`, 'update-ref', ref, sha]);
+  return !('failed' in r);
+}
+
+/**
  * Fetches `folder`'s upstream branch from its remote into the mirror, when the remote is one
  * the host may fetch ({@link isFetchableRemote}). Only the host's own git config applies:
  * its credential helper and ssh setup, never the repo's. Returns whether it fetched.

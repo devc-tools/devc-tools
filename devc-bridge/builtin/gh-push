@@ -312,7 +312,10 @@ transport_setup() {
 GH_MISSING="gh is not installed on the host (not on the bridge's PATH)"
 gh_ready() {
   [ -n "$gh_bin" ] || return 2
-  run_t "$gh_bin" auth status --hostname github.com >/dev/null 2>&1 || return 3
+  # `auth token` reads gh's stored login with no call to GitHub; `auth status` (a GitHub call) only
+  # when that fails, as on a gh too old for it. A token GitHub no longer takes fails the first call.
+  run_t "$gh_bin" auth token --hostname github.com >/dev/null 2>&1 ||
+    run_t "$gh_bin" auth status --hostname github.com >/dev/null 2>&1 || return 3
 }
 timeout_s=${DEVC_BRIDGE_GIT_TIMEOUT:-300}
 case $timeout_s in '' | *[!0-9]*) timeout_s=300 ;; esac
@@ -557,7 +560,16 @@ elif [ -n "$remote_sha" ]; then
 else
   "${MIRROR_GIT[@]}" update-ref -d "refs/remotes/origin/$branch" 2>/dev/null
 fi
-net "fetching $base from $remote" "${NET_GIT[@]}" fetch -q --no-tags -- "$url" "${refspecs[@]}"
+# Skipped when the mirror's copies already are what ls-remote just reported (a plan moments ago,
+# then its push): the fetch would bring nothing. Those refs are written only by this fetch.
+base_sha=$(awk '$1 != "ref:" && $2 == "HEAD" { print $1; exit }' "$tmp/ls-remote")
+have() { [ "$("${MIRROR_GIT[@]}" rev-parse -q --verify "$1^{commit}" 2>/dev/null)" = "$2" ]; }
+if [ -n "$base_sha" ] && have "refs/remotes/origin/$base" "$base_sha" &&
+  { [ "$tip" != "refs/remotes/origin/$branch" ] || have "$tip" "$remote_sha"; }; then
+  :
+else
+  net "fetching $base from $remote" "${NET_GIT[@]}" fetch -q --no-tags -- "$url" "${refspecs[@]}"
+fi
 
 # ── what the agent wants published ────────────────────────────────────────────────────────
 
@@ -703,4 +715,6 @@ fi
 # The SHA, to a ref built from the policy: no tag, no force, no delete has a code path here.
 net "pushing $branch to $remote" "${NET_GIT[@]}" push -q --no-verify --no-follow-tags -- \
   "$url" "$sha:refs/heads/$branch"
+# The remote's branch is now the SHA: the next run's fetch can be skipped (see above).
+"${MIRROR_GIT[@]}" update-ref "refs/remotes/origin/$branch" "$sha" 2>/dev/null
 echo "pushed: $branch at $short to $remote ($repo)"

@@ -836,10 +836,15 @@ exclusively (step 3):
    longer equals the policy's remote.
 4. Ask the remote for its **default branch** (never assumed to be `main`) and
    fetch it fresh, along with the pinned branch's remote tip when there is one.
-   This step and step 8 run against the HTTPS URL with no
+   The fetch is skipped when the mirror's copies already are the SHAs the
+   remote just reported (a plan moments before its push, or a push after the
+   last one, which records the pushed tip in the mirror). This step and step 8
+   run against the HTTPS URL with no
    user or system git config (`GIT_CONFIG_GLOBAL=/dev/null`,
    `GIT_CONFIG_NOSYSTEM=1`, so no `insteadOf` can turn it back into SSH and no
-   other credential helper can answer), after checking `gh auth status`.
+   other credential helper can answer), after checking that gh has a login
+   (`gh auth token`, which asks GitHub nothing; `gh auth status` only on a gh
+   too old for it). Every `gh-*` capability checks gh's login the same way.
 5. Refuse (exit 3) when the pinned branch **is** the default branch — an exact
    comparison against what the remote just reported, so a pin named `main` on a
    remote whose default is `master` still pushes. Nothing has been fetched yet.

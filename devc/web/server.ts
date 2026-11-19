@@ -160,6 +160,7 @@ import {
   type GitProblem,
   GitStatusWatch,
   isGitProblem,
+  recordPushed,
   refreshRemote,
 } from './git_status.ts';
 import { type ChangesReading, GitChangesWatch } from './git_changes.ts';
@@ -2181,7 +2182,10 @@ export async function startWeb(
     const r = await userPush(msg.folder, msg.sha);
     answer(r.ok ? r : { ok: false, problem: r.problem });
     if (r.ok) {
-      await refreshRemote(msg.folder);
+      // The remote's branch is the SHA just pushed: recorded locally, looked up only failing that.
+      if (!(await recordPushed(msg.folder, msg.sha))) {
+        await refreshRemote(msg.folder);
+      }
       void gitWatch.refresh(msg.folder);
     }
   };

@@ -1010,6 +1010,38 @@ expect_rc 0 "the user's push of it"
 check "  … runs neither" test -z "$(ls "$MARK")"
 check "  … and the remote has the branch" test "$(remote_ref refs/heads/feat)" = "$(repo_ref feat)"
 
+echo "user modes: the remote is fetched only when it moved"
+fresh
+fetches() { net_calls | grep -c ' fetch ' || true; }
+plan
+expect_rc 0 "a first plan"
+check "  … fetches the remote" test "$(fetches)" -eq 1
+: >"$W/git.log"
+upush "$(repo_ref feat)"
+expect_rc 0 "its push"
+check "  … fetches nothing from the remote" test "$(fetches)" -eq 0
+check "  … and records the pushed tip" \
+  test "$(git --git-dir="$MIRROR" rev-parse refs/remotes/origin/feat)" = "$(repo_ref feat)"
+commit_file next.txt next
+: >"$W/git.log"
+plan
+expect_rc 0 "a plan after that push"
+check "  … fetches nothing from the remote" test "$(fetches)" -eq 0
+: >"$W/git.log"
+upush "$(repo_ref feat)"
+expect_rc 0 "its push, the remote unchanged"
+check "  … reads the remote but fetches nothing from it" test "$(fetches)" -eq 0
+check "  … and the remote has it" test "$(remote_ref refs/heads/feat)" = "$(repo_ref feat)"
+moved=$(git --git-dir="$REMOTE" commit-tree -p main -m moved "main^{tree}")
+git --git-dir="$REMOTE" update-ref refs/heads/main "$moved"
+commit_file after.txt after
+: >"$W/git.log"
+plan
+expect_rc 0 "a plan after the default branch moved"
+check "  … fetches it again" test "$(fetches)" -eq 1
+check "  … and compares with the new tip" \
+  test "$(git --git-dir="$MIRROR" rev-parse refs/remotes/origin/main)" = "$moved"
+
 echo
 echo "$pass passed, $fail failed"
 [ "$fail" -eq 0 ]

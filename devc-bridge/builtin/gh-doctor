@@ -141,7 +141,10 @@ transport_setup() {
 GH_MISSING="gh is not installed on the host (not on the bridge's PATH)"
 gh_ready() {
   [ -n "$gh_bin" ] || return 2
-  run_t "$gh_bin" auth status --hostname github.com >/dev/null 2>&1 || return 3
+  # `auth token` reads gh's stored login with no call to GitHub; `auth status` (a GitHub call) only
+  # when that fails, as on a gh too old for it. A token GitHub no longer takes fails the first call.
+  run_t "$gh_bin" auth token --hostname github.com >/dev/null 2>&1 ||
+    run_t "$gh_bin" auth status --hostname github.com >/dev/null 2>&1 || return 3
 }
 
 phys() { (cd -P -- "$1" 2>/dev/null && pwd -P); }
