@@ -2127,6 +2127,19 @@ body.resizing-zones {
   background: var(--term-bg);
 }
 
+/* A faint divider between back tabs, as a browser's: none beside the front tab, whose body
+   already sets it apart, and none after the last. */
+.lm_header .lm_tabs:has(.lm_tab + .lm_tab) .lm_tab:not(.lm_active, :has(+ .lm_active), :last-child)::after {
+  content: '';
+  position: absolute;
+  top: 30%;
+  bottom: 30%;
+  right: 0;
+  width: 1px;
+  background: color-mix(in srgb, var(--muted) 45%, var(--tile-head-line));
+  pointer-events: none;
+}
+
 .lm_header .lm_tab .lm_close_tab {
   top: 50%;
   right: 8px;
