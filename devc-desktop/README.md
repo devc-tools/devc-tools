@@ -240,8 +240,8 @@ arrangement is remembered. Closing the last tile closes the drawer.
 | Cmd+T       | Ctrl+Shift+T     | **New terminal in this stack** |
 | Cmd+W       | Ctrl+Shift+W     | **Close**: lets go of the pane |
 
-A paste with a line break in it is shown in a bar first, and goes in only when you press
-**Paste**.
+While devc web runs with `--live` or `--live-yolo`, a paste with a line break in it is shown in a
+bar first, and goes in only when you press **Paste**. Otherwise a paste goes straight in.
 
 Right-click in a host terminal for **`cd <folder>`**, typed into that tile's shell: the folder on
 this machine behind devc web's focused terminal pane (the pane's own directory, through its container's bind mounts).
@@ -468,8 +468,10 @@ The measurements are in
 - **The toggle shortcut is visible.** Pressing Ctrl+` or Cmd+J while devc web has focus shows devc web
   that keypress, but nothing typed in the host terminal. devc web could also swallow it while
   it has focus. The menu item works regardless.
-- **Pasting what an agent put on the clipboard.** devc web can write the clipboard (copy). The
-  paste bar shows multi-line pastes before they run, but a one-liner goes straight in.
+- **Pasting what an agent put on the clipboard.** devc web can write the clipboard (copy). Under
+  `--live`, where agents can edit its page, the paste bar shows multi-line pastes before they
+  run, but a one-liner goes straight in. Without `--live` there is no paste bar: the page is the
+  installed devc's, and copies only what you select.
 - **`cd` into a container-writable repo and running git there**, as in any terminal. devc's
   git-protect is the defence there.
 - **Which folder the right-click `cd` offers.** A container can steer it to any folder inside

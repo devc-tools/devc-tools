@@ -1591,6 +1591,12 @@ async function main(): Promise<void> {
     relayout();
     saveState();
   });
+  // Whether a multi-line paste is shown before it goes in: while devc web runs `--live` (or the
+  // app has not run it yet), when the page writing the clipboard is code agents can edit.
+  ipcMain.handle('host-term:paste-guard', (e) => {
+    if (!fromHost(e) && slotOf(e) === undefined) throw new Error('refused');
+    return runner === null || runner.live;
+  });
   ipcMain.handle('host-term:info', async (e) => {
     await herdrReady;
     const who = {

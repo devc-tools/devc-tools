@@ -41,6 +41,7 @@ contextBridge.exposeInMainWorld('hostTerm', {
     );
   },
   info: () => ipcRenderer.invoke('host-term:info'),
+  pasteGuard: () => ipcRenderer.invoke('host-term:paste-guard'),
   dragDrawer: (dy: number) => ipcRenderer.send('host-term:drag', dy),
   contextMenu: (id: string) => ipcRenderer.send('host-term:context-menu', id),
   // Moving a pane between the drawer and `/main`'s layout: the app takes a tile away (`remove`,

@@ -40,6 +40,8 @@ interface HostTerm extends PaneApi {
   hide(): void;
   /** A pick from the app's right-click menu. */
   onCommand(cb: (name: string, id: string) => void): void;
+  /** Whether a multi-line paste is shown first: devc web runs `--live`. */
+  pasteGuard(): Promise<boolean>;
   info(): Promise<
     {
       user: string;
@@ -437,11 +439,18 @@ $('empty-new').addEventListener(
   () => void newTile(undefined, 'stack'),
 );
 
-// A paste with a line break in it would run commands at once: show it and ask first. A single
-// line goes straight in, as in any terminal.
+// While devc web runs `--live`, its page (code agents can edit) can write the clipboard: a paste
+// with a line break in it would run commands at once, so it is shown first. Otherwise, and for a
+// single line, a paste goes straight in, as in any terminal.
 const pasteBar = $('paste');
 let pending: { text: string; send: (text: string) => void } | null = null;
 function confirmPaste(text: string, send: (text: string) => void): void {
+  void host.pasteGuard().catch(() => true).then((guard) => {
+    if (guard) showPaste(text, send);
+    else send(text);
+  });
+}
+function showPaste(text: string, send: (text: string) => void): void {
   pending = { text, send };
   const lines = text.replace(/[\r\n]+$/, '').split(/\r\n|\r|\n/).length;
   $('paste-lines').textContent = `${lines} lines`;

@@ -29,6 +29,8 @@ interface SlotHostTerm extends PaneApi {
   onColor(cb: (colors: unknown) => void): void;
   onGuard(cb: (on: boolean) => void): void;
   info(): Promise<SlotInfo>;
+  /** Whether a multi-line paste is shown first: devc web runs `--live`. */
+  pasteGuard(): Promise<boolean>;
   /** A split or a new tab: a new host tile beside this one. */
   command(name: string): void;
 }
@@ -60,11 +62,17 @@ document.addEventListener('keydown', (e) => {
   if (!e.repeat) host.command(name);
 }, true);
 
-// A paste with a line break in it would run commands at once: show it and ask first, as the
-// drawer does. A single line goes straight in.
+// A paste with a line break in it is shown first while devc web runs `--live`, as the drawer
+// does. Otherwise, and for a single line, it goes straight in.
 const pasteBar = $('paste');
 let pending: { text: string; send: (text: string) => void } | null = null;
 function confirmPaste(text: string, send: (text: string) => void): void {
+  void host.pasteGuard().catch(() => true).then((guard) => {
+    if (guard) showPaste(text, send);
+    else send(text);
+  });
+}
+function showPaste(text: string, send: (text: string) => void): void {
   pending = { text, send };
   const lines = text.replace(/[\r\n]+$/, '').split(/\r\n|\r|\n/).length;
   $('paste-lines').textContent = `${lines} lines`;
