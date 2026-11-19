@@ -1818,12 +1818,20 @@ function repoGitRequest(kind, localFolder, folder) {
  */
 async function userPush(localFolder, folder, refused = null) {
   if (repoGitOps.has(folder)) return;
+  // The plan reads the remote (several seconds at worst): the repo's spinner shows meanwhile,
+  // and a second click does nothing. No request id, so no `*_result` matches it.
+  const planning = { kind: 'push', id: null, localFolder };
+  repoGitOps.set(folder, planning);
+  renderTree();
   let plan;
   try {
     plan = await call({ type: 'push_plan', localFolder, folder });
   } catch (e) {
     errorToast(`${LABELS.push} failed: ${e?.message ?? e}`);
     return;
+  } finally {
+    if (repoGitOps.get(folder) === planning) repoGitOps.delete(folder);
+    renderTree();
   }
   if (!plan?.ok) {
     errorToast(`${LABELS.push} failed: ${plan?.problem ?? 'no plan'}`);
@@ -2505,6 +2513,18 @@ const prLists = new Map();
 
 const prKey = prRepoKey;
 
+/**
+ * PR files with a `pr_viewed` in flight, by `prKey\npath` → the state asked for: the row shows a
+ * spinner in place of its checkbox, and a listing that arrives meanwhile shows the state asked for.
+ *
+ * @type {Map<string, 'VIEWED' | 'UNVIEWED'>}
+ */
+const viewedSending = new Map();
+
+/** @param {string} localFolder @param {string} root @param {string} path */
+const viewedKey = (localFolder, root, path) =>
+  `${prKey(localFolder, root)}\n${path}`;
+
 // Open Pull request rows list again on a push, a fetch, the timer and a return to the page
 // (`lib/pr_recheck.js`), keeping what they show until the answer.
 const prRecheck = createPrRecheck((keys) => {
@@ -2531,6 +2551,10 @@ async function loadPr(localFolder, root) {
   try {
     const result = await call({ type: 'pr_files', localFolder, root });
     entry.result = result && typeof result === 'object' ? result : null;
+    for (const file of list(entry.result?.files)) {
+      const asked = viewedSending.get(viewedKey(localFolder, root, file.path));
+      if (asked) file.viewed = asked;
+    }
   } catch (e) {
     entry.result = null;
     entry.error = String(e?.message ?? e);
@@ -3099,27 +3123,42 @@ function prFileRow(fr, result, node, depth) {
   const letter = statusLetter(file.status);
   const dismissed = file.viewed === 'DISMISSED';
   const stop = (e) => e.stopPropagation();
-  const checkbox = h('input', {
-    type: 'checkbox',
-    class: 'pr-viewed',
-    'aria-label': `Viewed: ${file.path}`,
-    title: !result.canViewed
-      ? 'Marking Viewed needs --bridge-allow gh-pr-viewed'
-      : dismissed
-      ? 'Viewed, changed since viewed'
-      : 'Viewed',
-    disabled: !result.canViewed,
-    onclick: stop,
-    onmousedown: stop,
-    ondblclick: stop,
-    onchange: (e) =>
-      void setViewed(
-        fr,
-        file,
-        /** @type {HTMLInputElement} */ (e.target).checked,
-      ),
-  });
-  /** @type {HTMLInputElement} */ (checkbox).checked = file.viewed === 'VIEWED';
+  const sending = viewedSending.has(
+    viewedKey(fr.localFolder, fr.root, file.path),
+  );
+  const checkbox = sending
+    ? h('span', {
+      class: 'spinner pr-viewed-busy',
+      role: 'status',
+      'aria-label': `Marking ${
+        file.viewed === 'VIEWED' ? 'Viewed' : 'not viewed'
+      }: ${file.path}`,
+      title: file.viewed === 'VIEWED' ? 'Marking Viewed…' : 'Unmarking Viewed…',
+    })
+    : h('input', {
+      type: 'checkbox',
+      class: 'pr-viewed',
+      'aria-label': `Viewed: ${file.path}`,
+      title: !result.canViewed
+        ? 'Marking Viewed needs --bridge-allow gh-pr-viewed'
+        : dismissed
+        ? 'Viewed, changed since viewed'
+        : 'Viewed',
+      disabled: !result.canViewed,
+      onclick: stop,
+      onmousedown: stop,
+      ondblclick: stop,
+      onchange: (e) =>
+        void setViewed(
+          fr,
+          file,
+          /** @type {HTMLInputElement} */ (e.target).checked,
+        ),
+    });
+  if (!sending) {
+    /** @type {HTMLInputElement} */ (checkbox).checked =
+      file.viewed === 'VIEWED';
+  }
   const ref = { localFolder: fr.localFolder, root: fr.root, path: file.path };
   const row = treeRow(
     `${treeId(fr)}\npr\n${file.path}`,
@@ -3283,17 +3322,21 @@ function markedViewedHere(result, file) {
 }
 
 /**
- * Marks a PR file Viewed or not (`pr_viewed`): the counts change at once, and a failure puts
- * the checkbox back with a toast. Its diff tiles hear of a success (`ViewIntents.prViewed`).
- * Resolves whether it worked.
+ * Marks a PR file Viewed or not (`pr_viewed`): the counts change at once, a spinner stands in
+ * for the checkbox until the answer, and a failure puts the checkbox back with a toast. Its diff
+ * tiles hear of a success (`ViewIntents.prViewed`). Resolves whether it worked; a second mark of
+ * the same file while one is in flight does nothing and resolves true.
  *
  * @param {FileRoot} fr @param {any} file @param {boolean} viewed
  * @returns {Promise<boolean>}
  */
 async function setViewed(fr, shown, viewed) {
   const file = shown.listed ?? shown;
+  const key = viewedKey(fr.localFolder, fr.root, file.path);
+  if (viewedSending.has(key)) return true;
   const before = file.viewed;
   file.viewed = viewed ? 'VIEWED' : 'UNVIEWED';
+  viewedSending.set(key, file.viewed);
   queueRender();
   let message = null;
   try {
@@ -3311,15 +3354,18 @@ async function setViewed(fr, shown, viewed) {
   } catch (e) {
     message = String(e?.message ?? e);
   }
+  viewedSending.delete(key);
   if (message !== null) {
     file.viewed = before;
     errorToast(`Marking Viewed failed: ${message}`);
   }
+  // A listing that arrived meanwhile holds other file objects: they show the outcome too.
+  const result = prLists.get(prKey(fr.localFolder, fr.root))?.result;
+  const listed = list(result?.files).find((f) => f.path === file.path);
+  if (listed && listed !== file) listed.viewed = file.viewed;
   queueRender();
   if (message !== null) return false;
-  if (file.viewed === 'VIEWED') {
-    markedViewedHere(prLists.get(prKey(fr.localFolder, fr.root))?.result, file);
-  }
+  if (file.viewed === 'VIEWED') markedViewedHere(result, listed ?? file);
   tileArea.prViewed(
     { localFolder: fr.localFolder, root: fr.root, path: file.path },
     file.viewed,

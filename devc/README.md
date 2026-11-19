@@ -342,8 +342,8 @@ is published from any container: the host server finds devcontainers with
   `up to date: …` line, and **↑N** clears once devc web has looked at the
   remote again. Without `--live` (the built-in page), every other Push is
   devc web's own: Push with no grant that applies (none, the container
-  stopped, another branch checked out, or a project on this machine) shows a
-  push dialog with what `devc git push-plan` reports (branch → remote, the
+  stopped, another branch checked out, or a project on this machine) shows the
+  repo's spinner while it reads the remote, then a push dialog with what `devc git push-plan` reports (branch → remote, the
   commits, and warnings for the default branch, workflow changes, a
   non-fast-forward and an LFS pointer, the last two leaving **Push** greyed
   out), and its **Push** pushes that plan's SHA from the host as `devc git
@@ -880,7 +880,9 @@ is published from any container: the host server finds devcontainers with
 - **Pull requests:** under each repo of a running container, a **Pull request**
   row (its first child, closed until opened) shows the open PR of the repo's
   pinned branch: `#<n> <title>`, how many files you've marked Viewed, and the
-  changed files as a tree with GitHub's own **Viewed** checkboxes. Clicking a
+  changed files as a tree with GitHub's own **Viewed** checkboxes (a spinner
+  stands in for a checkbox, here and in a diff tile's header, until GitHub has
+  the mark; a listing read meanwhile keeps it). Clicking a
   file opens its diff in a tile (as a Files click opens a file), with
   the PR's review threads after their lines, by the side GitHub records: a
   thread on a deleted line sits on that deleted row (its old-file number), one

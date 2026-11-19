@@ -3256,6 +3256,7 @@ async function setDiffViewed(view, viewed) {
   const ref = view.tile.diff;
   const file = view.data?.file;
   if (!ref || !file) return;
+  if (view.viewedSending) return;
   const before = file.viewed;
   file.viewed = viewed ? 'VIEWED' : 'UNVIEWED';
   view.viewedSending = true;
@@ -3694,17 +3695,28 @@ function diffHeader(view) {
   }
   line.append(h('span', { class: 'diff-head-fill' }));
   if (file && data.canViewed) {
-    const viewed = h('input', {
-      type: 'checkbox',
-      class: 'pr-viewed',
-      disabled: view.viewedSending,
-      onchange: (e) =>
-        void setDiffViewed(
-          view,
-          /** @type {HTMLInputElement} */ (e.target).checked,
-        ),
-    });
-    /** @type {HTMLInputElement} */ (viewed).checked = file.viewed === 'VIEWED';
+    // While its `pr_viewed` is in flight, a spinner stands in for the checkbox.
+    const viewed = view.viewedSending
+      ? h('span', {
+        class: 'spinner pr-viewed-busy',
+        role: 'status',
+        'aria-label': file.viewed === 'VIEWED'
+          ? 'Marking Viewed'
+          : 'Unmarking Viewed',
+      })
+      : h('input', {
+        type: 'checkbox',
+        class: 'pr-viewed',
+        onchange: (e) =>
+          void setDiffViewed(
+            view,
+            /** @type {HTMLInputElement} */ (e.target).checked,
+          ),
+      });
+    if (!view.viewedSending) {
+      /** @type {HTMLInputElement} */ (viewed).checked =
+        file.viewed === 'VIEWED';
+    }
     line.append(h(
       'label',
       {

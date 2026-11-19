@@ -47,6 +47,8 @@ export const MAX_LISTINGS = 32;
  * `gh-pr-files` run. Older than this, both list again, so a pushed head shows.
  */
 export const LISTING_FRESH_MS = 5_000;
+/** How long a Viewed mark made here overrides a listing that may predate it. */
+const MARK_KEPT_MS = 5 * 60_000;
 export const MAX_FILES = 3000;
 export const MAX_PATCH_BYTES = 4 * 1024 * 1024;
 export const MAX_THREADS = 500;
@@ -759,6 +761,15 @@ export class PrReview {
   readonly #inFlight = new Map<string, Promise<Listed>>();
   /** Each history file's last append, so two marks never interleave a rewrite. */
   readonly #appending = new Map<string, Promise<void>>();
+  /**
+   * Each repo's Viewed marks made here, by path, with when they landed: a `gh-pr-files` that
+   * started before a mark landed may answer with the state before it, so its listing takes the
+   * mark (see {@link #fetch}). Kept {@link MARK_KEPT_MS}.
+   */
+  readonly #marks = new Map<
+    string,
+    Map<string, { viewed: 'VIEWED' | 'UNVIEWED'; at: number }>
+  >();
 
   constructor(deps: PrReviewDeps) {
     this.#deps = deps;
@@ -866,11 +877,22 @@ export class PrReview {
 
   /** Lists the PR's files again and stores the listing. */
   async #fetch(ctx: Ctx): Promise<Listed> {
+    const now = this.#deps.now ?? Date.now;
+    const started = now();
     const out = await this.#run(ctx, 'gh-pr-files');
     if (!out.ok) return out;
     const files = parsePrFiles(out.stdout);
     if (files === null) {
       return { ok: false, answer: unavailable('bridge', UNEXPECTED_OUTPUT) };
+    }
+    // A mark that landed while this listing was read is newer than what GitHub answered.
+    const marks = this.#marks.get(ctx.key);
+    for (const [path, m] of marks ?? []) {
+      if (now() - m.at > MARK_KEPT_MS) marks!.delete(path);
+      else if (m.at >= started) {
+        const f = files.files.find((f) => f.path === path);
+        if (f) f.viewed = m.viewed;
+      }
     }
     const old = this.#stored.get(ctx.key);
     const stored: Stored = {
@@ -1006,6 +1028,17 @@ export class PrReview {
       (v.viewed !== 'VIEWED' && v.viewed !== 'UNVIEWED')
     ) return unavailable('bridge', UNEXPECTED_OUTPUT);
     file.viewed = v.viewed;
+    // A listing read while this ran replaced the one the file came from: it shows the mark too.
+    const current = this.#stored.get(ctx.key)?.files.files.find((f) =>
+      f.path === path
+    );
+    if (current) current.viewed = v.viewed;
+    let marks = this.#marks.get(ctx.key);
+    if (!marks) this.#marks.set(ctx.key, marks = new Map());
+    marks.set(path, {
+      viewed: v.viewed,
+      at: (this.#deps.now ?? Date.now)(),
+    });
     // A bridge that predates headSha still marks: there is just nothing to record.
     if (typeof v.headSha === 'string' && COMMIT_SHA.test(v.headSha)) {
       await this.#record(listing.pr, {

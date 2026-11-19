@@ -3371,6 +3371,17 @@ button.primary.danger {
   accent-color: var(--accent);
 }
 
+/* A Viewed mark in flight: in the checkbox's place, the same size. */
+.spinner.pr-viewed-busy {
+  flex: none;
+  box-sizing: border-box;
+  width: 12px;
+  height: 12px;
+  margin: 0 5px 0 0;
+  color: var(--accent);
+  vertical-align: -2px;
+}
+
 .pr-status {
   display: inline-block;
   width: 1.1em;

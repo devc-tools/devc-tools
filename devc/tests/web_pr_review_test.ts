@@ -117,7 +117,8 @@ const backend = (home: string, docker: string) =>
 /**
  * A temp home for policy files and a stub `docker` that logs each call's argv (NUL-separated,
  * one file per call) and answers from `<dir>/<command>.{out,err,code}`. `<command>.sleep` makes
- * it sleep instead, and `<command>.big` makes it write that many bytes.
+ * it sleep instead, `<command>.delay` sleep that long before answering, and `<command>.big`
+ * makes it write that many bytes.
  */
 async function setup() {
   const dir = await Deno.makeTempDir({ prefix: 'pr-review-' });
@@ -133,6 +134,7 @@ for ((i=1; i<=$#; i++)); do
   if [ "\${!i}" = devc-bridge ]; then j=$((i+1)); cmd=\${!j}; break; fi
 done
 if [ -f "$d/$cmd.sleep" ]; then exec sleep "$(cat "$d/$cmd.sleep")"; fi
+if [ -f "$d/$cmd.delay" ]; then sleep "$(cat "$d/$cmd.delay")"; fi
 if [ -f "$d/$cmd.big" ]; then exec head -c "$(cat "$d/$cmd.big")" /dev/zero; fi
 [ -f "$d/$cmd.out" ] && cat "$d/$cmd.out"
 [ -f "$d/$cmd.err" ] && cat "$d/$cmd.err" >&2
@@ -564,6 +566,53 @@ Deno.test('pr writes: pr_viewed needs its grant and a listed path', async () => 
       result(await review.handle(viewed('src/a.ts'))).message,
       'unexpected bridge output',
     );
+  } finally {
+    await t.done();
+  }
+});
+
+Deno.test('pr writes: a pr_viewed that lands while the listing is read again shows in the new listing', async () => {
+  const t = await setup();
+  try {
+    await t.policy('gh-pr-read,gh-pr-viewed');
+    let clock = 1_000_000;
+    const review = t.review({ now: () => clock });
+    result(await review.handle(files));
+    clock += LISTING_FRESH_MS;
+    // GitHub answers the listing as it was before the mark: src/a.ts not viewed.
+    await t.write('gh-pr-files.delay', '0.5');
+    const listing = review.handle(at('pr_diff'));
+    await new Promise((r) => setTimeout(r, 100));
+    clock += 1;
+    assertEquals(
+      result(
+        await review.handle({
+          type: 'pr_viewed',
+          localFolder: LOCAL,
+          root: ROOT,
+          path: 'src/a.ts',
+          viewed: true,
+        }),
+      ).viewed,
+      'VIEWED',
+    );
+    assertEquals(
+      (result(await listing).file as { viewed: string }).viewed,
+      'VIEWED',
+    );
+    const listed = result(await review.handle(files)).files as {
+      path: string;
+      viewed: string;
+    }[];
+    assertEquals(listed.find((f) => f.path === 'src/a.ts')?.viewed, 'VIEWED');
+    // A listing that starts after the mark is GitHub's word (unmarked there since).
+    await Deno.remove(join(t.dir, 'gh-pr-files.delay'));
+    clock += LISTING_FRESH_MS;
+    const later = result(await review.handle(files)).files as {
+      path: string;
+      viewed: string;
+    }[];
+    assertEquals(later.find((f) => f.path === 'src/a.ts')?.viewed, 'UNVIEWED');
   } finally {
     await t.done();
   }
