@@ -85,6 +85,22 @@ declare module 'devc-web/containers.js' {
   ): unknown;
 }
 
+declare module 'devc-web/outline.js' {
+  export function mountOutlineZone(opts: {
+    tileArea: unknown;
+    avail: () => number;
+    changed: () => void;
+    reset?: () => void;
+  }): {
+    zone: HTMLElement;
+    divider: HTMLElement;
+    draw(outline: unknown): void;
+    applySize(): void;
+    isOpen(): boolean;
+    setFill(on: boolean): void;
+  };
+}
+
 declare module 'devc-web/remote.js' {
   export function remoteTileArea(): { tileArea: unknown };
   export function remoteInUse(): { link: unknown };

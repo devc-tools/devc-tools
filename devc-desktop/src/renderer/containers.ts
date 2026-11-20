@@ -6,10 +6,14 @@
 // preload), which gives it the server's desktop role. What it can't leave to the server goes to
 // the app: a push or a container start, stop or removal shows here as a card the user confirms
 // (armed, as in the HOST drawer), and its right-click menus are the app's overlay menu, so they
-// can spread past the pane. Container-supplied text is only ever inserted as text.
+// can spread past the pane. Container-supplied text is only ever inserted as text. Below the
+// section, under a divider of its own, is devc web's Outline (`devc/web/static/outline.js`): the
+// file tile focused last's tests and declarations, below Projects as in devc web's own sidebar
+// (`/sidebar` draws none while the pane shows).
 
 import { connect, useBundledEndpoint } from 'devc-web/client.js';
 import { mountContainers } from 'devc-web/containers.js';
+import { mountOutlineZone } from 'devc-web/outline.js';
 import { useAppActions } from 'devc-web/menus.js';
 import {
   remoteInUse,
@@ -81,19 +85,31 @@ strip.addEventListener('dblclick', () => {
   if (strip.dataset.inert !== 'true') pane.resetStrip();
 });
 
-// ---- folding: a folded section shrinks the pane to its heading ----------------------------------
+// ---- folding: with both sections folded the pane shrinks to their headings ---------------------
 
 let sectionOpen = true;
+/** Whether the Outline below the section is open; set once it is mounted. */
+let outlineOpen = (): boolean => false;
+/** What the app was last told: `open`, and folded, the height. */
+let lastFold = '';
 
-/** Tells the app whether the section is open, and folded, the height down to its heading. */
+/**
+ * Tells the app whether the pane is open (the section or the Outline is), and folded, the height
+ * down to the last heading; only when that changed.
+ */
 function reportFold(): void {
-  strip.dataset.inert = String(!sectionOpen);
+  const open = sectionOpen || outlineOpen();
+  strip.dataset.inert = String(!open);
   requestAnimationFrame(() => {
-    const heading = document.querySelector('#containers .row.section');
-    const height = sectionOpen || heading === null
+    const headings = document.querySelectorAll('#tree .row.section');
+    const heading = headings[headings.length - 1];
+    const height = open || heading === undefined
       ? 0
       : Math.ceil(heading.getBoundingClientRect().bottom) + 4;
-    pane.fold(sectionOpen, height);
+    const fold = `${open} ${height}`;
+    if (fold === lastFold) return;
+    lastFold = fold;
+    pane.fold(open, height);
   });
 }
 
@@ -244,15 +260,37 @@ void pane.token().then((conn) => {
   });
   const remote = remoteTileArea();
   const inUse = remoteInUse();
+  const tree = $('tree');
+  const outline = mountOutlineZone({
+    tileArea: remote.tileArea,
+    avail: () => tree.clientHeight - outline.divider.offsetHeight,
+    changed: () => {
+      outline.applySize();
+      reportFold();
+    },
+  });
+  outlineOpen = outline.isOpen;
+  tree.append(outline.divider, outline.zone);
+  outline.draw(null);
+  addEventListener('resize', () => outline.applySize());
   const section = mountContainers($('containers'), {
     tileArea: remote.tileArea,
     inUse: inUse.link,
     standalone: true,
     onFold: (open) => {
       sectionOpen = open;
+      // Folded, Projects is its heading and the Outline takes the rest.
+      tree.classList.toggle('containers-closed', !open);
+      outline.setFill(!open);
       reportFold();
     },
+  }) as { onViewState(state: { outline?: unknown }): void };
+  serveContainers(remote, inUse, {
+    ...section,
+    onViewState(state: { outline?: unknown }) {
+      section.onViewState(state);
+      outline.draw(state.outline);
+    },
   });
-  serveContainers(remote, inUse, section);
   connect();
 });

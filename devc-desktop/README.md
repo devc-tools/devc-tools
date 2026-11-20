@@ -164,8 +164,11 @@ shell (SIGHUP to its process group, then SIGKILL), and then exits.
 ## The Containers pane
 
 The bottom of the left column is devc web's Containers section (running containers, their repo
-cards, Not running, Add project), but its code is built into the app from this checkout's
-`devc/web/static/containers.js` when the app is built. `devc web --live` changes `/sidebar` and
+cards, Not running, Add project), with devc web's **Outline** below it under a divider of its
+own (`/sidebar` then draws none), but its code is built into the app from this checkout's
+`devc/web/static/containers.js` and `outline.js` when the app is built. The pane shrinks to its
+headings only when both Projects and the Outline are folded; with Projects alone folded, the
+Outline takes the pane. `devc web --live` changes `/sidebar` and
 `/main` as you edit them; it never changes the pane. An edit to the Containers section reaches
 the pane at the next build.
 

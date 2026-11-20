@@ -51,11 +51,27 @@ import {
  */
 
 /**
+ * The sidebar's Outline: the outline of the open file tile focused last (the **outline tile**),
+ * from `lib/outline.js`.
+ *
+ * @typedef {object} OutlineState
+ * @property {string} tile          the outline tile's id
+ * @property {string} title         its tab title
+ * @property {boolean} supported    false: not a JavaScript or TypeScript file (`items` empty)
+ * @property {import('./outline.js').OutlineItem[]} items
+ * @property {boolean} truncated    the file has more than `MAX_OUTLINE_ITEMS`
+ * @property {boolean} partial      the file was not parsed to its end yet
+ * @property {number | null} current  the index in `items` of the deepest item holding the
+ *   cursor's line; null for none
+ */
+
+/**
  * @typedef {object} ViewState
  * @property {TileState[]} tiles
  * @property {LayoutNode | null} tree  the layout tree, unfolded
  * @property {string | null} focused   the tile a sidebar click opens into: the focused one, else
  *   the first
+ * @property {OutlineState | null} [outline]  the Outline; null (or left out) with no file tile
  * @property {string[]} [inUse]  relayed only: the repo cards In use shows (`repoCardKey`), from
  *   the view's sidebar, so a Containers page (`/containers`) draws their stand-ins
  * @property {string[]} [pinned] relayed only: the cards among them pinned to In use
@@ -101,6 +117,11 @@ import {
  *   asking an agent about its file, with what is selected in it
  * @property {(id: string) => void} restartLanguage  a file tile's **Restart language server**
  * @property {(id: string) => void} languageSettings a file tile's **Language server settings…**
+ * @property {(id: string, line: number, endLine?: number) => void} revealLine  an Outline row:
+ *   brings tile `id` forward with the 1-based `line` in the middle of its view. A file tile's
+ *   editor takes the focus and its cursor goes to the line's start; a diff tile shows its
+ *   new-side row for it, else the first one drawn up to `endLine` (the item's changes), else says
+ *   the line isn't in the diff. Ignored for any other tile
  */
 
 /**
@@ -352,6 +373,7 @@ export const VIEW_INTENT_NAMES = Object.freeze([
   'askAgent',
   'restartLanguage',
   'languageSettings',
+  'revealLine',
 ]);
 
 /** The {@link SidebarIntents} a `sidebar_intent` may name. */
@@ -578,6 +600,10 @@ export function relayedState(msg, view) {
     tree: s.tree && typeof s.tree === 'object' ? s.tree : null,
     focused: typeof s.focused === 'string' ? s.focused : null,
   };
+  if (
+    s.outline && typeof s.outline === 'object' && !Array.isArray(s.outline) &&
+    Array.isArray(s.outline.items)
+  ) state.outline = s.outline;
   if (Array.isArray(s.inUse)) state.inUse = strings(s.inUse);
   if (Array.isArray(s.pinned)) state.pinned = strings(s.pinned);
   if (typeof s.filter === 'string') state.filter = s.filter;

@@ -220,6 +220,45 @@ Deno.test('relayedIntent and relayedState: only their view, known names', () => 
   assertEquals(relayedState({ type: 'view_state', view: 'v' }, 'v'), null);
 });
 
+Deno.test('the Outline on the wire: revealLine, and view_state.outline kept when well formed', () => {
+  assertEquals(VIEW_INTENT_NAMES.includes('revealLine'), true);
+  assertEquals(
+    relayedIntent(
+      { type: 'view_intent', view: 'v', name: 'revealLine', args: ['t1', 12] },
+      'view_intent',
+      'v',
+      VIEW_INTENT_NAMES,
+    ),
+    { name: 'revealLine', args: ['t1', 12] },
+  );
+  const outline = {
+    tile: 't1',
+    title: 'a.test.ts',
+    supported: true,
+    items: [{
+      kind: 'test',
+      name: 'a',
+      line: 1,
+      endLine: 1,
+      depth: 0,
+      modifiers: [],
+    }],
+    truncated: false,
+    partial: false,
+    current: 0,
+  };
+  const relay = (o: unknown) =>
+    relayedState({
+      type: 'view_state',
+      view: 'v',
+      state: { tiles: [], tree: null, outline: o },
+    }, 'v');
+  assertEquals(relay(outline)?.outline, outline as unknown);
+  for (const bad of [null, 'x', [], { tile: 't1' }, { items: 'x' }]) {
+    assertEquals(relay(bad)?.outline, undefined, JSON.stringify(bad));
+  }
+});
+
 Deno.test('the Containers contracts: their intent names, and view_state.inUse', () => {
   assertEquals([...CONTAINERS_INTENT_NAMES], ['reveal', 'setFold']);
   assertEquals([...INUSE_INTENT_NAMES], ['revealInUse', 'pin']);

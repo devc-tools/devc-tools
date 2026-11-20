@@ -14,12 +14,15 @@ export {
 } from 'npm:@codemirror/view@6.43.14';
 export {
   bracketMatching,
+  ensureSyntaxTree,
   foldGutter,
   foldKeymap,
   HighlightStyle,
   indentOnInput,
   StreamLanguage,
   syntaxHighlighting,
+  // The sidebar's Outline (`lib/outline.js`) walks the file's whole parse tree.
+  syntaxTree,
 } from 'npm:@codemirror/language@6.13.1';
 export {
   defaultKeymap,

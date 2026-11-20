@@ -579,6 +579,7 @@ export const VIEW_INTENT_NAMES = [
   'askAgent',
   'restartLanguage',
   'languageSettings',
+  'revealLine',
 ] as const;
 export type ViewIntentName = typeof VIEW_INTENT_NAMES[number];
 /** The `SidebarIntents` methods (`static/lib/view.js`) a `sidebar_intent` may name. */
@@ -603,8 +604,16 @@ export const MAX_VIEW_CARDS = 500;
 export const MAX_CARD_KEY = 4096;
 /** The longest filter text a sidebar's `view_state` carries (`filter`). */
 export const MAX_VIEW_FILTER = 1024;
-/** The longest `view_*` / `*_intent` frame, in UTF-16 code units of its text. */
-export const MAX_VIEW_MESSAGE = 256 * 1024;
+/**
+ * The most items a relayed `view_state`'s `outline` lists (`static/lib/outline.js`'s
+ * `MAX_OUTLINE_ITEMS`, which a test keeps equal).
+ */
+export const MAX_OUTLINE_ITEMS = 1000;
+/**
+ * The longest `view_*` / `*_intent` frame, in UTF-16 code units of its text: room for 500 tiles and
+ * an outline of {@link MAX_OUTLINE_ITEMS} items (about 205 KB of JSON).
+ */
+export const MAX_VIEW_MESSAGE = 512 * 1024;
 /** The longest `lsp_send` frame, in UTF-16 code units of its text. */
 export const MAX_LSP_MESSAGE = 8 * 1024 * 1024;
 /** The longest `attach_image` frame: an image of `MAX_IMAGE_BYTES`, base64, and the rest. */
@@ -779,6 +788,17 @@ function viewState(o: Obj): Record<string, unknown> {
     s.tree !== null && (typeof s.tree !== 'object' || Array.isArray(s.tree))
   ) {
     throw new Invalid(`'state.tree' must be an object or null`);
+  }
+  const outline = s.outline;
+  if (
+    outline !== undefined && outline !== null &&
+    (typeof outline !== 'object' || Array.isArray(outline) ||
+      !Array.isArray((outline as Obj).items) ||
+      ((outline as Obj).items as unknown[]).length > MAX_OUTLINE_ITEMS)
+  ) {
+    throw new Invalid(
+      `'state.outline' must be null or an object with at most ${MAX_OUTLINE_ITEMS} items`,
+    );
   }
   return s;
 }

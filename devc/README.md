@@ -816,6 +816,24 @@ is published from any container: the host server finds devcontainers with
   Pins are kept in `~/.config/devc/pinned-files.json`, so a browser tab and the
   devc-desktop window show the same ones. They are not a repo card pinned to
   **In use**, and not a preview tile's **Keep open**.
+- **Outline:** the **Outline** section, at the bottom of the sidebar (below
+  **Projects**), lists the tests and top-level declarations of the JavaScript
+  or TypeScript file or diff tile focused last (a diff's new side: a pull
+  request's head, a commit's or the working tree's file, or an added file): `describe` / `it` / `test` (and
+  `suite`, `context`, `bench`), `Deno.test` and `t.step`, nested as written,
+  with modifiers such as `skip`, `only`, `todo` and `each` as tags; and
+  functions (and `const`s holding one), classes with their methods,
+  interfaces, types and enums, in source order. Click a row to move that tile's cursor to it; the
+  row holding the cursor is highlighted as it moves, and the list follows edits
+  as you type. In a diff tile a click shows that line's row (or, for an item
+  whose first line is unchanged, its first changed row), marked a moment; the
+  item at the middle of the diff's view is highlighted as you scroll; an item
+  with nothing in the diff says so, with **Open file** to see it in the file.
+  Right-click a row for **Copy name**. It is read from the file's own parse
+  tree, so it needs no language server and works on read-only tiles.
+  Focusing a terminal keeps the last file's outline. Drag the rule above it to
+  resize it; its size and fold are kept with the sidebar's. In devc-desktop it
+  is in the Containers pane, below Projects there.
 - **Tasks:** the **Tasks** section, at the top of the sidebar,
   is a to-do list for agents. Its **+** opens a dialog: write the task (the
   first line is its title), optionally choose a project and repo, then **Save**

@@ -155,6 +155,23 @@ export const ZONE_MIN_HEIGHT = 32;
 
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 
+/** The Outline zone's share of the zones' height when its divider was never dragged. */
+export const OUTLINE_DEFAULT_SIZE = 0.3;
+
+/**
+ * The open Outline zone's height, in px, out of `avail` (every zone's height, the dividers left
+ * out): `size` of it (a fraction; null for {@link OUTLINE_DEFAULT_SIZE}), leaving the zones above
+ * at least a heading each, and never less than a heading and a row itself.
+ *
+ * @param {number} avail @param {number | null} size
+ */
+export function outlineZoneHeight(avail, size) {
+  const want = (size ?? OUTLINE_DEFAULT_SIZE) * avail;
+  return Math.round(
+    Math.max(2 * ZONE_MIN_HEIGHT, Math.min(want, avail - 3 * ZONE_MIN_HEIGHT)),
+  );
+}
+
 /**
  * @typedef {{total: number, top: number, mid: number, topMin: number, topMax: number,
  *   midMin: number, midMax: number, botMin: number, botMax: number}} Zones

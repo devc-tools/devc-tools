@@ -18,6 +18,7 @@ import {
   drawSelection,
   EditorState,
   EditorView,
+  ensureSyntaxTree,
   findReferencesKeymap,
   foldGutter,
   foldKeymap,
@@ -58,6 +59,7 @@ import {
   StreamLanguage,
   StyleModule,
   syntaxHighlighting,
+  syntaxTree,
   tags,
   toml,
   Workspace,
@@ -65,6 +67,7 @@ import {
 } from './vendor/codemirror/codemirror.mjs';
 import { languageFor as pickLanguage } from './lib/languages.js';
 import { MAX_RULER_MATCHES, rulerMarks } from './lib/ruler.js';
+import { OUTLINE_LANGUAGES, outlineOf } from './lib/outline.js';
 import { SUPPORTED_TAGS, tagClasses } from './lib/diagnostic_tags.js';
 
 /** @typedef {import('./lib/layout_state.js').FileRef} FileRef */
@@ -93,7 +96,25 @@ import { SUPPORTED_TAGS, tagClasses } from './lib/diagnostic_tags.js';
  * @property {() => void} detachLanguage  takes them away again (and their diagnostics)
  * @property {string | null} languageUri  the URI attached, or null
  * @property {EditorView} view            the CodeMirror view, for the language client's jumps
+ * @property {() => ViewerOutline} outline  the sidebar's Outline of the file (`lib/outline.js`)
+ * @property {() => number} cursorLine      the 1-based line of the main cursor
+ * @property {(cb: (change: {doc: boolean, cursor: boolean}) => void) => () => void} onUpdate
+ *   calls `cb` after each change to the text or the cursor; returns the way to stop
  */
+
+/**
+ * A viewer's outline: empty and not `supported` for a file that is not JavaScript or TypeScript.
+ * `partial` while the file is not parsed to its end yet (a long file, parsed in the background).
+ *
+ * @typedef {object} ViewerOutline
+ * @property {boolean} supported
+ * @property {import('./lib/outline.js').OutlineItem[]} items
+ * @property {boolean} truncated
+ * @property {boolean} partial
+ */
+
+/** How long an outline may spend parsing the rest of a file, in ms, before it makes do. */
+const OUTLINE_PARSE_MS = 200;
 
 /**
  * A scroll position that survives a reload: the 1-based line at the top of the view and how
@@ -430,6 +451,33 @@ export function highlightLines(name, lines) {
   return highlightLanguage(languageFor(name), lines);
 }
 
+/** A language's Lezer parser, made once. @param {string} lang a key of `LANGUAGES` */
+function parserFor(lang) {
+  let parser = parsers.get(lang);
+  if (!parser) {
+    const support = LANGUAGES[lang]();
+    // A LanguageSupport carries its Language; StreamLanguage.define returns the Language.
+    parser = (support.language ?? support).parser;
+    parsers.set(lang, parser);
+  }
+  return parser;
+}
+
+/**
+ * The sidebar's Outline of a file's `text` with no editor showing it (a diff tile's new side):
+ * as {@link Viewer.outline}, parsed in full here.
+ *
+ * @param {string} name @param {string} text @returns {ViewerOutline}
+ */
+export function outlineText(name, text) {
+  const lang = languageFor(name);
+  if (!lang || !OUTLINE_LANGUAGES.includes(lang)) {
+    return { supported: false, items: [], truncated: false, partial: false };
+  }
+  const { items, truncated } = outlineOf(parserFor(lang).parse(text), text);
+  return { supported: true, items, truncated, partial: false };
+}
+
 /**
  * {@link highlightLines} for a language key of `LANGUAGES` (null for plain text).
  *
@@ -447,17 +495,10 @@ function highlightLanguage(lang, lines) {
     StyleModule.mount(document, highlight.module);
     highlightMounted = true;
   }
-  let parser = parsers.get(lang);
-  if (!parser) {
-    const support = LANGUAGES[lang]();
-    // A LanguageSupport carries its Language; StreamLanguage.define returns the Language.
-    parser = (support.language ?? support).parser;
-    parsers.set(lang, parser);
-  }
   /** @type {[number, number, string][]} */
   const styled = [];
   highlightTree(
-    parser.parse(text),
+    parserFor(lang).parse(text),
     highlight,
     (from, to, cls) => styled.push([from, to, cls]),
   );
@@ -513,6 +554,8 @@ export function createViewer(
   const look = new Compartment();
   /** @type {string | null} */
   let languageUri = null;
+  /** {@link Viewer.onUpdate}'s callbacks. @type {Set<(change: {doc: boolean, cursor: boolean}) => void>} */
+  const updateListeners = new Set();
   /** @param {boolean} on */
   const accessFor = (on) => [
     EditorState.readOnly.of(!on),
@@ -553,6 +596,10 @@ export function createViewer(
         EditorView.contentAttributes.of({ tabindex: '0' }),
         EditorView.updateListener.of((u) => {
           if (u.docChanged) onChange?.(!u.state.doc.eq(clean));
+          if (updateListeners.size && (u.docChanged || u.selectionSet)) {
+            const change = { doc: u.docChanged, cursor: u.selectionSet };
+            for (const cb of updateListeners) cb(change);
+          }
         }),
         look.of(modeTheme()),
         syntaxHighlighting(highlight),
@@ -705,6 +752,7 @@ export function createViewer(
       view.focus();
     },
     destroy() {
+      updateListeners.clear();
       window.removeEventListener('devc-theme', onTheme);
       view.destroy();
     },
@@ -747,6 +795,31 @@ export function createViewer(
       return languageUri;
     },
     view,
+    outline() {
+      if (!lang || !OUTLINE_LANGUAGES.includes(lang)) {
+        return {
+          supported: false,
+          items: [],
+          truncated: false,
+          partial: false,
+        };
+      }
+      const { state } = view;
+      // CodeMirror parses as far as the viewport; the Outline needs the whole file.
+      const full = ensureSyntaxTree(state, state.doc.length, OUTLINE_PARSE_MS);
+      const { items, truncated } = outlineOf(
+        full ?? syntaxTree(state),
+        state.doc.toString(),
+      );
+      return { supported: true, items, truncated, partial: full === null };
+    },
+    cursorLine() {
+      return view.state.doc.lineAt(view.state.selection.main.head).number;
+    },
+    onUpdate(cb) {
+      updateListeners.add(cb);
+      return () => updateListeners.delete(cb);
+    },
   };
 }
 

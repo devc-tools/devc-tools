@@ -591,6 +591,10 @@ function loadSidebarState() {
     /** In use's and Tasks' dragged heights, as fractions of the zones'; null: default sizing. */
     inUseSize: savedFraction(saved?.inUseSize),
     tasksSize: savedFraction(saved?.tasksSize),
+    /** Whether the Outline section is open; open at first. */
+    outlineOpen: saved?.outlineOpen !== false,
+    /** The Outline zone's dragged height, as a fraction of the zones'; null: default sizing. */
+    outlineSize: savedFraction(saved?.outlineSize),
     /** Task groups (by `groupTasks` key) that are collapsed; new ones start open. */
     taskGroupsClosed: new Set(
       Array.isArray(saved?.taskGroupsClosed)
@@ -700,6 +704,8 @@ export function saveSidebarState() {
         containersOpen: sidebarState.containersOpen,
         inUseSize: sidebarState.inUseSize,
         tasksSize: sidebarState.tasksSize,
+        outlineOpen: sidebarState.outlineOpen,
+        outlineSize: sidebarState.outlineSize,
         taskGroupsClosed: [...sidebarState.taskGroupsClosed],
         sentOpen: sidebarState.sentOpen,
         width: saved?.width,

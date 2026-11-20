@@ -117,6 +117,7 @@ import {
   sidebarState,
 } from './cards.js';
 import { mountContainers } from './containers.js';
+import { mountOutlineZone } from './outline.js';
 import {
   closeTaskDialog,
   newTaskIn,
@@ -170,9 +171,11 @@ let onInUse =
     null
   );
 /**
- * The sidebar's three zones, each scrolling on its own: Tasks, what is in use now (In use,
- * pinned files, the Layout tree), and the containers to browse and manage; a draggable divider
- * between each two.
+ * The sidebar's zones, each scrolling on its own: Tasks, what is in use now (In use, pinned
+ * files, the Layout tree), the containers to browse and manage, and the Outline of the file tile
+ * focused last (`outline.js`); a draggable divider between each two. The Outline's height is set
+ * first, and the three above share the rest. With Containers drawn elsewhere (devc-desktop's
+ * pane), the Outline goes there too, below them: this page draws none.
  */
 const $zoneInUse = h('div', { class: 'zone zone-in-use' });
 const $zoneTasks = h('div', { class: 'zone zone-tasks' });
@@ -186,6 +189,13 @@ const zoneDivider = () =>
   });
 const $dividerTasks = zoneDivider();
 const $dividerBrowse = zoneDivider();
+/**
+ * The Outline's zone and divider (`mountOutlineZone`), once mounted; null where Containers, and
+ * so the Outline, are drawn elsewhere.
+ *
+ * @type {ReturnType<typeof mountOutlineZone> | null}
+ */
+let outlineZone = null;
 
 // ---------------------------------------------------------------------------------------------
 // Sidebar: folding, the scope, and the zones
@@ -310,10 +320,15 @@ function containersShown() {
     sidebarState.scope === 'all';
 }
 
-/** The space the zones share: the sidebar's tree less its dividers. */
+/** The space the zones above the Outline share: the sidebar's tree less the Outline and dividers. */
 function zonesHeight() {
+  return outlineAvail() - (outlineZone?.zone.offsetHeight ?? 0);
+}
+
+/** The space every zone shares, the Outline's included: the sidebar's tree less its dividers. */
+function outlineAvail() {
   return $tree.clientHeight - $dividerTasks.offsetHeight -
-    $dividerBrowse.offsetHeight;
+    $dividerBrowse.offsetHeight - (outlineZone?.divider.offsetHeight ?? 0);
 }
 
 /** A zone's height with nothing squeezing or capping it: all of its rows. */
@@ -409,6 +424,7 @@ function floorRunSections(run) {
  * Tasks, the one over a folded Containers.
  */
 function applyZoneSizes() {
+  outlineZone?.applySize();
   const { tasksOpen } = sidebarState;
   const containersOpen = containersShown();
   $dividerTasks.dataset.inert = String(!tasksOpen);
@@ -472,12 +488,16 @@ function dragZoneDivider(divider, line) {
     divider.addEventListener('pointermove', onMove);
     divider.addEventListener('lostpointercapture', onEnd);
   });
-  divider.addEventListener('dblclick', () => {
-    sidebarState.inUseSize = null;
-    sidebarState.tasksSize = null;
-    saveSidebarState();
-    applyZoneSizes();
-  });
+  divider.addEventListener('dblclick', resetZoneSizes);
+}
+
+/** A divider's double-click: every zone back to its default size. */
+function resetZoneSizes() {
+  sidebarState.inUseSize = null;
+  sidebarState.tasksSize = null;
+  sidebarState.outlineSize = null;
+  saveSidebarState();
+  applyZoneSizes();
 }
 
 /**
@@ -522,13 +542,17 @@ function renderTree() {
     else containersSection.draw(cards);
     $zoneBrowse.hidden = scoped || containersExternal;
     $dividerBrowse.hidden = scoped || containersExternal;
-    if ($zoneInUse.parentNode !== $tree) {
+    if (
+      $zoneInUse.parentNode !== $tree ||
+      (outlineZone && outlineZone.zone.parentNode !== $tree)
+    ) {
       $tree.replaceChildren(
         $zoneTasks,
         $dividerTasks,
         $zoneInUse,
         $dividerBrowse,
         $zoneBrowse,
+        ...(outlineZone ? [outlineZone.divider, outlineZone.zone] : []),
       );
     }
     $tree.classList.toggle('containers-closed', !containersShown());
@@ -677,6 +701,7 @@ function refreshSessions() {
  */
 function onViewState(view) {
   onCardsViewState(view);
+  outlineZone?.draw(view.outline);
   // A scoped sidebar's container or card is the focused tile's.
   if (followsFocus() && scopeCardKey() !== shownScopeCard) {
     queueRender();
@@ -1939,6 +1964,15 @@ export function mountSidebar(root, opts) {
   window.addEventListener('resize', applyZoneSizes);
   dragZoneDivider($dividerTasks, 'top');
   dragZoneDivider($dividerBrowse, 'bottom');
+  if (!containersExternal) {
+    outlineZone = mountOutlineZone({
+      tileArea,
+      avail: outlineAvail,
+      changed: applyZoneSizes,
+      reset: resetZoneSizes,
+    });
+    outlineZone.draw(tileArea.state().outline);
+  }
 
   // Capture phase, so it works while a terminal has focus: xterm.js never sees the keys (on a Mac,
   // Option would type a character). Ctrl+Alt+N (Cmd+Alt+N on a Mac) toggles the first pinned file.

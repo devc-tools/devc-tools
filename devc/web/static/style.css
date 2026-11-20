@@ -568,9 +568,10 @@ body.resizing-sidebar {
   font-size: var(--font-size);
 }
 
-/* Three zones, each scrolling on its own, its heading kept at the top as it scrolls: the tasks,
-   what is in use (at most a little over half), and the containers, a draggable rule between each
-   two. A dragged Tasks or In use gets its height inline (applyZoneSizes). */
+/* Four zones, each scrolling on its own, its heading kept at the top as it scrolls: the tasks,
+   what is in use (at most a little over half), the containers, and the Outline, a draggable rule
+   between each two. A dragged Tasks or In use gets its height inline, and the Outline always does
+   (applyZoneSizes). */
 .zone {
   min-height: 0;
   overflow: auto;
@@ -597,6 +598,13 @@ body.resizing-sidebar {
    what they need), and with Containers folded In use takes the rest. */
 .zone-browse {
   flex: 1 1 0;
+  min-height: 32px;
+  padding-top: 0;
+}
+
+/* The Outline, at the bottom: its height set inline (its heading alone while folded). */
+.zone-outline {
+  flex: 0 0 auto;
   padding-top: 0;
 }
 
@@ -648,7 +656,8 @@ body.resizing-zones {
 
 .zone-tasks > .row.section:first-child,
 .zone-in-use > .row.section:first-child,
-.zone-browse > .row.section:first-child {
+.zone-browse > .row.section:first-child,
+.zone-outline > .row.section:first-child {
   position: sticky;
   top: 0;
   z-index: 2;
@@ -666,7 +675,8 @@ body.resizing-zones {
 
 .zone-tasks > .row.section:only-child,
 .zone-in-use > .row.section:only-child,
-.zone-browse > .row.section:only-child {
+.zone-browse > .row.section:only-child,
+.zone-outline > .row.section:only-child {
   margin-bottom: 0;
 }
 
@@ -4363,4 +4373,79 @@ dialog.dialog.palette {
   left: 0;
   right: 0;
   background-color: var(--overview-mark);
+}
+
+/* The Outline heading's file name, as written (the heading itself is upper case). */
+.row.section .outline-file {
+  font-weight: 400;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+/* The Outline's rows (outline.js): a chevron (its width kept on a row with no children, so names
+   line up), the kind's marker, the name; modifiers (skip, only, each…) as tags at the right. The
+   row holding the editor's cursor is `data-current`, as the focused tile's rows are. */
+.row.outline-row {
+  cursor: pointer;
+}
+
+.row.outline-row:not([aria-expanded]) > .label > .chevron::before {
+  display: none;
+}
+
+.row.outline-row > .label > .chevron {
+  cursor: pointer;
+}
+
+.outline-kind {
+  display: inline-block;
+  width: 1.4em;
+  text-align: center;
+  font-size: 0.85em;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.outline-kind-suite {
+  color: var(--unknown);
+}
+
+.outline-kind-test {
+  color: var(--done);
+}
+
+.outline-kind-function,
+.outline-kind-method {
+  color: var(--accent);
+}
+
+.outline-kind-class,
+.outline-kind-interface,
+.outline-kind-type,
+.outline-kind-enum {
+  color: var(--blocked);
+}
+
+.outline-tag {
+  margin-left: 4px;
+  padding: 0 5px;
+  border-radius: 3px;
+  font-size: 0.85em;
+  color: var(--muted);
+  background: color-mix(in srgb, var(--muted) 16%, transparent);
+}
+
+/* A diff row an Outline click went to: marked a moment, then fading. */
+.diff-row.outline-flash {
+  animation: outline-flash 1.2s ease-out;
+}
+
+@keyframes outline-flash {
+  from {
+    box-shadow: inset 3px 0 0 var(--accent);
+    background-color: color-mix(in srgb, var(--accent) 22%, transparent);
+  }
+  to {
+    box-shadow: inset 3px 0 0 transparent;
+  }
 }

@@ -110,6 +110,11 @@ export function remoteTileArea() {
     prViewed: (diff, viewed) => intent('prViewed', [diff, viewed]),
     restartLanguage: (id) => intent('restartLanguage', [id]),
     languageSettings: (id) => intent('languageSettings', [id]),
+    revealLine: (id, line, endLine) =>
+      intent(
+        'revealLine',
+        endLine === undefined ? [id, line] : [id, line, endLine],
+      ),
     dragSource: nativeDragSource,
   };
   return {

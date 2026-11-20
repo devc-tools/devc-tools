@@ -1900,7 +1900,7 @@ Deno.test('parseClientMessage: containers_intent and inuse_intent take a known n
     type: 'inuse_intent',
     view: 'v',
     name: 'pin',
-    args: ['x'.repeat(300 * 1024), true],
+    args: ['x'.repeat(600 * 1024), true],
   });
   assertEquals(parseClientMessage(huge).ok, false);
 });
@@ -1946,10 +1946,47 @@ Deno.test('parseClientMessage: view_state checks the state shape, relays it as i
   const huge = JSON.stringify({
     type: 'view_state',
     view: 'v',
-    state: { tiles: [{ title: 'x'.repeat(300 * 1024) }], tree: null },
+    state: { tiles: [{ title: 'x'.repeat(600 * 1024) }], tree: null },
   });
   const r = parseClientMessage(huge);
   assertEquals(r.ok, false);
+});
+
+Deno.test('parseClientMessage: view_state checks its outline: null, or ≤ 1000 items', () => {
+  const item = {
+    kind: 'test',
+    name: 'x'.repeat(120),
+    line: 10000,
+    endLine: 10001,
+    depth: 3,
+    modifiers: [],
+  };
+  const outline = (items: unknown) => ({
+    tile: 't1',
+    title: 'a.test.ts',
+    supported: true,
+    items,
+    truncated: false,
+    partial: false,
+    current: null,
+  });
+  const ok = (o: unknown) =>
+    parseClientMessage(
+      JSON.stringify({
+        type: 'view_state',
+        view: 'v',
+        state: { tiles: [], tree: null, outline: o },
+      }),
+    ).ok;
+  assertEquals(ok(null), true);
+  assertEquals(ok(outline([item])), true);
+  // A full outline of the longest names fits in a frame.
+  assertEquals(ok(outline(new Array(1000).fill(item))), true);
+  assertEquals(ok(outline(new Array(1001).fill(item))), false);
+  assertEquals(ok(outline({})), false);
+  assertEquals(ok([]), false);
+  assertEquals(ok('x'), false);
+  assertEquals(ok({ tile: 't1' }), false);
 });
 
 Deno.test('parseClientMessage: view_intent and sidebar_intent take a known name and ≤ 4 args', () => {

@@ -225,6 +225,12 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
 
 ### Completed
 
+- [devc-web-outline](archived/devc-web-outline.md) — an **Outline** section in the devc web sidebar,
+  below Projects, for the most recently focused TS/JS file tile: its tests (`describe` / `it` /
+  `test`, `Deno.test`, `t.step`, nested) and top-level declarations, from CodeMirror's Lezer tree
+  in the page. Clicking a row moves the tile to that line; the row at the cursor is highlighted.
+  Relayed in `view_state` (`outline`) with a `revealLine` intent, so `/sidebar` pages work too.
+
 - ✅ Done — [devc-web-host-tile-tabs](archived/devc-web-host-tile-tabs.md) — without `--live`, a
   host tile's tab reads like a terminal tile's (folder, title, agent status, repo and branch, then
   `host`): devc-desktop posts each slot's facts from its own Herdr session (`POST
@@ -2794,3 +2800,4 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
 | devc web git changes efficiency — cheap `● n` reads: checkStat, in-container timeout, dirty-only reads              | [devc-web-git-changes-efficiency](archived/devc-web-git-changes-efficiency.md)     | complete    |
 | devc web trusted host actions — no HOST drawer confirm for Push and host terminals when not `--live`                | [devc-web-trusted-host-actions](archived/devc-web-trusted-host-actions.md)         | complete    |
 | devc web host tile tabs — a host tile's tab reads like a terminal tile's when not `--live`                          | [devc-web-host-tile-tabs](archived/devc-web-host-tile-tabs.md)                     | complete    |
+| devc web outline — sidebar Outline of a TS/JS file's tests and declarations, click to jump                          | [devc-web-outline](archived/devc-web-outline.md)                                   | complete    |

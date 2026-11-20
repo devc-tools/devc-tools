@@ -22,6 +22,7 @@ import {
   highlightLines,
   lspHoverHtml,
   onDefinitionJumps,
+  outlineText,
 } from './viewer.js';
 import {
   attachTile,
@@ -42,7 +43,12 @@ import {
   viewStatus,
 } from './lsp.js';
 import { tagMarks } from './lib/diagnostic_tags.js';
-import { LSP_LANGUAGE_NAMES, lspLanguageFor } from './lib/languages.js';
+import {
+  languageFor,
+  LSP_LANGUAGE_NAMES,
+  lspLanguageFor,
+} from './lib/languages.js';
+import { currentItem, OUTLINE_LANGUAGES } from './lib/outline.js';
 import { openAskDialog } from './ask.js';
 import { diffSelectionWhere } from './diff_select.js';
 import {
@@ -250,6 +256,7 @@ const tileArea = {
   askAgent: (id) => askAgentFrom(id),
   restartLanguage: (id) => void restartLanguage(id),
   languageSettings: (id) => void languageSettings(id),
+  revealLine: (id, line, endLine) => revealFileLine(id, line, endLine),
   dragSource: (el, ref, title) =>
     tiling ? tiling.dragSource(el, ref, title) : () => {},
 };
@@ -726,6 +733,7 @@ async function loadFile(view) {
     view.viewer?.destroy();
     view.viewer = null;
     updateFileOverlay(view);
+    viewChanged();
     return;
   }
   if (seq !== view.seq || !fileViews.has(view.tile.id)) return;
@@ -748,6 +756,8 @@ async function loadFile(view) {
   view.error = '';
   syncFileEditable(view);
   updateFileOverlay(view);
+  // The Outline follows the new text (or the new viewer).
+  viewChanged();
   if (view.focusOnLoad) {
     view.focusOnLoad = false;
     view.viewer.focus();
@@ -1348,6 +1358,7 @@ function mountDraft(view) {
   });
   view.state = 'ok';
   view.dirty = text !== '';
+  viewChanged();
 }
 
 /** Puts a draft's text where a reload finds it. */
@@ -1710,6 +1721,10 @@ function saveFlag(key, on) {
  *   `fillPatch` of `parsed` with the head's `text` (`'large'`: past `MAX_DIFF_LINES` lines)
  * @property {{head: string, text: string, map: (line: number) => number | null} | null} local
  *   while an open tile holds the file with other text: the PR head's lines mapped onto it
+ * @property {{text: string, name: string, made: import('./viewer.js').ViewerOutline} | null}
+ *   [outlineMade]  the Outline of its new side, made from `text` (`diffOutline`)
+ * @property {{line: number, at: number} | null} [outlineLine]  the new-side line an Outline
+ *   click went to, and when: the Outline's current line until a scroll by hand
  * @property {number} scrollTop  where the body was last scrolled to while shown: a hidden tab
  *   reads as scrolled to the top
  * @property {'' | 'loading' | 'error' | 'ok'} drawn  the state the body's rows were last drawn
@@ -1932,6 +1947,18 @@ function mountDiffTile(tile) {
       view.drawn === 'ok'
     ) {
       view.scrollTop = el.scrollTop;
+      // A scroll by hand, not an Outline click's own: the view's middle is current again.
+      if (
+        view.outlineLine &&
+        Date.now() - view.outlineLine.at > OUTLINE_CLICK_SCROLL_MS
+      ) {
+        view.outlineLine = null;
+      }
+      // The Outline's current item is the one at the middle of the view.
+      if (outlineFollows?.id === tile.id) {
+        clearTimeout(outlineCursorTimer);
+        outlineCursorTimer = setTimeout(followOutlineCursor, OUTLINE_CURSOR_MS);
+      }
     }
   }, true);
   // After the factory returns: a title change mid-build would save a half-built layout.
@@ -3682,6 +3709,8 @@ function renderDiff(view) {
   if (find?.open) runDiffFind(view);
   updateSelectionMatches();
   void openDiffView(view);
+  // The Outline follows the new side as drawn (and as read: an added file's patch, the head).
+  if (outlineFollows?.id === view.tile.id) remakeOutline();
 }
 
 /** The path (`old → new` for a rename), status, `+a −d`, `#n`, ⟳ and ↗, and whose bridge. */
@@ -5039,11 +5068,342 @@ function tileState(tile) {
 
 /** What the tiling area shows, as the sidebar reads it. @returns {ViewState} */
 function viewState() {
+  const outlineOf = outline && tileOf(outline.tile);
   return {
     tiles: tiling ? tiling.tiles().map(tileState) : [],
     tree: tiling?.tree() ?? null,
     focused: targetTile()?.id ?? null,
+    outline: outline && outlineOf
+      ? {
+        ...outline,
+        title: outlineOf.kind === 'diff'
+          ? diffTileTitle(outlineOf)
+          : fileViewTitle(outlineOf, fileViews.get(outline.tile)?.dirty),
+      }
+      : null,
   };
+}
+
+// ---------------------------------------------------------------------------------------------
+// The sidebar's Outline: the outline of the file or diff tile focused last (a diff tile's new
+// side), see `.plans/archived/devc-web-outline.md`
+// ---------------------------------------------------------------------------------------------
+
+/** How long the text must rest before the Outline is made again, in ms. */
+const OUTLINE_DOC_MS = 300;
+/** How long the cursor must rest before the Outline's current item follows it, in ms. */
+const OUTLINE_CURSOR_MS = 100;
+/** How long before a partly parsed file's Outline is made again, in ms. */
+const OUTLINE_PARTIAL_MS = 1000;
+
+/**
+ * The Outline as last made, without its tile's title (`viewState` adds that); null with no file
+ * tile.
+ *
+ * @type {Omit<import('./lib/view.js').OutlineState, 'title'> | null}
+ */
+let outline = null;
+/** {@link outline} as JSON, to tell whether a remake changed it. */
+let outlineJson = 'null';
+/**
+ * The outline tile and viewer the Outline follows, and how to stop following its viewer.
+ *
+ * @type {{id: string, viewer: import('./viewer.js').Viewer | null, stop: () => void} | null}
+ */
+let outlineFollows = null;
+/** @type {ReturnType<typeof setTimeout> | undefined} */
+let outlineDocTimer;
+/** @type {ReturnType<typeof setTimeout> | undefined} */
+let outlineCursorTimer;
+/** @type {ReturnType<typeof setTimeout> | undefined} */
+let outlinePartialTimer;
+
+/** The outline tile: the open file tile (not a media one) or diff tile focused last, or null. */
+function outlineTile() {
+  let best = null;
+  let bestSeq = -1;
+  for (const tile of tiling?.tiles() ?? []) {
+    if (tile.kind === 'file') {
+      const view = fileViews.get(tile.id);
+      if (!view || view.media) continue;
+    } else if (tile.kind !== 'diff' || !diffViews.has(tile.id)) continue;
+    const seq = focusSeq.get(tile.id) ?? 0;
+    if (seq > bestSeq) [best, bestSeq] = [tile, seq];
+  }
+  return best;
+}
+
+/**
+ * Follows the outline tile's viewer, when it or its viewer changed since the last call, and
+ * makes the Outline anew for it. Called as the view changes, before its state is read.
+ */
+function syncOutline() {
+  const tile = outlineTile();
+  const viewer = tile ? fileViews.get(tile.id)?.viewer ?? null : null;
+  if (outlineFollows?.id === tile?.id && outlineFollows?.viewer === viewer) {
+    return;
+  }
+  outlineFollows?.stop();
+  clearTimeout(outlineDocTimer);
+  clearTimeout(outlineCursorTimer);
+  clearTimeout(outlinePartialTimer);
+  outlineFollows = tile
+    ? {
+      id: tile.id,
+      viewer,
+      stop: viewer?.onUpdate(onOutlineUpdate) ?? (() => {}),
+    }
+    : null;
+  makeOutline();
+}
+
+/** @param {{doc: boolean, cursor: boolean}} change */
+function onOutlineUpdate(change) {
+  if (change.doc) {
+    clearTimeout(outlineCursorTimer);
+    clearTimeout(outlineDocTimer);
+    outlineDocTimer = setTimeout(remakeOutline, OUTLINE_DOC_MS);
+  } else if (change.cursor) {
+    clearTimeout(outlineCursorTimer);
+    outlineCursorTimer = setTimeout(followOutlineCursor, OUTLINE_CURSOR_MS);
+  }
+}
+
+/** Makes the Outline anew and tells the sidebar when it changed. */
+function remakeOutline() {
+  if (makeOutline()) viewChanged();
+}
+
+/**
+ * Makes the Outline of the tile {@link outlineFollows} names: from its viewer, or, while its file
+ * is loading, an empty one marked `partial`. Returns whether it changed.
+ */
+function makeOutline() {
+  clearTimeout(outlinePartialTimer);
+  const follows = outlineFollows;
+  if (!follows) return setOutline(null);
+  const diff = diffViews.get(follows.id);
+  if (diff) return setOutline(diffOutline(diff));
+  const view = fileViews.get(follows.id);
+  const viewer = follows.viewer;
+  if (!viewer) {
+    const tile = view?.tile;
+    const name = tile?.file
+      ? basename(tile.file.path)
+      : tile?.draft?.name ?? '';
+    return setOutline({
+      tile: follows.id,
+      supported: OUTLINE_LANGUAGES.includes(languageFor(name) ?? ''),
+      items: [],
+      truncated: false,
+      partial: view?.state === 'loading',
+      current: null,
+    });
+  }
+  const made = viewer.outline();
+  if (made.partial) {
+    outlinePartialTimer = setTimeout(remakeOutline, OUTLINE_PARTIAL_MS);
+  }
+  return setOutline({
+    tile: follows.id,
+    ...made,
+    current: made.supported
+      ? currentItem(made.items, viewer.cursorLine())
+      : null,
+  });
+}
+
+/**
+ * The Outline of a diff tile's new side: the PR head's, the commit's or the working tree's text
+ * (`readHead`, read when the tile becomes the outline tile), or an added file's patch, which is
+ * all of it. Empty for a removed file, and `partial` while the text is on its way. Its current
+ * item is the one at the middle of the tile's view ({@link diffMiddleLine}).
+ *
+ * @param {DiffView} view
+ * @returns {Omit<import('./lib/view.js').OutlineState, 'title'>}
+ */
+function diffOutline(view) {
+  const id = view.tile.id;
+  const name = basename(view.data?.file?.path ?? view.tile.diff?.path ?? '');
+  const none = { tile: id, items: [], truncated: false, current: null };
+  if (!OUTLINE_LANGUAGES.includes(languageFor(name) ?? '')) {
+    return { ...none, supported: false, partial: false };
+  }
+  const text = diffNewText(view);
+  if (typeof text !== 'string') {
+    return { ...none, supported: true, partial: text === 'pending' };
+  }
+  if (view.outlineMade?.text !== text || view.outlineMade.name !== name) {
+    view.outlineMade = { text, name, made: outlineText(name, text) };
+  }
+  const { made } = view.outlineMade;
+  const middle = diffMiddleLine(view);
+  return {
+    tile: id,
+    ...made,
+    current: middle === null ? null : currentItem(made.items, middle),
+  };
+}
+
+/**
+ * A diff tile's new side as text, `'pending'` while it is on its way (the Outline is made again
+ * when it comes), or null when there is none to read.
+ *
+ * @param {DiffView} view @returns {string | 'pending' | null}
+ */
+function diffNewText(view) {
+  if (view.state === 'loading') return 'pending';
+  if (view.state !== 'ok') return null;
+  const side = oneSided(view);
+  if (side === 'old') return '';
+  // An added file's patch is all of it, unless cut short (`rest`).
+  if (side === 'new' && view.parsed && view.parsed.rest === null) {
+    return view.parsed.hunks.flatMap((hk) => hk.rows)
+      .filter((r) => r.kind !== 'note' && r.new !== null)
+      .map((r) => r.text).join('\n');
+  }
+  const got = readHead(view);
+  const done = view.head?.done;
+  if (done) return done.text;
+  if (!got) return null;
+  void got.then(() => {
+    if (outlineFollows?.id === view.tile.id) remakeOutline();
+  });
+  return 'pending';
+}
+
+/**
+ * The new-side line of the row at the middle of a diff tile's view (where an Outline click puts
+ * its line), or null when none is drawn there.
+ *
+ * @param {DiffView} view @returns {number | null}
+ */
+function diffMiddleLine(view) {
+  // An Outline click's line, until the view is scrolled by hand.
+  if (view.outlineLine) return view.outlineLine.line;
+  const body = view.body.querySelector(':scope > .diff-body');
+  if (!body || body.clientHeight === 0) return null;
+  const cells = body.querySelectorAll('.diff-text[data-new]');
+  if (cells.length === 0) return null;
+  const box = body.getBoundingClientRect();
+  // The middle of what is shown: of the rows, when they end above the view's foot.
+  const middle = box.top +
+    Math.min(box.height, body.scrollHeight - body.scrollTop) / 2;
+  // The last cell whose top is at or above the middle, by bisection: rows are in line order.
+  let lo = 0;
+  let hi = cells.length - 1;
+  if (cells[0].getBoundingClientRect().top > middle) return null;
+  while (lo < hi) {
+    const mid = (lo + hi + 1) >> 1;
+    if (cells[mid].getBoundingClientRect().top <= middle) lo = mid;
+    else hi = mid - 1;
+  }
+  return Number(/** @type {HTMLElement} */ (cells[lo]).dataset.new);
+}
+
+/** The line the Outline's current item follows: the outline tile's cursor, or its diff's middle. */
+function outlineCursorLine() {
+  const id = outlineFollows?.id;
+  const diff = id ? diffViews.get(id) : undefined;
+  if (diff) return diffMiddleLine(diff);
+  return outlineFollows?.viewer?.cursorLine() ?? null;
+}
+
+/** Moves the Outline's current item to the cursor's, telling the sidebar when it moved. */
+function followOutlineCursor() {
+  const line = outlineCursorLine();
+  if (!outline || !outline.supported) return;
+  const current = line === null ? null : currentItem(outline.items, line);
+  if (current !== outline.current) {
+    setOutline({ ...outline, current });
+    viewChanged();
+  }
+}
+
+/**
+ * @param {Omit<import('./lib/view.js').OutlineState, 'title'> | null} next
+ * @returns {boolean} whether it differs from the last
+ */
+function setOutline(next) {
+  const json = JSON.stringify(next);
+  outline = next;
+  if (json === outlineJson) return false;
+  outlineJson = json;
+  return true;
+}
+
+/**
+ * An Outline row's click (`ViewIntents.revealLine`): brings tile `id` forward with the 1-based
+ * `line` in the middle of its view: a file tile's cursor put at its start; in a diff tile, its
+ * new-side row, else the first one drawn up to `endLine` (the item's changes), else a toast
+ * offering the file itself.
+ *
+ * @param {string} id @param {number} line @param {number} [endLine]
+ */
+function revealFileLine(id, line, endLine) {
+  if (!Number.isInteger(line) || line < 1) return;
+  const diff = diffViews.get(id);
+  if (diff) {
+    revealDiffLine(diff, line, Number.isInteger(endLine) ? endLine : line);
+    return;
+  }
+  const view = fileViews.get(id);
+  if (!view?.viewer) return;
+  revealTile(id);
+  view.viewer.revealLine(line);
+}
+
+/** How long after an Outline click a diff tile's scrolling is the click's own, in ms. */
+const OUTLINE_CLICK_SCROLL_MS = 400;
+
+/** How long an Outline click's row stays marked in a diff tile, in ms. */
+const OUTLINE_FLASH_MS = 1200;
+
+/**
+ * {@link revealFileLine} in a diff tile.
+ *
+ * @param {DiffView} view @param {number} line @param {number} endLine
+ */
+function revealDiffLine(view, line, endLine) {
+  revealTile(view.tile.id);
+  const body = view.body.querySelector(':scope > .diff-body');
+  /** @type {HTMLElement | null} */
+  let cell = null;
+  for (const el of body?.querySelectorAll('.diff-text[data-new]') ?? []) {
+    const at = Number(/** @type {HTMLElement} */ (el).dataset.new);
+    if (at > endLine) break;
+    if (at >= line) {
+      cell = /** @type {HTMLElement} */ (el);
+      break;
+    }
+  }
+  if (cell) {
+    view.outlineLine = { line: Number(cell.dataset.new), at: Date.now() };
+    cell.scrollIntoView({ block: 'center' });
+    if (outlineFollows?.id === view.tile.id) followOutlineCursor();
+    const row = cell.closest('.diff-row') ?? cell;
+    row.classList.remove('outline-flash');
+    // Restarts the animation on a second click.
+    void (/** @type {HTMLElement} */ (row)).offsetWidth;
+    row.classList.add('outline-flash');
+    setTimeout(() => row.classList.remove('outline-flash'), OUTLINE_FLASH_MS);
+    return;
+  }
+  const ref = view.tile.diff;
+  const path = view.data?.file?.path ?? ref?.path;
+  toast(
+    `Line ${line} isn't in this diff`,
+    ref && path && oneSided(view) !== 'old'
+      ? {
+        label: 'Open file',
+        run: () =>
+          openFileAt(
+            { localFolder: ref.localFolder, root: ref.root, path },
+            line,
+          ),
+      }
+      : undefined,
+  );
 }
 
 let viewChangeQueued = false;
@@ -5071,6 +5431,7 @@ function viewChanged() {
   queueMicrotask(() => {
     viewChangeQueued = false;
     updateWindow();
+    syncOutline();
     const state = viewState();
     const before = lastTiles;
     lastTiles = state.tiles;

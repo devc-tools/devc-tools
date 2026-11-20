@@ -17,6 +17,8 @@ import {
   isSidebarToggleShortcut,
   isZenShortcut,
   labelText,
+  OUTLINE_DEFAULT_SIZE,
+  outlineZoneHeight,
   paneLabel,
   paneTitle,
   projectActions,
@@ -658,6 +660,21 @@ Deno.test('settleZones: a folded bottom zone is its heading, the middle zone fil
   assertEquals(settleZones(folded), { top: 100, mid: 768 });
   // A window too short for everything: the middle zone gives, then the top one.
   assertEquals(settleZones({ ...zones, total: 150 }), { top: 86, mid: 32 });
+});
+
+Deno.test('outlineZoneHeight: its share, the zones above keeping a heading each', () => {
+  assertEquals(OUTLINE_DEFAULT_SIZE, 0.3);
+  // Never dragged: 30 % of the zones.
+  assertEquals(outlineZoneHeight(1000, null), 300);
+  assertEquals(outlineZoneHeight(1000, 0.5), 500);
+  // Dragged up to the top: Tasks, In use and Projects keep 32 px each.
+  assertEquals(outlineZoneHeight(1000, 0.99), 1000 - 3 * 32);
+  // Dragged down to the bottom: a heading and a row.
+  assertEquals(outlineZoneHeight(1000, 0.01), 64);
+  // A window too short for all of it: the Outline shrinks only after the zones above are headings.
+  assertEquals(outlineZoneHeight(300, null), 90);
+  assertEquals(outlineZoneHeight(200, 0.9), 104);
+  assertEquals(outlineZoneHeight(100, 0.5), 64);
 });
 
 Deno.test('inUseLabel: what the agent is doing, else its name', () => {
