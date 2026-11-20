@@ -1031,7 +1031,9 @@ is published from any container: the host server finds devcontainers with
   `"bridgeDefaultAllow"`). Everything goes through that container's
   devc-bridge (`gh-pr-files`, `gh-pr-comments`, `gh-pr-file-at`,
   `gh-pr-viewed`, `gh-pr-reply`, `gh-pr-pending-review`, `gh-pr-resolve`), so
-  the PR is always that pinned branch's. One exception: a file at a commit
+  the PR is always that pinned branch's — at the head its tracking config names
+  when that is another fork's or another name (the policy's `<PR head>`), else
+  origin's. One exception: a file at a commit
   (for **Whole file**, hover and the Since comparisons) is read first from
   the host-owned mirror the Commits section uses, when that commit is in it
   (milliseconds, where `gh-pr-file-at` is several GitHub calls); a commit
@@ -2293,8 +2295,20 @@ capabilities act on — the workspace repo, plus any you named with
 line per pinned repo, the workspace repo first when it is pinned, at most 16:
 
 ```text
-<host path of the repo><TAB><remote.origin.url><TAB><branch><TAB><grants><TAB><container path>
+<host path of the repo><TAB><remote.origin.url><TAB><branch><TAB><grants><TAB><container path>[<TAB><PR head>]
 ```
+
+`<PR head>`, `<owner>/<name>:<branch>`, is written only when the branch's
+tracking config (`branch.<branch>.remote` and `.merge`, read from the same
+frozen config) names a GitHub repo and branch other than origin's and
+`<branch>` itself: a branch `gh pr checkout` made from another fork's PR, or a
+local branch named apart from its remote one. The PR commands look for the PR
+at that head first (see
+[devc-bridge's Which PR](../devc-bridge/README.md#which-pr)); `gh-push` never
+reads it, and still pushes `<branch>` to origin under its own name. A tracking
+`refs/pull/<n>/head` (what `gh pr checkout` writes when the PR's author does not
+allow maintainer edits), a local tracking branch, or a non-GitHub remote writes
+none.
 
 `<grants>` is comma-separated in canonical order, e.g. `gh-push,gh-pr-read`,
 and each line's own: a repo's capabilities are the ones its line grants. An
@@ -2600,7 +2614,8 @@ worktree** that is the primary repo's git dir, as the devcontainer CLI mounts
 it; a worktree with an absolute `gitdir:` (which the CLI does not mount) is
 refused.
 
-devc reads `HEAD`, the worktree `gitdir:` pointer and the remote as **files**;
+devc reads `HEAD`, the worktree `gitdir:` pointer, the remote and the branch's
+tracking config as **files**;
 it never runs `git` in the repo, since `git -C <repo>` on the host fires a
 planted `core.fsmonitor`.
 

@@ -875,7 +875,7 @@ async function derivePins(
 }
 
 /**
- * The first pin field that differs, in the order repo, remote, branch, target, as the words of
+ * The first pin field that differs, in the order repo, remote, branch, PR head, target, as the words of
  * the refresh revoke message — or null when the pins are identical.
  */
 function pinDrift(
@@ -890,6 +890,13 @@ function pinDrift(
   }
   if (stored.branch !== derived.branch) {
     return { what: 'branch', now: derived.branch, was: stored.branch };
+  }
+  if (stored.prHead !== derived.prHead) {
+    return {
+      what: 'PR head',
+      now: derived.prHead ?? 'none',
+      was: stored.prHead ?? 'none',
+    };
   }
   if (stored.target !== derived.target) {
     return { what: 'container path', now: derived.target, was: stored.target };
@@ -947,7 +954,9 @@ export async function removePolicy(
 
 /** One pinned repo as the grant log and `devc status` print it. */
 function describeRepo(r: PinnedRepo): string {
-  return `${r.target}: ${r.branch} → ${r.remote} (${r.repo})`;
+  return `${r.target}: ${r.branch} → ${r.remote} (${r.repo})${
+    r.prHead === undefined ? '' : ` (PR head ${r.prHead})`
+  }`;
 }
 
 /** One policy line with its own grants, for a policy whose lines differ (and the defaults' log). */

@@ -98,16 +98,19 @@ as_posted() {
 # ── the caller and its policy (gh-push's parse and selection, verbatim) ──────────────────
 
 # parse_policy FILE — read a policy into the arrays pol_repo/pol_remote/pol_branch/pol_grants/
-# pol_target (one entry per line, file order), or set pol_why and fail. The rules are devc-core's
-# policyProblem: one or more lines, each `\n`-terminated, each exactly five non-empty,
-# control-free, tab-separated fields `<repo> <remote> <branch> <grants> <target>`; the target
+# pol_target/pol_prhead (one entry per line, file order), or set pol_why and fail. The rules are
+# devc-core's policyProblem: one or more lines, each `\n`-terminated, each five non-empty,
+# control-free, tab-separated fields `<repo> <remote> <branch> <grants> <target>` and an optional
+# sixth, `<pr-head>` (`<owner>/<name>:<branch>`, '' in pol_prhead when absent); the target
 # absolute and normalized; each line's own grants; repo and target each distinct; at most 16
 # distinct remotes (a repo's worktrees share its remote, so they count once). A four-field v1 file
 # is malformed. The whole file is read with the `x` sentinel (so trailing newlines survive) and split
 # by hand: `read` cannot split it, because tab is IFS whitespace and empty fields would collapse.
 parse_policy() {
   local text line rest tabs field n=0 i fresh remotes=0 r_repo r_remote r_branch r_grants r_target
-  pol_repo=() pol_remote=() pol_branch=() pol_grants=() pol_target=() grants='' pol_why=''
+  local r_prhead ph_owner ph_name ph_branch
+  pol_repo=() pol_remote=() pol_branch=() pol_grants=() pol_target=() pol_prhead=() grants=''
+  pol_why=''
   text=$(cat -- "$1" && printf x) || {
     pol_why="unreadable"
     return 1
@@ -127,8 +130,8 @@ parse_policy() {
       return 1
     }
     tabs=${line//[!$'\t']/}
-    [ ${#tabs} -eq 4 ] || {
-      pol_why="line $n: want 5 tab-separated fields, found $((${#tabs} + 1))"
+    [ ${#tabs} -eq 4 ] || [ ${#tabs} -eq 5 ] || {
+      pol_why="line $n: want 5 or 6 tab-separated fields, found $((${#tabs} + 1))"
       return 1
     }
     r_repo=${line%%$'\t'*}
@@ -138,8 +141,13 @@ parse_policy() {
     r_branch=${rest%%$'\t'*}
     rest=${rest#*$'\t'}
     r_grants=${rest%%$'\t'*}
-    r_target=${rest#*$'\t'}
-    for field in "$r_repo" "$r_remote" "$r_branch" "$r_grants" "$r_target"; do
+    rest=${rest#*$'\t'}
+    r_target=${rest%%$'\t'*}
+    r_prhead=''
+    [ ${#tabs} -eq 4 ] || r_prhead=${rest#*$'\t'}
+    # A sixth field is checked like the rest: present but empty is malformed, not absent.
+    for field in "$r_repo" "$r_remote" "$r_branch" "$r_grants" "$r_target" \
+      "$([ ${#tabs} -eq 4 ] && echo x || printf '%s' "$r_prhead")"; do
       [ -n "$field" ] || {
         pol_why="line $n: empty field"
         return 1
@@ -174,6 +182,23 @@ parse_policy() {
         return 1
         ;;
     esac
+    if [ -n "$r_prhead" ]; then
+      ph_owner=${r_prhead%%/*}
+      rest=${r_prhead#*/}
+      ph_name=${rest%%:*}
+      ph_branch=${rest#*:}
+      case $r_prhead in */*:*) ;; *) ph_owner='' ;; esac
+      case $ph_owner/$ph_name in
+        /* | */ | . | ./* | ../* | */. | */.. | *[!A-Za-z0-9._/-]* | */*/*)
+          pol_why="line $n: bad pr-head field"
+          return 1
+          ;;
+      esac
+      git check-ref-format "refs/heads/$ph_branch" || {
+        pol_why="line $n: bad pr-head field"
+        return 1
+      }
+    fi
     i=0 fresh=1
     while [ "$i" -lt "${#pol_repo[@]}" ]; do
       [ "${pol_repo[$i]}" != "$r_repo" ] || {
@@ -197,6 +222,7 @@ parse_policy() {
     pol_branch+=("$r_branch")
     pol_grants+=("$r_grants")
     pol_target+=("$r_target")
+    pol_prhead+=("$r_prhead")
     case $text in
       *$'\n'*) text=${text#*$'\n'} ;;
       *) return 0 ;;
@@ -233,6 +259,7 @@ select_repo() {
   branch=${pol_branch[$pick]}
   grants=${pol_grants[$pick]}
   target=${pol_target[$pick]}
+  prhead=${pol_prhead[$pick]}
 }
 
 # load_policy — the caller's policy, parsed, and the pinned repo `--repo` selected: sets grants,
@@ -363,36 +390,45 @@ gh_ready() {
 
 # resolve_pr — sets pr_id pr_number pr_url pr_head_sha pr_repo pr_owner pr_name and pr_head_repo
 # (where the head's commits live: a fork's own repo), or exits 2 unless exactly one open PR has
-# head <pinned repo>:<pinned branch>. Base candidates are the head repo and,
-# if it is a fork, its parent — both as GitHub reports them, so the container cannot widen the set.
+# the first head that has any: the pin's pr-head when it has one (the branch's tracking config, as
+# devc read it), then <pinned repo>:<pinned branch>. The pr-head is skipped when it names its repo's
+# default branch. Base candidates are each head's repo and, if it is a fork, its parent — both as
+# GitHub reports them, so the container cannot widen the set.
 resolve_pr() {
-  local head_full parent_full base q
-  gh_run "reading $head_owner/$head_name" api "repos/$head_owner/$head_name" \
-    --jq '[.full_name, (.parent.full_name // "")] | @tsv'
-  IFS=$'\t' read -r head_full parent_full <"$tmp/out"
-  valid_repo "$head_full" || die 4 "unexpected response for $head_owner/$head_name"
-  [ -z "$parent_full" ] || valid_repo "$parent_full" ||
-    die 4 "unexpected parent for $head_full"
-
+  local head_full parent_full default_branch base q cand c_repo c_branch tried='' n
   q='query($owner:String!,$name:String!,$branch:String!){repository(owner:$owner,name:$name){
     pullRequests(headRefName:$branch,states:OPEN,first:20){nodes{id number url headRefOid
     headRepository{nameWithOwner} baseRepository{nameWithOwner}}}}}'
-  : >"$tmp/prs"
-  for base in "$head_full" ${parent_full:+"$parent_full"}; do
-    gh_run "listing PRs in $base" api graphql -f query="$q" -f owner="${base%%/*}" \
-      -f name="${base#*/}" -f branch="$branch" \
-      --jq '.data.repository.pullRequests.nodes[] | [(.headRepository.nameWithOwner // ""), .id,
-        (.number | tostring), .url, .headRefOid, .baseRepository.nameWithOwner] | @tsv'
-    cat "$tmp/out" >>"$tmp/prs"
+  for cand in ${prhead:+"$prhead"} "$head_owner/$head_name:$branch"; do
+    c_repo=${cand%%:*}
+    c_branch=${cand#*:}
+    gh_run "reading $c_repo" api "repos/$c_repo" \
+      --jq '.full_name, (.default_branch // ""), (.parent.full_name // "")'
+    # One value a line: `read` with a tab IFS would collapse an empty field between two others.
+    { IFS= read -r head_full && IFS= read -r default_branch && IFS= read -r parent_full; } \
+      <"$tmp/out" || die 4 "unexpected response for $c_repo"
+    valid_repo "$head_full" || die 4 "unexpected response for $c_repo"
+    [ -z "$parent_full" ] || valid_repo "$parent_full" ||
+      die 4 "unexpected parent for $head_full"
+    # A branch that merely tracks its upstream's default branch names no PR of its own.
+    [ "$cand" != "$prhead" ] || [ "$c_branch" != "$default_branch" ] || continue
+    tried=${tried:+$tried or }$head_full:$c_branch
+    : >"$tmp/prs"
+    for base in "$head_full" ${parent_full:+"$parent_full"}; do
+      gh_run "listing PRs in $base" api graphql -f query="$q" -f owner="${base%%/*}" \
+        -f name="${base#*/}" -f branch="$c_branch" \
+        --jq '.data.repository.pullRequests.nodes[] | [(.headRepository.nameWithOwner // ""), .id,
+          (.number | tostring), .url, .headRefOid, .baseRepository.nameWithOwner] | @tsv'
+      cat "$tmp/out" >>"$tmp/prs"
+    done
+    # headRefName alone matches any fork's branch of that name: the head repo is the restriction.
+    awk -F'\t' -v h="$head_full" 'tolower($1) == tolower(h)' "$tmp/prs" >"$tmp/match"
+    n=$(wc -l <"$tmp/match" | tr -d ' ')
+    [ "$n" -eq 0 ] || break
   done
-  # headRefName alone matches any fork's branch of that name: the head repo is the restriction.
-  awk -F'\t' -v h="$head_full" 'tolower($1) == tolower(h)' "$tmp/prs" >"$tmp/match"
-
-  local n
-  n=$(wc -l <"$tmp/match" | tr -d ' ')
-  [ "$n" -gt 0 ] || die 2 "no open PR with head $head_full:$branch"
+  [ "$n" -gt 0 ] || die 2 "no open PR with head $tried"
   [ "$n" -eq 1 ] ||
-    die 2 "more than one open PR with head $head_full:$branch: $(cut -f4 "$tmp/match" | tr '\n' ' ')"
+    die 2 "more than one open PR with head $head_full:$c_branch: $(cut -f4 "$tmp/match" | tr '\n' ' ')"
   IFS=$'\t' read -r pr_head_repo pr_id pr_number pr_url pr_head_sha pr_repo <"$tmp/match"
   valid_repo "$pr_head_repo" || die 4 "unexpected PR head repo"
   case $pr_id in '' | *[!A-Za-z0-9_=-]*) die 4 "unexpected PR id" ;; esac

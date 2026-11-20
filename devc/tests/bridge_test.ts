@@ -503,7 +503,7 @@ Deno.test('refresh removes a malformed (pre-grants, three-field) policy and says
     assertEquals(await exists(file), false);
     assertStringIncludes(
       f.logs.join('\n'),
-      `devc: devc-bridge policy at ${file} was malformed (line 1: want 5 tab-separated fields, found 3) and has been removed — re-run devc up --bridge-allow <list>`,
+      `devc: devc-bridge policy at ${file} was malformed (line 1: want 5 or 6 tab-separated fields, found 3) and has been removed — re-run devc up --bridge-allow <list>`,
     );
   });
 });
@@ -583,6 +583,57 @@ Deno.test('refresh revokes a grant whose origin changed to another GitHub repo',
         'git@github.com:acme/proj.git',
     );
     assert(!f.logs.some((l) => l.includes('refreshed')));
+  });
+});
+
+/** Make the fixture's branch `feat/x` track `url`'s `refs/heads/<head>`. */
+async function setTracking(
+  f: Fixture,
+  url: string,
+  head: string,
+): Promise<void> {
+  const config = `${f.project}/.git/config`;
+  const text = (await Deno.readTextFile(config)).replace(
+    /\[branch "feat\/x"\][^[]*/,
+    '',
+  );
+  await Deno.writeTextFile(
+    config,
+    `${text}[branch "feat/x"]\n\tremote = ${url}\n\tmerge = refs/heads/${head}\n`,
+  );
+}
+
+Deno.test('grant writes and logs the PR head a branch tracking another fork names', async () => {
+  await withFixture(async (f) => {
+    await setTracking(f, 'https://github.com/vlad/proj.git', 'feat/x');
+    const merged = await f.merged();
+    await applyPolicy(GRANT, merged, f.project, f.deps(f.frozen));
+    const file = bridgePaths(f.home, merged.bridgeKey!).policyFile;
+    assertEquals(
+      await Deno.readTextFile(file),
+      `${f.project}\tgit@github.com:acme/proj.git\tfeat/x\tgh-push,gh-pr-read\t/workspaces/proj\tvlad/proj:feat/x\n`,
+    );
+    assertStringIncludes(
+      f.logs.join('\n'),
+      `devc:   /workspaces/proj: feat/x → git@github.com:acme/proj.git (${f.project}) (PR head vlad/proj:feat/x)`,
+    );
+  });
+});
+
+Deno.test('refresh revokes a grant whose PR head changed', async () => {
+  await withFixture(async (f) => {
+    const merged = await f.merged();
+    const deps = f.deps(f.frozen);
+    await applyPolicy(GRANT, merged, f.project, deps);
+    await setTracking(f, 'https://github.com/vlad/proj.git', 'feat/x');
+    await applyPolicy('refresh', merged, f.project, deps);
+    assertEquals(await readPolicy(merged.bridgeKey!, deps), {
+      kind: 'absent',
+    });
+    assertStringIncludes(
+      f.logs.join('\n'),
+      'the PR head is now vlad/proj:feat/x, but they were granted for none',
+    );
   });
 });
 
@@ -774,7 +825,7 @@ Deno.test('status names a malformed policy rather than showing a pin', async () 
       lines.join('\n'),
       `  bridge:    MALFORMED policy at ${
         bridgePaths(f.home, merged.bridgeKey!).policyFile
-      } (line 1: want 5 tab-separated fields, found 1) — grants nothing`,
+      } (line 1: want 5 or 6 tab-separated fields, found 1) — grants nothing`,
     );
   });
 });

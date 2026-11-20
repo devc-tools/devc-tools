@@ -244,7 +244,7 @@ check "  … says so" has "more than 16 repos"
 printf '%s\n' "$REPO"$'\t'"$GH_PIN"$'\t'feat"$G" >"$POLICY_DIR/$KEY.conf"
 push
 expect_rc 2 "a v1 (four-field) policy"
-check "  … is malformed" has "malformed policy $POLICY_DIR/$KEY.conf: line 1: want 5 tab-separated fields, found 4"
+check "  … is malformed" has "malformed policy $POLICY_DIR/$KEY.conf: line 1: want 5 or 6 tab-separated fields, found 4"
 check "  … and no mirror was created" test ! -e "$MIRRORS/$KEY"
 
 check "  … and the remote never moved" test "$(remote_ref refs/heads/feat)" = none
@@ -257,6 +257,14 @@ check "  … and nothing was touched" test ! -e "$MIRROR"
 pin "$REPO" "$GH_PIN" feat gh-push,gh-pr-review
 push
 expect_rc 0 "gh-push among other grants"
+fresh
+printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$REPO" "$GH_PIN" feat gh-push /workspaces/repo other/widget:elsewhere \
+  >"$POLICY_DIR/$KEY.conf"
+push
+expect_rc 0 "a pr-head (sixth field) changes nothing about the push"
+check "  … feat went to the pinned remote under its own name" \
+  test "$(remote_ref refs/heads/feat)" = "$(git -C "$REPO" rev-parse feat)"
+check "  … and nothing named after the pr-head" test "$(remote_ref refs/heads/elsewhere)" = none
 fresh
 push extra
 expect_rc 2 "an argument is rejected, not ignored"
@@ -626,7 +634,12 @@ check "  … is reported MALFORMED" has "MALFORMED"
 printf '%s\t%s\t%s\t%s\n' "$REPO" "$GH_PIN" feat gh-push >"$POLICY_DIR/$KEY.conf"
 doctor
 expect_rc 1 "a four-field (v1) policy"
-check "  … is reported MALFORMED, with the reason" has "want 5 tab-separated fields, found 4"
+check "  … is reported MALFORMED, with the reason" has "want 5 or 6 tab-separated fields, found 4"
+printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$REPO" "$GH_PIN" feat gh-push /workspaces/repo 'bad' \
+  >"$POLICY_DIR/$KEY.conf"
+doctor
+expect_rc 1 "a malformed pr-head"
+check "  … is reported MALFORMED, with the reason" has "bad pr-head field"
 
 echo "GitHub only"
 for remote in "$REMOTE" "file://$REMOTE" "ssh://git@gitlab.com/acme/widget.git" \

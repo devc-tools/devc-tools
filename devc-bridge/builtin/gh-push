@@ -104,16 +104,19 @@ policy=$policy_dir/$key.conf
 # ── shared with gh-doctor and the gh-pr-* prelude: keep the copies identical ─────────────
 
 # parse_policy FILE — read a policy into the arrays pol_repo/pol_remote/pol_branch/pol_grants/
-# pol_target (one entry per line, file order), or set pol_why and fail. The rules are devc-core's
-# policyProblem: one or more lines, each `\n`-terminated, each exactly five non-empty,
-# control-free, tab-separated fields `<repo> <remote> <branch> <grants> <target>`; the target
+# pol_target/pol_prhead (one entry per line, file order), or set pol_why and fail. The rules are
+# devc-core's policyProblem: one or more lines, each `\n`-terminated, each five non-empty,
+# control-free, tab-separated fields `<repo> <remote> <branch> <grants> <target>` and an optional
+# sixth, `<pr-head>` (`<owner>/<name>:<branch>`, '' in pol_prhead when absent); the target
 # absolute and normalized; each line's own grants; repo and target each distinct; at most 16
 # distinct remotes (a repo's worktrees share its remote, so they count once). A four-field v1 file
 # is malformed. The whole file is read with the `x` sentinel (so trailing newlines survive) and split
 # by hand: `read` cannot split it, because tab is IFS whitespace and empty fields would collapse.
 parse_policy() {
   local text line rest tabs field n=0 i fresh remotes=0 r_repo r_remote r_branch r_grants r_target
-  pol_repo=() pol_remote=() pol_branch=() pol_grants=() pol_target=() grants='' pol_why=''
+  local r_prhead ph_owner ph_name ph_branch
+  pol_repo=() pol_remote=() pol_branch=() pol_grants=() pol_target=() pol_prhead=() grants=''
+  pol_why=''
   text=$(cat -- "$1" && printf x) || {
     pol_why="unreadable"
     return 1
@@ -133,8 +136,8 @@ parse_policy() {
       return 1
     }
     tabs=${line//[!$'\t']/}
-    [ ${#tabs} -eq 4 ] || {
-      pol_why="line $n: want 5 tab-separated fields, found $((${#tabs} + 1))"
+    [ ${#tabs} -eq 4 ] || [ ${#tabs} -eq 5 ] || {
+      pol_why="line $n: want 5 or 6 tab-separated fields, found $((${#tabs} + 1))"
       return 1
     }
     r_repo=${line%%$'\t'*}
@@ -144,8 +147,13 @@ parse_policy() {
     r_branch=${rest%%$'\t'*}
     rest=${rest#*$'\t'}
     r_grants=${rest%%$'\t'*}
-    r_target=${rest#*$'\t'}
-    for field in "$r_repo" "$r_remote" "$r_branch" "$r_grants" "$r_target"; do
+    rest=${rest#*$'\t'}
+    r_target=${rest%%$'\t'*}
+    r_prhead=''
+    [ ${#tabs} -eq 4 ] || r_prhead=${rest#*$'\t'}
+    # A sixth field is checked like the rest: present but empty is malformed, not absent.
+    for field in "$r_repo" "$r_remote" "$r_branch" "$r_grants" "$r_target" \
+      "$([ ${#tabs} -eq 4 ] && echo x || printf '%s' "$r_prhead")"; do
       [ -n "$field" ] || {
         pol_why="line $n: empty field"
         return 1
@@ -180,6 +188,23 @@ parse_policy() {
         return 1
         ;;
     esac
+    if [ -n "$r_prhead" ]; then
+      ph_owner=${r_prhead%%/*}
+      rest=${r_prhead#*/}
+      ph_name=${rest%%:*}
+      ph_branch=${rest#*:}
+      case $r_prhead in */*:*) ;; *) ph_owner='' ;; esac
+      case $ph_owner/$ph_name in
+        /* | */ | . | ./* | ../* | */. | */.. | *[!A-Za-z0-9._/-]* | */*/*)
+          pol_why="line $n: bad pr-head field"
+          return 1
+          ;;
+      esac
+      git check-ref-format "refs/heads/$ph_branch" || {
+        pol_why="line $n: bad pr-head field"
+        return 1
+      }
+    fi
     i=0 fresh=1
     while [ "$i" -lt "${#pol_repo[@]}" ]; do
       [ "${pol_repo[$i]}" != "$r_repo" ] || {
@@ -203,6 +228,7 @@ parse_policy() {
     pol_branch+=("$r_branch")
     pol_grants+=("$r_grants")
     pol_target+=("$r_target")
+    pol_prhead+=("$r_prhead")
     case $text in
       *$'\n'*) text=${text#*$'\n'} ;;
       *) return 0 ;;
@@ -241,6 +267,7 @@ select_repo() {
   branch=${pol_branch[$pick]}
   grants=${pol_grants[$pick]}
   target=${pol_target[$pick]}
+  prhead=${pol_prhead[$pick]}
 }
 
 parse_policy "$policy" || die 2 "malformed policy $policy: $pol_why"

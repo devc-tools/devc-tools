@@ -64,7 +64,7 @@ if [ "$1" = auth ]; then exit "${SHIM_AUTH_RC:-0}"; fi
   exit 99
 }
 shift
-jqf='' path='' query='' owner='' name='' id='' body='' fpath='' method=GET fields=''
+jqf='' path='' query='' owner='' name='' id='' body='' fpath='' method=GET fields='' qbranch=''
 while [ $# -gt 0 ]; do
   case $1 in
     --jq) jqf=$2 && shift 2 ;;
@@ -74,7 +74,7 @@ while [ $# -gt 0 ]; do
       k=${2%%=*} v=${2#*=}
       case $k in
         query) query=$v ;; owner) owner=$v ;; name) name=$v ;; id) id=$v ;; body) body=$v ;;
-        path) fpath=$v ;;
+        path) fpath=$v ;; branch) qbranch=$v ;;
       esac
       fields+=" $2"
       shift 2
@@ -94,7 +94,9 @@ files=()
 if [ "$path" = graphql ]; then
   case $query in
     *'pullRequests(headRefName'*)
-      files=("$F/prs-$owner-$name.json")
+      # prs-<owner>-<name>@<branch, / as _>.json, when a case made one, answers for that branch.
+      files=("$F/prs-$owner-$name@${qbranch//\//_}.json")
+      [ -f "${files[0]}" ] || files=("$F/prs-$owner-$name.json")
       [ -f "${files[0]}" ] || echo '{"data":{"repository":{"pullRequests":{"nodes":[]}}}}' >"${files[0]}"
       ;;
     *reviewThreads*) files=("$F"/threads-*.json) ;;
@@ -194,8 +196,11 @@ repo_fx() { # repo_fx <owner/name> [parent owner/name]
   fi >"$FX/repo-$o-$n.json"
 }
 
-prs_fx() { # prs_fx <base owner/name> [<head owner/name> <number>]… — the open PRs in base
-  local base=$1 nodes='[]'
+prs_fx() { # prs_fx <base owner/name>[@<branch>] [<head owner/name> <number>]… — the open PRs
+  # in base, or only those whose head branch is <branch> (`/` written as `_` in the file name)
+  local base=${1%%@*} file b nodes='[]'
+  file=${base%%/*}-${base#*/}
+  case $1 in *@*) b=${1#*@} && file=$file@${b//\//_} ;; esac
   shift
   while [ $# -gt 1 ]; do
     nodes=$(jq -c --arg h "$1" --argjson n "$2" --arg b "$base" --arg s "$(sha "$2")" \
@@ -205,7 +210,7 @@ prs_fx() { # prs_fx <base owner/name> [<head owner/name> <number>]… — the op
     shift 2
   done
   jq -n --argjson n "$nodes" '{data: {repository: {pullRequests: {nodes: $n}}}}' \
-    >"$FX/prs-${base%%/*}-${base#*/}.json"
+    >"$FX/prs-$file.json"
 }
 
 author() { # author copilot|human|none
@@ -434,6 +439,15 @@ pin() { # pin <remote> <branch> [grants, default $ALL_PR] — one line, containe
   printf '%s\t%s\t%s\t%s\t%s\n' /Users/you/code/r "$1" "$2" "${3:-$ALL_PR}" /workspaces/r \
     >"$POLICY_DIR/$KEY.conf"
 }
+pin_head() { # pin_head <remote> <branch> <pr-head> — pin's one line, with a sixth field
+  mkdir -p "$POLICY_DIR"
+  printf '%s\t%s\t%s\t%s\t%s\t%s\n' /Users/you/code/r "$1" "$2" "$ALL_PR" /workspaces/r "$3" \
+    >"$POLICY_DIR/$KEY.conf"
+}
+default_branch_fx() { # default_branch_fx <owner/name> <branch> — set a repo fixture's default branch
+  local f=$FX/repo-${1%%/*}-${1#*/}.json
+  jq --arg b "$2" '. + {default_branch: $b}' "$f" >"$f.tmp" && mv "$f.tmp" "$f"
+}
 pin_more() { # pin_more <repo> <remote> <branch> <grants> <target> — append a policy line
   printf '%s\t%s\t%s\t%s\t%s\n' "$@" >>"$POLICY_DIR/$KEY.conf"
 }
@@ -497,7 +511,7 @@ for r in gh-pr-comments gh-pr-files gh-pr-viewed gh-pr-reply gh-pr-resolve gh-pr
     >"$POLICY_DIR/$KEY.conf"
   run "$r" "${args[@]}"
   expect_rc 2 "$r: a four-field (v1) policy"
-  check "  … is malformed" has_err "line 1: want 5 tab-separated fields, found 4"
+  check "  … is malformed" has_err "line 1: want 5 or 6 tab-separated fields, found 4"
   pin git@github.com:me/r.git "$BRANCH" gh-push
   run "$r" "${args[@]}"
   expect_rc 2 "$r: a policy granting only gh-push"
@@ -758,6 +772,56 @@ run gh-pr-comments
 expect_rc 2 "two matching PRs"
 check "  … lists both" has_err "https://github.com/up/r/pull/7"
 check "  … lists both" has_err "https://github.com/me/r/pull/2"
+
+# The pin's pr-head (the branch's tracking config) is looked for first.
+fresh
+pin_head git@github.com:me/r.git vlad-x vlad/r:vlad-x
+repo_fx vlad/r up/r
+prs_fx up/r@vlad-x vlad/r 9
+run gh-pr-files
+expect_rc 0 "pr-head: another fork's PR (gh pr checkout) is found"
+check "  … up/r#9" test "$(q '.pr | "\(.repo)#\(.number)"')" = 'up/r#9'
+check "  … looked in vlad/r first" test "$(calls | grep -m1 -o 'repos/[a-z]*/r')" = repos/vlad/r
+fresh
+pin_head git@github.com:me/r.git local-name me/r:feat/remote-name
+prs_fx up/r@feat/remote-name me/r 8
+run gh-pr-comments
+expect_rc 0 "pr-head: a local branch named apart from its remote one finds the remote one's PR"
+check "  … up/r#8" test "$(q .pr.number)" = 8
+fresh
+pin_head git@github.com:me/r.git "$BRANCH" vlad/r:vlad-x
+repo_fx vlad/r up/r
+prs_fx up/r@vlad-x vlad/r 9
+run gh-pr-comments
+expect_rc 0 "pr-head: preferred to the origin branch's PR"
+check "  … up/r#9, not #7" test "$(q .pr.number)" = 9
+fresh
+pin_head git@github.com:me/r.git "$BRANCH" up/r:main
+repo_fx up/r
+default_branch_fx up/r main
+run gh-pr-comments
+expect_rc 0 "pr-head on its repo's default branch: skipped for the origin branch"
+check "  … up/r#7" test "$(q .pr.number)" = 7
+check "  … and main was never looked up" test -z "$(calls | grep 'branch=main')"
+fresh
+pin_head git@github.com:me/r.git "$BRANCH" vlad/r:vlad-x
+repo_fx vlad/r up/r
+prs_fx up/r
+run gh-pr-comments
+expect_rc 2 "pr-head: no PR for either head"
+check "  … names both" has_err "no open PR with head vlad/r:vlad-x or me/r:$BRANCH"
+fresh
+pin_head git@github.com:me/r.git "$BRANCH" 'vlad/r:'
+run gh-pr-comments
+expect_rc 2 "a malformed pr-head"
+check "  … is malformed" has_err "line 1: bad pr-head field"
+fresh
+mkdir -p "$POLICY_DIR"
+printf '%s\t%s\t%s\t%s\t%s\t\n' /Users/you/code/r git@github.com:me/r.git "$BRANCH" "$ALL_PR" \
+  /workspaces/r >"$POLICY_DIR/$KEY.conf"
+run gh-pr-comments
+expect_rc 2 "an empty sixth field"
+check "  … is malformed" has_err "line 1: empty field"
 
 echo "gh-pr-comments"
 fresh

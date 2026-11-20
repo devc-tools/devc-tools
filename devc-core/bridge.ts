@@ -239,6 +239,12 @@ export interface Pin {
   remote: string;
   /** The branch `HEAD` named, without `refs/heads/`. */
   branch: string;
+  /**
+   * The PR head `<owner>/<name>:<branch>` the branch's tracking config names, when it is not
+   * `remote`'s repo and `branch` itself ({@link parsePrHead}): where the `gh-pr-*` recipes look for
+   * the PR first. `gh-push` never reads it. Absent for most pins.
+   */
+  prHead?: string;
 }
 
 /** A pin and where the repo sits in the container — one policy line. */
@@ -325,14 +331,29 @@ export function targetProblem(target: string): string | null {
 }
 
 /**
+ * Why `prHead` is not a policy line's sixth field, or null: `<owner>/<name>:<branch>`, with the
+ * owner/name the bridge scripts' `valid_repo` accepts and a non-empty branch.
+ */
+export function prHeadProblem(prHead: string): string | null {
+  const m = /^([^/:]+)\/([^/:]+):(.+)$/.exec(prHead);
+  return m === null || !validRemoteName(m[1]) || !validRemoteName(m[2]) ||
+      fieldProblem('pr-head', m[3]) !== null
+    ? 'bad pr-head field'
+    : null;
+}
+
+/**
  * The policy file's contents: one `<repo>\t<remote>\t<branch>\t<grants>\t<target>\n` line per
- * pinned repo, each line's own grants comma-joined in canonical order. Throws for anything
+ * pinned repo — with `\t<pr-head>` before the newline when the pin has one — each line's own
+ * grants comma-joined in canonical order. Throws for anything
  * {@link policyProblem} would refuse to read back — callers validate first, so reaching this is a
  * bug.
  */
 export function serializePolicy(record: PolicyRecord): string {
   const text = record.repos.map((r) =>
-    `${r.repo}\t${r.remote}\t${r.branch}\t${r.grants.join(',')}\t${r.target}\n`
+    `${r.repo}\t${r.remote}\t${r.branch}\t${r.grants.join(',')}\t${r.target}${
+      r.prHead === undefined ? '' : `\t${r.prHead}`
+    }\n`
   ).join('');
   const problem = record.repos.length === 0 ? 'has no repos' : record.repos
     .map((r) => grantsProblem(r.grants)).find((p) => p !== null) ??
@@ -344,7 +365,8 @@ export function serializePolicy(record: PolicyRecord): string {
 /**
  * Why `text` is not a policy file, or null when it is: the **first** problem in the order
  * {@link parsePolicy} checks — the final newline, then per line (`line <n>: …`) an empty line, the
- * field count, each field, the target and the line's own grant list, and last the cross-line rules
+ * field count (5, or 6 with a pr-head), each field, the target, the line's own grant list and the
+ * pr-head, and last the cross-line rules
  * (`repo` and `target` each distinct, at most {@link MAX_PINNED_REPOS} distinct `remote`s). Lines
  * may grant different capabilities.
  * {@link parsePolicy} is built on this, so the two never disagree. The bridge scripts' bash
@@ -360,23 +382,25 @@ export function policyProblem(text: string): string | null {
     const n = i + 1;
     if (lines[i] === '') return `line ${n} is empty`;
     const fields = lines[i].split('\t');
-    if (fields.length !== 5) {
-      return `line ${n}: want 5 tab-separated fields, found ${fields.length}`;
+    if (fields.length !== 5 && fields.length !== 6) {
+      return `line ${n}: want 5 or 6 tab-separated fields, found ${fields.length}`;
     }
-    const [repo, remote, branch, grantField, target] = fields;
+    const [repo, remote, branch, grantField, target, prHead] = fields;
     const pairs = [
       ['repo', repo],
       ['remote', remote],
       ['branch', branch],
       ['grants', grantField],
       ['target', target],
+      ...(prHead === undefined ? [] : [['pr-head', prHead]]),
     ];
     for (const [name, value] of pairs) {
       const problem = fieldProblem(name, value);
       if (problem !== null) return `line ${n}: ${problem}`;
     }
     const problem = targetProblem(target) ??
-      grantsProblem(grantField.split(','));
+      grantsProblem(grantField.split(',')) ??
+      (prHead === undefined ? null : prHeadProblem(prHead));
     if (problem !== null) return `line ${n}: ${problem}`;
     const repoAt = seenRepo.get(repo);
     if (repoAt !== undefined) return `line ${n}: repo repeats line ${repoAt}'s`;
@@ -395,7 +419,8 @@ export function policyProblem(text: string): string | null {
 }
 
 /**
- * Parse a policy file: newline-terminated lines of exactly five non-empty fields, for at most
+ * Parse a policy file: newline-terminated lines of five non-empty fields and an optional sixth
+ * (the pr-head), for at most
  * {@link MAX_PINNED_REPOS} repos, or `null` — a malformed policy grants nothing, and the reader must not guess.
  * A four-field file from before targets existed, a three-field one from before grants existed,
  * and a capability this build does not know are all malformed: they fail closed.
@@ -404,13 +429,14 @@ export function policyProblem(text: string): string | null {
 export function parsePolicy(text: string): PolicyRecord | null {
   if (policyProblem(text) !== null) return null;
   const repos = text.slice(0, -1).split('\n').map((line) => {
-    const [repo, remote, branch, grants, target] = line.split('\t');
+    const [repo, remote, branch, grants, target, prHead] = line.split('\t');
     return {
       repo,
       remote,
       branch,
       grants: grants.split(',') as BridgeCapability[],
       target,
+      ...(prHead === undefined ? {} : { prHead }),
     };
   });
   return { repos };
@@ -455,6 +481,90 @@ export type OriginUrl = { ok: true; url: string } | {
   reason: string;
 };
 
+/** One `key = value` line of a section {@link scanConfig} was asked for; `raw` is unparsed. */
+interface ConfigEntry {
+  /** The section name, lowercased. */
+  section: string;
+  /** The subsection, unescaped (case-sensitive), or null. */
+  sub: string | null;
+  /** The key, lowercased. */
+  key: string;
+  /** The text after `=`, or `''` for a bare key. */
+  raw: string;
+}
+
+/**
+ * The entries of the sections `wants` picks, out of a git config file's text, for the subset of
+ * the format a repo config actually uses — or why it cannot be read: an `[include]`/`[includeIf]`
+ * section anywhere (the included file need not be frozen), an unreadable section header anywhere,
+ * or an unreadable line inside a wanted section. Lines in other sections are not read. Section
+ * names and keys are case-insensitive; subsections are case-sensitive.
+ */
+function scanConfig(
+  text: string,
+  wants: (section: string, sub: string | null) => boolean,
+): { ok: true; entries: ConfigEntry[] } | { ok: false; reason: string } {
+  let current: { section: string; sub: string | null } | null = null;
+  const entries: ConfigEntry[] = [];
+  for (const raw of text.split(/\r?\n/)) {
+    const line = raw.trim();
+    if (line === '' || line.startsWith('#') || line.startsWith(';')) continue;
+    if (line.startsWith('[')) {
+      const header = /^\[\s*([A-Za-z0-9.-]+)(?:\s+"((?:[^"\\]|\\.)*)")?\s*\]/
+        .exec(line);
+      if (header === null) {
+        return { ok: false, reason: `unreadable section header: ${line}` };
+      }
+      const name = header[1].toLowerCase();
+      if (name === 'include' || name === 'includeif') {
+        return {
+          ok: false,
+          reason: `the repo config has an [${
+            header[1]
+          }] section, and an included file need not be frozen`,
+        };
+      }
+      const sub = header[2] === undefined
+        ? null
+        : header[2].replace(/\\(.)/g, '$1');
+      current = wants(name, sub) ? { section: name, sub } : null;
+      // Git allows `[section] key = value` on one line; nothing a repo config writes does.
+      if (line.slice(header[0].length).trim() !== '') {
+        return { ok: false, reason: `unreadable config line: ${line}` };
+      }
+      continue;
+    }
+    if (current === null) continue;
+    const kv = /^([A-Za-z][A-Za-z0-9-]*)\s*(?:=\s*(.*))?$/.exec(line);
+    if (kv === null) {
+      return { ok: false, reason: `unreadable config line: ${line}` };
+    }
+    entries.push({ ...current, key: kv[1].toLowerCase(), raw: kv[2] ?? '' });
+  }
+  return { ok: true, entries };
+}
+
+/**
+ * Every value of `<section>.<sub>.<key>` among `entries`, parsed, in file order — or why one is
+ * continued onto the next line or unterminated.
+ */
+function configValues(
+  entries: readonly ConfigEntry[],
+  name: string,
+  key: string,
+): { ok: true; values: string[] } | { ok: false; reason: string } {
+  const values: string[] = [];
+  for (const e of entries) {
+    if (e.key !== key) continue;
+    const value = parseConfigValue(e.raw);
+    if (value === null) {
+      return { ok: false, reason: `${name} is continued or unterminated` };
+    }
+    values.push(value);
+  }
+  return { ok: true, values };
+}
+
 /**
  * Read `remote.origin.url` out of a git config file, as git would, for the subset of the format a
  * repo config actually uses — and **refuse** anything outside that subset rather than guess.
@@ -467,61 +577,91 @@ export type OriginUrl = { ok: true; url: string } | {
  * Values may be double-quoted, carry `\"`/`\\`/`\n`/`\t` escapes, and end in a `#` or `;` comment.
  */
 export function parseOriginUrl(text: string): OriginUrl {
-  let inOrigin = false;
-  const urls: string[] = [];
-  for (const raw of text.split(/\r?\n/)) {
-    const line = raw.trim();
-    if (line === '' || line.startsWith('#') || line.startsWith(';')) continue;
-    if (line.startsWith('[')) {
-      const section = /^\[\s*([A-Za-z0-9.-]+)(?:\s+"((?:[^"\\]|\\.)*)")?\s*\]/
-        .exec(line);
-      if (section === null) {
-        return { ok: false, reason: `unreadable section header: ${line}` };
-      }
-      const name = section[1].toLowerCase();
-      if (name === 'include' || name === 'includeif') {
-        return {
-          ok: false,
-          reason: `the repo config has an [${
-            section[1]
-          }] section, and an included file need not be frozen`,
-        };
-      }
-      inOrigin = name === 'remote' && section[2] === 'origin';
-      // Git allows `[section] key = value` on one line; nothing a repo config writes does.
-      if (line.slice(section[0].length).trim() !== '') {
-        return { ok: false, reason: `unreadable config line: ${line}` };
-      }
-      continue;
-    }
-    if (!inOrigin) continue;
-    const kv = /^([A-Za-z][A-Za-z0-9-]*)\s*(?:=\s*(.*))?$/.exec(line);
-    if (kv === null) {
-      return { ok: false, reason: `unreadable config line: ${line}` };
-    }
-    if (kv[1].toLowerCase() !== 'url') continue;
-    const value = parseConfigValue(kv[2] ?? '');
-    if (value === null) {
-      return {
-        ok: false,
-        reason: 'remote.origin.url is continued or unterminated',
-      };
-    }
-    urls.push(value);
-  }
-  if (urls.length === 0) {
+  const remote = remoteUrl(text, 'origin');
+  if (!remote.ok) return remote;
+  if (remote.url === null) {
     return { ok: false, reason: 'the repo has no remote.origin.url' };
   }
-  if (urls.length > 1) {
+  return { ok: true, url: remote.url };
+}
+
+/**
+ * `remote.<name>.url` out of a git config file's text, as {@link parseOriginUrl} reads origin's:
+ * null when the remote has none, and refused when it has more than one.
+ */
+function remoteUrl(
+  text: string,
+  name: string,
+): { ok: true; url: string | null } | { ok: false; reason: string } {
+  const scan = scanConfig(text, (s, sub) => s === 'remote' && sub === name);
+  if (!scan.ok) return scan;
+  const key = `remote.${name}.url`;
+  const urls = configValues(scan.entries, key, 'url');
+  if (!urls.ok) return urls;
+  if (urls.values.length === 0) return { ok: true, url: null };
+  if (urls.values.length > 1) {
     return {
       ok: false,
-      reason: `remote.origin.url is set ${urls.length} times`,
+      reason: `${key} is set ${urls.values.length} times`,
     };
   }
-  const problem = fieldProblem('remote.origin.url', urls[0]);
+  const problem = fieldProblem(key, urls.values[0]);
   return problem === null
-    ? { ok: true, url: urls[0] }
+    ? { ok: true, url: urls.values[0] }
     : { ok: false, reason: problem };
+}
+
+/**
+ * The PR head `<owner>/<name>:<branch>` that `branch`'s tracking config names in a git config
+ * file's text — `branch.<branch>.remote` (a remote's name, or a URL as `gh pr checkout` writes it)
+ * and `branch.<branch>.merge` (`refs/heads/<branch>`), the last of each winning, as git reads
+ * them — or null when it names none: no tracking, a local one (`.`), a merge ref outside
+ * `refs/heads/` (`refs/pull/<n>/head`), a remote with no URL, or a non-GitHub one. Null too when it
+ * is `originUrl`'s repo (case-insensitively) and `branch` itself: the pin already says that.
+ * Refused only for a config {@link scanConfig} cannot read, or a remote with several URLs.
+ */
+export function parsePrHead(
+  text: string,
+  branch: string,
+  originUrl: string,
+): { ok: true; prHead: string | null } | { ok: false; reason: string } {
+  const none = { ok: true as const, prHead: null };
+  const scan = scanConfig(text, (s, sub) => s === 'branch' && sub === branch);
+  if (!scan.ok) return scan;
+  const remotes = configValues(
+    scan.entries,
+    `branch.${branch}.remote`,
+    'remote',
+  );
+  if (!remotes.ok) return remotes;
+  const merges = configValues(scan.entries, `branch.${branch}.merge`, 'merge');
+  if (!merges.ok) return merges;
+  const remote = remotes.values.at(-1);
+  const merge = merges.values.at(-1);
+  if (!remote || remote === '.' || !merge?.startsWith('refs/heads/')) {
+    return none;
+  }
+  const head = merge.slice('refs/heads/'.length);
+  if (head === '' || fieldProblem('branch', head) !== null) return none;
+  let url: string | null;
+  if (/^[A-Za-z0-9._-]+$/.test(remote)) {
+    const named = remoteUrl(text, remote);
+    if (!named.ok) return named;
+    url = named.url;
+  } else {
+    url = remote.includes(':') || remote.startsWith('/') ? remote : null;
+  }
+  if (url === null) return none;
+  const repo = gitHubRepoOf(url);
+  if (repo === null) return none;
+  const origin = gitHubRepoOf(originUrl);
+  if (
+    origin !== null && origin.toLowerCase() === repo.toLowerCase() &&
+    head === branch
+  ) {
+    return none;
+  }
+  return { ok: true, prHead: `${repo}:${head}` };
 }
 
 /** Why a pin is refused when {@link enablesWorktreeConfig} holds for its frozen config. */
@@ -628,7 +768,8 @@ async function kindOf(path: string): Promise<'dir' | 'file' | 'none'> {
 
 /**
  * Derive the publish pin for the repo whose working tree is `repo` (a host path): the branch
- * `HEAD` names, and `remote.origin.url`. Reads files only — see the module header.
+ * `HEAD` names, `remote.origin.url`, and the PR head the branch's tracking config names
+ * ({@link parsePrHead}), when there is one. Reads files only — see the module header.
  *
  * - `<repo>/.git` a directory → `HEAD` and `config` are read from it.
  * - `<repo>/.git` a file (a linked worktree) → follow `gitdir:` for `HEAD`, and that git dir's
@@ -698,12 +839,20 @@ export async function resolvePin(
     return { ok: false, reason: WORKTREE_CONFIG_REASON };
   }
 
+  const tracking = parsePrHead(configText, head.name, origin.url);
+  if (!tracking.ok) return { ok: false, reason: tracking.reason };
+
   const repoProblem = fieldProblem('repo path', repo);
   if (repoProblem !== null) return { ok: false, reason: repoProblem };
 
   return {
     ok: true,
-    record: { repo, remote: origin.url, branch: head.name },
+    record: {
+      repo,
+      remote: origin.url,
+      branch: head.name,
+      ...(tracking.prHead === null ? {} : { prHead: tracking.prHead }),
+    },
     worktree: kind === 'file',
   };
 }

@@ -225,6 +225,12 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
 
 ### Completed
 
+- [bridge-pr-head-tracking](archived/bridge-pr-head-tracking.md) — the pin gains an optional PR head
+  (`<owner>/<name>:<branch>`) read from the branch's tracking config (`branch.<b>.remote` /
+  `.merge`) in the frozen repo config, written as an optional sixth policy field. The `gh-pr-*`
+  recipes try it before `<origin>:<local branch>`, so a PR from another fork (`gh pr checkout`)
+  or a local branch named differently from its remote one is found. `gh-push` is unchanged. Live check against a real PR not run.
+
 - [devc-web-outline](archived/devc-web-outline.md) — an **Outline** section in the devc web sidebar,
   below Projects, for the most recently focused TS/JS file tile: its tests (`describe` / `it` /
   `test`, `Deno.test`, `t.step`, nested) and top-level declarations, from CodeMirror's Lezer tree
@@ -2801,3 +2807,4 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
 | devc web trusted host actions — no HOST drawer confirm for Push and host terminals when not `--live`                | [devc-web-trusted-host-actions](archived/devc-web-trusted-host-actions.md)         | complete    |
 | devc web host tile tabs — a host tile's tab reads like a terminal tile's when not `--live`                          | [devc-web-host-tile-tabs](archived/devc-web-host-tile-tabs.md)                     | complete    |
 | devc web outline — sidebar Outline of a TS/JS file's tests and declarations, click to jump                          | [devc-web-outline](archived/devc-web-outline.md)                                   | complete    |
+| Bridge PR head from tracking config — gh-pr-* find another fork's PR or a renamed branch's                          | [bridge-pr-head-tracking](archived/bridge-pr-head-tracking.md)                     | complete    |

@@ -597,17 +597,23 @@ at most 16 repos — 16 distinct `<remote>`s, so a repo's worktrees, which share
 its remote, count once —
 
 ```text
-<repo>\t<remote>\t<branch>\t<grants>\t<target>
+<repo>\t<remote>\t<branch>\t<grants>\t<target>[\t<pr-head>]
 ```
 
 — where `<repo>` is the working tree's host path, `<target>` its path in the
 container (absolute, no trailing `/`, no `//`, `.` or `..` segment), `<grants>`
 that line's own (each line valid on its own: non-empty, canonical order, known
 names, requirements met — lines may differ), and `<repo>` and `<target>` each
-distinct across lines.
+distinct across lines. The optional `<pr-head>`, `<owner>/<name>:<branch>`, is
+the head the branch's tracking config names when it is not `<remote>`'s repo and
+`<branch>` itself (see [Which PR](#which-pr)); only the `gh-pr-*` commands read
+it.
 The format is unversioned: a file either side cannot parse grants nothing,
 including a four-field file from an older devc (before `<target>`) and a
-three-field one from before grants existed.
+three-field one from before grants existed. A bridge older than `<pr-head>`
+reads a six-field line as malformed, so restart the bridge
+(`devc-bridge restart`, which materializes the current built-ins) after
+upgrading.
 
 The arch note is a limitation, not a control: the client is cross-compiled for
 the host's architecture. A container run under emulation on the other arch will
@@ -976,11 +982,23 @@ The host needs `gh` on the bridge's `PATH`, authenticated (`gh auth login`, or
 **The pin names a source, and the PR is found from it.** With more than one
 repo pinned, every command takes a leading `--repo <path>` (the repo's container
 path) to say which pin — `gh-pr-reply --repo /workspaces/tools/x <thread> <body>`
-— and exits 2 without it, exactly as `gh-push` does. The selected pin's remote is
-the PR's **head** repo — your fork, in a fork workflow — and its branch the head
-branch. The commands ask GitHub for that repo and, if it is a fork, its parent,
-and look for open PRs in both whose head is exactly `<head repo>:<branch>`.
-Exactly one must match; none or several is exit 2. So:
+— and exits 2 without it, exactly as `gh-push` does. The commands try up to two
+heads, in order, and take the first that has a PR:
+
+1. the pin's `<pr-head>`, when it has one: what the branch's tracking config
+   (`branch.<b>.remote` and `.merge`, in the frozen repo config) names — another
+   fork's repo for a branch `gh pr checkout` made from that fork's PR, or the
+   remote branch's own name for a local branch named differently. Skipped when
+   it is its repo's default branch (a branch that merely tracks
+   `upstream/main`);
+2. the pin's remote as the PR's **head** repo — your fork, in a fork workflow —
+   and its branch as the head branch.
+
+For each, the commands ask GitHub for the head repo and, if it is a fork, its
+parent, and look for open PRs in both whose head is exactly
+`<head repo>:<head branch>`. Exactly one must match; several is exit 2, and none
+for every head is exit 2 naming each (`no open PR with head vbabich/r:x or
+me/r:x`). So:
 
 - a PR from a branch of the repo itself, or from your fork into its upstream,
   is found;

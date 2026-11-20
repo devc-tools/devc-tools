@@ -25,6 +25,7 @@ import {
   parseHead,
   parseOriginUrl,
   parsePolicy,
+  parsePrHead,
   policyGrantsUnion,
   policyProblem,
   type PolicyRecord,
@@ -309,12 +310,22 @@ Deno.test('policy: policyProblem names the first problem, and parsePolicy agrees
     ['', 'the file does not end with a newline'],
     ['/a\tb\tc\tgh-push\t/w', 'the file does not end with a newline'],
     ['\n', 'line 1 is empty'],
-    ['/a\tb\tc\tgh-push\n', 'line 1: want 5 tab-separated fields, found 4'],
-    ['/a\tb\tc\n', 'line 1: want 5 tab-separated fields, found 3'],
     [
-      '/a\tb\tc\tgh-push\t/w\tx\n',
-      'line 1: want 5 tab-separated fields, found 6',
+      '/a\tb\tc\tgh-push\n',
+      'line 1: want 5 or 6 tab-separated fields, found 4',
     ],
+    ['/a\tb\tc\n', 'line 1: want 5 or 6 tab-separated fields, found 3'],
+    [
+      '/a\tb\tc\tgh-push\t/w\tme/r:x\ty\n',
+      'line 1: want 5 or 6 tab-separated fields, found 7',
+    ],
+    ['/a\tb\tc\tgh-push\t/w\t\n', 'line 1: pr-head is empty'],
+    ['/a\tb\tc\tgh-push\t/w\tx\n', 'line 1: bad pr-head field'],
+    ['/a\tb\tc\tgh-push\t/w\tbad:x:\n', 'line 1: bad pr-head field'],
+    ['/a\tb\tc\tgh-push\t/w\tme/r:\n', 'line 1: bad pr-head field'],
+    ['/a\tb\tc\tgh-push\t/w\t../r:x\n', 'line 1: bad pr-head field'],
+    ['/a\tb\tc\tgh-push\t/w\tme/r/s:x\n', 'line 1: bad pr-head field'],
+    ['/a\tb\tc\tgh-push\t/w\tme/r:x\n', null],
     ['/a\tb\t\tgh-push\t/w\n', 'line 1: branch is empty'],
     ['/a\t\t\tgh-push\t/w\n', 'line 1: remote is empty'],
     ['/a\tb\tc\t\t/w\n', 'line 1: grants is empty'],
@@ -816,4 +827,151 @@ Deno.test('capabilities: task-add is native, needs nothing, and is granted alone
   assertEquals([...BRIDGE_NATIVE_COMMANDS], ['task-add']);
   assertEquals(grantsProblem(['task-add']), null);
   assertEquals(grantsProblem(['gh-push', 'task-add']), null);
+});
+
+// ── the PR head: the branch's tracking config ───────────────────────────────────────────────
+
+Deno.test('policy: a pr-head round-trips as a sixth field, and only when present', () => {
+  const base = {
+    repo: '/a',
+    remote: 'git@github.com:bmingles/r.git',
+    branch: 'vlad-x',
+    grants: ['gh-pr-read'] as BridgeCapability[],
+    target: '/w',
+  };
+  const withHead: PolicyRecord = {
+    repos: [{ ...base, prHead: 'vbabich/r:vlad-x' }],
+  };
+  const text = serializePolicy(withHead);
+  assertEquals(
+    text,
+    '/a\tgit@github.com:bmingles/r.git\tvlad-x\tgh-pr-read\t/w\tvbabich/r:vlad-x\n',
+  );
+  assertEquals(parsePolicy(text), withHead);
+  const plain = serializePolicy({ repos: [base] });
+  assertEquals(plain.split('\t').length, 5);
+  assertEquals(parsePolicy(plain), { repos: [base] });
+  assertEquals('prHead' in parsePolicy(plain)!.repos[0], false);
+});
+
+const ORIGIN = 'git@github.com:bmingles/r.git';
+const originSection = `[remote "origin"]\n\turl = ${ORIGIN}\n`;
+
+Deno.test('parsePrHead: the PR head each tracking config names', () => {
+  const cases: [string, string, string | null][] = [
+    // gh pr checkout of another fork's PR: the remote is a URL.
+    [
+      'vlad-x',
+      originSection +
+      '[branch "vlad-x"]\n\tremote = https://github.com/vbabich/r.git\n' +
+      '\tmerge = refs/heads/vlad-x\n',
+      'vbabich/r:vlad-x',
+    ],
+    // A named remote.
+    [
+      'vlad-x',
+      originSection +
+      '[remote "vlad"]\n\turl = git@github.com:vbabich/r.git\n' +
+      '[branch "vlad-x"]\n\tremote = vlad\n\tmerge = refs/heads/vlad-x\n',
+      'vbabich/r:vlad-x',
+    ],
+    // Origin, under another name.
+    [
+      'foo',
+      originSection +
+      '[branch "foo"]\n\tremote = origin\n\tmerge = refs/heads/feature-foo\n',
+      'bmingles/r:feature-foo',
+    ],
+    // The last value wins.
+    [
+      'foo',
+      originSection +
+      '[branch "foo"]\n\tremote = origin\n\tmerge = refs/heads/a\n' +
+      '\tmerge = refs/heads/b\n',
+      'bmingles/r:b',
+    ],
+    // Origin under its own name (any case of the repo): the pin already says it.
+    [
+      'foo',
+      originSection.replace('bmingles', 'BMingles') +
+      '[branch "foo"]\n\tremote = https://github.com/bmingles/r\n' +
+      '\tmerge = refs/heads/foo\n',
+      null,
+    ],
+    [
+      'foo',
+      originSection +
+      '[branch "foo"]\n\tremote = .\n\tmerge = refs/heads/main\n',
+      null,
+    ],
+    [
+      'pr-7',
+      originSection +
+      '[branch "pr-7"]\n\tremote = origin\n\tmerge = refs/pull/7/head\n',
+      null,
+    ],
+    [
+      'foo',
+      originSection +
+      '[branch "foo"]\n\tremote = https://gitlab.com/a/r.git\n\tmerge = refs/heads/foo\n',
+      null,
+    ],
+    [
+      'foo',
+      originSection +
+      '[branch "foo"]\n\tremote = ghost\n\tmerge = refs/heads/foo\n',
+      null,
+    ],
+    ['foo', originSection, null],
+    // Another branch's tracking, and the legacy header form, are not this branch's.
+    [
+      'foo',
+      originSection +
+      '[branch "Foo"]\n\tremote = https://github.com/v/r.git\n\tmerge = refs/heads/foo\n' +
+      '[branch.foo]\n\tremote = https://github.com/v/r.git\n\tmerge = refs/heads/foo\n',
+      null,
+    ],
+  ];
+  for (const [branch, config, want] of cases) {
+    assertEquals(
+      parsePrHead(config, branch, ORIGIN),
+      { ok: true, prHead: want },
+      config,
+    );
+  }
+});
+
+Deno.test('parsePrHead: a tracked remote with two URLs fails the pin', () => {
+  assertEquals(
+    parsePrHead(
+      originSection + '[remote "vlad"]\n\turl = https://github.com/a/r\n' +
+        '\turl = https://github.com/b/r\n' +
+        '[branch "x"]\n\tremote = vlad\n\tmerge = refs/heads/x\n',
+      'x',
+      ORIGIN,
+    ),
+    { ok: false, reason: 'remote.vlad.url is set 2 times' },
+  );
+});
+
+Deno.test('resolvePin: a gh pr checkout branch pins origin and the PR head', async () => {
+  await withTemp(async (dir) => {
+    const { root, marker } = await trappedRepo(`${dir}/app`, {
+      head: 'ref: refs/heads/vlad-x\n',
+      config: '[remote "origin"]\n\turl = git@github.com:bmingles/app.git\n' +
+        '[branch "vlad-x"]\n\tremote = https://github.com/vbabich/app.git\n' +
+        '\tmerge = refs/heads/vlad-x\n',
+    });
+    assertEquals(await resolvePin(root), {
+      ok: true,
+      record: {
+        repo: root,
+        remote: 'git@github.com:bmingles/app.git',
+        branch: 'vlad-x',
+        prHead: 'vbabich/app:vlad-x',
+      },
+      worktree: false,
+    });
+    assertEquals(await exists(marker), false, 'git ran in the repo');
+  });
 });

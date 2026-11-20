@@ -330,7 +330,7 @@ Deno.test('a broken policy is refused with exit 2, the reason, and a whole-list 
       await call(port, token, 'gh-push'),
       refused(
         2,
-        `this container's policy is malformed and grants nothing: line 1: want 5 tab-separated fields, found 3 (${policyFile}) — on the host: ${regrant}`,
+        `this container's policy is malformed and grants nothing: line 1: want 5 or 6 tab-separated fields, found 3 (${policyFile}) — on the host: ${regrant}`,
       ),
     );
 
@@ -343,7 +343,7 @@ Deno.test('a broken policy is refused with exit 2, the reason, and a whole-list 
       await call(port, token, 'gh-push'),
       refused(
         2,
-        `this container's policy is malformed and grants nothing: line 1: want 5 tab-separated fields, found 4 (${policyFile}) — on the host: ${regrant}`,
+        `this container's policy is malformed and grants nothing: line 1: want 5 or 6 tab-separated fields, found 4 (${policyFile}) — on the host: ${regrant}`,
       ),
     );
 
