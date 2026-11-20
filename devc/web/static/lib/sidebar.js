@@ -257,6 +257,112 @@ export function repoCardActive({ tiles, agents, pinned = false }) {
 }
 
 /**
+ * How In use groups its repo cards: a box per container (as at first), a box per tag (see
+ * {@link cardTag}), or one box for every card.
+ *
+ * @typedef {'container' | 'tag' | 'none'} InUseGroup
+ */
+
+/** The longest tag kept, in characters. */
+export const MAX_CARD_TAG = 40;
+
+/**
+ * A repo card's tag as typed: trimmed, its inner whitespace one space, cut to
+ * {@link MAX_CARD_TAG} characters. `null` for none (blank, or not a string).
+ *
+ * @param {unknown} text
+ * @returns {string | null}
+ */
+export function cardTag(text) {
+  if (typeof text !== 'string') return null;
+  const tag = text.trim().replace(/\s+/g, ' ').slice(0, MAX_CARD_TAG).trim();
+  return tag || null;
+}
+
+/**
+ * The grouping saved with the sidebar's state: `inUseGroup` when it is one, else the older
+ * `inUseGrouped` boolean (`false` → `none`), else `container`.
+ *
+ * @param {any} saved
+ * @returns {InUseGroup}
+ */
+export function savedInUseGroup(saved) {
+  const g = saved?.inUseGroup;
+  if (g === 'container' || g === 'tag' || g === 'none') return g;
+  return saved?.inUseGrouped === false ? 'none' : 'container';
+}
+
+/**
+ * The card tags saved with the sidebar's state (card key → tag), each kept as {@link cardTag}
+ * reads it; anything else is dropped.
+ *
+ * @param {unknown} v
+ * @returns {Map<string, string>}
+ */
+export function savedCardTags(v) {
+  const out = new Map();
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return out;
+  for (const [key, text] of Object.entries(v)) {
+    const tag = cardTag(text);
+    if (tag) out.set(key, tag);
+  }
+  return out;
+}
+
+/**
+ * In use's boxes for `cards` (already in the order they show), as `group` groups them: `key`
+ * tells boxes apart, `name` heads one (`null`: no heading). By container, a box per
+ * `card.localFolder` named by `containerName`; by tag, a box per `tagOf(card)` named by it, in
+ * order of each one's first card, with the untagged (`Untagged`) last; else one box, unnamed.
+ * Cards keep their order within a box.
+ *
+ * @template {{localFolder: string}} C
+ * @param {C[]} cards @param {InUseGroup} group
+ * @param {(card: C) => string | null} tagOf
+ * @param {(localFolder: string) => string} containerName
+ * @returns {{key: string, name: string | null, cards: C[]}[]}
+ */
+export function inUseRuns(cards, group, tagOf, containerName) {
+  /** @type {Map<string, {key: string, name: string | null, cards: C[]}>} */
+  const runs = new Map();
+  for (const card of cards) {
+    const tag = group === 'tag' ? tagOf(card) : null;
+    const key = group === 'container'
+      ? `container\n${card.localFolder}`
+      : group === 'tag'
+      ? (tag === null ? 'untagged' : `tag\n${tag}`)
+      : '';
+    let run = runs.get(key);
+    if (!run) {
+      run = {
+        key,
+        name: group === 'container'
+          ? containerName(card.localFolder)
+          : group === 'tag'
+          ? tag ?? 'Untagged'
+          : null,
+        cards: [],
+      };
+      runs.set(key, run);
+    }
+    run.cards.push(card);
+  }
+  const out = [...runs.values()];
+  const untagged = out.findIndex((r) => r.key === 'untagged');
+  if (untagged >= 0) out.push(...out.splice(untagged, 1));
+  return out;
+}
+
+/**
+ * The tags in use among `tags` (card key → tag), sorted, each once: a card menu's quick picks.
+ *
+ * @param {Map<string, string>} tags
+ */
+export function knownTags(tags) {
+  return [...new Set(tags.values())].sort((a, b) => a.localeCompare(b));
+}
+
+/**
  * Projects by name, then folder: how the sidebar lists the projects not running, and the task
  * dialog its projects.
  *

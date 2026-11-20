@@ -18,12 +18,14 @@ import {
 } from './lib/view.js';
 import {
   agentStatus,
+  cardTag,
   containerLabel,
   filterMatches,
   filterOutline,
   gitSync,
   hostTilePane,
   inUseLabel,
+  knownTags,
   labelText,
   paneLabel,
   paneTitle,
@@ -32,6 +34,8 @@ import {
   repoCardActive,
   repoCardKey,
   repoGitItems,
+  savedCardTags,
+  savedInUseGroup,
   savedScope,
   splitRepoName,
 } from './lib/sidebar.js';
@@ -176,6 +180,10 @@ import {
  * @property {(key: string) => boolean} pinned
  * @property {(key: string, pinned: boolean) => void} pin
  * @property {(part: 'history' | 'pr', key: string, open: boolean) => void} folded
+ * @property {(key: string, tag: string | null) => void} [tag] tags a card (`null` untags it):
+ *   only where In use is on the same page, so a card's menu has its tag items only there
+ * @property {() => boolean} [tagChips] whether a tagged card's header shows its tag (not where
+ *   In use groups by tag, under the tag's heading); none without `tag`
  */
 
 // ---------------------------------------------------------------------------------------------
@@ -608,10 +616,15 @@ function loadSidebarState() {
      */
     scope: startingScope(saved),
     /**
-     * Whether In use groups its cards by container, a box each under its name (on at first); off,
-     * they share one box, most urgent agent first whatever their container (the header's toggle).
+     * How In use groups its cards (the header's toggles): by container, a box each under its name
+     * (at first); by tag, a box per card tag; or `none`, one box, most urgent agent first
+     * whatever their container. A saved `inUseGrouped: false` is from before tags: `none`.
+     *
+     * @type {import('./lib/sidebar.js').InUseGroup}
      */
-    inUseGrouped: saved?.inUseGrouped !== false,
+    inUseGroup: savedInUseGroup(saved),
+    /** Each tagged repo card's tag, by card key (see `cardTag`): what In use groups by tag. */
+    cardTags: savedCardTags(saved?.cardTags),
   };
 }
 
@@ -711,10 +724,75 @@ export function saveSidebarState() {
         width: saved?.width,
         hidden: saved?.hidden,
         scope: storedScope,
-        inUseGrouped: sidebarState.inUseGrouped,
+        inUseGroup: sidebarState.inUseGroup,
+        // Another page's tags stand unless this one tagged a card: see `setCardTag`.
+        cardTags: cardTagsEdited
+          ? Object.fromEntries(sidebarState.cardTags)
+          : saved?.cardTags,
       }),
     );
   } catch { /* storage unavailable: collapsing just won't survive a reload */ }
+}
+
+/** Whether this page tagged or untagged a card since it loaded (see {@link setCardTag}). */
+let cardTagsEdited = false;
+
+/**
+ * Tags repo card `key` (`null`, or a blank tag, untags it), over the tags saved now, so a tag
+ * another page saved meanwhile stays; saved with the sidebar's state.
+ *
+ * @param {string} key @param {string | null} text
+ */
+export function setCardTag(key, text) {
+  sidebarState.cardTags = savedCardTags(storedSidebarState()?.cardTags);
+  const tag = cardTag(text);
+  if (tag) sidebarState.cardTags.set(key, tag);
+  else sidebarState.cardTags.delete(key);
+  cardTagsEdited = true;
+  saveSidebarState();
+}
+
+/** The most tags offered as quick picks in a card's menu. */
+const MAX_TAG_PICKS = 8;
+
+/**
+ * A repo card's tag items, where `side` tags (see {@link CardSide}): the tags other cards have
+ * (up to {@link MAX_TAG_PICKS}), **Tag…** (or **Change tag…**) asking for one, and **Remove
+ * tag** while it has one.
+ *
+ * @param {string} key @param {string} name the card's name, for the prompt
+ * @param {CardSide} side
+ * @returns {import('./ui.js').MenuItem[]}
+ */
+function cardTagItems(key, name, side) {
+  const setTag = side.tag;
+  if (!setTag) return [];
+  const current = sidebarState.cardTags.get(key) ?? null;
+  return [
+    ...knownTags(sidebarState.cardTags)
+      .filter((t) => t !== current)
+      .slice(0, MAX_TAG_PICKS)
+      .map((t) => /** @type {import('./ui.js').MenuItem} */ ([
+        LABELS.tagAs(t),
+        () => setTag(key, t),
+      ])),
+    [
+      current ? LABELS.changeTag : LABELS.tagCard,
+      async () => {
+        const text = await promptDialog(LABELS.tagPrompt(name), current ?? '');
+        if (text !== null) setTag(key, text);
+      },
+    ],
+    ...(current
+      ? [
+        /** @type {import('./ui.js').MenuItem} */ ([
+          LABELS.removeTag,
+          () => setTag(key, null),
+        ]),
+      ]
+      : []),
+    null,
+  ];
 }
 
 /** The most sections whose heights are kept: the oldest is dropped. */
@@ -907,6 +985,12 @@ export function repoGroupName(localFolder, repo) {
   return splitRepoName(named?.name ?? basename(main ?? repo.folder));
 }
 
+/** {@link repoGroupName} as one string (`tools/devc-tools`), for text such as a prompt. */
+function repoDisplayName(localFolder, repo) {
+  const { prefix, base } = repoGroupName(localFolder, repo);
+  return prefix + base;
+}
+
 /** A repo's name as rows show it: the parent path muted, then the name itself. */
 export function repoNameParts({ prefix, base }) {
   return [
@@ -1087,6 +1171,28 @@ export function repoCard(card, side, worktrees = 0, container = false) {
     side.folded('commits', key, sidebarState.commitsOpen.has(key));
     renderTree();
   };
+  // A click on the git mark's ● N: the Commits section with its Uncommitted row open, or, with
+  // both open already, the section closed.
+  const showChanges = () => {
+    if (commitsOn && uncommittedOpen.has(key)) {
+      toggleCommits();
+      return;
+    }
+    if (!commitsOn) {
+      sidebarState.commitsOpen.add(key);
+      saveSidebarState();
+      side.folded('commits', key, true);
+    }
+    if (!uncommittedOpen.has(key)) {
+      uncommittedOpen.add(key);
+      void loadUncommitted(
+        localFolder,
+        repo.folder,
+        JSON.stringify(repo.changes),
+      );
+    }
+    renderTree();
+  };
   const anyOpen = historyOn || prOn || filesOn || commitsOn;
   const headClick = () => {
     if (anyOpen) {
@@ -1128,6 +1234,7 @@ export function repoCard(card, side, worktrees = 0, container = false) {
           ? () => repoGitRequest('pull', localFolder, repo.folder)
           : undefined,
         push,
+        changes: showChanges,
         pushTitle: branch
           ? LABELS.pushAhead(
             repo.git?.upstream ?? `origin/${branch}`,
@@ -1195,6 +1302,13 @@ export function repoCard(card, side, worktrees = 0, container = false) {
               ]
               : projectMenuItems(localFolder)),
             null,
+            ...cardTagItems(
+              key,
+              repo
+                ? repoDisplayName(localFolder, repo)
+                : containerNameOf(localFolder),
+              side,
+            ),
             pinnedCardItem(key, side),
           ],
         ),
@@ -1218,6 +1332,7 @@ export function repoCard(card, side, worktrees = 0, container = false) {
         ),
       ]
       : [h('span', { class: 'repo-base' }, containerNameOf(localFolder))]),
+    cardTagChip(key, side),
     cardPinMark(key, side),
   );
   /** @type {[string, string, boolean, () => void][]} */
@@ -1588,6 +1703,17 @@ export function pinnedCardItem(key, side) {
   ];
 }
 
+/**
+ * A tagged repo card's tag, after its name, where `side` shows it (see {@link CardSide}).
+ *
+ * @param {string} key @param {CardSide} side
+ */
+function cardTagChip(key, side) {
+  const tag = sidebarState.cardTags.get(key);
+  if (!tag || !side.tag || !side.tagChips?.()) return '';
+  return h('span', { class: 'card-tag', title: LABELS.taggedAs(tag) }, tag);
+}
+
 /** A pin glyph after a pinned repo card's name; its click unpins the card. @param {CardSide} side */
 function cardPinMark(key, side) {
   if (!side.pinned(key)) return '';
@@ -1750,9 +1876,13 @@ async function resumeSession(c, s) {
  * (`opts`): a click on ↓ (`behind`) or on a faded ↓ / +N (`unfetched`) pulls when `opts.pull` is given (a pull fetches first); otherwise a click on a
  * faded mark fetches when `opts.fetch` is. A click on ↑
  * (`ahead`) pushes when `opts.push` is: exactly the menu's Push. Without it ↑ is read-only, its
- * tooltip saying why (`opts.pushUnavailable`). With `opts.busy`, a spinner follows the counts.
+ * tooltip saying why (`opts.pushUnavailable`). A click on ● N (`changes`, `conflicted`) calls
+ * `opts.changes` when given: the card's Commits section with its Uncommitted row. With
+ * `opts.busy`, a spinner shows over the marks (they fade under it, keeping their width, so
+ * nothing on the row moves), or alone when there are none.
  *
- * @param {{fetch?: () => void, pull?: () => void, push?: () => void, pushTitle?: string,
+ * @param {{fetch?: () => void, pull?: () => void, push?: () => void, changes?: () => void,
+ *   pushTitle?: string,
  *   pushUnavailable?: string, busy: boolean, upstream: string}} [opts]
  */
 export function gitMark(sync, opts) {
@@ -1788,6 +1918,7 @@ export function gitMark(sync, opts) {
       class: 'git-sync',
       title: sync.title,
       'data-diverged': sync.diverged,
+      'data-busy': opts?.busy || undefined,
     },
     ...sync.marks.map((m) =>
       // A pull fetches first, so while one is allowed a faded mark pulls too: one click.
@@ -1804,6 +1935,8 @@ export function gitMark(sync, opts) {
         )
         : opts?.push && m.dir === 'ahead'
         ? button(m, opts.pushTitle ?? LABELS.push, opts.push)
+        : opts?.changes && (m.dir === 'changes' || m.dir === 'conflicted')
+        ? button(m, `${sync.title}\n${LABELS.showCommits}`, opts.changes)
         : opts?.pushUnavailable && m.dir === 'ahead'
         ? h('span', {
           'data-dir': m.dir,

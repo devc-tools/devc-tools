@@ -355,7 +355,8 @@ is published from any container: the host server finds devcontainers with
   <reason>`, and you confirm the push in its HOST drawer), and Push with no
   grant asks devc-desktop directly. With neither, or when the branch tracks
   something other than `origin/<branch>` (Push publishes `origin/<branch>`),
-  **↑N** is read-only and its tooltip says why. A spinner shows in the mark while a fetch, pull or push
+  **↑N** is read-only and its tooltip says why. A spinner shows over the mark (the counts fade
+  under it, so nothing on the row moves) while a fetch, pull or push
   runs, and a toast if it can't. A card's **Commits** button (never **↑N**)
   shows the branch's history on a colored rail: hollow dots to pull, solid dots
   local only, and small muted dots under a **Pushed** line. It needs no bridge
@@ -369,7 +370,9 @@ is published from any container: the host server finds devcontainers with
   Whole file, Hide whitespace, split view, Find, and hover and go to definition
   (see **Language servers**) work there, and there are no
   review threads, comments, Viewed or Ask agent. While the git mark shows
-  **● N**, an **Uncommitted** row heads the history (a dashed dot): a click
+  **● N**, an **Uncommitted** row heads the history (a dashed dot); a click on
+  **● N** itself opens the **Commits** section with that row open (and, with
+  both open, closes the section). A click on the row
   opens a commit message box and the working tree's changed files in two
   groups, **Staged** (the index against `HEAD`) and **Changes** (the working
   tree against the index; `new` for an untracked file, **U** for a conflict). A
@@ -448,7 +451,11 @@ is published from any container: the host server finds devcontainers with
   stand-in's) right-click keeps it active with nothing open in it, marked with
   a pin after its name; **Unpin from In use**, or a click on the pin, lets it
   go. Pins are saved with the sidebar's state in this browser, and a pinned
-  card shows while its container is listed. A repo mounted in two containers has a card in each,
+  card shows while its container is listed. **Tag…** on a card's right-click
+  (in a page with **In use**, so not devc-desktop's Containers pane) gives it
+  one tag, shown as a chip after its name; the menu also offers the tags
+  other cards have, and **Change tag…** / **Remove tag**. Tags are saved with
+  the sidebar's state in this browser, by card. A repo mounted in two containers has a card in each,
   each listing its past sessions. Click a tile or pane row to bring it
   forward. Click a container to collapse it; a collapsed one shows its most
   urgent agent status. A repo is named by its path under `/workspaces` in the
@@ -611,9 +618,12 @@ is published from any container: the host server finds devcontainers with
   the sidebar that way without saving it.
 - **Grouping:** the toggle after the scope pill (two stacked boxes, lit while
   on) groups **In use**'s repo cards by container, a box each under its name,
-  as at first. Off, every card shares one box, most urgent agent first whatever
-  its container, each card naming its container after its branch. Kept across
-  reloads, in every scope.
+  as at first. The one after it (a tag) groups them by tag instead: a box per
+  tag, in order of its most urgent card, with untagged cards last under
+  **Untagged** (cards there show no tag chip, and name their container). The
+  two are exclusive; with neither on, every card shares one box, most urgent
+  agent first whatever its container, each card naming its container after its
+  branch. Kept across reloads, in every scope.
 - **Input:** keys go through as typed. A multi-line paste is sent as one
   bracketed paste, so a shell or agent prompt does not submit each line. Mouse
   clicks and drags go to the app (Herdr encodes them in the app's own mouse

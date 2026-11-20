@@ -147,6 +147,11 @@ const side = {
   pinned: (key) => link.pinned(key),
   pin: (key, pinned) => link.pin(key, pinned),
   folded: () => {},
+  // Only where In use is on the same page (the link tags), so a card's tag menu items show there.
+  get tag() {
+    return link?.tag;
+  },
+  tagChips: () => true,
 };
 
 /**

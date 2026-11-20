@@ -1275,6 +1275,23 @@ body.resizing-zones {
   color: var(--muted);
 }
 
+/* A tagged repo card's tag, after its name (not under its tag's heading in In use). */
+.card-tag {
+  flex: none;
+  max-width: 10em;
+  margin-left: 6px;
+  padding: 0 5px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: calc(var(--font-size) - 2px);
+  font-weight: 400;
+  line-height: 1.4;
+  color: var(--muted);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
 .in-use-run-name {
   display: flex;
   justify-content: center;
@@ -1793,6 +1810,7 @@ html[data-busy] {
 /* The git mark: ● changes to commit, then ↑ commits to push, ↓ commits to pull, against the
    branch's upstream. */
 .git-sync {
+  position: relative;
   display: inline-flex;
   gap: 4px;
   margin-left: 6px;
@@ -1835,6 +1853,19 @@ html[data-busy] {
 .git-sync .git-fetching {
   margin-right: 0;
   align-self: center;
+}
+
+/* A fetch, pull or push running with marks shown: the spinner over them, the marks faded under
+   it, so the mark keeps its width and nothing on the row moves. */
+.git-sync[data-busy] > :not(.git-fetching) {
+  opacity: 0.3;
+}
+
+.git-sync[data-busy] > .git-fetching {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  translate: -50% -50%;
 }
 
 .git-sync [data-dir='gone'] {

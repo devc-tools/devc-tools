@@ -1,6 +1,7 @@
 import { assertEquals } from 'jsr:@std/assert';
 import {
   agentStatus,
+  cardTag,
   clampSidebarWidth,
   collapseContainersState,
   collapseTasksState,
@@ -14,9 +15,12 @@ import {
   hostRepoAt,
   hostTilePane,
   inUseLabel,
+  inUseRuns,
   isSidebarToggleShortcut,
   isZenShortcut,
+  knownTags,
   labelText,
+  MAX_CARD_TAG,
   OUTLINE_DEFAULT_SIZE,
   outlineZoneHeight,
   paneLabel,
@@ -26,6 +30,8 @@ import {
   repoCardActive,
   repoCardKey,
   repoGitItems,
+  savedCardTags,
+  savedInUseGroup,
   savedScope,
   savedZen,
   settleZones,
@@ -971,4 +977,63 @@ Deno.test('hostTilePane: a host tile labels and badges as a pane would', () => {
   });
   assertEquals('agent' in shell, false);
   assertEquals(paneLabel(shell), { name: 'app', title: '' });
+});
+
+Deno.test('cardTag trims, collapses whitespace, caps length; blank is none', () => {
+  assertEquals(cardTag('  client   work '), 'client work');
+  assertEquals(cardTag(''), null);
+  assertEquals(cardTag('   '), null);
+  assertEquals(cardTag(undefined), null);
+  assertEquals(cardTag(3), null);
+  assertEquals(cardTag('x'.repeat(100))?.length, MAX_CARD_TAG);
+});
+
+Deno.test('savedInUseGroup reads inUseGroup, else the older inUseGrouped', () => {
+  assertEquals(savedInUseGroup(null), 'container');
+  assertEquals(savedInUseGroup({}), 'container');
+  assertEquals(savedInUseGroup({ inUseGrouped: true }), 'container');
+  assertEquals(savedInUseGroup({ inUseGrouped: false }), 'none');
+  assertEquals(savedInUseGroup({ inUseGroup: 'tag' }), 'tag');
+  assertEquals(
+    savedInUseGroup({ inUseGroup: 'none', inUseGrouped: true }),
+    'none',
+  );
+  assertEquals(savedInUseGroup({ inUseGroup: 'bogus' }), 'container');
+});
+
+Deno.test('savedCardTags keeps valid tags only; knownTags lists each once, sorted', () => {
+  const tags = savedCardTags({ a: ' web ', b: '', c: 4, d: 'api', e: 'web' });
+  assertEquals([...tags], [['a', 'web'], ['d', 'api'], ['e', 'web']]);
+  assertEquals(savedCardTags(['x']).size, 0);
+  assertEquals(savedCardTags(null).size, 0);
+  assertEquals(knownTags(tags), ['api', 'web']);
+});
+
+Deno.test('inUseRuns groups by container, by tag (untagged last), or not at all', () => {
+  const cards = [
+    { key: '1', localFolder: '/a' },
+    { key: '2', localFolder: '/b' },
+    { key: '3', localFolder: '/a' },
+    { key: '4', localFolder: '/b' },
+  ];
+  const tags = new Map([['2', 'web'], ['3', 'api'], ['4', 'web']]);
+  const tagOf = (c: { key: string }) => tags.get(c.key) ?? null;
+  const name = (f: string) => f.slice(1).toUpperCase();
+  const keys = (runs: { cards: { key: string }[] }[]) =>
+    runs.map((r) => r.cards.map((c) => c.key));
+
+  const byContainer = inUseRuns(cards, 'container', tagOf, name);
+  assertEquals(byContainer.map((r) => r.name), ['A', 'B']);
+  assertEquals(keys(byContainer), [['1', '3'], ['2', '4']]);
+
+  const byTag = inUseRuns(cards, 'tag', tagOf, name);
+  assertEquals(byTag.map((r) => r.name), ['web', 'api', 'Untagged']);
+  assertEquals(byTag.map((r) => r.key), ['tag\nweb', 'tag\napi', 'untagged']);
+  assertEquals(keys(byTag), [['2', '4'], ['3'], ['1']]);
+
+  const flat = inUseRuns(cards, 'none', tagOf, name);
+  assertEquals(flat.map((r) => r.name), [null]);
+  assertEquals(keys(flat), [['1', '2', '3', '4']]);
+
+  assertEquals(inUseRuns([], 'tag', tagOf, name), []);
 });

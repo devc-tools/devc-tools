@@ -17,6 +17,7 @@ import {
   collapseTasksState,
   containerLabel,
   dragZones,
+  inUseRuns,
   isSidebarScope,
   repoCardKey,
   settleZones,
@@ -112,6 +113,7 @@ import {
   repoCard,
   saveSidebarState,
   sectionRow,
+  setCardTag,
   setFilterQuery,
   setStoredScope,
   sidebarState,
@@ -146,6 +148,8 @@ let $conn = /** @type {HTMLElement | null} */ (null);
 let $scopePicker = /** @type {HTMLElement | null} */ (null);
 /** The header's toggle grouping In use's cards by container: set by {@link mountSidebar}. */
 let $groupButton = /** @type {HTMLElement | null} */ (null);
+/** The header's group-by-tag toggle (see {@link applyGrouping}). */
+let $groupTagButton = /** @type {HTMLElement | null} */ (null);
 /** The header's dashboard button (`#dashboard`), when the page has one. */
 let $dashboardButton = /** @type {HTMLElement | null} */ (null);
 /** The filter box above the zones (its query is `cards.js`' `applyFilter`'s). */
@@ -284,15 +288,37 @@ function setScope(scope) {
   renderTree();
 }
 
-/** The grouping toggle's state: pressed while In use groups its cards by container. */
+/**
+ * The grouping toggles' state: the container one pressed while In use groups its cards by
+ * container, the tag one while it groups them by tag; neither, one box for every card.
+ */
 function applyGrouping() {
-  if (!$groupButton) return;
-  const grouped = sidebarState.inUseGrouped;
-  $groupButton.setAttribute('aria-pressed', String(grouped));
-  const label = grouped
-    ? 'Grouped by container: click to list every repo together'
-    : 'Not grouped: click to group repos by container';
-  $groupButton.title = label;
+  const group = sidebarState.inUseGroup;
+  if ($groupButton) {
+    $groupButton.setAttribute('aria-pressed', String(group === 'container'));
+    $groupButton.title = group === 'container'
+      ? 'Grouped by container: click to list every repo together'
+      : 'Click to group repos by container';
+  }
+  if ($groupTagButton) {
+    $groupTagButton.setAttribute('aria-pressed', String(group === 'tag'));
+    $groupTagButton.title = group === 'tag'
+      ? 'Grouped by tag: click to list every repo together'
+      : 'Click to group repos by tag (tag a repo from its menu)';
+  }
+}
+
+/**
+ * Toggles In use's grouping `by` container or tag: on, it groups that way (the other toggle goes
+ * off); off, one box for every card.
+ *
+ * @param {'container' | 'tag'} by
+ */
+function toggleGrouping(by) {
+  sidebarState.inUseGroup = sidebarState.inUseGroup === by ? 'none' : by;
+  saveSidebarState();
+  applyGrouping();
+  renderTree();
 }
 
 /** The scope picker's keys, as a radio group's: an arrow key checks the option before or after. */
@@ -575,8 +601,9 @@ function renderTree() {
  * The In use section: the active repo cards (see `repoCardActive`), each container's in a card of
  * its own under its name. Cards come most urgent agent first (see `statusRank`), those with no
  * agent last, then in the layout order of their first tile, then those with none in their
- * container's card order; containers where their first card is. Not grouped (the header's
- * toggle, `inUseGrouped`), every card shares one box in that order, each naming its container.
+ * container's card order; containers where their first card is. Grouped by tag (the header's
+ * other toggle, `inUseGroup`), a box per card tag under its name, the untagged last; not grouped,
+ * every card shares one box in that order. Either way each card names its container.
  * A status change renders the
  * sidebar again, so cards move as their agents' statuses change. With `only` (a scoped sidebar),
  * the cards it takes instead, active or not, and `empty` the note when it takes none.
@@ -617,28 +644,34 @@ function inUseRows(cards, only, empty = 'Nothing open') {
       ),
     );
   }
-  const grouped = sidebarState.inUseGrouped;
-  const runs = new Map();
-  for (const card of active) {
-    // Not grouped: one box for every card, each naming its container itself.
-    const runKey = grouped ? card.localFolder : '';
-    let run = runs.get(runKey);
-    if (!run) {
-      run = grouped
-        ? h(
+  const group = sidebarState.inUseGroup;
+  const runs = inUseRuns(
+    active,
+    group,
+    (card) => sidebarState.cardTags.get(card.key) ?? null,
+    containerNameOf,
+  );
+  for (const run of runs) {
+    // Not by container: each card names its container itself.
+    rows.push(
+      run.name === null ? h('div', { class: 'in-use-run flat' }) : h(
+        'div',
+        {
+          class: 'in-use-run',
+          'data-group': group,
+          'data-untagged': run.key === 'untagged' || undefined,
+        },
+        h(
           'div',
-          { class: 'in-use-run' },
-          h(
-            'div',
-            { class: 'in-use-run-name' },
-            h('span', { class: 'label' }, containerNameOf(card.localFolder)),
-          ),
-        )
-        : h('div', { class: 'in-use-run flat' });
-      runs.set(runKey, run);
-      rows.push(run);
+          { class: 'in-use-run-name' },
+          h('span', { class: 'label' }, run.name),
+        ),
+      ),
+    );
+    const box = rows[rows.length - 1];
+    for (const card of run.cards) {
+      box.append(repoCard(card, inUseSide, 0, group !== 'container'));
     }
-    run.append(repoCard(card, inUseSide, 0, !grouped));
   }
   rows.push(...hostRows);
   return rows;
@@ -708,6 +741,12 @@ function onViewState(view) {
   }
 }
 
+/** Tags repo card `key` (`null` untags it; see `setCardTag`), and draws the sidebar again. */
+function tagCard(key, tag) {
+  setCardTag(key, tag);
+  renderTree();
+}
+
 /**
  * Pins a repo card to In use, where it stays with no terminal or agent in it (`repoCardActive`),
  * or unpins it. Saved with the sidebar's state, by card key, so it lasts across reloads; a pin
@@ -733,6 +772,8 @@ const inUseSide = {
   pinned: (key) => sidebarState.cardsPinned.has(key),
   pin: setCardPinned,
   folded: (part, key, open) => otherContainers?.setFold(part, key, open),
+  tag: tagCard,
+  tagChips: () => sidebarState.inUseGroup !== 'tag',
 };
 
 /**
@@ -746,6 +787,7 @@ const inUseLink = {
   inUseKeys: () => shownInUse,
   pinned: (key) => sidebarState.cardsPinned.has(key),
   pin: setCardPinned,
+  tag: tagCard,
   onInUseChange: () => {},
   filterQuery: () => $filter?.value ?? '',
 };
@@ -1939,12 +1981,9 @@ export function mountSidebar(root, opts) {
   });
   $scopePicker?.addEventListener('keydown', scopePickerKeydown);
   $groupButton = root.querySelector('#group-in-use');
-  $groupButton?.addEventListener('click', () => {
-    sidebarState.inUseGrouped = !sidebarState.inUseGrouped;
-    saveSidebarState();
-    applyGrouping();
-    renderTree();
-  });
+  $groupButton?.addEventListener('click', () => toggleGrouping('container'));
+  $groupTagButton = root.querySelector('#group-by-tag');
+  $groupTagButton?.addEventListener('click', () => toggleGrouping('tag'));
   applyGrouping();
   // The page's URL, token included: devc-desktop's window has no address bar, and a container or
   // another browser may need it. The toast names it without showing it, since it is the token.

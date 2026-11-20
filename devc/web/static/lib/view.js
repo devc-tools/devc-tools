@@ -157,6 +157,8 @@ import {
  * @property {(key: string) => boolean} pinned  whether a card is pinned to In use (its menu says
  *   Pin or Unpin)
  * @property {(key: string, pinned: boolean) => void} pin  **Pin to In use** / **Unpin**
+ * @property {(key: string, tag: string | null) => void} [tag]  tags a card (`null` untags it);
+ *   only In use in the same page, so a card's tag items show only there
  * @property {(cb: () => void) => void} onInUseChange  `cb` runs when In use's cards, pins or
  *   filter change (only across pages: in one page a render draws both)
  * @property {() => string} filterQuery  the sidebar's filter box text, which the section's rows
