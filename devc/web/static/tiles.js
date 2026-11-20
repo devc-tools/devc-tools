@@ -76,12 +76,12 @@ import {
   encodeInput,
   joinRows,
   pastePaths,
+  stripQuoteBars,
   wrapPaste,
 } from './lib/input.js';
 import {
   hostRepoAt,
   hostTilePane,
-  stripQuoteBars,
   isZenShortcut,
   labelText,
   paneLabel,
