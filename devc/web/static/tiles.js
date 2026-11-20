@@ -335,9 +335,10 @@ const newPanes = new Map();
  * @property {ReturnType<typeof setTimeout> | undefined} resizeTimer
  * @property {() => void} disposeMouse  clears the mouse's pending copy flash (`term_mouse.js`)
  * @property {number} frames  frames painted so far: whether the app redrew during a drag
- * @property {{text: string, startColumn: number, cols: number} | null} lastCopy  the text the
- *   last drag copied, where its first row starts and the pane's width then: what **Copy as one
- *   line** joins
+ * @property {{text: string, startColumn: number, cols: number, unbarred: string | null} | null} lastCopy
+ *   the text the last drag selected, where its first row starts and the pane's width then: what
+ *   **Copy as one line** joins; `unbarred` is what went to the clipboard instead when an agent's
+ *   pane copied a quote without its bars
  * @property {ResizeObserver} observer
  * @property {HTMLElement} killButton  the tab's trash button, shown while the pane is known
  */
@@ -5942,9 +5943,19 @@ function mountTile(tile) {
         ? anchor
         : cursor;
       const cols = renderer.metrics()?.cols ?? 0;
+      // An agent's quote copies without its bars; a shell's copies as drawn.
+      const unbar = resolveRef(tile.ref).pane?.agent
+        ? (/** @type {string} */ text) => stripQuoteBars(text, first.column)
+        : () => null;
       view.lastCopy = null;
-      copySelection(t, anchor, cursor).then(
-        (text) => view.lastCopy = { text, startColumn: first.column, cols },
+      copySelection(t, anchor, cursor, unbar).then(
+        (text) =>
+          view.lastCopy = {
+            text,
+            startColumn: first.column,
+            cols,
+            unbarred: unbar(text),
+          },
         () => {},
       );
     },
@@ -6093,8 +6104,9 @@ function tileVisibility(tile, visible) {
 
 /**
  * **Copy without quote bars**, while the terminal's last copy is a quote ({@link stripQuoteBars}),
- * and **Copy as one line**, while it has more than one row: copies it again with its rows joined
- * ({@link joinRows}), for a command an agent wrapped to fit the pane.
+ * or **Copy with quote bars** where an agent's pane already copied it without them, and **Copy as
+ * one line**, while it has more than one row: copies it again with its rows joined
+ * ({@link joinRows}), for a command an agent wrapped to fit the pane (a quote's without its bars).
  *
  * @param {TileView} view @returns {import('./ui.js').MenuItem[]}
  */
@@ -6111,6 +6123,14 @@ function copyOneLineItems(view) {
           errorToast(`Copy failed: ${e?.message ?? e}`)
         ),
     ]);
+  if (copy.unbarred !== null) {
+    item(LABELS.copyWithBars, copy.text);
+    if (/\S[^]*\n[^]*\S/.test(copy.unbarred)) {
+      // The bar's column shifts each row's: a row cut at the pane's edge is not told apart.
+      item(LABELS.copyOneLine, joinRows(copy.unbarred, 0, Infinity));
+    }
+    return [...items, null];
+  }
   const unbarred = stripQuoteBars(copy.text, copy.startColumn);
   if (unbarred !== null) item(LABELS.copyWithoutBars, unbarred);
   if (/\S[^]*\n[^]*\S/.test(copy.text)) {
@@ -6122,11 +6142,13 @@ function copyOneLineItems(view) {
 /**
  * Copies the text between two viewport cells of a pane, read from Herdr's buffer
  * (`read_selection`). Herdr draws no selection and sends no OSC 52 to a control client, so this
- * is the only way its text reaches the clipboard. Resolves to the text copied.
+ * is the only way its text reaches the clipboard. Resolves to the text read; the clipboard gets
+ * `rewrite`'s text instead where it returns one.
  *
+ * @param {(text: string) => string | null} [rewrite]
  * @returns {Promise<string>}
  */
-function copySelection(t, anchor, cursor) {
+function copySelection(t, anchor, cursor, rewrite = () => null) {
   const id = nextId('s');
   /** @type {Promise<string>} */
   const text = new Promise((resolve, reject) => {
@@ -6137,7 +6159,7 @@ function copySelection(t, anchor, cursor) {
     pendingSelections.set(id, { resolve, reject, timer });
   });
   send({ type: 'read_selection', id, ...t, anchor, cursor });
-  writeClipboard(text).catch((e) =>
+  writeClipboard(text.then((s) => rewrite(s) ?? s)).catch((e) =>
     errorToast(`Copy failed: ${e?.message ?? e}`)
   );
   return text;

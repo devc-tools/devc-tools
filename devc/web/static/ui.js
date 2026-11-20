@@ -145,6 +145,8 @@ export const LABELS = {
   copyOneLine: 'Copy as one line',
   /** A terminal's menu: its last copy again, without a quote's bar down the left. */
   copyWithoutBars: 'Copy without quote bars',
+  /** An agent's terminal menu: its last copy, a quote it copied without bars, as drawn. */
+  copyWithBars: 'Copy with quote bars',
   copyContainerPath: 'Copy container path',
   openInCode: 'Open in Code',
   openInJira: (key) => `Open ${key} in Jira`,

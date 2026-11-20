@@ -641,12 +641,14 @@ is published from any container: the host server finds devcontainers with
   where a row ran to the terminal's last column (a long word cut there).
 - **Copying a quote:** Claude often puts a snippet or a message to pass on in a
   Markdown quote, which Claude Code draws with a bar (`│`) down its left side,
-  so a drag copies the bar on every line. When every line of the last drag has
-  the same bar (`|`, `│`, `┃`, `▎` and the like) in the same column, the
-  terminal's right-click menu has **Copy without quote bars**, which copies it
-  again without the indent before the bar, the bar, and one space after it
-  (the rest of each line's indent stays). Lines Claude Code wrapped stay
-  separate lines.
+  so a drag would copy the bar on every line. In an agent's terminal, a drag
+  whose every line has the same bar (`|`, `│`, `┃`, `▎` and the like) in the
+  same column copies without the indent before the bar, the bar, and one space
+  after it (the rest of each line's indent stays); its right-click menu then
+  has **Copy with quote bars** for the text as drawn, and **Copy as one line**
+  joins the lines without their bars. In other terminals the drag copies the
+  bars, and the menu has **Copy without quote bars**. Lines Claude Code wrapped
+  stay separate lines.
 - **Images for agents:** paste an image into a terminal (a screenshot copied
   with ⌘⌃⇧4 on a Mac or Win+Shift+S on Windows), or drop image files on it, and
   devc web writes each one to `~/.cache/devc/images/` where the terminal runs
