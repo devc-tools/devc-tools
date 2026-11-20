@@ -8,6 +8,7 @@ import {
   pastePaths,
   pixelToCell,
   selectionSpan,
+  stripQuoteBars,
   wrapPaste,
 } from '../web/static/lib/input.js';
 
@@ -138,4 +139,30 @@ Deno.test('joinRows trims trailing spaces, skips blank rows, keeps a single row'
   );
   assertEquals(joinRows('one line', 5, 80), 'one line');
   assertEquals(joinRows('', 0, 80), '');
+});
+
+Deno.test('stripQuoteBars drops a quote bar and its indent, keeping the indent after it', () => {
+  assertEquals(
+    stripQuoteBars(
+      '  │ Please fix:\n  │\n  │   if (x) {\n  │     y();\n  │   }\n',
+      0,
+    ),
+    'Please fix:\n\n  if (x) {\n    y();\n  }',
+  );
+  assertEquals(stripQuoteBars('| one\r\n| two', 0), 'one\ntwo');
+  assertEquals(stripQuoteBars('▎ one', 2), 'one');
+});
+
+Deno.test('stripQuoteBars takes a first row that began past the bar', () => {
+  assertEquals(stripQuoteBars('first\n  │ second', 4), 'first\nsecond');
+  // Began at the bar's column but has none: not a quote.
+  assertEquals(stripQuoteBars('first\n  │ second', 2), null);
+});
+
+Deno.test('stripQuoteBars is null for text that is not one quote', () => {
+  assertEquals(stripQuoteBars('echo hi\necho there', 0), null);
+  assertEquals(stripQuoteBars('│ a\n  │ b', 0), null);
+  assertEquals(stripQuoteBars('│ a\n┃ b', 0), null);
+  assertEquals(stripQuoteBars('│ a\nb', 0), null);
+  assertEquals(stripQuoteBars('', 0), null);
 });

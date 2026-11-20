@@ -75,6 +75,7 @@ import {
 import {
   hostRepoAt,
   hostTilePane,
+  stripQuoteBars,
   isZenShortcut,
   labelText,
   paneLabel,
@@ -5730,25 +5731,31 @@ function tileVisibility(tile, visible) {
 }
 
 /**
- * **Copy as one line**, while the terminal's last copy has more than one row: copies it again
- * with its rows joined ({@link joinRows}), for a command an agent wrapped to fit the pane.
+ * **Copy without quote bars**, while the terminal's last copy is a quote ({@link stripQuoteBars}),
+ * and **Copy as one line**, while it has more than one row: copies it again with its rows joined
+ * ({@link joinRows}), for a command an agent wrapped to fit the pane.
  *
  * @param {TileView} view @returns {import('./ui.js').MenuItem[]}
  */
 function copyOneLineItems(view) {
   const copy = view.lastCopy;
-  if (!copy || !/\S[^]*\n[^]*\S/.test(copy.text)) return [];
-  const text = joinRows(copy.text, copy.startColumn, copy.cols);
-  return [
-    [
-      LABELS.copyOneLine,
+  if (!copy) return [];
+  /** @type {import('./ui.js').MenuItem[]} */
+  const items = [];
+  const item = (/** @type {string} */ label, /** @type {string} */ text) =>
+    items.push([
+      label,
       () =>
         writeClipboard(Promise.resolve(text)).catch((e) =>
           errorToast(`Copy failed: ${e?.message ?? e}`)
         ),
-    ],
-    null,
-  ];
+    ]);
+  const unbarred = stripQuoteBars(copy.text, copy.startColumn);
+  if (unbarred !== null) item(LABELS.copyWithoutBars, unbarred);
+  if (/\S[^]*\n[^]*\S/.test(copy.text)) {
+    item(LABELS.copyOneLine, joinRows(copy.text, copy.startColumn, copy.cols));
+  }
+  return items.length ? [...items, null] : [];
 }
 
 /**

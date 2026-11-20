@@ -629,6 +629,14 @@ is published from any container: the host server finds devcontainers with
   the terminal's right-click menu has **Copy as one line**, which copies it
   again with each row trimmed and the rows joined by a space, or by nothing
   where a row ran to the terminal's last column (a long word cut there).
+- **Copying a quote:** Claude often puts a snippet or a message to pass on in a
+  Markdown quote, which Claude Code draws with a bar (`│`) down its left side,
+  so a drag copies the bar on every line. When every line of the last drag has
+  the same bar (`|`, `│`, `┃`, `▎` and the like) in the same column, the
+  terminal's right-click menu has **Copy without quote bars**, which copies it
+  again without the indent before the bar, the bar, and one space after it
+  (the rest of each line's indent stays). Lines Claude Code wrapped stay
+  separate lines.
 - **Images for agents:** paste an image into a terminal (a screenshot copied
   with ⌘⌃⇧4 on a Mac or Win+Shift+S on Windows), or drop image files on it, and
   devc web writes each one to `~/.cache/devc/images/` where the terminal runs
@@ -1041,7 +1049,8 @@ is published from any container: the host server finds devcontainers with
   **↑N**: `request_push`) when no `gh-push` grant applies, or when `gh-push`
   refused what only you may waive (the server queues it then), and **Start**
   on a stopped project (`request_project`); and **Open Host Terminal…** on a
-  repo card (`request_terminal`; under `--live` and `--live-yolo` too: the app
+  repo card, or on a terminal or agent tile (its tab, its body and its sidebar
+  row) in the repo its pane's folder is in (`request_terminal`; under `--live` and `--live-yolo` too: the app
   checks the folder itself). The item shows only in the app, never in a plain
   browser. When the app runs devc web without `--live`, it opens the terminal
   as soon as its folder check passes, with no confirmation. The request waits on devc web's

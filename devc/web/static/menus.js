@@ -48,6 +48,7 @@ import {
   saveFilePinPanes,
   send,
   serverOrigin,
+  tileRepo,
 } from './client.js';
 
 /** @typedef {import('./lib/view.js').SidebarIntents} SidebarIntents */
@@ -340,6 +341,15 @@ export function tileMenuItems(tile) {
       ]);
     }
     items.push(...jiraItems(activeRepo(tile).branch));
+    // devc-desktop opens it in the repo the pane is in, once the user confirms it there.
+    const { repo } = tileRepo(tile);
+    if (repo && canAskDesktop()) {
+      const folder = repo.folder;
+      items.push(null, [
+        LABELS.openHostTerminal,
+        () => requestTerminal(c.localFolder, folder),
+      ]);
+    }
   }
   const filePin = filePinOfTile(tile);
   if (filePin) {

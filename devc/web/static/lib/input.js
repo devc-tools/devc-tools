@@ -181,3 +181,42 @@ export function joinRows(text, startColumn, cols) {
   });
   return out;
 }
+
+/** The bars a quote or callout is drawn with down its left side, ASCII's and box drawing's. */
+const QUOTE_BARS = '|│┃▎▍▌▏';
+
+/**
+ * Copied terminal text without the bar down its left side, as an agent's TUI draws a quote
+ * (Claude Code a Markdown blockquote, which Claude often writes a snippet or message to pass on
+ * in): each row loses its indent, the bar and one space after it, and keeps the rest of its
+ * indent. Null unless every non-blank row has the same bar at the same column; a first row
+ * that starts after the bar (the drag began past it) may have none. Blank rows stay, empty.
+ *
+ * @param {string} text  the copy, rows separated by `\n` or `\r\n`
+ * @param {number} startColumn  the column its first row starts at (zero-based)
+ * @returns {string | null}
+ */
+export function stripQuoteBars(text, startColumn) {
+  const rows = text.split(/\r?\n/).map((r) => r.trimEnd());
+  while (rows.length && !rows.at(-1)) rows.pop();
+  /** @type {{bar: string, column: number} | null} */
+  let at = null;
+  let mismatch = false;
+  /** @type {(string | null)[]} */
+  const kept = rows.map((row, i) => {
+    if (!row.trim()) return '';
+    const m = /^( *)(.)/u.exec(row);
+    if (!m || !QUOTE_BARS.includes(m[2])) return null;
+    const column = (i === 0 ? startColumn : 0) + m[1].length;
+    if (at && (at.bar !== m[2] || at.column !== column)) mismatch = true;
+    at ??= { bar: m[2], column };
+    return row.slice(m[0].length).replace(/^ /, '');
+  });
+  if (!at || mismatch) return null;
+  // The drag began past the bar: the first row has none.
+  if (kept[0] === null && startColumn > at.column) {
+    kept[0] = rows[0].trimStart();
+  }
+  if (kept.includes(null)) return null;
+  return kept.join('\n');
+}
