@@ -143,6 +143,7 @@ import {
   desktopSessionName,
   ensureServer,
   findHerdr,
+  HerdrError,
   type HerdrTarget,
   herdrVersion,
   listPanes,
@@ -1220,7 +1221,14 @@ async function main(): Promise<void> {
       throw new Error('too many host shells');
     }
     const cwd = folder ?? app.getPath('home');
-    const id = await createShell(herdr, cwd);
+    const t = herdr;
+    // The session's server can be stopped under the app (its Herdr session closed by hand):
+    // start it again, once, and retry.
+    const id = await createShell(t, cwd).catch(async (e) => {
+      if (!(e instanceof HerdrError && e.code === 'no_session')) throw e;
+      await ensureServer(t, hostShellPath, app.getPath('home'));
+      return await createShell(t, cwd);
+    });
     paneList.set(id, {
       pane_id: id,
       cwd,
