@@ -96,6 +96,8 @@ export function mountOrchestrator(app, opts) {
     undefined
   );
   let pending = false;
+  /** Whether a `containers` message has come since loading. */
+  let containersListed = false;
   let frames = 0;
   /** @type {{cols: number, rows: number} | null} */
   let size = null;
@@ -327,7 +329,10 @@ export function mountOrchestrator(app, opts) {
     const c = current();
     if (!c) {
       detach();
-      note('No running container.');
+      // Before the first `containers` message nothing is listed yet: that one starts it.
+      note(
+        containersListed ? 'No running container.' : 'Connecting to devc web…',
+      );
       return;
     }
     if (pending) return;
@@ -375,6 +380,7 @@ export function mountOrchestrator(app, opts) {
   }
 
   onServerMessage((msg) => {
+    if (msg.type === 'containers') containersListed = true;
     if (
       msg.type === 'snapshot' || msg.type === 'agent_status' ||
       msg.type === 'containers'
@@ -390,6 +396,9 @@ export function mountOrchestrator(app, opts) {
         renderPicker();
         if (attached && !containers.has(attached.container)) {
           attached = null;
+          void start('open');
+        } else if (!attached && !wanted && !pending && current()) {
+          // `hello` comes before the containers are listed: start once they are.
           void start('open');
         }
         break;
