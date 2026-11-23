@@ -994,6 +994,7 @@ Deno.test('savedInUseGroup reads inUseGroup, else the older inUseGrouped', () =>
   assertEquals(savedInUseGroup({ inUseGrouped: true }), 'container');
   assertEquals(savedInUseGroup({ inUseGrouped: false }), 'none');
   assertEquals(savedInUseGroup({ inUseGroup: 'tag' }), 'tag');
+  assertEquals(savedInUseGroup({ inUseGroup: 'repo' }), 'repo');
   assertEquals(
     savedInUseGroup({ inUseGroup: 'none', inUseGrouped: true }),
     'none',
@@ -1036,4 +1037,28 @@ Deno.test('inUseRuns groups by container, by tag (untagged last), or not at all'
   assertEquals(keys(flat), [['1', '2', '3', '4']]);
 
   assertEquals(inUseRuns([], 'tag', tagOf, name), []);
+});
+
+Deno.test('inUseRuns by repo: a primary with its worktrees, across containers', () => {
+  const cards = [
+    { key: 'wt1', localFolder: '/b', main: '/r/x' },
+    { key: 'y', localFolder: '/a', main: '/r/y' },
+    { key: 'x', localFolder: '/a', main: '/r/x' },
+    { key: 'none', localFolder: '/a', main: null },
+    { key: 'wt2', localFolder: '/a', main: '/r/x' },
+  ];
+  const repoOf = (c: { main: string | null }) =>
+    c.main ? { key: c.main, name: c.main.slice(3) } : null;
+  const runs = inUseRuns(cards, 'repo', () => null, (f) => `C${f}`, repoOf);
+  assertEquals(runs.map((r) => r.name), ['x', 'y', 'C/a']);
+  assertEquals(runs.map((r) => r.key), [
+    'repo\n/r/x',
+    'repo\n/r/y',
+    'container\n/a',
+  ]);
+  assertEquals(runs.map((r) => r.cards.map((c) => c.key)), [
+    ['wt1', 'x', 'wt2'],
+    ['y'],
+    ['none'],
+  ]);
 });

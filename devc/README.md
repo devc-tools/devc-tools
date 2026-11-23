@@ -621,7 +621,10 @@ is published from any container: the host server finds devcontainers with
   as at first. The one after it (a tag) groups them by tag instead: a box per
   tag, in order of its most urgent card, with untagged cards last under
   **Untagged** (cards there show no tag chip, and name their container). The
-  two are exclusive; with neither on, every card shares one box, most urgent
+  next (a branch) groups them by repo: a box per repo under its name, holding
+  its card and its linked worktrees' cards, whatever container each is in (a
+  card outside every repo goes in its container's box). The three are
+  exclusive; with none on, every card shares one box, most urgent
   agent first whatever its container, each card naming its container after its
   branch. Kept across reloads, in every scope.
 - **Input:** keys go through as typed. A multi-line paste is sent as one

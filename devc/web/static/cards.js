@@ -986,7 +986,7 @@ export function repoGroupName(localFolder, repo) {
 }
 
 /** {@link repoGroupName} as one string (`tools/devc-tools`), for text such as a prompt. */
-function repoDisplayName(localFolder, repo) {
+export function repoDisplayName(localFolder, repo) {
   const { prefix, base } = repoGroupName(localFolder, repo);
   return prefix + base;
 }

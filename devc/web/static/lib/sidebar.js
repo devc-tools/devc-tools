@@ -258,9 +258,10 @@ export function repoCardActive({ tiles, agents, pinned = false }) {
 
 /**
  * How In use groups its repo cards: a box per container (as at first), a box per tag (see
- * {@link cardTag}), or one box for every card.
+ * {@link cardTag}), a box per repo (a primary with its linked worktrees, whatever container
+ * each is in), or one box for every card.
  *
- * @typedef {'container' | 'tag' | 'none'} InUseGroup
+ * @typedef {'container' | 'tag' | 'repo' | 'none'} InUseGroup
  */
 
 /** The longest tag kept, in characters. */
@@ -288,7 +289,9 @@ export function cardTag(text) {
  */
 export function savedInUseGroup(saved) {
   const g = saved?.inUseGroup;
-  if (g === 'container' || g === 'tag' || g === 'none') return g;
+  if (g === 'container' || g === 'tag' || g === 'repo' || g === 'none') {
+    return g;
+  }
   return saved?.inUseGrouped === false ? 'none' : 'container';
 }
 
@@ -312,37 +315,53 @@ export function savedCardTags(v) {
 /**
  * In use's boxes for `cards` (already in the order they show), as `group` groups them: `key`
  * tells boxes apart, `name` heads one (`null`: no heading). By container, a box per
- * `card.localFolder` named by `containerName`; by tag, a box per `tagOf(card)` named by it, in
- * order of each one's first card, with the untagged (`Untagged`) last; else one box, unnamed.
- * Cards keep their order within a box.
+ * `card.localFolder` named by `containerName`; by tag, a box per `tagOf(card)` named by it, with
+ * the untagged (`Untagged`) last; by repo, a box per `repoOf(card).key` named by its `name`, a
+ * card outside every repo (`repoOf` null) in its container's box, named by `containerName`; else
+ * one box, unnamed. Boxes go in order of each one's first card; cards keep their order within one.
  *
  * @template {{localFolder: string}} C
  * @param {C[]} cards @param {InUseGroup} group
  * @param {(card: C) => string | null} tagOf
  * @param {(localFolder: string) => string} containerName
+ * @param {(card: C) => {key: string, name: string} | null} [repoOf]
  * @returns {{key: string, name: string | null, cards: C[]}[]}
  */
-export function inUseRuns(cards, group, tagOf, containerName) {
+export function inUseRuns(
+  cards,
+  group,
+  tagOf,
+  containerName,
+  repoOf = () => null,
+) {
   /** @type {Map<string, {key: string, name: string | null, cards: C[]}>} */
   const runs = new Map();
+  /** @param {C} card @returns {{key: string, name: string | null}} */
+  const boxOf = (card) => {
+    const inContainer = () => ({
+      key: `container\n${card.localFolder}`,
+      name: containerName(card.localFolder),
+    });
+    if (group === 'container') return inContainer();
+    if (group === 'tag') {
+      const tag = tagOf(card);
+      return tag === null
+        ? { key: 'untagged', name: 'Untagged' }
+        : { key: `tag\n${tag}`, name: tag };
+    }
+    if (group === 'repo') {
+      const repo = repoOf(card);
+      return repo
+        ? { key: `repo\n${repo.key}`, name: repo.name }
+        : inContainer();
+    }
+    return { key: '', name: null };
+  };
   for (const card of cards) {
-    const tag = group === 'tag' ? tagOf(card) : null;
-    const key = group === 'container'
-      ? `container\n${card.localFolder}`
-      : group === 'tag'
-      ? (tag === null ? 'untagged' : `tag\n${tag}`)
-      : '';
+    const { key, name } = boxOf(card);
     let run = runs.get(key);
     if (!run) {
-      run = {
-        key,
-        name: group === 'container'
-          ? containerName(card.localFolder)
-          : group === 'tag'
-          ? tag ?? 'Untagged'
-          : null,
-        cards: [],
-      };
+      run = { key, name, cards: [] };
       runs.set(key, run);
     }
     run.cards.push(card);

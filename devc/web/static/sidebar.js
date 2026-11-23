@@ -111,6 +111,7 @@ import {
   renderPass,
   renderSettled,
   repoCard,
+  repoDisplayName,
   saveSidebarState,
   sectionRow,
   setCardTag,
@@ -150,6 +151,8 @@ let $scopePicker = /** @type {HTMLElement | null} */ (null);
 let $groupButton = /** @type {HTMLElement | null} */ (null);
 /** The header's group-by-tag toggle (see {@link applyGrouping}). */
 let $groupTagButton = /** @type {HTMLElement | null} */ (null);
+/** The header's group-by-repo toggle (see {@link applyGrouping}). */
+let $groupRepoButton = /** @type {HTMLElement | null} */ (null);
 /** The header's dashboard button (`#dashboard`), when the page has one. */
 let $dashboardButton = /** @type {HTMLElement | null} */ (null);
 /** The filter box above the zones (its query is `cards.js`' `applyFilter`'s). */
@@ -290,7 +293,8 @@ function setScope(scope) {
 
 /**
  * The grouping toggles' state: the container one pressed while In use groups its cards by
- * container, the tag one while it groups them by tag; neither, one box for every card.
+ * container, the tag one while it groups them by tag, the repo one while it groups them by repo;
+ * none, one box for every card.
  */
 function applyGrouping() {
   const group = sidebarState.inUseGroup;
@@ -306,13 +310,19 @@ function applyGrouping() {
       ? 'Grouped by tag: click to list every repo together'
       : 'Click to group repos by tag (tag a repo from its menu)';
   }
+  if ($groupRepoButton) {
+    $groupRepoButton.setAttribute('aria-pressed', String(group === 'repo'));
+    $groupRepoButton.title = group === 'repo'
+      ? 'Grouped by repo: click to list every repo together'
+      : 'Click to group each repo with its worktrees';
+  }
 }
 
 /**
- * Toggles In use's grouping `by` container or tag: on, it groups that way (the other toggle goes
- * off); off, one box for every card.
+ * Toggles In use's grouping `by` container, tag or repo: on, it groups that way (the other
+ * toggles go off); off, one box for every card.
  *
- * @param {'container' | 'tag'} by
+ * @param {'container' | 'tag' | 'repo'} by
  */
 function toggleGrouping(by) {
   sidebarState.inUseGroup = sidebarState.inUseGroup === by ? 'none' : by;
@@ -602,7 +612,8 @@ function renderTree() {
  * its own under its name. Cards come most urgent agent first (see `statusRank`), those with no
  * agent last, then in the layout order of their first tile, then those with none in their
  * container's card order; containers where their first card is. Grouped by tag (the header's
- * other toggle, `inUseGroup`), a box per card tag under its name, the untagged last; not grouped,
+ * toggle, `inUseGroup`), a box per card tag under its name, the untagged last; by repo, a box per
+ * primary repo with its linked worktrees, whatever their containers; not grouped,
  * every card shares one box in that order. Either way each card names its container.
  * A status change renders the
  * sidebar again, so cards move as their agents' statuses change. With `only` (a scoped sidebar),
@@ -650,6 +661,14 @@ function inUseRows(cards, only, empty = 'Nothing open') {
     group,
     (card) => sidebarState.cardTags.get(card.key) ?? null,
     containerNameOf,
+    // A worktree goes with the repo it belongs to: host paths, so across containers too.
+    (card) =>
+      card.repo
+        ? {
+          key: card.repo.primaryFolder ?? card.repo.folder,
+          name: repoDisplayName(card.localFolder, card.repo),
+        }
+        : null,
   );
   for (const run of runs) {
     // Not by container: each card names its container itself.
@@ -1984,6 +2003,8 @@ export function mountSidebar(root, opts) {
   $groupButton?.addEventListener('click', () => toggleGrouping('container'));
   $groupTagButton = root.querySelector('#group-by-tag');
   $groupTagButton?.addEventListener('click', () => toggleGrouping('tag'));
+  $groupRepoButton = root.querySelector('#group-by-repo');
+  $groupRepoButton?.addEventListener('click', () => toggleGrouping('repo'));
   applyGrouping();
   // The page's URL, token included: devc-desktop's window has no address bar, and a container or
   // another browser may need it. The toast names it without showing it, since it is the token.
