@@ -32,6 +32,8 @@ const WATCH_MS = 3_000;
 /** How long a new worker may go undetected before it counts as gone. */
 const START_GRACE_MS = 60_000;
 const READ_LINES = 60;
+/** How long answer_worker waits before reading the worker's screen back. */
+const ANSWER_SETTLE_MS = 1_500;
 const MAX_WORKER_LINES = 200;
 
 /** A worker this orchestrator dispatched, kept in `workers.json` across Pi restarts. */
@@ -303,7 +305,7 @@ export default function (pi: ExtensionAPI) {
               describe(w)
             } is waiting on the user. The end of its screen:\n\n\`\`\`\n${
               screen ?? '(could not read it)'
-            }\n\`\`\`\n\nTell the user in a line or two what it is asking and that they answer it in that pane.`,
+            }\n\`\`\`\n\nTell the user in a line or two what it is asking and the choices, and that they can answer here (you then send it with answer_worker) or in that pane.`,
             true,
           );
         } else if (status === 'done' && before !== undefined) {
@@ -380,10 +382,36 @@ export default function (pi: ExtensionAPI) {
   });
 
   pi.registerTool({
+    name: 'answer_worker',
+    label: 'Answer worker',
+    description:
+      "Answer a worker's question or permission prompt with key presses, only as the user told you to answer it. Returns the worker's screen afterwards: check that the answer took.",
+    parameters: Type.Object({
+      pane: Type.String({ description: "The worker's pane id" }),
+      keys: Type.Array(Type.String(), {
+        minItems: 1,
+        description:
+          'Herdr key names in order, e.g. ["down", "enter"], ["1"], ["y"], ["esc"]',
+      }),
+    }),
+    async execute(_id, params) {
+      const w = findWorker(params.pane);
+      await herdr(['agent', 'send-keys', w.pane, ...params.keys]);
+      await new Promise((r) => setTimeout(r, ANSWER_SETTLE_MS));
+      const screen = await workerScreen(w.pane, 40, 'visible');
+      return text(
+        `Sent ${params.keys.join(' ')} to ${describe(w)}. Its screen now:\n\n${
+          screen ?? '(could not read it)'
+        }`,
+      );
+    },
+  });
+
+  pi.registerTool({
     name: 'message_worker',
     label: 'Message worker',
     description:
-      "Send a worker a follow-up message, as if the user typed it into its pane. Refused while the worker shows a question or permission prompt: those are the user's to answer in the pane.",
+      'Send a worker a follow-up message, as if the user typed it into its pane. Refused while the worker shows a question or permission prompt: answer those with answer_worker, as the user tells you.',
     parameters: Type.Object({
       pane: Type.String({ description: "The worker's pane id" }),
       message: Type.String(),
@@ -397,7 +425,7 @@ export default function (pi: ExtensionAPI) {
         return text(
           `Not sent: ${
             describe(w)
-          } is showing a question or permission prompt. The user answers it in that pane.`,
+          } is showing a question or permission prompt. Ask the user what to answer, then use answer_worker.`,
         );
       }
       throw new Error(`herdr agent prompt failed: ${out}`);

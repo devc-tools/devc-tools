@@ -940,8 +940,9 @@ is published from any container: the host server finds devcontainers with
   told to hand work that belongs in a repo to an agent there. It keeps track
   of the agents it starts (in `workers.json` beside its files): when one
   waits on you (a question or a permission prompt), the orchestrator reads
-  its screen and tells you what it asks and in which pane, since only you can
-  answer it; it says when one finishes; and on request it reports how they
+  its screen and tells you what it asks and in which pane, and you answer
+  there or tell the orchestrator, which presses the keys for you (it never
+  answers on its own); it says when one finishes; and on request it reports how they
   are doing or sends one a follow-up. Each running
   container has its own orchestrator; with more than one, a picker in the
   panel's header switches between them. Nothing starts until the panel is
