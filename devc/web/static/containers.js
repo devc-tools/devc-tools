@@ -38,6 +38,7 @@ import {
   svgIcon,
   toast,
 } from './ui.js';
+import { menuOf } from './lib/menu.js';
 import {
   call,
   containerByFolder,
@@ -65,7 +66,7 @@ import {
   downProject,
   followOutput,
   projectBusyKey,
-  projectMenuItems,
+  projectMenuGroups,
   projectRequest,
   setMenuContext,
   startProject,
@@ -75,7 +76,9 @@ import {
   applyFilter,
   cardMatchesFilter,
   cardsMessage,
+  cardTagItems,
   containerNameOf,
+  dirMenuGroups,
   dirMenuItems,
   fileTree,
   fileTrees,
@@ -96,6 +99,7 @@ import {
   renderSettled,
   renderTree,
   repoCard,
+  repoDisplayName,
   repoGroupName,
   repoNameParts,
   restoringFiles,
@@ -482,7 +486,17 @@ function containerRows(c, cards, inUse) {
       title: c.error ? `${c.localFolder}\n${c.error}` : c.localFolder,
       'aria-expanded': String(!collapsed),
       onclick: () => toggleContainer(c),
-      oncontextmenu: (e) => openMenu(e, projectMenuItems(c.localFolder)),
+      oncontextmenu: (e) =>
+        openMenu(
+          e,
+          menuOf(
+            projectMenuGroups(c.localFolder),
+            dirMenuGroups(
+              { localFolder: c.localFolder, root: c.localFolder },
+              '',
+            ),
+          ),
+        ),
     },
     h(
       'span',
@@ -588,15 +602,29 @@ function inUseLinkCard(card, worktrees = 0) {
           renderTree();
         }
         : () => link.revealInUse(key),
-      // Its card's worktree items too: the card itself is under In use.
+      // Its card's worktree items and tag too: the card itself is under In use.
       oncontextmenu: (e) =>
-        openMenu(e, [
-          ...worktreeItems(
-            card,
-            containerByFolder(localFolder)?.state === 'connected',
+        openMenu(
+          e,
+          menuOf(
+            worktreeItems(
+              card,
+              containerByFolder(localFolder)?.state === 'connected',
+            ),
+            {
+              organize: [
+                ...cardTagItems(
+                  key,
+                  repo
+                    ? repoDisplayName(localFolder, repo)
+                    : containerNameOf(localFolder),
+                  side,
+                ),
+                pinnedCardItem(key, side),
+              ],
+            },
           ),
-          pinnedCardItem(key, side),
-        ]),
+        ),
     },
     ...(repo
       ? [
@@ -842,14 +870,16 @@ function projectRow(p) {
       title: [p.localFolder, output.at(-1) ?? ''].filter((s) => s).join('\n'),
       onclick: () => toggleProject(p.localFolder),
       oncontextmenu: (e) =>
-        openMenu(e, [
-          ...projectMenuItems(p.localFolder),
-          null,
-          ...dirMenuItems(
-            { localFolder: p.localFolder, root: p.localFolder },
-            '',
+        openMenu(
+          e,
+          menuOf(
+            projectMenuGroups(p.localFolder),
+            dirMenuGroups(
+              { localFolder: p.localFolder, root: p.localFolder },
+              '',
+            ),
           ),
-        ]),
+        ),
     },
     h(
       'span',

@@ -134,7 +134,6 @@ export const LABELS = {
     `Fetch: bring ${n} new commit${n === 1 ? '' : 's'} into ${upstream}`,
   /** A ↓N's tooltip when it pulls. */
   pullBehind: (upstream) => `Pull: fast-forward to ${upstream}`,
-  newTerminalHere: 'New terminal here',
   newFile: 'New file…',
   newDraft: 'New untitled file',
   newFolder: 'New folder…',
@@ -297,6 +296,8 @@ export const LABELS = {
   reviewSummary: 'Review summary (optional)',
   approveOnGitHub: 'Approve or request changes on GitHub',
   openHere: 'Open terminal here',
+  revealInProjects: 'Reveal in Projects',
+  revealInLayout: 'Reveal in Layout',
   newTerminal: 'New terminal',
   splitRight: 'Split vertically',
   splitBelow: 'Split horizontally',

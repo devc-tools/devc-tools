@@ -490,14 +490,27 @@ is published from any container: the host server finds devcontainers with
   spins until the lists are read again. An action from a menu (a new terminal, **Open in
   editor**, **Open in Code**, **Reveal**) shows the progress pointer until it answers, and the
   same one again meanwhile does nothing.
-- **Menus:** right-click a tile (its tab, or its row in a repo card) for **Split
-  vertically** (a new terminal to its right), **Split horizontally** (below),
-  **New pane in this stack**, **Close** (the tile only) and **Kill pane** (ends
-  the process and closes every tile showing it). Stacks, rows and columns offer a new shell inside them; a
-  container or workspace row offers **New shell** in the focused stack; a pane
-  row offers **Open in new tile**, **Rename** and **Kill**. A terminal's row
-  in a repo card also offers **Open in Code** first, on the repo its current
-  directory is in (none outside every repo). A new shell is
+- **Menus:** every right-click menu puts its items in the same groups, in the
+  same order, a divider between them: **Preview**; every **Open …** (in this
+  page, then a terminal: **Open terminal here**, **Open Host Terminal…**, then
+  **Open in Code**, **Reveal in Finder**, **Open in browser**, **Open on
+  GitHub**, **Open KEY in Jira**); what acts on the thing (**Save**,
+  **Reload**, **Stage**, **Push**, **Start**/**Stop**, **Ask agent…**); what
+  makes something new (**New task here…**, **New file…**, **New worktree…**,
+  **Split**); **Copy …**; this page's own state (**Pin file**, **Tag…**, **Pin
+  to In use**, **Keep open**, **Reveal in …**, **Zen mode**); **Rename…**;
+  and last, closing and removing (**Close**, **Close terminal…**,
+  **Delete…**, **Remove container**, **Unpin file**). Text menus (in a file,
+  a diff or a terminal) put the clipboard first. Right-click a tile (its tab,
+  or its row in a repo card) for **Split vertically** (a new terminal to its
+  right), **Split horizontally** (below), **New terminal in this stack**,
+  **Rename…**, **Close** (the tile only) and **Close terminal…** (ends the
+  process and closes every tile showing it); a terminal's also has **Open in
+  Code**, on the repo its current directory is in (none outside every repo).
+  Stacks, rows and columns offer a new shell inside them; a pane row in In use
+  offers **Open in new tile**, **Reveal in Layout**, **Rename…** and **Close
+  terminal…**. A project's row, in Projects or Containers, has its folder's
+  items too. A new shell is
   always its own Herdr tab, created without moving the focus of a Herdr TUI
   attached to the same session. The tab goes in the Herdr workspace of the repo
   the new pane's folder is in (the deepest one; a folder in no repo uses the
@@ -825,9 +838,10 @@ is published from any container: the host server finds devcontainers with
   next click brings back the same buffer, unsaved edits included.
   **Ctrl+Alt+N** (**⌘⌥N** on a Mac) toggles the first pin, even while a
   terminal has focus. While the container is stopped a pin opens read-only in
-  the file viewer, with a **Start** offer. A pin's menu has **Open to the
-  right**, **Open read-only**, **Open in Code**, **Reveal in Finder**, **Copy
-  path**, **Copy container path**, **Rename…** and **Unpin file**.
+  the file viewer, with a **Start** offer. A pin's menu has **Open** (the
+  read-only viewer), **Open in editor**, **Open in editor to the right**,
+  **Open in Code**, **Reveal in Finder**, **Copy path**, **Copy container
+  path**, **Use as dashboard**, **Rename…** and **Unpin file**.
   Pins are kept in `~/.config/devc/pinned-files.json`, so a browser tab and the
   devc-desktop window show the same ones. They are not a repo card pinned to
   **In use**, and not a preview tile's **Keep open**.

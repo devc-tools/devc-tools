@@ -100,6 +100,7 @@ import {
   svgIcon,
   toast,
 } from './ui.js';
+import { menuOf } from './lib/menu.js';
 import {
   basename,
   byNumber,
@@ -120,7 +121,6 @@ import {
   projects,
   refLabel,
   refTooltip,
-  request,
   resolveRef,
   send,
   sessionPane,
@@ -149,10 +149,11 @@ import {
   openFileTile,
   openInBrowser,
   openInEditor,
-  paneCodeItems,
+  paneOpenItems,
   placePane,
   previewable,
-  projectMenuItems,
+  projectMenuGroups,
+  renamePaneItem,
   requestPush,
   requestTerminal,
   reviewBusyKey,
@@ -765,7 +766,7 @@ const MAX_TAG_PICKS = 8;
  * @param {CardSide} side
  * @returns {import('./ui.js').MenuItem[]}
  */
-function cardTagItems(key, name, side) {
+export function cardTagItems(key, name, side) {
   const setTag = side.tag;
   if (!setTag) return [];
   const current = sidebarState.cardTags.get(key) ?? null;
@@ -792,7 +793,6 @@ function cardTagItems(key, name, side) {
         ]),
       ]
       : []),
-    null,
   ];
 }
 
@@ -1012,18 +1012,18 @@ export function containerNameOf(localFolder) {
 }
 
 /**
- * A repo card's worktree items: **New worktree…** on a primary repo; on a linked worktree, **New
- * worktree…** (its main repo's dialog: a sibling) and **Delete worktree…**; followed by a
- * separator. New worktree is greyed out, its tooltip saying
+ * A repo card's worktree items, as menu groups: **New worktree…** (`create`) on a primary repo;
+ * on a linked worktree, **New worktree…** (its main repo's dialog: a sibling) and **Delete
+ * worktree…** (`close`). New worktree is greyed out, its tooltip saying
  * why, when the server found no usable `<repo>.worktrees` here (`worktreesProblem`); both are while
  * the environment isn't running. Also on a card's In use stand-in (`containers.js`).
  *
  * @param {any} card @param {boolean} running
- * @returns {any[]}
+ * @returns {{create?: any[], close?: any[]}}
  */
 export function worktreeItems(card, running) {
   const { key, localFolder, repo } = card;
-  if (!repo) return [];
+  if (!repo) return {};
   const notRunning = { disabled: true, title: LABELS.worktreeNotRunning };
   if (repo.worktreesFolder || repo.worktreesProblem) {
     const open = () =>
@@ -1043,7 +1043,7 @@ export function worktreeItems(card, running) {
       : repo.worktreesFolder
       ? undefined
       : { disabled: true, title: repo.worktreesProblem };
-    return [[LABELS.newWorktree, open, false, undefined, opts], null];
+    return { create: [[LABELS.newWorktree, open, false, undefined, opts]] };
   }
   if (repo.primaryFolder && repo.primaryFolder !== repo.folder) {
     const ch = repo.changes;
@@ -1063,8 +1063,8 @@ export function worktreeItems(card, running) {
       : primary.worktreesFolder
       ? undefined
       : { disabled: true, title: primary.worktreesProblem ?? '' };
-    return [
-      [
+    return {
+      create: [[
         LABELS.newWorktree,
         () =>
           openNewWorktreeDialog({
@@ -1081,8 +1081,8 @@ export function worktreeItems(card, running) {
         false,
         undefined,
         newOpts,
-      ],
-      [
+      ]],
+      close: [[
         LABELS.deleteWorktree,
         () =>
           openDeleteWorktreeDialog({
@@ -1095,11 +1095,10 @@ export function worktreeItems(card, running) {
         false,
         undefined,
         running ? undefined : notRunning,
-      ],
-      null,
-    ];
+      ]],
+    };
   }
-  return [];
+  return {};
 }
 
 /**
@@ -1271,12 +1270,29 @@ export function repoCard(card, side, worktrees = 0, container = false) {
       oncontextmenu: (e) =>
         openMenu(
           e,
-          [
-            ...(repo
-              ? [
+          menuOf(
+            // Tags and the pin first in their group: the folder's Reload after them.
+            {
+              organize: [
+                ...cardTagItems(
+                  key,
+                  repo
+                    ? repoDisplayName(localFolder, repo)
+                    : containerNameOf(localFolder),
+                  side,
+                ),
+                pinnedCardItem(key, side),
+              ],
+            },
+            repo
+              ? dirMenuGroups(fr, '', { hostTerminal: true })
+              : projectMenuGroups(localFolder),
+            repo
+              ? {
+                open: jiraItems(branch),
                 // Push: the container's own `gh-push` grant at once, or devc-desktop's
                 // confirmation, as the server routes it; the same as a click on ↑N.
-                ...repoGitItems({
+                act: repoGitItems({
                   push: canPush,
                   pull: canPull,
                   fetch: canFetch,
@@ -1286,33 +1302,11 @@ export function repoCard(card, side, worktrees = 0, container = false) {
                     ? /** @type {() => void} */ (push)
                     : () => repoGitRequest(k, localFolder, repo.folder),
                 ]),
-                ...(canPush || canPull || canFetch ? [null] : []),
-                // Run in the repo's environment, so only while it runs.
-                ...worktreeItems(card, c?.state === 'connected'),
-                // devc-desktop opens it, once the user confirms it there; never in a browser.
-                ...(canAskDesktop()
-                  ? [
-                    [
-                      LABELS.openHostTerminal,
-                      () => requestTerminal(localFolder, repo.folder),
-                    ],
-                    null,
-                  ]
-                  : []),
-                ...dirMenuItems(fr, ''),
-                ...jiraItems(branch),
-              ]
-              : projectMenuItems(localFolder)),
-            null,
-            ...cardTagItems(
-              key,
-              repo
-                ? repoDisplayName(localFolder, repo)
-                : containerNameOf(localFolder),
-              side,
-            ),
-            pinnedCardItem(key, side),
-          ],
+              }
+              : null,
+            // Run in the repo's environment, so only while it runs.
+            worktreeItems(card, c?.state === 'connected'),
+          ),
         ),
     },
     ...(repo
@@ -1495,11 +1489,7 @@ export function layoutTileRow(tile, active, depth) {
       title: [...refTooltip(tile.ref), active ? '' : 'Background tab']
         .filter((s) => s).join('\n') || undefined,
       onclick: () => tileArea.reveal(tile.id),
-      oncontextmenu: (e) =>
-        openMenu(e, [
-          ...(c && pane ? paneCodeItems(c, pane) : []),
-          ...tileMenuItems(tile),
-        ]),
+      oncontextmenu: (e) => openMenu(e, tileMenuItems(tile)),
     },
     h(
       'span',
@@ -1798,10 +1788,13 @@ function sessionRow(c, s, now, depth) {
       title: sessionTooltip(s, LABELS.agents[s.agent]),
       onclick: () => void resumeSession(c, s),
       oncontextmenu: (e) =>
-        openMenu(e, [
-          [LABELS.resumeSession, () => void resumeSession(c, s)],
-          [LABELS.copySessionId, () => copyText(s.session)],
-        ]),
+        openMenu(
+          e,
+          menuOf({
+            act: [[LABELS.resumeSession, () => void resumeSession(c, s)]],
+            copy: [[LABELS.copySessionId, () => copyText(s.session)]],
+          }),
+        ),
     },
     // In the slot a chevron would take, as a terminal's and a Sent task's. The age (and a
     // running pane's status) always shows.
@@ -2226,10 +2219,10 @@ function changedFileRow(fr, ref, treeKey, state, r, stat, extra = {}) {
         tileArea.openDiff(ref, e.ctrlKey || e.metaKey ? 'stack' : 'preview'),
       ondblclick: () => keepOpen(tileShowingDiff(tileArea.state(), ref)),
       oncontextmenu: (e) =>
-        openMenu(e, [
-          ...(extra.menu ?? []),
-          ...commitFileMenuItems(fr, ref, file),
-        ]),
+        openMenu(
+          e,
+          menuOf(commitFileMenuGroups(fr, ref, file), extra.menu ?? null),
+        ),
     },
     h('span', { class: 'commit-dot commit-rail', 'aria-hidden': 'true' }),
     h(
@@ -2244,21 +2237,28 @@ function changedFileRow(fr, ref, treeKey, state, r, stat, extra = {}) {
   );
 }
 
-/** A commit file's menu: its diff, and the file as it is now unless the commit removed it. */
-function commitFileMenuItems(fr, ref, file) {
-  /** @type {import('./ui.js').MenuItem[]} */
-  const items = [
-    ['Open diff', () => tileArea.openDiff(ref, 'stack')],
-    ['Open diff to the right', () => tileArea.openDiff(ref, 'right')],
-  ];
-  if (file.status !== 'removed') {
-    items.push(
-      null,
-      ['Open file', () => openFileTile(fr, file.path, 'stack')],
-      ['Open file to the right', () => openFileTile(fr, file.path, 'right')],
-    );
-  }
-  return items;
+/**
+ * A commit file's menu groups: its diff, and the file as it is now unless the commit removed it.
+ */
+function commitFileMenuGroups(fr, ref, file) {
+  const exists = file.status !== 'removed';
+  return {
+    open: [
+      ['Open diff', () => tileArea.openDiff(ref, 'stack')],
+      ['Open diff to the right', () => tileArea.openDiff(ref, 'right')],
+      ...(exists
+        ? [
+          ['Open file', () => openFileTile(fr, file.path, 'stack')],
+          [
+            'Open file to the right',
+            () => openFileTile(fr, file.path, 'right'),
+          ],
+          ...hostOpenItems(fr, file.path),
+        ]
+        : []),
+    ],
+    copy: exists ? copyPathItems(fr, file.path) : [],
+  };
 }
 
 /**
@@ -2569,13 +2569,12 @@ function uncommittedRows(key, localFolder, folder, changes) {
         {
           depth: 3,
           hover: [stageButton(unstage, [path], unstage ? 'Unstage' : 'Stage')],
-          menu: [
-            [
+          menu: {
+            act: [[
               unstage ? 'Unstage' : 'Stage',
               () => void stagePaths(localFolder, folder, unstage, [path]),
-            ],
-            null,
-          ],
+            ]],
+          },
         },
       );
     }),
@@ -3402,38 +3401,37 @@ function prFileMenuItems(fr, result, file) {
   const ref = { localFolder: fr.localFolder, root: fr.root, path: file.path };
   const path = file.path;
   const exists = file.status !== 'removed';
-  return [
-    ['Open diff', () => tileArea.openDiff(ref, 'stack')],
-    ['Open diff to the right', () => tileArea.openDiff(ref, 'right')],
-    ...(file.viewed === 'DISMISSED' || file.since
-      ? [[
-        LABELS.openChangesSinceViewed,
-        () => tileArea.openDiff(ref, 'stack', { compare: 'viewed' }),
-      ]]
-      : []),
-    null,
-    ...(exists
-      ? [
-        ['Open file', () => openFileTile(fr, path, 'stack')],
-        ['Open file to the right', () => openFileTile(fr, path, 'right')],
-        ['Open in editor', () => openInEditor(fr, path, 'stack')],
-        ...hostOpenItems(fr, path),
-        null,
-      ]
-      : []),
-    [
-      'Open on GitHub',
-      () =>
-        void prFileUrl(result.pr.url, path).then((url) =>
-          window.open(url, '_blank', 'noopener')
-        ),
+  return menuOf({
+    open: [
+      ['Open diff', () => tileArea.openDiff(ref, 'stack')],
+      ['Open diff to the right', () => tileArea.openDiff(ref, 'right')],
+      ...(file.viewed === 'DISMISSED' || file.since
+        ? [[
+          LABELS.openChangesSinceViewed,
+          () => tileArea.openDiff(ref, 'stack', { compare: 'viewed' }),
+        ]]
+        : []),
+      ...(exists
+        ? [
+          ['Open file', () => openFileTile(fr, path, 'stack')],
+          ['Open file to the right', () => openFileTile(fr, path, 'right')],
+          ['Open in editor', () => openInEditor(fr, path, 'stack')],
+          ...hostOpenItems(fr, path),
+        ]
+        : []),
+      [
+        'Open on GitHub',
+        () =>
+          void prFileUrl(result.pr.url, path).then((url) =>
+            window.open(url, '_blank', 'noopener')
+          ),
+      ],
     ],
-    null,
-    ...copyPathItems(fr, path),
-    ...(exists && !fr.container
-      ? [null, filePinItem(fr, path), dashboardItem(fr, path)]
-      : []),
-  ];
+    copy: copyPathItems(fr, path),
+    organize: exists && !fr.container
+      ? [filePinItem(fr, path), dashboardItem(fr, path)]
+      : [],
+  });
 }
 
 /**
@@ -3445,18 +3443,16 @@ function prFileMenuItems(fr, result, file) {
  */
 function prDirMenuItems(fr, result, dir) {
   const allViewed = dir.viewed === dir.total;
-  return [
-    ...(result.canViewed
+  return menuOf({
+    open: hostOpenItems(fr, dir.path),
+    act: result.canViewed
       ? [[
         allViewed ? 'Mark all as not viewed' : 'Mark all as viewed',
         () => void setFolderViewed(fr, dir, !allViewed),
       ]]
-      : []),
-    null,
-    ...hostOpenItems(fr, dir.path),
-    null,
-    ...copyPathItems(fr, dir.path),
-  ];
+      : [],
+    copy: copyPathItems(fr, dir.path),
+  });
 }
 
 /**
@@ -3994,32 +3990,51 @@ function newShellIn(fr, path) {
 
 /** A folder's menu: the root itself (`path` '', its repo or Files row) or a directory under it. */
 export function dirMenuItems(fr, path) {
-  return [
-    fr.container
-      ? [LABELS.newTerminalHere, () => newShellIn(fr, path)]
-      : [LABELS.openHere, () => openHerdrTab(fr, path, true)],
-    ...(fr.container ? [] : [[LABELS.newTaskHere, () => newTaskIn(fr)]]),
-    null,
-    [LABELS.newFile, () => startNewEntry(fr, path, 'file')],
-    [LABELS.newFolder, () => startNewEntry(fr, path, 'dir')],
-    null,
-    ...hostOpenItems(fr, path),
-    null,
-    ...copyPathItems(fr, path),
-    null,
-    ['Refresh', () => fileTree(fr).refresh(path)],
-    null,
-    // Not a root: it is the project's repo, or the container's `/`.
-    ...(path === '' ? [] : changeEntryItems(fr, path, 'dir')),
-  ];
+  return menuOf(dirMenuGroups(fr, path));
 }
 
-/** **Rename…** and **Delete…** for an entry (not a root) of `fr`. */
-function changeEntryItems(fr, path, kind) {
-  return [
-    [LABELS.renameEntry, () => startNewEntry(fr, treeParent(path), kind, path)],
-    [LABELS.deleteEntry, () => void deleteEntry(fr, path, kind)],
-  ];
+/**
+ * {@link dirMenuItems}' groups (see `menuOf`). With `hostTerminal` (a repo card's root),
+ * **Open Host Terminal…** follows **Open terminal here** where devc-desktop can open one.
+ *
+ * @param {FileRoot} fr @param {string} path @param {{hostTerminal?: boolean}} [opts]
+ */
+export function dirMenuGroups(fr, path, opts = {}) {
+  return {
+    open: [
+      fr.container
+        ? [LABELS.openHere, () => newShellIn(fr, path)]
+        : [LABELS.openHere, () => openHerdrTab(fr, path, true)],
+      // devc-desktop opens it, once the user confirms it there; never in a browser.
+      ...(opts.hostTerminal && !fr.container && canAskDesktop()
+        ? [[
+          LABELS.openHostTerminal,
+          () => requestTerminal(fr.localFolder, fr.root),
+        ]]
+        : []),
+      ...hostOpenItems(fr, path),
+    ],
+    create: [
+      ...(fr.container ? [] : [[LABELS.newTaskHere, () => newTaskIn(fr)]]),
+      [LABELS.newFile, () => startNewEntry(fr, path, 'file')],
+      [LABELS.newFolder, () => startNewEntry(fr, path, 'dir')],
+    ],
+    copy: copyPathItems(fr, path),
+    organize: [['Reload', () => fileTree(fr).refresh(path)]],
+    // Not a root: it is the project's repo, or the container's `/`.
+    ...(path === '' ? {} : changeEntryGroups(fr, path, 'dir')),
+  };
+}
+
+/** **Rename…** and **Delete…** for an entry (not a root) of `fr`, as menu groups. */
+function changeEntryGroups(fr, path, kind) {
+  return {
+    rename: [[
+      LABELS.renameEntry,
+      () => startNewEntry(fr, treeParent(path), kind, path),
+    ]],
+    close: [[LABELS.deleteEntry, () => void deleteEntry(fr, path, kind)]],
+  };
 }
 
 /** The folder a tree path is in: `''` for the root's own entries. */
@@ -4260,34 +4275,32 @@ function withNewEntryRow(fr, depth, rows) {
 }
 
 function fileMenuItems(fr, path) {
-  return [
-    ['Open', () => openFileTile(fr, path, 'stack')],
-    ['Open to the right', () => openFileTile(fr, path, 'right')],
-    ...(previewable(path)
+  return menuOf({
+    preview: previewable(path)
       ? [
         [LABELS.preview, () => openFileTile(fr, path, 'stack', 'media')],
         [LABELS.previewRight, () => openFileTile(fr, path, 'right', 'media')],
       ]
-      : []),
-    null,
-    ['Open in editor', () => openInEditor(fr, path, 'stack')],
-    [
-      'Open in editor to the right',
-      () => openInEditor(fr, path, 'right'),
+      : [],
+    open: [
+      ['Open', () => openFileTile(fr, path, 'stack')],
+      ['Open to the right', () => openFileTile(fr, path, 'right')],
+      ['Open in editor', () => openInEditor(fr, path, 'stack')],
+      [
+        'Open in editor to the right',
+        () => openInEditor(fr, path, 'right'),
+      ],
+      ...hostOpenItems(fr, path),
+      ...(mediaKind(path) === 'html'
+        ? [['Open in browser', () => openInBrowser(fr, path)]]
+        : []),
     ],
-    null,
-    ...(mediaKind(path) === 'html'
-      ? [['Open in browser', () => openInBrowser(fr, path)]]
-      : []),
-    ...hostOpenItems(fr, path),
-    null,
-    ...copyPathItems(fr, path),
-    null,
+    copy: copyPathItems(fr, path),
     // A repo file only: the container's own files are outside the bind mount.
-    ...(fr.container ? [] : [filePinItem(fr, path), dashboardItem(fr, path)]),
-    null,
-    ...changeEntryItems(fr, path, 'file'),
-  ];
+    organize: fr.container
+      ? []
+      : [filePinItem(fr, path), dashboardItem(fr, path)],
+  }, changeEntryGroups(fr, path, 'file'));
 }
 
 /** The folders and files of an open root, at `depth`, and an inline name row if it has one. */
@@ -4331,13 +4344,14 @@ function fileEntryRow(fr, tree, item) {
       oncontextmenu: (e) =>
         openMenu(
           e,
-          dir ? dirMenuItems(fr, path) : file ? fileMenuItems(fr, path) : [
-            ...hostOpenItems(fr, path),
-            null,
-            ...copyPathItems(fr, path),
-            null,
-            ...changeEntryItems(fr, path, 'file'),
-          ],
+          dir
+            ? dirMenuItems(fr, path)
+            : file
+            ? fileMenuItems(fr, path)
+            : menuOf(
+              { open: hostOpenItems(fr, path), copy: copyPathItems(fr, path) },
+              changeEntryGroups(fr, path, 'file'),
+            ),
         ),
     },
     entry.name,
@@ -4384,35 +4398,26 @@ function keptFileRow(key, fresh, fr, path) {
 
 function paneMenu(rec) {
   const { c, pane } = rec;
-  const items = [
-    [
-      'Open in new tile',
-      () =>
-        tileArea.openPane({
-          localFolder: c.localFolder,
-          pane_id: pane.pane_id,
-        }),
-    ],
-  ];
+  const repo = paneRepo(c.localFolder, pane);
   const tile = tileShowing(c, pane);
-  if (tile) items.push(['Show in layout', () => tileArea.reveal(tile.id)]);
-  const jira = jiraItems(paneRepo(c.localFolder, pane)?.git?.branch);
-  if (jira.length > 0) items.push(...jira, null);
-  items.push(
-    ['Rename…', async () => {
-      const label = await promptDialog(LABELS.renamePrompt, paneTitle(pane));
-      if (label) {
-        request(
-          c.id,
-          'pane.rename',
-          { pane_id: pane.pane_id, label },
-          LABELS.rename,
-        );
-      }
-    }],
-    killPaneItem(c, pane),
-  );
-  return items;
+  return menuOf({
+    open: [
+      [
+        'Open in new tile',
+        () =>
+          tileArea.openPane({
+            localFolder: c.localFolder,
+            pane_id: pane.pane_id,
+          }),
+      ],
+      ...paneOpenItems(c, repo?.folder, repo?.git?.branch),
+    ],
+    organize: tile
+      ? [[LABELS.revealInLayout, () => tileArea.reveal(tile.id)]]
+      : [],
+    rename: [renamePaneItem(c, pane)],
+    close: [killPaneItem(c, pane)],
+  });
 }
 
 /**
@@ -4444,8 +4449,7 @@ export function paneRow(c, pane, depth, space = '') {
       onclick: (e) => onPaneClick(rec, e),
       // The two clicks opened it (as a preview); a double-click also keeps it.
       ondblclick: () => keepOpen(tileShowing(rec.c, rec.pane)),
-      oncontextmenu: (e) =>
-        openMenu(e, [...paneCodeItems(rec.c, rec.pane), ...paneMenu(rec)]),
+      oncontextmenu: (e) => openMenu(e, paneMenu(rec)),
     });
     rec = { row, c, pane, seen: 0, remove: null };
     paneRows.set(key, rec);

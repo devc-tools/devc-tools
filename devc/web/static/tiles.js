@@ -490,9 +490,6 @@ function fileTextMenuItems(tile, viewer) {
     );
   /** @type {import('./ui.js').MenuItem[]} */
   const items = [];
-  if (askable(tile)) {
-    items.push([LABELS.askAgent, () => askAgentFrom(tile.id)], null);
-  }
   if (editable && from !== to) {
     items.push(['Cut', () => {
       void copy();
@@ -516,6 +513,10 @@ function fileTextMenuItems(tile, viewer) {
     cm.dispatch({ selection: { anchor: 0, head: cm.state.doc.length } });
     cm.focus();
   }]);
+  // The clipboard first, as in every text menu; then what acts on the selection.
+  if (askable(tile)) {
+    items.push(null, [LABELS.askAgent, () => askAgentFrom(tile.id)]);
+  }
   return items;
 }
 
@@ -528,15 +529,15 @@ function diffTextMenuItems(tile) {
   const selected = diffSelection(tile);
   /** @type {import('./ui.js').MenuItem[]} */
   const items = [];
-  if (tile.diff && diffSource(tile.diff) === 'pr' && askable(tile)) {
-    items.push([LABELS.askAgent, () => askAgentFrom(tile.id, selected)], null);
-  }
   if (text) {
     items.push(['Copy', () => {
       writeClipboard(Promise.resolve(text)).catch((e) =>
         errorToast(`Copy failed: ${e?.message ?? e}`)
       );
     }]);
+  }
+  if (tile.diff && diffSource(tile.diff) === 'pr' && askable(tile)) {
+    items.push(null, [LABELS.askAgent, () => askAgentFrom(tile.id, selected)]);
   }
   return items;
 }

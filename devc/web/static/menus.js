@@ -7,7 +7,13 @@
 
 import { diffSource, withView } from './lib/layout_state.js';
 import { nodeById, nodeTiles } from './lib/view.js';
-import { environmentItem, paneLabel, projectActions } from './lib/sidebar.js';
+import {
+  environmentItem,
+  paneLabel,
+  paneTitle,
+  projectActions,
+} from './lib/sidebar.js';
+import { menuOf } from './lib/menu.js';
 import { jiraKeys, jiraUrl } from './lib/jira.js';
 import { defaultView, fileView, mediaKind } from './lib/media.js';
 import { childPath, isWithin } from './lib/files.js';
@@ -19,6 +25,7 @@ import {
   h,
   LABELS,
   openMenu,
+  promptDialog,
   reviewDialog,
   toast,
 } from './ui.js';
@@ -36,13 +43,13 @@ import {
   jiraConfig,
   nextId,
   onConnectionChange,
-  paneRepo,
   pendingRequests,
   pinnedFiles,
   projectOutput,
   projectRepos,
   projects,
   projectStarts,
+  request,
   requestPane,
   resolveRef,
   saveFilePinPanes,
@@ -58,6 +65,7 @@ import {
 /** @typedef {import('./lib/layout_state.js').FileRef} FileRef */
 /** @typedef {import('./client.js').ContainerInfo} ContainerInfo */
 /** @typedef {import('./ui.js').MenuItem} MenuItem */
+/** @typedef {import('./lib/menu.js').MenuGroups<Exclude<MenuItem, null>>} MenuGroups */
 
 // ---------------------------------------------------------------------------------------------
 // Menus and actions
@@ -289,35 +297,98 @@ export function killPaneItem(c, pane) {
   return [LABELS.close, () => killPane(c, pane), true];
 }
 
+/** **Rename…** for a terminal: its Herdr label, asked for. */
+export function renamePaneItem(c, pane) {
+  return [LABELS.renameEntry, async () => {
+    const label = await promptDialog(LABELS.renamePrompt, paneTitle(pane));
+    if (label) {
+      request(
+        c.id,
+        'pane.rename',
+        { pane_id: pane.pane_id, label },
+        LABELS.rename,
+      );
+    }
+  }];
+}
+
+/**
+ * A terminal's "Open" items outside this page, by the repo it is in (`folder`, a host folder, or
+ * null outside every repo) and that repo's branch: **Open Host Terminal…** (devc-desktop only),
+ * **Open in Code**, then **Open `<KEY>` in Jira**.
+ *
+ * @param {ContainerInfo} c @param {string | null | undefined} folder
+ * @param {string | null | undefined} branch
+ * @returns {MenuItem[]}
+ */
+export function paneOpenItems(c, folder, branch) {
+  /** @type {MenuItem[]} */
+  const items = [];
+  if (folder) {
+    // devc-desktop opens it in the repo the pane is in, once the user confirms it there.
+    if (canAskDesktop()) {
+      items.push([
+        LABELS.openHostTerminal,
+        () => requestTerminal(c.localFolder, folder),
+      ]);
+    }
+    const fr = { localFolder: c.localFolder, root: folder };
+    items.push([LABELS.openInCode, () => void openInCode(fr, '')]);
+  }
+  items.push(...jiraItems(branch));
+  return items;
+}
+
 /**
  * A tile's menu, on its tab, in it, and on its sidebar row.
  *
  * @param {TileState} tile @returns {MenuItem[]}
  */
 export function tileMenuItems(tile) {
-  if (tile.kind === 'file') return fileTileMenuItems(tile);
-  if (tile.kind === 'diff') return diffTileMenuItems(tile);
+  return menuOf(tileMenuGroups(tile));
+}
+
+/**
+ * {@link tileMenuItems}' groups (see `menuOf`).
+ *
+ * @param {TileState} tile @returns {MenuGroups}
+ */
+function tileMenuGroups(tile) {
+  if (tile.kind === 'file') return fileTileMenuGroups(tile);
+  if (tile.kind === 'diff') return diffTileMenuGroups(tile);
   // devc-desktop's host terminal: nothing here acts on it. Closing the tab leaves its shell
   // running; **Close terminal…** only asks the app, whose own confirm ends it.
   if (tile.kind === 'host') {
     const slot = tile.host;
-    return [
-      ['Close', () => tileArea.close(tile.id)],
-      ...(desktopChannel && slot
-        ? [
-          /** @type {MenuItem} */ ([
-            LABELS.close,
-            () => askToEndHostSlot(slot),
-          ]),
-        ]
-        : []),
-    ];
+    return {
+      close: [
+        ['Close', () => tileArea.close(tile.id)],
+        ...(desktopChannel && slot
+          ? [
+            /** @type {MenuItem} */ ([
+              LABELS.close,
+              () => askToEndHostSlot(slot),
+            ]),
+          ]
+          : []),
+      ],
+    };
   }
   const { c, pane } = resolveRef(tile.ref);
-  const items = [];
+  /** @type {Required<MenuGroups>} */
+  const g = {
+    preview: [],
+    open: [],
+    act: [],
+    create: [],
+    copy: [],
+    organize: [],
+    rename: [],
+    close: [],
+  };
   if (c && c.state === 'connected') {
     const opts = shellOptsNear(pane);
-    items.push(
+    g.create.push(
       [
         LABELS.splitRight,
         () => newShell(c, opts, { at: tile.id, where: 'right' }),
@@ -333,41 +404,37 @@ export function tileMenuItems(tile) {
     );
   }
   if (c && pane) {
+    g.open.push(
+      ...paneOpenItems(c, tileRepo(tile).repo?.folder, activeRepo(tile).branch),
+    );
     if (sidebar) {
       const ref = { localFolder: c.localFolder, pane_id: pane.pane_id };
-      items.push(null, [
-        'Reveal in Projects',
+      g.organize.push([
+        LABELS.revealInProjects,
         () => sidebar.revealInContainers(ref),
       ]);
     }
-    items.push(...jiraItems(activeRepo(tile).branch));
-    // devc-desktop opens it in the repo the pane is in, once the user confirms it there.
-    const { repo } = tileRepo(tile);
-    if (repo && canAskDesktop()) {
-      const folder = repo.folder;
-      items.push(null, [
-        LABELS.openHostTerminal,
-        () => requestTerminal(c.localFolder, folder),
-      ]);
-    }
+    g.rename.push(renamePaneItem(c, pane));
   }
+  if (tile.preview) g.organize.push(keepOpenItem(tile));
   const filePin = filePinOfTile(tile);
-  if (filePin) {
-    items.push(null, [LABELS.unpinFile, () => unpinFile(filePin)]);
-  }
-  if (tile.preview) items.push(null, keepOpenItem(tile));
-  items.push(null, ['Close', () => tileArea.close(tile.id)]);
-  if (c && pane) items.push(killPaneItem(c, pane));
-  return items;
+  if (filePin) g.close.push([LABELS.unpinFile, () => unpinFile(filePin)]);
+  g.close.push(['Close', () => tileArea.close(tile.id)]);
+  if (c && pane) g.close.push(killPaneItem(c, pane));
+  return g;
 }
 
 /**
- * The menu of a tile's tab and body (not of its sidebar row): the tile's, then zen mode.
+ * The menu of a tile's tab and body (not of its sidebar row): the tile's, with **New untitled
+ * file** and zen mode.
  *
  * @param {TileState} tile
  */
 export function tileOwnMenuItems(tile) {
-  return [...tileMenuItems(tile), null, newDraftItem(), null, ...zenItems()];
+  return menuOf(tileMenuGroups(tile), {
+    create: [newDraftItem()],
+    organize: zenItems(),
+  });
 }
 
 /** **New untitled file**: a draft in the focused stack (Cmd+N). */
@@ -388,21 +455,25 @@ function keepOpenItem(tile) {
   return [LABELS.keepOpen, () => keepOpen(tile)];
 }
 
-/** A stack, row or column's menu. */
-function nodeMenuItems(node, tiles) {
+/** A stack, row or column's menu groups. @returns {MenuGroups} */
+function nodeMenuGroups(node, tiles) {
   const origin = shellOrigin(tiles);
-  const items = [];
+  /** @type {MenuItem[]} */
+  const create = [];
   if (origin) {
     const opts = shellOptsNear(origin.pane);
-    items.push([
+    create.push([
       node.kind === 'stack' ? LABELS.newInStack : LABELS.newAtEnd,
       () => newShell(origin.c, opts, { at: node.id, where: 'stack' }),
     ]);
   }
-  if (node.kind === 'stack') {
-    items.push(['Close stack', () => tileArea.close(node.id)]);
-  }
-  return items;
+  create.push(newDraftItem());
+  return {
+    create,
+    close: node.kind === 'stack'
+      ? [['Close stack', () => tileArea.close(node.id)]]
+      : [],
+  };
 }
 
 /** A right-click on a stack header's empty area. */
@@ -411,10 +482,7 @@ export function stackMenu(stackId, e) {
   // The unfolded tree: the folded one has no node for a stack holding one tile.
   const stack = nodeById(view, stackId);
   if (!stack) return;
-  openMenu(e, [
-    ...nodeMenuItems(stack, nodeTiles(view, stack)),
-    newDraftItem(),
-  ]);
+  openMenu(e, menuOf(nodeMenuGroups(stack, nodeTiles(view, stack))));
 }
 
 /**
@@ -514,19 +582,8 @@ function zenItems() {
 }
 
 /**
- * An In use terminal's **Open in Code**, on the repo its cwd is in, then a divider: none outside
- * every repo.
- */
-export function paneCodeItems(c, pane) {
-  const repo = paneRepo(c.localFolder, pane);
-  if (!repo) return [];
-  const fr = { localFolder: c.localFolder, root: repo.folder };
-  return [[LABELS.openInCode, () => void openInCode(fr, '')], null];
-}
-
-/**
- * An **Open `<KEY>` in Jira** group for each Jira key in `branch` (none without one, or without
- * `"jira"` in devc's config), after a divider. Read when a menu opens, so it follows the branch.
+ * An **Open `<KEY>` in Jira** item for each Jira key in `branch` (none without one, or without
+ * `"jira"` in devc's config). Read when a menu opens, so it follows the branch.
  *
  * @param {string | null | undefined} branch
  * @returns {MenuItem[]}
@@ -536,7 +593,6 @@ export function jiraItems(branch) {
   const keys = jiraKeys(branch, jira);
   if (!jira || keys.length === 0) return [];
   return [
-    null,
     ...keys.map((key) => [
       LABELS.openInJira(key),
       () =>
@@ -927,35 +983,29 @@ export function openFileTile(fr, path, where, view) {
 }
 
 /**
- * A file tile's menu (its tab, its Layout row, and a right-click in it).
+ * A file tile's menu groups (its tab, its Layout row, and a right-click in it).
  *
- * @param {TileState} tile
+ * @param {TileState} tile @returns {MenuGroups}
  */
-function fileTileMenuItems(tile) {
-  const items = [];
+function fileTileMenuGroups(tile) {
+  /** @type {Required<MenuGroups>} */
+  const g = {
+    preview: [],
+    open: [],
+    act: [],
+    create: [],
+    copy: [],
+    organize: [],
+    rename: [],
+    close: [],
+  };
   const file = tile.file;
-  if (tile.draft) items.push(['Save…', () => tileArea.save(tile.id)]);
+  if (tile.draft) g.act.push(['Save…', () => tileArea.save(tile.id)]);
   if (file) {
     const fr = fileRootOf(file);
     const asMedia = fileView(file) === 'media';
-    if (tile.saveable) items.push(['Save', () => tileArea.save(tile.id)]);
-    items.push(['Reload', () => tileArea.reload(tile.id)]);
-    if (tile.lsp?.restart) {
-      items.push([
-        'Restart language server',
-        () => tileArea.restartLanguage(tile.id),
-      ]);
-    }
-    if (tile.lsp?.settings) {
-      items.push([
-        'Language server settings…',
-        () => tileArea.languageSettings(tile.id),
-      ]);
-    }
-    items.push(null);
-    items.push([LABELS.askAgent, () => tileArea.askAgent(tile.id)], null);
     if (previewable(file.path)) {
-      items.push(
+      g.preview.push(
         asMedia
           ? [
             LABELS.openAsText,
@@ -967,59 +1017,84 @@ function fileTileMenuItems(tile) {
           ],
       );
     }
-    items.push(['Open in editor', () => openInEditor(fr, file.path, 'stack')]);
+    g.open.push(['Open in editor', () => openInEditor(fr, file.path, 'stack')]);
     if (mediaKind(file.path) === 'html') {
-      items.push(['Open in browser', () => openInBrowser(fr, file.path)]);
+      g.open.push(['Open in browser', () => openInBrowser(fr, file.path)]);
     }
-    items.push(...hostOpenItems(fr, file.path));
-    items.push(null, ...copyPathItems(fr, file.path));
+    g.open.push(...hostOpenItems(fr, file.path));
+    g.open.push(...jiraItems(activeRepo(tile).branch));
+    if (tile.saveable) g.act.push(['Save', () => tileArea.save(tile.id)]);
+    g.act.push(['Reload', () => tileArea.reload(tile.id)]);
+    if (tile.lsp?.restart) {
+      g.act.push([
+        'Restart language server',
+        () => tileArea.restartLanguage(tile.id),
+      ]);
+    }
+    if (tile.lsp?.settings) {
+      g.act.push([
+        'Language server settings…',
+        () => tileArea.languageSettings(tile.id),
+      ]);
+    }
+    g.act.push([LABELS.askAgent, () => tileArea.askAgent(tile.id)]);
+    g.copy.push(...copyPathItems(fr, file.path));
     if (!file.container) {
-      items.push(
-        null,
+      g.organize.push(
         filePinItem(fr, file.path),
         dashboardItem(fr, file.path),
       );
     }
-    items.push(...jiraItems(activeRepo(tile).branch));
   }
-  if (tile.preview) items.push(null, keepOpenItem(tile));
-  items.push(null, ['Close', () => tileArea.close(tile.id)]);
-  return items;
+  if (tile.preview) g.organize.push(keepOpenItem(tile));
+  g.close.push(['Close', () => tileArea.close(tile.id)]);
+  return g;
 }
 
 /**
- * A diff tile's menu (its tab, its Layout row, and a right-click in it).
+ * A diff tile's menu groups (its tab, its Layout row, and a right-click in it).
  *
- * @param {TileState} tile
+ * @param {TileState} tile @returns {MenuGroups}
  */
-function diffTileMenuItems(tile) {
-  /** @type {import('./ui.js').MenuItem[]} */
-  const items = [['Refresh', () => tileArea.reload(tile.id)]];
-  // The agent's diff context is the PR's: a commit diff isn't offered it.
-  if (tile.diff && diffSource(tile.diff) === 'pr') {
-    items.push([LABELS.askAgent, () => tileArea.askAgent(tile.id)]);
-  }
+function diffTileMenuGroups(tile) {
+  /** @type {Required<MenuGroups>} */
+  const g = {
+    preview: [],
+    open: [],
+    act: [],
+    create: [],
+    copy: [],
+    organize: [],
+    rename: [],
+    close: [],
+  };
   // The file itself, as the PR tree's menu opens it: not for a file the PR deletes. A commit
   // diff's opens today's copy, not the commit's.
   const diff = tile.diff;
   if (diff && !tile.removed) {
     const fr = { localFolder: diff.localFolder, root: diff.root };
-    items.push(
-      null,
+    g.open.push(
       ['Open file', () => openFileTile(fr, diff.path, 'stack')],
       ['Open file to the right', () => openFileTile(fr, diff.path, 'right')],
+      ...hostOpenItems(fr, diff.path),
     );
+    g.copy.push(...copyPathItems(fr, diff.path));
   }
   const url = tile.url;
   if (url) {
-    items.push([
+    g.open.push([
       'Open on GitHub',
       () => window.open(url, '_blank', 'noopener'),
     ]);
   }
-  if (tile.preview) items.push(null, keepOpenItem(tile));
-  items.push(null, ['Close', () => tileArea.close(tile.id)]);
-  return items;
+  g.act.push(['Reload', () => tileArea.reload(tile.id)]);
+  // The agent's diff context is the PR's: a commit diff isn't offered it.
+  if (tile.diff && diffSource(tile.diff) === 'pr') {
+    g.act.push([LABELS.askAgent, () => tileArea.askAgent(tile.id)]);
+  }
+  if (tile.preview) g.organize.push(keepOpenItem(tile));
+  g.close.push(['Close', () => tileArea.close(tile.id)]);
+  return g;
 }
 
 /**
@@ -1085,23 +1160,29 @@ async function pendingReviewCall(msg, what, done) {
 // on the menu of a repo card of what is outside every repo), and its start output
 // ---------------------------------------------------------------------------------------------
 
-/** Container actions for a project (by folder), whichever row its menu is on. */
-export function projectMenuItems(localFolder) {
+/**
+ * Container actions for a project (by folder), whichever row its menu is on, as menu groups
+ * (see `menuOf`): Start or Stop and the move in `act`, Show output in `organize`, Remove
+ * container and Remove project in `close`.
+ *
+ * @param {string} localFolder @returns {MenuGroups}
+ */
+export function projectMenuGroups(localFolder) {
   const p = projects.get(localFolder);
-  if (!p) return [];
-  const items = [];
+  if (!p) return {};
+  /** @type {MenuItem[]} */
+  const act = [];
+  /** @type {MenuItem[]} */
+  const close = [];
   const actions = projectActions(p.environment);
   if (p.container === 'running') {
-    items.push([actions.stop, () => stopProject(p)]);
+    act.push([actions.stop, () => stopProject(p)]);
   } else if (!p.starting && canStartProjects()) {
-    items.push([actions.start, () => startProject(localFolder)]);
-  }
-  if (p.container !== 'missing' && !p.starting && actions.remove !== null) {
-    items.push([actions.remove, () => downProject(p), true]);
+    act.push([actions.start, () => startProject(localFolder)]);
   }
   const move = projectStarts ? environmentItem(p, environments) : null;
   if (move !== null && !p.starting) {
-    items.push(
+    act.push(
       p.container === 'running'
         ? [
           move.label,
@@ -1116,20 +1197,26 @@ export function projectMenuItems(localFolder) {
         ],
     );
   }
+  if (p.container !== 'missing' && !p.starting && actions.remove !== null) {
+    close.push([actions.remove, () => downProject(p), true]);
+  }
   // Only with nothing left to list it: no container (remove that first), no running session.
   const removable = p.environment === 'host'
     ? p.container !== 'running'
     : p.container === 'missing';
   if (removable && !p.starting) {
-    items.push([
+    close.push([
       'Remove project',
       () => projectRequest('remove_project', localFolder, 'Remove project'),
     ]);
   }
-  if (projectOutput.get(localFolder)?.length) {
-    items.push(['Show output', () => showOutput(localFolder)]);
-  }
-  return items;
+  return {
+    act,
+    organize: projectOutput.get(localFolder)?.length
+      ? [['Show output', () => showOutput(localFolder)]]
+      : [],
+    close,
+  };
 }
 
 /** Moves a project to `environment`, then starts it there once the move is saved. */

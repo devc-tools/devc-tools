@@ -57,6 +57,7 @@ import {
   toast,
   writeClipboard,
 } from './ui.js';
+import { menuOf } from './lib/menu.js';
 import { CONN_TEXT } from './lib/host_status.js';
 import {
   basename,
@@ -1018,28 +1019,32 @@ function openFilePinReadOnly(pin, where) {
   );
 }
 
-/** A pin's row menu. @param {import('./lib/pinned_files.js').FilePin} pin */
+/**
+ * A pin's row menu. Its click opens the pin's own editor; **Open** is the read-only viewer, as
+ * **Open** is in the file tree.
+ *
+ * @param {import('./lib/pinned_files.js').FilePin} pin
+ */
 function filePinMenuItems(pin) {
   const fr = { localFolder: pin.localFolder, root: pin.root };
-  return [
-    ['Open to the right', () => void openFilePin(pin, 'right')],
-    ['Open read-only', () => openFileTile(fr, pin.path, 'stack')],
-    ...(previewable(pin.path)
+  return menuOf({
+    preview: previewable(pin.path)
       ? [[LABELS.preview, () => openFileTile(fr, pin.path, 'stack', 'media')]]
-      : []),
-    ...(mediaKind(pin.path) === 'html'
-      ? [['Open in browser', () => openInBrowser(fr, pin.path)]]
-      : []),
-    null,
-    ...hostOpenItems(fr, pin.path),
-    null,
-    ...copyPathItems(fr, pin.path),
-    null,
-    ['Rename…', () => renameFilePin(pin)],
-    dashboardItem(fr, pin.path),
-    null,
-    [LABELS.unpinFile, () => unpinFile(pin)],
-  ];
+      : [],
+    open: [
+      ['Open', () => openFileTile(fr, pin.path, 'stack')],
+      ['Open in editor', () => void openFilePin(pin, 'stack')],
+      ['Open in editor to the right', () => void openFilePin(pin, 'right')],
+      ...hostOpenItems(fr, pin.path),
+      ...(mediaKind(pin.path) === 'html'
+        ? [['Open in browser', () => openInBrowser(fr, pin.path)]]
+        : []),
+    ],
+    copy: copyPathItems(fr, pin.path),
+    organize: [dashboardItem(fr, pin.path)],
+    rename: [['Rename…', () => renameFilePin(pin)]],
+    close: [[LABELS.unpinFile, () => unpinFile(pin)]],
+  });
 }
 
 /**
@@ -1520,9 +1525,10 @@ function taskGroupRow(group) {
       oncontextmenu: (e) =>
         openMenu(
           e,
-          route
-            ? [[LABELS.newTaskHere, () => newTaskIn(route)], selectItem]
-            : [selectItem],
+          menuOf({
+            create: route ? [[LABELS.newTaskHere, () => newTaskIn(route)]] : [],
+            organize: [selectItem],
+          }),
         ),
     },
     h(
@@ -1696,13 +1702,18 @@ function sentTaskRow(s) {
       title: sentTaskTooltip(s, LABELS.agents[s.agent]),
       onclick: () => viewSentTask(s),
       oncontextmenu: (e) =>
-        openMenu(e, [
-          ['View task', () => viewSentTask(s)],
-          ['Open session', () => void openSentTask(s)],
-          ['Copy task text', () => void copyTaskText(s)],
-          ['Back to tasks', () => restoreSentTask(s)],
-          ['Remove', () => removeSentTask(s)],
-        ]),
+        openMenu(
+          e,
+          menuOf({
+            open: [
+              ['View task', () => viewSentTask(s)],
+              ['Open session', () => void openSentTask(s)],
+            ],
+            copy: [['Copy task text', () => void copyTaskText(s)]],
+            organize: [['Back to tasks', () => restoreSentTask(s)]],
+            close: [['Remove', () => removeSentTask(s)]],
+          }),
+        ),
     },
     h(
       'span',
