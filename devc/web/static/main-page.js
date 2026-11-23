@@ -23,6 +23,11 @@ import {
   withoutHostSlot,
 } from './lib/view.js';
 import { mountSidebarCorner } from './sidebar-corner.js';
+import {
+  orchestratorToggleFromHash,
+  withoutOrchestratorToggle,
+} from './lib/orchestrator.js';
+import { toggleOrchestrator } from './orchestrator.js';
 
 if (SAFE_MODE) showSafeBanner();
 const tileArea = mountTiles(
@@ -60,3 +65,21 @@ function takeHostSlot() {
 }
 takeHostSlot();
 window.addEventListener('hashchange', takeHostSlot);
+
+/**
+ * devc-desktop's **View → Orchestrator** sets `#…&orchestrator=<nonce>`, a fresh nonce each time:
+ * the orchestrator panel opens or closes, and the parameter is taken out again.
+ */
+function takeOrchestratorToggle() {
+  if (orchestratorToggleFromHash(location.hash) === null) return;
+  history.replaceState(
+    history.state,
+    '',
+    `${location.pathname}${location.search}${
+      withoutOrchestratorToggle(location.hash)
+    }`,
+  );
+  toggleOrchestrator();
+}
+takeOrchestratorToggle();
+window.addEventListener('hashchange', takeOrchestratorToggle);

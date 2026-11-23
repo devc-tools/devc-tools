@@ -2009,7 +2009,10 @@ async function main(): Promise<void> {
     setMainHash({ 'host-gone': id });
   }
 
-  /** `/main`'s hash with these host-tile parameters (and no others), nothing else changed. */
+  /**
+   * `/main`'s hash with these host-tile (or orchestrator) parameters and no others, nothing else
+   * changed.
+   */
   function setMainHash(params: Record<string, string>): void {
     if (origin === null || !showingDevc) return;
     const now = devcView.webContents.getURL();
@@ -2025,6 +2028,7 @@ async function main(): Promise<void> {
         'open-host-file',
         'open-line',
         'open-column',
+        'orchestrator',
       ]
     ) {
       hash.delete(k);
@@ -3238,6 +3242,11 @@ async function main(): Promise<void> {
             click: () => footerView.webContents.toggleDevTools(),
           },
           { type: 'separator' },
+          {
+            // devc web's orchestrator panel: a fresh nonce each time, so the hash changes.
+            label: 'Orchestrator',
+            click: () => setMainHash({ orchestrator: Date.now().toString(36) }),
+          },
           {
             label: 'Appearance',
             submenu: (['system', 'light', 'dark'] as const).map((v) => ({

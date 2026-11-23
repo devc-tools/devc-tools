@@ -14,6 +14,7 @@ import {
 } from './agents.ts';
 import { MAX_TASK_TEXT, taskText } from '@devc-tools/core/tasks.ts';
 import type { PrMessage } from './pr_review.ts';
+import { isOrchestratorMode, type OrchestratorMode } from './orchestrator.ts';
 import type { WorktreeSource } from './git_worktree.ts';
 import {
   IMAGE_MIMES,
@@ -497,6 +498,16 @@ export type ClientMessage =
     action: TaskAction;
   }
   | { type: 'list_sessions'; id: string; container: string }
+  | {
+    /**
+     * The container's orchestrator (`orchestrator.ts`): its pane, started on first open; `restart`
+     * starts Pi again on the same session, `new` on a fresh one.
+     */
+    type: 'orchestrator';
+    id: string;
+    container: string;
+    mode: OrchestratorMode;
+  }
   | {
     type: 'resume_session';
     id: string;
@@ -1613,6 +1624,16 @@ function parseFields(m: Obj): ClientMessage {
         type: 'list_sessions',
         id: str(m, 'id'),
         container: str(m, 'container'),
+      };
+    case 'orchestrator':
+      if (!isOrchestratorMode(m.mode)) {
+        throw new Invalid(`'mode' must be one of open, restart, new`);
+      }
+      return {
+        type: 'orchestrator',
+        id: str(m, 'id'),
+        container: str(m, 'container'),
+        mode: m.mode,
       };
     case 'resume_session':
       if (!isSessionAgentId(m.agent)) {

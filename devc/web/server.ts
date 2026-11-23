@@ -75,6 +75,21 @@ import {
   snapshotPanes,
 } from './herdr_bridge.ts';
 import { createRepoShell } from './herdr_workspaces.ts';
+import {
+  EMBEDDED_FILES,
+  ensureRoutingFile,
+  launchCommand,
+  NOT_INSTALLED_MESSAGE,
+  ORCHESTRATOR_PANE_LABEL,
+  ORCHESTRATOR_WORKSPACE,
+  orchestratorDir,
+  orchestratorPane,
+  parseSessionId,
+  readEmbedded,
+  reposJson,
+  ROUTING_FILE,
+  ROUTING_HOST_PATH,
+} from './orchestrator.ts';
 import { ControllerManager, type Subscriber } from './controllers.ts';
 import {
   AGENT_COMMANDS,
@@ -1127,6 +1142,7 @@ export async function startWeb(
     // Its new repos are dirty: read once the debounce has passed.
     changesWatch.sync();
     recordPanes(record.id);
+    void refreshOrchestrator(record.id, ['repos.json']);
   };
   // Every running environment's repos' changes to commit, read there (`git_changes.ts`) when
   // one may have changed (a file event, an agent idle or done, devc's own git action, a sweep),
@@ -2258,6 +2274,207 @@ export async function startWeb(
   };
 
   /** Passes on a `pane.rename` reply's pane, which Herdr announces with no event of its own. */
+  // -------------------------------------------------------------------------------------------
+  // The orchestrator (`orchestrator.ts`, `.plans/devc-web-orchestrator.md`): one Pi session per
+  // running container, in its own pane, started on the first `orchestrator` request.
+  // -------------------------------------------------------------------------------------------
+
+  /** Each container's last orchestrator request, so one container's run one at a time. */
+  const orchestratorChains = new Map<string, Promise<unknown>>();
+  /** The orchestrator pane each container's last request made or found, by container id. */
+  const orchestratorPanes = new Map<string, string>();
+
+  /** A container's orchestrator folder, or null when its `$HOME` can't be read. */
+  const orchestratorFolder = async (session: ContainerSession) => {
+    const home = await session.env.home();
+    return home ? orchestratorDir(home) : null;
+  };
+
+  /** The text of each file the orchestrator's folder holds but `session-id`, by name. */
+  const orchestratorFileText = async (
+    session: ContainerSession,
+    name: string,
+  ): Promise<string> => {
+    if (name === ROUTING_FILE) return await ensureRoutingFile();
+    if (name === 'repos.json') {
+      return reposJson(containerRepos.get(session.record.id) ?? []);
+    }
+    return await readEmbedded(name);
+  };
+
+  /**
+   * Writes the orchestrator's files into its folder in the container (`names`, else all of
+   * them), and answers its session id: the one kept there, else (or with `fresh`) a new one.
+   */
+  const writeOrchestratorFiles = async (
+    session: ContainerSession,
+    dir: string,
+    fresh: boolean,
+  ): Promise<string> => {
+    const files = session.env.files;
+    for (const name of [...EMBEDDED_FILES, ROUTING_FILE, 'repos.json']) {
+      await files.write(
+        dir,
+        `${dir}/${name}`,
+        await orchestratorFileText(session, name),
+      );
+    }
+    let sessionId: string | null = null;
+    if (!fresh) {
+      try {
+        sessionId = parseSessionId(
+          (await files.read(`${dir}/session-id`)).text,
+        );
+      } catch (e) {
+        if (!(e instanceof FilesError && e.code === 'not_found')) throw e;
+      }
+    }
+    if (sessionId === null) {
+      sessionId = crypto.randomUUID();
+      await files.write(dir, `${dir}/session-id`, `${sessionId}\n`);
+    }
+    return sessionId;
+  };
+
+  /**
+   * The container's live orchestrator pane: one in its snapshot, else the one its last request
+   * made while Herdr still has it there (a snapshot can lag a create).
+   */
+  const liveOrchestratorPane = async (
+    session: ContainerSession,
+    target: HerdrTarget,
+  ): Promise<{ pane_id: string; tab_id: string } | null> => {
+    const found = orchestratorPane(snapshotPanes(session.snapshot));
+    if (found) return { pane_id: found.pane_id, tab_id: found.tab_id };
+    const last = orchestratorPanes.get(session.record.id);
+    if (last === undefined) return null;
+    try {
+      const got = await bridgeRequest(target, 'pane.get', { pane_id: last });
+      const pane = (got as { pane?: Record<string, unknown> })?.pane;
+      return orchestratorPane(pane ? [pane] : []);
+    } catch {
+      return null;
+    }
+  };
+
+  /**
+   * `orchestrator`: the container's orchestrator pane, started first when there is none (`open`),
+   * or started again (`restart`: the same session; `new`: a fresh one).
+   */
+  const handleOrchestrator = (
+    c: Client,
+    session: ContainerSession,
+    msg: Extract<ClientMessage, { type: 'orchestrator' }>,
+  ) => {
+    const key = session.record.id;
+    const run = (orchestratorChains.get(key) ?? Promise.resolve()).then(
+      () => orchestratorRequest(c, session, msg),
+      () => orchestratorRequest(c, session, msg),
+    );
+    const tail = run.catch(() => {});
+    orchestratorChains.set(key, tail);
+    void tail.then(() => {
+      if (orchestratorChains.get(key) === tail) orchestratorChains.delete(key);
+    });
+    return run;
+  };
+
+  const orchestratorRequest = async (
+    c: Client,
+    session: ContainerSession,
+    msg: Extract<ClientMessage, { type: 'orchestrator' }>,
+  ) => {
+    if (session.env.kind !== 'container') {
+      fail(
+        c,
+        msg.id,
+        'unsupported',
+        'The orchestrator runs only in containers.',
+      );
+      return;
+    }
+    const target = await readyTarget(c, session, msg.id);
+    if (target === null) return;
+    if (!(await commandInstalled(target, 'pi'))) {
+      fail(c, msg.id, 'not_installed', NOT_INSTALLED_MESSAGE);
+      return;
+    }
+    const dir = await orchestratorFolder(session);
+    if (dir === null) {
+      fail(c, msg.id, 'write_failed', "can't read the container's $HOME");
+      return;
+    }
+    let sessionId: string;
+    try {
+      sessionId = await writeOrchestratorFiles(
+        session,
+        dir,
+        msg.mode === 'new',
+      );
+    } catch (e) {
+      fail(c, msg.id, e instanceof FilesError ? e.code : 'write_failed', e);
+      return;
+    }
+    try {
+      const live = await liveOrchestratorPane(session, target);
+      if (live !== null && msg.mode === 'open') {
+        orchestratorPanes.set(session.record.id, live.pane_id);
+        reply(c, { id: msg.id, ok: true, result: { ...live, reused: true } });
+        return;
+      }
+      if (live !== null) {
+        await bridgeRequest(target, 'pane.close', { pane_id: live.pane_id });
+      }
+      const created = await createRepoShell(target, {
+        key: session.record.id,
+        cwd: dir,
+        workspaceLabel: ORCHESTRATOR_WORKSPACE,
+        repos: [],
+        localFolder: session.record.localFolder,
+      });
+      orchestratorPanes.set(session.record.id, created.pane_id);
+      await bridgeRequest(target, 'pane.send_text', {
+        pane_id: created.pane_id,
+        text: `${launchCommand(sessionId)}\n`,
+      });
+      // Pi is already starting, so a failed rename is no error.
+      await bridgeRequest(target, 'pane.rename', {
+        pane_id: created.pane_id,
+        label: ORCHESTRATOR_PANE_LABEL,
+      }).then((r) => renamed(session, r), () => {});
+      reply(c, { id: msg.id, ok: true, result: { ...created, reused: false } });
+    } catch (e) {
+      fail(c, msg.id, e instanceof BridgeError ? e.code : 'herdr_error', e);
+    }
+  };
+
+  /**
+   * Writes the orchestrator's `names` again in container `id` while it has an orchestrator pane
+   * (the routing notes changed on the host, or the container's repos). Failures are logged.
+   */
+  const refreshOrchestrator = async (id: string, names: string[]) => {
+    const session = sessions.get(id);
+    if (!session || session.env.kind !== 'container') return;
+    if (!orchestratorPane(snapshotPanes(session.snapshot))) return;
+    try {
+      const dir = await orchestratorFolder(session);
+      if (dir === null) return;
+      for (const name of names) {
+        await session.env.files.write(
+          dir,
+          `${dir}/${name}`,
+          await orchestratorFileText(session, name),
+        );
+      }
+    } catch (e) {
+      console.error(
+        `devc web: orchestrator ${names.join(', ')}: ${
+          e instanceof Error ? e.message : e
+        }`,
+      );
+    }
+  };
+
   const renamed = (session: ContainerSession, result: unknown) => {
     const pane = (result as { pane?: unknown } | null)?.pane;
     if (typeof pane === 'object' && pane !== null) {
@@ -4159,7 +4376,8 @@ export async function startWeb(
       if (
         msg.type === 'create_file' || msg.type === 'rename_file' ||
         msg.type === 'delete_file' || msg.type === 'write_file' ||
-        msg.type === 'ask_agent' || msg.type === 'attach_image'
+        msg.type === 'ask_agent' || msg.type === 'attach_image' ||
+        msg.type === 'orchestrator'
       ) {
         fail(c, msg.id, 'not_running', 'the container is not running');
         return;
@@ -4208,6 +4426,9 @@ export async function startWeb(
         return;
       case 'ask_agent':
         await askAgent(c, session, msg);
+        return;
+      case 'orchestrator':
+        await handleOrchestrator(c, session, msg);
         return;
       case 'create_file':
         await createFile(c, session, msg);
@@ -4770,6 +4991,12 @@ export async function startWeb(
   );
   // Another devc web adding, sending or deleting a task.
   const tasksWatch = watchConfigFile(TASKS_PATH, () => void reloadTasks());
+  // The orchestrators' shared routing notes, copied into each container that has one.
+  const routingWatch = watchConfigFile(ROUTING_HOST_PATH, () => {
+    for (const id of sessions.keys()) {
+      void refreshOrchestrator(id, [ROUTING_FILE]);
+    }
+  });
   // An edit to the global config's `"jira"`.
   const globalConfigWatch = watchConfigFile(GLOBAL_CONFIG_PATHS, async () => {
     await readJira();
@@ -4802,6 +5029,7 @@ export async function startWeb(
       pinnedFilesWatch.stop();
       dashboardWatch.stop();
       tasksWatch.stop();
+      routingWatch.stop();
       globalConfigWatch.stop();
       bridgeWatch.stop();
       usageWatch.stop();

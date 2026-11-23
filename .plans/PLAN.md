@@ -11,14 +11,6 @@
 
 ### Pending
 
-- [devc-web-orchestrator](devc-web-orchestrator.md) — a Pi orchestrator per running container,
-  in a docked panel on the right of devc web (sidebar header button, devc-desktop **View →
-  Orchestrator**): it routes any prompt to one of the container's repos, asking when more than one
-  fits, and starts a worker agent there in a new Herdr pane with the prompt verbatim. Started on
-  first open; files copied in from devc on each open, routing notes shared from the host and reread
-  every prompt. Its own pane is hidden from In use, terminal rows and Sessions. Not built on Tasks;
-  no bridge changes and no Feature changes.
-
 - [devc-web-aseprite-viewer](devc-web-aseprite-viewer.md) — after devc-web-media-tiles: a
   clean-room `.aseprite` decoder and compositor (`static/lib/aseprite.js`, from the public spec
   only) and a media view with frame playback, tags and layer toggles. Normal blend only at first;
@@ -232,6 +224,17 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
   refreshes the mirror so `↑N` clears.
 
 ### Completed
+
+- [devc-web-orchestrator](archived/devc-web-orchestrator.md) — a Pi orchestrator per running container,
+  in a docked panel on the right of devc web (a button in the tiles' top-right corner,
+  devc-desktop **View → Orchestrator**): it routes any prompt to one of the container's repos, asking when more than one
+  fits, and starts a worker agent there in a new Herdr pane with the prompt verbatim. Started on
+  first open; files copied in from devc on each open, routing notes shared from the host and reread
+  every prompt. Its own pane is hidden from In use, terminal rows and Sessions. Not built on Tasks;
+  no bridge changes and no Feature changes. Built as planned but for: no settle nudge (it misfired on plain
+  questions), `dispatch` takes optional `notes`, the request names the container id, the button moved
+  from the full sidebar header to the tiles' corner. The extension,
+  launch line and a real dispatch were checked in a container; the panel in a live devc web was not.
 
 - [bridge-pr-head-tracking](archived/bridge-pr-head-tracking.md) — the pin gains an optional PR head
   (`<owner>/<name>:<branch>`) read from the branch's tracking config (`branch.<b>.remote` /
@@ -2816,4 +2819,4 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
 | devc web host tile tabs — a host tile's tab reads like a terminal tile's when not `--live`                          | [devc-web-host-tile-tabs](archived/devc-web-host-tile-tabs.md)                     | complete    |
 | devc web outline — sidebar Outline of a TS/JS file's tests and declarations, click to jump                          | [devc-web-outline](archived/devc-web-outline.md)                                   | complete    |
 | Bridge PR head from tracking config — gh-pr-* find another fork's PR or a renamed branch's                          | [bridge-pr-head-tracking](archived/bridge-pr-head-tracking.md)                     | complete    |
-| devc web orchestrator — a per-container Pi router in a docked panel that starts agents in the right repo            | [devc-web-orchestrator](devc-web-orchestrator.md)                                  |             |
+| devc web orchestrator — a per-container Pi router in a docked panel that starts agents in the right repo            | [devc-web-orchestrator](archived/devc-web-orchestrator.md)                         | complete    |

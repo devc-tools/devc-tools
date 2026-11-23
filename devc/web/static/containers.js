@@ -111,6 +111,7 @@ import {
   worktreeItems,
 } from './cards.js';
 import { setTaskContext } from './task-dialog.js';
+import { isOrchestratorPane } from './lib/orchestrator.js';
 
 /** @typedef {import('./lib/view.js').TileArea} TileArea */
 /** @typedef {import('./lib/view.js').ViewState} ViewState */
@@ -450,7 +451,8 @@ function reveal(ref) {
  */
 function containerRows(c, cards, inUse) {
   const snap = c.state === 'connected' ? snapshots.get(c.id) : undefined;
-  const panes = list(snap?.panes);
+  // The orchestrator's pane counts nowhere: its panel draws it (`orchestrator.js`).
+  const panes = list(snap?.panes).filter((p) => !isOrchestratorPane(p));
   const shown = [...cards.values()].filter((card) =>
     card.localFolder === c.localFolder
   );

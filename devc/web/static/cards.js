@@ -41,6 +41,7 @@ import {
 } from './lib/sidebar.js';
 import { AGENT_IDS } from './lib/agent_icons.js';
 import { mediaKind } from './lib/media.js';
+import { isOrchestratorPane } from './lib/orchestrator.js';
 import { createPrRecheck, prRepoKey } from './lib/pr_recheck.js';
 import {
   byDepth,
@@ -907,7 +908,8 @@ export function repoCards() {
     const repos = projectRepos(c.localFolder);
     const spaces = paneSpaces(snap);
     for (const pane of list(snap?.panes)) {
-      if (tileShowing(c, pane)) continue;
+      // The orchestrator's pane is drawn by its panel alone (`orchestrator.js`).
+      if (tileShowing(c, pane) || isOrchestratorPane(pane)) continue;
       const card = cardFor(
         c.localFolder,
         repoAt(repos, pane.foreground_cwd || pane.cwd || ''),

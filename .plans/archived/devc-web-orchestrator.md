@@ -27,31 +27,30 @@ Out of scope (follow-ups, not built here):
 
 ## Checklist
 
-- [ ] `devc/web/orchestrator_files/` (new): `orchestrator.ts` (the Pi extension), `SYSTEM.md`,
+- [x] `devc/web/orchestrator_files/` (new): `orchestrator.ts` (the Pi extension), `SYSTEM.md`,
       `routing.md` (the default routing notes template), per Contracts § Files and § Extension
-- [ ] `devc/deno.json`: `--include web/orchestrator_files` in `build` and `build:release`;
+- [x] `devc/deno.json`: `--include web/orchestrator_files` in `build` and `build:release`;
       `web/orchestrator.ts` added to `check`; `web/orchestrator_files/` added to `lint.exclude`
-- [ ] `devc/web/orchestrator.ts` (new): the pure helpers — orchestrator folder, launch command,
+- [x] `devc/web/orchestrator.ts` (new): the pure helpers — orchestrator folder, launch command,
       orchestrator-pane rule, `repos.json` content, host routing file path and default text
-- [ ] `devc/web/protocol.ts`: the `orchestrator` request; `toggleOrchestrator` in
-      `VIEW_INTENT_NAMES`
-- [ ] `devc/web/server.ts`: the `orchestrator` request (open / restart / new), writing the files,
+- [x] `devc/web/protocol.ts`: the `orchestrator` request
+- [x] `devc/web/server.ts`: the `orchestrator` request (open / restart / new), writing the files,
       finding or creating the pane; the routing file watch and `repos.json` refresh
-- [ ] `devc/web/static/lib/orchestrator.js` (new): `isOrchestratorPane`, the panel's storage keys,
+- [x] `devc/web/static/lib/orchestrator.js` (new): `isOrchestratorPane`, the panel's storage keys,
       the hash parameter parser
-- [ ] `devc/web/static/lib/view.js`: `toggleOrchestrator` in `VIEW_INTENT_NAMES`
-- [ ] `devc/web/static/orchestrator.js` (new) + `style.css`: the docked panel
-- [ ] `devc/web/static/index.html`, `main.html`: the panel's host element beside `#tiles`
-- [ ] `devc/web/static/index.html`, `sidebar.html`, `sidebar.js`: the header button, lit while the
-      panel is open, with the waiting dot
-- [ ] `devc/web/static/main-page.js`, `app.js`: the `orchestrator` hash parameter and the
-      `toggleOrchestrator` intent toggle the panel
-- [ ] `devc/web/static/sidebar.js`, `cards.js`, `containers.js`: the orchestrator pane is left out
+- [x] `devc/web/static/orchestrator.js` (new) + `style.css`: the docked panel and its corner
+      button with the waiting dot; `toggleOrchestrator` for `main-page.js`
+- [x] `devc/web/static/tiles.js`: `mountTiles` mounts the panel (appended to `.app` by
+      `orchestrator.js`, so `index.html`/`main.html` need no element)
+- [x] `devc/web/static/main-page.js`: the `orchestrator` hash parameter toggles the panel (only
+      `/main` gets it: devc-desktop's page)
+- [x] `devc/web/static/cards.js`, `containers.js`: the orchestrator pane is left out
       of In use, terminal rows, agent counts and urgency (Contracts § Hidden)
-- [ ] `devc-desktop/src/main/main.ts`: **View → Orchestrator**; `orchestrator` added to the hash
+- [x] `devc-desktop/src/main/main.ts`: **View → Orchestrator**; `orchestrator` added to the hash
       keys `setMainHash` clears
-- [ ] `devc/tests/web_orchestrator_test.ts` (new), `devc/tests/web_orchestrator_page_test.ts` (new)
-- [ ] `devc/README.md`: an **Orchestrator** entry beside **Tasks**; `devc-desktop/README.md`: the
+- [x] `devc/tests/web_orchestrator_test.ts` (new), `devc/tests/web_orchestrator_page_test.ts` (new)
+- [x] `devc/web/herdr_workspaces.ts`: `createRepoShell` takes an explicit `workspaceLabel`
+- [x] `devc/README.md`: an **Orchestrator** entry beside **Tasks**; `devc-desktop/README.md`: the
       menu item
 
 ## Contracts
@@ -93,21 +92,26 @@ its Herdr workspace (`herdr_workspaces.ts`). `path` is its container folder.
 
 devc web also rewrites `routing.md` in every container whose snapshot has an orchestrator pane when
 the host file changes (watch the **folder** `~/.config/devc/orchestrator/`, since editors replace
-the file by rename; debounce 300 ms), and rewrites `repos.json` there when the container's repo list
+the file by rename; the config files' debounce, `watchConfigFile`), and rewrites `repos.json` there when the container's repo list
 changes. Failed writes are logged, never shown.
 
 ### The `orchestrator` request
 
-Client → server: `{ type: 'orchestrator', id, localFolder, mode: 'open' | 'restart' | 'new' }`.
+Client → server: `{ type: 'orchestrator', id, container, mode: 'open' | 'restart' | 'new' }`
+(`container`: the running container's id, as `list_sessions` takes it).
 Reply on success: `{ id, ok: true, result: { pane_id, tab_id, reused: boolean } }`. Failures use the
 existing `fail` codes:
 
 - `not_running` — `the container is not running`
 - `not_installed` — exactly `This container needs the agents feature's installPiCli and installHerdr.`
   when `pi` is not installed (checked as `send_task` checks agents, `commandInstalled`)
+- `unsupported` — `The orchestrator runs only in containers.` for a host session
 - write failures and Herdr errors as `send_task` reports them
 
-Steps, in order: find the running session for `localFolder`; check `pi`; write the files above;
+Requests for one container run one at a time. A pane is found in the snapshot, else as the pane
+the last request made while Herdr still has it (`pane.get`), since a snapshot can lag a create.
+
+Steps, in order: find the running session for `container`; check `pi`; write the files above;
 find the orchestrator pane in the container's snapshot (§ Hidden's rule).
 
 - `open`: a pane found → reply with it, `reused: true`. None → create one.
@@ -138,13 +142,13 @@ own folder (`process.cwd()`).
 
 Tools (names and parameters exact):
 
-| Tool                                   | Does                                                                                                                                           |
-| -------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
-| `list_repos()`                         | every repo in `repos.json` with its summary (below)                                                                                            |
-| `search(pattern, repo?)`               | `git -C <path> grep -n -I -E --max-count 20 -e <pattern>` in that repo, or in each repo; at most 200 lines in all, then `… (more matches cut)` |
-| `read_file(repo, path)`                | the file, at most 400 lines / 40 000 characters with a cut note; refused when the resolved path leaves the repo                                |
-| `ask_user(question, options)`          | `ctx.ui.select(question, [...options, 'Something else…'])`; the last opens `ctx.ui.input`; returns the answer                                  |
-| `dispatch(repo, agent, title, prompt)` | starts a worker (below); returns `Started <agent> in <repo name> (pane <pane id>)`                                                             |
+| Tool                                           | Does                                                                                                                                           |
+| ---------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| `list_repos()`                                 | every repo in `repos.json` with its summary (below)                                                                                            |
+| `search(pattern, repo?)`                       | `git -C <path> grep -n -I -E --max-count 20 -e <pattern>` in that repo, or in each repo; at most 200 lines in all, then `… (more matches cut)` |
+| `read_file(repo, path)`                        | the file, at most 400 lines / 40 000 characters with a cut note; refused when the resolved path leaves the repo                                |
+| `ask_user(question, options)`                  | `ctx.ui.select(question, [...options, 'Something else…'])`; the last opens `ctx.ui.input`; returns the answer                                  |
+| `dispatch(repo, agent, title, prompt, notes?)` | starts a worker (below); returns `Started <agent> in <repo name> (pane <pane id>)`                                                             |
 
 `repo` is a repo **name** from `repos.json`, validated on every call (unknown → an error listing the
 names). `agent` is `claude`, `copilot` or `pi`. `title` is at most 60 characters.
@@ -171,11 +175,10 @@ sections.
    array (no shell), so the prompt needs no quoting.
 
 The prompt the worker gets is the user's request **verbatim**, then, only when the model gives
-notes, a blank line, `## Routing notes`, and the notes. `SYSTEM.md` tells the model this.
+`notes`, a blank line, `## Routing notes`, and the notes. `SYSTEM.md` tells the model this.
 
-Settling (`agent_before_settle`): when a run used `list_repos`, `search` or `read_file` but neither
-`dispatch` nor `ask_user`, continue once with the hidden message `Finish by calling dispatch, or
-ask_user if more than one repo fits.` At most once per run.
+No settle nudge. (Built first, then removed: on a plain question such as "which repo has X?" it
+made Pi answer, then add a second, pointless message. `SYSTEM.md` alone keeps it routing.)
 
 `SYSTEM.md` says, in substance: you route requests, you never do the work; pick the repo from the
 repo summaries and routing notes, searching only when they don't decide it; when more than one
@@ -215,13 +218,14 @@ No message changes for this: the pages apply the rule to the snapshots they alre
 
 ### The button and the menu item
 
-- Sidebar header (`index.html`, `sidebar.html`): a button, id `orchestrator-toggle`, title
-  `Orchestrator`, placed before `#dashboard`. Lit (`aria-pressed="true"`) while the panel is open.
-  A dot on it when the panel is closed and any running container's orchestrator pane has agent
-  status `blocked` or `done`.
-- In `/`, the button toggles the panel directly. In `/sidebar`, it sends the view intent
-  `toggleOrchestrator` (no arguments), which the view's `/main` page carries out; `/main` puts
-  `orchestratorOpen: boolean` in its `view_state` so the sidebar can light the button.
+- **Changed while building:** not in the sidebar header, which was already full at its default
+  350 px (Copy URL partly clipped; a sixth icon pushed Dashboard out). The button is in the tiling
+  area's top-right corner, left of the zen button (class `orchestrator-toggle`, title
+  `Orchestrator`; the tile headers' `--zen-room` grows to 44 px for both), on `/` and `/main`
+  alike, so `/sidebar` needs no relay and there is no `toggleOrchestrator` view intent or
+  `orchestratorOpen` view state. Lit (`aria-pressed="true"`) while the panel is open; a dot when
+  the panel is closed and any running container's orchestrator pane has agent status `blocked` or
+  `done`. In zen mode it shows on hover, as the zen button does, but stays shown with a dot.
 - devc-desktop **View → Orchestrator** (after the Developer Tools items' separator, before
   **Appearance**; no accelerator) calls `setMainHash({ orchestrator: <nonce> })`; the page toggles
   the panel and removes the parameter as it does `host-slot`.
@@ -258,16 +262,12 @@ No message changes for this: the pages apply the rule to the snapshots they alre
 - `devc/web/protocol.ts`
 - `devc/deno.json`
 - `devc/web/static/lib/orchestrator.js` (new)
-- `devc/web/static/lib/view.js`
 - `devc/web/static/orchestrator.js` (new)
-- `devc/web/static/index.html`
-- `devc/web/static/main.html`
-- `devc/web/static/sidebar.html`
-- `devc/web/static/sidebar.js`
 - `devc/web/static/cards.js`
 - `devc/web/static/containers.js`
 - `devc/web/static/main-page.js`
-- `devc/web/static/app.js`
+- `devc/web/static/tiles.js`
+- `devc/web/herdr_workspaces.ts`
 - `devc/web/static/style.css`
 - `devc-desktop/src/main/main.ts`
 - `devc/tests/web_orchestrator_test.ts` (new)
@@ -280,10 +280,10 @@ No message changes for this: the pages apply the rule to the snapshots they alre
 
 Automated:
 
-- [ ] `cd devc && deno task check` passes (includes `web/orchestrator.ts`)
-- [ ] `deno check` on every changed or new file under `devc/web/static/` passes
-- [ ] `cd devc && deno lint` reports nothing new
-- [ ] `cd devc && deno test --allow-run --allow-read --allow-write --allow-env tests/web_orchestrator_test.ts tests/web_orchestrator_page_test.ts tests/web_views_test.ts tests/web_sidebar_test.ts`
+- [x] `cd devc && deno task check` passes (includes `web/orchestrator.ts`)
+- [x] `deno check` on every changed or new file under `devc/web/static/` passes
+- [x] `cd devc && deno lint` reports nothing new
+- [x] `cd devc && deno test --allow-run --allow-read --allow-write --allow-env tests/web_orchestrator_test.ts tests/web_orchestrator_page_test.ts tests/web_views_test.ts tests/web_sidebar_test.ts`
       passes, covering:
   - the launch command is exactly the one in Contracts for a given session id
   - `repos.json` content: names from `repoName`, container paths, repos without a container folder
@@ -293,18 +293,31 @@ Automated:
     `/root/.local/share/devc-orchestrator`; false for `/workspaces/x`, for a `foreground_cwd`
     match alone, and for `/home/vscode/.local/share/devc-orchestrator-old`
   - the hash parser takes `orchestrator=<nonce>` and the cleaned hash no longer has it
-  - `VIEW_INTENT_NAMES` in `protocol.ts` and `lib/view.js` both list `toggleOrchestrator`
-- [ ] `cd devc && deno task test` (the full suite) passes
-- [ ] `deno fmt --check` on the touched files passes
-- [ ] `cd devc && deno task build` succeeds, and `strings devc | grep -c 'devc-orchestrator'` is
+- [ ] `cd devc && deno task test` (the full suite) passes — 1202 pass; the one failure,
+      `docker_exec_single_path_test`, flags a gitignored build artifact
+      (`devc-core/dist/container.d.ts`) from another build, not this change
+- [x] `deno fmt --check` on the touched files passes
+- [x] `cd devc && deno task build` succeeds, and `grep -a -c 'devc-orchestrator' devc` is
       non-zero (the files are embedded)
-- [ ] `cd devc-desktop && npm run check` passes and `npm run build:mac` builds the Mac apps
+- [x] `cd devc-desktop && npm run check` passes and `npm run build:mac` builds the Mac apps
+
+Checked here, in a container, without devc web (Pi 1.5.0, Herdr 0.9.5):
+
+- [x] The exact launch command in a Herdr pane: Pi starts with the extension loaded and no trust
+      prompt; Herdr sees an idle `pi` agent with the pane's `cwd` still the folder
+- [x] Over Pi's RPC mode: `/reindex` registered; the `repos` and `routing` sections reach the model
+      (it named both repos and their branches); `search` finds matches; `read_file` refuses
+      `../../../etc/hostname` and reads `deno.json`
+- [x] `dispatch` (agent `pi`) opened a tab in the repo's Herdr workspace, labeled with the title,
+      and the worker answered the prompt; probe tabs closed afterwards
+
+Not run (needs a running devc web on the host and a browser; left for the person):
 
 Live, in a running devc web with a container that has `installPiCli` and `installHerdr`:
 
 - [ ] Before opening the panel, `ls ~/.local/share/devc-orchestrator` in the container fails (no
       start before first open)
-- [ ] The header button opens the panel; Pi starts in it within a few seconds, with no trust
+- [ ] The corner button opens the panel; Pi starts in it within a few seconds, with no trust
       prompt; the folder holds the five files
 - [ ] No orchestrator pane in In use, the container's terminal rows, Containers, or the Sessions row
 - [ ] "Add a README badge to <repo>" with one clear repo starts `claude` in a new pane in that repo's
@@ -319,6 +332,6 @@ Live, in a running devc web with a container that has `installPiCli` and `instal
       conversation
 - [ ] While the panel is closed and the orchestrator asks a question, the button shows the dot
 - [ ] In devc-desktop, **View → Orchestrator** toggles the panel each time it's chosen, and the
-      sidebar button lights with it
+      corner button lights with it
 - [ ] In a container without Pi, the panel shows `This container needs the agents feature's
       installPiCli and installHerdr.`

@@ -255,6 +255,13 @@ disabled, with the reason, when there is no such folder, and both are disabled w
 runs in the shell (`(busy: vim)`). If devc web is open in a browser too, the window you used last
 decides which pane counts.
 
+### Orchestrator
+
+**View → Orchestrator** opens or closes devc web's orchestrator panel, as the speech-bubble button
+in the tiles' top-right corner does: a Pi session per running container that routes a request to one of its
+repos and starts an agent there (see devc web's README, **Orchestrator**). The app sets
+`#…&orchestrator=<nonce>` on `/main`, a fresh nonce each time; the page takes it out again.
+
 ### Theme
 
 **View → Theme** colors devc web and the app's own parts (title bar, rail, status, Containers

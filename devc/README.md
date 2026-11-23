@@ -909,6 +909,41 @@ is published from any container: the host server finds devcontainers with
   sends one. Tasks are kept in
   `~/.config/devc/tasks/tasks.json` (the 50 newest sent ones), shared by every
   devc web window.
+- **Orchestrator:** the speech-bubble button in the tiles' top-right corner,
+  beside the zen button (devc-desktop's **View → Orchestrator** too), opens a
+  panel docked on the right of the tiles, outside their layout, with a Pi
+  session that routes what you ask to one of the container's repos and starts
+  an agent there. Ask it for anything ("add a retry to the bridge client");
+  it picks the repo from the repos' READMEs, their `AGENTS.md`/`CLAUDE.md`
+  headings, recent commits and your routing notes, searching (`git grep`) only
+  when those don't decide it, and asks you to choose when more than one repo
+  fits. It then opens a new terminal in that repo, in the repo's Herdr
+  workspace, named after the work, and starts Claude there (or Copilot or Pi,
+  if you name one) with your request word for word, plus a short
+  `## Routing notes` section when it has something to add. It never does the
+  work itself: it has no tools to edit files or run commands. Each running
+  container has its own orchestrator; with more than one, a picker in the
+  panel's header switches between them. Nothing starts until the panel is
+  first opened for a container: devc web then writes the orchestrator's files
+  into `~/.local/share/devc-orchestrator/` there and starts
+  `pi --no-builtin-tools -e ./orchestrator.ts …` in a pane of its own Herdr
+  workspace, **Orchestrator**. The pane never shows in In use, a container's
+  terminals or Sessions; the panel draws it. Closing the panel leaves it
+  running, and reopening it shows the same conversation, as does quitting Pi
+  (a fixed session id per container, kept in `session-id` there). The
+  header's **Restart** starts Pi again on the same conversation (after a devc
+  update, say); **New session** starts an empty one. While the panel is closed,
+  the button shows a dot when an orchestrator is waiting on you (in zen mode,
+  where the corner buttons show on hover, it stays shown while it has one). The panel's
+  left edge drags to resize it (double-click resets it); in a window too
+  narrow for both, it lies over the tiles. Whether it is open, its width and
+  its container are kept per browser (`orchestratorOpen`,
+  `orchestratorWidth`, `orchestratorContainer`). **Routing notes:**
+  `~/.config/devc/orchestrator/routing.md` on the host, made from a template
+  the first time, is shared by every container's orchestrator and read again
+  on every prompt, so an edit applies to your next message. The container
+  needs the `agents` Feature's `installPiCli` and `installHerdr`; without Pi,
+  the panel says so.
 - **Sessions:** each running container's **Sessions** row (between Terminals
   and its repos, closed until opened) lists the 20 most recent Claude, Copilot
   and pi sessions of each of the project's repos (those that started in it),

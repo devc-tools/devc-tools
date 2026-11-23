@@ -98,14 +98,20 @@ export interface RepoShellOptions {
   cwd?: string;
   /** An explicit workspace (the page's `new_shell`): used as is, no repo lookup. */
   workspace_id?: string;
+  /**
+   * The workspace's label, in place of the repo's (the orchestrator's own workspace): found or
+   * made by it, no repo lookup.
+   */
+  workspaceLabel?: string;
   repos: readonly MountedRepo[];
   localFolder: string;
 }
 
 /**
- * A new pane in its own Herdr tab, in the workspace of the repo `cwd` is in: found by label with
- * `workspace.list`, else made with `workspace.create`, whose first tab's root pane is the new
- * pane. With an explicit `workspace_id`, or no repo to go by, it is {@link createShell}.
+ * A new pane in its own Herdr tab, in the workspace of the repo `cwd` is in (or the one labeled
+ * `workspaceLabel`): found by label with `workspace.list`, else made with `workspace.create`,
+ * whose first tab's root pane is the new pane. With an explicit `workspace_id`, or no repo to go
+ * by, it is {@link createShell}.
  */
 export function createRepoShell(
   t: HerdrTarget,
@@ -115,9 +121,13 @@ export function createRepoShell(
   if (opts.workspace_id !== undefined) {
     return createShell(t, { workspace_id: opts.workspace_id, ...cwd });
   }
-  const repo = workspaceRepo(opts.cwd, opts.repos, opts.localFolder);
-  if (repo === null) return createShell(t, cwd);
-  const label = workspaceLabel(repo);
+  const repo = opts.workspaceLabel === undefined
+    ? workspaceRepo(opts.cwd, opts.repos, opts.localFolder)
+    : null;
+  if (repo === null && opts.workspaceLabel === undefined) {
+    return createShell(t, cwd);
+  }
+  const label = opts.workspaceLabel ?? workspaceLabel(repo as MountedRepo);
   return serialized(opts.key, async () => {
     const id = workspaceByLabel(
       await bridgeRequest(t, 'workspace.list', {}),

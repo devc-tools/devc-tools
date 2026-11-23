@@ -1970,6 +1970,24 @@ html[data-busy] {
     4px);
 }
 
+/* The docked orchestrator panel's room (`orchestrator.js`): 0 while it is closed or lies over the
+   tiles. */
+.app[data-orchestrator='docked'] .layout-root {
+  right: calc(var(--tile-gap) + var(--orchestrator-room, 0px));
+}
+
+.app[data-orchestrator='docked'] .zen-toggle {
+  right: calc(var(--tile-gap) + 1px + var(--orchestrator-room, 0px));
+}
+
+.app[data-orchestrator='docked'] .orchestrator-toggle {
+  right: calc(var(--tile-gap) + 23px + var(--orchestrator-room, 0px));
+}
+
+.app[data-orchestrator='docked'] .tiles-placeholder {
+  right: var(--orchestrator-room, 0px);
+}
+
 .app[data-sidebar='hidden'] .layout-root {
   left: var(--tile-gap);
 }
@@ -4479,4 +4497,142 @@ dialog.dialog.palette {
   to {
     box-shadow: inset 3px 0 0 transparent;
   }
+}
+
+/* The orchestrator panel (`orchestrator.js`): in the tiles' grid cell, at its right edge, over
+   the room `.layout-root` leaves it (or over the tiles, when the window is too narrow). */
+.orchestrator {
+  grid-row: 1;
+  grid-column: 3;
+  justify-self: end;
+  z-index: 20;
+  position: relative;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  width: var(--orchestrator-width, 420px);
+  min-width: 0;
+  min-height: 0;
+  margin: var(--tile-gap) var(--tile-gap) var(--tile-gap) 0;
+  border: 1px solid var(--tile-border);
+  border-radius: 4px;
+  background: var(--term-bg);
+  overflow: hidden;
+}
+
+.orchestrator[hidden] {
+  display: none;
+}
+
+.app[data-page='main'] > .orchestrator {
+  grid-column: 1;
+}
+
+.app[data-orchestrator='overlay'] > .orchestrator {
+  box-shadow: -4px 0 16px var(--shadow);
+}
+
+.orchestrator-resizer {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 2;
+  width: 5px;
+  cursor: col-resize;
+  touch-action: none;
+}
+
+body.resizing-orchestrator {
+  cursor: col-resize;
+  user-select: none;
+}
+
+.orchestrator-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 4px 0 10px;
+  background: var(--tile-head);
+  border-bottom: 1px solid var(--tile-head-line);
+}
+
+.orchestrator-title {
+  color: var(--tile-label);
+  font-weight: 600;
+}
+
+.orchestrator-picker {
+  min-width: 0;
+  max-width: 50%;
+}
+
+.orchestrator-spacer {
+  flex: 1;
+}
+
+.orchestrator-body {
+  position: relative;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.orchestrator-note {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 8px;
+  padding: 16px;
+  background: var(--term-bg);
+  color: var(--muted);
+  text-align: center;
+}
+
+.orchestrator-note[hidden] {
+  display: none;
+}
+
+.orchestrator-note p {
+  margin: 0;
+}
+
+/* The orchestrator's button (`orchestrator.js`): in the tiling area's top-right corner, left of
+   the zen button, in the top-right tile's header (whose controls make room for both: the
+   `--zen-room` below). Marked while the panel is closed and an orchestrator waits on you. */
+.orchestrator-toggle {
+  position: absolute;
+  top: var(--tile-gap);
+  right: calc(var(--tile-gap) + 23px);
+  z-index: 5;
+  width: 22px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.tiles:has(> .orchestrator-toggle) {
+  --zen-room: 44px;
+}
+
+.app[data-zen='on'] .orchestrator-toggle:not([data-waiting]) {
+  opacity: 0;
+}
+
+.app[data-zen='on'] .orchestrator-toggle:is(:hover, :focus-visible) {
+  opacity: 1;
+}
+
+.orchestrator-toggle[data-waiting]::after {
+  content: '';
+  position: absolute;
+  top: 6px;
+  right: 2px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--blocked);
 }

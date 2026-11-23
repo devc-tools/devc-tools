@@ -8,6 +8,7 @@
 
 import { createRenderer } from './renderer.js';
 import { attachTerminalMouse } from './term_mouse.js';
+import { mountOrchestrator } from './orchestrator.js';
 import { createTiling } from './layout.js';
 import {
   askToEndHostSlot,
@@ -6581,6 +6582,21 @@ export function mountTiles(root, opts) {
     }
   });
   $tiles.replaceChildren($layoutRoot, $placeholder, $zenToggle);
+  const app = /** @type {HTMLElement | null} */ ($tiles.closest('.app'));
+  // A panel that fails to mount must not take the tiles with it.
+  if (app) {
+    try {
+      mountOrchestrator(app, {
+        tiles: $tiles,
+        focusedFolder: () => {
+          const tile = targetTile();
+          return tile?.ref?.localFolder ?? tile?.file?.localFolder ?? null;
+        },
+      });
+    } catch (e) {
+      console.error('devc web: orchestrator panel', e);
+    }
+  }
   tiling = createTiling($layoutRoot, {
     mount: mountTile,
     unmount: unmountTile,
