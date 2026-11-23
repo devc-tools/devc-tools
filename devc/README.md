@@ -935,7 +935,12 @@ is published from any container: the host server finds devcontainers with
   workspace, named after the work, and starts Claude there (or Copilot or Pi,
   if you name one) with your request word for word, plus a short
   `## Routing notes` section when it has something to add. It never does the
-  work itself: it has no tools to edit files or run commands. Each running
+  work itself: it has no tools to edit files or run commands. It keeps track
+  of the agents it starts (in `workers.json` beside its files): when one
+  waits on you (a question or a permission prompt), the orchestrator reads
+  its screen and tells you what it asks and in which pane, since only you can
+  answer it; it says when one finishes; and on request it reports how they
+  are doing or sends one a follow-up. Each running
   container has its own orchestrator; with more than one, a picker in the
   panel's header switches between them. Nothing starts until the panel is
   first opened for a container: devc web then writes the orchestrator's files

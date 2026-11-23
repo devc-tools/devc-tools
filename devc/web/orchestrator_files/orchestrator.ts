@@ -1,9 +1,10 @@
 // The devc web orchestrator's Pi extension (`.plans/devc-web-orchestrator.md`). devc web copies
 // this file into `$HOME/.local/share/devc-orchestrator/` in a container and starts Pi there with
 // `--no-builtin-tools -e ./orchestrator.ts`, so the tools below are the only ones the model has.
-// It reads files, runs `git` and `herdr`, writes only a dispatched prompt's temp file, and nothing
-// else: it routes a request to one of the container's repos and starts a worker agent there in a
-// new Herdr pane.
+// It reads files, runs `git` and `herdr`, writes only a dispatched prompt's temp file and
+// `workers.json`, and nothing else: it routes a request to one of the container's repos, starts a
+// worker agent there in a new Herdr pane, and watches its workers: when one waits on the user it
+// tells the orchestrator what the worker's screen shows, so the orchestrator can tell the user.
 //
 // Pi loads it (with its own copies of the imports below), never Deno: it is out of `deno check`
 // and `deno lint`.
@@ -30,6 +31,37 @@ const MAX_SEARCH_LINES = 200;
 const MAX_READ_LINES = 400;
 const MAX_READ_CHARS = 40_000;
 const MAX_TITLE = 60;
+/** How often the watcher checks the workers' status. */
+const WATCH_MS = 3_000;
+/** How long a new worker may go undetected before it counts as gone. */
+const START_GRACE_MS = 60_000;
+const READ_LINES = 60;
+const MAX_WORKER_LINES = 200;
+
+/** A worker this orchestrator dispatched, kept in `workers.json` across Pi restarts. */
+interface Worker {
+  pane: string;
+  repo: string;
+  agent: string;
+  title: string;
+  /** When it was dispatched, ms since the epoch. */
+  started: number;
+}
+
+const workersFile = () => join(process.cwd(), 'workers.json');
+
+function readWorkers(): Worker[] {
+  try {
+    const parsed = JSON.parse(readText(workersFile()));
+    return Array.isArray(parsed?.workers) ? parsed.workers : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeWorkers(workers: Worker[]) {
+  writeFileSync(workersFile(), `${JSON.stringify({ workers }, null, 2)}\n`);
+}
 
 function text(t: string) {
   return { content: [{ type: 'text' as const, text: t }], details: {} };
@@ -260,6 +292,190 @@ export default function (pi: ExtensionAPI) {
     },
   });
 
+  /** A worker's Herdr agent status, `starting` before Herdr sees it, `gone` once it never will. */
+  const workerStatus = async (w: Worker): Promise<string> => {
+    const r = await run('herdr', ['agent', 'get', w.pane]);
+    if (r.code === 0) {
+      try {
+        return JSON.parse(r.stdout)?.result?.agent?.agent_status ?? 'unknown';
+      } catch {
+        return 'unknown';
+      }
+    }
+    if (!(r.stderr + r.stdout).includes('agent_not_found')) return 'unknown';
+    return Date.now() - w.started < START_GRACE_MS ? 'starting' : 'gone';
+  };
+
+  const workerScreen = async (
+    pane: string,
+    lines: number,
+    source: 'visible' | 'recent' = 'recent',
+  ) => {
+    const r = await run('herdr', [
+      'agent',
+      'read',
+      pane,
+      '--source',
+      source,
+      '--lines',
+      String(lines),
+    ]);
+    if (r.code !== 0) return null;
+    return r.stdout.replace(/[ \t]+$/gm, '').replace(/\n{3,}/g, '\n\n').trim();
+  };
+
+  const describe = (w: Worker) =>
+    `${w.agent} in ${w.repo} (pane ${w.pane}, "${w.title}")`;
+
+  const findWorker = (pane: string): Worker => {
+    const workers = readWorkers();
+    const w = workers.find((x) => x.pane === pane);
+    if (w) return w;
+    throw new Error(
+      `No worker in pane ${pane}. Workers: ${
+        workers.map((x) => x.pane).join(', ') || '(none)'
+      }`,
+    );
+  };
+
+  // The watcher: each worker's last status, so a change is told once. A worker found waiting when
+  // the watcher first sees it (e.g. after a restart) is told too; one found done is not.
+  const last = new Map<string, string>();
+  let timer: ReturnType<typeof setInterval> | null = null;
+  let polling = false;
+
+  // A waiting worker's message holds its screen for the model and wakes it (the user sees its
+  // reply, not the screen); a finished one is only shown, and the model sees it on the next turn.
+  const tell = (content: string, triggerTurn: boolean) =>
+    pi.sendMessage(
+      { customType: 'devc-worker', content, display: !triggerTurn },
+      { triggerTurn, deliverAs: 'followUp' },
+    );
+
+  const poll = async () => {
+    if (polling) return;
+    polling = true;
+    try {
+      const workers = readWorkers();
+      const kept: Worker[] = [];
+      for (const w of workers) {
+        const status = await workerStatus(w);
+        const before = last.get(w.pane);
+        last.set(w.pane, status);
+        if (status === 'gone') {
+          last.delete(w.pane);
+          continue;
+        }
+        kept.push(w);
+        if (status === before) continue;
+        if (status === 'blocked') {
+          const screen = await workerScreen(w.pane, 40, 'visible');
+          tell(
+            `Worker ${
+              describe(w)
+            } is waiting on the user. The end of its screen:\n\n\`\`\`\n${
+              screen ?? '(could not read it)'
+            }\n\`\`\`\n\nTell the user in a line or two what it is asking and that they answer it in that pane.`,
+            true,
+          );
+        } else if (status === 'done' && before !== undefined) {
+          tell(`Worker ${describe(w)} finished its turn.`, false);
+        }
+      }
+      if (kept.length !== workers.length) {
+        // Re-read so a dispatch made meanwhile is kept.
+        const gone = new Set(
+          workers.filter((w) => !kept.includes(w)).map((w) => w.pane),
+        );
+        writeWorkers(readWorkers().filter((w) => !gone.has(w.pane)));
+      }
+      if (kept.length === 0 && timer) {
+        clearInterval(timer);
+        timer = null;
+      }
+    } finally {
+      polling = false;
+    }
+  };
+
+  const watch = () => {
+    if (!timer) timer = setInterval(() => void poll(), WATCH_MS);
+  };
+
+  pi.on('session_start', async () => {
+    if (readWorkers().length) watch();
+  });
+  pi.on('session_shutdown', async () => {
+    if (timer) clearInterval(timer);
+    timer = null;
+  });
+
+  pi.registerTool({
+    name: 'workers',
+    label: 'Workers',
+    description:
+      "The workers you dispatched that still exist, with each one's status: working, blocked (waiting on the user: a question or a permission prompt), done (finished its turn, unseen), idle, starting or unknown.",
+    parameters: Type.Object({}),
+    async execute() {
+      const workers = readWorkers();
+      if (!workers.length) return text('No workers.');
+      const lines: string[] = [];
+      for (const w of workers) {
+        const status = await workerStatus(w);
+        if (status !== 'gone') lines.push(`${describe(w)}: ${status}`);
+      }
+      return text(lines.join('\n') || 'No workers.');
+    },
+  });
+
+  pi.registerTool({
+    name: 'read_worker',
+    label: 'Read worker',
+    description:
+      "The end of a worker's screen: what it is doing, asking or has answered.",
+    parameters: Type.Object({
+      pane: Type.String({ description: "The worker's pane id" }),
+      lines: Type.Optional(
+        Type.Number({ description: `Lines to read (default ${READ_LINES})` }),
+      ),
+    }),
+    async execute(_id, params) {
+      const w = findWorker(params.pane);
+      const n = Math.min(
+        Math.max(Math.floor(params.lines ?? READ_LINES), 1),
+        MAX_WORKER_LINES,
+      );
+      const screen = await workerScreen(w.pane, n);
+      if (screen === null) throw new Error(`Can't read pane ${w.pane}`);
+      return text(screen || '(empty)');
+    },
+  });
+
+  pi.registerTool({
+    name: 'message_worker',
+    label: 'Message worker',
+    description:
+      "Send a worker a follow-up message, as if the user typed it into its pane. Refused while the worker shows a question or permission prompt: those are the user's to answer in the pane.",
+    parameters: Type.Object({
+      pane: Type.String({ description: "The worker's pane id" }),
+      message: Type.String(),
+    }),
+    async execute(_id, params) {
+      const w = findWorker(params.pane);
+      const r = await run('herdr', ['agent', 'prompt', w.pane, params.message]);
+      if (r.code === 0) return text(`Sent to ${describe(w)}.`);
+      const out = (r.stderr || r.stdout).trim();
+      if (out.includes('agent_blocked')) {
+        return text(
+          `Not sent: ${
+            describe(w)
+          } is showing a question or permission prompt. The user answers it in that pane.`,
+        );
+      }
+      throw new Error(`herdr agent prompt failed: ${out}`);
+    },
+  });
+
   pi.registerTool({
     name: 'dispatch',
     label: 'Dispatch',
@@ -336,6 +552,11 @@ export default function (pi: ExtensionAPI) {
         rmSync(file, { force: true });
         throw e;
       }
+      writeWorkers([
+        ...readWorkers(),
+        { pane, repo: repo.name, agent, title, started: Date.now() },
+      ]);
+      watch();
       return text(`Started ${agent} in ${repo.name} (pane ${pane})`);
     },
   });
