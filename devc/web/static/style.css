@@ -1970,22 +1970,22 @@ html[data-busy] {
     4px);
 }
 
-/* The docked orchestrator panel's room (`orchestrator.js`): 0 while it is closed or lies over the
-   tiles. */
+/* The docked orchestrator panel's room (`orchestrator.js`): its width and the tile gap before it,
+   where its splitter is. 0 while it is closed or lies over the tiles. */
 .app[data-orchestrator='docked'] .layout-root {
-  right: calc(var(--tile-gap) + var(--orchestrator-room, 0px));
+  right: calc(2 * var(--tile-gap) + var(--orchestrator-room, 0px));
 }
 
 .app[data-orchestrator='docked'] .zen-toggle {
-  right: calc(var(--tile-gap) + 1px + var(--orchestrator-room, 0px));
+  right: calc(2 * var(--tile-gap) + 1px + var(--orchestrator-room, 0px));
 }
 
 .app[data-orchestrator='docked'] .orchestrator-toggle {
-  right: calc(var(--tile-gap) + 23px + var(--orchestrator-room, 0px));
+  right: calc(2 * var(--tile-gap) + 23px + var(--orchestrator-room, 0px));
 }
 
 .app[data-orchestrator='docked'] .tiles-placeholder {
-  right: var(--orchestrator-room, 0px);
+  right: calc(var(--tile-gap) + var(--orchestrator-room, 0px));
 }
 
 .app[data-sidebar='hidden'] .layout-root {
@@ -4516,7 +4516,6 @@ dialog.dialog.palette {
   border: 1px solid var(--tile-border);
   border-radius: 4px;
   background: var(--term-bg);
-  overflow: hidden;
 }
 
 .orchestrator[hidden] {
@@ -4531,15 +4530,21 @@ dialog.dialog.palette {
   box-shadow: -4px 0 16px var(--shadow);
 }
 
+/* The splitter: the tile gap before the panel, colored like `.lm_splitter` (the tiles' own). */
 .orchestrator-resizer {
   position: absolute;
-  top: 0;
-  bottom: 0;
-  left: 0;
+  top: -1px;
+  bottom: -1px;
+  left: calc(-1px - var(--tile-gap));
   z-index: 2;
-  width: 5px;
+  width: var(--tile-gap);
   cursor: col-resize;
   touch-action: none;
+}
+
+.orchestrator-resizer:hover,
+.orchestrator-resizer.dragging {
+  background: var(--accent);
 }
 
 body.resizing-orchestrator {
@@ -4548,6 +4553,7 @@ body.resizing-orchestrator {
 }
 
 .orchestrator-header {
+  border-radius: 3px 3px 0 0;
   display: flex;
   align-items: center;
   gap: 6px;
@@ -4575,6 +4581,7 @@ body.resizing-orchestrator {
   position: relative;
   min-height: 0;
   overflow: hidden;
+  border-radius: 0 0 3px 3px;
 }
 
 .orchestrator-note {

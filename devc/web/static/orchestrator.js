@@ -442,6 +442,7 @@ export function mountOrchestrator(app, opts) {
     ev.preventDefault();
     ev.stopPropagation();
     $resizer.setPointerCapture(ev.pointerId);
+    $resizer.classList.add('dragging');
     document.body.classList.add('resizing-orchestrator');
     const right = $panel.getBoundingClientRect().right;
     const onMove = (/** @type {PointerEvent} */ e) => {
@@ -454,6 +455,7 @@ export function mountOrchestrator(app, opts) {
     const onEnd = () => {
       $resizer.removeEventListener('pointermove', onMove);
       $resizer.removeEventListener('lostpointercapture', onEnd);
+      $resizer.classList.remove('dragging');
       document.body.classList.remove('resizing-orchestrator');
       save(ORCHESTRATOR_WIDTH_KEY, String(width));
     };
