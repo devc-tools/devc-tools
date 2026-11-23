@@ -32,6 +32,7 @@ import {
   call,
   containers,
   displayName,
+  findPane,
   list,
   nextId,
   onServerMessage,
@@ -41,6 +42,8 @@ import {
 import { errorToast, h, iconButton, IS_MAC, writeClipboard } from './ui.js';
 
 const RESIZE_DEBOUNCE_MS = 100;
+/** How long a new pane may take to show in Herdr's snapshot before the panel gives up. */
+const LISTED_TIMEOUT_MS = 15_000;
 
 /** The mounted panel's toggle, once `tiles.js` has mounted it. */
 let mounted = /** @type {(() => void) | null} */ (null);
@@ -87,6 +90,11 @@ export function mountOrchestrator(app, opts) {
     null
   );
   let openId = /** @type {string | null} */ (null);
+  /** When `wanted` was set, to give up on a pane that never shows. */
+  let wantedSince = 0;
+  let listedTimer = /** @type {ReturnType<typeof setTimeout> | undefined} */ (
+    undefined
+  );
   let pending = false;
   let frames = 0;
   /** @type {{cols: number, rows: number} | null} */
@@ -296,6 +304,23 @@ export function mountOrchestrator(app, opts) {
     renderer.focus();
   }
 
+  /** Attaches the wanted pane once the page's snapshot lists it. */
+  function attachWhenListed() {
+    clearTimeout(listedTimer);
+    if (!open || !wanted || attached) return;
+    if (findPane(wanted.container, wanted.pane_id)) {
+      attach(wanted);
+      return;
+    }
+    if (Date.now() - wantedSince > LISTED_TIMEOUT_MS) {
+      wanted = null;
+      note("The orchestrator's pane didn't appear.", () => void start('open'));
+      return;
+    }
+    // Snapshots drive this; the timer only catches a pane that never shows.
+    listedTimer = setTimeout(attachWhenListed, 1000);
+  }
+
   /** @param {'open' | 'restart' | 'new'} mode */
   async function start(mode) {
     renderPicker();
@@ -317,8 +342,10 @@ export function mountOrchestrator(app, opts) {
       }));
       if (current()?.id !== c.id) return;
       wanted = { container: c.id, pane_id: String(r.pane_id) };
-      // A new pane shows in the next snapshot; Herdr answers opens for it at once.
-      attach(wanted);
+      // The server opens only panes its snapshot lists, and a new one shows in a later
+      // snapshot: attach once it is listed (`snapshot` below), or give up after a while.
+      wantedSince = Date.now();
+      attachWhenListed();
     } catch (e) {
       note(
         /** @type {any} */ (e)?.message ?? String(e),
@@ -365,6 +392,9 @@ export function mountOrchestrator(app, opts) {
           attached = null;
           void start('open');
         }
+        break;
+      case 'snapshot':
+        attachWhenListed();
         break;
       case 'frame':
         if (
