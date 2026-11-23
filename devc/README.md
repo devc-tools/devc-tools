@@ -929,13 +929,15 @@ is published from any container: the host server finds devcontainers with
   session that routes what you ask to one of the container's repos and starts
   an agent there. Ask it for anything ("add a retry to the bridge client");
   it picks the repo from the repos' READMEs, their `AGENTS.md`/`CLAUDE.md`
-  headings, recent commits and your routing notes, searching (`git grep`) only
+  headings, recent commits and your routing notes, looking in the repos only
   when those don't decide it, and asks you to choose when more than one repo
   fits. It then opens a new terminal in that repo, in the repo's Herdr
   workspace, named after the work, and starts Claude there (or Copilot or Pi,
   if you name one) with your request word for word, plus a short
   `## Routing notes` section when it has something to add. It never does the
-  work itself: it has no tools to edit files or run commands. It keeps track
+  work itself: it has Pi's own tools (read, bash, edit, write) to look around
+  and for small one-off tasks, with scratch files in its own folder, but it is
+  told to hand work that belongs in a repo to an agent there. It keeps track
   of the agents it starts (in `workers.json` beside its files): when one
   waits on you (a question or a permission prompt), the orchestrator reads
   its screen and tells you what it asks and in which pane, since only you can
@@ -945,7 +947,7 @@ is published from any container: the host server finds devcontainers with
   panel's header switches between them. Nothing starts until the panel is
   first opened for a container: devc web then writes the orchestrator's files
   into `~/.local/share/devc-orchestrator/` there and starts
-  `pi --no-builtin-tools -e ./orchestrator.ts …` in a pane of its own Herdr
+  `pi -e ./orchestrator.ts …` in a pane of its own Herdr
   workspace, **Orchestrator**. The pane never shows in In use, a container's
   terminals or Sessions; the panel draws it. Closing the panel leaves it
   running, and reopening it shows the same conversation, as does quitting Pi

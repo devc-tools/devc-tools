@@ -14,11 +14,11 @@ import type { MountedRepo } from '../web/git_repo.ts';
 
 const ID = '0f8fad5b-d9cb-469f-a165-70867728950e';
 
-Deno.test('launchCommand: Pi with only the extension, the system prompt and the session id', () => {
+Deno.test('launchCommand: Pi with its built-in tools, the extension, the system prompt and the session id', () => {
   assertEquals(
     launchCommand(ID),
     'exec pi --no-extensions --no-skills --no-prompt-templates --no-context-files --no-approve ' +
-      '--no-builtin-tools -e ./orchestrator.ts --system-prompt "$(cat SYSTEM.md)" ' +
+      '-e ./orchestrator.ts --system-prompt "$(cat SYSTEM.md)" ' +
       `--session-id ${ID} --name Orchestrator`,
   );
   assertThrows(() => launchCommand('x; rm -rf /'));

@@ -62,7 +62,7 @@ export function launchCommand(sessionId: string): string {
   }
   return [
     'exec pi --no-extensions --no-skills --no-prompt-templates --no-context-files --no-approve',
-    '--no-builtin-tools -e ./orchestrator.ts --system-prompt "$(cat SYSTEM.md)"',
+    '-e ./orchestrator.ts --system-prompt "$(cat SYSTEM.md)"',
     `--session-id ${sessionId} --name Orchestrator`,
   ].join(' ');
 }

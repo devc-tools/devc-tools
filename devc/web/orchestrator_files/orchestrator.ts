@@ -1,10 +1,9 @@
 // The devc web orchestrator's Pi extension (`.plans/devc-web-orchestrator.md`). devc web copies
 // this file into `$HOME/.local/share/devc-orchestrator/` in a container and starts Pi there with
-// `--no-builtin-tools -e ./orchestrator.ts`, so the tools below are the only ones the model has.
-// It reads files, runs `git` and `herdr`, writes only a dispatched prompt's temp file and
-// `workers.json`, and nothing else: it routes a request to one of the container's repos, starts a
-// worker agent there in a new Herdr pane, and watches its workers: when one waits on the user it
-// tells the orchestrator what the worker's screen shows, so the orchestrator can tell the user.
+// `-e ./orchestrator.ts`, beside Pi's own tools (SYSTEM.md asks it to delegate repo work rather
+// than do it). The tools below route a request to one of the container's repos, start a worker
+// agent there in a new Herdr pane, and watch the workers: when one waits on the user they tell the
+// orchestrator what the worker's screen shows, so the orchestrator can tell the user.
 //
 // Pi loads it (with its own copies of the imports below), never Deno: it is out of `deno check`
 // and `deno lint`.
@@ -14,7 +13,7 @@ import { Type } from 'typebox';
 import { randomUUID } from 'node:crypto';
 import { readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, relative, resolve } from 'node:path';
+import { join } from 'node:path';
 
 interface Repo {
   name: string;
@@ -27,9 +26,6 @@ const summaries = new Map<string, string>();
 const AGENTS = ['claude', 'copilot', 'pi'] as const;
 type Agent = typeof AGENTS[number];
 
-const MAX_SEARCH_LINES = 200;
-const MAX_READ_LINES = 400;
-const MAX_READ_CHARS = 40_000;
 const MAX_TITLE = 60;
 /** How often the watcher checks the workers' status. */
 const WATCH_MS = 3_000;
@@ -197,74 +193,6 @@ export default function (pi: ExtensionAPI) {
     parameters: Type.Object({}),
     async execute() {
       return text(await repoSummaries());
-    },
-  });
-
-  pi.registerTool({
-    name: 'search',
-    label: 'Search',
-    description:
-      'Search tracked files with git grep (extended regex). Omit repo to search every repo.',
-    parameters: Type.Object({
-      pattern: Type.String({ description: 'Extended regular expression' }),
-      repo: Type.Optional(Type.String({ description: 'A repo name' })),
-    }),
-    async execute(_id, params) {
-      const repos = params.repo ? [findRepo(params.repo)] : readRepos();
-      const out: string[] = [];
-      for (const r of repos) {
-        const g = await run('git', [
-          '-C',
-          r.path,
-          'grep',
-          '-n',
-          '-I',
-          '-E',
-          '--max-count',
-          '20',
-          '-e',
-          params.pattern,
-        ]);
-        for (const line of g.stdout.split('\n')) {
-          if (line) out.push(`${r.name}: ${line.slice(0, 300)}`);
-        }
-      }
-      if (out.length > MAX_SEARCH_LINES) {
-        return text(
-          `${out.slice(0, MAX_SEARCH_LINES).join('\n')}\n… (more matches cut)`,
-        );
-      }
-      return text(out.join('\n') || 'No matches.');
-    },
-  });
-
-  pi.registerTool({
-    name: 'read_file',
-    label: 'Read file',
-    description: 'Read a file in a repo (path relative to the repo).',
-    parameters: Type.Object({
-      repo: Type.String({ description: 'A repo name' }),
-      path: Type.String({ description: 'Path relative to the repo' }),
-    }),
-    async execute(_id, params) {
-      const repo = findRepo(params.repo);
-      const full = resolve(repo.path, params.path);
-      const rel = relative(repo.path, full);
-      if (rel.startsWith('..') || rel === '' && params.path !== '.') {
-        throw new Error(`${params.path} is outside ${repo.name}`);
-      }
-      let body: string;
-      try {
-        body = readFileSync(full, 'utf8');
-      } catch (e) {
-        throw new Error(`Can't read ${params.path}: ${(e as Error).message}`);
-      }
-      const lines = body.split('\n');
-      let cut = lines.slice(0, MAX_READ_LINES).join('\n');
-      if (cut.length > MAX_READ_CHARS) cut = cut.slice(0, MAX_READ_CHARS);
-      return text(
-        cut.length < body.length ? `${cut}\n… (cut; file is longer)` : cut,
-      );
     },
   });
 
