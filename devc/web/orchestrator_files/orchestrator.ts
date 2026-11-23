@@ -1,15 +1,18 @@
 // The devc web orchestrator's Pi extension (`.plans/devc-web-orchestrator.md`). devc web copies
 // this file into `$HOME/.local/share/devc-orchestrator/` in a container and starts Pi there with
 // `--no-builtin-tools -e ./orchestrator.ts`, so the tools below are the only ones the model has.
-// It reads files, runs `git` and `herdr`, and nothing else: it routes a request to one of the
-// container's repos and starts a worker agent there in a new Herdr pane.
+// It reads files, runs `git` and `herdr`, writes only a dispatched prompt's temp file, and nothing
+// else: it routes a request to one of the container's repos and starts a worker agent there in a
+// new Herdr pane.
 //
 // Pi loads it (with its own copies of the imports below), never Deno: it is out of `deno check`
 // and `deno lint`.
 
 import type { ExtensionAPI } from '@earendil-works/pi-coding-agent';
 import { Type } from 'typebox';
-import { readFileSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
+import { readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join, relative, resolve } from 'node:path';
 
 interface Repo {
@@ -313,21 +316,34 @@ export default function (pi: ExtensionAPI) {
         throw new Error(`herdr gave no pane id: ${JSON.stringify(created)}`);
       }
       await herdr(['pane', 'rename', pane, title]).catch(() => {});
-      const args = agent === 'copilot' ? ['-i', prompt] : [prompt];
-      await herdr([
-        'agent',
-        'start',
-        title,
-        '--kind',
-        agent,
-        '--pane',
-        pane,
-        '--',
-        ...args,
-      ]);
+      // The prompt goes on the agent's command line, read from a file that the command line
+      // deletes as it reads it. Not `herdr agent start -- <prompt>`: it refuses arguments it
+      // can't quote for the shell (newlines, quotes). Nor `agent start` then `agent prompt`:
+      // herdr calls Claude idle while its folder-trust question is up, so the paste's Enter
+      // would answer "No, exit", and Pi drops an Enter sent as soon as it starts.
+      const file = join(tmpdir(), `devc-dispatch-${randomUUID()}.md`);
+      writeFileSync(file, prompt, { mode: 0o600 });
+      const q = shellQuote(file);
+      const flag = agent === 'copilot' ? '-i ' : '';
+      try {
+        await herdr([
+          'pane',
+          'run',
+          pane,
+          `${agent} ${flag}"$(cat ${q}; rm -f ${q})"`,
+        ]);
+      } catch (e) {
+        rmSync(file, { force: true });
+        throw e;
+      }
       return text(`Started ${agent} in ${repo.name} (pane ${pane})`);
     },
   });
+}
+
+/** `s` in single quotes for a POSIX shell. */
+function shellQuote(s: string): string {
+  return `'${s.replace(/'/g, `'\\''`)}'`;
 }
 
 /** The new pane's id in a `tab create` or `workspace create` result. */
