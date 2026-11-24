@@ -586,6 +586,9 @@ function securityHeaders(
     'Content-Security-Policy': [
       "default-src 'self'",
       "style-src 'self' 'unsafe-inline'",
+      // Rendered Markdown draws each Mermaid diagram as an image of a blob it made: an SVG shown
+      // as an image runs no script and reaches nothing of the page.
+      "img-src 'self' blob:",
       `connect-src 'self' ws://127.0.0.1:${port} ws://localhost:${port}`,
       `frame-ancestors ${framable ? WEBVIEW_ANCESTORS : "'none'"}`,
     ].join('; '),

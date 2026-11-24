@@ -839,7 +839,10 @@ is published from any container: the host server finds devcontainers with
   it in the tile: GitHub's flavour (tables, task lists, strikethrough), code
   blocks coloured, raw HTML kept to plain formatting (no scripts, styles or
   frames). Images beside the file load; remote images (badges) don't, and show
-  as a link with their alt text instead. A link to a heading scrolls to it, a
+  as a link with their alt text instead. A `` ```mermaid `` code block is drawn as a
+  diagram (Mermaid's light theme, on a light card, honouring the block's own
+  `%%{init}%%`); one Mermaid can't draw shows why above its code. Diagrams are
+  drawn as images, so they run no script and their text can't be selected. A link to a heading scrolls to it, a
   relative link opens that repo file (Markdown rendered), and a web link opens
   a browser tab. A Markdown file's diff (Uncommitted, a commit's files, a pull
   request's tree, or a diff tile's own menu) has **Preview** too: the new

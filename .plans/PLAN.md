@@ -225,6 +225,10 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
 
 ### Completed
 
+- [devc-web-mermaid](archived/devc-web-mermaid.md) — ✅ Done: `` ```mermaid `` blocks in rendered
+  Markdown (file tiles and diff Previews) are drawn by a vendored Mermaid 12.3.0, loaded on first
+  use, as `blob:` SVG images (CSP `img-src 'self' blob:`), on a light card. Live check not run.
+
 - [devc-web-markdown-preview](archived/devc-web-markdown-preview.md) — ✅ Done: Markdown is a
   media kind beside HTML and SVG (**Preview** / **Preview to the right** / **Open as text**),
   rendered in-page through the bundled `marked`, sanitized; diff tiles get **Preview**
@@ -2833,3 +2837,4 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
 | devc web orchestrator — a per-container Pi router in a docked panel that starts agents in the right repo            | [devc-web-orchestrator](archived/devc-web-orchestrator.md)                         | complete    |
 | devc web PR review worktrees — PRs from upstream, Pull and Reset to PR for review branches                          | [devc-web-pr-review-worktrees](archived/devc-web-pr-review-worktrees.md)           | complete    |
 | devc web Markdown preview — rendered Markdown in file and diff tiles, a general renderer registry                   | [devc-web-markdown-preview](archived/devc-web-markdown-preview.md)                 | complete    |
+| devc web Mermaid — Mermaid diagrams in rendered Markdown                                                            | [devc-web-mermaid](archived/devc-web-mermaid.md)                                   | complete    |
