@@ -1012,14 +1012,14 @@ export function containerNameOf(localFolder) {
 }
 
 /**
- * A repo card's worktree items, as menu groups: **New worktree…** (`create`) on a primary repo;
- * on a linked worktree, **New worktree…** (its main repo's dialog: a sibling) and **Delete
- * worktree…** (`close`). New worktree is greyed out, its tooltip saying
- * why, when the server found no usable `<repo>.worktrees` here (`worktreesProblem`); both are while
- * the environment isn't running. Also on a card's In use stand-in (`containers.js`).
+ * A repo card's worktree items, in the menu's `worktree` group: **Create Worktree…** on a primary
+ * repo; on a linked worktree, **Create Worktree…** (its main repo's dialog: a sibling) and
+ * **Delete Worktree…**. Create Worktree is greyed out, its tooltip saying why, when the server
+ * found no usable `<repo>.worktrees` here (`worktreesProblem`); both are while the environment
+ * isn't running. Also on a card's In use stand-in (`containers.js`).
  *
  * @param {any} card @param {boolean} running
- * @returns {{create?: any[], close?: any[]}}
+ * @returns {{worktree?: any[]}}
  */
 export function worktreeItems(card, running) {
   const { key, localFolder, repo } = card;
@@ -1043,7 +1043,7 @@ export function worktreeItems(card, running) {
       : repo.worktreesFolder
       ? undefined
       : { disabled: true, title: repo.worktreesProblem };
-    return { create: [[LABELS.newWorktree, open, false, undefined, opts]] };
+    return { worktree: [[LABELS.newWorktree, open, false, undefined, opts]] };
   }
   if (repo.primaryFolder && repo.primaryFolder !== repo.folder) {
     const ch = repo.changes;
@@ -1064,7 +1064,7 @@ export function worktreeItems(card, running) {
       ? undefined
       : { disabled: true, title: primary.worktreesProblem ?? '' };
     return {
-      create: [[
+      worktree: [[
         LABELS.newWorktree,
         () =>
           openNewWorktreeDialog({
@@ -1081,8 +1081,7 @@ export function worktreeItems(card, running) {
         false,
         undefined,
         newOpts,
-      ]],
-      close: [[
+      ], [
         LABELS.deleteWorktree,
         () =>
           openDeleteWorktreeDialog({

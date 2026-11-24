@@ -400,7 +400,7 @@ is published from any container: the host server finds devcontainers with
   **Projects**, a worktree's card is indented under its repo's, joined by a
   rail, and hidden until shown; with nothing open, a click on that repo's header
   hides or shows them (its chevron, on the left, points down while they show).
-  The heading's **Collapse all** hides them again. **New worktree…** (a repo
+  The heading's **Collapse all** hides them again. **Create Worktree…** (a repo
   card's right-click) makes `<repo>.worktrees/<folder>` beside the repo. Its
   **Branch** tab lists the repo's local branches and `origin`'s (the default
   branch's first; _checked out_ marks those in a worktree): pick one to start
@@ -415,7 +415,7 @@ is published from any container: the host server finds devcontainers with
   name). It is on every main checkout's card and on each of its worktrees'
   cards, where it makes a sibling (the main repo must be listed in the same
   container), and on their **In use** stand-ins' right-click (as **Delete
-  worktree…** is on a worktree's). It works while the repo's environment runs
+  Worktree…** is on a worktree's). It works while the repo's environment runs
   and has `<repo>.worktrees` beside `<repo>` (the same names, side by side, in
   the container too: mount the `.worktrees` folder as its own row); otherwise it
   is greyed out, and its tooltip says which
@@ -432,7 +432,7 @@ is published from any container: the host server finds devcontainers with
   the repo's `.git/config` in place (not by rename, so git protection's
   read-only mount keeps covering it). The new card shows under its repo's in every running environment that
   mounts the folder; nothing is added to the projects list and no container
-  starts. **Delete worktree…** on a worktree's card runs `git worktree remove`
+  starts. **Delete Worktree…** on a worktree's card runs `git worktree remove`
   there and never deletes its branch. It is refused while the worktree is a
   project of its own or an agent in it is working; with uncommitted changes it
   asks you to tick **Discard N uncommitted changes** (`--force`), which a page
@@ -495,9 +495,9 @@ is published from any container: the host server finds devcontainers with
   page, then a terminal: **Open terminal here**, **Open Host Terminal…**, then
   **Open in Code**, **Reveal in Finder**, **Open in browser**, **Open on
   GitHub**, **Open KEY in Jira**); what acts on the thing (**Save**,
-  **Reload**, **Stage**, **Push**, **Start**/**Stop**, **Ask agent…**); what
-  makes something new (**New task here…**, **New file…**, **New worktree…**,
-  **Split**); **Copy …**; this page's own state (**Pin file**, **Tag…**, **Pin
+  **Reload**, **Stage**, **Push**, **Start**/**Stop**, **Ask agent…**); a
+  repo card's worktrees (**Create Worktree…**, **Delete Worktree…**); what
+  makes something new (**New task here…**, **New file…**, **Split**); **Copy …**; this page's own state (**Pin file**, **Tag…**, **Pin
   to In use**, **Keep open**, **Reveal in …**, **Zen mode**); **Rename…**;
   and last, closing and removing (**Close**, **Close terminal…**,
   **Delete…**, **Remove container**, **Unpin file**). Text menus (in a file,

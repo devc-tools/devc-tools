@@ -29,7 +29,8 @@ export function trimDividers(items) {
  * - `preview`: a rendered view of a file (Preview, Open as text)
  * - `open`: every "Open …": in this page, then a terminal, then this machine, then the web
  * - `act`: what acts on the thing itself (Save, Reload, Stage, Push, Start, Ask agent…)
- * - `create`: something new in it or beside it (New file…, New worktree…, Split)
+ * - `worktree`: Create Worktree…, Delete Worktree…
+ * - `create`: something new in it or beside it (New file…, Split)
  * - `copy`: copying its paths, ids or text
  * - `organize`: this page's own state (Pin, Tag…, Keep open, Reveal in …, Refresh, Zen mode)
  * - `rename`: Rename…
@@ -39,6 +40,7 @@ export const MENU_GROUPS = /** @type {const} */ ([
   'preview',
   'open',
   'act',
+  'worktree',
   'create',
   'copy',
   'organize',

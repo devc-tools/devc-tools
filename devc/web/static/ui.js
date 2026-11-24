@@ -108,10 +108,10 @@ export const LABELS = {
   /** In use's box of host tiles, under the cards. */
   hostTerminals: 'Host terminals',
   /** A primary repo card's menu, when `<repo>.worktrees` is in its environment. */
-  newWorktree: 'New worktree…',
+  newWorktree: 'Create Worktree…',
   /** A linked worktree card's menu: `git worktree remove`; the branch stays. */
-  deleteWorktree: 'Delete worktree…',
-  /** Why a worktree card's New worktree… is greyed out: its main repo isn't listed here. */
+  deleteWorktree: 'Delete Worktree…',
+  /** Why a worktree card's Create Worktree… is greyed out: its main repo isn't listed here. */
   worktreeNoPrimary: (name) =>
     `${name} isn't mounted here: worktrees are made from it`,
   /** Why a worktree item is greyed out while its environment is down. */
