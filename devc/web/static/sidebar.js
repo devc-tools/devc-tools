@@ -615,7 +615,8 @@ function renderTree() {
  * container's card order; containers where their first card is. Grouped by tag (the header's
  * toggle, `inUseGroup`), a box per card tag under its name, the untagged last; by repo, a box per
  * primary repo with its linked worktrees, whatever their containers; not grouped,
- * every card shares one box in that order. Either way each card names its container.
+ * every card shares one box in that order. Either way each card names its container; by repo,
+ * a card leaves out its repo's name, which its box's heading shows.
  * A status change renders the
  * sidebar again, so cards move as their agents' statuses change. With `only` (a scoped sidebar),
  * the cards it takes instead, active or not, and `empty` the note when it takes none.
@@ -690,7 +691,9 @@ function inUseRows(cards, only, empty = 'Nothing open') {
     );
     const box = rows[rows.length - 1];
     for (const card of run.cards) {
-      box.append(repoCard(card, inUseSide, 0, group !== 'container'));
+      box.append(
+        repoCard(card, inUseSide, 0, group !== 'container', group === 'repo'),
+      );
     }
   }
   rows.push(...hostRows);

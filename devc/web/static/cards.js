@@ -1110,12 +1110,20 @@ export function worktreeItems(card, running) {
  * worktrees' cards there (see `containerRows`), and any other does nothing and doesn't look
  * clickable. `worktrees` is how many worktrees' cards follow it in Containers, hidden or not.
  * `side` is the half drawing it (see {@link CardSide}). With `container`, a repo's header also
- * names its container, after the branch (In use with its cards not grouped by container).
+ * names its container, after the branch (In use with its cards not grouped by container). With
+ * `groupNamed` (In use grouped by repo, whose group header names the repo), a repo's header leaves
+ * out the repo's name when it has a branch to show instead.
  *
  * @param {any} card @param {CardSide} side @param {number} [worktrees]
- * @param {boolean} [container]
+ * @param {boolean} [container] @param {boolean} [groupNamed]
  */
-export function repoCard(card, side, worktrees = 0, container = false) {
+export function repoCard(
+  card,
+  side,
+  worktrees = 0,
+  container = false,
+  groupNamed = false,
+) {
   const { key, localFolder, repo } = card;
   const c = containerByFolder(localFolder);
   const fr = { localFolder, root: repo ? repo.folder : localFolder };
@@ -1316,7 +1324,9 @@ export function repoCard(card, side, worktrees = 0, container = false) {
         h(
           'span',
           { class: 'repo-head-name' },
-          ...repoNameParts(repoGroupName(localFolder, repo)),
+          ...(groupNamed && branch
+            ? []
+            : repoNameParts(repoGroupName(localFolder, repo))),
           branch ? h('span', { class: 'repo-branch' }, branch) : '',
           container
             ? h(

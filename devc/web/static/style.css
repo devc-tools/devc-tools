@@ -1113,6 +1113,11 @@ body.resizing-zones {
   color: color-mix(in srgb, var(--tile-repo) 60%, var(--tile-branch));
 }
 
+/* In use grouped by repo: the branch starts the header, its repo's name in the group heading. */
+.repo-head-name > .repo-branch:first-child {
+  margin-left: 0;
+}
+
 .repo-branch::before {
   content: '⎇ ';
   color: var(--tile-branch-mark);
