@@ -1,20 +1,22 @@
 // Pure helpers for file tiles that show a file as media (an image, an HTML page in a sandboxed
-// frame, or rendered Markdown) rather than as text, shared with the Deno tests (`devc/tests/web_media_test.ts`).
+// frame, rendered Markdown, or a Mermaid diagram) rather than as text, shared with the Deno tests (`devc/tests/web_media_test.ts`).
 
 const IMAGE = /\.(?:png|jpe?g|gif|webp|avif|bmp|ico|svg)$/i;
 const HTML = /\.(?:html?|xhtml)$/i;
 const MARKDOWN = /\.(?:md|markdown|mdown|mkd)$/i;
+const MERMAID = /\.(?:mmd|mermaid)$/i;
 
 /**
  * What kind of media a file can be shown as, by its extension (any case): `null` for none.
  *
  * @param {string} path
- * @returns {'image' | 'html' | 'markdown' | null}
+ * @returns {'image' | 'html' | 'markdown' | 'mermaid' | null}
  */
 export function mediaKind(path) {
   if (IMAGE.test(path)) return 'image';
   if (HTML.test(path)) return 'html';
   if (MARKDOWN.test(path)) return 'markdown';
+  if (MERMAID.test(path)) return 'mermaid';
   return null;
 }
 

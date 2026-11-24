@@ -384,7 +384,7 @@ const views = new Map();
  * images), `clear` drops what is shown.
  *
  * @typedef {object} MediaView
- * @property {'image' | 'html' | 'markdown'} kind
+ * @property {'image' | 'html' | 'markdown' | 'mermaid'} kind
  * @property {(url: string) => void} show
  * @property {(text: string, base: string | null) => void} [render]
  * @property {() => void} clear
@@ -714,7 +714,7 @@ async function loadFile(view) {
     updateFileOverlay(view);
     return;
   }
-  if (view.media?.kind === 'markdown') {
+  if (view.media?.render) {
     loadRendered(view, view.media, c, seq);
     return;
   }
@@ -868,14 +868,16 @@ function openLinkedFile(fr, from, href) {
  * editable. An image fits the tile (never enlarged) until a click shows it 1:1, and back; an HTML
  * page gets a frame sandboxed as `/preview/` responses are, never same-origin with this page.
  *
- * @param {FileView} view @param {'image' | 'html' | 'markdown'} kind @returns {MediaView}
+ * @param {FileView} view @param {'image' | 'html' | 'markdown' | 'mermaid'} kind
+ * @returns {MediaView}
  */
 function createMediaView(view, kind) {
   const name = fileTileTitle(view.tile.file);
-  if (kind === 'markdown') {
+  if (kind === 'markdown' || kind === 'mermaid') {
     const file = /** @type {FileRef} */ (view.tile.file);
     const rendered = createRenderedView({
       name,
+      kind,
       openPath: (href) => openLinkedFile(fileRootOf(file), file.path, href),
     });
     view.host.append(rendered.el);
@@ -4100,6 +4102,7 @@ function renderedDiffContent(view) {
   }
   view.rendered ??= createRenderedView({
     name: basename(ref.path),
+    kind: renderedKind(ref.path) ?? 'markdown',
     openPath: (href) =>
       openLinkedFile(
         { localFolder: ref.localFolder, root: ref.root },

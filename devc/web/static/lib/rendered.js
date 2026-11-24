@@ -10,10 +10,28 @@ import { mediaKind } from './media.js';
  * itself here, as a media kind in `media.js`, and as a branch in the views.
  *
  * @param {string} path
- * @returns {'markdown' | null}
+ * @returns {'markdown' | 'mermaid' | null}
  */
 export function renderedKind(path) {
-  return mediaKind(path) === 'markdown' ? 'markdown' : null;
+  const kind = mediaKind(path);
+  return kind === 'markdown' || kind === 'mermaid' ? kind : null;
+}
+
+/**
+ * A rendered file's text as the Markdown its view renders: Markdown as it is, a Mermaid file as
+ * one ```mermaid block, fenced with more backticks than any run in it.
+ *
+ * @param {'markdown' | 'mermaid'} kind
+ * @param {string} text
+ */
+export function renderedMarkdown(kind, text) {
+  if (kind === 'markdown') return text;
+  const longest = Math.max(
+    0,
+    ...[...text.matchAll(/`+/g)].map((m) => m[0].length),
+  );
+  const fence = '`'.repeat(Math.max(3, longest + 1));
+  return `${fence}mermaid\n${text.replace(/\n$/, '')}\n${fence}\n`;
 }
 
 /**

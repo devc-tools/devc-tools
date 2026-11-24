@@ -5,7 +5,7 @@
 
 import { h } from './ui.js';
 import { markdownBlocks } from './viewer.js';
-import { blockMarks } from './lib/rendered.js';
+import { blockMarks, renderedMarkdown } from './lib/rendered.js';
 
 /**
  * Turns an image's `src` in a rendered file into a URL under the file's `/preview/<nonce>/` (the
@@ -217,7 +217,8 @@ function drawDiagrams(body, current) {
  * A rendered view. A click on a link to a heading scrolls to it; on a relative link, calls
  * `openPath` with the repo path it names; an http(s) link opens a new window by itself.
  *
- * @param {{name: string, openPath: (href: string) => void}} opts
+ * @param {{name: string, kind: 'markdown' | 'mermaid',
+ *   openPath: (href: string) => void}} opts
  * @returns {RenderedView}
  */
 export function createRenderedView(opts) {
@@ -251,7 +252,10 @@ export function createRenderedView(opts) {
   return {
     el,
     render(text, { base, marks }) {
-      const blocks = markdownBlocks(text, previewImageResolver(base));
+      const blocks = markdownBlocks(
+        renderedMarkdown(opts.kind, text),
+        previewImageResolver(base),
+      );
       const placed = marks && marks !== 'del'
         ? blockMarks(blocks, marks)
         : null;

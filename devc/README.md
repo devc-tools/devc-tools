@@ -842,7 +842,9 @@ is published from any container: the host server finds devcontainers with
   as a link with their alt text instead. A `` ```mermaid `` code block is drawn as a
   diagram (Mermaid's light theme, on a light card, honouring the block's own
   `%%{init}%%`); one Mermaid can't draw shows why above its code. Diagrams are
-  drawn as images, so they run no script and their text can't be selected. A link to a heading scrolls to it, a
+  drawn as images, so they run no script and their text can't be selected. A
+  Mermaid file (`.mmd`, `.mermaid`) has the same **Preview** (and its diffs
+  too), which draws it as one diagram. A link to a heading scrolls to it, a
   relative link opens that repo file (Markdown rendered), and a web link opens
   a browser tab. A Markdown file's diff (Uncommitted, a commit's files, a pull
   request's tree, or a diff tile's own menu) has **Preview** too: the new

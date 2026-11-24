@@ -4,12 +4,15 @@ import {
   blockMarks,
   changeMarks,
   renderedKind,
+  renderedMarkdown,
   slug,
 } from '../web/static/lib/rendered.js';
 import { parsePatch } from '../web/static/lib/diff.js';
 
-Deno.test('renderedKind: Markdown only', () => {
+Deno.test('renderedKind: Markdown and Mermaid', () => {
   assertEquals(renderedKind('README.md'), 'markdown');
+  assertEquals(renderedKind('flow.mmd'), 'mermaid');
+  assertEquals(renderedKind('a.Mermaid'), 'mermaid');
   assertEquals(renderedKind('docs/a.Markdown'), 'markdown');
   assertEquals(renderedKind('index.html'), null);
   assertEquals(renderedKind('a.png'), null);
@@ -93,4 +96,17 @@ Deno.test('slug: GitHub anchors with repeats', () => {
   assertEquals(slug('Hello World', seen), 'hello-world-1');
   assertEquals(slug('Hello World', seen), 'hello-world-2');
   assertEquals(slug('  Größe & `code`_x ', seen), 'größe--code_x');
+});
+
+Deno.test('renderedMarkdown: Markdown as is, Mermaid as one fenced block', () => {
+  assertEquals(renderedMarkdown('markdown', '# x\n'), '# x\n');
+  assertEquals(
+    renderedMarkdown('mermaid', 'graph TD\n  A --> B\n'),
+    '```mermaid\ngraph TD\n  A --> B\n```\n',
+  );
+  // A backtick run in the source gets a longer fence.
+  assertEquals(
+    renderedMarkdown('mermaid', 'graph TD\n  A["````"]'),
+    '`````mermaid\ngraph TD\n  A["````"]\n`````\n',
+  );
 });

@@ -8,6 +8,7 @@
 - [x] `server.ts`: the page CSP gains `img-src 'self' blob:`
 - [x] `style.css`: `.md-mermaid` light card (`--diagram-bg`, `--diagram-note` in `:root`), a failed block shows `Mermaid: <reason>` above its code
 - [x] `devc/README.md` updated
+- [x] Mermaid files (`.mmd`, `.mermaid`): media kind `mermaid` (`media.js`), `renderedKind` `'mermaid'`, rendered as one `` ```mermaid `` block (`renderedMarkdown`, fenced past any backtick run in the source); **Preview** in file and diff tiles, with tests
 - [x] Mac apps rebuilt (`style.css` changes)
 
 ## Contracts

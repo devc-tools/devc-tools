@@ -37,6 +37,13 @@ Deno.test('mediaKind: Markdown by extension, any case; it opens as text', () => 
   assertEquals(fileView({ path: 'a.md', view: 'media' }), 'media');
 });
 
+Deno.test('mediaKind: Mermaid files by extension; they open as text', () => {
+  for (const p of ['flow.mmd', 'a/B.MERMAID']) {
+    assertEquals(mediaKind(p), 'mermaid', p);
+    assertEquals(defaultView(p), 'text', p);
+  }
+});
+
 Deno.test('defaultView: images other than SVG as media, the rest as text', () => {
   assertEquals(defaultView('a.png'), 'media');
   assertEquals(defaultView('a.GIF'), 'media');
