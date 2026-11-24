@@ -419,7 +419,7 @@ body.resizing-sidebar {
 /*
  * The sidebar's scope picker (sidebar.js): one pill of four options, all, the focused tile's
  * container and its repo, and the repos with agents, the ends rounded and the middle square, the
- * checked one lit.
+ * checked one lit. In use's grouping picker (none, container, tag, repo) is drawn the same.
  */
 /* On `/` the header has no connection dot (it is in the host status strip). */
 .brand + .scope-picker {

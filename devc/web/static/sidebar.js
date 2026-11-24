@@ -148,12 +148,8 @@ let $sidebar = /** @type {HTMLElement} */ (null);
 let $tree = /** @type {HTMLElement} */ (null);
 let $conn = /** @type {HTMLElement | null} */ (null);
 let $scopePicker = /** @type {HTMLElement | null} */ (null);
-/** The header's toggle grouping In use's cards by container: set by {@link mountSidebar}. */
-let $groupButton = /** @type {HTMLElement | null} */ (null);
-/** The header's group-by-tag toggle (see {@link applyGrouping}). */
-let $groupTagButton = /** @type {HTMLElement | null} */ (null);
-/** The header's group-by-repo toggle (see {@link applyGrouping}). */
-let $groupRepoButton = /** @type {HTMLElement | null} */ (null);
+/** The header's grouping picker (`#group-picker`, see {@link applyGrouping}): set by {@link mountSidebar}. */
+let $groupPicker = /** @type {HTMLElement | null} */ (null);
 /** The header's dashboard button (`#dashboard`), when the page has one. */
 let $dashboardButton = /** @type {HTMLElement | null} */ (null);
 /** The filter box above the zones (its query is `cards.js`' `applyFilter`'s). */
@@ -292,44 +288,50 @@ function setScope(scope) {
   renderTree();
 }
 
+/** In use's groupings, in the grouping picker's order. */
+const IN_USE_GROUPS =
+  /** @type {const} */ (['none', 'container', 'tag', 'repo']);
+
 /**
- * The grouping toggles' state: the container one pressed while In use groups its cards by
- * container, the tag one while it groups them by tag, the repo one while it groups them by repo;
- * none, one box for every card.
+ * The grouping picker's checked option: none (one box for every card), or In use's cards grouped
+ * by container, tag or repo.
  */
 function applyGrouping() {
   const group = sidebarState.inUseGroup;
-  if ($groupButton) {
-    $groupButton.setAttribute('aria-pressed', String(group === 'container'));
-    $groupButton.title = group === 'container'
-      ? 'Grouped by container: click to list every repo together'
-      : 'Click to group repos by container';
-  }
-  if ($groupTagButton) {
-    $groupTagButton.setAttribute('aria-pressed', String(group === 'tag'));
-    $groupTagButton.title = group === 'tag'
-      ? 'Grouped by tag: click to list every repo together'
-      : 'Click to group repos by tag (tag a repo from its menu)';
-  }
-  if ($groupRepoButton) {
-    $groupRepoButton.setAttribute('aria-pressed', String(group === 'repo'));
-    $groupRepoButton.title = group === 'repo'
-      ? 'Grouped by repo: click to list every repo together'
-      : 'Click to group each repo with its worktrees';
+  for (const option of $groupPicker?.querySelectorAll('[role="radio"]') ?? []) {
+    const checked = /** @type {HTMLElement} */ (option).dataset.group === group;
+    option.setAttribute('aria-checked', String(checked));
+    option.setAttribute('tabindex', checked ? '0' : '-1');
   }
 }
 
 /**
- * Toggles In use's grouping `by` container, tag or repo: on, it groups that way (the other
- * toggles go off); off, one box for every card.
+ * Groups In use's cards `by` container, tag or repo, or not at all (`none`).
  *
- * @param {'container' | 'tag' | 'repo'} by
+ * @param {import('./lib/sidebar.js').InUseGroup} by
  */
-function toggleGrouping(by) {
-  sidebarState.inUseGroup = sidebarState.inUseGroup === by ? 'none' : by;
+function setGrouping(by) {
+  if (!IN_USE_GROUPS.includes(by) || by === sidebarState.inUseGroup) return;
+  sidebarState.inUseGroup = by;
   saveSidebarState();
   applyGrouping();
   renderTree();
+}
+
+/** The grouping picker's keys, as a radio group's: an arrow key checks the option before or after. */
+function groupPickerKeydown(e) {
+  const step =
+    { ArrowLeft: -1, ArrowUp: -1, ArrowRight: 1, ArrowDown: 1 }[e.key];
+  if (!step) return;
+  e.preventDefault();
+  const n = IN_USE_GROUPS.length;
+  const next = IN_USE_GROUPS[
+    (IN_USE_GROUPS.indexOf(sidebarState.inUseGroup) + step + n) % n
+  ];
+  setGrouping(next);
+  /** @type {HTMLElement | null} */ ($groupPicker?.querySelector(
+    `[data-group="${next}"]`,
+  ))?.focus();
 }
 
 /** The scope picker's keys, as a radio group's: an arrow key checks the option before or after. */
@@ -2013,12 +2015,14 @@ export function mountSidebar(root, opts) {
     if (option) setScope(/** @type {any} */ (option).dataset.scope);
   });
   $scopePicker?.addEventListener('keydown', scopePickerKeydown);
-  $groupButton = root.querySelector('#group-in-use');
-  $groupButton?.addEventListener('click', () => toggleGrouping('container'));
-  $groupTagButton = root.querySelector('#group-by-tag');
-  $groupTagButton?.addEventListener('click', () => toggleGrouping('tag'));
-  $groupRepoButton = root.querySelector('#group-by-repo');
-  $groupRepoButton?.addEventListener('click', () => toggleGrouping('repo'));
+  $groupPicker = root.querySelector('#group-picker');
+  $groupPicker?.addEventListener('click', (e) => {
+    const option = /** @type {HTMLElement} */ (e.target).closest?.(
+      '[data-group]',
+    );
+    if (option) setGrouping(/** @type {any} */ (option).dataset.group);
+  });
+  $groupPicker?.addEventListener('keydown', groupPickerKeydown);
   applyGrouping();
   // The page's URL, token included: devc-desktop's window has no address bar, and a container or
   // another browser may need it. The toast names it without showing it, since it is the token.

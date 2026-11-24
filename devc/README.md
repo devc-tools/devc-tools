@@ -629,17 +629,17 @@ is published from any container: the host server finds devcontainers with
   Clicking a pane in the card switches the tile shown. The scope is kept across
   reloads; `?scope=all`, `container`, `repo` or `agents` in the page URL starts
   the sidebar that way without saving it.
-- **Grouping:** the toggle after the scope pill (two stacked boxes, lit while
-  on) groups **In use**'s repo cards by container, a box each under its name,
-  as at first. The one after it (a tag) groups them by tag instead: a box per
-  tag, in order of its most urgent card, with untagged cards last under
-  **Untagged** (cards there show no tag chip, and name their container). The
-  next (a branch) groups them by repo: a box per repo under its name, holding
-  its card and its linked worktrees' cards, whatever container each is in (a
-  card outside every repo goes in its container's box). The three are
-  exclusive; with none on, every card shares one box, most urgent
-  agent first whatever its container, each card naming its container after its
-  branch. Kept across reloads, in every scope.
+- **Grouping:** the pill after the scope pill picks how **In use** groups its
+  repo cards, one option lit at a time (click one, or use the arrow keys while
+  it has focus). **None** (one box with lines): every card shares one box, most
+  urgent agent first whatever its container, each card naming its container
+  after its branch. **Container** (two stacked boxes): a box per container
+  under its name, as at first. **Tag** (a tag): a box per tag, in order of its
+  most urgent card, with untagged cards last under **Untagged** (cards there
+  show no tag chip, and name their container). **Repo** (a branch): a box per
+  repo under its name, holding its card and its linked worktrees' cards,
+  whatever container each is in (a card outside every repo goes in its
+  container's box). Kept across reloads, in every scope.
 - **Input:** keys go through as typed. A multi-line paste is sent as one
   bracketed paste, so a shell or agent prompt does not submit each line. Mouse
   clicks and drags go to the app (Herdr encodes them in the app's own mouse
