@@ -9,7 +9,7 @@ import {
   isSidebarToggleShortcut,
   SIDEBAR_DEFAULT_WIDTH,
 } from './lib/sidebar.js';
-import { h, IS_MAC } from './ui.js';
+import { IS_MAC } from './ui.js';
 import { connect, SAFE_MODE, showSafeBanner } from './client.js';
 import { mountHostStatus } from './host-status.js';
 import { mountTiles } from './tiles.js';
