@@ -2121,7 +2121,14 @@ export async function startWeb(
       repoFolders,
     );
     send({ ...r });
-    if (r.ok) await reloadReposMapping([`${msg.folder}.worktrees`]);
+    if (!r.ok) return;
+    await reloadReposMapping([`${msg.folder}.worktrees`]);
+    // A branch that tracks a fork's URL has no remote-tracking ref, so until the mirror fetches
+    // its upstream its card reads "gone": fetch it now rather than at the next 5-minute pass.
+    if (r.upstream !== null) {
+      await refreshRemote(r.worktree);
+      void gitWatch.refresh(r.worktree);
+    }
   };
 
   /**
