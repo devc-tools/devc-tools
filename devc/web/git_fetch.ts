@@ -12,14 +12,22 @@
 //
 // Pull (`pullRepo`) is a Fetch, then `git merge --ff-only` of the checked-out branch to its
 // remote-tracking ref, also in the project's environment: never a merge commit, rebase or stash.
+// Reset (`resetRepo`, a PR branch's **Reset to PR**) is a Fetch, then `git reset --keep` to it.
+//
+// A branch that tracks a URL (a fork's PR, as `gh pr checkout` sets it up) has no remote-tracking
+// ref: its Fetch is the host's fetch alone, and Pull and Reset hand the repo a bundle that
+// `git bundle unbundle` stores as objects only (no ref moves), then merge or reset to its commit.
 
 import type { Environment } from './environment.ts';
 import { readBranch, readUpstream, resolveRepo } from './git_repo.ts';
 import {
   defaultMirrorOpts,
   fetchUpstreamProblem,
+  isForeign,
   isGitProblem,
+  locate,
   type MirrorOpts,
+  run,
   upstreamBundle,
 } from './git_status.ts';
 
@@ -56,22 +64,66 @@ export type PullOutcome =
   | { ok: false; problem: string };
 
 /**
- * Run in the repo by `sh -c SCRIPT pull <remote> <upstream branch> <local branch>`: fast-forwards
- * the checked-out branch to `refs/remotes/<remote>/<upstream branch>`, and prints HEAD before and
- * after. Exits 3 when the local branch is no longer the one checked out.
+ * Run in the repo by `sh -c SCRIPT unbundle`, a bundle on stdin: stores its objects
+ * (`git bundle unbundle`, which moves no ref). For a branch that tracks a URL.
  */
-export const PULL_SCRIPT = [
+export const UNBUNDLE_SCRIPT = [
   'set -e',
-  '[ "$(git symbolic-ref -q HEAD || true)" = "refs/heads/$3" ] || exit 3',
+  'tmp=$(mktemp)',
+  `trap 'rm -f "$tmp"' EXIT`,
+  'cat > "$tmp"',
+  'git bundle unbundle "$tmp" >/dev/null',
+].join('\n');
+
+/**
+ * Run in the repo by `sh -c SCRIPT <op> <commit> <local branch>`: moves the checked-out branch to
+ * `<commit>` (a SHA, or `refs/remotes/<remote>/<branch>`), by `git merge --ff-only` (`pull`) or
+ * `git reset --keep` (`reset`, which keeps uncommitted changes and stops when one is in the way),
+ * and prints HEAD before and after. Exits 3 when the local branch is no longer the one checked
+ * out, 4 when the commit is missing.
+ */
+export const MOVE_SCRIPT = [
+  'set -e',
+  '[ "$(git symbolic-ref -q HEAD || true)" = "refs/heads/$2" ] || exit 3',
+  'sha=$(git rev-parse -q --verify "$1^{commit}") || exit 4',
   'old=$(git rev-parse HEAD)',
-  'git merge --ff-only --quiet "refs/remotes/$1/$2"',
+  'case "$0" in',
+  '  pull) git merge --ff-only --quiet "$sha" ;;',
+  '  reset) git reset --keep --quiet "$sha" ;;',
+  '  *) exit 5 ;;',
+  'esac',
   'new=$(git rev-parse HEAD)',
   `printf '%s %s\\n' "$old" "$new"`,
 ].join('\n');
 
-/** The argv that runs {@link PULL_SCRIPT}. */
-export function pullArgv(remote: string, branch: string, local: string) {
-  return ['sh', '-c', PULL_SCRIPT, 'pull', remote, branch, local];
+/** The argv that runs {@link MOVE_SCRIPT}. */
+export function moveArgv(
+  op: 'pull' | 'reset',
+  commit: string,
+  local: string,
+): string[] {
+  return ['sh', '-c', MOVE_SCRIPT, op, commit, local];
+}
+
+/**
+ * Why the server refuses a `reset_repo`, or null: a page under `--live` (its code comes from a
+ * checkout agents can edit, and a reset drops commits), a status that is not
+ * `GitStatus.foreign` (a branch Push updates), or one with nothing newer upstream. The
+ * desktop role may reset under `--live`.
+ */
+export function resetRefusal(
+  status: { foreign?: true; behind: number },
+  role: 'page' | 'desktop',
+  live: boolean,
+): string | null {
+  if (role === 'page' && live) {
+    return 'resetting a branch is refused under --live';
+  }
+  if (!status.foreign) {
+    return "not a PR branch: reset is for branches you don't push";
+  }
+  if (status.behind === 0) return 'nothing to reset to';
+  return null;
 }
 
 /** How long a pull's merge may take: a checkout of many files can pass `run`'s 15 s. */
@@ -141,6 +193,27 @@ async function fetchOnce(
   opts: MirrorOpts,
 ): Promise<FetchOutcome> {
   try {
+    const at = await locate(folder, opts);
+    if (
+      at !== null && !isGitProblem(at) && at.upstream !== null &&
+      at.upstream.trackingRef === null && at.mirror !== null
+    ) {
+      // A URL upstream: the repo has no ref to move, so a Fetch is the host's alone.
+      const tip = async () => {
+        const r = await run([
+          `--git-dir=${at.mirror}`,
+          'rev-parse',
+          '-q',
+          '--verify',
+          `${at.prefix}/upstream`,
+        ]);
+        return 'out' in r ? r.out.trim() : '';
+      };
+      const before = await tip();
+      const fetched = await fetchUpstreamProblem(folder, opts);
+      if (fetched !== null) return { ok: false, problem: fetched.problem };
+      return { ok: true, updated: before !== await tip() };
+    }
     const fetched = await fetchUpstreamProblem(folder, opts);
     if (fetched !== null) return { ok: false, problem: fetched.problem };
     const b = await upstreamBundle(folder, opts);
@@ -175,18 +248,27 @@ async function fetchOnce(
   }
 }
 
-/** The pull running for each folder: a second request shares it. */
-const pulling = new Map<string, Promise<PullOutcome>>();
+/** The pull or reset running for each folder: a second request of the same kind shares it. */
+const moving = new Map<
+  string,
+  { op: 'pull' | 'reset'; p: Promise<PullOutcome> }
+>();
 
 /** Whether a pull of `folder` is running. */
 export function pullRunning(folder: string): boolean {
-  return pulling.has(folder);
+  return moving.get(folder)?.op === 'pull';
+}
+
+/** Whether a reset of `folder` is running. */
+export function resetRunning(folder: string): boolean {
+  return moving.get(folder)?.op === 'reset';
 }
 
 /**
  * Fetches `folder` ({@link fetchRepo}), then fast-forwards its checked-out branch to the fetched
- * ref in `env`, at `path`. One pull per folder at a time: a call while one runs gets its outcome.
- * Uncommitted changes stay; git refuses a fast-forward that would overwrite one. Never throws.
+ * commit in `env`, at `path`. One pull or reset per folder at a time: a pull while a pull runs
+ * gets its outcome. Uncommitted changes stay; git refuses a fast-forward that would overwrite
+ * one. Never throws.
  */
 export function pullRepo(
   env: Pick<Environment, 'run' | 'runLimited'>,
@@ -194,21 +276,59 @@ export function pullRepo(
   path: string,
   opts: MirrorOpts = defaultMirrorOpts(),
 ): Promise<PullOutcome> {
-  const current = pulling.get(folder);
-  if (current) return current;
-  const p = pullOnce(env, folder, path, opts).finally(() =>
-    pulling.delete(folder)
-  );
-  pulling.set(folder, p);
-  return p;
+  return moveRepo('pull', env, folder, path, opts);
 }
 
-async function pullOnce(
+/**
+ * **Reset to PR**: fetches `folder` ({@link fetchRepo}), then moves its checked-out branch to the
+ * fetched commit with `git reset --keep`, dropping its commits not in it (a rebased PR's old
+ * ones; the reflog keeps them). Uncommitted changes stay; git stops when one is in a file the
+ * reset changes. Only for a branch whose upstream is not `origin/<branch>`. Never throws.
+ */
+export function resetRepo(
+  env: Pick<Environment, 'run' | 'runLimited'>,
+  folder: string,
+  path: string,
+  opts: MirrorOpts = defaultMirrorOpts(),
+): Promise<PullOutcome> {
+  return moveRepo('reset', env, folder, path, opts);
+}
+
+function moveRepo(
+  op: 'pull' | 'reset',
   env: Pick<Environment, 'run' | 'runLimited'>,
   folder: string,
   path: string,
   opts: MirrorOpts,
 ): Promise<PullOutcome> {
+  const current = moving.get(folder);
+  if (current) {
+    return current.op === op ? current.p : Promise.resolve({
+      ok: false,
+      problem: `a ${current.op} is running: try again soon`,
+    });
+  }
+  const p = moveOnce(op, env, folder, path, opts).finally(() =>
+    moving.delete(folder)
+  );
+  moving.set(folder, { op, p });
+  return p;
+}
+
+/** The first non-empty stderr line as `<what>: <line>`, else `<what> failed`. */
+function stderrProblem(what: string, stderr: string): string {
+  const line = stderr.split('\n').map((l) => l.trim()).find((l) => l);
+  return line ? `${what}: ${line}` : `${what} failed`;
+}
+
+async function moveOnce(
+  op: 'pull' | 'reset',
+  env: Pick<Environment, 'run' | 'runLimited'>,
+  folder: string,
+  path: string,
+  opts: MirrorOpts,
+): Promise<PullOutcome> {
+  const what = op === 'pull' ? 'git merge' : 'git reset';
   try {
     const fetched = await fetchRepo(env, folder, path, opts);
     if (!fetched.ok) return fetched;
@@ -220,10 +340,13 @@ async function pullOnce(
     if (upstream === null) {
       return { ok: false, problem: `${local} has no upstream` };
     }
-    if (upstream.trackingRef === null) {
-      return { ok: false, problem: `${local} tracks a URL, not a remote` };
+    if (op === 'reset' && !isForeign(local, upstream)) {
+      return {
+        ok: false,
+        problem: "not a PR branch: reset is for branches you don't push",
+      };
     }
-    if (!validRemote(upstream.remote)) {
+    if (!validRemote(upstream.remote) && upstream.trackingRef !== null) {
       return { ok: false, problem: `unusable remote name: ${upstream.remote}` };
     }
     for (const b of [upstream.branch, local]) {
@@ -231,33 +354,56 @@ async function pullOnce(
         return { ok: false, problem: `unusable branch name: ${b}` };
       }
     }
+    let commit = `refs/remotes/${upstream.remote}/${upstream.branch}`;
+    if (upstream.trackingRef === null) {
+      // A URL upstream: hand the repo the commits it lacks, as objects only.
+      const b = await upstreamBundle(folder, opts);
+      if (isGitProblem(b)) return { ok: false, problem: b.problem };
+      commit = b.sha;
+      if ('bundle' in b) {
+        const out = await env.run({
+          cmd: ['sh', '-c', UNBUNDLE_SCRIPT, 'unbundle'],
+          cwd: path,
+          env: { GIT_TERMINAL_PROMPT: '0' },
+        }, b.bundle);
+        if (out.code !== 0) {
+          return {
+            ok: false,
+            problem: stderrProblem('git bundle unbundle', out.stderr),
+          };
+        }
+      }
+    }
     const out = await env.runLimited({
-      cmd: pullArgv(upstream.remote, upstream.branch, local),
+      cmd: moveArgv(op, commit, local),
       cwd: path,
       env: { GIT_TERMINAL_PROMPT: '0', GIT_MERGE_AUTOEDIT: 'no' },
     }, { timeoutMs: PULL_TIMEOUT_MS, maxOutput: 4096 });
     if (out.kind === 'timeout') {
-      return { ok: false, problem: 'git merge: timed out' };
+      return { ok: false, problem: `${what}: timed out` };
     }
     if (out.kind === 'too_large') {
-      return { ok: false, problem: 'git merge: unexpected output' };
+      return { ok: false, problem: `${what}: unexpected output` };
     }
     if (out.code === 3) {
       return { ok: false, problem: 'the branch changed: try again' };
     }
-    if (out.code !== 0) {
-      const line = out.stderr.split('\n').map((l) => l.trim()).find((l) => l);
+    if (out.code === 4) {
       return {
         ok: false,
-        problem: line ? `git merge: ${line}` : 'git merge failed',
+        problem:
+          'the fetched commit is missing: fetch in the project and retry',
       };
+    }
+    if (out.code !== 0) {
+      return { ok: false, problem: stderrProblem(what, out.stderr) };
     }
     const [before = '', after = ''] = out.stdout.replace(/\n$/, '').split(' ');
     return { ok: true, updated: before !== after };
   } catch (e) {
     return {
       ok: false,
-      problem: `pull: ${e instanceof Error ? e.message : String(e)}`,
+      problem: `${op}: ${e instanceof Error ? e.message : String(e)}`,
     };
   }
 }

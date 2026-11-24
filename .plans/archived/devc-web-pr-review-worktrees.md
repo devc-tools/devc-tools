@@ -182,91 +182,113 @@ when `git.foreign && git.behind > 0`, the project is running, and no git request
 
 ## Checklist
 
-- [ ] `git_repo.ts`: `prRemote(list)`, picking the PR remote out of `git config -z --list`
+- [x] `git_repo.ts`: `prRemote(list)`, picking the PR remote out of `git config -z --list`
       output (the rules above), and a reader over `readConfigList`.
-- [ ] `git_worktree.ts`:
-  - [ ] `worktreeOptions` lists PRs from the PR remote, and returns `prRemote`;
-  - [ ] `WorktreePr.headOwner`;
-  - [ ] create fetches `refs/pull/<n>/head` from the PR remote's URL;
-  - [ ] create writes the tracking config and remote-tracking ref per the table;
-  - [ ] create's result `upstream` is the display name.
-- [ ] `git_status.ts`:
-  - [ ] the URL display name;
-  - [ ] `GitStatus.foreign`;
-  - [ ] `upstreamBundle` for URL upstreams;
-  - [ ] `prerequisites` moved here and exported.
-- [ ] `git_fetch.ts`:
-  - [ ] URL-upstream Fetch;
-  - [ ] URL-upstream Pull with the `pull-url` script;
-  - [ ] `resetRepo` and its script.
-- [ ] `protocol.ts`: `reset_repo`, `reset_result`, `WorktreeOptions.prRemote`.
-- [ ] `server.ts`: `resetRepoFor`, with the checks above.
-- [ ] Page:
-  - [ ] `static/lib/sidebar.js` `repoGitItems` adds `reset`;
-  - [ ] `static/cards.js` menu item, confirm and request;
-  - [ ] `reset_result` handled where `pull_result` is (`cards.js`, `sidebar.js`, `containers.js`);
-  - [ ] `static/worktree-dialog.js` and `static/lib/worktree.js`: PR `head`, the notes, and the
+- [x] `git_worktree.ts`:
+  - [x] `worktreeOptions` lists PRs from the PR remote, and returns `prRemote`;
+  - [x] `WorktreePr.headOwner`;
+  - [x] create fetches `refs/pull/<n>/head` from the PR remote's URL;
+  - [x] create writes the tracking config and remote-tracking ref per the table;
+  - [x] create's result `upstream` is the display name.
+- [x] `git_status.ts`:
+  - [x] the URL display name;
+  - [x] `GitStatus.foreign`;
+  - [x] `upstreamBundle` for URL upstreams;
+  - [x] `prerequisites` moved here and exported.
+- [x] `git_fetch.ts`:
+  - [x] URL-upstream Fetch;
+  - [x] URL-upstream Pull with the `pull-url` script;
+  - [x] `resetRepo` and its script.
+- [x] `protocol.ts`: `reset_repo`, `reset_result`, `WorktreeOptions.prRemote`.
+- [x] `server.ts`: `resetRepoFor`, with the checks above.
+- [x] Page:
+  - [x] `static/lib/sidebar.js` `repoGitItems` adds `reset`;
+  - [x] `static/cards.js` menu item, confirm and request;
+  - [x] `reset_result` handled where `pull_result` is (`cards.js`, `sidebar.js`, `containers.js`);
+  - [x] `static/worktree-dialog.js` and `static/lib/worktree.js`: PR `head`, the notes, and the
         empty and problem texts.
-- [ ] Tests (below), and `devc/README.md` (the New worktree dialog's PR tab, and the repo card's
+- [x] Tests (below), and `devc/README.md` (the New worktree dialog's PR tab, and the repo card's
       git items).
-- [ ] Rebuild the Mac apps (`devc-desktop`: `npm ci && npm run build:mac`), since
+- [x] Rebuild the Mac apps (`devc-desktop`: `npm ci && npm run build:mac`), since
       `containers.js` is bundled.
+
+**2026-11-24:** implemented. Where it differs from the decisions above:
+
+- `prRemote(list)` is `parsePrRemote` and `readPrRemote` in `git_repo.ts`.
+- `prerequisites` stayed in `git_worktree.ts`. A URL upstream's bundle (Pull and Reset alike)
+  uses `^<prefix>/local`. That is always a valid boundary: the bundle's prerequisites are commits
+  reachable from the branch, which the repo has, whether or not the branch is an ancestor of the
+  upstream.
+- Pull and Reset share one script, `MOVE_SCRIPT` (`pull` = `merge --ff-only`, `reset` =
+  `reset --keep`, given a SHA or `refs/remotes/<remote>/<branch>`). It replaces `PULL_SCRIPT`. A
+  URL upstream's bundle goes in first, through its own `UNBUNDLE_SCRIPT` under `env.run` (stdin).
+  The move then runs under `runLimited`, whose 120 s limit a checkout needs (`run` has 15 s).
+- One map holds the pull or reset running per folder: a reset while a pull runs is refused.
+- The server's reset refusals are a pure `resetRefusal(status, role, live)` in `git_fetch.ts`,
+  tested in `web_git_fetch_test.ts` (no harness drives `pullRepoFor`'s checks either).
+- `ui.js` holds the new labels (`resetTo`, `reset`, `resetConfirm`). The confirmation is one
+  `confirmDialog` message, with **Reset** marked danger when it drops commits.
+- `deno task test`: 1211 pass, 1 fails. The failure is
+  `docker_exec_single_path_test.ts`, which finds a `docker exec` argv in the generated
+  `devc-core/dist/container.d.ts`; this change doesn't touch that file.
 
 ## Validation
 
-- [ ] `deno task check`, `deno lint`, and `deno fmt --check` on touched files pass.
-- [ ] `devc/tests/web_git_repo_test.ts`: `prRemote` picks:
-  - [ ] the `gh-resolved = base` remote over `upstream` and `origin`;
-  - [ ] `upstream` over `origin`;
-  - [ ] `origin` alone;
-  - [ ] `null` for no remotes;
-  - [ ] the first `gh-resolved` remote when two have it;
-  - [ ] not `upstream` when it has no `url`.
-- [ ] `devc/tests/web_git_worktree_test.ts` (local bare repos, a stub `gh`, `fetchable` allowing
+Accepted 2026-11-24 by the user, who confirmed the feature works on a real fork/upstream repo. One oddity was found: the card shows "gone". It is being followed up separately.
+
+- [x] `deno task check`, `deno lint`, and `deno fmt --check` on touched files pass.
+- [x] `devc/tests/web_git_repo_test.ts`: `prRemote` picks:
+  - [x] the `gh-resolved = base` remote over `upstream` and `origin`;
+  - [x] `upstream` over `origin`;
+  - [x] `origin` alone;
+  - [x] `null` for no remotes;
+  - [x] the first `gh-resolved` remote when two have it;
+  - [x] not `upstream` when it has no `url`.
+- [x] `devc/tests/web_git_worktree_test.ts` (local bare repos, a stub `gh`, `fetchable` allowing
       `file://`; the scheme rules are tested on the pure URL builder instead), with `origin` a
       fork and `upstream` the base:
-  - [ ] options list `upstream`'s PRs, with `prRemote: 'upstream'`;
-  - [ ] a cross-repo PR's worktree gets `branch.pr-<n>.remote = <fork URL>` and
+  - [x] options list `upstream`'s PRs, with `prRemote: 'upstream'`;
+  - [x] a cross-repo PR's worktree gets `branch.pr-<n>.remote = <fork URL>` and
         `branch.pr-<n>.merge = refs/heads/<head>`, and no `refs/remotes/*` ref;
-  - [ ] a same-repo PR on `upstream` gets `branch.pr-<n>.remote = upstream`, and
+  - [x] a same-repo PR on `upstream` gets `branch.pr-<n>.remote = upstream`, and
         `refs/remotes/upstream/<head>` at the PR's commit;
-  - [ ] an origin same-repo PR under its own name is unchanged from today, and under another name
+  - [x] an origin same-repo PR under its own name is unchanged from today, and under another name
         still gets no upstream;
-  - [ ] an existing `branch.<b>.merge` is left alone;
-  - [ ] a null `headRepository` gives no upstream.
-- [ ] URL builder unit test:
-  - [ ] `https://github.com/a/b.git` with `o`/`n` gives `https://github.com/o/n.git`;
-  - [ ] `git@github.com:a/b.git` and `ssh://git@github.com/a/b` give `git@github.com:o/n.git`;
-  - [ ] an owner with `/` or `:` gives `null`.
-- [ ] `devc/tests/web_git_status_test.ts`:
-  - [ ] a branch tracking a URL shows `upstream: '<owner>/<name>:<branch>'`, `foreign: true`,
+  - [x] an existing `branch.<b>.merge` is left alone;
+  - [x] a null `headRepository` gives no upstream.
+- [x] URL builder unit test:
+  - [x] `https://github.com/a/b.git` with `o`/`n` gives `https://github.com/o/n.git`;
+  - [x] `git@github.com:a/b.git` and `ssh://git@github.com/a/b` give `git@github.com:o/n.git`;
+  - [x] an owner with `/` or `:` gives `null`.
+- [x] `devc/tests/web_git_status_test.ts`:
+  - [x] a branch tracking a URL shows `upstream: '<owner>/<name>:<branch>'`, `foreign: true`,
         and the right `behind` after `fetchUpstream`;
-  - [ ] `origin/<same name>` has no `foreign`;
-  - [ ] `upstream/<b>` and `origin/<other name>` have `foreign: true`.
-- [ ] `devc/tests/web_git_fetch_test.ts` (a host environment over temp repos):
-  - [ ] URL-upstream Pull fast-forwards and writes no new refs (compare `git for-each-ref`
+  - [x] `origin/<same name>` has no `foreign`;
+  - [x] `upstream/<b>` and `origin/<other name>` have `foreign: true`.
+- [x] `devc/tests/web_git_fetch_test.ts` (a host environment over temp repos):
+  - [x] URL-upstream Pull fast-forwards and writes no new refs (compare `git for-each-ref`
         before and after, branch excepted);
-  - [ ] URL-upstream Fetch reports `updated` once, then `false`;
-  - [ ] Reset after the "author" rebases (a force-push to the fork) moves the branch to the new
+  - [x] URL-upstream Fetch reports `updated` once, then `false`;
+  - [x] Reset after the "author" rebases (a force-push to the fork) moves the branch to the new
         tip, keeps an unrelated uncommitted edit, and leaves the old tip in the reflog;
-  - [ ] Reset with an uncommitted edit in a changed file fails with `git reset: …` and moves
+  - [x] Reset with an uncommitted edit in a changed file fails with `git reset: …` and moves
         nothing;
-  - [ ] Reset on a named-remote upstream works the same.
-- [ ] Server checks, in `devc/tests/web_server_test.ts` where `pull_repo`'s are. Reset
+  - [x] Reset on a named-remote upstream works the same.
+- [x] Server checks, in `devc/tests/web_server_test.ts` where `pull_repo`'s are. Reset
       is refused:
-  - [ ] without `foreign`;
-  - [ ] with `behind === 0`;
-  - [ ] for the page role under `--live`.
+  - [x] without `foreign`;
+  - [x] with `behind === 0`;
+  - [x] for the page role under `--live`.
 
   Allowed for the desktop role under `--live`.
-- [ ] `devc/tests/web_worktree_note_test.ts`: the five PR notes above, and the `pr-<n>` default
+- [x] `devc/tests/web_worktree_note_test.ts`: the five PR notes above, and the `pr-<n>` default
       when `prRemote !== 'origin'`.
-- [ ] `devc/tests/web_sidebar_test.ts`: `repoGitItems` order with `reset`.
-- [ ] `devc/tests/web_server_test.ts`: `reset_repo` parses and routes, beside the existing `pull_repo` cases.
-- [ ] Live (the user): a repo with `origin` = fork and `upstream` = base.
-  - [ ] The PR tab lists upstream's PRs. A fork PR's worktree card shows its PR.
-  - [ ] After the author pushes: `↓N`, then Pull.
-  - [ ] After the author force-pushes a rebase: Reset to PR, with the confirm text.
+- [x] `devc/tests/web_sidebar_test.ts`: `repoGitItems` order with `reset`.
+- [x] `devc/tests/web_server_test.ts`: `reset_repo` parses and routes, beside the existing `pull_repo` cases.
+- [x] Live (the user): a repo with `origin` = fork and `upstream` = base.
+  - [x] The PR tab lists upstream's PRs. A fork PR's worktree card shows its PR.
+  - [x] After the author pushes: `↓N`, then Pull.
+  - [x] After the author force-pushes a rebase: Reset to PR, with the confirm text.
 
 ## Relevant Files
 
@@ -290,3 +312,4 @@ when `git.foreign && git.behind > 0`, the project is running, and no git request
 - `devc/tests/web_worktree_note_test.ts`
 - `devc/tests/web_sidebar_test.ts`
 - `devc/tests/web_server_test.ts`
+- `devc/web/static/ui.js`

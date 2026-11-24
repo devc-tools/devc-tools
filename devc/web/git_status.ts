@@ -13,6 +13,7 @@
 // mirror's upstream branch, which the repo's own git fetches inside its environment.
 
 import { join } from 'jsr:@std/path';
+import { gitHubRepoOf } from '@devc-tools/core/bridge.ts';
 import {
   isFetchableRemote,
   readBranch,
@@ -25,7 +26,10 @@ import {
 /** A folder's branch and how it compares with its upstream. */
 export interface GitStatus {
   branch: string;
-  /** `<remote>/<branch>`; `null` when the branch tracks nothing. */
+  /**
+   * `<remote>/<branch>` ({@link upstreamName}: `<owner>/<name>:<branch>` for a GitHub URL);
+   * `null` when the branch tracks nothing.
+   */
   upstream: string | null;
   /** Commits to push. */
   ahead: number;
@@ -43,6 +47,31 @@ export interface GitStatus {
    * neither in the repo's remote-tracking refs nor on the remote as last looked. Absent: `false`.
    */
   pushCreates?: boolean;
+  /**
+   * The upstream is not `origin`'s branch of the same name (another remote, a URL, another
+   * name), so Push never updates it: a PR's branch under review. The card offers Reset to it.
+   * Absent otherwise.
+   */
+  foreign?: true;
+}
+
+/**
+ * How an upstream reads: `<remote>/<branch>` for a named remote; for a URL,
+ * `<owner>/<name>:<branch>` when it is on GitHub, else `<url> <branch>`.
+ */
+export function upstreamName(upstream: Upstream): string {
+  if (upstream.trackingRef !== null) {
+    return `${upstream.remote}/${upstream.branch}`;
+  }
+  const repo = gitHubRepoOf(upstream.url);
+  return repo !== null
+    ? `${repo}:${upstream.branch}`
+    : `${upstream.url} ${upstream.branch}`;
+}
+
+/** Whether `branch`'s upstream is anything but `origin/<branch>`: see {@link GitStatus.foreign}. */
+export function isForeign(branch: string, upstream: Upstream): boolean {
+  return upstream.remote !== 'origin' || upstream.branch !== branch;
 }
 
 /**
@@ -273,7 +302,8 @@ export async function readGitState(
     if ('failed' in alone) return { problem: alone.failed };
     await inMirror('update-ref', '-d', `${prefix}/tracking`);
   }
-  const name = `${upstream.remote}/${upstream.branch}`;
+  const name = upstreamName(upstream);
+  const foreign = isForeign(branch, upstream) ? { foreign: true as const } : {};
   const { against, fetched, tracked } = await upstreamCopies(mirror, prefix);
   if (against === null) {
     return {
@@ -283,6 +313,7 @@ export async function readGitState(
       behind: 0,
       gone: true,
       unfetched: 0,
+      ...foreign,
     };
   }
   const counts = await run([
@@ -315,7 +346,15 @@ export async function readGitState(
       return { problem: 'git rev-list: unexpected output' };
     }
   }
-  return { branch, upstream: name, ahead, behind, gone: false, unfetched };
+  return {
+    branch,
+    upstream: name,
+    ahead,
+    behind,
+    gone: false,
+    unfetched,
+    ...foreign,
+  };
 }
 
 /** {@link readGitState} without the reason: `null` for no status at all. Never throws. */
@@ -539,6 +578,10 @@ export interface UpstreamBundle {
   /** The repo's remote and its upstream branch: `refs/remotes/<remote>/<branch>` is the ref to move. */
   remote: string;
   branch: string;
+  /** The bundled commit. */
+  sha: string;
+  /** The upstream is a URL: the repo has no remote-tracking ref for it, so nothing to move. */
+  url: boolean;
 }
 
 /** The repo's own `<remote>/<branch>` already has (or is ahead of) what the mirror fetched. */
@@ -546,13 +589,17 @@ export interface UpToDate {
   upToDate: true;
   remote: string;
   branch: string;
+  /** The mirror's copy of the upstream. */
+  sha: string;
+  url: boolean;
 }
 
 /**
  * A git bundle (bytes) holding `folder`'s upstream branch as fetched into its mirror (by
  * {@link fetchUpstream}), for the repo's own git to fetch from in its environment. Reads the
  * folder first ({@link readGitState}), so the mirror's copy of its remote-tracking ref is current:
- * the bundle leaves out what that ref already has (its commits are the bundle's prerequisites),
+ * the bundle leaves out what that ref already has (its commits are the bundle's prerequisites;
+ * for an upstream that is a URL, with no such ref, the branch's own commits are),
  * and when it already contains the fetched commit there is nothing to bundle ({@link UpToDate}),
  * so a fetch never moves the ref back. Over `maxBytes`, a {@link GitProblem}. Never throws.
  */
@@ -569,16 +616,19 @@ export async function upstreamBundle(
   if (isGitProblem(at)) return at;
   const { upstream, mirror, prefix } = at;
   if (upstream === null) return { problem: `${at.branch} has no upstream` };
-  if (upstream.trackingRef === null) {
-    return { problem: `${at.branch} tracks a URL, not a remote` };
-  }
   if (mirror === null) return { problem: 'could not create the git mirror' };
   const ref = `${prefix}/upstream`;
-  const tracking = `${prefix}/tracking`;
+  // A URL upstream has no remote-tracking ref in the repo: the branch itself is what it has.
+  const url = upstream.trackingRef === null;
+  const tracking = url ? `${prefix}/local` : `${prefix}/tracking`;
   const has = async (r: string) =>
     await git([`--git-dir=${mirror}`, 'rev-parse', '-q', '--verify', r]) !==
       null;
   if (!await has(ref)) return { problem: 'nothing fetched from the remote' };
+  const sha = (await git([`--git-dir=${mirror}`, 'rev-parse', ref]))?.trim();
+  if (!sha || !/^([0-9a-f]{40}|[0-9a-f]{64})$/.test(sha)) {
+    return { problem: 'git rev-parse: unexpected output' };
+  }
   const { remote, branch } = upstream;
   const tracked = await has(tracking);
   if (
@@ -591,7 +641,7 @@ export async function upstreamBundle(
         tracking,
       ]) !== null
   ) {
-    return { upToDate: true, remote, branch };
+    return { upToDate: true, remote, branch, sha, url };
   }
   const bundle = await runCapped(
     [
@@ -612,7 +662,7 @@ export async function upstreamBundle(
     };
   }
   if ('failed' in bundle) return { problem: bundle.failed };
-  return { bundle: bundle.out, ref, remote, branch };
+  return { bundle: bundle.out, ref, remote, branch, sha, url };
 }
 
 /**

@@ -1,4 +1,4 @@
-import { assert, assertEquals } from 'jsr:@std/assert';
+import { assert, assertEquals, assertRejects } from 'jsr:@std/assert';
 import type { ContainerMount } from '@devc-tools/core/container.ts';
 import { hostRun } from '../web/env_host.ts';
 import { runCapped } from '../web/proc.ts';
@@ -9,6 +9,7 @@ import {
   createWorktree,
   folderNameFor,
   forceRefusal,
+  headRepoUrl,
   parseGitVersion,
   parsePrList,
   removeWorktree,
@@ -132,6 +133,7 @@ Deno.test('parsers and names', () => {
       title: 't',
       author: '',
       headRefName: 'h',
+      headOwner: '',
       crossRepository: true,
       draft: false,
     }],
@@ -811,4 +813,152 @@ Deno.test('createWorktree: a new name for a remote branch starts a new branch wi
       { ok: false, problem: 'invalid branch name: bad..name' },
     );
   });
+});
+
+Deno.test("headRepoUrl: a PR head repository in the PR remote's scheme", () => {
+  assertEquals(
+    headRepoUrl('https://github.com/a/b.git', 'o', 'n'),
+    'https://github.com/o/n.git',
+  );
+  assertEquals(
+    headRepoUrl('git@github.com:a/b.git', 'o', 'n'),
+    'git@github.com:o/n.git',
+  );
+  assertEquals(
+    headRepoUrl('ssh://git@github.com/a/b', 'o', 'n'),
+    'git@github.com:o/n.git',
+  );
+  assertEquals(headRepoUrl('https://github.com/a/b.git', 'o/x', 'n'), null);
+  assertEquals(headRepoUrl('https://github.com/a/b.git', 'o', 'n:x'), null);
+  assertEquals(headRepoUrl('/srv/b.git', 'o', 'n'), null);
+});
+
+const BASE_URL = 'https://github.com/base/name.git';
+
+Deno.test('PRs on another remote: listed from it, tracked as gh pr checkout does', async () => {
+  await withRepo(
+    async ({ t, deps, repo, dir, remote, forkSha, featureSha }) => {
+      // origin's same-repo PR under another name: no upstream, as before.
+      const renamed = await createWorktree(
+        t,
+        { name: 'other', branch: 'other', source: { kind: 'pr', number: 8 } },
+        [repo],
+        deps,
+      );
+      assert(renamed.ok, JSON.stringify(renamed));
+      assertEquals(renamed.upstream, null);
+
+      // origin is now the user's fork; upstream the base repo (the same bare remote here).
+      await git(repo, 'remote', 'add', 'upstream', BASE_URL);
+      Deno.env.set('GIT_CONFIG_COUNT', '2');
+      Deno.env.set('GIT_CONFIG_KEY_1', `url.${remote}.insteadOf`);
+      Deno.env.set('GIT_CONFIG_VALUE_1', BASE_URL);
+      const calls = `${dir}/gh-calls`;
+      const gh = `${dir}/gh-base`;
+      await Deno.writeTextFile(
+        gh,
+        `#!/bin/sh
+echo "$*" >> ${calls}
+case "$1 $2" in
+  "pr list") echo '[{"number":7,"title":"Fork","author":{"login":"them"},"headRefName":"main","headRepositoryOwner":{"login":"them"},"isCrossRepository":true,"isDraft":false}]' ;;
+  "pr view")
+    case "$3" in
+      7) echo '{"headRefName":"main","isCrossRepository":true,"state":"OPEN","headRepository":{"name":"name"},"headRepositoryOwner":{"login":"them"}}' ;;
+      8) echo '{"headRefName":"feature/a","isCrossRepository":false,"state":"OPEN","headRepository":{"name":"name"},"headRepositoryOwner":{"login":"base"}}' ;;
+      9) echo '{"headRefName":"main","isCrossRepository":true,"state":"OPEN","headRepository":null,"headRepositoryOwner":null}' ;;
+    esac ;;
+esac
+`,
+      );
+      await Deno.chmod(gh, 0o755);
+      const base = { ...deps, gh };
+      try {
+        const o = await worktreeOptions(t, base);
+        assert(o.ok, JSON.stringify(o));
+        assertEquals(o.prRemote, 'upstream');
+        assertEquals(o.prs.map((p) => [p.number, p.headOwner]), [[7, 'them']]);
+        assert((await Deno.readTextFile(calls)).includes('--repo base/name'));
+
+        const fork = await createWorktree(
+          t,
+          { name: 'pr-7', branch: 'pr-7', source: { kind: 'pr', number: 7 } },
+          [repo],
+          base,
+        );
+        assertEquals(fork, {
+          ok: true,
+          worktree: `${repo}.worktrees/pr-7`,
+          branch: 'pr-7',
+          upstream: 'them/name:main',
+        });
+        assertEquals(
+          await git(repo, 'config', 'branch.pr-7.remote'),
+          'https://github.com/them/name.git',
+        );
+        assertEquals(
+          await git(repo, 'config', 'branch.pr-7.merge'),
+          'refs/heads/main',
+        );
+        assertEquals(
+          await git(`${repo}.worktrees/pr-7`, 'rev-parse', 'HEAD'),
+          forkSha,
+        );
+        assertEquals(
+          await git(repo, 'for-each-ref', 'refs/remotes/upstream/'),
+          '',
+        );
+
+        const same = await createWorktree(
+          t,
+          { name: 'pr-8', branch: 'pr-8', source: { kind: 'pr', number: 8 } },
+          [repo],
+          base,
+        );
+        assert(same.ok, JSON.stringify(same));
+        assertEquals(same.upstream, 'upstream/feature/a');
+        assertEquals(
+          await git(repo, 'config', 'branch.pr-8.remote'),
+          'upstream',
+        );
+        assertEquals(
+          await git(repo, 'config', 'branch.pr-8.merge'),
+          'refs/heads/feature/a',
+        );
+        assertEquals(
+          await git(repo, 'rev-parse', 'refs/remotes/upstream/feature/a'),
+          featureSha,
+        );
+
+        // A deleted fork: no upstream.
+        await git(remote, 'update-ref', 'refs/pull/9/head', forkSha);
+        const gone = await createWorktree(
+          t,
+          { name: 'pr-9', branch: 'pr-9', source: { kind: 'pr', number: 9 } },
+          [repo],
+          base,
+        );
+        assert(gone.ok, JSON.stringify(gone));
+        assertEquals(gone.upstream, null);
+        await assertRejects(() => git(repo, 'config', 'branch.pr-9.merge'));
+
+        // An existing merge is left alone.
+        await git(repo, 'config', 'branch.mine.merge', 'refs/heads/kept');
+        const kept = await createWorktree(
+          t,
+          { name: 'mine', branch: 'mine', source: { kind: 'pr', number: 7 } },
+          [repo],
+          base,
+        );
+        assert(kept.ok, JSON.stringify(kept));
+        assertEquals(kept.upstream, null);
+        assertEquals(
+          await git(repo, 'config', 'branch.mine.merge'),
+          'refs/heads/kept',
+        );
+      } finally {
+        Deno.env.delete('GIT_CONFIG_KEY_1');
+        Deno.env.delete('GIT_CONFIG_VALUE_1');
+      }
+    },
+  );
 });

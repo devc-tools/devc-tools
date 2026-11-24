@@ -10,8 +10,10 @@
 // relative `gitdir:` resolves on both sides when the two folders sit side by side in both.
 //
 // Git protection freezes `.git/config` in a container, so the branch's upstream is written by the
-// host, in place: see {@link writeUpstream}. Open PRs and `origin`'s branches are read on the host
-// (`gh pr list`, `git ls-remote`), with no repo. A worktree is never added to `projects.json`, no
+// host, in place: see {@link writeUpstream}. Open PRs (of the PR remote: `git_repo.ts`'s
+// `parsePrRemote`) and `origin`'s branches are read on the host (`gh pr list`, `git ls-remote`),
+// with no repo. A PR's branch tracks its head as `gh pr checkout` sets it up: see
+// `.plans/devc-web-pr-review-worktrees.md`. A worktree is never added to `projects.json`, no
 // container is started or removed, and Delete never deletes the branch.
 
 import { basename, dirname, join } from 'jsr:@std/path';
@@ -19,10 +21,12 @@ import { gitHubRepoOf } from '@devc-tools/core/bridge.ts';
 import type { ContainerMount } from '@devc-tools/core/container.ts';
 import { hostToContainerPath } from '@devc-tools/core/mount_paths.ts';
 import type { Environment } from './environment.ts';
-import { validBranch } from './git_fetch.ts';
+import { validBranch, validRemote } from './git_fetch.ts';
 import {
   isFetchableRemote,
+  type PrRemote,
   readBranch,
+  readPrRemote,
   readRemoteUrl,
   resolveRepo,
 } from './git_repo.ts';
@@ -59,6 +63,8 @@ export interface WorktreePr {
   title: string;
   author: string;
   headRefName: string;
+  /** The head repository's owner (`headRepositoryOwner.login`); `''` when unknown. */
+  headOwner: string;
   crossRepository: boolean;
   draft: boolean;
 }
@@ -70,6 +76,8 @@ export interface WorktreeOptions {
   currentBranch: string | null;
   remoteBranches: string[];
   remoteProblem: string | null;
+  /** The remote the PR tab lists (`git_repo.ts`'s `parsePrRemote`); null when the repo has none. */
+  prRemote: string | null;
   prs: WorktreePr[];
   prsProblem: string | null;
   localBranches: string[];
@@ -389,6 +397,8 @@ export function parsePrList(out: string): WorktreePr[] {
     if (typeof e !== 'object' || e === null) continue;
     const p = e as Record<string, unknown>;
     const author = (p.author as { login?: unknown } | null)?.login;
+    const headOwner = (p.headRepositoryOwner as { login?: unknown } | null)
+      ?.login;
     if (
       typeof p.number !== 'number' || !Number.isInteger(p.number) ||
       p.number < 1 || typeof p.title !== 'string' ||
@@ -400,6 +410,7 @@ export function parsePrList(out: string): WorktreePr[] {
       title: p.title,
       author: typeof author === 'string' ? author : '',
       headRefName: p.headRefName,
+      headOwner: typeof headOwner === 'string' ? headOwner : '',
       crossRepository: p.isCrossRepository,
       draft: p.isDraft === true,
     });
@@ -408,13 +419,58 @@ export function parsePrList(out: string): WorktreePr[] {
   return prs;
 }
 
-/** `origin`'s open PRs, newest first, or why there are none to show. */
+/**
+ * The PR remote when the host may fetch it and it is on GitHub, with its `owner/name`, or why
+ * not, in the PR tab's words.
+ */
+async function usablePrRemote(
+  commonDir: string,
+  opts: MirrorOpts,
+): Promise<(PrRemote & { repo: string }) | Problem> {
+  const remote = await readPrRemote(commonDir);
+  if (remote === null) return fail('origin is not an https or ssh remote');
+  if (!(opts.fetchable ?? isFetchableRemote)(remote.url)) {
+    return fail(`${remote.name} is not an https or ssh remote`);
+  }
+  if (!validRemote(remote.name)) {
+    return fail(`unusable remote name: ${remote.name}`);
+  }
+  const repo = gitHubRepoOf(remote.url);
+  if (repo === null) return fail(`${remote.name} is not a GitHub repo`);
+  return { ...remote, repo };
+}
+
+/**
+ * The URL of a PR's head repository `<owner>/<name>`, in the PR remote's scheme (`gh pr checkout`
+ * writes the same): `https://github.com/<owner>/<name>.git` for an https PR remote,
+ * `git@github.com:<owner>/<name>.git` for an ssh one. `null` for an owner or name outside
+ * `[A-Za-z0-9._-]`, or a PR remote that is neither.
+ */
+export function headRepoUrl(
+  prRemoteUrl: string,
+  owner: string,
+  name: string,
+): string | null {
+  const part = /^[A-Za-z0-9._-]+$/;
+  if (!part.test(owner) || !part.test(name) || owner.startsWith('.')) {
+    return null;
+  }
+  if (prRemoteUrl.startsWith('https://')) {
+    return `https://github.com/${owner}/${name}.git`;
+  }
+  if (
+    prRemoteUrl.startsWith('git@') || prRemoteUrl.startsWith('ssh://git@')
+  ) {
+    return `git@github.com:${owner}/${name}.git`;
+  }
+  return null;
+}
+
+/** GitHub repo `repo`'s open PRs, newest first, or why there are none to show. */
 async function openPrs(
-  url: string,
+  repo: string,
   gh: string,
 ): Promise<{ prs: WorktreePr[] } | Problem> {
-  const repo = gitHubRepoOf(url);
-  if (repo === null) return fail('origin is not a GitHub repo');
   const out = await runGh(gh, [
     'pr',
     'list',
@@ -425,7 +481,7 @@ async function openPrs(
     '--limit',
     String(MAX_PRS),
     '--json',
-    'number,title,author,headRefName,isCrossRepository,isDraft',
+    'number,title,author,headRefName,headRepositoryOwner,isCrossRepository,isDraft',
   ]);
   if ('problem' in out) return out;
   return { prs: parsePrList(out.out) };
@@ -441,11 +497,14 @@ export async function worktreeOptions(
   if ('problem' in at) return at;
   const url = await fetchableOrigin(at.commonDir, opts);
   const noOrigin = 'origin is not an https or ssh remote';
+  const prRemote = await usablePrRemote(at.commonDir, opts);
   const [defaultBranch, remote, prs, local, folders, currentBranch] =
     await Promise.all([
       url === null ? null : remoteDefaultBranch(url),
       url === null ? fail(noOrigin) : remoteBranchList(url),
-      url === null ? fail(noOrigin) : openPrs(url, deps.gh ?? 'gh'),
+      'problem' in prRemote
+        ? prRemote
+        : openPrs(prRemote.repo, deps.gh ?? 'gh'),
       localBranches(t.env, at.path),
       (async () => {
         const names: string[] = [];
@@ -466,6 +525,7 @@ export async function worktreeOptions(
     currentBranch,
     remoteBranches: 'branches' in remote ? remote.branches : [],
     remoteProblem: 'problem' in remote ? remote.problem : null,
+    prRemote: (await readPrRemote(at.commonDir))?.name ?? null,
     prs: 'prs' in prs ? prs.prs : [],
     prsProblem: 'problem' in prs ? prs.problem : null,
     localBranches: local.local,
@@ -601,14 +661,18 @@ export async function writeConfigInPlace(
   }
 }
 
-/** {@link writeConfigInPlace} of `branch`'s upstream: `origin`'s `remoteBranch`. */
+/**
+ * {@link writeConfigInPlace} of `branch`'s upstream: `remote`'s `remoteBranch` (`remote` a
+ * remote's name, or a URL as `gh pr checkout` writes for a fork's PR).
+ */
 export function writeUpstream(
   commonDir: string,
   branch: string,
   remoteBranch: string,
+  remote = 'origin',
 ): Promise<string | null> {
   return writeConfigInPlace(commonDir, [
-    [`branch.${branch}.remote`, 'origin'],
+    [`branch.${branch}.remote`, remote],
     [`branch.${branch}.merge`, `refs/heads/${remoteBranch}`],
   ]);
 }
@@ -771,34 +835,48 @@ async function createOnce(
   // Where the commit comes from: the remote (through the mirror), or a local branch.
   let fetchRef: string | null = null;
   /**
-   * The remote branch fetched: its `refs/remotes/origin/<it>` moves to the commit. The new branch
-   * takes it as upstream only under its own name (`remote` and a same-repo PR), since Push
-   * publishes `origin/<branch>`; under another name it is a new branch with none.
+   * The remote branch fetched: its `refs/remotes/<trackRemote>/<it>` moves to the commit (a
+   * `remote` source, or a same-repo PR).
    */
   let tracks: string | null = null;
+  let trackRemote = 'origin';
+  /**
+   * The upstream the host writes for the new branch (see the plan's table): `origin`'s branch
+   * only under its own name, since Push publishes `origin/<branch>`; a same-repo PR on another
+   * remote, that remote's branch; a fork's PR, its head branch at the fork's URL.
+   */
+  let upstreamConfig: { remote: string; branch: string; shown: string } | null =
+    null;
   /** From a local branch: no remote, no fetch. */
   const inRepo = source.kind === 'local';
   if (inRepo && !local.local.includes(source.base)) {
     return fail(`branch ${source.base} does not exist`);
   }
-  const url = inRepo ? null : await fetchableOrigin(at.commonDir, opts);
-  if (url === null && !inRepo) {
-    return fail('origin is not an https or ssh remote');
-  }
+  let url: string | null = null;
   if (source.kind === 'remote') {
+    url = await fetchableOrigin(at.commonDir, opts);
+    if (url === null) return fail('origin is not an https or ssh remote');
     fetchRef = `refs/heads/${source.remoteBranch}`;
     tracks = source.remoteBranch;
+    if (tracks === branch) {
+      upstreamConfig = {
+        remote: 'origin',
+        branch: tracks,
+        shown: `origin/${tracks}`,
+      };
+    }
   } else if (source.kind === 'pr') {
-    const repo = gitHubRepoOf(url!);
-    if (repo === null) return fail('origin is not a GitHub repo');
+    const prRemote = await usablePrRemote(at.commonDir, opts);
+    if ('problem' in prRemote) return prRemote;
+    url = prRemote.url;
     const view = await runGh(deps.gh ?? 'gh', [
       'pr',
       'view',
       String(source.number),
       '--repo',
-      repo,
+      prRemote.repo,
       '--json',
-      'headRefName,isCrossRepository,state',
+      'headRefName,isCrossRepository,state,headRepository,headRepositoryOwner',
     ]);
     if ('problem' in view) return view;
     let pr: Record<string, unknown>;
@@ -811,11 +889,34 @@ async function createOnce(
       return fail(`pull request #${source.number} is not open`);
     }
     fetchRef = `refs/pull/${source.number}/head`;
-    if (pr.isCrossRepository === false && typeof pr.headRefName === 'string') {
-      if (!await validBranch(pr.headRefName)) {
-        return fail(`invalid branch name: ${pr.headRefName}`);
+    const head = typeof pr.headRefName === 'string' ? pr.headRefName : null;
+    if (head !== null && !await validBranch(head)) {
+      return fail(`invalid branch name: ${head}`);
+    }
+    if (pr.isCrossRepository === false && head !== null) {
+      tracks = head;
+      trackRemote = prRemote.name;
+      if (prRemote.name !== 'origin' || head === branch) {
+        upstreamConfig = {
+          remote: prRemote.name,
+          branch: head,
+          shown: `${prRemote.name}/${head}`,
+        };
       }
-      tracks = pr.headRefName;
+    } else if (pr.isCrossRepository === true && head !== null) {
+      const owner = (pr.headRepositoryOwner as { login?: unknown } | null)
+        ?.login;
+      const repoName = (pr.headRepository as { name?: unknown } | null)?.name;
+      const forkUrl = typeof owner === 'string' && typeof repoName === 'string'
+        ? headRepoUrl(url, owner, repoName)
+        : null;
+      if (forkUrl !== null) {
+        upstreamConfig = {
+          remote: forkUrl,
+          branch: head,
+          shown: `${owner}/${repoName}:${head}`,
+        };
+      }
     }
   }
 
@@ -901,7 +1002,9 @@ async function createOnce(
     cmd: worktreeAddArgv({
       bundleRef,
       commit,
-      trackingRef: tracks === null ? '' : `refs/remotes/origin/${tracks}`,
+      trackingRef: tracks === null
+        ? ''
+        : `refs/remotes/${trackRemote}/${tracks}`,
       branch,
       path,
       mode: exists ? 'existing' : 'new-at-commit',
@@ -922,14 +1025,15 @@ async function createOnce(
   }
 
   let upstream: string | null = null;
-  if (tracks === branch) {
-    if (await hasMerge(at.commonDir, branch)) {
-      upstream = null;
-    } else {
-      const problem = await writeUpstream(at.commonDir, branch, tracks);
-      if (problem === null) upstream = `origin/${tracks}`;
-      else console.error(`devc web: worktree ${name}: upstream: ${problem}`);
-    }
+  if (upstreamConfig !== null && !await hasMerge(at.commonDir, branch)) {
+    const problem = await writeUpstream(
+      at.commonDir,
+      branch,
+      upstreamConfig.branch,
+      upstreamConfig.remote,
+    );
+    if (problem === null) upstream = upstreamConfig.shown;
+    else console.error(`devc web: worktree ${name}: upstream: ${problem}`);
   }
   if (await resolveRepo(host) === null) {
     return fail(`created ${name}, but its .git does not resolve on the host`);

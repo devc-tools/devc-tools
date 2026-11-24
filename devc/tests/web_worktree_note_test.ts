@@ -2,6 +2,7 @@ import { assertEquals } from 'jsr:@std/assert';
 import {
   branchChoices,
   folderNameFor,
+  prHead,
   worktreeNote,
 } from '../web/static/lib/worktree.js';
 
@@ -88,6 +89,68 @@ Deno.test('worktreeNote: what Create will do from each base', () => {
     note({ kind: 'pr', number: 7, head: null }, 'pr-7', { tab: 'pr' }),
     ok('Creates pr-7 from pull request #7, no upstream'),
   );
+});
+
+Deno.test('worktreeNote: PRs on another remote, and forks, track their head', () => {
+  const pr = (
+    extra: Partial<{
+      remote: string | null;
+      cross: boolean;
+      headRefName: string;
+      headOwner: string;
+    }>,
+  ) => ({ kind: 'pr' as const, number: 5, head: null, ...extra });
+  // A same-repo PR on upstream: tracked under any name.
+  assertEquals(
+    note(
+      pr({ remote: 'upstream', cross: false, headRefName: 'feat' }),
+      'pr-5',
+      { tab: 'pr' },
+    ),
+    ok('Creates pr-5 tracking upstream/feat'),
+  );
+  // A fork's PR, from either remote.
+  for (const remote of ['upstream', 'origin']) {
+    assertEquals(
+      note(
+        pr({ remote, cross: true, headRefName: 'feat', headOwner: 'them' }),
+        'pr-5',
+        { tab: 'pr' },
+      ),
+      ok('Creates pr-5 tracking them:feat'),
+    );
+  }
+  // origin's same-repo PR under another name: no upstream, as before.
+  assertEquals(
+    note(
+      {
+        ...pr({ remote: 'origin', cross: false, headRefName: 'feat' }),
+        head: 'feat',
+      },
+      'pr-5',
+      { tab: 'pr' },
+    ),
+    ok('Creates pr-5 from pull request #5, no upstream'),
+  );
+  // An existing branch is still checked out as is.
+  assertEquals(
+    note(
+      pr({ remote: 'upstream', cross: true, headRefName: 'x', headOwner: 'o' }),
+      'feature/a',
+      {
+        tab: 'pr',
+      },
+    ),
+    ok('Checks out feature/a as is'),
+  );
+});
+
+Deno.test('prHead: a same-repo PR on origin suggests its branch; any other, pr-<n>', () => {
+  const p = { headRefName: 'feat', crossRepository: false };
+  assertEquals(prHead(p, 'origin'), 'feat');
+  assertEquals(prHead(p, 'upstream'), null);
+  assertEquals(prHead({ ...p, crossRepository: true }, 'origin'), null);
+  assertEquals(prHead(p, null), null);
 });
 
 Deno.test('worktreeNote: each problem under its own field, all at once', () => {

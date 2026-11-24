@@ -129,6 +129,19 @@ export const LABELS = {
   pushWaives: (problem) =>
     `The container's gh-push refused this (${problem}); pushing it yourself waives that`,
   pull: 'Pull',
+  /** A PR branch's menu item (`upstream` its `<remote>/<branch>` or `<owner>/<name>:<branch>`). */
+  resetTo: (upstream) => `Reset to ${upstream}`,
+  /** Its toast's name when it fails. */
+  reset: 'Reset',
+  /** Its confirmation: `ahead` is how many of the branch's commits the upstream lacks. */
+  resetConfirm: (branch, upstream, ahead) =>
+    `Reset ${branch} to ${upstream}? Moves ${branch} to the PR's latest commit.` +
+    (ahead > 0
+      ? ` Drops ${ahead} commit${
+        ahead === 1 ? '' : 's'
+      } not in it (a rebase leaves the old ones here; git's reflog keeps them).`
+      : '') +
+    ' Uncommitted changes stay; git stops if one is in the way.',
   /** A faded ↓N / +N's tooltip: `upstream` is `<remote>/<branch>`. */
   fetchUnfetched: (n, upstream) =>
     `Fetch: bring ${n} new commit${n === 1 ? '' : 's'} into ${upstream}`,

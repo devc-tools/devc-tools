@@ -2,6 +2,7 @@ import { assertEquals } from 'jsr:@std/assert';
 import {
   isFetchableRemote,
   mountedRepos,
+  parsePrRemote,
   parseUpstream,
   readBranch,
   resolveRepo,
@@ -170,4 +171,50 @@ Deno.test('mountedRepos lists the primary, other repos, and worktrees under thei
   } finally {
     await Deno.remove(dir, { recursive: true });
   }
+});
+
+Deno.test("parsePrRemote: gh's order, gh-resolved base, then upstream, then origin", () => {
+  const list = (...kv: [string, string][]) =>
+    kv.map(([k, v]) => `${k}\n${v}`).join('\0') + '\0';
+  const origin: [string, string] = ['remote.origin.url', 'https://o'];
+  const upstream: [string, string] = ['remote.upstream.url', 'https://u'];
+  const base: [string, string] = ['remote.base.url', 'https://b'];
+  assertEquals(
+    parsePrRemote(
+      list(origin, upstream, base, ['remote.base.gh-resolved', 'base']),
+    ),
+    { name: 'base', url: 'https://b' },
+  );
+  assertEquals(parsePrRemote(list(origin, upstream)), {
+    name: 'upstream',
+    url: 'https://u',
+  });
+  assertEquals(parsePrRemote(list(origin)), {
+    name: 'origin',
+    url: 'https://o',
+  });
+  assertEquals(parsePrRemote(list(['core.bare', 'false'])), null);
+  // The first gh-resolved remote wins.
+  assertEquals(
+    parsePrRemote(
+      list(
+        origin,
+        base,
+        upstream,
+        ['remote.upstream.gh-resolved', 'base'],
+        ['remote.base.gh-resolved', 'base'],
+      ),
+    ),
+    { name: 'upstream', url: 'https://u' },
+  );
+  // Not upstream without a url; gh-resolved = other is no choice.
+  assertEquals(
+    parsePrRemote(
+      list(origin, ['remote.upstream.fetch', 'x'], [
+        'remote.origin.gh-resolved',
+        'other',
+      ]),
+    ),
+    { name: 'origin', url: 'https://o' },
+  );
 });

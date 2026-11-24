@@ -140,6 +140,12 @@ export type ClientMessage =
    */
   | { type: 'pull_repo'; id: string; localFolder: string; folder: string }
   /**
+   * **Reset to PR** for a repo of a running project whose branch tracks anything but
+   * `origin/<branch>` (`git_fetch.ts`'s `resetRepo`): a Fetch, then `git reset --keep` to the
+   * fetched commit. Answered with `reset_result`, shaped as `pull_result`.
+   */
+  | { type: 'reset_repo'; id: string; localFolder: string; folder: string }
+  /**
    * Pushes a repo's pinned branch under its container's own `gh-push` grant: runs
    * `devc-bridge gh-push --repo <target>` in the container, with no confirmation. Answered with
    * `push_result`.
@@ -1230,6 +1236,13 @@ function parseFields(m: Obj): ClientMessage {
     case 'pull_repo':
       return {
         type: 'pull_repo',
+        id: str(m, 'id'),
+        localFolder: folder(m),
+        folder: absolute(m, 'folder'),
+      };
+    case 'reset_repo':
+      return {
+        type: 'reset_repo',
         id: str(m, 'id'),
         localFolder: folder(m),
         folder: absolute(m, 'folder'),

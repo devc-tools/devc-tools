@@ -11,11 +11,6 @@
 
 ### Pending
 
-- [devc-web-pr-review-worktrees](devc-web-pr-review-worktrees.md) — the New worktree dialog lists
-  PRs from the repo they target (`gh-resolved` base, else `upstream`, else `origin`); a PR worktree
-  tracks the PR's head branch as `gh pr checkout` does (a fork's URL), so Fetch/Pull work and the
-  card finds its PR; **Reset to PR** for a rebased PR (`git reset --keep`, confirmed).
-
 - [devc-web-aseprite-viewer](devc-web-aseprite-viewer.md) — after devc-web-media-tiles: a
   clean-room `.aseprite` decoder and compositor (`static/lib/aseprite.js`, from the public spec
   only) and a media view with frame playback, tags and layer toggles. Normal blend only at first;
@@ -229,6 +224,11 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
   refreshes the mirror so `↑N` clears.
 
 ### Completed
+
+- [devc-web-pr-review-worktrees](archived/devc-web-pr-review-worktrees.md) — the New worktree dialog lists
+  PRs from the repo they target (`gh-resolved` base, else `upstream`, else `origin`); a PR worktree
+  tracks the PR's head branch as `gh pr checkout` does (a fork's URL), so Fetch/Pull work and the
+  card finds its PR; **Reset to PR** for a rebased PR (`git reset --keep`, confirmed).
 
 - [devc-web-orchestrator](archived/devc-web-orchestrator.md) — a Pi orchestrator per running container,
   in a docked panel on the right of devc web (a button in the tiles' top-right corner,
@@ -2825,4 +2825,4 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
 | devc web outline — sidebar Outline of a TS/JS file's tests and declarations, click to jump                          | [devc-web-outline](archived/devc-web-outline.md)                                   | complete    |
 | Bridge PR head from tracking config — gh-pr-* find another fork's PR or a renamed branch's                          | [bridge-pr-head-tracking](archived/bridge-pr-head-tracking.md)                     | complete    |
 | devc web orchestrator — a per-container Pi router in a docked panel that starts agents in the right repo            | [devc-web-orchestrator](archived/devc-web-orchestrator.md)                         | complete    |
-| devc web PR review worktrees — PRs from upstream, Pull and Reset to PR for review branches                          | [devc-web-pr-review-worktrees](devc-web-pr-review-worktrees.md)                    |             |
+| devc web PR review worktrees — PRs from upstream, Pull and Reset to PR for review branches                          | [devc-web-pr-review-worktrees](archived/devc-web-pr-review-worktrees.md)           | complete    |

@@ -3,7 +3,12 @@
 // again and does the work in the repo's environment, and what it reports stays in the dialog.
 
 import { forceRemoveAllowed, nextId, onServerMessage, send } from './client.js';
-import { branchChoices, folderNameFor, worktreeNote } from './lib/worktree.js';
+import {
+  branchChoices,
+  folderNameFor,
+  prHead,
+  worktreeNote,
+} from './lib/worktree.js';
 import { h, toast } from './ui.js';
 
 /**
@@ -231,7 +236,14 @@ export function openNewWorktreeDialog(
       );
       $list.replaceChildren(
         ...(opts.prs.length === 0
-          ? [empty(opts.prsProblem ?? 'No open pull requests')]
+          ? [
+            empty(
+              opts.prsProblem ??
+                (opts.prRemote && opts.prRemote !== 'origin'
+                  ? `${opts.prRemote}: No open pull requests`
+                  : 'No open pull requests'),
+            ),
+          ]
           : prs.map((p) =>
             h(
               'div',
@@ -246,7 +258,11 @@ export function openNewWorktreeDialog(
                   pick({
                     kind: 'pr',
                     number: p.number,
-                    head: p.crossRepository ? null : p.headRefName,
+                    head: prHead(p, opts.prRemote),
+                    remote: opts.prRemote,
+                    cross: p.crossRepository,
+                    headRefName: p.headRefName,
+                    headOwner: p.headOwner,
                   }),
               },
               h('span', { class: 'worktree-num' }, `#${p.number}`),

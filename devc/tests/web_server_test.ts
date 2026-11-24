@@ -696,6 +696,25 @@ Deno.test('parseClientMessage: file messages take a root and a path, empty meani
     'bad_request',
   );
   ok({
+    type: 'reset_repo',
+    id: 'g3r',
+    localFolder: '/src/app',
+    folder: '/src/lib',
+  });
+  for (
+    const bad of [
+      { localFolder: '/a' },
+      { localFolder: '/a', folder: 'rel' },
+      { localFolder: 'rel', folder: '/a' },
+      { folder: '/a' },
+    ]
+  ) {
+    assertEquals(
+      rejected({ type: 'reset_repo', id: 'g4r', ...bad }).code,
+      'bad_request',
+    );
+  }
+  ok({
     type: 'push_repo',
     id: 'g5',
     localFolder: '/src/app',

@@ -4,11 +4,13 @@ import {
   type GitReading,
   type GitStatus,
   GitStatusWatch,
+  isForeign,
   type MirrorOpts,
   readGitState,
   readGitStatus,
   recordPushed,
   refreshRemote,
+  upstreamName,
 } from '../web/git_status.ts';
 import { readCommitHistory } from '../web/git_history.ts';
 
@@ -463,4 +465,37 @@ Deno.test('recordPushed: the pushed SHA is the remote branch, with no network ca
   } finally {
     await Deno.remove(dir, { recursive: true });
   }
+});
+
+Deno.test('upstreamName and isForeign: how an upstream reads, and whether Push updates it', () => {
+  const named = {
+    remote: 'origin',
+    url: 'https://github.com/o/n.git',
+    branch: 'main',
+    trackingRef: 'refs/remotes/origin/main',
+  };
+  assertEquals(upstreamName(named), 'origin/main');
+  assertEquals(isForeign('main', named), false);
+  assertEquals(isForeign('other', named), true);
+  assertEquals(
+    isForeign('feat', {
+      ...named,
+      remote: 'upstream',
+      branch: 'feat',
+      trackingRef: 'refs/remotes/upstream/feat',
+    }),
+    true,
+  );
+  const fork = {
+    remote: 'git@github.com:them/n.git',
+    url: 'git@github.com:them/n.git',
+    branch: 'feat',
+    trackingRef: null,
+  };
+  assertEquals(upstreamName(fork), 'them/n:feat');
+  assertEquals(isForeign('feat', fork), true);
+  assertEquals(
+    upstreamName({ ...fork, remote: '/srv/x.git', url: '/srv/x.git' }),
+    '/srv/x.git feat',
+  );
 });

@@ -329,7 +329,17 @@ is published from any container: the host server finds devcontainers with
   environment: never a merge commit, rebase or stash, and git refuses one that
   would overwrite an uncommitted change. It is refused while an agent in the
   project is working, and when the branch has diverged (**↑N ↓N**: merge or
-  rebase in the project). **Push** (the menu) and a click on **↑N** are one
+  rebase in the project). A branch that tracks anything but `origin/<branch>`
+  (another remote, a fork's URL as `gh pr checkout` writes it, or another
+  name: a PR under review) also offers **Reset to `<upstream>`** while there is
+  something new there, such as after the PR's author rebased: it asks first,
+  saying how many of the branch's commits it drops (git's reflog keeps them),
+  then fetches and runs `git reset --keep`, which keeps uncommitted changes and
+  stops when one is in a file it changes. A page served with `--live` or
+  `--live-yolo` may not reset (devc-desktop may). For a branch that tracks a
+  fork's URL, the repo has no remote-tracking ref: Fetch is the host's alone,
+  and Pull and Reset hand the repo the commits with `git bundle unbundle`, which
+  moves no ref. **Push** (the menu) and a click on **↑N** are one
   action, offered together or not at all. With the container's own `gh-push`
   grant (the container running, `devc up --bridge-allow gh-push` on that repo,
   its pinned branch checked out) it runs `devc-bridge gh-push --repo <path>`
@@ -406,11 +416,19 @@ is published from any container: the host server finds devcontainers with
   branch's first; _checked out_ marks those in a worktree): pick one to start
   from, and **Branch** takes its name (`feature/x` for `origin/feature/x`), the
   folder following it, `/` as `-`. Type another name there for a new local
-  branch from it. **Pull request** lists the open PRs (`gh pr list` on the host;
-  a fork's branch defaults to `pr-<n>`). The note under the form says what
+  branch from it. **Pull request** lists the open PRs (`gh pr list` on the host)
+  of the repo they are opened against: the remote `gh repo set-default` chose
+  (`remote.<name>.gh-resolved = base`), else `upstream`, else `origin`, so a
+  fork checked out as `origin` with the real repo as `upstream` lists the real
+  repo's PRs. A PR's branch defaults to `pr-<n>`, except a same-repo PR on
+  `origin`, which takes its own name. The note under the form says what
   **Create** will do: check a branch that exists locally out as is (never
-  reset), create a remote branch (or a same-repo PR's) under its own name
-  tracking `origin/<branch>`, or create a new branch with no upstream; or what
+  reset), create a remote branch (or a same-repo PR's on `origin`) under its own
+  name tracking `origin/<branch>`, create a PR's branch tracking its head (a
+  same-repo PR on another remote as `<remote>/<branch>`; a fork's as
+  `<owner>:<branch>`, at the fork's URL, as `gh pr checkout` sets it up), so
+  **Pull** and **Reset** bring in what its author pushes next, or create a new
+  branch with no upstream; or what
   stops it, such as a branch checked out in another worktree (give it another
   name). It is on every main checkout's card and on each of its worktrees'
   cards, where it makes a sibling (the main repo must be listed in the same

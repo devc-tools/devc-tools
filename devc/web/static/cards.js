@@ -1146,6 +1146,10 @@ export function repoCard(
     ((repo.git.unfetched ?? 0) > 0 || gitOp === 'fetch');
   const canPull = gitOn &&
     ((repo.git.ahead === 0 && repo.git.behind > 0) || gitOp === 'pull');
+  // Reset to PR: a branch whose upstream is not `origin/<branch>` (`foreign`), with something
+  // newer there; it asks first, since it drops the branch's commits not in it.
+  const canReset = gitOn &&
+    ((!!repo.git.foreign && repo.git.behind > 0) || gitOp === 'reset');
   // Push (the menu item and the ↑N click, one action): the server's route for this repo. It
   // needs no upstream, and `confirm` needs no running environment.
   const canPush = !!repo?.push;
@@ -1302,11 +1306,14 @@ export function repoCard(
                 act: repoGitItems({
                   push: canPush,
                   pull: canPull,
+                  reset: canReset,
                   fetch: canFetch,
                 }).map((k) => [
-                  LABELS[k],
+                  k === 'reset' ? LABELS.resetTo(repo.git.upstream) : LABELS[k],
                   k === 'push'
                     ? /** @type {() => void} */ (push)
+                    : k === 'reset'
+                    ? () => void confirmReset(localFolder, repo)
                     : () => repoGitRequest(k, localFolder, repo.folder),
                 ]),
               }
@@ -1960,7 +1967,7 @@ export function gitMark(sync, opts) {
 /** Repo folders with a `fetch_repo`, `pull_repo`, `push_repo` or `push_user` in flight → its kind, request id and project. */
 const repoGitOps = new Map();
 
-/** The kind (`'fetch'`, `'pull'` or `'push'`) of the git request in flight for `folder`, if any. */
+/** The kind (`'fetch'`, `'pull'`, `'reset'` or `'push'`) of the git request in flight for `folder`, if any. */
 function repoGitOp(folder) {
   return repoGitOps.get(folder)?.kind;
 }
@@ -1971,16 +1978,39 @@ function repoGitOp(folder) {
  * own grant) a repo of a running project; its marks update once the server reads it again. A
  * second click while any runs does nothing; a problem is a toast, and so is a push's outcome.
  *
- * @param {'fetch' | 'pull' | 'push'} kind
+ * @param {'fetch' | 'pull' | 'reset' | 'push'} kind
  */
 function repoGitRequest(kind, localFolder, folder) {
   if (repoGitOps.has(folder)) return;
-  const id = nextId(kind === 'fetch' ? 'f' : kind === 'pull' ? 'p' : 'u');
+  const id = nextId(
+    kind === 'fetch'
+      ? 'f'
+      : kind === 'pull'
+      ? 'p'
+      : kind === 'reset'
+      ? 'rs'
+      : 'u',
+  );
   // A refused message comes back as a `result`: `client.js` toasts it.
   pendingRequests.set(id, LABELS[kind]);
   repoGitOps.set(folder, { kind, id, localFolder });
   send({ type: `${kind}_repo`, id, localFolder, folder });
   renderTree();
+}
+
+/**
+ * **Reset to …** on a PR branch's card: asks first (it drops the branch's commits not in the
+ * upstream), then sends `reset_repo`.
+ *
+ * @param {string} localFolder @param {any} repo
+ */
+async function confirmReset(localFolder, repo) {
+  if (repoGitOps.has(repo.folder)) return;
+  const ok = await confirmDialog(
+    LABELS.resetConfirm(repo.git.branch, repo.git.upstream, repo.git.ahead),
+    { okLabel: LABELS.reset, danger: repo.git.ahead > 0 },
+  );
+  if (ok) repoGitRequest('reset', localFolder, repo.folder);
 }
 
 /**
@@ -2021,7 +2051,8 @@ async function userPush(localFolder, folder, refused = null) {
 }
 
 /**
- * A `fetch_result`, `pull_result` or `push_result`, or a `result` refusing one of those requests:
+ * A `fetch_result`, `pull_result`, `reset_result` or `push_result`, or a `result` refusing one of
+ * those requests:
  * the spinner stops. Returns whether it was one of this page's.
  */
 export function onRepoGitDone(msg) {
@@ -2036,7 +2067,7 @@ export function onRepoGitDone(msg) {
   }
   if (
     msg.type !== 'fetch_result' && msg.type !== 'pull_result' &&
-    msg.type !== 'push_result'
+    msg.type !== 'reset_result' && msg.type !== 'push_result'
   ) return ours;
   pendingRequests.delete(msg.id);
   if (
@@ -2053,6 +2084,8 @@ export function onRepoGitDone(msg) {
       ? LABELS.fetch
       : msg.type === 'pull_result'
       ? LABELS.pull
+      : msg.type === 'reset_result'
+      ? LABELS.reset
       : LABELS.push;
     errorToast(`${label} failed: ${msg.problem ?? 'unknown problem'}`);
   } else if (msg.type === 'push_result' && ours) {

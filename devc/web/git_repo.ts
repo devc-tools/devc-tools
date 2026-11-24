@@ -157,6 +157,50 @@ export async function readRemoteUrl(
   return list === null ? null : parseRemoteUrl(list, remote);
 }
 
+/** The remote PRs are opened against: its name and first `url`. */
+export interface PrRemote {
+  name: string;
+  url: string;
+}
+
+/**
+ * The PR remote out of `git config -z --list` output, in `gh`'s own order: the first remote with
+ * `remote.<name>.gh-resolved = base` (`gh repo set-default`), else `upstream` when it has a
+ * `url`, else `origin`. `null` when none of those has a `url`.
+ */
+export function parsePrRemote(list: string): PrRemote | null {
+  const urls = new Map<string, string>();
+  let resolved: string | null = null;
+  for (const entry of list.split('\0')) {
+    const nl = entry.indexOf('\n');
+    if (nl === -1) continue;
+    const key = entry.slice(0, nl);
+    const value = entry.slice(nl + 1);
+    const m = /^remote\.(.+)\.(url|gh-resolved)$/.exec(key);
+    if (!m) continue;
+    if (m[2] === 'url') {
+      if (!urls.has(m[1]) && value) urls.set(m[1], value);
+    } else if (resolved === null && value === 'base') {
+      resolved = m[1];
+    }
+  }
+  for (const name of [resolved, 'upstream', 'origin']) {
+    if (name === null) continue;
+    const url = urls.get(name);
+    if (url !== undefined) return { name, url };
+    // A `gh-resolved` remote with no url: as gh would, fall through to the next.
+  }
+  return null;
+}
+
+/** {@link parsePrRemote} over `commonDir`'s config, read as a file. Never throws. */
+export async function readPrRemote(
+  commonDir: string,
+): Promise<PrRemote | null> {
+  const list = await readConfigList(commonDir);
+  return list === null ? null : parsePrRemote(list);
+}
+
 /** `commonDir`'s config as `git config -z --list` gives it; `null` when unreadable. Never throws. */
 async function readConfigList(commonDir: string): Promise<string | null> {
   try {

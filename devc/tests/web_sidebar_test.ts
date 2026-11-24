@@ -913,7 +913,7 @@ Deno.test('gitRollup sums changes to commit, in conflict colors when any repo ha
   );
 });
 
-Deno.test('repoGitItems: Push, Pull, Fetch', () => {
+Deno.test('repoGitItems: Push, Pull, Reset, Fetch', () => {
   const none = { push: false, pull: false, fetch: false };
   assertEquals(repoGitItems(none), []);
   assertEquals(repoGitItems({ ...none, push: true }), ['push']);
@@ -922,6 +922,10 @@ Deno.test('repoGitItems: Push, Pull, Fetch', () => {
     'pull',
     'fetch',
   ]);
+  assertEquals(
+    repoGitItems({ push: true, pull: true, reset: true, fetch: true }),
+    ['push', 'pull', 'reset', 'fetch'],
+  );
 });
 
 Deno.test('gitSync: a branch with no upstream shows ↑N only with something to push', () => {

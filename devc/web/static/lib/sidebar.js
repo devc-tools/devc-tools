@@ -591,13 +591,13 @@ function changesCount(changes) {
 
 /**
  * A repo card menu's git items, in order: **Push** (the same action as a click on ↑N), Pull,
- * Fetch.
+ * Reset (a PR branch's **Reset to …**), Fetch.
  *
- * @param {{push: boolean, pull: boolean, fetch: boolean}} can
- * @returns {('push' | 'pull' | 'fetch')[]}
+ * @param {{push: boolean, pull: boolean, reset?: boolean, fetch: boolean}} can
+ * @returns {('push' | 'pull' | 'reset' | 'fetch')[]}
  */
 export function repoGitItems(can) {
-  return /** @type {const} */ (['push', 'pull', 'fetch'])
+  return /** @type {const} */ (['push', 'pull', 'reset', 'fetch'])
     .filter((k) => can[k]);
 }
 

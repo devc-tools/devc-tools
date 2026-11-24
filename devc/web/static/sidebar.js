@@ -1947,6 +1947,7 @@ function onSidebarMessage(msg) {
       break;
     case 'fetch_result':
     case 'pull_result':
+    case 'reset_result':
     case 'push_result':
     case 'result':
       if (onRepoGitDone(msg)) renderSettled();

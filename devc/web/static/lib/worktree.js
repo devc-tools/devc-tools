@@ -44,10 +44,22 @@ export function branchChoices(o) {
 
 /**
  * @typedef {{kind: 'local' | 'remote', name: string}
- *   | {kind: 'pr', number: number, head: string | null}} WorktreeBase
- * What a worktree starts from: a local branch, `origin/<name>`, or a PR (`head`: its branch on
- * origin; null for a fork's).
+ *   | {kind: 'pr', number: number, head: string | null, remote?: string | null,
+ *      cross?: boolean, headRefName?: string, headOwner?: string}} WorktreeBase
+ * What a worktree starts from: a local branch, `origin/<name>`, or a PR. A PR's `head` is its
+ * branch on origin (a same-repo PR on origin), else null; `remote` is the remote the PR tab
+ * lists (`prRemote`), `cross` whether it comes from a fork, `headOwner`/`headRefName` its head.
  */
+
+/**
+ * A PR's `head` for the dialog: its `headRefName` for a same-repo PR on `origin` (the branch name
+ * it suggests, tracked as `origin/<it>`), else null (the dialog suggests `pr-<n>`).
+ *
+ * @param {{headRefName: string, crossRepository: boolean}} pr @param {string | null} prRemote
+ */
+export function prHead(pr, prRemote) {
+  return prRemote === 'origin' && !pr.crossRepository ? pr.headRefName : null;
+}
 
 /** How a base reads in a note. @param {WorktreeBase} base */
 function baseLabel(base) {
@@ -104,6 +116,15 @@ export function worktreeNote(s) {
     : null;
   if (tracked !== null && s.branch === tracked) {
     return ok(`Creates ${s.branch} tracking origin/${tracked}`);
+  }
+  if (s.base.kind === 'pr' && s.base.headRefName) {
+    const { remote, cross, headOwner, headRefName } = s.base;
+    if (!cross && remote && remote !== 'origin') {
+      return ok(`Creates ${s.branch} tracking ${remote}/${headRefName}`);
+    }
+    if (cross && headOwner) {
+      return ok(`Creates ${s.branch} tracking ${headOwner}:${headRefName}`);
+    }
   }
   return ok(`Creates ${s.branch} from ${baseLabel(s.base)}, no upstream`);
 }

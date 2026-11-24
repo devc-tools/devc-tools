@@ -10,9 +10,11 @@ import type {
 import {
   fetchRepo,
   fetchRunning,
-  pullArgv,
+  moveArgv,
   pullRepo,
   pullRunning,
+  resetRefusal,
+  resetRepo,
   validBranch,
   validRemote,
 } from '../web/git_fetch.ts';
@@ -20,6 +22,7 @@ import {
   fetchUpstream,
   isGitProblem,
   type MirrorOpts,
+  readGitState,
   upstreamBundle,
 } from '../web/git_status.ts';
 
@@ -322,7 +325,7 @@ Deno.test('pullRepo: a branch switched since it was read is refused', async () =
   try {
     const { work, opts } = await setUp(dir);
     const run = await hereEnv.runLimited(
-      { cmd: pullArgv('origin', 'main', 'side'), cwd: work },
+      { cmd: moveArgv('pull', 'refs/remotes/origin/main', 'side'), cwd: work },
       { timeoutMs: 10_000, maxOutput: 4096 },
     );
     assertEquals(run.kind === 'exit' && run.code, 3);
@@ -381,8 +384,171 @@ Deno.test("pullRepo's host steps never run the repo's hooks or fsmonitor", async
     assertEquals(await exists(planted), false);
     assertEquals(limited.length, 1);
     assertEquals(limited[0].cwd, work);
-    assertEquals(limited[0].cmd.slice(3), ['pull', 'origin', 'main', 'main']);
+    assertEquals(limited[0].cmd.slice(3), [
+      'pull',
+      'refs/remotes/origin/main',
+      'main',
+    ]);
   } finally {
     await Deno.remove(dir, { recursive: true });
   }
+});
+
+/**
+ * A fork (`fork.git`, a local path: a URL remote to git_repo.ts) with branch `feat` and its
+ * author's clone, and `work` on `pr-1` tracking it as `gh pr checkout` sets up a fork's PR.
+ * `x.txt` changes in the PR; `keep.txt` never does.
+ */
+async function setUpFork(dir: string) {
+  const { work, opts } = await setUp(dir);
+  const fork = `${dir}/fork.git`;
+  const author = `${dir}/author`;
+  await git(dir, 'clone', '-q', '--bare', `${dir}/remote.git`, fork);
+  await git(dir, 'clone', '-q', fork, author);
+  await Deno.writeTextFile(`${author}/keep.txt`, 'keep\n');
+  await Deno.writeTextFile(`${author}/x.txt`, 'one\n');
+  await git(author, 'add', '.');
+  await git(author, 'commit', '-q', '-m', 'files');
+  await git(author, 'push', '-q', 'origin', 'HEAD:main');
+  await git(author, 'checkout', '-q', '-b', 'feat');
+  await Deno.writeTextFile(`${author}/x.txt`, 'two\n');
+  await git(author, 'commit', '-q', '-am', 'pr: two');
+  await git(author, 'push', '-q', '-u', 'origin', 'feat');
+  await git(work, 'fetch', '-q', fork, 'feat');
+  await git(work, 'checkout', '-q', '-b', 'pr-1', 'FETCH_HEAD');
+  await git(work, 'config', 'branch.pr-1.remote', fork);
+  await git(work, 'config', 'branch.pr-1.merge', 'refs/heads/feat');
+  return { work, opts, fork, author };
+}
+
+/** Every ref in `repo` but `refs/heads/pr-1`, with its commit. */
+const otherRefs = async (repo: string) =>
+  (await git(repo, 'for-each-ref', '--format=%(refname) %(objectname)'))
+    .split('\n').filter((l) => !l.startsWith('refs/heads/pr-1 ')).join('\n');
+
+Deno.test('a branch that tracks a URL: Fetch on the host, Pull by bundle, no refs written', async () => {
+  const dir = await Deno.realPath(await Deno.makeTempDir());
+  try {
+    const { work, opts, fork, author } = await setUpFork(dir);
+    const state = await readGitState(work, opts);
+    assert(state !== null && !isGitProblem(state));
+    assertEquals(state.upstream, `${fork} feat`);
+    assertEquals(state.foreign, true);
+
+    await Deno.writeTextFile(`${author}/x.txt`, 'three\n');
+    await git(author, 'commit', '-q', '-am', 'pr: three');
+    await git(author, 'push', '-q');
+    const tip = await git(author, 'rev-parse', 'HEAD');
+    const before = await otherRefs(work);
+    assertEquals(await fetchRepo(hereEnv, work, work, opts), {
+      ok: true,
+      updated: true,
+    });
+    assertEquals(await fetchRepo(hereEnv, work, work, opts), {
+      ok: true,
+      updated: false,
+    });
+    const behind = await readGitState(work, opts);
+    assert(behind !== null && !isGitProblem(behind));
+    assertEquals([behind.ahead, behind.behind], [0, 1]);
+
+    assertEquals(await pullRepo(hereEnv, work, work, opts), {
+      ok: true,
+      updated: true,
+    });
+    assertEquals(await git(work, 'rev-parse', 'HEAD'), tip);
+    assertEquals(await otherRefs(work), before);
+    assertEquals(await pullRepo(hereEnv, work, work, opts), {
+      ok: true,
+      updated: false,
+    });
+  } finally {
+    await Deno.remove(dir, { recursive: true });
+  }
+});
+
+Deno.test('resetRepo after the author rebases: moves the branch, keeps unrelated changes', async () => {
+  const dir = await Deno.realPath(await Deno.makeTempDir());
+  try {
+    const { work, opts, author } = await setUpFork(dir);
+    const old = await git(work, 'rev-parse', 'HEAD');
+    // The author rewrites the PR and force-pushes.
+    await git(author, 'reset', '-q', '--hard', 'HEAD~1');
+    await Deno.writeTextFile(`${author}/x.txt`, 'rebased\n');
+    await git(author, 'commit', '-q', '-am', 'pr: rebased');
+    await git(author, 'push', '-q', '--force');
+    const tip = await git(author, 'rev-parse', 'HEAD');
+
+    // Pull can't: the branch diverged.
+    const diverged = await pullRepo(hereEnv, work, work, opts);
+    assert(!diverged.ok && diverged.problem.startsWith('git merge: '));
+
+    // An edit in a file the reset changes: git stops, nothing moves.
+    await Deno.writeTextFile(`${work}/x.txt`, 'mine\n');
+    const refused = await resetRepo(hereEnv, work, work, opts);
+    assert(
+      !refused.ok && refused.problem.startsWith('git reset: '),
+      JSON.stringify(refused),
+    );
+    assertEquals(await git(work, 'rev-parse', 'HEAD'), old);
+    assertEquals(await Deno.readTextFile(`${work}/x.txt`), 'mine\n');
+
+    await git(work, 'checkout', '-q', '--', 'x.txt');
+    await Deno.writeTextFile(`${work}/keep.txt`, 'mine\n');
+    assertEquals(await resetRepo(hereEnv, work, work, opts), {
+      ok: true,
+      updated: true,
+    });
+    assertEquals(await git(work, 'rev-parse', 'HEAD'), tip);
+    assertEquals(await Deno.readTextFile(`${work}/x.txt`), 'rebased\n');
+    assertEquals(await Deno.readTextFile(`${work}/keep.txt`), 'mine\n');
+    assert((await git(work, 'reflog', '--format=%H')).includes(old));
+  } finally {
+    await Deno.remove(dir, { recursive: true });
+  }
+});
+
+Deno.test('resetRepo on a named remote; refused for a branch Push updates', async () => {
+  const dir = await Deno.realPath(await Deno.makeTempDir());
+  try {
+    const { work, other, opts } = await setUp(dir);
+    assertEquals(await resetRepo(hereEnv, work, work, opts), {
+      ok: false,
+      problem: "not a PR branch: reset is for branches you don't push",
+    });
+    // `review` tracks origin/main under another name: Push never updates it.
+    await git(work, 'checkout', '-q', '-b', 'review', '--track', 'origin/main');
+    await git(work, 'commit', '-q', '--allow-empty', '-m', 'mine');
+    await git(other, 'commit', '-q', '--allow-empty', '-m', 'theirs');
+    await git(other, 'push', '-q');
+    const theirs = await git(other, 'rev-parse', 'HEAD');
+    const state = await readGitState(work, opts);
+    assert(state !== null && !isGitProblem(state));
+    assertEquals(state.foreign, true);
+    assertEquals(await resetRepo(hereEnv, work, work, opts), {
+      ok: true,
+      updated: true,
+    });
+    assertEquals(await git(work, 'rev-parse', 'HEAD'), theirs);
+  } finally {
+    await Deno.remove(dir, { recursive: true });
+  }
+});
+
+Deno.test('resetRefusal: a PR branch with something newer; never a page under --live', () => {
+  const pr = { foreign: true as const, behind: 2 };
+  assertEquals(resetRefusal(pr, 'page', false), null);
+  assertEquals(resetRefusal(pr, 'desktop', true), null);
+  assertEquals(
+    resetRefusal(pr, 'page', true),
+    'resetting a branch is refused under --live',
+  );
+  assertEquals(
+    resetRefusal({ behind: 2 }, 'page', false),
+    "not a PR branch: reset is for branches you don't push",
+  );
+  assertEquals(
+    resetRefusal({ ...pr, behind: 0 }, 'page', false),
+    'nothing to reset to',
+  );
 });

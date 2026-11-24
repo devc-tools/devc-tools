@@ -197,7 +197,15 @@ import {
   stageFiles,
   unstageFiles,
 } from './git_stage.ts';
-import { fetchRepo, fetchRunning, pullRepo, pullRunning } from './git_fetch.ts';
+import {
+  fetchRepo,
+  fetchRunning,
+  pullRepo,
+  pullRunning,
+  resetRefusal,
+  resetRepo,
+  resetRunning,
+} from './git_fetch.ts';
 import {
   createWorktree,
   forceRefusal,
@@ -1624,6 +1632,8 @@ export async function startWeb(
   const fetchStarts = new Map<string, number>();
   /** Each repo folder's last `pull_repo` start, for its rate limit. */
   const pullStarts = new Map<string, number>();
+  /** Each repo folder's last `reset_repo` start, for its rate limit. */
+  const resetStarts = new Map<string, number>();
   /** Each repo folder's last `push_repo` start, for its rate limit. */
   const pushStarts = new Map<string, number>();
 
@@ -1940,6 +1950,76 @@ export async function startWeb(
     const outcome = await pullRepo(at.session.env, msg.folder, at.path);
     answer(outcome);
     // Its marks, and its changes to commit: a pull moves the working tree.
+    if (outcome.ok) {
+      void gitWatch.refresh(msg.folder);
+      void changesWatch.refreshFolder(at.session.record.id, msg.folder);
+    }
+  };
+
+  /**
+   * **Reset to PR** for a repo of a running project (`git_fetch.ts`'s `resetRepo`: a Fetch, then
+   * `git reset --keep`), answered with `reset_result`. Refused as a pull is (an agent working,
+   * an unknown status), unless the last status has `foreign` (its upstream is not
+   * `origin/<branch>`) and is behind. It drops the branch's commits not in the upstream, so a
+   * page under `--live` (whose code agents can edit) may not ask for it; the desktop role may.
+   */
+  const resetRepoFor = async (
+    c: Client,
+    msg: Extract<ClientMessage, { type: 'reset_repo' }>,
+  ) => {
+    const answer = (
+      o: { ok: true; updated: boolean } | { ok: false; problem: string },
+    ) =>
+      c.send(
+        JSON.stringify({
+          type: 'reset_result',
+          id: msg.id,
+          folder: msg.folder,
+          ...o,
+        }),
+      );
+    if (c.role === 'page' && opts.live) {
+      answer({
+        ok: false,
+        problem: resetRefusal({ behind: 1 }, c.role, opts.live)!,
+      });
+      return;
+    }
+    const at = await repoTarget(msg);
+    if (isGitProblem(at)) {
+      answer({ ok: false, problem: at.problem });
+      return;
+    }
+    const panes = snapshotPanes(at.session.snapshot) as {
+      agent_status?: unknown;
+    }[];
+    if (
+      panes.some((p) =>
+        p.agent_status === 'working' || p.agent_status === 'blocked'
+      )
+    ) {
+      answer({
+        ok: false,
+        problem: 'an agent is working in this project: reset when it is idle',
+      });
+      return;
+    }
+    const status = gitWatch.statuses.get(msg.folder);
+    if (!status || isGitProblem(status)) {
+      answer({ ok: false, problem: 'git status unknown: try again soon' });
+      return;
+    }
+    const refused = resetRefusal(status, c.role, opts.live);
+    if (refused !== null) {
+      answer({ ok: false, problem: refused });
+      return;
+    }
+    if (!resetRunning(msg.folder) && !startAllowed(resetStarts, msg.folder)) {
+      answer({ ok: false, problem: 'reset moments ago: try again soon' });
+      return;
+    }
+    const outcome = await resetRepo(at.session.env, msg.folder, at.path);
+    answer(outcome);
     if (outcome.ok) {
       void gitWatch.refresh(msg.folder);
       void changesWatch.refreshFolder(at.session.record.id, msg.folder);
@@ -4284,6 +4364,10 @@ export async function startWeb(
     }
     if (msg.type === 'pull_repo') {
       await pullRepoFor(c, msg);
+      return;
+    }
+    if (msg.type === 'reset_repo') {
+      await resetRepoFor(c, msg);
       return;
     }
     if (msg.type === 'push_repo') {
