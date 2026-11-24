@@ -225,6 +225,12 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
 
 ### Completed
 
+- [devc-web-markdown-preview](archived/devc-web-markdown-preview.md) — ✅ Done: Markdown is a
+  media kind beside HTML and SVG (**Preview** / **Preview to the right** / **Open as text**),
+  rendered in-page through the bundled `marked`, sanitized; diff tiles get **Preview**
+  (`DiffRef.view: 'media'`): the new side rendered, changed blocks barred, removals marked.
+  `lib/rendered.js` is the renderer registry for further kinds. Live check not run.
+
 - [devc-web-pr-review-worktrees](archived/devc-web-pr-review-worktrees.md) — the New worktree dialog lists
   PRs from the repo they target (`gh-resolved` base, else `upstream`, else `origin`); a PR worktree
   tracks the PR's head branch as `gh pr checkout` does (a fork's URL), so Fetch/Pull work and the
@@ -2826,3 +2832,4 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
 | Bridge PR head from tracking config — gh-pr-* find another fork's PR or a renamed branch's                          | [bridge-pr-head-tracking](archived/bridge-pr-head-tracking.md)                     | complete    |
 | devc web orchestrator — a per-container Pi router in a docked panel that starts agents in the right repo            | [devc-web-orchestrator](archived/devc-web-orchestrator.md)                         | complete    |
 | devc web PR review worktrees — PRs from upstream, Pull and Reset to PR for review branches                          | [devc-web-pr-review-worktrees](archived/devc-web-pr-review-worktrees.md)           | complete    |
+| devc web Markdown preview — rendered Markdown in file and diff tiles, a general renderer registry                   | [devc-web-markdown-preview](archived/devc-web-markdown-preview.md)                 | complete    |

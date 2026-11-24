@@ -5,7 +5,8 @@
 // they reach those only through what `setMenuContext` was given, never by importing `tiles.js`,
 // `sidebar.js`, `containers.js` or `cards.js`.
 
-import { diffSource, withView } from './lib/layout_state.js';
+import { diffSource, diffWithView, withView } from './lib/layout_state.js';
+import { renderedKind } from './lib/rendered.js';
 import { nodeById, nodeTiles } from './lib/view.js';
 import {
   environmentItem,
@@ -524,8 +525,8 @@ export function fileRefOf(fr, path, view) {
 }
 
 /**
- * The dashboard's file as a file tile names it: rendered when it can be (HTML, SVG, images), else
- * as text. Always the host-side viewer.
+ * The dashboard's file as a file tile names it: rendered when it can be (HTML, SVG, Markdown,
+ * images), else as text. Always the host-side viewer.
  *
  * @param {import('./lib/dashboard.js').DashboardFile} d @returns {FileRef}
  */
@@ -983,6 +984,23 @@ export function openFileTile(fr, path, where, view) {
 }
 
 /**
+ * **Preview** / **Preview to the right** for a diff whose file has a rendered view
+ * (`renderedKind`): the diff rendered, in a tile of its own. None for other files.
+ *
+ * @param {import('./lib/layout_state.js').DiffRef} ref
+ * @returns {MenuItem[]}
+ */
+export function diffPreviewItems(ref) {
+  if (!tileArea || renderedKind(ref.path) === null) return [];
+  const area = tileArea;
+  const rendered = diffWithView(ref, 'media');
+  return [
+    [LABELS.preview, () => area.openDiff(rendered, 'stack')],
+    [LABELS.previewRight, () => area.openDiff(rendered, 'right')],
+  ];
+}
+
+/**
  * A file tile's menu groups (its tab, its Layout row, and a right-click in it).
  *
  * @param {TileState} tile @returns {MenuGroups}
@@ -1071,6 +1089,16 @@ function diffTileMenuGroups(tile) {
   // The file itself, as the PR tree's menu opens it: not for a file the PR deletes. A commit
   // diff's opens today's copy, not the commit's.
   const diff = tile.diff;
+  if (diff) {
+    g.preview.push(
+      ...(diff.view === 'media'
+        ? [[
+          LABELS.openAsDiff,
+          () => tileArea?.openDiff(diffWithView(diff), 'stack'),
+        ]]
+        : diffPreviewItems(diff).slice(0, 1)),
+    );
+  }
   if (diff && !tile.removed) {
     const fr = { localFolder: diff.localFolder, root: diff.root };
     g.open.push(
@@ -1089,7 +1117,9 @@ function diffTileMenuGroups(tile) {
   }
   g.act.push(['Reload', () => tileArea.reload(tile.id)]);
   // The agent's diff context is the PR's: a commit diff isn't offered it.
-  if (tile.diff && diffSource(tile.diff) === 'pr') {
+  if (
+    tile.diff && diffSource(tile.diff) === 'pr' && tile.diff.view !== 'media'
+  ) {
     g.act.push([LABELS.askAgent, () => tileArea.askAgent(tile.id)]);
   }
   if (tile.preview) g.organize.push(keepOpenItem(tile));

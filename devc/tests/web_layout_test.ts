@@ -3,6 +3,7 @@ import {
   diffKey,
   diffRefFromState,
   diffSource,
+  diffWithView,
   fileRefFromState,
   foldTree,
   hostSlotFromState,
@@ -559,4 +560,25 @@ Deno.test('hostGoneFromHash reads host-gone; withoutHostSlot takes it out too', 
   assertEquals(hostGoneFromHash('#host-gone=xyz'), null);
   assertEquals(hostGoneFromHash('#view=v1'), null);
   assertEquals(withoutHostSlot(`#view=v1&host-gone=${SLOT}`), '#view=v1');
+});
+
+Deno.test('a diff ref keeps its rendered view, only for a file kind that has one', () => {
+  const md = { localFolder: '/a', root: '/a/r', path: 'README.md' };
+  const rendered = { ...md, sha: 'cd'.repeat(20), view: 'media' as const };
+  const state = tileContent({ diff: rendered }, false);
+  assertEquals(state, { type: 'diff', state: rendered });
+  assertEquals(
+    diffRefFromState(JSON.parse(JSON.stringify(state.state))),
+    rendered,
+  );
+  // Not for a file with no rendered view, nor any other value: a plain diff.
+  const ts = { localFolder: '/a', root: '/a/r', path: 'x.ts' };
+  assertEquals(diffRefFromState({ ...ts, view: 'media' }), ts);
+  assertEquals(diffRefFromState({ ...md, view: 'text' }), md);
+  assertEquals(diffWithView(rendered), { ...md, sha: rendered.sha });
+  assertEquals(diffWithView(ts, 'media'), ts);
+  assertEquals(diffWithView(md, 'media'), { ...md, view: 'media' });
+  // A diff and its rendering are two diffs.
+  assertEquals(sameDiff(md, { ...md, view: 'media' }), false);
+  assertEquals(diffKey(md) === diffKey({ ...md, view: 'media' }), false);
 });

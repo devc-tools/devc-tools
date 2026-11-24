@@ -69,6 +69,7 @@ import { languageFor as pickLanguage } from './lib/languages.js';
 import { MAX_RULER_MATCHES, rulerMarks } from './lib/ruler.js';
 import { OUTLINE_LANGUAGES, outlineOf } from './lib/outline.js';
 import { SUPPORTED_TAGS, tagClasses } from './lib/diagnostic_tags.js';
+import { blockLines, slug } from './lib/rendered.js';
 
 /** @typedef {import('./lib/layout_state.js').FileRef} FileRef */
 
@@ -906,6 +907,186 @@ export function sanitizeLspHtml(html) {
   };
   clean(doc.body);
   return doc.body.innerHTML;
+}
+
+// ---------------------------------------------------------------------------------------------
+// Rendered views: a Markdown file as HTML, block by block (`lib/rendered.js`)
+// ---------------------------------------------------------------------------------------------
+
+/** The tags a rendered Markdown file keeps: the hover's, and a document's own. */
+const RENDERED_TAGS = new Set([
+  'A',
+  'B',
+  'BLOCKQUOTE',
+  'BR',
+  'CODE',
+  'DEL',
+  'DETAILS',
+  'DIV',
+  'EM',
+  'H1',
+  'H2',
+  'H3',
+  'H4',
+  'H5',
+  'H6',
+  'HR',
+  'I',
+  'IMG',
+  'INPUT',
+  'KBD',
+  'LI',
+  'MARK',
+  'OL',
+  'P',
+  'PRE',
+  'S',
+  'SPAN',
+  'STRONG',
+  'SUB',
+  'SUMMARY',
+  'SUP',
+  'TABLE',
+  'TBODY',
+  'TD',
+  'TH',
+  'THEAD',
+  'TR',
+  'UL',
+]);
+
+/**
+ * A rendered file's HTML made safe to put in the page, as nodes of `doc`. A repo's Markdown is
+ * untrusted, and this page holds shells in every container: only {@link RENDERED_TAGS} survive,
+ * with no `style`, no handlers and no `id`.
+ *
+ * - A link to `#x` keeps its `href` (the view scrolls to the heading); an http(s) link opens a new
+ *   window; a relative one loses its `href` for `data-path` (the view opens that repo file); any
+ *   other loses its `href`.
+ * - An image's `src` goes through `resolveImage`: kept as the URL it returns, else (a remote or
+ *   `data:` image, or one it can't serve) the image becomes a placeholder, a link to an http(s)
+ *   `src`.
+ * - A checkbox (a task list's) is always disabled; any other input goes.
+ * - Headings get `data-anchor`, GitHub's anchor for their text ({@link slug}).
+ *
+ * @param {string} html
+ * @param {(src: string) => string | null} resolveImage
+ * @param {Map<string, number>} seen  the document's anchors so far
+ * @returns {HTMLElement} a `<body>` holding the nodes
+ */
+function sanitizeRenderedHtml(html, resolveImage, seen) {
+  const doc = new DOMParser().parseFromString(
+    `<body>${html}</body>`,
+    'text/html',
+  );
+  /** @param {Element} el */
+  const clean = (el) => {
+    for (const child of [...el.children]) {
+      const tag = child.tagName;
+      if (!RENDERED_TAGS.has(tag)) {
+        if (
+          /^(SCRIPT|STYLE|IFRAME|OBJECT|EMBED|TEMPLATE|NOSCRIPT|SVG|MATH|FORM|SELECT|TEXTAREA|BUTTON)$/
+            .test(tag)
+        ) {
+          child.remove();
+        } else {
+          clean(child);
+          child.replaceWith(...child.childNodes);
+        }
+        continue;
+      }
+      if (tag === 'INPUT' && child.getAttribute('type') !== 'checkbox') {
+        child.remove();
+        continue;
+      }
+      if (tag === 'IMG') {
+        const src = child.getAttribute('src') ?? '';
+        const alt = child.getAttribute('alt') ?? '';
+        const url = src === '' ? null : resolveImage(src);
+        if (url === null) {
+          const label = `🖼 ${alt || src.split('/').pop() || 'image'}`;
+          const web = /^https?:/i.test(src);
+          const ph = doc.createElement(web ? 'a' : 'span');
+          ph.className = 'md-image';
+          ph.textContent = label;
+          if (web) {
+            ph.setAttribute('href', src);
+            ph.setAttribute('target', '_blank');
+            ph.setAttribute('rel', 'noopener noreferrer');
+            ph.setAttribute('title', src);
+          }
+          child.replaceWith(ph);
+          continue;
+        }
+        for (const attr of [...child.attributes]) {
+          if (!/^(alt|title|width|height)$/.test(attr.name)) {
+            child.removeAttribute(attr.name);
+          }
+        }
+        child.setAttribute('src', url);
+        child.setAttribute('loading', 'lazy');
+        continue;
+      }
+      const href = tag === 'A' ? child.getAttribute('href') ?? '' : '';
+      for (const attr of [...child.attributes]) {
+        const keep = (tag === 'INPUT' &&
+          (attr.name === 'type' || attr.name === 'checked')) ||
+          (/^T[HD]$/.test(tag) && attr.name === 'align') ||
+          (attr.name === 'class' && /^(CODE|SPAN|PRE)$/.test(tag)) ||
+          (tag === 'DETAILS' && attr.name === 'open');
+        if (!keep) child.removeAttribute(attr.name);
+      }
+      if (tag === 'INPUT') child.setAttribute('disabled', '');
+      if (tag === 'A') {
+        if (/^https?:/i.test(href)) {
+          child.setAttribute('href', href);
+          child.setAttribute('target', '_blank');
+          child.setAttribute('rel', 'noopener noreferrer');
+        } else if (href.startsWith('#')) {
+          child.setAttribute('href', href);
+        } else if (href !== '' && !/^[a-z][a-z0-9+.-]*:|^\/\//i.test(href)) {
+          child.setAttribute('data-path', href);
+          child.setAttribute('href', '#');
+          child.setAttribute('title', href);
+        }
+      }
+      if (/^H[1-6]$/.test(tag)) {
+        child.setAttribute('data-anchor', slug(child.textContent ?? '', seen));
+      }
+      clean(child);
+    }
+  };
+  clean(doc.body);
+  return doc.body;
+}
+
+/**
+ * A Markdown file rendered block by block: each top-level block (a heading, a paragraph, a
+ * list, a table, …) as its own sanitized, highlighted HTML with its source lines (see
+ * `blockLines`), so a diff tile can mark the blocks a patch changed. Blank gaps make no block.
+ * GitHub's flavour: tables, task lists, strikethrough.
+ *
+ * @param {string} text
+ * @param {(src: string) => string | null} resolveImage  see {@link sanitizeRenderedHtml}
+ * @returns {{html: string, from: number, to: number}[]}
+ */
+export function markdownBlocks(text, resolveImage) {
+  const tokens = marked.lexer(text.replace(/\r\n?/g, '\n'), { gfm: true });
+  const lines = blockLines(tokens.map((t) => t.raw));
+  /** @type {Map<string, number>} */
+  const seen = new Map();
+  /** @type {{html: string, from: number, to: number}[]} */
+  const out = [];
+  tokens.forEach((token, i) => {
+    const at = lines[i];
+    if (!at || token.type === 'space') return;
+    const one = /** @type {any} */ ([token]);
+    one.links = tokens.links;
+    const html = String(marked.parser(one, { gfm: true, async: false }));
+    const body = sanitizeRenderedHtml(html, resolveImage, seen);
+    out.push({ html: highlightCodeBlocks(body.innerHTML), ...at });
+  });
+  return out;
 }
 
 /** `<`, `>`, `&` and quotes as entities. */

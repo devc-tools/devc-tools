@@ -834,10 +834,25 @@ is published from any container: the host server finds devcontainers with
   **Preview**, and saving the source reloads its renderings. A rendering is
   read-only; its **Reload** reads the file again. A container file's rendering
   needs the container running.
+- **Markdown:** a Markdown file (`.md`, `.markdown`) opens as text, and like an
+  HTML file its menu adds **Preview** and **Preview to the right**, which render
+  it in the tile: GitHub's flavour (tables, task lists, strikethrough), code
+  blocks coloured, raw HTML kept to plain formatting (no scripts, styles or
+  frames). Images beside the file load; remote images (badges) don't, and show
+  as a link with their alt text instead. A link to a heading scrolls to it, a
+  relative link opens that repo file (Markdown rendered), and a web link opens
+  a browser tab. A Markdown file's diff (Uncommitted, a commit's files, a pull
+  request's tree, or a diff tile's own menu) has **Preview** too: the new
+  version rendered in a tile of its own, a green bar beside each block with
+  added or changed lines and a red line where lines were removed (hover it for
+  how many); a deleted file shows its old version, barred red. Its menu's
+  **Open as diff** goes back. A diff's rendering has none of the diff's tools
+  or threads, and its images are the working tree's, whatever revision it
+  shows.
 - **Dashboard:** make any repo file your dashboard (right-click it in a repo
   tree, a file tile or **Pinned** → **Use as dashboard**), such as a generated
   `dashboard.html` or a `focus.md`. The four-panel button in the sidebar
-  header opens it in a file tile (rendered, for HTML), or brings it forward and
+  header opens it in a file tile (rendered, for HTML and Markdown), or brings it forward and
   reads it again when it is open; right-click the button to stop using it.
   devc web also opens it by itself into an empty tiling area: when the page
   loads, and when you close the last tile (except the dashboard itself). It is

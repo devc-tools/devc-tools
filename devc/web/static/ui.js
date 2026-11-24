@@ -166,6 +166,10 @@ export const LABELS = {
   preview: 'Preview',
   previewRight: 'Preview to the right',
   openAsText: 'Open as text',
+  /** A rendered diff tile (`DiffRef.view: 'media'`) back to its diff. */
+  openAsDiff: 'Open as diff',
+  /** A rendered diff that can't be drawn. */
+  cantPreview: (/** @type {string} */ why) => `Can't preview: ${why}`,
   /** Read when a menu opens: named for the host's file manager. */
   get reveal() {
     return hostOs === 'darwin'

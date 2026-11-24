@@ -2791,6 +2791,193 @@ body:is(.lm_dragging, .resizing-sidebar) .media-view iframe {
   display: none;
 }
 
+/* A rendered view (`rendered-view.js`): a Markdown file in a file tile's media view, or a diff
+   tile's Preview, where the diff's body scrolls it. */
+.md-view {
+  position: absolute;
+  inset: 0;
+  overflow: auto;
+  color: var(--text);
+}
+
+.diff-body > .md-view {
+  position: static;
+  overflow: visible;
+}
+
+.md-body {
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 16px 28px 32px;
+  line-height: 1.55;
+  overflow-wrap: break-word;
+}
+
+.md-block > :first-child {
+  margin-top: 0;
+}
+
+.md-block > :last-child {
+  margin-bottom: 0;
+}
+
+.md-block + .md-block,
+.md-deleted + .md-block {
+  margin-top: 14px;
+}
+
+.md-body :is(h1, h2, h3, h4, h5, h6) {
+  margin: 20px 0 10px;
+  line-height: 1.25;
+  font-weight: 600;
+}
+
+.md-body h1 {
+  font-size: 1.9em;
+}
+
+.md-body h2 {
+  font-size: 1.45em;
+}
+
+.md-body :is(h1, h2) {
+  padding-bottom: 0.25em;
+  border-bottom: 1px solid var(--border);
+}
+
+.md-body h3 {
+  font-size: 1.2em;
+}
+
+.md-body :is(p, ul, ol, blockquote, pre, table, details) {
+  margin: 0 0 10px;
+}
+
+.md-body :is(ul, ol) {
+  padding-left: 1.8em;
+}
+
+.md-body li:has(> input[type='checkbox']) {
+  list-style: none;
+}
+
+.md-body li > input[type='checkbox'] {
+  margin: 0 0.4em 0 -1.4em;
+  vertical-align: middle;
+}
+
+.md-body a {
+  color: var(--accent);
+}
+
+.md-body :is(code, kbd, pre) {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: calc(var(--code-font-size) - 1px);
+}
+
+.md-body :not(pre) > code,
+.md-body kbd {
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+}
+
+.md-body pre {
+  padding: 10px 12px;
+  overflow: auto;
+  border-radius: 6px;
+  background: var(--term-bg);
+  border: 1px solid var(--border);
+  line-height: 1.4;
+}
+
+.md-body blockquote {
+  padding: 0 1em;
+  color: var(--muted);
+  border-left: 3px solid var(--border);
+}
+
+.md-body hr {
+  border: 0;
+  border-top: 2px solid var(--border);
+}
+
+.md-body table {
+  border-collapse: collapse;
+  display: block;
+  max-width: 100%;
+  overflow: auto;
+}
+
+.md-body :is(th, td) {
+  padding: 5px 12px;
+  border: 1px solid var(--border);
+}
+
+.md-body th {
+  background: var(--panel);
+}
+
+.md-body img {
+  max-width: 100%;
+}
+
+/* An image the page doesn't load: remote, `data:`, or not beside the file. */
+.md-image {
+  display: inline-block;
+  padding: 0 6px;
+  border-radius: 4px;
+  border: 1px dashed var(--border);
+  color: var(--muted);
+  font-size: 0.9em;
+}
+
+/* A diff's Preview: blocks with added lines, removed lines, a removed file. */
+.md-diff .md-block {
+  position: relative;
+}
+
+.md-diff .md-block[data-change]::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -14px;
+  width: 4px;
+  border-radius: 2px;
+}
+
+.md-diff .md-block[data-change='add']::before {
+  background: var(--overview-add);
+}
+
+.md-diff .md-block[data-change='del']::before {
+  background: var(--overview-del);
+}
+
+.md-diff .md-block[data-change='del'] {
+  opacity: 0.75;
+}
+
+/* Tall enough to hover for its title (how many lines went); drawn as a line through it. */
+.md-deleted {
+  position: relative;
+  height: 10px;
+  margin-top: 4px;
+  background: linear-gradient(var(--overview-del), var(--overview-del)) center /
+    100% 2px no-repeat;
+}
+
+.md-deleted::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -17px;
+  border: 5px solid transparent;
+  border-left-color: var(--overview-del);
+}
+
 .overlay {
   position: absolute;
   inset: 0;

@@ -134,6 +134,7 @@ import {
   copyPathItems,
   createPane,
   dashboardItem,
+  diffPreviewItems,
   discardPendingReview,
   filePinItem,
   fileRefOf,
@@ -2285,6 +2286,7 @@ function changedFileRow(fr, ref, treeKey, state, r, stat, extra = {}) {
 function commitFileMenuGroups(fr, ref, file) {
   const exists = file.status !== 'removed';
   return {
+    preview: diffPreviewItems(ref),
     open: [
       ['Open diff', () => tileArea.openDiff(ref, 'stack')],
       ['Open diff to the right', () => tileArea.openDiff(ref, 'right')],
@@ -3444,6 +3446,7 @@ function prFileMenuItems(fr, result, file) {
   const path = file.path;
   const exists = file.status !== 'removed';
   return menuOf({
+    preview: diffPreviewItems(ref),
     open: [
       ['Open diff', () => tileArea.openDiff(ref, 'stack')],
       ['Open diff to the right', () => tileArea.openDiff(ref, 'right')],

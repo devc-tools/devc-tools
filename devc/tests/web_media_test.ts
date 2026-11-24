@@ -21,10 +21,20 @@ Deno.test('mediaKind: images and HTML by extension, any case', () => {
     assertEquals(mediaKind(p), 'html', p);
   }
   for (
-    const p of ['notes.md', 'png', 'a.png.bak', 'a.xhtm', 'dir.html/x', 'a.ts']
+    const p of ['notes.txt', 'png', 'a.png.bak', 'a.xhtm', 'dir.html/x', 'a.ts']
   ) {
     assertEquals(mediaKind(p), null, p);
   }
+});
+
+Deno.test('mediaKind: Markdown by extension, any case; it opens as text', () => {
+  for (const p of ['README.md', 'a/b.MD', 'c.markdown', 'd.mdown', 'e.mkd']) {
+    assertEquals(mediaKind(p), 'markdown', p);
+    assertEquals(defaultView(p), 'text', p);
+  }
+  assertEquals(mediaKind('a.mdx'), null);
+  assertEquals(mediaKind('md'), null);
+  assertEquals(fileView({ path: 'a.md', view: 'media' }), 'media');
 });
 
 Deno.test('defaultView: images other than SVG as media, the rest as text', () => {

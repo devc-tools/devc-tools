@@ -92,6 +92,8 @@ import {
 } from './lib/sidebar.js';
 import { resolvePath } from './lib/links.js';
 import { fileView, mediaKind } from './lib/media.js';
+import { changeMarks, renderedKind } from './lib/rendered.js';
+import { createRenderedView, linkedPath } from './rendered-view.js';
 import { childPath } from './lib/files.js';
 import { sessionAge } from './lib/sessions.js';
 import { sinceOptions as compareChoices } from './lib/since.js';
@@ -172,6 +174,7 @@ import {
   killPane,
   mintPreviewUrl,
   onBusyChange,
+  openFileTile,
   openInEditor,
   previewable,
   reviewBusyKey,
@@ -376,11 +379,14 @@ const views = new Map();
 
 /**
  * A file tile's media view: an image, or an HTML page in a sandboxed frame, loaded from a one-off
- * `/preview/…` URL. `show` loads a URL, `clear` drops what is shown.
+ * `/preview/…` URL; or rendered Markdown, read as text, its images from such a URL. `show` loads
+ * a URL, `render` draws a rendered file's text with its preview URL (`null`: none, so no
+ * images), `clear` drops what is shown.
  *
  * @typedef {object} MediaView
- * @property {'image' | 'html'} kind
+ * @property {'image' | 'html' | 'markdown'} kind
  * @property {(url: string) => void} show
+ * @property {(text: string, base: string | null) => void} [render]
  * @property {() => void} clear
  * @property {() => void} dispose
  */
@@ -708,6 +714,10 @@ async function loadFile(view) {
     updateFileOverlay(view);
     return;
   }
+  if (view.media?.kind === 'markdown') {
+    loadRendered(view, view.media, c, seq);
+    return;
+  }
   if (view.media) {
     loadMedia(view, view.media, c, seq);
     return;
@@ -796,14 +806,87 @@ async function loadMedia(view, media, c, seq) {
 }
 
 /**
+ * Reads a rendered media view's file as text and draws it, with a freshly minted preview URL for
+ * the images beside it. A URL that can't be minted only costs the images (placeholders).
+ *
+ * @param {FileView} view @param {MediaView} media @param {ContainerInfo | null} c @param {number} seq
+ */
+async function loadRendered(view, media, c, seq) {
+  const file = /** @type {FileRef} */ (view.tile.file);
+  const base = mintPreviewUrl(c, fileRootOf(file), file.path).catch(() => null);
+  let text;
+  try {
+    const result = await call(
+      c
+        ? {
+          type: 'read_container_file',
+          container: c.id,
+          path: childPath('/', file.path),
+        }
+        : {
+          type: 'read_file',
+          localFolder: file.localFolder,
+          root: file.root,
+          path: file.path,
+        },
+    );
+    text = typeof result?.text === 'string' ? result.text : '';
+  } catch (e) {
+    if (seq !== view.seq || !fileViews.has(view.tile.id)) return;
+    view.state = 'error';
+    view.error = String(e?.message ?? e);
+    media.clear();
+    updateFileOverlay(view);
+    return;
+  }
+  const url = await base;
+  if (seq !== view.seq || !fileViews.has(view.tile.id)) return;
+  media.render?.(text, url);
+  view.state = 'ok';
+  view.error = '';
+  updateFileOverlay(view);
+}
+
+/**
+ * Opens the repo file a rendered file's relative link names (`linkedPath`), in the focused stack:
+ * Markdown rendered, anything else as it opens by default. A link to a folder opens nothing.
+ *
+ * @param {import('./menus.js').FileRoot} fr @param {string} from  the rendered file's path
+ * @param {string} href
+ */
+function openLinkedFile(fr, from, href) {
+  const path = linkedPath(from, href);
+  if (path === '' || path.endsWith('/')) {
+    toast(`Not a file: ${href}`);
+    return;
+  }
+  openFileTile(fr, path, 'stack', renderedKind(path) ? 'media' : undefined);
+}
+
+/**
  * Builds a file tile's media view in its host. Media views are read-only: never dirty, never
  * editable. An image fits the tile (never enlarged) until a click shows it 1:1, and back; an HTML
  * page gets a frame sandboxed as `/preview/` responses are, never same-origin with this page.
  *
- * @param {FileView} view @param {'image' | 'html'} kind @returns {MediaView}
+ * @param {FileView} view @param {'image' | 'html' | 'markdown'} kind @returns {MediaView}
  */
 function createMediaView(view, kind) {
   const name = fileTileTitle(view.tile.file);
+  if (kind === 'markdown') {
+    const file = /** @type {FileRef} */ (view.tile.file);
+    const rendered = createRenderedView({
+      name,
+      openPath: (href) => openLinkedFile(fileRootOf(file), file.path, href),
+    });
+    view.host.append(rendered.el);
+    return {
+      kind,
+      show: () => {},
+      render: (text, base) => rendered.render(text, { base }),
+      clear: () => rendered.clear(),
+      dispose: () => {},
+    };
+  }
   if (kind === 'html') {
     const frame = /** @type {HTMLIFrameElement} */ (h('iframe', {
       sandbox:
@@ -1743,6 +1826,12 @@ function saveFlag(key, on) {
  * @property {number} changesRead  an uncommitted diff's answers that differed from the one before:
  *   `readHead`'s key, as the working tree changes under the same base
  * @property {number} [changesTimer]  an uncommitted diff's reread timer
+ * @property {import('./rendered-view.js').RenderedView} [rendered]  a rendering's view
+ *   (`view: 'media'`), made on its first draw
+ * @property {{base: string | null} | Promise<void>} [renderedBase]  a rendering's preview URL
+ *   for its images (the working tree's copy), or its mint on the way
+ * @property {{text: string, parsed: unknown, base: string | null}} [renderedFrom]  what the
+ *   rendering last drew, so a redraw for anything else leaves it be
  */
 
 /**
@@ -1810,7 +1899,7 @@ function openDiff(ref, where, opts) {
 function sameDiff(a, b) {
   return !!a && !!b && a.localFolder === b.localFolder && a.root === b.root &&
     a.path === b.path && a.sha === b.sha && a.changes === b.changes &&
-    a.stage === b.stage;
+    a.stage === b.stage && a.view === b.view;
 }
 
 /**
@@ -1851,7 +1940,10 @@ function shortSha(sha) {
 
 function setDiffTitle(view) {
   const ref = view.tile.diff;
-  view.tile.setTitle(diffTileTitle(view.tile));
+  view.tile.setTitle(
+    diffTileTitle(view.tile),
+    ref?.view === 'media' ? LABELS.preview : '',
+  );
   let first = '';
   if (ref && diffSource(ref) === 'changes') {
     first = view.data
@@ -1969,7 +2061,9 @@ function mountDiffTile(tile) {
     if (diffViews.get(tile.id) !== view) return;
     setDiffTitle(view);
     // A commit diff gets no Ask agent: the agent's diff context means the PR's.
-    if (tile.diff && diffSource(tile.diff) === 'pr') {
+    if (
+      tile.diff && diffSource(tile.diff) === 'pr' && tile.diff.view !== 'media'
+    ) {
       tile.setActions(askButton(tile));
     }
   });
@@ -2555,7 +2649,8 @@ function attachDiffLanguage(view) {
   const ref = view.tile.diff;
   const c = ref ? containerByFolder(ref.localFolder) : null;
   if (
-    !ref || !c || c.state !== 'connected' || !lspLanguageFor(ref.path)
+    !ref || ref.view === 'media' || !c || c.state !== 'connected' ||
+    !lspLanguageFor(ref.path)
   ) {
     return null;
   }
@@ -2581,8 +2676,8 @@ function syncDiffLanguage(view) {
   // view; the rest of the project is the checkout's, so an old commit's cross-file answers can
   // be off.
   const wanted = Boolean(
-    ref && view.state === 'ok' && c?.state === 'connected' &&
-      lspLanguageFor(ref.path),
+    ref && ref.view !== 'media' && view.state === 'ok' &&
+      c?.state === 'connected' && lspLanguageFor(ref.path),
   );
   const was = view.lspWanted;
   view.lspWanted = wanted;
@@ -3590,7 +3685,10 @@ function paintChangeRuler(view) {
   const body = /** @type {HTMLElement | null} */ (
     view.body.querySelector(':scope > .diff-body')
   );
-  if (!body || view.state !== 'ok' || oneSided(view)) return;
+  if (
+    !body || view.state !== 'ok' || oneSided(view) ||
+    view.tile.diff?.view === 'media'
+  ) return;
   const track = body.clientHeight;
   const height = body.scrollHeight;
   if (!track || !height) return;
@@ -3685,6 +3783,8 @@ function renderDiff(view) {
           : '',
       ),
     ];
+  } else if (view.tile.diff?.view === 'media') {
+    content = renderedDiffContent(view);
   } else content = diffContent(view);
   // In one swap, with no layout between: an empty body would clamp the scroll to the top.
   body.replaceChildren(...content);
@@ -3827,6 +3927,8 @@ function diffHeader(view) {
       )
       : '',
   );
+  // A rendering has none of the diff's tools: it shows the patch as read, as one view.
+  if (ref?.view === 'media') return h('div', { class: 'diff-header' }, line);
   /** @param {string} label @param {boolean} on @param {() => void} onchange */
   const checkbox = (label, on, onchange) => {
     const input = h('input', { type: 'checkbox', onchange });
@@ -3922,6 +4024,98 @@ function diffHeader(view) {
       : '',
   );
   return h('div', { class: 'diff-header' }, line, tools);
+}
+
+/**
+ * A rendered diff's body (`view: 'media'`): the new side's text rendered, its blocks marked from
+ * the patch as read (`changeMarks`); a removed file's old side, all marked removed. The new side
+ * is `readHead`'s, so it waits for it as **Whole file** does; images come from the working tree's
+ * copy (`renderedBase`), whatever the diff's revision.
+ *
+ * @param {DiffView} view
+ * @returns {(Node | string)[]}
+ */
+function renderedDiffContent(view) {
+  const ref = /** @type {DiffRef} */ (view.tile.diff);
+  const message = (/** @type {string} */ text, retry = false) =>
+    h(
+      'div',
+      { class: 'diff-message' },
+      h('div', {}, text),
+      retry
+        ? h('button', {
+          type: 'button',
+          // A failed read is kept for its head: read it again.
+          onclick: () => {
+            view.head = null;
+            view.renderedBase = undefined;
+            refreshDiff(view);
+          },
+        }, 'Retry')
+        : '',
+    );
+  /** @type {string} */
+  let text;
+  /** @type {ReturnType<typeof changeMarks> | 'del'} */
+  let marks;
+  if (view.data?.file?.status === 'removed') {
+    if (!view.parsed) return [message(LABELS.cantPreview('no patch to show'))];
+    text = view.parsed.hunks.flatMap((hunk) => hunk.rows)
+      .filter((r) => r.kind === 'del').map((r) => r.text).join('\n');
+    marks = 'del';
+  } else {
+    const got = readHead(view);
+    const head = view.head;
+    if (!got || !head) return [message('Loading…')];
+    if (!head.done) {
+      if (view.headWait !== head) {
+        view.headWait = head;
+        void got.then(() => {
+          if (diffViews.get(view.tile.id) === view && view.head === head) {
+            renderDiff(view);
+          }
+        });
+      }
+      return [message('Loading…')];
+    }
+    if (head.done.text === null) {
+      return [message(LABELS.cantPreview(head.done.message), true)];
+    }
+    text = head.done.text;
+    marks = view.parsed
+      ? changeMarks(view.parsed)
+      : { added: new Set(), deleted: new Map() };
+  }
+  const base = view.renderedBase;
+  if (!base || base instanceof Promise) {
+    view.renderedBase ??= mintPreviewUrl(
+      null,
+      { localFolder: ref.localFolder, root: ref.root },
+      view.data?.file?.path ?? ref.path,
+    ).catch(() => null).then((url) => {
+      view.renderedBase = { base: url };
+      if (diffViews.get(view.tile.id) === view) renderDiff(view);
+    });
+    return [message('Loading…')];
+  }
+  view.rendered ??= createRenderedView({
+    name: basename(ref.path),
+    openPath: (href) =>
+      openLinkedFile(
+        { localFolder: ref.localFolder, root: ref.root },
+        view.data?.file?.path ?? ref.path,
+        href,
+      ),
+  });
+  const from = view.renderedFrom;
+  if (
+    !from || from.text !== text || from.parsed !== view.parsed ||
+    from.base !== base.base
+  ) {
+    view.rendered.render(text, { base: base.base, marks });
+    view.renderedFrom = { text, parsed: view.parsed, base: base.base };
+  }
+  return [view.rendered.el];
 }
 
 /** File threads, then each hunk with its threads, then any text the parse stopped at. */
@@ -5129,7 +5323,10 @@ function outlineTile() {
     if (tile.kind === 'file') {
       const view = fileViews.get(tile.id);
       if (!view || view.media) continue;
-    } else if (tile.kind !== 'diff' || !diffViews.has(tile.id)) continue;
+    } else if (
+      tile.kind !== 'diff' || !diffViews.has(tile.id) ||
+      tile.diff?.view === 'media'
+    ) continue;
     const seq = focusSeq.get(tile.id) ?? 0;
     if (seq > bestSeq) [best, bestSeq] = [tile, seq];
   }

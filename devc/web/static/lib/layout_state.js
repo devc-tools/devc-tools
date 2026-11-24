@@ -2,6 +2,7 @@
 // tested from `devc/tests/web_layout_test.ts`. No DOM access and no Golden Layout import here.
 
 import { defaultView, fileView } from './media.js';
+import { renderedKind } from './rendered.js';
 
 /** @typedef {{localFolder: string, pane_id: string}} PaneRef */
 /**
@@ -22,10 +23,12 @@ import { defaultView, fileView } from './media.js';
  * with `changes`, its uncommitted changes since that ref (`uncommitted_diff`'s; only `'HEAD'` so
  * far). Never both. Beside `changes`, `stage` picks a side of the index: `'staged'` (the index
  * against the ref) or `'unstaged'` (the working tree against the index); absent, the working tree
- * against the ref. See {@link diffSource}.
+ * against the ref. See {@link diffSource}. `view: 'media'` shows the diff rendered (**Preview**),
+ * only for a file kind that has a rendered view (`renderedKind`); a diff and its rendering are
+ * two different diffs.
  *
  * @typedef {{localFolder: string, root: string, path: string, sha?: string, changes?: string,
- *   stage?: 'staged' | 'unstaged'}} DiffRef
+ *   stage?: 'staged' | 'unstaged', view?: 'media'}} DiffRef
  */
 
 /** A full commit id, as `commit_diff` takes one. */
@@ -55,7 +58,7 @@ export function diffKey(ref) {
     ref.sha === undefined ? '' : `\n${ref.sha}`
   }${ref.changes === undefined ? '' : `\nchanges:${ref.changes}`}${
     ref.stage === undefined ? '' : `\nstage:${ref.stage}`
-  }`;
+  }${ref.view === 'media' ? '\nview:media' : ''}`;
 }
 
 /**
@@ -129,12 +132,35 @@ export function fileRefFromState(state) {
  * A diff tile's component state as a diff reference: only an object whose `localFolder`, `root`
  * and `path` are all non-empty strings, whose `sha`, if any, is a full commit id, and whose
  * `changes`, if any, is a non-empty string, never beside a `sha`, and whose `stage`, if any, is
- * `'staged'` or `'unstaged'` beside a `changes`, is one. Anything else is `null`.
+ * `'staged'` or `'unstaged'` beside a `changes`, is one. Anything else is `null`. A `view` is
+ * kept only as `'media'` on a path {@link diffWithView} allows it for.
  *
  * @param {unknown} state
  * @returns {DiffRef | null}
  */
 export function diffRefFromState(state) {
+  const ref = diffRefOf(state);
+  const view = /** @type {Record<string, unknown> | null} */ (state)?.view;
+  return ref && diffWithView(ref, view === 'media' ? 'media' : undefined);
+}
+
+/**
+ * `ref` shown as `view`: rendered (`'media'`) only for a path with a rendered view, else as a
+ * diff (no `view`).
+ *
+ * @param {DiffRef} ref
+ * @param {'media'} [view]
+ * @returns {DiffRef}
+ */
+export function diffWithView(ref, view) {
+  const { view: _, ...rest } = ref;
+  return view === 'media' && renderedKind(ref.path) !== null
+    ? { ...rest, view }
+    : rest;
+}
+
+/** @param {unknown} state @returns {DiffRef | null} */
+function diffRefOf(state) {
   if (typeof state !== 'object' || state === null || Array.isArray(state)) {
     return null;
   }
@@ -175,7 +201,7 @@ export function diffRefFromState(state) {
 export function sameDiff(a, b) {
   return a.localFolder === b.localFolder && a.root === b.root &&
     a.path === b.path && a.sha === b.sha && a.changes === b.changes &&
-    a.stage === b.stage;
+    a.stage === b.stage && a.view === b.view;
 }
 
 /**
@@ -260,13 +286,26 @@ export function tileContent(ref, preview = false) {
     };
   }
   if (ref && 'diff' in ref) {
-    const { localFolder, root, path, sha, changes, stage } = ref.diff;
+    const { localFolder, root, path, sha, changes, stage, view } = diffWithView(
+      ref.diff,
+      ref.diff.view,
+    );
     const at = changes !== undefined
       ? stage === undefined ? { changes } : { changes, stage }
       : sha === undefined
       ? {}
       : { sha };
-    return { type: 'diff', state: { localFolder, root, path, ...at, ...flag } };
+    return {
+      type: 'diff',
+      state: {
+        localFolder,
+        root,
+        path,
+        ...at,
+        ...(view ? { view } : {}),
+        ...flag,
+      },
+    };
   }
   if (ref && 'file' in ref) {
     const { localFolder, root, path, container, view } = withView(
