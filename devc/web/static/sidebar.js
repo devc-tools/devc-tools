@@ -290,7 +290,7 @@ function setScope(scope) {
 
 /** In use's groupings, in the grouping picker's order. */
 const IN_USE_GROUPS =
-  /** @type {const} */ (['none', 'container', 'tag', 'repo']);
+  /** @type {const} */ (['none', 'container', 'repo', 'tag']);
 
 /**
  * The grouping picker's checked option: none (one box for every card), or In use's cards grouped
