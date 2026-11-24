@@ -6,6 +6,9 @@
 // Self-contained on purpose: no imports, no style.css (inline styles only), so a broken page
 // edit cannot also break the way out of it. Edit this file on its own, never together with
 // other page files.
+//
+// Plain `var`s, as written: the guard changes nothing it doesn't have to.
+// deno-lint-ignore-file no-var
 
 (function () {
   'use strict';
