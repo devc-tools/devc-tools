@@ -268,7 +268,7 @@ const tileArea = {
 /**
  * Adds a host tile for devc-desktop's slot `id` (its **New Host Tile**, through `/main`'s hash):
  * placed `where` beside the host tile of slot `place.at` when there is one (a host tile's split),
- * else in the focused tile's stack, else wherever a new tile goes; focused. A slot already shown
+ * else split below the focused tile, else wherever a new tile goes; focused. A slot already shown
  * is only revealed.
  *
  * @param {string} id
@@ -286,7 +286,7 @@ export function openHostTile(id, place = null) {
     tiling.addBeside(beside.id, { host: id }, place.where);
     return;
   }
-  tiling.addBeside(targetTile()?.id ?? null, { host: id }, 'stack');
+  tiling.addBeside(targetTile()?.id ?? null, { host: id }, 'below');
 }
 
 /**
