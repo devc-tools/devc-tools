@@ -475,17 +475,38 @@ function floorRunSections(run) {
     card.style.minHeight = `${floor}px`;
     return floor;
   });
-  const slack = cards.reduce(
-    (sum, card, i) => sum + Math.max(0, card.offsetHeight - floors[i]),
-    0,
-  );
-  const last = /** @type {HTMLElement} */ (run.lastElementChild);
-  const style = getComputedStyle(run);
-  run.style.minHeight = `${
+  const slackOf = (/** @type {HTMLElement[]} */ held) =>
+    held.reduce(
+      (sum, card) =>
+        sum + Math.max(0, card.offsetHeight - floors[cards.indexOf(card)]),
+      0,
+    );
+  // A repo group first, held to its cards' floors as the box is: its own `min-height: 0` would let
+  // the box squeeze it past them, its cards spilling over the next group's.
+  for (const el of run.querySelectorAll(':scope > .in-use-subrun')) {
+    const sub = /** @type {HTMLElement} */ (el);
+    const held = cards.filter((card) => card.parentElement === sub);
+    if (held.length > 0) floorBox(sub, slackOf(held));
+    else sub.style.minHeight = '';
+  }
+  floorBox(run, slackOf(cards));
+}
+
+/**
+ * Holds a column box (an In use box or a repo group in one) to its rows' height less `slack`, what
+ * its open cards could still give up.
+ *
+ * @param {HTMLElement} box
+ * @param {number} slack
+ */
+function floorBox(box, slack) {
+  const last = /** @type {HTMLElement} */ (box.lastElementChild);
+  const style = getComputedStyle(box);
+  box.style.minHeight = `${
     last.getBoundingClientRect().bottom +
     parseFloat(getComputedStyle(last).marginBottom) +
     parseFloat(style.paddingBottom) + parseFloat(style.borderBottomWidth) -
-    run.getBoundingClientRect().top - slack
+    box.getBoundingClientRect().top - slack
   }px`;
 }
 
