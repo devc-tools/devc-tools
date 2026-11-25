@@ -95,6 +95,7 @@ import {
   AGENT_COMMANDS,
   resumeAskCommand,
   resumeTaskCommand,
+  type SessionAgentId,
   startAskCommand,
   startTaskCommand,
   TASK_FILE_DIR,
@@ -128,6 +129,14 @@ import {
   listAgentSessions,
   runningPane,
 } from './sessions.ts';
+import {
+  findListed,
+  type PaneSessionEntry,
+  paneSessionMap,
+  ResumeGate,
+  type ResumeOutcome,
+  unmappedClaudePanes,
+} from './pane_sessions.ts';
 import { openRedirect } from './browser.ts';
 import { openInVSCode } from './vscode.ts';
 import { revealOnHost } from './reveal.ts';
@@ -1080,6 +1089,7 @@ export async function startWeb(
     if (next === null) return null;
     taskState = await readTasks();
     broadcast(tasksMessage(taskState));
+    for (const id of sessions.keys()) syncPaneSessions(id);
     schedulePump();
     return next;
   };
@@ -1269,10 +1279,142 @@ export async function startWeb(
   // takes a session's folder and title from, never from the page.
   const sessionLists = new Map<string, AgentSession[]>();
   // The panes `resume_session` opened, by `container\nagent\nsession`, while the server runs.
+  // `at`: when, so a pane Herdr hasn't listed yet still counts as the session's for a moment.
   const resumedPanes = new Map<
     string,
-    { containerId: string; paneId: string }
+    { containerId: string; paneId: string; tabId: string; at: number }
   >();
+  // Resumes being made, by the same key: a second request for a session waits for the first and
+  // gets its pane, so no session ever runs in two agent processes.
+  const resuming = new ResumeGate((e) =>
+    e instanceof BridgeError ? e.code : 'herdr_error'
+  );
+  // `pane_sessions` (see `pane_sessions.ts`): per running container, the live Claude processes'
+  // panes from the last probe, the panes probed in vain (pane id → when), the probe's throttle,
+  // and the last message sent.
+  const runningClaude = new Map<string, PaneSessionEntry[]>();
+  const probeMisses = new Map<string, Map<string, number>>();
+  const probes = new Map<
+    string,
+    {
+      last: number;
+      timer: ReturnType<typeof setTimeout> | null;
+      running: boolean;
+      again: boolean;
+    }
+  >();
+  const paneSessionsSent = new Map<string, string>();
+  /** Container `id`'s `pane_sessions` message, or null when it has no snapshot. */
+  const paneSessionsMessage = (id: string) => {
+    const session = sessions.get(id);
+    if (!session || session.snapshot === null) return null;
+    const resumed: PaneSessionEntry[] = [];
+    for (const [key, r] of resumedPanes) {
+      if (r.containerId !== id) continue;
+      const [, agent, s] = key.split('\n');
+      resumed.push({
+        pane_id: r.paneId,
+        agent: agent as SessionAgentId,
+        session: s,
+      });
+    }
+    const sent = taskState.sent.flatMap((t) =>
+      t.last?.containerId === id
+        ? [{ pane_id: t.last.paneId, agent: t.agent, session: t.sessionId }]
+        : []
+    );
+    return {
+      type: 'pane_sessions',
+      container: id,
+      sessions: paneSessionMap(snapshotPaneIds(session.snapshot), [
+        resumed,
+        sent,
+        runningClaude.get(id) ?? [],
+      ]),
+    };
+  };
+  /** Broadcasts container `id`'s `pane_sessions` when it changed since last sent. */
+  const syncPaneSessions = (id: string) => {
+    const msg = paneSessionsMessage(id);
+    if (msg === null) return;
+    const text = JSON.stringify(msg.sessions);
+    if (paneSessionsSent.get(id) === text) return;
+    paneSessionsSent.set(id, text);
+    broadcast(msg);
+  };
+  /**
+   * Probes container `id` for its live Claude sessions when one of its Claude panes has no known
+   * session: at most once per {@link PROBE_INTERVAL_MS}, a request meanwhile kept for after it.
+   */
+  const probeClaudePanes = (id: string) => {
+    const session = sessions.get(id);
+    const msg = paneSessionsMessage(id);
+    if (!session || msg === null) return;
+    const misses = probeMisses.get(id) ?? new Map<string, number>();
+    const wanted = unmappedClaudePanes(
+      snapshotPanes(session.snapshot) as {
+        pane_id?: unknown;
+        agent?: unknown;
+      }[],
+      msg.sessions,
+      misses,
+      Date.now(),
+      PROBE_RETRY_MS,
+    );
+    if (wanted.length === 0) return;
+    let p = probes.get(id);
+    if (!p) {
+      p = { last: 0, timer: null, running: false, again: false };
+      probes.set(id, p);
+    }
+    if (p.timer !== null || p.running) {
+      p.again = true;
+      return;
+    }
+    const probe = p;
+    probe.timer = setTimeout(async () => {
+      probe.timer = null;
+      probe.running = true;
+      probe.last = Date.now();
+      try {
+        const rows = await session.env.runningAgents();
+        if (sessions.get(id) !== session) return;
+        const found = rows.filter((r) => r.herdrSession === session.session)
+          .map((r) => ({
+            pane_id: r.paneId,
+            agent: 'claude' as const,
+            session: r.session,
+          }));
+        runningClaude.set(id, found);
+        const now = Date.now();
+        for (const pane of wanted) {
+          if (!found.some((f) => f.pane_id === pane)) misses.set(pane, now);
+        }
+        probeMisses.set(id, misses);
+      } catch {
+        // A failed probe leaves the map as it was; the pane is tried again later.
+        for (const pane of wanted) misses.set(pane, Date.now());
+        probeMisses.set(id, misses);
+      } finally {
+        probe.running = false;
+      }
+      if (sessions.get(id) !== session) return;
+      syncPaneSessions(id);
+      if (probe.again) {
+        probe.again = false;
+        probeClaudePanes(id);
+      }
+    }, Math.max(0, probe.last + PROBE_INTERVAL_MS - Date.now()));
+  };
+  /** Forgets container `id`'s `pane_sessions` state (it stopped). */
+  const dropPaneSessions = (id: string) => {
+    const p = probes.get(id);
+    if (p?.timer != null) clearTimeout(p.timer);
+    probes.delete(id);
+    runningClaude.delete(id);
+    probeMisses.delete(id);
+    paneSessionsSent.delete(id);
+  };
   const isListedProject = (localFolder: string) =>
     projectsMessage().projects.some((p) => p.localFolder === localFolder);
   // Each repo's pull request, through its running environment's PR backend (a container's
@@ -1360,6 +1502,8 @@ export async function startWeb(
         broadcast({ type: 'snapshot', container: id, snapshot });
         taskRunsSeen(id, snapshot);
         recordPanes(id);
+        syncPaneSessions(id);
+        probeClaudePanes(id);
       },
       onPaneUpdated: (pane) => {
         broadcast({ type: 'pane_updated', container: id, pane });
@@ -1421,6 +1565,7 @@ export async function startWeb(
     for (const key of resumedPanes.keys()) {
       if (key.startsWith(`${id}\n`)) resumedPanes.delete(key);
     }
+    dropPaneSessions(id);
     taskRunsSeen(id, null);
     void refreshPushRoutes();
     activity.containerGone(session.record.localFolder);
@@ -3766,60 +3911,138 @@ export async function startWeb(
       }
       return;
     }
-    const listed = sessionLists.get(containerId)?.find((s) =>
-      s.agent === msg.agent && s.session === msg.session
-    );
+    const listed = await listedSession(session, msg.agent, msg.session);
     if (!listed) {
       fail(c, msg.id, 'not_found', 'no such session');
       return;
     }
     const target = await readyTarget(c, session, msg.id);
     if (target === null) return;
-    const reused = await sessionPane(session, listed);
-    if (reused !== null) {
-      reply(c, { id: msg.id, ok: true, result: { ...reused, reused: true } });
-      return;
-    }
-    if (!(await commandInstalled(target, AGENT_COMMANDS[listed.agent]))) {
-      fail(
-        c,
-        msg.id,
-        'not_installed',
-        `${AGENT_COMMANDS[listed.agent]} isn't installed ${placeOf(session)}`,
+    const outcome = await resumeOnce(containerId, listed, async () => {
+      const reused = await sessionPane(session, listed);
+      if (reused !== null) return { ok: true, pane: reused, reused: true };
+      if (!(await commandInstalled(target, AGENT_COMMANDS[listed.agent]))) {
+        return {
+          ok: false,
+          code: 'not_installed',
+          error: `${AGENT_COMMANDS[listed.agent]} isn't installed ${
+            placeOf(session)
+          }`,
+        };
+      }
+      return await resumeInPane(
+        session,
+        target,
+        listed,
+        resumeTaskCommand(listed.agent, listed.session),
+        listed.title,
       );
-      return;
-    }
-    let created: { pane_id: string; tab_id: string };
-    try {
-      created = await repoShell(session, target, { cwd: listed.cwd });
-      // Not `exec`: quitting the agent leaves the shell.
-      await bridgeRequest(target, 'pane.send_text', {
-        pane_id: created.pane_id,
-        text: `${resumeTaskCommand(listed.agent, listed.session)}\n`,
-      });
-    } catch (e) {
-      fail(c, msg.id, e instanceof BridgeError ? e.code : 'herdr_error', e);
-      return;
-    }
-    // The agent is already starting, so a failed rename is no error.
-    await bridgeRequest(target, 'pane.rename', {
-      pane_id: created.pane_id,
-      label: listed.title,
-    }).then((r) => renamed(session, r), () => {});
-    resumedPanes.set(resumedKey(containerId, listed), {
-      containerId,
-      paneId: created.pane_id,
     });
-    reply(c, { id: msg.id, ok: true, result: { ...created, reused: false } });
+    if (!outcome.ok) {
+      fail(c, msg.id, outcome.code, outcome.error);
+      return;
+    }
+    reply(c, {
+      id: msg.id,
+      ok: true,
+      result: { ...outcome.pane, reused: outcome.reused },
+    });
   };
 
   const resumedKey = (containerId: string, listed: AgentSession) =>
     `${containerId}\n${listed.agent}\n${listed.session}`;
 
   /**
-   * The pane a listed session runs in: the one this server resumed it in, else one a live agent
-   * process has it open in (started by hand, or before this server); null when neither is in the
-   * container's session. Never a second process on the same session.
+   * Session `id` of `agent` as the container's last listing has it; when it isn't there, the
+   * container is listed again (a new session, or one listed only by another window) and that
+   * listing kept. Undefined when neither has it.
+   */
+  const listedSession = async (
+    session: ContainerSession,
+    agent: SessionAgentId,
+    id: string,
+  ): Promise<AgentSession | undefined> => {
+    const containerId = session.record.id;
+    const repos =
+      projectsMessage().projects.find((p) =>
+        p.localFolder === session.record.localFolder
+      )?.repos ?? [];
+    return await findListed(
+      sessionLists.get(containerId),
+      (list) => list.find((s) => s.agent === agent && s.session === id),
+      async () => {
+        const fresh = await listAgentSessions(
+          session.env,
+          repos,
+          session.session,
+        );
+        if (sessions.get(containerId) === session) {
+          sessionLists.set(containerId, fresh);
+        }
+        return fresh;
+      },
+    );
+  };
+
+  /**
+   * Runs `run`, the resume of a listed session, unless one is already being made: then waits for
+   * that one instead, and gets its pane as `reused`. `run` must check for a pane before creating
+   * one; the check and the registration here happen with no await between them.
+   */
+  const resumeOnce = (
+    containerId: string,
+    listed: AgentSession,
+    run: () => Promise<ResumeOutcome>,
+  ): Promise<ResumeOutcome> =>
+    resuming.once(resumedKey(containerId, listed), run);
+
+  /**
+   * A new shell at the folder `listed` started in, running `command` (its resume), named `title`;
+   * recorded as the session's pane.
+   */
+  const resumeInPane = async (
+    session: ContainerSession,
+    target: HerdrTarget,
+    listed: AgentSession,
+    command: string,
+    title: string,
+  ): Promise<ResumeOutcome> => {
+    const containerId = session.record.id;
+    let created: { pane_id: string; tab_id: string };
+    try {
+      created = await repoShell(session, target, { cwd: listed.cwd });
+      // Not `exec`: quitting the agent leaves the shell.
+      await bridgeRequest(target, 'pane.send_text', {
+        pane_id: created.pane_id,
+        text: `${command}\n`,
+      });
+    } catch (e) {
+      return {
+        ok: false,
+        code: e instanceof BridgeError ? e.code : 'herdr_error',
+        error: e,
+      };
+    }
+    // The agent is already starting, so a failed rename is no error.
+    await bridgeRequest(target, 'pane.rename', {
+      pane_id: created.pane_id,
+      label: title,
+    }).then((r) => renamed(session, r), () => {});
+    resumedPanes.set(resumedKey(containerId, listed), {
+      containerId,
+      paneId: created.pane_id,
+      tabId: created.tab_id,
+      at: Date.now(),
+    });
+    syncPaneSessions(containerId);
+    return { ok: true, pane: created, reused: false };
+  };
+
+  /**
+   * The pane a listed session runs in: the one this server resumed it in (also while Herdr
+   * hasn't listed it yet, for {@link RESUMED_GRACE_MS}), else one a live agent process has it
+   * open in (started by hand, or before this server); null when neither is in the container's
+   * session. Never a second process on the same session.
    */
   const sessionPane = async (
     session: ContainerSession,
@@ -3827,18 +4050,22 @@ export async function startWeb(
   ): Promise<{ pane_id: string; tab_id: string } | null> => {
     const containerId = session.record.id;
     const panes = snapshotPanes(session.snapshot);
+    const resumed = resumedPanes.get(resumedKey(containerId, listed));
+    if (
+      resumed && resumed.containerId === containerId &&
+      Date.now() - resumed.at < RESUMED_GRACE_MS
+    ) {
+      return { pane_id: resumed.paneId, tab_id: resumed.tabId };
+    }
     const live = listed.agent === 'claude'
       ? await runningPane(session.env, listed.session, session.session)
       : null;
-    return reusablePinnedPane(
-      resumedPanes.get(resumedKey(containerId, listed)),
-      containerId,
-      panes,
-    ) ?? reusablePinnedPane(
-      live === null ? undefined : { containerId, paneId: live },
-      containerId,
-      panes,
-    );
+    return reusablePinnedPane(resumed, containerId, panes) ??
+      reusablePinnedPane(
+        live === null ? undefined : { containerId, paneId: live },
+        containerId,
+        panes,
+      );
   };
 
   /**
@@ -3861,16 +4088,26 @@ export async function startWeb(
     }
     const listed = msg.session === undefined
       ? undefined
-      : sessionLists.get(containerId)?.find((s) =>
-        s.agent === msg.agent && s.session === msg.session
-      );
+      : await listedSession(session, msg.agent!, msg.session);
     if (msg.session !== undefined && !listed) {
       fail(c, msg.id, 'not_found', 'no such session');
       return;
     }
     const target = await readyTarget(c, session, msg.id);
     if (target === null) return;
-    let running: { pane_id: string; tab_id: string } | null = null;
+    /** Prompts the agent in `pane` with the question, and answers with it. */
+    const prompt = async (pane: { pane_id: string; tab_id: string }) => {
+      try {
+        await bridgeRequest(target, 'agent.prompt', {
+          target: pane.pane_id,
+          text: msg.text,
+        });
+      } catch (e) {
+        fail(c, msg.id, e instanceof BridgeError ? e.code : 'herdr_error', e);
+        return;
+      }
+      reply(c, { id: msg.id, ok: true, result: { ...pane, reused: true } });
+    };
     if (msg.pane_id !== undefined) {
       const pane = snapshotPanes(session.snapshot).find((p) =>
         p.pane_id === msg.pane_id
@@ -3883,24 +4120,10 @@ export async function startWeb(
         fail(c, msg.id, 'bad_request', 'no agent runs in that terminal');
         return;
       }
-      running = {
+      await prompt({
         pane_id: pane.pane_id,
         tab_id: typeof pane.tab_id === 'string' ? pane.tab_id : '',
-      };
-    } else if (listed) {
-      running = await sessionPane(session, listed);
-    }
-    if (running !== null) {
-      try {
-        await bridgeRequest(target, 'agent.prompt', {
-          target: running.pane_id,
-          text: msg.text,
-        });
-      } catch (e) {
-        fail(c, msg.id, e instanceof BridgeError ? e.code : 'herdr_error', e);
-        return;
-      }
-      reply(c, { id: msg.id, ok: true, result: { ...running, reused: true } });
+      });
       return;
     }
     const agent = listed?.agent ?? msg.agent!;
@@ -3911,31 +4134,77 @@ export async function startWeb(
       'dir',
     );
     if (cwd === null) return;
+    /** Writes the question to a file; its id, or null when that failed (and was answered). */
+    const writeAsk = async (): Promise<string | null> => {
+      const askId = crypto.randomUUID();
+      try {
+        await session.env.files.write(
+          TASK_FILE_DIR,
+          taskFilePath(askId),
+          `${msg.text}\n`,
+        );
+      } catch (e) {
+        fail(c, msg.id, e instanceof FilesError ? e.code : 'write_failed', e);
+        return null;
+      }
+      return askId;
+    };
+    const notInstalled = (): ResumeOutcome => ({
+      ok: false,
+      code: 'not_installed',
+      error: `${AGENT_COMMANDS[agent]} isn't installed ${placeOf(session)}`,
+    });
+    if (listed) {
+      // Resumed on the question here, or prompted in the pane a resume made meanwhile.
+      let asked = null as 'here' | 'failed' | null;
+      const outcome = await resumeOnce(containerId, listed, async () => {
+        const running = await sessionPane(session, listed);
+        if (running !== null) return { ok: true, pane: running, reused: true };
+        if (!(await commandInstalled(target, AGENT_COMMANDS[agent]))) {
+          return notInstalled();
+        }
+        const askId = await writeAsk();
+        if (askId === null) {
+          asked = 'failed';
+          return { ok: false, code: 'write_failed', error: 'answered' };
+        }
+        asked = 'here';
+        return await resumeInPane(
+          session,
+          target,
+          listed,
+          resumeAskCommand(agent, listed.session, askId),
+          listed.title,
+        );
+      });
+      if (asked === 'failed') return;
+      if (!outcome.ok) {
+        fail(c, msg.id, outcome.code, outcome.error);
+        return;
+      }
+      if (asked === 'here') {
+        reply(c, {
+          id: msg.id,
+          ok: true,
+          result: { ...outcome.pane, reused: false },
+        });
+      } else await prompt(outcome.pane);
+      return;
+    }
     if (!(await commandInstalled(target, AGENT_COMMANDS[agent]))) {
-      fail(
-        c,
-        msg.id,
-        'not_installed',
-        `${AGENT_COMMANDS[agent]} isn't installed ${placeOf(session)}`,
-      );
+      const o = notInstalled();
+      if (!o.ok) fail(c, msg.id, o.code, o.error);
       return;
     }
-    const askId = crypto.randomUUID();
-    try {
-      await session.env.files.write(
-        TASK_FILE_DIR,
-        taskFilePath(askId),
-        `${msg.text}\n`,
-      );
-    } catch (e) {
-      fail(c, msg.id, e instanceof FilesError ? e.code : 'write_failed', e);
-      return;
-    }
-    const sessionId = listed?.session ?? crypto.randomUUID();
-    const title = listed?.title ?? taskTitle(msg.text);
-    const command = listed
-      ? resumeAskCommand(agent, sessionId, askId)
-      : startAskCommand(agent, sessionId, askId, title);
+    const askId = await writeAsk();
+    if (askId === null) return;
+    const title = taskTitle(msg.text);
+    const command = startAskCommand(
+      agent,
+      crypto.randomUUID(),
+      askId,
+      title,
+    );
     let created: { pane_id: string; tab_id: string };
     try {
       created = await repoShell(session, target, { cwd });
@@ -3953,12 +4222,6 @@ export async function startWeb(
       pane_id: created.pane_id,
       label: title,
     }).then((r) => renamed(session, r), () => {});
-    if (listed) {
-      resumedPanes.set(resumedKey(containerId, listed), {
-        containerId,
-        paneId: created.pane_id,
-      });
-    }
     reply(c, { id: msg.id, ok: true, result: { ...created, reused: false } });
   };
 
@@ -4757,6 +5020,10 @@ export async function startWeb(
             container: s.record.id,
             snapshot: s.snapshot,
           }));
+          const paneSessions = paneSessionsMessage(s.record.id);
+          if (paneSessions !== null) {
+            client.send(JSON.stringify(paneSessions));
+          }
         }
       }
     };
@@ -5145,6 +5412,7 @@ export async function startWeb(
       leader.stop();
       lspConfig.stop();
       await Promise.all([controllers.releaseAll(), lsp.shutdown()]);
+      for (const id of sessions.keys()) dropPaneSessions(id);
       await Promise.all([...sessions.values()].map((s) => s.dispose()));
       await Promise.all(liveProcs().map((p) => closeGracefully(p, 1000)));
       await server.shutdown().catch(() => {});
@@ -5154,6 +5422,13 @@ export async function startWeb(
 
   return { stop, finished: server.finished };
 }
+
+/** How often at most a container is probed for its live Claude sessions (`pane_sessions`). */
+const PROBE_INTERVAL_MS = 5000;
+/** How long a Claude pane a probe didn't find is left before it is probed for again. */
+const PROBE_RETRY_MS = 60_000;
+/** How long a pane a session was just resumed in counts as its before Herdr lists it. */
+const RESUMED_GRACE_MS = 10_000;
 
 /** How long a watched config file must be quiet before a change to it is re-read. */
 const CONFIG_DEBOUNCE_MS = 200;

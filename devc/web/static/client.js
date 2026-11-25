@@ -81,6 +81,14 @@ export const containers = new Map();
 /** @type {Map<string, any>} Herdr snapshots, by container id */
 export const snapshots = new Map();
 /**
+ * The agent session each pane runs, as the server knows it (`pane_sessions`), by container id
+ * then pane id: what a terminal tile records on its saved reference, to resume the session after
+ * a container rebuild or restart.
+ *
+ * @type {Map<string, Map<string, {agent: 'claude' | 'copilot' | 'pi', session: string}>>}
+ */
+export const paneSessions = new Map();
+/**
  * @typedef {{localFolder: string, name: string,
  *   container: 'running' | 'stopped' | 'missing', starting: boolean,
  *   environment?: 'container' | 'host'}} ProjectInfo
@@ -646,6 +654,10 @@ function applyMessage(msg) {
         const c = containers.get(id);
         if (!c || c.state !== 'connected') snapshots.delete(id);
       }
+      for (const id of [...paneSessions.keys()]) {
+        const c = containers.get(id);
+        if (!c || c.state !== 'connected') paneSessions.delete(id);
+      }
       break;
     }
     case 'projects':
@@ -693,6 +705,16 @@ function applyMessage(msg) {
     case 'snapshot':
       snapshots.set(msg.container, msg.snapshot);
       break;
+    case 'pane_sessions': {
+      const byPane = new Map();
+      for (const e of list(msg.sessions)) {
+        if (typeof e?.pane_id === 'string' && typeof e.session === 'string') {
+          byPane.set(e.pane_id, { agent: e.agent, session: e.session });
+        }
+      }
+      paneSessions.set(msg.container, byPane);
+      break;
+    }
     case 'pane_updated':
       patchPane(msg.container, msg.pane, false);
       break;

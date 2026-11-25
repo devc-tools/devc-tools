@@ -4,7 +4,37 @@
 import { defaultView, fileView } from './media.js';
 import { renderedKind } from './rendered.js';
 
-/** @typedef {{localFolder: string, pane_id: string}} PaneRef */
+/**
+ * The agent session a pane tile's pane runs, as last reported by the server (`pane_sessions`):
+ * metadata only, never shown, read when the pane is gone to resume the session in a new pane.
+ * `container` is the container id it was recorded under.
+ *
+ * @typedef {{agent: 'claude' | 'copilot' | 'pi', id: string, container: string}} PaneSession
+ */
+/** @typedef {{localFolder: string, pane_id: string, session?: PaneSession}} PaneRef */
+
+const SESSION_AGENTS = ['claude', 'copilot', 'pi'];
+const SESSION_ID =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
+/**
+ * `v` as a {@link PaneSession}, or null when it isn't a valid one.
+ *
+ * @param {unknown} v
+ * @returns {PaneSession | null}
+ */
+export function paneSessionFrom(v) {
+  if (typeof v !== 'object' || v === null || Array.isArray(v)) return null;
+  const { agent, id, container } = /** @type {Record<string, unknown>} */ (v);
+  if (typeof agent !== 'string' || !SESSION_AGENTS.includes(agent)) return null;
+  if (typeof id !== 'string' || !SESSION_ID.test(id)) return null;
+  if (typeof container !== 'string' || container === '') return null;
+  return {
+    agent: /** @type {PaneSession['agent']} */ (agent),
+    id,
+    container,
+  };
+}
 /**
  * A file shown in a file tile: `path` is relative to `root`, one of the repo folders of the
  * project at `localFolder` (the `read_file` message's fields). With `container`, `root` is `/`
@@ -72,11 +102,12 @@ export function paneRefFromState(state) {
   if (typeof state !== 'object' || state === null || Array.isArray(state)) {
     return null;
   }
-  const { localFolder, pane_id } =
+  const { localFolder, pane_id, session } =
     /** @type {Record<string, unknown>} */ (state);
   if (typeof localFolder !== 'string' || localFolder === '') return null;
   if (typeof pane_id !== 'string' || pane_id === '') return null;
-  return { localFolder, pane_id };
+  const s = paneSessionFrom(session);
+  return s ? { localFolder, pane_id, session: s } : { localFolder, pane_id };
 }
 
 /** A host tile's slot id: 32 lowercase hex characters, issued by devc-desktop. */
@@ -272,7 +303,7 @@ export function tilesShowingPane(tiles, ref) {
  *   {draft: import('./drafts.js').DraftRef} | {host: string} | null} ref
  * @param {boolean} [preview]
  * @returns {{type: 'pane' | 'file' | 'diff' | 'host',
- *   state: Record<string, string | boolean>}}
+ *   state: Record<string, string | boolean | PaneSession>}}
  */
 export function tileContent(ref, preview = false) {
   if (ref && 'host' in ref) {
@@ -327,7 +358,12 @@ export function tileContent(ref, preview = false) {
   return {
     type: 'pane',
     state: ref
-      ? { localFolder: ref.localFolder, pane_id: ref.pane_id, ...flag }
+      ? {
+        localFolder: ref.localFolder,
+        pane_id: ref.pane_id,
+        ...(ref.session ? { session: { ...ref.session } } : {}),
+        ...flag,
+      }
       : { ...flag },
   };
 }

@@ -107,6 +107,40 @@ Deno.test('paneRefFromState returns null for missing or non-string fields', () =
   assertEquals(paneRefFromState(['/a', 'w1:p1']), null);
 });
 
+const SESSION = {
+  agent: 'claude' as const,
+  id: 'abcdef12-1111-4111-8111-111111111111',
+  container: 'c0ffee',
+};
+
+Deno.test('a pane ref keeps its agent session through a saved layout', () => {
+  const ref = { localFolder: '/src/app', pane_id: 'w1:p1', session: SESSION };
+  const { type, state } = tileContent(ref);
+  assertEquals(type, 'pane');
+  assertEquals(paneRefFromState(state), ref);
+  // Preview flag and session together.
+  assertEquals(paneRefFromState(tileContent(ref, true).state), ref);
+});
+
+Deno.test('paneRefFromState drops a bad session and keeps the ref', () => {
+  const base = { localFolder: '/src/app', pane_id: 'w1:p1' };
+  for (
+    const session of [
+      { ...SESSION, agent: 'opencode' },
+      { ...SESSION, id: 'not-a-uuid' },
+      { ...SESSION, id: SESSION.id.toUpperCase() },
+      { ...SESSION, container: '' },
+      { agent: 'claude', id: SESSION.id },
+      'claude',
+      null,
+      [SESSION],
+    ]
+  ) {
+    assertEquals(paneRefFromState({ ...base, session }), base);
+  }
+  assertEquals(paneRefFromState(tileContent(base).state), base);
+});
+
 Deno.test('tileTitle joins container and pane titles', () => {
   assertEquals(tileTitle('alpha', 'claude'), 'alpha · claude');
   assertEquals(tileTitle('alpha', ''), 'alpha');

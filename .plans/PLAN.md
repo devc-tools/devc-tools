@@ -225,6 +225,13 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
 
 ### Completed
 
+- [devc-web-tile-session-restore](archived/devc-web-tile-session-restore.md) — terminal tiles store
+  the agent session running in their pane (`PaneRef.session`, metadata only) and, when the pane is
+  gone because the container was rebuilt or restarted, resume that session in a new pane in place.
+  A new `pane_sessions` message carries each pane's session; `resume_session` gains in-flight dedupe
+  so many tiles or windows converge on one pane. A pane closed while the container ran stays closed.
+  Live rebuild/restart checks not run.
+
 - [devc-web-mermaid](archived/devc-web-mermaid.md) — ✅ Done: `` ```mermaid `` blocks in rendered
   Markdown (file tiles and diff Previews) are drawn by a vendored Mermaid 12.3.0, loaded on first
   use, as `blob:` SVG images (CSP `img-src 'self' blob:`), on a light card. Live check not run.
@@ -2838,3 +2845,4 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
 | devc web PR review worktrees — PRs from upstream, Pull and Reset to PR for review branches                          | [devc-web-pr-review-worktrees](archived/devc-web-pr-review-worktrees.md)           | complete    |
 | devc web Markdown preview — rendered Markdown in file and diff tiles, a general renderer registry                   | [devc-web-markdown-preview](archived/devc-web-markdown-preview.md)                 | complete    |
 | devc web Mermaid — Mermaid diagrams in rendered Markdown                                                            | [devc-web-mermaid](archived/devc-web-mermaid.md)                                   | complete    |
+| devc web tile session restore — tiles resume their agent session after a container rebuild                          | [devc-web-tile-session-restore](archived/devc-web-tile-session-restore.md)         | complete    |

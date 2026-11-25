@@ -1017,6 +1017,16 @@ is published from any container: the host server finds devcontainers with
   session already resumed this way is shown in its terminal instead while that
   is still open. Its menu also copies the session id. devc web can't tell when
   a session is already open in some other terminal.
+- **Tiles after a rebuild:** a terminal tile remembers, with the saved layout,
+  the agent session running in its terminal: one devc web started or resumed
+  (a sent task, **Ask agent…**, a Sessions row), or any live Claude session.
+  When the container is rebuilt, or restarted while the page is open, the tile
+  resumes that session in a new terminal in the same place (**Resuming …
+  session…**). Tiles, windows and devc-desktop showing the same session all
+  get one terminal, never a second agent on the session. If the resume fails,
+  the tile says why and offers **Resume session**. A terminal closed while the
+  container kept running stays closed. Copilot and pi sessions started by hand
+  have no known id, so their tiles show **Terminal closed** as before.
 - **Pull requests:** under each repo of a running container, a **Pull request**
   row (its first child, closed until opened) shows the open PR of the repo's
   pinned branch: `#<n> <title>`, how many files you've marked Viewed, and the

@@ -143,6 +143,7 @@ import {
   basename,
   call,
   containerByFolder,
+  containers,
   dashboard,
   desktopChannel,
   displayName,
@@ -155,6 +156,7 @@ import {
   onConnectionChange,
   onServerMessage,
   paneKey,
+  paneSessions,
   projectRepos,
   projects,
   projectStarts,
@@ -162,6 +164,7 @@ import {
   refTooltip,
   resolveRef,
   send,
+  snapshots,
   socket,
   tileRepo,
 } from './client.js';
@@ -323,6 +326,25 @@ const focusSeq = new Map();
 let nextFocusSeq = 0;
 /** `localFolder\npane` of panes from `new_shell`, → when their grace period ends. */
 const newPanes = new Map();
+/**
+ * Each container's last state as this page saw it (`gone` once it left the list): a container
+ * coming back to `connected` from anything else restarted, as far as its panes go.
+ *
+ * @type {Map<string, string>}
+ */
+const lastContainerStates = new Map();
+/**
+ * Containers whose next snapshot is the first since they came back to `connected`: a tile whose
+ * pane that snapshot lacks resumes its agent session (see {@link wantsResume}).
+ */
+const restartPending = new Set();
+/**
+ * `resume_session` requests in flight, by `container\nagent\nsession`: tiles sharing a session
+ * send one request and all take its pane.
+ *
+ * @type {Map<string, Promise<any>>}
+ */
+const resumesInFlight = new Map();
 
 /**
  * A tile's live view. `openKey` is the `container\npane` it has open on the server, if any.
@@ -345,6 +367,11 @@ const newPanes = new Map();
  *   pane copied a quote without its bars
  * @property {ResizeObserver} observer
  * @property {HTMLElement} killButton  the tab's trash button, shown while the pane is known
+ * @property {boolean} seenPane  the ref's pane has been in a snapshot since the ref named it: a
+ *   later snapshot without it means the pane was closed
+ * @property {{state: 'resuming' | 'failed', ref: PaneRef, message?: string} | null} resume
+ *   the ref's agent session being resumed in a new pane, or the resume that failed (tried again
+ *   only from the overlay's button); for `ref` only, forgotten once the tile shows another
  */
 
 /** @type {Map<string, TileView>} pane tiles' views, by Tile.id */
@@ -5760,9 +5787,29 @@ function reconcileTiles() {
   for (const [id, view] of views) {
     if (!isPlaced(view)) continue;
     const ref = view.tile.ref;
+    if (view.resume && view.resume.ref !== ref) view.resume = null;
     const c = ref ? containerByFolder(ref.localFolder) : null;
+    const listed = c !== null && c.state === 'connected' && snapshots.has(c.id);
+    if (listed && wantsResume(view, c)) startResume(view, c);
+    if (view.resume) {
+      // Its pane is gone, or is another pane under a reused id: never shown meanwhile.
+      if (view.openKey !== null) closeTilePane(id);
+      view.openKey = null;
+      updateOverlay(id);
+      continue;
+    }
     const reachable = c && c.state === 'connected' &&
       findPane(c.id, ref.pane_id);
+    if (reachable) view.seenPane = true;
+    else if (
+      listed && view.seenPane && ref?.session && !isNewPane(ref) &&
+      !restartPending.has(c.id)
+    ) {
+      // Closed while the container ran: it stays closed, also after a reload.
+      view.seenPane = false;
+      view.tile.setRef({ localFolder: ref.localFolder, pane_id: ref.pane_id });
+      saveLayout();
+    }
     if (!reachable) {
       // Disconnected or gone: the server already dropped (or will drop) the controller.
       if (view.openKey !== null && c && c.state === 'connected') {
@@ -5785,6 +5832,124 @@ function reconcileTiles() {
   }
   renderTileTitles();
   updatePlaceholder();
+}
+
+/**
+ * Whether a tile resumes its recorded agent session now (`c`, its container, is connected and
+ * listed): its container was rebuilt (a new id: the ref's pane, even one with the same id, is
+ * not the one it showed), or restarted under the same id with the pane gone from the first
+ * snapshot since. A resume in flight, or one that failed, is not started again here.
+ *
+ * @param {TileView} view
+ */
+function wantsResume(view, c) {
+  const ref = view.tile.ref;
+  const s = ref?.session;
+  if (!s || view.resume) return false;
+  if (s.container !== c.id) return true;
+  return restartPending.has(c.id) && !findPane(c.id, ref.pane_id);
+}
+
+/**
+ * Resumes a tile's recorded agent session (`resume_session`) and points the tile at the pane
+ * that answers: a new one, or the one another tile or window already resumed it in.
+ *
+ * @param {TileView} view
+ */
+function startResume(view, c) {
+  const ref =
+    /** @type {PaneRef & {session: import('./lib/layout_state.js').PaneSession}} */ (
+      view.tile.ref
+    );
+  const s = ref.session;
+  view.resume = { state: 'resuming', ref };
+  const key = `${c.id}\n${s.agent}\n${s.id}`;
+  let request = resumesInFlight.get(key);
+  if (!request) {
+    request = call({
+      type: 'resume_session',
+      container: c.id,
+      agent: s.agent,
+      session: s.id,
+    }).finally(() => resumesInFlight.delete(key));
+    resumesInFlight.set(key, request);
+  }
+  const current = () =>
+    views.get(view.tile.id) === view && view.tile.ref === ref;
+  request.then((result) => {
+    if (!current()) return;
+    if (typeof result?.pane_id !== 'string') throw new Error('no terminal');
+    const next = {
+      localFolder: ref.localFolder,
+      pane_id: result.pane_id,
+      session: { ...s, container: c.id },
+    };
+    newPanes.set(
+      `${next.localFolder}\n${next.pane_id}`,
+      Date.now() + NEW_PANE_GRACE_MS,
+    );
+    setTimeout(reconcileTiles, NEW_PANE_GRACE_MS + 50);
+    view.resume = null;
+    view.seenPane = false;
+    view.closedReason = null;
+    view.tile.setRef(next);
+    saveLayout();
+  }).catch((e) => {
+    if (!current()) return;
+    view.resume = { state: 'failed', ref, message: e?.message ?? String(e) };
+  }).finally(() => {
+    reconcileTiles();
+    viewChanged();
+  });
+}
+
+/**
+ * Records on the tiles showing container `containerId`'s panes the agent session each runs
+ * (`pane_sessions`), in their saved references. A ref recorded under another container id is
+ * left for {@link wantsResume}: its pane id now names another pane.
+ */
+function recordPaneSessions(containerId) {
+  const byPane = paneSessions.get(containerId);
+  const c = containers.get(containerId);
+  if (!byPane || !c) return;
+  let changed = false;
+  for (const view of views.values()) {
+    const ref = view.tile.ref;
+    if (!ref || ref.localFolder !== c.localFolder || view.resume) continue;
+    if (ref.session && ref.session.container !== containerId) continue;
+    const s = byPane.get(ref.pane_id);
+    if (!s || !findPane(containerId, ref.pane_id)) continue;
+    if (ref.session?.agent === s.agent && ref.session.id === s.session) {
+      continue;
+    }
+    view.tile.setRef({
+      localFolder: ref.localFolder,
+      pane_id: ref.pane_id,
+      session: { agent: s.agent, id: s.session, container: containerId },
+    });
+    changed = true;
+  }
+  if (changed) saveLayout();
+}
+
+/** Follows the containers' states for {@link restartPending}. */
+function trackContainerStates() {
+  const listed = new Set();
+  for (const c of containers.values()) {
+    listed.add(c.id);
+    const prev = lastContainerStates.get(c.id);
+    if (c.state === 'connected' && prev !== undefined && prev !== 'connected') {
+      restartPending.add(c.id);
+    }
+    if (c.state !== 'connected') restartPending.delete(c.id);
+    lastContainerStates.set(c.id, c.state);
+  }
+  for (const id of lastContainerStates.keys()) {
+    if (!listed.has(id)) {
+      lastContainerStates.set(id, 'gone');
+      restartPending.delete(id);
+    }
+  }
 }
 
 function updateOverlay(tileId) {
@@ -5817,6 +5982,21 @@ function updateOverlay(tileId) {
       } else message = `${basename(ref.localFolder)} is not running.`;
     } else if (c.state !== 'connected') {
       message = `${displayName(c)}: ${c.state}`;
+    } else if (view.resume) {
+      const agent = LABELS.agents[view.resume.ref.session?.agent ?? ''] ??
+        'agent';
+      if (view.resume.state === 'resuming') {
+        message = `Resuming ${agent} session…`;
+      } else {
+        message = `Couldn't resume ${agent} session: ${view.resume.message}`;
+        action = h('button', {
+          onclick: () => {
+            view.resume = null;
+            startResume(view, c);
+            reconcileTiles();
+          },
+        }, LABELS.resumeSession);
+      }
     } else if (!findPane(c.id, ref.pane_id)) {
       message = isNewPane(ref) ? '' : LABELS.closed;
     } else if (view.closedReason !== null) {
@@ -6025,6 +6205,8 @@ function mountTile(tile) {
     openKey: null,
     size: null,
     closedReason: null,
+    seenPane: false,
+    resume: null,
     hidden: false,
     resizeTimer: undefined,
     disposeMouse: () => {},
@@ -6559,6 +6741,7 @@ function onTilesMessage(msg) {
         else syncFileEditable(view);
       }
       for (const view of diffViews.values()) syncDiffLanguage(view);
+      trackContainerStates();
       reconcileTiles();
       break;
     case 'projects':
@@ -6567,6 +6750,10 @@ function onTilesMessage(msg) {
       break;
     case 'snapshot':
       reconcileTiles();
+      restartPending.delete(msg.container);
+      break;
+    case 'pane_sessions':
+      recordPaneSessions(msg.container);
       break;
     case 'pane_updated':
     case 'agent_status':
