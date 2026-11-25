@@ -14,12 +14,14 @@ import {
 import { focusedTile, inUseState } from './lib/view.js';
 import {
   byName,
+  CARD_TOKENS,
   collapseTasksState,
   containerLabel,
   dragZones,
   inUseRuns,
   isSidebarScope,
   repoCardKey,
+  repoSubruns,
   settleZones,
   SIDEBAR_SCOPES,
   statusRank,
@@ -55,6 +57,7 @@ import {
   rowTrail,
   setButtonBusy,
   toast,
+  toggleMenuUnder,
   writeClipboard,
 } from './ui.js';
 import { menuOf } from './lib/menu.js';
@@ -113,6 +116,8 @@ import {
   renderSettled,
   repoCard,
   repoDisplayName,
+  repoGroupName,
+  repoNameParts,
   saveSidebarState,
   sectionRow,
   setCardTag,
@@ -318,6 +323,29 @@ function setGrouping(by) {
   renderTree();
 }
 
+/**
+ * The header's card-details picker: a checkbox per token a repo card's header can show (see
+ * `CARD_TOKENS`), under its button; the button again closes it. A click on one shows or hides it on
+ * every card at once, the menu staying open for the next.
+ *
+ * @param {HTMLElement} button
+ */
+function openCardTokens(button) {
+  toggleMenuUnder(button, () =>
+    CARD_TOKENS.map((t) => [
+      LABELS.cardTokenNames[t],
+      () => {
+        const tokens = sidebarState.cardTokens;
+        if (!tokens.delete(t)) tokens.add(t);
+        saveSidebarState();
+        renderTree();
+      },
+      false,
+      undefined,
+      { checked: sidebarState.cardTokens.has(t) },
+    ]));
+}
+
 /** The grouping picker's keys, as a radio group's: an arrow key checks the option before or after. */
 function groupPickerKeydown(e) {
   const step =
@@ -425,7 +453,12 @@ function floorInUseSections() {
 
 /** @param {HTMLElement} run */
 function floorRunSections(run) {
-  const cards = [...run.querySelectorAll(':scope > .repo-card')].map((
+  // A container box's cards may sit in its repo groups (`in-use-subrun`).
+  const cards = [
+    ...run.querySelectorAll(
+      ':scope > .repo-card, :scope > .in-use-subrun > .repo-card',
+    ),
+  ].map((
     el,
   ) => /** @type {HTMLElement} */ (el)).filter((card) =>
     card.querySelector(':scope > .card-section')
@@ -612,7 +645,7 @@ function renderTree() {
 
 /**
  * The In use section: the active repo cards (see `repoCardActive`), each container's in a card of
- * its own under its name. Cards come most urgent agent first (see `statusRank`), those with no
+ * its own under its name, there by repo (see `repoSubruns`), each repo's under its name. Cards come most urgent agent first (see `statusRank`), those with no
  * agent last, then in the layout order of their first tile, then those with none in their
  * container's card order; containers where their first card is. Grouped by tag (the header's
  * toggle, `inUseGroup`), a box per card tag under its name, the untagged last; by repo, a box per
@@ -660,16 +693,18 @@ function inUseRows(cards, only, empty = 'Nothing open') {
     );
   }
   const group = sidebarState.inUseGroup;
+  // A worktree goes with the repo it belongs to: host paths, so across containers too.
+  const repoKey = (card) =>
+    card.repo ? card.repo.primaryFolder ?? card.repo.folder : null;
   const runs = inUseRuns(
     active,
     group,
     (card) => sidebarState.cardTags.get(card.key) ?? null,
     containerNameOf,
-    // A worktree goes with the repo it belongs to: host paths, so across containers too.
     (card) =>
       card.repo
         ? {
-          key: card.repo.primaryFolder ?? card.repo.folder,
+          key: repoKey(card),
           name: repoDisplayName(card.localFolder, card.repo),
         }
         : null,
@@ -692,6 +727,36 @@ function inUseRows(cards, only, empty = 'Nothing open') {
       ),
     );
     const box = rows[rows.length - 1];
+    if (group === 'container') {
+      // By container, a container's cards by repo: each repo's (its worktrees' too) under its
+      // name, which its cards then leave out; those outside every repo as they are.
+      for (const sub of repoSubruns(run.cards, repoKey)) {
+        if (sub.key === null) {
+          box.append(...sub.cards.map((card) => repoCard(card, inUseSide)));
+          continue;
+        }
+        const { localFolder, repo } = sub.cards[0];
+        box.append(
+          h(
+            'div',
+            { class: 'in-use-subrun' },
+            h(
+              'div',
+              { class: 'in-use-run-name in-use-subrun-name' },
+              h(
+                'span',
+                { class: 'label' },
+                ...repoNameParts(repoGroupName(localFolder, repo)),
+              ),
+            ),
+            ...sub.cards.map((card) =>
+              repoCard(card, inUseSide, 0, false, true)
+            ),
+          ),
+        );
+      }
+      continue;
+    }
     for (const card of run.cards) {
       box.append(
         repoCard(card, inUseSide, 0, group !== 'container', group === 'repo'),
@@ -2025,6 +2090,11 @@ export function mountSidebar(root, opts) {
   });
   $groupPicker?.addEventListener('keydown', groupPickerKeydown);
   applyGrouping();
+  const $cardTokens = root.querySelector('#card-tokens');
+  $cardTokens?.addEventListener(
+    'click',
+    () => openCardTokens(/** @type {HTMLElement} */ ($cardTokens)),
+  );
   // The page's URL, token included: devc-desktop's window has no address bar, and a container or
   // another browser may need it. The toast names it without showing it, since it is the token.
   $dashboardButton = root.querySelector('#dashboard');

@@ -35,6 +35,7 @@ import {
   repoCardKey,
   repoGitItems,
   savedCardTags,
+  savedCardTokens,
   savedInUseGroup,
   savedScope,
   splitRepoName,
@@ -628,6 +629,12 @@ function loadSidebarState() {
     inUseGroup: savedInUseGroup(saved),
     /** Each tagged repo card's tag, by card key (see `cardTag`): what In use groups by tag. */
     cardTags: savedCardTags(saved?.cardTags),
+    /**
+     * What repo cards' headers show (the header's card-details picker): every token at first.
+     *
+     * @type {Set<import('./lib/sidebar.js').CardToken>}
+     */
+    cardTokens: savedCardTokens(saved?.cardTokens),
   };
 }
 
@@ -728,6 +735,7 @@ export function saveSidebarState() {
         hidden: saved?.hidden,
         scope: storedScope,
         inUseGroup: sidebarState.inUseGroup,
+        cardTokens: [...sidebarState.cardTokens],
         // Another page's tags stand unless this one tagged a card: see `setCardTag`.
         cardTags: cardTagsEdited
           ? Object.fromEntries(sidebarState.cardTags)
@@ -1128,6 +1136,13 @@ export function repoCard(
   const c = containerByFolder(localFolder);
   const fr = { localFolder, root: repo ? repo.folder : localFolder };
   const branch = repo?.git?.branch;
+  // What the header shows, as the card-details picker says. Its name stands in for any token left
+  // out when nothing else of the repo's would show, so a header is never blank.
+  const tokens = sidebarState.cardTokens;
+  const showBranch = !!branch && tokens.has('branch');
+  const showContainer = container && tokens.has('container');
+  const showName = !(groupNamed && showBranch) &&
+    (tokens.has('name') || (!showBranch && !showContainer));
   // Opened before this page listed the container's sessions: a Loading… section holds its place.
   const listed = c ? sessionLists.get(c.id) : undefined;
   // Once listed, the toggle shows even with none, so an empty list reads as empty, not missing.
@@ -1331,21 +1346,20 @@ export function repoCard(
         h(
           'span',
           { class: 'repo-head-name' },
-          ...(groupNamed && branch
-            ? []
-            : repoNameParts(repoGroupName(localFolder, repo))),
-          branch ? h('span', { class: 'repo-branch' }, branch) : '',
-          container
+          ...(showName ? repoNameParts(repoGroupName(localFolder, repo)) : []),
+          showBranch ? h('span', { class: 'repo-branch' }, branch) : '',
+          showContainer
             ? h(
               'span',
               { class: 'repo-container' },
+              svgIcon('project'),
               containerNameOf(localFolder),
             )
             : '',
         ),
       ]
       : [h('span', { class: 'repo-base' }, containerNameOf(localFolder))]),
-    cardTagChip(key, side),
+    tokens.has('tag') ? cardTagChip(key, side) : '',
     cardPinMark(key, side),
   );
   /** @type {[string, string, boolean, () => void][]} */
@@ -3754,7 +3768,12 @@ export function refocusTreeKey(container, key) {
 // ---------------------------------------------------------------------------------------------
 
 /** Boxes whose first child heads the rest: a repo's card, a container's, an In use run. */
-const HEADED_BOXES = ['repo-card', 'container-card', 'in-use-run'];
+const HEADED_BOXES = [
+  'repo-card',
+  'container-card',
+  'in-use-run',
+  'in-use-subrun',
+];
 
 /** @typedef {import('./lib/sidebar.js').OutlineNode & {el: Element, children?: any[]}} FilterNode */
 

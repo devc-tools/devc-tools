@@ -30,7 +30,9 @@ import {
   repoCardActive,
   repoCardKey,
   repoGitItems,
+  repoSubruns,
   savedCardTags,
+  savedCardTokens,
   savedInUseGroup,
   savedScope,
   savedZen,
@@ -1065,4 +1067,35 @@ Deno.test('inUseRuns by repo: a primary with its worktrees, across containers', 
     ['y'],
     ['none'],
   ]);
+});
+
+Deno.test('savedCardTokens keeps known tokens, every one when none was saved', () => {
+  assertEquals([...savedCardTokens(undefined)], [
+    'name',
+    'branch',
+    'container',
+    'tag',
+  ]);
+  assertEquals([...savedCardTokens({ branch: true })].length, 4);
+  assertEquals([...savedCardTokens([])], []);
+  assertEquals([...savedCardTokens(['tag', 'bogus', 'branch', 3])], [
+    'branch',
+    'tag',
+  ]);
+});
+
+Deno.test('repoSubruns groups a box by repo, in order of each first card', () => {
+  const cards = [
+    { id: 'a1', repo: 'a' },
+    { id: 'x', repo: null },
+    { id: 'b1', repo: 'b' },
+    { id: 'a2', repo: 'a' },
+    { id: 'y', repo: null },
+  ];
+  const runs = repoSubruns(cards, (c) => c.repo);
+  assertEquals(
+    runs.map((r) => [r.key, r.cards.map((c) => c.id)]),
+    [['a', ['a1', 'a2']], [null, ['x', 'y']], ['b', ['b1']]],
+  );
+  assertEquals(repoSubruns([], (c) => c), []);
 });

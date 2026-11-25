@@ -313,6 +313,27 @@ export function savedCardTags(v) {
 }
 
 /**
+ * What a repo card's header can show, in the order it shows them and the card-details picker
+ * lists them: the repo's name, its branch, its container's name and its tag.
+ */
+export const CARD_TOKENS =
+  /** @type {const} */ (['name', 'branch', 'container', 'tag']);
+
+/** @typedef {typeof CARD_TOKENS[number]} CardToken */
+
+/**
+ * The card tokens saved with the sidebar's state: those of {@link CARD_TOKENS} in a saved array
+ * (anything else dropped), every one when none was saved.
+ *
+ * @param {unknown} v
+ * @returns {Set<CardToken>}
+ */
+export function savedCardTokens(v) {
+  if (!Array.isArray(v)) return new Set(CARD_TOKENS);
+  return new Set(CARD_TOKENS.filter((t) => v.includes(t)));
+}
+
+/**
  * In use's boxes for `cards` (already in the order they show), as `group` groups them: `key`
  * tells boxes apart, `name` heads one (`null`: no heading). By container, a box per
  * `card.localFolder` named by `containerName`; by tag, a box per `tagOf(card)` named by it, with
@@ -370,6 +391,30 @@ export function inUseRuns(
   const untagged = out.findIndex((r) => r.key === 'untagged');
   if (untagged >= 0) out.push(...out.splice(untagged, 1));
   return out;
+}
+
+/**
+ * A container box's cards by repo (In use grouped by container): a group per `repoOf(card)` key
+ * (a repo with its worktrees), the cards outside every repo (`repoOf` null) in one group keyed
+ * `null`. Groups go in order of each one's first card; cards keep their order within one.
+ *
+ * @template C
+ * @param {C[]} cards @param {(card: C) => string | null} repoOf
+ * @returns {{key: string | null, cards: C[]}[]}
+ */
+export function repoSubruns(cards, repoOf) {
+  /** @type {Map<string | null, {key: string | null, cards: C[]}>} */
+  const out = new Map();
+  for (const card of cards) {
+    const key = repoOf(card);
+    let run = out.get(key);
+    if (!run) {
+      run = { key, cards: [] };
+      out.set(key, run);
+    }
+    run.cards.push(card);
+  }
+  return [...out.values()];
 }
 
 /**

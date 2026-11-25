@@ -1194,15 +1194,29 @@ body.resizing-zones {
 }
 
 /* A box with no section open keeps its height: only the boxes with one shrink. */
-.zone-in-use > .in-use-run:not(:has(> .repo-card > .card-section)) {
+.zone-in-use > .in-use-run:not(:has(.repo-card > .card-section)) {
   flex-shrink: 0;
 }
 
-.zone-in-use .in-use-run > * {
+.zone-in-use .in-use-run > *,
+.zone-in-use .in-use-subrun > * {
   flex: none;
 }
 
-.zone-in-use .in-use-run > .repo-card {
+/* A container box's repo group (In use by container) shrinks as a card does, its cards in it. */
+.zone-in-use .in-use-run > .in-use-subrun {
+  display: flex;
+  flex: 0 1 auto;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.zone-in-use .in-use-run > .in-use-subrun:not(:has(.repo-card > .card-section)) {
+  flex-shrink: 0;
+}
+
+.zone-in-use .in-use-run > .repo-card,
+.zone-in-use .in-use-subrun > .repo-card {
   display: flex;
   flex: 0 1 auto;
   flex-direction: column;
@@ -1211,15 +1225,15 @@ body.resizing-zones {
 }
 
 /* With a card's section open, the cards with none keep their height: only the open one shrinks. */
-.zone-in-use .in-use-run:has(> .repo-card > .card-section) > .repo-card:not(:has(> .card-section)) {
+.zone-in-use .in-use-run:has(.repo-card > .card-section) .repo-card:not(:has(> .card-section)) {
   flex-shrink: 0;
 }
 
-.zone-in-use .in-use-run > .repo-card > * {
+.zone-in-use .in-use-run .repo-card > * {
   flex: none;
 }
 
-.zone-in-use .in-use-run > .repo-card > .card-section {
+.zone-in-use .in-use-run .repo-card > .card-section {
   flex: 0 1 auto;
   min-height: 0;
   max-height: none;
@@ -1269,8 +1283,25 @@ body.resizing-zones {
   bottom: -7px;
 }
 
-.in-use-run > .repo-card:last-child {
+.in-use-run > .repo-card:last-child,
+.in-use-subrun > .repo-card:last-child,
+.in-use-run > .in-use-subrun:last-child {
   margin-bottom: 0;
+}
+
+/* In use by container: a container's cards by repo, each repo's name over its cards (which leave
+   it out), left-aligned under the box's centered container name. */
+.in-use-run > .in-use-subrun {
+  margin: 0 0 5px;
+}
+
+.in-use-run-name.in-use-subrun-name {
+  justify-content: flex-start;
+  padding: 2px 4px 3px;
+}
+
+.in-use-subrun > .repo-card {
+  margin: 0 0 4px;
 }
 
 /* In use not grouped by container: one box with no name on top, each card naming its container. */
@@ -1282,6 +1313,23 @@ body.resizing-zones {
   margin-left: 7px;
   font-size: calc(var(--font-size) - 1.5px);
   color: var(--muted);
+}
+
+/* The container's cube before its name, as the branch's mark before it. */
+.repo-container > svg {
+  width: 11px;
+  height: 11px;
+  margin-right: 3px;
+  vertical-align: -1px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.4;
+  stroke-linejoin: round;
+}
+
+/* In use grouped by repo with the branch hidden: the container can start the header. */
+.repo-head-name > .repo-container:first-child {
+  margin-left: 0;
 }
 
 /* A tagged repo card's tag, after its name (not under its tag's heading in In use). */
@@ -3060,6 +3108,17 @@ body:is(.lm_dragging, .resizing-sidebar) .media-view iframe {
 
 .menu button:hover {
   background: var(--panel);
+}
+
+/* A checkbox item (`checked`): a check mark in a fixed slot before its label when on. */
+.menu button .menu-check {
+  display: inline-block;
+  width: 1.2em;
+}
+
+.menu button[aria-checked='true'] .menu-check::before {
+  content: '✓';
+  color: var(--accent);
 }
 
 .menu button.danger {

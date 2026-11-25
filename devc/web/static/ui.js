@@ -184,6 +184,14 @@ export const LABELS = {
   unpinFile: 'Unpin file',
   useAsDashboard: 'Use as dashboard',
   stopDashboard: 'Stop using as dashboard',
+  // The header's card-details picker, and its checkboxes (see `CARD_TOKENS`).
+  cardTokens: 'Repo card details',
+  cardTokenNames: {
+    name: 'Repo name',
+    branch: 'Branch',
+    container: 'Container',
+    tag: 'Tag',
+  },
   openDashboard: (/** @type {string} */ name) => `Open dashboard (${name})`,
   noDashboard: 'Dashboard: right-click a repo file → Use as dashboard',
   newNote: 'New note…',
@@ -772,10 +780,12 @@ export function copyText(text) {
 
 /**
  * A menu item: its label, action, whether it is `danger` (red), an icon, and `opts`:
- * `disabled` greys it out and takes no click, `title` is its tooltip (why it is disabled). `null`:
- * a divider.
+ * `disabled` greys it out and takes no click, `title` is its tooltip (why it is disabled), and
+ * `checked` makes it a checkbox: a check mark when on, and its click toggles it without closing the
+ * menu, so several can be set in one go. `null`: a divider.
  *
- * @typedef {[string, () => void, boolean?, Node?, {disabled?: boolean, title?: string}?] | null} MenuItem
+ * @typedef {[string, () => void, boolean?, Node?, {disabled?: boolean, title?: string,
+ *   checked?: boolean}?] | null} MenuItem
  */
 
 /** @param {MouseEvent} e @param {MenuItem[]} items */
@@ -805,6 +815,7 @@ export function openMenuAt(x, y, items) {
       const [label, action, danger, icon, opts] = item;
       // Not the `disabled` attribute: a disabled button shows no tooltip in some browsers.
       const off = opts?.disabled === true;
+      const check = typeof opts?.checked === 'boolean';
       return h(
         'button',
         {
@@ -812,14 +823,25 @@ export function openMenuAt(x, y, items) {
             c
           )
             .join(' ') || undefined,
+          role: check ? 'menuitemcheckbox' : undefined,
+          'aria-checked': check ? String(opts.checked) : undefined,
           'aria-disabled': off ? 'true' : undefined,
           title: opts?.title,
-          onclick: () => {
+          onclick: (/** @type {MouseEvent} */ e) => {
             if (off) return;
-            closeMenu();
+            if (check) {
+              const b = /** @type {HTMLElement} */ (e.currentTarget);
+              b.setAttribute(
+                'aria-checked',
+                String(b.getAttribute('aria-checked') !== 'true'),
+              );
+            } else {
+              closeMenu();
+            }
             action();
           },
         },
+        check ? h('span', { class: 'menu-check', 'aria-hidden': 'true' }) : '',
         icon ?? '',
         label,
       );
@@ -855,11 +877,41 @@ export function useMenuHost(/** @type {typeof menuHost} */ host) {
 
 function closeMenu() {
   $menu.hidden = true;
+  menuOpener?.setAttribute('aria-expanded', 'false');
+  menuOpener = null;
+}
+
+/** The button whose menu is open ({@link toggleMenuUnder}); `null` for any other menu. */
+let menuOpener = /** @type {HTMLElement | null} */ (null);
+/** The opener whose open menu the current press closed, so that press's click doesn't reopen it. */
+let closedByOpener = /** @type {HTMLElement | null} */ (null);
+
+/**
+ * A button's menu, under it: opens it, or closes it when it is already open, as a click on the
+ * button again (or Enter or Space on it) would be expected to.
+ *
+ * @param {HTMLElement} opener @param {() => MenuItem[]} items
+ */
+export function toggleMenuUnder(opener, items) {
+  const wasOpen = closedByOpener === opener ||
+    (!$menu.hidden && menuOpener === opener);
+  closedByOpener = null;
+  if (wasOpen) {
+    closeMenu();
+    return;
+  }
+  const { left, bottom } = opener.getBoundingClientRect();
+  openMenuAt(left, bottom + 2, items());
+  menuOpener = opener;
+  opener.setAttribute('aria-expanded', 'true');
 }
 
 // Capture phase: a terminal stops its own mousedowns and keys from bubbling.
 document.addEventListener('mousedown', (e) => {
-  if (!$menu.hidden && !$menu.contains(/** @type {Node} */ (e.target))) {
+  const target = /** @type {Node} */ (e.target);
+  closedByOpener = null;
+  if (!$menu.hidden && !$menu.contains(target)) {
+    if (menuOpener?.contains(target)) closedByOpener = menuOpener;
     closeMenu();
   }
 }, true);
