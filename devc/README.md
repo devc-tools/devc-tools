@@ -369,7 +369,12 @@ is published from any container: the host server finds devcontainers with
   under it, so nothing on the row moves) while a fetch, pull or push
   runs, and a toast if it can't. A card's **Commits** button (never **↑N**)
   shows the branch's history on a colored rail: hollow dots to pull, solid dots
-  local only, and small muted dots under a **Pushed** line. It needs no bridge
+  local only, and small muted dots for what is pushed, each group under its own
+  heading (**To pull**, **Local only**, **Pushed**) that a click opens or closes
+  (**Pushed** starts closed; the card remembers each). The Commits section shows
+  above the pull request's. The rule between two open sections drags to size
+  the one above it (a double-click resets it); a plain rule separates the
+  card's terminals from its first open section. It needs no bridge
   grant, and works for a stopped container: it reads the host's mirror, with the
   ↑↓ counts' upstream when the branch has one. With none, pushed means on a
   remote branch the repo tracks, or on `origin/<branch>` as the host finds it
@@ -380,12 +385,12 @@ is published from any container: the host server finds devcontainers with
   Whole file, Hide whitespace, split view, Find, and hover and go to definition
   (see **Language servers**) work there, and there are no
   review threads, comments, Viewed or Ask agent. While the git mark shows
-  **● N**, an **Uncommitted** row heads the history (a dashed dot); a click on
-  **● N** itself opens the **Commits** section with that row open (and, with
-  both open, closes the section). A click on the row
-  opens a commit message box and the working tree's changed files in two
-  groups, **Staged** (the index against `HEAD`) and **Changes** (the working
-  tree against the index; `new` for an untracked file, **U** for a conflict). A
+  **● N**, the section opens with a commit message box, then the working tree's
+  changed files in two more such groups, beside the history's: **Staged** (the
+  index against `HEAD`) and **Changes** (the working tree against the index;
+  `new` for an untracked file, **U** for a conflict). A click on **● N** itself
+  opens the **Commits** section with both groups open (and, with all that open,
+  closes the section). A
   file staged and then edited again is in both. A click on a file opens its
   diff in the same tile (`<file> · staged` or `<file> · changes`), which reads
   itself again every 15 s while the page shows. A file's **+** / **−** (or its

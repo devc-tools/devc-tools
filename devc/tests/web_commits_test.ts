@@ -4,6 +4,7 @@ import {
   commitFileRows,
   commitFilesKey,
   commitFileTitle,
+  commitGroupOpenByDefault,
   commitRows,
   commitTitle,
   fileStat,
@@ -37,9 +38,15 @@ const history = (over: Record<string, unknown> = {}) => ({
 });
 
 const shape = (rows: ReturnType<typeof commitRows>) =>
-  rows.map((r) => r.kind === 'commit' ? `${r.state}:${r.short}` : r.text);
+  rows.map((r) =>
+    r.kind === 'commit'
+      ? `${r.state}:${r.short}`
+      : r.kind === 'divider'
+      ? `${r.open ? '▾' : '▸'} ${r.text} (${r.count})`
+      : r.text
+  );
 
-Deno.test('commitRows orders to pull, local, then pushed under their lines', () => {
+Deno.test('commitRows orders to pull, local, then pushed under their headings', () => {
   assertEquals(
     shape(commitRows(history({
       incoming: [commit('a')],
@@ -49,20 +56,48 @@ Deno.test('commitRows orders to pull, local, then pushed under their lines', () 
       pushed: [commit('d')],
     }))),
     [
-      'To pull · 1 commit on origin/main',
+      '▾ To pull · origin/main (1)',
       'incoming:aaaaaaa',
-      'Local only · 2 commits',
+      '▾ Local only (2)',
       'local:bbbbbbb',
       'local:ccccccc',
-      'Pushed · origin/main',
+      '▾ Pushed · origin/main (1)',
       'pushed:ddddddd',
     ],
   );
 });
 
-Deno.test('commitRows: fully pushed has only the pushed line', () => {
+Deno.test('commitRows: a closed group is its heading alone', () => {
+  const h = history({
+    local: [commit('b')],
+    localTotal: 3,
+    pushed: [commit('d')],
+    morePushed: true,
+  });
+  assertEquals(shape(commitRows(h, (s) => s !== 'pushed')), [
+    '▾ Local only (3)',
+    'local:bbbbbbb',
+    'and 2 more',
+    '▸ Pushed · origin/main (1+)',
+  ]);
+  assertEquals(shape(commitRows(h, () => false)), [
+    '▸ Local only (3)',
+    '▸ Pushed · origin/main (1+)',
+  ]);
+});
+
+Deno.test('commitGroupOpenByDefault: all but Pushed', () => {
+  assertEquals(
+    (['staged', 'unstaged', 'incoming', 'local', 'pushed'] as const).map(
+      commitGroupOpenByDefault,
+    ),
+    [true, true, true, true, false],
+  );
+});
+
+Deno.test('commitRows: fully pushed has only the pushed group', () => {
   assertEquals(shape(commitRows(history({ pushed: [commit('d')] }))), [
-    'Pushed · origin/main',
+    '▾ Pushed · origin/main (1)',
     'pushed:ddddddd',
   ]);
 });
@@ -74,7 +109,7 @@ Deno.test('commitRows: a repo with no remote branch says so', () => {
       local: [commit('a')],
       localTotal: 1,
     }))),
-    ['Local only · 1 commit, no remote branch', 'local:aaaaaaa'],
+    ['▾ Local only · no remote branch (1)', 'local:aaaaaaa'],
   );
 });
 
@@ -87,7 +122,7 @@ Deno.test('commitRows says what a long list left out', () => {
       localTotal: 5,
       pushed: [commit('c')],
       morePushed: true,
-    }))).filter((t) => !/:/.test(t) && !/·/.test(t)),
+    }))).filter((t) => !/:/.test(t) && !/^[▾▸]/.test(t)),
     ['and 2 more', 'and 4 more', 'latest 1 shown'],
   );
 });
@@ -232,7 +267,7 @@ Deno.test('uncommittedRows: a Staged and a Changes group, each only with files',
   const shape = (rows: ReturnType<typeof uncommittedRows>) =>
     rows.map((r) =>
       r.kind === 'group'
-        ? `${r.label} ${r.count}`
+        ? `${r.open ? '' : '▸ '}${r.label} ${r.count}`
         : r.kind === 'file'
         ? `  ${r.stage} ${r.file.path}`
         : `(${r.note}) ${r.text}`
@@ -264,6 +299,15 @@ Deno.test('uncommittedRows: a Staged and a Changes group, each only with files',
   assertEquals(
     shape(uncommittedRows({ ...base, staged: [], unstaged: [file('b')] })),
     ['Changes 1', '  unstaged b'],
+  );
+  assertEquals(
+    shape(
+      uncommittedRows(
+        { ...base, staged: [file('a')], unstaged: [file('b')] },
+        (stage) => stage === 'unstaged',
+      ),
+    ),
+    ['▸ Staged 1', 'Changes 1', '  unstaged b'],
   );
   assertEquals(
     shape(uncommittedRows({ ...base, staged: [file('b')], unstaged: [] })),

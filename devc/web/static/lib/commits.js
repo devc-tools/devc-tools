@@ -1,6 +1,6 @@
 // The repo card's Commits section as rows, from a `git_history` answer (`web/git_history.ts`):
-// commits to pull, then local ones, then a line where pushed history starts, newest first, and an
-// open commit's changed files (`commit_files`, `web/git_commit.ts`) under it. Pure (no DOM), shared
+// commits to pull, then local ones, then pushed history, each group under a heading that opens
+// and closes it, newest first, and an open commit's changed files (`commit_files`, `web/git_commit.ts`) under it. Pure (no DOM), shared
 // with the Deno tests (`devc/tests/web_commits_test.ts`); `cards.js` draws it.
 
 /**
@@ -9,9 +9,21 @@
  *   local: Commit[], localTotal: number, pushed: Commit[], morePushed: boolean}} CommitHistory
  * @typedef {'incoming' | 'local' | 'pushed'} CommitState
  * @typedef {{kind: 'commit', state: CommitState, commit: Commit, short: string, title: string}
- *   | {kind: 'divider', state: CommitState, text: string}
+ *   | {kind: 'divider', state: CommitState, text: string, count: string, title: string,
+ *     open: boolean}
  *   | {kind: 'more', state: CommitState, text: string}} CommitRow
+ * @typedef {'staged' | 'unstaged' | CommitState} CommitGroup
  */
+
+/**
+ * Whether a Commits section's group (a heading: Staged, Changes, To pull, Local only, Pushed)
+ * is open until the user opens or closes it: all but Pushed.
+ *
+ * @param {CommitGroup} group
+ */
+export function commitGroupOpenByDefault(group) {
+  return group !== 'pushed';
+}
 
 const plural = (n) => `${n} commit${n === 1 ? '' : 's'}`;
 
@@ -27,17 +39,25 @@ export function commitTitle(c) {
 }
 
 /**
- * The rows for `history`: a divider heads each group that has commits, so the Pushed line is where
- * pushed history starts. A repo with no remote branch says so on its Local only line.
+ * The rows for `history`: a heading (`divider`) for each group that has commits, its commits
+ * under it while `isOpen(state)`, so a closed group is its heading alone. A repo with no remote
+ * branch says so on its Local only heading.
  *
  * @param {CommitHistory} history
+ * @param {(state: CommitState) => boolean} [isOpen]
  * @returns {CommitRow[]}
  */
-export function commitRows(history) {
+export function commitRows(history, isOpen = () => true) {
   /** @type {CommitRow[]} */
   const rows = [];
-  /** @param {CommitState} state @param {Commit[]} commits */
-  const add = (state, commits) => {
+  /**
+   * @param {CommitState} state @param {string} text @param {string} count @param {string} title
+   * @param {Commit[]} commits @param {string} more what was left out, '' for nothing
+   */
+  const add = (state, text, count, title, commits, more) => {
+    const open = isOpen(state);
+    rows.push({ kind: 'divider', state, text, count, title, open });
+    if (!open) return;
     for (const commit of commits) {
       rows.push({
         kind: 'commit',
@@ -47,55 +67,45 @@ export function commitRows(history) {
         title: commitTitle(commit),
       });
     }
+    if (more) rows.push({ kind: 'more', state, text: more });
   };
   const { compare, incoming, incomingTotal, local, localTotal, pushed } =
     history;
   if (incomingTotal > 0) {
-    rows.push({
-      kind: 'divider',
-      state: 'incoming',
-      text: `To pull · ${plural(incomingTotal)} on ${compare}`,
-    });
-    add('incoming', incoming);
-    if (incomingTotal > incoming.length) {
-      rows.push({
-        kind: 'more',
-        state: 'incoming',
-        text: `and ${incomingTotal - incoming.length} more`,
-      });
-    }
+    add(
+      'incoming',
+      `To pull · ${compare}`,
+      String(incomingTotal),
+      `${plural(incomingTotal)} on ${compare} to pull`,
+      incoming,
+      incomingTotal > incoming.length
+        ? `and ${incomingTotal - incoming.length} more`
+        : '',
+    );
   }
   if (localTotal > 0) {
-    rows.push({
-      kind: 'divider',
-      state: 'local',
-      text: compare === null
-        ? `Local only · ${plural(localTotal)}, no remote branch`
-        : `Local only · ${plural(localTotal)}`,
-    });
-    add('local', local);
-    if (localTotal > local.length) {
-      rows.push({
-        kind: 'more',
-        state: 'local',
-        text: `and ${localTotal - local.length} more`,
-      });
-    }
+    add(
+      'local',
+      compare === null ? 'Local only · no remote branch' : 'Local only',
+      String(localTotal),
+      compare === null
+        ? `${plural(localTotal)}, no remote branch`
+        : `${plural(localTotal)} not pushed to ${compare}`,
+      local,
+      localTotal > local.length ? `and ${localTotal - local.length} more` : '',
+    );
   }
   if (pushed.length > 0) {
-    rows.push({
-      kind: 'divider',
-      state: 'pushed',
-      text: `Pushed · ${compare}`,
-    });
-    add('pushed', pushed);
-    if (history.morePushed) {
-      rows.push({
-        kind: 'more',
-        state: 'pushed',
-        text: `latest ${pushed.length} shown`,
-      });
-    }
+    add(
+      'pushed',
+      `Pushed · ${compare}`,
+      `${pushed.length}${history.morePushed ? '+' : ''}`,
+      history.morePushed
+        ? `On ${compare}: the latest ${pushed.length} commits`
+        : `${plural(pushed.length)} on ${compare}`,
+      pushed,
+      history.morePushed ? `latest ${pushed.length} shown` : '',
+    );
   }
   return rows;
 }
@@ -190,7 +200,7 @@ export function commitFileRows(list) {
 
 /**
  * Whether a repo's working tree has changes to commit, from its `RepoView.changes`: what shows the
- * Commits section's Uncommitted row. Absent (not read, or its environment isn't running) is no.
+ * Commits section's commit box and its Staged and Changes groups. Absent (not read, or its environment isn't running) is no.
  *
  * @param {{staged: number, unstaged: number, untracked: number, conflicted: number} | undefined}
  *   changes
@@ -209,13 +219,13 @@ export function hasUncommitted(changes) {
  * @typedef {{loading: boolean, staged: CommitFile[] | null, unstaged: CommitFile[] | null,
  *   truncated: boolean, error: string | null}} UncommittedList
  * @typedef {'staged' | 'unstaged'} Stage
- * @typedef {{kind: 'group', stage: Stage, label: string, count: number}
+ * @typedef {{kind: 'group', stage: Stage, label: string, count: number, open: boolean}
  *   | (CommitFileRow & {kind: 'file', stage: Stage})
  *   | {kind: 'note', note: 'loading' | 'error' | 'empty' | 'more', text: string}} UncommittedRow
  */
 
 /**
- * The Uncommitted row's count, once its list is read: the files with any change, staged or not
+ * How many files the working tree changed, once its list is read: the files with any change, staged or not
  * (`1 file`, `n files`, `1000+ files` when cut short); '' before.
  *
  * @param {UncommittedList | undefined} list
@@ -228,14 +238,15 @@ export function uncommittedCount(list) {
 }
 
 /**
- * The rows under an open Uncommitted row, after its commit box: what the list's read says, or a
- * **Staged** group and a **Changes** group, each only when it has files, each file under its
- * group, then a note when a list was cut short.
+ * The working tree's rows in the Commits section, after its commit box: what the list's read
+ * says, or a **Staged** group and a **Changes** group, each only when it has files, each file
+ * under its group while `isOpen(stage)`, then a note when a list was cut short.
  *
  * @param {UncommittedList | undefined} list
+ * @param {(stage: Stage) => boolean} [isOpen]
  * @returns {UncommittedRow[]}
  */
-export function uncommittedRows(list) {
+export function uncommittedRows(list, isOpen = () => true) {
   if (!list?.staged || !list.unstaged) {
     return [
       list?.error
@@ -256,7 +267,9 @@ export function uncommittedRows(list) {
   ];
   for (const [stage, label, files] of groups) {
     if (files.length === 0) continue;
-    rows.push({ kind: 'group', stage, label, count: files.length });
+    const open = isOpen(stage);
+    rows.push({ kind: 'group', stage, label, count: files.length, open });
+    if (!open) continue;
     for (const r of commitFileRows({ ...list, files })) {
       if (r.kind === 'file') rows.push({ ...r, stage });
     }

@@ -711,22 +711,80 @@ body.resizing-zones {
   overflow-y: auto;
 }
 
+/* The plain rule between a card's terminals and its first open section. */
+.repo-card > .card-section-rule {
+  height: 1px;
+  margin-top: 2px;
+  background: color-mix(in srgb, var(--panel-2) 45%, var(--tile-border));
+}
+
+/* The rule between two open sections: drag it to move the line between them, double-click to
+   reset. Its grab area reaches 3px past each edge, over the rows. */
+.repo-card > .card-section-divider {
+  position: relative;
+  height: 1px;
+  background: color-mix(in srgb, var(--panel-2) 45%, var(--tile-border));
+  cursor: row-resize;
+  touch-action: none;
+}
+
+.repo-card > .card-section-divider::before {
+  content: '';
+  position: absolute;
+  inset: -3px 0;
+  z-index: 3;
+}
+
+.repo-card > .card-section-divider:hover,
+.repo-card > .card-section-divider.dragging {
+  background: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+
 /*
- * The Commits section: a rail of dots, colored as the git mark's counts are. To pull is a hollow
- * ↓-colored dot, local a solid ↑-colored one, pushed a small muted one under its line.
+ * The Commits section: the commit box, then a heading per group (Staged, Changes, To pull, Local
+ * only, Pushed), each opening and closing the rows under it, as siblings. The commits sit on a
+ * rail of dots, colored as the git mark's counts are: to pull a hollow ↓-colored dot, local a
+ * solid ↑-colored one, pushed a small muted one.
  */
 .row.commit-divider {
-  min-height: 20px;
-  margin-top: 2px;
+  grid-template-columns: 12px minmax(0, 1fr) auto;
+  gap: 4px;
+  min-height: 22px;
   padding-left: 8px;
   font-size: 11px;
   font-weight: 600;
+  cursor: pointer;
+}
+
+.row.commit-divider > .label {
   overflow: hidden;
   text-overflow: ellipsis;
-  border-top-color: color-mix(in srgb, currentColor 40%, transparent);
-  border-radius: 0;
-  display: block;
-  line-height: 18px;
+}
+
+.row.commit-divider > .chevron {
+  width: 12px;
+}
+
+.row.commit-divider[aria-expanded='true'] > .chevron::before {
+  transform: translateY(-75%) rotate(45deg);
+}
+
+.row.commit-divider:hover {
+  --row-bg: var(--row-hover);
+  background: var(--row-bg);
+}
+
+.row.commit-divider:focus {
+  outline: none;
+}
+
+.row.commit-divider:focus-visible {
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+.row.commit-divider[data-state='uncommitted'] {
+  color: var(--blocked);
 }
 
 .row.commit-divider[data-state='incoming'] {
@@ -846,59 +904,32 @@ body.resizing-zones {
   height: 6px;
 }
 
-/* The working tree's changes: the git mark's ● color, a dashed hollow dot above the rail. */
-.commit-row[data-state='uncommitted'] .commit-dot,
+/* The working tree's changed files: on a rail of the git mark's ● color. */
 .commit-file[data-state='uncommitted'] .commit-dot {
   color: var(--blocked);
 }
 
-.commit-row[data-state='uncommitted'] .commit-dot::after {
-  border: 2px dashed currentColor;
-  background: var(--row-bg);
-}
-
-.commit-row[data-state='uncommitted'] .commit-subject {
-  color: var(--text);
-}
-
-/* The open Uncommitted row's commit box, its Staged and Changes groups, and their files, a level
-   further in. See .plans/devc-web-stage-commit.md. */
-.row.commit-box-row,
-.row.commit-group {
-  grid-template-columns: 12px minmax(0, 1fr) auto;
-  gap: 4px;
-  padding-left: 8px;
-}
-
+/* The commit box heads the section, as wide as the headings under it. See
+   .plans/devc-web-stage-commit.md. */
 .row.commit-box-row {
-  align-items: start;
-  padding-top: 3px;
-  padding-bottom: 5px;
+  display: block;
+  padding: 4px 6px 5px 8px;
   white-space: normal;
 }
 
-.row.commit-box-row:focus,
-.row.commit-group:focus {
+.row.commit-box-row:focus {
   outline: none;
 }
 
-.row.commit-box-row:focus-visible,
-.row.commit-group:focus-visible {
+.row.commit-box-row:focus-visible {
   box-shadow: inset 0 0 0 1px var(--accent);
 }
 
-.row.commit-box-row > .commit-dot,
-.row.commit-group > .commit-dot {
-  color: var(--blocked);
-}
-
 .commit-box {
-  grid-column: 2 / -1;
   display: flex;
   flex-direction: column;
   gap: 4px;
   min-width: 0;
-  padding-left: 18px;
 }
 
 .commit-message {
@@ -939,14 +970,9 @@ body.resizing-zones {
   user-select: text;
 }
 
-.row.commit-group > .label {
-  padding-left: 18px;
-  color: var(--muted);
-  font-weight: 600;
-}
-
+/* An open commit's files, in past its subject. */
 .row.commit-file[data-depth='3'] > .label {
-  padding-left: 30px;
+  padding-left: 32px;
 }
 
 /* A merge is a square dot. */
@@ -980,11 +1006,6 @@ body.resizing-zones {
   top: 0;
   z-index: 1;
   background: var(--row-bg);
-}
-
-.repo-card > .card-section + .card-section {
-  border-top: 1px solid color-mix(in srgb, var(--panel-2) 45%,
-    var(--tile-border));
 }
 
 /* No chevron's gap, but on a repo's card with worktrees' cards under it. */

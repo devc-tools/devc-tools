@@ -58,11 +58,11 @@ import {
   commitButton,
   commitFileRows,
   commitFilesKey,
+  commitGroupOpenByDefault,
   commitRows,
   fileStat,
   hasUncommitted,
   keepList,
-  uncommittedCount,
   uncommittedRows as uncommittedListRows,
 } from './lib/commits.js';
 import { parseSessions, sessionAge, sessionTooltip } from './lib/sessions.js';
@@ -267,6 +267,8 @@ const SCROLL_SETTLE_MS = 200;
 let lastScrollAt = -Infinity;
 let scrollbarHeld = false;
 let heldRender = 0;
+/** Whether a card section divider is being dragged: a render would end the drag (`renderSettled`). */
+let sectionDragging = false;
 
 /**
  * Notes the user scrolling anywhere in `root`: a wheel, a scroll (keys, a drag), a scrollbar
@@ -309,7 +311,7 @@ function watchScrolling(root) {
  */
 export function renderSettled() {
   const wait = lastScrollAt + SCROLL_SETTLE_MS - performance.now();
-  if (scrollbarHeld || wait > 0) {
+  if (scrollbarHeld || sectionDragging || wait > 0) {
     if (!heldRender) {
       heldRender = setTimeout(() => {
         heldRender = 0;
@@ -561,6 +563,11 @@ function loadSidebarState() {
         ? saved.commitsOpen.filter((f) => typeof f === 'string')
         : [],
     ),
+    /**
+     * Commits section groups opened or closed against `commitGroupOpenByDefault`, by
+     * `<card key>\n<group>`; only those differing from it are kept.
+     */
+    commitGroups: savedCommitGroups(saved?.commitGroups),
     /** Repos (by `localFolder\nroot`) whose Pull request row is open; new ones start closed. */
     prOpen: new Set(
       Array.isArray(saved?.prOpen)
@@ -589,6 +596,12 @@ function loadSidebarState() {
     prSinceViewed: saved?.prSinceViewed === true,
     /** Open card sections' last settled heights in px, by `data-section-key` (`holdSections`). */
     sectionHeights: savedSectionHeights(saved?.sectionHeights),
+    /**
+     * Card sections' heights set by dragging the divider under them, in px, by
+     * `data-section-key`: each caps its section, while another section is open under it, in place
+     * of the stylesheet's cap.
+     */
+    sectionCaps: savedSectionHeights(saved?.sectionCaps),
     inactiveOpen: saved?.inactiveOpen === true,
     projectsOpen: new Set(
       Array.isArray(saved?.projectsOpen)
@@ -660,6 +673,16 @@ function savedPrFolders(v) {
   return out;
 }
 
+function savedCommitGroups(v) {
+  /** @type {Record<string, boolean>} */
+  const out = {};
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return out;
+  for (const [key, open] of Object.entries(v)) {
+    if (typeof open === 'boolean') out[key] = open;
+  }
+  return out;
+}
+
 function savedSectionHeights(v) {
   /** @type {Record<string, number>} */
   const out = {};
@@ -712,12 +735,14 @@ export function saveSidebarState() {
         containerFilesOpen: [...sidebarState.containerFilesOpen],
         prOpen: [...sidebarState.prOpen],
         commitsOpen: [...sidebarState.commitsOpen],
+        commitGroups: sidebarState.commitGroups,
         prFolders: sidebarState.prFolders,
         prHideViewed: sidebarState.prHideViewed,
         prFlat: sidebarState.prFlat,
         prTestsApart: sidebarState.prTestsApart,
         prSinceViewed: sidebarState.prSinceViewed,
         sectionHeights: sidebarState.sectionHeights,
+        sectionCaps: sidebarState.sectionCaps,
         inactiveOpen: sidebarState.inactiveOpen,
         projectsOpen: [...sidebarState.projectsOpen],
         // Not `filesOpen`: entries saved under that name were keyed by project, not by repo.
@@ -840,6 +865,80 @@ export function keepSectionHeights() {
     delete heights[old];
   }
   saveSidebarState();
+}
+
+/** A card section's smallest height when its divider is dragged, in px. */
+const MIN_SECTION_PX = 44;
+
+/**
+ * The rule between two of a card's open sections: dragging it sizes the section above, from
+ * {@link MIN_SECTION_PX} (or its content, when less) to its content, and the section below keeps
+ * its own sizing (in In use, it takes what the one above gives up). The height is kept
+ * (`sectionCaps`); a double-click drops it.
+ */
+function sectionDivider() {
+  const divider = h('div', {
+    class: 'card-section-divider',
+    role: 'separator',
+    'aria-orientation': 'horizontal',
+    title: 'Drag to resize; double-click to reset',
+  });
+  const aboveOf = () => {
+    const above = /** @type {HTMLElement | null} */ (
+      divider.previousElementSibling
+    );
+    return above?.dataset.sectionKey ? above : null;
+  };
+  divider.addEventListener('pointerdown', (ev) => {
+    const above = aboveOf();
+    if (ev.button !== 0 || !above) return;
+    ev.preventDefault();
+    ev.stopPropagation();
+    divider.setPointerCapture(ev.pointerId);
+    divider.classList.add('dragging');
+    document.body.classList.add('resizing-zones');
+    sectionDragging = true;
+    const a0 = above.offsetHeight;
+    const y0 = ev.clientY;
+    let moved = false;
+    const onMove = (/** @type {PointerEvent} */ e) => {
+      moved = true;
+      const min = Math.min(MIN_SECTION_PX, above.scrollHeight);
+      const a = Math.round(
+        Math.max(min, Math.min(a0 + e.clientY - y0, above.scrollHeight)),
+      );
+      above.style.maxHeight = `${a}px`;
+    };
+    const onEnd = () => {
+      divider.removeEventListener('pointermove', onMove);
+      divider.removeEventListener('lostpointercapture', onEnd);
+      divider.classList.remove('dragging');
+      document.body.classList.remove('resizing-zones');
+      sectionDragging = false;
+      // A click (or a double-click's two) moves nothing and saves nothing.
+      if (!moved) return;
+      const caps = sidebarState.sectionCaps;
+      const key = /** @type {string} */ (above.dataset.sectionKey);
+      delete caps[key];
+      caps[key] = parseInt(above.style.maxHeight, 10);
+      for (const old of Object.keys(caps).slice(0, -MAX_SECTION_HEIGHTS)) {
+        delete caps[old];
+      }
+      saveSidebarState();
+      // In In use, the cards' floors (`sidebar.js`) follow the new height.
+      renderTree();
+    };
+    divider.addEventListener('pointermove', onMove);
+    divider.addEventListener('lostpointercapture', onEnd);
+  });
+  divider.addEventListener('dblclick', () => {
+    const above = aboveOf();
+    if (!above) return;
+    delete sidebarState.sectionCaps[above.dataset.sectionKey ?? ''];
+    saveSidebarState();
+    renderTree();
+  });
+  return divider;
 }
 
 /** @param {HTMLElement} box */
@@ -1199,26 +1298,22 @@ export function repoCard(
     side.folded('commits', key, sidebarState.commitsOpen.has(key));
     renderTree();
   };
-  // A click on the git mark's ● N: the Commits section with its Uncommitted row open, or, with
-  // both open already, the section closed.
+  // A click on the git mark's ● N: the Commits section with its Staged and Changes groups open,
+  // or, with all that open already, the section closed.
   const showChanges = () => {
-    if (commitsOn && uncommittedOpen.has(key)) {
+    const changesOpen = commitGroupOpen(key, 'staged') &&
+      commitGroupOpen(key, 'unstaged');
+    if (commitsOn && changesOpen) {
       toggleCommits();
       return;
     }
     if (!commitsOn) {
       sidebarState.commitsOpen.add(key);
-      saveSidebarState();
       side.folded('commits', key, true);
     }
-    if (!uncommittedOpen.has(key)) {
-      uncommittedOpen.add(key);
-      void loadUncommitted(
-        localFolder,
-        repo.folder,
-        JSON.stringify(repo.changes),
-      );
-    }
+    setCommitGroupOpen(key, 'staged', true);
+    setCommitGroupOpen(key, 'unstaged', true);
+    saveSidebarState();
     renderTree();
   };
   const anyOpen = historyOn || prOn || filesOn || commitsOn;
@@ -1374,6 +1469,9 @@ export function repoCard(
       toggleHistory,
     ]);
   }
+  if (repo) {
+    toggles.push(['commits', LABELS.commits, commitsOn, toggleCommits]);
+  }
   if (canPr) {
     toggles.push([
       'pullRequest',
@@ -1388,9 +1486,6 @@ export function repoCard(
         );
       },
     ]);
-  }
-  if (repo) {
-    toggles.push(['commits', LABELS.commits, commitsOn, toggleCommits]);
   }
   if (tree) {
     toggles.push(['folder', LABELS.files, filesOn, () => tree.toggle('')]);
@@ -1474,10 +1569,6 @@ export function repoCard(
       ),
     ]));
   }
-  // The open Pull request row's contents, without the row: the toggle stands for it.
-  if (prOn) {
-    rows.push(section('pr', prRows(localFolder, fr.root, 0).slice(1)));
-  }
   if (commitsOn) {
     rows.push(
       section(
@@ -1486,8 +1577,34 @@ export function repoCard(
       ),
     );
   }
+  // The open Pull request row's contents, without the row: the toggle stands for it.
+  if (prOn) {
+    rows.push(section('pr', prRows(localFolder, fr.root, 0).slice(1)));
+  }
   if (filesOn) rows.push(section('files', rootEntryRows(fr, 1)));
-  return h('div', { class: 'repo-card', 'data-card-key': key }, ...rows);
+  // Between each two open sections, a divider that drags the line between them: the section
+  // above it takes the height it was dragged to (`sectionCaps`).
+  const isSection = (/** @type {Element | undefined} */ r) =>
+    !!r?.classList.contains('card-section');
+  // The first section under the card's terminals (its tiles and panes) gets a plain rule.
+  const withDividers = rows.flatMap((r, i) => {
+    if (isSection(r) && !isSection(rows[i - 1]) && i > 1) {
+      return [
+        h('div', { class: 'card-section-rule', 'aria-hidden': 'true' }),
+        r,
+      ];
+    }
+    if (!isSection(r) || !isSection(rows[i - 1])) return [r];
+    const above = /** @type {HTMLElement} */ (rows[i - 1]);
+    const px = sidebarState.sectionCaps[above.dataset.sectionKey ?? ''];
+    if (px) above.style.maxHeight = `${px}px`;
+    return [sectionDivider(), r];
+  });
+  return h(
+    'div',
+    { class: 'repo-card', 'data-card-key': key },
+    ...withDividers,
+  );
 }
 
 /** A Layout tile row's classes: `background` behind its stack's front tab, `preview` (italic). */
@@ -2164,7 +2281,7 @@ function pollCommits() {
   }
   for (const [key, target] of commitTargets) {
     void loadCommits(key, target.localFolder, target.folder);
-    if (uncommittedOpen.has(key)) {
+    if (target.uncommitted) {
       void loadUncommitted(target.localFolder, target.folder);
     }
   }
@@ -2249,6 +2366,7 @@ function commitFileRow(cardKey, fr, hash, state, r) {
     state,
     r,
     diffStat(r.file),
+    { depth: 3 },
   );
 }
 
@@ -2320,13 +2438,6 @@ function commitFileMenuGroups(fr, ref, file) {
 }
 
 /**
- * The repo cards whose Uncommitted row is open, by card key. Not saved, as {@link commitFilesOpen}.
- *
- * @type {Set<string>}
- */
-const uncommittedOpen = new Set();
-
-/**
  * Each repo's working-tree changes (`uncommitted_files`), staged and not, by
  * `<localFolder>\n<root>`, with the `RepoView.changes` it was read under (`seen`, JSON): a change
  * there reads it again.
@@ -2369,15 +2480,6 @@ async function loadUncommitted(localFolder, root, seen, force = false) {
     (prev?.error ?? null) === entry.error &&
     prev?.truncated === entry.truncated;
   if (!same) queueRender();
-}
-
-/** Opens or closes a repo card's Uncommitted row. */
-function toggleUncommitted(cardKey, localFolder, root, seen) {
-  if (!uncommittedOpen.delete(cardKey)) {
-    uncommittedOpen.add(cardKey);
-    void loadUncommitted(localFolder, root, seen);
-  }
-  renderTree();
 }
 
 /**
@@ -2530,39 +2632,87 @@ function commitBox(cardKey, localFolder, root) {
   return rec;
 }
 
+/** The most Commits section groups whose open state is kept: the oldest is dropped. */
+const MAX_COMMIT_GROUPS = 200;
+
 /**
- * The Commits section's Uncommitted row and, when open, its commit box and the working tree's
- * changed files in a **Staged** and a **Changes** group: shown only while the repo's git mark
- * counts changes (`changes`), so not for a stopped environment.
+ * Whether a card's Commits section group is open: as the user left it, else as
+ * `commitGroupOpenByDefault` says.
+ *
+ * @param {string} cardKey @param {import('./lib/commits.js').CommitGroup} group
+ */
+function commitGroupOpen(cardKey, group) {
+  return sidebarState.commitGroups[`${cardKey}\n${group}`] ??
+    commitGroupOpenByDefault(group);
+}
+
+/**
+ * Opens or closes a card's Commits section group; the caller saves.
+ *
+ * @param {string} cardKey @param {import('./lib/commits.js').CommitGroup} group
+ * @param {boolean} open
+ */
+function setCommitGroupOpen(cardKey, group, open) {
+  const groups = sidebarState.commitGroups;
+  const key = `${cardKey}\n${group}`;
+  delete groups[key];
+  if (open !== commitGroupOpenByDefault(group)) groups[key] = open;
+  for (const old of Object.keys(groups).slice(0, -MAX_COMMIT_GROUPS)) {
+    delete groups[old];
+  }
+}
+
+/**
+ * A Commits section group's heading (Staged, Changes, To pull, Local only, Pushed): a click opens
+ * or closes the group under it. `state` colors it as the git mark's counts are.
+ */
+function commitHeading(
+  cardKey,
+  group,
+  state,
+  label,
+  count,
+  title,
+  open,
+  hover = [],
+) {
+  return h(
+    'div',
+    {
+      class: 'row commit-divider',
+      tabindex: '-1',
+      'data-tree-key': `${cardKey}\ngroup\n${group}`,
+      'data-depth': 1,
+      'aria-expanded': String(open),
+      'data-state': state,
+      title,
+      onclick: () => {
+        setCommitGroupOpen(cardKey, group, !open);
+        saveSidebarState();
+        renderTree();
+      },
+    },
+    chevron(),
+    h('span', { class: 'label' }, label),
+    h('span', { class: 'commit-hash' }, count),
+    ...(hover.length ? [hoverActions(...hover)] : []),
+  );
+}
+
+/**
+ * The top of the Commits section while the repo's git mark counts changes (`changes`), so not
+ * for a stopped environment: the commit box, then the working tree's changed files in a
+ * **Staged** and a **Changes** group, beside the history's groups.
  */
 function uncommittedRows(key, localFolder, folder, changes) {
   if (!hasUncommitted(changes)) return [];
   const seen = JSON.stringify(changes);
-  const open = uncommittedOpen.has(key);
   const repoKey = `${localFolder}\n${folder}`;
   const entry = uncommittedLists.get(repoKey);
-  // The git mark's counts moved: the list is stale.
-  if (open && entry && !entry.loading && entry.seen !== seen) {
+  // Not read yet, or the git mark's counts moved: the list is stale.
+  if (!entry || (!entry.loading && entry.seen !== seen)) {
     void loadUncommitted(localFolder, folder, seen);
   }
-  const row = h(
-    'div',
-    {
-      class: 'row commit-row',
-      tabindex: '-1',
-      'data-tree-key': `${key}\nuncommitted`,
-      'data-depth': 1,
-      'aria-expanded': String(open),
-      'data-state': 'uncommitted',
-      title: 'Changes not committed yet, against HEAD',
-      onclick: () => toggleUncommitted(key, localFolder, folder, seen),
-    },
-    h('span', { class: 'commit-dot', 'aria-hidden': 'true' }),
-    chevron(),
-    h('span', { class: 'commit-subject' }, 'Uncommitted'),
-    h('span', { class: 'commit-hash' }, uncommittedCount(entry)),
-  );
-  if (!open) return [row];
   const fr = { localFolder, root: folder };
   const busy = repoStaging.has(repoKey);
   const box = commitBox(key, localFolder, folder);
@@ -2571,12 +2721,11 @@ function uncommittedRows(key, localFolder, folder, changes) {
     {
       class: 'row commit-box-row',
       tabindex: '-1',
-      'data-tree-key': `${key}\nuncommitted\ncommit-box`,
-      'data-depth': 2,
+      'data-tree-key': `${key}\ncommit-box`,
+      'data-depth': 1,
       // Enter on the row (`treeKeydown`'s activate) types the message.
       onclick: () => box.input.focus(),
     },
-    h('span', { class: 'commit-dot commit-rail', 'aria-hidden': 'true' }),
     box.box,
   );
   /** A hover button that stages or unstages, disabled while the repo is busy. */
@@ -2590,60 +2739,63 @@ function uncommittedRows(key, localFolder, folder, changes) {
     return b;
   };
   return [
-    row,
     boxRow,
-    ...uncommittedListRows(entry).map((f) => {
-      if (f.kind === 'note') return commitNote(f.note, f.text, 2);
-      const unstage = f.stage === 'staged';
-      if (f.kind === 'group') {
-        return h(
-          'div',
-          {
-            class: 'row commit-group',
-            tabindex: '-1',
-            'data-tree-key': `${key}\nuncommitted\n${f.stage}`,
-            'data-depth': 2,
-            'data-state': 'uncommitted',
-            title: unstage
+    ...uncommittedListRows(entry, (stage) => commitGroupOpen(key, stage)).map(
+      (f) => {
+        if (f.kind === 'note') return commitNote(f.note, f.text, 2);
+        const unstage = f.stage === 'staged';
+        if (f.kind === 'group') {
+          return commitHeading(
+            key,
+            f.stage,
+            'uncommitted',
+            f.label,
+            String(f.count),
+            unstage
               ? 'Staged: what Commit commits'
-              : 'Changes not staged yet',
+              : 'Changes not staged yet, against the index',
+            f.open,
+            [stageButton(unstage, null, unstage ? 'Unstage all' : 'Stage all')],
+          );
+        }
+        const path = f.file.path;
+        return changedFileRow(
+          fr,
+          { ...fr, path, changes: 'HEAD', stage: f.stage },
+          `${key}\nuncommitted\n${f.stage}\n${path}`,
+          'uncommitted',
+          f,
+          fileStat(f.file),
+          {
+            depth: 2,
+            hover: [
+              stageButton(unstage, [path], unstage ? 'Unstage' : 'Stage'),
+            ],
+            menu: {
+              act: [[
+                unstage ? 'Unstage' : 'Stage',
+                () => void stagePaths(localFolder, folder, unstage, [path]),
+              ]],
+            },
           },
-          h('span', { class: 'commit-dot commit-rail', 'aria-hidden': 'true' }),
-          h('span', { class: 'label' }, f.label),
-          h('span', { class: 'commit-hash' }, String(f.count)),
-          hoverActions(
-            stageButton(unstage, null, unstage ? 'Unstage all' : 'Stage all'),
-          ),
         );
-      }
-      const path = f.file.path;
-      return changedFileRow(
-        fr,
-        { ...fr, path, changes: 'HEAD', stage: f.stage },
-        `${key}\nuncommitted\n${f.stage}\n${path}`,
-        'uncommitted',
-        f,
-        fileStat(f.file),
-        {
-          depth: 3,
-          hover: [stageButton(unstage, [path], unstage ? 'Unstage' : 'Stage')],
-          menu: {
-            act: [[
-              unstage ? 'Unstage' : 'Stage',
-              () => void stagePaths(localFolder, folder, unstage, [path]),
-            ]],
-          },
-        },
-      );
-    }),
+      },
+    ),
   ];
 }
 
-/** A repo card's open Commits section: starts its reads, and draws the last answer. */
+/**
+ * A repo card's open Commits section: starts its reads, and draws the last answer: the commit
+ * box and the working tree's groups, then the history's, each group under its heading.
+ */
 function commitSectionRows(key, localFolder, folder, changes) {
   // Just opened: read now, as what an earlier opening kept may be old.
   if (!commitTargets.has(key)) void loadCommits(key, localFolder, folder);
-  commitTargets.set(key, { localFolder, folder });
+  commitTargets.set(key, {
+    localFolder,
+    folder,
+    uncommitted: hasUncommitted(changes),
+  });
   if (!commitsTimer) commitsTimer = setInterval(pollCommits, COMMITS_POLL_MS);
   const uncommitted = uncommittedRows(key, localFolder, folder, changes);
   const entry = commitLists.get(key);
@@ -2655,7 +2807,10 @@ function commitSectionRows(key, localFolder, folder, changes) {
         : commitNote('loading', 'Loading…'),
     ];
   }
-  const rows = commitRows(entry.history);
+  const rows = commitRows(
+    entry.history,
+    (state) => commitGroupOpen(key, state),
+  );
   if (rows.length === 0) {
     return [...uncommitted, commitNote('empty', 'No commits yet')];
   }
@@ -2663,7 +2818,20 @@ function commitSectionRows(key, localFolder, folder, changes) {
   return [
     ...uncommitted,
     ...rows.flatMap((r) => {
-      if (r.kind !== 'commit') return [commitLine(r)];
+      if (r.kind === 'divider') {
+        return [
+          commitHeading(
+            key,
+            r.state,
+            r.state,
+            r.text,
+            r.count,
+            r.title,
+            r.open,
+          ),
+        ];
+      }
+      if (r.kind === 'more') return [commitNote('more', r.text, 2)];
       const hash = r.commit.hash;
       const open = commitFilesOpen.has(`${key}\n${hash}`);
       const row = h(
@@ -2672,7 +2840,7 @@ function commitSectionRows(key, localFolder, folder, changes) {
           class: 'row commit-row',
           tabindex: '-1',
           'data-tree-key': `${key}\ncommit\n${hash}`,
-          'data-depth': 1,
+          'data-depth': 2,
           'aria-expanded': String(open),
           title: r.title,
           'data-state': r.state,
@@ -2691,22 +2859,11 @@ function commitSectionRows(key, localFolder, folder, changes) {
         ...commitFileRows(list).map((f) =>
           f.kind === 'file'
             ? commitFileRow(key, fr, hash, r.state, f)
-            : commitNote(f.note, f.text, 2)
+            : commitNote(f.note, f.text, 3)
         ),
       ];
     }),
   ];
-}
-
-/** A Commits section line that is not a commit: a group's divider, or how many more there are. */
-function commitLine(r) {
-  return r.kind === 'divider'
-    ? h('div', {
-      class: 'row commit-divider',
-      title: r.text,
-      'data-state': r.state,
-    }, r.text)
-    : commitNote('more', r.text);
 }
 
 /** The repos listed at the top of a Repos view: all but the worktrees listed under their repo. */
