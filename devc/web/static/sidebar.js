@@ -469,10 +469,12 @@ function floorRunSections(run) {
     for (const el of card.querySelectorAll(':scope > .card-section')) {
       const section = /** @type {HTMLElement} */ (el);
       const border = section.offsetHeight - section.clientHeight;
-      // A section dragged shorter (`cards.js` `sectionDivider`) is held to that, not more.
-      const cap = parseFloat(section.style.maxHeight) || Infinity;
-      floor += Math.min(SECTION_MIN_HEIGHT, section.scrollHeight, cap) +
-        border - section.offsetHeight;
+      // A dragged section (`cards.js` `holdSection`) keeps its height: that is its floor.
+      const cap = parseFloat(section.style.maxHeight);
+      const keeps = cap > 0
+        ? Math.min(section.scrollHeight, cap)
+        : Math.min(SECTION_MIN_HEIGHT, section.scrollHeight);
+      floor += keeps + border - section.offsetHeight;
     }
     card.style.minHeight = `${floor}px`;
     return floor;

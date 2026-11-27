@@ -871,6 +871,17 @@ export function keepSectionHeights() {
 const MIN_SECTION_PX = 44;
 
 /**
+ * Holds a section to a dragged height: its cap, and in In use (where open sections shrink to fit
+ * their card) not squeezed under it, so the section below gives up the room instead.
+ *
+ * @param {HTMLElement} section @param {number} px
+ */
+function holdSection(section, px) {
+  section.style.maxHeight = `${px}px`;
+  section.style.flexShrink = '0';
+}
+
+/**
  * The rule between two of a card's open sections: dragging it sizes the section above, from
  * {@link MIN_SECTION_PX} (or its content, when less) to its content, and the section below keeps
  * its own sizing (in In use, it takes what the one above gives up). The height is kept
@@ -907,7 +918,7 @@ function sectionDivider() {
       const a = Math.round(
         Math.max(min, Math.min(a0 + e.clientY - y0, above.scrollHeight)),
       );
-      above.style.maxHeight = `${a}px`;
+      holdSection(above, a);
     };
     const onEnd = () => {
       divider.removeEventListener('pointermove', onMove);
@@ -1597,7 +1608,7 @@ export function repoCard(
     if (!isSection(r) || !isSection(rows[i - 1])) return [r];
     const above = /** @type {HTMLElement} */ (rows[i - 1]);
     const px = sidebarState.sectionCaps[above.dataset.sectionKey ?? ''];
-    if (px) above.style.maxHeight = `${px}px`;
+    if (px) holdSection(above, px);
     return [sectionDivider(), r];
   });
   return h(
