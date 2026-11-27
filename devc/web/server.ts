@@ -4532,7 +4532,10 @@ export async function startWeb(
   const handle = async (c: Client, msg: ClientMessage) => {
     switch (msg.type) {
       case 'view_join':
-        deliver(views.join(c, msg.view, msg.role));
+        deliver(views.join(c, msg.view, msg.role, msg.main));
+        return;
+      case 'view_focus':
+        deliver(views.focus(c, msg.view));
         return;
       case 'view_state':
         deliver(views.state(c, msg.view, msg.state));
@@ -5041,7 +5044,7 @@ export async function startWeb(
     socket.onclose = () => {
       clients.delete(client);
       updateVisible();
-      views.leave(client);
+      deliver(views.leave(client));
       controllers.closeAll(client);
       lsp.detachAll(client);
       activity.clientGone(client.activityId);

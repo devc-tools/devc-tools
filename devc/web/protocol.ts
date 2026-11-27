@@ -545,9 +545,15 @@ export type ClientMessage =
   | { type: 'client_ready'; generation: string }
   /**
    * Joins a view as its sidebar, its tiling area or its Containers section (`/sidebar`, `/main`,
-   * `/containers`): see `views.ts`.
+   * `/containers`): see `views.ts`. A tiling area's `main` is its main id (`#…&main=`); left out,
+   * the primary (`main`).
    */
-  | { type: 'view_join'; view: string; role: ViewRole }
+  | { type: 'view_join'; view: string; role: ViewRole; main?: string }
+  /**
+   * A tiling area's window got the focus: its main becomes the view's target, where the
+   * sidebar's opens go (`views.ts`).
+   */
+  | { type: 'view_focus'; view: string }
   /**
    * The tiling area's `ViewState`, relayed to the view's sidebars and Containers sections; or a
    * sidebar's In use cards (`inUse`, `pinned`), relayed with it to the Containers sections.
@@ -1035,6 +1041,7 @@ export function parseClientMessage(raw: string): ParseResult {
   const id = typeof m.id === 'string' && m.id !== '' ? m.id : undefined;
   if (
     (m.type === 'view_join' || m.type === 'view_state' ||
+      m.type === 'view_focus' ||
       m.type === 'view_intent' || m.type === 'sidebar_intent' ||
       m.type === 'containers_intent' || m.type === 'inuse_intent') &&
     raw.length > MAX_VIEW_MESSAGE
@@ -1816,12 +1823,22 @@ function parseFields(m: Obj): ClientMessage {
       return { type: 'retry', container: str(m, 'container') };
     case 'client_ready':
       return { type: 'client_ready', generation: str(m, 'generation') };
-    case 'view_join':
-      return {
+    case 'view_join': {
+      const join: ClientMessage = {
         type: 'view_join',
         view: viewId(m),
         role: oneOf(m, 'role', [...VIEW_ROLES]),
       };
+      if (m.main !== undefined) {
+        if (typeof m.main !== 'string' || !VIEW_ID.test(m.main)) {
+          throw new Invalid(`'main' must match ${VIEW_ID.source}`);
+        }
+        join.main = m.main;
+      }
+      return join;
+    }
+    case 'view_focus':
+      return { type: 'view_focus', view: viewId(m) };
     case 'view_state':
       return { type: 'view_state', view: viewId(m), state: viewState(m) };
     case 'view_intent':

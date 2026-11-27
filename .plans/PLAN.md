@@ -225,6 +225,12 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
 
 ### Completed
 
+- [devc-desktop-tile-windows](archived/devc-desktop-tile-windows.md) — a tile moves to a devcd window of
+  its own (**Move to New Window**, or its tab dragged out of the window), a `/main` alone; the
+  sidebar stays in the primary window and works every window's tiles. The server merges several
+  `/main` pages per view (extra mains' ids prefixed `<main>:`) and routes intents by tile id, or
+  to the `/main` focused last. devc-desktop only (`#…&windows=1`).
+
 - [devc-web-tile-session-restore](archived/devc-web-tile-session-restore.md) — terminal tiles store
   the agent session running in their pane (`PaneRef.session`, metadata only) and, when the pane is
   gone because the container was rebuilt or restarted, resume that session in a new pane in place.
@@ -2846,3 +2852,4 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
 | devc web Markdown preview — rendered Markdown in file and diff tiles, a general renderer registry                   | [devc-web-markdown-preview](archived/devc-web-markdown-preview.md)                 | complete    |
 | devc web Mermaid — Mermaid diagrams in rendered Markdown                                                            | [devc-web-mermaid](archived/devc-web-mermaid.md)                                   | complete    |
 | devc web tile session restore — tiles resume their agent session after a container rebuild                          | [devc-web-tile-session-restore](archived/devc-web-tile-session-restore.md)         | complete    |
+| devc-desktop tile windows — tiles moved or dragged into windows of their own, one sidebar for all                   | [devc-desktop-tile-windows](archived/devc-desktop-tile-windows.md)                 | complete    |

@@ -2201,3 +2201,37 @@ Deno.test('parseClientMessage: worktree messages', () => {
     'bad_request',
   );
 });
+
+Deno.test('parseClientMessage: view_join takes an optional main; view_focus a view', () => {
+  assertEquals(
+    parseClientMessage(JSON.stringify({
+      type: 'view_join',
+      view: 'v',
+      role: 'tiles',
+      main: 'w3f9a01c2',
+    })),
+    {
+      ok: true,
+      msg: { type: 'view_join', view: 'v', role: 'tiles', main: 'w3f9a01c2' },
+    },
+  );
+  assertEquals(
+    parseClientMessage(
+      JSON.stringify({ type: 'view_join', view: 'v', role: 'tiles' }),
+    ),
+    { ok: true, msg: { type: 'view_join', view: 'v', role: 'tiles' } },
+  );
+  assertEquals(
+    parseClientMessage(JSON.stringify({ type: 'view_focus', view: 'v' })),
+    { ok: true, msg: { type: 'view_focus', view: 'v' } },
+  );
+  for (
+    const bad of [
+      { type: 'view_join', view: 'v', role: 'tiles', main: '' },
+      { type: 'view_join', view: 'v', role: 'tiles', main: 'a:b' },
+      { type: 'view_join', view: 'v', role: 'tiles', main: 3 },
+      { type: 'view_focus' },
+      { type: 'view_focus', view: 'a b' },
+    ]
+  ) assertEquals(rejected(bad).code, 'bad_request', JSON.stringify(bad));
+});

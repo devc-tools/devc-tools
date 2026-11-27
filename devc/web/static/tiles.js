@@ -16,6 +16,7 @@ import {
   hostTileVisibility,
   hostTileWithSlot,
   mountHostTile,
+  tellDesktop,
   unmountHostTile,
 } from './host-slots.js';
 import {
@@ -62,10 +63,12 @@ import { draftKey, isNewFileShortcut, nextDraftName } from './lib/drafts.js';
 import { openDraftSaveDialog } from './draft-dialog.js';
 import {
   DRAG_MIME,
+  encodeDrag,
   fileKey,
   focusedTile,
   parseDrag,
   previewTileNear,
+  PRIMARY_MAIN,
   tileShowingDiff,
   tileShowingFile,
   tileShowingPane,
@@ -152,6 +155,7 @@ import {
   holdReloadWhile,
   hostTileFacts,
   list,
+  MAIN_ID,
   nextId,
   onConnectionChange,
   onServerMessage,
@@ -166,6 +170,7 @@ import {
   send,
   snapshots,
   socket,
+  TILE_WINDOWS,
   tileRepo,
 } from './client.js';
 import {
@@ -201,7 +206,13 @@ import {
 /** @typedef {import('./client.js').ContainerInfo} ContainerInfo */
 /** @typedef {import('./menus.js').Placement} Placement */
 
-const LAYOUT_KEY = 'devc-web-layout-v2';
+/**
+ * Where the layout is kept: a devc-desktop tile window's (`#…&main=<id>`) under its own key, so
+ * windows don't overwrite each other's.
+ */
+const LAYOUT_KEY = MAIN_ID === PRIMARY_MAIN
+  ? 'devc-web-layout-v2'
+  : `devc-web-layout-v2:${MAIN_ID}`;
 /** The split-tree layout before Golden Layout: removed on load, not migrated. */
 const OLD_LAYOUT_KEY = 'devc-web-layout-v1';
 /**
@@ -266,6 +277,8 @@ const tileArea = {
   revealLine: (id, line, endLine) => revealFileLine(id, line, endLine),
   dragSource: (el, ref, title) =>
     tiling ? tiling.dragSource(el, ref, title) : () => {},
+  moveToNewWindow: (id) => moveTileOut(id, 'new'),
+  canMoveToNewWindow: (id) => canMoveTile(id),
 };
 
 /**
@@ -6887,14 +6900,14 @@ function hideDropIndicator() {
  * Opens a dropped row's content in a new tile placed by {@link dropPlace}, focused: a tile already
  * showing it is not reused, since the drag asked for a tile there.
  *
- * @param {PaneRef | {file: FileRef}} ref
+ * @param {import('./lib/view.js').DragRef} ref
  * @param {{at: string, where: 'right' | 'below' | 'stack'} | null} place
  */
 function openDropped(ref, place) {
   if (!tiling) return;
   const at = place ? place.at : targetTile()?.id ?? null;
   const where = place?.where ?? 'stack';
-  if (!('file' in ref)) {
+  if (!('file' in ref) && !('diff' in ref)) {
     openPane(ref, { where, at });
     return;
   }
@@ -7001,6 +7014,7 @@ export function mountTiles(root, opts) {
       saveLayout();
       reconcileTiles();
       viewChanged();
+      checkEmptyWindow();
     },
     tileMenu: (tile, e) => openMenu(e, tileOwnMenuItems(tileState(tile))),
     stackMenu,
@@ -7119,5 +7133,105 @@ export function mountTiles(root, opts) {
   restoreFocus();
   setZen(startingZen(), { save: false });
   updateWindow();
+  if (TILE_WINDOWS) watchTabDragOut();
+  checkEmptyWindow();
   return tileArea;
+}
+
+// ---------------------------------------------------------------------------------------------
+// devc-desktop's tile windows (`#…&windows=1`): a tile moved to a window of its own, by its
+// menu's **Move to New Window** or its tab let go outside the page. The page says so on the
+// console (`host-slots.js`'s list) and closes the tile; the app opens it where it belongs.
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * What a tile's move carries (a drag payload), or null for one that does not move: a host tile, a
+ * draft, a file tile with unsaved edits, an empty pane tile.
+ *
+ * @param {string} id
+ * @returns {import('./lib/view.js').DragRef | null}
+ */
+function movePayload(id) {
+  const tile = tileOf(id);
+  if (!tile) return null;
+  if (tile.kind === 'pane') return tile.ref ?? null;
+  if (tile.kind === 'diff') return tile.diff ? { diff: tile.diff } : null;
+  if (tile.kind !== 'file' || !tile.file || tile.draft) return null;
+  const view = fileViews.get(id);
+  return view && losesEdits(view) ? null : { file: tile.file };
+}
+
+/**
+ * Whether tile `id` can move to another window now: the page offers tile windows, and the tile
+ * is one {@link movePayload} carries.
+ *
+ * @param {string} id
+ */
+function canMoveTile(id) {
+  return TILE_WINDOWS && movePayload(id) !== null;
+}
+
+/**
+ * Moves tile `id` out of this page: `new` asks devc-desktop for a new window with it, `drop` for
+ * the window under the pointer (a new one over none). The tile closes here; a pane keeps running.
+ *
+ * @param {string} id @param {'new' | 'drop'} how
+ */
+function moveTileOut(id, how) {
+  if (!TILE_WINDOWS || !tiling) return;
+  const ref = movePayload(id);
+  if (!ref) return;
+  tellDesktop(`tile-out ${how} ${encodeDrag(ref)}`);
+  tiling.close(id);
+}
+
+/**
+ * Opens a tile another window moved here (`#…&open-tile=`, from `main-page.js`): in the focused
+ * stack, focused.
+ *
+ * @param {import('./lib/view.js').DragRef} ref
+ */
+export function openMovedTile(ref) {
+  openDropped(ref, null);
+}
+
+/**
+ * A tab dragged out of the page: Golden Layout keeps its drag in the layout and drops the tile
+ * where it last could, so once that drop is done, a tab let go outside the viewport moves out.
+ * The tab is the one the drag started on; a sidebar row's drag starts on no tab.
+ */
+function watchTabDragOut() {
+  /** @type {string | null} */
+  let pressed = null;
+  document.addEventListener('pointerdown', (e) => {
+    const target = /** @type {HTMLElement} */ (e.target);
+    const tab = /** @type {HTMLElement | null} */ (target.closest?.('.lm_tab'));
+    pressed = tab && !target.closest('.lm_close_tab')
+      ? tab.dataset.tile ?? null
+      : null;
+  }, true);
+  document.addEventListener('pointerup', (e) => {
+    const id = pressed;
+    pressed = null;
+    if (!id || !document.body.classList.contains('lm_dragging')) return;
+    const out = e.clientX < 0 || e.clientY < 0 ||
+      e.clientX >= innerWidth || e.clientY >= innerHeight;
+    if (out) setTimeout(() => moveTileOut(id, 'drop'), 0);
+  }, true);
+}
+
+/** Whether this page already told devc-desktop it has no tiles left. */
+let saidEmpty = false;
+
+/**
+ * A tile window (`#…&main=`) left with no tiles tells devc-desktop, which closes it: checked after
+ * the current task, so a tile the page is about to open (`open-tile`) counts.
+ */
+function checkEmptyWindow() {
+  if (!TILE_WINDOWS || MAIN_ID === PRIMARY_MAIN) return;
+  setTimeout(() => {
+    if (!tiling || saidEmpty || tiling.tiles().length > 0) return;
+    saidEmpty = true;
+    tellDesktop('window empty');
+  }, 0);
 }

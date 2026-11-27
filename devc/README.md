@@ -527,8 +527,8 @@ is published from any container: the host server finds devcontainers with
   **Delete…**, **Remove container**, **Unpin file**). Text menus (in a file,
   a diff or a terminal) put the clipboard first. Right-click a tile (its tab,
   or its row in a repo card) for **Split vertically** (a new terminal to its
-  right), **Split horizontally** (below), **New terminal in this stack**,
-  **Rename…**, **Close** (the tile only) and **Close terminal…** (ends the
+  right), **Split horizontally** (below), **Open terminal in this stack** (with
+  the **Open …** items), **Rename…**, **Close** (the tile only) and **Close terminal…** (ends the
   process and closes every tile showing it); a terminal's also has **Open in
   Code**, on the repo its current directory is in (none outside every repo).
   Stacks, rows and columns offer a new shell inside them; a pane row in In use
@@ -631,7 +631,13 @@ is published from any container: the host server finds devcontainers with
   (devc-desktop's Cmd/Ctrl+click on a file path in a host terminal) opens that
   host file in the viewer when it is in one of the projects' repos
   (`locate_host_file`), and says _Can't open <path>: … outside every project's
-  repos_ otherwise. `#…&theme=<name>` (devc-desktop's **View → Theme**: `slate`, `graphite`,
+  repos_ otherwise. Several `/main` pages can share a view: each but the
+  first names itself with `#…&main=<id>` (devc-desktop's tile windows). The
+  sidebar then lists every page's tiles, opens what it opens in the `/main`
+  focused last, and reaches a tile in whichever page shows it.
+  `/main#…&windows=1` (devc-desktop only) adds **Move to New Window** to a
+  tile's tab menu and moves a tab let go outside the page to another window;
+  `#…&open-tile=<payload>` opens a tile moved from another window. `#…&theme=<name>` (devc-desktop's **View → Theme**: `slate`, `graphite`,
   `green`, `teal`, `blue`, `purple`, `amber` or `red`, from `lib/themes.js`) colors any page; without
   it, the page keeps its own colors (Slate). Every theme has a dark and a light
   palette, chosen by `prefers-color-scheme` and switched live: the OS's setting
@@ -1195,7 +1201,8 @@ is published from any container: the host server finds devcontainers with
   **↑N**: `request_push`) when no `gh-push` grant applies, or when `gh-push`
   refused what only you may waive (the server queues it then), and **Start**
   on a stopped project (`request_project`); and **Open Host Terminal…** on a
-  repo card, or on a terminal or agent tile (its tab, its body and its sidebar
+  repo card, on a file tile (its tab, its body and its sidebar row) in its
+  file's repo, or on a terminal or agent tile (its tab, its body and its sidebar
   row) in the repo its pane's folder is in (`request_terminal`; under `--live` and `--live-yolo` too: the app
   checks the folder itself). The item shows only in the app, never in a plain
   browser. When the app runs devc web without `--live`, it opens the terminal

@@ -13,7 +13,7 @@ import { parseDashboard } from './lib/dashboard.js';
 import { parseTasks } from './lib/tasks.js';
 import { booted, errorToast, h, markBooted, toast } from './ui.js';
 import { loadedPaths, planStaticChange } from './lib/live_reload.js';
-import { viewIdFromHash } from './lib/view.js';
+import { mainIdFromHash, viewIdFromHash, windowsFromHash } from './lib/view.js';
 import { themeFromHash, themeVars } from './lib/themes.js';
 
 /** @typedef {import('./lib/view.js').TileState} TileState */
@@ -187,6 +187,13 @@ let protocolMismatch = false;
  * page with a `/main` page. Not a file view or a `TileView`. `/` never uses it.
  */
 export const VIEW_ID = viewIdFromHash(location.hash);
+/**
+ * A `/main` page's main id (`#…&main=<id>`, `main` without one): which of the view's tiling areas
+ * it is, a devc-desktop tile window's or the primary's.
+ */
+export const MAIN_ID = mainIdFromHash(location.hash);
+/** devc-desktop offers tile windows to this page (`#…&windows=1`). */
+export const TILE_WINDOWS = windowsFromHash(location.hash);
 
 /** @type {{running: boolean, active: string[]} | null} The last `bridge_status`. */
 export let hostBridgeStatus = null;

@@ -116,6 +116,7 @@ import {
   paneRequest,
   parseSlotEndLine,
   parseSlotLine,
+  parseTileOutLine,
   placeMenu,
   placeSlot,
   pushOutcome,
@@ -124,6 +125,8 @@ import {
   type Rect,
   REQUEST_KINDS_PARAM,
   requestsAnswer,
+  type SavedTileWindow,
+  savedTileWindows,
   shellQuote,
   showText,
   SLOT_ID,
@@ -503,6 +506,13 @@ async function main(): Promise<void> {
    * (its restored layout) reattaches that pane. Only ids the app issued are ever here.
    */
   const savedSlots = new Map<string, string>();
+  /** The open tile windows, by main id. */
+  const tileWindows = new Map<
+    string,
+    { win: BaseWindow; view: WebContentsView }
+  >();
+  /** The tile windows `desktop-state.json` names, until devc web first runs and opens them. */
+  let pendingTileWindows: SavedTileWindow[] | null = [];
   /** The drawer's page has asked for its `info`: it hears `host-term:adopt` from now on. */
   let hostPageReady = false;
   /** A pending {@link applySlots}, and when it last ran. */
@@ -667,8 +677,11 @@ async function main(): Promise<void> {
       const toggle = wc.isFocused();
       if (e.message === 'devc-desktop:sidebar hide' && toggle) setColumn(false);
       if (e.message === 'devc-desktop:sidebar show' && toggle) setColumn(true);
-      // Host tiles live in `/main` only.
-      if (view === devcView) slotLine(e.message);
+      // Host tiles live in `/main` only, as do the tile windows' lines.
+      if (view === devcView) {
+        slotLine(e.message);
+        tileWindowLine(win, e.message);
+      }
       // The trash on a host tile's tab (`/main`) or its sidebar row (`/sidebar`).
       const endId = parseSlotEndLine(e.message);
       if (endId !== null) slotEndAsked(endId);
@@ -771,6 +784,7 @@ async function main(): Promise<void> {
       hostColor = hostThemeOf(s?.hostColor);
       uiTheme = themeNamed(s?.uiTheme);
       appearance = appearanceNamed(s?.appearance);
+      pendingTileWindows = savedTileWindows(s?.tileWindows);
       const saved = s?.hostSlots;
       if (typeof saved === 'object' && saved !== null) {
         for (const [id, pane] of Object.entries(saved)) {
@@ -797,6 +811,7 @@ async function main(): Promise<void> {
             uiTheme: uiTheme.name,
             appearance,
             hostSlots: Object.fromEntries(savedSlots),
+            tileWindows: tileWindowsNow(),
           }),
         )
       ).catch(() => {});
@@ -813,23 +828,7 @@ async function main(): Promise<void> {
    */
   function lockDownDevc(): void {
     for (const view of [devcView, sidebarView, footerView]) {
-      const wc = view.webContents;
-      wc.setWindowOpenHandler(({ url }) => {
-        const ext = externalUrl(url);
-        if (ext !== null) void shell.openExternal(ext);
-        return { action: 'deny' };
-      });
-      const guard = (e: { preventDefault(): void }, url: string) => {
-        if (origin === null || !devcMayNavigate(url, origin)) {
-          e.preventDefault();
-        }
-      };
-      wc.on('will-navigate', guard);
-      wc.on('will-redirect', guard);
-      wc.on('will-frame-navigate', (e) => {
-        if (e.isMainFrame) guard(e, e.url);
-      });
-      wc.on('will-attach-webview', (e) => e.preventDefault());
+      lockDownDevcView(view);
     }
     const ses = session.fromPartition('persist:devc');
     // The permission's name only: its details carry the page URL, token included.
@@ -840,6 +839,27 @@ async function main(): Promise<void> {
       devcPermission(permission)
     );
     ses.setDevicePermissionHandler(() => false);
+  }
+
+  /** One devc web view's part of {@link lockDownDevc}: also each tile window's, as it is made. */
+  function lockDownDevcView(view: WebContentsView): void {
+    const wc = view.webContents;
+    wc.setWindowOpenHandler(({ url }) => {
+      const ext = externalUrl(url);
+      if (ext !== null) void shell.openExternal(ext);
+      return { action: 'deny' };
+    });
+    const guard = (e: { preventDefault(): void }, url: string) => {
+      if (origin === null || !devcMayNavigate(url, origin)) {
+        e.preventDefault();
+      }
+    };
+    wc.on('will-navigate', guard);
+    wc.on('will-redirect', guard);
+    wc.on('will-frame-navigate', (e) => {
+      if (e.isMainFrame) guard(e, e.url);
+    });
+    wc.on('will-attach-webview', (e) => e.preventDefault());
   }
 
   /**
@@ -896,6 +916,9 @@ async function main(): Promise<void> {
     devcTitle = 'devcd';
     hideMenu();
     void containersView.webContents.loadURL('about:blank');
+    for (const t of tileWindows.values()) {
+      void t.view.webContents.loadURL('about:blank').catch(() => {});
+    }
     relayout();
     updateTitle();
   }
@@ -913,7 +936,7 @@ async function main(): Promise<void> {
   function mainPage(): string | null {
     return devcPage(
       '/main',
-      `&status=external&sidebar=${columnOpen ? 'shown' : 'hidden'}`,
+      `&status=external&sidebar=${columnOpen ? 'shown' : 'hidden'}&windows=1`,
     );
   }
 
@@ -1030,6 +1053,7 @@ async function main(): Promise<void> {
       updateTitle();
       void devcView.webContents.loadURL(mainPage()!);
       void footerView.webContents.loadURL(devcPage('/host-status')!);
+      loadTileWindows();
       loadSidebar();
       const at = origin;
       void child.desktop.then((token) => {
@@ -2029,6 +2053,7 @@ async function main(): Promise<void> {
         'open-line',
         'open-column',
         'orchestrator',
+        'open-tile',
       ]
     ) {
       hash.delete(k);
@@ -2036,6 +2061,204 @@ async function main(): Promise<void> {
     for (const [k, v] of Object.entries(params)) hash.set(k, v);
     url.hash = hash.toString();
     void devcView.webContents.loadURL(url.toString()).catch(() => {});
+  }
+
+  // ---- tile windows ------------------------------------------------------------------------------
+  // A tile moved out of `/main` (its **Move to New Window**, or its tab let go outside the window)
+  // opens in a window of its own: a `/main` alone with its own main id (`#…&main=`), the sidebar
+  // staying in this window. See `.plans/devc-desktop-tile-windows.md`.
+
+  /** The size a new tile window opens at. */
+  const TILE_WINDOW_SIZE = { width: 1000, height: 700 };
+
+  /** `bounds` moved (not resized) to lie in the work area of the display nearest its corner. */
+  function onScreen(bounds: Rect): Rect {
+    const area = screen.getDisplayNearestPoint({ x: bounds.x, y: bounds.y })
+      .workArea;
+    const width = Math.min(bounds.width, area.width);
+    const height = Math.min(bounds.height, area.height);
+    return {
+      x: Math.max(area.x, Math.min(bounds.x, area.x + area.width - width)),
+      y: Math.max(area.y, Math.min(bounds.y, area.y + area.height - height)),
+      width,
+      height,
+    };
+  }
+
+  /**
+   * A tile window's `/main` address, at the primary's path prefix (`/safe` while it is on
+   * `/safe/main`): no status strip, no corner toggle, its main id, and the tile it opens with.
+   */
+  function tileWindowPage(id: string, payload?: string): string | null {
+    let prefix = '';
+    try {
+      const path = new URL(devcView.webContents.getURL()).pathname;
+      if (path.endsWith('/main')) prefix = path.slice(0, -'/main'.length);
+    } catch { /* not loaded: no prefix */ }
+    return devcPage(
+      `${prefix}/main`,
+      `&status=external&windows=1&main=${id}${
+        payload === undefined ? '' : `&open-tile=${encodeURIComponent(payload)}`
+      }`,
+    );
+  }
+
+  /** What `desktop-state.json` keeps: the open tile windows, or the saved ones not yet restored. */
+  function tileWindowsNow(): SavedTileWindow[] {
+    if (pendingTileWindows !== null) return pendingTileWindows;
+    return [...tileWindows].map(([id, t]) => ({ id, ...t.win.getBounds() }));
+  }
+
+  /**
+   * Opens tile window `id` at `bounds` (kept on screen), loading its page now when devc web runs;
+   * `payload` is the tile it opens with.
+   */
+  function openTileWindow(id: string, bounds: Rect, payload?: string): void {
+    const c = themeColors(uiTheme, uiMode());
+    const tw = new BaseWindow({
+      title: 'devcd',
+      ...onScreen(bounds),
+      backgroundColor: c.bg,
+      autoHideMenuBar: !IS_MAC,
+    });
+    const view = new WebContentsView({ webPreferences: devcPrefs });
+    view.setBackgroundColor(c.bg);
+    tw.contentView.addChildView(view);
+    const fit = () => {
+      const { width, height } = tw.getContentBounds();
+      view.setBounds({ x: 0, y: 0, width, height });
+    };
+    fit();
+    tw.on('resize', fit);
+    // The keys go to the page with the window, so its `focus` (its `view_focus`) follows.
+    tw.on('focus', () => view.webContents.focus());
+    tw.on('resized', saveState);
+    tw.on('moved', saveState);
+    lockDownDevcView(view);
+    tileWindows.set(id, { win: tw, view });
+    const wc = view.webContents;
+    wc.on('console-message', (e) => {
+      if (e.frame === wc.mainFrame) tileWindowLine(tw, e.message, id);
+    });
+    // Closed: the page is asked first (`beforeunload`), so unsaved edits are not lost unasked.
+    let closing = false;
+    tw.on('close', (e) => {
+      if (closing || wc.isDestroyed()) return;
+      e.preventDefault();
+      wc.close({ waitForBeforeUnload: true });
+    });
+    wc.on('will-prevent-unload', (e) => {
+      const answer = dialog.showMessageBoxSync(tw, {
+        type: 'warning',
+        message: 'This window has unsaved edits.',
+        buttons: ['Discard and Close', 'Cancel'],
+        defaultId: 1,
+        cancelId: 1,
+      });
+      if (answer === 0) e.preventDefault();
+    });
+    wc.on('destroyed', () => {
+      closing = true;
+      if (tileWindows.get(id)?.view === view) tileWindows.delete(id);
+      if (!tw.isDestroyed()) tw.destroy();
+      if (stopping) return;
+      saveState();
+      // Its layout goes with it: removed through the primary, the same origin and storage.
+      if (showingDevc && !devcView.webContents.isDestroyed()) {
+        void devcView.webContents.executeJavaScript(
+          `localStorage.removeItem(${
+            JSON.stringify(`devc-web-layout-v2:${id}`)
+          })`,
+        ).catch(() => {});
+      }
+    });
+    const url = showingDevc ? tileWindowPage(id, payload) : null;
+    void wc.loadURL(url ?? 'about:blank').catch(() => {});
+    saveState();
+  }
+
+  /**
+   * devc web is (again) running: each tile window loads its page anew, and the saved ones open
+   * the first time.
+   */
+  function loadTileWindows(): void {
+    for (const [id, t] of tileWindows) {
+      const url = tileWindowPage(id);
+      if (url !== null) void t.view.webContents.loadURL(url).catch(() => {});
+    }
+    const pending = pendingTileWindows;
+    pendingTileWindows = null;
+    for (const saved of pending ?? []) {
+      if (tileWindows.has(saved.id)) continue;
+      const { id, ...bounds } = saved;
+      openTileWindow(id, bounds);
+    }
+  }
+
+  /** Sets `params` in a devc web view's hash: a hash-only load, which nothing reloads. */
+  function setViewHash(view: WebContentsView, params: Record<string, string>) {
+    if (origin === null || !showingDevc) return;
+    const now = view.webContents.getURL();
+    if (!now.startsWith(`${origin}/`)) return;
+    const url = new URL(now);
+    const hash = new URLSearchParams(url.hash.slice(1));
+    for (const [k, v] of Object.entries(params)) hash.set(k, v);
+    url.hash = hash.toString();
+    void view.webContents.loadURL(url.toString()).catch(() => {});
+  }
+
+  /** Whether screen point `p` is inside `r`. */
+  const within = (p: { x: number; y: number }, r: Rect) =>
+    p.x >= r.x && p.y >= r.y && p.x < r.x + r.width && p.y < r.y + r.height;
+
+  /**
+   * A tile moved out of window `from`: `drop` goes to the app's window under the pointer, if any
+   * other; else, and for `new`, a new tile window opens with it, at the pointer for a drop, just
+   * below and right of `from` for a menu's move.
+   */
+  function tileOut(from: BaseWindow, how: 'new' | 'drop', payload: string) {
+    if (!showingDevc) return;
+    const cursor = screen.getCursorScreenPoint();
+    if (how === 'drop') {
+      // Over one of the app's windows: that one takes it, the sender's own included (let go over
+      // its sidebar or its title bar), the tile then coming back into its focused stack.
+      for (const t of tileWindows.values()) {
+        if (!t.win.isVisible() || t.win.isMinimized()) continue;
+        if (!within(cursor, t.win.getBounds())) continue;
+        setViewHash(t.view, { 'open-tile': payload });
+        t.win.focus();
+        return;
+      }
+      if (!win.isMinimized() && within(cursor, win.getBounds())) {
+        setMainHash({ 'open-tile': payload });
+        win.focus();
+        return;
+      }
+    }
+    const id = `w${randomBytes(4).toString('hex')}`;
+    const at = how === 'drop'
+      ? { x: cursor.x - 40, y: cursor.y - 15 }
+      : { x: from.getBounds().x + 30, y: from.getBounds().y + 30 };
+    openTileWindow(id, { ...at, ...TILE_WINDOW_SIZE }, payload);
+  }
+
+  /**
+   * A `/main` console line about tile windows, from window `from` (tile window `id`'s, or the
+   * primary's without one): a tile moved out, a window to raise, or a tile window left empty.
+   */
+  function tileWindowLine(from: BaseWindow, message: string, id?: string) {
+    const out = parseTileOutLine(message);
+    if (out !== null) {
+      tileOut(from, out.how, out.payload);
+      return;
+    }
+    if (message === 'devc-desktop:window raise') {
+      if (!from.isFocused()) from.focus();
+      return;
+    }
+    if (message === 'devc-desktop:window empty' && id !== undefined) {
+      tileWindows.get(id)?.win.close();
+    }
   }
 
   /**
@@ -3041,6 +3264,10 @@ async function main(): Promise<void> {
   function nativeColors(): void {
     const c = themeColors(uiTheme, uiMode());
     win.setBackgroundColor(c.bg);
+    for (const t of tileWindows.values()) {
+      t.win.setBackgroundColor(c.bg);
+      t.view.setBackgroundColor(c.bg);
+    }
     for (const v of [statusView, footerView]) v.setBackgroundColor(c.bg);
     railView.setBackgroundColor(c.border);
     titleBarView.setBackgroundColor(c.sidebarHead);
@@ -3091,6 +3318,7 @@ async function main(): Promise<void> {
     // Same as Theme's swatch is this theme's.
     setMenu();
     for (const v of [devcView, sidebarView, footerView]) setDevcTheme(v);
+    for (const t of tileWindows.values()) setDevcTheme(t.view);
   }
 
   /** A menu item's color swatch. */

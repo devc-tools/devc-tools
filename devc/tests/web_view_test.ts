@@ -12,9 +12,11 @@ import {
   inUseState,
   layoutSignature,
   layoutTiles,
+  mainIdFromHash,
   MAX_VIEW_FILTER,
   nodeById,
   nodeTiles,
+  openTileFromHash,
   parseDrag,
   previewTileNear,
   relayedIntent,
@@ -28,6 +30,8 @@ import {
   tileShowingPane,
   VIEW_INTENT_NAMES,
   viewIdFromHash,
+  windowsFromHash,
+  withoutHostSlot,
   zenFromSearch,
 } from '../web/static/lib/view.js';
 
@@ -433,4 +437,34 @@ Deno.test('containersExternalFromHash: only containers=external', () => {
   assertEquals(containersExternalFromHash('#token=abc&view=devcd'), false);
   assertEquals(containersExternalFromHash('#containers=inline'), false);
   assertEquals(containersExternalFromHash(''), false);
+});
+
+Deno.test('encodeDrag and parseDrag: a diff round-trips; a malformed one is null', () => {
+  const diff = {
+    diff: { localFolder: '/w', root: '/w/r', path: 'a.ts', changes: 'HEAD' },
+  };
+  assertEquals(parseDrag(encodeDrag(diff)), diff);
+  assertEquals(
+    parseDrag(JSON.stringify({ diff: { localFolder: '/w' } })),
+    null,
+  );
+  assertEquals(parseDrag(JSON.stringify({ diff: 'x' })), null);
+});
+
+Deno.test('mainIdFromHash, windowsFromHash and openTileFromHash read a tile window', () => {
+  assertEquals(mainIdFromHash('#token=t&view=devcd'), 'main');
+  assertEquals(mainIdFromHash('#main=a:b'), 'main');
+  assertEquals(mainIdFromHash('main=w3f9a01c2'), 'w3f9a01c2');
+  assertEquals(windowsFromHash('#windows=1'), true);
+  assertEquals(windowsFromHash('#windows=0'), false);
+  assertEquals(windowsFromHash(''), false);
+  const file = { file: { localFolder: '/w', root: '/w/r', path: 'a b&c.ts' } };
+  const params = new URLSearchParams({
+    token: 't',
+    'open-tile': encodeDrag(file),
+  });
+  assertEquals(openTileFromHash(`#${params}`), file);
+  assertEquals(openTileFromHash('#open-tile=%7Bjunk'), null);
+  assertEquals(openTileFromHash('#token=t'), null);
+  assertEquals(withoutHostSlot(`#${params}`), '#token=t');
 });

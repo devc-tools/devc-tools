@@ -5,13 +5,15 @@
 // elsewhere (devc-desktop's `/host-status` view, across its whole window). `#…&sidebar=hidden`
 // draws the corner toggle that shows devc-desktop's left column again.
 
-import { connect, SAFE_MODE, showSafeBanner } from './client.js';
+import { connect, SAFE_MODE, showSafeBanner, TILE_WINDOWS } from './client.js';
 import {
   closeHostTile,
   mountTiles,
   openHostFile,
   openHostTile,
+  openMovedTile,
 } from './tiles.js';
+import { tellDesktop } from './host-slots.js';
 import { mountHostStatus } from './host-status.js';
 import { remoteSidebar, sendViewState, serveTileArea } from './remote.js';
 import {
@@ -19,6 +21,7 @@ import {
   hostOpenFromHash,
   hostPlacementFromHash,
   hostSlotFromHash,
+  openTileFromHash,
   statusExternalFromHash,
   withoutHostSlot,
 } from './lib/view.js';
@@ -34,7 +37,17 @@ const tileArea = mountTiles(
   /** @type {HTMLElement} */ (document.getElementById('tiles')),
   { sidebar: remoteSidebar(), onViewChange: sendViewState, zenByDefault: true },
 );
-serveTileArea(tileArea);
+// devc-desktop's tile windows: a tile this page showed for the sidebar brings its window forward.
+const RAISES = new Set([
+  'openPane',
+  'openFile',
+  'openDiff',
+  'reveal',
+  'revealLine',
+]);
+serveTileArea(tileArea, (name) => {
+  if (TILE_WINDOWS && RAISES.has(name)) tellDesktop('window raise');
+});
 if (!statusExternalFromHash(location.hash)) {
   mountHostStatus(/** @type {HTMLElement} */ (document.querySelector('.app')));
 }
@@ -46,13 +59,17 @@ connect();
  * host tile for that slot, which the app then covers with its terminal. Its **Move to Bottom
  * Panel** sets `#…&host-gone=<id>`: that tile closes. A Cmd/Ctrl+click on a file path in a host
  * terminal sets `#…&open-host-file=<path>`: the file opens in the viewer if it is in a project's
- * repos. The parameters are taken out again, so a reload does not act on them twice.
+ * repos. A tile moved from another of the app's windows comes as `#…&open-tile=<drag payload>`
+ * (with `#…&windows=1` only): it opens in the focused stack. The parameters are taken out again, so
+ * a reload does not act on them twice.
  */
 function takeHostSlot() {
   const id = hostSlotFromHash(location.hash);
   const gone = hostGoneFromHash(location.hash);
   const file = hostOpenFromHash(location.hash);
-  if (id === null && gone === null && file === null) return;
+  const moved = TILE_WINDOWS ? openTileFromHash(location.hash) : null;
+  const hasMove = new URLSearchParams(location.hash.slice(1)).has('open-tile');
+  if (id === null && gone === null && file === null && !hasMove) return;
   const place = hostPlacementFromHash(location.hash);
   history.replaceState(
     history.state,
@@ -62,6 +79,7 @@ function takeHostSlot() {
   if (gone !== null) closeHostTile(gone);
   if (id !== null) openHostTile(id, place);
   if (file !== null) openHostFile(file);
+  if (moved !== null) openMovedTile(moved);
 }
 takeHostSlot();
 window.addEventListener('hashchange', takeHostSlot);

@@ -311,6 +311,21 @@ laid over the tile's content. It has the same paste bar as the drawer.
 - The app's Herdr session holds at most 32 panes. Host tiles survive quitting: devc web's
   restored layout puts each back on its pane, when Herdr still has it.
 
+### Tile windows
+
+A tile can have a window of its own: right-click its tab for **Move to New Window**, or drag its
+tab out of the window and let go. Let go over another devcd window and the tile moves there
+instead, into that window's focused stack. A tile window holds devc web's tiles only; the
+sidebar stays in the main window and works every window's tiles. What it opens goes to the
+window you used last, which comes to the front.
+
+- **What moves.** Terminal, file and diff tiles. Host tiles, unsaved new files and files with
+  unsaved edits stay where they are (save first). A terminal keeps running as it moves.
+- **Closing.** Closing a tile window's last tile closes the window. Closing a window that has
+  unsaved edits asks first (**Discard and Close** or **Cancel**).
+- **Across launches.** Open tile windows come back where they were, with their tiles. They
+  reload with devc web when it restarts.
+
 ### Host actions
 
 devc web's page can **ask** for a push, a container start or a host terminal: under `--live`,

@@ -8,13 +8,14 @@
 // `.plans/archived/devc-web-containers-module.md`. `/` wires the halves in-process and never
 // loads this.
 
-import { onServerMessage, send, VIEW_ID } from './client.js';
+import { MAIN_ID, onServerMessage, send, VIEW_ID } from './client.js';
 import {
   CONTAINERS_INTENT_NAMES,
   DRAG_MIME,
   emptyViewState,
   encodeDrag,
   INUSE_INTENT_NAMES,
+  PRIMARY_MAIN,
   relayedIntent,
   relayedState,
   SIDEBAR_INTENT_NAMES,
@@ -53,16 +54,27 @@ export function sendViewState(/** @type {ViewState} */ state) {
 }
 
 /**
- * Joins the view as its tiling area on every `hello` (a connect or a reconnect), sending the state
- * as it is, and carries out the sidebars' `view_intent`s on `tileArea`.
+ * Joins the view as its tiling area (as main `MAIN_ID`) on every `hello` (a connect or a
+ * reconnect), sending the state as it is, and `view_focus` while the page has the focus and each
+ * time it gets it; carries out the sidebars' `view_intent`s on `tileArea`, calling `onIntent`
+ * with each one's name after.
  *
  * @param {TileArea} tileArea
+ * @param {(name: string) => void} [onIntent]
  */
-export function serveTileArea(tileArea) {
+export function serveTileArea(tileArea, onIntent) {
+  const focus = () => send({ type: 'view_focus', view: VIEW_ID });
+  window.addEventListener('focus', focus);
   onServerMessage((msg) => {
     if (msg.type === 'hello') {
-      send({ type: 'view_join', view: VIEW_ID, role: 'tiles' });
+      send({
+        type: 'view_join',
+        view: VIEW_ID,
+        role: 'tiles',
+        ...(MAIN_ID !== PRIMARY_MAIN ? { main: MAIN_ID } : {}),
+      });
       sendViewState(tileArea.state());
+      if (document.hasFocus()) focus();
       return;
     }
     const intent = relayedIntent(
@@ -73,6 +85,7 @@ export function serveTileArea(tileArea) {
     );
     if (intent) {
       /** @type {any} */ (tileArea)[intent.name](...intent.args);
+      onIntent?.(intent.name);
     }
   });
 }

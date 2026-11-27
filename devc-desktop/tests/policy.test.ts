@@ -50,6 +50,7 @@ import {
   paneRequest,
   parseSlotEndLine,
   parseSlotLine,
+  parseTileOutLine,
   placeMenu,
   placeSlot,
   planWarnings,
@@ -60,6 +61,7 @@ import {
   type Rect,
   REQUEST_KINDS_PARAM,
   requestsAnswer,
+  savedTileWindows,
   shellQuote,
   showText,
   SIDEBAR_DEFAULT,
@@ -1299,4 +1301,50 @@ test('gitAt: the nearest repo up from a folder, by its files alone', async () =>
   assertEquals(await gitAt('/u/src/broken', fs), null);
   assertEquals(await gitAt('/u/home', fs), null);
   assertEquals(await gitAt('relative/path', fs), null);
+});
+
+test('parseTileOutLine: new or drop with a JSON object payload, nothing else', () => {
+  const payload = JSON.stringify({
+    file: { localFolder: '/w', root: '/w', path: 'a b' },
+  });
+  assertEquals(parseTileOutLine(`devc-desktop:tile-out new ${payload}`), {
+    how: 'new',
+    payload,
+  });
+  assertEquals(parseTileOutLine(`devc-desktop:tile-out drop ${payload}`), {
+    how: 'drop',
+    payload,
+  });
+  assertEquals(parseTileOutLine(`devc-desktop:tile-out move ${payload}`), null);
+  assertEquals(parseTileOutLine('devc-desktop:tile-out new '), null);
+  assertEquals(parseTileOutLine('devc-desktop:tile-out new [1]'), null);
+  assertEquals(
+    parseTileOutLine(`devc-desktop:tile-out new {${'x'.repeat(16_384)}`),
+    null,
+  );
+  assertEquals(parseTileOutLine(`tile-out new ${payload}`), null);
+});
+
+test('savedTileWindows: well-formed entries only, at most 20', () => {
+  const ok = { id: 'w0123abcd', x: -10, y: 20, width: 1000, height: 700 };
+  assertEquals(savedTileWindows([ok]), [ok]);
+  assertEquals(savedTileWindows('x'), []);
+  assertEquals(
+    savedTileWindows([
+      { ...ok, id: 'W0123ABCD' },
+      { ...ok, id: 'main' },
+      { ...ok, width: 199 },
+      { ...ok, x: '1' },
+      { ...ok, y: Infinity },
+      null,
+      ok,
+      ok,
+    ]),
+    [ok],
+  );
+  const many = Array.from({ length: 25 }, (_, i) => ({
+    ...ok,
+    id: `w${i.toString(16).padStart(8, '0')}`,
+  }));
+  assertEquals(savedTileWindows(many).length, 20);
 });

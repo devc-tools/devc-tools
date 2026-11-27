@@ -227,3 +227,157 @@ Deno.test('views: containers_intent goes from sidebars to Containers, inuse_inte
     'main1:view_intent',
   ]);
 });
+
+// ---------------------------------------------------------------------------------------------
+// Several tiling areas per view: devc-desktop's tile windows (`main=` in a `/main` page's hash).
+// ---------------------------------------------------------------------------------------------
+
+const W = 'wabc12345';
+const PRIMARY = {
+  tiles: [{ id: 't1' }],
+  tree: {
+    kind: 'stack',
+    id: 's1',
+    children: [{ kind: 'tile', id: 't1', active: true }],
+  },
+  focused: 't1',
+  outline: { tile: 't1', items: [] },
+};
+const EXTRA = {
+  tiles: [{ id: 't1' }, { id: 't2' }],
+  tree: {
+    kind: 'stack',
+    id: 's1',
+    children: [
+      { kind: 'tile', id: 't1', active: true },
+      { kind: 'tile', id: 't2', active: false },
+    ],
+  },
+  focused: 't2',
+  outline: null,
+};
+
+function twoMains() {
+  const { reg } = setup();
+  reg.join('primary', 'v', 'tiles');
+  reg.join('extra', 'v', 'tiles', W);
+  reg.join('side', 'v', 'sidebar');
+  reg.state('primary', 'v', PRIMARY);
+  return { reg };
+}
+
+Deno.test('views: one main relays its state verbatim', () => {
+  const { reg } = setup();
+  reg.join('primary', 'v', 'tiles');
+  reg.join('side', 'v', 'sidebar');
+  const out = reg.state('primary', 'v', PRIMARY);
+  assertEquals(out[0].msg.state, PRIMARY);
+});
+
+Deno.test("views: two mains merge, an extra main's ids prefixed, the target's focus", () => {
+  const { reg } = twoMains();
+  const out = reg.state('extra', 'v', EXTRA);
+  assertEquals(who(out), ['side:view_state']);
+  const state = out[0].msg.state as Record<string, unknown>;
+  assertEquals(state.tiles, [
+    { id: 't1' },
+    { id: `${W}:t1`, window: W },
+    { id: `${W}:t2`, window: W },
+  ]);
+  assertEquals(state.tree, {
+    kind: 'row',
+    id: 'windows',
+    children: [PRIMARY.tree, {
+      kind: 'stack',
+      id: `${W}:s1`,
+      children: [
+        { kind: 'tile', id: `${W}:t1`, active: true },
+        { kind: 'tile', id: `${W}:t2`, active: false },
+      ],
+    }],
+  });
+  // The primary is the target until another main sends view_focus.
+  assertEquals(state.focused, 't1');
+  assertEquals(state.outline, PRIMARY.outline);
+  const focused = reg.focus('extra', 'v');
+  assertEquals(who(focused), ['side:view_state']);
+  const after = focused[0].msg.state as Record<string, unknown>;
+  assertEquals(after.focused, `${W}:t2`);
+  assertEquals(after.outline, null);
+  // Focusing the target again changes nothing; a sidebar's view_focus is ignored.
+  assertEquals(reg.focus('extra', 'v'), []);
+  assertEquals(reg.focus('side', 'v'), []);
+});
+
+Deno.test("views: the target's leaving falls back to the primary, its tiles gone", () => {
+  const { reg } = twoMains();
+  reg.state('extra', 'v', EXTRA);
+  reg.focus('extra', 'v');
+  const out = reg.leave('extra');
+  assertEquals(who(out), ['side:view_state']);
+  assertEquals(out[0].msg.state, PRIMARY);
+  assertEquals(who(reg.viewIntent('side', 'v', 'openFile', [{}, 'stack'])), [
+    'primary:view_intent',
+  ]);
+});
+
+Deno.test('views: intents route by tile id, opens to the target, prViewed to all', () => {
+  const { reg } = twoMains();
+  reg.state('extra', 'v', EXTRA);
+  const close = reg.viewIntent('side', 'v', 'close', [`${W}:t1`]);
+  assertEquals(who(close), ['extra:view_intent']);
+  assertEquals(close[0].msg.args, ['t1']);
+  const own = reg.viewIntent('side', 'v', 'close', ['t1']);
+  assertEquals(who(own), ['primary:view_intent']);
+  assertEquals(own[0].msg.args, ['t1']);
+  // An unknown main's prefix is the primary's id, unchanged.
+  const stray = reg.viewIntent('side', 'v', 'reveal', ['nope:t1']);
+  assertEquals(who(stray), ['primary:view_intent']);
+  assertEquals(stray[0].msg.args, ['nope:t1']);
+  assertEquals(reg.viewIntent('side', 'v', 'close', ['windows']), []);
+  const line = reg.viewIntent('side', 'v', 'revealLine', [`${W}:t2`, 4, 9]);
+  assertEquals(line[0].msg.args, ['t2', 4, 9]);
+  // Opens go to the target.
+  assertEquals(who(reg.viewIntent('side', 'v', 'openFile', [{}, 'stack'])), [
+    'primary:view_intent',
+  ]);
+  reg.focus('extra', 'v');
+  assertEquals(who(reg.viewIntent('side', 'v', 'openDiff', [{}, 'stack'])), [
+    'extra:view_intent',
+  ]);
+  const ref = { localFolder: '/w', pane_id: 'p' };
+  assertEquals(who(reg.viewIntent('side', 'v', 'openPane', [ref])), [
+    'extra:view_intent',
+  ]);
+  // openPane's `at` decides when given.
+  const at = reg.viewIntent('side', 'v', 'openPane', [ref, {
+    where: 'right',
+    at: 't1',
+  }]);
+  assertEquals(who(at), ['primary:view_intent']);
+  const atExtra = reg.viewIntent('side', 'v', 'openPane', [ref, {
+    where: 'right',
+    at: `${W}:t2`,
+  }]);
+  assertEquals(who(atExtra), ['extra:view_intent']);
+  assertEquals(atExtra[0].msg.args, [ref, { where: 'right', at: 't2' }]);
+  assertEquals(
+    who(reg.viewIntent('side', 'v', 'prViewed', [{}, 'VIEWED'])),
+    ['extra:view_intent', 'primary:view_intent'],
+  );
+});
+
+Deno.test("views: a Containers section gets the merged state; the primary's outlives its page", () => {
+  const { reg } = twoMains();
+  reg.join('cont', 'v', 'containers');
+  const out = reg.state('extra', 'v', EXTRA);
+  const byTo = Object.fromEntries(out.map((d) => [d.to, d.msg.state]));
+  assertEquals((byTo.cont as { tiles: unknown[] }).tiles.length, 3);
+  // A reloading primary: its state stays for a late sidebar.
+  reg.leave('primary');
+  const late = reg.join('late', 'v', 'sidebar');
+  assertEquals(
+    (late[0].msg.state as { tiles: unknown[] }).tiles.length,
+    3,
+  );
+});

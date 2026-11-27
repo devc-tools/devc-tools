@@ -9,6 +9,7 @@
 import { fileView } from './media.js';
 import {
   diffKey,
+  diffRefFromState,
   fileRefFromState,
   foldTree,
   HOST_SLOT,
@@ -40,6 +41,8 @@ import {
  * @property {boolean} dirty          a file tile with unsaved edits
  * @property {boolean} saveable       a file tile whose edits Save would write now
  * @property {string | null} url      a diff tile's file on github.com, once known
+ * @property {string} [window]       relayed only: the main id of the devc-desktop tile window
+ *   showing it (`#…&main=`), when that is not the primary; its `id` is then `<main>:<id>`
  * @property {import('./drafts.js').DraftRef | null} [draft]  a file tile's unsaved new file (its
  *   `file` is null)
  * @property {string | null} [host]   a host tile's slot id (devc-desktop's); null on other tiles
@@ -105,6 +108,10 @@ import {
  *   `compare: 'viewed'` selects its newest **Since viewed** comparison once the file is read.
  * @property {() => void} newDraft  a new unsaved file in the focused stack; never relayed: only
  *   the tiling area's own page offers it
+ * @property {(id: string) => void} [moveToNewWindow]  **Move to New Window** (devc-desktop's
+ *   tile windows): the tile goes to a new window and closes here; never relayed
+ * @property {(id: string) => boolean} [canMoveToNewWindow]  whether that item is offered for the
+ *   tile now; never relayed
  * @property {(id: string) => void} reveal    brings a tile forward and focuses it
  * @property {(id: string) => void} close     a tile (asking first when it has unsaved edits), or a
  *   stack, row or column
@@ -403,6 +410,42 @@ export function viewIdFromHash(hash) {
   return id !== null && VIEW_ID.test(id) ? id : 'default';
 }
 
+/** The primary tiling area's main id: a `/main` page's when its hash names none. */
+export const PRIMARY_MAIN = 'main';
+
+/**
+ * A `/main` page's main id (`#…&main=<id>`, set by devc-desktop on a tile window): which of the
+ * view's tiling areas it is. {@link PRIMARY_MAIN} when missing or invalid.
+ *
+ * @param {string} hash  `location.hash`, `#` included or not
+ */
+export function mainIdFromHash(hash) {
+  const id = new URLSearchParams(hash.replace(/^#/, '')).get('main');
+  return id !== null && VIEW_ID.test(id) ? id : PRIMARY_MAIN;
+}
+
+/**
+ * Whether devc-desktop offers tile windows to this `/main` page (`#…&windows=1`): **Move to New
+ * Window**, a tab dragged out of the page, and the `window` console lines.
+ *
+ * @param {string} hash  `location.hash`, `#` included or not
+ */
+export function windowsFromHash(hash) {
+  return new URLSearchParams(hash.replace(/^#/, '')).get('windows') === '1';
+}
+
+/**
+ * The tile devc-desktop asks a `/main` page to open (`#…&open-tile=<drag payload>`, a tile moved
+ * from another window), or null when none or not a drag payload.
+ *
+ * @param {string} hash  `location.hash`, `#` included or not
+ * @returns {DragRef | null}
+ */
+export function openTileFromHash(hash) {
+  const text = new URLSearchParams(hash.replace(/^#/, '')).get('open-tile');
+  return text === null ? null : parseDrag(text);
+}
+
 /**
  * Whether a `/sidebar` page's URL hash says its Containers section is drawn elsewhere
  * (`#…&containers=external`: devc-desktop's own Containers pane): the page then draws none, and
@@ -499,7 +542,7 @@ export function hostOpenFromHash(hash) {
 
 /**
  * The hash without `host-slot` (nor `host-at`, `host-where`, `host-gone`, `open-host-file`,
- * `open-line`, `open-column`), the other parameters
+ * `open-line`, `open-column`, `open-tile`), the other parameters
  * kept in order, `#` included (or `''` when none is left).
  *
  * @param {string} hash
@@ -513,6 +556,7 @@ export function withoutHostSlot(hash) {
   params.delete('open-host-file');
   params.delete('open-line');
   params.delete('open-column');
+  params.delete('open-tile');
   const rest = params.toString();
   return rest ? `#${rest}` : '';
 }
@@ -640,9 +684,13 @@ function strings(v) {
 export const DRAG_MIME = 'application/x-devc-web-tile';
 
 /**
- * What a row's drag carries: the content a dropped tile shows.
+ * What a row's (or a moved tile's) drag carries: the content a dropped tile shows.
  *
- * @param {PaneRef | {file: FileRef}} ref
+ * @typedef {PaneRef | {file: FileRef} | {diff: DiffRef}} DragRef
+ */
+
+/**
+ * @param {DragRef} ref
  * @returns {string}  JSON
  */
 export function encodeDrag(ref) {
@@ -650,11 +698,12 @@ export function encodeDrag(ref) {
 }
 
 /**
- * A drag payload back, or null for anything that isn't one: a `PaneRef` (two non-empty strings)
- * or `{file}` with a well-formed `FileRef` (as `layout_state.js`'s `fileRefFromState` accepts).
+ * A drag payload back, or null for anything that isn't one: a `PaneRef` (two non-empty strings),
+ * `{file}` with a well-formed `FileRef` (as `layout_state.js`'s `fileRefFromState` accepts) or
+ * `{diff}` with a well-formed `DiffRef` (`diffRefFromState`).
  *
  * @param {string} text
- * @returns {PaneRef | {file: FileRef} | null}
+ * @returns {DragRef | null}
  */
 export function parseDrag(text) {
   let value;
@@ -669,6 +718,10 @@ export function parseDrag(text) {
   if ('file' in value) {
     const file = fileRefFromState(value.file);
     return file ? { file } : null;
+  }
+  if ('diff' in value) {
+    const diff = diffRefFromState(value.diff);
+    return diff ? { diff } : null;
   }
   return paneRefFromState(value);
 }

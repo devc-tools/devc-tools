@@ -12,6 +12,13 @@
 //   devc-desktop:slot-end <id>                        the user's trash on a host tile (its tab, its
 //                                                     sidebar row): the app asks before it ends
 //                                                     the shell; the page ends nothing itself
+//   devc-desktop:tile-out new <payload>               **Move to New Window**: a new window with
+//                                                     this tile (a drag payload, `lib/view.js`)
+//   devc-desktop:tile-out drop <payload>              a tab let go outside the page: the window
+//                                                     under the pointer takes it, else a new one
+//   devc-desktop:window raise                         a relayed intent showed a tile here
+//   devc-desktop:window empty                         a tile window's last tile closed
+// The tile-window lines only with `#…&windows=1` (`tiles.js`, `main-page.js`).
 // In a browser they are debug lines no one sees.
 
 import { h, LABELS } from './ui.js';
@@ -32,8 +39,13 @@ let frame = 0;
 let dragging = false;
 let overlay = false;
 
-/** @param {string} line */
-const tell = (line) => console.debug(`devc-desktop:${line}`);
+/**
+ * Says `line` to devc-desktop (a `devc-desktop:` console line; nothing in a browser).
+ *
+ * @param {string} line
+ */
+export const tellDesktop = (line) => console.debug(`devc-desktop:${line}`);
+const tell = tellDesktop;
 
 /**
  * Asks devc-desktop to end slot `id`'s shell: its own confirm (**Close terminal…**) decides. Also

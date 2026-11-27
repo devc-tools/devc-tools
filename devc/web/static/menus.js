@@ -398,11 +398,11 @@ function tileMenuGroups(tile) {
         LABELS.splitBelow,
         () => newShell(c, opts, { at: tile.id, where: 'below' }),
       ],
-      [
-        LABELS.newInStack,
-        () => newShell(c, opts, { at: tile.id, where: 'stack' }),
-      ],
     );
+    g.open.push([
+      LABELS.newInStack,
+      () => newShell(c, opts, { at: tile.id, where: 'stack' }),
+    ]);
   }
   if (c && pane) {
     g.open.push(
@@ -434,8 +434,22 @@ function tileMenuGroups(tile) {
 export function tileOwnMenuItems(tile) {
   return menuOf(tileMenuGroups(tile), {
     create: [newDraftItem()],
-    organize: zenItems(),
+    organize: [...moveToWindowItems(tile), ...zenItems()],
   });
+}
+
+/**
+ * **Move to New Window**, while devc-desktop offers tile windows and the tile can move (see
+ * `tiles.js`'s tile windows).
+ *
+ * @param {TileState} tile @returns {MenuItem[]}
+ */
+function moveToWindowItems(tile) {
+  if (!tileArea.canMoveToNewWindow?.(tile.id)) return [];
+  return [[
+    LABELS.moveToNewWindow,
+    () => tileArea.moveToNewWindow?.(tile.id),
+  ]];
 }
 
 /** **New untitled file**: a draft in the focused stack (Cmd+N). */
@@ -460,16 +474,19 @@ function keepOpenItem(tile) {
 function nodeMenuGroups(node, tiles) {
   const origin = shellOrigin(tiles);
   /** @type {MenuItem[]} */
+  const open = [];
+  /** @type {MenuItem[]} */
   const create = [];
   if (origin) {
     const opts = shellOptsNear(origin.pane);
-    create.push([
+    (node.kind === 'stack' ? open : create).push([
       node.kind === 'stack' ? LABELS.newInStack : LABELS.newAtEnd,
       () => newShell(origin.c, opts, { at: node.id, where: 'stack' }),
     ]);
   }
   create.push(newDraftItem());
   return {
+    open,
     create,
     close: node.kind === 'stack'
       ? [['Close stack', () => tileArea.close(node.id)]]
@@ -1038,6 +1055,13 @@ function fileTileMenuGroups(tile) {
     g.open.push(['Open in editor', () => openInEditor(fr, file.path, 'stack')]);
     if (mediaKind(file.path) === 'html') {
       g.open.push(['Open in browser', () => openInBrowser(fr, file.path)]);
+    }
+    // In the file's repo; devc-desktop opens it once the user confirms it there.
+    if (!file.container && canAskDesktop()) {
+      g.open.push([
+        LABELS.openHostTerminal,
+        () => requestTerminal(fr.localFolder, fr.root),
+      ]);
     }
     g.open.push(...hostOpenItems(fr, file.path));
     g.open.push(...jiraItems(activeRepo(tile).branch));

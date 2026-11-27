@@ -1286,6 +1286,75 @@ export function parseSlotEndLine(message: string): string | null {
   return SLOT_END_LINE.exec(message)?.[1] ?? null;
 }
 
+/** The longest drag payload a `tile-out` line carries. */
+export const MAX_TILE_PAYLOAD = 16_384;
+const TILE_OUT_LINE = /^devc-desktop:tile-out (new|drop) (.*)$/s;
+
+/**
+ * A devc web console line moving a tile out of its window (`devc-desktop:tile-out new|drop
+ * <payload>`): how, and the drag payload, which the app passes on unread to the `/main` page that
+ * opens it (`open-tile`). `null` for anything else, an empty payload, one over
+ * {@link MAX_TILE_PAYLOAD} characters, or one that is not a JSON object's text.
+ */
+export function parseTileOutLine(
+  message: string,
+): { how: 'new' | 'drop'; payload: string } | null {
+  const m = TILE_OUT_LINE.exec(message);
+  if (m === null) return null;
+  const payload = m[2];
+  if (
+    payload === '' || payload.length > MAX_TILE_PAYLOAD ||
+    !payload.startsWith('{')
+  ) return null;
+  return { how: m[1] as 'new' | 'drop', payload };
+}
+
+/** A tile window's main id, as the app names them: `w` and 8 hex digits. */
+export const TILE_WINDOW_ID = /^w[0-9a-f]{8}$/;
+/** The most tile windows the app restores. */
+export const MAX_TILE_WINDOWS = 20;
+
+/** A tile window as `desktop-state.json` keeps it: its main id and its bounds. */
+export interface SavedTileWindow {
+  id: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+/**
+ * `desktop-state.json`'s `tileWindows`: the entries with a well-formed id and four finite
+ * numbers, at least 200 wide and high, ids not repeated, at most {@link MAX_TILE_WINDOWS}.
+ */
+export function savedTileWindows(value: unknown): SavedTileWindow[] {
+  if (!Array.isArray(value)) return [];
+  const out: SavedTileWindow[] = [];
+  const seen = new Set<string>();
+  for (const v of value) {
+    if (out.length >= MAX_TILE_WINDOWS) break;
+    if (typeof v !== 'object' || v === null) continue;
+    const { id, x, y, width, height } = v as Record<string, unknown>;
+    if (typeof id !== 'string' || !TILE_WINDOW_ID.test(id) || seen.has(id)) {
+      continue;
+    }
+    const nums = [x, y, width, height];
+    if (!nums.every((n) => typeof n === 'number' && Number.isFinite(n))) {
+      continue;
+    }
+    if ((width as number) < 200 || (height as number) < 200) continue;
+    seen.add(id);
+    out.push({
+      id,
+      x: x as number,
+      y: y as number,
+      width: width as number,
+      height: height as number,
+    });
+  }
+  return out;
+}
+
 /**
  * A `/main` console line about a host tile: its slot id, and its content's viewport rectangle in
  * CSS pixels, or `null` for `hidden`. Anything else is `null`.
