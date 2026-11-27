@@ -223,6 +223,12 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
   Otherwise `↑N` is read-only with the reason. Push… and `↑N`-opens-Commits are removed; Push
   refreshes the mirror so `↑N` clears.
 
+- [devc-desktop-inpage-host-tiles](devc-desktop-inpage-host-tiles.md) — host tiles drawn by
+  devc web's `/main` page through a `/main`-only preload (`window.devcHost`) to the main process,
+  instead of app views laid over placeholders: the overlay machinery (rectangle lines, hiding
+  during drags, menus and dialogs, the input pause) goes, and host tiles move to tile windows.
+  Host shell I/O never goes through devc web's server.
+
 ### Completed
 
 - [devc-desktop-tile-windows](archived/devc-desktop-tile-windows.md) — a tile moves to a devcd window of
@@ -2853,3 +2859,4 @@ declare no `initializeCommand`, no read-only mount, and no string mount).
 | devc web Mermaid — Mermaid diagrams in rendered Markdown                                                            | [devc-web-mermaid](archived/devc-web-mermaid.md)                                   | complete    |
 | devc web tile session restore — tiles resume their agent session after a container rebuild                          | [devc-web-tile-session-restore](archived/devc-web-tile-session-restore.md)         | complete    |
 | devc-desktop tile windows — tiles moved or dragged into windows of their own, one sidebar for all                   | [devc-desktop-tile-windows](archived/devc-desktop-tile-windows.md)                 | complete    |
+| devc-desktop in-page host tiles — host terminals drawn in devc web's page, no overlay views                         | [devc-desktop-inpage-host-tiles](devc-desktop-inpage-host-tiles.md)                |             |
