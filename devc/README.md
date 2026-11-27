@@ -1201,8 +1201,8 @@ is published from any container: the host server finds devcontainers with
   **↑N**: `request_push`) when no `gh-push` grant applies, or when `gh-push`
   refused what only you may waive (the server queues it then), and **Start**
   on a stopped project (`request_project`); and **Open Host Terminal…** on a
-  repo card, on a file tile (its tab, its body and its sidebar row) in its
-  file's repo, or on a terminal or agent tile (its tab, its body and its sidebar
+  repo card, on a file or diff tile (its tab, its body and its sidebar row) in
+  its file's repo, or on a terminal or agent tile (its tab, its body and its sidebar
   row) in the repo its pane's folder is in (`request_terminal`; under `--live` and `--live-yolo` too: the app
   checks the folder itself). The item shows only in the app, never in a plain
   browser. When the app runs devc web without `--live`, it opens the terminal

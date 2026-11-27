@@ -1128,6 +1128,15 @@ function diffTileMenuGroups(tile) {
     g.open.push(
       ['Open file', () => openFileTile(fr, diff.path, 'stack')],
       ['Open file to the right', () => openFileTile(fr, diff.path, 'right')],
+      // In the diff's repo; devc-desktop opens it once the user confirms it there.
+      ...(canAskDesktop()
+        ? [
+          /** @type {MenuItem} */ ([
+            LABELS.openHostTerminal,
+            () => requestTerminal(fr.localFolder, fr.root),
+          ]),
+        ]
+        : []),
       ...hostOpenItems(fr, diff.path),
     );
     g.copy.push(...copyPathItems(fr, diff.path));
