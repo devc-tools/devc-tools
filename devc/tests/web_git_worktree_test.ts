@@ -562,6 +562,56 @@ Deno.test('removeWorktree: clean, dirty, forced; the branch stays', async () => 
   });
 });
 
+Deno.test('removeWorktree: a timed-out removal that went on to finish is done', async () => {
+  await withRepo(async ({ t, deps, repo }) => {
+    for (const name of ['finished', 'running']) {
+      const r = await createWorktree(
+        t,
+        { name, branch: name, source: { kind: 'local', base: 'main' } },
+        [repo],
+        deps,
+      );
+      assert(r.ok);
+    }
+    // As a container's `docker exec` killed past its timeout: git goes on (`finished`), or has
+    // not got far (`running`).
+    const timingOut = (finish: boolean) => ({
+      ...t,
+      env: {
+        ...hereEnv,
+        runLimited: async (x: EnvExec, limits: RunLimits) => {
+          if (x.cmd[1] !== 'worktree' || x.cmd[2] !== 'remove') {
+            return hereEnv.runLimited(x, limits);
+          }
+          if (finish) await hereEnv.runLimited(x, limits);
+          return { kind: 'timeout' as const };
+        },
+      },
+    });
+    assertEquals(
+      await removeWorktree(
+        { ...timingOut(true), folder: `${repo}.worktrees/finished` },
+        false,
+      ),
+      { ok: true },
+    );
+    assertEquals(await exists(`${repo}.worktrees/finished`), false);
+    assertEquals(
+      await removeWorktree(
+        { ...timingOut(false), folder: `${repo}.worktrees/running` },
+        false,
+      ),
+      {
+        ok: false,
+        problem:
+          'git worktree remove timed out; it may still finish in the environment',
+        dirty: false,
+      },
+    );
+    assertEquals(await exists(`${repo}.worktrees/running`), true);
+  });
+});
+
 Deno.test('forceRefusal: a page may not force under --live; the desktop always may', () => {
   const live = 'discarding changes is refused under --live';
   assertEquals(forceRefusal(true, 'page', true), live);

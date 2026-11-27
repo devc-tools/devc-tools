@@ -54,8 +54,11 @@ export const MAX_PRS = 100;
 /** How long `gh` may take. */
 const GH_TIMEOUT_MS = 15_000;
 
-/** How long `git worktree remove` may take. */
-const REMOVE_TIMEOUT_MS = 60_000;
+/**
+ * How long `git worktree remove` may take. Deleting a large tree (`node_modules`, build output)
+ * through a container's bind mount of a Mac folder can take minutes.
+ */
+const REMOVE_TIMEOUT_MS = 10 * 60_000;
 
 /** An open pull request, as the dialog lists it. */
 export interface WorktreePr {
@@ -247,13 +250,19 @@ async function envGit(
   cwd: string,
   args: string[],
   timeoutMs?: number,
-): Promise<{ out: string } | { failed: string; stderr: string }> {
+): Promise<
+  { out: string } | { failed: string; stderr: string; timedOut?: true }
+> {
   const x = { cmd: ['git', ...args], cwd, env: { GIT_TERMINAL_PROMPT: '0' } };
   try {
     if (timeoutMs !== undefined) {
       const r = await env.runLimited(x, { timeoutMs, maxOutput: 64 * 1024 });
       if (r.kind === 'timeout') {
-        return { failed: `git ${args[0]}: timed out`, stderr: '' };
+        return {
+          failed: `git ${args[0]}: timed out`,
+          stderr: '',
+          timedOut: true,
+        };
       }
       if (r.kind === 'too_large') {
         return { failed: `git ${args[0]}: unexpected output`, stderr: '' };
@@ -1086,6 +1095,27 @@ export async function removeWorktree(
     if ('failed' in out) {
       if (out.stderr.includes('contains modified or untracked files')) {
         return { ...fail(`${name} has uncommitted changes`), dirty: true };
+      }
+      // A timeout kills only the `docker exec` client: git goes on in the container, and may
+      // have finished. Whatever failed, a worktree whose folder is gone and that git no longer
+      // lists was removed.
+      const folderGone = await Deno.lstat(t.folder).then(
+        () => false,
+        () => true,
+      );
+      const list = folderGone
+        ? await envGit(t.env, primaryPath, ['worktree', 'list', '--porcelain'])
+        : null;
+      if (
+        list && 'out' in list &&
+        !list.out.split('\n').includes(`worktree ${path}`)
+      ) {
+        return { ok: true as const };
+      }
+      if (out.timedOut) {
+        return fail(
+          'git worktree remove timed out; it may still finish in the environment',
+        );
       }
       const line = firstLine(out.stderr);
       return fail(
