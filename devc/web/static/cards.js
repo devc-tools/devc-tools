@@ -871,21 +871,24 @@ export function keepSectionHeights() {
 const MIN_SECTION_PX = 44;
 
 /**
- * Holds a section to a dragged height: its cap, and in In use (where open sections shrink to fit
- * their card) not squeezed under it, so the section below gives up the room instead.
+ * Holds a section to a dragged height, as a split pane does: that height whatever its content
+ * (it scrolls past it, or leaves room under it), in place of the stylesheet's cap, and in In use
+ * (where open sections shrink to fit their card) not squeezed under it, so the section below
+ * gives up the room instead.
  *
  * @param {HTMLElement} section @param {number} px
  */
 function holdSection(section, px) {
-  section.style.maxHeight = `${px}px`;
+  section.style.height = `${px}px`;
+  section.style.maxHeight = 'none';
   section.style.flexShrink = '0';
 }
 
 /**
- * The rule between two of a card's open sections: dragging it sizes the section above, from
- * {@link MIN_SECTION_PX} (or its content, when less) to its content, and the section below keeps
- * its own sizing (in In use, it takes what the one above gives up). The height is kept
- * (`sectionCaps`); a double-click drops it.
+ * The rule between two of a card's open sections: it follows the pointer, sizing the section
+ * above from {@link MIN_SECTION_PX} (or its content, when less) to where the section below would
+ * be left that much; the section below keeps its own sizing (in In use, it takes what the one
+ * above gives up). The height is kept (`sectionCaps`); a double-click drops it.
  */
 function sectionDivider() {
   const divider = h('div', {
@@ -909,14 +912,23 @@ function sectionDivider() {
     divider.classList.add('dragging');
     document.body.classList.add('resizing-zones');
     sectionDragging = true;
+    const below = /** @type {HTMLElement | null} */ (
+      divider.nextElementSibling
+    );
     const a0 = above.offsetHeight;
+    const b0 = below?.offsetHeight ?? 0;
     const y0 = ev.clientY;
+    const min = Math.min(MIN_SECTION_PX, a0, above.scrollHeight);
+    // Past its content only as far as the section below can give up.
+    const max = Math.max(
+      above.scrollHeight,
+      a0 + b0 - Math.min(MIN_SECTION_PX, b0),
+    );
     let moved = false;
     const onMove = (/** @type {PointerEvent} */ e) => {
       moved = true;
-      const min = Math.min(MIN_SECTION_PX, above.scrollHeight);
       const a = Math.round(
-        Math.max(min, Math.min(a0 + e.clientY - y0, above.scrollHeight)),
+        Math.max(min, Math.min(a0 + e.clientY - y0, max)),
       );
       holdSection(above, a);
     };
@@ -931,7 +943,7 @@ function sectionDivider() {
       const caps = sidebarState.sectionCaps;
       const key = /** @type {string} */ (above.dataset.sectionKey);
       delete caps[key];
-      caps[key] = parseInt(above.style.maxHeight, 10);
+      caps[key] = parseInt(above.style.height, 10);
       for (const old of Object.keys(caps).slice(0, -MAX_SECTION_HEIGHTS)) {
         delete caps[old];
       }

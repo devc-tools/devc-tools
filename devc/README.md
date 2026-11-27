@@ -373,7 +373,8 @@ is published from any container: the host server finds devcontainers with
   heading (**To pull**, **Local only**, **Pushed**) that a click opens or closes
   (**Pushed** starts closed; the card remembers each). The Commits section shows
   above the pull request's. The rule between two open sections drags to size
-  the one above it (a double-click resets it); a plain rule separates the
+  the one above it, as a split pane does, even past its content (a
+  double-click resets it); a plain rule separates the
   card's terminals from its first open section. It needs no bridge
   grant, and works for a stopped container: it reads the host's mirror, with the
   ↑↓ counts' upstream when the branch has one. With none, pushed means on a

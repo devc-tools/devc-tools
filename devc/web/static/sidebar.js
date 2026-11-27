@@ -470,9 +470,9 @@ function floorRunSections(run) {
       const section = /** @type {HTMLElement} */ (el);
       const border = section.offsetHeight - section.clientHeight;
       // A dragged section (`cards.js` `holdSection`) keeps its height: that is its floor.
-      const cap = parseFloat(section.style.maxHeight);
-      const keeps = cap > 0
-        ? Math.min(section.scrollHeight, cap)
+      const held = parseFloat(section.style.height);
+      const keeps = held > 0
+        ? section.clientHeight
         : Math.min(SECTION_MIN_HEIGHT, section.scrollHeight);
       floor += keeps + border - section.offsetHeight;
     }
